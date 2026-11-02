@@ -65,13 +65,10 @@ unsafe fn finish4<const TRACK: bool>(
             _mm_xor_si128(progress, sign),
         );
         let progress = _mm_or_si128(progress, overflow);
-        let speed_value = _mm_andnot_si128(
-            exhausted,
-            _mm_min_epu32(
-                unsigned4(speed),
-                _mm_loadu_si128(input.committed_limit_mm_s.as_ptr().add(start).cast()),
-            ),
-        );
+        let limit = _mm_loadu_si128(input.committed_limit_mm_s.as_ptr().add(start).cast());
+        let stop_cap = _mm_loadu_si128(input.exhausted_speed_cap_mm_s.as_ptr().add(start).cast());
+        let effective_limit = _mm_blendv_epi8(limit, _mm_min_epu32(limit, stop_cap), exhausted);
+        let speed_value = _mm_min_epu32(unsigned4(speed), effective_limit);
         let exhausted_bits = _mm_movemask_ps(_mm_castsi128_ps(exhausted));
         let fast: [i32; 4] = std::array::from_fn(|lane| {
             let row = start + lane;
@@ -81,11 +78,13 @@ unsafe fn finish4<const TRACK: bool>(
                 && input.comfort_decel[row] > 0.0
                 && input.emergency_decel[row] > 0.0
                 && valid[lane];
-            let convertible = input.hard_room_mm[row] == 0
+            let travel_convertible = input.hard_room_mm[row] == 0
                 || (um[lane] >= 0.0
-                    && um[lane] <= f64::from(u32::MAX - u32::from(input.carry_um[row]))
-                    && (exhausted_bits & (1 << lane) != 0
-                        || speed[lane] >= 0.0 && speed[lane] <= f64::from(u32::MAX)));
+                    && um[lane] <= f64::from(u32::MAX - u32::from(input.carry_um[row])));
+            let forced_zero =
+                exhausted_bits & (1 << lane) != 0 && input.exhausted_speed_cap_mm_s[row] == 0;
+            let convertible = travel_convertible
+                && (forced_zero || (speed[lane] >= 0.0 && speed[lane] <= f64::from(u32::MAX)));
             if input.enabled[row] && numeric_valid && convertible {
                 -1
             } else {

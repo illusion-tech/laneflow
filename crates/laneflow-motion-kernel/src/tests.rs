@@ -9,6 +9,7 @@ struct Fixture {
     progress: [u32; N],
     carry: [u16; N],
     room: [u32; N],
+    stop_cap: [u32; N],
     limit: [u32; N],
     leader: [f32; N],
     has_leader: [bool; N],
@@ -34,6 +35,7 @@ impl Fixture {
             progress: [0; N],
             carry: [0; N],
             room: [u32::MAX; N],
+            stop_cap: [0; N],
             limit: [u32::MAX; N],
             leader: [f32::INFINITY; N],
             has_leader: [false; N],
@@ -80,6 +82,9 @@ impl Fixture {
                 1 => 1,
                 _ => u32::MAX,
             };
+            if row % 2 == 0 {
+                f.stop_cap[row] = 9_550;
+            }
             f.end[row] = match row % 13 {
                 0 => 1.0,
                 _ => f32::INFINITY,
@@ -100,6 +105,7 @@ impl Fixture {
             progress_mm: &self.progress[..n],
             carry_um: &self.carry[..n],
             hard_room_mm: &self.room[..n],
+            exhausted_speed_cap_mm_s: &self.stop_cap[..n],
             committed_limit_mm_s: &self.limit[..n],
             leader_m: &self.leader[..n],
             has_leader: &self.has_leader[..n],
@@ -245,6 +251,51 @@ fn assert_proposal_counts(stats: Stats, computed: usize, reused: usize) {
 }
 
 #[test]
+fn exhausted_cap_preserves_lower_projected_speeds_and_only_applies_at_the_boundary() {
+    // 同一批含普通停车、过渡预约、投影零速、较低限速及未耗尽行；17 行覆盖向量尾。
+    let cases = [
+        (0, 10.0, 0, u32::MAX, 0),
+        (0, 10.0, 9_550, u32::MAX, 9_550),
+        (100, 0.0, 9_550, u32::MAX, 0),
+        (100, 4.0, 9_550, u32::MAX, 4_000),
+        (100, 10.0, 9_550, 6_000, 6_000),
+        (u32::MAX, 10.0, 0, u32::MAX, 10_000),
+    ];
+    let mut f = Fixture::new(1_199);
+    for row in 0..17 {
+        let (room, proposal, cap, limit, _) = cases[row % cases.len()];
+        f.enabled[row] = true;
+        f.has_proposal[row] = true;
+        f.has_leader[row] = false;
+        f.stop[row] = f32::INFINITY;
+        f.end[row] = f32::INFINITY;
+        f.envelope[row] = f32::INFINITY;
+        f.proposal_travel[row] = 1.0;
+        f.proposal_speed[row] = proposal;
+        f.room[row] = room;
+        f.stop_cap[row] = cap;
+        f.limit[row] = limit;
+    }
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut result = Results::new();
+        kernel
+            .run_direct(&f.input(17), &mut result.direct_output(17), 0.1)
+            .unwrap();
+        for row in 0..17 {
+            assert!(result.valid[row]);
+            assert_eq!(
+                result.speed[row],
+                cases[row % cases.len()].4,
+                "{backend:?}, row {row}"
+            );
+        }
+    }
+}
+
+#[test]
 fn mixed_cached_proposals_are_counted_once_per_enabled_lane() {
     let mut fixture = Fixture::new(814);
     fixture.enabled.fill(true);
@@ -366,6 +417,13 @@ fn direct_output_rejects_short_columns_before_any_write() {
         output.valid = &mut output.valid[..N - 1];
         assert_eq!(
             kernel.run_direct(&fixture.input(N), &mut output, 0.033),
+            Err(LengthMismatch)
+        );
+        assert_eq!(result, before);
+        let mut input = fixture.input(N);
+        input.exhausted_speed_cap_mm_s = &fixture.stop_cap[..N - 1];
+        assert_eq!(
+            kernel.run_direct(&input, &mut result.direct_output(N), 0.033),
             Err(LengthMismatch)
         );
         assert_eq!(result, before);

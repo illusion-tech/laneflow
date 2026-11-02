@@ -5,9 +5,8 @@ use super::MotionBasis;
 use super::{
     BoundedDistance, MOTION_DISPATCH_MIN_ACTIVE, MotionInputs, MotionTaskView,
     ParkingArrivalObservation, ParkingBinding, StepError, VehicleState, VehicleStatus,
-    distance_to_occurrence_start, finite_meters, hard_room_mm, leader_gap_m,
-    motion_dispatch_fuse_forced, push_parking_arrival, remaining_to_route_end, si_meters, si_speed,
-    speed_drop_window_upper, stop_is_nearer_or_equal,
+    distance_to_occurrence_start, finite_meters, leader_gap_m, motion_dispatch_fuse_forced,
+    push_parking_arrival, remaining_to_route_end, si_meters, si_speed, speed_drop_window_upper,
 };
 #[cfg(test)]
 use super::{
@@ -108,7 +107,8 @@ batch_columns! {
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
     envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
-    edge_length: u32 = 0,
+    edge_length: u32 = 0, exhausted_speed_cap: u32 = 0,
+    transition_hop: Option<u32> = None,
     waiting_hop: Option<u32> = None,
     conflict_hop: Option<u32> = None,
     has_proposal: bool = false, proposal_speed: f32 = 0.0, proposal_travel: f32 = 0.0,
@@ -141,19 +141,6 @@ impl Batch {
             self.proposal_speed[row] = speed;
         }
     }
-}
-
-fn movement_stop(
-    mut stop: Option<BoundedDistance>,
-    waiting: Option<crate::kernel::waiting::WaitingStopConstraint>,
-    conflict: Option<crate::kernel::waiting::WaitingStopConstraint>,
-) -> Option<BoundedDistance> {
-    for next in [waiting, conflict].into_iter().flatten() {
-        if stop.is_none_or(|current| stop_is_nearer_or_equal(next.distance, current)) {
-            stop = Some(next.distance);
-        }
-    }
-    stop
 }
 
 /// 同 [`speed_drop_may_constrain`]；`cursor_row` 键已核对且与 `inputs` 同一游标行时，
@@ -370,6 +357,7 @@ fn numerical(
         progress_mm: &source.progress_mm[offset..offset + n],
         carry_um: &source.carry_um[offset..offset + n],
         hard_room_mm: &batch.hard_room[range.clone()],
+        exhausted_speed_cap_mm_s: &batch.exhausted_speed_cap[range.clone()],
         committed_limit_mm_s: &[u32::MAX; BLOCK_ROWS][range.clone()],
         leader_m: &batch.leader[range.clone()],
         has_leader: &batch.has_leader[range.clone()],
@@ -640,7 +628,12 @@ fn compute(
                 .motion_cache
                 .get(active_index)
                 .filter(|entry| entry.vehicle == handle);
+            let transition =
+                view.read
+                    .transition_reservation_stop(state, compiled, view.conflict_read());
+            // P2 完整预览没有 P4 的过渡预约；有相应障碍时只复用基础提案。
             if let Some(next) = cached
+                .filter(|_| transition.is_none())
                 .and_then(|entry| entry.preview(view.motion_previews))
                 .and_then(|preview| preview.reuse(waiting, conflict))
             {
@@ -712,17 +705,18 @@ fn compute(
             batch.store(row, &basis);
             batch.waiting_hop[row] = waiting.map(|stop| stop.hop);
             batch.conflict_hop[row] = conflict.map(|stop| stop.hop);
-            let stop = movement_stop(basis.movement_stop, waiting, conflict);
-            batch.stop[row] = stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
-            batch.hard_room[row] = hard_room_mm(
-                basis.leader_gap,
-                basis.min_gap_mm,
-                stop,
-                basis.route_end,
-                basis.edge_length_mm,
+            let limits = basis.limits(
                 position.progress_mm,
-                basis.permitted_for_hard_room,
+                compiled,
+                waiting,
+                conflict,
+                transition,
+                false,
             );
+            batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
+            batch.hard_room[row] = limits.hard_room_mm;
+            batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
+            batch.transition_hop[row] = transition.map(|bound| bound.stop.hop);
             chunk.cursor[row] = position.route_edge_index;
             Ok(())
         })();
@@ -843,7 +837,8 @@ fn compute(
                 batch.can_hop[row] = !boundary
                     || (view.read.hop_permitted_compiled(compiled, index, profile)
                         && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
-                        && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index));
+                        && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index)
+                        && batch.transition_hop[row].is_none_or(|hop| hop as usize != index));
                 batch.has_next[row] = index + 1 < compiled.edges.len();
                 batch.walk_length[row] = length;
                 Some(())
@@ -915,7 +910,7 @@ fn compute(
                 progress,
             );
             let mut route_completed = matches!(remaining, BoundedDistance::Finite(0));
-            if batch.exhausted[row] || matches!(remaining, BoundedDistance::Finite(0)) {
+            if route_completed {
                 chunk.speed[row] = 0;
                 chunk.carry[row] = 0;
             }
@@ -1590,6 +1585,18 @@ mod tests {
                             (handle.index() as usize, outcome.next, outcome.arrival)
                         })
                         .collect();
+                    if let Some(handle) = complex_vehicle {
+                        let (_, state, _) = expected
+                            .iter()
+                            .find(|(_, state, _)| state.handle == handle)
+                            .unwrap();
+                        assert!(read.committed.parking.binding(handle).is_none());
+                        assert_eq!(
+                            (state.route_edge_index, state.progress_mm, state.speed_mm_s),
+                            (1, 499, 0),
+                            "speed-limit projection without a transition reservation"
+                        );
+                    }
                     let mut next =
                         MotionUpdates::with_capacity(world.state.committed.vehicles.capacity());
                     let mut arrivals = Vec::new();

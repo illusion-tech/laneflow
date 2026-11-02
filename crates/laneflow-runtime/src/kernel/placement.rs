@@ -3832,7 +3832,8 @@ fn projection_exceeds_emergency(
     let Some(floor_mm_s) = emergency_floor_mm_s(speed_mm_s, emergency_m_s2, delta_s) else {
         return true;
     };
-    motion.next_speed_mm_s < floor_mm_s
+    // 硬截断处必须能实际停稳；T 预约保留的提交速度不是准入所需的停止速度。
+    floor_mm_s > 0
 }
 
 fn emergency_min_travel_mm(speed_mm_s: u32, emergency_m_s2: f32, delta_s: f32) -> Option<u32> {

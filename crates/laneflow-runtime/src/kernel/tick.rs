@@ -335,7 +335,114 @@ impl MotionBasis {
     }
 }
 
+/// 他车持有的过渡资源及其在本车路线上的进入边界。
+#[derive(Clone, Copy)]
+struct TransitionStop {
+    edge: LaneEdgeOrdinal,
+    stop: crate::kernel::waiting::WaitingStopConstraint,
+}
+
+impl TransitionStop {
+    fn is_only_conflict_at(
+        self,
+        compiled: &CompiledRoute,
+        conflict: crate::kernel::waiting::WaitingStopConstraint,
+    ) -> bool {
+        if self.stop != conflict {
+            return false;
+        }
+        let Some(range) = compiled.conflict_gate_ranges.get(conflict.hop as usize) else {
+            return false;
+        };
+        let start = range.start as usize;
+        // 同一过渡资源也会由普通冲突查询报告。若该 hop 另有 Waiting 或常规冲突，
+        // 它们仍能独立停车，不能把该次硬截断归因于过渡预约。
+        range.len != 0
+            && compiled.conflicts[start..start + range.len as usize]
+                .iter()
+                .all(|entry| {
+                    entry.resource
+                        == crate::kernel::conflict::ConflictResource::Transition(self.edge)
+                })
+            && compiled
+                .waiting
+                .binary_search_by_key(&conflict.hop, |entry| entry.entry_hop)
+                .is_err()
+    }
+}
+
+struct MotionLimits {
+    stop: Option<BoundedDistance>,
+    hard_room_mm: u32,
+    transition_limited: bool,
+}
+
+impl MotionLimits {
+    fn exhausted_speed_cap(&self, inputs: &MotionInputs, delta_s: f32) -> u32 {
+        if !self.transition_limited {
+            return 0;
+        }
+        let rate_mm_s2 = (inputs.comfort_decel * 1_000.0) as u64;
+        inputs
+            .speed_mm_s
+            .saturating_sub((rate_mm_s2 as f64 * f64::from(delta_s)) as u32)
+    }
+}
+
 impl MotionInputs {
+    fn limits(
+        &self,
+        progress_mm: u32,
+        compiled: &CompiledRoute,
+        waiting: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        transition: Option<TransitionStop>,
+        leader_constraint_only: bool,
+    ) -> MotionLimits {
+        let mut stop = self.movement_stop;
+        let independent_conflict = conflict.filter(|conflict| {
+            !transition
+                .is_some_and(|transition| transition.is_only_conflict_at(compiled, *conflict))
+        });
+        for constraint in [waiting, independent_conflict].into_iter().flatten() {
+            if stop.is_none_or(|old| stop_is_nearer_or_equal(constraint.distance, old)) {
+                stop = Some(constraint.distance);
+            }
+        }
+        let ordinary_room = if leader_constraint_only {
+            self.leader_gap.map_or(u32::MAX, |gap| {
+                snapshot_leader_room_mm(gap, self.min_gap_mm)
+            })
+        } else {
+            hard_room_mm(
+                self.leader_gap,
+                self.min_gap_mm,
+                stop,
+                self.route_end,
+                self.edge_length_mm,
+                progress_mm,
+                self.permitted_for_hard_room,
+            )
+        };
+        let mut limits = MotionLimits {
+            stop,
+            hard_room_mm: ordinary_room,
+            transition_limited: false,
+        };
+        if let Some(BoundedDistance::Finite(mm)) =
+            transition.map(|transition| transition.stop.distance)
+        {
+            if stop.is_none_or(|old| stop_is_nearer_or_equal(BoundedDistance::Finite(mm), old)) {
+                limits.stop = Some(BoundedDistance::Finite(mm));
+            }
+            if !leader_constraint_only && mm < ordinary_room {
+                limits.hard_room_mm = mm;
+                limits.transition_limited = self.parking.is_none();
+            }
+        }
+        limits
+    }
+
     fn raw_proposal(&self, delta_s: f32) -> Option<(f32, f32)> {
         self.proposal.or_else(|| {
             #[cfg(test)]
@@ -358,7 +465,6 @@ impl MotionInputs {
 /// 新鲜摆放用来对照求解器本拍硬截断的预测。不是步进结果。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PlacementMotion {
-    pub(crate) next_speed_mm_s: u32,
     pub(crate) committed_travel_mm: u32,
     pub(crate) hard_clamped: bool,
 }
@@ -418,6 +524,7 @@ enum WaitingGrant {
 enum MotionBounds {
     Unknown,
     HardStopped,
+    TransitionStopped,
     Travel {
         meters: f32,
         proposed_mm: u64,
@@ -487,7 +594,8 @@ impl MotionPreview {
 
     fn unaffected_by(&self, stop: crate::kernel::waiting::WaitingStopConstraint) -> bool {
         let beyond_motion = match self.bounds {
-            MotionBounds::Unknown => false,
+            // 同距离的新约束可能改变停车原因与提交速度，必须重算。
+            MotionBounds::TransitionStopped | MotionBounds::Unknown => false,
             // 原 hard_room 已为零；额外停止约束仍走相同的零位移提前返回。
             MotionBounds::HardStopped => return true,
             MotionBounds::Travel {
@@ -1948,6 +2056,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             parking_binding,
             horizon,
             None,
+            self.conflict_read(),
         )
     }
 
@@ -1962,6 +2071,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
         basis: Option<MotionBasis>,
+        conflict_read: crate::kernel::conflict::ConflictRead<'_>,
     ) -> Option<VehicleState> {
         self.calculate_active_vehicle_motion(
             state,
@@ -1975,6 +2085,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             false,
             basis,
             None,
+            conflict_read,
         )
     }
 
@@ -2009,6 +2120,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             false,
             None,
             basis_output,
+            self.conflict_read(),
         )?;
         Some(MotionPreview {
             next: next.into(),
@@ -2194,7 +2306,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             }
         };
         let mut bounds = MotionBounds::Unknown;
-        let Some(next) = self.calculate_active_vehicle_motion(
+        self.calculate_active_vehicle_motion(
             state,
             delta_s,
             None,
@@ -2206,11 +2318,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             leader_constraint_only,
             None,
             None,
-        ) else {
-            return Err(PlacementMotionError::Unprovable);
-        };
+            self.conflict_read(),
+        )
+        .ok_or(PlacementMotionError::Unprovable)?;
         let (committed_travel_mm, hard_clamped) = match bounds {
-            MotionBounds::HardStopped => (0, true),
+            MotionBounds::HardStopped | MotionBounds::TransitionStopped => (0, true),
             MotionBounds::Travel {
                 committed_mm,
                 exhausted,
@@ -2219,7 +2331,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             MotionBounds::Unknown => return Err(PlacementMotionError::Unprovable),
         };
         Ok(PlacementMotion {
-            next_speed_mm_s: next.speed_mm_s,
             committed_travel_mm,
             hard_clamped,
         })
@@ -4129,64 +4240,77 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    /// P5 域 C①（#1199）：T 预约障碍停距——P2-2 预计算邻域（transition_
-    /// neighborhood_hops，O(过渡数) 非 O(路线长)）上存在他人 committed
-    /// T-cell 预约时返回停距约束（预约期+占用期统一于 cell 态查询）。
+    /// 按本车的路线出现项测距。T 与其下游投影取边起点，上游投影取边末；
+    /// P2 读拍初预约，P5 还读本拍已授予的预约。
     fn transition_reservation_stop(
-        &self,
-        state: &VehicleState,
-        compiled: &crate::kernel::tables::CompiledRoute,
-        lengths: &[u32],
-    ) -> Option<crate::kernel::waiting::WaitingStopConstraint> {
+        self,
+        state: impl crate::kernel::vehicle_store::MotionRead,
+        compiled: &CompiledRoute,
+        conflicts: crate::kernel::conflict::ConflictRead<'_>,
+    ) -> Option<TransitionStop> {
         let traffic = self.binding.revision.traffic();
-        for &hop in &compiled.transition_neighborhood_hops {
-            let edge_index = hop as usize;
-            let Some(edge) = compiled.edges.get(edge_index).copied() else {
+        let position = state.position();
+        let blocked = |edge| {
+            traffic.is_lateral_transition_segment(edge)
+                && conflicts.cells_unavailable(
+                    state.handle(),
+                    &[crate::ConflictPassageAddress::new_transition(
+                        edge,
+                        laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
+                        0,
+                    )],
+                )
+        };
+        for &index in &compiled.transition_neighborhood_hops {
+            if index < position.route_edge_index {
                 continue;
-            };
-            let transition_edge = if traffic.is_lateral_transition_segment(edge) {
-                edge
+            }
+            let edge = compiled.edges[index as usize];
+            let at_start = if blocked(edge) {
+                Some(edge)
             } else {
                 traffic
                     .predecessors(edge)
-                    .and_then(|list| {
-                        list.iter()
-                            .copied()
-                            .find(|pred| traffic.is_lateral_transition_segment(*pred))
-                    })
-                    .or_else(|| {
-                        traffic.successors(edge).and_then(|list| {
-                            list.iter()
-                                .copied()
-                                .find(|succ| traffic.is_lateral_transition_segment(*succ))
-                        })
-                    })?
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .find(|&pred| blocked(pred))
             };
-            let address = crate::ConflictPassageAddress::new_transition(
-                transition_edge,
-                laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0),
-                0,
-            );
-            if self
-                .conflict_read()
-                .cells_unavailable(state.handle, std::slice::from_ref(&address))
-            {
-                let distance = crate::kernel::tables::distance_to_occurrence_start(
+            let (transition_edge, hop, distance) = if let Some(transition_edge) = at_start {
+                let distance = distance_to_occurrence_start(
                     &compiled.occurrence_segments,
                     &compiled.occurrence_offsets,
                     &compiled.segment_totals,
-                    state.route_edge_index as usize,
-                    state.progress_mm,
-                    edge_index,
+                    position.route_edge_index as usize,
+                    position.progress_mm,
+                    index as usize,
                 )?;
-                return Some(crate::kernel::waiting::WaitingStopConstraint {
-                    distance,
-                    hop: u32::try_from(edge_index).ok()?,
-                });
-            }
+                (transition_edge, index.saturating_sub(1), distance)
+            } else if let Some(transition_edge) = traffic
+                .successors(edge)
+                .into_iter()
+                .flatten()
+                .copied()
+                .find(|&succ| blocked(succ))
+            {
+                let distance = distance_to_occurrence_progress(
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                    position.route_edge_index as usize,
+                    position.progress_mm,
+                    index as usize,
+                    traffic.lane_lengths_millimetres()[edge.index()],
+                )?;
+                (transition_edge, index, distance)
+            } else {
+                continue;
+            };
+            return Some(TransitionStop {
+                edge: transition_edge,
+                stop: crate::kernel::waiting::WaitingStopConstraint { distance, hop },
+            });
         }
-        let _ = lengths;
         None
     }
 
@@ -4204,6 +4328,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         leader_constraint_only: bool,
         basis_override: Option<MotionBasis>,
         basis_output: Option<&mut Option<MotionBasis>>,
+        conflict_read: crate::kernel::conflict::ConflictRead<'_>,
     ) -> Option<VehicleState> {
         #[cfg(test)]
         MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
@@ -4233,37 +4358,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             .revision
             .traffic()
             .lane_speed_limits_millimetres_per_second();
-        let leader_gap = inputs.leader_gap;
-        let route_end = inputs.route_end;
+        let transition = self.transition_reservation_stop(&state, compiled, conflict_read);
+        let limits = inputs.limits(
+            state.progress_mm,
+            compiled,
+            waiting_stop,
+            conflict_stop,
+            transition,
+            leader_constraint_only,
+        );
         let parking = inputs.parking;
-        let edge_length_mm = inputs.edge_length_mm;
-        let permitted_for_hard_room = inputs.permitted_for_hard_room;
-        let mut movement_stop = inputs.movement_stop;
-        if let Some(waiting) = waiting_stop {
-            movement_stop = match movement_stop {
-                Some(current) if !stop_is_nearer_or_equal(waiting.distance, current) => {
-                    Some(current)
-                }
-                Some(_) | None => Some(waiting.distance),
-            };
-        }
-        if let Some(conflict) = conflict_stop {
-            movement_stop = match movement_stop {
-                Some(current) if !stop_is_nearer_or_equal(conflict.distance, current) => {
-                    Some(current)
-                }
-                Some(_) | None => Some(conflict.distance),
-            };
-        }
-        // P5 域 C①（#1199 总设计）：普通运动穿越投影边以 committed T-cell
-        // 预约为障碍（I-C1 升格：预约或占用期投影为障碍）——T 预约停距并入
-        // movement_stop（与 waiting/conflict stops 同合并面）。
-        if let Some(stop) = self.transition_reservation_stop(&state, compiled, lengths) {
-            movement_stop = match movement_stop {
-                Some(current) if !stop_is_nearer_or_equal(stop.distance, current) => Some(current),
-                Some(_) | None => Some(stop.distance),
-            };
-        }
         let proposal = inputs.raw_proposal(delta_s)?;
         inputs.proposal = Some(proposal);
         if let Some(output) = basis_output {
@@ -4280,7 +4384,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             &inputs,
-            movement_stop,
+            limits.stop,
             compiled,
             lengths,
             speed_limits,
@@ -4295,31 +4399,25 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return None;
         }
 
-        let hard_room = if leader_constraint_only {
-            match leader_gap {
-                Some(gap) => snapshot_leader_room_mm(gap, inputs.min_gap_mm),
-                None => u32::MAX,
-            }
-        } else {
-            hard_room_mm(
-                leader_gap,
-                inputs.min_gap_mm,
-                movement_stop,
-                route_end,
-                edge_length_mm,
-                state.progress_mm,
-                permitted_for_hard_room,
-            )
+        let hard_room = limits.hard_room_mm;
+        let exhausted_speed = || {
+            limits
+                .exhausted_speed_cap(&inputs, delta_s)
+                .min(round_mm(f64::from(next_speed_m)).unwrap_or(u32::MAX))
         };
         if hard_room == 0 {
             if let Some(bounds) = motion_bounds {
-                *bounds = MotionBounds::HardStopped;
+                *bounds = if limits.transition_limited {
+                    MotionBounds::TransitionStopped
+                } else {
+                    MotionBounds::HardStopped
+                };
             }
-            state.speed_mm_s = 0;
+            state.speed_mm_s = exhausted_speed().min(inputs.current_limit_mm_s);
             state.carry_um = 0;
             let arrived = parking
                 .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
-            if matches!(route_end, BoundedDistance::Finite(0)) && !arrived {
+            if matches!(inputs.route_end, BoundedDistance::Finite(0)) && !arrived {
                 state.status = VehicleStatus::Completed;
             }
             return Some(state);
@@ -4349,6 +4447,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             self.hop_permitted(route, edges, index, vehicle_profile)
                 && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
                 && conflict_stop.is_none_or(|conflict| conflict.hop as usize != index)
+                && transition.is_none_or(|bound| bound.stop.hop as usize != index)
         })?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
         let committed_edge = *edges.get(committed_index)?;
@@ -4357,12 +4456,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             *compiled.remaining_to_end.get(committed_index)?,
             state.progress_mm,
         );
-        if exhausted || matches!(remaining, BoundedDistance::Finite(0)) {
-            state.speed_mm_s = 0;
+        let at_route_end = matches!(remaining, BoundedDistance::Finite(0));
+        if exhausted || at_route_end {
+            state.speed_mm_s = if at_route_end {
+                0
+            } else {
+                exhausted_speed().min(committed_limit)
+            };
             state.carry_um = 0;
             let arrived = parking
                 .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
-            if matches!(remaining, BoundedDistance::Finite(0)) && !arrived {
+            if at_route_end && !arrived {
                 state.status = VehicleStatus::Completed;
             }
             return Some(state);
@@ -4701,7 +4805,14 @@ struct MotionTaskView<'a> {
     motion_bases: &'a [MotionBasis],
 }
 
-impl MotionTaskView<'_> {
+impl<'a> MotionTaskView<'a> {
+    fn conflict_read(self) -> crate::kernel::conflict::ConflictRead<'a> {
+        crate::kernel::conflict::ConflictRead::new(
+            &self.read.committed.conflict,
+            &self.read.derived.conflict,
+            self.conflict_staged,
+        )
+    }
     /// waiting_stop_for 的冻结暂存视图版：读取本拍 Waiting 裁决暂存与编译路线；
     /// 检查与错误变体与 StepWorkspace::waiting_stop_for 逐行一致。
     fn waiting_stop_for(
@@ -4924,7 +5035,11 @@ impl MotionTaskView<'_> {
             .motion_cache
             .get(active_index)
             .filter(|entry| entry.vehicle == handle);
+        let transition =
+            self.read
+                .transition_reservation_stop(state, compiled, self.conflict_read());
         let reused = cached
+            .filter(|_| transition.is_none())
             .and_then(|entry| entry.preview(self.motion_previews))
             .and_then(|preview| preview.reuse(waiting_stop, conflict_stop))
             .map(|motion| motion.apply(*state));
@@ -4943,6 +5058,7 @@ impl MotionTaskView<'_> {
                         .and_then(|entry| entry.basis_index)
                         .and_then(|index| self.motion_bases.get(index.get() as usize - 1))
                         .copied(),
+                    self.conflict_read(),
                 )
             })
             .ok_or(StepError::NonFiniteMotion)?;
