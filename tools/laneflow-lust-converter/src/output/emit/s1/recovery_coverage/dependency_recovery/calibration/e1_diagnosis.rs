@@ -457,7 +457,8 @@ fn e1_formal_three_edge_diagnosis() {
 
 /// 见证注入阶段（v3.1 §3）：重跑三边诊断取见证 → 按冻结形态构造 `Injection`
 /// （P1-T→`FirstPair`；seamLo→`Seam` 双侧绑定同一见证）→ `search_injected_with_budget`
-/// 共享句柄（每边一个 `per_edge_default`，**不按见证续杯**）、每边 ≤4 次注入调用
+/// **每次调用独立 `per_call_default` 预算**（§3 预算作用域=每次搜索调用沿 #1121 §2.3
+/// 上限；截断语义为**单次调用内**不续杯，跨调用相互独立）、每边 ≤4 次注入调用
 /// → `injection-results.json`（无计时字段；含单弦未决 0.01m_filter/sink_real_check
 /// 细分与见证尝试/使用/共同出现记录）。
 #[test]
@@ -482,7 +483,7 @@ fn e1_witness_injection_stage() {
         assert_eq!(chain.len(), total, "{id} 原参考曲线 span 总数");
         let control = chain[span];
         let bits = control.map(|p| p.map(f64::to_bits));
-        let mut handle = sampler::grid::WorkBudget::per_edge_default();
+        let mut call_budgets = Vec::new();
         let mut calls = 0u32;
         let mut records = Vec::new();
         // P1-T 见证 → FirstPair 注入（[0,u,v] 形态；参数 = witness [0,u,v] 的 u,v）。
@@ -497,8 +498,12 @@ fn e1_witness_injection_stage() {
                     v: f64::from_bits(params[2]),
                 },
             };
+            let mut handle = sampler::grid::WorkBudget::per_call_default();
             let search = sampler::grid::search_injected_with_budget(&input, injection, &mut handle);
             calls += 1;
+            call_budgets.push(json!({"problem":"first_two_chords",
+                "grid_work_consumed":handle.grid_work_consumed,
+                "grid_work_remaining":handle.grid_work_remaining}));
             records.push(json!({"problem":"first_two_chords",
                 "witness_parameters_f64_bits":first["witness"]["parameters_f64_bits"],
                 "search":{"candidate_programs":search.report["candidate_programs"],
@@ -524,8 +529,12 @@ fn e1_witness_injection_stage() {
                     t: f64::from_bits(params[1]),
                 },
             };
+            let mut handle = sampler::grid::WorkBudget::per_call_default();
             let search = sampler::grid::search_injected_with_budget(&input, injection, &mut handle);
             calls += 1;
+            call_budgets.push(json!({"problem":"seam_pair_lo",
+                "grid_work_consumed":handle.grid_work_consumed,
+                "grid_work_remaining":handle.grid_work_remaining}));
             records.push(json!({"problem":"seam_pair_lo",
                 "witness_parameters_f64_bits":seam_lo["pair"]["witness"]["parameters_f64_bits"],
                 "search":{"candidate_programs":search.report["candidate_programs"],
@@ -538,14 +547,13 @@ fn e1_witness_injection_stage() {
         results.push(json!({"edge":id,"injection_calls":calls,"records":records,
             "single_chord_status":single["status"],
             "single_chord_unresolved_reason":single["unresolved_reason"],
-            "budget":{"grid_work_consumed":handle.grid_work_consumed,
-                "grid_work_remaining":handle.grid_work_remaining}}));
+            "call_budgets":call_budgets}));
     }
     recovery::write_json(
         &out,
         "injection-results.json",
         &json!({"schema":"laneflow-1141-injection-results",
-            "budget_semantics":"per-edge shared WorkBudget, no witness top-up; per-call caps per plan",
+            "budget_semantics":"per-call independent WorkBudget (plan §3 caps per #1121 §2.3); truncation is within-call (no refill inside a call); calls are mutually independent",
             "results":results}),
     );
 }
