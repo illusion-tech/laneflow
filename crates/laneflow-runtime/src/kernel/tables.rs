@@ -148,6 +148,11 @@ pub(crate) struct CompiledRoute {
     pub occurrence_segments: Vec<u32>,
     pub occurrence_offsets: Vec<u32>,
     pub segment_totals: Vec<u32>,
+    /// 路线出现项排序索引（#1216）：`(边序数, 路线下标)` 按 (边, 下标) 升序，
+    /// 每条边的出现项成连续段。游标查询取**首次不早于游标**的出现项——
+    /// 循环路线重复边不得回选身后出现项（身后目标对 `None` 距离是正确语义，
+    /// 误选即把真实前方进入者误判"已过区间"）。
+    pub edge_occurrence_index: Box<[(LaneEdgeOrdinal, u32)]>,
     pub next_controlled: Vec<Option<NextControlled>>,
     pub speed_limit_drop: Vec<SpeedLimitDrop>,
     pub waiting: Vec<WaitingOccurrence>,
@@ -179,6 +184,7 @@ impl CompiledRoute {
             occurrence_segments,
             occurrence_offsets,
             segment_totals,
+            edge_occurrence_index,
             next_controlled,
             speed_limit_drop,
             waiting,
@@ -199,6 +205,7 @@ impl CompiledRoute {
             + crate::kernel::state::vec_bytes(occurrence_segments)
             + crate::kernel::state::vec_bytes(occurrence_offsets)
             + crate::kernel::state::vec_bytes(segment_totals)
+            + crate::kernel::state::slice_bytes(edge_occurrence_index)
             + crate::kernel::state::vec_bytes(next_controlled)
             + crate::kernel::state::vec_bytes(speed_limit_drop)
             + crate::kernel::state::vec_bytes(waiting)
@@ -306,6 +313,24 @@ impl CompiledRoute {
             occurrence.address(),
             stable_locator,
         ))
+    }
+
+    /// 游标定位（#1216）：边 `edge` 的出现项区间内取**首次不早于** `cursor`
+    /// 的出现项下标。全部出现项早于游标=真在身后（`None`——身后目标对
+    /// 距离函数返 `None` 是正确语义，不得回选身后出现项冒充目标）；边不在
+    /// 路线（不在表）同返 `None`，由调用方既有 fail-closed 归口承接。
+    pub(crate) fn first_edge_occurrence_at_or_after(
+        &self,
+        edge: LaneEdgeOrdinal,
+        cursor: u32,
+    ) -> Option<u32> {
+        let table = &self.edge_occurrence_index;
+        let segment_start = table.partition_point(|(candidate, _)| candidate.raw() < edge.raw());
+        let segment = &table[segment_start..];
+        let segment_end = segment.partition_point(|(candidate, _)| candidate.raw() == edge.raw());
+        let within = &segment[..segment_end];
+        let position = within.partition_point(|(_, index)| *index < cursor);
+        within.get(position).map(|(_, index)| *index)
     }
 }
 
@@ -593,6 +618,18 @@ pub(crate) fn compile_route(
     );
     let (occurrence_segments, occurrence_offsets, segment_totals) =
         segmented_route_coordinates(&route_lengths)?;
+    // 出现项排序索引（#1216）：注册期一次、(边, 下标) 排序——游标查询走
+    // 二分 + partition_point，不随路线长线性扫。
+    let mut edge_occurrence_index = try_route_vec(edges.len())?;
+    edge_occurrence_index.extend(edges.iter().enumerate().map(|(index, edge)| {
+        (
+            *edge,
+            u32::try_from(index).expect("route edge index fits u32"),
+        )
+    }));
+    edge_occurrence_index.sort_unstable_by(|left, right| {
+        left.0.raw().cmp(&right.0.raw()).then(left.1.cmp(&right.1))
+    });
 
     let hop_count = edges.len().saturating_sub(1);
     let mut hop_gate = try_route_vec_filled(hop_count, None)?;
@@ -731,6 +768,7 @@ pub(crate) fn compile_route(
         occurrence_segments,
         occurrence_offsets,
         segment_totals,
+        edge_occurrence_index: edge_occurrence_index.into_boxed_slice(),
         next_controlled,
         speed_limit_drop,
         waiting,
@@ -4613,6 +4651,1241 @@ mod compile_route_tests {
                 }
             }
         }
+
+        /// #1216 反例集 A–F（S4 潜在进入者距离裁剪 P1-1 × 循环路线出现项查询
+        /// P1-2）：安全（应拒时拒）与活性（条件解除后授予恢复）双覆盖。A/C
+        /// 钉枚举不漏（长干扰分支 + 近距进入者逐分支独立测距）、A2 钉前驱
+        /// 近端距口径（长共享边逐字公式过计反例）、B 钉短边链深环覆盖、D 钉
+        /// 游标定位（重复边身后出现项误选）、E 钉逐进入者自身 profile、F 钉
+        /// 授予恢复（驶离 + 区间释放）。
+        mod p4_entrant_search_fixes {
+            use super::*;
+            use crate::kernel::conflict_tick::{entrant_neighborhood, entrant_stop_reach_mm};
+
+            /// 目标分支：`(进路段, 近路段, 近路段米)`——车停进路段末端时到
+            /// 区间边界（e2 起点）的路线距离=近路段长（A=8m、B=5m、C=20/10m）。
+            const BRANCHES: &[(&str, &str, f64)] = &[
+                ("s4-xa", "s4-ea", 8.0),
+                ("s4-xb", "s4-eb", 20.0),
+                ("s4-xc", "s4-ec", 10.0),
+                ("s4-xd", "s4-ed", 5.0),
+            ];
+            const CHAIN_LEN: usize = 36;
+            const CHAIN_EDGE_METERS: f64 = 6.0;
+            /// 标准 car（s4 钉版：comfort 4.5 → d_stop(13.9m/s)=26.75m）。
+            const CAR_PROFILE: (&str, f64, f32, f32) = ("s4-es-car", 4.5, 4.5, 9.0);
+            /// 弱制动（comfort 0.5 → d_stop(13.9m/s)≈198.5m）。
+            const WEAK_PROFILE: (&str, f64, f32, f32) = ("s4-es-weak", 4.6, 0.5, 9.0);
+            /// 强制动（comfort 40 → d_stop(13.9m/s)≈7.7m）。
+            const STRONG_PROFILE: (&str, f64, f32, f32) = ("s4-es-strong", 4.7, 40.0, 50.0);
+
+            /// A–F 夹具命名边（编译后按拓扑 + 唯一长度解析，不依赖 ordinal 序）。
+            struct EntrantFixture {
+                revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+                e0: LaneEdgeOrdinal,
+                t: LaneEdgeOrdinal,
+                e2: LaneEdgeOrdinal,
+                int_edge: LaneEdgeOrdinal,
+                exit: LaneEdgeOrdinal,
+                e5: LaneEdgeOrdinal,
+                l300: LaneEdgeOrdinal,
+                xa: LaneEdgeOrdinal,
+                ea: LaneEdgeOrdinal,
+                xb: LaneEdgeOrdinal,
+                eb: LaneEdgeOrdinal,
+                xc: LaneEdgeOrdinal,
+                ec: LaneEdgeOrdinal,
+                xd: LaneEdgeOrdinal,
+                ed: LaneEdgeOrdinal,
+                chain: Vec<LaneEdgeOrdinal>,
+            }
+
+            impl EntrantFixture {
+                /// 合成 + 冲突声明夹具（s4 stream-bearing v7 形制）：核心换道
+                /// 走廊 + 300m 干扰分支 + 四目标分支 + 36×6m 短边链。`e2` 为
+                /// T 与各分支的共享边，长度可指定（A2 用合法上限量级）。
+                fn build(e2_meters: f64, profiles: &[(&str, f64, f32, f32)]) -> EntrantFixture {
+                    use laneflow_compiler::road_editing as editing;
+                    use laneflow_compiler::{
+                        GeometryAccuracyProfile, GeometryDirectionProfile, PortableDiffBase,
+                        PortableEmissionProvenance, emit_portable_candidate,
+                    };
+                    use laneflow_format::{FormatLimits, check_post_emission_bundle};
+                    use laneflow_static_network::{
+                        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+                        build_shared_network_revision,
+                    };
+
+                    let limits = CompileLimits::p100_initial_v1();
+                    let header = SourceModuleHeader::new(
+                        SourceModuleHeaderInput {
+                            authoring_namespace_id: "s4-es-synth",
+                            source_document_key: "s4-es-synth.document",
+                            generator_build_id: "s4-es-synth-probe",
+                            parameters_and_inputs_digest: [0x11; 32],
+                            frontend_options_digest: [0x22; 32],
+                            random_seed: Some(0),
+                            provenance: "repository:laneflow-test",
+                        },
+                        &limits,
+                    )
+                    .unwrap();
+                    let mut synth = SyntheticModuleBuilder::new(header, &limits).unwrap();
+                    let chain_keys: Vec<String> = (1..=CHAIN_LEN)
+                        .map(|index| format!("s4-c{index:02}"))
+                        .collect();
+                    let mut edges: Vec<(String, f64, Vec<String>)> = vec![
+                        ("s4-e0", 30.0, vec!["s4-t"]),
+                        ("s4-t", 5.0, vec!["s4-e2"]),
+                        ("s4-e2", e2_meters, vec![]),
+                        ("s4-int", 8.0, vec![]),
+                        ("s4-exit", 10.0, vec!["s4-e5"]),
+                        ("s4-e3", 30.0, vec![]),
+                        ("s4-e4", 30.0, vec!["s4-e2"]),
+                        ("s4-e5", 30.0, vec![]),
+                        ("s4-l", 300.0, vec!["s4-e2"]),
+                    ]
+                    .into_iter()
+                    .map(|(key, length, successors)| {
+                        (
+                            key.to_owned(),
+                            length,
+                            successors.into_iter().map(str::to_owned).collect(),
+                        )
+                    })
+                    .collect();
+                    for (approach, near, near_meters) in BRANCHES {
+                        edges.push(((*approach).to_owned(), 30.0, vec![(*near).to_owned()]));
+                        edges.push(((*near).to_owned(), *near_meters, vec!["s4-e2".to_owned()]));
+                    }
+                    for (offset, key) in chain_keys.iter().enumerate() {
+                        let next = if offset + 1 < CHAIN_LEN {
+                            chain_keys[offset + 1].clone()
+                        } else {
+                            "s4-e2".to_owned()
+                        };
+                        edges.push((key.clone(), CHAIN_EDGE_METERS, vec![next]));
+                    }
+                    let lanes: Vec<(&str, Vec<String>)> = vec![
+                        ("s4-lane-0", vec!["s4-e0".to_owned()]),
+                        ("s4-lane-1", vec!["s4-e4".to_owned(), "s4-e2".to_owned()]),
+                        ("s4-lane-2", vec!["s4-e3".to_owned()]),
+                        (
+                            "s4-exit-lane",
+                            vec!["s4-exit".to_owned(), "s4-e5".to_owned()],
+                        ),
+                        ("s4-lane-l", vec!["s4-l".to_owned()]),
+                        ("s4-lane-a", vec!["s4-xa".to_owned(), "s4-ea".to_owned()]),
+                        ("s4-lane-b", vec!["s4-xb".to_owned(), "s4-eb".to_owned()]),
+                        ("s4-lane-c", vec!["s4-xc".to_owned(), "s4-ec".to_owned()]),
+                        ("s4-lane-d", vec!["s4-xd".to_owned(), "s4-ed".to_owned()]),
+                        ("s4-lane-chain", chain_keys.clone()),
+                    ];
+                    // 帧几何：所有 lane-graph 后继接缝与 maneuver 路径接缝
+                    // 位置连续（Join 容差内）——统一以 e2 起点为锚反向铺展。
+                    let mut spans: std::collections::HashMap<String, (f32, f32)> =
+                        std::collections::HashMap::new();
+                    let anchor = 35.0_f32;
+                    let e2_end = anchor + e2_meters as f32;
+                    spans.insert("s4-e2".to_owned(), (anchor, e2_end));
+                    spans.insert("s4-t".to_owned(), (anchor - 5.0, anchor));
+                    spans.insert("s4-e0".to_owned(), (anchor - 35.0, anchor - 5.0));
+                    spans.insert("s4-e4".to_owned(), (anchor - 30.0, anchor));
+                    for (approach, near, near_meters) in BRANCHES {
+                        let near_end = anchor;
+                        let near_start = anchor - *near_meters as f32;
+                        spans.insert((*near).to_owned(), (near_start, near_end));
+                        spans.insert((*approach).to_owned(), (near_start - 30.0, near_start));
+                    }
+                    spans.insert("s4-l".to_owned(), (anchor - 300.0, anchor));
+                    for index in 1..=CHAIN_LEN {
+                        let end = anchor - CHAIN_EDGE_METERS as f32 * (CHAIN_LEN - index) as f32;
+                        spans.insert(
+                            format!("s4-c{index:02}"),
+                            (end - CHAIN_EDGE_METERS as f32, end),
+                        );
+                    }
+                    spans.insert("s4-int".to_owned(), (e2_end, e2_end + 8.0));
+                    spans.insert("s4-exit".to_owned(), (e2_end + 8.0, e2_end + 18.0));
+                    spans.insert("s4-e5".to_owned(), (e2_end + 18.0, e2_end + 48.0));
+                    spans.insert("s4-e3".to_owned(), (e2_end - 30.0, e2_end));
+                    for (key, length, successors) in &edges {
+                        let refs: Vec<_> = successors
+                            .iter()
+                            .map(|target| LaneEdgeReference::local(target))
+                            .collect();
+                        synth
+                            .add_lane_edge(LaneEdgeInput {
+                                lane_edge_key: key,
+                                length_meters: *length,
+                                speed_limit_meters_per_second: 13.9,
+                                successors: &refs,
+                            })
+                            .unwrap();
+                    }
+                    let chain_refs: Vec<Vec<LaneEdgeReference>> = lanes
+                        .iter()
+                        .map(|(_, lane_edges)| {
+                            lane_edges
+                                .iter()
+                                .map(|key| LaneEdgeReference::local(key))
+                                .collect()
+                        })
+                        .collect();
+                    let mut section_lanes: Vec<AuthoringLaneInput> = Vec::new();
+                    let mut exit_lanes: Vec<AuthoringLaneInput> = Vec::new();
+                    for ((lane_key, _), refs) in lanes.iter().zip(chain_refs.iter()) {
+                        let input = AuthoringLaneInput {
+                            authoring_lane_key: lane_key,
+                            edge_chain: refs,
+                            lane_group: None,
+                        };
+                        if *lane_key == "s4-exit-lane" {
+                            exit_lanes.push(input);
+                        } else {
+                            section_lanes.push(input);
+                        }
+                    }
+                    synth
+                        .add_road_section(RoadSectionInput {
+                            road_section_key: "s4-section",
+                            kind_id: "motorLane",
+                            lanes: &section_lanes,
+                        })
+                        .unwrap();
+                    synth
+                        .add_road_section(RoadSectionInput {
+                            road_section_key: "s4-exit-section",
+                            kind_id: "motorLane",
+                            lanes: &exit_lanes,
+                        })
+                        .unwrap();
+                    synth
+                        .add_road_corridor(RoadCorridorInput {
+                            road_corridor_key: "s4-corridor",
+                            reference_section: RoadSectionReference::local("s4-section"),
+                            elements: &[CorridorElementReference::road_section(
+                                RoadSectionReference::local("s4-section"),
+                            )],
+                        })
+                        .unwrap();
+                    synth
+                        .add_road_corridor(RoadCorridorInput {
+                            road_corridor_key: "s4-exit-corridor",
+                            reference_section: RoadSectionReference::local("s4-exit-section"),
+                            elements: &[CorridorElementReference::road_section(
+                                RoadSectionReference::local("s4-exit-section"),
+                            )],
+                        })
+                        .unwrap();
+                    let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = edges
+                        .iter()
+                        .map(|(key, ..)| {
+                            let (x0, x1) = spans.get(key).copied().expect("span");
+                            [
+                                CanonicalPoint3F32Input {
+                                    x: x0,
+                                    y: 0.0,
+                                    z: 0.0,
+                                },
+                                CanonicalPoint3F32Input {
+                                    x: x1,
+                                    y: 0.0,
+                                    z: 0.0,
+                                },
+                            ]
+                        })
+                        .collect();
+                    let geometries: Vec<_> = edges
+                        .iter()
+                        .zip(point_pairs.iter())
+                        .map(|((key, ..), centerline_points)| LaneEdgeGeometryInput {
+                            lane_edge: LaneEdgeReference::local(key),
+                            centerline_points,
+                        })
+                        .collect();
+                    synth
+                        .add_canonical_frame(CanonicalFrameInput {
+                            canonical_frame_key: "s4-es-frame",
+                            lane_edge_geometries: &geometries,
+                        })
+                        .unwrap();
+                    let header = editing::RoadEditingModuleHeader::try_new(
+                        "s4-road",
+                        "s4-road.document",
+                        vec!["s4-es-synth".to_owned()],
+                        editing::RoadEditingProvenance::direct("s4 entrant search fixture")
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    let mut builder = editing::RoadEditingSourceModuleBuilder::new(
+                        header,
+                        GeometryAccuracyProfile::Balanced5Cm,
+                        GeometryDirectionProfile::Balanced2Deg,
+                        &limits,
+                    )
+                    .unwrap();
+                    let edge = |key: &str| {
+                        editing::LaneEdgeReference::imported("s4-es-synth", Vec::new(), key)
+                            .unwrap()
+                    };
+                    let junction = editing::JunctionReference::local("s4-junction").unwrap();
+                    let zone = editing::ConflictZoneReference::owner_scoped(
+                        vec!["s4-junction".to_owned()],
+                        "s4-zone",
+                    )
+                    .unwrap();
+                    builder
+                        .add_declaration(editing::RoadEditingDeclaration::Junction(
+                            editing::JunctionInput::try_new(
+                                "s4-junction",
+                                vec![edge("s4-e0"), edge("s4-e2"), edge("s4-e3"), edge("s4-exit")],
+                                vec![edge("s4-int")],
+                            )
+                            .unwrap(),
+                        ))
+                        .unwrap()
+                        .add_declaration(editing::RoadEditingDeclaration::ConflictZone(
+                            editing::ConflictZoneInput::try_new("s4-zone", junction.clone())
+                                .unwrap(),
+                        ))
+                        .unwrap();
+                    for (
+                        movement_key,
+                        from,
+                        to,
+                        path_key,
+                        internal,
+                        exit_key,
+                        stop_key,
+                        stream_key,
+                    ) in [
+                        (
+                            "s4-movement",
+                            "s4-e2",
+                            "s4-exit",
+                            "s4-path",
+                            "s4-int",
+                            "s4-exit",
+                            "s4-stop",
+                            "s4-stream",
+                        ),
+                        (
+                            "s4-movement-2",
+                            "s4-e3",
+                            "s4-exit",
+                            "s4-path-2",
+                            "s4-int",
+                            "s4-exit",
+                            "s4-stop-2",
+                            "s4-stream-2",
+                        ),
+                    ] {
+                        let movement = editing::MovementReference::owner_scoped(
+                            vec!["s4-junction".to_owned()],
+                            movement_key,
+                        )
+                        .unwrap();
+                        let path = editing::ManeuverPathReference::owner_scoped(
+                            vec!["s4-junction".to_owned(), movement_key.to_owned()],
+                            path_key,
+                        )
+                        .unwrap();
+                        let gate = editing::ManeuverGateReference::owner_scoped(
+                            vec![
+                                "s4-junction".to_owned(),
+                                movement_key.to_owned(),
+                                path_key.to_owned(),
+                            ],
+                            "s4-admission",
+                        )
+                        .unwrap();
+                        builder
+                            .add_declaration(editing::RoadEditingDeclaration::Movement(
+                                editing::MovementInput::try_new(
+                                    movement_key,
+                                    junction.clone(),
+                                    from.to_owned(),
+                                    to.to_owned(),
+                                )
+                                .unwrap(),
+                            ))
+                            .unwrap()
+                            .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
+                                editing::ManeuverPathInput::try_new(
+                                    path_key,
+                                    movement,
+                                    edge(from),
+                                    vec![edge(internal)],
+                                    edge(exit_key),
+                                )
+                                .unwrap(),
+                            ))
+                            .unwrap()
+                            .add_declaration(editing::RoadEditingDeclaration::StopLine(
+                                editing::StopLineInput::try_new(stop_key, edge(from)).unwrap(),
+                            ))
+                            .unwrap()
+                            .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
+                                editing::ManeuverGateInput::try_new(
+                                    "s4-admission",
+                                    path.clone(),
+                                    0,
+                                    editing::StopLineReference::local(stop_key).unwrap(),
+                                    editing::RoadEditingSignalControl::None,
+                                )
+                                .unwrap(),
+                            ))
+                            .unwrap()
+                            .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
+                                editing::ParticipantStreamInput::try_new(
+                                    stream_key,
+                                    junction.clone(),
+                                    path,
+                                    vec![editing::ConflictPassageInput::new(
+                                        zone.clone(),
+                                        editing::PathAnchorInput::gate(gate),
+                                        editing::PathAnchorInput::edge_boundary(2),
+                                    )],
+                                )
+                                .unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    builder
+                        .add_declaration(editing::RoadEditingDeclaration::ParticipantClass(
+                            editing::ParticipantClassInput::try_new("car-class").unwrap(),
+                        ))
+                        .unwrap();
+                    for (key, length_meters, comfort, emergency) in profiles {
+                        builder
+                            .add_declaration(editing::RoadEditingDeclaration::VehicleProfile(
+                                editing::VehicleProfileInput::try_new(
+                                    *key,
+                                    editing::ParticipantClassReference::local("car-class").unwrap(),
+                                    editing::IidmVehicleProfileInput::try_new(
+                                        *length_meters,
+                                        15.0,
+                                        2.5,
+                                        1.5,
+                                        1.5,
+                                        f64::from(*comfort),
+                                        f64::from(*emergency),
+                                    )
+                                    .unwrap(),
+                                )
+                                .unwrap(),
+                            ))
+                            .unwrap();
+                    }
+                    let gates: Vec<editing::ManeuverGateReference> =
+                        ["s4-movement", "s4-movement-2"]
+                            .iter()
+                            .map(|movement_key| {
+                                editing::ManeuverGateReference::owner_scoped(
+                                    vec![
+                                        "s4-junction".to_owned(),
+                                        (*movement_key).to_owned(),
+                                        if *movement_key == "s4-movement" {
+                                            "s4-path".to_owned()
+                                        } else {
+                                            "s4-path-2".to_owned()
+                                        },
+                                    ],
+                                    "s4-admission",
+                                )
+                                .unwrap()
+                            })
+                            .collect();
+                    builder
+                        .add_declaration(editing::RoadEditingDeclaration::RightOfWayPolicySet(
+                            editing::RightOfWayPolicySetInput::try_new(
+                                "policy",
+                                laneflow_compiler::RegulationIdentity::try_new(
+                                    "engineering",
+                                    "fixture-1",
+                                )
+                                .unwrap()
+                                .with_source("repository:laneflow-test")
+                                .unwrap(),
+                                vec![],
+                                vec![
+                                    editing::PolicyGapProfileInput::try_new(
+                                        "calibration-gap",
+                                        "fixture-1",
+                                        500,
+                                        500,
+                                        100,
+                                    )
+                                    .unwrap(),
+                                ],
+                                vec![
+                                    editing::PolicyStreamRuleInput::try_new(
+                                        "stream",
+                                        editing::ParticipantStreamReference::owner_scoped(
+                                            vec!["s4-junction".to_owned()],
+                                            "s4-stream",
+                                        )
+                                        .unwrap(),
+                                        None,
+                                        0,
+                                        vec![],
+                                        None,
+                                        vec![],
+                                    )
+                                    .unwrap(),
+                                    editing::PolicyStreamRuleInput::try_new(
+                                        "stream-2",
+                                        editing::ParticipantStreamReference::owner_scoped(
+                                            vec!["s4-junction".to_owned()],
+                                            "s4-stream-2",
+                                        )
+                                        .unwrap(),
+                                        None,
+                                        0,
+                                        vec![],
+                                        None,
+                                        vec![],
+                                    )
+                                    .unwrap(),
+                                ],
+                                vec![
+                                    editing::PolicyGateRuleInput::try_new(
+                                        "admission",
+                                        gates[0].clone(),
+                                        None,
+                                        laneflow_compiler::GateInterpretation::Uncontrolled,
+                                        laneflow_compiler::GateProhibition::None,
+                                        vec![],
+                                    )
+                                    .unwrap(),
+                                    editing::PolicyGateRuleInput::try_new(
+                                        "admission-2",
+                                        gates[1].clone(),
+                                        None,
+                                        laneflow_compiler::GateInterpretation::Uncontrolled,
+                                        laneflow_compiler::GateProhibition::None,
+                                        vec![],
+                                    )
+                                    .unwrap(),
+                                ],
+                            )
+                            .unwrap(),
+                        ))
+                        .unwrap();
+                    builder
+                        .add_conflict_zone_region(
+                            editing::ConflictZoneRegionInput::try_new(
+                                zone,
+                                editing::CanonicalFrameReference::imported(
+                                    "s4-es-synth",
+                                    Vec::new(),
+                                    "s4-es-frame",
+                                )
+                                .unwrap(),
+                                -1.0,
+                                1.0,
+                                vec![
+                                    editing::RoadEditingPoint2::try_new(0.0, -2.0).unwrap(),
+                                    editing::RoadEditingPoint2::try_new(30.0, -2.0).unwrap(),
+                                    editing::RoadEditingPoint2::try_new(30.0, 2.0).unwrap(),
+                                    editing::RoadEditingPoint2::try_new(0.0, 2.0).unwrap(),
+                                ],
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                    let source = editing::RoadEditingSourceWriter::new(&limits)
+                        .write(builder.finish().unwrap())
+                        .unwrap();
+                    let mut unit = CompilationUnitBuilder::new(limits.clone());
+                    unit.add_synthetic_module(synth.finish().unwrap()).unwrap();
+                    unit.add_road_editing_module(
+                        editing::RoadEditingModuleInput::try_new(
+                            "s4-road.document",
+                            source.as_bytes(),
+                            None,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+                    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+                    let candidate = emit_portable_candidate(
+                        &output,
+                        &PortableEmissionProvenance::try_new("s4-es").unwrap(),
+                        FormatLimits::HARD,
+                        PortableDiffBase::Genesis,
+                    )
+                    .unwrap();
+                    let checked = check_post_emission_bundle(
+                        candidate.canonical_artifact().bytes(),
+                        candidate.source_map().bytes(),
+                        candidate.semantic_diff().bytes(),
+                        candidate.expected_semantic_diff_base(),
+                        FormatLimits::HARD,
+                    )
+                    .unwrap();
+                    let revision = build_shared_network_revision(
+                        checked.canonical_network_input(),
+                        SharedNetworkBuildOptions::new(
+                            SpatialBuildOption::Omit,
+                            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+                        ),
+                    )
+                    .unwrap();
+                    let traffic = revision.traffic();
+                    let t = (0..traffic.lane_edge_count())
+                        .map(LaneEdgeOrdinal::from_raw)
+                        .find(|edge| traffic.is_lateral_transition_segment(*edge))
+                        .expect("T 分类为横向过渡段");
+                    let e2 = traffic.successors(t).expect("T successors")[0];
+                    let e0 = traffic.predecessors(t).expect("T predecessors")[0];
+                    let maneuvers = traffic.maneuvers();
+                    let path_edges = (0..8_u32)
+                        .filter_map(|raw| {
+                            maneuvers.maneuver_path(
+                                laneflow_static_contract::ManeuverPathOrdinal::from_raw(raw),
+                            )
+                        })
+                        .map(|path| path.edges().to_vec())
+                        .find(|edges| edges.first() == Some(&e2))
+                        .expect("e2 入口 maneuver path");
+                    let (int_edge, exit) = (path_edges[1], path_edges[2]);
+                    let e5 = traffic.successors(exit).expect("exit successors")[0];
+                    let pred_of_e2_by_len = |length_mm: u32| {
+                        traffic
+                            .predecessors(e2)
+                            .expect("e2 predecessors")
+                            .iter()
+                            .copied()
+                            .find(|edge| {
+                                *edge != t
+                                    && traffic.lane_lengths_millimetres()[edge.index()] == length_mm
+                            })
+                            .expect("branch near edge")
+                    };
+                    let l300 = pred_of_e2_by_len(300_000);
+                    let ea = pred_of_e2_by_len(8_000);
+                    let eb = pred_of_e2_by_len(20_000);
+                    let ec = pred_of_e2_by_len(10_000);
+                    let ed = pred_of_e2_by_len(5_000);
+                    let c_last = pred_of_e2_by_len(6_000);
+                    let only_pred = |edge: LaneEdgeOrdinal| {
+                        let preds = traffic.predecessors(edge).expect("predecessors");
+                        assert_eq!(preds.len(), 1, "single predecessor expected");
+                        preds[0]
+                    };
+                    let (xa, xb, xc, xd) =
+                        (only_pred(ea), only_pred(eb), only_pred(ec), only_pred(ed));
+                    let mut chain = vec![c_last];
+                    while let Some(pred) = traffic
+                        .predecessors(chain[chain.len() - 1])
+                        .filter(|preds| !preds.is_empty())
+                    {
+                        chain.push(pred[0]);
+                    }
+                    chain.reverse();
+                    assert_eq!(chain.len(), CHAIN_LEN, "short-edge chain complete");
+                    EntrantFixture {
+                        revision,
+                        e0,
+                        t,
+                        e2,
+                        int_edge,
+                        exit,
+                        e5,
+                        l300,
+                        xa,
+                        ea,
+                        xb,
+                        eb,
+                        xc,
+                        ec,
+                        xd,
+                        ed,
+                        chain,
+                    }
+                }
+
+                fn car_profile(
+                    &self,
+                    length_mm: u32,
+                ) -> laneflow_static_contract::VehicleProfileOrdinal {
+                    let traffic = self.revision.traffic();
+                    let count = traffic
+                        .entity_counts()
+                        .count(laneflow_static_contract::EntityKind::VehicleProfile);
+                    (0..count)
+                        .map(laneflow_static_contract::VehicleProfileOrdinal::from_raw)
+                        .find(|ordinal| {
+                            traffic
+                                .relations()
+                                .vehicle_profile(*ordinal)
+                                .is_some_and(|profile| profile.length_mm() == length_mm)
+                        })
+                        .expect("profile by length")
+                }
+
+                fn reach_mm(&self) -> u64 {
+                    entrant_stop_reach_mm(self.revision.traffic(), 100)
+                }
+
+                fn walk(&self) -> crate::kernel::conflict_tick::EntrantNeighborhood {
+                    entrant_neighborhood(self.revision.traffic(), self.t, self.reach_mm())
+                }
+
+                fn depth_of(&self, edge: LaneEdgeOrdinal) -> u64 {
+                    self.walk()
+                        .entries
+                        .iter()
+                        .find(|(candidate, _)| *candidate == edge)
+                        .map(|(_, depth)| *depth)
+                        .expect("edge enumerated")
+                }
+
+                fn install(&self) -> crate::TrafficWorld {
+                    let origin = *self.revision.canonical_origin();
+                    let policy = laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
+                        laneflow_compiler::derive_canonical_stable_id_v1(
+                            laneflow_static_contract::EntityKind::RightOfWayPolicySet,
+                            "s4-road",
+                            "policy",
+                            &laneflow_compiler::CompileLimits::single_network_1m_v2(),
+                        )
+                        .unwrap(),
+                    );
+                    crate::TrafficWorld::install(
+                        self.revision.clone(),
+                        crate::WorldConfig::new(4, 4, 96, 64, 100),
+                        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                        crate::CommittedNetworkSource::Published {
+                            reference: crate::PublishedLfcaReference::new(
+                                "fixture://s4-es",
+                                origin.canonical_artifact_digest(),
+                                origin.canonical_artifact_byte_length(),
+                                origin.network_revision(),
+                            )
+                            .unwrap(),
+                        },
+                        1_216,
+                        crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
+                    )
+                    .unwrap()
+                }
+            }
+
+            /// 换道方推进主循环（安全 + 活性）：进入跃迁拍不得处于进入者
+            /// d_stop 窗内（应拒时拒）；进入者清窗后换道方须进入（授予恢复）。
+            fn drive_until_clear(
+                world: &mut crate::TrafficWorld,
+                changer: crate::VehicleHandle,
+                enterer: crate::VehicleHandle,
+                ticks: u64,
+            ) -> (u64, u64) {
+                let mut prev_changer_edge = 0_u32;
+                let mut enterer_cleared_tick = None;
+                let mut changer_entered_tick = None;
+                for tick in 1..=ticks {
+                    world.state.prepare_waiting_step(0.1).unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    let live = world.live_vehicles().contains(&enterer);
+                    let enterer_state = if live {
+                        Some(world.state.committed.vehicles.state(enterer).unwrap())
+                    } else {
+                        None
+                    };
+                    let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                    // 进入者路线 [进路段, 近路段, e2, int, exit, e5]：下标 ≤ 2
+                    // = 尚未过区间（窗内），≥ 3 = 已清窗。
+                    let window_open = enterer_state
+                        .as_ref()
+                        .is_some_and(|state| state.route_edge_index <= 2);
+                    if changer_state.route_edge_index >= 1 && prev_changer_edge == 0 {
+                        assert!(
+                            !window_open,
+                            "enterer within its d_stop window must block transition (tick {tick})"
+                        );
+                    }
+                    if enterer_cleared_tick.is_none() && !window_open {
+                        enterer_cleared_tick = Some(tick);
+                    }
+                    if changer_state.route_edge_index >= 1 && changer_entered_tick.is_none() {
+                        changer_entered_tick = Some(tick);
+                    }
+                    if enterer_cleared_tick.is_some() && changer_entered_tick.is_some() {
+                        break;
+                    }
+                    prev_changer_edge = changer_state.route_edge_index;
+                }
+                (
+                    enterer_cleared_tick.expect("enterer drives past the interval"),
+                    changer_entered_tick.expect("grant recovers after the window clears"),
+                )
+            }
+
+            /// 换道方：从 e0 `progress_mm`（`speed_mm_s`）驶向 T——spawn 停妥
+            /// 约束要求到 e2 停止线可行刹停，故起点在外侧、数拍内跨入 T。
+            fn spawn_changer(
+                world: &mut crate::TrafficWorld,
+                fixture: &EntrantFixture,
+                profile: laneflow_static_contract::VehicleProfileOrdinal,
+                progress_mm: u32,
+                speed_mm_s: u32,
+            ) -> (crate::RouteHandle, crate::VehicleHandle) {
+                let route = world
+                    .register_route(crate::RouteRegisterInput::new(vec![
+                        fixture.e0,
+                        fixture.t,
+                        fixture.e2,
+                        fixture.int_edge,
+                        fixture.exit,
+                    ]))
+                    .unwrap();
+                let changer = world
+                    .spawn_vehicle(
+                        crate::VehicleSpawnInput::new(profile, route, 0, progress_mm, speed_mm_s)
+                            .with_open_entrance(),
+                    )
+                    .unwrap();
+                (route, changer)
+            }
+
+            /// 进入者：`[approach, near?, e2, int, exit, e5]`——spawn 停妥约束
+            /// 要求起点在其自身 `d_stop` 之外（安全窗内点位由驶入过程覆盖）。
+            fn spawn_enterer(
+                world: &mut crate::TrafficWorld,
+                fixture: &EntrantFixture,
+                profile: laneflow_static_contract::VehicleProfileOrdinal,
+                approach: LaneEdgeOrdinal,
+                near: Option<LaneEdgeOrdinal>,
+                progress_mm: u32,
+                speed_mm_s: u32,
+            ) -> (crate::RouteHandle, crate::VehicleHandle) {
+                let mut route_edges = vec![approach];
+                route_edges.extend(near);
+                route_edges.extend([fixture.e2, fixture.int_edge, fixture.exit, fixture.e5]);
+                let route = world
+                    .register_route(crate::RouteRegisterInput::new(route_edges))
+                    .unwrap();
+                let enterer = world
+                    .spawn_vehicle(
+                        crate::VehicleSpawnInput::new(profile, route, 0, progress_mm, speed_mm_s)
+                            .with_open_entrance(),
+                    )
+                    .unwrap();
+                (route, enterer)
+            }
+
+            /// D 重复边反例（#1216 P1-2）：循环路线重复边的两次出现项之间
+            /// 设游标——`position()` 首现回选身后出现项，`None` 距离（身后=
+            /// 正确语义）把真实前方目标误判"已过区间"跳过证明。表定位取
+            /// "首次不早于游标"，T 目标（interval_edge）与边界目标（first_ring
+            /// 边）同口径。
+            #[test]
+            fn d_occurrence_index_avoids_behind_targets_on_loop_routes() {
+                let revision = revision();
+                let named = named_ordinals(revision.as_ref());
+                let edge = |name: &str| *named.get(name).unwrap();
+                // 边界目标形：B0_up（T01 前驱、first_ring 边）重复出现。
+                let boundary_loop = [
+                    edge("A0"),
+                    edge("I1"),
+                    edge("B0_up"),
+                    edge("S00"),
+                    edge("B0_down"),
+                    edge("I0"),
+                    edge("C0"),
+                    edge("R0"),
+                    edge("A0"),
+                    edge("I1"),
+                    edge("B0_up"),
+                    edge("S00"),
+                ];
+                let compiled = compile_route(revision.as_ref(), &boundary_loop, 0, u64::MAX)
+                    .expect("loop route compiles");
+                let b0_up = edge("B0_up");
+                assert_eq!(
+                    compiled.first_edge_occurrence_at_or_after(b0_up, 0),
+                    Some(2)
+                );
+                assert_eq!(
+                    compiled.first_edge_occurrence_at_or_after(b0_up, 2),
+                    Some(2)
+                );
+                for cursor in 3..=10 {
+                    assert_eq!(
+                        compiled.first_edge_occurrence_at_or_after(b0_up, cursor),
+                        Some(10),
+                        "cursor {cursor} 之后的首次出现项=下标 10"
+                    );
+                }
+                assert_eq!(compiled.first_edge_occurrence_at_or_after(b0_up, 11), None);
+                assert_eq!(
+                    compiled.first_edge_occurrence_at_or_after(edge("T01"), 0),
+                    None,
+                    "边不在路线=表查无项"
+                );
+                let segments = (
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                );
+                // 前方出现项（下标 10）：游标 I1@9 进度 5m → 目标 B0_up 末端
+                // 8m = 5m + 8m = 13m 有限；身后出现项（下标 2）返 `None`——
+                // `position()` 首现误选即把该 `None` 当"已过区间"跳过。
+                let forward = distance_to_occurrence_progress(
+                    segments.0, segments.1, segments.2, 9, 5_000, 10, 8_000,
+                );
+                assert_eq!(forward, Some(BoundedDistance::Finite(13_000)));
+                let behind = distance_to_occurrence_progress(
+                    segments.0, segments.1, segments.2, 9, 5_000, 2, 8_000,
+                );
+                assert_eq!(behind, None, "身后目标返 None 是正确语义");
+                // T 目标形（interval_edge）：T01 在下标 3/11 双现，游标 10。
+                let interval_loop = [
+                    edge("A0"),
+                    edge("I1"),
+                    edge("B0_up"),
+                    edge("T01"),
+                    edge("B1_down"),
+                    edge("I2"),
+                    edge("C0"),
+                    edge("R0"),
+                    edge("A0"),
+                    edge("I1"),
+                    edge("B0_up"),
+                    edge("T01"),
+                    edge("B1_down"),
+                    edge("I2"),
+                    edge("C0"),
+                ];
+                let compiled = compile_route(revision.as_ref(), &interval_loop, 0, u64::MAX)
+                    .expect("interval loop compiles");
+                let t01 = edge("T01");
+                assert_eq!(compiled.first_edge_occurrence_at_or_after(t01, 0), Some(3));
+                assert_eq!(compiled.first_edge_occurrence_at_or_after(t01, 4), Some(11));
+                assert_eq!(
+                    compiled.first_edge_occurrence_at_or_after(t01, 11),
+                    Some(11)
+                );
+                assert_eq!(compiled.first_edge_occurrence_at_or_after(t01, 12), None);
+                let forward = distance_to_occurrence_progress(
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                    10,
+                    5_000,
+                    11,
+                    0,
+                );
+                assert_eq!(forward, Some(BoundedDistance::Finite(3_000)));
+                let behind = distance_to_occurrence_progress(
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                    10,
+                    5_000,
+                    3,
+                    0,
+                );
+                assert_eq!(behind, None);
+            }
+
+            /// A 长边反例（#1216 P1-1）：300m 干扰分支与近距进入者同挂 e2
+            /// ——旧全局 `depth_mm` 在第二环即被长边耗尽，8m 车（d_stop
+            /// 26.75m@13.9m/s）所在进路段（第三环）永未入列、no-grant 漏。
+            /// 修后逐条目近端距枚举必覆盖，且修后拦（安全）。
+            #[test]
+            fn a_long_branch_does_not_drop_eight_metre_enterer() {
+                let fixture = EntrantFixture::build(30.0, &[CAR_PROFILE]);
+                let car = fixture.car_profile(4_500);
+                // 近端距口径钉版：进路段近端距=近路段长（8m），独立于共享边。
+                assert_eq!(fixture.depth_of(fixture.xa), 8_000);
+                let mut world = fixture.install();
+                let (_, changer) = spawn_changer(&mut world, &fixture, car, 25_000, 5_000);
+                let (_, enterer) = spawn_enterer(
+                    &mut world,
+                    &fixture,
+                    car,
+                    fixture.xa,
+                    Some(fixture.ea),
+                    10_000,
+                    13_900,
+                );
+                world.state.rebuild_occupancy_index().unwrap();
+                let (cleared, entered) = drive_until_clear(&mut world, changer, enterer, 120);
+                assert!(
+                    entered > cleared,
+                    "grant recovers only after the 8m enterer clears (cleared={cleared}, entered={entered})"
+                );
+            }
+
+            /// A2 前驱过计反例（#1216 口径修正钉版）：共享边 e2 取合法上限
+            /// 量级（10km）时，逐字公式 `depth(n)=depth(c)+len(c)` 把进路段
+            /// 近端距多计整条 e2（5km+10km+8km 量级 ≫ 导出 reach），"实际距
+            /// 8m < d_stop"的车会被误剪；近端距口径下 depth=8m 必入列必拦。
+            #[test]
+            fn a2_long_shared_edge_prune_keeps_predecessor_near_end() {
+                let fixture = EntrantFixture::build(10_000.0, &[CAR_PROFILE]);
+                let reach = fixture.reach_mm();
+                let e2_mm = u64::from(
+                    fixture.revision.traffic().lane_lengths_millimetres()[fixture.e2.index()],
+                );
+                // 反例成立前提：逐字公式值（跨 T + e2 + 近路段）超过导出
+                // reach，而真近端距（8m）远小于 reach。
+                assert!(
+                    5_000 + e2_mm + 8_000 > reach,
+                    "literal formula would over-prune (reach={reach})"
+                );
+                assert_eq!(fixture.depth_of(fixture.xa), 8_000, "真近端距=8m");
+                let car = fixture.car_profile(4_500);
+                let mut world = fixture.install();
+                let (_, changer) = spawn_changer(&mut world, &fixture, car, 25_000, 5_000);
+                let (_, _enterer) = spawn_enterer(
+                    &mut world,
+                    &fixture,
+                    car,
+                    fixture.xa,
+                    Some(fixture.ea),
+                    10_000,
+                    13_900,
+                );
+                world.state.rebuild_occupancy_index().unwrap();
+                // 修后必须拦：进入者驶入窗内（28m → 8m 点位 → 入区间）全程
+                // 不得放行（共享边 10km 使"驶过区间"尾态不作断言，活性归 F）。
+                for _ in 1..=40 {
+                    world.state.prepare_waiting_step(0.1).unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                    assert!(
+                        changer_state.route_edge_index == 0,
+                        "enterer pruned under the literal formula must still block"
+                    );
+                }
+            }
+
+            /// B 短边链反例（#1216 P1-1 环预算粒度）：250m 内 36×6m 短边链
+            /// 全部入列（无两跳/环预算截断），尾端 5m 进入者（d_stop 26.75m）
+            /// 拦住换道方，驶离后授予恢复。
+            #[test]
+            fn b_short_edge_chain_fully_enumerated_and_five_metre_enterer_blocks() {
+                let fixture = EntrantFixture::build(30.0, &[CAR_PROFILE]);
+                let walk = fixture.walk();
+                for edge in &fixture.chain {
+                    assert!(
+                        walk.entries.iter().any(|(candidate, _)| candidate == edge),
+                        "short-edge chain member must be enumerated"
+                    );
+                }
+                assert_eq!(fixture.depth_of(fixture.xd), 5_000);
+                let car = fixture.car_profile(4_500);
+                let mut world = fixture.install();
+                let (_, changer) = spawn_changer(&mut world, &fixture, car, 25_000, 5_000);
+                let (_, enterer) = spawn_enterer(
+                    &mut world,
+                    &fixture,
+                    car,
+                    fixture.xd,
+                    Some(fixture.ed),
+                    7_000,
+                    13_900,
+                );
+                world.state.rebuild_occupancy_index().unwrap();
+                let (cleared, entered) = drive_until_clear(&mut world, changer, enterer, 120);
+                assert!(
+                    entered > cleared,
+                    "grant recovers only after the 5m enterer clears (cleared={cleared}, entered={entered})"
+                );
+            }
+
+            /// C 多分支反例（#1216 P1-1 分支耦合）：300m 干扰分支与 20m/10m
+            /// 两目标分支同挂 e2——逐条目深度互不共享（20m/10m 各自独立
+            /// 测距），两目标分支的进入者各在自身 d_stop 窗内、各自拦住
+            /// 换道方（分世界独立验证），驶离后授予恢复。
+            #[test]
+            fn c_multi_branch_enterers_block_independently() {
+                let fixture = EntrantFixture::build(30.0, &[CAR_PROFILE]);
+                assert_eq!(fixture.depth_of(fixture.xb), 20_000);
+                assert_eq!(fixture.depth_of(fixture.xc), 10_000);
+                assert_eq!(fixture.depth_of(fixture.xa), 8_000);
+                let car = fixture.car_profile(4_500);
+                for (approach, near, progress_mm) in [
+                    (fixture.xb, fixture.eb, 22_000),
+                    (fixture.xc, fixture.ec, 12_000),
+                ] {
+                    let mut world = fixture.install();
+                    let (_, changer) = spawn_changer(&mut world, &fixture, car, 25_000, 5_000);
+                    let (_, enterer) = spawn_enterer(
+                        &mut world,
+                        &fixture,
+                        car,
+                        approach,
+                        Some(near),
+                        progress_mm,
+                        13_900,
+                    );
+                    world.state.rebuild_occupancy_index().unwrap();
+                    let (cleared, entered) = drive_until_clear(&mut world, changer, enterer, 120);
+                    assert!(
+                        entered > cleared,
+                        "each target branch blocks on its own (cleared={cleared}, entered={entered})"
+                    );
+                }
+            }
+
+            /// E 异 profile 反例（#1216 范围导出 + 逐进入者参数）：弱制动车
+            /// 驶入其自身 d_stop 窗（≈198.5m，覆盖 100m 点位——远超标准
+            /// 26.75m）按自身参数拦；强制动车在 40m（超其自身 ≈7.7m）按自身
+            /// 可证 → 授予。
+            #[test]
+            fn e_profile_specific_stopping_proof_decides_grant() {
+                let fixture =
+                    EntrantFixture::build(30.0, &[CAR_PROFILE, WEAK_PROFILE, STRONG_PROFILE]);
+                let reach = fixture.reach_mm();
+                let weak = fixture.car_profile(4_600);
+                let strong = fixture.car_profile(4_700);
+                let weak_service = 500_u64;
+                let strong_service = 40_000_u64;
+                // §5.2 具名判据逐进入者参数：弱车 100m 不可证、强车 25m 可证。
+                assert!(!crate::kernel::lane_change::yieldable_by_stopping(
+                    100_000,
+                    13_900,
+                    100,
+                    weak_service,
+                    2_500
+                ));
+                assert!(crate::kernel::lane_change::yieldable_by_stopping(
+                    25_000,
+                    13_900,
+                    100,
+                    strong_service,
+                    2_500
+                ));
+                // 弱车 100m 在导出 reach 内（弱 profile 拉高 reach）。
+                assert!(reach > 100_000, "weak profile extends derived reach");
+                // 安全：弱车按自身参数拦（含 100m 点位，远超标准 d_stop）。
+                let mut world = fixture.install();
+                let (_, changer) = spawn_changer(
+                    &mut world,
+                    &fixture,
+                    fixture.car_profile(4_500),
+                    15_000,
+                    5_000,
+                );
+                let (_, enterer) = spawn_enterer(
+                    &mut world,
+                    &fixture,
+                    weak,
+                    fixture.l300,
+                    None,
+                    90_000,
+                    13_900,
+                );
+                world.state.rebuild_occupancy_index().unwrap();
+                for _ in 1..=40 {
+                    world.state.prepare_waiting_step(0.1).unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                    assert!(
+                        changer_state.route_edge_index == 0,
+                        "weak-brake enterer within its own d_stop must hold the changer back"
+                    );
+                    let enterer_state = world.state.committed.vehicles.state(enterer).unwrap();
+                    assert!(
+                        enterer_state.route_edge_index == 0,
+                        "enterer still approaching"
+                    );
+                }
+                // 活性：强制动车在 40m（超其自身 d_stop）按自身可证 → 授予。
+                let mut world = fixture.install();
+                let (_, changer) = spawn_changer(
+                    &mut world,
+                    &fixture,
+                    fixture.car_profile(4_500),
+                    25_000,
+                    5_000,
+                );
+                let _ = spawn_enterer(
+                    &mut world,
+                    &fixture,
+                    strong,
+                    fixture.l300,
+                    None,
+                    260_000,
+                    13_900,
+                );
+                world.state.rebuild_occupancy_index().unwrap();
+                let mut entered = None;
+                for tick in 1..=40 {
+                    world.state.prepare_waiting_step(0.1).unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    let changer_state = world.state.committed.vehicles.state(changer).unwrap();
+                    if changer_state.route_edge_index >= 1 {
+                        entered = Some(tick);
+                        break;
+                    }
+                }
+                assert!(
+                    entered.is_some(),
+                    "strong-brake enterer beyond its own d_stop is provable → grant"
+                );
+            }
+
+            /// F 活性反例（#1216）：A 形进入者驶离/清窗后授予恢复，且换道方
+            /// 跨过并释放区间后第二换道方照常获得授予（区间释放后授予恢复）。
+            #[test]
+            fn f_grant_recovers_after_enterer_clears_and_interval_releases() {
+                let fixture = EntrantFixture::build(30.0, &[CAR_PROFILE]);
+                let car = fixture.car_profile(4_500);
+                let mut world = fixture.install();
+                let (_, changer) = spawn_changer(&mut world, &fixture, car, 25_000, 5_000);
+                let (_, enterer) = spawn_enterer(
+                    &mut world,
+                    &fixture,
+                    car,
+                    fixture.xa,
+                    Some(fixture.ea),
+                    10_000,
+                    13_900,
+                );
+                world.state.rebuild_occupancy_index().unwrap();
+                let (cleared, entered) = drive_until_clear(&mut world, changer, enterer, 120);
+                assert!(entered > cleared);
+                // 第一换道方跨过并释放区间（退至区间下游/驶离）后，第二换道方
+                // 照常获得授予（区间释放后授予恢复）。
+                for _ in 1..=240 {
+                    let live = world.live_vehicles().contains(&changer);
+                    let past_interval = !live
+                        || world
+                            .state
+                            .committed
+                            .vehicles
+                            .state(changer)
+                            .is_some_and(|state| state.route_edge_index >= 3);
+                    if past_interval {
+                        break;
+                    }
+                    world.state.prepare_waiting_step(0.1).unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                }
+                let (_, second) = spawn_changer(&mut world, &fixture, car, 15_000, 5_000);
+                world.state.rebuild_occupancy_index().unwrap();
+                let mut second_entered = None;
+                for tick in 1..=120 {
+                    world.state.prepare_waiting_step(0.1).unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    let state = world.state.committed.vehicles.state(second).unwrap();
+                    if state.route_edge_index >= 1 {
+                        second_entered = Some(tick);
+                        break;
+                    }
+                }
+                assert!(
+                    second_entered.is_some(),
+                    "grant recovers after the interval is released"
+                );
+            }
+        }
     }
 
     #[test]
@@ -4881,6 +6154,7 @@ mod compile_route_tests {
             occurrence_segments: Vec::new(),
             occurrence_offsets: Vec::new(),
             segment_totals: Vec::new(),
+            edge_occurrence_index: Box::default(),
             next_controlled: Vec::new(),
             speed_limit_drop: Vec::new(),
             waiting: Vec::new(),
