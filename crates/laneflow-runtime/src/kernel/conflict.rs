@@ -2027,6 +2027,8 @@ fn build_zone_heads(
 pub(crate) struct ConflictDerivedIndexes {
     addresses: Box<[ConflictPassageAddress]>,
     cell_lookup: ConflictCellLookup,
+    /// P2-4（#1199）：静态 zone 密排跨度安装期缓存（零逐查全扫）。
+    zone_span: usize,
     /// 按 zone 下标的首 cell 下标，等于在有序地址上按 zone 二分的结果。
     zone_heads: Box<[u32]>,
     owner_indexes: Vec<CommittedOwnerIndex>,
@@ -2044,6 +2046,7 @@ impl ConflictDerivedIndexes {
         let Self {
             addresses,
             cell_lookup,
+            zone_span: _,
             zone_heads,
             owner_indexes,
             owner_lookup,
@@ -2260,6 +2263,14 @@ impl ConflictArbiter {
         let conflict_capacity = addresses.len();
         let cell_lookup = ConflictCellLookup::build(&addresses, stream_count)?;
         let (zone_heads, _) = build_zone_heads(&addresses)?;
+        let zone_span = addresses
+            .iter()
+            .filter_map(|address| match address.resource() {
+                ConflictResource::Zone(zone) => Some(zone.index() + 1),
+                ConflictResource::Transition(_) => None,
+            })
+            .max()
+            .unwrap_or(0);
         let addresses = addresses.into_boxed_slice();
         let cells = Vec::new();
         let staged_cells = Vec::new();
@@ -2278,6 +2289,7 @@ impl ConflictArbiter {
             derived: ConflictDerivedIndexes {
                 addresses,
                 cell_lookup,
+                zone_span,
                 zone_heads,
                 owner_indexes: Vec::new(),
                 owner_lookup: Vec::new(),
@@ -3487,15 +3499,8 @@ impl<'a> ConflictRead<'a> {
     /// 静态 zone 密排跨度（微1；折入既有地址列的安装期缓存，零结构增量）：
     /// `Zone(z)` 槽 = z.index()，`Transition(e)` 槽 = zone_span + e.index()。
     fn zone_span(self) -> usize {
-        self.derived
-            .addresses
-            .iter()
-            .filter_map(|address| match address.resource() {
-                ConflictResource::Zone(zone) => Some(zone.index() + 1),
-                ConflictResource::Transition(_) => None,
-            })
-            .max()
-            .unwrap_or(0)
+        // P2-4（#1199）：安装期缓存——不再每查全扫 addresses。
+        self.derived.zone_span
     }
 
     /// 冲突资源密排槽位（微1）：供 placement 等按 zone 头索引的派生面使用。

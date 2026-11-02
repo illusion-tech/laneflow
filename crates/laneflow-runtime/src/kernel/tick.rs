@@ -2441,9 +2441,17 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         index = occurrence_index;
         while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop {
-            let zone = compiled.conflicts[index]
-                .static_zone()
-                .map_or(usize::MAX, |z| z.index());
+            let occurrence = &compiled.conflicts[index];
+            // P5（#1199）：Transition 出现项查 T-cell 占用（cells_unavailable
+            // 上段已查）——不走 zone contenders 面（static_zone 空≠不可证）。
+            if matches!(
+                occurrence.resource,
+                crate::kernel::conflict::ConflictResource::Transition(_)
+            ) {
+                index = index.saturating_add(1);
+                continue;
+            }
+            let zone = occurrence.static_zone().map_or(usize::MAX, |z| z.index());
             if self.derived.spawn_contenders.best.get(zone).is_none() {
                 return AdmissionPreview::Unprovable;
             }
