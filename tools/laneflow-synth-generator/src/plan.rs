@@ -25,7 +25,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
             .map(|cell| cell * 100 + local_rank)
             .collect::<Vec<_>>()
     };
-    let warm = identity.warm_up_ticks();
+    let warm = u64::from(identity.warm_up_ticks());
     let mut scheduled = Vec::new();
     let mut rules = vec![json!({
         "kind":"invariants", "individuals":identity.scale,
@@ -99,6 +99,28 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
                 "stop":"immediately_after_B1_commit_events_and_presentation", "blocked":"invalidate_round"
             }));
         }
+        Case::L1 => {
+            rules.push(json!({
+                "kind":"lane_change_competition",
+                "scenario":"R1b_s12_two_changer_stable_order",
+                "transition_segments":1,
+                "changers":[
+                    {"logical_rank":identity.scale,"edge_occurrence":0,"progress_mm":11_000,
+                     "speed_mm_per_s":10_000,"role":"leader"},
+                    {"logical_rank":identity.scale + 1,"edge_occurrence":0,"progress_mm":3_000,
+                     "speed_mm_per_s":10_000,"role":"follower"}
+                ],
+                "premise":"both_changers_can_yield_d_stop_15_61m_at_10m_per_s",
+                "layer_1":"tick_0_stable_live_order_priority_no_persisted_reservation",
+                "layer_2":"leader_crossing_exactly_once_then_follower_after_rear_clearance",
+                "exactly_one_in_T_per_tick":true,
+                "loser":"no_grant_wait_before_T_entrance",
+                "reservation_lifecycle":["requested","staged","committed","released"],
+                "release_criterion":"rear_over_T_clearance",
+                "persistence_boundary":"capture_structurally_refused_after_first_T_authority_1217",
+                "identity_comparison":"real_resource_identity_and_history_not_error_digests"
+            }));
+        }
     }
     if matches!(identity.case, Case::W3 | Case::W4) {
         rules.push(json!({
@@ -109,6 +131,20 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
             "digest":"deterministic_state_digest", "failed_step_preserves":["state","published_events","command_cursor"],
             "retry":"same_step_without_repeating_commands",
             "oracle":"independent_pre_command_world_same_batch_same_post_command_state_then_same_step",
+            "instrumented_timing":"diagnostic_only"
+        }));
+    }
+    if identity.case == Case::L1 {
+        rules.push(json!({
+            "kind":"failed_step_retry", "build":"optimized_test_only",
+            "trigger":"leader_reservation_establishing_step",
+            "failpoint":["StepFailpoint::AfterGrants","StepFailpoint::AfterTransitions"],
+            "error":"StepError::ParkingObservationAllocFailed",
+            "capture":"post_command_pre_step_state_and_canonical_snapshot",
+            "digest":"deterministic_state_digest", "failed_step_preserves":["state","published_events","command_cursor"],
+            "retry":"same_step_without_repeating_commands",
+            "oracle":"independent_pre_command_world_same_batch_same_post_command_state_then_same_step",
+            "staged_discard":"failure_drops_staged_grants_without_reservation",
             "instrumented_timing":"diagnostic_only"
         }));
     }
@@ -129,9 +165,21 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
             "enqueue_next_boundary_plans",
         ]
     };
+    let (warm, observation) = if identity.case == Case::L1 {
+        identity.lane_change_window()
+    } else {
+        (
+            warm,
+            if identity.case == Case::W4 {
+                2
+            } else {
+                2 * warm
+            },
+        )
+    };
     json!({"format":"lf-synth-input-plan-1", "identity":identity,
         "warm_up_ticks":warm,
-        "observation_ticks":if identity.case == Case::W4 { 2 } else { 2 * warm },
+        "observation_ticks":observation,
         "boundary_order":boundary_order,
         "scheduled":scheduled,"rules":rules})
 }

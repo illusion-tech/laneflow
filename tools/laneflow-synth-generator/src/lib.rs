@@ -3,6 +3,7 @@
 mod bundle;
 mod encoding;
 mod network;
+mod network_lane_change;
 mod plan;
 mod state;
 
@@ -17,13 +18,15 @@ const POLICY_KEY: &str = "protected-entry";
 const EDGE_MM: u32 = 5_130_000;
 const NOMINAL_MS: [u32; 6] = [30_000, 3_000, 1_000, 20_000, 3_000, 1_000];
 
-/// 四种冻结交通场景。
+/// 五种冻结交通场景。
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Case {
     W1,
     W2,
     W3,
     W4,
+    /// 换道族 L1（#1218）：s12 两换道者稳定序竞争 + 标称背景，恰一横向过渡段。
+    L1,
 }
 
 /// 交通输入身份；表现比例不参与本身份。
@@ -79,6 +82,16 @@ impl Identity {
 
     pub(crate) fn warm_up_ticks(&self) -> u32 {
         4 * self.cycle_ms() / self.fixed_delta_ms
+    }
+
+    /// L1 换道族自有窗口（#1218 D3：出生位钉版，恢复检查点钉在首 crossing 前）。
+    ///
+    /// 预热 16 拍（F3 检查点 0/1 = 16/32 拍，早于首 crossing）；观察窗按步长钉版
+    ///（探针 `lane_change_lifecycle_probe_freezes_window_pinning` 冻结拍号）：
+    /// 终点晚于败者清空后进入拍、早于任一换道者路线完成拍。
+    pub(crate) fn lane_change_window(&self) -> (u64, u64) {
+        let observation = if self.fixed_delta_ms == 16 { 304 } else { 144 };
+        (16, observation)
     }
 }
 

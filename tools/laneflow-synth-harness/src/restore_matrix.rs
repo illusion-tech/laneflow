@@ -29,8 +29,14 @@ impl Task {
 
 fn tasks(probe: bool, references: bool) -> Vec<Task> {
     let mut configs = Vec::new();
+    // 换道族不进 probe（#1218 边界：探针口径保持 W1–W4）。
+    let cases: &[&str] = if probe {
+        &["W1", "W2", "W3", "W4"]
+    } else {
+        &["W1", "W2", "W3", "W4", "L1"]
+    };
     for (scale, dt) in [(10_000, 16), (100_000, 33)] {
-        for case in ["W1", "W2", "W3", "W4"] {
+        for case in cases {
             if references {
                 configs.push(Task {
                     job: Job {
@@ -141,7 +147,7 @@ fn check_report(
     let id = &report["input_manifest"]["identity"];
     let (warm, observation) = task.job.windows();
     let start = match task.job.case {
-        "W1" | "W2" => {
+        "W1" | "W2" | "L1" => {
             if task.checkpoint == Some(1) {
                 if probe { warm + 128 } else { 2 * warm }
             } else {
@@ -341,7 +347,7 @@ fn matrix(
 ) -> Result<(), Error> {
     fs::create_dir(output)?;
     let start = Instant::now();
-    let mut summary = json!({"format":"lf-synth-restore-matrix-1","complete":false,"probe":probe,"implementation_commit":implementation,"expected_references":8,"expected_restores":if probe {32} else {240},"max_processes":4,"max_configured_workers":32,"execution_order":[],"runs":[],"errors":[]});
+    let mut summary = json!({"format":"lf-synth-restore-matrix-1","complete":false,"probe":probe,"implementation_commit":implementation,"expected_references":if probe {8} else {10},"expected_restores":if probe {32} else {300},"max_processes":4,"max_configured_workers":32,"execution_order":[],"runs":[],"errors":[]});
     super::write(&output.join("summary.json"), &summary)?;
     let result = (|| {
         let environment: Value = serde_json::from_slice(&fs::read(environment)?)?;
@@ -525,15 +531,15 @@ mod tests {
     #[test]
     fn matrix_has_exact_coverage_without_duplicate_jobs() {
         let jobs = tasks(false, false);
-        assert_eq!(jobs.len(), 240);
+        assert_eq!(jobs.len(), 300);
         assert_eq!(
             jobs.iter()
                 .map(|t| t.key())
                 .collect::<std::collections::BTreeSet<_>>()
                 .len(),
-            240
+            300
         );
-        assert_eq!(tasks(false, true).len(), 8);
+        assert_eq!(tasks(false, true).len(), 10);
         assert_eq!(tasks(true, false).len(), 32);
         for round in 1..=3 {
             for worker in [1, 2, 4, 8, 16] {
@@ -541,7 +547,7 @@ mod tests {
                     jobs.iter()
                         .filter(|t| t.job.round == round && t.job.workers == worker)
                         .count(),
-                    16
+                    20
                 );
             }
         }

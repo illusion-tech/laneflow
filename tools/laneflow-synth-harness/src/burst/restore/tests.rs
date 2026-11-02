@@ -40,7 +40,7 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
         let baseline = directory.path().join("reference");
         fs::create_dir(&baseline).unwrap();
         let end = plan.warm_up_ticks + plan.observation_ticks;
-        let mut records = Records::new(&baseline, end, 10_000, 0).unwrap();
+        let mut records = Records::new(&baseline, end, 10_000, 0, false).unwrap();
         let mut outcome = None;
         for tick in 0..=end {
             records
@@ -79,7 +79,7 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                         .unwrap();
                 let out = directory.path().join(format!("{index}-{workers}"));
                 fs::create_dir(&out).unwrap();
-                let mut suffix = Records::new(&out, end, 10_000, host.tick + 1).unwrap();
+                let mut suffix = Records::new(&out, end, 10_000, host.tick + 1, false).unwrap();
                 suffix.journal.count = host.command_count;
                 suffix.journal.blocked = host.blocked;
                 for boundary in host.tick..end {

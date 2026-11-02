@@ -94,7 +94,14 @@ impl Formal {
             .iter()
             .map(|vehicle| {
                 identity
-                    .ordinal(vehicle.parking_space_id.parse::<ParkingSpaceId>().unwrap())
+                    .ordinal(
+                        vehicle
+                            .parking_space_id
+                            .as_ref()
+                            .unwrap()
+                            .parse::<ParkingSpaceId>()
+                            .unwrap(),
+                    )
                     .unwrap()
             })
             .collect();

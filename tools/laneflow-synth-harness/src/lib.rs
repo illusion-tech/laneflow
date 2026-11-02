@@ -57,8 +57,14 @@ impl Plan {
         let plan: Self = serde_json::from_slice(&bundle.files()["input-plan.json"])?;
         let identity = &bundle.manifest().identity;
         let cycle = cycle_ms(identity.fixed_delta_ms);
-        let warm = (4 * cycle / u64::from(identity.fixed_delta_ms)).max(512);
-        let observation = if identity.case == Case::W4 {
+        let warm = if identity.case == Case::L1 {
+            lane_change_window(identity.fixed_delta_ms).0
+        } else {
+            (4 * cycle / u64::from(identity.fixed_delta_ms)).max(512)
+        };
+        let observation = if identity.case == Case::L1 {
+            lane_change_window(identity.fixed_delta_ms).1
+        } else if identity.case == Case::W4 {
             2
         } else {
             (8 * cycle / u64::from(identity.fixed_delta_ms)).max(4_096)
@@ -68,7 +74,8 @@ impl Plan {
                 && plan.format == "lf-synth-input-plan-1"
                 && plan.warm_up_ticks == warm
                 && plan.observation_ticks == observation
-                && (plan.scheduled.is_empty() == matches!(identity.case, Case::W1 | Case::W2))
+                && (plan.scheduled.is_empty()
+                    == matches!(identity.case, Case::W1 | Case::W2 | Case::L1))
                 && !plan.rules.is_empty()
                 && !plan.boundary_order.is_empty(),
             || "只接受冻结完整窗口与对应命令计划".into(),
@@ -87,33 +94,143 @@ fn cycle_ms(dt: u32) -> u64 {
     durations(dt).into_iter().sum()
 }
 
+/// L1 换道族自有窗口（#1218 D3）：与生成器 `Identity::lane_change_window` 同值
+/// （预热 16 拍，检查点 16/32 早于首 crossing；终点晚于败者进入、早于路线完成）。
+fn lane_change_window(dt: u32) -> (u64, u64) {
+    (16, if dt == 16 { 304 } else { 144 })
+}
+
 #[derive(Debug, Serialize)]
 struct Checkpoint {
     tick: u64,
     time_ms: u64,
-    state_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state_digest: Option<String>,
     public_trace_digest: String,
     transitions: u64,
+    /// 面 B（#1218/#1217）：T 权威/历史时刻保存的结构化拒绝变体（期望行为）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    persistence_refused: Option<&'static str>,
+    /// 面 B 真实资源身份与历史投影（换道预约生命周期 + 逐车相位 + 预约终态）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    t_state: Option<Value>,
 }
 
 fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Checkpoint, Error> {
-    let snapshot = sample
-        .world
-        .capture_snapshot()
-        .map_err(|e| failure("snapshot", e))?;
-    let state_digest =
-        deterministic_state_digest(&snapshot).map_err(|e| failure("state digest", e))?;
-    Ok(Checkpoint {
-        tick: sample.world.tick_index(),
-        time_ms: sample.world.time_ms(),
-        state_digest: state_digest
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-        public_trace_digest: digest.clone().finalize().to_hex().to_string(),
-        transitions: sample.transitions,
-    })
+    let tick = sample.world.tick_index();
+    let time_ms = sample.world.time_ms();
+    let public_trace_digest = digest.clone().finalize().to_hex().to_string();
+    let transitions = sample.transitions;
+    match sample.world.capture_snapshot() {
+        Ok(snapshot) => {
+            let state_digest =
+                deterministic_state_digest(&snapshot).map_err(|e| failure("state digest", e))?;
+            Ok(Checkpoint {
+                tick,
+                time_ms,
+                state_digest: Some(
+                    state_digest
+                        .as_bytes()
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect(),
+                ),
+                public_trace_digest,
+                transitions,
+                persistence_refused: None,
+                t_state: None,
+            })
+        }
+        Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
+            // 面 B（#1218 按 #1217 口径）：T 权威/历史时刻保存必须结构化拒绝，
+            // 记录拒绝变体 + 真实资源身份/历史投影；比较不得只比错误编码摘要。
+            require(sample.lane_change_route.is_some(), || {
+                "仅换道族允许保存拒绝面".into()
+            })?;
+            let variant = match inner {
+                laneflow_runtime::UnsupportedTransitionState::AdmissionHopWithoutGate => {
+                    "AdmissionHopWithoutGate"
+                }
+                laneflow_runtime::UnsupportedTransitionState::TransitionPassageRow => {
+                    "TransitionPassageRow"
+                }
+                laneflow_runtime::UnsupportedTransitionState::TransitionLagHistory => {
+                    "TransitionLagHistory"
+                }
+            };
+            Ok(Checkpoint {
+                tick,
+                time_ms,
+                state_digest: None,
+                public_trace_digest,
+                transitions,
+                persistence_refused: Some(variant),
+                t_state: Some(lane_change_t_state(sample)),
+            })
+        }
+        Err(other) => Err(failure("snapshot", other)),
+    }
+}
+
+/// 面 B 身份/历史投影（#1218）：换道预约生命周期史（真实资源身份）+ 逐车相位
+/// 与预约终态。全部来自公开观测面（事件/`conflict_reservation`/遍历相位）。
+pub(crate) fn lane_change_t_state(sample: &install::Sample) -> Value {
+    let vehicles: Vec<Value> = sample
+        .handles
+        .iter()
+        .enumerate()
+        .filter(|(rank, _)| {
+            sample.lane_change_route == Some(sample.state.vehicles[*rank].route_rank as usize)
+        })
+        .map(|(rank, &handle)| {
+            let state = sample.world.vehicle(handle);
+            let phase = state.map(|s| match s.maneuver_traversal().map(|t| t.phase()) {
+                None => 0_u32,
+                Some(laneflow_runtime::ManeuverTraversalPhase::PreGate { .. }) => 1,
+                Some(laneflow_runtime::ManeuverTraversalPhase::Committed { .. }) => 2,
+                Some(laneflow_runtime::ManeuverTraversalPhase::Waiting { .. }) => 3,
+                Some(laneflow_runtime::ManeuverTraversalPhase::Clearing { .. }) => 4,
+            });
+            let held = sample.world.conflict_reservation(handle).map(|r| {
+                json!([
+                    r.owner() == handle,
+                    r.acquired_tick(),
+                    r.passage_range().passage_count()
+                ])
+            });
+            json!({"rank":rank, "phase":phase, "held":held})
+        })
+        .collect();
+    let journal: Vec<Value> = sample
+        .lane_change_journal
+        .iter()
+        .map(|(tick, slot, kind, identity)| json!([tick, slot, kind, identity]))
+        .collect();
+    json!({"vehicles":vehicles, "journal":journal})
+}
+
+/// 面 B 拒绝变体（#1218/#1217）：T 权威/历史时刻保存必须结构化拒绝且零部分产物；
+/// 成功捕获或其他错误均失败（双向钉边）。
+pub(crate) fn lane_change_refusal_variant(sample: &install::Sample) -> Result<&'static str, Error> {
+    match sample.world.capture_snapshot() {
+        Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
+            Ok(match inner {
+                laneflow_runtime::UnsupportedTransitionState::AdmissionHopWithoutGate => {
+                    "AdmissionHopWithoutGate"
+                }
+                laneflow_runtime::UnsupportedTransitionState::TransitionPassageRow => {
+                    "TransitionPassageRow"
+                }
+                laneflow_runtime::UnsupportedTransitionState::TransitionLagHistory => {
+                    "TransitionLagHistory"
+                }
+            })
+        }
+        Err(other) => Err(failure("face B capture", other)),
+        Ok(_) => Err(Error::Invalid(
+            "T 触时刻保存必须被结构化拒绝（#1218 面 B）".into(),
+        )),
+    }
 }
 
 /// 消费一个正式输入目录，在全新目录保存逐拍轨迹与完整回执。
@@ -169,14 +286,18 @@ fn run_inner(
     let mut stream = blake3::Hasher::new();
     stream.update(b"lf-synth-public-stream-1\0");
     let total = plan.warm_up_ticks + plan.observation_ticks;
-    let boundaries = [
-        0,
-        plan.warm_up_ticks,
-        plan.warm_up_ticks + 1_024,
-        plan.warm_up_ticks + 2_048,
-        plan.warm_up_ticks + 4_096,
-        total,
-    ];
+    let boundaries: Vec<u64> = if plan.identity.case == Case::L1 {
+        vec![0, plan.warm_up_ticks, 2 * plan.warm_up_ticks, total]
+    } else {
+        vec![
+            0,
+            plan.warm_up_ticks,
+            plan.warm_up_ticks + 1_024,
+            plan.warm_up_ticks + 2_048,
+            plan.warm_up_ticks + 4_096,
+            total,
+        ]
+    };
     let mut checkpoints = Vec::new();
     let ranks = sample
         .handles
@@ -185,7 +306,11 @@ fn run_inner(
         .enumerate()
         .map(|(rank, handle)| (handle, rank))
         .collect();
-    let mut events = measurement::events::Recorder::new(total + 1, plan.identity.scale);
+    let mut events = if plan.identity.case == Case::L1 {
+        measurement::events::Recorder::new_lane_change(total + 1, plan.identity.scale)
+    } else {
+        measurement::events::Recorder::new(total + 1, plan.identity.scale)
+    };
     for tick in 0..=total {
         let outcome = if tick == 0 {
             None
@@ -225,18 +350,33 @@ fn run_inner(
     }
     trace.flush()?;
     events.write(&output.join("events.bin"))?;
-    require(
-        sample
-            .crossed
-            .iter()
-            .zip(&sample.initial)
-            .all(|(&crossed, initial)| {
-                crossed == (initial.status() == laneflow_runtime::VehicleStatus::Active)
+    if plan.identity.case == Case::L1 {
+        // L 族：恰两换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
+        let cluster = sample.lane_change_route.expect("L 族簇路线");
+        require(
+            sample.crossed.iter().enumerate().all(|(rank, &crossed)| {
+                crossed == (sample.state.vehicles[rank].route_rank as usize == cluster)
             }),
-        || "窗口内每辆 Active 必须恰好完成 entry→exit；Parked 不发生转换".into(),
-    )?;
+            || "窗口内恰两换道者完成 T crossing；背景不发生 0→1".into(),
+        )?;
+    } else {
+        require(
+            sample
+                .crossed
+                .iter()
+                .zip(&sample.initial)
+                .all(|(&crossed, initial)| {
+                    crossed == (initial.status() == laneflow_runtime::VehicleStatus::Active)
+                }),
+            || "窗口内每辆 Active 必须恰好完成 entry→exit；Parked 不发生转换".into(),
+        )?;
+    }
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
-        "scope":"W1_W2_semantics_only_not_performance_or_product_certification",
+        "scope":if plan.identity.case == Case::L1 {
+            "L1_lane_change_competition_success_path_not_performance_or_product_certification"
+        } else {
+            "W1_W2_semantics_only_not_performance_or_product_certification"
+        },
         "implementation_commit":implementation_commit,"input_manifest":bundle.manifest(),
         "workers":sample.world.execution_config().worker_count().get(),
         "warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,

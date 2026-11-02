@@ -50,9 +50,13 @@ jobs:
 
       - name: Run evidence tests
         shell: bash
+        # R1b（r1b_s12_pinned_two_changers_exactly_one_live_order）已随 #1218 去
+        # ignore 进入常规门禁（Placement fixture tests 每 PR 必跑）；下方过滤条目
+        # 仅在其回归 ignored 状态时生效，保留为名单完整性登记（#1218 D5）。
         run: >-
           cargo +1.99.1 nextest run --workspace --locked --run-ignored ignored-only
           --test-threads 1 --no-capture
           -E 'test(journal_ab_windows_match_frozen_digests) |
           test(cpu_sampling_windows_match_frozen_digests) |
-          test(real_fixture_runs_independently_and_detects_changed_inputs_and_logs)'
+          test(real_fixture_runs_independently_and_detects_changed_inputs_and_logs) |
+          test(r1b_s12_pinned_two_changers_exactly_one_live_order)'

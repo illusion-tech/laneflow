@@ -11,8 +11,16 @@ pub(crate) struct Sample {
     pub state: InitialState,
     pub handles: Vec<VehicleHandle>,
     pub routes: Vec<RouteHandle>,
-    pub groups: Vec<SignalGroupOrdinal>,
-    pub gates: Vec<ManeuverGateOrdinal>,
+    pub groups: Vec<Option<SignalGroupOrdinal>>,
+    pub gates: Vec<Option<ManeuverGateOrdinal>>,
+    /// L 族换道簇路线下标（`None` 为 W 族）；簇路线无信号门、携带两换道者。
+    pub lane_change_route: Option<usize>,
+    /// L 族换道预约生命周期史（#1218 面 B 身份投影）：
+    /// `(tick, 换道者槽位, 事件种类, 资源身份)`，事件序保持。
+    pub lane_change_journal: Vec<(u64, u8, u32, u32)>,
+    /// 逐路线位置前缀和（毫米，含起点 0 与终点）：L 族边长非均匀，位置编码
+    /// 由真实边长累计（W 族恒为 `EDGE_MM` 网格，不使用本表）。
+    pub route_offsets: Vec<Vec<u64>>,
     pub initial: Vec<VehicleState>,
     pub previous: Vec<VehicleState>,
     pub bindings: Vec<Option<ParkingBinding>>,
@@ -57,15 +65,14 @@ impl Sample {
             origin.network_revision(),
         )
         .map_err(|e| failure("source", e))?;
+        let lane_change_route = state
+            .routes
+            .iter()
+            .position(|route| route.edge_ids.len() > 2);
+        let config = world_config(&state);
         let mut world = TrafficWorld::install(
             revision.clone(),
-            WorldConfig::new(
-                state.identity.scale,
-                state.routes.len() as u32,
-                state.routes.len() as u64 * 2,
-                0,
-                u64::from(state.identity.fixed_delta_ms),
-            ),
+            config,
             execution,
             CommittedNetworkSource::Published { reference: source },
             0,
@@ -93,23 +100,29 @@ impl Sample {
                         .ok_or_else(|| failure("edge", "missing"))
                 })
                 .collect::<Result<Vec<_>, Error>>()?;
-            let group = identity
-                .ordinal(
-                    route
-                        .signal_group_id
-                        .parse::<SignalGroupId>()
-                        .map_err(|e| failure("group id", e))?,
-                )
-                .ok_or_else(|| failure("group", "missing"))?;
-            let group_view = revision
-                .traffic()
-                .relations()
-                .signal_group(group)
-                .ok_or_else(|| failure("group relations", "missing"))?;
-            crate::require(group_view.gates().len() == 1, || {
-                "每条路线必须有唯一信号 Gate".into()
-            })?;
-            gates.push(group_view.gates()[0]);
+            let (group, gate) = match &route.signal_group_id {
+                Some(group_id) => {
+                    let group = identity
+                        .ordinal(
+                            group_id
+                                .parse::<SignalGroupId>()
+                                .map_err(|e| failure("group id", e))?,
+                        )
+                        .ok_or_else(|| failure("group", "missing"))?;
+                    let group_view = revision
+                        .traffic()
+                        .relations()
+                        .signal_group(group)
+                        .ok_or_else(|| failure("group relations", "missing"))?;
+                    crate::require(group_view.gates().len() == 1, || {
+                        "每条路线必须有唯一信号 Gate".into()
+                    })?;
+                    (Some(group), Some(group_view.gates()[0]))
+                }
+                // L 族无信号准入路线（换道簇/背景）：无信号组与 Gate。
+                None => (None, None),
+            };
+            gates.push(gate);
             routes.push(
                 world
                     .register_route(RouteRegisterInput::new(edges))
@@ -120,21 +133,30 @@ impl Sample {
         let mut handles = Vec::new();
         for vehicle in &state.vehicles {
             let route = routes[vehicle.route_rank as usize];
+            let on_lane_change_route = lane_change_route == Some(vehicle.route_rank as usize);
             let handle = if vehicle.status == "active" {
+                let spawn = VehicleSpawnInput::new(
+                    profile,
+                    route,
+                    vehicle.edge_occurrence,
+                    vehicle.progress_mm,
+                    vehicle.speed_mm_per_s,
+                );
                 world
-                    .spawn_vehicle(VehicleSpawnInput::new(
-                        profile,
-                        route,
-                        vehicle.edge_occurrence,
-                        vehicle.progress_mm,
-                        vehicle.speed_mm_per_s,
-                    ))
+                    .spawn_vehicle(if on_lane_change_route {
+                        // 换道者车尾可越过路线起点（R1b 钉版后车 e0@3000）。
+                        spawn.with_open_entrance()
+                    } else {
+                        spawn
+                    })
                     .map_err(|e| failure("spawn", e))?
             } else {
                 let space = identity
                     .ordinal(
                         vehicle
                             .parking_space_id
+                            .as_deref()
+                            .ok_or_else(|| failure("parking id", "missing"))?
                             .parse::<ParkingSpaceId>()
                             .map_err(|e| failure("parking id", e))?,
                     )
@@ -175,6 +197,7 @@ impl Sample {
         let initial: Vec<_> = handles.iter().map(|&h| world.vehicle(h).unwrap()).collect();
         let bindings = handles.iter().map(|&h| world.parking_binding(h)).collect();
         let cursor = world.command_cursor();
+        let route_offsets = route_position_offsets(&state, &revision)?;
         Ok(Self {
             world,
             state,
@@ -182,6 +205,9 @@ impl Sample {
             routes,
             groups,
             gates,
+            lane_change_route,
+            lane_change_journal: Vec::new(),
+            route_offsets,
             previous: initial.clone(),
             crossed: vec![false; initial.len()],
             trace_bytes: Vec::with_capacity(initial.len() * 32),
@@ -193,4 +219,54 @@ impl Sample {
             cursor,
         })
     }
+}
+
+/// 世界容量（#1218 L 族适配）：L 族车辆容量含两换道者、边出现项按路线实长累计、
+/// 冲突出现项预算 16（换道簇 T 出现项）；W 族恒为（规模、路线数×2、0），逐字保持。
+/// 恢复重建必须与安装同式（否则 `restore_lfrs` 容量校验拒绝）。
+pub(crate) fn world_config(state: &InitialState) -> WorldConfig {
+    if state.routes.iter().any(|route| route.edge_ids.len() > 2) {
+        WorldConfig::new(
+            state.vehicles.len() as u32,
+            state.routes.len() as u32,
+            state.routes.iter().map(|r| r.edge_ids.len() as u64).sum(),
+            16,
+            u64::from(state.identity.fixed_delta_ms),
+        )
+    } else {
+        WorldConfig::new(
+            state.identity.scale,
+            state.routes.len() as u32,
+            state.routes.len() as u64 * 2,
+            0,
+            u64::from(state.identity.fixed_delta_ms),
+        )
+    }
+}
+
+/// 逐路线真实边长前缀和（毫米）：位置编码不假设边长均匀（#1218 L 族）。
+pub(crate) fn route_position_offsets(
+    state: &InitialState,
+    revision: &SharedNetworkRevision,
+) -> Result<Vec<Vec<u64>>, Error> {
+    let lengths = revision.traffic().lane_lengths_millimetres();
+    let mut offsets = Vec::with_capacity(state.routes.len());
+    for route in &state.routes {
+        let mut row = Vec::with_capacity(route.edge_ids.len() + 1);
+        let mut accumulated = 0_u64;
+        row.push(0);
+        for id in &route.edge_ids {
+            let id = id
+                .parse::<LaneEdgeId>()
+                .map_err(|e| failure("edge id", e))?;
+            let ordinal = revision
+                .identity()
+                .ordinal(id)
+                .ok_or_else(|| failure("edge", "missing"))?;
+            accumulated += u64::from(lengths[ordinal.raw() as usize]);
+            row.push(accumulated);
+        }
+        offsets.push(row);
+    }
+    Ok(offsets)
 }

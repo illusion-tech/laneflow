@@ -4290,12 +4290,10 @@ pub(crate) mod compile_route_tests {
         /// tick 0 撤销分支过期（不建立存续预约——conflict_reservation 全程
         /// None 于非穿越拍）；层② T 独占恰一（逐拍至多一者在 T）+ live-order
         /// 恰一优先（前车先入）+ 败者停让后入 + 可达性跳拍重证（达界即入）。
-        /// # 暂时忽略（#1199 WIP）
         ///
-        /// 层②后车入 T 断言待通（探针续：后车逐拍状态/授予流——疑前车
-        /// A2 整车扫过清空时点）。
+        /// 2026-11-03 显式执行通过于 main@d5f28317（#1216/#1217 合入后，
+        /// 未做归因实验）；#1218 移除 `#[ignore]` 入常规回归，断言不变。
         #[test]
-        #[ignore = "#1199 WIP: follower entry after leader A2 sweep clear"]
         fn r1b_s12_pinned_two_changers_exactly_one_live_order() {
             use laneflow_static_contract::LaneEdgeOrdinal;
 

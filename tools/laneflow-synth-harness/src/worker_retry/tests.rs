@@ -1,32 +1,50 @@
 use super::*;
 
 #[test]
-fn retry_jobs_cover_four_identities_five_workers_and_three_fresh_rounds() {
+fn retry_jobs_cover_identities_failpoints_five_workers_and_three_fresh_rounds() {
     let jobs = jobs();
-    assert_eq!(jobs.len(), 60);
-    let unique: std::collections::BTreeSet<_> = jobs.iter().map(|job| job.key()).collect();
-    assert_eq!(unique.len(), 60);
-    assert_eq!(jobs.iter().filter(|job| **job == job.baseline()).count(), 4);
+    assert_eq!(jobs.len(), 120);
+    let unique: std::collections::BTreeSet<_> = jobs
+        .iter()
+        .map(|(job, inject)| (job.key(), *inject))
+        .collect();
+    assert_eq!(unique.len(), 120);
+    // 每（身份×注入断点）组合的第一轮单 worker 即比较基线：4 W + 4 L = 8。
+    assert_eq!(
+        jobs.iter()
+            .filter(|(job, _inject)| *job == job.baseline())
+            .count(),
+        8
+    );
     for round in 1..=3 {
         for workers in WORKERS {
             assert_eq!(
                 jobs.iter()
-                    .filter(|job| job.round == round && job.workers == workers)
+                    .filter(|(job, _inject)| job.round == round && job.workers == workers)
                     .count(),
-                4
+                8
             );
         }
     }
-    assert_eq!(jobs[20].identity(), jobs[7].identity());
-    assert_eq!(jobs[20].workers, jobs[7].workers);
-    assert!(jobs.iter().all(|job| {
+    // 轮内左移 7（#1218 D6 网格扩展后口径不变）。
+    assert_eq!(jobs[40].0.identity(), jobs[7].0.identity());
+    assert_eq!(jobs[40].0.workers, jobs[7].0.workers);
+    assert_eq!(jobs[40].1, jobs[7].1);
+    assert!(jobs.iter().all(|(job, inject)| {
         Task {
             job: *job,
             normal: false,
+            inject,
         }
         .configured_workers()
             <= MAX_CONFIGURED_WORKERS
     }));
+    // L 族注入断点恰覆盖换道预约相关断点（D6）。
+    assert!(
+        jobs.iter()
+            .filter(|(_, inject)| !inject.is_empty())
+            .all(|(_, inject)| *inject == "AfterGrants" || *inject == "AfterTransitions")
+    );
 }
 
 fn observations_fixture() -> (Value, Value) {
@@ -96,32 +114,43 @@ fn cross_worker_comparison_rejects_every_changed_snapshot_and_observation_file()
         workers: 16,
         round: 3,
     };
+    let task = Task {
+        job,
+        normal: false,
+        inject: "",
+    };
     let baseline = json!({"workers":1,"error":"ParkingObservationAllocFailed","failed_calls":1});
     let mut report = baseline.clone();
     report["workers"] = json!(16);
-    for config in [job, job.baseline()] {
+    for config in [
+        task,
+        Task {
+            job: job.baseline(),
+            ..task
+        },
+    ] {
         let target = root.path().join(config.key());
         fs::create_dir(&target).unwrap();
         for file in FILES {
             fs::write(target.join(file), [1_u8, 2, 3]).unwrap();
         }
     }
-    compare(root.path(), job, &baseline, &report).unwrap();
+    compare(root.path(), task, &baseline, &report).unwrap();
     for field in ["error", "failed_calls", "extra_field"] {
         let mut changed = report.clone();
         changed[field] = json!("changed");
-        assert!(compare(root.path(), job, &baseline, &changed).is_err());
+        assert!(compare(root.path(), task, &baseline, &changed).is_err());
     }
     for file in FILES {
-        let path = root.path().join(job.key()).join(file);
+        let path = root.path().join(task.key()).join(file);
         fs::write(&path, [1_u8, 9, 3]).unwrap();
         assert!(
-            compare(root.path(), job, &baseline, &report).is_err(),
+            compare(root.path(), task, &baseline, &report).is_err(),
             "changed evidence bytes"
         );
         fs::remove_file(&path).unwrap();
         assert!(
-            compare(root.path(), job, &baseline, &report).is_err(),
+            compare(root.path(), task, &baseline, &report).is_err(),
             "missing evidence file"
         );
         fs::write(&path, [1_u8, 2, 3]).unwrap();

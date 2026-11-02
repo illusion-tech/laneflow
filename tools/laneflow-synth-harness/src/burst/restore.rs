@@ -93,6 +93,16 @@ impl Driver {
     fn finish(&self, plan: &Plan) -> Result<(), Error> {
         match self {
             Self::Burst(b) => b.finish(plan),
+            Self::Simple(s) if plan.identity.case == Case::L1 => {
+                // L 族：恰两换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
+                let cluster = s.lane_change_route.expect("L 族簇路线");
+                require(
+                    s.crossed.iter().enumerate().all(|(rank, &crossed)| {
+                        crossed == (s.state.vehicles[rank].route_rank as usize == cluster)
+                    }),
+                    || "换道族完整窗口过门次数不符".into(),
+                )
+            }
             Self::Simple(s) => require(
                 s.crossed
                     .iter()
@@ -125,13 +135,19 @@ struct Records {
 }
 
 impl Records {
-    fn new(output: &Path, total: u64, scale: u32, start: u64) -> Result<Self, Error> {
+    fn new(
+        output: &Path,
+        total: u64,
+        scale: u32,
+        start: u64,
+        lane_change: bool,
+    ) -> Result<Self, Error> {
         let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
         trace.write_all(TRACE_HEADER)?;
         Ok(Self {
             trace,
             trace_count: 0,
-            events: Recorder::from_tick(total - start + 1, scale, start),
+            events: Recorder::from_tick(total - start + 1, scale, start, lane_change),
             journal: Journal::new(&output.join("commands.bin"))?,
             batches: Vec::new(),
             checkpoints: Vec::new(),
@@ -169,7 +185,19 @@ impl Records {
         self.trace.write_all(digest.as_bytes())?;
         self.trace_count += 1;
         if tick.is_multiple_of(1_024) || tick == total {
-            self.checkpoints.push(json!({"tick":tick,"command_cursor":world.command_cursor(),"state_digest":state_digest(world)?}));
+            let point = match world.capture_snapshot() {
+                Ok(_) => json!({"tick":tick,"command_cursor":world.command_cursor(),
+                    "state_digest":state_digest(world)?}),
+                Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(_)) => {
+                    // 面 B（#1218/#1217）：T 权威/历史拍保存必须结构化拒绝；
+                    // 记录拒绝变体 + 真实资源身份/历史投影。
+                    json!({"tick":tick,"command_cursor":world.command_cursor(),
+                        "persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,
+                        "t_state":crate::lane_change_t_state(driver.sample())})
+                }
+                Err(other) => return Err(failure("checkpoint capture", other)),
+            };
+            self.checkpoints.push(point);
             self.trace.flush()?;
             self.journal.output.flush()?;
             eprintln!(
@@ -204,6 +232,23 @@ fn read(path: &Path) -> Result<Value, Error> {
     Ok(serde_json::from_slice(&fs::read(path)?)?)
 }
 
+/// 末态记录（#1218）：W 族 = 规范状态投影 + 宿主累计；L 族 = 面 B 记录
+///（结构化拒绝变体 + 真实资源身份/历史投影）+ 宿主累计。
+fn final_record(plan: &Plan, driver: &Driver, records: &Records) -> Result<Value, Error> {
+    if plan.identity.case == Case::L1 {
+        Ok(
+            json!({"face_b":{"persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,
+            "t_state":crate::lane_change_t_state(driver.sample())},
+            "host":driver.final_host(),"command_count":records.journal.count,"blocked":records.journal.blocked}),
+        )
+    } else {
+        Ok(
+            json!({"state":state::projection(driver.sample())?,"host":driver.final_host(),
+            "command_count":records.journal.count,"blocked":records.journal.blocked}),
+        )
+    }
+}
+
 fn validate_implementation(implementation: &str) -> Result<(), Error> {
     require(
         implementation.len() == 40
@@ -217,7 +262,9 @@ fn validate_implementation(implementation: &str) -> Result<(), Error> {
 fn positions(plan: &Plan, probe: bool) -> [(u64, bool); 2] {
     let w = plan.warm_up_ticks;
     match plan.identity.case {
-        Case::W1 | Case::W2 => [(w, false), (if probe { w + 128 } else { 2 * w }, false)],
+        Case::W1 | Case::W2 | Case::L1 => {
+            [(w, false), (if probe { w + 128 } else { 2 * w }, false)]
+        }
         Case::W3 => [(w + 1, false), (w + 1, true)],
         Case::W4 => [(w, false), (w + 1, false)],
     }
@@ -313,7 +360,13 @@ pub fn reference(
             .cloned()
             .map(serde_json::from_value)
             .collect::<Result<Vec<Scheduled>, _>>()?;
-        let mut records = Records::new(output, end, plan.identity.scale, 0)?;
+        let mut records = Records::new(
+            output,
+            end,
+            plan.identity.scale,
+            0,
+            plan.identity.case == Case::L1,
+        )?;
         let mut archives = Vec::new();
         let mut outcome = None;
         let run = Instant::now();
@@ -348,7 +401,7 @@ pub fn reference(
         records.finish(output)?;
         crate::write_json(
             &output.join("final.json"),
-            &json!({"state":state::projection(driver.sample())?,"host":driver.final_host(),"command_count":records.journal.count,"blocked":records.journal.blocked}),
+            &final_record(&plan, &driver, &records)?,
         )?;
         Ok(
             json!({"format":"lf-synth-restore-reference-1","complete":true,"probe":probe,"implementation_commit":implementation,"input_manifest":bundle.manifest(),"workers":1,"warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,"end_tick":end,"trace_records":records.trace_count,"archives":archives,"checkpoints":records.checkpoints,"files":report_files(output)?,"timing":{"preparation_seconds":preparation,"run_seconds":run.elapsed().as_secs_f64(),"total_seconds":start.elapsed().as_secs_f64()}}),
@@ -463,7 +516,13 @@ pub fn resume(
             .cloned()
             .map(serde_json::from_value)
             .collect::<Result<Vec<Scheduled>, _>>()?;
-        let mut records = Records::new(output, end, plan.identity.scale, host.tick + 1)?;
+        let mut records = Records::new(
+            output,
+            end,
+            plan.identity.scale,
+            host.tick + 1,
+            plan.identity.case == Case::L1,
+        )?;
         records.journal.count = host.command_count;
         records.journal.blocked = host.blocked;
         let run = Instant::now();
@@ -490,7 +549,7 @@ pub fn resume(
             || "恢复未达到完整终点".into(),
         )?;
         records.finish(output)?;
-        let final_value = json!({"state":state::projection(driver.sample())?,"host":driver.final_host(),"command_count":records.journal.count,"blocked":records.journal.blocked});
+        let final_value = final_record(&plan, &driver, &records)?;
         crate::write_json(&output.join("final.json"), &final_value)?;
         require(final_value == read(&reference.join("final.json"))?, || {
             "恢复末态或宿主累计记录不符".into()
