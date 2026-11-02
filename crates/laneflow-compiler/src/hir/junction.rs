@@ -738,52 +738,62 @@ pub(crate) fn build_junction_hir(
         diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
         diagnostics.push(diagnostic);
     }
-    // D②（#1199 4438203317）：路径成员索引——完整边身份（module+stable_key，
-    // P2-1 修正：stable_key 显式 module-local、跨模块同名边不得混键）→
-    // 含该边路径集（构建期一次、查询 O(1)，弃规则环内 O(N²) 扫描）。
-    // 容量预置（会计钉：min-headless 零重分配——HashMap 增长即重分配）。
-    let member_total: usize = paths
+    // D②（#1199）+ P2-5/P2-6（#1219）：路径成员索引——typed 边键 → 含该边路径键
+    // 的连续区间（CSR：starts + 构造游标 + 连续 path_keys，查询 O(1)）。成员身份
+    // 是同一 `HirUnit::lane_edges` 空间的 `HirLaneEdgeKey`：`stable_key` 仅模块内
+    // 唯一，跨模块同名边是不同实体（#1219 P2-5）。三块定长分配与构造游标一并
+    // 计入 `junction_budget`（#1219 P2-6），按出现项精确预留（会计钉：构造期
+    // 零重分配）。契约（#1219）：三块均为校验期暂存，不进入 `JunctionHir` 输出；
+    // 若未来该索引保留进输出，必须迁入 live 轴重记账。
+    let mut member_starts: Vec<usize> = vec![0; lane_edges.len().saturating_add(1)];
+    for (_, path) in paths.iter() {
+        for member in &path_edges[path.edges.as_usize_range()] {
+            if member.target.index() >= lane_edges.len() {
+                continue;
+            }
+            let slot = member.target.index().saturating_add(1);
+            member_starts[slot] = member_starts[slot].saturating_add(1);
+        }
+    }
+    for index in 0..lane_edges.len() {
+        let slot = index.saturating_add(1);
+        member_starts[slot] = member_starts[slot].saturating_add(member_starts[index]);
+    }
+    let mut member_cursor: Vec<usize> = member_starts[..lane_edges.len()].to_vec();
+    let first_path = paths
         .iter()
-        .map(|(_, path)| path.edges.as_usize_range().len())
-        .sum();
-    let mut member_index: std::collections::HashMap<(u32, String), Vec<HirManeuverPathKey>> =
-        std::collections::HashMap::with_capacity(member_total);
+        .next()
+        .map(|(key, _)| key)
+        .unwrap_or(HirManeuverPathKey::from_raw(0));
+    let mut member_path_keys: Vec<HirManeuverPathKey> =
+        vec![first_path; member_starts[lane_edges.len()]];
     for (path_key, path) in paths.iter() {
         for member in &path_edges[path.edges.as_usize_range()] {
             if member.target.index() >= lane_edges.len() {
                 continue;
             }
-            let member_edge = lane_edges.get(member.target);
-            member_index
-                .entry((member_edge.module.raw(), member_edge.stable_key.to_string()))
-                .or_default()
-                .push(path_key);
+            let destination = &mut member_cursor[member.target.index()];
+            member_path_keys[*destination] = path_key;
+            *destination = destination.saturating_add(1);
         }
     }
+    drop(member_cursor);
     for declared in &declared_internal_edges {
         let edge = lane_edges.get(declared.edge);
-        // R-7 精化（#1199 评审裁定）：internal 的 lane 后继 ⊆ 路径全边集
-        // （路径自身续边✓）；路径外后继仍拒（防隐式连通）。成员比较用
-        // stable_key（ArenaKey 同边双键空间分歧——S5/S6 资产：跨空间比较
-        // 一律 stable_key）。
         let claiming_path = internal_claims[declared.edge.index()]
             .as_ref()
             .map(|claim| paths.get(claim.source_path));
-        let edge_stable = &edge.stable_key;
-        let _ = edge_stable;
-        // R-7 成员检修正（#1199 评审 4438135047）：排除自身后判外后继——
-        // 前形 any() 首侧含自身致路径含自身恒真、判永否（fail-open）；正
-        // 判=后继 ∈ 路径全边集（entry+internal+exit）✓、路径外后继仍拒。
+        // R-7（#1199）：internal 的 lane 后继 ⊆ 路径全边集（entry+internal+exit，
+        // 路径自身续边✓）；路径外后继仍拒（防隐式连通）。成员身份用同一
+        // `HirUnit::lane_edges` 空间的 typed key（#1219 P2-5）：`stable_key` 仅模块
+        // 内唯一，字符串比较会把跨模块同名的路径外后继误判为路径内。
         let outside_path_successor = lane_edge_references[edge.successors.as_usize_range()]
             .iter()
             .find(|successor| {
                 !claiming_path.is_some_and(|path| {
                     path_edges[path.edges.as_usize_range()]
                         .iter()
-                        .any(|member| {
-                            lane_edges.get(member.target).stable_key.to_string()
-                                == lane_edges.get(successor.target).stable_key.to_string()
-                        })
+                        .any(|member| member.target == successor.target)
                 })
             });
         let Some(successor) = outside_path_successor else {
@@ -820,23 +830,17 @@ pub(crate) fn build_junction_hir(
             let Some(claim) = internal_claims[successor.target.index()].as_ref() else {
                 continue;
             };
-            // R-7 精化（stable_key 稳健版+D② 索引+P2-1 全身份键）：引用边
-            // ∈ **含目标 internal 的路径**全边集时合法（成员索引 O(1) 查
-            // 候选路径集、claims 切片错位免疫、module+stable_key 全身份）；
-            // 路径外引用仍拒。
-            let same_path_member = member_index
-                .get(&(edge.module.raw(), edge.stable_key.to_string()))
-                .is_some_and(|candidates| {
-                    candidates.iter().any(|candidate_key| {
-                        let path = paths.get(*candidate_key);
-                        path_edges[path.edges.as_usize_range()]
-                            .iter()
-                            .any(|member| {
-                                lane_edges.get(member.target).stable_key.to_string()
-                                    == lane_edges.get(successor.target).stable_key.to_string()
-                            })
-                    })
-                });
+            // R-7（#1199）：引用边 ∈ **含目标 internal 的路径**全边集时合法
+            // （成员索引 O(1) 查候选路径集、claims 切片错位免疫）；路径外引用仍
+            // 拒。成员身份同用 typed key（#1219 P2-5）。
+            let candidates = &member_path_keys[member_starts[edge_key.index()]
+                ..member_starts[edge_key.index().saturating_add(1)]];
+            let same_path_member = candidates.iter().any(|candidate_key| {
+                let path = paths.get(*candidate_key);
+                path_edges[path.edges.as_usize_range()]
+                    .iter()
+                    .any(|member| member.target == successor.target)
+            });
             if same_path_member {
                 continue;
             }
@@ -859,6 +863,8 @@ pub(crate) fn build_junction_hir(
             diagnostics.push(diagnostic);
         }
     }
+    drop(member_path_keys);
+    drop(member_starts);
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }

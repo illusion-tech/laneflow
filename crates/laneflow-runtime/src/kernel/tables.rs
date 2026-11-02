@@ -753,8 +753,11 @@ pub(crate) fn compile_route(
     let waiting_maneuver_bits = compile_waiting_maneuver_bits(edges.len(), &maneuvers, &waiting)?;
     // 修形①（#1199）：候选派发 hop 并集注册期预计算——gate hop ∪ **含
     // Transition 出现项**的 hop（T 候选仅在过渡出现项时派生，非任意冲突
-    // hop——旧输入零新结论保持）。tick 侧零分配消费。
-    let mut conflict_dispatch_hops = gate_hops.clone();
+    // hop——旧输入零新结论保持）。tick 侧零分配消费。P2-6（#1219）：一次
+    // 预留上界（gate_hops + hop_count）后构造不再增长，全程走
+    // `try_reserve_route_exact` 受检分配；每 hop 至多入列一次。
+    let mut conflict_dispatch_hops = try_route_vec(gate_hops.len().saturating_add(hop_count))?;
+    conflict_dispatch_hops.extend_from_slice(&gate_hops);
     for (hop, range) in conflict_gate_ranges.iter().enumerate() {
         if range.len == 0 {
             continue;
