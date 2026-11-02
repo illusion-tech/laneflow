@@ -351,6 +351,12 @@ impl CutoverTransaction {
             self.settle_failure(world);
             return Err(CutoverError::JournalOverflow);
         }
+        // 过渡态粘性拒绝（#1217 D4）：日志域无法忠实编码的增量已终止日志；
+        // 事务整体放弃、旧世界照常可运行，不得按溢出或不变量破坏处置。
+        if let Some(kind) = journal.unsupported_transition_state() {
+            self.settle_failure(world);
+            return Err(CutoverError::UnsupportedTransitionState(kind));
+        }
         let lag = world.tick_index().saturating_sub(
             self.candidate
                 .as_ref()

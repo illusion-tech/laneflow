@@ -64,6 +64,7 @@ pub use kernel::conflict::{
     ConflictPassageAddress, ConflictPassageLocator, ConflictPassageOccurrenceLocator,
     ConflictPassageRange, ConflictReservation, ConflictResourceNoGrant, ConflictYieldOutcome,
     DownstreamInterval, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
+    UnsupportedTransitionState,
 };
 pub use kernel::conflict_tick::{
     ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,

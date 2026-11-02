@@ -1073,6 +1073,14 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         let base_state = world
             .vehicle_state(handle)
             .ok_or(CutoverError::WaitingRevalidationFailed)?;
+        // 迁移域入口级拒绝（#1217 D3/D4）：过渡态车辆增量在迁移日志/
+        // 增量形制中无忠实编码（phase Gate 槽表达不了资源种类与 T 稳定
+        // 边身份），结构化拒绝、零部分提交；不得让 `from_state` 触发 panic。
+        if !VehicleDelta::journalable(&base_state, world.compiled_route(base_state.route)) {
+            return Err(CutoverError::UnsupportedTransitionState(
+                crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
+            ));
+        }
         let delta = VehicleDelta::from_state(&base_state, world.compiled_route(base_state.route));
         let migrated =
             vehicle_state_from_delta(&world.binding.revision, &candidate, rebinding, &delta)?;
@@ -1762,6 +1770,18 @@ pub(crate) fn migrate_conflict_state(
     target_addresses.extend(arbiter.read().addresses());
     target_addresses.retain(|address| inherited_addresses.binary_search(address).is_err());
     for address in target_addresses.iter().copied() {
+        // 归属≠身份（#1217 D3）：过渡资源格的 lag 参照（含新格 CutoverFloor）
+        // 在持久形制中表达不了资源种类与 T 稳定边身份，迁移域 fail closed——
+        // 含 T 格网络跨修订切换结构化拒绝、零部分提交（S5 #1200 交付完整
+        // 格式后在此按资源种类 tagged 身份重绑放开）。
+        if matches!(
+            address.resource(),
+            crate::kernel::conflict::ConflictResource::Transition(_)
+        ) {
+            return Err(CutoverError::UnsupportedTransitionState(
+                crate::UnsupportedTransitionState::TransitionLagHistory,
+            ));
+        }
         arbiter
             .write()
             .restore_lag_reference(
@@ -2097,6 +2117,17 @@ pub(crate) fn project_expected_conflict(
             .unwrap_or(crate::ConflictLagReference::CutoverFloor(commit_time_ms));
         if reference == crate::ConflictLagReference::NoHistory {
             continue;
+        }
+        // 归属≠身份（#1217 D3 防御）：过渡资源格的 lag 行在持久形制中表达
+        // 不了资源种类与 T 稳定边身份；迁移入口（`migrate_conflict_state`）
+        // 已拒绝含 T 目标格，此处兜底同口径，不得以归属对顶替。
+        if matches!(
+            target_address.resource(),
+            crate::kernel::conflict::ConflictResource::Transition(_)
+        ) {
+            return Err(CutoverError::UnsupportedTransitionState(
+                crate::UnsupportedTransitionState::TransitionLagHistory,
+            ));
         }
         let locator = target
             .conflict_passage_locator(target_address)

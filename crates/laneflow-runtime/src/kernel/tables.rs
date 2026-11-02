@@ -332,6 +332,27 @@ impl CompiledRoute {
         let position = within.partition_point(|(_, index)| *index < cursor);
         within.get(position).map(|(_, index)| *index)
     }
+
+    /// 该 `(maneuver occurrence, 准入 hop)` 是否被过渡资源出现项覆盖
+    /// （混合 hop 同真；#1217 归属≠身份统一判定）。
+    ///
+    /// 持久化/迁移各面按**资源种类**而非「hop 能否解析出 Gate」决定拒绝：
+    /// T 出现项的准入 hop 是前驱边下标、无真实 Gate，混合 hop 还可能巧合
+    /// 解析到其他机动的 Gate——按解析结果放行即写入错误准入身份。
+    pub(crate) fn admission_hop_transition_covered(
+        &self,
+        maneuver_occurrence_index: u32,
+        admission_hop: u32,
+    ) -> bool {
+        self.conflicts.iter().any(|occurrence| {
+            occurrence.maneuver_index == maneuver_occurrence_index
+                && occurrence.admission_hop == admission_hop
+                && matches!(
+                    occurrence.resource,
+                    crate::kernel::conflict::ConflictResource::Transition(_)
+                )
+        })
+    }
 }
 
 #[cfg(test)]
@@ -2236,7 +2257,7 @@ mod unique_entry_path_match_tests {
 }
 
 #[cfg(test)]
-mod compile_route_tests {
+pub(crate) mod compile_route_tests {
     use super::*;
     use std::sync::Arc;
 
@@ -2318,7 +2339,7 @@ mod compile_route_tests {
     /// S3（#1194）：合成样本网络（`sample/minimal-closed-loop.json` v5 派生）。
     /// 来源保真：合成来源原生声明（SyntheticDsl）；`T01` 为 uncovered 非 junction
     /// 过渡段（前后邻边分属同走廊不同 lane 链），不冒充 SUMO connection。
-    mod s3_lane_change {
+    pub(crate) mod s3_lane_change {
         // R 断言链式注记（#1199 评审 P1 4438941172）：R 群（R1a/R1b/R2/R3）
         // 的 P4 面以链式让行证明为准——遮挡跳过已演化为「能在前车投影停点
         // 之后停住」证明（各车自身 profile）；证不了→potential enterer
@@ -2355,7 +2376,7 @@ mod compile_route_tests {
             ("R0", 82.0, 62.0, 0.0, -20.0, 0.0),
         ];
 
-        pub(super) fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+        pub(crate) fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
             let limits = CompileLimits::p100_initial_v1();
             let header = SourceModuleHeader::new(
                 SourceModuleHeaderInput {
@@ -3110,7 +3131,7 @@ mod compile_route_tests {
         /// 混合 v7 流-bearing 夹具构造（R-1…R-16 全约束）：合成侧=全部边+
         /// 覆盖+帧几何+successor 链内闭合；road-editing=纯冲突声明。返回
         /// 共享静态路网修订（R1–R3 验收与绑定集成共用载体）。
-        fn stream_bearing_revision()
+        pub(crate) fn stream_bearing_revision()
         -> std::sync::Arc<laneflow_static_network::SharedNetworkRevision> {
             use laneflow_compiler::road_editing as editing;
             use laneflow_compiler::{
@@ -3653,7 +3674,7 @@ mod compile_route_tests {
 
         /// v7 夹具世界安装（R1–R3 验收共用；钉版 WorldConfig 2 载具/2 路线/
         /// 16 边出现/8 冲突出现/100ms 步长）。
-        fn install(
+        pub(crate) fn install(
             revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
         ) -> crate::TrafficWorld {
             let origin = *revision.canonical_origin();

@@ -31,7 +31,9 @@ impl StateDigest {
 ///
 /// 全部失败模式无副作用：预留 / 限额失败宿主清点后可直接重试；不变量
 /// 破坏说明 C(T) 已不可规范化，该比较点按 `Incomplete` 记录，不得跳过
-/// 坏记录、补默认值或签发看似有效的摘要（完整性设计 §4.3）。
+/// 坏记录、补默认值或签发看似有效的摘要（完整性设计 §4.3）。过渡状态
+/// 拒绝（#1217）与不变量破坏严格区分：世界健康、只是当前持久形制表达
+/// 不了，同样不签发摘要但不适用停用处置。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum SnapshotDigestError {
     /// 规范化缓冲或分组表容量预留失败。
@@ -43,6 +45,10 @@ pub enum SnapshotDigestError {
     /// 已提交状态破坏摘要前置不变量（与资源不足分开报告）。
     #[error("已提交状态破坏摘要前置不变量: {0}")]
     InvariantViolation(StateInvariantViolation),
+    /// 当前持久形制无法忠实表达的过渡状态（#1217；与 `InvariantViolation`
+    /// 严格区分——健康世界的正常运行态，不适用不变量破坏的停用处置）。
+    #[error(transparent)]
+    UnsupportedTransitionState(#[from] crate::kernel::conflict::UnsupportedTransitionState),
 }
 
 /// 直算摘要前置的已提交状态不变量（完整性设计 §4.3；与资源不足分开）。
@@ -711,10 +717,14 @@ impl crate::kernel::state::WorldState {
     /// 分配。归一化 scratch 由 `limits` 约束；预留 / 限额失败无副作用可重试。
     /// 读取真实触达已提交字节，不给结论保留缓存。
     ///
+    /// 过渡状态（#1217）以 [`SnapshotDigestError::UnsupportedTransitionState`]
+    /// 结构化拒绝——与 [`StateInvariantViolation`] 族严格区分，不走 panic 转译。
+    ///
     /// # Panics
     ///
     /// 不向调用方传播：抽取过程中引用无法解析等 unwind 被入口捕获并按
-    /// [`StateInvariantViolation::Panicked`] 上报。
+    /// [`StateInvariantViolation::Panicked`] 上报（仅兜真 unwind；过渡状态的
+    /// 结构化拒绝不经 panic）。
     pub(crate) fn direct_state_digest(
         &self,
         limits: SnapshotDigestLimits,
@@ -937,9 +947,22 @@ impl crate::kernel::state::WorldState {
         let mut conflict_lag_records = Vec::new();
         digest_try_reserve_exact(&mut conflict_lag_records, conflict_lag_count)?;
         for (address, reference) in self.conflict_read().persisted_lag_rows() {
-            let locator = self
-                .conflict_passage_locator(address)
-                .expect("installed conflict address resolves stable locator");
+            // 归属≠身份（#1217 P1-4）：与 capture 同一口径——过渡资源格的清空
+            // 历史在 v7 表达不了资源种类与 T 稳定边身份，结构化拒绝（独立于
+            // `InvariantViolation` 族），不得静默丢行或以归属对顶替。
+            if matches!(
+                address.resource(),
+                crate::kernel::conflict::ConflictResource::Transition(_)
+            ) {
+                return Err(SnapshotDigestError::UnsupportedTransitionState(
+                    crate::kernel::conflict::UnsupportedTransitionState::TransitionLagHistory,
+                ));
+            }
+            let locator = self.conflict_passage_locator(address).ok_or(
+                SnapshotDigestError::InvariantViolation(
+                    StateInvariantViolation::ConflictAuthorityMismatch,
+                ),
+            )?;
             let captured = crate::admin::snapshot::CapturedConflictLagState {
                 passage: crate::admin::snapshot::CapturedConflictPassageLocator {
                     participant_stream: *locator.participant_stream_stable_id().as_untyped(),
@@ -1056,6 +1079,9 @@ fn direct_capture_error(
                 StateInvariantViolation::ConflictAuthorityMismatch,
             )
         }
+        crate::admin::snapshot::SnapshotCaptureError::UnsupportedTransitionState(state) => {
+            SnapshotDigestError::UnsupportedTransitionState(state)
+        }
     }
 }
 
@@ -1067,12 +1093,14 @@ impl crate::TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 预留失败返回 [`SnapshotDigestError::ReservationFailed`]；scratch 超出
-    /// `limits` 返回 [`SnapshotDigestError::LimitExceeded`]；已提交状态破坏
-    /// 摘要前置不变量（悬空路线句柄、悬空 live-order 引用、Conflict
+    /// 失败族四类：预留失败返回 [`SnapshotDigestError::ReservationFailed`]；
+    /// scratch 超出 `limits` 返回 [`SnapshotDigestError::LimitExceeded`]；已提交
+    /// 状态破坏摘要前置不变量（悬空路线句柄、悬空 live-order 引用、Conflict
     /// authority 与证明不一致、抽取过程 unwind）返回
     /// [`SnapshotDigestError::InvariantViolation`]，该比较点按 `Incomplete` 记录，
-    /// 不签发摘要。
+    /// 不签发摘要；当前持久形制无法忠实表达的过渡状态（#1217）返回
+    /// [`SnapshotDigestError::UnsupportedTransitionState`]——健康世界的正常运行
+    /// 态，不签发摘要但**不得**按不变量破坏处置，世界照常可运行、可重试。
     ///
     /// # Panics
     ///
