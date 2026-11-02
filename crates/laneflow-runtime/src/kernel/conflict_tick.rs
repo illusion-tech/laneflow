@@ -7144,9 +7144,17 @@ impl ConflictTaskView<'_> {
                         }
                     })
                     .min();
-                if let (Some(interval_distance), Some(leader_gap_mm)) = (
+                // P1（#1199 4438941172）：遮挡跳过→链式让行证明——有前车的
+                // 跟随者其潜在进入者资格=证明「能在前车投影停点之后停住」
+                // （各车自身 profile、与 P2-10 档位一致）；证不了→potential
+                // enterer（保守、**不无证排除**——移动前车瞬态与授予后前车
+                // 停→跟随车停不住的动态反转覆盖：证明假定前车停在其投影
+                // 停点=最坏情形；前车离场仅增余量）。链式证明成立排除（前车
+                // 投影停点在区间前且本车可停其后）；s12 互锁由链式证明自然
+                // 消解（双方可停→仲裁推进；任一不可→换道等待）。
+                if let (Some(interval_distance), Some(contact)) = (
                     interval_distance,
-                    self.read.derived.occupancy.leader_gap(
+                    self.read.derived.occupancy.nearest_leader(
                         handle,
                         &other_compiled.edges,
                         other_edge_index,
@@ -7157,12 +7165,54 @@ impl ConflictTaskView<'_> {
                             .traffic()
                             .lane_lengths_millimetres(),
                         crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
+                        false,
                     ),
-                ) && i64::from(interval_distance) > leader_gap_mm
-                    && !in_interval
+                ) && !in_interval
                 {
-                    // 前车遮挡其到区间路径且不在区间内——非潜在进入者。
-                    continue;
+                    let other_profile = self
+                        .read
+                        .binding
+                        .revision
+                        .traffic()
+                        .relations()
+                        .vehicle_profile(other.profile);
+                    let chain_proof = other_profile.and_then(|other_profile| {
+                        let other_service =
+                            (other_profile.comfort_decel().max(0.0) * 1_000.0) as u64;
+                        let other_min_gap = u64::from(other_profile.min_gap_mm());
+                        let leader_state = self.read.committed.vehicles.state(contact.vehicle)?;
+                        let leader_profile = self
+                            .read
+                            .binding
+                            .revision
+                            .traffic()
+                            .relations()
+                            .vehicle_profile(leader_state.profile)?;
+                        let leader_service =
+                            (leader_profile.comfort_decel().max(0.0) * 1_000.0) as u64;
+                        let leader_min_gap = u64::from(leader_profile.min_gap_mm());
+                        let leader_d_stop = crate::kernel::lane_change::stop_distance_millimetres(
+                            u64::from(leader_state.speed_mm_s),
+                            delta_ms,
+                            leader_service,
+                            leader_min_gap,
+                        );
+                        let leader_stop_point = u64::try_from(contact.gap_mm.max(0))
+                            .ok()?
+                            .saturating_add(leader_d_stop);
+                        let can_stop_behind = crate::kernel::lane_change::yieldable_by_stopping(
+                            leader_stop_point,
+                            u64::from(other.speed_mm_s),
+                            delta_ms,
+                            other_service,
+                            other_min_gap,
+                        );
+                        Some(can_stop_behind && leader_stop_point <= u64::from(interval_distance))
+                    });
+                    if chain_proof == Some(true) {
+                        continue;
+                    }
+                    // 证不了→potential enterer（保守——落后续停止距离证明）。
                 }
                 let other_edge = other_compiled
                     .edges
