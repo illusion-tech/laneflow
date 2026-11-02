@@ -375,6 +375,20 @@ fn evaluate_gate_hop(
         |entry| entry.exit_route_edge_index <= gate_hop
     });
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
+    // P1-3（#1199）：尾过渡锚统一沿 bind 回退语义——Transition 出现项的
+    // 锚=发射侧 bind 的 maneuver_index（后继优先/前驱回退/平局取首），
+    // 不用分区点重导（末 maneuver 后的过渡分区点错位）。
+    let maneuver_index = compiled
+        .conflicts
+        .get(range.start as usize)
+        .filter(|occurrence| {
+            matches!(
+                occurrence.resource,
+                crate::kernel::conflict::ConflictResource::Transition(_)
+            )
+        })
+        .map(|occurrence| occurrence.maneuver_index as usize)
+        .unwrap_or(maneuver_index);
     // 门 hop 须落在某 maneuver occurrence 内；无 gate 的冲突 hop（过渡
     // 资源 hop，#1199 修形①②）位于其穿越 maneuver 起点之前——锚定首个
     // 后续 maneuver（partition_point 的首个 exit > hop 者），不作容含检查。
