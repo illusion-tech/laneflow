@@ -6367,6 +6367,7 @@ mod preview {
             occurrence_segments: vec![0, 0],
             occurrence_offsets: vec![0, 74_266],
             segment_totals: vec![75_266],
+            edge_occurrence_index: Box::default(),
             next_controlled: vec![None, None],
             speed_limit_drop: vec![crate::kernel::tables::SpeedLimitDrop {
                 from_route_edge_index: 0,

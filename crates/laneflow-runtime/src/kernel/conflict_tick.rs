@@ -6919,6 +6919,149 @@ fn resource_shape(
     }
 }
 
+/// P4 潜在进入者枚举结果（#1216 域 B②）：区间邻域逐条目近端距。
+pub(crate) struct EntrantNeighborhood {
+    /// 区间 T 边自身 + 直接邻居（区间边界目标候选集）。
+    pub(crate) first_ring: Vec<laneflow_static_contract::LaneEdgeOrdinal>,
+    /// 枚举条目 `(边, 近端距毫米)`，发现序（确定性）。
+    pub(crate) entries: Vec<(laneflow_static_contract::LaneEdgeOrdinal, u64)>,
+}
+
+/// P4 搜索范围导出（#1216）：`reach = max_{profile ∈ 修订} d_stop(
+/// MAX_SPEED_MM_S, 固定步长, comfort_decel, min_gap)`——受检 profile 与步长
+/// 的最坏具名四项停止距离（250m 固定常量删除：受检 profile/步长组合的
+/// 制动距离可达 10km 量级，任何固定半径都无输入上界支撑）。reach 之外的
+/// 车 `d_stop ≤ reach < 实际距` 恒可让行，剪枝不漏（I-B1 方向保持）。
+///
+/// `comfort_decel == 0` 的 profile 令 `d_stop = u64::MAX`（不可证 → 整可达
+/// 分支枚举，有限图 visited 集终止）；无 profile 或 profile 数据缺失同样取
+/// `u64::MAX` fail-closed（#1199：证明前提不可得即 no-grant，不静默放行）。
+pub(crate) fn entrant_stop_reach_mm(
+    traffic: &laneflow_static_network::SharedTrafficNetwork,
+    delta_ms: u64,
+) -> u64 {
+    let relations = traffic.relations();
+    let profiles = traffic
+        .entity_counts()
+        .count(laneflow_static_contract::EntityKind::VehicleProfile);
+    let mut reach: Option<u64> = None;
+    for raw in 0..profiles {
+        let Some(profile) = relations.vehicle_profile(
+            laneflow_static_contract::VehicleProfileOrdinal::from_raw(raw),
+        ) else {
+            return u64::MAX;
+        };
+        let service = (profile.comfort_decel().max(0.0) * 1_000.0) as u64;
+        let stop = crate::kernel::lane_change::stop_distance_millimetres(
+            u64::from(laneflow_static_contract::MAX_SPEED_MM_S),
+            delta_ms,
+            service,
+            u64::from(profile.min_gap_mm()),
+        );
+        reach = Some(reach.map_or(stop, |current: u64| current.max(stop)));
+    }
+    reach.unwrap_or(u64::MAX)
+}
+
+/// P4 潜在进入者枚举（#1216 域 B②）：区间 T 边可达分支的逐条目近端距
+/// 游走。`depth` = 条目边近端（较近端点）到区间两端点的最短分支路线距离，
+/// 条目互不共享、min 松弛在有限图上收敛（visited 标签表终止）。剪枝只用
+/// 近端距（`depth ≤ reach_mm` 才入列——边上存在可达点），逐进入者证明仍用
+/// 既有实际距（不松）。前驱邻居连接在当前边近端一侧，深度按连接点实算
+/// ——逐字 `depth(c) + len(c)` 会在长共享边后多计整条共享边、误剪实际距
+/// 小于 `d_stop` 的车（I-B1 不漏反例见测试
+/// `a2_long_shared_edge_prune_keeps_predecessor_near_end`）。
+pub(crate) fn entrant_neighborhood(
+    traffic: &laneflow_static_network::SharedTrafficNetwork,
+    interval_edge: laneflow_static_contract::LaneEdgeOrdinal,
+    reach_mm: u64,
+) -> EntrantNeighborhood {
+    use laneflow_static_contract::LaneEdgeOrdinal;
+    let length_of = |edge: LaneEdgeOrdinal| -> u64 {
+        u64::from(
+            *traffic
+                .lane_lengths_millimetres()
+                .get(edge.index())
+                .unwrap_or(&0),
+        )
+    };
+    let mut first_ring: Vec<LaneEdgeOrdinal> = vec![interval_edge];
+    for neighbor in traffic
+        .successors(interval_edge)
+        .unwrap_or_default()
+        .iter()
+        .chain(traffic.predecessors(interval_edge).unwrap_or_default())
+    {
+        if *neighbor != interval_edge && !first_ring.contains(neighbor) {
+            first_ring.push(*neighbor);
+        }
+    }
+    // 标签表 `(边, 起点端深, 终点端深)`：共享端点双向 min 松弛（非负权
+    // 有限图收敛到精确最短路）；`u64::MAX` = 未达。
+    let mut labels: Vec<(LaneEdgeOrdinal, u64, u64)> = Vec::new();
+    let mut worklist: Vec<usize> = Vec::new();
+    let slot_of = |labels: &mut Vec<(LaneEdgeOrdinal, u64, u64)>,
+                   worklist: &mut Vec<usize>,
+                   edge: LaneEdgeOrdinal|
+     -> usize {
+        if let Some(position) = labels
+            .iter()
+            .position(|(candidate, _, _)| *candidate == edge)
+        {
+            position
+        } else {
+            labels.push((edge, u64::MAX, u64::MAX));
+            worklist.push(labels.len() - 1);
+            labels.len() - 1
+        }
+    };
+    let seeded = slot_of(&mut labels, &mut worklist, interval_edge);
+    labels[seeded] = (interval_edge, 0, 0);
+    while let Some(current) = worklist.pop() {
+        let (edge, start, end) = labels[current];
+        // 近端距已超界的条目不再扩张：其可达近端必经更远端点，靠内侧的
+        // 邻居仍由近端一侧入列（剪枝不漏）。
+        if start.min(end) > reach_mm {
+            continue;
+        }
+        let length = length_of(edge);
+        let mut next_start = start.min(end.saturating_add(length));
+        let mut next_end = end.min(start.saturating_add(length));
+        for neighbor in traffic.successors(edge).unwrap_or_default() {
+            let slot = slot_of(&mut labels, &mut worklist, *neighbor);
+            let shared = next_end.min(labels[slot].1);
+            if shared < labels[slot].1 {
+                labels[slot].1 = shared;
+                worklist.push(slot);
+            }
+            next_end = next_end.min(shared);
+        }
+        for neighbor in traffic.predecessors(edge).unwrap_or_default() {
+            let slot = slot_of(&mut labels, &mut worklist, *neighbor);
+            let shared = next_start.min(labels[slot].2);
+            if shared < labels[slot].2 {
+                labels[slot].2 = shared;
+                worklist.push(slot);
+            }
+            next_start = next_start.min(shared);
+        }
+        if (next_start, next_end) != (labels[current].1, labels[current].2) {
+            labels[current].1 = next_start;
+            labels[current].2 = next_end;
+            worklist.push(current);
+        }
+    }
+    let entries = labels
+        .into_iter()
+        .filter(|(_, start, end)| (*start).min(*end) <= reach_mm)
+        .map(|(edge, start, end)| (edge, start.min(end)))
+        .collect();
+    EntrantNeighborhood {
+        first_ring,
+        entries,
+    }
+}
+
 impl ConflictTaskView<'_> {
     /// 共用领域段（#706 R3-3a）：单个冲突出现项的 cell 字段求值——地址
     /// 收集、规则流解析与 priority 最小值归约、Protected 跳过让行间隙、
@@ -7039,53 +7182,29 @@ impl ConflictTaskView<'_> {
             .edges
             .get(occurrence.entry.route_edge_index as usize)?;
         let traffic = self.read.binding.revision.traffic();
-        // 域 B（#1199 总设计三段式）：②停止距离可达域枚举——弃固定两跳
-        // 上限，沿 lane-graph 上/下游游走至停止距离半径（I-B1 枚举域 ⊇
-        // d_stop 可达域；半径=250m 包络任意档案最坏 d_stop；边集含环游标
-        // 重复段——共享边天然覆盖 I-B3）。
-        const MAX_STOP_REACH_MM: u32 = 250_000;
-        let mut first_ring = vec![interval_edge];
-        let mut neighborhood = vec![interval_edge];
-        let mut reached = vec![interval_edge];
-        let mut depth_mm = 0_u32;
-        while depth_mm < MAX_STOP_REACH_MM && !reached.is_empty() {
-            let mut next = Vec::new();
-            for edge in &reached {
-                for neighbor in [traffic.successors(*edge), traffic.predecessors(*edge)]
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                {
-                    if !neighborhood.contains(neighbor) {
-                        neighborhood.push(*neighbor);
-                        next.push(*neighbor);
-                        depth_mm = depth_mm.saturating_add(
-                            traffic
-                                .lane_lengths_millimetres()
-                                .get(neighbor.index())
-                                .copied()
-                                .unwrap_or(u32::MAX),
-                        );
-                    }
-                }
-            }
-            if first_ring.len() == 1 {
-                first_ring.extend(neighborhood.iter().copied().skip(1));
-            }
-            reached = next;
-        }
-        // 区间边界目标（进入者路线到 T 的最短路线空间距离）。
-        let boundary_targets = |route_edges: &[laneflow_static_contract::LaneEdgeOrdinal]| {
+        // 域 B（#1199 总设计三段式）②停止距离可达域枚举（#1216 修）：逐
+        // 条目近端距游走（`entrant_neighborhood`）——I-B1 枚举域 ⊇ d_stop
+        // 可达域：剪枝按近端距（不漏），证明按逐进入者实际距（不松）；
+        // 半径 `reach` 由修订内 profile/步长最坏 d_stop 导出（250m 固定常
+        // 量删除——受检组合制动距离可达 10km 量级，固定半径无输入上界支
+        // 撑）。边集含环游标重复段——共享边天然覆盖 I-B3。
+        let reach_mm = entrant_stop_reach_mm(traffic, delta_ms);
+        let neighborhood = entrant_neighborhood(traffic, interval_edge, reach_mm);
+        let first_ring = &neighborhood.first_ring;
+        // 区间边界目标（进入者路线到 T 的最短路线空间距离）：目标出现项
+        // 从进入者游标定位「首次不早于游标」（#1216）——循环路线重复边
+        // 不得回选身后出现项（身后目标返 `None` 是正确语义，误选会把真实
+        // 前方进入者误判「已过区间」跳过证明）。
+        let boundary_targets = |route: &crate::kernel::tables::CompiledRoute, cursor: u32| {
             let mut targets = Vec::new();
-            if let Some(index) = route_edges.iter().position(|edge| *edge == interval_edge) {
-                targets.push((index, occurrence.entry.progress_mm));
+            if let Some(index) = route.first_edge_occurrence_at_or_after(interval_edge, cursor) {
+                targets.push((index as usize, occurrence.entry.progress_mm));
             } else {
-                for edge in &first_ring {
+                for edge in first_ring {
                     if *edge == interval_edge {
                         continue;
                     }
-                    let Some(index) = route_edges.iter().position(|candidate| candidate == edge)
-                    else {
+                    let Some(index) = route.first_edge_occurrence_at_or_after(*edge, cursor) else {
                         continue;
                     };
                     let progress = if traffic
@@ -7100,12 +7219,12 @@ impl ConflictTaskView<'_> {
                             .copied()
                             .unwrap_or(u32::MAX)
                     };
-                    targets.push((index, progress));
+                    targets.push((index as usize, progress));
                 }
             }
             targets
         };
-        for edge in neighborhood {
+        for &(edge, _) in &neighborhood.entries {
             for handle in self.read.derived.occupancy.edge_vehicles(edge.index()) {
                 if handle == state.handle {
                     continue;
@@ -7127,7 +7246,7 @@ impl ConflictTaskView<'_> {
                             .successors(interval_edge)
                             .is_some_and(|list| list.contains(&edge))
                     });
-                let interval_distance = boundary_targets(&other_compiled.edges)
+                let interval_distance = boundary_targets(other_compiled, other.route_edge_index)
                     .into_iter()
                     .filter_map(|(target_index, target_progress)| {
                         match crate::kernel::tables::distance_to_occurrence_progress(
@@ -7232,7 +7351,9 @@ impl ConflictTaskView<'_> {
                     return Some(unprovable);
                 }
                 let mut best: Option<u32> = None;
-                for (target_index, target_progress) in boundary_targets(&other_compiled.edges) {
+                for (target_index, target_progress) in
+                    boundary_targets(other_compiled, other.route_edge_index)
+                {
                     match crate::kernel::tables::distance_to_occurrence_progress(
                         &other_compiled.occurrence_segments,
                         &other_compiled.occurrence_offsets,
