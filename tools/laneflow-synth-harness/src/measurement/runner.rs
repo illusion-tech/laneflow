@@ -270,7 +270,7 @@ fn run_inner(
 ) -> Result<Value, Error> {
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
-    let case = plan.identity.case;
+    let case = plan.identity.case.clone();
     require(
         match case {
             Case::W2 => percent == 0,
@@ -691,7 +691,7 @@ fn create_app(
 pub fn guardrail(input: &Path, output: &Path) -> Result<Value, Error> {
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
-    require(plan.identity.case == Case::W1, || {
+    require(matches!(&plan.identity.case, Case::W1), || {
         "调度 guardrail 使用 W1".into()
     })?;
     fs::create_dir(output)?;

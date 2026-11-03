@@ -93,7 +93,7 @@ impl Driver {
     fn finish(&self, plan: &Plan) -> Result<(), Error> {
         match self {
             Self::Burst(b) => b.finish(plan),
-            Self::Simple(s) if plan.identity.case == Case::L1 => {
+            Self::Simple(s) if plan.identity.lane_change().is_some() => {
                 // L 族：恰两换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
                 let cluster = s.lane_change_route.expect("L 族簇路线");
                 require(
@@ -235,7 +235,7 @@ fn read(path: &Path) -> Result<Value, Error> {
 /// 末态记录（#1218）：W 族 = 规范状态投影 + 宿主累计；L 族 = 面 B 记录
 ///（结构化拒绝变体 + 真实资源身份/历史投影）+ 宿主累计。
 fn final_record(plan: &Plan, driver: &Driver, records: &Records) -> Result<Value, Error> {
-    if plan.identity.case == Case::L1 {
+    if plan.identity.lane_change().is_some() {
         Ok(
             json!({"face_b":{"persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,
             "t_state":crate::lane_change_t_state(driver.sample())},
@@ -261,8 +261,8 @@ fn validate_implementation(implementation: &str) -> Result<(), Error> {
 
 fn positions(plan: &Plan, probe: bool) -> [(u64, bool); 2] {
     let w = plan.warm_up_ticks;
-    match plan.identity.case {
-        Case::W1 | Case::W2 | Case::L1 => {
+    match &plan.identity.case {
+        Case::W1 | Case::W2 | Case::LaneChange(_) => {
             [(w, false), (if probe { w + 128 } else { 2 * w }, false)]
         }
         Case::W3 => [(w + 1, false), (w + 1, true)],
@@ -365,7 +365,7 @@ pub fn reference(
             end,
             plan.identity.scale,
             0,
-            plan.identity.case == Case::L1,
+            plan.identity.lane_change().is_some(),
         )?;
         let mut archives = Vec::new();
         let mut outcome = None;
@@ -521,7 +521,7 @@ pub fn resume(
             end,
             plan.identity.scale,
             host.tick + 1,
-            plan.identity.case == Case::L1,
+            plan.identity.lane_change().is_some(),
         )?;
         records.journal.count = host.command_count;
         records.journal.blocked = host.blocked;

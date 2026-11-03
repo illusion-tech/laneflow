@@ -51,7 +51,7 @@ impl Burst {
         outcome: Option<&StepOutcome>,
     ) -> Result<blake3::Hash, Error> {
         let dt = self.sample.state.identity.fixed_delta_ms;
-        let case = self.sample.state.identity.case;
+        let case = self.sample.state.identity.case.clone();
         let cells = self.arrivals.len();
         require(
             self.sample.world.tick_index() == tick
@@ -93,7 +93,7 @@ impl Burst {
                 .binary_search_by_key(&group.raw(), |(g, _)| g.raw())
                 .map_err(|_| failure("signal group", rank))?;
             require(
-                signals.as_slice()[index].1 == aspect(case, rank / 4, rank % 4, tick, dt),
+                signals.as_slice()[index].1 == aspect(case.clone(), rank / 4, rank % 4, tick, dt),
                 || format!("signal aspect tick={tick} route={rank}"),
             )?;
         }
@@ -216,7 +216,7 @@ impl Burst {
                     previous.route_edge_index() == 0
                         && state.route_edge_index() == 1
                         && tick > 0
-                        && aspect(case, rank / 100, route_rank % 4, tick - 1, dt)
+                        && aspect(case.clone(), rank / 100, route_rank % 4, tick - 1, dt)
                             == SignalAspect::Green,
                     || format!("transition/signal causality tick={tick} rank={rank}"),
                 )?;
@@ -361,7 +361,7 @@ impl Burst {
     }
 
     pub(super) fn finish(&self, plan: &Plan) -> Result<(), Error> {
-        let case = plan.identity.case;
+        let case = plan.identity.case.clone();
         let cells = self.arrivals.len();
         require(
             self.pending.is_empty() && self.completions.len() == cells && self.counts[2] == 0,

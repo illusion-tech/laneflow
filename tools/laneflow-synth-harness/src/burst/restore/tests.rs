@@ -6,7 +6,7 @@ use laneflow_synth_generator::{Identity, Provenance, generate};
 fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
     for case in [Case::W1, Case::W2, Case::W3, Case::W4] {
         let bundle = generate(
-            Identity::new(10_000, case, 16).unwrap(),
+            Identity::new(10_000, case.clone(), 16).unwrap(),
             Provenance {
                 source_commit: "a".repeat(40),
                 generator_commit: "b".repeat(40),
