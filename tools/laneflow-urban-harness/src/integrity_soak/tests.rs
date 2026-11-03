@@ -459,13 +459,13 @@ fn supervisor_pipe_disconnect_stops_a_paused_resident() {
 }
 
 #[test]
-#[ignore = "资源看护超时回归夹具，只由指定子进程调用"]
+#[ignore = "资源看护超时回归 fixture，只由指定子进程调用"]
 fn hanging_child() {
     thread::sleep(Duration::from_secs(60));
 }
 
 #[test]
-#[ignore = "资源看护后代清理回归夹具，只由指定子进程调用"]
+#[ignore = "资源看护后代清理回归 fixture，只由指定子进程调用"]
 fn hanging_parent() {
     let output = std::path::PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").unwrap());
     let mut child = supervisor::command("integrity_soak::tests::hanging_child")
@@ -487,7 +487,7 @@ fn hanging_parent() {
 }
 
 #[test]
-#[ignore = "短运行不得伪装完整采集的负向回归夹具"]
+#[ignore = "短运行不得伪装完整采集的负向回归 fixture"]
 fn premature_success() {
     let output = std::path::PathBuf::from(std::env::var_os("LF_SOAK_OUTPUT").unwrap());
     let spec: supervisor::Spec = control::read_json(&output.join("config.json")).unwrap();

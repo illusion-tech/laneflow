@@ -273,7 +273,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   钉版、workspace unsafe 边界的 hermetic 双特性编译与注入金丝雀，以及运行时模块
   架构检查（自 `Rust checks` 拆出，#1061）。与 `Rust checks` 并行执行，压缩合并
   路径关键路径；非 Rust 路径变更时以 skip 模式成功完成。
-- `Evidence fixture tests`：证据仪器与夹具重测（urban-harness 浸泡/存档/报告仪器、urban-generator 生成器、bevy `corridor_traffic_smoke` 走廊夹具），自 `Rust checks` 的 workspace 步拆出、与之并行（#1108）；workspace 步跑补集，两处合计覆盖不变。非 Rust 路径跳过并显式记录 skip。`RUSTC_WRAPPER` 与 sccache 接线同 `Rust checks`。
+- `Evidence fixture tests`：证据仪器与 fixture 重测（urban-harness 浸泡/存档/报告仪器、urban-generator 生成器、bevy `corridor_traffic_smoke` 走廊 fixture），自 `Rust checks` 的 workspace 步拆出、与之并行（#1108）；workspace 步跑补集，两处合计覆盖不变。非 Rust 路径跳过并显式记录 skip。`RUSTC_WRAPPER` 与 sccache 接线同 `Rust checks`。
 - `Placement fixture tests`：`placement-fixtures` 是空 feature，开启时全量重跑
   运行时、情景包与 junction-generator 以护栏 feature 副作用，用来编译并执行
   “已经在路上”的回归：

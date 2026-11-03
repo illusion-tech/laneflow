@@ -294,7 +294,7 @@ fn admission_rejects_extra_visible_interfaces_including_traits() {
 fn admission_checks_concrete_types_and_complete_function_inventory() {
     let fixture = SourceFixture::new("", "");
     for mutated in [
-        ADMISSION.replace("-> Vec<u8>", "-> impl Iterator<Item = u8>"), // 语法夹具：todo! 的推断不足，不用于编译证据。
+        ADMISSION.replace("-> Vec<u8>", "-> impl Iterator<Item = u8>"), // 语法 fixture：todo! 的推断不足，不用于编译证据。
         ADMISSION.replace("-> Vec<u8>", "-> u32"),
         ADMISSION.replace("fn encode_lfrs(", "fn encode_lfrs<T>("),
         ADMISSION.replace("pub(super) fn encode_lfrs", "fn encode_lfrs"),

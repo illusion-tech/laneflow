@@ -1,4 +1,4 @@
-//! 认证比较阶段夹具；默认发布构建不包含此模块或调用点。
+//! 认证比较阶段 fixture；默认发布构建不包含此模块或调用点。
 //! 独立拥有的修订视图不等于在用 backing 改写、物理共页或硬件故障注入。
 
 use std::{cell::RefCell, collections::VecDeque, sync::Arc};
@@ -71,7 +71,7 @@ pub fn with_root_comparisons<T>(
     let result = operation();
     COMPARISONS.with(|slot| {
         let injection = slot.borrow();
-        // 比较阶段 panic 会被认证核心归类，夹具误用必须在该边界外再次拒绝。
+        // 比较阶段 panic 会被认证核心归类，fixture 误用必须在该边界外再次拒绝。
         assert!(!injection.invalid, "comparison injection was misused");
         assert!(injection.views.is_empty(), "comparison views not consumed");
     });

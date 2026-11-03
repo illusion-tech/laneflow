@@ -22,7 +22,7 @@ target/release/laneflow-urban-generator --config examples/config/cn-urban.toml -
 target/release/laneflow-urban-generator compare target/urban/100k-a target/urban/100k-b
 ```
 
-小型规范夹具使用 `--scale fixture`，由两个相邻完整 tile、20 个 cells 组成；同样
+小型规范 fixture 使用 `--scale fixture`，由两个相邻完整 tile、20 个 cells 组成；同样
 执行两次并比较。测试执行该完整链路，仓库的 `fixtures/v1` 保存其配置入口、规范
 manifest 与摘要基线。正式两档的报告在 `fixtures/v1/10k`、`fixtures/v1/100k`。
 生成的大型 LFRE / LFCA / LFSM / LFSD 和路线目录放在忽略的 `target/`，不依赖远端发布。
@@ -49,7 +49,7 @@ manifest 与摘要基线。正式两档的报告在 `fixtures/v1/10k`、`fixture
 
 本节描述当前二进制输出的模板，权威细节在
 [城市工作负载设计](../../docs/design/chinese-style-city-workload.md) §3.2。配置标识、
-夹具和本节一起替换单车道模板，不保留旧模板开关。
+fixture 和本节一起替换单车道模板，不保留旧模板开关。
 
 `examples/config/cn-urban.toml` 将固定 `connected-cn-urban-v2`、十个模板槽、按车道序号的
 相邻连接和边界端口规则。`cn-urban-template-v2` 是固定模板集；更改固定规则须修改版本与

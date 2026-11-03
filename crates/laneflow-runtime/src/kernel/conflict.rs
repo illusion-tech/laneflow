@@ -2260,7 +2260,7 @@ impl ConflictArbiter {
         Self::from_sorted_unique_addresses(addresses, vehicle_capacity, stream_count as usize)
     }
 
-    /// 测试夹具沿用共享静态路网的密集 stream/local 形状；不提供第二个生产安装入口。
+    /// 测试 fixture 沿用共享静态路网的密集 stream/local 形状；不提供第二个生产安装入口。
     #[cfg(test)]
     pub(crate) fn new(
         mut addresses: Vec<ConflictPassageAddress>,

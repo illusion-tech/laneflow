@@ -131,7 +131,7 @@ pub(super) fn verify(
     Ok(())
 }
 
-/// 合成夹具：按给定观察窗分量写出逐拍计时，并把声明与副本写回 diagnostics。
+/// 合成 fixture：按给定观察窗分量写出逐拍计时，并把声明与副本写回 diagnostics。
 #[cfg(test)]
 pub(super) fn write_fixture(
     directory: &Path,

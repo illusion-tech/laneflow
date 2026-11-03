@@ -17,7 +17,7 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
-/// 信号化走廊 LFCA 夹具字节。
+/// 信号化走廊 LFCA fixture 字节。
 pub const CORRIDOR: &[u8] =
     include_bytes!("../../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
@@ -39,7 +39,7 @@ pub fn build() -> Arc<SharedNetworkRevision> {
     .expect("build")
 }
 
-/// 以给定 asset key 构造走廊夹具的已提交路网来源。
+/// 以给定 asset key 构造走廊 fixture 的已提交路网来源。
 pub fn source_for(key: &str) -> CommittedNetworkSource {
     let input = check_canonical_network_input(CORRIDOR, FormatLimits::HARD).expect("checked");
     CommittedNetworkSource::Published {

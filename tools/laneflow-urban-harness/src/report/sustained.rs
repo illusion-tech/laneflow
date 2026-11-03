@@ -482,7 +482,7 @@ mod tests {
     use serde_json::json;
     use std::io::Write;
 
-    // 运行记录校验夹具，无交通求值或正式性能证明；真实运行另用冻结的城市制品。
+    // 运行记录校验 fixture，无交通求值或正式性能证明；真实运行另用冻结的城市制品。
     fn packet(directory: &Path, execution: &str, workers: u32) -> Result<Fixture> {
         let mut fixture = Fixture::new(directory)?;
         let target = 10_000;

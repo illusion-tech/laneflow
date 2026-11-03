@@ -372,7 +372,7 @@ install 核对、`register_route` 重建，以及后继 #302 快照/修订切换
 
 ### 6.2 必做的证明
 
-地图：compiler 已冻夹具 `lfca-full-spatial`
+地图：compiler 已冻 fixture `lfca-full-spatial`
 （`crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/`）。
 它含 Identity、信号、停车、lane-pose 几何和可组成
 `entry → middle → exit` 的边。
@@ -382,12 +382,12 @@ Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同�
 
 - `install` 成功且只保留一根 `Arc`；
 - 两车都能推进；后车受前车约束可观察（跟车或至少不能穿透前车占用）；
-- 因夹具有 `lane_pose`，同一 `Arc` 上 `bind` 后用 `committed_pose_sources()`
+- 因 fixture 有 `lane_pose`，同一 `Arc` 上 `bind` 后用 `committed_pose_sources()`
   构造 pose 输入，`extract_pose_batch` 能产出 pose 批次；
 - 安装或步进失败不留下半个 world；
 - 测试 crate 不链接 `laneflow-core`。
 
-不要求：完整停车离场状态机、红灯停止线的独立故事夹具、多 worker、走廊规模人口、
+不要求：完整停车离场状态机、红灯停止线的独立故事 fixture、多 worker、走廊规模人口、
 与任何历史 Core 轨迹相等。S1 是共享路网修订集成证据，**不能**单独替代下列 Runtime
 原生覆盖。
 
@@ -437,7 +437,7 @@ CI 必须同时：
 空实现若只过 S1 两车推进/pose 不得视为完成。停车 lifecycle 已由 #541 独立切片交付；
 受保护转向走廊、50–200 辆人口及其余历史变体仍按各自 Issue 完成验收。
 
-这些测试只链接 `laneflow-runtime`（及共享静态路网/format/compiler 夹具），不链接
+这些测试只链接 `laneflow-runtime`（及共享静态路网/format/compiler fixture），不链接
 `laneflow-core`。
 
 ## 7. 拆除（合入 `main` 的完成定义）

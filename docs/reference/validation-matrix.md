@@ -124,7 +124,7 @@ issue 为准，本表只做判读入口，不复制诊断结论。
 | `NonFiniteMotion` 家族偶发                                                                                          | `phase_equivalence` 等                                                                           | —（已修，任何命中即回归）                                                                                      | 故障注入跨武装世界引爆                                                                                                                                                                                                              | 已修（#795）· #792                     |
 | 取样脚本报 FAILED 但目标 `test result: ok`                                                                          | 自建循环取样脚本                                                                                 | 目标二进制 `test result: ok` 即脚本误报                                                                        | 检查匹配是否大小写不敏感、是否误计 `catch_unwind` 预期失败 stderr                                                                                                                                                                   | 方法论教训（#794 iter 5）              |
 
-`sustained` 测试夹具另输出 `[digest-probe] site=fixture-copy name=<文件>`（#1043）：
+`sustained` 测试 fixture 另输出 `[digest-probe] site=fixture-copy name=<文件>`（#1043）：
 `phase=source` 核对复制源，按首次写出登记最多重建同份 pristine 三次；
 `phase=before-edit` / `before-compare` 在解析或比较前核对写时摘要，失配即失败。
 现场包含期望 / 实际摘要与长度、实际头 32 字节及路径；非预期 panic 保留临时目录。
@@ -174,7 +174,7 @@ CLI 捕获输出仍原样交给原测试断言。总日志中的 `[child-diagnos
    转储达 16 份后跳过新内容并输出 `dump skipped`，判读留档后人工清空。只在失配分支
    写盘，不改变失败语义。仓库 cargo 配置禁止 `[env]` 段（`check-wire-audit`），故不以环境
    变量注入默认目录。
-2. **金样本**：用失败测试所用的配置与规模重新生成健康产物，例如 urban-harness 夹具：
+2. **金样本**：用失败测试所用的配置与规模重新生成健康产物，例如 urban-harness fixture：
 
    ```powershell
    cargo +1.99.1 run --locked -p laneflow-urban-generator -- --config examples/config/cn-urban.toml --scale fixture --output <新目录>

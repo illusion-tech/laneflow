@@ -204,7 +204,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 ### 7. 实现一致性
 
-编译器 IR、LFCA 发射、共享静态路网、Runtime 路线注册、场景 catalog 与夹具必须原子
+编译器 IR、LFCA 发射、共享静态路网、Runtime 路线注册、场景 catalog 与 fixture 必须原子
 遵循本合同；不得恢复米制 IR、旧格式读取器或第二套路线上车路径。
 
 ## 明确不做
@@ -273,7 +273,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 生产路径无 `StaticRoute` / `static_route`；旧 LFCA 含该实体或版本不匹配当前登记
   则失败关闭。
 - 走廊、Bevy smoke、`quickstart`、替换/回流测试只通过 `register_route` 放车，
-  受保护转向覆盖不弱于现行静态夹具。
+  受保护转向覆盖不弱于现行静态 fixture。
 - tick 热路径只有一套已编译边序列与出现记录。
 - catalog 带边键（本 ADR 首次定义为 `0.3`；现行 `0.4` 另必填策略选择）；生成器不再往 LFCA 写路线。
 - 文档、glossary、compiler-foundation、portable-canonical-artifact、道路编辑

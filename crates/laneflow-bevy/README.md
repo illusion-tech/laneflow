@@ -37,7 +37,7 @@ fn install(app: &mut App, world: TrafficWorld, spatial: Option<SpatialSession>) 
 
 campus / `native_reference` 的 Core 入口已删除。各示例都消费检入的 LFCA：
 `corridor_traffic` 与 `junction_debug` 使用各自的 catalog，经 prepare 绑到已安装共享路网修订；
-`quickstart` 直接装配最小 LFCA 夹具并注册路线，不经 catalog。历史 Bevy debug gizmos 占位 API 已删除
+`quickstart` 直接装配最小 LFCA fixture 并注册路线，不经 catalog。历史 Bevy debug gizmos 占位 API 已删除
 （[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭），现行可视诊断入口是
 `junction_debug`（见下文“示例”）。
 
@@ -75,7 +75,7 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。完�
 | `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含过早停入、离场失败和真正移除                      |
 
 最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
-`examples/support/quickstart_scene.rs`，从同一带策略的空间夹具显式绑定
+`examples/support/quickstart_scene.rs`，从同一带策略的空间 fixture 显式绑定
 `runtime-fixture-policy / fixture-policy`，再创建车辆和配对 Spatial session。
 相机与灯光显示同根 Spatial 中心线生成的车道和两辆车；浅色车头标记沿车辆前方向。
 `quickstart_presentation.rs` 是 GUI 与无窗口测试共用的车辆绑定、整批提取与同步路径：

@@ -225,7 +225,7 @@ pub(crate) struct DispatchStats {
 
 pub(crate) const MAX_WORKS_PER_TICKET: usize = 16;
 
-/// 测试与夹具钩子（线程局部的注入开关与计数）随拍跨线程搬运：拍在池线程上
+/// 测试与 fixture 钩子（线程局部的注入开关与计数）随拍跨线程搬运：拍在池线程上
 /// 运行，进池前把调用线程的取值搬到池线程，出池（含 panic）后再搬回调用
 /// 线程，测试照旧在调用线程上设置与读取。生产构建不存在这层搬运。
 #[cfg(any(test, feature = "placement-fixtures"))]

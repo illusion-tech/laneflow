@@ -921,7 +921,7 @@ struct RememberedSlot {
 }
 
 /// 少于此行数时串行分类；分发两遍的固定开销大于收益。
-/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+/// 测试构建取 1，让多线程 fixture 都走并行路径并与串行参考比对。
 #[cfg(not(test))]
 const CLASSIFY_PARALLEL_ROWS: usize = 4_096;
 #[cfg(test)]
@@ -1517,7 +1517,7 @@ fn vehicle_from_slot(
 }
 
 /// 少于此车数时串行收集；两遍分发的固定开销大于收益。
-/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+/// 测试构建取 1，让多线程 fixture 都走并行路径并与串行参考比对。
 #[cfg(not(test))]
 const TARGETS_PARALLEL_ROWS: usize = 256;
 #[cfg(test)]
@@ -2989,7 +2989,7 @@ mod tests {
         assert_eq!(sorted_insertions(&failed), sorted_insertions(&reference));
     }
 
-    /// 规模夹具：两条路线经过同一路口，若干辆车以不同距离驶向路口门，登记为增量。
+    /// 规模 fixture：两条路线经过同一路口，若干辆车以不同距离驶向路口门，登记为增量。
     /// 走过一拍之后，缓存有效的近门车在下一次重建时按路线延后求值。
     #[cfg(feature = "placement-fixtures")]
     pub(super) fn deferred_scale_world()
@@ -3484,7 +3484,7 @@ mod tests {
         assert!(!world.state.derived.spawn_contenders.has_deferred());
     }
 
-    /// 路线注册或删除使「冲突区 → 路线」作废（夹具路线容量已满，直接调用注册与删除
+    /// 路线注册或删除使「冲突区 → 路线」作废（fixture 路线容量已满，直接调用注册与删除
     /// 时调用的作废入口）：按冲突区物化退回物化全部，欠账未够时不重建，结果相同。
     #[cfg(feature = "placement-fixtures")]
     #[test]

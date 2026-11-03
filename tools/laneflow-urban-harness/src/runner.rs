@@ -2275,7 +2275,7 @@ mod tests {
             VehicleStatus::Completed
         );
         let start = harness.world.tick_index();
-        // 定向阻塞夹具把候选缩到一个已占据的位置；正常计划展开另有独立验证。
+        // 定向阻塞 fixture 把候选缩到一个已占据的位置；正常计划展开另有独立验证。
         let mut blocked_plan = plan.clone();
         let recycling = blocked_plan.recycling.as_mut().unwrap();
         recycling.entries_per_tile[0] = vec![crate::RecyclingEntry {

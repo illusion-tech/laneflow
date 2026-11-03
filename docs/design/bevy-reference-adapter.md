@@ -207,7 +207,7 @@ opt-in。渲染、文本与模型的耗时不得混作 Runtime 性能。
 
 ## 9. 最小 native example
 
-现行最小 native example 是 `quickstart`：从带策略的 compiler 空间夹具安装
+现行最小 native example 是 `quickstart`：从带策略的 compiler 空间 fixture 安装
 `TrafficWorld` 与配对 `SpatialSession`，以相机、灯光和同根 Spatial 中心线生成的
 车道 ribbon 展示两辆车。所有车辆通过 `bind_vehicle_entity` 绑定；宿主按
 `vehicles()` 与 pose records 的对应顺序同步位置和朝向，Bevy forward 对应切向量。
@@ -519,7 +519,7 @@ headless 验证消费同一个摘要构造函数。零步进帧仍建立报告�
 | C01 启动         | `50/100/200`，seed `0`、固定非零值及 `u64::MAX`；同参重建                                                          | tick 0 人口准确、pending 0、无重叠，世界路线/句柄合法，target 个不同 proxy 全部绑定；同参初始计划及 PRNG 状态相同                               |
 | C02 拒绝启动     | `49/201`、缺值/重复/未知参数、seed 溢出；错误 catalog/策略/profile、不足槽位及接纳失败                             | 无首拍、非零退出；非法参数不创建窗口；回滚不完整保留原错误并丢弃未发布实例，不以残余世界重试                                                    |
 | C03 固定调度     | 零 delta、亚毫秒余量、每帧 `1/4/8` 拍及超出 `8` 拍输入                                                             | 零拍不调用人口链；每个成功 Tick 恰好一次 Lifecycle/Observe；超限保留 backlog，后续零 delta 帧可排空；report 数值与实际提交一致                  |
-| C04 完成与回流   | 默认夹具实际完成路线，观察 completion、pending 和下一边界 replacement                                              | completion 不在同一 Observe 内替换；成功后 old stale/new live，同一 logical slot 始终复用原 proxy/model；无 despawn + spawn                     |
+| C04 完成与回流   | 默认 fixture 实际完成路线，观察 completion、pending 和下一边界 replacement                                         | completion 不在同一 Observe 内替换；成功后 old stale/new live，同一 logical slot 始终复用原 proxy/model；无 despawn + spawn                     |
 | C05 可重试       | 构造入口 overlap 与三类 Retryable；同边界另有可成功计划，再解除约束                                                | old/mapping/Transform、冻结输入和 PRNG 不变；每计划每边界一次、其他计划继续；恢复后相同计划成功且人口不减少                                     |
 | C06 失败边界     | Lifecycle host/policy 与 Observe 错误时仍有 catch-up 预算；另测 Drive 前的 `MissingTimeResource`                   | 首个错误可诊断且非零退出；Lifecycle/缺失 Time 错误无本拍提交，Observe 错误只保留已提交拍；剩余拍不提交、已有 backlog 不丢；前序成功替换不回滚   |
 | C07 错误结果     | 测试替身返回不匹配 old、已跟踪 new 或错误 Entity；跨世界/策略上下文误接                                            | 前置不匹配不调用 callback；提交后不一致立即停止、不重试旧句柄；跳拍或重复 consume 明确失败                                                      |
@@ -618,7 +618,7 @@ Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同
 端到端验收矩阵（存活 Session 跨修订与同修订换根、几何真值、旧输入/旧结果拒绝、
 配错根失败关闭、ABA 回旧根对象、失败原子性与重试、旧根对象借用完成与回收、零步进与
 catch-up 调度、显式 headless）见 `crates/laneflow-bevy/tests/revision_cutover.rs`；
-夹具为同键同长、中心线平移的两条边，几何真值按平移量精确判别。语义权威见
+fixture 为同键同长、中心线平移的两条边，几何真值按平移量精确判别。语义权威见
 `adapter-api.md` §9 与切换合同 §7。
 
 ## 17. culling_extraction 视锥选择提取（#930）
@@ -759,7 +759,7 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 - `space-b` 的入口与虚拟池出口位于同一车道且足够接近：车辆停在 `space-b` 入口时，车身与
   虚拟离场的插入位置重叠。§18.4 的离场失败由这个几何关系确定性产生。
 
-不写文件，不新增检入制品，也不依赖 `laneflow-urban-generator`。城市夹具虽然带泊位，但范围
+不写文件，不新增检入制品，也不依赖 `laneflow-urban-generator`。城市 fixture 虽然带泊位，但范围
 约 `1000 m × 1250 m`，单个泊位在画面中难以辨认。边和泊位序号通过稳定身份解析，不假设
 插入顺序。任一步失败都以非零状态退出，不发布部分场景。
 

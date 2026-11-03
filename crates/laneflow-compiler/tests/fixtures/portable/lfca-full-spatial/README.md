@@ -1,4 +1,4 @@
-# LFCA full-spatial 夹具
+# LFCA full-spatial fixture
 
 当前合成编制发射结果。对象前导 `formatVersion = 5`，交通长度/速度为毫米。
 `networkRevisionDerivationVersion` 仍为 1。既有 23 个实体种类均有非空样本；

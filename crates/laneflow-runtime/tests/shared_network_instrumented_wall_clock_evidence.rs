@@ -1,7 +1,7 @@
 //! #441 手动插桩墙钟校准；不与分配硬断言共用 libtest 二进制。
 //!
 //! 即使此测试 ignored，libtest 报告其结果也会分配，污染并行运行的进程级分配账本。
-//! 保留同一 stats_alloc 包装、构建夹具与计时范围，只将手动入口隔离到独立进程。
+//! 保留同一 stats_alloc 包装、构建 fixture 与计时范围，只将手动入口隔离到独立进程。
 //! 手动运行：cargo test --release --locked -p laneflow-runtime
 //! --test shared_network_instrumented_wall_clock_evidence -- --ignored --nocapture
 

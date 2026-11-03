@@ -43,7 +43,7 @@ fn run(case_index: usize, measured_windows: usize) {
         journal,
     };
     let fixtures = Fixtures::new();
-    // 每进程预先排除两个完整窗口；每个世界另有夹具规定的 32 + 8 拍暖机。
+    // 每进程预先排除两个完整窗口；每个世界另有 fixture 规定的 32 + 8 拍暖机。
     // 正式窗口保留时间顺序，不在 Rust 入口中排序或剔除样本。
     for window in 0..measured_windows + 2 {
         let mut harness = fixtures.world(scene);

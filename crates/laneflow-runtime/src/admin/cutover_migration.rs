@@ -2945,7 +2945,7 @@ pub(crate) mod tests {
         conflict_frontier_revision(false, true)
     }
 
-    /// 冲突夹具共享静态路网按参数在进程内只构建一次：全管线（Road Editing
+    /// 冲突 fixture 共享静态路网按参数在进程内只构建一次：全管线（Road Editing
     /// 来源写入 → 编译 → 可移植发射与后发射检查 → 建网）是测试套件主成本
     /// （#748 成本契约）；测试只读共享修订，世界状态由各测试自建。
     type ConflictRevisionCache =
@@ -3028,7 +3028,7 @@ pub(crate) mod tests {
         .expect("Conflict scale shared revision")
     }
 
-    /// 缓存只复用构建产物，不改变夹具内容：命中必须返回同一 `Arc`，且与
+    /// 缓存只复用构建产物，不改变 fixture 内容：命中必须返回同一 `Arc`，且与
     /// 全新构建产出同一 `NetworkRevisionId`（#748 等价性护栏）。
     #[test]
     fn conflict_frontier_cache_matches_fresh_build() {

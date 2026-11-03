@@ -520,7 +520,7 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 
 十万只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。当时 workload 与逐轮结果见 git 历史，不把单次测量写入本文。
 
-## 14. Tests 与现行夹具
+## 14. Tests 与现行 fixture
 
 Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。current JSON fixture
 （`v0.10-parking-signals-baseline.laneflow.json` 等）已删除，不再是测试入口。

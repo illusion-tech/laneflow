@@ -1709,7 +1709,7 @@ mod tests {
             assert_matches_serial(&mut reference, &mut pooled, &wanted);
             let threads = pooled.execution.thread_ids();
             for world in [&mut reference, &mut pooled] {
-                // 缓存夹具向前推进 100 mm；切换前把车头放回当前边内并重建占用。
+                // 缓存 fixture 向前推进 100 mm；切换前把车头放回当前边内并重建占用。
                 for vehicle in world.state.committed.live_order.clone() {
                     world
                         .state

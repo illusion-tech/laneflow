@@ -91,7 +91,7 @@ fn attest_once(fixture: &TierFixture) -> AttestationOutcome {
 
 /// 认证墙钟（四时机语义同一入口；这里测「认证调用」本身的墙钟，安装 /
 /// 恢复 / 绑定 / 切换前的停顿 = 该墙钟计入各自流程）。输出每档的
-/// 夹具准备（生成、编译、发射、构建）与认证样本 min/median/max。
+/// fixture 准备（生成、编译、发射、构建）与认证样本 min/median/max。
 #[test]
 #[ignore = "manual single-thread release wall-clock evidence; run inside a quiet window"]
 fn attestation_wall_clock_evidence() {

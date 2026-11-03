@@ -36,4 +36,4 @@ Rust marker 中的 `active_plan_bytes` 包含计划结构和范围向量容量�
 （用 `cargo test -p laneflow-runtime execution_plan_prepare_and_commit -- --nocapture`）
 另行输出活动、候选、最终及退休计划容量和
 候选状态字节；最终计划准备时三份计划短暂并存。静默窗口计时包含最终验证、计划准备、
-发布与旧状态退休，来自小型测试夹具和插桩 debug 构建，不代表城市规模或生产延迟。
+发布与旧状态退休，来自小型测试 fixture 和插桩 debug 构建，不代表城市规模或生产延迟。

@@ -146,7 +146,7 @@ fn synthetic_policy(
 fn editing_policy(limits: &CompileLimits) -> re::OwnedRoadEditingSourceBuffer {
     editing_policy_custom(limits, |_, _| {})
 }
-/// 构造携带通行权策略集的 road editing 来源夹具；`customize` 可在写入前调整模块构建器与策略输入。
+/// 构造携带通行权策略集的 road editing 来源 fixture；`customize` 可在写入前调整模块构建器与策略输入。
 pub(crate) fn editing_policy_custom(
     limits: &CompileLimits,
     customize: impl FnOnce(

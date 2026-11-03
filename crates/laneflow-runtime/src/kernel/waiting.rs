@@ -88,7 +88,7 @@ pub(crate) struct NonEntryGateAnchor {
     hop: u32,
 }
 
-/// 少于此行数时串行生成非入口决定；测试构建取 1，让多线程夹具走并行路径。
+/// 少于此行数时串行生成非入口决定；测试构建取 1，让多线程 fixture 走并行路径。
 #[cfg(not(test))]
 const NON_ENTRY_PARALLEL_ROWS: usize = 1_024;
 #[cfg(test)]
@@ -1693,7 +1693,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 const WAITING_PREVIEW_DISPATCH_MIN_ACTIVE: usize = 1_024;
 
 /// 少于此行数时 P2 发现与消费保持串行；两遍分发的固定开销大于收益。
-/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+/// 测试构建取 1，让多线程 fixture 都走并行路径并与串行参考比对。
 #[cfg(not(test))]
 const PREVIEW_PARALLEL_CONSUME_ROWS: usize = 4_096;
 #[cfg(test)]
@@ -4617,7 +4617,7 @@ pub(crate) mod tests {
         (world, routes)
     }
 
-    /// 在一条尚未使用的 idle-zone 路线上按夹具标准位置（首边末端前一毫米）
+    /// 在一条尚未使用的 idle-zone 路线上按 fixture 标准位置（首边末端前一毫米）
     /// 生成车辆；与 `multi_gate_world` 的初始车队同形。
     fn spawn_idle_zone_vehicle(world: &mut TrafficWorld, route: RouteHandle) -> VehicleHandle {
         let edges = world.route_edges(route).unwrap();
@@ -4717,7 +4717,7 @@ pub(crate) mod tests {
     ) -> laneflow_compiler::PortablePublicationCandidate {
         const NS: &str = "city/waiting-scale";
         const STEM_COUNT: usize = 64;
-        // 多 WaitingZone 夹具的显式策略也参与后发射预算，使用已有规模档。
+        // 多 WaitingZone fixture 的显式策略也参与后发射预算，使用已有规模档。
         let limits = CompileLimits::single_network_1m_v2();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
@@ -5098,7 +5098,7 @@ pub(crate) mod tests {
         waiting_scale_world_at_delta(revision, vehicle_count, 4)
     }
 
-    /// 测试夹具：构造首对 Waiting cutover 修订与语义 diff。
+    /// 测试 fixture：构造首对 Waiting cutover 修订与语义 diff。
     pub(crate) fn first_waiting_cutover_pair() -> (
         Arc<laneflow_static_network::SharedNetworkRevision>,
         Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -5107,7 +5107,7 @@ pub(crate) mod tests {
         first_waiting_cutover_pair_with_layout(ScaleLayout::NoWaiting)
     }
 
-    /// 测试夹具：构造入口/出口平移后身份变化的 cutover 修订对。
+    /// 测试 fixture：构造入口/出口平移后身份变化的 cutover 修订对。
     pub(crate) fn first_waiting_changed_identity_cutover_pair(
         shift_entry: bool,
     ) -> (
@@ -8434,7 +8434,7 @@ pub(crate) mod tests {
     // #706 增量 D：P3 候选求值真实分发（多段报告 + 协调器保序规范消费 +
     // F1/F2/F3b/F4 真实预留原位）。逐车计算在冻结三腿视图上按串行同序
     // 求值；协调器按 live×gate 发现序消费（checkpoint-map §5）。
-    // 夹具：multi_gate（16 候选位置，空区间 Waiting 门）覆盖 None/Staged/
+    // fixture：multi_gate（16 候选位置，空区间 Waiting 门）覆盖 None/Staged/
     // 纯 Waiting 与首错矩阵；conflict_scale（单车到达真冲突区，cells/
     // downstream 非空 Computed 候选）覆盖 F1/F2/F3b/F4 与同车段序。
     // ------------------------------------------------------------------
@@ -8571,8 +8571,8 @@ pub(crate) mod tests {
 
     /// 首错矩阵：NonFiniteMotion 注入位置 × worker 1/2/4 公开同一首错；
     /// 失败拍状态不变；重试拍等于 w1 参考；融合/分发/回退互斥计数。
-    /// 表述注记（R5）：可用夹具每拍至多一个 Computed 候选，per-position
-    /// 双错误类别（如 NonFinite × downstream CIV）矩阵受夹具限制未建，
+    /// 表述注记（R5）：可用 fixture 每拍至多一个 Computed 候选，per-position
+    /// 双错误类别（如 NonFinite × downstream CIV）矩阵受 fixture 限制未建，
     /// 消费序先于完成序的性质由 F1/F2/F4/F3b 位序反例覆盖。
     #[test]
     fn conflict_first_error_is_stable_across_workers_and_positions() {
@@ -8953,7 +8953,7 @@ pub(crate) mod tests {
                     conflict_delta.slot_fallback
                 ),
                 (0, 2, 0),
-                "本夹具无可达 Gate，P3 工作集为空"
+                "本 fixture 无可达 Gate，P3 工作集为空"
             );
             assert_eq!(
                 (motion_delta.dispatched, motion_delta.slot_fallback),
@@ -9090,7 +9090,7 @@ pub(crate) mod tests {
         );
         assert!(
             capacities.iter().all(|&(_, _, cells, downstream)| {
-                // 每拍至多一个候选：cell 工作区长度上界为 passage 数（本夹具 1），
+                // 每拍至多一个候选：cell 工作区长度上界为 passage 数（本 fixture 1），
                 // downstream 工作区长度上界为 claims 数（小常数）——绝不累积。
                 cells <= 4 && downstream <= 8
             }),
@@ -9209,7 +9209,7 @@ pub(crate) mod tests {
     /// R4（P5）：到达预留注入仅真实必要增长时触发——到达拍（观察 Vec 空、
     /// 首次增长）+ 武装 → 先公开 ParkingObservationAllocFailed，清注入重试
     /// 与 fresh 一致；其后的无到达拍 + 已武装 → 余量足够/未达检查点，不得
-    /// 制造错误。（夹具入口前空间只容一车排队，同拍多到达用每拍观察 Vec
+    /// 制造错误。（fixture 入口前空间只容一车排队，同拍多到达用每拍观察 Vec
     /// 重新开始的连续到达拍覆盖。）
     #[test]
     fn parking_arrival_injection_requires_growth_per_step() {
@@ -9419,7 +9419,7 @@ pub(crate) mod tests {
         "../../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
     );
 
-    /// 停车夹具 + 一条「入口边（含泊位）→出口边」路线；返回世界、路线、泊位
+    /// 停车 fixture + 一条「入口边（含泊位）→出口边」路线；返回世界、路线、泊位
     /// 序号与泊位入口在入口边上的进度。worker 数在安装时指定。
     fn parking_route_world(
         workers: u32,

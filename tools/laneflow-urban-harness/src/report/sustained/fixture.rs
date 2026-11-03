@@ -1,4 +1,4 @@
-//! sustained 夹具的写时登记、受检复制与解析前核对（#1043），只在测试构建中使用。
+//! sustained fixture 的写时登记、受检复制与解析前核对（#1043），只在测试构建中使用。
 
 use std::{
     collections::BTreeMap,
@@ -107,7 +107,7 @@ impl Fixture {
 
     pub fn read_text(&self, name: &str) -> Result<String> {
         String::from_utf8(self.read(name)?)
-            .map_err(|error| invalid(format!("受检夹具 {name} 的编码无效：{error}")))
+            .map_err(|error| invalid(format!("受检 fixture {name} 的编码无效：{error}")))
     }
 
     pub fn read_json<T: DeserializeOwned>(&self, name: &str) -> Result<T> {
@@ -125,7 +125,7 @@ impl Fixture {
         let expected = self
             .files
             .get(name)
-            .ok_or_else(|| invalid(format!("夹具文件未登记：{name}")))?;
+            .ok_or_else(|| invalid(format!("fixture 文件未登记：{name}")))?;
         let bytes = fs::read(self.directory.join(name))?;
         let actual = FileDigest::of(&bytes);
         if actual != *expected {
@@ -144,7 +144,7 @@ impl Fixture {
         Ok(bytes)
     }
 
-    /// 每份源夹具每次复制最多重建三次；重建必须仍匹配首次写出登记，不能采纳新期望。
+    /// 每份源 fixture 每次复制最多重建三次；重建必须仍匹配首次写出登记，不能采纳新期望。
     /// 目标重写由 verified_write 自身限界；目标失败不触发源重建。
     pub fn copy_to(
         &self,
@@ -195,7 +195,7 @@ impl Fixture {
     }
 }
 
-/// 非预期 panic 时保留实际夹具目录，避免 TempDir 清理唯一的失配现场。
+/// 非预期 panic 时保留实际 fixture 目录，避免 TempDir 清理唯一的失配现场。
 pub(super) struct FixtureDirectory(Option<tempfile::TempDir>);
 
 impl FixtureDirectory {

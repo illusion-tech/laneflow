@@ -18,7 +18,7 @@ pub const MAX_INPUT_BYTES: usize = 262_144;
 ///
 /// # Panics
 ///
-/// 已登记的合法夹具不能通过生产入口时触发 oracle，不能静默降为空语料。
+/// 已登记的合法 fixture 不能通过生产入口时触发 oracle，不能静默降为空语料。
 pub fn corpus_seeds() -> Vec<(&'static str, &'static str, Vec<u8>)> {
     let mut seeds = portable::seeds();
     seeds.extend(snapshot::seeds());

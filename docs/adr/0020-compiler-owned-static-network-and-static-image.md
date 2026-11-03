@@ -24,7 +24,7 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 `../design/shared-static-network.md`。<br>
 
 **2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
-只属于当前仓库加载器和夹具；它不建立 compiler import frontend、批量迁移工具或长期
+只属于当前仓库加载器和 fixture；它不建立 compiler import frontend、批量迁移工具或长期
 离线兼容入口。编译器迁移正确性以原生有类型来源模块和集成专用 LIR→current 投影
 验证，精确边界见 `../design/current-package-import.md`。本澄清不改变通用外部来源导入
 前端或规范制品版本迁移能力。
@@ -742,10 +742,10 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 | 0005 | 外部稳定标识（External Stable Identity）、有类型密集句柄（Typed Dense Handle）、热冷分离、动态车辆 / 路线生成 | 核心初始化时分配静态句柄 / 登记表；目标态动态执行层改名为交通运行时（Traffic Runtime）    |
 | 0007 | 运行时（Runtime）不依赖 Serde / 文件系统 / 引擎，以及内存中字节边界（In-memory Bytes Boundary）               | 私有 DTO → `InitialTrafficData` 作为终态唯一输入、核心构造器作为全部静态规范化权威        |
 | 0008 | 精确当前版本（Exact-current）、失败关闭（Fail-closed）、离线迁移（Offline Migration）                         | 单一 `formatVersion` 同时承担来源、制品与静态镜像布局版本                                 |
-| 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源链（Provenance）、运行时不联网          | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                 |
+| 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源链（Provenance）、运行时不联网            | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                 |
 | 0013 | 交通运行时 / 空间层 / 适配器权威、规范几何、长度 / 位姿、失败原子性、无图形支持                               | 交通 / 空间两个独立制品在运行时按外部标识（External ID）和清单摘要（Manifest Digest）联结 |
 | 0015 | 有界规范 `f32` 坐标框架、误差 / 内存 / 批量性能边界                                                           | 空间层初始化时从核心句柄和 JSON 几何重建登记表；静态镜像的空间节保持可选                  |
-| 0017 | 路口、通行流向、机动路径、机动门、路线出现记录语义，共享内部边，热路径无字符串                                  | 核心规范化 / 路线注册期首次编译静态出现记录；静态初始出现记录改由编译器镜像预编译             |
+| 0017 | 路口、通行流向、机动路径、机动门、路线出现记录语义，共享内部边，热路径无字符串                                | 核心规范化 / 路线注册期首次编译静态出现记录；静态初始出现记录改由编译器镜像预编译         |
 
 本矩阵只取代“工作发生在哪一层、何时发生、如何存储”的条款，不重新定义上述 ADR
 已经冻结的交通、空间和运行时行为语义。ADR 0020 Accepted 状态提交在各历史 ADR

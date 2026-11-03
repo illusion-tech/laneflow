@@ -70,7 +70,7 @@ fn waiting_zones_cover_fixture_zones_in_ordinal_order() {
         .traffic()
         .entity_counts()
         .count(EntityKind::WaitingZone);
-    assert_eq!(zone_count, 1, "夹具恰有一个 WaitingZone（waiting-main）");
+    assert_eq!(zone_count, 1, "fixture 恰有一个 WaitingZone（waiting-main）");
     let expected: Vec<_> = (0..zone_count)
         .map(WaitingZoneOrdinal::from_raw)
         .map(|zone| world.waiting_zone(zone).expect("fixture zone snapshot"))
@@ -110,7 +110,7 @@ fn route_gate_matches_world_direct_lookup() {
     let route = world.live_routes().next().expect("fixture live route");
     let hop_count = u32::try_from(world.route_edges(route).expect("route edges").len())
         .expect("hop count fits u32");
-    assert_eq!(hop_count, 3, "夹具路线为 entry/middle/exit 三边");
+    assert_eq!(hop_count, 3, "fixture 路线为 entry/middle/exit 三边");
     let mut located = 0_u32;
     for hop in 0..hop_count {
         let direct = world.route_gate(route, hop);
@@ -119,7 +119,7 @@ fn route_gate_matches_world_direct_lookup() {
             located += 1;
         }
     }
-    assert!(located >= 1, "夹具路线至少携带一道 Gate");
+    assert!(located >= 1, "fixture 路线至少携带一道 Gate");
     assert_eq!(view.route_gate(route, hop_count), None);
 }
 

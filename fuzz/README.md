@@ -6,14 +6,14 @@
 
 ## 目标与实际覆盖
 
-| 目标                       | 输入与断言                                                                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `lfre_arbitrary_bytes`     | 任意 LFRE 字节进入受检准入，包含结构/计数/长度拒绝                                                                              |
-| `lfre_writer_differential` | writer 合法种子及有界变异；未变异来源必须成功准入                                                                               |
-| `portable_arbitrary_bytes` | LFCA/LFSM/LFSD/LFCP framing、registry 与字段值域；成功视图逐字段安全读取，LFCA 继续修订绑定                                     |
-| `portable_bundle_mutation` | 两个合法 LFCA/LFSM/LFSD bundle 与 LFCP 变异；保留摘要和重算 chunk 摘要两种路径，检查跨对象与 base 绑定                          |
-| `lfrs_restore`             | LFRS 7 任意字节和 Published/Editable 种子变异；来源错配、容量拒绝、过短 vtable（crash-9303b894 已入种子与回归）；成功恢复重新编码/恢复并比较逻辑摘要                          |
-| `cutover_inputs`           | 有车辆世界的同修订切换、跨修订 LFSD/描述符变异、追赶；失败比较完整快照、根指针、世代/游标并验证可重新准备事务；合法种子必须提交 |
+| 目标                       | 输入与断言                                                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lfre_arbitrary_bytes`     | 任意 LFRE 字节进入受检准入，包含结构/计数/长度拒绝                                                                                                   |
+| `lfre_writer_differential` | writer 合法种子及有界变异；未变异来源必须成功准入                                                                                                    |
+| `portable_arbitrary_bytes` | LFCA/LFSM/LFSD/LFCP framing、registry 与字段值域；成功视图逐字段安全读取，LFCA 继续修订绑定                                                          |
+| `portable_bundle_mutation` | 两个合法 LFCA/LFSM/LFSD bundle 与 LFCP 变异；保留摘要和重算 chunk 摘要两种路径，检查跨对象与 base 绑定                                               |
+| `lfrs_restore`             | LFRS 7 任意字节和 Published/Editable 种子变异；来源错配、容量拒绝、过短 vtable（crash-9303b894 已入种子与回归）；成功恢复重新编码/恢复并比较逻辑摘要 |
+| `cutover_inputs`           | 有车辆世界的同修订切换、跨修订 LFSD/描述符变异、追赶；失败比较完整快照、根指针、世代/游标并验证可重新准备事务；合法种子必须提交                      |
 
 `seed_corpus` 通过生产 writer/受检读取/恢复构造种子；失效种子触发断言，不能
 静默变成拒绝语料。`portable::tests::repaired_mutation_reaches_value_validation`
@@ -64,7 +64,7 @@ cargo deny --manifest-path fuzz/Cargo.toml --locked check advisories bans licens
 
 这是特定提交和有界语料的验证，不能证明任意输入下绝无缺陷。当前随机恢复场景为
 Published 的小型有车路网与 Editable 的空路网来源；迁移为 Published 来源、一个
-有车跨修订夹具及同修订场景。复杂 Parking/Waiting/Conflict 迁移、Editable 跨修订
+有车跨修订 fixture 及同修订场景。复杂 Parking/Waiting/Conflict 迁移、Editable 跨修订
 组合继续由 Runtime 定向回归覆盖，未宣称已在本 fuzz corpus 穷举。
 Windows 仅承担非 sanitizer 的种子回归；不把其结果标注为正式 Linux fuzz 运行。
 

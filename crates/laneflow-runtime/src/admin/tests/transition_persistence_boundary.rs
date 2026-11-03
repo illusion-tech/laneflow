@@ -7,7 +7,7 @@
 //!
 //! 恢复面的过渡行资源种类检查（`format_admission`）为防御面：本版本 writer
 //! 由保存侧结构化拒绝保证不再产出过渡行，v7 wire 也没有资源种类字段可检；
-//! 手工构造混合 hop 夹具的触发测试留待 S5 #1200（findings.md 登记论证）。
+//! 手工构造混合 hop fixture 的触发测试留待 S5 #1200（findings.md 登记论证）。
 
 use laneflow_static_contract::LaneEdgeOrdinal;
 
@@ -73,7 +73,7 @@ fn write_lag(
     .expect("write lag reference");
 }
 
-/// 流-bearing 夹具世界 + 含 T 路线 + 一辆活动车（无 traversal、无预约）。
+/// 流-bearing fixture 世界 + 含 T 路线 + 一辆活动车（无 traversal、无预约）。
 fn t_world_with_route_and_vehicle() -> (TrafficWorld, crate::RouteHandle, crate::VehicleHandle) {
     let revision = stream_bearing_revision();
     let traffic = revision.traffic();
@@ -212,7 +212,7 @@ fn s1_s2_s3_real_tick_transition_lifecycle_rejects_structurally() {
 
     let t_address = {
         let addresses = transition_addresses(&world);
-        assert_eq!(addresses.len(), 1, "流-bearing 夹具恰一横向过渡段");
+        assert_eq!(addresses.len(), 1, "流-bearing fixture 恰一横向过渡段");
         addresses[0]
     };
 
@@ -314,7 +314,7 @@ fn s4_mixed_t_and_static_history_rejects_whole_entry_with_distinct_identity() {
     let static_address = static_addresses(&world)
         .into_iter()
         .next()
-        .expect("流-bearing 夹具含静态冲突格");
+        .expect("流-bearing fixture 含静态冲突格");
     write_lag(
         &mut world,
         t_address,
@@ -467,7 +467,7 @@ fn s6_static_conflict_persistence_control_zero_change() {
 fn d3_cross_revision_migration_of_t_cell_network_fails_structurally_without_residue() {
     let revision = stream_bearing_revision();
     let mut world = install(revision.clone());
-    assert!(!transition_addresses(&world).is_empty(), "夹具必须含 T 格");
+    assert!(!transition_addresses(&world).is_empty(), "fixture 必须含 T 格");
     let before = world
         .capture_snapshot()
         .expect("source without T state is expressible");

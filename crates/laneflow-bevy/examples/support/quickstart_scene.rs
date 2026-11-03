@@ -19,10 +19,10 @@ const FULL_SPATIAL: &[u8] = include_bytes!(
 
 const MAX_CATCH_UP_STEPS: NonZeroU32 = NonZeroU32::new(8).expect("non-zero");
 
-/// 安装夹具修订、注册沿机动路径的路线并生成两辆车的世界。
+/// 安装 fixture 修订、注册沿机动路径的路线并生成两辆车的世界。
 pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
     let revision = scene_loader::shared_revision(FULL_SPATIAL)?;
-    // 宿主选择夹具明确声明的策略身份，不按修订内策略顺序或缺省值选取。
+    // 宿主选择 fixture 明确声明的策略身份，不按修订内策略顺序或缺省值选取。
     let policy = RightOfWayPolicySetId::from_untyped(
         laneflow_compiler::derive_canonical_stable_id_v1(
             EntityKind::RightOfWayPolicySet,

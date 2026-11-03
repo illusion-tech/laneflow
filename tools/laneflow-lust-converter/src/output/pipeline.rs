@@ -2637,7 +2637,7 @@ output_dir = 'E:/nonexistent-out'
 
     /// 验明正身（ADR 0034 §2 第 1–3 步）：解析路径 → 文件 SHA-256 对仓库钉版常量 →
     /// `--version` 自报逐行对钉版。任一步不可完成即 `Err`（沿用原 fail-closed 语义，
-    /// 信息注明「包装器未验明正身」）。判定链逻辑由下方夹具测试覆盖；真实钉版常量与
+    /// 信息注明「包装器未验明正身」）。判定链逻辑由下方 fixture 测试覆盖；真实钉版常量与
     /// 真实包装器的正例在挂载 `RUSTC_WRAPPER` 的 CI 构建 job 实测。
     fn verify_pinned_wrapper(
         wrapper: &std::ffi::OsStr,
@@ -2702,7 +2702,7 @@ output_dir = 'E:/nonexistent-out'
         );
     }
 
-    /// 写一个自报固定版本行的假包装器夹具（unix：sh 脚本；windows：.cmd）。
+    /// 写一个自报固定版本行的假包装器 fixture（unix：sh 脚本；windows：.cmd）。
     fn write_fake_wrapper(dir: &Path, version_line: &str) -> PathBuf {
         #[cfg(unix)]
         {

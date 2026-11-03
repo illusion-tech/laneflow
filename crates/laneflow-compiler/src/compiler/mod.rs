@@ -570,7 +570,7 @@ impl Compiler {
     }
 }
 
-/// 可移植制品端到端夹具与精确字节对照测试模块。
+/// 可移植制品端到端 fixture 与精确字节对照测试模块。
 #[cfg(test)]
 pub(crate) mod portable_fixture_tests;
 

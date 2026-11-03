@@ -882,7 +882,7 @@ fn fused_path_signal_and_lifecycle_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景四（融合路径覆盖）：停车夹具上的 Active→Parked 变化与路线完成。停车
+// 场景四（融合路径覆盖）：停车 fixture 上的 Active→Parked 变化与路线完成。停车
 // 操作后 Active 掉到 7、低于 P2 分发门槛，所有 worker 配置下的运行走融合路径；本场景
 // 只验收融合路径下的停车语义，跨阈值的并行停车覆盖见下方混合场景。
 // ---------------------------------------------------------------------------
@@ -929,7 +929,7 @@ fn run_parking_transition_fused(workers: u32) -> Vec<String> {
         )
         .expect("parker spawn");
     handles.push(parker);
-    // 7 辆跟随者：沿同一入口边在停车者前方 8 m 间距排列（夹具两边各 100 m），
+    // 7 辆跟随者：沿同一入口边在停车者前方 8 m 间距排列（fixture 两边各 100 m），
     // 脚本内依次驶过停车位、横穿第二条边并在路线终点 Completed。
     for index in 0..7_u32 {
         let ahead = 12_000 + index * 8_000;
@@ -1172,7 +1172,7 @@ fn hybrid_lifecycle_fused_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景六（融合路径覆盖）：parking 夹具混合工作集。parker + 11 辆跟随者
+// 场景六（融合路径覆盖）：parking fixture 混合工作集。parker + 11 辆跟随者
 // （12 Active）起步；首拍 step 之前 park 掉一辆并立即在让出的入口位置补员；
 // 首辆 Completed 后队尾再补员一次。停车/补员/完成之后、下一拍 step 之前
 // 断言 Active 低于生产分发阈值，Completed 与 Parked 夹入 live 序列的融合
@@ -1210,7 +1210,7 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
         space,
         entry_route_occurrence: 0,
     };
-    // 12 Active：parker 在车位入口，11 辆跟随者前方 8 m 间距（夹具两边各
+    // 12 Active：parker 在车位入口，11 辆跟随者前方 8 m 间距（fixture 两边各
     // 100 m，车长 4.5 m + 最小间距 2 m）。
     let parker = world
         .spawn_vehicle(

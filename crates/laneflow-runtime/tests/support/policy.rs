@@ -1,4 +1,4 @@
-//! 测试夹具的宿主选择清单；生产 Runtime 不拥有任何默认策略。
+//! 测试 fixture 的宿主选择清单；生产 Runtime 不拥有任何默认策略。
 use laneflow_runtime::{PolicyPin, WorldPolicySelection};
 use laneflow_static_contract::{EntityKind, RightOfWayPolicySetId};
 use laneflow_static_network::SharedNetworkRevision;
@@ -41,7 +41,7 @@ pub fn selection(revision: &SharedNetworkRevision) -> WorldPolicySelection {
     WorldPolicySelection::NotRequired
 }
 
-/// 由测试夹具显式列出 Gate 与解释，不扫描源模型补默认语义。
+/// 由测试 fixture 显式列出 Gate 与解释，不扫描源模型补默认语义。
 #[allow(dead_code)]
 pub fn add_gate_policy(
     builder: &mut laneflow_compiler::SyntheticModuleBuilder,

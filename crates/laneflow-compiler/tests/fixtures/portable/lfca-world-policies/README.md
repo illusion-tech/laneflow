@@ -1,4 +1,4 @@
-# 显式世界策略夹具
+# 显式世界策略 fixture
 
 `expected.lfca` 提供同一共享静态路网内的两份策略，交换 stream priority、让行目标和 Gate 禁止项。
 `signal.lfca` 加入明确右转方向与圆灯，`overflow.lfca` 用于所选策略间隙溢出的失败关闭。

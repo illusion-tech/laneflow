@@ -1939,7 +1939,7 @@ fn explicit_junction_internal_edge_without_successors_uses_path_authority() {
 #[test]
 fn explicit_junction_internal_edge_accepts_path_own_successor() {
     // R-7 精化（#1199 评审裁定）：internal 的 lane 后继 ⊆ 路径全边集（路径
-    // 自身续边✓——(a) 车道链形合法）；本夹具 internal→exit 为路径自身续边。
+    // 自身续边✓——(a) 车道链形合法）；本 fixture internal→exit 为路径自身续边。
     let hir = build_hir(&explicit_junction_internal_unit(true, false))
         .expect("path-own successor is the (a) lane-chain form");
     assert_eq!(hir.junction_internal_edges.len(), 1);
@@ -1984,7 +1984,7 @@ fn explicit_junction_internal_edge_rejects_out_of_path_successor() {
 #[test]
 fn explicit_junction_internal_edge_accepts_path_own_inbound_reference() {
     // R-7 精化同步（InternalReferencedBySuccessor）：引用边 ∈ 路径全边集
-    // （路径自身人口✓）时合法；本夹具 entry→internal 为路径自身引用。
+    // （路径自身人口✓）时合法；本 fixture entry→internal 为路径自身引用。
     let hir = build_hir(&explicit_junction_internal_unit(false, true))
         .expect("path-own inbound reference is the (a) lane-chain form");
     assert_eq!(hir.junction_internal_edges.len(), 1);
@@ -2032,7 +2032,7 @@ fn explicit_junction_internal_edge_rejects_out_of_path_inbound_reference() {
     );
 }
 
-// P2-5 反例夹具（#1219）：双模块同名边（A::exit 与 B::exit、A::internal 与
+// P2-5 反例 fixture（#1219）：双模块同名边（A::exit 与 B::exit、A::internal 与
 // B::internal 均同 stable_key）。声明集合挂在 A 的路口上（approach 须 section 派生、
 // internal 不得 section 派生），B 侧为合成路口（无显式集合）。
 fn declare_junction_edge_sets(unit: &mut CompilationUnit, namespace: &str) {
