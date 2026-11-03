@@ -18,6 +18,9 @@ pub(crate) struct Sample {
     /// L 族换道预约生命周期史（#1218 面 B 身份投影）：
     /// `(tick, 换道者槽位, 事件种类, 资源身份)`，事件序保持。
     pub lane_change_journal: Vec<(u64, u8, u32, u32)>,
+    /// L1 观测跨拍生命周期序（#1227）：按换道者槽位记录最近一次生命周期事件
+    /// 种类（4 acquire / 5 enter / 6 clear / 7 release），跨观测调用持续。
+    pub lane_change_last_kind: [u32; 2],
     /// 逐路线位置前缀和（毫米，含起点 0 与终点）：L 族边长非均匀，位置编码
     /// 由真实边长累计（W 族恒为 `EDGE_MM` 网格，不使用本表）。
     pub route_offsets: Vec<Vec<u64>>,
@@ -217,6 +220,7 @@ impl Sample {
             gates,
             lane_change_route,
             lane_change_journal: Vec::new(),
+            lane_change_last_kind: [0; 2],
             route_offsets,
             previous: initial.clone(),
             crossed: vec![false; initial.len()],
