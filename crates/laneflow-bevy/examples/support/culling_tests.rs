@@ -253,6 +253,18 @@ fn e03_periodic_audit_matches_full_extraction_and_output_keeps_selection_order()
 }
 
 #[test]
+fn hud_reports_whether_the_selection_view_is_frozen_in_the_same_frame() {
+    let mut app = app(small(1), ViewVolume::ALL);
+    assert!(summary(&app).hud().contains("follows camera"));
+    app.world_mut().resource_mut::<host::ViewControl>().frozen = true;
+    frame(&mut app, Duration::ZERO);
+    assert!(summary(&app).hud().contains("FROZEN"));
+    app.world_mut().resource_mut::<host::ViewControl>().frozen = false;
+    frame(&mut app, Duration::ZERO);
+    assert!(summary(&app).hud().contains("follows camera"));
+}
+
+#[test]
 fn e04_leaving_and_returning_keeps_identity_and_shows_the_latest_pose() {
     let mut app = app(small(2), ViewVolume::ALL);
     run(&mut app, 5);

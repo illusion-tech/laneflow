@@ -9,7 +9,7 @@ use bevy::{
 use super::{
     corridor_camera::Orbit,
     culling_cli::CameraPreset,
-    culling_host::{Culling, Fleet, Present, Summary, VehicleModel, VehicleSlot},
+    culling_host::{Culling, Fleet, Present, Summary, VehicleModel, VehicleSlot, ViewControl},
     culling_scene::Scene,
     culling_view::ViewVolume,
 };
@@ -31,12 +31,6 @@ struct Bounds {
     min: Vec3,
     max: Vec3,
     preset: CameraPreset,
-}
-
-/// 冻结后选择视域不再跟随相机，缩小即可直接看到被隐藏的车辆。
-#[derive(Resource, Default)]
-struct ViewControl {
-    frozen: bool,
 }
 
 pub(super) fn ribbon_from_scene(scene: &Scene) -> Mesh {
@@ -73,7 +67,6 @@ pub(super) fn install(app: &mut App, ribbon: Mesh, bounds: (Vec3, Vec3), preset:
             max: bounds.1,
             preset,
         })
-        .init_resource::<ViewControl>()
         .add_systems(Startup, setup)
         .add_systems(Update, (camera_input, update_view).chain())
         .add_systems(

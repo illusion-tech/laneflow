@@ -94,6 +94,12 @@ impl Culling {
     }
 }
 
+/// 选择视域是否跟随相机；冻结只影响表现。
+#[derive(Resource, Default)]
+pub(super) struct ViewControl {
+    pub frozen: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct FrameSummary {
     pub frame: u64,
@@ -105,6 +111,7 @@ pub(super) struct FrameSummary {
     pub output: usize,
     pub selected_time: Duration,
     pub full_time: Option<Duration>,
+    pub frozen: bool,
 }
 
 impl FrameSummary {
@@ -112,11 +119,17 @@ impl FrameSummary {
         let full = self
             .full_time
             .map_or_else(|| "-".to_owned(), |time| time.as_micros().to_string());
+        let view = if self.frozen {
+            "FROZEN (F: resume)"
+        } else {
+            "follows camera (F: freeze)"
+        };
         format!(
-            "LaneFlow | culling extraction\nvehicles {}   selected {}   output {}\ntick {}   steps {}\nselected path {} us   full extract {} us\n(observation only, not performance evidence)\nWheel: zoom | LMB: pan | RMB: orbit | F: freeze view",
+            "LaneFlow | culling extraction\nvehicles {}   selected {}   output {}\nselection view: {}\ntick {}   steps {}\nselected path {} us   full extract {} us\n(observation only, not performance evidence)\nWheel: zoom | LMB: pan | RMB: orbit",
             self.total,
             self.selected,
             self.output,
+            view,
             self.tick,
             self.steps,
             self.selected_time.as_micros(),
@@ -184,6 +197,7 @@ pub(super) fn install(app: &mut App, scene: Scene, view: ViewVolume) -> Result<(
         .insert_resource(culling)
         .init_resource::<Health>()
         .init_resource::<Summary>()
+        .init_resource::<ViewControl>()
         .configure_sets(PostUpdate, Present.before(TransformSystems::Propagate))
         .add_systems(
             PostUpdate,
@@ -412,6 +426,7 @@ fn summarize(world: &mut World) {
         output: culling.poses.vehicles().len(),
         selected_time: culling.selected_time,
         full_time: culling.full_time,
+        frozen: world.resource::<ViewControl>().frozen,
     };
     world.resource_mut::<Summary>().current = Some(summary);
 }
