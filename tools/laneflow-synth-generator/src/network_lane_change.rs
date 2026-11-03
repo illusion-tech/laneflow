@@ -81,7 +81,8 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             geometry.push((key(cell, route, "exit"), exit));
         }
     }
-    add_lane_change_cluster(&mut builder)?;
+    let clusters = identity.lane_change().map_or(0, |params| params.clusters);
+    add_lane_change_clusters(&mut builder, clusters)?;
     let geometry_refs: Vec<_> = geometry
         .iter()
         .map(|(name, points)| LaneEdgeGeometryInput {
@@ -102,7 +103,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             .map_err(|e| compile_error("finish module", e))?,
     )
     .map_err(|e| compile_error("compilation unit", e))?;
-    let editing_bytes = lane_change_editing(&limits)?;
+    let editing_bytes = lane_change_editing(&limits, clusters)?;
     unit.add_road_editing_module(
         laneflow_compiler::road_editing::RoadEditingModuleInput::try_new(
             "lf-synth-road.document",
@@ -180,10 +181,34 @@ fn add_background_route(
     Ok(())
 }
 
-/// L1 换道簇的合成侧实体（#1218）：恰一横向过渡段 `lc-t` + 多车道 section/走廊
+/// 换道簇边键（参数化，#1233）：簇 `cluster` 的边键带确定性后缀，避免跨簇冲突。
+pub(crate) fn cluster_key(base: &str, cluster: u32) -> String {
+    format!("{base}-{cluster}")
+}
+
+/// 全部换道簇（参数化，#1233）：`clusters` 个簇各一组唯一键与独立 x 偏移。
+fn add_lane_change_clusters(b: &mut SyntheticModuleBuilder, clusters: u32) -> Result<(), Error> {
+    for cluster in 0..clusters {
+        add_lane_change_cluster(b, cluster)?;
+    }
+    Ok(())
+}
+
+/// 单个换道簇的合成侧实体（#1218/#1233）：横向过渡段 + 多车道 section/走廊
 ///（分类判据来源）。R1b s12 钉版载体形制逐项保持（边长/接缝/几何跨度）。
-fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder) -> Result<(), Error> {
-    for (edge_key, length, successors) in [
+fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder, cluster: u32) -> Result<(), Error> {
+    // 先构建本簇全部键，保证引用生命周期覆盖后续 builder 调用。
+    let edge_keys: Vec<String> = LC_EDGES
+        .iter()
+        .map(|base| cluster_key(base, cluster))
+        .collect();
+    let index = |base: &str| -> usize {
+        LC_EDGES
+            .iter()
+            .position(|candidate| *candidate == base)
+            .expect("lc edge base")
+    };
+    for (base, length, successors) in [
         ("lc-e0", 30.0_f64, vec!["lc-t"]),
         ("lc-t", 5.0, vec!["lc-e2"]),
         ("lc-e2", 30.0, vec![]),
@@ -193,74 +218,86 @@ fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder) -> Result<(), Error> 
         ("lc-e4", 30.0, vec!["lc-e2"]),
         ("lc-e5", 30.0, vec![]),
     ] {
-        let refs: Vec<_> = successors
+        let refs: Vec<LaneEdgeReference<'_>> = successors
             .iter()
-            .map(|target| LaneEdgeReference::local(target))
+            .map(|target| LaneEdgeReference::local(&edge_keys[index(target)]))
             .collect();
         b.add_lane_edge(LaneEdgeInput {
-            lane_edge_key: edge_key,
+            lane_edge_key: &edge_keys[index(base)],
             length_meters: length,
             speed_limit_meters_per_second: 13.9,
             successors: &refs,
         })
         .map_err(|e| compile_error("lane change edge", e))?;
     }
-    let chain = |edges: &[&'static str]| -> Vec<LaneEdgeReference<'static>> {
-        edges.iter().map(|e| LaneEdgeReference::local(e)).collect()
-    };
-    let lane0 = chain(&["lc-e0"]);
-    let lane1 = chain(&["lc-e4", "lc-e2"]);
-    let lane2 = chain(&["lc-e3"]);
-    let exit_lane = chain(&["lc-exit", "lc-e5"]);
+    let lane0 = vec![LaneEdgeReference::local(&edge_keys[index("lc-e0")])];
+    let lane1 = vec![
+        LaneEdgeReference::local(&edge_keys[index("lc-e4")]),
+        LaneEdgeReference::local(&edge_keys[index("lc-e2")]),
+    ];
+    let lane2 = vec![LaneEdgeReference::local(&edge_keys[index("lc-e3")])];
+    let exit_lane = vec![
+        LaneEdgeReference::local(&edge_keys[index("lc-exit")]),
+        LaneEdgeReference::local(&edge_keys[index("lc-e5")]),
+    ];
+    let section_key = cluster_key("lc-section", cluster);
+    let lane_keys: Vec<String> = (0..3)
+        .map(|i| cluster_key(&format!("lc-lane-{i}"), cluster))
+        .collect();
     b.add_road_section(RoadSectionInput {
-        road_section_key: "lc-section",
+        road_section_key: &section_key,
         kind_id: "motorLane",
         lanes: &[
             AuthoringLaneInput {
-                authoring_lane_key: "lc-lane-0",
+                authoring_lane_key: &lane_keys[0],
                 edge_chain: &lane0,
                 lane_group: None,
             },
             AuthoringLaneInput {
-                authoring_lane_key: "lc-lane-1",
+                authoring_lane_key: &lane_keys[1],
                 edge_chain: &lane1,
                 lane_group: None,
             },
             AuthoringLaneInput {
-                authoring_lane_key: "lc-lane-2",
+                authoring_lane_key: &lane_keys[2],
                 edge_chain: &lane2,
                 lane_group: None,
             },
         ],
     })
     .map_err(|e| compile_error("lane change section", e))?;
+    let exit_section_key = cluster_key("lc-exit-section", cluster);
+    let exit_lane_key = cluster_key("lc-exit-lane", cluster);
     b.add_road_section(RoadSectionInput {
-        road_section_key: "lc-exit-section",
+        road_section_key: &exit_section_key,
         kind_id: "motorLane",
         lanes: &[AuthoringLaneInput {
-            authoring_lane_key: "lc-exit-lane",
+            authoring_lane_key: &exit_lane_key,
             edge_chain: &exit_lane,
             lane_group: None,
         }],
     })
     .map_err(|e| compile_error("lane change exit section", e))?;
+    let corridor_key = cluster_key("lc-corridor", cluster);
     b.add_road_corridor(RoadCorridorInput {
-        road_corridor_key: "lc-corridor",
-        reference_section: RoadSectionReference::local("lc-section"),
+        road_corridor_key: &corridor_key,
+        reference_section: RoadSectionReference::local(&section_key),
         elements: &[CorridorElementReference::road_section(
-            RoadSectionReference::local("lc-section"),
+            RoadSectionReference::local(&section_key),
         )],
     })
     .map_err(|e| compile_error("lane change corridor", e))?;
+    let exit_corridor_key = cluster_key("lc-exit-corridor", cluster);
     b.add_road_corridor(RoadCorridorInput {
-        road_corridor_key: "lc-exit-corridor",
-        reference_section: RoadSectionReference::local("lc-exit-section"),
+        road_corridor_key: &exit_corridor_key,
+        reference_section: RoadSectionReference::local(&exit_section_key),
         elements: &[CorridorElementReference::road_section(
-            RoadSectionReference::local("lc-exit-section"),
+            RoadSectionReference::local(&exit_section_key),
         )],
     })
     .map_err(|e| compile_error("lane change exit corridor", e))?;
-    // 帧几何逐边跨度承接 R1b 钉版载体（T 段 x=30..35，冲突区多边形同坐标域）。
+    // 帧几何逐边跨度承接 R1b 钉版载体；按簇偏移避免空间重叠。
+    let offset = 200.0_f64 * f64::from(cluster);
     let frame_spans = [
         (0.0_f32, 30.0_f32),
         (30.0, 35.0),
@@ -276,19 +313,19 @@ fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder) -> Result<(), Error> 
         .map(|(x0, x1)| {
             [
                 CanonicalPoint3F32Input {
-                    x: *x0,
+                    x: *x0 + offset as f32,
                     y: 0.0,
                     z: 0.0,
                 },
                 CanonicalPoint3F32Input {
-                    x: *x1,
+                    x: *x1 + offset as f32,
                     y: 0.0,
                     z: 0.0,
                 },
             ]
         })
         .collect();
-    let geometries: Vec<_> = LC_EDGES
+    let geometries: Vec<_> = edge_keys
         .iter()
         .zip(point_pairs.iter())
         .map(|(edge_name, centerline_points)| LaneEdgeGeometryInput {
@@ -296,18 +333,18 @@ fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder) -> Result<(), Error> 
             centerline_points,
         })
         .collect();
+    let frame_key = cluster_key("lc-t-frame", cluster);
     b.add_canonical_frame(CanonicalFrameInput {
-        canonical_frame_key: "lc-t-frame",
+        canonical_frame_key: &frame_key,
         lane_edge_geometries: &geometries,
     })
     .map_err(|e| compile_error("lane change frame", e))?;
     Ok(())
 }
 
-/// L1 换道簇的编辑侧声明（#1218）：junction/冲突区/两条流/无信号准入门 + 策略
-///（gap profile + 流规则 + 门规则）。返回规范编辑源字节；L1 唯一策略集覆盖全部门
-///（编译期 MissingRule 校验），L 族确定性比较在 L 族内部逐运行相等（D1）。
-fn lane_change_editing(limits: &CompileLimits) -> Result<Vec<u8>, Error> {
+/// 换道簇编辑侧声明（#1218/#1233）：每簇一组 junction/冲突区/两条流/无信号准入门，
+/// 统一策略集覆盖全部门（编译期 MissingRule 校验）；键按簇确定性派生。
+fn lane_change_editing(limits: &CompileLimits, clusters: u32) -> Result<Vec<u8>, Error> {
     use laneflow_compiler::road_editing as editing;
 
     let header = editing::RoadEditingModuleHeader::try_new(
@@ -325,157 +362,200 @@ fn lane_change_editing(limits: &CompileLimits) -> Result<Vec<u8>, Error> {
         limits,
     )
     .map_err(|e| compile_error("editing module", e))?;
-    let imported = |key_name: &'static str| {
+    let imported = |key_name: &str| {
         editing::LaneEdgeReference::imported(NAMESPACE, Vec::new(), key_name)
             .map_err(|e| compile_error("imported edge", e))
     };
-    let junction = editing::JunctionReference::local("lc-junction")
-        .map_err(|e| compile_error("junction ref", e))?;
-    let zone =
-        editing::ConflictZoneReference::owner_scoped(vec!["lc-junction".to_owned()], "lc-zone")
-            .map_err(|e| compile_error("zone ref", e))?;
-    builder
-        .add_declaration(editing::RoadEditingDeclaration::Junction(
-            editing::JunctionInput::try_new(
-                "lc-junction",
-                vec![
-                    imported("lc-e0")?,
-                    imported("lc-e2")?,
-                    imported("lc-e3")?,
-                    imported("lc-exit")?,
-                ],
-                vec![imported("lc-int")?],
-            )
-            .map_err(|e| compile_error("junction", e))?,
-        ))
-        .map_err(|e| compile_error("junction declaration", e))?;
-    builder
-        .add_declaration(editing::RoadEditingDeclaration::ConflictZone(
-            editing::ConflictZoneInput::try_new("lc-zone", junction.clone())
-                .map_err(|e| compile_error("zone", e))?,
-        ))
-        .map_err(|e| compile_error("zone declaration", e))?;
     let mut gate_rules = Vec::new();
     let mut stream_rules = Vec::new();
-    for (entry_edge, movement_key, path_key, stop_key, gate_key, stream_key) in [
-        (
-            "lc-e2",
-            "lc-movement",
-            "lc-path",
-            "lc-stop",
-            "lc-admission",
-            "lc-stream",
-        ),
-        (
-            "lc-e3",
-            "lc-movement-2",
-            "lc-path-2",
-            "lc-stop-2",
-            "lc-admission-2",
-            "lc-stream-2",
-        ),
-    ] {
-        let movement =
-            editing::MovementReference::owner_scoped(vec!["lc-junction".to_owned()], movement_key)
-                .map_err(|e| compile_error("movement ref", e))?;
-        let path = editing::ManeuverPathReference::owner_scoped(
-            vec!["lc-junction".to_owned(), movement_key.to_owned()],
-            path_key,
+    for cluster in 0..clusters {
+        let junction_key = cluster_key("lc-junction", cluster);
+        let zone_key = cluster_key("lc-zone", cluster);
+        let junction = editing::JunctionReference::local(junction_key.clone())
+            .map_err(|e| compile_error("junction ref", e))?;
+        let zone = editing::ConflictZoneReference::owner_scoped(
+            vec![junction_key.clone()],
+            zone_key.clone(),
         )
-        .map_err(|e| compile_error("path ref", e))?;
-        let admission_gate = editing::ManeuverGateReference::owner_scoped(
-            vec![
-                "lc-junction".to_owned(),
-                movement_key.to_owned(),
-                path_key.to_owned(),
-            ],
-            gate_key,
-        )
-        .map_err(|e| compile_error("gate ref", e))?;
+        .map_err(|e| compile_error("zone ref", e))?;
         builder
-            .add_declaration(editing::RoadEditingDeclaration::Movement(
-                editing::MovementInput::try_new(
-                    movement_key,
-                    junction.clone(),
-                    entry_edge.to_owned(),
-                    "lc-exit".to_owned(),
+            .add_declaration(editing::RoadEditingDeclaration::Junction(
+                editing::JunctionInput::try_new(
+                    junction_key.clone(),
+                    vec![
+                        imported(cluster_key("lc-e0", cluster).as_str())?,
+                        imported(cluster_key("lc-e2", cluster).as_str())?,
+                        imported(cluster_key("lc-e3", cluster).as_str())?,
+                        imported(cluster_key("lc-exit", cluster).as_str())?,
+                    ],
+                    vec![imported(cluster_key("lc-int", cluster).as_str())?],
                 )
-                .map_err(|e| compile_error("movement", e))?,
+                .map_err(|e| compile_error("junction", e))?,
             ))
-            .map_err(|e| compile_error("movement declaration", e))?;
+            .map_err(|e| compile_error("junction declaration", e))?;
         builder
-            .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
-                editing::ManeuverPathInput::try_new(
-                    path_key,
-                    movement.clone(),
-                    imported(entry_edge)?,
-                    vec![imported("lc-int")?],
-                    imported("lc-exit")?,
-                )
-                .map_err(|e| compile_error("path", e))?,
+            .add_declaration(editing::RoadEditingDeclaration::ConflictZone(
+                editing::ConflictZoneInput::try_new(zone_key.clone(), junction.clone())
+                    .map_err(|e| compile_error("zone", e))?,
             ))
-            .map_err(|e| compile_error("path declaration", e))?;
-        builder
-            .add_declaration(editing::RoadEditingDeclaration::StopLine(
-                editing::StopLineInput::try_new(stop_key, imported(entry_edge)?)
+            .map_err(|e| compile_error("zone declaration", e))?;
+        for (entry_base, movement_key, path_key, stop_key, gate_key, stream_key) in [
+            (
+                "lc-e2",
+                "lc-movement",
+                "lc-path",
+                "lc-stop",
+                "lc-admission",
+                "lc-stream",
+            ),
+            (
+                "lc-e3",
+                "lc-movement-2",
+                "lc-path-2",
+                "lc-stop-2",
+                "lc-admission-2",
+                "lc-stream-2",
+            ),
+        ] {
+            let entry_edge = cluster_key(entry_base, cluster);
+            let exit_edge = cluster_key("lc-exit", cluster);
+            let int_edge = cluster_key("lc-int", cluster);
+            let movement_key = cluster_key(movement_key, cluster);
+            let path_key = cluster_key(path_key, cluster);
+            let stop_key = cluster_key(stop_key, cluster);
+            let gate_key = cluster_key(gate_key, cluster);
+            let stream_key = cluster_key(stream_key, cluster);
+            let movement = editing::MovementReference::owner_scoped(
+                vec![junction_key.clone()],
+                movement_key.clone(),
+            )
+            .map_err(|e| compile_error("movement ref", e))?;
+            let path = editing::ManeuverPathReference::owner_scoped(
+                vec![junction_key.clone(), movement_key.clone()],
+                path_key.clone(),
+            )
+            .map_err(|e| compile_error("path ref", e))?;
+            let admission_gate = editing::ManeuverGateReference::owner_scoped(
+                vec![junction_key.clone(), movement_key.clone(), path_key.clone()],
+                gate_key.clone(),
+            )
+            .map_err(|e| compile_error("gate ref", e))?;
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::Movement(
+                    editing::MovementInput::try_new(
+                        movement_key.clone(),
+                        junction.clone(),
+                        entry_edge.clone(),
+                        exit_edge.clone(),
+                    )
+                    .map_err(|e| compile_error("movement", e))?,
+                ))
+                .map_err(|e| compile_error("movement declaration", e))?;
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverPath(
+                    editing::ManeuverPathInput::try_new(
+                        path_key.clone(),
+                        movement.clone(),
+                        imported(entry_edge.as_str())?,
+                        vec![imported(int_edge.as_str())?],
+                        imported(exit_edge.as_str())?,
+                    )
+                    .map_err(|e| compile_error("path", e))?,
+                ))
+                .map_err(|e| compile_error("path declaration", e))?;
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::StopLine(
+                    editing::StopLineInput::try_new(
+                        stop_key.clone(),
+                        imported(entry_edge.as_str())?,
+                    )
                     .map_err(|e| compile_error("stop line", e))?,
-            ))
-            .map_err(|e| compile_error("stop line declaration", e))?;
-        builder
-            .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
-                editing::ManeuverGateInput::try_new(
-                    gate_key,
-                    path.clone(),
+                ))
+                .map_err(|e| compile_error("stop line declaration", e))?;
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::ManeuverGate(
+                    editing::ManeuverGateInput::try_new(
+                        gate_key.clone(),
+                        path.clone(),
+                        0,
+                        editing::StopLineReference::local(stop_key.clone())
+                            .map_err(|e| compile_error("stop ref", e))?,
+                        editing::RoadEditingSignalControl::None,
+                    )
+                    .map_err(|e| compile_error("gate", e))?,
+                ))
+                .map_err(|e| compile_error("gate declaration", e))?;
+            builder
+                .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
+                    editing::ParticipantStreamInput::try_new(
+                        stream_key.clone(),
+                        junction.clone(),
+                        path.clone(),
+                        vec![editing::ConflictPassageInput::new(
+                            zone.clone(),
+                            editing::PathAnchorInput::gate(admission_gate.clone()),
+                            editing::PathAnchorInput::edge_boundary(2),
+                        )],
+                    )
+                    .map_err(|e| compile_error("stream", e))?,
+                ))
+                .map_err(|e| compile_error("stream declaration", e))?;
+            gate_rules.push(
+                editing::PolicyGateRuleInput::try_new(
+                    gate_key.clone(),
+                    admission_gate,
+                    None,
+                    GateInterpretation::Uncontrolled,
+                    GateProhibition::None,
+                    vec![],
+                )
+                .map_err(|e| compile_error("gate rule", e))?,
+            );
+            stream_rules.push(
+                editing::PolicyStreamRuleInput::try_new(
+                    stream_key.clone(),
+                    editing::ParticipantStreamReference::owner_scoped(
+                        vec![junction_key.clone()],
+                        stream_key.clone(),
+                    )
+                    .map_err(|e| compile_error("stream ref", e))?,
+                    None,
                     0,
-                    editing::StopLineReference::local(stop_key)
-                        .map_err(|e| compile_error("stop ref", e))?,
-                    editing::RoadEditingSignalControl::None,
+                    vec![],
+                    None,
+                    vec![],
                 )
-                .map_err(|e| compile_error("gate", e))?,
-            ))
-            .map_err(|e| compile_error("gate declaration", e))?;
+                .map_err(|e| compile_error("stream rule", e))?,
+            );
+        }
+        let offset = 200.0 * f64::from(cluster);
+        let region_points = vec![
+            editing::RoadEditingPoint2::try_new(offset + 0.0, -2.0)
+                .map_err(|e| compile_error("region point", e))?,
+            editing::RoadEditingPoint2::try_new(offset + 30.0, -2.0)
+                .map_err(|e| compile_error("region point", e))?,
+            editing::RoadEditingPoint2::try_new(offset + 30.0, 2.0)
+                .map_err(|e| compile_error("region point", e))?,
+            editing::RoadEditingPoint2::try_new(offset + 0.0, 2.0)
+                .map_err(|e| compile_error("region point", e))?,
+        ];
         builder
-            .add_declaration(editing::RoadEditingDeclaration::ParticipantStream(
-                editing::ParticipantStreamInput::try_new(
-                    stream_key,
-                    junction.clone(),
-                    path.clone(),
-                    vec![editing::ConflictPassageInput::new(
-                        zone.clone(),
-                        editing::PathAnchorInput::gate(admission_gate.clone()),
-                        editing::PathAnchorInput::edge_boundary(2),
-                    )],
+            .add_conflict_zone_region(
+                editing::ConflictZoneRegionInput::try_new(
+                    zone.clone(),
+                    editing::CanonicalFrameReference::imported(
+                        NAMESPACE,
+                        Vec::new(),
+                        cluster_key("lc-t-frame", cluster).as_str(),
+                    )
+                    .map_err(|e| compile_error("frame ref", e))?,
+                    -1.0,
+                    1.0,
+                    region_points,
                 )
-                .map_err(|e| compile_error("stream", e))?,
-            ))
-            .map_err(|e| compile_error("stream declaration", e))?;
-        gate_rules.push(
-            editing::PolicyGateRuleInput::try_new(
-                gate_key,
-                admission_gate,
-                None,
-                GateInterpretation::Uncontrolled,
-                GateProhibition::None,
-                vec![],
+                .map_err(|e| compile_error("conflict region", e))?,
             )
-            .map_err(|e| compile_error("gate rule", e))?,
-        );
-        stream_rules.push(
-            editing::PolicyStreamRuleInput::try_new(
-                stream_key,
-                editing::ParticipantStreamReference::owner_scoped(
-                    vec!["lc-junction".to_owned()],
-                    stream_key,
-                )
-                .map_err(|e| compile_error("stream ref", e))?,
-                None,
-                0,
-                vec![],
-                None,
-                vec![],
-            )
-            .map_err(|e| compile_error("stream rule", e))?,
-        );
+            .map_err(|e| compile_error("conflict region declaration", e))?;
     }
     builder
         .add_declaration(editing::RoadEditingDeclaration::RightOfWayPolicySet(
@@ -502,29 +582,6 @@ fn lane_change_editing(limits: &CompileLimits) -> Result<Vec<u8>, Error> {
             .map_err(|e| compile_error("policy set", e))?,
         ))
         .map_err(|e| compile_error("policy declaration", e))?;
-    let region_points = vec![
-        editing::RoadEditingPoint2::try_new(0.0, -2.0)
-            .map_err(|e| compile_error("region point", e))?,
-        editing::RoadEditingPoint2::try_new(30.0, -2.0)
-            .map_err(|e| compile_error("region point", e))?,
-        editing::RoadEditingPoint2::try_new(30.0, 2.0)
-            .map_err(|e| compile_error("region point", e))?,
-        editing::RoadEditingPoint2::try_new(0.0, 2.0)
-            .map_err(|e| compile_error("region point", e))?,
-    ];
-    builder
-        .add_conflict_zone_region(
-            editing::ConflictZoneRegionInput::try_new(
-                zone,
-                editing::CanonicalFrameReference::imported(NAMESPACE, Vec::new(), "lc-t-frame")
-                    .map_err(|e| compile_error("frame ref", e))?,
-                -1.0,
-                1.0,
-                region_points,
-            )
-            .map_err(|e| compile_error("conflict region", e))?,
-        )
-        .map_err(|e| compile_error("conflict region declaration", e))?;
     let written = editing::RoadEditingSourceWriter::new(limits)
         .write(
             builder
