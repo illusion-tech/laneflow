@@ -194,10 +194,10 @@ pub enum RouteError {
     #[error("路线数量达到容量")]
     CapacityExceeded,
     /// 全部存活路线的边出现记录总数会超过 world 容量。
-    #[error("路线边出现项总数达到容量")]
+    #[error("路线边出现记录总数达到容量")]
     EdgeOccurrenceCapacityExceeded,
     /// 全部存活路线的冲突 passage 出现记录总数会超过 world 容量。
-    #[error("路线冲突出现项总数达到容量: current={current}, added={added}, capacity={capacity}")]
+    #[error("路线冲突出现记录总数达到容量: current={current}, added={added}, capacity={capacity}")]
     ConflictOccurrenceCapacityExceeded {
         /// 提交候选路线前的存活冲突出现记录数。
         current: u64,
@@ -243,7 +243,7 @@ pub enum RouteError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum DepartureStateError {
     /// 出现记录下标不在候选路线里。
-    #[error("出发出现项越界")]
+    #[error("出发出现记录越界")]
     RouteIndexOutOfRange,
     /// 进度超过该出现记录的边长。
     #[error("出发进度非法")]
@@ -308,21 +308,21 @@ pub enum SpawnError {
     #[error("不能在冲突通行段内部创建无 Conflict authority 的车辆")]
     ConflictAuthorityRequired,
     /// 当前必须停车的约束按紧急制动仍满足不了。已提交世界不变，调用方可稍后重试。
-    #[error("新鲜摆放满足不了当前停车约束")]
+    #[error("新生成满足不了当前停车约束")]
     StopConstraintUnsatisfiable,
     /// 按紧急制动降不到前方更低限速。已提交世界不变。同一初速和路线再试仍会失败，调用方须降低初速或更换输入。
-    #[error("新鲜摆放降不到前方限速")]
+    #[error("新生成降不到前方限速")]
     DownstreamSpeedUnsatisfiable,
     /// 新车成为已有移动后车的前车，后车按自己的紧急制动仍无法避免重叠。
     /// 已提交世界不变，调用方可稍后重试。
-    #[error("新鲜摆放使后车无法安全制动")]
+    #[error("新生成使后车无法安全制动")]
     UnsafeFollower {
         /// 无法安全制动的已有后车。
         follower: VehicleHandle,
     },
     /// 新车相对最近前车按紧急制动仍无法避免重叠。
     /// 已提交世界不变，调用方可稍后重试。
-    #[error("新鲜摆放相对前车无法安全制动")]
+    #[error("新生成相对前车无法安全制动")]
     UnsafeLeader {
         /// 新车前方最近的已有车辆。
         leader: VehicleHandle,
@@ -403,21 +403,21 @@ pub enum ReplaceError {
     #[error("不能在冲突通行段内部创建无 Conflict authority 的车辆")]
     ConflictAuthorityRequired,
     /// 当前必须停车的约束按紧急制动仍满足不了。已提交世界不变，调用方可稍后重试。
-    #[error("新鲜摆放满足不了当前停车约束")]
+    #[error("新生成满足不了当前停车约束")]
     StopConstraintUnsatisfiable,
     /// 按紧急制动降不到前方更低限速。已提交世界不变。同一初速和路线再试仍会失败，调用方须降低初速或更换输入。
-    #[error("新鲜摆放降不到前方限速")]
+    #[error("新生成降不到前方限速")]
     DownstreamSpeedUnsatisfiable,
     /// 新车成为已有移动后车的前车，后车按自己的紧急制动仍无法避免重叠。
     /// 已提交世界不变，调用方可稍后重试。
-    #[error("新鲜摆放使后车无法安全制动")]
+    #[error("新生成使后车无法安全制动")]
     UnsafeFollower {
         /// 无法安全制动的已有后车。
         follower: VehicleHandle,
     },
     /// 新车相对最近前车按紧急制动仍无法避免重叠。
     /// 已提交世界不变，调用方可稍后重试。
-    #[error("新鲜摆放相对前车无法安全制动")]
+    #[error("新生成相对前车无法安全制动")]
     UnsafeLeader {
         /// 新车前方最近的已有车辆。
         leader: VehicleHandle,

@@ -280,7 +280,7 @@ fn pinned_lust_c12_curve_experiment() {
     let (observation, source, mut timing) = capture_lust();
     // 锚的 `source` 为资产来源链（#1140 重钉版），非捕获源身份；捕获源一致性由
     // `snapshot()` 对 #1105 基线逐字节断言与钉版 LuST 校验承担。代际标签钉死
-    // `92-池行`（锚代际错位事故的回归闸口）。
+    // `92-池行`（锚代际错位事故的回归检查）。
     assert_eq!(
         anchor["source"]["release_tag"],
         json!("research-evidence-1140-shared-baseline"),

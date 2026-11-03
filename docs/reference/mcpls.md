@@ -7,7 +7,7 @@
 
 LaneFlow 把 mcpls 作为可选的本地开发工具，用于通过 `rust-analyzer` 提供 hover、
 定义跳转、引用查找、文档符号、工作区符号搜索和诊断。它不属于 LaneFlow 运行时、
-Cargo workspace 依赖、CI 门禁或发布产物，也不替代 `cargo check`、`cargo test`、`rg`
+Cargo workspace 依赖、CI 检查或发布产物，也不替代 `cargo check`、`cargo test`、`rg`
 和源码阅读。
 
 Windows 正式拓扑为“每个 Git worktree 一个原生 Streamable HTTP mcpls”：

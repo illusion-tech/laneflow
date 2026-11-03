@@ -1,6 +1,6 @@
 //! Finite physical cases for the two authored outer-loop merge resources.
 //!
-//! 车已经在准入线末端并带着速度，下一拍才分出谁先进入。新鲜生成要求这一拍停得住，
+//! 车已经在准入线末端并带着速度，下一拍才分出谁先进入。新生成要求这一拍停得住，
 //! 所以这里用测试特性保留已有场面。
 #![cfg(feature = "placement-fixtures")]
 

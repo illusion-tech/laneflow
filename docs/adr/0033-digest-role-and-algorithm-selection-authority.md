@@ -134,7 +134,7 @@ ADR 0020 规定稳态 tick 不进入 `StableId128`、BLAKE3、XXH3、哈希查�
 
 `sha2`、`blake3` 以及今后引入的摘要算法 crate，只允许登记的 crate 直接依赖。登记名单
 以 `deny.toml` 的 `[bans]`（`wrappers`）为唯一事实来源，由现有 `Dependency policy` 检查
-执行，不新增合并门禁，也不解析 Issue 或 PR 正文。新增直接依赖方时，须在同一变更中
+执行，不新增合并检查，也不解析 Issue 或 PR 正文。新增直接依赖方时，须在同一变更中
 更新 `deny.toml`，并按 §3 写明新增摘要的角色。本文不重复列出名单。
 
 ### 8. 唯一事实来源

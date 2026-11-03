@@ -4,7 +4,7 @@
 **最后更新**: 2026-10-08<br>
 **适用范围**: 道路机动车 `spawn_vehicle` / `replace_completed_vehicle` 的派生候选缓存完整重建
 
-关联：[新鲜摆放准入](traffic-runtime-vehicle-placement.md)、
+关联：[新生成准入](traffic-runtime-vehicle-placement.md)、
 [入口 frontier](traffic-runtime-near-gate-frontier.md)、
 [整数几何](traffic-runtime-integer-geometry.md)、
 [共享路网消费](traffic-runtime-shared-consumption.md)。

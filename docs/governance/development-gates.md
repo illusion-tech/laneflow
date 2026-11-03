@@ -1,4 +1,4 @@
-# 开发闸口
+# 开发阶段评审
 
 **文档状态**: Active
 **最后更新**: 2026-09-20
@@ -7,7 +7,7 @@
 
 ## 1. 目标
 
-本文定义 LaneFlow 的轻量开发闸口。人流程写在 Issue 模板里，机器不解析正文。
+本文定义 LaneFlow 的轻量开发阶段评审。人流程写在 Issue 模板里，机器不解析正文。
 合并由 required checks、GitHub 原生未解决对话阻断和 Merge Queue 执行。基础重建见
 [ADR 0026](../adr/0026-merge-governance-rebuild.md)，External Review 退役与当前目标态见
 [ADR 0027](../adr/0027-retire-external-review-check.md)。
@@ -34,7 +34,7 @@
 - `example`：示例项目、示例场景或演示数据。
 - `cross-layer`：同时影响 Traffic Runtime、数据格式、Adapter 或示例的高风险变更。
 
-切片写在 PR 模板里给人看，不进 commit 门禁。
+切片写在 PR 模板里给人看，不进 commit 检查。
 
 ## 3. G0 立项
 
@@ -97,10 +97,10 @@ Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` �
 记录 G2 后把 Project Status 更新为 `In Progress`。如果实现中发现设计输入不稳定，
 应暂停扩展实现，回到 G1 补设计或拆子切片。
 
-## 6. 合并门禁
+## 6. 合并检查
 
 语言选型属于 [代码语言立项审查](code-language-policy.md) 规定的 G0/G2 人流程，
-不增加机器合并门禁输入。审阅者发现实际 diff 不符合接受范围时，以普通 review
+不增加机器合并检查输入。审阅者发现实际 diff 不符合接受范围时，以普通 review
 conversation 处理，继续适用下面的原生对话解决规则。
 
 目标：确认变更可以合入主干。
@@ -151,7 +151,7 @@ PR 与 `merge_group` 使用相同的九个 required check 名称：
 7. `Dependency policy`
 8. `Analyze (actions)`
 9. `Analyze (rust)`
-`Markdown tables` 只警告。Schema publication 不参与合并门禁。
+`Markdown tables` 只警告。Schema publication 不参与合并检查。
 
 ### 6.3 入队
 
@@ -177,4 +177,4 @@ Project 将以 `Completed` 关闭的 Issue 移到 `Done`；以 `Not planned` 或
 
 内容等价 rebase、provider / 平台故障、安全或紧急 hotfix 只能走显式、有期限的
 仓库设置例外，并记录原因、风险、到期和 Cleanup owner。不得把例外扩展成日常
-bypass。确认的门禁缺陷另开 Issue 修复，不在评论里发明第二套协议。
+bypass。确认的检查缺陷另开 Issue 修复，不在评论里发明第二套协议。

@@ -1,4 +1,4 @@
-//! #531 同机规模墙钟证据；无计数分配器，不设置跨机器耗时门禁。
+//! #531 同机规模墙钟证据；无计数分配器，不设置跨机器耗时检查。
 //! `cargo test --release --locked -p laneflow-runtime --test cutover_scale_evidence -- --ignored --nocapture`
 
 use laneflow_runtime as runtime_types;

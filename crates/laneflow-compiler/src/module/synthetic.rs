@@ -2170,7 +2170,7 @@ impl SyntheticModuleBuilder {
             &span,
         )?;
 
-        // 所有计数、字符串和来源长度门禁均已通过后才复制可变长输入，保证超限调用不会
+        // 所有计数、字符串和来源长度上限均已通过后才复制可变长输入，保证超限调用不会
         // 先按不受信任的 slice 长度申请内存，也不会留下部分声明。
         let target = match input.target {
             AccessRuleTargetInput::LaneEdge(reference) => OwnedAccessRuleTarget::LaneEdge(

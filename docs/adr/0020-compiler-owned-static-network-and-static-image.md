@@ -574,8 +574,7 @@ IR」：
 - 新实现切片不得以 current object graph 作为 compiler IR，也不得让过渡兼容反向
   塑造终态布局。
 - integration-only LIR→Core 投影随 Core 一并删除；compiler 正确性看 LFCA/制品，
-  需要 tick 的证据只走 Runtime。禁止用同一场景的 `CoreWorld` 对拍作为 #301/#305
-  门禁。
+  需要 tick 的证据只走 Runtime。禁止用同一场景的 `CoreWorld` 对拍作为 #301/#305 检查。
 - #301 的行为证据是新的 Runtime 端到端示例与测试，不是 current/target 双路径等价。
   启动成本、retained memory 与规模证据仍由 #441/#305 按自身 G1 记录，不以 Core
   为对照物。

@@ -99,7 +99,7 @@ GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 ## 7. 与提交规范的关系
 
 本矩阵定义“做什么检查”，`commit-convention.md` 定义 commit 标题和 footer。切片类型写在
-PR 模板里，不进 commit 门禁。
+PR 模板里，不进 commit 检查。
 
 ## 8. 偶发失败签名对照表
 

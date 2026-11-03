@@ -1752,7 +1752,7 @@ source graph 竞争 authority。
 - pose 不做 Traffic/Spatial join；
 - production load 不做 JSON parse/registry rebuild。
 
-### 12.3 开发闸口（Gate）
+### 12.3 开发阶段评审（Gate）
 
 具体数字由实现证据在固定性能机上记录；#300 不在缺少最低产品硬件和完整 Runtime
 kernel 时虚构绝对 SLA。Gate 至少覆盖：

@@ -140,7 +140,7 @@ fn lane_routes(world: &mut TrafficWorld, count: u32) -> Vec<RouteHandle> {
         .collect()
 }
 
-/// 同机 release 描述性证据；不以跨机器的耗时阈值充当 CI 门禁。
+/// 同机 release 描述性证据；不以跨机器的耗时阈值充当 CI 检查。
 #[test]
 #[ignore = "manual release overlap admission and restore evidence"]
 fn admission_scale_evidence() {

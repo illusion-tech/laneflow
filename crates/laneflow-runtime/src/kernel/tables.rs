@@ -3769,7 +3769,7 @@ pub(crate) mod compile_route_tests {
                         crate::kernel::conflict::ConflictResource::Transition(_)
                     )
                 })
-                .expect("Transition 出现项发射");
+                .expect("Transition 出现记录发射");
             assert_eq!(
                 Some(transition_occurrence.stream),
                 bind_transition_stream(&maneuvers, 1, |path| {
@@ -4105,7 +4105,7 @@ pub(crate) mod compile_route_tests {
                 );
                 if let Some(follower_state) = follower_state {
                     // 后车不被迫急停（s4 失败面"换道抢行迫使直行急刹"反证）：
-                    // 通过区间前不得完全停车（闸口正常减速允许）。
+                    // 通过区间前不得完全停车（机动门正常减速允许）。
                     if follower_state.route_edge_index < 2 {
                         assert!(
                             follower_state.speed_mm_s > 0,
@@ -4666,7 +4666,7 @@ pub(crate) mod compile_route_tests {
                 if expect_reject {
                     assert!(
                         result.is_err(),
-                        "{name} 无绑定资源出现项须拒（P1-2）：{result:?}"
+                        "{name} 无绑定资源出现记录须拒（P1-2）：{result:?}"
                     );
                 } else {
                     assert!(result.is_ok(), "{name} 须编译通过：{result:?}");
@@ -5538,7 +5538,7 @@ pub(crate) mod compile_route_tests {
                     assert_eq!(
                         compiled.first_edge_occurrence_at_or_after(b0_up, cursor),
                         Some(10),
-                        "cursor {cursor} 之后的首次出现项=下标 10"
+                        "cursor {cursor} 之后的首次出现记录=下标 10"
                     );
                 }
                 assert_eq!(compiled.first_edge_occurrence_at_or_after(b0_up, 11), None);

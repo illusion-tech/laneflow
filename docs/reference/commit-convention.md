@@ -9,7 +9,7 @@
 LaneFlow 的提交信息以 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/)
 为标题基础。机器检查标题、`Refs` / `Closes` footer、破坏性变更的
 `BREAKING CHANGE:`，以及第 6 节的 AI 署名。切片、影响和验证写在 PR 模板里，
-不进 commit 门禁。
+不进 commit 检查。
 
 ## 2. 推荐格式
 

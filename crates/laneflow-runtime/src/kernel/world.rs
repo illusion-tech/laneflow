@@ -2602,7 +2602,7 @@ impl TrafficWorld {
         command(&mut self.state)
     }
 
-    /// 放入一辆已经处于该活动状态的车，不检查新鲜摆放的运动安全。
+    /// 放入一辆已经处于该活动状态的车，不检查新生成的运动安全。
     ///
     /// 仅 `placement-fixtures` 测试特性提供。引用、车身重叠和通行权威仍与生成相同。
     /// 这不是宿主的需求入口。新车走 [`Self::spawn_vehicle`]。

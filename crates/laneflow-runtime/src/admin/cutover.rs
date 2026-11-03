@@ -562,7 +562,7 @@ pub enum CutoverError {
         capacity: u64,
     },
     /// target 路线重编译得到的冲突 passage 出现记录总数超出世界容量。
-    #[error("迁移后路线冲突出现项总数 {total} 超出容量 {capacity}")]
+    #[error("迁移后路线冲突出现记录总数 {total} 超出容量 {capacity}")]
     ConflictOccurrenceCapacityExceeded {
         /// target compiled routes 的冲突出现记录总数。
         total: u64,

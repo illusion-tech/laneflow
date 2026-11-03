@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::source::{self, Movement, ParkingAnchor, SignalProgram};
 use crate::{Direction, GeneratedSource, Result, UrbanConfig, validation};
 
-/// 路线目录的拒绝闸口。多车道转向带车道号，旧的 1 不再接受。
+/// 路线目录的拒绝检查。多车道转向带车道号，旧的 1 不再接受。
 const CATALOG_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]

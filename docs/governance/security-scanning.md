@@ -119,7 +119,7 @@ GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/
 - 审计时读取 open alerts，并按严重级别执行第 4 节阻断规则。
 - cargo-deny 在 CI 中检查 RustSec advisories、许可证、依赖约束和 crate 来源。
 
-源代码许可证、允许的第三方许可证、cargo-deny 配置、Dependabot 更新策略和例外字段以 `dependency-security.md` 为事实来源。本文只定义 GitHub 安全能力的实时状态语义及合并/发布阻断；两份文档必须同时满足，不能以一方的空告警替代另一方的门禁。
+源代码许可证、允许的第三方许可证、cargo-deny 配置、Dependabot 更新策略和例外字段以 `dependency-security.md` 为事实来源。本文只定义 GitHub 安全能力的实时状态语义及合并/发布阻断；两份文档必须同时满足，不能以一方的空告警替代另一方的检查。
 
 `#88` 建立 GitHub 扫描基线，`#56` 建立源代码许可证与依赖安全基线；对应长期规则已分别进入本文与 `dependency-security.md`，后续任务不得只引用已关闭 Issue 代替当前文档和实时 API 证据。
 
@@ -202,7 +202,7 @@ GitHub API 版本或返回结构变化时，应在验证脚本或命令中固定
 
 - GitHub 网页或 API 中的设置变更属于仓库外状态变更，必须关联治理 Issue，并记录 G1 决策、G2 开工和实施证据。
 - 修改现有 ruleset 时必须保留目标分支、既有规则和 bypass actor；变更后重新读取完整 ruleset，确认只改变预期安全规则。
-- 新增 required workflow / required Check 时必须保存完整 before / after ruleset JSON，确认 workflow 或 expected source App 的身份绑定，并用同名 Actions spoof canary 和无 `--admin` 合并验证证明真实阻断。仅新增 non-required shadow workflow 不得同时改写为“已启用强制门禁”；shadow 只在 publishable marker 事件发布 Check；review/thread、Related→Delivery 普通级联与 Draft/closed 失效属于仅遥测，不发布新 Check；marker 时序刷新只能作为 R1 telemetry 证据，不能替代 expected source 绑定。
+- 新增 required workflow / required Check 时必须保存完整 before / after ruleset JSON，确认 workflow 或 expected source App 的身份绑定，并用同名 Actions spoof canary 和无 `--admin` 合并验证证明真实阻断。仅新增 non-required shadow workflow 不得同时改写为“已启用强制检查”；shadow 只在 publishable marker 事件发布 Check；review/thread、Related→Delivery 普通级联与 Draft/closed 失效属于仅遥测，不发布新 Check；marker 时序刷新只能作为 R1 telemetry 证据，不能替代 expected source 绑定。
 - organization ruleset、required workflow 或安全设置 API 返回 `403` / `404` 时，记录 plan / permission 限制和原始错误；不得把不可读取解释为零规则、零告警或能力已关闭，也不得据此覆盖现有 ruleset。
 - 降低或关闭本基线能力属于安全例外，必须在操作前记录原因、风险、到期条件和 Cleanup owner。
 - 临时 bypass 只处理被明确阻断的操作，不改变扫描结论；永久 bypass 授权也不能把失败、无分析或开放告警记为通过。

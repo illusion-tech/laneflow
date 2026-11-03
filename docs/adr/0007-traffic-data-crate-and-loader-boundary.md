@@ -104,7 +104,7 @@ v0.3 不公开 raw wire DTO 或 Rust serialization API，不设置固定 edge/ro
 
 ### 一个统一结果类型表示所有格式版本
 
-使用 optional profile 或空 registry 较简洁，但调用方容易把 v0.2 当作不含 profile 的 v0.3，削弱严格版本闸口，因此拒绝。
+使用 optional profile 或空 registry 较简洁，但调用方容易把 v0.2 当作不含 profile 的 v0.3，削弱严格版本检查，因此拒绝。
 
 ### Production loader 始终执行 JSON Schema validator
 

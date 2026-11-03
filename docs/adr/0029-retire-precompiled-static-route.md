@@ -51,7 +51,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 ## 决策
 
-现行生产路径以本文的产品合同、删除清单、版本闸口、场景 catalog 权威和每世界路线表
+现行生产路径以本文的产品合同、删除清单、版本检查、场景 catalog 权威和每世界路线表
 形状为准；Rust 方法名和错误变体不改变这些语义。
 
 ### 1. 路网产品不再拥有路线
@@ -95,16 +95,16 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 运行时不按边序列内容做内部去重。调用方若要复用同一序列，自己保留句柄。
 
-### 3. 版本闸口与连续登记
+### 3. 版本检查与连续登记
 
-破坏制品形状时提升 exact 拒绝闸口。新增语义占用退役或未分配槽位，不改变任何既有
+破坏制品形状时提升 exact 拒绝检查。新增语义占用退役或未分配槽位，不改变任何既有
 合法 kind/tag/role 的含义或 StableId。
 
 下表以及本节 Identity revision 3、LFSM 3 / LFSD 3 数字记录 #498 完成时的基线。
 #284 W1 的当前格式为 LFCA/LFSM/LFSD 5/4/4、Identity registry 4；完整版本与
 新增登记遵循路权策略实施合同 §8 及 `portable-canonical-artifact.md`，不保留旧读取器。
 
-| 闸口                               | #498 基线 |
+| 检查                               | #498 基线 |
 | ---------------------------------- | --------: |
 | 对象 `formatVersion`               |         4 |
 | `canonicalFormatVersion`           |         4 |

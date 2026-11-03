@@ -260,7 +260,7 @@ pub enum UnsupportedTransitionState {
     #[error("过渡准入 hop 无真实 Gate，当前持久形制无法忠实表达")]
     AdmissionHopWithoutGate,
     /// 持久 passage / occurrence 行覆盖 `ConflictResource::Transition` 出现记录。
-    #[error("过渡资源出现项缺资源种类与稳定边身份，当前持久形制无法忠实表达")]
+    #[error("过渡资源出现记录缺资源种类与稳定边身份，当前持久形制无法忠实表达")]
     TransitionPassageRow,
     /// `ConflictResource::Transition` 资源格携带非 `NoHistory` 清空历史。
     #[error("过渡资源清空历史缺资源种类与稳定边身份，当前持久形制无法忠实表达")]

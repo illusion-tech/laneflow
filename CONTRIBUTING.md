@@ -148,7 +148,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 - Analyze (actions) / Analyze (rust)：advanced CodeQL。
 - Review conversation：未解决对话由 GitHub Ruleset 原生阻断；普通 Review 不由自定义 CI Check 计数或盖章。
 
-数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用门禁。
+数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用检查。
 
 本地完整工作区检查：
 
@@ -200,4 +200,4 @@ LaneFlow 公开仓库采用 Apache-2.0-only，完整条款见根目录 `LICENSE`
 
 当前项目不要求 CLA。若未来商业授权或知识产权管理需要不同贡献安排，必须先通过独立治理 Issue 更新本指南；不能追溯性地假定现有贡献授予了 Apache-2.0 之外的权利。
 
-许可证允许商业使用不代表自动满足具体分发物的全部义务。发布者仍须复核第三方许可证、attribution、修改说明、商标和目标市场要求。依赖与发布门禁见 `docs/governance/dependency-security.md`。
+许可证允许商业使用不代表自动满足具体分发物的全部义务。发布者仍须复核第三方许可证、attribution、修改说明、商标和目标市场要求。依赖与发布检查见 `docs/governance/dependency-security.md`。

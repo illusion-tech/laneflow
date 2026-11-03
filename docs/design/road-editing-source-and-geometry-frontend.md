@@ -993,7 +993,7 @@ production 依赖或实现。
   确定性检查，旧 JSON bytes 和任意新版本仍失败关闭；
 - 固定 `flatc` 的 Rust 生成物 clean-diff、C++/C# probe、生成路径外除 ADR 0024 已登记的
   单一只读 mmap 调用外无 `unsafe` / `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策已经建立
-  兼容承诺时成为门禁；
+  兼容承诺时成为检查；
 - `SourceBytesPerModule`、`SourceBytesTotal`、`DeclarationCount`、字符串、几何点、
   verifier table/depth/apparent size 与 `CompilerControlledLiveBytes` 的边界/边界加一。
 

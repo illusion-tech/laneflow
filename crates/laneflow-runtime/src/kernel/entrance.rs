@@ -1,4 +1,4 @@
-//! 新鲜生成和替换的开放入口与范围内车身。恢复和修订切换不调用。
+//! 新生成和替换的开放入口与范围内车身。恢复和修订切换不调用。
 
 use laneflow_static_contract::LaneEdgeOrdinal;
 

@@ -78,7 +78,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 当前已接受实现契约与 #291 已接受目标契约必须分开解释：下文 3.1 与第 4–12 节的
 五项道路机动车计数继续约束 current 性能结果；3.2 的六项分执行域计数约束目标态
 运行时与后继通用规模报告。接受目标计数不表示目标态实现已存在，也不会自动改写
-当前产品通过条件（Product Pass）、性能基准或合并门禁。
+当前产品通过条件（Product Pass）、性能基准或合并检查。
 
 ### 3.1 当前 Accepted 道路机动车计数契约
 
@@ -430,7 +430,7 @@ W3 的 lifecycle probe 同时使用以下 fixed-step input sequence：
 1. warm-up 结束后的首个 observation boundary，按 cell 升序对 route 3 slot 6
    顺序执行 caller-owned despawn 和 spawn command；spawn 复用同一 logical
    external ID，新 handle 保留该 logical slot，route progress 为 10260 m、
-   speed 为 0。新鲜状态为 Active，下一拍提交 Completed。
+   speed 为 0。新生成状态为 Active，下一拍提交 Completed。
    该 command batch 计入 W3 lifecycle burst；任一 command
    失败都使该 round 无效。
 2. successful step 后，宿主按 logical rank 升序比较该拍前后状态，记录
@@ -574,7 +574,7 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 但两种角色不合并：R0 保存某次研究的实际 OS、工具链、电源和固件环境；P100 保存目标产品的
 推荐硬件锚点。操作系统升级或工具链变化不会改变硬件角色，但每次正式认证仍须记录并冻结
 实际环境。独立显卡只用于完整机型识别；渲染器、资产和游戏宿主的图形预算不属于
-LaneFlow 性能门禁，不能由 #308 编译器证据或本文 Core 预算代替。
+LaneFlow 性能验收，不能由 #308 编译器证据或本文 Core 预算代替。
 
 P100 的具名物理机绑定规则以
 [`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)

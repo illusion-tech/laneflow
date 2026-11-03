@@ -1,8 +1,8 @@
-# 0027 退役 External Review 自定义 Check，收敛五项机器门禁
+# 0027 退役 External Review 自定义 Check，收敛五项机器检查
 
 **状态**: Accepted
 **日期**: 2026-08-24
-**适用范围**: LaneFlow 合并门禁、GitHub Ruleset / Merge Queue、Review conversation、
+**适用范围**: LaneFlow 合并检查、GitHub Ruleset / Merge Queue、Review conversation、
 GitHub Actions 与 `xtask` 治理工具
 **部分取代**: ADR 0026 第 5–9 节及其关于 External Review、六项 required checks、
 受信审阅者名单、`H_mg` 盖章和撤销 bypass 启用顺序的后果
@@ -12,7 +12,7 @@ GitHub Actions 与 `xtask` 治理工具
 
 ## 背景
 
-ADR 0026 删除 G3/G4 自然语言门禁后，引入了名为 `External Review` 的自定义 Check。
+ADR 0026 删除 G3/G4 自然语言检查后，引入了名为 `External Review` 的自定义 Check。
 它从默认分支读取受信审阅者名单，接受非作者的 `APPROVED`、`COMMENTED` 或 PR 正文
 👍，再通过 `pull_request_target`、`workflow_run` 与 `merge_group` 在 `H_pr` / `H_mg`
 上发布同名 Check。
@@ -93,13 +93,13 @@ ADR 0026 将撤销 owner bypass 与启用 `External Review` 绑定；该启用�
 ### 6. #468 完成条件
 
 #492 是 #468 的最终治理修订：#468 已交付的 G3/G4、Schema Publication、commit
-message、模板和五项机器门禁成果继续有效；其未完成的 `External Review required +
+message、模板和五项机器检查成果继续有效；其未完成的 `External Review required +
 撤 bypass` 目标由本文分别改为“退役自定义 Check”和“#493 独立治理”。#492 的交付 PR
 同时关闭 #492 与 #468。
 
 ## 后果
 
-- 合并门禁收敛为五项机器 Check、Merge Queue 与 GitHub 原生未解决对话阻断。
+- 合并检查收敛为五项机器 Check、Merge Queue 与 GitHub 原生未解决对话阻断。
 - 不再维护受信审阅者名单、reaction/review 聚合、trusted-ref publisher 或 `H_mg`
   人审盖章。
 - required approvals / CODEOWNERS 没有被本决策暗中启用；未来变化需单独设计和验证。
