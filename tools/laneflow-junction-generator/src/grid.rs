@@ -17,7 +17,7 @@ pub struct GridCatalog {
     pub cells: Vec<JunctionCatalog>,
 }
 
-/// 有界的证据输入，不定义 Runtime/Adapter 的第二套安装或求解入口。
+/// 有界的参考路网输入，不定义 Runtime/Adapter 的第二套安装或求解入口。
 pub struct GeneratedGrid {
     pub catalog: GridCatalog,
     pub lfca: Vec<u8>,

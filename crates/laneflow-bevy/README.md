@@ -52,7 +52,8 @@ Parked 被省略，实际输出的 `vehicles()` 与批内连续记录编号对�
 `consumption_context_is_current(output.context())` 和当前 placement token。
 对上一帧可见而本帧缺席的实体移除 Transform 或隐藏，保留身份及绑定；真正移除或
 替换仍走 typed `despawn_vehicle` / `replace_completed_vehicle`。选择路径只验证本批
-Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
+Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。完整写法见下文示例
+`culling_extraction`。
 
 ## 依赖与分发
 
@@ -65,11 +66,12 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。
 
 ## 示例
 
-| 示例               | 作用                         | 行为边界                                                 |
-| ------------------ | ---------------------------- | -------------------------------------------------------- |
-| `quickstart`       | 最小接入、车辆绑定与位姿同步 | 两辆车，有限路线，完成后不回流                           |
-| `corridor_traffic` | 持续车流与宿主生命周期       | 默认 `100` 车，支持 `50..=200`，完成后在同一 Entity 回流 |
-| `junction_debug`   | 复杂路口领域观测与可视诊断   | 四车确定性场景，F2 开关只读 overlay（mesh/文本）         |
+| 示例                 | 作用                         | 行为边界                                                                         |
+| -------------------- | ---------------------------- | -------------------------------------------------------------------------------- |
+| `quickstart`         | 最小接入、车辆绑定与位姿同步 | 两辆车，有限路线，完成后不回流                                                   |
+| `corridor_traffic`   | 持续车流与宿主生命周期       | 默认 `100` 车，支持 `50..=200`，完成后在同一 Entity 回流                         |
+| `junction_debug`     | 复杂路口领域观测与可视诊断   | 四车确定性场景，F2 开关只读 overlay（mesh/文本）                                 |
+| `culling_extraction` | 按视野选择提取与隐藏         | 启动时生成路口网格，默认 9 格约 2,800 车，支持 `1..=32` 格，车辆跑完路线后不回流 |
 
 最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
 `examples/support/quickstart_scene.rs`，从同一带策略的空间夹具显式绑定
@@ -86,6 +88,9 @@ HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移
 复杂路口诊断入口是 `junction_debug`：检入 catalog 0.1 与 LFCA 的四车确定性场景，默认
 关闭的 F2 overlay 只读 `LaneFlowSession`，并写入独立 ECS 实体，不触碰 Runtime 状态；
 开关 overlay 时的 Runtime 摘要一致性由无窗口 smoke 对拍检查。
+按视野选择的入口是 `culling_extraction`：提取前用 Runtime 来源和车道分块判断视野，只提取并
+写入选中车辆，缺席车辆隐藏但保留绑定；每 60 帧与全量提取逐值对照。按 `F` 冻结选择视域后
+缩小，可以直接看到被隐藏的车辆。HUD 的耗时只供观察，不是性能证据。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
@@ -96,6 +101,8 @@ cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --featur
 cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --example corridor_traffic --features native-example
 cargo +1.99.1 run --locked -p laneflow-bevy --example junction_debug --features native-example
 cargo +1.99.1 test --locked -p laneflow-bevy --test junction_debug_smoke
+cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example
+cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 ```
 
 完整 C01–C13 验收、确定性出图与独立 headless 摘要对照见
