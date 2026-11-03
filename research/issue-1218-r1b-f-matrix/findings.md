@@ -219,3 +219,60 @@
 
 **证据处置**：d28a8fbc 冻结运行的局部/首错材料全部保留；本修复提交为新的实现提交，
 随后按该提交重建冻结构建并**全新目录**重跑 F1/F2/F3。
+
+## 10. F2 矩阵死锁与修复（2026-11-03）
+
+**现象**：F2 `worker-retry-matrix` 正式运行在 **4/6 正常参考**完成后停滞——重试
+**0/120**、`normal_runs=4`、无子进程、父进程空转 **33 分钟**，`errors=0`。
+
+**根因**：`worker_retry::jobs()` 的 L1 行全部携带注入断点（`AfterGrants`/
+`AfterTransitions`），任务序列只构造出 **4 个正常参考**（W3/W4 × 2 尺度）；而
+`run_matrix` 的启动闸门与完成条件写死 `normals.len() == 6`
+（`expected_normal_runs: 6`，设计口径 = W3/W4 × 2 + L1 × 2）。闸门永不开启，
+120 个重试无法启动。dev 态切片只跑过 L1 重试本身，未端到端运行
+`worker-retry-matrix` 入口，故未暴露。
+
+**修法**：抽出 `tasks()`，显式补齐 L1 × 2 尺度正常参考（共 6 个，置于 120 个
+重试之前）；新增回归测试 `retry_tasks_have_six_normal_references_before_retries`
+钉住任务序列前 6 个为正常参考。harness 全量测试 23+14+5 passed / 0 failed，
+fmt、clippy 干净。
+
+**证据处置**：f6629bc6 冻结下的 F1（70/150，0 错误）与 F2（4/6 正常参考、0 重试）
+材料全部保留；修复提交 `537b98b0` 为新的实现提交，按协议以新冻结构建**全新目录**
+重跑 F1/F2/F3。
+
+## 11. F2 L1 游标字段占位与修复（2026-11-03）
+
+**现象**：F2 死锁修复后重试启动成功（6/6 正常参考），但 `AfterGrants-10000-L1-16`
+w1/w2/w4/w8 首错停止——`check_observations` 报“边界观测时间或游标不符”（4 错误）。
+
+**根因**：`lane_change_retry.rs` 报告把 `cursor_before_commands`/
+`cursor_after_commands`/`cursor_after_retry`/`final_cursor` 硬编码为 0（占位），
+而 `observations.json` 记录真实 `world.command_cursor()`（本输入恒为 10403）；
+W 族 `formal_retry.rs` 早已正确记录这些游标，L 族测试漏了。dev 态切片未经过
+harness 的 `check_observations`，故未暴露。
+
+**修法**：在失败前/失败后/重试后/终态四个检查点捕获真实游标写入报告。手动复跑
+`10000-L1-16` AfterGrants w1：`1 passed`，报告与观测游标逐字段一致。
+
+**证据处置**：537b98b0 冻结下的 F1（31/150，0 错误）、F2（6 正常参考 + 10 重试、
+4 错误）、F3（5 参考，0 错误）材料全部保留；修复提交 `4cb74402` 为新的实现提交，
+按协议统一以新冻结构建**全新目录**重跑 F1/F2/F3。
+
+## 12. F2 L1 final 观测缺终态步进结果与修复（2026-11-03）
+
+**现象**：F2 游标修复后仍首错停止——`AfterGrants-10000-L1-16` w1/w2/w4/w8
+报“缺少完整步进结果”（4 错误）。
+
+**根因**：L1 测试终态观测用 `observation(&failure, None)`（outcome=null），
+而 harness `check_observations` 与 W 族一致要求 final 携带终态 `StepOutcome`
+（tick/time/parking_arrivals）。续跑循环未捕获最后一步 outcome。
+
+**修法**：续跑循环记录最后一步 outcome，final 观测改传 `Some`。手动复跑
+`10000-L1-16` AfterGrants w1：`1 passed`，`final outcome={tick:320,
+time_ms=5120,parking_arrivals:[]}`。
+
+**证据处置（方案 B）**：修复只触及 runtime 测试目标（`#[cfg(test)]`，不进入
+harness 二进制），F1/F3 不受影响。F1/F3 继续在 `4cb74402` 上跑完；F2 以
+`0b49c172` 重建冻结（`bin5`/`environment5.json`）在全新目录单独重跑。
+结果文档按矩阵分别登记 implementation commit。
