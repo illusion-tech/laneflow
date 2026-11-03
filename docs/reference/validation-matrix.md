@@ -3,7 +3,7 @@
 **文档状态**: Active
 **最后更新**: 2026-10-26
 
-**适用范围**: LaneFlow 各切片类型在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
+**适用范围**: LaneFlow 各任务类别在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
 **关联文档**:
 
 - 上游治理:
@@ -19,22 +19,22 @@
 
 ## 1. 目标
 
-本文把 `development-gates.md` 中“按 PR 验证切片类型验证”的要求收敛为一张可执行矩阵；
-切片类型不等同于 GitHub 原生 Issue Type 或 `area:*` 标签。本矩阵回答每种切片：
+本文把 `development-gates.md` 中“按 PR 验证任务类别验证”的要求收敛为一张可执行矩阵；
+任务类别不等同于 GitHub 原生 Issue Type 或 `area:*` 标签。本矩阵回答每种任务类别：
 
 - 哪些检查必须做。
 - 哪些检查通常不需要。
 - 无法运行时如何记录。
 
 矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust workspace
-落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与
+落地后，`core-runtime` 任务类别默认应运行 `cargo fmt --all -- --check` 与
 `cargo test --workspace --locked`。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust 契约输入
 路径跳过重型 cargo。道路编辑 FlatBuffers 变更走独立 Codegen，不因 `.fbs` 拉起整仓
-Rust 测试。本地仍应按本矩阵主动运行与切片相关的命令，不能只依赖 CI skip。
+Rust 测试。本地仍应按本矩阵主动运行与任务类别相关的命令，不能只依赖 CI skip。
 
-## 2. 切片类型到验证矩阵
+## 2. 任务类别到验证矩阵
 
-| 切片类型         | 必须的验证                                                                                                    | 通常不需要                                  |
+| 任务类别         | 必须的验证                                                                                                    | 通常不需要                                  |
 | ---------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `docs-only`      | 文档可读性检查、链接有效、无行为变更声明                                                                      | build、单元测试、schema 校验                |
 | `governance`     | 模板/路径/引用一致性、受影响流程说明；涉及 workflow/ruleset 时复核权限与 GitHub 实际状态                      | 运行时测试                                  |
@@ -85,7 +85,7 @@ GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 3. Core API 破坏性变化没有 ADR 或 design 依据。
 4. 新增或更新依赖违反 ADR 0002 或 `dependency-security.md`，或 cargo-deny 未通过。
 5. 必需验证未运行且没有原因说明。
-6. PR 声称完成父任务，但证据只覆盖子切片。
+6. PR 声称完成父任务，但证据只覆盖子任务。
 7. `security-scanning.md` 要求的适用扫描仍为 pending、失败、无分析、已禁用或不可用。
 8. required checks 未在 `H_pr` 与真实 `H_mg` 上成功。
 
@@ -98,7 +98,7 @@ GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 
 ## 7. 与提交规范的关系
 
-本矩阵定义“做什么检查”，`commit-convention.md` 定义 commit 标题和 footer。切片类型写在
+本矩阵定义“做什么检查”，`commit-convention.md` 定义 commit 标题和 footer。任务类别写在
 PR 模板里，不进 commit 检查。
 
 ## 8. 偶发失败签名对照表

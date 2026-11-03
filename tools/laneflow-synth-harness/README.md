@@ -185,7 +185,7 @@ allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Core 计�
   percentile 使用 nearest-rank；先求每轮 p50/p95/p99，再取三轮中位数；max 取三轮最坏。
 
 单个完整窗口可用 `measure run` 重现，参数顺序以 `measure --help` 为准。任何开发态
-试跑、失败、instrumented 数据和缺少完整环境的运行均须保持各自标签；完成本切片
+试跑、失败、instrumented 数据和缺少完整环境的运行均须保持各自标签；完成本部分
 不解除 P10/P100 平台与数值内存上限 TBD，也不证明完整游戏的 60 FPS。
 
 ## 失败重试

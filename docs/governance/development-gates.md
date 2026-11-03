@@ -21,9 +21,9 @@
 合并与完成不再使用 G3 Owner comment、Gate Ledger 或 G4 档案。PR 合入且 Issue
 因 `Closes #n` 关闭，即该任务完成。
 
-## 2. 切片类型
+## 2. 任务类别
 
-每个 PR 应选择最接近的验证切片类型；它与 Issue Type、`area:*` 标签不是同一维度：
+每个 PR 应选择最接近的验证任务类别；它与 Issue Type、`area:*` 标签不是同一维度：
 
 - `docs-only`：只改文档。
 - `governance`：流程、模板、CI、项目治理。
@@ -34,7 +34,7 @@
 - `example`：示例项目、示例场景或演示数据。
 - `cross-layer`：同时影响 Traffic Runtime、数据格式、Adapter 或示例的高风险变更。
 
-切片写在 PR 模板里给人看，不进 commit 检查。
+任务类别写在 PR 模板里给人看，不进 commit 检查。
 
 ## 3. G0 立项
 
@@ -95,7 +95,7 @@ Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` �
 - 已知道需要补哪些测试和文档。
 
 记录 G2 后把 Project Status 更新为 `In Progress`。如果实现中发现设计输入不稳定，
-应暂停扩展实现，回到 G1 补设计或拆子切片。
+应暂停扩展实现，回到 G1 补设计或拆子任务。
 
 ## 6. 合并检查
 
@@ -107,14 +107,14 @@ conversation 处理，继续适用下面的原生对话解决规则。
 
 所有 PR 应说明：
 
-- 切片类型
+- 任务类别
 - 关联 Issue（body 使用 `Closes #<issue>`）
 - 本次变更范围与明确不做
 - 文档更新情况
 - 测试与验证结果
 - 已知风险
 
-按切片类型追加：
+按任务类别追加：
 
 - `docs-only`：说明无运行时行为变更。
 - `governance`：说明影响的流程和模板。

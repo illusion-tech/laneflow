@@ -238,7 +238,7 @@ Waiting 本地 membership/admission/storage/queue、路线冲突出现记录、�
                                               └─> #285 cross-layer 一万/十万/closure
 ```
 
-#281–#285 是 #227 的职责切片，不是 #235 的子任务；各自依当前开发阶段评审和 PR 治理
+#281–#285 是 #227 的职责分解项，不是 #235 的子任务；各自依当前开发阶段评审和 PR 治理
 交付。#284 的唯一原子版本组合、参考参数、机动车校准和性能证据见
 [`traffic-runtime-right-of-way-policy.md`](design/traffic-runtime-right-of-way-policy.md)
 §7–§9。#285 继续拥有最终跨层一万/十万场景与 Adapter debug surface；运行时证据

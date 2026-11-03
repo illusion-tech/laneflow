@@ -1,7 +1,7 @@
 # 设计文档
 
 本目录回答“系统具体怎么做”。`docs/adr/` 回答“为什么这样定”。GitHub 记录当前
-任务与评审；这里只保存仍约束实现的长期设计。已关闭切片的完成记录、验证轮次和
+任务与评审；这里只保存仍约束实现的长期设计。已关闭任务的完成记录、验证轮次和
 截图不进本目录，见 git 历史。
 
 ## 当前可运行路径
@@ -38,7 +38,7 @@
   边界与快照编辑来源绑定（#1116 G1；实现见 #1119，认证分支与端到端验证见 #529）。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和正本边界。
 - `committed-pose-extraction.md`：#681 位姿来源借用、Spatial 缓冲交换与按需提取
-  的已接受设计；实现状态以独立切片为准。
+  的已接受设计；实现状态以独立任务为准。
 - `portable-canonical-artifact.md`：统一 LFCA 5 / LFSM 4 / LFSD 4 /
   LFCP 2、确定性分块与单路网一百万现实混合静态实体容量合同。
 - `compiler-post-emission-check-and-minimal-publication-closure.md`：后发射检查与

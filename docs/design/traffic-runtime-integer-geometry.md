@@ -314,7 +314,7 @@ Genesis 重生，不做格式迁移 diff。
 - IIDM `f32` 与规范弧长 `f32`：不承诺跨 CPU 位级相同。余数输入依赖它们，因此
   整数状态也不另作跨 CPU 承诺。
 - 同进程并行（同一二进制、同一运行环境）必须与 1-worker 得到相同已提交状态与
-  事件序。联机 / 跨机器 lockstep 不在本切片。
+  事件序。联机 / 跨机器 lockstep 不在本部分。
 - 不得要求与 current-`f64` 录影零分歧，也不得用 2 车走廊墙钟当 Product Pass。
 - 必测（按行为，不按访问器名字）：硬停清余数与速度；爬行时速度保持、余数增长；
   跨边余数保留；拒绝 Gate 时停在边终点且保持 `Active`；走到路线终点进入
@@ -341,7 +341,7 @@ Genesis 重生，不做格式迁移 diff。
 - 在当前树保留米制 LFCA 登记表、旧读取器或 `*_v1`/`*_v2` 孪生公开 API。
 - 把旧米列读成毫米，或为未发布旧字节堆兼容层。
 - 亚微米累加器，或把 4 ms 静止跟停量化死区当缺陷消掉。
-- 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入本切片 `hard_room_mm`。
+- 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入本部分 `hard_room_mm`。
 - 用「等长度」打包交通热列字段，或在当前树并行保留历史米制表。
 - 前缀超过 `u32::MAX` mm 时注册失败，或把 `BeyondFinite` 饱和成 `u32::MAX` 路终硬停。
 - 从路线头溢出后把后续后缀查询一律标成 `BeyondFinite`。

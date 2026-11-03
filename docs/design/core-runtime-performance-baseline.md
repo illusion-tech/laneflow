@@ -937,4 +937,4 @@ aggregate、public World/shard 或 snapshot contract。
 - aggregate/exact migration、identity translation 或分布式 authority。
 
 若实现或实验要求修改上述边界，不得通过放宽本文 target 或 fidelity 隐式吸收，应
-暂停当前切片并建立新的设计输入。
+暂停当前任务并建立新的设计输入。

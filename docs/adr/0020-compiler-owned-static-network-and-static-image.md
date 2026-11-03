@@ -570,7 +570,7 @@ IR」：
 - #301 完成后：`laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界；current
   JSON 与 `laneflow-core` 不再是 production contract，必须随 #301 完成 PR 从运行时
   入口拆除。文档把 Runtime 写成已实现目标路径，不得再写「未实现 / 非 current API」。
-- 新实现切片不得以 current object graph 作为 compiler IR，也不得让过渡兼容反向
+- 新实现任务不得以 current object graph 作为 compiler IR，也不得让过渡兼容反向
   塑造终态布局。
 - integration-only LIR→Core 投影随 Core 一并删除；compiler 正确性看 LFCA/制品，
   需要 tick 的证据只走 Runtime。禁止用同一场景的 `CoreWorld` 对拍作为 #301/#305 检查。

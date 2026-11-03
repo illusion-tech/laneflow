@@ -192,7 +192,7 @@ membership 或让同车取得多个新 claim；restore/cutover 发现既有 cycl
 ### 7. #559 临时能力保护的原子接管
 
 历史上的 `ConflictRuntimeUnavailable` 曾在 #284 交付前保护以下入口；#284 W7 已在同一
-切片接通 grant/reservation、组合 ledger、snapshot/cutover 与正式 fixed tick 后删除该
+该任务接通 grant/reservation、组合 ledger、snapshot/cutover 与正式 fixed tick 后删除该
 临时错误：
 
 - `spawn_vehicle`；
@@ -253,7 +253,7 @@ steady tick 不扫描全部静态 zone、不按 external ID 热查找、不分�
 - 物理队列顺序、snapshot/replay 与 cutover 具有统一确定性；
 - #284 全局法规 priority 不会覆盖 Waiting 物理 winner，prospective SCC 在提交前阻止
   committed cross-zone cycle；
-- Parking 和 conflict 已交付能力被显式组合，不会因新切片形成旁路；
+- Parking 和 conflict 已交付能力被显式组合，不会因新任务形成旁路；
 - 容量按真实静态/车辆规模和当 tick 实际工作量付费。
 
 代价：
@@ -270,7 +270,7 @@ steady tick 不扫描全部静态 zone、不按 external ID 热查找、不分�
 
 ### 让 #282 同时实现 downstream-clearance 与组合 ledger
 
-拒绝。它会把 Conflict 资源和跨 zone 活性提前塞进本地 Waiting 切片，形成与 #284
+拒绝。它会把 Conflict 资源和跨 zone 活性提前塞进本地 Waiting 任务，形成与 #284
 重叠的 authority，也会扩大审阅和回滚面。
 
 ### 同车同 tick 获取多个独立 Waiting claim

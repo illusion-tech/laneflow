@@ -77,7 +77,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
   maneuver interior 创建车辆的 bootstrap transaction；现有 lifecycle 命令必须接入
   Waiting 清理/校验，interior bootstrap 继续失败关闭；
 - 由 #282 单独删除、绕过或弱化 #559 的临时保护；该保护已由 #284 在正式冲突
-  grant/reservation、组合 ledger、持久化与 fixed tick 同一切片原子接管；
+  grant/reservation、组合 ledger、持久化与 fixed tick 同一任务原子接管；
 - 多 worker candidate producer、分布式/城市级预约、概率驾驶人耐心、死锁传送或
   长时域预测；
 - fixed equal slot、按速度阈值推断 Waiting membership，或另一套米制物理正本。

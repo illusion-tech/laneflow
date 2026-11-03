@@ -339,7 +339,7 @@ cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config exam
 `check` 不写文件。catalog 与 LFCA 字节对拍由 `laneflow-corridor-generator` 测试覆盖，随
 `cargo test --workspace` 进入 `Rust checks`，不再单独跑 generator `check`。
 
-## 10. 分层职责与实施切片
+## 10. 分层职责与实施批次
 
 | 关注点                                                                   | 归属层                               | 实施 Issue     |
 | ------------------------------------------------------------------------ | ------------------------------------ | -------------- |

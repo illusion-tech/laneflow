@@ -362,7 +362,7 @@ reservation 的已保存 semantic entry 必须 exact 存在；explicit reservati
 exact bytes、save 停顿（墙钟与主线程）、load 停顿（editable 重编译与
 published 认证分别度量）、恢复峰值内存、保存期间对稳态 tick 的干扰。
 
-### 历史切片 B 初值（v1 published fresh restore）
+### 历史B 部分 初值（v1 published fresh restore）
 
 以下是切换前 v1 的同机描述性基线，不得作为当前版本 exact bytes 或性能结论复用：
 `LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
@@ -382,19 +382,19 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_peak_e
 cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
 ```
 
-| 维度                 | 切片 B 初值（release，LF-P100-REF-01）                                                                                                                                                                                                          |
+| 维度                 | B 部分 初值（release，LF-P100-REF-01）                                                                                                                                                                                                          |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 快照制品 exact bytes | LFRS `3,248` bytes                                                                                                                                                                                                                              |
 | save 主线程停顿      | 边界 `capture_snapshot` 中位 `0.002 ms`；账本 34 次分配 / 3,435 bytes，返回时净 live `2,955` bytes。随后 `encode_lfrs` 可移到后台，中位 `0.0072 ms`；账本 34 次分配 + 12 次重分配 / 9,480 allocated bytes，返回时净 live `7,448` bytes          |
 | published load 停顿  | 目标 Published 根/source 已由调用方取得后，`restore_lfrs` 内绑定认证 + verifier + 语义 lowering + fresh world 重建整次中位 `0.063 ms`；账本 386 次分配 + 13 次重分配 / 23,240 allocated bytes，返回时净 live `18,256` bytes                     |
-| editable load 停顿   | 切片 B 时没有编辑来源变体，未登记；现行初值见下文「2026-10-28 editable load 初值」                                                                                                                                                              |
+| editable load 停顿   | B 部分 时没有编辑来源变体，未登记；现行初值见下文「2026-10-28 editable load 初值」                                                                                                                                                              |
 | 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享路网修订/source 在 profiler 前准备，不重复计入增量                                                                               |
 | 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
 
 ### 2026-10-19 再登记（#537，exact head `6cf9056365dcf106bedeba85035863c4fda5a8c1`，v6）
 
 同机 LF-P100-REF-01、rustc 1.98.0、Windows build 29683；fixture 为当前 corridor
-（LFCA exact `425,418 B`，28 路线、2 车、4 ms 步进），故与切片 B 初值（v1、`420,332 B`）
+（LFCA exact `425,418 B`，28 路线、2 车、4 ms 步进），故与B 部分 初值（v1、`420,332 B`）
 不作回归比较，本节为 v6 当前基线。未插桩墙钟中位：`capture_snapshot` 主线程
 `0.0016 ms`；`encode_lfrs` 无竞争主线程中位 `0.0029 ms`（后台化可行性沿 §8 初值节
 口径，竞争影响由竞争 tick 行覆盖）；published `restore_lfrs` 整次

@@ -4,7 +4,7 @@ use super::migration_journal::MigrationDeltaJournal;
 
 /// 切换日志及配对世代；不授予步进任意管理权限。
 pub(crate) struct AdministrativeState {
-    /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
+    /// 武装中的迁移增量日志（#513 C 部分）：`Some` ⟺ 本世界存在在途切换事务。
     /// 武装与解除都只发生在切换事务的原子边界；溢出粘性置位，从不影响本世界
     /// 自身的提交路径。
     pub(crate) migration_journal: Option<MigrationDeltaJournal>,

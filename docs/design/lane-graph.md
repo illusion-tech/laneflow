@@ -103,7 +103,7 @@ v0.2 允许动态 spawn / despawn vehicle，并允许 register / remove route de
 
 - 动态拓扑会影响 route validity、vehicle occupancy、Adapter geometry、debug mesh 和增量 validation。
 - `EdgeHandle` 采用无 generation 的稳定 dense handle，依赖拓扑不变。
-- #29 的目标是固化 route 和 lane graph 的最小长期输入，不把动态 road network 编辑塞进同一切片。
+- #29 的目标是固化 route 和 lane graph 的最小长期输入，不把动态 road network 编辑塞进同一任务。
 
 如果后续需要运行时道路封闭、临时改道或动态地图编辑，应新建设计 Issue，并重新评估 `EdgeHandle` generation、route invalidation、车辆迁移和 Adapter 同步策略。
 

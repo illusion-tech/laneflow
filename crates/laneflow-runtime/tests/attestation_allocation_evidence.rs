@@ -139,7 +139,7 @@ fn measure_attestation_allocation() {
 }
 
 /// 直算摘要归一化 scratch 预算边界（限额二分）与分配计数：最小成功限额即
-/// 归一化存储预算边界（切片①的边界测试在生产档的延伸），对照
+/// 归一化存储预算边界（第①部分的边界测试在生产档的延伸），对照
 /// 现行 capture + digest 路径的分配字节。
 fn direct_digest_scratch_and_allocation_evidence() {
     for tier in synthetic_network::evidence_tiers() {

@@ -118,7 +118,7 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 - `docs/design/`：Traffic Runtime、数据格式、Adapter、运行时规则等具体设计。
 - `docs/governance/`：GitHub 流程、开发阶段评审、AI Agent 开发规范。
 - `docs/reference/`：术语、模板、校验矩阵、命名约定，以及仍约束实现的机器可读
-  编制种子 / 生产编译基线。不存放里程碑最终审阅、逐切片验证流水账、原始性能轮次
+  编制种子 / 生产编译基线。不存放里程碑最终审阅、逐任务验证流水账、原始性能轮次
   或 smoke 截图；那些当时证据只保留在 git 历史与 GitHub Issue / PR。
 - `schemas/`：道路编辑 FlatBuffers source；不是对外发布入口，也不是 JSON loader
   契约。长期决策仍由 ADR 与 design 文档解释。
@@ -208,7 +208,7 @@ LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文
 - GitHub Issue / PR 模板的标题、字段名、说明文字以中文为主。
 - `docs/governance/`、`docs/reference/` 中的治理与参考规范以中文撰写。
 - `.agents/skills/` 中的 Agent 工作流以中文撰写；工具专用薄包装（如 `.cursor/skills/`）同样中文优先。
-- 技术标识符（切片类型、Gate 名称、分支前缀、commit 字段名等）可保留英文，便于工具解析与跨环境一致。
+- 技术标识符（任务类别、Gate 名称、分支前缀、commit 字段名等）可保留英文，便于工具解析与跨环境一致。
 - ADR、design 和 architecture 中的领域术语必须有中文规范名与英文辅助名；中文定义
   为准，英文别名不得改变语义。
 - 新术语先进入 `docs/reference/glossary.md`，首次出现写作“中文术语（English
@@ -234,7 +234,7 @@ LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文
 - 当前 `TrafficWorld`、现有 `Vehicle*` API 与历史车辆 workload 应继续使用准确的
   车辆术语，但必须标明车辆特化边界；不得把车辆证据改写成已经支持非机动车、行人或
   轨道交通，也不得让当前车辆特化反向定义目标交通运行时。
-- 已关闭切片的完成记录、验证轮次和截图不进入当前文档树。查阅当时证据使用 git 历史
+- 已关闭任务的完成记录、验证轮次和截图不进入当前文档树。查阅当时证据使用 git 历史
   与对应 GitHub Issue / PR。后续术语治理可以做数量或译名等价更新，但不得用新的
   Proposed 架构重新定性旧结论；确需解释时，应保留原陈述并另行明确标注“按后续
   提案框架重述”，不能让重述冒充原始证据。

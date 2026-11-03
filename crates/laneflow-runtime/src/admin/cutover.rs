@@ -1,5 +1,5 @@
-//! 切换描述符（#302 切片 A）：宿主对象外可信封闭输入的进程内类型与
-//! 一致性验证。同修订同步换根与跨修订切换事务（#513 切片 C）同处本文件
+//! 切换描述符（#302 A 部分）：宿主对象外可信封闭输入的进程内类型与
+//! 一致性验证。同修订同步换根与跨修订切换事务（#513 C 部分）同处本文件
 //! 与 `cutover_transaction`。
 
 use laneflow_static_contract::{
@@ -122,7 +122,7 @@ impl SemanticDiffOriginBinding {
         self.semantic_diff_byte_length
     }
 
-    /// 绑定的 LFSD exact-byte 摘要（#513 切片 C：字节级认证比对对象）。
+    /// 绑定的 LFSD exact-byte 摘要（#513 C 部分：字节级认证比对对象）。
     #[must_use]
     pub const fn semantic_diff_digest(&self) -> Sha256Digest {
         self.semantic_diff_digest
@@ -178,7 +178,7 @@ impl WorldBinding {
     }
 
     /// 基线已提交切换事件游标；事务启动时与本世界已提交事件计数逐项比对
-    /// （失配即 `BaselineEventCursorMismatch`）。#513 切片 C 起随事件批次
+    /// （失配即 `BaselineEventCursorMismatch`）。#513 C 部分 起随事件批次
     /// 通道成为真实轴。
     #[must_use]
     pub const fn baseline_event_cursor(&self) -> u64 {
@@ -416,7 +416,7 @@ impl NetworkRevisionCutoverDescriptor {
         Ok(())
     }
 
-    /// LFSD 字节认证消费（#513 切片 C；切换合同 §2「与 LFSD base/target
+    /// LFSD 字节认证消费（#513 C 部分；切换合同 §2「与 LFSD base/target
     /// binding 同构，逐项交叉验证」）。
     ///
     /// 先做 O(1) 长度比对与字节 SHA-256 认证，再经注册表校验读取器解析，
@@ -454,7 +454,7 @@ pub enum CutoverError {
     /// 描述符一致性验证失败（对应合同 §8「描述符不一致/不可信」）。
     #[error("切换描述符一致性验证失败")]
     Descriptor(#[from] CutoverDescriptorError),
-    /// 本入口只承载 `same_revision_restore`；跨修订直移属切片 C。
+    /// 本入口只承载 `same_revision_restore`；跨修订直移属C 部分。
     #[error("本切换入口不接受该迁移策略")]
     PolicyMismatch,
     /// 目标来源的修订标识与 target 侧已认证制品不一致。
@@ -502,7 +502,7 @@ pub enum CutoverError {
     /// 任一失败保持旧根对象、旧来源、旧路线和旧占用不变。
     #[error("切换暂存容量预留失败")]
     StagingAllocFailed,
-    /// 引用不存在：base 侧车道边在 target 修订无稳定对应（#513 切片 C；
+    /// 引用不存在：base 侧车道边在 target 修订无稳定对应（#513 C 部分；
     /// 切换合同 §3 不可映射）。
     #[error("车道边在 target 修订不存在稳定对应（base 序数 {base_edge}）")]
     UnmappableLaneEdge {
@@ -569,7 +569,7 @@ pub enum CutoverError {
         /// 世界配置的冲突出现记录容量。
         capacity: u64,
     },
-    /// 已存在在途切换事务（切换合同 §4 在途唯一；#513 切片 C）。
+    /// 已存在在途切换事务（切换合同 §4 在途唯一；#513 C 部分）。
     #[error("存在在途切换事务")]
     InFlightTransaction,
     /// 迁移增量日志溢出（粘性失败；事务放弃，旧世界不受影响）。
@@ -605,7 +605,7 @@ pub enum CutoverError {
     /// 事务与世界的日志配对被破坏：世界未持有本事务武装的日志。
     #[error("世界未武装迁移增量日志")]
     JournalMissing,
-    /// 描述符事件基线游标与本世界已提交事件计数不一致（#513 切片 C-4：
+    /// 描述符事件基线游标与本世界已提交事件计数不一致（#513 C-4 部分：
     /// 事件批次通道引入后在签发入口收紧的轴）。
     #[error("事件基线游标不一致：描述符 {descriptor}，世界 {world}")]
     BaselineEventCursorMismatch {
@@ -699,7 +699,7 @@ impl TrafficWorld {
     /// 签发当前活动聚合的切换世界绑定。
     ///
     /// 输入命令游标取当前世界已应用命令计数；事件游标取已提交切换事件
-    /// 计数（#513 切片 C-4 起为真实轴）。调用方无需复制世界身份、世代
+    /// 计数（#513 C-4 部分 起为真实轴）。调用方无需复制世界身份、世代
     /// 或游标拼装逻辑。
     ///
     /// # Panics
@@ -1964,7 +1964,7 @@ pub(crate) mod tests {
         }
         #[test]
         fn event_cursor_baseline_is_compared_at_transaction_start() {
-            // #513 切片 C-4：事件批次通道引入后，事件基线游标在事务启动时
+            // #513 C-4 部分：事件批次通道引入后，事件基线游标在事务启动时
             // 与世界已提交事件计数逐项比对（不再是非零即拒的预留轴）。
             let (mut world, _, _) = world_with_vehicle(true);
             let base = origin(FULL_SPATIAL, true);

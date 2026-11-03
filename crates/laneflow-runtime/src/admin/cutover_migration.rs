@@ -1,4 +1,4 @@
-//! 跨修订直移核心（#302 切换合同 §3；#513 切片 C-2）。
+//! 跨修订直移核心（#302 切换合同 §3；#513 C-2 部分）。
 //!
 //! LFSD 认证消费见 [`crate::admin::cutover`] 的描述符方法。本模块交付另外两件：
 //! base→target 稳定引用重绑表（两侧 `SharedIdentityIndex` 共同解析，LFSD
@@ -2172,7 +2172,7 @@ pub(crate) fn revalidate_migrated_vehicles(candidate: &mut WorldState) -> Result
     Ok(())
 }
 
-/// 单个车辆在候选上的重验证（切片 C-3 的增量重放复用同一入口）。
+/// 单个车辆在候选上的重验证（C-3 部分 的增量重放复用同一入口）。
 ///
 /// 复核面：路线解析、序列下标与进度对 target 边长、Active 的限速与后缀
 /// 访问、Active 与其它 Active 的重叠（共享准入物理边索引，排除自身）。
@@ -2312,7 +2312,7 @@ pub(crate) fn revalidate_vehicle_on(
     Ok(())
 }
 
-/// 统一的已提交逻辑状态比较器（切片 C 测试共用；含信号灯色组轴）。
+/// 统一的已提交逻辑状态比较器（C 部分 测试共用；含信号灯色组轴）。
 #[cfg(test)]
 pub(crate) fn assert_committed_logical_state_equal(left: &WorldState, right: &WorldState) {
     assert_eq!(left.tick_index(), right.tick_index());

@@ -220,7 +220,7 @@ pub(crate) struct CommittedWorldState {
     /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
     /// 基线在事务启动时与之逐项比对）。
     pub(crate) command_cursor: u64,
-    /// 已提交切换事件游标（#513 切片 C-4）：每次成功切换原子递增一个
+    /// 已提交切换事件游标（#513 C-4 部分）：每次成功切换原子递增一个
     /// 事件批次；事件批次只随晋升恰一次交付。
     pub(crate) event_cursor: u64,
     /// 当前世界世代/观测 stream 内严格单调的已提交状态序号。

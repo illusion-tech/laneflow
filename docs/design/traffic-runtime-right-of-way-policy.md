@@ -820,13 +820,13 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 | cutover descriptor             | 1      | 2     | 新策略、冲突历史和规范化语义                      |
 | corridor catalog               | 0.3    | 0.4   | 必填 policy selection                             |
 
-本表记录路权切片的版本选择。后继 ADR 0030 的执行配置分离仅将 LFRS 容器推进至 6，
+本表记录路权部分的版本选择。后继 ADR 0030 的执行配置分离仅将 LFRS 容器推进至 6，
 runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒绝面以
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md) 为准。
 
 几何计算和浮点量化算法未变，其独立 geometry semantics 版本保持不变。
 
-旧 LFRS、LFCA、LFSM、LFSD、Road Editing 与 catalog reader 同切片删除或替换；
+旧 LFRS、LFCA、LFSM、LFSD、Road Editing 与 catalog reader 同批次删除或替换；
 不写转换器、不双写、不用 feature flag 选择旧路径。重新生成参考制品与 codegen，
 补齐新 Identity known vectors；不会把 LFCP 版本未变误解成允许其绑定旧 LFCA。
 

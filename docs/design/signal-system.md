@@ -41,7 +41,7 @@ v0.4 的目标是在 v0.3 fixed tick、route occurrence、Vehicle Following 和�
 - 可供 Adapter/debug 使用的只读 query 与稀疏事件；
 - v0.4 schema/loader/Core normalization 的历史验收、确定性、失败原子性与性能证据。
 
-本文是 #93 的 Accepted 设计输入，不是实现完成声明。实施切片为 #94、#95、#96、#97；只有它们分别完成 Gate 后，相应能力才成为 production 事实。
+本文是 #93 的 Accepted 设计输入，不是实现完成声明。实施批次为 #94、#95、#96、#97；只有它们分别完成 Gate 后，相应能力才成为 production 事实。
 
 v0.4 明确不实现：
 
@@ -533,7 +533,7 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
   可区分失败；走廊相位保持 16 ms 的正整数倍；
 - 无信号编制仍可安装并步进。
 
-## 15. 实施切片与退出边界
+## 15. 实施批次与退出边界
 
 ```text
 #93 design/ADR

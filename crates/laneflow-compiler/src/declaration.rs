@@ -511,7 +511,7 @@ pub struct CanonicalFrameInput<'a> {
 
 /// 静态准入规则可以引用的目标。
 ///
-/// 四个可遍历目标在本切片编译为静态准入表；`FacilityBand` 保留为可诊断输入，HIR
+/// 四个可遍历目标在本部分编译为静态准入表；`FacilityBand` 保留为可诊断输入，HIR
 /// 会在确认引用存在后以 capability-unavailable 拒绝，不能静默忽略。
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
@@ -531,7 +531,7 @@ pub enum AccessRuleTargetInput<'a> {
 /// 合成领域专用语言的静态准入规则声明输入。
 ///
 /// `participant_classes` 按集合解释：输入顺序不影响规范结果，重复引用会被规范化去重。
-/// 本切片只接受永远适用的静态规则；时变窗口由后继运行时 G1 处理。
+/// 本部分只接受永远适用的静态规则；时变窗口由后继运行时 G1 处理。
 #[derive(Clone, Copy, Debug)]
 pub struct AccessRuleInput<'a> {
     /// 来源模块内显式持久化且唯一的规则稳定键。

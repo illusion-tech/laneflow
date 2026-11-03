@@ -197,7 +197,7 @@ fn assert_unchanged_expanded(
     );
 }
 
-/// plan §5 冻结基线候选池：来源①→④（仓库内历史切片研究制品）按固定顺序合并并逐级
+/// plan §5 冻结基线候选池：来源①→④（仓库内历史批次研究制品）按固定顺序合并并逐级
 /// 断言（6/48→7/56→7/72→9/75），再合并 Release 资产 `stream-a-searches.json` 的新增
 /// 候选（来源⑤，钉版输入）；总断言（10 边 76 份与每边份数）由 `pinned_baseline_pool`
 /// 按钉版输入执行。任一来源缺失或逐值不符即停止执行并重新授权。
@@ -1186,7 +1186,7 @@ fn cohort2_baseline_pool_merges_frozen_sources_with_pinned_input_bytes() {
         plan.contains("1,204,062") && plan.contains("584,379"),
         "plan §5 pins both baseline byte sizes"
     );
-    // 来源①→④为仓库内历史切片研究制品，逐级断言 6/48→7/56→7/72→9/75；来源⑤按
+    // 来源①→④为仓库内历史批次研究制品，逐级断言 6/48→7/56→7/72→9/75；来源⑤按
     // plan §5 为 Release 资产钉版输入——本测试以临时目录写入同字节内容验证读取、
     // 钉版断言与合并路径；真实 10 边 76 份与每边份数总断言由 `pinned_baseline_pool`
     // 在正式实验入口按钉版输入执行。
