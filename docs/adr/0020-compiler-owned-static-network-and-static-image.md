@@ -11,7 +11,7 @@
 **迁移时间表修订（#301 G1）**: 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换权威。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。<br>
 
 **后继决策**: ADR 0029（Accepted；#498 G1）取消本文把 `StaticRoute` 列为 Identity
-v1 必选声明种类、并由编译器预编译初始路线出现项的条款。ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
+v1 必选声明种类、并由编译器预编译初始路线出现记录的条款。ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
 `laneflow-validator`、`canonical-publication-v1` receipt、由 #299 统一交付三类
 验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定。本文关于编译器
 拥有静态路网、Canonical LIR、可移植规范制品、对象外信任锚和 Runtime/Spatial 分层的
@@ -196,7 +196,7 @@ kind `1..=24` 与 field tag `1..=35` 连续登记；ADR 0029 新增的 `Conflict
 kind/tag/required-sequence
 表以 `network-compiler.md` 为规范。所有**定义子实体身份**的父子关系必须以父实体
 StableId 作为父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块
-同名父实体与重新归属仍由完整命名空间裁决。可选组织关系不因此自动成为身份前像；
+同名父实体与重新归属仍由完整命名空间裁决。可选组织关系不因此自动成为身份原像；
 例如 `ParkingSpace.facilityId` 仅在显式存在时形成
 `ParkingSpace -> ParkingFacility` 关系，
 不参与 `ParkingSpace` 的 StableId128 派生。
@@ -207,7 +207,7 @@ StableId 作为父锚点，不能只复制父实体在其来源模块内稳定�
 
 1. **可移植规范制品（Portable Canonical Artifact）**：平台无关、确定性、可发布和长期审计的静态路网
    事实；内含每个稳定实体的规范身份表（Canonical Identity Table）
-   `CanonicalIdentityTable`，保存完整 field-tag/value 前像、声明的 `StableId128` 与
+   `CanonicalIdentityTable`，保存完整 field-tag/value 原像、声明的 `StableId128` 与
    typed ordinal，承接 public artifact、独立身份重算、迁移和跨实现互操作；
 2. **目标静态镜像（Target Static Image）**：按目标平台、布局版本、封闭配置档
    （Closed Profile）、分区提示版本与性能要求
@@ -216,7 +216,7 @@ StableId 作为父锚点，不能只复制父实体在其来源模块内稳定�
    `(entityKind, StableId128, typed ordinal)` 到 source span 和 pass provenance 的
    映射；使用绑定 `networkRevision`、`canonicalArtifactDigest`、compiler build 与
    compilation provenance 的版本化 `SourceMapEnvelope`，可以冗余 tuple 用于显示，
-   但该冗余不得作为身份验证前像；身份重算只消费规范制品中的
+   但该冗余不得作为身份验证原像；身份重算只消费规范制品中的
    `CanonicalIdentityTable`；
 4. **语义差异（Semantic Diff）**：以稳定标识和字段语义描述新增、删除、重接、
    geometry/behavior 变化，供 PR/Gate 审阅；使用绑定旧/新路网修订、规范制品摘要与
@@ -229,7 +229,7 @@ StableId 作为父锚点，不能只复制父实体在其来源模块内稳定�
 同时认证 `canonical-publication-v1` 收据的
 `validationReceiptFormatVersion + validationReceiptKind + validationReceiptDigest +
 validationReceiptByteLength`。
-源映射封套绑定单份制品摘要与编译来源沿袭；语义差异封套绑定旧/新制品摘要、精确
+源映射封套绑定单份制品摘要与编译来源链；语义差异封套绑定旧/新制品摘要、精确
 长度和路网修订；静态镜像引用其来源制品摘要，并另外由外部 descriptor 绑定
 target/profile-specific `staticImageDigest + staticImageByteLength`。任何输出失败，
 本次 compilation unit 都不得发布部分结果。
@@ -237,7 +237,7 @@ target/profile-specific `staticImageDigest + staticImageByteLength`。任何输�
 Portable canonical artifact 是发行与治理契约，不是运行时热布局。Target static
 image 是可丢弃、可按目标重新生成的派生制品，不获得独立 authoring authority。
 authoritative source module graph 始终是唯一 authoring SSOT；generated artifact
-是否 checked in 只属于发布和审阅策略，不能形成第二套可手改事实源。
+是否 checked in 只属于发布和审阅策略，不能形成第二套可手改事实来源。
 
 ### 5. 交通运行时（Traffic Runtime）与空间层（Spatial）消费配置档控制的静态镜像
 
@@ -256,7 +256,7 @@ StaticNetworkImage
 - `traffic-headless-v1` 要求 Traffic + StaticIdentityIndex + PartitionPlanningHints；
   `traffic-spatial-v1` 再要求 Spatial；v1 不定义泛型 `WarmQueryTables`、
   `ColdDiagnostics` 或 `traffic-debug-v1`。运行时必需的低频索引进入对应 required
-  typed section，显示名、规范身份前像、来源位置和诊断文本由 portable artifact、
+  typed section，显示名、规范身份原像、来源位置和诊断文本由 portable artifact、
   source map 与独立 diagnostics artifact 外置提供；
 - target `laneflow-runtime`/`TrafficWorld` 只借用或共享 `StaticTrafficView`，不要求
   Spatial bytes；
@@ -264,7 +264,7 @@ StaticNetworkImage
   `(entityKind, StableId128)` 排序的反向表；它是 snapshot save/load、dynamic Route
   重建和路网修订切换的生产必需冷索引，但不进入 steady tick；
 - `CanonicalIdentityTable` 只属于 portable artifact / independent validation 输入；
-  static image 不复制规范元组前像，生产 Runtime 不为身份重算元数据承担 retained
+  static image 不复制规范元组原像，生产 Runtime 不为身份重算元数据承担 retained
   memory 或 cache 成本；
 - Spatial section 存在时完整覆盖 v1 所需 edge，并与 Traffic 使用同一 logical edge
   ordinal/cross-index；v1 不引入 sparse geometry mapping；
@@ -293,7 +293,7 @@ G1 在最低产品硬件上基准后写入约束集。生产启动先认证描�
 v1 采用平面分块表而非默克尔树（Merkle Tree），因为外部信任锚先认证整份有界小型
 清单，平面表已满足节级随机/并行验证且校验器攻击面更小；未来远端认证分页必须提升
 完整性方案版本，不能原地改变 v1。
-分块验证与有类型视图必须绑定同一个不可变字节背板（Immutable Byte Backing）。
+分块验证与有类型视图必须绑定同一个不可变字节后备存储（Immutable Byte Backing）。
 宿主不能保证已打开资产在视图生命周期内不可替换/改写时，必须把已验证分块复制并
 封存到只读拥有存储，或拒绝建立可信视图；验证路径后重开或保留可写别名均不可信。
 
@@ -439,7 +439,7 @@ receipt 时只比较已认证绑定，validator、publisher 或审计消费者�
 
 `SourceMapEnvelope` 必须内含 `sourceMapFormatVersion`、
 `networkRevisionDerivationVersion + networkRevision`、`canonicalArtifactDigest`、
-`compilerBuildId` 与来源沿袭记录。它不内嵌自己的摘要；外部
+`compilerBuildId` 与来源链记录。它不内嵌自己的摘要；外部
 `CanonicalPublicationDescriptor` 认证上述配对及
 `canonicalArtifactDigest + canonicalArtifactByteLength`、
 `sourceMapDigest + sourceMapByteLength` 与
@@ -483,7 +483,7 @@ canonical artifact 不变时因布局或 CPU target 变化而重建。
 2. **独立验证器（Independent Validator）**：只消费 portable canonical artifact 和公开
    constraint contract，独立实现 topology、标识、ownership、coverage、
    geometry 与 occurrence 检查；必须从 artifact 内 `CanonicalIdentityTable` 的完整
-   前像独立编码并重算每个 BLAKE3-128 `StableId128`，验证 parent anchor、duplicate
+   原像独立编码并重算每个 BLAKE3-128 `StableId128`，验证 parent anchor、duplicate
    tuple 与 digest collision；不得调用 compiler semantic validation，也不得依赖
    source map 补齐身份字段；
 3. **验证收据封套（Validation Receipt Envelope）/外部描述符（External
@@ -520,7 +520,7 @@ source-map 闭合、独立镜像重建或完整语义差异验证的对应受检
 
 `static-image-v1` 收据必须记录 artifact semantic validation（包括全部稳定身份独立
 重算）、路网修订标识独立重算与 independent image rebuild comparison 的成功结果。
-缺失 / 篡改身份前像或声明 ID 不匹配时必须失败，未完成三者时不得签发可进入
+缺失 / 篡改身份原像或声明 ID 不匹配时必须失败，未完成三者时不得签发可进入
 production fast path 的 descriptor。运行时当前修订只来自已认证
 `StaticImageDescriptor`，不接受调用方或 image header 自报。
 
@@ -743,10 +743,10 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 | 0005 | 外部稳定标识（External Stable Identity）、有类型密集句柄（Typed Dense Handle）、热冷分离、动态车辆 / 路线生成 | 核心初始化时分配静态句柄 / 登记表；目标态动态执行层改名为交通运行时（Traffic Runtime）    |
 | 0007 | 运行时（Runtime）不依赖 Serde / 文件系统 / 引擎，以及内存中字节边界（In-memory Bytes Boundary）               | 私有 DTO → `InitialTrafficData` 作为终态唯一输入、核心构造器作为全部静态规范化权威        |
 | 0008 | 精确当前版本（Exact-current）、失败关闭（Fail-closed）、离线迁移（Offline Migration）                         | 单一 `formatVersion` 同时承担来源、制品与静态镜像布局版本                                 |
-| 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源沿袭（Provenance）、运行时不联网          | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                 |
+| 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源链（Provenance）、运行时不联网          | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                 |
 | 0013 | 交通运行时 / 空间层 / 适配器权威、规范几何、长度 / 位姿、失败原子性、无图形支持                               | 交通 / 空间两个独立制品在运行时按外部标识（External ID）和清单摘要（Manifest Digest）联结 |
 | 0015 | 有界规范 `f32` 坐标框架、误差 / 内存 / 批量性能边界                                                           | 空间层初始化时从核心句柄和 JSON 几何重建登记表；静态镜像的空间节保持可选                  |
-| 0017 | 路口、通行流向、机动路径、机动门、路线出现项语义，共享内部边，热路径无字符串                                  | 核心规范化 / 路线注册期首次编译静态出现项；静态初始出现项改由编译器镜像预编译             |
+| 0017 | 路口、通行流向、机动路径、机动门、路线出现记录语义，共享内部边，热路径无字符串                                  | 核心规范化 / 路线注册期首次编译静态出现记录；静态初始出现记录改由编译器镜像预编译             |
 
 本矩阵只取代“工作发生在哪一层、何时发生、如何存储”的条款，不重新定义上述 ADR
 已经冻结的交通、空间和运行时行为语义。ADR 0020 Accepted 状态提交在各历史 ADR
@@ -816,7 +816,7 @@ independent validator 在发布前完成；拒绝。
 语义；拒绝。跨修订迁移必须消费由独立验证器覆盖完整 base/target 语义比较、并由可信
 切换描述符绑定的 semantic diff。
 
-### 仅凭镜像头（Image Header）的规范摘要 / 来源沿袭（Canonical Digest / Provenance）接受不可信字节
+### 仅凭镜像头（Image Header）的规范摘要 / 来源链（Canonical Digest / Provenance）接受不可信字节
 
 攻击者可以伪造这些 header 声明、对恶意 image bytes 计算新的
 `staticImageDigest`，并构造结构合法但语义恶意或资源消耗过大的 image。Production

@@ -11,7 +11,7 @@
 - `vehicle-following.md`（跟车、占用、overlap 分类）
 - `traffic-runtime-phase-protocol.md`（P0–P8 阶段与读写集）
 - `traffic-runtime-snapshot.md`（持久化与版本轴衔接注记）
-- `cross-section-access.md`（相邻事实源与整边界锚点，#237 消费契约）
+- `cross-section-access.md`（相邻事实来源与整边界锚点，#237 消费契约）
 - `road-junction-model.md`（ManeuverPath/Gate；merge/diverge 边界）
 - `research/issue-1142-route-design/design.md`（边界设计与最小闭环样本）
 - 裁定记录双源：#237 冻结提案（issuecomment-6529967139，立时可解析）与 `research/production-g1-decision-package/g1-decision-package.md` §七（维护者 2026-10-31 裁定；PR #1183 精确提交 `451cdaa104a3d2304480f848a67bb86743cd3350`，合入后补 merge SHA）——两者同载 A1–A6 裁定原文
@@ -154,7 +154,7 @@ earlier-staged claim 与车尾清空原语，不另建第二套安全权威）�
    **不扩义 `ExecutionConfig`**（#302/#303 冻结边界：执行配置仅 worker 数，
    不进交通身份；扩义方案已排除）。
 2. 运行时不支持过渡执行时，**结构化拒绝**（`TransitionUnsupported` 类、
-   失败关闭、零部分状态）于三类入口：路线注册（`register_route` 出现项
+   失败关闭、零部分状态）于三类入口：路线注册（`register_route` 出现记录
    编译期，注册表不变）、车辆准入（绑定期复核）、恢复（零部分丢弃 staging）；
    全部入口统一（direct / candidate / cutover / restore / replay）。
    有流绑定的路线可以从过渡段开始，但首段没有供车辆申请预约的上游 hop。
@@ -215,22 +215,22 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 
 ## 8. 与既有合同的衔接
 
-- `route-system.md` D4/D5：注册校验面（静态序列/出现项）与失败原子不变；
+- `route-system.md` D4/D5：注册校验面（静态序列/出现记录）与失败原子不变；
   换道能力拒绝在其外延（§6）。
 - `vehicle-following.md` §6.4/§7：overlap 分类与占用记录形状为 §4 分类表的
   判据来源；投影记录同表参与查询。
 - `traffic-runtime-phase-protocol.md` §3：P3/P4/P5/P7 阶段语义与读写集不变，
   §5 为其上的领域合同。
-- `cross-section-access.md` §14：相邻事实源与整边界锚点（禁止段级锚定）。
+- `cross-section-access.md` §14：相邻事实来源与整边界锚点（禁止段级锚定）。
 - `traffic-runtime-snapshot.md`：持久化与版本轴（§9 指向）。
 
 ## 9. 持久化与版本轴（裁定 A5，权威定义见 snapshot 衔接注记）
 
 - 车辆记录 tagged 过渡状态（`PreEntry | InTransition | Clearing`）+ 预约
   wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间并集、
-  route occurrence 证明）；完整预约只装运行时权威，出现项不入档（恢复重编译）。
+  route occurrence 证明）；完整预约只装运行时权威，出现记录不入档（恢复重编译）。
 - **三轴版本分别升级并核对编号**：LFRS **7→8**（容器：过渡状态/预约行槽位）、
-  runtime state **5→6**（状态形状扩展）、digest **8→9**（规范前像扩展过渡
+  runtime state **5→6**（状态形状扩展）、digest **8→9**（规范原像扩展过渡
   记录段）；容器与事实版本不混用单号（snapshot §2）。
 - **首版限制**：活动过渡或持预约世界**拒绝跨修订切换**（保留旧世界、零部分
   提交）；迁移为后续设计并登记能力限制（G-E 更新）。

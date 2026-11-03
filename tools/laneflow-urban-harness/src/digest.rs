@@ -1,6 +1,6 @@
 //! harness 内部完整性摘要（ADR 0033，#1042）。
 //!
-//! harness 自己产生的摘要只由 harness 重算，唯一算法为 BLAKE3-256；前像以
+//! harness 自己产生的摘要只由 harness 重算，唯一算法为 BLAKE3-256；原像以
 //! `laneflow:<名称>:v<n>\0` 域分隔前缀开头，前缀版本即派生版本。合同见
 //! `docs/design/urban-demand-harness.md` §6「摘要角色与算法」。生成器清单中的
 //! 文件摘要不属于本模块（见 [`crate::artifacts::ArtifactFileDigest`]）。
@@ -92,7 +92,7 @@ impl FileDigest {
 mod tests {
     use super::*;
 
-    /// 每个前缀的 known vector：以 `blake3::hash(前缀 ‖ 前像)` 独立计算核对，
+    /// 每个前缀的 known vector：以 `blake3::hash(前缀 ‖ 原像)` 独立计算核对，
     /// 前缀字面值同时固定在本测试中，改动前缀即改动派生版本。
     #[test]
     fn domain_prefixes_are_fixed_and_digests_match_independent_blake3() {

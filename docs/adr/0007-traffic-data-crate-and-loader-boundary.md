@@ -100,7 +100,7 @@ v0.3 不公开 raw wire DTO 或 Rust serialization API，不设置固定 edge/ro
 
 ### data crate 重复实现 domain validation
 
-表面上可独立返回完整错误，但会形成两套 route/profile 规则并产生漂移，因此拒绝。Core constructors 和 `InitialTrafficData` 必须是 domain invariant 的唯一事实源。
+表面上可独立返回完整错误，但会形成两套 route/profile 规则并产生漂移，因此拒绝。Core constructors 和 `InitialTrafficData` 必须是 domain invariant 的唯一事实来源。
 
 ### 一个统一结果类型表示所有格式版本
 

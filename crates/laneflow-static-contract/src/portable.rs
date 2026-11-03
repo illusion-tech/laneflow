@@ -6,7 +6,7 @@
 
 use core::fmt;
 
-/// 当前 LFCA 对象格式版本。读器只承认该值。
+/// 当前 LFCA 对象格式版本。读取器只承认该值。
 pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 5;
 
 /// 当前约束契约版本。

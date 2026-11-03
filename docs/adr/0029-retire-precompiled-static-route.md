@@ -4,7 +4,7 @@
 **日期**: 2026-08-26<br>
 **适用范围**: 路网产品中的路线实体、LFCA / 共享静态路网 / 编制来源、`TrafficWorld`
 路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状<br>
-**部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现项」；ADR 0020 /
+**部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现记录」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
 共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。道路编辑根表按后继路权策略合同 §4.4 使用
 `format_version = 4`，包含 24 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
@@ -13,7 +13,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 `RouteHandle`。`network-compiler.md` §9.7
 对动态通行定义的耐久指名改为：快照局部 ID + 共享静态路网实体 `StableId128`，不把运行时
 槽位 / generation / 密集序号写入存档。路口 / 通行流向 / 机动路径 / 机动门 /
-出现项匹配规则 / 热路径无字符串继续有效。<br>
+出现记录匹配规则 / 热路径无字符串继续有效。<br>
 **不取代**: ADR 0021 出行编排与路径规划分层；ADR 0018 `register_route` 不做
 `(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。<br>
 **关联 Issue**: [#498](https://github.com/illusion-tech/laneflow/issues/498)、
@@ -36,10 +36,10 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 ## 背景
 
 宿主在运行时决定出行需求和路线，例如新增公交线路或临时货运任务所需的边序列。
-`TrafficWorld::register_route` 已能在本世界编译出现项并生成车辆；路线的来源和
+`TrafficWorld::register_route` 已能在本世界编译出现记录并生成车辆；路线的来源和
 选择策略由宿主拥有，不要求绑定某一类产品。
 
-当时 LFCA / 共享静态路网里的 `StaticRoute` 把边序列和灯/门/待行出现项冻进不可变路网修订。
+当时 LFCA / 共享静态路网里的 `StaticRoute` 把边序列和灯/门/待行出现记录冻进不可变路网修订。
 走廊、Bevy smoke 和 `runtime_min` 曾靠 `static_route(ordinal)` 在没有 #303 规划器时立刻放车。
 
 这造成两套路线权威：共享静态路网上的预编译目录，加上每世界表。tick 按句柄种类取边、
@@ -67,22 +67,22 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 公开路线入口只剩：
 
-- `register_route`：共享静态路网 `LaneEdgeOrdinal` 有序非空序列 → 本世界编译出现项 →
+- `register_route`：共享静态路网 `LaneEdgeOrdinal` 有序非空序列 → 本世界编译出现记录 →
   代际感知 `RouteHandle`
 - `remove_route`：只移除本世界路线；仍有 live 车辆引用则失败
 
 删除 `static_route`、`RouteHandle` 的静态分支，以及 tick 上按句柄种类取边/门/准入
 的分叉。`RouteHandle` 不再区分静态/动态；只保留槽位下标与 generation。
 
-出现项编译规则与现行动态路径相同，也必须覆盖现行静态 seal 已证明的语义，不得弱化：
+出现记录编译规则与现行动态路径相同，也必须覆盖现行静态 seal 已证明的语义，不得弱化：
 
 - 相邻边连通（车道后继或机动转移候选）
 - 机动路径完整匹配；只认 `transition_index == 0` 的入口候选；多条不同 path 都匹配则歧义
-- 路口内部边必须被出现项覆盖
+- 路口内部边必须被出现记录覆盖
 - 首边、末边不得落在路口内部边上；末边不得带 StopLine
 - hop 半开区间不得相交
-- hop 门从已编译机动出现项 + 共享静态路网机动转移候选解析，不读共享静态路网路线表
-- 等待区出现项在注册时一并编译，供后继等待运行时消费；本切片不生产化 #282
+- hop 门从已编译机动出现记录 + 共享静态路网机动转移候选解析，不读共享静态路网路线表
+- 等待区出现记录在注册时一并编译，供后继等待运行时消费；本切片不生产化 #282
 - 本世界 compiled 表物化分段 `u32` 前缀、后缀 `BoundedDistance`、下一受控 hop
   链、hop→门，以及与现行 `speed_limit_transitions` 同形的限速下降转换。路终剩余
   O(1) 读后缀。信号停车沿受控 hop 链走到第一盏当前限制的门，不在槽位存「当前
@@ -102,7 +102,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 下表以及本节 Identity revision 3、LFSM 3 / LFSD 3 数字记录 #498 完成时的基线。
 #284 W1 的当前格式为 LFCA/LFSM/LFSD 5/4/4、Identity registry 4；完整版本与
-新增登记遵循路权策略实施合同 §8 及 `portable-canonical-artifact.md`，不保留旧读器。
+新增登记遵循路权策略实施合同 §8 及 `portable-canonical-artifact.md`，不保留旧读取器。
 
 | 闸口                               | #498 基线 |
 | ---------------------------------- | --------: |
@@ -114,9 +114,9 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 | `constraintContractVersion`        |         2 |
 | `staticExecutionContractVersion`   |         4 |
 
-读器拒绝不匹配当前登记的版本。`tableKind=0x0015` 只允许现行
+读取器拒绝不匹配当前登记的版本。`tableKind=0x0015` 只允许现行
 `ConflictZone` 行形状；旧 `StaticRoute` 行不能通过字段、身份与关系闭合。不恢复制品旧
-读器，不为旧字节提供迁移器。
+读取器，不为旧字节提供迁移器。
 
 Identity revision 3 连续登记 23 个种类和 34 个字段标签：`ConflictZone` 复用 kind 21 与
 tag 23，`CanonicalFrame` 保持 kind 22 / tag 31，`ParticipantStream` 使用 kind 23 与
@@ -151,7 +151,7 @@ bind 把键解析为共享静态路网边序号，对每条 catalog 路线 `regi
 ### 5. 容量
 
 编译器不再有 `RouteOccurrenceCount` / `max_route_occurrence_count`。该数字曾服务
-预编译静态路线出现项，不是寻路上限，也不是单条动态路线边数上限。现行树不保留
+预编译静态路线出现记录，不是寻路上限，也不是单条动态路线边数上限。现行树不保留
 `add_static_route`，也不为已删除路径恢复 1920 限额。
 
 每世界同时存活的路线条数继续由调用方 `WorldConfig.route_capacity` 约束。
@@ -164,7 +164,7 @@ bind 把键解析为共享静态路网边序号，对每条 catalog 路线 `regi
 取代上段“不另冻产品边数”的无界资源含义：它统计全部存活动态路线 `edges.len()`
 总和，由唯一注册/编译路径在任何分配前对 direct、candidate、cutover、restore、
 replay 统一执行，移除路线时释放。它不是单条路线的产品政策，不等于物理边数，也不
-恢复已删除静态路线出现项的 `1920`；任意单条路线仍只受本世界剩余 occurrence 容量
+恢复已删除静态路线出现记录的 `1920`；任意单条路线仍只受本世界剩余 occurrence 容量
 约束。
 
 ### 6. 磁盘快照与在线切换的路线表示
@@ -180,7 +180,7 @@ replay 统一执行，移除路线时释放。它不是单条路线的产品政�
   在已证明 origin digest 一致时用序号作压缩编码，那是编码，不是第二套身份。
 - 车辆存快照局部路线 ID、`route_edge_index`（该序列下标，不是路网序号）、毫米
   进度 / 余数 / 速度 / 状态。
-- **不存** 槽位、`generation`、`LaneEdgeOrdinal`、compiled 机动/门/等待出现项、
+- **不存** 槽位、`generation`、`LaneEdgeOrdinal`、compiled 机动/门/等待出现记录、
   catalog `route_id`、已删除的静态路线序号。
 - `VehicleProfile`、`ParticipantClass`、`ParkingSpace` 同样：存档用
   `StableId128`，内存用序号。
@@ -191,7 +191,7 @@ replay 统一执行，移除路线时释放。它不是单条路线的产品政�
 事实（边稳定身份序列、游标、毫米状态），不比对 `RouteHandle` 数值。
 
 **同进程在线修订切换**：Adapter 可能仍持有当期句柄。允许在现有槽位 **原地** 把
-compiled 边序号换成映射后的新序号并重编译出现项，句柄保持到该进程结束。这不是
+compiled 边序号换成映射后的新序号并重编译出现记录，句柄保持到该进程结束。这不是
 磁盘格式，不得把槽位布局写进存档。走廊 catalog controller 绑定的是
 `(NetworkRevisionId, WorldPolicySelection)`，宿主保证同一世界实例与局部句柄对应
 （现行人口设计 §2、§6）：修订变化后 controller **失效**，调用方按新修订
@@ -199,13 +199,13 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
 catalog 原子热切换，也不让人口层在切修订后继续用旧修订句柄。#302 实现切修订
 状态机时消费本约束。
 
-出现项是 `(边序列 × 当前共享静态路网机动网)` 的纯函数，只存在于内存热表。加载和切修订
-都用唯一 `register_route` 编译器生成；不得在快照里保留第二份出现项权威。
+出现记录是 `(边序列 × 当前共享静态路网机动网)` 的纯函数，只存在于内存热表。加载和切修订
+都用唯一 `register_route` 编译器生成；不得在快照里保留第二份出现记录权威。
 
 ### 7. 实现一致性
 
 编译器 IR、LFCA 发射、共享静态路网、Runtime 路线注册、场景 catalog 与夹具必须原子
-遵循本合同；不得恢复米制 IR、旧格式读器或第二套路线上车路径。
+遵循本合同；不得恢复米制 IR、旧格式读取器或第二套路线上车路径。
 
 ## 明确不做
 
@@ -214,7 +214,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 不实现 #303 规划器、动态成本或出行编排。
 - 不把出行选择策略放进 Runtime。
 - 不把 `RouteHandle` / 槽位 / `generation` / 密集序号写成存档身份。
-- 不把 compiled 出现项写入快照。
+- 不把 compiled 出现记录写入快照。
 - 不在 Runtime 内按边序列内容建立规范身份或去重表。
 - 不恢复 JSON 运行时入口或 `CoreWorld`。
 - 不把编制曲线、规范折线或车辆配置改出当前权威。
@@ -225,7 +225,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 不把 world / install 身份编码进 `RouteHandle`。
 - 不在 compiled 表存「当前红灯」，也不按相位重建红灯列。
 - 不因拒绝 `StaticRoute` 声明而再次提升合成 DSL `frontendVersion`；权威版本固定为 4。
-- 不为已删除的静态路线出现项保留编译限额或具名配置档死字段。
+- 不为已删除的静态路线出现记录保留编译限额或具名配置档死字段。
 
 ## 后果
 
@@ -239,7 +239,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 合成 DSL 不接受静态路线声明；合成 `frontendVersion` 为 4，拒绝
   `StaticRoute` 不另升。
 - 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
-- 共享 Traffic 不再投影静态路线边序列、出现项、反向索引或 seal 派生的路线距离/
+- 共享 Traffic 不再投影静态路线边序列、出现记录、反向索引或 seal 派生的路线距离/
   下一受控转换表。机动路径、门、等待区、停止线仍在共享静态路网，供注册期匹配。
 - 公开 API 删除 `StaticRouteOrdinal` 消费面（Runtime/Adapter/scenario bind）。身份 crate
   不保留可构造的 `StaticRoute` 种类；kind 21 只构造 `ConflictZone`。
@@ -257,11 +257,11 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 6. **另写非 LFCA 路线 sidecar。** 多一类产品制品。否决。
 7. **压缩 Identity 种类，把 CanonicalFrame 改成 21。** 身份编码是 Identity v1
    契约，禁止为清单美观重编号。否决。
-8. **把 1920 改挂为单条动态路线边数上限。** 把编译出现项预算误用为行程长度，
+8. **把 1920 改挂为单条动态路线边数上限。** 把编译出现记录预算误用为行程长度，
    限制城市游戏超长出行。否决。
 9. **磁盘快照按运行时槽位 + 边序号落盘。** 把分配器布局和修订局部密集域提升为
    存档主键；跨修订必漂，句柄语义绑死 freelist。否决。
-10. **快照同时保存 compiled 出现项。** 与边序列形成第二权威；跨修订几乎总要丢弃。
+10. **快照同时保存 compiled 出现记录。** 与边序列形成第二权威；跨修订几乎总要丢弃。
     否决。
 11. **磁盘与在线切换共用一种表示。** 在线需要保留进程内句柄，磁盘应当作废旧句柄。
     否决合成。
@@ -274,9 +274,9 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
   则失败关闭。
 - 走廊、Bevy smoke、`quickstart`、替换/回流测试只通过 `register_route` 放车，
   受保护转向覆盖不弱于现行静态夹具。
-- tick 热路径只有一套已编译边序列与出现项。
+- tick 热路径只有一套已编译边序列与出现记录。
 - catalog 带边键（本 ADR 首次定义为 `0.3`；现行 `0.4` 另必填策略选择）；生成器不再往 LFCA 写路线。
 - 文档、glossary、compiler-foundation、portable-canonical-artifact、道路编辑
   schema 不再把预编译静态路线写成路网必选产品。
 - 磁盘快照合同：局部路线 ID + 边 `StableId128`；不落盘槽位 / generation / 密集序号 /
-  出现项。
+  出现记录。

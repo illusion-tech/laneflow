@@ -115,7 +115,7 @@ fn identity_order_uses_little_endian_length_prefix_before_text_bytes() {
     let lir = lir(&unit);
 
     // 普通文本顺序是 "aa" < "z"，但 Identity v1 在字段值前编码 u32_le 长度；
-    // 完整前像的第一个差异字节因此是 1 < 2。
+    // 完整原像的第一个差异字节因此是 1 < 2。
     assert_eq!(
         identity_values(&lir, &lir.lane_edges[0])[0].1,
         b"z".to_vec()

@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::kernel::bytes32::bytes32_type;
 
-/// 道路编辑状态摘要的派生版本；更换算法或前像即递增（设计 §2.4）。
+/// 道路编辑状态摘要的派生版本；更换算法或原像即递增（设计 §2.4）。
 pub const ROAD_EDITING_STATE_DIGEST_VERSION: u16 = 1;
 /// 道路编辑状态摘要的域分隔前缀；尾随 NUL 属于前缀字节。
 pub const ROAD_EDITING_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:road-editing-state-digest:v1\0";
@@ -29,7 +29,7 @@ pub enum InvalidRoadEditingState {
     /// 模块集合为空。
     #[error("道路编辑状态至少包含一个模块")]
     Empty,
-    /// 模块数超出 `u32` 摘要前像字段。
+    /// 模块数超出 `u32` 摘要原像字段。
     #[error("道路编辑状态模块数 {count} 超出 u32")]
     TooManyModules {
         /// 实际模块数。
@@ -41,7 +41,7 @@ pub enum InvalidRoadEditingState {
         /// 调用方输入顺序中的模块序号。
         index: usize,
     },
-    /// 某模块的来源文档键字节数超出 `u32` 摘要前像字段。
+    /// 某模块的来源文档键字节数超出 `u32` 摘要原像字段。
     #[error("第 {index} 个模块的来源文档键超出 u32 字节长度")]
     SourceDocumentKeyTooLong {
         /// 调用方输入顺序中的模块序号。
@@ -121,7 +121,7 @@ impl RoadEditingState {
     ///
     /// # Errors
     ///
-    /// 集合为空、模块数或键长超出摘要前像字段、键或字节为空、键重复，或总字节长度
+    /// 集合为空、模块数或键长超出摘要原像字段、键或字节为空、键重复，或总字节长度
     /// 溢出时返回 [`InvalidRoadEditingState`]。
     pub fn try_new(
         mut modules: Vec<RoadEditingStateModule>,
@@ -212,7 +212,7 @@ impl RoadEditingState {
     }
 }
 
-/// 按设计 §2.4 前像计算道路编辑状态摘要；`modules` 必须已是规范顺序。
+/// 按设计 §2.4 原像计算道路编辑状态摘要；`modules` 必须已是规范顺序。
 fn road_editing_state_digest(modules: &[RoadEditingStateModule]) -> RoadEditingStateDigest {
     let mut hasher = blake3::Hasher::new();
     hasher.update(ROAD_EDITING_STATE_DIGEST_DOMAIN);

@@ -561,12 +561,12 @@ pub enum CutoverError {
         /// 世界配置的 occurrence 容量。
         capacity: u64,
     },
-    /// target 路线重编译得到的冲突 passage 出现项总数超出世界容量。
+    /// target 路线重编译得到的冲突 passage 出现记录总数超出世界容量。
     #[error("迁移后路线冲突出现项总数 {total} 超出容量 {capacity}")]
     ConflictOccurrenceCapacityExceeded {
-        /// target compiled routes 的冲突出现项总数。
+        /// target compiled routes 的冲突出现记录总数。
         total: u64,
-        /// 世界配置的冲突出现项容量。
+        /// 世界配置的冲突出现记录容量。
         capacity: u64,
     },
     /// 已存在在途切换事务（切换合同 §4 在途唯一；#513 切片 C）。
@@ -739,7 +739,7 @@ impl TrafficWorld {
     /// [`CutoverError::Descriptor`]）、已存在在途事务（
     /// [`CutoverError::InFlightTransaction`]）、base 世界绑定/基线
     /// 游标/策略选择与当前世界不一致、target 来源修订或编辑来源差异基线不匹配、路线或等待区/冲突
-    /// 重验证失败、冲突出现项容量超限（`ConflictOccurrenceCapacityExceeded`）、
+    /// 重验证失败、冲突出现记录容量超限（`ConflictOccurrenceCapacityExceeded`）、
     /// 在途车辆的游标/停车状态校验失败、占用索引重建失败、世界世代或事件游标
     /// 耗尽、暂存或事件分配失败、必需执行计划准备失败
     /// （[`CutoverError::ExecutionPlan`]）时返回相应 [`CutoverError`]；任一

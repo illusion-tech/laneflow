@@ -76,7 +76,7 @@ unreachable = MotionReach::from_tick(...).excludes(distance)
 
 比较必须严格大于：恰好可达和边界舍入附近均不筛除。
 首版要求本边末端不可达，比仅证明下一道门不可达更保守；因此不需要为筛选跨边行走，
-也不改变 `gate_hops` 或等待区出现项的解释。
+也不改变 `gate_hops` 或等待区出现记录的解释。
 不要改用 `entry_frontier` 的 2 mm 分类余量；该分类的用途与这里的运动证明域不同。
 
 由原语的位移上界和 `progress_mm > 0`，原完整预览若成功，下一位置仍在当前边内部。
@@ -88,17 +88,17 @@ unreachable = MotionReach::from_tick(...).excludes(distance)
 
 这个条件与一拍不可达分开：本拍过不了门的车仍可能在让行证明时窗内到达冲突入口。
 使用当前 `policy_binding.horizon()`，从与 `contender_notes` 相同的当前位置二分
-定位冲突出现项后缀，不能只找下一道 Gate 或按物理边去重。
+定位冲突出现记录后缀，不能只找下一道 Gate 或按物理边去重。
 
 - 没有证明时窗时，原路径不构造 `cells`；仍须满足本节其他条件。
 - 后缀确实为空时，没有 `cells`。
-- 否则只在首个后缀出现项能取得有限精确入口距离，并由同一
+- 否则只在首个后缀出现记录能取得有限精确入口距离，并由同一
   `PreparedApproachEta::new(carry_um, speed_mm_s, max_accel, horizon)` 的
   `lower_bound` 返回 `OutsideHorizon` 时证明为空。
 - 距离缺失、`BeyondFinite`、`Unprovable`、构造失败或首项仍在时窗内，全部完整求值。
   不为提高命中而扫过不明首项寻找更远的项。
 
-这复现原路径在首个 `OutsideHorizon` 处停止的条件；路线出现项有序，后续距离不更近。
+这复现原路径在首个 `OutsideHorizon` 处停止的条件；路线出现记录有序，后续距离不更近。
 初始项为零距离、相同位置的多个 passage、环路再次出现同一边都保留原有排序语义。
 不以红灯或当前零速单独证明为空，也不为筛选另外计算信号周期；这样不依赖放行推迟，
 已有权利与无法停车的例外仍走完整路径。

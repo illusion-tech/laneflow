@@ -742,7 +742,7 @@ pub(crate) fn build_junction_hir(
     // 的连续区间（CSR：starts + 构造游标 + 连续 path_keys，查询 O(1)）。成员身份
     // 是同一 `HirUnit::lane_edges` 空间的 `HirLaneEdgeKey`：`stable_key` 仅模块内
     // 唯一，跨模块同名边是不同实体（#1219 P2-5）。三块定长分配与构造游标一并
-    // 计入 `junction_budget`（#1219 P2-6），按出现项精确预留（会计钉：构造期
+    // 计入 `junction_budget`（#1219 P2-6），按出现记录精确预留（会计钉：构造期
     // 零重分配）。契约（#1219）：三块均为校验期暂存，不进入 `JunctionHir` 输出；
     // 若未来该索引保留进输出，必须迁入 live 轴重记账。
     let mut member_starts: Vec<usize> = vec![0; lane_edges.len().saturating_add(1)];

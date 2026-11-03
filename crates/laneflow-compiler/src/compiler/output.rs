@@ -45,7 +45,7 @@ impl CompilationMetrics {
         }
     }
 
-    /// 返回 Canonical LIR 的实体、关系与出现项逻辑记录总数。
+    /// 返回 Canonical LIR 的实体、关系与出现记录逻辑记录总数。
     #[must_use]
     pub const fn lir_record_count(self) -> u64 {
         self.lir_record_count

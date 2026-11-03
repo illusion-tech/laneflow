@@ -80,12 +80,12 @@ impl RoadEditingPreflightCounts {
         self.external_namespace_reference_count
     }
 
-    /// 返回关系出现项计数。
+    /// 返回关系出现记录计数。
     pub(crate) const fn relation_occurrence_count(self) -> u64 {
         self.relation_occurrence_count
     }
 
-    /// 返回身份字段出现项计数。
+    /// 返回身份字段出现记录计数。
     pub(crate) const fn identity_field_occurrence_count(self) -> u64 {
         self.identity_field_occurrence_count
     }

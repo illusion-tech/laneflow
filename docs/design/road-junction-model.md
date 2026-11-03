@@ -101,7 +101,7 @@ LaneGroup 是 RoadSection 内可选的命名分组，可用于表达一组共享
 它不是 Core root entity，但 #234 已在
 [`cross-section-access.md`](cross-section-access.md) §3.3 冻结其生产语义：
 一等 external ID/handle、child-owned 归属恰好一个 RoadSection、不影响 lane
-顺序；lane adjacency 的唯一事实源仍是 RoadSection 的 lane index。如何进入
+顺序；lane adjacency 的唯一事实来源仍是 RoadSection 的 lane index。如何进入
 lane-change policy 由 #237 在该 SSOT 上冻结。
 
 ### 2.4 Junction

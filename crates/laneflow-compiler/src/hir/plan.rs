@@ -413,7 +413,7 @@ fn junction_budget(
                 Option<(HirManeuverPathKey, SourceLocation)>,
             >(lane_edge_count))
             // 路径成员索引 CSR（#1219 P2-6）：starts(N+1) + 构造游标(N) + 连续
-            // 路径键；路径键按成员出现项上界（maneuver_path_edges）入账，越界
+            // 路径键；路径键按成员出现记录上界（maneuver_path_edges）入账，越界
             // 成员跳过时只高估，宁可高估不低估。
             .saturating_add(requested_bytes::<usize>(lane_edge_count.saturating_add(1)))
             .saturating_add(requested_bytes::<usize>(lane_edge_count))
@@ -1481,7 +1481,7 @@ mod tests {
     #[test]
     fn junction_budget_accounts_member_index_layout() {
         // P2-6（#1219）：成员索引 CSR 三笔全入 scratch（starts(N+1) + 构造游标(N) +
-        // 路径键(M)）；边际增量钉住"不得低估"，M 按出现项上界入账。
+        // 路径键(M)）；边际增量钉住"不得低估"，M 按出现记录上界入账。
         let unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1())
             .build()
             .unwrap();

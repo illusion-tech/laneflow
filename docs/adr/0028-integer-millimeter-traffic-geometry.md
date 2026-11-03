@@ -104,7 +104,7 @@ G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决�
 - 时距、三项加减速、停车朝向：`f64` → IEEE 754 binary32 round-ties-to-even，再套本节
   `f32` SI 闭包。朝向闭包 `-π <= x < π`；`+π` / `-π` 的 binary32 为 `0x40490fdb` /
   `0xc0490fdb`。编制/准入：量化后若等于 `+π`，写成 `-π` 再检查。制品与 IR 上的值必须
-  已经满足闭包；存着的 `+π` 非法。读器与后发射检查只拒不折，发射只写已提交值。
+  已经满足闭包；存着的 `+π` 非法。读取器与后发射检查只拒不折，发射只写已提交值。
 - 跨字段（停车进度 vs 所引边长）在 **双方都量化之后** 比较；有折线时停车锚点相对
   **空间冻结提交后的**边长关闭，见第 2 节。
 裸 SI 不是第二套权威。Spatial 折线仍是 ADR 0015 的 `f32` 米，不走本量化。
@@ -116,11 +116,11 @@ G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决�
 LFCA 交通边只存 `U32` 毫米，**不**另存编制 `F64` 米，也不从已省略的 Spatial 表反推。
 结果写入共享交通热列。
 
-有折线与无折线的派生、以及 **编译器（有 LIR）与读器（无 LIR）必须分开对账**，
+有折线与无折线的派生、以及 **编译器（有 LIR）与读取器（无 LIR）必须分开对账**，
 见 `traffic-runtime-integer-geometry.md` §6。#500：空间冻结用 `length_mm / 1000` 作
 观察值对账规范 `f32` 弧长，对账通过后有折线把 IR `length_mm` **提交为**弧长量化结果，
 无折线保持准入毫米。此后 LIR 边长与 LFCA `lengthMillimetres` 是同一整数；不得另存
-米列再在发射 round。读器仍用 `lengthMillimetres / 1000` 对账弧长，失败不改已量化边长。
+米列再在发射 round。读取器仍用 `lengthMillimetres / 1000` 对账弧长，失败不改已量化边长。
 
 `length_mm < 100` 或 `> 10_000_000` 失败关闭。无 Spatial 时不得走车辆 pose
 采样。编制解析曲线继续 `f64` 求值再量化为折线。#354 不得把本轴收进 `Point` /
@@ -257,7 +257,7 @@ lockstep 不在本合同范围。
 
 ### 7. 破坏性制品与 API；只承认一套合同
 
-允许破坏。1.0 前不保留制品双栈：旧米制登记表、旧读器、旧夹具以 git 历史为准，
+允许破坏。1.0 前不保留制品双栈：旧米制登记表、旧读取器、旧夹具以 git 历史为准，
 **不**进当前树，也 **不** 做 v1→毫米转换。公开 Rust 入口不带 `V1`/`V2` 后缀。
 
 对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`5`**。
@@ -266,7 +266,7 @@ lockstep 不在本合同范围。
 `networkRevisionDerivationVersion` 保持 **`1`**（哈希算法未改，见下）。
 `identityEncodingVersion` 保持 `1`，`identityRegistryRevision` 为 **`4`**。
 以上版本已随 #284 格式登记更新；完整切换矩阵见路权策略实施合同 §8。
-读器拒绝 `formatVersion != 5`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
+读取器拒绝 `formatVersion != 5`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
 LFCA 的 `canonicalFormatVersion`（故为 `5`）。
 
 LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA
@@ -338,7 +338,7 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`（与毫米权威打架）。
 - 丢掉 ADR 0014 的加减速/时距/尺寸/横向 **上界**，只写下限。
 - 路线距离查询或替换阻塞间隙继续用米制作权威。
-- 在当前树保留米制 LFCA 登记表、v1 读器或 `*_v1`/`*_v2` 孪生公开 API。
+- 在当前树保留米制 LFCA 登记表、v1 读取器或 `*_v1`/`*_v2` 孪生公开 API。
 - 把旧米列读成毫米，或为未发布的旧字节堆兼容层 / 迁移 diff。
 - 为消除 4 ms 静止跟停或空路巡航量化死区而增加亚微米累加器、更高分辨率
   `carry`、速度余数，或把加速方向改成向上入。
@@ -351,7 +351,7 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   不再拒绝这一项。
 - 发 LFCA v2 却不单开 LFSM/LFSD 对象版本，或改写 LFSD v1「Genesis 只允许 v1 支持值」。
 - 为制动视距把 `Finite` 加宽成 `u64`，或允许 `comfort`/`emergency` 低于 `0.5 m/s²`。
-- 量化后的停车朝向保留 `+π`（`0x40490fdb`）写入制品，或读器把线格式上的 `+π` 折成
+- 量化后的停车朝向保留 `+π`（`0x40490fdb`）写入制品，或读取器把线格式上的 `+π` 折成
   `-π` 再接受（两套字节同一朝向、摘要不同）。
 - 负 SI travel 扣减 `carry_um`，或把 `u64` 回绕当行程。
 

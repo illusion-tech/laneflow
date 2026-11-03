@@ -103,7 +103,7 @@ impl ParkingReservation {
         self.route
     }
 
-    /// 返回入口锚点的路线出现项下标。
+    /// 返回入口锚点的路线出现记录下标。
     #[must_use]
     pub const fn entry_route_occurrence(self) -> u32 {
         self.entry_route_occurrence
@@ -143,7 +143,7 @@ pub enum ReserveParkingTarget {
     ExplicitSpace {
         /// 目标泊位序号。
         space: ParkingSpaceOrdinal,
-        /// 停车入口所在的路线出现项下标。
+        /// 停车入口所在的路线出现记录下标。
         entry_route_occurrence: u32,
     },
     /// 从设施虚拟池预留稀疏容量。
@@ -152,7 +152,7 @@ pub enum ReserveParkingTarget {
         facility: ParkingFacilityOrdinal,
         /// 设施内的虚拟入口 selector。
         entry_anchor: VirtualEntryAnchorSelector,
-        /// 停车入口所在的路线出现项下标。
+        /// 停车入口所在的路线出现记录下标。
         entry_route_occurrence: u32,
     },
 }
@@ -167,7 +167,7 @@ impl ReserveParkingTarget {
         }
     }
 
-    /// 返回入口锚点的路线出现项下标。
+    /// 返回入口锚点的路线出现记录下标。
     #[must_use]
     pub const fn entry_route_occurrence(self) -> u32 {
         match self {
@@ -201,7 +201,7 @@ pub enum LeaveParkingTarget {
         space: ParkingSpaceOrdinal,
         /// 离场后行驶的路线句柄。
         route: RouteHandle,
-        /// 停车出口所在的路线出现项下标。
+        /// 停车出口所在的路线出现记录下标。
         exit_route_occurrence: u32,
     },
     /// 离开一个设施虚拟池。
@@ -212,7 +212,7 @@ pub enum LeaveParkingTarget {
         route: RouteHandle,
         /// 设施内的虚拟出口 selector。
         exit_anchor: VirtualExitAnchorSelector,
-        /// 停车出口所在的路线出现项下标。
+        /// 停车出口所在的路线出现记录下标。
         exit_route_occurrence: u32,
     },
 }
@@ -235,7 +235,7 @@ impl LeaveParkingTarget {
         }
     }
 
-    /// 返回出口锚点的路线出现项下标。
+    /// 返回出口锚点的路线出现记录下标。
     #[must_use]
     pub const fn exit_route_occurrence(self) -> u32 {
         match self {
@@ -269,9 +269,9 @@ pub enum RebindParkingTarget {
         space: ParkingSpaceOrdinal,
         /// rebind 后的新路线句柄。
         new_route: RouteHandle,
-        /// 车辆当前出现项在新路线上的下标。
+        /// 车辆当前出现记录在新路线上的下标。
         new_current_route_occurrence: u32,
-        /// 停车入口在新路线上的出现项下标。
+        /// 停车入口在新路线上的出现记录下标。
         new_entry_route_occurrence: u32,
     },
     /// 在虚拟池不变的前提下 rebind 到新路线。
@@ -280,11 +280,11 @@ pub enum RebindParkingTarget {
         facility: ParkingFacilityOrdinal,
         /// rebind 后的新路线句柄。
         new_route: RouteHandle,
-        /// 车辆当前出现项在新路线上的下标。
+        /// 车辆当前出现记录在新路线上的下标。
         new_current_route_occurrence: u32,
         /// 新入口的虚拟入口 selector。
         new_entry_anchor: VirtualEntryAnchorSelector,
-        /// 停车入口在新路线上的出现项下标。
+        /// 停车入口在新路线上的出现记录下标。
         new_entry_route_occurrence: u32,
     },
 }
@@ -309,7 +309,7 @@ impl RebindParkingTarget {
         }
     }
 
-    /// 返回新路线上的当前出现项下标。
+    /// 返回新路线上的当前出现记录下标。
     #[must_use]
     pub const fn new_current_route_occurrence(self) -> u32 {
         match self {
@@ -324,7 +324,7 @@ impl RebindParkingTarget {
         }
     }
 
-    /// 返回新路线上的入口出现项下标。
+    /// 返回新路线上的入口出现记录下标。
     #[must_use]
     pub const fn new_entry_route_occurrence(self) -> u32 {
         match self {
@@ -389,7 +389,7 @@ impl ParkedVehicleSpawnInput {
         self.route
     }
 
-    /// 返回路线出现项下标。
+    /// 返回路线出现记录下标。
     #[must_use]
     pub const fn route_occurrence(self) -> u32 {
         self.route_occurrence
@@ -437,7 +437,7 @@ pub struct ParkingReserveRecord {
     pub target: ParkingTarget,
     /// 车辆当前绑定的路线句柄。
     pub route: RouteHandle,
-    /// 停车入口所在的路线出现项下标。
+    /// 停车入口所在的路线出现记录下标。
     pub entry_route_occurrence: u32,
     /// 虚拟池入口 selector；显式泊位为 `None`。
     pub virtual_entry_selector: Option<VirtualEntryAnchorSelector>,
@@ -472,7 +472,7 @@ pub struct ParkingLeaveRecord {
     pub target: ParkingTarget,
     /// 离场后行驶的路线句柄。
     pub route: RouteHandle,
-    /// 停车出口所在的路线出现项下标。
+    /// 停车出口所在的路线出现记录下标。
     pub exit_route_occurrence: u32,
     /// 虚拟池出口 selector；显式泊位为 `None`。
     pub virtual_exit_selector: Option<VirtualExitAnchorSelector>,
@@ -489,11 +489,11 @@ pub struct ParkingRebindRecord {
     pub old_route: RouteHandle,
     /// rebind 后的路线句柄。
     pub new_route: RouteHandle,
-    /// 车辆当前出现项在旧路线上的下标。
+    /// 车辆当前出现记录在旧路线上的下标。
     pub old_current_route_occurrence: u32,
-    /// 车辆当前出现项在新路线上的下标。
+    /// 车辆当前出现记录在新路线上的下标。
     pub new_current_route_occurrence: u32,
-    /// 停车入口在新路线上的出现项下标。
+    /// 停车入口在新路线上的出现记录下标。
     pub new_entry_route_occurrence: u32,
     /// 新入口的虚拟池 selector；显式泊位为 `None`。
     pub virtual_entry_selector: Option<VirtualEntryAnchorSelector>,
@@ -1677,8 +1677,8 @@ impl crate::kernel::state::WorldState {
     /// # Errors
     ///
     /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、等待区
-    /// 遍历/存储跨度、路线与出现项（含新入口锚可达性）、车身 footprint 一致性、
-    /// 准入与权威、出现项容量与分配、命令游标耗尽、内部不变量等任一失败族命中
+    /// 遍历/存储跨度、路线与出现记录（含新入口锚可达性）、车身 footprint 一致性、
+    /// 准入与权威、出现记录容量与分配、命令游标耗尽、内部不变量等任一失败族命中
     /// 时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整
     /// 物理 footprint 不变。
     pub fn rebind_parking_route(
@@ -2188,8 +2188,8 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、等待区
-    /// 遍历/存储跨度、路线与出现项（含新入口锚可达性）、车身 footprint 一致性、
-    /// 准入与权威、出现项容量与分配、命令游标耗尽、内部不变量等任一失败族命中
+    /// 遍历/存储跨度、路线与出现记录（含新入口锚可达性）、车身 footprint 一致性、
+    /// 准入与权威、出现记录容量与分配、命令游标耗尽、内部不变量等任一失败族命中
     /// 时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整
     /// 物理 footprint 不变。
     ///
@@ -2247,7 +2247,7 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
-    /// 校验锚点边位于路线的指定出现项位置。
+    /// 校验锚点边位于路线的指定出现记录位置。
     pub(crate) fn validate_anchor_on_route(
         self,
         route: RouteHandle,

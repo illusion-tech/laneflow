@@ -31,7 +31,7 @@ v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止
 StopLine 的 edge 上；v0.5 增加 static Parking anchors；v0.7 增加 per-edge speed
 limit；v0.8 再增加 ManeuverPath/Gate occurrence compiler；v0.9 增加
 横断面/准入静态模型与 (class, Route) 绑定期静态准入校验；current v0.10 增加
-multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；出现项编译器只服务该入口。
+multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；出现记录编译器只服务该入口。
 
 Current static ParkingSpace 不持有 RouteHandle。#108/#109 production runtime 仍保留历史
 first-reachable reservation；#540 Accepted target 由 caller 显式选择 entry anchor 与 exact
@@ -357,7 +357,7 @@ route completion event 的稳定顺序是 #203/caller-owned policy 建立 pendin
 #228/ADR 0017 保持 Route 是车辆实际 traversal authority。ManeuverPath 不替代、
 补全或重排 Route；它只在 Route 中完整连续匹配时形成语义 occurrence。
 
-`register_route` 在命令路径编译出现项（路网制品不声明路线，ADR 0029）：
+`register_route` 在命令路径编译出现记录（路网制品不声明路线，ADR 0029）：
 
 ```text
 ManeuverOccurrence(route, entryRouteEdgeIndex, exitRouteEdgeIndex, maneuverPath)

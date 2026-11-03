@@ -39,7 +39,7 @@ decision/reservation 和 transition event。本提案复用这些类型和顺序
 ## 2. 精确机动门定位
 
 `ConflictRouteAnchor`、`WaitingRouteAnchor`、traversal phase 与 reservation 已保留
-动态路线出现项／hop。Adapter 当前不能仅凭公开路线边序列可靠地取得 Runtime 编译后的
+动态路线出现记录／hop。Adapter 当前不能仅凭公开路线边序列可靠地取得 Runtime 编译后的
 机动门，尤其不能把重复经过同一静态 Gate 的两个 hop 折叠。
 
 新增只读入口的语义形状如下；字段私有，提供只读 accessor：

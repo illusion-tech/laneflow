@@ -12,7 +12,7 @@ use std::cell::Cell;
 
 use crate::{RouteError, RouteHandle, VehicleState};
 
-/// 机动路径在编译后路线中的一次出现项。
+/// 机动路径在编译后路线中的一次出现记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
     pub path: ManeuverPathOrdinal,
@@ -36,7 +36,7 @@ pub(crate) struct SpeedLimitDrop {
     pub target_mm_s: u32,
 }
 
-/// 注册时物化的等待区出现项。#282 未消费前也不得静默丢弃。
+/// 注册时物化的等待区出现记录。#282 未消费前也不得静默丢弃。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct WaitingOccurrence {
     pub zone: WaitingZoneOrdinal,
@@ -76,7 +76,7 @@ impl ConflictPassageOccurrence {
         }
     }
 
-    /// 该出现项的规范 passage 地址。
+    /// 该出现记录的规范 passage 地址。
     pub(crate) const fn address(self) -> crate::ConflictPassageAddress {
         match self.resource {
             crate::kernel::conflict::ConflictResource::Zone(zone) => {
@@ -112,7 +112,7 @@ pub(crate) struct NearestMotionBarriers {
     pub(crate) waiting_from_occurrence_start: Option<BoundedDistance>,
 }
 
-/// 一个路线出现项上只取决于（路线, 游标）的运动输入，编译时按游标连续存放。
+/// 一个路线出现记录上只取决于（路线, 游标）的运动输入，编译时按游标连续存放。
 ///
 /// 逐车准备从一行连续数据取得，不再分别访问边表、车道长度、限速、路终后缀、
 /// 限速下降、门 hop 与屏障表。各字段与从源数组逐项读取的结果相同（见 [`route_hop`]）。
@@ -148,9 +148,9 @@ pub(crate) struct CompiledRoute {
     pub occurrence_segments: Vec<u32>,
     pub occurrence_offsets: Vec<u32>,
     pub segment_totals: Vec<u32>,
-    /// 路线出现项排序索引（#1216）：`(边序数, 路线下标)` 按 (边, 下标) 升序，
-    /// 每条边的出现项成连续段。游标查询取**首次不早于游标**的出现项——
-    /// 循环路线重复边不得回选身后出现项（身后目标对 `None` 距离是正确语义，
+    /// 路线出现记录排序索引（#1216）：`(边序数, 路线下标)` 按 (边, 下标) 升序，
+    /// 每条边的出现记录成连续段。游标查询取**首次不早于游标**的出现记录——
+    /// 循环路线重复边不得回选身后出现记录（身后目标对 `None` 距离是正确语义，
     /// 误选即把真实前方进入者误判"已过区间"）。
     pub edge_occurrence_index: Box<[(LaneEdgeOrdinal, u32)]>,
     pub next_controlled: Vec<Option<NextControlled>>,
@@ -161,7 +161,7 @@ pub(crate) struct CompiledRoute {
     pub final_conflict_clearance: Option<(RoutePosition, u32)>,
     /// 与 `edges` 等长。同一条边在循环路线中的两次出现各有一行。
     pub nearest_motion_barriers: Vec<NearestMotionBarriers>,
-    /// 静态 Waiting maneuver 覆盖位，按路线出现项索引；空 Waiting 路线不分配。
+    /// 静态 Waiting maneuver 覆盖位，按路线出现记录索引；空 Waiting 路线不分配。
     pub waiting_maneuver_bits: Box<[u64]>,
     /// 与 `edges` 等长的逐游标运动输入；为空时由 [`route_hop`] 从源数组逐项读取。
     pub hops: Vec<RouteHop>,
@@ -315,9 +315,9 @@ impl CompiledRoute {
         ))
     }
 
-    /// 游标定位（#1216）：边 `edge` 的出现项区间内取**首次不早于** `cursor`
-    /// 的出现项下标。全部出现项早于游标=真在身后（`None`——身后目标对
-    /// 距离函数返 `None` 是正确语义，不得回选身后出现项冒充目标）；边不在
+    /// 游标定位（#1216）：边 `edge` 的出现记录区间内取**首次不早于** `cursor`
+    /// 的出现记录下标。全部出现记录早于游标=真在身后（`None`——身后目标对
+    /// 距离函数返 `None` 是正确语义，不得回选身后出现记录冒充目标）；边不在
     /// 路线（不在表）同返 `None`，由调用方既有 fail-closed 归口承接。
     pub(crate) fn first_edge_occurrence_at_or_after(
         &self,
@@ -333,11 +333,11 @@ impl CompiledRoute {
         within.get(position).map(|(_, index)| *index)
     }
 
-    /// 该 `(maneuver occurrence, 准入 hop)` 是否被过渡资源出现项覆盖
+    /// 该 `(maneuver occurrence, 准入 hop)` 是否被过渡资源出现记录覆盖
     /// （混合 hop 同真；#1217 归属≠身份统一判定）。
     ///
     /// 持久化/迁移各面按**资源种类**而非「hop 能否解析出 Gate」决定拒绝：
-    /// T 出现项的准入 hop 是前驱边下标、无真实 Gate，混合 hop 还可能巧合
+    /// T 出现记录的准入 hop 是前驱边下标、无真实 Gate，混合 hop 还可能巧合
     /// 解析到其他机动的 Gate——按解析结果放行即写入错误准入身份。
     pub(crate) fn admission_hop_transition_covered(
         &self,
@@ -545,7 +545,7 @@ fn transition_execution_supported() -> bool {
     true
 }
 
-/// 注册期唯一出现项编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
+/// 注册期唯一出现记录编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
 /// 不上 `u64`，不冻当前红灯。
 pub(crate) fn compile_route(
     revision: &SharedNetworkRevision,
@@ -639,7 +639,7 @@ pub(crate) fn compile_route(
     );
     let (occurrence_segments, occurrence_offsets, segment_totals) =
         segmented_route_coordinates(&route_lengths)?;
-    // 出现项排序索引（#1216）：注册期一次、(边, 下标) 排序——游标查询走
+    // 出现记录排序索引（#1216）：注册期一次、(边, 下标) 排序——游标查询走
     // 二分 + partition_point，不随路线长线性扫。
     let mut edge_occurrence_index = try_route_vec(edges.len())?;
     edge_occurrence_index.extend(edges.iter().enumerate().map(|(index, edge)| {
@@ -664,7 +664,7 @@ pub(crate) fn compile_route(
         }
     }
 
-    // P2-6（#1199）：注册容量预检计数含过渡出现项（每横向过渡边恰 1 条）
+    // P2-6（#1199）：注册容量预检计数含过渡出现记录（每横向过渡边恰 1 条）
     // ——但 compile_conflicts 的 expected_count 只承流通道数（其自身另加
     // transition_occurrences 到 capacity（1213）并以等式校验（1268）——
     // 二分定位：过渡计入 expected=双计引爆 ManeuverMismatch）。分层：容量
@@ -752,7 +752,7 @@ pub(crate) fn compile_route(
     compiled_edges.extend_from_slice(edges);
     let waiting_maneuver_bits = compile_waiting_maneuver_bits(edges.len(), &maneuvers, &waiting)?;
     // 修形①（#1199）：候选派发 hop 并集注册期预计算——gate hop ∪ **含
-    // Transition 出现项**的 hop（T 候选仅在过渡出现项时派生，非任意冲突
+    // Transition 出现记录**的 hop（T 候选仅在过渡出现记录时派生，非任意冲突
     // hop——旧输入零新结论保持）。tick 侧零分配消费。P2-6（#1219）：一次
     // 预留上界（gate_hops + hop_count）后构造不再增长，全程走
     // `try_reserve_route_exact` 受检分配；每 hop 至多入列一次。
@@ -805,7 +805,7 @@ pub(crate) fn compile_route(
         hops: Vec::new(),
     };
     compiled.refresh_hops(lengths, speeds)?;
-    // 能力拒绝（A6 选项 3，S3 侧注册面）：置于全部静态出现项编译完成之后
+    // 能力拒绝（A6 选项 3，S3 侧注册面）：置于全部静态出现记录编译完成之后
     // ——静态序列验证独立完整（错误类型不因能力检查提前截断）。**段级检测**
     // （P1-1 修正）：按边分类横向过渡段，不依赖路线三边窗口——多段过渡链与
     // 起/止于过渡的路线（含单边）同样命中；**横向判据**（P2-2 修正）：以
@@ -975,7 +975,7 @@ struct BarrierHopMark {
 /// 从路线末尾回填最近冲突准入和等待入口。
 ///
 /// 每一行是一个路线 occurrence。距离锚在该 hop 后继 occurrence 的起点，不加车长，
-/// 也不读取 passage 入口。构建成本随 occurrence、冲突出现项和等待出现项线性增长。
+/// 也不读取 passage 入口。构建成本随 occurrence、冲突出现记录和等待出现记录线性增长。
 pub(crate) fn compile_nearest_motion_barriers(
     edge_lengths: &[u32],
     conflicts: &[ConflictPassageOccurrence],
@@ -1185,7 +1185,7 @@ fn map_conflict_anchor(
     Ok(position)
 }
 
-/// §8 流绑定（#1199 增量2a）：过渡段的跨越流 = **后继** maneuver 出现项的
+/// §8 流绑定（#1199 增量2a）：过渡段的跨越流 = **后继** maneuver 出现记录的
 /// 首 stream（无后继取**前驱**末条；同 entry 先出现者优先，确定性钉死）；
 /// 绑定候选无 participant stream 时返回 `None`（调用方跳过发射——能力拒绝
 /// 语义保持，显式覆盖不留静默盲区）。
@@ -1241,8 +1241,8 @@ fn compile_conflicts(
 ) -> Result<CompiledConflicts, RouteError> {
     let traffic = revision.traffic();
     let conflict = revision.conflict();
-    // 过渡出现项预构建（#1199 增量2a；§8 流绑定）：分类表命中的路线边各发一条
-    // 出现项；流 = 后继 maneuver 出现项的首 stream（无后继取前驱末条，确定性
+    // 过渡出现记录预构建（#1199 增量2a；§8 流绑定）：分类表命中的路线边各发一条
+    // 出现记录；流 = 后继 maneuver 出现记录的首 stream（无后继取前驱末条，确定性
     // 钉死）；独占由 zone-head 所有权承担（B 裁定）。无 maneuver 的纯过渡路线
     // 此处不绑定（能力拒绝错误类型保持；预约绑定留翻转切片）。
     let mut transition_occurrences: Vec<ConflictPassageOccurrence> = Vec::new();
@@ -1256,7 +1256,7 @@ fn compile_conflicts(
             })
         else {
             // §8 流绑定（#1199 评审 P1-2）：无候选或候选无 participant
-            // stream 时**结构化拒绝**——无绑定资源出现项的过渡路线不得
+            // stream 时**结构化拒绝**——无绑定资源出现记录的过渡路线不得
             // 免检注册（能力翻转后 fail-open 封堵）。
             return Err(RouteError::ManeuverMismatch);
         };
@@ -1458,7 +1458,7 @@ fn unique_entry_path_match_filtered<'a>(
     matched.ok_or(RouteError::ManeuverMismatch).map(Some)
 }
 
-/// 注册时按 hop 下标物化闸。tick 读 `hop_gate` 列，不得再线性扫机动出现项。
+/// 注册时按 hop 下标物化闸。tick 读 `hop_gate` 列，不得再线性扫机动出现记录。
 fn hop_gate_at(
     network: &SharedManeuverNetwork,
     maneuvers: &[ManeuverOccurrence],
@@ -3692,7 +3692,7 @@ pub(crate) mod compile_route_tests {
             );
             crate::TrafficWorld::install(
                 revision,
-                // 夹具容量（#1199 P2-6 后计数含过渡出现项——旧 8 为欠计基
+                // 夹具容量（#1199 P2-6 后计数含过渡出现记录——旧 8 为欠计基
                 // 线钉小；测试夹具参数、非生产 digest 形制）。
                 crate::WorldConfig::new(2, 2, 16, 16, 100),
                 crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
@@ -4674,11 +4674,11 @@ pub(crate) mod compile_route_tests {
             }
         }
 
-        /// #1216 反例集 A–F（S4 潜在进入者距离裁剪 P1-1 × 循环路线出现项查询
+        /// #1216 反例集 A–F（S4 潜在进入者距离裁剪 P1-1 × 循环路线出现记录查询
         /// P1-2）：安全（应拒时拒）与活性（条件解除后授予恢复）双覆盖。A/C
         /// 钉枚举不漏（长干扰分支 + 近距进入者逐分支独立测距）、A2 钉前驱
         /// 近端距口径（长共享边逐字公式过计反例）、B 钉短边链深环覆盖、D 钉
-        /// 游标定位（重复边身后出现项误选）、E 钉逐进入者自身 profile、F 钉
+        /// 游标定位（重复边身后出现记录误选）、E 钉逐进入者自身 profile、F 钉
         /// 授予恢复（驶离 + 区间释放）。
         mod p4_entrant_search_fixes {
             use super::*;
@@ -5498,8 +5498,8 @@ pub(crate) mod compile_route_tests {
                 (route, enterer)
             }
 
-            /// D 重复边反例（#1216 P1-2）：循环路线重复边的两次出现项之间
-            /// 设游标——`position()` 首现回选身后出现项，`None` 距离（身后=
+            /// D 重复边反例（#1216 P1-2）：循环路线重复边的两次出现记录之间
+            /// 设游标——`position()` 首现回选身后出现记录，`None` 距离（身后=
             /// 正确语义）把真实前方目标误判"已过区间"跳过证明。表定位取
             /// "首次不早于游标"，T 目标（interval_edge）与边界目标（first_ring
             /// 边）同口径。
@@ -5552,8 +5552,8 @@ pub(crate) mod compile_route_tests {
                     &compiled.occurrence_offsets,
                     &compiled.segment_totals,
                 );
-                // 前方出现项（下标 10）：游标 I1@9 进度 5m → 目标 B0_up 末端
-                // 8m = 5m + 8m = 13m 有限；身后出现项（下标 2）返 `None`——
+                // 前方出现记录（下标 10）：游标 I1@9 进度 5m → 目标 B0_up 末端
+                // 8m = 5m + 8m = 13m 有限；身后出现记录（下标 2）返 `None`——
                 // `position()` 首现误选即把该 `None` 当"已过区间"跳过。
                 let forward = distance_to_occurrence_progress(
                     segments.0, segments.1, segments.2, 9, 5_000, 10, 8_000,

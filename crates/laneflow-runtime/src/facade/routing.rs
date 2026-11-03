@@ -24,7 +24,7 @@ bytes32_type! {
     /// 观测输入集合摘要（BLAKE3-256）。
     ///
     /// ADR 0033 内部完整性摘要：只由 Runtime 产生和重算，宿主只把 32 字节原样写入
-    /// 成本快照摘要的前像。
+    /// 成本快照摘要的原像。
     pub struct ObservationSetDigest;
 }
 

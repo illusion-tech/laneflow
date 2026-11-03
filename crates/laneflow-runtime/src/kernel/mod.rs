@@ -96,7 +96,7 @@ pub(crate) mod performance_profile;
 #[path = "tests/exact_path.rs"]
 pub(crate) mod exact_path_research;
 
-/// #285 使用相同正式输入的内存/候选访问账本；不作为 latency 事实源。
+/// #285 使用相同正式输入的内存/候选访问账本；不作为 latency 事实来源。
 #[cfg(test)]
 #[path = "tests/junction_ledger.rs"]
 mod junction_ledger;

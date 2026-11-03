@@ -658,7 +658,7 @@ fn check_policy_primary(
     let mut namespace = None;
     let mut local = None;
     let mut parents = [None; 3];
-    // Identity 的字段顺序就是 namespace、祖先 key、local key；此处读取真实前像。
+    // Identity 的字段顺序就是 namespace、祖先 key、local key；此处读取真实原像。
     let field_count = fields.len() as usize;
     for (i, field) in fields.rows().enumerate() {
         let value = core::str::from_utf8(field.field_by_tag(2).ok_or(MISMATCH)?.value_bytes())

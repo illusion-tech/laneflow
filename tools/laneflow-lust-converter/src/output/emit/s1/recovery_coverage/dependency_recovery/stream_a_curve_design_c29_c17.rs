@@ -1,5 +1,5 @@
 //! #1131 流 A：C29+C17 失败边的曲线/分段设计变量有限探索与完整组合验收。
-//! 执行口径冻结于 `research/issue-1131-curve-design-c29-c17/plan.md`，方法事实源为
+//! 执行口径冻结于 `research/issue-1131-curve-design-c29-c17/plan.md`，方法事实来源为
 //! `research/issue-1115-failed-curve-design/design.md`；本模块不改生产采样、compiler
 //! 配置档、原成功几何、拓扑与控制锚点。计划与冻结实现不一致时停止该处执行并重新授权，
 //! 不得单向迁就（plan §7）。三条未决边的定位是有限设计变量探索：零恢复、族耗尽、

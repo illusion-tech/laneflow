@@ -808,7 +808,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 
 ### 8.4 Profiling 与证据
 
-- integrated latency run 是产品 Gate 的唯一性能事实源。
+- integrated latency run 是产品 Gate 的唯一性能事实来源。
 - coarse stage timing、独立 Criterion kernel 与 WPR 只用于机制归因；不得把独立
   数字相加后当作 whole-step 分解。
 - WPR 使用独立 run；profile overhead 下的 latency 不进入产品 Gate。
@@ -886,7 +886,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
 
-## 12. 下游依赖与事实源
+## 12. 下游依赖与事实来源
 
 - `core-runtime-scalability-audit.md` 保存 #199、#204、#207、#210、#212 的历史
   研究证据、no-regret constraints 与架构候选；本文保存当前产品 target/measurement
@@ -903,7 +903,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 - 第 8 节完整产品矩阵属于后续 optimization/certification 工作；历史 #212 数据只
   是 research evidence。
 - #224 已冻结 LuST v2.0 来源、许可、共享 Traffic/Spatial 转换及双 workload
-  设计；`real-road-workloads.md` 是长期事实源。其 converter、Release assets、
+  设计；`real-road-workloads.md` 是长期事实来源。其 converter、Release assets、
   harness 和结果由 #224 G4 后的 A–C 继续承载，不阻塞 `LF-SYNTH-v2` 的研究与产品
   Gate 准备。
 - `LF-REAL-LUST-TOPO-v2` 只补充真实拓扑压力，不能单独形成 Product Pass；

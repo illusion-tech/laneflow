@@ -104,7 +104,7 @@ fixture、measurement scope 和版本，不能直接相加、外推成跨平台 
 
 下表保留 #215 之前用于研究候选比较的 fidelity 问题矩阵。当前产品
 target/measurement contract 以
-[`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 为事实源；
+[`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 为事实来源；
 该基线没有选择 production fidelity architecture，也没有把研究候选升级为产品 tier：
 
 | 候选层级                             | 当前可引用的语义                                                                                                           | 仍待产品/G1 决策                                                               |

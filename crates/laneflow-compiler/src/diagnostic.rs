@@ -558,7 +558,7 @@ pub enum SourceHeaderField {
     SourceDocumentKey,
     /// 生成器构建标识。
     GeneratorBuildId,
-    /// 来源沿袭展示文本。
+    /// 来源链展示文本。
     Provenance,
 }
 
@@ -1709,13 +1709,13 @@ pub enum DiagnosticPayload {
         /// deny 侧并列规则稳定键；primary span 取自 deny 规则。
         second_rule_key: Box<str>,
     },
-    /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
+    /// 实体种类、来源稳定键及不能形成 Identity v1 原像的精确原因。
     InvalidCanonicalIdentity {
         /// 身份字段非法的实体种类。
         entity_kind: EntityKind,
         /// 来源声明的稳定键。
         stable_key: Box<str>,
-        /// 不能形成 Identity v1 前像的精确原因。
+        /// 不能形成 Identity v1 原像的精确原因。
         violation: CanonicalIdentityViolation,
     },
     /// 重复完整身份的实体种类和已派生摘要。

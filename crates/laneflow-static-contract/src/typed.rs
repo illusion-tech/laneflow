@@ -3,7 +3,7 @@
 //! [`StableId128`] 跨制品、路网修订和运行时冷边界保存实体身份；[`StableId<K>`]
 //! 再用实体种类消除错误混用。与之相对，[`Ordinal<K>`] 只索引某一份已验证致密表，
 //! 不能持久化为实体身份，也不能在不同表或路网修订之间比较。所有类型均为无分配的
-//! 透明值；本模块不派生或验证 Identity v1 的规范前像。
+//! 透明值；本模块不派生或验证 Identity v1 的规范原像。
 
 use core::{fmt, marker::PhantomData, str::FromStr};
 
@@ -11,7 +11,7 @@ use crate::EntityKind;
 
 /// 不携带实体种类的 128 位稳定标识值。
 ///
-/// 字节按规范摘要的原始顺序保存；本类型不验证这些字节是否由 Identity v1 前像正确
+/// 字节按规范摘要的原始顺序保存；本类型不验证这些字节是否由 Identity v1 原像正确
 /// 派生。需要实体种类约束时应尽早转换为 [`StableId<K>`]。
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -23,7 +23,7 @@ impl StableId128 {
     /// 该常量只提供值级便利，不表示一个已经通过身份验证的真实实体。
     pub const ZERO: Self = Self([0; 16]);
 
-    /// 原样封装 16 字节，不执行身份前像或摘要验证。
+    /// 原样封装 16 字节，不执行身份原像或摘要验证。
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
@@ -105,7 +105,7 @@ pub struct StableId<K: EntityKindMarker> {
 impl<K: EntityKindMarker> StableId<K> {
     /// 把已确认属于 `K` 的原始稳定标识加上类型约束。
     ///
-    /// 此函数不验证实体种类或 Identity v1 前像，不能用它把任意摘要“认证”为 `K`。
+    /// 此函数不验证实体种类或 Identity v1 原像，不能用它把任意摘要“认证”为 `K`。
     #[must_use]
     pub const fn from_untyped(raw: StableId128) -> Self {
         Self {
@@ -183,7 +183,7 @@ fn decode_hex_digit(byte: u8, index: usize) -> Result<u8, StableIdTextError> {
 ///
 /// 解析器只接受 `Display` 产生的规范小写形式
 /// `lfid1_<entity-kind>_<32 lowercase hex digits>`；成功解析只证明文本编码与种类
-/// slug 合法，不证明摘要前像存在于任何制品。
+/// slug 合法，不证明摘要原像存在于任何制品。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StableIdTextError {
     /// 文本缺少 `lfid1_` 版本前缀。

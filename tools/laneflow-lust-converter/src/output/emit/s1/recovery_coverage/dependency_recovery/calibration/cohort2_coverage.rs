@@ -1,6 +1,6 @@
 //! #1134：第 2 批队列（11 个非信号分量、22 条缺边）的固定曲线覆盖补齐、逐边局部
 //! 必要条件诊断与候选齐备分量组合验收。执行口径全部冻结于
-//! `research/issue-1134-cohort2-coverage-diagnosis/plan.md`，方法事实源
+//! `research/issue-1134-cohort2-coverage-diagnosis/plan.md`，方法事实来源
 //! `research/issue-1121-coverage-diagnosis/plan.md` 逐值沿用；本模块不改生产采样、
 //! compiler 配置档、阈值与原成功几何。计划与冻结实现不一致时停止执行并重新授权
 //! （计划 §7），不得单向迁就。

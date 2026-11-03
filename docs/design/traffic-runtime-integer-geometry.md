@@ -73,7 +73,7 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 `1 <= p <= length_mm - 1`；长宽
 `100..=128_000` mm；横向 `i32` mm，`abs <= 128_000`，路外 `abs >= 1`；朝向受检
 `f32` 弧度，闭包 `-π <= x < π`。编制/准入量化后若等于 `+π`（`0x40490fdb`）则写成
-`-π`（`0xc0490fdb`）；制品存着的 `+π` 非法，读器只拒不折。限速过渡目标与边限速
+`-π`（`0xc0490fdb`）；制品存着的 `+π` 非法，读取器只拒不折。限速过渡目标与边限速
 同一量子（mm/s）。到下一受控门的距离与路线有界距离同型（`Finite(u32)` /
 `BeyondFinite`）。`BeyondFinite` 的降速目标本拍不参与包络。
 
@@ -93,7 +93,7 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 `round-ties-to-even(f64(SI) × 1000)` 后套整数闭包；时距/加减速/朝向先
 round-ties-to-even 到 `f32` 再套 `f32` 闭包。禁止先用裸 `0.1 m` 拒绝再量化。
 `0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。编制/准入：朝向量化后若等于
-`+π` 则写成 `-π` 再检查；读器遇到存着的 `+π` 失败关闭。跨字段比较已量化的双方。
+`+π` 则写成 `-π` 再检查；读取器遇到存着的 `+π` 失败关闭。跨字段比较已量化的双方。
 
 ## 4. 车辆已提交状态
 
@@ -237,8 +237,8 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 `"laneflow.network-revision.v1\0"` 未改；毫米载荷与路线表删除会改变 ID，不必新算法）；
 `identityEncodingVersion` 保持 `1`，`identityRegistryRevision = 4`。
 版本已随 #284 格式登记更新，完整版本矩阵见路权策略实施合同 §8。
-公开 API 不带世代后缀。读器拒绝 `formatVersion != 5`。
-旧米制表与旧读器不进当前树。LFSM `sourceMapFormatVersion = 4`，
+公开 API 不带世代后缀。读取器拒绝 `formatVersion != 5`。
+旧米制表与旧读取器不进当前树。LFSM `sourceMapFormatVersion = 4`，
 `canonicalArtifactFormatVersion` 等于所绑 LFCA。LFSD `semanticDiffFormatVersion = 4`。
 Genesis 的 target 合同行必须与所绑 LFCA 一致；Artifact 两端合同行仍须相等。走廊按
 Genesis 重生，不做格式迁移 diff。
@@ -338,7 +338,7 @@ Genesis 重生，不做格式迁移 diff。
 - 跨 CPU / 跨机器位级回放或联机 lockstep。
 - G1 改走廊 toml 或重生 LFCA。
 - 强迫 headless 从折线弧长派生边长。
-- 在当前树保留米制 LFCA 登记表、旧读器或 `*_v1`/`*_v2` 孪生公开 API。
+- 在当前树保留米制 LFCA 登记表、旧读取器或 `*_v1`/`*_v2` 孪生公开 API。
 - 把旧米列读成毫米，或为未发布旧字节堆兼容层。
 - 亚微米累加器，或把 4 ms 静止跟停量化死区当缺陷消掉。
 - 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入本切片 `hard_room_mm`。

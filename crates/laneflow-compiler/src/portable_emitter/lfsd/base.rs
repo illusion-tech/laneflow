@@ -1,7 +1,7 @@
 use super::policy_change::{Scratch, reserved};
 use super::*;
 
-/// 一份已索引实体的行视图及其规范身份字段前像。
+/// 一份已索引实体的行视图及其规范身份字段原像。
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EntityRecord<'a> {
     pub(super) row: RegistryCheckedRowView<'a>,

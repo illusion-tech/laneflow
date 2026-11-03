@@ -1,5 +1,5 @@
 //! #1136 流 A：C12 单缺边（`sumo::-10100_1_0`）的曲线/分段设计变量有限探索与完整分量验收。
-//! 执行口径冻结于 `research/issue-1136-c12-curve-design/plan.md`，方法事实源为
+//! 执行口径冻结于 `research/issue-1136-c12-curve-design/plan.md`，方法事实来源为
 //! `research/issue-1115-failed-curve-design/design.md`；本模块不改生产采样、compiler
 //! 配置档、原成功几何、拓扑与控制锚点。首弦全参数域排除只对原固定 cubic 成立，span 0
 //! 末弦见证仅为局部问题存在性、与排除正交并存；不预设恢复，零恢复为有效结论

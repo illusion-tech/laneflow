@@ -156,7 +156,7 @@ panic。安全读取须先以受检访问取得数据，把失败作为带逻辑
 | 最终逐车运动  | 原 Parking 检查、Waiting stop、Conflict stop、缓存复用证明或重算、运动与到达求值 | 逐车到达记录实际 reserve、next state 接纳、后续 Waiting/Conflict 转移 |
 
 这是提取边界，不能直接把当前含 `&mut StepWorkspace` 的整段函数提交到线程池。
-逐出现项 exact distance、directed 运算顺序和 `Finite(0)` / `OutsideHorizon` /
+逐出现记录 exact distance、directed 运算顺序和 `Finite(0)` / `OutsideHorizon` /
 `Unprovable` 保持；同车同拍 ETA 输入复用不变成跨车/跨拍缓存。缓存按完整句柄与
 约束证明命中，不能因分块而把原先应重算的运动当作可复用。
 
@@ -299,7 +299,7 @@ P8 不分配新结果、不回调宿主。P6/P7 的进一步扫描、排序、�
 
 P5 的 Wi 以缓存复用后的真实工作计量：分别记录 `MotionPreview` 命中、运动内核
 重算车辆数、停车/停止约束检查及结果暂存/规范接纳成本，不能按每辆车一次完整
-运动求值估算。共享前沿的串行成本包括车辆/路线出现项遍历、精确距离和 ETA 下界
+运动求值估算。共享前沿的串行成本包括车辆/路线出现记录遍历、精确距离和 ETA 下界
 计算，不能只记最后的合并。若保留串行部分已超过预算，增加 worker 本身不足以
 达标；高缓存命中下选择融合执行不改变已安装执行能力。
 

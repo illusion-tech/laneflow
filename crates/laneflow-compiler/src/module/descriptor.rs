@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 const SOURCE_DOCUMENT_SET_MAGIC: &[u8] = b"LFSOURCE-DOCUMENT-SET";
 
-/// 首版来源文档集摘要前像版本。
+/// 首版来源文档集摘要原像版本。
 pub const SOURCE_DOCUMENT_SET_DIGEST_VERSION: u32 = 1;
 
 /// 官方来源模块使用的来源语言。
@@ -180,7 +180,7 @@ impl SourceModuleDescriptor {
         &self.source_document_set_digest
     }
 
-    /// 返回文档集摘要前像的编码版本。
+    /// 返回文档集摘要原像的编码版本。
     #[must_use]
     pub const fn source_document_set_digest_version(&self) -> u32 {
         self.source_document_set_digest_version
@@ -192,7 +192,7 @@ impl SourceModuleDescriptor {
         self.frontend_version
     }
 
-    /// 返回官方前端冻结的选项摘要；精确前像由具体来源语言定义，且不认证来源记录内容。
+    /// 返回官方前端冻结的选项摘要；精确原像由具体来源语言定义，且不认证来源记录内容。
     #[must_use]
     pub const fn frontend_options_digest(&self) -> &[u8; 32] {
         &self.frontend_options_digest
@@ -216,7 +216,7 @@ impl SourceModuleDescriptor {
         self.random_seed
     }
 
-    /// 返回供审计使用的来源沿袭说明。
+    /// 返回供审计使用的来源链说明。
     #[must_use]
     pub fn provenance(&self) -> &str {
         &self.provenance

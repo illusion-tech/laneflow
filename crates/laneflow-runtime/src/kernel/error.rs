@@ -193,17 +193,17 @@ pub enum RouteError {
     /// 路线数量达到 world 容量。
     #[error("路线数量达到容量")]
     CapacityExceeded,
-    /// 全部存活路线的边出现项总数会超过 world 容量。
+    /// 全部存活路线的边出现记录总数会超过 world 容量。
     #[error("路线边出现项总数达到容量")]
     EdgeOccurrenceCapacityExceeded,
-    /// 全部存活路线的冲突 passage 出现项总数会超过 world 容量。
+    /// 全部存活路线的冲突 passage 出现记录总数会超过 world 容量。
     #[error("路线冲突出现项总数达到容量: current={current}, added={added}, capacity={capacity}")]
     ConflictOccurrenceCapacityExceeded {
-        /// 提交候选路线前的存活冲突出现项数。
+        /// 提交候选路线前的存活冲突出现记录数。
         current: u64,
-        /// 候选路线将增加的冲突出现项数。
+        /// 候选路线将增加的冲突出现记录数。
         added: u64,
-        /// world 配置的冲突出现项容量。
+        /// world 配置的冲突出现记录容量。
         capacity: u64,
     },
     /// 路线编译所需缓冲无法预留。
@@ -242,10 +242,10 @@ pub enum RouteError {
 /// 出发声明自身不合法的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum DepartureStateError {
-    /// 出现项下标不在候选路线里。
+    /// 出现记录下标不在候选路线里。
     #[error("出发出现项越界")]
     RouteIndexOutOfRange,
-    /// 进度超过该出现项的边长。
+    /// 进度超过该出现记录的边长。
     #[error("出发进度非法")]
     InvalidProgress,
     /// 出发位置在当前摆放位置之后。
@@ -259,7 +259,7 @@ pub enum DepartureStateError {
 /// 开放入口或范围内车身无法解释。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum EntranceBodyError {
-    /// 绑定的出现项不是路线起点，或方向不是顺行。
+    /// 绑定的出现记录不是路线起点，或方向不是顺行。
     #[error("开放入口绑定不合法")]
     InvalidBinding,
     /// 车尾超出路线起点，但没有绑定开放入口。
@@ -484,7 +484,7 @@ pub enum ParkingError {
     /// 虚拟池出口 selector 不属于目标设施（`leave_parking` 的出口锚解析）。
     #[error("虚拟出口 selector 不属于目标设施")]
     ExitSelectorNotOwned,
-    /// 路线出现项下标越界（reserve/leave/rebind/spawn_parked 的出现项解析）。
+    /// 路线出现记录下标越界（reserve/leave/rebind/spawn_parked 的出现记录解析）。
     #[error("路线 occurrence 越界")]
     RouteOccurrenceOutOfRange,
     /// 停车锚点进度越界（`spawn_parked_vehicle`）。
@@ -493,7 +493,7 @@ pub enum ParkingError {
     /// 停车锚与路线 occurrence 的 LaneEdge 不一致（reserve/leave/rebind 的锚点-occurrence 校验）。
     #[error("路线 occurrence 与停车 anchor 的 LaneEdge 不匹配")]
     RouteOccurrenceAnchorMismatch,
-    /// 停车入口已被越过——位于车辆当前出现项/进度之前，或同进度但 carry 非零、
+    /// 停车入口已被越过——位于车辆当前出现记录/进度之前，或同进度但 carry 非零、
     /// 不可前向到达（reserve/rebind 的入口可达性校验）。
     #[error("停车入口不再前向可达")]
     EntryNotForwardReachable,
@@ -524,7 +524,7 @@ pub enum ParkingError {
     /// 存在在途 Conflict authority，不能完成该生命周期转换（park/rebind）。
     #[error("active Conflict authority 期间不能完成该停车生命周期转换")]
     ConflictTraversalActive,
-    /// rebind 的当前出现项与车辆已提交物理 LaneEdge 不一致（`rebind_parking_route`）。
+    /// rebind 的当前出现记录与车辆已提交物理 LaneEdge 不一致（`rebind_parking_route`）。
     #[error("rebind current occurrence 与车辆物理 LaneEdge 不匹配")]
     RebindCurrentOccurrenceMismatch,
     /// rebind 会改变车辆完整车身占用 footprint（`rebind_parking_route`）。

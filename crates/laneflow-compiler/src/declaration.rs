@@ -598,7 +598,7 @@ pub(crate) struct OwnedEntityReference<K: EntityKindMarker> {
 /// Typed AST 中与产品身份分层的来源实体地址。
 ///
 /// module-scoped 声明的 owner tuple 为空；owner-scoped 声明按父先子后顺序保存原始
-/// sibling-local key。地址用于符号查找，`local_key` 仍只是 Identity v1 前像中的一个
+/// sibling-local key。地址用于符号查找，`local_key` 仍只是 Identity v1 原像中的一个
 /// 字段，不能单独充当模块内全局键。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct TypedAstEntityAddress {
@@ -787,7 +787,7 @@ pub(crate) struct DeclarationHeader {
     pub(crate) entity_kind: EntityKind,
     /// 只用于来源符号查找的完整 owner-qualified 地址。
     pub(crate) source_address: TypedAstEntityAddress,
-    /// Identity v1 前像中独立的 sibling-local key。
+    /// Identity v1 原像中独立的 sibling-local key。
     pub(crate) stable_key: Arc<str>,
     /// 声明出现的位置，不参与实体身份。
     pub(crate) span: SourceLocation,

@@ -28,14 +28,14 @@ JSON 为 UTF-8、无 BOM；对象键按 UTF-8 字节升序，数组保持定义�
 恰有一个 LF。数字仅使用十进制整数，不含前导零、正号、指数或负零；距离用毫米、
 速度用毫米每秒，时间用毫秒或 tick。字符串使用 JSON 转义规则，不转义 `/` 或
 非 ASCII 字符。每份 JSON 的 `format` 是域分隔和编码版本，分别为
-`lf-synth-state-1`、`lf-synth-input-plan-1`、`lf-synth-manifest-1`；配置摘要前像的
+`lf-synth-state-1`、`lf-synth-input-plan-1`、`lf-synth-manifest-1`；配置摘要原像的
 `format` 为 `lf-synth-config-1`。LFCA 使用自身现行域与版本。
 
 输入的三个 SHA-256 分别覆盖对应文件的完整字节（含 JSON 尾 LF），输出为 64 位
 小写十六进制。配置摘要覆盖 `{format, identity}` 的同一规范 JSON 编码。
 这些都是 ADR 0033 的互操作摘要：外部复核者使用通用 SHA-256 工具校验实际交付
 文件。生成模块头沿用 LFCA 家族的 SHA-256；参数摘要使用上述配置摘要，前端选项
-摘要前像为 ASCII `lf-synth-frontend-1`。不存在运行时状态摘要或热路径哈希。
+摘要原像为 ASCII `lf-synth-frontend-1`。不存在运行时状态摘要或热路径哈希。
 
 `source_commit` 与 `generator_commit` 只写入 manifest，均为 40 位小写 Git 提交
 标识。前者记录交通设计来源，后者记录实际生成实现；调用者必须提供真实提交。

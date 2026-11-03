@@ -65,7 +65,7 @@ ADR 0014 已接受补偿残差感知 `f32` 的下一目标契约，并取代本�
 ### 3. Spatial canonical authority 使用 LaneFlow-owned `f64`
 
 - #123 的 canonical geometry、arc length、sampling parameter、canonical position 和会决定 Core edge binding/length consistency 的量使用 LaneFlow-owned `f64` 类型。
-- Core 仍只拥有 traffic coordinate/progress authority；Spatial 拥有 engine-neutral geometry authority。两者的长度一致性、容差和 binding 由 #123 冻结，不把 engine spline/mesh 变成事实源。
+- Core 仍只拥有 traffic coordinate/progress authority；Spatial 拥有 engine-neutral geometry authority。两者的长度一致性、容差和 binding 由 #123 冻结，不把 engine spline/mesh 变成事实来源。
 - world/georeference offset 不进入 Core hot vehicle state。大范围场景通过 canonical frame、local origin/tile 和显式转换组合，而不是让车辆持有宿主 world transform。
 - #122 的 `16_384 m` local envelope 是验证范围，不自动成为 schema hard limit；#123 若选择不同范围，必须重新证明 f32 presentation 误差预算。
 

@@ -591,7 +591,7 @@ pub(super) fn restore_lfrs(
     let root = verify_lfrs(bytes, limits)?;
     validate_bindings(root, revision.as_ref(), &source, target_config, limits)?;
 
-    // 路线重编译必须得到完整实际冲突出现项总数，才能同时校验
+    // 路线重编译必须得到完整实际冲突出现记录总数，才能同时校验
     // 快照与目标容量。这个 staging world 不对外发布，也不按该上限预分配内存。
     let staging_config = WorldConfig::new(
         target_config.vehicle_capacity(),
@@ -839,7 +839,7 @@ fn restore_conflict_aggregate(
                     snapshot_vehicle_id,
                 },
             )?;
-            // 归属≠身份（#1217 P1-4 恢复面）：过渡出现项的持久行表达不了资源
+            // 归属≠身份（#1217 P1-4 恢复面）：过渡出现记录的持久行表达不了资源
             // 种类与 T 稳定边身份（混合 hop 下归属派生对还恰与静态格重合），
             // 按资源种类 fail closed，不得把归属对重绑成静态 passage 身份。
             if !matches!(
@@ -1081,7 +1081,7 @@ fn restore_conflict_aggregate(
                 .ok_or(SnapshotRestoreError::InvalidConflictAuthority {
                     snapshot_vehicle_id,
                 })?;
-            // 归属≠身份（#1217 P1-4 恢复面）：覆盖过渡出现项的持久行表达不了
+            // 归属≠身份（#1217 P1-4 恢复面）：覆盖过渡出现记录的持久行表达不了
             // 资源种类与 T 稳定边身份，fail closed；混合 hop 下归属派生对恰与
             // 静态格重合，必须按资源种类拦截，不得重绑到静态 Zone 格。
             if !matches!(

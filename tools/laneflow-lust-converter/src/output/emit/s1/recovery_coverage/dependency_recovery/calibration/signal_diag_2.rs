@@ -1,7 +1,7 @@
 //! #1139：信号诊断组 2（C19/C22/C24）的固定曲线覆盖补齐、逐边局部必要条件诊断、
 //! 候选齐备分量组合验收与停止线三情形核对。执行口径全部冻结于
 //! `research/issue-1139-signal-diag-2/plan.md`，样本与问题表冻结于同目录 `edges.json`；
-//! 方法事实源 `research/issue-1121-coverage-diagnosis/plan.md` 逐值沿用，实现模板为
+//! 方法事实来源 `research/issue-1121-coverage-diagnosis/plan.md` 逐值沿用，实现模板为
 //! `research/issue-1134-cohort2-coverage-diagnosis/`。本模块不改生产采样、compiler
 //! 配置档、阈值与原成功几何。计划与冻结实现不一致时停止执行并重新授权（plan §8），
 //! 不得单向迁就。

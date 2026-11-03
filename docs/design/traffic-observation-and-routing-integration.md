@@ -46,7 +46,7 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 | Routing service（宿主实现） | 观测消费、成本模型、动态成本快照、候选边序列       | 参与单元 fixed tick、Runtime 路线表 |
 | Traffic Runtime             | 已提交观测事实、候选内容验证/注册、路线与车辆执行  | 全图寻路、成本政策、需求与选择策略  |
 
-`register_route` 仍是唯一出现项编译器：场景 catalog 可继续把同修订共享静态路网边序号
+`register_route` 仍是唯一出现记录编译器：场景 catalog 可继续把同修订共享静态路网边序号
 直接交给它；Routing 候选入口只是在它之前增加稳定标识解析和来源绑定校验，不得
 复制第二套连通、机动、门、等待区或准入编译器。
 
@@ -211,8 +211,8 @@ BLAKE3-256，与 `selectionDigest` 同属内部完整性摘要（#1044 由 SHA-2
 ```
 
 `snapshotSha256` 为 SHA-256，按 ADR 0033 属于互操作摘要：外部重算方是宿主 Routing 的
-成本快照接收方，它可以位于进程外、使用 Rust 以外的语言，按下列前像独立计算并核对；
-Runtime 只携带该值，不重算、不比对。前像中的 `observationSetDigest` 与 `costModelId`
+成本快照接收方，它可以位于进程外、使用 Rust 以外的语言，按下列原像独立计算并核对；
+Runtime 只携带该值，不重算、不比对。原像中的 `observationSetDigest` 与 `costModelId`
 按 32 字节原样写入，接收方无需知道其产生算法。精确输入为：
 
 ```text
@@ -284,7 +284,7 @@ payload，也不进入 Runtime Snapshot。模型升级必须开新 session，不
 Runtime 按下列顺序失败关闭，任一失败不占路线槽、不留下 compiled occurrence：
 
 1. O(1) 预检空序列、候选边数和 checked 大小；在解析/compiled 分配前按下文统一
-   `route_edge_occurrence_capacity` 核对本次边出现项数。候选入口可以提早返回同一错误，
+   `route_edge_occurrence_capacity` 核对本次边出现记录数。候选入口可以提早返回同一错误，
    但最终权威检查必须在 direct/candidate/cutover/restore/replay 共用的注册/编译路径
    内完成。
 2. 核对 `bindingVersion`、世界身份/世代、修订标识/派生版本、观测
@@ -308,7 +308,7 @@ payload 不进路线表。注册成功后，候选成为普通每世界 `Route`�
 包装成隐藏 Routing。跨观测/成本边界的候选必须走本节严格入口；两类入口最终消费
 同一条路线容量和编译合同。
 
-### 4.1 统一路线边出现项容量
+### 4.1 统一路线边出现记录容量
 
 当前唯一 `compile_route` 会按输入长度物化边序列、后缀距离、分段坐标、hop、下一
 受控转换等多组 O(n) 热表。候选入口若独有边数上限，direct `register_route`、恢复或
@@ -323,7 +323,7 @@ candidate、cutover target 重绑、snapshot restore 与 replay 一视同仁。`
 occurrence 超过恢复配置则整次恢复失败关闭。
 
 该容量不是共享静态路网物理边数，不是单条路线的产品长度政策，也不恢复已删除静态路线
-出现项的 `1920` 历史预算。单条路线只要不超过本世界剩余 occurrence 容量，仍可合法
+出现记录的 `1920` 历史预算。单条路线只要不超过本世界剩余 occurrence 容量，仍可合法
 重复边；G2 必须在同一共享路径实现 max/max+1、checked 溢出与分配失败零部分提交，
 并以具名 Routing 工作负载登记配置值和 retained memory 证据。
 
@@ -395,7 +395,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 
 度量沿 `LF-P100-REF-01` 同机描述性基线；G2 登记首轮数值。1.0 前预算可依据可复现的
 实现、工作负载和产品证据收紧、放宽或重构；每次变化必须说明原判据为何不再成立、
-更新同一事实源，并在影响实现合同或验收结论时返回 G1，不能在 G2 静默改口径。所有
+更新同一事实来源，并在影响实现合同或验收结论时返回 G1，不能在 G2 静默改口径。所有
 条目数、exact bytes、累计分配、峰值 retained bytes（或由累计分配导出的同等保守
 上界）、墙钟与 tick 间隔干扰同时报告，不能用单个平均耗时代替。
 

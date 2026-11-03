@@ -104,7 +104,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 完成状态：2026-07-21 已完成。当时完成记录见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
 
-已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 5`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读器只承认 format 5。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
+已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 5`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读取器只承认 format 5。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -225,7 +225,7 @@ single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分
 该设计属于 #227 的复杂路口演进，不自动进入任何产品 Milestone；归属和合并状态
 以 GitHub 为准。当前唯一正式路径由两个官方编制前端经 compiler、LFCA 和
 `SharedNetworkRevision` 进入 `TrafficWorld`，不保留 current JSON 或旧 Core 入口。
-Waiting 本地 membership/admission/storage/queue、路线冲突出现项、显式策略绑定、
+Waiting 本地 membership/admission/storage/queue、路线冲突出现记录、显式策略绑定、
 组合仲裁、reservation/Clearing、快照与修订切换已共同实现；普通红灯条件右转仍受
 让行、间隙与下游物理存储约束，不表示支持未建模的交通执行域。
 

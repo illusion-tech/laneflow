@@ -249,7 +249,7 @@ checked 预计算 → 暂存（逐路线对 target 修订重编译 +
 
 ### 4.2 路线与车辆
 
-路线按 ADR 0017 匹配规则编译出现项。路网制品不声明路线（ADR 0029）。`install` 后世界没有
+路线按 ADR 0017 匹配规则编译出现记录。路网制品不声明路线（ADR 0029）。`install` 后世界没有
 路线；调用方用共享静态路网边序号 `register_route`。
 
 - `register_route`：输入为共享静态路网 `LaneEdgeOrdinal` 有序非空序列（不要 JSON

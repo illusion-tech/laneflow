@@ -59,7 +59,7 @@ thread_local! {
         }) };
 }
 
-/// 测试专用：车型检查、机动定位、Waiting 成员查询、后续出现项访问。
+/// 测试专用：车型检查、机动定位、Waiting 成员查询、后续出现记录访问。
 #[cfg(test)]
 fn count_waiting_lookup(index: usize) {
     WAITING_LOOKUP_VISITS.with(|counts| {
@@ -577,7 +577,7 @@ impl ManeuverTraversalState {
         self.route
     }
 
-    /// 返回机动出现项下标。
+    /// 返回机动出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
@@ -731,7 +731,7 @@ impl WaitingRouteAnchor {
         self.route
     }
 
-    /// 返回机动出现项下标。
+    /// 返回机动出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
@@ -1123,7 +1123,7 @@ impl crate::kernel::state::WorldState {
             }
         }
 
-        // 注册期已拒绝相交的机动半开区间；当前位置最多对应一个出现项。
+        // 注册期已拒绝相交的机动半开区间；当前位置最多对应一个出现记录。
         let Some(maneuver_index) = maneuver_index_at_hop(compiled, cursor_u32) else {
             return Ok(None);
         };

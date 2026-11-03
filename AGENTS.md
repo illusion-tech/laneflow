@@ -1,6 +1,6 @@
 # Agent 说明
 
-LaneFlow 采用单一事实源管理 Agent 工作流。
+LaneFlow 采用唯一事实来源管理 Agent 工作流。
 
 开工前请先阅读：
 

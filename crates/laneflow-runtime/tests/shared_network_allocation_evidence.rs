@@ -284,7 +284,7 @@ fn allocation_ledgers_and_per_world_live_bytes() {
         // authority/scratch 在每世界上；Conflict cell/claim payload 按首次实际仲裁
         // 延迟扩展。8 车空世界用独立的 16 KiB 预算约束动态表，避免用世界数量
         // 乘共享静态路网大小来掩盖单世界增长。编译路线按游标另存一行运动输入
-        // （每出现项约 52 字节），预算由 15 KiB 放宽到 16 KiB。
+        // （每出现记录约 52 字节），预算由 15 KiB 放宽到 16 KiB。
         // 会计钉重钉（#1199 域 A/D：缓存字段正当——zone_span 安装期缓存+
         // transition_neighborhood_hops 预计算+成员索引构建期分配（容量预置
         // 零增长）；per-world +380B 至 16764，界 16KiB→17KiB（测试夹具面）。

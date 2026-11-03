@@ -14,15 +14,15 @@ use std::sync::Arc;
 /// 调用方提供、随后由编译器受检复制的合成来源模块头输入。
 ///
 /// 字符串只在 [`SourceModuleHeader::new`] 成功后复制；失败不会留下部分头。两个摘要均
-/// 是调用方声明的来源沿袭元数据，不是模块内容摘要，也不会替代后续
+/// 是调用方声明的来源链元数据，不是模块内容摘要，也不会替代后续
 /// `sourceContentDigest` 的派生。
 #[derive(Clone, Copy, Debug)]
 pub struct SourceModuleHeaderInput<'a> {
-    /// 模块拥有声明的稳定 ASCII 命名空间，也是声明身份前像的一部分。
+    /// 模块拥有声明的稳定 ASCII 命名空间，也是声明身份原像的一部分。
     pub authoring_namespace_id: &'a str,
     /// 与机器路径无关的稳定 ASCII 来源文档键，用于诊断位置与规范排序。
     pub source_document_key: &'a str,
-    /// 生成该来源的前端或生成器构建标识；仅作可审计来源沿袭。
+    /// 生成该来源的前端或生成器构建标识；仅作可审计来源链。
     pub generator_build_id: &'a str,
     /// 调用参数与外部输入集合的 32 字节摘要；其算法由生成方契约负责。
     pub parameters_and_inputs_digest: [u8; 32],
@@ -31,7 +31,7 @@ pub struct SourceModuleHeaderInput<'a> {
     /// 生成过程实际使用的随机种子；若生成过程使用随机性，调用方必须提供 `Some`。
     /// 本构造器只能保存该声明，无法审计生成器是否暗中使用了未登记随机源。
     pub random_seed: Option<u64>,
-    /// 供审计与诊断展示的可见 ASCII 来源沿袭说明。
+    /// 供审计与诊断展示的可见 ASCII 来源链说明。
     pub provenance: &'a str,
 }
 
@@ -52,7 +52,7 @@ pub struct SourceModuleHeader {
     pub(crate) frontend_options_digest: [u8; 32],
     /// 原样保留的可选随机种子。
     pub(crate) random_seed: Option<u64>,
-    /// 已验证的来源沿袭说明。
+    /// 已验证的来源链说明。
     pub(crate) provenance: Arc<str>,
     /// 合成前端调用点；用于给模块级诊断提供稳定来源位置，不参与实体身份。
     pub(crate) declaration_span: crate::SourceSpan,
@@ -104,7 +104,7 @@ impl SourceModuleHeader {
         );
 
         // 校准契约只把规范模块名与来源文档键计入驻留字符串聚合；生成器标识和
-        // 来源沿袭属于描述符元数据，但其复制字节仍计入编译器控制存续内存。
+        // 来源链属于描述符元数据，但其复制字节仍计入编译器控制存续内存。
         let string_item_count = 2;
         check_limit(
             limits,
@@ -199,7 +199,7 @@ impl SourceModuleHeader {
         self.random_seed
     }
 
-    /// 返回供审计使用的来源沿袭说明。
+    /// 返回供审计使用的来源链说明。
     #[must_use]
     pub fn provenance(&self) -> &str {
         &self.provenance

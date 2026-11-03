@@ -115,7 +115,7 @@ authoring-only 差异由后继 [#345](https://github.com/illusion-tech/laneflow/
 `RoadEditingSourceDiff` 负责。
 
 compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length
-与 dense layout，**不**预编译路线出现项（ADR 0029）；target `LaneFlow Traffic Runtime`
+与 dense layout，**不**预编译路线出现记录（ADR 0029）；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
 （Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
@@ -211,7 +211,7 @@ Traffic Data Layer 保存可被编译器和共享静态路网消费的静态交�
 - spawn rules
 - vehicle profiles
 
-通行计划不属于本层。调用方把有序边序号交给 `TrafficWorld::register_route`，出现项只进每世界表。
+通行计划不属于本层。调用方把有序边序号交给 `TrafficWorld::register_route`，出现记录只进每世界表。
 
 数据格式应尽量保持引擎无关。
 
@@ -268,7 +268,7 @@ Traffic/Core 中显式声明的 ParticipantStream/ConflictZone 关系拥有行�
 并复用 current Traffic v0.10 的 ParticipantClass/AccessRegistry 静态准入结果；
 Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
 `design/waiting-zone-conflict-right-of-way.md`；其中 #281 static/Data 已生产化，
-#282–#285 已交付 Waiting 运行时、Conflict 出现项与仲裁、路权策略及复杂路口组合验证，
+#282–#285 已交付 Waiting 运行时、Conflict 出现记录与仲裁、路权策略及复杂路口组合验证，
 现行执行合同见 `crates/laneflow-runtime/README.md`。
 
 ## 5. LaneFlow 交通运行时
@@ -295,7 +295,7 @@ Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWor
 投影仍是车辆/路线/停车占用特化；人口、
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
 授予随机权威时才拥有相应随机流。
-路线出现项只在 `TrafficWorld::register_route` 编进每世界表；steady tick
+路线出现记录只在 `TrafficWorld::register_route` 编进每世界表；steady tick
 继续只使用 typed dense handle，不读共享静态路网路线表（ADR 0029）。
 
 运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。Accepted ADR 0025 要求

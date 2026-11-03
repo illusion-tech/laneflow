@@ -3,7 +3,7 @@
 **状态**: 生产。`format_version = 4`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
 **格式标识**: `LF-ROAD-EDITING-SOURCE-v4`<br>
-**机器事实源**: [`road-editing.fbs`](road-editing.fbs)<br>
+**机器事实来源**: [`road-editing.fbs`](road-editing.fbs)<br>
 **设计依据**:
 [`road-editing-source-and-geometry-frontend.md`](../../../docs/design/road-editing-source-and-geometry-frontend.md)、
 [ADR 0023](../../../docs/adr/0023-road-editing-state-and-phased-network-replacement.md)、
@@ -162,11 +162,11 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 - `Provenance` 的两个 `Digest256` 是原始 SHA-256 bytes。`Direct` 必须使用
   `generator_build_id = "laneflow-road-editing-direct-v1"`、缺失 `random_seed`，并分别以
   ASCII `laneflow.road-editing.direct.inputs.v1\0` 和
-  `laneflow.road-editing.direct.frontend-options.v1\0` 为完整前像计算 SHA-256；对应十六进制
+  `laneflow.road-editing.direct.frontend-options.v1\0` 为完整原像计算 SHA-256；对应十六进制
   检查值是 `6b27d0f76693bcd386ac13df724e30f5fb5ad3b9a152a5e1f88de1a624cea8aa` 与
   `b1621e4a2db8d717b6506b0afb6fef5bd4d5156ecfe887c5abf36d08869c7892`。
   `Generated` 必须保存真实生成器 build ID、参数/输入摘要、来源前端选项摘要和可选
-  seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。沿袭不认证内容，
+  seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。来源链不认证内容，
   也不能替代实际保存的道路编辑状态。
 - v4 不保存一张永远固定、却会与字段后缀竞争权威的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
@@ -175,7 +175,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   表示 ADR 0022 B1 的 `2/5/10 cm` 工程目标，不是连续曲线最大误差保证；
   `geometry_direction_profile` 只接受 `Smooth1Deg / Balanced2Deg / Compact5Deg`。
   `Unspecified` 一律无效，不存在隐式默认、任意浮点容差或资源不足自动降级。
-- 最终 `SourceModuleDescriptor.frontendOptionsDigest` 对以下精确前像计算一次 SHA-256：
+- 最终 `SourceModuleDescriptor.frontendOptionsDigest` 对以下精确原像计算一次 SHA-256：
 
   ```text
   ASCII "laneflow.road-editing.frontend-options.v1\0"
@@ -301,7 +301,7 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 - `RoadAlignment`、curve segment、corridor element、signal phase state 和其他
   owner-local 值只进入道路编辑 Typed AST / geometry intent，不分配额外 StableId。
 - 24 个可构造稳定 table 各产生且只产生一个同名共同声明；所有 wire 字段必须被消费一次，
-  或明确只属于来源沿袭/画布诊断。
+  或明确只属于来源链/画布诊断。
 - schema 不保存 HIR/MIR/LIR ordinal、运行时 handle、目标静态镜像布局、车辆状态、
   mesh、材质、碰撞体或任意扩展 map。
 - generated object API 不能成为第二棵 production 领域模型；编译器在 verifier 通过后

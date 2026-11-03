@@ -24,7 +24,7 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 
 > **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：移除静态路线。对象版本按 #284 格式登记更新，只承认
 > `formatVersion = 5` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
-> 读器拒绝 `formatVersion != 5`。
+> 读取器拒绝 `formatVersion != 5`。
 >
 > LFCA 的 `65,536` 行与 `16,777,216` bytes 是单个规范 table chunk 上限；一个
 > `SharedNetworkRevision` 必须支持至少 `1,000,000` 个现实混合稳定静态实体。chunk 只属于
@@ -74,7 +74,7 @@ target/profile selector、镜像摘要/长度、`StaticImageDescriptor` 或
 - Rust 原生结构布局、第三方 archive bytes 或 packed arena 的外部兼容承诺。
 
 LFCA/LFCP v2 与宿主认证 manifest 继续是发布内容的持久化和真实性入口。共享静态路网
-不是可手改事实源、存档、缓存身份或发布对象。
+不是可手改事实来源、存档、缓存身份或发布对象。
 
 ### 2. 新增进程内共享静态路网层
 
@@ -118,7 +118,7 @@ segment length/cumulative/tangent/up 等派生语义；发布 LFCA 的产品接�
 LFCP/manifest admission，玩家编辑 LFCA 则来自同进程
 `PostEmissionCheckedBundle`。builder 使用已经受检并绑定修订的声明值建立连续 Runtime
 数据，只闭合 Runtime 会直接依赖的计数、顺序、引用、范围、双射、Traffic/Spatial
-结构关系和调用方预算。它不重新编码 Identity v1 前像、不重新执行 BLAKE3，也不从 points
+结构关系和调用方预算。它不重新编码 Identity v1 原像、不重新执行 BLAKE3，也不从 points
 逐值重演 compiler 的 segment 冻结算法；这些派生的功能正确性由 compiler known vectors、
 后发射检查和 compiler -> LFCA -> shared-network 端到端测试负责。
 
@@ -201,7 +201,7 @@ owned LFCA/LIR 对象图。安全 Rust 实现不得为了“精确一次分配�
 累计分配和返回时 retained bytes 必须按实际 allocator/API 行为记录。
 
 上述闭合不增加第二套 compiler 派生实现。尤其不得为了把 Runtime loader 提升为独立
-validator，在每次加载或确认建造时重新哈希全部 Identity 前像、重新计算全部 segment
+validator，在每次加载或确认建造时重新哈希全部 Identity 原像、重新计算全部 segment
 向量或保留验证专用对象图。若未来产品允许未经官方 compiler/admission 的第三方 LFCA，
 其额外验证策略由独立 G1 决定，不能无证据进入当前玩家建造延迟。
 

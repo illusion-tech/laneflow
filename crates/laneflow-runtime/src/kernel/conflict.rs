@@ -253,13 +253,13 @@ pub enum ConflictResource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum UnsupportedTransitionState {
     /// 准入 hop 解析位点（traversal / reservation / eligibility 的准入身份槽）
-    /// 落在过渡资源出现项上（无真实 Gate，混合 hop 同样拒绝）。
+    /// 落在过渡资源出现记录上（无真实 Gate，混合 hop 同样拒绝）。
     ///
     /// 归口本变体的理由：错绑风险来自准入身份槽本身——混合 hop 可能巧合解析到
     /// 其他机动的 Gate，按「能否解析」放行即写入错误的准入身份。
     #[error("过渡准入 hop 无真实 Gate，当前持久形制无法忠实表达")]
     AdmissionHopWithoutGate,
-    /// 持久 passage / occurrence 行覆盖 `ConflictResource::Transition` 出现项。
+    /// 持久 passage / occurrence 行覆盖 `ConflictResource::Transition` 出现记录。
     #[error("过渡资源出现项缺资源种类与稳定边身份，当前持久形制无法忠实表达")]
     TransitionPassageRow,
     /// `ConflictResource::Transition` 资源格携带非 `NoHistory` 清空历史。
@@ -336,7 +336,7 @@ impl ConflictPassageAddress {
         }
     }
 
-    /// 由资源身份构造规范地址（#1199 增量2a：过渡出现项发射统一入口）。
+    /// 由资源身份构造规范地址（#1199 增量2a：过渡出现记录发射统一入口）。
     pub(crate) const fn from_resource(
         resource: ConflictResource,
         stream: ParticipantStreamOrdinal,
@@ -436,7 +436,7 @@ impl ConflictPassageLocator {
 
 /// 动态 Route 中一次 passage occurrence 的精确运行时定位信息。
 ///
-/// `conflict_occurrence_index` 区分循环路线中稳定 locator 相同的重复出现项。
+/// `conflict_occurrence_index` 区分循环路线中稳定 locator 相同的重复出现记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConflictPassageOccurrenceLocator {
     route: RouteHandle,
@@ -473,7 +473,7 @@ impl ConflictPassageOccurrenceLocator {
         self.route
     }
 
-    /// 返回机动出现项下标。
+    /// 返回机动出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
@@ -485,7 +485,7 @@ impl ConflictPassageOccurrenceLocator {
         self.admission_gate_hop
     }
 
-    /// 返回冲突出现项下标；区分循环路线中同一稳定 locator 的重复出现项。
+    /// 返回冲突出现记录下标；区分循环路线中同一稳定 locator 的重复出现记录。
     #[must_use]
     pub const fn conflict_occurrence_index(self) -> u32 {
         self.conflict_occurrence_index
@@ -919,7 +919,7 @@ fn approach_eta_lower_bound(input: ApproachEtaInput) -> ApproachEstimate {
     })
 }
 
-/// #676 等价 oracle：逐出现项执行完整 directed 运算，不复用准备对象。
+/// #676 等价 oracle：逐出现记录执行完整 directed 运算，不复用准备对象。
 #[cfg(test)]
 fn reference_approach_eta_lower_bound(input: ApproachEtaInput) -> ApproachEstimate {
     if input.carry_um >= 1_000
@@ -1619,7 +1619,7 @@ impl ConflictPassageRange {
     pub const fn route(self) -> RouteHandle {
         self.route
     }
-    /// 返回机动出现项下标。
+    /// 返回机动出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
@@ -1629,7 +1629,7 @@ impl ConflictPassageRange {
     pub const fn admission_gate_hop(self) -> u32 {
         self.admission_gate_hop
     }
-    /// 返回范围内首个冲突出现项下标。
+    /// 返回范围内首个冲突出现记录下标。
     #[must_use]
     pub const fn first_conflict_occurrence_index(self) -> u32 {
         self.first_conflict_occurrence_index
@@ -1663,7 +1663,7 @@ impl ConflictReservation {
     pub const fn route(self) -> RouteHandle {
         self.passage_range.route()
     }
-    /// 返回机动出现项下标。
+    /// 返回机动出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.passage_range.maneuver_occurrence_index()
@@ -2377,7 +2377,7 @@ impl ConflictArbiter {
     }
 
     /// 按规范 address 序返回迁移所需的 cell 权威。reservation 标记直接来自
-    /// arbiter 单一事实源，调用方不再为每个 cell 扫描车辆表。
+    /// arbiter 唯一事实来源，调用方不再为每个 cell 扫描车辆表。
     #[cfg(test)]
     pub(crate) fn migration_rows(
         &self,
@@ -2753,7 +2753,7 @@ impl<'a> ConflictRead<'a> {
     }
 
     /// 按规范 address 序返回迁移所需的 cell 权威。reservation 标记直接来自
-    /// arbiter 单一事实源，调用方不再为每个 cell 扫描车辆表。
+    /// arbiter 唯一事实来源，调用方不再为每个 cell 扫描车辆表。
     pub(crate) fn migration_rows(
         self,
     ) -> impl Iterator<Item = (ConflictPassageAddress, ConflictLagReference, bool)> + 'a {

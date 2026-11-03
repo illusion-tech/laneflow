@@ -1,6 +1,6 @@
 //! #1138：信号诊断组 1（C14/C15/C18/C46，23 条缺边）的固定曲线覆盖补齐、逐边局部
 //! 必要条件诊断与候选齐备分量完整控制器验收。执行口径全部冻结于
-//! `research/issue-1138-signal-diag-1/plan.md`，方法事实源
+//! `research/issue-1138-signal-diag-1/plan.md`，方法事实来源
 //! `research/issue-1121-coverage-diagnosis/plan.md` 逐值沿用，实现模板为
 //! `calibration::cohort2_coverage`；本模块不改生产采样、compiler 配置档、阈值与原
 //! 成功几何，不改共享代码（协调章程：共享代码只由 E 修改）。计划与冻结实现不一致时

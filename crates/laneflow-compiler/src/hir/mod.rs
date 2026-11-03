@@ -476,7 +476,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &junction.maneuver_paths,
         &mut identities,
     )?;
-    // 完整规范前像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
+    // 完整规范原像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
     // 避免在 HIR 与 MIR 中复制可由稳定键和父项重建的 identity envelope。
     let mut hir = HirParts {
         base,

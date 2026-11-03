@@ -2152,9 +2152,9 @@ impl crate::kernel::state::WorldState {
                 continue;
             };
             for entry in &compiled.conflicts {
-                // P2-1（#1199）：过渡出现项不入静态 zone 路线索引（static_
+                // P2-1（#1199）：过渡出现记录不入静态 zone 路线索引（static_
                 // zone 空→usize::MAX 污染查表→ensure 恒 false→materialize
-                // 退化）——索引只收静态 zone 出现项。
+                // 退化）——索引只收静态 zone 出现记录。
                 let Some(zone) = entry.static_zone() else {
                     continue;
                 };
@@ -2188,7 +2188,7 @@ impl crate::kernel::state::WorldState {
                 return false;
             };
             for entry in &compiled.conflicts {
-                // P2-1：过渡出现项不入索引（同上）。
+                // P2-1：过渡出现记录不入索引（同上）。
                 let Some(zone) = entry.static_zone() else {
                     continue;
                 };
@@ -3905,7 +3905,7 @@ impl crate::kernel::phase::StepReadView<'_> {
     }
 
     /// 把求值集合外的来源车并入格点。每辆来源车的到达下界与 `contender_notes` 相同：
-    /// 当前位置到这处出现项的距离 = 缓存距离 − 同一条边上的进度差；已越过的不计，
+    /// 当前位置到这处出现记录的距离 = 缓存距离 − 同一条边上的进度差；已越过的不计，
     /// 证明时窗外的不计。
     fn merge_lazy_cell_sources(
         self,

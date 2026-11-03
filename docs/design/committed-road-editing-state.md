@@ -112,7 +112,7 @@ BLAKE3-256(
 )
 ```
 
-所有整数采用小端序。更换算法或前像即递增 `digestVersion`；1.0 前不保留旧版本的计算或
+所有整数采用小端序。更换算法或原像即递增 `digestVersion`；1.0 前不保留旧版本的计算或
 比对路径。摘要与精确总字节长度（全部来源字节长度之和）一起构成快照中的编辑来源绑定
 （§6）。该摘要只绑定“哪一份已提交状态”，不替代 LFSM 的 `sourceCollectionDigest`（后者由
 编译器在准入后从模块命名空间计算），也不进入 `NetworkRevisionId`。公开类型按角色命名，
@@ -241,7 +241,7 @@ RoadEditingState
 
 **容器版本**：编辑来源绑定使 `LFRS` 的来源种类与来源表发生变化，容器 `formatVersion`
 随实现从 6 升到 7；`runtime_state_version` 与确定性状态摘要版本不变（来源不进入摘要
-前像）。1.0 前不保留 v6 reader（`.agents/skills/laneflow-pre-1-0/SKILL.md`）。
+原像）。1.0 前不保留 v6 reader（`.agents/skills/laneflow-pre-1-0/SKILL.md`）。
 
 ## 7. 资源口径
 

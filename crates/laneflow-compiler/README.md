@@ -34,9 +34,9 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 纵向管线使用有类型 `u32` 区块键完成跨模块符号解析、车道覆盖与机动路径连通性、
 横断面唯一所有者，以及路口内部边排他角色校验，并按父项先于子项派生横断面和路口
 实体身份；机动门转换范围 / 唯一性、停止线边一致性 / 使用闭包，以及等待区门所有权、
-严格顺序、非零容量和内部不重叠同样在 HIR 关闭。完整身份前像只在 HIR 临时登记表中
+严格顺序、非零容量和内部不重叠同样在 HIR 关闭。完整身份原像只在 HIR 临时登记表中
 用于重复 / 摘要碰撞判断。Canonical LIR
-再按各实体的完整 Identity v1 前像字节分配有类型
+再按各实体的完整 Identity v1 原像字节分配有类型
 逻辑序号，把连接和父子关系全部改写为同一 LIR 实例的有类型序号，并以共享字段字节池
 保存后继制品所需的完整身份字段；来源位置不进入 LIR 语义摘要。公共 `Compiler` 已将该
 当前领域子集接入原子成功闭环：任一阶段失败时只返回结构化诊断，成功时同时返回只读
@@ -91,7 +91,7 @@ Access 身份。LIR/LFCA 只冻结策略声明，运行时解析表由共享静�
 `NetworkRevisionId`。这些计算绑定在公开 API 中保持 `laneflow-static-contract` 的强类型，
 只在线格式边界转换为原始字节/整数。Artifact base
 必须先取得 `ValueCheckedObjectView`；emitter 在变化分类前拒绝不兼容 contract、base 内部
-身份/实体错配和跨修订 StableId 前像冲突，并按 A.3/A.5 的字段、set/scalar/domain/occurrence、
+身份/实体错配和跨修订 StableId 原像冲突，并按 A.3/A.5 的字段、set/scalar/domain/occurrence、
 geometry、static rule 与全局 spatial 规则产生诊断性 LFSD。
 
 LFCA 5 策略引用在最终目标字节和 Artifact base 上另行核对：四张局部表的 owner 必须

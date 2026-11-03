@@ -60,7 +60,7 @@ impl ValidatedCanonicalLir {
         &self.inner
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部车道图边。
+    /// 按完整 Identity v1 原像规范顺序遍历全部车道图边。
     pub fn lane_edges(&self) -> impl ExactSizeIterator<Item = CanonicalLaneEdgeView<'_>> {
         self.inner
             .lane_edges
@@ -79,7 +79,7 @@ impl ValidatedCanonicalLir {
             .map(|edge| CanonicalLaneEdgeView::from_lir(&self.inner, edge))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部道路走廊。
+    /// 按完整 Identity v1 原像规范顺序遍历全部道路走廊。
     pub fn road_corridors(&self) -> impl ExactSizeIterator<Item = CanonicalRoadCorridorView<'_>> {
         self.inner
             .road_corridors
@@ -99,7 +99,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalRoadCorridorView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部道路区段。
+    /// 按完整 Identity v1 原像规范顺序遍历全部道路区段。
     pub fn road_sections(&self) -> impl ExactSizeIterator<Item = CanonicalRoadSectionView<'_>> {
         self.inner
             .road_sections
@@ -119,7 +119,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalRoadSectionView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部编制车道。
+    /// 按完整 Identity v1 原像规范顺序遍历全部编制车道。
     pub fn authoring_lanes(&self) -> impl ExactSizeIterator<Item = CanonicalAuthoringLaneView<'_>> {
         self.inner
             .authoring_lanes
@@ -139,7 +139,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalAuthoringLaneView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部车道组。
+    /// 按完整 Identity v1 原像规范顺序遍历全部车道组。
     pub fn lane_groups(&self) -> impl ExactSizeIterator<Item = CanonicalLaneGroupView<'_>> {
         self.inner
             .lane_groups
@@ -156,7 +156,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalLaneGroupView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部设施带。
+    /// 按完整 Identity v1 原像规范顺序遍历全部设施带。
     pub fn facility_bands(&self) -> impl ExactSizeIterator<Item = CanonicalFacilityBandView<'_>> {
         self.inner
             .facility_bands
@@ -176,7 +176,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalFacilityBandView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部路口。
+    /// 按完整 Identity v1 原像规范顺序遍历全部路口。
     pub fn junctions(&self) -> impl ExactSizeIterator<Item = CanonicalJunctionView<'_>> {
         self.inner
             .junctions
@@ -193,7 +193,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalJunctionView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部转向动作。
+    /// 按完整 Identity v1 原像规范顺序遍历全部转向动作。
     pub fn movements(&self) -> impl ExactSizeIterator<Item = CanonicalMovementView<'_>> {
         self.inner
             .movements
@@ -210,7 +210,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalMovementView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部机动路径。
+    /// 按完整 Identity v1 原像规范顺序遍历全部机动路径。
     pub fn maneuver_paths(&self) -> impl ExactSizeIterator<Item = CanonicalManeuverPathView<'_>> {
         self.inner
             .maneuver_paths
@@ -230,7 +230,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalManeuverPathView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部停止线。
+    /// 按完整 Identity v1 原像规范顺序遍历全部停止线。
     pub fn stop_lines(&self) -> impl ExactSizeIterator<Item = CanonicalStopLineView<'_>> {
         self.inner
             .stop_lines
@@ -247,7 +247,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalStopLineView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部机动门。
+    /// 按完整 Identity v1 原像规范顺序遍历全部机动门。
     pub fn maneuver_gates(&self) -> impl ExactSizeIterator<Item = CanonicalManeuverGateView<'_>> {
         self.inner
             .maneuver_gates
@@ -267,7 +267,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalManeuverGateView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部等待区。
+    /// 按完整 Identity v1 原像规范顺序遍历全部等待区。
     pub fn waiting_zones(&self) -> impl ExactSizeIterator<Item = CanonicalWaitingZoneView<'_>> {
         self.inner
             .waiting_zones
@@ -287,7 +287,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalWaitingZoneView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部信号组。
+    /// 按完整 Identity v1 原像规范顺序遍历全部信号组。
     pub fn signal_groups(&self) -> impl ExactSizeIterator<Item = CanonicalSignalGroupView<'_>> {
         self.inner
             .signal_groups
@@ -307,7 +307,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalSignalGroupView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部固定时制信号控制器。
+    /// 按完整 Identity v1 原像规范顺序遍历全部固定时制信号控制器。
     pub fn signal_controllers(
         &self,
     ) -> impl ExactSizeIterator<Item = CanonicalSignalControllerView<'_>> {
@@ -329,7 +329,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalSignalControllerView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部所有者局部（owner-local）信号相位。
+    /// 按完整 Identity v1 原像规范顺序遍历全部所有者局部（owner-local）信号相位。
     pub fn signal_phases(&self) -> impl ExactSizeIterator<Item = CanonicalSignalPhaseView<'_>> {
         self.inner
             .signal_phases
@@ -349,7 +349,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalSignalPhaseView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部停车区域。
+    /// 按完整 Identity v1 原像规范顺序遍历全部停车区域。
     pub fn parking_facilities(
         &self,
     ) -> impl ExactSizeIterator<Item = CanonicalParkingFacilityView<'_>> {
@@ -371,7 +371,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalParkingFacilityView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部停车位。
+    /// 按完整 Identity v1 原像规范顺序遍历全部停车位。
     pub fn parking_spaces(&self) -> impl ExactSizeIterator<Item = CanonicalParkingSpaceView<'_>> {
         self.inner
             .parking_spaces
@@ -391,7 +391,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalParkingSpaceView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部参与者类别。
+    /// 按完整 Identity v1 原像规范顺序遍历全部参与者类别。
     pub fn participant_classes(
         &self,
     ) -> impl ExactSizeIterator<Item = CanonicalParticipantClassView<'_>> {
@@ -413,7 +413,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalParticipantClassView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部车辆配置。
+    /// 按完整 Identity v1 原像规范顺序遍历全部车辆配置。
     pub fn vehicle_profiles(
         &self,
     ) -> impl ExactSizeIterator<Item = CanonicalVehicleProfileView<'_>> {
@@ -435,7 +435,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalVehicleProfileView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部规范坐标框架。
+    /// 按完整 Identity v1 原像规范顺序遍历全部规范坐标框架。
     pub fn canonical_frames(&self) -> impl ExactSizeIterator<Item = CanonicalFrameView<'_>> {
         self.inner
             .canonical_frames
@@ -455,7 +455,7 @@ impl ValidatedCanonicalLir {
             .map(|record| CanonicalFrameView::from_lir(&self.inner, record))
     }
 
-    /// 按完整 Identity v1 前像规范顺序遍历全部静态准入规则。
+    /// 按完整 Identity v1 原像规范顺序遍历全部静态准入规则。
     pub fn access_rules(&self) -> impl ExactSizeIterator<Item = CanonicalAccessRuleView<'_>> {
         self.inner
             .access_rules

@@ -71,7 +71,7 @@ dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapsh
 `ObservationSetBinding`，签发 `RoutingAdmissionSession`，并由
 `register_candidate_route` 校验世界/世代/修订/模型/有效窗后把 LaneEdge 稳定标识降低到
 唯一路线编译入口。回放/恢复使用不含旧成本 provenance 的
-`register_admitted_route`；两条路径与 direct `register_route` 共用路线槽和边出现项容量。
+`register_admitted_route`；两条路径与 direct `register_route` 共用路线槽和边出现记录容量。
 
 Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
 `encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
@@ -84,7 +84,7 @@ Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
 locator 与车辆位置合法而恢复为已提交资格。
 `deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、
 局部 ID、Published 审计地址或 worker 计划；容量、tick/时间/双游标与 live 顺序仍进入
-摘要前像。该摘要是 [ADR 0033](../../docs/adr/0033-digest-role-and-algorithm-selection-authority.md)
+摘要原像。该摘要是 [ADR 0033](../../docs/adr/0033-digest-role-and-algorithm-selection-authority.md)
 定义的内部完整性摘要（BLAKE3-256），用于宿主检查点对拍与审计重放，不承担发布身份。
 检查点宿主可从不可变 `CapturedRoute` / `CapturedVehicle` 读取局部 ID 与逻辑字段，
 恢复后从 `RestoredSnapshot::route_mappings` / `vehicle_mappings` 取得按局部 ID 排序的

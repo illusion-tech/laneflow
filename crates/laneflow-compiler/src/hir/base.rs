@@ -66,7 +66,7 @@ pub(crate) struct HirLaneEdge {
     /// 模块内稳定键；不是 HIR 致密下标。
     pub(crate) stable_key: Arc<str>,
     pub(crate) source_address: TypedAstEntityAddress,
-    /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 前像派生。
+    /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 原像派生。
     pub(crate) stable_id: LaneEdgeId,
     /// 交通权威长度，单位为毫米。
     pub(crate) length_mm: u32,

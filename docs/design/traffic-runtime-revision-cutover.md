@@ -123,9 +123,9 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
   所有 parking counts/ranges 从 aggregate 重建并闭合。任一错误发生在 commit 前，旧根对象、
   旧 binding、双游标和 Adapter 表现均不变。
 
-### 3.2 路线冲突出现项
+### 3.2 路线冲突出现记录
 
-冲突出现项不是迁移载荷。same/cross-revision 都从目标共享路网修订和路线稳定边序列进入唯一
+冲突出现记录不是迁移载荷。same/cross-revision 都从目标共享路网修订和路线稳定边序列进入唯一
 路线编译器，重建 `ConflictPassageOccurrence`、Gate ranges 与最终 clearance。候选按
 全部存活路线累计 `route_conflict_occurrence_capacity`；目标新增、删除或改变 passage
 时以重建后的 exact 总数为准，不沿用旧计数。任一容量、分配或 Active 3A 失败都在
@@ -221,7 +221,7 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 准备期对外只导出活动旧聚合的观测，候选世界不可见。在旧世界成功执行的 Routing
 候选注册已经成为普通路线生命周期变更，必须进入迁移增量日志并在 target 修订上按
 §3 重绑/重验证，并分别消费 `route_edge_occurrence_capacity` 与
-`route_conflict_occurrence_capacity`；target 任一 exact 路线出现项总数超限时整个切换
+`route_conflict_occurrence_capacity`；target 任一 exact 路线出现记录总数超限时整个切换
 失败关闭。候选聚合重复持有的路线热表属于 #302
 峰值 retained memory，不把同一逻辑路线重复计入活动聚合的语义容量。成功提交与聚合
 换绑同界递增世界世代，使旧观测导出/admission session、未注册候选和旧修订成本绑定
@@ -319,7 +319,7 @@ candidate 共享静态路网、scratch、旧/候选动态双份、迁移增量�
 
 度量协议：同机描述性基线（沿 `LF-P100-REF-01` 先例），量化切片登记初值。1.0 前
 预算可依据可复现的实现、工作负载和产品证据收紧、放宽或重构；每次变化必须说明
-原判据为何不再成立、更新同一事实源，并在影响实现合同或验收结论时返回 G1，不能
+原判据为何不再成立、更新同一事实来源，并在影响实现合同或验收结论时返回 G1，不能
 在 G2 静默改口径。
 
 | 维度               | 上限/口径                                                                                                                                                                                                                                                                                         |
@@ -396,7 +396,7 @@ candidate 共享静态路网、scratch、旧/候选动态双份、迁移增量�
 事件不受影响。跟车占用索引不登记退化入口点，不能直接替代准入索引。
 
 摘要按路线实例预分组，源侧期望仍独立捕获和规范化；保留两份摘要比较、摘要版本 7
-及全部既有失败原子性。该优化消除每条路线全扫车辆的分组成本，不改变摘要前像。
+及全部既有失败原子性。该优化消除每条路线全扫车辆的分组成本，不改变摘要原像。
 
 规模证据使用同机 Rust 1.98 release、单世界千车/四千车/万车、256 条八公里物理边，
 其中使用 16 或 256 条边，4.5 米车辆按十米间距分布；target 仅把限速从 15 提高到

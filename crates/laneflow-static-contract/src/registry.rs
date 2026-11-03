@@ -14,7 +14,7 @@ pub const IDENTITY_ENCODING_VERSION: u16 = 1;
 /// Identity v1 的实体种类 / 字段标签登记表修订；登记项增删或身份字段变化时必须提升。
 ///
 /// 修订 4：种类 `1..=24`、字段标签 `1..=35` 连续登记。
-/// 此修订不进入身份前像；既有实体的稳定标识保持不变。
+/// 此修订不进入身份原像；既有实体的稳定标识保持不变。
 pub const IDENTITY_REGISTRY_REVISION: u16 = 4;
 
 /// 拼接在规范身份字节之前的 Stable ID BLAKE3 输入域分离前缀。
@@ -202,7 +202,7 @@ impl EntityKind {
         }
     }
 
-    /// 返回构造该实体 Identity v1 前像时必需的字段标签规范序列。
+    /// 返回构造该实体 Identity v1 原像时必需的字段标签规范序列。
     ///
     /// 返回顺序就是编码顺序；调用者不得排序、去重，也不得从 source map 补入缺失字段。
     #[must_use]

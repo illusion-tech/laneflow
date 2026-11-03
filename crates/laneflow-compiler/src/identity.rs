@@ -2,7 +2,7 @@
 //!
 //! 本模块消费 `laneflow-static-contract` 冻结的登记元数据，但独立实现 envelope、字段
 //! 校验和 BLAKE3-128 派生。编码器不接受“可选”或未登记字段：调用方必须一次提供实体
-//! 种类要求的完整标签序列。完整规范前像仅在编译阶段的临时登记表中保留，用于区分
+//! 种类要求的完整标签序列。完整规范原像仅在编译阶段的临时登记表中保留，用于区分
 //! 重复身份与摘要碰撞；HIR/MIR 只携带有类型的 16 字节稳定标识。
 //!
 //! 后继独立制品验证器不得复用本模块。已知向量测试中的预言机也使用另一套字节组装
@@ -22,7 +22,7 @@ use crate::SourceSpan;
 use crate::source::external_token_violation;
 use crate::{SourceLocation, SourceTextViolation};
 
-/// 标识字段集合不能形成规范 Identity v1 前像的精确原因。
+/// 标识字段集合不能形成规范 Identity v1 原像的精确原因。
 ///
 /// `position` 是实体字段序列中的零基位置，`tag`、`expected` 与 `actual` 均为登记表的
 /// 原始 `u16` 代码。该类型进入结构化诊断；调用方不应依赖其显示文本。
@@ -121,12 +121,12 @@ impl EncodedCanonicalIdentity {
         self.kind
     }
 
-    /// 返回不含 BLAKE3 域分离前缀的完整规范前像。
+    /// 返回不含 BLAKE3 域分离前缀的完整规范原像。
     pub(crate) fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
 
-    /// 返回规范前像经 BLAKE3 派生后的前 16 字节。
+    /// 返回规范原像经 BLAKE3 派生后的前 16 字节。
     pub(crate) const fn stable_id(&self) -> StableId128 {
         self.stable_id
     }
@@ -314,7 +314,7 @@ fn append(output: &mut Vec<u8>, hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(bytes);
 }
 
-/// 临时身份登记项；完整前像使摘要相等时仍能作权威比较。
+/// 临时身份登记项；完整原像使摘要相等时仍能作权威比较。
 pub(crate) struct RegisteredCanonicalIdentity {
     canonical_bytes: Box<[u8]>,
     owning_span: SourceLocation,
@@ -329,7 +329,7 @@ pub(crate) struct IdentityRegistry {
     by_stable_id: HashMap<StableId128, RegisteredCanonicalIdentity>,
 }
 
-/// 稳定标识登记失败的原因：完整前像相同的重复登记，或摘要相同但前像不同的摘要冲突。
+/// 稳定标识登记失败的原因：完整原像相同的重复登记，或摘要相同但原像不同的摘要冲突。
 #[derive(Debug)]
 pub(crate) enum IdentityRegistrationError {
     Duplicate { existing_span: SourceLocation },
@@ -344,7 +344,7 @@ impl IdentityRegistry {
         }
     }
 
-    /// 登记完整身份；成功后同一摘要的后续项必须与此处保存的前像比较。
+    /// 登记完整身份；成功后同一摘要的后续项必须与此处保存的原像比较。
     pub(crate) fn register(
         &mut self,
         identity: &EncodedCanonicalIdentity,

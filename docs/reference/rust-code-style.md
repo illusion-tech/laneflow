@@ -10,7 +10,7 @@
 
 ### 1.1 外部审阅参考
 
-下列资料可以辅助 Rust API、常见模式与设计原则审阅，但不是 LaneFlow 的权威事实源，
+下列资料可以辅助 Rust API、常见模式与设计原则审阅，但不是 LaneFlow 的权威事实来源，
 也不得机械覆盖仓库 ADR、design、MSRV、性能证据或具体分层边界：
 
 - [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
