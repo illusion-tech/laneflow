@@ -1,5 +1,5 @@
 use bevy::{
-    camera::CameraProjection,
+    camera::{CameraProjection, visibility::VisibilitySystems},
     input::mouse::{AccumulatedMouseScroll, MouseScrollPixelsPerLine},
     mesh::Indices,
     prelude::*,
@@ -71,11 +71,21 @@ pub(super) fn install(app: &mut App, ribbon: Mesh, bounds: (Vec3, Vec3), preset:
         .add_systems(Update, (camera_input, update_view).chain())
         .add_systems(
             PostUpdate,
-            (apply_visibility, update_hud)
-                .chain()
+            update_hud
                 .after(Present)
                 .before(bevy::ui::UiSystems::Prepare),
         );
+    install_visibility(app);
+}
+
+/// 必须先于可见性传播，否则这一帧的显示与隐藏要到下一帧才进入渲染。
+fn install_visibility(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        apply_visibility
+            .after(Present)
+            .before(VisibilitySystems::VisibilityPropagate),
+    );
 }
 
 fn grid_orbit(bounds: &Bounds) -> Orbit {
@@ -284,5 +294,96 @@ pub(super) fn update_hud(summary: Res<Summary>, mut text: Query<&mut Text, With<
     };
     for mut text in &mut text {
         text.0 = summary.hud();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::{
+        camera::visibility::VisibilityPlugin,
+        ecs::schedule::Schedules,
+        mesh::skinning::SkinnedMeshInverseBindposes,
+        time::{TimePlugin, TimeUpdateStrategy},
+        transform::TransformPlugin,
+    };
+
+    use super::super::culling_scene::{self, SceneConfig};
+    use super::*;
+
+    #[test]
+    fn selection_changes_reach_inherited_visibility_in_the_same_frame() {
+        let mut app = App::new();
+        app.add_plugins((
+            TimePlugin,
+            TransformPlugin,
+            AssetPlugin::default(),
+            VisibilityPlugin,
+        ))
+        .init_asset::<Mesh>()
+        .init_asset::<SkinnedMeshInverseBindposes>()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            16,
+        )));
+        let scene = culling_scene::build(SceneConfig {
+            cells: 1,
+            vehicles_per_cell: 16,
+            route_legs: 4,
+        })
+        .unwrap();
+        super::super::culling_host::install(&mut app, scene, ViewVolume::ALL).unwrap();
+        install_visibility(&mut app);
+        let entities = app.world().resource::<Fleet>().entities.clone();
+        let root = app.world().resource::<Fleet>().root;
+        app.world_mut()
+            .entity_mut(root)
+            .insert(Visibility::default());
+        for &entity in &entities {
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(Visibility::Hidden);
+        }
+        // 裁剪空间 x 整体右移，任何路网位置都落在视域外。
+        let nowhere = ViewVolume::from_clip_from_world(Mat4::from_translation(Vec3::X * 1.0e7));
+        for (view, expected) in [
+            (ViewVolume::ALL, true),
+            (nowhere, false),
+            (ViewVolume::ALL, true),
+        ] {
+            app.insert_resource(view);
+            app.update();
+            let world = app.world();
+            for (slot, &entity) in entities.iter().enumerate() {
+                assert_eq!(world.resource::<Culling>().visible[slot], expected);
+                assert_eq!(
+                    world.get::<InheritedVisibility>(entity).unwrap().get(),
+                    expected
+                );
+            }
+        }
+    }
+
+    /// 上一个测试只覆盖调度器恰好选中的一种顺序；反向约束成环才说明顺序是强制的。
+    #[test]
+    fn apply_visibility_is_ordered_before_visibility_propagation() {
+        let mut ordered = App::new();
+        install_visibility(&mut ordered);
+        let mut reversed = App::new();
+        install_visibility(&mut reversed);
+        reversed.configure_sets(
+            PostUpdate,
+            VisibilitySystems::VisibilityPropagate.before(apply_visibility),
+        );
+        let build = |app: &mut App| {
+            let world = app.world_mut();
+            let mut schedule = world
+                .resource_mut::<Schedules>()
+                .remove(PostUpdate)
+                .unwrap();
+            schedule.initialize(world).is_ok()
+        };
+        assert!(build(&mut ordered));
+        assert!(!build(&mut reversed));
     }
 }
