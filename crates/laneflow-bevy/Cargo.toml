@@ -67,6 +67,10 @@ required-features = ["native-example"]
 name = "culling_extraction"
 required-features = ["native-example"]
 
+[[example]]
+name = "parking_lifecycle"
+required-features = ["native-example"]
+
 [[test]]
 name = "quickstart_smoke"
 path = "examples/support/quickstart_smoke.rs"
@@ -78,6 +82,10 @@ path = "examples/support/corridor_traffic_smoke.rs"
 [[test]]
 name = "culling_extraction_smoke"
 path = "examples/support/culling_extraction_smoke.rs"
+
+[[test]]
+name = "parking_lifecycle_smoke"
+path = "examples/support/parking_lifecycle_smoke.rs"
 
 [[test]]
 name = "junction_observation"
