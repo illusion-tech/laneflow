@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use bevy_ecs::{entity::Entity, resource::Resource, world::World};
 use laneflow_bevy::{LaneFlowSession, LaneFlowVehicleReplaceOutcome};
@@ -36,6 +37,9 @@ pub(super) struct Driver {
     pub blocked_count: u64,
     pub counts: [u32; 3],
     pub lifecycle_commands: usize,
+    /// 生命周期命令执行累计纳秒（#1233 对象 a）：runtime 命令 API 调用段，
+    /// 与 harness 记账段互斥，合计等于 lifecycle 区间。
+    pub lifecycle_command_ns: u64,
     pub completion_records: Vec<(u64, usize)>,
     pub arrival_records: Vec<(u64, usize)>,
     pub batches: Vec<Value>,
@@ -109,6 +113,7 @@ impl Driver {
             blocked_count: 0,
             counts,
             lifecycle_commands: 0,
+            lifecycle_command_ns: 0,
             completion_records: Vec::new(),
             arrival_records: Vec::new(),
             batches: Vec::new(),
@@ -141,6 +146,7 @@ impl Driver {
         }
         let cursor_before = ecs.resource::<LaneFlowSession>().world().command_cursor();
         let first_receipt = self.command_count;
+        let command_started = Instant::now();
         for command in &commands {
             let rank = command.logical_rank as usize;
             let before = ecs.resource::<LaneFlowSession>().world().command_cursor();
@@ -167,6 +173,7 @@ impl Driver {
                 self.pending.push(command.clone());
             }
         }
+        self.lifecycle_command_ns += elapsed_ns(command_started);
         self.lifecycle_commands += commands.len();
         self.batches.push(json!({"boundary":boundary,"command_count":commands.len(),
             "first_receipt":first_receipt,"input_digest":crate::burst::input_digest(&commands),
@@ -381,6 +388,10 @@ impl Driver {
             || "population ledger 不符".into(),
         )
     }
+}
+
+fn elapsed_ns(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 fn status_index(status: VehicleStatus) -> usize {
