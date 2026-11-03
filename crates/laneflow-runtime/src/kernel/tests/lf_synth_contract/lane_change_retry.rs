@@ -394,6 +394,7 @@ fn lane_change_failed_step_retry() {
             "retry":Value::Null,"fresh":Value::Null,"final":Value::Null}),
     );
 
+    let cursor_before_commands = failure.world.command_cursor();
     // 注入失败：零发布（状态/事件/游标不变），failpoint 消耗。
     STEP_FAILPOINT.with(|slot| slot.set(Some(point)));
     let error = failure
@@ -405,6 +406,7 @@ fn lane_change_failed_step_retry() {
         STEP_FAILPOINT.with(|slot| slot.get().is_none()),
         "failpoint must be consumed"
     );
+    let cursor_after_commands = failure.world.command_cursor();
     assert_eq!(failure.world.tick_index(), boundary - 1);
     assert!(failure.world.latest_transition_events().is_empty());
     let failed_snapshot = failure.world.capture_snapshot().unwrap();
@@ -416,6 +418,7 @@ fn lane_change_failed_step_retry() {
     let retry_outcome = failure.step(dt as u32);
     let fresh_outcome = fresh.step(dt as u32);
     assert_eq!(retry_outcome, fresh_outcome);
+    let cursor_after_retry = failure.world.command_cursor();
     assert_eq!(
         failure.world.latest_transition_events(),
         fresh.world.latest_transition_events()
@@ -444,6 +447,7 @@ fn lane_change_failed_step_retry() {
             fresh.world.latest_transition_events()
         );
     }
+    let final_cursor = failure.world.command_cursor();
     let final_face_b = failure.face_b();
     assert_eq!(final_face_b, fresh.face_b(), "末态面 B 记录相等");
     save(&output.join("final.json"), &final_face_b);
@@ -463,7 +467,7 @@ fn lane_change_failed_step_retry() {
             "failed_state_digest":failed_digest,
             "warm_up_ticks":plan["warm_up_ticks"],"observation_ticks":plan["observation_ticks"],
             "final_tick":end,
-            "cursor_before_commands":0,"cursor_after_commands":0,"cursor_after_retry":0,"final_cursor":0,
+            "cursor_before_commands":cursor_before_commands,"cursor_after_commands":cursor_after_commands,"cursor_after_retry":cursor_after_retry,"final_cursor":final_cursor,
             "retry_face_b":retry_face_b,"final_face_b":final_face_b}),
     );
 }
