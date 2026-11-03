@@ -44,6 +44,7 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features nati
 | `corridor_traffic`   | 持续车流与宿主生命周期       | 默认 100 车，支持 50–200，完成后回流                       |
 | `junction_debug`     | 复杂路口领域观测与可视诊断   | 确定性场景，F2 开关只读诊断 overlay                        |
 | `culling_extraction` | 只提取并表现视野内的车辆     | 路口网格，默认约 2,800 车，最多约 1 万车，跑完路线后不回流 |
+| `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含离场失败和真正移除          |
 
 参数与完整命令见 [`laneflow-bevy` 示例](crates/laneflow-bevy/README.md#示例)。
 

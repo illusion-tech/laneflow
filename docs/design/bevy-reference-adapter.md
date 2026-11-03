@@ -777,7 +777,8 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 | 移除车 | 虚拟池    | 停入虚拟池并停留后，由 typed `despawn_vehicle` 移除，宿主随后销毁其 Entity           |
 | 过路车 | 无        | 两辆，始终沿环路行驶；前车停入后不再占用车道，过路车继续通过                         |
 
-到达只通过 `parking_arrived` 查询判定，不用距离近似。下一次预留选择路线上仍前向可达的下一个
+虚拟车的首次离场要等阻挡车到达后才发起，否则这条失败路径不会发生。到达只通过
+`parking_arrived` 查询判定，不用距离近似。下一次预留选择路线上仍前向可达的下一个
 出现项；路线走完后不再预留，车辆按正常路径进入 Completed。
 
 命令结果按以下规则处理，其余任何错误或意外的 `NoChange` 都使示例失败停止：
@@ -825,11 +826,13 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 GUI 用同修订 Spatial 中心线生成车道带，用泊位位姿和几何尺寸生成泊位矩形，按
 `parking_space_state` 区分空闲、已预留和已占用。泊位位姿由启动时绑定的只读
 `SpatialSession` 采样，不属于表现权威。虚拟池没有几何，只在入口和出口画标记，
-不虚构车辆位置。相机可以缩放、平移和旋转，初始视角覆盖整条环路。
+不虚构车辆位置。车身按角色着色。相机可以缩放、平移和旋转，初始视角覆盖整条环路，且不被
+HUD 遮挡。
 
 虚拟停车的车辆在画面上看不见，因此 HUD 必须说明它的状态。HUD 由同帧摘要格式化，显示：
 
-- 每个角色的当前阶段和是否可见，例如 `parked (virtual) - hidden`；移除后显示 `removed`；
+- 每个角色的车身颜色、当前阶段和是否可见，例如 `virtual (orange)  parked (virtual)  hidden`；
+  移除后显示 `removed`；
 - 设施的显式和虚拟计数（已预留、已占用、空闲）；
 - 最近一次被拒绝的命令、错误种类和 Tick，例如 `leave rejected: physical overlap`；
 - 当前 Tick 和本帧步数。

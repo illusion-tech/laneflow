@@ -72,6 +72,7 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。完�
 | `corridor_traffic`   | 持续车流与宿主生命周期       | 默认 `100` 车，支持 `50..=200`，完成后在同一 Entity 回流                         |
 | `junction_debug`     | 复杂路口领域观测与可视诊断   | 四车确定性场景，F2 开关只读 overlay（mesh/文本）                                 |
 | `culling_extraction` | 按视野选择提取与隐藏         | 启动时生成路口网格，默认 9 格约 2,800 车，支持 `1..=32` 格，车辆跑完路线后不回流 |
+| `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含过早停入、离场失败和真正移除                      |
 
 最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
 `examples/support/quickstart_scene.rs`，从同一带策略的空间夹具显式绑定
@@ -91,6 +92,9 @@ HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移
 按视野选择的入口是 `culling_extraction`：提取前用 Runtime 来源和车道分块判断视野，只提取并
 写入选中车辆，缺席车辆隐藏但保留绑定；每 60 帧与全量提取逐值对照。按 `F` 冻结选择视域后
 缩小，可以直接看到被隐藏的车辆。HUD 的耗时只供观察，不是性能证据。
+停车表现的入口是 `parking_lifecycle`：可见性由车辆状态、停车绑定和位姿来源决定，批次只提供
+位姿。虚拟停车的车辆隐藏但保留映射，只有 `despawn_vehicle` 成功才销毁 Entity；HUD 显示每个
+角色的阶段和最近一次被拒绝的命令。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
@@ -103,6 +107,9 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example junction_debug --features 
 cargo +1.99.1 test --locked -p laneflow-bevy --test junction_debug_smoke
 cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example
 cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
+cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
+cargo +1.99.1 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
+cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
 ```
 
 完整 C01–C13 验收、确定性出图与独立 headless 摘要对照见
