@@ -780,7 +780,7 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 
 虚拟车的首次离场要等阻挡车到达后才发起，否则这条失败路径不会发生。到达只通过
 `parking_arrived` 查询判定，不用距离近似。下一次预留选择路线上仍前向可达的下一个
-出现项；路线走完后不再预留，车辆按正常路径进入 Completed。
+出现记录；路线走完后不再预留，车辆按正常路径进入 Completed。
 
 命令结果按以下规则处理，其余任何错误或意外的 `NoChange` 都使示例失败停止：
 

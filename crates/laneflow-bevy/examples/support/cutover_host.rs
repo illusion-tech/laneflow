@@ -134,7 +134,7 @@ pub(super) struct Health {
     exit_sent: bool,
 }
 
-/// 逐槽可见状态是表现的权威；GUI 把它映射到 Bevy `Visibility`。
+/// 逐槽可见状态是表现的正本；GUI 把它映射到 Bevy `Visibility`。
 #[derive(Resource)]
 pub(super) struct Presentation {
     pub visible: Vec<bool>,
