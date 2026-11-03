@@ -38,6 +38,9 @@ struct TickSample {
     lifecycle_commands: usize,
     core_allocation: Option<Allocation>,
     lifecycle_allocation: Option<Allocation>,
+    /// lifecycle 区间分段（#1233 对象 a）：command_execution + harness_other
+    /// 与 lifecycle_ns 守恒，residual 显式列示（本实现为 0）。
+    lifecycle_segments: Value,
     traffic_active_before_step: u32,
 }
 
@@ -67,6 +70,10 @@ struct Timing {
     lifecycle_ns: u64,
     lifecycle_allocation: Option<Allocation>,
     lifecycle_commands: usize,
+    /// 生命周期命令执行累计纳秒（#1233 对象 a）：runtime 命令 API 段。
+    lifecycle_command_ns: u64,
+    /// checkpoint 校验累计纳秒（validate_population + state_digest + oracle 对比）。
+    lifecycle_validation_ns: u64,
     active_before: u32,
     ticks: Vec<TickSample>,
 }
@@ -74,6 +81,7 @@ struct Timing {
 fn lifecycle(ecs: &mut World) {
     ecs.resource_scope(|ecs, mut driver: bevy_ecs::world::Mut<Driver>| {
         let before = driver.lifecycle_commands;
+        let command_before = driver.lifecycle_command_ns;
         let allocation = resources::start();
         let started = Instant::now();
         driver
@@ -83,6 +91,7 @@ fn lifecycle(ecs: &mut World) {
         let allocation = resources::finish(allocation);
         let mut timing = ecs.resource_mut::<Timing>();
         timing.lifecycle_ns = elapsed;
+        timing.lifecycle_command_ns = driver.lifecycle_command_ns - command_before;
         timing.lifecycle_allocation = allocation;
         timing.lifecycle_commands = driver.lifecycle_commands - before;
         timing.active_before = driver.counts[0];
@@ -104,6 +113,19 @@ fn end_step(ecs: &mut World) {
     }
     let tick = session.world().tick_index();
     let mut timing = ecs.resource_mut::<Timing>();
+    let command_execution_ns = timing.lifecycle_command_ns;
+    let harness_other_ns = timing.lifecycle_ns.saturating_sub(command_execution_ns);
+    let residual_ns = timing
+        .lifecycle_ns
+        .saturating_sub(command_execution_ns)
+        .saturating_sub(harness_other_ns);
+    let lifecycle_segments = json!({
+        "lifecycle_ns": timing.lifecycle_ns,
+        "command_execution_ns": command_execution_ns,
+        "harness_other_ns": harness_other_ns,
+        "validation_ns": timing.lifecycle_validation_ns,
+        "residual_ns": residual_ns,
+    });
     let row = TickSample {
         frame: timing.frame,
         tick,
@@ -113,6 +135,7 @@ fn end_step(ecs: &mut World) {
         lifecycle_commands: timing.lifecycle_commands,
         core_allocation: allocation,
         lifecycle_allocation: timing.lifecycle_allocation,
+        lifecycle_segments,
         traffic_active_before_step: timing.active_before,
     };
     timing.ticks.push(row);
@@ -204,7 +227,8 @@ fn checkpoint(
     world: &laneflow_runtime::TrafficWorld,
     driver: &Driver,
     oracle: &Value,
-) -> Result<Value, Error> {
+) -> Result<(Value, u64), Error> {
+    let started = Instant::now();
     driver.validate_population(world)?;
     let tick = world.tick_index();
     let digest = crate::burst::state_digest(world)?;
@@ -215,10 +239,11 @@ fn checkpoint(
     require(expected["state_digest"] == digest, || {
         format!("状态与 oracle 不同 tick={tick}")
     })?;
-    Ok(
+    Ok((
         json!({"tick":tick,"time_ms":world.time_ms(),"state_digest":digest,"oracle_equal":true,
         "command_cursor":world.command_cursor(),"population":driver.counts}),
-    )
+        nanos(started),
+    ))
 }
 
 // oracle 预检（#1170 测量入口，#1219）：完成标记、有序事件、输入身份与实现提交
@@ -288,7 +313,10 @@ fn run_inner(
     drop(bundle);
     let mut driver = Driver::new(&sample, &plan)?;
     driver.observe(&sample.world, None)?;
-    let mut checkpoints = vec![checkpoint(&sample.world, &driver, &oracle)?];
+    let mut lifecycle_validation_ns = 0_u64;
+    let (first_checkpoint, first_ns) = checkpoint(&sample.world, &driver, &oracle)?;
+    lifecycle_validation_ns += first_ns;
+    let mut checkpoints = vec![first_checkpoint];
     let mut memory = vec![
         json!({"phase":"installed","process":resources::process()?,"runtime":resources::runtime(&sample.world)}),
     ];
@@ -314,10 +342,14 @@ fn run_inner(
                 lifecycle_commands: 0,
                 core_allocation: allocation,
                 lifecycle_allocation: None,
+                lifecycle_segments: json!({"lifecycle_ns":0,"command_execution_ns":0,
+                    "harness_other_ns":0,"validation_ns":0,"residual_ns":0}),
                 traffic_active_before_step: driver.counts[0],
             });
             if is_checkpoint(&plan, tick) {
-                checkpoints.push(checkpoint(&world, &driver, &oracle)?);
+                let (checkpoint, validation_ns) = checkpoint(&world, &driver, &oracle)?;
+                lifecycle_validation_ns += validation_ns;
+                checkpoints.push(checkpoint);
                 memory.push(json!({"tick":tick,"process":resources::process()?,"runtime":resources::runtime(&world)}));
                 save_partial(output, &ticks, &[], &checkpoints)?;
                 eprintln!("W2 tick={tick}/{total}");
@@ -380,7 +412,9 @@ fn run_inner(
                             == tick * u64::from(plan.identity.fixed_delta_ms),
                     || "边界时刻/backlog 不符".into(),
                 )?;
-                checkpoints.push(checkpoint(session.world(), driver, &oracle)?);
+                let (checkpoint, validation_ns) = checkpoint(session.world(), driver, &oracle)?;
+                lifecycle_validation_ns += validation_ns;
+                checkpoints.push(checkpoint);
                 memory.push(json!({"tick":tick,"process":resources::process()?,"runtime":resources::runtime(session.world()),
                     "presentation":ecs.resource::<Presentation>().resources()}));
                 save_partial(
@@ -455,6 +489,7 @@ fn run_inner(
         "warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,"statistics":statistics,
         "ordered_events_equal":true,"ordered_events_digest":driver.events.digest(),"command_receipts_equal":true,
         "caller_commands":driver.command_count,"blocked_commands":driver.blocked_count,"checkpoints":checkpoints,
+        "lifecycle_validation_ns":lifecycle_validation_ns,
         "completion_records":driver.completion_records,"arrival_records":driver.arrival_records,"files":files}),
     )
 }
@@ -595,6 +630,8 @@ fn create_app(
             lifecycle_ns: 0,
             lifecycle_allocation: None,
             lifecycle_commands: 0,
+            lifecycle_command_ns: 0,
+            lifecycle_validation_ns: 0,
             active_before: 0,
             ticks: Vec::with_capacity(total as usize),
         })
