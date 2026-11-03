@@ -381,7 +381,7 @@ fn launch(
 }
 
 /// L 族同源正常参考核对（#1218）：末态面 B 历史（真实资源身份）与正常参考终检查点
-/// 的 `t_state.journal` 相等；失败边界/窗口/来源一致。
+/// 的 `t_state.journal` 及全体 handle 车辆状态投影（#1226）相等；失败边界/窗口/来源一致。
 fn verify_lane_change_reports(
     report: &Value,
     normal: &Value,
@@ -409,7 +409,8 @@ fn verify_lane_change_reports(
         .ok_or_else(|| Error::Invalid("正常参考缺终检查点".into()))?;
     ensure(
         final_point["persistence_refused"].is_string()
-            && final_point["t_state"]["journal"] == report["final_face_b"]["journal"],
+            && final_point["t_state"]["journal"] == report["final_face_b"]["journal"]
+            && final_point["t_state"]["states"] == report["final_face_b"]["states"],
         &format!("换道族末态面 B 历史与同源正常参考不符：{identity}"),
     )
 }
