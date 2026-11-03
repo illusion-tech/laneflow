@@ -27,6 +27,7 @@ struct LaneChange {
     handles: Vec<VehicleHandle>,
     cluster: [VehicleHandle; 2],
     journal: Vec<(u64, u8, u32, u32)>,
+    state: InitialState,
 }
 
 impl LaneChange {
@@ -154,6 +155,7 @@ impl LaneChange {
             handles,
             cluster,
             journal: Vec::new(),
+            state,
         }
     }
 
@@ -233,8 +235,34 @@ impl LaneChange {
                 json!({"slot":slot, "phase":phase, "held":held})
             })
             .collect();
+        // 全体 handle 的公开车辆运动状态投影（#1226）：与 harness
+        // `lane_change_t_state` 同布局，供 retry/fresh/final 逐字节比较。
+        let states: Vec<Value> = self
+            .handles
+            .iter()
+            .enumerate()
+            .map(|(rank, &handle)| {
+                let state = self.world.vehicle(handle);
+                let status = match state.map(|s| s.status()) {
+                    Some(VehicleStatus::Active) => 0_u32,
+                    Some(VehicleStatus::Parked) => 1,
+                    Some(VehicleStatus::Completed) => 2,
+                    None => 3,
+                };
+                json!([
+                    rank,
+                    self.state.vehicles[rank].route_rank,
+                    state.map(|s| s.route_edge_index()).unwrap_or(0),
+                    state.map(|s| s.progress_mm()).unwrap_or(0),
+                    state.map(|s| u32::from(s.carry_um())).unwrap_or(0),
+                    state.map(|s| s.speed_mm_s()).unwrap_or(0),
+                    status,
+                ])
+            })
+            .collect();
         json!({"persistence_refused":refused,
             "vehicles":vehicles,
+            "states":states,
             "journal":self.journal.iter().map(|(t, s, k, i)| json!([t, s, k, i])).collect::<Vec<_>>(),
             "tick":self.world.tick_index(),"time_ms":self.world.time_ms(),
             "command_cursor":self.world.command_cursor()})

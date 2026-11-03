@@ -201,12 +201,37 @@ pub(crate) fn lane_change_t_state(sample: &install::Sample) -> Value {
             json!({"rank":rank, "phase":phase, "held":held})
         })
         .collect();
+    // 全体 handle 的公开车辆运动状态投影（#1226）：与 lane_change_retry.rs
+    // 的 face_b() 同布局，供 retry/fresh/final 逐字节比较与正常参考核对。
+    let states: Vec<Value> = sample
+        .handles
+        .iter()
+        .enumerate()
+        .map(|(rank, &handle)| {
+            let state = sample.world.vehicle(handle);
+            let status = match state.map(|s| s.status()) {
+                Some(laneflow_runtime::VehicleStatus::Active) => 0_u32,
+                Some(laneflow_runtime::VehicleStatus::Parked) => 1,
+                Some(laneflow_runtime::VehicleStatus::Completed) => 2,
+                None => 3,
+            };
+            json!([
+                rank,
+                sample.state.vehicles[rank].route_rank,
+                state.map(|s| s.route_edge_index()).unwrap_or(0),
+                state.map(|s| s.progress_mm()).unwrap_or(0),
+                state.map(|s| u32::from(s.carry_um())).unwrap_or(0),
+                state.map(|s| s.speed_mm_s()).unwrap_or(0),
+                status,
+            ])
+        })
+        .collect();
     let journal: Vec<Value> = sample
         .lane_change_journal
         .iter()
         .map(|(tick, slot, kind, identity)| json!([tick, slot, kind, identity]))
         .collect();
-    json!({"vehicles":vehicles, "journal":journal})
+    json!({"vehicles":vehicles, "states":states, "journal":journal})
 }
 
 /// 面 B 拒绝变体（#1218/#1217）：T 裁决/历史时刻保存必须结构化拒绝且零部分产物；
