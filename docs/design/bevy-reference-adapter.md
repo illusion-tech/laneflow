@@ -24,7 +24,7 @@
 
 ## 1. 目标
 
-`laneflow-bevy` 是 LaneFlow 的首个 Reference Adapter。它用一个真实 Rust 游戏引擎验证 fixed tick 调度、车辆与实体生命周期、批量位姿到宿主 Transform 的转换、调试可视化和最小可运行示例，但不改变 Runtime 或 Spatial 的权威职责。#301 后 Session 安装 `TrafficWorld` 与可选 `SpatialSession`；`CoreWorld` 与 current JSON 入口已拆除。历史 campus / 走廊 Core 示例不再是现行证据。
+`laneflow-bevy` 是 LaneFlow 的首个 Reference Adapter。它用一个真实 Rust 游戏引擎验证 fixed tick 调度、车辆与实体生命周期、批量位姿到宿主 Transform 的转换、调试可视化和最小可运行示例，但不改变 Runtime 或 Spatial 的最终裁决职责。#301 后 Session 安装 `TrafficWorld` 与可选 `SpatialSession`；`CoreWorld` 与 current JSON 入口已拆除。历史 campus / 走廊 Core 示例不再是现行证据。
 
 v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依赖面受控的 Bevy 集成路径。Bevy 不是跨 ABI、跨语言兼容性的唯一证明。
 
@@ -49,7 +49,7 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
 - 默认 production feature graph 不包含 umbrella `bevy`、renderer、window、audio、asset、scene、UI、Gizmos，以及没有被实现证明必要的 reflect/state/input。
 - 完整 `DefaultPlugins`、render/window、mesh/material 和 Gizmos 只能进入显式 opt-in feature 或 example 边界。
 
-## 3. 权威职责与 Session 边界
+## 3. 最终裁决职责与 Session 边界
 
 v0.7 每个 Bevy `App` 只支持一个活动 `LaneFlowSession`。Session 可以组合或持有：
 
@@ -60,7 +60,7 @@ v0.7 每个 Bevy `App` 只支持一个活动 `LaneFlowSession`。Session 可以�
 - 当前 canonical frame placement 与 token；
 - Adapter-owned Vehicle/Entity 映射。
 
-组合不改变权威职责：
+组合不改变最终裁决职责：
 
 - Runtime 决定 fixed quantum、tick index、simulation time、车辆、路线、信号与停车状态。
 - Spatial 决定 canonical frame、中心线、弧长、绑定和 canonical pose。
@@ -346,7 +346,7 @@ Spatial batch extract
 
 ## 13. corridor_traffic 宿主生命周期
 
-### 13.1 现状、目标与权威
+### 13.1 现状、目标与职责
 
 本节至 §15 定义 `corridor_traffic` 的宿主契约与验收边界。该示例由
 `examples/support/corridor_scene.rs`、`corridor_host.rs` 与独立 GUI 模块组合；
@@ -355,7 +355,7 @@ Cargo target、源码、关联 smoke 和入口文档，不保留别名或第二�
 最小可见入口仍为 `quickstart`；本节不把该最小示例或历史验证算作持续车流证据。
 
 `laneflow-scenario` 已拥有 catalog 0.4、`50..=200` 人口、seed、PRNG、冻结回流计划与
-FIFO retry；其权威仍在[人口设计](signalized-corridor-population.md)。Runtime 拥有
+FIFO retry；其规范仍在[人口设计](signalized-corridor-population.md)。Runtime 拥有
 车辆身份和替换事务；Adapter 拥有 Session、固定调度及 Vehicle/Entity 映射。新增宿主
 代码只在 `laneflow-bevy` example/support 边界组合这些能力，不能进入 production
 依赖或公共 API。公开 API 若出现缺口，另立任务，不在示例里复制 Runtime 规则。
@@ -619,7 +619,7 @@ Session 组合 `TrafficWorld` 与可选 `SpatialSession`，配对不变量（同
 端到端验收矩阵（存活 Session 跨修订与同修订换根、几何真值、旧输入/旧结果拒绝、
 配错根失败关闭、ABA 回旧根对象、失败原子性与重试、旧根对象借用完成与回收、零步进与
 catch-up 调度、显式 headless）见 `crates/laneflow-bevy/tests/revision_cutover.rs`；
-fixture 为同键同长、中心线平移的两条边，几何真值按平移量精确判别。语义权威见
+fixture 为同键同长、中心线平移的两条边，几何真值按平移量精确判别。语义规范见
 `adapter-api.md` §9 与切换合同 §7。
 
 ## 17. culling_extraction 视锥选择提取（#930）
@@ -684,7 +684,7 @@ Gate、LOD 系统或表现插值方案；选择结果不影响 fixed tick、交�
 
 本批缺席只改变表现，不调用 `unbind_vehicle` 或 `despawn_vehicle`，Session 映射和
 车辆序号 → Entity 关系保持不变。Completed 车辆同样隐藏并保留绑定，示例不移除它。
-可见状态以 example 内部的逐车记录为权威，GUI 在同一帧把它映射到 Bevy `Visibility`，
+可见状态以 example 内部的逐车记录为正本，GUI 在同一帧把它映射到 Bevy `Visibility`，
 headless 直接断言该记录。
 
 相机与选择视域重合时，被隐藏的车辆都在画面外，隐藏结果看不出来。GUI 因此提供只影响
@@ -826,7 +826,7 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 
 GUI 用同修订 Spatial 中心线生成车道带，用泊位位姿和几何尺寸生成泊位矩形，按
 `parking_space_state` 区分空闲、已预留和已占用。泊位位姿由启动时绑定的只读
-`SpatialSession` 采样，不属于表现权威。虚拟池没有几何，只在入口和出口画标记，
+`SpatialSession` 采样，不属于表现正本。虚拟池没有几何，只在入口和出口画标记，
 不虚构车辆位置。车身按角色着色。相机可以缩放、平移和旋转，初始视角覆盖整条环路，且不被
 HUD 遮挡。
 

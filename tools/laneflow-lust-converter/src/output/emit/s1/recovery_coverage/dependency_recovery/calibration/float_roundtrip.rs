@@ -76,7 +76,7 @@ fn float_roundtrip_active() -> bool {
         == 4_621_942_995_720_077_312
 }
 
-/// 反例 token 的正确舍入位值与相邻 1 ULP 配对关系固定不变（文本 token 域权威）。
+/// 反例 token 的正确舍入位值与相邻 1 ULP 配对关系固定不变（文本 token 域正本）。
 #[test]
 fn counterexample_tokens_have_pinned_correctly_rounded_bits() {
     for (text, bits) in CORRECT_BITS {

@@ -32,7 +32,7 @@ Issue 应说明：
 - 相关文档或 ADR
 
 创建时使用仓库 Issue Form，并按工作性质选择 GitHub 原生 Type：新增能力或有意改变
-行为/契约使用 `Feature`，权威契约与实际行为不一致使用 `Bug`，设计、调研、文档、
+行为/契约使用 `Feature`，规范契约与实际行为不一致使用 `Bug`，设计、调研、文档、
 治理、重构、验证、依赖、发布或清理使用 `Task`。标题只写简短结果，不添加 `[功能]`
 等分类前缀。
 
@@ -139,7 +139,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 - Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
 - Markdown tables：表格格式检查只警告，不阻断合并。
-- Rust checks：job 始终运行以保持 required check 稳定；检查内容由 `docs/governance/github-workflow.md` §8 权威定义（`fmt`、`clippy`、workspace 测试与 doctest）。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
+- Rust checks：job 始终运行以保持 required check 稳定；检查内容由 `docs/governance/github-workflow.md` §8 规范定义（`fmt`、`clippy`、workspace 测试与 doctest）。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
 - Evidence fixture tests：证据仪器与 fixture（固定测试环境）重测（urban-harness 浸泡/存档仪器、urban-generator 生成器、bevy 走廊 fixture smoke），自 workspace 步拆出与 `Rust checks` 并行（#1108）；非 Rust 路径跳过并显式记录 skip。
 - Wire toolchain audit：wire 工具链审计与运行时架构检查（仓库 cargo config 卫生、钉版、workspace unsafe 边界 hermetic 双特性编译与注入金丝雀），以独立 job 与 `Rust checks` 并行执行；非 Rust 路径跳过并显式记录 skip。
 - Placement fixture tests：`placement-fixtures` 空 feature 的全量重跑（clippy 与 nextest，覆盖运行时、情景包与 junction-generator），以独立 job 与 `Rust checks` 并行执行；非 Rust 路径跳过并显式记录 skip。

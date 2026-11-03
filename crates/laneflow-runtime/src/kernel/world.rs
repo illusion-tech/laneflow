@@ -515,12 +515,12 @@ impl crate::kernel::state::WorldState {
         self.read_view().conflict_reservation(vehicle)
     }
 
-    /// 校验已提交 Conflict 状态（资格、reservation 与权威持有者）内部一致。
+    /// 校验已提交 Conflict 状态（资格、reservation 与裁决持有者）内部一致。
     pub(crate) fn conflict_state_valid(&self) -> bool {
         self.conflict_state_valid_with(None)
     }
 
-    /// 固定步进预检：车位与资源权威均只读，多线程时在同一次完整 join 中校验。
+    /// 固定步进预检：车位与资源裁决权均只读，多线程时在同一次完整 join 中校验。
     pub(crate) fn conflict_state_valid_with(
         &self,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
@@ -549,7 +549,7 @@ impl crate::kernel::state::WorldState {
         };
         match execution.filter(|resources| resources.coordinator_parallel()) {
             Some(resources) => {
-                // 资源权威检查不等待全部车位段结束，也不再单独唤醒一次私有池。
+                // 资源裁决权检查不等待全部车位段结束，也不再单独唤醒一次私有池。
                 // 第一块校验汇总计数与 staged 行，其余按种类切段：逐车、committed
                 // owner、committed cell 行、cell 表。cell 表段返回段内 reservation
                 // 数，合计须等于 committed cell 行数。
@@ -649,7 +649,7 @@ impl crate::kernel::state::WorldState {
             .copied()
             .flatten();
         // 常见情形：活动车辆既无资格也不在 Clearing 相位。此时完整校验只剩
-        // “不持有任何权威”（持有 reservation 必然持有权威），无需组装运动列。
+        // “不持有任何裁决权”（持有 reservation 必然持有裁决权），无需组装运动列。
         if eligibility.is_none()
             && let Some((handle, maneuver)) = self.committed.vehicles.active_owner_maneuver(index)
             && !maneuver.is_some_and(|traversal| {
@@ -766,7 +766,7 @@ impl crate::kernel::state::WorldState {
         self.normalize_conflict_eligibility();
     }
 
-    /// 判断车辆当前是否持有任何 Conflict 权威（reservation、资格或既有占有）。
+    /// 判断车辆当前是否持有任何 Conflict 裁决权（reservation、资格或既有占有）。
     pub(crate) fn vehicle_has_conflict_authority(&self, vehicle: VehicleHandle) -> bool {
         self.conflict_reservation(vehicle).is_some()
             || self
@@ -977,7 +977,7 @@ impl crate::kernel::state::WorldState {
         self.register_route_edges(input.edges())
     }
 
-    /// 所有路线入口共用的权威注册路径。容量预检发生在 compiled O(n) 分配前。
+    /// 所有路线入口共用的规范注册路径。容量预检发生在 compiled O(n) 分配前。
     pub(crate) fn register_route_edges(
         &mut self,
         edges: &[laneflow_static_contract::LaneEdgeOrdinal],
@@ -1041,7 +1041,7 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 所有路线入口共享的 O(1) 容量预检。调用方可在稳定标识解析前提早失败，
-    /// 但提交入口仍须再次调用本函数，避免形成旁路权威。
+    /// 但提交入口仍须再次调用本函数，避免形成旁路裁决权。
     pub(crate) fn preflight_route_registration(
         &self,
         edge_count: usize,
@@ -1167,7 +1167,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// # Errors
     ///
-    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/开放入口/范围内车身/车身重叠/权威不可
+    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/开放入口/范围内车身/车身重叠/裁决权不可
     /// 重建/等待区存储跨度不足/当前停车约束/前方降速/前车或后车安全/占用索引
     /// 分配）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车，
     /// 也不推进命令游标。
@@ -1177,7 +1177,7 @@ impl crate::kernel::state::WorldState {
 
     /// 按生成的提交路径放入一辆已经处于该状态的活动车，不检查新鲜运动安全。
     ///
-    /// 引用、重叠和通行权威仍然检查。供存档式回归保留“已经停不住”的运行时场面。
+    /// 引用、重叠和通行权仍然检查。供存档式回归保留“已经停不住”的运行时场面。
     /// 新的出行需求走 [`Self::spawn_vehicle`]。
     #[cfg(any(test, feature = "placement-fixtures"))]
     pub(crate) fn place_existing_active_vehicle(
@@ -1360,7 +1360,7 @@ impl crate::kernel::state::WorldState {
             return Err(SpawnError::SpeedExceedsLimit);
         }
         // 后缀准入和等待区起步不随当前交通变化。有出发声明时先报告它们，
-        // 容量、重叠和当前冲突权威仍留在出发检查之后。
+        // 容量、重叠和当前冲突裁决权仍留在出发检查之后。
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(SpawnError::AccessDenied);
         }
@@ -1492,7 +1492,7 @@ impl crate::kernel::state::WorldState {
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入/开放入口/范围内车身，含新候选的等待区存储、冲突权威、
+    /// 校验失败（profile/路线/进度/初速/准入/开放入口/范围内车身，含新候选的等待区存储、冲突裁决权、
     /// 当前停车约束、前方降速、前车或后车安全：`WaitingVehicleTooLong` /
     /// `WaitingStatefulManeuverInterior` / `ConflictAuthorityRequired` /
     /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
@@ -1572,7 +1572,7 @@ impl crate::kernel::state::WorldState {
         if input.initial_speed_mm_s() > speed_limit {
             return Err(ReplaceError::SpeedExceedsLimit);
         }
-        // 与生成相同：永久的路线约束先于出发检查，重叠和当前权威留在后面。
+        // 与生成相同：永久的路线约束先于出发检查，重叠和当前规范留在后面。
         if self.route_suffix_denied(input.route(), class, cursor) {
             return Err(ReplaceError::AccessDenied);
         }
@@ -1811,7 +1811,7 @@ impl crate::kernel::state::WorldState {
             })
     }
 
-    /// 单辆已提交车辆的 pose 来源判定；全量与单句柄入口共用的私有权威原语。
+    /// 单辆已提交车辆的 pose 来源判定；全量与单句柄入口共用的私有裁决原语。
     /// 返回 `None` 表示该车辆当前不产生 pose 来源（Completed、virtual Parked 或
     /// 已提交状态不可解析），不是句柄失效。来源成员资格只依赖已提交状态，
     /// 不读取并行执行的工作区或候选结果。
@@ -2559,7 +2559,7 @@ impl TrafficWorld {
     ///
     /// # Errors
     ///
-    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/开放入口/范围内车身/车身重叠/权威不可
+    /// 车辆输入校验失败（profile/路线/进度/初速/容量/准入/开放入口/范围内车身/车身重叠/裁决权不可
     /// 重建/等待区存储跨度不足/当前停车约束/前方降速/前车或后车安全/占用索引
     /// 分配）、观测状态序号或命令游标耗尽时返回相应 [`SpawnError`]；失败不留半辆车，
     /// 也不推进命令游标。
@@ -2604,7 +2604,7 @@ impl TrafficWorld {
 
     /// 放入一辆已经处于该活动状态的车，不检查新生成的运动安全。
     ///
-    /// 仅 `placement-fixtures` 测试特性提供。引用、车身重叠和通行权威仍与生成相同。
+    /// 仅 `placement-fixtures` 测试特性提供。引用、车身重叠和通行权仍与生成相同。
     /// 这不是宿主的需求入口。新车走 [`Self::spawn_vehicle`]。
     ///
     /// # Errors
@@ -2684,7 +2684,7 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 句柄失效或车辆未 `Completed`、停车占用未释放、冲突/等待不变量破坏、输入
-    /// 校验失败（profile/路线/进度/初速/准入/开放入口/范围内车身，含新候选的等待区存储、冲突权威、
+    /// 校验失败（profile/路线/进度/初速/准入/开放入口/范围内车身，含新候选的等待区存储、冲突裁决权、
     /// 当前停车约束、前方降速、前车或后车安全：`WaitingVehicleTooLong` /
     /// `WaitingStatefulManeuverInterior` / `ConflictAuthorityRequired` /
     /// `StopConstraintUnsatisfiable` / `DownstreamSpeedUnsatisfiable` /
@@ -3359,7 +3359,7 @@ mod conflict_preflight_tests {
             assert!(world.conflict_reservation(vehicle).is_some());
             assert_preflight(&world, true);
             let original = world.vehicle(vehicle).unwrap();
-            // 空车位自身合法；孤立 reservation 必须由同一次 join 中的权威检查拒绝。
+            // 空车位自身合法；孤立 reservation 必须由同一次 join 中的裁决检查拒绝。
             world
                 .state
                 .committed
@@ -3367,7 +3367,7 @@ mod conflict_preflight_tests {
                 .slot_mut(vehicle.index() as usize)
                 .state = None;
             assert_preflight(&world, false);
-            // owner 仍存在但车辆字段不合法，车位检查不能被权威检查通过所掩盖。
+            // owner 仍存在但车辆字段不合法，车位检查不能被裁决检查通过所掩盖。
             let mut invalid = original;
             invalid.route = RouteHandle::new(u32::MAX, 0);
             world
@@ -3757,7 +3757,7 @@ mod route_gate_tests {
             assert_eq!(compiled.edges, expected_edges);
         }
         let after = crate::deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
-        assert_eq!(before, after, "受限暂存借用不能修改已提交权威");
+        assert_eq!(before, after, "受限暂存借用不能修改已提交正本");
 
         let stale = RouteHandle::new(route.index(), route.generation() + 1);
         let out_of_range = RouteHandle::new(u32::MAX, route.generation());

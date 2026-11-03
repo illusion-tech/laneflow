@@ -124,7 +124,7 @@ impl CanonicalLaneEdgeView<'_> {
             })
     }
 
-    /// 返回交通权威长度，单位为毫米。
+    /// 返回交通正本长度，单位为毫米。
     #[must_use]
     pub const fn length_mm(&self) -> u32 {
         self.edge.length_mm

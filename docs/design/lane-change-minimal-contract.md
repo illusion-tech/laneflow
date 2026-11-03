@@ -17,7 +17,7 @@
 - 裁定记录双源：#237 冻结提案（issuecomment-6529967139，立时可解析）与 `research/production-g1-decision-package/g1-decision-package.md` §七（维护者 2026-10-31 裁定；PR #1183 精确提交 `451cdaa104a3d2304480f848a67bb86743cd3350`，合入后补 merge SHA）——两者同载 A1–A6 裁定原文
 
 本文是 #237 首版 G1 冻结对象，将维护者 A1–A3/A4/A6 裁定（2026-10-31，G1
-裁定记录双源）落为正式合同文本；A5（持久化与版本轴）的权威定义在
+裁定记录双源）落为正式合同文本；A5（持久化与版本轴）的规范定义在
 `traffic-runtime-snapshot.md` 衔接注记，本文 §9 只列要点与指向。
 
 ## 1. 目标与边界
@@ -82,11 +82,11 @@ stationing（依赖 #273）。备选固定受控连接区不属本合同（独�
 过渡预约 bundle = **源区间 + 目标区间 + 过渡区边（含共横向投影边）+ 下游
 清空区间**，all-or-nothing 申请。
 
-| 态                  | 进入时机                         | 权威位置           | 退出条件              |
+| 态                  | 进入时机                         | 正本位置           | 退出条件              |
 | ------------------- | -------------------------------- | ------------------ | --------------------- |
 | 申请（requested）   | P3 提交组合 bundle               | 请求结构（W 准备） | P4 裁决               |
 | 暂存授予（staged）  | P4 all-or-nothing grant          | staged claims（W） | P7 提交或本拍失败丢弃 |
-| 已提交（committed） | P7 原子提交（含 acquired tick）  | C(T+Δ) 预约权威    | 车尾清空              |
+| 已提交（committed） | P7 原子提交（含 acquired tick）  | C(T+Δ) 预约正本    | 车尾清空              |
 | 释放（released）    | `rear >= clearance` 真实车尾清空 | —（无残留）        | —                     |
 
 no-grant 不留痕；失败拍丢弃 staged、保留 committed。**未进入撤销分支**：
@@ -144,9 +144,9 @@ crossing 当成 committed reservation」）。
 | P5   | C(T)、裁决、拍初信号、**当拍预约集（committed + granted）**          | 最终 next states、实际 crossing、转移、事件（W）           |
 | P7   | 绑定同一基线的计划                                                   | C(T+Δ) 原子提交（状态/预约/事件同一提交）                  |
 
-预约与 Waiting/Conflict 的组合资源仲裁同一求解顺序、同一安全权威（
+预约与 Waiting/Conflict 的组合资源仲裁同一求解顺序、同一安全裁决权（
 `traffic-runtime-phase-protocol.md` §3；复用 Conflict 的 committed +
-earlier-staged claim 与车尾清空原语，不另建第二套安全权威）。
+earlier-staged claim 与车尾清空原语，不另建第二套安全裁决权）。
 
 ## 6. 能力检查（裁定 A6 = 选项 3 回写）
 
@@ -166,7 +166,7 @@ earlier-staged claim 与车尾清空原语，不另建第二套安全权威）�
    WorldConfig 方案（选项 1），不静默启用。
 5. **过渡段判定（澄清注记，2026-10-31 评审后判据整体重设计）**：注册期
    判定「横向过渡段」的派生判据（不新增静态实体）以实现层表驱动矩阵为
-   权威——横向坐标 =（section 走廊元素位, section 内 lane 序数）；uncovered
+   正本——横向坐标 =（section 走廊元素位, section 内 lane 序数）；uncovered
    非 junction 连通分量两侧 covered 边界**同走廊且横向坐标跨度 ≥ 2 →
    横向过渡段**。接缝矩阵：异 lane 横移 / 跨 section 横向接缝（相邻单 lane
    section）/ 多段链 / 起止于过渡 → 过渡段；纵向连接（两侧不同走廊）/
@@ -224,11 +224,11 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 - `cross-section-access.md` §14：相邻事实来源与整边界锚点（禁止段级锚定）。
 - `traffic-runtime-snapshot.md`：持久化与版本轴（§9 指向）。
 
-## 9. 持久化与版本轴（裁定 A5，权威定义见 snapshot 衔接注记）
+## 9. 持久化与版本轴（裁定 A5，规范定义见 snapshot 衔接注记）
 
 - 车辆记录 tagged 过渡状态（`PreEntry | InTransition | Clearing`）+ 预约
   wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间并集、
-  route occurrence 证明）；完整预约只装运行时权威，出现记录不入档（恢复重编译）。
+  route occurrence 证明）；完整预约只装运行时正本，出现记录不入档（恢复重编译）。
 - **三轴版本分别升级并核对编号**：LFRS **7→8**（容器：过渡状态/预约行槽位）、
   runtime state **5→6**（状态形状扩展）、digest **8→9**（规范原像扩展过渡
   记录段）；容器与事实版本不混用单号（snapshot §2）。

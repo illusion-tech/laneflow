@@ -187,7 +187,7 @@ ManeuverPathInput
   exitEdgeExternalId
 ```
 
-权威 edge sequence 为：
+正本 edge sequence 为：
 
 ```text
 [entryEdge] + internalEdges + [exitEdge]

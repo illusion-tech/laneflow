@@ -25,7 +25,7 @@
 
 ## 运行与回执
 
-权威运行平台为 GitHub `Fuzz` workflow 的 Ubuntu runner，固定 `cargo-fuzz 0.13.2`。
+规范运行平台为 GitHub `Fuzz` workflow 的 Ubuntu runner，固定 `cargo-fuzz 0.13.2`。
 PR/队列 smoke 每目标 300 秒；手工 `duration_seconds=1800` 是 #536 的正式有界窗口。
 `run_campaign` 固定单输入 25 秒、RSS 2048 MiB、输入 262144 bytes、seed 53601，
 使用 cargo-fuzz 默认 AddressSanitizer。nightly 的完整 rustc/cargo 身份进入各回执。

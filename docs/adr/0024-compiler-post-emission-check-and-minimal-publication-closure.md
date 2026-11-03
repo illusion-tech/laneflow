@@ -52,7 +52,7 @@ ADR 0020 原计划让独立 `laneflow-validator` 不复用 compiler 语义实现
 #299 不创建 `laneflow-validator` crate、独立可执行程序、验证服务或通用证明平台，
 也不重新实现 compiler 已拥有的身份、所有权、拓扑、几何、规则和差异语义。
 
-compiler 继续是来源、IR 和静态路网语义的唯一编译权威。其单一语义实现的系统性缺陷
+compiler 继续是来源、IR 和静态路网语义的唯一编译裁决方。其单一语义实现的系统性缺陷
 风险由人工可复核固定向量、compiler 测试、真实场景回归和历史缺陷断言控制，不通过
 复制完整生产语义来控制。
 
@@ -175,7 +175,7 @@ Product Pass；无需新增 benchmark crate、JSON 协议或常驻性能平台�
 ### 9. 共享构建与切换保持独立信任边界
 
 本 ADR 只决定 canonical artifact 与宿主 publication 的边界。共享静态构建和跨修订
-切换由各自权威合同负责；它们不得假设 compiler 会交付独立 validator 或
+切换由各自规范合同负责；它们不得假设 compiler 会交付独立 validator 或
 `static-image-v1`/`revision-cutover-v1` receipt。
 
 LFSD 通过 #299 后发射检查只说明最终差异对象的直接值域和 base/target binding 闭合，

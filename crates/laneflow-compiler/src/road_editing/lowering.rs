@@ -1336,7 +1336,7 @@ pub(super) fn lower_owner_scoped_declarations(
     }));
 }
 
-/// 降阶 RoadEditingSource 的道路横断面、LaneEdge 和 authoring 几何权威。
+/// 降阶 RoadEditingSource 的道路横断面、LaneEdge 和 authoring 几何正本。
 ///
 /// 该函数只转换已通过模块内 owner-tree 预检的值；跨模块引用、角色闭包、frame 派生和
 /// 最终曲线编译仍由共同 HIR/topology-geometry 阶段一次完成。

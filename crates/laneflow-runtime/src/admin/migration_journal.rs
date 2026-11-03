@@ -119,7 +119,7 @@ pub(crate) struct ConflictEligibilityJournalDelta {
     pub(crate) value: Option<(ConflictOccurrenceJournalLocator, u64)>,
 }
 
-/// 单条 Conflict authority 增量：owner 车辆、权威获得刻度及变长单元字节段。
+/// 单条 Conflict authority 增量：owner 车辆、正本获得刻度及变长单元字节段。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictAuthorityJournalDelta<'a> {
     pub(crate) owner: VehicleHandle,

@@ -698,7 +698,7 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
         assert_eq!(
             refusal_onset,
             Some(leader_enter),
-            "面 B：拒绝面恰在首个 T 权威拍开始"
+            "面 B：拒绝面恰在首个 T 裁决拍开始"
         );
         let leader_release = leader_release.expect("leader releases T");
         let follower_release = follower_release.expect("follower releases T");

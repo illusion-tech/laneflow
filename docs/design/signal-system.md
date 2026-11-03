@@ -441,7 +441,7 @@ for controller in signal normalization order:
   -> SignalGroupAspectChanged*       // controller.groupIds 输入顺序
 ```
 
-Events 使用 post-step tick index；time 由 `StepResult` 提供。Events 只是 transition notification，CoreWorld post-step query 才是权威当前状态。Adapter 使用“time-0 query 初始化 -> events 增量更新 -> query resync”模式。
+Events 使用 post-step tick index；time 由 `StepResult` 提供。Events 只是 transition notification，CoreWorld post-step query 才是正本当前状态。Adapter 使用“time-0 query 初始化 -> events 增量更新 -> query resync”模式。
 
 ## 11. Determinism 与失败原子性
 

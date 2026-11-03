@@ -78,7 +78,7 @@ committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 
 - 来源链及程序化生成后的实际落地结果；
 - 画布对象和编译来源实体之间的稳定关联。
 
-不得保存为来源权威：
+不得保存为来源正本：
 
 - HIR/MIR/LIR ordinal、共享静态路网内部布局或运行时 handle；
 - 车辆、信号时钟、停车占用等每世界状态；
@@ -109,7 +109,7 @@ committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 
 #296；它们在后继交付中复用相同字段语义和 production buffer。第一方 Rust 构造面、
 FlatBuffers writer 与编译器 reader 必须共享验证规则，不得形成第二套可接受值域。
 
-## 6. 几何权威
+## 6. 几何正本
 
 道路编辑状态 v1 只保存直线和三次 Bé塞尔曲线。圆弧、螺旋线及其他 importer/generator
 原语必须在写入 v1 前转换为这两种 segment；第一方转换器必须按所选 2/5/10 cm B1 档
@@ -122,7 +122,7 @@ v1 不保存其原始 primitive 语义。后继若增加 curve union，未发布
 只保留规范 `f32` 折线及派生静态语义。
 
 保存走向定义不意味着 UI 必须提供控制柄，也不意味着 Runtime、Spatial 或 Adapter
-获得曲线权威。表现层可以细分 mesh 或平滑显示，但不能改变规范长度、station、拓扑或
+获得曲线正本。表现层可以细分 mesh 或平滑显示，但不能改变规范长度、station、拓扑或
 静态身份。
 
 ## 7. 来源位置与诊断
@@ -852,7 +852,7 @@ writer 与 reader 共同调用私有 `road_editing::rules` 中的 token、refere
 width/profile 和模块内集合规则，保证同一字段值域只有一份实现。writer 的早期检查只
 改善第一方工具反馈；`add_road_editing_module` 仍对收到的 bytes 完整重验，并且与
 `build` 共同构成普通跨模块引用、全编译单元 topology/geometry、Identity 与 LIR 语义的
-唯一权威。身份 owner tree 已由模块自身闭合，不允许延后到跨模块绑定。writer
+唯一规范依据。身份 owner tree 已由模块自身闭合，不允许延后到跨模块绑定。writer
 不尝试验证尚未加载的导入目标，也不能让“writer 生成”成为可信绕过条件。
 
 第一方 writer 以 `SourceBytesPerModule` 和主要计数上限约束输出规模，但不在 #296 内宣称
@@ -1026,7 +1026,7 @@ production 依赖或实现。
 - 共同模块接入、来源摘要和资源维度如需适配非文本来源，必须明确
   兼容的抽象语义；不得复制第二套 admission；
 - #298 只消费 LIR，不得读取道路编辑状态；#302 只消费可信修订和迁移描述符，不得成为
-  编辑器模型权威。
+  编辑器模型正本。
 
 
 [#345]: https://github.com/illusion-tech/laneflow/issues/345

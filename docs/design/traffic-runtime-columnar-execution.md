@@ -5,9 +5,9 @@
 **关联决策**: [ADR 0031](../adr/0031-columnar-motion-authority.md)<br>
 **既有合同**: [阶段协议](traffic-runtime-phase-protocol.md)、[精确并行](traffic-runtime-parallel-execution.md)、[整数几何](traffic-runtime-integer-geometry.md)
 
-本文冻结维护者授权的目标架构和实施边界，不声明已实现或已测得收益。当前车辆特化仍采用整数毫米权威；其它交通执行域未实现。实施进度、测量、未通过项留在 #814 和交付 PR。
+本文冻结维护者授权的目标架构和实施边界，不声明已实现或已测得收益。当前车辆特化仍采用整数毫米正本；其它交通执行域未实现。实施进度、测量、未通过项留在 #814 和交付 PR。
 
-## 1. 权威与三种位置
+## 1. 正本与三种位置
 
 活动运动池（Active Motion Pool）使用分块列式布局（Block SoA）。初始块容量为 128 行；256 行仅作为后续实验参数。每块的热字段是路线游标、毫米进度、毫米每秒速度、微米 carry 和有效位集。身份、路线/profile/class/车长为稳定上下文；Waiting membership 和 maneuver traversal 属于稀疏控制状态。非活动记录保留在独立存储中，不进入活动热块扫描。
 
@@ -25,7 +25,7 @@ P5 在块内借用稳定上下文和 Current 运动列，按完整目录身份�
 复用和实际停车义务仍可按需组装。真实多 hop 在同一借用内复用已解析路线与车型，
 每轮仍检查实际 occurrence、Gate、Waiting/Conflict stop、边界和余量。
 
-车辆目录（Vehicle Directory）按完整句柄索引保存 generation、存储类别和物理位置。完整句柄决定身份，规范逻辑位置（Canonical Logical Position）决定消费/事件/首错顺序，物理行（Physical Row）决定连续读写及独占执行。三者不可混用。不按车道或 profile 每拍全局重排权威列。
+车辆目录（Vehicle Directory）按完整句柄索引保存 generation、存储类别和物理位置。完整句柄决定身份，规范逻辑位置（Canonical Logical Position）决定消费/事件/首错顺序，物理行（Physical Row）决定连续读写及独占执行。三者不可混用。不按车道或 profile 每拍全局重排正本列。
 
 `VehicleState` 是按值组装的逻辑视图、公开读取、快照及测试类型。内部返回 `&VehicleState` 的接口改为值或受限列视图；不维护完整 AoS 影子。登记/恢复/切换可以一次性拆分逻辑值；步进不得依靠全量 AoS→SoA→AoS 转换维持运行。
 
@@ -33,7 +33,7 @@ Active 进入/退出、销毁和替换由准备完毕的生命周期转移更新
 
 ## 2. 同拍共享输入
 
-绑定期只保存已受检静态/profile 表，不能让 Runtime 获得编译器或共享路网的第二份权威。P2/P5 共用同一 C(T)、完整车辆句柄和 attempt 上的基础查询：路线/context、当前限速、horizon、精确 leader gap、route end、signal/parking stop，以及真实需要的未量化提案。
+绑定期只保存已受检静态/profile 表，不能让 Runtime 获得编译器或共享路网的第二份正本。P2/P5 共用同一 C(T)、完整车辆句柄和 attempt 上的基础查询：路线/context、当前限速、horizon、精确 leader gap、route end、signal/parking stop，以及真实需要的未量化提案。
 
 只对现有消费者要求的车辆生产基础数据，P2 筛掉的预览不得因批量化重新全算。字段组按消费者生命周期保存，块级有效位与 touched 集合负责失效，不为每字段维护逐车 epoch。基础列每 Active 的初始预算为 128 字节；超过预算必须说明消费者和测量依据，不让各阶段分别复制同一份。
 
@@ -45,7 +45,7 @@ Active 进入/退出、销毁和替换由准备完毕的生命周期转移更新
 
 ## 3. 内核和 ISA
 
-独立 `laneflow-motion-kernel` crate 仅拥有纯数值执行，接收长度验证一致的只读/独占可写切片；不接收车辆、路线、资源权威或回调。Runtime 继续继承工作区 `unsafe_code = "forbid"`。该 crate 单独允许必要的 unsafe，并设置 `unsafe_op_in_unsafe_fn = "forbid"`，要求所有不安全操作使用显式 unsafe 块，源码中的单项或组级 lint 属性不得降低该约束；所有 ISA 调用、指针 load/store、尾部与别名证明集中在该边界，禁止扩散到 Runtime。
+独立 `laneflow-motion-kernel` crate 仅拥有纯数值执行，接收长度验证一致的只读/独占可写切片；不接收车辆、路线、资源裁决权或回调。Runtime 继续继承工作区 `unsafe_code = "forbid"`。该 crate 单独允许必要的 unsafe，并设置 `unsafe_op_in_unsafe_fn = "forbid"`，要求所有不安全操作使用显式 unsafe 块，源码中的单项或组级 lint 属性不得降低该约束；所有 ISA 调用、指针 load/store、尾部与别名证明集中在该边界，禁止扩散到 Runtime。
 
 manifest 的 lint 配置统一从正式 TOML 解析后的结构按类型读取，描述、注释和字符串中的配置示例不参与审计判定。源码审计同时拒绝 `unsafe_op_in_unsafe_fn` 与包含它的 `rust_2024_compatibility` 组名；编译器的 forbid 约束保证源码无法通过其他组级 lint 属性降低该项检查。
 
@@ -60,7 +60,7 @@ manifest 的 lint 配置统一从正式 TOML 解析后的结构按类型读取�
 使用同公式的统计实例。全关闭向量组直接关闭有效位；有效通道全有提案时不重算
 IIDM，关闭通道不妨碍复用。复杂区间保持 Proposal、限速、Project、
 边界与 Quantize 的原数值次序；全关闭区间不进入数值内核。物理行和规范位置保持，
-这项划分不改变调度票据、权威存储大小或每车公式。
+这项划分不改变调度票据、正本存储大小或每车公式。
 
 诊断中的 `proposal_lanes_computed` 与 `proposal_lanes_reused` 按启用行的提案来源互斥
 计数；Full、Direct、Proposal 每行只归入新计算或既有提案之一，Project/FloatProject
@@ -96,7 +96,7 @@ P5 在已有行绑定和路线借用内生成私有收尾标记：冻结的旧�
 消费首错、到达检查及真实预留，再将成功更新中的候选按规范顺序接入行号。
 Waiting 成员暂存完成后，只检查实际稀疏控制覆盖，补入新成员或控制义务；以原有
 有序前缀去重后追加并规范排序，容量不超过本拍更新数。不再全量重做资源筛选。
-冻结计划和拍初 owner 权威在这道屏障前保持不变；当前灯色不参与该工作资格。
+冻结计划和拍初 owner 正本在这道屏障前保持不变；当前灯色不参与该工作资格。
 
 这份资源收尾行号供 Conflict 收尾、Waiting 非入口决定发现和两遍事件访问共用。
 仅能排除同一 occurrence
@@ -105,21 +105,21 @@ Waiting 成员暂存完成后，只检查实际稀疏控制覆盖，补入新成
 maneuver 也必须保留。缺失路线或边长仍交回原阶段验证；筛选不提前返回领域错误。
 Waiting maneuver 的静态覆盖位在路线登记时按 occurrence 编译，范围为入口至出口
 之前，循环路线的重复物理边不合并；只保存布尔位，不保存灯色、grant 或动态 stop。
-行号容量在 P5 求值前 fallible 准备，attempt 结束清空并复用；它不复制 owner 权威。
+行号容量在 P5 求值前 fallible 准备，attempt 结束清空并复用；它不复制 owner 正本。
 全部 grant 消费证明、passage 转移验证与事件剩余项校验保留，不能由工作集为空跳过。
 
 目录和活动列在安装/恢复/切换边界预留。非活动记录与控制记录按实际使用量增长；
 P6 最后准备新冷记录所需容量，失败返回 `StepError::VehicleStorageAllocFailed`，
-不能提前覆盖既有逻辑错误或修改已提交权威。生成/替换使用同名错误，停车和切换
+不能提前覆盖既有逻辑错误或修改已提交正本。生成/替换使用同名错误，停车和切换
 分别沿用 `AllocationFailed` / `StagingAllocFailed`。P7 只处理已冻结的规范控制变化。
 
 ## 5. 后续阶段
 
-P1 occupancy 保留精确区间、循环 occurrence、跨边车身、零进度点、自排除及 suffix 的两个不同 owner；改变布局不降级为简单下一辆车。P3 候选使用资格掩码、紧凑工作集与有序两个不同 owner 的分段摘要；删除 owner 必须保留贡献或重建。P4 先在同一规范候选内部批量检查资源，owner/generation/配对/容量/序号仍为完整权威。独立组件裁决不是本轮前置。
+P1 occupancy 保留精确区间、循环 occurrence、跨边车身、零进度点、自排除及 suffix 的两个不同 owner；改变布局不降级为简单下一辆车。P3 候选使用资格掩码、紧凑工作集与有序两个不同 owner 的分段摘要；删除 owner 必须保留贡献或重建。P4 先在同一规范候选内部批量检查资源，owner/generation/配对/容量/序号仍为完整正本。独立组件裁决不是本轮前置。
 
 ## 6. 交付与验收
 
-先交付 A（唯一列式权威和目录）+B（共享基础输入）+C（完整纵向内核）的可运行组合；不要求 A 单独胜过旧布局。D 为 P1/P3 批量化，E 为 P4 资源检查及 P6/P7 扩展；所有阶段逐项记录实际完成边界，不把原型或单个内核记为整体完成。
+先交付 A（唯一列式正本和目录）+B（共享基础输入）+C（完整纵向内核）的可运行组合；不要求 A 单独胜过旧布局。D 为 P1/P3 批量化，E 为 P4 资源检查及 P6/P7 扩展；所有阶段逐项记录实际完成边界，不把原型或单个内核记为整体完成。
 
 必须覆盖相同输入下同布局三后端、旧基线、worker 1/2/4/8/16 的状态/决策/事件/首错；真实 reserve、无半提交、重试、generation、恢复、切换、尾块/孔洞、溢出/nonfinite、亚毫米和多 hop 均有反例。生产回归、Clippy、格式、依赖及 CI/CodeQL 检查保持。
 

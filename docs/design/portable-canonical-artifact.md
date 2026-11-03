@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-09-03<br>
-**适用范围**: LFCA、LFSM、LFSD、LFCP 的权威格式、规范排序、跨对象绑定、
+**适用范围**: LFCA、LFSM、LFSD、LFCP 的规范格式、规范排序、跨对象绑定、
 失败关闭与格式安全天花板<br>
 **关联决策与设计**:
 
@@ -16,7 +16,7 @@
 - [`compiler-post-emission-check-and-minimal-publication-closure.md`](compiler-post-emission-check-and-minimal-publication-closure.md)
 - [`shared-static-network.md`](shared-static-network.md)
 
-## 1. 权威结论
+## 1. 规范结论
 
 LFCA 5 的策略表和机动方向按
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §4.1 登记。
@@ -714,7 +714,7 @@ Identity 原像中重复表达的所有权或边界语义必须与实体行严�
 `shoulder` 或 `x-` 加非空后缀，但 `x-lane-` 仍属于 RoadSection。两者都先通过非空 ASCII
 token 语法。整数毫米、停车、VehicleProfile 与信号计时的逐字段闭包以
 [`traffic-runtime-integer-geometry.md`](traffic-runtime-integer-geometry.md) 和
-[`numeric-representation.md`](numeric-representation.md) 的现行表为权威，LFCA reader
+[`numeric-representation.md`](numeric-representation.md) 的现行表为准，LFCA reader
 必须执行同一闭包；这些引用不是只约束编译输入。特别地：边长 `100..=10000000 mm`、
 限速 `1..=100000 mm/s`、停车 progress 相对提交后边长两端各留 1 mm、存储 `+π` 非法、
 所有信号 duration/cycle checked sum 与 offset 均受 `9007199254740991 ms` 上限约束。
@@ -740,7 +740,7 @@ WaitingZone 的 `maxOccupancy > 0`；entry/release gate 必须属于同一路径
 `durationMs`，`offsetMs < cycleDurationMs`。`ParticipantClass` 必须形成无环单继承森林：
 根 depth 为 0，child depth 是 parent+1；按 typed ordinal 递增的根和同父 children 做确定性
 DFS 前序，`subtreeEnter/subtreeExit` 必须逐值等于重算结果。interval 只是派生缓存，不能成为
-第二份层级权威。AccessRule 在解析 target/class StableId 后，同一
+第二份层级正本。AccessRule 在解析 target/class StableId 后，同一
 `(accessPlane, targetKind, targetStableId, participantClassStableId, priority)` 分组不得同时
 出现 Allow 与 Deny；LaneEdge/LaneGroup/RoadSection 属于 Edge plane，ManeuverPath 属于
 ManeuverPath plane，同组允许多条相同 effect。regulation 的 jurisdiction/version 与 optional
@@ -764,7 +764,7 @@ source 各含 1..=128 个 Unicode scalar，全对象 regulation 的 `(jurisdicti
 8. virtual capacity 不产生 `ParkingSpace`、几何、空 slot、静态 Route 或设施内部路网。
 
 显式泊位与虚拟容量是同一设施内两个独立 admission pool；占用一个显式泊位不消耗
-virtual capacity。显式泊位仍以自己的 entry/exit/geometry 为权威，设施 anchors 只服务
+virtual capacity。显式泊位仍以自己的 entry/exit/geometry 为正本，设施 anchors 只服务
 virtual pool。
 
 ### 3.6 冲突静态闭合
@@ -897,7 +897,7 @@ ArtifactClaims(0x0001):
 
 `ExecutionContract` tag 1/2 必须分别逐值等于 `ContractVersions` 的
 `staticExecutionContractVersion/constraintContractVersion`；任一副本不一致都失败关闭，不能由
-reader 选择其中一份作为权威。
+reader 选择其中一份作为正本。
 
 `CompilerProvenance` 的直接值域同样是格式合同：
 
@@ -925,7 +925,7 @@ LFCA provenance、LFSM bindings 与 LFCP source-map binding 中重复的
 
 #### 3.7.1 规范几何数值闭合
 
-预计算 segment/basis 不能成为点表之外的第二权威。`LaneEdgeGeometry.points` 至少两项，
+预计算 segment/basis 不能成为点表之外的第二正本。`LaneEdgeGeometry.points` 至少两项，
 `segments.count = points.count - 1`。所有坐标有限、位于 `[-16384, 16384] m`，零必须是
 bit-exact `+0.0f32`。对相邻点按字段顺序做 binary32 减法并规范零，随后定义：
 
@@ -2014,5 +2014,5 @@ base-target 错配和所有 hard-limit `+1`。staging 矩阵在 write、patch、
 返回部分修订。规模证据与 exact-byte 分支证据按风险组合，不建立无意义的全轴笛卡尔积。
 
 领域 Runtime 行为不属于本公共格式合同；实现不得顺带引入 Waiting admission、
-ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订权威设计，
+ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订规范设计，
 不能让实现细节成为第二套事实来源。

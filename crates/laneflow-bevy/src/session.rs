@@ -819,7 +819,7 @@ impl LaneFlowCutoverRecord {
 /// 位姿结果的消费上下文：世界身份 + 世界世代。
 ///
 /// 任何成功切换（跨修订或同修订换根）都使先前上下文过期；世代是
-/// Runtime 签发的权威轴，Adapter 只消费不重建。
+/// Runtime 签发的规范轴，Adapter 只消费不重建。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct LaneFlowConsumptionContext {
     world_id: u64,

@@ -1711,7 +1711,7 @@ struct StagedGrant {
 }
 
 /// 从分离的已提交行、定位索引与暂存行借读出的栈上值。
-/// 不持有 heap，也不是第二份可独立提交的 owner 权威。
+/// 不持有 heap，也不是第二份可独立提交的 owner 正本。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ConflictOwnerAuthority {
     owner: VehicleHandle,
@@ -2376,7 +2376,7 @@ impl ConflictArbiter {
         self.read().lag_reference(address)
     }
 
-    /// 按规范 address 序返回迁移所需的 cell 权威。reservation 标记直接来自
+    /// 按规范 address 序返回迁移所需的 cell 正本。reservation 标记直接来自
     /// arbiter 唯一事实来源，调用方不再为每个 cell 扫描车辆表。
     #[cfg(test)]
     pub(crate) fn migration_rows(
@@ -2410,25 +2410,25 @@ impl ConflictArbiter {
         self.read().unique_address(zone, stream)
     }
 
-    /// 测试专用：仲裁器是否完全无任何资源权威、暂存与历史。
+    /// 测试专用：仲裁器是否完全无任何资源裁决权、暂存与历史。
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.read().is_empty()
     }
 
-    /// 测试专用：指定 owner 是否持有任何 staged 或 committed 权威。
+    /// 测试专用：指定 owner 是否持有任何 staged 或 committed 正本。
     #[cfg(test)]
     pub(crate) fn has_authority(&self, owner: VehicleHandle) -> bool {
         self.read().has_authority(owner)
     }
 
-    /// 测试专用：校验车辆状态与冲突权威的一致性。
+    /// 测试专用：校验车辆状态与冲突裁决权的一致性。
     #[cfg(test)]
     pub(crate) fn state_valid(&self, state: &crate::VehicleState) -> bool {
         self.read().state_valid(state)
     }
 
-    /// 测试专用：校验全部 owner 权威的行计数、serial 与 cell 归属不变量。
+    /// 测试专用：校验全部 owner 正本的行计数、serial 与 cell 归属不变量。
     #[cfg(test)]
     pub(crate) fn authority_owners_valid(
         &self,
@@ -2635,7 +2635,7 @@ impl ConflictArbiter {
         self.write().finish_releases()
     }
 
-    /// 测试专用：释放车辆持有的全部冲突与 downstream 权威。
+    /// 测试专用：释放车辆持有的全部冲突与 downstream 正本。
     #[cfg(test)]
     pub(crate) fn release_vehicle(&mut self, owner: VehicleHandle, post_step_time_ms: u64) {
         self.write().release_vehicle(owner, post_step_time_ms)
@@ -2752,7 +2752,7 @@ impl<'a> ConflictRead<'a> {
             })
     }
 
-    /// 按规范 address 序返回迁移所需的 cell 权威。reservation 标记直接来自
+    /// 按规范 address 序返回迁移所需的 cell 正本。reservation 标记直接来自
     /// arbiter 唯一事实来源，调用方不再为每个 cell 扫描车辆表。
     pub(crate) fn migration_rows(
         self,
@@ -2865,7 +2865,7 @@ impl<'a> ConflictRead<'a> {
         Some(address)
     }
 
-    /// 仲裁器是否完全无任何资源权威、暂存与历史。
+    /// 仲裁器是否完全无任何资源裁决权、暂存与历史。
     pub(crate) fn is_empty(self) -> bool {
         self.cell_workspace()
             .iter()
@@ -2886,7 +2886,7 @@ impl<'a> ConflictRead<'a> {
             })
     }
 
-    /// 指定 owner 是否持有任何 staged 或 committed 权威。
+    /// 指定 owner 是否持有任何 staged 或 committed 正本。
     pub(crate) fn has_authority(self, owner: VehicleHandle) -> bool {
         self.owner_authority(owner)
             .is_some_and(|authority| authority.has_authority())
@@ -2937,7 +2937,7 @@ impl<'a> ConflictRead<'a> {
         self.owner_authority(owner)?.reservation
     }
 
-    /// 校验处于 Clearing 相位的车辆状态与 reservation 权威逐项一致。
+    /// 校验处于 Clearing 相位的车辆状态与 reservation 正本逐项一致。
     pub(crate) fn state_valid(self, state: &crate::VehicleState) -> bool {
         let Some(traversal) = state.maneuver_traversal else {
             return !self.has_authority(state.handle);
@@ -2972,7 +2972,7 @@ impl<'a> ConflictRead<'a> {
                 == Some(reservation.downstream_claim_count)
     }
 
-    /// 校验全部 owner 权威的计数、serial、范围与 cell 归属不变量。
+    /// 校验全部 owner 正本的计数、serial、范围与 cell 归属不变量。
     pub(crate) fn authority_owners_valid(
         self,
         mut owner_valid: impl FnMut(VehicleHandle) -> bool,
@@ -2983,7 +2983,7 @@ impl<'a> ConflictRead<'a> {
                 == Some(self.committed.committed_cells.len())
     }
 
-    /// owner 行、staged/committed 行与 grant 的权威不变量；不扫 cell 表。
+    /// owner 行、staged/committed 行与 grant 的裁决不变量；不扫 cell 表。
     pub(crate) fn authority_head_valid(
         self,
         mut owner_valid: impl FnMut(VehicleHandle) -> bool,
@@ -3038,7 +3038,7 @@ impl<'a> ConflictRead<'a> {
             })
     }
 
-    /// owner 行、staged/committed 行与 grant 的权威不变量；不扫 cell 表。
+    /// owner 行、staged/committed 行与 grant 的裁决不变量；不扫 cell 表。
     pub(crate) fn authority_rows_valid(
         self,
         mut owner_valid: impl FnMut(VehicleHandle) -> bool,
@@ -3151,7 +3151,7 @@ impl<'a> ConflictRead<'a> {
             })
     }
 
-    /// 一段 cell 的权威不变量；全部成立时返回段内持有 reservation 的 cell 数，
+    /// 一段 cell 的裁决不变量；全部成立时返回段内持有 reservation 的 cell 数，
     /// 各段之和须等于 committed cell 行数。
     pub(crate) fn authority_cells_valid(
         self,
@@ -4148,7 +4148,7 @@ impl<'world> ConflictWrite<'world> {
         })
     }
 
-    /// 消费纯等待 grant 并释放其 staged 权威，返回等待区。
+    /// 消费纯等待 grant 并释放其 staged 正本，返回等待区。
     pub(crate) fn consume_pure_waiting_grant(
         &mut self,
         grant: ConflictGrant,
@@ -4390,7 +4390,7 @@ impl<'world> ConflictWrite<'world> {
         self.committed.committed_downstream.truncate(write);
     }
 
-    /// 释放车辆持有的全部 staged 与 committed 冲突权威，并为未清 cell 补记清空时间。
+    /// 释放车辆持有的全部 staged 与 committed 冲突裁决权，并为未清 cell 补记清空时间。
     pub(crate) fn release_vehicle(&mut self, owner: VehicleHandle, post_step_time_ms: u64) {
         self.flush_crossings();
         if let Ok(index) = self.owner_authority_index(owner) {
@@ -4434,7 +4434,7 @@ impl<'world> ConflictWrite<'world> {
         self.derived.downstream_index_dirty = true;
     }
 
-    /// journal replacement 保留独立 lag delta 的权威，不伪造 clear。
+    /// journal replacement 保留独立 lag delta 的正本，不伪造 clear。
     pub(crate) fn remove_authority_for_replay(
         &mut self,
         owner: VehicleHandle,

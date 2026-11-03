@@ -23,7 +23,7 @@ LaneFlow 是可嵌入、引擎无关、确定性的道路交通运行时与工�
 - 城市级目标必须同时保持确定性、可诊断、可存档、可修改路网和可扩展性，不能用
   多世界吞吐或表现层细节层次替代单个大型交通世界的正确性。
 
-ADR 0021 定义的长期权威分层为：
+ADR 0021 定义的长期职责分层为：
 
 ```text
 宿主应用层
@@ -91,7 +91,7 @@ Accepted ADR 0020 的目标态不在上述 current 链条旁增加 L1/L2，而�
 路网编译前移。Accepted ADR 0025（#300 G1 Pass）进一步取消独立静态镜像文件/ABI，
 改为以受检 LFCA 构建进程内共享静态路网：
 
-本节术语以 [`reference/glossary.md`](reference/glossary.md) 的中文定义为权威，
+本节术语以 [`reference/glossary.md`](reference/glossary.md) 的中文定义为正本，
 英文只作辅助理解；代码和制品标识符保留精确拼写。
 
 ```text
@@ -117,7 +117,7 @@ authoring-only 差异由后继 [#345](https://github.com/illusion-tech/laneflow/
 compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length
 与 dense layout，**不**预编译路线出现记录（ADR 0029）；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
-（Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
+（Dynamic Traversal Definition）和其他可变交通正本（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
 Accepted ADR 0024 已冻结 LFCA 后发射检查和最小发布闭合。Accepted ADR 0025 让发布加载和
 玩家确认建造在 admission 之后共用同一条构建路径：宿主发布加载先认证 LFCP v2/
@@ -142,7 +142,7 @@ version 确定性派生 `PartitionPlanningHints` component，Runtime 可以忽�
 动态负载建立自己的
 运行时执行计划（Runtime Execution Plan）。精确执行的所有分区只读取已提交状态
 `T`，在同一逻辑边界原子提交 `T + Δ`；不能因跨分区而额外延迟一 tick。互不相交的
-资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约权威。该权威
+资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约裁决方。该裁决方
 定义唯一结果而非单一物理线程；生产方案必须用资源分段、强连通分量（Strongly
 Connected Component，SCC）、凝聚有向无环图（Condensation Directed Acyclic
 Graph，Condensation DAG）与稳定合并证明归约工作量/跨度（Reduction Work/Span），
@@ -236,7 +236,7 @@ WaitingZone）由编译器写入 Canonical LIR / LFCA，再进入共享静态路
 
 共享静态路网承载 immutable `ParkingFacility/ParkingSpace`、显式泊位几何、
 virtual capacity 与规范 entry/exit anchors，不持久化 reservation、occupancy、
-initial parked vehicles 或 runtime handles。停车占用权威在 `TrafficWorld`。一个设施
+initial parked vehicles 或 runtime handles。停车占用裁决归 `TrafficWorld`。一个设施
 可以同时组织显式泊位和不物化泊位的虚拟容量；Runtime 以 tagged
 `ExplicitSpace | VirtualPool` binding 管理 reserve/park/leave；虚拟 Parked 车辆保留
 live identity，但不产生 committed pose。真正移除仍由原子 `despawn_vehicle` 完成，并
@@ -294,7 +294,7 @@ Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWor
 以及世界 identity、输入命令游标、运行时执行计划和当前路网修订绑定。当前
 投影仍是车辆/路线/停车占用特化；人口、
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
-授予随机权威时才拥有相应随机流。
+授予随机流裁决权时才拥有相应随机流。
 路线出现记录只在 `TrafficWorld::register_route` 编进每世界表；steady tick
 继续只使用 typed dense handle，不读共享静态路网路线表（ADR 0029）。
 
@@ -334,7 +334,7 @@ tick 不匹配 path、不查 external ID 或扫描全局 catalog。Core current 
 Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pair key。
 
 #234/ADR 0018 在此之上冻结横断面与准入的长期职责边界：横断面是 LaneGraph 之上的
-可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑权威）；准入规则
+可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑正本）；准入规则
 作为 regulatory constraint 进入 Core constraint 管线，静态规则在 (class, Route)
 绑定期原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Core
 safety。上述 ParticipantClass/CrossSection/Access registries、typed handles 与静态
@@ -392,7 +392,7 @@ Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则�
 统一改变模拟时间推进速度，但不能静默丢 fixed tick、丢事件或让不同分区读取不同
 逻辑时点。任何多频率或 aggregate 降级必须由独立 fidelity contract 和 G1 冻结。
 
-ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从 `TrafficWorld::committed_pose_sources()` 构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
+ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样正本；它们从 `TrafficWorld::committed_pose_sources()` 构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
 v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.20 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 占位 API 已删除，不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。最小证据为 `quickstart` 与无窗口 smoke。Adapter 边界见 `design/bevy-reference-adapter.md`。
 

@@ -314,7 +314,7 @@ fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld,
     (world, vehicle)
 }
 
-/// 为指定车辆直接装配一条冲突预约（对齐路线位置并写入权威单元）。
+/// 为指定车辆直接装配一条冲突预约（对齐路线位置并写入裁决单元）。
 pub(crate) fn install_conflict_reservation(
     world: &mut TrafficWorld,
     route: RouteHandle,

@@ -36,7 +36,7 @@ W1/W3/W4 使用真实 `LaneFlowSession`、同根 `SpatialSession`、
 `LaneFlowPlugin` 与 Bevy ECS Transform；`max_catch_up_steps = 2`。
 生命周期系统在 `Lifecycle` 执行冻结命令，`Observe` 恰好一次消费每个成功 Tick
 的结果和有序事件，包括同帧的中间拍。已绑定车辆必须经 typed despawn/replace
-组合事务更新映射，不能绕过 Session 的映射权威。
+组合事务更新映射，不能绕过 Session 的映射正本。
 
 每帧步进结束后最多一次调用 `extract_selected_committed_pose_batch`，复用缓冲。
 宿主对完整批次检查 context、placement token、句柄/Entity 映射与有限 Transform，

@@ -191,7 +191,7 @@ admission sequence。
 
 ## 6. #284 的组合仲裁
 
-本节以当前权威保存 #235 已接受、由 #284 生产化的 right-of-way/policy/arbiter 语义；
+本节以当前规范保存 #235 已接受、由 #284 生产化的 right-of-way/policy/arbiter 语义；
 ownership 分离不重新打开这些算法选择。#282 的本地 Waiting reducer 与本节组合仲裁
 共同运行，不能用本地 claim 或简化 ledger 取代完整资源证明。
 
@@ -620,7 +620,7 @@ Waiting admission 不创建空 reservation。
 non-empty reservation 保存 vehicle、route/maneuver/Gate occurrence、exact passage range、
 downstream owner 与 acquired tick。front crossing passage entry 建立 zone occupancy；
 actual vehicle rear 到达/越过 exact clearance 才 clear。全部 coverage clear 后释放
-reservation/downstream claim；post-step occupancy 已成为下一 tick 权威后才释放，不能出现
+reservation/downstream claim；post-step occupancy 已成为下一 tick 正本后才释放，不能出现
 无 owner 空窗。完整 reservation 只由 `ConflictArbiter` 持有；vehicle traversal 不复制
 passages、downstream claims 或 acquired tick，避免两个可独立漂移的 owner authority。
 
@@ -718,7 +718,7 @@ passage/maneuver occurrence。事件从已验证的暂存转移派生；同拍 a
 downstream 使用按物理边分组的增广 AVL 区间树，每个区间只向前扩展自己的最小间距，
 因此两车间距始终来自实际后车；以宽整数保存扩展端点，精确等值允许相接。
 树、图及事件缓冲按实际工作量 fallible 增长并复用，空资源世界不预配理论笛卡尔积。
-所有 crossing 先按 owner 范围建立权威，再一次移动 staged 资源；最后净空只遍历本
+所有 crossing 先按 owner 范围建立裁决权，再一次移动 staged 资源；最后净空只遍历本
 owner 的 cell 段，整拍释放结束后统一稳定压缩并更新剩余范围。拓扑序、紧凑行位置和
 树形状均不决定业务顺序、摘要或公开输出。
 
@@ -783,7 +783,7 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
   contributions、visited passages、static cells、top-two bytes、claim/collision/query counts。
 
 这些是 #235 已接受的 #284 实现合同，不是 #282 的本地验收项；若变更上述行为，必须
-重新评估 G1 并同步修改权威设计。
+重新评估 G1 并同步修改规范设计。
 
 #282 不实现上述组合 ledger 的简化副本。#284 也不得重新定义 Waiting counter、queue
 或 membership。
@@ -859,7 +859,7 @@ restore 与 same/cross-revision cutover 则须重建并验证完整 reservation�
 当前持久化同时保存 #282 的本地 Waiting 逻辑状态与 #284 的显式世界策略选择；
 唯一版本轴与 `traffic-runtime-snapshot.md` 一致：
 
-| 权威轴                  | 当前版本 |
+| 规范轴                  | 当前版本 |
 | ----------------------- | -------: |
 | LFRS `formatVersion`    |        5 |
 | `runtime_state_version` |        5 |

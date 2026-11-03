@@ -208,9 +208,9 @@ pub(crate) struct WorldBindingState {
     pub(crate) policy_binding: crate::kernel::policy::WorldPolicyBinding,
 }
 
-/// 登记、资源权威、时钟游标及上次成功发布的批次。
+/// 登记、资源裁决权、时钟游标及上次成功发布的批次。
 pub(crate) struct CommittedWorldState {
-    /// 已提交的冲突/下游资源权威。
+    /// 已提交的冲突/下游资源裁决权。
     pub(crate) conflict: crate::kernel::conflict::ConflictCommittedState,
     /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟。
     pub(crate) conflict_eligibility: EligibilityTable,
@@ -243,7 +243,7 @@ pub(crate) struct CommittedWorldState {
     pub(crate) latest_transition_events: Vec<crate::TrafficTransitionEvent>,
 }
 
-/// 从已提交基线构建的查询索引；不拥有新的交通权威。
+/// 从已提交基线构建的查询索引；不拥有新的交通正本。
 pub(crate) struct DerivedIndexes {
     pub(crate) conflict: crate::kernel::conflict::ConflictDerivedIndexes,
     /// 仅含 `Active` 的固定步进执行顺序；按 `live_order` 投影维护，Parked / Completed

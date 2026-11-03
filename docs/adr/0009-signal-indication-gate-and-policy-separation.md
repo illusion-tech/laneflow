@@ -69,7 +69,7 @@ v0.4 固定使用 static fixed-time cyclic controller、explicit StopLine/Moveme
 - v0.4 可以在没有 conflict solver 的前提下交付完整、可验证的基础信号闭环。
 - indication、空间边界、法规解释与物理安全各自有单一职责。
 - 中国与其他地区规则可以通过 versioned policy 扩展，不污染 controller timing。
-- Adapter 可通过只读 query/events 表现灯态，但不能成为交通规则权威。
+- Adapter 可通过只读 query/events 表现灯态，但不能成为交通规则正本。
 - Core 保留统一 constraint/safety pipeline，可继续进行数据导向和高性能实现。
 
 成本与风险：

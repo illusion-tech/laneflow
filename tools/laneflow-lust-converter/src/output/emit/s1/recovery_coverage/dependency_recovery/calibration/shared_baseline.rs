@@ -226,7 +226,7 @@ const RUN3_OLD_SEARCHES_SHA256: &str =
 const RUN3_GRID_SEARCHES_SHA256: &str =
     "7b8b2e1f28f1d7e47aed6ff5222086971a1ae2838dad07559ff03efd94513fe9";
 
-/// program 对象 u64 位逐个提取（lead ④ 裁决硬门 1：几何/判定唯一权威输入的位级断言）。
+/// program 对象 u64 位逐个提取（lead ④ 裁决硬门 1：几何/判定唯一正本输入的位级断言）。
 /// 入参为 `{"start":[…],"segments":[{"end":[…]}]}` 形态的 program 对象。
 fn program_u64_bits(program_value: &Value) -> Vec<u64> {
     let mut bits = Vec::new();
@@ -777,7 +777,7 @@ fn temp_probe_dir() -> PathBuf {
 
 #[test]
 fn shared_baseline_program_fields_are_bit_exact() {
-    // 硬门 1（lead ④ 裁决）：program 为几何/判定唯一权威输入，u64 位逐位精确——
+    // 硬门 1（lead ④ 裁决）：program 为几何/判定唯一正本输入，u64 位逐位精确——
     // 大位模式（1 ULP 相邻对）经合并/池文本往返后逐位相等，锁死不经浮点化。
     let a = json!({"program":{"start":[4624643347766747136u64,0,0],
         "segments":[{"end":[4624643347766747137u64,0,0],"canvas_selection":null}]},

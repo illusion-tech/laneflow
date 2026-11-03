@@ -1988,7 +1988,7 @@ fn validate_entry_gate_coverage(
 
     // 显式 successors 已排序；path entry pairs 保留重复后排序。每个入口门控显式
     // successor 必须由恰好一条完整 path 覆盖。多条 path 仍可合法共享 path-only
-    // entry pair，但该 pair 不能同时形成第二份显式 successor 权威。
+    // entry pair，但该 pair 不能同时形成第二份显式 successor 正本。
     let entry_pairs =
         radix_sort_transition_pairs_preserving_duplicates(entry_pairs, lane_count, options)?;
     let mut entry_cursor = 0_usize;

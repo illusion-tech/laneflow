@@ -68,7 +68,7 @@ pub(crate) struct HirLaneEdge {
     pub(crate) source_address: TypedAstEntityAddress,
     /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 原像派生。
     pub(crate) stable_id: LaneEdgeId,
-    /// 交通权威长度，单位为毫米。
+    /// 交通正本长度，单位为毫米。
     pub(crate) length_mm: u32,
     /// 基础道路限速，单位为毫米每秒。
     pub(crate) speed_limit_mm_s: u32,

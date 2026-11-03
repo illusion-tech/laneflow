@@ -267,7 +267,7 @@ pub(crate) struct MotionPreview {
     bounds: MotionBounds,
 }
 
-/// 跨 P2/P5 保存实际消费者已经查询的基础数据，不保存第二套车辆权威。
+/// 跨 P2/P5 保存实际消费者已经查询的基础数据，不保存第二套车辆正本。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionBasis {
     vehicle: crate::VehicleHandle,
@@ -4977,7 +4977,7 @@ impl<'a> MotionTaskView<'a> {
                 .find(|entry| !authorized(entry.entry_hop))
                 .map(|entry| entry.entry_hop)
         };
-        // 申请资格不能决定运动屏障。既有权威和本拍 grant 只授权各自的 Gate。
+        // 申请资格不能决定运动屏障。既有裁决权和本拍 grant 只授权各自的 Gate。
         let Some(hop) = conflict.into_iter().chain(waiting).min() else {
             return Ok(None);
         };
@@ -5557,7 +5557,7 @@ struct SelectedStop {
 }
 
 /// 数值更近者优先；完全同值时调用顺序编码
-/// `SignalStop -> ParkingStop -> RouteEnd` 的归因权威。
+/// `SignalStop -> ParkingStop -> RouteEnd` 的归因正本。
 fn select_movement_stop(
     signal: Option<BoundedDistance>,
     parking: Option<BoundedDistance>,

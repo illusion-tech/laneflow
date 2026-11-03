@@ -1,7 +1,7 @@
 use laneflow_static_contract::SignalAspect;
 use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, SignalGroupOrdinal};
 
-/// 已提交 pose 的权威来源。Spatial 批次另行映射为 `PoseRecordId`。
+/// 已提交 pose 的正本来源。Spatial 批次另行映射为 `PoseRecordId`。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PoseSource {
     /// 车道上的进度。

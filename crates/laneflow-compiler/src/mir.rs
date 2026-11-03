@@ -108,7 +108,7 @@ pub(crate) struct MirLaneEdge {
     pub(crate) stable_key: Arc<str>,
     /// 从 HIR 原样携带的 Identity v1 有类型稳定标识。
     pub(crate) stable_id: LaneEdgeId,
-    /// 交通权威长度，单位为毫米。
+    /// 交通正本长度，单位为毫米。
     pub(crate) length_mm: u32,
     /// 基础道路限速，单位为毫米每秒。
     pub(crate) speed_limit_mm_s: u32,

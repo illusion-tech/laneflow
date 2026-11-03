@@ -27,7 +27,7 @@
 
 > **实现状态**：当前生产入口以 `ParkingFacility` 完整替换 `ParkingArea`，允许显式泊位
 > 与虚拟容量混合，并以 tagged target 交付 reserve/cancel/park/leave/rebind、parked
-> spawn 与原子 despawn；旧 `occupy_parking` 不保留 façade。权威见 `parking-system.md`。
+> spawn 与原子 despawn；旧 `occupy_parking` 不保留 façade。规范见 `parking-system.md`。
 
 ## 1. 结论
 
@@ -97,7 +97,7 @@ Adapter / 示例 ─────────────────> laneflow-s
 | 包                 | 拥有                                                                                          | 禁止                                                                                                                                                                            |
 | ------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划         | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 切片 C；LFCA 解析仍由 static-network builder 承担） |
-| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享静态路网序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle                                                                                                                         |
+| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享静态路网序号 | Traffic tick 正本、compiler、引擎、Runtime、车辆 handle                                                                                                                         |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，
 session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用一份
@@ -318,7 +318,7 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
   `time_ms()` 与之一致。不得回绕后当作合法时间去推信号 snapshot。
 - 时序沿用 `signal-system.md`：运动、跟车、信号遵守、占用判断都读已提交状态
   **T**；算完再原子提交 **T + D**（时间、pose、占用、信号 snapshot）。同 tick 内
-  不得把未提交位移当成其他车的权威前车。相位边界落在 `[T, T + D)` 时，该拍车辆
+  不得把未提交位移当成其他车的正本前车。相位边界落在 `[T, T + D)` 时，该拍车辆
   仍用 snapshot(T) 的灯色，不得提前用 T + D。
 - 失败不推进时间，不留下半更新；成功 tick 不因错误边界新分配诊断。
 - 不把 `CoreEvent` 搬进本切片。跟车/信号遵守用已提交 pose 进度与信号组 aspect
@@ -326,7 +326,7 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 - `committed_pose_sources()`：稳定顺序的 `(VehicleHandle, PoseSource)`。车道用
   `LaneEdgeOrdinal` + `progress_mm: u32`，
   停车用停车位序号。已完成或已移除车辆不出现。Adapter 映射为 `PoseRecordId`
-  再交给 Spatial；Spatial 在边界把 mm 换成弧长比例，不得把米制当权威。
+  再交给 Spatial；Spatial 在边界把 mm 换成弧长比例，不得把米制当正本。
 - `committed_signal_groups()`：稳定按组序号的当前 aspect，由已提交 `time_ms` +
   共享静态路网 program + offset 导出。`install` 成功后 time 0 已有有效 snapshot；成功
   `step` 之后查询到的是 T + D。初始化不发事件。
@@ -337,7 +337,7 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 
 串行阶段、内部状态分区与单次提交的细化设计见
 [`traffic-runtime-phase-protocol.md`](traffic-runtime-phase-protocol.md)。
-该设计保持本节公开行为和领域权威，不新增公开入口或生产并行执行能力。
+该设计保持本节公开行为和领域正本，不新增公开入口或生产并行执行能力。
 
 公开推进入口是 `TrafficWorld::step`（§4.4）。`TrafficWorld` 的 1-worker 车辆 tick
 读取：
@@ -417,7 +417,7 @@ CI 必须同时：
 - 跟车安全间隙（`step` 读已提交 T 的前车；`committed_pose_sources` 进度）；
 - 信号停车与许可通行（车辆用 snapshot(T)；成功 step 后 `committed_signal_groups`
   为 T + D。相位边界落在 `[T, T + D)` 时该拍不得提前用 T + D 灯色）；
-- 停车权威（显式/虚拟资源守恒、完整 lifecycle、arrival/leave/rebind 边界、typed
+- 停车裁决权（显式/虚拟资源守恒、完整 lifecycle、arrival/leave/rebind 边界、typed
   despawn、Snapshot v3/cutover/replay 与失败原子性；定向矩阵见 `parking-system.md` §10）；
 - 确定性固定步进（`step`：`fixed_delta_time_ms ∈ [4, 1000]`、delta 不匹配则拒绝、
   `tick_index`/`time_ms` 溢出则拒绝且世界不变、同输入序列同结果）；
@@ -430,7 +430,7 @@ CI 必须同时：
 - 路线注册与编译 occurrence（`register_route` / `remove_route`，ADR 0017 / 0029；
   tick 只读本世界 occurrence 表；不含走廊级人口与回流）；
 - spawn 绑定期准入（按 ADR 0018 `(ParticipantClass, Route)` 后缀拒绝，失败不留车）；
-- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车；权威为
+- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车；正本为
   `speed_mm_s`，且 `<= 100_000`；
 - `remove_route` 在有 live 车辆引用时失败；无静态句柄分支。
 
@@ -469,8 +469,8 @@ CI 必须同时：
 
 #305 不再要求「current 与 target 同时存在时的等价矩阵」。阶段 7 认证目标路径
 本身；其 G1 另开，不在本文展开。#301 拆除 Core **不以** #441/#305 的性能、规模或
-安全检查通过为前提：仓库没有生产回退路径，权威在 #301 切换。本切片的「生产切换」
-即此权威切换，定义见 `../reference/glossary.md`；不再要求先过等价、性能或安全检查。#301 完成后 `laneflow-runtime` 为当前态，不得再把 `laneflow-core` 写成当前
+安全检查通过为前提：仓库没有生产回退路径，正本在 #301 切换。本切片的「生产切换」
+即此正本切换，定义见 `../reference/glossary.md`；不再要求先过等价、性能或安全检查。#301 完成后 `laneflow-runtime` 为当前态，不得再把 `laneflow-core` 写成当前
 生产路径。
 
 ## 8. 路线图关系
@@ -478,7 +478,7 @@ CI 必须同时：
 阶段 6 的完成语义改为：共享静态路网（#300 子切片）加上 #301 使 `TrafficWorld`
 成为唯一可运行交通世界并拆除 current Core/JSON 运行时入口。
 
-阶段 8 不再是「那一天才把权威从 Core 交给 Runtime」。权威在 #301 完成时已经切换。
+阶段 8 不再是「那一天才把正本从 Core 交给 Runtime」。正本在 #301 完成时已经切换。
 #302 仍独占在线修订与 snapshot。#441 仍等至少一个 production kernel，但不再要求
 以 Core 为对照。
 

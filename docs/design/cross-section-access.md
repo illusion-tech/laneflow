@@ -86,7 +86,7 @@
 它遵循 ADR 0017 对 JunctionGroup 的同一先例——结构组合，非行为实体：
 
 - 不成为 route planner、conflict solver 或 runtime availability owner；
-- 不复制 RoadSection/LaneEdge 的拓扑与长度权威；
+- 不复制 RoadSection/LaneEdge 的拓扑与长度正本；
 - 只提供稳定 identity、横向顺序与成员关系。
 
 ### 2.2 横断面元素
@@ -104,7 +104,7 @@ FacilityBand 或外部字符串推断方向。
 
 横断面只冻结**顺序**；元素宽度、路缘位置、横向偏移不进入 Traffic schema，继续
 由未来横向几何 G1 或 Adapter 表现层处理（对齐 ADR 0013：当前契约没有横向几何
-权威层）。
+归属层）。
 
 ## 3. 实体职责与关系
 
@@ -549,7 +549,7 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 | -------------------------------- | ----------------------------------------- | ---------------------------------- |
 | LaneEdge 拓扑/length/speed limit | LaneGraph/Core                            | RoadSection、RoadCorridor、Adapter |
 | 横断面横向顺序                   | RoadCorridor cross-section                | Adapter 推断、Spatial 几何         |
-| lane 顺序与 adjacency 事实来源     | RoadSection lane index                    | LaneGroup、AccessRule              |
+| lane 顺序与 adjacency 事实来源   | RoadSection lane index                    | LaneGroup、AccessRule              |
 | 设施物理身份                     | FacilityKind（SSOT seed + `x-` 扩展）     | AccessRule、laneType 式封闭枚举    |
 | 参与者分类                       | Traffic data 声明 + Core 层级匹配         | Core 内置类名、SignalController    |
 | 准入许可                         | AccessRule overlay + Core constraint 管线 | FacilityKind、ManeuverPath 复制    |

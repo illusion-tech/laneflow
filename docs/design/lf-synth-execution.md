@@ -11,7 +11,7 @@
 稳定标识解析到本修订 ordinal，logical rank 不冒充 ordinal 或 Runtime handle。
 Traffic Runtime 生产代码不感知 workload ID。
 
-交通行为与窗口公式以 [性能基线](core-runtime-performance-baseline.md) 为唯一权威。
+交通行为与窗口公式以 [性能基线](core-runtime-performance-baseline.md) 为准。
 工具读取受检计划并独立核对周期、预热及观察长度，不允许指定短窗口的正式入口。
 W1/W2/W3 在 16 ms 使用 `14508 + 29016` 拍，33 ms 使用 `7044 + 14088` 拍；
 W4 使用相同预热长度及恰好两条观察拍。初始边界、全部预热拍和观察拍均核验。

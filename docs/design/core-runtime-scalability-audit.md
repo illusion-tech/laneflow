@@ -132,14 +132,14 @@ target/measurement contract 以
   （Data-oriented Storage）、批处理、阶段调度和并行计算扩展；ECS、工作线程或
   分区不成为公共 Core API。
 - 降频微观仍保留每个参与单元的身份、通行意图和已提交状态，只研究降低部分控制器
-  或昂贵派生计算的刷新频率；未刷新固定步进的占用、安全约束、信号/停驻权威、插值
+  或昂贵派生计算的刷新频率；未刷新固定步进的占用、安全约束、信号/停驻裁决权、插值
   与事件时间仍必须满足 C7。
 - 中观/聚合保留为可选的远域或超大规模方案，不作为默认前提。进入或离开该层级必须
   定义身份保留/恢复、数量守恒、通行/信号语义和确定性迁移边界
   （Deterministic Migration Boundary）；若无法保持逐参与单元连续性，必须把语义
   损失作为产品能力差异显式暴露。
 - 共享通行/成本场、聚合占用或其他 SC5-like 技术可以作为内部优化候选，但不得仅为
-  吞吐量隐式替换已经承诺的逐参与单元通行、停驻或生命周期权威。
+  吞吐量隐式替换已经承诺的逐参与单元通行、停驻或生命周期裁决权。
 
 外部参考只用于校准，不构成规范性依赖：Cities: Skylines II 的公开资料展示了 persistent citizen/agent 语义与 ECS、Burst、多核批处理方向，但没有公开足以复制的 partition、multi-rate 或 deterministic merge contract；SimCity 2013 GlassBox 展示了低频 Unit/Map rules、轻量 resource-carrying agents 和共享距离场，但其聚合语义不能自动满足 LaneFlow 的逐车身份与路线需求。
 
@@ -162,7 +162,7 @@ target/measurement contract 以
 | ---------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | 基本形态               | 以精确为主，降频微观保留身份，聚合只作可选远域             | 所有存续个体单元始终执行完整精确语义，只优化布局、批处理、阶段和并行 | 大部分远域交通使用流/包，局部重要区域才展开为精确交通参与单元              |
 | 个体语义               | 优先保持逻辑身份、通行/进度、停驻/生命周期和事件连续性     | 最强，所有存续个体单元都保持当前完整语义                             | 只在精确岛（Exact Island）内完整；聚合层可能只有数量、目的地类别和流量守恒 |
-| 安全权威               | 基础固定步进仍需定义占用、信号、停驻和陈旧区间安全语义     | 直接复用当前固定步进安全管线                                         | 聚合/精确边界必须另定义容量、队列、冲突和展开后的安全初始条件              |
+| 安全裁决权             | 基础固定步进仍需定义占用、信号、停驻和陈旧区间安全语义     | 直接复用当前固定步进安全管线                                         | 聚合/精确边界必须另定义容量、队列、冲突和展开后的安全初始条件              |
 | 分区/迁移              | 内部所有权可迁移，公共身份不随分区改变；层级迁移需显式事务 | 只需物理所有权迁移，不存在保真度层级迁移                             | 同时需要分区交接与聚合/精确的聚合、拆分、身份翻译                          |
 | Runtime/Adapter 连续性 | 可保留一个逻辑 `TrafficWorld` 门面和已提交选择性快照       | 与当前车辆 API 心智最接近，但仍需解除借用式 AoS/全扫描约束           | 最可能要求新的快照能力和明确的层级专用记录                                 |
 | 预期收益               | 在保留大部分产品语义的同时降低昂贵控制器和远域计算成本     | 语义最简单、精确参考预言机最强；若硬件目标可满足，迁移成本最低       | 理论规模上限最高，适合活动参与单元远多于可见精确参与单元的目标             |
@@ -313,7 +313,7 @@ vehicle update、command、snapshot 和 event order 必须由显式 logical sequ
 
 ### C5. Commands 只在明确 lifecycle boundary 生效
 
-command validation、application order、冲突和 atomicity 必须文档化。worker-local 或 Adapter-local queue 不能形成隐藏权威。
+command validation、application order、冲突和 atomicity 必须文档化。worker-local 或 Adapter-local queue 不能形成隐藏裁决权。
 
 ### C6. Event merge 必须与 worker/partition 数无关
 
@@ -344,11 +344,11 @@ partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benc
 ### C12. 精确分区不得增加逻辑延迟
 
 所有 partition 在 tick 内读取同一 committed state `T`，经 proposal/claim 和
-连接资源组件的唯一规范归约权威后原子提交 `T + Δ`。partition cut 不得增加一 tick
+连接资源组件的唯一规范归约裁决方后原子提交 `T + Δ`。partition cut 不得增加一 tick
 halo delay；互不相交资源组件可以并行归约，不能把“single reducer”误写成永久全局
 单线程 reducer。
 
-唯一规范归约权威约束结果与规范顺序，不要求一个连接组件由单一物理线程串行折叠。
+唯一规范归约裁决方约束结果与规范顺序，不要求一个连接组件由单一物理线程串行折叠。
 生产方案必须比较资源分段、强连通分量（Strongly Connected Component，SCC）、凝聚
 有向无环图（Condensation Directed Acyclic Graph，Condensation DAG）波次、稳定局部
 归约和固定合并树，并报告组件/SCC 分布、最大 SCC 提案占比、归约工作量/跨度与临界
@@ -363,7 +363,7 @@ halo delay；互不相交资源组件可以并行归约，不能把“single red
 共享静态路网按不可变修订构建；运行时世界通过失败关闭的路网修订切换事务迁移。运行时
 快照绑定 canonical LFCA origin、`CommittedNetworkSource`、revision、runtime、constraint、
 world、tick 与全部每世界可变交通状态；已取消的 `originStaticImage*` 来源字段不再存在，
-worker/partition assignment 也不作为跨硬件恢复权威。人口、出行、Routing 与游戏规则的
+worker/partition assignment 也不作为跨硬件恢复正本。人口、出行、Routing 与游戏规则的
 caller-owned seed/随机流由上层 Save Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime
 的自有随机流才进入运行时快照。dense ordinal 不得跨修订直接复用。
 
@@ -851,8 +851,8 @@ Stable Runtime API G1 前的待决项：
 - command 在哪个 committed boundary 校验和生效，失败是否原子？
 - worker/partition 数变化是否会改变 state、first error 或 event order？
 - 所有 partition 是否读取同一 committed state，是否错误增加跨边界一 tick 延迟？
-- 静态执行约束、可重建提示与每世界执行计划是否保持权威分离？
-- 单资源连接组件是否有唯一规范归约权威，互不相交组件是否仍可并行？
+- 静态执行约束、可重建提示与每世界执行计划是否保持职责分离？
+- 单资源连接组件是否有唯一规范归约裁决方，互不相交组件是否仍可并行？
 - multi-rate/LOD 是否改变 Core safety/fidelity，还是只改变 Presentation？
 - Data/Manifest 是否仍不包含 runtime handle、partition 或 Adapter entity？
 - 路网修订、运行时快照和跨修订 dense-handle 迁移是否失败关闭？

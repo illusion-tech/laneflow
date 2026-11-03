@@ -19,11 +19,11 @@ TOPO/DEMAND workload ID
 
 本文冻结 LuST/Bevy 示例层如何把 TOPO plan 的一万 `logical_rank` placement
 调节到 `target_N∈[1,10000]`，以及 HUD/证据必须暴露哪些正交计数。共享
-`population_rank` 表仍是 provenance 输入，但不是 placement 权威。
+`population_rank` 表仍是 provenance 输入，但不是 placement 正本。
 
-权威分层继承 ADR 0016：
+职责分层继承 ADR 0016：
 
-| 关注点                                  | 权威                                     |
+| 关注点                                  | 归属                                     |
 | --------------------------------------- | ---------------------------------------- |
 | vehicle identity、replace/spawn/despawn | Core                                     |
 | `target_N`、seed、抽样集合、回流/停补位 | caller-owned LuST example policy（#257） |
@@ -38,7 +38,7 @@ TOPO/DEMAND workload ID
 - 宣称一万@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
 
 走廊场景继续以 [`signalized-corridor-population.md`](signalized-corridor-population.md)
-的 `50..=200` 为权威；本文只服务 LuST 示例路径（Parent #252 / #257）。
+的 `50..=200` 为正本；本文只服务 LuST 示例路径（Parent #252 / #257）。
 
 ## 2. 正交计数
 
@@ -48,7 +48,7 @@ HUD 与 headless 证据必须同时可读：
 | ------------------ | ----------------------------------------------------- |
 | `target_N`         | 示例 policy 当前目标 logical population，`[1, 10000]` |
 | `N_individual`     | Core 中仍保留完整 identity 的个体车辆数               |
-| `N_traffic_active` | 参与道路机动车执行域交通权威的道路交通活动车辆数      |
+| `N_traffic_active` | 参与道路机动车执行域交通正本的道路交通活动车辆数      |
 | `N_presented`      | 本 outer frame 被 materialize / 提交展示的表现车辆数  |
 
 本文是 current `CoreWorld`/LuST 车辆特化，所有无下标计数均绑定
@@ -174,7 +174,7 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 | 策略                | 行为                                                                                            | 本契约                                          |
 | ------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | S1 停补位           | 超出目标的 logical slot 停止 replace/回流；Completed 后 unbind/移出 proxy；Core identity 仍保留 | **允许**，但 **不**保证 `N_individual→target_N` |
-| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N`                       | **精确缩编的权威路径**                          |
+| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N`                       | **精确缩编的正本路径**                          |
 | S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                                           | **不做默认**（与 100% 展示默认冲突）            |
 | S4 超时主动 despawn | 超时后 despawn 仍 Active 的 live 车以加速收敛                                                   | **本契约不做**                                  |
 
@@ -194,9 +194,9 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 
 | 制品               | 关系                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
-| #253 static bundle | 示例加载的路网/信号权威；**不含**初始车辆 placement                                               |
-| 共享一万 rank 表   | TOPO/DEMAND 共享 provenance；**不是** #257 的 placement 权威                                      |
-| #254 TOPO plan     | **#257 交互示例必需**的 rank→placement 权威；抽样作用于其 `logical_rank`；不得改 TOPO workload ID |
+| #253 static bundle | 示例加载的路网/信号正本；**不含**初始车辆 placement                                               |
+| 共享一万 rank 表   | TOPO/DEMAND 共享 provenance；**不是** #257 的 placement 正本                                      |
+| #254 TOPO plan     | **#257 交互示例必需**的 rank→placement 正本；抽样作用于其 `logical_rank`；不得改 TOPO workload ID |
 | #255 DEMAND        | 不作为可滑杆人口模型；若演示 departure，须独立模式且不与 H2 热改 / TOPO 子集抽样混用              |
 
 无 TOPO plan 时，#257 不得声称已满足本契约的 H1 bootstrap；不得用 static

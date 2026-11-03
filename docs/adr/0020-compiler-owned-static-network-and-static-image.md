@@ -2,13 +2,13 @@
 
 **状态**: Accepted<br>
 **日期**: 2026-07-29<br>
-**适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
-（Compiler IR）、静态路网权威、可移植规范制品（Portable Canonical Artifact）、
+**适用范围**: 正本来源模块图（Authoritative Source Module Graph）、编译器中间表示
+（Compiler IR）、静态路网正本、可移植规范制品（Portable Canonical Artifact）、
 目标静态镜像（Target Static Image）、验证收据（Validation Receipt）、源映射
 （Source Map）、独立验证器（Independent Validator），以及当前态 Core / 目标态
 交通运行时（Traffic Runtime）、Data、Spatial 初始化边界<br>
 **目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`。<br>
-**迁移时间表修订（#301 G1）**: 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换权威。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。<br>
+**迁移时间表修订（#301 G1）**: 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换正本。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。<br>
 
 **后继决策**: ADR 0029（Accepted；#498 G1）取消本文把 `StaticRoute` 列为 Identity
 v1 必选声明种类、并由编译器预编译初始路线出现记录的条款。ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
@@ -63,8 +63,7 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 
 ## 术语规范
 
-本 ADR 的所有领域术语遵循 `../reference/glossary.md`：中文术语和中文定义是权威
-事实，英文只作辅助理解。Rust 类型、crate、字段、版本值、算法和协议常量等精确
+本 ADR 的所有领域术语遵循 `../reference/glossary.md`：以中文术语和中文定义为准，英文只作辅助理解。Rust 类型、crate、字段、版本值、算法和协议常量等精确
 标识符保留原文；它们不构成独立英文语义来源。若本 ADR 的英文别名与中文定义产生
 歧义或冲突，以中文定义为准。
 
@@ -87,7 +86,7 @@ LaneFlow 当前以 Traffic JSON、Spatial JSON 和 Scenario Manifest 为运行�
 - canonical JSON 既承担治理证据又承担生产启动输入，使 schema/Serde/object graph
   形状反向约束热数据布局；
 - compiler、loader、Core 和 Spatial 分别构建部分静态事实，静态路网没有唯一的
-  编译权威；
+  编译裁决方；
 - 单个 compiler bug 可以系统性污染全部生成资产，仅复用 compiler validation
   不能形成独立预言机。
 
@@ -101,7 +100,7 @@ ADR 0021 定义交通基础设施与宿主边界。静态编译设计既要优�
 
 ## 决策
 
-### 1. 编译器是全部静态路网语义的唯一编译权威
+### 1. 编译器是全部静态路网语义的唯一编译裁决方
 
 编译器负责把 authoring source 降低为一个经过全局验证、具备稳定标识和
 dense layout 的 canonical LIR。以下工作只发生在编译期：
@@ -119,12 +118,12 @@ dense layout 的 canonical LIR。以下工作只发生在编译期：
 
 Target `LaneFlow Traffic Runtime` 继续拥有运行时交通规则、已实现执行域的交通参与
 单元、动态通行定义（Dynamic Traversal Definition）生命周期、固定步进（Tick）、
-安全约束与运行时状态权威（Runtime State Authority）；Spatial
+安全约束与运行时状态裁决权（Runtime State Authority）；Spatial
 继续拥有 canonical geometry sampling 和 pose 语义；二者不再各自重新解释或重建
 静态路网。Current production 的 `LaneFlow Core` 命名、车辆特化和 API 在 cutover
 前继续有效。
 
-### 2. 权威来源模块图（Authoritative Source Module Graph）组合平级前端（Frontend），不采用 L1/L2
+### 2. 正本来源模块图（Authoritative Source Module Graph）组合平级前端（Frontend），不采用 L1/L2
 
 一个 compilation unit 的唯一 authoring authority 是显式、可重放的 source module
 graph，而不是 Geometry 这一种格式。每个 module 必须绑定稳定 namespace、source
@@ -141,7 +140,7 @@ language/content digest、frontend version/options、origin/provenance 与 impor
   诊断；不拥有私有编译语义。
 
 ADR 0023 重新打开了“Geometry JSON 文档是 production 主要编制语言”的具体格式选择。
-source module graph 仍是逻辑编制权威，但其可重放物理编码必须服务编辑器、程序化
+source module graph 仍是逻辑编制正本，但其可重放物理编码必须服务编辑器、程序化
 生成、局部加载和协作，而不以人工文本编辑或原始 Git diff 为产品前提。
 
 每个 frontend 只负责自己的语法、来源保真和 source span，不得输出
@@ -155,7 +154,7 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 
 编译器中间表示按稳定职责分层：
 
-| 阶段                              | 权威与允许内容                                                          | 禁止内容                                                  |
+| 阶段                              | 正本与允许内容                                                          | 禁止内容                                                  |
 | --------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------- |
 | 有类型抽象语法树（Typed AST）     | 前端语法、显式键、来源位置（Source Span）、未解析引用                   | 核心句柄（Core Handle）、目标布局（Target Layout）        |
 | 高层中间表示（HIR）               | 命名空间、模块、符号、单位、引用与编制语义（Authoring Semantics）已解析 | 几何镶嵌（Geometry Tessellation）、密集槽位（Dense Slot） |
@@ -310,7 +309,7 @@ dense arrays，并以 image ordinal/typed `u32` handle 关联静态表。
 快照和宿主 identity 也不能进入共享 image。
 
 人口、Routing 与游戏规则的 seed/随机流由 caller/出行编排层拥有；Traffic Runtime
-不得为了存档或共享镜像而新增隐藏随机权威。若后续 G1 显式引入 Runtime 自有随机流，
+不得为了存档或共享镜像而新增隐藏随机流裁决权。若后续 G1 显式引入 Runtime 自有随机流，
 它只能属于每世界可变状态。
 
 默认在线切换使用准备（Prepare）→增量追赶（Delta Catch-up）→静默提交
@@ -590,7 +589,7 @@ IR」：
 - 可以安全并行求值或切分的边界；
 - 提案（Proposal）、资源声明（Resource Claim）、事件（Event）和变更（Mutation）
   的规范合并键与提交顺序；
-- 无法局部化时必须归入同一归约权威的连接资源组件。
+- 无法局部化时必须归入同一归约裁决方的连接资源组件。
 
 该图是静态交通语义的派生事实，必须对工作线程数和实际分区计划（Partition Plan）
 中立。编译器
@@ -601,15 +600,15 @@ IR」：
 每个 `TrafficWorld` 依据静态约束、硬件拓扑、世界容量和动态负载建立可变的
 运行时执行计划（Runtime Execution Plan），拥有实际分区/工作线程分配、
 边界交换缓冲、迁移状态和调度统计。它不得回写共享 image，也不得成为存档跨硬件
-恢复的行为权威。
+恢复的行为裁决权。
 
 精确执行路径（Exact Execution Path）统一遵循已提交状态 `T` →
 提案/资源声明/归约（Reduction）→ 原子提交 `T + Δ`。所有分区只读取 `T` 和同一
 tick 的规范输入；跨分区依赖不能通过额外一 tick 边界邻域延迟（Halo Delay）获得
-性能。每个连接资源组件只有一个规范归约权威，但互不相交的组件可以由不同工作线程
+性能。每个连接资源组件只有一个规范归约裁决方，但互不相交的组件可以由不同工作线程
 并行归约；“单归约器（Single Reducer）”不等于全世界永久只有一个归约线程。
 
-唯一规范归约权威定义唯一结果与规范顺序，不规定一个组件由单一物理线程串行折叠。
+唯一规范归约裁决方定义唯一结果与规范顺序，不规定一个组件由单一物理线程串行折叠。
 生产候选必须比较资源分段、强连通分量（Strongly Connected Component，SCC）、凝聚
 有向无环图（Condensation Directed Acyclic Graph，Condensation DAG）波次、稳定局部
 归约与固定合并树；当前集中式组件合并只作为精确参考预言机（Exact Reference
@@ -632,7 +631,7 @@ Oracle）。运行时至少报告组件/SCC 分布、最大 SCC 提案占比、�
 分区计划和任务完成顺序不得改变精确执行路径的已提交状态、事件或安全结果。未来
 保真度（Fidelity）降级必须进入独立 ADR/G1，不能伪装成调度优化。
 
-### 12. 运行时快照、回放和路径规划不进入共享静态权威
+### 12. 运行时快照、回放和路径规划不进入共享静态正本
 
 运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定创建快照时的
 `originCanonicalArtifactDigest + originCanonicalArtifactByteLength`、
@@ -667,7 +666,7 @@ validationReceiptDigest + validationReceiptByteLength`，其中种类必须是
 descriptor，再按调用方上限和统一 pre-hash 规则有界读取 semantic diff；随后核对其
 base/target revision/artifact/image 三元组与两个可信 image descriptor 精确一致，
 再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定或验证的 diff 只能用于诊断，
-不得成为状态迁移权威；缺失 diff 时也不得用两个索引和迁移策略执行 index-only
+不得成为状态迁移正本；缺失 diff 时也不得用两个索引和迁移策略执行 index-only
 回退，因为稳定身份相同不能证明 topology、geometry、access 或 control 语义相容。
 本地玩家改路必须先由独立验证器比较两份已验证 portable artifact、重算或验证完整
 diff 并签发 receipt，再由宿主认证 asset chain 或 pinned digest 认证切换描述符；
@@ -740,10 +739,10 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 | ADR  | 继续有效                                                                                                      | 本 ADR 目标取代                                                                           |
 | ---- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | 0005 | 外部稳定标识（External Stable Identity）、有类型密集句柄（Typed Dense Handle）、热冷分离、动态车辆 / 路线生成 | 核心初始化时分配静态句柄 / 登记表；目标态动态执行层改名为交通运行时（Traffic Runtime）    |
-| 0007 | 运行时（Runtime）不依赖 Serde / 文件系统 / 引擎，以及内存中字节边界（In-memory Bytes Boundary）               | 私有 DTO → `InitialTrafficData` 作为终态唯一输入、核心构造器作为全部静态规范化权威        |
+| 0007 | 运行时（Runtime）不依赖 Serde / 文件系统 / 引擎，以及内存中字节边界（In-memory Bytes Boundary）               | 私有 DTO → `InitialTrafficData` 作为终态唯一输入、核心构造器作为全部静态规范化裁决权      |
 | 0008 | 精确当前版本（Exact-current）、失败关闭（Fail-closed）、离线迁移（Offline Migration）                         | 单一 `formatVersion` 同时承担来源、制品与静态镜像布局版本                                 |
 | 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源链（Provenance）、运行时不联网            | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                 |
-| 0013 | 交通运行时 / 空间层 / 适配器权威、规范几何、长度 / 位姿、失败原子性、无图形支持                               | 交通 / 空间两个独立制品在运行时按外部标识（External ID）和清单摘要（Manifest Digest）联结 |
+| 0013 | 交通运行时 / 空间层 / 适配器裁决权、规范几何、长度 / 位姿、失败原子性、无图形支持                             | 交通 / 空间两个独立制品在运行时按外部标识（External ID）和清单摘要（Manifest Digest）联结 |
 | 0015 | 有界规范 `f32` 坐标框架、误差 / 内存 / 批量性能边界                                                           | 空间层初始化时从核心句柄和 JSON 几何重建登记表；静态镜像的空间节保持可选                  |
 | 0017 | 路口、通行流向、机动路径、机动门、路线出现记录语义，共享内部边，热路径无字符串                                | 核心规范化 / 路线注册期首次编译静态出现记录；静态初始出现记录改由编译器镜像预编译         |
 
@@ -756,7 +755,7 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 
 正向后果：
 
-- 静态路网只有一个编译权威，Traffic/Spatial 不再重复解析、绑定和建索引；
+- 静态路网只有一个编译裁决方，Traffic/Spatial 不再重复解析、绑定和建索引；
 - source language 可独立演进，Synthetic DSL 不会成为 Geometry/Import/Editor 的下级；
 - portable governance contract 与 target performance layout 解耦；
 - Traffic Runtime/Spatial 可共享只读静态内存，headless 不携带 geometry，多 world 只
@@ -803,7 +802,7 @@ semantic diff；拒绝。
 
 ### 运行时（Runtime）加载时重新执行完整语义验证（Semantic Validation）
 
-它保留了当前启动成本和重复权威。Runtime 只验证结构/runtime precondition，并通过
+它保留了当前启动成本和重复正本。Runtime 只验证结构/runtime precondition，并通过
 external descriptor/receipt 继承已完成的 semantic trust；完整语义由 compiler +
 independent validator 在发布前完成；拒绝。
 

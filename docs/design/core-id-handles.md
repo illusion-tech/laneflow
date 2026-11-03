@@ -586,7 +586,7 @@ Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapt
 
 ## 12. 场景人口与 atomic replace extension
 
-#184/ADR 0016 的权威仍有效。#186 的 Core 命令已随 `CoreWorld` 拆除；现行入口由 #475 钉在 `TrafficWorld`：
+#184/ADR 0016 的规范仍有效。#186 的 Core 命令已随 `CoreWorld` 拆除；现行入口由 #475 钉在 `TrafficWorld`：
 
 ```rust
 replace_completed_vehicle(

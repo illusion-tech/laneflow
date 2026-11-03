@@ -22,7 +22,7 @@
   跨修订迁移入口（#302 G1；G2 起实现）。
 - `traffic-runtime-state-integrity.md`：运行时状态完整性校验与失真恢复——Runtime 侧只在
   投入使用前与宿主审计时认证共享路网修订（不进 tick 路径），C(T) 由宿主审计重放覆盖；停用 +
-  宿主处置的恢复权威边界、漏检面、遥测与认证成本口径
+  宿主处置的恢复裁决权边界、漏检面、遥测与认证成本口径
   （#955 G1；配套 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)）。
 - `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2
@@ -36,7 +36,7 @@
 - `committed-road-editing-state.md`：committed `RoadEditingState` 的形状与所属层级、
   `CommittedNetworkSource` 编辑来源变体、`EditableDiffBase` 对应关系、宿主重编译的信任
   边界与快照编辑来源绑定（#1116 G1；实现见 #1119，认证分支与端到端验证见 #529）。
-- `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
+- `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和正本边界。
 - `committed-pose-extraction.md`：#681 位姿来源借用、Spatial 缓冲交换与按需提取
   的已接受设计；实现状态以独立切片为准。
 - `portable-canonical-artifact.md`：统一 LFCA 5 / LFSM 4 / LFSD 4 /
@@ -58,7 +58,7 @@
 
 两文配套 ADR 0030（Accepted）；配置分离已实现（现行 LFRS 7），worker 1–16 已开放（#705）。
 
-- [`traffic-runtime-columnar-execution.md`](traffic-runtime-columnar-execution.md)：ADR 0031 接受的列式运动权威、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准。
+- [`traffic-runtime-columnar-execution.md`](traffic-runtime-columnar-execution.md)：ADR 0031 接受的列式运动正本、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准。
 
 ## 领域规则
 

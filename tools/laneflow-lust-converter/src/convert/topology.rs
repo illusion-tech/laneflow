@@ -307,7 +307,7 @@ fn convert_network_packages(
                 lane.id
             )));
         }
-        // 编译器规定路口穿越由 ManeuverPath 独占权威：路径链不写 LaneEdge 后继
+        // 编译器规定路口穿越由 ManeuverPath 独占裁决权：路径链不写 LaneEdge 后继
         // （涉及 internal 边的转移只能由 ManeuverPath 边序承载），因此 successor
         // 一律为空，车道连接关系由 junction 归一化（normalize_junctions）承担。
         lane_edges.push(LaneEdge {
@@ -367,7 +367,7 @@ fn convert_network_packages(
         edges: spatial_edges,
     };
 
-    // #253 Q6：诊断条目的 internal/authored 分类按权威 function 元数据
+    // #253 Q6：诊断条目的 internal/authored 分类按正本 function 元数据
     // （P4 已证 pinned 两法 0 不一致，survey 字节不变）。
     let internal_lanes: std::collections::HashSet<String> = network
         .lanes
@@ -376,7 +376,7 @@ fn convert_network_packages(
         .map(|lane| lane.laneflow_id())
         .collect();
     let artifacts = if options.emit_infeasibility_report {
-        // #804 事项 2：清单总量基数按实际输入网络统计——lane 数按权威
+        // #804 事项 2：清单总量基数按实际输入网络统计——lane 数按正本
         // function 元数据；junction 数用清单 junction 列口径
         // （geom::internal_lane_junction，LuST 命名约定，仅 pinned 字节
         // 输入渲染）。pinned 输入下渲染与基线逐字节一致。

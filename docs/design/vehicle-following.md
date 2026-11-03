@@ -30,7 +30,7 @@
 #496 / ADR 0028 把已提交一维几何改为整数毫米，占用/
 重叠用整数比较，跨 hop 间隙为 `i64` mm，IIDM 仍为舒适层；`max_accel >= 0.5 m/s²`，
 不另做速度余数。落地规则见 `traffic-runtime-integer-geometry.md`。下文若仍出现
-历史米制字段名，只描述编制输入或瞬时 SI，不是已提交权威。
+历史米制字段名，只描述编制输入或瞬时 SI，不是已提交正本。
 
 目标：
 
@@ -288,7 +288,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Core 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
-**过渡投影衔接注记（#237，权威定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §4）**：
+**过渡投影衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §4）**：
 换道期间的整边保守投影记录（同区共横向边全长、带投影标记、不重复计车辆或
 容量）与实际车体记录同表参与跟车/准入占用查询；重叠分类沿用本节分档（本车
 自排除、实际↔实际与投影↔实际按本节阈值分档、投影↔投影保守重叠合法），
@@ -576,7 +576,7 @@ travel = v*stop_time + 0.5*acceleration*stop_time^2
 v_candidate = 0
 ```
 
-不得产生负速度后再简单 clamp，也不采用 explicit/semi-implicit Euler 作为 v0.3 权威积分。
+不得产生负速度后再简单 clamp，也不采用 explicit/semi-implicit Euler 作为 v0.3 正本积分。
 
 ### 11.2 Final geometry constraint
 
@@ -657,7 +657,7 @@ final_speed = min(candidate_speed, speed_from_travel)
 
 - 已提交占用、边界和间隙用整数毫米比较，不使用米制哨兵，也不得由通用近似比较 helper 代理。
 - Vehicle Profile length 的输入下限独立于占用间隙。
-- 已提交速度是 `u32` mm/s；IIDM 瞬时 SI 不算已提交权威，不得回写。
+- 已提交速度是 `u32` mm/s；IIDM 瞬时 SI 不算已提交正本，不得回写。
 - 相对误差和 ULP 不进入 production predicate。
 - 合法 finite 输入若导致中间计算非有限，返回结构化 longitudinal runtime error，step 原子失败。
 - Safety projection、正常 emergency braking 和拥堵停车不是 validation error。
@@ -765,7 +765,7 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 | v0.2                 | v0.3                                         | 迁移                                                |
 | -------------------- | -------------------------------------------- | --------------------------------------------------- |
 | `VehicleState.speed` | `current_speed`                              | 破坏性改名                                          |
-| `effective_speed()`  | 删除                                         | 状态直接保存权威当前速度                            |
+| `effective_speed()`  | 删除                                         | 状态直接保存正本当前速度                            |
 | 无 acceleration      | `applied_acceleration`                       | 新增 signed finite state                            |
 | Spawn `speed`        | `initial_speed`                              | 破坏性改名                                          |
 | 无 profile           | 必填 profile reference                       | 显式绑定                                            |

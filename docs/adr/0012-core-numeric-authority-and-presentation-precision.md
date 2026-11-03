@@ -1,4 +1,4 @@
-# 0012 Core 数值权威与表现层精度
+# 0012 Core 数值正本与表现层精度
 
 **状态**: Superseded
 
@@ -41,7 +41,7 @@ LaneFlow 在首个 Engine Adapter 前需要冻结交通状态、道路几何和�
 - “所有 f32 候选都没有 wall-time 优势”；
 - “compensated f32 的剩余误差证明控制链必须回到 f64”。
 
-ADR 0014 已接受补偿残差感知 `f32` 的下一目标契约，并取代本文关于“目标权威继续统一为 `f64`”的长期目标决策。#144 的首次独立原子迁移通过正确性和内存护栏，但稳态性能只提升 `4.257%`、未达到 `5%` 门槛，因此当前生产仍保持本文的 `f64` 状态。完整逐轮数字见 git 历史中的 v0.6 数值验证记录；本文与 ADR 0014 保留裁决结论。
+ADR 0014 已接受补偿残差感知 `f32` 的下一目标契约，并取代本文关于“目标正本继续统一为 `f64`”的长期目标决策。#144 的首次独立原子迁移通过正确性和内存护栏，但稳态性能只提升 `4.257%`、未达到 `5%` 门槛，因此当前生产仍保持本文的 `f64` 状态。完整逐轮数字见 git 历史中的 v0.6 数值验证记录；本文与 ADR 0014 保留裁决结论。
 
 ## 决策
 
@@ -88,7 +88,7 @@ Core progress f64
 - Bevy/glam、Unity、Unreal、Godot、Three.js、Babylon.js 的具体 vector/Transform 类型只能出现在各自 Adapter 末端，不能进入 Core/Spatial/Data 公共契约。
 - presentation interpolation、camera-relative rebasing 和视觉 LOD 可以使用 host-local precision，但不得改变 Core tick、vehicle status、occupancy、route progress 或事件。
 
-### 5. `f16` 与量化整数不是权威运行时表示
+### 5. `f16` 与量化整数不是正本运行时表示
 
 - IEEE binary16 不用于 edge/progress、speed、gap、constraint、geometry、heading 或 pose authority；本轮矩阵中只有 acceleration 范围满足单项绝对误差 ceiling，其余关键域均失败。
 - `f16` crate 只保留为 research/test dependency，不进入 production Core/Data/Spatial/Adapter dependency surface。
@@ -145,7 +145,7 @@ raw f32 authority 会收窄 current API/Data compatibility，raw integration 有
 
 ### `f32` progress 加 residual/compensation
 
-旧候选的残差只参与写入，不参与间距/剩余量/边界/快照读取，因此其密集/停车失败不能再作为拒绝完整补偿的依据。#140 的补偿残差感知候选通过当前研究预算，候选内存降低 31.25%，同轮 Criterion 也快于 `f64`。ADR 0014 已接受它作为下一目标，但在 Core API/Data/Signals/Parking/route/命令全链验证与原子迁移前，仍不作为当前生产权威。
+旧候选的残差只参与写入，不参与间距/剩余量/边界/快照读取，因此其密集/停车失败不能再作为拒绝完整补偿的依据。#140 的补偿残差感知候选通过当前研究预算，候选内存降低 31.25%，同轮 Criterion 也快于 `f64`。ADR 0014 已接受它作为下一目标，但在 Core API/Data/Signals/Parking/route/命令全链验证与原子迁移前，仍不作为当前生产正本。
 
 ### mixed `f32 compute + f64 progress`
 
@@ -153,7 +153,7 @@ raw f32 authority 会收窄 current API/Data compatibility，raw integration 有
 
 ### 所有层统一 `f64`，Adapter 也不转换
 
-无法直接映射默认 f32 的 host Transform/GPU buffer，也会把大世界精度问题推给每个 Adapter 自行解决，因此拒绝。权威 f64 与末端 local f32 必须同时存在但职责分离。
+无法直接映射默认 f32 的 host Transform/GPU buffer，也会把大世界精度问题推给每个 Adapter 自行解决，因此拒绝。正本 f64 与末端 local f32 必须同时存在但职责分离。
 
 ### authoritative `f16` 或统一量化整数
 
@@ -166,4 +166,4 @@ binary16 在多数关键域直接超过误差 ceiling；整数格式需要领域
 - #123：在本 ADR 上冻结 Spatial canonical/local frame、f64 geometry authority、length consistency、sampling 与 checked presentation 输入。
 - G1 后拆分独立 Issue：领域 epsilon/validation、Data/API migration audit、长期 numeric validation/performance 和 #122 closure review。
 - v0.7 Adapter API/Bevy 实施显式 local-origin 后的 f32 batch conversion，并在真实 host 上复核 batch cost、range error 与失败原子性。
-- #141 已交付取代本文的 ADR 0014 目标决策；只有完整的生产补偿残差感知候选补齐正确性、性能、总内存和 API/Data 迁移证据后，才改变当前权威。#140 足以重开设计，ADR 0014 足以冻结目标，两者都不足以单独完成生产迁移。
+- #141 已交付取代本文的 ADR 0014 目标决策；只有完整的生产补偿残差感知候选补齐正确性、性能、总内存和 API/Data 迁移证据后，才改变当前规范。#140 足以重开设计，ADR 0014 足以冻结目标，两者都不足以单独完成生产迁移。

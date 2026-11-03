@@ -2,8 +2,8 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-10-25<br>
-**适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
-（Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
+**适用范围**: 正本来源模块图（Authoritative Source Module Graph）、编译器中间表示
+（Compiler IR）、静态路网编译裁决方、标识派生、可移植规范制品（Portable Canonical
 Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异
 （Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、
 静态执行约束（Static Execution Constraints）、不可变路网修订
@@ -42,14 +42,14 @@ Artifact）、共享静态路网（Shared Static Network）、源映射（Source
 
 ## 术语规范
 
-本文的中文术语和中文定义是权威事实，英文只作辅助理解。完整双语映射以
+本文的以中文术语和中文定义为准，英文只作辅助理解。完整双语映射以
 `../reference/glossary.md` 为 SSOT；本文不另建竞争词表。类型、crate、字段、版本
 值、算法和协议常量等精确标识符使用反引号保留原文，但其语义由中文正文裁决。
 
 本文的主链路按中文规范术语表述为：
 
 ```text
-权威来源模块图（Authoritative Source Module Graph）
+正本来源模块图（Authoritative Source Module Graph）
   -> 有类型抽象语法树（Typed AST）
   -> 高层中间表示（HIR）
   -> 中层中间表示（MIR）
@@ -91,9 +91,9 @@ SharedNetworkRevision ─┬─> Traffic Runtime: SharedTrafficNetwork + per-wor
 
 - 取消 L1/L2 作为架构层；不同来源语言（Source Language）/来源模块是平级前端
   输入；
-- 编译单元的唯一数据编制权威是可重放的权威来源模块图，几何文档只是生产场景的
+- 编译单元的唯一数据编制正本是可重放的正本来源模块图，几何文档只是生产场景的
   主要来源语言；
-- 编译器是全部静态路网的唯一编译权威；
+- 编译器是全部静态路网的唯一编译裁决方；
 - `InitialTrafficData` 和 Core 登记表不是中间表示；
 - AST/HIR/MIR/LIR 逐级降阶，只有以已验证规范 LIR 为静态语义核心的成功编译结果
   可以进入编译发射器；
@@ -143,22 +143,22 @@ Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped 
 
 ## 3. 当前生产边界
 
-| 关注点                          | 现行合同                                              |
-| ------------------------------- | ----------------------------------------------------- |
-| 数据编制（Authoring）           | 权威来源模块图；道路编辑来源是主要生产来源语言        |
-| 交通加载（Traffic Load）        | 受检 LFCA → `SharedTrafficNetwork`                    |
-| 空间加载（Spatial Load）        | 同一修订上的可选 `SharedSpatialNetwork`               |
-| 标识（Identity）                | 编译器生成 `StableId128`；共享路网使用密集 `u32` 句柄 |
-| 静态出现记录（Static Occurrence） | 编译器不预编译路线；路线出现记录只进入每世界表          |
-| 规范制品                        | LFCA/LFSM/LFSD + 源映射 + 语义差异                    |
-| 运行时性能数据                  | 进程内不可变 `SharedNetworkRevision`                  |
-| 执行规划                        | 静态约束 + 可重建提示 + 每世界运行时执行计划          |
-| 道路修改                        | 确认建造后构建候选修订 + 安全边界修订切换事务         |
-| 验证                            | 编译器语义裁决 + 后发射检查 + shared-network 构建闭合 |
+| 关注点                            | 现行合同                                              |
+| --------------------------------- | ----------------------------------------------------- |
+| 数据编制（Authoring）             | 正本来源模块图；道路编辑来源是主要生产来源语言        |
+| 交通加载（Traffic Load）          | 受检 LFCA → `SharedTrafficNetwork`                    |
+| 空间加载（Spatial Load）          | 同一修订上的可选 `SharedSpatialNetwork`               |
+| 标识（Identity）                  | 编译器生成 `StableId128`；共享路网使用密集 `u32` 句柄 |
+| 静态出现记录（Static Occurrence） | 编译器不预编译路线；路线出现记录只进入每世界表        |
+| 规范制品                          | LFCA/LFSM/LFSD + 源映射 + 语义差异                    |
+| 运行时性能数据                    | 进程内不可变 `SharedNetworkRevision`                  |
+| 执行规划                          | 静态约束 + 可重建提示 + 每世界运行时执行计划          |
+| 道路修改                          | 确认建造后构建候选修订 + 安全边界修订切换事务         |
+| 验证                              | 编译器语义裁决 + 后发射检查 + shared-network 构建闭合 |
 
-## 4. 权威职责（Authority）
+## 4. 最终裁决职责（Authority）
 
-### 4.1 数据编制权威（Authoring Authority）
+### 4.1 数据编制正本（Authoring Authority）
 
 一个 compilation unit 的唯一 authoring authority 是显式、可重放的
 **authoritative source module graph**，不是某一种固定文档格式。每个 module 至少冻结：
@@ -200,7 +200,7 @@ documents[] {
 SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档键、精确长度与逐文档摘要进行
 版本化、域分隔聚合后的 SHA-256。两者只服务重放、缓存比较与来源链，不参与实体稳定标识。
 聚合不能选择某一文档，也不能重新读取和哈希全部来源载荷；精确 v1 原像以
-`compiler-foundation.md` 第 3.3 节为权威。任何会改变规范来源记录字节的编码变化必须提升对应
+`compiler-foundation.md` 第 3.3 节为准。任何会改变规范来源记录字节的编码变化必须提升对应
 `frontendVersion`；任何改变文档集聚合原像的变化必须提升
 `sourceDocumentSetDigestVersion`。现有 Synthetic `sourceContentDigest` 必须逐项等于候选单文档的
 `sourceDocumentDigest`；新的文档集摘要具有独立语义。任何后继前端都必须冻结自己的精确来源字节。
@@ -215,7 +215,7 @@ SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档�
 - 道路编辑状态是 production 编辑器和程序化生成场景的主要 source language；可视化编辑器、
   第一方 Rust 构造面与 importer 共享有类型道路编辑模型，使用按模块的
   `LF-ROAD-EDITING-SOURCE-v4` FlatBuffers 来源缓冲区持久化；
-- Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的权威输入；
+- Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的正本输入；
 - import module 必须记录原始 source bytes/digest、importer build、选项和 provenance；
   选择 materialize 为道路编辑来源模块时，必须显式记录 authority 切换；
 - editor 编辑并持久化道路编辑状态，通过稳定实体、属性和画布 selection 关联诊断，
@@ -227,7 +227,7 @@ typed AST/HIR/MIR/LIR 都是 source graph 的派生物。Portable artifact 是�
 canonical publication contract；`SharedNetworkRevision` 是从受检 LFCA 重建的进程内
 性能数据。二者都不得反向覆盖 source module。
 
-### 4.2 编译器权威（Compiler Authority）
+### 4.2 编译器裁决权（Compiler Authority）
 
 compiler 唯一负责静态路网的：
 
@@ -242,11 +242,11 @@ compiler 唯一负责静态路网的：
 - portable artifact、source map 和 semantic diff emission；共享静态路网由独立
   `laneflow-static-network` crate 从受检 LFCA 构建。
 
-LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为权威的
+LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为裁决权的
 `PartitionPlanningHints` 由 `laneflow-static-network` 按显式 derivation version 从上述已
 受检规范关系确定性派生；compiler 不经 LIR 私有旁路把提示交给 Runtime。
 
-### 4.3 运行时权威（Runtime Authority）
+### 4.3 运行时正本（Runtime Authority）
 
 - Traffic Runtime：固定步进（Fixed Tick）、已实现执行域的交通参与单元、动态通行
   定义（Dynamic Traversal Definition）生命周期、控制器时钟（Controller Clock）、
@@ -256,7 +256,7 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为权�
 - Adapter：宿主 entity、Transform、frame placement、presentation lifecycle；
 - shared static network：只读静态事实，不持有可变 authority。
 
-### 4.4 宿主应用、出行编排与路径规划权威
+### 4.4 宿主应用、出行编排与路径规划裁决权
 
 - 宿主应用层拥有应用业务，例如人口、经济、土地利用、建筑、任务与游戏规则；
 - 出行与交通编排层拥有出行需求、出发时刻、参与单元生成、目的地、人口生命周期和
@@ -269,7 +269,7 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为权�
 
 具体 routing crate/API 不属于本设计；当前边界是宿主自有 Routing + LaneFlow 纯契约，见
 [`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)。
-这些权威边界不得被 compiler、Adapter 或 scenario policy 绕过。
+这些正本边界不得被 compiler、Adapter 或 scenario policy 绕过。
 
 ## 5. 前端架构（Frontend Architecture）
 
@@ -303,7 +303,7 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为权�
 来源文档是来源伴随记录，不纳入 `TypedAstRecordCount`。#315 增加独立
 `SourceDocumentCount`，并通过新的 `LF-COMP-P100-INITIAL-v2` 约束编译单元文档总数；v1
 配置档保持不可变。v2 的初始上限、三文档容量推导和重新资格验证以
-`compiler-foundation.md` 第 3.3、10.4 节为权威。
+`compiler-foundation.md` 第 3.3、10.4 节为准。
 v1 只以 `ModuleCount` 隐式约束一模块一文档形状，当前 Synthetic 符合该形状；任何多文档模块都
 必须在前端按规模分配和共同接入提交前确认宿主显式选择了 v2 或后继携带
 `SourceDocumentCount` 的版本化配置档。多文档正式前端必须在读取、哈希或解析前拒绝
@@ -318,7 +318,7 @@ buffer/document”应用
 为接入复制来源全文。记录级循环禁止特征对象（trait object）、前端枚举
 （enum）分支、重复
 摘要、重复资源计数或第二次规范排序。精确所有权、失败事务和共同接入性能验证以
-`compiler-foundation.md` 第 3.3 与 10.4 节为权威。
+`compiler-foundation.md` 第 3.3 与 10.4 节为准。
 
 current JSON 不属于官方编译器前端，schema 与加载 crate 已删除。
 `laneflow-compiler` 不依赖 JSON。编译器和投影测试直接构造有类型模块。精确退役
@@ -456,13 +456,13 @@ pass 可以并行或增量执行，但 clean single-thread compile 是确定性 
 
 ### 7.1 三类标识
 
-标识权威是可审计的**规范标识元组（Canonical Identity Tuple）**，不是 UUID/哈希值本身。编译管线
+标识正本是可审计的**规范标识元组（Canonical Identity Tuple）**，不是 UUID/哈希值本身。编译管线
 必须区分：
 
 | 对象类别                                                                  | 标识形式                                                          | 典型用途                                                              |
 | ------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
 | 稳定声明 / 可独立寻址派生实体（Stable Declaration / Addressable Derived） | `StableId128` + 有类型逻辑序号（Typed Logical Ordinal）           | 跨编译引用、源映射（Source Map）、语义差异（Semantic Diff）、发布审计 |
-| 所有者局部关系 / 出现记录（Owner-local Relation / Occurrence）              | `(ownerOrdinal, role, localIndex)` 有类型键（Typed Key）          | 相位状态、成员关系 / 区间                                             |
+| 所有者局部关系 / 出现记录（Owner-local Relation / Occurrence）            | `(ownerOrdinal, role, localIndex)` 有类型键（Typed Key）          | 相位状态、成员关系 / 区间                                             |
 | 所有低层中间表示 / 共享静态表行（All LIR / Shared-static Table Rows）     | 表类型专用的有类型 `u32` 逻辑序号（Table-specific Typed Ordinal） | 编译发射、交叉索引（Cross-index）、运行时热路径（Runtime Hot Path）   |
 
 `StableId128` 不进入每个 relation、sampling point 或 occurrence。任何需要跨编译
@@ -617,7 +617,7 @@ validated canonical LIR 必须保存有类型（Typed）的
 
 `ParkingFacility`、`ConflictZone`、`ParticipantStream` 与 `RightOfWayPolicySet` 统一登记在
 `identityRegistryRevision = 4`。`JunctionGroup`
-等其它未来 domain 只有在权威设计冻结后才能 append 新 kind code。新增 kind 提升
+等其它未来 domain 只有在规范设计冻结后才能 append 新 kind code。新增 kind 提升
 registry revision，但不改变既有 kind 的 bytes/ID；修改既有 kind 的 required field、
 tag 含义或编码必须提升 `identityEncodingVersion`。LFCA 的物理分块只改变承载方式；
 typed ordinal 与 StableId 仍在完整逻辑表范围内定义，不得改成 `(chunk,row)` 身份。
@@ -871,7 +871,7 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
   declaration/addressable-derived 提供 typed ordinal → StableId128 的正向表，以及按
   `(entityKind, StableId128)` 排序的 StableId128 → typed ordinal 反向表；它服务
   snapshot save/load、dynamic Route 重建和 network-revision cutover；
-- portable artifact 的 `CanonicalIdentityTable` 是独立验证所需原像权威；
+- portable artifact 的 `CanonicalIdentityTable` 是独立验证所需原像正本；
   static image 只保留上述 `StaticIdentityIndex`，不复制 field-tag/value 原像，生产
   Runtime 因而不为验证元数据承担 retained memory 或 cache 成本；
 - 身份索引可以独立分页、按需映射或在 steady tick 期间不驻留 CPU cache，但不得与
@@ -1078,7 +1078,7 @@ records
 
 `canonicalArtifactDigest` 绑定本次编译产生的 portable artifact exact bytes，
 `networkRevisionDerivationVersion + networkRevision` 绑定其规范语义，
-envelope 内的 records 绑定权威来源模块图、frontend/import 工具与显式编译选项的
+envelope 内的 records 绑定正本来源模块图、frontend/import 工具与显式编译选项的
 来源链。即使实体 `StableId128` 与 typed ordinal 都未变化，来源位置、来源模块
 或编译输入变化也必须生成新的 `SourceMapEnvelope` exact bytes。
 
@@ -1088,7 +1088,7 @@ envelope 内的 records 绑定权威来源模块图、frontend/import 工具与�
 - declaration/addressable-derived 使用
   `(entityKind, StableId128, typed ordinal)` 引用 portable artifact 中的
   `CanonicalIdentityTable` row，并附加闭合 `SourceLocation` / provenance；可以为诊断展示
-  冗余规范元组，但该副本不是 validator 输入或身份权威；
+  冗余规范元组，但该副本不是 validator 输入或身份正本；
 - owner-local relation/occurrence 使用 owning StableId128、typed role 和本次
   compilation 的 `localIndex`；
 - 所有记录保留 LIR table/ordinal 作为本次 compilation 的定位；
@@ -1365,11 +1365,11 @@ image header 的可选自证字段。
 ```
 
 所有分区读取同一 `T`。跨边界不能增加一 tick 延迟；每个连接资源组件只有一个规范
-归约权威，但互不相交组件可以并行归约。工作线程数、任务完成顺序和分区计划不得
+归约裁决方，但互不相交组件可以并行归约。工作线程数、任务完成顺序和分区计划不得
 改变已提交状态、事件或安全结果。本设计不冻结固定边界邻域、分区算法、任务运行库、
 固定点或精确累加器；这些选择必须由热点、误差和基准证据裁决。
 
-“唯一规范归约权威（Canonical Reduction Authority）”定义唯一结果与规范顺序，
+“唯一规范归约裁决方（Canonical Reduction Authority）”定义唯一结果与规范顺序，
 不等同于“一个组件只能由一个物理线程串行执行”。实现可以依据资源依赖图的强连通
 分量（Strongly Connected Component，SCC）、凝聚有向无环图（Condensation Directed Acyclic Graph，Condensation DAG）、
 资源分段和无依赖波次，把同一连接组件拆成确定性并行任务；各段按稳定键局部归约，
@@ -1408,7 +1408,7 @@ Reference Oracle），不能未经工作量/跨度证据直接成为 production 
 > 和验证形态必须由 #302 G1 重新冻结。
 
 `SharedNetworkRevision` 代表一个路网修订。结构性道路编辑在用户确认建造后重新进入
-权威来源模块图，顺序发射 file-backed LFCA/LFSM/LFSD，经后发射检查后直接从同一
+正本来源模块图，顺序发射 file-backed LFCA/LFSM/LFSD，经后发射检查后直接从同一
 backing 交给 builder 生成候选；不得保留完整对象级内存 LFCA，共享数组不得原地
 mutation。候选构建期间当前修订继续运行。
 
@@ -1465,7 +1465,7 @@ independent validator 已针对两个 portable artifact
 封套 exact bytes 精确一致；base/target 修订、制品摘要/长度和镜像摘要/长度必须分别
 与封套及两个可信静态镜像的 descriptor 精确相等。
 Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体映射，不能让 diff 中的
-ordinal、数组位置或 compiler 私有顺序成为迁移权威；该索引检查是语义差异验证后的
+ordinal、数组位置或 compiler 私有顺序成为迁移正本；该索引检查是语义差异验证后的
 身份完整性防线，不能证明语义兼容。缺失、未认证、base/target
 不匹配或未由独立验证器完整比较的 semantic diff 一律中止迁移。调用方可以显式放弃
 旧状态并创建目标修订上的新世界，但这属于新建而非 cutover/migration。
@@ -1544,12 +1544,12 @@ runtime-owned random-stream state (future explicit G1 only)
 `route_edge_index`。`VehicleProfile` / `ParticipantClass` / `ParkingSpace` 同样用
 `StableId128` 指名，不用密集序号。机动/门/等待出现记录不进快照，恢复时用
 `register_route` 从边序列重算。原进程的 runtime handle、slot、generation、
-partition 或 worker assignment 不能成为恢复后身份或跨硬件行为权威。跨路网修订
+partition 或 worker assignment 不能成为恢复后身份或跨硬件行为裁决权。跨路网修订
 恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新共享修订实体。身份缺失或
 路线编译失败则整事务失败关闭。
 
 版本化 `networkRevision` 与兼容的 runtime/snapshot 契约、精确相等的
-identity/constraint/execution-constraint versions 是同修订恢复的静态语义权威。
+identity/constraint/execution-constraint versions 是同修订恢复的静态语义正本。
 `originCanonicalArtifactDigest + originCanonicalArtifactByteLength` 记录用于构建当前
 共享修订的 exact LFCA origin，承担来源审计和同制品快速路径；内部布局、地址、capacity
 和 dense ordinal 不进入快照。
@@ -1745,7 +1745,7 @@ source graph 竞争 authority。
   边界交换量（Boundary Exchange Volume）、屏障等待（Barrier Wait）、负载偏斜、
   迁移次数/成本、连接组件/SCC 分布、最大 SCC 提案占比、归约工作量
   （Reduction Work）、归约跨度（Reduction Span）与临界路径深度；不公开内部可变
-  容器或调度权威；
+  容器或调度正本；
 - tick 不做 string/hash/path matching；
 - `NetworkRevisionId` 只在加载、注册动态通行定义、快照恢复和修订切换等冷边界比较，
   不进入逐交通参与单元 fixed-tick 状态或每 tick hash；
@@ -1846,8 +1846,8 @@ compiler/format 反向依赖动态运行时。
 | 边身份耦合可选角色            | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增              | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系                                                      |
 | 增量 / 并行非确定性           | CI / 发布字节漂移                                             | 干净单线程预言机、稳定合并                                                                                  |
 | Spatial 模式边界错误          | headless 仍分配几何，或 Traffic/Spatial 交叉索引漂移          | Traffic/Identity/Hints 必需、Spatial 可选矩阵与同修订 closure 测试                                          |
-| 重新引入旧 JSON/Core 兼容路径 | 测试矩阵和语义漂移                                            | pre-1.0 单一权威；旧格式与实现只留 Git 历史                                                                 |
-| 来源 / 生成物双重事实来源       | 手工修改与漂移                                                | 来源模块图权威、生成摘要、后发射检查与发布 manifest                                                         |
+| 重新引入旧 JSON/Core 兼容路径 | 测试矩阵和语义漂移                                            | pre-1.0 单一正本；旧格式与实现只留 Git 历史                                                                 |
+| 来源 / 生成物双重事实来源     | 手工修改与漂移                                                | 来源模块图正本、生成摘要、后发射检查与发布 manifest                                                         |
 | 过早冻结内存布局/ABI          | Runtime kernel 优化被已发布格式锁定                           | 内部 SoA/CSR baseline；字段分组/SIMD 由 production kernel 实测演进，不发布 ABI                              |
 | 最终分区进入共享静态路网      | 地图与硬件/世界耦合，存档不可移植                             | 静态约束 + 可重建提示 + 每世界执行计划                                                                      |
 | 分区诱发行为延迟              | 结果随 cut 改变                                               | 同 tick committed-state barrier 与置换等价测试                                                              |
@@ -1856,7 +1856,7 @@ compiler/format 反向依赖动态运行时。
 | 原地修改共享静态数组          | 并行读取、共享、回滚和确定性失效                              | 不可变候选 + 失败关闭修订切换事务                                                                           |
 | 在线迁移候选过期              | 切换遗漏准备期间的 tick/命令或重复事件                        | 有界增量日志、追赶、静默提交、切换事件批次恰一次                                                            |
 | 迁移准备干扰正常步进          | 玩家改路导致持续抖动或延迟尖峰                                | 后台预算、落后量/干扰 Gate、显式维护暂停模式                                                                |
-| 每次加载 LFCA 重建成本过高    | 最低产品硬件的加载或确认建造停顿不可接受                      | 后台候选、阶段计时/峰值证据；若真实测量阻断则以独立 G1 设计非权威缓存                                       |
+| 每次加载 LFCA 重建成本过高    | 最低产品硬件的加载或确认建造停顿不可接受                      | 后台候选、阶段计时/峰值证据；若真实测量阻断则以独立 G1 设计非正本缓存                                       |
 | 构建模式裁掉稳定身份索引      | 快照、路线与跨修订映射无法恢复                                | 所有模式必需冷索引与双向 round-trip                                                                         |
 | 稳定身份索引替代语义证据      | 同 StableId128 的新语义错误继承旧占用、路线、预约或控制器状态 | 受信任 semantic diff；索引只复核映射；index-only 失败关闭                                                   |
 | 未受信任语义差异驱动迁移      | 篡改迁移、错误终止或状态错配                                  | 外部切换描述符、双制品独立验证、身份索引复核                                                                |

@@ -189,7 +189,7 @@ impl Records {
                 Ok(_) => json!({"tick":tick,"command_cursor":world.command_cursor(),
                     "state_digest":state_digest(world)?}),
                 Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(_)) => {
-                    // 面 B（#1218/#1217）：T 权威/历史拍保存必须结构化拒绝；
+                    // 面 B（#1218/#1217）：T 裁决/历史拍保存必须结构化拒绝；
                     // 记录拒绝变体 + 真实资源身份/历史投影。
                     json!({"tick":tick,"command_cursor":world.command_cursor(),
                         "persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,

@@ -19,7 +19,7 @@ Spatial 采样钉死端点<br>
 它不覆盖 #302 快照容器、#303 Routing、残差 `f32` 进度或整数 IIDM。当前树制品、
 Runtime 与编译器 IR 只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32` 仍在量化之前。
 
-G1 冻权威、单位、量化顺序、制品字段与跨实现算法。公开 `Canonical*View`
+G1 冻结正本、单位、量化顺序、制品字段与跨实现算法。公开 `Canonical*View`
 交通一维删除米制访问器，不留只读换算。
 
 ## 1. 结论
@@ -104,8 +104,8 @@ speed_mm_s: u32            // 静止可为 0
 length_mm: u32             // spawn/replace 时从 profile 拷入
 ```
 
-公开观察与命令表面以上述整数为权威，含 spawn / 替换 / 车道 pose。新车
-`carry_um = 0`。车长可缓存在状态上。只读米制换算可以有，不得当权威、不得回写。
+公开观察与命令表面以上述整数为正本，含 spawn / 替换 / 车道 pose。新车
+`carry_um = 0`。车长可缓存在状态上。只读米制换算可以有，不得当正本、不得回写。
 G2 决定访问器名字。
 
 `progress_mm == length_mm` 合法，表示停在边终点（含拒绝 Gate 前）。替换 /
@@ -182,7 +182,7 @@ G2 决定访问器名字。
 ## 6. compiler 与 LFCA
 
 #500：编制 `f64` 只存在准入边界之前。准入量化一次之后，Typed AST / HIR / MIR / LIR
-的交通一维存储权威是整数毫米；时距、三项加减速、朝向是受检 `f32` SI。不得把原来的
+的交通一维存储正本是整数毫米；时距、三项加减速、朝向是受检 `f32` SI。不得把原来的
 `f64` 留下再在发射 round。公开访问器为 `length_mm` / `speed_limit_mm_s` /
 `progress_mm` / `lateral_offset_mm` / `desired_speed_mm_s` / `min_gap_mm`。
 
@@ -205,7 +205,7 @@ LFCA / Traffic 热列只存 `U32` 毫米边长。headless **不求弧、也不�
 有折线:   obs_m = f64(declared_mm) / 1000
           abs(obs_m - f64(arc_m))
             <= max(0.01 m, 1.0e-6 * max(obs_m, f64(arc_m)))
-          对账失败关闭（观察值，不把米列当第二权威）
+          对账失败关闭（观察值，不把米列当第二正本）
           committed_mm = round-ties-to-even(f64(arc_m) × 1000)
           committed_mm 越出 100..=10_000_000
             → 边长越界失败关闭（编译侧，不是发射 binding 错误）
@@ -304,7 +304,7 @@ Genesis 重生，不做格式迁移 diff。
   `length_mm` 不得做整数除。乘除顺序属实现，G2 对齐现行 Spatial 采样。
 
 横向停车偏移按毫米除以 1000 得到米再采样。进度越界与交通/弧长对账失败时，错误载荷
-的交通侧用毫米，弧长侧仍是 `f32` 米。无 Spatial 时不建采样 session；一维边长权威
+的交通侧用毫米，弧长侧仍是 `f32` 米。无 Spatial 时不建采样 session；一维边长正本
 不受影响。
 
 ## 8. 确定性与验收
@@ -347,9 +347,9 @@ Genesis 重生，不做格式迁移 diff。
 - 从路线头溢出后把后续后缀查询一律标成 `BeyondFinite`。
 - 空升 `networkRevisionDerivationVersion = 2` 却不改哈希算法。
 - 发布或构建把当前 LFCA 送进只承认旧格式的入口。
-- 公开一维表面继续用米制作权威。
+- 公开一维表面继续用米制为正本。
 - 公开 `Canonical*View` 为交通一维保留米制只读换算。
 - 把 G1 写成现行每个 Rust 访问器的签名对照表。
 - 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`。
-- 把规范折线点、段长、弧长或时间/字节长度改成毫米权威。
+- 把规范折线点、段长、弧长或时间/字节长度改成毫米正本。
 - #500 G1 改生产代码或重生 fixture。

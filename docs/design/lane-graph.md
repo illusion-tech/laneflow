@@ -73,7 +73,7 @@ LaneConnectionInput
 
 说明：
 
-- `length` 是 Core route following 的权威长度。
+- `length` 是 Core route following 的正本长度。
 - `speedLimit` 是道路静态事实；当前的 effective speed ceiling 与该值相等，未来驾驶风格或临时 maneuver allowance 不得修改它。
 - `connections` 只表达可从当前 edge 进入哪些下游 edge。
 - 没有 outgoing connection 的 edge 是合法 terminal edge。

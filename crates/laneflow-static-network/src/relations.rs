@@ -472,7 +472,7 @@ impl ParticipantClassView {
     }
 }
 
-/// 准入规则审计列（查询权威是 resolved 平面）。
+/// 准入规则审计列（查询正本是 resolved 平面）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AccessRuleView<'a> {
     target: AccessTarget,

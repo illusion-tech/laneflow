@@ -314,7 +314,7 @@ fn append(output: &mut Vec<u8>, hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(bytes);
 }
 
-/// 临时身份登记项；完整原像使摘要相等时仍能作权威比较。
+/// 临时身份登记项；完整原像使摘要相等时仍能作正本比较。
 pub(crate) struct RegisteredCanonicalIdentity {
     canonical_bytes: Box<[u8]>,
     owning_span: SourceLocation,

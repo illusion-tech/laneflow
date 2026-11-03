@@ -2,7 +2,7 @@
 //!
 //! LFSD 认证消费见 [`crate::admin::cutover`] 的描述符方法。本模块交付另外两件：
 //! base→target 稳定引用重绑表（两侧 `SharedIdentityIndex` 共同解析，LFSD
-//! 绑定行完成两侧制品交叉验证后，映射权威即身份索引对）与结构克隆迁移
+//! 绑定行完成两侧制品交叉验证后，映射正本即身份索引对）与结构克隆迁移
 //! （候选与旧世界槽位布局一致——当期句柄恒等保持；逐实体重绑即重验证，
 //! 任一实体引用不存在或原样重绑违反 target 不变量都整体失败关闭）。
 
@@ -1418,7 +1418,7 @@ pub(crate) struct ConflictCutoverFinalizationPlan {
     removed_history_ready_at_ms: Option<u64>,
 }
 
-/// 从完整来源权威重建候选 Conflict 状态。Prepare 返回新/不连续 cell 的
+/// 从完整来源正本重建候选 Conflict 状态。Prepare 返回新/不连续 cell 的
 /// 精确地址与删除历史到期计划；静默提交只校验/最终化该计划，不再全量重迁移。
 pub(crate) fn migrate_conflict_state(
     source: &WorldState,
@@ -4387,7 +4387,7 @@ pub(crate) mod tests {
         )
         .expect("rebinding");
         let before = world.capture_snapshot().expect("before");
-        // 前两次为 committed/next signal；随后覆盖 Waiting 权威、独立队列首尾及 scratch；
+        // 前两次为 committed/next signal；随后覆盖 Waiting 裁决权、独立队列首尾及 scratch；
         // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
         for fail_after in 1..=25 {
             let result = with_staging_allocation_failure_after(fail_after, || {

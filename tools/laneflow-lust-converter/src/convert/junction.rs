@@ -1335,7 +1335,7 @@ fn build_int_lane_owners(network: &SumoNetwork) -> Result<IntLaneOwnership<'_>> 
     //   以"lane 同名"的形式一并列出；
     // - 其余内边只被内部节点列出（如 :-11042_13_0 仅见于 :-11042_14_0 /
     //   :-11042_16_0 的 @intLanes，road junction -11042 并不列它）。
-    // 归属权威只在 road junction：内部节点先归并到簇，再间接解析内边归属。
+    // 归属裁决只在 road junction：内部节点先归并到簇，再间接解析内边归属。
     let is_internal = |id: &str| {
         network
             .junction(id)

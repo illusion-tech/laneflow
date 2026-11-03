@@ -13,15 +13,15 @@
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
 
 本文是 #303 已接受的 G1 实现输入。Rust 名称、错误枚举与具体容器布局由 G2 落定；
-G2 不得静默改变本文的权威分层、绑定集、时点、失败关闭
+G2 不得静默改变本文的职责分层、绑定集、时点、失败关闭
 和预算口径，发现需要改变时必须返回 G1。
 
-1.0 前的“冻结”只表示当前证据下供实现消费的唯一权威，不是不可推翻的铁律，也不是
+1.0 前的“冻结”只表示当前证据下供实现消费的唯一规范依据，不是不可推翻的铁律，也不是
 对外兼容承诺。实现证据、可复现的真实工作负载、产品现实或 #302/#303 接缝若证明本文
 错误、过度设计或走了弯路，应先修改本 design/相关 ADR，并在新的 exact head 重新取得
 G1；不得为了维护旧文字堆兼容层、双轨或错误实现。
 
-## 1. 产品选择与权威边界
+## 1. 产品选择与正本边界
 
 v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 
@@ -37,12 +37,12 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 - Spatial、Engine Adapter 与 scenario catalog 不拥有观测聚合、成本模型或路线选择。
   Adapter 可以薄转发生命周期命令，但不得在 ECS schedule、位姿提取或表现层隐藏寻路。
 
-四层命令/快照/事件权威如下：
+四层命令/快照/事件裁决权如下：
 
 | 层级                        | 拥有                                               | 不拥有                              |
 | --------------------------- | -------------------------------------------------- | ----------------------------------- |
 | 宿主应用层                  | 应用业务，例如经济、建筑、人口、收费与游戏规则     | Traffic tick、候选路线内容验证      |
-| 出行与交通编排层            | 出行需求、出发时刻、目的地、路线选择、调用方随机流 | 静态路网或车辆推进权威              |
+| 出行与交通编排层            | 出行需求、出发时刻、目的地、路线选择、调用方随机流 | 静态路网或车辆推进正本              |
 | Routing service（宿主实现） | 观测消费、成本模型、动态成本快照、候选边序列       | 参与单元 fixed tick、Runtime 路线表 |
 | Traffic Runtime             | 已提交观测事实、候选内容验证/注册、路线与车辆执行  | 全图寻路、成本政策、需求与选择策略  |
 
@@ -77,7 +77,7 @@ v1 每条物理 `LaneEdge` 行冻结为：
 | `occupiedLengthMm`         | 所有 `Active` 车身在该物理边上已提交半开占用区间的并集长度；跨边片段分别计，同边重叠不重复计 |
 | `frontSpeedSumMmPerSecond` | 上述前保险杠归属车辆的已提交 `speed_mm_s` 之和                                               |
 
-前保险杠的边归属跟随车辆权威路线 occurrence，而不是另做几何猜测：当前
+前保险杠的边归属跟随车辆正本路线 occurrence，而不是另做几何猜测：当前
 `route_edge_index` 指向哪条边，`frontVehicleCount` 与 `frontSpeedSumMmPerSecond`
 就归哪条边。hop 被拒且 `progress_mm == edge_length` 时仍归旧边；hop 成功后
 `route_edge_index` 已切到下一边且 `progress_mm == 0`，归新边；Active 车辆到达最后
@@ -85,7 +85,7 @@ v1 每条物理 `LaneEdge` 行冻结为：
 
 三项数值分别用 checked `u32/u64/u64` 累加；溢出整批失败且不推进导出 session。
 Routing 用边长与这些整数自行派生密度、平均速度或成本，不把浮点除法、舍入或成本
-政策倒灌进 Runtime。当前 `TrafficWorld` 没有动态封闭/overlay 权威，因此 v1 不伪造
+政策倒灌进 Runtime。当前 `TrafficWorld` 没有动态封闭/overlay 裁决权，因此 v1 不伪造
 `closed` 行；#237 或后继若生产化 runtime overlay，须先回到 G1 扩展观测行。
 
 三项聚合必须从同一个 `observationStateSequence` 的已提交 `VehicleState`、路线和
@@ -285,7 +285,7 @@ Runtime 按下列顺序失败关闭，任一失败不占路线槽、不留下 co
 
 1. O(1) 预检空序列、候选边数和 checked 大小；在解析/compiled 分配前按下文统一
    `route_edge_occurrence_capacity` 核对本次边出现记录数。候选入口可以提早返回同一错误，
-   但最终权威检查必须在 direct/candidate/cutover/restore/replay 共用的注册/编译路径
+   但最终规范检查必须在 direct/candidate/cutover/restore/replay 共用的注册/编译路径
    内完成。
 2. 核对 `bindingVersion`、世界身份/世代、修订标识/派生版本、观测
    tick/state sequence/set digest、条目数/bytes/digest 字段完整且自洽；成本模型
@@ -384,7 +384,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 - `laneflow-spatial` 不依赖观测或 Routing 类型；`committed_pose_sources()` 也不升级
   为交通观测，因为它按车辆输出、为位姿采样服务，不具备边聚合/full/delta 语义。
 - `laneflow-bevy` 若暴露新入口，只能像现有 `register_route` 一样薄转发；默认 schedule
-  不自动导出、不运行成本模型、不在 ECS component 中缓存另一份路线权威。
+  不自动导出、不运行成本模型、不在 ECS component 中缓存另一份路线正本。
 - scenario catalog 0.4 仍是示例层预定边序列，可直接 `register_route`。若场景需要
   动态改道，必须由上层系统消费正式观测并走候选入口，不能在 scenario policy 中读
   pose 后静默选路。
@@ -429,7 +429,7 @@ dirty journal、墙钟任务或 allocator 活动。
 
 2026-08-28，G2 以 source commit
 `67c4cf2e89f7cef66b3ad6f2892fe8a261b6199d` 在当前
-`LF-P100-REF-01` 物理机运行首轮具名 Routing case。机器按当前权威
+`LF-P100-REF-01` 物理机运行首轮具名 Routing case。机器按当前规范
 `laneflow-p100-hardware-identity-v2` 复核通过；实际环境为 Windows 11 Insider build
 29648、交流电/平衡电源计划、Rust 1.98.0 / LLVM 22.1.8。厂商性能模式未登记，因此
 即使数值满足本 case 的描述性观察，也不能形成 Product Pass。
@@ -537,7 +537,7 @@ G2 已进一步落定 `ObservationSetBinding`、`DynamicCostSnapshotBinding`、�
 真实 restore/replay 消费。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
-条件：即使未命中枚举，只要实现、实测或真实产品约束证明权威边界、字段、格式选择、
+条件：即使未命中枚举，只要实现、实测或真实产品约束证明正本边界、字段、格式选择、
 过期政策或预算有误，也必须修正设计，而不是服从错误文档。
 
 #303 不另发明世界身份/世代：观测与 Routing token 必须直接复用上述

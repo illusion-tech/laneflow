@@ -60,7 +60,7 @@ pub(super) struct Health {
     exit_sent: bool,
 }
 
-/// 逐车可见状态是隐藏语义的权威；GUI 把它映射到 Bevy `Visibility`。
+/// 逐车可见状态是隐藏语义的正本；GUI 把它映射到 Bevy `Visibility`。
 #[derive(Resource)]
 pub(super) struct Culling {
     pub visible: Vec<bool>,

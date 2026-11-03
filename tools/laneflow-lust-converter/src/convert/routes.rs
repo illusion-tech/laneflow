@@ -87,7 +87,7 @@ impl TransitionIndex {
         // 材质化拓扑基础索引（P2-3）：已知 lane id 全集 + 连接相邻对。
         // lane wire id 一律**解析声明 lane id**（`SumoLane::laneflow_id()`，
         // 与静态发射/物化同源）；不得合成 `{edge}_{index}`——SUMO 声明
-        // lane id 可任意（如 `TURN`），合成形态与权威 id 分歧（P2 修正）。
+        // lane id 可任意（如 `TURN`），合成形态与正本 id 分歧（P2 修正）。
         let endpoint_wire_id = |edge_id: &str, lane_index: u32| -> Result<String> {
             network
                 .lanes

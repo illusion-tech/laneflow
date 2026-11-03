@@ -113,7 +113,7 @@ N_intent <= N_traffic_active
 ```
 
 `N_traffic_active = N_individual` 只表示 100% road-active 的特定 workload，不是
-架构恒等式。Parked vehicle 保留 Core 权威的 identity、Parking binding、occupied
+架构恒等式。Parked vehicle 保留 Core 正本的 identity、Parking binding、occupied
 state 与确定性 lifecycle transition，但不因此进入每个 tick 的道路运动求解。
 
 推荐使用显式标签记录一个 current case：
@@ -313,7 +313,7 @@ real-road representativeness。
 正式文件将上述解析坐标量化到最近的 `1/1024 m` 二进制格点（精确算法见
 [`lf-synth-input-bundle.md` §3](lf-synth-input-bundle.md#3-静态网络与引用)），最大误差小于
 0.489 mm；原点、端点与分割点不变。该编码使轴向折线的逐段 f32 弧长累计仍精确
-为 5130 m，符合 ADR 0028 从规范弧长提交边长的权威；不能接受编译后毫米边长漂移。
+为 5130 m，符合 ADR 0028 从规范弧长提交边长的正本；不能接受编译后毫米边长漂移。
 
 每条 route 在 entry/exit 边界设置一个 stop line 和一个 gate，并映射到本 cell
 对应的 signal group；四条独立通路各声明一个 Junction、Movement 和无 internal edge 的
@@ -578,7 +578,7 @@ LaneFlow 性能验收，不能由 #308 编译器证据或本文 Core 预算代�
 
 P100 的具名物理机绑定规则以
 [`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)
-中的 `laneflow-p100-hardware-identity-v2` 为当前权威：采集下列三个 SMBIOS 值，
+中的 `laneflow-p100-hardware-identity-v2` 为当前规范：采集下列三个 SMBIOS 值，
 每个值去除**全部**空白字符并转为大写，按该顺序以单个 U+000A 拼接、无尾换行，
 再对 UTF-8 exact bytes 计算 SHA-256。
 
@@ -589,7 +589,7 @@ P100 的具名物理机绑定规则以
 ```
 
 v1 的历史证据不追溯改写；持续生效的 Runtime/P100 测量统一使用 v2，避免同一物理机
-存在两套并行身份权威。2026-08-28 的本机复核得到上述 v2 指纹，与参考机声明一致。
+存在两套并行身份正本。2026-08-28 的本机复核得到上述 v2 指纹，与参考机声明一致。
 
 仓库只发布指纹，不保存或输出三个原始 SMBIOS 值。正式 P100 测量必须同时匹配
 `LF-P100-REF-01`、上述身份方案和完整 SHA-256；缺字段、指纹不符或仅配置相同均按替代

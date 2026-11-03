@@ -100,19 +100,19 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 ## v0.6 数值与空间基础（Numeric & Spatial Foundation）
 
-目标：在实现首个引擎适配器前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度与坐标权威，以及最小空间查询能力。
+目标：在实现首个引擎适配器前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度与坐标正本，以及最小空间查询能力。
 
 完成状态：2026-07-21 已完成。当时完成记录见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
 
-已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 5`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库 fixture 与读取器只承认 format 5。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
+已接受交通正本为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 5`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿正本。仓库 fixture 与读取器只承认 format 5。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行正本；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
 - #122：`f32`、`f64` 和 `f16` 在运行时高频状态、累计或参考计算、存储与传输，以及适配器边界中的角色；
 - #122：领域误差预算、epsilon（误差阈值）、确定性、数据与接口兼容，以及代表性性能基准；
 - #123：标准与局部坐标、引擎无关的中心线、弧长采样和空间绑定；
-- #123：Core 边长与几何弧长的权威职责、容差，以及交通和空间制品边界；
-- #141：10 km 产品上界、补偿残差感知 `f32` 目标权威、公共 API/Data 迁移、route 距离候选与生产收益验收；
+- #123：Core 边长与几何弧长的最终裁决职责、容差，以及交通和空间制品边界；
+- #141：10 km 产品上界、补偿残差感知 `f32` 目标正本、公共 API/Data 迁移、route 距离候选与生产收益验收；
 - 适配器所需的最小只读空间查询或面向批量的位姿提取输入；
 - G1 后拆分 Core、Data 和 Spatial 实施、验证与性能，以及独立最终审阅。
 
@@ -250,8 +250,7 @@ Waiting 本地 membership/admission/storage/queue、路线冲突出现记录、�
 
 ## 编译器时代静态路网（#291 候选长期路线）
 
-本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为
-权威事实，英文只作辅助理解。
+本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为准，英文只作辅助理解。
 
 #291 已把目标从“L1/L2 生成器 + JSON 管线”修订为编译器拥有的静态路网
 （Compiler-owned Static Network）：
@@ -318,7 +317,7 @@ Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生�
 执行计划。最终
 partition/worker assignment 不进入共享静态路网。精确路径的所有 partition 读取同一
 committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延迟；连接资源
-组件各有唯一规范归约权威，互不相交组件可并行归约。
+组件各有唯一规范归约裁决方，互不相交组件可并行归约。
 
 共享静态路网表示不可变路网修订，不表示城市永不变化。玩家拖动/预览只修改 working
 道路编辑状态；确认建造后才全量构建候选，新修订通过失败关闭切换事务进入运行世界。
@@ -336,7 +335,7 @@ Cutover Descriptor，`NetworkRevisionCutoverDescriptor`）绑定，不能自行�
 现行生产路径由编译器原生有类型来源进入 Typed AST / HIR / MIR / Canonical LIR，发射
 LFCA/LFSM/LFSD，经后发射检查后构建共享静态路网，并由 `TrafficWorld` 与可选 Spatial
 消费。旧 Traffic/Spatial JSON、`InitialTrafficData`、Core 与迁移投影桥都已删除，不建立
-兼容导入或第二套运行时权威。
+兼容导入或第二套运行时正本。
 
 运行时状态完整性（#955 G1，ADR 0032）本期只交付共享路网修订认证：宿主在安装、恢复、
 Spatial 绑定与切换之前及审计时调用，完整性不进入 tick 路径；C(T) 由宿主检查点对拍

@@ -306,7 +306,7 @@ compare 要求两份诊断记录中的编号存在且不同，用于拦截误复
 按路线向后展开的 Active 车身区间不重叠。通过 reservation acquire、passage clear 与
 reservation release 的公开事件记录剩余 claim，核对资源区互斥和当前 reservation owner。
 `urban-observation-v4` 状态摘要包含 live/absent 稳定 slot、车辆、遍历、Waiting、停车、
-公开 Conflict reservation 和灯色，周期性完整快照补充隐藏权威状态。摘要为两级树形
+公开 Conflict reservation 和灯色，周期性完整快照补充隐藏正本状态。摘要为两级树形
 结构：固定块界 4096 个槽位（块界与 workers 无关，跨并行度稳定），块内编码字节各自
 取 BLAKE3-256 叶摘要，主线程按块序把叶摘要与等待区、灯色、剩余资源声明等尾部原始字节
 送入根哈希；每 tick 的 decision-batch 摘要采用同一固定块界和树形结构。

@@ -446,7 +446,7 @@ fn g1_cross_edge_scope_records() {
                 "left_edge":left_id,"right_edge":right_id},
             "frozen_check":{"dot_bits":field("dot_bits"),"lhs_bits":field("lhs_bits"),
                 "rhs_bits":field("rhs_bits"),"angle_deg":frozen_angle,
-                "note":"编译后边界弦权威证据（lhs=dot²、rhs=cos²θmax·‖L‖²·‖R‖²，ADR 0022 固定逐运算图）"},
+                "note":"编译后边界弦正本证据（lhs=dot²、rhs=cos²θmax·‖L‖²·‖R‖²，ADR 0022 固定逐运算图）"},
             "emission_boundary_recheck":emission_row,
             "scope_judgment":scope,
             "scope_note":scope_note,

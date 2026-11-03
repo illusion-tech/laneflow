@@ -7,7 +7,7 @@
 
 本文冻结 `laneflow-synth-generator` 的离线输入文件编码。交通语义以
 [`core-runtime-performance-baseline.md` §4](core-runtime-performance-baseline.md#4-canonical-workload)
-的 `LF-SYNTH-v2` 为唯一权威。生成器交付输入；执行、实际命令回执、Spatial/Adapter
+的 `LF-SYNTH-v2` 为准。生成器交付输入；执行、实际命令回执、Spatial/Adapter
 计时和五轴认证由后续 harness 承担，不从生成成功推出 Product Pass。
 
 正式身份为 `(LF-SYNTH-v2, scale, case, fixed_delta_ms, seed=0)`；`scale` 仅为

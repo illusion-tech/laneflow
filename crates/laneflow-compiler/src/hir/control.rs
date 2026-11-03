@@ -478,7 +478,7 @@ pub(crate) fn build_control_hir(
     }
 
     // 每个显式 successor 引用是否至少有一条 ManeuverPath 使用该转换；另行记录所有
-    // path transition 的起始边，使由 ManeuverPath 独占权威的 junction-internal 转换无需
+    // path transition 的起始边，使由 ManeuverPath 独占裁决权的 junction-internal 转换无需
     // 伪造 successor，也能合法承载 release gate 的 stop line。
     let mut successor_has_path = vec![0_u8; lane_edge_references.len()];
     let mut edge_has_path_transition = vec![0_u8; lane_edges.len()];
