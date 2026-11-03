@@ -1227,7 +1227,7 @@ pub struct MovementInput {
 }
 
 impl MovementInput {
-    /// 构造通行流向声明并校验键与有向接近臂键。
+    /// 构造通行流向声明并校验键与进口道/出口道键。
     ///
     /// # Errors
     ///
@@ -1272,13 +1272,13 @@ impl MovementInput {
         &self.junction
     }
 
-    /// 返回有向入口接近臂键。
+    /// 返回进口道键。
     #[must_use]
     pub fn directed_entry_approach_key(&self) -> &str {
         &self.directed_entry_approach_key
     }
 
-    /// 返回有向出口接近臂键。
+    /// 返回出口道键。
     #[must_use]
     pub fn directed_exit_approach_key(&self) -> &str {
         &self.directed_exit_approach_key

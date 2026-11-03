@@ -94,7 +94,7 @@ pub struct PolicyGateRuleInput<'a> {
     pub participant_classes: Option<&'a [EntityReference<'a, ParticipantClassKind>]>,
     /// 该门与类别的封闭灯态解释声明。
     pub interpretation: GateInterpretation,
-    /// 独立于灯型的显式门禁令。
+    /// 独立于灯型的机动门显式禁令。
     pub prohibition: GateProhibition,
     /// 引用的策略依据条目键列表。
     pub evidence_keys: &'a [&'a str],
@@ -187,7 +187,7 @@ pub(crate) struct PolicyGateRuleDeclaration {
     pub classes: Option<Box<[OwnedEntityReference<ParticipantClassKind>]>>,
     /// 该门与类别的封闭灯态解释声明。
     pub interpretation: GateInterpretation,
-    /// 独立于灯型的显式门禁令。
+    /// 独立于灯型的机动门显式禁令。
     pub prohibition: GateProhibition,
     /// 引用的策略依据条目键列表。
     pub evidence: Box<[Arc<str>]>,

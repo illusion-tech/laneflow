@@ -5,7 +5,7 @@
 **适用范围**: LaneFlow 版本路线图与交通基础设施的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
-状态，本文负责已接受版本边界与仍需各后继 Issue 独立完成的实施 Gate。
+状态，本文负责已接受版本边界与仍需各后继 Issue 独立完成的实施验收。
 
 ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与工具链，以及宿主应用、
 出行编排、路径规划和交通运行时的职责边界。局部走廊、园区和背景车流是渐进验证
@@ -112,7 +112,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 - #122：领域误差预算、epsilon（误差阈值）、确定性、数据与接口兼容，以及代表性性能基准；
 - #123：标准与局部坐标、引擎无关的中心线、弧长采样和空间绑定；
 - #123：Core 边长与几何弧长的权威职责、容差，以及交通和空间制品边界；
-- #141：10 km 产品上界、补偿残差感知 `f32` 目标权威、公共 API/Data 迁移、route 距离候选与生产收益闸口；
+- #141：10 km 产品上界、补偿残差感知 `f32` 目标权威、公共 API/Data 迁移、route 距离候选与生产收益验收；
 - 适配器所需的最小只读空间查询或面向批量的位姿提取输入；
 - G1 后拆分 Core、Data 和 Spatial 实施、验证与性能，以及独立最终审阅。
 
@@ -128,7 +128,7 @@ ADR 0021 定义可嵌入、引擎无关、确定性的道路交通运行时与�
 
 目标：以 Rust/Bevy 作为首个 Reference Adapter，完成可运行的引擎集成闭环，并用真实宿主验证 Adapter API；Bevy 不是跨 ABI、跨语言稳定性的唯一证明。
 
-完成状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#169-#173 已分别交付 Bevy 0.19.x 最小 production graph、fixed schedule、Entity/Transform 同步、headless/performance Gate、debug Gizmos 与 native reference example，#174 负责最终集成验收。长期设计见 `design/bevy-reference-adapter.md`。当时完成记录见 git 历史。
+完成状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#169-#173 已分别交付 Bevy 0.19.x 最小 production graph、fixed schedule、Entity/Transform 同步、headless/performance 验收、debug Gizmos 与 native reference example，#174 负责最终集成验收。长期设计见 `design/bevy-reference-adapter.md`。当时完成记录见 git 历史。
 
 范围：
 
@@ -238,7 +238,7 @@ Waiting 本地 membership/admission/storage/queue、路线冲突出现记录、�
                                               └─> #285 cross-layer 一万/十万/closure
 ```
 
-#281–#285 是 #227 的职责切片，不是 #235 的子任务；各自依当前开发闸口和 PR 治理
+#281–#285 是 #227 的职责切片，不是 #235 的子任务；各自依当前开发阶段评审和 PR 治理
 交付。#284 的唯一原子版本组合、参考参数、机动车校准和性能证据见
 [`traffic-runtime-right-of-way-policy.md`](design/traffic-runtime-right-of-way-policy.md)
 §7–§9。#285 继续拥有最终跨层一万/十万场景与 Adapter debug surface；运行时证据
@@ -278,7 +278,7 @@ ADR 0023 已完成 #296 FlatBuffers G1 纠偏：production 道路来源首先服
 Geometry JSON 尚未发布且不获得兼容承诺，分段 Protobuf 也不进入 production。借用的
 原子 compiler 入口、依赖/审计边界以及 schema/reader、第一方 Rust 有类型来源构造面、
 几何降阶和原子接入由 #296 交付。B1 仍不发布，也不增加旧 JSON 别名、读取兼容或迁移器；
-当前执行与 Gate 状态以 GitHub 为准。v1 曲线只含 line/cubic
+当前执行与阶段评审状态以 GitHub 为准。v1 曲线只含 line/cubic
 Bézier，常见 taper 使用线性
 起止宽度；FacilityBand 不作为 v1 AccessRule target。#296 只为 #298 的 LIR 影响差异
 提供输入，C 阶段的 authoring-only 来源差异已登记为后继 Delivery Issue

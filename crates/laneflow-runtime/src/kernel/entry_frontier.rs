@@ -1023,7 +1023,7 @@ fn raise_signal_bound(
     }
 }
 
-/// 速度为 0 视为已经停住。与新鲜摆放共用同一判断。
+/// 速度为 0 视为已经停住。与新生成共用同一判断。
 fn can_stop_before(speed_mm_s: u32, emergency_decel_m_s2: f32, distance_mm: u32) -> bool {
     super::placement::can_stop_before(speed_mm_s, emergency_decel_m_s2, distance_mm)
 }

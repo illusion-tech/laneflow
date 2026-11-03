@@ -36,7 +36,7 @@
 //!    `-F unsafe_code`。cargo 尾参（`--` 之后）优先级高于 manifest [lints]、
 //!    env rustflags 与 .cargo/config.toml rustflags（金丝雀逐次复核，见下），
 //!    因此一切文本形态绕过（转义、拆分数组、宏元变量、shell 构造、
-//!    include / #[path] / cfg_attr 形态）对本门禁无效：无论源码以何形态
+//!    include / #[path] / cfg_attr 形态）对本检查无效：无论源码以何形态
 //!    进入编译单元，都在同一 crate 编译中过 lint。
 //! 5. 尾参优先级语义不依赖文档假设：正式检查前先跑三个金丝雀 crate
 //!    （manifest [lints] 注入 / RUSTFLAGS 环境注入 / cwd .cargo/config.toml
@@ -81,7 +81,7 @@
 //!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
 //!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。
 //! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
-//!    若存在，禁止一切可替换 CI 门禁执行语义的键——`[env]` 段（经
+//!    若存在，禁止一切可替换 CI 检查执行语义的键——`[env]` 段（经
 //!    `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的 HOME/CARGO_HOME
 //!    配置发现，装载仓库控制的 rustc-wrapper 剥离尾参 `-F`）、任意层级
 //!    `runner` 键（替换 `cargo run`/`cargo test` 的可执行文件启动；立即
@@ -110,7 +110,7 @@
 //! 向量归人评审，不叠加扫描器。
 //!
 //! 冻结声明（第十六轮评审后封版）：宏展开组合学（元变量碎片拼装等）与
-//! 恶意 PR 载荷类向量至此封版。本门禁职能是防意外与防供应链漂移；防恶意
+//! 恶意 PR 载荷类向量至此封版。本检查职能是防意外与防供应链漂移；防恶意
 //! PR 载荷由人评审与 CODEOWNERS 治理（#579）负责审查。后续同类发现引用本段
 //! 处置，不再逐轮叠加扫描器。
 
@@ -209,7 +209,7 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_motion_sources(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒门禁），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -224,7 +224,7 @@ fn require_repository_root(root: &Path) -> Result<(), String> {
 }
 
 /// 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）若
-/// 存在，禁止一切可替换 CI 门禁执行语义的键：
+/// 存在，禁止一切可替换 CI 检查执行语义的键：
 ///
 /// - `[env]` 段：cargo 把它注入它启动的进程（含 `cargo run` 启动的 xtask
 ///   自身）；hermetic 嵌套 cargo 继承被投毒的 HOME / CARGO_HOME 后会发现
@@ -1337,7 +1337,7 @@ fn run_hermetic_metadata(
 }
 
 /// 金丝雀：一个含 unsafe 代码的最小 crate，分别以三种注入向量尝试削弱
-/// forbid；三种场景都必须编译失败且 stderr 指向 unsafe，否则门禁 fail closed。
+/// forbid；三种场景都必须编译失败且 stderr 指向 unsafe，否则检查 fail closed。
 const CANARY_LIB_RS: &str =
     "pub fn canary() { unsafe { let _ = std::ptr::null::<u8>().read(); } }\n";
 
@@ -1407,14 +1407,14 @@ fn run_injection_canaries(audit_root: &Path) -> Result<(), String> {
         })?;
         if output.status.success() {
             return Err(format!(
-                "wire unsafe 金丝雀（{}）编译成功：尾参 `-F unsafe_code` 未能压制注入，工具链优先级语义已改变，门禁 fail closed",
+                "wire unsafe 金丝雀（{}）编译成功：尾参 `-F unsafe_code` 未能压制注入，工具链优先级语义已改变，检查 fail closed",
                 canary.vector_label
             ));
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("unsafe") {
             return Err(format!(
-                "wire unsafe 金丝雀（{}）以非 unsafe 原因失败，无法确认门禁语义，fail closed:\n{}",
+                "wire unsafe 金丝雀（{}）以非 unsafe 原因失败，无法确认检查语义，fail closed:\n{}",
                 canary.vector_label,
                 stderr.trim()
             ));

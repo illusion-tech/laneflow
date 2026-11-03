@@ -353,5 +353,5 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test compiled_networ
 ## 11. 交付完整性
 
 路线编译、容量、现行 LFRS、生命周期、恢复、切换、测试和当前权威文档共同构成
-Runtime completion slice；只交付路线编译不能满足该合同。后续变更按当前开发闸口
+Runtime completion slice；只交付路线编译不能满足该合同。后续变更按当前开发阶段评审
 与 PR 治理完成验收，不恢复已替换的临时能力保护。

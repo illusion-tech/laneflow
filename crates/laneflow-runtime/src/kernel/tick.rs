@@ -462,14 +462,14 @@ impl MotionInputs {
     }
 }
 
-/// 新鲜摆放用来对照求解器本拍硬截断的预测。不是步进结果。
+/// 新生成用来对照求解器本拍硬截断的预测。不是步进结果。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PlacementMotion {
     pub(crate) committed_travel_mm: u32,
     pub(crate) hard_clamped: bool,
 }
 
-/// 新鲜摆放这一拍的入口硬截断。空结果不是停车点。材料不齐不假装有人来抢。
+/// 新生成这一拍的入口硬截断。空结果不是停车点。材料不齐不假装有人来抢。
 #[derive(Clone, Copy, Debug)]
 enum AdmissionPreview {
     Clear,
@@ -5599,7 +5599,7 @@ fn stop_is_nearer_or_equal(candidate: BoundedDistance, current: BoundedDistance)
     }
 }
 
-/// 求解器本拍从前车快照空隙承认的硬房间。`hard_room_mm` 与新鲜摆放共用这条整数规则。
+/// 求解器本拍从前车快照空隙承认的硬房间。`hard_room_mm` 与新生成共用这条整数规则。
 pub(crate) fn snapshot_leader_room_mm(gap_mm: i64, min_gap_mm: u32) -> u32 {
     let leftover = gap_mm.saturating_sub(i64::from(min_gap_mm));
     if leftover <= 0 {

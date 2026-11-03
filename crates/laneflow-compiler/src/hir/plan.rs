@@ -888,7 +888,7 @@ impl CrossSectionCounts {
     }
 }
 
-/// 路口领域记录计数：路口、通行流向、机动路径、路径边与声明的接近臂/内部边。
+/// 路口领域记录计数：路口、通行流向、机动路径、路径边与声明的进口道/出口道与内部边。
 #[derive(Default)]
 pub(super) struct JunctionCounts {
     pub(super) junctions: u64,
@@ -1505,7 +1505,7 @@ mod tests {
         assert_eq!(
             junction_budget(&unit, 1, 3, &more_members).scratch_bytes - base.scratch_bytes,
             requested_bytes::<HirManeuverPathKey>(1),
-            "path_keys 按成员出现项入账"
+            "path_keys 按成员出现记录入账"
         );
         let n_terms = requested_bytes::<u8>(1)
             .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(1))

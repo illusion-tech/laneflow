@@ -84,7 +84,7 @@ impl GateInterpretation {
     }
 }
 
-/// 独立于灯型声明的显式门禁令。
+/// 独立于灯型声明的机动门显式禁令。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GateProhibition {
     /// 没有本层禁令，不代表可以覆盖其他安全拒绝。

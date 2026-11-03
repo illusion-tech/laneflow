@@ -76,11 +76,11 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   静态镜像文件/ABI、descriptor/完整性清单、mmap 或磁盘缓存，保存只接受已进入
   Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享路网修订外
   保留 exact LFCA diff base，但不把它写入存档（Accepted；LFCA 百万级分块输入已纳入现行权威）
-- `0026`: 推倒旧自然语言门禁，改为原生 PullRequestReview Check、Merge Queue
+- `0026`: 推倒旧自然语言检查，改为原生 PullRequestReview Check、Merge Queue
   盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务；
   External Review、六项 required checks 与相关启用顺序已被 0027 取代，其它决策继续
   有效（Accepted；#468）
-- `0027`: 退役非 required 的 External Review 自定义 Check，收敛为五项机器门禁、
+- `0027`: 退役非 required 的 External Review 自定义 Check，收敛为五项机器检查、
   Merge Queue 与 GitHub 原生未解决对话阻断；required approvals 不在本次启用，owner
   bypass 转入 #493 独立治理（Accepted；#492）
 - `0028`: 交通运行时已提交一维几何改为整数毫米 + 微米余数，固定步进
@@ -106,9 +106,9 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   `deny.toml` 约束；具体字节合同由对应设计拥有（Accepted；#1051 修订 #1022 G1，
   LuST 的两处派生采用 XXH3-64）。
 - [`0034`](0034-pinned-compiler-cache-wrapper-trust.md)：钉版可核验编译缓存包装器的准入条件
-  （官方来源 + 仓库固定 SHA-256 + 作用域收敛）与溯源门禁 `build_compiler_matches_pinned_toolchain`
+  （官方来源 + 仓库固定 SHA-256 + 作用域收敛）与溯源检查 `build_compiler_matches_pinned_toolchain`
   的契约修订（从「包装器一律 fail-closed」到「钉版验明正身否则 fail-closed」）；溯源记录不加
-  缓存披露及其再评估条件；换变量绕过门禁永久禁止（Accepted；#1074）。
+  缓存披露及其再评估条件；换变量绕过检查永久禁止（Accepted；#1074）。
 
 ## 命名规则
 

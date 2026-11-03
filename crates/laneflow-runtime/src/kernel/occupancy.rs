@@ -532,7 +532,7 @@ pub(crate) struct OccupancyIndex {
 
 /// 每次重建的桶计数/写游标；成功查询不借用它。
 ///
-/// 机动 transition 的反向表按静态路网只建一次，供新鲜摆放找上游后车。
+/// 机动 transition 的反向表按静态路网只建一次，供新生成找上游后车。
 #[derive(Debug)]
 pub(crate) struct OccupancyScratch {
     positions: Vec<usize>,
@@ -1160,7 +1160,7 @@ impl OccupancyIndex {
 
     /// 与 [`Self::leader_gap`] 同一行走，并保留最近前车的身份。
     ///
-    /// `non_negative` 时跳过后杠已经落在跟随者前杠之后的片段，供新鲜摆放使用。
+    /// `non_negative` 时跳过后杠已经落在跟随者前杠之后的片段，供新生成使用。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn nearest_leader(
         &self,

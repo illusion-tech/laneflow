@@ -13,7 +13,7 @@ LaneFlow 采用 GitHub-first 治理：
 - Pull Request 是合并审查单元。
 - Project 是当前进度看板。
 - Milestone 是版本目标容器。
-- Actions 是自动化质量门禁。
+- Actions 是自动化质量检查。
 - Releases 是发布事实记录。
 
 长期设计、架构决策和规范必须进入仓库文档，不应只留在 GitHub 页面中。合并证据模型
@@ -287,9 +287,9 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Dependency policy`：cargo-deny。
 - `Analyze (actions)` / `Analyze (rust)`：advanced CodeQL。
 
-证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规门禁，由
+证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规检查，由
 `Evidence` workflow（`schedule` + `workflow_dispatch`，钉版 nextest
-`--run-ignored ignored-only --no-capture`）每日运行并可手动触发；不参与合并门禁（#748）。
+`--run-ignored ignored-only --no-capture`）每日运行并可手动触发；不参与合并检查（#748）。
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 

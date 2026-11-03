@@ -103,7 +103,7 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 全部预检。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的
 `formatVersion` / `canonicalFormatVersion`。reader 只接受一组 exact versions。
 `FormatLimits` 是 wire hard limit 之外的调用方对象、chunk、输出、scratch 与 peak budget；
-正式产品 profile 必须覆盖一百万现实混合静态实体门禁。
+正式产品 profile 必须覆盖一百万现实混合静态实体验收。
 公开 API 不带世代后缀，不得把米列读成毫米。
 
 #284 W3 的共享构建以策略跨表闭合替换格式升级期间的策略/方向拒绝条件。必需的

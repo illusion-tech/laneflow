@@ -13,7 +13,7 @@ pub(crate) mod conflict_tick;
 pub(crate) mod departure;
 /// 按物理边与实际后车间距索引下游占用的 AVL 区间树。
 pub(crate) mod downstream_index;
-/// 新鲜生成和替换的开放入口与范围内车身。恢复和修订切换不使用。
+/// 新生成和替换的开放入口与范围内车身。恢复和修订切换不使用。
 pub(crate) mod entrance;
 /// 近门车辆的入口 frontier：冲突距离复用与红灯到达下界。
 pub(crate) mod entry_frontier;
@@ -34,7 +34,7 @@ pub(crate) mod occupancy;
 pub(crate) mod parking;
 /// 串行步进阶段的借用能力视图；准备计算不取得 `&mut TrafficWorld`。
 pub(crate) mod phase;
-/// 新鲜摆放的运动安全准入。恢复和修订切换不使用。
+/// 新生成的运动安全准入。恢复和修订切换不使用。
 pub(crate) mod placement;
 /// 显式世界策略绑定与步长派生表。
 pub(crate) mod policy;

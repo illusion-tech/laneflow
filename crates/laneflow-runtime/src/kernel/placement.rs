@@ -1,4 +1,4 @@
-//! 新鲜摆放的运动安全准入。只在 `spawn_vehicle` 与 `replace_completed_vehicle`
+//! 新生成的运动安全准入。只在 `spawn_vehicle` 与 `replace_completed_vehicle`
 //! 提交前使用；快照恢复和修订切换不调用。
 
 use std::cell::Cell;
@@ -413,7 +413,7 @@ pub(crate) fn follower_candidates() -> u64 {
     FOLLOWER_CANDIDATES.with(Cell::get)
 }
 
-/// 新鲜摆放在重叠和权威检查之后仍可能失败的原因。
+/// 新生成在重叠和权威检查之后仍可能失败的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FreshAdmissionFailure {
     /// 当前必须停车的门按紧急制动停不住。
@@ -456,7 +456,7 @@ impl FreshAdmissionFailure {
 }
 
 /// 速度为 0 视为已经停住。紧急减速度不是有限正数时，无法证明能在给定距离内停住。
-/// 红灯到达下界与新鲜摆放共用这个判断。
+/// 红灯到达下界与新生成共用这个判断。
 pub(crate) fn can_stop_before(
     speed_mm_s: u32,
     emergency_decel_m_s2: f32,
@@ -486,7 +486,7 @@ pub(crate) fn can_slow_to_before(
 }
 
 /// 驶离停车使用的静止前车算式。前车速度不为 0 时仍按调用方传入的速度计算，
-/// 新鲜摆放不再走这里。
+/// 新生成不再走这里。
 pub(crate) fn moving_follower_can_admit(
     follower_speed_mm_s: u32,
     follower_emergency_m_s2: f32,

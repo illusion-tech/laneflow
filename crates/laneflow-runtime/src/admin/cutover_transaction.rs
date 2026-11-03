@@ -4883,7 +4883,7 @@ mod tests {
 
     #[test]
     fn prepare_signal_gate_passes_aligned_program_to_diff_auth() {
-        // 对照：dt=500 与两相位均整除，信号关卡放行，失败移交 LFSD 认证。
+        // 对照：dt=500 与两相位均整除，信号门放行，失败移交 LFSD 认证。
         let mut cut = installed_world_with_dt(BASE, "fixture://signal-aligned", 500);
         let target_revision = revision(FULL_SPATIAL_LFCA);
         let target_origin = *target_revision.canonical_origin();

@@ -49,7 +49,7 @@ pub enum EntityKind {
     LaneEdge = 4,
     /// 路口：组织通行流向和机动路径的静态路口声明。
     Junction = 5,
-    /// 通行流向：从有向入口接近臂到有向出口接近臂的静态通行意图。
+    /// 通行流向：从进口道到出口道的静态通行意图。
     Movement = 6,
     /// 机动路径：某通行流向内连接入口边、内部边和出口边的可遍历路径。
     ManeuverPath = 7,
@@ -326,9 +326,9 @@ pub enum FieldTag {
     PathKey = 7,
     /// 通行流向的来源命名空间内稳定键。
     MovementKey = 8,
-    /// 通行流向有向入口接近臂的来源命名空间内稳定键。
+    /// 通行流向进口道的来源命名空间内稳定键。
     DirectedEntryApproachKey = 9,
-    /// 通行流向有向出口接近臂的来源命名空间内稳定键。
+    /// 通行流向出口道的来源命名空间内稳定键。
     DirectedExitApproachKey = 10,
     /// 机动路径所属通行流向的稳定标识。
     MovementStableId = 11,

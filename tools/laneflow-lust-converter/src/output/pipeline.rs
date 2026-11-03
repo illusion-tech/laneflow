@@ -2631,7 +2631,7 @@ output_dir = 'E:/nonexistent-out'
             })
         };
         direct.ok_or_else(|| {
-            format!("包装器未验明正身：路径不可解析（{wrapper:?}），门禁 fail-closed")
+            format!("包装器未验明正身：路径不可解析（{wrapper:?}），检查 fail-closed")
         })
     }
 
@@ -2646,24 +2646,24 @@ output_dir = 'E:/nonexistent-out'
     ) -> Result<(), String> {
         let path = resolve_wrapper_file(wrapper)?;
         let bytes = std::fs::read(&path).map_err(|error| {
-            format!("包装器未验明正身：无法读取文件（{error}），门禁 fail-closed")
+            format!("包装器未验明正身：无法读取文件（{error}），检查 fail-closed")
         })?;
         let actual = crate::output::digest::hex_sha256(&bytes);
         if actual != expected_sha256 {
             return Err(format!(
-                "包装器未验明正身：文件 SHA-256 与仓库钉版常量不匹配（实际 {actual}），门禁 fail-closed"
+                "包装器未验明正身：文件 SHA-256 与仓库钉版常量不匹配（实际 {actual}），检查 fail-closed"
             ));
         }
         let output = std::process::Command::new(&path)
             .arg("--version")
             .output()
             .map_err(|error| {
-                format!("包装器未验明正身：无法执行 --version（{error}），门禁 fail-closed")
+                format!("包装器未验明正身：无法执行 --version（{error}），检查 fail-closed")
             })?;
         let report = String::from_utf8_lossy(&output.stdout);
         if !output.status.success() || report.trim() != expected_version {
             return Err(format!(
-                "包装器未验明正身：自报版本与钉版 {expected_version} 不一致（{report:?}），门禁 fail-closed"
+                "包装器未验明正身：自报版本与钉版 {expected_version} 不一致（{report:?}），检查 fail-closed"
             ));
         }
         Ok(())
@@ -2679,7 +2679,7 @@ output_dir = 'E:/nonexistent-out'
         // ADR 0034 §2（#1074）契约修订：RUSTC_WRAPPER 类包装器不再一律拒绝，
         // 改为验明正身（路径解析 → 文件 SHA-256 对钉版常量 → --version 自报对
         // 钉版）；任一步不可完成仍 fail-closed，信息注明「包装器未验明正身」。
-        // 门禁新增信任面仅为钉版且验明正身的缓存包装器（ADR 0034 §2 末段）。
+        // 检查新增信任面仅为钉版且验明正身的缓存包装器（ADR 0034 §2 末段）。
         for var in ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
             if let Some(wrapper) = std::env::var_os(var) {
                 let pinned = PINNED_WRAPPER_BINARY_SHA256

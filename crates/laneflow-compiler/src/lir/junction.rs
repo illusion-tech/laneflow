@@ -17,7 +17,7 @@ pub(crate) struct LirJunction {
     pub(crate) movements: TableRange<MovementOrdinal>,
 }
 
-/// 通行流向的 Canonical LIR 记录：从有向入口接近臂到有向出口接近臂的静态通行意图；转向类别只是元数据。
+/// 通行流向的 Canonical LIR 记录：从进口道到出口道的静态通行意图；转向类别只是元数据。
 pub(crate) struct LirMovement {
     pub(crate) ordinal: MovementOrdinal,
     pub(crate) stable_id: MovementId,

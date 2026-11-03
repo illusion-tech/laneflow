@@ -82,7 +82,7 @@
   已接受。入口 frontier 只为近门车辆打开路线，失效车辆整段重走，其余复用冲突距离；
   本拍生命周期增量必须成为接近来源；红灯门前的到达下界不早于下一档放行。
 - [`traffic-runtime-vehicle-placement.md`](traffic-runtime-vehicle-placement.md)：#742
-  已接受。新鲜摆放不要求从路线起点零速开到当前速度；生成和替换要能停住当前约束、
+  已接受。新生成不要求从路线起点零速开到当前速度；生成和替换要能停住当前约束、
   降到前方更低限速，并且不让前后车立刻无法紧急制动。恢复和修订切换不套用这层检查。
 - [`traffic-runtime-contender-frontier.md`](traffic-runtime-contender-frontier.md)：#861
   已接受，第一步已实现。准入候选名单的申请者与排队进入者只对已发布近门集合、失效名单和生命周期

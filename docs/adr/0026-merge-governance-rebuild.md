@@ -3,7 +3,7 @@
 **状态**: Accepted（第 5–9 节及相关后果已被
 [ADR 0027](0027-retire-external-review-check.md) 取代）
 **日期**: 2026-08-21
-**适用范围**: LaneFlow 合并门禁、External Review Check、commit message 校验、Issue/PR
+**适用范围**: LaneFlow 合并检查、External Review Check、commit message 校验、Issue/PR
 模板、GitHub Ruleset / Merge Queue、JSON Schema 公共发布义务
 **取代**: ADR 0011 的公共发布、永久 URL 与历史保留现行义务
 **后续修订**: ADR 0027 退役 External Review 自定义 Check，并把 required status
@@ -30,14 +30,14 @@ LaneFlow 当前未发布 1.0，不存在生产部署，也没有任何外部消�
 或公开 URL。ADR 0011 的永久发布承诺是内部自设约束，不构成实际兼容义务。
 
 项目所有者授权以一次性直接合入 `main` 的方式部署本次治理重构。授权范围仅限治理
-基础设施、文档、模板、Ruleset、旧门禁删除，以及 `schemas/` 中历史发布物与 ADR 0011
+基础设施、文档、模板、Ruleset、旧检查删除，以及 `schemas/` 中历史发布物与 ADR 0011
 退役。产品 crate 不在范围内。
 
 ## 决策
 
 ### 1. 机器不解析自然语言
 
-Issue / PR 正文、勾选框、评论表格、permalink 句式一律不是合并门禁输入。人审只读
+Issue / PR 正文、勾选框、评论表格、permalink 句式一律不是合并检查输入。人审只读
 GitHub Reviews API 与 Check Run。正文和评论允许编辑；不把评论当审计日志。
 
 ### 2. 用 commit OID 绑定身份
@@ -125,7 +125,7 @@ checkout `refs/heads/main`，不执行 PR head。权限：`contents: read`、
 expected source 暂为 GitHub Actions。存在同名 Check 伪造的残余风险，尤其
 `merge_group` 的 workflow YAML 来自 `H_mg`（含当前 PR）。若以后接受外部贡献或
 要把 Check 做成不可伪造，另开独立 App Issue。删除 R1 Shadow telemetry，不保留
-「非 required 的假门禁」。
+「非 required 的假检查」。
 
 ### 9. 启用顺序（防死锁）
 
@@ -164,7 +164,7 @@ expected source 暂为 GitHub Actions。存在同名 Check 伪造的残余风险
 
 ## 后果
 
-- 合并门禁 = 受信原生审阅 Check + 五个机器 Check + Merge Queue + 未解决对话由
+- 合并检查 = 受信原生审阅 Check + 五个机器 Check + Merge Queue + 未解决对话由
   GitHub 原生拦截。
 - xtask 删除 `gate_evidence` 与 schema publication，External Review 按本 ADR 重写。
 - 独立 GitHub App 是后续加固，不是本次切换前置。

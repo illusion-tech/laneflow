@@ -394,7 +394,7 @@ OccupancyRecord
 有限验证包括同边、跨边、重复边、路线起点、状态生命周期与失败重试，并与完整
 扫描参考路径对拍。`kernel::spawn_overlap_tests::admission_scale_evidence` 提供
 release 下千车、四千车、万车在 16/256 条边上的生成/恢复耗时、候选访问数和索引
-保留字节；同机前后数据记录在对应 PR，不用跨机器耗时阈值充当 CI 门禁。
+保留字节；同机前后数据记录在对应 PR，不用跨机器耗时阈值充当 CI 检查。
 
 ## 8. Longitudinal constraints
 

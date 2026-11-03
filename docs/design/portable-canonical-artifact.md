@@ -1941,7 +1941,7 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 
 - `10000`：日常定向回归；
 - `100000`：常规规模和近线性趋势；
-- `1000000`：单逻辑修订容量门禁。
+- `1000000`：单逻辑修订容量上限。
 
 三档都报告 LFCA/LFSM/LFSD exact bytes、chunk 数与分布、compile/emission/check/load/build
 各阶段时间、retained/scratch/peak bytes 和 digest。失败原子性与排列扰动由日常定向回归、

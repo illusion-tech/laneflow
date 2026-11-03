@@ -121,7 +121,7 @@ Runtime 没有 external ID 字符串。`prepare` 对完整规范 physical slot c
 weighted RouteChoice draw。单 choice 也必须使用原始正整数 weight 作为 `uniform` bound，
 不能跳过 draw。每个 initial slot 与每条 route 的共享 entry slot 都派生
 `min(VehicleProfile.desiredSpeed, spawn edge speedLimit)` 作为计划初速；没有
-speed-limit authority 时启动失败。放进世界时，若这个初速过不了新鲜摆放的当前停车、
+speed-limit authority 时启动失败。放进世界时，若这个初速过不了新生成的当前停车、
 前方降速或前后车检查，就按 1 m/s 降低到仍能通过的速度。不改的是位置和路线；slot
 记下的初速改成放进世界的速度。车都撤掉之后，计划初速才回到调用前的
 `min(desiredSpeed, 边限速)`。50、100、200 三种目标人口都必须通过同 seed

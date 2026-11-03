@@ -1,9 +1,9 @@
-# 0034 钉版编译缓存包装器信任与溯源门禁契约
+# 0034 钉版编译缓存包装器信任与溯源检查契约
 
 **状态**: Accepted（2026-10-26 维护者批准合并，即 G1 冻结）<br>
 **日期**: 2026-10-26<br>
 **适用范围**: LaneFlow CI 构建路径上的编译缓存包装器（compiler cache wrapper）信任边界；
-`laneflow-lust-converter` 溯源门禁 `build_compiler_matches_pinned_toolchain` 的判定契约<br>
+`laneflow-lust-converter` 溯源检查 `build_compiler_matches_pinned_toolchain` 的判定契约<br>
 **设计入口**: [#1061](https://github.com/illusion-tech/laneflow/issues/1061)、
 [#1071](https://github.com/illusion-tech/laneflow/issues/1071)、
 [#1074](https://github.com/illusion-tech/laneflow/issues/1074)<br>
@@ -11,7 +11,7 @@
 [ADR 0032](0032-runtime-state-integrity-and-distortion-disposition-authority.md)、
 [ADR 0033](0033-digest-role-and-algorithm-selection-authority.md)
 
-本文规定「钉版可核验编译缓存包装器」的准入条件，并把溯源门禁的判定从「包装器
+本文规定「钉版可核验编译缓存包装器」的准入条件，并把溯源检查的判定从「包装器
 一律 fail-closed」修订为「包装器须验明正身，否则 fail-closed」。本文只覆盖 CI
 构建路径上的编译产物缓存；发布制品构建与分布式编译（dist）不在本文许可范围内。
 
@@ -22,14 +22,14 @@ cargo 对 workspace 单元按 mtime 判新鲜，构建制品跨运行复用在 G
 摘要 + 编译参数 + 编译器身份为键，是绕开该限制的正路；评估（#1071）确认其正确性
 论证、投毒面边界与收益后，维护者作出实施准入决议：准入通过（2026-10-26）。
 
-实施随即撞上 `laneflow-lust-converter` 的 #253 溯源门禁：lust-converter 产物携带
-`rust_version` 溯源记录（声明构建工具链通道），门禁测试
+实施随即撞上 `laneflow-lust-converter` 的 #253 溯源检查：lust-converter 产物携带
+`rust_version` 溯源记录（声明构建工具链通道），检查测试
 `build_compiler_matches_pinned_toolchain` 保证该记录不失真，其原契约是——环境存在
 `RUSTC_WRAPPER` / `RUSTC_WORKSPACE_WRAPPER` 即「无法核实实际编译器」，直接
 fail-closed。sccache 属于该定义下的包装器，冲突是契约性的，不是配置缺陷。
 
-规避手段被明确否决：改挂 `CARGO_BUILD_RUSTC_WRAPPER` 等变量绕过门禁的字面断言
-属门禁规避，不在任何方案范围内。
+规避手段被明确否决：改挂 `CARGO_BUILD_RUSTC_WRAPPER` 等变量绕过检查的字面断言
+属检查规避，不在任何方案范围内。
 
 ## 决策
 
@@ -40,16 +40,16 @@ fail-closed。sccache 属于该定义下的包装器，冲突是契约性的，�
 1. **官方来源与钉版**：取自官方发布的 release 二进制，仓库固定版本与 SHA-256
    （跨平台各自钉版），安装方式对齐仓库现行工具钉版实践，升级单独审查。钉版为
    **同一 release 的两段锚**：发布资产摘要（下载锚，安装步骤校验）与解压后包装器
-   二进制摘要（运行期比对锚，门禁校验）成对登记、注释互指防漂移；二进制摘要由
+   二进制摘要（运行期比对锚，检查校验）成对登记、注释互指防漂移；二进制摘要由
    资产摘要锚定的压缩包解压后独立重算得出；
 2. **可核验身份**：运行期可对包装器文件重算 SHA-256 并与仓库钉版常量比对，
    且包装器自报版本与钉版一致；
 3. **作用域收敛**：只缓存编译产物，只挂载于 CI 构建 job；`Wire toolchain audit`
-   等门禁审计 job 不挂载（其 hermetic 子编译已剔除包装器环境，见评估记录 §2）。
+   等检查审计 job 不挂载（其 hermetic 子编译已剔除包装器环境，见评估记录 §2）。
 
 不满足任一条件即回到「包装器一律 fail-closed」。
 
-### 2. 溯源门禁契约修订
+### 2. 溯源检查契约修订
 
 `build_compiler_matches_pinned_toolchain` 的判定改为：
 
@@ -59,7 +59,7 @@ fail-closed。sccache 属于该定义下的包装器，冲突是契约性的，�
 | 存在且**逐项验明正身**：包装器二进制 SHA-256 等于仓库钉版常量（按平台；两段锚中的运行期锚）、自报版本与钉版一致 | 视为钉版可核验包装器，放行并继续核对直接编译器版本 |
 | 存在但路径不可解析、摘要不匹配、版本不符或任何核验不可完成                                                      | **fail-closed**（沿用原拒绝语义与信息）            |
 
-`RUSTC` 环境变量与 PATH 解析的直接编译器版本核对保持现状不变。门禁新增的
+`RUSTC` 环境变量与 PATH 解析的直接编译器版本核对保持现状不变。检查新增的
 信任面仅为「钉版且验明正身的缓存包装器」，不得扩展到其他包装器实现。
 
 ### 3. 溯源记录不加缓存披露
@@ -77,7 +77,7 @@ fail-closed。sccache 属于该定义下的包装器，冲突是契约性的，�
 
 ### 5. 被否决方案
 
-- **换变量名绕过门禁断言**（`CARGO_BUILD_RUSTC_WRAPPER` 等）：门禁规避，永久禁止；
+- **换变量名绕过检查断言**（`CARGO_BUILD_RUSTC_WRAPPER` 等）：检查规避，永久禁止；
 - **无条件放行包装器**：破坏 fail-closed，禁止；
 - **分层启用**（全量测试步骤不挂包装器）：零语义风险但放弃主要收益，2026-10-26
   维护者未采纳（选定本 ADR 路径）。
@@ -86,12 +86,12 @@ fail-closed。sccache 属于该定义下的包装器，冲突是契约性的，�
 
 - sccache 升级：重新核验 release 来源与校验和，更新钉版常量与本 ADR 引用后方可落地；
 - 出现第二种包装器实现、或包装器用途超出「缓存编译产物」：重新进入 G1；
-- 回滚：移除安装步骤与挂载环境即回直连编译，门禁恢复「包装器一律 fail-closed」
+- 回滚：移除安装步骤与挂载环境即回直连编译，检查恢复「包装器一律 fail-closed」
   （旧规则保留在 git 历史，无数据迁移）。
 
 ## 后果
 
-- 正面：CI 编译缓存可落地，绕开 mtime 墙；溯源门禁的信任面显式、可核验、可回滚；
-- 负面：门禁从「零包装器信任」变为「单点钉版包装器信任」，其正确性依赖内容寻址
+- 正面：CI 编译缓存可落地，绕开 mtime 墙；溯源检查的信任面显式、可核验、可回滚；
+- 负面：检查从「零包装器信任」变为「单点钉版包装器信任」，其正确性依赖内容寻址
   键含编译器身份摘要这一实现语义（评估记录 §1 的官方文档依据）；钉版升级伴随
   校验和维护成本。
