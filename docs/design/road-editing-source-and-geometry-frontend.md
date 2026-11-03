@@ -75,7 +75,7 @@ committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 
 - 模块、命名空间、稳定道路/区段/声明键和显式导入；
 - 当前道路走向定义、横断面、车道、连接、路口和已支持静态规则；
 - schema 字段固定的单位、显式配置档和重建当前道路所需的参数；
-- 来源沿袭及程序化生成后的实际落地结果；
+- 来源链及程序化生成后的实际落地结果；
 - 画布对象和编译来源实体之间的稳定关联。
 
 不得保存为来源权威：
@@ -100,7 +100,7 @@ committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 
 ```
 
 程序化生成器在同进程内可以直接构造有类型模型，但进入可发布编译或城市存档前必须
-物化为同一版本化道路编辑状态，并保存实际结果与来源沿袭。匿名 AST 继续只允许非发布
+物化为同一版本化道路编辑状态，并保存实际结果与来源链。匿名 AST 继续只允许非发布
 测试。
 
 现行 API 提供第一方 Rust 的字段私有、有类型
@@ -208,7 +208,7 @@ AST/HIR/MIR/LIR 和来源投影接入该合同；当前 LFRE wire 为 4。
 
 schema 路径为 `schemas/road-editing/v4/road-editing.fbs`。
 字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
-wire shape 的机器事实源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
+wire shape 的机器事实来源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
 边界，不进入 LaneFlow 公共 API、HIR/MIR/LIR 或 Adapter API。编译器在 verifier 成功后
 借用 generated view，先完成语义预检，再构造字段私有的有类型道路编辑模型 / Typed
 AST；不调用 FlatBuffers object API 把整模块 unpack 为第二棵 owned 对象树。
@@ -422,7 +422,7 @@ README 的 270-byte 派生上限检查。完整引用只是借用 source bytes �
 计入 `SingleStringBytes`、`StringItemCount`、`TotalStringBytes` 和阶段 live bytes。owner
 reference 禁止跨模块，普通关系目标才可引用 imports。
 
-模块沿袭与编译选项摘要的精确前像、direct 固定检查值、键/引用语法、字段所有者、
+模块来源链与编译选项摘要的精确原像、direct 固定检查值、键/引用语法、字段所有者、
 有序/集合向量及 scalar 缺省语义由 schema 同目录 `README.md` 冻结。writer 与 reader
 必须共用这些规则，不能让 generated builder 的“字段可省略”变成另一套 LaneFlow 语义。
 
@@ -768,7 +768,7 @@ prefix/identifier、运行 verifier，并要求验证后的 `ModuleHeader.source
 wire view、裸 Typed AST、可伪造 module descriptor 或绕过 builder 余额的
 `RoadEditingModule::decode`。程序化生成器、editor 和 importer 必须先用官方
 schema/writer 物化相同来源缓冲区，再进入此唯一编译路径；是否持久化由产品事务决定，
-但可发布编译必须保存实际接受的 bytes 与来源沿袭。
+但可发布编译必须保存实际接受的 bytes 与来源链。
 
 前端的受控结构字节按实际拥有型存储分类预收：外层 `TypedAstDeclaration` 数组、
 owner-local lane / phase、引用与策略成员数组、独立 `SourceLocation` Box / 数组，以及
@@ -1001,7 +1001,7 @@ production 依赖或实现。
 `LF-COMP-SINGLE-NETWORK-1M-v2` 计数、来源字节、暂存、编译器控制存续内存和 file-backed
 制品上限约束。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v4` writer 生成输入，并报告
 实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
-的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实源。
+的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实来源。
 
 [`road-editing-source-semantic-seed-v1.json`](../reference/road-editing-source-semantic-seed-v1.json)
 和 [`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)

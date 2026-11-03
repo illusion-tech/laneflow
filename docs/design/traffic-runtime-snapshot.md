@@ -1,6 +1,6 @@
 # 运行时快照
 
-**文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现项 #283；Waiting #282）<br>
+**文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现记录 #283；Waiting #282）<br>
 **最后更新**: 2026-10-25<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
@@ -28,7 +28,7 @@
 > Waiting 保存 traversal、semantic membership 与非零历史 admission counter；
 > Conflict 保存 first eligibility、Clearing Gate marker、reservation/passages/downstream authority 与
 > 非 `NoHistory` lag reference，occupancy 从整车位置和 passage 锚点重建；
-> `WorldConfig` 保存独立的路线边出现项与路线冲突出现项容量。旧 schema、reader 与
+> `WorldConfig` 保存独立的路线边出现记录与路线冲突出现记录容量。旧 schema、reader 与
 > writer 不属于当前生产入口，不提供双读或自动迁移。
 
 ## 1. 问题与设计立场
@@ -54,7 +54,7 @@ downstream authority 与 lag history 的持久化、同/跨修订迁移和生产
 
 [执行配置设计](traffic-runtime-execution-config.md)将 worker 移出快照。当前版本轴为
 LFRS 7 / runtime state 5 / digest 8；执行配置分离与编辑来源绑定仅改变容器布局，#1035
-仅更换摘要算法与摘要版本，交通状态及摘要前像布局不变。
+仅更换摘要算法与摘要版本，交通状态及摘要原像布局不变。
 安装与 fresh restore 都显式接收 `ExecutionConfig`，完整交通准备后才校验执行能力。
 
 版本轴分离：容器 `formatVersion` 与被绑定事实的版本（runtime 版本、
@@ -99,7 +99,7 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 
 | 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现项均由目标共享路网修订重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）；机动、等待区与冲突 passage 出现记录均由目标共享路网修订重新编译，不入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档                                                                                                                                                                                                                                                                                |
 | Waiting     | 每车保存可选 maneuver traversal 与 semantic membership；每个有逻辑历史的 zone 保存 `WaitingZone StableId128`、occupancy 与单调 `nextAdmissionSequence`。queue link、tick-local claim 与 latest output batch 不入档                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -116,8 +116,8 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 固定预制过渡的车辆 tagged 过渡状态（`PreEntry | InTransition | Clearing`）与
 过渡预约 wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间
 并集、route occurrence 证明）按上表同一原则持久化；完整预约只装运行时权威、
-出现项不入档照旧。**版本轴三轴分别升级并核对编号**：LFRS 7→8（容器：过渡
-状态/预约行槽位）、runtime state 5→6（状态形状扩展）、digest 8→9（规范前像
+出现记录不入档照旧。**版本轴三轴分别升级并核对编号**：LFRS 7→8（容器：过渡
+状态/预约行槽位）、runtime state 5→6（状态形状扩展）、digest 8→9（规范原像
 扩展过渡记录段）；容器与被绑定事实的版本不混用单号（§2）。**首版限制**：
 活动过渡或持预约世界拒绝跨修订切换（保留旧世界、零部分提交），迁移为后续
 设计并登记能力限制（缺口 G-E）。
@@ -203,7 +203,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   边长、超速、profile 与 class 不一致、活跃车辆物理重叠），以及时钟不变量
   破坏（`time_ms` 必须等于 `tick × fixed_delta_time_ms`，checked arithmetic
   验证——不可达时钟对会派生出错误的信号与回放分歧）。任一违反零部分恢复。
-- 路线只从稳定边序列重编译一次；staging world 先累计 exact edge/conflict 两类出现项
+- 路线只从稳定边序列重编译一次；staging world 先累计 exact edge/conflict 两类出现记录
   总数并核对快照与目标容量，再以保存的 `carry_um` 直接提交最终车辆状态。每个
   `Active` 都必须满足冲突仲裁能力缺席期的 3A 车尾清除谓词；`Parked/Completed`
   不经过瞬时 `Active`。任一失败不发布 world。
@@ -255,10 +255,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - **确定性状态摘要（术语表）**：唯一算法为 BLAKE3-256。按
   [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)，它属于内部
   完整性摘要；#1035 将算法由 SHA-256 更换为 BLAKE3-256，并把摘要版本由 `7` 递增为
-  `8`，规范前像的内容、排序与字节布局不变；不保留 SHA-256 计算或比对路径。公开入口
+  `8`，规范原像的内容、排序与字节布局不变；不保留 SHA-256 计算或比对路径。公开入口
   `deterministic_state_digest` 与 `TrafficWorld::direct_state_digest` 返回按角色命名的
   32 字节类型 `StateDigest`，不再复用 `Sha256Digest`。域分隔字节保持
-  `laneflow:runtime-state-digest:v1\0`，摘要版本字段已在前像内区分算法更换；随后写
+  `laneflow:runtime-state-digest:v1\0`，摘要版本字段已在原像内区分算法更换；随后写
   `u16` 摘要版本 `8` 与 `u16` `runtime_state_version` `5`；整数均小端。顶层依次写：
   `world_id`、语义
   `NetworkRevisionId`、六轴静态契约版本、行为语义配置（vehicle/route、edge/conflict
@@ -305,10 +305,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   排序的扁平表 + 二分查找」承载原 `BTreeMap` 语义——`BTreeMap` 无可失败预留
   API，输出字节不变）；预留失败返回 `SnapshotDigestError`，无副作用、可重试。
   已知大小的记录表和单条记录一次精确预留；分组及顶层规范字节缓冲的连续追加使用
-  可失败的摊销增长，不逐记录精确扩容。容量与增长策略不进入规范前像或摘要版本。
+  可失败的摊销增长，不逐记录精确扩容。容量与增长策略不进入规范原像或摘要版本。
   路线分组先建立按路线实例 ID 和车辆记录字节排序的扁平成员表，再按路线消费连续
   区间，不逐路线扫描全部车辆。空路线仍形成分组，最后按完整分组字节排序；该算法
-  不改变规范前像或摘要版本。成本包含成员排序、规范记录字节与哈希，不承诺全流程线性。
+  不改变规范原像或摘要版本。成本包含成员排序、规范记录字节与哈希，不承诺全流程线性。
   等价类边界：同内容实例间的**归属**差异（哪条实例拥有哪份绑定集合）是实例
   重标记轨道上的同一逻辑状态，摘要不区分——区分它只能依赖槽位派生的局部
   ID，与下述「局部 ID、句柄与表排列变化不影响摘要」直接冲突（restore 的
@@ -339,7 +339,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   处置权威（归宿主），区别只在是否停用：失同步状态仍是合法确定性状态，只诊断不停用；
   完整性失配的对象可信度已被破坏，宿主先停用再按检查点 + 输入命令序列处置。共享路网修订
   不在 C(T) 内（ADR 0030），其失配不属回滚 / 重演可修复面，只能修订重建。完整性不进入
-  本快照、确定性状态摘要前像与 tick 路径，digest 7 / runtime state 5 版本轴不变。
+  本快照、确定性状态摘要原像与 tick 路径，digest 7 / runtime state 5 版本轴不变。
 
 ## 7. 跨修订迁移入口
 
@@ -455,7 +455,7 @@ v7 的 schema 与版本轴到字段映射已在
 状态矩阵、Reserved route ownership、entry occurrence/edge 闭合与
 前向可达单项反例（含同 `progress_mm` 非零 carry）；跨修订 virtual semantic entry exact
 重绑，以及 explicit entry 前移允许/移到 cursor 后方失败；任一失败零部分恢复。冲突
-出现项不得入档；恢复须证明 exact 重建计数、3A 的一微米边界、保存 carry 生效以及
+出现记录不得入档；恢复须证明 exact 重建计数、3A 的一微米边界、保存 carry 生效以及
 Completed 不经过瞬时 Active。捕获与摘要的预留失败注入须证明失败关闭（世界无感知）、清点后重试得到
 同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 

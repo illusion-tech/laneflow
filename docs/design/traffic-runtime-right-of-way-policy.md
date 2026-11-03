@@ -10,7 +10,7 @@
 ## 1. 决策与适用关系
 
 本文把 #235 已接受的算法合同落实到当前 compiler → LFCA → `SharedNetworkRevision`
-→ `TrafficWorld` 路径。Waiting 本地状态仍由 #282 拥有，路线冲突出现项仍由 #559
+→ `TrafficWorld` 路径。Waiting 本地状态仍由 #282 拥有，路线冲突出现记录仍由 #559
 合同定义。本文不复制 directed ETA、gap、组合资源账本或循环等待算法；其唯一算法
 依据仍是联合设计 §6.3–§6.10。
 
@@ -49,7 +49,7 @@
 Identity registry revision 从 3 升为 4：新增 `EntityKind::RightOfWayPolicySet = 24`，
 slug 为 `right-of-way-policy-set`；新增 `FieldTag::RightOfWayPolicySetKey = 35`。
 身份字段顺序为 `(AuthoringNamespaceId, RightOfWayPolicySetKey)`。既有种类、字段代码与
-Identity v1 编码不变；registry revision 不进入身份前像。未改变身份字段的既有实体
+Identity v1 编码不变；registry revision 不进入身份原像。未改变身份字段的既有实体
 保持原 StableId；增加新种类的独立 known vectors，保留既有向量作为回归证据。
 
 法规身份（`RegulationIdentity`）是值，不是第二个稳定实体：
@@ -370,7 +370,7 @@ Movement 的方向 Modify。方向缺失、显式零和其他合法值不能彼�
 #### 4.3.4 两端闭合与资源约束
 
 1. 先按现行绑定合同验证 base/target exact digest、length、NetworkRevisionId 和共有
-   Identity 前像。LFSD 4 的目标及非 Genesis 基线均为 LFCA 5，身份/约束/执行合同
+   Identity 原像。LFSD 4 的目标及非 Genesis 基线均为 LFCA 5，身份/约束/执行合同
    使用 §8 同一组合；不支持 LFCA 4→5 的跨格式 diff。Genesis 保留原四项零 base 值。
 2. emitter 与独立 checker 分别从两侧 LFCA 5 的 section 4、table 2–5 局部表和
    Identity 表重建 K、稳定成员值及必需操作；Genesis 将 base 成员集视为空。
@@ -385,7 +385,7 @@ Movement 的方向 Modify。方向缺失、显式零和其他合法值不能彼�
 5. 局部载荷逐成员发射，不把整份 policy 拼成一个巨型 Bytes 或新增全量历史。
    独立投影与扫描 scratch 计入既有编译/后发射预算，包括同时存活的 base/target
    Identity/实体索引与局部引用索引；各步骤共用累计预算，在分配前计量并允许分配失败。
-   索引借用原始身份载荷，不逐条复制前像。Runtime tick 不读取 LFSD 表。
+   索引借用原始身份载荷，不逐条复制原像。Runtime tick 不读取 LFSD 表。
    未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标修订仍由完整 LFCA
    重建，差异表本身不授予迁移权限。
 
@@ -553,7 +553,7 @@ StableId，验证版本、法规来源相容性、完整解析表和依 fixedDel
 仍来自同一 LFCA。所有现行带信号的例子由 generator 发射显式 protected-entry 策略并
 pin，不能在场景库或 Adapter 内复制绿色放行算法。无 Gate 的例子显式 NotRequired。
 
-读器只接受 catalog 0.4；旧 catalog/fixture 与生成器同步替换。外部宿主可以直接传
+读取器只接受 catalog 0.4；旧 catalog/fixture 与生成器同步替换。外部宿主可以直接传
 有类型 pin，不必采用走廊 catalog；Runtime 不因此新增 TOML/JSON 依赖。
 
 场景初始计划与人口 controller 持续绑定 catalog 的修订和策略选择。

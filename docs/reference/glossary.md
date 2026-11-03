@@ -32,7 +32,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
    已经由对应 G1/ADR 接受、但尚未完成生产切换的设计，不得用“目标态提案中”混合
    两种状态。词条进入本表只统一命名和定义，不自动表示其实现或数值已经被接受。
 10. 现行文档用词按“用词判定与旧称治理”（§1.1）四类判定；本表 §9「已废弃旧称」
-    是禁用旧称的唯一事实源。
+    是禁用旧称的唯一事实来源。
 
 “中文为权威”不改变代码标识符的精确拼写，也不翻译第三方商标、算法专名或必须按
 协议匹配的字面量。
@@ -54,7 +54,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
    「共享路网修订」「共享根」「共享静态根」）。处置：只保留本表登记的规范名为唯一
    称呼，其余登记进 §9「已废弃旧称」。
 
-「已废弃旧称」（§9）登记旧称、取代词、适用范围与登记 issue，是禁用词的单一事实源。
+「已废弃旧称」（§9）登记旧称、取代词、适用范围与登记 issue，是禁用词的唯一事实来源。
 历史处置遵循“法不纠过往”：已关闭 issue / PR 的正文与 Git 历史不改；
 `research/` 等标注为历史证据的测量与调查记录目录整体豁免，不清理其中旧称。豁免只
 免除旧称清理，不豁免新写正文的用词；引用历史证据时不得把旧称带回现行正文。
@@ -97,7 +97,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 入口形态（Harness Surface）：提供任务交互和上下文集成的产品入口，区分 `cli`
 （含 TUI）、`web`、`desktop`、`ide-extension` 和 `ide`，不按底层进程或执行位置
 分类。登记、入口判定与校验以[提交规范第 6.2 节](commit-convention.md#62-执行框架目录与入口登记)
-为唯一事实源。
+为唯一事实来源。
 
 代码语言立项审查（Code Language Proposal Review）：在新增或修改拟入库的非 Rust
 代码前，由维护者对语言必要性、用途、路径、工具链、验证与维护范围作出明确接受结论的
@@ -109,7 +109,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 当前态           | current state                            | `current`                  | 当前已实现、并受现有 ADR/API 约束的唯一可运行生产事实。生产切换完成后由新路径承担，不得再把已拆除路径写成当前态。                                              |
 | 目标态           | target state                             | `target`                   | 已形成设计但尚未完成生产切换的目标事实。生产切换完成后该路径成为当前态，不得继续写成尚未落地的目标。                                                           |
 | 生产路径         | production path                          | —                          | 被正式产品入口使用并受兼容、验证与治理约束的执行路径。                                                                                                         |
-| 单一事实源       | single source of truth                   | SSOT                       | 同一事实只由一个规范来源拥有，派生物不得反向竞争权威。                                                                                                         |
+| 唯一事实来源     | single source of truth                   | SSOT                       | 同一事实只由一个规范来源拥有，派生物不得反向竞争权威。                                                                                                         |
 | 权威职责         | authority                                | —                          | 对某类事实作最终裁决并承担一致性责任的组件职责。                                                                                                               |
 | 一次性不兼容切换 | clean break                              | —                          | 不保留长期双 API 的显式破坏性切换。                                                                                                                            |
 | 生产切换         | production cutover                       | —                          | 目标路径替代当前生产路径，成为仓库内唯一可运行世界。不以 current/target 等价对照为前提，也不以后继性能、规模或安全认证通过为前提；那些认证针对已切换路径本身。 |
@@ -134,8 +134,8 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 中文规范术语            | 英文辅助名（English Alias）                               | 精确标识符 / 缩写                         | 中文规范含义                                                                                                                                                                                      |
 | ----------------------- | --------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 数据编制                | authoring                                                 | —                                         | 创建、导入、编辑或生成静态路网来源的活动。                                                                                                                                                        |
-| 权威来源模块图          | authoritative source module graph                         | —                                         | 一个编译单元内唯一可重放的编制事实源；节点是来源模块，边是显式导入关系。                                                                                                                          |
-| 来源模块                | source module                                             | —                                         | 目标态已接受（#292 G1、#315 G1）：绑定命名空间、来源语言、工具/选项与沿袭的逻辑编译节点；合成前端恰有一份文档，后继官方前端可拥有多份文档并绑定文档集摘要。                                       |
+| 权威来源模块图          | authoritative source module graph                         | —                                         | 一个编译单元内唯一可重放的编制事实来源；节点是来源模块，边是显式导入关系。                                                                                                                        |
+| 来源模块                | source module                                             | —                                         | 目标态已接受（#292 G1、#315 G1）：绑定命名空间、来源语言、工具/选项与来源链的逻辑编译节点；合成前端恰有一份文档，后继官方前端可拥有多份文档并绑定文档集摘要。                                     |
 | 来源模块头              | source module header                                      | `SourceModuleHeader`                      | 目标态已接受（#292 G1、#315 G1）：调用方提供非内容字段，官方前端派生模块描述符、文档集摘要、逐文档摘要与描述符。                                                                                  |
 | 来源文档描述符          | source document descriptor                                | `SourceDocumentDescriptor`                | 目标态已接受（#315 G1），把一个来源文档的稳定文档键、精确内容摘要、原始字节长度、所属逻辑模块及逐文档来源记录不可分绑定的字段私有值；模块与文档不要求一一对应。                                   |
 | 逐文档来源记录          | per-document source origin record                         | `SourceDocumentOrigin`                    | 目标态已接受（#315 G1），冷显示/审计元数据；区分文档角色，Traffic/Spatial 另绑定清单制品引用。宿主来源未认证；不证明内容或发布真实性，不进入标识、LIR 语义或文档集摘要。                          |
@@ -172,20 +172,20 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 几何方向配置档          | Geometry direction profile                                | `GeometryDirectionProfile`                | 已接受（Accepted；#296 FlatBuffers G1）的封闭三档折线方向连续性配置；从旧方案保留，与位置档正交组合、同一编译单元一致。                                                                           |
 | 几何方向配置档适用标记  | Geometry direction profile applicability flag             | `directionProfileApplies`                 | G1 已接受（#298；未实现）的逐规范几何 `0/1` 语义标记；只决定该行内部弦与以端点 OR 选中的连接是否应用同次编译唯一的全局方向配置档，不复制或另选逐行配置档。                                        |
 | 道路里程站位            | Stationing                                                | —                                         | 从道路参考线起点沿配置档无关的编译期 reference station 基表单调累计的距离坐标，用于区段、横断面和连接几何的纵向定位；不属于持久身份，也不由最终输出档位反向改变。                                 |
-| 导入前端                | import frontend                                           | —                                         | 把外部来源及其工具、选项和来源沿袭显式转换为来源模块的前端。                                                                                                                                      |
+| 导入前端                | import frontend                                           | —                                         | 把外部来源及其工具、选项和来源链显式转换为来源模块的前端。                                                                                                                                        |
 | 当前 JSON               | current JSON                                              | —                                         | Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1 的合称；#301 已删除生产 schema 与加载 crate。走廊生成器不再构造这些 JSON；编制走 compiler，制品是 catalog 0.4 与 LFCA。               |
 | 已验证当前态来源包      | validated current-source bundle                           | `ValidatedCurrentSourceBundle`            | #301 已随 `laneflow-data` / `laneflow-current-source` 删除的历史内部 DTO；不进入 compiler，不证明发布真实性。                                                                                     |
 | 编辑器编制界面          | editor authoring surface                                  | —                                         | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                                                                                                |
 | 交换格式                | interchange format                                        | —                                         | 可由独立工具跨进程或跨语言读写、具有显式版本与兼容规则的序列化数据契约。                                                                                                                          |
 | 来源位置                | source location                                           | `SourceLocation`                          | 诊断和源映射使用的闭合和类型；文本来源使用真实 `SourceSpan` 行列，道路编辑来源使用稳定实体/owner-local subject、schema property 与可选画布选区，只有结构损坏可使用 byte range。                   |
 | 道路编辑来源差异        | road-editing source diff                                  | `RoadEditingSourceDiff`                   | C 阶段后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)，比较稳定道路编辑实体、属性和 authoring-only 改动；#296 A 只提供所需稳定位置，不实现该差异引擎。                          |
-| 来源沿袭                | provenance                                                | —                                         | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                                                                                                |
+| 来源链                  | provenance                                                | —                                         | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                                                                                                |
 | 降阶                    | lowering                                                  | —                                         | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                                                                                                                  |
 | 有类型抽象语法树        | typed abstract syntax tree                                | typed AST                                 | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。准入后交通一维不再把编制 `f64` 米当存储权威。                                                                                             |
 | 高层中间表示            | high-level intermediate representation                    | HIR                                       | 已完成模块、命名空间、符号、引用、单位和编制语义解析的表示。交通一维存储权威为整数毫米。                                                                                                          |
 | 中层中间表示            | mid-level intermediate representation                     | MIR                                       | 已完成拓扑、几何展开和全局静态语义推导、但尚未绑定目标布局的表示。交通一维存储权威为整数毫米。                                                                                                    |
 | 已验证规范低层中间表示  | validated canonical low-level intermediate representation | canonical LIR                             | 后端唯一输入；包含稳定标识、有类型序号、规范数值、确定性关系和布局无关预计算。交通一维与 LFCA 同一套整数毫米。                                                                                    |
-| 已验证源映射输入        | validated source-map input                                | `ValidatedSourceMapInput`                 | 目标态已接受（#292 G1），与 LIR 同次成功编译冻结、只保存来源模块、来源位置、来源沿袭及 LIR 键关联且不能补充静态语义的伴随数据。                                                                   |
+| 已验证源映射输入        | validated source-map input                                | `ValidatedSourceMapInput`                 | 目标态已接受（#292 G1），与 LIR 同次成功编译冻结、只保存来源模块、来源位置、来源链及 LIR 键关联且不能补充静态语义的伴随数据。                                                                     |
 | 已验证编译结果          | validated compilation output                              | `CompilationOutput`                       | 目标态已接受（#292 G1），原子拥有 LIR、已验证源映射输入和非错误级诊断的成功编译结果；错误级诊断存在时不得构造。                                                                                   |
 | 编译观测值              | compilation metrics                                       | `CompilationMetrics`                      | #292 G1 修订后接受，只读报告一次成功生产编译的 LIR 记录、逻辑输出、编译器控制峰值和同版本语义指纹；不暴露私有阶段布局，也不等同进程内存或制品摘要。                                               |
 | 编译遍                  | compiler pass                                             | pass                                      | 具有显式输入、输出、诊断和确定性要求的一次编译转换或验证步骤。                                                                                                                                    |
@@ -197,10 +197,10 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 基础构造                | base construction                                         | `HirBase`                                 | #351 G1 冻结的编译器私有阶段：模块轴、导入、车道边键分配、符号表、身份注册与后继引用解析的公共构造，为各领域降阶提供只读解析索引。                                                                |
 | 部件装配                | parts finish                                              | `HirParts`                                | #351 G1 冻结的编译器私有边界：各领域降阶产物在零错误后原子组装为高层中间表示；任一阶段失败即整体放弃，不提交部分结果。                                                                            |
 | 冻结计划                | freeze plan                                               | `LirFreezePlan`                           | #353 G1 冻结的编译器私有结构：一次分析 MIR 形成 LIR 记录计数、暂存/输出字节与限额观测，作为规范排列与领域冻结的共同计数来源；不进入公共 API 或制品。                                              |
-| 规范排列                | canonical orders                                          | `CanonicalOrders`                         | #353 G1 冻结的编译器私有结构：按 Identity v1 前像一次形成各实体 MIR→LIR 双向排列；owner-local permutation 仍在领域冻结中生成。不进入公共 API 或制品。                                             |
+| 规范排列                | canonical orders                                          | `CanonicalOrders`                         | #353 G1 冻结的编译器私有结构：按 Identity v1 原像一次形成各实体 MIR→LIR 双向排列；owner-local permutation 仍在领域冻结中生成。不进入公共 API 或制品。                                             |
 | 源映射                  | source map                                                | —                                         | 把规范实体、关系或诊断反向关联到来源模块和来源位置的派生制品。                                                                                                                                    |
-| 源映射封套              | source map envelope                                       | `SourceMapEnvelope`                       | 规范缩写为 `LFSM`；版本化绑定精确规范制品、路网修订与编译来源沿袭，并承载源映射记录的派生制品封套。                                                                                               |
-| 规范发布描述符          | canonical publication descriptor                          | `CanonicalPublicationDescriptor` / `LFCP` | 当前生产版本是 LFCP v2，只绑定 LFCA/LFSM、来源沿袭和对象键，不含 receipt，也不自行证明已发布；LFCP v1 只保留为 #298 历史实现证据。                                                                |
+| 源映射封套              | source map envelope                                       | `SourceMapEnvelope`                       | 规范缩写为 `LFSM`；版本化绑定精确规范制品、路网修订与编译来源链，并承载源映射记录的派生制品封套。                                                                                                 |
+| 规范发布描述符          | canonical publication descriptor                          | `CanonicalPublicationDescriptor` / `LFCP` | 当前生产版本是 LFCP v2，只绑定 LFCA/LFSM、来源链和对象键，不含 receipt，也不自行证明已发布；LFCP v1 只保留为 #298 历史实现证据。                                                                  |
 | 语义差异                | semantic diff                                             | —                                         | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；它不能自行决定修订激活，跨修订状态迁移必须由对象外可信切换描述符绑定。                                                              |
 | 语义差异封套            | semantic diff envelope                                    | `SemanticDiffEnvelope`                    | 规范缩写为 `LFSD`；版本化绑定旧/新路网修订与规范制品精确字节，并承载规范排序差异记录的派生制品封套。                                                                                              |
 | 验证收据封套            | validation receipt envelope                               | `ValidationReceiptEnvelope`               | ADR 0020 原计划由 #299 交付的独立验证制品；Accepted ADR 0024 已取消该方案，现只保留为历史术语。                                                                                                   |
@@ -225,41 +225,41 @@ G0/G2 人流程。纯删除不适用；具体规则由
 
 ## 4. 标识、引用与数据布局
 
-| 中文规范术语     | 英文辅助名（English Alias） | 精确标识符 / 缩写        | 中文规范含义                                                                                                                                              |
-| ---------------- | --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 规范标识元组     | canonical identity tuple    | `CanonicalIdentity`      | 由编制命名空间、实体种类及稳定父/局部锚点组成的标识权威。                                                                                                 |
-| 规范身份表       | canonical identity table    | `CanonicalIdentityTable` | 可移植规范制品中保存每个稳定实体完整字段前像、声明稳定标识与有类型逻辑序号，供审计、诊断和后继工具读取的不可裁剪语义表；#299 后发射检查不逐实体重算身份。 |
-| 标识编码封装     | identity encoding envelope  | —                        | 冻结魔数、编码版本、实体种类、字段数量和标签/长度/值序列的公共字节外壳。                                                                                  |
-| 稳定标识         | stable identifier           | `StableId128`            | 对规范标识元组执行冻结编码和 BLAKE3-128 后得到的 128 位持久标识。                                                                                         |
-| 实体种类         | entity kind                 | `entityKind`             | 标识登记表中具有固定代码、英文短名（slug）和必需字段序列的实体类别。                                                                                      |
-| 字段标签         | field tag                   | `field_tag`              | 标识编码中用于标明规范字段语义的冻结数字标签。                                                                                                            |
-| 稳定锚点         | stable anchor               | —                        | 显式持久键或父实体稳定标识；坐标、数组位置和遍历顺序不得作为锚点。                                                                                        |
-| 有类型逻辑序号   | typed logical ordinal       | —                        | 在单次 LIR/镜像内按表类型区分的 `u32` 行序号。                                                                                                            |
-| 密集句柄         | dense handle                | —                        | 运行时使用的紧凑有类型引用；热路径不携带字符串或稳定标识。                                                                                                |
-| 所有者局部关系   | owner-local relation        | —                        | 只在所属实体的当前序列快照内有意义、没有全局稳定标识的关系记录。                                                                                          |
-| 所有者局部出现项 | owner-local occurrence      | —                        | 由 `(ownerOrdinal, role, localIndex)` 定位的当前快照记录；`localIndex` 不是跨编译标识。                                                                   |
-| 唯一所有者关系   | unique owner relation       | —                        | 一个成员必须解析到恰好一个有效所有者；零所有者或多所有者均为结构化错误。                                                                                  |
-| 完备所有者树     | complete owner tree         | —                        | 所有要求归属的成员都具有唯一所有者、且不存在重复归属或孤儿成员的所有者 / 成员结构。                                                                       |
-| 反向索引         | reverse index               | —                        | 从目标或成员回到所有者、关系或候选集合的预计算索引。                                                                                                      |
-| 交叉索引         | cross-index                 | —                        | 在两个有类型表或镜像节之间预计算的定向引用索引。                                                                                                          |
-| 数组分列结构     | structure of arrays         | SoA                      | 按字段分列保存同类记录，以提高连续访问和向量化效率的数据布局。                                                                                            |
-| 压缩稀疏行       | compressed sparse row       | CSR                      | 用偏移量/区间表示变长邻接或成员序列的紧凑布局。                                                                                                           |
-| 扁平区间         | flat range                  | —                        | 以起点和长度引用连续表片段、避免逐项指针的数据表示。                                                                                                      |
-| 零拷贝           | zero-copy                   | —                        | 在验证后直接借用底层镜像字节建立视图，不复制静态表内容的访问方式。                                                                                        |
-| 热路径           | hot path                    | —                        | 高频固定步进/位姿执行路径；禁止字符串、哈希查找和持久标识计算。                                                                                           |
-| 热数据           | hot data                    | hot                      | 固定步进或位姿批次高频读取、必须按连续布局和缓存局部性优化的数据；热度不单独决定配置档必选性。                                                            |
-| 热列             | hot column                  | —                        | 按字段分列保存、供热路径高频读取的热数据列，例如共享静态路网的边长与边限速列；描述访问与布局，不另立数据权威、单位或持久格式。                            |
-| 温数据           | warm data                   | warm                     | 低于稳态热路径频率、但仍可能由运行时查询或边界操作读取的数据；是否必选由有类型节与封闭配置档裁决。                                                        |
-| 冷数据           | cold data                   | cold                     | 主要在加载、恢复、修订切换或诊断边界读取的数据；“冷”不表示可以从生产配置档裁剪。                                                                          |
-| 保留内存         | retained memory             | —                        | 初始化完成后仍由组件持有的内存。                                                                                                                          |
-| 峰值分配         | peak allocation             | —                        | 某操作期间同时存在的最大动态分配量。                                                                                                                      |
+| 中文规范术语       | 英文辅助名（English Alias） | 精确标识符 / 缩写        | 中文规范含义                                                                                                                                              |
+| ------------------ | --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 规范标识元组       | canonical identity tuple    | `CanonicalIdentity`      | 由编制命名空间、实体种类及稳定父/局部锚点组成的标识权威。                                                                                                 |
+| 规范身份表         | canonical identity table    | `CanonicalIdentityTable` | 可移植规范制品中保存每个稳定实体完整字段原像、声明稳定标识与有类型逻辑序号，供审计、诊断和后继工具读取的不可裁剪语义表；#299 后发射检查不逐实体重算身份。 |
+| 标识编码封装       | identity encoding envelope  | —                        | 冻结魔数、编码版本、实体种类、字段数量和标签/长度/值序列的公共字节外壳。                                                                                  |
+| 稳定标识           | stable identifier           | `StableId128`            | 对规范标识元组执行冻结编码和 BLAKE3-128 后得到的 128 位持久标识。                                                                                         |
+| 实体种类           | entity kind                 | `entityKind`             | 标识登记表中具有固定代码、英文短名（slug）和必需字段序列的实体类别。                                                                                      |
+| 字段标签           | field tag                   | `field_tag`              | 标识编码中用于标明规范字段语义的冻结数字标签。                                                                                                            |
+| 稳定锚点           | stable anchor               | —                        | 显式持久键或父实体稳定标识；坐标、数组位置和遍历顺序不得作为锚点。                                                                                        |
+| 有类型逻辑序号     | typed logical ordinal       | —                        | 在单次 LIR/镜像内按表类型区分的 `u32` 行序号。                                                                                                            |
+| 密集句柄           | dense handle                | —                        | 运行时使用的紧凑有类型引用；热路径不携带字符串或稳定标识。                                                                                                |
+| 所有者局部关系     | owner-local relation        | —                        | 只在所属实体的当前序列快照内有意义、没有全局稳定标识的关系记录。                                                                                          |
+| 所有者局部出现记录 | owner-local occurrence      | —                        | 由 `(ownerOrdinal, role, localIndex)` 定位的当前快照记录；`localIndex` 不是跨编译标识。                                                                   |
+| 唯一所有者关系     | unique owner relation       | —                        | 一个成员必须解析到恰好一个有效所有者；零所有者或多所有者均为结构化错误。                                                                                  |
+| 完备所有者树       | complete owner tree         | —                        | 所有要求归属的成员都具有唯一所有者、且不存在重复归属或孤儿成员的所有者 / 成员结构。                                                                       |
+| 反向索引           | reverse index               | —                        | 从目标或成员回到所有者、关系或候选集合的预计算索引。                                                                                                      |
+| 交叉索引           | cross-index                 | —                        | 在两个有类型表或镜像节之间预计算的定向引用索引。                                                                                                          |
+| 数组分列结构       | structure of arrays         | SoA                      | 按字段分列保存同类记录，以提高连续访问和向量化效率的数据布局。                                                                                            |
+| 压缩稀疏行         | compressed sparse row       | CSR                      | 用偏移量/区间表示变长邻接或成员序列的紧凑布局。                                                                                                           |
+| 扁平区间           | flat range                  | —                        | 以起点和长度引用连续表片段、避免逐项指针的数据表示。                                                                                                      |
+| 零拷贝             | zero-copy                   | —                        | 在验证后直接借用底层镜像字节建立视图，不复制静态表内容的访问方式。                                                                                        |
+| 热路径             | hot path                    | —                        | 高频固定步进/位姿执行路径；禁止字符串、哈希查找和持久标识计算。                                                                                           |
+| 热数据             | hot data                    | hot                      | 固定步进或位姿批次高频读取、必须按连续布局和缓存局部性优化的数据；热度不单独决定配置档必选性。                                                            |
+| 热列               | hot column                  | —                        | 按字段分列保存、供热路径高频读取的热数据列，例如共享静态路网的边长与边限速列；描述访问与布局，不另立数据权威、单位或持久格式。                            |
+| 温数据             | warm data                   | warm                     | 低于稳态热路径频率、但仍可能由运行时查询或边界操作读取的数据；是否必选由有类型节与封闭配置档裁决。                                                        |
+| 冷数据             | cold data                   | cold                     | 主要在加载、恢复、修订切换或诊断边界读取的数据；“冷”不表示可以从生产配置档裁剪。                                                                          |
+| 保留内存           | retained memory             | —                        | 初始化完成后仍由组件持有的内存。                                                                                                                          |
+| 峰值分配           | peak allocation             | —                        | 某操作期间同时存在的最大动态分配量。                                                                                                                      |
 
 ## 5. 通用编译、数据与运行术语
 
 固定步进观察使用交通转移事件（Traffic Transition Event；`TrafficTransitionEvent`）：
 表示一次成功固定步进已经提交的 Gate、Waiting、Conflict 或机动完成变化。
 其转移锚点（Transition Anchor；`TrafficTransitionAnchor`）同时标识语义对象的路线
-出现项与实际触发位置；车尾事件按车尾净空时所需的前保险杠位置排序。
+出现记录与实际触发位置；车尾事件按车尾净空时所需的前保险杠位置排序。
 等待依赖视图（Waiting Dependency View）表达资源持有和因容量不足产生的等待关系，
 是可重建的执行数据，不是持久化权威。
 
@@ -271,8 +271,8 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 包依赖图             | crate dependency graph                 | crate DAG                          | Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运行时的依赖关系图。                                                                                                                                                 |
 | 拓扑                 | topology                               | —                                  | 边、节点、连接、所有权和可遍历关系。                                                                                                                                                                                      |
 | 几何                 | geometry                               | —                                  | 坐标框架、曲线、折线、弧长和采样数据。                                                                                                                                                                                    |
-| 覆盖关系             | coverage                               | —                                  | 门、等待区、冲突区或规则对路径/出现项的适用范围。                                                                                                                                                                         |
-| 出现项               | occurrence                             | —                                  | 某静态声明在路线（Route）、路径或所有者序列中的具体位置记录。                                                                                                                                                             |
+| 覆盖关系             | coverage                               | —                                  | 门、等待区、冲突区或规则对路径/出现记录的适用范围。                                                                                                                                                                       |
+| 出现记录             | occurrence                             | —                                  | 某静态声明在路线（Route）、路径或所有者序列中的具体位置记录。                                                                                                                                                             |
 | 所有者 / 成员        | owner / member                         | —                                  | 负责组织事实的实体及其直接从属记录。                                                                                                                                                                                      |
 | 元数据               | metadata                               | —                                  | 可重算或辅助解释、但不单独拥有行为权威的数据。                                                                                                                                                                            |
 | 诊断                 | diagnostic                             | —                                  | 带稳定代码、严重程度、来源位置、原因和建议的编译或验证反馈。                                                                                                                                                              |
@@ -316,10 +316,10 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 视图                 | view                                   | —                                  | 借用或共享已验证底层存储、且不复制权威数据的只读访问接口。                                                                                                                                                                |
 | 句柄                 | handle                                 | —                                  | 进程或世界内使用的有类型实体引用。                                                                                                                                                                                        |
 | 键                   | key                                    | —                                  | 在明确作用域内区分声明或关系的值；只有冻结为稳定锚点时才参与持久标识。                                                                                                                                                    |
-| 摘要                 | digest                                 | —                                  | 对完整字节或规范前像计算的固定长度值；用途由 ADR 0033 的角色定义，不天然构成身份或完整性证明。                                                                                                                            |
+| 摘要                 | digest                                 | —                                  | 对完整字节或规范原像计算的固定长度值；用途由 ADR 0033 的角色定义，不天然构成身份或完整性证明。                                                                                                                            |
 | 瞬态指纹             | transient fingerprint                  | —                                  | ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与候选匹配的指纹；命中后须比较完整权威值，不得持久化或影响确定性输出。                                                                                               |
-| 确定性派生摘要       | deterministic derivation digest        | —                                  | ADR 0033 摘要角色之一：用哈希将规范前像映射为可重建的排序键、采样值或派生参数；可决定持久结果，但不作为唯一身份或内容相等证明。满足输入信任、碰撞处理与分布要求后默认采用 XXH3-64，算法及字节规则须版本化。               |
-| 持久标识摘要         | persistent identity digest             | —                                  | ADR 0033 摘要角色之一：从规范前像派生、作为实体或对象稳定标识持久保存的摘要；默认 BLAKE3，现行 `StableId128` 为 BLAKE3-128。                                                                                              |
+| 确定性派生摘要       | deterministic derivation digest        | —                                  | ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排序键、采样值或派生参数；可决定持久结果，但不作为唯一身份或内容相等证明。满足输入信任、碰撞处理与分布要求后默认采用 XXH3-64，算法及字节规则须版本化。               |
+| 持久标识摘要         | persistent identity digest             | —                                  | ADR 0033 摘要角色之一：从规范原像派生、作为实体或对象稳定标识持久保存的摘要；默认 BLAKE3，现行 `StableId128` 为 BLAKE3-128。                                                                                              |
 | 内部完整性摘要       | internal integrity digest              | —                                  | ADR 0033 摘要角色之一：认证字节或规范值未被改变、只由 LaneFlow 实现产生和重算的摘要；默认 BLAKE3-256。                                                                                                                    |
 | 互操作摘要           | interoperable digest                   | —                                  | ADR 0033 摘要角色之一：须允许 LaneFlow 之外的实现、通用工具或人工流程独立重算的摘要；默认 SHA-256，须写明外部重算方。                                                                                                     |
 | 表行                 | table row                              | row                                | 静态表中的一条记录；每条 LIR/镜像表行都有有类型逻辑序号。                                                                                                                                                                 |
@@ -360,7 +360,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | Routing 准入会话     | routing admission session              | `RoutingAdmissionSession`          | Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世界/世代/修订与 `CostModelKey`；不进快照。                                                                                                                         |
 | 候选路线             | candidate route                        | `CandidateRouteInput`              | #303：Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验证后成为普通路线。                                                                                                                                     |
 | 已准入路线注册命令   | admitted route registration command    | `AdmittedRouteRegisterInput`       | #303：候选成功后进入宿主输入命令序列的规范化耐久记录；宿主记录耐久路线 ID，Runtime 输入只含修订绑定和有序边稳定标识，不重放观测/成本/admission provenance。                                                               |
-| 路线边出现项容量     | route edge occurrence capacity         | `route_edge_occurrence_capacity`   | #303 G1 已接受：`WorldConfig` 对全部存活动态路线边序列 occurrence 总数的语义容量；重复边重复计数，所有路线入口共用，不等于共享静态路网物理边数。                                                                          |
+| 路线边出现记录容量   | route edge occurrence capacity         | `route_edge_occurrence_capacity`   | #303 G1 已接受：`WorldConfig` 对全部存活动态路线边序列 occurrence 总数的语义容量；重复边重复计数，所有路线入口共用，不等于共享静态路网物理边数。                                                                          |
 | 路径规划服务         | routing service                        | —                                  | 从静态路网和已提交动态成本快照生成候选路径、但不拥有交通参与单元固定步进的服务。                                                                                                                                          |
 | 出行编排层           | trip orchestration layer               | —                                  | 拥有出行需求、候选路线选择、收费/政策偏好和调用方随机流，并以显式边界驱动 LaneFlow 的上层系统。                                                                                                                           |
 | 出行需求             | travel demand                          | —                                  | 描述谁在何时为何出发的上层输入；不由交通运行时隐藏生成。                                                                                                                                                                  |
@@ -385,7 +385,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 构建与目标选择器     | build and target selector              | —                                  | 选择构建工具、目标平台或封闭配置档的字段；不是协议版本。                                                                                                                                                                  |
 | 封闭种类选择器       | closed kind selector                   | —                                  | 选择版本化封套的封闭种类及必需字段集合；不是协议版本。                                                                                                                                                                    |
 | 内容身份与长度绑定   | content identity and length binding    | —                                  | 以摘要和精确字节长度共同认证目标对象、或以语义修订标识认证规范内容的外部绑定字段。                                                                                                                                        |
-| 镜像头               | image header                           | header                             | 声明魔数、布局、目标、配置档和来源沿袭的镜像起始结构。                                                                                                                                                                    |
+| 镜像头               | image header                           | header                             | 声明魔数、布局、目标、配置档和来源链的镜像起始结构。                                                                                                                                                                      |
 | 魔数                 | magic                                  | `"LFID"` 等                        | 用固定字节区分协议或制品类型的标记。                                                                                                                                                                                      |
 | 节目录               | section directory                      | —                                  | 记录每个镜像节的种类、偏移量、长度和对齐信息的目录。                                                                                                                                                                      |
 | 不可变               | immutable                              | —                                  | 构造后不再改变，可由多个世界/会话安全共享。                                                                                                                                                                               |
@@ -457,7 +457,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 预先验证           | eager verification               | —                              | 在创建任何目标视图前主动完成全部所需分块与结构检查的加载策略。                                                                                                                                                                                                           |
 | 延迟验证           | lazy verification                | —                              | 只在首次请求某节或能力时才完成对应分块与结构检查的加载策略。                                                                                                                                                                                                             |
 | 后台验证           | background verification          | —                              | 在不暴露未验证字节的前提下，由后台任务提前完成尚未请求节检查的加载策略。                                                                                                                                                                                                 |
-| 不可变字节背板     | immutable byte backing           | —                              | 从分块验证完成到有类型视图释放期间保持同一精确字节、且不存在可写别名的资产或拥有存储。                                                                                                                                                                                   |
+| 不可变字节后备存储 | immutable byte backing           | —                              | 从分块验证完成到有类型视图释放期间保持同一精确字节、且不存在可写别名的资产或拥有存储。                                                                                                                                                                                   |
 | 已关闭暂存对象来源 | closed staged object source      | `ClosedStagedObjectSource`     | 字段私有 staged writer 完成 flush、固定 file identity/exact length 并关闭 LaneFlow 全部写 handle/mapping 后得到的可重读来源；checker 与共享静态构建直接复用，不要求安装到内容仓库。                                                                                      |
 | 静态交通视图       | static traffic view              | `StaticTrafficView`            | ADR 0020/0021 历史镜像方案的只读交通视图；当前 #300 G1 目标类型为 `SharedTrafficNetwork`。                                                                                                                                                                               |
 | 静态空间视图       | static spatial view              | `StaticSpatialView`            | ADR 0020/0021 历史镜像方案的只读空间视图；当前 #300 G1 目标类型为 `SharedSpatialNetwork`。                                                                                                                                                                               |
@@ -511,11 +511,11 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 车辆运行单元        | vehicle runtime unit                | `VehicleState`              | 当前道路机动车执行域的车辆特化交通参与单元；不表示交通运行时只允许车辆。                                                                                                                                                                                                                         |
 | 车辆状态            | vehicle state                       | —                           | 当前车辆运行单元在某一固定步进边界上的运动、路线与行为状态。                                                                                                                                                                                                                                     |
 | 新鲜摆放            | fresh placement                     | `spawn_vehicle`             | 在当前提交时点把一辆尚未处于该运动状态的车放进世界。不表示它从路线起点以零速出发。普通新鲜摆放检查状态、占用、通行权威和局部运动安全；只有调用方明确声明历史起点和出发速度时才另做可达性检查。车尾超出路线起点时，还要有合法开放入口，或把范围内车尾写进路线。                                   |
-| 开放入口            | open entrance                       | `VehicleEntrance`           | 已接受（#742）。调用方在这一次生成或替换上绑定的范围边界：路线起点出现项，沿边的行驶方向进入。不是路线第一条边、没有前驱的边或画面边缘的自动推断。只有绑定合法时，范围外的车尾才可以不占路。不写入车辆状态或快照。                                                                               |
+| 开放入口            | open entrance                       | `VehicleEntrance`           | 已接受（#742）。调用方在这一次生成或替换上绑定的范围边界：路线起点出现记录，沿边的行驶方向进入。不是路线第一条边、没有前驱的边或画面边缘的自动推断。只有绑定合法时，范围外的车尾才可以不占路。不写入车辆状态或快照。                                                                             |
 | 车道图              | lane graph                          | —                           | 供运行时遍历和路线跟随使用的有向车道拓扑。                                                                                                                                                                                                                                                       |
-| 路线                | route                               | `Route`                     | 当前道路机动车执行域中由有序遍历边和相关出现项组成的车辆行驶计划；唯一生产入口是 `register_route`，得到代际感知句柄，不获得持久 `StableId128`。                                                                                                                                                  |
+| 路线                | route                               | `Route`                     | 当前道路机动车执行域中由有序遍历边和相关出现记录组成的车辆行驶计划；唯一生产入口是 `register_route`，得到代际感知句柄，不获得持久 `StableId128`。                                                                                                                                                |
 | 跟车                | vehicle following                   | —                           | 根据同一路径上的前车状态施加安全间距和速度约束的运行时行为。                                                                                                                                                                                                                                     |
-| 跟车前视            | vehicle-following front lookahead   | `front_query_horizon`       | 每车每拍由当前速度与车辆 profile 按跟车 §10.1 推导的出现项行走窗：`bumper_gap_horizon` 向上取整到毫米后再加最大车长。占用查询在此窗内行走；接纳用后杠间隙窗 `bumper_gap_horizon`。占用索引仍按全部 Active 重建；不是目视距离。                                                                   |
+| 跟车前视            | vehicle-following front lookahead   | `front_query_horizon`       | 每车每拍由当前速度与车辆 profile 按跟车 §10.1 推导的出现记录行走窗：`bumper_gap_horizon` 向上取整到毫米后再加最大车长。占用查询在此窗内行走；接纳用后杠间隙窗 `bumper_gap_horizon`。占用索引仍按全部 Active 重建；不是目视距离。                                                                 |
 | 信号                | signal                              | —                           | 由信号控制器和信号组产生、供车辆解释通行约束的运行时指示。                                                                                                                                                                                                                                       |
 | 路口规则            | intersection rules                  | —                           | 对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。                                                                                                                                                                                                                                   |
 | 停车                | parking                             | —                           | 对停车设施、显式停车位、虚拟容量、预约、进入、占用和离开进行管理的领域行为。                                                                                                                                                                                                                     |
@@ -661,8 +661,8 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | ---------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 失真             | distortion                             | 运行时状态完整性语境中，数据内容偏离应有内容的现象；该用词本身不确定原因、判因结论或检测覆盖。具体对象与检测、处置边界以完整性设计为准。                                                                                                                                                                                                                                          |
 | 页级内存失真     | page-level memory distortion           | #794 归因调查确认的环境失真：内存压力下物理页被整页替换、置零或按页整数倍位移；非恶意、不可由软件根除，指纹见验证矩阵。                                                                                                                                                                                                                                                           |
-| 逻辑摘要前像     | logical digest preimage                | #302 确定性状态摘要的规范化前像，布局无关、只覆盖 C(T)；BLAKE3-256（#1035）。完整性维度用于宿主检查点对拍与审计重放。                                                                                                                                                                                                                                                             |
-| 耐久修订内容前像 | durable revision content preimage      | 复用 `NetworkRevisionIdV1` 的前像：规范路网语义载荷 `canonicalNetworkSemanticPayloadV1`（LFCA 语义节规范组帧；不含布局 / 派生表），SHA-256；不另设编码。                                                                                                                                                                                                                          |
+| 逻辑摘要原像     | logical digest preimage                | #302 确定性状态摘要的规范化原像，布局无关、只覆盖 C(T)；BLAKE3-256（#1035）。完整性维度用于宿主检查点对拍与审计重放。                                                                                                                                                                                                                                                             |
+| 耐久修订内容原像 | durable revision content preimage      | 复用 `NetworkRevisionIdV1` 的原像：规范路网语义载荷 `canonicalNetworkSemanticPayloadV1`（LFCA 语义节规范组帧；不含布局 / 派生表），SHA-256；不另设编码。                                                                                                                                                                                                                          |
 | 耐久修订内容基线 | durable revision content baseline      | 构建方产出、宿主随来源跨进程持久的修订内容依据（发布来源的 `NetworkRevisionId`；编辑来源的已提交 `RoadEditingState`）；共享路网修订认证的期望值来源之一。字段与用法以完整性设计 §2.2 为准。                                                                                                                                                                                       |
 | 共享路网修订认证 | shared network revision authentication | 宿主在共享路网修订投入使用之前（安装、恢复、Spatial 绑定、切换）与审计时调用的只读入口：先完成来源准备（发布来源为 reader、引用互证与候选修订完整构建；编辑来源为宿主重编译、reader 与候选修订完整构建），再做修订比较（`origin` 与逐表），最后确认与处置；不进入 tick 路径，不持有常驻状态。输入、步骤、比较算子与判因以完整性设计 §4.2、§7 为准。正文首次出现后可写“修订认证”。 |
 | 认证操作失败     | authentication operational failure     | 共享路网修订认证在 `Pass` / `Mismatch` / `Untrusted` 之外的结果（资源、限额、取消与来源不可得类失败）；不判因、不停用、不宣称 `Pass`。穷尽清单与例外以完整性设计 §2.4 为准。                                                                                                                                                                                                      |
@@ -713,42 +713,42 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 下表给出标识 v1（Identity v1）及其候选扩展中精确类型名的中文语义。代码和制品继续使用精确
 标识符，中文名称负责解释其规范含义。
 
-| 中文规范术语   | 英文辅助名 / 代码标识符（English Alias / Code Identifier） | 中文规范含义                                                                                                    |
-| -------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 道路走廊       | `RoadCorridor`                                             | 组织方向性道路区段与非遍历设施带的横断面所有者。                                                                |
-| 道路区段       | `RoadSection`                                              | 道路走廊内具有方向和横断面成员关系的区段。                                                                      |
-| 编制车道       | `AuthoringLane`                                            | 来源模块中具有稳定键、可展开为道路车道边的车道声明。                                                            |
-| 车道图边       | `LaneEdge`                                                 | 具有显式稳定边键、可独立寻址的基础遍历拓扑实体；道路车道覆盖与路口内部边归属只是关系 / 角色，不参与其稳定身份。 |
-| 路口           | `Junction`                                                 | 组织通行流向和机动路径的静态路口声明。                                                                          |
-| 通行流向       | `Movement`                                                 | 从有向入口接近臂到有向出口接近臂的静态通行意图；转向类别只是元数据。                                            |
-| 机动路径       | `ManeuverPath`                                             | 某通行流向内连接入口边、内部边和出口边的可遍历路径。                                                            |
-| 机动门         | `ManeuverGate`                                             | 绑定机动路径、用于空间准入和信号约束的静态门。                                                                  |
-| 等待区         | `WaitingZone`                                              | 绑定机动路径并表达等待容量、顺序或位置的静态区域。                                                              |
-| 停止线         | `StopLine`                                                 | 表达车辆必须在其前满足通行约束的静态线。                                                                        |
-| 信号组         | `SignalGroup`                                              | 面向一组门或通行意图输出信号指示的静态组。                                                                      |
-| 信号控制器     | `SignalController`                                         | 产生信号相位和指示时间序列的静态控制程序。                                                                      |
-| 信号相位       | `SignalPhase`                                              | 信号控制器内具有稳定键的阶段声明。                                                                              |
-| 停车设施       | `ParkingFacility`                                          | 已接受（Accepted；#540 G1）的唯一停车设施实体；可同时组织显式停车位与虚拟容量，并拥有多个 virtual entry/exit。  |
-| 停车位         | `ParkingSpace`                                             | 有排他占用、静态几何和 parked pose 的具体位置；可选归属于停车设施，该组织关系不构成停车位身份父锚点。           |
-| 车道组         | `LaneGroup`                                                | 道路区段内组织车道成员的静态分组。                                                                              |
-| 设施带         | `FacilityBand`                                             | 道路走廊内不直接承担机动车遍历拓扑的设施横带。                                                                  |
-| 参与者类别     | `ParticipantClass`                                         | 数据声明、可继承的准入分类；不定义交通执行域，也不证明对应运行时行为已经实现。                                  |
-| 准入规则       | `AccessRule`                                               | 对参与者与目标施加允许、拒绝或约束效果的静态规则。                                                              |
-| 车辆配置       | `VehicleProfile`                                           | 冻结车辆运动与安全参数的静态配置。                                                                              |
-| 静态路线       | `StaticRoute`                                              | 不属于现行 Identity 或制品登记；路线只经 `register_route` 进入每世界表。                                        |
-| 规范坐标框架   | `CanonicalFrame`                                           | 空间几何和位姿共享的稳定局部坐标框架。                                                                          |
-| 冲突区         | `ConflictZone`                                             | 多个参与者流可能发生空间冲突、需要运行时裁决的区域。                                                            |
-| 参与者流       | `ParticipantStream`                                        | 进入冲突裁决的有向参与者流。                                                                                    |
-| 冲突通行段     | `ConflictPassage`                                          | 某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。                                  |
-| 路线冲突出现项 | `ConflictPassageOccurrence`                                | 某条每世界路线中的一次冲突通行段出现；以参与者流 ordinal 与所有者局部 passage 下标回指共享静态事实。            |
-| 路径锚点       | `PathAnchor`                                               | 以机动门、路径边界或边内整数毫米位置精确标识机动路径位置的闭合联合。                                            |
-| 冲突区空间区域 | `ConflictZoneRegion`                                       | 与冲突区配对的可选 2.5D 简单 XZ 多边形及高度范围；只服务验证、调试和表现，不拥有冲突行为。                      |
-| 路口组         | `JunctionGroup`                                            | 组织多个路口的更高层静态组合；尚未进入标识 v1（Identity v1）。                                                  |
+| 中文规范术语     | 英文辅助名 / 代码标识符（English Alias / Code Identifier） | 中文规范含义                                                                                                    |
+| ---------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 道路走廊         | `RoadCorridor`                                             | 组织方向性道路区段与非遍历设施带的横断面所有者。                                                                |
+| 道路区段         | `RoadSection`                                              | 道路走廊内具有方向和横断面成员关系的区段。                                                                      |
+| 编制车道         | `AuthoringLane`                                            | 来源模块中具有稳定键、可展开为道路车道边的车道声明。                                                            |
+| 车道图边         | `LaneEdge`                                                 | 具有显式稳定边键、可独立寻址的基础遍历拓扑实体；道路车道覆盖与路口内部边归属只是关系 / 角色，不参与其稳定身份。 |
+| 路口             | `Junction`                                                 | 组织通行流向和机动路径的静态路口声明。                                                                          |
+| 通行流向         | `Movement`                                                 | 从有向入口接近臂到有向出口接近臂的静态通行意图；转向类别只是元数据。                                            |
+| 机动路径         | `ManeuverPath`                                             | 某通行流向内连接入口边、内部边和出口边的可遍历路径。                                                            |
+| 机动门           | `ManeuverGate`                                             | 绑定机动路径、用于空间准入和信号约束的静态门。                                                                  |
+| 等待区           | `WaitingZone`                                              | 绑定机动路径并表达等待容量、顺序或位置的静态区域。                                                              |
+| 停止线           | `StopLine`                                                 | 表达车辆必须在其前满足通行约束的静态线。                                                                        |
+| 信号组           | `SignalGroup`                                              | 面向一组门或通行意图输出信号指示的静态组。                                                                      |
+| 信号控制器       | `SignalController`                                         | 产生信号相位和指示时间序列的静态控制程序。                                                                      |
+| 信号相位         | `SignalPhase`                                              | 信号控制器内具有稳定键的阶段声明。                                                                              |
+| 停车设施         | `ParkingFacility`                                          | 已接受（Accepted；#540 G1）的唯一停车设施实体；可同时组织显式停车位与虚拟容量，并拥有多个 virtual entry/exit。  |
+| 停车位           | `ParkingSpace`                                             | 有排他占用、静态几何和 parked pose 的具体位置；可选归属于停车设施，该组织关系不构成停车位身份父锚点。           |
+| 车道组           | `LaneGroup`                                                | 道路区段内组织车道成员的静态分组。                                                                              |
+| 设施带           | `FacilityBand`                                             | 道路走廊内不直接承担机动车遍历拓扑的设施横带。                                                                  |
+| 参与者类别       | `ParticipantClass`                                         | 数据声明、可继承的准入分类；不定义交通执行域，也不证明对应运行时行为已经实现。                                  |
+| 准入规则         | `AccessRule`                                               | 对参与者与目标施加允许、拒绝或约束效果的静态规则。                                                              |
+| 车辆配置         | `VehicleProfile`                                           | 冻结车辆运动与安全参数的静态配置。                                                                              |
+| 静态路线         | `StaticRoute`                                              | 不属于现行 Identity 或制品登记；路线只经 `register_route` 进入每世界表。                                        |
+| 规范坐标框架     | `CanonicalFrame`                                           | 空间几何和位姿共享的稳定局部坐标框架。                                                                          |
+| 冲突区           | `ConflictZone`                                             | 多个参与者流可能发生空间冲突、需要运行时裁决的区域。                                                            |
+| 参与者流         | `ParticipantStream`                                        | 进入冲突裁决的有向参与者流。                                                                                    |
+| 冲突通行段       | `ConflictPassage`                                          | 某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。                                  |
+| 路线冲突出现记录 | `ConflictPassageOccurrence`                                | 某条每世界路线中的一次冲突通行段出现；以参与者流 ordinal 与所有者局部 passage 下标回指共享静态事实。            |
+| 路径锚点         | `PathAnchor`                                               | 以机动门、路径边界或边内整数毫米位置精确标识机动路径位置的闭合联合。                                            |
+| 冲突区空间区域   | `ConflictZoneRegion`                                       | 与冲突区配对的可选 2.5D 简单 XZ 多边形及高度范围；只服务验证、调试和表现，不拥有冲突行为。                      |
+| 路口组           | `JunctionGroup`                                            | 组织多个路口的更高层静态组合；尚未进入标识 v1（Identity v1）。                                                  |
 
 
 ## 9. 已废弃旧称
 
-本节是禁用旧称的单一事实源：现行文档、Agent 工作流与代码注释不得再使用下列旧称；
+本节是禁用旧称的唯一事实来源：现行文档、Agent 工作流与代码注释不得再使用下列旧称；
 历史证据目录（`research/` 等，法不纠过往）、已关闭 issue / PR 正文与 Git 历史除外。
 取代词一律指向本表已登记的规范术语。登记一行旧称即表示其全部派生复合词（如「共享根」
 含「共享根认证」）一并废弃，除非另立一行说明。
@@ -763,7 +763,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | shared root / shared-root（中英散文、注释、英文别名，指实例）              | shared network revision                                                  | 生命周期、身份、绑定、认证、审计与处置语义；公开 API 标识符不改                                                                                             | #985  |
 | shared_root（内部与测试标识符）                                            | shared_network_revision（指实例）/ shared_static_network（指层或度量）   | 测试模块、测试函数名与私有标识符按同一层/实例二分改名                                                                                                       | #985  |
 | shared_root（机器可读度量键与 CSV 表头）                                   | shared_static_network                                                    | 内存计账判层；`profile-memory` / `exact-pair` 日志键与 `junction-ledger` CSV 表头随批改名并同步读取端；历史证据文件保留旧键（法不纠过往），读取脚本兼容两键 | #985  |
-| 耐久根内容前像                                                             | 耐久修订内容前像（durable revision content preimage）                    | 已登记词条成对改名（中英文同步）：「根内容」是 Rust 所有权视角措辞，字面无法推知其指修订语义载荷前像                                                        | #985  |
+| 耐久根内容前像                                                             | 耐久修订内容原像（durable revision content preimage）                    | 已登记词条成对改名（中英文同步）：「根内容」是 Rust 所有权视角措辞，字面无法推知其指修订语义载荷原像                                                        | #985  |
 | 耐久根内容基线                                                             | 耐久修订内容基线（durable revision content baseline）                    | 同上；定义内「根内容依据」一并改「修订内容依据」                                                                                                            | #985  |
 | 打中 / 被打中（完整性语境）                                                | 失真（§7.6；按句法写“发生失真”“受失真影响”或“导致……失真”）               | 描述数据、状态或认证过程受失真影响的口语；逐句保留对象、时间、可能性与共因条件，不据此断言已确认的页级故障或特定失真机制；本表反例与旧称登记保留原文        | #1009 |
 | 臂（实验、测试与测量语境，含双臂、跨臂、参考臂、分发臂等）                 | 运行配置 / 测试分组 / 单次运行 / 执行路径 / 实验方案（§7.7）             | 按参数组合、测试用例、实际执行、代码分支或候选方案逐句判定；不可用一个替换词混同这些对象                                                                    | #1012 |
@@ -783,6 +783,17 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 兜底（校验、测试、异常与检测处置）   | 补充检查；或直接写明验证、捕获并报告、检测与处置         | 保留执行阶段、错误类型、未覆盖面与宿主责任；不暗示恢复成功或必然检出         | #1014 |
 | 兜底（诊断内容、缺失来源、名称截断） | 占位输出；或直接写明补入给定来源位置、用摘要后缀区分名称 | 占位不提升为验收通过，摘要不提升为无碰撞保证                                 | #1014 |
 | 兜底（排序、残留歧义与路径竞争）     | 最终排序键；或直接写明消解残留歧义、拒绝同名路径         | deny-overrides 消解残留歧义是被否决的方案；路径竞争检查不等于消除全部 TOCTOU | #1014 |
+
+「翻译腔用词」的旧称登记（#1229 第 2 批；英文别名与代码标识符不改）：
+
+| 旧称                                   | 取代词                 | 适用范围                                                                                                                       | 登记  |
+| -------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| 出现项                                 | 出现记录（§5）         | occurrence 语境，派生复合词一并替换；`.rs` 字符串字面量（错误消息、panic 与断言文案）中的残留随逐句判定批次处理                | #1229 |
+| 前像                                   | 原像                   | preimage 语境（摘要、标识与编码描述）；标识符按原文保留                                                                        | #1229 |
+| 单一事实源／事实源                     | 唯一事实来源／事实来源 | SSOT 及“…的事实源”泛称；SSOT 缩写保留                                                                                          | #1229 |
+| 来源沿袭（含独立 provenance 义“沿袭”） | 来源链                 | provenance 语境；动词“沿袭”（沿用旧制义）不属本行；`road-editing.fbs` 注释与 flatc 生成文件中的 2 处待 wire 再生成窗口一并处理 | #1229 |
+| 不可变字节背板／字节背板               | 不可变字节后备存储     | byte backing 语境；信号灯硬件“背板”（灯头构件）同形异义不在废弃范围                                                            | #1229 |
+| 读器                                   | 读取器                 | reader 语境；自然用词，不另立词条                                                                                              | #1229 |
 
 本表反例与旧称登记保留原词；精确代码标识符不改。
 

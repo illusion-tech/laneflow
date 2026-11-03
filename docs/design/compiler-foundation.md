@@ -39,7 +39,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 ## 术语规范
 
 本文的中文术语和中文定义是权威事实，英文只作辅助理解。完整双语映射以
-`../reference/glossary.md` 为单一事实源（Single Source of Truth，SSOT）。Rust
+`../reference/glossary.md` 为唯一事实来源（Single Source of Truth，SSOT）。Rust
 类型、包（crate）、字段、版本值、诊断代码和协议常量等精确标识符使用反引号保留
 原文。
 
@@ -60,7 +60,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - 只有以已验证规范低层中间表示为静态语义核心的成功编译结果可以进入编译发射器
   （Compiler Emitter）或集成专用投影；
 - 稳定声明 / 可独立寻址派生实体使用稳定标识（Stable Identifier），所有者局部关系
-  （Owner-local Relation）/ 所有者局部出现项（Owner-local Occurrence）和低层表行
+  （Owner-local Relation）/ 所有者局部出现记录（Owner-local Occurrence）和低层表行
   使用各自不同的引用形式；
 - 干净单工作线程编译（Clean Single-thread Compile）是并行或增量实现的确定性
   预言机：内存 LIR 必须具有相同规范语义，后继制品发射器存在时则必须产生相同精确
@@ -251,14 +251,14 @@ impl CompileLimits {
 
 - 每个来源模块必须有稳定编制命名空间标识（Authoring Namespace ID）
   `authoringNamespaceId`、来源语言（Source Language）、`sourceContentDigest`、前端
-  版本、选项摘要与来源沿袭（Provenance）；
+  版本、选项摘要与来源链（Provenance）；
 - 每个声明必须有显式稳定键和来源位置（Source Span）；
-- 可发布模块不接受匿名命名空间、缺失来源沿袭或测试专用来源位置；
+- 可发布模块不接受匿名命名空间、缺失来源链或测试专用来源位置；
 - 前端专用语法（Frontend-specific Syntax）可以作为来源诊断元数据保留，但不得
   绕过共同 HIR/MIR 编译遍。
 
 现行规则把第一项扩展为每个逻辑来源模块拥有一个或多个来源文档；每份
-文档各自绑定稳定文档键、精确内容摘要、长度和逐文档来源记录。模块级来源沿袭只描述
+文档各自绑定稳定文档键、精确内容摘要、长度和逐文档来源记录。模块级来源链只描述
 工具、选项和整体转换，不能替代各文档自身的显示/审计来源；
 `SourceDocumentDescriptor` / `SourceDocumentOrigin` 是当前表示的一部分。
 
@@ -274,7 +274,7 @@ impl CompileLimits {
 - 进程内库接口还是隔离进程、`WebAssembly` 或进程间通信（Inter-process
   Communication，IPC）协议；
 - 不受信任前端的资源限制、崩溃隔离和供应链边界；
-- 来源沿袭、诊断位置、确定性与可复现性；
+- 来源链、诊断位置、确定性与可复现性；
 - 公共来源模型是否能保持独立于编译器私有的有类型抽象语法树、HIR 和 MIR。
 
 本段只登记后继决策入口，不预选具体协议，也不构成 v0.10 兼容承诺。
@@ -336,18 +336,17 @@ pub struct CompilationUnit {
 }
 ```
 
-`SourceModuleDescriptor` 表达逻辑模块的命名空间、来源语言、工具/选项、整体转换来源
-沿袭，以及版本化的 `sourceDocumentSetDigest`；精确文档键、摘要、长度和逐文档来源
+`SourceModuleDescriptor` 表达逻辑模块的命名空间、来源语言、工具/选项、整体转换来源链，以及版本化的 `sourceDocumentSetDigest`；精确文档键、摘要、长度和逐文档来源
 保存在字段私有的 `SourceDocumentDescriptor`。一个逻辑模块必须拥有一个或多个来源
 文档，多文档前端不得为每份文档虚构模块、命名空间或导入边。
 
 `SourceDocumentOrigin` 是冷的显示/审计元数据，不是内容身份或信任锚。实现可以把重复
 来源字符串驻留到共享表，并让文档描述符只保留紧凑序号；来源记录不进入文档集摘要
-前像。
+原像。
 `sourceDocumentSetDigest` v1 是模块级快速重放/缓存比较值，不替代逐文档精确身份，也不参与实体
 稳定标识。官方前端先对每份规范来源记录精确字节各计算一次 SHA-256，形成
 `sourceDocumentDigest`；随后只对已经派生的文档描述符计算一次 SHA-256 聚合，不重新读取或哈希
-来源全文，并复用模块内文档规范化所需的同一次排序结果，不执行第二次规范排序。聚合前像按
+来源全文，并复用模块内文档规范化所需的同一次排序结果，不执行第二次规范排序。聚合原像按
 `sourceDocumentKey` UTF-8 字节序排列，依次编码：ASCII 域
 `LFSOURCE-DOCUMENT-SET`、`u32` 小端版本 `1`、`u32` 小端文档数，以及每份文档的 `u32`
 小端键字节数、键字节、`u32` 小端 `sourceRecordByteLen` 和 32 字节
@@ -356,21 +355,21 @@ pub struct CompilationUnit {
 
 **来源摘要的制品归类。** 按
 [ADR 0033 §9](../adr/0033-digest-role-and-algorithm-selection-authority.md)，下列来源追溯
-摘要随可移植规范制品家族保持 SHA-256。重放、缓存比较与来源沿袭是用途，不代表摘要
+摘要随可移植规范制品家族保持 SHA-256。重放、缓存比较与来源链是用途，不代表摘要
 只在进程内存在；判定须追踪到实际持久化字段，不能据调用次数改选瞬态指纹或内部完整性
 摘要的默认算法。
 
 | 摘要                                                | 制品字段或派生去向                                                                                                                | 算法结论                         |
 | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | `sourceDocumentDigest`                              | LFSM `SourceDocument` tag 4 `sourceContentDigest:Sha256`                                                                          | 保持 SHA-256                     |
-| `sourceDocumentSetDigest`                           | LFSM `SourceModule` tag 4 `sourceDocumentSetDigest:Sha256`；同时进入来源集合摘要前像                                              | 保持 SHA-256                     |
+| `sourceDocumentSetDigest`                           | LFSM `SourceModule` tag 4 `sourceDocumentSetDigest:Sha256`；同时进入来源集合摘要原像                                              | 保持 SHA-256                     |
 | `sourceCollectionDigest`                            | LFCA `CompilerProvenance` tag 3、LFSM `SourceMapBinding` tag 8、LFCP `SourceMapBinding` tag 6，均为 `Sha256`                      | 保持 SHA-256                     |
-| `compileOptionsDigest`                              | LFCA `CompilerProvenance` tag 4 `compileOptionsDigest:Sha256`；现行无选项前像的冻结常量                                           | 保持 SHA-256                     |
+| `compileOptionsDigest`                              | LFCA `CompilerProvenance` tag 4 `compileOptionsDigest:Sha256`；现行无选项原像的冻结常量                                           | 保持 SHA-256                     |
 | `parametersAndInputsDigest`                         | LFSM `SourceModule` tag 9 `parametersAndInputsDigest:Sha256`；道路编辑来源还保存于 LFRE `Provenance.parameters_and_inputs_digest` | 保持 SHA-256                     |
 | `frontendOptionsDigest`（模块描述符）               | LFSM `SourceModule` tag 7 `frontendOptionsDigest:Sha256`                                                                          | 保持 SHA-256                     |
 | 道路编辑来源的 `Provenance.frontend_options_digest` | 原值保存于 LFRE；与几何近似语义版本、精度和方向档位一起派生模块描述符的 `frontendOptionsDigest`，再写入 LFSM                      | 保持 SHA-256；原值与派生值不混同 |
 
-字段与前像以[可移植规范制品](portable-canonical-artifact.md) §3.7、§4.1、§6 和
+字段与原像以[可移植规范制品](portable-canonical-artifact.md) §3.7、§4.1、§6 和
 [道路编辑来源登记](../../schemas/road-editing/v4/README.md) §4 为准。逐文档摘要与文档集
 摘要直接写入 LFSM；LFCA 通过来源集合摘要绑定它们，不直接保存这两个字段。
 `compileOptionsDigest` 不由来源文档聚合产生，也不是生成器编制选项摘要。
@@ -382,7 +381,7 @@ pub struct CompilationUnit {
 先进入 LFRE，再经上述几何配置聚合进入 LFSM tag 7。直接道路编制的冻结参数/选项摘要
 也沿用这一路径。这些值均影响持久制品，不存在可独立替换算法的进程内中间摘要。
 
-来源语义摘要由懂得 LaneFlow 来源与格式的实现重算；不声称通用文件工具能解释其前像。
+来源语义摘要由懂得 LaneFlow 来源与格式的实现重算；不声称通用文件工具能解释其原像。
 宿主资产管线和通用工具校验的是制品对象精确字节摘要。这里保持 SHA-256 的理由是
 ADR 0033 §9 的同一格式家族约束，不是已测得更换算法没有性能收益，也不增加来源真实性
 保证。现有 `Sha256` 字段与 `Sha256Digest` 类型继续准确描述该算法，无需改名。
@@ -422,7 +421,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
    文档描述符、逐文档来源记录、导入、共同声明与全部模块资源计数。字段私有性保证调用方不能重配
    其中任一部分。
    逐文档摘要和精确长度只能由前端对各文档的实际规范来源字节计算；模块文档集摘要只能按本节
-   v1 前像从这些受检描述符聚合，二者都不能由调用方自报。
+   v1 原像从这些受检描述符聚合，二者都不能由调用方自报。
 2. `add_*_module` 按值消费具体封装；道路编辑入口只借用原始输入，并在调用内部按值
    消费验证结果。道路编辑 add 成功后还把该模块的 location context 移入 builder，以
    不复用的 builder-local context index 与 admitted module record 绑定；内容移动到私有
@@ -430,7 +429,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
    字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
 3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、文档数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
-   出现项、几何点和编译器控制存续字节数的候选累计值，并执行全部
+   出现记录、几何点和编译器控制存续字节数的候选累计值，并执行全部
    `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
    已消费模块被释放。
 4. 全部检查成功后才移动模块及其来源位置 context handle、写入模块/文档索引并提交
@@ -465,7 +464,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 共同接入使用 `LF-COMP-P100-INITIAL-v2`：除新增
 `max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是共同接入容量，
 不构成任何 current JSON 前端承诺；后继前端若需要更高文档总数，必须
-携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现项
+携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现记录
 维度。
 
 LFCA 的一百万稳定静态实体端到端路径使用独立的
@@ -501,7 +500,7 @@ current JSON 退役与投影测试边界，不再拥有编译器前端。
 - 来源模块描述符；
 - 声明种类、显式稳定键和有类型单位；
 - 有类型未解析引用；
-- 来源位置与来源沿袭；
+- 来源位置与来源链；
 - 官方前端展开来源，但不保存当前核心句柄或目标布局（Layout）。
 
 现行规则把第一项扩展为同时保留一个逻辑模块的一个或多个
@@ -534,7 +533,7 @@ HIR 的内部引用使用编译器私有、有类型的 `u32` 区块分配键。
 - 显式规范 `f32` 折线的几何（Geometry）连续性与交通边长共同校验（用
   `length_mm / 1000` 观察值）；
 - 父项先于子项的标识闭包；
-- 机动路径、机动门 / 等待区（路线出现项不在编译器预计算，见 ADR 0029）；
+- 机动路径、机动门 / 等待区（路线出现记录不在编译器预计算，见 ADR 0029）；
 - 所有者 / 成员关系、覆盖关系（Coverage）、唯一所有者和全局一致性。
 
 MIR 可以使用临时哈希与缓存（Hash and Cache），但所有规范遍历都从显式稳定序列或
@@ -570,12 +569,12 @@ pub struct Ordinal<K> {
 - LIR 表冻结后使用 `Box<[T]>` 或等价连续不可变存储；
 - 稳定实体表按“实体种类、规范标识元组（Canonical Identity Tuple）字节”排序并分配
   有类型逻辑序号；
-- 所有者局部关系 / 出现项按所有者序号、有类型角色和领域有序语义分配；
+- 所有者局部关系 / 出现记录按所有者序号、有类型角色和领域有序语义分配；
 - 没有稳定身份的密集派生表行必须定义完整语义排序键和稳定并列裁决，不能回退到
   输入容器遍历顺序；
 - 有序关系保留领域顺序并用连续平面区间表达，不能按实体表排序覆盖语义顺序。
 
-LIR 必须保留后继可移植规范制品所需的完整规范标识元组前像，但不预先规定 #298 的线
+LIR 必须保留后继可移植规范制品所需的完整规范标识元组原像，但不预先规定 #298 的线
 格式。建议的内存形态是共享字段字节池、字段记录区间，以及每个稳定实体对应的实体
 种类、`StableId128`、有类型逻辑序号和字段区间，而不是给每行复制字符串对象。
 
@@ -584,14 +583,14 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 已验证源映射输入（Validated Source-map Input）与 LIR 在同一次成功编译中原子
 冻结，但不属于静态路网语义。当前基线至少保存：
 
-- 来源模块描述符、每个模块绑定的一份来源文档登记和来源沿袭；
+- 来源模块描述符、每个模块绑定的一份来源文档登记和来源链；
 - 稳定实体的实体种类、`StableId128`、有类型逻辑序号与主要 / 关联来源位置；
-- 所有者局部关系 / 出现项的所有者稳定标识、有类型角色、本次编译局部序号与来源
+- 所有者局部关系 / 出现记录的所有者稳定标识、有类型角色、本次编译局部序号与来源
   位置；
 - 生成关系的推导链和贡献来源位置（contributing spans）。
 
 一模块一文档基线已扩展为分离的来源模块描述符表、来源文档描述符表
-与逐文档来源记录：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换沿袭不能
+与逐文档来源记录：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换来源链不能
 替代该关联；编译单元按第 3.3 节的独立文档顺序冻结全局来源文档登记。从有类型抽象语法树
 降阶到 HIR 时，每个声明、关系或诊断位置都把自身
 `SourceLocation::source_document_key()`
@@ -626,8 +625,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
 该伴随数据原子发射源映射；不能从已经释放的 AST/HIR/MIR 重新猜测来源，也不能让
-伴随数据补齐 LIR 缺失的身份字段、所有者或关系。LIR 语义摘要不包含来源位置或来源
-沿袭；来源变化可以只改变源映射精确字节，而不改变 LIR 语义或稳定标识。
+伴随数据补齐 LIR 缺失的身份字段、所有者或关系。LIR 语义摘要不包含来源位置或来源链；来源变化可以只改变源映射精确字节，而不改变 LIR 语义或稳定标识。
 
 ## 5. 编译遍、确定性与失败原子性
 
@@ -739,8 +737,8 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_mir_record_count`                |    38112 | MIR 逻辑记录                                     |
 | `max_lir_record_count`                |    38112 | LIR 逻辑记录                                     |
 | `max_reference_count`                 |    37920 | 有类型引用                                       |
-| `max_relation_occurrence_count`       |    10032 | 关系出现项                                       |
-| `max_identity_field_occurrence_count` |    29184 | 标识字段出现项                                   |
+| `max_relation_occurrence_count`       |    10032 | 关系出现记录                                       |
+| `max_identity_field_occurrence_count` |    29184 | 标识字段出现记录                                   |
 | `max_maneuver_gate_count`             |     2304 | 机动门                                           |
 | `max_waiting_zone_count`              |     1536 | 等待区                                           |
 | `max_geometry_point_count`            |    22368 | 规范几何点                                       |
@@ -786,8 +784,8 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_mir_record_count`                |    8000000 | MIR 逻辑记录                                                  |
 | `max_lir_record_count`                |    8000000 | LIR 逻辑记录                                                  |
 | `max_reference_count`                 |   16000000 | 有类型引用                                                    |
-| `max_relation_occurrence_count`       |   16000000 | 关系出现项                                                    |
-| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现项                                                |
+| `max_relation_occurrence_count`       |   16000000 | 关系出现记录                                                    |
+| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现记录                                                |
 | `max_maneuver_gate_count`             |    1000000 | 机动门                                                        |
 | `max_waiting_zone_count`              |    1000000 | 等待区                                                        |
 | `max_geometry_point_count`            |   16000000 | 规范几何点                                                    |
@@ -899,7 +897,7 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 - 参数与输入摘要；
 - 前端版本和选项摘要；
 - 调用方随机种子（如果生成过程使用随机性）；
-- 来源沿袭。
+- 来源链。
 
 领域专用语言构建器按规范化调用记录和参数形成可重放的合成来源记录，并由
 `SyntheticModuleBuilder::finish` 计算来源内容摘要，调用方不能自报摘要或单独配对
@@ -914,14 +912,14 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 新增记录按稳定实体 identity bytes 与 owner-local 规范序排序；几何、hash iteration、
 调用顺序和 worker 数不得影响 exact `LFSOURCE` bytes。
 调用机器的绝对路径、墙钟时间和指针地址不进入该记录。
-该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
+该摘要只服务来源链和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
 来源模块头；该能力不得进入发布接口。
 
 领域专用语言构建器的声明方法使用 `#[track_caller]` 或等价宏捕获 Rust 文件、行和
 列作为来源位置。#292 已接受的每个来源模块另有调用方提供、与机器路径无关的稳定
 `sourceDocumentKey`；该键在整个编译单元内必须唯一，并受 `CompileLimits` 的
 `ASCII` 字符集与长度上限约束，重复键在进入诊断排序前失败。
-`file!()` 结果只作本地显示和来源沿袭。循环展开的多个声明可以共享调用位置，但诊断
+`file!()` 结果只作本地显示和来源链。循环展开的多个声明可以共享调用位置，但诊断
 必须同时携带声明的显式稳定键；来源位置、文件路径和展开序号都不得参与标识。
 
 现行逐文档形状在不原地改义上述字段的前提下，使每个 `SyntheticModule`
@@ -935,11 +933,11 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 
 | 领域           | 支持                                                                                                                                              | 明确拒绝 / 后继                                                                |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| 模块           | 稳定命名空间、显式导入、来源沿袭、跨模块有类型引用                                                                                                | 网络 / 文件系统隐式发现、匿名可发布模块                                        |
+| 模块           | 稳定命名空间、显式导入、来源链、跨模块有类型引用                                                                                                | 网络 / 文件系统隐式发现、匿名可发布模块                                        |
 | 车道拓扑       | 显式 `laneEdgeKey`、长度、限速、后继关系、自环、合法孤立边                                                                                        | 从坐标或数组位置生成边键                                                       |
 | 横断面         | 道路走廊（`RoadCorridor`）、道路区段（`RoadSection`）、编制车道（`AuthoringLane`）、车道组（`LaneGroup`）、设施带（`FacilityBand`）及唯一所有者树 | 动态车道用途、多执行域运行时行为                                               |
 | 路口           | 路口（`Junction`）、通行流向（`Movement`）、机动路径（`ManeuverPath`）、`ConflictZone`、`ParticipantStream`、有序 passage 及共享内部边角色        | `JunctionGroup`、冲突运行时仲裁与通行权策略                                    |
-| 机动门与等待区 | 多机动门（`ManeuverGate`）、停止线（`StopLine`）、等待区（`WaitingZone`）                                                                         | 路线出现项（只在 `register_route`）；等待运行时、`ConflictArbiter`、通行权策略 |
+| 机动门与等待区 | 多机动门（`ManeuverGate`）、停止线（`StopLine`）、等待区（`WaitingZone`）                                                                         | 路线出现记录（只在 `register_route`）；等待运行时、`ConflictArbiter`、通行权策略 |
 | 信号           | 当前态定时信号组（`SignalGroup`）、信号控制器（`SignalController`）、信号相位（`SignalPhase`）及机动门控制绑定                                    | 感应控制、宿主回调或未冻结的控制器类型                                         |
 | 停车           | 停车设施（`ParkingFacility`）、停车位（`ParkingSpace`）、virtual capacity、有序入口 / 出口锚点和静态几何                                          | 运行时预约 / 生命周期策略                                                      |
 | 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为               |
@@ -962,7 +960,7 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 
 当时覆盖的领域仍必须能由合成 DSL / 道路编辑前端表达：完整车道拓扑、横断面 /
 准入、信号、停车、规范几何，以及单个机动路径的多机动门与等待区。
-自环边、合法孤立边和重复边出现项都不依赖道路区段或路口所有者。路线出现项不由
+自环边、合法孤立边和重复边出现记录都不依赖道路区段或路口所有者。路线出现记录不由
 编制来源声明（ADR 0029）。
 
 ## 7. 标识 v1 首次实现
@@ -1044,7 +1042,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 
 #292 已接受的 `sourceDocumentKey` 仍是编译单元内显式、稳定、与机器路径无关的 ASCII
 键；合成领域专用语言使用该键、调用位置和声明的显式稳定键，文本前端使用真实文本
-范围，道路编辑来源使用有类型实体/属性位置。宿主路径只服务显示和来源沿袭，不参与
+范围，道路编辑来源使用有类型实体/属性位置。宿主路径只服务显示和来源链，不参与
 规范标识、规范排序、可移植规范制品或语义差异。
 
 每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
@@ -1061,7 +1059,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 
 投影固定遵守：
 
-- LIR 已完成的稳定标识、所有者、拓扑、长度、出现项和顺序语义不在投影中重算；
+- LIR 已完成的稳定标识、所有者、拓扑、长度、出现记录和顺序语义不在投影中重算；
 - 当前态构造器仍可执行自己的防御校验，但其结果不是编译器语义验证的实现；
 - 当前态句柄 / 登记表序号只存在于投影结果，不回写 LIR；
 - 投影对象的 current external ID 使用对应 `StableId` 的规范文本，避免不同来源模块的
@@ -1077,7 +1075,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 
 | 证据层     | 比较内容                                                                 |
 | ---------- | ------------------------------------------------------------------------ |
-| 静态语义   | 实体、稳定关系、有序关系、长度、信号、停车、准入和等待区出现项           |
+| 静态语义   | 实体、稳定关系、有序关系、长度、信号、停车、准入和等待区出现记录           |
 | 当前态构造 | 当前 Core/Spatial 构造器全部成功，投影关系可从公开查询面逐项核对         |
 | 确定性     | 重复编译语义指纹和 LIR ordinal / StableId / current external ID 映射一致 |
 | 空间层     | 规范坐标框架、车道图边绑定以及采样位置与切向                             |
@@ -1092,7 +1090,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 横断面与路口关系、四道机动门、两个等待区、两套固定时制信号、两组停车所有权、
 参与者分类、准入、两套车辆配置、两条路线和规范几何的编译器有类型模块，然后验证：
 
-- Canonical LIR 的全部代表性实体数量、完整映射报告和路线出现项；
+- Canonical LIR 的全部代表性实体数量、完整映射报告和路线出现记录；
 - 车道拓扑、横断面所有者、路口/机动路径、停止线/门/等待区、信号相位、停车、参与者
   继承、准入裁决、车辆配置与路线序列逐项投影语义；
 - 七条边的代表性几何位置、切向和局部基采样；
@@ -1230,7 +1228,7 @@ LIR 或后继制品。
 | -------------------------- | --------------- | -------------------------------------------- | ---------------------------------- |
 | `LF-COMP-ID-v1`            | 合成校准 / 压力 | 标识 v1 全部实体种类 / 标签与父项闭包        | 模块、稳定实体、标识字段 / 字节    |
 | `LF-COMP-CORRIDOR-v1`      | 合成校准 / 压力 | 线性走廊、信号 / 停车 / 横断面扩展           | 边、关系、路线、信号状态、几何点   |
-| `LF-COMP-JUNCTION-GRID-v1` | 合成校准 / 压力 | 密集路口、路径 / 机动门 / 等待区出现项与索引 | 路口、路径、机动门、等待区、出现项 |
+| `LF-COMP-JUNCTION-GRID-v1` | 合成校准 / 压力 | 密集路口、路径 / 机动门 / 等待区出现记录与索引 | 路口、路径、机动门、等待区、出现记录 |
 
 投影正确性由第 9.1 节的编译器原生夹具承担，不定义 current JSON 性能工作负载。
 
@@ -1249,7 +1247,7 @@ LIR 或后继制品。
 - 输入模块 / 来源字节和各阶段记录数；
 - 每个编译遍的墙钟时延与总编译时延；
 - 分配次数、峰值字节数和每阶段保留字节数；
-- 标识编码 / 哈希、符号解析、排序和出现项预计算的分项成本；
+- 标识编码 / 哈希、符号解析、排序和出现记录预计算的分项成本；
 - 冷实例编译（Cold-instance Compile）和稳定容量复用编译（Stable-capacity Reuse
   Compile）；
 - 输出 LIR 表 / 关系 / 标识字段字节数；

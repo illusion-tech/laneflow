@@ -66,7 +66,7 @@ macro_rules! impl_stable_entity_view {
                 self.record.ordinal
             }
 
-            /// 返回由完整 Identity v1 前像派生的有类型稳定标识。
+            /// 返回由完整 Identity v1 原像派生的有类型稳定标识。
             #[must_use]
             pub const fn stable_id(&self) -> $id {
                 self.record.stable_id
@@ -109,7 +109,7 @@ impl CanonicalLaneEdgeView<'_> {
         self.edge.ordinal
     }
 
-    /// 返回由完整 Identity v1 前像派生的稳定标识。
+    /// 返回由完整 Identity v1 原像派生的稳定标识。
     #[must_use]
     pub const fn stable_id(&self) -> LaneEdgeId {
         self.edge.stable_id

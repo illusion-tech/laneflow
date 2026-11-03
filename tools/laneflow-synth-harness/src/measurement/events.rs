@@ -160,7 +160,7 @@ pub(crate) fn address_identity(address: &ConflictPassageAddress) -> u32 {
     }
 }
 
-/// 预约区间事件的身份 payload：以区间首出现项解析 passage 地址（真实资源身份）。
+/// 预约区间事件的身份 payload：以区间首出现记录解析 passage 地址（真实资源身份）。
 pub(crate) fn passage_identity(
     world: &TrafficWorld,
     range: ConflictPassageRange,

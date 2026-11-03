@@ -134,7 +134,7 @@ object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围
 该构建闭合是 Runtime 结构闭合，不是独立 compiler 语义复验。compiler 拥有
 `identityFields -> StableId128` 和规范 points -> segment 派生值；builder 接受受检 LFCA
 中已声明的 StableId、length/cumulative/tangent/up，只检查 Runtime 索引、引用、范围和
-component 结构所需的不变量。它不重新哈希 Identity 前像，也不从 points 重演完整几何
+component 结构所需的不变量。它不重新哈希 Identity 原像，也不从 points 重演完整几何
 冻结。发布路径以先行 LFCP/manifest admission 为前提，本地编辑路径以同进程
 `PostEmissionCheckedBundle` 为前提。
 
@@ -208,12 +208,12 @@ Traffic component 必须提供以下 Runtime 静态事实：
 - LaneEdge/owner/member/topology 和 successor/predecessor ranges；
 - Junction/Movement/ManeuverPath/Gate/WaitingZone/StopLine 静态关系；
 - speed、access、vehicle profile、signal/parking 等已支持静态规则；
-- 机动路径、门、等待区及其转移候选（路线出现项不进共享静态路网，由
+- 机动路径、门、等待区及其转移候选（路线出现记录不进共享静态路网，由
   `register_route` 编进每世界表；ADR 0029）；
 - Runtime 需要的反向关系、candidate ranges 与 worker-count-neutral execution constraints；
 - Traffic/Spatial 共用的 edge/frame ordinal contract。
 
-显示名、来源位置、规范身份 field-tag/value 前像、LFSM/LFSD 和 compiler provenance 不进入
+显示名、来源位置、规范身份 field-tag/value 原像、LFSM/LFSD 和 compiler provenance 不进入
 Traffic retained data。字段与关系的逐项归属由 [§13](#13-runtime-关系闭包) 冻结。
 
 ### 5.2 默认物理策略
@@ -305,7 +305,7 @@ O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pas
 
 ### 7.2 必需闭合
 
-builder 必须闭合 owner/member、access/profile、signal、parking 与冲突静态关系。路线出现项
+builder 必须闭合 owner/member、access/profile、signal、parking 与冲突静态关系。路线出现记录
 只在每世界 `register_route` 编译。实体计数存在不等于字段或关系已经进入 Runtime。
 
 成功前至少检查：
@@ -535,7 +535,7 @@ builder 测试只补充能够通过格式直接值域但不能构成功能正确
    规范顺序排列 AccessRule。并列归因与歧义配对一律使用 LFCA AccessRule canonical
    ordinal（较小者胜出 / 作为 first_rule）。不得为保留 JSON 顺序而新增 LFCA 字段或
    读取 LFSM。测试必须按 LFCA 表序构造并列规则，不得用 JSON 文件顺序当 oracle。
-6. **本节是关系投影的设计事实源。** 任何已登记关系都必须按本节明确的目标 component
+6. **本节是关系投影的设计事实来源。** 任何已登记关系都必须按本节明确的目标 component
    投影或明确禁止，不得因首个消费 kernel 暂时不用而丢失。
 
 ### 13.2 32 个 compiled relation role
@@ -582,7 +582,7 @@ builder 测试只补充能够通过格式直接值域但不能构成功能正确
 
 Identity 正反表覆盖登记表修订 3 的连续 kind `1..=23`。本表只冻结
 Traffic retained 标量/向量；
-未列出的 UTF-8、身份前像、来源位置一律不投影。
+未列出的 UTF-8、身份原像、来源位置一律不投影。
 
 | 实体                | 进入 Traffic 的字段                                                                              | 明确不进入                                                              |
 | ------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
@@ -634,7 +634,7 @@ Traffic retained 标量/向量；
 - `ParkingSpace ↔ ParkingFacility`（facility 仍可选）；
 - `Junction ↔ ConflictZone`、`Junction ↔ ParticipantStream`、
   `ManeuverPath ↔ ParticipantStream` 与 `ConflictZone ↔ ParticipantStream passage`；
-- 路线出现项反向 **不再建立**（ADR 0029）；机动路径/门/等待区仍按自身 owner range 闭合。
+- 路线出现记录反向 **不再建立**（ADR 0029）；机动路径/门/等待区仍按自身 owner range 闭合。
 
 一对多关系使用 `RangeU32 + flat payload`。可选一对一反向使用并行 presence/bitset 或
 等价稀疏列，不得用 `0` 冒充有效 ordinal。tick 向 accessor 返回连续 slice 或实体 View；
@@ -697,7 +697,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 非目标沿用 §12，并额外明确：
 
 - 不重做受检输入、Identity、LaneEdge CSR、机动候选或 Spatial 基线；
-- 不重算 StableId 前像或 segment 几何派生，不建第二套验证器；
+- 不重算 StableId 原像或 segment 几何派生，不建第二套验证器；
 - 不实现 tick / Spatial session / Adapter 或修订切换；
 - 不以本节替代系统资源/性能证据；
 - 不冻结 ABI、mmap、cache 或平台 SIMD。
@@ -713,4 +713,4 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 - 必须把来源声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
   才能完成 v0.10 切换；
 - 固定时制相位解析必须每 tick 扫描/累加 `duration_ms`，或每 world 重建累计边界；
-- 必须把路线边序列或出现项写回共享静态路网才能完成 tick 或 #302 快照。
+- 必须把路线边序列或出现记录写回共享静态路网才能完成 tick 或 #302 快照。

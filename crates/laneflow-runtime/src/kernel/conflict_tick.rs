@@ -152,7 +152,7 @@ impl ConflictRouteAnchor {
     pub const fn route(self) -> RouteHandle {
         self.route
     }
-    /// 路线内的机动路径出现项下标。
+    /// 路线内的机动路径出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
@@ -230,7 +230,7 @@ impl ConflictDecision {
     pub const fn anchor(self) -> ConflictRouteAnchor {
         self.anchor
     }
-    /// 涉及的冲突通行段出现项 locator；无 passage 资源时为 `None`。
+    /// 涉及的冲突通行段出现记录 locator；无 passage 资源时为 `None`。
     #[must_use]
     pub const fn passage(self) -> Option<ConflictPassageOccurrenceLocator> {
         self.passage
@@ -375,7 +375,7 @@ fn evaluate_gate_hop(
         |entry| entry.exit_route_edge_index <= gate_hop
     });
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
-    // P1-3（#1199）：尾过渡锚统一沿 bind 回退语义——Transition 出现项的
+    // P1-3（#1199）：尾过渡锚统一沿 bind 回退语义——Transition 出现记录的
     // 锚=发射侧 bind 的 maneuver_index（后继优先/前驱回退/平局取首），
     // 不用分区点重导（末 maneuver 后的过渡分区点错位）。
     let maneuver_index = compiled
@@ -741,7 +741,7 @@ pub(crate) struct ConflictMotionPlan {
     pub(crate) grant_index: Option<std::num::NonZeroU32>,
 }
 
-/// 单个冲突通行段出现项的进入/清空转移记录。
+/// 单个冲突通行段出现记录的进入/清空转移记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ConflictPassageTransition {
     pub(crate) vehicle: VehicleHandle,
@@ -947,7 +947,7 @@ fn plan_resource_row(
     plan
 }
 
-/// 一条已授权通行区间在本拍后的进入/清空转移；只读，转移按出现项顺序交给 `push`。
+/// 一条已授权通行区间在本拍后的进入/清空转移；只读，转移按出现记录顺序交给 `push`。
 /// 返回区间是否已全部清空。
 fn passage_transitions(
     read: crate::kernel::phase::StepReadView<'_>,
@@ -1257,7 +1257,7 @@ impl TrafficWorld {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
-    /// 把路线内的冲突出现项编码为迁移日志的稳定 locator。
+    /// 把路线内的冲突出现记录编码为迁移日志的稳定 locator。
     pub(crate) fn conflict_journal_locator(
         self,
         route: RouteHandle,
@@ -1324,7 +1324,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .map(|entry| entry.entry_hop)
         });
         let authorized = |hop| [grant_hop, owned_hop, held_waiting_hop].contains(&Some(hop));
-        // 直接查询有序资源出现项，不扫描不需要资源的普通 Gate。
+        // 直接查询有序资源出现记录，不扫描不需要资源的普通 Gate。
         // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
         let mut minimum = first_hop;
         let conflict = loop {
@@ -4200,7 +4200,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         }
     }
 
-    /// 把路线内的冲突出现项编码为迁移日志的稳定 locator。
+    /// 把路线内的冲突出现记录编码为迁移日志的稳定 locator。
     pub(crate) fn conflict_journal_locator(
         &self,
         route: RouteHandle,
@@ -6632,7 +6632,7 @@ enum CellsSegment {
     Materialized,
     /// 任务局部暂存不足 → 协调器同原语补算（不冒充领域分配失败）。
     Unmaterialized,
-    /// 出现项循环检查失败（F1 位之后、F2 之前）。
+    /// 出现记录循环检查失败（F1 位之后、F2 之前）。
     Failed(StepError),
 }
 
@@ -7063,7 +7063,7 @@ pub(crate) fn entrant_neighborhood(
 }
 
 impl ConflictTaskView<'_> {
-    /// 共用领域段（#706 R3-3a）：单个冲突出现项的 cell 字段求值——地址
+    /// 共用领域段（#706 R3-3a）：单个冲突出现记录的 cell 字段求值——地址
     /// 收集、规则流解析与 priority 最小值归约、Protected 跳过让行间隙、
     /// yield targets 的 preflight NoGrant 折叠。融合（sink = workspace
     /// cell 工作区）与分发（sink = 任务暂存）只有这一份生产实现；
@@ -7191,9 +7191,9 @@ impl ConflictTaskView<'_> {
         let reach_mm = entrant_stop_reach_mm(traffic, delta_ms);
         let neighborhood = entrant_neighborhood(traffic, interval_edge, reach_mm);
         let first_ring = &neighborhood.first_ring;
-        // 区间边界目标（进入者路线到 T 的最短路线空间距离）：目标出现项
+        // 区间边界目标（进入者路线到 T 的最短路线空间距离）：目标出现记录
         // 从进入者游标定位「首次不早于游标」（#1216）——循环路线重复边
-        // 不得回选身后出现项（身后目标返 `None` 是正确语义，误选会把真实
+        // 不得回选身后出现记录（身后目标返 `None` 是正确语义，误选会把真实
         // 前方进入者误判「已过区间」跳过证明）。
         let boundary_targets = |route: &crate::kernel::tables::CompiledRoute, cursor: u32| {
             let mut targets = Vec::new();
@@ -7881,7 +7881,7 @@ impl ConflictTaskView<'_> {
             Some(profile) => profile.class(),
             None => return check_failed(Some(eligibility), StepError::ConflictInvariantViolation),
         };
-        // 出现项循环：任务段暂存（跨拍复用槽位回收容量；不足 →
+        // 出现记录循环：任务段暂存（跨拍复用槽位回收容量；不足 →
         // Unmaterialized，不冒充领域分配失败）。
         scratch.cells.clear();
         let cell_work = &mut scratch.cells;

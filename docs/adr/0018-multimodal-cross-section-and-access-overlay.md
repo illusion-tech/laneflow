@@ -65,7 +65,7 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
   保证——端面一致不等于首尾 node 相同，Core 无几何可校验；一条 lane 中途
   开始/结束即横向组成变化，按定义必须是 section 边界），lane 内部切分点
   独立；lane index 顺序与 corridor elements 顺序共同构成未来 lane
-  adjacency 的事实源。**横向边界锚点 v1 是整边界级的**，分两层：section 内
+  adjacency 的事实来源。**横向边界锚点 v1 是整边界级的**，分两层：section 内
   边界 `(section, 相邻 lane 对)` 由 lane index 顺序构造保证；corridor 接缝
   边界 `(corridor, 相邻元素对)` 由 elements 顺序构造保证——`kindId` 在
   section 级，跨 kind 相邻（如机动车道与非机动车道接缝）必然跨 section，

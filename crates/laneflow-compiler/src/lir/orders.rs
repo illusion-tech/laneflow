@@ -151,7 +151,7 @@ pub(crate) struct CanonicalOrders {
 }
 
 impl CanonicalOrders {
-    /// 只读 MIR 按 Identity v1 前像逐类排序，构建全部稳定实体的 MIR→LIR 双向排列；实体数超过有类型 `u32` 边界时返回资源诊断。
+    /// 只读 MIR 按 Identity v1 原像逐类排序，构建全部稳定实体的 MIR→LIR 双向排列；实体数超过有类型 `u32` 边界时返回资源诊断。
     pub(crate) fn build(
         mir: &MirUnit,
         plan: &LirFreezePlan,

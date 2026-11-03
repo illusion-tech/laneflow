@@ -121,7 +121,7 @@ fn t_world_with_route_and_vehicle() -> (TrafficWorld, crate::RouteHandle, crate:
     (world, route, vehicle)
 }
 
-/// 该车当前是否持有过渡态权威（T `Clearing` 遍历或覆盖过渡出现项的预约）。
+/// 该车当前是否持有过渡态权威（T `Clearing` 遍历或覆盖过渡出现记录的预约）。
 /// 静态机动的预约/遍历不在此列——它们是可表达状态（零变化域）。
 fn holds_transition_state(world: &TrafficWorld, vehicle: crate::VehicleHandle) -> bool {
     use crate::ManeuverTraversalPhase;
@@ -405,7 +405,7 @@ fn s5_multi_t_history_keeps_distinct_resource_identity() {
     assert_ne!(rows[0].0, rows[1].0, "两行归属不同的真实资源格");
 }
 
-/// D2 防御面：eligibility 的准入身份槽指向过渡出现项（无真实 Gate）时，
+/// D2 防御面：eligibility 的准入身份槽指向过渡出现记录（无真实 Gate）时，
 /// 同一准入位点口径结构化拒绝（该位点在 committed 态按现行校验不可达，
 /// 此处以构造态钉住统一口径）。
 #[test]

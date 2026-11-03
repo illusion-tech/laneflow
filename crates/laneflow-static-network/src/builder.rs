@@ -2273,7 +2273,7 @@ fn fill_identity(
                 limit: counts.entity_counts.count(entity_kind),
             });
         }
-        // StableId 的前像派生由 compiler 拥有；这里闭合声明 ID 与 typed ordinal 的双射。
+        // StableId 的原像派生由 compiler 拥有；这里闭合声明 ID 与 typed ordinal 的双射。
         let stable_id = checked_stable_id(row, 3, BuildStructure::CanonicalIdentity)?;
         forward[kind_index].push(stable_id);
         reverse.push(IdentityReverseEntry {

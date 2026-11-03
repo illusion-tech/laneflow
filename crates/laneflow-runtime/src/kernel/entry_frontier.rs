@@ -211,7 +211,7 @@ impl PreparedSignalApproach {
     }
 }
 
-/// 反向索引里一处缓存的冲突出现项，连同记录时的槽位身份与位置。
+/// 反向索引里一处缓存的冲突出现记录，连同记录时的槽位身份与位置。
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CachedOccurrence {
     pub(crate) slot: u32,
@@ -220,7 +220,7 @@ pub(crate) struct CachedOccurrence {
     pub(crate) route_generation: u32,
     pub(crate) edge: u32,
     pub(crate) progress_mm: u32,
-    /// 记录位置到这处出现项入口的路线距离。
+    /// 记录位置到这处出现记录入口的路线距离。
     pub(crate) distance_mm: u32,
 }
 
@@ -256,7 +256,7 @@ pub(crate) struct FrontierMaintenance {
     scratch_invalid: Vec<VehicleHandle>,
     scratch_increments: Vec<VehicleHandle>,
     scratch_demanded: Vec<ConflictPassageAddress>,
-    /// 本车出现项的唯一地址投影。容量跨拍保留，与按路线距离排列的缓存分开。
+    /// 本车出现记录的唯一地址投影。容量跨拍保留，与按路线距离排列的缓存分开。
     scratch_addresses: Vec<ConflictPassageAddress>,
     seen: Vec<u32>,
     seen_gen: u32,
@@ -338,7 +338,7 @@ impl FrontierMaintenance {
         true
     }
 
-    /// 对反向索引里缓存了 `address` 的每个有效槽位、其中每处这个地址的出现项回调。
+    /// 对反向索引里缓存了 `address` 的每个有效槽位、其中每处这个地址的出现记录回调。
     ///
     /// 只读。槽位记录的是上次记录时的位置，调用方自己与当前车辆状态核对；回调返回
     /// `Err` 时立即停止并返回它。
@@ -713,7 +713,7 @@ impl FrontierMaintenance {
         }
     }
 
-    /// 把本车出现项投影成唯一地址，排序并去重一次。不改写按路线距离保存的 `cells`。
+    /// 把本车出现记录投影成唯一地址，排序并去重一次。不改写按路线距离保存的 `cells`。
     fn load_unique_addresses(&mut self, cells: &[CachedCell]) -> Result<(), StepError> {
         self.scratch_addresses.clear();
         self.scratch_addresses
@@ -1860,8 +1860,8 @@ fn collect_vehicle_targets(
                     .flatten();
                 let Some(gate) = gate else {
                     // 无 gate 的冲突 hop（T hop，#1199）：资源候选——其冲突
-                    // 出现项地址直接作为近门目标发射（append_gate_targets 按
-                    // range 出现项收集），不走 gate 法规。
+                    // 出现记录地址直接作为近门目标发射（append_gate_targets 按
+                    // range 出现记录收集），不走 gate 法规。
                     if compiled.conflict_gate_ranges[usize::try_from(gate_hop)
                         .map_err(|_| StepError::ConflictInvariantViolation)?]
                     .len != 0
@@ -1939,7 +1939,7 @@ fn append_gate_targets(
             break;
         }
         for occurrence in occurrences[..batch].iter().copied() {
-            // T 出现项（#1199）：无 zone/无流级 yield targets——其近门目标
+            // T 出现记录（#1199）：无 zone/无流级 yield targets——其近门目标
             // =自身资源格地址（P4 具名判据在候选面把关，前沿仅登记接近），
             // 不走 zone yield-targets 发射。
             if matches!(
@@ -2075,7 +2075,7 @@ fn record_walk(
         } else {
             let prepared =
                 PreparedApproachEta::new(state.carry_um, state.speed_mm_s, max_accel, horizon_ms);
-            // 只为实际留在时窗内的出现项增长。第一项就在时窗外时，空缓存不占后缀容量。
+            // 只为实际留在时窗内的出现记录增长。第一项就在时窗外时，空缓存不占后缀容量。
             let mut recorded = Vec::new();
             let mut first_excluded = NO_DISTANCE_MM;
             for occurrence in &compiled.conflicts[first_conflict..] {

@@ -236,7 +236,7 @@ fn parking_lifecycle_source_transitions_are_explicit_and_worker_stable() {
         let after_park = full_sources(&world);
         assert_eq!(after_park, vec![(vehicle, PoseSource::Parking { space })]);
 
-        // 合法离场恢复 Lane 来源（出口锚点位于路线出现项 1 的出口边）。
+        // 合法离场恢复 Lane 来源（出口锚点位于路线出现记录 1 的出口边）。
         let (exit_edge, _exit_progress) = world
             .traffic()
             .relations()

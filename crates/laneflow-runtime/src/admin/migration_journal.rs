@@ -223,7 +223,7 @@ impl VehicleDelta {
     ///
     /// 与 [`Self::from_state`] 的前置条件同界，并多一层归属≠身份拦截：
     /// traversal 存在时其 occurrence 必须存在、phase hop 必须解析到真实
-    /// Gate，且该 hop 不得覆盖过渡资源出现项（含混合 hop）——迁移日志的
+    /// Gate，且该 hop 不得覆盖过渡资源出现记录（含混合 hop）——迁移日志的
     /// `phase_gate` 槽表达不了资源种类与 T 稳定边身份，巧合解析到的其他
     /// 机动 Gate 不是本遍历的身份。Waiting membership 的 entry/release hop
     /// 属等待域（注册期编译校验的真实 Gate），不涉过渡资源。

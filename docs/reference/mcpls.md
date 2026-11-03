@@ -131,7 +131,7 @@ Codex 官方文档没有保证 Local Environment setup 一定早于当前任务�
 把当前任务热重载当作保证。修改模板后也采用相同处理；修改 `mcpls.toml` 后，下次
 `Ensure`/`Start` 会重启 worktree 服务，但当前任务是否重新读取生成配置仍遵循上述边界。
 
-Local Environment 的 UI 设置属于用户本机配置，不是仓库单一事实源。仓库只维护脚本、
+Local Environment 的 UI 设置属于用户本机配置，不是仓库唯一事实来源。仓库只维护脚本、
 模板和本文档。只应对自己已经审阅并信任的 checkout 启用项目配置和 setup；
 `mcpls.toml` 能决定脚本显式启动的语言服务器命令，不能把不受信任分支当作安全输入。
 
@@ -188,7 +188,7 @@ PID 已确认不存在且状态所有权一致时，才清理失效状态。CIM/
 后阻断下次启动。需在核对对应 PID 后人工处理无效状态目录。
 
 外部创建路径不继承 Codex setup runner 的输出管道，也不为 stdout/stderr 增加常驻
-wrapper。支持的可观察事实源是 `state.json`、`lifecycle.log`、进程身份和 HTTP MCP 健康；
+wrapper。支持的可观察事实来源是 `state.json`、`lifecycle.log`、进程身份和 HTTP MCP 健康；
 如果这些证据不足以定位新问题，应另行扩展诊断，不在本脚本中引入生产级监管器。
 
 ## 5. 验证

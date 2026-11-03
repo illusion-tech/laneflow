@@ -135,12 +135,12 @@ where
 /// 准入 hop → Gate 的持久化前统一解析（#1217；traversal / reservation /
 /// eligibility 三个准入身份槽共用一个口径）。
 ///
-/// 判定键是**覆盖该 hop 的出现项的资源种类**，不是「hop 能否解析出 Gate」：
-/// 横向过渡段（T）出现项的 admission hop 是前驱边下标（`tables.rs` 出现项发射
-/// 注释），无真实 Gate；混合 hop（同一 hop 同时覆盖 T 与静态出现项）还可能巧合
+/// 判定键是**覆盖该 hop 的出现记录的资源种类**，不是「hop 能否解析出 Gate」：
+/// 横向过渡段（T）出现记录的 admission hop 是前驱边下标（`tables.rs` 出现记录发射
+/// 注释），无真实 Gate；混合 hop（同一 hop 同时覆盖 T 与静态出现记录）还可能巧合
 /// 解析到其他机动的 Gate——按解析结果放行即写入错误准入身份。含 `Transition`
 /// 覆盖（含混合）一律 [`UnsupportedTransitionState::AdmissionHopWithoutGate`]；
-/// 只覆盖静态出现项而 hop 无 Gate 属编译期已排除的真不变量破坏，保留
+/// 只覆盖静态出现记录而 hop 无 Gate 属编译期已排除的真不变量破坏，保留
 /// [`SnapshotCaptureError::ConflictInvariantViolation`] 语义（宿主处置不同，
 /// 不得与过渡拒绝混同）。解析为纯读、零分配。
 fn persisted_admission_gate(
@@ -293,7 +293,7 @@ pub struct CapturedConflictEligibility {
     pub(crate) first_eligible_tick: u64,
 }
 
-/// 快照中的路线冲突出现项：occurrence 下标、通行段定位值与
+/// 快照中的路线冲突出现记录：occurrence 下标、通行段定位值与
 /// entry/clearance 位置。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapturedConflictPassage {
@@ -354,7 +354,7 @@ pub enum CapturedParkingBinding {
     Reserved {
         /// 绑定的停车目标稳定身份。
         target: CapturedParkingTarget,
-        /// 停车入口所在的路线出现项下标。
+        /// 停车入口所在的路线出现记录下标。
         entry_route_occurrence: u32,
         /// virtual Reserved 的入口 selector；显式泊位为 `None`。
         virtual_entry: Option<CapturedVirtualParkingEntry>,
@@ -637,7 +637,7 @@ impl crate::kernel::state::WorldState {
     /// [`SnapshotCaptureError::ReservationFailed`]，世界无感知、宿主可直接重试；
     /// 已提交 Conflict authority 无法由 reservation 级证明精确重建时返回
     /// [`SnapshotCaptureError::ConflictInvariantViolation`]；当前持久形制无法
-    /// 忠实表达的过渡状态（#1217：准入 hop 无真实 Gate、过渡出现项/清空历史行）
+    /// 忠实表达的过渡状态（#1217：准入 hop 无真实 Gate、过渡出现记录/清空历史行）
     /// 返回 [`SnapshotCaptureError::UnsupportedTransitionState`]——整入口拒绝、
     /// 零部分产物，世界照常可运行、可重试，且**不得**按不变量破坏处置。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
@@ -869,7 +869,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 与 `capture_snapshot` 相同：live 状态引用的路线 / 路由 / 稳定标识无法解析时 panic
     /// （capture 合同的前提，直算摘要入口以 `catch_unwind` 捕获该 panic 并报告不变量破坏）。
-    /// 过渡状态不经 panic：准入 hop 无真实 Gate、过渡出现项行与过渡清空历史均以
+    /// 过渡状态不经 panic：准入 hop 无真实 Gate、过渡出现记录行与过渡清空历史均以
     /// 结构化错误返回（#1217，`catch_unwind` 只兜真 unwind）。
     pub(crate) fn captured_vehicle_at(
         &self,
@@ -1113,7 +1113,7 @@ impl crate::kernel::state::WorldState {
                         .conflicts
                         .get(conflict_occurrence_index as usize)
                         .expect("reservation occurrence exists");
-                    // 归属≠身份（#1217 P1-4）：过渡出现项的持久行表达不了资源种类
+                    // 归属≠身份（#1217 P1-4）：过渡出现记录的持久行表达不了资源种类
                     // 与 T 稳定边身份，整入口拒绝，不得以归属 (stream, zone) 顶替。
                     if matches!(
                         occurrence.resource,

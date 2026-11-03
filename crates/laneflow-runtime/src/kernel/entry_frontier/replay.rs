@@ -81,7 +81,7 @@ struct GatheredSelection {
     member_upper: usize,
 }
 
-/// 只存本次选中的车辆和缓存出现项，不复制逐车缓存，也不按 worker 复制世界。
+/// 只存本次选中的车辆和缓存出现记录，不复制逐车缓存，也不按 worker 复制世界。
 #[derive(Default)]
 pub(crate) struct ReplayScratch {
     select_parts: Vec<SelectPart>,
@@ -851,7 +851,7 @@ impl PreparedReplay {
                 eta.lower_bound(u64::from(remaining))
             });
             match kinematic {
-                // 出现项按路线距离排列；运动下界随距离不减，后面的项同样越窗。
+                // 出现记录按路线距离排列；运动下界随距离不减，后面的项同样越窗。
                 ApproachEstimate::OutsideHorizon => break,
                 ApproachEstimate::Unprovable => return None,
                 ApproachEstimate::Finite(_) => {}
@@ -1185,7 +1185,7 @@ mod tests {
             wanted.sort_unstable();
         }
         // 直接铺缓存以隔离选择与消费；两个规范地址登记不同成员。反向登记让
-        // 地址成员顺序与 live 序号不同，同一地址还有重复路线出现项。
+        // 地址成员顺序与 live 序号不同，同一地址还有重复路线出现记录。
         world.state.workspace.frontier_maintenance.ensure_identity(
             world.state.binding.world_id,
             world.state.binding.world_generation,

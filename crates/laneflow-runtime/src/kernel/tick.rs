@@ -1660,7 +1660,7 @@ pub(crate) mod transaction_tests {
 
 /// §10.1 跟车查询窗：静止前车最坏情况，SI 有限后 `ceil` 到毫米。
 ///
-/// `bumper_gap_mm` 是后杠间隙接纳窗；`front_query_mm` 是出现项行走窗
+/// `bumper_gap_mm` 是后杠间隙接纳窗；`front_query_mm` 是出现记录行走窗
 ///（`ceil(bumper) + MAX_VEHICLE_LENGTH_MM`）。溢出饱和，禁止缩短行走窗。
 /// 非有限输入失败关闭，不得当成「本拍无前车」。
 pub(crate) fn leader_query_horizon(
@@ -2563,7 +2563,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         index = occurrence_index;
         while index < compiled.conflicts.len() && compiled.conflicts[index].admission_hop == hop {
             let occurrence = &compiled.conflicts[index];
-            // P5（#1199）：Transition 出现项查 T-cell 占用（cells_unavailable
+            // P5（#1199）：Transition 出现记录查 T-cell 占用（cells_unavailable
             // 上段已查）——不走 zone contenders 面（static_zone 空≠不可证）。
             if matches!(
                 occurrence.resource,
@@ -4250,7 +4250,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         })
     }
 
-    /// 按本车的路线出现项测距。T 与其下游投影取边起点，上游投影取边末；
+    /// 按本车的路线出现记录测距。T 与其下游投影取边起点，上游投影取边末；
     /// P2 读拍初预约，P5 还读本拍已授予的预约。
     fn transition_reservation_stop(
         self,
@@ -4936,7 +4936,7 @@ impl<'a> MotionTaskView<'a> {
                 .map(|entry| entry.entry_hop)
         });
         let authorized = |hop| [grant_hop, owned_hop, held_waiting_hop].contains(&Some(hop));
-        // 直接查询有序资源出现项，不扫描不需要资源的普通 Gate。
+        // 直接查询有序资源出现记录，不扫描不需要资源的普通 Gate。
         // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
         let mut minimum = first_hop;
         let conflict = if skip_conflict {
@@ -5329,9 +5329,9 @@ pub(crate) struct MotionCursorRow {
     route: crate::RouteHandle,
     cursor: u32,
     hop: crate::kernel::tables::RouteHop,
-    /// 到 `gate_hops[hop.gate_first]` 停止点（下一出现项）起点。
+    /// 到 `gate_hops[hop.gate_first]` 停止点（下一出现记录）起点。
     gate_stop: CursorDistance,
-    /// 到 `speed_limit_drop[hop.speed_drop_first]` 下降点（下一出现项）起点。
+    /// 到 `speed_limit_drop[hop.speed_drop_first]` 下降点（下一出现记录）起点。
     speed_drop: CursorDistance,
     /// 进度不超过它时，上面两个距离恰为起点距离减去进度：起点偏移加进度不溢出，
     /// 且不越过本段总长。

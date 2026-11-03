@@ -261,14 +261,14 @@ epoch、WorldGeneration 各自承担其原有寿命，不相互冒充。
 | LFRS `format_version`                | 7                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动；编辑来源绑定见 [`committed-road-editing-state.md`](committed-road-editing-state.md) §6 |
 | schema / namespace                   | `runtime-snapshot/v7` / V7                | 只保留唯一当前 wire binding                                                                                                                   |
 | `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                                                                                                                    |
-| `RUNTIME_STATE_DIGEST_VERSION`       | 8                                         | 规范前像已经排除 worker；算法为 BLAKE3-256（#1035），状态版本头及其余编码不变                                                                 |
+| `RUNTIME_STATE_DIGEST_VERSION`       | 8                                         | 规范原像已经排除 worker；算法为 BLAKE3-256（#1035），状态版本头及其余编码不变                                                                 |
 | 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 摘要算法和规范化规则不变                                                                                                                      |
 | LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值，不因执行配置升级              | 静态事实不增加执行分配                                                                                                                        |
 | cutover descriptor format            | 2                                         | 不修改持久化迁移描述符                                                                                                                        |
 | Observation / Routing 绑定           | 各自现行值，不因执行配置升级              | 不改变交通身份、游标或失效语义                                                                                                                |
 
-格式 6、状态 5、摘要 7 刻意分离版本轴。若修改交通状态或摘要前像，必须重做版本判断；
-不能借配置拆分免除升级。各唯一事实源同步更新，不让两个“当前格式”并存。
+格式 6、状态 5、摘要 7 刻意分离版本轴。若修改交通状态或摘要原像，必须重做版本判断；
+不能借配置拆分免除升级。各唯一事实来源同步更新，不让两个“当前格式”并存。
 
 `WorldConfigBinding` 不含 worker。绑定由钉版 flatc 生成，writer/reader、封闭字段数、
 wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生成 getter/slot，
@@ -285,7 +285,7 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API/调用点 | Runtime 根导出、examples/adapter/tools/tests 显式配置；只有受支持执行配置可安装                                                                                                                                  |
 | 格式       | 真实 v5/v6、未知 format/runtime、worker 缺省/非零、伪造 header、未知槽、合法 v6 完整恢复                                                                                                                         |
-| 交通语义   | 四项容量、dt、策略和 Conflict/Waiting/parking 恢复；digest 7 固定前像字节保持                                                                                                                                    |
+| 交通语义   | 四项容量、dt、策略和 Conflict/Waiting/parking 恢复；digest 7 固定原像字节保持                                                                                                                                    |
 | 生命周期   | 部分资源初始化失败清理；drop/失败不遗留任务；fresh restore 无半成品                                                                                                                                              |
 | 切换       | 两条路径的计划准备失败零发布、资源不复制、追赶后计划新鲜度与首拍目标绑定                                                                                                                                         |
 | 并行       | worker 1–16 可安装/恢复；P2 预览、P3 候选字段与 P5 最终运动真实多 worker 分发（#705/#706），协调器保序规范消费，frontier/P4/资源转移/P7 串行；合法配置下状态/事件/逻辑首错/retry 等价；旧 epoch、join 与序号配对 |

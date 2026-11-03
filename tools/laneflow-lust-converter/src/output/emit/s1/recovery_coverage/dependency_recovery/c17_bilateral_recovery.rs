@@ -2,7 +2,7 @@
 //!
 //! 新研究方案（S1 切向扰动族 / S2 新组序×逐组柄因子族 / J 双边联合验收）见
 //! `research/issue-1137-c17-bilateral-recovery/design.md`（送审稿，评审冻结后才进
-//! 实验）；方法事实源 `research/issue-1115-failed-curve-design/design.md` 的筛选、
+//! 实验）；方法事实来源 `research/issue-1115-failed-curve-design/design.md` 的筛选、
 //! 排序与预算口径逐值沿用。旧族（#1131 148 配置）只作对照列，不重跑充当研究。
 //! 模块名带分量名，避免与其他并行研究入口冲突。
 

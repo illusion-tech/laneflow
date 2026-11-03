@@ -23,14 +23,14 @@ use super::rules::{
 use crate::declaration::MAX_PORTABLE_SIGNAL_TIME_MS;
 use crate::{DiagnosticBundle, FacilityKindCategory, RoadEditingInputViolation};
 
-/// 直接编制来源沿袭使用的冻结生成器构建标识。
+/// 直接编制来源链使用的冻结生成器构建标识。
 pub(super) const DIRECT_GENERATOR_BUILD_ID: &str = "laneflow-road-editing-direct-v1";
-/// 直接编制来源沿袭的冻结参数与输入摘要。
+/// 直接编制来源链的冻结参数与输入摘要。
 pub(super) const DIRECT_INPUTS_DIGEST: [u8; 32] = [
     0x6b, 0x27, 0xd0, 0xf7, 0x66, 0x93, 0xbc, 0xd3, 0x86, 0xac, 0x13, 0xdf, 0x72, 0x4e, 0x30, 0xf5,
     0xfb, 0x5a, 0xd3, 0xb9, 0xa1, 0x52, 0xa5, 0xe1, 0xf8, 0x8d, 0xe1, 0xa6, 0x24, 0xce, 0xa8, 0xaa,
 ];
-/// 直接编制来源沿袭的冻结前端选项摘要。
+/// 直接编制来源链的冻结前端选项摘要。
 pub(super) const DIRECT_FRONTEND_OPTIONS_DIGEST: [u8; 32] = [
     0xb1, 0x62, 0x1e, 0x4a, 0x2d, 0xb8, 0xd7, 0x17, 0xb6, 0x50, 0x6b, 0x0a, 0xfb, 0x6f, 0xef, 0x5b,
     0xd4, 0xd5, 0x15, 0x6e, 0xcf, 0xe8, 0x87, 0xc5, 0xab, 0xf3, 0x6d, 0x08, 0x86, 0x9c, 0x78, 0x92,
@@ -279,7 +279,7 @@ impl RoadAlignmentReference {
     }
 }
 
-/// 模块来源沿袭类别。
+/// 模块来源链类别。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RoadEditingProvenanceKind {
     /// 直接编制：不由生成器产生。
@@ -288,7 +288,7 @@ pub enum RoadEditingProvenanceKind {
     Generated,
 }
 
-/// 第一方道路编辑来源沿袭。
+/// 第一方道路编辑来源链。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RoadEditingProvenance {
     kind: RoadEditingProvenanceKind,
@@ -300,7 +300,7 @@ pub struct RoadEditingProvenance {
 }
 
 impl RoadEditingProvenance {
-    /// 构造直接编制来源沿袭，使用冻结的构建标识与摘要。
+    /// 构造直接编制来源链，使用冻结的构建标识与摘要。
     ///
     /// # Errors
     ///
@@ -318,7 +318,7 @@ impl RoadEditingProvenance {
         })
     }
 
-    /// 构造程序化生成来源沿袭，记录生成器构建标识、摘要与可选随机种子。
+    /// 构造程序化生成来源链，记录生成器构建标识、摘要与可选随机种子。
     ///
     /// # Errors
     ///
@@ -344,7 +344,7 @@ impl RoadEditingProvenance {
         })
     }
 
-    /// 返回来源沿袭类别。
+    /// 返回来源链类别。
     #[must_use]
     pub const fn kind(&self) -> RoadEditingProvenanceKind {
         self.kind
@@ -441,7 +441,7 @@ impl RoadEditingModuleHeader {
         self.imports.iter().map(AsRef::as_ref)
     }
 
-    /// 返回模块来源沿袭。
+    /// 返回模块来源链。
     #[must_use]
     pub const fn provenance(&self) -> &RoadEditingProvenance {
         &self.provenance

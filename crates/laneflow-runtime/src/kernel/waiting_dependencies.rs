@@ -465,7 +465,7 @@ impl crate::kernel::state::WorldState {
 }
 
 impl<'a> crate::kernel::phase::StepReadView<'a> {
-    /// 把一辆车在一个等待区出现项上的持有及其反向依赖登记进台账。
+    /// 把一辆车在一个等待区出现记录上的持有及其反向依赖登记进台账。
     pub(crate) fn add_waiting_dependency_hold(
         self,
         ledger: &mut WaitingDependencies,

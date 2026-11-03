@@ -374,7 +374,7 @@ chunk 表达，不伪造空 `TableV1`。
 | sectionKind | 名称                         | 进入规范语义载荷 | 内容                                                   |
 | ----------- | ---------------------------- | ---------------- | ------------------------------------------------------ |
 | `0x0001`    | `ContractVersions`           | 是               | 格式、identity、修订派生、constraint 与 execution 版本 |
-| `0x0002`    | `CanonicalIdentityTable`     | 是               | 完整 identity 前像、`StableId128` 与 typed ordinal     |
+| `0x0002`    | `CanonicalIdentityTable`     | 是               | 完整 identity 原像、`StableId128` 与 typed ordinal     |
 | `0x0003`    | `CanonicalEntityTables`      | 是               | 24 种可构造静态实体；kind `1..=24` 连续                |
 | `0x0004`    | `CanonicalRelationTables`    | 是               | 不能由实体字段直接表达的规范关系                       |
 | `0x0005`    | `CanonicalSpatialTables`     | 是               | 空间存在、规范折线与派生采样                           |
@@ -526,15 +526,15 @@ identity field tag。
 
 新增 kind 必须提升 `identityRegistryRevision`，但不得改变既有 kind 的 identity canonical
 bytes 或 `StableId128`。只有修改既有 kind 的 required field、tag 含义或编码时才提升
-`identityEncodingVersion`。`ParticipantStream.maneuverPath` 不进入身份前像；重新归属
+`identityEncodingVersion`。`ParticipantStream.maneuverPath` 不进入身份原像；重新归属
 Junction 必须产生新 identity。
 
 `Ascii` identity value 必须为 1..=53 bytes；首 byte 属于 `[A-Za-z0-9]`，其余只属于
 `[A-Za-z0-9._:/-]`。对每个 kind，发射器按完整 identity bytes 的无符号逐字节字典序
 排序并从 0 连续分配 typed ordinal。全部可构造 kind 的 `StableId128` 必须全局唯一；
-重复前像和 BLAKE3-128 截断碰撞都失败关闭。
+重复原像和 BLAKE3-128 截断碰撞都失败关闭。
 
-`ParkingFacility` 固定使用 kind 14 / tag 22；数值和相同 namespace+key 的前像字节不变。
+`ParkingFacility` 固定使用 kind 14 / tag 22；数值和相同 namespace+key 的原像字节不变。
 LFCA 不接受 `ParkingArea` wire 名称或 alias；设施语义变化会产生不同的
 `NetworkRevisionId`。
 
@@ -641,7 +641,7 @@ entry 位置唯一派生，不进入 LFCA passage row。
 表的行数。分块只改变物理位置，不改变这组全局 ordinal，也不得让同一逻辑表在 chunk
 边界重新从 0 编号。
 
-Identity 前像中重复表达的所有权或边界语义必须与实体行严格相等：
+Identity 原像中重复表达的所有权或边界语义必须与实体行严格相等：
 
 | entity            | Identity 字段                         | 必须等于的 LFCA 投影                      |
 | ----------------- | ------------------------------------- | ----------------------------------------- |
@@ -773,7 +773,7 @@ virtual pool。
 `ParticipantStream` owner-local row，不获得独立 `StableId128`。行为 authority 只来自
 `ParticipantStream.passages`：
 
-1. stream、其 ManeuverPath、每个 passage zone 与 identity 前像中的 Junction 必须一致；
+1. stream、其 ManeuverPath、每个 passage zone 与 identity 原像中的 Junction 必须一致；
 2. 每个 stream 至少一条 passage；同一 `(ParticipantStream, ConflictZone)` 至多一条；
 3. passage entry 必须严格早于 exit，且不得跨越 admission Gate 之后的下一 Gate；
 4. passage 按 entry anchor、exit anchor、ConflictZone StableId 严格递增；该 local index
@@ -1556,7 +1556,7 @@ writer 均在计量时递归检查，规范分块也包含这些计数。值域�
 顺序游标检测，不按操作分组漏掉 Remove+Add，也不分配全表集合。
 
 compiler 的 `check_portable_policy_diff` 从实际 LFCA base/target 重建完整成员集，
-重新核对 exact binding、NetworkRevision 和共有 Identity 前像；不调用 emitter 的
+重新核对 exact binding、NetworkRevision 和共有 Identity 原像；不调用 emitter 的
 成员配对或值编码函数。它独立解析最终载荷并逐字段、逐稳定引用比较，验证必需操作和
 全集完备性，并核对 policy 实体增删、保留属性以及 Movement 方向在原表中的排他分工。
 新增排序索引与 emitter 的成员值、返回行缓冲按同时存活量计入 `StageScratchBytes`；
@@ -1582,8 +1582,8 @@ checker 借用载荷，不复制完整 before/after。候选发射结束前必�
 `baseBindingKind` 固定为 `0=Genesis, 1=Artifact`。Genesis 的四个 base 值精确为
 `0, zero[32], zero[32], 0`；Artifact 禁止零占位。target 永远是具体 LFCA 5。Artifact diff
 要求两端 LFCA 的 identity/constraint/execution 合同轴一致，并在变化分类前验证所有共有
-`StableId128` 的 `entityKind` 和完整 identity 前像逐字节相同；合同轴不一致返回
-`UnsupportedSemanticContractTransition`，共有 StableId 的 kind/前像不一致返回
+`StableId128` 的 `entityKind` 和完整 identity 原像逐字节相同；合同轴不一致返回
+`UnsupportedSemanticContractTransition`，共有 StableId 的 kind/原像不一致返回
 `CrossRevisionStableIdCollision`，两者都在读取 change table 前拒绝整份 diff。
 
 ### 5.2 Change table 字段与存在性矩阵
@@ -1761,7 +1761,7 @@ ConflictZoneRegion 为 `3,4,5`；subject ordinal 排除，frame ordinal 替换�
 
 Artifact diff 必须先以 `StableId128` 建立两端全局身份表。共有 StableId 的 kind 和完整
 identity canonical bytes 必须逐字节相同，否则整个 base/target 对失败；不能把截断碰撞当成
-retained identity。身份前像改变并正常得到新 StableId 时，只产生旧实体完整 Remove 与新实体
+retained identity。身份原像改变并正常得到新 StableId 时，只产生旧实体完整 Remove 与新实体
 完整 Add，不使用 compiler lineage、来源位置、相似度或 raw ordinal 猜测配对。
 
 relation tuple 的两端配对算法由 §4.3 的序策略唯一决定：
@@ -2015,4 +2015,4 @@ base-target 错配和所有 hard-limit `+1`。staging 矩阵在 write、patch、
 
 领域 Runtime 行为不属于本公共格式合同；实现不得顺带引入 Waiting admission、
 ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订权威设计，
-不能让实现细节成为第二套事实源。
+不能让实现细节成为第二套事实来源。

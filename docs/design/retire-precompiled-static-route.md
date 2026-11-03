@@ -28,7 +28,7 @@ spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 `RouteHandle` 只有槽位下标与 generation。没有静态种类、没有共享静态路网序号别名。
 `remove_route` 不再区分「静态句柄」；stale / in-use / 容量仍然失败关闭。
 
-注册期编译器（`compile_route`）是**唯一**出现项编译器。
+注册期编译器（`compile_route`）是**唯一**出现记录编译器。
 输入是共享静态路网交通视图 + 边序号切片；输出只进入本世界表。共享静态路网不保存路线。
 
 匹配规则与现行动态路径相同，且必须覆盖现行静态 seal 已接受的语义：
@@ -41,10 +41,10 @@ spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 | 首/末边是路口内部边，或末边带停止线       | 机动不匹配 |
 | 入口候选对不上完整 `ManeuverPath.edges()` | 机动不匹配 |
 | 两条不同 path 都完整匹配                  | 机动歧义   |
-| 路口内部边无出现项覆盖                    | 机动不匹配 |
-| 出现项 hop 区间相交                       | 机动不匹配 |
+| 路口内部边无出现记录覆盖                    | 机动不匹配 |
+| 出现记录 hop 区间相交                       | 机动不匹配 |
 
-hop 是否受控：用已编译机动出现项定位 path，再在共享静态路网
+hop 是否受控：用已编译机动出现记录定位 path，再在共享静态路网
 `transition_candidates(from)` 上找 `successor == to && path && transition_index`
 对应的门。无门则该 hop 不受信号限制。禁止再读已删除的
 `StaticRoute.transitionGates`。
@@ -64,13 +64,13 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享静态�
 - 每个 hop 的下一受控门（绑定 `SignalGroup` 的门）及其沿路线的有界距离。这是
   **拓扑链**（下一盏有信号的门），不是「当前红灯」。信号停车沿该链走到第一盏
   **当前**限制的门；不得扫全部剩余 hop，也不得在槽位里存相位相关的红灯列。
-- hop → 门：按 hop 下标定位，不得对机动出现项线性扫描。
+- hop → 门：按 hop 下标定位，不得对机动出现记录线性扫描。
 - 限速下降转换：与现行共享静态路网 `speed_limit_transitions` 同形（`from` / 目标边 /
   目标限速）。tick 读该列做下游制动包络，不得扫剩余边。边限速**值**仍读共享静态路网
   边热列。
 
-等待区出现项按所属机动出现项 + 入口门在注册时物化到本世界表。等待运行时行为仍
-归独立能力；现行路线注册不得把「静态有、动态无」的出现项缺口留在生产路径。
+等待区出现记录按所属机动出现记录 + 入口门在注册时物化到本世界表。等待运行时行为仍
+归独立能力；现行路线注册不得把「静态有、动态无」的出现记录缺口留在生产路径。
 
 共享静态路网不再为路线预计算 `distance_to_end`、`next_controlled_transition` 或
 `speed_limit_transitions`。这些索引改由本世界 compiled 在 `register_route` 时物化。
@@ -84,7 +84,7 @@ StaticRoute table、关系和 property path 不能通过新格式闭合。
 ### 2.1 实体表
 
 第 2 节与 §6 中 format 4、23 张实体表和 33 张逻辑表记录 #498 路线退役时的基线。
-#284 W1 已将当前 LFCA 升至 5，实体表扩展为 24 张、逻辑表共 38 张；当前读器只接受
+#284 W1 已将当前 LFCA 升至 5，实体表扩展为 24 张、逻辑表共 38 张；当前读取器只接受
 LFCA 5。后续版本及来源登记增量以
 [`portable-canonical-artifact.md`](portable-canonical-artifact.md) 和
 [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §8 为准。
@@ -98,21 +98,21 @@ LFCA 5。后续版本及来源登记增量以
 | `0x0016`  | `CanonicalFrame`    |
 | `0x0017`  | `ParticipantStream` |
 
-缺少任一当前登记表、版本不匹配当前登记，或 `0x0015` 行不满足 `ConflictZone` schema，读器
+缺少任一当前登记表、版本不匹配当前登记，或 `0x0015` 行不满足 `ConflictZone` schema，读取器
 失败关闭。format 4 对象精确逻辑表种类数为 `33`；每个实体逻辑表可由一个或多个
 TableV1 chunk 承载。
 
 StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
-### 2.2 出现项与关系角色
+### 2.2 出现记录与关系角色
 
-静态路线边与三类出现项不再拥有 LFCA 关系或 `sourceRelationRole`。现行 role 13–16
+静态路线边与三类出现记录不再拥有 LFCA 关系或 `sourceRelationRole`。现行 role 13–16
 分别为 `ParkingFacilityVirtualEntry`、`ParkingFacilityVirtualExit`、
 `JunctionConflictZone` 与 `JunctionParticipantStream`；其 owner/subject/schema 不接受
 任何路线行。
 
 派生索引（路线距离前缀、下一受控转换、限速下降转换、边/路径/门/等待区反向路线
-出现项）随实体删除。LaneEdge / ManeuverPath / ManeuverGate / WaitingZone 自身表
+出现记录）随实体删除。LaneEdge / ManeuverPath / ManeuverGate / WaitingZone 自身表
 保留；它们不再持有「属于哪条静态路线」的反向向量。
 
 既有合法关系角色代码不重编号。
@@ -135,7 +135,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 `ConflictZone` 与 `ParticipantStream` 的 required tag 分别为 `[1,23,34]` 与
 `[1,30,34]`。身份编码版本仍为 1，既有合法实体的规范字节不变。
 
-`CanonicalIdentityTable` 的 kind 21 行只允许 `ConflictZone` 前像；旧路线前像失败关闭。
+`CanonicalIdentityTable` 的 kind 21 行只允许 `ConflictZone` 原像；旧路线原像失败关闭。
 
 ### 2.4 编制来源与 IR
 
@@ -147,7 +147,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 来源描述符的 `frontendVersion` 已由后续路权登记提升为 `4`，
 `SourceLanguage::RoadEditingSource = 2`。当前 wire 为 4，file identifier 仍 `LFRE`；field 29 是路权策略声明向量。
 
-合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
+合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现记录表。
 首批支持矩阵「静态路线」行改为明确拒绝。
 
 生产 `CompileLimits` 不再包含 `RouteOccurrenceCount`。该限额不改挂到运行时。
@@ -164,7 +164,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 仍提供机动路径、转移候选、门、等待区、停止线、边长、后继 CSR、准入平面。
 `register_route` 只读这些。
 
-seal 不再为路线做 owner-local 分区或出现项闭合。空路线不是合法可选；根本不存在
+seal 不再为路线做 owner-local 分区或出现记录闭合。空路线不是合法可选；根本不存在
 该实体。
 
 ## 4. 场景 catalog 0.4
@@ -190,7 +190,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 - 生成器写 catalog 边键，不写 LFCA 路线，不在编制来源声明路线。
 
 封闭规模不变：6 个 portal、32 条 ManeuverPath、28 条路线。路线仍是有限显式边
-序列；受保护转向覆盖由注册期编译器证明，不靠共享静态路网预编译出现项。
+序列；受保护转向覆盖由注册期编译器证明，不靠共享静态路网预编译出现记录。
 
 `quickstart` / 集成夹具同样改为显式边序号 + `register_route`。`lfca-full-spatial`
 不再含静态路线行。
@@ -229,11 +229,11 @@ vehicle:
 profile / class / parking: StableId128
 ```
 
-不存槽位、`generation`、任何密集序号、compiled 出现项、catalog `route_id`。
+不存槽位、`generation`、任何密集序号、compiled 出现记录、catalog `route_id`。
 读档经身份索引解析边身份，再 `register_route`，**新分配** 句柄。exact oracle 比对
 边稳定身份序列与毫米游标，不比对 `RouteHandle`。
 
-**同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现项），
+**同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现记录），
 当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。走廊 catalog
 controller 校验的是 `(NetworkRevisionId, WorldPolicySelection)`，宿主保证同一世界
 实例与局部句柄的对应关系（详见人口设计 §2、§6）：修订变化后 controller **失效**，

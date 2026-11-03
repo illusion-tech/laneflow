@@ -39,6 +39,6 @@ cargo +1.99.1 run --locked -p xtask -- check-runtime-snapshot-codegen --flatc <f
 ```
 
 配置仅包含四类语义容量与固定步长，不包含 worker；宿主为安装/恢复另行传入执行配置。
-Runtime 状态为 5、确定性状态摘要为 8，来源绑定不进入摘要前像。
+Runtime 状态为 5、确定性状态摘要为 8，来源绑定不进入摘要原像。
 仓库只保留当前 reader/writer，旧版本输入明确失败关闭；真实 v5 拒绝向量（包含缺省 worker）
 位于 Runtime 的 `tests/fixtures/snapshot-v5`。

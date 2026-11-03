@@ -232,7 +232,7 @@ impl LirFreezePlan {
             access_rules: mir_len(mir.access_rules.len()),
             rule_class_references: mir_len(mir.access_rule_participant_classes.len()),
         };
-        // Identity 字段出现项有独立资源维度；LIR record 指标计实体行和关系出现行，与 MIR
+        // Identity 字段出现记录有独立资源维度；LIR record 指标计实体行和关系出现行，与 MIR
         // 当前已支持实体与关系的计数对象保持一致。
         // `authoring_lanes` 按拆分前 `section_lane_count` + `lane_count` 加两次；
         // `waiting_zones` / `maneuver_gates` 在信号段前与数组末尾重复累加。#374 重建
@@ -359,7 +359,7 @@ impl LirFreezePlan {
                 )
         });
 
-        // 排序序列与 MIR→LIR 映射各只保存一个有类型 `u32` 值；完整身份前像通过借用 MIR
+        // 排序序列与 MIR→LIR 映射各只保存一个有类型 `u32` 值；完整身份原像通过借用 MIR
         // 字段作分段比较，避免为排序再复制一份变长编码。
         let stage_scratch_bytes = requested_bytes::<MirLaneEdgeKey>(lane_edge_count)
             .saturating_add(requested_bytes::<LaneEdgeOrdinal>(lane_edge_count))

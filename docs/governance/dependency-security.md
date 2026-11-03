@@ -57,7 +57,7 @@ Publication workflow 必须固定第三方 Action 完整 commit SHA，并以 cat
 
 ## 3. Cargo metadata
 
-根 `Cargo.toml` 的 `[workspace.package]` 是 workspace package license 的单一事实源：
+根 `Cargo.toml` 的 `[workspace.package]` 是 workspace package license 的唯一事实来源：
 
 ```toml
 [workspace.package]

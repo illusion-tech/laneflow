@@ -1,4 +1,4 @@
-//! #679 固定物理路网、车辆数和运动窗口，仅增长循环路线出现项。
+//! #679 固定物理路网、车辆数和运动窗口，仅增长循环路线出现记录。
 use super::runtime_types as rt;
 use laneflow_compiler::*;
 use laneflow_format::{FormatLimits, check_post_emission_bundle};

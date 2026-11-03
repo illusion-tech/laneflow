@@ -8,7 +8,7 @@ use crate::{
     WaitingRouteAnchor,
 };
 
-/// 事件的语义 Gate/机动出现项和实际触发位置。车尾事件不锚回已驶过的入口。
+/// 事件的语义 Gate/机动出现记录和实际触发位置。车尾事件不锚回已驶过的入口。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TrafficTransitionAnchor {
     route: RouteHandle,
@@ -38,7 +38,7 @@ impl TrafficTransitionAnchor {
     pub const fn route(self) -> RouteHandle {
         self.route
     }
-    /// 语义机动出现项下标。
+    /// 语义机动出现记录下标。
     #[must_use]
     pub const fn maneuver_occurrence_index(self) -> u32 {
         self.maneuver_occurrence_index
@@ -91,12 +91,12 @@ pub enum TrafficTransitionKind {
     },
     /// 车头进入冲突 passage。
     ConflictEntered {
-        /// 进入的冲突 passage 出现项。
+        /// 进入的冲突 passage 出现记录。
         passage: ConflictPassageOccurrenceLocator,
     },
     /// 车尾清空冲突 passage。
     ConflictCleared {
-        /// 清空的冲突 passage 出现项。
+        /// 清空的冲突 passage 出现记录。
         passage: ConflictPassageOccurrenceLocator,
     },
     /// 车辆释放所持冲突 passage 预约。
@@ -107,7 +107,7 @@ pub enum TrafficTransitionKind {
     /// 机动遍历完成；无冲突预留的机动在车头越过出口边即发（车尾可能仍在
     /// 机动内部），有预留的机动按其 coverage 清空判定。
     ManeuverTraversalCompleted {
-        /// 完成的机动出现项下标。
+        /// 完成的机动出现记录下标。
         maneuver_occurrence_index: u32,
     },
 }

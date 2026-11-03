@@ -159,7 +159,7 @@ lane
   依赖 Core 无法获知的方向关系。统一 reference 系后，反向 section 的 index
   顺序相对其行驶方向反转，但任何 section 的"reference 系最外侧 lane"都
   无需方向数据即确定性可得（与 OpenDRIVE 相对参考线编号同构）。lane
-  adjacency（#237 消费）的事实源是该 index 顺序，与 LaneGroup 无关。
+  adjacency（#237 消费）的事实来源是该 index 顺序，与 LaneGroup 无关。
 - lane 的 edge 链内相邻 edge 必须存在 LaneGraph directed connection（链是沿纵向
   的连续 traversal）。各 lane 的**内部切分点**独立，无跨 lane 段级对齐要求——
   没有横向几何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵
@@ -549,7 +549,7 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 | -------------------------------- | ----------------------------------------- | ---------------------------------- |
 | LaneEdge 拓扑/length/speed limit | LaneGraph/Core                            | RoadSection、RoadCorridor、Adapter |
 | 横断面横向顺序                   | RoadCorridor cross-section                | Adapter 推断、Spatial 几何         |
-| lane 顺序与 adjacency 事实源     | RoadSection lane index                    | LaneGroup、AccessRule              |
+| lane 顺序与 adjacency 事实来源     | RoadSection lane index                    | LaneGroup、AccessRule              |
 | 设施物理身份                     | FacilityKind（SSOT seed + `x-` 扩展）     | AccessRule、laneType 式封闭枚举    |
 | 参与者分类                       | Traffic data 声明 + Core 层级匹配         | Core 内置类名、SignalController    |
 | 准入许可                         | AccessRule overlay + Core constraint 管线 | FacilityKind、ManeuverPath 复制    |
@@ -749,7 +749,7 @@ no-allocation 测试矩阵。
 #234 与 #237 保持独立 G1（接口共设计，不合并）。本文向 #237 提供以下**冻结
 保证**，#237 的 G1 只做契约校验，不得重复冻结：
 
-1. **相邻事实源**：RoadSection 的 lane index 顺序（按 corridor reference
+1. **相邻事实来源**：RoadSection 的 lane index 顺序（按 corridor reference
    方向排序，lane `i` 与 `i ± 1` 相邻，与 LaneGroup 无关）+ RoadCorridor
    的 elements 顺序（相邻元素互为横向邻居）（§3.2/§3.2.1）。
 2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 标识 section 内横向边界，

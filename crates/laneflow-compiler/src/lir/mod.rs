@@ -1,6 +1,6 @@
 //! 中层中间表示（MIR）到已验证规范低层中间表示（Canonical LIR）的冻结阶段。
 //!
-//! 稳定实体按各自完整 Identity v1 前像字节排序，表下标冻结为有类型逻辑序号；车道
+//! 稳定实体按各自完整 Identity v1 原像字节排序，表下标冻结为有类型逻辑序号；车道
 //! 连接、横断面成员、覆盖链、路口路径和派生内部边所有权全部改写为同一 LIR 实例内的
 //! 有类型序号。身份
 //! 字段和值分别进入连续表与共享字节池；来源位置留给同次编译的源映射伴随数据，不进入
@@ -92,7 +92,7 @@ pub(crate) struct LirIdentityField {
 pub(crate) struct LirLaneEdge {
     /// 此记录在当前 `lane_edges` 表中的有类型逻辑序号。
     pub(crate) ordinal: LaneEdgeOrdinal,
-    /// 由同一记录的完整 Identity v1 字段前像派生的稳定标识。
+    /// 由同一记录的完整 Identity v1 字段原像派生的稳定标识。
     pub(crate) stable_id: LaneEdgeId,
     /// 此实体在 `identity_fields` 中的完整、规范有序字段区间。
     pub(crate) identity_fields: TableRange<LirIdentityField>,
@@ -323,7 +323,7 @@ impl FreezeEnv<'_> {
 
 /// 将全部 MIR 引用重映射到规范 LIR 序号，并原子冻结连续只读表。
 ///
-/// 排序键是 Identity v1 完整前像的逐字节顺序，而不是 `StableId128` 或普通字符串
+/// 排序键是 Identity v1 完整原像的逐字节顺序，而不是 `StableId128` 或普通字符串
 /// 顺序。每种实体分别比较其登记字段的编码片段；字段长度采用 `u32_le`，父项稳定标识
 /// 使用固定 16 字节原值，与规范编码器保持一致。
 ///
@@ -672,7 +672,7 @@ pub(crate) fn freeze_lir(
     })
 }
 
-/// 比较两个 `LaneEdge` 的完整 Identity v1 前像，而不物化拼接缓冲区。
+/// 比较两个 `LaneEdge` 的完整 Identity v1 原像，而不物化拼接缓冲区。
 fn compare_identity_v1(mir: &MirUnit, left: MirLaneEdgeKey, right: MirLaneEdgeKey) -> Ordering {
     let left_edge = &mir.lane_edges[left.index()];
     let right_edge = &mir.lane_edges[right.index()];
@@ -684,7 +684,7 @@ fn compare_identity_v1(mir: &MirUnit, left: MirLaneEdgeKey, right: MirLaneEdgeKe
         .as_bytes();
 
     // magic、encoding version、kind、field count 和字段标签对同种实体完全相同；每个
-    // 变长字段在前像中都是 `u32_le(length) || value`，因此只比较这些差异片段即可得到
+    // 变长字段在原像中都是 `u32_le(length) || value`，因此只比较这些差异片段即可得到
     // 与完整编码逐字节比较完全相同的顺序。
     compare_lane_edge_identity_fields(
         left_namespace,

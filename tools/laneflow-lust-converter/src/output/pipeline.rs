@@ -384,7 +384,7 @@ fn convert_verified(
             (NOTICE_NAME, Some(licenses.notice.as_slice())),
         ];
         let mut written = Vec::with_capacity(bytes_by_name.len());
-        // 交付名列表的唯一事实源是 deliverable_names——中断恢复的早期
+        // 交付名列表的唯一事实来源是 deliverable_names——中断恢复的早期
         // 调用与 staged 名单由此保持一致。
         for name in deliverable_names(diagnostic) {
             let bytes = bytes_by_name
@@ -648,7 +648,7 @@ fn output_anchor(output_dir: &Path, base: &Path) -> PathBuf {
     base.join(output_dir)
 }
 
-/// 交付文件名（staged 名单的唯一事实源；诊断模式不交付 network.lfca /
+/// 交付文件名（staged 名单的唯一事实来源；诊断模式不交付 network.lfca /
 /// routes.toml / static tar）。中断恢复的早期调用与 stage_outputs 共用。
 fn deliverable_names(diagnostic: bool) -> Vec<&'static str> {
     let mut names = Vec::with_capacity(12);

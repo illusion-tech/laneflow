@@ -135,7 +135,7 @@ const SUFFIX_NONE: u32 = u32::MAX;
 pub(crate) struct LeaderQueryHorizon {
     /// §10.1 `bumper_gap_horizon`：后杠间隙大于此窗则本拍不接纳。
     pub bumper_gap_mm: u32,
-    /// §10.1 `front_query_horizon`：后续出现项入口大于此窗则早停。
+    /// §10.1 `front_query_horizon`：后续出现记录入口大于此窗则早停。
     pub front_query_mm: u32,
 }
 
@@ -1115,7 +1115,7 @@ impl OccupancyIndex {
 
     /// 前保险杠到后杠间隙窗内最近前车后保险杠的 `i64` 毫米间隙；可负。
     ///
-    /// 当前边取后缀最小 `lo_mm`。后续出现项按入口距离走到 `front_query_mm`（含端点）；
+    /// 当前边取后缀最小 `lo_mm`。后续出现记录按入口距离走到 `front_query_mm`（含端点）；
     /// 接纳只看 `bumper_gap_mm`。后杠间隙窗外本拍无 leader。
     pub(crate) fn leader_gap(
         &self,
@@ -1190,7 +1190,7 @@ impl OccupancyIndex {
         .map(|(gap_mm, vehicle)| LeaderContact { vehicle, gap_mm })
     }
 
-    /// 当前边最近前方记录（后杠、身份）已求出后，接纳过滤并沿后续出现项行走。
+    /// 当前边最近前方记录（后杠、身份）已求出后，接纳过滤并沿后续出现记录行走。
     #[allow(clippy::too_many_arguments)]
     fn walk_leader<T: Copy>(
         &self,

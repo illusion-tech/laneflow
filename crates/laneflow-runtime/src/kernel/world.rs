@@ -87,14 +87,14 @@ pub(crate) fn take_command_occupancy_yields() -> u64 {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct WorldGeneration(u64);
 
-/// 机动路径出现项的定位锚点：精确出现项下标或入口路线边下标。
+/// 机动路径出现记录的定位锚点：精确出现记录下标或入口路线边下标。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ManeuverOccurrenceAnchor {
     OccurrenceIndex(u32),
     EntryRouteEdgeIndex(u32),
 }
 
-/// 已解析的机动路径锚点：出现项下标、出/入口路线边下标与门所在 hop。
+/// 已解析的机动路径锚点：出现记录下标、出/入口路线边下标与门所在 hop。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedManeuverAnchor {
     pub(crate) occurrence_index: u32,
@@ -971,7 +971,7 @@ impl crate::kernel::state::WorldState {
     /// 边序列为空、序号越出共享静态路网、相邻边不连通或机动转移无法唯一匹配（
     /// `ManeuverMismatch` / `AmbiguousManeuver`）、等待区本地存储跨度无法表示
     /// （`WaitingStorageSpanUnbounded`）、命令游标耗尽（
-    /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
+    /// `RouteError::CommandCursorExhausted`）、路线/边出现记录/冲突出现记录容量不足
     /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         self.register_route_edges(input.edges())
@@ -2529,7 +2529,7 @@ impl TrafficWorld {
     /// 边序列为空、序号越出共享静态路网、相邻边不连通或机动转移无法唯一匹配（
     /// `ManeuverMismatch` / `AmbiguousManeuver`）、等待区本地存储跨度无法表示
     /// （`WaitingStorageSpanUnbounded`）、命令游标耗尽（
-    /// `RouteError::CommandCursorExhausted`）、路线/边出现项/冲突出现项容量不足
+    /// `RouteError::CommandCursorExhausted`）、路线/边出现记录/冲突出现记录容量不足
     /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     ///
     /// # Panics
@@ -3044,7 +3044,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let occurrence = *compiled
             .conflicts
             .get(usize::try_from(conflict_occurrence_index).ok()?)?;
-        // T 出现项 locator（#1199）：locator 语义=passage 身份 (stream, zone)
+        // T 出现记录 locator（#1199）：locator 语义=passage 身份 (stream, zone)
         // （conflict.rs 文档义，与资源种类无关）——Transition 资源格无
         // static_zone，经其 stream passage 取 (stream, zone) 稳定对（零格式
         // 变化：locator 类型与持久形制不动）。
@@ -3647,7 +3647,7 @@ mod route_gate_tests {
         "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
-    /// 沿夹具机动路径注册路线，使路线携带 Gate 出现项。
+    /// 沿夹具机动路径注册路线，使路线携带 Gate 出现记录。
     fn world_with_path_route() -> (TrafficWorld, RouteHandle) {
         let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
             .expect("checked canonical network input");

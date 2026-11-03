@@ -279,7 +279,7 @@ fn rearmost_active_distance(world: &TrafficWorld, route: RouteHandle) -> u32 {
 
 // ---------------------------------------------------------------------------
 // 场景一（融合路径覆盖）：Waiting 密集的合成环（#675 拓扑扩展）：区容量 2、
-// 12 辆分布在三个出现项组，全程低于生产分发阈值；行驶中 despawn/spawn
+// 12 辆分布在三个出现记录组，全程低于生产分发阈值；行驶中 despawn/spawn
 // 制造同槽位新代次与 Active 集合变化的融合路径等价。
 // ---------------------------------------------------------------------------
 
@@ -524,8 +524,8 @@ fn ring_policy() -> WorldPolicySelection {
     })
 }
 
-/// （路线出现项下标，边内进度）生成点；组间按物理位置错开（同一物理边的
-/// 不同出现项共享占用区间），队尾最后生成。
+/// （路线出现记录下标，边内进度）生成点；组间按物理位置错开（同一物理边的
+/// 不同出现记录共享占用区间），队尾最后生成。
 const RING_SPAWNS: [(u32, u32); 12] = [
     (0, 299_000),
     (0, 291_000),
@@ -981,7 +981,7 @@ fn fused_path_parking_transition_matches_across_worker_matrix() {
 }
 
 // ---------------------------------------------------------------------------
-// 场景五（融合路径覆盖）：合成环混合工作集。路线 ×3 出现项（1 800 m）：
+// 场景五（融合路径覆盖）：合成环混合工作集。路线 ×3 出现记录（1 800 m）：
 // 12 Active 从入口边 0 起 9 m 间距铺开，Parked-from-start 与首拍前 park 的
 // 车夹入 live 序列，近终点 finisher 反复 Completed 保留后原子替换；tick 1
 // despawn 一辆后立即补员，tick 10 再 park 一辆并立即补员。每个关键操作之
@@ -1016,7 +1016,7 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
         .expect("hybrid ring route");
     let profile = VehicleProfileOrdinal::from_raw(0);
     // 12 Active 从 0 起 9 m 间距；Parked-from-start 在第 7 个 live 槽位之前
-    // 夹入（设施虚拟池入口锚点在 exit 边出现项 0 @20 m：出口边是 maneuver
+    // 夹入（设施虚拟池入口锚点在 exit 边出现记录 0 @20 m：出口边是 maneuver
     // 的无状态外溢段，Active 生成与 reserve 都不与 Waiting traversal 冲突；
     // Parked 不占车道）。
     let facility = laneflow_runtime::ParkingFacilityOrdinal::from_raw(0);

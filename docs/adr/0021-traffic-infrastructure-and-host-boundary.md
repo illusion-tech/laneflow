@@ -42,7 +42,7 @@
 ## 术语规范
 
 本 ADR 的中文术语和中文定义是权威事实，英文只作辅助理解。完整映射以
-`../reference/glossary.md` 为单一事实源（Single Source of Truth，SSOT）；类型、
+`../reference/glossary.md` 为唯一事实来源（Single Source of Truth，SSOT）；类型、
 crate、字段、版本值、算法和协议常量等精确标识符保留原文。
 
 ## 背景
@@ -140,7 +140,7 @@ LaneFlow 的公开组件定位为：
 - 后续非机动车、步行与混合交通；
 - 施工、临时封闭、动态车道用途和交互式道路编辑。
 
-ADR 0018/0019 已冻结的法规来源沿袭、WaitingZone、ConflictZone 和车辆级通行权
+ADR 0018/0019 已冻结的法规来源链、WaitingZone、ConflictZone 和车辆级通行权
 边界继续有效。这些场景分别由相应设计与工作负载冻结，不表示已经全部实现。
 中国特色城市工作负载与现有合成基线和 LuST 补充基线并列，
 不得静默替换既有 workload ID 或把尚未支持的参与者伪装为机动车。

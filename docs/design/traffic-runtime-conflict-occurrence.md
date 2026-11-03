@@ -1,8 +1,8 @@
-# 路线冲突出现项与正式仲裁能力边界
+# 路线冲突出现记录与正式仲裁能力边界
 
-**文档状态**: Accepted（#283 路线出现项；#284 正式仲裁已接管）<br>
+**文档状态**: Accepted（#283 路线出现记录；#284 正式仲裁已接管）<br>
 **最后更新**: 2026-09-05<br>
-**适用范围**: `TrafficWorld` 路线冲突出现项、路线坐标规范化、资源容量，以及
+**适用范围**: `TrafficWorld` 路线冲突出现记录、路线坐标规范化、资源容量，以及
 正式 Conflict authority 的活动车辆边界
 
 **关联文档**:
@@ -29,13 +29,13 @@
    `ConflictPassageOccurrence`，保留同一路线中的重复出现；
 2. 把 path-local anchor 映射为无二义性的 route-local 整数位置，并保留
    admission Gate coverage；
-3. 用独立语义容量限制全部存活路线保留的冲突出现项；
+3. 用独立语义容量限制全部存活路线保留的冲突出现记录；
 4. 生命周期入口不能在已越过 Gate、但车尾尚未清除 passage 的位置凭空创建
    Conflict authority；
-5. 快照恢复与路网修订切换只保存稳定路线输入并重新编译派生出现项，不持久化热表。
+5. 快照恢复与路网修订切换只保存稳定路线输入并重新编译派生出现记录，不持久化热表。
 
 共享静态路网与含冲突路线可以正常 build、install、register、保存和加载。#284 W7 已直接消费
-这些出现项和 Gate range：fixed tick 通过所选 policy 产生候选，经 gap、Conflict 与
+这些出现记录和 Gate range：fixed tick 通过所选 policy 产生候选，经 gap、Conflict 与
 downstream 组合仲裁后提交 grant/reservation/Clearing/tail-clear。低频生命周期入口仍不
 临时停车，也不伪造 grant、reservation 或通行权。
 
@@ -44,7 +44,7 @@ downstream 组合仲裁后提交 grant/reservation/Clearing/tail-clear。低频�
 ### 2.1 静态 passage 地址
 
 `ConflictPassage` 是 `ParticipantStream` 所有者局部关系，没有全局 ordinal 或独立
-`StableId128`。路线出现项必须使用：
+`StableId128`。路线出现记录必须使用：
 
 ```text
 ConflictPassageAddress =
@@ -86,9 +86,9 @@ CompiledRoute additions
 
 `clearance` 就是静态 passage exit 映射到路线后的整数位置；它不提前加车型长度、
 clearance buffer 或未来 policy tolerance。`conflictGateRanges` 与现有 `hop_gate` 对齐，
-长度至多为 route hop 数；没有与冲突出现项数量一起增长的第二张索引表。
+长度至多为 route hop 数；没有与冲突出现记录数量一起增长的第二张索引表。
 本拍运动另有一列与路线 occurrence 对齐的最近冲突准入距离，长度是 occurrence 数，
-不随冲突出现项数量增长，也不代替 `conflicts` 上的授权搜索。
+不随冲突出现记录数量增长，也不代替 `conflicts` 上的授权搜索。
 
 `conflicts` 按以下总序原地不稳定排序；该顺序同时保证同一 admission hop 的 coverage
 连续：
@@ -97,7 +97,7 @@ clearance buffer 或未来 policy tolerance。`conflictGateRanges` 与现有 `ho
 (admissionHop, entry, clearance, stream.raw(), passageLocalIndex)
 ```
 
-`finalConflictClearance` 取 `(clearance, 上述出现项总序)` 的最大项。它用于生命周期
+`finalConflictClearance` 取 `(clearance, 上述出现记录总序)` 的最大项。它用于生命周期
 入口快速判定车尾是否已清空全部 coverage；正式 tick 直接消费完整 `conflicts` 与 Gate
 range。
 
@@ -146,7 +146,7 @@ route-local 表示。
 ## 4. 唯一路线编译与失败原子性
 
 direct、candidate、admitted/replay、snapshot restore 与 cutover target 都必须进入
-现有唯一 `register_route_edges` / `compile_route` 路径。冲突出现项编译按以下顺序执行：
+现有唯一 `register_route_edges` / `compile_route` 路径。冲突出现记录编译按以下顺序执行：
 
 1. 完成既有非空、边、连通、机动 occurrence 与覆盖验证；
 2. 对每个 `ManeuverOccurrence` 查询 path 的所有 participant stream，再以 checked
@@ -155,14 +155,14 @@ direct、candidate、admitted/replay、snapshot restore 与 cutover target 都�
 4. 精确预留一条 `conflicts` vector，映射 anchor、验证 owner/path/Gate 闭合并填充；
 5. 原地排序，建立按 hop 数增长的 `conflictGateRanges`，计算
    `finalConflictClearance`；
-6. 路线槽、边出现项计数、冲突出现项计数和命令游标在同一提交点更新。
+6. 路线槽、边出现记录计数、冲突出现记录计数和命令游标在同一提交点更新。
 
 任何 checked arithmetic、静态闭合、容量或分配失败都只丢弃局部 staged
 `CompiledRoute`。不得占用 route slot、推进命令游标、改变两个世界计数或留下半条
 路线。`remove_route` 成功时按该 compiled route 的 exact `conflicts.len()` 释放计数；
 失败不改变计数。
 
-## 5. 冲突出现项容量
+## 5. 冲突出现记录容量
 
 `route_edge_occurrence_capacity` 继续只统计全部存活动态路线的 `edges.len()` 总和，
 不改变名称或既有语义。#283 为 `WorldConfig` 新增：
@@ -172,7 +172,7 @@ route_conflict_occurrence_capacity: u64
 ```
 
 `WorldConfig::new` 在 `route_edge_occurrence_capacity` 之后增加该必填参数，不提供会随
-机器内存变化的默认值；`0` 合法，表示该 world 只能注册不含冲突出现项的路线。
+机器内存变化的默认值；`0` 合法，表示该 world 只能注册不含冲突出现记录的路线。
 
 独立计数解决的是实际 retained memory：一条较短的机动路线可以穿过多个冲突区，
 `conflicts.len()` 并不等于 `edges.len()`。它不是针对恶意制品的任意 byte quota，也不
@@ -249,14 +249,14 @@ allowed = for every nonempty conflict Gate coverage:
 等于 clearance 表示车尾已经清除；提前一微米仍拒绝。不能只看前保险杠、当前 route
 edge、第一处 passage 或“cursor 之后是否还有 entry”。低频生命周期入口按 route-local
 Gate range 检查；没有 conflict coverage 时无需此 authority。这个判定覆盖当前、后续、
-车身仍占用、循环和重复出现项，允许在两段已清空/未进入的 coverage 之间合法绑定。
+车身仍占用、循环和重复出现记录，允许在两段已清空/未进入的 coverage 之间合法绑定。
 
 ### 6.2 必须覆盖的入口
 
 | 入口                               | 行为                                                       |
 | ---------------------------------- | ---------------------------------------------------------- |
 | build/install 含冲突的共享静态路网 | 允许；新 world 尚无车辆                                    |
-| 任意路线注册入口                   | 允许；完整编译出现项并收费                                 |
+| 任意路线注册入口                   | 允许；完整编译出现记录并收费                                 |
 | `spawn_vehicle`                    | 候选 `Active` 车辆执行保护                                 |
 | `replace_completed_vehicle`        | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
 | `leave_parking`                    | `Parked -> Active` 的候选 exit cursor 执行保护             |
@@ -278,15 +278,15 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 
 ## 7. 快照、恢复与切换
 
-路线冲突出现项完全由有序 `LaneEdge StableId128` 序列和目标
+路线冲突出现记录完全由有序 `LaneEdge StableId128` 序列和目标
 `SharedNetworkRevision` 确定，不进入 LFRS：
 
 - capture 仍只保存路线边稳定标识序列；
 - 现行 LFRS 7 保存 `WorldConfig` 容量并把它纳入 deterministic digest 8；
-- restore 使用目标修订的唯一路线编译器重建出现项，先核对 edge 与 conflict 两个总容量，
+- restore 使用目标修订的唯一路线编译器重建出现记录，先核对 edge 与 conflict 两个总容量，
   再重建并验证 Active 车辆的 reservation、Gate side、物理 footprint 和历史，全部成功后
   才发布 world；
-- 恢复目标容量可以放大，但必须容纳快照内重建出的 exact 出现项总数；精确回放对拍
+- 恢复目标容量可以放大，但必须容纳快照内重建出的 exact 出现记录总数；精确回放对拍
   仍要求两个语义容量与原配置一致；
 - cutover prepare 在 target 修订上重编译全部路线并累计 exact conflict count；容量、
   allocation 或任一 Active 车辆 authority 证明失败都放弃整个 target；
@@ -318,11 +318,11 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
   failpoint、route removal 释放和三个路线注册入口共用计数；
 - 现行 LFRS round-trip、旧版本/unknown version 拒绝、摘要差异、恢复容量放大、cutover
   target conflict count 增减与整事务回滚；
-- 10,000 冲突路线出现项产品档与 100,000 scaling 档的注册时间、retained logical
+- 10,000 冲突路线出现记录产品档与 100,000 scaling 档的注册时间、retained logical
   bytes 和近线性比例。它们是路线元数据，不等于活动车辆数。
 
 一百万静态实体、LFCA file-backed 路径和共享静态路网内存已由静态制品合同验证；#283 不
-重复构造第二套百万静态基准。它只证明新增 Runtime 元数据与实际出现项数量近线性，
+重复构造第二套百万静态基准。它只证明新增 Runtime 元数据与实际出现记录数量近线性，
 不宣称 #285 fixed-tick 产品性能已完成。
 
 当前资源账本中 `ConflictPassageOccurrence` 为 `36 B/项`，因此 10,000 / 100,000 项

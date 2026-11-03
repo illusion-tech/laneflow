@@ -27,7 +27,7 @@
 - `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
   宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 已接受；G2
   起实现）。
-- `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现项、route-local
+- `traffic-runtime-conflict-occurrence.md`：#283 的路线冲突出现记录、route-local
   坐标、独立容量与正式 Conflict authority 的活动车辆边界。
 - `traffic-runtime-waiting-zone.md`：#282 G1 Accepted 的 WaitingZone 本地
   membership/admission/storage/queue 设计，以及当前 LFRS 7、runtime state 5、

@@ -1041,7 +1041,7 @@ impl CorridorPopulationController {
     /// [`CorridorPopulationError::BoundWorldCatalogMismatch`]）、世界步进非单调（
     /// [`CorridorPopulationError::NonMonotonicStep`]）、被跟踪车辆（Running 或
     /// Pending 旧句柄）消失、已完成车辆重复出现、
-    /// 不在跟踪集合或路线/边出现项与跟踪状态不一致时返回相应
+    /// 不在跟踪集合或路线/边出现记录与跟踪状态不一致时返回相应
     /// [`CorridorPopulationError`]；失败不修改跟踪状态。
     pub fn consume_world(
         &mut self,

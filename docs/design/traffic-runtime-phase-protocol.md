@@ -90,7 +90,7 @@ TrafficWorld
 | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `revision`, `source`, `world_id`, `world_generation`, `config`, `policy_binding`                                        | Binding                                  | 同一活动绑定；step 不替换根、策略或世界世代                                                                                                                                                                                        |
 | `tick_index`, `time_ms`, `command_cursor`, `event_cursor`, `observation_state_sequence`                                 | Committed                                | 逐操作沿用原有递增规则，见 §5.3                                                                                                                                                                                                    |
-| `routes`, `free_routes`, `live_route_count`, `live_route_edge_occurrence_count`, `live_route_conflict_occurrence_count` | Committed route store                    | 登记、槽位世代、空闲顺序与准入计数一起维护；条目内编译出现项是只读执行表示，不是共享静态路网的一部分                                                                                                                               |
+| `routes`, `free_routes`, `live_route_count`, `live_route_edge_occurrence_count`, `live_route_conflict_occurrence_count` | Committed route store                    | 登记、槽位世代、空闲顺序与准入计数一起维护；条目内编译出现记录是只读执行表示，不是共享静态路网的一部分                                                                                                                               |
 | `vehicles`, `free_vehicles`, `live_order`                                                                               | Committed vehicle store                  | `live_order` 决定正式更新序号，不能由槽位顺序重新生成；空闲表顺序不能任意改变后续 handle                                                                                                                                           |
 | `active_order`                                                                                                          | Derived                                  | 从 `live_order` 保序投影；成功提交后移除非 Active，失败不改变公开遍历和后续业务顺序                                                                                                                                                |
 | `live_order_index`                                                                                                      | Derived                                  | `live_order` 已登记前缀的 slot 到位置缓存，按完整句柄复核；只追加时补齐，删除/替换/重建时失效；停车命令预留失败回退全量投影，不进入快照或日志                                                                                      |
@@ -146,7 +146,7 @@ Conflict 的规则函数显式借用下列不同部分，而不是取得含全�
   字节计账；空修订不保留 backing。共享静态路网已经要求每流 passage 非空、全部 passage
   可由 `u32` range 表达，安装仍以 checked 计数和可失败分配构造索引；它不依据查询
   中的最大键扩张，也不改变世界的语义容量。普通恢复和跨修订候选为目标修订重新安装
-  此索引；同修订同步换根在认证修订相同、校验路线出现项等价后，依照实体集合与
+  此索引；同修订同步换根在认证修订相同、校验路线出现记录等价后，依照实体集合与
   规范排序不变的约束保留现有索引，不额外重建。索引不持久化；不得跨修订或在未经
   上述等价认证时直接复用旧槽位，不在每辆车或每条路线复制表，也不新增 passage 身份。
 - `cells` 中的 `zone_committed_owner`、`reservation`、`occupant`、`cleared` 和 `lag`
@@ -302,7 +302,7 @@ reach_mm = speed_mm_s × Δt + 500 × max_accel × Δt² + 50
 
 三类查询独立：
 
-- 冲突准入远于上界时，跳过冲突出现项搜索；等待入口仍按自己的距离决定。
+- 冲突准入远于上界时，跳过冲突出现记录搜索；等待入口仍按自己的距离决定。
 - 等待入口远于上界时，跳过 `compiled.waiting` 里的未授权入口搜索。这不跳过 `waiting_stop_for`：本拍 Waiting 计划的校验和停止约束仍执行。
 - 信号沿 `next_controlled` 推进。解释一扇门之前，先看从当前进度到该门的距离。够不着就结束本拍信号停止查询，不再解释更远的门。近处绿灯、远处红灯时，只解释上界内的门。
 - `hard_room` 仅在当前边剩余长度远于上界时，不再为这一次包络调用 `hop_permitted`。`apply_travel_mm` 真正跨 hop 时的 `hop_permitted` 保留。

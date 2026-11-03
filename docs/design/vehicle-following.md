@@ -64,7 +64,7 @@
 - **Effective speed ceiling**：纵向管线当前实际采用的速度上限；current v0.10 没有超车或驾驶风格放宽，因此等于 base speed limit。
 - **Safety projection**：emergency braking 仍不能避免本 tick 重叠时的最终 travel 修正。
 - **Occupancy snapshot**：单个 tick 内不可变的车辆物理占用视图。
-- **跟车前视**：每车每拍由当前速度与 profile 按 §10.1 推导的出现项行走窗（`front_query_horizon`）；不是目视距离，也不是后杠间隙接纳窗。
+- **跟车前视**：每车每拍由当前速度与 profile 按 §10.1 推导的出现记录行走窗（`front_query_horizon`）；不是目视距离，也不是后杠间隙接纳窗。
 
 ## 3. 分层与 tick phases
 
@@ -266,7 +266,7 @@ bumper_gap = route_distance(F.front, L.front) - L.length
 查询顺序：
 
 1. 当前物理边上所有 `hi_mm >` follower 前保险杠的占用记录中，取最小 `lo_mm`（最紧后杠）。同边占用重叠时不得只取最小 `hi_mm`。间隙大于 `bumper_gap_horizon` 则本边不接纳。
-2. follower 路线跟车前视内后续出现项上该桶全部非 self 记录中的最小 `lo_mm`。入口距离大于跟车前视则早停。
+2. follower 路线跟车前视内后续出现记录上该桶全部非 self 记录中的最小 `lo_mm`。入口距离大于跟车前视则早停。
 3. 取最小间隙（可负）。接纳以 `bumper_gap_horizon` 为准；超出则本拍无 leader。跟车前视不得短于 `bumper_gap_horizon`（见 §10.1）。`bumper_gap_horizon` 仍满足 ADR 0006 的搜索下界。
 
 Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时不搜索 follower 未选 branch；其他 incoming branch 上、尚未进入共享 downstream edge 的车辆不是 longitudinal leader，而应由未来 merge/conflict constraint 处理。车辆进入共享 downstream edge 后，才按普通 leader 处理。支路汇入后同边占用可以重叠；跟车间隙仍取最紧后杠，不把重叠合法化。
@@ -276,7 +276,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 占用按物理边存储，route occurrence 由 follower `route_edge_index` 解释。
 - 同一 candidate 映射多个 future occurrence 时，只保留最小间隙（可负）。
 - Follower 始终按 `VehicleHandle` 全局排除 self。
-- 环形 route 中，物理坐标位于 follower 后方的其他车辆可以通过下一 occurrence 成为前车。该出现项须落在跟车前视内，且后杠间隙不超过 `bumper_gap_horizon`。
+- 环形 route 中，物理坐标位于 follower 后方的其他车辆可以通过下一 occurrence 成为前车。该出现记录须落在跟车前视内，且后杠间隙不超过 `bumper_gap_horizon`。
 
 ### 6.4 Overlap
 
@@ -317,7 +317,7 @@ OccupancyRecord
   updateSequence: u32
 ```
 
-坐标为整数毫米。`hi_mm` 是该占用记录在本桶上的占用上沿（主记录为前保险杠进度；车身溢出占用为该边上车身片段上沿）。`lo_mm` 是同一片段下沿（后保险杠或该边上车尾起点）。同边间隙为 `i64`：`leader.lo_mm - follower_front_mm`；跨出现项沿 follower 路线累计到该 `lo_mm`。禁止 `u32` 回绕。
+坐标为整数毫米。`hi_mm` 是该占用记录在本桶上的占用上沿（主记录为前保险杠进度；车身溢出占用为该边上车身片段上沿）。`lo_mm` 是同一片段下沿（后保险杠或该边上车尾起点）。同边间隙为 `i64`：`leader.lo_mm - follower_front_mm`；跨出现记录沿 follower 路线累计到该 `lo_mm`。禁止 `u32` 回绕。
 
 每辆 Active 车辆通过 `for_each_admission_interval` 展开实际车身和零进度入口点：
 
@@ -347,7 +347,7 @@ OccupancyRecord
 ### 7.3 Query 与复杂度
 
 - 当前边：`partition_point` 定位 `hi_mm > follower_front` 的后缀，在该后缀的非 self 记录中取最小 `lo_mm`。间隙大于 `bumper_gap_horizon` 则本边不接纳。
-- 后续出现项：沿 **follower** 跟车前视内路线读取该桶非 self 记录中最小 `lo_mm`。按出现项入口距离单调访问；入口等于跟车前视仍访问，大于则早停。接纳仅当后杠间隙不超过 `bumper_gap_horizon`。占用索引仍按全部 `Active` 重建。
+- 后续出现记录：沿 **follower** 跟车前视内路线读取该桶非 self 记录中最小 `lo_mm`。按出现记录入口距离单调访问；入口等于跟车前视仍访问，大于则早停。接纳仅当后杠间隙不超过 `bumper_gap_horizon`。占用索引仍按全部 `Active` 重建。
 - 实现按 `hi_mm` 排序后维护桶内后缀最小 `lo_mm`，以及车辆不同的次小 `lo_mm`；self 排除后查询仍 `O(1)`，避免密队列回到全对扫描。重叠占用不得只返回最小 `hi_mm`。
 - 前方距离用 follower 的 route occurrence 解释，不用 candidate 自己的路线。
 - 同一 candidate 映射多个 future occurrence 时取最小间隙（可负）。
@@ -497,7 +497,7 @@ IIDM evaluator 是 Core 私有纯计算单元：输入 profile 与 observation�
 
 ### 10.1 Leader query horizon
 
-每车每拍按静止前车最坏情况推导两个毫米窗。跟车前视是出现项行走窗，不得缩短；后杠间隙窗决定本拍是否接纳 leader。
+每车每拍按静止前车最坏情况推导两个毫米窗。跟车前视是出现记录行走窗，不得缩短；后杠间隙窗决定本拍是否接纳 leader。
 
 ```text
 dt = fixed_delta_time_ms / 1000

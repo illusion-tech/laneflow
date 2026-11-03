@@ -8,9 +8,9 @@ use crate::{
     CapturedSnapshot, CapturedVehicle, VehicleStatus,
 };
 
-/// 确定性状态摘要规范化版本（8：算法由 SHA-256 更换为 BLAKE3-256，前像布局不变）。
+/// 确定性状态摘要规范化版本（8：算法由 SHA-256 更换为 BLAKE3-256，原像布局不变）。
 pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 8;
-/// 域分隔前缀；尾随 NUL 属于前缀字节。算法更换由前像内的摘要版本区分，前缀保持 v1。
+/// 域分隔前缀；尾随 NUL 属于前缀字节。算法更换由原像内的摘要版本区分，前缀保持 v1。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
 bytes32_type! {
@@ -208,7 +208,7 @@ pub fn deterministic_state_digest(
 }
 
 /// 测试专用：e011745e / c009d2dc 锚定的阶段协议 fixture 以 digest 7（SHA-256）记录状态。
-/// 以相同前像把版本字段改回 7 并按 SHA-256 重算，输出原 `Sha256Digest(..)` 调试形式，
+/// 以相同原像把版本字段改回 7 并按 SHA-256 重算，输出原 `Sha256Digest(..)` 调试形式，
 /// 使 fixture 继续锚定重构前行为、不随 #1035 算法更换从被测实现重生成；生产路径不使用。
 #[cfg(test)]
 pub(crate) fn frozen_digest_7_fingerprint(snapshot: &CapturedSnapshot) -> String {
@@ -224,7 +224,7 @@ pub(crate) fn frozen_digest_7_fingerprint(snapshot: &CapturedSnapshot) -> String
     format!("Sha256Digest({hex})")
 }
 
-/// 捕获路径的规范前像字节；摘要 = BLAKE3-256(前像)。
+/// 捕获路径的规范原像字节；摘要 = BLAKE3-256(原像)。
 fn canonical_state_preimage(snapshot: &CapturedSnapshot) -> Result<Vec<u8>, SnapshotDigestError> {
     // 车辆记录表：`BTreeMap` 无可失败预留 API，等价换「按局部 ID 排序的
     // 扁平表 + 二分查找」（查找语义与输出字节不变）。
@@ -746,7 +746,7 @@ impl crate::kernel::state::WorldState {
         }
     }
 
-    /// 直算路径的规范前像字节；与捕获路径的前像逐字节一致。
+    /// 直算路径的规范原像字节；与捕获路径的原像逐字节一致。
     fn direct_state_preimage(
         &self,
         limits: SnapshotDigestLimits,
@@ -1318,9 +1318,9 @@ mod tests {
         );
     }
 
-    /// #1035：摘要 = BLAKE3-256(规范前像)，前像以域分隔前缀与摘要版本 8 开头，两条路径
-    /// 的前像逐字节一致；把版本字段改回 7 并以 SHA-256 计算，复现 digest 7 的已知向量，
-    /// 证明算法更换未改变前像布局。
+    /// #1035：摘要 = BLAKE3-256(规范原像)，原像以域分隔前缀与摘要版本 8 开头，两条路径
+    /// 的原像逐字节一致；把版本字段改回 7 并以 SHA-256 计算，复现 digest 7 的已知向量，
+    /// 证明算法更换未改变原像布局。
     #[test]
     fn digest_is_blake3_of_unchanged_preimage() {
         use sha2::{Digest, Sha256};
@@ -1864,10 +1864,10 @@ mod tests {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
-        // digest 8：前像与 digest 7 相同（独立保留已审核的车辆/路线记录后缀，替换版本与
+        // digest 8：原像与 digest 7 相同（独立保留已审核的车辆/路线记录后缀，替换版本与
         // LFCA 六节摘要，追加 tag + 从身份表读取的 policy StableId，以及空 Conflict
         // lag 分类的显式计数），只把摘要版本改为 8、算法改为 BLAKE3-256；本向量锁定
-        // 完整 digest 8 前像。下方等价类同时约束来源审计与局部 ID 不进入摘要。
+        // 完整 digest 8 原像。下方等价类同时约束来源审计与局部 ID 不进入摘要。
         assert_eq!(
             expected,
             StateDigest::from_bytes([

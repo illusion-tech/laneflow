@@ -268,7 +268,7 @@ JSON syntax
   -> CoreWorld fixed-delta/runtime compatibility
 ```
 
-旧版/未来版必须在 0.5 shape、unknown-field、units 和 domain validation 前返回 `UnsupportedFormatVersion`。Schema/Serde 负责 required/type/closed shape、tagged union、enum 与单字段 integer range；Core constructors 是引用、唯一性、ownership、coverage、cycle、route 和 runtime invariant 的唯一事实源。
+旧版/未来版必须在 0.5 shape、unknown-field、units 和 domain validation 前返回 `UnsupportedFormatVersion`。Schema/Serde 负责 required/type/closed shape、tagged union、enum 与单字段 integer range；Core constructors 是引用、唯一性、ownership、coverage、cycle、route 和 runtime invariant 的唯一事实来源。
 
 Core normalization 的 canonical 顺序：
 

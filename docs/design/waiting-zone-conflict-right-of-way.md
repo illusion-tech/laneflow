@@ -1,7 +1,7 @@
 # WaitingZone、ConflictZone 与通行权分层
 
 **文档状态**: Accepted（#235 联合架构；#282 与 #284 已实现）<br>
-**适用范围**: WaitingZone 本地准入、Conflict 路线出现项、车辆级通行权、下游净空、
+**适用范围**: WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 **交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法由 #235 接受，
 #284 已交付 policy、downstream/Conflict 组合仲裁、持久化、修订迁移与生产 fixed tick<br>
@@ -58,7 +58,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 | canonical 3D 几何与 pairing validation                        | Spatial                        | 不反推行为或修改 claim                      |
 | 只读状态与事件消费                                            | Adapter / Scenario / caller    | 不获得 mutation authority                   |
 
-## 3. 静态区间与路线出现项
+## 3. 静态区间与路线出现记录
 
 ### 3.1 WaitingZone
 
@@ -93,7 +93,7 @@ ConflictPassageOccurrence
   entry/clearance route-local anchors
 ```
 
-具体字段以 `traffic-runtime-conflict-occurrence.md` 为准。出现项数量由
+具体字段以 `traffic-runtime-conflict-occurrence.md` 为准。出现记录数量由
 `route_conflict_occurrence_capacity` 独立约束，不能借用 Waiting 数量、route edge
 数量或 `vehicle_capacity` 猜测。
 
@@ -444,7 +444,7 @@ Outside proof 使用同一 upper speed/acceleration 与
 
 同车同拍的 frontier 遍历只准备一次 carry 上界、速度、加速度上界、proof horizon
 可达距离上界及二次项公共因子。准备对象只在该车辆遍历的栈上存在，不跨车辆或 tick
-保留；无未来冲突出现项时无需准备。每个出现项仍独立验证 exact distance，按上述
+保留；无未来冲突出现记录时无需准备。每个出现记录仍独立验证 exact distance，按上述
 directed 运算顺序计算距离下界及 ETA，保留 `Finite(0)`、`OutsideHorizon` 和
 `Unprovable` 边界。不重结合浮点表达式、不改变 `next_up` / `next_down` 的位置。
 

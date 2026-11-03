@@ -10,10 +10,10 @@ pub(crate) struct LirPolicy {
     pub value: PolicySet<ManeuverGateOrdinal, ParticipantStreamOrdinal, ParticipantClassOrdinal>,
 }
 
-/// 按 HIR 已有的 Identity 前像顺序冻结全部路权策略集；规则内类别与让行目标重映射为 LIR 序号并按稳定标识排序。
+/// 按 HIR 已有的 Identity 原像顺序冻结全部路权策略集；规则内类别与让行目标重映射为 LIR 序号并按稳定标识排序。
 pub(super) fn freeze(env: &mut FreezeEnv<'_>) -> Result<Box<[LirPolicy]>, DiagnosticBundle> {
     let mut policies = Vec::with_capacity(env.mir.policies.len());
-    // HIR 已按完整 Identity 前像排序，且没有策略间引用，不再建立第二张排列索引。
+    // HIR 已按完整 Identity 原像排序，且没有策略间引用，不再建立第二张排列索引。
     for (index, record) in env.mir.policies.iter().enumerate() {
         let identity_fields = push_lir_identity(
             env.identity_fields,

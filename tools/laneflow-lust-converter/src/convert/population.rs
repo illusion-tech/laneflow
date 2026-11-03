@@ -23,7 +23,7 @@ pub const POPULATION_DEPART_END_SECONDS: &str = "30600";
 pub const POPULATION_CANDIDATE_COUNT: usize = 10_592;
 /// Selected population size.
 pub const POPULATION_SELECTED_COUNT: usize = 10_000;
-/// 固定人口派生身份；同时用于排序前像与转换报告，不提供算法选择开关。
+/// 固定人口派生身份；同时用于排序原像与转换报告，不提供算法选择开关。
 pub const POPULATION_DERIVATION_ID: &str = "LF-REAL-LUST-POPULATION-v2";
 
 const KNOWN_SOURCE_VTYPE_IDS: &[&str] = &[
@@ -58,7 +58,7 @@ pub struct PopulationOrdinal {
     pub source_vehicle_ordinal: u64,
 }
 
-/// 候选谓词的单一事实源：depart ∈ [28800, 30600) 且为 passenger vtype。
+/// 候选谓词的唯一事实来源：depart ∈ [28800, 30600) 且为 passenger vtype。
 /// `select_population` 的候选过滤与 DUE 解析期的 edges 惰性物化
 /// （`parse_due_routes_xml_filtered`）共用此判定，两侧不得各自实现。
 pub(crate) fn is_population_candidate(type_id: &str, depart: &ExactDecimal) -> bool {

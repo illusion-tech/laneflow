@@ -14,7 +14,7 @@
 
 ## 1. 目的、状态与声明边界
 
-本文是 LaneFlow 真实路网 workload 的长期设计事实源。首个来源固定为 LuST
+本文是 LaneFlow 真实路网 workload 的长期设计事实来源。首个来源固定为 LuST
 Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
 
 - `LF-REAL-LUST-TOPO-v2`：真实静态拓扑、Signals、lane/connection 密度和
@@ -365,7 +365,7 @@ asset，否则会形成 self-digest cycle。build provenance record 同样位于
    vtypes 之一的 `<vehicle>`。
 2. vehicle ID 使用原始 UTF-8 bytes；禁止 trim、case folding 或 Unicode
    normalization。空 ID、重复 ID、未知 vtype/route 或 dangling edge 立即失败。
-3. 主排序键按 §4.1 的 `LF-REAL-LUST-POPULATION-v2` 前像计算 XXH3-64，按无符号
+3. 主排序键按 §4.1 的 `LF-REAL-LUST-POPULATION-v2` 原像计算 XXH3-64，按无符号
    `u64` 数值升序；碰撞时以原始 vehicle-ID UTF-8 bytes 字典序为第二键。
 4. 候选数必须精确为 10,592。按上述顺序取前 10,000，并依次赋
    `population_rank = 0..9999`。
@@ -398,7 +398,7 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 交通代表性，也不按输出分布反复挑选 seed。新人口的分布观察必须保留，但不能
 用粗分箱结果替代路线与 workload 验收。
 
-**算法采用 XXH3-64。** 固定参数和前像为：
+**算法采用 XXH3-64。** 固定参数和原像为：
 
 ```text
 population_derivation_id = "LF-REAL-LUST-POPULATION-v2"
@@ -411,7 +411,7 @@ order = (key as unsigned u64 ascending, original vehicle-ID bytes lexicographic)
 的 `XXH3_64bits_withSeed` 为定义，使用标准 192 字节 `XXH3_kSecret`，禁止替换 secret、
 加入运行时随机 seed 或用 XXH64 / XXH3-128 代替。`\0` 是单个 `0x00` 字节；前缀为
 27 字节，之后恰好一个变长 ID 字段，不加长度字段、终止零或其他分隔符。不得使用
-Rust `Hash` trait 的对象编码或机器原生结构体内存作为前像。
+Rust `Hash` trait 的对象编码或机器原生结构体内存作为原像。
 
 `u64` 数值升序等价于其八字节大端表示的字典序；不得比较原生端序字节。主键碰撞时
 仍以完整 ID 字节排序，不能去重或丢弃记录。重复 ID 继续遵循 §4 入选集合的失败域。
@@ -421,11 +421,11 @@ Rust `Hash` trait 的对象编码或机器原生结构体内存作为前像。
 字节一致性，与派生算法独立。该 workload 不提供参与者自由提交 ID 的公平抽签服务，
 不承诺不可预测性或抗操纵；若引入此类输入边界，须另行设计，不能仅换一个哈希名称。
 
-[固定输入实验](../../research/issue-1029-lust-digest/xxh3-review.md)在保留旧前像的
+[固定输入实验](../../research/issue-1029-lust-digest/xxh3-review.md)在保留旧原像的
 对照中测得 XXH3 的候选哈希快约 11–12 倍、每批节省约 0.41–0.43 ms，但未证明
 转换器整体提速。此处选择 XXH3 的依据是角色匹配及有证据的单项收益；占比小与
 一次性重建成本不单独否决迁移。该实验没有使用本节的新域前缀，其 559 条人口替换
-和耗时数值不得作为 v2 的基线，实施时须重测最终前像。
+和耗时数值不得作为 v2 的基线，实施时须重测最终原像。
 
 转换报告的 `formatVersion` 从 `0.2` 提升为 `0.3`，在 `population` 对象中新增
 `derivationId`，值固定为上述 `population_derivation_id`。它不是用户可选配置，
@@ -442,7 +442,7 @@ LuST/Bevy 示例的 seeded 无放回抽样另由
 64 位结果的 16 位十六进制表示，`n` 是 §6.2 的位置分子；人口键不生成位置分子。
 ID `车辆-1` 的 UTF-8 字节为 `e8 bd a6 e8 be 86 2d 31`。
 
-| 用途前缀                       | ID           | 前像字节数 | `key/u`（十六进制） |    `n`（十进制） |
+| 用途前缀                       | ID           | 原像字节数 | `key/u`（十六进制） |    `n`（十进制） |
 | ------------------------------ | ------------ | ---------: | ------------------- | ---------------: |
 | `LF-REAL-LUST-POPULATION-v2\0` | `1`          |         28 | `01e8f0dbf24df715`  |                — |
 | `LF-REAL-LUST-POPULATION-v2\0` | `veh_000001` |         37 | `db5d822d0369b7be`  |                — |
@@ -693,7 +693,7 @@ digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runt
 ### 7.1 XXH3 迁移与验收边界
 
 本次人口派生提升为 `LF-REAL-LUST-POPULATION-v2`，共享该人口的 TOPO 和 DEMAND
-分别提升为 `LF-REAL-LUST-TOPO-v2`、`LF-REAL-LUST-DEMAND-v2`。算法、前像及结果
+分别提升为 `LF-REAL-LUST-TOPO-v2`、`LF-REAL-LUST-DEMAND-v2`。算法、原像及结果
 一起重建，不将旧人口表、旧报告或旧 plan 改标签充作 v2。旧 v1 只从历史证据查阅；
 生产不保留算法选择开关、回退分支、双算或旧格式读取兼容。历史研究中的对照算法
 不构成生产双路径。
@@ -702,7 +702,7 @@ digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runt
 
 1. **转换器人口切换**：用 §4.1 的唯一算法替换现有排序键，保留候选过滤、缓存一次、
    截断后验证及原 ID 次键。将 `twox-hash` 纳入转换器生产依赖与根许可名单的对应
-   用途；版本升级须保持向量和前像结果。新增报告 `population.derivationId`，
+   用途；版本升级须保持向量和原像结果。新增报告 `population.derivationId`，
    `formatVersion=0.3`。来源验证、制品和 provenance 的 SHA-256 不迁移。
 2. **人口与诊断重建**：固定源验证后，在同一 build 的两个 fresh process 中比较全部
    选中记录及顺序、rank、source ordinal、类型、departure 和 road-edge 序列；重新

@@ -232,8 +232,8 @@ impl Sample {
     }
 }
 
-/// 世界容量（#1218 L 族适配）：L 族车辆容量含两换道者、边出现项按路线实长累计、
-/// 冲突出现项预算 16（换道簇 T 出现项）；W 族恒为（规模、路线数×2、0），逐字保持。
+/// 世界容量（#1218 L 族适配）：L 族车辆容量含两换道者、边出现记录按路线实长累计、
+/// 冲突出现记录预算 16（换道簇 T 出现记录）；W 族恒为（规模、路线数×2、0），逐字保持。
 /// 恢复重建必须与安装同式（否则 `restore_lfrs` 容量校验拒绝）。
 pub(crate) fn world_config(state: &InitialState) -> WorldConfig {
     if state.routes.iter().any(|route| route.edge_ids.len() > 2) {

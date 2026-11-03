@@ -119,7 +119,7 @@ GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/
 - 审计时读取 open alerts，并按严重级别执行第 4 节阻断规则。
 - cargo-deny 在 CI 中检查 RustSec advisories、许可证、依赖约束和 crate 来源。
 
-源代码许可证、允许的第三方许可证、cargo-deny 配置、Dependabot 更新策略和例外字段以 `dependency-security.md` 为事实源。本文只定义 GitHub 安全能力的实时状态语义及合并/发布阻断；两份文档必须同时满足，不能以一方的空告警替代另一方的门禁。
+源代码许可证、允许的第三方许可证、cargo-deny 配置、Dependabot 更新策略和例外字段以 `dependency-security.md` 为事实来源。本文只定义 GitHub 安全能力的实时状态语义及合并/发布阻断；两份文档必须同时满足，不能以一方的空告警替代另一方的门禁。
 
 `#88` 建立 GitHub 扫描基线，`#56` 建立源代码许可证与依赖安全基线；对应长期规则已分别进入本文与 `dependency-security.md`，后续任务不得只引用已关闭 Issue 代替当前文档和实时 API 证据。
 

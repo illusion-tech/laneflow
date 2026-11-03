@@ -126,7 +126,7 @@ transition boundary 的 zone-local 有界整数距离。它不得使用会因较
 同一 ManeuverPath 上相邻 WaitingZone 可以共享 release/entry boundary；内部重叠或
 嵌套继续由静态编译拒绝。路线不得终止在 WaitingZone 或 stateful maneuver interior。
 
-路线出现项按机动顺序与 entry hop 递增排列。准入后的运动预览只需检查紧邻的下一
+路线出现记录按机动顺序与 entry hop 递增排列。准入后的运动预览只需检查紧邻的下一
 Waiting occurrence：若尚未越过其 entry hop，后续入口也未被越过；该查询不扫描剩余后缀。
 
 ### 3.3 profile-route-cursor 绑定
@@ -144,7 +144,7 @@ vehicle.length_mm <= occurrence.storage_length_mm
 同时放得下；实际组合由 tick admission 检查。
 
 无既有 authority 的 bootstrap 先完成上述车型检查，再利用已注册机动半开区间不相交
-且有序的不变量定位当前机动，并在有序 Waiting 出现项中查询其成员关系。车型检查仍为
+且有序的不变量定位当前机动，并在有序 Waiting 出现记录中查询其成员关系。车型检查仍为
 线性工作，两次定位为对数工作；不对每个机动重新扫描 Waiting 列表，也不改变首错顺序。
 
 若 cursor 位于包含多个 Gate 或任一 WaitingZone 的 maneuver occurrence 第一个 Gate
@@ -529,7 +529,7 @@ claim，不等同于实际 successful entry。
 输出 `NotEvaluated`，允许通行且无需新 Waiting admission 时才输出 `NotRequired`。
 tick 结束时的信号刷新不改写该批次的历史决定。
 
-非入口 Gate 的出现项只从正式 staged motion 发现一次，暂存更新位置、机动出现项和
+非入口 Gate 的出现记录只从正式 staged motion 发现一次，暂存更新位置、机动出现记录和
 hop，随后按实际条数预留决定批次。暂存按实际发现行摊还增长并复用高水位，不按车辆
 容量或理论路线全量预留；其分配失败属于 `WaitingScratchAllocFailed`，仍保持整个
 step 原子失败。成功输出与回滚均清空暂存逻辑内容。正式更新序号可复用同拍、完整
@@ -541,7 +541,7 @@ step 原子失败。成功输出与回滚均清空暂存逻辑内容。正式更
 当前 API 使用 `TrafficTransitionEvent` / `TrafficTransitionKind` 与
 `TrafficWorld::latest_transition_events()`。Waiting 事件是同一交通转移批次的子集；
 完整种类、排序和尾部完成语义由联合设计 §6.9 唯一规定，不再提供独立 Waiting 批次。
-`TrafficTransitionAnchor` 同时保存语义出现项与实际触发位置；延期完成按最后净空位置
+`TrafficTransitionAnchor` 同时保存语义出现记录与实际触发位置；延期完成按最后净空位置
 排序，不提前锚回机动出口。以下 Waiting 事件中文语义及相对顺序保持有效。
 
 #282 的 fixed-step committed transition event 至少包含：

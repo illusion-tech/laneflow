@@ -24,7 +24,7 @@ impl RouteRegisterInput {
     }
 }
 
-/// 这次命令上的可选出发状态。位置是该路线出现项上的前保险杠。
+/// 这次命令上的可选出发状态。位置是该路线出现记录上的前保险杠。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleDepartureState {
     route_edge_index: u32,
@@ -43,13 +43,13 @@ impl VehicleDepartureState {
         }
     }
 
-    /// 出发位置的路线出现项下标。
+    /// 出发位置的路线出现记录下标。
     #[must_use]
     pub const fn route_edge_index(self) -> u32 {
         self.route_edge_index
     }
 
-    /// 出发出现项上的前保险杠进度（毫米）。
+    /// 出发出现记录上的前保险杠进度（毫米）。
     #[must_use]
     pub const fn progress_mm(self) -> u32 {
         self.progress_mm
@@ -71,7 +71,7 @@ pub enum EntranceDirection {
     AgainstLane,
 }
 
-/// 这次命令上的可选开放入口。位置是该路线的起点出现项。
+/// 这次命令上的可选开放入口。位置是该路线的起点出现记录。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleEntrance {
     route_edge_index: u32,
@@ -88,7 +88,7 @@ impl VehicleEntrance {
         }
     }
 
-    /// 开放入口的路线出现项下标。
+    /// 开放入口的路线出现记录下标。
     #[must_use]
     pub const fn route_edge_index(self) -> u32 {
         self.route_edge_index
@@ -180,7 +180,7 @@ impl VehicleSpawnInput {
         self.route
     }
 
-    /// 起始边在路线边序列中的出现项下标。
+    /// 起始边在路线边序列中的出现记录下标。
     #[must_use]
     pub const fn route_edge_index(self) -> u32 {
         self.route_edge_index
