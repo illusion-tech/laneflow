@@ -78,10 +78,16 @@ impl Sample {
             origin.network_revision(),
         )
         .map_err(|e| failure("source", e))?;
-        let lane_change_route = state
+        // 换道族路线（>2 边）可能为多簇（#1233）：保留首簇下标供单簇语义路径，
+        // 同时给出全部簇下标用于生成开放入口。
+        let lane_change_routes: Vec<usize> = state
             .routes
             .iter()
-            .position(|route| route.edge_ids.len() > 2);
+            .enumerate()
+            .filter(|(_, route)| route.edge_ids.len() > 2)
+            .map(|(index, _)| index)
+            .collect();
+        let lane_change_route = lane_change_routes.first().copied();
         let config = world_config(&state);
         let mut world = TrafficWorld::install(
             revision.clone(),
@@ -146,7 +152,7 @@ impl Sample {
         let mut handles = Vec::new();
         for vehicle in &state.vehicles {
             let route = routes[vehicle.route_rank as usize];
-            let on_lane_change_route = lane_change_route == Some(vehicle.route_rank as usize);
+            let on_lane_change_route = lane_change_routes.contains(&(vehicle.route_rank as usize));
             let handle = if vehicle.status == "active" {
                 let spawn = VehicleSpawnInput::new(
                     profile,
