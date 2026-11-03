@@ -438,6 +438,7 @@ fn lane_change_failed_step_retry() {
     save(&output.join("observations.json"), &observations);
 
     // 续跑至窗口终点（覆盖败者清空后进入）；逐拍 retry/fresh 等价。
+    let mut final_outcome = None;
     for _tick in (boundary + 1)..=end {
         let a = failure.step(dt as u32);
         let b = fresh.step(dt as u32);
@@ -446,12 +447,13 @@ fn lane_change_failed_step_retry() {
             failure.world.latest_transition_events(),
             fresh.world.latest_transition_events()
         );
+        final_outcome = Some(a);
     }
     let final_cursor = failure.world.command_cursor();
     let final_face_b = failure.face_b();
     assert_eq!(final_face_b, fresh.face_b(), "末态面 B 记录相等");
     save(&output.join("final.json"), &final_face_b);
-    observations["final"] = observation(&failure, None);
+    observations["final"] = observation(&failure, final_outcome.as_ref());
     save(&output.join("observations.json"), &observations);
 
     save(
