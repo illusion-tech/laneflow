@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-11-03（`culling_extraction` 视锥选择提取设计，#930）
+**最后更新**: 2026-11-03（`parking_lifecycle` 停车生命周期表现设计，#931）
 
 **适用范围**: Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -15,6 +15,7 @@
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `adapter-api.md`
+- `parking-system.md`
 - `spatial-geometry.md`
 - `example-scenarios.md`
 - `traffic-runtime-shared-consumption.md`
@@ -733,3 +734,142 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 ```
 
 本矩阵不构成性能证据，也不验证修订切换（#929）、回流（#928）或停车表现（#931）。
+
+## 18. parking_lifecycle 停车生命周期表现（#931）
+
+### 18.1 目标与边界
+
+`parking_lifecycle` 回答一个问题：宿主如何正确表现预留、到达、停入和离场，尤其是不把
+“本批没有位姿”当作车辆已被移除。停车语义以[停车系统](parking-system.md)和
+[Adapter API](adapter-api.md) §4、§8 为准，本节只冻结示例如何组合这些能力。
+
+本例使用 `LaneFlowWorldMut` 的 `reserve_parking`、`park_vehicle`、`leave_parking` 和
+`laneflow_bevy::despawn_vehicle`，不改变 Runtime、Spatial 或 Adapter 公开 API。
+`cancel_parking`、`rebind_parking_route`、`spawn_parked_vehicle`、停车位搜索、快照和
+修订切换不在本例范围内。
+
+### 18.2 场景
+
+本例要讲清的是语义，不是规模，因此场景是一条可以在一个视角内看完的环路，启动时由
+`laneflow-compiler` 在进程内编译：
+
+- 单一 canonical frame，四条直线车道首尾相接，约 `120 m × 60 m`，路线沿环路重复多圈。
+- 一个停车设施，含两个显式泊位 `space-a`、`space-b` 和容量为 `2` 的虚拟池。显式泊位位于
+  环路内侧，虚拟池有一个入口和一个出口。
+- `space-b` 的入口与虚拟池出口位于同一车道且足够接近：车辆停在 `space-b` 入口时，车身与
+  虚拟离场的插入位置重叠。§18.4 的离场失败由这个几何关系确定性产生。
+
+不写文件，不新增检入制品，也不依赖 `laneflow-urban-generator`。城市夹具虽然带泊位，但范围
+约 `1000 m × 1250 m`，单个泊位在画面中难以辨认。边和泊位序号通过稳定身份解析，不假设
+插入顺序。任一步失败都以非零状态退出，不发布部分场景。
+
+### 18.3 车辆脚本
+
+车辆编排是一份固定脚本，只读取已提交世界状态和 Tick 计数，不含随机量，同一进程内重复
+启动结果相同。脚本运行在 `LaneFlowFixedSet::Lifecycle`，每辆车每拍最多提交一次命令，因此
+结果与外层帧率无关。
+
+| 角色   | 目标      | 行为                                                                                 |
+| ------ | --------- | ------------------------------------------------------------------------------------ |
+| 显式车 | `space-a` | 循环执行预留、到达、停入、停留、离场，下一圈再次预留                                 |
+| 虚拟车 | 虚拟池    | 同样循环；首次预留后先发起一次过早停入，首次离场由阻挡车触发失败                     |
+| 阻挡车 | `space-b` | 到达后保持 `Active + Reserved`，等虚拟车首次离场被拒后才停入；之后按显式车的方式循环 |
+| 移除车 | 虚拟池    | 停入虚拟池并停留后，由 typed `despawn_vehicle` 移除，宿主随后销毁其 Entity           |
+| 过路车 | 无        | 两辆，始终沿环路行驶；前车停入后不再占用车道，过路车继续通过                         |
+
+到达只通过 `parking_arrived` 查询判定，不用距离近似。下一次预留选择路线上仍前向可达的下一个
+出现项；路线走完后不再预留，车辆按正常路径进入 Completed。
+
+命令结果按以下规则处理，其余任何错误或意外的 `NoChange` 都使示例失败停止：
+
+- `NotArrived`：只接受脚本发起的那一次过早停入，之后继续等待到达。
+- `LeavePhysicalOverlap`、follower 安全制动拒绝：保持原状态，下一拍重试。
+
+### 18.4 表现规则
+
+宿主在 `PostUpdate`、`TransformSystems::Propagate` 之前，每帧用
+`extract_committed_pose_batch` 提取一次全量批次，零步进帧同样运行。可见状态必须在
+`VisibilitySystems::VisibilityPropagate` 之前写入，使 Transform 与可见性在同一帧生效。
+
+可见性由 typed 状态决定，批次只提供位姿。每辆尚未移除的车逐帧读取状态、停车绑定和位姿
+来源，并按下表分类：
+
+| `VehicleStatus` | 停车绑定               | 位姿来源  | 是否在批次中 | 表现                           |
+| --------------- | ---------------------- | --------- | ------------ | ------------------------------ |
+| `Active`        | 无或 `Reserved`        | `Lane`    | 是           | 显示在车道上                   |
+| `Parked`        | `Occupied`（显式泊位） | `Parking` | 是           | 显示在泊位上                   |
+| `Parked`        | `Occupied`（虚拟池）   | 无        | 否           | 隐藏，保留映射，不写 Transform |
+| `Completed`     | 无                     | 无        | 否           | 隐藏，保留映射                 |
+
+不符合上表的组合，或来源与批次是否出现不一致，都使本帧整批不写入，记录首个结构化错误并以
+非零状态退出。例如 `Active` 车辆缺席批次时不得当作隐藏处理。
+
+各阶段的表现要求：
+
+1. **预留：** 车辆仍由车道位姿表现。
+2. **过早停入：** 虚拟车的 `park_vehicle` 返回 `NotArrived`，绑定和位姿来源不变，车辆继续
+   显示。
+3. **显式停入：** 同一 Entity 改由泊位位姿表现，不换实体、不重新绑定。
+4. **虚拟停入：** 成功后车辆从批次缺席，实体隐藏，映射保留。隐藏只因 typed 结果，不因缺席。
+5. **离场失败：** 虚拟车的 `leave_parking` 返回 `LeavePhysicalOverlap`，继续隐藏，Runtime
+   状态不变。阻挡车停入后，下一拍重试成功。
+6. **离场成功：** 只有批次中出现新的 `Lane` 位姿才显示，并在写入该 Transform 的同一帧显示，
+   不闪现离场前的旧位置。
+7. **真正移除：** 只有 `despawn_vehicle` 成功后才清除宿主记录并销毁 Entity。缺席多少帧都不
+   触发移除，本例也不调用 `unbind_vehicle`。
+
+批次提交沿用 §17.4 的整批规则：复核消费上下文与 placement token，全部转换并暂存后才写入。
+
+### 18.5 画面与 HUD
+
+GUI 用同修订 Spatial 中心线生成车道带，用泊位位姿和几何尺寸生成泊位矩形，按
+`parking_space_state` 区分空闲、已预留和已占用。泊位位姿由启动时绑定的只读
+`SpatialSession` 采样，不属于表现权威。虚拟池没有几何，只在入口和出口画标记，
+不虚构车辆位置。相机可以缩放、平移和旋转，初始视角覆盖整条环路。
+
+虚拟停车的车辆在画面上看不见，因此 HUD 必须说明它的状态。HUD 由同帧摘要格式化，显示：
+
+- 每个角色的当前阶段和是否可见，例如 `parked (virtual) - hidden`；移除后显示 `removed`；
+- 设施的显式和虚拟计数（已预留、已占用、空闲）；
+- 最近一次被拒绝的命令、错误种类和 Tick，例如 `leave rejected: physical overlap`；
+- 当前 Tick 和本帧步数。
+
+命令行支持 `--screenshot PATH`、`--at-tick T` 和 `--help`。不提供人口或路网参数，场景只有一种。
+
+### 18.6 验收矩阵
+
+headless 按 §15.1 的边界，在真实 `App` 中复用同一启动、脚本和提交系统，不创建窗口或
+renderer。测试可以缩短路线圈数和停留时长，这只改变规模，不另写一套脚本或提交逻辑。
+
+| ID                   | 输入/操作                                  | 可判定的通过条件                                                                                 |
+| -------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| P01 启动             | 正常启动；非法命令行参数                   | 全部车辆绑定，泊位和设施序号解析成功；非法参数不创建窗口并以非零状态退出                         |
+| P02 显式停入与离场   | 显式车完整走一轮                           | 到达时精确停在入口且速度为零；停入后 Transform 等于泊位采样位姿；Entity 不变；离场后来源回到车道 |
+| P03 车道释放         | 过路车跟随显式车                           | 显式车停入后，过路车继续前进并通过该位置                                                         |
+| P04 虚拟停入         | 虚拟车到达并停入                           | 从批次缺席且不可见；映射和 Entity 不变；隐藏期间 Transform 不被写入；设施计数正确                |
+| P05 过早停入         | 虚拟车到达前发起 `park_vehicle`            | 返回 `NotArrived`；绑定、来源和可见状态不变                                                      |
+| P06 离场失败与重试   | 阻挡车占住虚拟出口                         | 返回带阻挡车句柄的 `LeavePhysicalOverlap`；继续隐藏且状态不变；阻挡车停入后重试成功              |
+| P07 离场重现         | 虚拟车离场成功                             | 同一 Entity 在写入新 Lane 位姿的同一帧可见，且 Transform 等于本批位姿                            |
+| P08 缺席不等于移除   | 虚拟车连续多帧隐藏                         | 期间映射始终存在，未调用 `unbind_vehicle` 或 `despawn_vehicle`，句柄仍有效                       |
+| P09 真正移除         | 移除车在虚拟池内被 `despawn_vehicle`       | 映射清除，句柄失效，Entity 销毁，设施计数释放；其他车辆不受影响                                  |
+| P10 完成             | 缩短路线后全部车辆走完                     | 不再发起预留；Completed 隐藏且映射保留                                                           |
+| P11 分类失败         | 把不符合 §18.4 的组合直接交给分类函数      | 全部判定失败；不写 Transform 和可见状态                                                          |
+| P12 整批拒绝         | 过期消费上下文、过期 placement token       | Transform 与可见状态保持旧值，记录首个错误并非零退出                                             |
+| P13 帧率无关         | 同一脚本用不同帧长驱动                     | 按 Tick 比较车辆状态、绑定和设施计数，完全一致                                                   |
+| P14 同帧可见性与 HUD | 接入 Bevy 可见性传播；检查调度顺序         | 选择变化在同一帧到达 `InheritedVisibility`；反向约束使调度图成环；HUD 与同帧摘要一致             |
+| P15 GUI              | Windows 默认参数，在各阶段的固定 Tick 出图 | 可辨认车道、泊位状态和入口出口标记；车辆停放与隐藏、重现与 HUD 一致；结论注明环境与限制          |
+
+P11 和 P12 无法或不必经过脚本主流程触发：分类失败在纯函数层验证，上下文失效沿用 §17.6 的
+做法，用另一世界的消费上下文制造。
+
+P14 依赖 `native-example`，测试放在示例目标内。CI 只编译示例，不运行这些测试，因此 P14 由
+本地运行并在 PR 中记录结果；其余 headless 用例在无该特性的 smoke 目标中运行。
+
+```powershell
+cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
+cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example -- --screenshot parking-lifecycle.png --at-tick 1500
+cargo +1.99.1 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
+cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
+```
+
+本矩阵不构成性能证据，也不验证修订切换（#929）、回流（#928）或选择提取（#930）。
