@@ -1,4 +1,4 @@
-//! 跨包夹具的隔离与失败语义；夹具失效不能被认证 panic 边界伪装成有效故障证据。
+//! 跨包 fixture 的隔离与失败语义；fixture 失效不能被认证 panic 边界伪装成有效故障证据。
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 

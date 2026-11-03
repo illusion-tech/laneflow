@@ -1,6 +1,6 @@
 //! #721 借用来源提取的 Adapter 提交合同测试。
 //!
-//! 夹具为双 canonical frame 修订：edge-0 位于 frame-main（y=0）、edge-1 位于
+//! fixture 为双 canonical frame 修订：edge-0 位于 frame-main（y=0）、edge-1 位于
 //! frame-alt（y=50），并带一个虚拟池停车设施。混 frame 批次通过封闭提取路径
 //! 触发 Spatial 失败；修正来源（虚拟池停入）后重试成功。全部期望值显式写出。
 

@@ -2440,7 +2440,7 @@ mod tests {
                 entry_progress_m: 20.0,
             }
         } else {
-            // 既有夹具中的 WrongKind 是相同单边上的显式泊位。
+            // 既有 fixture 中的 WrongKind 是相同单边上的显式泊位。
             ParkingRevisionShape::WrongKind
         };
         let revision = compiled_parking_revision(shape);

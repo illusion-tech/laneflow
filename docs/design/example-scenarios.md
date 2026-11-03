@@ -177,7 +177,7 @@ through/right yellow -> all red` 依次服务 main 与 secondary active set，�
 
 走廊 Bevy 入口 `corridor_traffic` 使用 `50..=200` 人口，默认 `100` 车、seed `0`。
 权威 catalog 是 0.4（必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。
-仓库夹具为 format 5 LFCA 与 catalog 0.4；先把 catalog 绑到共享路网修订并准备人口计划，
+仓库 fixture 为 format 5 LFCA 与 catalog 0.4；先把 catalog 绑到共享路网修订并准备人口计划，
 显式使用绑定的策略安装世界，再注册路线并生成初始人口。运行命令为：
 
 ```powershell

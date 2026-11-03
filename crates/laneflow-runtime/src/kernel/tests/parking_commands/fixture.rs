@@ -1,4 +1,4 @@
-//! #678 的生产命令与测试计数共用同一个正式编译夹具。
+//! #678 的生产命令与测试计数共用同一个正式编译 fixture。
 use laneflow_compiler::{
     CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,

@@ -1,4 +1,4 @@
-//! Runtime 单元测试自有的两类夹具绑定；只在 cfg(test) 编译。
+//! Runtime 单元测试自有的两类 fixture 绑定；只在 cfg(test) 编译。
 use laneflow_runtime::{PolicyPin, WorldPolicySelection};
 use laneflow_static_contract::{EntityKind, RightOfWayPolicySetId};
 use laneflow_static_network::SharedNetworkRevision;
@@ -34,7 +34,7 @@ pub fn selection(revision: &SharedNetworkRevision) -> WorldPolicySelection {
     WorldPolicySelection::NotRequired
 }
 
-/// 由测试夹具显式列出 Gate 与解释，不扫描源模型补默认语义。
+/// 由测试 fixture 显式列出 Gate 与解释，不扫描源模型补默认语义。
 #[allow(dead_code)]
 pub fn add_gate_policy(
     builder: &mut laneflow_compiler::SyntheticModuleBuilder,

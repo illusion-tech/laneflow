@@ -980,7 +980,7 @@ impl VehicleEntityMap {
 mod capacity_tests {
     //! #712 容量轨迹观测：Adapter 三块自有缓冲的实际 len/capacity 行为。
     //!
-    //! 夹具：8 条 frame-main 平行车道 + 1 条 frame-alt 车道 + 虚拟池设施。
+    //! fixture：8 条 frame-main 平行车道 + 1 条 frame-alt 车道 + 虚拟池设施。
     //! 只断言可观察合同（容量保留、轮换、旧尾部不可见、失败不变），不假设
     //! Vec 的具体增长倍数。元素大小在断言消息中记录，供报告引用。
 

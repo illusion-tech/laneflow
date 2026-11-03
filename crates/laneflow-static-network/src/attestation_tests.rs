@@ -62,7 +62,7 @@ fn build(bytes: &[u8], spatial: SpatialBuildOption) -> Arc<SharedNetworkRevision
         .expect("shared network revision")
 }
 
-/// 从「同字节健康修订」的 origin 组装期望值（测试夹具无独立引用文件；
+/// 从「同字节健康修订」的 origin 组装期望值（测试 fixture 无独立引用文件；
 /// 生产路径宿主从 `PublishedLfcaReference` 取值）。
 fn expectation_from(origin: &CanonicalNetworkOrigin) -> RootAttestationExpectation {
     RootAttestationExpectation::new(

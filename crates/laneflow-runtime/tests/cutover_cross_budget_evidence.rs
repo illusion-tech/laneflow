@@ -1,4 +1,4 @@
-//! #513 切片 C 跨修订切换预算基线（lfsd-migration 夹具，同机描述性）——
+//! #513 切片 C 跨修订切换预算基线（lfsd-migration fixture，同机描述性）——
 //! 分配账本面。
 //!
 //! 合同 `traffic-runtime-revision-cutover.md` §9 度量协议：同机描述性基线，
@@ -235,7 +235,7 @@ fn cross_revision_cutover_budget_evidence() {
     let stats = armed.migration_journal_stats().expect("armed journal");
     assert!(!stats.overflowed);
     assert_eq!(stats.record_count, u64::from(STEADY_TICKS));
-    // 每条 TICK 记录 = 37 字节头 + 78 字节 × 活跃车辆；本夹具无 WaitingZone
+    // 每条 TICK 记录 = 37 字节头 + 78 字节 × 活跃车辆；本 fixture 无 WaitingZone
     // counter 或 Conflict eligibility/authority/lag 变化。
     assert_eq!(
         stats.written_bytes,
@@ -261,7 +261,7 @@ fn cross_revision_cutover_budget_evidence() {
     };
     println!("prepare ledger: {prepare_ledger:?}");
 
-    // —— 迁移期共存峰值输入（描述性；§7 清单在夹具口径下的可测投影）——
+    // —— 迁移期共存峰值输入（描述性；§7 清单在 fixture 口径下的可测投影）——
     println!(
         "coexistence: journal_written={written} arena_reserved={arena} target_root_retained={retained} lfsd_bytes={lfsd}",
         written = stats.written_bytes,

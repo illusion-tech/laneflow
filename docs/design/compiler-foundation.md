@@ -142,7 +142,7 @@ tuple。第一方 Rust 接口同时提供字段私有有类型来源构造面和
 ### 2.4 JSON 退役边界
 
 项目没有已发布或用户持有的旧 JSON，因此不建立迁移前端、严格导入能力、资产报告或
-离线导入器。旧迁移方案只保留在 Git 历史；当前夹具使用编译器原生有类型来源。
+离线导入器。旧迁移方案只保留在 Git 历史；当前 fixture 使用编译器原生有类型来源。
 ## 3. 公共接口与构造权威
 
 ### 3.1 生产公共面
@@ -737,8 +737,8 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_mir_record_count`                |    38112 | MIR 逻辑记录                                     |
 | `max_lir_record_count`                |    38112 | LIR 逻辑记录                                     |
 | `max_reference_count`                 |    37920 | 有类型引用                                       |
-| `max_relation_occurrence_count`       |    10032 | 关系出现记录                                       |
-| `max_identity_field_occurrence_count` |    29184 | 标识字段出现记录                                   |
+| `max_relation_occurrence_count`       |    10032 | 关系出现记录                                     |
+| `max_identity_field_occurrence_count` |    29184 | 标识字段出现记录                                 |
 | `max_maneuver_gate_count`             |     2304 | 机动门                                           |
 | `max_waiting_zone_count`              |     1536 | 等待区                                           |
 | `max_geometry_point_count`            |    22368 | 规范几何点                                       |
@@ -784,8 +784,8 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_mir_record_count`                |    8000000 | MIR 逻辑记录                                                  |
 | `max_lir_record_count`                |    8000000 | LIR 逻辑记录                                                  |
 | `max_reference_count`                 |   16000000 | 有类型引用                                                    |
-| `max_relation_occurrence_count`       |   16000000 | 关系出现记录                                                    |
-| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现记录                                                |
+| `max_relation_occurrence_count`       |   16000000 | 关系出现记录                                                  |
+| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现记录                                              |
 | `max_maneuver_gate_count`             |    1000000 | 机动门                                                        |
 | `max_waiting_zone_count`              |    1000000 | 等待区                                                        |
 | `max_geometry_point_count`            |   16000000 | 规范几何点                                                    |
@@ -931,18 +931,18 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 
 ### 6.2 首批支持矩阵
 
-| 领域           | 支持                                                                                                                                              | 明确拒绝 / 后继                                                                |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| 模块           | 稳定命名空间、显式导入、来源链、跨模块有类型引用                                                                                                | 网络 / 文件系统隐式发现、匿名可发布模块                                        |
-| 车道拓扑       | 显式 `laneEdgeKey`、长度、限速、后继关系、自环、合法孤立边                                                                                        | 从坐标或数组位置生成边键                                                       |
-| 横断面         | 道路走廊（`RoadCorridor`）、道路区段（`RoadSection`）、编制车道（`AuthoringLane`）、车道组（`LaneGroup`）、设施带（`FacilityBand`）及唯一所有者树 | 动态车道用途、多执行域运行时行为                                               |
-| 路口           | 路口（`Junction`）、通行流向（`Movement`）、机动路径（`ManeuverPath`）、`ConflictZone`、`ParticipantStream`、有序 passage 及共享内部边角色        | `JunctionGroup`、冲突运行时仲裁与通行权策略                                    |
+| 领域           | 支持                                                                                                                                              | 明确拒绝 / 后继                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 模块           | 稳定命名空间、显式导入、来源链、跨模块有类型引用                                                                                                  | 网络 / 文件系统隐式发现、匿名可发布模块                                          |
+| 车道拓扑       | 显式 `laneEdgeKey`、长度、限速、后继关系、自环、合法孤立边                                                                                        | 从坐标或数组位置生成边键                                                         |
+| 横断面         | 道路走廊（`RoadCorridor`）、道路区段（`RoadSection`）、编制车道（`AuthoringLane`）、车道组（`LaneGroup`）、设施带（`FacilityBand`）及唯一所有者树 | 动态车道用途、多执行域运行时行为                                                 |
+| 路口           | 路口（`Junction`）、通行流向（`Movement`）、机动路径（`ManeuverPath`）、`ConflictZone`、`ParticipantStream`、有序 passage 及共享内部边角色        | `JunctionGroup`、冲突运行时仲裁与通行权策略                                      |
 | 机动门与等待区 | 多机动门（`ManeuverGate`）、停止线（`StopLine`）、等待区（`WaitingZone`）                                                                         | 路线出现记录（只在 `register_route`）；等待运行时、`ConflictArbiter`、通行权策略 |
-| 信号           | 当前态定时信号组（`SignalGroup`）、信号控制器（`SignalController`）、信号相位（`SignalPhase`）及机动门控制绑定                                    | 感应控制、宿主回调或未冻结的控制器类型                                         |
-| 停车           | 停车设施（`ParkingFacility`）、停车位（`ParkingSpace`）、virtual capacity、有序入口 / 出口锚点和静态几何                                          | 运行时预约 / 生命周期策略                                                      |
-| 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为               |
-| 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                                       |
-| 空间           | 显式规范坐标框架（`CanonicalFrame`）、已量化规范 `f32` 折线、可选 `ConflictZoneRegion`、长度 / 连续性校验                                         | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                         |
+| 信号           | 当前态定时信号组（`SignalGroup`）、信号控制器（`SignalController`）、信号相位（`SignalPhase`）及机动门控制绑定                                    | 感应控制、宿主回调或未冻结的控制器类型                                           |
+| 停车           | 停车设施（`ParkingFacility`）、停车位（`ParkingSpace`）、virtual capacity、有序入口 / 出口锚点和静态几何                                          | 运行时预约 / 生命周期策略                                                        |
+| 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为                 |
+| 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                                         |
+| 空间           | 显式规范坐标框架（`CanonicalFrame`）、已量化规范 `f32` 折线、可选 `ConflictZoneRegion`、长度 / 连续性校验                                         | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                           |
 
 百万级配置档的聚合几何预算不扩大单个几何原语：每个 `ConflictZoneRegion` ring 固定为
 `3..=256` 点，超限必须在 compiler-owned ring 分配和精确自交检查前失败。
@@ -954,7 +954,7 @@ field tag `1..=34` 连续登记）。支持“声明该实体”不表示对应�
 ### 6.3 迁移场景
 
 G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件已随 #301 删除。
-编译器正确性继续使用编译器原生有类型模块；不得把已删除 JSON 当作现行夹具或
+编译器正确性继续使用编译器原生有类型模块；不得把已删除 JSON 当作现行 fixture 或
 预言机。走廊 catalog 仍为
 `examples/data/v0.2-signalized-corridor.catalog.toml`。
 
@@ -1075,7 +1075,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 
 | 证据层     | 比较内容                                                                 |
 | ---------- | ------------------------------------------------------------------------ |
-| 静态语义   | 实体、稳定关系、有序关系、长度、信号、停车、准入和等待区出现记录           |
+| 静态语义   | 实体、稳定关系、有序关系、长度、信号、停车、准入和等待区出现记录         |
 | 当前态构造 | 当前 Core/Spatial 构造器全部成功，投影关系可从公开查询面逐项核对         |
 | 确定性     | 重复编译语义指纹和 LIR ordinal / StableId / current external ID 映射一致 |
 | 空间层     | 规范坐标框架、车道图边绑定以及采样位置与切向                             |
@@ -1224,13 +1224,13 @@ LIR 或后继制品。
 `Agent` 数量。当前固定样例、编译器校准规模（Compiler Calibration Scale）与
 编译器压力规模（Compiler Stress Scale）承担不同证据职责：
 
-| 工作负载标识符             | 证据角色        | 目的                                         | 主要计数对象                       |
-| -------------------------- | --------------- | -------------------------------------------- | ---------------------------------- |
-| `LF-COMP-ID-v1`            | 合成校准 / 压力 | 标识 v1 全部实体种类 / 标签与父项闭包        | 模块、稳定实体、标识字段 / 字节    |
-| `LF-COMP-CORRIDOR-v1`      | 合成校准 / 压力 | 线性走廊、信号 / 停车 / 横断面扩展           | 边、关系、路线、信号状态、几何点   |
+| 工作负载标识符             | 证据角色        | 目的                                           | 主要计数对象                         |
+| -------------------------- | --------------- | ---------------------------------------------- | ------------------------------------ |
+| `LF-COMP-ID-v1`            | 合成校准 / 压力 | 标识 v1 全部实体种类 / 标签与父项闭包          | 模块、稳定实体、标识字段 / 字节      |
+| `LF-COMP-CORRIDOR-v1`      | 合成校准 / 压力 | 线性走廊、信号 / 停车 / 横断面扩展             | 边、关系、路线、信号状态、几何点     |
 | `LF-COMP-JUNCTION-GRID-v1` | 合成校准 / 压力 | 密集路口、路径 / 机动门 / 等待区出现记录与索引 | 路口、路径、机动门、等待区、出现记录 |
 
-投影正确性由第 9.1 节的编译器原生夹具承担，不定义 current JSON 性能工作负载。
+投影正确性由第 9.1 节的编译器原生 fixture 承担，不定义 current JSON 性能工作负载。
 
 | 工作负载 | 模块图配置档       | 基础规模 `B` | 正式五级规模      | 校准规模 | 压力规模 |
 | -------- | ------------------ | -----------: | ----------------- | -------: | -------: |

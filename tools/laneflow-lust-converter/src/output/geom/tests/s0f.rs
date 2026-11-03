@@ -3,7 +3,7 @@
 //! 观察生产转换路径（`emit::observe`）记录的真实 `repair_curve` 发射结果与归一化
 //! 后的完整机动路径，对 `entry + 全部 internal + exit` 的每个相邻位置建立
 //! 路径位置计数，并按最终边身份有序二元组去重。仅当两侧都真实发射成功时，
-//! 才把两侧原始程序原样放进最小合法编译夹具：前后各补一条与端弦同向的 2 m
+//! 才把两侧原始程序原样放进最小合法编译 fixture：前后各补一条与端弦同向的 2 m
 //! 直线 approach 边，目标接缝、目标规范点与目标方向不移动、不重算、不重采样。
 //! compiler 裁决只取自真实编译输出；本模块的弦长与角度只作观测。诊断模式的
 //! 占位程序不进入任何检查。
@@ -29,7 +29,7 @@ use super::witness::{FRAME_KEY, Stage, approach_declarations};
 use crate::output::emit::observe::{EdgeEmission, EmissionObservation};
 use crate::output::model::{ManeuverPath, Movement};
 
-/// 夹具前后补边长度（米）。
+/// fixture 前后补边长度（米）。
 const LEAD_METERS: f64 = 2.0;
 const LEAD_IN_KEY: &str = "lead-in";
 const LEFT_KEY: &str = "left";
@@ -265,7 +265,7 @@ fn line(from: Vec3, to: Vec3) -> re::RoadEditingCurveProgram {
     .expect("lead program")
 }
 
-/// 最小合法编译夹具：`lead-in → left → right → lead-out` 单路径，left/right 为
+/// 最小合法编译 fixture：`lead-in → left → right → lead-out` 单路径，left/right 为
 /// 原始发射程序（直接几何内部边），前后补边沿两侧量化端弦方向。
 fn compile_pair(
     left: &re::RoadEditingCurveProgram,
@@ -925,7 +925,7 @@ fn pinned_lust_path_adjacency_survey() {
 }
 
 // ---------------------------------------------------------------------------
-// 普通小夹具：定位准确性与计数规则
+// 普通小 fixture：定位准确性与计数规则
 // ---------------------------------------------------------------------------
 
 #[test]

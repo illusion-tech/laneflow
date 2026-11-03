@@ -88,7 +88,7 @@ fn step(world: &mut crate::TrafficWorld) {
     std::hint::black_box(world.step(TickInput::new(DELTA_MS)).unwrap());
 }
 
-/// 每条路线的首边末端毫米；补员把 Completed 车辆按夹具标准位置放回原路线。
+/// 每条路线的首边末端毫米；补员把 Completed 车辆按 fixture 标准位置放回原路线。
 fn route_boundaries(world: &crate::TrafficWorld, routes: &[RouteHandle]) -> Vec<u32> {
     let lengths = world.traffic().lane_lengths_millimetres();
     routes

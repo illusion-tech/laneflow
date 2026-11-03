@@ -1328,7 +1328,7 @@ pub(crate) mod tests {
 
         /// 同一 LFCA 字节按不同 Spatial 构建选项构建两个根对象：origin
         /// 四联相同（同修订换根判据成立），根对象身份不同（真实换绑路径）。
-        /// 可行驶的同修订不同字节对不在现有夹具内；provenance 对只覆盖
+        /// 可行驶的同修订不同字节对不在现有 fixture 内；provenance 对只覆盖
         /// 描述符层验证（见 cutover::tests）。
         pub(crate) fn revision(retain: bool) -> Arc<SharedNetworkRevision> {
             let input = check_canonical_network_input(
@@ -1785,7 +1785,7 @@ pub(crate) mod tests {
         #[test]
         fn command_cursor_counts_applied_commands_only() {
             let (mut world, route, _) = world_with_vehicle(true);
-            // 夹具 = 1 次路线注册 + 1 次车辆生成。
+            // fixture = 1 次路线注册 + 1 次车辆生成。
             assert_eq!(world.command_cursor(), 2);
             // step 不是输入命令。
             world.step(TickInput::new(100)).expect("step");

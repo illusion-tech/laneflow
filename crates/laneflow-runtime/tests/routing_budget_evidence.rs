@@ -10,7 +10,7 @@ use laneflow_runtime::{ObservationExportMode, TickInput};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 mod support {
-    /// 共享的 Routing G2 证据夹具与具名工作负载常量。
+    /// 共享的 Routing G2 证据 fixture 与具名工作负载常量。
     pub mod routing_evidence;
 }
 

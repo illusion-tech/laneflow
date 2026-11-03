@@ -2687,7 +2687,7 @@ pub(crate) mod compile_route_tests {
                 lane_edge_geometries: &geometries,
             })
             .unwrap();
-            // s3 夹具冲突声明侧（#1199 P1-2 流绑定载体）：v7 模板精简——
+            // s3 fixture 冲突声明侧（#1199 P1-2 流绑定载体）：v7 模板精简——
             // J1/J2b 两 movement/path + zone/双流/双 passage（R-13 ≥2 流）；
             // 边引用 imported s3-synth 侧（R-1 仅限 owner ✓ 数据引用可用）。
             use laneflow_compiler::road_editing as editing;
@@ -3021,7 +3021,7 @@ pub(crate) mod compile_route_tests {
             let named = named_ordinals(revision.as_ref());
             let edge = |name: &str| *named.get(name).unwrap();
             // 多段过渡链（T0a→T0b）：段级分类命中（P1-1 纯层钉版保持）；
-            // 路线级=夹具补流后合法编译（P1-2 拒绝针对无绑定路线——本夹具
+            // 路线级=fixture 补流后合法编译（P1-2 拒绝针对无绑定路线——本 fixture
             // J1/J2b 流绑定齐、正断言）。
             let multi = [
                 edge("A0"),
@@ -3082,7 +3082,7 @@ pub(crate) mod compile_route_tests {
             assert_eq!(compiled.edges.len(), longitudinal.len());
         }
 
-        /// §8 流绑定三规则显式覆盖（#1199；S3 夹具静默跳过盲区封口）：后继
+        /// §8 流绑定三规则显式覆盖（#1199；S3 fixture 静默跳过盲区封口）：后继
         /// 优先、前驱回退、确定性（同 entry 先出现者优先）、无流候选显式
         /// `None`（调用方跳过发射，能力拒绝语义保持）。
         #[test]
@@ -3131,7 +3131,7 @@ pub(crate) mod compile_route_tests {
             assert_eq!(bind_transition_stream(&streamless, 1, stream_of), None);
         }
 
-        /// 混合 v7 流-bearing 夹具构造（R-1…R-16 全约束）：合成侧=全部边+
+        /// 混合 v7 流-bearing fixture 构造（R-1…R-16 全约束）：合成侧=全部边+
         /// 覆盖+帧几何+successor 链内闭合；road-editing=纯冲突声明。返回
         /// 共享静态路网修订（R1–R3 验收与绑定集成共用载体）。
         pub(crate) fn stream_bearing_revision()
@@ -3675,7 +3675,7 @@ pub(crate) mod compile_route_tests {
             .unwrap()
         }
 
-        /// v7 夹具世界安装（R1–R3 验收共用；钉版 WorldConfig 2 载具/2 路线/
+        /// v7 fixture 世界安装（R1–R3 验收共用；钉版 WorldConfig 2 载具/2 路线/
         /// 16 边出现/8 冲突出现/100ms 步长）。
         pub(crate) fn install(
             revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -3692,8 +3692,8 @@ pub(crate) mod compile_route_tests {
             );
             crate::TrafficWorld::install(
                 revision,
-                // 夹具容量（#1199 P2-6 后计数含过渡出现记录——旧 8 为欠计基
-                // 线钉小；测试夹具参数、非生产 digest 形制）。
+                // fixture 容量（#1199 P2-6 后计数含过渡出现记录——旧 8 为欠计基
+                // 线钉小；测试 fixture 参数、非生产 digest 形制）。
                 crate::WorldConfig::new(2, 2, 16, 16, 100),
                 crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                 crate::CommittedNetworkSource::Published {
@@ -3711,7 +3711,7 @@ pub(crate) mod compile_route_tests {
             .unwrap()
         }
 
-        /// v7 夹具三断言面（分类/§8 绑定集成/P4 判据接入）。
+        /// v7 fixture 三断言面（分类/§8 绑定集成/P4 判据接入）。
         #[test]
         fn s4_stream_bearing_fixture_covers_binding_and_p4_end_to_end() {
             let revision = stream_bearing_revision();
@@ -3840,7 +3840,7 @@ pub(crate) mod compile_route_tests {
         }
 
         /// 同一真实 T 预约：远处的后车正常前进；到入口才按服务率减速。
-        /// 拍初位置由夹具指定，以独立触发 P5 的正剩余空间和零剩余空间。
+        /// 拍初位置由 fixture 指定，以独立触发 P5 的正剩余空间和零剩余空间。
         #[test]
         fn r_p5_reservation_service_decel_no_instant_stop() {
             use laneflow_static_contract::LaneEdgeOrdinal;
@@ -4701,7 +4701,7 @@ pub(crate) mod compile_route_tests {
             /// 强制动（comfort 40 → d_stop(13.9m/s)≈7.7m）。
             const STRONG_PROFILE: (&str, f64, f32, f32) = ("s4-es-strong", 4.7, 40.0, 50.0);
 
-            /// A–F 夹具命名边（编译后按拓扑 + 唯一长度解析，不依赖 ordinal 序）。
+            /// A–F fixture 命名边（编译后按拓扑 + 唯一长度解析，不依赖 ordinal 序）。
             struct EntrantFixture {
                 revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
                 e0: LaneEdgeOrdinal,
@@ -4723,7 +4723,7 @@ pub(crate) mod compile_route_tests {
             }
 
             impl EntrantFixture {
-                /// 合成 + 冲突声明夹具（s4 stream-bearing v7 形制）：核心换道
+                /// 合成 + 冲突声明 fixture（s4 stream-bearing v7 形制）：核心换道
                 /// 走廊 + 300m 干扰分支 + 四目标分支 + 36×6m 短边链。`e2` 为
                 /// T 与各分支的共享边，长度可指定（A2 用合法上限量级）。
                 fn build(e2_meters: f64, profiles: &[(&str, f64, f32, f32)]) -> EntrantFixture {

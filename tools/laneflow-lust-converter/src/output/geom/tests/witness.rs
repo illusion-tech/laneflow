@@ -2,7 +2,7 @@
 //!
 //! 同一组候选规范点分别交给三层判定者：发射 sink 的保守边内预检（量化弦长
 //! 须大于 0.1 m、相邻弦 ≤ 1.95°）、compiler 边内硬门（入/出口边与候选首末弦同向的
-//! 隔离夹具）和完整 entry/internal/exit 路径编译（入/出口边沿声明切向）。
+//! 隔离 fixture）和完整 entry/internal/exit 路径编译（入/出口边沿声明切向）。
 //! 只验证 `sink 接受 ⇒ compiler 边内接受`，不要求逆命题；compiler 结论只取自
 //! 真实编译输出，本模块的量化观测只作解释。sink 拒绝时 compiler 仍收到从原始
 //! 候选独立构造的完整程序。每个用例以 `S0-JSON ` 前缀输出一行 JSON 记录。
@@ -28,7 +28,7 @@ const WITNESS_CUBIC: [Vec3; 4] = [
     [0.20650338640946556, 0.0, 0.006670021529027181],
 ];
 
-/// 夹具入/出口直线边长度（米）：远离 0.1 m 退化下限与 100 mm 边长下限。
+/// fixture 入/出口直线边长度（米）：远离 0.1 m 退化下限与 100 mm 边长下限。
 const LEAD_METERS: f64 = 2.0;
 pub(super) const FRAME_KEY: &str = "s0-frame";
 const ENTRY_KEY: &str = "entry";

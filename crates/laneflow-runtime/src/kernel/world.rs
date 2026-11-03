@@ -3647,7 +3647,7 @@ mod route_gate_tests {
         "../../../laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
     );
 
-    /// 沿夹具机动路径注册路线，使路线携带 Gate 出现记录。
+    /// 沿 fixture 机动路径注册路线，使路线携带 Gate 出现记录。
     fn world_with_path_route() -> (TrafficWorld, RouteHandle) {
         let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
             .expect("checked canonical network input");

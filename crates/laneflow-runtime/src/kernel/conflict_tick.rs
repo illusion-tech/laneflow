@@ -752,7 +752,7 @@ pub(crate) struct ConflictPassageTransition {
 }
 
 /// 少于此资源行数时串行收尾；分段规划的固定开销大于收益。
-/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+/// 测试构建取 1，让多线程 fixture 都走并行路径并与串行参考比对。
 #[cfg(not(test))]
 const FINALIZE_PARALLEL_ROWS: usize = 512;
 #[cfg(test)]
@@ -4955,7 +4955,7 @@ mod tests {
             assert_eq!(conflict_work_counts().eta_preparations, 0);
         }
     }
-    /// R3-3c：真 Conflict 夹具（conflict_scale，非空 cells/downstream 候选）
+    /// R3-3c：真 Conflict fixture（conflict_scale，非空 cells/downstream 候选）
     /// 的分配器证据。测量在独占子进程内进行（lib 测试二进制共享
     /// INSTRUMENTED_SYSTEM 全局计数分配器，父进程并行测试会污染计数）：
     /// 稳态多拍分发无每候选堆分配增长（段暂存跨拍复用），失败后未消费
@@ -5333,10 +5333,10 @@ mod tests {
                 scratch,
             } = report
             else {
-                panic!("夹具必须产出资源候选");
+                panic!("fixture 必须产出资源候选");
             };
             let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
-                panic!("夹具必须产出 Computed 段");
+                panic!("fixture 必须产出 Computed 段");
             };
             *downstream = DownstreamSegment::Obligated { raw_capacity, fill };
             (world, vehicle, state, resource, scratch)
@@ -5390,7 +5390,7 @@ mod tests {
             let (mut world, vehicle, state, mut resource, scratch) = build(&revision, 1, Ok(()));
             let world_id = world.state.binding.world_id;
             let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
-                panic!("夹具必须产出 Computed 段");
+                panic!("fixture 必须产出 Computed 段");
             };
             *downstream = DownstreamSegment::PreFailed(DownstreamEvalError::Invariant);
             let mut step = world.state.step_workspace();
@@ -5756,7 +5756,7 @@ mod tests {
 const CONFLICT_DISPATCH_MIN_ACTIVE: usize = 256;
 
 /// 少于此 live 数时 P3 输入发现保持串行；两遍分发的固定开销大于收益。
-/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+/// 测试构建取 1，让多线程 fixture 都走并行路径并与串行参考比对。
 #[cfg(not(test))]
 const CONFLICT_PARALLEL_DISCOVERY_ROWS: usize = 4_096;
 #[cfg(test)]

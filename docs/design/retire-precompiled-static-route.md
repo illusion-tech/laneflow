@@ -41,8 +41,8 @@ spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 | 首/末边是路口内部边，或末边带停止线       | 机动不匹配 |
 | 入口候选对不上完整 `ManeuverPath.edges()` | 机动不匹配 |
 | 两条不同 path 都完整匹配                  | 机动歧义   |
-| 路口内部边无出现记录覆盖                    | 机动不匹配 |
-| 出现记录 hop 区间相交                       | 机动不匹配 |
+| 路口内部边无出现记录覆盖                  | 机动不匹配 |
+| 出现记录 hop 区间相交                     | 机动不匹配 |
 
 hop 是否受控：用已编译机动出现记录定位 path，再在共享静态路网
 `transition_candidates(from)` 上找 `successor == to && path && transition_index`
@@ -192,7 +192,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 封闭规模不变：6 个 portal、32 条 ManeuverPath、28 条路线。路线仍是有限显式边
 序列；受保护转向覆盖由注册期编译器证明，不靠共享静态路网预编译出现记录。
 
-`quickstart` / 集成夹具同样改为显式边序号 + `register_route`。`lfca-full-spatial`
+`quickstart` / 集成 fixture 同样改为显式边序号 + `register_route`。`lfca-full-spatial`
 不再含静态路线行。
 
 ## 5. 每世界热表、磁盘快照与在线切换
@@ -251,14 +251,14 @@ controller 校验的是 `(NetworkRevisionId, WorldPolicySelection)`，宿主保�
   均可寻址。
 - 道路编辑只接受 `format_version = 4`。根表无
   `static_routes` 字段，field id 连续。其它未知槽仍忽略。
-- 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原
+- 三边 `entry → middle → exit` fixture：`register_route` 后两车跟车，行为不弱于原
   `static_route(0)`。
-- 走廊 28 条路线全部注册成功；受保护左转/直行/右转覆盖与现行静态夹具同等。
+- 走廊 28 条路线全部注册成功；受保护左转/直行/右转覆盖与现行静态 fixture 同等。
 - 内部边缺口、停止线末端、歧义 path 在 `register_route` 失败，不留槽位。
 - `remove_route` 在有车时失败；无车时旧句柄 stale。
 - tick 源码路径不再按句柄种类分支（用测试或结构约束证明）。
 - 前缀和溢出仍 `BeyondFinite`，注册成功。
-- 快照夹具不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键；完整快照实现由快照合同负责。
+- 快照 fixture 不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键；完整快照实现由快照合同负责。
 - tick 对路终剩余不扫描剩余边；compiled 索引在 `register_route` 后可查。
   索引是分段 `u32` + 后缀 `BoundedDistance`，不上 `u64`。
 - 信号停车沿受控 hop 链走到第一盏当前限制的门，不扫全部剩余 hop，也不在 compiled

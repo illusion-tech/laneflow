@@ -1,4 +1,4 @@
-//! #512 快照侧预算基线（corridor 夹具，同机描述性）——未插桩墙钟面。
+//! #512 快照侧预算基线（corridor fixture，同机描述性）——未插桩墙钟面。
 //!
 //! 分别测量固定步进边界 capture 的主线程停顿、可后台执行的 LFRS encode、
 //! published 绑定认证 + verifier/lowering/fresh restore 的整次同步 load，以及后台

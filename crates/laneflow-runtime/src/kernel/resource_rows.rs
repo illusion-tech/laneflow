@@ -220,7 +220,7 @@ impl StepWorkspace<'_> {
         {
             return true;
         }
-        // 不依赖旧 traversal 已规范化：夹具或受控恢复仍可能在此拍首次推导它。
+        // 不依赖旧 traversal 已规范化：fixture 或受控恢复仍可能在此拍首次推导它。
         waiting_maneuver_at_hop(compiled, next.route_edge_index)
     }
 }

@@ -1,4 +1,4 @@
-//! #705 multi-gate 合成场景（公开 API 复刻，#282 等待规模夹具同形）。
+//! #705 multi-gate 合成场景（公开 API 复刻，#282 等待规模 fixture 同形）。
 //! 例程与非插桩证据测试共用；不引用 crate 内部项。
 
 use std::sync::Arc;
@@ -29,7 +29,7 @@ use laneflow_static_network::{
 
 pub const DELTA_MS: u64 = 100;
 
-/// 构造 count 条 idle-zone 三边路线的合成修订（与 kernel 测试夹具同形）。
+/// 构造 count 条 idle-zone 三边路线的合成修订（与 kernel 测试 fixture 同形）。
 pub fn build_revision(count: usize) -> Arc<SharedNetworkRevision> {
     const NS: &str = "city/waiting-scale";
     let limits = CompileLimits::single_network_1m_v2();

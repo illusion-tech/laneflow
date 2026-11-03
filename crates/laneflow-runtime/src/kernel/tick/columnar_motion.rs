@@ -1075,7 +1075,7 @@ fn consume_parallel(
 }
 
 /// 少于此 Active 数时串行消费；两遍分发的固定开销大于收益。
-/// 测试构建取 1，让多线程夹具都走并行路径并与串行参考比对。
+/// 测试构建取 1，让多线程 fixture 都走并行路径并与串行参考比对。
 #[cfg(not(test))]
 const ADOPT_PARALLEL_ROWS: usize = 4_096;
 #[cfg(test)]

@@ -1202,7 +1202,7 @@ fn encode_conflict_zone_region<'fbb>(
     )
 }
 
-/// writer 编码行为的单元测试与共享夹具。
+/// writer 编码行为的单元测试与共享 fixture。
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
@@ -1299,7 +1299,7 @@ pub(super) mod tests {
         .expect("curve")
     }
 
-    /// 构造覆盖全部声明种类的来源模块测试夹具。
+    /// 构造覆盖全部声明种类的来源模块测试 fixture。
     pub(crate) fn module_with_every_declaration(limits: &CompileLimits) -> RoadEditingSourceModule {
         let mut builder = RoadEditingSourceModuleBuilder::new(
             RoadEditingModuleHeader::try_new(

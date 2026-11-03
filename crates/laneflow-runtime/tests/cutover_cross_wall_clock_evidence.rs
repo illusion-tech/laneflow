@@ -1,4 +1,4 @@
-//! #513 切片 C 跨修订切换墙钟基线（lfsd-migration 夹具，同机描述性）。
+//! #513 切片 C 跨修订切换墙钟基线（lfsd-migration fixture，同机描述性）。
 //!
 //! 与 `cutover_cross_budget_evidence` 分体（沿 #441 先例：计数分配器的
 //! 原子记账会污染墙钟，两维度不得同进程）。`#[ignore]` + release 手动

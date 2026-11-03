@@ -688,7 +688,7 @@ impl MotionUpdates {
             slot: state.handle.index() as usize,
             physical,
         });
-        // 手工逻辑值夹具默认保留完整遍历，独立于生产筛选谓词。
+        // 手工逻辑值 fixture 默认保留完整遍历，独立于生产筛选谓词。
         self.resource_rows.push(index);
         self.set(index, state, current)
             .expect("test next control allocation");

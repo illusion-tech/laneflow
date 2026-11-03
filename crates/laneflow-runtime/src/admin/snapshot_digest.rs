@@ -1219,7 +1219,7 @@ mod tests {
                     [17, 3, 29][index as usize % 3],
                 ));
             }
-            // 保留基线的逐路线全扫，仅作小夹具字节参考；第四条路线保持空置。
+            // 保留基线的逐路线全扫，仅作小 fixture 字节参考；第四条路线保持空置。
             let mut expected = Vec::new();
             for (route_id, bytes) in &route_records {
                 let mut bound: Vec<_> = vehicle_records
@@ -1361,7 +1361,7 @@ mod tests {
         );
     }
 
-    /// 直算摘要与现行 capture + digest 路径在既有夹具上逐字节一致（#960 验收）。
+    /// 直算摘要与现行 capture + digest 路径在既有 fixture 上逐字节一致（#960 验收）。
     #[test]
     fn direct_digest_matches_capture_path_bytes() {
         let digest_limits = SnapshotDigestLimits::new(64 * 1024 * 1024);

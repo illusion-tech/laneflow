@@ -1726,7 +1726,7 @@ fn signal_relations_keep_their_own_multi_document_locations() {
         .map(|state| group_key(state.signal_group()))
         .collect::<Vec<_>>();
 
-    // 此夹具必须真正覆盖两种顺序不一致的反例：HIR 用 StableId 消除来源顺序，LIR
+    // 此 fixture 必须真正覆盖两种顺序不一致的反例：HIR 用 StableId 消除来源顺序，LIR
     // 则按完整 Identity v1 原像排序。
     let stable_id = |key: &str| {
         encode_canonical_identity(
