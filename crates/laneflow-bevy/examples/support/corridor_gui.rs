@@ -86,7 +86,7 @@ fn setup(
             }
         }
     }
-    let orbit = Orbit::new(&geometry);
+    let orbit = Orbit::new(geometry.min, geometry.max);
     commands.spawn((Camera3d::default(), orbit.transform(), orbit));
     commands.spawn((
         DirectionalLight {
@@ -389,7 +389,7 @@ mod tests {
             .init_resource::<ButtonInput<MouseButton>>()
             .add_systems(Update, camera_input);
         let window = app.world_mut().spawn(PrimaryWindow).id();
-        let orbit = Orbit::new(&geometry);
+        let orbit = Orbit::new(geometry.min, geometry.max);
         let initial = orbit.transform();
         let camera = app.world_mut().spawn((initial, orbit)).id();
         app.world_mut()

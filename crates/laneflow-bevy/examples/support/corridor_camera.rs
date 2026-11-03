@@ -2,8 +2,6 @@ use bevy_ecs::component::Component;
 use bevy_math::{Vec2, Vec3};
 use bevy_transform::components::Transform;
 
-use super::corridor_scene::Geometry;
-
 #[derive(Component, Clone, Debug)]
 pub(super) struct Orbit {
     pub focus: Vec3,
@@ -14,10 +12,10 @@ pub(super) struct Orbit {
 }
 
 impl Orbit {
-    pub fn new(geometry: &Geometry) -> Self {
-        let extent = (geometry.max - geometry.min).max_element().max(10.0);
+    pub fn new(min: Vec3, max: Vec3) -> Self {
+        let extent = (max - min).max_element().max(10.0);
         Self {
-            focus: (geometry.min + geometry.max) * 0.5,
+            focus: (min + max) * 0.5,
             distance: extent * 0.9,
             yaw: 0.0,
             elevation: 1.03,

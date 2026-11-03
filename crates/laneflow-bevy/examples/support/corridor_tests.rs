@@ -357,7 +357,7 @@ fn c10_bad_entity_token_parent_and_nonfinite_transform_commit_no_partial_batch()
 fn c13_camera_uses_input_displacement_and_keeps_finite_limits() {
     let app = app(50, 0);
     let geometry = app.world().resource::<scene::Geometry>();
-    let mut one = Orbit::new(geometry);
+    let mut one = Orbit::new(geometry.min, geometry.max);
     let mut split = one.clone();
     one.apply(Vec2::new(24.0, -18.0), Vec2::ZERO, 0.0);
     for _ in 0..4 {

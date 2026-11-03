@@ -275,7 +275,7 @@ jobs:
         shell: bash
         run: >-
           cargo +1.99.1 check --locked -p laneflow-bevy
-          --example quickstart --example corridor_traffic --example junction_debug
+          --example quickstart --example corridor_traffic --example junction_debug --example culling_extraction
           --features native-example
 
       - name: Show sccache statistics

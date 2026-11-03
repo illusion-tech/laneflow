@@ -685,6 +685,10 @@ Gate、LOD 系统或表现插值方案；选择结果不影响 fixed tick、交�
 可见状态以 example 内部的逐车记录为权威，GUI 在同一帧把它映射到 Bevy `Visibility`，
 headless 直接断言该记录。
 
+相机与选择视域重合时，被隐藏的车辆都在画面外，隐藏结果看不出来。GUI 因此提供只影响
+表现的冻结：按 `F` 后选择视域不再跟随相机，缩小即可看到只有冻结范围内的车辆被显示；
+`--camera frozen` 以同样方式固定在一格。
+
 ### 17.5 计数、对照与耗时
 
 HUD 每帧显示三个数字：全量车辆数（身份仍有效的车辆）、选择数（选择列表长度）和
@@ -718,5 +722,14 @@ renderer。视域由测试直接给出。测试可以使用较少的格数和较
 | E08 交通无关       | 同参数运行：全量表现与多种视域轨迹                         | 每拍比较 Tick、车辆状态和信号，完全一致；选择不改变交通结果                                  |
 | E09 GUI            | Windows 默认参数，分别在单格与全景视角定 Tick 出图并平移   | 单格视角只显示视野内车辆，平移时无闪现或残留；HUD 三个数字与同帧摘要一致；结论注明环境与限制 |
 
-E07 的上下文失效复用 `same_revision_restore` 等现有公开路径制造，不新增测试钩子。
+E07 的上下文失效用另一世界的消费上下文制造，走现有公开路径，不新增测试钩子。
+非有限位姿无法经公开路径从 Spatial 产生，因此在 Transform 转换层单独验证。
+
+```powershell
+cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example
+cargo +1.99.1 run --locked --release -p laneflow-bevy --example culling_extraction --features native-example -- --cells 32
+cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example -- --camera frozen --screenshot culling-frozen.png
+cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
+```
+
 本矩阵不构成性能证据，也不验证修订切换（#929）、回流（#928）或停车表现（#931）。
