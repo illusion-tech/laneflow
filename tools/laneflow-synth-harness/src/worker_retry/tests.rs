@@ -201,3 +201,49 @@ fn local_retry_validation_rejects_snapshot_and_observation_tampering() {
     super::super::write(&root.path().join("observations.json"), &changed).unwrap();
     assert!(check_local_files(root.path(), &report).is_err());
 }
+
+#[test]
+fn lane_change_final_state_projection_is_compared_against_normal_reference() {
+    // #1226：末态比较必须覆盖全体 handle 的公开车辆状态投影，缺失或差异均拒绝。
+    let identity = "10000-L1-16";
+    let normal = json!({
+        "implementation_commit": "a".repeat(40),
+        "input_manifest": {"identity": {"case": "L1"}},
+        "warm_up_ticks": 16,
+        "observation_ticks": 304,
+        "checkpoints": [
+            {"tick": 0, "state_digest": "d", "t_state": null, "persistence_refused": null},
+            {"tick": 320, "persistence_refused": "AdmissionHopWithoutGate",
+             "t_state": {"journal": [[1, 0, 4, 0]], "states": [[0, 0, 0], [1, 0, 0, 0]]}}
+        ]
+    });
+    let report = json!({
+        "format": L_FORMAT,
+        "complete": true,
+        "implementation_commit": "a".repeat(40),
+        "input_manifest": {"identity": {"case": "L1"}},
+        "warm_up_ticks": 16,
+        "observation_ticks": 304,
+        "workers": 1,
+        "zero_publication": true,
+        "retry_equals_fresh": true,
+        "failpoint_consumed": true,
+        "final_face_b": {
+            "journal": [[1, 0, 4, 0]],
+            "states": [[0, 0, 0], [1, 0, 0, 0]],
+        }
+    });
+    verify_lane_change_reports(&report, &normal, identity, 1).unwrap();
+    let mut changed_states = report.clone();
+    changed_states["final_face_b"]["states"] = json!([[0, 0, 0], [1, 0, 0, 9]]);
+    assert!(
+        verify_lane_change_reports(&changed_states, &normal, identity, 1).is_err(),
+        "全体车辆状态投影差异必须拒绝"
+    );
+    let mut changed_journal = report.clone();
+    changed_journal["final_face_b"]["journal"] = json!([[1, 0, 5, 0]]);
+    assert!(
+        verify_lane_change_reports(&changed_journal, &normal, identity, 1).is_err(),
+        "末态历史差异必须拒绝"
+    );
+}
