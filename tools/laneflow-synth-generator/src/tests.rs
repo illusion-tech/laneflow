@@ -24,6 +24,13 @@ fn provenance() -> Provenance {
     }
 }
 
+fn lane_change_case() -> Case {
+    Case::LaneChange(LaneChangeParams {
+        clusters: 1,
+        changers_per_cluster: 2,
+    })
+}
+
 fn probe(cells: u32, case: Case, delta: u32) -> Identity {
     let mut identity = Identity::new(10_000, case, delta).unwrap();
     identity.scale = cells * 100;
@@ -111,15 +118,15 @@ fn geometry_covers_all_cells_with_exact_split_and_disjoint_bands() {
 fn state_and_plans_freeze_population_windows_and_command_order() {
     for dt in [16, 33] {
         for case in [Case::W1, Case::W2, Case::W3, Case::W4] {
-            let identity = probe(2, case, dt);
+            let identity = probe(2, case.clone(), dt);
             let state = state::initial_state(&identity).unwrap();
             assert_eq!(state.routes.len(), 8);
             assert_eq!(state.vehicles.len(), 200);
-            let expected = match case {
+            let expected = match &case {
                 Case::W1 | Case::W4 => 150,
                 Case::W2 => 200,
                 Case::W3 => 50,
-                Case::L1 => unreachable!("L1 另有换道探针冻结"),
+                Case::LaneChange(_) => unreachable!("换道族另有探针冻结"),
             };
             assert_eq!(
                 state
@@ -174,7 +181,7 @@ fn state_and_plans_freeze_population_windows_and_command_order() {
                     assert_eq!(scheduled[2]["boundary"], warm + 1);
                     assert_eq!(scheduled[2]["commands"][1]["progress_mm"], 5_129_900);
                 }
-                Case::L1 => assert!(scheduled.is_empty()),
+                Case::LaneChange(_) => assert!(scheduled.is_empty()),
             }
         }
     }
@@ -482,7 +489,7 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
     // 检查点（16/32 拍）必须早于首 crossing；生命周期收束必须早于窗口终点；
     // 两换道者路线完成必须晚于窗口终点（观察窗内无 Completed）。
     for dt in [16_u32, 33] {
-        let identity = probe(2, Case::L1, dt);
+        let identity = probe(2, lane_change_case(), dt);
         let bundle = generate_inputs(identity.clone(), provenance()).unwrap();
         let again = generate_inputs(identity.clone(), provenance()).unwrap();
         assert_eq!(bundle.files(), again.files(), "L1 规范重建逐字节确定");
@@ -560,8 +567,8 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
         let mut changers = Vec::new();
         for vehicle in &state.vehicles {
             let route = routes[vehicle.route_rank as usize];
-            let lane_change_route =
-                vehicle.route_rank == state.routes.len() as u32 - 1 && identity.case == Case::L1;
+            let lane_change_route = vehicle.route_rank == state.routes.len() as u32 - 1
+                && identity.lane_change().is_some();
             let handle = if vehicle.status == "active" {
                 let spawn = VehicleSpawnInput::new(
                     profile,
@@ -721,6 +728,43 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
         assert!(
             completed.is_none(),
             "窗口内不得出现换道者路线完成（完成拍 {completed:?} 须晚于终点 {end}）"
+        );
+    }
+}
+
+#[test]
+fn lane_change_multi_cluster_is_deterministic_and_counted() {
+    for clusters in [1_u32, 4, 16] {
+        let identity = Identity::new(
+            10_000,
+            Case::LaneChange(LaneChangeParams {
+                clusters,
+                changers_per_cluster: 2,
+            }),
+            16,
+        )
+        .unwrap();
+        let bundle = generate_inputs(identity.clone(), provenance()).unwrap();
+        let again = generate_inputs(identity.clone(), provenance()).unwrap();
+        assert_eq!(
+            bundle.files(),
+            again.files(),
+            "簇数 {clusters} 规范重建逐字节确定"
+        );
+        let state = state::initial_state(&identity).unwrap();
+        assert_eq!(state.routes.len() as u32, identity.cells() * 4 + clusters);
+        assert_eq!(state.vehicles.len() as u32, identity.scale + clusters * 2);
+        let plan: Value = serde_json::from_slice(&bundle.files()["input-plan.json"]).unwrap();
+        let competition = plan["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["kind"] == "lane_change_competition")
+            .unwrap();
+        assert_eq!(competition["transition_segments"], clusters);
+        assert_eq!(
+            competition["changers"].as_array().unwrap().len() as u32,
+            clusters * 2
         );
     }
 }

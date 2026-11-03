@@ -115,7 +115,7 @@ pub fn generate(identity: Identity, provenance: Provenance) -> Result<Bundle, Er
 pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Result<Bundle, Error> {
     let mut files = BTreeMap::new();
     // L1 走独立发射面（LFCA 嵌入发射调用点行号，`network.rs` 必须逐字保持）。
-    let network_bytes = if identity.case == Case::L1 {
+    let network_bytes = if identity.lane_change().is_some() {
         network_lane_change::compile(&identity)?
     } else {
         network::compile(&identity)?
@@ -130,31 +130,35 @@ pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Res
         canonical_json(&plan::input_plan(&identity))?,
     );
     let cells = identity.cells();
-    let lane_change = identity.case == Case::L1;
-    let lc = u32::from(lane_change);
-    let cell_maneuver = cells * u32::from(!lane_change);
-    let active = match identity.case {
-        Case::W1 | Case::W4 | Case::L1 => identity.scale * 3 / 4 + 2 * lc,
+    let lane_change = identity.lane_change();
+    let clusters = lane_change.map_or(0, |params| params.clusters);
+    let changers = lane_change.map_or(0, |params| {
+        params.clusters.saturating_mul(params.changers_per_cluster)
+    });
+    let cell_maneuver = cells * u32::from(lane_change.is_none());
+    let active = match &identity.case {
+        Case::W1 | Case::W4 => identity.scale * 3 / 4 + changers,
+        Case::LaneChange(_) => identity.scale * 3 / 4 + changers,
         Case::W2 => identity.scale,
         Case::W3 => identity.scale / 4,
     };
     let counts = [
         ("cells", cells),
-        ("individuals", identity.scale + 2 * lc),
-        ("routes", cells * 4 + lc),
-        ("edges", cells * 8 + 8 * lc),
+        ("individuals", identity.scale + changers),
+        ("routes", cells * 4 + clusters),
+        ("edges", cells * 8 + 8 * clusters),
         ("controllers", cell_maneuver),
         ("groups", cell_maneuver * 4),
-        ("gates", cell_maneuver * 4 + 2 * lc),
-        ("stop_lines", cell_maneuver * 4 + 2 * lc),
-        ("junctions", cell_maneuver * 4 + lc),
-        ("movements", cell_maneuver * 4 + 2 * lc),
-        ("maneuver_paths", cell_maneuver * 4 + 2 * lc),
+        ("gates", cell_maneuver * 4 + 2 * clusters),
+        ("stop_lines", cell_maneuver * 4 + 2 * clusters),
+        ("junctions", cell_maneuver * 4 + clusters),
+        ("movements", cell_maneuver * 4 + 2 * clusters),
+        ("maneuver_paths", cell_maneuver * 4 + 2 * clusters),
         ("facilities", cells),
         ("spaces", identity.scale),
-        ("geometry_points", cells * 416 + 16 * lc),
+        ("geometry_points", cells * 416 + 16 * clusters),
         ("active", active),
-        ("parked", identity.scale - active + 2 * lc),
+        ("parked", identity.scale - active + changers),
     ]
     .into_iter()
     .map(|(key, value)| (key.into(), value))

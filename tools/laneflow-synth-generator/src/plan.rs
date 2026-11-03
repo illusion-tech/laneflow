@@ -36,7 +36,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
         "allowed_persistent_blocked":false,
         "actual_receipts":"record_actual_tick_separately_from_plan"
     })];
-    match identity.case {
+    match &identity.case {
         Case::W1 | Case::W2 => {
             rules.push(json!({"kind":"command_free", "active":if identity.case == Case::W1 { identity.scale * 3 / 4 } else { identity.scale },
                 "parked":if identity.case == Case::W1 { identity.scale / 4 } else { 0 },
@@ -99,17 +99,37 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
                 "stop":"immediately_after_B1_commit_events_and_presentation", "blocked":"invalidate_round"
             }));
         }
-        Case::L1 => {
+        Case::LaneChange(params) => {
+            let slots = params.changers_per_cluster;
+            let step = if slots > 1 { 26_000 / (slots - 1) } else { 0 };
+            // 与 state.rs 同口径：K=2 保持钉版错位。
+            let pinned = |slot: u32| -> u32 {
+                if slots == 2 && slot < 2 {
+                    [11_000, 3_000][slot as usize]
+                } else {
+                    29_000 - slot * step
+                }
+            };
+            let changers: Vec<serde_json::Value> = (0..params.clusters)
+                .flat_map(|cluster| {
+                    (0..slots).map(move |slot| {
+                        serde_json::json!({
+                            "cluster": cluster,
+                            "logical_rank": identity.scale + cluster * slots + slot,
+                            "edge_occurrence": 0,
+                            "progress_mm": pinned(slot),
+                            "speed_mm_per_s": 10_000,
+                            "role": if slot == 0 { "leader" } else { "follower" }
+                        })
+                    })
+                })
+                .collect();
             rules.push(json!({
                 "kind":"lane_change_competition",
                 "scenario":"R1b_s12_two_changer_stable_order",
-                "transition_segments":1,
-                "changers":[
-                    {"logical_rank":identity.scale,"edge_occurrence":0,"progress_mm":11_000,
-                     "speed_mm_per_s":10_000,"role":"leader"},
-                    {"logical_rank":identity.scale + 1,"edge_occurrence":0,"progress_mm":3_000,
-                     "speed_mm_per_s":10_000,"role":"follower"}
-                ],
+                "transition_segments": params.clusters,
+                "changers_per_cluster": slots,
+                "changers": changers,
                 "premise":"both_changers_can_yield_d_stop_15_61m_at_10m_per_s",
                 "layer_1":"tick_0_stable_live_order_priority_no_persisted_reservation",
                 "layer_2":"leader_crossing_exactly_once_then_follower_after_rear_clearance",
@@ -134,7 +154,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
             "instrumented_timing":"diagnostic_only"
         }));
     }
-    if identity.case == Case::L1 {
+    if identity.lane_change().is_some() {
         rules.push(json!({
             "kind":"failed_step_retry", "build":"optimized_test_only",
             "trigger":"leader_reservation_establishing_step",
@@ -165,7 +185,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
             "enqueue_next_boundary_plans",
         ]
     };
-    let (warm, observation) = if identity.case == Case::L1 {
+    let (warm, observation) = if identity.lane_change().is_some() {
         identity.lane_change_window()
     } else {
         (

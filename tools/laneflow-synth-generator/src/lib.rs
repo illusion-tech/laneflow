@@ -18,15 +18,40 @@ const POLICY_KEY: &str = "protected-entry";
 const EDGE_MM: u32 = 5_130_000;
 const NOMINAL_MS: [u32; 6] = [30_000, 3_000, 1_000, 20_000, 3_000, 1_000];
 
-/// 五种冻结交通场景。
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// 交通场景形状；W 族为信号化背景，换道族由参数给出密度维度。
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Case {
     W1,
     W2,
     W3,
     W4,
-    /// 换道族 L1（#1218）：s12 两换道者稳定序竞争 + 标称背景，恰一横向过渡段。
-    L1,
+    /// 换道族：`clusters` 个横向过渡段簇 × 每簇 `changers_per_cluster` 名换道者；
+    /// 过渡密度 = 过渡出现项 / 边数，候选密度 = 候选数 / 过渡出现项。
+    LaneChange(LaneChangeParams),
+}
+
+/// 换道族参数（确定性输入的可复现参数）。
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct LaneChangeParams {
+    pub clusters: u32,
+    pub changers_per_cluster: u32,
+}
+
+impl LaneChangeParams {
+    /// 参数校验：至少一簇、每簇至少两名竞争者，且总量有界。
+    ///
+    /// # Errors
+    /// 越界时返回错误。
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.clusters == 0
+            || self.changers_per_cluster < 2
+            || self.clusters > 64
+            || self.changers_per_cluster > 64
+        {
+            return Err(Error::Invalid("换道族参数越界".into()));
+        }
+        Ok(())
+    }
 }
 
 /// 交通输入身份；表现比例不参与本身份。
@@ -46,6 +71,9 @@ impl Identity {
     /// # Errors
     /// 规模或步长不属于冻结集合时返回错误。
     pub fn new(scale: u32, case: Case, fixed_delta_ms: u32) -> Result<Self, Error> {
+        if let Case::LaneChange(params) = &case {
+            params.validate()?;
+        }
         let identity = Self {
             workload_id: "LF-SYNTH-v2".into(),
             scale,
@@ -55,6 +83,14 @@ impl Identity {
         };
         identity.validate()?;
         Ok(identity)
+    }
+
+    /// 换道族参数（W 族为 `None`）。
+    pub fn lane_change(&self) -> Option<&LaneChangeParams> {
+        match &self.case {
+            Case::LaneChange(params) => Some(params),
+            _ => None,
+        }
     }
 
     fn validate(&self) -> Result<(), Error> {
