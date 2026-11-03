@@ -8,7 +8,7 @@
 
 ## 当前文档
 
-- `glossary.md`：双语术语唯一事实来源；中文术语和中文定义权威。
+- `glossary.md`：双语术语唯一事实来源；以中文术语和中文定义为准。
 - `commit-convention.md`：Conventional Commits、`Refs` / `Closes`、必要时的
   `BREAKING CHANGE:`，以及 AI 署名的 `Harness:` / `Model:`；PR 默认经 Merge Queue
   最终 Rebase。

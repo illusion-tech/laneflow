@@ -66,7 +66,7 @@ ADR 0023 / 0025 已经确定：可编辑世界的已提交路网来源是 commit
 
 不进入该对象的内容：显示用来源文本、编译限额、发射 provenance、LFCA / LFSM / LFSD、
 HIR / MIR / LIR、共享静态数组、运行时句柄以及任何 working / candidate 状态
-（`road-editing-source-and-geometry-frontend.md` §4 的“不得保存为来源权威”清单继续适用）。
+（`road-editing-source-and-geometry-frontend.md` §4 的“不得保存为来源正本”清单继续适用）。
 
 只有官方 `LFRE` 前端产生的模块可以进入该对象。合成模块（匿名 AST）只允许用于非发布
 测试，不构成可编辑世界的来源。

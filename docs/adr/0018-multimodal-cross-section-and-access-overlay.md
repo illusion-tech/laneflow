@@ -225,7 +225,7 @@ resolved 表形状从 (edge, class) 退化为 (edge, class 集合) 的绑定期�
 
 段级锚定 `(section, lane 对, 段 k)` 需要跨 lane 的共享纵向分段，而没有横向几何时
 该对应无法良定义：段数相等不代表切分点纵向对齐，强制等长又与弯道内外弧长冲突；
-浮点纵向区间则引入第二套长度权威（offset 与 EdgeLength 漂移）、放大 first-error
+浮点纵向区间则引入第二套长度正本（offset 与 EdgeLength 漂移）、放大 first-error
 复杂度，运行时还要把区间映射回 edge。v1 只冻结由 lane index 顺序构造保证的
 整边界级锚点，段级 identity 待横向几何 G1 用 stationing 良定义后再冻结，因此
 两种提前冻结方案都拒绝。
@@ -252,7 +252,7 @@ lane index 顺序本身就是声明，方向关系无法与任何结构交叉验
 
 ### 缺少几何证明时拒绝构造 RoadSection
 
-当前契约没有横向几何权威层（ADR 0013），该方案会让 v1 横断面整体不可用，
+当前契约没有横向几何正本层（ADR 0013），该方案会让 v1 横断面整体不可用，
 代价远超收益。同向不变量维持 authoring 保证 + generator/tooling 校验 + 横向
 几何 G1 补强（残余风险见"代价与风险"），因此拒绝。
 

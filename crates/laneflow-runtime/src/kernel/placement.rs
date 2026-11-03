@@ -413,7 +413,7 @@ pub(crate) fn follower_candidates() -> u64 {
     FOLLOWER_CANDIDATES.with(Cell::get)
 }
 
-/// 新生成在重叠和权威检查之后仍可能失败的原因。
+/// 新生成在重叠和裁决检查之后仍可能失败的原因。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FreshAdmissionFailure {
     /// 当前必须停车的门按紧急制动停不住。
@@ -566,7 +566,7 @@ fn room_to_edge_end(
 }
 
 impl crate::kernel::state::WorldState {
-    /// 重叠与权威已经通过之后，检查当前约束和前后车。失败不提交车辆。
+    /// 重叠与裁决已经通过之后，检查当前约束和前后车。失败不提交车辆。
     pub(crate) fn fresh_motion_admission(
         &mut self,
         input: VehicleSpawnInput,

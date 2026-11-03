@@ -42,7 +42,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 当时 LFCA / 共享静态路网里的 `StaticRoute` 把边序列和灯/门/待行出现记录冻进不可变路网修订。
 走廊、Bevy smoke 和 `runtime_min` 曾靠 `static_route(ordinal)` 在没有 #303 规划器时立刻放车。
 
-这造成两套路线权威：共享静态路网上的预编译目录，加上每世界表。tick 按句柄种类取边、
+这造成两套路线正本：共享静态路网上的预编译目录，加上每世界表。tick 按句柄种类取边、
 取门、做准入后缀。过境/BRT 等「已知线路」也可以在启动时 `register_route`，不必占
 共享静态路网。仓库未发布 1.0、没有外部用户。从封闭登记表拿掉 `StaticRoute`，比 1.0
 之后再破坏 LFCA 更便宜。
@@ -51,7 +51,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 
 ## 决策
 
-现行生产路径以本文的产品合同、删除清单、版本检查、场景 catalog 权威和每世界路线表
+现行生产路径以本文的产品合同、删除清单、版本检查、场景 catalog 正本和每世界路线表
 形状为准；Rust 方法名和错误变体不改变这些语义。
 
 ### 1. 路网产品不再拥有路线
@@ -143,7 +143,7 @@ LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 均为 3；�
 bind 把键解析为共享静态路网边序号，对每条 catalog 路线 `register_route` 一次，并在本
 世界生命周期内保留句柄。人口与回流政策继续按 catalog 选择，只是句柄来自注册而非
 静态序号。现行 catalog 已由 [路权策略合同](../design/traffic-runtime-right-of-way-policy.md)
-升级为 `0.4`，新增必填 `policy_selection`；边序列权威保持本 ADR 的决定。
+升级为 `0.4`，新增必填 `policy_selection`；边序列正本保持本 ADR 的决定。
 
 宿主自有 Routing 与 #303 不使用本 catalog；规划器直接提交边序列。不得为示例另发明第三类
 路网 sidecar。不得在 bind 时从机动路径「反推」边序列——那会变成第二套路线编译器。
@@ -200,7 +200,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 状态机时消费本约束。
 
 出现记录是 `(边序列 × 当前共享静态路网机动网)` 的纯函数，只存在于内存热表。加载和切修订
-都用唯一 `register_route` 编译器生成；不得在快照里保留第二份出现记录权威。
+都用唯一 `register_route` 编译器生成；不得在快照里保留第二份出现记录正本。
 
 ### 7. 实现一致性
 
@@ -217,14 +217,14 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 不把 compiled 出现记录写入快照。
 - 不在 Runtime 内按边序列内容建立规范身份或去重表。
 - 不恢复 JSON 运行时入口或 `CoreWorld`。
-- 不把编制曲线、规范折线或车辆配置改出当前权威。
+- 不把编制曲线、规范折线或车辆配置改出当前规范。
 - 不为过境/BRT 保留空的 `StaticRoute` 表。
 - 不改变 `CanonicalFrame` 或任何既有合法身份/关系代码。
 - 不为「理论最长边序列 × 10 km」把路线前缀或 `BoundedDistance` Finite 侧加宽到
   `u64`。
 - 不把 world / install 身份编码进 `RouteHandle`。
 - 不在 compiled 表存「当前红灯」，也不按相位重建红灯列。
-- 不因拒绝 `StaticRoute` 声明而再次提升合成 DSL `frontendVersion`；权威版本固定为 4。
+- 不因拒绝 `StaticRoute` 声明而再次提升合成 DSL `frontendVersion`；规范版本固定为 4。
 - 不为已删除的静态路线出现记录保留编译限额或具名配置档死字段。
 
 ## 后果
@@ -261,7 +261,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
    限制城市游戏超长出行。否决。
 9. **磁盘快照按运行时槽位 + 边序号落盘。** 把分配器布局和修订局部密集域提升为
    存档主键；跨修订必漂，句柄语义绑死 freelist。否决。
-10. **快照同时保存 compiled 出现记录。** 与边序列形成第二权威；跨修订几乎总要丢弃。
+10. **快照同时保存 compiled 出现记录。** 与边序列形成第二正本；跨修订几乎总要丢弃。
     否决。
 11. **磁盘与在线切换共用一种表示。** 在线需要保留进程内句柄，磁盘应当作废旧句柄。
     否决合成。

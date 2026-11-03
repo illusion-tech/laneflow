@@ -19,7 +19,7 @@
 - `parking-system.md`
 - GitHub: #227、#235、#281、#282、#284、#541、#544、#559
 
-## 1. 权威与重基线
+## 1. 规范与重基线
 
 本文是 #282 WaitingZone 动态运行时已接受的当前唯一详细设计。ADR 0019 继续拥有
 WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Adapter/Spatial
@@ -80,7 +80,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
   grant/reservation、组合 ledger、持久化与 fixed tick 同一切片原子接管；
 - 多 worker candidate producer、分布式/城市级预约、概率驾驶人耐心、死锁传送或
   长时域预测；
-- fixed equal slot、按速度阈值推断 Waiting membership，或另一套米制物理权威。
+- fixed equal slot、按速度阈值推断 Waiting membership，或另一套米制物理正本。
 
 ## 3. 静态输入与路线编译
 

@@ -146,8 +146,8 @@ LaneEdge、动态 Route 和现行 participant-class access 闭合；设施级住
 ### 3.4 静态制品与公共登记边界
 
 `ParkingFacility`、virtual anchors、来源映射、语义差异、公共 registry 和静态制品
-版本轴均直接沿用 `portable-canonical-artifact.md` 及其关联 ADR 的当前权威；本文不再
-复制编号、版本值、表布局或容量上限。#541 只实现并消费该权威，不得从本停车文档
+版本轴均直接沿用 `portable-canonical-artifact.md` 及其关联 ADR 的当前规范；本文不再
+复制编号、版本值、表布局或容量上限。#541 只实现并消费该正本，不得从本停车文档
 反向生成另一套登记。
 
 停车域只补充一个跨层不变量：virtual anchor 是 owner-local occurrence，不获得全局
@@ -155,7 +155,7 @@ StableId。Runtime 同修订热状态可以保存 typed selector；快照和跨�
 facility StableId 与精确 `(LaneEdge StableId, progress_mm)`，不能持久化 owner-local
 ordinal，也不能用“设施 StableId 未变”掩盖 anchor 位移。
 
-## 4. 运行时资源与唯一权威
+## 4. 运行时资源与唯一规范依据
 
 ### 4.1 精确停车目标
 
@@ -564,7 +564,7 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
 - command 在 step 边界线性化；step 内只读一个 tick-start committed snapshot，并一次提交。
 - 单次车辆推进可复用从该拍初视图读取的 parking binding，供状态校验、预约与停车距离
   计算共同消费；全部校验及其先后保持不变。该值只在本次调用内传递，不跨车辆或跨
-  tick 缓存，不新增可独立修改的 binding 权威。
+  tick 缓存，不新增可独立修改的 binding 正本。
 - 合法 `NoChange` 仍是成功消费的一条输入命令，input command cursor checked `+1`；它不改变
   parking/vehicle authority、`observationStateSequence`、tick/time 或事件游标。cursor 耗尽
   时连 no-op 也必须零副作用失败，不能返回未计数成功。
@@ -707,7 +707,7 @@ Adapter 可以自行选择对象池和视觉过渡，但不能延迟、回滚或
 容量轴，不替代 #543 对 #304 exact topology、制品和加载峰值的核算。
 
 #543 负责在 #304 exact topology 上测 declarations、各 IR、静态制品、共享静态路网和
-build/load 峰值；本设计不复制或改写其格式容量上限，所有判断回到对应静态格式权威。
+build/load 峰值；本设计不复制或改写其格式容量上限，所有判断回到对应静态格式正本。
 
 ### 9.1 命令批次成本与等价优化边界
 
@@ -823,9 +823,9 @@ Active 插入/删除仍有 `O(A_i)` 查找或连续内存移动。位置表保�
 
 - **#540 / G1**：本文、ADR、跨层影响、术语和 #304 停车 workload 合同已接受；不改
   production schema 或代码，也不把 Accepted 设计写成已经实现。
-- **#541 / G2+**：当前 clean-break 实现消费静态制品权威，并同步
+- **#541 / G2+**：当前 clean-break 实现消费静态制品正本，并同步
   Runtime/snapshot/cutover/Spatial/Adapter/API/fixtures/docs；定向证据按上节闭合。
-- **#543 / research**：只做 exact capacity report；格式容量裁决留在对应独立权威。
+- **#543 / research**：只做 exact capacity report；格式容量裁决留在对应独立正本。
 - **#304**：消费已接受的停车切片；首版场景、其他域的支持/依赖/延期状态及整体 G1
   合同以[城市工作负载设计](chinese-style-city-workload.md)为准。该设计独立接受七项
   场景的有限矩阵；公交运营、出租派单、上下客与动态路侧摩擦明确延后，不由本停车

@@ -116,7 +116,7 @@ impl ParkingReservation {
     }
 }
 
-/// 车辆的只读停车 binding。唯一可修改权威由 `TrafficWorld` 内部 aggregate 持有。
+/// 车辆的只读停车 binding。唯一可修改正本由 `TrafficWorld` 内部 aggregate 持有。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParkingBinding {
     /// Active 车辆已消耗目标资源并驶向精确入口。
@@ -599,7 +599,7 @@ struct ParkingBindingSlot {
     binding: Option<ParkingBinding>,
 }
 
-/// 停车运行时唯一修改权威。
+/// 停车运行时唯一修改正本。
 ///
 /// 显式泊位按泊位序号保存排他状态，虚拟池只保留计数。binding 按车辆槽位下标
 /// 存放，读取时核对句柄代际。安装长度是车辆容量；更高下标只在写入预检扩容。
@@ -1280,7 +1280,7 @@ impl crate::kernel::state::WorldState {
     /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
     /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
     /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
-    /// 返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败不改变占用
+    /// 返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败不改变占用
     /// 状态。
     pub fn reserve_parking(
         &mut self,
@@ -1351,7 +1351,7 @@ impl crate::kernel::state::WorldState {
     /// # Errors
     ///
     /// 泊位目标解析、车辆状态、exact reservation 缺失、命令游标耗尽或内部不变量
-    /// 等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）。
+    /// 等任一失败族命中时返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）。
     pub fn cancel_parking(
         &mut self,
         vehicle: VehicleHandle,
@@ -1392,7 +1392,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 泊位目标解析、车辆与 reservation 状态、冲突/等待区遍历、命令游标或观测
     /// 序号耗尽、内部不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体
-    /// 权威清单见该枚举文档）。
+    /// 规范清单见该枚举文档）。
     pub fn park_vehicle(
         &mut self,
         vehicle: VehicleHandle,
@@ -1546,9 +1546,9 @@ impl crate::kernel::state::WorldState {
     /// # Errors
     ///
     /// 泊位目标与出口 selector 解析（含虚拟池出口锚不属于设施）、车辆状态、准入
-    /// 与出口安全、冲突权威缺失、等待区遍历/存储跨度、锚点插入与路线引用容量、
+    /// 与出口安全、冲突裁决权缺失、等待区遍历/存储跨度、锚点插入与路线引用容量、
     /// 出口物理重叠、派生占用索引重建的分配失败、命令游标或观测序号耗尽、内部
-    /// 不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该
+    /// 不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体规范清单见该
     /// 枚举文档）。
     pub fn leave_parking(
         &mut self,
@@ -1678,8 +1678,8 @@ impl crate::kernel::state::WorldState {
     ///
     /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、等待区
     /// 遍历/存储跨度、路线与出现记录（含新入口锚可达性）、车身 footprint 一致性、
-    /// 准入与权威、出现记录容量与分配、命令游标耗尽、内部不变量等任一失败族命中
-    /// 时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整
+    /// 准入与裁决、出现记录容量与分配、命令游标耗尽、内部不变量等任一失败族命中
+    /// 时返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败保持完整
     /// 物理 footprint 不变。
     pub fn rebind_parking_route(
         &mut self,
@@ -1840,7 +1840,7 @@ impl crate::kernel::state::WorldState {
     ///
     /// 泊位目标解析或可用性（不存在、已被绑定、虚拟池已满）、车辆容量、profile/
     /// 路线/进度校验、准入策略、分配、路线引用容量、命令游标耗尽或内部不变量等
-    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；
+    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；
     /// 失败不构造任何状态。
     pub fn spawn_parked_vehicle(
         &mut self,
@@ -1960,7 +1960,7 @@ impl crate::kernel::state::WorldState {
     /// # Errors
     ///
     /// 车辆句柄、命令游标耗尽（任何生命周期状态；观测序号耗尽仅限 Active）或
-    /// 绑定释放不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威
+    /// 绑定释放不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体规范
     /// 清单见该枚举文档）。
     pub fn despawn_vehicle(
         &mut self,
@@ -2106,7 +2106,7 @@ impl TrafficWorld {
     /// 生命周期状态（`StaleVehicle` / `InvalidVehicleStatus`）、既有停车绑定
     /// （`VehicleAlreadyBound`）、入口 occurrence 锚点匹配与前向可达、等待区遍历
     /// 冲突、准入策略、容量分配、命令游标耗尽或内部不变量等任一失败族命中时
-    /// 返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败不改变占用
+    /// 返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败不改变占用
     /// 状态。
     ///
     /// # Panics
@@ -2126,7 +2126,7 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 泊位目标解析、车辆状态、exact reservation 缺失、命令游标耗尽或内部不变量
-    /// 等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）。
+    /// 等任一失败族命中时返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）。
     ///
     /// # Panics
     ///
@@ -2146,7 +2146,7 @@ impl TrafficWorld {
     ///
     /// 泊位目标解析、车辆与 reservation 状态、冲突/等待区遍历、命令游标或观测
     /// 序号耗尽、内部不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体
-    /// 权威清单见该枚举文档）。
+    /// 规范清单见该枚举文档）。
     ///
     /// # Panics
     ///
@@ -2165,9 +2165,9 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 泊位目标与出口 selector 解析（含虚拟池出口锚不属于设施）、车辆状态、准入
-    /// 与出口安全、冲突权威缺失、等待区遍历/存储跨度、锚点插入与路线引用容量、
+    /// 与出口安全、冲突裁决权缺失、等待区遍历/存储跨度、锚点插入与路线引用容量、
     /// 出口物理重叠、派生占用索引重建的分配失败、命令游标或观测序号耗尽、内部
-    /// 不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该
+    /// 不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体规范清单见该
     /// 枚举文档）。
     ///
     /// # Panics
@@ -2189,8 +2189,8 @@ impl TrafficWorld {
     ///
     /// 重绑目标与入口 selector 解析、车辆与 reservation 状态、冲突遍历、等待区
     /// 遍历/存储跨度、路线与出现记录（含新入口锚可达性）、车身 footprint 一致性、
-    /// 准入与权威、出现记录容量与分配、命令游标耗尽、内部不变量等任一失败族命中
-    /// 时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；失败保持完整
+    /// 准入与裁决、出现记录容量与分配、命令游标耗尽、内部不变量等任一失败族命中
+    /// 时返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；失败保持完整
     /// 物理 footprint 不变。
     ///
     /// # Panics
@@ -2211,7 +2211,7 @@ impl TrafficWorld {
     ///
     /// 泊位目标解析或可用性（不存在、已被绑定、虚拟池已满）、车辆容量、profile/
     /// 路线/进度校验、准入策略、分配、路线引用容量、命令游标耗尽或内部不变量等
-    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体权威清单见该枚举文档）；
+    /// 任一失败族命中时返回相应 [`ParkingError`]（逐变体规范清单见该枚举文档）；
     /// 失败不构造任何状态。
     ///
     /// # Panics
@@ -2231,7 +2231,7 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 车辆句柄、命令游标耗尽（任何生命周期状态；观测序号耗尽仅限 Active）或
-    /// 绑定释放不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体权威
+    /// 绑定释放不变量等任一失败族命中时返回相应 [`ParkingError`]（逐变体规范
     /// 清单见该枚举文档）。
     ///
     /// # Panics

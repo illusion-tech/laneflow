@@ -259,7 +259,7 @@ pub struct JunctionInput<'a> {
 
 /// 合成领域专用语言的通行流向声明输入。
 ///
-/// 两个有向引道键是 Identity v1 的权威 ASCII 字段，不从入口/出口边名称、几何或
+/// 两个有向引道键是 Identity v1 的正本 ASCII 字段，不从入口/出口边名称、几何或
 /// 转向分类推断；调用方必须在编制来源中显式维护其稳定性。
 #[derive(Clone, Copy, Debug)]
 pub struct MovementInput<'a> {
@@ -277,7 +277,7 @@ pub struct MovementInput<'a> {
 
 /// 合成领域专用语言的机动路径声明输入。
 ///
-/// 权威遍历序列为 `entry_edge + internal_edges + exit_edge`。内部边可以为空；所有
+/// 正本遍历序列为 `entry_edge + internal_edges + exit_edge`。内部边可以为空；所有
 /// 相邻边必须直接连通。内部边角色由拥有 Movement 的 Junction 排他声明，但同一
 /// Junction 内的多条路径可以共享内部边。
 #[derive(Clone, Copy, Debug)]
@@ -575,7 +575,7 @@ pub struct WaitingZoneInput<'a> {
 pub struct LaneEdgeInput<'a> {
     /// 来源模块内显式持久化且唯一的稳定边键；不得以声明序号替代。
     pub lane_edge_key: &'a str,
-    /// 交通权威长度，单位为米。
+    /// 交通正本长度，单位为米。
     pub length_meters: f64,
     /// 基础道路限速，单位为米每秒。
     pub speed_limit_meters_per_second: f64,
@@ -673,11 +673,11 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
 }
 
 #[derive(Clone, Copy)]
-/// 已验证的交通权威车道图边长度，单位为毫米。
+/// 已验证的交通正本车道图边长度，单位为毫米。
 pub(crate) struct EdgeLength(u32);
 
 impl EdgeLength {
-    /// 把编制 `f64` 米受检量化为交通权威毫米长度。
+    /// 把编制 `f64` 米受检量化为交通正本毫米长度。
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
         closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, MAX_LANE_EDGE_LENGTH_MM).map(Self)
     }
@@ -993,7 +993,7 @@ pub(crate) struct CompiledGeometrySourceRange {
     pub(crate) source: SourceLocation,
 }
 
-/// RoadEditingSource authoring 几何已冻结为共同规范点表后的 LaneEdge 权威。
+/// RoadEditingSource authoring 几何已冻结为共同规范点表后的 LaneEdge 正本。
 pub(crate) struct CompiledLaneEdgeGeometry {
     pub(crate) length: EdgeLength,
     /// section-derived edge 继承 alignment frame；junction-internal edge 在 HIR 从 path 推导。
@@ -1014,7 +1014,7 @@ pub(crate) struct CompiledFacilityBandGeometry {
     pub(crate) source_ranges: Box<[CompiledGeometrySourceRange]>,
 }
 
-/// LaneEdge 的唯一几何权威；它表达语义形状，不表达来源编码。
+/// LaneEdge 的唯一几何正本；它表达语义形状，不表达来源编码。
 pub(crate) enum LaneEdgeGeometryAuthority {
     /// 现有 Synthetic 前端已经给出 Traffic length；显式点列由 canonical frame 声明提供。
     DirectLength(EdgeLength),
@@ -1026,7 +1026,7 @@ pub(crate) enum LaneEdgeGeometryAuthority {
 }
 
 impl LaneEdgeGeometryAuthority {
-    /// 返回已确定的交通权威长度；`Authoring` 变体尚未冻结长度时返回 `None`。
+    /// 返回已确定的交通正本长度；`Authoring` 变体尚未冻结长度时返回 `None`。
     pub(crate) const fn direct_length(&self) -> Option<EdgeLength> {
         match self {
             Self::DirectLength(length) => Some(*length),

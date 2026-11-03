@@ -25,7 +25,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 
 ## 当前 ADR 列表
 
-- `0031`: 列式运动权威、规范位置与物理行分离、P2/P5 共享提案及独立 SIMD 数值边界（Accepted；#814 目标架构，实施不等于收益认证）
+- `0031`: 列式运动正本、规范位置与物理行分离、P2/P5 共享提案及独立 SIMD 数值边界（Accepted；#814 目标架构，实施不等于收益认证）
 
 - `0001`: 项目定位与范围边界
 - `0002`: 依赖与许可证约束（不依赖 SUMO / CARLA / libsumo）
@@ -37,32 +37,32 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0008`: 1.0 前单一当前数据格式与迁移兼容策略
 - `0009`: Signal indication、MovementGate/StopLine、法规策略与 Core safety 分层
 - `0010`: `ParkingFacility`、显式/虚拟停车资源、vehicle lifecycle、原子 despawn、
-  快照/cutover 与 Adapter 权威（Accepted；#540 G1）
+  快照/cutover 与 Adapter 裁决权（Accepted；#540 G1）
 - `0011`: JSON Schema canonical URI、公共发布、不可变版本与长期保留契约（已被 0026 取代；只保留历史说明）
-- `0012`: Core 数值权威、累计精度与局部表现转换边界（已被 0014 取代；继续描述迁移前当前生产实现）
-- `0013`: 引擎无关的空间几何、长度权威、制品配对与适配器位姿边界（精度条款已被 0015 取代）
-- `0014`: 补偿残差感知的 f32 Core 数值权威、产品范围与生产迁移门槛（Accepted；Spatial 精度条款已被 Accepted ADR 0015 部分取代；生产一维几何实施已被 Accepted ADR 0028 部分取代）
+- `0012`: Core 数值正本、累计精度与局部表现转换边界（已被 0014 取代；继续描述迁移前当前生产实现）
+- `0013`: 引擎无关的空间几何、长度正本、制品配对与适配器位姿边界（精度条款已被 0015 取代）
+- `0014`: 补偿残差感知的 f32 Core 数值正本、产品范围与生产迁移门槛（Accepted；Spatial 精度条款已被 Accepted ADR 0015 部分取代；生产一维几何实施已被 Accepted ADR 0028 部分取代）
 - `0015`: 有界局部 canonical frame、运行时 f32 空间类型与性能边界（已接受）
-- `0016`: 场景人口、确定性出口回流、Core 原子 replace 与 Adapter binding 生命周期权威（已接受）
+- `0016`: 场景人口、确定性出口回流、Core 原子 replace 与 Adapter binding 生命周期裁决权（已接受）
 - `0017`: 静态 Junction/Movement/ManeuverPath owner、ManeuverGate identity、Route occurrence 与复杂设施演进边界（已接受）
 - `0018`: 多模式横断面 owner（RoadCorridor/RoadSection/FacilityBand）、FacilityKind/ParticipantClass/AccessRule 分层与准入 overlay（已接受）
 - `0019`: WaitingZone/ConflictZone identity、多阶段 Gate occurrence、车辆级
   right-of-way authority 与 grant/reservation；架构 ownership 与 #282 G1 本地 Waiting
   详细设计均已接受，通用 downstream-clearance 与组合 ledger 归 #284
-- `0020`: 权威来源模块图（Authoritative Source Module Graph）、编译器拥有的静态路网、
+- `0020`: 正本来源模块图（Authoritative Source Module Graph）、编译器拥有的静态路网、
   编译器中间表示（Compiler IR）、完整标识登记表（Identity Registry）、可移植规范
   制品（Portable Canonical Artifact）、历史目标静态镜像方案，以及目标态
   交通运行时（Traffic Runtime）边界（Accepted；#291 G1；独立 validator、规范发布
   receipt 与 #299 统一收据职责已由 Accepted ADR 0024 部分取代；镜像文件/ABI 已由
   Accepted ADR 0025 继续取代）
-- `0021`: 交通基础设施公开定位、宿主应用/出行编排/路径规划/交通运行时权威分层、
+- `0021`: 交通基础设施公开定位、宿主应用/出行编排/路径规划/交通运行时正本分层、
   逐执行域规模口径、不可变路网修订、修订切换事务、运行时快照与确定性降级边界
   （Accepted）
 - `0022`: Geometry 编制解析曲线、编译期参考折线、规范 `f32` 运行时折线与 Adapter
   表现几何的误差预算分层；冻结 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭
   B1 工程目标档与独立方向连续性约束，不声明连续最大误差保证或长期存档兼容；旧 JSON
   决策已纠偏，FlatBuffers B1 契约已重新接受（Accepted；#296 FlatBuffers G1）
-- `0023`: 道路编辑状态作为生产编制权威、可视化编辑器与程序化生成器共享有类型道路
+- `0023`: 道路编辑状态作为生产编制正本、可视化编辑器与程序化生成器共享有类型道路
   编辑模型，以及道路修改按整体替换 A 阶段演进到候选调整/原子替换 C 阶段；产品负责人
   已选择按模块 size-prefixed FlatBuffers 作为 production source 编码，并冻结 A → C 演进、
   未发布兼容边界和后继差异职责（Accepted；#296 FlatBuffers G1；§2.1 的 22 向量来源
@@ -70,12 +70,12 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0024`: compiler 对最终 LFCA/LFSM/LFSD 不可变、可重读对象来源执行共享、无分配的
   后发射检查，以受检能力守卫最小发布闭合；不交付独立 validator/receipt，LFCP v2
   一次性移除 receipt 且不兼容读取 v1（Accepted；LFCA file-backed staged-source
-  容量合同已纳入现行权威）
+  容量合同已纳入现行规范）
 - `0025`: 从受检 LFCA 构建性能优先、不可变、进程内共享的
   `SharedNetworkRevision`；Traffic/Identity/Spatial 物理拆分并绑定同一修订，不交付
   静态镜像文件/ABI、descriptor/完整性清单、mmap 或磁盘缓存，保存只接受已进入
   Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享路网修订外
-  保留 exact LFCA diff base，但不把它写入存档（Accepted；LFCA 百万级分块输入已纳入现行权威）
+  保留 exact LFCA diff base，但不把它写入存档（Accepted；LFCA 百万级分块输入已纳入现行规范）
 - `0026`: 推倒旧自然语言检查，改为原生 PullRequestReview Check、Merge Queue
   盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务；
   External Review、六项 required checks 与相关启用顺序已被 0027 取代，其它决策继续
@@ -87,7 +87,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   `4..=1000` ms，已提交速度 `u32` mm/s；有折线边长由规范折线弧长派生并写回 IR；
   准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数毫米（#500）；
   已部分取代 ADR 0014 的 current-`f64` 生产实施与残差 `f32` 目标合同
-  （Accepted；整数毫米与 LFCA 合同轴为现行权威）
+  （Accepted；整数毫米与 LFCA 合同轴为现行规范）
 - `0029`: 路网产品删除预编译 `StaticRoute`；`TrafficWorld` 路线入口只留
   `register_route`；路线退役时 Identity kind `1..=23`、field tag `1..=34` 与 relation role
   `1..=32` 连续登记；对象 `formatVersion = 4`；走廊示例边序列改由场景 catalog 拥有（本 ADR 为 0.3；现行 0.4 必填策略选择）
@@ -96,7 +96,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - [`0030`](0030-single-world-parallel-execution.md)：首版独立计算并行、P4 规范串行、交通/执行配置分离、
   规范首错与资源/计划寿命、LFRS 独立版本轴（Accepted；配置/格式交付不等于生产多线程已实现）。
 - [`0032`](0032-runtime-state-integrity-and-distortion-disposition-authority.md)：运行时状态完整性
-  失真的检测权、停用与宿主处置的单一权威政策；Runtime 侧检测范围分期（本期只在投入
+  失真的检测权、停用与宿主处置的单一裁决权政策；Runtime 侧检测范围分期（本期只在投入
   使用前与审计时认证共享路网修订，运行中检测进二期）、共享路网修订独立失败语义、无可信基准
   不作宣称（Accepted；#955 G1；机制见
   运行时状态完整性设计）。

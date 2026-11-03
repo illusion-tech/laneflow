@@ -81,7 +81,7 @@ impl Recorder {
                     && world
                         .vehicle(event.vehicle())
                         .is_some_and(|s| s.route() == anchor.route()),
-                || "事件 tick/路线权威不符".into(),
+                || "事件 tick/路线正本不符".into(),
             )?;
             let (kind, payload) = match event.kind() {
                 TrafficTransitionKind::GateCrossed { gate } => (1, gate.raw()),

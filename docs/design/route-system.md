@@ -44,7 +44,7 @@ entry occurrence，并要求新旧 route 展开的完整车身 physical occupanc
 模型。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。
 详细契约见 [`parking-system.md`](parking-system.md)。
 
-ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后不再作为生产权威。
+ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后不再作为生产正本。
 **现行合同是 ADR 0028**：路线前缀与距离查询为 `u32` mm，溢出 `BeyondFinite`；单边
 `u32` mm，`10_000_000` mm 上界。`register_route` **不得**因整条或
 前缀累计超过 `u32::MAX` mm 失败。距离按查询窗口独立 checked 加：从起点的前缀溢出
@@ -181,7 +181,7 @@ route following 遵守 ADR 0003 与 `traffic-runtime-integer-geometry.md`：
 - `TickInput.delta_time_ms` 必须与 world 固定步长一致。
 - IIDM 仍在瞬时 SI 中算出本拍 travel 与 `next_speed`；已提交行程是整数毫米，
   `carry_um` 保留未凑满 1 mm 的余数。不得用 `2×travel/Δt − v0` 反推已提交速度。
-- 已提交速度、边长和边进度的权威是 `u32` mm / mm/s；公开米制面只作编制输入或只读换算。
+- 已提交速度、边长和边进度的正本是 `u32` mm / mm/s；公开米制面只作编制输入或只读换算。
 - 满边且下一跳许可时进入下一条 `progress_mm = 0`；满边但下一跳拒绝则停在
   `progress_mm == length_mm`。
 
@@ -279,7 +279,7 @@ VehicleState
 - route removal 需要 route-in-use、stale handle、unknown route；**没有**
   Runtime 级 duplicate route ID 错误路径。
 
-**换道能力拒绝衔接注记（#237，权威定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §6）**：
+**换道能力拒绝衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §6）**：
 含固定预制过渡的路线在运行时不支持过渡执行时，`register_route`、车辆准入与
 恢复入口按该合同结构化拒绝（`TransitionUnsupported` 类、失败关闭、注册表
 不变/零部分恢复）；换道支持能力属实现能力，不新增配置字段（不加

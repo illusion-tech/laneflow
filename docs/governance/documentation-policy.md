@@ -34,7 +34,7 @@ Issue 的工作性质使用 GitHub 原生 `Feature` / `Bug` / `Task`；影响范
 与真实依赖分别使用 parent / sub-issue 和 blocked-by / blocking。标题只写结果，不把
 这些字段复制成方括号前缀。字段职责与取值见 `github-workflow.md`。
 
-Issue 不作为长期权威设计来源。涉及长期设计、Traffic Runtime API、数据格式或 Adapter 协议的结论，必须回写到仓库文档。
+Issue 不作为长期规范设计来源。涉及长期设计、Traffic Runtime API、数据格式或 Adapter 协议的结论，必须回写到仓库文档。
 
 ### Pull Requests
 
@@ -127,7 +127,7 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 公开入口、ADR、设计文档和 Agent 工作流遵循 ADR 0021 的同一组件定位与宿主边界。
 README 保持简洁，以可验证的当前能力为依据；长期方向与尚未完成的研究须明确
 标注。地区交通规则和城市工作负载可以作为通用技术验证场景，不写入具体产品计划
-或指定第一消费者，也不维护另一套内部产品定位作为架构权威。
+或指定第一消费者，也不维护另一套内部产品定位作为架构正本。
 
 ### Schema 标识
 
@@ -203,14 +203,14 @@ AI Agent 开工前应优先读取仓库文档，而不是只依赖 Issue 描述�
 
 ## 6. 语言与术语约定
 
-LaneFlow 的长期设计、模板与治理规范采用**中文权威、英文辅助**：
+LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文辅助**：
 
 - GitHub Issue / PR 模板的标题、字段名、说明文字以中文为主。
 - `docs/governance/`、`docs/reference/` 中的治理与参考规范以中文撰写。
 - `.agents/skills/` 中的 Agent 工作流以中文撰写；工具专用薄包装（如 `.cursor/skills/`）同样中文优先。
 - 技术标识符（切片类型、Gate 名称、分支前缀、commit 字段名等）可保留英文，便于工具解析与跨环境一致。
 - ADR、design 和 architecture 中的领域术语必须有中文规范名与英文辅助名；中文定义
-  是权威事实，英文别名不得改变语义。
+  为准，英文别名不得改变语义。
 - 新术语先进入 `docs/reference/glossary.md`，首次出现写作“中文术语（English
   Alias）”，后文优先中文。中英文冲突时以 glossary 的中文定义为准。
 - 现行用词的判定与旧称清理按 `docs/reference/glossary.md` §1.1 的四类判定规则与

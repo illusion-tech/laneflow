@@ -286,7 +286,7 @@ Runtime 性能通过。
 - 具体最佳 SoA/AoSoA 分组仍须以真实 Runtime kernel 访问模式验证；
 - Runtime loader 信任官方受检 LFCA 中已经由 compiler 派生的 StableId 与 segment 数值；
   compiler known vectors、后发射检查和端到端测试若缺失，会形成产品正确性回归风险；
-- 如果未来最低产品硬件证明重建成本不可接受，需要另行设计非权威持久化缓存，
+- 如果未来最低产品硬件证明重建成本不可接受，需要另行设计非正本持久化缓存，
   不能把本实现的 Rust 内存布局直接写盘。
 
 ## 被拒绝的替代方案

@@ -168,7 +168,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   `Generated` 必须保存真实生成器 build ID、参数/输入摘要、来源前端选项摘要和可选
   seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。来源链不认证内容，
   也不能替代实际保存的道路编辑状态。
-- v4 不保存一张永远固定、却会与字段后缀竞争权威的 `Units` table。距离、角度、速度和
+- v4 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
   每文档单位切换，也不能把宿主单位隐式带入来源。
 - `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；这些名称
@@ -241,7 +241,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   不从几何或边名推断。对该 Movement 所属 junction `J`，path 的 entry/exit 必须属于
   `J.approach_edges`，每个 internal occurrence 必须属于 `J.internal_edges` 且同一路径内
   不得重复；`J.internal_edges` 必须精确等于其全部 path internal 成员的并集，跨 junction、
-  少声明和孤立成员均失败。`ManeuverPath` 的权威边序列固定为
+  少声明和孤立成员均失败。`ManeuverPath` 的正本边序列固定为
   `entry_edge + internal_edges + exit_edge`。
 - 每个 `Junction.approach_edges` 成员必须是 section-derived edge，且与完整编译单元的
   junction-internal owner map 全局不相交。一个 junction 的 internal edge 不能作为本身或

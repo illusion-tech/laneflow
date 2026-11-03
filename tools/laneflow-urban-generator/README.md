@@ -47,7 +47,7 @@ manifest 与摘要基线。正式两档的报告在 `fixtures/v1/10k`、`fixture
 
 ## 正式模板与连接规则
 
-本节描述当前二进制输出的模板，权威细节在
+本节描述当前二进制输出的模板，规范细节在
 [城市工作负载设计](../../docs/design/chinese-style-city-workload.md) §3.2。配置标识、
 fixture 和本节一起替换单车道模板，不保留旧模板开关。
 

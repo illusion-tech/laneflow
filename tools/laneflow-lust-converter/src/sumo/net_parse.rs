@@ -100,7 +100,7 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
 
 fn parse_location(root: Node<'_, '_>) -> Result<SumoLocation> {
     // #253 Q4：恰好一个 <location>——多元素时取首个会让其余声明静默失效，
-    // fail-closed 要求唯一权威。
+    // fail-closed 要求唯一裁决方。
     let mut location_nodes = root
         .children()
         .filter(|child| child.is_element() && child.tag_name().name() == "location");
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn multiple_location_elements_fail_closed() {
-        // #253 Q4：多个 <location> 不再取首个——fail-closed 要求唯一权威。
+        // #253 Q4：多个 <location> 不再取首个——fail-closed 要求唯一裁决方。
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <net>
   <location netOffset="0,0" convBoundary="0,0,100,100"/>

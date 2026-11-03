@@ -23,11 +23,11 @@
 
 ## 1. 目标、边界与术语
 
-本文定义如何把 Core 的“边句柄 + 边内进度”映射为引擎无关的位姿，同时保持 Core、Spatial 与 Adapter 的权威职责分离。
+本文定义如何把 Core 的“边句柄 + 边内进度”映射为引擎无关的位姿，同时保持 Core、Spatial 与 Adapter 的最终裁决职责分离。
 
 本文使用以下术语：
 
-- **权威职责（authority）**：某项状态由哪一层定义并最终裁决。
+- **最终裁决职责（authority）**：某项状态由哪一层定义并最终裁决。
 - **标准坐标（canonical）**：LaneFlow 在一个有界局部 frame 内统一使用、尚未转换为宿主坐标的空间。
 - **宿主坐标（host coordinates）**：Adapter 把 canonical frame 放置到具体引擎场景后使用的坐标。
 - **位姿（pose）**：位置、切向量和上方向向量的组合。
@@ -36,12 +36,12 @@
 - **层级名称**：Core、Data、Spatial、Adapter 分别表示核心层、数据层、空间层和适配层。
 - **应用程序接口（API）**：供其他包或宿主调用的稳定程序边界。
 
-| 层级    | 权威职责                                               | 不负责                                               |
+| 层级    | 最终裁决职责                                           | 不负责                                               |
 | ------- | ------------------------------------------------------ | ---------------------------------------------------- |
 | Core    | 拓扑、`EdgeLength`、路线区段、`EdgeProgress`、交通状态 | 标准或世界坐标、中心线、宿主变换                     |
 | Spatial | 标准坐标框架、中心线、弧长、绑定、采样和位姿           | 交通规则、网格与材质、引擎生命周期                   |
 | Data    | 交通包、空间包和清单的线格式校验与规范化               | 运行时推进、文件或网络输入/输出（I/O）、宿主资源句柄 |
-| Adapter | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度权威                     |
+| Adapter | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度正本                     |
 
 `TrafficWorld` 可以在没有 Spatial 时以无图形宿主方式运行；需要车辆空间位姿的调用方必须绑定共享路网修订并取得 `SpatialSession`。
 
@@ -184,7 +184,7 @@ SpatialAxis
 - `CanonicalFrameId` 拥有 1–128 字节稳定 ASCII token，模式为 `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`；每个 registry 只拥有一个 frame ID，点/向量不逐项复制身份字符串。
 - 点、向量和单位方向的字段私有，只能通过受检构造器和返回 `Result` 的命名运算进入有效状态；公共表面不实现可绕过有限性/范围不变量的裸 `Add`、`Sub`、`Mul` 或 `Div`。
 - 公共字段不暴露 `euclid`、`glam`、`nalgebra`、Bevy 或其他第三方类型。
-- 所有构造器在进入权威边界前拒绝非有限值，并把带符号零规范化为正零；点每轴还必须位于 `±16_384 m`，返回点的运算重新校验范围。
+- 所有构造器在进入正本状态前拒绝非有限值，并把带符号零规范化为正零；点每轴还必须位于 `±16_384 m`，返回点的运算重新校验范围。
 - 向量不套用点范围；两个合法端点的差可以达到 `±32_768 m`。
 - `CanonicalUnitVector3F32` 只能从有限非零向量通过缩放归一化产生；近垂直道路的 projected-up 阈值仍由折线/basis 切片拥有，不是通用向量 epsilon。
 - `SpatialRegistry` 是 opaque immutable aggregate，按 `LaneGraph::edges()` 顺序保存 dense edge handles，并使用私有 `HashMap<EdgeHandle, u32>` lookup；HashMap 只用于查找，不作为确定性迭代来源。
@@ -209,7 +209,7 @@ CanonicalPoseBatchF32 {
 CanonicalPoseRecordF32 { vehicle, pose }
 ```
 
-frame 与 placement token 只在 batch header 保存一次，不逐点或逐车辆复制。`CanonicalPoseBatchScratch` 保留未提交 records；只有全部输入成功后才与 committed batch 交换。不同坐标框架或不同宿主放置不能在没有检查的情况下混用。原始 `f64` 载荷只允许在 #134 的转换前诊断或 Core Parking geometry 输入中暂存，不形成第二份 runtime 几何权威。
+frame 与 placement token 只在 batch header 保存一次，不逐点或逐车辆复制。`CanonicalPoseBatchScratch` 保留未提交 records；只有全部输入成功后才与 committed batch 交换。不同坐标框架或不同宿主放置不能在没有检查的情况下混用。原始 `f64` 载荷只允许在 #134 的转换前诊断或 Core Parking geometry 输入中暂存，不形成第二份 runtime 几何正本。
 
 ## 5. 折线与预计算
 
@@ -248,12 +248,12 @@ P0 -> P1 -> ... -> Pn
 预算；其 B1 厘米值是内部验证的工程目标，不是连续曲线最大误差证明。候选状态不修改
 本节任何 production Spatial 常量。
 
-## 6. 长度权威与绑定
+## 6. 长度正本与绑定
 
-### 6.1 权威职责
+### 6.1 最终裁决职责
 
-- `Core EdgeLength`：交通进度、路线距离，以及跟驰、信号和停车约束的权威。
-- `Spatial geometry arc length`：标准中心线参数化与位姿的空间权威。
+- `Core EdgeLength`：交通进度、路线距离，以及跟驰、信号和停车约束的正本。
+- `Spatial geometry arc length`：标准中心线参数化与位姿的空间正本。
 - 创作或导出工具：应从同一中心线来源生成两者，但运行时仍必须验证，不能无条件信任生产者。
 
 ### 6.2 一致性检查
@@ -271,15 +271,15 @@ difference <= tolerance -> 绑定成功
 difference > tolerance  -> 阻断错误
 ```
 
-现行交通权威边长是整数毫米；对账时把 `length_mm / 1000` 换成米再与规范 `f32` 弧长比较，量化余量为零（`SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS = 0.0`）。ADR 0014 的残差 `f32 EdgeLength` 不是现行合同。#144 曾在生产候选中启用，但形成性能不迁移（no-go）结论后已回退。
+现行交通正本边长是整数毫米；对账时把 `length_mm / 1000` 换成米再与规范 `f32` 弧长比较，量化余量为零（`SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS = 0.0`）。ADR 0014 的残差 `f32 EdgeLength` 不是现行合同。#144 曾在生产候选中启用，但形成性能不迁移（no-go）结论后已回退。
 
 禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。也不能因为旧几何容差小于 `f32` 量化误差就把 Core 长度恢复为 `f64`；两类误差必须分别记录并组合。
 
 ### 6.3 进度映射
 
-本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的权威边长。Spatial 只消费 Core 提供的有效观察值；它不是原始 Data 输入，也不是几何弧长。Core 的补偿进度可以继续以 `f64` 有效值观察，但 Spatial 顶点和输出位姿保持唯一的 `f32` runtime 权威。
+本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的正本边长。Spatial 只消费 Core 提供的有效观察值；它不是原始 Data 输入，也不是几何弧长。Core 的补偿进度可以继续以 `f64` 有效值观察，但 Spatial 顶点和输出位姿保持唯一的 `f32` runtime 正本。
 
-Traffic Runtime 已提交进度为整数毫米。Spatial 只消费换算后的有效米制观察值，不复制运行时边界规则。#135 精确要求 `0 <= progress <= normalized_core_length`：零值直接返回首点，等于权威长度时直接返回末点，严格越界返回结构化错误。Runtime 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
+Traffic Runtime 已提交进度为整数毫米。Spatial 只消费换算后的有效米制观察值，不复制运行时边界规则。#135 精确要求 `0 <= progress <= normalized_core_length`：零值直接返回首点，等于正本长度时直接返回末点，严格越界返回结构化错误。Runtime 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
 
 ```text
 ratio = effective_core_progress / normalized_core_length
@@ -351,11 +351,11 @@ CanonicalPoseRecordF32 { vehicle, pose }
 - `SpatialRegistry::extract_pose_batch` 先把全部记录计算到调用方拥有的 `CanonicalPoseBatchScratch`；任何失败都清空 scratch 并保持旧 output 的 frame/token/records 不变，全部成功后才 swap 并更新 token。
 - 调用方可以为 output/scratch 预留容量并跨 tick 复用；#137 已验证稳定容量下的零分配和一万/十万性能。逐轮固定机结果见 git 历史。
 - Adapter 在提交宿主 Transform 前比较 batch token 与当前 placement token；同一 frame 的 placement 切换必须颁发新 token。
-- 表现插值、细节层次和相机相对原点切换不能回写 Core/Spatial 的权威状态。
+- 表现插值、细节层次和相机相对原点切换不能回写 Core/Spatial 的正本状态。
 
 ## 10. 停车位姿
 
-停车系统继续由 Core 拥有边相对权威：入口边与进度、横向偏移、朝向偏移、长度和宽度。Spatial 解析标准位姿：
+停车系统继续由 Core 拥有边相对正本：入口边与进度、横向偏移、朝向偏移、长度和宽度。Spatial 解析标准位姿：
 
 ```text
 anchor = sample(entry_edge, entry_progress)
@@ -365,7 +365,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
         + left * sin(heading_offset_radians)
 ```
 
-`Parking { space }` 由 #136 使用 immutable `ParkingRegistry` 的 entry anchor 与 geometry 实现。Core `f64` lateral/heading 只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定权威仍在 Core；适配器只消费最终位姿。
+`Parking { space }` 由 #136 使用 immutable `ParkingRegistry` 的 entry anchor 与 geometry 实现。Core `f64` lateral/heading 只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定正本仍在 Core；适配器只消费最终位姿。
 
 ## 11. 第三方 Rust 包边界
 
@@ -377,10 +377,10 @@ heading = anchor.tangent * cos(heading_offset_radians)
 | `euclid`              | 保留为内部备选    | 支持带类型单位和空间，但当前包装/转换收益不足                   |
 | `glam`                | 适配器末端候选    | 轻量且贴近游戏引擎，但不区分点、向量与坐标空间                  |
 | `nalgebra`            | 不采用            | 通用线性代数能力和依赖面超出折线需求                            |
-| `mint`                | 不采用            | 只提供互操作数据类型，不提供数学、校验和空间权威                |
+| `mint`                | 不采用            | 只提供互操作数据类型，不提供数学、校验和空间正本                |
 | `kurbo` / `lyon_geom` | 不采用            | 面向二维曲线与渲染，首版明确只使用折线且不使用样条曲线          |
 | `geo`                 | 不采用            | 二维地理算法与依赖面过大，坐标参考系统仍不是首版目标            |
-| `rstar`               | 延后到 #72 类需求 | R 树解决空间查询与索引，不解决中心线权威和采样                  |
+| `rstar`               | 延后到 #72 类需求 | R 树解决空间查询与索引，不解决中心线正本和采样                  |
 
 完整版本、MSRV、许可证、特性开关、依赖与维护证据见 git 历史中的 v0.6 Spatial 验证记录。
 
@@ -417,7 +417,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 
 ## 14. v0.8 走廊几何口径
 
-#184 的“道路总长”按三条物理轴线计：主干道 800 m、两条次干道各 300 m，默认合计 1.4 km，配置上限 2 km；directed lane edge、各 lane 和 connector 不重复计入产品道路总长。Traffic progression 仍以各 edge 的 Core `EdgeLength` 为权威，Spatial pose 仍以绑定后的 centerline 弧长为权威，两者由 generator 的同一中心线输入生成并通过既有 binding validation。
+#184 的“道路总长”按三条物理轴线计：主干道 800 m、两条次干道各 300 m，默认合计 1.4 km，配置上限 2 km；directed lane edge、各 lane 和 connector 不重复计入产品道路总长。Traffic progression 仍以各 edge 的 Core `EdgeLength` 为正本，Spatial pose 仍以绑定后的 centerline 弧长为正本，两者由 generator 的同一中心线输入生成并通过既有 binding validation。
 
 每个路口的每条直行 lane 使用独立 connector edge；#229 已把每条 traversal 显式归属到 ManeuverPath，并以 entry-transition ManeuverGate 绑定 StopLine。默认坐标、车道宽度、路口位置和 14 条 routes 见 `example-scenarios.md`；#188 负责 generator 与制品验证，#229 的 Traffic clean-break 不改变 SpatialPackage v0.1 shape。
 

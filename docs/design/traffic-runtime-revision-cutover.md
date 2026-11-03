@@ -19,7 +19,7 @@
 `traffic-runtime-snapshot.md`。Rust 拼写、二进制编码与测试构造由 G2 落定。
 
 本文 §4.1 及 §7 的观测/Routing 接缝已由 #303 G1 接受，与 #302 合同共同构成当前
-唯一实现权威。
+唯一实现正本。
 
 > **实现状态**：当前切换实现已把停车迁移纳入 tagged
 > `ExplicitSpace | VirtualPool` binding，并严格服从本文整事务、失败关闭和 zero-publish
@@ -42,7 +42,7 @@
 - **一切经过事务**：不存在绕过事务的修订替换；候选在提交前对外不可见，放弃
   是正常路径而非错误。
 - **失败关闭**：任何不一致、超限或无法证明等价，旧世界原样继续，零切换事件。
-- **权威分离**：迁移权限与"哪些实体可牺牲"的裁决在宿主/上层（ADR 0021）；
+- **职责分离**：迁移权限与"哪些实体可牺牲"的裁决在宿主/上层（ADR 0021）；
   Runtime 只验证、不授予、不提供迁移回调——回调会把游戏规则复制进迁移路径，
   破坏封闭契约与失败关闭审计。
 
@@ -153,7 +153,7 @@ runtime state 或 digest 版本，也不放宽目标 Conflict authority 不变�
 
 ### 3.4 Conflict authority 的增量追赶
 
-Prepare 从来源完整权威迁移 reservation、eligibility 与 lag 一次，并保存需要在最终时刻
+Prepare 从来源完整正本迁移 reservation、eligibility 与 lag 一次，并保存需要在最终时刻
 写 `CutoverFloor` 的目标 cell address 列表，以及被目标删除的 history 按
 `reference_time + retention` 计算出的最晚到期时刻。删除历史允许在 Prepare 时尚未到期；
 Quiescent Commit 必须先按最终 `T_commit` 校验到期时刻，再以零部分写最终化 floor。
@@ -444,7 +444,7 @@ fixture = `lfsd-migration` oracle 对（2 边 + 1 车位 + 1 profile 的 8 车�
 当前值与之及 `18c64ced`/`dada8b4a` 等占用重建/重叠索引改动的方向一致，但未做受控
 A/B 归因。以上仍是同机描述性口径；3 样本中位不构成正式预算判定（本文未定义多轮
 静默窗口认证协议），事件批次余量与 scratch 随规模的登记义务不变。完整记录、原始
-输出与复现命令见 `research/issue-537-target-path-baseline/`（结果表为数值权威）。
+输出与复现命令见 `research/issue-537-target-path-baseline/`（结果表为数值正本）。
 
 ## 10. G2 边界与必测义务
 

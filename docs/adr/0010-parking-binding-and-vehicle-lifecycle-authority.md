@@ -1,11 +1,11 @@
-# ADR 0010：停车设施、资源绑定与车辆生命周期权威
+# ADR 0010：停车设施、资源绑定与车辆生命周期裁决权
 
 **状态**: Accepted（#540 G1）<br>
 **日期**: 2026-08-30；2026-09-23（#743）修订每世界 binding 的物理存储<br>
 **适用范围**: 停车静态实体、显式泊位与虚拟容量、Runtime binding/lifecycle、
 快照/修订切换、Spatial/Adapter 表现边界<br>
 **取代**: 本 ADR 的 v0.5 历史版本中“`ParkingArea` 只分组显式
-`ParkingSpace`、拒绝匿名容量”的决定。pre-1.0 不保留旧/新两套权威；历史实现和判断
+`ParkingSpace`、拒绝匿名容量”的决定。pre-1.0 不保留旧/新两套正本；历史实现和判断
 可从 git 历史追溯。<br>
 **关联文档**:
 
@@ -51,7 +51,7 @@
 - `ParkingSpace` 的可选设施关系不参与泊位稳定身份；设施成员关系变化不应无谓改变
   泊位 `StableId128`。
 - `ParkingFacility` 的稳定身份、公共 registry、静态格式版本轴、关系角色与来源/差异
-  投影全部沿用 `portable-canonical-artifact.md` 及关联 ADR 的当前权威。本 ADR 不再复制
+  投影全部沿用 `portable-canonical-artifact.md` 及关联 ADR 的当前规范。本 ADR 不再复制
   编号、版本值或容量上限，避免停车语义反向成为第二套格式登记。
 
 这不是兼容层：旧模型仍在 #541 一次性移除；同一现实设施能否跨修订重绑只按当前
@@ -126,9 +126,9 @@ enum ParkingTarget {
 - 对虚拟目标，同一 `ParkingFacility` 可以绑定多辆 live vehicle，但
   `reserved_virtual + occupied_virtual <= virtual_capacity`。
 - 每辆 live vehicle 最多有一个停车 binding；设施统计是同一私有 aggregate 的派生
-  缓存，不是第二权威。
+  缓存，不是第二正本。
 
-### 5. Runtime 私有 aggregate 拥有唯一资源权威
+### 5. Runtime 私有 aggregate 拥有唯一资源裁决权
 
 概念状态为：
 
@@ -153,7 +153,7 @@ binding。公开 API 不提供 raw mutable map、`force_occupy` 或通用 setter
 `Parked + Occupied`、`Completed + None`；Reserved binding 的 route 与车辆 route 必须相同。
 `Reserved` / `Occupied` 不是 VehicleStatus，任何其他组合都必须失败关闭。
 
-### 6. 生命周期、位置权威和失败原子性
+### 6. 生命周期、位置裁决权和失败原子性
 
 正常生命周期是：
 
@@ -263,7 +263,7 @@ ownership/前向可达、排他性和虚拟容量；任何失败整次恢复失�
 切换继续遵守 #302 的 prepare/validate/commit、zero-publish 和整事务失败；不得先迁一部分
 车辆再回滚。
 
-### 9. Spatial 与 Adapter 只消费已提交权威
+### 9. Spatial 与 Adapter 只消费已提交正本
 
 - 显式 `Parked` 车辆继续产生 `PoseSource::Parking { space }`。
 - 虚拟 `Parked` 车辆不进入 committed pose source 集合；Spatial 不为设施或容量生成
@@ -299,12 +299,12 @@ binding 数 `B`：
 
 #541 必须以一次 clean-break 交付唯一现行模型：
 
-- 实现并消费当前静态制品/公共 registry 权威，不在停车实现里重新定义版本轴；
+- 实现并消费当前静态制品/公共 registry 正本，不在停车实现里重新定义版本轴；
 - Runtime Snapshot 原子切换到本文和快照设计冻结的停车 binding 形状；
 - `ParkingArea` public symbol、旧停车入口和旧 snapshot reader/writer/schema 同切片移除；
 - Runtime、Spatial 与 Adapter 同步切换，不留双 API、双读、双写或 alias。
 
-仓库不发布迁移工具或双读期；测试 fixture 直接再生为新权威。
+仓库不发布迁移工具或双读期；测试 fixture 直接再生为新正本。
 
 ## 后果
 
@@ -356,7 +356,7 @@ binding 数 `B`：
 
 ### Runtime 自动决定显式泊位或虚拟池
 
-选择涉及玩法、收费、任务、车辆类型和 UI 意图，不是 Runtime 的通用交通权威。caller
+选择涉及玩法、收费、任务、车辆类型和 UI 意图，不是 Runtime 的通用交通正本。caller
 必须传入 exact target；以后若需要调度器，应作为 Runtime 之外的策略层独立设计。
 
 ## 实施与复核

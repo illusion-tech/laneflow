@@ -91,13 +91,13 @@ pub const MAX_CONFLICT_ZONE_REGION_RING_POINTS: u32 = 256;
 /// 规范中心线线段允许的最小长度，单位为米；有效线段必须严格大于该值。
 pub const SPATIAL_MIN_SEGMENT_LENGTH_METERS: f32 = 0.1;
 
-/// 交通权威长度与几何弧长绑定的绝对容差下限，单位为米。
+/// 交通正本长度与几何弧长绑定的绝对容差下限，单位为米。
 pub const SPATIAL_LENGTH_ABS_TOLERANCE_METERS: f64 = 0.01;
 
-/// 交通权威长度与几何弧长绑定的相对容差系数。
+/// 交通正本长度与几何弧长绑定的相对容差系数。
 pub const SPATIAL_LENGTH_REL_TOLERANCE: f64 = 1.0e-6;
 
-/// 交通边长与弧长对账不再另加量化余量；长度为独立整数毫米权威。
+/// 交通边长与弧长对账不再另加量化余量；长度为独立整数毫米正本。
 pub const SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS: f64 = 0.0;
 
 /// 已连接车道图边端点允许的最大距离，单位为米。

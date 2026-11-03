@@ -49,7 +49,7 @@ struct Layout {
     max: Vec3,
 }
 
-/// 启动前从场景取出只用于画面的几何；泊位位姿不是表现权威。
+/// 启动前从场景取出只用于画面的几何；泊位位姿不是表现正本。
 pub(super) struct SceneLayout(Layout);
 
 pub(super) fn layout_from_scene(scene: &Scene) -> Result<SceneLayout, String> {

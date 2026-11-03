@@ -327,7 +327,7 @@ compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON sche
   approach 派生链所需的 corridor/section/lane 声明除外），LuST v1 不伪造尚未设计的
   横断面或准入语义。compiler 受检编译（preflight / lowering fail-closed）即产物
   验收，不再存在独立的 JSON Schema 校验或 Core admission 环节。路口穿越由
-  ManeuverPath 独占权威：路径链不写 LaneEdge 后继，approach 边界边由
+  ManeuverPath 独占裁决权：路径链不写 LaneEdge 后继，approach 边界边由
   alignment → corridor → section → lane 链派生；
 - `routes.toml`：DUE 展开后的 route catalog 与精确一万 population record（含
   selection config），替代旧 Traffic package 内嵌 routes 与独立 population JSON；
@@ -804,7 +804,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 | 切片     | 交付                               | 依赖/边界                                                                                |
 | -------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
 | H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
-| I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 权威）与 H 的契约；C/DEMAND 仍可选           |
+| I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 正本）与 H 的契约；C/DEMAND 仍可选           |
 
 本文不改变 Core API、Data format、Spatial API、Adapter API、production runtime
 behavior 或 crate dependency direction，也不新增 ADR。

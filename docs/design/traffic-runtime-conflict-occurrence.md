@@ -21,7 +21,7 @@
 
 冲突静态领域已经由现行 official source、LFCA 与
 `SharedNetworkRevision::conflict()` 完整拥有。本文不再登记实体、格式表、来源映射、
-语义差异或空间区域，也不重述这些权威文档。
+语义差异或空间区域，也不重述这些规范文档。
 
 #283 交付的 Runtime 合同为：
 
@@ -131,7 +131,7 @@ Interior(pathEdgeIndex = i, progressMm = p)
 
 因此所有仍有 route to-side edge 的边界都只使用下一边 `(index + 1, 0)`；路径起点
 使用首边 `(index, 0)`；只有整个路线终点保留末边 `(index, edgeLength)`。Gate 与同
-位置 boundary 的 source 规范编码仍由 LFCA 权威保证；路线编译器不接受第二种
+位置 boundary 的 source 规范编码仍由 LFCA 正本保证；路线编译器不接受第二种
 route-local 表示。
 
 车辆 route cursor 在参与比较前也执行同一规范化：非末边的
@@ -256,7 +256,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 | 入口                               | 行为                                                       |
 | ---------------------------------- | ---------------------------------------------------------- |
 | build/install 含冲突的共享静态路网 | 允许；新 world 尚无车辆                                    |
-| 任意路线注册入口                   | 允许；完整编译出现记录并收费                                 |
+| 任意路线注册入口                   | 允许；完整编译出现记录并收费                               |
 | `spawn_vehicle`                    | 候选 `Active` 车辆执行保护                                 |
 | `replace_completed_vehicle`        | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
 | `leave_parking`                    | `Parked -> Active` 的候选 exit cursor 执行保护             |
@@ -300,7 +300,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
   在同一切片建立车辆级 grant/reservation/tail-clear、snapshot/cutover 与 journal 后移除
   临时保护。
 - #542 可以生成场景路线或显式 conflict authoring，但路线最终仍进入同一 Runtime
-  编译器；场景 catalog 不保存另一份 occurrence 权威。
+  编译器；场景 catalog 不保存另一份 occurrence 正本。
 - Spatial 与 Adapter 只消费共享静态路网的可选区域或只读 Runtime 结果，不参与路线
   occurrence 编译和 Conflict authority 判定。
 
@@ -352,6 +352,6 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test compiled_networ
 
 ## 11. 交付完整性
 
-路线编译、容量、现行 LFRS、生命周期、恢复、切换、测试和当前权威文档共同构成
+路线编译、容量、现行 LFRS、生命周期、恢复、切换、测试和当前规范文档共同构成
 Runtime completion slice；只交付路线编译不能满足该合同。后续变更按当前开发阶段评审
 与 PR 治理完成验收，不恢复已替换的临时能力保护。

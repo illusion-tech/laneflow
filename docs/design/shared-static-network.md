@@ -14,7 +14,7 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 `laneflow-static-network` 把受检 LFCA 顺序转换为性能优先、不可变、可由多个 world 共享的
 `SharedNetworkRevision`，不交付静态镜像文件或 ABI。一个根对应一个逻辑路网修订；物理
 chunk 对 builder 透明，typed ordinal、StableId 与 CSR 覆盖完整逻辑表，不出现
-`(chunk,row)` 公共身份。交通热列以 `u32` mm 与 mm/s 为权威；有折线时边长从弧长 round
+`(chunk,row)` 公共身份。交通热列以 `u32` mm 与 mm/s 为正本；有折线时边长从弧长 round
 并写回 IR，headless 使用准入毫米，不从 Spatial 反推。
 
 ## 2. 职责与依赖
@@ -255,7 +255,7 @@ LFCA 5 不保存分区提示 payload。`laneflow-static-network` 是现行提示
 拓扑和 execution contract 派生 worker-count-neutral 资源/边界/成本信息。compiler 只拥有
 并发所需的静态语义与规范关系，不再从 LIR 向不可见的旁路传递提示。
 
-提示不是语义权威：Runtime 可以忽略或按同一根中的静态数据重建，但不能把最终
+提示不是语义正本：Runtime 可以忽略或按同一根中的静态数据重建，但不能把最终
 partition/worker assignment 写回共享对象。相同 LFCA、相同 derivation version 和相同构建
 选项必须产生 accessor-visible 内容相等的提示；算法升级提升 derivation version，但不改变
 LFCA、`NetworkRevisionId` 或存档兼容性，也不得改变精确执行结果。
@@ -525,11 +525,11 @@ builder 测试只补充能够通过格式直接值域但不能构成功能正确
 4. **不新建 Junction approach 实体。** 只闭合 `Junction → Movement → ManeuverPath`
    与 `JunctionInternalEdge`。approach key 不进 Traffic；若后续能力需要
    分组，再用 ordinal 派生。
-5. **共享 resolved 准入平面是查询权威。** builder seal 时按现行准入合同
+5. **共享 resolved 准入平面是查询正本。** builder seal 时按现行准入合同
    `AccessRegistry` 语义（参与者继承、target 特异性、priority）生成稀疏
    `(edge, class)` 与 `(path, class)` 平面，查询为 O(1)。规则表只保留归因/
    审计所需的胜者 rule handle 与原始 target/effect/classes/priority，不能作为查询时
-   全表扫描或每 world 重建的权威。无约束单元必须用与成功对象内无效 handle 区分的
+   全表扫描或每 world 重建的正本。无约束单元必须用与成功对象内无效 handle 区分的
    表示，不得伪造 typed handle。同 effect、同特异性、同 priority 的并列规则，
    **不承诺任何来源声明顺序**：builder 只看见 LFCA，LIR/LFCA 已按 Identity v1
    规范顺序排列 AccessRule。并列归因与歧义配对一律使用 LFCA AccessRule canonical
@@ -564,7 +564,7 @@ builder 测试只补充能够通过格式直接值域但不能构成功能正确
 | 17   | `SignalControllerGroup`              | Traffic 投影 | 固定时制控制器拥有的信号组                                                               |
 | 18   | `SignalControllerPhase`              | Traffic 投影 | 有序相位                                                                                 |
 | 19   | `SignalPhaseState`                   | Traffic 投影 | LFCA 编码在 `SignalPhase` 实体 `RecordVector`，不是 A.5 元组；投影为 group+aspect 连续表 |
-| 20   | `ManeuverGateSignalGroup`            | Traffic 投影 | 门到信号组的 indication 绑定；不引入法规/冲突权威                                        |
+| 20   | `ManeuverGateSignalGroup`            | Traffic 投影 | 门到信号组的 indication 绑定；不引入法规/冲突裁决权                                      |
 | 21   | `ParkingSpaceFacility`               | Traffic 投影 | 可选停车设施归属                                                                         |
 | 22   | `ParkingSpaceEntry`                  | Traffic 投影 | 入口边；progress 见实体字段                                                              |
 | 23   | `ParkingSpaceExit`                   | Traffic 投影 | 出口边；progress 见实体字段                                                              |
@@ -710,7 +710,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 - AccessRule 需要第五个 target domain 或时变 overlay 才能完成 v0.10 切换；
 - 准入查询必须在 tick/绑定期扫描规则表，或每 world 重建 resolved 平面才能保持当前
   Core 语义；
-- 必须把来源声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
+- 必须把来源声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因正本，
   才能完成 v0.10 切换；
 - 固定时制相位解析必须每 tick 扫描/累加 `duration_ms`，或每 world 重建累计边界；
 - 必须把路线边序列或出现记录写回共享静态路网才能完成 tick 或 #302 快照。

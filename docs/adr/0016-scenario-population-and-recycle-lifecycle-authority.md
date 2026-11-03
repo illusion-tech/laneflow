@@ -1,4 +1,4 @@
-# 0016 Scenario Population 与车辆回流生命周期权威
+# 0016 Scenario Population 与车辆回流生命周期裁决权
 
 **状态**: Accepted<br>
 **日期**: 2026-07-22<br>
@@ -149,9 +149,9 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 
 目标人口、seed、portal catalog、initial spawn slots、pending queue、VehicleHandle 和 Entity 不写入这些制品。v0.8 authoring/startup config 可以生成 artifacts 与 engine-neutral runtime plan，但它不是新的 production Traffic family，也不能绕过 production loader。
 
-### 7. 权威职责
+### 7. 最终裁决职责
 
-| 关注点                                   | 权威层                       |
+| 关注点                                   | 归属层                       |
 | ---------------------------------------- | ---------------------------- |
 | vehicle state、identity、overlap、route  | TrafficWorld                 |
 | 目标人口、seed、portal/lane/route 决策   | caller policy（走廊为 #475） |

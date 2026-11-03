@@ -9,9 +9,9 @@
 [修订切换](traffic-runtime-revision-cutover.md)、[城市运行程序](urban-demand-harness.md)、
 [ADR 0021](../adr/0021-traffic-infrastructure-and-host-boundary.md)。
 
-## 1. 范围与权威
+## 1. 范围与职责
 
-Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事件权威。是否表现以及表现
+Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事件裁决权。是否表现以及表现
 哪些车辆由宿主决定；减少采样或 Transform 写入只计作表现收益。Spatial 只绑定完整
 不可变根 `Arc<SharedNetworkRevision>`，不依赖 Runtime、车辆句柄或 ECS。
 

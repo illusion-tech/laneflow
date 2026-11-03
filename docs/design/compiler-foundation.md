@@ -9,7 +9,7 @@ Typed AST）→高层中间表示（High-level Intermediate Representation，HIR
 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、
 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL
 Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断
-（Diagnostic）与权威来源投影<br>
+（Diagnostic）与正本来源投影<br>
 
 编译器以有类型来源模块为入口，经 Typed AST → HIR → MIR → Canonical LIR 原子产出
 受检规范制品与来源伴随数据。路线生命周期由 `TrafficWorld::register_route` 拥有；
@@ -38,7 +38,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 
 ## 术语规范
 
-本文的中文术语和中文定义是权威事实，英文只作辅助理解。完整双语映射以
+本文的以中文术语和中文定义为准，英文只作辅助理解。完整双语映射以
 `../reference/glossary.md` 为唯一事实来源（Single Source of Truth，SSOT）。Rust
 类型、包（crate）、字段、版本值、诊断代码和协议常量等精确标识符使用反引号保留
 原文。
@@ -53,9 +53,9 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 与 `network-compiler.md` 的长期封闭契约（Closed Contract）落实为现行编译器基础。
 本文不重新讨论下列已接受结论：
 
-- 编译器是全部静态路网语义的唯一编译权威；
+- 编译器是全部静态路网语义的唯一编译裁决方；
 - 不存在 L1/L2，也不以运行时对象图或 Spatial 登记表作为编译器中间表示；
-- 所有正式前端是权威来源模块图（Authoritative Source Module Graph）中的平级来源
+- 所有正式前端是正本来源模块图（Authoritative Source Module Graph）中的平级来源
   模块（Source Module）；
 - 只有以已验证规范低层中间表示为静态语义核心的成功编译结果可以进入编译发射器
   （Compiler Emitter）或集成专用投影；
@@ -92,7 +92,7 @@ laneflow-compiler -------------> laneflow-format
 | 包                         | 拥有职责                                                                         | 禁止职责 / 依赖                                           |
 | -------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `laneflow-static-contract` | `StableId128`、实体种类 / 字段标签登记、标识版本、有类型逻辑序号和值级公共常量   | `Serde`、文件系统、编译遍、运行时、空间层、编译器标识实现 |
-| `laneflow-compiler`        | 权威来源模块图、中间表示、官方前端、编译遍、诊断、标识实现、制品发射与发布前编排 | 运行时 / 空间层对象图、文件安装策略、持久化运行时内存布局 |
+| `laneflow-compiler`        | 正本来源模块图、中间表示、官方前端、编译遍、诊断、标识实现、制品发射与发布前编排 | 运行时 / 空间层对象图、文件安装策略、持久化运行时内存布局 |
 
 `laneflow-static-contract` 使用 `#![no_std]`，只保存跨编译器、格式、镜像与运行时的
 小型值类型和机器可读登记常量。它不提供完整标识编码函数；标识生成仍由 compiler
@@ -143,7 +143,7 @@ tuple。第一方 Rust 接口同时提供字段私有有类型来源构造面和
 
 项目没有已发布或用户持有的旧 JSON，因此不建立迁移前端、严格导入能力、资产报告或
 离线导入器。旧迁移方案只保留在 Git 历史；当前 fixture 使用编译器原生有类型来源。
-## 3. 公共接口与构造权威
+## 3. 公共接口与构造规范
 
 ### 3.1 生产公共面
 
@@ -450,7 +450,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 `CompilerControlledLiveBytes`。`SourceBytesPerModule`、`SingleStringBytes` 与前端构造
 峰值由具体前端在 `finish` 前检查；HIR/MIR/LIR、诊断、暂存区、输出与保留容量维度仍由
 各自阶段检查。共同接入信任字段私有模块携带的一次性模块资源计数，不重新遍历记录；
-这既不会漏掉维度，也不会复制其他阶段的验证权威。
+这既不会漏掉维度，也不会复制其他阶段的验证正本。
 
 `SourceDocumentDescriptor` 是来源伴随记录，不是有类型抽象语法树领域记录，因此不能挤入
 `TypedAstRecordCount`；既有模块头继续独立计为一条 typed AST 逻辑记录。#315 为多文档基数增加
@@ -537,7 +537,7 @@ HIR 的内部引用使用编译器私有、有类型的 `u32` 区块分配键。
 - 所有者 / 成员关系、覆盖关系（Coverage）、唯一所有者和全局一致性。
 
 MIR 可以使用临时哈希与缓存（Hash and Cache），但所有规范遍历都从显式稳定序列或
-排序后的完整键产生。临时指纹（Fingerprint）命中后必须比较完整权威值。
+排序后的完整键产生。临时指纹（Fingerprint）命中后必须比较完整正本值。
 
 #292 的编制交通长度、速度、车辆配置和停车标量仍以 `f64` 进入编译器，但准入先量化
 再按毫米闭包检查；已提交热列与制品为整数毫米 / `mm/s`。准入后 Typed AST / HIR /
@@ -545,7 +545,7 @@ MIR / LIR 只带整数毫米或受检 `f32` SI，发射只写已提交值，不�
 ADR 0015 的有界规范 `f32`。这不是重新启动 #144 已形成“不迁移（no-go）”结论的残差
 `f32` 生产迁移：ADR 0014 本身仍是 Accepted 历史证据；Spatial 精度条款已被 Accepted
 ADR 0015 部分取代。现行一维合同是 ADR 0028。交通一维的窄化必须发生在准入，不能由编译发射器再 round。
-若再改毫米量子或权威表示，必须原子修订编译器中间表示、可移植规范制品、共享静态
+若再改毫米量子或正本表示，必须原子修订编译器中间表示、可移植规范制品、共享静态
 路网（Shared Static Network）、目标交通运行时和迁移预言机。
 
 ### 4.4 已验证规范低层中间表示
@@ -652,7 +652,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 区域。编译遍只有在本阶段错误级诊断为零时才能提交输出。整个编译单元只有在全部
 编译遍成功时才能返回完整 `CompilationOutput`。
 
-本顺序是 `network-compiler.md` 权威顺序的实现收窄，不是对上游顺序的修订。来源格式升级
+本顺序是 `network-compiler.md` 规范顺序的实现收窄，不是对上游顺序的修订。来源格式升级
 由相应几何文档或导入前端接入；静态执行约束与分区规划提示必须加入同一 MIR/LIR 管线；
 规范制品、源映射 / 语义差异和共享静态路网只能在相应位置增加编译遍或发射器，不得在
 后端补语义。
@@ -1028,7 +1028,7 @@ kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 21/23 �
 - 有类型逻辑序号、资源上限和诊断截断。
 
 一个诊断可以有一个主要来源位置和多个关联来源位置。跨模块重复、所有者冲突和引用
-错误必须同时指向声明与冲突来源。中文渲染是权威说明；英文辅助渲染不能改变诊断代码
+错误必须同时指向声明与冲突来源。中文渲染是规范说明；英文辅助渲染不能改变诊断代码
 或有类型载荷语义。
 
 公共来源位置是闭合和类型 `SourceLocation`：`Text(SourceSpan)` 保留

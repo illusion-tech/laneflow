@@ -508,7 +508,7 @@ pub enum ParkingError {
     #[error("不能在 stateful maneuver interior 创建无 Waiting authority 的车辆")]
     WaitingStatefulManeuverInterior,
     /// 停车 entry 与既有 Waiting/maneuver traversal 状态冲突：含区间重叠、stateful
-    /// maneuver interior、权威不匹配及到站车辆仍有遍历/等待成员等映射路径
+    /// maneuver interior、裁决不匹配及到站车辆仍有遍历/等待成员等映射路径
     /// （reserve/park/leave/rebind）。
     #[error("停车 entry 与 Waiting traversal 区间冲突")]
     WaitingTraversalConflict,
@@ -542,7 +542,7 @@ pub enum ParkingError {
         /// 无法安全制动的移动 direct follower。
         follower: VehicleHandle,
     },
-    /// 需要既有 Conflict authority 才能建立该状态（leave/rebind 的权威校验）。
+    /// 需要既有 Conflict authority 才能建立该状态（leave/rebind 的裁决校验）。
     #[error("不能在冲突通行段内部恢复无 Conflict authority 的 Active 车辆")]
     ConflictAuthorityRequired,
     /// 车辆数量达到 world 容量（`spawn_parked_vehicle`）。

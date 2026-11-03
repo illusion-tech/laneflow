@@ -45,16 +45,16 @@
 > parked vehicle 仍是 live Runtime identity，但不进入 committed pose source 集合。
 > Bevy Session 已提供完整 typed parking lifecycle，只有 typed despawn-and-unbind 清除映射。
 
-## 2. 权威职责
+## 2. 最终裁决职责
 
-“权威职责（authority）”表示某项状态由哪一层定义并最终裁决。
+“最终裁决职责（authority）”表示某项状态由哪一层定义并最终裁决。
 
-| 关注点                               | 权威层                | 适配器职责                                        |
+| 关注点                               | 归属层                | 适配器职责                                        |
 | ------------------------------------ | --------------------- | ------------------------------------------------- |
 | 固定步长、车辆、路线、信号和停车状态 | Traffic Runtime       | 调度 `TrafficWorld::step`，读取已提交 pose / 信号 |
 | 中心线、弧长和位姿采样               | Spatial               | 绑定同一共享路网修订，消费 pose 批次              |
 | 交通与空间制品的解析                 | 编译器 / 共享静态路网 | 提供已构建的 `Arc<SharedNetworkRevision>`         |
-| 实体、预制体、变换、动画和细节层次   | Adapter/Presentation  | 作为唯一的宿主表现事实来源                          |
+| 实体、预制体、变换、动画和细节层次   | Adapter/Presentation  | 作为唯一的宿主表现事实来源                        |
 
 适配器不得把宿主变换（Transform）反写为 Runtime 进度，也不得用引擎样条曲线长度覆盖共享静态路网 / Spatial 的长度绑定。
 
@@ -114,7 +114,7 @@ PoseInput {
 }
 ```
 
-- 行驶中或停止中的车道车辆使用 `Lane`；显式泊位中的已停放车辆使用 `Parking`。位置权威判别由 source enum 表达，不增加可互相矛盾的 status 字段。
+- 行驶中或停止中的车道车辆使用 `Lane`；显式泊位中的已停放车辆使用 `Parking`。位置归属判别由 source enum 表达，不增加可互相矛盾的 status 字段。
 - lane 进度与共享静态路网边长同域；parking 用共享静态路网停车位序号。
 - 已完成或已移除车辆不出现在 `committed_pose_sources`，由调用方决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
@@ -149,7 +149,7 @@ CanonicalPoseBatch {
 CanonicalPoseRecord { record: PoseRecordId, pose: CanonicalPoseF32 }
 ```
 
-`canonical_frame` 和 `placement_token` 只在 batch header 保存一次，不逐车辆重复。批次内位置每轴位于 `±16_384 m`；点、切向量和上方向都不暴露宿主或第三方类型。LaneFlow 不维护默认 canonical `f64` 位姿作为第二套运行时权威。
+`canonical_frame` 和 `placement_token` 只在 batch header 保存一次，不逐车辆重复。批次内位置每轴位于 `±16_384 m`；点、切向量和上方向都不暴露宿主或第三方类型。LaneFlow 不维护默认 canonical `f64` 位姿作为第二套运行时正本。
 
 适配器拥有 frame 到宿主场景的放置和生命周期映射，可以在宿主末端使用 double world placement、tile 或相机相对原点，但不得把转换后的宿主位置反写到 Spatial / Runtime。`FramePlacementToken(u64)` 是调用方颁发、只比较相等性的 opaque token；Spatial 原样回显，Adapter 在提交 Transform 前必须复核 token 仍是当前值。同一 frame 重新放置、切 tile 或 rebase 时必须换 token，因此旧批次不能在 placement 切换后提交。token 不包含世界坐标、origin value 或宿主 Transform。
 
@@ -196,7 +196,7 @@ Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
 
 #121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭。
 
-该 specialization 不改变本文的跨引擎权威职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
+该 specialization 不改变本文的跨引擎最终裁决职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
 
 现行入口是 `TrafficWorld` 与 `LaneFlowSession`。
 
@@ -258,7 +258,7 @@ Population 的 seed、portal/lane 抽样、pending/retry queue 仍是 engine-neu
 ## 9. 修订绑定生命周期与维护暂停式切换（#534）
 
 #534 交付 Adapter 侧的修订绑定生命周期闭合：Session 配对、消费资格与维护暂停式
-切换。Runtime / Spatial 公开 API 与世界绑定语义零变更。权威实现是
+切换。Runtime / Spatial 公开 API 与世界绑定语义零变更。规范实现是
 `laneflow-bevy` 的 `LaneFlowSession`；端到端验收矩阵见
 `crates/laneflow-bevy/tests/revision_cutover.rs`。
 

@@ -77,7 +77,7 @@ blocker 时，Project 才能进入 `Ready`。
 变化时，必须回写 ADR、architecture、roadmap、glossary 和相关 Skills，并对当前
 exact head 重新取得审阅；不得沿用旧 head 的设计结论。
 
-**1.0 正式发布前**：G1 冻的是当前权威，不是对外兼容承诺。若设计字面会逼出并行实现
+**1.0 正式发布前**：G1 冻的是当前规范，不是对外兼容承诺。若设计字面会逼出并行实现
 或兼容层，改写 ADR/design 并只留一套。态度见
 `.agents/skills/laneflow-pre-1-0/SKILL.md`。1.0 之后的对外兼容必须单开 G1。
 

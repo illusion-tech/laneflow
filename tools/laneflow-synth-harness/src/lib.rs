@@ -108,7 +108,7 @@ struct Checkpoint {
     state_digest: Option<String>,
     public_trace_digest: String,
     transitions: u64,
-    /// 面 B（#1218/#1217）：T 权威/历史时刻保存的结构化拒绝变体（期望行为）。
+    /// 面 B（#1218/#1217）：T 裁决/历史时刻保存的结构化拒绝变体（期望行为）。
     #[serde(skip_serializing_if = "Option::is_none")]
     persistence_refused: Option<&'static str>,
     /// 面 B 真实资源身份与历史投影（换道预约生命周期 + 逐车相位 + 预约终态）。
@@ -142,7 +142,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
             })
         }
         Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
-            // 面 B（#1218 按 #1217 口径）：T 权威/历史时刻保存必须结构化拒绝，
+            // 面 B（#1218 按 #1217 口径）：T 裁决/历史时刻保存必须结构化拒绝，
             // 记录拒绝变体 + 真实资源身份/历史投影；比较不得只比错误编码摘要。
             require(sample.lane_change_route.is_some(), || {
                 "仅换道族允许保存拒绝面".into()
@@ -209,7 +209,7 @@ pub(crate) fn lane_change_t_state(sample: &install::Sample) -> Value {
     json!({"vehicles":vehicles, "journal":journal})
 }
 
-/// 面 B 拒绝变体（#1218/#1217）：T 权威/历史时刻保存必须结构化拒绝且零部分产物；
+/// 面 B 拒绝变体（#1218/#1217）：T 裁决/历史时刻保存必须结构化拒绝且零部分产物；
 /// 成功捕获或其他错误均失败（双向钉边）。
 pub(crate) fn lane_change_refusal_variant(sample: &install::Sample) -> Result<&'static str, Error> {
     match sample.world.capture_snapshot() {

@@ -56,7 +56,7 @@ mod tests {
         assert_eq!(updates.retained_logical_bytes(), reserved);
     }
 
-    /// #814 验收：提交权威只有一份运动列。发布交换 Current/Next 两套列缓冲，
+    /// #814 验收：提交裁决只有一份运动列。发布交换 Current/Next 两套列缓冲，
     /// 不整表复制，也不经过逻辑值数组写回。
     #[test]
     fn publish_exchanges_column_buffers_without_copying_committed_motion() {
@@ -296,7 +296,7 @@ pub(crate) struct MotionUpdates {
     order: Vec<UpdateRow>,
     control: Vec<ControlUpdate>,
     control_by_row: Vec<u32>,
-    /// P6 三个消费者共用的规范有序行号；每拍重建，不持有资源权威。
+    /// P6 三个消费者共用的规范有序行号；每拍重建，不持有资源裁决权。
     resource_rows: Vec<usize>,
     published: bool,
 }

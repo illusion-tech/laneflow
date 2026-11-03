@@ -121,7 +121,7 @@ fn t_world_with_route_and_vehicle() -> (TrafficWorld, crate::RouteHandle, crate:
     (world, route, vehicle)
 }
 
-/// 该车当前是否持有过渡态权威（T `Clearing` 遍历或覆盖过渡出现记录的预约）。
+/// 该车当前是否持有过渡态裁决权（T `Clearing` 遍历或覆盖过渡出现记录的预约）。
 /// 静态机动的预约/遍历不在此列——它们是可表达状态（零变化域）。
 fn holds_transition_state(world: &TrafficWorld, vehicle: crate::VehicleHandle) -> bool {
     use crate::ManeuverTraversalPhase;
@@ -250,7 +250,7 @@ fn s1_s2_s3_real_tick_transition_lifecycle_rejects_structurally() {
                 Err(SnapshotCaptureError::UnsupportedTransitionState(
                     UnsupportedTransitionState::AdmissionHopWithoutGate
                 )),
-                "tick {tick} 持 T 权威须按准入位点结构化拒绝"
+                "tick {tick} 持 T 裁决须按准入位点结构化拒绝"
             );
             assert_eq!(
                 world.direct_state_digest(limits()),

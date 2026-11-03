@@ -1693,7 +1693,7 @@ pub(crate) fn check_conflict_capability(
         if cleared {
             continue;
         }
-        // 首段 T 没有可供下一拍申请预约的上游 hop；整车清空前不能无权威放置。
+        // 首段 T 没有可供下一拍申请预约的上游 hop；整车清空前不能无裁决权放置。
         if gate_hop == 0
             && occurrences.iter().any(|occurrence| {
                 occurrence.entry.route_edge_index == 0
@@ -3520,7 +3520,7 @@ pub(crate) mod compile_route_tests {
                         editing::IidmVehicleProfileInput::try_new(
                             // 钉版红线（样本 v5）：desired ≥13.9 实落 15.0、
                             // min_gap 2.5、comfort 4.5（a_service）、emergency
-                            // 9.0——d_stop(13.9)=26.75m 合同权威口径。
+                            // 9.0——d_stop(13.9)=26.75m 合同规范口径。
                             4.5, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0,
                         )
                         .unwrap(),

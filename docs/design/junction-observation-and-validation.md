@@ -171,7 +171,7 @@ ASCII 字体限制使用精确英文标识符；实现与纪律见
 | 展示与重放             | headless／调试开关结果一致，独立同输入 state/event digest 一致，catch-up 每成功 tick 不漏读                  |
 
 错误与极限边界专项复用现有 Waiting/Conflict、snapshot/cutover 和 共享路网修订测试；
-静态声明、proposal/reducer 与 raw-handle permutation 在小型可解释场景中验证其权威
+静态声明、proposal/reducer 与 raw-handle permutation 在小型可解释场景中验证其正本
 不变量。只有已确认的现实缺陷才扩大矩阵。raw-handle permutation 比较按逻辑身份
 归一化的结果，不要求本来含不同句柄的序列化载荷逐字节相等。
 

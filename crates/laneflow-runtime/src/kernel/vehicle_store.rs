@@ -1,4 +1,4 @@
-//! 列式活动运动权威；逻辑值仅在查询/管理边界组装（ADR 0031）。
+//! 列式活动运动正本；逻辑值仅在查询/管理边界组装（ADR 0031）。
 
 use crate::kernel::tables::VehicleSlot;
 use crate::{RouteHandle, VehicleHandle, VehicleState, VehicleStatus};
@@ -340,7 +340,7 @@ impl VehicleStore {
         Ok(())
     }
 
-    /// 只增长真实生命周期/控制变化需要的池；失败不改变任何车辆或资源权威。
+    /// 只增长真实生命周期/控制变化需要的池；失败不改变任何车辆或资源裁决权。
     pub(crate) fn try_prepare_pools(
         &mut self,
         inactive: usize,
@@ -855,7 +855,7 @@ impl VehicleStore {
     }
 }
 
-/// 管理/测试边界的短期编辑值；无并发借用，离开作用域立即写回唯一列权威。
+/// 管理/测试边界的短期编辑值；无并发借用，离开作用域立即写回唯一列正本。
 pub(crate) struct SlotEdit<'a> {
     store: &'a mut VehicleStore,
     index: usize,

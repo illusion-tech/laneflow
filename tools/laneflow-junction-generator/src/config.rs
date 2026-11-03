@@ -7,7 +7,7 @@ use crate::Error;
 
 pub const CONFIG_VERSION: &str = "0.1";
 /// 车辆横向包络的工程假定（profile 无 width 字段）：槽位跨边重叠过滤与
-/// lane_width 下限共用这一个权威值。
+/// lane_width 下限共用这一个正本值。
 pub const VEHICLE_WIDTH_ENVELOPE_METERS: f64 = 2.0;
 const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 

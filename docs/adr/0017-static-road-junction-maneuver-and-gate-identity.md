@@ -274,7 +274,7 @@ schema 语义，超出 protected-turning 最小闭环，因此拒绝。
 - #229：在 #228/#196 G4 后原子实现 Core/Data/schema/generator target。
 - #190–#192：交付示例、统一验证与 closure。
 
-如果未来改变 owner 层级、让 Route 不再拥有 traversal、把 conflict 权威放入
+如果未来改变 owner 层级、让 Route 不再拥有 traversal、把 conflict 裁决权放入
 SignalController/Adapter、允许 dynamic topology，或让 JunctionGroup 成为单一行为
 求解器，必须新增或 supersede 本 ADR，不得通过 private 实现静默改变 Accepted
 语义。

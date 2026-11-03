@@ -1353,7 +1353,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .iter()
             .find(|entry| !authorized(entry.entry_hop))
             .map(|entry| entry.entry_hop);
-        // 申请资格不能决定运动屏障。既有权威和本拍 grant 只授权各自的 Gate。
+        // 申请资格不能决定运动屏障。既有裁决权和本拍 grant 只授权各自的 Gate。
         let Some(hop) = conflict.into_iter().chain(waiting).min() else {
             return Ok(None);
         };
@@ -2936,7 +2936,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         }
         // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
         // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
-        // 生命周期守卫读面（#1199）：已持冲突权威（B 裁定一 owner 一权威）
+        // 生命周期守卫读面（#1199）：已持冲突裁决权（B 裁定一 owner 一裁决权）
         // =穿越进行中——不再发起新候选（跨界后边界规范化使上一 hop 仍在
         // 可行集，防再申请炸束）。
         let lifecycle_read = crate::kernel::phase::StepReadView {
@@ -2951,7 +2951,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .conflict_dispatch_hops
             .partition_point(|hop| *hop < first_possible_hop);
         for &gate_hop in &compiled.conflict_dispatch_hops[dispatch_start..] {
-            // 生命周期守卫（#1199 P1-5）：持权威=穿越进行中——仅跳过**同
+            // 生命周期守卫（#1199 P1-5）：持裁决权=穿越进行中——仅跳过**同
             // 资源**再申请（防重复获取）；相邻过渡链（T0a→T0b）异资源请求
             // 放行（进链前获取相邻过渡资源——链式预取语义）。
             if let Some(reservation) = lifecycle_read.conflict_reservation(state.handle) {
@@ -4104,7 +4104,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         );
     }
 
-    /// 把本拍 Conflict 资格、权威与清空记录写入迁移日志。
+    /// 把本拍 Conflict 资格、裁决与清空记录写入迁移日志。
     pub(crate) fn write_conflict_tick_journal(
         &self,
         journal: &mut MigrationDeltaJournal,
@@ -7675,7 +7675,7 @@ impl ConflictTaskView<'_> {
             .conflict_dispatch_hops
             .partition_point(|hop| *hop < first_possible_hop);
         for &gate_hop in &compiled.conflict_dispatch_hops[dispatch_start..] {
-            // 生命周期守卫（#1199）：已持权威=穿越进行中，不再发起新候选。
+            // 生命周期守卫（#1199）：已持裁决权=穿越进行中，不再发起新候选。
             if self.read.conflict_reservation(state.handle).is_some() {
                 break;
             }

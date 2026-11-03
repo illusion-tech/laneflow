@@ -43,7 +43,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             extends: None,
         })
         .map_err(|e| compile_error("participant class", e))?;
-    // 换道者与背景共用车型；钉版参数承接 R1b s12 权威口径（a_service 4.5、
+    // 换道者与背景共用车型；钉版参数承接 R1b s12 规范口径（a_service 4.5、
     // min_gap 2.5、d_stop(10 m/s)=15.61 m 前提）。
     builder
         .add_vehicle_profile(VehicleProfileInput {

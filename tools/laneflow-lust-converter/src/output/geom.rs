@@ -146,7 +146,7 @@ pub(crate) fn internal_lane_junction(lane_id: &str) -> Option<String> {
 
 /// 由 lane id 与发射层规范错误串构造诊断记录（纯函数；收集由调用方持有，
 /// 无跨转换全局状态）。
-/// 由调用方按权威元数据（`SumoLane::function_internal`）解析好的
+/// 由调用方按正本元数据（`SumoLane::function_internal`）解析好的
 /// internal 标记（#253 Q6：id 前缀只是 LuST 命名习惯）。
 pub(crate) fn classify_infeasible(
     lane_id: &str,

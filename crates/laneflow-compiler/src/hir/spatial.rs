@@ -895,7 +895,7 @@ pub(crate) fn build_spatial_hir(
         }
     }
     // RoadEditing junction-internal edge 不重复声明 successor。对 Synthetic 已由 successor
-    // 覆盖的转换跳过，剩余 ManeuverPath 转换仍走完全相同的 frame/间隙/方向权威。
+    // 覆盖的转换跳过，剩余 ManeuverPath 转换仍走完全相同的 frame/间隙/方向正本。
     for path in maneuver_paths {
         let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
         for pair in path_edges.windows(2) {

@@ -38,7 +38,7 @@ pub(crate) mod phase;
 pub(crate) mod placement;
 /// 显式世界策略绑定与步长派生表。
 pub(crate) mod policy;
-/// 已提交 pose 与信号批次的权威来源。
+/// 已提交 pose 与信号批次的正本来源。
 pub(crate) mod pose;
 mod resource_rows;
 /// 道路准入（生成）的物理边重叠候选索引。
@@ -55,7 +55,7 @@ pub(crate) mod transitions;
 pub(crate) mod units;
 /// 已提交车辆生命周期状态与替换记录。
 pub(crate) mod vehicle;
-/// 分块列式车辆权威与完整句柄目录。
+/// 分块列式车辆正本与完整句柄目录。
 pub(crate) mod vehicle_store;
 /// 等待区运行时状态与准入裁决。
 pub(crate) mod waiting;

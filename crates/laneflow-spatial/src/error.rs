@@ -27,7 +27,7 @@ impl fmt::Display for SpatialAxis {
     }
 }
 
-/// LaneFlow Spatial 权威边界的结构化错误。
+/// LaneFlow Spatial 正本边界的结构化错误。
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum SpatialError {

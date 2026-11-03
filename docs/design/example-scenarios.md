@@ -20,7 +20,7 @@ JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的
   示例层一至一万调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
   写回本文件。
 - [`real-road-workloads.md`](real-road-workloads.md)：LuST static / TOPO / DEMAND
-  权威。
+  正本。
 
 ## 1. 目标与交付边界
 
@@ -176,7 +176,7 @@ through/right yellow -> all red` 依次服务 main 与 secondary active set，�
 ### 6.1 Native runtime 参数
 
 走廊 Bevy 入口 `corridor_traffic` 使用 `50..=200` 人口，默认 `100` 车、seed `0`。
-权威 catalog 是 0.4（必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。
+正本 catalog 是 0.4（必填 `policy_selection`，每条路线含有序 `laneEdgeKey`）。
 仓库 fixture 为 format 5 LFCA 与 catalog 0.4；先把 catalog 绑到共享路网修订并准备人口计划，
 显式使用绑定的策略安装世界，再注册路线并生成初始人口。运行命令为：
 
@@ -193,7 +193,7 @@ step 前失败，不能静默 clamp。`corridor_traffic` 复用 opt-in `native-e
 `corridor_traffic` 组合现有 caller-owned 人口与 Adapter 事务，提供持续车流、灯具、
 HUD 和相机；宿主不改变本文件的场景、PRNG 或制品契约。启动参数、宿主边界和可执行验收以
 [Bevy 设计 §13–§15](bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)
-为唯一权威；历史 native 验证不能作当前宿主实现的交付证据。
+为准；历史 native 验证不能作当前宿主实现的交付证据。
 
 ### 6.2 Stable spawn-slot catalog
 
@@ -339,9 +339,9 @@ cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config exam
 `check` 不写文件。catalog 与 LFCA 字节对拍由 `laneflow-corridor-generator` 测试覆盖，随
 `cargo test --workspace` 进入 `Rust checks`，不再单独跑 generator `check`。
 
-## 10. 分层权威与实施切片
+## 10. 分层职责与实施切片
 
-| 关注点                                                                   | 权威层                               | 实施 Issue     |
+| 关注点                                                                   | 归属层                               | 实施 Issue     |
 | ------------------------------------------------------------------------ | ------------------------------------ | -------------- |
 | per-edge speed limit、v0.8 引入且 current v0.10 继承的 topology/纵向约束 | Data/Core                            | #185/#229/#262 |
 | caller-driven atomic replace、overlap 与 identity invariant              | TrafficWorld                         | #475           |
@@ -355,10 +355,10 @@ cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config exam
 | v0.9 独立 closure review，不新增 runtime 行为                            | Cross-layer closure                  | #192           |
 
 TrafficWorld 是 vehicle identity、状态、overlap、Route、SignalStop 和 speed-limit
-behavior 的权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、
+behavior 的正本，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、
 catalog 0.4 normalization 和 portal/lane/weighted-route 决策的 reference authority；
-未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是
-VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有
+未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的正本；Adapter 是
+VehicleHandle/Entity 部分双射与宿主 schedule 的正本；Presentation 只拥有
 proxy/model/Transform/灯具和 route-class 视觉。
 
 ## 11. 验收矩阵
