@@ -73,6 +73,7 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。完�
 | `junction_debug`     | 复杂路口领域观测与可视诊断   | 四车确定性场景，F2 开关只读 overlay（mesh/文本）                                 |
 | `culling_extraction` | 按视野选择提取与隐藏         | 启动时生成路口网格，默认 9 格约 2,800 车，支持 `1..=32` 格，车辆跑完路线后不回流 |
 | `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含过早停入、离场失败和真正移除                      |
+| `revision_cutover`   | 运行中切换路网修订           | 按 `C` 在两个修订间切换，环路车保持身份，含未清场回切被拒、清场和重试            |
 
 最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
 `examples/support/quickstart_scene.rs`，从同一带策略的空间 fixture 显式绑定
@@ -95,6 +96,10 @@ HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移
 停车表现的入口是 `parking_lifecycle`：可见性由车辆状态、停车绑定和位姿来源决定，批次只提供
 位姿。虚拟停车的车辆隐藏但保留映射，只有 `despawn_vehicle` 成功才销毁 Entity；HUD 显示每个
 角色的阶段和最近一次被拒绝的命令。
+修订切换的入口是 `revision_cutover`：切换在 `LaneFlowOuterFrameSet::Administration` 中执行，
+成功时复核旧批次、交付事件、交还旧 Spatial 并重建路面。路线还引用支路时回切会被拒绝，宿主先移除
+车辆再删除路线，下一帧重试；有车越过目标边长时等它驶离后重试。这是同步的维护暂停式切换，不是
+低停顿在线切换。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
@@ -110,6 +115,9 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
 cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
 cargo +1.99.1 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
 cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
+cargo +1.99.1 run --locked -p laneflow-bevy --example revision_cutover --features native-example
+cargo +1.99.1 test --locked -p laneflow-bevy --test revision_cutover_smoke
+cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example revision_cutover
 ```
 
 完整 C01–C13 验收、确定性出图与独立 headless 摘要对照见
