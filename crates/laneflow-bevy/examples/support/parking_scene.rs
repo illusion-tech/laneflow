@@ -72,7 +72,7 @@ pub(super) enum Role {
     Through,
 }
 
-/// 车辆的停车目标与首个入口所在的路线出现项。
+/// 车辆的停车目标与首个入口所在的路线出现记录。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Plan {
     None,

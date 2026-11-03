@@ -37,7 +37,7 @@ const LAPS: u32 = 64;
 const RING: [&str; 4] = ["south", "east", "north", "west"];
 /// 支路车的起点离开分叉处，避免与刚驶上 `north` 的环路车在画面上重叠。
 pub(super) const SPUR_START_MM: u32 = 10_000;
-/// 4 辆环路车的 (路线出现项, 进度)，互相隔开足够跟驰距离。
+/// 4 辆环路车的 (路线出现记录, 进度)，互相隔开足够跟驰距离。
 const RING_CARS: [(u32, u32); 4] = [(0, 20_000), (1, 10_000), (2, 50_000), (3, 5_000)];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

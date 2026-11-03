@@ -127,7 +127,7 @@ fn reserve_input(plan: Plan, entry_occurrence: u32) -> Result<ReserveParkingTarg
     }
 }
 
-/// 显式泊位在同一出现项离场；虚拟池的出口在入口的下一条边。
+/// 显式泊位在同一出现记录离场；虚拟池的出口在入口的下一条边。
 fn exit_occurrence(plan: Plan, entry_occurrence: u32) -> u32 {
     match plan {
         Plan::Pool { .. } => entry_occurrence + 1,
@@ -156,7 +156,7 @@ fn leave_input(
     }
 }
 
-/// 离场位置之后、相位相同的第一个入口出现项。
+/// 离场位置之后、相位相同的第一个入口出现记录。
 fn next_entry(entry_occurrence: u32, exit: u32) -> u32 {
     let phase = entry_occurrence % OCCURRENCES_PER_LAP;
     let mut next = exit + 1;
