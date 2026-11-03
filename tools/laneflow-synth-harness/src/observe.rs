@@ -323,6 +323,12 @@ impl Sample {
                         )
                     },
                 )?;
+                // 减速诊断（#1228）：L1 分支同样累加实测值（阈值口径与 W 族一致）。
+                let drop = old.speed_mm_s().saturating_sub(state.speed_mm_s());
+                self.max_deceleration_mm_s2 = self
+                    .max_deceleration_mm_s2
+                    .max((u64::from(drop) * 1_000).div_ceil(u64::from(dt)));
+                self.deceleration_above_profile_count += u64::from(drop > 6 * dt + 1);
             }
             let edge_changed = state.route_edge_index() != old.route_edge_index();
             if on_cluster {
