@@ -482,6 +482,37 @@ fn run_inner(
     let files=["ticks.json","frames.json","events.bin","checkpoints.json","resources.json","batches.json"]
         .into_iter().map(|name| Ok((name.to_owned(),json!({"sha256":hash(&fs::read(output.join(name))?),"bytes":fs::metadata(output.join(name))?.len()}))))
         .collect::<Result<serde_json::Map<_,_>,Error>>()?;
+    // lifecycle 区间分段汇总（#1233 对象 a）：command_execution +
+    // harness_other + residual 与 lifecycle_ns 守恒；validation 为 checkpoint
+    // 校验独立计时（不属于 lifecycle 区间）。
+    let lifecycle_segments = {
+        let mut lifecycle_ns = 0_u64;
+        let mut command_execution_ns = 0_u64;
+        let mut harness_other_ns = 0_u64;
+        let mut residual_ns = 0_u64;
+        let mut validation_ns = 0_u64;
+        for tick in &ticks {
+            lifecycle_ns += tick.lifecycle_ns;
+            command_execution_ns += tick.lifecycle_segments["command_execution_ns"]
+                .as_u64()
+                .unwrap_or(0);
+            harness_other_ns += tick.lifecycle_segments["harness_other_ns"]
+                .as_u64()
+                .unwrap_or(0);
+            residual_ns += tick.lifecycle_segments["residual_ns"].as_u64().unwrap_or(0);
+            validation_ns += tick.lifecycle_segments["validation_ns"]
+                .as_u64()
+                .unwrap_or(0);
+        }
+        json!({
+            "lifecycle_ns": lifecycle_ns,
+            "command_execution_ns": command_execution_ns,
+            "harness_other_ns": harness_other_ns,
+            "validation_ns": validation_ns,
+            "residual_ns": residual_ns,
+            "conserved": command_execution_ns + harness_other_ns + residual_ns == lifecycle_ns,
+        })
+    };
     Ok(
         json!({"format":"lf-synth-measurement-1","complete":true,"implementation_commit":implementation,
         "instrumented":cfg!(feature="allocation"),"round":round,"presentation_percent":percent,"identity":plan.identity,
@@ -490,6 +521,7 @@ fn run_inner(
         "ordered_events_equal":true,"ordered_events_digest":driver.events.digest(),"command_receipts_equal":true,
         "caller_commands":driver.command_count,"blocked_commands":driver.blocked_count,"checkpoints":checkpoints,
         "lifecycle_validation_ns":lifecycle_validation_ns,
+        "lifecycle_segments":lifecycle_segments,
         "completion_records":driver.completion_records,"arrival_records":driver.arrival_records,"files":files}),
     )
 }
