@@ -103,7 +103,7 @@ impl Driver {
             arrivals: vec![false; size / 100],
             arrival_count: 0,
             parked_at: None,
-            case: plan.identity.case,
+            case: plan.identity.case.clone(),
             events: Recorder::new(
                 plan.warm_up_ticks + plan.observation_ticks + 1,
                 plan.identity.scale,

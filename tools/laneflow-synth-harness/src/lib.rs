@@ -57,12 +57,12 @@ impl Plan {
         let plan: Self = serde_json::from_slice(&bundle.files()["input-plan.json"])?;
         let identity = &bundle.manifest().identity;
         let cycle = cycle_ms(identity.fixed_delta_ms);
-        let warm = if identity.case == Case::L1 {
+        let warm = if identity.lane_change().is_some() {
             lane_change_window(identity.fixed_delta_ms).0
         } else {
             (4 * cycle / u64::from(identity.fixed_delta_ms)).max(512)
         };
-        let observation = if identity.case == Case::L1 {
+        let observation = if identity.lane_change().is_some() {
             lane_change_window(identity.fixed_delta_ms).1
         } else if identity.case == Case::W4 {
             2
@@ -75,7 +75,7 @@ impl Plan {
                 && plan.warm_up_ticks == warm
                 && plan.observation_ticks == observation
                 && (plan.scheduled.is_empty()
-                    == matches!(identity.case, Case::W1 | Case::W2 | Case::L1))
+                    == matches!(&identity.case, Case::W1 | Case::W2 | Case::LaneChange(_)))
                 && !plan.rules.is_empty()
                 && !plan.boundary_order.is_empty(),
             || "只接受冻结完整窗口与对应命令计划".into(),
@@ -302,7 +302,7 @@ fn run_inner(
 ) -> Result<Value, Error> {
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
-    if matches!(plan.identity.case, Case::W3 | Case::W4) {
+    if matches!(&plan.identity.case, Case::W3 | Case::W4) {
         return burst::run(&bundle, &plan, implementation_commit, execution, output);
     }
     let mut sample = install::Sample::new(&bundle, execution)?;
@@ -311,7 +311,7 @@ fn run_inner(
     let mut stream = blake3::Hasher::new();
     stream.update(b"lf-synth-public-stream-1\0");
     let total = plan.warm_up_ticks + plan.observation_ticks;
-    let boundaries: Vec<u64> = if plan.identity.case == Case::L1 {
+    let boundaries: Vec<u64> = if plan.identity.lane_change().is_some() {
         vec![0, plan.warm_up_ticks, 2 * plan.warm_up_ticks, total]
     } else {
         vec![
@@ -331,7 +331,7 @@ fn run_inner(
         .enumerate()
         .map(|(rank, handle)| (handle, rank))
         .collect();
-    let mut events = if plan.identity.case == Case::L1 {
+    let mut events = if plan.identity.lane_change().is_some() {
         measurement::events::Recorder::new_lane_change(total + 1, plan.identity.scale)
     } else {
         measurement::events::Recorder::new(total + 1, plan.identity.scale)
@@ -375,7 +375,7 @@ fn run_inner(
     }
     trace.flush()?;
     events.write(&output.join("events.bin"))?;
-    if plan.identity.case == Case::L1 {
+    if plan.identity.lane_change().is_some() {
         // L 族：恰两换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
         let cluster = sample.lane_change_route.expect("L 族簇路线");
         require(
@@ -397,7 +397,7 @@ fn run_inner(
         )?;
     }
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
-        "scope":if plan.identity.case == Case::L1 {
+        "scope":if plan.identity.lane_change().is_some() {
             "L1_lane_change_competition_success_path_not_performance_or_product_certification"
         } else {
             "W1_W2_semantics_only_not_performance_or_product_certification"

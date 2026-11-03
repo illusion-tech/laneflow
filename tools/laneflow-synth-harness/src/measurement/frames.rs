@@ -141,7 +141,8 @@ mod tests {
                 let observation = if case == Case::W4 { 2 } else { 2 * warm };
                 let plan = Plan {
                     format: String::new(),
-                    identity: laneflow_synth_generator::Identity::new(10_000, case, dt).unwrap(),
+                    identity: laneflow_synth_generator::Identity::new(10_000, case.clone(), dt)
+                        .unwrap(),
                     warm_up_ticks: warm,
                     observation_ticks: observation,
                     boundary_order: Vec::new(),
