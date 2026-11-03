@@ -411,6 +411,13 @@ pub(super) fn restore(
         .ok_or_else(|| failure("profile view", "missing"))?
         .max_accel();
     let max_accel_mm_s2 = (f64::from(max_accel_mm_s2) * 1_000.0).round().max(0.0) as u32;
+    // 跨拍生命周期序在恢复端续接（#1227）：取宿主史中各槽位最后一次生命周期种类。
+    let mut lane_change_last_kind = [0_u32; 2];
+    for (_, slot, kind, _) in &host.lane_change_journal {
+        if (4..=7).contains(kind) && (*slot as usize) < 2 {
+            lane_change_last_kind[*slot as usize] = *kind;
+        }
+    }
     let sample = Sample {
         cursor: world.command_cursor(),
         world,
@@ -421,6 +428,7 @@ pub(super) fn restore(
         gates,
         lane_change_route,
         lane_change_journal: host.lane_change_journal.clone(),
+        lane_change_last_kind,
         route_offsets,
         previous: initial.clone(),
         initial,

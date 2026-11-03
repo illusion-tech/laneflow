@@ -35,6 +35,17 @@ pub(crate) fn position(state: VehicleState) -> u64 {
         + u64::from(state.carry_um())
 }
 
+/// 跨拍生命周期序（#1227）：`last_kind` 跨观测持续，接受并推进返回 true；
+/// 乱序（重复 acquire、release 后 clear 等）返回 false。
+fn lifecycle_order_valid(last_kind: &mut [u32; 2], slot: usize, kind: u32) -> bool {
+    if kind > last_kind[slot] {
+        last_kind[slot] = kind;
+        true
+    } else {
+        false
+    }
+}
+
 pub(crate) fn motion_valid(
     old_position: u64,
     new_position: u64,
@@ -397,7 +408,6 @@ impl Sample {
             format!("T 独占恰一被破坏 tick={tick} in_transition={in_transition}")
         })?;
         let events = self.world.latest_transition_events();
-        let mut last_kind = [0_u32; 2];
         for event in events {
             let vehicle = event.vehicle();
             let slot = if vehicle == leader {
@@ -434,16 +444,40 @@ impl Sample {
             };
             if (4..=7).contains(&kind) {
                 // 预约生命周期序：acquire(4) → enter(5) → clear(6) → release(7)。
-                require(kind > last_kind[slot], || {
-                    format!("换道预约生命周期事件乱序 tick={tick} slot={slot} kind={kind}")
-                })?;
-                last_kind[slot] = kind;
+                // 跨拍持续（#1227）：last_kind 保存在 Sample，避免每拍重置漏检跨拍乱序。
+                require(
+                    lifecycle_order_valid(&mut self.lane_change_last_kind, slot, kind),
+                    || format!("换道预约生命周期事件乱序 tick={tick} slot={slot} kind={kind}"),
+                )?;
             }
             self.lane_change_journal
                 .push((tick, slot as u8, kind, identity));
         }
         bytes.extend_from_slice(&(events.len() as u32).to_le_bytes());
         Ok(blake3::hash(bytes))
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_order_tests {
+    use super::lifecycle_order_valid;
+
+    #[test]
+    fn lifecycle_order_is_tracked_across_observations() {
+        // #1227：last_kind 跨观测持续，单拍重置会漏检跨拍乱序。
+        let mut last = [0_u32; 2];
+        for kind in [4, 5, 6, 7] {
+            assert!(lifecycle_order_valid(&mut last, 0, kind));
+        }
+        assert!(
+            !lifecycle_order_valid(&mut last, 0, 4),
+            "跨拍重复 acquire 必须拒绝"
+        );
+        assert!(
+            !lifecycle_order_valid(&mut last, 0, 6),
+            "release 后 clear 必须拒绝"
+        );
+        assert!(lifecycle_order_valid(&mut last, 1, 4), "槽位独立");
     }
 }
 
