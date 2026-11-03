@@ -620,7 +620,12 @@
     "zhipuai/glm-5v-turbo",
     "zhipuai/glm-image"
   ],
-  "local_models": [],
+  "local_models": [
+    {
+      "id": "meituan/longcat-2.5",
+      "source": "https://longcat.chat/platform/docs/change-log"
+    }
+  ],
   "aliases": [
     {
       "alias": "claude-opus-5.5",
