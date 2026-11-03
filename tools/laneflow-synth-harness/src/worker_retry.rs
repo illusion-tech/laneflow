@@ -40,6 +40,43 @@ const MAX_CONFIGURED_WORKERS: u32 = 32;
 /// L 族注入断点（#1218 D6）：换道预约相关断点。
 const L_FAILPOINTS: [&str; 2] = ["AfterGrants", "AfterTransitions"];
 
+/// 矩阵任务序列：6 个正常参考（W3/W4 × 2 尺度 + L1 × 2 尺度）在前，
+/// 120 个重试在后。L1 正常参考必须显式补齐——`jobs()` 的 L1 行均带注入
+/// 断点，若只按 `inject.is_empty()` 过滤，正常参考只有 4 个，
+/// `normals.len() == 6` 闸门永不开启（F2 死锁，#1218 正式运行暴露）。
+fn tasks() -> Vec<Task> {
+    let jobs = jobs();
+    let mut tasks: Vec<_> = jobs
+        .iter()
+        .copied()
+        .filter(|(job, inject)| job.workers == 1 && job.round == 1 && inject.is_empty())
+        .map(|(job, _)| Task {
+            job,
+            normal: true,
+            inject: "",
+        })
+        .collect();
+    for (scale, dt) in [(10_000, 16), (100_000, 33)] {
+        tasks.push(Task {
+            job: Job {
+                scale,
+                case: "L1",
+                dt,
+                workers: 1,
+                round: 1,
+            },
+            normal: true,
+            inject: "",
+        });
+    }
+    tasks.extend(jobs.iter().copied().map(|(job, inject)| Task {
+        job,
+        normal: false,
+        inject,
+    }));
+    tasks
+}
+
 fn ensure(valid: bool, message: &str) -> Result<(), Error> {
     if valid {
         Ok(())
@@ -466,22 +503,7 @@ fn run_matrix(
     summary["binary"] = file_identity(&binary)?;
     summary["test_binary"] = file_identity(test_binary)?;
     summary["environment"] = environment;
-    let jobs = jobs();
-    let tasks: Vec<_> = jobs
-        .iter()
-        .copied()
-        .filter(|(job, inject)| job.workers == 1 && job.round == 1 && inject.is_empty())
-        .map(|(job, _)| Task {
-            job,
-            normal: true,
-            inject: "",
-        })
-        .chain(jobs.iter().copied().map(|(job, inject)| Task {
-            job,
-            normal: false,
-            inject,
-        }))
-        .collect();
+    let tasks = tasks();
     let mut normals = BTreeMap::new();
     let mut completed = BTreeMap::<String, (Task, Value)>::new();
     let mut comparisons = BTreeMap::<String, Value>::new();

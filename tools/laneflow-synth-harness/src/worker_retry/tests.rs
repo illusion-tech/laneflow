@@ -47,6 +47,33 @@ fn retry_jobs_cover_identities_failpoints_five_workers_and_three_fresh_rounds() 
     );
 }
 
+#[test]
+fn retry_tasks_have_six_normal_references_before_retries() {
+    // 回归（#1218 正式运行死锁）：前 6 个任务必须是正常参考（W3/W4 × 2
+    // 尺度 + L1 × 2 尺度），否则 `normals.len() == 6` 闸门不开启，
+    // 120 个重试永不启动。
+    let tasks = tasks();
+    assert_eq!(tasks.len(), 126);
+    assert_eq!(tasks.iter().filter(|task| task.normal).count(), 6);
+    assert!(tasks[..6].iter().all(|task| task.normal));
+    assert!(tasks[6..].iter().all(|task| !task.normal));
+    let mut normal_identities: Vec<String> =
+        tasks[..6].iter().map(|task| task.job.identity()).collect();
+    normal_identities.sort();
+    let expected: Vec<String> = [
+        "10000-L1-16",
+        "10000-W3-16",
+        "10000-W4-16",
+        "100000-L1-33",
+        "100000-W3-33",
+        "100000-W4-33",
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(normal_identities, expected);
+}
+
 fn observations_fixture() -> (Value, Value) {
     let report = json!({"failure_boundary":10,"final_tick":12,"final_cursor":7,"cursor_before_commands":2,
         "cursor_after_commands":5,"cursor_after_retry":5,"input_manifest":{"identity":{"fixed_delta_ms":16}}});
