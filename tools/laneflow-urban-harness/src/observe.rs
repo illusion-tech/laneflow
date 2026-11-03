@@ -669,7 +669,7 @@ fn occupied_yield_pulse(
     None
 }
 
-/// 决策批编码的只读块：块字节与 v2 顺序流对应切片逐字节一致；v3 取块
+/// 决策批编码的只读块：块字节与 v2 顺序流对应任务类别逐字节一致；v3 取块
 /// 字节的叶摘要，主线程按块序送入根哈希。
 fn waiting_decision_block(
     view: &StateView<'_>,

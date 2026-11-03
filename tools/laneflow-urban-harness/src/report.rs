@@ -1258,7 +1258,7 @@ fn compare_complete(
                     "performance arms use the same worker count; use three-round aggregation for same-worker evidence",
                 ));
             }
-            // 本切片只支持同源码、同工具链、同硬件/电源条件、仅 worker
+            // 本部分只支持同源码、同工具链、同硬件/电源条件、仅 worker
             // 不同的 A/B：两次运行的 provenance 除 workers 外必须全等。
             let mut left = left.clone();
             let mut right = right.clone();

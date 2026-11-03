@@ -274,7 +274,7 @@ lowering 和编译器资源计量不需要第二套 offset parser 或整模块 w
 ### 直接实现完整 C 阶段
 
 它会把 #296 同时扩张为编辑器 UI、城市对象影响分析、#298 语义差异、#302 路网修订
-迁移和游戏规则项目，无法形成可独立验收切片。采用 A → C。
+迁移和游戏规则项目，无法形成可独立验收任务。采用 A → C。
 
 ### 把 portable canonical artifact 当作可编辑来源
 
@@ -313,7 +313,7 @@ verifier + 借用 view 和更少自定义协议为优先，接受受控 generate
    `road-editing-source-and-geometry-frontend.md` 必须精确
    回写被选编码、未选候选、兼容/删除清单、schema、依赖和 workload。
 3. G2 实现拆为可独立审阅的 PR 系列；任何偏离已接受产品/格式/资源边界的变更返回 G1。
-4. 实现、资源校准和外部审阅均绑定各自 exact head；最终集成切片通过前不得进入 G3。
+4. 实现、资源校准和外部审阅均绑定各自 exact head；最终集成任务通过前不得进入 G3。
 5. #298 继续只消费 validated canonical LIR；#302 继续拥有运行时修订切换；编辑器 UI、
    城市对象影响预览和迁移策略若超出既有 Issue，必须拆出独立 Delivery Issue。
 6. `RoadEditingSourceDiff` 与 authoring-only 冲突合并已登记为独立后继 Delivery Issue

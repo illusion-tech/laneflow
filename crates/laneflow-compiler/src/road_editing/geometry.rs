@@ -2,7 +2,7 @@
 //!
 //! 本模块只实现固定 scalar-dual 运算图、line/cubic evaluator 和 offset 前置的
 //! horizontal-regularity walk，以及不拥有容器的自适应点表细分。station 强制边界和
-//! 共同 Typed AST 组装由后续切片组合，避免在数值内核中建立第二套拓扑或资源裁决权。
+//! 共同 Typed AST 组装由后续任务组合，避免在数值内核中建立第二套拓扑或资源裁决权。
 
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,

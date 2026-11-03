@@ -1,4 +1,4 @@
-//! 共享路网修订认证（#959 切片 A；`traffic-runtime-state-integrity.md` §4.2）。
+//! 共享路网修订认证（#959 A 部分；`traffic-runtime-state-integrity.md` §4.2）。
 //!
 //! 宿主在安装、恢复、Spatial 绑定与切换之前及在用修订审计时调用的只读入口：
 //! ① 来源准备——reader 受检、同修订判据、按同一 builder 完整构建候选修订

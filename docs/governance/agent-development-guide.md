@@ -34,7 +34,7 @@ AI Agent 开工前应读取：
 
 AI Agent 应遵守以下流程：
 
-1. 确认 Issue 原生 Type、`area:*` 影响范围，以及 PR 验证切片类型；三者不是同一维度。
+1. 确认 Issue 原生 Type、`area:*` 影响范围，以及 PR 验证任务类别；三者不是同一维度。
 2. 在 GitHub 侧边栏维护 Project、Milestone、Labels、parent 与 blocked-by 等；不要把
    这些字段抄进 Issue 正文。高影响变更先确认 ADR / design。
 3. 读取现有代码和测试。

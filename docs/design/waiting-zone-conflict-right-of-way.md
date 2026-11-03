@@ -24,7 +24,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 ## 1. 当前基线与用途
 
 本文描述 Waiting、Conflict 和 downstream clearance 在同一车辆 traversal 中如何组合，
-并给各实施切片划定唯一 ownership。#282 的字段、固定步进、持久化和验收细节见
+并给各实施批次划定唯一 ownership。#282 的字段、固定步进、持久化和验收细节见
 `traffic-runtime-waiting-zone.md`；本文不另造一套实现合同。
 
 当前生产基线为：
@@ -659,7 +659,7 @@ completion 来自已确认的 traversal 结束转移，车头先经过 exit 而�
 已经 Completed；非空设置仍要求 Active，一帧末尾校验最终组合状态。
 
 #284 已在本节 policy、arbiter、grant/reservation、组合 ledger、snapshot/cutover 与生产
-tick 同切片安装后原子移除 #559 临时错误；当前不存在单独绕过资源 owner 的生产入口。
+tick 同批次安装后原子移除 #559 临时错误；当前不存在单独绕过资源 owner 的生产入口。
 
 ### 6.9 fixed step、观察、事件与 first-error
 
@@ -959,7 +959,7 @@ prevention；这些由 #284 的完整合同覆盖。
   prevention；不交换 committed membership，不放宽每车一个新 claim；
 - 与 #282 Waiting 状态、#559 occurrence、Parking、snapshot 和 cutover 的原子组合；
 - first-error、ordered decision/event、10k/100k determinism/performance matrix；
-- 正式能力安装与 3A 临时保护移除在同一切片完成。
+- 正式能力安装与 3A 临时保护移除在同一任务完成。
 
 ### 共同不变量
 

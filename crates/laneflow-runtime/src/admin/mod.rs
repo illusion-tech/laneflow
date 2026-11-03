@@ -1,7 +1,7 @@
 //! 管理平面：快照、恢复、路网切换及迁移日志。
 
 pub(crate) mod cutover;
-/// 跨修订直移核心（#302 切换合同 §3；#513 切片 C-2）。
+/// 跨修订直移核心（#302 切换合同 §3；#513 C-2 部分）。
 pub(crate) mod cutover_migration;
 /// 切换事务对象：Prepare → Delta Catch-up → Quiescent Commit / 放弃。
 pub(crate) mod cutover_transaction;
@@ -9,7 +9,7 @@ pub(crate) mod cutover_transaction;
 pub(crate) mod format_admission;
 /// 迁移增量日志：已提交变更流的有界物化。
 pub(crate) mod migration_journal;
-/// 发布来源的共享路网修订认证门面（#959 切片 A）。
+/// 发布来源的共享路网修订认证门面（#959 A 部分）。
 pub(crate) mod root_attestation;
 /// 运行时快照的保存路径。
 pub(crate) mod snapshot;

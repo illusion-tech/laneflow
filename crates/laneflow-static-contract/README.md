@@ -2,7 +2,7 @@
 
 LaneFlow 编译器、线格式后发射检查与目标 Traffic Runtime 共享的静态契约值类型。
 
-本 crate 是 `no_std`、无分配且不依赖具体编译器实现的叶子 crate。首个实现切片冻结
+本 crate 是 `no_std`、无分配且不依赖具体编译器实现的叶子 crate。首个实现任务冻结
 标识 v1（Identity v1）的实体种类 / 字段标签登记表，并提供：
 
 - 128 位稳定标识（Stable ID）`StableId128`；

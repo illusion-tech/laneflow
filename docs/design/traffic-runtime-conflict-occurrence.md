@@ -189,7 +189,7 @@ accept iff next <= routeConflictOccurrenceCapacity
 超过容量返回独立的 `ConflictOccurrenceCapacityExceeded` 路线错误；不能伪装为边容量、
 普通 allocation failure 或静态格式限制。
 
-一项容量恰对应一条 `ConflictPassageOccurrence`。本切片不保留第二个按该计数线性增长
+一项容量恰对应一条 `ConflictPassageOccurrence`。本部分不保留第二个按该计数线性增长
 的 vector；Gate ranges、route coordinate 辅助列与既有 compiled-route 列均按 route
 edge/hop 数增长，继续由 `route_edge_occurrence_capacity` 约束。若后续需要新增
 每 passage 的并行 retained 列，必须返回 G1 明确其收费倍率或新容量，不能隐式扩大
@@ -297,7 +297,7 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 - #282 只拥有 WaitingZone 本地 membership/admission/storage，不得借 #283 预置通用
   Conflict grant、reservation 或组合 ledger。
 - #284 已直接消费本文的 passage address、route position、occurrence 与 Gate range，并
-  在同一切片建立车辆级 grant/reservation/tail-clear、snapshot/cutover 与 journal 后移除
+  在同一任务建立车辆级 grant/reservation/tail-clear、snapshot/cutover 与 journal 后移除
   临时保护。
 - #542 可以生成场景路线或显式 conflict authoring，但路线最终仍进入同一 Runtime
   编译器；场景 catalog 不保存另一份 occurrence 正本。
@@ -338,7 +338,7 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test compiled_networ
 
 ## 10. 非目标与返回 G1 条件
 
-本切片不实现：
+本部分不实现：
 
 - 静态 entity/field/role/format、Identity、LFSM/LFSD 或 Spatial 新版本；
 - 通用几何候选、right-of-way policy、gap、approach frontier；

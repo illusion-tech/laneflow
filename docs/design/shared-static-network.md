@@ -706,7 +706,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 
 - 生产 Runtime 需要把已排除的 UTF-8 冷字段（含 `regulation` 审计查询）或 approach
   实体变成切换完成条件；
-- 停车激活证明必须依赖 Spatial 泊位 pose，而不能使用本切片 Traffic 几何列；
+- 停车激活证明必须依赖 Spatial 泊位 pose，而不能使用本部分 Traffic 几何列；
 - AccessRule 需要第五个 target domain 或时变 overlay 才能完成 v0.10 切换；
 - 准入查询必须在 tick/绑定期扫描规则表，或每 world 重建 resolved 平面才能保持当前
   Core 语义；

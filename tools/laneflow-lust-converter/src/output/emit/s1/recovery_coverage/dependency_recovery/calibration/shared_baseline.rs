@@ -59,7 +59,7 @@ const RUN3_RESULTS_SHA256: &str =
 // ===== 文本拼接原语（位忠实导出；数值字符串逐字保留，不做浮点再序列化）=====
 // 背景（README 差异记录「导出路径有损再序列化（1 ULP）」）：经浮点解析/写出的
 // 数值字符串存在 ±1 ULP 漂移（如 `10.220051765441895` → `10.220051765441896`）。
-// 锚导出按字节从源文本切片，数字原文逐字保留。
+// 锚导出按字节从源文本部分，数字原文逐字保留。
 
 /// 跳过 JSON 空白。
 fn skip_ws(text: &[u8], pos: &mut usize) {
@@ -529,7 +529,7 @@ fn results_anchor_text(source_text: &str) -> String {
     format!("{{\n  \"source\": {source_json},{interior}\n}}\n")
 }
 
-/// plan §1 来源装载：①–④为仓库内历史切片研究制品（include_str 钉版），⑤经
+/// plan §1 来源装载：①–④为仓库内历史批次研究制品（include_str 钉版），⑤经
 /// `COHORT2_BASELINE_DIR` 钉版读取，⑥经 `COHORT2_RUN_DIR` 读取 #1134 run-03 输出
 /// （仅 `sumo::-25332_7_0` 有候选，原族 8 份在前、网格 8 份在后）。
 fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(usize, Value)> {

@@ -713,8 +713,7 @@ digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runt
    DEMAND 以 §6.2 构造位置，覆盖 `q` 边界、`high==low`、非法区间、非有限值和
    blocked retry 原值复用。固定测试向量须核对到 `u` 与 53 位分子，不只比较浮点
    打印文本。不得把测试专用公式或未被生产调用的 helper 宣称为 DEMAND 已交付。
-4. **运行认证**：现有路线/几何语义缺口未解决时，只能验收第 1、2 项的算法和诊断
-   切片；不产出伪造的完整 bundle/plan，不宣称新人口可运行。完整 v2 workload
+4. **运行认证**：现有路线/几何语义缺口未解决时，只能验收第 1、2 项的算法和诊断部分；不产出伪造的完整 bundle/plan，不宣称新人口可运行。完整 v2 workload
    认证须在这些既有前置条件满足后重跑 §7 的全部适用 oracle、digest 与回放检查。
 
 此设计不新建 Runtime 算法回调、公共摘要类型或工作负载专用执行路径。人口切换与
@@ -785,11 +784,11 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 跳过 source file 或静默切换来源。若未来从 Luxembourg OSM 自建 snapshot，必须
 独立来源 G1 并使用新 ID，例如 `LF-REAL-OSM-LUX-v1`；不得复用任何 LuST ID。
 
-## 10. 下游切片与治理边界
+## 10. 下游任务与治理边界
 
 #224 G4 后分别创建以下 G0 Issue：
 
-| 切片     | 交付                                                                                                          | 依赖/边界                                                                                                                                                                          |
+| 任务     | 交付                                                                                                          | 依赖/边界                                                                                                                                                                          |
 | -------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`](../../tools/laneflow-lust-converter/)；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
 | B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                             |
@@ -799,9 +798,9 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 | F        | 中国特色手工 authoring 样本和独立 workload ID                                                                 | 独立排期                                                                                                                                                                           |
 | G        | BeST 十万来源、裁剪和 workload                                                                                | 一万获取/转换链路稳定后独立 G1                                                                                                                                                     |
 
-产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
+产品路径上另有示例层任务（Parent #252），**不**改变上表 A–G 的 workload 语义：
 
-| 切片     | 交付                               | 依赖/边界                                                                                |
+| 任务     | 交付                               | 依赖/边界                                                                                |
 | -------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
 | H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
 | I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 正本）与 H 的契约；C/DEMAND 仍可选           |
@@ -811,5 +810,5 @@ behavior 或 crate dependency direction，也不新增 ADR。
 
 若任一实现要求新的通用 scenario controller、batch lifecycle API、public schema、
 Parking 合成、感应信号、rerouting、bus stop、partition/scheduler 或新的 Spatial
-frame contract，必须停止对应切片并完成独立 G1；满足 ADR 触发条件时先写 ADR，再
+frame contract，必须停止对应任务类别并完成独立 G1；满足 ADR 触发条件时先写 ADR，再
 进入实现。

@@ -460,7 +460,7 @@ exact Rust enum 由拥有该 boundary 的 #229/#190–#192 crate 定义，但不
 pedestrian、adaptive/actuated signal、通用 pathfinding、ConflictZone、
 reservation、RoadSection/LaneGroup/JunctionGroup runtime。
 
-## 10. 实施切片与完成边界
+## 10. 实施批次与完成边界
 
 | 交付                                                                        | owner Issue |
 | --------------------------------------------------------------------------- | ----------: |

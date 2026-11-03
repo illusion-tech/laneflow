@@ -40,7 +40,7 @@ impl RangeU32 {
         self.len == 0
     }
 
-    /// 按本区间从连续切片中借用对应子切片。
+    /// 按本区间从连续切片中借用对应子任务。
     pub(crate) fn slice<T>(self, values: &[T]) -> &[T] {
         let start = usize::try_from(self.start).expect("checked u32 range start");
         let end = usize::try_from(
@@ -281,7 +281,7 @@ impl EntityCounts {
 /// 面向 Traffic Runtime 的必选共享静态数据。
 ///
 /// 当前基线冻结所有实体基数、LaneEdge 热列/完整可执行 CSR，以及携带路径、transition、
-/// gate/waiting 引用的路口机动候选；后继 #440 实现切片继续加入其余静态关系，但不会改变
+/// gate/waiting 引用的路口机动候选；后继 #440 实现任务继续加入其余静态关系，但不会改变
 /// 根对象唯一共享所有权。
 pub struct SharedTrafficNetwork {
     pub(crate) entity_counts: EntityCounts,

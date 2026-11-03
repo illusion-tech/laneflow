@@ -332,13 +332,13 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 [`traffic-runtime-conflict-occurrence.md`](traffic-runtime-conflict-occurrence.md) 另设
 `route_conflict_occurrence_capacity`；两个计数由同一注册提交点原子维护。
 
-**G2 首切片实现决定**：`WorldConfig::new` 在 `route_capacity` 之后要求调用方显式提供
+**G2 首批实现决定**：`WorldConfig::new` 在 `route_capacity` 之后要求调用方显式提供
 `u64 route_edge_occurrence_capacity`，不设产品默认值；活动总量计数器同为 `u64`。
 空序列、路线槽容量、边 occurrence 容量依次预检；后两者分别返回
 `RouteError::CapacityExceeded` 与 `RouteError::EdgeOccurrenceCapacityExceeded`，checked
 加法不可表示与 max+1 共享后一个错误。仓库既有测试/证据 fixture 迁移时显式使用 `1_024`
 只表示该 fixture 的配置 provenance，不是产品默认值或单条路线限制。G2 第二
-切片已将 compiled-route 的所有已知长度热表改为 `try_reserve_exact` 预留；任一预留失败
+该任务已将 compiled-route 的所有已知长度热表改为 `try_reserve_exact` 预留；任一预留失败
 统一返回 `RouteError::AllocationFailed`，并由确定性失败注入覆盖「首次预留」与「部分热表
 已物化」两个边界；两者都不提交路线槽、活动路线数、边 occurrence 计数或空闲表。
 同修订 cutover 对 target 修订重编译路线时复用同一 `compile_route`；其热表预留失败映射为
@@ -407,9 +407,9 @@ seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、war
 `LF-SYNTH-v2` W1–W4；新增 Routing 专用拓扑或成本 payload 时使用新的具名 workload，
 不把“典型”“长路线”当作可重放身份。
 
-| 边界                   | 必测切片                                                                    | 必过不变量                                                                         |
+| 边界                   | 必测任务                                                                    | 必过不变量                                                                         |
 | ---------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| observation full       | All + 显式 1%/10%/100% 分区；零车、稀疏、一万/十万车辆；W1–W4 适用切片      | entryCount 等于选择边数（含零行）；失败零 session 推进                             |
+| observation full       | All + 显式 1%/10%/100% 分区；零车、稀疏、一万/十万车辆；W1–W4 适用任务      | entryCount 等于选择边数（含零行）；失败零 session 推进                             |
 | observation delta      | 0%/1%/10%/100% 行变化；同 tick 零行/生命周期提交；值归零                    | exact changed entries/bytes；严格 base/state 链；无导出时 tick 零新增观测工作/分配 |
 | dynamic cost receive   | 合法 payload、length/count/digest 各类错配、上限+1、未知版本                | 容量预检先于解析/分配/哈希；不进入 Runtime tick                                    |
 | candidate registration | 1/典型/长边序列；重复边；stale/future/revision/model/identity/topology 错配 | 唯一 route 编译器；direct/candidate 共用 occurrence 容量；失败零路线槽/计数变化    |
@@ -498,7 +498,7 @@ allocator 工作。
 
 完整环境、配置、逐 round raw samples、分配账本与复现命令登记在
 [#521 raw evidence comment](https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930)。
-该不可变 PR 证据与 source commit 配对，闭合 §7 的首轮具名描述性切片；真实 snapshot
+该不可变 PR 证据与 source commit 配对，闭合 §7 的首轮具名描述性测量；真实 snapshot
 restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代。
 
 ## 8. G2 边界与必测义务

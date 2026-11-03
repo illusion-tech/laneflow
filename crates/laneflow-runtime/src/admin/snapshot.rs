@@ -1,4 +1,4 @@
-//! 运行时快照的保存路径（#302 快照合同 §5；#512 切片 B）。
+//! 运行时快照的保存路径（#302 快照合同 §5；#512 B 部分）。
 //!
 //! 保存 = 固定步进安全边界上对已提交状态的**单一时点**捕获：只读
 //! 已提交事实、把进程句柄解析为快照局部标识与稳定标识。派生状态
@@ -170,7 +170,7 @@ pub struct CapturedSnapshot {
     pub(crate) time_ms: u64,
     /// 已应用输入命令计数。
     pub(crate) command_cursor: u64,
-    /// 已提交切换事件游标（#513 切片 C 起为真实轴）。
+    /// 已提交切换事件游标（#513 C 部分 起为真实轴）。
     pub(crate) event_cursor: u64,
     /// 安装时冻结的世界配置。
     pub(crate) config: WorldConfig,
@@ -574,7 +574,7 @@ impl CapturedSnapshot {
         self.command_cursor
     }
 
-    /// 已提交切换事件游标（#513 切片 C 起为真实轴）。
+    /// 已提交切换事件游标（#513 C 部分 起为真实轴）。
     #[must_use]
     pub const fn event_cursor(&self) -> u64 {
         self.event_cursor

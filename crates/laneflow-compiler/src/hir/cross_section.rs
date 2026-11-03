@@ -149,7 +149,7 @@ pub(crate) fn build_cross_section_hir(
         return Ok(CrossSectionHir::default());
     }
     // 只为会被引用解析访问的实体建立符号表，并按实体类别精确预留容量。RoadCorridor
-    // 与 AuthoringLane 在本切片中没有按键引用消费者；为它们建立查找表只会增加峰值内存。
+    // 与 AuthoringLane 在本部分中没有按键引用消费者；为它们建立查找表只会增加峰值内存。
     let mut section_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations

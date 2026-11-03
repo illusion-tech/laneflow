@@ -2364,7 +2364,7 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
         SnapshotRestoreError::SnapshotSourceRevisionMismatch
     );
 
-    // 事件游标随切片 C 事件批次通道成为真实轴：非零值恢复为世界状态。
+    // 事件游标随C 部分 事件批次通道成为真实轴：非零值恢复为世界状态。
     let mut event_cursor = world.capture_snapshot().expect("capture");
     event_cursor.event_cursor = 7;
     let restored = restore_lfrs(

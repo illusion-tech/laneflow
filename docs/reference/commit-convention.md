@@ -8,7 +8,7 @@
 
 LaneFlow 的提交信息以 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/)
 为标题基础。机器检查标题、`Refs` / `Closes` footer、破坏性变更的
-`BREAKING CHANGE:`，以及第 6 节的 AI 署名。切片、影响和验证写在 PR 模板里，
+`BREAKING CHANGE:`，以及第 6 节的 AI 署名。任务类别、影响和验证写在 PR 模板里，
 不进 commit 检查。
 
 ## 2. 推荐格式
@@ -53,7 +53,7 @@ PR body 使用 `Closes #<id>` 在合并后关闭 Issue。commit footer 默认仍
 - `revert`：回滚已提交变更。
 
 `scope` 可省略。`type` 表示变更性质，`scope` 表示本提交主要影响的组件或职责域；
-scope 不等同于 PR 的切片类型，也不要求把跨层变更硬塞进 `cross-layer`。没有单一主要
+scope 不等同于 PR 的任务类别，也不要求把跨层变更硬塞进 `cross-layer`。没有单一主要
 范围时可以省略 scope。
 
 scope 出现时必须是小写短标识：首字符为小写字母或数字，后续可以使用小写字母、

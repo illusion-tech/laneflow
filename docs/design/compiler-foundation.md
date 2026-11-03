@@ -75,7 +75,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 5. 建立编译时延、峰值 / 保留内存（Retained Memory）和规模扩展基线，不以运行时
    交通参与单元规模替代编译器工作量。
 
-## 2. 包与依赖切片
+## 2. 包与依赖拆分
 
 ### 2.1 当前包边界
 
@@ -1082,7 +1082,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 
 旧 `LF-COMP-CURRENT-EQUIV-v1` 曾覆盖的车辆逐步行为、事件和 current JSON
 对照只保留为 #292 历史证据，不再是调整后 #297 的活动验收要求。运行时行为由对应 Core /
-目标 Traffic Runtime 切片验证；编译器资源基线必须使用编译器原生 workload 另行建立。
+目标 Traffic Runtime 任务验证；编译器资源基线必须使用编译器原生 workload 另行建立。
 
 ### 9.1 当前投影证据
 

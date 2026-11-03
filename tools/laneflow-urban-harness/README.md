@@ -78,7 +78,7 @@ target/release/laneflow-urban-harness compare <run-1w> <run-4w> <comparison.json
 除 `measurements.toml` 测量记录外的完整交通语义（计划摘要、逐拍日志、检查点、
 角色见证与计数精确相等）；两次运行的 provenance 除 workers 外必须全等，diagnostics
 与 measurements 的 worker 记录矛盾即拒绝。比较报告在 `ComparedRun.workers`
-记录两次运行各自的 worker（自本切片起）。比较成功只表示跨运行语义匹配与来源条件
+记录两次运行各自的 worker（自本部分起）。比较成功只表示跨运行语义匹配与来源条件
 成立，不代表性能达标；正式性能结论仍以同 worker 三轮聚合
 （`compare <performance-a> <performance-b> <performance-c>`，provenance 全等
 含 workers）为准。

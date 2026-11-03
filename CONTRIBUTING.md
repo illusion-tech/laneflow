@@ -148,7 +148,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 - Analyze (actions) / Analyze (rust)：advanced CodeQL。
 - Review conversation：未解决对话由 GitHub Ruleset 原生阻断；普通 Review 不由自定义 CI Check 计数或盖章。
 
-数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用检查。
+数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应任务类别落地后继续加入专用检查。
 
 本地完整工作区检查：
 

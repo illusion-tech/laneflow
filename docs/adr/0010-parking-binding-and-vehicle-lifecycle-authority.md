@@ -105,7 +105,7 @@ exact `(LaneEdgeOrdinal, progress_mm)`。动态 route occurrence 只说明 route
 合法 anchor。显式泊位的 entry/exit 已由泊位静态事实唯一确定，因此禁止再携带 virtual
 selector。
 
-本切片不新增停车设施专属收费、营业时间、住户/访客权限或车辆尺寸策略。首版接入合法性
+本部分不新增停车设施专属收费、营业时间、住户/访客权限或车辆尺寸策略。首版接入合法性
 来自所选 anchor 的 LaneEdge/Route 和现行静态准入事实；若产品需要设施级 policy，另开
 G1，不把未冻结运营规则塞进 `virtual_capacity`。
 
@@ -301,7 +301,7 @@ binding 数 `B`：
 
 - 实现并消费当前静态制品/公共 registry 正本，不在停车实现里重新定义版本轴；
 - Runtime Snapshot 原子切换到本文和快照设计冻结的停车 binding 形状；
-- `ParkingArea` public symbol、旧停车入口和旧 snapshot reader/writer/schema 同切片移除；
+- `ParkingArea` public symbol、旧停车入口和旧 snapshot reader/writer/schema 同批次移除；
 - Runtime、Spatial 与 Adapter 同步切换，不留双 API、双读、双写或 alias。
 
 仓库不发布迁移工具或双读期；测试 fixture 直接再生为新正本。
@@ -361,7 +361,7 @@ binding 数 `B`：
 
 ## 实施与复核
 
-- #540：本 ADR、停车设计、跨层合同、术语和工作负载停车切片；只形成 G1 合同，
+- #540：本 ADR、停车设计、跨层合同、术语和工作负载停车部分；只形成 G1 合同，
   不声称 schema/Runtime 已实现。
 - #541：在 #540 G1 Accepted 后完成 clean-break production 实现与验证。
 - #543：按虚拟停车后的 exact topology 记录 10k/100k 各层计数；不得从车辆数或停车

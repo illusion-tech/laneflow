@@ -4,7 +4,7 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 
 规范契约：[`docs/design/real-road-workloads.md`](../../docs/design/real-road-workloads.md)。
 
-## 当前范围（切片 A）
+## 当前范围（A 部分）
 
 - `verify-source`：按 §2.2 对固定 commit / 文件做 size + SHA-256 fail-closed 校验。
 - `convert`：校验 source 后生成（G1 验收重划口径，诊断模式输出集合）：

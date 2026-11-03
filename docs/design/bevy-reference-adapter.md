@@ -315,9 +315,9 @@ Spatial batch extract
 
 #171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的一万/十万完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`。逐轮协议见 git 历史。该结果是当时 Bevy 0.19 campus 路径证据，不是 #301 后 `TrafficWorld` 的产品 SLA。
 
-## 11. 执行切片与 PR 角色
+## 11. 执行批次与 PR 角色
 
-| Issue | 交付切片                                               | 直接前置            |
+| Issue | 交付批次                                               | 直接前置            |
 | ----: | ------------------------------------------------------ | ------------------- |
 |  #169 | 最小 crate、Plugin/Session 与 fixed schedule（已完成） | 无活动 blocker      |
 |  #170 | Vehicle/Entity 映射与原子批量 Transform（已完成）      | #169（已完成）      |
@@ -541,7 +541,7 @@ C06 的 Adapter 故障使用现有公开 schedule 触发：先正常初始化 he
 §13.4 的真实 Step 失败停止语义仍适用，但 C06 不要求外部 example 强制制造它：
 Adapter 的 `step_world` 是私有实现且总是传入世界配置的 delta；Runtime 的
 `StepFailpoint` 仅供 crate 内部测试。Step 事务原子性由 Runtime 内部故障测试验证，
-不算作本 example 的端到端覆盖。本切片不新增测试钩子或公共 API；若后续要求真实
+不算作本 example 的端到端覆盖。本部分不新增测试钩子或公共 API；若后续要求真实
 `StepFailed` 穿过 Adapter 到宿主的注入验收，须另立测试接口设计，不能用缺失 Time
 或伪造错误枚举替代该路径的证据。
 
