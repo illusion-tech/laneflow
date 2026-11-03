@@ -70,7 +70,10 @@ fn waiting_zones_cover_fixture_zones_in_ordinal_order() {
         .traffic()
         .entity_counts()
         .count(EntityKind::WaitingZone);
-    assert_eq!(zone_count, 1, "fixture 恰有一个 WaitingZone（waiting-main）");
+    assert_eq!(
+        zone_count, 1,
+        "fixture 恰有一个 WaitingZone（waiting-main）"
+    );
     let expected: Vec<_> = (0..zone_count)
         .map(WaitingZoneOrdinal::from_raw)
         .map(|zone| world.waiting_zone(zone).expect("fixture zone snapshot"))

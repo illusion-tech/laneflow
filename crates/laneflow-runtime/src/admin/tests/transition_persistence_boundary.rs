@@ -467,7 +467,10 @@ fn s6_static_conflict_persistence_control_zero_change() {
 fn d3_cross_revision_migration_of_t_cell_network_fails_structurally_without_residue() {
     let revision = stream_bearing_revision();
     let mut world = install(revision.clone());
-    assert!(!transition_addresses(&world).is_empty(), "fixture 必须含 T 格");
+    assert!(
+        !transition_addresses(&world).is_empty(),
+        "fixture 必须含 T 格"
+    );
     let before = world
         .capture_snapshot()
         .expect("source without T state is expressible");
