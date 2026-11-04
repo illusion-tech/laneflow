@@ -542,7 +542,7 @@ fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(
     ))
     .unwrap();
     let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/positive-calibration.json"
+        "../../../../../../../tests/fixtures/issue-1111-positive-calibration.json"
     ))
     .unwrap();
     let curve: Value = serde_json::from_str(include_str!(
