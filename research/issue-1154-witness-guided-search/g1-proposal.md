@@ -1,5 +1,7 @@
 # #1154 见证引导整边搜索族候选资格验证 决策材料
 
+> > witness-inventory.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+
 **建议：生产 S1 的 G1 保持 Proposed（本切片不批准任何生产行为变更）。** 研究/测试切片：仅新增 `cfg(test)` 研究入口与研究文档，不改生产采样、compiler、数据格式、Adapter API、阈值、原成功几何/拓扑/控制锚点与任何依赖。依据 ADR 0022 / 0028 / 0033、Issue #1154 冻结草案 v2、`research/issue-1121-coverage-diagnosis/plan.md` 与本路[冻结计划](plan.md)（统筹裁决入档 + 口径修订 B）。
 
 ## 研究结论（供收口批汇总；含 Codex P2 修复后终值）
