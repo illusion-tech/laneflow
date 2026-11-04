@@ -83,7 +83,7 @@ fn run_family(
     let mut rows = BTreeMap::new();
     let mut times = BTreeMap::new();
     let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+        "../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
     ))
     .unwrap();
     for ((id, original), input) in observation.edges.iter().zip(&observation.inputs) {
