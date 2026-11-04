@@ -66,7 +66,7 @@ fn baseline_pool() -> combinations::Pools {
     ))
     .unwrap();
     let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+        "../../../../../../tests/fixtures/issue-1115-searches.json"
     ))
     .unwrap();
     let mut pools = pool(&legacy["tiers"]["32768"]["searches"]);

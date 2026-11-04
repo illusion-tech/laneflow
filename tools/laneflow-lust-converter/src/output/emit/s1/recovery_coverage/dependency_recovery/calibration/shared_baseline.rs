@@ -546,7 +546,7 @@ fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(
     ))
     .unwrap();
     let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+        "../../../../../../../tests/fixtures/issue-1115-searches.json"
     ))
     .unwrap();
     // 来源⑥只允许 sumo::-25332_7_0 出候选（合并链冻结）。

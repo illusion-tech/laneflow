@@ -718,7 +718,7 @@ fn baseline_pool_merges_sources_in_frozen_order() {
     ))
     .unwrap();
     let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+        "../../../../../../../tests/fixtures/issue-1115-searches.json"
     ))
     .unwrap();
     for (id, row) in positive["edges"].as_object().unwrap() {
