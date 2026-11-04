@@ -91,8 +91,10 @@ struct Timing {
     lifecycle_ns: u64,
     lifecycle_allocation: Option<Allocation>,
     lifecycle_commands: usize,
-    /// 生命周期命令执行累计纳秒（#1233 对象 a）：runtime 命令 API 段。
+    /// 生命周期命令循环累计纳秒（#1233 对象 a）：含 runtime 调用与 harness 记账。
     lifecycle_command_ns: u64,
+    /// runtime 命令 API 调用累计纳秒（#1233 F3）：命令循环内实际 runtime 调用。
+    runtime_command_ns: u64,
     /// checkpoint 校验累计纳秒（validate_population + state_digest + oracle 对比）。
     lifecycle_validation_ns: u64,
     active_before: u32,
@@ -103,6 +105,7 @@ fn lifecycle(ecs: &mut World) {
     ecs.resource_scope(|ecs, mut driver: bevy_ecs::world::Mut<Driver>| {
         let before = driver.lifecycle_commands;
         let command_before = driver.lifecycle_command_ns;
+        let runtime_before = driver.runtime_command_ns;
         let allocation = resources::start();
         let started = Instant::now();
         driver
@@ -113,6 +116,7 @@ fn lifecycle(ecs: &mut World) {
         let mut timing = ecs.resource_mut::<Timing>();
         timing.lifecycle_ns = elapsed;
         timing.lifecycle_command_ns = driver.lifecycle_command_ns - command_before;
+        timing.runtime_command_ns = driver.runtime_command_ns - runtime_before;
         timing.lifecycle_allocation = allocation;
         timing.lifecycle_commands = driver.lifecycle_commands - before;
         timing.active_before = driver.counts[0];
@@ -134,18 +138,32 @@ fn end_step(ecs: &mut World) {
     }
     let tick = session.world().tick_index();
     let mut timing = ecs.resource_mut::<Timing>();
-    let command_execution_ns = timing.lifecycle_command_ns;
-    let harness_other_ns = timing.lifecycle_ns.saturating_sub(command_execution_ns);
+    // 按执行者互斥划分（#1233 F3）：runtime 命令 API 调用 / harness 命令
+    // 记账（回执、断言、映射）/ 命令循环外 harness 其他。
+    let runtime_command_ns = timing.runtime_command_ns;
+    let harness_command_ns = timing
+        .lifecycle_command_ns
+        .saturating_sub(runtime_command_ns);
+    let harness_other_ns = timing
+        .lifecycle_ns
+        .saturating_sub(timing.lifecycle_command_ns);
     let residual_ns = timing
         .lifecycle_ns
-        .saturating_sub(command_execution_ns)
+        .saturating_sub(runtime_command_ns)
+        .saturating_sub(harness_command_ns)
         .saturating_sub(harness_other_ns);
     let lifecycle_segments = json!({
         "lifecycle_ns": timing.lifecycle_ns,
-        "command_execution_ns": command_execution_ns,
+        "runtime_command_ns": runtime_command_ns,
+        "harness_command_bookkeeping_ns": harness_command_ns,
         "harness_other_ns": harness_other_ns,
         "validation_ns": timing.lifecycle_validation_ns,
         "residual_ns": residual_ns,
+        "conserved": runtime_command_ns
+            + harness_command_ns
+            + harness_other_ns
+            + residual_ns
+            == timing.lifecycle_ns,
     });
     let row = TickSample {
         frame: timing.frame,
@@ -276,8 +294,15 @@ fn checkpoint(
     require(expected["state_digest"] == digest, || {
         format!("状态与 oracle 不同 tick={tick}")
     })?;
+    // 公开观测面摘要（#1233 F2）：快照拒绝时仍逐场比对，覆盖背景车辆
+    // 进度/速度漂移。
+    let public_digest = crate::public_state_digest(world)?;
+    require(expected["public_state_digest"] == public_digest, || {
+        format!("公开状态与 oracle 不同 tick={tick}")
+    })?;
     Ok((
         json!({"tick":tick,"time_ms":world.time_ms(),"state_digest":digest,"oracle_equal":true,
+        "public_state_digest":public_digest,
         "command_cursor":world.command_cursor(),"population":driver.counts}),
         nanos(started),
     ))
@@ -386,8 +411,9 @@ fn run_inner(
                 lifecycle_commands: 0,
                 core_allocation: allocation,
                 lifecycle_allocation: None,
-                lifecycle_segments: json!({"lifecycle_ns":0,"command_execution_ns":0,
-                    "harness_other_ns":0,"validation_ns":0,"residual_ns":0}),
+                lifecycle_segments: json!({"lifecycle_ns":0,"runtime_command_ns":0,
+                    "harness_command_bookkeeping_ns":0,"harness_other_ns":0,
+                    "validation_ns":0,"residual_ns":0,"conserved":true}),
                 traffic_active_before_step: driver.counts[0],
             });
             if is_checkpoint(&plan, tick) {
@@ -545,18 +571,22 @@ fn run_inner(
     });
     #[cfg(not(feature = "allocation"))]
     let transition_cost_json = json!(null);
-    // lifecycle 区间分段汇总（#1233 对象 a）：command_execution +
-    // harness_other + residual 与 lifecycle_ns 守恒；validation 为 checkpoint
-    // 校验独立计时（不属于 lifecycle 区间）。
+    // lifecycle 区间分段汇总（#1233 对象 a/F3）：runtime 命令 API +
+    // harness 命令记账 + harness 其他 + residual 与 lifecycle_ns 守恒；
+    // validation 为 checkpoint 校验独立计时（不属于 lifecycle 区间）。
     let lifecycle_segments = {
         let mut lifecycle_ns = 0_u64;
-        let mut command_execution_ns = 0_u64;
+        let mut runtime_command_ns = 0_u64;
+        let mut harness_command_ns = 0_u64;
         let mut harness_other_ns = 0_u64;
         let mut residual_ns = 0_u64;
         let mut validation_ns = 0_u64;
         for tick in &ticks {
             lifecycle_ns += tick.lifecycle_ns;
-            command_execution_ns += tick.lifecycle_segments["command_execution_ns"]
+            runtime_command_ns += tick.lifecycle_segments["runtime_command_ns"]
+                .as_u64()
+                .unwrap_or(0);
+            harness_command_ns += tick.lifecycle_segments["harness_command_bookkeeping_ns"]
                 .as_u64()
                 .unwrap_or(0);
             harness_other_ns += tick.lifecycle_segments["harness_other_ns"]
@@ -569,11 +599,16 @@ fn run_inner(
         }
         json!({
             "lifecycle_ns": lifecycle_ns,
-            "command_execution_ns": command_execution_ns,
+            "runtime_command_ns": runtime_command_ns,
+            "harness_command_bookkeeping_ns": harness_command_ns,
             "harness_other_ns": harness_other_ns,
             "validation_ns": validation_ns,
             "residual_ns": residual_ns,
-            "conserved": command_execution_ns + harness_other_ns + residual_ns == lifecycle_ns,
+            "conserved": runtime_command_ns
+                + harness_command_ns
+                + harness_other_ns
+                + residual_ns
+                == lifecycle_ns,
         })
     };
     Ok(
@@ -727,6 +762,7 @@ fn create_app(
             lifecycle_allocation: None,
             lifecycle_commands: 0,
             lifecycle_command_ns: 0,
+            runtime_command_ns: 0,
             lifecycle_validation_ns: 0,
             active_before: 0,
             ticks: Vec::with_capacity(total as usize),

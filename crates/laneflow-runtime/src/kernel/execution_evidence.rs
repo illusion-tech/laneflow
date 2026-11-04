@@ -111,7 +111,6 @@ pub(crate) struct Ledger {
     step_wall_ns: u64,
     stages: [StageTotals; STAGE_COUNT],
     routes: [[u64; 5]; PHASE_COUNT],
-    transition_cost: TransitionCostEvidence,
     current: Option<Stage>,
     /// 当前执行作用域内各阶段墙钟之和；作用域结束时余下部分记入 `unstaged`。
     staged_in_scope_ns: u64,
@@ -147,7 +146,17 @@ impl Ledger {
                     },
                 })
                 .collect(),
-            transition_cost: ledger.transition_cost,
+            transition_cost: {
+                let totals = crate::kernel::transition_cost::take();
+                TransitionCostEvidence {
+                    neighborhood_calls: totals.neighborhood_calls,
+                    labels_scan_steps: totals.labels_scan_steps,
+                    first_ring_scan_steps: totals.first_ring_scan_steps,
+                    neighborhood_entries: totals.neighborhood_entries,
+                    profile_calls: totals.profile_calls,
+                    profile_steps: totals.profile_steps,
+                }
+            },
             routes: ledger
                 .routes
                 .iter()
@@ -266,32 +275,6 @@ impl Drop for StageSpan {
 /// 登记一段独立计算本拍的执行路径。
 pub(crate) fn route(phase: Phase, route: Route) {
     with_active(|ledger| ledger.routes[phase as usize][route as usize] += 1);
-}
-
-/// 登记一次潜在进入者邻域枚举的扫描成本（#1233）。
-pub(crate) fn transition_neighborhood(
-    labels_scan_steps: u64,
-    first_ring_scan_steps: u64,
-    entries: u64,
-) {
-    with_active(|ledger| {
-        let cost = &mut ledger.transition_cost;
-        cost.neighborhood_calls += 1;
-        cost.labels_scan_steps = cost.labels_scan_steps.saturating_add(labels_scan_steps);
-        cost.first_ring_scan_steps = cost
-            .first_ring_scan_steps
-            .saturating_add(first_ring_scan_steps);
-        cost.neighborhood_entries = cost.neighborhood_entries.saturating_add(entries);
-    });
-}
-
-/// 登记一次停止距离可达半径导出的 profile 遍历步数（#1233）。
-pub(crate) fn transition_profile(profile_steps: u64) {
-    with_active(|ledger| {
-        let cost = &mut ledger.transition_cost;
-        cost.profile_calls += 1;
-        cost.profile_steps = cost.profile_steps.saturating_add(profile_steps);
-    });
 }
 
 /// 一次分发（提交到完整 join）的统计；块在任意池线程上经原子量汇总，
