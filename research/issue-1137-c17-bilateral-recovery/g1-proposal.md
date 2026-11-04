@@ -1,5 +1,7 @@
 # C17 双边恢复新变量族探索后的生产决策材料
 
+> > k2-old-family-frozen.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+
 **状态：Proposed；未接受生产 G1。** 继承 [#1133/#1136 决策边界](../issue-1136-c12-curve-design/g1-proposal.md)与 #1137 冻结方案（[design.md](design.md) v3、[短首段证书](short-span-certificate.json)）；ADR 0022 / 0028 / 0033 现行权威不变。
 
 ## 本轮事实

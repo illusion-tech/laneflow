@@ -69,7 +69,7 @@ fn normalized(value: &Value) -> Value {
 
 fn cohort() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1139-signal-diag-2/edges.json"
+        "../../../../../../../tests/fixtures/issue-1139-edges.json"
     ))
     .unwrap()
 }

@@ -16,7 +16,7 @@ mod stream_a_curve_design_c29_c17;
 
 fn reference() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1105-direct-successors/results.json"
+        "../../../../../tests/fixtures/issue-1105-results.json"
     ))
     .unwrap()
 }

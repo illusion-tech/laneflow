@@ -3,6 +3,7 @@
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
+> > results.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
 
 本轮修复 LuST 转换器漏发普通段间后继的问题。`sumo:-20604` 与 `sumo:-22774`
 的完整信号闭包分别包含 4 条、6 条关联路径，均通过生产编译、LFCA 发射及后发射检查。
@@ -81,7 +82,7 @@ SHA-256 只用于证据文件的互操作核验，由 PowerShell `Get-FileHash` 
 不重复纳入 Git。复现时可从上述两个冻结提交重新生成并比对。
 
 - [baseline-results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1105-direct-successors/baseline-results.json)：修复前完整路径与生产闭包拒绝证据。
-- [results.json](results.json)：修复后全部目标、控制闭包、候选赋值及生产闭包结果。
+- [results.json](https://github.com/illusion-tech/laneflow/blob/28581553/research/issue-1105-direct-successors/results.json)：修复后全部目标、控制闭包、候选赋值及生产闭包结果。
 - [comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1105-direct-successors/comparison.json)：比较计数、完整文件字节数与摘要。
 - [manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1105-direct-successors/manifest.json)：上述 JSON 的发布字节清单；UTF-8、LF。
 

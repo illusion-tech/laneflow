@@ -37,7 +37,7 @@ fn diagnostics() -> (Value, Value, Value, Value) {
     ))
     .unwrap();
     let old_guided: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1113-closure-feasibility/guided-search.json"
+        "../../../../../../../tests/fixtures/issue-1113-guided-search.json"
     ))
     .unwrap();
     let mut probes = BTreeMap::new();

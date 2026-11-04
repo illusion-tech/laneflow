@@ -28,7 +28,7 @@ const CONSUMPTION_ORDERS: [&str; 2] = ["injection-first", "grid-first"];
 
 fn inventory() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1154-witness-guided-search/witness-inventory.json"
+        "../../../../../../../tests/fixtures/issue-1154-witness-inventory.json"
     ))
     .unwrap()
 }

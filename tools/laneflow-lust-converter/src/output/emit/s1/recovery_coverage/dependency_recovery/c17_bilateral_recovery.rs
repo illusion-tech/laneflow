@@ -1323,7 +1323,7 @@ fn frozen_calibration_inputs() -> serde_json::Value {
 /// K2 冻结对照（#1131 旧族逐配置记录摘录；判定口径防漂移）。
 fn k2_frozen_records() -> serde_json::Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1137-c17-bilateral-recovery/k2-old-family-frozen.json"
+        "../../../../../../tests/fixtures/issue-1137-k2-old-family-frozen.json"
     ))
     .unwrap()
 }

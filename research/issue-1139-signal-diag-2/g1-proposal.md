@@ -1,5 +1,7 @@
 # #1139 信号诊断组 2（C19/C22/C24）决策材料
 
+> > edges.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+
 **建议：生产 S1 的 G1 保持 Proposed（本切片不批准任何生产行为变更）。** 本研究为测试/研究切片：仅新增 `cfg(test)` 研究入口与研究文档，不改生产采样、compiler、数据格式、Adapter API、阈值、原成功几何/拓扑/控制锚点与任何依赖；生产行为无变化，无需生产 G1 决策。依据 ADR 0022 / 0028 / 0033、`research/issue-1121-coverage-diagnosis/plan.md`、六路协调章程 v2 与本路[冻结计划](plan.md)。
 
 ## 研究结论（供收口批汇总）
