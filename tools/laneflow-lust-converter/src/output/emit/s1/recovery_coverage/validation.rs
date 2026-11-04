@@ -73,8 +73,8 @@ fn pinned_lust_recovery_validation() {
     }
     assert_eq!(programs.len(), 16_265);
     timing["all_success_replay_compare_seconds"] = json!(replay_start.elapsed().as_secs_f64());
-    let original_samples: Value = serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1093-s1-efficiency/inputs.json"
+    let original_samples: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1093-s1-efficiency/inputs.json",
     ))
     .unwrap();
     let original_ids = original_samples
@@ -106,8 +106,8 @@ fn pinned_lust_recovery_validation() {
         assert_eq!(row["dependency_edges"], selected["dependency_edges"]);
     }
     let baseline = paths.iter().map(|p|json!({"path":p.id,"edges":path_edges(p),"result":compile_path(traffic,p,&programs)})).collect::<Vec<_>>();
-    let old_baseline: Value = serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1093-s1-efficiency/results.json"
+    let old_baseline: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1093-s1-efficiency/results.json",
     ))
     .unwrap();
     for old in old_baseline["baseline_paths"].as_array().unwrap() {

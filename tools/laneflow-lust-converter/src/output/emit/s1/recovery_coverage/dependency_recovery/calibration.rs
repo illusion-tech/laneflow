@@ -83,8 +83,8 @@ fn fixed_signal_endpoint_feasibility() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh endpoint diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1111-grid-calibration/local-probes.json"
+    let old: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1111-grid-calibration/local-probes.json",
     ))
     .unwrap();
     let mut rows = BTreeMap::new();

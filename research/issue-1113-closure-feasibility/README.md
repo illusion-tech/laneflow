@@ -3,6 +3,7 @@
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
+> 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
 
 #1113 区分了两类问题，但没有新增信号闭包恢复。在原成功几何、控制锚点、固定曲线和验收阈值不变时：
 
@@ -70,7 +71,7 @@
 
 每次重新比较 16265 条原成功边全部 f64 程序及规范 f32 点、完整拓扑/控制信息，以及 8230 条原失败诊断。接受分量继续进行逐点、停止线所在边、机动门路径、转换下标、信号组绑定与 LFCA 后发射检查。完整结果必须与 #1111 逐值相同；原成功几何和控制锚点保持不变。
 
-四轮完整验证全部通过，全部 90 份非计时输出（89693084 字节）逐字节相等；后三轮分别与首轮使用 Windows `fc.exe /b` 完整比较，三组各 90 份均通过。完整原始结果见 [full-regression-results.json](full-regression-results.json)，闭包判定见 [closure-summary.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/closure-summary.json)，文件清单和比较结果见 [evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/evidence-manifest.json)。
+四轮完整验证全部通过，全部 90 份非计时输出（89693084 字节）逐字节相等；后三轮分别与首轮使用 Windows `fc.exe /b` 完整比较，三组各 90 份均通过。完整原始结果见 [full-regression-results.json](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1113-closure-feasibility/full-regression-results.json)，闭包判定见 [closure-summary.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/closure-summary.json)，文件清单和比较结果见 [evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/evidence-manifest.json)。
 
 ## 成本与检查
 

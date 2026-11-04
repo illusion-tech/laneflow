@@ -53,12 +53,12 @@ fn fixed_sample_budget_measurement() {
     )
     .unwrap();
     assert_eq!(rows.len(), 17);
-    let baseline: Value = serde_json::from_str(include_str!(
-        "../../../../../../research/issue-1093-s1-efficiency/results.json"
+    let baseline: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1093-s1-efficiency/results.json",
     ))
     .unwrap();
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../research/issue-1093-s1-efficiency/inputs.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1093-s1-efficiency/inputs.json",
     ))
     .unwrap();
     assert_eq!(json!(rows), frozen, "complete frozen inputs");

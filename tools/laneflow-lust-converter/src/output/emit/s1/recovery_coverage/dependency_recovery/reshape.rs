@@ -57,7 +57,10 @@ fn pinned_lust_failed_curve_experiment() {
         &fs::read(std::env::var("CURVE_DESIGN_FROZEN_RESULT").unwrap()).unwrap(),
     )
     .unwrap();
-    let prior: Value = serde_json::from_str(include_str!("../../../../../../../../research/issue-1113-closure-feasibility/full-regression-results.json")).unwrap();
+    let prior: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1113-closure-feasibility/full-regression-results.json",
+    ))
+    .unwrap();
     let inventory: Value = serde_json::from_str(include_str!(
         "../../../../../../../../research/issue-1107-dependency-recovery/results.json"
     ))

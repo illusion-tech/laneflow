@@ -267,8 +267,8 @@ fn pinned_lust_stream_a_curve_experiment() {
         &fs::read(std::env::var("CURVE_DESIGN_FROZEN_RESULT").unwrap()).unwrap(),
     )
     .unwrap();
-    let comparison: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1115-failed-curve-design/results.json"
+    let comparison: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1115-failed-curve-design/results.json",
     ))
     .unwrap();
     let inventory: Value = serde_json::from_str(include_str!(

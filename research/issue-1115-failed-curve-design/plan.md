@@ -3,6 +3,7 @@
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
+> 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
 
 基线为主干 `3ad0cfaeb8fee8e7b42821da1ba07eb5ae9423af`。LuST 输入仍是
 `c4bd5bd3751d426d42a9a1749c815e47ea188549`。范围、候选、筛选与停止条件以
