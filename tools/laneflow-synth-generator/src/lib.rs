@@ -98,11 +98,8 @@ impl Identity {
     /// 构造正式的一万或十万输入身份。
     ///
     /// # Errors
-    /// 规模或步长不属于冻结集合时返回错误。
+    /// 规模、步长或换道族参数越界时返回错误。
     pub fn new(scale: u32, case: Case, fixed_delta_ms: u32) -> Result<Self, Error> {
-        if let Case::LaneChange(params) = &case {
-            params.validate()?;
-        }
         let identity = Self {
             workload_id: "LF-SYNTH-v2".into(),
             scale,
@@ -127,6 +124,8 @@ impl Identity {
         }
     }
 
+    /// 冻结集合校验（构造、`generate` 与目录核验共用同一可行域，
+    /// 反序列化或改写 `case` 字段的身份不绕过换道参数检查，#1243 T3）。
     fn validate(&self) -> Result<(), Error> {
         if self.workload_id != "LF-SYNTH-v2"
             || !matches!(self.scale, 10_000 | 100_000)
@@ -134,6 +133,9 @@ impl Identity {
             || self.seed != 0
         {
             return Err(Error::Invalid("非正式 LF-SYNTH-v2 输入身份".into()));
+        }
+        if let Case::LaneChange(params) = &self.case {
+            params.validate()?;
         }
         Ok(())
     }
