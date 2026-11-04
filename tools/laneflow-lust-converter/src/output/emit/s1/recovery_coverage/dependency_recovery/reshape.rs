@@ -13,7 +13,7 @@ fn normalized(value: &Value) -> Value {
 
 fn frozen_inputs() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap()
 }

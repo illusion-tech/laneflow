@@ -207,7 +207,7 @@ fn baseline_pool(stream_searches: &Value) -> combinations::Pools {
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
     ))
     .unwrap();
     let grid: Value = serde_json::from_str(include_str!(
@@ -1085,11 +1085,11 @@ fn cohort2_frozen_sample_and_problem_table_stay_consistent() {
     ))
     .unwrap();
     let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
     ))
     .unwrap();
     let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-grid-searches.json"
     ))
     .unwrap();
     let mut first_run = 0;
@@ -1135,7 +1135,7 @@ fn cohort2_frozen_sample_and_problem_table_stay_consistent() {
         "nine first-run edges and thirteen with history"
     );
     let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+        "../../../../../../../tests/fixtures/issue-1107-inventory.json"
     ))
     .unwrap();
     let c07 = &components[0];
@@ -1223,11 +1223,11 @@ fn cohort2_pinned_baseline_loader_rejects_unpinned_bytes() {
 #[test]
 fn cohort2_span_control_fallback_preserves_existing_carriers() {
     let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-grid-searches.json"
     ))
     .unwrap();
     let empty = BTreeMap::new();

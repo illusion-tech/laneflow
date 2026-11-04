@@ -33,7 +33,7 @@ fn diagnostics() -> (Value, Value, Value, Value) {
     ))
     .unwrap();
     let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let old_guided: Value = serde_json::from_str(include_str!(
