@@ -81,8 +81,8 @@ fn fixed_sample_search_measurement() {
         &fs::read(std::env::var("S1_BENCH_INPUTS").expect("S1_BENCH_INPUTS")).unwrap(),
     )
     .unwrap();
-    let samples: Value = serde_json::from_str(include_str!(
-        "../../../../../../research/issue-1084-lust-sampling/samples.json"
+    let samples: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1084-lust-sampling/samples.json",
     ))
     .unwrap();
     let out = PathBuf::from(std::env::var("S1_OUTPUT_DIR").expect("S1_OUTPUT_DIR"));

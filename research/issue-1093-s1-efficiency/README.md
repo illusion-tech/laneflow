@@ -2,7 +2,7 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
+> 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
 
 任务：[#1093](https://github.com/illusion-tech/laneflow/issues/1093)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。比较基线来自
@@ -143,8 +143,8 @@ B / C 没有单独重跑完整 compiler；它们消费的全部候选程序与 A
 4.520 mm，compiler 长度为 11,167 mm，相对源长度 11.05 m 多 117 mm。
 这些普通 f64 数值估计仍不是浮点认证的连续界。
 
-当前完整结果见 [results.json](results.json)，阶段计数和相等性核对见
-[comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1093-s1-efficiency/comparison.json)，精确输入见 [inputs.json](inputs.json)。
+当前完整结果见 [results.json](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1093-s1-efficiency/results.json)，阶段计数和相等性核对见
+[comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1093-s1-efficiency/comparison.json)，精确输入见 [inputs.json](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1093-s1-efficiency/inputs.json)。
 
 ## 重建与验证
 

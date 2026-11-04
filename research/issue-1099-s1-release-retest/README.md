@@ -103,7 +103,7 @@ Cargo 输出确认被测测试程序的 `opt_level=3`、`debuginfo=0`、
 [comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1099-s1-release-retest/comparison.json)。这些构建产物摘要标识本次运行对象，
 不承诺不同工作目录或机器的重新构建必然生成相同字节。
 
-输入沿用 [#1093 的 inputs.json](../issue-1093-s1-efficiency/inputs.json)，SHA-256 为
+输入沿用 [#1093 的 inputs.json](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1093-s1-efficiency/inputs.json)，SHA-256 为
 `D2B2EED3FEE4B2559A60397BF387EB0E52EAA370A68CE42435E8B8BB5870513C`。
 从上述冻结提交分别构建后，为各新进程设置 `S1_BENCH_INPUTS` 指向该文件，
 `S1_OUTPUT_DIR` 指向尚不存在的输出目录，再执行测试二进制：

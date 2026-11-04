@@ -26,7 +26,7 @@
 
 ## 四档预算实验
 
-输入沿用 [#1093 的完整 17 条输入](../issue-1093-s1-efficiency/inputs.json)，只提高原六条
+输入沿用 [#1093 的完整 17 条输入](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1093-s1-efficiency/inputs.json)，只提高原六条
 `partitions` 截断边的预算，另 11 条对照保持 32,768。候选顺序、2–2,048 片有限族、
 512 步累计切向扫描、1.95° sink 与 0.95° 完整边端弦约束均不变。
 

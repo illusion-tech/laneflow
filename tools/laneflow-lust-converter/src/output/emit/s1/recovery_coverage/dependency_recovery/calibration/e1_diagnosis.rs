@@ -331,8 +331,8 @@ fn save_result(name: &str, value: &Value) {
 #[ignore = "requires SIX_STREAMS_BASELINE_DIR and E1_APRIME_LIST (frozen)"]
 fn e1_calibration_a_and_aprime() {
     let rows = shared_pool_records();
-    let list: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1141-internal-diagnosis/a-prime-list.json"
+    let list: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1141-internal-diagnosis/a-prime-list.json",
     ))
     .unwrap();
     let a = calibration_a(&rows);

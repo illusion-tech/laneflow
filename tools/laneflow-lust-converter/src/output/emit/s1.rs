@@ -804,8 +804,8 @@ fn pinned_lust_s1_sample_validation() {
         original.infeasibility_report.unwrap().rendered,
         survey.replace("\r\n", "\n")
     );
-    let samples: Value = serde_json::from_str(include_str!(
-        "../../../../../research/issue-1084-lust-sampling/samples.json"
+    let samples: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1084-lust-sampling/samples.json",
     ))
     .unwrap();
     measurement::write_inputs(&out, &observation, &samples);

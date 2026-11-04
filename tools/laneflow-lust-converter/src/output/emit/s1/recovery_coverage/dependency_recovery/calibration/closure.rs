@@ -148,8 +148,8 @@ fn pinned_lust_closure_feasibility_experiment() {
     let (endpoints, seam, guided, timing) = diagnostic.unwrap();
     let current: Value =
         serde_json::from_slice(&fs::read(out.join("results.json")).unwrap()).unwrap();
-    let prior: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/results.json"
+    let prior: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1111-grid-calibration/results.json",
     ))
     .unwrap();
     assert_eq!(
@@ -158,8 +158,8 @@ fn pinned_lust_closure_feasibility_experiment() {
     );
     let inputs: Value =
         serde_json::from_slice(&fs::read(out.join("inputs.json")).unwrap()).unwrap();
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/inputs.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1111-grid-calibration/inputs.json",
     ))
     .unwrap();
     assert_eq!(inputs, frozen, "fresh complete edge inputs unchanged");

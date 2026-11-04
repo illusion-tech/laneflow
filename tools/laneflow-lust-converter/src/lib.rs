@@ -12,6 +12,9 @@ mod output;
 mod source;
 mod sumo;
 
+#[cfg(test)]
+mod pinned_research;
+
 pub use error::Error;
 pub(crate) use error::Result;
 pub use source::{LUST_COMMIT, LUST_REPOSITORY, LUST_TAG, VerifiedSourceSet};
