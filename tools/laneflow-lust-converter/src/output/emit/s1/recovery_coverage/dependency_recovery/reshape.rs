@@ -61,8 +61,8 @@ fn pinned_lust_failed_curve_experiment() {
         "issue-1113-closure-feasibility/full-regression-results.json",
     ))
     .unwrap();
-    let inventory: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/results.json"
+    let inventory: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/results.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();
@@ -90,16 +90,16 @@ fn pinned_lust_failed_curve_experiment() {
     let (searches, search_times) = run_searches(&inputs);
     assert_eq!(normalized(&searches), frozen, "frozen candidate replay");
     recovery::write_json(&out, "searches.json", &searches);
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
     ))
     .unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+    let old: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/old-searches.json",
     ))
     .unwrap();
-    let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1111-grid-calibration/grid-searches.json"
+    let grid: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1111-grid-calibration/grid-searches.json",
     ))
     .unwrap();
     let mut baseline = pool(&legacy["tiers"]["32768"]["searches"]);

@@ -243,8 +243,8 @@ fn four_domain_resource_evidence() {
     ))
     .unwrap();
     // `--30306#2_0`（预算停止样本）输入在 #1130 冻结集（边名键控）。
-    let inputs_1130: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1130-curve-design-c06-c08/inputs.json"
+    let inputs_1130: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1130-curve-design-c06-c08/inputs.json",
     ))
     .unwrap();
     let sample_input = |id: &str| {

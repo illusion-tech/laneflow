@@ -564,8 +564,8 @@ fn pinned_lust_single_edge_reuse_experiment() {
         .unwrap(),
     )
     .unwrap();
-    let inventory: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let inventory: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     let (observation, _source, mut timing) = capture_lust();
