@@ -120,16 +120,7 @@ pub(crate) fn initial_state(identity: &Identity) -> Result<InitialState, Error> 
         // 换道簇路线（e0→t→e2→int→exit）：每簇一条路线，无信号准入门（编辑侧
         // Uncontrolled），信号组为 `None`。键按簇确定性派生（#1233）。
         let slots = params.changers_per_cluster;
-        let step = if slots > 1 { 26_000 / (slots - 1) } else { 0 };
-        // K=2 保持 R1b s12 钉版错位（leader 11_000 / follower 3_000）；
-        // 更多竞争者时自前向后确定性错位。
-        let pinned = |slot: u32| -> u32 {
-            if slots == 2 && slot < 2 {
-                [11_000, 3_000][slot as usize]
-            } else {
-                29_000 - slot * step
-            }
-        };
+        // 布局与入口长度由 lib.rs 的单一事实源推导（#1233 对象 b/F1）。
         for cluster in 0..params.clusters {
             let route_rank = identity.cells() * 4 + cluster;
             routes.push(RouteRecord {
@@ -150,7 +141,7 @@ pub(crate) fn initial_state(identity: &Identity) -> Result<InitialState, Error> 
                     slot,
                     status: "active".into(),
                     edge_occurrence: 0,
-                    progress_mm: pinned(slot),
+                    progress_mm: crate::lane_change_slot_progress_mm(slots, slot),
                     speed_mm_per_s: 10_000,
                     parking_space_id: None,
                 });

@@ -32,7 +32,7 @@ pub(super) struct Host {
     /// L 族换道预约生命周期史（#1218 面 B）：恢复端由宿主记录续接，
     /// 使参考/恢复末态投影同跨度可比。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub lane_change_journal: Vec<(u64, u8, u32, u32)>,
+    pub lane_change_journal: Vec<(u64, u16, u32, u32)>,
     pub burst: Option<BurstHost>,
 }
 

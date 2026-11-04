@@ -769,4 +769,49 @@ fn lane_change_multi_cluster_is_deterministic_and_counted() {
     }
 }
 
+#[test]
+fn lane_change_entry_geometry_scales_with_changer_count() {
+    use crate::{lane_change_entry_length_mm, lane_change_slot_progress_mm};
+    // K≤4 保持 30 m 钉版入口（既有证据逐字不变）。
+    for k in [2_u32, 3, 4] {
+        assert_eq!(lane_change_entry_length_mm(k), 30_000, "K={k} 入口长度");
+    }
+    // K≥5 延长入口并以 body+gap=7,000 mm 精确间距排列，全体不相交。
+    for k in [5_u32, 8, 16, 64] {
+        let entry = lane_change_entry_length_mm(k);
+        let mut previous: Option<u32> = None;
+        for slot in 0..k {
+            let progress = lane_change_slot_progress_mm(k, slot);
+            assert!(progress < entry as u32, "K={k} 位置越界");
+            if let Some(prev) = previous {
+                assert!(prev - progress >= 7_000, "K={k} slot={slot} 间距不足");
+            }
+            previous = Some(progress);
+        }
+        assert_eq!(previous, Some(3_000), "K={k} 末车位置不确定");
+    }
+    // K=8：生成状态无重叠且网络可编译。
+    let identity = Identity::new(
+        10_000,
+        Case::LaneChange(LaneChangeParams {
+            clusters: 1,
+            changers_per_cluster: 8,
+        }),
+        16,
+    )
+    .unwrap();
+    let state = state::initial_state(&identity).unwrap();
+    let mut progresses: Vec<u32> = state
+        .vehicles
+        .iter()
+        .filter(|v| v.parking_space_id.is_none())
+        .map(|v| v.progress_mm)
+        .collect();
+    progresses.sort_unstable();
+    for pair in progresses.windows(2) {
+        assert!(pair[1] - pair[0] >= 7_000, "K=8 初始车体重叠");
+    }
+    let _ = generate_inputs(identity, provenance()).unwrap();
+}
+
 mod full_scale;

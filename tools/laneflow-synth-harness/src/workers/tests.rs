@@ -8,7 +8,12 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
         workers: 2,
         round: 1,
     };
-    let input = json!({"identity":{"scale":job.scale,"case":case,"fixed_delta_ms":job.dt}});
+    let case_json = if case == "L1" {
+        json!({"LaneChange":{"clusters":1,"changers_per_cluster":2}})
+    } else {
+        json!(case)
+    };
+    let input = json!({"identity":{"scale":job.scale,"case":case_json,"fixed_delta_ms":job.dt}});
     let (warm, observation) = job.windows();
     let ticks = if case == "W4" {
         vec![0, warm, warm + 1, warm + 2]

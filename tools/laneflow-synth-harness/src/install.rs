@@ -19,7 +19,7 @@ pub(crate) struct Sample {
     pub lane_change_routes: Vec<usize>,
     /// L 族换道预约生命周期史（#1218 面 B 身份投影）：
     /// `(tick, 换道者槽位, 事件种类, 资源身份)`，事件序保持。
-    pub lane_change_journal: Vec<(u64, u8, u32, u32)>,
+    pub lane_change_journal: Vec<(u64, u16, u32, u32)>,
     /// L1 观测跨拍生命周期序（#1227）：按换道者槽位记录最近一次生命周期事件
     /// 种类（4 acquire / 5 enter / 6 clear / 7 release），跨观测调用持续。
     pub lane_change_last_kind: Vec<u32>,

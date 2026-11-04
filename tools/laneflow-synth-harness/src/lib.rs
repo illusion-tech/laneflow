@@ -172,6 +172,13 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
     }
 }
 
+/// 从 manifest 身份 JSON 提取场景族标签（内部命名口径，#1233）。
+pub fn scenario_label(identity: &serde_json::Value) -> &'static str {
+    serde_json::from_value::<laneflow_synth_generator::Case>(identity["case"].clone())
+        .map(|case| case.label())
+        .unwrap_or("")
+}
+
 /// 面 B 身份/历史投影（#1218）：换道预约生命周期史（真实资源身份）+ 逐车相位
 /// 与预约终态。全部来自公开观测面（事件/`conflict_reservation`/遍历相位）。
 pub(crate) fn lane_change_t_state(sample: &install::Sample) -> Value {
