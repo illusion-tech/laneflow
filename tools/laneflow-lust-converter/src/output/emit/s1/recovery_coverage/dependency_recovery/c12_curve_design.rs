@@ -273,8 +273,8 @@ fn pinned_lust_c12_curve_experiment() {
     assert_eq!(anchor["components"].as_array().unwrap().len(), 53);
     assert_eq!(anchor["paths"].as_array().unwrap().len(), 84);
     assert_eq!(anchor["path_counts"]["accepted"], 28, "frozen 28/84 anchor");
-    let inventory: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let inventory: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();

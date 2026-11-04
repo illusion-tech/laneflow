@@ -135,8 +135,8 @@ fn pinned_lust_dependency_experiment() {
     snapshot(&out, &observation, &originals);
     let traffic = observation.traffic.as_ref().unwrap();
     let components = components::inventory(traffic, &originals, &target_ids(&reference));
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     assert_eq!(json!(components), frozen["components"]);

@@ -471,12 +471,12 @@ fn pinned_lust_cohort2_coverage_diagnosis_experiment() {
         "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
     ))
     .unwrap();
-    let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+    let grid_history: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/grid-searches.json",
     ))
     .unwrap();
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();

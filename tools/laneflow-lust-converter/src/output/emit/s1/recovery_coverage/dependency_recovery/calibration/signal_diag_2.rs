@@ -1084,8 +1084,8 @@ fn pinned_lust_signal_diag_2_coverage_diagnosis_experiment() {
         "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
     ))
     .unwrap();
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();

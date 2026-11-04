@@ -271,8 +271,8 @@ fn pinned_lust_stream_a_curve_experiment() {
         "issue-1115-failed-curve-design/results.json",
     ))
     .unwrap();
-    let inventory: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let inventory: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();

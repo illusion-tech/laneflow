@@ -396,28 +396,28 @@ fn pinned_lust_coverage_diagnosis_experiment() {
         "diagnosis-first" | "baseline-first"
     ));
     let reference = reference();
-    let prior: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/results.json"
+    let prior: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/results.json",
     ))
     .unwrap();
-    let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+    let old_rows: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/old-searches.json",
     ))
     .unwrap();
-    let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+    let grid_history: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/grid-searches.json",
     ))
     .unwrap();
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
     ))
     .unwrap();
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
-    let cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1121-coverage-diagnosis/edge-cohort.json"
+    let cohort: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1121-coverage-diagnosis/edge-cohort.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();

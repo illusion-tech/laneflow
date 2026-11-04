@@ -339,8 +339,8 @@ fn pinned_lust_stream_b_curve_experiment() {
         "issue-1115-failed-curve-design/results.json",
     ))
     .unwrap();
-    let inventory: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/results.json"
+    let inventory: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/results.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();
@@ -394,24 +394,24 @@ fn pinned_lust_stream_b_curve_experiment() {
     recovery::write_json(&out, "stream-b-searches.json", &searches);
 
     // 基线候选池（冻结计划 §5）：①→④ 固定顺序合并，规范 f32 点位去重，逐段断言。
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
     ))
     .unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+    let old: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/old-searches.json",
     ))
     .unwrap();
-    let positive: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/positive-calibration.json"
+    let positive: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1111-grid-calibration/positive-calibration.json",
     ))
     .unwrap();
-    let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/grid-searches.json"
+    let grid: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1111-grid-calibration/grid-searches.json",
     ))
     .unwrap();
-    let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+    let curve: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1115-failed-curve-design/searches.json",
     ))
     .unwrap();
     for (id, row) in positive["edges"].as_object().unwrap() {

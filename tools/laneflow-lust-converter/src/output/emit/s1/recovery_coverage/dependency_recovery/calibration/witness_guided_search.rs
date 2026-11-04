@@ -353,8 +353,8 @@ fn pinned_lust_witness_guided_search_experiment() {
     snapshot(&out, &observation, &originals);
     let traffic = observation.traffic.as_ref().unwrap();
     let components = components::inventory(traffic, &originals, &target_ids(&reference));
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inventory.json"
+    let frozen: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inventory.json",
     ))
     .unwrap();
     assert_eq!(json!(components), frozen["components"]);
@@ -601,8 +601,8 @@ fn pinned_lust_witness_guided_search_experiment() {
     }
     // (b) 停止线三情形（D 冻结 26 行口径复用；见证涉及停止线边随本轮结果归情形；
     // 依赖不齐记「未执行」，不混入几何拒绝统计）。
-    let d_cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1139-signal-diag-2/edges.json"
+    let d_cohort: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1139-signal-diag-2/edges.json",
     ))
     .unwrap();
     let checklist = super::signal_diag_2::stop_line_checklist(
@@ -837,8 +837,8 @@ fn recompute_witness_qualification_same_representation() {
             }
             evaluations.insert(component.id.clone(), result);
         }
-        let d_cohort: Value = serde_json::from_str(include_str!(
-            "../../../../../../../../../research/issue-1139-signal-diag-2/edges.json"
+        let d_cohort: Value = serde_json::from_str(&crate::pinned_research::text(
+            "issue-1139-signal-diag-2/edges.json",
         ))
         .unwrap();
         let checklist = super::signal_diag_2::stop_line_checklist(
