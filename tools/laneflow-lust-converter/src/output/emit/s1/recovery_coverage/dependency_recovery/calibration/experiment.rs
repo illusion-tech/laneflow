@@ -15,16 +15,16 @@ pub(super) fn pinned_lust_calibrated_grid_experiment() {
     fs::create_dir_all(&out).unwrap();
     let order = std::env::var("CALIBRATION_ORDER").unwrap();
     assert!(matches!(order.as_str(), "old-grid" | "grid-old"));
-    let prior: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/results.json"
+    let prior: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/results.json",
     ))
     .unwrap();
-    let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+    let old_rows: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/old-searches.json",
     ))
     .unwrap();
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
     ))
     .unwrap();
     let (observation, source, mut timing) = capture_lust();

@@ -4,9 +4,6 @@ use super::*;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
-const REFERENCE: &str =
-    include_str!("../../../../../../../research/issue-1103-s1-recovery-budget/results.json");
-
 fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
@@ -205,7 +202,10 @@ fn pinned_lust_direct_successor_regression() {
     fs::create_dir_all(&out).unwrap();
     let baseline = std::env::var_os("DIRECT_SUCCESSOR_BASELINE_DIR").map(PathBuf::from);
     let fixed = baseline.is_some();
-    let reference: Value = serde_json::from_str(REFERENCE).unwrap();
+    let reference: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
+    ))
+    .unwrap();
     let (observation, source, timing) = capture_lust();
     assert_eq!(source, reference["source"]);
     let traffic = observation.traffic.as_ref().unwrap();

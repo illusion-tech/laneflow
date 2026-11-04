@@ -54,7 +54,7 @@ pub(super) fn per_edge_counts(pools: &combinations::Pools) -> BTreeMap<String, u
 /// 断言 9 边 75 份（边集与每边份数）。任一来源缺失或逐值不符即停止执行并重新授权。
 fn baseline_pool() -> combinations::Pools {
     let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+        "../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(
