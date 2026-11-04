@@ -727,16 +727,16 @@ fn signal_diag_2_frozen_sample_and_problem_table_stay_consistent() {
         EXPANDED_TIER_EDGES,
         "expanded tier equals the 1103-expanded history edges"
     );
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
     ))
     .unwrap();
     let old_rows: Value = serde_json::from_str(include_str!(
         "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
     ))
     .unwrap();
-    let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+    let grid_history: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/grid-searches.json",
     ))
     .unwrap();
     let mut first_run = 0;
