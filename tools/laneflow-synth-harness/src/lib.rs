@@ -109,6 +109,8 @@ struct Checkpoint {
     /// 面 B 真实资源身份与历史投影（换道预约生命周期 + 逐车相位 + 预约终态）。
     #[serde(skip_serializing_if = "Option::is_none")]
     t_state: Option<Value>,
+    /// 公开观测面状态摘要（#1233 F2）：快照拒绝时仍可比对。
+    public_state_digest: String,
 }
 
 fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Checkpoint, Error> {
@@ -134,6 +136,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 transitions,
                 persistence_refused: None,
                 t_state: None,
+                public_state_digest: public_state_digest(&sample.world)?,
             })
         }
         Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
@@ -161,10 +164,34 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 transitions,
                 persistence_refused: Some(variant),
                 t_state: Some(lane_change_t_state(sample)),
+                public_state_digest: public_state_digest(&sample.world)?,
             })
         }
         Err(other) => Err(failure("snapshot", other)),
     }
+}
+
+/// 公开观测面状态摘要（#1233 F2）：逐 live 车辆公开状态确定性哈希；
+/// 快照拒绝时仍可用于检查点等价比对。
+pub(crate) fn public_state_digest(world: &laneflow_runtime::TrafficWorld) -> Result<String, Error> {
+    let mut hasher = blake3::Hasher::new();
+    for handle in world.live_vehicles() {
+        let state = world
+            .vehicle(*handle)
+            .ok_or_else(|| failure("public digest", handle))?;
+        let status = match state.status() {
+            laneflow_runtime::VehicleStatus::Active => 0_u32,
+            laneflow_runtime::VehicleStatus::Parked => 1,
+            laneflow_runtime::VehicleStatus::Completed => 2,
+        };
+        hasher.update(format!("{handle:?}|{:?}", state.route()).as_bytes());
+        hasher.update(&state.route_edge_index().to_le_bytes());
+        hasher.update(&state.progress_mm().to_le_bytes());
+        hasher.update(&state.carry_um().to_le_bytes());
+        hasher.update(&state.speed_mm_s().to_le_bytes());
+        hasher.update(&status.to_le_bytes());
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 /// 从 manifest 身份 JSON 提取场景族标签（内部命名口径，#1233）。

@@ -107,7 +107,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             .map_err(|e| compile_error("finish module", e))?,
     )
     .map_err(|e| compile_error("compilation unit", e))?;
-    let editing_bytes = lane_change_editing(&limits, clusters, entry_mm)?;
+    let editing_bytes = lane_change_editing(&limits, clusters)?;
     unit.add_road_editing_module(
         laneflow_compiler::road_editing::RoadEditingModuleInput::try_new(
             "lf-synth-road.document",
@@ -357,11 +357,7 @@ fn add_lane_change_cluster(
 
 /// 换道簇编辑侧声明（#1218/#1233）：每簇一组 junction/冲突区/两条流/无信号准入门，
 /// 统一策略集覆盖全部门（编译期 MissingRule 校验）；键按簇确定性派生。
-fn lane_change_editing(
-    limits: &CompileLimits,
-    clusters: u32,
-    entry_mm: u64,
-) -> Result<Vec<u8>, Error> {
+fn lane_change_editing(limits: &CompileLimits, clusters: u32) -> Result<Vec<u8>, Error> {
     use laneflow_compiler::road_editing as editing;
 
     let header = editing::RoadEditingModuleHeader::try_new(

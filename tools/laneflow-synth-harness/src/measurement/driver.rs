@@ -40,6 +40,9 @@ pub(super) struct Driver {
     /// 生命周期命令执行累计纳秒（#1233 对象 a）：runtime 命令 API 调用段，
     /// 与 harness 记账段互斥，合计等于 lifecycle 区间。
     pub lifecycle_command_ns: u64,
+    /// runtime 命令 API 调用段（#1233 F3）：命令循环内实际 runtime 调用，
+    /// 与 harness 命令记账（回执/断言/映射）互斥划分。
+    pub runtime_command_ns: u64,
     pub completion_records: Vec<(u64, usize)>,
     pub arrival_records: Vec<(u64, usize)>,
     pub batches: Vec<Value>,
@@ -123,6 +126,7 @@ impl Driver {
             counts,
             lifecycle_commands: 0,
             lifecycle_command_ns: 0,
+            runtime_command_ns: 0,
             completion_records: Vec::new(),
             arrival_records: Vec::new(),
             batches: Vec::new(),
@@ -214,6 +218,7 @@ impl Driver {
         let mut new = None;
         match command.operation {
             Operation::ReserveParking => {
+                let started = Instant::now();
                 let result = ecs
                     .resource_mut::<LaneFlowSession>()
                     .world_mut()
@@ -225,23 +230,27 @@ impl Driver {
                         },
                     )
                     .map_err(|e| failure("reserve", e))?;
+                self.runtime_command_ns += elapsed_ns(started);
                 require(
                     matches!(result, ParkingCommandOutcome::Committed(_)),
                     || "reserve NoChange".into(),
                 )?;
             }
             Operation::ParkVehicle => {
+                let started = Instant::now();
                 let result = ecs
                     .resource_mut::<LaneFlowSession>()
                     .world_mut()
                     .park_vehicle(old, ParkingTarget::ExplicitSpace(space))
                     .map_err(|e| failure("park", e))?;
+                self.runtime_command_ns += elapsed_ns(started);
                 require(
                     matches!(result, ParkingCommandOutcome::Committed(_)),
                     || "park NoChange".into(),
                 )?;
             }
             Operation::LeaveParking => {
+                let started = Instant::now();
                 ecs.resource_mut::<LaneFlowSession>()
                     .world_mut()
                     .leave_parking(
@@ -253,10 +262,13 @@ impl Driver {
                         },
                     )
                     .map_err(|e| failure("leave", e))?;
+                self.runtime_command_ns += elapsed_ns(started);
             }
             Operation::Despawn => {
+                let started = Instant::now();
                 let result = laneflow_bevy::despawn_vehicle(ecs, old)
                     .map_err(|e| failure("typed despawn", e))?;
+                self.runtime_command_ns += elapsed_ns(started);
                 require(
                     result.runtime.vehicle == old && result.entity == self.entities[rank],
                     || "typed despawn 映射不符".into(),
@@ -264,6 +276,7 @@ impl Driver {
                 self.ranks.remove(&old);
             }
             Operation::Spawn => {
+                let started = Instant::now();
                 let handle = ecs
                     .resource_mut::<LaneFlowSession>()
                     .world_mut()
@@ -274,12 +287,15 @@ impl Driver {
                         .bind_vehicle_entity(handle, entity)
                         .map_err(|e| failure("spawn bind", e))?;
                 }
+                self.runtime_command_ns += elapsed_ns(started);
                 new = Some(handle);
             }
             Operation::AtomicReplace => {
-                match laneflow_bevy::replace_completed_vehicle(ecs, old, input)
-                    .map_err(|e| failure("typed replace", e))?
-                {
+                let started = Instant::now();
+                let replaced = laneflow_bevy::replace_completed_vehicle(ecs, old, input)
+                    .map_err(|e| failure("typed replace", e))?;
+                self.runtime_command_ns += elapsed_ns(started);
+                match replaced {
                     LaneFlowVehicleReplaceOutcome::Replaced(record) => {
                         require(
                             record.old == old && record.entity == self.entities[rank],
