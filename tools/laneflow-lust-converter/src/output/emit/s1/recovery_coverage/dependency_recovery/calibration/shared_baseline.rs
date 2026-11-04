@@ -538,7 +538,7 @@ fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
     ))
     .unwrap();
     let grid: Value = serde_json::from_str(include_str!(

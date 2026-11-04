@@ -3,6 +3,7 @@
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
+> > #1249 栈层 C：old-searches/grid-searches/inventory/inputs 四件活测试消费数据原样迁移为 crate fixture（tests/fixtures/，字节不变）；results.json 及迁移四件原件经冻结提交 dc90156f 查阅。
 
 **结论：研究完成，生产 S1 的 G1 仍未接受。** 本轮冻结 15 个完整依赖分量、18 条
 失败边后，补搜原候选族恢复了一条此前遗漏的无信号路径；新参数网格族零完整候选。
@@ -21,11 +22,11 @@
 
 按缺失程序数、分量 ID 排序，预选缺失一到两条程序的分量，并执行路径、边和总量上限。
 实际选中 15 个分量、18 条失败边、26 条关联路径和两处信号控制器；另外 38 个分量保留
-完整成员及排除原因。[计划](plan.md) 与 [清单](inventory.json) 在新搜索运行前已提交。
+完整成员及排除原因。[计划](plan.md) 与 [清单](https://github.com/illusion-tech/laneflow/blob/dc90156f/research/issue-1107-dependency-recovery/inventory.json) 在新搜索运行前已提交。
 
 18 条中有五条未进入 #1103 的 43 条搜索集合；它们的原算法收益单独计算。原六条边的
 48 份候选继续保留。对其余重叠边，本轮重新运行的原算法报告及完整候选与 #1103 相同。
-原始形状、钳制方向与来源、失败诊断见 [inputs.json](inputs.json)。
+原始形状、钳制方向与来源、失败诊断见 [inputs.json](https://github.com/illusion-tech/laneflow/blob/dc90156f/research/issue-1107-dependency-recovery/inputs.json)。
 
 新族固定使用 512 等分参数网格、量化弦最短长度与 1.95° sink 检查、0.01 m 普通 f64
 控制包络筛选、完整边 0.95° 钳制检查。状态为有向弦，广度优先保留同末两节点的首个
@@ -53,7 +54,7 @@
 
 原 14 条多内边目标仍为 3 条接受；31 条有信号目标仍为 2 条接受，其余 29 条仍缺真实
 程序。已有的两处信号闭包 `sumo:-20604` / `sumo:-22774` 继续接受，新增信号闭包为零。
-三个原跨边方向拒绝保持不变，完整 ID 与诊断保存在 [results.json](results.json)。
+三个原跨边方向拒绝保持不变，完整 ID 与诊断保存在 [results.json](https://github.com/illusion-tech/laneflow/blob/dc90156f/research/issue-1107-dependency-recovery/results.json)。
 
 ## 组合验证与真实停止原因
 
@@ -79,7 +80,7 @@
 - 五条边至少一次触及 65,536 状态上限，十一条边发生过 32 个终端代表裁剪；这两项
   与工作停止可重叠，不能相加作互斥分类。
 
-全部失败位置、固定控制点、进入方向与计数见 [grid-searches.json](grid-searches.json)
+全部失败位置、固定控制点、进入方向与计数见 [grid-searches.json](https://github.com/illusion-tech/laneflow/blob/dc90156f/research/issue-1107-dependency-recovery/grid-searches.json)
 和 [resource-counts.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1107-dependency-recovery/resource-counts.json)。`retained_family_exhausted` 仅指本次代表
 集合，不代表全部网格路径、连续划分或其他候选族无解。
 

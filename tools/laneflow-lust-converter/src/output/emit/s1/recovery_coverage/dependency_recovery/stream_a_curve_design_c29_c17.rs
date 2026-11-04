@@ -34,7 +34,7 @@ fn normalized(value: &Value) -> Value {
 
 fn frozen_inputs() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap()
 }
@@ -58,7 +58,7 @@ fn baseline_pool() -> combinations::Pools {
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+        "../../../../../../tests/fixtures/issue-1107-old-searches.json"
     ))
     .unwrap();
     let grid: Value = serde_json::from_str(include_str!(

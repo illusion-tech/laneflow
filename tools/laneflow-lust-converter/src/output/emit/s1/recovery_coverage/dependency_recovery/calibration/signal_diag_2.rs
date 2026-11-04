@@ -732,11 +732,11 @@ fn signal_diag_2_frozen_sample_and_problem_table_stay_consistent() {
     ))
     .unwrap();
     let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
     ))
     .unwrap();
     let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+        "../../../../../../../tests/fixtures/issue-1107-grid-searches.json"
     ))
     .unwrap();
     let mut first_run = 0;

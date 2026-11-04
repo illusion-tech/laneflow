@@ -350,7 +350,7 @@ fn e1_calibration_a_and_aprime() {
 /// （380923/2^19, 453299/2^19）须被 P2-T 复现为见证。双向不翻转。
 fn calibration_b() -> Value {
     let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let input = measurement::input(&inputs["sumo::-16502_0_0"]);

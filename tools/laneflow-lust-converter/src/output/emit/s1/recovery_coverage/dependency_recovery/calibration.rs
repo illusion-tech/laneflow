@@ -118,7 +118,7 @@ const EDGES: [&str; 4] = [
 #[test]
 fn reached_chord_reuse_preserves_calibrated_positive_candidates() {
     let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let reference: Value = serde_json::from_str(include_str!(
@@ -186,11 +186,11 @@ fn fixed_signal_span_probe() {
 
 fn signal_probes() -> Value {
     let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/grid-searches.json"
+        "../../../../../../tests/fixtures/issue-1107-grid-searches.json"
     ))
     .unwrap();
     let mut rows = BTreeMap::new();

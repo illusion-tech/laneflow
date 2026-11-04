@@ -1315,7 +1315,7 @@ use super::*;
 /// 点位/钳制/钳制来源；K1「绑定完整输入」即取材于此）。
 fn frozen_calibration_inputs() -> serde_json::Value {
     serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap()
 }

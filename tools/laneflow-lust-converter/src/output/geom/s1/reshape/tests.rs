@@ -86,7 +86,7 @@ fn sampling_budget_stops_before_mutating_next_partition() {
 #[test]
 fn reference_capture_recovers_the_frozen_real_controls_without_a_program() {
     let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+        "../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let endpoints: Value = serde_json::from_str(include_str!(
