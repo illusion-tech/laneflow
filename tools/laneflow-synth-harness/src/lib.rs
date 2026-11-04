@@ -180,7 +180,9 @@ pub(crate) fn lane_change_t_state(sample: &install::Sample) -> Value {
         .iter()
         .enumerate()
         .filter(|(rank, _)| {
-            sample.lane_change_route == Some(sample.state.vehicles[*rank].route_rank as usize)
+            sample
+                .lane_change_routes
+                .contains(&(sample.state.vehicles[*rank].route_rank as usize))
         })
         .map(|(rank, &handle)| {
             let state = sample.world.vehicle(handle);
@@ -376,13 +378,15 @@ fn run_inner(
     trace.flush()?;
     events.write(&output.join("events.bin"))?;
     if plan.identity.lane_change().is_some() {
-        // L 族：恰两换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
-        let cluster = sample.lane_change_route.expect("L 族簇路线");
+        // L 族：全体换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
         require(
             sample.crossed.iter().enumerate().all(|(rank, &crossed)| {
-                crossed == (sample.state.vehicles[rank].route_rank as usize == cluster)
+                crossed
+                    == sample
+                        .lane_change_routes
+                        .contains(&(sample.state.vehicles[rank].route_rank as usize))
             }),
-            || "窗口内恰两换道者完成 T crossing；背景不发生 0→1".into(),
+            || "窗口内全体换道者完成 T crossing；背景不发生 0→1".into(),
         )?;
     } else {
         require(
