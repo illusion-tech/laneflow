@@ -1391,7 +1391,7 @@ fn k1_known_candidates_replay_with_frozen_inputs() {
     assert_eq!(rows.as_array().unwrap().len(), 148);
     // #1115 两正例：候选与入库冻结记录逐值一致（同 #1115 冻结重放口径）。
     let frozen_1115: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+        "../../../../../../tests/fixtures/issue-1115-searches.json"
     ))
     .unwrap();
     for (id, s) in [("sumo::-16502_0_0", 4), ("sumo::-28860_3_0", 6)] {
@@ -1438,7 +1438,7 @@ fn k1b_known_positives_replay_through_custom_driver() {
     // 131（whole、[1.5, 1.5]）；-28860 两份均为整边合段——几何 124（whole、
     // [1.25, 1.5]）与几何 118（whole、[1, 2]）。
     let frozen_1115: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1115-failed-curve-design/searches.json"
+        "../../../../../../tests/fixtures/issue-1115-searches.json"
     ))
     .unwrap();
     for (id, configs) in [

@@ -4,6 +4,7 @@
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
 > 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
+> > searches.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 2f137bb9 查阅。
 
 本轮在两条原失败边内部调整控制柄并合并分段，恢复 `sumo:-16502` 与
 `sumo:-28860` 两处完整信号闭包。全部四条 / 八条关联路径联合编译接受，LFCA
@@ -48,7 +49,7 @@
 84 个来源拟合拒绝、9 个本划分族无完整程序、1 个成功；`-28860` 分别为
 38、77、31、2。划分次数为 1,827 / 6,228，采样工作为 35,322 / 207,965，
 来源距离评估为 7,626,752 / 11,575,296；去重键保留 24 / 152 个点。
-完整控制点、拒绝阶段和程序见 [searches.json](searches.json)。
+完整控制点、拒绝阶段和程序见 [searches.json](https://github.com/illusion-tech/laneflow/blob/2f137bb9/research/issue-1115-failed-curve-design/searches.json)。
 
 ## 长度与控制锚点
 
