@@ -202,12 +202,12 @@ fn assert_unchanged_expanded(
 /// 候选（来源⑤，钉版输入）；总断言（10 边 76 份与每边份数）由 `pinned_baseline_pool`
 /// 按钉版输入执行。任一来源缺失或逐值不符即停止执行并重新授权。
 fn baseline_pool(stream_searches: &Value) -> combinations::Pools {
-    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1103-s1-recovery-budget/results.json",
+    let legacy: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
     ))
     .unwrap();
-    let old: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1107-dependency-recovery/old-searches.json",
+    let old: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
     ))
     .unwrap();
     let grid: Value = serde_json::from_str(include_str!(
@@ -463,12 +463,12 @@ fn pinned_lust_cohort2_coverage_diagnosis_experiment() {
     let reference = reference();
     let cohort = cohort();
     let (baseline_searches, stream_a_results) = pinned_baseline_inputs();
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+    let legacy: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1103-s1-recovery-budget/results.json",
     ))
     .unwrap();
-    let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/old-searches.json"
+    let old_rows: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/old-searches.json",
     ))
     .unwrap();
     let grid_history: Value = serde_json::from_str(&crate::pinned_research::text(

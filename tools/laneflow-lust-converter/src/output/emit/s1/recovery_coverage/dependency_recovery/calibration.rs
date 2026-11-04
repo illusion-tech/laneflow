@@ -117,8 +117,8 @@ const EDGES: [&str; 4] = [
 
 #[test]
 fn reached_chord_reuse_preserves_calibrated_positive_candidates() {
-    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1107-dependency-recovery/inputs.json",
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
     ))
     .unwrap();
     let reference: Value = serde_json::from_str(include_str!(
@@ -149,8 +149,8 @@ fn fixed_grid_calibration() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inputs.json",
     ))
     .unwrap();
     let mut rows = BTreeMap::new();
