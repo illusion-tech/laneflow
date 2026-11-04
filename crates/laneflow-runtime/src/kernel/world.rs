@@ -353,6 +353,7 @@ impl crate::kernel::state::WorldState {
                 world_generation,
                 config,
                 policy_binding,
+                transition_cost: crate::kernel::transition_cost::Recorder::new(),
             },
             committed: crate::kernel::state::CommittedWorldState {
                 conflict,
@@ -2764,7 +2765,8 @@ impl TrafficWorld {
     #[cfg(feature = "execution-evidence")]
     pub fn take_execution_evidence(&mut self) -> crate::ExecutionEvidence {
         self.execution.assert_usable();
-        self.execution.take_evidence()
+        self.execution
+            .take_evidence(&self.state.binding.transition_cost)
     }
 
     /// 当前资源账快照；遍历全部自有存储，开销与世界规模成正比。

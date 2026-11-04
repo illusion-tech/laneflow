@@ -6939,6 +6939,7 @@ pub(crate) struct EntrantNeighborhood {
 pub(crate) fn entrant_stop_reach_mm(
     traffic: &laneflow_static_network::SharedTrafficNetwork,
     delta_ms: u64,
+    transition_cost: &crate::kernel::transition_cost::Recorder,
 ) -> u64 {
     let relations = traffic.relations();
     let profiles = traffic
@@ -6951,7 +6952,7 @@ pub(crate) fn entrant_stop_reach_mm(
         let Some(profile) = relations.vehicle_profile(
             laneflow_static_contract::VehicleProfileOrdinal::from_raw(raw),
         ) else {
-            crate::kernel::transition_cost::profile(profile_steps);
+            transition_cost.profile(profile_steps);
             return u64::MAX;
         };
         let service = (profile.comfort_decel().max(0.0) * 1_000.0) as u64;
@@ -6963,7 +6964,7 @@ pub(crate) fn entrant_stop_reach_mm(
         );
         reach = Some(reach.map_or(stop, |current: u64| current.max(stop)));
     }
-    crate::kernel::transition_cost::profile(profile_steps);
+    transition_cost.profile(profile_steps);
     reach.unwrap_or(u64::MAX)
 }
 
@@ -6979,6 +6980,7 @@ pub(crate) fn entrant_neighborhood(
     traffic: &laneflow_static_network::SharedTrafficNetwork,
     interval_edge: laneflow_static_contract::LaneEdgeOrdinal,
     reach_mm: u64,
+    transition_cost: &crate::kernel::transition_cost::Recorder,
 ) -> EntrantNeighborhood {
     use laneflow_static_contract::LaneEdgeOrdinal;
     let length_of = |edge: LaneEdgeOrdinal| -> u64 {
@@ -7077,11 +7079,7 @@ pub(crate) fn entrant_neighborhood(
         .map(|(edge, start, end)| (edge, start.min(end)))
         .collect();
     let entry_count = entries.len() as u64;
-    crate::kernel::transition_cost::neighborhood(
-        labels_scan_steps,
-        first_ring_scan_steps,
-        entry_count,
-    );
+    transition_cost.neighborhood(labels_scan_steps, first_ring_scan_steps, entry_count);
     EntrantNeighborhood {
         first_ring,
         entries,
@@ -7214,8 +7212,9 @@ impl ConflictTaskView<'_> {
         // 半径 `reach` 由修订内 profile/步长最坏 d_stop 导出（250m 固定常
         // 量删除——受检组合制动距离可达 10km 量级，固定半径无输入上界支
         // 撑）。边集含环游标重复段——共享边天然覆盖 I-B3。
-        let reach_mm = entrant_stop_reach_mm(traffic, delta_ms);
-        let neighborhood = entrant_neighborhood(traffic, interval_edge, reach_mm);
+        let transition_cost = &self.read.binding.transition_cost;
+        let reach_mm = entrant_stop_reach_mm(traffic, delta_ms, transition_cost);
+        let neighborhood = entrant_neighborhood(traffic, interval_edge, reach_mm, transition_cost);
         let first_ring = &neighborhood.first_ring;
         // 区间边界目标（进入者路线到 T 的最短路线空间距离）：目标出现记录
         // 从进入者游标定位「首次不早于游标」（#1216）——循环路线重复边

@@ -5349,11 +5349,19 @@ pub(crate) mod compile_route_tests {
                 }
 
                 fn reach_mm(&self) -> u64 {
-                    entrant_stop_reach_mm(self.revision.traffic(), 100)
+                    // 测试只关心可达半径本身，计数器用后即弃（#1243 T2：无进程级全局）。
+                    let recorder = crate::kernel::transition_cost::Recorder::new();
+                    entrant_stop_reach_mm(self.revision.traffic(), 100, &recorder)
                 }
 
                 fn walk(&self) -> crate::kernel::conflict_tick::EntrantNeighborhood {
-                    entrant_neighborhood(self.revision.traffic(), self.t, self.reach_mm())
+                    let recorder = crate::kernel::transition_cost::Recorder::new();
+                    entrant_neighborhood(
+                        self.revision.traffic(),
+                        self.t,
+                        self.reach_mm(),
+                        &recorder,
+                    )
                 }
 
                 fn depth_of(&self, edge: LaneEdgeOrdinal) -> u64 {

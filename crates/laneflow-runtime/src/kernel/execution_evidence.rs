@@ -117,7 +117,12 @@ pub(crate) struct Ledger {
 }
 
 impl Ledger {
-    pub(crate) fn take(&mut self) -> crate::ExecutionEvidence {
+    /// 取走账本累计；`transition` 为所属世界的过渡成本记录器，同步清零
+    /// （#1243 T2：过渡计数逐世界，账本不读进程级全局）。
+    pub(crate) fn take(
+        &mut self,
+        transition: &crate::kernel::transition_cost::Recorder,
+    ) -> crate::ExecutionEvidence {
         let ledger = std::mem::take(self);
         crate::ExecutionEvidence {
             steps: ledger.steps,
@@ -147,7 +152,7 @@ impl Ledger {
                 })
                 .collect(),
             transition_cost: {
-                let totals = crate::kernel::transition_cost::take();
+                let totals = transition.take();
                 TransitionCostEvidence {
                     neighborhood_calls: totals.neighborhood_calls,
                     labels_scan_steps: totals.labels_scan_steps,
@@ -654,5 +659,32 @@ mod tests {
             assert!(resources.active_plan_bytes > 0);
             assert_eq!(resources.coordinator_scratch_bytes == 0, workers == 1);
         }
+    }
+
+    /// 过渡成本记录器逐世界（#1243 T2）：一个世界的登记与取走不影响
+    /// 另一世界，取走后清零。
+    #[test]
+    fn transition_cost_recorder_is_per_world() {
+        use crate::kernel::transition_cost::Recorder;
+        let world_a = Recorder::new();
+        let world_b = Recorder::new();
+        world_a.profile(3);
+        world_a.neighborhood(5, 7, 2);
+        let taken = world_a.take();
+        assert_eq!(taken.profile_calls, 1);
+        assert_eq!(taken.profile_steps, 3);
+        assert_eq!(taken.neighborhood_calls, 1);
+        assert_eq!(taken.labels_scan_steps, 5);
+        assert_eq!(taken.first_ring_scan_steps, 7);
+        assert_eq!(taken.neighborhood_entries, 2);
+        // 另一世界零计数；取走方清零。
+        assert_eq!(
+            world_b.take(),
+            crate::kernel::transition_cost::TransitionCostTotals::default()
+        );
+        assert_eq!(
+            world_a.take(),
+            crate::kernel::transition_cost::TransitionCostTotals::default()
+        );
     }
 }
