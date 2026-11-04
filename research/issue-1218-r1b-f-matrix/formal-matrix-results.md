@@ -141,3 +141,31 @@ environment/summary 中。
 **模型登记**：`meituan/longcat-2.5` 已按 §6.1 在
 `xtask/data/model-registry.json` 的 `local_models` 登记（来源：LongCat 官方
 change-log），并向上游 models.dev 汇报补录。
+
+## 9. 全矩阵重跑（2026-11-05，#1233 合入后）
+
+**重跑动因**：#1233（PR #1243）合入变更了 L 族输入 schema（`Case::LaneChange`
+参数化、`changers_per_cluster` 收敛 K=2 钉版几何）、检查点公开观测面摘要
+（`public_state_digest`）、事件路线 rank 编码（经路线表解析锚点路线）与
+减速诊断阈值口径——上一轮正式矩阵（§2–§4）的 L1 输入与新实现不互认，
+按冻结协议在合并提交上整体重跑。
+
+| 项 | 值 |
+| --- | --- |
+| 实现提交（三矩阵同一） | `8b05abcef9a0e6a53f9262f84a80c4d63c51a515` = main 合并提交（PR #1243） |
+| 构建工作树 | `git worktree add --detach` @ 8b05abce（frozen9，0 修改） |
+| 二进制/环境 | `bin9/` + `environment9.json`（单一实现提交，无上轮 bin4/bin5 分裂）；harness `be2a5ddd…`、generator `9ca0d7cc…`、runtime-test `154888ba…`（SHA-256） |
+| 输入 | 10 身份**全部重生成**、锚定 `8b05abce`，存 `laneflow-formal-cache/1218-v2/formal-inputs`（旧 1218 缓存原样保留）；L1 两份为新 schema `{"LaneChange":{"clusters":1,"changers_per_cluster":2}}`，W 族字节口径不变 |
+| rustc / target | 1.99.1（58cf8f9c3 2026-10-13）/ x86_64-pc-windows-msvc（同 §1 机器） |
+| 运行目录 | `lf1218-formal9/{F1,F2,F3}`；三矩阵串行、首错各自停止（未触发） |
+
+| 矩阵 | 网格 | 结果 | 墙钟 |
+| --- | --- | --- | --- |
+| F1 `worker-matrix` | 10 身份 × 5 worker × 3 轮 | ✅ **150/150 运行、140/140 对比、0 错误**（`complete=true`） | 00:16–01:55 JST（1h39m） |
+| F2 `worker-retry-matrix` | 6 参考 + 8「身份×断点」× 5 worker × 3 轮 | ✅ **6/6 参考、120/120 重试、112/112 对比、0 错误**（`complete=true`；120 条 `error` 字段均为注入断点的预期失败 `ParkingObservationAllocFailed`） | 01:55–02:58（1h03m） |
+| F3 `restore-matrix` | 10 参考 + 20 检查点 × 5 worker × 3 轮 | ✅ **10/10 参考、300/300 恢复、0 错误、全程 `stopped=false`**（`complete=true`，elapsed 6,840.8 s） | 02:58–04:52（1h54m） |
+
+L1 行为新口径覆盖：双面检查点（T-free 摘要含 `public_state_digest` 公开摘要
+通道）、换道预约生命周期事件（4/5/6/7）payload 路线 rank 按锚点路线解析、
+`t_state` 身份投影；跨 worker/重试/恢复的回执与字节比较全部相等。边界沿用
+§6（语义对照，不构成性能或产品认证）。
