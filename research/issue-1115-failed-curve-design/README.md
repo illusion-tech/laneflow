@@ -1,5 +1,8 @@
 # 两条失败边的几何调整与信号闭包研究
 
+> 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
+> 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+
 本轮在两条原失败边内部调整控制柄并合并分段，恢复 `sumo:-16502` 与
 `sumo:-28860` 两处完整信号闭包。全部四条 / 八条关联路径联合编译接受，LFCA
 后发射检查通过；原 84 条目标的接受数由 26 增至 28。**这是测试研究的正例，
@@ -43,7 +46,7 @@
 84 个来源拟合拒绝、9 个本划分族无完整程序、1 个成功；`-28860` 分别为
 38、77、31、2。划分次数为 1,827 / 6,228，采样工作为 35,322 / 207,965，
 来源距离评估为 7,626,752 / 11,575,296；去重键保留 24 / 152 个点。
-完整控制点、拒绝阶段和程序见 [searches.json](searches.json)。
+完整控制点、拒绝阶段和程序见 [searches.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/searches.json)。
 
 ## 长度与控制锚点
 
@@ -61,7 +64,7 @@
 两处停止线都绑定原成功边。完整程序及所有规范点核对后，继续核对停止线身份、
 边身份、端点、规范长度，以及每个机动门的原路径身份、转换下标与信号组。
 四条 / 八条路径共 12 个机动门全部核对，通过的两个分量制品分别为 84,227 /
-109,314 字节。证据见 [closure-summary.json](closure-summary.json)。
+109,314 字节。证据见 [closure-summary.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/closure-summary.json)。
 
 ## 完整回归与边界
 
@@ -81,8 +84,8 @@
 四个独立 release 进程按基线/新增、反向、反向、正向运行。每轮保存全部原成功
 程序/规范点、控制信息、原失败诊断、候选、分量结果及接受制品；除计时文件外
 每轮 60 个非计时文件（88,639,257 字节）逐文件 `fc.exe /b` 比较，文件名集合也完全相同。文件清单、大小和外部互操作用
-SHA-256 见 [evidence-manifest.json](evidence-manifest.json)，计时见
-[measurements.json](measurements.json)，机器与工具链见 [environment.json](environment.json)。
+SHA-256 见 [evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/evidence-manifest.json)，计时见
+[measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/measurements.json)，机器与工具链见 [environment.json](environment.json)。
 
 四轮整进程墙钟为 64.890、67.013、69.063、65.534 秒。两条边的搜索均值分别为
 0.040774、0.061645 秒；基线 / 新增组完整验证均值分别为 4.827080 / 5.265838 秒，

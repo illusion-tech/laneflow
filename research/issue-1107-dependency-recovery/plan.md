@@ -1,5 +1,8 @@
 # 依赖分量中的几何候选恢复研究
 
+> 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
+> 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+
 本计划先冻结清单规则，再运行候选实验。依据 #1107、ADR 0022 / 0028，以及
 [#1105 的修复后基线](../issue-1105-direct-successors/README.md)。仅使用 Rust 测试研究
 入口；生产 S1 的 G1 未接受。
@@ -40,7 +43,7 @@
 
 ## 冻结清单与候选实验
 
-清单由 `d9b4ffb9` 的 release 入口生成，见 [inventory.json](inventory.json)。原 84 条
+清单由 `d9b4ffb9` 的 release 入口生成，见 [inventory.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1107-dependency-recovery/inventory.json)。原 84 条
 目标对应 53 个完整分量、183 条关联路径；按上述规则选中 15 个分量、18 条缺失边，
 涉及 26 条关联路径和两处信号控制器。本节在这些边运行新候选搜索前冻结。
 
