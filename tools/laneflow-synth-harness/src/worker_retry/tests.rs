@@ -208,7 +208,7 @@ fn lane_change_final_state_projection_is_compared_against_normal_reference() {
     let identity = "10000-L1-16";
     let normal = json!({
         "implementation_commit": "a".repeat(40),
-        "input_manifest": {"identity": {"case": "L1"}},
+        "input_manifest": {"identity": {"case": {"LaneChange": {"clusters": 1, "changers_per_cluster": 2}}}},
         "warm_up_ticks": 16,
         "observation_ticks": 304,
         "checkpoints": [
@@ -221,7 +221,7 @@ fn lane_change_final_state_projection_is_compared_against_normal_reference() {
         "format": L_FORMAT,
         "complete": true,
         "implementation_commit": "a".repeat(40),
-        "input_manifest": {"identity": {"case": "L1"}},
+        "input_manifest": {"identity": {"case": {"LaneChange": {"clusters": 1, "changers_per_cluster": 2}}}},
         "warm_up_ticks": 16,
         "observation_ticks": 304,
         "workers": 1,

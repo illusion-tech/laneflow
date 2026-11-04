@@ -30,6 +30,19 @@ pub enum Case {
     LaneChange(LaneChangeParams),
 }
 
+impl Case {
+    /// 场景族标签（内部任务/目录命名口径，不参与序列化）。
+    pub fn label(&self) -> &'static str {
+        match self {
+            Case::W1 => "W1",
+            Case::W2 => "W2",
+            Case::W3 => "W3",
+            Case::W4 => "W4",
+            Case::LaneChange(_) => "L1",
+        }
+    }
+}
+
 /// 换道族参数（确定性输入的可复现参数）。
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct LaneChangeParams {
@@ -52,6 +65,37 @@ impl LaneChangeParams {
         }
         Ok(())
     }
+}
+
+/// 换道者入口边（`lc-e0`）长度（毫米，#1233 对象 b/F1）。
+///
+/// K≤4 保持 30 m 钉版几何（既有证据逐字不变）；K≥5 按
+/// `body + min_gap = 4,500 + 2,500 = 7,000` mm 精确间距延长，保证全体
+/// 换道者初始前后不相交。上界由 `MAX_LANE_EDGE_LENGTH_MM`（10 km）约束。
+pub(crate) fn lane_change_entry_length_mm(changers_per_cluster: u32) -> u64 {
+    const PINNED_ENTRY_MM: u64 = 30_000;
+    const BODY_PLUS_GAP_MM: u64 = 7_000;
+    let extra = u64::from(changers_per_cluster.saturating_sub(1)) * BODY_PLUS_GAP_MM;
+    PINNED_ENTRY_MM.max(4_000 + extra)
+}
+
+/// 换道者在入口边上的确定性前保险杠位置（毫米，#1233 对象 b/F1）。
+///
+/// K=2 保持 R1b s12 钉版（leader 11,000 / follower 3,000）；K≤4 均布于
+/// `[3_000, 29_000]`；K≥5 以 7,000 mm（body+gap）精确间距自前向后排列，
+/// 与 `lane_change_entry_length_mm` 单一事实源一致。
+pub(crate) fn lane_change_slot_progress_mm(changers_per_cluster: u32, slot: u32) -> u32 {
+    let slots = changers_per_cluster;
+    if slots == 2 && slot < 2 {
+        return [11_000, 3_000][slot as usize];
+    }
+    if slots <= 4 {
+        let step = if slots > 1 { 26_000 / (slots - 1) } else { 0 };
+        return 29_000 - (u64::from(slot) * u64::from(step)) as u32;
+    }
+    let entry = lane_change_entry_length_mm(slots);
+    let progress = entry - 1_000 - u64::from(slot) * 7_000;
+    progress.min(u64::from(u32::MAX)) as u32
 }
 
 /// 交通输入身份；表现比例不参与本身份。
@@ -83,6 +127,11 @@ impl Identity {
         };
         identity.validate()?;
         Ok(identity)
+    }
+
+    /// 场景族标签（#1233：供 worker/矩阵等内部命名口径使用）。
+    pub fn scenario_label(&self) -> &'static str {
+        self.case.label()
     }
 
     /// 换道族参数（W 族为 `None`）。

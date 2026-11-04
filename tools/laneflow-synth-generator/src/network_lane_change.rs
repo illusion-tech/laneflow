@@ -81,8 +81,12 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             geometry.push((key(cell, route, "exit"), exit));
         }
     }
-    let clusters = identity.lane_change().map_or(0, |params| params.clusters);
-    add_lane_change_clusters(&mut builder, clusters)?;
+    let lane_change_params = identity.lane_change();
+    let clusters = lane_change_params.map_or(0, |params| params.clusters);
+    let entry_mm = lane_change_params.map_or(30_000, |params| {
+        crate::lane_change_entry_length_mm(params.changers_per_cluster)
+    });
+    add_lane_change_clusters(&mut builder, clusters, entry_mm)?;
     let geometry_refs: Vec<_> = geometry
         .iter()
         .map(|(name, points)| LaneEdgeGeometryInput {
@@ -103,7 +107,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             .map_err(|e| compile_error("finish module", e))?,
     )
     .map_err(|e| compile_error("compilation unit", e))?;
-    let editing_bytes = lane_change_editing(&limits, clusters)?;
+    let editing_bytes = lane_change_editing(&limits, clusters, entry_mm)?;
     unit.add_road_editing_module(
         laneflow_compiler::road_editing::RoadEditingModuleInput::try_new(
             "lf-synth-road.document",
@@ -187,16 +191,24 @@ pub(crate) fn cluster_key(base: &str, cluster: u32) -> String {
 }
 
 /// 全部换道簇（参数化，#1233）：`clusters` 个簇各一组唯一键与独立 x 偏移。
-fn add_lane_change_clusters(b: &mut SyntheticModuleBuilder, clusters: u32) -> Result<(), Error> {
+fn add_lane_change_clusters(
+    b: &mut SyntheticModuleBuilder,
+    clusters: u32,
+    entry_mm: u64,
+) -> Result<(), Error> {
     for cluster in 0..clusters {
-        add_lane_change_cluster(b, cluster)?;
+        add_lane_change_cluster(b, cluster, entry_mm)?;
     }
     Ok(())
 }
 
 /// 单个换道簇的合成侧实体（#1218/#1233）：横向过渡段 + 多车道 section/走廊
 ///（分类判据来源）。R1b s12 钉版载体形制逐项保持（边长/接缝/几何跨度）。
-fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder, cluster: u32) -> Result<(), Error> {
+fn add_lane_change_cluster(
+    b: &mut SyntheticModuleBuilder,
+    cluster: u32,
+    entry_mm: u64,
+) -> Result<(), Error> {
     // 先构建本簇全部键，保证引用生命周期覆盖后续 builder 调用。
     let edge_keys: Vec<String> = LC_EDGES
         .iter()
@@ -209,7 +221,7 @@ fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder, cluster: u32) -> Resu
             .expect("lc edge base")
     };
     for (base, length, successors) in [
-        ("lc-e0", 30.0_f64, vec!["lc-t"]),
+        ("lc-e0", entry_mm as f64 / 1_000.0, vec!["lc-t"]),
         ("lc-t", 5.0, vec!["lc-e2"]),
         ("lc-e2", 30.0, vec![]),
         ("lc-int", 8.0, vec![]),
@@ -296,29 +308,31 @@ fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder, cluster: u32) -> Resu
         )],
     })
     .map_err(|e| compile_error("lane change exit corridor", e))?;
-    // 帧几何逐边跨度承接 R1b 钉版载体；按簇偏移避免空间重叠。
-    let offset = 200.0_f64 * f64::from(cluster);
+    // 帧几何以入口边长度为基准：e0 随换道者数延长（#1233 对象 b/F1），
+    // 下游边整体跟随，按簇偏移避免空间重叠。
+    let entry = entry_mm as f64 / 1_000.0;
+    let cluster_offset = 200.0_f64 * f64::from(cluster);
     let frame_spans = [
-        (0.0_f32, 30.0_f32),
-        (30.0, 35.0),
-        (35.0, 65.0),
-        (65.0, 73.0),
-        (73.0, 83.0),
-        (35.0, 65.0),
-        (5.0, 35.0),
-        (83.0, 113.0),
+        (cluster_offset, cluster_offset + entry),
+        (cluster_offset + entry, cluster_offset + entry + 5.0),
+        (cluster_offset + entry + 5.0, cluster_offset + entry + 35.0),
+        (cluster_offset + entry + 35.0, cluster_offset + entry + 43.0),
+        (cluster_offset + entry + 43.0, cluster_offset + entry + 53.0),
+        (cluster_offset + entry + 5.0, cluster_offset + entry + 35.0),
+        (cluster_offset + entry - 25.0, cluster_offset + entry + 5.0),
+        (cluster_offset + entry + 53.0, cluster_offset + entry + 83.0),
     ];
     let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = frame_spans
         .iter()
         .map(|(x0, x1)| {
             [
                 CanonicalPoint3F32Input {
-                    x: *x0 + offset as f32,
+                    x: *x0 as f32,
                     y: 0.0,
                     z: 0.0,
                 },
                 CanonicalPoint3F32Input {
-                    x: *x1 + offset as f32,
+                    x: *x1 as f32,
                     y: 0.0,
                     z: 0.0,
                 },
@@ -344,7 +358,11 @@ fn add_lane_change_cluster(b: &mut SyntheticModuleBuilder, cluster: u32) -> Resu
 
 /// 换道簇编辑侧声明（#1218/#1233）：每簇一组 junction/冲突区/两条流/无信号准入门，
 /// 统一策略集覆盖全部门（编译期 MissingRule 校验）；键按簇确定性派生。
-fn lane_change_editing(limits: &CompileLimits, clusters: u32) -> Result<Vec<u8>, Error> {
+fn lane_change_editing(
+    limits: &CompileLimits,
+    clusters: u32,
+    entry_mm: u64,
+) -> Result<Vec<u8>, Error> {
     use laneflow_compiler::road_editing as editing;
 
     let header = editing::RoadEditingModuleHeader::try_new(
@@ -528,7 +546,8 @@ fn lane_change_editing(limits: &CompileLimits, clusters: u32) -> Result<Vec<u8>,
                 .map_err(|e| compile_error("stream rule", e))?,
             );
         }
-        let offset = 200.0 * f64::from(cluster);
+        let offset =
+            200.0 * f64::from(cluster) + (entry_mm.saturating_sub(30_000) as f64) / 1_000.0;
         let region_points = vec![
             editing::RoadEditingPoint2::try_new(offset + 0.0, -2.0)
                 .map_err(|e| compile_error("region point", e))?,

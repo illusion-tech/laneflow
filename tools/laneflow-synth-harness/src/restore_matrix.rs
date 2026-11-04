@@ -171,7 +171,7 @@ fn check_report(
         && report["probe"] == probe
         && report["workers"] == task.job.workers
         && id["scale"] == task.job.scale
-        && id["case"] == task.job.case
+        && laneflow_synth_harness::scenario_label(id) == task.job.case
         && id["fixed_delta_ms"] == task.job.dt
         && report["end_tick"] == end;
     let valid = valid

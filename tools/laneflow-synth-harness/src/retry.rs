@@ -150,7 +150,7 @@ pub(super) fn verify_reports(
     let actual = format!(
         "{}-{}-{}",
         identity["scale"],
-        identity["case"].as_str().unwrap_or(""),
+        laneflow_synth_harness::scenario_label(identity),
         identity["fixed_delta_ms"]
     );
     ensure(
@@ -187,7 +187,7 @@ pub(super) fn verify_reports(
         .as_u64()
         .ok_or_else(|| Error::Invalid("缺少预热长度".into()))?;
     ensure(
-        boundary == warm + u64::from(identity["case"] == "W3")
+        boundary == warm + u64::from(laneflow_synth_harness::scenario_label(identity) == "W3")
             && retry["final_tick"] == warm + 2
             && retry["failpoint"] == "AfterTransitions"
             && retry["error"] == "ParkingObservationAllocFailed"

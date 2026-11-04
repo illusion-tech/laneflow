@@ -496,7 +496,7 @@ impl Sample {
                 )?;
             }
             self.lane_change_journal
-                .push((tick, slot as u8, kind, identity));
+                .push((tick, slot as u16, kind, identity));
         }
         bytes.extend_from_slice(&(events.len() as u32).to_le_bytes());
         Ok(blake3::hash(bytes))

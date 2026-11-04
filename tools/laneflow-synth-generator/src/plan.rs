@@ -101,15 +101,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
         }
         Case::LaneChange(params) => {
             let slots = params.changers_per_cluster;
-            let step = if slots > 1 { 26_000 / (slots - 1) } else { 0 };
-            // 与 state.rs 同口径：K=2 保持钉版错位。
-            let pinned = |slot: u32| -> u32 {
-                if slots == 2 && slot < 2 {
-                    [11_000, 3_000][slot as usize]
-                } else {
-                    29_000 - slot * step
-                }
-            };
+            // 与 state.rs 共用单一事实源（#1233 对象 b/F1）。
             let changers: Vec<serde_json::Value> = (0..params.clusters)
                 .flat_map(|cluster| {
                     (0..slots).map(move |slot| {
@@ -117,7 +109,7 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
                             "cluster": cluster,
                             "logical_rank": identity.scale + cluster * slots + slot,
                             "edge_occurrence": 0,
-                            "progress_mm": pinned(slot),
+                            "progress_mm": crate::lane_change_slot_progress_mm(slots, slot),
                             "speed_mm_per_s": 10_000,
                             "role": if slot == 0 { "leader" } else { "follower" }
                         })

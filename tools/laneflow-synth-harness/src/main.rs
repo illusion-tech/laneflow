@@ -133,7 +133,7 @@ fn run_process(
     let actual = format!(
         "{}-{}-{}",
         identity["scale"],
-        identity["case"].as_str().unwrap_or(""),
+        laneflow_synth_harness::scenario_label(identity),
         identity["fixed_delta_ms"]
     );
     if report["complete"] != true || actual != label {

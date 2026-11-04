@@ -221,7 +221,7 @@ pub fn matrix(
             require(
                 report["complete"] == true
                     && report["identity"]["scale"] == row.scale
-                    && report["identity"]["case"] == row.case
+                    && crate::scenario_label(&report["identity"]) == row.case
                     && report["identity"]["fixed_delta_ms"] == row.dt
                     && report["presentation_percent"] == row.percent
                     && report["round"] == round

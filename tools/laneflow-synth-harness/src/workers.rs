@@ -91,6 +91,7 @@ pub(super) fn check_report(
     implementation: &str,
 ) -> Result<(), Error> {
     let identity = &input["identity"];
+    let scenario_label = laneflow_synth_harness::scenario_label(identity);
     let (warm, observation) = job.windows();
     let format = if matches!(job.case, "W3" | "W4") {
         "lf-synth-burst-run-1"
@@ -98,7 +99,7 @@ pub(super) fn check_report(
         "lf-synth-semantic-run-1"
     };
     if identity["scale"] != job.scale
-        || identity["case"] != job.case
+        || scenario_label != job.case
         || identity["fixed_delta_ms"] != job.dt
         || report["complete"] != true
         || report["format"] != format
