@@ -2,6 +2,7 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试夹具豁免保留在本目录。
 
 #1113 区分了两类问题，但没有新增信号闭包恢复。在原成功几何、控制锚点、固定曲线和验收阈值不变时：
 
@@ -23,7 +24,7 @@
 | 固定相邻 cubic 接缝  | `8e7331ab8ebdb3bf6858db2801bceb60c0f07328` | 接缝参数域全部排除，无未决            |
 | 完整证据与回归       | `018040fa1ce6b899d20012ee971eed1653cca83a` | 保存二分叶并重放，重验完整原基线      |
 
-前三阶段输出分别为 [endpoint-feasibility.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/endpoint-feasibility.json)、[guided-search.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/guided-search.json)、[seam-feasibility.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/seam-feasibility.json)，保留原始结果。正式回归的 [endpoint-certificates.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/endpoint-certificates.json)、[seam-certificate.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/seam-certificate.json) 与 [guided-prefix-search.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/guided-prefix-search.json) 补充完整排除叶和已发射前缀；剥去新增观察字段后，逐值重现前三阶段的全部结果。
+前三阶段输出分别为 [endpoint-feasibility.json](endpoint-feasibility.json)、[guided-search.json](guided-search.json)、[seam-feasibility.json](seam-feasibility.json)，保留原始结果。正式回归的 [endpoint-certificates.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/endpoint-certificates.json)、[seam-certificate.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/seam-certificate.json) 与 [guided-prefix-search.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/guided-prefix-search.json) 补充完整排除叶和已发射前缀；剥去新增观察字段后，逐值重现前三阶段的全部结果。
 
 ## `-28860`：首弦约束冲突
 
@@ -69,7 +70,7 @@
 
 每次重新比较 16265 条原成功边全部 f64 程序及规范 f32 点、完整拓扑/控制信息，以及 8230 条原失败诊断。接受分量继续进行逐点、停止线所在边、机动门路径、转换下标、信号组绑定与 LFCA 后发射检查。完整结果必须与 #1111 逐值相同；原成功几何和控制锚点保持不变。
 
-四轮完整验证全部通过，全部 90 份非计时输出（89693084 字节）逐字节相等；后三轮分别与首轮使用 Windows `fc.exe /b` 完整比较，三组各 90 份均通过。完整原始结果见 [full-regression-results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/full-regression-results.json)，闭包判定见 [closure-summary.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/closure-summary.json)，文件清单和比较结果见 [evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/evidence-manifest.json)。
+四轮完整验证全部通过，全部 90 份非计时输出（89693084 字节）逐字节相等；后三轮分别与首轮使用 Windows `fc.exe /b` 完整比较，三组各 90 份均通过。完整原始结果见 [full-regression-results.json](full-regression-results.json)，闭包判定见 [closure-summary.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/closure-summary.json)，文件清单和比较结果见 [evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/evidence-manifest.json)。
 
 ## 成本与检查
 

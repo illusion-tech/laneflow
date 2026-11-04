@@ -2,6 +2,7 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试夹具豁免保留在本目录。
 
 #1111 在 #1107 的固定输入上查明旧网格搜索零候选的原因，并得到两条正向边各八份
 可通过真实完整路径编译的新网格候选。原 84 条目标的接受数仍为 26；两处单缺边
@@ -136,7 +137,7 @@ Proposed。后续决策见 [g1-proposal.md](g1-proposal.md)。
 JSON/JSONL。后三轮分别与首轮运行 Windows `fc.exe /b`，每组 86 份全部通过。
 四次旧网格诊断的非计时结果也以同样方式比较，三组全部通过。完整字节比较是
 确定性依据；PowerShell `Get-FileHash` 的 SHA-256 仅用于外部互操作核验，不替代
-内容比较。当前 [results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1111-grid-calibration/results.json) 是完整三组结果，不是摘要抽样。
+内容比较。当前 [results.json](results.json) 是完整三组结果，不是摘要抽样。
 
 ## 复现与检查
 

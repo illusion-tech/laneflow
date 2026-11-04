@@ -2,6 +2,7 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试夹具豁免保留在本目录。
 
 任务：[#1103](https://github.com/illusion-tech/laneflow/issues/1103)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。本轮只增加 `cfg(test)` 研究入口
@@ -109,7 +110,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 
 31 条有信号目标覆盖 12 个控制器，保留全部原始相位、组、机动门、停止线和控制器
 关联路径。其余 29 条有信号目标被缺失程序挡在前置阶段。这里的“覆盖”表示纳入真实
-检查，不表示控制器通过了编译。完整闭包数据与每条诊断见 [results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/results.json)。
+检查，不表示控制器通过了编译。完整闭包数据与每条诊断见 [results.json](results.json)。
 
 六条候选边各保留 8 份程序，共 48 份；除旧的 `sumo::-10004_5_1` 外，新增候选边为
 `sumo::-10034_0_0`、`sumo::-10130_16_0`、`sumo::-10130_18_0`、
@@ -156,7 +157,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
   逐边耗时、CPU 原始计数及电源前后记录。
 - [budget-comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/budget-comparison.json)、[coverage-comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/coverage-comparison.json)：
   独立聚合、逐边完整路径结果、有限族边界及失败分类。
-- [inputs.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/inputs.json)、[cohort.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/cohort.json)、[results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/results.json)：
+- [inputs.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/inputs.json)、[cohort.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/cohort.json)、[results.json](results.json)：
   真实输入位值、冻结选择、两档完整覆盖结果；结果 SHA-256 为
   `7279aa6d355663d591f4860a2f2df7377c22cef358b7f42ded2774991e25c9ee`。
 - [environment.json](environment.json)、[protocol.json](protocol.json)、

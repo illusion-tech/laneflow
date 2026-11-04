@@ -2,6 +2,7 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试夹具豁免保留在本目录。
 
 研究问题：现行修复程序成功发射一条边，是否足以保证它与真实机动路径的相邻边通过
 compiler 的方向检查？在保持源几何的前提下，后续有界采样应如何定义成功与失败？
@@ -35,7 +36,7 @@ lead；其 accepted 只证明该边对在夹具中的受检性质，不证明真
 ## 保存的审阅输入
 
 - [summary.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1084-lust-sampling/summary.json)：来源身份、全部计数、夹具边界。
-- [samples.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1084-lust-sampling/samples.json)：17 条真实样本的输入原始位、重放结果及实际拒绝调用摘录。
+- [samples.json](samples.json)：17 条真实样本的输入原始位、重放结果及实际拒绝调用摘录。
   省略成功子调用和完整程序，不代表完整执行轨迹；父调用 ID 保留原始编号。
 - [determinism.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1084-lust-sampling/determinism.json)：两个独立进程的五个结果文件经直接字节比较相同；
   SHA-256 用于 GitHub 读者以 PowerShell 等外部工具核对生成文件，不作为模型性能结论。
