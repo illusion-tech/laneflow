@@ -94,11 +94,12 @@ impl Driver {
         match self {
             Self::Burst(b) => b.finish(plan),
             Self::Simple(s) if plan.identity.lane_change().is_some() => {
-                // L 族：恰两换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
-                let cluster = s.lane_change_route.expect("L 族簇路线");
+                // L 族：全体换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
                 require(
                     s.crossed.iter().enumerate().all(|(rank, &crossed)| {
-                        crossed == (s.state.vehicles[rank].route_rank as usize == cluster)
+                        crossed
+                            == s.lane_change_routes
+                                .contains(&(s.state.vehicles[rank].route_rank as usize))
                     }),
                     || "换道族完整窗口过门次数不符".into(),
                 )

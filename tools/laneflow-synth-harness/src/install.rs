@@ -13,14 +13,16 @@ pub(crate) struct Sample {
     pub routes: Vec<RouteHandle>,
     pub groups: Vec<Option<SignalGroupOrdinal>>,
     pub gates: Vec<Option<ManeuverGateOrdinal>>,
-    /// L 族换道簇路线下标（`None` 为 W 族）；簇路线无信号门、携带两换道者。
+    /// L 族首个换道簇路线下标（`None` 为 W 族）；簇路线无信号门。
     pub lane_change_route: Option<usize>,
+    /// L 族全部换道簇路线下标（多簇，#1233）；与 `lane_change_route` 同步。
+    pub lane_change_routes: Vec<usize>,
     /// L 族换道预约生命周期史（#1218 面 B 身份投影）：
     /// `(tick, 换道者槽位, 事件种类, 资源身份)`，事件序保持。
     pub lane_change_journal: Vec<(u64, u8, u32, u32)>,
     /// L1 观测跨拍生命周期序（#1227）：按换道者槽位记录最近一次生命周期事件
     /// 种类（4 acquire / 5 enter / 6 clear / 7 release），跨观测调用持续。
-    pub lane_change_last_kind: [u32; 2],
+    pub lane_change_last_kind: Vec<u32>,
     /// 逐路线位置前缀和（毫米，含起点 0 与终点）：L 族边长非均匀，位置编码
     /// 由真实边长累计（W 族恒为 `EDGE_MM` 网格，不使用本表）。
     pub route_offsets: Vec<Vec<u64>>,
@@ -217,6 +219,11 @@ impl Sample {
         let bindings = handles.iter().map(|&h| world.parking_binding(h)).collect();
         let cursor = world.command_cursor();
         let route_offsets = route_position_offsets(&state, &revision)?;
+        let lane_change_slots = state
+            .identity
+            .lane_change()
+            .map_or(0, |params| params.clusters * params.changers_per_cluster)
+            as usize;
         Ok(Self {
             world,
             state,
@@ -225,8 +232,9 @@ impl Sample {
             groups,
             gates,
             lane_change_route,
+            lane_change_routes,
             lane_change_journal: Vec::new(),
-            lane_change_last_kind: [0; 2],
+            lane_change_last_kind: vec![0; lane_change_slots],
             route_offsets,
             previous: initial.clone(),
             crossed: vec![false; initial.len()],

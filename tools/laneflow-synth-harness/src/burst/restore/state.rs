@@ -381,10 +381,14 @@ pub(super) fn restore(
         groups.push(Some(group));
         gates.push(Some(view.gates()[0]));
     }
-    let lane_change_route = state
+    let lane_change_routes: Vec<usize> = state
         .routes
         .iter()
-        .position(|route| route.edge_ids.len() > 2);
+        .enumerate()
+        .filter(|(_, route)| route.edge_ids.len() > 2)
+        .map(|(index, _)| index)
+        .collect();
+    let lane_change_route = lane_change_routes.first().copied();
     let route_offsets = crate::install::route_position_offsets(&state, &revision)?;
     let initial = handles
         .iter()
@@ -412,9 +416,14 @@ pub(super) fn restore(
         .max_accel();
     let max_accel_mm_s2 = (f64::from(max_accel_mm_s2) * 1_000.0).round().max(0.0) as u32;
     // 跨拍生命周期序在恢复端续接（#1227）：取宿主史中各槽位最后一次生命周期种类。
-    let mut lane_change_last_kind = [0_u32; 2];
+    let lane_change_slots = state
+        .identity
+        .lane_change()
+        .map_or(0, |params| params.clusters * params.changers_per_cluster)
+        as usize;
+    let mut lane_change_last_kind = vec![0_u32; lane_change_slots];
     for (_, slot, kind, _) in &host.lane_change_journal {
-        if (4..=7).contains(kind) && (*slot as usize) < 2 {
+        if (4..=7).contains(kind) && (*slot as usize) < lane_change_last_kind.len() {
             lane_change_last_kind[*slot as usize] = *kind;
         }
     }
@@ -427,6 +436,7 @@ pub(super) fn restore(
         groups,
         gates,
         lane_change_route,
+        lane_change_routes,
         lane_change_journal: host.lane_change_journal.clone(),
         lane_change_last_kind,
         route_offsets,
