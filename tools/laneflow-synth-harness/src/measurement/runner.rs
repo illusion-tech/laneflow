@@ -801,7 +801,7 @@ pub fn guardrail(input: &Path, output: &Path) -> Result<Value, Error> {
     driver.observe(&sample.world, None)?;
     let mut oracle = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN))?.world;
     let mut oracle_events = super::events::Recorder::new(16, plan.identity.scale);
-    oracle_events.record(&oracle, &driver.ranks, None)?;
+    oracle_events.record(&oracle, &driver.ranks, &driver.routes, None)?;
     let mut app = create_app(
         sample,
         &plan,
@@ -839,6 +839,7 @@ pub fn guardrail(input: &Path, output: &Path) -> Result<Value, Error> {
             oracle_events.record(
                 &oracle,
                 &app.world().resource::<Driver>().ranks,
+                &app.world().resource::<Driver>().routes,
                 Some(&result),
             )?;
         }

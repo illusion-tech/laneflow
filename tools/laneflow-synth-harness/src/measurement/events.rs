@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path};
 
 use laneflow_runtime::{
-    ConflictPassageAddress, ConflictPassageRange, ParkingTarget, StepOutcome,
+    ConflictPassageAddress, ConflictPassageRange, ParkingTarget, RouteHandle, StepOutcome,
     TrafficTransitionKind, TrafficWorld, VehicleHandle,
 };
 
@@ -50,6 +50,7 @@ impl Recorder {
         &mut self,
         world: &TrafficWorld,
         ranks: &HashMap<VehicleHandle, usize>,
+        routes: &[RouteHandle],
         outcome: Option<&StepOutcome>,
     ) -> Result<(), Error> {
         let tick = world.tick_index();
@@ -106,10 +107,17 @@ impl Recorder {
                 }
                 other => return Err(failure("LF-SYNTH 未声明的事件类型", other)),
             };
+            // 事件序列化的路线 rank 经路线表解析锚点路线（#1243）：
+            // `logical_rank / 25` 只在 W 族背景车等价，多簇换道者的
+            // 路线归属不再折叠错记。
+            let route_rank = routes
+                .iter()
+                .position(|route| *route == anchor.route())
+                .ok_or_else(|| failure("事件路线映射", tick))? as u32;
             for value in [
                 rank as u32,
                 event.vehicle_update_sequence(),
-                rank as u32 / 25,
+                route_rank,
                 anchor.maneuver_occurrence_index(),
                 anchor.hop(),
                 anchor.position().route_edge_index(),

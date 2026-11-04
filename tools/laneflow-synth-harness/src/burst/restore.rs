@@ -180,8 +180,9 @@ impl Records {
             }
             Driver::Burst(b) => &b.handle_ranks,
         };
-        let world = &driver.sample().world;
-        self.events.record(world, ranks, outcome)?;
+        let sample = driver.sample();
+        let world = &sample.world;
+        self.events.record(world, ranks, &sample.routes, outcome)?;
         self.trace.write_all(&tick.to_le_bytes())?;
         self.trace.write_all(digest.as_bytes())?;
         self.trace_count += 1;

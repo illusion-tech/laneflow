@@ -19,7 +19,8 @@ pub(super) struct Driver {
     pub handles: Vec<VehicleHandle>,
     pub ranks: HashMap<VehicleHandle, usize>,
     pub entities: Vec<Option<Entity>>,
-    routes: Vec<RouteHandle>,
+    /// 路线表（rank 下标）；事件记录经它解析锚点路线的 rank（#1243）。
+    pub routes: Vec<RouteHandle>,
     profile: laneflow_static_contract::VehicleProfileOrdinal,
     spaces: Vec<Option<ParkingSpaceOrdinal>>,
     scheduled: Vec<Scheduled>,
@@ -349,7 +350,8 @@ impl Driver {
         world: &TrafficWorld,
         outcome: Option<&StepOutcome>,
     ) -> Result<(), Error> {
-        self.events.record(world, &self.ranks, outcome)?;
+        self.events
+            .record(world, &self.ranks, &self.routes, outcome)?;
         let tick = world.tick_index();
         if let Some(outcome) = outcome {
             for arrival in outcome.parking_arrivals() {
