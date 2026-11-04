@@ -117,8 +117,8 @@ const EDGES: [&str; 4] = [
 
 #[test]
 fn reached_chord_reuse_preserves_calibrated_positive_candidates() {
-    let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inputs.json",
     ))
     .unwrap();
     let reference: Value = serde_json::from_str(include_str!(
