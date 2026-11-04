@@ -959,6 +959,9 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             world_id,
             world_generation,
             config,
+            // 切换候选绑定是全新世界账；过渡成本计数随新绑定从零开始
+            // （#1243 T2：逐世界归因，不继承切换前计数）。
+            transition_cost: crate::kernel::transition_cost::Recorder::new(),
         },
         committed: crate::kernel::state::CommittedWorldState {
             conflict,
