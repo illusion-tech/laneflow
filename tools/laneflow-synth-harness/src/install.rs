@@ -255,11 +255,19 @@ impl Sample {
 /// 恢复重建必须与安装同式（否则 `restore_lfrs` 容量校验拒绝）。
 pub(crate) fn world_config(state: &InitialState) -> WorldConfig {
     if state.routes.iter().any(|route| route.edge_ids.len() > 2) {
+        let cluster_routes = state
+            .routes
+            .iter()
+            .filter(|route| route.edge_ids.len() > 2)
+            .count() as u64;
+        // 每簇路线注册 2 个冲突出现记录；容量进入快照摘要，保留历史下界
+        // 16（#1233：c1/c4 既有证据不变，16 簇起按需扩展）。
+        let conflict_capacity = cluster_routes.saturating_mul(2).max(16);
         WorldConfig::new(
             state.vehicles.len() as u32,
             state.routes.len() as u32,
             state.routes.iter().map(|r| r.edge_ids.len() as u64).sum(),
-            16,
+            conflict_capacity,
             u64::from(state.identity.fixed_delta_ms),
         )
     } else {
