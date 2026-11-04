@@ -231,6 +231,7 @@ impl Burst {
         Ok(
             json!({"tick":self.sample.world.tick_index(), "state_digest":state_digest(&self.sample.world)?,
             "public_trace_digest":stream.clone().finalize().to_hex().to_string(),
+            "public_state_digest":crate::public_state_digest(&self.sample.world)?,
             "population":{"active":self.counts[0],"parked":self.counts[1],"completed":self.counts[2]},
             "command_cursor":self.sample.cursor,"gate_crossings":self.sample.transitions}),
         )
