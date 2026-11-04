@@ -83,6 +83,9 @@ mod lf_synth_contract;
 #[path = "tests/motion_backend_equivalence.rs"]
 mod motion_backend_equivalence;
 
+/// S4 过渡执行成本计数转发（#1233）：未激活时为空实现。
+pub(crate) mod transition_cost;
+
 /// #972 证据构建的调度统计与资源账；普通构建不编译。
 #[cfg(feature = "execution-evidence")]
 pub(crate) mod execution_evidence;

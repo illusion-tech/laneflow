@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [features]
-allocation = ["dep:stats_alloc", "laneflow-runtime/execution-evidence", "laneflow-bevy/pose-profiling"]
+allocation = ["dep:stats_alloc", "laneflow-runtime/execution-evidence", "laneflow-bevy/pose-profiling", "laneflow-bevy/execution-evidence"]
 
 [dependencies]
 bevy_app = { version = "0.20", default-features = false, features = ["std"] }

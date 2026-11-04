@@ -19,6 +19,9 @@ pub(super) fn inputs(plan: &Plan) -> Vec<FrameInput> {
         targets.extend([1_024, 2_048, 4_096].map(|n| plan.warm_up_ticks + n));
         targets.push(plan.warm_up_ticks + plan.observation_ticks);
     }
+    let total = plan.warm_up_ticks + plan.observation_ticks;
+    // 短窗场景（L 族）的 1024/2048/4096 边界可能越出总拍数，须过滤。
+    targets.retain(|&target| target <= total);
     targets.sort_unstable();
     targets.dedup();
     let mut result = Vec::new();

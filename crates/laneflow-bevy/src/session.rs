@@ -143,6 +143,12 @@ impl LaneFlowSession {
         LaneFlowJunctionObservation::new(&self.world)
     }
 
+    /// 取回并清空自上次以来的执行证据（#1233 对象 b）。
+    #[cfg(feature = "execution-evidence")]
+    pub fn take_execution_evidence(&mut self) -> laneflow_runtime::ExecutionEvidence {
+        self.world.take_execution_evidence()
+    }
+
     /// 两次 `step` 之间提交 route、spawn 与 parking lifecycle 命令。
     ///
     /// 已绑定车辆的原子替换必须走 [`crate::replace_completed_vehicle`]，避免 Runtime
