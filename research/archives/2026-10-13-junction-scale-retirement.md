@@ -7,7 +7,7 @@ Refs #926。冻结主线 `ec934c4f56707f101f8bb172ddc075b0031a43d1`，源码树
 example 目录只保留演示与 smoke 用途（#925）。
 
 本次不另发 Release 制品。冻结提交位于 `main` 历史中，按
-[文档边界政策](../../docs/governance/documentation-policy.md#研究证据与大体量生成数据)
+[文档边界政策](../../docs/governance/documentation-policy.md#研究结论与过程数据边界)
 证据清理保留旧提交历史，重写历史须另行授权；因此退役文件的制品下载地址就是
 按冻结提交固定的 GitHub 原始文件地址：
 
