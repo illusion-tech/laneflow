@@ -388,7 +388,7 @@ fn run_inner(
                 .as_ref()
                 .is_none_or(|o| o.parking_arrivals().is_empty()),
         )?;
-        events.record(&sample.world, &ranks, outcome.as_ref())?;
+        events.record(&sample.world, &ranks, &sample.routes, outcome.as_ref())?;
         trace.write_all(&tick.to_le_bytes())?;
         trace.write_all(digest.as_bytes())?;
         stream.update(&tick.to_le_bytes());

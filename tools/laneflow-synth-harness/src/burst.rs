@@ -578,7 +578,12 @@ pub(super) fn run(
     let mut events = crate::measurement::events::Recorder::new(total + 1, plan.identity.scale);
     for tick in 0..=total {
         let boundary_digest = burst.observe(tick, plan.warm_up_ticks, outcome.as_ref())?;
-        events.record(&burst.sample.world, &burst.handle_ranks, outcome.as_ref())?;
+        events.record(
+            &burst.sample.world,
+            &burst.handle_ranks,
+            &burst.sample.routes,
+            outcome.as_ref(),
+        )?;
         trace.write_all(&tick.to_le_bytes())?;
         trace.write_all(boundary_digest.as_bytes())?;
         stream.update(&tick.to_le_bytes());
