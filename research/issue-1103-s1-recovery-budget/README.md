@@ -1,5 +1,8 @@
 # S1 恢复覆盖与搜索预算定界
 
+> 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
+> 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+
 任务：[#1103](https://github.com/illusion-tech/laneflow/issues/1103)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。本轮只增加 `cfg(test)` 研究入口
 和证据，生产采样、拓扑发射、阈值与锁定失败清单不变。生产 S1 的 G1 **尚未接受**；
@@ -26,12 +29,12 @@
 `partitions` 截断边的预算，另 11 条对照保持 32,768。候选顺序、2–2,048 片有限族、
 512 步累计切向扫描、1.95° sink 与 0.95° 完整边端弦约束均不变。
 
-| 单边划分上限 | 正式进程数 | 17 条样本搜索中位数 | 最小—最大 | 相对默认耗时 | 六条中新候选边 | 仍截断 / 有限族耗尽 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 32,768 | 4 | 0.404344 s | 0.402961–0.420875 s | 1.00 倍 | 0 | 6 / 0 |
-| 65,536 | 4 | 0.789273 s | 0.781723–0.806692 s | 1.95 倍 | 0 | 6 / 0 |
-| 131,072 | 4 | 1.482730 s | 1.473633–1.497243 s | 3.67 倍 | 0 | 4 / 2 |
-| 262,144 | 4 | 2.408179 s | 2.403371–2.457660 s | 5.96 倍 | 0 | 3 / 3 |
+| 单边划分上限 | 正式进程数 | 17 条样本搜索中位数 | 最小—最大           | 相对默认耗时 | 六条中新候选边 | 仍截断 / 有限族耗尽 |
+| ------------ | ---------- | ------------------- | ------------------- | ------------ | -------------- | ------------------- |
+| 32,768       | 4          | 0.404344 s          | 0.402961–0.420875 s | 1.00 倍      | 0              | 6 / 0               |
+| 65,536       | 4          | 0.789273 s          | 0.781723–0.806692 s | 1.95 倍      | 0              | 6 / 0               |
+| 131,072      | 4          | 1.482730 s          | 1.473633–1.497243 s | 3.67 倍      | 0              | 4 / 2               |
+| 262,144      | 4          | 2.408179 s          | 2.403371–2.457660 s | 5.96 倍      | 0              | 3 / 3               |
 
 release 构建使用 Rust 1.99.1、`opt_level=3`。源码冻结为
 `5388d19f58f51b8466331c3e542f10a76107e453`；二进制 SHA-256、构建 profile 和顺序见
@@ -50,21 +53,21 @@ release 构建使用 Rust 1.99.1、`opt_level=3`。源码冻结为
 指标相同，另用 Python JSON 读取独立复核。第一次预热因 Rust 内存 f64 诊断值与已读取
 JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JSON 读取路径后重跑。
 程序和控制点使用整数位表示，仍精确比较。旧二进制与失败日志保留，摘要见
-[budget-comparison.json](budget-comparison.json)。
+[budget-comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/budget-comparison.json)。
 
 ### 六条截断样本的边界
 
 下表的完整路径结果直接来自 32,768 与 262,144 两档真实编译检查。中间两档只运行固定
 边搜索；由于六条始终没有候选、其余对照候选不变，没有据此声称直接运行了四档路径编译。
 
-| 边 | 8 倍时实际划分数 | 停止原因 | 两档受影响路径结果 |
-| --- | --- | --- | --- |
-| `sumo:--30316_0` | 262,144 | 预算截断 | 5 条缺失真实程序 |
-| `sumo:--30358#12_1` | 262,144 | 预算截断 | 3 条缺失真实程序 |
-| `sumo:--30452_0` | 262,144 | 预算截断 | 2 条缺失真实程序 |
-| `sumo::-10004_3_0` | 94,162 | 有限族耗尽 | 1 条缺失真实程序 |
-| `sumo::-1000_2_0` | 131,008 | 有限族耗尽 | 1 条缺失真实程序 |
-| `sumo::-10046_0_0` | 208,794 | 有限族耗尽 | 1 条缺失真实程序 |
+| 边                  | 8 倍时实际划分数 | 停止原因   | 两档受影响路径结果 |
+| ------------------- | ---------------- | ---------- | ------------------ |
+| `sumo:--30316_0`    | 262,144          | 预算截断   | 5 条缺失真实程序   |
+| `sumo:--30358#12_1` | 262,144          | 预算截断   | 3 条缺失真实程序   |
+| `sumo:--30452_0`    | 262,144          | 预算截断   | 2 条缺失真实程序   |
+| `sumo::-10004_3_0`  | 94,162           | 有限族耗尽 | 1 条缺失真实程序   |
+| `sumo::-1000_2_0`   | 131,008          | 有限族耗尽 | 1 条缺失真实程序   |
+| `sumo::-10046_0_0`  | 208,794          | 有限族耗尽 | 1 条缺失真实程序   |
 
 前两条耗尽边在 4 倍档已经停止，第三条在 8 倍档停止。“有限族耗尽”只覆盖当前固定
 几何、划分族、量化和严格阈值，不表示几何问题数学无解。其余三条也不能据截断判断无解。
@@ -78,7 +81,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 至少 2 条程序分组，每组取两个不同闭包。单闭包至多 64 条路径、128 条边、8 条缺失边；
 新增恢复边并集至多 64 条。共享进出边还纳入使用这些边的全部路径及其信号闭包。
 真实清单没有共享内边，保留该空分层；在任何搜索和编译前补入共享进出边分层。
-各层总体数、筛选上限、具体 ID 和扩展关系全部保存在 [cohort.json](cohort.json)。
+各层总体数、筛选上限、具体 ID 和扩展关系全部保存在 [cohort.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/cohort.json)。
 这是有界确定性选样，不是全城恢复率的统计抽样。
 
 最终搜索原九条失败样本和队列新增失败边的并集，共 43 条。两档覆盖预算分别为默认值
@@ -86,15 +89,15 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 `4bb1f89d0b351bb9dde68219bc0c053eb2bbb098`，完整身份见
 [protocol.json](protocol.json)。两次新进程执行，计时仅作诊断。
 
-| 检查层级 | 原程序基线 | 默认预算候选 | 8 倍预算候选 |
-| --- | --- | --- | --- |
-| 有候选的失败边 / 搜索边 | 0 / 43 | 6 / 43 | 6 / 43 |
-| 完整目标路径接受 | 22 / 84 | 23 / 84 | 23 / 84 |
-| 目标跨边方向拒绝 | 3 | 3 | 3 |
-| 发射前置缺失，未到编译检查 | 57 | 56 | 56 |
-| 编译器拓扑拒绝，未到目标几何检查 | 2 | 2 | 2 |
-| 多内边路径接受 | 3 / 14 | 3 / 14 | 3 / 14 |
-| 有信号目标路径接受 | 0 / 31 | 0 / 31 | 0 / 31 |
+| 检查层级                         | 原程序基线 | 默认预算候选 | 8 倍预算候选 |
+| -------------------------------- | ---------- | ------------ | ------------ |
+| 有候选的失败边 / 搜索边          | 0 / 43     | 6 / 43       | 6 / 43       |
+| 完整目标路径接受                 | 22 / 84    | 23 / 84      | 23 / 84      |
+| 目标跨边方向拒绝                 | 3          | 3            | 3            |
+| 发射前置缺失，未到编译检查       | 57         | 56           | 56           |
+| 编译器拓扑拒绝，未到目标几何检查 | 2          | 2            | 2            |
+| 多内边路径接受                   | 3 / 14     | 3 / 14       | 3 / 14       |
+| 有信号目标路径接受               | 0 / 31     | 0 / 31       | 0 / 31       |
 
 两个信号正向对照具备全部真实几何，却在编译阶段得到
 `LF-COMP-DISCONNECTED-MANEUVER-PATH`：`sumo:-20604` 与 `sumo:-22774` 的无内边直连
@@ -106,7 +109,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 
 31 条有信号目标覆盖 12 个控制器，保留全部原始相位、组、机动门、停止线和控制器
 关联路径。其余 29 条有信号目标被缺失程序挡在前置阶段。这里的“覆盖”表示纳入真实
-检查，不表示控制器通过了编译。完整闭包数据与每条诊断见 [results.json](results.json)。
+检查，不表示控制器通过了编译。完整闭包数据与每条诊断见 [results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/results.json)。
 
 六条候选边各保留 8 份程序，共 48 份；除旧的 `sumo::-10004_5_1` 外，新增候选边为
 `sumo::-10034_0_0`、`sumo::-10130_16_0`、`sumo::-10130_18_0`、
@@ -136,7 +139,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 从 24 条降至 12 条，候选池填满始终为 6 条。单边各项最大值为 6 张扫描表、3,078 个
 累计值、12 个帧、77 个前缀点；去重键点最大值从 759 增至 1,779。候选池合计保留
 2,438 个程序点。独立最大值不能相加成同时峰值；容器容量、JSON 指标及分配器开销均
-未计量，**没有实际堆峰值结论**。完整计数见 [resource-counts.json](resource-counts.json)。
+未计量，**没有实际堆峰值结论**。完整计数见 [resource-counts.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/resource-counts.json)。
 
 192 条候选跨度记录中的九点网格到对应弦偏离最大约 0.010183 m，f64 控制包络估计
 最大约 0.015942 m。全部标记 `certified_continuous_bound=false`，不能当作连续几何
@@ -148,25 +151,25 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 
 ## 证据与复跑
 
-- [budget-results.json](budget-results.json)：四档完整 17 条样本输出。
-- [budget-measurements.json](budget-measurements.json)：全部 4 次预热和 16 次正式进程、
+- [budget-results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/budget-results.json)：四档完整 17 条样本输出。
+- [budget-measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/budget-measurements.json)：全部 4 次预热和 16 次正式进程、
   逐边耗时、CPU 原始计数及电源前后记录。
-- [budget-comparison.json](budget-comparison.json)、[coverage-comparison.json](coverage-comparison.json)：
+- [budget-comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/budget-comparison.json)、[coverage-comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/coverage-comparison.json)：
   独立聚合、逐边完整路径结果、有限族边界及失败分类。
-- [inputs.json](inputs.json)、[cohort.json](cohort.json)、[results.json](results.json)：
+- [inputs.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/inputs.json)、[cohort.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/cohort.json)、[results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/results.json)：
   真实输入位值、冻结选择、两档完整覆盖结果；结果 SHA-256 为
   `7279aa6d355663d591f4860a2f2df7377c22cef358b7f42ded2774991e25c9ee`。
 - [environment.json](environment.json)、[protocol.json](protocol.json)、
-  [coverage-timing.json](coverage-timing.json)、[evidence-manifest.json](evidence-manifest.json)：
+  [coverage-timing.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/coverage-timing.json)、[evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/evidence-manifest.json)：
   环境、源码与构建身份、运行状态、诊断耗时和文件摘要。
 
 构建命令：`cargo +1.99.1 test --locked -p laneflow-lust-converter --lib --release --no-run`。
 随后直接执行得到的测试二进制，每次指定不存在的输出目录，避免把编译计入耗时。
 
-| 入口（均加 `--exact --ignored --nocapture`） | 环境参数 |
-| --- | --- |
-| `output::emit::s1::recovery::fixed_sample_budget_measurement` | `S1_BENCH_INPUTS` 指向 #1093 输入；`S1_PARTITION_LIMIT` 为四档之一；`S1_OUTPUT_DIR` |
-| `output::emit::s1::recovery_coverage::pinned_lust_recovery_inventory` | `LUST_SOURCE_DIR` 指向锁定 LuST；`S1_OUTPUT_DIR` |
+| 入口（均加 `--exact --ignored --nocapture`）                                       | 环境参数                                                                                                                                                      |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `output::emit::s1::recovery::fixed_sample_budget_measurement`                      | `S1_BENCH_INPUTS` 指向 #1093 输入；`S1_PARTITION_LIMIT` 为四档之一；`S1_OUTPUT_DIR`                                                                           |
+| `output::emit::s1::recovery_coverage::pinned_lust_recovery_inventory`              | `LUST_SOURCE_DIR` 指向锁定 LuST；`S1_OUTPUT_DIR`                                                                                                              |
 | `output::emit::s1::recovery_coverage::validation::pinned_lust_recovery_validation` | `LUST_SOURCE_DIR`；`S1_COHORT_FILE` 指向本目录 cohort；`S1_SWEEP_DIR` 包含 `00-warmup-32768/results.json` 和 `03-warmup-262144/results.json`；`S1_OUTPUT_DIR` |
 
 复跑覆盖入口前先按上表目录名生成两档基准，或将 `budget-results.json` 对应键的完整

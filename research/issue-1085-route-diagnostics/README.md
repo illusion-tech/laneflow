@@ -1,5 +1,8 @@
 # 保持正式行为的路线阶段诊断
 
+> 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
+> 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+
 问题：现行路线错误不能区分道路 hop 缺失和可达车道衔接缺口；直接把全部归一化失败
 归为来源引用错误，又会误报合法引用下不支持的拓扑。任务入口为
 [#1085](https://github.com/illusion-tech/laneflow/issues/1085)，父问题为
@@ -21,8 +24,8 @@ Windows x86_64 上导出 15 个案例，11 组 A0 正式行为对照全部相同
 计数只包含诊断观察器的执行；整次诊断计时还包含建索引、正式基线调用、绑定和排序。
 详细定义见 [诊断口径](diagnostic-contract.md)。单次耗时不作为性能结论。
 
-- [results.json](results.json)：15 个实测案例、11 组正式行为比较和未执行阶段。
-- [baseline-results.json](baseline-results.json)：已集成 A0 提交
+- [results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1085-route-diagnostics/results.json)：15 个实测案例、11 组正式行为比较和未执行阶段。
+- [baseline-results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1085-route-diagnostics/baseline-results.json)：已集成 A0 提交
   `85a2d383f1cd66d8d8d04a14ce7d7a049172ed42` 的固定对照输入。
 
 这两个文件保留语义数据，构建目录和本机命令改为占位并重新序列化，不声明与本地

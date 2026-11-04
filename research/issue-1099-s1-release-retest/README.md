@@ -1,5 +1,8 @@
 # 四阶段统一 release 重测
 
+> 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
+> 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+
 任务：[#1099](https://github.com/illusion-tech/laneflow/issues/1099)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。本报告重测
 [#1093](../issue-1093-s1-efficiency/README.md) 的相同 17 条样本和四个冻结阶段。
@@ -12,12 +15,12 @@
 每阶段 8 块、每块 10 个新进程；另有 4 个预热块。表中耗时是每个块内 10 次
 样本搜索总耗时的均值，再对该阶段的 8 个块取中位数和范围。
 
-| 阶段 | 累计实现 | 搜索耗时中位数 | 块均值最小—最大 | 相对 A | 进程 CPU 中位数 |
-| --- | --- | --- | --- | --- | --- |
-| A | 原枚举，共同计时入口 | 1.000072 s | 0.996022–1.006287 s | 基线 | 0.996875 s |
-| B | A + 固定 cubic 累计切向扫描复用 | 0.441277 s | 0.438467–0.443454 s | -55.875% | 0.454688 s |
-| C | B + 完整规范点序列去重 | 0.445128 s | 0.441520–0.450173 s | -55.490% | 0.456250 s |
-| D | C + 保留游标、前缀坐标和指标的有界回溯 | 0.434077 s | 0.432807–0.437569 s | -56.595% | 0.441406 s |
+| 阶段 | 累计实现                               | 搜索耗时中位数 | 块均值最小—最大     | 相对 A   | 进程 CPU 中位数 |
+| ---- | -------------------------------------- | -------------- | ------------------- | -------- | --------------- |
+| A    | 原枚举，共同计时入口                   | 1.000072 s     | 0.996022–1.006287 s | 基线     | 0.996875 s      |
+| B    | A + 固定 cubic 累计切向扫描复用        | 0.441277 s     | 0.438467–0.443454 s | -55.875% | 0.454688 s      |
+| C    | B + 完整规范点序列去重                 | 0.445128 s     | 0.441520–0.450173 s | -55.490% | 0.456250 s      |
+| D    | C + 保留游标、前缀坐标和指标的有界回溯 | 0.434077 s     | 0.432807–0.437569 s | -56.595% | 0.441406 s      |
 
 本机、本次固定样本的结果支持扫描复用带来明显收益：A → B 的搜索耗时约减少
 55.9%，D 相对 A 约减少 56.6%，每次运行这 17 条样本少约 0.566 秒。进程 CPU
@@ -78,12 +81,12 @@ D 相对 C 为 -2.10%，范围 -3.86%～-1.44%；D 相对 B 为 -1.59%，范围
 
 ## 源码与重测口径
 
-| 阶段 | 冻结源码提交 |
-| --- | --- |
-| A | `4f32cb8ffcb911f9964553dd0dddfd8b942736f4` |
-| B | `af4a2301d607cce72cb3ad5b0d50f848d312ddf3` |
-| C | `9ba518da5a364bef088690f2ee245b58cce7582d` |
-| D | `464783ae95ae940810050d4f94391f90d9a12c72` |
+| 阶段 | 冻结源码提交                               |
+| ---- | ------------------------------------------ |
+| A    | `4f32cb8ffcb911f9964553dd0dddfd8b942736f4` |
+| B    | `af4a2301d607cce72cb3ad5b0d50f848d312ddf3` |
+| C    | `9ba518da5a364bef088690f2ee245b58cce7582d` |
+| D    | `464783ae95ae940810050d4f94391f90d9a12c72` |
 
 四阶段均使用 Rust 1.99.1（`58cf8f9c3`）、`x86_64-pc-windows-msvc`，同一新建
 构建目录和命令：
@@ -97,7 +100,7 @@ Cargo 输出确认被测测试程序的 `opt_level=3`、`debuginfo=0`、
 `opt_level=0` 的 host 制品，不能将“被测程序 opt-level 3”写成所有构建制品均为 3。
 四份可执行文件分别冻结，测量前后以独立 `Get-FileHash -Algorithm SHA256` 复核；
 完整提交、可执行文件摘要、实际 profile 和结果摘要见
-[comparison.json](comparison.json)。这些构建产物摘要标识本次运行对象，
+[comparison.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1099-s1-release-retest/comparison.json)。这些构建产物摘要标识本次运行对象，
 不承诺不同工作目录或机器的重新构建必然生成相同字节。
 
 输入沿用 [#1093 的 inputs.json](../issue-1093-s1-efficiency/inputs.json)，SHA-256 为
@@ -125,7 +128,7 @@ D C B A | C D A B | B A D C | A B C D
 
 ## 不完整尝试与交付边界
 
-[stopped-attempts.json](stopped-attempts.json) 保留前三次尝试的状态摘要：
+[stopped-attempts.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1099-s1-release-retest/stopped-attempts.json) 保留前三次尝试的状态摘要：
 
 1. `attempt-01` 在 A 预热时停止，无正式块。背景 CPU 计算发现 PowerShell
    `Math.Max` 重载取整问题；修正后的区间值为 9.3866%，仍超过当时 9% 的限制。
@@ -138,7 +141,7 @@ D C B A | C D A B | B A D C | A B C D
 不是在完整批次中挑选最快数据。所有失败和中断原件仍保存在本地证据目录。
 
 本目录提交可审阅的协议、环境、全部块与进程的关键数值、比较结果和停止摘要。
-[measurements.json](measurements.json) 足以重算表格与配对变化；它是选取字段的
+[measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1099-s1-release-retest/measurements.json) 足以重算表格与配对变化；它是选取字段的
 审阅数据，不是原始采集包。可执行文件、构建日志、完整计数器样本、360 份结果及
 操作脚本保留在本地 `<evidence-root>`，未作为源码仓库或团队下载制品交付。
 仅新增 Markdown 和纯 JSON；生产算法、资源合同、阈值与 #790 的后续设计保持原状态。

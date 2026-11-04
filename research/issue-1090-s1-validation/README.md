@@ -1,5 +1,8 @@
 # 真实 LuST 样本的有界采样与完整路径验证
 
+> 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
+> 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+
 任务：[#1090](https://github.com/illusion-tech/laneflow/issues/1090)，父议题为
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。本研究检验
 [#1084 候选设计](../issue-1084-lust-sampling/s1-design.md)，为生产 S1 的 G1 提供输入。
@@ -23,8 +26,8 @@
 - 当前生产采样、阈值、锁定失败清单和全网转换结果均未改变。本研究不接受生产 S1
   的 G1，也不关闭 GE1、换道或 Runtime 的验收。
 
-完整结构化结果见 [results.json](results.json)，两个独立进程的复验与分阶段耗时见
-[verification.json](verification.json)。完整结果包含每个候选的程序与控制点、34 条路径的
+完整结构化结果见 [results.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1090-s1-validation/results.json)，两个独立进程的复验与分阶段耗时见
+[verification.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1090-s1-validation/verification.json)。完整结果包含每个候选的程序与控制点、34 条路径的
 前后结果、缺失边、诊断和全部 8 次共享赋值试验。
 
 ## 实验范围与搜索规则
@@ -40,13 +43,13 @@ cubic 求值，末点强制使用原 b；不在候选片内递归启动搜索。
 
 本轮上限为：
 
-| 计数对象 | 实验上限 |
-| --- | --- |
-| 单次固定 cubic 候选枚举 | 4,094 个划分 |
-| 每条边的累计划分尝试，含重放和回溯 | 32,768 |
-| 每条边的候选点使用与切向求值预算 | 32,000,000 |
-| 每条边保留的完整程序 | 8 |
-| 所有边共享候选赋值的组合试验 | 128 |
+| 计数对象                           | 实验上限     |
+| ---------------------------------- | ------------ |
+| 单次固定 cubic 候选枚举            | 4,094 个划分 |
+| 每条边的累计划分尝试，含重放和回溯 | 32,768       |
+| 每条边的候选点使用与切向求值预算   | 32,000,000   |
+| 每条边保留的完整程序               | 8            |
+| 所有边共享候选赋值的组合试验       | 128          |
 
 按 span 顺序深度优先枚举候选序号；当前 span 耗尽后回退到前一 span。重放和重复的
 前缀计算全部计入上述预算。候选片本身不递归。达到 8 份程序也记为预算截断，不能
