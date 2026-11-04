@@ -2,7 +2,7 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试夹具豁免保留在本目录。
+> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
 
 任务：[#1093](https://github.com/illusion-tech/laneflow/issues/1093)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。比较基线来自
