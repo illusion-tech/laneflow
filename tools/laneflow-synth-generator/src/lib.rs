@@ -56,11 +56,12 @@ impl LaneChangeParams {
     /// # Errors
     /// 越界时返回错误。
     pub fn validate(&self) -> Result<(), Error> {
-        if self.clusters == 0
-            || self.changers_per_cluster < 2
-            || self.clusters > 64
-            || self.changers_per_cluster > 64
-        {
+        // 每簇换道者串行通过 T：观察窗必须早于 leader 完成路线，而末车必须
+        // 在窗内完成 crossing。当前下游几何（约 72 m）与加速曲线下，只有
+        // K=2（R1b s12 钉版）同时满足；K≠2 需同步扩展下游几何与窗口模型
+        // （#1233 F1：K=3 的末车 crossing 仅比 leader 完成晚数拍，无可行的
+        // 观察窗口）。簇数上界防止输入规模失控。
+        if self.changers_per_cluster != 2 || self.clusters == 0 || self.clusters > 64 {
             return Err(Error::Invalid("换道族参数越界".into()));
         }
         Ok(())
@@ -69,33 +70,17 @@ impl LaneChangeParams {
 
 /// 换道者入口边（`lc-e0`）长度（毫米，#1233 对象 b/F1）。
 ///
-/// K≤4 保持 30 m 钉版几何（既有证据逐字不变）；K≥5 按
-/// `body + min_gap = 4,500 + 2,500 = 7,000` mm 精确间距延长，保证全体
-/// 换道者初始前后不相交。上界由 `MAX_LANE_EDGE_LENGTH_MM`（10 km）约束。
-pub(crate) fn lane_change_entry_length_mm(changers_per_cluster: u32) -> u64 {
-    const PINNED_ENTRY_MM: u64 = 30_000;
-    const BODY_PLUS_GAP_MM: u64 = 7_000;
-    let extra = u64::from(changers_per_cluster.saturating_sub(1)) * BODY_PLUS_GAP_MM;
-    PINNED_ENTRY_MM.max(4_000 + extra)
+/// 可行域内（K=2）保持 30 m 钉版几何。
+pub(crate) fn lane_change_entry_length_mm(_changers_per_cluster: u32) -> u64 {
+    30_000
 }
 
 /// 换道者在入口边上的确定性前保险杠位置（毫米，#1233 对象 b/F1）。
 ///
-/// K=2 保持 R1b s12 钉版（leader 11,000 / follower 3,000）；K≤4 均布于
-/// `[3_000, 29_000]`；K≥5 以 7,000 mm（body+gap）精确间距自前向后排列，
-/// 与 `lane_change_entry_length_mm` 单一事实源一致。
-pub(crate) fn lane_change_slot_progress_mm(changers_per_cluster: u32, slot: u32) -> u32 {
-    let slots = changers_per_cluster;
-    if slots == 2 && slot < 2 {
-        return [11_000, 3_000][slot as usize];
-    }
-    if slots <= 4 {
-        let step = if slots > 1 { 26_000 / (slots - 1) } else { 0 };
-        return 29_000 - (u64::from(slot) * u64::from(step)) as u32;
-    }
-    let entry = lane_change_entry_length_mm(slots);
-    let progress = entry - 1_000 - u64::from(slot) * 7_000;
-    progress.min(u64::from(u32::MAX)) as u32
+/// R1b s12 钉版：leader 11,000 / follower 3,000（净间隙 3,500 > min_gap，
+/// 满足 spawn 安全与无重叠）。
+pub(crate) fn lane_change_slot_progress_mm(_changers_per_cluster: u32, slot: u32) -> u32 {
+    if slot == 0 { 11_000 } else { 3_000 }
 }
 
 /// 交通输入身份；表现比例不参与本身份。
@@ -174,7 +159,8 @@ impl Identity {
     /// 预热 16 拍（F3 检查点 0/1 = 16/32 拍，早于首 crossing）；观察窗按步长钉版
     ///（探针 `lane_change_lifecycle_probe_freezes_window_pinning` 冻结拍号）：
     /// 终点晚于败者清空后进入拍、早于任一换道者路线完成拍。
-    pub(crate) fn lane_change_window(&self) -> (u64, u64) {
+    pub fn lane_change_window(&self) -> (u64, u64) {
+        // K=2 钉版窗口（调度可行域推导见 LaneChangeParams::validate）。
         let observation = if self.fixed_delta_ms == 16 { 304 } else { 144 };
         (16, observation)
     }
