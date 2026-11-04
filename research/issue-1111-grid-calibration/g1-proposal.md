@@ -4,6 +4,7 @@
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
 > 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
+> > grid-searches.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 ee68f4a 查阅。
 
 **状态：Proposed；未接受生产 G1。** 本材料继承
 [#1107 的决策边界](../issue-1107-dependency-recovery/g1-proposal.md)，纳入

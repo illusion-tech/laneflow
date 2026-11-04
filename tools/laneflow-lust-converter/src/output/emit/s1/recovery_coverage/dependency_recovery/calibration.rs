@@ -122,7 +122,7 @@ fn reached_chord_reuse_preserves_calibrated_positive_candidates() {
     ))
     .unwrap();
     let reference: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1111-grid-calibration/positive-calibration.json"
+        "../../../../../../tests/fixtures/issue-1111-positive-calibration.json"
     ))
     .unwrap();
     for &id in &EDGES[..2] {

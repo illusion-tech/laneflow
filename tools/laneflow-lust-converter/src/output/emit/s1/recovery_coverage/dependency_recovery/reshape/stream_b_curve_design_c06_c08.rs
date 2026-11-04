@@ -710,11 +710,11 @@ fn baseline_pool_merges_sources_in_frozen_order() {
     ))
     .unwrap();
     let positive: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/positive-calibration.json"
+        "../../../../../../../tests/fixtures/issue-1111-positive-calibration.json"
     ))
     .unwrap();
     let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1111-grid-calibration/grid-searches.json"
+        "../../../../../../../tests/fixtures/issue-1111-grid-searches.json"
     ))
     .unwrap();
     let curve: Value = serde_json::from_str(include_str!(
