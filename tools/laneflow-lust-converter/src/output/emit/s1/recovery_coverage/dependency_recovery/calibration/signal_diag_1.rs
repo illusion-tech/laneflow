@@ -1209,7 +1209,7 @@ fn signal_diag_1_frozen_sample_and_problem_table_stay_consistent() {
         "no both-interior-CR edge in this group"
     );
     let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
     ))
     .unwrap();
     let old_rows: Value = serde_json::from_str(include_str!(
