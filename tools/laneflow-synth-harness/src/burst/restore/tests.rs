@@ -1,10 +1,22 @@
 use super::*;
 
-use laneflow_synth_generator::{Identity, Provenance, generate};
+use laneflow_synth_generator::{Identity, LaneChangeParams, Provenance, generate};
 
 #[test]
 fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
-    for case in [Case::W1, Case::W2, Case::W3, Case::W4] {
+    for case in [
+        Case::W1,
+        Case::W2,
+        Case::W3,
+        Case::W4,
+        // #1243 T4 回归：多簇换道输入的捕获/投影走显式 `route_rank`；
+        // 旧 `logical_rank / 25` 推导把不同簇的换道者折叠进同一路线槽，
+        // 首个检查点即报「捕获路线映射不一致」。
+        Case::LaneChange(LaneChangeParams {
+            clusters: 2,
+            changers_per_cluster: 2,
+        }),
+    ] {
         let bundle = generate(
             Identity::new(10_000, case.clone(), 16).unwrap(),
             Provenance {

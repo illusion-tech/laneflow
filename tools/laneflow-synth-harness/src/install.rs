@@ -36,8 +36,39 @@ pub(crate) struct Sample {
     /// 车型最大加速度（毫米/秒²）：由共享路网 profile 视图派生，运动学语义
     /// 检查按车型上界判定（W 族 1.4、L 族 1.5，#1218）。
     pub max_accel_mm_s2: u32,
+    /// 车型紧急减速度上限（毫米/秒²）：同一共享 profile 视图派生，减速
+    /// 诊断按安装 profile 判超（W 族 6、L 族 9，#1243 T5）——不按场景族
+    /// 硬编码第二套阈值，合法紧急制动不误计 `above_profile`。
+    pub emergency_decel_mm_s2: u64,
     pub cursor: u64,
     pub trace_bytes: Vec<u8>,
+}
+
+/// 由共享路网 profile 视图派生运动学判据上界（#1243 T5）：车型 ordinal、
+/// 最大加速度与紧急减速（毫米/秒²）。安装与恢复两侧共用同一事实源。
+pub(crate) fn profile_limits(
+    revision: &SharedNetworkRevision,
+    state: &InitialState,
+) -> Result<(VehicleProfileOrdinal, u32, u64), Error> {
+    let profile = revision
+        .identity()
+        .ordinal(
+            state
+                .vehicle_profile_id
+                .parse::<VehicleProfileId>()
+                .map_err(|e| failure("profile id", e))?,
+        )
+        .ok_or_else(|| failure("profile", "missing"))?;
+    let view = revision
+        .traffic()
+        .relations()
+        .vehicle_profile(profile)
+        .ok_or_else(|| failure("profile view", "missing"))?;
+    let max_accel_mm_s2 = (f64::from(view.max_accel()) * 1_000.0).round().max(0.0) as u32;
+    let emergency_decel_mm_s2 = (f64::from(view.emergency_decel()) * 1_000.0)
+        .round()
+        .max(0.0) as u64;
+    Ok((profile, max_accel_mm_s2, emergency_decel_mm_s2))
 }
 
 impl Sample {
@@ -57,21 +88,7 @@ impl Sample {
         .map_err(|e| failure("shared revision", e))?;
         let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"])?;
         let identity = revision.identity();
-        let profile = identity
-            .ordinal(
-                state
-                    .vehicle_profile_id
-                    .parse::<VehicleProfileId>()
-                    .map_err(|e| failure("profile id", e))?,
-            )
-            .ok_or_else(|| failure("profile", "missing"))?;
-        let max_accel_mm_s2 = revision
-            .traffic()
-            .relations()
-            .vehicle_profile(profile)
-            .ok_or_else(|| failure("profile view", "missing"))?
-            .max_accel();
-        let max_accel_mm_s2 = (f64::from(max_accel_mm_s2) * 1_000.0).round().max(0.0) as u32;
+        let (profile, max_accel_mm_s2, emergency_decel_mm_s2) = profile_limits(&revision, &state)?;
         let origin = *revision.canonical_origin();
         let source = PublishedLfcaReference::new(
             "fixture://lf-synth-harness",
@@ -245,8 +262,16 @@ impl Sample {
             max_deceleration_mm_s2: 0,
             deceleration_above_profile_count: 0,
             max_accel_mm_s2,
+            emergency_decel_mm_s2,
             cursor,
         })
+    }
+
+    /// 单步减速判超阈值（毫米/秒）：安装 profile 紧急减速上限 × 步长 + 1
+    /// 容差（#1243 T5）。W 族 6 m/s² 与旧硬编码口径逐字一致；L 族按
+    /// profile 的 9 m/s² 判超，合法紧急制动不再误计。
+    pub(crate) fn emergency_drop_limit_mm_s(&self, dt: u32) -> u64 {
+        (self.emergency_decel_mm_s2 * u64::from(dt)).div_ceil(1_000) + 1
     }
 }
 

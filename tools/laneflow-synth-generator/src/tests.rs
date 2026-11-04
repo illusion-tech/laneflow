@@ -72,6 +72,17 @@ fn formal_identity_is_closed() {
         )
         .is_err()
     );
+    // #1243 T3：反序列化或改写 `case` 字段的身份与构造器同一可行域——
+    // K=3 无可行观察窗口，`generate` 经 `Identity::validate` 同样拒绝。
+    let out_of_domain = Case::LaneChange(LaneChangeParams {
+        clusters: 1,
+        changers_per_cluster: 3,
+    });
+    let mut value =
+        serde_json::to_value(Identity::new(10_000, lane_change_case(), 16).unwrap()).unwrap();
+    value["case"] = serde_json::to_value(&out_of_domain).unwrap();
+    let bypassed: Identity = serde_json::from_value(value).unwrap();
+    assert!(generate(bypassed, provenance()).is_err());
 }
 
 #[test]

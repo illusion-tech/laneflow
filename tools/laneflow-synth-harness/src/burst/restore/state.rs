@@ -57,6 +57,9 @@ pub(super) fn projection(sample: &Sample) -> Result<Value, Error> {
     let snapshot = world
         .capture_snapshot()
         .map_err(|e| failure("capture", e))?;
+    // 路线下标取每车记录的显式 `route_rank`（#1243 T4）：多簇换道者的
+    // 路线归属不再由 `logical_rank / 25` 推导（该等价只对 W 族背景车成立）。
+    let route_rank_of = |rank: usize| sample.state.vehicles[rank].route_rank as usize;
     let ranks: HashMap<_, _> = sample
         .handles
         .iter()
@@ -82,7 +85,7 @@ pub(super) fn projection(sample: &Sample) -> Result<Value, Error> {
             let state = world
                 .vehicle(handle)
                 .ok_or_else(|| failure("vehicle mapping", rank))?;
-            require(state.route() == sample.routes[rank / 25], || {
+            require(state.route() == sample.routes[route_rank_of(rank)], || {
                 "车辆路线归属不符".into()
             })?;
             let binding = match world.parking_binding(handle) {
@@ -91,7 +94,7 @@ pub(super) fn projection(sample: &Sample) -> Result<Value, Error> {
                     json!([2, space.raw()])
                 }
                 Some(ParkingBinding::Reserved(r)) => {
-                    require(r.route() == sample.routes[rank / 25], || {
+                    require(r.route() == sample.routes[route_rank_of(rank)], || {
                         "预约路线不符".into()
                     })?;
                     let ParkingTarget::ExplicitSpace(space) = r.target() else {
@@ -103,7 +106,7 @@ pub(super) fn projection(sample: &Sample) -> Result<Value, Error> {
             };
             Ok(json!([
                 rank,
-                rank / 25,
+                route_rank_of(rank),
                 state.profile().raw(),
                 state.class().raw(),
                 state.length_mm(),
@@ -167,7 +170,9 @@ pub(super) fn capture(
             .ok_or_else(|| failure("capture rank", id))?;
         vehicle_ids[rank] = id;
         let vehicle = by_id.get(&id).ok_or_else(|| failure("capture ID", id))?;
-        let route = &mut route_ids[rank / 25];
+        // 显式 `route_rank` 索引路线表（#1243 T4）：多簇换道者的
+        // `logical_rank / 25` 会把不同簇的换道者折叠到同一路线槽。
+        let route = &mut route_ids[sample.state.vehicles[rank].route_rank as usize];
         require(
             route.is_none_or(|old| old == vehicle.snapshot_route_id()),
             || "捕获路线映射不一致".into(),
@@ -399,22 +404,8 @@ pub(super) fn restore(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let bindings = handles.iter().map(|&h| world.parking_binding(h)).collect();
-    let profile = revision
-        .identity()
-        .ordinal(
-            state
-                .vehicle_profile_id
-                .parse::<VehicleProfileId>()
-                .map_err(|e| failure("profile id", e))?,
-        )
-        .ok_or_else(|| failure("profile", "missing"))?;
-    let max_accel_mm_s2 = revision
-        .traffic()
-        .relations()
-        .vehicle_profile(profile)
-        .ok_or_else(|| failure("profile view", "missing"))?
-        .max_accel();
-    let max_accel_mm_s2 = (f64::from(max_accel_mm_s2) * 1_000.0).round().max(0.0) as u32;
+    let (_profile, max_accel_mm_s2, emergency_decel_mm_s2) =
+        crate::install::profile_limits(&revision, &state)?;
     // 跨拍生命周期序在恢复端续接（#1227）：取宿主史中各槽位最后一次生命周期种类。
     let lane_change_slots = state
         .identity
@@ -448,6 +439,7 @@ pub(super) fn restore(
         max_deceleration_mm_s2: host.max_deceleration,
         deceleration_above_profile_count: host.excessive_decelerations,
         max_accel_mm_s2,
+        emergency_decel_mm_s2,
         trace_bytes: Vec::new(),
     };
     require(
