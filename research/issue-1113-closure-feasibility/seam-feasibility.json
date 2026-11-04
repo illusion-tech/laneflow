@@ -1,0 +1,65 @@
+{
+  "deepest": 22,
+  "excluded_boxes": {
+    "minimum_chord": 227,
+    "seam_turn": 5112
+  },
+  "first_unresolved_boxes": [],
+  "left_control_f64_bits": [
+    [
+      13862387164458443080,
+      0,
+      4655015308771993846
+    ],
+    [
+      13862384193822325522,
+      0,
+      4655016326933566396
+    ],
+    [
+      13862381141529851931,
+      0,
+      4655017349990150296
+    ],
+    [
+      13862376960990537318,
+      0,
+      4655018299443621396
+    ]
+  ],
+  "pending_boxes": 0,
+  "policy": {
+    "box_limit": 32000000,
+    "depth_limit": 48,
+    "deviation_omitted_from_exclusion": true,
+    "length_exclusion_m": 0.099999,
+    "roundoff_epsilon_factor": 128,
+    "turn_tangent_upper": 0.0341
+  },
+  "right_control_f64_bits": [
+    [
+      13862376960990537318,
+      0,
+      4655018299443621396
+    ],
+    [
+      13862372772808548473,
+      0,
+      4655019250632840694
+    ],
+    [
+      13862367486389405808,
+      0,
+      4655020122332780338
+    ],
+    [
+      13862362183554260009,
+      0,
+      4655020982251993170
+    ]
+  ],
+  "scope": "all parameter pairs on two fixed adjacent planar cubics; mandatory fixed seam; excludes preceding/following chords and complete edge acceptance",
+  "status": "necessary_condition_excluded",
+  "visited_boxes": 10677,
+  "witness": null
+}
