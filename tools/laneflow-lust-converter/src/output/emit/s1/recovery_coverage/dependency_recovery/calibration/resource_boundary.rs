@@ -80,8 +80,8 @@ fn cohort_cost_table_recomputed() {
         ("sumo::-19726_2_0", 5, 2_560, 86_507_520),
         ("sumo::-22042_7_0", 5, 2_560, 86_507_520),
     ];
-    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1107-dependency-recovery/inputs.json",
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
     ))
     .unwrap();
     for (id, spans, chords, expected) in rows {
@@ -238,8 +238,8 @@ fn four_domain_resource_evidence() {
     let (observation, source, mut timing) = capture_lust();
     let originals = original_programs(&observation);
     let traffic = observation.traffic.as_ref().unwrap();
-    let inputs: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1107-dependency-recovery/inputs.json"
+    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1107-dependency-recovery/inputs.json",
     ))
     .unwrap();
     // `--30306#2_0`（预算停止样本）输入在 #1130 冻结集（边名键控）。
