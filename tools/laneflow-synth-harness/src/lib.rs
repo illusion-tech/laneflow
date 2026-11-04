@@ -57,13 +57,14 @@ impl Plan {
         let plan: Self = serde_json::from_slice(&bundle.files()["input-plan.json"])?;
         let identity = &bundle.manifest().identity;
         let cycle = cycle_ms(identity.fixed_delta_ms);
+        let lane_change_window = identity.lane_change_window();
         let warm = if identity.lane_change().is_some() {
-            lane_change_window(identity.fixed_delta_ms).0
+            lane_change_window.0
         } else {
             (4 * cycle / u64::from(identity.fixed_delta_ms)).max(512)
         };
         let observation = if identity.lane_change().is_some() {
-            lane_change_window(identity.fixed_delta_ms).1
+            lane_change_window.1
         } else if identity.case == Case::W4 {
             2
         } else {
@@ -92,12 +93,6 @@ fn durations(dt: u32) -> [u64; 6] {
 
 fn cycle_ms(dt: u32) -> u64 {
     durations(dt).into_iter().sum()
-}
-
-/// L1 换道族自有窗口（#1218 D3）：与生成器 `Identity::lane_change_window` 同值
-/// （预热 16 拍，检查点 16/32 早于首 crossing；终点晚于败者进入、早于路线完成）。
-fn lane_change_window(dt: u32) -> (u64, u64) {
-    (16, if dt == 16 { 304 } else { 144 })
 }
 
 #[derive(Debug, Serialize)]

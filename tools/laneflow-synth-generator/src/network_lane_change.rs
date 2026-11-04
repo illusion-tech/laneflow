@@ -308,19 +308,18 @@ fn add_lane_change_cluster(
         )],
     })
     .map_err(|e| compile_error("lane change exit corridor", e))?;
-    // 帧几何以入口边长度为基准：e0 随换道者数延长（#1233 对象 b/F1），
-    // 下游边整体跟随，按簇偏移避免空间重叠。
-    let entry = entry_mm as f64 / 1_000.0;
+    // 钉版几何（K=2 唯一认证配置）：入口 30 m，T 段与下游不动。
+    let _ = entry_mm;
     let cluster_offset = 200.0_f64 * f64::from(cluster);
     let frame_spans = [
-        (cluster_offset, cluster_offset + entry),
-        (cluster_offset + entry, cluster_offset + entry + 5.0),
-        (cluster_offset + entry + 5.0, cluster_offset + entry + 35.0),
-        (cluster_offset + entry + 35.0, cluster_offset + entry + 43.0),
-        (cluster_offset + entry + 43.0, cluster_offset + entry + 53.0),
-        (cluster_offset + entry + 5.0, cluster_offset + entry + 35.0),
-        (cluster_offset + entry - 25.0, cluster_offset + entry + 5.0),
-        (cluster_offset + entry + 53.0, cluster_offset + entry + 83.0),
+        (cluster_offset, cluster_offset + 30.0),
+        (cluster_offset + 30.0, cluster_offset + 35.0),
+        (cluster_offset + 35.0, cluster_offset + 65.0),
+        (cluster_offset + 65.0, cluster_offset + 73.0),
+        (cluster_offset + 73.0, cluster_offset + 83.0),
+        (cluster_offset + 35.0, cluster_offset + 65.0),
+        (cluster_offset + 5.0, cluster_offset + 35.0),
+        (cluster_offset + 83.0, cluster_offset + 113.0),
     ];
     let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = frame_spans
         .iter()
@@ -546,8 +545,8 @@ fn lane_change_editing(
                 .map_err(|e| compile_error("stream rule", e))?,
             );
         }
-        let offset =
-            200.0 * f64::from(cluster) + (entry_mm.saturating_sub(30_000) as f64) / 1_000.0;
+        // 冲突区覆盖 T 前 30 m 入口段（入口后移时几何关系不变）。
+        let offset = 200.0 * f64::from(cluster);
         let region_points = vec![
             editing::RoadEditingPoint2::try_new(offset + 0.0, -2.0)
                 .map_err(|e| compile_error("region point", e))?,
