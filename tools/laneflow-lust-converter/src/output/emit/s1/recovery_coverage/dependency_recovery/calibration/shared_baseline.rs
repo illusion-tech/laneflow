@@ -534,7 +534,7 @@ fn results_anchor_text(source_text: &str) -> String {
 /// （仅 `sumo::-25332_7_0` 有候选，原族 8 份在前、网格 8 份在后）。
 fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(usize, Value)> {
     let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(

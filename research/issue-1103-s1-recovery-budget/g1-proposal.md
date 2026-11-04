@@ -3,6 +3,7 @@
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
 > 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
+> > results.json（84,073 行）活测试消费部分已提取为 crate fixture（tests/fixtures/，564f9ac8 键路径 tiers/source/schema），其余引用为运行时读取；原件经冻结提交 564f9ac8 查阅。
 
 **状态：Proposed，待维护者评审；未接受生产 G1。**
 
