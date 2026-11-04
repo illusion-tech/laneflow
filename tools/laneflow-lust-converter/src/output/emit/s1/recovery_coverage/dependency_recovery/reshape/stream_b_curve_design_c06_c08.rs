@@ -702,7 +702,7 @@ fn merged_segments_record_fillet_tangent_crossing() {
 #[test]
 fn baseline_pool_merges_sources_in_frozen_order() {
     let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1103-s1-recovery-budget/results.json"
+        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
     ))
     .unwrap();
     let old: Value = serde_json::from_str(include_str!(
