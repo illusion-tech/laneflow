@@ -28,6 +28,27 @@ use super::{
     resources::{self, Allocation, AllocationStart},
 };
 
+#[cfg(feature = "allocation")]
+fn accumulate_transition_cost(
+    target: &mut laneflow_runtime::TransitionCostEvidence,
+    add: laneflow_runtime::TransitionCostEvidence,
+) {
+    target.neighborhood_calls = target
+        .neighborhood_calls
+        .saturating_add(add.neighborhood_calls);
+    target.labels_scan_steps = target
+        .labels_scan_steps
+        .saturating_add(add.labels_scan_steps);
+    target.first_ring_scan_steps = target
+        .first_ring_scan_steps
+        .saturating_add(add.first_ring_scan_steps);
+    target.neighborhood_entries = target
+        .neighborhood_entries
+        .saturating_add(add.neighborhood_entries);
+    target.profile_calls = target.profile_calls.saturating_add(add.profile_calls);
+    target.profile_steps = target.profile_steps.saturating_add(add.profile_steps);
+}
+
 #[derive(Serialize)]
 struct TickSample {
     frame: u64,
@@ -231,7 +252,23 @@ fn checkpoint(
     let started = Instant::now();
     driver.validate_population(world)?;
     let tick = world.tick_index();
-    let digest = crate::burst::state_digest(world)?;
+    // L 族面 B（#1218/#1217）：过渡状态快照结构化拒绝时 oracle 记录 null
+    // digest + 拒绝变体；测量端按同一口径对齐（#1233 对象 b）。
+    let digest = match world.capture_snapshot() {
+        Ok(snapshot) => {
+            let digest = laneflow_runtime::deterministic_state_digest(&snapshot)
+                .map_err(|e| failure("state digest", e))?;
+            Value::String(
+                digest
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect(),
+            )
+        }
+        Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(_)) => Value::Null,
+        Err(other) => return Err(failure("snapshot", other)),
+    };
     let expected = oracle["checkpoints"]
         .as_array()
         .and_then(|a| a.iter().find(|c| c["tick"] == tick))
@@ -321,6 +358,8 @@ fn run_inner(
         json!({"phase":"installed","process":resources::process()?,"runtime":resources::runtime(&sample.world)}),
     ];
     let total = plan.warm_up_ticks + plan.observation_ticks;
+    #[cfg(feature = "allocation")]
+    let mut transition_cost = laneflow_runtime::TransitionCostEvidence::default();
     let (ticks, frames, driver) = if case == Case::W2 {
         let mut world = sample.world;
         let mut ticks = Vec::with_capacity(total as usize);
@@ -332,6 +371,11 @@ fn run_inner(
                 .map_err(|e| failure("Core-only step", e))?;
             let elapsed = nanos(started);
             let allocation = resources::finish(allocation);
+            #[cfg(feature = "allocation")]
+            accumulate_transition_cost(
+                &mut transition_cost,
+                world.take_execution_evidence().transition_cost,
+            );
             driver.observe(&world, Some(&result))?;
             ticks.push(TickSample {
                 frame: tick - 1,
@@ -367,6 +411,14 @@ fn run_inner(
             app.world_mut().resource_mut::<Driver>().lifecycle_commands = 0;
             let started = Instant::now();
             app.update();
+            #[cfg(feature = "allocation")]
+            accumulate_transition_cost(
+                &mut transition_cost,
+                app.world_mut()
+                    .resource_mut::<LaneFlowSession>()
+                    .take_execution_evidence()
+                    .transition_cost,
+            );
             let presentation_started = Instant::now();
             let applied = app.world_mut().resource_scope(
                 |ecs, mut presentation: bevy_ecs::world::Mut<Presentation>| {
@@ -482,6 +534,17 @@ fn run_inner(
     let files=["ticks.json","frames.json","events.bin","checkpoints.json","resources.json","batches.json"]
         .into_iter().map(|name| Ok((name.to_owned(),json!({"sha256":hash(&fs::read(output.join(name))?),"bytes":fs::metadata(output.join(name))?.len()}))))
         .collect::<Result<serde_json::Map<_,_>,Error>>()?;
+    #[cfg(feature = "allocation")]
+    let transition_cost_json = json!({
+        "neighborhood_calls":transition_cost.neighborhood_calls,
+        "labels_scan_steps":transition_cost.labels_scan_steps,
+        "first_ring_scan_steps":transition_cost.first_ring_scan_steps,
+        "neighborhood_entries":transition_cost.neighborhood_entries,
+        "profile_calls":transition_cost.profile_calls,
+        "profile_steps":transition_cost.profile_steps,
+    });
+    #[cfg(not(feature = "allocation"))]
+    let transition_cost_json = json!(null);
     // lifecycle 区间分段汇总（#1233 对象 a）：command_execution +
     // harness_other + residual 与 lifecycle_ns 守恒；validation 为 checkpoint
     // 校验独立计时（不属于 lifecycle 区间）。
@@ -522,6 +585,7 @@ fn run_inner(
         "caller_commands":driver.command_count,"blocked_commands":driver.blocked_count,"checkpoints":checkpoints,
         "lifecycle_validation_ns":lifecycle_validation_ns,
         "lifecycle_segments":lifecycle_segments,
+        "transition_cost":transition_cost_json,
         "completion_records":driver.completion_records,"arrival_records":driver.arrival_records,"files":files}),
     )
 }

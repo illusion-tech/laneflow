@@ -15,6 +15,7 @@ path = "src/lib.rs"
 [features]
 default = []
 pose-profiling = ["laneflow-spatial/pose-profiling"]
+execution-evidence = ["laneflow-runtime/execution-evidence"]
 native-example = ["dep:bevy", "dep:bevy_mesh"]
 
 [dependencies]

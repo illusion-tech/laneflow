@@ -21,7 +21,7 @@ pub(super) struct Driver {
     pub entities: Vec<Option<Entity>>,
     routes: Vec<RouteHandle>,
     profile: laneflow_static_contract::VehicleProfileOrdinal,
-    spaces: Vec<ParkingSpaceOrdinal>,
+    spaces: Vec<Option<ParkingSpaceOrdinal>>,
     scheduled: Vec<Scheduled>,
     replacement: Option<ReplacementRule>,
     pending: Vec<Command>,
@@ -52,21 +52,23 @@ impl Driver {
             .state
             .vehicles
             .iter()
-            .map(|v| {
-                let id = v
-                    .parking_space_id
-                    .as_deref()
-                    .ok_or_else(|| failure("parking id", "missing"))?
-                    .parse::<ParkingSpaceId>()
-                    .map_err(|e| failure("parking id", e))?;
-                sample
-                    .world
-                    .revision()
-                    .identity()
-                    .ordinal(id)
-                    .ok_or_else(|| failure("parking ordinal", id))
+            .map(|v| match v.parking_space_id.as_deref() {
+                // L 族换道者无停车语义（#1233）；W 族停车位必填。
+                None => Ok(None),
+                Some(id) => {
+                    let id = id
+                        .parse::<ParkingSpaceId>()
+                        .map_err(|e| failure("parking id", e))?;
+                    sample
+                        .world
+                        .revision()
+                        .identity()
+                        .ordinal(id)
+                        .map(Some)
+                        .ok_or_else(|| failure("parking ordinal", id))
+                }
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
         let replacement = plan
             .rules
             .iter()
@@ -104,10 +106,17 @@ impl Driver {
             arrival_count: 0,
             parked_at: None,
             case: plan.identity.case.clone(),
-            events: Recorder::new(
-                plan.warm_up_ticks + plan.observation_ticks + 1,
-                plan.identity.scale,
-            ),
+            events: if plan.identity.lane_change().is_some() {
+                Recorder::new_lane_change(
+                    plan.warm_up_ticks + plan.observation_ticks + 1,
+                    plan.identity.scale,
+                )
+            } else {
+                Recorder::new(
+                    plan.warm_up_ticks + plan.observation_ticks + 1,
+                    plan.identity.scale,
+                )
+            },
             receipts: b"lf-synth-command-receipts-1\0".to_vec(),
             command_count: 0,
             blocked_count: 0,
@@ -189,7 +198,7 @@ impl Driver {
         )?;
         let old = self.handles[rank];
         let route = self.routes[rank / 25];
-        let space = self.spaces[rank];
+        let space = self.spaces[rank].ok_or_else(|| Error::Invalid("非停车语义命令目标".into()))?;
         let before = ecs
             .resource::<LaneFlowSession>()
             .world()
@@ -336,7 +345,9 @@ impl Driver {
                     self.case == Case::W3
                         && rank.is_multiple_of(100)
                         && !self.arrivals[rank / 100]
-                        && arrival.target == ParkingTarget::ExplicitSpace(self.spaces[rank]),
+                        && self.spaces[rank].is_some_and(|space| {
+                            arrival.target == ParkingTarget::ExplicitSpace(space)
+                        }),
                     || "arrival 重复或目标不符".into(),
                 )?;
                 self.arrivals[rank / 100] = true;

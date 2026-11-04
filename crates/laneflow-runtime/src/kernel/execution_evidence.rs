@@ -111,6 +111,7 @@ pub(crate) struct Ledger {
     step_wall_ns: u64,
     stages: [StageTotals; STAGE_COUNT],
     routes: [[u64; 5]; PHASE_COUNT],
+    transition_cost: TransitionCostEvidence,
     current: Option<Stage>,
     /// 当前执行作用域内各阶段墙钟之和；作用域结束时余下部分记入 `unstaged`。
     staged_in_scope_ns: u64,
@@ -146,6 +147,7 @@ impl Ledger {
                     },
                 })
                 .collect(),
+            transition_cost: ledger.transition_cost,
             routes: ledger
                 .routes
                 .iter()
@@ -264,6 +266,32 @@ impl Drop for StageSpan {
 /// 登记一段独立计算本拍的执行路径。
 pub(crate) fn route(phase: Phase, route: Route) {
     with_active(|ledger| ledger.routes[phase as usize][route as usize] += 1);
+}
+
+/// 登记一次潜在进入者邻域枚举的扫描成本（#1233）。
+pub(crate) fn transition_neighborhood(
+    labels_scan_steps: u64,
+    first_ring_scan_steps: u64,
+    entries: u64,
+) {
+    with_active(|ledger| {
+        let cost = &mut ledger.transition_cost;
+        cost.neighborhood_calls += 1;
+        cost.labels_scan_steps = cost.labels_scan_steps.saturating_add(labels_scan_steps);
+        cost.first_ring_scan_steps = cost
+            .first_ring_scan_steps
+            .saturating_add(first_ring_scan_steps);
+        cost.neighborhood_entries = cost.neighborhood_entries.saturating_add(entries);
+    });
+}
+
+/// 登记一次停止距离可达半径导出的 profile 遍历步数（#1233）。
+pub(crate) fn transition_profile(profile_steps: u64) {
+    with_active(|ledger| {
+        let cost = &mut ledger.transition_cost;
+        cost.profile_calls += 1;
+        cost.profile_steps = cost.profile_steps.saturating_add(profile_steps);
+    });
 }
 
 /// 一次分发（提交到完整 join）的统计；块在任意池线程上经原子量汇总，
@@ -387,6 +415,24 @@ impl Drop for DispatchProbe {
     }
 }
 
+/// S4 过渡执行路径成本计数（#1233 对象 b）：仅在有证据作用域时累计，
+/// 未激活时为线程局部空操作。计数与计时分离，不用时间反推次数。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TransitionCostEvidence {
+    /// `entrant_neighborhood` 调用次数。
+    pub neighborhood_calls: u64,
+    /// `labels.iter().position` 累计比较长度（线性扫描成本）。
+    pub labels_scan_steps: u64,
+    /// `first_ring.contains` 累计比较长度（线性扫描成本）。
+    pub first_ring_scan_steps: u64,
+    /// 邻域条目（候选进入者）总数。
+    pub neighborhood_entries: u64,
+    /// `entrant_stop_reach_mm` 调用次数。
+    pub profile_calls: u64,
+    /// 受检 vehicle profile 遍历步数（全量遍历成本）。
+    pub profile_steps: u64,
+}
+
 /// 一个观察区间内的调度证据：自上次 [`crate::TrafficWorld::take_execution_evidence`]
 /// 以来在本世界执行作用域内累计的值。只在证据构建（`execution-evidence`）中存在；
 /// 计时含插桩开销，不作为性能认证。
@@ -400,6 +446,8 @@ pub struct ExecutionEvidence {
     pub stages: Vec<StageEvidence>,
     /// 有融合 / 分发 / 回退决策的独立计算段，各自的路径次数。
     pub routes: Vec<RouteEvidence>,
+    /// S4 过渡执行成本计数（#1233）。
+    pub transition_cost: TransitionCostEvidence,
 }
 
 /// 单个拍内阶段的墙钟与其中开始的分发。

@@ -6945,10 +6945,13 @@ pub(crate) fn entrant_stop_reach_mm(
         .entity_counts()
         .count(laneflow_static_contract::EntityKind::VehicleProfile);
     let mut reach: Option<u64> = None;
+    let mut profile_steps = 0_u64;
     for raw in 0..profiles {
+        profile_steps += 1;
         let Some(profile) = relations.vehicle_profile(
             laneflow_static_contract::VehicleProfileOrdinal::from_raw(raw),
         ) else {
+            crate::kernel::transition_cost::profile(profile_steps);
             return u64::MAX;
         };
         let service = (profile.comfort_decel().max(0.0) * 1_000.0) as u64;
@@ -6960,6 +6963,7 @@ pub(crate) fn entrant_stop_reach_mm(
         );
         reach = Some(reach.map_or(stop, |current: u64| current.max(stop)));
     }
+    crate::kernel::transition_cost::profile(profile_steps);
     reach.unwrap_or(u64::MAX)
 }
 
@@ -6986,13 +6990,25 @@ pub(crate) fn entrant_neighborhood(
         )
     };
     let mut first_ring: Vec<LaneEdgeOrdinal> = vec![interval_edge];
+    let mut first_ring_scan_steps = 0_u64;
     for neighbor in traffic
         .successors(interval_edge)
         .unwrap_or_default()
         .iter()
         .chain(traffic.predecessors(interval_edge).unwrap_or_default())
     {
-        if *neighbor != interval_edge && !first_ring.contains(neighbor) {
+        if *neighbor == interval_edge {
+            continue;
+        }
+        let mut found = false;
+        for existing in first_ring.iter() {
+            first_ring_scan_steps += 1;
+            if existing == neighbor {
+                found = true;
+                break;
+            }
+        }
+        if !found {
             first_ring.push(*neighbor);
         }
     }
@@ -7000,14 +7016,18 @@ pub(crate) fn entrant_neighborhood(
     // 有限图收敛到精确最短路）；`u64::MAX` = 未达。
     let mut labels: Vec<(LaneEdgeOrdinal, u64, u64)> = Vec::new();
     let mut worklist: Vec<usize> = Vec::new();
-    let slot_of = |labels: &mut Vec<(LaneEdgeOrdinal, u64, u64)>,
-                   worklist: &mut Vec<usize>,
-                   edge: LaneEdgeOrdinal|
+    let mut labels_scan_steps = 0_u64;
+    let mut slot_of = |labels: &mut Vec<(LaneEdgeOrdinal, u64, u64)>,
+                       worklist: &mut Vec<usize>,
+                       edge: LaneEdgeOrdinal|
      -> usize {
-        if let Some(position) = labels
-            .iter()
-            .position(|(candidate, _, _)| *candidate == edge)
-        {
+        let mut steps = 0_u64;
+        let found = labels.iter().position(|(candidate, _, _)| {
+            steps += 1;
+            *candidate == edge
+        });
+        labels_scan_steps += steps;
+        if let Some(position) = found {
             position
         } else {
             labels.push((edge, u64::MAX, u64::MAX));
@@ -7051,11 +7071,17 @@ pub(crate) fn entrant_neighborhood(
             worklist.push(current);
         }
     }
-    let entries = labels
+    let entries: Vec<(LaneEdgeOrdinal, u64)> = labels
         .into_iter()
         .filter(|(_, start, end)| (*start).min(*end) <= reach_mm)
         .map(|(edge, start, end)| (edge, start.min(end)))
         .collect();
+    let entry_count = entries.len() as u64;
+    crate::kernel::transition_cost::neighborhood(
+        labels_scan_steps,
+        first_ring_scan_steps,
+        entry_count,
+    );
     EntrantNeighborhood {
         first_ring,
         entries,

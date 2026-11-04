@@ -77,6 +77,7 @@ pub use kernel::error::{
 #[cfg(feature = "execution-evidence")]
 pub use kernel::execution_evidence::{
     DispatchEvidence, ExecutionEvidence, ResourceEvidence, RouteEvidence, StageEvidence,
+    TransitionCostEvidence,
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::input::{
