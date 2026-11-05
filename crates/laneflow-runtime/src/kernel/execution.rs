@@ -225,6 +225,217 @@ pub(crate) struct DispatchStats {
 
 pub(crate) const MAX_WORKS_PER_TICKET: usize = 16;
 
+/// #1278 完成顺序门的放行模式：只作用于每次池分发领取序前 `window` 个单元。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DispatchOrderMode {
+    /// 窗口内逆序放行：后领取的窗口单元先计算。
+    Reverse,
+    /// 窗口内左移 `k` 位轮转放行（`1 <= k < window`）。
+    Rotate(usize),
+}
+
+/// 完成顺序门作用的分发入口（P2/P3/P5 各一个入口函数）。
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DispatchEntry {
+    /// P2 预览：`try_for_each_work`。
+    Preview,
+    /// P3 候选：`try_for_each_chunk`。
+    Candidate,
+    /// P5 运动：`for_each_work`。
+    Motion,
+}
+
+/// 完成顺序门等待的是线程调度事件而非性能；看门狗远超正常调度延迟，
+/// 只在门的武装前置被违反（单元数少于窗口）时触发并使失败响亮可见。
+#[cfg(test)]
+const DISPATCH_ORDER_WATCHDOG: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// 一次池分发的门状态：`schedule[i]` 是第 `i` 个放行的领取序号，窗口外单元
+/// （领取序号 ≥ 窗口长度）自然执行。窗口单元在放行前都由各自线程持有，
+/// 且武装时断言 `window < 参与线程数`，领取序靠前的单元被领取完毕前始终
+/// 有空闲线程继续领取，因此任意置换都结构上无死锁。
+#[cfg(test)]
+struct DispatchOrderCall {
+    schedule: Vec<usize>,
+    released: AtomicUsize,
+    claims: AtomicUsize,
+    /// 按放行位下标记录领取序号；初始为哨兵，全部放行后恰为放行表。
+    log: Mutex<Vec<usize>>,
+}
+
+#[cfg(test)]
+impl DispatchOrderCall {
+    /// 单元到达执行入口：先领领取序号，窗口内单元等到自己的放行位才继续。
+    /// 放在已错位置检查之前，让换序同时改变跳过判定与副作用的出现先后。
+    fn enter(&self) {
+        let ordinal = self.claims.fetch_add(1, Ordering::Relaxed);
+        let Some(turn) = self.schedule.iter().position(|&o| o == ordinal) else {
+            return;
+        };
+        let deadline = std::time::Instant::now() + DISPATCH_ORDER_WATCHDOG;
+        loop {
+            let released = self.released.load(Ordering::Acquire);
+            if released == turn {
+                self.released.store(released + 1, Ordering::Release);
+                self.log
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)[turn] = ordinal;
+                return;
+            }
+            // 放行位更早的窗口单元必然已领取（窗口=前 window 次领取），
+            // 由其他线程持有；若单元总数少于窗口，等待由看门狗终止。
+            if std::time::Instant::now() > deadline {
+                panic!("dispatch order gate watchdog: window units not all claimed");
+            }
+            std::thread::yield_now();
+        }
+    }
+}
+
+/// 完成顺序门的放行表：第 `i` 位放行的领取序号。
+#[cfg(test)]
+pub(crate) fn dispatch_order_schedule(mode: DispatchOrderMode, window: usize) -> Vec<usize> {
+    assert!(window >= 2, "completion order window needs two units");
+    match mode {
+        DispatchOrderMode::Reverse => (0..window).rev().collect(),
+        DispatchOrderMode::Rotate(k) => {
+            assert!(k >= 1 && k < window, "rotation stays within window");
+            (0..window).map(|ordinal| (ordinal + k) % window).collect()
+        }
+    }
+}
+
+/// 一次池分发的完成顺序证据：领取单元数、实际放行序与参与线程数。
+#[cfg(test)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DispatchOrderCallLog {
+    pub(crate) entry: DispatchEntry,
+    pub(crate) claimed: usize,
+    pub(crate) released: Vec<usize>,
+    pub(crate) participating_threads: usize,
+}
+
+/// 武装状态：模式、窗口与逐调用日志；随拍经 `carry_hooks` 搬到池协调线程。
+#[cfg(test)]
+struct DispatchOrderArm {
+    mode: DispatchOrderMode,
+    window: usize,
+    calls: Mutex<Vec<DispatchOrderCallLog>>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static DISPATCH_ORDER_ARM: std::cell::RefCell<Option<std::sync::Arc<DispatchOrderArm>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// 复位完成顺序武装的守卫；Drop 后恢复自然调度。
+#[cfg(test)]
+pub(crate) struct DispatchOrderGuard;
+
+#[cfg(test)]
+impl Drop for DispatchOrderGuard {
+    fn drop(&mut self) {
+        DISPATCH_ORDER_ARM.with(|arm| *arm.borrow_mut() = None);
+    }
+}
+
+/// 测试专用：武装本线程后续整拍中 P2/P3/P5 的池分发完成顺序（#1278）。
+/// `threads` 是分发参与的池线程数；`window < threads` 保证窗口单元全部
+/// 被领取前始终有空闲线程继续领取（结构上无死锁）。武装前须确认场景
+/// 在每个被门作用阶段都有不少于窗口的单元数，否则门内看门狗会终止等待。
+#[cfg(test)]
+pub(crate) fn force_dispatch_completion_order(
+    mode: DispatchOrderMode,
+    window: usize,
+    threads: usize,
+) -> DispatchOrderGuard {
+    assert!(
+        window >= 2 && window < threads,
+        "dispatch order window must be 2..threads"
+    );
+    DISPATCH_ORDER_ARM.with(|arm| {
+        assert!(arm.borrow().is_none(), "one dispatch order arm at a time");
+        *arm.borrow_mut() = Some(Arc::new(DispatchOrderArm {
+            mode,
+            window,
+            calls: Mutex::new(Vec::new()),
+        }));
+    });
+    DispatchOrderGuard
+}
+
+/// 取走自武装以来每次池分发的完成顺序证据；未武装时为空。
+#[cfg(test)]
+pub(crate) fn take_dispatch_order_calls() -> Vec<DispatchOrderCallLog> {
+    DISPATCH_ORDER_ARM.with(|arm| {
+        arm.borrow()
+            .as_ref()
+            .map(|arm| {
+                std::mem::take(
+                    &mut *arm
+                        .calls
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                )
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// 分发入口（池协调线程）建门：未武装或本次调用单元数少于窗口时返回
+/// `None`（单元不足窗口的调用不换序也不记录，避免放行位指向不存在的
+/// 领取序号）。`units` 是本次调用的精确单元数（P3 为块数、P2 为迭代器
+/// 下界、P5 为票据总块数）。
+#[cfg(test)]
+fn begin_dispatch_order_call(
+    units: usize,
+) -> Option<(Arc<DispatchOrderCall>, Arc<DispatchOrderArm>)> {
+    DISPATCH_ORDER_ARM.with(|arm| {
+        let arm = arm.borrow();
+        let arm = arm.as_ref()?;
+        if units < arm.window {
+            return None;
+        }
+        let schedule = dispatch_order_schedule(arm.mode, arm.window);
+        Some((
+            Arc::new(DispatchOrderCall {
+                schedule,
+                released: AtomicUsize::new(0),
+                claims: AtomicUsize::new(0),
+                log: Mutex::new(vec![usize::MAX; arm.window]),
+            }),
+            Arc::clone(arm),
+        ))
+    })
+}
+
+/// 分发收尾（同线程）：记录本调用的领取、放行与参与线程数。
+#[cfg(test)]
+fn finish_dispatch_order_call(
+    arm: &DispatchOrderArm,
+    call: &DispatchOrderCall,
+    entry: DispatchEntry,
+    threads: usize,
+) {
+    arm.calls
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(DispatchOrderCallLog {
+            entry,
+            claimed: call.claims.load(Ordering::Relaxed),
+            released: std::mem::take(
+                &mut *call
+                    .log
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+            participating_threads: threads,
+        });
+}
+
 /// 测试与 fixture 钩子（线程局部的注入开关与计数）随拍跨线程搬运：拍在池线程上
 /// 运行，进池前把调用线程的取值搬到池线程，出池（含 panic）后再搬回调用
 /// 线程，测试照旧在调用线程上设置与读取。生产构建不存在这层搬运。
@@ -394,7 +605,7 @@ thread_local! {
     static LAST_DISPATCH_STATS: std::cell::Cell<Option<DispatchStats>> = const { std::cell::Cell::new(None) };
 }
 #[cfg(test)]
-crate::kernel::execution::carry_hooks!(carry_test_hooks: LAST_DISPATCH_STATS);
+crate::kernel::execution::carry_hooks!(carry_test_hooks: LAST_DISPATCH_STATS, DISPATCH_ORDER_ARM);
 
 /// 测试专用：从池外提交到 Rayon 全局注入队列的任务数（`install`、池外分段并行与
 /// scope 派生各占一格）。注入队列按固定容量分块分配，分配证据据此计入块数。
@@ -643,10 +854,10 @@ fn run_awake<R: Send>(pool: &rayon_core::ThreadPool, run: impl FnOnce() -> R + S
 /// `compute` 遇错时须把该槽逻辑下标 min-store 进共享原子并提前返回，
 /// 已完成前缀槽位保持 `Done(Ok(_))`，同块后缀保持 `Pending`。
 #[cfg_attr(
-    all(test, feature = "execution-evidence"),
+    test,
     expect(
         clippy::too_many_arguments,
-        reason = "测试计数与证据探针各占一个 cfg 参数"
+        reason = "测试计数、完成顺序门与证据探针各占一个 cfg 参数"
     )
 )]
 fn run_dispatch_chunk<T, S, F>(
@@ -654,6 +865,7 @@ fn run_dispatch_chunk<T, S, F>(
     view: super::phase::StepReadView<'_>,
     first_error: &AtomicUsize,
     #[cfg(test)] counters: &DispatchCounters,
+    #[cfg(test)] order: Option<&Arc<DispatchOrderCall>>,
     #[cfg(feature = "execution-evidence")] probe: &super::execution_evidence::DispatchProbe,
     start: usize,
     chunk: &mut [DispatchSlot<T>],
@@ -661,6 +873,10 @@ fn run_dispatch_chunk<T, S, F>(
 ) where
     F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>], S) + Sync,
 {
+    #[cfg(test)]
+    if let Some(call) = order {
+        call.enter();
+    }
     #[cfg(test)]
     counters.note_thread();
     #[cfg(feature = "execution-evidence")]
@@ -984,9 +1200,19 @@ impl ExecutionResources {
         );
         #[cfg(test)]
         let counters = DispatchCounters::default();
+        #[cfg(test)]
+        let order = if matches!(self, Self::Pool(_)) {
+            begin_dispatch_order_call(total_works)
+        } else {
+            None
+        };
         #[cfg(feature = "execution-evidence")]
         let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller));
         let run = |(start, item)| {
+            #[cfg(test)]
+            if let Some((call, _)) = &order {
+                call.enter();
+            }
             #[cfg(test)]
             {
                 counters.note_thread();
@@ -1049,6 +1275,15 @@ impl ExecutionResources {
             }
         }
         #[cfg(test)]
+        if let Some((call, arm)) = &order {
+            finish_dispatch_order_call(
+                arm,
+                call,
+                DispatchEntry::Motion,
+                counters.stats().participating_threads,
+            );
+        }
+        #[cfg(test)]
         {
             counters.stats()
         }
@@ -1098,6 +1333,8 @@ impl ExecutionResources {
         }
         #[cfg(feature = "execution-evidence")]
         let probe = super::execution_evidence::dispatch(false);
+        #[cfg(test)]
+        let order = begin_dispatch_order_call(chunks);
         note_work();
         resources.pool.install(|| {
             split_join(output, 0, chunks, chunk_size, &|index, chunk| {
@@ -1109,6 +1346,8 @@ impl ExecutionResources {
                     first_error,
                     #[cfg(test)]
                     &counters,
+                    #[cfg(test)]
+                    order.as_ref().map(|(call, _)| call),
                     #[cfg(feature = "execution-evidence")]
                     &probe,
                     index * chunk_size,
@@ -1117,6 +1356,15 @@ impl ExecutionResources {
                 );
             });
         });
+        #[cfg(test)]
+        if let Some((call, arm)) = &order {
+            finish_dispatch_order_call(
+                arm,
+                call,
+                DispatchEntry::Candidate,
+                counters.stats().participating_threads,
+            );
+        }
         #[cfg(test)]
         {
             counters.stats()
@@ -1143,6 +1391,9 @@ impl ExecutionResources {
     {
         #[cfg(test)]
         let counters = DispatchCounters::default();
+        // 调用方由精确切片构造工作迭代器，下界即单元数。
+        #[cfg(test)]
+        let order = begin_dispatch_order_call(work.size_hint().0);
         #[cfg(feature = "execution-evidence")]
         let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller));
         match self {
@@ -1154,6 +1405,8 @@ impl ExecutionResources {
                         first_error,
                         #[cfg(test)]
                         &counters,
+                        #[cfg(test)]
+                        None,
                         #[cfg(feature = "execution-evidence")]
                         &probe,
                         start,
@@ -1177,6 +1430,8 @@ impl ExecutionResources {
                     let compute = &compute;
                     #[cfg(test)]
                     let counters = &counters;
+                    #[cfg(test)]
+                    let order = &order;
                     #[cfg(feature = "execution-evidence")]
                     let probe = &probe;
                     let chunks = &chunks;
@@ -1204,6 +1459,8 @@ impl ExecutionResources {
                                     first_error,
                                     #[cfg(test)]
                                     counters,
+                                    #[cfg(test)]
+                                    order.as_ref().map(|(call, _)| call),
                                     #[cfg(feature = "execution-evidence")]
                                     probe,
                                     start,
@@ -1225,6 +1482,8 @@ impl ExecutionResources {
                             first_error,
                             #[cfg(test)]
                             counters,
+                            #[cfg(test)]
+                            order.as_ref().map(|(call, _)| call),
                             #[cfg(feature = "execution-evidence")]
                             probe,
                             start,
@@ -1233,6 +1492,15 @@ impl ExecutionResources {
                         );
                     }
                 });
+                #[cfg(test)]
+                if let Some((call, arm)) = &order {
+                    finish_dispatch_order_call(
+                        arm,
+                        call,
+                        DispatchEntry::Preview,
+                        counters.stats().participating_threads,
+                    );
+                }
             }
         }
         #[cfg(test)]

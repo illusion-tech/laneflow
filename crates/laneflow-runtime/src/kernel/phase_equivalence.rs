@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-fn checkpoint(world: &TrafficWorld) -> String {
+pub(super) fn checkpoint(world: &TrafficWorld) -> String {
     let snapshot = world.capture_snapshot().unwrap();
     let vehicles: Vec<_> = world
         .live_vehicles()
