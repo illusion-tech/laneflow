@@ -33,7 +33,8 @@ setup identity。冻结配置为：
   两个 job 恒运行并报告 required check，差异不含适用源代码路径时以显式 skip 模式成功
   完成并在日志记录理由，路径检测失败时失败关闭变红；`main` 的 `push`、每周调度与手工
   dispatch 恒全量分析。适用源代码路径以 `.github/workflows/codeql.yml` 的过滤器为准，
-  与 `ci.yml` 的 Rust 过滤器镜像，宁可多跑不少跑。
+  与 `ci.yml` 的 Rust 过滤器同口径，另含 `fuzz/**`（CodeQL 的 rust 库按仓库全部
+  Rust 文件构建，fuzz 独立包不在 workspace 但在扫描范围内），宁可多跑不少跑。
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、

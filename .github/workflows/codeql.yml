@@ -40,8 +40,9 @@ jobs:
         shell: bash
         run: echo "analyze=true" >> "$GITHUB_OUTPUT"
 
-      # 过滤器与 ci.yml 的 rust 过滤器镜像：同一“Rust 代码面”口径，宁可多跑
-      # 不少跑；`.github/workflows/**` 同时覆盖 actions 语言的扫描对象。
+      # 过滤器与 ci.yml 的 rust 过滤器同口径，宁可多跑不少跑；`.github/workflows/**`
+      # 同时覆盖 actions 语言的扫描对象；`fuzz/**` 不在 workspace，但 CodeQL 的
+      # rust 库按仓库全部 Rust 文件构建，fuzz 独立包仍在扫描范围内（#1284 评审）。
       - name: Detect CodeQL-applicable path changes
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -54,6 +55,7 @@ jobs:
               - 'tools/**'
               - 'examples/**'
               - 'research/**'
+              - 'fuzz/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
