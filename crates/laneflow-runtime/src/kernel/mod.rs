@@ -50,6 +50,7 @@ pub(crate) mod tables;
 /// 固定步进主循环：预检、占用重建、准备与提交。
 pub(crate) mod tick;
 /// 已验证的 Waiting/Conflict 转移到唯一公开事件批次的投影。
+pub(crate) mod transition_visibility;
 pub(crate) mod transitions;
 /// 已提交毫米与 IIDM 瞬时 SI 之间的换算。
 pub(crate) mod units;
@@ -133,3 +134,8 @@ pub(crate) mod route_query_research;
 #[cfg(test)]
 #[path = "tests/motion_participation.rs"]
 pub(crate) mod motion_participation;
+
+/// #1220 不同过渡段共享横向区域时的路线注册与准入回归；只进入测试构建。
+#[cfg(test)]
+#[path = "tests/transition_visibility.rs"]
+mod transition_visibility_tests;

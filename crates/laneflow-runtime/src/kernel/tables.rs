@@ -822,6 +822,16 @@ pub(crate) fn compile_route(
             }
         }
     }
+    // #1220 能力限制：互斥与 P4 都覆盖不到互不可见的共横向过渡段。
+    for edge in edges {
+        if traffic.is_lateral_transition_segment(*edge)
+            && crate::kernel::transition_visibility::has_invisible_co_lateral_transition(
+                traffic, *edge,
+            )
+        {
+            return Err(RouteError::TransitionUnsupported);
+        }
+    }
     Ok(compiled)
 }
 
