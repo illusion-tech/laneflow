@@ -352,3 +352,19 @@ pending = []"#,
     .expect_err("空证据列表必须被拒绝");
     assert!(error.to_string().contains("证据列表为空"));
 }
+
+#[test]
+fn violations_found_l1_record_is_rejected_even_without_expect() {
+    // 不带 expect.verdict 的 violations-found 记录：必须无条件拒绝
+    // （#1285 第二轮评审 P2——含 #1271 拓扑的输入不得用于安全验收）。
+    let body = base_manifest().replace(
+        r#"record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }"#,
+        r#"record = { kind = "l1-record", path = "<evidence-root>/l1-violations.json" }"#,
+    );
+    let manifest = write_manifest(&body);
+    // trial + 不设 require-complete：绕开 pending 格的前置拒绝，直达证据解析，
+    // 证明 clean 是无条件要求（formal 模式包含 trial 的全部检查）。
+    let error = summary::run(&manifest, &ctx(), &output_dir("l1viol"), Mode::Trial, false)
+        .expect_err("violations-found 记录必须被拒绝");
+    assert!(error.to_string().contains("必须为 clean"));
+}
