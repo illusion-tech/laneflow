@@ -92,6 +92,9 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   `tests/fixtures/`，新增大体量 fixture 在 PR 说明体积必要性。边界见
   `docs/governance/documentation-policy.md` 研究结论与过程数据边界。
 
+- 含计量的任务按 `docs/governance/development-gates.md` §5.1 声明类别。Agent 不得
+  自行占用安静测量窗口，未受控的时间数字不作为结论引用。
+
 - 1.0 正式发布前遵守 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
 - 不要把引擎相关依赖引入 Traffic Runtime。
 - 可运行世界使用中文规范名“LaneFlow 交通运行时”及精确标识符
