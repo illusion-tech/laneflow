@@ -1,0 +1,2 @@
+routing-g2-wall-clock workload_id=LF-ROUTING-G2-LINEAR-v1 seed=0 samples=21 classification=descriptive-initial-not-product-pass
+steady_tick_before median=1.0 mad=0.0 p95=1.0 p99=1.0 max=1.0

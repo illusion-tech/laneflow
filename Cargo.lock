@@ -3157,6 +3157,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-gate-summary"
+version = "0.0.0"
+dependencies = [
+ "laneflow-format",
+ "laneflow-static-contract",
+ "laneflow-static-network",
+ "laneflow-synth-generator",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml",
+]
+
+[[package]]
 name = "laneflow-junction-generator"
 version = "0.0.0"
 dependencies = [
