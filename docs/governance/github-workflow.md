@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-10-13
+**最后更新**: 2026-11-05
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -109,6 +109,9 @@ Labels 不重复 Type 或 Project Status。Issue 进入 `Ready` 前至少有一�
 `dependencies`、`github_actions`、`rust` 只作为 Dependabot / PR 集成元数据，不是 Issue
 必填分类。完成 Type 迁移后，Issue 不再使用 `feature`、`bug`、`enhancement`、
 `documentation` 表达工作性质。
+
+调度标签：`needs:quiet-window` 表示任务运行时须占用安静测量窗口，与 `work:*` 可以并用；
+规则见 `development-gates.md` §5.1（#1280）。
 
 由于 PR 没有原生 Issue Type，已有 `feature` / `bug` PR 标签暂时保留，但不得再添加到
 Issue；本次迁移只从 Issue 移除它们。`enhancement` / `documentation` 在确认没有 PR
@@ -290,6 +293,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规检查，由
 `Evidence` workflow（`schedule` + `workflow_dispatch`，钉版 nextest
 `--run-ignored ignored-only --no-capture`）每日运行并可手动触发；不参与合并检查（#748）。
+它运行在共享 runner 上，不构成安静测量窗口，其中的时间数字不算正式结果
+（`development-gates.md` §5.1）。
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 

@@ -39,6 +39,8 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 - 标题只写中文结果陈述，精确标识符保留原文。
 - 用 `area:*` 表达影响范围，用 `work:*` 表达工作方式；进入 `Ready` 前至少一个
   `area:*`，跨层任务使用多个 area 标签。
+- 含计量的任务按 `docs/governance/development-gates.md` §5.1 声明类别、判断是否拆分；
+  运行时须占用安静测量窗口的任务使用 `needs:quiet-window`。
 - 侧边栏的 Project、Milestone、parent、blocked-by 直接在 GitHub 上维护。
 - parent / sub-issue 表达分解，blocked-by / blocking 表达真实依赖；父任务不自动等于
   blocker。
