@@ -207,6 +207,13 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
                 .get("verdict")
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| invalid(format!("L1 核查记录缺少 verdict：{path}")))?;
+            // 结论无条件要求 clean：#1271 处置规定含这种拓扑的路网不得用于
+            // 安全验收，`violations-found` 不能依赖可选 expect 才被拦下。
+            if verdict != "clean" {
+                return Err(invalid(format!(
+                    "L1 核查结论必须为 clean（含 #1271 拓扑的输入不得用于安全验收）：{path} 的 verdict={verdict}"
+                )));
+            }
             if let Some(expect) = expect
                 && let Some(wanted) = &expect.verdict
                 && verdict != wanted

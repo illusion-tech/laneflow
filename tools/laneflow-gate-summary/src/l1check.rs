@@ -250,6 +250,11 @@ pub fn check(input: &BundleInput) -> Result<L1Report, Error> {
         let mut cursor = heads.first().copied();
         let mut offset: u64 = 0;
         while let Some(edge) = cursor {
+            // 环界：链长不可能超过车道边数（如 a→b→c→b 的环形编制链）；
+            // 先截断再由下方的线性校验报错，不允许无界增长挂死核查。
+            if chain.len() == edges.len() {
+                break;
+            }
             let length = u64::from(lengths.get(edge.index()).copied().unwrap_or(0));
             chain.push((edge, offset, offset + length));
             offset += length;
@@ -265,7 +270,7 @@ pub fn check(input: &BundleInput) -> Result<L1Report, Error> {
             }
             cursor = nexts.first().copied();
         }
-        if chain.len() != edges.len() {
+        if chain.len() != edges.len() || cursor.is_some() {
             return Err(invalid(format!(
                 "编制车道 #{lane} 边链不成线性（{} 条边只链到 {} 条），无法计算纵向窗口",
                 edges.len(),
