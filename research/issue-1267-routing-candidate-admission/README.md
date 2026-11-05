@@ -2,7 +2,7 @@
 
 2026-11-05 完成。工作负载族 `LF-ROUTING-CANDIDATE-LFSYNTH-v1`，三身份
 （`10000-W2-16-a`、`100000-W2-33-a`、`10000-L1-16-a`，维护者裁定）。
-实现提交 `b290039aca195b09fabc0ae5b236b07ef6ee378f`（运行时工作树与提交
+实现提交 `bbc2665f`（运行时工作树与提交
 逐字一致）。正式登记与冻结表在
 `docs/design/traffic-observation-and-routing-integration.md` §7.2；
 本文件给结论、复现命令与身份摘要。
