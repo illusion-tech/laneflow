@@ -15,8 +15,9 @@ mod support {
 }
 
 use support::routing_evidence::{
-    EDGE_COUNT, LONG_ROUTE_EDGE_COUNT, ReceiverLimits, TYPICAL_ROUTE_EDGE_COUNT, WORKLOAD_ID,
-    build_fixture, fixed_input_sequence_digest, receive_cost_snapshot,
+    CandidateAdmissionFixture, EDGE_COUNT, LONG_ROUTE_EDGE_COUNT, ReceiverLimits,
+    TYPICAL_ROUTE_EDGE_COUNT, WORKLOAD_ID, build_fixture, build_lf_synth_fixture,
+    fixed_input_sequence_digest, receive_cost_snapshot,
 };
 
 #[global_allocator]
@@ -75,78 +76,75 @@ struct CandidateLedger {
     adjusted_route_live_bytes: i128,
 }
 
-fn tick_ledger(fixture: &mut support::routing_evidence::RoutingEvidenceFixture) -> Ledger {
+fn tick_ledger(fixture: &mut impl CandidateAdmissionFixture, delta_ms: u64) -> Ledger {
     let region = Region::new(GLOBAL);
     for _ in 0..STEADY_TICK_SAMPLES {
         fixture
-            .world
-            .step(TickInput::new(support::routing_evidence::DELTA_MS))
+            .world_mut()
+            .step(TickInput::new(delta_ms))
             .expect("steady tick");
     }
     Ledger::from_stats(region.change())
 }
 
 fn observation_ledger(
-    fixture: &mut support::routing_evidence::RoutingEvidenceFixture,
+    fixture: &mut impl CandidateAdmissionFixture,
     mode: ObservationExportMode,
 ) -> ObservationLedger {
     let region = Region::new(GLOBAL);
     let batch = fixture
-        .world
-        .export_observation(&mut fixture.observation_session, mode)
+        .export_observation(mode)
         .expect("observation evidence batch");
     black_box(&batch);
+    let session_logical_bytes = fixture
+        .session_mut()
+        .logical_bytes()
+        .expect("session logical bytes");
+    let session_retained_bytes = fixture
+        .session_mut()
+        .retained_bytes()
+        .expect("session retained bytes");
+
     let allocation = Ledger::from_stats(region.change());
     ObservationLedger {
         allocation,
         entry_count: batch.entry_count(),
         logical_bytes: batch.logical_bytes(),
         retained_bytes: batch.retained_bytes(),
-        session_logical_bytes: fixture
-            .observation_session
-            .logical_bytes()
-            .expect("session logical bytes"),
-        session_retained_bytes: fixture
-            .observation_session
-            .retained_bytes()
-            .expect("session retained bytes"),
+        session_logical_bytes,
+        session_retained_bytes,
     }
 }
 
-fn receiver_ledger(fixture: &support::routing_evidence::RoutingEvidenceFixture) -> Ledger {
+fn receiver_ledger(fixture: &impl CandidateAdmissionFixture, limits: ReceiverLimits) -> Ledger {
     let region = Region::new(GLOBAL);
     black_box(
-        receive_cost_snapshot(
-            fixture.cost_binding,
-            &fixture.cost_payload,
-            ReceiverLimits::EXACT_WORKLOAD,
-        )
-        .expect("receive cost"),
+        receive_cost_snapshot(fixture.cost_binding(), fixture.cost_payload(), limits)
+            .expect("receive cost"),
     );
     Ledger::from_stats(region.change())
 }
 
 fn candidate_ledger(
-    fixture: &mut support::routing_evidence::RoutingEvidenceFixture,
+    fixture: &mut impl CandidateAdmissionFixture,
+    input: laneflow_runtime::CandidateRouteInput,
     edge_count: usize,
 ) -> CandidateLedger {
-    let input = fixture.candidate_input(edge_count);
     let caller_input_bytes = edge_count
         .checked_mul(core::mem::size_of::<laneflow_static_contract::StableId128>())
         .expect("candidate input bytes");
     let region = Region::new(GLOBAL);
     let route = fixture
-        .world
-        .register_candidate_route(&fixture.admission, input)
+        .register_candidate(input)
         .expect("register candidate route");
     assert_eq!(
-        fixture.world.route_edges(route).map(<[_]>::len),
+        fixture.world_mut().route_edges(route).map(<[_]>::len),
         Some(edge_count)
     );
     let allocation = Ledger::from_stats(region.change());
     let adjusted_route_live_bytes = allocation.live_delta_bytes + caller_input_bytes as i128;
     fixture
-        .world
+        .world_mut()
         .remove_route(route)
         .expect("remove measured route");
     CandidateLedger {
@@ -163,8 +161,11 @@ fn routing_g2_budget_evidence() {
     let mut fixture = build_fixture();
     assert_eq!(fixture.initial_full.entry_count(), EDGE_COUNT as u64);
 
-    black_box(tick_ledger(&mut fixture));
-    let steady_before = tick_ledger(&mut fixture);
+    black_box(tick_ledger(
+        &mut fixture,
+        support::routing_evidence::DELTA_MS,
+    ));
+    let steady_before = tick_ledger(&mut fixture, support::routing_evidence::DELTA_MS);
     assert_eq!(steady_before, Ledger::default());
 
     black_box(observation_ledger(
@@ -183,21 +184,35 @@ fn routing_g2_budget_evidence() {
     assert_eq!(delta.entry_count, 0);
     assert!(delta.retained_bytes >= delta.logical_bytes);
 
-    black_box(receiver_ledger(&fixture));
-    let receiver = receiver_ledger(&fixture);
+    black_box(receiver_ledger(&fixture, ReceiverLimits::EXACT_WORKLOAD));
+    let receiver = receiver_ledger(&fixture, ReceiverLimits::EXACT_WORKLOAD);
     assert_eq!(receiver, Ledger::default());
 
-    black_box(candidate_ledger(&mut fixture, 1));
-    let candidate_one = candidate_ledger(&mut fixture, 1);
-    black_box(candidate_ledger(&mut fixture, TYPICAL_ROUTE_EDGE_COUNT));
-    let candidate_typical = candidate_ledger(&mut fixture, TYPICAL_ROUTE_EDGE_COUNT);
-    black_box(candidate_ledger(&mut fixture, LONG_ROUTE_EDGE_COUNT));
-    let candidate_long = candidate_ledger(&mut fixture, LONG_ROUTE_EDGE_COUNT);
+    let warm_input = fixture.candidate_input(1);
+    black_box(candidate_ledger(&mut fixture, warm_input, 1));
+    let one_input = fixture.candidate_input(1);
+    let candidate_one = candidate_ledger(&mut fixture, one_input, 1);
+    let typical_input = fixture.candidate_input(TYPICAL_ROUTE_EDGE_COUNT);
+    black_box(candidate_ledger(
+        &mut fixture,
+        typical_input,
+        TYPICAL_ROUTE_EDGE_COUNT,
+    ));
+    let typical_input = fixture.candidate_input(TYPICAL_ROUTE_EDGE_COUNT);
+    let candidate_typical = candidate_ledger(&mut fixture, typical_input, TYPICAL_ROUTE_EDGE_COUNT);
+    let long_input = fixture.candidate_input(LONG_ROUTE_EDGE_COUNT);
+    black_box(candidate_ledger(
+        &mut fixture,
+        long_input,
+        LONG_ROUTE_EDGE_COUNT,
+    ));
+    let long_input = fixture.candidate_input(LONG_ROUTE_EDGE_COUNT);
+    let candidate_long = candidate_ledger(&mut fixture, long_input, LONG_ROUTE_EDGE_COUNT);
     assert!(candidate_one.adjusted_route_live_bytes > 0);
     assert!(candidate_typical.adjusted_route_live_bytes > candidate_one.adjusted_route_live_bytes);
     assert!(candidate_long.adjusted_route_live_bytes > candidate_typical.adjusted_route_live_bytes);
 
-    let steady_after = tick_ledger(&mut fixture);
+    let steady_after = tick_ledger(&mut fixture, support::routing_evidence::DELTA_MS);
     assert_eq!(steady_after, Ledger::default());
 
     let config = fixture.world.config();
@@ -231,6 +246,107 @@ fn routing_g2_budget_evidence() {
         fixture.cost_binding.exact_byte_length(),
         ReceiverLimits::EXACT_WORKLOAD.max_entry_count,
         ReceiverLimits::EXACT_WORKLOAD.max_exact_byte_length,
+        STEADY_TICK_SAMPLES,
+    );
+}
+
+// ===== LF-SYNTH-v2 正式负载（#1267 候选准入确定性计量） =====
+//
+// 条目数/字节/分配/retained 属 §5.1 不敏感类，本测试即正式登记来源；
+// 与墙钟分进程（本二进制安装计数分配器）。协议：每操作先 warm-up 丢弃
+// 再记 ledger；steady tick 各 32 samples。正式负载下稳态拍允许携带
+// 车辆生命周期账目（如实登记，不按零断言），解释归结论文档。
+
+const LF_SYNTH_FIXED_INPUT_SEQUENCE: &str = concat!(
+    "formal-identity:verify-directory;install;register-state-routes;spawn-vehicles;",
+    "step(delta)x64;observation-full(all);receive-cost(all-edges);open-admission;",
+    "measure(warmup-then-ledger):step(delta)x32;observation-full;observation-delta-zero;",
+    "receive-cost;candidate-register-remove(edges=1);candidate-register-remove(edges=typical);",
+    "candidate-register-remove(edges=long);step(delta)x32;",
+);
+
+#[test]
+#[ignore = "manual release allocation evidence for LF-SYNTH candidate admission"]
+fn routing_candidate_lf_synth_budget_evidence() {
+    let mut fixture = build_lf_synth_fixture();
+    let delta_ms = fixture.fixed_delta_ms;
+    let edge_count = fixture.edge_count as u64;
+    let typical_edges = fixture.typical_route.len();
+    let long_edges = fixture.long_route.len();
+    let limits = fixture.receiver_limits();
+    assert_eq!(fixture.initial_full.entry_count(), edge_count);
+
+    black_box(tick_ledger(&mut fixture, delta_ms));
+    let steady_before = tick_ledger(&mut fixture, delta_ms);
+
+    black_box(observation_ledger(
+        &mut fixture,
+        ObservationExportMode::Full,
+    ));
+    let full = observation_ledger(&mut fixture, ObservationExportMode::Full);
+    assert_eq!(full.entry_count, edge_count);
+    assert!(full.retained_bytes >= full.logical_bytes);
+
+    black_box(observation_ledger(
+        &mut fixture,
+        ObservationExportMode::Delta,
+    ));
+    let delta = observation_ledger(&mut fixture, ObservationExportMode::Delta);
+    assert_eq!(delta.entry_count, 0);
+    assert!(delta.retained_bytes >= delta.logical_bytes);
+
+    black_box(receiver_ledger(&fixture, limits));
+    let receiver = receiver_ledger(&fixture, limits);
+
+    let warm_input = fixture.candidate_one_input();
+    black_box(candidate_ledger(&mut fixture, warm_input, 1));
+    let one_input = fixture.candidate_one_input();
+    let candidate_one = candidate_ledger(&mut fixture, one_input, 1);
+    let warm_input = fixture.candidate_typical_input();
+    black_box(candidate_ledger(&mut fixture, warm_input, typical_edges));
+    let typical_input = fixture.candidate_typical_input();
+    let candidate_typical = candidate_ledger(&mut fixture, typical_input, typical_edges);
+    let warm_input = fixture.candidate_long_input();
+    black_box(candidate_ledger(&mut fixture, warm_input, long_edges));
+    let long_input = fixture.candidate_long_input();
+    let candidate_long = candidate_ledger(&mut fixture, long_input, long_edges);
+
+    assert!(candidate_long.adjusted_route_live_bytes > candidate_one.adjusted_route_live_bytes);
+
+    let steady_after = tick_ledger(&mut fixture, delta_ms);
+
+    let config = fixture.world.config();
+    let observation_set = fixture.cost_binding().observation_set();
+    println!(
+        "routing-lfsynth-budget-evidence workload_id={} identity={} manifest_digest={:x} network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} state_routes={} state_route_edges={} vehicles={} active={} parked={} typical_edges={} long_edges={} world_config_vehicle_capacity={} world_config_route_capacity={} world_config_route_edge_occurrence_capacity={} execution_worker_count={} world_config_fixed_delta_ms={} observation_tick={} observation_state_sequence={} observation_set_digest={:x} cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} steady_tick_samples={} steady_before={steady_before:?} observation_full={full:?} observation_delta_zero={delta:?} receiver={receiver:?} candidate_one={candidate_one:?} candidate_typical={candidate_typical:?} candidate_long={candidate_long:?} steady_after={steady_after:?}",
+        fixture.workload_id,
+        fixture.identity_name,
+        fixture.manifest_digest,
+        fixture.network_revision.as_digest(),
+        fixture.workload_manifest_digest,
+        fixture.state_digest,
+        fixture.initial_full.selection_digest(),
+        fixed_input_sequence_digest(LF_SYNTH_FIXED_INPUT_SEQUENCE),
+        fixture.edge_count,
+        fixture.state_route_count,
+        fixture.state_route_edge_total,
+        fixture.vehicle_count,
+        fixture.active_count,
+        fixture.parked_count,
+        typical_edges,
+        long_edges,
+        config.vehicle_capacity(),
+        config.route_capacity(),
+        config.route_edge_occurrence_capacity(),
+        fixture.world.execution_config().worker_count(),
+        config.fixed_delta_time_ms(),
+        observation_set.observation_tick(),
+        observation_set.observation_state_sequence().get(),
+        observation_set.digest(),
+        fixture.cost_binding().entry_count(),
+        fixture.cost_binding().exact_byte_length(),
+        limits.max_entry_count,
+        limits.max_exact_byte_length,
         STEADY_TICK_SAMPLES,
     );
 }
