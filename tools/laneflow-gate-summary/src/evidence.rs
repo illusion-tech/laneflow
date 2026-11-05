@@ -35,11 +35,14 @@ impl PathContext {
     }
 }
 
-/// 一条证据的核验产物：`label` 进回执正文，`detail` 是核验结论。
+/// 一条证据的核验产物：`label` 进回执正文，`detail` 是核验结论；
+/// `identity` 携带记录自身声明的输入身份（当前仅 `l1-record`），供汇总层
+/// 与 manifest 声明判等。
 #[derive(Debug, Clone)]
 pub struct EvidenceOutcome {
     pub label: String,
     pub detail: String,
+    pub identity: Option<String>,
 }
 
 /// 核验一条证据锚点。
@@ -68,6 +71,7 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             Ok(EvidenceOutcome {
                 label: path.clone(),
                 detail,
+                identity: None,
             })
         }
         Evidence::Github { url } => {
@@ -78,6 +82,7 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             Ok(EvidenceOutcome {
                 label: url.clone(),
                 detail: "链接（离线工具只做形态校验，不联网核验）".to_owned(),
+                identity: None,
             })
         }
         Evidence::SynthSummaryJson { path, expect } => {
@@ -110,6 +115,7 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             Ok(EvidenceOutcome {
                 label: path.clone(),
                 detail: detail.join("，"),
+                identity: None,
             })
         }
         Evidence::GateJson { path, expect } => {
@@ -144,6 +150,7 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             Ok(EvidenceOutcome {
                 label: path.clone(),
                 detail: detail.join("，"),
+                identity: None,
             })
         }
         Evidence::RoutingKv { path, expect } => {
@@ -181,6 +188,7 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             Ok(EvidenceOutcome {
                 label: path.clone(),
                 detail: format!("{workload}期望键 {}/{} 命中", expect.len(), expect.len()),
+                identity: None,
             })
         }
         Evidence::L1Record { path, expect } => {
@@ -207,13 +215,16 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
                     "L1 核查结论不符：{path} 的 verdict={verdict}，期望 {wanted}"
                 )));
             }
-            let identity = value
+            let Some(identity) = value
                 .pointer("/bundle/identity")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("身份未声明");
+            else {
+                return Err(invalid(format!("L1 核查记录缺少 bundle.identity：{path}")));
+            };
             Ok(EvidenceOutcome {
                 label: path.clone(),
                 detail: format!("identity={identity}，verdict={verdict}"),
+                identity: Some(identity.to_owned()),
             })
         }
     }

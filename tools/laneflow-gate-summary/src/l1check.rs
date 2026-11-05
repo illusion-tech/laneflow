@@ -8,10 +8,10 @@
 //!
 //! 1. 枚举全部横向过渡段（与运行时同判据 `is_lateral_transition_segment`）；
 //! 2. 对每条过渡段 `T`，取可见邻域 `N(T) = {T} ∪ 前驱 ∪ 后继`；
-//! 3. 以 `T` 的长度在邻接编制车道的纵向链上确定汇入窗口
-//!    `[前驱链末, +len(T))`；
-//! 4. 同路段（section）内纵向跨度与窗口相交、且不属于 `N(T)` 的编制车道边是
-//!    平行边候选；
+//! 3. 汇入窗口锚定在后渡编制车道自身的链坐标上（车道链原点不共享，
+//!    跨链比较须以邻域边为锚）：`[锚边链起点 − len(T), 锚边链起点)`；
+//! 4. 锚车道内纵向跨度与窗口相交、且不属于 `N(T)` 的编制车道边是平行边
+//!    候选；无锚车道的边与汇入点无已建立的对齐关系，不参与判定；
 //! 5. 存在「不经过 `N(T)` 任何边、却经过平行边候选」的已注册路线即为
 //!    违规（P4 看不见的直行车实际在跑）；汇入点上游出现分岔（后继跨多条
 //!    编制车道或多后继）记录为使能结构。
@@ -55,6 +55,15 @@ pub struct BundleInput {
     pub state_json: Vec<u8>,
 }
 
+/// 场景键 → 场景标签（与 `laneflow-synth-generator` `Case::label` 同口径），
+/// 使记录身份与汇总 manifest 的 `<scale>-<label>-<delta>` 声明可直接判等。
+fn case_label(case_key: &str) -> &str {
+    match case_key {
+        "LaneChange" => "L1",
+        other => other,
+    }
+}
+
 /// 读取一个 LF-SYNTH 输入包目录。
 ///
 /// # Errors
@@ -82,11 +91,11 @@ pub fn load_bundle(directory: &Path) -> Result<BundleInput, Error> {
         .cloned()
         .ok_or_else(|| invalid("manifest.json 缺少 identity.case"))?;
     let case_name = match &case {
-        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::String(s) => case_label(s).to_owned(),
         serde_json::Value::Object(map) => map
             .keys()
             .next()
-            .cloned()
+            .map(|key| case_label(key).to_owned())
             .unwrap_or_else(|| "case".to_owned()),
         _ => "case".to_owned(),
     };
@@ -114,11 +123,10 @@ struct LaneChain {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TransitionReport {
     pub edge: String,
-    pub window_mm: (u64, u64),
     pub predecessors: Vec<String>,
     pub successors: Vec<String>,
-    /// 纵向跨度与汇入窗口相交、且不在可见邻域内的编制车道边（信息项；
-    /// 平行边本身不构成违规，配合盲路线才构成）。
+    /// 纵向跨度与（锚定后的）汇入窗口相交、且不在可见邻域内的编制车道边
+    /// （信息项；平行边本身不构成违规，配合盲路线才构成）。
     pub parallel_edges: Vec<ParallelEdgeReport>,
     /// 不经过可见邻域却经过平行边的已注册路线（违规）。
     pub blind_routes: Vec<BlindRouteReport>,
@@ -126,10 +134,15 @@ pub struct TransitionReport {
     pub upstream_forks: Vec<String>,
 }
 
+/// 平行边候选：携带锚定窗口与锚边，便于独立复核对齐关系。
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ParallelEdgeReport {
     pub edge: String,
     pub span_mm: (u64, u64),
+    /// 锚定窗口（锚车道坐标，毫米）。
+    pub window_mm: (u64, u64),
+    /// 锚边（过渡段的后渡编制车道边）。
+    pub anchor: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -262,22 +275,6 @@ pub fn check(input: &BundleInput) -> Result<L1Report, Error> {
         chains.insert(*lane, LaneChain { edges: chain });
     }
 
-    let chain_end = |edge: LaneEdgeOrdinal| -> Option<u64> {
-        let lane = lane_of_edge.get(&edge.index())?;
-        chains
-            .get(lane)?
-            .edges
-            .iter()
-            .find(|(member, _, _)| *member == edge)
-            .map(|(_, _, end)| *end)
-    };
-    let section_of_edge = |edge: LaneEdgeOrdinal| -> Option<usize> {
-        relations
-            .lane_edge_authoring_lane(edge)
-            .and_then(|lane| relations.authoring_section(lane))
-            .map(|section| section.index())
-    };
-
     let mut transitions = Vec::new();
     for raw in 0..traffic.lane_edge_count() {
         let transition = LaneEdgeOrdinal::from_raw(raw);
@@ -296,65 +293,60 @@ pub fn check(input: &BundleInput) -> Result<L1Report, Error> {
         neighborhood.extend(succs.iter().map(|e| e.index()));
         let in_neighborhood = |edge: &LaneEdgeOrdinal| neighborhood.contains(&edge.index());
 
-        // 汇入窗口：沿前渡链回溯到编制车道边，取其链末为窗口起点。
-        let mut window: Option<(u64, u64)> = None;
-        for pred in &preds {
-            let mut origin = *pred;
-            let mut walked = 0_u64;
-            loop {
-                if relations.lane_edge_authoring_lane(origin).is_some() {
-                    if let Some(end) = chain_end(origin) {
-                        window = Some((end + walked, end + walked + length));
-                    }
-                    break;
-                }
-                let Some(previous) = traffic
-                    .predecessors(origin)
-                    .and_then(|list| list.first().copied())
-                else {
-                    break;
-                };
-                walked += u64::from(lengths.get(origin.index()).copied().unwrap_or(0));
-                origin = previous;
+        // 汇入窗口：以后渡编制车道为锚。车道链原点不共享——L1 的目标车道
+        // （`lc-e4`/`lc-e2`）物理上从 5 m 起，但其链偏移从 0 起，跨链直接比较
+        // 会错位（#1285 评审 P1）。锚边 = 后渡编制车道边 E；窗口 = 该车道
+        // 坐标内 [E 链起点 − len(T), E 链起点)。没有锚车道的边与汇入点无
+        // 已建立的对齐关系，不参与判定。
+        let chain_start = |edge: LaneEdgeOrdinal| -> Option<u64> {
+            let lane = lane_of_edge.get(&edge.index())?;
+            chains
+                .get(lane)?
+                .edges
+                .iter()
+                .find(|(member, _, _)| *member == edge)
+                .map(|(_, start, _)| *start)
+        };
+        let mut anchors: Vec<(LaneEdgeOrdinal, u64, u64)> = Vec::new();
+        for succ in &succs {
+            if relations.lane_edge_authoring_lane(*succ).is_none() {
+                continue;
             }
-            if window.is_some() {
-                break;
+            if let Some(start) = chain_start(*succ)
+                && !anchors.iter().any(|(edge, _, _)| *edge == *succ)
+            {
+                anchors.push((*succ, start.saturating_sub(length), start));
             }
         }
-        let Some(window) = window else {
+        if anchors.is_empty() {
             return Err(invalid(format!(
-                "过渡段 {} 找不到编制车道前渡链，无法确定汇入窗口",
+                "过渡段 {} 找不到后渡编制车道锚，无法确定汇入窗口",
                 name(transition)
             )));
-        };
-
-        // 平行边候选：前渡/后渡车道所在路段内，跨度与窗口相交且不在邻域内。
-        let mut sections: Vec<usize> = Vec::new();
-        for edge in preds.iter().chain(succs.iter()) {
-            if let Some(section) = section_of_edge(*edge)
-                && !sections.contains(&section)
-            {
-                sections.push(section);
-            }
         }
+
+        // 平行边候选：锚所在车道内，跨度与该锚窗口相交且不在邻域内的边。
         let mut parallel: Vec<(usize, ParallelEdgeReport)> = Vec::new();
-        for chain in chains.values() {
+        for (anchor, window_start, window_end) in &anchors {
+            let Some(lane) = relations.lane_edge_authoring_lane(*anchor) else {
+                continue;
+            };
+            let Some(chain) = chains.get(&lane.index()) else {
+                continue;
+            };
             for (edge, start, end) in &chain.edges {
-                if in_neighborhood(edge) {
+                if in_neighborhood(edge) || parallel.iter().any(|(index, _)| *index == edge.index())
+                {
                     continue;
                 }
-                let Some(section) = section_of_edge(*edge) else {
-                    continue;
-                };
-                if !sections.contains(&section) {
-                    continue;
-                }
-                if *start < window.1 && window.0 < *end {
+                if *start < *window_end && *window_start < *end {
                     parallel.push((
                         edge.index(),
                         ParallelEdgeReport {
                             edge: name(*edge),
                             span_mm: (*start, *end),
+                            window_mm: (*window_start, *window_end),
+                            anchor: name(*anchor),
                         },
                     ));
                 }
@@ -416,7 +408,6 @@ pub fn check(input: &BundleInput) -> Result<L1Report, Error> {
 
         transitions.push(TransitionReport {
             edge: name(transition),
-            window_mm: window,
             predecessors: preds.iter().map(|edge| name(*edge)).collect(),
             successors: succs.iter().map(|edge| name(*edge)).collect(),
             parallel_edges: parallel.into_iter().map(|(_, report)| report).collect(),
