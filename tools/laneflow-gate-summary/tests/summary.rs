@@ -286,3 +286,69 @@ fn existing_output_directory_is_rejected() {
     assert!(error.to_string().contains("输出目录必须不存在"));
     std::fs::remove_dir_all(&output).ok();
 }
+
+#[test]
+fn l1_record_identity_mismatch_is_rejected() {
+    // 声明 100000-L1-33 却挂 10000-L1-16 的记录：必须拒绝（#1285 评审 P1）。
+    let body = base_manifest().replace(
+        r#"identity = "10000-L1-16""#,
+        r#"identity = "100000-L1-33""#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("l1mismatch"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("记录身份错配必须被拒绝");
+    assert!(error.to_string().contains("记录身份不符"));
+}
+
+#[test]
+fn blank_exemption_scope_or_authorization_is_rejected() {
+    // 授权豁免缺范围/授权文本：必须拒绝（#1285 评审 P2）。
+    let body = base_manifest().replace(
+        r#"axis = "snapshot"
+status = "semantic-pass""#,
+        r#"axis = "snapshot"
+status = "authorized-exemption"
+exception = { disposition = "authorized-exemption", scope = "", authorization = "" }"#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("blankexempt"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("空白豁免字段必须被拒绝");
+    assert!(
+        error
+            .to_string()
+            .contains("授权豁免缺少未覆盖范围或维护者授权")
+    );
+}
+
+#[test]
+fn empty_evidence_list_on_passing_cell_is_rejected() {
+    // 通过性格清空证据列表：必须拒绝（#1285 评审 P2）。
+    let body = base_manifest().replace(
+        r#"evidence = [ { kind = "repo-doc", path = "research/mini-formal.md", anchors = ["300/300"] } ]
+pending = []"#,
+        r#"evidence = []
+pending = []"#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("noevidence"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("空证据列表必须被拒绝");
+    assert!(error.to_string().contains("证据列表为空"));
+}

@@ -166,6 +166,12 @@ fn validate_cell(load: &str, cell: &Cell, mode: Mode) -> Result<(), Error> {
                 )));
             }
         }
+        if cell.evidence.is_empty() {
+            return Err(invalid(format!(
+                "负载 {load} 的 {} 格证据列表为空：通过性结论必须至少挂接一条证据",
+                cell.axis.name()
+            )));
+        }
     }
     match cell.status {
         CellStatus::AuthorizedExemption => {
@@ -179,6 +185,12 @@ fn validate_cell(load: &str, cell: &Cell, mode: Mode) -> Result<(), Error> {
                 return Err(invalid(format!(
                     "例外种类当前只接受 authorized-exemption（不批准例外）：{}",
                     exception.disposition
+                )));
+            }
+            if exception.scope.trim().is_empty() || exception.authorization.trim().is_empty() {
+                return Err(invalid(format!(
+                    "负载 {load} 的 {} 格授权豁免缺少未覆盖范围或维护者授权（豁免替代验证，两者不得为空）",
+                    cell.axis.name()
                 )));
             }
         }
@@ -305,6 +317,15 @@ fn build_receipt(manifest: &Manifest, ctx: &PathContext, mode: Mode) -> Result<R
         .iter()
         .map(|check| {
             let record = evidence::resolve(&check.record, ctx)?;
+            let Some(identity) = record.identity.as_deref() else {
+                return Err(invalid("L1 核查记录未携带输入身份（解析器缺陷）"));
+            };
+            if identity != check.identity {
+                return Err(invalid(format!(
+                    "L1 核查记录身份不符：声明 {} 挂接的记录属于 {}（记录错配）",
+                    check.identity, identity
+                )));
+            }
             Ok(L1CheckReceipt {
                 identity: check.identity.clone(),
                 record: record.into(),
