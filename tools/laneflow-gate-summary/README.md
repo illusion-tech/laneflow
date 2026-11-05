@@ -53,7 +53,10 @@ target/release/laneflow-gate-summary check-transitions `
 - `[[scope_adjudication]]`：#1268 正文九项裁定表的声明式副本（豁免须带授权）。
 - `[[capability_limits]]`：能力限制登记（#1217 结构化拒绝、#1220 保守拒绝、
   #1271 平行边盲区、#1272 硬停限制）。
-- `[[l1_checks]]`：L1 输入 #1271 拓扑核查记录的挂接（每份正式 L1 身份一条）。
+- `required_l1_identities` + `[[l1_checks]]`：L1 输入 #1271 拓扑核查——顶层声明
+  本轮要求完成核查的全部输入身份，挂接记录必须**恰好覆盖**该集合（缺失、
+  重复或多挂都失败），防止漏检身份带着「已核查」外观进入结论；每条记录的
+  `verdict` 无条件要求 `clean`，且 `bundle.identity` 须与声明逐字符串相等。
 
 证据锚点种类：`repo-doc`（存在 + 锚点子串）、`github`（URL 形态）、
 `synth-summary-json`（F 矩阵 `summary.json` 身份对账）、`gate-json`（城市

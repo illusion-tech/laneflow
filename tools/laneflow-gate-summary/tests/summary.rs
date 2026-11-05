@@ -34,6 +34,7 @@ fn base_manifest() -> String {
 format = "lf-unified-gate-manifest-1"
 title = "测试汇总"
 mode_note = "单元测试 fixture"
+required_l1_identities = ["10000-L1-16"]
 
 [global]
 single_world_statement = "不以多世界吞吐替代单世界扩展语义。"
@@ -290,10 +291,16 @@ fn existing_output_directory_is_rejected() {
 #[test]
 fn l1_record_identity_mismatch_is_rejected() {
     // 声明 100000-L1-33 却挂 10000-L1-16 的记录：必须拒绝（#1285 评审 P1）。
-    let body = base_manifest().replace(
-        r#"identity = "10000-L1-16""#,
-        r#"identity = "100000-L1-33""#,
-    );
+    // 同步改声明集，让失败落在记录身份比对而非恰好覆盖校验上。
+    let body = base_manifest()
+        .replace(
+            r#"required_l1_identities = ["10000-L1-16"]"#,
+            r#"required_l1_identities = ["100000-L1-33"]"#,
+        )
+        .replace(
+            r#"identity = "10000-L1-16""#,
+            r#"identity = "100000-L1-33""#,
+        );
     let manifest = write_manifest(&body);
     let error = summary::run(
         &manifest,
@@ -367,4 +374,42 @@ fn violations_found_l1_record_is_rejected_even_without_expect() {
     let error = summary::run(&manifest, &ctx(), &output_dir("l1viol"), Mode::Trial, false)
         .expect_err("violations-found 记录必须被拒绝");
     assert!(error.to_string().contains("必须为 clean"));
+}
+
+#[test]
+fn missing_required_l1_identity_is_rejected() {
+    // 声明集含 100000-L1-33 但挂接缺失：必须拒绝（#1285 第三轮评审——
+    // 漏检身份不得带着「已核查」外观进入结论）。
+    let body = base_manifest().replace(
+        r#"required_l1_identities = ["10000-L1-16"]"#,
+        r#"required_l1_identities = ["10000-L1-16", "100000-L1-33"]"#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("l1missing"),
+        Mode::Formal,
+        true,
+    )
+    .expect_err("缺失必需 L1 身份必须被拒绝");
+    assert!(error.to_string().contains("缺少必需身份"));
+    assert!(error.to_string().contains("100000-L1-33"));
+}
+
+#[test]
+fn duplicate_l1_identity_is_rejected() {
+    // 同一身份挂两条记录：必须拒绝（每份输入身份恰一条）。
+    let body = base_manifest().replace(
+        r#"record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }"#,
+        r#"record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }
+
+[[l1_checks]]
+identity = "10000-L1-16"
+record = { kind = "l1-record", path = "<evidence-root>/l1.json" }"#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(&manifest, &ctx(), &output_dir("l1dup"), Mode::Trial, false)
+        .expect_err("重复身份必须被拒绝");
+    assert!(error.to_string().contains("重复声明身份"));
 }

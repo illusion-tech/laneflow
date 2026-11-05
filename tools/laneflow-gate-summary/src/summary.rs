@@ -89,10 +89,52 @@ fn validate(manifest: &Manifest, mode: Mode, require_complete: bool) -> Result<(
     if manifest.capability_limits.is_empty() {
         return Err(invalid("能力限制登记为空"));
     }
-    if manifest.l1_checks.is_empty() {
+    if manifest.l1_checks.is_empty() || manifest.required_l1_identities.is_empty() {
         return Err(invalid(
             "L1 拓扑核查挂接为空：#1268 须核查 L1 不含 #1271 拓扑",
         ));
+    }
+    // 恰好覆盖：声明身份集与挂接记录一一对应——缺失、重复或多挂都失败。
+    let mut declared: Vec<&str> = Vec::new();
+    for check in &manifest.l1_checks {
+        if declared.contains(&check.identity.as_str()) {
+            return Err(invalid(format!(
+                "L1 核查挂接重复声明身份 {}：每份输入身份恰一条记录",
+                check.identity
+            )));
+        }
+        declared.push(check.identity.as_str());
+    }
+    let missing: Vec<&String> = manifest
+        .required_l1_identities
+        .iter()
+        .filter(|required| !declared.contains(&required.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        return Err(invalid(format!(
+            "L1 核查挂接缺少必需身份：{}（须恰好覆盖 required_l1_identities）",
+            missing
+                .iter()
+                .map(|identity| identity.as_str())
+                .collect::<Vec<_>>()
+                .join("、")
+        )));
+    }
+    let extra: Vec<&str> = declared
+        .iter()
+        .copied()
+        .filter(|identity| {
+            !manifest
+                .required_l1_identities
+                .iter()
+                .any(|required| required == identity)
+        })
+        .collect();
+    if !extra.is_empty() {
+        return Err(invalid(format!(
+            "L1 核查挂接含未声明身份：{}（required_l1_identities 之外的记录不得挂接）",
+            extra.join("、")
+        )));
     }
 
     let mut pending: Vec<String> = Vec::new();
