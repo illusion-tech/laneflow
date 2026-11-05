@@ -86,6 +86,9 @@ pub struct Manifest {
     pub title: String,
     /// 本次 manifest 副本的用途说明（试跑/正式）。
     pub mode_note: String,
+    /// 本轮要求完成核查的全部 L1 输入身份；`l1_checks` 必须恰好覆盖
+    /// （缺失、重复或多挂都失败），防止漏检身份带着「已核查」外观进入结论。
+    pub required_l1_identities: Vec<String>,
     pub global: GlobalDeclarations,
     pub loads: Vec<LoadEntry>,
     pub scope_adjudication: Vec<ScopeAdjudication>,
