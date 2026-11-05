@@ -127,10 +127,12 @@ pub(crate) fn has_invisible_co_lateral_transition(
     let Some(own) = TransitionFootprint::collect(traffic, transition) else {
         return true;
     };
-    let mut visited = own.members.clone();
+    // 按边序号索引：过渡段互不相邻时，线性查找会让一次判定退化为 O(T²)。
+    let mut visited = vec![false; traffic.lane_edge_count() as usize];
+    mark_visited(&mut visited, &own.members);
     for raw in 0..traffic.lane_edge_count() {
         let edge = LaneEdgeOrdinal::from_raw(raw);
-        if !traffic.is_lateral_transition_segment(edge) || visited.contains(&edge) {
+        if !traffic.is_lateral_transition_segment(edge) || visited[edge.index()] {
             continue;
         }
         let Some(other) = TransitionFootprint::collect(traffic, edge) else {
@@ -139,7 +141,13 @@ pub(crate) fn has_invisible_co_lateral_transition(
         if own.is_invisible_co_lateral_with(&other) {
             return true;
         }
-        visited.extend_from_slice(&other.members);
+        mark_visited(&mut visited, &other.members);
     }
     false
+}
+
+fn mark_visited(visited: &mut [bool], members: &[LaneEdgeOrdinal]) {
+    for member in members {
+        visited[member.index()] = true;
+    }
 }
