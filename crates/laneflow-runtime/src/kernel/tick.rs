@@ -7505,5 +7505,10 @@ mod barrier_query_tests {
 #[path = "phase_equivalence.rs"]
 mod phase_equivalence;
 
+/// #1278 整拍级完成顺序强制：P2/P3/P5 池分发换序下成功与失败路径的等价。
+#[cfg(test)]
+#[path = "tick_completion_order.rs"]
+mod tick_completion_order;
+
 #[cfg(test)]
 use crate::TrafficWorld;
