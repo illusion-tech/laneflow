@@ -60,8 +60,9 @@ LANEFLOW_ROUTING_EVIDENCE_IDENTITY=<身份> \
 cargo +1.99.1 test --release -p laneflow-runtime \
   --test routing_candidate_integration_evidence -- --ignored --nocapture
 
-# 分配/retained 账本（插桩进程，与墙钟分进程）
-… --test routing_budget_evidence -- --ignored --nocapture
+# 分配/retained 账本（插桩进程，与墙钟分进程；须过滤测试名——
+# 同二进制里的 G2 入口在 main 上另有 #1288 的存量限额损坏）
+… --test routing_budget_evidence -- --ignored --nocapture   routing_candidate_lf_synth_budget_evidence
 
 # 墙钟 + tick 干扰入口（未插桩；正式 3-round 协议由 #1279 编排）
 … --test routing_wall_clock_evidence -- --ignored --nocapture
