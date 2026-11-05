@@ -105,7 +105,6 @@ jobs:
               - 'deny.toml'
               - '.config/nextest.toml'
               - '.github/workflows/**'
-              - 'docs/governance/github-workflow.md'
             bevy:
               - 'crates/laneflow-bevy/**'
               - 'crates/laneflow-runtime/**'

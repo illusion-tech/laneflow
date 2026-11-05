@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-10-26  
+**最后更新**: 2026-11-05  
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`、`#451`
 
@@ -29,7 +29,11 @@ setup identity。冻结配置为：
   `none` build mode。
 - workflow 覆盖 targeting `main` 的 `pull_request`、`main` 的 `push`、每周调度、手工
   dispatch 和 `merge_group/checks_requested`；矩阵检查名称固定为 `Analyze (actions)` 与
-  `Analyze (rust)`。
+  `Analyze (rust)`。PR 与 `merge_group` 上按累计差异做适用源代码路径检测（#1283）：
+  两个 job 恒运行并报告 required check，差异不含适用源代码路径时以显式 skip 模式成功
+  完成并在日志记录理由，路径检测失败时失败关闭变红；`main` 的 `push`、每周调度与手工
+  dispatch 恒全量分析。适用源代码路径以 `.github/workflows/codeql.yml` 的过滤器为准，
+  与 `ci.yml` 的 Rust 过滤器镜像，宁可多跑不少跑。
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
@@ -153,9 +157,10 @@ API 返回空集合只表示该次查询范围内无开放告警。未配置、�
 
 - 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在合并前验证受影响配置，并等待对应首次或最新扫描完成。
 - 对包含适用源代码的 PR，GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
-- 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。
+- 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。路径检测判定无适用源代码路径时，job 内的显式 skip 日志即理由说明（#1283）。
 - #451 advanced setup 主线首次验证后，不再使用 default setup 的 lockfile-only `NEUTRAL` 语义。
-  当前 PR 都必须让 `Analyze (actions)` 与 `Analyze (rust)` 按 advanced workflow 实际完成；
+  包含适用源代码路径的 PR 都必须让 `Analyze (actions)` 与 `Analyze (rust)` 按 advanced
+  workflow 实际完成分析；路径检测跳过时两个 job 以显式 skip 模式成功完成；
   activation 前保存的历史 `NEUTRAL` 只保留原时点证据，不能复用于新 head 或 Merge Group。
 - 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断合并。
 - CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断合并；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。

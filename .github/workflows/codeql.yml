@@ -18,10 +18,58 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect CodeQL paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # push/调度/手工走 gate 步骤（恒 true）；PR 与 merge_group 走 dorny 过滤器。
+      # gate 步骤在 PR 事件下被跳过、输出为空，`||` 回落到 filter 输出。
+      analyze: ${{ steps.gate.outputs.analyze || steps.filter.outputs.analyze }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # 安全基线不设门：main push、每周调度与手工 dispatch 恒全量分析
+      #（security-scanning.md §2.1）。路径门只作用于 PR 与 merge_group。
+      - name: Force full analysis outside PR and merge queue
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
+        id: gate
+        shell: bash
+        run: echo "analyze=true" >> "$GITHUB_OUTPUT"
+
+      # 过滤器与 ci.yml 的 rust 过滤器镜像：同一“Rust 代码面”口径，宁可多跑
+      # 不少跑；`.github/workflows/**` 同时覆盖 actions 语言的扫描对象。
+      - name: Detect CodeQL-applicable path changes
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            analyze:
+              - 'crates/**'
+              - 'xtask/**'
+              - 'tools/**'
+              - 'examples/**'
+              - 'research/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain*'
+              - 'deny.toml'
+              - '.config/nextest.toml'
+              - '.github/workflows/**'
+
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: changes
+    # 同 ci.yml 的 Rust checks：路径检测失败时本 job 必须红而不是被跳过，
+    # 否则两个 required Analyze 会停在 Expected 卡住入队。
+    if: ${{ !cancelled() }}
     permissions:
       actions: read
       contents: read
@@ -36,16 +84,35 @@ jobs:
           - language: rust
             build-mode: none
     steps:
+      - name: Fail closed when path detection did not succeed
+        if: needs.changes.result != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Detect CodeQL paths result=${{ needs.changes.result }}; Analyze (${{ matrix.language }}) fails closed."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
+        if: needs.changes.outputs.analyze == 'true'
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           build-mode: ${{ matrix.build-mode }}
           languages: ${{ matrix.language }}
 
       - name: Analyze
+        if: needs.changes.outputs.analyze == 'true'
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: /language:${{ matrix.language }}
+
+      # 跳过必须显式记录理由，security-scanning.md §4.1 不允许静默忽略。
+      - name: Skip CodeQL analysis for non-source paths
+        if: needs.changes.outputs.analyze != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "No CodeQL-applicable source paths changed; skipping Analyze (${{ matrix.language }})."
+          echo "main push, scheduled runs and manual dispatch always analyze in full."
