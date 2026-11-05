@@ -501,6 +501,89 @@ allocator 工作。
 该不可变 PR 证据与 source commit 配对，闭合 §7 的首轮具名描述性测量；真实 snapshot
 restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代。
 
+### 7.2 `LF-ROUTING-CANDIDATE-LFSYNTH-v1` 首轮确定性证据（#1267）
+
+2026-11-05，#1267 在 §7.1 登记的同一 P100 参考物理机（硬件未变更，
+未重新执行硬件身份规范复核）上，以 LF-SYNTH-v2 正式输入交付候选准入
+三路径集成证据与确定性计量（实现提交 `b290039a`，工作树与提交逐字一致）。
+实际环境：Windows 11 Insider build 29698、交流电/平衡电源计划、
+Rust 1.99.1（58cf8f9c3）/ cargo 1.99.1、单测试线程。计量类别按 §5.1：
+条目数、exact bytes、分配、retained 属不敏感类，本节数字可采信；墙钟
+与 tick 间隔干扰属负载敏感类，按维护者 2026-11-05 裁定分离到 #1279，
+须在 #1282 冻结验收提交后的安静窗口运行——**本节该两维未闭合，§7 的
+计量义务待 #1279 完成才算完整**。
+
+工作负载族为 `LF-ROUTING-CANDIDATE-LFSYNTH-v1`，每个正式身份目录一个
+case。身份选择（维护者 2026-11-05 裁定：W2 规模对 + L1 换道族）：
+
+| 身份 | 边 | state 路线 | state 路线边 | 车辆（active/parked） | 典型/长候选 | occurrence 余量 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `10000-W2-16-a` | 800 | 400 | 800 | 10000（10000/0） | 2 / 2 | 12 |
+| `100000-W2-33-a` | 8000 | 4000 | 8000 | 100000（100000/0） | 2 / 2 | 12 |
+| `10000-L1-16-a` | 808 | 401 | 805 | 10002（7502/2500） | 2 / 5 | 17 |
+
+工作负载与绑定冻结为：
+
+| 输入 | 值 |
+| --- | --- |
+| topology | LF-SYNTH-v2 正式身份目录；`verify_directory` 重编译逐字节比对通过（输入锚定提交 `8b05abce`，其后 generator 未变更） |
+| state | 全部 state 路线 `register_route`、全部车辆 spawn（L 族换道者开放入口、parked 车显式车位）；64 × delta 热身；AllLaneEdges |
+| `WorldConfig` | vehicle = state+2；route = state+12；occurrence = state + max(2×长候选边数+7, 12)；conflict 与 harness 安装同式（W=0、L=max(2×簇数,16)）；worker 1 |
+| cost receiver | binding v1；全边 ×（`StableId128`+`u64-le`）24 B 条目；上限恰为该 count/bytes；容量预检先于解析/分配/哈希 |
+| candidate | 1 边（机动完成末端边）/ 典型（中位边数 state 路线）/ 长（最长 state 路线：W=2、L1=5）；register-then-remove，输入构造在测量区外 |
+| 拓扑边界 | 输入族为无环短链：重复边在合法路线中不可构造（由合同测试在可控拓扑覆盖），长轴扩展性由 §7.1 的 4096 边 case 承担 |
+| allocation protocol | 插桩 release 独立进程；每操作 warm-up 丢弃后记 ledger；steady tick 各 32 samples |
+| wall-clock protocol | 未插桩 release、无计数分配器；入口含干扰配对（显式调用后紧跟被计时 tick，candidate 保持存活越过该 tick）；每操作 3 warm-up + 21 samples、3 个 fresh-process rounds 由 #1279 编排（本轮未运行） |
+| certification boundary | `Product TBD / Uncertified`；确定性维度亦仅为描述性 |
+
+可重放身份（三身份的 manifest / network revision / workload manifest /
+state / selection / observation set / cost snapshot digest 逐身份登记于
+`research/issue-1267-routing-candidate-admission/`；三个证据面输出中的
+workload manifest digest 逐身份一致，证明绑定同一冻结工作负载）。
+
+三路径集成证据：三身份 `complete=true`。成功路径 27/27/30 个探针
+（1/典型/长注册并精确核对边数、路线槽与出现记录的 max/max+1/回填
+边界、成本过期后已注册路线存活、delta 批次派生的成本绑定可注册）；
+拒绝路径各 13 个探针（空序列、模型失配、跨世界绑定失配、未知标识、
+错误实体种类、不连通、stale、路线槽 max+1、出现记录 max+1、接收端
+entry/byte 上限+1、exact bytes 失配、digest 失配），逐条精确归类并
+断言零路线槽、零出现记录、零观测状态序号变化；不改世界状态的探针
+前后世界快照摘要相等。检查点（含一条已注册长候选）恢复后，宿主命令
+后缀（规范化 `register_admitted_route`、spawn、三拍推进、重开观测与
+准入并注册候选）两侧 6 个对拍点 (command_cursor, tick, state digest)
+逐点相等，零分歧。私有字段伪造类失败（绑定版本、会话修订、未来
+tick/状态序号、非法时效窗）属合同测试面，真实宿主不可构造，不在
+集成面重复。
+
+分配/retained 账本（allocation/reallocation、allocated/deallocated
+bytes、logical/retained；candidate 的 adjusted live 把测量区外分配的
+caller 输入 bytes 加回）：
+
+| 操作 | `10000-W2-16-a` | `100000-W2-33-a` | `10000-L1-16-a` |
+| --- | --- | --- | --- |
+| steady tick before | 0/0、0/0、live 0 | 0/0、0/0、live 0 | 37/3、84328/480、live +83848 |
+| observation full | 3/0、224000/192000、live +32000 | 3/0、2240000/1920000、live +320000 | 3/0、184688/152368、live +32320 |
+| observation delta zero | 2/0、192000/192000、live 0 | 2/0、1920000/1920000、live 0 | 2/0、152368/152368、live 0 |
+| cost receiver | 0/0、0/0、live 0 | 0/0、0/0、live 0 | 0/0、0/0、live 0 |
+| candidate 1 edge | 11/0、124/32、adjusted 108 | 11/0、124/32、adjusted 108 | 11/0、124/32、adjusted 108 |
+| candidate 2 edges | 19/0、318/66、adjusted 284 | 19/0、318/66、adjusted 284 | 18/0、310/66、adjusted 276 |
+| candidate 5 edges（L1 长） | — | — | 25/1、1960/1156、adjusted 884 |
+| steady tick after | 0/0、0/0、live 0 | 0/0、0/0、live 0 | 0/0、0/0、live 0 |
+
+注：full 的 batch logical/retained 为 192 + 40 × 边数（800→32192、
+8000→320192、808→32512 B）；session logical/retained 为 28 × 边数 +
+batch logical（22400/224000/22624 B 的选择表）；delta-zero 的 batch
+logical 恒为 192 B 且 net 0；成本 payload 为 24 × 边数（19200/192000/
+19392 B）。
+
+证据支持的结论仅为：W2 两档规模（一万/十万全 active）稳态 tick 在
+本 fixture 的 32 个采样拍内保持 0 allocation / 0 reallocation；L1 在
+换道窗口内的稳态拍携带分配（37 alloc、live +83848 B），窗口过后
+归零——按描述性观察登记，不构成预算判定；候选注册账本与车辆/边
+规模无关（1 边 108 B、2 边 276–284 B 三身份一致），随边数扩展
+（5 边 884 B）；receiver 在 exact count/bytes 预检后零分配。墙钟与
+tick 间隔干扰：**待 #1279**，本节未闭合。
+
 ## 8. G2 边界与必测义务
 
 G2 已按 §2 落定完整/增量/分区观测实现：
