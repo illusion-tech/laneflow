@@ -1,0 +1,305 @@
+# v0.10 两负载统一五轴汇总——试跑输入（#1268）。
+#
+# 本副本引用现有正式记录做试跑：routing 两格、城市性能格的验收提交核对、
+# 以及 #1279 计时记录按 #1268 验收标准标为未完成；试跑结果不作为 v0.10 结论。
+# #305 正式汇总：复制本文件，补齐 #1279 记录（routing-kv）、验收提交核对结论与
+# 各矩阵 summary.json / gate.json 挂接，改 --mode formal --require-complete 运行；
+# 制作步骤见 tools/laneflow-gate-summary/README.md。
+#
+# 路径约定：仓库相对路径按 --repo-root 解析；`<evidence-root>/` 前缀按
+# --evidence-root 解析（仓库外证据目录占位，documentation-policy §3）。
+
+format = "lf-unified-gate-manifest-1"
+title = "LaneFlow v0.10 统一五轴汇总回执（LF-SYNTH-v2 与中国特色城市负载）"
+mode_note = "试跑副本（fixtures/v0.10-trial/unified-gate.toml）：消费现有记录验证汇总器；正式副本由 #305 制作"
+
+[global]
+single_world_statement = "本汇总不以多世界（Multi-world）吞吐或引擎适配器细节层次替代单世界扩展语义与正确性（#539 验收标准、ADR 0021）。"
+
+[global.performance]
+verdict = "未认证"
+product_status = "Product TBD / Uncertified"
+real_budget_failures = 0
+authorized_exceptions = 0
+contract_level_exceedances = [
+  "十万表现 p95 8.1365 ms 超契约 4 ms 上限（100000-W1-33-p10 ordinary_spatial_adapter p95/p99/max 8.1365/8.7861/17.7370 ms vs 4/6/8 ms）——目标契约下已知超标的研究观察，正式判定待 P100 冻结环境认证",
+  "预热后分配非零（10k 7/39、100k 7/55）——同上，研究观察待 P100 认证",
+]
+receipt = "https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1166-lf-synth-measurement/README.md", anchors = ["21.6411"] },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1266" },
+]
+
+[global.allocation_diagnostics]
+statement = "allocation 诊断口径单列：#1233 对象 a 未启用 allocation feature（instrumented=false）、对象 b 计数含 execution-evidence 账本开销（instrumented=true，计时含插桩开销），两者均未并入正式测量，不作为性能认证"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1233-perf-attribution/results-object-a.md", anchors = ["instrumented=false"] },
+  { kind = "repo-doc", path = "research/issue-1233-perf-attribution/results-object-b.md", anchors = ["instrumented=true"] },
+]
+
+[global.checkpoint_verification_cost]
+statement = "checkpoint 校验成本独立：10000 约 43.5–47.1 ms，100000 约 347.5–530.0 ms；无对应阈值（无阈值即无失败，登记为描述性口径）"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1233-perf-attribution/results-object-a.md", anchors = ["43.5–47.1", "347.5–530.0"] },
+]
+
+# ── 范围裁定清单（维护者 2026-11-05，#1268 正文 9 项表的声明式副本） ──
+
+[[scope_adjudication]]
+item = "worker 两两组合"
+disposition = "授权豁免"
+uncovered = "保存端多 worker 恢复未在正式矩阵中验证"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "其他失败点"
+disposition = "授权豁免"
+uncovered = "正式规模只覆盖现有注入点，多错误逻辑首错未正式验证"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "强制调度与完成置换"
+disposition = "并入 #1278（fixture 级，不跑正式矩阵，须在验收提交冻结前合入）"
+uncovered = "整拍强制调度只有 fixture 级证据"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "Spatial/Adapter 跨 worker 接线"
+disposition = "授权豁免"
+uncovered = "Spatial/Adapter 只在单 worker 下有正式证据"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "跨修订/Editable 恢复矩阵"
+disposition = "复用 #538、#529（须核对对最终验收提交的适用性）；组合矩阵授权豁免"
+uncovered = "跨修订链、ABA 与 Editable 组合矩阵未进入正式验收"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "W4 验收面"
+disposition = "语义进入正式验收（F1–F3 已覆盖）；性能预算授权豁免，优化由 #1275 承接"
+uncovered = "W4 没有性能预算"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "命令路径六维分段"
+disposition = "并入 #1275"
+uncovered = "无"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "非标称 16/33 ms 交叉组合"
+disposition = "授权豁免"
+uncovered = "正式矩阵只覆盖标称身份（一万/16 ms、十万/33 ms）"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+[[scope_adjudication]]
+item = "多 worker 下的十万整帧测量"
+disposition = "授权豁免，留待将来的 P100 产品认证"
+uncovered = "#1166 的 21.6411 ms 是单 worker 结果，多 worker 整帧未测"
+authorization = "维护者 2026-11-05 裁定（#1268 正文）"
+
+# ── 能力限制登记（v0.10 结论如实记录，不记为通过） ──
+
+[[capability_limits]]
+statement = "含活动过渡/预约的世界不能保存：快照与直算摘要同口径结构化拒绝（UnsupportedTransitionState）"
+boundary = "能力限制的如实表达，不等于已支持保存恢复；含过渡的恢复矩阵随 #1200 在 v0.11 交付"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1217" },
+]
+
+[[capability_limits]]
+statement = "互不可见的共横向过渡段在路线注册时以 TransitionUnsupported 保守拒绝；同向相邻、纵向相隔多条边的过渡段也被保守拒绝"
+boundary = "能力限制，不是互斥修复（#1220，PR #1270 合并 3ec3caea）；退役条件见最小换道合同 §10"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1220" },
+]
+
+[[capability_limits]]
+statement = "走平行边的直行车对横向过渡段 P4 不可见（#1271）：两车可能同时汇向同一位置且互不减速、不报错；含这种拓扑的路网不得用于安全验收"
+boundary = "#1271 延后 v0.11 随任意位置变道处理；L1 输入拓扑核查见本回执 L1 核查节（check-transitions 记录）"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1271" },
+]
+
+[[capability_limits]]
+statement = "停止约束前的硬停：红灯前无前车时开到停止线才减速，单拍减速度等于车速除以步长（整数几何合同 §1/§5 现行语义）"
+boundary = "符合现行合同，不是实现偏离；相关计数只是诊断值，v0.10 behavior 轴如实记录本限制，不记为平顺性通过（#1272 延后 v0.11）"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1159-lf-synth-steady/README.md", anchors = ["868750"] },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1272" },
+]
+
+# ── L1 输入 #1271 拓扑核查挂接（check-transitions 记录） ──
+
+[[l1_checks]]
+identity = "10000-L1-16"
+record = { kind = "l1-record", path = "<evidence-root>/1268-trial/l1-check-10000-L1-16.json", expect = { verdict = "clean" } }
+
+[[l1_checks]]
+identity = "100000-L1-33"
+record = { kind = "l1-record", path = "<evidence-root>/1268-trial/l1-check-100000-L1-33.json", expect = { verdict = "clean" } }
+
+# ── LF-SYNTH-v2 ──
+
+[[loads]]
+id = "LF-SYNTH-v2"
+kind = "axes"
+input_identity = "正式输入包 10 身份（10000/100000 × W1–W4/L1 × 16/33 ms）；PR #1265 后全部重生成、锚定实现提交 8b05abce（laneflow-formal-cache/1218-v2/formal-inputs，仓库外）；L1 两份为 {\"LaneChange\":{\"clusters\":1,\"changers_per_cluster\":2}}"
+
+[[loads.cells]]
+axis = "behavior"
+status = "semantic-pass"
+conclusion = "C/D 切片完整语义窗口（W1/W2 全窗口、W3/W4 命令闭环与重试）；F 系列同构建重跑 §9 L1 新口径全部通过：双面检查点（T-free 摘要含 public_state_digest）、换道预约生命周期事件（4/5/6/7）、t_state 身份投影"
+source_commit = "8b05abcef9a0e6a53f9262f84a80c4d63c51a515"
+binary = "bin9/（harness be2a5ddd…、generator 9ca0d7cc…、runtime-test 154888ba…，SHA-256 全值记于 environment9.json，仓库外 lf1218-formal9）"
+input_identity = "同负载输入身份：10 身份全部重生成锚定 8b05abce"
+coverage = "语义对照，不构成性能、恢复性能或产品认证；L 族仅恰一横向过渡段；F2 仅 AfterGrants/AfterTransitions 两个注入断点单次注入；F3 检查点仅 T-free 切面（§6 边界）"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1218-r1b-f-matrix/formal-matrix-results.md", anchors = ["8b05abcef9a0e6a53f9262f84a80c4d63c51a515", "150/150 运行、140/140 对比、0 错误"] },
+  { kind = "repo-doc", path = "research/issue-1159-lf-synth-steady/README.md" },
+  { kind = "repo-doc", path = "research/issue-1162-lf-synth-burst/README.md" },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/pull/1265" },
+]
+pending = []
+
+[[loads.cells]]
+axis = "determinism"
+status = "semantic-pass"
+conclusion = "F1 跨 worker 确定性 150/150 运行、140/140 对比、0 错误（10 身份 × 5 worker × 3 轮，回执排除 workers 后全字段相等 + ticks.bin/events.bin 逐字节）；F2 失败重试 6/6 参考、120/120 重试、112/112 对比（120 条 error 均为注入断点预期失败 ParkingObservationAllocFailed）"
+source_commit = "8b05abcef9a0e6a53f9262f84a80c4d63c51a515"
+binary = "bin9/（同 behavior 格；F1/F2/F3 三矩阵同一实现提交）"
+input_identity = "同负载输入身份"
+coverage = "worker 组合为「每档 vs 单 worker 参考」；worker 两两组合与非标称 16/33 ms 交叉经授权豁免（见范围裁定清单）"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1218-r1b-f-matrix/formal-matrix-results.md", anchors = ["6/6 参考、120/120 重试、112/112 对比"] },
+]
+pending = []
+
+[[loads.cells]]
+axis = "performance"
+status = "uncertified-performance"
+conclusion = "#1166 正式测量（R0 研究测量）与 #1233 归因在案：真实预算失败 0、授权例外 0；十万表现 p95 与预热后分配两条契约级超标登记为目标契约下研究观察（正式判定待 P100 冻结环境认证）；十万 W4 归因 99.904%–99.918% 为 runtime 命令 API；性能预算豁免项与优化承接见范围裁定清单（#1273–#1277，v0.10 后启动）。v0.10 性能轴结论：未认证"
+source_commit = "#1166/#1233 各自正式记录绑定的实现提交（research/issue-1166 与 research/issue-1233 目录）"
+binary = "#1166 认证二进制（binary-verification.json/build-provenance.json 在 research/issue-1166 目录；Product TBD / Uncertified）"
+input_identity = "十万/33 ms 等正式身份（100000-W1-33-p10 等，见 #1166 README）"
+coverage = "R0 开发机研究测量不作预算判定依据；多 worker 十万整帧未测（授权豁免留 P100）；命令路径六维分段并入 #1275；allocation 诊断与 checkpoint 校验成本口径见诊断口径声明节"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1166-lf-synth-measurement/README.md", anchors = ["21.6411"] },
+  { kind = "repo-doc", path = "research/issue-1233-perf-attribution/results-object-a.md", anchors = ["instrumented=false"] },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168" },
+]
+pending = []
+
+[[loads.cells]]
+axis = "snapshot"
+status = "semantic-pass"
+conclusion = "F3 新进程恢复 10/10 参考、300/300 恢复、0 错误、全程 stopped=false（10 参考 + 20 检查点 × 5 worker × 3 轮）；恢复后缀（轨迹/事件/命令）与末态比较全部通过；L1 检查点为 T-free 切面，含活动过渡世界的保存按结构化拒绝为期望行为"
+source_commit = "8b05abcef9a0e6a53f9262f84a80c4d63c51a515"
+binary = "bin9/（同 behavior 格）"
+input_identity = "同负载输入身份"
+coverage = "跨修订/Editable 复用 #538、#529（对最终验收提交的适用性核对归 #305）；组合矩阵授权豁免；含过渡/预约的保存恢复未覆盖（#1200，v0.11）——按结构化拒绝边界登记，见能力限制节"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-1218-r1b-f-matrix/formal-matrix-results.md", anchors = ["10/10 参考、300/300 恢复、0 错误"] },
+  { kind = "repo-doc", path = "research/issue-1197-lf-synth-restore/README.md" },
+]
+pending = []
+
+[[loads.cells]]
+axis = "routing"
+status = "pending"
+conclusion = "宿主候选准入端到端证据（full/delta、失效拒绝、注册与条目/字节/分配/retained 计量）由 #1267 交付；验收提交上的墙钟与 tick 间隔干扰由 #1279 在冻结后独占机器测量；本格待两者入正式记录"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1267" },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1279" },
+]
+pending = [
+  "#1267 集成证据（未入正式记录）",
+  "#1279 墙钟与 tick 间隔干扰记录（验收提交冻结后运行）",
+]
+
+# ── 中国特色城市负载 v1 ──
+
+[[loads]]
+id = "LF-CN-URBAN-v1"
+kind = "axes"
+input_identity = "城市负载 fixtures v1（examples/config/cn-urban.toml；100k manifest 锚点 tools/laneflow-urban-generator/fixtures/v1）与 #538 gate 变体目录"
+
+[[loads.cells]]
+axis = "behavior"
+status = "witness-pass"
+conclusion = "#538 gate 双案例（MIXED-PEAK / GARAGE-EGRESS，10k）最终执行回执通过：已提交状态公开维度比对；失败零发布与回收经 prepare-reject/overflow/lag 场景显式验证；两轮跨修订串联（chained）在回执内"
+source_commit = "85ec5892（#538 最终 head；合并提交 6cf90563）"
+binary = "#538 回执绑定二进制（gate.json source.commit/source.binary.digest）"
+input_identity = "10k gate 双案例 + 变体目录（gate 回执 inputs 字段含制品与 manifest 摘要）"
+coverage = "仅列名场景；≥2 轮跨修订链与 ABA 由单测覆盖；seams 成本另见 seams 回执；非产品证据；对最终验收提交的适用性核对归 #305"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/538#issuecomment-6265804112" },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/538#issuecomment-6262603033" },
+]
+pending = []
+
+[[loads.cells]]
+axis = "determinism"
+status = "witness-pass"
+conclusion = "#538 gate 双案例逐字节双跑比较 + multi 两轮串联；批次 0（#874，100k segment-match 分段比较）已核实；#963 完整性证据与 24 小时 soak 在案"
+source_commit = "85ec5892（#538）；批次 0 记录见 #874"
+binary = "同 behavior 格（gate 回执绑定二进制）"
+input_identity = "同负载输入身份"
+coverage = "历史证据绑定旧 head：对最终验收提交的适用性核对归 #305（不能复用又不重测时写明为不适用于验收提交的历史结果）"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/874" },
+  { kind = "repo-doc", path = "research/issue-963-integrity-evidence/acceptance-evidence.md" },
+]
+pending = []
+
+[[loads.cells]]
+axis = "performance"
+status = "uncertified-performance"
+conclusion = "#707 城市档为指定认证条件内的历史通过（Ryzen 9 9955HX、16 worker，四负载三轮 Core p95：10k/100k 稳定 Active 1.60/14.89 ms、活动衰减 1.31/9.22 ms，预算 2/16 ms；绑定 10c625ae 源码与 ff113a1c 证据构建，不延伸到当前验收提交）；#537 全链描述性基线（6cf90563）；#819 经 PR #997 后 100k 受控峰值低于 2 GiB 目标。v0.10 城市档对最终验收提交的预算复核未做：差异复核后复用或重测（#305）；v0.10 性能轴结论：未认证"
+source_commit = "10c625ae（#707 源码）；6cf90563（#537 基线）；PR #997（#819）"
+binary = "#707 认证二进制（ff113a1c 证据构建，插桩不替代正式计时）"
+input_identity = "LF-CN-URBAN fixtures v1（cn-urban.toml，10k/100k 两档）"
+coverage = "仅覆盖 #707 报告条件（指定硬件/电源角色、16 worker），不是跨硬件或更少 worker 的认证；R0/R1 未测、P4 未单独计时等未测项按 #305 复用规则处理，不静默勾选"
+evidence = [
+  { kind = "repo-doc", path = "research/issue-707-city-parallel/certification-report.md" },
+  { kind = "repo-doc", path = "research/issue-537-target-path-baseline/README.md" },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/819" },
+]
+pending = ["城市档对最终验收提交的适用性/预算复核（#305）"]
+
+[[loads.cells]]
+axis = "snapshot"
+status = "witness-pass"
+conclusion = "#538 gate 含快照/切换场景（multi 两轮串联、变体基线按回执 skipped 声明）；失败零发布、overflow/lag 场景显式验证；城市 Editable 来源端到端已由 #529 交付（PR #1122/#1123），待适用性核对"
+source_commit = "85ec5892（#538）；#529 各自绑定实现来源"
+binary = "同 behavior 格"
+input_identity = "同负载输入身份"
+coverage = "Editable restore 曾延后 #529（已交付）；对最终验收提交的适用性核对归 #305；跨修订链/ABA 组合矩阵授权豁免（见范围裁定清单）"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/538#issuecomment-6265804112" },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/529" },
+]
+pending = []
+
+[[loads.cells]]
+axis = "routing"
+status = "pending"
+conclusion = "城市负载路由集成证据按负载复用或分别执行（#1267、#1279 + #305）；现有 urban-harness seams routing 段（candidate/admitted 注册成本、StaleDynamicCost 拒绝）为描述性部分证据；#303 契约已冻结"
+evidence = [
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/303" },
+  { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1267" },
+]
+pending = [
+  "#1267 集成证据的城市负载复用或分别执行（待裁定/待记录）",
+  "#1279 计时记录（验收提交冻结后运行）",
+]
+
+# ── LuST（2026-11-05 维护者裁定移至 v0.11） ──
+
+[[loads]]
+id = "LuST"
+kind = "deferred"
+note = "五轴均未在 LuST 上验证，不记为通过；v0.11 依次接入任意位置变道设计、#806、#254/#255 与 #1269。v0.10 没有真实路网证据，结论须写明"
+authorization = "维护者 2026-11-05 范围修订（#539、#305）"
