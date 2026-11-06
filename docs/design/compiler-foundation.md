@@ -1,9 +1,8 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-10-25<br>
-**适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
-`laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
+**最后更新**: 2026-11-06<br>
+**适用范围**: `laneflow-static-contract`、`laneflow-compiler`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
 中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示
 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、
@@ -58,7 +57,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - 所有正式前端是正本来源模块图（Authoritative Source Module Graph）中的平级来源
   模块（Source Module）；
 - 只有以已验证规范低层中间表示为静态语义核心的成功编译结果可以进入编译发射器
-  （Compiler Emitter）或集成专用投影；
+  （Compiler Emitter）；#301 前的集成专用投影已删除（见第 9 节）；
 - 稳定声明 / 可独立寻址派生实体使用稳定标识（Stable Identifier），所有者局部关系
   （Owner-local Relation）/ 所有者局部出现记录（Owner-local Occurrence）和低层表行
   使用各自不同的引用形式；
@@ -501,7 +500,7 @@ current JSON 退役与投影测试边界，不再拥有编译器前端。
 - 声明种类、显式稳定键和有类型单位；
 - 有类型未解析引用；
 - 来源位置与来源链；
-- 官方前端展开来源，但不保存当前核心句柄或目标布局（Layout）。
+- 官方前端展开来源，但不保存运行时句柄或目标布局（Layout）。
 
 现行规则把第一项扩展为同时保留一个逻辑模块的一个或多个
 `SourceDocumentDescriptor`；该 descriptor set 是当前阶段表示，
@@ -1049,7 +1048,12 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 为独立来源文档序号；来源模块序号不能替代或推导文档序号。该多文档解析规则已经由
 跨文档来源映射测试证明。
 
-## 9. 集成专用的已验证规范低层中间表示到当前态投影
+## 9. 集成专用的已验证规范低层中间表示到当前态投影（历史）
+
+> 本节是 #297 交付、#301 删除的迁移桥的历史记录。`laneflow-compiler-test-support`、
+> `InitialTrafficData`、当前态 Core/Spatial 构造器与 `projection_equivalence` 测试已随
+> #301 拆除 Core/JSON 运行时入口一并删除，不是现行组件或验收输入。现行编译器正确性由
+> 编译器原生有类型模块、后发射检查与共享静态路网构建承担。
 
 `laneflow-compiler-test-support` 只接受 `&ValidatedCanonicalLir`，并产生：
 
@@ -1084,7 +1088,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 对照只保留为 #292 历史证据，不再是调整后 #297 的活动验收要求。运行时行为由对应 Core /
 目标 Traffic Runtime 任务验证；编译器资源基线必须使用编译器原生 workload 另行建立。
 
-### 9.1 当前投影证据
+### 9.1 历史投影证据
 
 `projection_equivalence` 集成测试直接构造一个覆盖两条可区分所有权链、共七条边、两套
 横断面与路口关系、四道机动门、两个等待区、两套固定时制信号、两组停车所有权、
@@ -1211,9 +1215,9 @@ LIR 或后继制品。
   一致性；
 - 模糊测试（Fuzz Testing）边界：合成领域专用语言构造接口、包内有类型抽象语法树
   接收器、标识字段、来源模块图和编译资源上限；
-- 编译器不依赖当前核心 / 空间层的依赖图检查；
-- 以编译失败测试（Compile-fail Test）证明未验证阶段无法调用集成专用投影或编译
-  发射器，以及调用方不能构造描述符 / 模块错配。
+- Runtime / 空间层不依赖编译器的依赖图检查（`xtask` 运行时架构检查）；
+- 以编译失败测试（Compile-fail Test）证明未验证阶段无法调用编译发射器，以及调用方
+  不能构造描述符 / 模块错配。
 
 `SourceDocumentDescriptor`、逐文档/文档集摘要已知向量和一模块多文档独立源映射测试
 属于第 10.4 节的附加验证，不替代上述通用正确性测试矩阵。
@@ -1230,7 +1234,7 @@ LIR 或后继制品。
 | `LF-COMP-CORRIDOR-v1`      | 合成校准 / 压力 | 线性走廊、信号 / 停车 / 横断面扩展             | 边、关系、路线、信号状态、几何点     |
 | `LF-COMP-JUNCTION-GRID-v1` | 合成校准 / 压力 | 密集路口、路径 / 机动门 / 等待区出现记录与索引 | 路口、路径、机动门、等待区、出现记录 |
 
-投影正确性由第 9.1 节的编译器原生 fixture 承担，不定义 current JSON 性能工作负载。
+第 9 节的集成专用投影已随 #301 删除；本节不定义 current JSON 性能工作负载。
 
 | 工作负载 | 模块图配置档       | 基础规模 `B` | 正式五级规模      | 校准规模 | 压力规模 |
 | -------- | ------------------ | -----------: | ----------------- | -------: | -------: |
@@ -1323,7 +1327,7 @@ R0 研究基线；产品负责人另行把同一台 `LF-P100-REF-01` 物理机�
    基线。
 
 不得通过忽略不适用分层、复用原自然身份或只测两个固定样例来伪造生产性能通过。两个
-固定样例的迁移等价证据仍由第 9.1 节独立成立。
+固定样例的迁移等价证据只作为第 9.1 节的历史记录，不是现行验收输入。
 
 ### 11.5 首轮生产基线
 

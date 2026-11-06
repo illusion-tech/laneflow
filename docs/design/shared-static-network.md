@@ -38,8 +38,8 @@ laneflow-spatial ───────────────> laneflow-static-
 Adapter ────────────────────────> runtime/spatial public API
 ```
 
-不得让 `laneflow-static-network` 依赖 current `laneflow-core`、`laneflow-data`、
-`laneflow-compiler`、Adapter 或文件系统。
+不得让 `laneflow-static-network` 依赖 `laneflow-compiler`、Adapter 或文件系统；已拆除的
+`laneflow-core`、`laneflow-data` 也不得恢复为其依赖。
 
 ## 3. 构建输入与 admission
 

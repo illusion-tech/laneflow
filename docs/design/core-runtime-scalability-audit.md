@@ -1,7 +1,7 @@
 # Core Runtime 可扩展性前置审计
 
-**文档状态**: Review<br>
-**最后更新**: 2026-08-14<br>
+**文档状态**: Review（历史研究证据；#199 已于 2026-07-22 关闭，`laneflow-core` 已随 #301 拆除）<br>
+**最后更新**: 2026-11-06<br>
 **适用范围**: #199 对 #72 的前置 Core API、道路机动车车辆特化证据，以及目标
 Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命令（Command）、
 确定性调度（Deterministic Scheduling）与事件合并（Event Merge）审计<br>
@@ -772,7 +772,7 @@ sampled profile 与 coarse/criterion 交叉验证后的解释是：
 
 这些诊断仍全部是单线程、test-only seam，没有引入线程池、worker、work stealing、production partition、生产 cache 或 public API/Data/Adapter 变更。
 
-可复现命令：
+当时的可复现命令（`laneflow-core` 已随 #301 拆除，下列命令在现行仓库中无法运行，只作历史记录）：
 
 ```text
 cargo test -p laneflow-core reduced_rate_research_tests -- --test-threads=1

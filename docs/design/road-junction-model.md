@@ -1,7 +1,7 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-10-11<br>
+**最后更新**: 2026-11-06<br>
 **适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.10 继承）、确定性与性能边界<br>
 **实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
 Route occurrence compiler 与一等 ManeuverGate；#262 的 Traffic v0.9 迁移保留上述
@@ -645,13 +645,16 @@ SpatialPackage 与 ScenarioManifest 保持 `0.1`：
 
 ## 10. Validation 与 first-error
 
-### 10.1 Data 与 Core 分层
+### 10.1 来源、编译器与 Runtime 分层
 
-- JSON syntax/schema/closed shape/type/range error 由 `laneflow-data` 报告。
-- external ID、owner、edge reference、connectivity、Gate/StopLine、Route occurrence
-  由 Core constructors/normalization 报告。
-- loader 只做 wire 到 Core input 的转换，不复制 Core topology rules。
+- 来源字节、形状与类型错误由道路编辑读取器或合成领域专用语言前端报告；
+- owner、edge reference、connectivity、Gate/StopLine 等静态不变量由编译器诊断报告，
+  共享静态路网构建只做受检输入的结构核对，不复制编译器拓扑规则；
+- Route occurrence 由 `TrafficWorld` 路线注册报告；
 - 初始化失败不得返回部分可用 registry、Route 或 Signal aggregate。
+
+#301 前由 `laneflow-data` 报告 JSON 错误、由 Core constructors/normalization 报告
+静态不变量的分层已随 current JSON 路径删除。
 
 ### 10.2 Topology normalization phase order
 

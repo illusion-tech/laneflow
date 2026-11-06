@@ -1,7 +1,7 @@
 # Signal System 设计
 
 **文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍）<br>
-**最后更新**: 2026-09-05<br>
+**最后更新**: 2026-11-06<br>
 **适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路实现与最终验收；#107 加入 Parking，
 #185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
@@ -249,7 +249,13 @@ Current canonical/runtime 输入保持严格普通 JSON，不接受 `@context` �
 
 ## 5. Normalization 与 validation
 
-依赖方向保持：
+> 本节的 `laneflow-data -> laneflow-core` 依赖方向、JSON fail-fast 顺序、Core
+> normalization 顺序与 `InitialTrafficData` 组装只描述已随 #301 删除的 current 路径。
+> 现行静态信号数据由编译器校验（StopLine、ManeuverGate、SignalGroup、Controller/Phase
+> 等不变量以编译诊断报告），经 LFCA 与共享静态路网进入 `TrafficWorld`；下文的关键
+> domain invariants 与 `TrafficWorld::install` 的步长和相位时长检查仍有效。
+
+历史依赖方向：
 
 ```text
 laneflow-data -> laneflow-core

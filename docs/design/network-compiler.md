@@ -1,7 +1,7 @@
 # 路网编译器与共享静态路网
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-10-25<br>
+**最后更新**: 2026-11-06<br>
 **适用范围**: 正本来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译裁决方、标识派生、可移植规范制品（Portable Canonical
 Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异
@@ -1060,9 +1060,10 @@ staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength` 已
 ### 8.4 源映射与诊断（Source Map and Diagnostics）
 
 > LFSM wire、来源位置和 artifact binding 继续有效；本节旧
-> `canonical-publication-v1` receipt/descriptor 字段已由 LFCP v2 取代。当前规范发布
-> binding 见
-> `compiler-post-emission-check-and-minimal-publication-closure.md` `8。
+> `canonical-publication-v1` receipt/descriptor 字段已由 LFCP v2 取代，见本节末
+> “被 Accepted ADR 0024 取代的历史规范发布描述符”。当前规范发布 binding 见
+> [`compiler-post-emission-check-and-minimal-publication-closure.md`](compiler-post-emission-check-and-minimal-publication-closure.md)
+> §8。
 
 源映射不是一组可以脱离编译批次复用的裸记录。每份源映射都必须使用版本化的
 源映射封套（Source Map Envelope）`SourceMapEnvelope`：
@@ -1088,7 +1089,7 @@ envelope 内的 records 绑定正本来源模块图、frontend/import 工具与�
 - declaration/addressable-derived 使用
   `(entityKind, StableId128, typed ordinal)` 引用 portable artifact 中的
   `CanonicalIdentityTable` row，并附加闭合 `SourceLocation` / provenance；可以为诊断展示
-  冗余规范元组，但该副本不是 validator 输入或身份正本；
+  冗余规范元组，但该副本不是检查输入或身份正本；
 - owner-local relation/occurrence 使用 owning StableId128、typed role 和本次
   compilation 的 `localIndex`；
 - 所有记录保留 LIR table/ordinal 作为本次 compilation 的定位；
@@ -1096,7 +1097,18 @@ envelope 内的 records 绑定正本来源模块图、frontend/import 工具与�
 - compiler pass/constraint version；
 - generated relation 的推导链。
 
-源映射自己的摘要不得嵌回自身 bytes。规范发布描述符（Canonical Publication
+源映射自己的摘要不得嵌回自身 bytes。
+
+诊断对标 rustc：稳定 code、severity、primary/secondary source location、原因和可执行
+建议；文本来源可把 location 渲染为 span。authoring error 指向 source/画布；artifact
+corruption/version mismatch 面向运维，不
+返回 generated JSON 行号。
+
+#### 被 Accepted ADR 0024 取代的历史规范发布描述符
+
+以下内容保留 #291/ADR 0020 的历史设计，不是现行实现输入。ADR 0024 不交付独立
+validator、验证收据或 `canonical-publication-v1`；现行由后发射检查得到的受检能力构造
+LFCP v2 exact bytes 与 binding，持久化与真实性认证由宿主负责。规范发布描述符（Canonical Publication
 Descriptor）`CanonicalPublicationDescriptor` 必须位于 artifact/source-map bytes
 之外并至少绑定：
 
@@ -1136,11 +1148,6 @@ compilerBuildId` 全部精确相等；来源链记录作为 envelope exact bytes
 `sourceMapDigest` 认证。任何版本、长度、摘要、artifact、revision 或 provenance
 不匹配都以 `SourceMapArtifactMismatch` 失败关闭；记录级三元组 key 只能在完成该
 配对后定位行，不能单独证明 source map 属于某份 artifact。
-
-诊断对标 rustc：稳定 code、severity、primary/secondary source location、原因和可执行
-建议；文本来源可把 location 渲染为 span。authoring error 指向 source/画布；artifact
-corruption/version mismatch 面向运维，不
-返回 generated JSON 行号。
 
 ### 8.5 语义差异（Semantic Diff）
 
@@ -1426,7 +1433,7 @@ editable 来源必需的 optional `EditableDiffBase` binding 作为同一个原�
 committed `RoadEditingState`，发布修订更新使用 `PublishedLfcaReference`。任一失败均保持
 整个旧 aggregate。
 
-#### 被 ADR 0024/0025 取代、待 #302 重新冻结的历史切换描述符草案
+#### 被 ADR 0024/0025 取代的历史切换描述符草案（#302 已按现行切换状态机交付）
 
 下列 image/receipt 字段只保留为历史候选，不是 #302 可直接实现的当前输入。v1 的旧
 证据链要求 image 外部的版本化

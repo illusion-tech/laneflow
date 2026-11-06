@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
-**最后更新**: 2026-09-06
+**最后更新**: 2026-11-06
 **适用范围**: LaneFlow 版本路线图与交通基础设施的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
@@ -248,24 +248,26 @@ Waiting 本地 membership/admission/storage/queue、路线冲突出现记录、�
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
 
-## 编译器时代静态路网（#291 候选长期路线）
+## v0.10 编译器拥有的静态路网与交通运行时切换
 
 本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为准，英文只作辅助理解。
 
+Milestone 为 `v0.10 Compiler-Owned Static Network & Traffic Runtime Cutover`。
+状态：#305 综合验收汇总已于 2026-11-06 完成，待 #306 独立审阅与 #295 收口；结论见本节末
+“v0.10 验收结论”。
+
 #291 已把目标从“L1/L2 生成器 + JSON 管线”修订为编译器拥有的静态路网
 （Compiler-owned Static Network）：
-道路编辑状态、Synthetic DSL、imported 与其他受检 module 共同组成唯一
-authoritative source module graph，再进入
+道路编辑状态、Synthetic DSL、imported 与其他受检 module 共同组成唯一的正本来源
+模块图（authoritative source module graph），再进入
 `typed AST → HIR → MIR → validated canonical LIR`。同一次成功编译以 LIR 作为唯一
-静态语义输入，原子生成 portable canonical artifact、target-specific
-`StaticNetworkImage` 与语义差异（Semantic Diff）；源映射（Source Map）另外消费
-同次冻结、但不能补充静态语义的已验证来源伴随数据。目标
-`laneflow-runtime`/Spatial 消费同一不可变镜像（Immutable Image）中的交通 /
-可选空间视图（Traffic / Optional Spatial View），静态数据与每个世界可变状态
-物理分离。生产启动通过
-image 外部认证 descriptor/manifest 与 bounded verifier 建立 view，
-不再解析 JSON、按字符串 rebind、重建 registry、重复 Traffic/Spatial join 或重编译
-static occurrences。
+静态语义输入，原子生成可移植规范制品（LFCA）、源映射（LFSM）与语义差异（LFSD）；
+源映射只消费同次冻结、不能补充静态语义的已验证来源伴随数据。受检 LFCA 在进程内构建
+共享静态路网修订 `SharedNetworkRevision`，`TrafficWorld` 与可选 Spatial 消费同一修订，
+静态数据与每个世界可变状态物理分离。启动不再解析 JSON、按字符串 rebind、重建
+registry、重复 Traffic/Spatial join 或重编译 static occurrences。#291 原计划的
+target-specific `StaticNetworkImage`、镜像外描述符/完整性清单与镜像结构校验器已由
+Accepted ADR 0025 取消，不是待交付架构。
 
 本路线图中的 #298 “语义差异”只指规范 LIR/路网影响差异；道路编辑控制点等
 authoring-only 改动由 C 阶段后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)
@@ -287,9 +289,8 @@ Bézier，常见 taper 使用线性
 #296 的资源验收只保留面向不可信输入的最小护栏：来源字节、verifier、主要规模、checked
 arithmetic、保守整体工作集和失败原子性。逐 `Vec` / `Box` / `Arc` 的精确资源账本、阶段
 共存峰值、失败诊断 allocator 证据与正式 P100 协议已拆至
-[#374](https://github.com/illusion-tech/laneflow/issues/374)。#374 阻断 #305 及最终总体生产
-切换，但不阻断 portable artifact、authoring diff 或 #351–#354 的 compiler-private 结构
-收敛；后两者先完成还可以减少精确账本对即将变化布局的重复证明。
+[#374](https://github.com/illusion-tech/laneflow/issues/374)。#374 目前未排入任何 Milestone，
+也不在 #305 的依赖中；v0.10 的资源证据按 #305 的适用性核对处理，精确账本仍由 #374 承接。
 
 ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
 是 #291 G1 已接受的长期设计；Accepted ADR 0025 / #300 G1 已进一步以共享静态路网取代
@@ -307,9 +308,9 @@ Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生�
 可选；facility/profile/frame-only Spatial 不冒充 lane-pose capability。稳定身份索引服务
 快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
 （Revision Cutover），不进入 steady tick，也不能被 headless/production profile
-删除。target 把 current
-`laneflow-core/CoreWorld` clean-break 为 `laneflow-runtime/TrafficWorld`，并通过
-中立 `laneflow-static-contract`/`laneflow-static-network` 保持无环依赖。
+删除。#301 已把 `laneflow-core/CoreWorld` clean-break 为
+`laneflow-runtime/TrafficWorld`，并通过中立 `laneflow-static-contract`/`laneflow-static-network`
+保持无环依赖。
 
 编译器从 LIR 派生 worker 数无关的静态执行约束事实并规范发射到 LFCA 关系；LFCA
 不保存提示 payload，`laneflow-static-network` 按显式非语义 derivation version 确定性派生
@@ -347,6 +348,32 @@ Spatial 绑定与切换之前及审计时调用，完整性不进入 tick 路径
 分解的保真度（Fidelity）、分区（Partition）、调度、迁移与内存证据；其既有证据只
 覆盖当前道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个
 前端（Frontend）。
+
+### v0.10 验收结论
+
+#305 以验收提交 `c0045f8f`（#1282 冻结）运行统一五轴正式汇总，未完成项为零；
+[汇总记录](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678897695)
+与[适用性核对](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678716065)
+是本结论的唯一事实来源，本节只作入口摘要：
+
+- `LF-SYNTH-v2`：behavior、determinism、snapshot 为语义对照通过，routing 为执行回执
+  通过（#1267、#1279）；
+- 中国特色城市负载 `LF-CN-URBAN-v1`：behavior、determinism、snapshot 为执行回执通过
+  （验收提交上重跑）；routing 经维护者授权豁免，城市负载的候选准入、墙钟与 tick
+  间隔干扰未测；
+- performance 轴两套负载均为“未认证”（`Product TBD / Uncertified`）：v0.10 不执行
+  P100 产品认证，研究测量与已知契约级超标逐项登记，不记为通过，也不构成例外；
+- LuST 五轴已移至 v0.11，v0.10 没有真实路网证据；
+- 维护者范围裁定中的授权豁免（worker 两两组合、其他失败点、Spatial/Adapter 跨 worker
+  接线、跨修订/Editable 组合矩阵、非标称步长交叉组合、多 worker 十万整帧）随汇总记录
+  逐项登记未覆盖范围；
+- 能力限制如实记录，不记为通过：含活动过渡的世界拒绝保存（#1217，恢复矩阵随 #1200
+  在 v0.11）；互不可见的共横向过渡段保守拒绝（#1220）；平行边直行车对 P4 不可见
+  （#1271，L1 输入已核查不含该拓扑）；停止约束前的硬停（#1272）；
+  `LF-COMP-P100-INITIAL-v1/v2` 单次发射最多 4,011 个稳定实体（#1288，目标设计 #1296）；
+  设计 §7.1 的 Routing G2 case 在验收提交上不能复现（#1288）。
+
+产品里程碑与 LFCA、LFRS 等数据格式版本相互独立；以上结论不改变任何格式版本。
 
 ## 城市级扩展研究
 
