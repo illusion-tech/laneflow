@@ -1,0 +1,1 @@
+routing-lfsynth-wall-clock operation=steady_tick_before samples=21 median_ns=100 mad_ns=1 p95_ns=110 p99_ns=120 max_ns=130 raw_ns=100

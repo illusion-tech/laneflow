@@ -533,3 +533,104 @@ fn blank_deferred_authorization_is_rejected() {
     .expect_err("空授权延后必须被拒绝");
     assert!(error.to_string().contains("缺少维护者授权"));
 }
+
+/// 把 base manifest 的 routing 证据换成给定记录与期望键。
+fn routing_manifest(path: &str, expect: &[&str]) -> std::path::PathBuf {
+    let expect = expect
+        .iter()
+        .map(|item| format!("\"{item}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let body = base_manifest().replace(
+        r#"{ kind = "routing-kv", path = "records/routing.txt", expect = ["workload_id=LF-ROUTING-G2-LINEAR-v1"] }"#,
+        &format!(r#"{{ kind = "routing-kv", path = "{path}", expect = [{expect}] }}"#),
+    );
+    write_manifest(&body)
+}
+
+const LFSYNTH_EXPECT: [&str; 2] = [
+    "workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1",
+    "identity=10000-W2-16-a",
+];
+
+#[test]
+fn lfsynth_routing_rounds_are_all_checked() {
+    // #1289：#1279 的 LF-SYNTH 入口输出 routing-lfsynth-wall-clock 头行；
+    // 多轮拼接时每个头行都要命中，带 operation= 的统计行不算头行。
+    let manifest = routing_manifest("records/routing-lfsynth.txt", &LFSYNTH_EXPECT);
+    let output = output_dir("lfsynth");
+    let receipt = summary::run(&manifest, &ctx(), &output, Mode::Trial, false)
+        .expect("LF-SYNTH 头行应可定位");
+    let detail = &receipt.loads[0].cells[2].evidence[0].detail;
+    assert!(detail.contains("identity=10000-W2-16-a"), "{detail}");
+    assert!(detail.contains("头行 2 个"), "{detail}");
+    std::fs::remove_dir_all(&output).ok();
+}
+
+#[test]
+fn lfsynth_routing_expect_must_bind_identity() {
+    let manifest = routing_manifest(
+        "records/routing-lfsynth.txt",
+        &["workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1"],
+    );
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("lfsynth-noid"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("缺 identity 期望键必须被拒绝");
+    assert!(
+        error.to_string().contains("expect 须包含 identity"),
+        "{error}"
+    );
+}
+
+#[test]
+fn lfsynth_routing_round_with_other_identity_is_rejected() {
+    let manifest = routing_manifest(
+        "records/routing-lfsynth-mixed-identity.txt",
+        &LFSYNTH_EXPECT,
+    );
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("lfsynth-mixid"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("任一轮身份不符必须被拒绝");
+    assert!(
+        error.to_string().contains("identity=100000-W2-33-a"),
+        "{error}"
+    );
+}
+
+#[test]
+fn mixed_routing_header_markers_are_rejected() {
+    let manifest = routing_manifest("records/routing-mixed-marker.txt", &LFSYNTH_EXPECT);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("mixed-marker"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("混合头行必须被拒绝");
+    assert!(error.to_string().contains("混有两种墙钟头行"), "{error}");
+}
+
+#[test]
+fn routing_statistics_lines_are_not_headers() {
+    let manifest = routing_manifest("records/routing-lfsynth-stats-only.txt", &LFSYNTH_EXPECT);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("stats-only"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("只有统计行必须被拒绝");
+    assert!(error.to_string().contains("记录缺少墙钟头行"), "{error}");
+}

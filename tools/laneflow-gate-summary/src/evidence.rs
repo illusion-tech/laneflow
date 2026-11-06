@@ -171,43 +171,66 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             let full = ctx.resolve(path)?;
             let text = fs::read_to_string(&full)
                 .map_err(|e| invalid(format!("记录读取失败 {path}：{e}")))?;
-            const HEADER: &str = "routing-g2-wall-clock";
-            // 头行定位容忍 libtest 前缀：`--nocapture` 单线程输出的首行
-            // 会被 pretty 格式化器冠以 `test routing_g2_wall_clock_evidence ... `，
-            // 标记不必在行首，但必须落在词边界上（取标记起至行尾再解析键值）。
-            let header = text.lines().find_map(|line| {
-                let position = line.find(HEADER)?;
-                let at_token_boundary = position == 0 || line[..position].ends_with(' ');
-                at_token_boundary.then(|| &line[position..])
-            });
-            let header =
-                header.ok_or_else(|| invalid(format!("记录缺少 {HEADER} 头行：{path}")))?;
-            let keys = parse_kv_header(header);
-            for wanted in expect {
-                let (key, value) = wanted
-                    .split_once('=')
-                    .ok_or_else(|| invalid(format!("expect 条目须为 key=value：{wanted}")))?;
-                match keys.get(key) {
-                    Some(actual) if *actual == value => {}
-                    Some(actual) => {
-                        return Err(invalid(format!(
-                            "身份不符：{path} 的 {key}={actual}，期望 {key}={value}"
-                        )));
-                    }
-                    None => {
-                        return Err(invalid(format!(
-                            "记录缺少期望键 {key}（未知键前向容忍，期望键缺失不容忍）：{path}"
-                        )));
+            let headers = routing_headers(&text);
+            let Some(&(marker, _)) = headers.first() else {
+                return Err(invalid(format!(
+                    "记录缺少墙钟头行（{}）：{path}",
+                    ROUTING_HEADER_MARKERS.join(" / ")
+                )));
+            };
+            if let Some(&(other, _)) = headers.iter().find(|(m, _)| *m != marker) {
+                return Err(invalid(format!(
+                    "记录混有两种墙钟头行（{marker} 与 {other}）：{path}"
+                )));
+            }
+            // 期望键须覆盖该头行的身份键：缺了就不能证明绑定的是哪个 case。
+            for required in routing_required_keys(marker) {
+                if !expect
+                    .iter()
+                    .any(|wanted| wanted.split_once('=').is_some_and(|(k, _)| k == *required))
+                {
+                    return Err(invalid(format!(
+                        "{marker} 记录的 expect 须包含 {required}：{path}"
+                    )));
+                }
+            }
+            // 多轮记录拼在同一文件时，每一个头行都必须命中，不能只看第一行。
+            for (_, header) in &headers {
+                let keys = parse_kv_header(header);
+                for wanted in expect {
+                    let (key, value) = wanted
+                        .split_once('=')
+                        .ok_or_else(|| invalid(format!("expect 条目须为 key=value：{wanted}")))?;
+                    match keys.get(key) {
+                        Some(actual) if *actual == value => {}
+                        Some(actual) => {
+                            return Err(invalid(format!(
+                                "身份不符：{path} 的 {key}={actual}，期望 {key}={value}"
+                            )));
+                        }
+                        None => {
+                            return Err(invalid(format!(
+                                "记录缺少期望键 {key}（未知键前向容忍，期望键缺失不容忍）：{path}"
+                            )));
+                        }
                     }
                 }
             }
-            let workload = keys
-                .get("workload_id")
-                .map(|id| format!("workload_id={id}，"))
-                .unwrap_or_default();
+            let keys = parse_kv_header(headers[0].1);
+            let mut identity = String::new();
+            for key in routing_required_keys(marker) {
+                if let Some(value) = keys.get(key) {
+                    identity.push_str(&format!("{key}={value}，"));
+                }
+            }
             Ok(EvidenceOutcome {
                 label: path.clone(),
-                detail: format!("{workload}期望键 {}/{} 命中", expect.len(), expect.len()),
+                detail: format!(
+                    "{identity}头行 {} 个，期望键 {}/{} 逐行命中",
+                    headers.len(),
+                    expect.len(),
+                    expect.len()
+                ),
                 identity: None,
             })
         }
@@ -334,6 +357,43 @@ fn check_gate_json(
 }
 
 /// 解析 `key=value` 空格分隔的头行；重复键取首个（记录方按首行头定义）。
+/// 墙钟证据入口的头行标记：§7.1 的 `LF-ROUTING-G2-LINEAR-v1` 与 #1267 的
+/// LF-SYNTH 入口（#1279 运行）。
+const ROUTING_HEADER_MARKERS: [&str; 2] = ["routing-g2-wall-clock", "routing-lfsynth-wall-clock"];
+
+/// 每种头行必须由 `expect` 绑定的身份键。
+fn routing_required_keys(marker: &str) -> &'static [&'static str] {
+    if marker == "routing-lfsynth-wall-clock" {
+        &["workload_id", "identity"]
+    } else {
+        &["workload_id"]
+    }
+}
+
+/// 找出全部头行，返回（标记，从标记起至行尾）。
+///
+/// 头行定位容忍 libtest 前缀：`--nocapture` 单线程输出的首行会被 pretty
+/// 格式化器冠以 `test <name> ... `，所以标记不必在行首，但前后都必须落在
+/// 词边界上。同一前缀的逐操作统计行带 `operation=` 键，不算头行。
+fn routing_headers(text: &str) -> Vec<(&'static str, &str)> {
+    let mut headers = Vec::new();
+    for line in text.lines() {
+        for marker in ROUTING_HEADER_MARKERS {
+            let Some(position) = line.find(marker) else {
+                continue;
+            };
+            let rest = &line[position..];
+            let starts_token = position == 0 || line[..position].ends_with(' ');
+            let ends_token =
+                rest[marker.len()..].is_empty() || rest[marker.len()..].starts_with(' ');
+            if starts_token && ends_token && !parse_kv_header(rest).contains_key("operation") {
+                headers.push((marker, rest));
+            }
+        }
+    }
+    headers
+}
+
 fn parse_kv_header(header: &str) -> std::collections::BTreeMap<&str, &str> {
     let mut map = std::collections::BTreeMap::new();
     for token in header.split_whitespace() {

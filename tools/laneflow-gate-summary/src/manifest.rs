@@ -234,8 +234,10 @@ pub enum Evidence {
         #[serde(default)]
         expect: Option<GateJsonExpect>,
     },
-    /// #1279 墙钟记录（stdout key=value 捕获）：头部键值必须齐全命中；
-    /// 未知键前向容忍（#1267 扩展不破坏消费）。
+    /// 墙钟记录（stdout key=value 捕获）：识别 `routing-g2-wall-clock` 与
+    /// `routing-lfsynth-wall-clock` 头行，文件内每个头行的期望键都必须命中；
+    /// `expect` 须含 `workload_id`，LF-SYNTH 记录还须含 `identity`。未知键
+    /// 前向容忍。
     RoutingKv {
         path: String,
         #[serde(default)]

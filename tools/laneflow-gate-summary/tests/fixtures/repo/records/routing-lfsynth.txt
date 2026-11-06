@@ -1,0 +1,4 @@
+test routing_candidate_lf_synth_wall_clock_evidence ... routing-lfsynth-wall-clock workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1 identity=10000-W2-16-a manifest_digest=ab12 worker_count=1 samples=21
+routing-lfsynth-wall-clock operation=steady_tick_before samples=21 median_ns=100 mad_ns=1 p95_ns=110 p99_ns=120 max_ns=130 raw_ns=100
+routing-lfsynth-wall-clock workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1 identity=10000-W2-16-a manifest_digest=ab12 worker_count=1 samples=21
+routing-lfsynth-wall-clock operation=steady_tick_before samples=21 median_ns=100 mad_ns=1 p95_ns=110 p99_ns=120 max_ns=130 raw_ns=100
