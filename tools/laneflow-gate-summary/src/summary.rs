@@ -189,8 +189,26 @@ fn validate(manifest: &Manifest, mode: Mode, require_complete: bool) -> Result<(
 
     let mut pending: Vec<String> = Vec::new();
     for load in &manifest.loads {
-        let LoadEntry::Axes(entry) = load else {
-            continue;
+        // 延后负载在进入逐格校验前先验证授权：空授权/空说明的延后不能
+        // 以「五轴全部延后」满足正式完整性（与授权豁免的非空要求同口径）。
+        let entry = match load {
+            LoadEntry::Axes(entry) => entry,
+            LoadEntry::Deferred(deferred) => {
+                if deferred.authorization.trim().is_empty() {
+                    return Err(invalid(format!(
+                        "延后负载 {} 缺少维护者授权：负载级延后必须携带授权，\
+                         不得以空授权满足正式完整性",
+                        deferred.id
+                    )));
+                }
+                if deferred.note.trim().is_empty() {
+                    return Err(invalid(format!(
+                        "延后负载 {} 缺少延后说明（五轴结论按该说明渲染）",
+                        deferred.id
+                    )));
+                }
+                continue;
+            }
         };
         if entry.cells.len() != AXES.len() {
             return Err(invalid(format!(

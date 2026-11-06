@@ -513,3 +513,23 @@ fn undeclared_workload_is_rejected() {
     .expect_err("未声明负载必须被拒绝");
     assert!(error.to_string().contains("含未声明负载"));
 }
+
+#[test]
+fn blank_deferred_authorization_is_rejected() {
+    // 延后负载清空授权：必须拒绝（#1285 第六轮——未经授权的延后不得
+    // 以「五轴全部延后」满足 formal --require-complete）。
+    let body =
+        base_manifest().replace(r#"authorization = "测试延后授权""#, r#"authorization = """#);
+    let manifest = write_manifest(&body);
+    // trial 直达延后授权校验（该检查无条件生效，formal 含于其中）；
+    // formal 下本例会被更早的 pending 格拒绝。
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("blankdefer"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("空授权延后必须被拒绝");
+    assert!(error.to_string().contains("缺少维护者授权"));
+}
