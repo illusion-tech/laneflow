@@ -1,4 +1,4 @@
-# #1267 证据输出行（2026-11-05，实现提交 bbc2665f，rustc 1.99.1 release 单线程）
+# #1267 证据输出行（2026-11-05，实现提交 e5bb741f，取证运行 PR 分支提交 bbc2665f，rustc 1.99.1 release 单线程）
 
 ## integration 10000-W2-16-a
 ```text
