@@ -413,3 +413,62 @@ record = { kind = "l1-record", path = "<evidence-root>/l1.json" }"#,
         .expect_err("重复身份必须被拒绝");
     assert!(error.to_string().contains("重复声明身份"));
 }
+
+#[test]
+fn nested_binary_identity_is_consumed() {
+    // F1/F2/F3 生产端形状：binary={bytes,sha256} 嵌套（#1285 第四轮评审——
+    // 此前只读顶层 binary_sha256，正式汇总无法绑定这些记录的被测二进制）。
+    let body = base_manifest().replace(
+        r#"{ kind = "synth-summary-json", path = "records/synth-summary.json", expect = { implementation_commit = "8b05abce00000000000000000000000000000000", complete = true } }"#,
+        r#"{ kind = "synth-summary-json", path = "records/synth-summary-nested.json", expect = { implementation_commit = "8b05abce00000000000000000000000000000000", binary_sha256 = "be2a5ddd00000000", complete = true } }"#,
+    );
+    let manifest = write_manifest(&body);
+    let output = output_dir("nested");
+    let receipt =
+        summary::run(&manifest, &ctx(), &output, Mode::Trial, false).expect("嵌套形状应可消费");
+    let markdown = std::fs::read_to_string(output.join("receipt.md")).expect("receipt.md");
+    assert!(markdown.contains("binary.sha256=be2a5ddd00000000"));
+    let _ = receipt;
+    std::fs::remove_dir_all(&output).ok();
+}
+
+#[test]
+fn deferred_status_on_axis_cell_is_rejected() {
+    // 轴格用 deferred 绕过未完成/豁免要求：必须拒绝（延后是负载级声明）。
+    let body = base_manifest().replace(
+        r#"axis = "routing"
+status = "pending""#,
+        r#"axis = "routing"
+status = "deferred""#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("deferred"),
+        Mode::Formal,
+        true,
+    )
+    .expect_err("轴格 deferred 必须被拒绝");
+    assert!(error.to_string().contains("延后是负载级声明"));
+}
+
+#[test]
+fn libtest_prefixed_routing_header_is_located() {
+    // #1279 经 --nocapture 捕获的 stdout 首行带 libtest 前缀：
+    // 标记不必在行首（词边界即可），身份键仍须命中。
+    let body = base_manifest().replace(
+        r#"{ kind = "routing-kv", path = "records/routing.txt", expect = ["workload_id=LF-ROUTING-G2-LINEAR-v1"] }"#,
+        r#"{ kind = "routing-kv", path = "records/routing-libtest.txt", expect = ["workload_id=LF-ROUTING-G2-LINEAR-v1", "samples=21"] }"#,
+    );
+    let manifest = write_manifest(&body);
+    let output = output_dir("libtest");
+    let receipt =
+        summary::run(&manifest, &ctx(), &output, Mode::Trial, false).expect("前缀头行应可定位");
+    assert!(
+        receipt.loads[0].cells[2].evidence[0]
+            .detail
+            .contains("workload_id=LF-ROUTING-G2-LINEAR-v1")
+    );
+    std::fs::remove_dir_all(&output).ok();
+}

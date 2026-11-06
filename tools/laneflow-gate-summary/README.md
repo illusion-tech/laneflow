@@ -59,9 +59,11 @@ target/release/laneflow-gate-summary check-transitions `
   `verdict` 无条件要求 `clean`，且 `bundle.identity` 须与声明逐字符串相等。
 
 证据锚点种类：`repo-doc`（存在 + 锚点子串）、`github`（URL 形态）、
-`synth-summary-json`（F 矩阵 `summary.json` 身份对账）、`gate-json`（城市
-`gate.json` 身份对账）、`routing-kv`（#1279 墙钟记录头行，期望键缺失不容忍、
-未知键前向容忍）、`l1-record`（本工具 `check-transitions` 记录）。
+`synth-summary-json`（F 矩阵 `summary.json` 身份对账；二进制摘要同时消费语义
+矩阵的顶层 `binary_sha256` 与 F1/F2/F3 的嵌套 `binary.sha256`，两者同时存在即
+失败）、`gate-json`（城市 `gate.json` 身份对账）、`routing-kv`（#1279 墙钟记录
+头行；标记词边界即可定位，容忍 `--nocapture` 捕获的 libtest 前缀，期望键缺失
+不容忍、未知键前向容忍）、`l1-record`（本工具 `check-transitions` 记录）。
 
 ## #305 正式汇总的命令与输入
 

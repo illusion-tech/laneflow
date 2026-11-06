@@ -187,6 +187,13 @@ fn validate_cell(load: &str, cell: &Cell, mode: Mode) -> Result<(), Error> {
             "负载 {load} 的 performance 格状态必须为 uncertified-performance（未认证），不得写成通过"
         )));
     }
+    if cell.status == CellStatus::Deferred {
+        return Err(invalid(format!(
+            "负载 {load} 的 {} 格使用了 deferred 状态：延后是负载级声明（kind = \"deferred\"），\
+             轴格不得以延后绕过未完成或豁免要求",
+            cell.axis.name()
+        )));
+    }
     let needs_identity = matches!(
         cell.status,
         CellStatus::SemanticPass
