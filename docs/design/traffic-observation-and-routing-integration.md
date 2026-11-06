@@ -510,31 +510,31 @@ restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代�
 Rust 1.99.1（58cf8f9c3）/ cargo 1.99.1、单测试线程。计量类别按 §5.1：
 条目数、exact bytes、分配、retained 属不敏感类，本节数字可采信；墙钟
 与 tick 间隔干扰属负载敏感类，按维护者 2026-11-05 裁定分离到 #1279，
-须在 #1282 冻结验收提交后的安静窗口运行——**本节该两维未闭合，§7 的
-计量义务待 #1279 完成才算完整**。
+须在 #1282 冻结验收提交后的安静窗口运行；该两维由 §7.3 登记，与本节合起来
+满足 §7 的计量义务。
 
 工作负载族为 `LF-ROUTING-CANDIDATE-LFSYNTH-v1`，每个正式身份目录一个
 case。身份选择（维护者 2026-11-05 裁定：W2 规模对 + L1 换道族）：
 
-| 身份 | 边 | state 路线 | state 路线边 | 车辆（active/parked） | 典型/长候选 | occurrence 余量 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `10000-W2-16-a` | 800 | 400 | 800 | 10000（10000/0） | 2 / 2 | 12 |
-| `100000-W2-33-a` | 8000 | 4000 | 8000 | 100000（100000/0） | 2 / 2 | 12 |
-| `10000-L1-16-a` | 808 | 401 | 805 | 10002（7502/2500） | 2 / 5 | 17 |
+| 身份             | 边   | state 路线 | state 路线边 | 车辆（active/parked） | 典型/长候选 | occurrence 余量 |
+| ---------------- | ---- | ---------- | ------------ | --------------------- | ----------- | --------------- |
+| `10000-W2-16-a`  | 800  | 400        | 800          | 10000（10000/0）      | 2 / 2       | 12              |
+| `100000-W2-33-a` | 8000 | 4000       | 8000         | 100000（100000/0）    | 2 / 2       | 12              |
+| `10000-L1-16-a`  | 808  | 401        | 805          | 10002（7502/2500）    | 2 / 5       | 17              |
 
 工作负载与绑定冻结为：
 
-| 输入 | 值 |
-| --- | --- |
-| topology | LF-SYNTH-v2 正式身份目录；`verify_directory` 重编译逐字节比对通过（输入锚定提交 `8b05abce`，其后 generator 未变更） |
-| state | 全部 state 路线 `register_route`、全部车辆 spawn（L 族换道者开放入口、parked 车显式车位）；64 × delta 热身；AllLaneEdges |
-| `WorldConfig` | vehicle = state+2；route = state+12；occurrence = state + max(2×长候选边数+7, 12)；conflict 与 harness 安装同式（W=0、L=max(2×簇数,16)）；worker 1 |
-| cost receiver | binding v1；全边 ×（`StableId128`+`u64-le`）24 B 条目；上限恰为该 count/bytes；容量预检先于解析/分配/哈希 |
-| candidate | 1 边（机动完成末端边）/ 典型（中位边数 state 路线）/ 长（最长 state 路线：W=2、L1=5）；register-then-remove，输入构造在测量区外 |
-| 拓扑边界 | 输入族为无环短链：重复边在合法路线中不可构造（由合同测试在可控拓扑覆盖），长轴扩展性由 §7.1 的 4096 边 case 承担 |
-| allocation protocol | 插桩 release 独立进程；每操作 warm-up 丢弃后记 ledger；steady tick 各 32 samples |
-| wall-clock protocol | 未插桩 release、无计数分配器；入口含干扰配对（显式调用后紧跟被计时 tick，candidate 保持存活越过该 tick）；每操作 3 warm-up + 21 samples、3 个 fresh-process rounds 由 #1279 编排（本轮未运行） |
-| certification boundary | `Product TBD / Uncertified`；确定性维度亦仅为描述性 |
+| 输入                   | 值                                                                                                                                                                                             |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| topology               | LF-SYNTH-v2 正式身份目录；`verify_directory` 重编译逐字节比对通过（输入锚定提交 `8b05abce`，其后 generator 未变更）                                                                            |
+| state                  | 全部 state 路线 `register_route`、全部车辆 spawn（L 族换道者开放入口、parked 车显式车位）；64 × delta 热身；AllLaneEdges                                                                       |
+| `WorldConfig`          | vehicle = state+2；route = state+12；occurrence = state + max(2×长候选边数+7, 12)；conflict 与 harness 安装同式（W=0、L=max(2×簇数,16)）；worker 1                                             |
+| cost receiver          | binding v1；全边 ×（`StableId128`+`u64-le`）24 B 条目；上限恰为该 count/bytes；容量预检先于解析/分配/哈希                                                                                      |
+| candidate              | 1 边（机动完成末端边）/ 典型（中位边数 state 路线）/ 长（最长 state 路线：W=2、L1=5）；register-then-remove，输入构造在测量区外                                                                |
+| 拓扑边界               | 输入族为无环短链：重复边在合法路线中不可构造（由合同测试在可控拓扑覆盖），长轴扩展性由 §7.1 的 4096 边 case 承担                                                                               |
+| allocation protocol    | 插桩 release 独立进程；每操作 warm-up 丢弃后记 ledger；steady tick 各 32 samples                                                                                                               |
+| wall-clock protocol    | 未插桩 release、无计数分配器；入口含干扰配对（显式调用后紧跟被计时 tick，candidate 保持存活越过该 tick）；每操作 3 warm-up + 21 samples、3 个 fresh-process rounds 由 #1279 编排（本轮未运行） |
+| certification boundary | `Product TBD / Uncertified`；确定性维度亦仅为描述性                                                                                                                                            |
 
 可重放身份（三身份的 manifest / network revision / workload manifest /
 state / selection / observation set / cost snapshot digest 逐身份登记于
@@ -559,16 +559,16 @@ tick/状态序号、非法时效窗）属合同测试面，真实宿主不可构
 bytes、logical/retained；candidate 的 adjusted live 把测量区外分配的
 caller 输入 bytes 加回）：
 
-| 操作 | `10000-W2-16-a` | `100000-W2-33-a` | `10000-L1-16-a` |
-| --- | --- | --- | --- |
-| steady tick before | 0/0、0/0、live 0 | 0/0、0/0、live 0 | 37/3、84328/480、live +83848 |
-| observation full | 3/0、224000/192000、live +32000 | 3/0、2240000/1920000、live +320000 | 3/0、184688/152368、live +32320 |
-| observation delta zero | 2/0、192000/192000、live 0 | 2/0、1920000/1920000、live 0 | 2/0、152368/152368、live 0 |
-| cost receiver | 0/0、0/0、live 0 | 0/0、0/0、live 0 | 0/0、0/0、live 0 |
-| candidate 1 edge | 11/0、124/32、adjusted 108 | 11/0、124/32、adjusted 108 | 11/0、124/32、adjusted 108 |
-| candidate 2 edges | 19/0、318/66、adjusted 284 | 19/0、318/66、adjusted 284 | 18/0、310/66、adjusted 276 |
-| candidate 5 edges（L1 长） | — | — | 25/1、1960/1156、adjusted 884 |
-| steady tick after | 0/0、0/0、live 0 | 0/0、0/0、live 0 | 0/0、0/0、live 0 |
+| 操作                       | `10000-W2-16-a`                 | `100000-W2-33-a`                   | `10000-L1-16-a`                 |
+| -------------------------- | ------------------------------- | ---------------------------------- | ------------------------------- |
+| steady tick before         | 0/0、0/0、live 0                | 0/0、0/0、live 0                   | 37/3、84328/480、live +83848    |
+| observation full           | 3/0、224000/192000、live +32000 | 3/0、2240000/1920000、live +320000 | 3/0、184688/152368、live +32320 |
+| observation delta zero     | 2/0、192000/192000、live 0      | 2/0、1920000/1920000、live 0       | 2/0、152368/152368、live 0      |
+| cost receiver              | 0/0、0/0、live 0                | 0/0、0/0、live 0                   | 0/0、0/0、live 0                |
+| candidate 1 edge           | 11/0、124/32、adjusted 108      | 11/0、124/32、adjusted 108         | 11/0、124/32、adjusted 108      |
+| candidate 2 edges          | 19/0、318/66、adjusted 284      | 19/0、318/66、adjusted 284         | 18/0、310/66、adjusted 276      |
+| candidate 5 edges（L1 长） | —                               | —                                  | 25/1、1960/1156、adjusted 884   |
+| steady tick after          | 0/0、0/0、live 0                | 0/0、0/0、live 0                   | 0/0、0/0、live 0                |
 
 注：full 的 batch logical/retained 为 192 + 40 × 边数（800→32192、
 8000→320192、808→32512 B）；session logical/retained 为 28 × 边数 +
@@ -582,7 +582,44 @@ logical 恒为 192 B 且 net 0；成本 payload 为 24 × 边数（19200/192000/
 归零——按描述性观察登记，不构成预算判定；候选注册账本与车辆/边
 规模无关（1 边 108 B、2 边 276–284 B 三身份一致），随边数扩展
 （5 边 884 B）；receiver 在 exact count/bytes 预检后零分配。墙钟与
-tick 间隔干扰：**待 #1279**，本节未闭合。
+tick 间隔干扰见 §7.3。
+
+### 7.3 `LF-ROUTING-CANDIDATE-LFSYNTH-v1` 墙钟与 tick 间隔干扰（#1279）
+
+2026-11-06，#1279 在 #1282 冻结的 v0.10 验收提交
+`c0045f8f4fabc02335816c3e14d74214c36276af` 上，于维护者批准的安静测量窗口
+（`development-gates.md` §5.1）运行 §7.2 冻结表中的三个身份。被测二进制为该提交
+干净工作树构建的 release `routing_wall_clock_evidence`（SHA-256
+`6ee14ead38339172d62473a6497214658f67a3e8a807aef933cd01b076ad721d`），入口为
+`routing_candidate_lf_synth_wall_clock_evidence`，未安装计数分配器。输入与 §7.2
+相同，三份 manifest 摘要逐字一致并经 `verify` 重编译比对。
+
+协议沿用 §7.2：每操作 3 warm-up + 21 samples，每身份 3 个 fresh-process rounds，
+三身份按轮交错。干扰配对为显式调用后紧跟一次被计时 tick。实际环境为 Windows 11
+Insider build 29698、Ryzen 9 9955HX、交流电/平衡电源计划、Rust 1.99.1；厂商性能
+模式未登记。窗口前后 CPU 负载采样均在平均 ≤6%、峰值 ≤10% 之内，无废弃轮次。
+世界配置 1 个 worker。分类为 `Product TBD / Uncertified`，只作描述性登记。
+
+下表 p50/p95 先逐 round 计算、再取三轮中位数，`worst` 为全部 63 个 measured samples
+的最大值，单位 µs；“下一拍”取五种显式调用之后被计时 tick 中 p95 最高的一种。
+
+| 操作                              | `10000-W2-16-a` p50 / p95 / worst | `100000-W2-33-a` p50 / p95 / worst | `10000-L1-16-a` p50 / p95 / worst |
+| --------------------------------- | --------------------------------- | ---------------------------------- | --------------------------------- |
+| 稳态 tick（前）                   | 1529.1 / 1577.9 / 1641.1          | 16364.3 / 16562.5 / 18068.2        | 1234.4 / 1293.2 / 1427.3          |
+| observation full                  | 226.4 / 258.9 / 278.2             | 3360.3 / 3537.3 / 4731.2           | 179.1 / 200.4 / 221.2             |
+| observation delta zero            | 225.0 / 230.7 / 252.5             | 3411.6 / 3569.4 / 4968.1           | 180.0 / 185.9 / 238.2             |
+| cost receiver                     | 8.6 / 8.7 / 12.7                  | 78.4 / 79.0 / 85.0                 | 8.7 / 8.7 / 13.3                  |
+| candidate 1 边 / 典型 / 长（p50） | 0.6 / 0.9 / 0.9                   | 0.6 / 0.9 / 0.9                    | 0.6 / 0.8 / 2.7                   |
+| 显式调用后下一拍（p95 最高者）    | 1608.6（候选 1 边后）             | 18139.5（接收成本快照后）          | 1335.9（候选 1 边后）             |
+| 稳态 tick（后）                   | 1526.0 / 1570.1 / 2351.6          | 16358.7 / 16997.7 / 19541.6        | 1242.5 / 1343.8 / 1864.7          |
+
+证据支持的结论仅为：候选注册在三个身份上为微秒级且不随车辆规模变化，与 §7.2
+的账本一致；10k 两个身份上显式调用后的下一拍与稳态 tick 基本重合；100k 上下一拍
+p50 无可见差别，p95 有抬升（接收成本快照后最高，约高 10%），全部 worst 低于
+19.6 ms。显式调用以自身墙钟延迟下一 tick，但不与 tick 交错。100k 的 tick 是单
+worker 数字，不能与多 worker 整帧结果比较，也不构成产品预算判定。逐操作完整统计、
+运行日志与逐 round 原始输出登记在
+[#1279 正式记录](https://github.com/illusion-tech/laneflow/issues/1279#issuecomment-6676712976)。
 
 ## 8. G2 边界与必测义务
 
