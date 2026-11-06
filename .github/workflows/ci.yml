@@ -95,7 +95,18 @@ jobs:
             rust:
               - 'crates/**'
               - 'xtask/**'
-              - 'tools/**'
+              # tools 精确到实际输入（#1298，100 目标嵌入清点背书）：嵌入与测试
+              # 数据只在 .rs、Cargo 清单/锁文件、tests/、fixtures/、evidence/、
+              # licenses/；README 等文档零嵌入。crates/examples/xtask 维持目录级：
+              # crate README 被 lib.rs 嵌入进 doctest，examples config/data 与
+              # xtask/data 注册表均被嵌入。
+              - 'tools/**/*.rs'
+              - 'tools/**/Cargo.toml'
+              - 'tools/**/Cargo.lock'
+              - 'tools/**/tests/**'
+              - 'tools/**/fixtures/**'
+              - 'tools/**/evidence/**'
+              - 'tools/**/licenses/**'
               - 'examples/**'
               # research 精确到 Rust 文件与 Cargo 清单/锁文件：研究结论文档不参与
               # workspace 构建，research 数据禁止编译期嵌入（#1293）。json 与
