@@ -92,8 +92,15 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             let value: serde_json::Value = serde_json::from_slice(&bytes)
                 .map_err(|e| invalid(format!("记录不是 JSON {path}：{e}")))?;
             let get = |key: &str| value.get(key).and_then(serde_json::Value::as_str);
+            // 二进制身份有两种生产端形状：语义矩阵的顶层 `binary_sha256`，与
+            // F1/F2/F3 矩阵的嵌套 `binary.sha256`（`file_identity` 的
+            // {bytes, sha256}）；两种都消费，回执注明来源字段。
+            let binary_top = get("binary_sha256");
+            let binary_nested = value
+                .pointer("/binary/sha256")
+                .and_then(serde_json::Value::as_str);
             let complete = value.get("complete").and_then(serde_json::Value::as_bool);
-            check_synth_summary(&value, expect.as_ref(), path)?;
+            check_synth_summary(&value, binary_top, binary_nested, expect.as_ref(), path)?;
             let mut detail = Vec::new();
             if let Some(format_id) = get("format") {
                 detail.push(format!("format={format_id}"));
@@ -101,15 +108,22 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             if let Some(commit) = get("implementation_commit") {
                 detail.push(format!("implementation_commit={commit}"));
             }
-            if let Some(digest) = get("binary_sha256") {
-                detail.push(format!("binary_sha256={digest}"));
+            match (binary_top, binary_nested) {
+                (Some(_), Some(_)) => {
+                    return Err(invalid(format!(
+                        "记录同时携带 binary_sha256 与 binary.sha256：身份字段形状不合法：{path}"
+                    )));
+                }
+                (Some(digest), None) => detail.push(format!("binary_sha256={digest}")),
+                (None, Some(digest)) => detail.push(format!("binary.sha256={digest}")),
+                (None, None) => {}
             }
             if let Some(complete) = complete {
                 detail.push(format!("complete={complete}"));
             }
             if detail.is_empty() {
                 return Err(invalid(format!(
-                    "记录缺少身份字段（format/implementation_commit/binary_sha256/complete）：{path}"
+                    "记录缺少身份字段（format/implementation_commit/binary_sha256|binary.sha256/complete）：{path}"
                 )));
             }
             Ok(EvidenceOutcome {
@@ -158,10 +172,16 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
             let text = fs::read_to_string(&full)
                 .map_err(|e| invalid(format!("记录读取失败 {path}：{e}")))?;
             const HEADER: &str = "routing-g2-wall-clock";
-            let header = text
-                .lines()
-                .find(|line| line.starts_with(HEADER))
-                .ok_or_else(|| invalid(format!("记录缺少 {HEADER} 头行：{path}")))?;
+            // 头行定位容忍 libtest 前缀：`--nocapture` 单线程输出的首行
+            // 会被 pretty 格式化器冠以 `test routing_g2_wall_clock_evidence ... `，
+            // 标记不必在行首，但必须落在词边界上（取标记起至行尾再解析键值）。
+            let header = text.lines().find_map(|line| {
+                let position = line.find(HEADER)?;
+                let at_token_boundary = position == 0 || line[..position].ends_with(' ');
+                at_token_boundary.then(|| &line[position..])
+            });
+            let header =
+                header.ok_or_else(|| invalid(format!("记录缺少 {HEADER} 头行：{path}")))?;
             let keys = parse_kv_header(header);
             for wanted in expect {
                 let (key, value) = wanted
@@ -239,6 +259,8 @@ pub fn resolve(evidence: &Evidence, ctx: &PathContext) -> Result<EvidenceOutcome
 
 fn check_synth_summary(
     value: &serde_json::Value,
+    binary_top: Option<&str>,
+    binary_nested: Option<&str>,
     expect: Option<&SynthSummaryExpect>,
     path: &str,
 ) -> Result<(), Error> {
@@ -246,15 +268,13 @@ fn check_synth_summary(
         return Ok(());
     };
     let get = |key: &str| value.get(key).and_then(serde_json::Value::as_str);
-    let pairs = [
+    for (key, wanted) in [
         ("format", expect.format.as_deref()),
         (
             "implementation_commit",
             expect.implementation_commit.as_deref(),
         ),
-        ("binary_sha256", expect.binary_sha256.as_deref()),
-    ];
-    for (key, wanted) in pairs {
+    ] {
         let Some(wanted) = wanted else { continue };
         let actual = get(key);
         if actual != Some(wanted) {
@@ -262,6 +282,16 @@ fn check_synth_summary(
                 "身份不符：{path} 的 {key}={actual:?}，期望 {wanted}"
             )));
         }
+    }
+    // 二进制摘要期望匹配任一合法形状（顶层 `binary_sha256` 或嵌套
+    // `binary.sha256`）；两者都没有而声明了期望即失败。
+    if let Some(wanted) = expect.binary_sha256.as_deref()
+        && binary_top != Some(wanted)
+        && binary_nested != Some(wanted)
+    {
+        return Err(invalid(format!(
+            "身份不符：{path} 的二进制摘要（顶层={binary_top:?}，嵌套={binary_nested:?}）与期望 {wanted} 不符"
+        )));
     }
     if let Some(wanted) = expect.complete {
         let actual = value.get("complete").and_then(serde_json::Value::as_bool);
