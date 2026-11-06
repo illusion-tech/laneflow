@@ -79,7 +79,7 @@ key=value 文本）；L1 两份输入包（`10000-L1-16`、`100000-L1-33`）完�
 
    - routing 两格：补 `#1279` 记录与 #1267 证据结论，`status` 离开 `pending`。
      #1279 每个身份一条 `routing-kv`，`expect` 至少含
-     `workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1` 与 `identity=<身份>`；
+     `workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1-<身份>` 与 `identity=<身份>`；
    - 城市性能格：写入验收提交适用性核对结论，清空或改写 `pending`；
    - 各语义格按需挂接 `synth-summary-json` / `gate-json`（`expect` 绑定
      `implementation_commit` / `source.commit` 等身份）。
