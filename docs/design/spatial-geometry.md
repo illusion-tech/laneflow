@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#300/#301 共享空间路网已交付；一维进度为 `progress_mm`）
 
-**最后更新**: 2026-08-25（#496：采样输入为整数毫米；生产入口是 `SpatialSession`）
+**最后更新**: 2026-11-06（#294：更正依赖方向；#496：采样输入为整数毫米；生产入口是 `SpatialSession`）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -65,6 +65,8 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
 本章 §3 的 JSON Traffic/Spatial/Manifest 三制品只描述已拆除的 current 路径。
 生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`，车道进度为
 `progress_mm`。`laneflow-core` 已拆除。无 Spatial 的 headless Traffic Runtime 仍合法。
+本文其余各节沿用的“Core”指交通侧的最终裁决层：边长度现由共享静态路网承载，进度与
+交通状态现由 `TrafficWorld` 承载。
 
 ## 2. 坐标框架
 
@@ -153,10 +155,10 @@ SpatialPackage v0.1
 ## 4. LaneFlow 自有空间类型
 
 生产 crate 为 `crates/laneflow-spatial`（package `laneflow-spatial`、lib
-`laneflow_spatial`），依赖方向固定为
-`laneflow-spatial -> laneflow-core + laneflow-static-contract`。中立的
-`laneflow-static-contract` 只提供当前 Spatial、编译器和目标 Runtime 共同解释的数值
-边界；Core 不反向依赖 Spatial。
+`laneflow_spatial`），生产依赖为
+`laneflow-spatial -> laneflow-static-network + laneflow-static-contract + laneflow-format`。
+中立的 `laneflow-static-contract` 只提供 Spatial、编译器和 Runtime 共同解释的数值
+边界；Spatial 与 Runtime 互不依赖（`xtask` 运行时架构检查）。
 
 #133/#135 已固化以下公共类型：
 
