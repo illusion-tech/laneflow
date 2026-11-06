@@ -1,0 +1,2 @@
+routing-lfsynth-wall-clock workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1 identity=10000-W2-16-a manifest_digest=ab12 worker_count=1 samples=21
+routing-g2-wall-clock workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1 identity=10000-W2-16-a

@@ -63,9 +63,12 @@ target/release/laneflow-gate-summary check-transitions `
 证据锚点种类：`repo-doc`（存在 + 锚点子串）、`github`（URL 形态）、
 `synth-summary-json`（F 矩阵 `summary.json` 身份对账；二进制摘要同时消费语义
 矩阵的顶层 `binary_sha256` 与 F1/F2/F3 的嵌套 `binary.sha256`，两者同时存在即
-失败）、`gate-json`（城市 `gate.json` 身份对账）、`routing-kv`（#1279 墙钟记录
-头行；标记词边界即可定位，容忍 `--nocapture` 捕获的 libtest 前缀，期望键缺失
-不容忍、未知键前向容忍）、`l1-record`（本工具 `check-transitions` 记录）。
+失败）、`gate-json`（城市 `gate.json` 身份对账）、`routing-kv`（墙钟记录头行：
+识别 §7.1 的 `routing-g2-wall-clock` 与 #1279 运行的 `routing-lfsynth-wall-clock`；
+标记前后落在词边界即可定位，容忍 `--nocapture` 捕获的 libtest 前缀，带
+`operation=` 的统计行不算头行；同一文件不得混用两种标记，多轮拼接时每个头行
+都须命中；`expect` 须含 `workload_id`，LF-SYNTH 记录还须含 `identity`；期望键
+缺失不容忍、未知键前向容忍）、`l1-record`（本工具 `check-transitions` 记录）。
 
 ## #305 正式汇总的命令与输入
 
@@ -74,8 +77,9 @@ key=value 文本）；L1 两份输入包（`10000-L1-16`、`100000-L1-33`）完�
 
 1. 制作正式 manifest：复制试跑副本到仓库外工作目录，改 `mode_note`；逐格更新：
 
-   - routing 两格：补 `#1279` 记录（`routing-kv`，`expect` 至少含
-     `workload_id=...`）与 #1267 证据结论，`status` 离开 `pending`；
+   - routing 两格：补 `#1279` 记录与 #1267 证据结论，`status` 离开 `pending`。
+     #1279 每个身份一条 `routing-kv`，`expect` 至少含
+     `workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1` 与 `identity=<身份>`；
    - 城市性能格：写入验收提交适用性核对结论，清空或改写 `pending`；
    - 各语义格按需挂接 `synth-summary-json` / `gate-json`（`expect` 绑定
      `implementation_commit` / `source.commit` 等身份）。
