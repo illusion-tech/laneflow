@@ -259,38 +259,68 @@ const DISPATCH_ORDER_WATCHDOG: std::time::Duration = std::time::Duration::from_s
 #[cfg(test)]
 struct DispatchOrderCall {
     schedule: Vec<usize>,
-    released: AtomicUsize,
+    /// 开始序放行游标：窗口单元按放行表依次开始计算，计算之间可重叠。
+    started: AtomicUsize,
+    /// 完成序放行游标：单元计算或整块跳过完成后按放行表依次放行返回；
+    /// 游标恰由完成者本人推进，`log` 因此记录的是被物理强制的完成序。
+    done: AtomicUsize,
     claims: AtomicUsize,
-    /// 按放行位下标记录领取序号；初始为哨兵，全部放行后恰为放行表。
+    /// 按完成放行位下标记录领取序号；初始为哨兵，全部放行后恰为放行表。
     log: Mutex<Vec<usize>>,
 }
 
 #[cfg(test)]
 impl DispatchOrderCall {
-    /// 单元到达执行入口：先领领取序号，窗口内单元等到自己的放行位才继续。
+    /// 单元到达执行入口：领领取序号后，窗口内单元先等到自己的开始放行位；
     /// 放在已错位置检查之前，让换序同时改变跳过判定与副作用的出现先后。
-    fn enter(&self) {
+    /// 返回的守卫在单元计算或跳过完成（含 panic 展开）时完成序放行并记录。
+    fn enter(&self) -> Option<DispatchOrderHold<'_>> {
         let ordinal = self.claims.fetch_add(1, Ordering::Relaxed);
-        let Some(turn) = self.schedule.iter().position(|&o| o == ordinal) else {
-            return;
-        };
+        let turn = self.schedule.iter().position(|&o| o == ordinal)?;
+        self.wait_turn(&self.started, turn);
+        Some(DispatchOrderHold {
+            call: self,
+            ordinal,
+            turn,
+        })
+    }
+
+    /// 等到游标推进到自己的放行位后前进一格。放行位更早的窗口单元必然
+    /// 已领取（窗口=前 window 次领取）并由线程持有；单元数少于窗口已由
+    /// 建门门槛挡下，其余滞留由看门狗终止。
+    fn wait_turn(&self, cursor: &AtomicUsize, turn: usize) {
         let deadline = std::time::Instant::now() + DISPATCH_ORDER_WATCHDOG;
         loop {
-            let released = self.released.load(Ordering::Acquire);
-            if released == turn {
-                self.released.store(released + 1, Ordering::Release);
-                self.log
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)[turn] = ordinal;
+            let at = cursor.load(Ordering::Acquire);
+            if at == turn {
+                cursor.store(at + 1, Ordering::Release);
                 return;
             }
-            // 放行位更早的窗口单元必然已领取（窗口=前 window 次领取），
-            // 由其他线程持有；若单元总数少于窗口，等待由看门狗终止。
             if std::time::Instant::now() > deadline {
-                panic!("dispatch order gate watchdog: window units not all claimed");
+                panic!("dispatch order gate watchdog: turn {turn} not reached");
             }
             std::thread::yield_now();
         }
+    }
+}
+
+/// 窗口单元的完成序放行守卫：Drop 时（正常返回、整块跳过或 panic 展开）
+/// 等完成放行位，并按该位把领取序号记入放行日志。
+#[cfg(test)]
+struct DispatchOrderHold<'a> {
+    call: &'a DispatchOrderCall,
+    ordinal: usize,
+    turn: usize,
+}
+
+#[cfg(test)]
+impl Drop for DispatchOrderHold<'_> {
+    fn drop(&mut self) {
+        self.call.wait_turn(&self.call.done, self.turn);
+        self.call
+            .log
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)[self.turn] = self.ordinal;
     }
 }
 
@@ -403,7 +433,8 @@ fn begin_dispatch_order_call(
         Some((
             Arc::new(DispatchOrderCall {
                 schedule,
-                released: AtomicUsize::new(0),
+                started: AtomicUsize::new(0),
+                done: AtomicUsize::new(0),
                 claims: AtomicUsize::new(0),
                 log: Mutex::new(vec![usize::MAX; arm.window]),
             }),
@@ -874,9 +905,7 @@ fn run_dispatch_chunk<T, S, F>(
     F: Fn(super::phase::StepReadView<'_>, usize, &mut [DispatchSlot<T>], S) + Sync,
 {
     #[cfg(test)]
-    if let Some(call) = order {
-        call.enter();
-    }
+    let _order_hold = order.map(|call| call.enter());
     #[cfg(test)]
     counters.note_thread();
     #[cfg(feature = "execution-evidence")]
@@ -1210,9 +1239,7 @@ impl ExecutionResources {
         let probe = super::execution_evidence::dispatch(matches!(self, Self::Caller));
         let run = |(start, item)| {
             #[cfg(test)]
-            if let Some((call, _)) = &order {
-                call.enter();
-            }
+            let _order_hold = order.as_ref().and_then(|(call, _)| call.enter());
             #[cfg(test)]
             {
                 counters.note_thread();
