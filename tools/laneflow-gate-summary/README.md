@@ -43,6 +43,8 @@ target/release/laneflow-gate-summary check-transitions `
 
 试跑副本在 `fixtures/v0.10-trial/unified-gate.toml`，其结构即文档：
 
+- `required_loads`：本轮汇总必须覆盖的负载（含延后负载）；`loads` 须与该集合
+  **恰好一一对应**（缺失、重复或多挂都失败），防止整个负载被误删后静默通过。
 - `[[loads]]`（`kind = "axes"`）：一套负载 × 五轴逐格——`status`（`semantic-pass`
   / `witness-pass` / `uncertified-performance` / `authorized-exemption` /
   `pending`）、结论、来源提交、被测二进制、输入身份、覆盖边界、例外声明与

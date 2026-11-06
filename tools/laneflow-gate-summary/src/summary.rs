@@ -68,6 +68,56 @@ fn validate(manifest: &Manifest, mode: Mode, require_complete: bool) -> Result<(
             manifest.format
         )));
     }
+    // 负载恰好覆盖：required_loads 与 loads 一一对应（缺失、重复或多挂都
+    // 失败）——整个负载被误删时不能静默通过校验。
+    if manifest.required_loads.is_empty() || manifest.loads.is_empty() {
+        return Err(invalid("required_loads 与 loads 均不得为空"));
+    }
+    fn load_id(entry: &LoadEntry) -> &str {
+        match entry {
+            LoadEntry::Axes(load) => load.id.as_str(),
+            LoadEntry::Deferred(load) => load.id.as_str(),
+        }
+    }
+    let mut seen_loads: Vec<&str> = Vec::new();
+    for entry in &manifest.loads {
+        let id = load_id(entry);
+        if seen_loads.contains(&id) {
+            return Err(invalid(format!("负载 {id} 重复声明：每个负载恰一条")));
+        }
+        seen_loads.push(id);
+    }
+    let missing_loads: Vec<&String> = manifest
+        .required_loads
+        .iter()
+        .filter(|required| !seen_loads.contains(&required.as_str()))
+        .collect();
+    if !missing_loads.is_empty() {
+        return Err(invalid(format!(
+            "缺少必需负载：{}（loads 须恰好覆盖 required_loads）",
+            missing_loads
+                .iter()
+                .map(|load| load.as_str())
+                .collect::<Vec<_>>()
+                .join("、")
+        )));
+    }
+    let extra_loads: Vec<&str> = seen_loads
+        .iter()
+        .copied()
+        .filter(|id| {
+            !manifest
+                .required_loads
+                .iter()
+                .any(|required| required == id)
+        })
+        .collect();
+    if !extra_loads.is_empty() {
+        return Err(invalid(format!(
+            "含未声明负载：{}（required_loads 之外的负载不得挂接）",
+            extra_loads.join("、")
+        )));
+    }
     let performance = &manifest.global.performance;
     if performance.verdict != "未认证" {
         return Err(invalid(format!(

@@ -34,6 +34,7 @@ fn base_manifest() -> String {
 format = "lf-unified-gate-manifest-1"
 title = "测试汇总"
 mode_note = "单元测试 fixture"
+required_loads = ["LF-SYNTH-v2", "LuST"]
 required_l1_identities = ["10000-L1-16"]
 
 [global]
@@ -471,4 +472,44 @@ fn libtest_prefixed_routing_header_is_located() {
             .contains("workload_id=LF-ROUTING-G2-LINEAR-v1")
     );
     std::fs::remove_dir_all(&output).ok();
+}
+
+#[test]
+fn missing_required_workload_is_rejected() {
+    // 声明集含 LF-CN-URBAN-v1 但整个负载被删：必须拒绝（#1285 第五轮——
+    // 负载级漏挂不能静默通过 formal --require-complete）。
+    let body = base_manifest().replace(
+        r#"required_loads = ["LF-SYNTH-v2", "LuST"]"#,
+        r#"required_loads = ["LF-SYNTH-v2", "LF-CN-URBAN-v1", "LuST"]"#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("loadmiss"),
+        Mode::Formal,
+        true,
+    )
+    .expect_err("缺失必需负载必须被拒绝");
+    assert!(error.to_string().contains("缺少必需负载"));
+    assert!(error.to_string().contains("LF-CN-URBAN-v1"));
+}
+
+#[test]
+fn undeclared_workload_is_rejected() {
+    // required_loads 之外的负载挂接：必须拒绝（多挂与删声明同样封堵）。
+    let body = base_manifest().replace(
+        r#"required_loads = ["LF-SYNTH-v2", "LuST"]"#,
+        r#"required_loads = ["LF-SYNTH-v2"]"#,
+    );
+    let manifest = write_manifest(&body);
+    let error = summary::run(
+        &manifest,
+        &ctx(),
+        &output_dir("loadextra"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("未声明负载必须被拒绝");
+    assert!(error.to_string().contains("含未声明负载"));
 }

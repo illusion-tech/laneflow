@@ -12,6 +12,7 @@
 format = "lf-unified-gate-manifest-1"
 title = "LaneFlow v0.10 统一五轴汇总回执（LF-SYNTH-v2 与中国特色城市负载）"
 mode_note = "试跑副本（fixtures/v0.10-trial/unified-gate.toml）：消费现有记录验证汇总器；正式副本由 #305 制作"
+required_loads = ["LF-SYNTH-v2", "LF-CN-URBAN-v1", "LuST"]
 required_l1_identities = ["10000-L1-16", "100000-L1-33"]
 
 [global]
