@@ -39,8 +39,12 @@ setup identity。冻结配置为：
   100 目标编译期嵌入清点（#1293、#1298）。`crates/**`、`examples/**`、`xtask/**`
   维持目录级：crate README 被 lib.rs 嵌入进 doctest，examples 的 config/data 与
   xtask/data 注册表均被嵌入。另含 `fuzz/**`（CodeQL 的 rust 库按仓库全部 Rust
-  文件构建，fuzz 独立包不在 workspace 但在扫描范围内）。过滤器是枚举输入的白名单：
-  未预料的新输入触发全量而非漏测，宁可多跑不少跑。
+  文件构建，fuzz 独立包不在 workspace 但在扫描范围内）。过滤器是枚举输入的
+  白名单，宁可多跑不少跑；但未列入清单的路径**不会**自动回退到全量——路径检测
+  成功而无匹配时，重型检查照常跳过。目录级条目（crates/examples/xtask）内的
+  未知新输入由目录通配兜底触发全量；`**/tests/**` 与 `**/fixtures/**` 全局条目
+  兜底测试数据类新位置；其余新增编译期嵌入位置必须在引入时同步补过滤器条目
+  （#1299 评审更正）。
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
