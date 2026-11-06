@@ -124,6 +124,11 @@ jobs:
               - 'rust-toolchain*'
               - 'deny.toml'
               - '.config/nextest.toml'
+              # 未列入清单的路径不会自动回退全量（检测成功而无匹配即跳过重活）；
+              # tests/fixtures 测试数据类新位置由全局条目兜底，其余新增编译期
+              # 嵌入位置须在引入时同步补过滤器条目（#1299 评审更正）。
+              - '**/tests/**'
+              - '**/fixtures/**'
               - '.github/workflows/**'
             bevy:
               - 'crates/laneflow-bevy/**'
