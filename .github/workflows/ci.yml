@@ -97,7 +97,11 @@ jobs:
               - 'xtask/**'
               - 'tools/**'
               - 'examples/**'
-              - 'research/**'
+              # research 精确到 Rust 文件与 Cargo 清单/锁文件：研究结论文档不参与
+              # workspace 构建，research 数据禁止编译期嵌入（#1293）。
+              - 'research/**/*.rs'
+              - 'research/**/Cargo.toml'
+              - 'research/**/Cargo.lock'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'

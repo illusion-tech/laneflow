@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-11-05
+**最后更新**: 2026-11-06
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -289,10 +289,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   非 Rust 路径变更时以 skip 模式成功完成。
 - `Dependency policy`：cargo-deny。
 - `Analyze (actions)` / `Analyze (rust)`：advanced CodeQL。PR 与 merge_group 上由
-  `Detect CodeQL paths` job 判定适用源代码路径（过滤器与 Rust 路径过滤器同口径，
-  另含 `fuzz/**`），无适用路径时两个 job 以显式 skip 模式成功完成，检测失败时
-  失败关闭；main push、每周调度与手工 dispatch 恒全量（#1283）。事实源见
-  `security-scanning.md`。
+  `Detect CodeQL paths` job 判定适用源代码路径（与 Rust 路径过滤器同口径，
+  `research/**` 精确到 `*.rs`，另含 `fuzz/**`），无适用路径时两个 job 以显式
+  skip 模式成功完成，检测失败时失败关闭；main push、每周调度与手工 dispatch
+  恒全量（#1283、#1293）。事实源见 `security-scanning.md`。
 
 证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规检查，由
 `Evidence` workflow（`schedule` + `workflow_dispatch`，钉版 nextest
