@@ -1,7 +1,9 @@
 //! #1278 整拍级完成顺序强制：固定 worker 4 真实池、强制 P2/P3/P5 分发，
 //! 用领取序窗口置换把「调度相关的确定性缺陷只会偶发出现」变成必然出现。
-//! 成功路径的逐拍公开状态与摘要、失败路径的首错、失败后公开状态与清除
-//! 注入后的重试续跑，都必须与完成顺序无关（与单 worker 融合参考一致）。
+//! 窗口单元按放行表依次开始计算（计算间可重叠）并在完成后依次放行返回，
+//! 完成顺序被物理强制。成功路径的逐拍公开状态与摘要、失败路径的首错、
+//! 失败后公开状态与清除注入后的重试续跑，都必须与完成顺序无关（与单
+//! worker 融合参考一致）。
 //!
 //! 与 `phase_equivalence` 的分工：那边按 worker 矩阵对拍自然调度下的
 //! digest 轨迹（仅强制 P2 分发）；这边三阶段全部强制分发并主动换序，
@@ -28,6 +30,11 @@ const WINDOW: usize = 3;
 /// 两场景在各自拍数内活动车辆数不变（Completed 均晚于此处拍数）。
 const RING_TICKS: usize = 24;
 const CONFLICT_TICKS: usize = 32;
+/// 708_xxx 保留区间中本模块独占的世界身份：P2/P5 注入原子量按世界身份
+/// 武装（#792），武装注入的测试世界不得与其它不持资源锁的并行测试共用
+/// 默认身份 82。
+const RING_WORLD_ID: u64 = 708_030;
+const CONFLICT_WORLD_ID: u64 = 708_031;
 
 struct Scenario {
     name: &'static str,
@@ -42,7 +49,9 @@ fn scenarios() -> Vec<Scenario> {
     vec![
         Scenario {
             name: "waiting-ring",
-            build: Box::new(|| crate::kernel::waiting::tests::multi_gate_world(16)),
+            build: Box::new(|| {
+                crate::kernel::waiting::tests::multi_gate_world_with_id(16, RING_WORLD_ID)
+            }),
             ticks: RING_TICKS,
             entries: &[
                 DispatchEntry::Preview,
@@ -55,9 +64,11 @@ fn scenarios() -> Vec<Scenario> {
             // P3 换序证据由 waiting-ring 承担，这里覆盖 P2/P5 与冲突授权。
             name: "conflict-scale",
             build: Box::new(move || {
-                crate::admin::cutover_migration::tests::conflict_scale_world(
+                crate::admin::cutover_migration::tests::conflict_scale_world_with_identity(
                     Arc::clone(&revision),
                     16,
+                    1,
+                    CONFLICT_WORLD_ID,
                 )
             }),
             ticks: CONFLICT_TICKS,
@@ -107,9 +118,10 @@ fn dispatched_trace(
     (trace, take_dispatch_order_calls())
 }
 
-/// 每次被门作用的调用都真实换序：单元数不少于窗口、多线程参与、放行序
-/// 恰为武装模式的放行表；且每个入口在整个运行中至少有一次单元数超过
-/// 窗口（窗口内外单元并存，换序才有自然序可对照）。
+/// 每次被门作用的调用都真实换序：单元数不少于窗口、多线程参与、完成
+/// 放行序恰为武装模式的放行表（放行游标由完成者推进，完成序被物理强制）；
+/// 且每个入口在整个运行中至少有一次单元数超过窗口（窗口内外单元并存，
+/// 换序才有自然序可对照）。
 fn assert_forced_completion_orders(
     name: &str,
     entries: &[DispatchEntry],
