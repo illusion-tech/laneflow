@@ -4,34 +4,36 @@ use std::time::Instant;
 
 use super::support::{Fixtures, Scene};
 
+// 冻结基线为 BLAKE3-256/version 8 摘要；迁移前 SHA-256/version 7 旧值经
+// frozen_digest_7_fingerprint 复算核验，差异仅来自算法与版本字段（#1301）。
 const CASES: [(u32, u32, bool, usize, &str); 4] = [
     (
         1_000,
         256,
         false,
         128,
-        "31e4896e0811cd527a52b8d7820526ccac2e9cdb70b426da1f1b1814c7a46e1b",
+        "69c5867fbe65b4227b47aac5bdc02b57d83d028b6f1f2bb96604ba40b37274b3",
     ),
     (
         10_000,
         256,
         false,
         16,
-        "81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb",
+        "a5d521988dd4cbac391a37ba6b4e6efb0bab3e42b33af453ca363656730b72e3",
     ),
     (
         10_000,
         16,
         false,
         16,
-        "dc65c7b614b506ad5c2ae7ac22391127b055c9b8f1e74426f65db59325ddc5aa",
+        "a62ce81d6ad6d13009b445c1e8549f10486637dd02c8060d6decc1027caee067",
     ),
     (
         10_000,
         256,
         true,
         16,
-        "81ebf8b06a078a3eae8859958353fcd8f57c7e93cdcb224785358902fe2cdfcb",
+        "a5d521988dd4cbac391a37ba6b4e6efb0bab3e42b33af453ca363656730b72e3",
     ),
 ];
 
