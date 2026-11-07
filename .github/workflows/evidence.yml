@@ -4,6 +4,8 @@ name: Evidence
 # 每日定时与手动触发覆盖；`--run-ignored ignored-only` 只运行带 `#[ignore]` 的
 # 证据测试，并用 `-E` 限定 #748 移出的三个目标。独占测量串行执行
 # （`--test-threads 1`）避免互争 CPU，并以 `--no-capture` 保留 stdout 测量样本。
+# `--no-fail-fast` 保证单个目标失败后其余目标仍执行，避免 fail-fast 掩盖同一
+# 轮中的其他失配（#1301）。
 on:
   schedule:
     - cron: '17 22 * * *'
@@ -51,11 +53,11 @@ jobs:
       - name: Run evidence tests
         shell: bash
         # R1b（r1b_s12_pinned_two_changers_exactly_one_live_order）已随 #1218 去
-        # ignore 进入常规门禁（Placement fixture tests 每 PR 必跑）；下方过滤条目
+        # ignore 进入常规检查（Placement fixture tests 每 PR 必跑）；下方过滤条目
         # 仅在其回归 ignored 状态时生效，保留为名单完整性登记（#1218 D5）。
         run: >-
           cargo +1.99.1 nextest run --workspace --locked --run-ignored ignored-only
-          --test-threads 1 --no-capture
+          --test-threads 1 --no-capture --no-fail-fast
           -E 'test(journal_ab_windows_match_frozen_digests) |
           test(cpu_sampling_windows_match_frozen_digests) |
           test(real_fixture_runs_independently_and_detects_changed_inputs_and_logs) |

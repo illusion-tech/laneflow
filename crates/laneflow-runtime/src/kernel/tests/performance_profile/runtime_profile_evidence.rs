@@ -30,6 +30,29 @@ fn profile_resource_windows_preserve_active_resource_states() {
     }
 }
 
+/// 不依赖负载的摘要正确性回归：小规模固定窗口的摘要必须与冻结基线一致。
+/// 摘要算法或版本迁移时此断言失败，提醒同步更新所有冻结基线（#1301）。
+#[cfg(feature = "placement-fixtures")]
+#[test]
+fn state_digest_matches_frozen_baseline() {
+    let fixtures = Fixtures::new();
+    let scene = Scene::Lane {
+        count: 1,
+        edges: 1,
+        journal: false,
+    };
+    let mut harness = fixtures.world(scene);
+    harness.validate();
+    for _ in 0..harness.steps {
+        harness.step();
+    }
+    harness.validate();
+    assert_eq!(
+        harness.digest(),
+        "9ac1adbc1a1743cde5f8034a026adf77f8589f09dd9ccb75ceb2958760baf7de"
+    );
+}
+
 #[test]
 #[ignore = "manual release current Runtime profile, without diagnostic instrumentation"]
 fn runtime_profile_wall_clock() {
