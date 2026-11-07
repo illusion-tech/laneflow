@@ -1,7 +1,7 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-10-29<br>
+**最后更新**: 2026-11-07<br>
 **适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
@@ -888,9 +888,9 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 
 ## 12. 下游依赖与事实来源
 
-- `core-runtime-scalability-audit.md` 保存 #199、#204、#207、#210、#212 的历史
-  研究证据、no-regret constraints 与架构候选；本文保存当前产品 target/measurement
-  contract。历史数字不能替代本文要求的 integrated certification。
+- `core-runtime-scalability-audit.md`（Retired）指向 #199、#204、#207、#210、#212 的
+  历史研究证据、no-regret constraints 与架构候选（正文在 git 历史）；本文保存当前产品
+  target/measurement contract。历史数字不能替代本文要求的 integrated certification。
 - #216/#217 是独立 research slice，不新增对 #215 的 native blocker。它们可以
   使用本文 workload、budget 与 classification 作为研究输入，但不能自行宣称产品
   certification。

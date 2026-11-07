@@ -112,7 +112,6 @@
   W4 两帧与计时接线合同，实施与正式证据由 #1166 承担。
 - `real-road-workloads.md`：LuST 真实路网契约。
 - `lust-bevy-population-control.md`：LuST / Bevy 示例层人口调节。
-- `core-runtime-scalability-audit.md`：城市级可扩展性前置约束；不实现生产分区。
 - `chinese-style-city-workload.md`：#304 的连通路网、七套需求计划、10k/100k 运行与有限
   跨层验证合同；停车复用 #540 Accepted 合同，产品认证独立执行。
 - [`urban-demand-harness.md`](urban-demand-harness.md)：#544 G1 Accepted，细化初态分配、
@@ -125,6 +124,8 @@
 - `data-format.md` / `data-loading.md` / `current-package-import.md`：早期数据入口与加载
   crate 已删除。
 - `compiler-budget-calibration.md`：#308 一次性研究已关闭，证据在 git 历史。
+- `core-runtime-scalability-audit.md`：#199 Core API 可扩展性前置审计；`laneflow-core`
+  已随 #301 拆除，正文与 #204/#207/#210/#212 原型证据在 git 历史。
 
 ## 文档状态
 
