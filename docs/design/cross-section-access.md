@@ -1,9 +1,9 @@
 # 多模式横断面与准入分层
 
-**文档状态**: Accepted（current + #291 target identity 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-07-29<br>
+**文档状态**: Accepted（横断面所有者与准入分层仍有效；#262 的 Traffic JSON 交付与当时实现说明为 #301 前的历史，现行静态数据入口见 `data-format.md`）<br>
+**最后更新**: 2026-11-08<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
-**实现状态**: 静态模型已由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则仍由 capability guard 结构化拒绝
+**实现状态**: 历史（#301 前）：静态模型曾由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则当时由 capability guard 结构化拒绝。现行静态数据由编译器发射 LFCA、经受检共享路网修订安装 `TrafficWorld`，其横断面与准入能力以 `network-compiler.md` 与 `data-format.md` 为准
 
 **关联文档**:
 
@@ -45,7 +45,11 @@
   normalization、first-error、确定性与性能边界；
 - 最小 production 实现 Issue 的拆分边界。
 
-### 1.2 当前 production
+### 1.2 #301 前的 production（历史）
+
+> 下表记录 #301 拆除 Traffic JSON 与 Core 装载入口前的生产状态，只作历史导航。
+> 现行静态数据入口是编译器发射 LFCA、由受检共享路网修订安装 `TrafficWorld`
+> （`data-format.md`）；本章的所有者关系与准入分层条款继续有效。
 
 | 范围           | Current production                                                                      |
 | -------------- | --------------------------------------------------------------------------------------- |
@@ -55,10 +59,9 @@
 | 准入规则       | AccessRule 静态模型已存在；(class, Route) 绑定期校验；时变/FacilityBand target 规则拒绝 |
 | 横断面横向几何 | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）                                          |
 
-本章主体继续裁决当前态（Current）的横断面与准入语义；#291 目标态（Target）只复用
-其中已经生产化的唯一所有者关系（Unique Owner Relation）和完备所有者树
-（Complete Owner Tree）作为稳定标识派生输入，不把尚未实现的编译器或静态镜像写成
-当前 API。完整目标标识和迁移契约见 `network-compiler.md`。
+本章的横断面所有者关系与准入分层语义继续有效；#291 目标态（Target）复用其中的唯一
+所有者关系（Unique Owner Relation）和完备所有者树（Complete Owner Tree）作为稳定
+标识派生输入。编译器路径已随 #301 成为唯一生产路径，静态镜像方案已由 ADR 0025 取消。完整目标标识和迁移契约见 `network-compiler.md`。
 
 ### 1.3 非目标
 

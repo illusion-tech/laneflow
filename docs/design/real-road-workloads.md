@@ -1,7 +1,7 @@
 # 真实路网 Workload
 
 **文档状态**: Accepted（#1051 的确定性派生与 workload v2 修订；其余沿用 #224 G1，#253 验收重划见 §3.6）<br>
-**最后更新**: 2026-10-26<br>
+**最后更新**: 2026-11-08<br>
 **适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万
 真实路网性能补充 workload 与需求代表性 observation
 
@@ -22,8 +22,10 @@ Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
 - `LF-REAL-LUST-DEMAND-v2`：固定 DUE 样本的 departure schedule、route 和自然
   lifecycle observation。
 
-两个 workload 都是 current `CoreWorld` 的道路机动车特化，统一声明
-`execution_domain=road_motor_vehicle`。#291 G1 与性能基线状态原子化更新前，本文
+两个 workload 都是道路机动车特化，统一声明
+`execution_domain=road_motor_vehicle`。立项时的运行世界是 `CoreWorld`；#301 已拆除
+该入口，可运行世界是 `TrafficWorld`（见 §3.6）。LuST 五轴验收已移至 v0.11（#1269），
+本文工作负载尚未在 `TrafficWorld` 上执行。以下计数约定沿用立项时的口径：#291 G1 与性能基线状态原子化更新前，本文
 继续使用 #215 Accepted 的 current 五项计数字段；无下标的 `N_individual`、
 `N_traffic_active`、`N_intent`、`N_presented` 与 `N_aggregate` 都是道路机动车
 计数，不能将结果解释为非机动车、行人或轨道交通能力。六项分执行域字段只属于

@@ -1,7 +1,7 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-11-06<br>
+**最后更新**: 2026-11-08<br>
 **适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.10 继承）、确定性与性能边界<br>
 **实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
 Route occurrence compiler 与一等 ManeuverGate；#262 的 Traffic v0.9 迁移保留上述
@@ -288,7 +288,7 @@ ManeuverGateHandle
 - public 字段不暴露，调用方不能自行构造；
 - 不实现具有业务含义的 `Ord`；
 - 不持久化到 Traffic/Spatial/Manifest；
-- 只在当前 CoreWorld/session caller contract 内使用；
+- 只在发放它的世界与 session 的调用方契约内使用（v0.9 立项时为 `CoreWorld`，#301 后为 `TrafficWorld`）；
 - static registry immutable，因此 v0.9 不需要 generation lifecycle。
 
 为保持与当前 Edge/StopLine/SignalGroup 等 static handle 一致，v0.9 不单独给新
