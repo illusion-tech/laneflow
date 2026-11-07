@@ -4,8 +4,8 @@
 > `register_route([LaneEdgeOrdinal…])` → `RouteHandle { index, generation }`（ADR 0029）。
 > 下文 v0.2 `CoreWorld` / `RouteInput` 只作历史导航，不是现行 API。
 
-**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-09-06<br>
+**文档状态**: Accepted（v0.2 历史契约导航；#291 目标运行时已随 #301 交付，现行 API 见页首后继覆盖）<br>
+**最后更新**: 2026-11-07<br>
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界<br>
 **关联文档**:
 

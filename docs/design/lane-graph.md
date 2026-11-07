@@ -1,7 +1,12 @@
 # Lane Graph 设计
 
+> **后继覆盖**：`CoreWorld` 已随 #301 拆除，可运行世界是 `TrafficWorld`，安装受检
+> LFCA 构建的共享路网修订（ADR 0025）。下文 v0.2 `CoreWorld` 初始化、resolver 与
+> Traffic v0.10 JSON 输入条款只作历史导航，不是现行 API；外部标识与句柄分层以
+> ADR 0005 仍有效的条款为准，路线入口见 `core-id-handles.md` 页首。
+
 **文档状态**: Accepted  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-11-07
 
 **适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.10 per-edge 基础道路限速和 data-format 输入边界
 

@@ -4,7 +4,7 @@
 
 ## 原则
 
-采用单一事实源：
+采用唯一事实来源：
 
 - `docs/`：长期项目事实、治理、架构、设计与决策。
 - `.agents/skills/`：可复用的 Agent 执行工作流。
@@ -12,7 +12,7 @@
 
 ## 可用 Skill
 
-- `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G2 人流程及合并门禁（PR 默认通过 Merge Queue，队列最终 Rebase）。
+- `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G2 人流程及合并检查（PR 默认通过 Merge Queue，队列最终 Rebase）。
 - `skills/laneflow-development/SKILL.md`：LaneFlow 通用实现工作流。
 - `skills/laneflow-core-design/SKILL.md`：LaneFlow 交通运行时（Traffic Runtime）
   设计。当前实现为 `TrafficWorld` 道路机动车特化（车道图（Lane Graph）/路线
@@ -22,7 +22,7 @@
 - `skills/laneflow-adapter/SKILL.md`：引擎适配器（Engine Adapter）开发。当前交付
   Bevy 参考适配器；Unity、Unreal、Godot、O3DE、Web 等遵循同一 Runtime/Spatial
   集成边界。
-- `skills/laneflow-pre-1-0/SKILL.md`：1.0 前的开发态度。当前树只留一套权威，不为
+- `skills/laneflow-pre-1-0/SKILL.md`：1.0 前的开发态度。当前树只留一套正本，不为
   弯路堆兼容；G1/ADR 可改写。发布后失效。
 
 ## 使用方式
@@ -33,8 +33,8 @@ Agent 应选择与当前任务最相关、范围最小的 Skill。若任务跨�
 设计任务的发现入口，不表示仍存在 Core 运行时。`laneflow-core` crate 与 `CoreWorld`
 已由 #301 拆除；Skill 改名不得反向保留可运行的 `CoreWorld`。
 
-语言约定：长期设计和 Agent 工作流以中文术语、中文定义为权威事实，英文只作辅助
-理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（切片类型、Gate 字段、提交字段名、包（crate）、类型与协议常量）保留精确原文。
+语言约定：长期设计和 Agent 工作流以中文术语、中文定义为准，英文只作辅助
+理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（任务类别值、Gate 字段、提交字段名、包（crate）、类型与协议常量）保留精确原文。
 
 ADR 0021 定义 LaneFlow 的公开组件定位与宿主边界：可嵌入、引擎无关、确定性的
 道路交通运行时与工具链。涉及地区交通场景、城市级范围、出行编排、路径规划

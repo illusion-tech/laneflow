@@ -406,5 +406,5 @@ FlatBuffers G1 冻结非正本表现载荷，不能让每个引擎从粗折线�
    长期道路编辑存档兼容或写成 production hard-bound capability。若实际证据要求 A，必须
    新开 G1、提升来源/几何语义版本并重新生成 fixture、摘要和资源证据；若证据表明 B1
    已满足产品，也仍需显式产品决定后才能把它提升为正式存档语义。
-5. #294 G4 生产切换前，target shared static network/Traffic Runtime/Spatial consumption path
+5. 生产切换（原定 #294 G4，ADR 0020 §10 改为 #301 完成）前，target shared static network/Traffic Runtime/Spatial consumption path
    必须消费同一规范折线，不得恢复独立引擎样条正本。

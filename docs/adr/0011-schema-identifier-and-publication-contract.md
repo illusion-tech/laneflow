@@ -2,12 +2,12 @@
 
 **状态**: Superseded（被 [ADR 0026](0026-merge-governance-rebuild.md) 取代）
 **日期**: 2026-07-17
-**适用范围**: 历史记录：LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；#294 完成前 current JSON loader schema 仍只作为内部输入保留。
+**适用范围**: 历史记录：LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；current JSON loader 已随 #301 从运行入口拆除。
 **目标态取代登记**: Accepted ADR 0020 将把发布目录从仅描述 JSON Schema 系列扩展
 为同时描述可移植规范制品与历史静态镜像变体；Accepted ADR 0025 / #300 G1 已决定不发布静态
 镜像变体。Accepted ADR 0024 已取消 #299 的验证收据，
 并把规范发布描述符收缩为不含 receipt 的 LFCP v2。LFCP v1 只保留为 #298 已实现的
-历史契约。不可变发布、规范 URL、来源链和运行时不联网继续有效。#294 完成 G4 前，本文 current 契约继续生效。
+历史契约。不可变发布、规范 URL、来源链和运行时不联网继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
 
 **关联文档**:
 
