@@ -36,7 +36,7 @@ Skill 标识符（Skill ID）`laneflow-core-design` 沿用历史名称，仅作�
 | 摘要、指纹和算法选择                             | `docs/adr/0033-digest-role-and-algorithm-selection-authority.md`                                                                                                                                                                                                          |
 | 静态路网编译、共享静态路网与 Runtime 消费路径    | `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、`docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、`docs/design/network-compiler.md`、`docs/design/shared-static-network.md`、`docs/design/traffic-runtime-shared-consumption.md` |
 | 编译器基础设施、官方前端受检模块、已验证规范 LIR | `docs/design/compiler-foundation.md`；复核生产编译性能时读取 `docs/reference/v0.10-compiler-production-baseline.md`                                                                                                                                                       |
-| 道路编辑状态、候选道路替换或来源权威             | `docs/adr/0023-road-editing-state-and-phased-network-replacement.md`、`docs/design/road-editing-source-and-geometry-frontend.md`                                                                                                                                          |
+| 道路编辑状态、候选道路替换或来源正本             | `docs/adr/0023-road-editing-state-and-phased-network-replacement.md`、`docs/design/road-editing-source-and-geometry-frontend.md`                                                                                                                                          |
 | 已关闭的编译器预算校准（#308）                   | 只读 `docs/design/compiler-budget-calibration.md` 的短结论；当时制品见精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310                                                                                                                              |
 
 若所需 design 文档尚不存在，在对 Traffic Runtime 做高影响变更前，应先创建或提出
@@ -47,7 +47,7 @@ Skill 标识符（Skill ID）`laneflow-core-design` 沿用历史名称，仅作�
 - 可运行世界：中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”，
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
 - `laneflow-core` / `CoreWorld` 已拆除。新设计不得重新引入 `Core` 作为运行时名称。
-- 中文术语和中文定义以 `docs/reference/glossary.md` 为权威，英文只作辅助理解。
+- 中文术语和中文定义以 `docs/reference/glossary.md` 为准，英文只作辅助理解。
 
 ## 动态执行层边界
 

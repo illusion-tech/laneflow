@@ -48,11 +48,11 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 
 ## 工作流
 
-1. 确认切片类型与影响范围。
+1. 确认任务类别与影响范围。
 2. 修改前先阅读现有代码与测试。
 3. 变更范围限定在 Issue 或用户请求内。
 4. 若改变长期行为或契约，同步更新文档。
-5. 按切片类型运行对应检查。
+5. 按任务类别运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
 7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks 与适用 CodeQL；
    未解决 review conversation 由 GitHub 原生规则阻断。全部 success 后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
@@ -81,7 +81,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 
 - 新实现默认使用 Rust；任何拟新增或修改的非 Rust 代码（纯删除除外）必须先完成
   [`docs/governance/code-language-policy.md`](../../../docs/governance/code-language-policy.md)
-  的代码语言立项审查。研究、测试、CI 和嵌入脚本均按该单一事实源执行，Agent 不得自行豁免。
+  的代码语言立项审查。研究、测试、CI 和嵌入脚本均按该唯一事实来源执行，Agent 不得自行豁免。
 
 - 研究与实验类变更只把结论报告和复现输入提交到 `research/`：逐区间或逐样本测量、
   搜索轨迹、全量结果集等研究过程数据留在 `target/` 或仓库外，不入仓，也不自发
@@ -103,11 +103,11 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   `docs/design/traffic-runtime-shared-consumption.md`。
 - 不要在不更新 design 文档的情况下改变数据格式语义。静态数据现行路径是 LFCA /
   共享静态路网，不是已删除的 current JSON。
-- 长期文档中的领域术语必须中文权威、英文辅助；新术语先补
+- 长期文档中的领域术语必须以中文为准、英文辅助；新术语先补
   `docs/reference/glossary.md`，代码和协议标识符保留精确原文。
 - 面向读者的数量必须让数量级、单位和计数对象清楚且无歧义；零较多的中文正文建议
   使用规范中文数量，表格、公式和机器输入建议使用完整十进制数字。上下文明确时
-  `k`/`M` 等缩写或 `1 万` 等写法可以保留，仅作可读性与一致性建议，不设自动门禁；
+  `k`/`M` 等缩写或 `1 万` 等写法可以保留，仅作可读性与一致性建议，不设自动检查；
   小写 `m` 应特别避免与米混淆。交通仿真规模不使用 `Agent` 或“代理”计数。长期
   通用规模使用交通参与单元并按交通执行域分解；当前 `Vehicle*` API、车辆 workload
   与历史证据保持车辆特化标注，不得冒充其他执行域。不可改的代码、测试、文件和
@@ -125,9 +125,9 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   新增公开可失败 API 必须带 `# Errors`，存在 panic 路径的公开 API 加 `# Panics`
   （标题英文、正文中文）；`assert!` 短英文标签是显式例外；禁止无 Issue 锚点的
   TODO、变更日志式注释与注释掉的代码。
-- 不要在只完成子切片时声称父任务已完成。
+- 不要在只完成子任务时声称父任务已完成。
 - 不要隐瞒未运行的检查；说明未运行项及原因。
-- 提交标题使用 Conventional Commits；scope 可省略，使用时表示主要受影响的组件或职责域，不等同于 PR 切片类型。footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。禁止用 `Co-authored-by` 或 `Made-with:` 标注 AI 工具或模型；AI 参与时在末尾 trailer 段成对写 `Harness: <执行框架与入口形态的已登记规范 ID>` 与 `Model: <实际模型的已登记规范 ID>`，段前空一行，`BREAKING CHANGE:` 留在段前。纯人工提交可以不写。`Harness` 与 `Model` 均只接受已登记的精确 ID；别名、模糊名称、未知 ID 和未登记入口组合均拒绝，先登记再使用。详见 `docs/reference/commit-convention.md` 第 6.1、6.2 节。
+- 提交标题使用 Conventional Commits；scope 可省略，使用时表示主要受影响的组件或职责域，不等同于 PR 任务类别。footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。禁止用 `Co-authored-by` 或 `Made-with:` 标注 AI 工具或模型；AI 参与时在末尾 trailer 段成对写 `Harness: <执行框架与入口形态的已登记规范 ID>` 与 `Model: <实际模型的已登记规范 ID>`，段前空一行，`BREAKING CHANGE:` 留在段前。纯人工提交可以不写。`Harness` 与 `Model` 均只接受已登记的精确 ID；别名、模糊名称、未知 ID 和未登记入口组合均拒绝，先登记再使用。详见 `docs/reference/commit-convention.md` 第 6.1、6.2 节。
 
 ## 交付说明
 

@@ -1,6 +1,6 @@
 ---
 name: laneflow-governance
-description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project、Milestone、Release、双语术语、文档边界、G0-G2 人流程与合并门禁）。适用于 governance、issue、PR、commit、workflow、terminology、milestone、project board、release、development gates 等任务。
+description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project、Milestone、Release、双语术语、文档边界、G0-G2 人流程与合并检查）。适用于 governance、issue、PR、commit、workflow、terminology、milestone、project board、release、development gates 等任务。
 ---
 
 # LaneFlow 治理
@@ -23,13 +23,13 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 
 ## 工作流
 
-1. 将任务归类为切片类型之一：`docs-only`、`governance`、`core-runtime`、
+1. 将任务归类为任务类别之一：`docs-only`、`governance`、`core-runtime`、
    `data-spec`、`adapter`、`authoring-tool`、`example`、`cross-layer`。
 2. 人流程：G0 立项、G1 设计冻结（高影响变更）、G2 开工。这些写在 Issue 里给人看，
    机器不解析正文。
 3. 区分 GitHub 与仓库文档：GitHub 记录当前状态与评审；仓库文档保存长期事实。
 4. 稳定结论回写到 `docs/adr/`、`docs/design/` 或 `docs/governance/`。
-5. 中文术语以 `docs/reference/glossary.md` 为权威；精确代码/协议标识符保留原文。
+5. 中文术语以 `docs/reference/glossary.md` 为准；精确代码/协议标识符保留原文。
 6. 交通仿真规模不得使用 `Agent` 或“代理”计数。
 
 ## Issue
@@ -74,7 +74,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ## 提交说明
 
 标题使用 Conventional Commits。标题中的 scope 可省略；使用时表示主要受影响的组件
-或职责域，不等同于 PR 切片类型，具体规则见 `docs/reference/commit-convention.md`。
+或职责域，不等同于 PR 任务类别，具体规则见 `docs/reference/commit-convention.md`。
 footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。不要再写
 `Gate` / `Slice` / `Impact` / `Scope` / `Validation` / `Docs`。
 
@@ -109,7 +109,7 @@ git config core.hooksPath .githooks
 
 安全设置、扫描 workflow、依赖策略或公开发布任务以
 `docs/governance/security-scanning.md` 与 `docs/governance/dependency-security.md`
-为事实源。必须通过 GitHub API / Checks 读取实际配置；404、403、disabled 都不能
+为事实来源。必须通过 GitHub API / Checks 读取实际配置；404、403、disabled 都不能
 记为零告警。
 
 ## 交付说明

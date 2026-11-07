@@ -50,7 +50,7 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
 - 当前 Adapter API 是 `VehicleHandle`/Entity 车辆特化；目标通用表现使用交通参与
   单元并按交通执行域区分。不得把当前车辆映射写成终态唯一 Adapter 模型，也不得用
   通用术语声称尚未实现的非机动车、行人或轨道表现能力。
-- 中文术语和中文定义以 `docs/reference/glossary.md` 为权威；英文只作辅助理解，
+- 中文术语和中文定义以 `docs/reference/glossary.md` 为准；英文只作辅助理解，
   类型、crate、字段和引擎 API 保留精确原文。
 
 ## Adapter 边界
@@ -75,7 +75,7 @@ Adapter 不得：
 - 用 LOD、可见性或帧预算静默改变 Traffic Runtime safety、通行权、fixed tick 或
   event；宿主只能显式暂停、慢放或统一改变模拟时间推进。
 - 拥有出行需求、Routing、静态规则、运行时分区（Runtime Partition），或把宿主
-  Entity/seed 写入共享静态路网/运行时快照权威；也不得单独替换 Traffic/Spatial
+  Entity/seed 写入共享静态路网或运行时快照的正本；也不得单独替换 Traffic/Spatial
   component 或把内部连续数组当作稳定 Adapter ABI。
 - 让 Spatial 依赖 Runtime，或从 Runtime 发布的 snapshot/facade 借用 Spatial
   component。

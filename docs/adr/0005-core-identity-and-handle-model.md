@@ -7,8 +7,7 @@
 位置，并把目标态动态执行层改名为交通运行时；外部稳定标识、有类型密集句柄、热冷
 分离及动态车辆/路线生命周期继续有效。Accepted ADR 0029 部分取代本文对
 `TrafficWorld` 的 route external ID：Runtime 不持有 route ID resolver，
-`remove_route` 不返回 catalog / 外部路线 ID。#294 完成 G4 前，本文其余 current
-契约继续生效。<br>
+`remove_route` 不返回 catalog / 外部路线 ID。本文其余 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。<br>
 **关联文档**:
 
 - 上游决策:
