@@ -1,7 +1,12 @@
 # LuST / Bevy 个体人口调节契约
 
+> **后继覆盖**：`CoreWorld` 与 `LaneFlowSession::core()` 已随 #301 拆除，可运行世界是
+> `TrafficWorld`。下文按立项时的 `CoreWorld` 写成的接入与重建步骤只作历史导航；
+> 计数与抽样契约继续有效。#257 示例尚未在 `TrafficWorld` 上交付，LuST 五轴验收已
+> 移至 v0.11（#1269）。
+
 **文档状态**: Accepted（#256 G1）<br>
-**最后更新**: 2026-07-29<br>
+**最后更新**: 2026-11-08<br>
 **适用范围**: LuST 真实路网 Bevy native 示例（#257）的一至一万个体人口调节、
 展示计数与确定性抽样；不覆盖走廊 `50..=200` reference policy，也不改写
 TOPO/DEMAND workload ID
@@ -47,11 +52,11 @@ HUD 与 headless 证据必须同时可读：
 | 符号               | 含义                                                  |
 | ------------------ | ----------------------------------------------------- |
 | `target_N`         | 示例 policy 当前目标 logical population，`[1, 10000]` |
-| `N_individual`     | Core 中仍保留完整 identity 的个体车辆数               |
+| `N_individual`     | 运行时中仍保留完整 identity 的个体车辆数              |
 | `N_traffic_active` | 参与道路机动车执行域交通正本的道路交通活动车辆数      |
 | `N_presented`      | 本 outer frame 被 materialize / 提交展示的表现车辆数  |
 
-本文是 current `CoreWorld`/LuST 车辆特化，所有无下标计数均绑定
+本文是 LuST 道路机动车特化，所有无下标计数均绑定
 `execution_domain=road_motor_vehicle`；它不定义目标 Traffic Runtime 的非机动车、
 步行或轨道交通计数原子。
 
