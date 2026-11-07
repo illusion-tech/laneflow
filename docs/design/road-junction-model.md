@@ -51,8 +51,8 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 | Traffic           | current v0.10 语义经 LFCA 制品构建 `SharedNetworkRevision`；旧 JSON 契约已 Retired（`data-format.md`） |
 | Lane topology     | LaneEdge + directed connection + Junction hierarchy                                                    |
 | Route             | 显式有限 edge sequence，注册期编译 occurrences                                                         |
-| Gate              | 一等 `ManeuverGateHandle`                                                                              |
-| Junction identity | 显式 external ID + handle                                                                              |
+| Gate              | 一等 `ManeuverGateOrdinal`（共享路网修订内序号）                                                       |
+| Junction identity | 稳定标识与修订内 typed ordinal 经冷双向索引互查（§4 开头说明）                                         |
 | Spatial           | 折线 edge centerline 经 `SharedSpatialNetwork` / `SpatialSession` 消费（`spatial-geometry.md`）        |
 | Conflict          | authoring protected phases；无 solver                                                                  |
 
@@ -260,6 +260,13 @@ ManeuverPath 在有限循环 Route 的不同 `routeEdgeIndex` 上多次出现。
 
 ## 4. External ID、handle 与 registry
 
+> **历史（#301 前）**：本节的 external ID 规则、typed handle、resolver 与
+> foreign-graph rebind 是 v0.9 `CoreWorld` / `InitialTrafficData` 的接口，已随 #301
+> 拆除，只作历史导航。现行路口静态对象以共享路网修订内的 typed ordinal 标识
+> （`JunctionOrdinal`、`MovementOrdinal`、`ManeuverPathOrdinal`、`ManeuverGateOrdinal`），
+> 经修订的关系查询访问（如 `junction_movements`、`movement_paths`）；稳定标识与
+> ordinal 经修订内的冷双向索引互查。稳定标识的派生见 `network-compiler.md`。
+
 ### 4.1 External ID
 
 Junction、Movement、ManeuverPath 与 ManeuverGate external ID：
@@ -288,7 +295,7 @@ ManeuverGateHandle
 - public 字段不暴露，调用方不能自行构造；
 - 不实现具有业务含义的 `Ord`；
 - 不持久化到 Traffic/Spatial/Manifest；
-- 只在发放它的世界与 session 的调用方契约内使用（v0.9 立项时为 `CoreWorld`，#301 后为 `TrafficWorld`）；
+- 只在当前 CoreWorld/session caller contract 内使用；
 - static registry immutable，因此 v0.9 不需要 generation lifecycle。
 
 为保持与当前 Edge/StopLine/SignalGroup 等 static handle 一致，v0.9 不单独给新
