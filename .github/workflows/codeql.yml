@@ -134,8 +134,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # GITHUB_RUN_URL 不是平台默认环境变量，按官方文档用三元变量构造。
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           sarif="${RUNNER_TEMP}/codeql-skip-${{ matrix.language }}.sarif"
-          jq -n --arg run_url "$GITHUB_RUN_URL" --arg lang "${{ matrix.language }}" '{
+          # 不写 automationDetails：upload-sarif 只在该字段缺失时才用 category 输入
+          # 填充最终分析 category（upload-lib.ts 的 populateRunAutomationDetails），
+          # 显式 id 会把 category 顶成 codeql/skip/* 而非 /language:<语言>。
+          # 对象值不做 jq 拼接：jq 1.7 拒绝未加括号的 +（1.8 才放宽），runner 预装 1.7。
+          jq -n --arg run_url "$run_url" '{
             version: "2.1.0",
             "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
             runs: [{
@@ -146,14 +152,9 @@ jobs:
                   rules: []
                 }
               },
-              automationDetails: {
-                id: ("codeql/skip/" + $lang),
-                description: {
-                  text: "路径检测判定无适用源代码路径，未执行分析；本结果只满足原生 code_scanning 规则的结果存在要求，不构成扫描证据。workflow 运行：" + $run_url
-                }
-              },
               properties: {
                 skip: true,
+                skipNotice: "路径检测判定无适用源代码路径，未执行分析；本结果只满足原生 code_scanning 规则的结果存在要求，不构成扫描证据。",
                 skipReason: "path detection determined no CodeQL-applicable source paths; analysis not executed",
                 workflowRunUrl: $run_url
               },
