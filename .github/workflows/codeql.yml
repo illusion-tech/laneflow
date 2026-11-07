@@ -120,3 +120,52 @@ jobs:
           set -euo pipefail
           echo "No CodeQL-applicable source paths changed; skipping Analyze (${{ matrix.language }})."
           echo "main push, scheduled runs and manual dispatch always analyze in full."
+
+      # main ruleset 的原生 code_scanning 规则要求 PR 有 CodeQL 结果，required checks
+      # 全绿不能替代（纯文档 PR #1300 被无限期阻断的实证）。skip 分支为两个类别各上传
+      # 一份不含告警的 SARIF：tool.driver.name 为 CodeQL、category 与真实分析一致，
+      # run 内写明未执行分析与 workflow 运行链接，可与真实分析区分。上传只满足原生
+      # 规则的“结果存在”要求，不构成扫描证据（security-scanning.md §2.1、§4.1）。
+      # 仅 pull_request 事件上传：merge_group 不适用原生规则（队列证据仍是两个
+      # required check）；main push、调度与手工 dispatch 恒全量、从不走本分支。
+      # SARIF 生成或上传失败时本 job 必须红，不得静默成功（#1302）。
+      - name: Synthesize skip SARIF
+        if: needs.changes.outputs.analyze != 'true' && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sarif="${RUNNER_TEMP}/codeql-skip-${{ matrix.language }}.sarif"
+          jq -n --arg run_url "$GITHUB_RUN_URL" --arg lang "${{ matrix.language }}" '{
+            version: "2.1.0",
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            runs: [{
+              tool: {
+                driver: {
+                  name: "CodeQL",
+                  informationUri: "https://codeql.github.com/",
+                  rules: []
+                }
+              },
+              automationDetails: {
+                id: ("codeql/skip/" + $lang),
+                description: {
+                  text: "路径检测判定无适用源代码路径，未执行分析；本结果只满足原生 code_scanning 规则的结果存在要求，不构成扫描证据。workflow 运行：" + $run_url
+                }
+              },
+              properties: {
+                skip: true,
+                skipReason: "path detection determined no CodeQL-applicable source paths; analysis not executed",
+                workflowRunUrl: $run_url
+              },
+              results: []
+            }]
+          }' > "$sarif"
+          echo "Synthesized skip SARIF for /language:${{ matrix.language }}:"
+          cat "$sarif"
+
+      - name: Upload skip SARIF
+        if: needs.changes.outputs.analyze != 'true' && github.event_name == 'pull_request'
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: ${{ runner.temp }}/codeql-skip-${{ matrix.language }}.sarif
+          category: /language:${{ matrix.language }}
