@@ -6,9 +6,9 @@
 
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
-    MAX_CONFLICT_ZONE_REGION_RING_POINTS, SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS,
-    SPATIAL_LENGTH_ABS_TOLERANCE_METERS, SPATIAL_LENGTH_REL_TOLERANCE,
-    SPATIAL_MIN_PROJECTED_UP_LENGTH, SPATIAL_MIN_SEGMENT_LENGTH_METERS,
+    MAX_CONFLICT_ZONE_REGION_RING_POINTS, SPATIAL_LENGTH_ABS_TOLERANCE_METERS,
+    SPATIAL_LENGTH_REL_TOLERANCE, SPATIAL_MIN_PROJECTED_UP_LENGTH,
+    SPATIAL_MIN_SEGMENT_LENGTH_METERS,
 };
 
 use core::cmp::Ordering;
@@ -510,8 +510,7 @@ fn freeze_polyline(
     }
 
     let tolerance = SPATIAL_LENGTH_ABS_TOLERANCE_METERS
-        .max(SPATIAL_LENGTH_REL_TOLERANCE * expected_length_meters.max(f64::from(cumulative)))
-        + SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS;
+        .max(SPATIAL_LENGTH_REL_TOLERANCE * expected_length_meters.max(f64::from(cumulative)));
     if (expected_length_meters - f64::from(cumulative)).abs() > tolerance {
         return Err(SpatialGeometryViolation::LengthMismatch {
             expected_length_bits: expected_length_meters.to_bits(),

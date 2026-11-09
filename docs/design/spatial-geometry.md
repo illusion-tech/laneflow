@@ -240,7 +240,7 @@ P0 -> P1 -> ... -> Pn
 | `SPATIAL_JOIN_POSITION_TOLERANCE_METERS` |         `0.005` | 相连端点间隙            | `5 mm`，保留在最终 `1 cm` 位置误差预算之内 |
 | `SPATIAL_MIN_PROJECTED_UP_LENGTH`        | `0.008_726_535` | `sin(0.5°)` 的 `f32` 值 | 等号有效；更小值拒绝近垂直 basis           |
 
-这些值应用于受检转换后的 runtime `f32` 坐标。若相邻输入点量化后重合，直接返回退化线段错误，不静默合并。basis 阈值按 `projected_up_length < SPATIAL_MIN_PROJECTED_UP_LENGTH` 拒绝，不能复制旧 `f64` epsilon。Core 长度量化余量仍作为独立加项，不能隐藏进几何容差；current-f64 值固定为 `0.0 m`。
+这些值应用于受检转换后的 runtime `f32` 坐标。若相邻输入点量化后重合，直接返回退化线段错误，不静默合并。basis 阈值按 `projected_up_length < SPATIAL_MIN_PROJECTED_UP_LENGTH` 拒绝，不能复制旧 `f64` epsilon。交通边长是独立的整数毫米正本，绑定容差不另加量化余量。
 
 这里的最终 `1 cm` 是调用方已经提供同一条高保真参考折线后，`f64` 参考到 runtime
 `f32` 表示的误差预算。ADR 0022（#296 FlatBuffers G1 已接受）为上游解析曲线细分提出
@@ -261,19 +261,17 @@ P0 -> P1 -> ... -> Pn
 ### 6.2 一致性检查
 
 ```text
-difference = abs(core_length - geometry_arc_length)
-geometry_tolerance = max(
+difference = abs(traffic_edge_length - geometry_arc_length)
+tolerance = max(
   SPATIAL_LENGTH_ABS_TOLERANCE_METERS,
-  SPATIAL_LENGTH_REL_TOLERANCE * max(abs(core_length), abs(geometry_arc_length))
+  SPATIAL_LENGTH_REL_TOLERANCE * max(abs(traffic_edge_length), abs(geometry_arc_length))
 )
-
-tolerance = geometry_tolerance + core_edge_length_quantization_allowance
 
 difference <= tolerance -> 绑定成功
 difference > tolerance  -> 阻断错误
 ```
 
-现行交通正本边长是整数毫米；对账时把 `length_mm / 1000` 换成米再与规范 `f32` 弧长比较，量化余量为零（`SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS = 0.0`）。ADR 0014 的残差 `f32 EdgeLength` 不是现行合同。#144 曾在生产候选中启用，但形成性能不迁移（no-go）结论后已回退。
+现行交通正本边长是整数毫米；对账时把 `length_mm / 1000` 换成米再与规范 `f32` 弧长比较，不另加量化余量。ADR 0014 的残差 `f32 EdgeLength` 不是现行合同。#144 曾在生产候选中启用，但形成性能不迁移（no-go）结论后已回退。
 
 禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。也不能因为旧几何容差小于 `f32` 量化误差就把 Core 长度恢复为 `f64`；两类误差必须分别记录并组合。
 
