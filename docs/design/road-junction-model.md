@@ -1,11 +1,8 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-11-08<br>
-**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.10 继承）、确定性与性能边界<br>
-**实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
-Route occurrence compiler 与一等 ManeuverGate；#262 的 Traffic v0.9 迁移保留上述
-identity/behavior，新增横断面与准入静态模型；#196 protected-turning profile 继续是后续消费边界
+**最后更新**: 2026-11-09<br>
+**适用范围**: 长期 Road/Junction/Maneuver 分层、最小静态产品 profile、ManeuverGate、Route occurrence、确定性与性能边界<br>
 
 **关联文档**:
 
@@ -13,7 +10,6 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 - `../roadmap.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
-- `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
@@ -25,7 +21,6 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 - `signal-system.md`
 - `vehicle-following.md`
 - `spatial-geometry.md`
-- `data-format.md`
 - `example-scenarios.md`
 - `signalized-corridor-protected-turning.md`
 
@@ -37,24 +32,23 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 
 - RoadSection、LaneGroup、Junction、Movement、ManeuverPath 与 JunctionGroup 的长期
   职责和关系；
-- v0.9 实际生产化的 `Junction -> Movement -> ManeuverPath` 最小静态层级；
+- 已生产化的 `Junction -> Movement -> ManeuverPath` 最小静态层级；
 - LaneGraph、Route、ManeuverPath、ManeuverGate、Signals 与 Spatial 的 authority；
-- external ID、typed handle、normalization、foreign rebind 与 first-error；
-- Traffic v0.8 clean-break target 和 #229 的原子迁移边界；
+- 稳定标识、修订内序号与 first-error；
 - route registration-time occurrence compilation 与 steady-tick 性能约束；
 - #196 已冻结的 protected-turning profile 和安全证明边界。
 
 ### 1.2 当前 production
 
-| 范围              | Current production                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| Traffic           | current v0.10 语义经 LFCA 制品构建 `SharedNetworkRevision`；旧 JSON 契约已 Retired（`data-format.md`） |
-| Lane topology     | LaneEdge + directed connection + Junction hierarchy                                                    |
-| Route             | 显式有限 edge sequence，注册期编译 occurrences                                                         |
-| Gate              | 一等 `ManeuverGateOrdinal`（共享路网修订内序号）                                                       |
-| Junction identity | 稳定标识与修订内 typed ordinal 经冷双向索引互查（§4 开头说明）                                         |
-| Spatial           | 折线 edge centerline 经 `SharedSpatialNetwork` / `SpatialSession` 消费（`spatial-geometry.md`）        |
-| Conflict          | authoring protected phases；无 solver                                                                  |
+| 范围              | Current production                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------- |
+| Traffic           | LFCA 制品构建 `SharedNetworkRevision`                                                           |
+| Lane topology     | LaneEdge + directed connection + Junction hierarchy                                             |
+| Route             | 显式有限 edge sequence，注册期编译 occurrences                                                  |
+| Gate              | 一等 `ManeuverGateOrdinal`（共享路网修订内序号）                                                |
+| Junction identity | 稳定标识与修订内 typed ordinal 经冷双向索引互查（§4）                                           |
+| Spatial           | 折线 edge centerline 经 `SharedSpatialNetwork` / `SpatialSession` 消费（`spatial-geometry.md`） |
+| Conflict          | authoring protected phases；无 solver                                                           |
 
 ### 1.3 非目标
 
@@ -65,7 +59,7 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 - 不把 `left/straight/right`、国家法规或设施类型写进 SignalController。
 - 不冻结道路 mesh、Junction polygon、lane width 或世界坐标。
 - 不生产化 RoadSection、LaneGroup 或 JunctionGroup。
-- 不提供 Traffic v0.7 runtime compatibility、双 schema 或 deprecated API alias。
+- 不提供 pair-based Gate 兼容、双 schema 或 deprecated API alias。
 
 ## 2. 术语与长期分层
 
@@ -73,7 +67,7 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 
 LaneEdge 是 LaneGraph 中有方向、可遍历的最小拓扑与纵向进度单元。它继续拥有：
 
-- external ID 与 `EdgeHandle`；
+- 稳定标识与 `LaneEdgeOrdinal`；
 - length、speed limit；
 - directed next-edge connections；
 - vehicle route cursor 和 edge-local progress 的引用目标。
@@ -146,7 +140,7 @@ JunctionGroup 不聚合为：
 - 单一 runtime availability；
 - 单一车辆 route planner。
 
-v0.9 不引入 JunctionGroup handle、registry 或 schema。
+当前不引入 JunctionGroup 序号、registry 或 schema。
 
 ## 3. 静态 owner 与引用关系
 
@@ -167,14 +161,14 @@ Junction
 - parent/child owner 不在两个方向重复持久化。
 - LaneEdge 只由 LaneGraph 拥有；path 保存 edge reference。
 
-Traffic target 使用 child-owned reference：
+来源使用 child-owned reference：
 
 ```text
 Movement.junctionId
 ManeuverPath.movementId
 ```
 
-Traffic Runtime normalization 构造反向 member ranges，调用方不能提交第二份 child list。
+编译器构造反向 member ranges，来源不能提交第二份 child list。
 
 ### 3.2 ManeuverPath edge shape
 
@@ -216,14 +210,14 @@ ManeuverPathInput
 - identity ownership：`Junction -> Movement -> ManeuverPath` parent hierarchy；
 - semantic exclusive claim：Junction 对 internal edge role 的排他声明。
 
-ManeuverPath 与 Route 只引用 EdgeHandle，不取得 LaneEdge storage ownership。
+ManeuverPath 与 Route 只引用 `LaneEdgeOrdinal`，不取得 LaneEdge storage ownership。
 ManeuverPath 也不独占 internal edge；排他声明位于 Junction 层，因此同一 Junction
 内的多个 path 可以共享 internal edge。
 
 Normalization 从所有 ManeuverPath 派生：
 
 ```text
-InternalEdgeOwner: EdgeHandle -> JunctionHandle
+InternalEdgeOwner: LaneEdgeOrdinal -> JunctionOrdinal
 ```
 
 规则：
@@ -244,7 +238,7 @@ ManeuverPath 的业务 identity 是 external ID；edge sequence 是 traversal si
 不是 external ID 的替代品。
 
 - 同一 normalized topology registry 内，任意两条 ManeuverPath 的完整、已解析
-  EdgeHandle sequence 必须不同，不论它们属于哪个 Junction 或 Movement；
+  `LaneEdgeOrdinal` sequence 必须不同，不论它们属于哪个 Junction 或 Movement；
 - `internalEdges=[]` 的 direct path 同样受全局唯一性约束；
 - 完全相同的物理 traversal 必须使用一个规范 ManeuverPath definition；车辆类别、
   cost、priority 或其他 policy 差异应由独立 overlay 表达，不能复制 path；
@@ -258,91 +252,15 @@ ManeuverPath 的业务 identity 是 external ID；edge sequence 是 traversal si
 identity。它保证完整 sequence 到 ManeuverPath 至多一对一，同时保留同一
 ManeuverPath 在有限循环 Route 的不同 `routeEdgeIndex` 上多次出现。
 
-## 4. External ID、handle 与 registry
+## 4. 稳定标识与修订内序号
 
-> **历史（#301 前）**：本节的 external ID 规则、typed handle、resolver 与
-> foreign-graph rebind 是 v0.9 `CoreWorld` / `InitialTrafficData` 的接口，已随 #301
-> 拆除，只作历史导航。现行路口静态对象以共享路网修订内的 typed ordinal 标识
-> （`JunctionOrdinal`、`MovementOrdinal`、`ManeuverPathOrdinal`、`ManeuverGateOrdinal`），
-> 经修订的关系查询访问（如 `junction_movements`、`movement_paths`）；稳定标识与
-> ordinal 经修订内的冷双向索引互查。稳定标识的派生见 `network-compiler.md`。
+路口静态对象以共享路网修订内的有类型序号标识（`JunctionOrdinal`、`MovementOrdinal`、
+`ManeuverPathOrdinal`、`ManeuverGateOrdinal`），经修订的关系查询访问（如
+`junction_movements`、`movement_paths`）；稳定标识与序号经修订内的冷双向索引互查。
+稳定标识的派生见 `network-compiler.md`，序号的分层规则见 `core-id-handles.md`。
 
-### 4.1 External ID
-
-Junction、Movement、ManeuverPath 与 ManeuverGate external ID：
-
-- 使用 current Traffic ASCII token 规则；
-- case-sensitive；
-- 不 trim、不 case fold、不做 Unicode normalization；
-- 在各自 domain 内唯一；
-- 不同 domain 可以复用同一字符串；
-- 用于 JSON、authoring、validation、debug 与 resolver。
-
-### 4.2 Typed handle
-
-v0.9 target 新增：
-
-```text
-JunctionHandle
-MovementHandle
-ManeuverPathHandle
-ManeuverGateHandle
-```
-
-它们：
-
-- `Clone + Copy + Debug + Eq + Hash`；
-- public 字段不暴露，调用方不能自行构造；
-- 不实现具有业务含义的 `Ord`；
-- 不持久化到 Traffic/Spatial/Manifest；
-- 只在当前 CoreWorld/session caller contract 内使用；
-- static registry immutable，因此 v0.9 不需要 generation lifecycle。
-
-为保持与当前 Edge/StopLine/SignalGroup 等 static handle 一致，v0.9 不单独给新
-handle 增加 world nonce。Foreign handle 不是合法输入；只读 query 无法解析时返回
-`None`，修改/构造路径在可区分时返回结构化错误。不得声称所有 same-index
-foreign handle 都可在运行时被检测。
-
-### 4.3 Resolver
-
-Traffic Runtime public target 至少提供：
-
-```text
-junction_handle(externalId) -> Option<JunctionHandle>
-junction_external_id(handle) -> Option<&str>
-movement_handle(externalId) -> Option<MovementHandle>
-movement_external_id(handle) -> Option<&str>
-maneuver_path_handle(externalId) -> Option<ManeuverPathHandle>
-maneuver_path_external_id(handle) -> Option<&str>
-maneuver_gate_handle(externalId) -> Option<ManeuverGateHandle>
-maneuver_gate_external_id(handle) -> Option<&str>
-```
-
-并提供 normalization-order entity iteration、parent query、member iteration 和
-borrowed path-edge iteration。Public API 不暴露内部 index/range。
-
-### 4.4 Foreign-graph rebind
-
-Normalized registry 不得把 dense EdgeHandle 或 parent handles 直接移植到另一张
-LaneGraph/CoreWorld。
-
-`SignalRegistry::try_new` 是 public cross-domain normalization boundary。它必须先
-按 retained external definitions 把传入的 Junction registry rebind 到目标
-LaneGraph，再解析 StopLine、ManeuverGate 和 coverage；不得直接解引用可能来自
-另一张 graph 的 path EdgeHandle。Final assembly 可以在 crate-private 路径复用已
-rebind 的 Junction registry，避免重复 normalization。
-
-`InitialTrafficData` final assembly 必须：
-
-1. 保留或恢复 external definitions；
-2. 按 external ID 对最终 LaneGraph 重新解析 edge；
-3. 重新分配 Junction/Movement/ManeuverPath/ManeuverGate handles；
-4. 重建 owner/member/candidate indices；
-5. 重做 path connectivity、StopLine/Gate 和 Route occurrence validation；
-6. 只有全部成功后才提交可用 aggregate。
-
-即使两张 graph 拥有相同 external IDs，也必须执行 rebind；handle 数值相同不能作为
-跳过 validation 的证据。
+序号不暴露内部布局，不实现具有业务含义的排序，只在所属修订内有效；静态表不可变，
+因此不需要 generation 生命周期。
 
 ## 5. Normalized storage 与 iteration
 
@@ -357,14 +275,14 @@ dense movement definitions
 dense maneuver-path definitions
 dense maneuver-gate definitions
 
-flat movement handles + per-junction range
-flat maneuver-path handles + per-movement range
-flat edge handles + per-path range
+flat movement ordinals + per-junction range
+flat maneuver-path ordinals + per-movement range
+flat edge ordinals + per-path range
 ```
 
 实现可以采用 prefix counts/two-pass fill 构造 member ranges。要求：
 
-- entity handles 按各自 input/normalization order 分配；
+- 实体序号按各自 normalization order 分配；
 - parent member order 保持 child input order；
 - path edge order严格保持 authoring order；
 - normalization 可以使用临时 traversal-signature lookup 检查全局 path sequence
@@ -385,8 +303,8 @@ flat edge handles + per-path range
 - `maneuver_path_edges(p)`：entry、internal input order、exit；
 - `maneuver_gates()`：ManeuverGate input order。
 
-Handle 数值不具有长期持久化意义，但同一 package bytes/同一 normalization path 必须
-得到相同 handle allocation 与 iteration。
+序号数值不具有跨修订意义，但同一来源字节/同一 normalization path 必须
+得到相同序号分配与 iteration。
 
 ## 6. Route 与 Maneuver occurrence
 
@@ -405,14 +323,14 @@ Route 继续是有限显式 edge sequence：
 概念 identity：
 
 ```text
-(RouteHandle, entryRouteEdgeIndex, ManeuverPathHandle)
+(RouteHandle, entryRouteEdgeIndex, ManeuverPathOrdinal)
 ```
 
 Normalized route-shared record：
 
 ```text
 ManeuverOccurrence
-  maneuverPath: ManeuverPathHandle
+  maneuverPath: ManeuverPathOrdinal
   entryRouteEdgeIndex: usize
   exitRouteEdgeIndex: usize
 ```
@@ -436,7 +354,7 @@ Topology registry 建立 entry-transition candidate index。唯一生产入口�
 
 ```text
 GateOccurrence
-  maneuverGate: ManeuverGateHandle
+  maneuverGate: ManeuverGateOrdinal
   routeTransitionIndex: usize
 ```
 
@@ -465,7 +383,7 @@ Vehicle step 只消费 route-shared compiled metadata 和当前 route cursor：
 
 ### 7.1 一等 Gate model
 
-Traffic/Runtime target：
+来源形状：
 
 ```text
 ManeuverGateInput
@@ -480,10 +398,10 @@ Normalized：
 
 ```text
 ManeuverGate
-  handle
-  maneuverPath: ManeuverPathHandle
+  ordinal: ManeuverGateOrdinal
+  maneuverPath: ManeuverPathOrdinal
   transitionIndex
-  stopLine: StopLineHandle
+  stopLine: StopLineOrdinal
   control: SignalControl
 ```
 
@@ -499,9 +417,9 @@ toEdge = pathEdges[transitionIndex + 1]
 
 StopLine 必须绑定 `fromEdge`。Current StopLine 的 `edgeEnd` 语义继续成立。
 
-### 7.2 历史 v0.9 protected-entry profile 与 current v0.10 extension
+### 7.2 protected-entry profile 与多 Gate
 
-#196/#229 的最小 profile 额外要求：
+protected-entry profile 额外要求：
 
 - 所有生产 ManeuverGate 的 `transitionIndex == 0`；
 - Gate crossing 为 `entryEdge -> first internal`，internal 为空时为
@@ -513,8 +431,7 @@ StopLine 必须绑定 `fromEdge`。Current StopLine 的 `edgeEnd` 语义继续�
 - Restrictive yellow/red 在 entry StopLine 形成 SignalStop；
 - 已原子跨越 Gate 的车辆继续清空，不倒退回 StopLine。
 
-#281/Traffic v0.10 保留上述 canonical protected corridor profile，但解除全局
-`transitionIndex == 0` guard：同一路径可在不同 transition 声明多个 Gate，
+在 canonical protected corridor profile 之外，同一路径可在不同 transition 声明多个 Gate，
 path query 与 Route occurrence 按 transition 顺序编译。internal Gate 的 StopLine
 由 Gate usage 建立 coverage，不被误当作新的 Junction entry。
 
@@ -527,19 +444,18 @@ path query 与 Route occurrence 按 transition 顺序编译。internal Gate 的 
 - 每个 StopLine 控制且可被 Route 采用的 Junction entry traversal 必须属于至少一条
   ManeuverPath。
 - 每个被 Route 选择的受控 path occurrence 必须解析到唯一 Gate。
-- current v0.10 corridor Route 如果绕过显式 path/Gate，在加载或 runtime route registration
-  阶段拒绝。
+- Route 如果绕过显式 path/Gate，在 `register_route` 阶段拒绝。
 
 ### 7.4 Public observation
 
-Signals query/state/event target 使用 `ManeuverGateHandle`，并可解析其
+Signals 查询使用 `ManeuverGateOrdinal`，并可解析其
 ManeuverPath、Movement 与 Junction。不得保留 pair-based public key/alias。
 
 Adapter 可以：
 
 - 遍历 Gate；
 - query current aspect/signal-layer permission；
-- 通过 path/parent resolver 绑定 debug 或 lamp presentation；
+- 通过 path/parent 关系查询绑定 debug 或 lamp presentation；
 - 使用 external ID 输出诊断。
 
 Adapter 不得：
@@ -551,104 +467,34 @@ Adapter 不得：
 
 ## 8. Authority 矩阵
 
-| 事实/行为                          | Authority                                           | 非 Authority                                        |
-| ---------------------------------- | --------------------------------------------------- | --------------------------------------------------- |
-| Edge connection/length/speed limit | LaneGraph/Runtime                                   | Junction、Spatial、Adapter                          |
-| Junction/Movement/Path identity    | Traffic input + Traffic Runtime normalized registry | connector naming、Adapter                           |
-| Internal-edge Junction owner       | Traffic Runtime derived topology index              | duplicate wire owner、Spatial                       |
-| Path traversal signature coherence | Traffic Runtime topology normalization              | Route discriminator、policy overlay                 |
-| Actual vehicle traversal           | Route + route cursor                                | ManeuverPath、SignalController                      |
-| Canonical geometry/pose            | Spatial edge binding                                | Traffic Runtime Junction polygon、Adapter inference |
-| Signal phase/aspect                | SignalController/Group                              | Movement、Adapter                                   |
-| Gate signal permission             | Compliance + ManeuverGate                           | SignalAspect alone、Adapter                         |
-| Conflict/right-of-way              | Future dedicated domain                             | SignalController、JunctionGroup                     |
-| Final motion/safety                | Traffic Runtime longitudinal/traversal pipeline     | green aspect、Adapter                               |
-| Route/movement weights             | Scenario/authoring policy                           | Traffic Runtime static topology                     |
-| Host transform/rendering           | Adapter/Presentation                                | Runtime/Data                                        |
+| 事实/行为                          | Authority                                       | 非 Authority                                        |
+| ---------------------------------- | ----------------------------------------------- | --------------------------------------------------- |
+| Edge connection/length/speed limit | LaneGraph/Runtime                               | Junction、Spatial、Adapter                          |
+| Junction/Movement/Path identity    | 来源声明 + 编译器规范化登记表                   | connector naming、Adapter                           |
+| Internal-edge Junction owner       | 编译器派生拓扑索引                              | duplicate wire owner、Spatial                       |
+| Path traversal signature coherence | 编译器拓扑规范化                                | Route discriminator、policy overlay                 |
+| Actual vehicle traversal           | Route + route cursor                            | ManeuverPath、SignalController                      |
+| Canonical geometry/pose            | Spatial edge binding                            | Traffic Runtime Junction polygon、Adapter inference |
+| Signal phase/aspect                | SignalController/Group                          | Movement、Adapter                                   |
+| Gate signal permission             | Compliance + ManeuverGate                       | SignalAspect alone、Adapter                         |
+| Conflict/right-of-way              | Future dedicated domain                         | SignalController、JunctionGroup                     |
+| Final motion/safety                | Traffic Runtime longitudinal/traversal pipeline | green aspect、Adapter                               |
+| Route/movement weights             | Scenario/authoring policy                       | Traffic Runtime static topology                     |
+| Host transform/rendering           | Adapter/Presentation                            | Runtime/Spatial                                     |
 
-## 9. Traffic v0.8 历史 clean-break target
+## 9. 来源与制品边界
 
-本节记录 #229 当时从 v0.7 到 v0.8 的原子迁移事实，不把 v0.8 声称为 current。
-current Traffic v0.10 完整继承本节的 Junction/Movement/ManeuverPath/ManeuverGate
-shape 与 Core identity/route occurrence 语义，并在其上增加 #262 的横断面与准入
-静态模型；#235 未来实施必须从届时 current version 再做新的原子迁移。
-
-### 9.1 Wire shape
-
-以下概念 JSON 只展示 Traffic v0.8 新增或替换字段，是非可加载的局部 wire
-shape。现有必填字段，以及被引用的 LaneEdge、StopLine、SignalGroup 和
-SignalController definition 均已省略并假定有效；#229 的 schema fixture 必须提供
-完整、可通过 loader 与 Core normalization 的 package。
-
-```json
-{
-  "formatVersion": "0.8",
-  "junctions": [
-    {
-      "id": "junction-1"
-    }
-  ],
-  "movements": [
-    {
-      "id": "movement-junction-1-west-to-south",
-      "junctionId": "junction-1"
-    }
-  ],
-  "maneuverPaths": [
-    {
-      "id": "path-junction-1-west-left-lane-1",
-      "movementId": "movement-junction-1-west-to-south",
-      "entryEdgeId": "edge-west-approach-lane-1",
-      "internalEdgeIds": [
-        "edge-junction-1-west-left-connector-1"
-      ],
-      "exitEdgeId": "edge-south-exit-lane-1"
-    }
-  ],
-  "signals": {
-    "maneuverGates": [
-      {
-        "id": "gate-junction-1-west-left-lane-1",
-        "maneuverPathId": "path-junction-1-west-left-lane-1",
-        "transitionIndex": 0,
-        "stopLineId": "stop-line-junction-1-west-lane-1",
-        "signalControl": {
-          "kind": "group",
-          "groupId": "group-junction-1-west-left"
-        }
-      }
-    ]
-  }
-}
-```
-
-字段命名以 #229 schema 为准，但语义不得偏离：
+来源语言与 LFCA 的具体字段以各自合同为准（`road-editing-source-and-geometry-frontend.md`、
+`portable-canonical-artifact.md`），语义不得偏离：
 
 - parent reference 只在 child 保存；
 - Junction 不保存 duplicate movement list；
 - Movement 不保存 duplicate path list；
-- internal edge owner 不进入 wire；
-- Gate 必须有独立 ID 和 transition index；
-- handles、compiled occurrences 和 derived indices 不进入 wire。
-
-### 9.2 版本与兼容
-
-- Traffic 已从历史 current `0.7` clean-break 切到 `0.8`。
-- Loader 只接受 exact `"0.8"`；不并行接受 `0.7`。
-- 不提供 runtime migration、deprecated constructors 或 dual query。
-- Source/schema/loader/Core/fixtures/generator/artifacts/catalog/docs/digests 同一可观察
-  production 交付切换。
-- 已发布 0.7 schema/bytes 继续 immutable，不得原地修改。
-
-### 9.3 Spatial/Manifest
-
-SpatialPackage 与 ScenarioManifest 保持 `0.1`：
-
-- path geometry 继续由其引用 edges 的 Spatial centerline 表达；
-- 不新增 Junction polygon、conflict polygon 或 turn radius；
-- Spatial binding 仍以 Traffic edge ID、length 和 digest 配对；
-- Traffic bytes 改变后 Manifest traffic size/digest 必须更新；
-- Spatial bytes 未改变时不得为“版本对齐”伪造 shape 变更。
+- internal edge owner 不进入来源；
+- Gate 必须有独立标识和 transition index；
+- 句柄、路线 occurrence 和派生索引不进入来源；
+- path geometry 由其引用 edges 的 Spatial centerline 表达，不新增 Junction polygon、
+  conflict polygon 或 turn radius。
 
 ## 10. Validation 与 first-error
 
@@ -658,30 +504,26 @@ SpatialPackage 与 ScenarioManifest 保持 `0.1`：
 - owner、edge reference、connectivity、Gate/StopLine 等静态不变量由编译器诊断报告，
   共享静态路网构建只做受检输入的结构核对，不复制编译器拓扑规则；
 - Route occurrence 由 `TrafficWorld` 路线注册报告；
-- 初始化失败不得返回部分可用 registry、Route 或 Signal aggregate。
-
-#301 前由 `laneflow-data` 报告 JSON 错误、由 Core constructors/normalization 报告
-静态不变量的分层已随 current JSON 路径删除。
+- 失败不得返回部分可用 registry、Route 或 Signal aggregate。
 
 ### 10.2 Topology normalization phase order
 
 同一 phase 内按 input order 返回首错：
 
-1. Junction ID syntax/duplicate，并分配 handles；
+1. Junction ID syntax/duplicate，并分配序号；
 2. Movement ID syntax/duplicate、unknown Junction 与 owner；
 3. ManeuverPath ID syntax/duplicate、unknown Movement 与 owner；
 4. 对每条 path 按 entry、internal input order、exit 解析首个 unknown edge；
 5. 对每条 path 按 traversal order 返回首个 disconnected transition；
-6. 按 ManeuverPath input order 检查完整 resolved EdgeHandle sequence 全局重复；
+6. 按 ManeuverPath input order 检查完整 resolved edge sequence 全局重复；
 7. 派生 internal-edge owner，并返回首个 cross-Junction/internal-boundary conflict；
 8. 按 Junction/Movement input order 校验 non-empty child cardinality；
 9. 构造 dense definitions、flat member ranges、flat path-edge storage 与 candidate index。
 
-任一错误不得发布部分 handles/registry。
+任一错误不得发布部分序号或登记表。
 
-全局 sequence 检查保留首个 definition；后续重复项返回概念结构化错误
-`DuplicateManeuverPathSequence`，至少携带 first/duplicate path ID 与各自
-Junction ID，具体 `CoreError` variant 由 #229 冻结。它位于 ownership 派生之前，
+全局 sequence 检查保留首个 definition；后续重复项返回结构化诊断
+`DuplicateManeuverPathSequence`，携带 first/duplicate path 与各自 Junction 的稳定键。它位于 ownership 派生之前，
 因此 zero-internal 与 nonzero-internal 的重复 traversal 得到相同错误，不被后者的
 cross-Junction internal-edge conflict 抢先。
 
@@ -697,13 +539,13 @@ cross-Junction internal-edge conflict 抢先。
 6. StopLine edge/path transition from-edge mismatch；
 7. unknown SignalGroup / invalid signal control；
 8. v0.9 profile 的 non-entry Gate 或 missing/duplicate protected entry Gate；
-9. 构造 dense Gate storage、resolver 与 per-path Gate ranges。
+9. 构造 dense Gate storage 与 per-path Gate ranges。
 
 ### 10.4 Route compile phase order
 
 每条经 `register_route` 提交的路线：
 
-1. current Route ID/edge/connectivity rules；
+1. Route edge/connectivity rules；
 2. path candidate/full sequence match；
 3. zero/multiple required Junction path match；
 4. Maneuver occurrence overlap/order；
@@ -711,8 +553,7 @@ cross-Junction internal-edge conflict 抢先。
 6. 构造 route-shared metadata；
 7. 原子发布 Route handle/definition/metadata。
 
-具体 `CoreError` variant 和 data path 文案由 #229 冻结并测试；实现不得用容器迭代
-偶然顺序改变 first-error。
+实现不得用容器迭代偶然顺序改变 first-error。
 
 ## 11. Determinism
 
@@ -720,14 +561,14 @@ cross-Junction internal-edge conflict 抢先。
 
 同一：
 
-- Traffic bytes；
+- 受检 LFCA 字节；
 - Traffic Runtime version；
 - normalization path；
 - `register_route` 命令序列；
 
 必须得到相同：
 
-- handle allocation；
+- 序号与句柄分配；
 - entity/member/path-edge iteration；
 - first-error variant 与 attribution；
 - Maneuver/Gate occurrence order；
@@ -737,18 +578,18 @@ cross-Junction internal-edge conflict 抢先。
 
 Input arrays 是 normalization order。Permutation 后：
 
-- raw handle 数值允许改变；
+- 序号数值允许改变；
 - public normalization-order iterator 允许改变；
 - first-error attribution 可以按新的 input order 改变；
 - 按 external ID 对齐的实体关系、path edge sequence、Route occurrence 与运行结果必须
   语义等价，前提是输入本身合法且没有依赖顺序的重复/歧义。
 
-测试不得把“语义等价”误写成“handle 或 iteration 完全相同”。
+测试不得把“语义等价”误写成“序号或 iteration 完全相同”。
 
 ### 11.3 禁止的非确定性来源
 
 - `HashMap` 未定义 iteration 直接形成 public order；
-- handle 数值排序；
+- 序号或句柄数值排序；
 - 并行 normalization 的 completion order；
 - connector/external ID substring 推断；
 - vehicle tick 中按 external ID 临时排序；
@@ -786,27 +627,14 @@ Input arrays 是 normalization order。Permutation 后：
 - 不扫描全局 Junction/path/Gate registry；
 - 不创建临时集合；
 - 不做 per-vehicle heap allocation；
-- signal/route constraint 只访问 route-shared compact metadata 和 normalized handles；
+- signal/route constraint 只访问 route-shared compact metadata 和修订内序号；
 - 空/static registry 不改变无关 vehicle 的算法阶数。
-
-### 12.4 #229 验收
-
-#229 至少提供：
-
-- 一万 fixed-tick functional/performance smoke；
-- 十万 scaling observation；
-- empty topology、无 occurrence、dense protected occurrences 的对照；
-- allocation instrumentation，证明 steady tick 无新增 per-vehicle 临时分配；
-- catalog 扩大但车辆 Route 不变时，steady tick 不随 catalog 线性增长；
-- 同机受控 baseline/regression 记录，遵守 current performance design 的阻断阈值。
-
-本文不为 docs-only #228 运行 runtime benchmark。
 
 ## 13. v0.9 protected-turning profile
 
 #196 已在
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
-接受具体 corridor profile。该文档是 #229、#190–#192 的场景级 SSOT；本文继续是
+接受具体 corridor profile。该文档是场景级 SSOT；本文继续是
 owner、identity、normalization、Route occurrence 和 performance contract 的通用
 SSOT。具体 profile 已冻结以下输入：
 
@@ -852,55 +680,9 @@ handoff 时前一 active set 的 internal edges 已清空。若该测试失败�
 #196 G1 并拆分 Junction entry capacity/clearance；不能让 #229 通过 private
 heuristic、放宽测试或隐式 ConflictZone 补洞。
 
-## 14. Core/Data/Adapter 影响矩阵
+## 14. 测试矩阵
 
-| 层                 | Target 影响                                            | #228 production 变更 | 后续 owner     |
-| ------------------ | ------------------------------------------------------ | -------------------- | -------------- |
-| Core API           | 新增四类 handle/resolver/registry；Gate query breaking | 无                   | #229           |
-| LaneGraph          | 保持 edge authority；增加 derived Junction owner index | 无                   | #229           |
-| Route              | 注册期编译 Maneuver/Gate occurrences                   | 无                   | #229           |
-| Signals            | `MovementGate` clean-break 为 `ManeuverGate`           | 无                   | #229           |
-| Traffic Data       | exact-current `0.8` 新 arrays/fields                   | 无                   | #229           |
-| Spatial            | shape 保持 `0.1`；继续 edge binding                    | 无                   | #196/#229 验证 |
-| Manifest           | shape 保持 `0.1`；更新 Traffic size/digest             | 无                   | #229           |
-| Scenario policy    | Route selection authority 不变                         | 无                   | #190/#191      |
-| Generator          | 移除 connector-name inference，显式生成 membership     | 无                   | #229           |
-| Fixtures/artifacts | 原子切换 v0.8 并更新 canonical bytes/digests           | 无                   | #229           |
-| Adapter            | observation 迁移到 Gate/Path handles；authority 不变   | 无                   | #229/#190      |
-| Presentation       | 可显示 Junction/Movement/Path/Gate，非规则 owner       | 无                   | #190           |
-
-## 15. #229 最小生产实现
-
-#229 作为单一可观察迁移交付以下内容：
-
-1. 新 Core inputs、handles、dense registries、resolvers 与 borrowed iterators；
-2. owner/cardinality/connectivity/first-error/foreign-rebind validation；
-3. flat member/path-edge storage 和 entry-transition candidate index；
-4. `register_route` occurrence compiler 与 atomic failure；
-5. `ManeuverGate` static/current Signals query、constraint/traversal integration；
-6. Traffic v0.8 schema/private DTO/loader/fixtures；
-7. corridor generator 显式 membership，删除 connector-name inference；
-8. generated Traffic artifacts、Manifest digest、catalog/publication/docs；
-9. Core/Data/round-trip/property/determinism/performance tests；
-10. current consumers、Bevy example 与 Adapter observation 的编译迁移。
-
-### 15.1 不得出现的中间主干状态
-
-- schema 已是 0.8、loader 仍只认识 0.7；
-- Core 已删除 pair key、Data 仍生成 `movementGates`；
-- generator 已生成新 arrays、canonical fixture 未更新；
-- Traffic bytes 已变、Manifest digest 未更新；
-- new Gate 已存在、Route 仍按 edge pair 绕过 path；
-- old/new Gate API 同时公开；
-- current docs 声称 0.8 已实现但 production loader 尚未切换。
-
-历史 schema 的 main commit provenance 使用 Git commit permalink 与对应 Issue/PR；
-当前树不保留 source-only publication 阶段，也不得把内部 schema 写成公开下载合同
-（ADR 0026）。
-
-## 16. 测试矩阵
-
-### 16.1 Identity/owner
+### 14.1 Identity/owner
 
 - duplicate/invalid Junction、Movement、Path、Gate IDs；
 - unknown parent；
@@ -912,7 +694,7 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 - zero-internal path；
 - repeated internal edge 的通用静态语义与 v0.9 profile 拒绝。
 
-### 16.2 Path/Route
+### 14.2 Path/Route
 
 - unknown/disconnected entry/internal/exit edge；
 - same-Junction identical path sequence；
@@ -929,7 +711,7 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 - failed registration authority equality；
 - remove Route 同时清理 shared occurrence metadata。
 
-### 16.3 Gate/Signals
+### 14.3 Gate/Signals
 
 - unknown path/StopLine/group；
 - transition bounds；
@@ -939,19 +721,15 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 - missing/duplicate protected Gate；
 - restrictive stop、green release、crossed-Gate clearance；
 - pair collision 不再影响 path-specific Gate；
-- query/event 使用 handles，不携带 hot-path strings。
+- 查询使用序号，不携带 hot-path strings。
 
-### 16.4 Data/round-trip/rebind
+### 14.4 来源与修订
 
-- exact 0.8，0.7/future version 拒绝；
-- closed schema 和最窄 JSON path；
-- canonical round-trip；
-- foreign graph 相同/不同 external ID order 的 rebind；
-- input permutation 后 external-ID-aligned semantic equality；
-- historical published bytes 不变；
-- generator deterministic regeneration 和 Manifest digest。
+- 来源版本、字段闭合与诊断路径由各前端测试；
+- input permutation 后按稳定标识对齐的 semantic equality；
+- 同一来源字节的确定性再生。
 
-### 16.5 Performance
+### 14.5 Performance
 
 - flat storage/member/path iterator 零分配；
 - route compiler candidate index 无全 catalog scan；
@@ -961,9 +739,9 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 - catalog-scale independence；
 - input/command replay determinism。
 
-## 17. Future extension boundary
+## 15. Future extension boundary
 
-### 17.1 RoadSection 与 lane change
+### 15.1 RoadSection 与 lane change
 
 RoadSection 的生产语义（section 的 ordered lane membership、LaneEdge chain 与
 section 的关系、schema 版本边界）已由 #234 在
@@ -974,9 +752,9 @@ Issue 负责实现。以下各项仍需独立冻结：
 - lane adjacency、lane-change plan 与 resolved lane plan（#237，消费 #234 SSOT）；
 - 横向几何（宽度、偏移）与性能影响。
 
-不得在 #229 以未验证 string placeholder 代替该设计。
+不得以未验证 string placeholder 代替该设计。
 
-### 17.2 Multi-stage Gate 与 waiting zone
+### 15.2 Multi-stage Gate 与 waiting zone
 
 `ManeuverGate.transitionIndex` 已提供 identity 位置。#235 已在
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
@@ -992,18 +770,18 @@ WaitingZone static registry、Route Gate/Waiting occurrence 与绑定期 capabil
 guards；Waiting capacity/queue/traversal runtime 仍由 #282 交付，Conflict/policy
 部分仍由 #283/#284 交付。
 
-### 17.3 Conflict/priority
+### 15.3 Conflict/priority
 
 #235 Accepted 设计把 ConflictZone/ParticipantStream 放入独立 ConflictRegistry，并由 Traffic Runtime
 ConflictArbiter 产生 vehicle-specific grant/reservation。它可以引用 Junction、
-ManeuverPath 与 Gate handles，但不得：
+ManeuverPath 与 Gate 序号，但不得：
 
 - 把 conflict state 写入 SignalController；
 - 让 Adapter 裁决；
 - 绕过 Traffic Runtime safety；
 - 让 JunctionGroup 自动成为全设施 solver。
 
-### 17.4 Complex facilities
+### 15.4 Complex facilities
 
 - Merge/diverge：独立 gap/priority/lane availability G1。
 - Roundabout：多个 Junction + JunctionGroup + circulating priority。
@@ -1011,7 +789,7 @@ ManeuverPath 与 Gate handles，但不得：
 - Interchange：多个 Junction/RoadSection/Group，不建立单一巨大 conflict unit。
 - City partition：与 #72 Related，不阻塞 v0.9，不改变 handle/owner 事实。
 
-## 18. G1 冻结结论
+## 16. G1 冻结结论
 
 本设计接受：
 
@@ -1021,10 +799,9 @@ ManeuverPath 与 Gate handles，但不得：
 - Route 作为实际 traversal authority；
 - 一等 `ManeuverGate` 与 transition-index location；
 - RoadSection/LaneGroup/JunctionGroup 的延后生产化；
-- Traffic v0.8 clean break；
 - flat registry、route compile 与 steady-tick no-scan/no-allocation；
 - protected-only authoring safety 与 future conflict domain 分离。
 
-若 #196/#229 发现必须改变 owner 层级、Gate identity、Route authority、data version、
+若后续发现必须改变 owner 层级、Gate identity、Route authority、数据版本、
 Spatial shape、conflict owner 或 steady-tick complexity，必须回到 #228/ADR 0017 更新
 G1 或拆 follow-up；不得通过 private implementation 静默偏离。

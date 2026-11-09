@@ -1,19 +1,17 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-08-26（#498 G1：`register_route` 只收边序列，外部 ID 归调用方）
+**最后更新**: 2026-11-09
 
-**适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
+**适用范围**: route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
 
-- `core-runtime.md`
 - `core-id-handles.md`
 - `lane-graph.md`
 - `road-junction-model.md`
 - `parking-system.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
-- `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0028-integer-millimeter-traffic-geometry.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0029-retire-precompiled-static-route.md`
@@ -21,30 +19,25 @@
 
 ## 1. 目标
 
-本文固化 v0.2 阶段 Core route system 设计，作为 #29 的 G1 冻结输入。
+本文定义 `TrafficWorld` 的路线定义、校验、生命周期与 traversal 合同。车辆运动状态见
+[`vehicle-following.md`](vehicle-following.md)；路线不得终止在声明 StopLine 的 edge 上；
+路线注册期编译 ManeuverPath/Gate/WaitingZone occurrence，并做 (class, Route) 静态准入与
+profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；
+出现记录编译器只服务该入口。
 
-### 当前 v0.10 覆盖说明
+### 与停车的关系
 
-本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 由
-[`vehicle-following.md`](vehicle-following.md) 第 5 节替换 vehicle motion state；
-v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明
-StopLine 的 edge 上；v0.5 增加 static Parking anchors；v0.7 增加 per-edge speed
-limit；v0.8 再增加 ManeuverPath/Gate occurrence compiler；v0.9 增加
-横断面/准入静态模型与 (class, Route) 绑定期静态准入校验；current v0.10 增加
-multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；出现记录编译器只服务该入口。
-
-Current static ParkingSpace 不持有 RouteHandle。#108/#109 production runtime 仍保留历史
-first-reachable reservation；#540 Accepted target 由 caller 显式选择 entry anchor 与 exact
+静态 ParkingSpace 不持有 RouteHandle。caller 显式选择 entry anchor 与 exact
 occurrence，并要求它从 committed cursor 前向可达。leave 显式携带恢复 route/exit
 occurrence；rebind 同时携带新 route、当前 physical edge 在新 route 上的 occurrence 与
 entry occurrence，并要求新旧 route 展开的完整车身 physical occupancy footprint 相同，
 不能只匹配前缘 edge 后把跨 predecessor 的车尾换到另一支路。Parked/Reserved vehicle 均
 保留 live route reference，`remove_route`
-不得删除任一 live vehicle 正在引用的 route。#541 以 clean break 替换 production
-模型。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。
+不得删除任一 live vehicle 正在引用的 route。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。
 详细契约见 [`parking-system.md`](parking-system.md)。
 
-ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后不再作为生产正本。
+### 路线距离
+
 **现行合同是 ADR 0028**：路线前缀与距离查询为 `u32` mm，溢出 `BeyondFinite`；单边
 `u32` mm，`10_000_000` mm 上界。`register_route` **不得**因整条或
 前缀累计超过 `u32::MAX` mm 失败。距离按查询窗口独立 checked 加：从起点的前缀溢出
@@ -52,12 +45,13 @@ ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go �
 `Finite`，`Completed` 只在剩余 `Finite(0)`。索引用分段 `u32` + 后缀
 `BoundedDistance`，不上 `u64`（ADR 0028）。
 
+### 目标与非目标
+
 目标：
 
 - 定义 route definition 的最小长期模型。
 - 明确 route edge sequence、loop、断连、目标行为和 validation 输入。
-- 明确 route following 与 fixed tick、epsilon、event order 和 lifecycle 的关系。
-- 为 #30 data format、#31 validation 和 #32 Core 对齐提供可引用输入。
+- 明确 route following 与 fixed tick、event order 和 lifecycle 的关系。
 
 非目标：
 
@@ -73,7 +67,7 @@ ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go �
 - **RouteHandle**：Traffic Runtime 内部和 public runtime API 使用的不透明 typed route handle。
 - **Route edge sequence**：route 中按行驶顺序排列的 edge 序列。
 - **Route cursor**：车辆在 route 中的位置，至少由 route edge index 和 edge-local progress 表达。
-- **Route target**：route 的完成目标。v0.2 固定为最后一个 route edge 的出口边界。
+- **Route target**：route 的完成目标，固定为最后一个 route edge 的出口边界。
 - **Live vehicle**：仍存在于 `TrafficWorld` 车辆表中的车辆，不等同于 `VehicleStatus::Active`。
 
 ## 3. 设计决策
@@ -99,16 +93,16 @@ route following 时：
 
 状态：已接受。
 
-v0.2 的 route target 固定为最后一个 route edge 的 edge length 位置。车辆到达该边界后：
+route target 固定为最后一个 route edge 的 edge length 位置。车辆到达该边界后：
 
 - `VehicleStatus` 进入 `Completed`。
 - `routeEdgeIndex` 保持最后一个 route edge index。
-- `edgeProgress` clamp 到最后一个 edge length。
-- 只在车辆从 `Active` 首次进入 `Completed` 的 tick 发出一次 `vehicle.completedRoute` 事件。
+- 边内进度 clamp 到最后一个 edge length。
+- 调用方通过已提交车辆状态观察 `Completed`。
 
-若业务需要在 edge 中途完成 route，应在 lane graph 中把该位置拆成 terminal edge boundary，再把 route 的最后一个 edge 指向拆分后的 terminal edge。v0.2 不引入 per-route `targetProgress`，避免在 #29 中提前冻结 partial-edge target、parking target 和 stop line 语义。
+若业务需要在 edge 中途完成 route，应在 lane graph 中把该位置拆成 terminal edge boundary，再把 route 的最后一个 edge 指向拆分后的 terminal edge。不引入 per-route `targetProgress`。
 
-### D3. 显式 loop 合法，隐式无限 loop 不属于 v0.2
+### D3. 显式 loop 合法，不提供隐式无限 loop
 
 状态：已接受。
 
@@ -126,7 +120,7 @@ R1: [A, B, A]
 - `A -> A` self loop 只有在 lane graph 中显式声明 self connection 时才合法。
 - route 到达 sequence 最后一个 edge 的出口边界后完成，不自动回到开头。
 
-持续循环路线、巡逻路线或随机巡航应由后续 route policy / scheduler 设计处理，不在 v0.2 route definition 中隐式表达。
+持续循环路线、巡逻路线或随机巡航应由后续 route policy / scheduler 设计处理，不在 route definition 中隐式表达。
 
 ### D4. route validation 依赖稳定 lane graph
 
@@ -153,9 +147,9 @@ route validation 不检查：
 
 状态：已接受，依据 ADR 0005。
 
-v0.2 Core runtime 支持运行时 register / remove route definition。
+Traffic Runtime 支持在步进之间 register / remove route definition。
 
-规则（ADR 0029；取代 v0.2 把 external route ID 写进 Runtime 的合同）：
+规则（ADR 0029）：
 
 - `register_route` 只接收共享静态路网 `LaneEdgeOrdinal` 有序非空序列，不接收 external
   route ID。catalog / 调用方若有 `route_id`，自己持有并交叉引用句柄。
@@ -168,7 +162,7 @@ v0.2 Core runtime 支持运行时 register / remove route definition。
 - `remove_route` 成功后旧句柄 stale；调用方若要诊断用的 catalog ID，对照自己的表。
 - 旧 `RouteHandle` 在 route 移除后变为 stale；若槽位复用，新 handle 必须拥有不同 generation。
 
-v0.2 不提供 in-place route mutation。需要替换 route 时，应注册新 route，并把车辆迁移策略作为单独设计处理。
+不提供 in-place route mutation。需要替换 route 时，应注册新 route，并把车辆迁移策略作为单独设计处理。
 
 ### D6. route following 使用 fixed tick、edge-local progress 和领域边界策略
 
@@ -185,8 +179,6 @@ route following 遵守 ADR 0003 与 `traffic-runtime-integer-geometry.md`：
 - 满边且下一跳许可时进入下一条 `progress_mm = 0`；满边但下一跳拒绝则停在
   `progress_mm == length_mm`。
 
-ADR 0014 的残差 `f32` 进度不是现行合同。#125 / #144 的 current-f64 领域表是历史证据。
-
 单 tick 可以跨越多个 edge，但实现必须有硬上界：
 
 - 上界为当前 route 剩余 edge 数。
@@ -200,39 +192,18 @@ ADR 0014 的残差 `f32` 进度不是现行合同。#125 / #144 的 current-f64 
 
 事件顺序规则：
 
-- 单个 vehicle 在同一 tick 内按实际 route transition 顺序输出事件。
-- 多个 vehicle 的更新顺序必须由显式 deterministic update order 决定。
-- v0.2 不得继续依赖每 tick external string sort 作为长期 hot path 策略。
-- 不得依赖 `VehicleHandle` 或 `RouteHandle` 的内部数值排序作为 public contract。
+- 多个 vehicle 的更新顺序由显式、确定的 `live_order` 决定。
+- 不得依赖每 tick external string sort。
+- 不得依赖 `VehicleHandle` 或 `RouteHandle` 的内部数值排序作为公开合同。
 
-event payload 应使用 handle：
-
-```text
-VehicleChangedEdgeEvent
-  tickIndex
-  vehicle: VehicleHandle
-  route: RouteHandle
-  fromEdge: EdgeHandle
-  toEdge: EdgeHandle
-  fromRouteEdgeIndex
-  toRouteEdgeIndex
-
-VehicleCompletedRouteEvent
-  tickIndex
-  vehicle: VehicleHandle
-  route: RouteHandle
-  edge: EdgeHandle
-  routeEdgeIndex
-```
-
-Adapter、debug 和日志需要车辆 / 边可读 ID 时，通过 resolver 查询。路线可读 ID
-不进 Runtime resolver，查调用方自己的表（ADR 0029）。
+跨边与路线完成不发布独立事件，调用方读取已提交车辆状态。路线可读 ID 不进 Runtime
+resolver，查调用方自己的表（ADR 0029）。
 
 ### D8. route system 不承担 pathfinding
 
 状态：已接受。
 
-v0.2 route system 只消费调用方提供的 explicit route。它不计算最短路、最快路、随机路径或交通感知路径。
+route system 只消费调用方提供的 explicit route。它不计算最短路、最快路、随机路径或交通感知路径。
 
 后续若引入 route planner，应单独设计：
 
@@ -244,7 +215,7 @@ v0.2 route system 只消费调用方提供的 explicit route。它不计算最�
 
 ## 4. Vehicle State 影响
 
-v0.2 vehicle runtime state 应引用 route handle 和 edge handle，而不是 external string：
+车辆运行时状态引用路线句柄与路线序列下标，不保存外部字符串：
 
 ```text
 VehicleState
@@ -261,8 +232,7 @@ VehicleState
 
 - spawn vehicle 时 route handle 必须 active。
 - `routeEdgeIndex` 必须在 route edge sequence 范围内。
-- `edgeProgress` 必须落在当前 edge 的 `[0, edge length]` 范围内。
-- initial completed vehicle 必须位于 route 最后 edge，且 progress 在最后 edge length 的 edge boundary 领域阈值范围内。
+- 边内进度必须落在当前 edge 的 `[0, edge length]` 范围内。
 - parked / completed vehicle 不移动，但仍保留 route 引用，直到 leave/rebind 原子替换或
   despawn 原子移除。
 
@@ -286,25 +256,17 @@ VehicleState
 `WorldConfig`、不扩义 `ExecutionConfig`）。静态序列合同与失败原子（D4/D5）
 不变。
 
-## 6. Data Format 影响
+## 6. 持久化影响
 
-#30 data format 应至少能表达：
-
-- route external ID。
-- ordered edge external ID sequence。
-- route 与 lane graph 的同一数据包或引用关系。
-
-data format 不应持久化 `RouteHandle`、`EdgeHandle` 或 `VehicleHandle`。
-
-partial-edge target、route policy、planner cost、traffic condition、parking target 和 signal compliance 不在 v0.2 route data format 的最小冻结范围内。若示例数据需要中途目标，应通过拆分 lane edge 表达。
+路网制品不声明路线（ADR 0029）；路线由调用方持有的边序列在运行时注册。`RouteHandle`
+与 `VehicleHandle` 不进入路网制品。若示例数据需要中途目标，应通过拆分 lane edge 表达。
 
 ## 7. Adapter 影响
 
 Adapter 可以：
 
 - 读取 route event 和 vehicle runtime state。
-- 通过 resolver 查询 vehicle / edge external ID。路线可读 ID 不进 Runtime
-  resolver。
+- 通过共享路网修订的冷标识索引查询边的稳定标识。车辆与路线的可读 ID 归调用方。
 - 使用自身 geometry 数据把 edge progress 转换为 transform。
 - 在 debug UI 中显示 route edge sequence 和 completion。
 
@@ -314,19 +276,7 @@ Adapter 不应：
 - 把引擎对象生命周期当作 Traffic Runtime route registry 生命周期。
 - 依赖 route handle 的内部数值排序。
 
-## 8. ADR 评估
-
-本设计不新增 ADR。
-
-原因：
-
-- route following 的 tick、determinism 和失败原子性已由 ADR 0003 覆盖。
-- route handle、dynamic route lifecycle 和 resolver 边界已由 ADR 0005 覆盖。
-- 本文只把 route system 的 v0.2 设计细化为可实现输入。
-
-若后续新增 pathfinding、runtime route mutation、动态 lane graph 拓扑或 partial-edge target，应重新评估是否需要新增 ADR。
-
-## 9. 测试与验证输入
+## 8. 测试与验证输入
 
 后续实现 issue 至少应覆盖：
 
@@ -336,25 +286,18 @@ Adapter 不应：
 - repeated edge route。
 - explicit self loop route。
 - route completion clamps progress to final edge length。
-- completed event 只发一次。
 - stopped / completed vehicle 后续 tick 不移动。
-- single tick 跨多个 edge 的事件顺序。
+- single tick 跨多个 edge 的状态推进。
 - route registration 成功返回 handle。
 - route registration 失败保持 registry 不变。
 - route removal 拒绝 live vehicle 正在引用的 route。
 - stale route handle rejection。
-- event payload 使用 handle；路线不经 Runtime resolver 回查 external ID。
-- 10 km 边长上界、整数毫米进度与 `BeyondFinite` 路线距离，在生产矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。残差 `f32` 进度只作 #144 历史。
+- 路线不经 Runtime resolver 回查 external ID。
+- 10 km 边长上界、整数毫米进度与 `BeyondFinite` 路线距离，在生产矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。
 
-## 10. v0.8 直行走廊 route profile
+## 9. Maneuver occurrence
 
-#184 不改变 route 是 finite explicit edge sequence、且 Traffic Runtime 不负责 pathfinding 的既有决策。v0.8 generator 为 6 个 portal-level 直行 movement 生成 14 条 lane-level routes：主干道两个方向各三条，两个次干道的两个方向各两条。主干道 route 穿越两个独立 connector，次干道 route 穿越一个 connector；不同 lane route 不互连，因此首版没有换道或转向。
-
-route completion event 的稳定顺序是 #203/caller-owned policy 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。Traffic Runtime 不拥有人口或回流 policy，只由 #186 提供 caller-driven atomic replace；完整 ID、portal 和 route 表见 `example-scenarios.md`，production generator/policy 分别由 #188/#203 交付。
-
-## 11. v0.9 Maneuver occurrence target
-
-#228/ADR 0017 保持 Route 是车辆实际 traversal authority。ManeuverPath 不替代、
+ADR 0017 保持 Route 是车辆实际 traversal authority。ManeuverPath 不替代、
 补全或重排 Route；它只在 Route 中完整连续匹配时形成语义 occurrence。
 
 `register_route` 在命令路径编译出现记录（路网制品不声明路线，ADR 0029）：
@@ -372,5 +315,4 @@ external ID、不扫描全局 catalog，也不为每辆车复制 occurrence。
 `register_route` 必须先完成 path/Gate/StopLine coverage 编译和验证，再原子提交 handle、
 definition 与 metadata。失败不得留下部分 occurrence 或可观察 allocation/order。
 完整 shape、歧义规则与性能边界见
-[`road-junction-model.md`](road-junction-model.md)。#229 已将该 compiler 接入
-`register_route`，并在失败时保持 handle/order 原子性。
+[`road-junction-model.md`](road-junction-model.md)。

@@ -1,12 +1,8 @@
 # Signal System 设计
 
 **文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍）<br>
-**最后更新**: 2026-11-06<br>
-**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
-**实现状态**: #94-#97 已完成 v0.4 Signals 全链路实现与最终验收；#107 加入 Parking，
-#185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
-Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 并支持
-同一 ManeuverPath 多 Gate，既有 indication/SignalStop behavior 保持不变
+**最后更新**: 2026-11-09<br>
+**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。<br>
 
 **关联文档**:
 
@@ -15,14 +11,11 @@ Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 �
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0006-vehicle-following-control-and-safety.md`
-- `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0028-integer-millimeter-traffic-geometry.md`
 - `traffic-runtime-integer-geometry.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
-- `data-format.md`
-- `data-loading.md`
 - `road-junction-model.md`
 - `signalized-corridor-protected-turning.md`
 - `route-system.md`
@@ -31,19 +24,16 @@ Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 �
 
 ## 1. 目标、状态与非目标
 
-v0.4 的目标是在 v0.3 fixed tick、route occurrence、Vehicle Following 和不可绕过的纵向安全层上，交付可验证的基础信号灯闭环：
+本文定义 fixed tick、route occurrence、Vehicle Following 和不可绕过的纵向安全层之上的基础信号灯闭环：
 
 - static、fixed-time、cyclic SignalController；
-- directed connection 上的显式 MovementGate 与 StopLine；
+- ManeuverGate 与 StopLine；
 - red / yellow / green indication 和 protected-entry profile；
 - 红灯/限制性黄灯停车、排队、绿灯放行；
 - permission-aware route traversal；
-- 可供 Adapter/debug 使用的只读 query 与稀疏事件；
-- v0.4 schema/loader/Core normalization 的历史验收、确定性、失败原子性与性能证据。
+- 可供 Adapter/debug 使用的只读查询。
 
-本文是 #93 的 Accepted 设计输入，不是实现完成声明。实施批次为 #94、#95、#96、#97；只有它们分别完成 Gate 后，相应能力才成为 production 事实。
-
-v0.4 明确不实现：
+本文不定义下列能力；已交付的路权、等待与冲突行为以 `waiting-zone-conflict-right-of-way.md` 与路权策略实施合同为准：
 
 - permissive green、无保护左转、红灯右转、红灯掉头；
 - 左转/直行待行区的专用语义；
@@ -53,7 +43,7 @@ v0.4 明确不实现：
 - Engine Adapter ABI、灯具 geometry/transform、渲染动画或 authoring UI；
 - 专业交通工程配时优化或外部仿真器兼容层。
 
-## 2. 长期分层与 v0.4 profile
+## 2. 长期分层与 protected-entry profile
 
 SignalAspect 只是 indication，不是面向未来的最终通行权。完整决策链分为：
 
@@ -61,16 +51,16 @@ SignalAspect 只是 indication，不是面向未来的最终通行权。完整�
 SignalController
   -> SignalAspect
   -> versioned compliance / jurisdiction policy
-  -> MovementGate signal-layer permission
+  -> ManeuverGate signal-layer permission
   -> future conflict / priority arbitration
   -> Traffic Runtime longitudinal safety and traversal
 ```
 
-v0.4 只提供一个 protected-entry compliance profile：
+固定时制信号层提供一个 protected-entry compliance profile：
 
 - green 对 PreGate 产生 `ProtectedAllow`；
 - red 与 restrictive yellow 对 PreGate 产生 `DenyAndStop`；
-- `signalControl:none` 只表示没有 v0.4 signal constraint；
+- `signalControl:none` 只表示没有 signal constraint；
 - green 或 none 都不得绕过 leader、route end、safe-speed、no-overlap 或未来 policy。
 
 SignalController 不得硬编码国家、转向或道路设施特例。ADR 0009 固定这一分层，未来中国交通规则通过 versioned policy 和更完整的 maneuver/conflict domain 扩展。
@@ -79,7 +69,7 @@ SignalController 不得硬编码国家、转向或道路设施特例。ADR 0009 
 
 ### 3.1 StopLine
 
-`StopLine` 是独立 external-ID domain。v0.4 只支持：
+`StopLine` 是独立的标识域，现行只支持 `edgeEnd`：
 
 ```text
 StopLineInput
@@ -89,32 +79,33 @@ StopLineInput
 ```
 
 - 逻辑位置是 `edge_progress = edge.length`。
-- `id` 沿用 Core external ID 的严格 ASCII token 规则；不同 ID domain 可以复用相同文本。
+- 来源中的 `id` 遵循编译器的 ASCII token 规则；不同标识域可以复用相同文本。
 - 每个 edge 最多一个 StopLine。
 - 真实中段停止线由 authoring/importer 在该位置拆 edge。
 - StopLine 只定义停车位置，本身不决定许可或直接修改车辆。
 - geometry、线宽、颜色、材质与世界坐标属于 Adapter/Presentation。
 
-### 3.2 MovementGate
+### 3.2 ManeuverGate
 
-`MovementGate` 是 directed connection 上的准入边界：
+`ManeuverGate` 是机动路径某一相邻边转移上的准入边界：
 
 ```text
-MovementGateInput
-  fromEdgeId
-  toEdgeId
-  stopLineId
+ManeuverGate
+  stableIdentity
+  maneuverPath
+  transitionIndex
+  stopLine
   signalControl:
-    group(groupId)
+    group(group)
     | none
 ```
 
-- value identity 是 `(fromEdgeId, toEdgeId)`；Core normalization 后使用 `(EdgeHandle, EdgeHandle)`。
-- 该 pair 只是 Gate identity，不是 1.0 后完整 Movement identity。
-- Gate 必须引用属于 `fromEdgeId` 的 StopLine，且 pair 必须是合法 connection。
-- 声明 StopLine 的 edge，其每个 outgoing connection 必须恰好有一个 Gate。
+- `transitionIndex=i` 表示 `pathEdges[i] -> pathEdges[i+1]`，StopLine 必须绑定 `pathEdges[i]`。
+- 同一 ManeuverPath 的不同 transition 可以各有独立 ManeuverGate，用于多阶段准入。
+- Gate 在共享路网修订内以 `ManeuverGateOrdinal` 标识；edge pair 不是 Gate 或 Movement identity，不保留 pair-based key、别名或双重查询。
+- `register_route` 把 path/Gate 编译为路线共享的 occurrences，车辆 tick 不用 edge pair 推导完整行为 identity。
 - Gate 单向持有 signal binding；SignalGroup 不保存第二份 membership。
-- `none` 不是 `free`、红灯右转或永久优先权，只表示 v0.4 signal layer 不施加约束。
+- `none` 不是 `free`、红灯右转或永久优先权，只表示 signal layer 不施加约束。
 
 ### 3.3 SignalGroup、Controller 与 Phase
 
@@ -146,154 +137,19 @@ SignalGroupStateInput
 - 允许 all-red phase、全 red program，以及 aspect vector 相同但 ID/duration 不同的相邻 phases。
 - Traffic Runtime 不强制 green/yellow/red 的交通工程 transition pattern；authoring 对 program 安全负责。
 - `durationMs` 为正整数，`offsetMs` 为必填非负整数；cycle 使用 checked sum。
-- canonical offset 满足 `0 <= offsetMs < cycleDurationMs`，loader 不隐式 modulo。
+- `durationMs`、`offsetMs` 与 cycle 累加和都以 `2^53 - 1` 为上界。`Ms` 字段显式以毫秒调度。
+- canonical offset 满足 `0 <= offsetMs < cycleDurationMs`，编译器不隐式取模。
 
-StopLine、Gate、Group、Controller、Phase definition 和 program 在 world 生命周期内不可变。v0.4 不提供 signal mutation command。
+StopLine、Gate、Group、Controller、Phase definition 和 program 在共享路网修订内不可变，不提供 signal mutation command。
 
-## 4. Historical v0.4 contract 与当时的 v0.7 embedding
+## 4. Validation
 
-### 4.1 v0.7 历史 data facts
-
-ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付 v0.4，#107 迁移到 v0.5；#185 又在保持 Signals static/runtime semantics 不变的前提下加入 required per-edge limit 并迁移到 v0.7：
-
-- 当时的 production current 是 `formatVersion: "0.7"`；
-- `schemas/laneflow-data-v0.7.schema.json` 是当时的 active source schema；
-- 当时的 production loader 明确拒绝 v0.5、v0.6 及更早版本、未来版、旧字段与 JSON-LD；
-- static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 验收证据继续作为历史行为/性能基线。
-
-#229 随后把当时的 current package clean-break 到 v0.8；#262 迁移到 v0.9，
-#281 又迁移到 current Traffic v0.10 并解除 multi-Gate static guard。既有
-Gate signal behavior 保持不变。当前 Gate/data facts 见第 18 节。
-
-### 4.2 ID 与引用命名
-
-0.4 全包统一采用：
-
-- 实体自身标识：`id`；
-- 单个实体引用：`xxxId`；
-- 多个实体引用：`xxxIds`；
-- `xxxRef` 保留给未来结构化、URI/IRI 或跨文件引用。
-
-因此 0.4 直接迁移同时包含 `connections[].to -> toEdgeId` 与 `routes[].edges -> edgeIds`。不同 ID domain 仍可复用相同 token，不建立单一全局命名空间。
-
-### 4.3 Canonical JSON shape
-
-`signals` 与四个子数组在当时的 current 0.7 中继续必填，数组允许为空。概念 shape：
-
-```json
-{
-  "formatVersion": "0.7",
-  "units": { "distance": "meter", "time": "second" },
-  "laneGraph": {
-    "edges": [
-      {
-        "id": "edge-a",
-        "length": 100.0,
-        "speedLimit": 16.666666666666668,
-        "connections": [{ "toEdgeId": "edge-b" }]
-      },
-      {
-        "id": "edge-b",
-        "length": 50.0,
-        "speedLimit": 16.666666666666668,
-        "connections": []
-      }
-    ]
-  },
-  "routes": [{ "id": "route-main", "edgeIds": ["edge-a", "edge-b"] }],
-  "vehicleProfiles": [],
-  "signals": {
-    "stopLines": [
-      { "id": "stop-a", "edgeId": "edge-a", "location": "edgeEnd" }
-    ],
-    "movementGates": [
-      {
-        "fromEdgeId": "edge-a",
-        "toEdgeId": "edge-b",
-        "stopLineId": "stop-a",
-        "signalControl": { "kind": "group", "groupId": "group-main" }
-      }
-    ],
-    "groups": [{ "id": "group-main" }],
-    "controllers": [
-      {
-        "id": "controller-main",
-        "kind": "fixedTime",
-        "offsetMs": 0,
-        "groupIds": ["group-main"],
-        "phases": [
-          {
-            "id": "phase-green",
-            "durationMs": 30000,
-            "states": [{ "groupId": "group-main", "aspect": "green" }]
-          }
-        ]
-      }
-    ]
-  },
-  "parking": {
-    "areas": [],
-    "spaces": []
-  }
-}
-```
-
-当时的无信号 package 仍必须显式提供四个空数组。`signalControl` 是 closed tagged
-union：`{ "kind": "group", "groupId": "..." }` 或 `{ "kind": "none" }`。
-
-`durationMs` / `offsetMs` 使用 JSON integer，并以 `2^53 - 1` 为 portable safe-integer 上界；cycle checked sum也不得超过该上界。该 invariant 由 Core construction 定义并由 data layer 复用，不能形成两套上界规则。`Ms` 字段显式以毫秒调度，不改变 `units.time = "second"` 对物理时间参数的语义。
-
-顶层 `extensions` 可以继续存在，但不得承载 StopLine、Gate、Controller 或其他影响 Core 行为的 Signals 数据。
-
-Current canonical/runtime 输入保持严格普通 JSON，不接受 `@context` 或通用 JSON-LD。未来若有跨文件/ontology 需求，JSON-LD 只能作为独立、离线、版本化的 importer/exporter profile，转换后仍须通过 canonical JSON schema 与 Core normalization。
-
-## 5. Normalization 与 validation
-
-> 本节的 `laneflow-data -> laneflow-core` 依赖方向、JSON fail-fast 顺序、Core
-> normalization 顺序与 `InitialTrafficData` 组装只描述已随 #301 删除的 current 路径。
-> 现行静态信号数据由编译器校验（StopLine、ManeuverGate、SignalGroup、Controller/Phase
-> 等不变量以编译诊断报告），经 LFCA 与共享静态路网进入 `TrafficWorld`；下文的关键
-> domain invariants 与 `TrafficWorld::install` 的步长和相位时长检查仍有效。
-
-历史依赖方向：
-
-```text
-laneflow-data -> laneflow-core
-laneflow-core -X-> laneflow-data
-```
-
-Production fail-fast 顺序为：
-
-```text
-JSON syntax
-  -> minimal formatVersion shape
-  -> exact current-version check
-  -> strict current DTO shape
-  -> units
-  -> Core domain normalization
-  -> CoreWorld fixed-delta/runtime compatibility
-```
-
-旧版/未来版必须在 0.5 shape、unknown-field、units 和 domain validation 前返回 `UnsupportedFormatVersion`。Schema/Serde 负责 required/type/closed shape、tagged union、enum 与单字段 integer range；Core constructors 是引用、唯一性、ownership、coverage、cycle、route 和 runtime invariant 的唯一事实来源。
-
-Core normalization 的 canonical 顺序：
-
-```text
-vehicleProfiles
-laneGraph edges/connections
-signals.stopLines
-signals.groups
-signals.controllers/phases/states
-signals.movementGates
-signal global coverage/ownership/usage
-routes + final-StopLine rule
-InitialTrafficData final assembly
-```
+静态信号数据由编译器校验，不变量以编译诊断报告，经 LFCA 与共享静态路网进入 `TrafficWorld`。
 
 关键 domain invariants：
 
 - StopLine ID、edge reference、one-per-edge 与 `edgeEnd` 合法；
-- Gate pair 唯一、是合法 connection、StopLine 属于 fromEdge；
+- 同一 `(ManeuverPath, transitionIndex)` 至多一个 Gate，transition 合法，StopLine 属于该 transition 的起始边；
 - terminal edge 上不得声明 StopLine；非 terminal StopLine 必须至少被一个
   ManeuverGate 引用；
 - 若 StopLine 至少拥有一个 entry Gate，则其 edge 的每条 outgoing connection
@@ -303,31 +159,25 @@ InitialTrafficData final assembly
 - Controller groups/phases 非空，Phase ID controller-local 唯一；
 - state record 对 group unknown/duplicate/missing 可稳定诊断；
 - duration、cycle sum、offset 满足 safe-integer 与 canonical range；
-- route 不得终止在声明 StopLine 的 edge 上，initial route 与 runtime `register_route` 复用同一规则。
-
-First-error 顺序同样是 contract：array domain error 按输入顺序；duplicate 锚定第二个 occurrence；Phase state 先按 record 顺序报告 unknown/duplicate group，再按 `groupIds` 顺序报告第一个 missing group；global coverage/usage 按 StopLine、Group、Controller normalization order；Route 按 route/`edgeIds` 顺序。
+- route 不得终止在声明 StopLine 的 edge 上，由 `register_route` 校验。
 
 `TrafficWorld::install` 按以下顺序关闭：步长必须落在 `4..=1000` ms；按
 Controller/Phase 顺序检查 `durationMs >= dt` 且 `durationMs % dt == 0`；再构造
-time-0 signal snapshot。短相位不得靠 tick 跳过。#96 已用 SignalStop、hard
-projection 与 permission-aware traversal 的完整车辆合规替代 capability guard。
+time-0 signal snapshot。短相位不得靠 tick 跳过。
 
-`InitialTrafficData` 已包含 immutable signal registry，并在组装时按自身 `LaneGraph` 重绑定和复验 graph-dependent handles。Core 保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
+## 5. Fixed-tick phase timing
 
-## 6. Fixed-tick phase timing
-
-Issue #95 已按本节交付 committed authority snapshot：初始化直接解析 time 0，成功 step 先计算 `T + D` candidate，再在所有 vehicle events 之后产生 signal events 并原子提交；失败 step 不改变当前 query。
+已提交信号状态的时序：安装时直接解析 time 0，成功 step 先计算 `T + D` candidate，并与车辆状态一起原子提交；失败 step 不改变当前查询。
 
 Controller 的 effective state 由 immutable program、world integer `timeMs` 和 canonical offset 直接推导：
 
 - 使用 overflow-safe `timeMs + offset` modulo cycle；不累计浮点 timer；
 - Phase interval 是 half-open `[start, end)`，恰好命中 boundary 选择后一个 Phase；
-- time 0 已有有效 phase/aspect snapshot，初始化不发 change event；
+- time 0 已有有效 phase/aspect snapshot；
 - Phase duration：每个 `durationMs` 必须 `>= fixedDeltaTimeMs` 且为该世界步长的
   正整数倍，否则 `install` 失败。检入走廊使用 `yellow_ms = 3008`、
   `all_red_ms = 1008`（16 ms 的正整数倍）。
-- 因此每个 Controller 每 tick 最多一次 observable Phase change；
-- Phase identity 改变即产生 Phase event，即使 aspect vector 相同；single-phase wrap 不产生。
+- 因此每个 Controller 每 tick 最多一次 observable Phase change。
 
 Tick 时序固定为：
 
@@ -340,9 +190,9 @@ next tick              -> vehicles 使用新 snapshot
 
 Boundary 在 tick 内发生时，车辆观察延迟严格小于一个 fixed tick；Controller 仍按绝对时间运行，不产生 drift。
 
-## 7. Gate compliance 与 crossing
+## 6. Gate compliance 与 crossing
 
-v0.4 行为表：
+行为表：
 
 | Aspect / state       | PreGate 行为                           |
 | -------------------- | -------------------------------------- |
@@ -353,15 +203,15 @@ v0.4 行为表：
 
 Restrictive yellow 的判断读取 tick-start snapshot。只有原子完成对应 route occurrence 的 `fromEdge -> toEdge` transition 才算 `CrossedGate`；仍在 fromEdge，包括 front bumper 精确位于 edge end，均是 PreGate。不保存 `YellowCommitted` 状态。
 
-Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入只能通过显式 projection 和 attribution 保证合规，不得静默转换成合法 permission；v0.4 不模拟概率违章或“不可避免越线”结果。
+Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入只能通过显式 projection 和 attribution 保证合规，不得静默转换成合法 permission；不模拟概率违章或“不可避免越线”结果。
 
-Denied Gate 允许车辆 front bumper 精确到达 StopLine，但禁止 transition。信号停车不把 vehicle status 改为 `Stopped`；车辆保持 Active，速度可以为零。green 后只移除 signal constraint，车辆通过既有 controller/leader pipeline 自然恢复，不增加 startup delay。
+Denied Gate 允许车辆 front bumper 精确到达 StopLine，但禁止 transition。信号停车不改变 vehicle status；车辆保持 Active，速度可以为零。green 后只移除 signal constraint，车辆通过既有 controller/leader pipeline 自然恢复，不增加 startup delay。
 
 StopLine clearance 与车队跟驰 clearance 是不同约束：首车相对 denied StopLine 的 desired/hard clearance 继续为 `0`，后车相对前车则使用 follower profile 的 `min_gap`。从可行 snapshot 出发时，红灯排队不得把后车 bumper gap 压到 `min_gap` 以下；既有 sub-min-gap 只能保持或改善。
 
 若业务目的地位于某个 Gate 之前，authoring 必须使用一个独立、没有 StopLine 的 upstream terminal edge 表达。Route 不得终止在带 StopLine 的 edge 上，也不能借 completion 绕过 Gate。
 
-## 8. Longitudinal constraints 与 traversal
+## 7. Longitudinal constraints 与 traversal
 
 Signal 只提供 regulatory spatial target，不直接修改 VehicleState 或 IIDM，也不创建独立 signal speed controller：
 
@@ -380,80 +230,33 @@ tick-start snapshot
 - SignalStop 使用 route distance、target speed 0、front-bumper desired/hard clearance 0。
 - SignalStop 的 clearance 只约束首车与 StopLine，不替代车辆间 minimum gap；后车 final geometry cap 使用 follower `min_gap`。
 - 多约束按共同允许的最严格 motion 归约；numeric priority 不表达业务优先级，tie-break 只影响 attribution。
-- signal hard projection 先确定 leader final travel，随后 minimum-gap-preserving geometry projection 沿 functional leader graph 从前向后传播；两者只有实际进一步收紧 final motion 才产生各自事件。
-- `LongitudinalConstraintSet`、provider、reducer、projection solver 与 scratch 均保持 private concrete implementation。
+- signal hard projection 先确定 leader final travel，随后 minimum-gap-preserving geometry projection 沿 functional leader graph 从前向后传播；两者只在实际进一步收紧 final motion 时生效。
+- 纵向约束集合、provider、reducer、projection solver 与 scratch 均保持 private concrete implementation。
 
-Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index，不产生 `VehicleChangedEdge`。
+Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index。
 
-Current v0.5 Parking 不改变 signal permission authority。#109 已让 ParkingStop 与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 共同 event order 与 atomic commit 见 [`parking-system.md`](parking-system.md)；该 runtime composition 已激活。
+Parking 不改变 signal permission authority。ParkingStop 与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 的组合与 atomic commit 见 [`parking-system.md`](parking-system.md)。
 
-### 8.1 Capability activation
+## 8. 观察边界
 
-#96 已原子交付 SignalStop、hard projection 与 permission-aware traversal，并在专项行为、事件顺序和失败原子性测试通过后解除以下 capability guard：
+静态信号对象是共享路网修订内的有类型序号：`StopLineOrdinal`、`SignalGroupOrdinal`、`SignalControllerOrdinal`、`SignalPhaseOrdinal` 与 `ManeuverGateOrdinal`。它们经共享静态路网的关系查询读取，无法解析时返回 `None`；序号只在所属修订内有效，没有业务排序含义。
 
-```text
-non-empty Signals + spawned/moving vehicles
-```
+动态状态：
 
-public runtime 现在允许 Signals 与 initial/runtime vehicles 组合；车辆始终消费同一 tick-start authority snapshot，不存在“灯正常运行但车辆静默忽略信号”的公开中间能力。
+- `TrafficWorld::committed_signal_groups()` 按组序号给出当前 aspect，由已提交时间推导，车辆直接消费同一 tick-start snapshot，不另建 controller clock 或第二份状态；
+- `TrafficWorld::route_gate` 观察路线 hop 上的 Gate。
 
-## 9. Public Core observation boundary
+Gate 的 `signalControl:none` 只表示没有信号绑定；permission 也只是 signal-layer decision，不是 vehicle-specific 最终 right-of-way。`TrafficWorld` 不提供任意绝对时间查询；该能力只作为私有参考预言机用于 property tests。
 
-#94 已公开 static Signals 的 world-scoped opaque types：
+## 9. 事件
 
-- `StopLineHandle`；
-- `SignalGroupHandle`；
-- `SignalControllerHandle`；
-- controller-local `SignalPhaseRef`；
-- value identity `MovementGateKey { from_edge, to_edge }`。
+信号相位与灯色变化不发布事件，调用方读取 `committed_signal_groups()`。车辆越过 Gate 由 `TrafficWorld::latest_transition_events()` 的 `GateCrossed` 观察；转移事件的语义见 [`junction-observation-and-validation.md`](junction-observation-and-validation.md)。
 
-Handle/ref 至少满足 `Clone + Copy + Debug + Eq + Hash`，不公开 index/generation、没有 `Ord`，不得跨 CoreWorld 持久化或混用。无法解析的只读 handle/ref query 返回 `None`。
-
-当前 static query 提供：
-
-- StopLine/Group/Controller external-ID resolver 与稳定 definition iteration；
-- Phase external-ID resolver；
-- Gate 的 StopLine 与 control binding。
-
-#95 已在已提交 snapshot 上增加 current Controller state（phase、cycle position、elapsed、remaining）、current Group aspect，以及 Gate aspect / signal-layer permission，并提供 normalization-order 的无分配只读遍历。#96 直接消费同一 tick-start snapshot，不另建 controller clock 或第二份 authority state。
-
-Gate `Uncontrolled` 只表示 `signalControl:none`；permission 也只是 signal-layer decision，不是未来 vehicle-specific 最终 right-of-way。Public CoreWorld 不提供 arbitrary absolute-time query；该能力仅作为 private/reference oracle 用于 property tests。
-
-## 10. Events 与全局总序
-
-稀疏事件边界如下；前两项已由 #95 交付，第三项由 #96 交付：
-
-- `SignalPhaseChanged { tickIndex, controller, fromPhase, toPhase }`；
-- `SignalGroupAspectChanged { tickIndex, group, fromAspect, toAspect }`；
-- `VehicleSignalStopProjectionApplied { tickIndex, vehicle, route, fromRouteEdgeIndex, toRouteEdgeIndex, gate, stopLine, group, aspect }`。
-
-Payload 只使用 handles、route occurrence indices、enum 与整数，不携带 external strings 或 `f64`。Projection event 只在 signal hard boundary 把 travel 进一步压到 emergency envelope 以下时产生；正常停车、排队和释放不产生。
-
-`VehicleFollowingSafetyProjectionApplied` 继续使用 Vehicle Following 的稀疏阈值：只有 minimum-gap-preserving geometry cap 把 follower motion 压到 emergency envelope 以下时才产生。仅存在 pre-existing sub-min-gap 不发事件，也不因红灯静态队列每 tick 重复发事件。
-
-不新增 GateCrossed、每 tick GateDenied、VehicleStoppedAtSignal 或 SignalReleased。Gate crossing 已由 `VehicleChangedEdge` 表达；连续状态由 query 获取。
-
-成功 step 的全局事件总序：
-
-```text
-for vehicle in stable vehicleUpdateOrder:
-  VehicleSignalStopProjectionApplied?
-  -> VehicleFollowingSafetyProjectionApplied?
-  -> VehicleChangedEdge*
-  -> VehicleCompletedRoute?
-
-for controller in signal normalization order:
-  SignalPhaseChanged?
-  -> SignalGroupAspectChanged*       // controller.groupIds 输入顺序
-```
-
-Events 使用 post-step tick index；time 由 `StepResult` 提供。Events 只是 transition notification，CoreWorld post-step query 才是正本当前状态。Adapter 使用“time-0 query 初始化 -> events 增量更新 -> query resync”模式。
-
-## 11. Determinism 与失败原子性
+## 10. Determinism 与失败原子性
 
 Signals 沿用 ADR 0003：同一 Traffic Runtime 版本、同一运行环境、同一 normalized initial state 和同一 lifecycle/tick input sequence，逐 tick committed state、query snapshot 与 ordered events 一致；不承诺跨 CPU/编译器/浮点实现的 bit-level determinism。
 
-不得依赖 HashMap iteration、handle 数值排序、Adapter 调用顺序或每 tick external-ID sort。Controller event order 使用 controller normalization order；Group event order使用 `groupIds`；Phase/route sequence 保持行为顺序。Gate 输入顺序不能成为交通优先级。
+不得依赖 HashMap iteration、handle 数值排序、Adapter 调用顺序或每 tick external-ID sort。Phase/route sequence 保持行为顺序。Gate 输入顺序不能成为交通优先级。
 
 Step 的事务语义：
 
@@ -461,42 +264,28 @@ Step 的事务语义：
 validate tick/time
   -> read snapshot(T)
   -> derive candidate signal snapshot(T + D)
-  -> compute candidate vehicle states/events
-  -> build phase/aspect events
+  -> compute candidate vehicle states
   -> atomically commit vehicles + signal state + tick/time
 ```
 
-任一正常 `Err` 都不得改变 tick/time、vehicle、signal query cache、resolver 或 events。Candidate/scratch 可以复用 capacity，但不是 authority state。语义要求 compute-then-apply，不要求 clone 完整 world。
+任一正常 `Err` 都不得改变 tick/time、vehicle 或 signal 查询结果。Candidate/scratch 可以复用 capacity，但不是 authority state。语义要求 compute-then-apply，不要求 clone 完整 world。
 
-Loader、InitialTrafficData、CoreWorld initialization、单条 lifecycle command 与 `register_route` 也保持 whole-operation atomic。Panic、abort、OOM 或进程终止不承诺 rollback。
+`TrafficWorld::install`、单条 lifecycle command 与 `register_route` 也保持 whole-operation atomic。Panic、abort、OOM 或进程终止不承诺 rollback。
 
-## 12. Error 与 normal outcome
-
-Error ownership 保持：
-
-```text
-DataError
-  JSON/version/unit/path
-  CoreDomain { path, source: CoreError }
-
-CoreError
-  construction/domain/world-compatibility/runtime invariant
-```
-
-Data path 采用 `$` 根 + dot/bracket 风格，并继续使用 `xxxId/xxxIds` 字段，例如 `signals.controllers[0].phases[1].states[2].groupId`。Machine matching 使用 enum variant/字段，不解析 Display 文案。
+## 11. Error 与 normal outcome
 
 StopLine 的失败原因保持结构化区分：terminal edge 使用
-`CoreError::OrphanStopLine`；非 terminal edge 上未被任何 ManeuverGate 引用使用
-`CoreError::UnreferencedStopLine`；已有 entry Gate 后缺少 outgoing path/Gate
+诊断 `OrphanStopLine`；非 terminal edge 上未被任何 ManeuverGate 引用使用
+`UnreferencedStopLine`；已有 entry Gate 后缺少 outgoing path/Gate
 coverage 才分别使用 `MissingManeuverPathCoverage` /
-`MissingManeuverGateCoverage`。Data 层均定位到拥有该 invariant 的
-`signals.stopLines[i]`，但不得用同一误导性 Display 文案合并不同原因。
+`MissingManeuverGateCoverage`。编译诊断均定位到拥有该 invariant 的 StopLine，
+但不得用同一误导性文案合并不同原因。
 
 正常红/黄停车、排队、green release、有限 emergency braking、finite signal/no-overlap projection、phase/aspect change 和 `signalControl:none` 均不是 error。非法输入/引用/invariant、tick/time overflow、非法 command handle 或 non-finite runtime calculation 才返回 error。
 
-## 13. 性能与 private implementation
+## 12. 性能与 private implementation
 
-所有 external ID、JSON、cross-reference 和 handle allocation 只发生在 load/world initialization。Normalization 必须预解析 route transition/Gate lookup 与 compact signal snapshots。
+标识解析、cross-reference 和序号分配只发生在编译与共享静态路网构建。`register_route` 与 `install` 必须预解析 route transition/Gate lookup 与 compact signal snapshots。
 
 Tick hot path 要求：
 
@@ -526,10 +315,9 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 
 十万只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。当时 workload 与逐轮结果见 git 历史，不把单次测量写入本文。
 
-## 14. Tests 与现行 fixture
+## 13. Tests 与现行 fixture
 
-Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。current JSON fixture
-（`v0.10-parking-signals-baseline.laneflow.json` 等）已删除，不再是测试入口。
+Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。
 
 现行必须覆盖：
 
@@ -539,24 +327,7 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
   可区分失败；走廊相位保持 16 ms 的正整数倍；
 - 无信号编制仍可安装并步进。
 
-## 15. 实施批次与退出边界
-
-```text
-#93 design/ADR
-  -> #94 static domain + current 0.4 data + fixtures
-  -> #95 fixed-time runtime + query/events
-  -> #96 SignalStop + projection + permission traversal
-  -> #97 end-to-end validation + performance
-  -> #18 milestone closure
-```
-
-- #94 原子完成 current-format 切换并建立 capability guard。
-- #95 交付 runtime/query/events，但不解除 guard。
-- #96 在完整车辆合规闭环通过后解除 guard。
-- #97 固化验证与性能证据。
-- #18 在所有子 Issue 完成后进行最终全面审阅和验收。
-
-## 16. 中国场景组合边界
+## 14. 中国场景组合边界
 
 中国场景使用 `ManeuverPath + ManeuverGate + WaitingZone + ConflictZone + versioned rule policy`
 组合，不向 SignalController 增加国家/转向 if/else。以下是领域表达与扩展方向；当前
@@ -585,40 +356,11 @@ debug surface 仍独立交付，不能由运行时实现替代。
 [`waiting-zone-conflict-right-of-way.md` §6.2.1](waiting-zone-conflict-right-of-way.md#621-中国机动车红灯右转的最小策略)
 为准；法规版本通过 policy pin 固定，不把“最新法规”或页面链接硬编码为 runtime 规则。
 
-## 17. 历史 v0.8 双路口固定时制 profile
-
-#184 复用现有 immutable fixed-time controller、StopLine 和 `(from, to)` MovementGate，不增加第二套 signal runtime。每个交叉口各有一个 controller 和主/次干道两个 group；phase program 固定为主绿、主黄、全红、次绿、次黄、全红。authoring/startup config 提供 `mainGreenMs`、`secondaryGreenMs`、`yellowMs`、`allRedMs` 与两个 controller offset；red duration 由完整 program 推导，不提供独立 `redMs`，v0.8 不支持 runtime hot edit。
-
-generator 负责为每个交叉口完整枚举 10 条 lane movement gates（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Traffic Runtime 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
-
-## 18. v0.9 ManeuverGate clean-break 与 v0.10 multi-Gate extension
-
-#229 已按 #228/ADR 0017 保留本文 indication、StopLine、compliance、future
-conflict 与 Traffic Runtime safety 分层，并实现：
-
-- pair-based `MovementGate`/`MovementGateKey` 改名并破坏性迁移为一等
-  `ManeuverGate`/`ManeuverGateHandle`；
-- Gate wire/runtime identity 包含 external ID、ManeuverPath、transition index、
-  StopLine 和 signal control；
-- `transitionIndex=i` 表示 `pathEdges[i] -> pathEdges[i+1]`，StopLine 必须绑定
-  `pathEdges[i]`；
-- v0.9 protected profile 只允许 entry transition，并要求每条受控 ManeuverPath
-  恰好一个 entry Gate；
-- Route 注册期把 path/Gate 编译为 route-shared occurrences，vehicle tick 不再用
-  edge pair 推导完整行为 identity；
-- old pair key、deprecated alias、dual query 与 Traffic v0.7 runtime compatibility
-  均不保留。
-
-#281/Traffic v0.10 已允许 multi-stage Gate 在同一 ManeuverPath 的不同 transition
-上拥有独立 ManeuverGate identity，并在 Route 注册期按 transition 编译 occurrences。
-WaitingZone static identity/occurrence、capacity/queue runtime 与 Conflict/policy behavior
-已共同实现，现行版本组合见路权策略实施合同 §8。本文前述 pair-based 内容只描述历史
-v0.4-v0.8 contract，不再是 current public API。
+## 15. 走廊 protected-turning profile
 
 #196 已在
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
 冻结每个 Junction 的 `main-left`、`main-through-right`、`secondary-left`、
 `secondary-through-right` 四个 group、完整 12-phase/84 秒 program、32 个
 group-controlled entry ManeuverGate 和 authoring compatibility matrix。该 profile
-不扩展 SignalController runtime authority；#229 只能把已规范化数据接入上述通用
-target。
+不扩展 SignalController runtime authority。

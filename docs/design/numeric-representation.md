@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（已提交一维几何为整数毫米；Road Editing 3 / 来源编号修订已纳入现行规范）
 
-**最后更新**: 2026-08-30
+**最后更新**: 2026-11-09
 
 **适用范围**: 数值分层、误差预算、compiler 前端几何正本，以及已提交整数毫米合同
 
@@ -13,183 +13,47 @@
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0004-core-implementation-language.md`
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
-- `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 - `../adr/0028-integer-millimeter-traffic-geometry.md`
 - `traffic-runtime-integer-geometry.md`
 - `compiler-foundation.md`
 - `road-editing-source-and-geometry-frontend.md`
-- `core-runtime.md`
 - `vehicle-following.md`
 - `parking-system.md`
 
 ## 1. 状态与目标
 
-本文记录现行数值合同，并把 #125 / #144 的米制哨兵与残差 `f32` 候选标为历史：
+本文记录现行数值合同：
 
-- `#496` 已落地：`TrafficWorld` / 共享热列 / LFCA 长度与限速为整数毫米 / `mm/s`；#144 残差 `f32` 迁移已回退，**不再**作为生产目标。
-- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，有折线边长由规范 `f32` 弧长派生后量化并写回 IR，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数，公开 `Canonical*View` 删除米制访问器。
+- `TrafficWorld` / 共享热列 / LFCA 长度与限速为整数毫米 / `mm/s`；生产判定使用整数比较与 `100 mm` / `1 mm` 常量。
+- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，有折线边长由规范 `f32` 弧长派生后量化并写回 IR，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数，公开 `Canonical*View` 删除米制访问器。
 - 空间层按 ADR 0015 使用每轴 `±16_384 m` 的 canonical `f32` 几何/位姿；编制曲线按 ADR 0022 在 `f64` 中求值。三维点/向量不并入毫米轴（#354）。
-- 下面 §2 起的 current-`f64` 领域表与米制哨兵是 **历史实现与 #144 证据**，生产判定使用整数比较与 `100 mm` / `1 mm` 常量。
 
-本设计固定数值职责和迁移验收，不固定 Spatial 几何容器、空间索引或 v0.7 的具体引擎 ABI。#136 已在引擎无关边界固定 batch-level frame/placement identity 和 canonical `f32` 位姿类型，但不包含宿主 Transform。
+本设计固定数值职责，不固定 Spatial 几何容器、空间索引或具体引擎 ABI。引擎无关边界固定 batch-level frame/placement identity 和 canonical `f32` 位姿类型，但不包含宿主 Transform。
 
-## 2. 当前实现基线
+## 2. 现行数值分层
 
-### 2.1 正本类型与存储
+| 数值职责                           | 现行表示                               | 正本归属                       | 规则                                                   |
+| ---------------------------------- | -------------------------------------- | ------------------------------ | ------------------------------------------------------ |
+| 固定时间增量、tick、绝对时间、计数 | 经过检查的整数                         | Traffic Runtime                | 步长 `4..=1000` ms；禁止浮点挂钟时间累计               |
+| 边长、边内进度                     | `u32` mm；进度另带 `carry_um` 微米余数 | 共享静态路网 / Traffic Runtime | 单边上界 `10_000_000` mm；边界与间隙用整数比较         |
+| 已提交速度、道路限速               | `u32` mm/s                             | 共享静态路网 / Traffic Runtime | 不另做速度余数                                         |
+| Profile 尺寸与最小间距             | 整数毫米                               | 编译器 / 共享静态路网          | 范围见第 4 节                                          |
+| Profile 时距与加减速度             | 受检 `f32` SI                          | 编译器 / 共享静态路网          | 范围见第 4 节                                          |
+| IIDM 中间量                        | 瞬时 SI                                | 派生值，不是正本               | 不得回写为已提交状态                                   |
+| 路线距离                           | 分段 `u32` mm + 后缀 `BoundedDistance` | Traffic Runtime 派生状态       | 溢出为 `BeyondFinite`，不是注册失败                    |
+| canonical 几何与位姿               | LaneFlow 自有的有界 `f32`              | Spatial                        | 每轴 `±16_384 m`                                       |
+| frame 到宿主位姿                   | 宿主选择的 f32/double placement        | 派生快照，不是正本             | Adapter 显式映射 frame，不反写 Traffic Runtime/Spatial |
+| 宿主向量/`Transform`               | 宿主专用                               | Adapter 表现                   | 只能出现在 Adapter 末端                                |
 
-§2.1 起的表是 **历史 current-f64 Core** 基线，不是现行 `TrafficWorld` 合同。现行
-已提交一维几何见 ADR 0028。历史实现当时不是单一字段上的 `f64` 选择，而是贯穿多个边界：
-
-| 数值域                  | 当前表示                            | 主要位置                    | 当前语义                                                 |
-| ----------------------- | ----------------------------------- | --------------------------- | -------------------------------------------------------- |
-| edge length             | `EdgeLength(f64)`                   | `graph.rs`                  | finite，且严格大于领域专用最小 edge length               |
-| edge-local progress     | `EdgeProgress(f64)`                 | `vehicle.rs`                | finite、非负、edge-local；每 tick 推进                   |
-| speed / acceleration    | `Speed(f64)` / `Acceleration(f64)`  | `vehicle.rs`                | finite；speed 非负，acceleration 可正负                  |
-| Vehicle Profile         | raw `f64` fields                    | `profile.rs`                | length、gap、headway、acceleration/deceleration 参数     |
-| occupancy / leader      | raw `f64` fields                    | `occupancy.rs`              | front progress、vehicle length、bumper gap               |
-| command spatial scratch | `Vec<f64>` 与 raw `f64`             | `command_spatial.rs`        | edge length、front progress、reverse distance 与速度上界 |
-| route distance index    | `Vec<f64>` 与 checked finite state  | `route_distance.rs`         | segment totals、offset、horizon 与 Waiting storage 查询  |
-| static Parking geometry | raw `f64` 经 Core domain validation | `parking.rs`、`wire.rs`     | anchor progress、lateral/heading/length/width            |
-| external JSON DTO       | raw `f64`                           | `laneflow-data/src/wire.rs` | JSON number 到 Core domain constructor 的输入            |
-| tick / simulation time  | checked `u64`                       | `world.rs`                  | fixed delta、tick index、absolute milliseconds           |
-
-整数 tick/time 已避免长期 wall-clock 浮点累计，但物理推进仍把 fixed milliseconds 转为浮点秒，并在 edge-local progress、route-distance index 和控制器计算中使用 `f64`。
-
-### 2.2 历史 current-f64 领域数值策略（#125 / #144，已退役）
-
-#125 删除了公开的 `EDGE_BOUNDARY_EPSILON` / `GEOMETRY_GAP_EPSILON`，不保留弃用项、别名或兼容垫片，并拆出首批九个 crate-private owner；#222 为最终 minimum-gap projection 又增加独立 minimum-gap slack owner。下列十个值是 **#144 前回退实现的历史米制哨兵**，现行生产不再使用：
-
-| 领域 owner                            | 单位 | current-f64 值 | 当前职责                                          |
-| ------------------------------------- | ---- | -------------: | ------------------------------------------------- |
-| 最小 edge length                      | m    |       `1.0e-9` | `EdgeLength` 输入 exclusive 下限                  |
-| 最小 vehicle length                   | m    |       `1.0e-9` | Vehicle Profile length 输入 exclusive 下限        |
-| Parking anchor 端点留白               | m    |       `1.0e-9` | entry/exit progress 与 edge 两端的 exclusive 留白 |
-| Parking lateral offset 最小非零绝对值 | m    |       `1.0e-9` | 非零 offset 输入 exclusive 下限                   |
-| Parking extent                        | m    |       `1.0e-9` | length/width 输入 exclusive 下限                  |
-| edge boundary/remainder               | m    |       `1.0e-9` | boundary snap、remainder 和 edge transition       |
-| 纵向约束                              | m    |       `1.0e-9` | RouteEnd、SignalStop、ParkingStop 和约束距离      |
-| 物理 gap/overlap                      | m    |       `1.0e-9` | bumper gap、接触、no-overlap 和 projection        |
-| minimum-gap slack                     | m    |       `1.0e-9` | follower 可消费的 `minimumGap` 边界 slack         |
-| computed-speed near-zero              | m/s  |       `1.0e-9` | 已有计算速度近零判断；不替代 `Speed::ZERO`        |
-
-最小尺寸属于输入语义，不是算术误差阈值；精确零状态和有符号零规范化也不使用近零判定函数。生产代码不提供通用近似比较辅助函数，不使用运行时相对容差或动态末位单位（ULP）。#127 可以把相对误差和 ULP 用作目标 `f32` 离线标定工具，但只能产出固定、带单位、领域化的绝对阈值；#144 未通过性能门槛，因此这些目标值没有进入当前生产代码。
-
-#235 的 Accepted 设计为 PathAnchor crossing、ConflictZone enter/clear 与对应事件
-冻结独立 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS` owner，并为 future
-current-f64 implementation 冻结值 `1.0e-9 m`。它不复用上述 edge-boundary、
-longitudinal-constraint 或 physical-gap owner；front enter 使用
-`cursor + tolerance >= anchor`，tail clear/downstream proof 使用
-`front + tolerance >= exit + vehicle.length`，ETA distance 使用
-`d <= tolerance -> 0`，event 只在 predicate false -> true 时 one-shot。在后续
-implementation slice 完成前它不计入 current production 十领域，也不改变当前常量。
-
-### 2.3 风险集中区
-
-精度候选必须重点验证：
-
-- edge boundary 前后的 snap、remainder 和单 tick 多 edge traversal；
-- bumper gap 的符号、leader ordering、IIDM/safe-speed 与 no-overlap projection；
-- SignalStop、ParkingStop、RouteEnd 约束组合的先后顺序；
-- Parking 入口/出口锚点与几何校验；
-- 路线距离（route-distance）的分段总长、前视范围与超大值降级路径；
-- command validation、reverse distance 和失败原子性；
-- public error payload、events、snapshots 与 JSON normalization 的可观察值。
-
-### 2.4 当前实现范围不是产品范围或兼容承诺
-
-当前构造器和当前模式（schema）对距离、速度、加速度、进度和几何值基本只要求有限值/正负号约束，没有产品级上界；Core 还保留 `f64::MAX`、巨大/微小值和累计溢出的防御测试。因此迁移前实现面实际接近“全部有限 `f64`”，标量替换为 `f32` 会有意改变接受范围和错误语义，但项目当前没有外部用户、已发布资产或支持窗口需要兼容。
-
-#126 将验证输入分为三类；该分类用于差分、范围和性能判断，不建立旧版支持责任：
-
-1. **迁移前实现范围**：当前 API、schema 和错误语义实际接受或诊断的范围；
-2. **产品验证包络（product validation envelope）**：园区、厂区、校园、景区、停车场和局部道路片区中要求正式保证的范围；
-3. **规模/病理固定样例（scale/pathological fixtures）**：为测试车辆数量、溢出和失败路径而构造的合成极值，不自动等同于产品道路长度。
-
-当前一万/十万车辆工作负载中存在把全部车辆铺在单条超长边（edge）上的规模固定样例。十万车辆自由流场景的边可达到约 `25_001_000 m`，该数量级的 `f32` 末位单位（ULP）为 `2 m`，已经大于常见固定 tick 的单步位移。它应继续作为迁移前范围的差分/规模探针，但不能单独代表局部坐标产品工作负载；性能比较还需要等车辆数、等密度、但保持边/局部坐标在验证包络内的配对固定样例。
-
-## 3. 数值域与误差预算
-
-G1 的误差预算必须以 SI 单位和可观察行为表达，不能只写机器 epsilon。每个数值域至少记录：
-
-| 数值域           | 必须确定的范围                       | 必须确定的误差指标                       | 不可破坏的不变量                                       |
-| ---------------- | ------------------------------------ | ---------------------------------------- | ------------------------------------------------------ |
-| edge length      | 最小有效 edge、代表性最大单 edge     | absolute length error、boundary ULP      | positive、finite、length authority 一致                |
-| edge progress    | `[0, edge_length]` 与 boundary 邻域  | per-step drift、boundary snap error      | 不倒退、不越界、不漏/重复 transition                   |
-| bumper gap       | overlap 邻域到 leader horizon        | zero-sign/absolute gap error             | no-overlap、leader order、projection safety            |
-| speed            | 静止、城市道路、异常高值             | absolute/relative speed error            | finite、非负、停止/恢复语义一致                        |
-| acceleration     | comfort/emergency 范围               | control output 与 braking-distance error | finite、deceleration ordering、safe-speed              |
-| Parking geometry | anchor、lateral offset、length/width | bind/pose 输入误差                       | anchor inside edge、geometry non-degenerate            |
-| local coordinate | v0.6 spatial tile/local frame 范围   | position/tangent sampling error          | 不把大世界绝对坐标误差泄漏进 Traffic Runtime hot state |
-| heading          | `[-PI, PI)`                          | angular error                            | canonical range、方向 continuity                       |
-
-预算必须同时覆盖正常范围、边界样例和病理样例。接受标准由领域行为决定：例如边界跨越和无重叠必须先保持离散结果一致，再比较连续数值误差。
-
-### 3.1 下一契约的硬性产品范围
-
-#122 的 `16_384 m` 边（edge）范围是历史研究输入，不是模式/API 的硬上限。#140 的边上界证据与 #141 G1 已把以下范围冻结为下一数值契约。现行已提交交通一维以 ADR 0028 整数毫米为准，本表是历史 `f32` 迁移范围，不是 `TrafficWorld` 生产正本：
-
-| 数值域                            |                                                下一契约硬范围 |     `f32` 在最大绝对值处的 ULP | 说明                                      |
-| --------------------------------- | ------------------------------------------------------------: | -----------------------------: | ----------------------------------------- |
-| 固定 tick                         |                                                `1..=1_000 ms` |                            N/A | 整数正本；更长的追赶拆为多个 tick         |
-| 边（edge）长度 / 边内进度         |            `min_edge_length < length <= 10_000 m`；进度在边内 |               `0.0009765625 m` | #125 已分离当前所有者；目标值由 #127 标定 |
-| 速度                              |                                                 `0..=100 m/s` |      `0.00000762939453125 m/s` | 约 `360 km/h`                             |
-| Profile 加速度/减速度             |                                        `0 < value <= 50 m/s²` |    `0.000003814697265625 m/s²` | 只约束配置输入，不截断实际应用加速度      |
-| 车辆/Parking 尺寸、偏移、最小间距 | 偏移 `-128..=128 m`；尺寸 `0.1..=128 m`；最小间距 `0..=128 m` |         `0.0000152587890625 m` | 只有偏移可有符号；长度/宽度必须为正       |
-| 期望车头时距                      |                                           `0 < value <= 60 s` |       `0.000003814697265625 s` | 零值仍是拒绝输入样本                      |
-| 朝向角                            |                                                   `[-PI, PI)` | `0.0000002384185791015625 rad` | 使用 `PI` 附近 ULP                        |
-
-route 总长、制动距离、候选行程、硬投影加速度和查询视距是派生值，不机械套用输入上界，也不静默饱和；它们通过有限性/溢出、连续误差和离散行为验收。Spatial 局部坐标的 `-16_384..=16_384 m` 继续是 ADR 0013 的表现层验证范围，不是 Traffic Runtime edge 或 Data 模式的硬范围。
+## 3. 范围边界
 
 10 km 是防御性单 edge 上界，不是日常创作目标。更长道路通过多个 edge 组成 route；运行时不自动拆 edge，因为拆分会改变 ID、route 出现位置、Signal/Parking 锚点、事件归属和空间制品绑定。
 
-### 3.2 连续误差上限
+route 总长、制动距离、候选行程、硬投影加速度和查询视距是派生值，不机械套用输入上界，也不静默饱和。Spatial 局部坐标的 `-16_384..=16_384 m` 是 ADR 0013 的表现层验证范围，不是 Traffic Runtime edge 的硬范围。
 
-候选实现必须先保持状态、route 出现位置、edge 跨越、前车、约束、投影和事件种类/顺序**精确一致**。在此基础上，首轮连续值上限为：
-
-- edge 长度、进度、保险杠间距、route 局部距离、Parking 几何与局部位置：每 tick/每次采样最大绝对差 `0.01 m`；
-- speed：最大绝对差 `0.01 m/s`；
-- 加速度：最大绝对差 `0.02 m/s²`；
-- 朝向角：最大绝对差 `0.0001 rad`；
-- 非零常规值还必须满足验证文档中的相对误差阈值；接近零和边界只用绝对误差与离散行为判断。
-
-`1 cm` 位置上限小于当前基准 `4.5 m` 车辆长度的 `0.23%`、小于 `2 m` 最小间距的 `0.5%`；`0.01 m/s` 等于 `0.036 km/h`。这些是研究接受上限，不是允许车辆发生 `1 cm` 重叠的安全豁免；无重叠投影的提交状态仍必须非负并保持离散结果一致。
-
-### 3.3 累计误差单独判定
-
-`f32` ULP 足够小，不代表逐 tick `progress += travel` 足够稳定。首轮 constant-input probe 中，`10 m/s`、`16 ms`、`6_250` ticks 的数学位移为 `1_000 m`，raw `f32` 重复累加得到约 `999.9282837 m`，误差约 `-7.17 cm`；带独立补偿量的 `f32` 累加约为 `1000.0000610 m`。
-
-因此 G1 必须独立选择：
-
-- authority/storage scalar；
-- integration intermediate；
-- residual/compensation 或从局部正本量重算策略；
-- edge transition 时 residual 的消费、转移与清零规则。
-
-若 hot state 改为 `f32` 却需要为每辆车增加一个 `f32` residual，必须把该字段计入内存比较；不能只按 `8 byte -> 4 byte` 宣称 progress 节省一半。
-
-## 4. 历史目标精度分层（ADR 0014；已退役）
-
-下表保留 #144 残差 `f32` 合同，便于阅读历史证据。**现行生产合同是 ADR 0028**（整数毫米 + 微米余数 + `u32` mm/s），不要按本表实施。
-
-| 数值职责                           | 已接受的目标表示                       | 正本归属           | 规则                                                    |
-| ---------------------------------- | -------------------------------------- | ------------------ | ------------------------------------------------------- |
-| 固定时间增量、tick、绝对时间、计数 | 经过检查的整数                         | Core               | 禁止浮点挂钟时间累计                                    |
-| `EdgeLength`                       | 单个经过检查的 `f32`                   | Core               | 静态 edge 局部值，不使用残差                            |
-| `EdgeProgress`                     | 私有 `high: f32` + `residual: f32`     | Core               | 有效值为逐分量升宽后的 `f64(high) - f64(residual)`      |
-| `Speed`、Profile、尺寸/偏移        | 经过检查的 `f32`                       | Core               | 合法输入受第 3.1 节硬范围约束                           |
-| `Acceleration`                     | 经过检查的有符号 `f32`                 | Core               | 实际应用加速度；只要求有限且可表示，不套用 Profile 上界 |
-| Parking 入口/出口锚点              | `EdgeProgress`                         | Core               | 静态边内位置复用有效进度语义，不保留裸 `f64`            |
-| 纵向/占用/约束/命令临时状态        | 经过检查的 `f32` 生产候选              | Core 派生状态      | 必须通过完整离散判定基准；不普遍升宽敏感控制            |
-| 路线（route）距离派生索引          | `f64` 前缀基线 / 分块局部 `f32` 候选   | Core 派生状态      | 冻结语义与验收条件，由 #127 选择生产布局                |
-| Data JSON 数值规范化               | 高保真解析值 -> 经过检查的 Core 数值域 | Data/Core          | 解析 `f64` 只用于转换和原始诊断，不是第二正本           |
-| canonical 几何与位姿               | LaneFlow 自有的有界 `f32`              | Spatial            | 每轴 `±16_384 m`，加入独立 Core 长度量化余量            |
-| frame 到宿主位姿                   | 宿主选择的 f32/double placement        | 派生快照，不是正本 | Adapter 显式映射 frame，不反写 Core/Spatial             |
-| 宿主向量/`Transform`               | 宿主专用                               | Adapter 表现       | 只能出现在 Adapter 末端                                 |
-| `f16` / 量化整数                   | 仅用于显式编码/缓存                    | 非正本             | 独立缩放/原点/范围/溢出/错误契约                        |
-
-#### compiler 前端数值正本（#296 / #378）
+## 4. 编译器前端数值正本（#296 / #378）
 
 #296 引入的 compiler 前端遵循已注册管线 LFRE wire → 有类型抽象语法树（typed AST）→ 高层中间表示（HIR）→ topology/geometry 中层中间表示（MIR）→ 已验证规范低层中间表示（validated canonical low-level intermediate representation，canonical LIR），并原子产出已验证源映射输入（validated source-map input）。该管线沿 ADR 0022 五层几何表示计量，不在制品/运行时整数毫米与 Spatial `f32` 之外新增第四种正本；canonical 折线自 geometry compile 起以有界 `f32` 贯穿高层中间表示（HIR）内部 `SpatialHir` 子表示、中层中间表示（MIR）与 LIR。`f64` 只保留在 road-editing analytic/reference 子表示，以及准入前的 LFRE 非几何交通/静态 wire。准入后交通一维在 Typed AST / HIR / MIR / LIR 存整数毫米或受检 `f32` SI。每一域显式归属为：
 
@@ -227,9 +91,8 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | geometry 中层中间表示（MIR）                | canonical 折线 `f32`                                 | compiler                                 | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial 高层中间表示（HIR）的 canonical 折线                                                                                                                                                                                                                               |
 | 已验证规范低层中间表示（canonical LIR）折线 | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                            | 运行时规范正本几何。交通一维在制品/运行时与 LIR 均为整数毫米 / 受检 `f32`；发射只写已提交值，不再量化                                                                                                                                                                                                                       |
 | LIR 同版本语义指纹（semantic fingerprint）  | `[u8; 32]`                                           | compiler 输出                            | `Lir::semantic_digest` 与 `CompilationMetrics::semantic_fingerprint()` 固定为 32 bytes；#298 的 portable artifact 字节完整性 digest 归 #298                                                                                                                                                                                 |
-| Core ↔ compiler projection                  | 仅 integration-only                                  | `laneflow-compiler-test-support`         | 投影不进入 `laneflow-compiler` 生产功能，#301 拆除 Core 时删除                                                                                                                                                                                                                                                              |
 
-- 当前已提交交通一维为整数毫米 + `carry_um` + `u32` mm/s（ADR 0028）。ADR 0014 补偿残差感知 `f32` 进度是 **#144 历史目标**，经 no-go 回退。compiler 编制曲线保持 `f64` 求值，canonical 折线仍为 `f32` 米。准入后 compiler IR 交通一维不再存编制米列。
+- 当前已提交交通一维为整数毫米 + `carry_um` + `u32` mm/s（ADR 0028）。compiler 编制曲线保持 `f64` 求值，canonical 折线仍为 `f32` 米。准入后 compiler IR 交通一维不再存编制米列。
 - 注册管线只有有类型抽象语法树（typed AST）、高层中间表示（HIR）、中层中间表示（MIR）与已验证规范低层中间表示（canonical LIR）；私有 `SpatialHir` 是 `build_spatial_hir` 在高层中间表示（HIR）构造期间使用的内部子表示，不是第二个已注册阶段。其 canonical 折线（`HirCanonicalPoint3F32`/`HirSpatialSegment`）为 `f32`，由共享 `freeze_spatial_polyline` 冻结；官方来源不直接构造 Spatial 对象。
 - road-editing analytic/reference 子表示（编制解析曲线、道路里程站位 reference 基表、配置档阈值、corridor station/宽度）均以 `f64` 存续；canonical 折线自 geometry compile 起量化到有界 `f32` 并贯穿高层中间表示（HIR）内部 `SpatialHir` 子表示、中层中间表示（MIR）与 LIR（ADR 0022 五层表示）。非几何交通/静态标量：LFRE wire 为编制 `f64`；准入后 IR 为整数毫米 / 受检 `f32`。
 - 道路里程站位（Stationing）是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。
@@ -237,29 +100,6 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 - offset horizontal-regularity proof 在细分前对 binary64 derivative controls 执行独立 interval walk，证明水平导数在整个 source segment 不为零；该检查不产生 canonical point，也不能由端点 distance/direction test 替代（ADR 0022 220–244）。
 - subdivision acceptance 与最终 canonical direction 检查把已量化的 `f32` 弦端点经 `promote_point` 无损提升回 `f64` 后做 distance/direction test（ADR 0022 246–280），保证判定阈值与 authoring numeric freeze 共享同一 binary64 `cos²`；这不授权在 road-editing analytic 子表示之外使用 `f32` 正本或未受检窄化。
 - corridor station 端点（`s0/s1`）与宽度端点（`w_i`）从 wire 到有类型抽象语法树（typed AST）全程保持 `f64`（ADR 0022 166–190）；offset 求值 `O(t) = B(t) + d(s(t))·L(t)` 在 `f64` 完成后才经 `quantize_point` 量化，不在 offset 中间量提前窄化。
-
-研究结果解释：
-
-- 直接 `f32` 的 36,000 tick 进度漂移和密集/走走停停控制误差超过预算；
-- #122 的旧补偿 `f32` 只在写入时维护残差，读取前车间距、edge 剩余距离、边界和快照时仍只使用高位分量；它没有实现完整的补偿进度语义；
-- #140 的补偿残差感知 `f32` 补全读取语义后，通过 5 种 edge 布局、3 种一万车辆场景和十万车辆密集观测的原严格上限，且无离散分歧；
-- “`f32` 计算 + `f64` 进度”不再是唯一通过候选。#140 同轮研究模型中，补偿残差感知 `f32` 相对 `f64` 在 10 km 上界的一万车辆场景快约 2.4%–5.8%，十万车辆密集场景快约 7.1%；该结果不足以直接外推到生产；
-- 候选布局可从每辆车 `128 B` 缩到 `80–88 B`，但这是仅供研究的车辆/运动向量，不是完整 Core 已实现的总内存收益；
-- ADR 0014 已接受上表作为目标契约；#144 完成真实生产实现后因性能门槛失败而回退，所以当前生产仍使用 `f64`。目标已冻结不等于生产已经切换或已安排再次迁移。
-
-### 4.1 #126 冻结的公开表面与转换边界
-
-| 表面                                  | v0.6 公开/存储类型                                            | 转换与诊断规则                                                               | 已完成的研究/实施     |
-| ------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------- |
-| `EdgeLength`、`Speed`、`Acceleration` | 主要构造器和 `value()` 为 `f32`                               | 现有 `f64` 生产者使用受检 `TryFrom<f64>` 或命名转换；禁止未检查的 `as f32`   | #144 实施后 no-go     |
-| `EdgeProgress`                        | 私有 `high: f32`、`residual: f32`；构造和有效值观察为 `f64`   | 所有差值、排序、边界、快照和事件判定都读有效值；分量不公开、不序列化         | #127 标定；#144 no-go |
-| `IidmProfileSpec`、Parking 几何值     | 单值 `f32`                                                    | 不保留 `f64` 镜像；Data 原始值在受检转换前仍可用 `f64` 诊断                  | #144 实施后 no-go     |
-| Parking 入口/出口锚点                 | Core 内保存 `EdgeProgress`，观察为有效 `f64`                  | 线格式仍是一个 `progress` JSON 数值；不新增静态位置标量类型                  | #144 实施后 no-go     |
-| 路线（route）派生距离                 | #127 选择的 `f64` 前缀或分块局部 `f32` 布局                   | 对外只暴露真实采用的派生值；不把原始边长留作第二正本                         | #127 选择；#144 no-go |
-| `CoreError` / `DataError` 数值载荷    | 原始转换值 `f64`；规范化单值 `f32`；有效进度/路线派生值 `f64` | 错误类型按发生阶段保存真实值；错误显示使用领域化中文范围，不引用已删除常量名 | #144 实施后 no-go     |
-| Data v0.6 私有线格式                  | `f64` 或等价高保真暂存                                        | 只用于转换前校验和原始输入诊断；成功后只保留 Core 正本                       | #144 实施后 no-go     |
-
-`formatVersion: "0.6"` 是 #144 已回退的历史数值候选，从未成为 current/published production format；当前唯一加载器和样例是 v0.10。未来重启数值迁移必须分配新的 format version，并在同一 Delivery PR 中切换 schema 文件名/`$id`、publication current source、版本检查、私有 DTO、规范化、固定样例、测试和当前文档；不得保留 v0.10 运行时分支、双精度开关、弃用别名或迁移工具。
 
 ## 5. 确定性与错误语义
 
@@ -273,15 +113,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 - 车辆/事件/更新顺序不依赖哈希迭代或浮点排序不稳定性；
 - 边界、约束和投影的离散决策有明确且领域化的容差。
 
-跨平台位级确定性仍不属于 v0.6 承诺。若候选精度改变事件、edge 跨越、前车或约束决策，即使最终位置误差很小，也视为行为差异，必须单独解释或阻断。
-
-current `f64` 的首批九个 owner 已由 #125 按第 2.2 节拆分，#222 后续增加
-minimum-gap slack owner；它们都不得在未来的局部 `f32` 路径中直接转换后复用。#127
-完成的目标 `f32` 九领域证据早于 #222，因此任何新迁移还必须补做 minimum-gap
-slack 的独立标定。目标 `f32` 阈值必须使用硬范围的最大末位单位（ULP）、真实运算
-次数、连续误差上限和精确值/相邻值预言机离线标定。首轮 `4 * max ULP` 只作为
-加法、减法和吸附的研究下限：在 `10_000 m` 处约为 `0.00390625 m`，低于
-`0.01 m` 上限；它不是生产常量，#144 的回退树也没有保留这些候选值。
+跨平台位级确定性不属于当前承诺。若数值表示改变事件、edge 跨越、前车或约束决策，即使最终位置误差很小，也视为行为差异，必须单独解释或阻断。
 
 ## 6. 跨层转换边界
 
@@ -313,7 +145,6 @@ Traffic Runtime 的有效进度
   -> 宿主 Transform
 ```
 
-- 空间包若以 `f64` 或等价高保真值暂存 JSON 数值，必须在 #134 的路径化诊断边界受检转换；禁止未检查的 `as f32`、饱和或值域外 f64 fallback。
 - 转换和批量 API 必须由 LaneFlow 拥有，返回结构化数值域/范围错误，并对整个批次执行“先计算、后提交”；失败不能留下部分输出或修改正本状态。
 - `f32` 批次只在 header 携带一次 `CanonicalFrameId + FramePlacementToken`；每条记录只携带 vehicle handle 与 canonical pose，不重复 frame/placement identity。
 - `FramePlacementToken(u64)` 是 Adapter/调用方颁发、Spatial 原样回显的不透明等值 token。同一 frame 重新放置、切 tile 或 rebase 时必须颁发新 token；Adapter 提交宿主 Transform 前必须比较当前 token 并拒绝旧批次。
@@ -321,33 +152,6 @@ Traffic Runtime 的有效进度
 - 双精度宿主把 canonical `f32` 位置升宽后应用自己的 frame/world placement；这不会形成第二套 Spatial/Runtime 状态。
 - 表现插值、原点重设和细节层级（LOD）只影响显示，不能反馈写入进度、速度、占用、状态或事件。
 
-### 6.3 API/Data/Spatial/Adapter 迁移判断
+### 6.3 格式与 API 变更判断
 
-| 接口面              | ADR 0014 目标决策                                                       | 迁移                                            |
-| ------------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
-| Core API            | 单一 `f32` 数值域的主 API 使用 `f32`；`EdgeProgress` 暴露有效 `f64`     | 破坏性语义/布局变更；由原子迁移议题交付         |
-| 当前 Data v0.10     | JSON 结构、static topology、per-edge limit、加载器范围/诊断保持当前实现 | 当前不变；下一有效格式按 ADR 0008 原子替换      |
-| 历史 Data v0.6 候选 | 硬范围、规范化、诊断与 Core 同步                                        | #144 no-go；未来重启必须使用新的 format version |
-| Spatial API         | 有界 canonical `f32` + Core 长度量化余量                                | 按 ADR 0015 修订 geometry/frame 与 Adapter 映射 |
-| Adapter API         | Lane/Parking 输入到带 frame/token 的批量位姿；不暴露宿主 Transform      | #136 固定引擎无关边界；v0.7 再落实具体宿主 ABI  |
-| 量化存储/传输       | 当前不存在                                                              | 将来必须带版本、通过独立议题迁移                |
-
-即使 JSON 词法类型仍是 `number`，Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的变化也必须按 ADR 0008 视为 Data/API 迁移。Data 可以先以 `f64` 或等价高保真值解析以保留原始错误输入，但只能通过显式受检转换进入 Traffic Runtime。
-
-## 7. G1 证据与后续实施
-
-#122 G1 已具备：
-
-1. 可复现的 Core/Data 数值面 inventory；
-2. 每个领域的范围、绝对/相对误差预算和 epsilon 推导；
-3. 同一代表性一万/十万 workload 的 f64/raw-f32/旧 compensated/residual-aware/mixed 时间与 candidate memory；
-4. production-aligned f64 oracle、逐 tick differential、长时累计、same-runtime replay、non-finite/signed-zero/boundary 证据；
-5. f16 与整数定点的 range/error/禁止边界；
-6. Core/Data/Spatial/Adapter migration 判断；
-7. ADR 0012 的决策、备选方案、后果与实施边界。
-
-#140 还补充了 edge 上界的生产 Core 稳态/构造/跨 edge 压力矩阵、每个最大误差的 tick/车辆/控制来源，以及 `10_000 m` 防御性单 edge 上界证据。逐轮数字见 git 历史；裁决结论见 ADR 0014。
-
-#141 G1 最初冻结 10 km Core/Data 硬上限、其他单一 `f32` 数值域的产品范围、`EdgeLength`/`EdgeProgress` 表示、公共 API 分层、route 距离的语义与候选、Spatial 长度量化余量及生产收益验收。#144 后续以完整账本把旧“内存至少降低 10%”修订为 5% 退化护栏，并把 14 项稳态几何平均至少提升 5% 冻结为主门槛；ADR 0014 保存当前规则。
-
-#126 已冻结公开 Core API、Parking 锚点、分层错误载荷与原子替换矩阵；#127 已完成目标 `f32` 九领域离线标定、长期判定基准、性能与扩展常驻内存账本。#144 的原子生产转换因性能门槛失败而 no-go，残差 `f32` 进度不再作为生产目标。现行一维正本是 ADR 0028。逐轮完成记录见 git 历史。空间层（Spatial）仍交付规范 `f32` 几何与适配器转换。
+Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的变化必须按 ADR 0008 视为数据格式 / API 迁移；编制数值只能通过显式受检转换进入 Traffic Runtime。

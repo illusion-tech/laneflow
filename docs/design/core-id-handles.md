@@ -1,592 +1,126 @@
-# Core ID 与 Handle 模型
+# Traffic Runtime 标识与句柄模型
 
-> **后继覆盖**：可运行世界是 `TrafficWorld`。路线入口只留
-> `register_route([LaneEdgeOrdinal…])` → `RouteHandle { index, generation }`（ADR 0029）。
-> 下文 v0.2 `CoreWorld` / `RouteInput` 只作历史导航，不是现行 API。
-
-**文档状态**: Accepted（v0.2 历史契约导航；#291 目标运行时已随 #301 交付，现行 API 见页首后继覆盖）<br>
-**最后更新**: 2026-11-07<br>
-**适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界<br>
+**文档状态**: Accepted<br>
+**最后更新**: 2026-11-09<br>
+**适用范围**: 稳定标识、共享路网修订内的有类型序号、每世界代际句柄、车辆与路线生命周期，以及热路径的标识边界<br>
 **关联文档**:
 
 - `../architecture.md`
-- `../roadmap.md`
-- `../adr/0001-project-scope.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
-- `../adr/0004-core-implementation-language.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
+- `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../adr/0029-retire-precompiled-static-route.md`
 - `../reference/glossary.md`
-- `core-runtime.md`
+- `network-compiler.md`
+- `shared-static-network.md`
+- `traffic-runtime-shared-consumption.md`
+- `traffic-runtime-snapshot.md`
 - `parking-system.md`
 - `road-junction-model.md`
 
 ## 1. 目标
 
-本文定义 LaneFlow Core 在 v0.2 阶段的 external ID 与 internal handle 边界，作为 #24 的设计输入。
+本文定义 `TrafficWorld` 与共享静态路网的标识分层：
 
-目标：
+- 编制来源、诊断和跨修订翻译使用稳定标识，运行时热路径只使用有类型序号与句柄，不在
+  固定步进中克隆、排序或查找字符串标识。
+- 静态路网的序号由编译器和共享静态路网确定，不在世界安装时重新分配。
+- 车辆与路线可以在步进之间以确定性方式动态增删，由代际句柄识别过期引用。
 
-- 外部数据、Adapter、debug、日志和用户工具继续使用稳定、可读的 external ID。
-- Core runtime 热路径使用 typed handle / compact id，不在每个 tick 中克隆、排序或事件输出字符串 ID。
-- 在 `CoreWorld` 初始化阶段完成 external ID 到 handle 的一次性归一化。
-- 允许 Core runtime 以确定性方式动态 spawn / despawn vehicle，并支持注册 / 移除 route definition 的最小生命周期边界。
-- 通过 registry / resolver 让 Adapter 和调试工具在需要时从 handle 解析回 external ID。
-- 为 #29、#30、#32 提供 v0.2 lane graph / route 设计、data format 和 Core 对齐输入。
+## 2. 标识分层
 
-ADR 0020 target 保留 external stable identity / typed dense handle / hot-path 无字符串
-原则，但把静态路网的 handle 分配和 registry/index 构建从 `CoreWorld` 初始化前移到
-compiler/shared static network。Target 动态执行层 clean-break 命名为
-`laneflow-runtime`/`TrafficWorld`；static/shared identity contract 移到
-`laneflow-static-contract`，不能继续由 Runtime 拥有。所有 shared-static table row 使用
-revision-scoped typed `u32` ordinal，只有稳定 declaration/addressable-derived 另有
-StableId128；owner-local occurrence 使用仅对当前 owning sequence snapshot 有效的
-typed `(ownerOrdinal, role, localIndex)` key。每 world 的 Vehicle、dynamic Route 与
-generation handle 继续由 Runtime 管理。所有共享修订都必须保留冷稳定
-身份索引（Shared Identity Index，`SharedIdentityIndex`），为快照恢复（Snapshot
-Restore）、dynamic Route 重建和修订切换（Revision Cutover）提供 StableId128 ↔
-typed ordinal 双向翻译；它不进入 steady tick，也不能证明同一 StableId128 在两个
-路网修订间语义兼容。跨修订状态迁移仍必须使用由 #302 可信切换输入绑定的
-语义差异（Semantic Diff），不能采用仅凭索引的回退。显示名、来源位置和完整规范元组等
-诊断数据由可移植制品、源映射或独立诊断制品外置提供，不进入 v1 shared static
-network。现行 `TrafficWorld` 路线入口以 ADR 0029 为准：`register_route` 只收边
-序号，catalog `route_id` 归调用方，Runtime 不提供 route external ID resolver。
-本文后续 v0.2 Core registry/resolver 与 “Core 初始化阶段 normalization” 是历史
-Core 描述；current Core/JSON 运行时入口已随 #301 拆除。
-
-## 2. 背景
-
-v0.1 Core runtime 中，`VehicleState`、`Route`、`LaneEdge` 和 `CoreEvent` 使用 `String` 表示 `vehicle_id`、`route_id`、`edge_id`。
-
-这对 v0.1 原型可接受，但会在目标规模扩大后形成明确热点：
-
-- `CoreWorld::step` 为保持失败原子性每 tick 克隆 `vehicles`，会连带克隆 `VehicleState.id` 和 `VehicleState.route_id`。
-- 每 tick 重新按 `vehicle_id` 字符串排序，以稳定 event order。
-- route transition events 拥有多个 `String` payload，大量车辆同 tick 跨 edge 时会放大分配与拷贝。
-
-如果车辆 external ID 高概率是 UUID 字符串，并且目标规模包含道路机动车执行域的
-一万车辆运行单元、每秒六十次固定步进，那么这些字符串操作不应留在 runtime 热路径中。
-
-## 3. 术语
-
-- **External ID**：外部边界使用的稳定 ID，例如 `vehicle-001`、UUID 字符串、route id、edge id。用于数据文件、错误信息、日志、debug UI 和 Adapter 绑定。
-- **Handle**：Core 内部和 public runtime API 使用的 typed compact id，例如 `VehicleHandle`。handle 只在同一个 `CoreWorld` / simulation session 内有效。
-- **Generation**：handle 内部用于识别槽位复用后的过期引用。generation 不暴露为 public API 字段。
-- **Registry**：维护 external ID 与 handle 双向映射的结构。
-- **Resolver**：从 handle 解析 external ID，或从 external ID 查找 handle 的只读 API。
-- **Active handle**：当前 world 中仍指向存活实体的 handle。
-- **Stale handle**：曾经有效，但对应实体已经被移除或槽位已复用的 handle。
-- **Runtime hot path**：`CoreWorld::step` 及其直接调用链，包括 vehicle update order、route traversal、event payload 构造。
-
-## 4. 设计决策
-
-### D1. external ID 与 runtime handle 必须分层
-
-状态：已接受（ADR 0005）。
-
-v0.2 Core 将 external ID 保留在初始化输入、data-format 边界、validation error、debug 和 resolver API 中。归一化后的 runtime state、route traversal 和 `CoreEvent` payload 应使用 typed handle。
-
-概念模型：
-
-```text
-external traffic data
-  vehicleId / routeId / edgeId as string
-        |
-        | CoreWorld initialization + validation
-        v
-CoreWorld normalized runtime state
-  VehicleHandle / RouteHandle / EdgeHandle
-        |
-        | resolver on demand
-        v
-Adapter / debug / log external ID
-```
-
-Core 不应在 step 中通过 external string ID 做实体定位、事件 payload 构造或车辆更新排序。
-
-### D2. handle 是不透明 typed handle
-
-状态：已接受（ADR 0005）。
-
-v0.2 public API 使用三个互不兼容的 handle 类型。示例写法如下，字段不加 `pub`，因此调用方不能直接构造或读取内部表示：
-
-```rust
-pub struct VehicleHandle {
-    index: u32,
-    generation: u32,
-}
-
-pub struct RouteHandle {
-    index: u32,
-    generation: u32,
-}
-
-pub struct EdgeHandle {
-    index: u32,
-}
-```
-
-handle 应至少实现：
-
-```rust
-fn _assert_handle_traits<T>()
-where
-    T: Clone + Copy + std::fmt::Debug + PartialEq + Eq + std::hash::Hash,
-{
-}
-```
+| 层级           | 形式                                                                | 有效范围               | 分配者                |
+| -------------- | ------------------------------------------------------------------- | ---------------------- | --------------------- |
+| 稳定标识       | `StableId128`，由规范标识元组派生                                   | 跨修订；不证明语义兼容 | 编译器                |
+| 修订内序号     | 有类型 `u32` 序号（如 `LaneEdgeOrdinal`、`VehicleProfileOrdinal`）  | 单个共享路网修订       | 编译器 / 共享静态路网 |
+| 所有者局部键   | 有类型 `(ownerOrdinal, role, localIndex)`                           | 所属序列的当前快照     | 编译器                |
+| 每世界代际句柄 | `VehicleHandle`、`RouteHandle`（`{ index, generation }`，字段私有） | 单个 `TrafficWorld`    | `TrafficWorld`        |
 
 规则：
 
-- 调用方不得自行构造 handle。
-- public API 不暴露稳定的数值含义。
-- handle 不可跨 `CoreWorld` 混用或持久化为外部数据格式。
-- handle 只表达当前 world 中的实体引用，不表达外部业务身份。
-- handle 不提供 public ordering；稳定遍历、事件顺序或 debug 排序必须使用显式 update sequence、external ID 或 resolver 后的业务字段，而不是依赖 handle 的 `Ord`。
-
-v0.2 实现应优先使用 generation-ready 的私有表示。推荐内部模型：
-
-```rust
-pub struct VehicleHandle {
-    index: u32,
-    generation: u32,
-}
-
-pub struct RouteHandle {
-    index: u32,
-    generation: u32,
-}
-
-pub struct EdgeHandle {
-    index: u32,
-}
-```
-
-public contract 不暴露 `index` 或 `generation` 字段。调用方只能把 handle 作为 typed token 传回 Core 或用于 resolver 查询。
-
-分层原因：
-
-- Vehicle 是运行时动态实体。v0.2 应允许 spawn / despawn vehicle，因此 `VehicleHandle` 必须能识别 stale handle。
-- Route definition 可能在运行时按需求注册或移除。若 route registry 支持复用槽位，`RouteHandle` 也应使用 generation。
-- Lane graph / edge 在 v0.2 仍按初始化后稳定处理。动态道路拓扑会影响 occupancy、route validity、Adapter mesh 和增量 validation，应单独设计，不塞进 #24 的最小交付。
-
-如果实现阶段为了更小步交付暂不复用空槽，仍不得把 public API 暴露成裸 `u32`。handle opaque 是允许后续从 dense index 升级为 generation handle 的硬性边界。
-
-### D3. external ID 继续使用字符串，不引入 UUID 专用类型
-
-状态：已接受（ADR 0005）。
-
-v0.2 Core 不直接依赖 `uuid` crate，也不把 vehicle ID 特化成 `Uuid` 或 `u128`。
-
-原因：
-
-- route id、edge id、vehicle id 需要统一处理，字符串 external ID 对数据格式和调试最直观。
-- 是否使用 UUID 是调用方或 data-format 的策略，不应强行进入 Core runtime 热路径。
-- `String` 只保留在 registry 和 validation / debug 边界，不再进入 step 热路径。
-- 避免过早引入额外运行时依赖和许可证评审成本。
-
-external ID 规则由 #30 冻结。#24 的默认输入是：
-
-- external ID 是 UTF-8 string。
-- 同一 domain 内唯一，例如 vehicle id 集合内唯一、route id 集合内唯一、edge id 集合内唯一。
-- 不同 domain 可以使用相同字符串，因为 `VehicleHandle`、`RouteHandle`、`EdgeHandle` 的类型空间不同。
-- 比较默认大小写敏感，不做 trim、case fold 或 Unicode normalization。
-
-### D4. registry / resolver 是 CoreWorld 的一部分
-
-状态：已接受（ADR 0005）。
-
-`CoreWorld` 初始化时应构建 domain-specific registry。registry 同时负责 active lookup 与 handle validation：
-
-```text
-VehicleRegistry
-  slots: Vec<VehicleSlot>
-  lookup: externalId -> active VehicleHandle
-  freeList: reusable slot indices
-
-RouteRegistry
-  slots: Vec<RouteSlot>
-  lookup: externalId -> active RouteHandle
-  freeList: reusable slot indices
-
-EdgeRegistry
-  externalIds: Vec<String>
-  lookup: externalId -> EdgeHandle
-```
-
-推荐 public resolver API：
-
-```rust
-impl CoreWorld {
-    pub fn vehicle_external_id(&self, _handle: VehicleHandle) -> Option<&str> {
-        todo!()
-    }
-
-    pub fn route_external_id(&self, _handle: RouteHandle) -> Option<&str> {
-        todo!()
-    }
-
-    pub fn edge_external_id(&self, _handle: EdgeHandle) -> Option<&str> {
-        todo!()
-    }
-
-    pub fn vehicle_handle(&self, _external_id: &str) -> Option<VehicleHandle> {
-        todo!()
-    }
-
-    pub fn route_handle(&self, _external_id: &str) -> Option<RouteHandle> {
-        todo!()
-    }
-
-    pub fn edge_handle(&self, _external_id: &str) -> Option<EdgeHandle> {
-        todo!()
-    }
-}
-```
-
-`Option` 只表示该 handle 或 external ID 在当前 world 中无法解析为 active entity。调用方仍不得把其他 world 的 handle 当作可验证输入；wrong-world handle 不属于 v0.2 的稳定行为边界。
-
-对需要区分错误原因的修改型 API，应返回明确错误，而不是只返回 `None`：
-
-```rust
-pub enum HandleLookupError {
-    Unknown,
-    Stale,
-    WrongDomain,
-}
-```
-
-`WrongDomain` 只能在类型系统无法防止的 FFI / binding 层出现。Rust API 应通过 `VehicleHandle`、`RouteHandle`、`EdgeHandle` 的类型隔离避免 domain 混用。
-
-### D5. runtime state 使用 handle 引用
-
-状态：已接受（ADR 0005）。
-
-归一化后的 Core runtime state 不应保存 external route / edge string 引用。
-
-概念模型：
-
-```text
-VehicleRuntimeState
-  handle: VehicleHandle
-  route: RouteHandle
-  routeEdgeIndex
-  edgeProgress
-  speed
-  status
-
-RouteRuntime
-  handle: RouteHandle
-  edgeHandles: Vec<EdgeHandle>
-
-LaneEdgeRuntime
-  handle: EdgeHandle
-  length
-  nextEdgeHandles: Vec<EdgeHandle>
-```
-
-初始化输入可以继续使用 external IDs：
-
-```text
-VehicleInput
-  externalId
-  routeExternalId
-  routeEdgeIndex
-  edgeProgress
-  speed
-  status
-
-RouteInput
-  externalId
-  edgeExternalIds
-
-LaneEdgeInput
-  externalId
-  length
-  nextEdgeExternalIds
-```
-
-具体类型命名由 #29、#30 和 #32 固化。本文只要求初始化输入与 runtime state 分层。
-
-### D6. vehicle / route 生命周期属于 Core runtime 契约
-
-状态：已接受（ADR 0005）。
-
-运行时增加和移除 vehicle 是 LaneFlow 的基础能力。v0.2 设计应定义最小生命周期 API，而不是把所有 vehicle 固定在初始化输入里。
-
-推荐最小 API：
-
-```rust
-impl CoreWorld {
-    pub fn spawn_vehicle(&mut self, _input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
-        todo!()
-    }
-
-    pub fn despawn_vehicle(
-        &mut self,
-        _vehicle: VehicleHandle,
-    ) -> Result<VehicleDespawnRecord, CoreError> {
-        todo!()
-    }
-
-    pub fn register_route(&mut self, _input: RouteInput) -> Result<RouteHandle, CoreError> {
-        todo!()
-    }
-
-    pub fn remove_route(&mut self, _route: RouteHandle) -> Result<RouteRemoveRecord, CoreError> {
-        todo!()
-    }
-}
-```
-
-生命周期规则：
-
-- lifecycle API 只能在 `step` 调用之间执行，不允许在一次 `step` 中间隐式修改实体集合。
-- 单条 lifecycle command 必须原子化：失败不得留下部分 registry 或 runtime state。
-- 批量 command 若后续需要，应按输入顺序验证和应用，并明确是否 whole-batch atomic。
-- `spawn_vehicle` 必须分配 active `VehicleHandle`，并把 external ID 注册进 `VehicleRegistry`。
-- `despawn_vehicle` 必须让旧 `VehicleHandle` 变为 stale；若槽位复用，新 handle 必须拥有不同 generation。
-- `despawn_vehicle` 应返回 `VehicleDespawnRecord`，至少包含被移除 vehicle 的 handle 和 external ID。这样 debug / Adapter 可以记录生命周期结果，而 active resolver 不需要继续把 stale handle 当成可解析实体。
-- `register_route` 必须把 route 的 external edge IDs 解析为 `EdgeHandle` 序列，并执行 route connectivity validation。
-- `remove_route` 只能移除没有 active vehicle 引用的 route；否则返回明确错误，避免让运行中车辆悬空。
-- `remove_route` 应返回 `RouteRemoveRecord`，至少包含被移除 route 的 handle 和 external ID，避免删除后依赖 active resolver 取回诊断信息。
-- v0.2 不支持动态新增 / 删除 edge 或修改 lane graph 拓扑。动态道路网络属于单独设计范围。
-
-`RouteHandle` 表示 world-level route definition。对于车辆临时路径，调用方可以选择先注册 route definition 再分配给 vehicle；是否需要 per-vehicle route plan 类型由 #29 / #32 在 route system 设计中细化。
-
-### D7. CoreEvent payload 使用 handle
-
-状态：已接受（ADR 0005）。
-
-v0.2 `CoreEvent` payload 不再拥有 external ID 字符串。事件应携带 handle 和必要的 route edge index：
-
-```rust
-pub struct VehicleChangedEdgeEvent {
-    pub tick_index: u64,
-    pub vehicle: VehicleHandle,
-    pub route: RouteHandle,
-    pub from_edge: EdgeHandle,
-    pub to_edge: EdgeHandle,
-    pub from_route_edge_index: usize,
-    pub to_route_edge_index: usize,
-}
-
-pub struct VehicleCompletedRouteEvent {
-    pub tick_index: u64,
-    pub vehicle: VehicleHandle,
-    pub route: RouteHandle,
-    pub edge: EdgeHandle,
-    pub route_edge_index: usize,
-}
-```
-
-Lifecycle command 可以返回专门的 command record，例如：
-
-```rust
-pub struct VehicleDespawnRecord {
-    pub vehicle: VehicleHandle,
-    pub external_id: String,
-}
-
-pub struct RouteRemoveRecord {
-    pub route: RouteHandle,
-    pub external_id: String,
-}
-```
-
-这类 record 不属于每 tick route traversal event 的 hot-path payload。它用于命令调用方记录实体生命周期，避免要求 active resolver 对 stale handle 继续返回 external ID。
-
-Adapter、debug UI 或日志如需 external ID，应通过 resolver 查询：
-
-```rust
-if let Some(vehicle_id) = world.vehicle_external_id(event.vehicle) {
-    // 使用 external vehicle id
-}
-```
-
-这会改变 v0.1 `CoreEvent` 的 public payload，属于 Core API breaking change。实现 PR 必须按 `docs/reference/commit-convention.md` 标记 breaking change，或明确记录 v0.1 prototype 迁移边界。
-
-### D8. stable update order 使用确定性 update key
-
-状态：已接受（ADR 0005）。
-
-v0.1 每 tick 通过 `vehicle_id` 字符串排序稳定事件顺序。v0.2 应改为维护稳定的 update order，而不是每 tick 排序 external string。
-
-```text
-vehicleUpdateOrder: Vec<VehicleHandle>
-```
-
-默认规则：
-
-- 初始化车辆按 vehicle external ID 的 Rust `str` 字典序分配初始 update sequence，保证输入顺序不影响结果。
-- runtime spawn 的车辆按 lifecycle command 应用顺序分配单调递增 update sequence。
-- `vehicleUpdateOrder` 按 update sequence 维护；每 tick 直接遍历 active handles。
-- despawn 车辆必须从 active update order 中移除，或标记为 inactive 并在遍历时跳过；无论采用哪种实现，事件顺序必须稳定且有测试覆盖。
-- 同一 vehicle 在同一 tick 内按实际 route transition 顺序输出事件。
-
-这样保留 v0.1 的输入顺序独立性，同时支持 runtime spawn，而不会把 external ID 字符串排序留在 tick 热路径。
-
-### D9. validation error 保留 external ID，runtime error 可使用 handle
-
-状态：已接受（ADR 0005）。
-
-初始化 validation error 面向数据作者和调用方，应继续携带 external ID，例如 duplicate vehicle id、unknown edge id、disconnected route edge。
-
-runtime step error 如果发生在已归一化 state 上，可以携带 handle。调用方可在错误发生后通过同一个 `CoreWorld` resolver 查询 external ID。
-
-推荐规则：
-
-- 初始化阶段：错误携带 external ID。
-- external command / lookup 阶段：错误携带调用方传入的 external ID。
-- step 阶段：错误优先携带 handle，不在错误构造中分配 external string。
-- `Display` 文案仍使用中文优先；如果错误只含 handle，应输出 handle 的 debug 表示，并提示可通过 resolver 查 external ID。
-
-### D10. v0.2 暂不引入 handle 管理 crate
-
-状态：已接受（ADR 0005）。
-
-v0.2 优先使用自有的最小 typed handles 和 registry，不引入 `slotmap`、`generational-arena` 等 handle 管理 crate。
-
-原因：
-
-- LaneFlow 只需要少数 domain-specific typed handles、resolver 和生命周期规则，不需要通用 arena 的完整抽象面。
-- 自有 opaque typed handle 可以保持 public API 极小，并避免过早冻结第三方 crate 的 key 类型、生命周期模型和许可证评审。
-- Vehicle / route 的 generation 规则足够小，可以在 Core 内部实现并用 focused tests 锁定。
-
-如果 v0.3+ 引入更复杂的动态道路拓扑、parking reservation、跨模块长期缓存或大量实体类型，再重新评估 `slotmap`、`generational-arena` 等成熟 crate。评估应以实际生命周期需求为输入，而不是提前把通用 arena 抽象带入 v0.2。
-
-## 5. 初始化流程
-
-推荐归一化流程：
-
-1. 校验 external ID 非空、domain 内唯一。
-2. 为 edge external IDs 分配 `EdgeHandle`。
-3. 将 lane edge 的 `nextEdgeExternalIds` 解析为 `EdgeHandle`。
-4. 为 route external IDs 分配 `RouteHandle`。
-5. 将 route 的 edge sequence 解析为 `EdgeHandle`，并执行 route connectivity validation。
-6. 为初始 vehicle external IDs 分配 generation-ready `VehicleHandle`。
-7. 将 vehicle 的 route reference 解析为 `RouteHandle`。
-8. 校验 vehicle 初始 `routeEdgeIndex`、`edgeProgress`、`speed` 和 `status`。
-9. 按初始 vehicle external ID 字典序分配 update sequence，并生成 `vehicleUpdateOrder`。
-10. 构造不含 external string hot-path 引用的 runtime state。
-
-初始化失败不得返回部分可用 `CoreWorld`。
-
-运行期 lifecycle command 流程：
-
-1. 校验 command 输入的 external ID、route reference、edge sequence 或 handle。
-2. 对 handle 输入执行 active / stale 检查。
-3. 对 route 变更执行 connectivity validation。
-4. 按 command 顺序分配 handle / generation / update sequence。
-5. 更新 registry、runtime state 和 `vehicleUpdateOrder`。
-6. 返回 handle 或 lifecycle record。
-
-单条 command 失败不得改变 `CoreWorld`。批量 command 的原子性由后续 API 设计明确，不能隐式部分成功。
-
-## 6. 性能边界
-
-v0.2 的最低性能目标：
-
-- `CoreWorld::step` 不按 external string 排序。
-- `CoreWorld::step` 不为 event payload 克隆 external strings。
-- `CoreWorld::step` 不因 route / edge / vehicle 定位执行 external string lookup。
-- `CoreWorld::step` 不处理 hidden spawn / despawn side effect；动态生命周期必须通过显式 command 进入 Core。
-- 为失败原子性保留的临时 state clone 只能克隆 compact runtime state，不得克隆 external strings。
-
-v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 step 原子性。若
-道路机动车执行域的一万车辆运行单元、每秒六十次固定步进下 compact state clone
-仍成为热点，应单独拆性能 issue 评估 patch / compute-then-apply 策略。
-
-### 6.1 #106 lifecycle substrate 实现事实
-
-#106 在不改变 public Core API、data format 或 Adapter API 的前提下，落实了 planned v0.5 Parking 需要的私有 lifecycle 底座：
-
-- route/vehicle external-ID resolver 删除使用 O(1) `swap_remove`；
-- stable update order 使用尾部追加、reverse position 与 tombstone，despawn 不再 `retain` 全表；
-- compaction 只在成功 lifecycle command 边界按确定阈值执行，不进入 normal tick，且重建后保持 live vehicle 顺序与 route-in-use 首个错误对象；
-- route reference 使用 exact live count 与按 stable position 排序的 lazy heap；派生 heap 与 route-distance index 使用并行 SoA 存储，不扩大 tick 热路径的 `RouteSlot`；
-- warm despawn、route-in-use failure 与 no-event step 为零 heap allocation；owned overlap error 的分配只与实际错误数量相关，不随 V 或 route length 增长。
-
-这些都是运行时私有 representation，不冻结 container ABI。当时 allocation / retained-memory 与同机性能证据见 git 历史。
-
-## 7. 测试策略
-
-实现 #32 时至少覆盖：
-
-- 同一 external ID 输入无论车辆输入顺序如何，event order 都按初始化生成的 stable update order 输出。
-- runtime spawn 的 vehicle 按 command 应用顺序获得稳定 update sequence。
-- despawn 后旧 `VehicleHandle` 变为 stale；槽位复用时新 handle 的 generation 不同。
-- stale `VehicleHandle` 不能读取或修改 active vehicle state。
-- `despawn_vehicle` 返回的 lifecycle record 可提供被移除 vehicle 的 external ID。
-- `CoreEvent` payload 只包含 handles 和 route edge index，不包含 external ID strings。
-- `world.vehicle_external_id(handle)`、`world.route_external_id(handle)`、`world.edge_external_id(handle)` 可解析合法 handle。
-- `world.vehicle_handle(id)`、`world.route_handle(id)`、`world.edge_handle(id)` 可反查合法 external ID。
-- unknown external ID lookup 返回 `None`。
-- stale handle 的 active resolver 返回 `None`，修改型 API 返回明确 stale handle error。
-- 初始化 validation error 仍携带 external ID，便于定位数据错误。
-- route transition 和 completion 事件可通过 resolver 转回 v0.1 等价 external ID 断言。
-- deterministic tests 不依赖 `HashMap` 等无稳定迭代顺序集合。
-
-## 8. 对后续 issue 的要求
-
-#29 lane graph / route system 设计：
-
-- 应明确 edge / route external ID 的数据模型和拓扑引用方式。
-- 应说明 route edge sequence 中重复 edge 是否继续通过 `routeEdgeIndex` 区分位置。
-- 应区分 world-level route definition 与 per-vehicle route plan。如果 route 可运行期注册 / 移除，应定义 active vehicle 引用时的 remove 拒绝规则。
-
-#30 data format：
-
-- 应冻结 external ID 字段名、唯一性、字符约束、版本策略和兼容性边界。
-- 应说明 external ID 与 runtime handle 不等价，handle 不进入数据文件。
-- 应说明 initial traffic data 与 runtime lifecycle command data 是否分层；如果 v0.2 不冻结 command data format，必须明确不做范围。
-
-#31 validation：
-
-- 应按初始化 validation、data-format validation 和 runtime validation 分层。
-- 应明确哪些错误保留 external ID，哪些错误可以使用 handle。
-- 应新增 active / stale handle、duplicate external ID、route in use、unknown route / edge 等 lifecycle validation 错误。
-
-#32 Core 对齐：
-
-- 应新增 handle types、registry / resolver、normalized runtime state 和 handle-only events。
-- 应记录 Core API breaking change 或 v0.1 prototype 迁移边界。
-- 应实现或显式拆出最小 vehicle spawn / despawn 和 route register / remove API；若拆出，必须说明 #24 的 handle 设计如何保证后续兼容。
-
-## 9. 设计审阅结论
-
-本设计按以下标准审阅：
-
-- Core 热路径不依赖 external string clone / sort / lookup。
-- 动态 vehicle 生命周期不被延后到会破坏 handle contract 的后续变更。
-- 动态 route definition 与动态 lane graph 拓扑分层处理。
-- handle 对调用方保持 opaque，允许内部 representation 演进。
-- stale handle 有明确错误语义，而不是误命中新实体。
-- Adapter / debug 仍可通过 resolver 或 lifecycle record 获得 external ID。
-- 确定性 update order 不依赖 `HashMap` 迭代顺序或输入数组顺序。
-
-审阅结论：
-
-- 对 dynamic vehicle：采用 generation-ready `VehicleHandle` 是正确做法。运行时 spawn / despawn 是 LaneFlow 基础能力，若只用裸 index 会在槽位复用和外部缓存场景下产生 stale handle 风险。
-- 对 dynamic route：支持 route definition 运行期注册 / 移除是合理边界，但必须限制 `remove_route` 不得移除仍被 active vehicle 引用的 route。
-- 对 dynamic lane graph：不放入 v0.2 是合理取舍。运行时修改道路拓扑会牵动 route validity、occupancy、Adapter mesh 和增量 validation，应作为独立高风险设计。
-- 对第三方 crate：v0.2 暂不引入通用 arena crate 是可接受的最佳实践。当前 domain 少、规则明确，自有 opaque typed handle + generation 更小、更容易审计；如果后续实体类型和动态拓扑复杂度明显上升，再评估成熟 crate。
-
-因此，#24 推荐方案是：**Vehicle / Route handle 从设计上支持 generation，Edge handle 暂按静态 lane graph dense handle 处理；动态 vehicle 和 route definition 属于 Core runtime 契约，动态道路拓扑另行设计。**
-
-## 10. ADR 判断
-
-Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapter resolver 边界，属于高影响设计决策。本文配套 `../adr/0005-core-identity-and-handle-model.md`，ADR 0005 状态为 `Accepted`，作为 #24 的 G1 冻结决策依据。
-
-## 11. v0.5 Parking extension
-
-`parking-system.md` 在不改变本文 external-ID/opaque-handle 原则的前提下增加 static dense `ParkingAreaHandle` / `ParkingSpaceHandle` 与 immutable registry/resolver。#107 已交付 static handles/API；Parking handles 不持久化、没有 public ordering，dynamic vehicle 继续使用 generation handle。Planned Parking binding/lifecycle records 由 #108/#109 交付；binding 是 Core 私有 aggregate，不进入 handle 本身、VehicleState 或 Adapter。
-
-## 12. 场景人口与 atomic replace extension
-
-#184/ADR 0016 的规范仍有效。#186 的 Core 命令已随 `CoreWorld` 拆除；现行入口由 #475 钉在 `TrafficWorld`：
+- 所有共享静态路网表行使用修订内序号；只有稳定声明实体与可寻址派生实体另有
+  `StableId128`。
+- 静态与共享标识合同位于 `laneflow-static-contract`，不由 Runtime 拥有。
+- 所有共享修订都必须保留冷的共享标识索引（`SharedIdentityIndex`），为快照恢复、
+  动态路线重建和修订切换提供 `StableId128` 与序号之间的双向翻译。它不进入稳态
+  tick，也不能证明同一 `StableId128` 在两个路网修订间语义兼容。
+- 跨修订状态迁移必须使用由可信切换输入绑定的语义差异，不能采用仅凭索引的回退。
+- 显示名、来源位置和完整规范元组等诊断数据由可移植制品、源映射或独立诊断制品外置
+  提供，不进入共享静态路网。
+- 路线与车辆的可读标识归调用方。`register_route` 只接收边序号，catalog `route_id`
+  由调用方持有；Runtime 没有路线或车辆的外部字符串解析器（ADR 0029）。
+
+## 3. 代际句柄
+
+`VehicleHandle` 与 `RouteHandle` 是互不兼容的不透明类型，实现
+`Clone + Copy + Debug + Eq + Hash`。
+
+- 调用方不得自行构造句柄；公开 API 不暴露 `index` 或 `generation`，也不赋予数值稳定
+  含义。
+- 句柄只在产生它的 `TrafficWorld` 内有效，不编码世界身份；跨世界混用是调用方错误。
+  修订切换期间句柄的延续规则见 `traffic-runtime-shared-consumption.md`。
+- 句柄不进入编制来源与路网制品。运行时快照的保存边界见 `traffic-runtime-snapshot.md`。
+- 句柄不提供公共排序；稳定遍历与事件顺序必须使用显式更新序，不得依赖句柄的数值或
+  `Ord`。
+- 槽位复用时新句柄必须拥有不同 generation，使旧句柄成为 stale。
+
+继续使用项目自有的最小句柄，不引入 `slotmap`、`generational-arena` 等通用句柄管理
+crate，也不依赖 `uuid` 或把标识特化成 UUID。
+
+## 4. 车辆与路线生命周期
+
+生命周期命令（`register_route`、`remove_route`、`spawn_vehicle`、
+`replace_completed_vehicle`、停车生命周期与 `despawn_vehicle`）的现行签名见
+`traffic-runtime-shared-consumption.md`。
+
+- 生命周期命令只能在 `step` 调用之间执行，不允许在一次 `step` 中隐式修改实体集合。
+- 单条命令必须原子：失败不得改变已提交世界。批量命令若后续需要，必须明确是否整批
+  原子，不能隐式部分成功。
+- 成功移除后旧句柄 stale；若槽位复用，新句柄必须拥有不同 generation。
+- `remove_route` 只能移除没有 live 车辆引用的路线，否则返回明确错误，不让运行中车辆
+  悬空。
+- `RouteHandle` 表示世界级路线定义。
+- 车道图拓扑在共享路网修订内不可变；拓扑变化只通过修订切换事务进入运行世界。
+
+## 5. 确定性更新序
+
+`live_order` 是车辆更新的确定性顺序：
+
+- `spawn_vehicle` 按命令应用顺序在尾部追加，`update_sequence` 由此得出。
+- 每 tick 直接遍历 `live_order`，不按字符串排序，也不依赖 `HashMap` 迭代或输入数组
+  偶然顺序。
+- 车辆移除后必须从更新序中摘除，事件顺序保持稳定。
+- `replace_completed_vehicle` 尽量保留旧车在 `live_order` 中的位置，不产生 tombstone。
+
+## 6. 错误边界
+
+- 静态不变量由编译器诊断报告，携带来源位置与稳定键。
+- 运行时错误可以携带句柄或序号，不在错误构造路径中为定位而分配字符串。
+- 需要区分原因的修改型 API 返回明确错误；无法解析的只读查询返回 `None`。
+
+## 7. 性能边界
+
+- `step` 不按外部字符串排序，不为事件载荷克隆字符串，不因路线、边或车辆定位执行
+  字符串查找。
+- `step` 不处理隐藏的生成或移除；动态生命周期必须通过显式命令进入。
+
+## 8. 静态对象标识
+
+路口、机动路径、机动门、信号与停车等静态对象都是共享路网修订内的有类型序号
+（`JunctionOrdinal`、`MovementOrdinal`、`ManeuverPathOrdinal`、`ManeuverGateOrdinal`、
+`StopLineOrdinal`、`SignalGroupOrdinal`、`ParkingSpaceOrdinal` 等），不需要 generation
+生命周期，也不提供具有业务含义的公共排序。路口层细节见 `road-junction-model.md` §4，
+停车绑定与生命周期记录见 `parking-system.md`。
+
+路线注册期把机动路径和机动门编译为路线共享的出现记录；稳态 tick 不查字符串标识、
+不按序号数值排序，也不扫描全局表。
+
+## 9. 完成车辆的原子替换
+
+ADR 0016 规定的回流入口钉在 `TrafficWorld`：
 
 ```rust
 replace_completed_vehicle(
@@ -595,40 +129,34 @@ replace_completed_vehicle(
 ) -> Result<VehicleReplaceRecord, ReplaceError>
 ```
 
-命令只接受 live、未绑定 Parking 的 `Completed` old vehicle，并创建 `Active` replacement。`VehicleSpawnInput` 携带 profile、`RouteHandle`、`route_edge_index`、edge progress 与 initial speed，因此调用方可在 typed `Blocked` 后复用同一输入。Runtime 没有 external ID 字符串，不把 `Preserve | ReplaceWith` 搬进生产入口。
+命令只接受 live、未绑定 Parking 的 `Completed` 车辆，并创建 `Active` 替换车。
+`VehicleSpawnInput` 携带 profile、`RouteHandle`、`route_edge_index`、edge progress 与
+initial speed，因此调用方可在 typed `Blocked` 后复用同一输入。Runtime 没有外部字符串
+标识，不把 `Preserve | ReplaceWith` 搬进生产入口。
 
-成功返回 `VehicleReplaceRecord { old, new }`，old 立即 stale，new handle 必须不同；public contract 不保证相同 slot index。到达路线终点写成 `Completed`，保留槽位与句柄，直到 replace；不进 pose、不占车道，占车辆容量。公开契约不恢复独立 `despawn`，也不得用退役后再 `spawn` 充当回流。
+成功返回 `VehicleReplaceRecord { old, new }`，old 立即 stale，new handle 必须不同；公开
+合同不保证相同 slot index。到达路线终点写成 `Completed`，保留槽位与句柄直到 replace；
+不进 pose、不占车道，占车辆容量。不得用移除后再 `spawn` 充当回流。
 
-只有物理 overlap 返回可恢复的 typed `ReplaceError::Blocked`，payload 含 old/blocker handle、前后关系和 bumper gap。stale、非 Completed、Parking 占用、profile、route、`route_edge_index`、progress、speed、限速、准入和容量错误均为致命 `ReplaceError`。任一 blocked/fatal 结果都保持 committed world 不变。
+只有物理 overlap 返回可恢复的 typed `ReplaceError::Blocked`，载荷含 old/blocker handle、
+前后关系和 bumper gap。stale、非 Completed、Parking 占用、profile、route、
+`route_edge_index`、progress、speed、限速、准入和容量错误均为致命 `ReplaceError`。任一
+blocked/fatal 结果都保持已提交世界不变。
 
-重叠准入使用路线起点截断后的非空车身区间，并拒绝重合的零进度前杠入口点；多个 blocker 按
-几何规则选择（离前杠最近者），与槽位分配无关、快照恢复前后一致。该规则不增加
-handle 公共排序能力，详见 `vehicle-following.md` §7.4。
+重叠准入使用路线起点截断后的非空车身区间，并拒绝重合的零进度前杠入口点；多个 blocker
+按几何规则选择（离前杠最近者），与槽位分配无关、快照恢复前后一致。该规则不增加句柄公共
+排序能力，详见 `vehicle-following.md` §7.4。
 
-replace 尽量保留 old 的 `live_order` 位置，不产生 tombstone。TrafficWorld 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。走廊 / 城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 Adapter transaction 原子切换 binding。详细职责见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。
+`TrafficWorld` 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending
+retry 或车辆数量上限，也不接触 Entity。走廊、城市游戏等调用方拥有 lifecycle policy；
+成功 record 足以让 Adapter 事务原子切换 binding。详细职责见
+`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与
+`example-scenarios.md`。
 
-## 13. v0.9 static Road/Junction/Maneuver handle extension
+## 10. 测试要求
 
-#228/ADR 0017 接受尚未由 #229 实现的四个 static handle domain：
-
-```text
-JunctionHandle
-MovementHandle
-ManeuverPathHandle
-ManeuverGateHandle
-```
-
-它们复用本文 external-ID/opaque-handle/resolver 原则，但 static registry 在
-initialization 后 immutable，v0.9 不需要 generation lifecycle。Entity/member/path
-edge 使用 normalization-order dense/flat storage；handle 没有 public ordering 或
-持久化数值。
-
-这些 handle 是 session/world-scoped caller contract。为保持现有 static handles
-一致，v0.9 不单独加入 per-value world nonce，也不承诺检测所有 same-index foreign
-handle。跨 graph/world 的 `InitialTrafficData` assembly 必须按 retained external IDs
-对最终 LaneGraph rebind/revalidate，禁止复制 dense handles。
-
-Route 注册期把 ManeuverPath/ManeuverGate 编译为 route-shared occurrences；
-steady tick 不使用 external string resolver、不按 handle 数值排序，也不扫描全局
-registry。#229 已公开这些 opaque handles 与 external-ID resolvers；不公开数值
-ordering，也不提供 pair-based Gate alias。
+- 输入顺序不同但命令序列相同时，更新序与事件顺序保持确定。
+- 移除后旧句柄 stale；槽位复用时新句柄 generation 不同；stale 句柄不能读取或修改活动
+  车辆状态。
+- `remove_route` 拒绝仍被 live 车辆引用的路线。
+- 确定性测试不依赖 `HashMap` 等无稳定迭代顺序的集合。

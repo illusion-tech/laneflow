@@ -11,8 +11,7 @@ Artifact）、共享静态路网（Shared Static Network）、源映射（Source
 **现行路径**: 道路编辑/合成有类型来源进入
 `laneflow-compiler`，经 Typed AST → HIR → MIR → Canonical LIR 发射 LFCA/LFSM/LFSD，
 再由受检 LFCA 构建 `SharedNetworkRevision` 并供 `TrafficWorld` 与可选
-`SharedSpatialNetwork` 消费。旧 Traffic/Spatial JSON、`InitialTrafficData`、
-`laneflow-core` / `CoreWorld` 和临时投影桥均已退出现行路径<br>
+`SharedSpatialNetwork` 消费<br>
 
 **关联决策与设计**:
 
@@ -32,7 +31,6 @@ Artifact）、共享静态路网（Shared Static Network）、源映射（Source
 - `portable-canonical-artifact.md`
 - `compiler-post-emission-check-and-minimal-publication-closure.md`
 - `shared-static-network.md`
-- `current-package-import.md`
 - `cross-section-access.md`
 - `spatial-geometry.md`
 - `road-junction-model.md`
@@ -89,12 +87,10 @@ SharedNetworkRevision ─┬─> Traffic Runtime: SharedTrafficNetwork + per-wor
 
 核心结论：
 
-- 取消 L1/L2 作为架构层；不同来源语言（Source Language）/来源模块是平级前端
-  输入；
+- 不同来源语言（Source Language）/来源模块是平级前端输入，不构成架构层级；
 - 编译单元的唯一数据编制正本是可重放的正本来源模块图，几何文档只是生产场景的
   主要来源语言；
 - 编译器是全部静态路网的唯一编译裁决方；
-- `InitialTrafficData` 和 Core 登记表不是中间表示；
 - AST/HIR/MIR/LIR 逐级降阶，只有以已验证规范 LIR 为静态语义核心的成功编译结果
   可以进入编译发射器；
 - 可移植规范制品是持久化规范后端；共享静态路网从受检 LFCA 构建，不另设持久化
@@ -123,23 +119,14 @@ SharedNetworkRevision ─┬─> Traffic Runtime: SharedTrafficNetwork + per-wor
 `laneflow-runtime` 是唯一可运行交通世界；旧 JSON/Data/Core 入口不属于当前合同。
 精确消费边界见 `traffic-runtime-shared-consumption.md`。
 
-## 2. 为什么不能继续 L1/L2
+## 2. 前端不是降阶层级
 
-原草案把 scenario builder DSL 定义为 L1，把 geometry compiler 定义为 L2，并让
-L1 先输出 Core 输入。这会产生三个结构性错误：
+合成领域专用语言、Geometry、OSM 与 Editor 只是不同来源，不存在“更低”或“更高”的
+降阶关系。拓扑、几何、标识、长度和 Gate/Waiting coverage 只有在同一个 MIR/LIR 中才能
+一次性裁决，编译器中层不得依赖运行时对象图。
 
-1. **frontend 被误当作 lowering level**：Synthetic DSL 并不比 Geometry/OSM/Editor
-   “更低”或“更高”；它们只是不同来源；
-2. **Core object graph 泄漏到 compiler 中层**：`InitialTrafficData` 已经完成 Core
-   handle 解析、registry/rebind 和 route occurrence 编译，无法作为 target-neutral
-   输入；
-3. **联合静态事实被拆开**：拓扑、几何、标识、长度和 Gate/Waiting
-   coverage 只有在同一个 MIR/LIR 中才能一次性裁决，先 Core 后 Spatial 必然重复
-   join 和校验。
-
-因此 #292 的 Synthetic DSL 是 compiler frontend 的首个纵向验证，不是 L1。未来
-Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped output，
-只依赖共同的 typed AST/HIR contract 和 compiler passes。
+#292 的合成领域专用语言是编译器前端的首个纵向验证。后续 Geometry、OSM 或 Editor 前端
+不依赖它的语法，只依赖共同的 Typed AST/HIR 合同与编译遍。
 
 ## 3. 当前生产边界
 
@@ -320,9 +307,7 @@ buffer/document”应用
 摘要、重复资源计数或第二次规范排序。精确所有权、失败事务和共同接入性能验证以
 `compiler-foundation.md` 第 3.3 与 10.4 节为准。
 
-current JSON 不属于官方编译器前端，schema 与加载 crate 已删除。
-`laneflow-compiler` 不依赖 JSON。编译器和投影测试直接构造有类型模块。精确退役
-边界见 [`current-package-import.md`](current-package-import.md)。
+`laneflow-compiler` 不依赖 JSON。编译器测试直接构造有类型模块。
 
 这不是第三方前端插件协议。公开面只使用 LaneFlow 拥有的具体入口以及它们进入共同
 私有接入的规则，不冻结 Geometry 公共签名。Road Editing 接口借用完整
@@ -346,8 +331,7 @@ current JSON 不属于官方编译器前端，schema 与加载 crate 已删除�
 4. 规则：signals、Gate/WaitingZone、access、parking 和其他静态 overlay。
 
 曲线在 MIR 中按冻结 B1 规则离散为 canonical f32 polyline；共享静态路网不保存
-authoring curve evaluator。旧严格 UTF-8 JSON Geometry 方案已经归档，不获得来源格式
-兼容承诺；新契约已经由当前生产编译器入口实现，但仍属于内部未发布实现契约；B1
+authoring curve evaluator。新契约已经由当前生产编译器入口实现，但仍属于内部未发布实现契约；B1
 不构成已发布存档格式或长期兼容承诺。
 
 ### 5.4 导入与编辑器编制（Import and Editor Authoring）
@@ -607,9 +591,6 @@ validated canonical LIR 必须保存有类型（Typed）的
 
 - Geometry/Synthetic/Editor 来源若展开出逻辑边，必须从显式稳定 authoring key
   产生并持久化边键；几何坐标、曲线离散片段、数组下标和遍历顺序均不得成为边键；
-- current JSON 不进入编译器；Traffic v0.10 的 `laneGraph.edges[].id`、
-  `RoadSectionData.lanes[].edgeIds` 和派生内部边角色只属于当前加载路径，本设计不定义
-  它们到 `laneEdgeKey` 或实体种类的导入映射；
 - 后继若为其他真实来源增加导入器，必须在自身 G1 冻结稳定命名空间、显式边键和角色
   关系降阶；不得恢复已取消的 current JSON 映射，也不得按角色选择不同实体种类；
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
@@ -1207,7 +1188,7 @@ ADR 0025 已取消 image binding；缺少完整切换输入时，
 
 现行运行时是 `LaneFlow Traffic Runtime` / `laneflow-runtime`，公开 world 为
 `TrafficWorld`。static contract、format、shared-network builder 和 compiler type
-位于各自 crate；`laneflow-core` / `CoreWorld` 不再是可运行入口。
+位于各自 crate。
 
 `TrafficWorld` 共享 `Arc<SharedNetworkRevision>` 并从根借用 `SharedTrafficNetwork`，只分配：
 
@@ -1235,7 +1216,7 @@ compiler **不**预编译路线。`TrafficWorld::register_route` 在本世界编
 Spatial 只在 `SharedNetworkRevision` 含 Spatial component 时借用
 `SharedSpatialNetwork`。只有 `lane_pose()` capability 存在时，LaneEdge geometry tables
 才与 Traffic edge ordinal 完整对齐；facility/profile/frame-only component 不能启动车辆
-pose sampling。可用 pose 路径不再建立 `HashMap<EdgeHandle, slot>` 或按 external ID join，
+pose sampling。可用 pose 路径不建立按边索引的 `HashMap` 或按 external ID join，
 并继续遵守 ADR 0015 的 canonical f32、frame token、稳定顺序、零分配和失败原子性。
 headless 构建不创建 Spatial runtime。Spatial session 只
 `bind(Arc<SharedNetworkRevision>)`，不依赖 `laneflow-runtime`；同修订由组合根与
@@ -1818,8 +1799,7 @@ laneflow-adapter-* ------> laneflow-runtime
 laneflow-adapter-* ------> laneflow-spatial
 ```
 
-`laneflow-data` 与 `laneflow-current-source` 已删除；compiler 不依赖 JSON loader，
-也不建立迁移 crate、兼容特性或长期离线导入入口。
+compiler 不依赖 JSON loader，也不建立迁移 crate、兼容特性或长期离线导入入口。
 
 职责与禁止依赖：
 

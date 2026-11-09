@@ -1,12 +1,8 @@
 # LuST / Bevy 个体人口调节契约
 
-> **后继覆盖**：`CoreWorld` 与 `LaneFlowSession::core()` 已随 #301 拆除，可运行世界是
-> `TrafficWorld`。下文按立项时的 `CoreWorld` 写成的接入与重建步骤只作历史导航；
-> 计数与抽样契约继续有效。#257 示例尚未在 `TrafficWorld` 上交付，LuST 五轴验收已
-> 移至 v0.11（#1269）。
-
 **文档状态**: Accepted（#256 G1）<br>
-**最后更新**: 2026-11-08<br>
+**最后更新**: 2026-11-09<br>
+**实现状态**: #257 示例尚未交付，LuST 五轴验收在 v0.11（#1269）<br>
 **适用范围**: LuST 真实路网 Bevy native 示例（#257）的一至一万个体人口调节、
 展示计数与确定性抽样；不覆盖走廊 `50..=200` reference policy，也不改写
 TOPO/DEMAND workload ID
@@ -92,12 +88,10 @@ S1 例外：excess slot 按 §3.2.1 保留 Traffic Runtime identity 但已移出
 - 生命周期决策只发生在 **fixed-step lifecycle boundary**（ADR 0016 顺序：pending
   commands → Runtime step → completions → 下一 boundary 的计划），不得按
   outer-frame 次数偷改。
-- **禁止 Running Session 内 live-spawn / live-despawn 扩缩编**。现有 Bevy public
-  surface：`LaneFlowSession::core()` 只暴露 `&CoreWorld`；`bind_vehicle_entity`
-  只绑定已存在车辆；Adapter lifecycle 仅有 completed-vehicle replace。H1 重建 =
-  销毁当前 Session，按第 4/6 节用初始 batch 重建 `CoreWorld` 后再挂 Session（与
-  走廊两阶段 bootstrap 同构）。若需要 Running 内 typed spawn/despawn，必须另立
-  G1/ADR，不得在本契约下静默扩展 public API。
+- **禁止 Running Session 内 live-spawn / live-despawn 扩缩编**。H1 重建 = 销毁当前
+  Session，按第 4/6 节用初始 batch 重建 `TrafficWorld` 后再挂 Session（与走廊两阶段
+  bootstrap 同构）。若需要 Running 内扩缩编，必须另立 G1/ADR，不得在本契约下静默
+  扩展公开 API。
 - 同 `seed` 下重建到更大 `target_N` 时，新入选集合必须是第 4 节全量 shuffle 的更长
   前缀（旧集合为其真前缀）；重建到更小 `target_N` 时取同一 shuffle 的更短前缀。
 
@@ -109,10 +103,10 @@ S1 例外：excess slot 按 §3.2.1 保留 Traffic Runtime identity 但已移出
    调用 `replace_completed_vehicle`。
 2. **replacement 输入冻结为该 slot 的原始 TOPO placement**：同一 `logical_rank`
    对应的 profile、route、`route_edge_index`、edge/progress spawn cursor；
-   `initialSpeed` 遵循 #257 演示模式（与 H1 bootstrap 该 slot 的取值规则一致）；
-   `VehicleReplaceExternalId` 固定为 **`Preserve`**（同一 logical slot 的 identity
-   连续性，对齐 ADR 0016 slot 复用）。**禁止**用可能重复的
-   `source_population_rank` 推导 `ReplaceWith` ID。
+   `initialSpeed` 遵循 #257 演示模式（与 H1 bootstrap 该 slot 的取值规则一致）。
+   Runtime 不持有外部字符串标识；同一 logical slot 的 identity 连续性由示例层的
+   `logical_rank` 映射维持（对齐 ADR 0016 slot 复用），**禁止**用可能重复的
+   `source_population_rank` 推导标识。
 3. **不**为回流改写 placement 再抽签，**不**换到其他 `logical_rank`，**不**从
    static bundle 发明新 placement。
 4. 入口 `Blocked`：保留该 pending plan 到后续 boundary 重试，**不**消耗额外 PRNG，

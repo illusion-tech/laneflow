@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
-**最后更新**: 2026-09-14
+**最后更新**: 2026-11-09
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -12,25 +12,22 @@
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0006-vehicle-following-control-and-safety.md`
-- `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0028-integer-millimeter-traffic-geometry.md`
 - `traffic-runtime-integer-geometry.md`
 - `core-id-handles.md`
-- `data-loading.md`
 - `lane-graph.md`
 - `route-system.md`
-- `data-format.md`
 - `parking-system.md`
 
 ## 1. 目标与状态
 
-本文固化 LaneFlow v0.3 Vehicle Following 的最小可执行设计，作为 #71 的 G1 冻结结果、#79 的 Traffic Data 边界输入和 #73-#77 的实施依据；全面审阅发现的性能修复由 #86 完成。
+本文定义 Vehicle Following 的可执行合同。
 
-#496 / ADR 0028 把已提交一维几何改为整数毫米，占用/
+ADR 0028 规定已提交一维几何为整数毫米，占用/
 重叠用整数比较，跨 hop 间隙为 `i64` mm，IIDM 仍为舒适层；`max_accel >= 0.5 m/s²`，
-不另做速度余数。落地规则见 `traffic-runtime-integer-geometry.md`。下文若仍出现
-历史米制字段名，只描述编制输入或瞬时 SI，不是已提交正本。
+不另做速度余数。落地规则见 `traffic-runtime-integer-geometry.md`。下文的米制字段
+只描述编制输入或瞬时 SI，不是已提交正本。
 
 目标：
 
@@ -53,7 +50,7 @@
 
 ## 2. 术语
 
-- **Physical edge**：lane graph 中由 `EdgeHandle` 标识的实际 lane edge。
+- **Physical edge**：lane graph 中由 `LaneEdgeOrdinal` 标识的实际 lane edge。
 - **Route occurrence**：同一个 physical edge 在有限 route sequence 中的一次出现，由 `route_edge_index` 区分。
 - **Front progress**：车辆前保险杠沿当前 physical edge 的 progress。
 - **Bumper gap**：follower 前保险杠到 leader 后保险杠的 route-relative 距离。
@@ -61,14 +58,14 @@
 - **Comfort controller**：正常驾驶时产生期望加速度的 IIDM 层。
 - **Safe-speed**：把 next speed 限制在 emergency braking 可处理范围内的确定性上界。
 - **Base speed limit**：Traffic/LaneGraph immutable per-edge 基础道路限速。
-- **Effective speed ceiling**：纵向管线当前实际采用的速度上限；current v0.10 没有超车或驾驶风格放宽，因此等于 base speed limit。
+- **Effective speed ceiling**：纵向管线当前实际采用的速度上限；当前没有超车或驾驶风格放宽，因此等于 base speed limit。
 - **Safety projection**：emergency braking 仍不能避免本 tick 重叠时的最终 travel 修正。
 - **Occupancy snapshot**：单个 tick 内不可变的车辆物理占用视图。
 - **跟车前视**：每车每拍由当前速度与 profile 按 §10.1 推导的出现记录行走窗（`front_query_horizon`）；不是目视距离，也不是后杠间隙接纳窗。
 
 ## 3. 分层与 tick phases
 
-LaneFlow 将交通决策分为 route、maneuver/lane、longitudinal、conflict 和 presentation 层。route 与 maneuver 可低频或事件驱动；v0.3 只实现每 fixed tick 执行的 longitudinal 层。
+LaneFlow 将交通决策分为 route、maneuver/lane、longitudinal、conflict 和 presentation 层。route 与 maneuver 可低频或事件驱动；本文只定义每 fixed tick 执行的 longitudinal 层。
 
 单次 step 的概念 phases 固定为：
 
@@ -83,16 +80,16 @@ LaneFlow 将交通决策分为 route、maneuver/lane、longitudinal、conflict �
 8. integrate/reduce ballistic candidate movement
 9. solve deterministic no-overlap projection
 10. advance route using final travel
-11. atomically apply state and ordered events
+11. atomically apply state
 ```
 
-Snapshot 是语义约束，不要求复制完整 world。当前 state 可以保持只读，candidate state 写入可复用 scratch；任一步失败都不得提交 tick/time/state/events。
+Snapshot 是语义约束，不要求复制完整 world。当前 state 可以保持只读，candidate state 写入可复用 scratch；任一步失败都不得提交 tick/time/state。
 
-## 4. Vehicle Profile 与 data format 0.3
+## 4. Vehicle Profile 与持久化
 
 ### 4.1 Profile 字段
 
-v0.3 Vehicle Profile 包含：
+Vehicle Profile 包含：
 
 ```text
 VehicleProfile
@@ -107,7 +104,7 @@ VehicleProfile
   emergencyDeceleration: meter/second^2
 ```
 
-IIDM exponent 固定为 `4`，不是每 profile 可调字段。所有行为字段必填，不使用 loader 隐式默认值。
+IIDM exponent 固定为 `4`，不是每 profile 可调字段。所有行为字段必填，不使用隐式默认值。
 
 Validation：
 
@@ -120,108 +117,31 @@ Validation：
   后落在 `0.5..=50` m/s²，且 emergency ≥ comfort。
 - spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
 - `BeyondFinite` 降速目标本拍不参与包络。
-- external ID 遵循当前 data-format 的 ASCII token 规则，并在 profile domain 内唯一。
+- 来源中的 profile 标识遵循编译器的 ASCII token 规则，并在 profile domain 内唯一。
 
-### 4.2 Package 版本
+### 4.2 持久化
 
 Vehicle Profile 现行持久化是 LFCA `formatVersion = 5` 的 `VehicleProfile` 表（毫米 /
-受检 `f32`）。current JSON `schemas/laneflow-data-v0.10.schema.json` 已删除，只作历史形状。历史概念 package 曾列出：
+受检 `f32`）。
 
-```json
-{
-  "formatVersion": "0.10",
-  "units": {
-    "distance": "meter",
-    "time": "second"
-  },
-  "laneGraph": {
-    "edges": []
-  },
-  "junctions": [],
-  "movements": [],
-  "maneuverPaths": [],
-  "routes": [],
-  "vehicleProfiles": [
-    {
-      "id": "passenger-car",
-      "length": 4.5,
-      "model": "iidm",
-      "desiredSpeed": 13.9,
-      "minGap": 2.0,
-      "timeHeadway": 1.5,
-      "maxAcceleration": 1.5,
-      "comfortableDeceleration": 2.0,
-      "emergencyDeceleration": 6.0,
-      "participantClassId": "car"
-    }
-  ],
-  "participantClasses": [
-    { "id": "motorVehicle" },
-    { "id": "car", "extendsId": "motorVehicle" }
-  ],
-  "facilityBands": [],
-  "roadSections": [],
-  "laneGroups": [],
-  "roadCorridors": [],
-  "accessRules": [],
-  "waitingZones": [],
-  "signals": {
-    "stopLines": [],
-    "maneuverGates": [],
-    "groups": [],
-    "controllers": []
-  },
-  "parking": {
-    "areas": [],
-    "spaces": []
-  }
-}
-```
-
-规则：
-
-- 当前 v0.10 沿用已接受的 Vehicle Profile/IIDM 数值语义，并要求每条 edge 显式
-  `speedLimit`、顶层 Junction/Movement/ManeuverPath、ParticipantClass、
-  FacilityBand/RoadSection/LaneGroup/RoadCorridor/AccessRule arrays，以及
-  Signals/Parking objects。
-- 每个 VehicleProfile 必填 `participantClassId` 并引用已声明 ParticipantClass；
-  current static AccessRule 在 `(ParticipantClass, Route)` 绑定期校验，不改变 IIDM
-  profile 数值或 longitudinal solver。
-- 顶层 `waitingZones` 必填，允许空数组；它不改变 Vehicle Profile wire shape。
-- 顶层 `vehicleProfiles` 必填，允许空数组。
-- Core-defined objects 继续采用 closed shape。
-- production loader 只接受 `"0.10"`；v0.9 及更早版本和未来版在 current shape
-  validation 前返回 version error。
-- 不隐式合成 profile，不提供历史格式 compatibility shim。
-- current format 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。
+- 每个 VehicleProfile 必须引用已声明 ParticipantClass；静态 AccessRule 在
+  `(ParticipantClass, Route)` 绑定期校验，不改变 IIDM profile 数值或 longitudinal solver。
+- 不隐式合成 profile。
+- 路网制品不持久化 initial vehicles、spawn schedule、demand、运行时句柄或 Adapter metadata。
 
 ### 4.3 Runtime identity
 
-Profile external ID 在 world 初始化时归一化为 opaque、world-scoped `VehicleProfileHandle`。Public contract 只要求 `Clone + Copy + Debug + Eq + Hash`，不承诺数值、index 或排序语义。
+Profile 在共享路网修订内以 `VehicleProfileOrdinal` 标识，修订内不可变，不公开 runtime
+register/remove/mutate API。tick 热路径只读取序号和紧凑 profile 数据。
 
-v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime register/remove/mutate API。Core 提供 external ID 与 handle resolver；tick hot path 只读取 handle 和 compact profile data。
-
-### 4.4 Crate 与 loader 边界
+### 4.4 Crate 边界
 
 现行生产路径是编译器发射 LFCA，再由 `laneflow-format` / `laneflow-static-network`
-构建共享静态路网。`laneflow-data` / `laneflow-core` JSON loader 已拆除。Runtime 不依赖
-Serde、JSON 或文件系统。
+构建共享静态路网。Runtime 不依赖 Serde、JSON 或文件系统。不公开 controller trait。
 
-public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以
-optional profile 或空 registry 区分格式。VehicleProfile、ParticipantClass、
-CrossSection、AccessRule、Signals 与 Parking 都由显式字段构造；允许为空的 domain
-使用显式空数组表达。
+## 5. Vehicle runtime state
 
-Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes、immutable profile、
-Junction、ParticipantClass、CrossSection、Access 与 static Signals/Parking
-registries。data crate 不重复实现对应 domain invariant。loader 只接收内存
-bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
-
-wire DTO 在 #73 阶段保持私有。Vehicle Profile 使用 `IidmProfileSpec` 与 `VehicleProfile::try_new_iidm`，避免多个同类型位置参数；有效 profile 的字段保持私有，v0.3 不公开 model enum 或 controller trait。
-
-## 5. Vehicle runtime state 与迁移
-
-v0.3 最小 state：
+最小 state：
 
 ```text
 VehicleState
@@ -237,15 +157,10 @@ VehicleState
 
 规则：
 
-- v0.2 `speed` 破坏性改名为 `current_speed`。
-- 删除含糊的 `effective_speed()`。
-- spawn input 使用必填 profile reference 与 `initial_speed`。
-- spawn 后 `applied_acceleration = 0`。
+- spawn input 使用必填 profile reference 与初始速度。
 - 跟驰导致速度归零时仍保持 `Active`，下一 tick 可以恢复。`Completed` 的 current speed 必须为零。当前 `TrafficWorld` 没有独立 `Stopped` 状态。
-- route completion 后 state 归零，并只产生一次 completed event。
+- route completion 后 state 归零。
 - desired speed、length 和 deceleration 参数只存在于 immutable profile，不复制进 mutable state。
-
-`Acceleration` 应使用 signed finite newtype。Vehicle Profile 参数通过 `IidmProfileSpec` 与 fallible constructor 一次性校验，并封装在私有字段中；v0.3 不要求为每个 profile 参数立即公开独立 newtype。
 
 ## 6. Leader detection 与 route-relative distance
 
@@ -283,8 +198,8 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 同一 physical edge 上两个正 length vehicle 的相同 front progress 是非法重叠，不通过 tie-break 合法化。
 - `bumper_gap` 小于负的物理 gap/overlap 阈值时非法。
 - 物理 gap/overlap 阈值范围内规范化为零接触。
-- 只违反 profile `min_gap`、但未发生物理重叠的 world initialization 或 lifecycle command 输入仍合法；runtime final geometry projection 不得继续缩小该既有异常净距。
-- 初始化和 `spawn_vehicle` 必须原子拒绝同 edge、相邻 route boundary 和 repeated occurrence 可见范围内的物理重叠。
+- 只违反 profile `min_gap`、但未发生物理重叠的 lifecycle command 输入仍合法；runtime final geometry projection 不得继续缩小该既有异常净距。
+- `spawn_vehicle` 必须原子拒绝同 edge、相邻 route boundary 和 repeated occurrence 可见范围内的物理重叠。
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Traffic Runtime 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
@@ -396,7 +311,7 @@ release 下千车、四千车、万车在 16/256 条边上的生成/恢复耗时
 
 ## 8. Longitudinal constraints
 
-v0.3 使用 Core 私有、tick-local `LongitudinalConstraintSet`，分为：
+Traffic Runtime 使用私有、tick-local 的纵向约束集合，分为：
 
 - speed ceilings；
 - spatial targets。
@@ -405,7 +320,7 @@ Spatial target 概念字段包括 source kind、distance ahead、target speed、
 
 Physical constraints 不可绕过；regulatory constraints 由后续 policy subsystem 产生。Road capacity、demand、route cost 和全局统计不进入 longitudinal controller。Signals、intersection 和 parking 后续产生 stop/reservation target，不把规则写入 IIDM。
 
-v0.3 不公开 constraint provider，也不允许 Adapter 任意注入 constraint。
+不公开 constraint provider，也不允许 Adapter 任意注入 constraint。
 
 Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`](parking-system.md)。
 
@@ -425,8 +340,7 @@ follower，并复用本设计的 follower-owned minimum-gap tolerance；candidat
 
 ### 8.1 Per-edge 道路限速
 
-- `LaneEdge.speed_limit` 是 immutable 基础道路事实；v0.8 引入且 current v0.10 继承
-  `effective_speed_ceiling = base_speed_limit`。
+- `LaneEdge` 的 speed limit 是 immutable 基础道路事实；`effective_speed_ceiling = base_speed_limit`。
 - 当前 edge 先令 IIDM free-flow target 为 `min(profile.desiredSpeed, effective_speed_ceiling)`；candidate speed 若仍会因离散 tick 越限，则先收紧 speed 并重新计算 ballistic motion，成功 step 后不得高于 committed current edge limit。
 - route 注册时按 occurrence 预计算全部相邻降限速 transition；hot path 只遍历当前 occurrence 之后、comfortable braking horizon 内的 compact metadata，不查 external ID、不构造临时集合。
 - 对距离 `d`、目标限速 `L` 与舒适减速度 `b`，next speed `u` 必须满足：
@@ -436,9 +350,9 @@ follower，并复用本设计的 follower-owned minimum-gap tolerance；candidat
 ```
 
 - 所有 horizon 内的降限速边界都参与归约；更远但更陡的降速可以比最近边界更严格。升限速边界不提前加速，只有车辆以合规速度进入更高限速 edge 后，下一 tick 才恢复 IIDM 加速。
-- crossing guard 以同一常加速度轨迹计算边界瞬间速度；正常可行时允许同 tick 连续跨 edge。舒适制动不足时可使用 profile emergency envelope；若 emergency envelope 仍会超限 crossing，则把 travel 投影到首个违规边界、令 final speed 不超过目标限速，并产生一次 `VehicleSpeedLimitProjectionApplied`。
-- initial world 与 `spawn_vehicle` 共用同一 normalization；`initial_speed > current edge base speed limit` 原子拒绝。
-- 道路限速、SignalStop、ParkingStop、RouteEnd 与 leader/no-overlap 继续选择共同可行的更小 motion；Adapter 不做 clamp。
+- crossing guard 以同一常加速度轨迹计算边界瞬间速度；正常可行时允许同 tick 连续跨 edge。舒适制动不足时可使用 profile emergency envelope；若 emergency envelope 仍会超限 crossing，则把 travel 投影到首个违规边界、令 final speed 不超过目标限速。
+- `spawn_vehicle` 与原子替换的 initial speed 超过当前 edge base speed limit 时原子拒绝。
+- 道路限速、SignalStop、ParkingStop、RouteEnd 与 leader/no-overlap 继续选择共同可行的更小 motion；限速不建立第二套车辆控制器，不能以 `desiredSpeed` 或最后一步 clamp 代替；Adapter 不做 clamp。
 
 未来驾驶风格、边界后延迟合规、超车/换道和最高 20% 的短时超车授权不属于当前实现。未来必须由 Runtime-owned compliance/maneuver policy 单独设计，保持 base limit immutable，并优先用加载期归一化的 fixed-size preset/offset 复用同一 solver；不得引入每 tick PRNG、callback/trait object、external-ID lookup、完整 route 扫描或临时集合。
 
@@ -574,7 +488,7 @@ travel = v*stop_time + 0.5*acceleration*stop_time^2
 v_candidate = 0
 ```
 
-不得产生负速度后再简单 clamp，也不采用 explicit/semi-implicit Euler 作为 v0.3 正本积分。
+不得产生负速度后再简单 clamp，也不采用 explicit/semi-implicit Euler 作为正本积分。
 
 ### 11.2 Final geometry constraint
 
@@ -613,7 +527,7 @@ Leader graph 中每个 vehicle 至多指向一个 leader：
 - Cycle 选择 `(candidate_travel, update_sequence)` 最小的 vehicle 为 anchor，沿反向 follower 链传播一次，再验证 closing constraint。
 - 非负 `available_gap` 下该过程给出确定性最大可行解，目标复杂度 `O(V)`；禁止迭代到收敛或 `O(V^2)`。
 
-### 11.3 Projection event threshold
+### 11.3 Emergency 包络与几何投影
 
 Emergency braking 在本 tick 可达到的最小 ballistic travel 固定为：
 
@@ -636,9 +550,8 @@ geometry_cap = max(0, available_gap + leader_final_travel)
 final_travel = min(candidate_travel, geometry_cap)
 ```
 
-- Geometry cap 仍不小于 emergency minimum travel 时，属于普通 emergency clamp，不发事件。
-- Geometry cap 更小时，final travel clamp 到 cap，final speed 相应降低、必要时归零，允许 effective applied acceleration 超过 profile emergency deceleration，并产生一次 safety projection event。
-- 仅仅存在 pre-existing sub-min-gap 不发事件；静止异常状态不会形成每 tick 事件风暴。事件仍只表示本 tick minimum-gap-preserving geometry cap 超出 emergency envelope。
+- Geometry cap 仍不小于 emergency minimum travel 时，属于普通 emergency clamp。
+- Geometry cap 更小时，final travel clamp 到 cap，final speed 相应降低、必要时归零，允许 effective applied acceleration 超过 profile emergency deceleration。
 
 当 `final_travel < candidate_travel` 时，final speed 使用唯一映射：
 
@@ -647,9 +560,7 @@ speed_from_travel = max(0, 2*final_travel/dt - current_speed)
 final_speed = min(candidate_speed, speed_from_travel)
 ```
 
-如果 final travel 小于常加速度减速到零所需距离，`final_speed = 0`；safety projection event 明确表示该结果是几何修正，而不是高精度车辆动力学。没有 geometry clamp 时直接保留 candidate speed。
-
-`applied_acceleration = (final_speed - current_speed) / dt`。它表示本 tick 状态变化对应的有效平均加速度，必须 finite。
+如果 final travel 小于常加速度减速到零所需距离，`final_speed = 0`；该结果是几何修正，而不是高精度车辆动力学。没有 geometry clamp 时直接保留 candidate speed。
 
 ## 12. 领域数值策略、finite 与错误语义
 
@@ -660,60 +571,36 @@ final_speed = min(candidate_speed, speed_from_travel)
 - 合法 finite 输入若导致中间计算非有限，返回结构化 longitudinal runtime error，step 原子失败。
 - Safety projection、正常 emergency braking 和拥堵停车不是 validation error。
 
-## 13. Events 与观察边界
+## 13. 观察边界
 
-新增离散事件：
-
-```text
-VehicleFollowingSafetyProjectionApplied
-  tickIndex
-  vehicle
-  leader
-```
-
-道路限速不可行 crossing 使用独立稀疏事件：
-
-```text
-VehicleSpeedLimitProjectionApplied
-  tickIndex
-  vehicle
-  route
-  fromRouteEdgeIndex
-  toRouteEdgeIndex
-  fromEdge
-  toEdge
-```
-
-事件不携带 `f64`，每 vehicle/tick 最多一次。它表示 minimum-gap-preserving 最终几何投影已把 motion 压到 emergency envelope 以下；常规减速、普通 emergency clamp、既有 sub-min-gap 静止状态、停车和恢复不产生事件。Adapter 通过 `VehicleState.current_speed` 和 `applied_acceleration` 观察连续状态。
-
-事件只随成功原子提交返回。车辆间按稳定 update order；同一车辆内顺序为被选中的 spatial projection（SpeedLimit/Signal/Parking 至多一种）、following safety projection、实际 edge transitions、arrival/completion。Route movement 和 route events 必须依据 final travel 计算。
+纵向管线不发布逐车事件：常规减速、紧急制动、跟车几何投影、限速投影、停车和恢复都由已提交
+车辆状态观察。已实现的转移事件经 `TrafficWorld::latest_transition_events()` 读取，只随成功
+原子提交返回，车辆间按稳定 update order。
 
 ## 14. Public/private API 边界
 
 Public：
 
-- `VehicleProfile` / `VehicleProfileHandle` 和 resolver。
-- 迁移后的 `VehicleState` / `VehicleSpawnInput`。
-- `VehicleFollowingSafetyProjectionApplied` / `VehicleSpeedLimitProjectionApplied`。
-- `SpeedLimit`、LaneGraph 限速查询与结构化 profile/overlap/longitudinal/speed-limit errors。
-- 现有固定步进 `TrafficWorld::step` / `StepOutcome`。
+- `VehicleProfileOrdinal` 与共享静态路网的 profile 只读视图。
+- `VehicleState` / `VehicleSpawnInput`。
+- 结构化 spawn / overlap / 纵向错误。
+- 固定步进 `TrafficWorld::step` / `StepOutcome`。
 
 Private：
 
 - OccupancyIndex / OccupancyRecord。
-- LeaderObservation。
-- LongitudinalConstraintSet。
+- 前车观察。
+- 纵向约束集合。
 - IIDM evaluator、safe-speed solver 和 projection graph。
 - Scratch/candidate buffers。
 
-v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter injection。第二个内置模型优先使用内部 enum/static dispatch；真正的第三方/跨语言扩展需要新 ADR。
+不公开 controller trait、callback、registry 或 arbitrary Adapter injection。第二个内置模型优先使用内部 enum/static dispatch；真正的第三方/跨语言扩展需要新 ADR。
 
 ## 15. Determinism 与测试
 
 确定性范围沿用 ADR 0003。测试至少覆盖：
 
 - 相同 world/input 序列逐 tick 状态与事件一致。
-- 初始 vehicle 输入排列变化后，按 external ID 对齐结果一致。
 - Same-edge、cross-edge、branch、merge-after-shared-edge、repeated edge 和 self exclusion。
 - Same progress/overlap rejection、min-gap-only 输入合法状态与 pre-existing sub-min-gap 非恶化。
 - Active/Parked/Completed occupancy。
@@ -724,10 +611,10 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 - Acyclic platoon、same-tick hard-stop 的三车以上 front-to-back 传播、multiple followers、repeated edge 和 explicit cycle anchor。
 - `min_gap == 0` 的 no-overlap 退化行为，以及可行 snapshot 的 `final_gap >= min_gap` / 异常 snapshot 的 `final_gap >= g0` property。
 - Spawn/despawn、stale handle 和失败原子性。
-- 事件数量、顺序和 route transition/completion 一致性。
+- route transition/completion 的状态一致性。
 - 所有状态 finite、speed 非负、normal-mode no-overlap。
 
-推荐 #77 引入成熟 `proptest` dev dependency，生成合法线性 platoon 并持久化失败回归样例。大文本 golden snapshot 不作为主要确定性证据。
+大文本 golden snapshot 不作为主要确定性证据。
 
 ## 16. 性能验收
 
@@ -756,54 +643,3 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 - Scratch buffers 必须复用，event 分配只与实际离散事件量相关。
 - speed-limit transition metadata 按 route 共享；无 transition 时 fast reject，steady tick 不做 per-vehicle heap allocation。
 - 一万到十万不得呈现 `O(V^2)` 趋势。
-- v0.2 临时一百万 steady-state 结果只作为乐观研究输入，不构成 v0.3 全市实时声明。
-
-## 17. v0.2 -> v0.3 迁移
-
-| v0.2                 | v0.3                                         | 迁移                                                |
-| -------------------- | -------------------------------------------- | --------------------------------------------------- |
-| `VehicleState.speed` | `current_speed`                              | 破坏性改名                                          |
-| `effective_speed()`  | 删除                                         | 状态直接保存正本当前速度                            |
-| 无 acceleration      | `applied_acceleration`                       | 新增 signed finite state                            |
-| Spawn `speed`        | `initial_speed`                              | 破坏性改名                                          |
-| 无 profile           | 必填 profile reference                       | 显式绑定                                            |
-| Point-like progress  | front-bumper progress                        | 语义明确化                                          |
-| Data `0.2`           | `0.3` schema/loader（该里程碑当时的 active） | 直接替换 active 格式；旧版明确拒绝，历史由 Git 保存 |
-| 无 following event   | safety projection event                      | 稀疏离散事件                                        |
-
-LaneFlow 处于 pre-1.0 阶段，采用直接迁移，不叠加双字段 alias、隐藏 default profile 或 compatibility shim。
-
-## 18. 实施批次
-
-- #71：Vehicle Following 行为、安全、确定性与性能设计。
-- #79：Traffic Data crate、production loader 和 Core normalization 边界。
-- #73：Vehicle Profile schema、loader、registry/resolver。
-- #74：VehicleState、spawn input 和 profile handle 迁移。
-- #75：Occupancy index、leader detection 和 overlap validation。
-- #76：IIDM、safe-speed、ballistic integration 和 no-overlap projection。
-- #77：确定性、不变量、一万性能和十万扩展性验证。
-- #86：全面审阅发现的 candidate state scratch 复用与最终性能复核。
-- #72：城市级性能架构研究，不阻塞 v0.3。
-
-主实施顺序由 GitHub 原生 blocked-by 链表达：`#71 -> #79 -> #73 -> #74 -> #75 -> #76 -> #77`；#86 是 milestone 全面审阅后追加并完成的阻断验收的问题修复。
-
-## 19. G1 审阅结论
-
-本设计已确认：
-
-- D1-D12 可追踪且无未决产品语义。
-- 与 ADR 0003、ADR 0005、ADR 0008 及当前 lane graph、route、data-format 契约一致。
-- Comfort、emergency 与 geometry projection 职责不重叠。
-- Explicit loop/cycle 有确定性线性求解边界。
-- Public API/data format breaking impact 已显式记录。
-- 后续实施、验证和城市级研究均有独立 Issue，不扩大 #71。
-
-若实施发现安全矛盾、公式不可实现或未记录 public breaking change，必须回到本设计/ADR 或拆 follow-up；不得通过私有实现静默改变 Accepted 语义。
-
-## 20. v0.8 引入的道路限速约束
-
-#184 将 per-edge road speed limit 纳入同一 `LongitudinalConstraintSet`，不建立第二套车辆控制器。当前 edge 提供 speed ceiling；route 下游更低限速边界提供 advance-braking spatial target，使车辆在 crossing 边界时已不超过新限速。它与 leader/no-overlap、SignalStop 和 route completion 同步求解，不能以 `VehicleProfile.desiredSpeed` 或最后一步 clamp 代替。
-
-spawn/atomic replace 的初始速度不得超过当前 edge 限速；v0.8 引入且 current v0.10
-继承默认初始/回流速度为零的行为。限速值、14 条 routes 与测试矩阵见
-`example-scenarios.md`；Core API、行为和性能验证由 #185 实施。

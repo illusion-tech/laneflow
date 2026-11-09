@@ -743,7 +743,7 @@ FacilityBand target 规则语义（同形 guard，归 #236）、违规/劝诫式
 （独立 G1）、lane change/adjacency 消费（#237）、非机动车/行人行为（#236）、
 横断面横向几何、Adapter 渲染实现。
 
-**验收对齐**：road-junction-model §16 同形的 identity/owner、reference、
+**验收对齐**：road-junction-model §14 同形的 identity/owner、reference、
 first-error、determinism、permutation、round-trip 与 steady-tick no-scan/
 no-allocation 测试矩阵。
 
