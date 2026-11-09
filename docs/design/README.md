@@ -65,7 +65,7 @@
 
 这些文档约束 Runtime 仍实现的道路机动车行为，不表示早期运行入口或数据入口仍存在。
 
-- `core-id-handles.md`：external ID、typed handle、lifecycle。
+- `core-id-handles.md`：稳定标识、修订内序号、代际句柄与生命周期。
 - `lane-graph.md`：车道图与连接。
 - `route-system.md`：路线定义与跟随。
 - `vehicle-following.md`：跟车、安全距离与投影。

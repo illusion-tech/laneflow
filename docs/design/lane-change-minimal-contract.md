@@ -28,7 +28,7 @@
 明确排除（首版）：潮汐/可逆车道、动态 lane-use 全集、自由在线选道、活动车
 改 Route、任意位置横向转移、全量 `ResolvedLanePlan`、部分区间投影与共享
 stationing（依赖 #273）。备选固定受控连接区不属本合同（独立 G1，见
-`road-junction-model.md` §17.4）。
+`road-junction-model.md` §15.4）。
 
 执行序（维护者裁定）：**本合同（含 §5 A4）完成并冻结 #237 后，方可 S1/S3
 实现立项**。本合同不改生产代码；`tick.rs` 引用只定义设计义务，不作缺陷认定。
@@ -138,12 +138,12 @@ crossing 当成 committed reservation」）。
 
 ### 5.4 读写关系
 
-| 阶段 | 读                                                                   | 写                                                         |
-| ---- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
-| P3   | C(T)（占用索引、committed 预约、profile/路线）、D(T)、局部意图       | 过渡预约请求 bundle（含潜在进入者清单与可达/制动证明输入） |
-| P4   | C(T) 资源基线、D(T)、请求、较早成功 staged claims                    | `ResolutionBatch`：grant/no-grant、资源 stop（只写 W）     |
-| P5   | C(T)、裁决、拍初信号、**当拍预约集（committed + granted）**          | 最终 next states、实际 crossing、转移、事件（W）           |
-| P7   | 绑定同一基线的计划                                                   | C(T+Δ) 原子提交（状态/预约/事件同一提交）                  |
+| 阶段 | 读                                                             | 写                                                         |
+| ---- | -------------------------------------------------------------- | ---------------------------------------------------------- |
+| P3   | C(T)（占用索引、committed 预约、profile/路线）、D(T)、局部意图 | 过渡预约请求 bundle（含潜在进入者清单与可达/制动证明输入） |
+| P4   | C(T) 资源基线、D(T)、请求、较早成功 staged claims              | `ResolutionBatch`：grant/no-grant、资源 stop（只写 W）     |
+| P5   | C(T)、裁决、拍初信号、**当拍预约集（committed + granted）**    | 最终 next states、实际 crossing、转移、事件（W）           |
+| P7   | 绑定同一基线的计划                                             | C(T+Δ) 原子提交（状态/预约/事件同一提交）                  |
 
 预约与 Waiting/Conflict 的组合资源仲裁同一求解顺序、同一安全裁决权（
 `traffic-runtime-phase-protocol.md` §3；复用 Conflict 的 committed +
