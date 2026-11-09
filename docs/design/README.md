@@ -59,6 +59,7 @@
 两文配套 ADR 0030（Accepted）；配置分离已实现（现行 LFRS 7），worker 1–16 已开放（#705）。
 
 - [`traffic-runtime-columnar-execution.md`](traffic-runtime-columnar-execution.md)：ADR 0031 接受的列式运动正本、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准。
+- [`traffic-runtime-scale-decision-baseline.md`](traffic-runtime-scale-decision-baseline.md)：Active；#72 城市规模扩展的决策入口，含现行接口复核、证据边界、方向裁定与资源预算口径。
 
 ## 领域规则
 
@@ -125,7 +126,8 @@
   crate 已删除。
 - `compiler-budget-calibration.md`：#308 一次性研究已关闭，证据在 git 历史。
 - `core-runtime-scalability-audit.md`：#199 Core API 可扩展性前置审计；`laneflow-core`
-  已随 #301 拆除，正文与 #204/#207/#210/#212 原型证据在 git 历史。
+  已随 #301 拆除，正文与 #204/#207/#210/#212 原型证据在 git 历史；现行决策入口见
+  `traffic-runtime-scale-decision-baseline.md`。
 
 ## 文档状态
 

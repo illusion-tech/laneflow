@@ -1,12 +1,13 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-11-07<br>
+**最后更新**: 2026-11-09<br>
 **适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
 **关联文档**:
 
+- [`traffic-runtime-scale-decision-baseline.md`](traffic-runtime-scale-decision-baseline.md)
 - [`core-runtime-scalability-audit.md`](core-runtime-scalability-audit.md)
 - [`core-runtime.md`](core-runtime.md)
 - [`real-road-workloads.md`](real-road-workloads.md)
@@ -643,9 +644,8 @@ Core、Spatial 与 Adapter 必须在同一次 integrated run 中计时。不同�
 8 ms/60 Hz outer frame；加 4 ms presentation 后平均约 12 ms。同步 tick frame 仍可
 接近 20 ms，因此当前单线程预算只证明 component compute target，不构成完整无卡顿
 60 FPS frame SLA。十万 W1 same-frame integrated p95 明确为 observation-only：
-`1000 / 60` 按本契约取 16.667 ms，超过它不判 Product Fail，但在 #216/#217
-完成后释放第 10 节的 #220 G1 trigger；不得由 harness 自行选择把约 20 ms 解释为
-通过或忽略。
+`1000 / 60` 按本契约取 16.667 ms，超过它不判 Product Fail，但满足第 10 节第 5 项的
+架构研究 trigger；不得由 harness 自行选择把约 20 ms 解释为通过或忽略。
 
 Catch-up 契约：
 
@@ -777,7 +777,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 - 对具有 numeric Product p95 budget 的 W1 层级，p99 不得超过
   `1.5 × p95 budget`，max 不得超过 `2 × p95 budget`，且 Core max 不得超过
   fixed quantum。十万 same-frame integrated 没有 Product p99/max budget；它必须
-  报告 p50/p95/p99/max，但只按 16.667 ms p95 判断 #220 G1 trigger。
+  报告 p50/p95/p99/max，但只按 16.667 ms p95 判断第 10 节第 5 项的 trigger。
 - 上述 W1 budget 只应用于各规模的 presentation Gate 主行：一万为
   `N_presented=100%`，十万为 `N_presented=10%`。W1 的其他 presentation 行
   必须运行并报告，但只用于 observation/sensitivity，不能独立产生 Product
@@ -845,9 +845,10 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
    scaling、tail 或 correctness risk。
 4. exact-only 仍超预算，multi-rate candidate 通过 fidelity，且 integrated W1
    whole-step gain `≥ 5%`：新建 production multi-rate G1。
-5. #216/#217 完成后，十万 Core p95 `> 17.600 ms`
+5. 单世界精确并行已交付后，十万 Core p95 `> 17.600 ms`
    （16 ms budget 的 10% 超幅），或十万 W1 same-frame integrated p95
-   `> 16.667 ms`：进入 #220 parallel phase/partition G1。后者是架构研究触发，
+   `> 16.667 ms`：按[决策基线](traffic-runtime-scale-decision-baseline.md)进入
+   P4 组件并行或空间分区的独立 G1。后者是架构研究触发，
    不是当前 Product Fail 或 60 FPS SLA 声明。
 6. identity-preserving single-thread、multi-rate、parallel 路径完成后，仍超过
    P100 CPU/memory budget `≥ 25%`，或未来正式提出一百万 realtime 产品要求：才允许
@@ -858,14 +859,12 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 
 ### 10.1 当前工作路由
 
-|     顺序 | Issue / component                        | 当前依据与边界                                                                  |
-| -------: | ---------------------------------------- | ------------------------------------------------------------------------------- |
-|        1 | #216 occupancy/leader exact path         | 约 35% whole-step；优先数据访问、route-distance index 与局部性                  |
-|        1 | #217 longitudinal proposal/data locality | proposal/store 约 51% whole-step；优先 safe-motion、store、lookup 与 batch/SIMD |
-|        2 | #218 C4 cache/journal                    | 有稳定收益，但 whole-step 尚未达到 5% trigger                                   |
-|        3 | #219 advance/events/commit               | 约 8.5%，在前两项之后                                                           |
-| 暂不升级 | global projection                        | 约 4.9%；除非复杂度、tail 或 correctness 风险增长                               |
-| 等待输入 | #220 parallel phase graph                | 等待 #216/#217 与第 10 节 trigger；不从 #212 直接跳入并行实现                   |
+|     顺序 | Issue                | 当前依据与边界                                              |
+| -------: | -------------------- | ----------------------------------------------------------- |
+|        1 | #1274 表现路径       | 十万表现 p95 超 4 ms 预算；选择路径已按集合寻址，须先归因   |
+|        1 | #1276 预热后分配     | W1/W2 未满足 §8.3                                           |
+|        2 | #1275 lifecycle 命令 | 十万 W4 突发集中在命令 API，须先分段                        |
+| 条件触发 | #701 及其他架构方向  | 见[决策基线](traffic-runtime-scale-decision-baseline.md) §4 |
 
 当前 production multi-rate 与 aggregate 均未触发。
 
@@ -891,15 +890,12 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 - `core-runtime-scalability-audit.md`（Retired）指向 #199、#204、#207、#210、#212 的
   历史研究证据、no-regret constraints 与架构候选（正文在 git 历史）；本文保存当前产品
   target/measurement contract。历史数字不能替代本文要求的 integrated certification。
-- #216/#217 是独立 research slice，不新增对 #215 的 native blocker。它们可以
-  使用本文 workload、budget 与 classification 作为研究输入，但不能自行宣称产品
-  certification。
-- 本文交付后，#220 不再把 #215 视为未完成 blocker；它仍等待 #216/#217，且只有
-  第 10 节的十万 Core/host-frame trigger 满足后才允许进入 G1。
-- #220 必须继续保持 strong-individual identity、route/horizon-driven read-only
-  halo，以及把跨区 leader chain/cycle 合并为 logical dependency graph 后全局求解
-  的约束；不得用固定宽度 halo 或 partition-local projection 改写 safety semantics。
-- #218/#219 可以引用本文，但不因本文改变依赖关系。
+- #216、#217、#219、#220 已完成，#218 已按 Not planned 关闭；城市规模扩展的后续
+  方向与启动条件见[决策基线](traffic-runtime-scale-decision-baseline.md)。
+- 后续空间分区研究必须继续保持 strong-individual identity、route/horizon-driven
+  read-only halo，以及把跨区 leader chain/cycle 合并为 logical dependency graph
+  后全局求解的约束；不得用固定宽度 halo 或 partition-local projection 改写 safety
+  semantics。
 - 第 8 节完整产品矩阵属于后续 optimization/certification 工作；历史 #212 数据只
   是 research evidence。
 - #224 已冻结 LuST v2.0 来源、许可、共享 Traffic/Spatial 转换及双 workload
