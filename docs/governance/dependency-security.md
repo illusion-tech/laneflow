@@ -127,6 +127,7 @@ CI job 名称固定为 `Dependency policy`，并由 `main` ruleset 的 required 
 - Dependabot vulnerability alerts 可用。
 - Dependabot security updates 为 `enabled`。
 - `.github/dependabot.yml` 每周检查 Cargo 与 GitHub Actions version updates。
+- `github/codeql-action` 的全部 step pin 经 `groups: codeql-action` 分组在同一 PR 内整体升级（init/analyze/upload-sarif 必须同版本，拆分单侧升级会以 configuration error 失败，#1326）。
 - 每个 ecosystem 最多同时打开 5 个 version update PR，避免维护队列失控。
 
 Dependabot PR 仍必须通过测试与 cargo-deny，并按 `security-scanning.md` 与 `development-gates.md` 完成 CodeQL 和 GitHub 原生对话处理。包括精确满足 `dependabot-cargo-lock-only-v1` 的 PR 在内，都必须让 `Analyze (actions)` 与 `Analyze (rust)` 实际成功；该窄 profile 不再提供 CodeQL `not applicable`。自动生成不等于自动批准或自动合并。

@@ -31,3 +31,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build(deps)"
+    # codeql-action 的 init/analyze/upload-sarif 必须同版本（拆分升级会以
+    # configuration error 双杀 Analyze，#1316/#1317），用分组让 Dependabot
+    # 在同一 PR 内整体升级；其余 actions 保持单独 PR（#1326）。
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
