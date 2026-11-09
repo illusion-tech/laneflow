@@ -385,7 +385,7 @@ Spatial 绑定与切换之前及审计时调用，完整性不进入 tick 路径
 Traffic Runtime fidelity 也不得混同。多世界共享静态路网可以验证内存复用、回放
 和参数探索，但不能代替单个大型城市世界的 barrier、边界交换、负载偏斜与迁移性能。
 
-#72 何时进入版本范围仍留待对应 Milestone 规划时决策；但在未来 Stable Runtime API Milestone 的 G1 前，必须完成 #199 对 Core API、partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，并关闭或显式接受其待决项。该审计不阻塞 v0.8/v0.9，也不代表已选择生产架构；完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
+#72 何时进入版本范围仍留待对应 Milestone 规划时决策；但在未来 Stable Runtime API Milestone 的 G1 前，必须解决或显式接受 [`traffic-runtime-scale-decision-baseline.md`](design/traffic-runtime-scale-decision-baseline.md) 中标为“需要补证据”和“存在实际阻碍”的接口项。该复核不代表已选择生产架构；完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
 
 后继城市级工作至少拆分为四个独立 G1：
 
