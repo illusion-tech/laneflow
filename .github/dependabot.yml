@@ -22,7 +22,10 @@ updates:
           - "patch"
 
   - package-ecosystem: github-actions
-    directory: /
+    # 根目录只覆盖 .github/workflows；composite action 须单独列出。
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: weekly
       day: monday
