@@ -617,12 +617,12 @@ v1 的历史证据不追溯改写；持续生效的 Runtime/P100 测量统一使
 
 ## 6. Tick、frame budget 与责任边界
 
-| 层级               |         Core fixed step | Outer frame |    主 presentation | p95 budget                                                                                                          |
-| ------------------ | ----------------------: | ----------: | -----------------: | ------------------------------------------------------------------------------------------------------------------- |
-| 一万 baseline      |                   16 ms |       60 Hz | 100% `N_presented` | Core ≤ 2 ms/tick；Spatial+Adapter ≤ 4 ms/frame；普通单 tick integrated frame ≤ 6 ms                                 |
-| 十万 scale         |                   33 ms |       60 Hz |  10% `N_presented` | Core ≤ 16 ms/tick；Spatial+Adapter ≤ 4 ms/frame；same-frame integrated p95 只 observation，> 16.667 ms 触发 #220 G1 |
-| 十万 stretch       |                   16 ms |       60 Hz |  10% `N_presented` | Observation only，不作为当前产品 Gate                                                                               |
-| 一百万 observation | 不冻结 realtime cadence |      不冻结 |         按实验声明 | 无 realtime budget                                                                                                  |
+| 层级               |         Core fixed step | Outer frame |    主 presentation | p95 budget                                                                                                                 |
+| ------------------ | ----------------------: | ----------: | -----------------: | -------------------------------------------------------------------------------------------------------------------------- |
+| 一万 baseline      |                   16 ms |       60 Hz | 100% `N_presented` | Core ≤ 2 ms/tick；Spatial+Adapter ≤ 4 ms/frame；普通单 tick integrated frame ≤ 6 ms                                        |
+| 十万 scale         |                   33 ms |       60 Hz |  10% `N_presented` | Core ≤ 16 ms/tick；Spatial+Adapter ≤ 4 ms/frame；same-frame integrated p95 只 observation，> 16.667 ms 满足第 10 节第 5 项 |
+| 十万 stretch       |                   16 ms |       60 Hz |  10% `N_presented` | Observation only，不作为当前产品 Gate                                                                                      |
+| 一百万 observation | 不冻结 realtime cadence |      不冻结 |         按实验声明 | 无 realtime budget                                                                                                         |
 
 16 ms 是 62.5 Hz，33 ms 约为 30.3 Hz；它们不是精确的 60/30 Hz。当前 Core 使用
 session-fixed integer-millisecond quantum，因此 60 Hz outer-frame accumulator 的
