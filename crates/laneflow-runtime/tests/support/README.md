@@ -1,7 +1,7 @@
 # 私有执行资源计量
 
 `kernel::execution::memory_tests::execution_resource_memory_probe` 是独立进程探针，
-只验证 #704 的私有执行原语。公开世界仍只支持 1 worker；此探针不证明交通并行收益。
+只验证 #704 的私有执行原语。公开世界支持 worker 1–16；此探针不证明交通并行收益。
 
 先用 `cargo test -p laneflow-runtime --lib --no-run --message-format=json` 找到当前
 `laneflow_runtime` 测试可执行文件。在两个 PowerShell 7 终端中使用同一组绝对路径，

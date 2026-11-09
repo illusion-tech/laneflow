@@ -8,7 +8,11 @@ pub(crate) mod routing;
 /// 已提交路网来源：活动聚合的来源指名。
 pub(crate) mod source;
 
-/// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
+/// 交通世界。只克隆根 `Arc`，不复制静态 component。
+///
+/// 安装时显式传入 [`crate::ExecutionConfig`]。worker 数为 1 时在调用线程计算；
+/// 2–16 时由该世界独占的池线程计算，调用线程只等待。worker 数不进入快照或交通身份，
+/// 也不改变已提交交通结果。超出后端能力的请求在完整交通准备后拒绝。
 /// 生命周期命令（路线、车辆、parking lifecycle 与原子 replace/despawn）只在两次
 /// `step` 之间调用。
 /// 执行 panic 会使世界永久失效；后续世界查询、交通与管理操作均 panic，宿主应销毁
