@@ -863,9 +863,7 @@ pub enum SpatialGeometryViolation {
         /// 当前段长度的 `f32` IEEE 754 位模式，单位为米。
         segment_length_bits: u32,
     },
-    /// 声明长度与冻结折线弧长之差超出绝对/相对容差与量化容许
-    /// （`SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS` 在绝对/相对最大值之上
-    /// 追加）之和（`Compiler::compile` 的点表冻结）。
+    /// 声明长度与冻结折线弧长之差超出绝对/相对容差的较大者（`Compiler::compile` 的点表冻结）。
     LengthMismatch {
         /// 准入长度的位模式（synthetic 为 `length_mm / 1_000.0` 换算、道路编辑为
         /// 观测值回读），非源输入的原始字面。
