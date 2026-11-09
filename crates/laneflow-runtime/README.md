@@ -94,6 +94,7 @@ locator 与车辆位置合法而恢复为已提交资格。
 计时误报为恢复峰值/产品门槛。
 
 本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
-`docs/design/traffic-runtime-shared-consumption.md` 与
-`docs/design/traffic-observation-and-routing-integration.md`、
-`docs/design/traffic-runtime-snapshot.md` 与 `docs/design/parking-system.md`。
+[共享静态路网消费](../../docs/design/traffic-runtime-shared-consumption.md)、
+[交通观测与 Routing](../../docs/design/traffic-observation-and-routing-integration.md)、
+[运行时快照](../../docs/design/traffic-runtime-snapshot.md) 与
+[停车](../../docs/design/parking-system.md)。

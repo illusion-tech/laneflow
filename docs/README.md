@@ -9,11 +9,14 @@ ADR 0021 将 LaneFlow 定位为可嵌入、引擎无关、确定性的道路交�
 通用技术验证。当前唯一可运行特化是道路机动车，更多执行域与城市级扩展是需要
 独立证据的长期方向，不构成交付时间承诺。
 `laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。current Core 与 JSON
-运行时入口已拆除。契约见 `docs/design/traffic-runtime-shared-consumption.md`。
-已提交一维几何合同见 ADR 0028（#496；整数毫米 / `mm/s`）。
+运行时入口已拆除。契约见
+[共享静态路网消费](design/traffic-runtime-shared-consumption.md)。
+已提交一维几何合同见 [ADR 0028](adr/0028-integer-millimeter-traffic-geometry.md)
+（#496；整数毫米 / `mm/s`）。
 编译器 IR 交通一维整数毫米统一表示见 ADR 0028 / #500（准入后 Typed AST / HIR / MIR / LIR 存整数毫米）。
-路网产品不声明路线。`TrafficWorld` 路线入口是 `register_route`，见 ADR 0029
-（对象 `formatVersion = 5`）。
+路网产品不声明路线。`TrafficWorld` 路线入口是 `register_route`，见
+[ADR 0029](adr/0029-retire-precompiled-static-route.md)。道路编辑来源
+`format_version = 4`；现行可移植对象为 LFCA 5 / LFSM 4 / LFSD 4 / LFCP 2。
 LF-CN-URBAN 的正式静态输入、路线目录与两档重建命令见
 [`laneflow-urban-generator`](../tools/laneflow-urban-generator/README.md)。
 
@@ -39,29 +42,31 @@ docs/
 - `.agents/`：记录跨 Agent 的执行工作流；工具专用入口只应薄包装这些工作流。
 
 语言约定：长期设计、模板与治理规范以中文为准，英文仅作辅助理解；双语术语
-以 `docs/reference/glossary.md` 为 SSOT，详见
-`docs/governance/documentation-policy.md` 第 6 节。
+以 [glossary](reference/glossary.md) 为 SSOT，详见
+[文档边界政策](governance/documentation-policy.md) 第 6 节。
 
-仓库安全扫描的期望配置、状态语义和发布阻断规则见 `docs/governance/security-scanning.md`。
+仓库安全扫描的期望配置、状态语义和发布阻断规则见
+[安全扫描](governance/security-scanning.md)。
 
 默认实现语言及非 Rust 代码入库前的代码语言立项审查见
-[`code-language-policy.md`](governance/code-language-policy.md)。研究与脚本同样适用。
+[代码语言立项审查](governance/code-language-policy.md)。研究与脚本同样适用。
 
-源代码许可证、开放/商业边界、Cargo 依赖许可证、RustSec 与 Dependabot 基线见 `docs/governance/dependency-security.md`。
+源代码许可证、开放/商业边界、Cargo 依赖许可证、RustSec 与 Dependabot 基线见
+[依赖安全](governance/dependency-security.md)。
 
 ## 推荐阅读顺序
 
-1. `README.md`
-2. `docs/architecture.md`
-3. `docs/roadmap.md`
-4. `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
-5. `AGENTS.md`
-6. `.agents/README.md`
-7. `docs/governance/documentation-policy.md`
-8. `docs/governance/github-workflow.md`
-9. `docs/governance/development-gates.md`
-10. `docs/governance/agent-development-guide.md`
-11. `docs/governance/security-scanning.md`
-12. `docs/governance/dependency-security.md`
-13. `docs/adr/README.md`
-14. `docs/design/README.md`
+1. [README.md](../README.md)
+2. [架构说明](architecture.md)
+3. [路线图](roadmap.md)
+4. [ADR 0021](adr/0021-traffic-infrastructure-and-host-boundary.md)
+5. [AGENTS.md](../AGENTS.md)
+6. [Agent 工作流](../.agents/README.md)
+7. [文档边界政策](governance/documentation-policy.md)
+8. [GitHub 工作流](governance/github-workflow.md)
+9. [开发阶段评审](governance/development-gates.md)
+10. [Agent 开发指南](governance/agent-development-guide.md)
+11. [安全扫描](governance/security-scanning.md)
+12. [依赖安全](governance/dependency-security.md)
+13. [ADR 索引](adr/README.md)
+14. [设计索引](design/README.md)

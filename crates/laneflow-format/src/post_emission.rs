@@ -113,7 +113,11 @@ struct CheckedObject<S> {
     byte_length: ExactByteLength,
 }
 
-/// 已从三份 LFCA/LFSM/LFSD 不可变来源重算并闭合必要 binding 的拥有型能力。
+/// 后发射检查成功后按值持有三份 LFCA/LFSM/LFSD 不可变来源句柄的进程内能力。
+///
+/// 字段私有、不可序列化，不复制三份完整对象，也不表示已发布或可信。
+/// 句柄本身可以是借用切片或已关闭的暂存来源。
+/// [`Self::canonical_network_input`] 消费本值，只保留 LFCA 来源与已完成的检查证明。
 #[derive(Clone, Debug)]
 pub struct PostEmissionCheckedBundle<L, M, D> {
     canonical_artifact: CheckedObject<L>,

@@ -241,11 +241,12 @@ initial parked vehicles 或 runtime handles。停车占用裁决归 `TrafficWorl
 `ExplicitSpace | VirtualPool` binding 管理 reserve/park/leave；虚拟 Parked 车辆保留
 live identity，但不产生 committed pose。真正移除仍由原子 `despawn_vehicle` 完成，并
 在同一提交释放停车 binding/route 引用；无 pose 不等于移除。完整合同见
-`design/parking-system.md`。
+[`parking-system.md`](design/parking-system.md)。
 
 **实现状态**：当前代码已移除 `ParkingArea` / `occupy_parking`，由按车辆下标和句柄
-代际读取的私有 aggregate 统一管理显式/虚拟 reservation 与 occupancy；Snapshot v3、
-cutover/replay、Spatial/Bevy 消费同一 authority。
+代际读取的私有 aggregate 统一管理显式/虚拟 reservation 与 occupancy。Runtime Snapshot v7
+（LFRS `formatVersion = 7`）、修订切换、回放、Spatial 与 Bevy 消费同一 authority。
+这是已实现的生产快照版本，不是性能或资源认证。
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
 Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。
@@ -298,7 +299,13 @@ Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只�
 路线出现记录只在 `TrafficWorld::register_route` 编进每世界表；steady tick
 继续只使用 typed dense handle，不读共享静态路网路线表（ADR 0029）。
 
-运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。Accepted ADR 0025 要求
+运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。当前已实现的生产合同是
+Runtime Snapshot v7：LFRS `formatVersion = 7`、`runtime_state_version = 5`、确定性状态摘要版本
+`8`（BLAKE3-256，[ADR 0033](adr/0033-digest-role-and-algorithm-selection-authority.md)
+定义的内部完整性摘要）。worker 数与 `ExecutionConfig` 不进入快照。保存与恢复已实现；
+含活动过渡的世界在该版本上结构化拒绝保存。这不是性能或资源认证。规范见
+[`traffic-runtime-snapshot.md`](design/traffic-runtime-snapshot.md)。
+Accepted ADR 0025 要求
 #302 使用版本化路网修订标识、LFCA origin digest/length、静态契约版本、world identity、
 tick、输入命令游标和全部每世界可变状态完成绑定；内部 dense ordinal、地址、布局和
 partition plan 不进入快照。ADR 0028 把那些可变状态中的一维几何与速度定为整数毫米 /

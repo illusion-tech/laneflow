@@ -28,15 +28,18 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
 - LFSD 4 的第七节及四类完整成员 RowV1：Bytes 内部也执行字段/字符串/向量计量，
   两侧载荷共同收费并参与规范分块；检查稳定引用编码、成员 K 的跨 chunk 顺序和全局
   唯一性。真实两份修订的策略差异完备性由 compiler 的独立检查入口证明。
-- 无分配的 `check_post_emission_bundle`：从三份最终字节重算 digest、length 与 LFCA
-  `NetworkRevisionId`，并闭合 LFSM provenance/artifact binding 以及 LFSD 显式 base/target
-  binding；成功后只返回字段私有的借用型发布能力。它不重跑完整路网语义或验证 LFSD
-  change set 完备性。
-- `check_canonical_network_input` 与 `PostEmissionCheckedBundle::canonical_network_input`：
-  单份已通过宿主 admission 的 LFCA 和同进程 compiler bundle 共用同一份
-  digest/length/`NetworkRevisionId` 检查与字段私有 `CheckedCanonicalNetworkInput`
-  能力；该能力是 `laneflow-static-network` 的唯一构建输入，但不表示发布真实性或
-  Runtime 跨表闭合已经成立。
+- 无分配的 `check_post_emission_bundle`：从三份最终不可变来源重算 SHA-256 digest、
+  exact length 与 LFCA `NetworkRevisionId`，并闭合 LFSM provenance/artifact binding
+  以及 LFSD 显式 base/target binding。成功后返回字段私有的
+  `PostEmissionCheckedBundle<L, M, D>`：它按值持有三个受检来源句柄（句柄本身可以是
+  借用切片或已关闭的暂存来源），不复制三份完整对象，不可序列化，也不表示已发布或可信。
+  它不重跑完整路网语义或验证 LFSD change set 完备性。
+- `PostEmissionCheckedBundle::canonical_network_input(self)` 消费整个 bundle，丢弃
+  LFSM/LFSD 句柄，只保留 LFCA 来源与已完成的检查证明，得到
+  `CheckedCanonicalNetworkInput<L>`。`check_canonical_network_input` 对单份已通过宿主
+  admission 的 LFCA 走同一套 digest/length/`NetworkRevisionId` 检查。该能力是
+  `laneflow-static-network` 的唯一构建输入，但不表示发布真实性或 Runtime 跨表闭合已经成立。
+  构建成功后的共享路网修订不借用输入 backing。
 - `FormatLimits` 同时覆盖对象/节/表、行/字段、Identity ASCII、UTF-8、向量、嵌套、LFSM
   来源位置与候选暂存预算；任一调用方值只能收紧。registry capability 保留产生它的同一
   limits，后续直接值域检查不能通过换回较大 limits 绕过调用方预算。
