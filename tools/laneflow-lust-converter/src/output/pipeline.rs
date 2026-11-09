@@ -2589,7 +2589,7 @@ output_dir = 'E:/nonexistent-out'
     const PINNED_WRAPPER_VERSION: &str = "sccache 0.19.0";
 
     /// 钉版包装器二进制 SHA-256（release 资产解出的 `sccache` 可执行文件本身）。
-    /// 与 `.github/workflows/ci.yml` 安装步骤的 `SCCACHE_SHA256`（压缩包资产摘要）
+    /// 与 `.github/workflows/ci.yml` 中 sccache 下载步骤的 `sha256`（压缩包资产摘要）
     /// 互为镜像、互相指认防漂移：同一钉版 release 的两段锚——资产摘要锚定来源，
     /// 此处锚定运行期实际执行的字节。Linux 资产 `sccache-v0.19.0-x86_64-unknown-linux-musl`
     /// 的资产摘要 `aa73c727…b9dd`；Windows 资产 `sccache-v0.19.0-x86_64-pc-windows-msvc`

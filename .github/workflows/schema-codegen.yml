@@ -13,6 +13,7 @@ on:
       - "Cargo.lock"
       - ".cargo/**"
       - "rust-toolchain*"
+      - ".github/actions/**"
       - ".github/workflows/**"
       - "tools/lfre-crosslang-writer/**"
       - "crates/laneflow-compiler/tests/fixtures/lfre-crosslang/**"
@@ -34,6 +35,7 @@ on:
       - "Cargo.lock"
       - ".cargo/**"
       - "rust-toolchain*"
+      - ".github/actions/**"
       - ".github/workflows/**"
       - "tools/lfre-crosslang-writer/**"
       - "crates/laneflow-compiler/tests/fixtures/lfre-crosslang/**"
@@ -75,53 +77,47 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
-      - name: Download and verify pinned flatc on Ubuntu
+      - name: Fetch pinned flatc
+        id: flatc-archive
+        uses: ./.github/actions/fetch-verified-archive
+        with:
+          url: https://github.com/google/flatbuffers/releases/download/v25.12.19/${{ matrix.asset }}
+          sha256: ${{ matrix.sha256 }}
+          filename: flatc.zip
+
+      - name: Extract pinned flatc on Ubuntu
         if: runner.os == 'Linux'
         id: flatc-linux
         shell: bash
         env:
-          ASSET: ${{ matrix.asset }}
+          ARCHIVE: ${{ steps.flatc-archive.outputs.archive }}
           EXPECTED_BYTES: ${{ matrix.bytes }}
-          EXPECTED_SHA256: ${{ matrix.sha256 }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/flatc.zip"
           destination="$RUNNER_TEMP/flatc"
-          curl --fail --location --show-error \
-            "https://github.com/google/flatbuffers/releases/download/v25.12.19/$ASSET" \
-            --output "$archive"
-          test "$(stat --format=%s "$archive")" = "$EXPECTED_BYTES"
-          printf '%s  %s\n' "$EXPECTED_SHA256" "$archive" | sha256sum --check --strict
+          test "$(stat --format=%s "$ARCHIVE")" = "$EXPECTED_BYTES"
           mkdir -p "$destination"
-          unzip -q "$archive" -d "$destination"
+          unzip -q "$ARCHIVE" -d "$destination"
           flatc_path="$(find "$destination" -type f -name flatc -print -quit)"
           test -n "$flatc_path"
           chmod +x "$flatc_path"
           printf 'flatc_path=%s\n' "$flatc_path" >> "$GITHUB_OUTPUT"
 
-      - name: Download and verify pinned flatc on Windows
+      - name: Extract pinned flatc on Windows
         if: runner.os == 'Windows'
         id: flatc-windows
         shell: pwsh
         env:
-          ASSET: ${{ matrix.asset }}
+          ARCHIVE: ${{ steps.flatc-archive.outputs.archive }}
           EXPECTED_BYTES: ${{ matrix.bytes }}
-          EXPECTED_SHA256: ${{ matrix.sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $archive = Join-Path $env:RUNNER_TEMP 'flatc.zip'
           $destination = Join-Path $env:RUNNER_TEMP 'flatc'
-          $uri = "https://github.com/google/flatbuffers/releases/download/v25.12.19/$env:ASSET"
-          Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archive
-          $actualBytes = (Get-Item -LiteralPath $archive).Length
+          $actualBytes = (Get-Item -LiteralPath $env:ARCHIVE).Length
           if ($actualBytes -ne [int64]$env:EXPECTED_BYTES) {
             throw "flatc asset byte length mismatch: expected=$env:EXPECTED_BYTES actual=$actualBytes"
           }
-          $actualSha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualSha256 -ne $env:EXPECTED_SHA256) {
-            throw "flatc asset SHA-256 mismatch: expected=$env:EXPECTED_SHA256 actual=$actualSha256"
-          }
-          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $destination
           $flatc = Get-ChildItem -LiteralPath $destination -Recurse -File -Filter 'flatc.exe' |
             Select-Object -First 1
           if ($null -eq $flatc) {
@@ -156,22 +152,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Download and verify pinned flatc
+      - name: Fetch pinned flatc
+        id: flatc-archive
+        uses: ./.github/actions/fetch-verified-archive
+        with:
+          url: https://github.com/google/flatbuffers/releases/download/v25.12.19/Linux.flatc.binary.clang++-18.zip
+          sha256: 50c1915deeeb714f2a05c8ec795bd1af898d251a62e2774067703b29188efc90
+          filename: flatc.zip
+
+      - name: Extract pinned flatc
         id: flatc
         shell: bash
+        env:
+          ARCHIVE: ${{ steps.flatc-archive.outputs.archive }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/flatc.zip"
           destination="$RUNNER_TEMP/flatc"
-          curl --fail --location --show-error \
-            "https://github.com/google/flatbuffers/releases/download/v25.12.19/Linux.flatc.binary.clang++-18.zip" \
-            --output "$archive"
-          test "$(stat --format=%s "$archive")" = "2750934"
-          printf '%s  %s\n' \
-            "50c1915deeeb714f2a05c8ec795bd1af898d251a62e2774067703b29188efc90" \
-            "$archive" | sha256sum --check --strict
+          test "$(stat --format=%s "$ARCHIVE")" = "2750934"
           mkdir -p "$destination"
-          unzip -q "$archive" -d "$destination"
+          unzip -q "$ARCHIVE" -d "$destination"
           flatc_path="$(find "$destination" -type f -name flatc -print -quit)"
           test -n "$flatc_path"
           chmod +x "$flatc_path"

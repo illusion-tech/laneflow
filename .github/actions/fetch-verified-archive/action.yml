@@ -1,0 +1,62 @@
+name: Fetch verified archive
+description: 取得已按 SHA-256 校验的工具归档；命中 Actions 缓存时不访问下载来源。
+
+inputs:
+  url:
+    description: 归档的 HTTPS 下载地址。
+    required: true
+  sha256:
+    description: 归档的期望 SHA-256，同时决定缓存键。
+    required: true
+  filename:
+    description: 归档保存时使用的文件名。
+    required: true
+
+outputs:
+  archive:
+    description: 已校验归档的路径。
+    value: ${{ steps.fetch.outputs.archive }}
+
+runs:
+  using: composite
+  steps:
+    # 缓存服务故障按未命中处理，由下一步下载。
+    - name: Restore verified archive
+      id: restore
+      continue-on-error: true
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/verified-archives/${{ inputs.sha256 }}
+        key: verified-archive-${{ runner.os }}-${{ inputs.sha256 }}
+
+    # 无论归档来自缓存还是下载都必须校验；校验失败时步骤失败，不回退到其他来源。
+    # 重试窗口约 10 分钟，用于跨过持续数分钟的 HTTP 504（#1341）。
+    - name: Fetch and verify archive
+      id: fetch
+      shell: bash
+      env:
+        ARCHIVE_DIR: ${{ runner.temp }}/verified-archives/${{ inputs.sha256 }}
+        EXPECTED_SHA256: ${{ inputs.sha256 }}
+        FILENAME: ${{ inputs.filename }}
+        URL: ${{ inputs.url }}
+      run: |
+        set -euo pipefail
+
+        mkdir -p "$ARCHIVE_DIR"
+        cd "$ARCHIVE_DIR"
+        if [[ ! -f "$FILENAME" ]]; then
+          curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+            --retry 30 --retry-delay 20 --retry-max-time 600 --max-time 120 \
+            "$URL" --output "$FILENAME"
+        fi
+        printf '%s  %s\n' "$EXPECTED_SHA256" "$FILENAME" | sha256sum --check --strict
+        printf 'archive=%s\n' "$ARCHIVE_DIR/$FILENAME" >> "$GITHUB_OUTPUT"
+
+    # 与 rust-cache、sccache 相同，只由 main 写入；PR 与合并队列只读。
+    - name: Save verified archive
+      if: steps.restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/verified-archives/${{ inputs.sha256 }}
+        key: verified-archive-${{ runner.os }}-${{ inputs.sha256 }}

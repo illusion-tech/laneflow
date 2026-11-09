@@ -64,6 +64,7 @@ jobs:
               - 'rust-toolchain*'
               - 'deny.toml'
               - '.config/nextest.toml'
+              - '.github/actions/**'
               - '.github/workflows/**'
 
   analyze:
