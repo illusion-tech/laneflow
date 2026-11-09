@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
-**最后更新**: 2026-11-06
+**最后更新**: 2026-11-09
 **适用范围**: LaneFlow 版本路线图与交通基础设施的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
@@ -253,7 +253,7 @@ Waiting 本地 membership/admission/storage/queue、路线冲突出现记录、�
 本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为准，英文只作辅助理解。
 
 Milestone 为 `v0.10 Compiler-Owned Static Network & Traffic Runtime Cutover`。
-状态：#305 综合验收汇总已于 2026-11-06 完成，待 #306 独立审阅与 #295 收口；结论见本节末
+状态：#305 综合验收与 [#306 独立审阅](https://github.com/illusion-tech/laneflow/issues/306#issuecomment-6729858464)已完成，由 #295 收口；结论见本节末
 “v0.10 验收结论”。
 
 #291 已把目标从“L1/L2 生成器 + JSON 管线”修订为编译器拥有的静态路网
@@ -353,16 +353,19 @@ Spatial 绑定与切换之前及审计时调用，完整性不进入 tick 路径
 
 #305 以验收提交 `c0045f8f`（#1282 冻结）运行统一五轴正式汇总，未完成项为零；
 [汇总记录](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678897695)
-与[适用性核对](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678716065)
-是本结论的唯一事实来源，本节只作入口摘要：
+、[适用性核对](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678716065)
+与[裁定和更正](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6708446002)是本结论的唯一事实来源，本节只作入口摘要：
 
 - `LF-SYNTH-v2`：behavior、determinism、snapshot 为语义对照通过，routing 为执行回执
   通过（#1267、#1279）；
 - 中国特色城市负载 `LF-CN-URBAN-v1`：behavior、determinism、snapshot 为执行回执通过
-  （验收提交上重跑）；routing 经维护者授权豁免，城市负载的候选准入、墙钟与 tick
+  （验收提交上重跑，覆盖范围以裁定和更正为准）；routing 经维护者授权豁免，城市负载的候选准入、墙钟与 tick
   间隔干扰未测；
 - performance 轴两套负载均为“未认证”（`Product TBD / Uncertified`）：v0.10 不执行
   P100 产品认证，研究测量与已知契约级超标逐项登记，不记为通过，也不构成例外；
+- resource 轴同为“未认证”（维护者 2026-11-07 裁定）：验收提交上只重跑了城市编译器
+  受控峰值（低于 2 GiB，属资源上界计量，不是实际堆峰值）；#537 的内存与共存基线为
+  历史结果，RSS 与容量没有测量面；不记为通过，也不构成例外；
 - LuST 五轴已移至 v0.11，v0.10 没有真实路网证据；
 - 维护者范围裁定中的授权豁免（worker 两两组合、其他失败点、Spatial/Adapter 跨 worker
   接线、跨修订/Editable 组合矩阵、非标称步长交叉组合、多 worker 十万整帧）随汇总记录
