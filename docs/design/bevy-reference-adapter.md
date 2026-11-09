@@ -67,7 +67,7 @@ v0.7 每个 Bevy `App` 只支持一个活动 `LaneFlowSession`。Session 可以�
 - Bevy Adapter 决定 schedule 集成、Entity、local Transform 与 frame placement。
 - Presentation 决定模型、材质、动画、可见性、LOD、pooling、debug draw 与示例 UI。
 
-宿主 Transform、插值结果、可见性或 LOD 不得反写 Core progress、status、occupancy、route、事件或 Spatial geometry。
+宿主 Transform、插值结果、可见性或 LOD 不得反写 Traffic Runtime progress、status、occupancy、route、事件或 Spatial geometry。
 
 ## 4. Fixed schedule
 
@@ -78,9 +78,9 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 3. 当 accumulator 足够一个 LaneFlow fixed quantum 时，运行一次 LaneFlow fixed schedule。
 4. 单个 outer frame 的 catch-up step 数有可配置上限。
 5. 达到上限后保留 backlog；不得静默丢弃 simulation time。
-6. 每次 Core step 成功提交后，才允许读取 snapshot/events 并构造 presentation 输入。
+6. 每次 Runtime step 成功提交后，才允许读取 snapshot/events 并构造 presentation 输入。
 
-相同初始状态、输入和总 elapsed time 在不同 outer-frame 分块下必须产生相同 Core tick/state。presentation 提交仍受每个 outer frame 最多一次批量 extraction/apply 的限制。
+相同初始状态、输入和总 elapsed time 在不同 outer-frame 分块下必须产生相同 Runtime tick/state。presentation 提交仍受每个 outer frame 最多一次批量 extraction/apply 的限制。
 
 #169 的具体 Bevy 映射为：
 
@@ -91,7 +91,7 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 - `LaneFlowOuterFrame` 插入宿主 `First` 之后，因此读取的是本帧已经由 `TimePlugin` 更新的 `Time::delta()`；调用方负责安装 `TimePlugin` 或包含它的宿主 plugin group。
 - `LaneFlowPlugin` 不重复安装 `TimePlugin` 或 `TransformPlugin`。缺少 Session 时 schedule 无操作；存在 Session 但缺少 `Time` resource 时记录结构化错误。
 - `LaneFlowSessionConfig` 要求调用方显式提供非零 `max_catch_up_steps`，不定义隐藏默认值。
-- accumulator 保存完整 `Duration`，不按 outer frame 截断亚毫秒余量；只有 Core step 成功后才扣除一个 quantum。达到上限或 step 失败时，当帧停止并保留全部 backlog。
+- accumulator 保存完整 `Duration`，不按 outer frame 截断亚毫秒余量；只有 Runtime step 成功后才扣除一个 quantum。达到上限或 step 失败时，当帧停止并保留全部 backlog。
 - `LaneFlowFrameReport` 公开 frame delta、成功 step 数、backlog 与 catch-up-limit 状态；Session 保留当帧全部成功 `StepResult` 和最近 `LaneFlowAdapterError`。
 - #285 阶段一新增 `LaneFlowSession::junction_observation` 只读借用视图（设计见 `junction-observation-and-validation.md` §3）：在 `Observe` 阶段逐拍读取复杂路口领域的边界上下文（世界身份/世代/修订/三游标）、live 车辆行、Waiting 计数/member/决策、Conflict 决策/预约与 transition event，并转调 `TrafficWorld::route_gate` 机动门定位。视图创建为 O(1)、无堆分配，headless Session 同样可读；信号组仍经 `committed_signal_groups()` 取得并单独计账。
 
@@ -100,10 +100,10 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 Adapter 维护 `VehicleHandle <-> Entity` 的部分双射：
 
 - 已绑定记录必须严格一一对应；同一 Vehicle 绑定多个 Entity、同一 Entity 绑定多个 Vehicle 或重复 bind 都是结构化错误。
-- 映射可以只覆盖 Core 车辆子集。未绑定车辆用于 LOD、streaming、pooling 或尚未实例化状态，是正常情况。
+- 映射可以只覆盖 Traffic Runtime 车辆子集。未绑定车辆用于 LOD、streaming、pooling 或尚未实例化状态，是正常情况。
 - 已登记但 Entity 已失效的 stale mapping 是错误；不得把它当作未绑定静默跳过。
 - Adapter 提供 bind/unbind/rebind 边界，但不冻结宿主 bundle、prefab、model spawn、pool 或 despawn 类型。
-- stable pose/input order 由 committed Core snapshot 和 Spatial batch 提供，不依赖 ECS query、HashMap 或 Entity iteration order。
+- stable pose/input order 由 committed Traffic Runtime snapshot 和 Spatial batch 提供，不依赖 ECS query、HashMap 或 Entity iteration order。
 
 Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow pose 的 proxy Entity 与模型 Entity 可以分层，模型轴向、尺寸与 pivot 修正只放在 proxy 下的 presentation child。
 
@@ -145,7 +145,7 @@ v0.7 不支持一个 `App` 中的多活动 Session、多活动 canonical frame �
 每个 outer frame 在完成零次、一次或多次 LaneFlow fixed step 后，最多执行一次 presentation extraction/apply：
 
 ```text
-committed Core snapshot/events
+committed Traffic Runtime snapshot/events
   -> stable PoseInputRecord sequence
   -> SpatialRegistry::extract_pose_batch
   -> Adapter validation/staging
@@ -304,7 +304,7 @@ Spatial batch extract
   + Bevy transform propagation
 ```
 
-该边界不包含 Core 交通求解和 renderer。冻结门槛为：
+该边界不包含 Traffic Runtime 交通求解和 renderer。冻结门槛为：
 
 - 稳定容量下，一万/十万 Adapter-owned batch 路径零 allocation/reallocation；
 - 一万 p95 不超过 `4 ms`；
@@ -332,7 +332,7 @@ Spatial batch extract
 
 ## 12. 兼容性与后续演进
 
-本设计不改变 Core API、current data format 或 Spatial public authority。它新增 Bevy-specific Adapter API；在 v1.0 前仍可按独立 Issue 演进，但以下变化必须重新进入 G1：
+本设计不改变 Traffic Runtime API、current data format 或 Spatial public authority。它新增 Bevy-specific Adapter API；在 v1.0 前仍可按独立 Issue 演进，但以下变化必须重新进入 G1：
 
 - 迁移到 Bevy 0.21 或同时支持第二个 Bevy major/minor line；迁移 Issue 必须重新审计
   API、feature graph、MSRV、许可证、RustSec 与 example 画面；
@@ -340,7 +340,7 @@ Spatial batch extract
 - 修改 fixed schedule ownership、time-drop policy 或 authority；
 - 放宽为多 Session、多 canonical frame 或跨 frame migration；
 - 改变 mapping 一一性、batch 稳定顺序、placement token 或失败原子性；
-- 让宿主类型、Transform 或 Gizmos 进入 Core/Data/Spatial 公共接口。
+- 让宿主类型、Transform 或 Gizmos 进入 Runtime/Data/Spatial 公共接口。
 
 插值、LOD/pooling、prefab/glTF、WASM、第二个 Engine Adapter 和 foreign-host boundary proof 保持后续独立范围，不是 v0.7 完成条件。
 

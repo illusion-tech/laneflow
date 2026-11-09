@@ -1085,8 +1085,8 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 | 空间层     | 规范坐标框架、车道图边绑定以及采样位置与切向                             |
 
 旧 `LF-COMP-CURRENT-EQUIV-v1` 曾覆盖的车辆逐步行为、事件和 current JSON
-对照只保留为 #292 历史证据，不再是调整后 #297 的活动验收要求。运行时行为由对应 Core /
-目标 Traffic Runtime 任务验证；编译器资源基线必须使用编译器原生 workload 另行建立。
+对照只保留为 #292 历史证据，不再是调整后 #297 的活动验收要求。运行时行为由对应
+Traffic Runtime 任务验证；编译器资源基线必须使用编译器原生 workload 另行建立。
 
 ### 9.1 历史投影证据
 

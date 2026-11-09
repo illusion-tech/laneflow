@@ -1,8 +1,8 @@
-# Core Runtime 产品性能基线
+# Traffic Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-11-09<br>
-**适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
+**适用范围**: 当前 Traffic Runtime 车辆特化、目标多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
 **关联文档**:
@@ -57,7 +57,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 - 一万、十万、一百万的规模计数语义、交通执行域分解与当前车辆特化；
 - canonical synthetic workload 与 presentation selection；
 - 研究机、最低产品机、目标产品推荐参考机型和一百万观察机的角色；
-- Core fixed tick、outer frame、Spatial+Adapter 与宿主剩余预算；
+- Traffic Runtime fixed tick、outer frame、Spatial+Adapter 与宿主剩余预算；
 - hard invariant、individual、presentation、aggregate fidelity；
 - latency、tail、allocation、retained memory、catch-up、失败重试和 profiler 证据；
 - 结果分类，以及 single-thread、multi-rate、parallel、aggregate 的升级触发；
@@ -67,7 +67,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 
 - production scheduler、thread pool、partition、work stealing 或 distributed runtime；
 - production multi-rate、interpolation/extrapolation 或 aggregate model 的实现；
-- 新 Core/Data/Spatial/Adapter API 或数据格式；
+- 新 Runtime/Data/Spatial/Adapter API 或数据格式；
 - renderer、asset、animation 或宿主 gameplay 的实现与性能承诺；
 - 专业交通工程精度、城市经济模拟、出行需求生成或完整 SUMO-like 能力；这些是
   上层/独立产品边界，不表示城市级交通执行是 LaneFlow 非目标；
@@ -91,7 +91,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
   committed state 的个体车辆。行驶中与停车中的车辆均计入，并按
   status/lifecycle 分解。
 - 道路交通活动车辆数（Road-traffic Active Vehicle Count，
-  `N_traffic_active`）：当前处于道路交通系统、每个 Core base tick 参与
+  `N_traffic_active`）：当前处于道路交通系统、每个 Traffic Runtime base tick 参与
   travel-lane occupancy/leader、constraint、global projection、advance/events
   与 atomic motion commit 的车辆。因红灯或前车停止但仍在道路上的车辆继续计入；
   Parked vehicle 不计入。
@@ -101,7 +101,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
   `N_traffic_active` 的逐 tick safety authority。
 - 表现车辆数（Presented Vehicle Count，`N_presented`）：该 outer frame 被
   Adapter/Presentation materialize、extract 或 commit 的车辆数。它可以包含需要
-  展示的 parked vehicle，但不能反向定义 Core fidelity。
+  展示的 parked vehicle，但不能反向定义 Traffic Runtime fidelity。
 - 聚合交通量（Aggregate Traffic Population，`N_aggregate`）：只以 flow、packet
   或 count 存在、没有完整逐车 identity 的人口。必须单独报告，不能混入
   `N_individual`，也不能用来宣称 active individual vehicles。
@@ -114,7 +114,7 @@ N_intent <= N_traffic_active
 ```
 
 `N_traffic_active = N_individual` 只表示 100% road-active 的特定 workload，不是
-架构恒等式。Parked vehicle 保留 Core 正本的 identity、Parking binding、occupied
+架构恒等式。Parked vehicle 保留 Traffic Runtime 正本的 identity、Parking binding、occupied
 state 与确定性 lifecycle transition，但不因此进入每个 tick 的道路运动求解。
 
 推荐使用显式标签记录一个 current case：
@@ -132,7 +132,7 @@ N_intent=<observed mean/distribution>; N_presented=10000; N_aggregate=0
 - 交通执行域（Traffic Execution Domain）把共享网络、运动/安全求解与生命周期契约的
   一类参与单元分组。
 
-一辆当前 Core 机动车是一个车辆运行单元；未来骑行者与非机动车的组合、一个行人或
+一辆当前 Traffic Runtime 机动车是一个车辆运行单元；未来骑行者与非机动车的组合、一个行人或
 一个轨道运营编组的计数原子由对应执行域 G1 冻结。城市居民、乘客、出行需求和游戏
 Entity 不自动成为 LaneFlow 交通参与单元。`ParticipantClass` 是准入分类，不是执行
 域或行为能力声明。
@@ -179,14 +179,14 @@ Pass、容量比较或计算复杂度归因；跨域汇总只能作为已说明�
 Accepted 工作负载或历史证据：
 
 - `N_individual[road_motor_vehicle]` 同时计入行驶中与停车中的 live vehicle；
-- `N_active[road_motor_vehicle]` 计入每个 Core base tick 参与 travel-lane
+- `N_active[road_motor_vehicle]` 计入每个 Traffic Runtime base tick 参与 travel-lane
   occupancy/leader、constraint、global projection、advance/events 与 atomic
   motion commit 的 vehicle；Parked vehicle 不计入；
 - exact-only 通常满足
   `N_intent[road_motor_vehicle] = N_active[road_motor_vehicle]`，reduced-rate
   candidate 可以更小，但不能跳过逐 tick safety authority；
 - `N_presented[road_motor_vehicle]` 可以包含需要展示的 Parked vehicle，但不能
-  反向定义 Core fidelity。
+  反向定义 Traffic Runtime fidelity。
 
 目标态推荐使用显式执行域记录同一个 case：
 
@@ -239,7 +239,7 @@ workload：
 - W1/W3 至少运行 `N_presented = 1% / 10% / 50% / 100%`；其中只有
   一万 W1 的 100% 行和十万 W1 的 10% 行是 presentation Gate 主行，其余行是
   强制 observation/sensitivity，不单独产生 Product Pass/Fail。
-- W2 固定为 Core-only，`N_presented = 0`，不得调用 Spatial/Adapter 或报告
+- W2 固定为 Runtime-only，`N_presented = 0`，不得调用 Spatial/Adapter 或报告
   integrated-frame percentile。W4 只运行与同规模 W1 Gate 主行一致的固定
   presentation ratio：一万为 100%，十万为 10%。
 - `N_intent` 不预设；exact-only 与 reduced-rate candidate 分别报告实际
@@ -255,14 +255,14 @@ input sequence 与 candidate/oracle 对照边界。
 
 presentation matrix 的判定角色固定如下：
 
-| 规模 / workload | Gate 主行                  | 其余强制行                                    |
-| --------------- | -------------------------- | --------------------------------------------- |
-| 一万 W1         | `N_presented=100%`         | `1% / 10% / 50%` observation/sensitivity      |
-| 十万 W1         | `N_presented=10%`          | `1% / 50% / 100%` observation/sensitivity     |
-| 一万/十万 W2    | Core-only；`N_presented=0` | 无 presentation row                           |
-| 一万/十万 W3    | 无 W1 presentation budget  | `1% / 10% / 50% / 100%` guardrail/observation |
-| 一万 W4         | 固定 `N_presented=100%`    | 无其他 presentation row                       |
-| 十万 W4         | 固定 `N_presented=10%`     | 无其他 presentation row                       |
+| 规模 / workload | Gate 主行                     | 其余强制行                                    |
+| --------------- | ----------------------------- | --------------------------------------------- |
+| 一万 W1         | `N_presented=100%`            | `1% / 10% / 50%` observation/sensitivity      |
+| 十万 W1         | `N_presented=10%`             | `1% / 50% / 100%` observation/sensitivity     |
+| 一万/十万 W2    | Runtime-only；`N_presented=0` | 无 presentation row                           |
+| 一万/十万 W3    | 无 W1 presentation budget     | `1% / 10% / 50% / 100%` guardrail/observation |
+| 一万 W4         | 固定 `N_presented=100%`       | 无其他 presentation row                       |
+| 十万 W4         | 固定 `N_presented=10%`        | 无其他 presentation row                       |
 
 ### 4.1 `LF-SYNTH-v2` 确定性生成契约
 
@@ -410,7 +410,7 @@ W3 的 Parking probe 使用以下 fixed-step input sequence：
 3. harness 只收集 arrival event，不按单个 cell 提前 commit。全部 cells 都已恰好
    arrival 后，在紧接着的下一 boundary 建立 barrier，并按 cell 升序对所有 exact
    pairs 调用 `park_vehicle`；每次必须返回 `ParkingCommandOutcome::Committed`。随后恰好运行一条
-   successful Core step，使全部 probes 以 `Occupied + Parked` 从 lane authority
+   successful Runtime step，使全部 probes 以 `Occupied + Parked` 从 lane authority
    排除；该 tick 的全局 W3 population 精确为 24% active / 76% parked。若 barrier
    后不足两条 observation steps，round 无效。
 4. 紧接着的下一 boundary 按 cell 升序对全部 probes 调用 `leave_parking`，目标仍为原 route、
@@ -420,7 +420,7 @@ W3 的 Parking probe 使用以下 fixed-step input sequence：
 
 由此每个 cell 都执行同一条
 `Vacant/Active -> Reserved/Active -> Arrived -> Occupied/Parked ->
-Vacant/Active` authority 路径。commit 与 leave 之间只有一条 Core step；即使
+Vacant/Active` authority 路径。commit 与 leave 之间只有一条 Runtime step；即使
 probe 在该 step 暂时退出 lane occupancy，slot 0 仍是本 route stable order 中的
 最后一辆 active individual，没有 direct follower；不同 route/cell 的 geometry
 band 不重叠，因此 leave 的 safe-insertion 结果不依赖未冻结的背景车辆或私有 gap
@@ -437,11 +437,11 @@ W3 的 lifecycle probe 同时使用以下 fixed-step input sequence：
 2. successful step 后，宿主按 logical rank 升序比较该拍前后状态，记录
    `Active -> Completed` 的完成观测；这不是 Runtime 新增的事件 API。
    据此建立 frozen replacement plan；下一个
-   lifecycle boundary 使用 Core atomic replace，把同一 logical external ID 的新
+   lifecycle boundary 使用 Traffic Runtime atomic replace，把同一 logical external ID 的新
    handle 放回 route progress 188 m、speed 13.9 m/s。
 3. 每个 boundary 的全局顺序固定为 `apply pending Parking commits by cell ->
    apply pending Parking leaves by cell -> apply pending lifecycle commands by cell
-   -> Core fixed step -> consume ordered events -> enqueue next-boundary plans`。
+   -> Traffic Runtime fixed step -> consume ordered events -> enqueue next-boundary plans`。
    Blocked lifecycle plan 不重算、不改变顺序，并按同一 frozen input 在后续
    boundary 重试；Parking command 失败、出现未在 manifest 记录的持续 Blocked
    或 active-count drain 时，该 round 无效。
@@ -450,15 +450,15 @@ W3 failed-step/retry guardrail 同样使用第 8.1 节的 optimized test-only bi
 failpoint 在首批 atomic replacements 后的下一 step 使用第 4.3 节定义的
 `StepFailpoint::AfterTransitions`。post-command/pre-step state 必须单独记录
 现行 `deterministic_state_digest`，并保留规范快照逐值比较；失败后不重复 lifecycle
-command，只重试相同 Core step，并与独立 fresh replay 比较。
+command，只重试相同 Runtime step，并与独立 fresh replay 比较。
 
 ### 4.3 W4 同步 causal burst 输入序列
 
 W4 的宿主接线使用[表现与测量合同](lf-synth-measurement.md) §4 的两个指定外层帧，
-每帧一个固定 quantum、一次表现提交。交通输入与 B0/B1 语义不变；已有 Core-only
+每帧一个固定 quantum、一次表现提交。交通输入与 B0/B1 语义不变；已有 Runtime-only
 状态和失败重试证据不补足新路径的表现或正式 latency 证据。
 
-令 `B0` 为 warm-up 成功完成 `warm_up_ticks` 后、进入 observation 的第一条 Core
+令 `B0` 为 warm-up 成功完成 `warm_up_ticks` 后、进入 observation 的第一条 Traffic Runtime
 step；其 pre-step tick index 为 `warm_up_ticks`。对当前 case 的
 `delta_ms`，所有 W4 controller 使用：
 
@@ -479,7 +479,7 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
 
 1. 在 `B-1` pre-step，依次 despawn route 3 slot 12 的 active handle，并用同一
    logical external ID spawn 新 handle，route progress 为 10260 m、speed 为
-   0。`B-1` Core step 后必须按第 4.2 节产生这些 handle 的宿主完成观测，
+   0。`B-1` Runtime step 后必须按第 4.2 节产生这些 handle 的宿主完成观测，
    并为 `B0` 冻结 replacement inputs。
 2. 在 `B0` pre-step，先按 cell 升序 apply route 3 slot 12 pending atomic
    replacements；replacement route progress 为 356 m、speed 为 13.9 m/s。
@@ -487,28 +487,28 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
    slot 的 ParkingSpace，route edge occurrence index 为 1。该操作把 initial
    W1 mix 从 75 active / 25 parked 变为 burst 期间显式报告的
    76 active / 24 parked，但不改变 individual count。
-4. 运行一次 `B0` Core step；它以 pre-step all-red 约束车辆，并在 post-step
+4. 运行一次 `B0` Runtime step；它以 pre-step all-red 约束车辆，并在 post-step
    同时提交所有 controller 的 A-green release。只有 `B0` 成功后，才按 cell
    升序依次 despawn route 2 slot 11，并用同一 logical external ID spawn 到 route
    progress 5129.9 m、speed 13.9 m/s。
-5. 紧接着运行一次 `B1` Core step；route 2 slot 11 使用 `B0` 已提交的 A-green
+5. 紧接着运行一次 `B1` Runtime step；route 2 slot 11 使用 `B0` 已提交的 A-green
    snapshot，并必须提交 entry→exit transition。`B0`、`B1` 各使用一个 fixed
    quantum 的指定外层帧，各完成一次表现；两者之间不得插入第三次 outer-frame
-   input、额外 Core step、额外 presentation commit 或其他宿主命令。
-6. `B0` 的计时范围包含 pending replace、Parking leave、Core step、ordered
+   input、额外 Runtime step、额外 presentation commit 或其他宿主命令。
+6. `B0` 的计时范围包含 pending replace、Parking leave、Runtime step、ordered
    events、Spatial extract 与 Adapter apply；`B1` 另行包含 route-transition
-   probe commands、Core step、ordered events、Spatial extract 与 Adapter apply。
+   probe commands、Runtime step、ordered events、Spatial extract 与 Adapter apply。
    两个 tick 分别报告，并以二者的 max 作为 W4 causal-burst tail。普通 W4 与
-   failed-step/retry W4 使用同一份 pre-`B0` state、command-batch digest 和 Core
+   failed-step/retry W4 使用同一份 pre-`B0` state、command-batch digest 和 Traffic Runtime
    step-input digest。pending replace 与 Parking leave 只执行一次；完成这些同步
    command 后必须记录 post-command/pre-step state `S_B0` 及其 digest。
 7. failure guardrail 使用 `laneflow-runtime` 内 `#[cfg(test)]` 的
    `StepFailpoint::AfterTransitions`，在全批转换准备完成、atomic commit 前返回
    `StepError::ParkingObservationAllocFailed`。这是整拍失败点，不声称绑定某辆车。
    failed step 必须保持 `S_B0`、已发布事件和命令游标不变；failpoint 消耗后，retry 只重新调用相同
-   Core step，不重复 pending replace、Parking leave 或其他 pre-step command。
+   Runtime step，不重复 pending replace、Parking leave 或其他 pre-step command。
 8. fresh replay 使用独立 world 从 pre-`B0` state 重建，执行一次相同 command
-   batch，先验证得到相同 `S_B0` digest，再执行同一 Core step。只有 retry 成功后
+   batch，先验证得到相同 `S_B0` digest，再执行同一 Runtime step。只有 retry 成功后
    才能进入 `B1`。该 guardrail 使用 `cargo test --release` 构建的 optimized
    test binary，语义结果单独报告；command batch、失败调用与 retry 的 instrumented
    timing 只作诊断，不进入 release latency/tail 或 Product Pass/Fail。
@@ -575,7 +575,7 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 但两种角色不合并：R0 保存某次研究的实际 OS、工具链、电源和固件环境；P100 保存目标产品的
 推荐硬件锚点。操作系统升级或工具链变化不会改变硬件角色，但每次正式认证仍须记录并冻结
 实际环境。独立显卡只用于完整机型识别；渲染器、资产和游戏宿主的图形预算不属于
-LaneFlow 性能验收，不能由 #308 编译器证据或本文 Core 预算代替。
+LaneFlow 性能验收，不能由 #308 编译器证据或本文 Traffic Runtime 预算代替。
 
 P100 的具名物理机绑定规则以
 [`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)
@@ -617,30 +617,30 @@ v1 的历史证据不追溯改写；持续生效的 Runtime/P100 测量统一使
 
 ## 6. Tick、frame budget 与责任边界
 
-| 层级               |         Core fixed step | Outer frame |    主 presentation | p95 budget                                                                                                                 |
-| ------------------ | ----------------------: | ----------: | -----------------: | -------------------------------------------------------------------------------------------------------------------------- |
-| 一万 baseline      |                   16 ms |       60 Hz | 100% `N_presented` | Core ≤ 2 ms/tick；Spatial+Adapter ≤ 4 ms/frame；普通单 tick integrated frame ≤ 6 ms                                        |
-| 十万 scale         |                   33 ms |       60 Hz |  10% `N_presented` | Core ≤ 16 ms/tick；Spatial+Adapter ≤ 4 ms/frame；same-frame integrated p95 只 observation，> 16.667 ms 满足第 10 节第 5 项 |
-| 十万 stretch       |                   16 ms |       60 Hz |  10% `N_presented` | Observation only，不作为当前产品 Gate                                                                                      |
-| 一百万 observation | 不冻结 realtime cadence |      不冻结 |         按实验声明 | 无 realtime budget                                                                                                         |
+| 层级               | Traffic Runtime fixed step | Outer frame |    主 presentation | p95 budget                                                                                                                            |
+| ------------------ | -------------------------: | ----------: | -----------------: | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 一万 baseline      |                      16 ms |       60 Hz | 100% `N_presented` | Traffic Runtime ≤ 2 ms/tick；Spatial+Adapter ≤ 4 ms/frame；普通单 tick integrated frame ≤ 6 ms                                        |
+| 十万 scale         |                      33 ms |       60 Hz |  10% `N_presented` | Traffic Runtime ≤ 16 ms/tick；Spatial+Adapter ≤ 4 ms/frame；same-frame integrated p95 只 observation，> 16.667 ms 满足第 10 节第 5 项 |
+| 十万 stretch       |                      16 ms |       60 Hz |  10% `N_presented` | Observation only，不作为当前产品 Gate                                                                                                 |
+| 一百万 observation |    不冻结 realtime cadence |      不冻结 |         按实验声明 | 无 realtime budget                                                                                                                    |
 
-16 ms 是 62.5 Hz，33 ms 约为 30.3 Hz；它们不是精确的 60/30 Hz。当前 Core 使用
+16 ms 是 62.5 Hz，33 ms 约为 30.3 Hz；它们不是精确的 60/30 Hz。当前 Traffic Runtime 使用
 session-fixed integer-millisecond quantum，因此 60 Hz outer-frame accumulator 的
 0/1/偶发多 tick 行为必须进入测试和预算。
 
 责任边界：
 
-- **Core**：traffic authority、occupancy/leader、longitudinal、global projection、
+- **Traffic Runtime**：traffic authority、occupancy/leader、longitudinal、global projection、
   advance/events 与 atomic commit。
 - **Spatial+Adapter**：committed snapshot/materialization、pose extraction、mapping
   validation、Transform staging/apply。
 - **Renderer/host**：renderer、asset、animation 与 gameplay 不属于 LaneFlow
   budget；一万普通帧约保留 10.7 ms 给宿主。
 
-Core、Spatial 与 Adapter 必须在同一次 integrated run 中计时。不同版本、fixture
+Traffic Runtime、Spatial 与 Adapter 必须在同一次 integrated run 中计时。不同版本、fixture
 或进程的历史 percentile 不得相加后冒充 integrated result。
 
-十万 scale 的 Core 平均负载按 33 ms quantum/约 30 Hz cadence 折算约为
+十万 scale 的 Traffic Runtime 平均负载按 33 ms quantum/约 30 Hz cadence 折算约为
 8 ms/60 Hz outer frame；加 4 ms presentation 后平均约 12 ms。同步 tick frame 仍可
 接近 20 ms，因此当前单线程预算只证明 component compute target，不构成完整无卡顿
 60 FPS frame SLA。十万 W1 same-frame integrated p95 明确为 observation-only：
@@ -651,7 +651,7 @@ Catch-up 契约：
 
 W1/W3 的整数纳秒 60 Hz 输入、精确窗口边界和独立追赶序列按
 [`lf-synth-measurement.md`](lf-synth-measurement.md) §3 冻结。边界帧保留原始数据并
-单独统计，不进入普通帧预算；其 observation Core ticks 仍进入全部 Core 统计。
+单独统计，不进入普通帧预算；其 observation Runtime ticks 仍进入全部 Traffic Runtime 统计。
 
 - canonical `max_catch_up_steps = 2`；
 - 达到上限时保留 backlog，不丢 simulation time；
@@ -706,11 +706,11 @@ normalized_error = absolute_error / physical_budget
 
 ### 7.3 Presentation fidelity
 
-- committed Core state → Spatial pose → Adapter Transform 在 committed sample 上
+- committed Traffic Runtime state → Spatial pose → Adapter Transform 在 committed sample 上
   exact，且整批提交失败原子。
-- selection、LOD、visibility 与 outer-frame batching 不改变 Core
+- selection、LOD、visibility 与 outer-frame batching 不改变 Traffic Runtime
   state/events/identity。
-- 十万/33 ms Core 可以在 60 Hz presentation 重复最新 committed snapshot。
+- 十万/33 ms Traffic Runtime 可以在 60 Hz presentation 重复最新 committed snapshot。
 - interpolation/extrapolation algorithm 与 visual smoothness tolerance 保持 TBD。
   独立 G1 前不得反写 authority，也不得读取未提交 candidate state。
 
@@ -767,15 +767,15 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 
 ### 8.2 统计与 tail
 
-W1/W3 的 Core tick、Spatial+Adapter frame 与 integrated outer frame 分别报告
-p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up frame
+W1/W3 的 Runtime tick、Spatial+Adapter frame 与 integrated outer frame 分别报告
+p50/p95/p99/max；W2 只报告 Runtime tick p50/p95/p99/max。普通帧、catch-up frame
 与 lifecycle burst 分开统计。
 
 - p50/p95/p99：先得到每个 round 的对应统计量，再取 3 个 round-level 值的中位数。
 - max：使用 3 个有效 round 中的最坏值。
 - W1 p95：使用第 6 节预算。
 - 对具有 numeric Product p95 budget 的 W1 层级，p99 不得超过
-  `1.5 × p95 budget`，max 不得超过 `2 × p95 budget`，且 Core max 不得超过
+  `1.5 × p95 budget`，max 不得超过 `2 × p95 budget`，且 Runtime max 不得超过
   fixed quantum。十万 same-frame integrated 没有 Product p99/max budget；它必须
   报告 p50/p95/p99/max，但只按 16.667 ms p95 判断第 10 节第 5 项的 trigger。
 - 上述 W1 budget 只应用于各规模的 presentation Gate 主行：一万为
@@ -785,7 +785,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 - W2–W4 不直接套用 W1 绝对预算，但必须满足 hard invariants、无持续 backlog、
   无未解释 tail 爆炸。
 - W4 不从每 round 仅两个 samples 伪造 percentile。在上述固定
-  `N_presented` 下，正常 release-mode 每 round 分别报告 Core、Spatial+Adapter
+  `N_presented` 下，正常 release-mode 每 round 分别报告 Traffic Runtime、Spatial+Adapter
   与 integrated outer frame 的 `B0`、`B1` raw 值，以及每个层级各自的
   `burst_max = max(B0, B1)`；三轮分别报告各层级 `burst_max` median 与 worst。
   B0/B1 是固定步长驱动的指定帧，不是普通 60 Hz cadence 或 catch-up 样本；
@@ -796,7 +796,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 
 ### 8.3 Allocation、内存与失败恢复
 
-- warm-up 后 W1/W2 steady-state Core hot path：
+- warm-up 后 W1/W2 steady-state Traffic Runtime hot path：
   `0 allocation / 0 reallocation`。
 - W3 lifecycle burst 可以分配，但必须单独报告 count、bytes 与 high-water。
 - 报告 component capacity、retained high-water、working set、private bytes、
@@ -845,7 +845,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
    scaling、tail 或 correctness risk。
 4. exact-only 仍超预算，multi-rate candidate 通过 fidelity，且 integrated W1
    whole-step gain `≥ 5%`：新建 production multi-rate G1。
-5. 单世界精确并行已交付后，十万 Core p95 `> 17.600 ms`
+5. 单世界精确并行已交付后，十万 Runtime p95 `> 17.600 ms`
    （16 ms budget 的 10% 超幅），或十万 W1 same-frame integrated p95
    `> 16.667 ms`：按[决策基线](traffic-runtime-scale-decision-baseline.md)进入
    P4 组件并行或空间分区的独立 G1。后者是架构研究触发，
@@ -913,7 +913,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 
 本文不改变：
 
-- Core API；
+- Traffic Runtime API；
 - Data format；
 - Spatial API；
 - Adapter API；

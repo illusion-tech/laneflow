@@ -215,7 +215,7 @@ codex mcp get mcpls
 
 `Status` 中 `identity_matched` 和 `healthy` 应同时为 `true`。首次 Rust 语义查询需要等待
 `rust-analyzer` 完成 workspace 初始化；冷启动期间的空结果不能解释为没有定义。可让
-Codex 查询当前 worktree 中已知的 `CoreWorld` 定义和引用，并核对返回路径确实属于当前
+Codex 查询当前 worktree 中已知的 `TrafficWorld` 定义和引用，并核对返回路径确实属于当前
 worktree。至少两个 worktree 并行验收时，还应确认它们的 worktree ID、endpoint、PID、
 `rust-analyzer` 后代和语义查询路径彼此不同。
 

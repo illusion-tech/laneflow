@@ -113,16 +113,16 @@ implementation slice 完成前它不计入 current production 十领域，也不
 
 G1 的误差预算必须以 SI 单位和可观察行为表达，不能只写机器 epsilon。每个数值域至少记录：
 
-| 数值域           | 必须确定的范围                       | 必须确定的误差指标                       | 不可破坏的不变量                            |
-| ---------------- | ------------------------------------ | ---------------------------------------- | ------------------------------------------- |
-| edge length      | 最小有效 edge、代表性最大单 edge     | absolute length error、boundary ULP      | positive、finite、length authority 一致     |
-| edge progress    | `[0, edge_length]` 与 boundary 邻域  | per-step drift、boundary snap error      | 不倒退、不越界、不漏/重复 transition        |
-| bumper gap       | overlap 邻域到 leader horizon        | zero-sign/absolute gap error             | no-overlap、leader order、projection safety |
-| speed            | 静止、城市道路、异常高值             | absolute/relative speed error            | finite、非负、停止/恢复语义一致             |
-| acceleration     | comfort/emergency 范围               | control output 与 braking-distance error | finite、deceleration ordering、safe-speed   |
-| Parking geometry | anchor、lateral offset、length/width | bind/pose 输入误差                       | anchor inside edge、geometry non-degenerate |
-| local coordinate | v0.6 spatial tile/local frame 范围   | position/tangent sampling error          | 不把大世界绝对坐标误差泄漏进 Core hot state |
-| heading          | `[-PI, PI)`                          | angular error                            | canonical range、方向 continuity            |
+| 数值域           | 必须确定的范围                       | 必须确定的误差指标                       | 不可破坏的不变量                                       |
+| ---------------- | ------------------------------------ | ---------------------------------------- | ------------------------------------------------------ |
+| edge length      | 最小有效 edge、代表性最大单 edge     | absolute length error、boundary ULP      | positive、finite、length authority 一致                |
+| edge progress    | `[0, edge_length]` 与 boundary 邻域  | per-step drift、boundary snap error      | 不倒退、不越界、不漏/重复 transition                   |
+| bumper gap       | overlap 邻域到 leader horizon        | zero-sign/absolute gap error             | no-overlap、leader order、projection safety            |
+| speed            | 静止、城市道路、异常高值             | absolute/relative speed error            | finite、非负、停止/恢复语义一致                        |
+| acceleration     | comfort/emergency 范围               | control output 与 braking-distance error | finite、deceleration ordering、safe-speed              |
+| Parking geometry | anchor、lateral offset、length/width | bind/pose 输入误差                       | anchor inside edge、geometry non-degenerate            |
+| local coordinate | v0.6 spatial tile/local frame 范围   | position/tangent sampling error          | 不把大世界绝对坐标误差泄漏进 Traffic Runtime hot state |
+| heading          | `[-PI, PI)`                          | angular error                            | canonical range、方向 continuity                       |
 
 预算必须同时覆盖正常范围、边界样例和病理样例。接受标准由领域行为决定：例如边界跨越和无重叠必须先保持离散结果一致，再比较连续数值误差。
 
@@ -140,7 +140,7 @@ G1 的误差预算必须以 SI 单位和可观察行为表达，不能只写机�
 | 期望车头时距                      |                                           `0 < value <= 60 s` |       `0.000003814697265625 s` | 零值仍是拒绝输入样本                      |
 | 朝向角                            |                                                   `[-PI, PI)` | `0.0000002384185791015625 rad` | 使用 `PI` 附近 ULP                        |
 
-route 总长、制动距离、候选行程、硬投影加速度和查询视距是派生值，不机械套用输入上界，也不静默饱和；它们通过有限性/溢出、连续误差和离散行为验收。Spatial 局部坐标的 `-16_384..=16_384 m` 继续是 ADR 0013 的表现层验证范围，不是 Core edge 或 Data 模式的硬范围。
+route 总长、制动距离、候选行程、硬投影加速度和查询视距是派生值，不机械套用输入上界，也不静默饱和；它们通过有限性/溢出、连续误差和离散行为验收。Spatial 局部坐标的 `-16_384..=16_384 m` 继续是 ADR 0013 的表现层验证范围，不是 Traffic Runtime edge 或 Data 模式的硬范围。
 
 10 km 是防御性单 edge 上界，不是日常创作目标。更长道路通过多个 edge 组成 route；运行时不自动拆 edge，因为拆分会改变 ID、route 出现位置、Signal/Parking 锚点、事件归属和空间制品绑定。
 
@@ -221,7 +221,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | 公开几何配置档目标                          | `f64`                                                | compiler                                 | Accuracy `0.02/0.05/0.10 m`；Direction full-angle `1°/2°/5°` 及其冻结 binary64 `cos²`；用于总目标、诊断与最终 canonical direction 检查                                                                                                                                                                                      |
 | B1 细分接受阈值                             | `f64`                                                | compiler analytic/reference              | position `0.01/0.025/0.05 m`；direction half-angle `0.5°/1°/2.5°` 及其冻结 binary64 `cos²`；不得用公开 profile target 替代                                                                                                                                                                                                  |
 | canonical 几何硬阈值                        | `f32`                                                | compiler / 静态契约（static contract）   | 点分量范围 `[-16_384, 16_384] m`、segment 长度严格 `> 0.1 m`、source join gap 上限 `0.005 m`、projected-up 长度 `>= 0.008_726_535`                                                                                                                                                                                          |
-| Spatial 长度校验阈值                        | `f64`                                                | compiler / 静态契约（static contract）   | absolute tolerance `0.01 m`、relative tolerance `1.0e-6`                                                                                                                                                                                                                        |
+| Spatial 长度校验阈值                        | `f64`                                                | compiler / 静态契约（static contract）   | absolute tolerance `0.01 m`、relative tolerance `1.0e-6`                                                                                                                                                                                                                                                                    |
 | 细分 / 正则性离散上限                       | depth `u8` / visits `u32`                            | compiler                                 | `MAX_SUBDIVISION_DEPTH = 20`；`MAX_REGULARITY_NODE_VISITS = 4095`，超过上限失败关闭                                                                                                                                                                                                                                         |
 | 高层中间表示（HIR）内部 `SpatialHir` 子表示 | canonical 折线 `f32`                                 | compiler（owned）                        | 私有 `SpatialHir` 由 `build_spatial_hir` 在高层中间表示（HIR）构造期间建立；`HirCanonicalPoint3F32`/`HirSpatialSegment` 经 `freeze_spatial_polyline` 冻结。长度校验用 `length_mm / 1000` 作观察值对账弧长                                                                                                                   |
 | geometry 中层中间表示（MIR）                | canonical 折线 `f32`                                 | compiler                                 | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial 高层中间表示（HIR）的 canonical 折线                                                                                                                                                                                                                               |
@@ -265,7 +265,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 精度变更不得降低以下现有保证：
 
-- 相同 Core 版本、运行环境、初始状态和输入序列产生一致结果；
+- 相同 Traffic Runtime 版本、运行环境、初始状态和输入序列产生一致结果；
 - `NaN` / 无穷值在进入正本状态前被拒绝；
 - 有符号零由领域构造器规范化；
 - tick/时间使用经过检查的整数运算；
@@ -285,7 +285,7 @@ slack 的独立标定。目标 `f32` 阈值必须使用硬范围的最大末位�
 
 ## 6. 跨层转换边界
 
-### 6.1 宿主事实不能反向决定 Core
+### 6.1 宿主事实不能反向决定 Traffic Runtime
 
 各宿主当前公开 API 的选择并不统一：
 
@@ -305,7 +305,7 @@ slack 的独立标定。目标 `f32` 阈值必须使用硬范围的最大末位�
 ADR 0015 接受的 runtime 顺序是：
 
 ```text
-Core 的有效进度
+Traffic Runtime 的有效进度
   -> Spatial 有界 canonical f32 采样
   -> frame/有限性/点范围/基向量校验
   -> canonical f32 位姿批次
@@ -318,7 +318,7 @@ Core 的有效进度
 - `f32` 批次只在 header 携带一次 `CanonicalFrameId + FramePlacementToken`；每条记录只携带 vehicle handle 与 canonical pose，不重复 frame/placement identity。
 - `FramePlacementToken(u64)` 是 Adapter/调用方颁发、Spatial 原样回显的不透明等值 token。同一 frame 重新放置、切 tile 或 rebase 时必须颁发新 token；Adapter 提交宿主 Transform 前必须比较当前 token 并拒绝旧批次。
 - output frame mismatch 在读取 records 前失败；record 错误携带稳定输入序号和车辆句柄。全部记录先写调用方 scratch，成功后才交换 committed output 并更新 token；任何失败保持旧 frame/token/records 不变。
-- 双精度宿主把 canonical `f32` 位置升宽后应用自己的 frame/world placement；这不会形成第二套 Spatial/Core 状态。
+- 双精度宿主把 canonical `f32` 位置升宽后应用自己的 frame/world placement；这不会形成第二套 Spatial/Runtime 状态。
 - 表现插值、原点重设和细节层级（LOD）只影响显示，不能反馈写入进度、速度、占用、状态或事件。
 
 ### 6.3 API/Data/Spatial/Adapter 迁移判断
@@ -332,7 +332,7 @@ Core 的有效进度
 | Adapter API         | Lane/Parking 输入到带 frame/token 的批量位姿；不暴露宿主 Transform      | #136 固定引擎无关边界；v0.7 再落实具体宿主 ABI  |
 | 量化存储/传输       | 当前不存在                                                              | 将来必须带版本、通过独立议题迁移                |
 
-即使 JSON 词法类型仍是 `number`，Core 标量、接受范围、舍入、诊断或线格式规范化的变化也必须按 ADR 0008 视为 Data/API 迁移。Data 可以先以 `f64` 或等价高保真值解析以保留原始错误输入，但只能通过显式受检转换进入 Core。
+即使 JSON 词法类型仍是 `number`，Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的变化也必须按 ADR 0008 视为 Data/API 迁移。Data 可以先以 `f64` 或等价高保真值解析以保留原始错误输入，但只能通过显式受检转换进入 Traffic Runtime。
 
 ## 7. G1 证据与后续实施
 

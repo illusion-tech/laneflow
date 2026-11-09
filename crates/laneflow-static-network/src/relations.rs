@@ -22,7 +22,7 @@ pub enum CorridorElement {
     FacilityBand(FacilityBandOrdinal),
 }
 
-/// 与当前 Core `FacilityKind` 等价的紧凑类型；自定义 token 只出现在冷 intern 表。
+/// 设施类别的紧凑类型；自定义 token 只出现在冷 intern 表。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FacilityKind {
     /// 机动车道（`motorLane`），承担车道遍历。

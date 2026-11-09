@@ -41,7 +41,7 @@
   语义；
 - 准入 overlay 对 LaneEdge/LaneGroup/RoadSection/ManeuverPath/facility 的引用方式，
   保持 ADR 0017 的全局 ManeuverPath traversal coherence；
-- Core/Data/Spatial/Authoring/Adapter/Presentation 的 authority、external ID/handle、
+- Runtime/Data/Spatial/Authoring/Adapter/Presentation 的 authority、external ID/handle、
   normalization、first-error、确定性与性能边界；
 - 最小 production 实现 Issue 的拆分边界。
 
@@ -65,7 +65,7 @@
 
 ### 1.3 非目标
 
-- 不在本文实现 Core、schema、Adapter、编辑器或示例。
+- 不在本文实现 Traffic Runtime、schema、Adapter、编辑器或示例。
 - 不实现非机动车跟驰、行人行为、CrossingFacility、lane change、动态车道或
   conflict solver。
 - 不冻结车道宽度、横向偏移、道路横坡或任何横断面几何；横断面只冻结横向
@@ -129,9 +129,9 @@ RoadCorridor
   矛盾。
 - **纵向共延伸不变量**：corridor 的所有元素覆盖同一纵向区段——接缝边界
   （§3.2.1）的整边界语义以此为准。与同向不变量同类：没有横向几何与
-  stationing，Core 无法度量或比较元素的纵向范围（FacilityBand 甚至没有
+  stationing，Traffic Runtime 无法度量或比较元素的纵向范围（FacilityBand 甚至没有
   纵向数据），该不变量由 authoring 保证，几何校验由 tooling 或横向几何
-  G1 补强，不进入 v1 Core validation。
+  G1 补强，不进入 v1 Traffic Runtime validation。
 - 不拥有单一 conflict solver、SignalController clock、route planner 或 runtime
   availability。
 
@@ -159,19 +159,19 @@ lane
 - lane index 按 **corridor reference 方向**从左到右排序（index 0 = reference
   方向最左），而不是按各 section 自己的行驶方向：成员 section 可能与
   reference 反向行驶，若以各自行驶方向定 index，接缝邻居派生（§3.2.1）将
-  依赖 Core 无法获知的方向关系。统一 reference 系后，反向 section 的 index
+  依赖 Traffic Runtime 无法获知的方向关系。统一 reference 系后，反向 section 的 index
   顺序相对其行驶方向反转，但任何 section 的"reference 系最外侧 lane"都
   无需方向数据即确定性可得（与 OpenDRIVE 相对参考线编号同构）。lane
   adjacency（#237 消费）的事实来源是该 index 顺序，与 LaneGroup 无关。
 - lane 的 edge 链内相邻 edge 必须存在 LaneGraph directed connection（链是沿纵向
   的连续 traversal）。各 lane 的**内部切分点**独立，无跨 lane 段级对齐要求——
-  没有横向几何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵
+  没有横向几何，Traffic Runtime 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵
   向对齐，长度相等又与弯道弧长冲突），v1 不冻结段级对应关系。**lane 纵向
   共延伸不变量**：同一 section 的所有 lane 覆盖同一纵向区段（链的首尾端面
   一致）——一条 lane 中途开始或结束意味着横向组成在该处变化，按本节
   section 边界定义那必须是 section 边界。该不变量使 section 的纵向范围良
   定义（= 各 lane 的共同范围），是 `(RoadSection, i)` 整边界锚点与 §3.1
-  corridor 共延伸的前提。Core 不可校验：lane 端面一致不等于首尾 node 相同
+  corridor 共延伸的前提。Traffic Runtime 不可校验：lane 端面一致不等于首尾 node 相同
   （junction 下游 section 的各 lane 从不同 exit edge 起始），位置比较需要
   几何；由 authoring 保证，tooling/横向几何 G1 补强。
 - 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection；未被覆盖的 edge 合法
@@ -186,14 +186,14 @@ lane
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
   量**：同一 section 的所有 lane 链必须同向行驶——反向链会让 section 方向
   派生自相矛盾（同一 section 两个行驶方向），lane index 的 reference 系语义
-  也无法统一。该不变量由 authoring 保证：Core 无横向几何，无法在
+  也无法统一。该不变量由 authoring 保证：Traffic Runtime 无横向几何，无法在
   normalization 确定性地区分同向与反向链（平行车道间通常无 directed
   connection 可供判别）；几何感知的离线校验（如比对绑定中心线的 heading）
-  由 tooling 或横向几何 G1 补强，不进入 v1 Core validation。
+  由 tooling 或横向几何 G1 补强，不进入 v1 Traffic Runtime validation。
 - RoadSection 引用 edge，不复制 length、connection 或 speed limit；LaneEdge 继续
   只由 LaneGraph 拥有。
 - section 边界是 authoring 语义：横向组成（车道数、设施带、分隔形式）发生变化的
-  位置即边界；Core 只验证结构规则，不验证"边界划得好不好"。
+  位置即边界；Traffic Runtime 只验证结构规则，不验证"边界划得好不好"。
 
 #### 3.2.1 车道边界（lane boundary）锚点
 
@@ -234,7 +234,7 @@ LaneGroup
 - 成员关系由 lane 的 `laneGroupId` 表达（child-owned reference，不在两个方向重复
   持久化）；一个 LaneGroup 至少聚合一条 lane。
 - LaneGroup 是语义/准入引用单元（如"公交道组"），不影响 lane 顺序，不嵌套。
-- 它不是 Core root entity，但拥有 external ID 与 dense handle，因为 AccessRule 与
+- 它不是 Traffic Runtime root entity，但拥有 external ID 与 dense handle，因为 AccessRule 与
   Adapter observation 需要稳定引用。
 
 ### 3.4 FacilityBand
@@ -293,14 +293,14 @@ FacilityKind 是开放 token 词汇，SSOT 保留 seed 值：
 
 - 项目自定义 kind 必须使用 `x-` 前缀，类别由前缀细分：`x-lane-` 前缀声明
   **lane-bearing**（可作 RoadSection `kindId`，如 `x-lane-tram`），其余 `x-`
-  kind 一律为 non-traversable band kind；两者都不被 Core 赋予任何行为语义，
+  kind 一律为 non-traversable band kind；两者都不被 Traffic Runtime 赋予任何行为语义，
   Adapter/authoring 可自行解释。类别由 token 约定承载与 `x-` 前缀机制同源，
   无需新增声明结构。通用性得到验证的自定义 kind 应回流 SSOT seed 表，
   `x-lane-` 是项目级逃生口而非词汇分叉的捷径。
 - 未在 seed 表且无 `x-` 前缀的 unknown kind 是 load error（防拼写漂移）。
 - kind 的类别（lane-bearing / non-traversable）用错实体类型是 validation error。
 - **lane-bearing 只声明结构语义**（lane 链、顺序、准入 target），不激活任何
-  参与者行为：v1 Core 没有非机动车行为，`nonMotorLane` section 只是横断面
+  参与者行为：v1 Traffic Runtime 没有非机动车行为，`nonMotorLane` section 只是横断面
   结构与 AccessRule 引用目标；非机动车/步行是否获得 traversal 与行为语义由
   #236 的 G1 决定（§15），本表不预决该产品边界。
 - FacilityKind 永远不携带参与者、时段或地区语义；新增物理 kind 只扩展 SSOT 表，
@@ -310,7 +310,7 @@ FacilityKind 是开放 token 词汇，SSOT 保留 seed 值：
 
 ### 5.1 数据声明的分类法
 
-ParticipantClass 在 Traffic data 中显式声明，Core 不内置任何类别：
+ParticipantClass 在 Traffic data 中显式声明，Traffic Runtime 不内置任何类别：
 
 ```text
 participantClasses[]
@@ -321,12 +321,12 @@ participantClasses[]
 - `extends` 构成无环单继承层级；匹配语义为"自身或传递祖先"。
 - 所有 class 引用必须解析到声明（closed per package，extensible across packages），
   拼写错误即 load error，不会静默匹配空集。
-- 层级匹配是 Core 的通用机制；Core 行为不依赖任何具体类名。
+- 层级匹配是 Traffic Runtime 的通用机制；Traffic Runtime 行为不依赖任何具体类名。
 - `ParticipantClass` 只回答准入规则中的“谁”，不定义交通参与单元的计数原子、
   交通执行域、通行网络、运动/安全求解器或生命周期。声明 `nonMotor`、
   `pedestrian` 或未来 rail class 不会激活对应运行时行为，也不能作为能力支持证据。
 
-文档级 seed 分类法（示例与 fixture 的推荐声明，非 Core 常量）：
+文档级 seed 分类法（示例与 fixture 的推荐声明，非 Traffic Runtime 常量）：
 
 ```text
 motorVehicle
@@ -427,7 +427,7 @@ laneEdge > laneGroup > roadSection
 
 FacilityBand target 在 v1 由 **capability guard 结构化拒绝**：production 对
 FacilityBand target 的规则返回 capability-unavailable 结构化错误，拒绝载入，
-不得静默无效。Core 不内置参与者类名，无法在 v1 区分 pedestrian 与其他类；
+不得静默无效。Traffic Runtime 不内置参与者类名，无法在 v1 区分 pedestrian 与其他类；
 band 准入语义（可能引入参与者 category/capability 字段）由 #236 的 G1 定义后
 解禁。
 
@@ -506,7 +506,7 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   `register_route` 本身不做准入判断。v1 只有严格语义：**违规/劝诫式准入
   （软约束、记录事件但不拦截）是行为设计，必须独立 G1**，不得通过放宽 deny
   语义私下引入。
-- **时变规则**：作为 Core constraint pipeline 的 runtime constraint 在 edge-entry
+- **时变规则**：作为 Traffic Runtime constraint pipeline 的 runtime constraint 在 edge-entry
   决策点求值；只有 motion 表现（entry 停让、合规窗口判断与 event）由时变
   runtime G1 冻结，时间语义不在其内（见下）。在其实现前，
   **v1 production 对声明了 timeWindows 的规则返回 capability-unavailable 结构
@@ -523,15 +523,15 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 
 - RoadCorridor、RoadSection、LaneGroup、FacilityBand、ParticipantClass、AccessRule
   均为一等实体：wire 用 external ID（沿用 current Traffic ASCII token 规则），
-  Core runtime 用 dense typed handle（`RoadCorridorHandle`、`RoadSectionHandle`、
+  Traffic Runtime 用 dense typed handle（`RoadCorridorHandle`、`RoadSectionHandle`、
   `LaneGroupHandle`、`FacilityBandHandle`、`ParticipantClassHandle`、
   `AccessRuleHandle`）。ParticipantClass 的外部身份同样是一等 handle：
   VehicleProfile、Adapter observation 与 query API 需要稳定引用参与者类别；
   准入求值在 normalization 后编译为 dense class index 与层级子树区间（§5），
   字符串不进入 steady-tick 求值路径。
 - registry 静态 immutable，初始化后稳定，不需要 generation（ADR 0005 的
-  lane-graph 先例）；handle 不持久化、不跨 CoreWorld 混用。
-- Core 提供与 Junction registry 同形的 resolver、normalization-order iteration、
+  lane-graph 先例）；handle 不持久化、不跨世界混用。
+- Traffic Runtime 提供与 Junction registry 同形的 resolver、normalization-order iteration、
   parent/member query 与 borrowed slice iteration；public API 不暴露内部
   index/range。
 - Normalized storage 沿用 road-junction-model §5 的 flat 形状：dense definitions、
@@ -548,18 +548,18 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 
 ## 8. Authority 矩阵
 
-| 事实/行为                        | Authority                                 | 非 Authority                       |
-| -------------------------------- | ----------------------------------------- | ---------------------------------- |
-| LaneEdge 拓扑/length/speed limit | LaneGraph/Core                            | RoadSection、RoadCorridor、Adapter |
-| 横断面横向顺序                   | RoadCorridor cross-section                | Adapter 推断、Spatial 几何         |
-| lane 顺序与 adjacency 事实来源   | RoadSection lane index                    | LaneGroup、AccessRule              |
-| 设施物理身份                     | FacilityKind（SSOT seed + `x-` 扩展）     | AccessRule、laneType 式封闭枚举    |
-| 参与者分类                       | Traffic data 声明 + Core 层级匹配         | Core 内置类名、SignalController    |
-| 准入许可                         | AccessRule overlay + Core constraint 管线 | FacilityKind、ManeuverPath 复制    |
-| 法规来源/版本审计                | AccessRule.regulation provenance          | SignalController 内嵌 if/else      |
-| 最终 motion/safety               | Core longitudinal/traversal pipeline      | allow 规则、Adapter                |
-| 横断面渲染/宽度/材质             | Adapter/Presentation                      | Core/Data                          |
-| 中心线几何/pose                  | Spatial edge binding（不变）              | 横断面 overlay                     |
+| 事实/行为                        | Authority                                            | 非 Authority                               |
+| -------------------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| LaneEdge 拓扑/length/speed limit | LaneGraph/Runtime                                    | RoadSection、RoadCorridor、Adapter         |
+| 横断面横向顺序                   | RoadCorridor cross-section                           | Adapter 推断、Spatial 几何                 |
+| lane 顺序与 adjacency 事实来源   | RoadSection lane index                               | LaneGroup、AccessRule                      |
+| 设施物理身份                     | FacilityKind（SSOT seed + `x-` 扩展）                | AccessRule、laneType 式封闭枚举            |
+| 参与者分类                       | Traffic data 声明 + Traffic Runtime 层级匹配         | Traffic Runtime 内置类名、SignalController |
+| 准入许可                         | AccessRule overlay + Traffic Runtime constraint 管线 | FacilityKind、ManeuverPath 复制            |
+| 法规来源/版本审计                | AccessRule.regulation provenance                     | SignalController 内嵌 if/else              |
+| 最终 motion/safety               | Traffic Runtime longitudinal/traversal pipeline      | allow 规则、Adapter                        |
+| 横断面渲染/宽度/材质             | Adapter/Presentation                                 | Runtime/Data                               |
+| 中心线几何/pose                  | Spatial edge binding（不变）                         | 横断面 overlay                             |
 
 ## 9. Wire shape 与版本
 
@@ -690,7 +690,7 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
 
 ## 11. Determinism 与性能边界
 
-- 沿用 road-junction-model §11/§12：同一 Traffic bytes/Core version/normalization
+- 沿用 road-junction-model §11/§12：同一 Traffic bytes/Runtime version/normalization
   path 得到相同 handle allocation、iteration、first-error attribution 与运行结果；
   input permutation 只改变 raw handle 数值与迭代顺序，不改变 external-ID 对齐的
   语义等价。
@@ -714,18 +714,18 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
 
 ## 12. 影响矩阵
 
-| 层                 | Target 影响                                                           | 本 Issue 变更 | 后续 owner       |
-| ------------------ | --------------------------------------------------------------------- | ------------- | ---------------- |
-| Core API           | 新增 6 类 handle/resolver/registry；(class, Route) 绑定期准入校验     | 无（设计）    | production Issue |
-| LaneGraph          | 不变；edge 成员关系由 RoadSection 引用反查                            | 无            | —                |
-| Route              | 保持 class-agnostic；绑定期增加静态准入与 occurrence 级 path 规则校验 | 无            | production Issue |
-| Traffic Data       | exact-current `0.9` 新 arrays + profile 必填字段                      | 无            | production Issue |
-| Spatial            | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何                        | 无            | —                |
-| Manifest           | shape 保持 `0.1`；production 后更新 Traffic size/digest               | 无            | production Issue |
-| Authoring          | 显式 corridor/section/lane/rule 输入；generator 显式生成              | 无            | production Issue |
-| Adapter            | observation 新增 corridor/section/rule 只读 query；无裁决权           | 无            | production Issue |
-| Presentation       | 可按 cross-section 顺序渲染横断面；宽度/材质自有                      | 无            | production Issue |
-| Fixtures/artifacts | 原子切换 v0.9 并更新 canonical bytes/digests                          | 无            | production Issue |
+| 层                  | Target 影响                                                           | 本 Issue 变更 | 后续 owner       |
+| ------------------- | --------------------------------------------------------------------- | ------------- | ---------------- |
+| Traffic Runtime API | 新增 6 类 handle/resolver/registry；(class, Route) 绑定期准入校验     | 无（设计）    | production Issue |
+| LaneGraph           | 不变；edge 成员关系由 RoadSection 引用反查                            | 无            | —                |
+| Route               | 保持 class-agnostic；绑定期增加静态准入与 occurrence 级 path 规则校验 | 无            | production Issue |
+| Traffic Data        | exact-current `0.9` 新 arrays + profile 必填字段                      | 无            | production Issue |
+| Spatial             | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何                        | 无            | —                |
+| Manifest            | shape 保持 `0.1`；production 后更新 Traffic size/digest               | 无            | production Issue |
+| Authoring           | 显式 corridor/section/lane/rule 输入；generator 显式生成              | 无            | production Issue |
+| Adapter             | observation 新增 corridor/section/rule 只读 query；无裁决权           | 无            | production Issue |
+| Presentation        | 可按 cross-section 顺序渲染横断面；宽度/材质自有                      | 无            | production Issue |
+| Fixtures/artifacts  | 原子切换 v0.9 并更新 canonical bytes/digests                          | 无            | production Issue |
 
 ## 13. 最小 production 实现拆分
 
@@ -802,7 +802,7 @@ no-allocation 测试矩阵。
   命名分组，不影响 lane 顺序；
 - FacilityBand 非遍历、非 LaneEdge；FacilityKind seed + `x-` 开放词汇只承载
   物理设施身份；
-- ParticipantClass 数据声明、单继承、Core 无内置类；VehicleProfile 单引用；
+- ParticipantClass 数据声明、单继承、Traffic Runtime 无内置类；VehicleProfile 单引用；
 - AccessRule 五元（target/effect/参与者/时间/法规 provenance）+ 双平面
   （edge / path occurrence）求值 + 参与者优先的确定性三步裁决与残留歧义
   拒绝（不以 deny-overrides 消解残留歧义）+ 跨平面合取；

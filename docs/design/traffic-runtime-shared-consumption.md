@@ -106,7 +106,7 @@ session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用�
 pose 记录身份（不承诺最终 Rust 拼写）：
 
 - `PoseRecordId`：调用方分配的不透明 `u32`。Spatial 不解释为车辆、也不导入
-  Runtime/Core handle。
+  Runtime handle。
 - `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享静态路网边长同域的进度 `progress_mm: u32`。
 - `PoseSource::Parking`：共享静态路网上的停车位序号。
 - virtual Parked 不生成 `PoseSource`；这不是 despawn，Adapter 必须结合

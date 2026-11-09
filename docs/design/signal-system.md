@@ -63,7 +63,7 @@ SignalController
   -> versioned compliance / jurisdiction policy
   -> MovementGate signal-layer permission
   -> future conflict / priority arbitration
-  -> Core longitudinal safety and traversal
+  -> Traffic Runtime longitudinal safety and traversal
 ```
 
 v0.4 只提供一个 protected-entry compliance profile：
@@ -144,7 +144,7 @@ SignalGroupStateInput
 - Phase ID 只在所属 Controller 内唯一；数组顺序定义循环 program。
 - 每个 Phase 对 Controller 的全部 Groups 恰好列出一次 state；不允许 sparse、继承或默认值。
 - 允许 all-red phase、全 red program，以及 aspect vector 相同但 ID/duration 不同的相邻 phases。
-- Core 不强制 green/yellow/red 的交通工程 transition pattern；authoring 对 program 安全负责。
+- Traffic Runtime 不强制 green/yellow/red 的交通工程 transition pattern；authoring 对 program 安全负责。
 - `durationMs` 为正整数，`offsetMs` 为必填非负整数；cycle 使用 checked sum。
 - canonical offset 满足 `0 <= offsetMs < cycleDurationMs`，loader 不隐式 modulo。
 
@@ -451,7 +451,7 @@ Events 使用 post-step tick index；time 由 `StepResult` 提供。Events 只�
 
 ## 11. Determinism 与失败原子性
 
-Signals 沿用 ADR 0003：同一 Core 版本、同一运行环境、同一 normalized initial state 和同一 lifecycle/tick input sequence，逐 tick committed state、query snapshot 与 ordered events 一致；不承诺跨 CPU/编译器/浮点实现的 bit-level determinism。
+Signals 沿用 ADR 0003：同一 Traffic Runtime 版本、同一运行环境、同一 normalized initial state 和同一 lifecycle/tick input sequence，逐 tick committed state、query snapshot 与 ordered events 一致；不承诺跨 CPU/编译器/浮点实现的 bit-level determinism。
 
 不得依赖 HashMap iteration、handle 数值排序、Adapter 调用顺序或每 tick external-ID sort。Controller event order 使用 controller normalization order；Group event order使用 `groupIds`；Phase/route sequence 保持行为顺序。Gate 输入顺序不能成为交通优先级。
 
@@ -506,7 +506,7 @@ Tick hot path 要求：
 - 不做 per-tick external-ID lookup/sort 或 per-vehicle allocation；
 - private scratch/candidate buffer 可复用，具体容器不构成 public contract。
 
-Signals 服从完整 Core step 总预算，不叠加专项预算：
+Signals 服从完整 Runtime step 总预算，不叠加专项预算：
 
 - 一万 common target `<= 1 ms/tick`，hard limit `<= 4 ms/tick`，连续 60 ticks `<= 240 ms`；
 - no-Signals legacy 场景相对同机 v0.3 等价基线回归 `>20%` 必须分析，`>30%` 默认阻断；
@@ -589,12 +589,12 @@ debug surface 仍独立交付，不能由运行时实现替代。
 
 #184 复用现有 immutable fixed-time controller、StopLine 和 `(from, to)` MovementGate，不增加第二套 signal runtime。每个交叉口各有一个 controller 和主/次干道两个 group；phase program 固定为主绿、主黄、全红、次绿、次黄、全红。authoring/startup config 提供 `mainGreenMs`、`secondaryGreenMs`、`yellowMs`、`allRedMs` 与两个 controller offset；red duration 由完整 program 推导，不提供独立 `redMs`，v0.8 不支持 runtime hot edit。
 
-generator 负责为每个交叉口完整枚举 10 条 lane movement gates（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
+generator 负责为每个交叉口完整枚举 10 条 lane movement gates（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Traffic Runtime 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
 
 ## 18. v0.9 ManeuverGate clean-break 与 v0.10 multi-Gate extension
 
 #229 已按 #228/ADR 0017 保留本文 indication、StopLine、compliance、future
-conflict 与 Core safety 分层，并实现：
+conflict 与 Traffic Runtime safety 分层，并实现：
 
 - pair-based `MovementGate`/`MovementGateKey` 改名并破坏性迁移为一等
   `ManeuverGate`/`ManeuverGateHandle`；

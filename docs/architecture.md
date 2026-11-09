@@ -187,8 +187,8 @@ size-prefixed FlatBuffers 的内部 B1 production compiler 入口。该格式尚
 长期存档兼容承诺。
 Synthetic DSL source 继续只服务测试、benchmark、示例和
 非发布程序化场景；importer 保存原始 source digest、tool/options/provenance。全部正式
-来源输出 owning module、稳定实体/属性或画布选择位置及 typed AST，不直接构造 current
-Core、target Runtime 或 Spatial 对象。
+来源输出 owning module、稳定实体/属性或画布选择位置及 typed AST，不直接构造
+Traffic Runtime 或 Spatial 对象。
 
 道路建成后仍可修改。近期产品通过候选道路的整体编译/验证和新路网修订替换实现；长期
 在同一事务上增加直接调整与影响预览。道路编辑状态保存重建当前走向所需的编制定义，
@@ -264,7 +264,7 @@ SSOT 见 `design/cross-section-access.md`。
 
 #235/ADR 0019 已接受多阶段复杂路口 G1：沿用 ManeuverPath/Route authority，把
 multiple Gate、WaitingZone 与 ConflictZone occurrence 在 Route 注册期编译；
-Traffic/Core 中显式声明的 ParticipantStream/ConflictZone 关系拥有行为 authority，
+Traffic/Runtime 中显式声明的 ParticipantStream/ConflictZone 关系拥有行为 authority，
 并复用 current Traffic v0.10 的 ParticipantClass/AccessRegistry 静态准入结果；
 Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
 `design/waiting-zone-conflict-right-of-way.md`；其中 #281 static/Data 已生产化，
@@ -330,19 +330,19 @@ Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
 `Junction -> Movement -> ManeuverPath` immutable owner hierarchy、derived
 internal-edge Junction ownership 和一等 ManeuverGate。Route 继续拥有车辆实际
 traversal；`register_route` 在本世界编译 Maneuver/Gate occurrences，vehicle
-tick 不匹配 path、不查 external ID 或扫描全局 catalog。Core current API 只公开
+tick 不匹配 path、不查 external ID 或扫描全局 catalog。#229 时的 Core API 只公开
 Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pair key。
 
 #234/ADR 0018 在此之上冻结横断面与准入的长期职责边界：横断面是 LaneGraph 之上的
 可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑正本）；准入规则
-作为 regulatory constraint 进入 Core constraint 管线，静态规则在 (class, Route)
-绑定期原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Core
+作为 regulatory constraint 进入 Traffic Runtime constraint 管线，静态规则在 (class, Route)
+绑定期原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Traffic Runtime
 safety。上述 ParticipantClass/CrossSection/Access registries、typed handles 与静态
 route-binding 校验已由 #262 生产化；时变准入与 FacilityBand target 仍未生产化。
 
-#235/ADR 0019 Accepted 设计在 signal/regulatory 与 Core safety 之间增加独立 conflict
+#235/ADR 0019 Accepted 设计在 signal/regulatory 与 Traffic Runtime safety 之间增加独立 conflict
 domain：versioned compliance policy 只产生 protected/permissive/uncontrolled
-candidate，Core ConflictArbiter 才能结合 yield/priority、gap acceptance、zone
+candidate，Traffic Runtime ConflictArbiter 才能结合 yield/priority、gap acceptance、zone
 occupancy/reservation 产生 vehicle-specific tick grant；crossing 成功后 grant
 原子升级为 reservation。v1 grant 前还必须以 route-local occupancy/hard boundary
 证明车辆能让车尾清空 coverage zone，并在 stable single-writer arbitration 中原子

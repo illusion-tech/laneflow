@@ -80,9 +80,9 @@ GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 
 以下情况默认不得合入：
 
-1. Adapter 代码把引擎依赖泄漏进 Core。
+1. Adapter 代码把引擎依赖泄漏进 Traffic Runtime。
 2. 数据格式变化没有文档或版本说明。
-3. Core API 破坏性变化没有 ADR 或 design 依据。
+3. Traffic Runtime API 破坏性变化没有 ADR 或 design 依据。
 4. 新增或更新依赖违反 ADR 0002 或 `dependency-security.md`，或 cargo-deny 未通过。
 5. 必需验证未运行且没有原因说明。
 6. PR 声称完成父任务，但证据只覆盖子任务。

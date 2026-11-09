@@ -33,7 +33,7 @@ docs/
 ## 目录职责
 
 - `docs/adr/`：记录高影响、难回退的架构决策，重点回答“为什么这样定”。
-- `docs/design/`：记录 Core、数据格式、Adapter、运行时规则等设计，重点回答“具体怎么做”。
+- `docs/design/`：记录 Traffic Runtime、数据格式、Adapter、运行时规则等设计，重点回答“具体怎么做”。
 - `docs/governance/`：记录 GitHub 工作流、开发阶段评审、AI Agent 开发规则和文档边界。
 - `docs/reference/`：记录术语、模板、校验矩阵和长期复用的辅助规范。
 - `.agents/`：记录跨 Agent 的执行工作流；工具专用入口只应薄包装这些工作流。

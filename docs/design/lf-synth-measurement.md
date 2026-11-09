@@ -18,7 +18,7 @@
 
 保持生产 Adapter 的每帧一次提交合同，把 W4 明确定义为两个连续的指定外层帧。
 这会修订 W4 的**宿主测量输入**，不改变其 topology、state、input-plan、命令次序、
-Core step 输入、B0/B1 状态或 observation_ticks。性能基线 §4.3/§8 与本文同步，
+Runtime step 输入、B0/B1 状态或 observation_ticks。性能基线 §4.3/§8 与本文同步，
 只允许这两次声明的 observation 输入；统计口径按 §4 执行。
 
 另一方案是在同一外层帧中提交两次表现，会改变 Adapter 的批次频率合同，并使 W4
@@ -43,7 +43,7 @@ W1/W3/W4 使用真实 `LaneFlowSession`、同根 `SpatialSession`、
 全部暂存后统一提交；任一失败保留所有旧 Transform，并使本 round 失败。
 这不恢复尚未交付的公共 placement API，不把宿主转换写入 Runtime 或 Spatial。
 
-W2 继续使用 Core-only 路径；不安装 Spatial/Adapter，不产生 integrated frame 数据。
+W2 继续使用 Runtime-only 路径；不安装 Spatial/Adapter，不产生 integrated frame 数据。
 
 ## 3. W1/W3 的确定性外层帧输入
 
@@ -59,7 +59,7 @@ W2 继续使用 Core-only 路径；不安装 Spatial/Adapter，不产生 integra
 每个边界满足目标 tick、目标 time 和零 backlog；执行不满足时该 round 失败。
 
 这些边界帧保留原始样本并单独统计；不混入普通 60 Hz 帧的预算统计。每个成功的
-observation Core tick 仍进入 Core 统计，不能因其属于边界帧而删除。输入生成后
+observation Runtime tick 仍进入 Traffic Runtime 统计，不能因其属于边界帧而删除。输入生成后
 先冻结完整序列，再开始预热；相同 run 配置必须产生相同序列。
 
 追赶是独立 guardrail 序列，不在运行中临时加延迟以修改正常 latency row。序列
@@ -73,16 +73,16 @@ observation Core tick 仍进入 Core 统计，不能因其属于边界帧而删�
 预热使用 §3 的序列，在 `warm_up_ticks` 精确结束且 backlog 为零。随后只输入：
 
 1. **B0 帧**：delta 为一个固定 quantum。执行 pending replace、Parking leave、
-   B0 Core step、有序结果消费、一次 Spatial 提取和一次 Adapter apply。
+   B0 Runtime step、有序结果消费、一次 Spatial 提取和一次 Adapter apply。
 2. **B1 帧**：紧接 B0 帧成功后输入一个固定 quantum。执行 route-transition
-   probe commands、B1 Core step、有序结果消费、一次提取和一次 apply，立即结束。
+   probe commands、B1 Runtime step、有序结果消费、一次提取和一次 apply，立即结束。
 
 这两个输入是 W4 声明的唯一 observation 外层输入。两帧之间不插入第三次输入、
 额外步进、额外表现提交或其他宿主命令。probe commands 的边界和顺序仍按性能
 基线 §4.3；B1 读取 B0 已提交的 green snapshot。任何失败停止本 round。
 
 B0/B1 是固定步长驱动的因果突发帧，不是 60 Hz cadence 样本；不进入普通帧或
-追赶帧 percentile。每轮分别保存 Core、Spatial+Adapter、完整帧的 B0/B1 原始值
+追赶帧 percentile。每轮分别保存 Traffic Runtime、Spatial+Adapter、完整帧的 B0/B1 原始值
 和 `burst_max`，三轮报告该层 `burst_max` 的 median 与 worst。不从两个样本
 推导 p95/p99，也不把两帧相加冒充一次普通外层帧。
 
@@ -93,9 +93,9 @@ B0/B1 是固定步长驱动的因果突发帧，不是 60 Hz cadence 样本；�
 ## 5. 计时与证据边界
 
 正式 latency binary 不启用 allocator instrumentation、failpoint 或 profiling。
-每个 integrated 样本用连续墙钟区间覆盖该帧 lifecycle、全部成功 Core steps、
+每个 integrated 样本用连续墙钟区间覆盖该帧 lifecycle、全部成功 Runtime steps、
 有序结果消费、选择映射、Spatial 提取、Transform staging/apply；不得暂停、扣除
-中间区间或把不同进程/不同帧的 component percentile 相加。Core 和表现分段计时
+中间区间或把不同进程/不同帧的 component percentile 相加。Traffic Runtime 和表现分段计时
 必须来自同一次调用，原始记录带相同 frame/tick 编号。
 
 完整状态快照、独立 oracle 比较、统计排序与文件落盘放在声明的帧间检查点；

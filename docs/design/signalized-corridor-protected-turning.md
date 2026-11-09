@@ -22,7 +22,7 @@ artifact 迁移到 current Traffic v0.10 并保持 protected-turning behavior �
 
 本文接受一个无需兼容旧格式的 v0.9 profile。两个 Junction 各自显式拥有
 Movement 和 lane-level ManeuverPath；LaneGraph 继续拥有全部 LaneEdge；Route
-继续拥有有限、显式 edge sequence；Maneuver occurrence 由 Core 在 route
+继续拥有有限、显式 edge sequence；Maneuver occurrence 由 Traffic Runtime 在 route
 registration 时编译；`laneflow-scenario` 继续拥有示例的人口、回流和 Route
 选择 policy。
 
@@ -396,7 +396,7 @@ authoring 证据，不是通用动态 clearance solver。
 - 所有 left/straight/right path 的 headless traversal、SignalStop/release、
   Following/no-overlap；
 - 每次不兼容 green 开始时，前一 active set 的 internal edges 已清空；
-- native pose、lamp、Route observation 与 Core handles 一致；
+- native pose、lamp、Route observation 与 Traffic Runtime handles 一致；
 - weighted draw order、blocked retry、初始 permutation 和不同 outer-frame
   chunking 的 replay；
 - steady tick 不做 external-ID lookup、ManeuverPath matching、catalog scan 或
@@ -415,16 +415,16 @@ handoff 时出现车辆滞留于前一 active set 的 internal edge：
 
 ### 8.3 组合 authority
 
-| 关注点             | authority                           | profile 只提供                                          |
-| ------------------ | ----------------------------------- | ------------------------------------------------------- |
-| population/recycle | `laneflow-scenario` caller policy   | PortalLane、RouteChoice、slot cross-reference 与权重    |
-| speed/longitudinal | Core speed limit + Following        | 每条 edge 的 speed ceiling；不增加 turn-specific 跟车器 |
-| stop/release       | Core Signals + ManeuverGate         | path/Gate/group/phase 的显式 cross-reference            |
-| geometry/pose      | Traffic length + Spatial centerline | 同源 point sequence 与 binding                          |
-| presentation       | Adapter read-only observation       | stable handles；不让 lamp/mesh/Transform 回写 authority |
+| 关注点             | authority                               | profile 只提供                                          |
+| ------------------ | --------------------------------------- | ------------------------------------------------------- |
+| population/recycle | `laneflow-scenario` caller policy       | PortalLane、RouteChoice、slot cross-reference 与权重    |
+| speed/longitudinal | Traffic Runtime speed limit + Following | 每条 edge 的 speed ceiling；不增加 turn-specific 跟车器 |
+| stop/release       | Traffic Runtime Signals + ManeuverGate  | path/Gate/group/phase 的显式 cross-reference            |
+| geometry/pose      | Traffic length + Spatial centerline     | 同源 point sequence 与 binding                          |
+| presentation       | Adapter read-only observation           | stable handles；不让 lamp/mesh/Transform 回写 authority |
 
 Adapter 可以按 ManeuverPath/SignalGroup handle 显示 route、灯具和车辆位姿，但不得
-重新判断 turn permission、用几何猜测 Route，或在 presentation 层修正 Core
+重新判断 turn permission、用几何猜测 Route，或在 presentation 层修正 Traffic Runtime
 progress。
 
 ### 8.4 结构化错误

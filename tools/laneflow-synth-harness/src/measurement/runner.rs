@@ -134,7 +134,7 @@ fn end_step(ecs: &mut World) {
     let allocation = resources::finish(ecs.resource::<Timing>().allocation);
     let session = ecs.resource::<LaneFlowSession>();
     if let Some(error) = session.last_error() {
-        std::panic::panic_any(failure("Core step", error));
+        std::panic::panic_any(failure("Runtime step", error));
     }
     let tick = session.world().tick_index();
     let mut timing = ecs.resource_mut::<Timing>();
@@ -393,7 +393,7 @@ fn run_inner(
             let started = Instant::now();
             let result = world
                 .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                .map_err(|e| failure("Core-only step", e))?;
+                .map_err(|e| failure("Runtime-only step", e))?;
             let elapsed = nanos(started);
             let allocation = resources::finish(allocation);
             #[cfg(feature = "allocation")]

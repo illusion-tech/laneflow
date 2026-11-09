@@ -30,14 +30,14 @@ TOPO/DEMAND workload ID
 
 | 关注点                                  | 归属                                     |
 | --------------------------------------- | ---------------------------------------- |
-| vehicle identity、replace/spawn/despawn | Core                                     |
+| vehicle identity、replace/spawn/despawn | Traffic Runtime                          |
 | `target_N`、seed、抽样集合、回流/停补位 | caller-owned LuST example policy（#257） |
 | handle↔Entity 映射                      | Adapter                                  |
 | `N_presented` 选中与 UI                 | Presentation                             |
 
 本文 **不**：
 
-- 把人口 controller 放进 Core 或新增 batch lifecycle public API；
+- 把人口 controller 放进 Traffic Runtime 或新增 batch lifecycle public API；
 - 把 `target_N` / seed / 抽样集合写入 Traffic、Spatial 或 ScenarioManifest；
 - 改写 `LF-REAL-LUST-TOPO-v2` / `LF-REAL-LUST-DEMAND-v2` 的固定一万语义；
 - 宣称一万@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
@@ -62,7 +62,7 @@ HUD 与 headless 证据必须同时可读：
 
 默认演示目标是 **100% of presentable vehicles**：在无 pending `Completed`、未启用
 手动 H3、且 **没有** S1-retained Completed identity（excess slot 已 Completed、已
-unbind/移出 proxy、仍占 Core identity 等待 H1）的 outer frame，应有
+unbind/移出 proxy、仍占 Traffic Runtime identity 等待 H1）的 outer frame，应有
 `N_presented = N_individual`。不得用 `N_presented` 冒充 `N_individual`。
 
 瞬时例外：Bevy presentation 不提交 `Completed` pose，而 `N_individual` 在
@@ -70,7 +70,7 @@ despawn/replace 前仍计入该 handle。因此 route completion 之后、下一
 boundary 的 replace 生效之前，允许短暂 `N_presented < N_individual`。证据与 HUD
 必须同时暴露四计数，不得把该瞬时差解释为已降档。
 
-S1 例外：excess slot 按 §3.2.1 保留 Core identity 但已移出场景后，允许持续
+S1 例外：excess slot 按 §3.2.1 保留 Traffic Runtime identity 但已移出场景后，允许持续
 `N_presented < N_individual`（差额等于仍 live 的 S1-retained Completed 数）。
 此时不得再要求无条件 `N_presented = N_individual`；HUD 须能区分
 `target_N` / `N_individual` / presentable 计数。精确恢复四计数对齐仍靠 S3/H1。
@@ -81,7 +81,7 @@ S1 例外：excess slot 按 §3.2.1 保留 Core identity 但已移出场景后�
 
 - 启动必须显式提供 `target_N∈[1,10000]` 与 `u64 seed`（零 seed 合法）。
 - 禁止隐式默认静默升到一万。
-- bootstrap 在第一个 Core step 之前完成；失败则整体不进入 Running。
+- bootstrap 在第一个 Runtime step 之前完成；失败则整体不进入 Running。
 
 ### 3.2 受约束 H2（运行中改目标）
 
@@ -90,7 +90,7 @@ S1 例外：excess slot 按 §3.2.1 保留 Core identity 但已移出场景后�
   （不保证 identity 计数收敛）以及目标内的
   `replace_completed_vehicle` 回流。
 - 生命周期决策只发生在 **fixed-step lifecycle boundary**（ADR 0016 顺序：pending
-  commands → Core step → completions → 下一 boundary 的计划），不得按
+  commands → Runtime step → completions → 下一 boundary 的计划），不得按
   outer-frame 次数偷改。
 - **禁止 Running Session 内 live-spawn / live-despawn 扩缩编**。现有 Bevy public
   surface：`LaneFlowSession::core()` 只暴露 `&CoreWorld`；`bind_vehicle_entity`
@@ -124,7 +124,7 @@ S1 例外：excess slot 按 §3.2.1 保留 Core identity 但已移出场景后�
    #257 必须在同一 lifecycle boundary（或紧随其后的 presentation 提交前）对绑定
    proxy 执行 **unbind + 移出场景**（`unbind_vehicle` 后 despawn Entity，或等价
    隐藏且不再参与 picking/HUD 计数）。不得留下“最后合法 Transform 冻结在终点”
-   的可见幽灵车；该清理是 Presentation 义务，**不是** Core despawn（仍非 S4），
+   的可见幽灵车；该清理是 Presentation 义务，**不是** Traffic Runtime despawn（仍非 S4），
    也 **不是** S2（不改 `target_N` / 不自动降展示目标）。
 
 同 `seed` / 同入选集合 / 同 fixed-step completion 序 ⇒ 同回流决策序列；#257 golden
@@ -152,7 +152,7 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 
 1. PRNG 使用与走廊 reference 相同的 **SplitMix64 + rejection sampling** 契约
    （见 `example-scenarios.md` / ADR 0016）；state 由 caller `seed` 初始化，并由
-   example policy 独占，不进入 Core。
+   example policy 独占，不进入 Traffic Runtime。
 2. **算法（必须逐字节可复现）**：令 `arr = [0, 1, …, 9999]`。对
    `index` 从 `9999` 递减到 `1`：
    `swap_index = uniform(index + 1)`（即 `0..=index`），然后
@@ -176,12 +176,12 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 
 ## 5. 缩编分层
 
-| 策略                | 行为                                                                                            | 本契约                                          |
-| ------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| S1 停补位           | 超出目标的 logical slot 停止 replace/回流；Completed 后 unbind/移出 proxy；Core identity 仍保留 | **允许**，但 **不**保证 `N_individual→target_N` |
-| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N`                       | **精确缩编的正本路径**                          |
-| S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                                           | **不做默认**（与 100% 展示默认冲突）            |
-| S4 超时主动 despawn | 超时后 despawn 仍 Active 的 live 车以加速收敛                                                   | **本契约不做**                                  |
+| 策略                | 行为                                                                                                       | 本契约                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| S1 停补位           | 超出目标的 logical slot 停止 replace/回流；Completed 后 unbind/移出 proxy；Traffic Runtime identity 仍保留 | **允许**，但 **不**保证 `N_individual→target_N` |
+| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N`                                  | **精确缩编的正本路径**                          |
+| S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                                                      | **不做默认**（与 100% 展示默认冲突）            |
+| S4 超时主动 despawn | 超时后 despawn 仍 Active 的 live 车以加速收敛                                                              | **本契约不做**                                  |
 
 说明：
 
@@ -193,7 +193,7 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
   HUD 必须继续暴露真实 `N_individual`。
 - 若 #257 需要 Running 内对 excess Completed 做 typed despawn 而不重建 Session，停止并
   另立 Adapter/G1；不得把 S4（对 Active live 车的超时驱逐）偷换为该能力。
-- 手动 H3 仍可临时降低展示，但不得静默修改 Core 人口。
+- 手动 H3 仍可临时降低展示，但不得静默修改 Traffic Runtime 人口。
 
 ## 6. 与 A/B/C 制品的关系
 
@@ -223,5 +223,5 @@ bundle + 人口表临时发明 collision-free `route_edge_index`/progress。
 
 - 实现：#257 Bevy LuST native 示例与调节 UI。
 - 设计 Issue：#256；Parent tracker：#252。
-- 若实现需要新的 Core/Adapter public API、通用 scenario controller 或 schema，
+- 若实现需要新的 Runtime/Adapter public API、通用 scenario controller 或 schema，
   停止并另立 G1/ADR，不得在本契约下静默扩展。

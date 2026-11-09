@@ -524,8 +524,8 @@ physical capacity slot。
 排序。最终布局是在“每个 logical slot 恰好一个 placement、每个 physical capacity
 slot 至多一次”的约束下，对 ordered assignment tuple 求
 **lexicographically smallest perfect matching**；plan 必须保存
-`route_edge_index` 作为唯一 Core spawn cursor。无 template、重复 physical
-capacity、非唯一 occurrence、无一万 perfect matching 或 Core tick-0 batch
+`route_edge_index` 作为唯一 Traffic Runtime spawn cursor。无 template、重复 physical
+capacity、非唯一 occurrence、无一万 perfect matching 或 Runtime tick-0 batch
 validation 失败均使 workload 构造失败；不能修改 pitch、时间窗、人口或匹配规则后
 沿用本 ID。
 
@@ -560,10 +560,10 @@ DEMAND 忠实回放共享 source records 的固定 departure schedule：
 - source anchor 固定为 `t0 = 28800 s`；
 - source `depart` lexical decimal 作为精确十进制有理数解析；
 - `release_tick = ceil((depart - t0) * 1000 / 16)`，不得先转浮点或先舍入到毫秒；
-- pre-step boundary `k` 尝试所有 `release_tick <= k` 且尚未进入 Core 的 records；
+- pre-step boundary `k` 尝试所有 `release_tick <= k` 且尚未进入 Traffic Runtime 的 records；
 - release 前的 record 只存在于 caller-owned `DemandPending` table，不创建伪造
-  Parked Core vehicle，不占 ParkingSpace，也不计入 `N_individual`；
-- 每个 selected record 从 case 开始就在 `DemandPending`，直到成功插入 Core 才从
+  Parked Traffic Runtime vehicle，不占 ParkingSpace，也不计入 `N_individual`；
+- 每个 selected record 从 case 开始就在 `DemandPending`，直到成功插入 Traffic Runtime 才从
   table 原子移除。尚未到 release boundary 的 future record 与已经到期但因
   `VehiclePhysicalOverlap` blocked 的 record 都由同一 table 持有；blocked 不是第三
   个 owner，也不能从 pending 中临时移除。
@@ -615,7 +615,7 @@ progress = low + q * (high - low)
 
 ### 6.3 Blocked、Completed 与结束条件
 
-只有 Core `VehiclePhysicalOverlap` 是可恢复的 blocked 结果：
+只有 Traffic Runtime `VehiclePhysicalOverlap` 是可恢复的 blocked 结果：
 
 - blocked record 保留完全相同的 route/profile/progress/input；
 - 每个后续 boundary 最多重试一次；
@@ -673,9 +673,9 @@ process 中从 pinned source 重建两次，并得到相同的：
 - initial/state digest；
 - fixed-input-sequence digest。
 
-TOPO 还要以 exact-only Core 验证完整 protocol 每个 pre/post-step 的一万 active
+TOPO 还要以 exact-only Traffic Runtime 验证完整 protocol 每个 pre/post-step 的一万 active
 invariant。DEMAND 比较 ordered command outcomes、ordered events、per-tick count
-digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runtime 语义。
+digest 和 final state。exact-only Traffic Runtime 是 oracle；本文不新增候选 runtime 语义。
 
 其中 build provenance record digest 只证明同一 build identity 的重复生成；它不是
 跨 converter build 的 semantic comparison key。可比性规则固定为：
@@ -776,7 +776,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 - selected record 无法转换，或 profile/route/source reference 非法；
 - repeated conversion 不是 byte-identical；
 - TOPO 秒/微秒 exact-unit comparison 不成立，或没有 template、一万 perfect
-  matching、重复 edge 的 occurrence/capacity identity 不唯一、tick-0 Core
+  matching、重复 edge 的 occurrence/capacity identity 不唯一、tick-0 Traffic Runtime
   validation、`logical_rank=0..9999` 唯一性或完整一万-active oracle；
 - DEMAND departure/departPos、ordered outcomes/events/counts 或 final replay
   digest 不一致；
@@ -807,7 +807,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 | H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
 | I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 正本）与 H 的契约；C/DEMAND 仍可选           |
 
-本文不改变 Core API、Data format、Spatial API、Adapter API、production runtime
+本文不改变 Traffic Runtime API、Data format、Spatial API、Adapter API、production runtime
 behavior 或 crate dependency direction，也不新增 ADR。
 
 若任一实现要求新的通用 scenario controller、batch lifecycle API、public schema、

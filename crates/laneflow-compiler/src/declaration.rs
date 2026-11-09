@@ -441,7 +441,7 @@ pub struct ParticipantClassInput<'a> {
 
 /// 当前道路机动车执行域采用的 IIDM 静态参数。
 ///
-/// 这些字段逐项沿用 current Core `IidmProfileSpec` 的 `f64` 数值语义；该类型不是
+/// 这些字段采用 `f64` 数值语义；该类型不是
 /// 其他交通执行域的通用运行参数基类。
 #[derive(Clone, Copy, Debug)]
 pub struct IidmVehicleProfileInput {
@@ -470,7 +470,7 @@ pub struct VehicleProfileInput<'a> {
     pub vehicle_profile_key: &'a str,
     /// 恰好一个参与者类别；目标必须存在于同一编译单元。
     pub participant_class: ParticipantClassReference<'a>,
-    /// 当前 Core 已接受的 IIDM 静态参数。
+    /// 当前道路机动车执行域采用的 IIDM 静态参数。
     pub iidm: IidmVehicleProfileInput,
 }
 

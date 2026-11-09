@@ -2049,7 +2049,7 @@ mod tests {
     #[test]
     fn expected_classification_matches_registered_sets() {
         let classified: Vec<(String, UnsafeLevel)> = vec![
-            ("laneflow-core".to_string(), UnsafeLevel::Forbid),
+            ("laneflow-runtime".to_string(), UnsafeLevel::Forbid),
             ("laneflow-format".to_string(), UnsafeLevel::Forbid),
             (AUDITED_MMAP_PACKAGE_NAME.to_string(), UnsafeLevel::Allow),
             (
