@@ -124,9 +124,9 @@ let color = 0xFF00_FF00;
 
 ## 6. Retained-memory 计账
 
-Core 的 retained-memory 测试账本按 Rust storage ownership 统计，不沿 handle 或
+Traffic Runtime 的 retained-memory 测试账本按 Rust storage ownership 统计，不沿 handle 或
 borrowed reference 重复统计目标对象。拥有 `Vec`、`String`、`IndexMap`、`Box`、
-`Arc` 或其他 heap backing 的 Core 类型应在 crate-private、`cfg(test)` 的计账方法中
+`Arc` 或其他 heap backing 的 Traffic Runtime 类型应在 crate-private、`cfg(test)` 的计账方法中
 使用不带 `..` 的穷尽 struct 解构：
 
 - 新增字段必须触发 test target 编译失败，迫使作者明确把字段分类为 owned heap、
@@ -162,7 +162,7 @@ Review Rust 变更时：
 3. 对年份、端口、协议码等例外检查上下文是否足够明确。
 4. 把纯格式问题限定在当前变更范围；历史问题应单独跟踪。
 5. 不得把等价字面量格式评论提升为运行时、API 或数据格式缺陷。
-6. Core owning struct 新增 heap-backed 字段时，确认 owner-local 穷尽计账、world
+6. Traffic Runtime owning struct 新增 heap-backed 字段时，确认 owner-local 穷尽计账、world
    component ledger 与零/非零 smoke fixture 已同步。
 7. 对新增公开 API，以及本次变更改变失败面（新增错误条件或调用方可触发 panic）的
    既有公开 API，核对 `# Errors`/`# Panics` 段落（见 5.2；两项独立判断——返回

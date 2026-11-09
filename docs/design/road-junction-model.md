@@ -92,13 +92,13 @@ RoadSection 是有方向的道路结构分段，用于表达：
 RoadSection 不是 Route，不决定车辆当前 path，也不复制 LaneEdge 的 length 或
 connection。其生产语义（ordered lanes、edge 链、单 section 归属、与横断面 owner
 RoadCorridor 的关系）已由 #234 在
-[`cross-section-access.md`](cross-section-access.md) §3.2 冻结；Core registry、
+[`cross-section-access.md`](cross-section-access.md) §3.2 冻结；Traffic Runtime registry、
 handle 与 Traffic array 仍待其最小 production Issue 实现。
 
 ### 2.3 LaneGroup
 
 LaneGroup 是 RoadSection 内可选的命名分组，可用于表达一组共享用途的 lanes。
-它不是 Core root entity，但 #234 已在
+它不是 Traffic Runtime root entity，但 #234 已在
 [`cross-section-access.md`](cross-section-access.md) §3.3 冻结其生产语义：
 一等 external ID/handle、child-owned 归属恰好一个 RoadSection、不影响 lane
 顺序；lane adjacency 的唯一事实来源仍是 RoadSection 的 lane index。如何进入
@@ -113,16 +113,16 @@ Junction 是通用的最小拓扑连接/潜在冲突单元：
 - parking access 或 interchange 可以由多个 Junction 组成；
 - 普通 geometry split、portal 或无连接的立体交叉不自动成为 Junction。
 
-`Intersection` 只表示平面道路交叉 profile/authoring 语义，不成为 Core 根实体。
+`Intersection` 只表示平面道路交叉 profile/authoring 语义，不成为 Traffic Runtime 根实体。
 
 ### 2.5 Movement
 
 Movement 是一个 Junction 内的道路级通行意图和稳定分组 identity。它聚合同一
 意图的一个或多个 lane-level ManeuverPath。
 
-Core 不内置 `left | straight | right | uTurn` 枚举。转向标签、法规分类、route
+Traffic Runtime 不内置 `left | straight | right | uTurn` 枚举。转向标签、法规分类、route
 权重或 UI 名称属于 authoring/profile metadata。RoadSection 尚未生产化期间，
-Movement 的道路级 from/to endpoints 是由 authoring 保证的语义；Core 通过 child
+Movement 的道路级 from/to endpoints 是由 authoring 保证的语义；Traffic Runtime 通过 child
 ManeuverPath 的拓扑一致性验证其可遍历性，不保存 dangling section strings。
 
 ### 2.6 ManeuverPath
@@ -174,7 +174,7 @@ Movement.junctionId
 ManeuverPath.movementId
 ```
 
-Core normalization 构造反向 member ranges，调用方不能提交第二份 child list。
+Traffic Runtime normalization 构造反向 member ranges，调用方不能提交第二份 child list。
 
 ### 3.2 ManeuverPath edge shape
 
@@ -252,7 +252,7 @@ ManeuverPath 的业务 identity 是 external ID；edge sequence 是 traversal si
 - Route 必须通过完整连续 sequence 唯一匹配 path。
 - 若同一 Route position 匹配零条或多条应当被建模为 Junction traversal 的 path，
   route registration 返回结构化错误。
-- Core 不按 connector ID、edge prefix、转向字符串或 edge pair 猜测 path。
+- Traffic Runtime 不按 connector ID、edge prefix、转向字符串或 edge pair 猜测 path。
 
 该全局规则是 traversal-definition coherence，不把 edge sequence 提升为 external
 identity。它保证完整 sequence 到 ManeuverPath 至多一对一，同时保留同一
@@ -305,7 +305,7 @@ foreign handle 都可在运行时被检测。
 
 ### 4.3 Resolver
 
-Core public target 至少提供：
+Traffic Runtime public target 至少提供：
 
 ```text
 junction_handle(externalId) -> Option<JunctionHandle>
@@ -397,7 +397,7 @@ Route 继续是有限显式 edge sequence：
 - LaneGraph connection 验证每个相邻 pair；
 - vehicle route cursor 继续由 `RouteHandle + routeEdgeIndex + edgeProgress` 表达；
 - repeated edge 继续以 route occurrence/index 区分；
-- Core 不自动插入、删除或重排 path edges；
+- Traffic Runtime 不自动插入、删除或重排 path edges；
 - ManeuverPath 不承担 pathfinding 或 route selection。
 
 ### 6.2 Occurrence identity
@@ -465,7 +465,7 @@ Vehicle step 只消费 route-shared compiled metadata 和当前 route cursor：
 
 ### 7.1 一等 Gate model
 
-Traffic/Core target：
+Traffic/Runtime target：
 
 ```text
 ManeuverGateInput
@@ -547,24 +547,24 @@ Adapter 不得：
 - 从 connector 名称推断 Junction；
 - 通过 edge pair 重建 Movement identity；
 - 决定 conflict/right-of-way；
-- 覆盖 Core permission 或 motion。
+- 覆盖 Traffic Runtime permission 或 motion。
 
 ## 8. Authority 矩阵
 
-| 事实/行为                          | Authority                                | 非 Authority                             |
-| ---------------------------------- | ---------------------------------------- | ---------------------------------------- |
-| Edge connection/length/speed limit | LaneGraph/Core                           | Junction、Spatial、Adapter               |
-| Junction/Movement/Path identity    | Traffic input + Core normalized registry | connector naming、Adapter                |
-| Internal-edge Junction owner       | Core derived topology index              | duplicate wire owner、Spatial            |
-| Path traversal signature coherence | Core topology normalization              | Route discriminator、policy overlay      |
-| Actual vehicle traversal           | Route + route cursor                     | ManeuverPath、SignalController           |
-| Canonical geometry/pose            | Spatial edge binding                     | Core Junction polygon、Adapter inference |
-| Signal phase/aspect                | SignalController/Group                   | Movement、Adapter                        |
-| Gate signal permission             | Compliance + ManeuverGate                | SignalAspect alone、Adapter              |
-| Conflict/right-of-way              | Future dedicated domain                  | SignalController、JunctionGroup          |
-| Final motion/safety                | Core longitudinal/traversal pipeline     | green aspect、Adapter                    |
-| Route/movement weights             | Scenario/authoring policy                | Core static topology                     |
-| Host transform/rendering           | Adapter/Presentation                     | Core/Data                                |
+| 事实/行为                          | Authority                                           | 非 Authority                                        |
+| ---------------------------------- | --------------------------------------------------- | --------------------------------------------------- |
+| Edge connection/length/speed limit | LaneGraph/Runtime                                   | Junction、Spatial、Adapter                          |
+| Junction/Movement/Path identity    | Traffic input + Traffic Runtime normalized registry | connector naming、Adapter                           |
+| Internal-edge Junction owner       | Traffic Runtime derived topology index              | duplicate wire owner、Spatial                       |
+| Path traversal signature coherence | Traffic Runtime topology normalization              | Route discriminator、policy overlay                 |
+| Actual vehicle traversal           | Route + route cursor                                | ManeuverPath、SignalController                      |
+| Canonical geometry/pose            | Spatial edge binding                                | Traffic Runtime Junction polygon、Adapter inference |
+| Signal phase/aspect                | SignalController/Group                              | Movement、Adapter                                   |
+| Gate signal permission             | Compliance + ManeuverGate                           | SignalAspect alone、Adapter                         |
+| Conflict/right-of-way              | Future dedicated domain                             | SignalController、JunctionGroup                     |
+| Final motion/safety                | Traffic Runtime longitudinal/traversal pipeline     | green aspect、Adapter                               |
+| Route/movement weights             | Scenario/authoring policy                           | Traffic Runtime static topology                     |
+| Host transform/rendering           | Adapter/Presentation                                | Runtime/Data                                        |
 
 ## 9. Traffic v0.8 历史 clean-break target
 
@@ -721,7 +721,7 @@ cross-Junction internal-edge conflict 抢先。
 同一：
 
 - Traffic bytes；
-- Core version；
+- Traffic Runtime version；
 - normalization path；
 - `register_route` 命令序列；
 
@@ -982,7 +982,7 @@ Issue 负责实现。以下各项仍需独立冻结：
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 完成独立 G1 接受：同一路径 Gate 按 transitionIndex 排序，Route 注册期编译
 Gate/Waiting/Conflict occurrences；WaitingZone 由同一路径 entry/release Gate
-有界，Core 拥有容量/队列与 committed/waiting/clearing 状态，Spatial
+有界，Traffic Runtime 拥有容量/队列与 committed/waiting/clearing 状态，Spatial
 只拥有可选 3D region。Conflict approach 必须从 current route cursor 覆盖 horizon
 内的 upcoming/repeated occurrence，把 Route-specific contributions 归约到每个
 static `(ConflictZone, ParticipantStream)` 的 distinct-owner frontier 并排除 exact
@@ -994,13 +994,13 @@ guards；Waiting capacity/queue/traversal runtime 仍由 #282 交付，Conflict/
 
 ### 17.3 Conflict/priority
 
-#235 Accepted 设计把 ConflictZone/ParticipantStream 放入独立 ConflictRegistry，并由 Core
+#235 Accepted 设计把 ConflictZone/ParticipantStream 放入独立 ConflictRegistry，并由 Traffic Runtime
 ConflictArbiter 产生 vehicle-specific grant/reservation。它可以引用 Junction、
 ManeuverPath 与 Gate handles，但不得：
 
 - 把 conflict state 写入 SignalController；
 - 让 Adapter 裁决；
-- 绕过 Core safety；
+- 绕过 Traffic Runtime safety；
 - 让 JunctionGroup 自动成为全设施 solver。
 
 ### 17.4 Complex facilities

@@ -2758,7 +2758,7 @@ fn build_access_rules(
     })
 }
 
-/// Core AccessRegistry phase 9.6：已声明 `regulation` 必须共享同一
+/// 准入规则法规来源闭合校验：已声明 `regulation` 必须共享同一
 /// `(jurisdiction, version)`（`source` 不参与）；未声明者跳过。UTF-8 只用于比对，
 /// 不 intern、不进入 Traffic。
 fn close_regulation_authority<'a>(

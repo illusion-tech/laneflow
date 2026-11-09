@@ -67,8 +67,8 @@ v0.9 的 Accepted 受保护转向 SSOT 见
 ### 2.1 单位与坐标
 
 - 距离：米；
-- 速度：制品和 Core 使用米每秒；
-- 时间：authoring/startup config 使用整数毫秒，normalize 后进入 Core fixed-tick 时间模型；
+- 速度：制品使用米每秒；
+- 时间：authoring/startup config 使用整数毫秒，normalize 后进入 Traffic Runtime fixed-tick 时间模型；
 - canonical 场景采用右手、Y-up 坐标；
 - 主干道沿 X 轴，西向东为 `+X`；
 - 次干道沿 Z 轴，北端为 `Z = -150`、南端为 `Z = +150`，南向北为 `-Z`；
@@ -118,7 +118,7 @@ finite Route、44 个 ordered Maneuver occurrence 和 route-local raw weight 的
 
 每条 ManeuverPath 固定为 `[entry road edge, exactly one internal edge, exit road
 edge]`，ManeuverGate 位于 transition 0。不同 Route 可以共享 road edge 和
-PortalLane entry SpawnSlot；Core 在 Route 注册期编译 Maneuver/Gate occurrence，
+PortalLane entry SpawnSlot；Traffic Runtime 在 Route 注册期编译 Maneuver/Gate occurrence，
 steady tick 不做 runtime pathfinding、external-ID lookup 或 geometry matching。
 
 ## 4. 限速与车辆纵向行为
@@ -138,7 +138,7 @@ Traffic v0.7 引入且 current Traffic v0.10 继承的 contract 在每个 lane e
 车辆不得以超过当前 edge 限速的初始速度 spawn/replace。车辆不得在 crossing 下游限速边界时仍超过新限速。若多个约束同时存在，沿 route 最近且最严格的可行约束生效；道路限速不得绕过既有 SignalStop 或 no-overlap hard projection。
 
 默认初始与回流使用当前 spawn edge 的正常行驶初速度：
-`min(VehicleProfile.desiredSpeed, current edge speedLimit)`。Core 仍在提交 initial
+`min(VehicleProfile.desiredSpeed, current edge speedLimit)`。Traffic Runtime 仍在提交 initial
 batch/replace 时验证 overlap、route 和速度上限；入口被占用时回流返回可重试的
 `Blocked`，既不把速度降为零后强塞，也不绕过首个 fixed tick 的 leader、SignalStop
 和 no-overlap authority。
@@ -151,7 +151,7 @@ batch/replace 时验证 overlap、route 和速度上限；入口被占用时回�
 `main-through-right`、`secondary-left`、`secondary-through-right` 四个 group。
 每个 approach/lane 只有一个 StopLine；同 lane 候选 ManeuverGate 共享该 StopLine
 和 phase class，但保持不同 Gate identity。authoring/generator 完整枚举 topology、
-Gate 与 phase state，Core 不推断 conflict matrix。
+Gate 与 phase state，Traffic Runtime 不推断 conflict matrix。
 
 ### 5.2 固定 12-phase program
 
@@ -204,7 +204,7 @@ spawn-slot catalog。slot：
 - 不位于 connector、conflict area、停止线 hard projection 范围或 route completion 边界；
 - 带稳定 portal、PortalLane、edge 与 progress identity，不拥有单一 Route；
 - 以文档化稳定顺序进入 catalog；
-- 通过 Core production spawn validation 最终确认 overlap 和 route invariant。
+- 通过 Traffic Runtime production spawn validation 最终确认 overlap 和 route invariant。
 
 默认几何和 profile 必须提供至少 200 个合法 slot，否则 generator/config validation
 失败。catalog 的规范顺序依次使用 Portal 表顺序、lane index、route edge
@@ -343,7 +343,7 @@ cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config exam
 
 | 关注点                                                                   | 归属层                               | 实施 Issue     |
 | ------------------------------------------------------------------------ | ------------------------------------ | -------------- |
-| per-edge speed limit、v0.8 引入且 current v0.10 继承的 topology/纵向约束 | Data/Core                            | #185/#229/#262 |
+| per-edge speed limit、v0.8 引入且 current v0.10 继承的 topology/纵向约束 | Data/Runtime                         | #185/#229/#262 |
 | caller-driven atomic replace、overlap 与 identity invariant              | TrafficWorld                         | #475           |
 | 目标人口、seed、portal/lane 决策与 blocked retry                         | `laneflow-scenario` reference policy | #475           |
 | typed lifecycle transaction 与 proxy binding                             | Bevy Reference Adapter               | #475           |

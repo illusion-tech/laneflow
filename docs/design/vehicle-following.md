@@ -37,8 +37,8 @@
 - 定义车辆纵向几何、profile 和 runtime state。
 - 在 fixed tick 中稳定检测 leader，并实现平滑跟驰、停止和恢复。
 - 在正常受控模式下保证 tick 后车辆不发生纵向几何重叠，并且不从可行 snapshot 主动侵入 follower `min_gap`。
-- 保持 Core 引擎无关、确定性、失败原子性和可扩展性能。
-- 明确 Core API、data format、未来 Adapter 和迁移影响。
+- 保持 Traffic Runtime 引擎无关、确定性、失败原子性和可扩展性能。
+- 明确 Traffic Runtime API、data format、未来 Adapter 和迁移影响。
 
 非目标：
 
@@ -257,7 +257,7 @@ VehicleState
 bumper_gap = route_distance(F.front, L.front) - L.length
 ```
 
-`edge_progress = 0` 允许车身暂时位于 route 入口外。Adapter 可从 front progress 和 length 推导车辆中心，但 Core 不消费世界坐标几何。
+`edge_progress = 0` 允许车身暂时位于 route 入口外。Adapter 可从 front progress 和 length 推导车辆中心，但 Traffic Runtime 不消费世界坐标几何。
 
 跨分支 overhang 候选——从其他 incoming branch 汇入共享 downstream edge、尾部仍悬在分支上的车辆——不按上式把尾部沿 follower 路线反推：其在共享边上的占用记录裁剪为 `lo_mm = 0`，跟车查询的实测后杠是共享边入口（`base_mm`），而非字面读出的 `base + p - L`。跨分支几何本就不参与纵向投影（§6.4）。
 
@@ -285,7 +285,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 物理 gap/overlap 阈值范围内规范化为零接触。
 - 只违反 profile `min_gap`、但未发生物理重叠的 world initialization 或 lifecycle command 输入仍合法；runtime final geometry projection 不得继续缩小该既有异常净距。
 - 初始化和 `spawn_vehicle` 必须原子拒绝同 edge、相邻 route boundary 和 repeated occurrence 可见范围内的物理重叠。
-- 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Core 没有足够世界几何判断分支间碰撞。
+- 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Traffic Runtime 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
 **过渡投影衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §4）**：
@@ -412,7 +412,7 @@ Current Parking 复用本节 private spatial-target/safety ownership：ParkingSt
 #235 的 Accepted 设计
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 把 GateStop、WaitingZone capacity/storage 与 missing ConflictGrant 定义为新的
-Core-owned spatial constraints。它们只能收紧 candidate motion；right-of-way
+Runtime-owned spatial constraints。它们只能收紧 candidate motion；right-of-way
 business priority 与 reducer attribution tie-break 完全分离，grant 不能覆盖
 leader、safe-speed、minimum-gap、RouteEnd 或 final no-overlap。该设计还在 grant
 前复用 route-local leader/hard-boundary query，证明车尾可清空全部 conflict
@@ -440,7 +440,7 @@ follower，并复用本设计的 follower-owned minimum-gap tolerance；candidat
 - initial world 与 `spawn_vehicle` 共用同一 normalization；`initial_speed > current edge base speed limit` 原子拒绝。
 - 道路限速、SignalStop、ParkingStop、RouteEnd 与 leader/no-overlap 继续选择共同可行的更小 motion；Adapter 不做 clamp。
 
-未来驾驶风格、边界后延迟合规、超车/换道和最高 20% 的短时超车授权不属于当前实现。未来必须由 Core-owned compliance/maneuver policy 单独设计，保持 base limit immutable，并优先用加载期归一化的 fixed-size preset/offset 复用同一 solver；不得引入每 tick PRNG、callback/trait object、external-ID lookup、完整 route 扫描或临时集合。
+未来驾驶风格、边界后延迟合规、超车/换道和最高 20% 的短时超车授权不属于当前实现。未来必须由 Runtime-owned compliance/maneuver policy 单独设计，保持 base limit immutable，并优先用加载期归一化的 fixed-size preset/offset 复用同一 solver；不得引入每 tick PRNG、callback/trait object、external-ID lookup、完整 route 扫描或临时集合。
 
 ## 9. IIDM comfort controller
 
@@ -489,7 +489,7 @@ else:
 
 `s` 小于或等于物理 gap/overlap 阈值时不做除法，comfort 输出直接取 `-b`。最终 comfort acceleration clamp 到 `[-b, a]`。
 
-IIDM evaluator 是 Core 私有纯计算单元：输入 profile 与 observation，输出 desired acceleration，不读取 wall clock、随机数或 world mutation。
+IIDM evaluator 是 Traffic Runtime 私有纯计算单元：输入 profile 与 observation，输出 desired acceleration，不读取 wall clock、随机数或 world mutation。
 
 ## 10. Lookahead 与 safe-speed
 

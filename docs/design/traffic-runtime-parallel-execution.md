@@ -327,7 +327,7 @@ P5 的 Wi 以缓存复用后的真实工作计量：分别记录 `MotionPreview`
 首版生成组件或 SCC 图。
 
 规模矩阵继承[产品性能合同](core-runtime-performance-baseline.md)：一万道路机动车
-16 ms 固定步长、Core p95 2 ms/tick；十万规模 33 ms、Core p95 16 ms/tick。
+16 ms 固定步长、Runtime p95 2 ms/tick；十万规模 33 ms、Runtime p95 16 ms/tick。
 标称个体数、Active 数和呈现数分开；CN-URBAN 衰减轨迹与稳定 Active 对照分列，
 不把 CN-URBAN 改称 LF-SYNTH W1。P4 保持串行不降低预算，也不预先保证预算通过。
 

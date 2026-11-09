@@ -8,7 +8,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-11-07
 
-**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.10 per-edge 基础道路限速和 data-format 输入边界
+**适用范围**: Lane Graph + Route 的 Traffic Runtime 模型、edge / connection / topology、Traffic v0.10 per-edge 基础道路限速和 data-format 输入边界
 
 **关联文档**:
 
@@ -42,12 +42,12 @@
 
 ## 2. 术语
 
-- **Lane graph**：Core 用于验证 route 和进行 route traversal 的有向图。
-- **Lane edge**：Core route following 的最小有向行驶段。
+- **Lane graph**：Traffic Runtime 用于验证 route 和进行 route traversal 的有向图。
+- **Lane edge**：Traffic Runtime route following 的最小有向行驶段。
 - **Lane connection**：从一个 lane edge 到另一个 lane edge 的显式可通行关系。
 - **External edge ID**：数据文件、工具、日志、debug 和 Adapter 使用的稳定字符串 ID。
 - **EdgeHandle**：Core runtime 内部和 public runtime API 使用的不透明 typed handle。
-- **Distance unit**：引擎无关距离单位。示例可按 meter 理解，但 Core 不绑定具体单位制。
+- **Distance unit**：引擎无关距离单位。示例可按 meter 理解，但 Traffic Runtime 不绑定具体单位制。
 - **SpeedLimit**：lane edge immutable 基础道路限速，固定使用 m/s，必须 finite 且严格大于 0。
 - **最小 edge length**：`EdgeLength` 输入的 exclusive 下限；属于输入语义。
 - **Edge boundary tolerance**：edge boundary、remainder 和 progress snap 使用的领域绝对阈值；不拥有最小 edge length。
@@ -78,7 +78,7 @@ LaneConnectionInput
 
 说明：
 
-- `length` 是 Core route following 的正本长度。
+- `length` 是 Traffic Runtime route following 的正本长度。
 - `speedLimit` 是道路静态事实；当前的 effective speed ceiling 与该值相等，未来驾驶风格或临时 maneuver allowance 不得修改它。
 - `connections` 只表达可从当前 edge 进入哪些下游 edge。
 - 没有 outgoing connection 的 edge 是合法 terminal edge。
@@ -116,7 +116,7 @@ v0.2 允许动态 spawn / despawn vehicle，并允许 register / remove route de
 
 状态：已接受。
 
-Core route following 只需要：
+Traffic Runtime route following 只需要：
 
 - 当前 route edge。
 - 当前 edge-local progress。
@@ -125,13 +125,13 @@ Core route following 只需要：
 - route sequence 中的下一 edge。
 - lane graph 是否允许当前 edge 连接到下一 edge。
 
-Core 不负责把 edge progress 转换成世界坐标。Adapter 或 Presentation 需要的道路几何，应由 data layer / Adapter 通过 external edge ID 或 resolver 关联到自己的几何数据。
+Traffic Runtime 不负责把 edge progress 转换成世界坐标。Adapter 或 Presentation 需要的道路几何，应由 data layer / Adapter 通过 external edge ID 或 resolver 关联到自己的几何数据。
 
 这意味着：
 
 - Core state / query 输出可以包含 `EdgeHandle`、route edge index 和 progress；route transition event 默认只携带 handle 与 route edge index，不把 progress 固化为事件契约。
 - Adapter 通过 resolver 得到 external edge ID，再在自己的几何数据中做插值。
-- #30 data format 可以包含几何字段，但 Core lane graph 设计不强制 Rust runtime 消费几何。
+- #30 data format 可以包含几何字段，但 Traffic Runtime lane graph 设计不强制 Rust runtime 消费几何。
 
 ### D5. topology validation 必须稳定且可诊断
 
@@ -199,18 +199,18 @@ data format 不应持久化 `EdgeHandle`。`EdgeHandle` 只在单个 `CoreWorld`
 
 ## 6. Adapter 影响
 
-Adapter 不应复制 Core topology validation，也不应自行决定 route 是否连通。
+Adapter 不应复制 Traffic Runtime topology validation，也不应自行决定 route 是否连通。
 
 Adapter 可以：
 
-- 读取 Core 输出的 edge handle / route edge index / progress。
+- 读取 Traffic Runtime 输出的 edge handle / route edge index / progress。
 - 通过 resolver 获取 external edge ID。
 - 使用自己的 geometry 数据把 progress 映射到 transform。
 - 在 debug draw 中显示 lane graph 和 route。
 
 Adapter 不应：
 
-- 把引擎对象 ID 当作 Core runtime handle。
+- 把引擎对象 ID 当作 Traffic Runtime handle。
 - 依赖 `EdgeHandle` 的内部数值排序。
 - 在 CoreWorld 运行期直接修改 lane graph topology。
 
@@ -224,7 +224,7 @@ Adapter 不应：
 - external ID / typed handle / registry / resolver 已由 ADR 0005 冻结。
 - 本文是对 lane graph 的 v0.2 可执行设计展开，没有新增新的跨层不可逆架构取舍。
 
-若后续引入动态 lane graph 拓扑、pathfinding、connection identity 或 geometry-driven Core collision / occupancy，应重新评估是否需要新增 ADR。
+若后续引入动态 lane graph 拓扑、pathfinding、connection identity 或 geometry-driven Traffic Runtime collision / occupancy，应重新评估是否需要新增 ADR。
 
 ## 8. 测试与验证输入
 
@@ -252,7 +252,7 @@ Adapter 不应：
 - internal edge 的 Junction owner 由 path membership 派生，同一 Junction 内可共享，
   跨 Junction 不得复用；
 - entry/exit boundary edge 可以连接相邻 Junction；
-- Core 不从 geometry、connector 名称或 edge pair 推导 Junction/Movement identity；
+- Traffic Runtime 不从 geometry、connector 名称或 edge pair 推导 Junction/Movement identity；
 - RoadSection、LaneGroup 与 JunctionGroup 在 v0.9 只设计，不进入 LaneGraph runtime。
 
 current Traffic v0.10 不把 Junction owner 写回 LaneGraph；完整 owner、validation、

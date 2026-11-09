@@ -23,7 +23,7 @@
 
 ## 1. 目标、边界与术语
 
-本文定义如何把 Core 的“边句柄 + 边内进度”映射为引擎无关的位姿，同时保持 Core、Spatial 与 Adapter 的最终裁决职责分离。
+本文定义如何把 Traffic Runtime 的“边句柄 + 边内进度”映射为引擎无关的位姿，同时保持 Traffic Runtime、Spatial 与 Adapter 的最终裁决职责分离。
 
 本文使用以下术语：
 
@@ -33,15 +33,15 @@
 - **位姿（pose）**：位置、切向量和上方向向量的组合。
 - **制品（artifact）**：可独立版本化、摘要校验和加载的数据文件。
 - **场景清单（manifest）**：引用并精确配对交通包和空间包的入口制品。
-- **层级名称**：Core、Data、Spatial、Adapter 分别表示核心层、数据层、空间层和适配层。
+- **层级名称**：Traffic Runtime、Data、Spatial、Adapter 分别表示交通运行时层、数据层、空间层和适配层。
 - **应用程序接口（API）**：供其他包或宿主调用的稳定程序边界。
 
-| 层级    | 最终裁决职责                                           | 不负责                                               |
-| ------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| Core    | 拓扑、`EdgeLength`、路线区段、`EdgeProgress`、交通状态 | 标准或世界坐标、中心线、宿主变换                     |
-| Spatial | 标准坐标框架、中心线、弧长、绑定、采样和位姿           | 交通规则、网格与材质、引擎生命周期                   |
-| Data    | 交通包、空间包和清单的线格式校验与规范化               | 运行时推进、文件或网络输入/输出（I/O）、宿主资源句柄 |
-| Adapter | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度正本                     |
+| 层级            | 最终裁决职责                                           | 不负责                                               |
+| --------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| Traffic Runtime | 拓扑、`EdgeLength`、路线区段、`EdgeProgress`、交通状态 | 标准或世界坐标、中心线、宿主变换                     |
+| Spatial         | 标准坐标框架、中心线、弧长、绑定、采样和位姿           | 交通规则、网格与材质、引擎生命周期                   |
+| Data            | 交通包、空间包和清单的线格式校验与规范化               | 运行时推进、文件或网络输入/输出（I/O）、宿主资源句柄 |
+| Adapter         | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度正本                     |
 
 `TrafficWorld` 可以在没有 Spatial 时以无图形宿主方式运行；需要车辆空间位姿的调用方必须绑定共享路网修订并取得 `SpatialSession`。
 
@@ -65,7 +65,7 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
 本章 §3 的 JSON Traffic/Spatial/Manifest 三制品只描述已拆除的 current 路径。
 生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`，车道进度为
 `progress_mm`。`laneflow-core` 已拆除。无 Spatial 的 headless Traffic Runtime 仍合法。
-本文其余各节沿用的“Core”指交通侧的最终裁决层：边长度现由共享静态路网承载，进度与
+本文其余各节的 Traffic Runtime 指交通侧的最终裁决层：边长度现由共享静态路网承载，进度与
 交通状态现由 `TrafficWorld` 承载。
 
 ## 2. 坐标框架
@@ -92,14 +92,14 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
 每个 canonical frame 已经是有界局部空间，不再要求 Spatial 同时维护绝对 `f64` 坐标与 local `f32` 副本。转换顺序固定为：
 
 ```text
-Core 的有效进度
+Traffic Runtime 的有效进度
   -> Spatial 的受检 canonical f32 位姿
   -> 校验 frame、有限性、点范围和朝向基
   -> Adapter 解析 frame 到宿主场景的放置
   -> 宿主专用朝向基和变换（Transform）
 ```
 
-frame 放置、tile 或相机相对原点不写入 Core 车辆状态，也不改变 Spatial canonical 几何。#136 使用 batch-level `FramePlacementToken` 标记某个 frame 的宿主放置版本；token 只由 Adapter 颁发和复核，不包含世界坐标或 origin value。同一 frame 的放置发生变化时必须换 token，旧批次不得提交。
+frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态，也不改变 Spatial canonical 几何。#136 使用 batch-level `FramePlacementToken` 标记某个 frame 的宿主放置版本；token 只由 Adapter 颁发和复核，不包含世界坐标或 origin value。同一 frame 的放置发生变化时必须换 token，旧批次不得提交。
 
 ## 3. 制品模型
 
@@ -254,7 +254,7 @@ P0 -> P1 -> ... -> Pn
 
 ### 6.1 最终裁决职责
 
-- `Core EdgeLength`：交通进度、路线距离，以及跟驰、信号和停车约束的正本。
+- `Traffic EdgeLength`：交通进度、路线距离，以及跟驰、信号和停车约束的正本。
 - `Spatial geometry arc length`：标准中心线参数化与位姿的空间正本。
 - 创作或导出工具：应从同一中心线来源生成两者，但运行时仍必须验证，不能无条件信任生产者。
 
@@ -273,22 +273,22 @@ difference > tolerance  -> 阻断错误
 
 现行交通正本边长是整数毫米；对账时把 `length_mm / 1000` 换成米再与规范 `f32` 弧长比较，不另加量化余量。ADR 0014 的残差 `f32 EdgeLength` 不是现行合同。#144 曾在生产候选中启用，但形成性能不迁移（no-go）结论后已回退。
 
-禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。也不能因为旧几何容差小于 `f32` 量化误差就把 Core 长度恢复为 `f64`；两类误差必须分别记录并组合。
+禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。也不能因为旧几何容差小于 `f32` 量化误差就把交通边长恢复为 `f64`；两类误差必须分别记录并组合。
 
 ### 6.3 进度映射
 
-本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的正本边长。Spatial 只消费 Core 提供的有效观察值；它不是原始 Data 输入，也不是几何弧长。Core 的补偿进度可以继续以 `f64` 有效值观察，但 Spatial 顶点和输出位姿保持唯一的 `f32` runtime 正本。
+本文中的 `normalized_traffic_length` 是交通 `EdgeLength` 经过领域构造、校验和规范化后的正本边长。Spatial 只消费 Traffic Runtime 提供的有效观察值；它不是原始 Data 输入，也不是几何弧长。Traffic Runtime 的补偿进度可以继续以 `f64` 有效值观察，但 Spatial 顶点和输出位姿保持唯一的 `f32` runtime 正本。
 
-Traffic Runtime 已提交进度为整数毫米。Spatial 只消费换算后的有效米制观察值，不复制运行时边界规则。#135 精确要求 `0 <= progress <= normalized_core_length`：零值直接返回首点，等于正本长度时直接返回末点，严格越界返回结构化错误。Runtime 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
+Traffic Runtime 已提交进度为整数毫米。Spatial 只消费换算后的有效米制观察值，不复制运行时边界规则。#135 精确要求 `0 <= progress <= normalized_traffic_length`：零值直接返回首点，等于正本长度时直接返回末点，严格越界返回结构化错误。Runtime 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
 
 ```text
-ratio = effective_core_progress / normalized_core_length
+ratio = effective_traffic_progress / normalized_traffic_length
 geometry_s = ratio * geometry_arc_length
 ```
 
-- 进度必须来自经过验证的 Core 有效状态或快照；Spatial 不读取高位/残差分量。
+- 进度必须来自经过验证的 Traffic Runtime 有效状态或快照；Spatial 不读取高位/残差分量。
 - Spatial 不自行吸附或截断；输入严格越界即返回错误。
-- 比例映射确保 Core 终点精确命中几何终点。
+- 比例映射确保交通终点精确命中几何终点。
 - 容差内的比例差仍必须小于验证确定的位置误差预算。
 
 ## 7. 采样语义
@@ -314,7 +314,7 @@ geometry_s = ratio * geometry_arc_length
 - 坐标框架不匹配、场景清单摘要不匹配；
 - 点数量不足或坐标非有限；
 - 退化线段或退化朝向基；
-- Core 长度与几何长度不一致；
+- 交通边长与几何长度不一致；
 - 相连端点不连续；
 - 进度或弧长越界；
 - canonical frame、点范围、宿主放置或 `f32` 转换失败；
@@ -324,7 +324,7 @@ geometry_s = ratio * geometry_arc_length
 
 ## 9. 批量位姿提取
 
-面向适配器的输入是已提交 Core 快照中的稳定序列：
+面向适配器的输入是已提交 Traffic Runtime 快照中的稳定序列：
 
 ```text
 PoseInputRecord {
@@ -351,11 +351,11 @@ CanonicalPoseRecordF32 { vehicle, pose }
 - `SpatialRegistry::extract_pose_batch` 先把全部记录计算到调用方拥有的 `CanonicalPoseBatchScratch`；任何失败都清空 scratch 并保持旧 output 的 frame/token/records 不变，全部成功后才 swap 并更新 token。
 - 调用方可以为 output/scratch 预留容量并跨 tick 复用；#137 已验证稳定容量下的零分配和一万/十万性能。逐轮固定机结果见 git 历史。
 - Adapter 在提交宿主 Transform 前比较 batch token 与当前 placement token；同一 frame 的 placement 切换必须颁发新 token。
-- 表现插值、细节层次和相机相对原点切换不能回写 Core/Spatial 的正本状态。
+- 表现插值、细节层次和相机相对原点切换不能回写 Runtime/Spatial 的正本状态。
 
 ## 10. 停车位姿
 
-停车系统继续由 Core 拥有边相对正本：入口边与进度、横向偏移、朝向偏移、长度和宽度。Spatial 解析标准位姿：
+停车系统继续由 Traffic Runtime 拥有边相对正本：入口边与进度、横向偏移、朝向偏移、长度和宽度。Spatial 解析标准位姿：
 
 ```text
 anchor = sample(entry_edge, entry_progress)
@@ -365,7 +365,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
         + left * sin(heading_offset_radians)
 ```
 
-`Parking { space }` 由 #136 使用 immutable `ParkingRegistry` 的 entry anchor 与 geometry 实现。Core `f64` lateral/heading 只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定正本仍在 Core；适配器只消费最终位姿。
+`Parking { space }` 由 #136 使用 immutable `ParkingRegistry` 的 entry anchor 与 geometry 实现。Traffic Runtime `f64` lateral/heading 只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定正本仍在 Traffic Runtime；适配器只消费最终位姿。
 
 ## 11. 第三方 Rust 包边界
 
@@ -393,7 +393,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 - 长度容差边界内外；
 - 当前 `f64 EdgeLength` 的零量化余量与绝对/相对容差边界；下一规范化 `f32 EdgeLength` 仍属于未来迁移验证；
 - 相连端点容差边界内外；
-- Core 终点到几何终点的精确映射；
+- Traffic Runtime 终点到几何终点的精确映射；
 - canonical 点范围闭区间、量化后重合点拒绝，以及受检 `f64 -> f32` 输入转换；
 - 坐标框架或宿主放置不匹配、溢出、非有限值和批量失败原子性；
 - 一万和十万记录的批量吞吐量、内存分配与保留内存；
@@ -417,7 +417,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 
 ## 14. v0.8 走廊几何口径
 
-#184 的“道路总长”按三条物理轴线计：主干道 800 m、两条次干道各 300 m，默认合计 1.4 km，配置上限 2 km；directed lane edge、各 lane 和 connector 不重复计入产品道路总长。Traffic progression 仍以各 edge 的 Core `EdgeLength` 为正本，Spatial pose 仍以绑定后的 centerline 弧长为正本，两者由 generator 的同一中心线输入生成并通过既有 binding validation。
+#184 的“道路总长”按三条物理轴线计：主干道 800 m、两条次干道各 300 m，默认合计 1.4 km，配置上限 2 km；directed lane edge、各 lane 和 connector 不重复计入产品道路总长。Traffic progression 仍以各 edge 的交通 `EdgeLength` 为正本，Spatial pose 仍以绑定后的 centerline 弧长为正本，两者由 generator 的同一中心线输入生成并通过既有 binding validation。
 
 每个路口的每条直行 lane 使用独立 connector edge；#229 已把每条 traversal 显式归属到 ManeuverPath，并以 entry-transition ManeuverGate 绑定 StopLine。默认坐标、车道宽度、路口位置和 14 条 routes 见 `example-scenarios.md`；#188 负责 generator 与制品验证，#229 的 Traffic clean-break 不改变 SpatialPackage v0.1 shape。
 
@@ -443,11 +443,11 @@ Spatial artifacts 已改变。
 #235 的 Accepted 设计
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 允许未来 SpatialPackage 绑定 WaitingZone/ConflictZone 的 canonical 3D region，
-用于 authoring validation、debug draw 与 presentation；Traffic/Core 的
+用于 authoring validation、debug draw 与 presentation；Traffic/Runtime 的
 Gate-bounded path interval、PathAnchor、ParticipantStream/ConflictZone 显式关系
 仍是行为 authority。二维中心线相交、mesh bounds、physics collider 或 Adapter
 visual overlap 不能自动创建/删除 conflict 语义，高架/下穿不得因俯视相交被误判。
-Spatial geometry tolerance 也不能充当 Core PathAnchor crossing tolerance；#235
-已为 conflict boundary 冻结独立 Core numeric owner。
+Spatial geometry tolerance 也不能充当 Traffic Runtime PathAnchor crossing tolerance；#235
+已为 conflict boundary 冻结独立 Traffic Runtime numeric owner。
 具体 Spatial shape/version 由后续独立 implementation G1 决定，#235 不改变 current
 SpatialPackage 0.1。

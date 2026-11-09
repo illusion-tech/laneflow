@@ -372,7 +372,7 @@ authoring curve evaluator。旧严格 UTF-8 JSON Geometry 方案已经归档，�
 - typed number token 与 unit；
 - 尚未解析但已分类的 reference。
 
-AST 不含 Core handle、runtime slot、target ABI 或 compiler 推断出的最终 geometry。
+AST 不含 Traffic Runtime handle、runtime slot、target ABI 或 compiler 推断出的最终 geometry。
 
 ### 6.2 高层中间表示（HIR）
 

@@ -119,7 +119,7 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 该报告是冻结源码的研究结果，保留产品未认证边界。
 
 接线遵循 [LF-SYNTH 测量设计](../../docs/design/lf-synth-measurement.md)。同一提交的
-`measure` 使用真实 Bevy Session/Plugin、Spatial 与 Transform；W2 只调用 Core。
+`measure` 使用真实 Bevy Session/Plugin、Spatial 与 Transform；W2 只调用 Traffic Runtime。
 固定选择绑定 logical rank，Completed 暂时没有来源，despawn/spawn 与原子替换
 复用同一 Entity。完整批次预检成功后才写入所有 Transform。
 
@@ -133,7 +133,7 @@ measure guardrail <W1-input-directory> <new-guardrail-output>
 ```
 
 标称矩阵是一万/16 ms 和十万/33 ms，各 10 行：W1 与 W3 的 1/10/50/100%、
-W2 Core-only、W4 对应规模的固定主行。每行三个全新进程，共 60 次；各轮将行顺序
+W2 Runtime-only、W4 对应规模的固定主行。每行三个全新进程，共 60 次；各轮将行顺序
 左移 7 项。stretch 入口仅覆盖十万 W1/16 ms/10% 的三轮，单列为 observation，
 不表示其他 stretch 行已测量。guardrail 独立覆盖两种步长的零/一/两拍、两 quantum
 backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
@@ -153,16 +153,16 @@ cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin measure -
 ```
 
 诊断 binary 也运行相同 `matrix` 命令。普通 binary 与诊断 binary 必须分别归档，
-不得在三轮之间覆盖 binary。`stats_alloc` 记录 Core 区间和 lifecycle 区间的
-allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Core 计时包围 Bevy
+不得在三轮之间覆盖 binary。`stats_alloc` 记录 Traffic Runtime 区间和 lifecycle 区间的
+allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Traffic Runtime 计时包围 Bevy
 `Step` set，含相邻调度边界开销；W2 则直接包围 `TrafficWorld::step`。
-连续 integrated 区间包括 App 调度、生命周期、全部 Core steps、逐拍事件消费、
+连续 integrated 区间包括 App 调度、生命周期、全部 Runtime steps、逐拍事件消费、
 选择映射、Spatial 提取、完整 Transform staging/apply，不暂停或扣除中间区间。
 状态快照、文件写入、统计排序放在声明的帧间检查点。
 
 结果文件：
 
-- `ticks.json`：包括预热的每拍 Core/lifecycle 时间、帧号、命令数、分配记录和
+- `ticks.json`：包括预热的每拍 Runtime/lifecycle 时间、帧号、命令数、分配记录和
   step 前实际 Active 人口。后者由宿主状态变化账本维护，并在检查点全量核对；
   不将其冒称为未公开的昂贵 intent 计算次数。
 - `frames.json`：包括预热的完整输入、步数、余量、上限标记、生命周期命令数、
@@ -176,7 +176,7 @@ allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Core 计�
 - `resources.json`：声明边界的 Runtime owned-capacity 账本、宿主选择/暂存容量、
   working set、private bytes、进程生命周期 working-set/commit peak。Windows 只读
   `GetProcessMemoryInfo`；其他平台明确报告不可用。进程峰值包含输入重建、初始化和
-  证据缓冲，不能解释为 Core heap peak。Runtime capacity 是 retained storage，
+  证据缓冲，不能解释为 Traffic Runtime heap peak。Runtime capacity 是 retained storage，
   不能解释为每拍写入量。
 - 子进程日志：诊断构建的现有 Adapter/Spatial 容量计数；矩阵汇总每字段最大值，
   保留 capacity、元素大小和实际 batch 长度的不同口径。HashMap capacity 不是含

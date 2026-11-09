@@ -238,7 +238,7 @@ pub enum DiagnosticCode {
     OrphanParkingFacility,
     /// 参与者类别的单继承链形成循环。
     ParticipantClassInheritanceCycle,
-    /// 车辆配置的 IIDM 数值违反 current Core 约束。
+    /// 车辆配置的 IIDM 数值违反领域约束。
     InvalidVehicleProfileValue,
     /// 车辆配置的紧急减速度小于舒适减速度。
     InvalidVehicleProfileDecelerationOrder,

@@ -69,8 +69,8 @@ ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go �
 
 ## 2. 术语
 
-- **Route definition**：外部数据或运行时命令提交给 Core 的 route 输入。
-- **RouteHandle**：Core runtime 内部和 public runtime API 使用的不透明 typed route handle。
+- **Route definition**：外部数据或运行时命令提交给 Traffic Runtime 的 route 输入。
+- **RouteHandle**：Traffic Runtime 内部和 public runtime API 使用的不透明 typed route handle。
 - **Route edge sequence**：route 中按行驶顺序排列的 edge 序列。
 - **Route cursor**：车辆在 route 中的位置，至少由 route edge index 和 edge-local progress 表达。
 - **Route target**：route 的完成目标。v0.2 固定为最后一个 route edge 的出口边界。
@@ -236,7 +236,7 @@ v0.2 route system 只消费调用方提供的 explicit route。它不计算最�
 
 后续若引入 route planner，应单独设计：
 
-- planner 输入和输出是否进入 Core。
+- planner 输入和输出是否进入 Traffic Runtime。
 - cost model。
 - deterministic tie-breaker。
 - 与 lane connection、signals、parking、vehicle following 的关系。
@@ -310,8 +310,8 @@ Adapter 可以：
 
 Adapter 不应：
 
-- 在 Core 外部自行修复断连 route。
-- 把引擎对象生命周期当作 Core route registry 生命周期。
+- 在 Traffic Runtime 外部自行修复断连 route。
+- 把引擎对象生命周期当作 Traffic Runtime route registry 生命周期。
 - 依赖 route handle 的内部数值排序。
 
 ## 8. ADR 评估
@@ -348,9 +348,9 @@ Adapter 不应：
 
 ## 10. v0.8 直行走廊 route profile
 
-#184 不改变 route 是 finite explicit edge sequence、且 Core 不负责 pathfinding 的既有决策。v0.8 generator 为 6 个 portal-level 直行 movement 生成 14 条 lane-level routes：主干道两个方向各三条，两个次干道的两个方向各两条。主干道 route 穿越两个独立 connector，次干道 route 穿越一个 connector；不同 lane route 不互连，因此首版没有换道或转向。
+#184 不改变 route 是 finite explicit edge sequence、且 Traffic Runtime 不负责 pathfinding 的既有决策。v0.8 generator 为 6 个 portal-level 直行 movement 生成 14 条 lane-level routes：主干道两个方向各三条，两个次干道的两个方向各两条。主干道 route 穿越两个独立 connector，次干道 route 穿越一个 connector；不同 lane route 不互连，因此首版没有换道或转向。
 
-route completion event 的稳定顺序是 #203/caller-owned policy 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。Core 不拥有人口或回流 policy，只由 #186 提供 caller-driven atomic replace；完整 ID、portal 和 route 表见 `example-scenarios.md`，production generator/policy 分别由 #188/#203 交付。
+route completion event 的稳定顺序是 #203/caller-owned policy 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。Traffic Runtime 不拥有人口或回流 policy，只由 #186 提供 caller-driven atomic replace；完整 ID、portal 和 route 表见 `example-scenarios.md`，production generator/policy 分别由 #188/#203 交付。
 
 ## 11. v0.9 Maneuver occurrence target
 
