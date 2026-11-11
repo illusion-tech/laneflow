@@ -50,6 +50,8 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     let mut heading = String::new();
     let mut in_heading = false;
     let mut in_code = 0_u32;
+    // HTML 块按行拆成多次事件。注释可能在一行开始、在后面某行结束。
+    let mut in_html_comment = false;
     let lines = LineIndex::new(text);
     let broken_links = RefCell::new(Vec::<(usize, String)>::new());
     {
@@ -93,7 +95,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                 Event::SoftBreak | Event::HardBreak if in_heading => heading.push(' '),
                 Event::Html(html) | Event::InlineHtml(html) => {
                     if in_code == 0 {
-                        push_anchor_ids(&html, &mut anchors);
+                        in_html_comment = push_anchor_ids(&html, &mut anchors, in_html_comment);
                     }
                 }
                 Event::Start(Tag::Link {
@@ -378,10 +380,18 @@ impl LineIndex {
     }
 }
 
-fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>) {
+fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut in_comment: bool) -> bool {
     let bytes = html.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
+        if in_comment {
+            if let Some(relative) = html[index..].find("-->") {
+                in_comment = false;
+                index += relative + 3;
+                continue;
+            }
+            return true;
+        }
         if bytes[index] != b'<' {
             index += 1;
             continue;
@@ -391,7 +401,7 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>) {
                 index = index + 4 + relative + 3;
                 continue;
             }
-            break;
+            return true;
         }
         let rest = &html[index + 1..];
         let name_len = rest
@@ -416,6 +426,7 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>) {
         }
         index = close + 1;
     }
+    in_comment
 }
 
 fn quoted_attr(tag: &str, key: &str) -> Option<String> {
