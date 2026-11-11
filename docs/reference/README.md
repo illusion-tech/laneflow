@@ -9,6 +9,7 @@
 ## 当前文档
 
 - [`glossary.md`](glossary.md)：双语术语唯一事实来源；以中文术语和中文定义为准。
+- [`capabilities.md`](capabilities.md)：当前实现、使用条件与已知限制的索引。它连接专题合同和少量实现证据，是现行事实的阅读入口，不替代设计，也不记录计划进度。
 - [`commit-convention.md`](commit-convention.md)：Conventional Commits、`Refs` / `Closes`、必要时的
   `BREAKING CHANGE:`，以及 AI 署名的 `Harness:` / `Model:`；PR 默认经 Merge Queue
   最终 Rebase。

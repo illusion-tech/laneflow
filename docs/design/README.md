@@ -4,6 +4,8 @@
 任务与评审；这里只保存仍约束实现的长期设计。已关闭任务的完成记录、验证轮次和
 截图不进本目录，见 git 历史。
 
+跨领域的当前能力与限制先读[当前能力与限制](../reference/capabilities.md)；规范细节仍以下列专题为准。
+
 ## 当前可运行路径
 
 - [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)：
