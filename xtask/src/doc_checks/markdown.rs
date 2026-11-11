@@ -252,6 +252,9 @@ fn classify_dest_text(dest: &str, source_rel: &str) -> LinkKind {
     if path.contains('\\') {
         return visible_skip("反斜线路径不支持");
     }
+    if path.starts_with("//") {
+        return protocol_skip(SkipKind::Http);
+    }
     finish_local(source_rel, path, fragment, false)
 }
 
@@ -281,6 +284,9 @@ fn finish_local(
         Ok(decoded) => decoded,
         Err(()) => return visible_skip("百分号编码无效"),
     };
+    if decoded.starts_with("//") {
+        return protocol_skip(SkipKind::Http);
+    }
     match scan::resolve_decoded(base_rel, &decoded) {
         Ok(Resolved { rel, directory }) => LinkKind::Local {
             rel,
@@ -355,7 +361,7 @@ pub(super) fn code_span_matches(
     {
         return false;
     }
-    if scheme_of(span).is_some() || is_rustdoc_symbol(span) {
+    if scheme_of(span).is_some() || is_rustdoc_symbol(span) || span.starts_with("//") {
         return false;
     }
     let (path, fragment) = if let Some(fragment) = span.strip_prefix('#') {
@@ -385,6 +391,9 @@ pub(super) fn code_span_matches(
             Err(()) => return false,
         }
     };
+    if decoded.starts_with("//") {
+        return false;
+    }
     if decoded.is_empty() {
         return source_rel == target_rel && fragment.as_deref() == target_fragment;
     }
@@ -393,7 +402,9 @@ pub(super) fn code_span_matches(
     let from_root = scan::resolve_decoded("", &decoded);
     let matches = |resolved: Result<Resolved, ResolveError>| {
         resolved.is_ok_and(|resolved| {
-            resolved.rel == target_rel && fragment_ok(target_fragment, fragment.as_deref())
+            !resolved.directory
+                && resolved.rel == target_rel
+                && fragment_ok(target_fragment, fragment.as_deref())
         })
     };
     matches(from_source) || matches(from_root)
@@ -460,16 +471,38 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut in_comment: b
             .map(|(offset, _)| offset)
             .unwrap_or(rest.len());
         let name = &rest[..name_len];
-        let Some(relative_close) = html[index..].find('>') else {
+        let Some(close) = tag_end(html, index) else {
             break;
         };
-        let close = index + relative_close;
         if name.eq_ignore_ascii_case("a") {
             anchors.extend(quoted_anchor_values(&html[index..=close]));
         }
         index = close + 1;
     }
     in_comment
+}
+
+fn tag_end(html: &str, start: usize) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let mut index = start;
+    let mut quote = 0_u8;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if quote != 0 {
+            if byte == quote {
+                quote = 0;
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'"' | b'\'' => quote = byte,
+            b'>' => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 /// 只读取 `<a>` 上带引号的 `id` / `name`。引号值内部不再扫描，避免把 `title="id='hidden'"` 当成锚点。
