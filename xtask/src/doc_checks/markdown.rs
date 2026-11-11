@@ -51,6 +51,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     let mut heading = String::new();
     let mut in_heading = false;
     let mut in_code = 0_u32;
+    let mut in_image = 0_u32;
     // HTML 块按行拆成多次事件。注释和 raw text 元素都可能跨事件。
     let mut html_scan = HtmlScan::default();
     let lines = LineIndex::new(text);
@@ -86,7 +87,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     if in_heading {
                         heading.push_str(&text);
                     }
-                    if in_code == 0 {
+                    if in_code == 0 && in_image == 0 {
                         code_spans.push(text.to_string());
                     }
                 }
@@ -124,7 +125,11 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     dest_url,
                     id,
                     ..
-                }) if in_code == 0 => {
+                }) => {
+                    in_image += 1;
+                    if in_code != 0 {
+                        continue;
+                    }
                     record_link(
                         &mut links,
                         &lines,
@@ -139,6 +144,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                         },
                     );
                 }
+                Event::End(TagEnd::Image) => in_image = in_image.saturating_sub(1),
                 _ => {}
             }
         }
