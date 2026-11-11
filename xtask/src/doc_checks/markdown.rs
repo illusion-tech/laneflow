@@ -442,6 +442,7 @@ impl LineIndex {
 struct HtmlScan {
     in_comment: bool,
     raw: Option<String>,
+    template_depth: u32,
 }
 
 fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlScan) -> HtmlScan {
@@ -492,14 +493,18 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlSca
             break;
         };
         // HTML 不把 script/style/textarea/title 的 `/>` 当成空元素，后面的内容仍算元素正文。
-        if !closing
+        if !closing && name.eq_ignore_ascii_case("template") {
+            scan.template_depth = scan.template_depth.saturating_add(1);
+        } else if closing && name.eq_ignore_ascii_case("template") {
+            scan.template_depth = scan.template_depth.saturating_sub(1);
+        } else if !closing
             && matches!(
                 name.to_ascii_lowercase().as_str(),
                 "script" | "style" | "textarea" | "title"
             )
         {
             scan.raw = Some(name.to_ascii_lowercase());
-        } else if !closing && name.eq_ignore_ascii_case("a") {
+        } else if !closing && scan.template_depth == 0 && name.eq_ignore_ascii_case("a") {
             anchors.extend(
                 quoted_anchor_values(&html[index..=close])
                     .into_iter()
@@ -532,24 +537,70 @@ fn find_raw_end(html: &str, start: usize, name: &str) -> Option<usize> {
 
 fn decode_html_entities(value: &str) -> String {
     let mut decoded = String::new();
-    let mut rest = value;
-    while let Some(start) = rest.find('&') {
-        decoded.push_str(&rest[..start]);
-        let Some(end) = rest[start + 1..].find(';') else {
-            decoded.push_str(&rest[start..]);
-            return decoded;
+    let mut index = 0;
+    while index < value.len() {
+        let Some(start) = value[index..].find('&') else {
+            decoded.push_str(&value[index..]);
+            break;
         };
-        let entity = &rest[start + 1..start + 1 + end];
+        let at = index + start;
+        decoded.push_str(&value[index..at]);
+        if let Some((ch, consumed)) = decode_numeric_reference(&value[at..]) {
+            decoded.push(ch);
+            index = at + consumed;
+            continue;
+        }
+        let Some(end) = value[at + 1..].find(';') else {
+            decoded.push('&');
+            index = at + 1;
+            continue;
+        };
+        let entity = &value[at + 1..at + 1 + end];
         if let Some(ch) = decode_html_entity(entity) {
             decoded.push(ch);
-            rest = &rest[start + 1 + end + 1..];
+            index = at + 1 + end + 1;
         } else {
             decoded.push('&');
-            rest = &rest[start + 1..];
+            index = at + 1;
         }
     }
-    decoded.push_str(rest);
     decoded
+}
+
+/// 数字字符引用可以不写分号。`&#65` 与 `&#65;` 都是 `A`。
+fn decode_numeric_reference(input: &str) -> Option<(char, usize)> {
+    let bytes = input.as_bytes();
+    if bytes.first() != Some(&b'&') || bytes.get(1) != Some(&b'#') {
+        return None;
+    }
+    let mut index = 2;
+    let hex = matches!(bytes.get(index), Some(b'x' | b'X'));
+    if hex {
+        index += 1;
+    }
+    let digits_start = index;
+    while index < bytes.len()
+        && (if hex {
+            bytes[index].is_ascii_hexdigit()
+        } else {
+            bytes[index].is_ascii_digit()
+        })
+    {
+        index += 1;
+    }
+    if index == digits_start {
+        return None;
+    }
+    let digits = &input[digits_start..index];
+    let code = if hex {
+        u32::from_str_radix(digits, 16).ok()?
+    } else {
+        digits.parse().ok()?
+    };
+    if bytes.get(index) == Some(&b';') {
+        index += 1;
+    }
+    Some((html_numeric_character(code), index))
 }
 
 fn decode_html_entity(entity: &str) -> Option<char> {
@@ -559,18 +610,7 @@ fn decode_html_entity(entity: &str) -> Option<char> {
         "gt" => Some('>'),
         "quot" => Some('"'),
         "apos" => Some('\''),
-        _ => {
-            let digits = entity.strip_prefix('#')?;
-            let code = if let Some(hex) = digits
-                .strip_prefix('x')
-                .or_else(|| digits.strip_prefix('X'))
-            {
-                u32::from_str_radix(hex, 16).ok()?
-            } else {
-                digits.parse().ok()?
-            };
-            Some(html_numeric_character(code))
-        }
+        _ => None,
     }
 }
 
