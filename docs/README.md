@@ -74,6 +74,7 @@ docs/
 14. [依赖安全][dependency-security]
 15. [ADR 索引][adr-readme]
 16. [设计索引][design-readme]
+17. [参考资料索引][reference-readme]
 
 [shared-consumption]: design/traffic-runtime-shared-consumption.md
 [adr-0028]: adr/0028-integer-millimeter-traffic-geometry.md
@@ -98,3 +99,4 @@ docs/
 [agent-development-guide]: governance/agent-development-guide.md
 [adr-readme]: adr/README.md
 [design-readme]: design/README.md
+[reference-readme]: reference/README.md

@@ -1,0 +1,197 @@
+# 关键索引入口。每条是 source → target，并写明原因。
+# 这不是逐文件忽略表，不能用来把存量链接错误记成通过。
+# target 使用仓库相对路径；需要锚点时把 fragment 写在第一个 # 之后。
+# accept_code_span = true 时，精确的行内代码路径可以满足该边。
+
+[[required]]
+source = "README.md"
+target = "docs/README.md"
+reason = "根 README 必须能到达文档首页"
+
+[[required]]
+source = "README.md"
+target = "CONTRIBUTING.md"
+reason = "根 README 必须能到达贡献指南"
+
+[[required]]
+source = "README.md"
+target = "AGENTS.md"
+reason = "根 README 必须能到达 Agent 说明"
+
+[[required]]
+source = "README.md"
+target = "docs/reference/capabilities.md"
+reason = "根 README 必须能到达当前能力与限制"
+
+[[required]]
+source = "README.md"
+target = "docs/guides/source-integration.md"
+reason = "根 README 必须能到达无窗口源码接入指南"
+
+[[required]]
+source = "docs/README.md"
+target = "README.md"
+reason = "文档首页必须能回到仓库首页"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/architecture.md"
+reason = "文档首页必须能到达架构说明"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/roadmap.md"
+reason = "文档首页必须能到达路线图"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/reference/capabilities.md"
+reason = "文档首页必须能到达当前能力与限制"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/guides/source-integration.md"
+reason = "文档首页必须能到达无窗口源码接入指南"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/adr/README.md"
+reason = "文档首页必须能到达 ADR 索引"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/design/README.md"
+reason = "文档首页必须能到达设计索引"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/governance/documentation-policy.md"
+reason = "文档首页必须能到达文档边界政策"
+
+[[required]]
+source = "docs/README.md"
+target = "docs/reference/README.md"
+reason = "文档首页必须能到达参考资料索引"
+
+[[required]]
+source = "docs/reference/README.md"
+target = "docs/reference/capabilities.md"
+reason = "参考资料索引必须列出当前能力与限制"
+
+[[required]]
+source = "docs/reference/README.md"
+target = "docs/reference/glossary.md"
+reason = "参考资料索引必须列出术语表"
+
+[[required]]
+source = "docs/reference/README.md"
+target = "docs/reference/validation-matrix.md"
+reason = "参考资料索引必须列出验证矩阵"
+
+[[required]]
+source = "docs/design/README.md"
+target = "docs/reference/capabilities.md"
+reason = "设计索引必须能到达当前能力与限制"
+
+[[required]]
+source = "docs/design/README.md"
+target = "docs/design/traffic-runtime-shared-consumption.md"
+reason = "设计索引必须能到达共享静态路网消费契约"
+
+[[required]]
+source = "docs/adr/README.md"
+target = "docs/governance/development-gates.md#62-required-checks"
+reason = "ADR 索引必须指向开发阶段评审的 required checks"
+
+[[required]]
+source = "AGENTS.md"
+target = ".agents/README.md"
+accept_code_span = true
+reason = "AGENTS 开工列表以行内代码给出 Agent 工作流入口"
+
+[[required]]
+source = "AGENTS.md"
+target = "docs/governance/development-gates.md"
+accept_code_span = true
+reason = "AGENTS 开工列表以行内代码给出开发阶段评审"
+
+[[required]]
+source = "AGENTS.md"
+target = "docs/reference/glossary.md"
+accept_code_span = true
+reason = "AGENTS 开工列表以行内代码给出术语表"
+
+[[required]]
+source = ".agents/README.md"
+target = ".agents/skills/laneflow-governance/SKILL.md"
+accept_code_span = true
+reason = "Agent 工作流首页以行内代码列出 governance skill"
+
+[[required]]
+source = ".agents/README.md"
+target = ".agents/skills/laneflow-development/SKILL.md"
+accept_code_span = true
+reason = "Agent 工作流首页以行内代码列出 development skill"
+
+[[required]]
+source = ".agents/README.md"
+target = ".agents/skills/laneflow-core-design/SKILL.md"
+accept_code_span = true
+reason = "Agent 工作流首页以行内代码列出 core-design skill"
+
+[[required]]
+source = ".agents/README.md"
+target = ".agents/skills/laneflow-adapter/SKILL.md"
+accept_code_span = true
+reason = "Agent 工作流首页以行内代码列出 adapter skill"
+
+[[required]]
+source = ".agents/README.md"
+target = ".agents/skills/laneflow-pre-1-0/SKILL.md"
+accept_code_span = true
+reason = "Agent 工作流首页以行内代码列出 pre-1-0 skill"
+
+[[required]]
+source = ".cursor/skills/laneflow-governance/SKILL.md"
+target = ".agents/skills/laneflow-governance/SKILL.md"
+accept_code_span = true
+reason = "Cursor governance 薄包装必须指向对应的 Agent skill"
+
+[[required]]
+source = ".cursor/skills/laneflow-development/SKILL.md"
+target = ".agents/skills/laneflow-development/SKILL.md"
+accept_code_span = true
+reason = "Cursor development 薄包装必须指向对应的 Agent skill"
+
+[[required]]
+source = ".cursor/skills/laneflow-core-design/SKILL.md"
+target = ".agents/skills/laneflow-core-design/SKILL.md"
+accept_code_span = true
+reason = "Cursor core-design 薄包装必须指向对应的 Agent skill"
+
+[[required]]
+source = ".cursor/skills/laneflow-adapter/SKILL.md"
+target = ".agents/skills/laneflow-adapter/SKILL.md"
+accept_code_span = true
+reason = "Cursor adapter 薄包装必须指向对应的 Agent skill"
+
+[[required]]
+source = ".cursor/skills/laneflow-pre-1-0/SKILL.md"
+target = ".agents/skills/laneflow-pre-1-0/SKILL.md"
+accept_code_span = true
+reason = "Cursor pre-1-0 薄包装必须指向对应的 Agent skill"
+
+[[required]]
+source = "crates/laneflow-runtime/README.md"
+target = "docs/guides/source-integration.md"
+reason = "Runtime README 必须能到达无窗口源码接入指南"
+
+[[required]]
+source = "crates/laneflow-runtime/README.md"
+target = "docs/reference/capabilities.md"
+reason = "Runtime README 必须能到达当前能力与限制"
+
+[[required]]
+source = "crates/laneflow-runtime/README.md"
+target = "docs/design/traffic-runtime-shared-consumption.md"
+reason = "Runtime README 必须能到达共享静态路网消费契约"

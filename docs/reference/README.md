@@ -15,6 +15,7 @@
   最终 Rebase。
 - [`rust-code-style.md`][rust-code-style]：`rustfmt` 无法表达的仓库级可读性约定。
 - [`validation-matrix.md`][validation-matrix]：任务类别到最小验证要求。
+- [`documentation-checks.md`][documentation-checks]：离线文档结构检查的命令、范围、锚点规则与能力边界。它只检查路径和锚点，不判断文档语义。
 - [`mcpls.md`][mcpls]：可选 Rust 语义开发工具的安装、信任与回退边界。
 - [`v0.10-compiler-production-baseline.md`][compiler-baseline] 与
   [`v0.10-compiler-production-baseline.json`][compiler-baseline-json]：
@@ -42,6 +43,7 @@
 [commit-convention]: commit-convention.md
 [rust-code-style]: rust-code-style.md
 [validation-matrix]: validation-matrix.md
+[documentation-checks]: documentation-checks.md
 [mcpls]: mcpls.md
 [compiler-baseline]: v0.10-compiler-production-baseline.md
 [compiler-baseline-json]: v0.10-compiler-production-baseline.json

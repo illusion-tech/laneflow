@@ -139,6 +139,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 - Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
 - Markdown tables：表格格式检查只警告，不阻断合并。
+- 文档结构：`cargo +1.99.1 run --locked -p xtask -- check-docs` 离线检查默认范围内的本地路径、标题锚点与关键索引入口。它目前不是合并门禁，也不判断文档语义。规则见 `docs/reference/documentation-checks.md`。
 - Rust checks：job 始终运行以保持 required check 稳定；检查内容由 `docs/governance/github-workflow.md` §8 规范定义（`fmt`、`clippy`、workspace 测试与 doctest）。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
 - Evidence fixture tests：证据仪器与 fixture（固定测试环境）重测（urban-harness 浸泡/存档仪器、urban-generator 生成器、bevy 走廊 fixture smoke），自 workspace 步拆出与 `Rust checks` 并行（#1108）；非 Rust 路径跳过并显式记录 skip。
 - Wire toolchain audit：wire 工具链审计与运行时架构检查（仓库 cargo config 卫生、钉版、workspace unsafe 边界 hermetic 双特性编译与注入金丝雀），以独立 job 与 `Rust checks` 并行执行；非 Rust 路径跳过并显式记录 skip。
