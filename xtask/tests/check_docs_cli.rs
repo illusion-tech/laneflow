@@ -44,7 +44,7 @@ impl Drop for TestDirectory {
 #[test]
 fn check_docs_exits_nonzero_when_a_local_path_is_missing() {
     let repo = TestDirectory::new();
-    fs::write(repo.0.join("README.md"), "[x](missing.md)\n").expect("fixture");
+    fs::write(repo.0.join("README.md"), "[x][x]\n\n[x]: missing.md\n").expect("fixture");
     let output = repo.xtask(&["check-docs"]);
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -56,7 +56,11 @@ fn check_docs_exits_nonzero_when_a_local_path_is_missing() {
 #[test]
 fn check_docs_exits_zero_when_the_fixture_is_clean() {
     let repo = TestDirectory::new();
-    fs::write(repo.0.join("README.md"), "# Title\n\n[self](#title)\n").expect("fixture");
+    fs::write(
+        repo.0.join("README.md"),
+        "# Title\n\n[self][self]\n\n[self]: #title\n",
+    )
+    .expect("fixture");
     let output = repo.xtask(&["check-docs"]);
     assert!(
         output.status.success(),

@@ -6,9 +6,9 @@
 **适用范围**: `xtask check-docs` 检查的本地路径、标题锚点与关键索引入口
 **关联文档**:
 
-- [`validation-matrix.md`](validation-matrix.md) 第 9 节：这条检查在验证矩阵中的位置
-- [`../../xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml)：关键索引入口的 source→target 列表
-- [`../governance/documentation-policy.md`](../governance/documentation-policy.md)：文档职责边界；本检查不改写该政策
+- [`validation-matrix.md`][validation-matrix] 第 9 节：这条检查在验证矩阵中的位置
+- [`../../xtask/data/doc-checks.toml`][doc-checks]：关键索引入口的 source→target 列表
+- [`../governance/documentation-policy.md`][documentation-policy]：文档职责边界；本检查不改写该政策
 
 ## 1. 命令
 
@@ -26,7 +26,7 @@ cargo +1.99.1 run --locked -p xtask -- check-docs [<path...>]
 失败行的形式是：
 
 ```text
-path:line:column: target=<原始目标>: missing-path / missing-anchor / missing-required-entry: <中文原因>
+path:line:column: target=<原始目标>: missing-path / missing-anchor / missing-required-entry / inline-form: <中文原因>
 ```
 
 不能可靠判定、但也不当作锚点失败的语法另起一行：
@@ -55,6 +55,8 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 ## 3. 链接与路径
 
 解析器是 `pulldown-cmark`（CommonMark，并打开表格、删除线和任务列表）。不使用正则扫描 `](...)`。链接和图片使用同一套目标规则。未定义的 shortcut（单独的 `[text]`，且没有链接定义）不是链接。Markdown 事件中的 HTML 由 `html5gum` 按 WHATWG 分词，不是手写的 HTML 子集。
+
+围栏外的行内链接 `[文字](url)`、行内图片 `![说明](url)` 和自动链接（含 `<user@example.com>`）记为 `inline-form` 失败，不再按目标检查，也不访问外部地址。页脚引用 `[文字][标]`、`[文字][]`、已定义的 shortcut `[文字]`，以及 `![说明][标]`，继续按下面的目标规则检查。代码围栏里的示例不是链接。
 
 | 目标                                                          | 结果                                                                  |
 | ------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -108,7 +110,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。空的 Markdown 链接目标指向当前文档。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
+[`xtask/data/doc-checks.toml`][doc-checks] 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。页脚引用的空目标指向当前文档。行内的空链接和空图片仍是 `inline-form`。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 
@@ -129,3 +131,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 - HTML 锚点不占用重复标题的后缀计数。
 - 不解析 HTML 标题，也不解析 HTML 属性中的 URL。
 - 同一份 README 若被 rustdoc `include_str!` 引用，这里仍按仓库里的 Markdown 位置解释相对链接，不模拟 rustdoc 输出目录。
+
+[validation-matrix]: validation-matrix.md
+[doc-checks]: ../../xtask/data/doc-checks.toml
+[documentation-policy]: ../governance/documentation-policy.md

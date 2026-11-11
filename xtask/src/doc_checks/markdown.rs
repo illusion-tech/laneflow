@@ -197,21 +197,29 @@ fn record_link(
     } else {
         destination.dest_url.to_string()
     };
-    // CommonMark 的空目标 `href=""` 指向当前文档。空图片地址仍然无效。
-    let kind = if destination.dest_url.is_empty()
-        && !destination.image
-        && !matches!(
-            destination.link_type,
-            LinkType::ReferenceUnknown | LinkType::CollapsedUnknown
-        ) {
-        LinkKind::Local {
-            rel: source_rel.to_string(),
-            directory: false,
-            fragment: None,
-        }
-    } else {
-        classify_destination(destination.link_type, destination.dest_url, source_rel)
-    };
+    // 围栏外的行内链接、行内图片和自动链接直接失败，不再解释目标。
+    // 页脚引用的空目标 `href=""` 指向当前文档。空图片地址仍然无效。
+    let kind =
+        if let Some(reason) = disallowed_inline_reason(destination.link_type, destination.image) {
+            LinkKind::Failure {
+                kind: FindingKind::Inline,
+                reason,
+            }
+        } else if destination.dest_url.is_empty()
+            && !destination.image
+            && !matches!(
+                destination.link_type,
+                LinkType::ReferenceUnknown | LinkType::CollapsedUnknown
+            )
+        {
+            LinkKind::Local {
+                rel: source_rel.to_string(),
+                directory: false,
+                fragment: None,
+            }
+        } else {
+            classify_destination(destination.link_type, destination.dest_url, source_rel)
+        };
     links.push(LinkRec {
         line,
         column,
@@ -226,6 +234,15 @@ fn parser_options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
 }
 
+fn disallowed_inline_reason(link_type: LinkType, image: bool) -> Option<&'static str> {
+    match link_type {
+        LinkType::Inline if image => Some("围栏外不允许行内图片"),
+        LinkType::Inline => Some("围栏外不允许行内链接"),
+        LinkType::Autolink | LinkType::Email => Some("围栏外不允许自动链接"),
+        _ => None,
+    }
+}
+
 fn classify_destination(link_type: LinkType, dest: &str, source_rel: &str) -> LinkKind {
     match link_type {
         LinkType::ShortcutUnknown => protocol_skip(SkipKind::Unsupported),
@@ -234,12 +251,13 @@ fn classify_destination(link_type: LinkType, dest: &str, source_rel: &str) -> Li
             reason: "引用链接没有定义",
         },
         LinkType::WikiLink { .. } => visible_skip("不支持的维基链接语法"),
-        LinkType::Email => protocol_skip(SkipKind::Mailto),
-        LinkType::Inline
-        | LinkType::Reference
-        | LinkType::Collapsed
-        | LinkType::Shortcut
-        | LinkType::Autolink => classify_dest_text(dest, source_rel),
+        LinkType::Reference | LinkType::Collapsed | LinkType::Shortcut => {
+            classify_dest_text(dest, source_rel)
+        }
+        LinkType::Inline | LinkType::Autolink | LinkType::Email => LinkKind::Failure {
+            kind: FindingKind::Inline,
+            reason: disallowed_inline_reason(link_type, false).expect("inline form"),
+        },
     }
 }
 
