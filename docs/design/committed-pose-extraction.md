@@ -5,9 +5,9 @@
 **适用范围**：Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择
 
 相关合同：[Adapter API][adapter-api]、[Spatial 几何][spatial-geometry]、
-[共享静态路网消费][traffic-runtime-shared-consumption]、
-[修订切换][traffic-runtime-revision-cutover]、[城市运行程序][urban-demand-harness]、
-[ADR 0021][0021-traffic-infrastructure-and-host-boundary]。
+[共享静态路网消费][shared-consumption]、
+[修订切换][revision-cutover]、[城市运行程序][urban-demand-harness]、
+[ADR 0021][adr-0021]。
 
 ## 1. 范围与职责
 
@@ -191,7 +191,7 @@ Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但�
 
 [adapter-api]: adapter-api.md
 [spatial-geometry]: spatial-geometry.md
-[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[shared-consumption]: traffic-runtime-shared-consumption.md
+[revision-cutover]: traffic-runtime-revision-cutover.md
 [urban-demand-harness]: urban-demand-harness.md
-[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md

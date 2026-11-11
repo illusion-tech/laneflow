@@ -7,14 +7,14 @@ JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的
 
 **关联 ADR**:
 
-- [`../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`][0013-engine-neutral-spatial-geometry-and-length-authority]
-- [`../adr/0015-bounded-f32-canonical-spatial-frames.md`][0015-bounded-f32-canonical-spatial-frames]
-- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][0016-scenario-population-and-recycle-lifecycle-authority]
-- [`../adr/0029-retire-precompiled-static-route.md`][0029-retire-precompiled-static-route]
+- [`../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`][adr-0013]
+- [`../adr/0015-bounded-f32-canonical-spatial-frames.md`][adr-0015]
+- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][adr-0016]
+- [`../adr/0029-retire-precompiled-static-route.md`][adr-0029]
 
 **关联设计**:
 
-- [`signalized-corridor-population.md`][signalized-corridor-population]：走廊
+- [`signalized-corridor-population.md`][corridor-population]：走廊
   `50..=200` caller-owned reference policy。
 - [`lust-bevy-population-control.md`][lust-bevy-population-control]：LuST/Bevy
   示例层一至一万调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
@@ -31,8 +31,8 @@ envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adap
 current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
 与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.4 与 LFCA。可运行世界从
 共享静态路网安装。现行走廊 Bevy 最小路径见
-[#472][github-com-illusion-tech-laneflow-issues-472]；50–200 人口与回流见
-[#475][github-com-illusion-tech-laneflow-issues-475]。
+[#472][issue-472]；50–200 人口与回流见
+[#475][issue-475]。
 
 走廊能力包含：
 
@@ -57,7 +57,7 @@ artifact 原子迁移到 v0.9，并加入 ParticipantClass、CrossSection 与 Ac
 静态模型；protected-turning topology、Signals、人口和回流行为保持不变。
 
 v0.9 的 Accepted 受保护转向 SSOT 见
-[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]。
+[`signalized-corridor-protected-turning.md`][protected-turning]。
 它当时以 catalog 0.2、32 条 ManeuverPath 和 28 条 Route 替换 v0.8 的直行 profile；
 #190 交付该具体 profile 与最小 native 集成，#191 扩大 cross-layer 验证，#192
 只执行独立最终审阅。
@@ -113,7 +113,7 @@ v0.9 的 Accepted 受保护转向 SSOT 见
 两个 Junction 共 24 个 Movement。lane assignment、32 条 ManeuverPath、28 条
 finite Route、44 个 ordered Maneuver occurrence 和 route-local raw weight 的完整表
 由
-[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]
+[`signalized-corridor-protected-turning.md`][protected-turning]
 §3、§4 和 §6 唯一拥有，本文件不复制第二份 identity catalog。
 
 每条 ManeuverPath 固定为 `[entry road edge, exactly one internal edge, exit road
@@ -192,7 +192,7 @@ step 前失败，不能静默 clamp。`corridor_traffic` 复用 opt-in `native-e
 
 `corridor_traffic` 组合现有 caller-owned 人口与 Adapter 事务，提供持续车流、灯具、
 HUD 和相机；宿主不改变本文件的场景、PRNG 或制品契约。启动参数、宿主边界和可执行验收以
-[Bevy 设计 §13–§15][bevy-reference-adapter-13-corridor_traffic-宿主生命周期]
+[Bevy 设计 §13–§15][bevy-adapter-lifecycle]
 为准；历史 native 验证不能作当前宿主实现的交付证据。
 
 ### 6.2 Stable spawn-slot catalog
@@ -237,7 +237,7 @@ Runtime 没有 external ID 字符串。每个 logical population slot 跟踪当�
 ### 7.2 Blocked retry
 
 入口 overlap 返回 `Blocked`；当前停车约束或前后车暂不能接纳返回 `Retryable`。
-两者的 typed 区别以[人口设计 §6][signalized-corridor-population-6-pending-与-host-transaction]
+两者的 typed 区别以[人口设计 §6][corridor-population-pending]
 为准，共同遵守：
 
 - old vehicle 保持 Completed 且 handle 仍 live；
@@ -324,10 +324,10 @@ RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical sl
 cross-reference。`pinned` 必须携带当前共享静态路网中存在的规范策略 StableId；
 `not_required` 仅用于没有 Gate、ConflictZone、ParticipantStream 的共享静态路网。受保护走廊
 显式选择生成器声明的 `protected-entry`，省略字段或旧版 catalog 均拒绝。
-完整 TOML 形状与启动绑定见[人口设计 §3][signalized-corridor-population-3-catalog-契约]。
+完整 TOML 形状与启动绑定见[人口设计 §3][corridor-population-catalog]。
 authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA
 构建的共享路网修订，显式传入 catalog 的策略选择；路线经 `install_routes` 注册。50–200 确定性回流见
-[#475][github-com-illusion-tech-laneflow-issues-475]。
+[#475][issue-475]。
 
 同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
 
@@ -365,7 +365,7 @@ proxy/model/Transform/灯具和 route-class 视觉。
 
 以下是 current v0.10 场景的分层契约，不是所有能力已经在当前 Bevy 示例中通过的声明。
 `corridor_traffic` 的宿主完成条件、用例编号与 GUI/HUD 证据口径统一见
-[Bevy 设计 §15][bevy-reference-adapter-15-corridor_traffic-验收矩阵]；底层 Runtime /
+[Bevy 设计 §15][bevy-adapter-acceptance]；底层 Runtime /
 scenario 通过不能替代宿主调度、逐车呈现和 GUI 验收。
 
 current v0.10 至少验证：
@@ -408,7 +408,7 @@ catalog 0.1 的 portal/lane/slot/route 语义与走廊 catalog 0.4 同构；
 
 ## 13. 治理与完成边界
 
-- 设计来源：#184，G1 冻结记录见 [https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599][github-com-illusion-tech-laneflow-issues-184-issuecomment-5041612599]；
+- 设计来源：#184，G1 冻结记录见 [https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599][issue-184-comment]；
 - #185、#186–#189 与 #203 独立推进；各 Issue 的当前状态以 GitHub 为准，任一设计 Issue 或上游 G1 都不自动授权下游开工；
 - #184 的 Delivery PR 只交付设计与 ADR，不授权下游自动开工；
 - v0.8 Milestone 由 #193 跟踪，只有 #195 独立最终审阅通过并满足父目标退出条件后才可完成；
@@ -416,18 +416,18 @@ catalog 0.1 的 portal/lane/slot/route 语义与走廊 catalog 0.4 同构；
   static substrate，#190 交付具体 profile 与最小 native 集成，#191/#192 分别负责
   expanded validation 与独立 closure。
 
-[0013-engine-neutral-spatial-geometry-and-length-authority]: ../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md
-[0015-bounded-f32-canonical-spatial-frames]: ../adr/0015-bounded-f32-canonical-spatial-frames.md
-[0016-scenario-population-and-recycle-lifecycle-authority]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
-[0029-retire-precompiled-static-route]: ../adr/0029-retire-precompiled-static-route.md
-[signalized-corridor-population]: signalized-corridor-population.md
+[adr-0013]: ../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md
+[adr-0015]: ../adr/0015-bounded-f32-canonical-spatial-frames.md
+[adr-0016]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
+[adr-0029]: ../adr/0029-retire-precompiled-static-route.md
+[corridor-population]: signalized-corridor-population.md
 [lust-bevy-population-control]: lust-bevy-population-control.md
 [real-road-workloads]: real-road-workloads.md
-[github-com-illusion-tech-laneflow-issues-472]: https://github.com/illusion-tech/laneflow/issues/472
-[github-com-illusion-tech-laneflow-issues-475]: https://github.com/illusion-tech/laneflow/issues/475
-[signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md
-[bevy-reference-adapter-13-corridor_traffic-宿主生命周期]: bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
-[signalized-corridor-population-6-pending-与-host-transaction]: signalized-corridor-population.md#6-pending-与-host-transaction
-[signalized-corridor-population-3-catalog-契约]: signalized-corridor-population.md#3-catalog-契约
-[bevy-reference-adapter-15-corridor_traffic-验收矩阵]: bevy-reference-adapter.md#15-corridor_traffic-验收矩阵
-[github-com-illusion-tech-laneflow-issues-184-issuecomment-5041612599]: https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599
+[issue-472]: https://github.com/illusion-tech/laneflow/issues/472
+[issue-475]: https://github.com/illusion-tech/laneflow/issues/475
+[protected-turning]: signalized-corridor-protected-turning.md
+[bevy-adapter-lifecycle]: bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
+[corridor-population-pending]: signalized-corridor-population.md#6-pending-与-host-transaction
+[corridor-population-catalog]: signalized-corridor-population.md#3-catalog-契约
+[bevy-adapter-acceptance]: bevy-reference-adapter.md#15-corridor_traffic-验收矩阵
+[issue-184-comment]: https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599

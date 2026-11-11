@@ -633,7 +633,7 @@ Input arrays 是 normalization order。Permutation 后：
 ## 13. v0.9 protected-turning profile
 
 #196 已在
-[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]
+[`signalized-corridor-protected-turning.md`][protected-turning]
 接受具体 corridor profile。该文档是场景级 SSOT；本文继续是
 owner、identity、normalization、Route occurrence 和 performance contract 的通用
 SSOT。具体 profile 已冻结以下输入：
@@ -757,7 +757,7 @@ Issue 负责实现。以下各项仍需独立冻结：
 ### 15.2 Multi-stage Gate 与 waiting zone
 
 `ManeuverGate.transitionIndex` 已提供 identity 位置。#235 已在
-[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone]
 完成独立 G1 接受：同一路径 Gate 按 transitionIndex 排序，Route 注册期编译
 Gate/Waiting/Conflict occurrences；WaitingZone 由同一路径 entry/release Gate
 有界，Traffic Runtime 拥有容量/队列与 committed/waiting/clearing 状态，Spatial
@@ -807,5 +807,5 @@ Spatial shape、conflict owner 或 steady-tick complexity，必须回到 #228/AD
 G1 或拆 follow-up；不得通过 private implementation 静默偏离。
 
 [cross-section-access]: cross-section-access.md
-[signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md
-[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[protected-turning]: signalized-corridor-protected-turning.md
+[waiting-zone]: waiting-zone-conflict-right-of-way.md

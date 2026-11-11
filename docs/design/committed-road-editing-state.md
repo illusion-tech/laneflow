@@ -5,19 +5,19 @@
 **适用范围**: committed `RoadEditingState` 的形状与所属层级、`CommittedNetworkSource` 编辑
 来源变体、`EditableDiffBase` 的持有与校验、重编译责任与信任边界、编辑来源在安装 / 恢复 /
 切换 / 审计各入口的合同、快照中的编辑来源绑定<br>
-**设计入口**: [#1116][github-com-illusion-tech-laneflow-issues-1116]<br>
-**关联决策**: [ADR 0023][0023-road-editing-state-and-phased-network-replacement]、
-[ADR 0025][0025-checked-canonical-network-and-shared-static-network]、
-[ADR 0033][0033-digest-role-and-algorithm-selection-authority]<br>
+**设计入口**: [#1116][issue-1116]<br>
+**关联决策**: [ADR 0023][adr-0023]、
+[ADR 0025][adr-0025]、
+[ADR 0033][adr-0033]<br>
 **关联设计**: [`shared-static-network.md`][shared-static-network] §8/§9、
-[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] §2/§5/§9、
-[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover] §3/§7、
-[`traffic-runtime-state-integrity.md`][traffic-runtime-state-integrity] §2.2/§4.2、
-[`road-editing-source-and-geometry-frontend.md`][road-editing-source-and-geometry-frontend] §4/§5、
-[`portable-canonical-artifact.md`][portable-canonical-artifact] §3
+[`traffic-runtime-snapshot.md`][runtime-snapshot] §2/§5/§9、
+[`traffic-runtime-revision-cutover.md`][revision-cutover] §3/§7、
+[`traffic-runtime-state-integrity.md`][state-integrity] §2.2/§4.2、
+[`road-editing-source-and-geometry-frontend.md`][road-editing] §4/§5、
+[`portable-canonical-artifact.md`][portable-artifact] §3
 
 > **层次约定**：§1–§7 只冻结合同与不变量；API 标识符、错误变体名与模块落点登记在
-> [§9 G2 落定清单][link-9-g2-落定清单实现内容不属-g1-冻结]。本文不新增合同数值；编辑来源的
+> [§9 G2 落定清单][committed-editing-g2-list]。本文不新增合同数值；编辑来源的
 > 停顿数据是描述性实测，登记于快照合同 §8（#529）。
 
 ADR 0023 / 0025 已经确定：可编辑世界的已提交路网来源是 committed `RoadEditingState`，
@@ -90,7 +90,7 @@ Runtime 能接受的结构是编译器能接受的超集；无法编译的状态
 
 `RoadEditingState` 在构造成功时计算一次道路编辑状态摘要，此后不可变。
 
-**角色与算法**（[ADR 0033][0033-digest-role-and-algorithm-selection-authority] §3）：
+**角色与算法**（[ADR 0033][adr-0033] §3）：
 
 - 角色：内部完整性摘要，认证宿主提供的状态与快照绑定的状态是同一份字节；
 - 验证方：LaneFlow 实现（Runtime 快照恢复入口），没有外部重算方；宿主按摘要寻址时
@@ -297,14 +297,14 @@ RoadEditingState
 - **测试**：构造与规范排序、摘要固定向量、各入口的差异基线对应关系、四种来源转换、
   快照编辑来源往返与拒绝面。认证分支、端到端恢复与 editable load 初值由 #529 交付。
 
-[github-com-illusion-tech-laneflow-issues-1116]: https://github.com/illusion-tech/laneflow/issues/1116
-[0023-road-editing-state-and-phased-network-replacement]: ../adr/0023-road-editing-state-and-phased-network-replacement.md
-[0025-checked-canonical-network-and-shared-static-network]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
-[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[issue-1116]: https://github.com/illusion-tech/laneflow/issues/1116
+[adr-0023]: ../adr/0023-road-editing-state-and-phased-network-replacement.md
+[adr-0025]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
+[adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [shared-static-network]: shared-static-network.md
-[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
-[traffic-runtime-state-integrity]: traffic-runtime-state-integrity.md
-[road-editing-source-and-geometry-frontend]: road-editing-source-and-geometry-frontend.md
-[portable-canonical-artifact]: portable-canonical-artifact.md
-[link-9-g2-落定清单实现内容不属-g1-冻结]: #9-g2-落定清单实现内容不属-g1-冻结
+[runtime-snapshot]: traffic-runtime-snapshot.md
+[revision-cutover]: traffic-runtime-revision-cutover.md
+[state-integrity]: traffic-runtime-state-integrity.md
+[road-editing]: road-editing-source-and-geometry-frontend.md
+[portable-artifact]: portable-canonical-artifact.md
+[committed-editing-g2-list]: #9-g2-落定清单实现内容不属-g1-冻结

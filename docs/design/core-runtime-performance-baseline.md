@@ -7,17 +7,17 @@ Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，
 硬件和证据协议<br>
 **关联文档**:
 
-- [`traffic-runtime-scale-decision-baseline.md`][traffic-runtime-scale-decision-baseline]
-- [`core-runtime-scalability-audit.md`][core-runtime-scalability-audit]
+- [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]
+- [`core-runtime-scalability-audit.md`][scalability-audit]
 - [`core-runtime.md`][core-runtime]
 - [`real-road-workloads.md`][real-road-workloads]
 - [`adapter-api.md`][adapter-api]
-- [`bevy-reference-adapter.md`][bevy-reference-adapter]
-- [`../adr/0001-project-scope.md`][0001-project-scope]
-- [`../adr/0003-runtime-tick-and-determinism.md`][0003-runtime-tick-and-determinism]
-- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]
+- [`bevy-reference-adapter.md`][bevy-adapter]
+- [`../adr/0001-project-scope.md`][adr-0001]
+- [`../adr/0003-runtime-tick-and-determinism.md`][adr-0003]
+- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][adr-0021]
 - [`../reference/validation-matrix.md`][validation-matrix]
-- [#215 G1 冻结判断][github-com-illusion-tech-laneflow-issues-215-issuecomment-5060652396]
+- [#215 G1 冻结判断][issue-215-g1]
 
 ## 1. 目的与状态语义
 
@@ -45,7 +45,7 @@ ADR 0021 将单世界规模演进保留为交通基础设施的技术方向，�
 因此，本文合入只表示产品基线契约可供下游依赖，不表示一万/十万已完成产品
 certification，也不表示一百万 microscopic realtime 已成为产品目标。
 
-#583 的[当前 TrafficWorld 性能画像][issue-583-runtime-profile-readme]
+#583 的[当前 TrafficWorld 性能画像][runtime-profile-readme]
 提供正式 Conflict/Policy、#528/#531 合入后的有限研究输入。该报告分别记录生产整步
 墙钟、测试阶段归因、分配/保留内存和切换成本，不替代本文产品工作负载与通过条件；
 旧 CoreWorld 的 #212 比例不能直接用作当前 TrafficWorld 的成本事实。
@@ -312,7 +312,7 @@ real-road representativeness。
    geometry band 不重叠。
 
 正式文件将上述解析坐标量化到最近的 `1/1024 m` 二进制格点（精确算法见
-[`lf-synth-input-bundle.md` §3][lf-synth-input-bundle-3-静态网络与引用]），最大误差小于
+[`lf-synth-input-bundle.md` §3][lf-synth-input-bundle-network]），最大误差小于
 0.489 mm；原点、端点与分割点不变。该编码使轴向折线的逐段 f32 弧长累计仍精确
 为 5130 m，符合 ADR 0028 从规范弧长提交边长的正本；不能接受编译后毫米边长漂移。
 
@@ -558,7 +558,7 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
   [`lf-synth-execution.md`][lf-synth-execution]。该工具不实现表现与性能测量；
   表现/性能及五轴验收完成前，一万/十万保持 `Product TBD / Uncertified`。
 
-#1148 的 [1/2 cell 合同验证记录][issue-1148-lf-synth-contract-readme]
+#1148 的 [1/2 cell 合同验证记录][lf-synth-contract-readme]
 覆盖 W1–W4、16/33 ms、停车 barrier、同步信号和失败重试；它省略 Spatial 与表现层，
 不代替正式规模生成器或性能认证。
 
@@ -578,7 +578,7 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 LaneFlow 性能验收，不能由 #308 编译器证据或本文 Traffic Runtime 预算代替。
 
 P100 的具名物理机绑定规则以
-[`road-editing-source-reference-machine-v1.json`][road-editing-source-reference-machine-v1]
+[`road-editing-source-reference-machine-v1.json`][reference-machine-json]
 中的 `laneflow-p100-hardware-identity-v2` 为当前规范：采集下列三个 SMBIOS 值，
 每个值去除**全部**空白字符并转为大写，按该顺序以单个 U+000A 拼接、无尾换行，
 再对 UTF-8 exact bytes 计算 SHA-256。
@@ -847,7 +847,7 @@ p50/p95/p99/max；W2 只报告 Runtime tick p50/p95/p99/max。普通帧、catch-
    whole-step gain `≥ 5%`：新建 production multi-rate G1。
 5. 单世界精确并行已交付后，十万 Runtime p95 `> 17.600 ms`
    （16 ms budget 的 10% 超幅），或十万 W1 same-frame integrated p95
-   `> 16.667 ms`：按[决策基线][traffic-runtime-scale-decision-baseline]进入
+   `> 16.667 ms`：按[决策基线][scale-baseline]进入
    P4 组件并行或空间分区的独立 G1。后者是架构研究触发，
    不是当前 Product Fail 或 60 FPS SLA 声明。
 6. identity-preserving single-thread、multi-rate、parallel 路径完成后，仍超过
@@ -864,7 +864,7 @@ p50/p95/p99/max；W2 只报告 Runtime tick p50/p95/p99/max。普通帧、catch-
 |        1 | #1274 表现路径       | 十万表现 p95 超 4 ms 预算；选择路径已按集合寻址，须先归因   |
 |        1 | #1276 预热后分配     | W1/W2 未满足 §8.3                                           |
 |        2 | #1275 lifecycle 命令 | 十万 W4 突发集中在命令 API，须先分段                        |
-| 条件触发 | #701 及其他架构方向  | 见[决策基线][traffic-runtime-scale-decision-baseline] §4 |
+| 条件触发 | #701 及其他架构方向  | 见[决策基线][scale-baseline] §4 |
 
 当前 production multi-rate 与 aggregate 均未触发。
 
@@ -891,7 +891,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
   历史研究证据、no-regret constraints 与架构候选（正文在 git 历史）；本文保存当前产品
   target/measurement contract。历史数字不能替代本文要求的 integrated certification。
 - #216、#217、#219、#220 已完成，#218 已按 Not planned 关闭；城市规模扩展的后续
-  方向与启动条件见[决策基线][traffic-runtime-scale-decision-baseline]。
+  方向与启动条件见[决策基线][scale-baseline]。
 - 后续空间分区研究必须继续保持 strong-individual identity、route/horizon-driven
   read-only halo，以及把跨区 leader chain/cycle 合并为 logical dependency graph
   后全局求解的约束；不得用固定宽度 halo 或 partition-local projection 改写 safety
@@ -935,22 +935,22 @@ aggregate、public World/shard 或 snapshot contract。
 若实现或实验要求修改上述边界，不得通过放宽本文 target 或 fidelity 隐式吸收，应
 暂停当前任务并建立新的设计输入。
 
-[traffic-runtime-scale-decision-baseline]: traffic-runtime-scale-decision-baseline.md
-[core-runtime-scalability-audit]: core-runtime-scalability-audit.md
+[scale-baseline]: traffic-runtime-scale-decision-baseline.md
+[scalability-audit]: core-runtime-scalability-audit.md
 [core-runtime]: core-runtime.md
 [real-road-workloads]: real-road-workloads.md
 [adapter-api]: adapter-api.md
-[bevy-reference-adapter]: bevy-reference-adapter.md
-[0001-project-scope]: ../adr/0001-project-scope.md
-[0003-runtime-tick-and-determinism]: ../adr/0003-runtime-tick-and-determinism.md
-[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[bevy-adapter]: bevy-reference-adapter.md
+[adr-0001]: ../adr/0001-project-scope.md
+[adr-0003]: ../adr/0003-runtime-tick-and-determinism.md
+[adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
 [validation-matrix]: ../reference/validation-matrix.md
-[github-com-illusion-tech-laneflow-issues-215-issuecomment-5060652396]: https://github.com/illusion-tech/laneflow/issues/215#issuecomment-5060652396
-[issue-583-runtime-profile-readme]: ../../research/issue-583-runtime-profile/README.md
-[lf-synth-input-bundle-3-静态网络与引用]: lf-synth-input-bundle.md#3-静态网络与引用
+[issue-215-g1]: https://github.com/illusion-tech/laneflow/issues/215#issuecomment-5060652396
+[runtime-profile-readme]: ../../research/issue-583-runtime-profile/README.md
+[lf-synth-input-bundle-network]: lf-synth-input-bundle.md#3-静态网络与引用
 [lf-synth-measurement]: lf-synth-measurement.md
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
 [laneflow-synth-generator-readme]: ../../tools/laneflow-synth-generator/README.md
 [lf-synth-execution]: lf-synth-execution.md
-[issue-1148-lf-synth-contract-readme]: ../../research/issue-1148-lf-synth-contract/README.md
-[road-editing-source-reference-machine-v1]: ../reference/road-editing-source-reference-machine-v1.json
+[lf-synth-contract-readme]: ../../research/issue-1148-lf-synth-contract/README.md
+[reference-machine-json]: ../reference/road-editing-source-reference-machine-v1.json

@@ -10,12 +10,12 @@ ADR 0021 将 LaneFlow 定位为可嵌入、引擎无关、确定性的道路交�
 独立证据的长期方向，不构成交付时间承诺。
 `laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。current Core 与 JSON
 运行时入口已拆除。契约见
-[共享静态路网消费][traffic-runtime-shared-consumption]。
-已提交一维几何合同见 [ADR 0028][0028-integer-millimeter-traffic-geometry]
+[共享静态路网消费][shared-consumption]。
+已提交一维几何合同见 [ADR 0028][adr-0028]
 （#496；整数毫米 / `mm/s`）。
 编译器 IR 交通一维整数毫米统一表示见 ADR 0028 / #500（准入后 Typed AST / HIR / MIR / LIR 存整数毫米）。
 路网产品不声明路线。`TrafficWorld` 路线入口是 `register_route`，见
-[ADR 0029][0029-retire-precompiled-static-route]。道路编辑来源
+[ADR 0029][adr-0029]。道路编辑来源
 `format_version = 4`；现行可移植对象为 LFCA 5 / LFSM 4 / LFSD 4 / LFCP 2。
 LF-CN-URBAN 的正式静态输入、路线目录与两档重建命令见
 [`laneflow-urban-generator`][laneflow-urban-generator-readme]。
@@ -59,11 +59,11 @@ docs/
 ## 推荐阅读顺序
 
 1. [README.md][readme]
-2. [从源码接入无窗口交通运行时][source-integration]（程序：[`headless.rs`][headless]）
+2. [从源码接入无窗口交通运行时][source-integration]（程序：[`headless.rs`][headless-rs]）
 3. [架构说明][architecture]
 4. [当前能力与限制][capabilities]
 5. [路线图][roadmap]
-6. [ADR 0021][0021-traffic-infrastructure-and-host-boundary]
+6. [ADR 0021][adr-0021]
 7. [AGENTS.md][agents]
 8. [Agent 工作流][agents-readme]
 9. [文档边界政策][documentation-policy]
@@ -75,9 +75,9 @@ docs/
 15. [ADR 索引][adr-readme]
 16. [设计索引][design-readme]
 
-[traffic-runtime-shared-consumption]: design/traffic-runtime-shared-consumption.md
-[0028-integer-millimeter-traffic-geometry]: adr/0028-integer-millimeter-traffic-geometry.md
-[0029-retire-precompiled-static-route]: adr/0029-retire-precompiled-static-route.md
+[shared-consumption]: design/traffic-runtime-shared-consumption.md
+[adr-0028]: adr/0028-integer-millimeter-traffic-geometry.md
+[adr-0029]: adr/0029-retire-precompiled-static-route.md
 [laneflow-urban-generator-readme]: ../tools/laneflow-urban-generator/README.md
 [glossary]: reference/glossary.md
 [documentation-policy]: governance/documentation-policy.md
@@ -86,11 +86,11 @@ docs/
 [dependency-security]: governance/dependency-security.md
 [readme]: ../README.md
 [source-integration]: guides/source-integration.md
-[headless]: ../crates/laneflow-runtime/examples/headless.rs
+[headless-rs]: ../crates/laneflow-runtime/examples/headless.rs
 [architecture]: architecture.md
 [capabilities]: reference/capabilities.md
 [roadmap]: roadmap.md
-[0021-traffic-infrastructure-and-host-boundary]: adr/0021-traffic-infrastructure-and-host-boundary.md
+[adr-0021]: adr/0021-traffic-infrastructure-and-host-boundary.md
 [agents]: ../AGENTS.md
 [agents-readme]: ../.agents/README.md
 [github-workflow]: governance/github-workflow.md

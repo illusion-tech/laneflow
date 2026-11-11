@@ -8,8 +8,8 @@
 工作负载契约、R0 raw/Evidence JSON 或研究报告。
 
 查阅当时制品，使用 G4 精确证据提交
-[`de4cd460a96415cafbd811141568b81f74d73534`][github-com-illusion-tech-laneflow-tree-de4cd460a96415cafbd811141568b81f74d73534]
-与交付 PR [#310][github-com-illusion-tech-laneflow-pull-310]
+[`de4cd460a96415cafbd811141568b81f74d73534`][calibration-tree]
+与交付 PR [#310][pull-310]
 （merge `606ac52dbc75196c6d37073c72c3d48cbb031be0`）。
 
 #292 G2 已确认这些研究工作负载不能按原自然身份无损映射为生产语义。不得把
@@ -18,5 +18,5 @@
 现行生产编译预算与 P100 基线见 `compiler-foundation.md` 与
 `../reference/v0.10-compiler-production-baseline.md`。
 
-[github-com-illusion-tech-laneflow-tree-de4cd460a96415cafbd811141568b81f74d73534]: https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534
-[github-com-illusion-tech-laneflow-pull-310]: https://github.com/illusion-tech/laneflow/pull/310
+[calibration-tree]: https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534
+[pull-310]: https://github.com/illusion-tech/laneflow/pull/310

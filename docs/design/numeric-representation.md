@@ -130,7 +130,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | Three.js   | JavaScript `number`                                      | host 数值语义不是 Rust f32 ABI   |
 | Babylon.js | JavaScript `number`                                      | host 数值语义不是 Rust f32 ABI   |
 
-资料： [Bevy Transform][docs-rs-bevy_transform-latest-bevy_transform-components-struct-transform-html]、[Unity Vector3 constructor][docs-unity3d-com-ja-current-scriptreference-vector3-ctor-html]、[Unreal Core math types][dev-epicgames-com-documentation-en-us-unreal-engine-api-runtime-core]、[Godot Vector3][docs-godotengine-org-en-stable-classes-class_vector3-html]、[Three.js Vector3][threejs-org-docs-pages-vector3-html]、[Babylon.js Vector3][doc-babylonjs-com-typedoc-classes-babylon-vector3]。
+资料： [Bevy Transform][bevy-transform]、[Unity Vector3 constructor][unity-vector3]、[Unreal Core math types][unreal-core]、[Godot Vector3][godot-vector3]、[Three.js Vector3][three-vector3]、[Babylon.js Vector3][babylon-vector3]。
 
 ### 6.2 Spatial frame 映射与失败语义
 
@@ -156,9 +156,9 @@ Traffic Runtime 的有效进度
 
 Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的变化必须按 ADR 0008 视为数据格式 / API 迁移；编制数值只能通过显式受检转换进入 Traffic Runtime。
 
-[docs-rs-bevy_transform-latest-bevy_transform-components-struct-transform-html]: https://docs.rs/bevy_transform/latest/bevy_transform/components/struct.Transform.html
-[docs-unity3d-com-ja-current-scriptreference-vector3-ctor-html]: https://docs.unity3d.com/ja/current/ScriptReference/Vector3-ctor.html
-[dev-epicgames-com-documentation-en-us-unreal-engine-api-runtime-core]: https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core
-[docs-godotengine-org-en-stable-classes-class_vector3-html]: https://docs.godotengine.org/en/stable/classes/class_vector3.html
-[threejs-org-docs-pages-vector3-html]: https://threejs.org/docs/pages/Vector3.html
-[doc-babylonjs-com-typedoc-classes-babylon-vector3]: https://doc.babylonjs.com/typedoc/classes/BABYLON.Vector3
+[bevy-transform]: https://docs.rs/bevy_transform/latest/bevy_transform/components/struct.Transform.html
+[unity-vector3]: https://docs.unity3d.com/ja/current/ScriptReference/Vector3-ctor.html
+[unreal-core]: https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core
+[godot-vector3]: https://docs.godotengine.org/en/stable/classes/class_vector3.html
+[three-vector3]: https://threejs.org/docs/pages/Vector3.html
+[babylon-vector3]: https://doc.babylonjs.com/typedoc/classes/BABYLON.Vector3

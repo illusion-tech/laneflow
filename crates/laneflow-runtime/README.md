@@ -46,18 +46,18 @@ cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 
 - [从源码接入无窗口交通运行时][source-integration]
 - [当前能力与限制][capabilities]
-- [共享静态路网消费][traffic-runtime-shared-consumption]
-- [执行配置][traffic-runtime-execution-config]
-- [并行执行][traffic-runtime-parallel-execution]
-- [观测与 Routing][traffic-observation-and-routing-integration]
-- [运行时快照][traffic-runtime-snapshot]
-- [修订切换][traffic-runtime-revision-cutover]
+- [共享静态路网消费][shared-consumption]
+- [执行配置][execution-config]
+- [并行执行][parallel-execution]
+- [观测与 Routing][routing-integration]
+- [运行时快照][runtime-snapshot]
+- [修订切换][revision-cutover]
 
 [source-integration]: ../../docs/guides/source-integration.md
 [capabilities]: ../../docs/reference/capabilities.md
-[traffic-runtime-shared-consumption]: ../../docs/design/traffic-runtime-shared-consumption.md
-[traffic-runtime-execution-config]: ../../docs/design/traffic-runtime-execution-config.md
-[traffic-runtime-parallel-execution]: ../../docs/design/traffic-runtime-parallel-execution.md
-[traffic-observation-and-routing-integration]: ../../docs/design/traffic-observation-and-routing-integration.md
-[traffic-runtime-snapshot]: ../../docs/design/traffic-runtime-snapshot.md
-[traffic-runtime-revision-cutover]: ../../docs/design/traffic-runtime-revision-cutover.md
+[shared-consumption]: ../../docs/design/traffic-runtime-shared-consumption.md
+[execution-config]: ../../docs/design/traffic-runtime-execution-config.md
+[parallel-execution]: ../../docs/design/traffic-runtime-parallel-execution.md
+[routing-integration]: ../../docs/design/traffic-observation-and-routing-integration.md
+[runtime-snapshot]: ../../docs/design/traffic-runtime-snapshot.md
+[revision-cutover]: ../../docs/design/traffic-runtime-revision-cutover.md

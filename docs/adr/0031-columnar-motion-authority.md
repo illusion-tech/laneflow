@@ -1,8 +1,8 @@
 # 0031 列式运动正本与独立 SIMD 数值边界
 
 **状态**: Accepted<br>
-**设计入口**: [#814][github-com-illusion-tech-laneflow-issues-814]<br>
-**关联设计**: [列式批量执行][traffic-runtime-columnar-execution]
+**设计入口**: [#814][issue-814]<br>
+**关联设计**: [列式批量执行][columnar-execution]
 
 ## 背景
 
@@ -24,5 +24,5 @@
 
 本决策接受目标架构，不等于生产实施、整拍收益或城市认证完成。具体实验、证据和进度留在 Issue/PR。
 
-[github-com-illusion-tech-laneflow-issues-814]: https://github.com/illusion-tech/laneflow/issues/814
-[traffic-runtime-columnar-execution]: ../design/traffic-runtime-columnar-execution.md
+[issue-814]: https://github.com/illusion-tech/laneflow/issues/814
+[columnar-execution]: ../design/traffic-runtime-columnar-execution.md

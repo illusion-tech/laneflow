@@ -259,24 +259,24 @@ cargo uninstall mcpls
 
 参考：
 
-- [OpenAI Docs：Codex Config basics][learn-chatgpt-com-docs-config-file-config-basic]
-- [OpenAI Docs：Codex MCP][learn-chatgpt-com-docs-extend-mcp]
-- [OpenAI Docs：Codex Local environments][learn-chatgpt-com-docs-environments-local-environment]
-- [OpenAI Docs：Codex Hooks][learn-chatgpt-com-docs-hooks]
-- [Microsoft：Job Objects][learn-microsoft-com-en-us-windows-win32-procthread-job-objects]
-- [Microsoft：Win32_Process.Create][learn-microsoft-com-en-us-windows-win32-cimwin32prov-create-method-in-class-win32-process]
-- [Grok Build：MCP Servers][docs-x-ai-build-features-mcp-servers]
-- [Kimi Code：MCP][github-com-moonshotai-kimi-code-blob-main-docs-en-customization-mcp-md]
-- [mcpls 0.3.9 文档与元数据][docs-rs-crate-mcpls-0-3-9]
-- [mcpls source][github-com-bug-ops-mcpls]
+- [OpenAI Docs：Codex Config basics][chatgpt-config]
+- [OpenAI Docs：Codex MCP][chatgpt-mcp]
+- [OpenAI Docs：Codex Local environments][chatgpt-local]
+- [OpenAI Docs：Codex Hooks][chatgpt-hooks]
+- [Microsoft：Job Objects][win32-job-objects]
+- [Microsoft：Win32_Process.Create][win32-process]
+- [Grok Build：MCP Servers][xai-mcp]
+- [Kimi Code：MCP][kimi-mcp]
+- [mcpls 0.3.9 文档与元数据][mcpls]
+- [mcpls source][mcpls-repo]
 
-[learn-chatgpt-com-docs-config-file-config-basic]: https://learn.chatgpt.com/docs/config-file/config-basic
-[learn-chatgpt-com-docs-extend-mcp]: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
-[learn-chatgpt-com-docs-environments-local-environment]: https://learn.chatgpt.com/docs/environments/local-environment
-[learn-chatgpt-com-docs-hooks]: https://learn.chatgpt.com/docs/hooks
-[learn-microsoft-com-en-us-windows-win32-procthread-job-objects]: https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
-[learn-microsoft-com-en-us-windows-win32-cimwin32prov-create-method-in-class-win32-process]: https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process
-[docs-x-ai-build-features-mcp-servers]: https://docs.x.ai/build/features/mcp-servers
-[github-com-moonshotai-kimi-code-blob-main-docs-en-customization-mcp-md]: https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/mcp.md
-[docs-rs-crate-mcpls-0-3-9]: https://docs.rs/crate/mcpls/0.3.9
-[github-com-bug-ops-mcpls]: https://github.com/bug-ops/mcpls
+[chatgpt-config]: https://learn.chatgpt.com/docs/config-file/config-basic
+[chatgpt-mcp]: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+[chatgpt-local]: https://learn.chatgpt.com/docs/environments/local-environment
+[chatgpt-hooks]: https://learn.chatgpt.com/docs/hooks
+[win32-job-objects]: https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+[win32-process]: https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process
+[xai-mcp]: https://docs.x.ai/build/features/mcp-servers
+[kimi-mcp]: https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/mcp.md
+[mcpls]: https://docs.rs/crate/mcpls/0.3.9
+[mcpls-repo]: https://github.com/bug-ops/mcpls

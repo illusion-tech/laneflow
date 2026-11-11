@@ -16,26 +16,26 @@
 - [`rust-code-style.md`][rust-code-style]：`rustfmt` 无法表达的仓库级可读性约定。
 - [`validation-matrix.md`][validation-matrix]：任务类别到最小验证要求。
 - [`mcpls.md`][mcpls]：可选 Rust 语义开发工具的安装、信任与回退边界。
-- [`v0.10-compiler-production-baseline.md`][v0-10-compiler-production-baseline] 与
-  [`v0.10-compiler-production-baseline.json`][v0-10-compiler-production-baseline-json]：
+- [`v0.10-compiler-production-baseline.md`][compiler-baseline] 与
+  [`v0.10-compiler-production-baseline.json`][compiler-baseline-json]：
   #292 在 P100 推荐参考机型上的生产编译预算基线。文件自述为历史测量、不是当前
   benchmark 入口；保留该次测量基线，不是 #308 研究替身，也不把该次数字提升为当前 main 的新认证。
-- [`v0.10-attestation-production-baseline.md`][v0-10-attestation-production-baseline]
-  与 [`v0.10-attestation-production-baseline.json`][v0-10-attestation-production-baseline-json]：
+- [`v0.10-attestation-production-baseline.md`][attestation-baseline]
+  与 [`v0.10-attestation-production-baseline.json`][attestation-baseline-json]：
   #987 在 2026-10-23、提交 `06f239c39b3983efd8d39ecb0820131bc140fd77` 上的描述性实测。
   保留该次测量基线，不是当前 main 的产品认证。
-- [`v0.10-direct-digest-optimization-baseline.md`][v0-10-direct-digest-optimization-baseline]
-  与 [`v0.10-direct-digest-optimization-baseline.json`][v0-10-direct-digest-optimization-baseline-json]：
+- [`v0.10-direct-digest-optimization-baseline.md`][digest-baseline]
+  与 [`v0.10-direct-digest-optimization-baseline.json`][digest-baseline-json]：
   #1008 / #960 在 Rust 1.99.1、2026-10-23 对三个摘要实现的对照。
   报告内的算法、摘要版本与数字属于该次测量，不改写为当前摘要合同。
-- [`road-editing-source-semantic-seed-v1.json`][road-editing-source-semantic-seed-v1]：
+- [`road-editing-source-semantic-seed-v1.json`][semantic-seed-json]：
   #296 不可变 benchmark 语义种子；只供 test/research generator 读取，不是 production JSON。
-- [`road-editing-source-reference-machine-v1.json`][road-editing-source-reference-machine-v1]：
+- [`road-editing-source-reference-machine-v1.json`][reference-machine-json]：
   #296 道路编辑来源校准参考机。
 
 #308 研究执行器与 R0 巨大 Evidence 不在当前工作区。G4 精确证据提交为
-[`de4cd460a96415cafbd811141568b81f74d73534`][github-com-illusion-tech-laneflow-tree-de4cd460a96415cafbd811141568b81f74d73534]，
-交付 PR 为 [#310][github-com-illusion-tech-laneflow-pull-310]。
+[`de4cd460a96415cafbd811141568b81f74d73534`][calibration-tree]，
+交付 PR 为 [#310][pull-310]。
 
 [glossary]: glossary.md
 [capabilities]: capabilities.md
@@ -43,13 +43,13 @@
 [rust-code-style]: rust-code-style.md
 [validation-matrix]: validation-matrix.md
 [mcpls]: mcpls.md
-[v0-10-compiler-production-baseline]: v0.10-compiler-production-baseline.md
-[v0-10-compiler-production-baseline-json]: v0.10-compiler-production-baseline.json
-[v0-10-attestation-production-baseline]: v0.10-attestation-production-baseline.md
-[v0-10-attestation-production-baseline-json]: v0.10-attestation-production-baseline.json
-[v0-10-direct-digest-optimization-baseline]: v0.10-direct-digest-optimization-baseline.md
-[v0-10-direct-digest-optimization-baseline-json]: v0.10-direct-digest-optimization-baseline.json
-[road-editing-source-semantic-seed-v1]: road-editing-source-semantic-seed-v1.json
-[road-editing-source-reference-machine-v1]: road-editing-source-reference-machine-v1.json
-[github-com-illusion-tech-laneflow-tree-de4cd460a96415cafbd811141568b81f74d73534]: https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534
-[github-com-illusion-tech-laneflow-pull-310]: https://github.com/illusion-tech/laneflow/pull/310
+[compiler-baseline]: v0.10-compiler-production-baseline.md
+[compiler-baseline-json]: v0.10-compiler-production-baseline.json
+[attestation-baseline]: v0.10-attestation-production-baseline.md
+[attestation-baseline-json]: v0.10-attestation-production-baseline.json
+[digest-baseline]: v0.10-direct-digest-optimization-baseline.md
+[digest-baseline-json]: v0.10-direct-digest-optimization-baseline.json
+[semantic-seed-json]: road-editing-source-semantic-seed-v1.json
+[reference-machine-json]: road-editing-source-reference-machine-v1.json
+[calibration-tree]: https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534
+[pull-310]: https://github.com/illusion-tech/laneflow/pull/310

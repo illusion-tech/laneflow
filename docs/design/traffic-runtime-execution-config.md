@@ -3,10 +3,10 @@
 **文档状态**: Accepted<br>
 **最后更新**: 2026-10-11<br>
 **适用范围**: 世界安装、fresh restore、同/跨修订切换、执行资源与 LFRS 版本轴<br>
-**设计入口**: [#220][github-com-illusion-tech-laneflow-issues-220]<br>
-**关联决策**: [ADR 0030（Accepted）][0030-single-world-parallel-execution]<br>
-**配套合同**: [并行执行][traffic-runtime-parallel-execution]、
-[快照][traffic-runtime-snapshot]、[修订切换][traffic-runtime-revision-cutover]
+**设计入口**: [#220][issue-220]<br>
+**关联决策**: [ADR 0030（Accepted）][adr-0030]<br>
+**配套合同**: [并行执行][parallel-execution]、
+[快照][runtime-snapshot]、[修订切换][revision-cutover]
 
 本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 7 只保存
 交通配置，安装和恢复支持 worker 1–16（#705 开放）。活动世界独占执行资源，私有
@@ -92,7 +92,7 @@ worker 1–16，请求更大 worker 数须返回执行能力错误；类型可�
 本次所有任务的 join。生命周期命令、观测和 Routing 仍消费完整已提交世界，Adapter
 不接收分区身份。宿主调用点须传执行配置，但不因此改变表现层数据协议。生命周期命令
 走到重叠检查或占用索引重建点时，可以借执行资源并行备好派生占用索引与生成重叠
-索引，再重新执行这条命令（[新生成第 8、9 节][traffic-runtime-vehicle-placement]）；
+索引，再重新执行这条命令（[新生成第 8、9 节][vehicle-placement]）；
 它只改派生索引，panic 同样使世界失效。
 
 ## 3. 私有所有权
@@ -215,7 +215,7 @@ fresh restore 继承快照世界身份、建立新的本地世代/会话；不�
 公开安装和恢复接受 worker 1–16（#705 已开放）；计划错误由安装、恢复及两种切换的
 `ExecutionPlan` 包装。线程资源失败在私有原语中验证并结算。执行错误不冒充交通
 容量、领域 StepError 或无关暂存错误。执行器 panic 的 join、世界失效及 drop 遵循
-[并行执行 §4.3][traffic-runtime-parallel-execution-43-join取消与失败清理]；初始化
+[并行执行 §4.3][parallel-execution-join]；初始化
 错误的 Result 不构成运行中 panic 可恢复的承诺。
 
 ## 5. 修订切换与计划发布
@@ -251,14 +251,14 @@ epoch、WorldGeneration 各自承担其原有寿命，不相互冒充。
 
 计划准备和退休释放计入切换预算，最终补齐工作也计入静默窗口。不能因为存在提前
 准备，就假设最终成本为零；投机大额预留失败不能伪装成实际需求失败。具体规则见
-[并行执行][traffic-runtime-parallel-execution]的容量和完成前沿合同。
+[并行执行][parallel-execution]的容量和完成前沿合同。
 
 ## 6. 格式与版本轴
 
 | 轴                                   | 当前合同                                  | 原因                                                                                                                                          |
 | ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | Rust API                             | 交通与执行配置分离，显式安装/恢复参数     | 1.0 前破坏性清扫，无兼容别名                                                                                                                  |
-| LFRS `format_version`                | 7                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动；编辑来源绑定见 [`committed-road-editing-state.md`][committed-road-editing-state] §6 |
+| LFRS `format_version`                | 7                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动；编辑来源绑定见 [`committed-road-editing-state.md`][committed-editing] §6 |
 | schema / namespace                   | `runtime-snapshot/v7` / V7                | 只保留唯一当前 wire binding                                                                                                                   |
 | `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                                                                                                                    |
 | `RUNTIME_STATE_DIGEST_VERSION`       | 8                                         | 规范原像已经排除 worker；算法为 BLAKE3-256（#1035），状态版本头及其余编码不变                                                                 |
@@ -296,11 +296,11 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
 活动世界借用原型只能支持所有权判断；生产状态聚合、执行后端与城市性能仍须由
 各自实现和验证完成。P4 组件计划及临时序号绑定不属于首版验收。
 
-[github-com-illusion-tech-laneflow-issues-220]: https://github.com/illusion-tech/laneflow/issues/220
-[0030-single-world-parallel-execution]: ../adr/0030-single-world-parallel-execution.md
-[traffic-runtime-parallel-execution]: traffic-runtime-parallel-execution.md
-[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
-[traffic-runtime-vehicle-placement]: traffic-runtime-vehicle-placement.md
-[traffic-runtime-parallel-execution-43-join取消与失败清理]: traffic-runtime-parallel-execution.md#43-join取消与失败清理
-[committed-road-editing-state]: committed-road-editing-state.md
+[issue-220]: https://github.com/illusion-tech/laneflow/issues/220
+[adr-0030]: ../adr/0030-single-world-parallel-execution.md
+[parallel-execution]: traffic-runtime-parallel-execution.md
+[runtime-snapshot]: traffic-runtime-snapshot.md
+[revision-cutover]: traffic-runtime-revision-cutover.md
+[vehicle-placement]: traffic-runtime-vehicle-placement.md
+[parallel-execution-join]: traffic-runtime-parallel-execution.md#43-join取消与失败清理
+[committed-editing]: committed-road-editing-state.md

@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-LaneFlow 的提交信息以 [Conventional Commits 1.0.0][www-conventionalcommits-org-zh-hans-v1-0-0]
+LaneFlow 的提交信息以 [Conventional Commits 1.0.0][conventional-commits]
 为标题基础。机器检查标题、`Refs` / `Closes` footer、破坏性变更的
 `BREAKING CHANGE:`，以及第 6 节的 AI 署名。任务类别、影响和验证写在 PR 模板里，
 不进 commit 检查。
@@ -176,18 +176,18 @@ Refs: #12
 
 ### 6.1 模型目录与登记
 
-[`xtask/data/model-registry.json`][model-registry] 是本仓库接受的
+[`xtask/data/model-registry.json`][model-registry-json] 是本仓库接受的
 模型 ID 目录，由 Git 保存版本，Rust 校验器在编译时嵌入。同一版本的本地 hook 和 CI
 使用同一份数据，校验期间不联网，不读取用户自行配置的外部目录。
 
-- `canonical_ids`：从 [models.dev 模型目录][models-dev-models-json]
+- `canonical_ids`：从 [models.dev 模型目录][models-dev]
   提取的完整规范 ID，例如 `openai/gpt-6-astra`、`anthropic/claude-opus-5-5`。
   `source` 和 `retrieved_at` 记录上游地址及该快照的 UTC 获取时间。
 - `local_models`：上游尚未收录时的显式本地登记。每项必须提供完整的 `id` 和非空
   `source`，来源应指向能核对模型身份的官方文档或维护者接受的证据。不得只为了
   通过校验而登记已有模型的另一种写法。
 - `aliases`：仅用于报错提示，每项记录 `alias`、`canonical_id` 和 `source`。
-  [models.dev 服务商目录][models-dev-catalog-json] 中的
+  [models.dev 服务商目录][models-catalog] 中的
   `canonical_model_id` 可作为映射依据；工具特有前缀需明确登记，不能全局删除前缀。
   别名从不作为合法 `Model` 值。
 
@@ -213,11 +213,11 @@ Refs: #12
 纯人工提交仍可省略整个 `Harness` / `Model` 对。新规则应用于 hook 文件或 CI 指定
 范围中的提交；不改写已经合入的历史，尚未合入且进入检查范围的旧写法须修正。
 
-数据来源：[models.dev][github-com-anomalyco-models-dev]（MIT）。
+数据来源：[models.dev][models-dev-repo]（MIT）。
 
 ### 6.2 执行框架目录与入口登记
 
-[`xtask/data/harness-registry.json`][harness-registry] 是本仓库接受的
+[`xtask/data/harness-registry.json`][harness-registry-json] 是本仓库接受的
 执行框架 ID 目录，由 Git 保存版本，Rust 校验器在编译时嵌入。本地 hook 与 CI 使用
 当前检出版本的同一份目录，校验时不联网，也不读取用户配置的替代目录。
 
@@ -322,9 +322,9 @@ cargo +1.99.1 run --locked -p xtask -- check-commit-messages origin/main..HEAD
 git config core.hooksPath .githooks
 ```
 
-[www-conventionalcommits-org-zh-hans-v1-0-0]: https://www.conventionalcommits.org/zh-hans/v1.0.0/
-[model-registry]: ../../xtask/data/model-registry.json
-[models-dev-models-json]: https://models.dev/models.json?type=all
-[models-dev-catalog-json]: https://models.dev/catalog.json?type=all
-[github-com-anomalyco-models-dev]: https://github.com/anomalyco/models.dev
-[harness-registry]: ../../xtask/data/harness-registry.json
+[conventional-commits]: https://www.conventionalcommits.org/zh-hans/v1.0.0/
+[model-registry-json]: ../../xtask/data/model-registry.json
+[models-dev]: https://models.dev/models.json?type=all
+[models-catalog]: https://models.dev/catalog.json?type=all
+[models-dev-repo]: https://github.com/anomalyco/models.dev
+[harness-registry-json]: ../../xtask/data/harness-registry.json

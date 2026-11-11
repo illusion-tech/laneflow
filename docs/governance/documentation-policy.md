@@ -271,12 +271,16 @@ LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文
 
 行内链接、行内图片和自动链接都不允许。`[文字][标]`、`[文字][]` 和已经定义的 shortcut `[文字]` 都可以；图片写作 `![说明][标]`。代码围栏里的示例只用于说明写法，不视为正文中的链接。
 
+标签必须是简短语义名。本地文件用文件名主干，如 `documentation-policy`；crate README 用短名，如 `laneflow-bevy-readme`；ADR 用短号，如 `adr-0021`；章节用短区分词，如 `contributing-tests`；外部页面用页面短名，如 `github-issues`、`rustup` 或 `code-scanning-advanced-setup`。禁止把完整 URL、commit SHA 或完整标题 slug 化成标签。同一文件内标签不得重复，冲突时只加最短区分后缀。
+
 允许：
 
 ```markdown
 见 [文档边界政策][documentation-policy]。
+见 [测试与验证][contributing-tests]。
 
 [documentation-policy]: ../governance/documentation-policy.md
+[contributing-tests]: ../../CONTRIBUTING.md#8-测试与验证
 ```
 
 不允许：
@@ -285,6 +289,8 @@ LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文
 [文字](../governance/documentation-policy.md)
 ![说明](image.png)
 <https://example.com>
+[证据][github-com-example-blob-0123abcd-docs-reference-calibration-evidence-json]
+[测试与验证][contributing-8-测试与验证]
 ```
 
 [research-readme]: ../../research/README.md

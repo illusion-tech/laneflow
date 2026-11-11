@@ -211,7 +211,7 @@ tile、cell 的数量和 `2 × 5` 排布不变。东西为干路，南北为支�
 
 真实不同的物理参数档必须保留并写入固定生成配置，不能为了编译通过合并不同配置。
 同义声明共享避免编制复制；准入与路权解析依照
-[路权专题合同][traffic-runtime-right-of-way-policy]，按各策略下实际使用的参与者类别共享。
+[路权专题合同][right-of-way]，按各策略下实际使用的参与者类别共享。
 增加同类别的不同车辆配置仍有配置本身的编译和存储成本，但不增加对应门/流的解析行。
 不同类别分别解析，不能因当前规则结果相同就合并；门/流解析行与车辆配置数量分别报告。
 容量验收不能只凭单配置样本通过，就认定多个不同参数档的正式输入已通过。
@@ -502,4 +502,4 @@ Runtime wire、发布格式或兼容层。
 显式延后和 unsupported；不得以“停车 100k 容量可表达”推导“100k 城市交通已通过”。
 
 [spatial-geometry]: spatial-geometry.md
-[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[right-of-way]: traffic-runtime-right-of-way-policy.md

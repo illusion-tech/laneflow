@@ -434,14 +434,14 @@ ManeuverPath：
 - 继续执行 1 cm length binding、5 mm join、0.1 m 最小线段与既有 pose validation。
 
 完整 boundary、公式、reference lengths、turn radius 和安全净距见
-[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]。
+[`signalized-corridor-protected-turning.md`][protected-turning]。
 这些是 #229 的 Accepted target；在生成制品和 loader 往返通过前，不代表 current
 Spatial artifacts 已改变。
 
 ## 16. WaitingZone / ConflictZone Accepted 设计边界
 
 #235 的 Accepted 设计
-[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone]
 允许未来 SpatialPackage 绑定 WaitingZone/ConflictZone 的 canonical 3D region，
 用于 authoring validation、debug draw 与 presentation；Traffic/Runtime 的
 Gate-bounded path interval、PathAnchor、ParticipantStream/ConflictZone 显式关系
@@ -452,5 +452,5 @@ Spatial geometry tolerance 也不能充当 Traffic Runtime PathAnchor crossing t
 具体 Spatial shape/version 由后续独立 implementation G1 决定，#235 不改变 current
 SpatialPackage 0.1。
 
-[signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md
-[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[protected-turning]: signalized-corridor-protected-turning.md
+[waiting-zone]: waiting-zone-conflict-right-of-way.md

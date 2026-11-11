@@ -9,11 +9,11 @@ caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑�
 **关联文档**:
 
 - [`example-scenarios.md`][example-scenarios]
-- [`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]
-- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][0016-scenario-population-and-recycle-lifecycle-authority]
-- [`traffic-runtime-shared-consumption.md`][traffic-runtime-shared-consumption]
-- [`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy]
-- [`bevy-reference-adapter.md`][bevy-reference-adapter]
+- [`signalized-corridor-protected-turning.md`][protected-turning]
+- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][adr-0016]
+- [`traffic-runtime-shared-consumption.md`][shared-consumption]
+- [`traffic-runtime-right-of-way-policy.md`][right-of-way]
+- [`bevy-reference-adapter.md`][bevy-adapter]
 
 ## 1. 边界与依赖
 
@@ -190,7 +190,7 @@ callback 返回成功后才发现 old/new identity 不一致时，宿主世界�
 把 policy error 当成整批原子失败，也不能按旧句柄自动重试。具体宿主的失败停止由
 调用方负责。`corridor_traffic` 的设计选择是报告并终止，不自动降速或改变冻结计划；
 其 Bevy outcome 转换、逐 set 守卫和验收见
-[Bevy 设计 §13][bevy-reference-adapter-13-corridor_traffic-宿主生命周期]。
+[Bevy 设计 §13][bevy-adapter-lifecycle]。
 
 ## 7. 有界状态与分配
 
@@ -211,7 +211,7 @@ cargo +1.99.1 test --offline -p laneflow-scenario --test signalized_corridor_pop
 
 宿主 HUD 读取 `counts()`，不通过分配式 `pending_vehicles()` 重建人口；后者只用于
 测试/诊断明细。新增 Bevy 实例的有界持续运行和回放必须单独取证，不能沿用上述
-headless world 结果；目标矩阵见 [Bevy 设计 §15][bevy-reference-adapter-15-corridor_traffic-验收矩阵]。
+headless world 结果；目标矩阵见 [Bevy 设计 §15][bevy-adapter-acceptance]。
 
 ## 8. Replay 与兼容性
 
@@ -245,13 +245,13 @@ retry authority 的前提下，已按 #196 clean-break 实现：
 - 默认 pitch 为 10 m，只在真实 portal approach edges 上生成 physical slots。
 
 完整 28 Route、weights、catalog 0.2 ownership 与 golden draw order 见
-[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]。
+[`signalized-corridor-protected-turning.md`][protected-turning]。
 
 [example-scenarios]: example-scenarios.md
-[signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md
-[0016-scenario-population-and-recycle-lifecycle-authority]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
-[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
-[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
-[bevy-reference-adapter]: bevy-reference-adapter.md
-[bevy-reference-adapter-13-corridor_traffic-宿主生命周期]: bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
-[bevy-reference-adapter-15-corridor_traffic-验收矩阵]: bevy-reference-adapter.md#15-corridor_traffic-验收矩阵
+[protected-turning]: signalized-corridor-protected-turning.md
+[adr-0016]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
+[shared-consumption]: traffic-runtime-shared-consumption.md
+[right-of-way]: traffic-runtime-right-of-way-policy.md
+[bevy-adapter]: bevy-reference-adapter.md
+[bevy-adapter-lifecycle]: bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
+[bevy-adapter-acceptance]: bevy-reference-adapter.md#15-corridor_traffic-验收矩阵

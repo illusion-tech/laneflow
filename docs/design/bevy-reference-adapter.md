@@ -178,7 +178,7 @@ baseline 的已交付能力；`quickstart` / `corridor_traffic` 现行示例由�
 
 ## 8. 可选调试可视化
 
-#285 阶段二以 `junction_debug` native example 交付了可见诊断（[#285][github-com-illusion-tech-laneflow-issues-285]）：
+#285 阶段二以 `junction_debug` native example 交付了可见诊断（[#285][issue-285]）：
 默认关闭的 F2 调试 overlay 全部用 Bevy mesh 与文本落地，不恢复 Gizmos 公共 API，也不
 为恢复历史 Gizmos API 增加兼容层。v0.7 / #172 的预算受控 gizmos 与 campus /
 `debug_gizmos_smoke` 只存在于 git 历史。
@@ -226,7 +226,7 @@ cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --features na
 cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
 ```
 
-`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475][github-com-illusion-tech-laneflow-issues-475]。
+`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475][issue-475]。
 
 #285 阶段二的复杂路口调试示例是 `junction_debug`（同样 `native-example` opt-in）：
 检入 catalog 0.1 + LFCA 的固定四车 spawn 计划（直行、保护左转待转、许可左转、环路
@@ -355,7 +355,7 @@ Cargo target、源码、关联 smoke 和入口文档，不保留别名或第二�
 最小可见入口仍为 `quickstart`；本节不把该最小示例或历史验证算作持续车流证据。
 
 `laneflow-scenario` 已拥有 catalog 0.4、`50..=200` 人口、seed、PRNG、冻结回流计划与
-FIFO retry；其规范仍在[人口设计][signalized-corridor-population]。Runtime 拥有
+FIFO retry；其规范仍在[人口设计][corridor-population]。Runtime 拥有
 车辆身份和替换事务；Adapter 拥有 Session、固定调度及 Vehicle/Entity 映射。新增宿主
 代码只在 `laneflow-bevy` example/support 边界组合这些能力，不能进入 production
 依赖或公共 API。公开 API 若出现缺口，另立任务，不在示例里复制 Runtime 规则。
@@ -883,7 +883,7 @@ cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example
 ### 19.1 目标与边界
 
 `revision_cutover` 回答一个问题：宿主如何在运行中把路网切换到另一个修订，并保持车辆身份、
-丢弃旧批次、重建路面表现。切换语义以[修订切换事务][traffic-runtime-revision-cutover]、
+丢弃旧批次、重建路面表现。切换语义以[修订切换事务][revision-cutover]、
 [Adapter API][adapter-api] §9 和本文 §16 为准，本节只冻结示例如何组合这些能力。
 
 本例演示的是同步的维护暂停式切换，不是低停顿在线热切换。不改变 Runtime、Spatial 或 Adapter
@@ -1012,10 +1012,10 @@ cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example
 
 本矩阵不构成性能证据，单次切换耗时不作为低停顿结论；切换规模证据由切换合同第 9 节和 #539 负责。
 
-[github-com-illusion-tech-laneflow-issues-285]: https://github.com/illusion-tech/laneflow/issues/285
-[github-com-illusion-tech-laneflow-issues-475]: https://github.com/illusion-tech/laneflow/issues/475
-[signalized-corridor-population]: signalized-corridor-population.md
+[issue-285]: https://github.com/illusion-tech/laneflow/issues/285
+[issue-475]: https://github.com/illusion-tech/laneflow/issues/475
+[corridor-population]: signalized-corridor-population.md
 [committed-pose-extraction]: committed-pose-extraction.md
 [parking-system]: parking-system.md
 [adapter-api]: adapter-api.md
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[revision-cutover]: traffic-runtime-revision-cutover.md

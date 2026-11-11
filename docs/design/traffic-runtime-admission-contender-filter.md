@@ -4,10 +4,10 @@
 **最后更新**: 2026-10-08<br>
 **适用范围**: 道路机动车 `spawn_vehicle` / `replace_completed_vehicle` 的派生候选缓存完整重建
 
-关联：[新生成准入][traffic-runtime-vehicle-placement]、
-[入口 frontier][traffic-runtime-near-gate-frontier]、
+关联：[新生成准入][vehicle-placement]、
+[入口 frontier][near-gate]、
 [整数几何][traffic-runtime-integer-geometry]、
-[共享路网消费][traffic-runtime-shared-consumption]。
+[共享路网消费][shared-consumption]。
 本提案不新增 ADR、公开 API、格式、依赖或运行时开关。当前准入合同继续有效；
 本文尚不表示筛选已经采用或测得收益。#830 的首个实现经有界验证后未采用，
 产品仍使用原完整预览；见[研究结果][admission-filter-results]。
@@ -198,16 +198,16 @@ step 退化或资源成本上升，保留结果并停止本候选，不自动追
 语义、资源生命周期或持久化格式，应先返回设计评审，不能把这些变更夹带为优化。
 实现验收与父级性能认证分别完成；本设计 PR 不执行优化或长测。
 
-#830 首个候选未采用后，[远处限速下降的成功性证明补充][traffic-runtime-admission-speed-drop-proof]
+#830 首个候选未采用后，[远处限速下降的成功性证明补充][speed-drop-proof]
 已通过 #832 / PR #833 交付，并作为 #834 的 Accepted 设计输入。
 #834 的[独立测量][admission-distant-results]未显示可重复收益，
 远处首项候选亦未采用；当前产品继续完整预览。它不表示后续限速下降已普遍获准跳过，
 也不改变本节的实施边界。
 
-[traffic-runtime-vehicle-placement]: traffic-runtime-vehicle-placement.md
-[traffic-runtime-near-gate-frontier]: traffic-runtime-near-gate-frontier.md
+[vehicle-placement]: traffic-runtime-vehicle-placement.md
+[near-gate]: traffic-runtime-near-gate-frontier.md
 [traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
-[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[shared-consumption]: traffic-runtime-shared-consumption.md
 [admission-filter-results]: ../../research/issue-707-city-parallel/admission-filter-results.md
-[traffic-runtime-admission-speed-drop-proof]: traffic-runtime-admission-speed-drop-proof.md
+[speed-drop-proof]: traffic-runtime-admission-speed-drop-proof.md
 [admission-distant-results]: ../../research/issue-707-city-parallel/admission-distant-results.md

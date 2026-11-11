@@ -3,7 +3,7 @@
 生成 `LF-SYNTH-v2` 的一万/十万车辆输入，覆盖 W1–W4、16/33 ms。输出一个包含
 `network.lfca`、`state.json`、`input-plan.json`、`manifest.json` 的新目录。
 文件合同见 [规范输入交付设计][lf-synth-input-bundle]，交通语义见
-[性能基线 §4][core-runtime-performance-baseline-4-canonical-workload]。
+[性能基线 §4][performance-baseline-workload]。
 
 编译：`cargo +1.99.1 build --release --locked -p laneflow-synth-generator`。
 
@@ -58,4 +58,4 @@ cargo +1.99.1 test --release --locked -p laneflow-synth-generator --lib full_sca
 停车 barrier 或性能认证；后续执行 harness 仍须独立交付。
 
 [lf-synth-input-bundle]: ../../docs/design/lf-synth-input-bundle.md
-[core-runtime-performance-baseline-4-canonical-workload]: ../../docs/design/core-runtime-performance-baseline.md#4-canonical-workload
+[performance-baseline-workload]: ../../docs/design/core-runtime-performance-baseline.md#4-canonical-workload

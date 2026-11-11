@@ -40,7 +40,7 @@ fn install(app: &mut App, world: TrafficWorld, spatial: Option<SpatialSession>) 
 - `LaneFlowSession::{cross_revision_cutover, same_revision_restore}` 是同步的维护暂停式切换，不是低停顿在线切换。`LaneFlowTargetSpatial::Headless` 是显式改成无 Spatial 的唯一形态。
 - 走廊示例的 `toml` 和 smoke 用的 `bevy_math` 是 dev-dependency，不进入 `laneflow-bevy` 的生产依赖图。
 
-阶段顺序、批量提取和切换的完整合同见[Bevy 设计][bevy-reference-adapter]。历史 debug gizmo 占位 API 已删除（[#473][github-com-illusion-tech-laneflow-issues-473]）。
+阶段顺序、批量提取和切换的完整合同见[Bevy 设计][bevy-adapter]。历史 debug gizmo 占位 API 已删除（[#473][issue-473]）。
 
 ## 示例与验证
 
@@ -100,20 +100,20 @@ cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example
 ```
 
 完整 C01–C13 验收、确定性出图与独立无窗口摘要对照见
-[Bevy 设计 §15][bevy-reference-adapter-15-corridor_traffic-验收矩阵]。
+[Bevy 设计 §15][bevy-adapter-acceptance]。
 
 ## 深入阅读
 
 - [从源码接入无窗口交通运行时][source-integration]
-- [Bevy 设计][bevy-reference-adapter]
-- [当前能力与限制 · Bevy 接入][capabilities-bevy-接入]
+- [Bevy 设计][bevy-adapter]
+- [当前能力与限制 · Bevy 接入][capabilities-bevy]
 - [`laneflow-runtime`][laneflow-runtime-readme]
 - [`laneflow-spatial`][laneflow-spatial-readme]
 
 [source-integration]: ../../docs/guides/source-integration.md
-[bevy-reference-adapter]: ../../docs/design/bevy-reference-adapter.md
-[github-com-illusion-tech-laneflow-issues-473]: https://github.com/illusion-tech/laneflow/issues/473
-[bevy-reference-adapter-15-corridor_traffic-验收矩阵]: ../../docs/design/bevy-reference-adapter.md#15-corridor_traffic-验收矩阵
-[capabilities-bevy-接入]: ../../docs/reference/capabilities.md#bevy-接入
+[bevy-adapter]: ../../docs/design/bevy-reference-adapter.md
+[issue-473]: https://github.com/illusion-tech/laneflow/issues/473
+[bevy-adapter-acceptance]: ../../docs/design/bevy-reference-adapter.md#15-corridor_traffic-验收矩阵
+[capabilities-bevy]: ../../docs/reference/capabilities.md#bevy-接入
 [laneflow-runtime-readme]: ../laneflow-runtime/README.md
 [laneflow-spatial-readme]: ../laneflow-spatial/README.md

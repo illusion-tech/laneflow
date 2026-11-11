@@ -1,11 +1,11 @@
 # LF-SYNTH-v2 表现与测量接线
 
-**文档状态**：Accepted（[#1165][github-com-illusion-tech-laneflow-issues-1165]）；
+**文档状态**：Accepted（[#1165][issue-1165]）；
 设计已接受，实施与正式测量由 #1166 承担，不能据此宣称实现或产品认证完成。
 
 **适用范围**：LF-SYNTH-v2 宿主 harness 的固定表现选择、外层帧输入与同次运行计时。
 交通输入、步进规则和产品预算仍由
-[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]、
+[`core-runtime-performance-baseline.md`][performance-baseline]、
 [`lf-synth-input-bundle.md`][lf-synth-input-bundle] 和
 [`lf-synth-execution.md`][lf-synth-execution] 约束。
 
@@ -129,7 +129,7 @@ G1 已接受 §1/§4 的 W4 两帧方案，以及 §3 的确定性输入与边�
 的完整批次失败原子性；与语义路径相同的状态/事件；计时分类、原始样本和三轮
 聚合的可复核性。完整正式矩阵和资源记录完成前，E 不得标记完成。
 
-[github-com-illusion-tech-laneflow-issues-1165]: https://github.com/illusion-tech/laneflow/issues/1165
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[issue-1165]: https://github.com/illusion-tech/laneflow/issues/1165
+[performance-baseline]: core-runtime-performance-baseline.md
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
 [lf-synth-execution]: lf-synth-execution.md

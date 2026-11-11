@@ -6,9 +6,9 @@
 GitHub Actions 与 `xtask` 治理工具
 **部分取代**: ADR 0026 第 5–9 节及其关于 External Review、六项 required checks、
 受信审阅者名单、`H_mg` 盖章和撤销 bypass 启用顺序的后果
-**关联 Issue**: [#492][github-com-illusion-tech-laneflow-issues-492]、
-[#468][github-com-illusion-tech-laneflow-issues-468]、
-[#493][github-com-illusion-tech-laneflow-issues-493]
+**关联 Issue**: [#492][issue-492]、
+[#468][issue-468]、
+[#493][issue-493]
 
 ## 背景
 
@@ -106,6 +106,6 @@ message、模板和五项机器检查成果继续有效；其未完成的 `Exter
 - owner bypass 风险转入 #493，不阻塞自定义 Check 的退役。
 - 产品 crate、Core API、Traffic Runtime API、数据格式和 Adapter API 均不受影响。
 
-[github-com-illusion-tech-laneflow-issues-492]: https://github.com/illusion-tech/laneflow/issues/492
-[github-com-illusion-tech-laneflow-issues-468]: https://github.com/illusion-tech/laneflow/issues/468
-[github-com-illusion-tech-laneflow-issues-493]: https://github.com/illusion-tech/laneflow/issues/493
+[issue-492]: https://github.com/illusion-tech/laneflow/issues/492
+[issue-468]: https://github.com/illusion-tech/laneflow/issues/468
+[issue-493]: https://github.com/illusion-tech/laneflow/issues/493

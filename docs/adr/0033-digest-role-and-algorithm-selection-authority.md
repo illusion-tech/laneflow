@@ -5,15 +5,15 @@
 **最后更新**: 2026-10-26<br>
 **适用范围**: LaneFlow 主树中所有摘要（digest）与指纹（fingerprint）的角色划分、算法选择、
 持久化要求与依赖约束<br>
-**设计入口**: [#1022][github-com-illusion-tech-laneflow-issues-1022]、
-[#1051][github-com-illusion-tech-laneflow-issues-1051]<br>
-**关联决策**: [ADR 0020][0020-compiler-owned-static-network-and-static-image]、
-[ADR 0024][0024-compiler-post-emission-check-and-minimal-publication-closure]、
-[ADR 0028][0028-integer-millimeter-traffic-geometry]、
-[ADR 0032][0032-runtime-state-integrity-and-distortion-disposition-authority]<br>
+**设计入口**: [#1022][issue-1022]、
+[#1051][issue-1051]<br>
+**关联决策**: [ADR 0020][adr-0020]、
+[ADR 0024][adr-0024]、
+[ADR 0028][adr-0028]、
+[ADR 0032][adr-0032]<br>
 **关联设计**: [网络编译器 §7.6][network-compiler]、
-[可移植规范制品][portable-canonical-artifact]、
-[运行时状态完整性校验与失真恢复][traffic-runtime-state-integrity]
+[可移植规范制品][portable-artifact]、
+[运行时状态完整性校验与失真恢复][state-integrity]
 
 本文规定新增或复核摘要时“先确定角色，再选算法”的规则，并给出每类角色的默认算法。
 本文拥有角色与选型规则，具体字节合同由各自设计拥有。确定性派生摘要
@@ -180,7 +180,7 @@ Issue 的盘点逐项复核。
   但制品体量为 MB 级，SHA-256 的耗时在毫秒级，更换几乎没有收益；在同一格式家族中
   混用两种算法，会增加格式实现与跨语言重建的负担。一个格式家族使用一种算法更简单。
 - **为什么不统一改用 BLAKE3**：可移植规范制品的设计目标之一是跨语言可人工重建精确
-  字节（见[可移植规范制品][portable-canonical-artifact]）。宿主资产管线、
+  字节（见[可移植规范制品][portable-artifact]）。宿主资产管线、
   第三方工具与人工复核流程普遍内置 SHA-256，BLAKE3 在部分语言生态中需要额外依赖。
 - **为什么增加确定性派生摘要**：以哈希排序再取前 N 项、或将哈希位映射为有界比例，
   并不从哈希相等推出对象/内容相等。持久化要求结果可重建与变更可识别，不自动要求
@@ -209,14 +209,14 @@ Issue 的盘点逐项复核。
 合入冒充实现完成。复核其他摘要若改变字节合同，须在对应设计文档中更新派生版本，
 并按 G1 处理。
 
-[github-com-illusion-tech-laneflow-issues-1022]: https://github.com/illusion-tech/laneflow/issues/1022
-[github-com-illusion-tech-laneflow-issues-1051]: https://github.com/illusion-tech/laneflow/issues/1051
-[0020-compiler-owned-static-network-and-static-image]: 0020-compiler-owned-static-network-and-static-image.md
-[0024-compiler-post-emission-check-and-minimal-publication-closure]: 0024-compiler-post-emission-check-and-minimal-publication-closure.md
-[0028-integer-millimeter-traffic-geometry]: 0028-integer-millimeter-traffic-geometry.md
-[0032-runtime-state-integrity-and-distortion-disposition-authority]: 0032-runtime-state-integrity-and-distortion-disposition-authority.md
+[issue-1022]: https://github.com/illusion-tech/laneflow/issues/1022
+[issue-1051]: https://github.com/illusion-tech/laneflow/issues/1051
+[adr-0020]: 0020-compiler-owned-static-network-and-static-image.md
+[adr-0024]: 0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[adr-0028]: 0028-integer-millimeter-traffic-geometry.md
+[adr-0032]: 0032-runtime-state-integrity-and-distortion-disposition-authority.md
 [network-compiler]: ../design/network-compiler.md
-[portable-canonical-artifact]: ../design/portable-canonical-artifact.md
-[traffic-runtime-state-integrity]: ../design/traffic-runtime-state-integrity.md
+[portable-artifact]: ../design/portable-canonical-artifact.md
+[state-integrity]: ../design/traffic-runtime-state-integrity.md
 [real-road-workloads]: ../design/real-road-workloads.md
 [xxh3-review]: ../../research/issue-1029-lust-digest/xxh3-review.md

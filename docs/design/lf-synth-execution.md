@@ -11,7 +11,7 @@
 稳定标识解析到本修订 ordinal，logical rank 不冒充 ordinal 或 Runtime handle。
 Traffic Runtime 生产代码不感知 workload ID。
 
-交通行为与窗口公式以 [性能基线][core-runtime-performance-baseline] 为准。
+交通行为与窗口公式以 [性能基线][performance-baseline] 为准。
 工具读取受检计划并独立核对周期、预热及观察长度，不允许指定短窗口的正式入口。
 W1/W2/W3 在 16 ms 使用 `14508 + 29016` 拍，33 ms 使用 `7044 + 14088` 拍；
 W4 使用相同预热长度及恰好两条观察拍。初始边界、全部预热拍和观察拍均核验。
@@ -187,7 +187,7 @@ B1。W3/W4 均在前两条观察拍结束后停止本 guardrail，完整 W3 窗�
 ## 7. 标称矩阵的跨 worker 对照
 
 `worker-run` 显式接收非零 worker 数，将 `ExecutionConfig` 传给同一安装与 W1–W4
-核验路径。支持范围由 [执行配置合同][traffic-runtime-execution-config]规定；
+核验路径。支持范围由 [执行配置合同][execution-config]规定；
 不按 CPU 数推断、不静默降级，不改变正式输入、交通配置、命令计划或窗口。
 成功回执记录世界实际使用的 worker 数；失败回执保留请求值与错误。
 
@@ -324,7 +324,7 @@ ADR 0033 互操作摘要，由 PowerShell 通用工具独立重算；内部 BLAK
 `Product TBD / Uncertified` 和已有性能/分配负面结果保持。
 
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[performance-baseline]: core-runtime-performance-baseline.md
 [traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
 [lf-synth-measurement]: lf-synth-measurement.md
-[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
+[execution-config]: traffic-runtime-execution-config.md

@@ -11,10 +11,10 @@ TOPO/DEMAND workload ID
 
 - [`real-road-workloads.md`][real-road-workloads]
 - [`example-scenarios.md`][example-scenarios]
-- [`signalized-corridor-population.md`][signalized-corridor-population]
-- [`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
-- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][0016-scenario-population-and-recycle-lifecycle-authority]
-- [#256 G1 冻结判断][github-com-illusion-tech-laneflow-issues-256-issuecomment-5082584634]
+- [`signalized-corridor-population.md`][corridor-population]
+- [`core-runtime-performance-baseline.md`][performance-baseline]
+- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][adr-0016]
+- [#256 G1 冻结判断][issue-256-g1]
 
 ## 1. 目的与边界
 
@@ -38,7 +38,7 @@ TOPO/DEMAND workload ID
 - 改写 `LF-REAL-LUST-TOPO-v2` / `LF-REAL-LUST-DEMAND-v2` 的固定一万语义；
 - 宣称一万@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
 
-走廊场景继续以 [`signalized-corridor-population.md`][signalized-corridor-population]
+走廊场景继续以 [`signalized-corridor-population.md`][corridor-population]
 的 `50..=200` 为正本；本文只服务 LuST 示例路径（Parent #252 / #257）。
 
 ## 2. 正交计数
@@ -222,7 +222,7 @@ bundle + 人口表临时发明 collision-free `route_edge_index`/progress。
 
 [real-road-workloads]: real-road-workloads.md
 [example-scenarios]: example-scenarios.md
-[signalized-corridor-population]: signalized-corridor-population.md
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
-[0016-scenario-population-and-recycle-lifecycle-authority]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
-[github-com-illusion-tech-laneflow-issues-256-issuecomment-5082584634]: https://github.com/illusion-tech/laneflow/issues/256#issuecomment-5082584634
+[corridor-population]: signalized-corridor-population.md
+[performance-baseline]: core-runtime-performance-baseline.md
+[adr-0016]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
+[issue-256-g1]: https://github.com/illusion-tech/laneflow/issues/256#issuecomment-5082584634

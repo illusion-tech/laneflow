@@ -4,11 +4,11 @@
 **日期**: 2026-10-16<br>
 **最后更新**: 2026-10-25<br>
 **适用范围**: 运行时状态失真的检测权、停用语义与恢复处置裁决权边界<br>
-**设计入口**: [#955][github-com-illusion-tech-laneflow-issues-955]<br>
-**关联决策**: [ADR 0021][0021-traffic-infrastructure-and-host-boundary]、
-[ADR 0030][0030-single-world-parallel-execution]<br>
-**关联设计**: [运行时状态完整性校验与失真恢复][traffic-runtime-state-integrity]、
-[运行时快照 §6][traffic-runtime-snapshot]
+**设计入口**: [#955][issue-955]<br>
+**关联决策**: [ADR 0021][adr-0021]、
+[ADR 0030][adr-0030]<br>
+**关联设计**: [运行时状态完整性校验与失真恢复][state-integrity]、
+[运行时快照 §6][runtime-snapshot]
 
 本文冻结运行时状态完整性失真的处置裁决权与 Runtime 内检测范围。详细机制（原像、共享路网修订认证、
 漏检面、遥测、认证成本口径）见关联设计；本文只回答“为什么这样定”。
@@ -120,8 +120,8 @@ SHA-256（ADR 0033 / #1035 起更换为 BLAKE3-256，本决策不依赖具体算
 保证。本 ADR 接受不等于实现完成；实测若推翻认证成本口径或原像选型，返回 G1 改写
 关联设计并同步本 ADR 取舍记录。
 
-[github-com-illusion-tech-laneflow-issues-955]: https://github.com/illusion-tech/laneflow/issues/955
-[0021-traffic-infrastructure-and-host-boundary]: 0021-traffic-infrastructure-and-host-boundary.md
-[0030-single-world-parallel-execution]: 0030-single-world-parallel-execution.md
-[traffic-runtime-state-integrity]: ../design/traffic-runtime-state-integrity.md
-[traffic-runtime-snapshot]: ../design/traffic-runtime-snapshot.md
+[issue-955]: https://github.com/illusion-tech/laneflow/issues/955
+[adr-0021]: 0021-traffic-infrastructure-and-host-boundary.md
+[adr-0030]: 0030-single-world-parallel-execution.md
+[state-integrity]: ../design/traffic-runtime-state-integrity.md
+[runtime-snapshot]: ../design/traffic-runtime-snapshot.md

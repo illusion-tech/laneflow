@@ -24,7 +24,7 @@ LaneFlow 把受检静态路网转换为可共享修订，并在宿主控制下�
 
 ## 快速开始
 
-需要 Git、[rustup][rustup-rs] 和 Rust 1.99.1：
+需要 Git、[rustup][rustup] 和 Rust 1.99.1：
 
 ```powershell
 git clone https://github.com/illusion-tech/laneflow.git
@@ -47,7 +47,7 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features nati
 | `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含离场失败和真正移除          |
 | `revision_cutover`   | 运行中切换路网修订           | 按 `C` 在两个修订间切换，环路车保持身份，含切换被拒和重试  |
 
-参数与完整命令见 [`laneflow-bevy` 示例][readme-示例与验证]。
+参数与完整命令见 [`laneflow-bevy` 示例][laneflow-bevy-readme-examples]。
 
 <details>
 <summary>无窗口验证</summary>
@@ -66,7 +66,7 @@ cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
 ```
 
-参与开发时的完整工作区检查见[贡献指南 · 测试与验证][contributing-8-测试与验证]。
+参与开发时的完整工作区检查见[贡献指南 · 测试与验证][contributing-tests]。
 
 </details>
 
@@ -116,7 +116,7 @@ flowchart TD
   路网制品。
 
 详细职责与依赖方向见[架构说明][architecture]和
-[Traffic Runtime 共享静态路网消费契约][traffic-runtime-shared-consumption]。
+[Traffic Runtime 共享静态路网消费契约][shared-consumption]。
 
 ## 接入与文档
 
@@ -126,31 +126,31 @@ flowchart TD
 | 嵌入无窗口交通运行时   | [从源码接入无窗口交通运行时][source-integration]、[`laneflow-runtime`][laneflow-runtime-readme]         |
 | 编制路网、了解静态制品 | [`laneflow-compiler`][laneflow-compiler-readme]、[`laneflow-static-network`][laneflow-static-network-readme] |
 | 组织参考场景与车辆生成 | [`laneflow-scenario`][laneflow-scenario-readme]                                                                        |
-| 理解架构和宿主职责     | [架构说明][architecture]、[定位与宿主边界][0021-traffic-infrastructure-and-host-boundary]                    |
+| 理解架构和宿主职责     | [架构说明][architecture]、[定位与宿主边界][adr-0021]                    |
 | 参与开发               | [贡献指南][contributing]、[Agent 说明][agents]                                                                             |
-| 查找完整资料或反馈问题 | [文档索引][docs-readme]、[Issue Tracker][github-com-illusion-tech-laneflow-issues]                                    |
+| 查找完整资料或反馈问题 | [文档索引][docs-readme]、[Issue Tracker][github-issues]                                    |
 
 ## 许可证
 
 LaneFlow 采用 [Apache License 2.0][license]。品牌名称与标记的使用边界见
 [品牌标记使用说明][brand-readme]。
 
-[rustup-rs]: https://rustup.rs/
-[readme-示例与验证]: crates/laneflow-bevy/README.md#示例与验证
+[rustup]: https://rustup.rs/
+[laneflow-bevy-readme-examples]: crates/laneflow-bevy/README.md#示例与验证
 [source-integration]: docs/guides/source-integration.md
-[contributing-8-测试与验证]: CONTRIBUTING.md#8-测试与验证
+[contributing-tests]: CONTRIBUTING.md#8-测试与验证
 [capabilities]: docs/reference/capabilities.md
 [architecture]: docs/architecture.md
-[traffic-runtime-shared-consumption]: docs/design/traffic-runtime-shared-consumption.md
+[shared-consumption]: docs/design/traffic-runtime-shared-consumption.md
 [laneflow-bevy-readme]: crates/laneflow-bevy/README.md
 [laneflow-runtime-readme]: crates/laneflow-runtime/README.md
 [laneflow-compiler-readme]: crates/laneflow-compiler/README.md
 [laneflow-static-network-readme]: crates/laneflow-static-network/README.md
 [laneflow-scenario-readme]: crates/laneflow-scenario/README.md
-[0021-traffic-infrastructure-and-host-boundary]: docs/adr/0021-traffic-infrastructure-and-host-boundary.md
+[adr-0021]: docs/adr/0021-traffic-infrastructure-and-host-boundary.md
 [contributing]: CONTRIBUTING.md
 [agents]: AGENTS.md
 [docs-readme]: docs/README.md
-[github-com-illusion-tech-laneflow-issues]: https://github.com/illusion-tech/laneflow/issues
+[github-issues]: https://github.com/illusion-tech/laneflow/issues
 [license]: LICENSE
 [brand-readme]: assets/brand/README.md

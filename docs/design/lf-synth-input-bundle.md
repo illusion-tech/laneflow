@@ -6,7 +6,7 @@
 ## 1. 职责与身份
 
 本文冻结 `laneflow-synth-generator` 的离线输入文件编码。交通语义以
-[`core-runtime-performance-baseline.md` §4][core-runtime-performance-baseline-4-canonical-workload]
+[`core-runtime-performance-baseline.md` §4][performance-baseline-workload]
 的 `LF-SYNTH-v2` 为准。生成器交付输入；执行、实际命令回执、Spatial/Adapter
 计时和五轴认证由后续 harness 承担，不从生成成功推出 Product Pass。
 
@@ -122,12 +122,12 @@ facilities、spaces、geometry_points、active、parked。文件记录按名称�
 Runtime 性能结果。
 
 固定测试向量见
-[`probe-vectors.json`][probe-vectors]：
+[`probe-vectors.json`][probe-vectors-json]：
 2 cell、两种步长、W1–W4 各自的三个文件 SHA-256 与精确长度。该小规模只供内部回归，
 正式命令行与公开生成 API 拒绝它。规范编码基础向量为 ASCII
 `{"a":1,"b":2}` 加一个 LF，SHA-256 为
 `e8d38819d39f705646bfb643368eca78f7db476c16471dbc33b941b27326410d`，已用
 独立的 .NET SHA256.HashData 核对。
 
-[core-runtime-performance-baseline-4-canonical-workload]: core-runtime-performance-baseline.md#4-canonical-workload
-[probe-vectors]: ../../tools/laneflow-synth-generator/fixtures/probe-vectors.json
+[performance-baseline-workload]: core-runtime-performance-baseline.md#4-canonical-workload
+[probe-vectors-json]: ../../tools/laneflow-synth-generator/fixtures/probe-vectors.json

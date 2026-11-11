@@ -13,9 +13,9 @@
 下列资料可以辅助 Rust API、常见模式与设计原则审阅，但不是 LaneFlow 的规范事实来源，
 也不得机械覆盖仓库 ADR、design、MSRV、性能证据或具体分层边界：
 
-- [Rust API Guidelines][rust-lang-github-io-api-guidelines]
-- [Rust Design Patterns][rust-unofficial-github-io-patterns-intro-html]
-- [Rust Design Patterns：Design principles][rust-unofficial-github-io-patterns-additional_resources-design-principles-html]
+- [Rust API Guidelines][rust-api-guidelines]
+- [Rust Design Patterns][rust-patterns]
+- [Rust Design Patterns：Design principles][rust-design-principles]
 
 审阅引用这些资料时仍须指出具体收益或风险，例如所有权、newtype/typed handle、
 错误边界、API 可预测性、失败原子性或测试可验证性；不得只以通用原则名称要求抽象。
@@ -151,7 +151,7 @@ smoke，一万/十万 matrix 继续作为对应 Delivery/G3 的显式验证。
 - 新增或修改 Rust 代码时，由作者在本次变更范围内遵守本文件；审阅者只对触及区域提出一致性要求。
 - 历史不一致通过有界治理 Issue 清理，不应在无关功能 PR 中顺带制造大范围格式 diff。
 
-Rust 对数字字面量下划线的语言语义见 [Rust Reference: Literal expressions][doc-rust-lang-org-reference-expressions-literal-expr-html]；Clippy 补充检查见 [`unreadable_literal`][rust-lang-github-io-rust-clippy-stable-index-html-unreadable_literal]。
+Rust 对数字字面量下划线的语言语义见 [Rust Reference: Literal expressions][rust-literal-expr]；Clippy 补充检查见 [`unreadable_literal`][clippy-unreadable-literal]。
 
 ## 8. Review 检查
 
@@ -170,8 +170,8 @@ Review Rust 变更时：
    `Result` 无关）；对新增 `#[must_use]` 公开返回类型核对其义务在包装层未丢失
    （见 5.3）。
 
-[rust-lang-github-io-api-guidelines]: https://rust-lang.github.io/api-guidelines/
-[rust-unofficial-github-io-patterns-intro-html]: https://rust-unofficial.github.io/patterns/intro.html
-[rust-unofficial-github-io-patterns-additional_resources-design-principles-html]: https://rust-unofficial.github.io/patterns/additional_resources/design-principles.html
-[doc-rust-lang-org-reference-expressions-literal-expr-html]: https://doc.rust-lang.org/reference/expressions/literal-expr.html
-[rust-lang-github-io-rust-clippy-stable-index-html-unreadable_literal]: https://rust-lang.github.io/rust-clippy/stable/index.html#unreadable_literal
+[rust-api-guidelines]: https://rust-lang.github.io/api-guidelines/
+[rust-patterns]: https://rust-unofficial.github.io/patterns/intro.html
+[rust-design-principles]: https://rust-unofficial.github.io/patterns/additional_resources/design-principles.html
+[rust-literal-expr]: https://doc.rust-lang.org/reference/expressions/literal-expr.html
+[clippy-unreadable-literal]: https://rust-lang.github.io/rust-clippy/stable/index.html#unreadable_literal

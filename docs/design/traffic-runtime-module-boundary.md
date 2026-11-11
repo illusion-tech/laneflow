@@ -3,9 +3,9 @@
 **状态**: Active<br>
 **适用范围**: `laneflow-runtime` 私有模块、格式入口与生产依赖方向<br>
 **关联合同**: [串行阶段协议][traffic-runtime-phase-protocol]、
-[共享静态消费][traffic-runtime-shared-consumption]、
-[运行时快照][traffic-runtime-snapshot]、
-[修订切换][traffic-runtime-revision-cutover]
+[共享静态消费][shared-consumption]、
+[运行时快照][runtime-snapshot]、
+[修订切换][revision-cutover]
 
 ## 1. 模块与所有权
 
@@ -23,7 +23,7 @@ src/
 `kernel/world.rs` 保留安装及运行方法。管理状态的所有者位于 `admin/state.rs`，
 日志武装、解除与在途事务放弃方法位于 `admin/migration_journal.rs`。
 宿主提供的 `ExecutionConfig` 由 facade 单独持有，不并入五类交通状态或快照；
-支持 worker 1–16（#705）。引入执行资源前须按[执行配置合同][traffic-runtime-execution-config]
+支持 worker 1–16（#705）。引入执行资源前须按[执行配置合同][execution-config]
 完成活动世界与候选状态的私有所有权分离。
 目录划分不改变公开入口、字段所有权、实例身份或借用寿命，也不新增公共模块或 prelude。
 
@@ -174,7 +174,7 @@ Cargo 图采集的规则，应包含实际 metadata 采集用例，不能只有�
 不得把尚未交付的调用级能力隔离记为本次已经完成。
 
 [traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
-[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
-[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
-[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
+[shared-consumption]: traffic-runtime-shared-consumption.md
+[runtime-snapshot]: traffic-runtime-snapshot.md
+[revision-cutover]: traffic-runtime-revision-cutover.md
+[execution-config]: traffic-runtime-execution-config.md

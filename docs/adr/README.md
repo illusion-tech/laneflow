@@ -27,42 +27,42 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 
 编号、标题与文件顺序一致。状态取自各 ADR 页头；后继 ADR 的部分取代关系写在括号里。
 ADR 0027 记录的是当时把 required checks 收敛为五项；现行九项清单见
-[开发阶段评审 §6.2][development-gates-62-required-checks]。
+[开发阶段评审 §6.2][development-gates-checks]。
 
-- [0001 Project Scope][0001-project-scope]（Accepted）：项目定位与范围边界。
-- [0002 Dependency and Licensing Constraints][0002-dependency-and-licensing-constraints]（Accepted）：依赖与许可证约束，不依赖 SUMO / CARLA / libsumo。
-- [0003 Runtime Tick and Determinism][0003-runtime-tick-and-determinism]（Accepted）：Runtime tick 与确定性策略。
-- [0004 Core Implementation Language][0004-core-implementation-language]（Accepted）：实现语言为 Rust。标题中的 Core 是该 ADR 的历史名称。
-- [0005 Core Identity and Handle Model][0005-core-identity-and-handle-model]（Accepted）：identity、handle 与 lifecycle。标题中的 Core 是该 ADR 的历史名称。
-- [0006 Vehicle Following Control and Safety Architecture][0006-vehicle-following-control-and-safety]（Accepted）：跟车控制、安全与扩展边界。
-- [0007 Traffic Data Crate and Loader Boundary][0007-traffic-data-crate-and-loader-boundary]（Accepted）：Traffic Data crate、loader 与规范化边界。
-- [0008 Pre-1.0 Data Format Version Policy][0008-pre-1-0-data-format-version-policy]（Accepted）：1.0 前数据格式版本策略。
-- [0009 Signal Indication, Movement Gate, and Policy Separation][0009-signal-indication-gate-and-policy-separation]（Accepted）：indication、门控与策略分离；pair-based Gate identity 由 0017 取代。
-- [0010：停车设施、资源绑定与车辆生命周期裁决权][0010-parking-binding-and-vehicle-lifecycle-authority]（Accepted；#540 G1）：`ParkingFacility`、显式/虚拟停车资源与 Adapter 裁决权。
-- [0011 Schema Identifier and Public Publication Contract][0011-schema-identifier-and-publication-contract]（Superseded）：公共发布义务已被 0026 取代，只保留历史说明。
-- [0012 Core 数值正本与表现层精度][0012-core-numeric-authority-and-presentation-precision]（Superseded）：已被 0014 取代。
-- [0013 引擎无关的空间几何与长度正本][0013-engine-neutral-spatial-geometry-and-length-authority]（部分取代）：精度条款已被 0015 取代。
-- [0014 补偿残差感知的 f32 Core 数值正本与迁移验收][0014-residual-aware-f32-core-authority-and-migration-gates]（Accepted）：Spatial 精度条款已被 0015 部分取代；生产一维几何实施已被 0028 部分取代。
-- [0015 有界 f32 Canonical 空间框架][0015-bounded-f32-canonical-spatial-frames]（Accepted）：有界局部 canonical frame 与运行时 f32 空间类型。
-- [0016 Scenario Population 与车辆回流生命周期裁决权][0016-scenario-population-and-recycle-lifecycle-authority]（Accepted）：场景人口与确定性回流。
-- [0017：静态 Road/Junction/Maneuver 与 Gate 身份][0017-static-road-junction-maneuver-and-gate-identity]（Accepted）：静态 Junction/Movement/ManeuverPath 与 ManeuverGate。
-- [0018：多模式横断面 owner 与参与者准入 overlay][0018-multimodal-cross-section-and-access-overlay]（Accepted）：横断面 owner 与准入 overlay。
-- [0019：WaitingZone、ConflictZone 与车辆级通行权 authority][0019-waiting-zone-conflict-right-of-way-authority]（Accepted）：#282 与 #284 已实现。
-- [0020：编译器拥有的静态路网与目标静态镜像][0020-compiler-owned-static-network-and-static-image]（Accepted；#291 G1）：独立 validator 与收据职责已由 0024 部分取代；镜像文件/ABI 已由 0025 继续取代。
-- [0021：交通基础设施定位与宿主边界][0021-traffic-infrastructure-and-host-boundary]（Accepted）：宿主应用、出行编排、路径规划与交通运行时分层。
-- [0022：编制曲线与规范折线的误差预算分层][0022-authoring-curve-and-canonical-polyline-error-budgets]（Accepted；#296 FlatBuffers G1）：`Fine2Cm`、`Balanced5Cm`、`Compact10Cm`。
-- [0023：道路编辑状态正本与分阶段路网替换][0023-road-editing-state-and-phased-network-replacement]（Accepted；#296 FlatBuffers G1）：§2.1 的来源形状已被 0029 部分取代。
-- [0024：编译器后发射检查与最小发布闭合][0024-compiler-post-emission-check-and-minimal-publication-closure]（Accepted）：LFCA/LFSM/LFSD 后发射检查与 LFCP v2。
-- [0025：受检规范路网与共享静态路网][0025-checked-canonical-network-and-shared-static-network]（Accepted）：从受检 LFCA 构建 `SharedNetworkRevision`。
-- [0026 合并治理重建：原生审阅 Check、Merge Queue 与 Schema Publication 退役][0026-merge-governance-rebuild]（Accepted；#468）：第 5–9 节已被 0027 取代。
-- [0027 退役 External Review 自定义 Check，收敛五项机器检查][0027-retire-external-review-check]（Accepted；#492）：退役 External Review。标题中的五项是该 ADR 当时的决定；现行 required checks 不在本条复述。
-- [0028 交通一维几何整数毫米与固定步进合同][0028-integer-millimeter-traffic-geometry]（Accepted）：整数毫米、微米余数与 `4..=1000` ms。已部分取代 0014 的生产一维几何实施。
-- [0029 退役预编译静态路线，路线入口只留 `register_route`][0029-retire-precompiled-static-route]（Accepted）：路网产品删除 `StaticRoute`。道路编辑来源 `format_version = 4`；本 ADR 将场景 catalog 定为 0.3，现行 catalog 为 0.4。当时表内的 LFCA 4 基线已被现行 LFCA 5 / LFSM 4 / LFSD 4 取代，以可移植制品合同为准。
-- [0030 单世界精确并行与执行配置分离][0030-single-world-parallel-execution]（Accepted）：首版独立计算并行与执行配置分离。配置分离与 worker 1–16 已实现；城市性能未认证。
-- [0031 列式运动正本与独立 SIMD 数值边界][0031-columnar-motion-authority]（Accepted；#814）：列式运动正本。实施不等于收益认证。
-- [0032 运行时状态完整性校验与失真处置裁决权][0032-runtime-state-integrity-and-distortion-disposition-authority]（Accepted；#955 G1）：检测权与宿主处置裁决权。机制见 [运行时状态完整性设计][traffic-runtime-state-integrity]。
-- [0033 摘要角色与摘要算法选型裁决权][0033-digest-role-and-algorithm-selection-authority]（Accepted；#1051）：五类摘要角色。SHA-256 只作为互操作摘要默认算法；运行时确定性状态摘要现行版本为 8 / BLAKE3-256。
-- [0034 钉版编译缓存包装器信任与溯源检查契约][0034-pinned-compiler-cache-wrapper-trust]（Accepted；#1074）：钉版包装器的准入与 `build_compiler_matches_pinned_toolchain`。
+- [0001 Project Scope][adr-0001]（Accepted）：项目定位与范围边界。
+- [0002 Dependency and Licensing Constraints][adr-0002]（Accepted）：依赖与许可证约束，不依赖 SUMO / CARLA / libsumo。
+- [0003 Runtime Tick and Determinism][adr-0003]（Accepted）：Runtime tick 与确定性策略。
+- [0004 Core Implementation Language][adr-0004]（Accepted）：实现语言为 Rust。标题中的 Core 是该 ADR 的历史名称。
+- [0005 Core Identity and Handle Model][adr-0005]（Accepted）：identity、handle 与 lifecycle。标题中的 Core 是该 ADR 的历史名称。
+- [0006 Vehicle Following Control and Safety Architecture][adr-0006]（Accepted）：跟车控制、安全与扩展边界。
+- [0007 Traffic Data Crate and Loader Boundary][adr-0007]（Accepted）：Traffic Data crate、loader 与规范化边界。
+- [0008 Pre-1.0 Data Format Version Policy][adr-0008]（Accepted）：1.0 前数据格式版本策略。
+- [0009 Signal Indication, Movement Gate, and Policy Separation][adr-0009]（Accepted）：indication、门控与策略分离；pair-based Gate identity 由 0017 取代。
+- [0010：停车设施、资源绑定与车辆生命周期裁决权][adr-0010]（Accepted；#540 G1）：`ParkingFacility`、显式/虚拟停车资源与 Adapter 裁决权。
+- [0011 Schema Identifier and Public Publication Contract][adr-0011]（Superseded）：公共发布义务已被 0026 取代，只保留历史说明。
+- [0012 Core 数值正本与表现层精度][adr-0012]（Superseded）：已被 0014 取代。
+- [0013 引擎无关的空间几何与长度正本][adr-0013]（部分取代）：精度条款已被 0015 取代。
+- [0014 补偿残差感知的 f32 Core 数值正本与迁移验收][adr-0014]（Accepted）：Spatial 精度条款已被 0015 部分取代；生产一维几何实施已被 0028 部分取代。
+- [0015 有界 f32 Canonical 空间框架][adr-0015]（Accepted）：有界局部 canonical frame 与运行时 f32 空间类型。
+- [0016 Scenario Population 与车辆回流生命周期裁决权][adr-0016]（Accepted）：场景人口与确定性回流。
+- [0017：静态 Road/Junction/Maneuver 与 Gate 身份][adr-0017]（Accepted）：静态 Junction/Movement/ManeuverPath 与 ManeuverGate。
+- [0018：多模式横断面 owner 与参与者准入 overlay][adr-0018]（Accepted）：横断面 owner 与准入 overlay。
+- [0019：WaitingZone、ConflictZone 与车辆级通行权 authority][adr-0019]（Accepted）：#282 与 #284 已实现。
+- [0020：编译器拥有的静态路网与目标静态镜像][adr-0020]（Accepted；#291 G1）：独立 validator 与收据职责已由 0024 部分取代；镜像文件/ABI 已由 0025 继续取代。
+- [0021：交通基础设施定位与宿主边界][adr-0021]（Accepted）：宿主应用、出行编排、路径规划与交通运行时分层。
+- [0022：编制曲线与规范折线的误差预算分层][adr-0022]（Accepted；#296 FlatBuffers G1）：`Fine2Cm`、`Balanced5Cm`、`Compact10Cm`。
+- [0023：道路编辑状态正本与分阶段路网替换][adr-0023]（Accepted；#296 FlatBuffers G1）：§2.1 的来源形状已被 0029 部分取代。
+- [0024：编译器后发射检查与最小发布闭合][adr-0024]（Accepted）：LFCA/LFSM/LFSD 后发射检查与 LFCP v2。
+- [0025：受检规范路网与共享静态路网][adr-0025]（Accepted）：从受检 LFCA 构建 `SharedNetworkRevision`。
+- [0026 合并治理重建：原生审阅 Check、Merge Queue 与 Schema Publication 退役][adr-0026]（Accepted；#468）：第 5–9 节已被 0027 取代。
+- [0027 退役 External Review 自定义 Check，收敛五项机器检查][adr-0027]（Accepted；#492）：退役 External Review。标题中的五项是该 ADR 当时的决定；现行 required checks 不在本条复述。
+- [0028 交通一维几何整数毫米与固定步进合同][adr-0028]（Accepted）：整数毫米、微米余数与 `4..=1000` ms。已部分取代 0014 的生产一维几何实施。
+- [0029 退役预编译静态路线，路线入口只留 `register_route`][adr-0029]（Accepted）：路网产品删除 `StaticRoute`。道路编辑来源 `format_version = 4`；本 ADR 将场景 catalog 定为 0.3，现行 catalog 为 0.4。当时表内的 LFCA 4 基线已被现行 LFCA 5 / LFSM 4 / LFSD 4 取代，以可移植制品合同为准。
+- [0030 单世界精确并行与执行配置分离][adr-0030]（Accepted）：首版独立计算并行与执行配置分离。配置分离与 worker 1–16 已实现；城市性能未认证。
+- [0031 列式运动正本与独立 SIMD 数值边界][adr-0031]（Accepted；#814）：列式运动正本。实施不等于收益认证。
+- [0032 运行时状态完整性校验与失真处置裁决权][adr-0032]（Accepted；#955 G1）：检测权与宿主处置裁决权。机制见 [运行时状态完整性设计][state-integrity]。
+- [0033 摘要角色与摘要算法选型裁决权][adr-0033]（Accepted；#1051）：五类摘要角色。SHA-256 只作为互操作摘要默认算法；运行时确定性状态摘要现行版本为 8 / BLAKE3-256。
+- [0034 钉版编译缓存包装器信任与溯源检查契约][adr-0034]（Accepted；#1074）：钉版包装器的准入与 `build_compiler_matches_pinned_toolchain`。
 
 ## 命名规则
 
@@ -90,39 +90,39 @@ ADR 状态建议使用：
 
 若决策被替代，应新增后续 ADR，不要静默改写历史决策。
 
-[development-gates-62-required-checks]: ../governance/development-gates.md#62-required-checks
-[0001-project-scope]: 0001-project-scope.md
-[0002-dependency-and-licensing-constraints]: 0002-dependency-and-licensing-constraints.md
-[0003-runtime-tick-and-determinism]: 0003-runtime-tick-and-determinism.md
-[0004-core-implementation-language]: 0004-core-implementation-language.md
-[0005-core-identity-and-handle-model]: 0005-core-identity-and-handle-model.md
-[0006-vehicle-following-control-and-safety]: 0006-vehicle-following-control-and-safety.md
-[0007-traffic-data-crate-and-loader-boundary]: 0007-traffic-data-crate-and-loader-boundary.md
-[0008-pre-1-0-data-format-version-policy]: 0008-pre-1.0-data-format-version-policy.md
-[0009-signal-indication-gate-and-policy-separation]: 0009-signal-indication-gate-and-policy-separation.md
-[0010-parking-binding-and-vehicle-lifecycle-authority]: 0010-parking-binding-and-vehicle-lifecycle-authority.md
-[0011-schema-identifier-and-publication-contract]: 0011-schema-identifier-and-publication-contract.md
-[0012-core-numeric-authority-and-presentation-precision]: 0012-core-numeric-authority-and-presentation-precision.md
-[0013-engine-neutral-spatial-geometry-and-length-authority]: 0013-engine-neutral-spatial-geometry-and-length-authority.md
-[0014-residual-aware-f32-core-authority-and-migration-gates]: 0014-residual-aware-f32-core-authority-and-migration-gates.md
-[0015-bounded-f32-canonical-spatial-frames]: 0015-bounded-f32-canonical-spatial-frames.md
-[0016-scenario-population-and-recycle-lifecycle-authority]: 0016-scenario-population-and-recycle-lifecycle-authority.md
-[0017-static-road-junction-maneuver-and-gate-identity]: 0017-static-road-junction-maneuver-and-gate-identity.md
-[0018-multimodal-cross-section-and-access-overlay]: 0018-multimodal-cross-section-and-access-overlay.md
-[0019-waiting-zone-conflict-right-of-way-authority]: 0019-waiting-zone-conflict-right-of-way-authority.md
-[0020-compiler-owned-static-network-and-static-image]: 0020-compiler-owned-static-network-and-static-image.md
-[0021-traffic-infrastructure-and-host-boundary]: 0021-traffic-infrastructure-and-host-boundary.md
-[0022-authoring-curve-and-canonical-polyline-error-budgets]: 0022-authoring-curve-and-canonical-polyline-error-budgets.md
-[0023-road-editing-state-and-phased-network-replacement]: 0023-road-editing-state-and-phased-network-replacement.md
-[0024-compiler-post-emission-check-and-minimal-publication-closure]: 0024-compiler-post-emission-check-and-minimal-publication-closure.md
-[0025-checked-canonical-network-and-shared-static-network]: 0025-checked-canonical-network-and-shared-static-network.md
-[0026-merge-governance-rebuild]: 0026-merge-governance-rebuild.md
-[0027-retire-external-review-check]: 0027-retire-external-review-check.md
-[0028-integer-millimeter-traffic-geometry]: 0028-integer-millimeter-traffic-geometry.md
-[0029-retire-precompiled-static-route]: 0029-retire-precompiled-static-route.md
-[0030-single-world-parallel-execution]: 0030-single-world-parallel-execution.md
-[0031-columnar-motion-authority]: 0031-columnar-motion-authority.md
-[0032-runtime-state-integrity-and-distortion-disposition-authority]: 0032-runtime-state-integrity-and-distortion-disposition-authority.md
-[traffic-runtime-state-integrity]: ../design/traffic-runtime-state-integrity.md
-[0033-digest-role-and-algorithm-selection-authority]: 0033-digest-role-and-algorithm-selection-authority.md
-[0034-pinned-compiler-cache-wrapper-trust]: 0034-pinned-compiler-cache-wrapper-trust.md
+[development-gates-checks]: ../governance/development-gates.md#62-required-checks
+[adr-0001]: 0001-project-scope.md
+[adr-0002]: 0002-dependency-and-licensing-constraints.md
+[adr-0003]: 0003-runtime-tick-and-determinism.md
+[adr-0004]: 0004-core-implementation-language.md
+[adr-0005]: 0005-core-identity-and-handle-model.md
+[adr-0006]: 0006-vehicle-following-control-and-safety.md
+[adr-0007]: 0007-traffic-data-crate-and-loader-boundary.md
+[adr-0008]: 0008-pre-1.0-data-format-version-policy.md
+[adr-0009]: 0009-signal-indication-gate-and-policy-separation.md
+[adr-0010]: 0010-parking-binding-and-vehicle-lifecycle-authority.md
+[adr-0011]: 0011-schema-identifier-and-publication-contract.md
+[adr-0012]: 0012-core-numeric-authority-and-presentation-precision.md
+[adr-0013]: 0013-engine-neutral-spatial-geometry-and-length-authority.md
+[adr-0014]: 0014-residual-aware-f32-core-authority-and-migration-gates.md
+[adr-0015]: 0015-bounded-f32-canonical-spatial-frames.md
+[adr-0016]: 0016-scenario-population-and-recycle-lifecycle-authority.md
+[adr-0017]: 0017-static-road-junction-maneuver-and-gate-identity.md
+[adr-0018]: 0018-multimodal-cross-section-and-access-overlay.md
+[adr-0019]: 0019-waiting-zone-conflict-right-of-way-authority.md
+[adr-0020]: 0020-compiler-owned-static-network-and-static-image.md
+[adr-0021]: 0021-traffic-infrastructure-and-host-boundary.md
+[adr-0022]: 0022-authoring-curve-and-canonical-polyline-error-budgets.md
+[adr-0023]: 0023-road-editing-state-and-phased-network-replacement.md
+[adr-0024]: 0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[adr-0025]: 0025-checked-canonical-network-and-shared-static-network.md
+[adr-0026]: 0026-merge-governance-rebuild.md
+[adr-0027]: 0027-retire-external-review-check.md
+[adr-0028]: 0028-integer-millimeter-traffic-geometry.md
+[adr-0029]: 0029-retire-precompiled-static-route.md
+[adr-0030]: 0030-single-world-parallel-execution.md
+[adr-0031]: 0031-columnar-motion-authority.md
+[adr-0032]: 0032-runtime-state-integrity-and-distortion-disposition-authority.md
+[state-integrity]: ../design/traffic-runtime-state-integrity.md
+[adr-0033]: 0033-digest-role-and-algorithm-selection-authority.md
+[adr-0034]: 0034-pinned-compiler-cache-wrapper-trust.md
