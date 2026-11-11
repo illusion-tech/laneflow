@@ -1,7 +1,7 @@
 //! 来源收集与仓库内路径解析。不跟随符号链接，也不离开仓库根。
 
 use std::collections::BTreeSet;
-use std::fs::{self, DirEntry, FileType};
+use std::fs::{self, DirEntry};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
@@ -295,30 +295,20 @@ pub(super) fn stat_rel(root: &Path, rel: &str) -> Result<Stat, StatError> {
     let mut current = root.to_path_buf();
     let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
     for (index, part) in parts.iter().enumerate() {
-        current.push(part);
-        let meta = match fs::symlink_metadata(&current) {
-            Ok(meta) => meta,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(StatError::Missing);
-            }
-            Err(error) => {
-                return Err(StatError::Io(format!(
-                    "无法读取路径 `{}`: {error}",
-                    current.display()
-                )));
-            }
-        };
-        if meta.file_type().is_symlink() {
+        // 用目录项的原始拼写比较，避免大小写不敏感的文件系统把 Docs 当成 docs。
+        let kind = exact_entry(&current, part)?;
+        let last = index + 1 == parts.len();
+        if kind.symlink {
             return Err(StatError::Symlink);
         }
-        let last = index + 1 == parts.len();
-        if is_dir(&meta.file_type()) {
+        if kind.dir {
+            current.push(part);
             if last {
                 return Ok(Stat::Dir);
             }
             continue;
         }
-        if meta.is_file() {
+        if kind.file {
             if last {
                 return Ok(Stat::File);
             }
@@ -329,8 +319,43 @@ pub(super) fn stat_rel(root: &Path, rel: &str) -> Result<Stat, StatError> {
     Err(StatError::Missing)
 }
 
-fn is_dir(file_type: &FileType) -> bool {
-    file_type.is_dir()
+struct EntryKind {
+    symlink: bool,
+    dir: bool,
+    file: bool,
+}
+
+fn exact_entry(dir: &Path, name: &str) -> Result<EntryKind, StatError> {
+    let wanted = std::ffi::OsStr::new(name);
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(StatError::Missing),
+        Err(error) => {
+            return Err(StatError::Io(format!(
+                "无法读取目录 `{}`: {error}",
+                dir.display()
+            )));
+        }
+    };
+    for entry in entries {
+        let entry = entry
+            .map_err(|error| StatError::Io(format!("无法读取目录 `{}`: {error}", dir.display())))?;
+        if entry.file_name() != wanted {
+            continue;
+        }
+        let file_type = entry.file_type().map_err(|error| {
+            StatError::Io(format!(
+                "无法读取路径 `{}`: {error}",
+                entry.path().display()
+            ))
+        })?;
+        return Ok(EntryKind {
+            symlink: file_type.is_symlink(),
+            dir: file_type.is_dir(),
+            file: file_type.is_file(),
+        });
+    }
+    Err(StatError::Missing)
 }
 
 /// 把已百分号解码的本地路径解析成仓库相对路径。`base_rel` 是源文件所在目录。

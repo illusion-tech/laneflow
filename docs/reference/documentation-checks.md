@@ -58,7 +58,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 | 目标                                                          | 结果                                                                  |
 | ------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 相对路径、以 `/` 开头的仓库根路径                             | 从源文件目录或仓库根做词法解析，再检查存在性                          |
+| 相对路径、以 `/` 开头的仓库根路径                             | 从源文件目录或仓库根做词法解析，再按目录项的原始大小写检查存在性      |
 | Markdown 文件上的 fragment                                    | 必须命中第 4 节的标题 slug，或显式 `<a id>` / `<a name>`              |
 | 非 Markdown 文件上的 fragment                                 | 只确认路径存在，锚点记入 `non-markdown-fragment`，不报 missing-anchor |
 | 目录，且没有 fragment                                         | 目录存在即可                                                          |
@@ -108,7 +108,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。
+[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`id` / `name` 的引号值会解码 `&amp;`、`&lt;`、`&gt;`、`&quot;`、`&apos;` 和数字字符引用。`script`、`style`、`textarea`、`title` 的内容不是锚点。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 

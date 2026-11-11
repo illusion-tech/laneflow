@@ -635,6 +635,78 @@ fn protocol_relative_urls_stay_external_and_repo_root_paths_stay_local() {
 }
 
 #[test]
+fn anchor_values_decode_entities_and_ignore_raw_text() {
+    let repo = TestRepo::new("entities");
+    repo.write(
+        "a.md",
+        "<a id=\"a&amp;b\"></a>\n<script type=\"text/plain\">\n<a id=\"hidden\"></a>\n</script>\n\n[ok](#a%26b)\n[raw](#a&amp;b)\n[no](#hidden)\n",
+    );
+    let targets: Vec<_> = texts(&repo.check())
+        .into_iter()
+        .filter_map(|line| {
+            line.split("target=")
+                .nth(1)
+                .and_then(|rest| rest.split(':').next())
+                .map(str::to_string)
+        })
+        .collect();
+    assert_eq!(targets, vec!["#hidden".to_string()]);
+}
+
+#[test]
+fn path_spelling_is_case_sensitive() {
+    let repo = TestRepo::new("case");
+    repo.write("docs/README.md", "# Docs\n");
+    repo.write(
+        "a.md",
+        "[wrong-dir](Docs/README.md)\n[wrong-file](docs/readme.md)\n[ok](docs/README.md)\n",
+    );
+    let targets: Vec<_> = repo
+        .check()
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(
+        targets,
+        vec!["Docs/README.md".to_string(), "docs/readme.md".to_string()]
+    );
+}
+
+#[test]
+fn fragmentless_edges_reject_extra_fragments() {
+    let repo = TestRepo::new("extra-fragment");
+    repo.config(
+        r#"
+[[required]]
+source = "AGENTS.md"
+target = ".agents/README.md"
+accept_code_span = true
+reason = "不带 fragment"
+"#,
+    );
+    repo.write(".agents/README.md", "# Agents\n");
+    repo.write("AGENTS.md", "`.agents/README.md#missing`\n");
+    assert!(
+        texts(&repo.check())
+            .join("\n")
+            .contains("missing-required-entry")
+    );
+    repo.write("AGENTS.md", "[agents](.agents/README.md#missing)\n");
+    assert!(
+        texts(&repo.check())
+            .join("\n")
+            .contains("missing-required-entry")
+    );
+    repo.write("AGENTS.md", "`.agents/README.md`\n");
+    assert!(
+        texts(&repo.check()).is_empty(),
+        "{}",
+        texts(&repo.check()).join("\n")
+    );
+}
+
+#[test]
 fn quoted_greater_than_does_not_hide_the_anchor_id() {
     let repo = TestRepo::new("gt-attr");
     repo.write(

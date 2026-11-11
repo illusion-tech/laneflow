@@ -551,10 +551,7 @@ fn link_hits(link: &markdown::LinkRec, edge: &RequiredEdge) -> bool {
 }
 
 fn fragment_satisfies(required: Option<&str>, actual: Option<&str>) -> bool {
-    match required {
-        None => true,
-        Some(expected) => actual == Some(expected),
-    }
+    required == actual
 }
 
 fn finding(
