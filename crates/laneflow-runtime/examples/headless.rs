@@ -47,7 +47,7 @@ type ExampleResult<T> = Result<T, Box<dyn Error>>;
 
 /// 一次无窗口运行的可观察结果。打印文本由 [`HeadlessReport::render`] 生成。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeadlessReport {
+struct HeadlessReport {
     /// 绑定得到的策略选择。走廊必须是 `Pinned`。
     pub policy: WorldPolicySelection,
     /// 共享路网修订标识的小写十六进制。
@@ -117,7 +117,7 @@ pub struct HeadlessReport {
 impl HeadlessReport {
     /// 稳定的键值文本，供示例标准输出和指南冻结。
     #[must_use]
-    pub fn render(&self) -> String {
+    fn render(&self) -> String {
         let policy = match self.policy {
             WorldPolicySelection::Pinned(_) => "pinned",
             WorldPolicySelection::NotRequired => "not_required",
@@ -212,7 +212,7 @@ front_vehicle_count={fronts}
 }
 
 /// 检查检入 LFCA、省略 Spatial 保留数据，并安装一辆车的世界。
-pub fn run() -> ExampleResult<HeadlessReport> {
+fn run() -> ExampleResult<HeadlessReport> {
     let catalog: laneflow_scenario::signalized_corridor::CorridorCatalog = toml::from_str(CATALOG)?;
     if catalog.catalog_version != CATALOG_VERSION {
         return Err(format!(
