@@ -176,7 +176,7 @@ fn add_child_readmes(root: &Path, dir: &Path, files: &mut BTreeSet<String>) -> R
         let file_type = entry
             .file_type()
             .map_err(|error| format!("无法读取路径 `{}`: {error}", path.display()))?;
-        if file_type.is_symlink() || !file_type.is_dir() {
+        if file_type.is_symlink() || !file_type.is_dir() || skip_dir(&path, true) {
             continue;
         }
         add_optional_file(root, &path.join("README.md"), files)?;

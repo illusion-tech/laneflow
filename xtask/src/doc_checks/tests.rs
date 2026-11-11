@@ -670,6 +670,45 @@ fn numeric_references_follow_html_replacements_and_duplicate_attributes_keep_the
 }
 
 #[test]
+fn crate_and_tool_child_readmes_skip_excluded_directory_names() {
+    let repo = TestRepo::new("child-skip");
+    repo.write("crates/demo/README.md", "# Demo\n");
+    repo.write("crates/tests/README.md", "[x](missing.md)\n");
+    repo.write("crates/fixtures/README.md", "# Fixture\n");
+    repo.write("tools/demo/README.md", "# Tool\n");
+    repo.write("tools/evidence/README.md", "# Evidence\n");
+    repo.write("tools/node_modules/README.md", "# Modules\n");
+    let sources = collect_sources(&repo.path, None).expect("default sources");
+    assert!(sources.contains("crates/demo/README.md"), "{sources:?}");
+    assert!(sources.contains("tools/demo/README.md"), "{sources:?}");
+    assert!(
+        sources.iter().all(|path| {
+            !path.contains("/tests/")
+                && !path.contains("/fixtures/")
+                && !path.contains("/evidence/")
+                && !path.contains("/node_modules/")
+        }),
+        "{sources:?}"
+    );
+}
+
+#[test]
+fn self_closing_raw_text_tags_still_hide_following_anchors() {
+    let repo = TestRepo::new("script-slash");
+    repo.write(
+        "a.md",
+        "<script/>\n<a id=\"hidden\"></a>\n</script>\n<a id=\"shown\"></a>\n\n[h](#hidden)\n[s](#shown)\n",
+    );
+    let targets: Vec<_> = repo
+        .check()
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(targets, vec!["#hidden".to_string()]);
+}
+
+#[test]
 fn path_spelling_is_case_sensitive() {
     let repo = TestRepo::new("case");
     repo.write("docs/README.md", "# Docs\n");

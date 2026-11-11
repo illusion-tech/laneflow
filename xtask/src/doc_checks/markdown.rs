@@ -491,9 +491,8 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlSca
         let Some(close) = tag_end(html, index) else {
             break;
         };
-        let self_closing = !closing && close > index && bytes[close - 1] == b'/';
+        // HTML 不把 script/style/textarea/title 的 `/>` 当成空元素，后面的内容仍算元素正文。
         if !closing
-            && !self_closing
             && matches!(
                 name.to_ascii_lowercase().as_str(),
                 "script" | "style" | "textarea" | "title"
