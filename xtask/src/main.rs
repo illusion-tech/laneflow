@@ -2,6 +2,7 @@ mod commit_harnesses;
 mod commit_messages;
 mod commit_models;
 mod digest_probe;
+mod doc_checks;
 mod markdown_tables;
 mod measurement;
 mod runtime_architecture;
@@ -30,6 +31,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             )?;
             commit_messages::check_commit_message_file(path)
         }
+        Some("check-docs") => doc_checks::run(&args[1..]),
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-road-editing-codegen") => schema_codegen::run(&schema_codegen::ROAD_EDITING, &args[1..]),
         Some("check-runtime-snapshot-codegen") => {
@@ -42,7 +44,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("classify-digest-probe") => digest_probe::run(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-docs, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
                 .to_string(),
         ),
     }

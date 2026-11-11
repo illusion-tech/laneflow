@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-10-26
+**最后更新**: 2026-11-11
 
 **适用范围**: LaneFlow 各任务类别在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
 **关联文档**:
@@ -207,3 +207,24 @@ CLI 捕获输出仍原样交给原测试断言。总日志中的 `[child-diagnos
 零代码浸泡实测为 4,095 / 4,096 字节为零），原页零段多时差异同样只覆盖部分分段，故按
 近零页归入 `Zero`；被清零的原内容不足 256 字节时仍判 `Partial`，零字节居多的页上的局部
 清零不按写丢失认。判读以页分类为准，`page_aligned` 只作参考。
+
+## 9. 离线文档结构检查
+
+本地结构检查的命令是：
+
+```powershell
+cargo +1.99.1 run --locked -p xtask -- check-docs [<path...>]
+```
+
+无参数时扫描 `docs/reference/documentation-checks.md` 列出的默认来源。传入路径只收窄或扩展来源扫描，不关闭关键索引入口检查。成功退出 0，规则或执行失败退出 1。没有修复模式。
+
+它检查 Markdown 链接和图片的本地路径是否存在、Markdown 目标上的 fragment 是否命中受支持的标题或 `<a id>` / `<a name>`，以及 `xtask/data/doc-checks.toml` 里的 source→target 边。完整规则、正反例和跳过条件只写在 [`documentation-checks.md`][documentation-checks]，这里不复制一遍。
+
+范围、误报与边界：
+
+- 默认不把 `research/` 历史、测试、fixture、evidence 和生成代码当作来源；指向这些真实文件的链接仍然检查路径是否存在。
+- HTTP(S)、mailto、历史 commit / tree / blob URL 和 rustdoc 符号链接只计数、不访问。不能可靠判定的扩展语法记为可见的 skip，不算锚点已通过，也不报 missing-anchor。
+- 配置文件只登记关键入口，不是逐文件忽略表。存量路径或锚点错误应改正文档，或留给后续文档删并；不能靠新增忽略项变成通过。
+- 结构检查通过只说明路径和锚点对得上。它不判断术语、语义或跨文档是否一致，也不是合并门禁，不能代替 #1345 的最终跨文档一致性复核。
+
+[documentation-checks]: documentation-checks.md
