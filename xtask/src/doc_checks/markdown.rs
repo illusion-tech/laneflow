@@ -21,6 +21,7 @@ pub(super) struct LinkRec {
     pub(super) line: usize,
     pub(super) column: usize,
     pub(super) raw: String,
+    pub(super) image: bool,
     pub(super) kind: LinkKind,
 }
 
@@ -103,25 +104,40 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     dest_url,
                     id,
                     ..
-                })
-                | Event::Start(Tag::Image {
+                }) if in_code == 0 => {
+                    record_link(
+                        &mut links,
+                        &lines,
+                        text,
+                        source_rel,
+                        range.start,
+                        Destination {
+                            link_type,
+                            dest_url: &dest_url,
+                            id: &id,
+                            image: false,
+                        },
+                    );
+                }
+                Event::Start(Tag::Image {
                     link_type,
                     dest_url,
                     id,
                     ..
-                }) if in_code == 0 && !matches!(link_type, LinkType::ShortcutUnknown) => {
-                    let (line, column) = lines.position(text, range.start);
-                    let raw = if dest_url.is_empty() {
-                        id.to_string()
-                    } else {
-                        dest_url.to_string()
-                    };
-                    links.push(LinkRec {
-                        line,
-                        column,
-                        kind: classify_destination(link_type, &dest_url, source_rel),
-                        raw,
-                    });
+                }) if in_code == 0 => {
+                    record_link(
+                        &mut links,
+                        &lines,
+                        text,
+                        source_rel,
+                        range.start,
+                        Destination {
+                            link_type,
+                            dest_url: &dest_url,
+                            id: &id,
+                            image: true,
+                        },
+                    );
                 }
                 _ => {}
             }
@@ -134,6 +150,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
             line,
             column,
             raw: reference,
+            image: false,
             kind: LinkKind::Failure {
                 kind: FindingKind::Path,
                 reason: "引用链接没有定义",
@@ -146,6 +163,39 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
         anchors,
         code_spans,
     }
+}
+
+struct Destination<'a> {
+    link_type: LinkType,
+    dest_url: &'a str,
+    id: &'a str,
+    image: bool,
+}
+
+fn record_link(
+    links: &mut Vec<LinkRec>,
+    lines: &LineIndex,
+    text: &str,
+    source_rel: &str,
+    offset: usize,
+    destination: Destination<'_>,
+) {
+    if matches!(destination.link_type, LinkType::ShortcutUnknown) {
+        return;
+    }
+    let (line, column) = lines.position(text, offset);
+    let raw = if destination.dest_url.is_empty() {
+        destination.id.to_string()
+    } else {
+        destination.dest_url.to_string()
+    };
+    links.push(LinkRec {
+        line,
+        column,
+        raw,
+        image: destination.image,
+        kind: classify_destination(destination.link_type, destination.dest_url, source_rel),
+    });
 }
 
 fn parser_options() -> Options {
@@ -415,59 +465,78 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut in_comment: b
         };
         let close = index + relative_close;
         if name.eq_ignore_ascii_case("a") {
-            let tag = &html[index..=close];
-            for key in ["id", "name"] {
-                if let Some(value) = quoted_attr(tag, key)
-                    && !value.is_empty()
-                {
-                    anchors.insert(value);
-                }
-            }
+            anchors.extend(quoted_anchor_values(&html[index..=close]));
         }
         index = close + 1;
     }
     in_comment
 }
 
-fn quoted_attr(tag: &str, key: &str) -> Option<String> {
+/// 只读取 `<a>` 上带引号的 `id` / `name`。引号值内部不再扫描，避免把 `title="id='hidden'"` 当成锚点。
+fn quoted_anchor_values(tag: &str) -> Vec<String> {
     let bytes = tag.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if !bytes[index].is_ascii() {
-            index += 1;
-            continue;
-        }
-        if index + key.len() <= bytes.len()
-            && tag.is_char_boundary(index)
-            && tag.is_char_boundary(index + key.len())
-            && tag[index..index + key.len()].eq_ignore_ascii_case(key)
-            && attr_boundary(bytes, index)
-        {
-            let mut cursor = index + key.len();
-            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
-                cursor += 1;
-            }
-            if bytes.get(cursor) != Some(&b'=') {
-                index += 1;
-                continue;
-            }
-            cursor += 1;
-            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
-                cursor += 1;
-            }
-            let quote = *bytes.get(cursor)?;
-            if quote != b'"' && quote != b'\'' {
-                return None;
-            }
-            let start = cursor + 1;
-            let end = bytes[start..].iter().position(|byte| *byte == quote)?;
-            return Some(tag[start..start + end].to_string());
-        }
+    let mut index = 1;
+    while index < bytes.len()
+        && !bytes[index].is_ascii_whitespace()
+        && bytes[index] != b'>'
+        && bytes[index] != b'/'
+    {
         index += 1;
     }
-    None
-}
-
-fn attr_boundary(bytes: &[u8], index: usize) -> bool {
-    index > 0 && (bytes[index - 1].is_ascii_whitespace() || bytes[index - 1] == b'<')
+    let mut values = Vec::new();
+    while index < bytes.len() && bytes[index] != b'>' {
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() || bytes[index] == b'>' || bytes[index] == b'/' {
+            break;
+        }
+        let name_start = index;
+        while index < bytes.len()
+            && !bytes[index].is_ascii_whitespace()
+            && bytes[index] != b'='
+            && bytes[index] != b'>'
+            && bytes[index] != b'/'
+        {
+            index += 1;
+        }
+        let name = &tag[name_start..index];
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() || bytes[index] != b'=' {
+            continue;
+        }
+        index += 1;
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            break;
+        }
+        let quote = bytes[index];
+        if quote == b'"' || quote == b'\'' {
+            index += 1;
+            let start = index;
+            while index < bytes.len() && bytes[index] != quote {
+                index += 1;
+            }
+            if (name.eq_ignore_ascii_case("id") || name.eq_ignore_ascii_case("name"))
+                && index > start
+                && tag.is_char_boundary(start)
+                && tag.is_char_boundary(index)
+            {
+                values.push(tag[start..index].to_string());
+            }
+            if index < bytes.len() {
+                index += 1;
+            }
+        } else {
+            while index < bytes.len() && !bytes[index].is_ascii_whitespace() && bytes[index] != b'>'
+            {
+                index += 1;
+            }
+        }
+    }
+    values
 }

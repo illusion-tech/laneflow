@@ -177,7 +177,7 @@ fn html_id_and_name_are_anchors_and_custom_heading_syntax_is_not() {
     let repo = TestRepo::new("html");
     repo.write(
         "a.md",
-        "<a id=\"templates\"></a>\n<a name='legacy'></a>\n<a id=\"gamma\" name=\"delta\"></a>\n<!-- <a id=\"hidden\"></a> -->\n<!--\n<a id=\"multiline\"></a>\n-->\n<a id=raw></a>\n<abbr id=\"nope\"></abbr>\n## Title {#custom}\n\n[t](#templates)\n[l](#legacy)\n[g](#gamma)\n[d](#delta)\n[h](#hidden)\n[m](#multiline)\n[r](#raw)\n[n](#nope)\n[c](#custom)\n[s](#title-custom)\n",
+        "<a id=\"templates\"></a>\n<a name='legacy'></a>\n<a id=\"gamma\" name=\"delta\"></a>\n<!-- <a id=\"hidden\"></a> -->\n<!--\n<a id=\"multiline\"></a>\n-->\n<a id=raw></a>\n<abbr id=\"nope\"></abbr>\n## Title {#custom}\n\n[t](#templates)\n[l](#legacy)\n[g](#gamma)\n[d](#delta)\n[h](#hidden)\n[m](#multiline)\n[r](#raw)\n[n](#nope)\n[c](#custom)\n[s](#title-custom)\n<a title=\"example id='quoted'\"></a>\n<a title=\"id='skip'\" id=\"kept\"></a>\n[q](#quoted)\n[k](#kept)\n",
     );
     let report = repo.check();
     let targets: Vec<_> = report
@@ -187,7 +187,14 @@ fn html_id_and_name_are_anchors_and_custom_heading_syntax_is_not() {
         .collect();
     assert_eq!(
         targets,
-        vec!["#hidden", "#multiline", "#raw", "#nope", "#custom"]
+        vec![
+            "#hidden",
+            "#multiline",
+            "#raw",
+            "#nope",
+            "#custom",
+            "#quoted"
+        ]
     );
     assert!(
         report
@@ -543,6 +550,65 @@ fn explicit_source_rejects_a_symlinked_ancestor() {
     .expect_err("symlink ancestor");
     assert!(error.contains("不跟随符号链接"), "{error}");
     assert!(!error.contains("Secret"), "{error}");
+}
+
+#[test]
+fn images_do_not_satisfy_required_edges_but_their_paths_are_still_checked() {
+    let repo = TestRepo::new("image-edge");
+    repo.config(
+        r#"
+[[required]]
+source = "README.md"
+target = "docs/README.md"
+reason = "必须是导航链接"
+"#,
+    );
+    repo.write("docs/README.md", "# Docs\n");
+    repo.write(
+        "README.md",
+        "![preview](docs/README.md)\n![gone](missing.png)\n",
+    );
+    let image_only = texts(&repo.check()).join("\n");
+    assert!(
+        image_only.contains("missing-required-entry"),
+        "{image_only}"
+    );
+    assert!(image_only.contains("target=missing.png"), "{image_only}");
+
+    repo.write(
+        "README.md",
+        "[docs](docs/README.md)\n![gone](missing.png)\n",
+    );
+    let linked = texts(&repo.check());
+    assert_eq!(
+        linked,
+        vec!["README.md:2:1: target=missing.png: missing-path: 本地路径不存在".to_string()]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn default_sources_do_not_follow_symlinked_roots() {
+    let repo = TestRepo::new("sym-roots");
+    let outside = std::env::temp_dir().join(format!(
+        "laneflow-xtask-docs-roots-{}-{}",
+        std::process::id(),
+        TEST_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(outside.join("evil")).expect("outside dir");
+    let _cleanup = RemoveDir(&outside);
+    fs::write(outside.join("evil/README.md"), "# Outside\n").expect("readme");
+    fs::write(outside.join("NOTES.md"), "# Notes\n").expect("notes");
+    std::os::unix::fs::symlink(&outside, repo.path.join("crates")).expect("crates symlink");
+    std::os::unix::fs::symlink(&outside, repo.path.join("tools")).expect("tools symlink");
+    std::os::unix::fs::symlink(&outside, repo.path.join(".github")).expect("github symlink");
+    let sources = collect_sources(&repo.path, None).expect("default sources");
+    assert!(
+        sources.iter().all(|path| !path.starts_with("crates/")
+            && !path.starts_with("tools/")
+            && !path.starts_with(".github/")),
+        "{sources:?}"
+    );
 }
 
 #[cfg(unix)]
