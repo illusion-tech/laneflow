@@ -76,25 +76,32 @@ fn collect_explicit(root: &Path, paths: &[PathBuf]) -> Result<BTreeSet<String>, 
         } else {
             root.join(path)
         };
-        let meta = fs::symlink_metadata(&joined)
-            .map_err(|error| format!("无法读取路径 `{}`: {error}", joined.display()))?;
-        if meta.file_type().is_symlink() {
-            return Err(format!("check-docs 不跟随符号链接：`{}`", joined.display()));
-        }
         let rel = repo_rel(root, &joined)?;
-        if meta.is_file() {
-            if !is_markdown(&joined) {
-                return Err(format!(
-                    "check-docs 只接受 Markdown 文件：`{}`",
-                    joined.display()
-                ));
+        // 逐段 lstat。祖先是符号链接时，不能只看最终组件，否则会读到仓库外文件。
+        match stat_rel(root, &rel) {
+            Ok(Stat::File) => {
+                if !is_markdown_rel(&rel) {
+                    return Err(format!(
+                        "check-docs 只接受 Markdown 文件：`{}`",
+                        joined.display()
+                    ));
+                }
+                files.insert(rel);
             }
-            files.insert(rel);
-        } else if meta.is_dir() {
-            let soften = !rel_has_soft_exclusion(&rel);
-            walk_dir(root, &joined, soften, None, &mut files)?;
-        } else {
-            return Err(format!("不支持的路径类型：`{}`", joined.display()));
+            Ok(Stat::Dir) => {
+                let soften = !rel_has_soft_exclusion(&rel);
+                walk_dir(root, &abs_from_rel(root, &rel), soften, None, &mut files)?;
+            }
+            Err(StatError::Symlink) => {
+                return Err(format!("check-docs 不跟随符号链接：`{}`", joined.display()));
+            }
+            Err(StatError::Missing) => {
+                return Err(format!("无法读取路径 `{}`: 路径不存在", joined.display()));
+            }
+            Err(StatError::Io(message)) => return Err(message),
+            Err(StatError::NotDirectory | StatError::Special) => {
+                return Err(format!("不支持的路径类型：`{}`", joined.display()));
+            }
         }
     }
     Ok(files)

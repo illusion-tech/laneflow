@@ -177,7 +177,7 @@ fn html_id_and_name_are_anchors_and_custom_heading_syntax_is_not() {
     let repo = TestRepo::new("html");
     repo.write(
         "a.md",
-        "<a id=\"templates\"></a>\n<a name='legacy'></a>\n<a id=\"gamma\" name=\"delta\"></a>\n<!-- <a id=\"hidden\"></a> -->\n<a id=raw></a>\n<abbr id=\"nope\"></abbr>\n## Title {#custom}\n\n[t](#templates)\n[l](#legacy)\n[g](#gamma)\n[d](#delta)\n[h](#hidden)\n[r](#raw)\n[n](#nope)\n[c](#custom)\n[s](#title-custom)\n",
+        "<a id=\"templates\"></a>\n<a name='legacy'></a>\n<a id=\"gamma\" name=\"delta\"></a>\n<!-- <a id=\"hidden\"></a> -->\n<!--\n<a id=\"multiline\"></a>\n-->\n<a id=raw></a>\n<abbr id=\"nope\"></abbr>\n## Title {#custom}\n\n[t](#templates)\n[l](#legacy)\n[g](#gamma)\n[d](#delta)\n[h](#hidden)\n[m](#multiline)\n[r](#raw)\n[n](#nope)\n[c](#custom)\n[s](#title-custom)\n",
     );
     let report = repo.check();
     let targets: Vec<_> = report
@@ -185,7 +185,10 @@ fn html_id_and_name_are_anchors_and_custom_heading_syntax_is_not() {
         .iter()
         .map(|finding| finding.target.as_str())
         .collect();
-    assert_eq!(targets, vec!["#hidden", "#raw", "#nope", "#custom"]);
+    assert_eq!(
+        targets,
+        vec!["#hidden", "#multiline", "#raw", "#nope", "#custom"]
+    );
     assert!(
         report
             .findings
@@ -263,6 +266,7 @@ fn rejects_path_escape_symlinks_queries_and_non_markdown_fragments() {
     assert!(rendered.contains("路径越出仓库"), "{rendered}");
     assert!(rendered.contains("target=../../outside.md"), "{rendered}");
     assert!(rendered.contains("target=/outside.md"), "{rendered}");
+    #[cfg(unix)]
     assert!(
         rendered.contains("target=link.md") && rendered.contains("不跟随符号链接"),
         "{rendered}"
@@ -515,6 +519,40 @@ fn explicit_symlink_and_outside_path_are_execution_errors() {
         error.contains("越出仓库") || error.contains("无法读取路径"),
         "{error}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_source_rejects_a_symlinked_ancestor() {
+    let repo = TestRepo::new("sym-ancestor");
+    let outside = std::env::temp_dir().join(format!(
+        "laneflow-xtask-docs-outside-{}-{}",
+        std::process::id(),
+        TEST_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&outside).expect("outside dir");
+    let _cleanup = RemoveDir(&outside);
+    fs::write(outside.join("secret.md"), "# Secret\n").expect("outside file");
+    std::os::unix::fs::symlink(&outside, repo.path.join("linked")).expect("symlink");
+    let config = load_config(&repo.path.join("xtask/data/doc-checks.toml")).expect("config");
+    let error = check(
+        &repo.path,
+        Some(&[PathBuf::from("linked/secret.md")]),
+        &config,
+    )
+    .expect_err("symlink ancestor");
+    assert!(error.contains("不跟随符号链接"), "{error}");
+    assert!(!error.contains("Secret"), "{error}");
+}
+
+#[cfg(unix)]
+struct RemoveDir<'a>(&'a Path);
+
+#[cfg(unix)]
+impl Drop for RemoveDir<'_> {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(self.0);
+    }
 }
 
 #[test]
