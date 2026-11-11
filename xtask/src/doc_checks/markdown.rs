@@ -570,9 +570,45 @@ fn decode_html_entity(entity: &str) -> Option<char> {
             } else {
                 digits.parse().ok()?
             };
-            char::from_u32(code)
+            Some(html_numeric_character(code))
         }
     }
+}
+
+/// HTML 数字字符引用的替换：C1 控制区按 Windows-1252，非法码位换成 U+FFFD。
+fn html_numeric_character(code: u32) -> char {
+    let replaced = match code {
+        0x00 | 0xD800..=0xDFFF | 0x0011_0000.. => 0xFFFD,
+        0x80 => 0x20AC,
+        0x82 => 0x201A,
+        0x83 => 0x0192,
+        0x84 => 0x201E,
+        0x85 => 0x2026,
+        0x86 => 0x2020,
+        0x87 => 0x2021,
+        0x88 => 0x02C6,
+        0x89 => 0x2030,
+        0x8A => 0x0160,
+        0x8B => 0x2039,
+        0x8C => 0x0152,
+        0x8E => 0x017D,
+        0x91 => 0x2018,
+        0x92 => 0x2019,
+        0x93 => 0x201C,
+        0x94 => 0x201D,
+        0x95 => 0x2022,
+        0x96 => 0x2013,
+        0x97 => 0x2014,
+        0x98 => 0x02DC,
+        0x99 => 0x2122,
+        0x9A => 0x0161,
+        0x9B => 0x203A,
+        0x9C => 0x0153,
+        0x9E => 0x017E,
+        0x9F => 0x0178,
+        other => other,
+    };
+    char::from_u32(replaced).unwrap_or('\u{FFFD}')
 }
 
 fn tag_end(html: &str, start: usize) -> Option<usize> {
@@ -610,6 +646,7 @@ fn quoted_anchor_values(tag: &str) -> Vec<String> {
         index += 1;
     }
     let mut values = Vec::new();
+    let mut seen_names = BTreeSet::new();
     while index < bytes.len() && bytes[index] != b'>' {
         while index < bytes.len() && bytes[index].is_ascii_whitespace() {
             index += 1;
@@ -627,6 +664,7 @@ fn quoted_anchor_values(tag: &str) -> Vec<String> {
             index += 1;
         }
         let name = &tag[name_start..index];
+        let first = seen_names.insert(name.to_ascii_lowercase());
         while index < bytes.len() && bytes[index].is_ascii_whitespace() {
             index += 1;
         }
@@ -647,7 +685,8 @@ fn quoted_anchor_values(tag: &str) -> Vec<String> {
             while index < bytes.len() && bytes[index] != quote {
                 index += 1;
             }
-            if (name.eq_ignore_ascii_case("id") || name.eq_ignore_ascii_case("name"))
+            if first
+                && (name.eq_ignore_ascii_case("id") || name.eq_ignore_ascii_case("name"))
                 && index > start
                 && tag.is_char_boundary(start)
                 && tag.is_char_boundary(index)
