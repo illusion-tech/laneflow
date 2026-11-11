@@ -98,7 +98,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     heading.push_str(&text);
                 }
                 Event::SoftBreak | Event::HardBreak if in_heading => heading.push(' '),
-                Event::Html(html) | Event::InlineHtml(html) if in_code == 0 => {
+                Event::Html(html) | Event::InlineHtml(html) if in_code == 0 && in_image == 0 => {
                     html_bytes.extend_from_slice(html.as_bytes());
                 }
                 Event::Start(Tag::Link {
@@ -106,7 +106,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     dest_url,
                     id,
                     ..
-                }) if in_code == 0 => {
+                }) if in_code == 0 && in_image == 0 => {
                     record_link(
                         &mut links,
                         &lines,
@@ -338,6 +338,10 @@ fn finish_local(
             kind: FindingKind::Path,
             reason: "路径越出仓库",
         },
+        Err(ResolveError::GitMetadata) => LinkKind::Failure {
+            kind: FindingKind::Path,
+            reason: ".git 不是已提交内容",
+        },
         Err(ResolveError::Unsupported(reason)) => visible_skip(reason),
     }
 }
@@ -461,10 +465,23 @@ struct LineIndex {
 
 impl LineIndex {
     fn new(text: &str) -> Self {
+        // CommonMark 把 `\n`、单独的 `\r` 和 `\r\n` 都当成一次换行。`\r\n` 只记一行。
+        let bytes = text.as_bytes();
         let mut starts = vec![0];
-        for (index, byte) in text.bytes().enumerate() {
-            if byte == b'\n' {
-                starts.push(index + 1);
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'\n' => {
+                    starts.push(index + 1);
+                    index += 1;
+                }
+                b'\r' => {
+                    let paired = bytes.get(index + 1) == Some(&b'\n');
+                    let next = index + 1 + usize::from(paired);
+                    starts.push(next);
+                    index = next;
+                }
+                _ => index += 1,
             }
         }
         Self { starts }

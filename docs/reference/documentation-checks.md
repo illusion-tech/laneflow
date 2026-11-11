@@ -50,7 +50,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 默认不从这些位置收集来源：`research/**`（除首页）、`**/tests/**`、`**/fixtures/**`、`**/evidence/**`、`**/src/generated/**`、`.git/`、`target/`，以及防御性的 `vendor/` 与 `node_modules/`。
 
-这是不从来源目录收集，不是忽略指向它们的链接。指向真实 fixture、JSON 或 `.rs` 的本地路径仍检查存在性，但不解析非 Markdown 文件里的锚点。显式传入路径可以进入 research 文档；仍然不跟随符号链接，也不离开仓库。
+这是不从来源目录收集，不是忽略指向 fixture、测试或生成文件的链接。指向真实 fixture、JSON 或 `.rs` 的本地路径仍检查存在性，但不解析非 Markdown 文件里的锚点。`.git` 单独处理：它是仓库元数据，不是已提交内容。链接指向 `.git` 或其下路径时记为 `missing-path`，即使工作区里该路径存在（普通 clone 是目录，链接 worktree 可能是文件）。显式传入路径可以进入 research 文档；仍然不跟随符号链接，也不离开仓库。
 
 ## 3. 链接与路径
 
@@ -70,6 +70,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 | 含 `::`、且没有 `/` 的 rustdoc 符号                           | 不解析，计入 `rustdoc`                                                |
 | 查询字符串、非法百分号编码、反斜线、盘符、其他协议            | 可见 `skip`，不算锚点已通过                                           |
 | `..` 越出仓库，或路径组件是符号链接                           | `missing-path`                                                        |
+| `.git` 及其子路径                                             | `missing-path`：不是已提交内容，即使工作区里存在                      |
 
 百分号编码只解码一次。`%20` 是空格，`+` 不是空格，`%2520` 不会再解成空格。以 `//` 开头的协议相对地址和 `http` / `https` 一样不访问，计入 `http`；单个 `/` 仍从仓库根解析。`{#id}` 不作为自定义锚点扩展。不解析任意 HTML 标题，也不解析 HTML 属性里的路径；`<a href="missing.md">` 因此不会被当成 Markdown 链接。
 
@@ -110,7 +111,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`][doc-checks] 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。页脚引用的空目标指向当前文档。行内的空链接和空图片仍是 `inline-form`。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
+[`xtask/data/doc-checks.toml`][doc-checks] 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。图片替代文字里的 Markdown 链接也不能充当这些入口。图片替代文字里的 `<a id>` / `<a name>` 不登记为锚点。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。页脚引用的空目标指向当前文档。行内的空链接和空图片仍是 `inline-form`。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 
