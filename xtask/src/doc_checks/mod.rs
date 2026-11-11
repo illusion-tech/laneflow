@@ -533,6 +533,9 @@ fn judge_required(
 }
 
 fn link_hits(link: &markdown::LinkRec, edge: &RequiredEdge) -> bool {
+    if link.image {
+        return false;
+    }
     match &link.kind {
         LinkKind::Local { rel, fragment, .. } => {
             rel == &edge.path && fragment_satisfies(edge.fragment.as_deref(), fragment.as_deref())

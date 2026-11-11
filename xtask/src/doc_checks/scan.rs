@@ -114,11 +114,10 @@ fn walk_optional(
     file_name: Option<&str>,
     files: &mut BTreeSet<String>,
 ) -> Result<(), String> {
-    match fs::symlink_metadata(dir) {
-        Ok(meta) if meta.file_type().is_symlink() => Ok(()),
-        Ok(meta) if meta.is_dir() => walk_dir(root, dir, soft, file_name, files),
-        Ok(_) | Err(_) => Ok(()),
-    }
+    let Some(dir) = real_directory(root, dir) else {
+        return Ok(());
+    };
+    walk_dir(root, &dir, soft, file_name, files)
 }
 
 fn walk_dir(
@@ -151,17 +150,28 @@ fn walk_dir(
 }
 
 fn add_optional_file(root: &Path, path: &Path, files: &mut BTreeSet<String>) -> Result<(), String> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() && is_markdown(path) => {
-            files.insert(repo_rel(root, path)?);
-            Ok(())
-        }
-        Ok(_) | Err(_) => Ok(()),
+    let Ok(rel) = repo_rel(root, path) else {
+        return Ok(());
+    };
+    if matches!(stat_rel(root, &rel), Ok(Stat::File)) && is_markdown_rel(&rel) {
+        files.insert(rel);
+    }
+    Ok(())
+}
+
+fn real_directory(root: &Path, dir: &Path) -> Option<PathBuf> {
+    let rel = repo_rel(root, dir).ok()?;
+    match stat_rel(root, &rel) {
+        Ok(Stat::Dir) => Some(abs_from_rel(root, &rel)),
+        _ => None,
     }
 }
 
 fn add_child_readmes(root: &Path, dir: &Path, files: &mut BTreeSet<String>) -> Result<(), String> {
-    let Ok(entries) = read_sorted(dir) else {
+    let Some(dir) = real_directory(root, dir) else {
+        return Ok(());
+    };
+    let Ok(entries) = read_sorted(&dir) else {
         return Ok(());
     };
     for entry in entries {
@@ -178,7 +188,10 @@ fn add_child_readmes(root: &Path, dir: &Path, files: &mut BTreeSet<String>) -> R
 }
 
 fn add_top_level_md(root: &Path, dir: &Path, files: &mut BTreeSet<String>) -> Result<(), String> {
-    let Ok(entries) = read_sorted(dir) else {
+    let Some(dir) = real_directory(root, dir) else {
+        return Ok(());
+    };
+    let Ok(entries) = read_sorted(&dir) else {
         return Ok(());
     };
     for entry in entries {

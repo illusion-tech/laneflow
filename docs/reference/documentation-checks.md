@@ -108,7 +108,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。
+[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 
