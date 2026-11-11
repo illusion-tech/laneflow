@@ -74,6 +74,8 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
 | 执行方式       | 确定性固定步进，支持单世界多 worker 执行                           |
 | 参考集成       | Bevy 0.20 适配，以及最小入门、持续车流、复杂路口诊断和视野选择示例 |
 
+使用条件、拒绝情形与证据范围见[当前能力与限制](docs/reference/capabilities.md)。
+
 宿主负责交通需求、出发计划、路线选择策略与 Routing 算法，以及引擎生命周期与最终
 表现；LaneFlow 不内置专业交通工程分析。
 

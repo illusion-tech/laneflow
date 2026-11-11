@@ -236,6 +236,8 @@ Waiting 资格、Conflict 出现记录、显式路权策略和预约由 `Traffic
 
 ## 6. 扩展边界
 
+按能力查阅使用条件和已知限制，见[当前能力与限制](reference/capabilities.md)。
+
 已实现、已接受但未实现、已验收且绑定基线、未认证是四种不同事实。Accepted 设计
 不自动等于已实现或已认证。
 
