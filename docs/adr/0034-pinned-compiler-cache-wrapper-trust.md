@@ -4,12 +4,12 @@
 **日期**: 2026-10-26<br>
 **适用范围**: LaneFlow CI 构建路径上的编译缓存包装器（compiler cache wrapper）信任边界；
 `laneflow-lust-converter` 溯源检查 `build_compiler_matches_pinned_toolchain` 的判定契约<br>
-**设计入口**: [#1061](https://github.com/illusion-tech/laneflow/issues/1061)、
-[#1071](https://github.com/illusion-tech/laneflow/issues/1071)、
-[#1074](https://github.com/illusion-tech/laneflow/issues/1074)<br>
-**关联决策**: [ADR 0002](0002-dependency-and-licensing-constraints.md)、
-[ADR 0032](0032-runtime-state-integrity-and-distortion-disposition-authority.md)、
-[ADR 0033](0033-digest-role-and-algorithm-selection-authority.md)
+**设计入口**: [#1061][github-com-illusion-tech-laneflow-issues-1061]、
+[#1071][github-com-illusion-tech-laneflow-issues-1071]、
+[#1074][github-com-illusion-tech-laneflow-issues-1074]<br>
+**关联决策**: [ADR 0002][0002-dependency-and-licensing-constraints]、
+[ADR 0032][0032-runtime-state-integrity-and-distortion-disposition-authority]、
+[ADR 0033][0033-digest-role-and-algorithm-selection-authority]
 
 本文规定「钉版可核验编译缓存包装器」的准入条件，并把溯源检查的判定从「包装器
 一律 fail-closed」修订为「包装器须验明正身，否则 fail-closed」。本文只覆盖 CI
@@ -95,3 +95,10 @@ fail-closed。sccache 属于该定义下的包装器，冲突是契约性的，�
 - 负面：检查从「零包装器信任」变为「单点钉版包装器信任」，其正确性依赖内容寻址
   键含编译器身份摘要这一实现语义（评估记录 §1 的官方文档依据）；钉版升级伴随
   校验和维护成本。
+
+[github-com-illusion-tech-laneflow-issues-1061]: https://github.com/illusion-tech/laneflow/issues/1061
+[github-com-illusion-tech-laneflow-issues-1071]: https://github.com/illusion-tech/laneflow/issues/1071
+[github-com-illusion-tech-laneflow-issues-1074]: https://github.com/illusion-tech/laneflow/issues/1074
+[0002-dependency-and-licensing-constraints]: 0002-dependency-and-licensing-constraints.md
+[0032-runtime-state-integrity-and-distortion-disposition-authority]: 0032-runtime-state-integrity-and-distortion-disposition-authority.md
+[0033-digest-role-and-algorithm-selection-authority]: 0033-digest-role-and-algorithm-selection-authority.md

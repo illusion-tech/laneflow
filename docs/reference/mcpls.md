@@ -259,13 +259,24 @@ cargo uninstall mcpls
 
 参考：
 
-- [OpenAI Docs：Codex Config basics](https://learn.chatgpt.com/docs/config-file/config-basic)
-- [OpenAI Docs：Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
-- [OpenAI Docs：Codex Local environments](https://learn.chatgpt.com/docs/environments/local-environment)
-- [OpenAI Docs：Codex Hooks](https://learn.chatgpt.com/docs/hooks)
-- [Microsoft：Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
-- [Microsoft：Win32_Process.Create](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process)
-- [Grok Build：MCP Servers](https://docs.x.ai/build/features/mcp-servers)
-- [Kimi Code：MCP](https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/mcp.md)
-- [mcpls 0.3.9 文档与元数据](https://docs.rs/crate/mcpls/0.3.9)
-- [mcpls source](https://github.com/bug-ops/mcpls)
+- [OpenAI Docs：Codex Config basics][learn-chatgpt-com-docs-config-file-config-basic]
+- [OpenAI Docs：Codex MCP][learn-chatgpt-com-docs-extend-mcp]
+- [OpenAI Docs：Codex Local environments][learn-chatgpt-com-docs-environments-local-environment]
+- [OpenAI Docs：Codex Hooks][learn-chatgpt-com-docs-hooks]
+- [Microsoft：Job Objects][learn-microsoft-com-en-us-windows-win32-procthread-job-objects]
+- [Microsoft：Win32_Process.Create][learn-microsoft-com-en-us-windows-win32-cimwin32prov-create-method-in-class-win32-process]
+- [Grok Build：MCP Servers][docs-x-ai-build-features-mcp-servers]
+- [Kimi Code：MCP][github-com-moonshotai-kimi-code-blob-main-docs-en-customization-mcp-md]
+- [mcpls 0.3.9 文档与元数据][docs-rs-crate-mcpls-0-3-9]
+- [mcpls source][github-com-bug-ops-mcpls]
+
+[learn-chatgpt-com-docs-config-file-config-basic]: https://learn.chatgpt.com/docs/config-file/config-basic
+[learn-chatgpt-com-docs-extend-mcp]: https://learn.chatgpt.com/docs/extend/mcp?surface=cli
+[learn-chatgpt-com-docs-environments-local-environment]: https://learn.chatgpt.com/docs/environments/local-environment
+[learn-chatgpt-com-docs-hooks]: https://learn.chatgpt.com/docs/hooks
+[learn-microsoft-com-en-us-windows-win32-procthread-job-objects]: https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+[learn-microsoft-com-en-us-windows-win32-cimwin32prov-create-method-in-class-win32-process]: https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process
+[docs-x-ai-build-features-mcp-servers]: https://docs.x.ai/build/features/mcp-servers
+[github-com-moonshotai-kimi-code-blob-main-docs-en-customization-mcp-md]: https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/mcp.md
+[docs-rs-crate-mcpls-0-3-9]: https://docs.rs/crate/mcpls/0.3.9
+[github-com-bug-ops-mcpls]: https://github.com/bug-ops/mcpls

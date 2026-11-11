@@ -4,17 +4,17 @@
 **最后更新**: 2026-10-26<br>
 **适用范围**: 运行时状态完整性的检测范围与分期、可信期望值与原像、共享路网修订认证、失真
 处置裁决权边界、结论与遥测、认证成本报告口径与 retained-memory 分类<br>
-**设计入口**: [#955](https://github.com/illusion-tech/laneflow/issues/955)<br>
-**关联决策**: [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)、
-[ADR 0021](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
-[ADR 0030](../adr/0030-single-world-parallel-execution.md)<br>
-**关联设计**: [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md) §5/§6、
-[`shared-static-network.md`](shared-static-network.md) §8/§10.2、
-[`portable-canonical-artifact.md`](portable-canonical-artifact.md) §3.8、
-[`../reference/glossary.md`](../reference/glossary.md) §7.6
+**设计入口**: [#955][github-com-illusion-tech-laneflow-issues-955]<br>
+**关联决策**: [ADR 0032][0032-runtime-state-integrity-and-distortion-disposition-authority]、
+[ADR 0021][0021-traffic-infrastructure-and-host-boundary]、
+[ADR 0030][0030-single-world-parallel-execution]<br>
+**关联设计**: [`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] §5/§6、
+[`shared-static-network.md`][shared-static-network] §8/§10.2、
+[`portable-canonical-artifact.md`][portable-canonical-artifact] §3.8、
+[`../reference/glossary.md`][glossary] §7.6
 
 > **层次约定**：§1–§8 只冻结合同与不变量（G1 本体）；算法与取得路径选型、API
-> 标识符统一登记在 [§11 G2 落定清单](#11-g2-落定清单实现内容不属-g1-冻结)。
+> 标识符统一登记在 [§11 G2 落定清单][link-11-g2-落定清单实现内容不属-g1-冻结]。
 > **合同值集合（穷尽）**：完整性**不进入 tick 路径**（不在 P0–P8 内、不增加每拍工作、
 > 不增加稳态保留内存）；§5 漏检面声明。其余数字均为待验证或描述性数据，不是合同值。
 
@@ -66,7 +66,7 @@
 | 耐久修订内容原像 | **复用** `NetworkRevisionIdV1` 的原像：规范路网语义载荷 `canonicalNetworkSemanticPayloadV1`（语义节 `0x0001..=0x0006` 按 sectionKind 序组帧），摘要 = `SHA-256("laneflow.network-revision.v1\0" ‖ payload)`；不另设编码与域分隔 | 共享路网修订的正本语义内容；修订认证的依据（§4.2）  | 构建方建立（即 `NetworkRevisionId`）；发布来源由宿主随 `PublishedLfcaReference` 持久，编辑来源不持久、由重编译重算 |
 
 **编码复用（不新增规范编码）**：耐久修订内容原像的字段清单、整数 / 序列 / 可选值编码、
-分段组帧与版本轴全部以 [`portable-canonical-artifact.md` §3.8](portable-canonical-artifact.md#38-路网修订标识)
+分段组帧与版本轴全部以 [`portable-canonical-artifact.md` §3.8][portable-canonical-artifact-38-路网修订标识]
 及其引用的 LFCA 语义节格式为准；任一编码变化必须体现为 `sectionFormatVersion` 或
 `networkRevisionDerivationVersion` 变化，不得静默得到不同摘要。构建方与认证方因此
 对同一健康修订得到逐字节相同的原像。
@@ -583,12 +583,12 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 ## 8. 认证成本报告口径
 
 **tick 路径**：完整性不增加每拍工作（合同值），Traffic Runtime 与 Spatial+Adapter 的 p95 主行
-（[`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) §6）不受
+（[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline] §6）不受
 影响，不另设开 / 关差值预算。
 
 **认证停顿与峰值**（实测归实现A 部分，描述性数据，不进产品 Gate）：
 
-认证成本以 [`v0.10-attestation-production-baseline.md`](../reference/v0.10-attestation-production-baseline.md)
+认证成本以 [`v0.10-attestation-production-baseline.md`][v0-10-attestation-production-baseline]
 及其 JSON 为历史参考。数据绑定 Rust 1.98.0 与测量源码
 `06f239c39b3983efd8d39ecb0820131bc140fd77`，不作为后续主干版本的重新测量：
 三档认证中位约 11.8 ms／120 ms／1.21 s；合同增量堆峰值约 5.46／54.59／545.85 MB，
@@ -597,7 +597,7 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 该范围不构成长期上界，不外推为任意生产运行负载无干扰。完整口径与局限见基线。
 
 直算摘要另见 Rust 1.99.1 的
-[`三版本优化对照`](../reference/v0.10-direct-digest-optimization-baseline.md)。
+[`三版本优化对照`][v0-10-direct-digest-optimization-baseline]。
 十万辆车合成档位中，车辆连续缓冲版相对原始实现的调用耗时合并中位减少 39.30%，
 相对查找优化与分组预留版减少 16.74%，后者对照的堆峰值增加约 0.82 MB；
 一万辆车档位没有显示连续缓冲的额外速度收益。归一化预算因范围与视图表的
@@ -631,13 +631,13 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 候选对象按价值排序：共享路网修订运行中轮转 → 每世界已编译路线表（注册后不可变，成本只
 发生在注册时）→ Parked / Completed 记录 → 其余热表。
 
-#963 的 [24 小时取证记录](../../research/issue-963-integrity-evidence/24-hour-soak.md)
+#963 的 [24 小时取证记录][24-hour-soak]
 已完成留档：名义两千辆道路机动车、4775 段 `CompleteMatch`、9551 次认证 `Pass`，
 未观测到失配。冻结身份、主机背景、检查点范围与未覆盖项见报告。该结果不满足本节
 第 1 项的运行中失真证据条件，继续维持现行宿主审计与认证边界，不据此启动二期 G1。
 取证留档与二期建议可以完成验收，运行中保护的上述六项准入条件不随任务收尾改变。
 
-#963 的[长期浸泡驱动](../../research/issue-963-integrity-evidence/long-soak-driver.md)
+#963 的[长期浸泡驱动][long-soak-driver]
 支持有界时长、独立资源看护、分段保存以及原世界驻留的安全暂停 / 恢复。暂停先完成当前
 审计段再确认，恢复先重认证修订并核对原世界检查点；暂停时间与初始安装单列未覆盖，
 不计入有效运行时长，也不证明暂停间隔没有瞬态失真。工具扩展不改变本节二期准入条件，
@@ -658,16 +658,16 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 | E（#963） | 发布来源的软件故障注入与宿主处置验证（含实际整数虚拟页、阶段／扫描／复算时序及单／双工作线程在途调用）；Runtime 堆浸泡取证留档与二期建议                                                                                                                                                                                                                                                                                                                                                                         | #955，A，C（审计重放），#954（复用读回与注入能力） |
 | #529      | 共享路网修订认证的编辑来源分支：宿主重编译闭包在每次尝试（首次与复算）各调用一次；候选修订的完整 `origin` 即期望值，LFCA digest / exact length 进入 `origin` 比对；重编译失败分内容（来源准备阶段失败）、资源与取消（操作失败）；注入测试覆盖健康修订、`RoadEditingState` 失真、派生表失真、内容失败与宿主参数不一致                                                                                                                                                                                             | A，#1119                                           |
 
-E 的软件验证范围及证据见[逐项验收记录](../../research/issue-963-integrity-evidence/acceptance-evidence.md)。
+E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
 真实候选与在用修订物理共页并同时受损、活动不可变 backing 被外部改写及其实际消费证据，
-拆为独立后续研究 [#1063](https://github.com/illusion-tech/laneflow/issues/1063)，继续标为未验证。
+拆为独立后续研究 [#1063][github-com-illusion-tech-laneflow-issues-1063]，继续标为未验证。
 该拆分允许按已交付的软件验证和取证范围收尾 #963，不表示原物理矩阵已经通过，也不删除
 §5 的漏检声明、改变 Rust 有效性边界或放宽 §9 准入。
 
 物理研究只在运行中失真现场、具体对外故障检测承诺或保护机制选型需求出现时重新评估；
 投入决策、隔离目标、平台与布局可行性、预算及停止条件确认后再记录 G2。
 到达 1.0 不自动触发该实验或新增发布门槛。完整条件与有界实施顺序见
-[物理注入方案](../../research/issue-963-integrity-evidence/physical-injection-plan.md#研究用途与启动条件)。
+[物理注入方案][physical-injection-plan-研究用途与启动条件]。
 
 ## 11. G2 落定清单（实现内容，不属 G1 冻结）
 
@@ -720,3 +720,21 @@ E 的软件验证范围及证据见[逐项验收记录](../../research/issue-963
 - **审计结果类型**：`CompleteMatch` / `Diverged` / `Incomplete` 的标识符与 `Incomplete`
   携带字段的具体形态。
 
+[github-com-illusion-tech-laneflow-issues-955]: https://github.com/illusion-tech/laneflow/issues/955
+[0032-runtime-state-integrity-and-distortion-disposition-authority]: ../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[0030-single-world-parallel-execution]: ../adr/0030-single-world-parallel-execution.md
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[shared-static-network]: shared-static-network.md
+[portable-canonical-artifact]: portable-canonical-artifact.md
+[glossary]: ../reference/glossary.md
+[link-11-g2-落定清单实现内容不属-g1-冻结]: #11-g2-落定清单实现内容不属-g1-冻结
+[portable-canonical-artifact-38-路网修订标识]: portable-canonical-artifact.md#38-路网修订标识
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[v0-10-attestation-production-baseline]: ../reference/v0.10-attestation-production-baseline.md
+[v0-10-direct-digest-optimization-baseline]: ../reference/v0.10-direct-digest-optimization-baseline.md
+[24-hour-soak]: ../../research/issue-963-integrity-evidence/24-hour-soak.md
+[long-soak-driver]: ../../research/issue-963-integrity-evidence/long-soak-driver.md
+[acceptance-evidence]: ../../research/issue-963-integrity-evidence/acceptance-evidence.md
+[github-com-illusion-tech-laneflow-issues-1063]: https://github.com/illusion-tech/laneflow/issues/1063
+[physical-injection-plan-研究用途与启动条件]: ../../research/issue-963-integrity-evidence/physical-injection-plan.md#研究用途与启动条件

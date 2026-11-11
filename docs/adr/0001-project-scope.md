@@ -1,6 +1,6 @@
 # 0001 Project Scope
 
-> 后继扩展：[ADR 0021](0021-traffic-infrastructure-and-host-boundary.md) 定义公开
+> 后继扩展：[ADR 0021][0021-traffic-infrastructure-and-host-boundary] 定义公开
 > 组件定位、宿主职责和单世界规模演进边界，保留本文对城市经济、市民出行需求和
 > 专业交通工程仿真的职责排除。长期方向需要独立证据，不表示实现已经交付。
 
@@ -64,3 +64,5 @@ LaneFlow 暂不追求：
 - Adapter 不应反向污染 Traffic Runtime 的抽象。
 - 与 SUMO、CARLA、libsumo 等系统的集成可以作为工具链或离线数据来源讨论，但不作为客户端 Traffic Runtime 依赖。
 - GitHub Issue 和 PR 应围绕这个范围判断是否属于 LaneFlow 当前目标。
+
+[0021-traffic-infrastructure-and-host-boundary]: 0021-traffic-infrastructure-and-host-boundary.md

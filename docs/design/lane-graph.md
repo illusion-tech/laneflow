@@ -198,4 +198,6 @@ ADR 0017 不改变 LaneGraph 对 edge、length、speed limit 和 directed connec
 - Traffic Runtime 不从 geometry、connector 名称或 edge pair 推导 Junction/Movement identity。
 
 完整 owner、validation、Route occurrence 与性能契约见
-[`road-junction-model.md`](road-junction-model.md)。
+[`road-junction-model.md`][road-junction-model]。
+
+[road-junction-model]: road-junction-model.md

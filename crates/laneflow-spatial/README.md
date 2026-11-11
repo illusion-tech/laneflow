@@ -18,7 +18,7 @@ laneflow-spatial -X-> laneflow-runtime
 
 ## 最小使用入口
 
-无窗口示例用 `SpatialBuildOption::Omit` 构建修订，因此没有 Spatial component，也不创建 session。见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+无窗口示例用 `SpatialBuildOption::Omit` 构建修订，因此没有 Spatial component，也不创建 session。见[从源码接入无窗口交通运行时][source-integration]。
 
 修订保留了 Spatial 时：
 
@@ -44,7 +44,12 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [空间几何](../../docs/design/spatial-geometry.md)
-- [当前能力与限制 · Spatial](../../docs/reference/capabilities.md#spatial)
-- [Bevy 参考适配](../../crates/laneflow-bevy/README.md)
+- [从源码接入无窗口交通运行时][source-integration]
+- [空间几何][spatial-geometry]
+- [当前能力与限制 · Spatial][capabilities-spatial]
+- [Bevy 参考适配][laneflow-bevy-readme]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[spatial-geometry]: ../../docs/design/spatial-geometry.md
+[capabilities-spatial]: ../../docs/reference/capabilities.md#spatial
+[laneflow-bevy-readme]: ../../crates/laneflow-bevy/README.md

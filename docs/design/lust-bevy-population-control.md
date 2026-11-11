@@ -9,12 +9,12 @@ TOPO/DEMAND workload ID
 
 **关联文档**:
 
-- [`real-road-workloads.md`](real-road-workloads.md)
-- [`example-scenarios.md`](example-scenarios.md)
-- [`signalized-corridor-population.md`](signalized-corridor-population.md)
-- [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`](../adr/0016-scenario-population-and-recycle-lifecycle-authority.md)
-- [#256 G1 冻结判断](https://github.com/illusion-tech/laneflow/issues/256#issuecomment-5082584634)
+- [`real-road-workloads.md`][real-road-workloads]
+- [`example-scenarios.md`][example-scenarios]
+- [`signalized-corridor-population.md`][signalized-corridor-population]
+- [`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
+- [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][0016-scenario-population-and-recycle-lifecycle-authority]
+- [#256 G1 冻结判断][github-com-illusion-tech-laneflow-issues-256-issuecomment-5082584634]
 
 ## 1. 目的与边界
 
@@ -38,7 +38,7 @@ TOPO/DEMAND workload ID
 - 改写 `LF-REAL-LUST-TOPO-v2` / `LF-REAL-LUST-DEMAND-v2` 的固定一万语义；
 - 宣称一万@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
 
-走廊场景继续以 [`signalized-corridor-population.md`](signalized-corridor-population.md)
+走廊场景继续以 [`signalized-corridor-population.md`][signalized-corridor-population]
 的 `50..=200` 为正本；本文只服务 LuST 示例路径（Parent #252 / #257）。
 
 ## 2. 正交计数
@@ -134,10 +134,10 @@ S1 例外：excess slot 按 §3.2.1 保留 Traffic Runtime identity 但已移出
 ## 4. Seeded 无放回抽样
 
 共享人口表含精确 10,000 条记录，`population_rank = 0..9999`
-（[`real-road-workloads.md`](real-road-workloads.md) §4）。但共享表与 static
+（[`real-road-workloads.md`][real-road-workloads] §4）。但共享表与 static
 bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆）。#257
 交互示例的抽样宇宙因此是 **TOPO plan 的唯一 `logical_rank ∈ 0..9999`**
-（[`real-road-workloads.md`](real-road-workloads.md) §5.2）；每条 logical slot
+（[`real-road-workloads.md`][real-road-workloads] §5.2）；每条 logical slot
 已绑定唯一 `(route_edge_index, edge, progress)` placement 与
 `source_population_rank` provenance。不得按可能重复的
 `source_population_rank` 反查 placement。
@@ -219,3 +219,10 @@ bundle + 人口表临时发明 collision-free `route_edge_index`/progress。
 - 设计 Issue：#256；Parent tracker：#252。
 - 若实现需要新的 Runtime/Adapter public API、通用 scenario controller 或 schema，
   停止并另立 G1/ADR，不得在本契约下静默扩展。
+
+[real-road-workloads]: real-road-workloads.md
+[example-scenarios]: example-scenarios.md
+[signalized-corridor-population]: signalized-corridor-population.md
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[0016-scenario-population-and-recycle-lifecycle-authority]: ../adr/0016-scenario-population-and-recycle-lifecycle-authority.md
+[github-com-illusion-tech-laneflow-issues-256-issuecomment-5082584634]: https://github.com/illusion-tech/laneflow/issues/256#issuecomment-5082584634

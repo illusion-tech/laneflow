@@ -12,7 +12,7 @@ LaneFlow 可移植对象的线格式 crate。它检查并编码 `LFCA`、`LFSM`�
 
 ## 最小使用入口
 
-运行时接入消费的是受检 LFCA，不是原始文件扩展名。无窗口示例的调用顺序见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+运行时接入消费的是受检 LFCA，不是原始文件扩展名。无窗口示例的调用顺序见[从源码接入无窗口交通运行时][source-integration]。
 
 只持有最终 LFCA 字节时，调用 `check_canonical_network_input`。同时持有 LFCA / LFSM / LFSD 时，用 `check_post_emission_bundle` 闭合 digest、长度、修订和跨对象绑定，再视需要取出其中的受检 LFCA。
 
@@ -34,7 +34,12 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [可移植规范制品](../../docs/design/portable-canonical-artifact.md)
-- [后发射检查](../../docs/design/compiler-post-emission-check-and-minimal-publication-closure.md)
-- [当前能力与限制 · 编译与加载](../../docs/reference/capabilities.md#编译与加载)
+- [从源码接入无窗口交通运行时][source-integration]
+- [可移植规范制品][portable-canonical-artifact]
+- [后发射检查][compiler-post-emission-check-and-minimal-publication-closure]
+- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[portable-canonical-artifact]: ../../docs/design/portable-canonical-artifact.md
+[compiler-post-emission-check-and-minimal-publication-closure]: ../../docs/design/compiler-post-emission-check-and-minimal-publication-closure.md
+[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载

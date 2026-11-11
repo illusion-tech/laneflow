@@ -2,7 +2,7 @@
 
 LuST Scenario v2.0 source/static converter for Issue #253.
 
-规范契约：[`docs/design/real-road-workloads.md`](../../docs/design/real-road-workloads.md)。
+规范契约：[`docs/design/real-road-workloads.md`][real-road-workloads]。
 
 ## 当前范围（A 部分）
 
@@ -27,7 +27,7 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 共享人口按 §4.1 使用 `LF-REAL-LUST-POPULATION-v2`、XXH3-64 seed 0 与原始
 UTF-8 ID 次键。转换报告为 `formatVersion=0.3`，明确携带 `population.derivationId`；
 来源、制品与 provenance 仍以 SHA-256 校验。人口迁移与诊断证据见
-[`research/issue-1053-lust-population-v2`](../../research/issue-1053-lust-population-v2/README.md)。
+[`research/issue-1053-lust-population-v2`][issue-1053-lust-population-v2-readme]。
 
 ## 用法
 
@@ -88,3 +88,6 @@ output_dir = "E:/data/laneflow-lust-out"
 
 上游 LuST MIT + OSM 派生 ODbL 1.0。Release 制品与 NOTICE 要求见 `real-road-workloads.md` §8。
 converter 自带 `licenses/NOTICE` 与 `licenses/ODbL-1.0.txt`；upstream `LICENSE.md` 从 pinned source 复制。
+
+[real-road-workloads]: ../../docs/design/real-road-workloads.md
+[issue-1053-lust-population-v2-readme]: ../../research/issue-1053-lust-population-v2/README.md

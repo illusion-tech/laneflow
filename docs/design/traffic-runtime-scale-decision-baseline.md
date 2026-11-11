@@ -6,21 +6,21 @@
 **关联议题**: #72、#1336<br>
 **关联文档**:
 
-- [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-- [`traffic-runtime-parallel-execution.md`](traffic-runtime-parallel-execution.md)
-- [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
-- [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)
-- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)
+- [`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
+- [`traffic-runtime-parallel-execution.md`][traffic-runtime-parallel-execution]
+- [`traffic-runtime-snapshot.md`][traffic-runtime-snapshot]
+- [`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover]
+- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]
 
 ## 1. 目的与边界
 
-本文取代已退役的 [`core-runtime-scalability-audit.md`](core-runtime-scalability-audit.md)
+本文取代已退役的 [`core-runtime-scalability-audit.md`][core-runtime-scalability-audit]
 作为城市规模扩展的决策入口，记录现行 `TrafficWorld` 接口的可扩展性复核、证据边界和
 各方向的启动条件。复核基线为 `main@d819c151`。
 
 本文不选择生产分区、调度、降频或聚合方案，不改变 Runtime API、数据格式或 Adapter
 协议。产品目标与测量协议以
-[`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 为准。
+[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline] 为准。
 
 ## 2. 证据边界
 
@@ -79,3 +79,10 @@
 - 常驻索引、暂存区与每拍实际触达字节；
 - worker 线程资源；
 - 保存恢复与修订切换的共存峰值。
+
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[traffic-runtime-parallel-execution]: traffic-runtime-parallel-execution.md
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[core-runtime-scalability-audit]: core-runtime-scalability-audit.md

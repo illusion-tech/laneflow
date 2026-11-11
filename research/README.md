@@ -8,7 +8,7 @@
 范围、计数）属于结论本身。结论报告与复现输入（输入声明、协议与环境说明、少量
 代表性样本）可以入仓，单个生成文件不超过 1,000 行、单个研究目录的生成文件合计
 不超过 5,000 行，超出即按过程数据处理。完整规则以
-[文档边界政策](../docs/governance/documentation-policy.md#研究结论与过程数据边界)为准。
+[文档边界政策][documentation-policy-研究结论与过程数据边界]为准。
 
 逐区间或逐样本原始测量、搜索轨迹、全量结果集、重跑中间态、环境转储、二进制和
 采集原包是过程数据，一律不进入源码树：本地生成写到已忽略的 `target/` 或仓库外
@@ -27,7 +27,7 @@ manifest、逐字节一致性声明或 SHA-256 登记等归档物，任务明确
 研究 crate 的 workspace 归属（workspace 成员或独立 `[workspace]`）由立项 Issue 决定，
 并在各目录 `README.md` 声明理由；两种形态都必须 `publish = false`、声明非生产身份，
 且第三方依赖必须纳入许可证与 RustSec 审计。完整规则见
-[许可证与依赖安全基线](../docs/governance/dependency-security.md) 第 8 节。
+[许可证与依赖安全基线][dependency-security] 第 8 节。
 
 ## 本机路径占位
 
@@ -45,14 +45,14 @@ SHA-256。
 
 以下保留既有迁移事实和恢复入口，不作为后续研究的默认归档要求。
 
-- [2026-10-01 历史诊断 JSON 迁移](archives/2026-10-01-json-migration.md)：
+- [2026-10-01 历史诊断 JSON 迁移][2026-10-01-json-migration]：
   冻结主线中 22 个研究目录的 313 份 JSON、完整源码及主线可达 Git 历史，保留原始
   字节与旧提交 SHA；清理当前源码树。逐文件清单存放在归档内。
-- [2026-10-12 已关闭研究 crate 代码退役](archives/2026-10-12-research-crate-retirement.md)：
+- [2026-10-12 已关闭研究 crate 代码退役][2026-10-12-research-crate-retirement]：
   退役 #123/#543/#681/#682/#711/#712 六个已关闭研究目录的 Cargo manifest、
   lockfile、源码与构建脚本共 28 个文件；#123/#682 同时退出主 workspace。各目录
   保留 README 结论、结果表与既有证据；退役文件逐字节冻结在归档制品中。
-- [2026-10-13 #285 复杂路口有界性能程序退役](archives/2026-10-13-junction-scale-retirement.md)：
+- [2026-10-13 #285 复杂路口有界性能程序退役][2026-10-13-junction-scale-retirement]：
   退役 `laneflow-bevy` 中 4 个 `junction_scale*` example、4 个私有支持模块与
   `issue-285-junction-scale` 的 4 个脚本共 12 个文件；README 保留协议与结论，
   退役文件按冻结提交的固定原始文件地址下载并以 SHA-256 复核，不另发 Release。
@@ -64,3 +64,9 @@ SHA-256。
 #711/#712 的旧分析与拒绝测试入口已退役，原件及原始证据在同一归档中。当前保留
 简短结论、冻结身份、下载地址和摘要，不安排例行复核；相关回归或结论争议由调查者
 按需恢复归档。生产回归 fixture 和其他仍使用的研究源码保留。
+
+[documentation-policy-研究结论与过程数据边界]: ../docs/governance/documentation-policy.md#研究结论与过程数据边界
+[dependency-security]: ../docs/governance/dependency-security.md
+[2026-10-01-json-migration]: archives/2026-10-01-json-migration.md
+[2026-10-12-research-crate-retirement]: archives/2026-10-12-research-crate-retirement.md
+[2026-10-13-junction-scale-retirement]: archives/2026-10-13-junction-scale-retirement.md

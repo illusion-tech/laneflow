@@ -96,13 +96,13 @@ LaneFlow 的长期设计以中文为准，英文只用于辅助理解和对接�
 及入口形态的已登记 ID，格式为 `<发布者>/<产品>/<入口形态>`，不表示模型身份。
 入口形态（Harness Surface）：提供任务交互和上下文集成的产品入口，区分 `cli`
 （含 TUI）、`web`、`desktop`、`ide-extension` 和 `ide`，不按底层进程或执行位置
-分类。登记、入口判定与校验以[提交规范第 6.2 节](commit-convention.md#62-执行框架目录与入口登记)
+分类。登记、入口判定与校验以[提交规范第 6.2 节][commit-convention-62-执行框架目录与入口登记]
 为唯一事实来源。
 
 代码语言立项审查（Code Language Proposal Review）：在新增或修改拟入库的非 Rust
 代码前，由维护者对语言必要性、用途、路径、工具链、验证与维护范围作出明确接受结论的
 G0/G2 人流程。纯删除不适用；具体规则由
-[代码语言立项审查](../governance/code-language-policy.md) 统一规定，不增加机器合并检查。
+[代码语言立项审查][code-language-policy] 统一规定，不增加机器合并检查。
 
 | 中文规范术语     | 英文辅助名（English Alias）              | 精确标识符 / 缩写          | 中文规范含义                                                                                                                                                                                               |
 | ---------------- | ---------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -179,7 +179,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 编辑器编制界面          | editor authoring surface                                  | —                                         | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                                                                                                |
 | 交换格式                | interchange format                                        | —                                         | 可由独立工具跨进程或跨语言读写、具有显式版本与兼容规则的序列化数据契约。                                                                                                                          |
 | 来源位置                | source location                                           | `SourceLocation`                          | 诊断和源映射使用的闭合和类型；文本来源使用真实 `SourceSpan` 行列，道路编辑来源使用稳定实体/owner-local subject、schema property 与可选画布选区，只有结构损坏可使用 byte range。                   |
-| 道路编辑来源差异        | road-editing source diff                                  | `RoadEditingSourceDiff`                   | C 阶段后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)，比较稳定道路编辑实体、属性和 authoring-only 改动；#296 A 只提供所需稳定位置，不实现该差异引擎。                          |
+| 道路编辑来源差异        | road-editing source diff                                  | `RoadEditingSourceDiff`                   | C 阶段后继 [#345][github-com-illusion-tech-laneflow-issues-345]，比较稳定道路编辑实体、属性和 authoring-only 改动；#296 A 只提供所需稳定位置，不实现该差异引擎。                          |
 | 来源链                  | provenance                                                | —                                         | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                                                                                                |
 | 降阶                    | lowering                                                  | —                                         | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                                                                                                                  |
 | 有类型抽象语法树        | typed abstract syntax tree                                | typed AST                                 | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。准入后交通一维不再把编制 `f64` 米当存储正本。                                                                                             |
@@ -578,7 +578,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 ### 7.2 路权策略实施术语
 
 下表登记 #284 已接受并实现的路权策略含义，均为已接受（Accepted；#284）。完整合同见
-[`traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)。
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy]。
 
 | 中文规范术语         | 英文辅助名 / 精确标识符  | 中文规范含义                                                                                                                                              |
 | -------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -601,7 +601,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 ### 7.3 串行步进协议与内部状态分区
 
 下列内部设计术语由 #580 的
-[`traffic-runtime-phase-protocol.md`](../design/traffic-runtime-phase-protocol.md) 定义，
+[`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol] 定义，
 随该设计合入生效；不声明同名 Rust 类型已实现，也不新增公开 API 或持久化格式。
 
 | 中文规范术语   | 英文辅助名 / 精确标识符                  | 中文规范含义                                                                                                               |
@@ -619,7 +619,7 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 
 ### 7.4 复杂路口观测提案
 
-下列术语由 [#285 G1 提案](../design/junction-observation-and-validation.md) 定义，
+下列术语由 [#285 G1 提案][junction-observation-and-validation] 定义，
 状态为 Review；不表示新增 API 已实现或设计已接受。
 
 | 中文规范术语   | 英文辅助名 / 精确标识符       | 中文规范含义                                                                                               |
@@ -629,8 +629,8 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 
 ### 7.5 单世界精确并行
 
-下列术语供 [ADR 0030（Accepted）](../adr/0030-single-world-parallel-execution.md) 与
-[并行执行设计（Accepted）](../design/traffic-runtime-parallel-execution.md) 使用。
+下列术语供 [ADR 0030（Accepted）][0030-single-world-parallel-execution] 与
+[并行执行设计（Accepted）][traffic-runtime-parallel-execution] 使用。
 术语登记不证明并行算法已实现；配置 API 和快照格式的现行实现见执行配置与快照合同。
 首版只分发独立计算，P4 规范串行；资源依赖组件及下面两类图用于后续 P4 设计，
 不表示首版需要构建组件目录或图调度器。
@@ -657,8 +657,8 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 
 ### 7.6 运行时状态完整性与失真处置
 
-下列术语供 [运行时状态完整性校验与失真恢复（Accepted，#955 G1）](../design/traffic-runtime-state-integrity.md)
-与 [ADR 0032](../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)
+下列术语供 [运行时状态完整性校验与失真恢复（Accepted，#955 G1）][traffic-runtime-state-integrity]
+与 [ADR 0032][0032-runtime-state-integrity-and-distortion-disposition-authority]
 使用。术语登记不证明校验能力已实现；停用与恢复处置裁决权始终归宿主。
 
 | 中文规范术语     | 英文辅助名 / 精确标识符                | 中文规范含义                                                                                                                                                                                                                                                                                                                                                                      |
@@ -840,3 +840,14 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 说明：「根对象」「根 `Arc`」「从根借用」「根共享」「根配对 / 配错根」「换根 / 同修订
 换根」（描述 ADR 0025 所有权结构与根对象更替）不在废弃范围；wire 格式根表、分类树根、Merkle 根、文件系统根等同形
 异义词不属本词簇。
+
+[commit-convention-62-执行框架目录与入口登记]: commit-convention.md#62-执行框架目录与入口登记
+[code-language-policy]: ../governance/code-language-policy.md
+[github-com-illusion-tech-laneflow-issues-345]: https://github.com/illusion-tech/laneflow/issues/345
+[traffic-runtime-right-of-way-policy]: ../design/traffic-runtime-right-of-way-policy.md
+[traffic-runtime-phase-protocol]: ../design/traffic-runtime-phase-protocol.md
+[junction-observation-and-validation]: ../design/junction-observation-and-validation.md
+[0030-single-world-parallel-execution]: ../adr/0030-single-world-parallel-execution.md
+[traffic-runtime-parallel-execution]: ../design/traffic-runtime-parallel-execution.md
+[traffic-runtime-state-integrity]: ../design/traffic-runtime-state-integrity.md
+[0032-runtime-state-integrity-and-distortion-disposition-authority]: ../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md

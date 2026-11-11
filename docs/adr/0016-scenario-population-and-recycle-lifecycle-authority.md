@@ -87,8 +87,8 @@ validation/invariant failure（包括 `DownstreamSpeedUnsatisfiable`）由该宿
 致命错误，不能伪装成入口阻塞。任一失败结果都保持该次调用前的 `TrafficWorld`
 committed authority 不变，不回滚同一 boundary 中已经成功的其他命令。
 
-走廊人口 policy 的队列规则见[人口设计 §6](../design/signalized-corridor-population.md#6-pending-与-host-transaction)；
-`corridor_traffic` 的目标宿主集成与验收见 [Bevy 设计 §13–§15](../design/bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期)。
+走廊人口 policy 的队列规则见[人口设计 §6][signalized-corridor-population-6-pending-与-host-transaction]；
+`corridor_traffic` 的目标宿主集成与验收见 [Bevy 设计 §13–§15][bevy-reference-adapter-13-corridor_traffic-宿主生命周期]。
 后者只组合已交付事务，不把人口或 retry policy 移进 Runtime/Adapter。
 
 成功后旧 `VehicleHandle` 立即 stale，新 vehicle 获得不同 generation 的 handle；public contract 不保证复用相同 slot index。replace 尽量保留旧车在 `live_order` 中的位置，不产生 tombstone；独立 spawn 仍追加到尾部。
@@ -237,5 +237,9 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 ## 关联
 
 - G1 冻结：https://github.com/illusion-tech/laneflow/issues/184#issuecomment-5041612599
-- 场景设计：[`../design/example-scenarios.md`](../design/example-scenarios.md)
+- 场景设计：[`../design/example-scenarios.md`][example-scenarios]
 - 下游实施：历史 #185、#186、#187、#188、#189、#203；现行 TrafficWorld 交付 #475。
+
+[signalized-corridor-population-6-pending-与-host-transaction]: ../design/signalized-corridor-population.md#6-pending-与-host-transaction
+[bevy-reference-adapter-13-corridor_traffic-宿主生命周期]: ../design/bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
+[example-scenarios]: ../design/example-scenarios.md

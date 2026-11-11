@@ -8,10 +8,10 @@
 
 **关联文档**:
 
-- [`committed-pose-extraction.md`](committed-pose-extraction.md)：#681 来源缓冲、
+- [`committed-pose-extraction.md`][committed-pose-extraction]：#681 来源缓冲、
   成功批次交换与按需提取的已接受设计，已由 #711、#712 实施；全量与选择两种入口见 §6。
 
-- [`junction-observation-and-validation.md`](junction-observation-and-validation.md)：#285
+- [`junction-observation-and-validation.md`][junction-observation-and-validation]：#285
   领域观测与跨层验证；Accepted。阶段一新增两个只读补充入口：Runtime
   `TrafficWorld::route_gate`（精确机动门定位）与 Bevy
   `LaneFlowSession::junction_observation`（复杂路口领域观测借用视图），不改变
@@ -176,7 +176,7 @@ Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
 输出按过滤后的选择顺序排列，记录编号从零连续。空选择提交带当前修订、新 token、
 无 frame 的空批；失败保留完整旧输出与上下文。全量路径不先构造选择列表，不承担
 查重开销；两者共用生产采样与提交逻辑。完整合同见
-[已提交位姿缓冲与按需提取](committed-pose-extraction.md)。
+[已提交位姿缓冲与按需提取][committed-pose-extraction]。
 
 - `SpatialSession::extract_pose_batch(&mut self, placement_token, inputs, output)`
   接收调用方拥有的 input slice 与可复用 `CanonicalPoseBatch`。session 内部保留
@@ -194,7 +194,7 @@ Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
 
 ## 7. v0.7 Bevy specialization
 
-#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭。
+#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473][github-com-illusion-tech-laneflow-issues-473] 已关闭。
 
 该 specialization 不改变本文的跨引擎最终裁决职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
 
@@ -333,3 +333,7 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
   `LaneFlowSession` 未插入或暂时移除时安全跳过（`Administration` 以
   `resource_exists` 条件门控），不得 panic；核心循环的守卫只保护自身，公开 set
   的安全性由 schedule 配置保证。
+
+[committed-pose-extraction]: committed-pose-extraction.md
+[junction-observation-and-validation]: junction-observation-and-validation.md
+[github-com-illusion-tech-laneflow-issues-473]: https://github.com/illusion-tech/laneflow/issues/473

@@ -5,20 +5,20 @@
 **最后更新**: 2026-10-26<br>
 **适用范围**: LaneFlow 主树中所有摘要（digest）与指纹（fingerprint）的角色划分、算法选择、
 持久化要求与依赖约束<br>
-**设计入口**: [#1022](https://github.com/illusion-tech/laneflow/issues/1022)、
-[#1051](https://github.com/illusion-tech/laneflow/issues/1051)<br>
-**关联决策**: [ADR 0020](0020-compiler-owned-static-network-and-static-image.md)、
-[ADR 0024](0024-compiler-post-emission-check-and-minimal-publication-closure.md)、
-[ADR 0028](0028-integer-millimeter-traffic-geometry.md)、
-[ADR 0032](0032-runtime-state-integrity-and-distortion-disposition-authority.md)<br>
-**关联设计**: [网络编译器 §7.6](../design/network-compiler.md)、
-[可移植规范制品](../design/portable-canonical-artifact.md)、
-[运行时状态完整性校验与失真恢复](../design/traffic-runtime-state-integrity.md)
+**设计入口**: [#1022][github-com-illusion-tech-laneflow-issues-1022]、
+[#1051][github-com-illusion-tech-laneflow-issues-1051]<br>
+**关联决策**: [ADR 0020][0020-compiler-owned-static-network-and-static-image]、
+[ADR 0024][0024-compiler-post-emission-check-and-minimal-publication-closure]、
+[ADR 0028][0028-integer-millimeter-traffic-geometry]、
+[ADR 0032][0032-runtime-state-integrity-and-distortion-disposition-authority]<br>
+**关联设计**: [网络编译器 §7.6][network-compiler]、
+[可移植规范制品][portable-canonical-artifact]、
+[运行时状态完整性校验与失真恢复][traffic-runtime-state-integrity]
 
 本文规定新增或复核摘要时“先确定角色，再选算法”的规则，并给出每类角色的默认算法。
 本文拥有角色与选型规则，具体字节合同由各自设计拥有。确定性派生摘要
 （deterministic derivation digest）不承担身份或完整性证明；其持久结果仍须可重建、
-可区分版本。LuST 的对应字节合同见[真实路网工作负载 §4 与 §6.2](../design/real-road-workloads.md)。
+可区分版本。LuST 的对应字节合同见[真实路网工作负载 §4 与 §6.2][real-road-workloads]。
 其他既有摘要不因新增角色自动迁移，改变字节合同须各自进入 G1。
 
 ## 背景
@@ -28,10 +28,10 @@ SHA-256 的优势是互操作：任何语言、任何通用工具都能独立重
 其中相当一部分摘要只由 LaneFlow 自己产生、自己验证，没有外部重算方，例如确定性
 状态摘要和编译器来源追溯摘要。对这类摘要，SHA-256 的互操作价值用不上，代价却一直
 存在。算法差异取决于输入长度、硬件指令与实现，长缓冲区吞吐不能代替短原像测量；
-[LuST 实测](../../research/issue-1029-lust-digest/xxh3-review.md)中，带 SHA 指令的
+[LuST 实测][xxh3-review]中，带 SHA 指令的
 SHA-256 比 BLAKE3 更快，XXH3 又比二者更快。
 
-仓库已有按角色选算法的先例。[网络编译器 §7.6](../design/network-compiler.md) 规定
+仓库已有按角色选算法的先例。[网络编译器 §7.6][network-compiler] 规定
 BLAKE3-128 只用于持久实体标识，XXH3 只用于编译器进程内缓存，SHA-256 负责制品、镜像
 与发布完整性，三者不得混用；ADR 0020 规定稳态 tick 不进入任何哈希计算。但这套分层
 只约束编译器，运行时、取证工具与测试证据并不受其约束。
@@ -139,7 +139,7 @@ ADR 0020 规定稳态 tick 不进入 `StableId128`、BLAKE3、XXH3、哈希查�
 
 ### 8. 唯一事实来源
 
-本文是摘要角色与算法选型的唯一规范依据。[网络编译器 §7.6](../design/network-compiler.md)
+本文是摘要角色与算法选型的唯一规范依据。[网络编译器 §7.6][network-compiler]
 的算法角色条款改为引用本文；具体摘要的原像、字节布局与派生版本仍由各自设计文档
 定义。角色术语的中英映射由 `docs/reference/glossary.md` 管理。
 
@@ -180,7 +180,7 @@ Issue 的盘点逐项复核。
   但制品体量为 MB 级，SHA-256 的耗时在毫秒级，更换几乎没有收益；在同一格式家族中
   混用两种算法，会增加格式实现与跨语言重建的负担。一个格式家族使用一种算法更简单。
 - **为什么不统一改用 BLAKE3**：可移植规范制品的设计目标之一是跨语言可人工重建精确
-  字节（见[可移植规范制品](../design/portable-canonical-artifact.md)）。宿主资产管线、
+  字节（见[可移植规范制品][portable-canonical-artifact]）。宿主资产管线、
   第三方工具与人工复核流程普遍内置 SHA-256，BLAKE3 在部分语言生态中需要额外依赖。
 - **为什么增加确定性派生摘要**：以哈希排序再取前 N 项、或将哈希位映射为有界比例，
   并不从哈希相等推出对象/内容相等。持久化要求结果可重建与变更可识别，不自动要求
@@ -208,3 +208,15 @@ Issue 的盘点逐项复核。
 仍由 §7 的根名单管理；具体生产消费者切换与证据重建按设计派生实现任务，不以设计
 合入冒充实现完成。复核其他摘要若改变字节合同，须在对应设计文档中更新派生版本，
 并按 G1 处理。
+
+[github-com-illusion-tech-laneflow-issues-1022]: https://github.com/illusion-tech/laneflow/issues/1022
+[github-com-illusion-tech-laneflow-issues-1051]: https://github.com/illusion-tech/laneflow/issues/1051
+[0020-compiler-owned-static-network-and-static-image]: 0020-compiler-owned-static-network-and-static-image.md
+[0024-compiler-post-emission-check-and-minimal-publication-closure]: 0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[0028-integer-millimeter-traffic-geometry]: 0028-integer-millimeter-traffic-geometry.md
+[0032-runtime-state-integrity-and-distortion-disposition-authority]: 0032-runtime-state-integrity-and-distortion-disposition-authority.md
+[network-compiler]: ../design/network-compiler.md
+[portable-canonical-artifact]: ../design/portable-canonical-artifact.md
+[traffic-runtime-state-integrity]: ../design/traffic-runtime-state-integrity.md
+[real-road-workloads]: ../design/real-road-workloads.md
+[xxh3-review]: ../../research/issue-1029-lust-digest/xxh3-review.md

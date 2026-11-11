@@ -5,7 +5,7 @@
 **依据**：#765；维护者明确要求未来非 Rust 代码进入正式仓库前完成立项审查。
 
 规范术语“代码语言立项审查”（Code Language Proposal Review）登记于
-[术语表](../reference/glossary.md)，本文规定其适用范围与人流程。
+[术语表][glossary]，本文规定其适用范围与人流程。
 
 ## 1. 默认语言与覆盖范围
 
@@ -60,3 +60,5 @@ Agent 可以继续推进 Rust 方案，或整理可审查的方案材料；不�
 正文、评论或接受结论链接。审阅中发现不符合时，通过普通 review conversation 提出并处理；
 未解决对话仍由 GitHub 原生规则拦截，遵循 ADR 0026/0027。
 未引入扩展名白名单或声称 CI 能判断所有代码语言；不得把自动检查未报错解释为语言选型已获接受。
+
+[glossary]: ../reference/glossary.md

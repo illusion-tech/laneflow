@@ -4,16 +4,16 @@
 **最后更新**: 2026-10-08<br>
 **适用范围**: 道路机动车准入候选缓存完整重建时，非空限速下降后缀的预览成功性
 
-本提案补充[准入筛选合同](traffic-runtime-admission-contender-filter.md)第 3.4 节，
+本提案补充[准入筛选合同][traffic-runtime-admission-contender-filter]第 3.4 节，
 不替换其已接受的身份、权利、ETA、严格同边运动、原校验、空 owner、错误及资源合同。
 它不是放开所有限速下降，也不把 P2 可将运动错误后移 P5 的论证用于公共准入命令。
 设计接受只允许按充分条件验证候选，不预先认证产品收益。
-#834 的[独立实现与有界测量](../../research/issue-707-city-parallel/admission-distant-results.md)
+#834 的[独立实现与有界测量][admission-distant-results]
 通过定向正确性与资源验证，但未显示可重复收益，已撤回产品候选。当前 Runtime 仍使用完整预览。
 
 ## 1. 问题与本次边界
 
-[#830 的未采用结果](../../research/issue-707-city-parallel/admission-filter-results.md)
+[#830 的未采用结果][admission-filter-results]
 显示：观察窗只筛除 1.0494% 扫描，5967157 次扫描因后续限速下降而回退。
 两组普通配对的公共命令耗时均增加。该回退数不等于本提案的命中数或潜在收益；
 旧候选、失败记录和否定结论保持原样，不因新设计改写。
@@ -170,3 +170,7 @@ W  = dt * (v + nU) + nU * nU / b
 微小变化应记为未证实，不自动追加 BAAB 或长测。仅筛除比例上升不能支持采用。
 任何状态/错误/所有权差异先停止性能声明；无目标准入收益时保留否定结果并停止候选。
 父任务 #707 的四基线、三轮完整观察、交通质量和正式资源认证继续独立开放。
+
+[traffic-runtime-admission-contender-filter]: traffic-runtime-admission-contender-filter.md
+[admission-distant-results]: ../../research/issue-707-city-parallel/admission-distant-results.md
+[admission-filter-results]: ../../research/issue-707-city-parallel/admission-filter-results.md

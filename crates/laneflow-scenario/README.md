@@ -12,7 +12,7 @@
 
 检入资产是 `examples/data/v0.2-signalized-corridor.catalog.toml` 与同名 LFCA。文件名里的 `v0.2` 是场景制品名，不是 catalog 版本，也不是 LFCA 版本。catalog 版本是 0.4。
 
-无窗口程序的完整顺序见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。持续车流再使用人口控制器，见下方设计文档。
+无窗口程序的完整顺序见[从源码接入无窗口交通运行时][source-integration]。持续车流再使用人口控制器，见下方设计文档。
 
 ## 主要约束与限制
 
@@ -31,11 +31,16 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 ```
 
-人口控制器的短容量测试随 `cargo test -p laneflow-scenario` 运行。完整一万次成功替换是忽略测试，命令见[人口与回流设计](../../docs/design/signalized-corridor-population.md)。
+人口控制器的短容量测试随 `cargo test -p laneflow-scenario` 运行。完整一万次成功替换是忽略测试，命令见[人口与回流设计][signalized-corridor-population]。
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [人口与回流设计](../../docs/design/signalized-corridor-population.md)
-- [`laneflow-runtime`](../../crates/laneflow-runtime/README.md)
-- [当前能力与限制](../../docs/reference/capabilities.md)
+- [从源码接入无窗口交通运行时][source-integration]
+- [人口与回流设计][signalized-corridor-population]
+- [`laneflow-runtime`][laneflow-runtime-readme]
+- [当前能力与限制][capabilities]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[signalized-corridor-population]: ../../docs/design/signalized-corridor-population.md
+[laneflow-runtime-readme]: ../../crates/laneflow-runtime/README.md
+[capabilities]: ../../docs/reference/capabilities.md

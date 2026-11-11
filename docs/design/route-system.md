@@ -20,7 +20,7 @@
 ## 1. 目标
 
 本文定义 `TrafficWorld` 的路线定义、校验、生命周期与 traversal 合同。车辆运动状态见
-[`vehicle-following.md`](vehicle-following.md)；路线不得终止在声明 StopLine 的 edge 上；
+[`vehicle-following.md`][vehicle-following]；路线不得终止在声明 StopLine 的 edge 上；
 路线注册期编译 ManeuverPath/Gate/WaitingZone occurrence，并做 (class, Route) 静态准入与
 profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；
 出现记录编译器只服务该入口。
@@ -34,7 +34,7 @@ entry occurrence，并要求新旧 route 展开的完整车身 physical occupanc
 不能只匹配前缘 edge 后把跨 predecessor 的车尾换到另一支路。Parked/Reserved vehicle 均
 保留 live route reference，`remove_route`
 不得删除任一 live vehicle 正在引用的 route。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。
-详细契约见 [`parking-system.md`](parking-system.md)。
+详细契约见 [`parking-system.md`][parking-system]。
 
 ### 路线距离
 
@@ -249,7 +249,7 @@ VehicleState
 - route removal 需要 route-in-use、stale handle、unknown route；**没有**
   Runtime 级 duplicate route ID 错误路径。
 
-**换道能力拒绝衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §6）**：
+**换道能力拒绝衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`][lane-change-minimal-contract] §6）**：
 含固定预制过渡的路线在运行时不支持过渡执行时，`register_route`、车辆准入与
 恢复入口按该合同结构化拒绝（`TransitionUnsupported` 类、失败关闭、注册表
 不变/零部分恢复）；换道支持能力属实现能力，不新增配置字段（不加
@@ -315,4 +315,9 @@ external ID、不扫描全局 catalog，也不为每辆车复制 occurrence。
 `register_route` 必须先完成 path/Gate/StopLine coverage 编译和验证，再原子提交 handle、
 definition 与 metadata。失败不得留下部分 occurrence 或可观察 allocation/order。
 完整 shape、歧义规则与性能边界见
-[`road-junction-model.md`](road-junction-model.md)。
+[`road-junction-model.md`][road-junction-model]。
+
+[vehicle-following]: vehicle-following.md
+[parking-system]: parking-system.md
+[lane-change-minimal-contract]: lane-change-minimal-contract.md
+[road-junction-model]: road-junction-model.md

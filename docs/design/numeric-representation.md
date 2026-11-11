@@ -130,7 +130,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | Three.js   | JavaScript `number`                                      | host 数值语义不是 Rust f32 ABI   |
 | Babylon.js | JavaScript `number`                                      | host 数值语义不是 Rust f32 ABI   |
 
-资料： [Bevy Transform](https://docs.rs/bevy_transform/latest/bevy_transform/components/struct.Transform.html)、[Unity Vector3 constructor](https://docs.unity3d.com/ja/current/ScriptReference/Vector3-ctor.html)、[Unreal Core math types](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core)、[Godot Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html)、[Three.js Vector3](https://threejs.org/docs/pages/Vector3.html)、[Babylon.js Vector3](https://doc.babylonjs.com/typedoc/classes/BABYLON.Vector3)。
+资料： [Bevy Transform][docs-rs-bevy_transform-latest-bevy_transform-components-struct-transform-html]、[Unity Vector3 constructor][docs-unity3d-com-ja-current-scriptreference-vector3-ctor-html]、[Unreal Core math types][dev-epicgames-com-documentation-en-us-unreal-engine-api-runtime-core]、[Godot Vector3][docs-godotengine-org-en-stable-classes-class_vector3-html]、[Three.js Vector3][threejs-org-docs-pages-vector3-html]、[Babylon.js Vector3][doc-babylonjs-com-typedoc-classes-babylon-vector3]。
 
 ### 6.2 Spatial frame 映射与失败语义
 
@@ -155,3 +155,10 @@ Traffic Runtime 的有效进度
 ### 6.3 格式与 API 变更判断
 
 Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的变化必须按 ADR 0008 视为数据格式 / API 迁移；编制数值只能通过显式受检转换进入 Traffic Runtime。
+
+[docs-rs-bevy_transform-latest-bevy_transform-components-struct-transform-html]: https://docs.rs/bevy_transform/latest/bevy_transform/components/struct.Transform.html
+[docs-unity3d-com-ja-current-scriptreference-vector3-ctor-html]: https://docs.unity3d.com/ja/current/ScriptReference/Vector3-ctor.html
+[dev-epicgames-com-documentation-en-us-unreal-engine-api-runtime-core]: https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core
+[docs-godotengine-org-en-stable-classes-class_vector3-html]: https://docs.godotengine.org/en/stable/classes/class_vector3.html
+[threejs-org-docs-pages-vector3-html]: https://threejs.org/docs/pages/Vector3.html
+[doc-babylonjs-com-typedoc-classes-babylon-vector3]: https://doc.babylonjs.com/typedoc/classes/BABYLON.Vector3

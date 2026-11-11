@@ -7,10 +7,10 @@
 
 **关联文档**:
 
-- [`traffic-runtime-vehicle-placement.md`](traffic-runtime-vehicle-placement.md)
-- [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)
-- [`traffic-runtime-conflict-occurrence.md`](traffic-runtime-conflict-occurrence.md)
-- [`traffic-runtime-waiting-zone.md`](traffic-runtime-waiting-zone.md)
+- [`traffic-runtime-vehicle-placement.md`][traffic-runtime-vehicle-placement]
+- [`traffic-runtime-near-gate-frontier.md`][traffic-runtime-near-gate-frontier]
+- [`traffic-runtime-conflict-occurrence.md`][traffic-runtime-conflict-occurrence]
+- [`traffic-runtime-waiting-zone.md`][traffic-runtime-waiting-zone]
 
 不新开 ADR。公开 API、错误分类、数据格式、快照与 Adapter 都不变。准入规则只有
 一处变化：格点 owner 的平局键统一为 `live_order` 序号（第 4.3 节）。除此之外，
@@ -459,3 +459,8 @@
 
 全程（含暖机）物化全部 10 次，都在路线索引建好之前。只有触发「物化全部」的段与
 现在相当，最坏情况不差于现行重建加一次计数排序。
+
+[traffic-runtime-vehicle-placement]: traffic-runtime-vehicle-placement.md
+[traffic-runtime-near-gate-frontier]: traffic-runtime-near-gate-frontier.md
+[traffic-runtime-conflict-occurrence]: traffic-runtime-conflict-occurrence.md
+[traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md

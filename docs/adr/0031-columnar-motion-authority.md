@@ -1,8 +1,8 @@
 # 0031 列式运动正本与独立 SIMD 数值边界
 
 **状态**: Accepted<br>
-**设计入口**: [#814](https://github.com/illusion-tech/laneflow/issues/814)<br>
-**关联设计**: [列式批量执行](../design/traffic-runtime-columnar-execution.md)
+**设计入口**: [#814][github-com-illusion-tech-laneflow-issues-814]<br>
+**关联设计**: [列式批量执行][traffic-runtime-columnar-execution]
 
 ## 背景
 
@@ -23,3 +23,6 @@
 新增 ISA 边界需要内存安全差异测试和 CodeQL；不把 CPU 名称当作可用性证明。先形成 A+B+C 组合再评价整拍净收益，P1/P3 批量化与 P4 扩展后续推进。无兼容双轨、全局 ISA 编译参数或 P4 组件并行前置。
 
 本决策接受目标架构，不等于生产实施、整拍收益或城市认证完成。具体实验、证据和进度留在 Issue/PR。
+
+[github-com-illusion-tech-laneflow-issues-814]: https://github.com/illusion-tech/laneflow/issues/814
+[traffic-runtime-columnar-execution]: ../design/traffic-runtime-columnar-execution.md

@@ -68,7 +68,7 @@ Runtime 的 `CommittedNetworkSource`；本节只约束其中可编辑的
 committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 同样是合法来源，
 但不携带 authoring payload，因此不适用下列 `RoadEditingState` 必须保存内容。committed
 `RoadEditingState` 作为 Runtime 来源载荷的形状（`LFRE` 模块集合、结构校验与摘要）见
-[`committed-road-editing-state.md`](committed-road-editing-state.md) §2。
+[`committed-road-editing-state.md`][committed-road-editing-state] §2。
 
 必须保存：
 
@@ -202,7 +202,7 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 ### 9.3 schema 形状
 
 #284 的 Road Editing v4 来源字段及 LFSM 4 属性路径增量，统一登记于
-[`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)，
+[`traffic-runtime-right-of-way-policy.md` §4.4][traffic-runtime-right-of-way-policy-44-lfsm-4-来源编码与闭合]，
 包含具名策略局部成员的 CanonicalSetOrdinal 规则。W2 将两个正式前端、共同
 AST/HIR/MIR/LIR 和来源投影接入该合同；当前 LFRE wire 为 4。
 
@@ -338,7 +338,7 @@ string 必须缺失、不适用 scalar 必须为规范零。`Vec2F64` 的 member
 `virtual_exits` 分别是以 `(LaneEdge StableId128, progressMillimetres)` 为键的集合；来源
 `double` 进度量化到毫米、引用解析后重复的完整锚点失败关闭。
 这些 table/field/member 的 LFSM container code 与可达 property path 由
-[`portable-canonical-artifact.md` §4.1](portable-canonical-artifact.md#41-bindings-与来源池登记)
+[`portable-canonical-artifact.md` §4.1][portable-canonical-artifact-41-bindings-与来源池登记]
 唯一登记，schema declaration order 或生成语言 enum 不得另行改号。
 
 因此当前 LFRE wire 4 根表包含 24 个可构造稳定声明向量；`conflict_zone_regions` 是
@@ -349,7 +349,7 @@ entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列�
 几何只能辅助验证与表现，不能生成或改写行为 passage。
 
 声明、owner-local 地址与 property path 必须逐项投影到
-[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 的 LFSM 4 role
+[`portable-canonical-artifact.md`][portable-canonical-artifact] 的 LFSM 4 role
 13–16 / 30–32
 登记。生成的 Rust/C++/C# binding 与 known vectors 必须由同一 exact schema 和固定命令
 clean-regenerate。
@@ -558,8 +558,6 @@ LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
 预算超限诊断，不回退到平方扫描。此资源失败顺序依据 [#680 的 G1 补充][preflight-index-g1]，
 不改变公开配置档数值。道路编辑前端没有取消参数或可恢复的 allocator OOM 诊断，
 普通 Rust allocator 的分配失败边界保持不变。
-
-[preflight-index-g1]: https://github.com/illusion-tech/laneflow/issues/680#issuecomment-5703330314
 
 令 `S` 为已经通过 exact-length 与 `SourceBytesPerModule/SourceBytesTotal` 检查的完整
 size-prefixed 输入字节数，`R` 为调用点剩余 `TypedAstRecordCount`：
@@ -921,13 +919,13 @@ Rust 绑定含 `unsafe`——并选择 A；仍须以绝对 workload 证明资源
 
 候选事实依据：
 
-- [FlatBuffers 官方文档：Rust 的受检不可信输入入口](https://flatbuffers.dev/languages/rust/)
-- [FlatBuffers 官方文档：schema、required/optional、file identifier 与字段类型](https://flatbuffers.dev/schema/)
-- [FlatBuffers 官方文档：schema 演进与 `flatc --conform`](https://flatbuffers.dev/evolution/)
-- [FlatBuffers 官方文档：C++、C#、Rust 等支持矩阵](https://flatbuffers.dev/support/)
-- [Protocol Buffers 官方文档：序列化不是 canonical](https://protobuf.dev/programming-guides/serialization-not-canonical/)
-- [Cap'n Proto 官方文档：其他语言实现状态](https://capnproto.org/otherlang.html)
-- [rkyv 文档：schema/format option 兼容边界](https://docs.rs/rkyv/latest/rkyv/#compatibility)
+- [FlatBuffers 官方文档：Rust 的受检不可信输入入口][flatbuffers-dev-languages-rust]
+- [FlatBuffers 官方文档：schema、required/optional、file identifier 与字段类型][flatbuffers-dev-schema]
+- [FlatBuffers 官方文档：schema 演进与 `flatc --conform`][flatbuffers-dev-evolution]
+- [FlatBuffers 官方文档：C++、C#、Rust 等支持矩阵][flatbuffers-dev-support]
+- [Protocol Buffers 官方文档：序列化不是 canonical][protobuf-dev-programming-guides-serialization-not-canonical]
+- [Cap'n Proto 官方文档：其他语言实现状态][capnproto-org-otherlang-html]
+- [rkyv 文档：schema/format option 兼容边界][docs-rs-rkyv-latest-rkyv-compatibility]
 
 Rust runtime 固定为 crates.io `flatbuffers = 25.12.19`：Apache-2.0、MSRV 1.51，满足
 本仓库 Rust 1.99.1；只启用默认 `std`，不启用 `serde`/`serialize` 或 reflection 依赖。
@@ -1003,8 +1001,8 @@ production 依赖或实现。
 实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
 的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实来源。
 
-[`road-editing-source-semantic-seed-v1.json`](../reference/road-editing-source-semantic-seed-v1.json)
-和 [`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)
+[`road-editing-source-semantic-seed-v1.json`][road-editing-source-semantic-seed-v1]
+和 [`road-editing-source-reference-machine-v1.json`][road-editing-source-reference-machine-v1]
 只保留为历史研究证据，不进入现行 schema、fixture、配置档或生产读取路径。任何新的道路编辑
 专项 workload 必须基于 v4 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
 
@@ -1031,3 +1029,18 @@ production 依赖或实现。
 
 [#345]: https://github.com/illusion-tech/laneflow/issues/345
 [#374]: https://github.com/illusion-tech/laneflow/issues/374
+
+[committed-road-editing-state]: committed-road-editing-state.md
+[traffic-runtime-right-of-way-policy-44-lfsm-4-来源编码与闭合]: traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
+[portable-canonical-artifact-41-bindings-与来源池登记]: portable-canonical-artifact.md#41-bindings-与来源池登记
+[portable-canonical-artifact]: portable-canonical-artifact.md
+[preflight-index-g1]: https://github.com/illusion-tech/laneflow/issues/680#issuecomment-5703330314
+[flatbuffers-dev-languages-rust]: https://flatbuffers.dev/languages/rust/
+[flatbuffers-dev-schema]: https://flatbuffers.dev/schema/
+[flatbuffers-dev-evolution]: https://flatbuffers.dev/evolution/
+[flatbuffers-dev-support]: https://flatbuffers.dev/support/
+[protobuf-dev-programming-guides-serialization-not-canonical]: https://protobuf.dev/programming-guides/serialization-not-canonical/
+[capnproto-org-otherlang-html]: https://capnproto.org/otherlang.html
+[docs-rs-rkyv-latest-rkyv-compatibility]: https://docs.rs/rkyv/latest/rkyv/#compatibility
+[road-editing-source-semantic-seed-v1]: ../reference/road-editing-source-semantic-seed-v1.json
+[road-editing-source-reference-machine-v1]: ../reference/road-editing-source-reference-machine-v1.json

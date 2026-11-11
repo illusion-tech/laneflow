@@ -4,13 +4,13 @@
 **最后更新**: 2026-10-25（#1044 观测摘要角色与算法）<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收<br>
 **关联文档**:
-[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
-[`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
-[`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
-[`../adr/0033-digest-role-and-algorithm-selection-authority.md`](../adr/0033-digest-role-and-algorithm-selection-authority.md)、
-[`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)、
-[`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、
-[`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
+[`../adr/0020-compiler-owned-static-network-and-static-image.md`][0020-compiler-owned-static-network-and-static-image]、
+[`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]、
+[`../adr/0029-retire-precompiled-static-route.md`][0029-retire-precompiled-static-route]、
+[`../adr/0033-digest-role-and-algorithm-selection-authority.md`][0033-digest-role-and-algorithm-selection-authority]、
+[`traffic-runtime-shared-consumption.md`][traffic-runtime-shared-consumption]、
+[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover]、
+[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot]
 
 本文是 #303 已接受的 G1 实现输入。Rust 名称、错误枚举与具体容器布局由 G2 落定；
 G2 不得静默改变本文的职责分层、绑定集、时点、失败关闭
@@ -329,7 +329,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 
 `route_edge_occurrence_capacity` 的语义保持为边 occurrence，不能拿它隐式支付一条
 边可能展开出的多个冲突通行段。#283 的
-[`traffic-runtime-conflict-occurrence.md`](traffic-runtime-conflict-occurrence.md) 另设
+[`traffic-runtime-conflict-occurrence.md`][traffic-runtime-conflict-occurrence] 另设
 `route_conflict_occurrence_capacity`；两个计数由同一注册提交点原子维护。
 
 **G2 首批实现决定**：`WorldConfig::new` 在 `route_capacity` 之后要求调用方显式提供
@@ -403,7 +403,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 workload ID、source commit、路网/状态/selection digest、车辆规模与 lifecycle mix、
 seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、warm-up、样本/round
 规则和 candidate/oracle 边界。观测 full/delta 优先复用
-[`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 的
+[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline] 的
 `LF-SYNTH-v2` W1–W4；新增 Routing 专用拓扑或成本 payload 时使用新的具名 workload，
 不把“典型”“长路线”当作可重放身份。
 
@@ -497,7 +497,7 @@ reallocation；receiver 在 exact count/bytes 预检后零分配；candidate 的
 allocator 工作。
 
 完整环境、配置、逐 round raw samples、分配账本与复现命令登记在
-[#521 raw evidence comment](https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930)。
+[#521 raw evidence comment][github-com-illusion-tech-laneflow-pull-521-issuecomment-5449994930]。
 该不可变 PR 证据与 source commit 配对，闭合 §7 的首轮具名描述性测量；真实 snapshot
 restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代。
 
@@ -619,7 +619,7 @@ p50 无可见差别，p95 有抬升（接收成本快照后最高，约高 10%�
 19.6 ms。显式调用以自身墙钟延迟下一 tick，但不与 tick 交错。100k 的 tick 是单
 worker 数字，不能与多 worker 整帧结果比较，也不构成产品预算判定。逐操作完整统计、
 运行日志与逐 round 原始输出登记在
-[#1279 正式记录](https://github.com/illusion-tech/laneflow/issues/1279#issuecomment-6676712976)。
+[#1279 正式记录][github-com-illusion-tech-laneflow-issues-1279-issuecomment-6676712976]。
 
 ## 8. G2 边界与必测义务
 
@@ -676,3 +676,15 @@ spawn/park/leave/despawn/replace 后立即导出；不得复用旧 `OccupancyInd
 cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义且失败零路线槽/
 计数变化；切换成功/放弃与 restore 的 session/candidate 失效；检查点后候选成功注册
 只重放规范化已准入路线注册命令、不调用 Routing、不提交旧成本绑定。
+
+[0020-compiler-owned-static-network-and-static-image]: ../adr/0020-compiler-owned-static-network-and-static-image.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[0029-retire-precompiled-static-route]: ../adr/0029-retire-precompiled-static-route.md
+[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[traffic-runtime-conflict-occurrence]: traffic-runtime-conflict-occurrence.md
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[github-com-illusion-tech-laneflow-pull-521-issuecomment-5449994930]: https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930
+[github-com-illusion-tech-laneflow-issues-1279-issuecomment-6676712976]: https://github.com/illusion-tech/laneflow/issues/1279#issuecomment-6676712976

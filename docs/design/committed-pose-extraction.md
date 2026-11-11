@@ -4,10 +4,10 @@
 **最后更新**：2026-09-18<br>
 **适用范围**：Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择
 
-相关合同：[Adapter API](adapter-api.md)、[Spatial 几何](spatial-geometry.md)、
-[共享静态路网消费](traffic-runtime-shared-consumption.md)、
-[修订切换](traffic-runtime-revision-cutover.md)、[城市运行程序](urban-demand-harness.md)、
-[ADR 0021](../adr/0021-traffic-infrastructure-and-host-boundary.md)。
+相关合同：[Adapter API][adapter-api]、[Spatial 几何][spatial-geometry]、
+[共享静态路网消费][traffic-runtime-shared-consumption]、
+[修订切换][traffic-runtime-revision-cutover]、[城市运行程序][urban-demand-harness]、
+[ADR 0021][0021-traffic-infrastructure-and-host-boundary]。
 
 ## 1. 范围与职责
 
@@ -188,3 +188,10 @@ Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但�
 
 第 1、2 项没有实现依赖；第 3 项消费第 2 项。性能改进的采纳结论与实际完成状态
 记录在 GitHub；具体测量样例和局限见 research 报告，不将微测量写成产品达标事实。
+
+[adapter-api]: adapter-api.md
+[spatial-geometry]: spatial-geometry.md
+[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[urban-demand-harness]: urban-demand-harness.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md

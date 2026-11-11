@@ -17,8 +17,8 @@ LaneFlow 采用 GitHub-first 治理：
 - Releases 是发布事实记录。
 
 长期设计、架构决策和规范必须进入仓库文档，不应只留在 GitHub 页面中。合并证据模型
-见 [ADR 0026](../adr/0026-merge-governance-rebuild.md) 与
-[ADR 0027](../adr/0027-retire-external-review-check.md)。
+见 [ADR 0026][0026-merge-governance-rebuild] 与
+[ADR 0027][0027-retire-external-review-check]。
 
 ## 2. Issue 规则
 
@@ -351,3 +351,6 @@ CI 失败不等于真回归，也不得默认当偶发放过。判读与处置�
 每次 Release 应说明版本目标、新增能力、修复、breaking changes、Traffic Runtime API 版本、
 数据格式版本、Adapter 兼容情况和示例项目状态。公开发布前按 `security-scanning.md`
 与 `dependency-security.md` 重新验证。
+
+[0026-merge-governance-rebuild]: ../adr/0026-merge-governance-rebuild.md
+[0027-retire-external-review-check]: ../adr/0027-retire-external-review-check.md

@@ -3,15 +3,15 @@
 **状态**: 生产。`format_version = 4`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
 **格式标识**: `LF-ROAD-EDITING-SOURCE-v4`<br>
-**机器事实来源**: [`road-editing.fbs`](road-editing.fbs)<br>
+**机器事实来源**: [`road-editing.fbs`][road-editing]<br>
 **设计依据**:
-[`road-editing-source-and-geometry-frontend.md`](../../../docs/design/road-editing-source-and-geometry-frontend.md)、
-[ADR 0023](../../../docs/adr/0023-road-editing-state-and-phased-network-replacement.md)、
-[曲线误差档](../../../docs/adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md)、
-[横断面与准入](../../../docs/design/cross-section-access.md)、
-[信号](../../../docs/design/signal-system.md)、
-[停车](../../../docs/design/parking-system.md)、
-[车辆跟驰](../../../docs/design/vehicle-following.md)
+[`road-editing-source-and-geometry-frontend.md`][road-editing-source-and-geometry-frontend]、
+[ADR 0023][0023-road-editing-state-and-phased-network-replacement]、
+[曲线误差档][0022-authoring-curve-and-canonical-polyline-error-budgets]、
+[横断面与准入][cross-section-access]、
+[信号][signal-system]、
+[停车][parking-system]、
+[车辆跟驰][vehicle-following]
 
 本目录冻结 FlatBuffers 的精确类型、字段、字段 `id`、枚举值、union 判别值、根表和
 file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier 表达的领域语义。
@@ -273,13 +273,13 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   或最后一个。writer 只排序无序集合，绝不修复重复或冲突 owner。路线边序列不在来源
   中声明；场景 catalog 0.4 拥有示例边键，并显式携带必填 `policy_selection`，
   运行时只经 `register_route` 编译。策略形状与绑定顺序见
-  [人口与回流合同](../../../docs/design/signalized-corridor-population.md#3-catalog-契约)。
+  [人口与回流合同][signalized-corridor-population-3-catalog-契约]。
 
 ## 7. 数值、顺序与 scalar 缺省
 
 策略成员的 priority、三项间隙和两个门枚举采用 optional scalar，领域准入必须
 显式提供；零是合法值，缺失拒绝。Movement 的可选方向缺失不等于 Straight。
-这些新增字段的完整合同见[路权策略实施合同 §4.4](../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)。
+这些新增字段的完整合同见[路权策略实施合同 §4.4][traffic-runtime-right-of-way-policy-44-lfsm-4-来源编码与闭合]。
 
 以下旧字段继续按既有规则解释：
 
@@ -333,4 +333,16 @@ StreamRule、GateRule 四种局部具名成员。成员不能跨模块追加，�
 全部已提供字段进入 LFSM 贡献位置，空集合与零数值仍保留。策略 canvas 的 None 和
 空字符串分别保留。业务日期和策略启用时机由宿主拥有。
 
-详见[路权策略实施合同](../../../docs/design/traffic-runtime-right-of-way-policy.md)。
+详见[路权策略实施合同][traffic-runtime-right-of-way-policy]。
+
+[road-editing]: road-editing.fbs
+[road-editing-source-and-geometry-frontend]: ../../../docs/design/road-editing-source-and-geometry-frontend.md
+[0023-road-editing-state-and-phased-network-replacement]: ../../../docs/adr/0023-road-editing-state-and-phased-network-replacement.md
+[0022-authoring-curve-and-canonical-polyline-error-budgets]: ../../../docs/adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md
+[cross-section-access]: ../../../docs/design/cross-section-access.md
+[signal-system]: ../../../docs/design/signal-system.md
+[parking-system]: ../../../docs/design/parking-system.md
+[vehicle-following]: ../../../docs/design/vehicle-following.md
+[signalized-corridor-population-3-catalog-契约]: ../../../docs/design/signalized-corridor-population.md#3-catalog-契约
+[traffic-runtime-right-of-way-policy-44-lfsm-4-来源编码与闭合]: ../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
+[traffic-runtime-right-of-way-policy]: ../../../docs/design/traffic-runtime-right-of-way-policy.md

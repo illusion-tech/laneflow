@@ -4,15 +4,15 @@
 **最后更新**: 2026-10-25<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
-[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
-[`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
-[`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)、
-[`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
-[`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、
-[`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)、
-[`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
-[`shared-static-network.md`](shared-static-network.md)、
-[`parking-system.md`](parking-system.md)
+[`../adr/0020-compiler-owned-static-network-and-static-image.md`][0020-compiler-owned-static-network-and-static-image]（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
+[`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]、
+[`../adr/0028-integer-millimeter-traffic-geometry.md`][0028-integer-millimeter-traffic-geometry]、
+[`../adr/0029-retire-precompiled-static-route.md`][0029-retire-precompiled-static-route]、
+[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover]、
+[`traffic-observation-and-routing-integration.md`][traffic-observation-and-routing-integration]、
+[`retire-precompiled-static-route.md`][retire-precompiled-static-route]、
+[`shared-static-network.md`][shared-static-network]、
+[`parking-system.md`][parking-system]
 
 本文是 ADR 0020 §12（按 ADR 0025 §8 修订后语义）的 #302 G1 设计。路线与车辆的
 快照表示沿用 ADR 0029 §6 已冻结形状；容器 schema、字段映射与测试构造由 G2
@@ -34,7 +34,7 @@
 ## 1. 问题与设计立场
 
 #284 的策略绑定、Conflict reservation 与历史状态增量见
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6、§8
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §6、§8
 （Accepted）。当前已实现策略绑定、Conflict eligibility/reservation/Clearing、
 downstream authority 与 lag history 的持久化、同/跨修订迁移和生产 fixed-step 接线。
 
@@ -52,7 +52,7 @@ downstream authority 与 lag history 的持久化、同/跨修订迁移和生产
 
 ## 2. 版本轴与绑定集
 
-[执行配置设计](traffic-runtime-execution-config.md)将 worker 移出快照。当前版本轴为
+[执行配置设计][traffic-runtime-execution-config]将 worker 移出快照。当前版本轴为
 LFRS 7 / runtime state 5 / digest 8；执行配置分离与编辑来源绑定仅改变容器布局，#1035
 仅更换摘要算法与摘要版本，交通状态及摘要原像布局不变。
 安装与 fresh restore 都显式接收 `ExecutionConfig`，完整交通准备后才校验执行能力。
@@ -64,7 +64,7 @@ revision）不混用单一数字；未知版本值失败关闭。
 必绑：LFCA origin；`CommittedNetworkSource`（editable 世界 = committed
 `RoadEditingState` 的道路编辑状态摘要、精确总长度与模块数，不内嵌 `LFRE` 字节；
 runtime-only 世界 = `PublishedLfcaReference`；编辑来源绑定形状见
-[`committed-road-editing-state.md`](committed-road-editing-state.md) §6）；上列版本；
+[`committed-road-editing-state.md`][committed-road-editing-state] §6）；上列版本；
 世界身份（快照局部）；`tick` / `time_ms` / 输入命令与已提交事件双游标（切换
 事务的 `worldBinding` 需要双游标基线）；全部每世界可变状态（§3）；
 `WorldConfig` 与 `WorldPolicySelection`。必填 `world_policy` 使用封闭 tag：
@@ -112,7 +112,7 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 快照局部标识只在单个快照内稳定，恢复经 `SharedIdentityIndex` 与局部标识表
 重建。一维数值全部整数毫米 / 微米 / `u32` mm/s，无浮点字段。
 
-**过渡状态衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §9）**：
+**过渡状态衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`][lane-change-minimal-contract] §9）**：
 固定预制过渡的车辆 tagged 过渡状态（`PreEntry | InTransition | Clearing`）与
 过渡预约 wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间
 并集、route occurrence 证明）按上表同一原则持久化；完整预约只装运行时正本、
@@ -173,7 +173,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - 保存只接受活动聚合的 `CommittedNetworkSource`；working / candidate 与
   `EditableDiffBase` 不入档。候选准备期的保存仍只捕获旧聚合（切换文档 §8）。
 - **共享路网修订认证（#955 G1，见
-  [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md) §4.2）**：
+  [`traffic-runtime-state-integrity.md`][traffic-runtime-state-integrity] §4.2）**：
   宿主在恢复与跨修订迁移把重建 / 重新认证的修订投入使用之前执行共享路网修订认证；结论非
   `Pass` 时不恢复、不发布 world。保存路径不加完整性门控；检测滞后内被保存的检查点
   可能包含坏状态（完整性设计 §5 第 7 条）；对审计重放检出的分歧，宿主按完整性设计
@@ -253,7 +253,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：唯一算法为 BLAKE3-256。按
-  [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)，它属于内部
+  [ADR 0033][0033-digest-role-and-algorithm-selection-authority]，它属于内部
   完整性摘要；#1035 将算法由 SHA-256 更换为 BLAKE3-256，并把摘要版本由 `7` 递增为
   `8`，规范原像的内容、排序与字节布局不变；不保留 SHA-256 计算或比对路径。公开入口
   `deterministic_state_digest` 与 `TrafficWorld::direct_state_digest` 返回按角色命名的
@@ -329,7 +329,7 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   依序重放并比较各点，首个不等点与上一个相等点构成首个分歧区间。失同步只诊断，
   不自动纠偏、不重启世界，处置归宿主。
 - **完整性接缝（#955 G1，见
-  [`traffic-runtime-state-integrity.md`](traffic-runtime-state-integrity.md)）**：
+  [`traffic-runtime-state-integrity.md`][traffic-runtime-state-integrity]）**：
   C(T) 的完整性检测由宿主承担：宿主检查点对拍与审计重放（在独立世界、独立进程或
   另一台机器上从较早检查点重放并比对三元组；被审计世界仍在运行时只在独立进程或另一台
   机器上重放，因为同进程不得并存同 `world_id` 的世界；审计结果分完整一致 / 分歧 / 未完成，
@@ -498,3 +498,19 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 | 冲突能力保护                | 已覆盖：保存的微米 carry 参与车尾位置；clearance 前一微米拒绝、相等允许；Completed 直接恢复最终态，不经过瞬时 Active；失败零发布                                                                                                                                                                                                   |
 | Conflict 持久状态           | 已覆盖：firstEligibleTick 的 None/tick 0 区分、Clearing owner/passages 与可重建 downstream 物理并集往返、1 mm 改写/缺区间拒绝、ActualClear tick 0、cleared cell 历史类别闭合、悬空 locator/错误 occurrence/重复及 future history 拒绝；same-revision 原样保持，cross-revision 使用最终 T_commit floor 并在连续再次切换时保留原基准 |
 | 快照五维预算                | Published 初值与 editable load 初值均已登记于 §8                                                                                                                                                                                                                                                                                   |
+
+[0020-compiler-owned-static-network-and-static-image]: ../adr/0020-compiler-owned-static-network-and-static-image.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[0028-integer-millimeter-traffic-geometry]: ../adr/0028-integer-millimeter-traffic-geometry.md
+[0029-retire-precompiled-static-route]: ../adr/0029-retire-precompiled-static-route.md
+[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[traffic-observation-and-routing-integration]: traffic-observation-and-routing-integration.md
+[retire-precompiled-static-route]: retire-precompiled-static-route.md
+[shared-static-network]: shared-static-network.md
+[parking-system]: parking-system.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
+[committed-road-editing-state]: committed-road-editing-state.md
+[lane-change-minimal-contract]: lane-change-minimal-contract.md
+[traffic-runtime-state-integrity]: traffic-runtime-state-integrity.md
+[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md

@@ -5,13 +5,13 @@
 
 ## 1. 语义消费边界
 
-`laneflow-synth-harness` 接受 [规范输入包](lf-synth-input-bundle.md) 的 W1–W4。
+`laneflow-synth-harness` 接受 [规范输入包][lf-synth-input-bundle] 的 W1–W4。
 先执行生成器 `verify_directory` 的文件/摘要/规范编码及完整重建校验，再通过 LFCA
 受检读取、保留 Spatial 的共享路网、显式政策安装、路线注册及车辆生成消费输入。
 稳定标识解析到本修订 ordinal，logical rank 不冒充 ordinal 或 Runtime handle。
 Traffic Runtime 生产代码不感知 workload ID。
 
-交通行为与窗口公式以 [性能基线](core-runtime-performance-baseline.md) 为准。
+交通行为与窗口公式以 [性能基线][core-runtime-performance-baseline] 为准。
 工具读取受检计划并独立核对周期、预热及观察长度，不允许指定短窗口的正式入口。
 W1/W2/W3 在 16 ms 使用 `14508 + 29016` 拍，33 ms 使用 `7044 + 14088` 拍；
 W4 使用相同预热长度及恰好两条观察拍。初始边界、全部预热拍和观察拍均核验。
@@ -26,7 +26,7 @@ W1/W2 每拍检查：
   速度不超过 13900 mm/s、位移不超过该速度的一拍距离、正加速度不超过冻结 profile。
   正加速度检查容许毫米量化的 1 mm/s，位移检查容许 1 µm；这不放宽闯灯或重叠。
   速度/位置为有界整数，固定步长非零，派生加速度有限。
-  [整数几何 §1/§5](traffic-runtime-integer-geometry.md) 允许硬停止投影直接清速度，
+  [整数几何 §1/§5][traffic-runtime-integer-geometry] 允许硬停止投影直接清速度，
   因此不能把 `emergency_decel` 强加为已提交速度差的上限。回执单独记录观察到的
   最大减速度（mm/s²，向上取整）和超出 profile 紧急减速度的拍/车计数，不隐藏硬停。
 - 同一 route 的 Active 按初始 slot 顺序不超车，车身区间不重叠；Parked 不占车道。
@@ -181,13 +181,13 @@ B1。W3/W4 均在前两条观察拍结束后停止本 guardrail，完整 W3 窗�
 矩阵不完整，不能以另一次成功覆盖原始失败记录。两轮语义对照不替代性能协议三轮。
 
 表现选择/60 Hz 外层帧/追赶、性能与资源由独立的
-[测量入口](lf-synth-measurement.md)承载；本语义入口不认证快照恢复、Routing 或
+[测量入口][lf-synth-measurement]承载；本语义入口不认证快照恢复、Routing 或
 完整五轴，不将语义对照转化为 Product Pass。
 
 ## 7. 标称矩阵的跨 worker 对照
 
 `worker-run` 显式接收非零 worker 数，将 `ExecutionConfig` 传给同一安装与 W1–W4
-核验路径。支持范围由 [执行配置合同](traffic-runtime-execution-config.md)规定；
+核验路径。支持范围由 [执行配置合同][traffic-runtime-execution-config]规定；
 不按 CPU 数推断、不静默降级，不改变正式输入、交通配置、命令计划或窗口。
 成功回执记录世界实际使用的 worker 数；失败回执保留请求值与错误。
 
@@ -322,3 +322,9 @@ ADR 0033 互操作摘要，由 PowerShell 通用工具独立重算；内部 BLAK
 本入口消费已有路线表恢复，不执行 Routing 规划。它不证明跨修订/Editable 恢复、
 旧格式兼容、worker 两两组合、Spatial/Adapter 接线、全部故障点、性能或完整五轴。
 `Product TBD / Uncertified` 和已有性能/分配负面结果保持。
+
+[lf-synth-input-bundle]: lf-synth-input-bundle.md
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
+[lf-synth-measurement]: lf-synth-measurement.md
+[traffic-runtime-execution-config]: traffic-runtime-execution-config.md

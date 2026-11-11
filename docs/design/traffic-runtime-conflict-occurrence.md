@@ -7,15 +7,15 @@
 
 **关联文档**:
 
-- [`../adr/0019-waiting-zone-conflict-right-of-way-authority.md`](../adr/0019-waiting-zone-conflict-right-of-way-authority.md)
-- [`portable-canonical-artifact.md`](portable-canonical-artifact.md)
-- [`shared-static-network.md`](shared-static-network.md)
-- [`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)
-- [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)
-- [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
-- [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)
-- [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
-- [`traffic-runtime-near-gate-frontier.md`](traffic-runtime-near-gate-frontier.md)
+- [`../adr/0019-waiting-zone-conflict-right-of-way-authority.md`][0019-waiting-zone-conflict-right-of-way-authority]
+- [`portable-canonical-artifact.md`][portable-canonical-artifact]
+- [`shared-static-network.md`][shared-static-network]
+- [`traffic-observation-and-routing-integration.md`][traffic-observation-and-routing-integration]
+- [`traffic-runtime-shared-consumption.md`][traffic-runtime-shared-consumption]
+- [`traffic-runtime-snapshot.md`][traffic-runtime-snapshot]
+- [`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover]
+- [`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
+- [`traffic-runtime-near-gate-frontier.md`][traffic-runtime-near-gate-frontier]
 
 ## 1. 结论
 
@@ -56,7 +56,7 @@ admission Gate 与 route position 可以缓存为执行操作数，但都不能�
 身份。#284 必须复用这一地址，不能从几何或 `(zone, path)` 重新猜测 passage。
 
 #284 的快照与跨修订定位合同见
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §6
 （Accepted）：使用 stream/zone 的稳定引用定位已有唯一局部关系，核验 LFSD 与路径语义后
 重建本节地址；不把当前修订 ordinal/local index 写成跨修订身份，也不新增 passage 实体。
 
@@ -355,3 +355,14 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test compiled_networ
 路线编译、容量、现行 LFRS、生命周期、恢复、切换、测试和当前规范文档共同构成
 Runtime completion slice；只交付路线编译不能满足该合同。后续变更按当前开发阶段评审
 与 PR 治理完成验收，不恢复已替换的临时能力保护。
+
+[0019-waiting-zone-conflict-right-of-way-authority]: ../adr/0019-waiting-zone-conflict-right-of-way-authority.md
+[portable-canonical-artifact]: portable-canonical-artifact.md
+[shared-static-network]: shared-static-network.md
+[traffic-observation-and-routing-integration]: traffic-observation-and-routing-integration.md
+[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[traffic-runtime-near-gate-frontier]: traffic-runtime-near-gate-frontier.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md

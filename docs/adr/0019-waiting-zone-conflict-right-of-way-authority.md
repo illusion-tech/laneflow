@@ -9,7 +9,7 @@ Traffic Runtime 安全组合、持久化与引擎边界<br>
 
 - `../design/traffic-runtime-waiting-zone.md`
 - `../design/waiting-zone-conflict-right-of-way.md`
-- [`../design/traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)（#284 正式实施合同，Accepted）
+- [`../design/traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy]（#284 正式实施合同，Accepted）
 - `../design/traffic-runtime-conflict-occurrence.md`
 - `../design/traffic-runtime-shared-consumption.md`
 - `../design/traffic-runtime-integer-geometry.md`
@@ -103,7 +103,7 @@ claim。即使取得后 unconstrained travel 能到达更晚 Waiting entry，本
 Waiting occupancy、admission counter 或 queue mutation authority 移出
 `TrafficWorld`。
 
-[`waiting-zone-conflict-right-of-way.md`](../design/waiting-zone-conflict-right-of-way.md)
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
 §6 保存 #235 已接受、#284 直接消费的 current-compatible 详细合同：policy
 normalization、multi-subject coverage priority、directed lower-bound ETA、top-two distinct
 owner frontier、gap acceptance、mandatory downstream-clearance、single-writer 组合 ledger、
@@ -218,8 +218,8 @@ authority，此时返回各生命周期入口的 `ConflictAuthorityRequired`。r
 
 当前唯一入口为 LFRS 7 / runtime state 5 / digest 8；执行配置分离与编辑来源绑定只推进容器版本，#1035
 只更换摘要算法与摘要版本，见
-[`traffic-runtime-snapshot.md`](../design/traffic-runtime-snapshot.md) 与
-[`traffic-runtime-right-of-way-policy.md`](../design/traffic-runtime-right-of-way-policy.md)。
+[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] 与
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy]。
 只保留当前 writer/reader；旧版本快照明确失败关闭，不提供双读、双写、转换器、feature
 flag 或迁移 shim。Waiting semantic membership、zone occupancy、单调 counter 与
 queue order 继续参与当前摘要，派生 link 或 latest output batch 不参与。
@@ -296,3 +296,7 @@ checked exact count；额外轴只会制造错误配置和常驻浪费。
 ### 为开发期快照保留兼容层
 
 拒绝。1.0 前只维护一套当前规范，v3 失败关闭比双读、双写和迁移 shim 更可验证。
+
+[traffic-runtime-right-of-way-policy]: ../design/traffic-runtime-right-of-way-policy.md
+[waiting-zone-conflict-right-of-way]: ../design/waiting-zone-conflict-right-of-way.md
+[traffic-runtime-snapshot]: ../design/traffic-runtime-snapshot.md

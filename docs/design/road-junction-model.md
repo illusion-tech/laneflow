@@ -86,14 +86,14 @@ RoadSection 是有方向的道路结构分段，用于表达：
 RoadSection 不是 Route，不决定车辆当前 path，也不复制 LaneEdge 的 length 或
 connection。其生产语义（ordered lanes、edge 链、单 section 归属、与横断面 owner
 RoadCorridor 的关系）已由 #234 在
-[`cross-section-access.md`](cross-section-access.md) §3.2 冻结；Traffic Runtime registry、
+[`cross-section-access.md`][cross-section-access] §3.2 冻结；Traffic Runtime registry、
 handle 与 Traffic array 仍待其最小 production Issue 实现。
 
 ### 2.3 LaneGroup
 
 LaneGroup 是 RoadSection 内可选的命名分组，可用于表达一组共享用途的 lanes。
 它不是 Traffic Runtime root entity，但 #234 已在
-[`cross-section-access.md`](cross-section-access.md) §3.3 冻结其生产语义：
+[`cross-section-access.md`][cross-section-access] §3.3 冻结其生产语义：
 一等 external ID/handle、child-owned 归属恰好一个 RoadSection、不影响 lane
 顺序；lane adjacency 的唯一事实来源仍是 RoadSection 的 lane index。如何进入
 lane-change policy 由 #237 在该 SSOT 上冻结。
@@ -633,7 +633,7 @@ Input arrays 是 normalization order。Permutation 后：
 ## 13. v0.9 protected-turning profile
 
 #196 已在
-[`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
+[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]
 接受具体 corridor profile。该文档是场景级 SSOT；本文继续是
 owner、identity、normalization、Route occurrence 和 performance contract 的通用
 SSOT。具体 profile 已冻结以下输入：
@@ -745,7 +745,7 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 
 RoadSection 的生产语义（section 的 ordered lane membership、LaneEdge chain 与
 section 的关系、schema 版本边界）已由 #234 在
-[`cross-section-access.md`](cross-section-access.md) 冻结，其最小 production
+[`cross-section-access.md`][cross-section-access] 冻结，其最小 production
 Issue 负责实现。以下各项仍需独立冻结：
 
 - Movement from/to section endpoints；
@@ -757,7 +757,7 @@ Issue 负责实现。以下各项仍需独立冻结：
 ### 15.2 Multi-stage Gate 与 waiting zone
 
 `ManeuverGate.transitionIndex` 已提供 identity 位置。#235 已在
-[`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
 完成独立 G1 接受：同一路径 Gate 按 transitionIndex 排序，Route 注册期编译
 Gate/Waiting/Conflict occurrences；WaitingZone 由同一路径 entry/release Gate
 有界，Traffic Runtime 拥有容量/队列与 committed/waiting/clearing 状态，Spatial
@@ -805,3 +805,7 @@ ManeuverPath 与 Gate 序号，但不得：
 若后续发现必须改变 owner 层级、Gate identity、Route authority、数据版本、
 Spatial shape、conflict owner 或 steady-tick complexity，必须回到 #228/ADR 0017 更新
 G1 或拆 follow-up；不得通过 private implementation 静默偏离。
+
+[cross-section-access]: cross-section-access.md
+[signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md
+[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md

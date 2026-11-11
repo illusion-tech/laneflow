@@ -11,12 +11,12 @@ artifact 迁移到 current Traffic v0.10 并保持 protected-turning behavior �
 
 **关联文档**:
 
-- [`road-junction-model.md`](road-junction-model.md)
-- [`example-scenarios.md`](example-scenarios.md)
-- [`signalized-corridor-population.md`](signalized-corridor-population.md)
-- [`signal-system.md`](signal-system.md)
-- [`spatial-geometry.md`](spatial-geometry.md)
-- [`../adr/0017-static-road-junction-maneuver-and-gate-identity.md`](../adr/0017-static-road-junction-maneuver-and-gate-identity.md)
+- [`road-junction-model.md`][road-junction-model]
+- [`example-scenarios.md`][example-scenarios]
+- [`signalized-corridor-population.md`][signalized-corridor-population]
+- [`signal-system.md`][signal-system]
+- [`spatial-geometry.md`][spatial-geometry]
+- [`../adr/0017-static-road-junction-maneuver-and-gate-identity.md`][0017-static-road-junction-maneuver-and-gate-identity]
 
 ## 1. 结论、边界与 authority
 
@@ -275,7 +275,7 @@ turn toward corridor 后 straight 15、继续 right 5。
 scenario-local catalog 现行 exact `0.4`。当时从 exact `0.1` clean-break 到 exact `0.2`；
 #498 的 0.3 起有序边键由 catalog 拥有，不进 LFCA；0.4 另增加必填
 `policy_selection`，显式钉住生成器声明的 `protected-entry` 策略。闭合形状与绑定顺序见
-[`signalized-corridor-population.md`](signalized-corridor-population.md#3-catalog-契约)：
+[`signalized-corridor-population.md`][signalized-corridor-population-3-catalog-契约]：
 
 - Portal 拥有 ordered PortalLane；
 - PortalLane 拥有 weighted RouteChoice，并引用一个共享 entry SpawnSlot；
@@ -475,3 +475,11 @@ fixtures、artifacts 或 native example。#229 提供通用静态底座；#190 �
 profile 的生成制品、catalog/runtime policy 和最小 native smoke。#191 扩大验证样本并
 承担 clearance/performance 证明，#192 只做独立最终审阅；任一后续 Issue 都不得借验证或
 closure 名义新增 production 行为。
+
+[road-junction-model]: road-junction-model.md
+[example-scenarios]: example-scenarios.md
+[signalized-corridor-population]: signalized-corridor-population.md
+[signal-system]: signal-system.md
+[spatial-geometry]: spatial-geometry.md
+[0017-static-road-junction-maneuver-and-gate-identity]: ../adr/0017-static-road-junction-maneuver-and-gate-identity.md
+[signalized-corridor-population-3-catalog-契约]: signalized-corridor-population.md#3-catalog-契约

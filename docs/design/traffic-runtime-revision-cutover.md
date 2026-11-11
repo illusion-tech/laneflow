@@ -4,15 +4,15 @@
 **最后更新**: 2026-10-20<br>
 **适用范围**: 在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算<br>
 **关联文档**:
-[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
-[`../adr/0021-traffic-infrastructure-and-host-boundary.md`](../adr/0021-traffic-infrastructure-and-host-boundary.md)、
-[`../adr/0025-checked-canonical-network-and-shared-static-network.md`](../adr/0025-checked-canonical-network-and-shared-static-network.md)、
-[`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
-[`shared-static-network.md`](shared-static-network.md)、
-[`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)、
-[`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)、
-[`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
-[`parking-system.md`](parking-system.md)
+[`../adr/0020-compiler-owned-static-network-and-static-image.md`][0020-compiler-owned-static-network-and-static-image]、
+[`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]、
+[`../adr/0025-checked-canonical-network-and-shared-static-network.md`][0025-checked-canonical-network-and-shared-static-network]、
+[`../adr/0029-retire-precompiled-static-route.md`][0029-retire-precompiled-static-route]、
+[`shared-static-network.md`][shared-static-network]、
+[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot]、
+[`traffic-observation-and-routing-integration.md`][traffic-observation-and-routing-integration]、
+[`retire-precompiled-static-route.md`][retire-precompiled-static-route]、
+[`parking-system.md`][parking-system]
 
 本文是 ADR 0020 §6（经 ADR 0025/#300 G1 部分修订）与 ADR 0025 的 #302 G1 设计。
 为什么在线切换必须是失败关闭事务见 ADR；Runtime Snapshot 制品见
@@ -29,7 +29,7 @@
 ## 1. 问题与设计立场
 
 #284 的策略及冲突历史迁移、目标规范化与描述符 v2 见
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.2、§8
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §6.2、§8
 （Accepted）。当前描述符版本为 2，字段形状不新增自由 policy JSON。
 同修订保持显式策略选择；跨修订要求所选 policy StableId、法域、法规版本完全一致。
 目标修订可修改该策略的规则与参数，候选重建步长派生间隙，并在晋升时与共享路网修订一起
@@ -208,7 +208,7 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 - **目标绑定执行计划**：执行计划是每世界可重建对象；提交边界前按 target
   重建/失效旧计划，激活与晋升同界——首个新修订 tick 不经旧计划执行。
 
-[执行配置与资源设计](traffic-runtime-execution-config.md)进一步区分活动世界的执行
+[执行配置与资源设计][traffic-runtime-execution-config]进一步区分活动世界的执行
 资源和候选计划，覆盖两条切换路径的准备/失败/发布寿命。该文已 Accepted，
 切换继承活动世界的 `ExecutionConfig`，不改变本文的公开切换签名；执行资源与候选
 计划的生命周期在实际后端接入时实施，不能把配置字段复制当作资源所有权证明。
@@ -551,3 +551,15 @@ entry exact 重绑；capacity increase/safe decrease/unsafe decrease；target mi
 同 `progress_mm` 非零 carry 的越界反例；parking reserve/park/leave 与 parked
 spawn/despawn 的增量追赶；任一失败保全旧 world/snapshot 且零发布。explicit entry 前移且
 仍前向可达的放行、移到 cursor 后方的拒绝继续属于完整回归矩阵。
+
+[0020-compiler-owned-static-network-and-static-image]: ../adr/0020-compiler-owned-static-network-and-static-image.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[0025-checked-canonical-network-and-shared-static-network]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
+[0029-retire-precompiled-static-route]: ../adr/0029-retire-precompiled-static-route.md
+[shared-static-network]: shared-static-network.md
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[traffic-observation-and-routing-integration]: traffic-observation-and-routing-integration.md
+[retire-precompiled-static-route]: retire-precompiled-static-route.md
+[parking-system]: parking-system.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[traffic-runtime-execution-config]: traffic-runtime-execution-config.md

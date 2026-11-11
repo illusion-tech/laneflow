@@ -16,7 +16,7 @@ LaneFlow 交通运行时。`TrafficWorld` 是当前唯一的可运行交通世�
 cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 ```
 
-该程序检查检入走廊 LFCA、省略 Spatial 保留数据、按 catalog 的 portal 入口注册一条路线并生成一辆车，再以 16 毫秒固定步进，最后导出 Full 观测。它不启动持续人口控制器。步骤、实跑输出和失败分类见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+该程序检查检入走廊 LFCA、省略 Spatial 保留数据、按 catalog 的 portal 入口注册一条路线并生成一辆车，再以 16 毫秒固定步进，最后导出 Full 观测。它不启动持续人口控制器。步骤、实跑输出和失败分类见[从源码接入无窗口交通运行时][source-integration]。
 
 安装入口是 `TrafficWorld::install`。调用方同时给出 `WorldConfig`、`ExecutionConfig`、已提交来源、世界身份和 `WorldPolicySelection`。
 
@@ -44,11 +44,20 @@ cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [当前能力与限制](../../docs/reference/capabilities.md)
-- [共享静态路网消费](../../docs/design/traffic-runtime-shared-consumption.md)
-- [执行配置](../../docs/design/traffic-runtime-execution-config.md)
-- [并行执行](../../docs/design/traffic-runtime-parallel-execution.md)
-- [观测与 Routing](../../docs/design/traffic-observation-and-routing-integration.md)
-- [运行时快照](../../docs/design/traffic-runtime-snapshot.md)
-- [修订切换](../../docs/design/traffic-runtime-revision-cutover.md)
+- [从源码接入无窗口交通运行时][source-integration]
+- [当前能力与限制][capabilities]
+- [共享静态路网消费][traffic-runtime-shared-consumption]
+- [执行配置][traffic-runtime-execution-config]
+- [并行执行][traffic-runtime-parallel-execution]
+- [观测与 Routing][traffic-observation-and-routing-integration]
+- [运行时快照][traffic-runtime-snapshot]
+- [修订切换][traffic-runtime-revision-cutover]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[capabilities]: ../../docs/reference/capabilities.md
+[traffic-runtime-shared-consumption]: ../../docs/design/traffic-runtime-shared-consumption.md
+[traffic-runtime-execution-config]: ../../docs/design/traffic-runtime-execution-config.md
+[traffic-runtime-parallel-execution]: ../../docs/design/traffic-runtime-parallel-execution.md
+[traffic-observation-and-routing-integration]: ../../docs/design/traffic-observation-and-routing-integration.md
+[traffic-runtime-snapshot]: ../../docs/design/traffic-runtime-snapshot.md
+[traffic-runtime-revision-cutover]: ../../docs/design/traffic-runtime-revision-cutover.md
