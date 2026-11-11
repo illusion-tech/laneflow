@@ -59,6 +59,8 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     let mut html_bytes = Vec::new();
     let lines = LineIndex::new(text);
     let broken_links = RefCell::new(Vec::<(usize, String)>::new());
+    // 未定义引用在回调里记录，当时还没有 `in_image`。事后用图片事件的源码范围排除替代文字。
+    let mut image_spans = Vec::new();
     {
         let mut callback = |link: BrokenLink<'_>| {
             // 未定义的 shortcut 在 CommonMark 里不是链接。引用和折叠引用没有定义则是坏链接。
@@ -128,6 +130,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     ..
                 }) => {
                     in_image += 1;
+                    image_spans.push(range.clone());
                     if in_code != 0 {
                         continue;
                     }
@@ -153,6 +156,13 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     anchors.extend(explicit_html_anchors(&html_bytes));
 
     for (offset, reference) in broken_links.into_inner() {
+        // 图片自身的引用从 `!` 开始，和图片范围起点相同，仍然报告。替代文字里的引用起点更靠后。
+        if image_spans
+            .iter()
+            .any(|span| span.start < offset && offset < span.end)
+        {
+            continue;
+        }
         let (line, column) = lines.position(text, offset);
         links.push(LinkRec {
             line,

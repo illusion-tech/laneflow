@@ -111,7 +111,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`][doc-checks] 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。图片替代文字里的 Markdown 链接也不能充当这些入口。图片替代文字里的 `<a id>` / `<a name>` 不登记为锚点。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。页脚引用的空目标指向当前文档。行内的空链接和空图片仍是 `inline-form`。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
+[`xtask/data/doc-checks.toml`][doc-checks] 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。图片替代文字里的 Markdown 链接也不能充当这些入口。其中未定义的引用同样不检查，也不记为路径失败。图片替代文字里的 `<a id>` / `<a name>` 不登记为锚点。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。页脚引用的空目标指向当前文档。行内的空链接和空图片仍是 `inline-form`。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 

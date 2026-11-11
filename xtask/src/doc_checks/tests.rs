@@ -648,6 +648,29 @@ reason = "不能藏在图片替代文字里"
 }
 
 #[test]
+fn undefined_references_inside_image_alt_are_not_path_failures() {
+    let repo = TestRepo::new("image-alt-broken");
+    repo.config(
+        r#"
+[[required]]
+source = "README.md"
+target = "docs/README.md"
+reason = "不能藏在图片替代文字里"
+"#,
+    );
+    repo.write("docs/README.md", "# Docs\n");
+    repo.write("preview.png", "png");
+    repo.write(
+        "README.md",
+        "![see [missing][unknown]][shot]\n\n[shot]: preview.png\n",
+    );
+    let rendered = texts(&repo.check()).join("\n");
+    assert!(!rendered.contains("missing-path"), "{rendered}");
+    assert!(rendered.contains("missing-required-entry"), "{rendered}");
+    assert!(!rendered.contains("unknown"), "{rendered}");
+}
+
+#[test]
 fn html_anchors_inside_image_alt_are_not_registered() {
     let repo = TestRepo::new("image-alt-html");
     repo.write("preview.png", "png");
