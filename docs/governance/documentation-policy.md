@@ -117,6 +117,7 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 - `docs/adr/`：高影响、难回退的架构决策。
 - `docs/design/`：Traffic Runtime、数据格式、Adapter、运行时规则等具体设计。
 - `docs/governance/`：GitHub 流程、开发阶段评审、AI Agent 开发规范。
+- `docs/guides/`：操作性接入教程，引用真实示例，不替代 design 与 ADR。
 - `docs/reference/`：术语、模板、校验矩阵、命名约定，以及仍约束实现的机器可读
   编制种子 / 生产编译基线。不存放里程碑最终审阅、逐任务验证流水账、原始性能轮次
   或 smoke 截图；那些当时证据只保留在 git 历史与 GitHub Issue / PR。

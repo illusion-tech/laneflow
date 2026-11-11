@@ -1,23 +1,16 @@
-# laneflow_bevy
+# laneflow-bevy
 
-LaneFlow 的 Bevy 0.20 Reference Adapter crate。
+LaneFlow 的 Bevy 0.20 Reference Adapter。它负责窗口、实体和变换，不重写交通规则。
 
-当前入口消费 `TrafficWorld` 与可选 `SpatialSession`。`LaneFlowSession::new` 在提供 Spatial 时要求 `Arc::ptr_eq`：
+## 职责与边界
 
-- `LaneFlowPlugin`：安装 LaneFlow 专用 outer-frame 与 fixed schedule；
-- `LaneFlowOuterFrame`：位于 Bevy `First` 之后，读取宿主已经更新的 `Time::delta()`；
-- `LaneFlowFixed`：按 Session accumulator 运行零次或多次 `TrafficWorld` 固定步进；
-- `LaneFlowFixedSet::{Lifecycle, Step, Observe}`：每个 fixed/catch-up step 内稳定重复的公共阶段链；
-- `LaneFlowSession`：单活动 Bevy Resource，组合 `TrafficWorld`、可选 `SpatialSession`、catch-up 配置、Vehicle/Entity 映射与最近一帧结果；
-- `LaneFlowSession::{cross_revision_cutover, same_revision_restore}`：同步维护暂停式修订切换（#534）。成功返回时已完成新 Spatial 配对；`#[must_use]` 的 `LaneFlowCutoverRecord` 携带恰一次事件批次与换出的旧 session（`retired_spatial` 交还宿主完成在途借用）；`LaneFlowTargetSpatial::Headless` 是显式转 headless 的唯一形态；
-- `LaneFlowSession::extract_committed_pose_batch`：v1 同步封闭提取路径——同一调用内采集 committed pose sources、校验根配对（每批固定 O(1)）并提取，产出原地重填调用方持有的 `LaneFlowCommittedPoseBatch`（稳定容量复用，失败时输出原样保持）；批次携带 `(world_id, WorldGeneration)` 消费上下文，任何成功切换使先前上下文过期（`consumption_context_is_current` 复核，过期整批拒绝）；
-- `LaneFlowOuterFrameSet::{Administration, Drive}`：outer frame 行政阶段；维护暂停式切换的推荐位，每 outer frame 必运行、零步进帧可达；
-- `replace_completed_vehicle`：Lifecycle 边界的 typed 原子替换；已绑定车辆复用同一 Entity。`Blocked` 和暂时不能接纳的运动安全结果都不写 `last_error`，映射与 Transform 不变，由宿主稍后重试；
-- `LaneFlowWorldMut::{reserve_parking,cancel_parking,park_vehicle,leave_parking,rebind_parking_route,spawn_parked_vehicle}`：由 `LaneFlowSession::world_mut()` 返回的薄包装转发 Runtime typed parking lifecycle；virtual Parked 无 pose 但映射仍 live；
-- `despawn_vehicle`：typed Runtime removal + Entity unbind；先验证已绑定 Entity 仍 live，只在 Runtime 成功后以不可失败路径移除映射，失败零副作用；
-- `LaneFlowFrameReport` / `LaneFlowAdapterError`：暴露 step 数、完整 backlog、上限状态与结构化失败。
+当前入口消费 `TrafficWorld` 与可选 `SpatialSession`。提供 Spatial 时，`LaneFlowSession::new` 要求两者是同一根 `Arc`。
 
-宿主必须在第一次 `App::update` 前安装 Bevy `TimePlugin`（或包含它的 plugin group）并插入一个 `LaneFlowSession`。本 crate 不修改 Bevy `Time<Fixed>`，也不重复安装宿主 plugin。
+宿主在第一次 `App::update` 之前安装 Bevy `TimePlugin`（或包含它的 plugin group），并插入一个 `LaneFlowSession`。本 crate 不修改 Bevy `Time<Fixed>`，也不替宿主重复安装时间插件。固定步进仍由交通运行时执行；Adapter 按自己的 accumulator 决定一次外帧里步进几次，再提取已经提交的位姿。
+
+交通需求、路线选择和引擎生命周期属于宿主。无窗口接入不需要本 crate，见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+
+## 最小使用入口
 
 ```rust
 use std::num::NonZeroU32;
@@ -35,36 +28,28 @@ fn install(app: &mut App, world: TrafficWorld, spatial: Option<SpatialSession>) 
 }
 ```
 
-campus / `native_reference` 的 Core 入口已删除。各示例都消费检入的 LFCA：
-`corridor_traffic` 与 `junction_debug` 使用各自的 catalog，经 prepare 绑到已安装共享路网修订；
-`quickstart` 直接装配最小 LFCA fixture 并注册路线，不经 catalog。历史 Bevy debug gizmos 占位 API 已删除
-（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭），现行可视诊断入口是
-`junction_debug`（见下文“示例”）。
+可视示例从 `quickstart` 开始。无窗口交通从 `laneflow-runtime` 的 `headless` 示例开始。
 
-## 按宿主选择提取位姿
+## 主要约束与限制
 
-`extract_selected_committed_pose_batch(context, selected, token, output)` 接收当前
-`session.consumption_context()`、有序代际句柄和本次 placement token。Completed 与虚拟
-Parked 被省略，实际输出的 `vehicles()` 与批内连续记录编号对齐；重复、失效句柄和
-过期上下文整批拒绝，整个旧 output 保持不变。先完整查重，再查询来源。
+- `LaneFlowFixed` 按 session 的累积时间运行零次或多次 `TrafficWorld::step`。`LaneFlowFixedSet::{Lifecycle, Step, Observe}` 是每个固定步里的公共阶段。
+- `extract_committed_pose_batch` 在同一次调用里采集来源、核对根配对并提取。失败时输出保持原样。成功切换会使先前批次的消费上下文过期。
+- `extract_selected_committed_pose_batch` 只提取调用方选中的句柄。`Completed` 和虚拟停泊被省略。重复、失效或过期上下文会整批拒绝。
+- `replace_completed_vehicle` 在生命周期边界原子替换，已绑定车辆复用同一个 Entity。暂时不能接纳时不写 `last_error`，映射和变换保持不变。
+- 停车命令经 `LaneFlowWorldMut` 转发到运行时。虚拟停泊没有位姿，但映射仍然活着。只有 `despawn_vehicle` 成功才移除映射。
+- `LaneFlowSession::{cross_revision_cutover, same_revision_restore}` 是同步的维护暂停式切换，不是低停顿在线切换。`LaneFlowTargetSpatial::Headless` 是显式改成无 Spatial 的唯一形态。
+- 走廊示例的 `toml` 和 smoke 用的 `bevy_math` 是 dev-dependency，不进入 `laneflow-bevy` 的生产依赖图。
 
-宿主在提取前选择句柄，提取后只转换实际输出；保持 output 跨帧复用。应用前复核
-`consumption_context_is_current(output.context())` 和当前 placement token。
-对上一帧可见而本帧缺席的实体移除 Transform 或隐藏，保留身份及绑定；真正移除或
-替换仍走 typed `despawn_vehicle` / `replace_completed_vehicle`。选择路径只验证本批
-Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。完整写法见下文示例
-`culling_extraction`。
+阶段顺序、批量提取和切换的完整合同见[Bevy 设计](../../docs/design/bevy-reference-adapter.md)。历史 debug gizmo 占位 API 已删除（[#473](https://github.com/illusion-tech/laneflow/issues/473)）。
 
-## 依赖与分发
+## 示例与验证
 
-走廊 example / smoke 的第三方 **dev-dependency** 不进入 `laneflow-bevy` 生产 graph：
+六个示例的输入来源并不相同：
 
-- `toml 1.1.4+spec-1.1.0`：crates.io，MIT OR Apache-2.0；只解析检入的 catalog TOML。生成器已使用同一 crate。
-- `bevy_math 0.20.0`：crates.io，MIT OR Apache-2.0；smoke 用 `Vec3` 组 `looking_to`。生产 crate 已依赖 `bevy_transform 0.20`，该 crate 本就在 lock graph 中。
-
-二者均在 `deny.toml` 允许的 SPDX 分支内，无 copyleft，不新增 crates.io 之外的来源。已知漏洞由 CI `Dependency policy`（cargo-deny advisories）把关。
-
-## 示例
+- `quickstart` 消费检入的编译器测试夹具 LFCA（带策略的最小空间制品），自己注册路线，不经 catalog。
+- `corridor_traffic` 与 `junction_debug` 消费检入 LFCA 和各自 catalog。
+- `parking_lifecycle` 与 `revision_cutover` 在进程内编译路网，不是读取检入 LFCA。
+- `culling_extraction` 在启动时生成路口网格。
 
 | 示例                 | 作用                         | 行为边界                                                                         |
 | -------------------- | ---------------------------- | -------------------------------------------------------------------------------- |
@@ -75,31 +60,25 @@ Spatial 输入，完整审计继续使用 `extract_committed_pose_batch`。完�
 | `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含过早停入、离场失败和真正移除                      |
 | `revision_cutover`   | 运行中切换路网修订           | 按 `C` 在两个修订间切换，环路车保持身份，含未清场回切被拒、清场和重试            |
 
-最小可视示例是 `quickstart`；它与 `quickstart_smoke` 共用
-`examples/support/quickstart_scene.rs`，从同一带策略的空间 fixture 显式绑定
+`quickstart` 与 `quickstart_smoke` 共用 `examples/support/quickstart_scene.rs`，显式绑定
 `runtime-fixture-policy / fixture-policy`，再创建车辆和配对 Spatial session。
 相机与灯光显示同根 Spatial 中心线生成的车道和两辆车；浅色车头标记沿车辆前方向。
 `quickstart_presentation.rs` 是 GUI 与无窗口测试共用的车辆绑定、整批提取与同步路径：
 所有车辆使用 Session 映射，按批次句柄同步位置与朝向，整批预检失败时保留旧变换并记录
-结构化错误。无窗口测试验证全部车辆的位姿以及缺失 Transform、无 Spatial 的失败路径。
-持续车流入口是 `corridor_traffic`：默认 `100` 车、seed `0`，支持 `--vehicles 50..=200`
-与十进制 `u64` 的 `--seed`。全部车辆与独立 proxy 绑定，完成后按每拍
-Lifecycle → Step → Observe 在同一 Entity 回流；灯具读取 Runtime 已提交信号组，
-HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移、右键绕焦点旋转。
-启动、人口链、整批位姿、静态绑定和摘要与 headless 共用；旧走廊 target 不保留别名。
-复杂路口诊断入口是 `junction_debug`：检入 catalog 0.1 与 LFCA 的四车确定性场景，默认
-关闭的 F2 overlay 只读 `LaneFlowSession`，并写入独立 ECS 实体，不触碰 Runtime 状态；
-开关 overlay 时的 Runtime 摘要一致性由无窗口 smoke 对拍检查。
-按视野选择的入口是 `culling_extraction`：提取前用 Runtime 来源和车道分块判断视野，只提取并
-写入选中车辆，缺席车辆隐藏但保留绑定；每 60 帧与全量提取逐值对照。按 `F` 冻结选择视域后
-缩小，可以直接看到被隐藏的车辆。HUD 的耗时只供观察，不是性能证据。
-停车表现的入口是 `parking_lifecycle`：可见性由车辆状态、停车绑定和位姿来源决定，批次只提供
-位姿。虚拟停车的车辆隐藏但保留映射，只有 `despawn_vehicle` 成功才销毁 Entity；HUD 显示每个
-角色的阶段和最近一次被拒绝的命令。
-修订切换的入口是 `revision_cutover`：切换在 `LaneFlowOuterFrameSet::Administration` 中执行，
-成功时复核旧批次、交付事件、交还旧 Spatial 并重建路面。路线还引用支路时回切会被拒绝，宿主先移除
-车辆再删除路线，下一帧重试；有车越过目标边长时等它驶离后重试。这是同步的维护暂停式切换，不是
-低停顿在线切换。
+结构化错误。无窗口测试验证全部车辆的位姿，以及缺失 Transform、无 Spatial 的失败路径。
+
+`corridor_traffic` 默认 `100` 车、seed `0`，支持 `--vehicles 50..=200` 与十进制 `u64` 的
+`--seed`。全部车辆与独立 proxy 绑定，完成后按每拍 Lifecycle → Step → Observe 在同一 Entity
+回流。灯具读取运行时已提交信号组，HUD 读取同帧人口与 accumulator 摘要。鼠标滚轮缩放、左键平移、右键绕焦点旋转。
+
+`junction_debug` 使用检入 catalog 0.1 与 LFCA 的四车确定性场景。默认关闭的 F2 overlay 只读
+`LaneFlowSession`，并写入独立 ECS 实体，不触碰运行时状态。开关 overlay 时的运行时摘要一致性由无窗口 smoke 对拍。
+
+`culling_extraction` 在提取前用运行时来源和车道分块判断视野，只提取并写入选中车辆，缺席车辆隐藏但保留绑定；每 60 帧与全量提取逐值对照。按 `F` 冻结选择视域后缩小，可以看到被隐藏的车辆。HUD 的耗时只供观察，不是性能证据。
+
+`parking_lifecycle` 的可见性由车辆状态、停车绑定和位姿来源决定。虚拟停车的车辆隐藏但保留映射，只有 `despawn_vehicle` 成功才销毁 Entity。HUD 显示每个角色的阶段和最近一次被拒绝的命令。
+
+`revision_cutover` 在 `LaneFlowOuterFrameSet::Administration` 中切换。成功时复核旧批次、交付事件、交还旧 Spatial 并重建路面。路线还引用支路时回切会被拒绝，宿主先移除车辆再删除路线，下一帧重试。有车越过目标边长时，等它驶离后重试。
 
 ```powershell
 cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
@@ -120,5 +99,13 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test revision_cutover_smoke
 cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example revision_cutover
 ```
 
-完整 C01–C13 验收、确定性出图与独立 headless 摘要对照见
+完整 C01–C13 验收、确定性出图与独立无窗口摘要对照见
 [Bevy 设计 §15](../../docs/design/bevy-reference-adapter.md#15-corridor_traffic-验收矩阵)。
+
+## 深入阅读
+
+- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
+- [Bevy 设计](../../docs/design/bevy-reference-adapter.md)
+- [当前能力与限制 · Bevy 接入](../../docs/reference/capabilities.md#bevy-接入)
+- [`laneflow-runtime`](../laneflow-runtime/README.md)
+- [`laneflow-spatial`](../laneflow-spatial/README.md)

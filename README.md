@@ -47,12 +47,20 @@ cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features nati
 | `parking_lifecycle`  | 预留、停入、离场与隐藏表现   | 环路上 6 辆车按固定脚本运行，含离场失败和真正移除          |
 | `revision_cutover`   | 运行中切换路网修订           | 按 `C` 在两个修订间切换，环路车保持身份，含切换被拒和重试  |
 
-参数与完整命令见 [`laneflow-bevy` 示例](crates/laneflow-bevy/README.md#示例)。
+参数与完整命令见 [`laneflow-bevy` 示例](crates/laneflow-bevy/README.md#示例与验证)。
 
 <details>
 <summary>无窗口验证</summary>
 
-不打开窗口，确认最小示例的装配、绑定与位姿同步链路：
+不打开窗口，从源码推进一辆车。步骤和实跑输出见
+[从源码接入无窗口交通运行时](docs/guides/source-integration.md)。
+
+```powershell
+cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
+```
+
+不打开窗口，确认最小 Bevy 示例的装配、绑定与位姿同步链路：
 
 ```powershell
 cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
@@ -115,7 +123,7 @@ flowchart TD
 | 我想做什么             | 阅读入口                                                                                                                         |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 运行示例或接入 Bevy    | [`laneflow-bevy`](crates/laneflow-bevy/README.md)                                                                                |
-| 嵌入无窗口交通运行时   | [`laneflow-runtime`](crates/laneflow-runtime/README.md)                                                                          |
+| 嵌入无窗口交通运行时   | [从源码接入无窗口交通运行时](docs/guides/source-integration.md)、[`laneflow-runtime`](crates/laneflow-runtime/README.md)         |
 | 编制路网、了解静态制品 | [`laneflow-compiler`](crates/laneflow-compiler/README.md)、[`laneflow-static-network`](crates/laneflow-static-network/README.md) |
 | 组织参考场景与车辆生成 | [`laneflow-scenario`](crates/laneflow-scenario/README.md)                                                                        |
 | 理解架构和宿主职责     | [架构说明](docs/architecture.md)、[定位与宿主边界](docs/adr/0021-traffic-infrastructure-and-host-boundary.md)                    |
