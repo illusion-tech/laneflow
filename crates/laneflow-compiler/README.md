@@ -40,13 +40,13 @@ cargo +1.99.1 test --locked -p laneflow-compiler
 - [从源码接入无窗口交通运行时][source-integration]
 - [网络编译器][network-compiler]
 - [编译器基础][compiler-foundation]
-- [可移植规范制品][portable-canonical-artifact]
-- [后发射检查][compiler-post-emission-check-and-minimal-publication-closure]
-- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+- [可移植规范制品][portable-artifact]
+- [后发射检查][post-emission]
+- [当前能力与限制 · 编译与加载][capabilities-compile]
 
 [source-integration]: ../../docs/guides/source-integration.md
 [network-compiler]: ../../docs/design/network-compiler.md
 [compiler-foundation]: ../../docs/design/compiler-foundation.md
-[portable-canonical-artifact]: ../../docs/design/portable-canonical-artifact.md
-[compiler-post-emission-check-and-minimal-publication-closure]: ../../docs/design/compiler-post-emission-check-and-minimal-publication-closure.md
-[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载
+[portable-artifact]: ../../docs/design/portable-canonical-artifact.md
+[post-emission]: ../../docs/design/compiler-post-emission-check-and-minimal-publication-closure.md
+[capabilities-compile]: ../../docs/reference/capabilities.md#编译与加载

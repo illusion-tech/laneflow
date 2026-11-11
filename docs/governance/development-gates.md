@@ -9,8 +9,8 @@
 
 本文定义 LaneFlow 的轻量开发阶段评审。人流程写在 Issue 模板里，机器不解析正文。
 合并由 required checks、GitHub 原生未解决对话阻断和 Merge Queue 执行。基础重建见
-[ADR 0026][0026-merge-governance-rebuild]，External Review 退役与当前目标态见
-[ADR 0027][0027-retire-external-review-check]。
+[ADR 0026][adr-0026]，External Review 退役与当前目标态见
+[ADR 0027][adr-0027]。
 
 人可读阶段：
 
@@ -121,7 +121,7 @@ Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` �
 - **合跑**：一个窗口可串行运行多个测量，各自单独记录，不并发。
 
 本节不追溯已关闭的任务。产品测量协议以
-[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
+[`core-runtime-performance-baseline.md`][performance-baseline]
 为准。
 
 ## 6. 合并检查
@@ -207,7 +207,7 @@ Project 将以 `Completed` 关闭的 Issue 移到 `Done`；以 `Not planned` 或
 仓库设置例外，并记录原因、风险、到期和 Cleanup owner。不得把例外扩展成日常
 bypass。确认的检查缺陷另开 Issue 修复，不在评论里发明第二套协议。
 
-[0026-merge-governance-rebuild]: ../adr/0026-merge-governance-rebuild.md
-[0027-retire-external-review-check]: ../adr/0027-retire-external-review-check.md
+[adr-0026]: ../adr/0026-merge-governance-rebuild.md
+[adr-0027]: ../adr/0027-retire-external-review-check.md
 [code-language-policy]: code-language-policy.md
-[core-runtime-performance-baseline]: ../design/core-runtime-performance-baseline.md
+[performance-baseline]: ../design/core-runtime-performance-baseline.md

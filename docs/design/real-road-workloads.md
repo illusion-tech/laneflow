@@ -7,10 +7,10 @@
 
 **关联文档**:
 
-- [`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
+- [`core-runtime-performance-baseline.md`][performance-baseline]
 - [`spatial-geometry.md`][spatial-geometry]
 - [`../governance/dependency-security.md`][dependency-security]
-- [#224 当前 G1 纠偏冻结判断][github-com-illusion-tech-laneflow-issues-224-issuecomment-5078718717]
+- [#224 当前 G1 纠偏冻结判断][issue-224-g1]
 
 ## 1. 目的、状态与声明边界
 
@@ -46,7 +46,7 @@ harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实�
 
 v0.8 Signalized Corridor 的 50–200 车辆 native reference 场景仍由
 [`example-scenarios.md`][example-scenarios] 和
-[`signalized-corridor-population.md`][signalized-corridor-population] 管理。它
+[`signalized-corridor-population.md`][corridor-population] 管理。它
 验证 production loader、Signals、人口与回流闭环，不承担本文一万真实路网
 workload 的规模或代表性职责。
 
@@ -216,7 +216,7 @@ fail closed 回到 #224 G1。
   声明转移为**次选**，仅在严格语义（`from_lane == 到达 lane`）失败时启用，
   不改变既有成功选择与上条 lexicographic 顺序；无声明处语义与旧合同逐字一致
   （旧输入零新拒绝）。过渡材料的承载形式、占用投影与能力检查见
-  [`lane-change-minimal-contract.md`][lane-change-minimal-contract]。
+  [`lane-change-minimal-contract.md`][lane-change-contract]。
 - 相同 lane occurrence sequence 可归一化为同一个 route catalog entry，但 source
   record 仍保存自己的 stable `population_rank`、profile 和 route reference。
 
@@ -383,7 +383,7 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 > **实现状态（边内换道，另立 issue 跟踪）**：当前 pinned 基线上 routes 阶段
 > 整体受阻——§3.1 车道级展开（`can_complete`）禁止边内换道，而 SUMO DUE
 > route 为道路级、真实走法依赖边内换道，v2 入选人口中 9,344 条不可展开，见
-> [人口迁移与诊断基线][issue-1053-lust-population-v2-readme]。
+> [人口迁移与诊断基线][lust-population-v2-readme]。
 > 这是**实现语义缺口而非契约否定**：
 > §4 契约语义不变；修复落地前 CLI 不产出 `routes.toml`。
 
@@ -391,7 +391,7 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 
 ### 4.1 排序摘要的角色与算法
 
-本用途属于 [ADR 0033][0033-digest-role-and-algorithm-selection-authority] 的
+本用途属于 [ADR 0033][adr-0033] 的
 **确定性派生摘要（deterministic derivation digest）**。重建方为 LaneFlow 转换器与
 工作负载构建流程，持久化范围是共享人口表、报告及由其派生的工作负载输入。
 排序主键不充当车辆身份，不以主键相等证明 ID 或内容相同。
@@ -409,7 +409,7 @@ key = XXH3_64bits_withSeed(preimage, seed = 0)
 order = (key as unsigned u64 ascending, original vehicle-ID bytes lexicographic)
 ```
 
-算法以 [xxHash v0.8.3 参考实现][github-com-cyan4973-xxhash-blob-e626a72bc2321cd320e953a0ccf1584cad60f363-xxhash-h]
+算法以 [xxHash v0.8.3 参考实现][xxhash]
 的 `XXH3_64bits_withSeed` 为定义，使用标准 192 字节 `XXH3_kSecret`，禁止替换 secret、
 加入运行时随机 seed 或用 XXH64 / XXH3-128 代替。`\0` 是单个 `0x00` 字节；前缀为
 27 字节，之后恰好一个变长 ID 字段，不加长度字段、终止零或其他分隔符。不得使用
@@ -815,16 +815,16 @@ Parking 合成、感应信号、rerouting、bus stop、partition/scheduler 或�
 frame contract，必须停止对应任务类别并完成独立 G1；满足 ADR 触发条件时先写 ADR，再
 进入实现。
 
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[performance-baseline]: core-runtime-performance-baseline.md
 [spatial-geometry]: spatial-geometry.md
 [dependency-security]: ../governance/dependency-security.md
-[github-com-illusion-tech-laneflow-issues-224-issuecomment-5078718717]: https://github.com/illusion-tech/laneflow/issues/224#issuecomment-5078718717
+[issue-224-g1]: https://github.com/illusion-tech/laneflow/issues/224#issuecomment-5078718717
 [example-scenarios]: example-scenarios.md
-[signalized-corridor-population]: signalized-corridor-population.md
-[lane-change-minimal-contract]: lane-change-minimal-contract.md
-[issue-1053-lust-population-v2-readme]: ../../research/issue-1053-lust-population-v2/README.md
-[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
-[github-com-cyan4973-xxhash-blob-e626a72bc2321cd320e953a0ccf1584cad60f363-xxhash-h]: https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h
+[corridor-population]: signalized-corridor-population.md
+[lane-change-contract]: lane-change-minimal-contract.md
+[lust-population-v2-readme]: ../../research/issue-1053-lust-population-v2/README.md
+[adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[xxhash]: https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h
 [xxh3-review]: ../../research/issue-1029-lust-digest/xxh3-review.md
 [lust-bevy-population-control]: lust-bevy-population-control.md
 [laneflow-lust-converter]: ../../tools/laneflow-lust-converter/

@@ -11,7 +11,7 @@
 - [`committed-pose-extraction.md`][committed-pose-extraction]：#681 来源缓冲、
   成功批次交换与按需提取的已接受设计，已由 #711、#712 实施；全量与选择两种入口见 §6。
 
-- [`junction-observation-and-validation.md`][junction-observation-and-validation]：#285
+- [`junction-observation-and-validation.md`][junction-observation]：#285
   领域观测与跨层验证；Accepted。阶段一新增两个只读补充入口：Runtime
   `TrafficWorld::route_gate`（精确机动门定位）与 Bevy
   `LaneFlowSession::junction_observation`（复杂路口领域观测借用视图），不改变
@@ -194,7 +194,7 @@ Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
 
 ## 7. v0.7 Bevy specialization
 
-#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473][github-com-illusion-tech-laneflow-issues-473] 已关闭。
+#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473][issue-473] 已关闭。
 
 该 specialization 不改变本文的跨引擎最终裁决职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
 
@@ -335,5 +335,5 @@ LaneFlowSession::{consumption_context, consumption_context_is_current}
   的安全性由 schedule 配置保证。
 
 [committed-pose-extraction]: committed-pose-extraction.md
-[junction-observation-and-validation]: junction-observation-and-validation.md
-[github-com-illusion-tech-laneflow-issues-473]: https://github.com/illusion-tech/laneflow/issues/473
+[junction-observation]: junction-observation-and-validation.md
+[issue-473]: https://github.com/illusion-tech/laneflow/issues/473

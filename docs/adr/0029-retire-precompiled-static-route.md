@@ -16,8 +16,8 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 出现记录匹配规则 / 热路径无字符串继续有效。<br>
 **不取代**: ADR 0021 出行编排与路径规划分层；ADR 0018 `register_route` 不做
 `(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。<br>
-**关联 Issue**: [#498][github-com-illusion-tech-laneflow-issues-498]、
-[#303][github-com-illusion-tech-laneflow-issues-303]（下述容量接缝已由 G1 接受）<br>
+**关联 Issue**: [#498][issue-498]、
+[#303][issue-303]（下述容量接缝已由 G1 接受）<br>
 **关联文档**:
 
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
@@ -142,7 +142,7 @@ LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 均为 3；�
 `laneEdgeKey`。走廊生成器把序列写进 catalog，不再写入 LFCA / 编制来源。
 bind 把键解析为共享静态路网边序号，对每条 catalog 路线 `register_route` 一次，并在本
 世界生命周期内保留句柄。人口与回流政策继续按 catalog 选择，只是句柄来自注册而非
-静态序号。现行 catalog 已由 [路权策略合同][traffic-runtime-right-of-way-policy]
+静态序号。现行 catalog 已由 [路权策略合同][right-of-way]
 升级为 `0.4`，新增必填 `policy_selection`；边序列正本保持本 ADR 的决定。
 
 宿主自有 Routing 与 #303 不使用本 catalog；规划器直接提交边序列。不得为示例另发明第三类
@@ -281,6 +281,6 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 磁盘快照合同：局部路线 ID + 边 `StableId128`；不落盘槽位 / generation / 密集序号 /
   出现记录。
 
-[github-com-illusion-tech-laneflow-issues-498]: https://github.com/illusion-tech/laneflow/issues/498
-[github-com-illusion-tech-laneflow-issues-303]: https://github.com/illusion-tech/laneflow/issues/303
-[traffic-runtime-right-of-way-policy]: ../design/traffic-runtime-right-of-way-policy.md
+[issue-498]: https://github.com/illusion-tech/laneflow/issues/498
+[issue-303]: https://github.com/illusion-tech/laneflow/issues/303
+[right-of-way]: ../design/traffic-runtime-right-of-way-policy.md

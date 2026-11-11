@@ -255,7 +255,7 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为裁�
   安全推进。
 
 具体 routing crate/API 不属于本设计；当前边界是宿主自有 Routing + LaneFlow 纯契约，见
-[`traffic-observation-and-routing-integration.md`][traffic-observation-and-routing-integration]。
+[`traffic-observation-and-routing-integration.md`][routing-integration]。
 这些正本边界不得被 compiler、Adapter 或 scenario policy 绕过。
 
 ## 5. 前端架构（Frontend Architecture）
@@ -685,7 +685,7 @@ StableId128 =
 ### 7.6 算法角色、碰撞与测试
 
 摘要角色与各角色的默认算法以
-[ADR 0033][0033-digest-role-and-algorithm-selection-authority] 为准。compiler
+[ADR 0033][adr-0033] 为准。compiler
 中的对应关系：
 
 - **持久标识摘要**：`StableId128` 使用 BLAKE3-128，是唯一持久化实体标识摘要；
@@ -697,7 +697,7 @@ StableId128 =
 来源文档、文档集、来源集合、编译选项及生成器参数/编制选项摘要均进入可移植规范制品
 家族或其派生链，按 ADR 0033 §9 保持 SHA-256；不能仅因用于重放或缓存比较就归为
 进程内摘要。逐项字段去向及道路编辑原始选项与派生选项的区别见
-[编译器基础 §3.3][compiler-foundation-33-官方前端共同受检模块接入]。
+[编译器基础 §3.3][compiler-foundation-frontends]。
 
 compiler 维护 `StableId128 -> CanonicalIdentity + owning source location` 登记。两个 stable
 entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest 对应不同 tuple
@@ -1043,7 +1043,7 @@ staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength` 已
 > LFSM wire、来源位置和 artifact binding 继续有效；本节旧
 > `canonical-publication-v1` receipt/descriptor 字段已由 LFCP v2 取代，见本节末
 > “被 Accepted ADR 0024 取代的历史规范发布描述符”。当前规范发布 binding 见
-> [`compiler-post-emission-check-and-minimal-publication-closure.md`][compiler-post-emission-check-and-minimal-publication-closure]
+> [`compiler-post-emission-check-and-minimal-publication-closure.md`][post-emission]
 > §8。
 
 源映射不是一组可以脱离编译批次复用的裸记录。每份源映射都必须使用版本化的
@@ -1849,7 +1849,7 @@ compiler/format 反向依赖动态运行时。
 | 未受信任语义差异驱动迁移      | 篡改迁移、错误终止或状态错配                                  | 外部切换描述符、双制品独立验证、身份索引复核                                                                |
 | 通行权运行时能力缺口          | 静态契约与运行时执行能力长期不对称                            | 明示当前能力边界；每项能力以独立跨层测试闭合                                                                |
 
-[traffic-observation-and-routing-integration]: traffic-observation-and-routing-integration.md
-[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
-[compiler-foundation-33-官方前端共同受检模块接入]: compiler-foundation.md#33-官方前端共同受检模块接入
-[compiler-post-emission-check-and-minimal-publication-closure]: compiler-post-emission-check-and-minimal-publication-closure.md
+[routing-integration]: traffic-observation-and-routing-integration.md
+[adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[compiler-foundation-frontends]: compiler-foundation.md#33-官方前端共同受检模块接入
+[post-emission]: compiler-post-emission-check-and-minimal-publication-closure.md

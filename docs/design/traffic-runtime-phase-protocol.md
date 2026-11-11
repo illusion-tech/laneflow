@@ -2,11 +2,11 @@
 
 **状态**: Active（#581 实现五分区、嵌套聚合拆分与串行阶段借用边界）<br>
 **适用范围**: `laneflow-runtime` 的道路机动车固定步进、内部状态所有权与后续等价重构<br>
-**设计入口**: [#580][github-com-illusion-tech-laneflow-issues-580]<br>
-**关联决策**: [ADR 0003][0003-runtime-tick-and-determinism]、
-[ADR 0020][0020-compiler-owned-static-network-and-static-image]、
-[ADR 0021][0021-traffic-infrastructure-and-host-boundary]、
-[ADR 0025][0025-checked-canonical-network-and-shared-static-network]
+**设计入口**: [#580][issue-580]<br>
+**关联决策**: [ADR 0003][adr-0003]、
+[ADR 0020][adr-0020]、
+[ADR 0021][adr-0021]、
+[ADR 0025][adr-0025]
 
 ## 1. 决策与裁决边界
 
@@ -18,26 +18,26 @@ P0～P8 表达逻辑依赖和访问权限，不要求九次遍历、九个模块
 本设计明确现行暂存、校验和无可恢复错误提交段的组合与所有权边界，不改变公开行为。以下文档继续唯一
 规定领域算法，本文只定义它们的组合和所有权边界：
 
-- [共享消费合同][traffic-runtime-shared-consumption]：世界安装、固定步长、拍初读取与公开查询。
+- [共享消费合同][shared-consumption]：世界安装、固定步长、拍初读取与公开查询。
 - [Waiting 本地合同][traffic-runtime-waiting-zone]：membership、队列、物理顺序与观察。
-- [Waiting/Conflict 联合合同][waiting-zone-conflict-right-of-way]：§6.3～6.9 的候选总序、
+- [Waiting/Conflict 联合合同][waiting-zone]：§6.3～6.9 的候选总序、
   组合资源账本、间隙、实际 crossing、车尾净空、事件和首错；其组合规则约束本协议。
-- [路权策略合同][traffic-runtime-right-of-way-policy]：策略绑定与完整资格谓词。
-- [停车合同][parking-system]、[快照合同][traffic-runtime-snapshot]、
-  [修订切换合同][traffic-runtime-revision-cutover]及
-  [观测与 Routing 合同][traffic-observation-and-routing-integration]：各自的命令、
+- [路权策略合同][right-of-way]：策略绑定与完整资格谓词。
+- [停车合同][parking-system]、[快照合同][runtime-snapshot]、
+  [修订切换合同][revision-cutover]及
+  [观测与 Routing 合同][routing-integration]：各自的命令、
   序号、发布和生命周期边界。
 
 内部五分区和阶段视图由 `kernel/state.rs`、`admin/state.rs`、`kernel/phase.rs` 及各领域
 模块实现，五分区聚合由私有 `WorldState` 持有；私有目录和格式入口见
 [模块边界][traffic-runtime-module-boundary]。本协议定义串行交通语义，执行资源
-由[执行配置与资源][traffic-runtime-execution-config]另行管理；状态聚合本身不含
+由[执行配置与资源][execution-config]另行管理；状态聚合本身不含
 线程池或调度器。不增加第二交通执行域或通用事务框架。运行时内部实现不得继续
 保留一条供切换的旧路径；对照基线留在 git 历史。
 
 ### 1.1 等价范围
 
-[单世界并行设计][traffic-runtime-parallel-execution]以本协议为串行语义基线，
+[单世界并行设计][parallel-execution]以本协议为串行语义基线，
 细化首版独立计算任务、P4 规范串行、逻辑首错与完整 join；该文已 Accepted，
 不改变本文现行串行合同，也不表示已经有生产多 worker 实现。
 
@@ -529,7 +529,7 @@ downstream 索引容量，Waiting 首尾数组在安装/切换准备时独立分
 - 仿真与管理的私有目录、format/wire 唯一入口和架构检查见
   [模块边界][traffic-runtime-module-boundary]；phase 不获得解析文件、切换根或其他
   管理权限，不拆 crate。
-- #583 的[有限性能画像][issue-583-runtime-profile-readme]把研究输入
+- #583 的[有限性能画像][runtime-profile-readme]把研究输入
   重绑定到正式 `TrafficWorld`；测试计时边界不另定义 P0～P8。#220 消费本协议，
   在其性能/工作负载输入就绪后设计 physical partition、halo、per-worker scratch、
   确定性合并与取消；本设计不是该并行设计的验收替代。
@@ -540,20 +540,20 @@ downstream 索引容量，Waiting 首尾数组在安装/切换准备时独立分
 顺序与失败边界必须保持。1.0 前只保留一套当前合同；确需变更语义时直接修订对应
 领域设计并单独验证，不增加旧/新协议选择开关。
 
-[github-com-illusion-tech-laneflow-issues-580]: https://github.com/illusion-tech/laneflow/issues/580
-[0003-runtime-tick-and-determinism]: ../adr/0003-runtime-tick-and-determinism.md
-[0020-compiler-owned-static-network-and-static-image]: ../adr/0020-compiler-owned-static-network-and-static-image.md
-[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
-[0025-checked-canonical-network-and-shared-static-network]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
-[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[issue-580]: https://github.com/illusion-tech/laneflow/issues/580
+[adr-0003]: ../adr/0003-runtime-tick-and-determinism.md
+[adr-0020]: ../adr/0020-compiler-owned-static-network-and-static-image.md
+[adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[adr-0025]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
+[shared-consumption]: traffic-runtime-shared-consumption.md
 [traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md
-[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
-[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[waiting-zone]: waiting-zone-conflict-right-of-way.md
+[right-of-way]: traffic-runtime-right-of-way-policy.md
 [parking-system]: parking-system.md
-[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
-[traffic-observation-and-routing-integration]: traffic-observation-and-routing-integration.md
+[runtime-snapshot]: traffic-runtime-snapshot.md
+[revision-cutover]: traffic-runtime-revision-cutover.md
+[routing-integration]: traffic-observation-and-routing-integration.md
 [traffic-runtime-module-boundary]: traffic-runtime-module-boundary.md
-[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
-[traffic-runtime-parallel-execution]: traffic-runtime-parallel-execution.md
-[issue-583-runtime-profile-readme]: ../../research/issue-583-runtime-profile/README.md
+[execution-config]: traffic-runtime-execution-config.md
+[parallel-execution]: traffic-runtime-parallel-execution.md
+[runtime-profile-readme]: ../../research/issue-583-runtime-profile/README.md

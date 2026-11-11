@@ -27,11 +27,11 @@ cargo +1.99.1 test --locked -p laneflow-static-contract
 ## 深入阅读
 
 - [从源码接入无窗口交通运行时][source-integration]
-- [可移植规范制品][portable-canonical-artifact]
+- [可移植规范制品][portable-artifact]
 - [共享静态路网][shared-static-network]
-- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+- [当前能力与限制 · 编译与加载][capabilities-compile]
 
 [source-integration]: ../../docs/guides/source-integration.md
-[portable-canonical-artifact]: ../../docs/design/portable-canonical-artifact.md
+[portable-artifact]: ../../docs/design/portable-canonical-artifact.md
 [shared-static-network]: ../../docs/design/shared-static-network.md
-[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载
+[capabilities-compile]: ../../docs/reference/capabilities.md#编译与加载

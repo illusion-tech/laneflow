@@ -19,7 +19,7 @@
 
 - 是否新增或修改非 Rust 代码（包括嵌入脚本，纯删除除外）：`否` / `是`
 - 若为是：语言选型 Issue、维护者接受结论链接、覆盖本次 diff 的语言/用途/路径：
-- 依据：[代码语言立项审查][github-com-illusion-tech-laneflow-blob-main-docs-governance-code-language-policy-md]（G0/G2 人流程）
+- 依据：[代码语言立项审查][code-language-policy]（G0/G2 人流程）
 
 ## 影响
 
@@ -54,4 +54,4 @@
 - [ ] 未解决的 review conversation 已处理（由 GitHub 原生规则拦截）
 - [ ] 合入走 Merge Queue，不使用 `--admin`
 
-[github-com-illusion-tech-laneflow-blob-main-docs-governance-code-language-policy-md]: https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md
+[code-language-policy]: https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md

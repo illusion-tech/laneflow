@@ -36,10 +36,10 @@ cargo +1.99.1 test --locked -p laneflow-static-network
 
 - [从源码接入无窗口交通运行时][source-integration]
 - [共享静态路网][shared-static-network]
-- [交通运行时共享消费][traffic-runtime-shared-consumption]
-- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+- [交通运行时共享消费][shared-consumption]
+- [当前能力与限制 · 编译与加载][capabilities-compile]
 
 [source-integration]: ../../docs/guides/source-integration.md
 [shared-static-network]: ../../docs/design/shared-static-network.md
-[traffic-runtime-shared-consumption]: ../../docs/design/traffic-runtime-shared-consumption.md
-[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载
+[shared-consumption]: ../../docs/design/traffic-runtime-shared-consumption.md
+[capabilities-compile]: ../../docs/reference/capabilities.md#编译与加载

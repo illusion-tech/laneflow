@@ -724,7 +724,7 @@ Active 数、`S` 为成功数、`J` 为成功完成的占用重建次数（不�
 相应 Active 写入。冷索引下 `J <= S + 1`；最后一次成功之后没有读取就不会额外
 重建。占用构建按边数、实际车身片段数和桶内排序计成本，不能总以车辆数代替片段数。
 调研入口、有限结构比较和测量口径见
-[#678 命令研究][issue-678-parking-commands-readme]。
+[#678 命令研究][parking-commands-readme]。
 
 内部等价优化须保持以下约束，不改变 §5.5 的准入判据：
 
@@ -755,7 +755,7 @@ Active 插入/删除仍有 `O(A_i)` 查找或连续内存移动。位置表保�
 不按声明 vehicle capacity 分配；堆成本为 `4 × positions.capacity()` 字节，另有
 向量头和前缀长度的内联成本。连续 leave 成功不再各自扫描全部 live，但后车安全
 扫描和 Occupancy 重建未改变。冷首次成功、热成功、全拒绝、高声明容量及高槽位
-水位的实际 A/B 见 [#696 测量][issue-696-active-order-readme]。
+水位的实际 A/B 见 [#696 测量][active-order-readme]。
 位图、分块顺序和占用覆盖层仍未升级为生产实现方案，不据此新增格式、公共 API
 或并行路径。
 
@@ -835,6 +835,6 @@ Active 插入/删除仍有 `O(A_i)` 查找或连续内存移动。位置表保�
 #542 的正式拓扑生成、#544 的车辆运行或 #545 的跨层取证；#543 的研究容量报告也不
 代替这些交付。#304 整体 G1 接受不等于工作负载已经交付或达到 Product Pass。
 
-[issue-678-parking-commands-readme]: ../../research/issue-678-parking-commands/README.md
-[issue-696-active-order-readme]: ../../research/issue-696-active-order/README.md
+[parking-commands-readme]: ../../research/issue-678-parking-commands/README.md
+[active-order-readme]: ../../research/issue-696-active-order/README.md
 [chinese-style-city-workload]: chinese-style-city-workload.md

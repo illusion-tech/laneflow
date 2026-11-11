@@ -1,7 +1,7 @@
 # LaneFlow Schema Source
 
 本目录保存道路编辑前端使用的 schema source。它们不是对外发布的公共契约。
-[ADR 0026][0026-merge-governance-rebuild] 已取消公共 retrieval、永久 URL
+[ADR 0026][adr-0026] 已取消公共 retrieval、永久 URL
 与历史 schema 保留义务。
 
 ## 当前内部 source
@@ -11,8 +11,8 @@ Traffic v0.10、Spatial v0.1 与 Scenario Manifest v0.1 JSON Schema 已随 #301 
 
 | Family           | Current source                                                                         | 状态                                     |
 | ---------------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Road Editing     | [`road-editing/v4/road-editing.fbs`][road-editing]                 | 生产 compiler 来源；`format_version = 4` |
-| Runtime Snapshot | [`runtime-snapshot/v7/runtime-snapshot.fbs`][runtime-snapshot] | 生产快照容器；`format_version = 7`       |
+| Road Editing     | [`road-editing/v4/road-editing.fbs`][road-editing-fbs]                 | 生产 compiler 来源；`format_version = 4` |
+| Runtime Snapshot | [`runtime-snapshot/v7/runtime-snapshot.fbs`][runtime-snapshot-fbs] | 生产快照容器；`format_version = 7`       |
 
 字段级领域语义见各家族 README。两个家族都使用 size-prefixed FlatBuffers，不是
 JSON Schema。Road Editing 用 `LFRE` file identifier，现行 `format_version = 4`；
@@ -27,6 +27,6 @@ Traffic v0.2–v0.10 历史 schema 已从当前树删除。当时验证流水账
 Runtime、Adapter 与 hermetic runtime tests 不联网解析 `$id` / `$schema`。current
 JSON 不再安装可运行交通世界，也不再作为仓库内部 schema source。
 
-[0026-merge-governance-rebuild]: ../docs/adr/0026-merge-governance-rebuild.md
-[road-editing]: road-editing/v4/road-editing.fbs
-[runtime-snapshot]: runtime-snapshot/v7/runtime-snapshot.fbs
+[adr-0026]: ../docs/adr/0026-merge-governance-rebuild.md
+[road-editing-fbs]: road-editing/v4/road-editing.fbs
+[runtime-snapshot-fbs]: runtime-snapshot/v7/runtime-snapshot.fbs

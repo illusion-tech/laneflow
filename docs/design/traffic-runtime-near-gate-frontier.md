@@ -6,11 +6,11 @@
 
 **关联文档**:
 
-- [`traffic-runtime-conflict-occurrence.md`][traffic-runtime-conflict-occurrence]
+- [`traffic-runtime-conflict-occurrence.md`][conflict-occurrence]
 - [`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol]
-- [`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy]
+- [`traffic-runtime-right-of-way-policy.md`][right-of-way]
 - [`signal-system.md`][signal-system]
-- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]
+- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][adr-0021]
 
 不新开 ADR。公开契约、数据格式和 Adapter 都不变。本文只冻结让行本拍看见谁，以及到达下界如何取值。
 
@@ -148,8 +148,8 @@ v * dt + 0.5 * (a * 1000) * dt^2 + 2 mm
 
 短窗同边车身重叠必须为 0。一次短窗重叠为 0 不证明所有让行场景都与全量重走等价。
 
-[traffic-runtime-conflict-occurrence]: traffic-runtime-conflict-occurrence.md
+[conflict-occurrence]: traffic-runtime-conflict-occurrence.md
 [traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
-[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[right-of-way]: traffic-runtime-right-of-way-policy.md
 [signal-system]: signal-system.md
-[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md

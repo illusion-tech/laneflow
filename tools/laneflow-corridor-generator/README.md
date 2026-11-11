@@ -3,7 +3,7 @@
 本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，从几何
 建造填充 compiler 合成来源模块，写出 scenario-local catalog 0.4 TOML 与可 `install` 的
 LFCA（含 Spatial）。不写出 current JSON。50–200 确定性回流见
-[#475][github-com-illusion-tech-laneflow-issues-475]。
+[#475][issue-475]。
 
 ## 使用
 
@@ -44,4 +44,4 @@ cargo +1.99.1 run --locked -p laneflow-corridor-generator -- check --config exam
 示例声明只表示受保护信号组准入，不宣称覆盖现实道路法规全集。
 调用方把 bind 结果的 `policy_selection` 传入唯一世界安装入口。
 
-[github-com-illusion-tech-laneflow-issues-475]: https://github.com/illusion-tech/laneflow/issues/475
+[issue-475]: https://github.com/illusion-tech/laneflow/issues/475

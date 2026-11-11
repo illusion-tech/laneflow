@@ -31,16 +31,16 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 ```
 
-人口控制器的短容量测试随 `cargo test -p laneflow-scenario` 运行。完整一万次成功替换是忽略测试，命令见[人口与回流设计][signalized-corridor-population]。
+人口控制器的短容量测试随 `cargo test -p laneflow-scenario` 运行。完整一万次成功替换是忽略测试，命令见[人口与回流设计][corridor-population]。
 
 ## 深入阅读
 
 - [从源码接入无窗口交通运行时][source-integration]
-- [人口与回流设计][signalized-corridor-population]
+- [人口与回流设计][corridor-population]
 - [`laneflow-runtime`][laneflow-runtime-readme]
 - [当前能力与限制][capabilities]
 
 [source-integration]: ../../docs/guides/source-integration.md
-[signalized-corridor-population]: ../../docs/design/signalized-corridor-population.md
+[corridor-population]: ../../docs/design/signalized-corridor-population.md
 [laneflow-runtime-readme]: ../../crates/laneflow-runtime/README.md
 [capabilities]: ../../docs/reference/capabilities.md

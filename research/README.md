@@ -8,7 +8,7 @@
 范围、计数）属于结论本身。结论报告与复现输入（输入声明、协议与环境说明、少量
 代表性样本）可以入仓，单个生成文件不超过 1,000 行、单个研究目录的生成文件合计
 不超过 5,000 行，超出即按过程数据处理。完整规则以
-[文档边界政策][documentation-policy-研究结论与过程数据边界]为准。
+[文档边界政策][documentation-policy-research]为准。
 
 逐区间或逐样本原始测量、搜索轨迹、全量结果集、重跑中间态、环境转储、二进制和
 采集原包是过程数据，一律不进入源码树：本地生成写到已忽略的 `target/` 或仓库外
@@ -65,7 +65,7 @@ SHA-256。
 简短结论、冻结身份、下载地址和摘要，不安排例行复核；相关回归或结论争议由调查者
 按需恢复归档。生产回归 fixture 和其他仍使用的研究源码保留。
 
-[documentation-policy-研究结论与过程数据边界]: ../docs/governance/documentation-policy.md#研究结论与过程数据边界
+[documentation-policy-research]: ../docs/governance/documentation-policy.md#研究结论与过程数据边界
 [dependency-security]: ../docs/governance/dependency-security.md
 [2026-10-01-json-migration]: archives/2026-10-01-json-migration.md
 [2026-10-12-research-crate-retirement]: archives/2026-10-12-research-crate-retirement.md

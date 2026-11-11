@@ -18,9 +18,9 @@ Waiting 的周期占用脉冲只在末端仍保留完整释放相位时重放，
 storage 拒绝，也要求终点脉冲实际 Completed 且无残留占用；时间余量本身不是通过证据。
 所有路径都不增加 Traffic Runtime、共享静态路网或 Adapter 的公共接口。
 实现和 fixture probe 不替代正式正确性及性能取证；后续跨层验证引用已交付的
-[#544 结果][github-com-illusion-tech-laneflow-pull-614]，保留原始提交和范围。
+[#544 结果][pull-614]，保留原始提交和范围。
 
-两档七场景正确性与两档 Mixed 性能计划摘要保存在 [输入冻结记录][plans]。
+两档七场景正确性与两档 Mixed 性能计划摘要保存在 [输入冻结记录][plans-json]。
 当前 `urban-demand-v3` 固定全部路线的实际 edge 序列、观察期入场链及边界角色命令；
 旧记录保留为历史诊断，不能作为当前计划的通过证据，不提供兼容转换。
 
@@ -421,6 +421,6 @@ target/release/laneflow-urban-harness evidence <artifacts> <frozen-plan.toml> <n
 样本比较。该入口本身不执行多轮合并，也不提供产品认证结论。
 
 [urban-demand-harness]: ../../docs/design/urban-demand-harness.md
-[github-com-illusion-tech-laneflow-pull-614]: https://github.com/illusion-tech/laneflow/pull/614
-[plans]: fixtures/v3/plans.json
+[pull-614]: https://github.com/illusion-tech/laneflow/pull/614
+[plans-json]: fixtures/v3/plans.json
 [laneflow-urban-generator-readme]: ../laneflow-urban-generator/README.md

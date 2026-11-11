@@ -4,7 +4,7 @@
 **最后更新**: 2026-10-08<br>
 **适用范围**: 道路机动车准入候选缓存完整重建时，非空限速下降后缀的预览成功性
 
-本提案补充[准入筛选合同][traffic-runtime-admission-contender-filter]第 3.4 节，
+本提案补充[准入筛选合同][contender-filter]第 3.4 节，
 不替换其已接受的身份、权利、ETA、严格同边运动、原校验、空 owner、错误及资源合同。
 它不是放开所有限速下降，也不把 P2 可将运动错误后移 P5 的论证用于公共准入命令。
 设计接受只允许按充分条件验证候选，不预先认证产品收益。
@@ -171,6 +171,6 @@ W  = dt * (v + nU) + nU * nU / b
 任何状态/错误/所有权差异先停止性能声明；无目标准入收益时保留否定结果并停止候选。
 父任务 #707 的四基线、三轮完整观察、交通质量和正式资源认证继续独立开放。
 
-[traffic-runtime-admission-contender-filter]: traffic-runtime-admission-contender-filter.md
+[contender-filter]: traffic-runtime-admission-contender-filter.md
 [admission-distant-results]: ../../research/issue-707-city-parallel/admission-distant-results.md
 [admission-filter-results]: ../../research/issue-707-city-parallel/admission-filter-results.md

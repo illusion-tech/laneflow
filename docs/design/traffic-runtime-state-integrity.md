@@ -4,17 +4,17 @@
 **最后更新**: 2026-10-26<br>
 **适用范围**: 运行时状态完整性的检测范围与分期、可信期望值与原像、共享路网修订认证、失真
 处置裁决权边界、结论与遥测、认证成本报告口径与 retained-memory 分类<br>
-**设计入口**: [#955][github-com-illusion-tech-laneflow-issues-955]<br>
-**关联决策**: [ADR 0032][0032-runtime-state-integrity-and-distortion-disposition-authority]、
-[ADR 0021][0021-traffic-infrastructure-and-host-boundary]、
-[ADR 0030][0030-single-world-parallel-execution]<br>
-**关联设计**: [`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] §5/§6、
+**设计入口**: [#955][issue-955]<br>
+**关联决策**: [ADR 0032][adr-0032]、
+[ADR 0021][adr-0021]、
+[ADR 0030][adr-0030]<br>
+**关联设计**: [`traffic-runtime-snapshot.md`][runtime-snapshot] §5/§6、
 [`shared-static-network.md`][shared-static-network] §8/§10.2、
-[`portable-canonical-artifact.md`][portable-canonical-artifact] §3.8、
+[`portable-canonical-artifact.md`][portable-artifact] §3.8、
 [`../reference/glossary.md`][glossary] §7.6
 
 > **层次约定**：§1–§8 只冻结合同与不变量（G1 本体）；算法与取得路径选型、API
-> 标识符统一登记在 [§11 G2 落定清单][link-11-g2-落定清单实现内容不属-g1-冻结]。
+> 标识符统一登记在 [§11 G2 落定清单][state-integrity-g2-list]。
 > **合同值集合（穷尽）**：完整性**不进入 tick 路径**（不在 P0–P8 内、不增加每拍工作、
 > 不增加稳态保留内存）；§5 漏检面声明。其余数字均为待验证或描述性数据，不是合同值。
 
@@ -66,7 +66,7 @@
 | 耐久修订内容原像 | **复用** `NetworkRevisionIdV1` 的原像：规范路网语义载荷 `canonicalNetworkSemanticPayloadV1`（语义节 `0x0001..=0x0006` 按 sectionKind 序组帧），摘要 = `SHA-256("laneflow.network-revision.v1\0" ‖ payload)`；不另设编码与域分隔 | 共享路网修订的正本语义内容；修订认证的依据（§4.2）  | 构建方建立（即 `NetworkRevisionId`）；发布来源由宿主随 `PublishedLfcaReference` 持久，编辑来源不持久、由重编译重算 |
 
 **编码复用（不新增规范编码）**：耐久修订内容原像的字段清单、整数 / 序列 / 可选值编码、
-分段组帧与版本轴全部以 [`portable-canonical-artifact.md` §3.8][portable-canonical-artifact-38-路网修订标识]
+分段组帧与版本轴全部以 [`portable-canonical-artifact.md` §3.8][portable-artifact-revision-id]
 及其引用的 LFCA 语义节格式为准；任一编码变化必须体现为 `sectionFormatVersion` 或
 `networkRevisionDerivationVersion` 变化，不得静默得到不同摘要。构建方与认证方因此
 对同一健康修订得到逐字节相同的原像。
@@ -583,12 +583,12 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 ## 8. 认证成本报告口径
 
 **tick 路径**：完整性不增加每拍工作（合同值），Traffic Runtime 与 Spatial+Adapter 的 p95 主行
-（[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline] §6）不受
+（[`core-runtime-performance-baseline.md`][performance-baseline] §6）不受
 影响，不另设开 / 关差值预算。
 
 **认证停顿与峰值**（实测归实现A 部分，描述性数据，不进产品 Gate）：
 
-认证成本以 [`v0.10-attestation-production-baseline.md`][v0-10-attestation-production-baseline]
+认证成本以 [`v0.10-attestation-production-baseline.md`][attestation-baseline]
 及其 JSON 为历史参考。数据绑定 Rust 1.98.0 与测量源码
 `06f239c39b3983efd8d39ecb0820131bc140fd77`，不作为后续主干版本的重新测量：
 三档认证中位约 11.8 ms／120 ms／1.21 s；合同增量堆峰值约 5.46／54.59／545.85 MB，
@@ -597,7 +597,7 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 该范围不构成长期上界，不外推为任意生产运行负载无干扰。完整口径与局限见基线。
 
 直算摘要另见 Rust 1.99.1 的
-[`三版本优化对照`][v0-10-direct-digest-optimization-baseline]。
+[`三版本优化对照`][digest-baseline]。
 十万辆车合成档位中，车辆连续缓冲版相对原始实现的调用耗时合并中位减少 39.30%，
 相对查找优化与分组预留版减少 16.74%，后者对照的堆峰值增加约 0.82 MB；
 一万辆车档位没有显示连续缓冲的额外速度收益。归一化预算因范围与视图表的
@@ -660,14 +660,14 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 
 E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
 真实候选与在用修订物理共页并同时受损、活动不可变 backing 被外部改写及其实际消费证据，
-拆为独立后续研究 [#1063][github-com-illusion-tech-laneflow-issues-1063]，继续标为未验证。
+拆为独立后续研究 [#1063][issue-1063]，继续标为未验证。
 该拆分允许按已交付的软件验证和取证范围收尾 #963，不表示原物理矩阵已经通过，也不删除
 §5 的漏检声明、改变 Rust 有效性边界或放宽 §9 准入。
 
 物理研究只在运行中失真现场、具体对外故障检测承诺或保护机制选型需求出现时重新评估；
 投入决策、隔离目标、平台与布局可行性、预算及停止条件确认后再记录 G2。
 到达 1.0 不自动触发该实验或新增发布门槛。完整条件与有界实施顺序见
-[物理注入方案][physical-injection-plan-研究用途与启动条件]。
+[物理注入方案][physical-injection-plan-start]。
 
 ## 11. G2 落定清单（实现内容，不属 G1 冻结）
 
@@ -720,21 +720,21 @@ E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
 - **审计结果类型**：`CompleteMatch` / `Diverged` / `Incomplete` 的标识符与 `Incomplete`
   携带字段的具体形态。
 
-[github-com-illusion-tech-laneflow-issues-955]: https://github.com/illusion-tech/laneflow/issues/955
-[0032-runtime-state-integrity-and-distortion-disposition-authority]: ../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md
-[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
-[0030-single-world-parallel-execution]: ../adr/0030-single-world-parallel-execution.md
-[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[issue-955]: https://github.com/illusion-tech/laneflow/issues/955
+[adr-0032]: ../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md
+[adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[adr-0030]: ../adr/0030-single-world-parallel-execution.md
+[runtime-snapshot]: traffic-runtime-snapshot.md
 [shared-static-network]: shared-static-network.md
-[portable-canonical-artifact]: portable-canonical-artifact.md
+[portable-artifact]: portable-canonical-artifact.md
 [glossary]: ../reference/glossary.md
-[link-11-g2-落定清单实现内容不属-g1-冻结]: #11-g2-落定清单实现内容不属-g1-冻结
-[portable-canonical-artifact-38-路网修订标识]: portable-canonical-artifact.md#38-路网修订标识
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
-[v0-10-attestation-production-baseline]: ../reference/v0.10-attestation-production-baseline.md
-[v0-10-direct-digest-optimization-baseline]: ../reference/v0.10-direct-digest-optimization-baseline.md
+[state-integrity-g2-list]: #11-g2-落定清单实现内容不属-g1-冻结
+[portable-artifact-revision-id]: portable-canonical-artifact.md#38-路网修订标识
+[performance-baseline]: core-runtime-performance-baseline.md
+[attestation-baseline]: ../reference/v0.10-attestation-production-baseline.md
+[digest-baseline]: ../reference/v0.10-direct-digest-optimization-baseline.md
 [24-hour-soak]: ../../research/issue-963-integrity-evidence/24-hour-soak.md
 [long-soak-driver]: ../../research/issue-963-integrity-evidence/long-soak-driver.md
 [acceptance-evidence]: ../../research/issue-963-integrity-evidence/acceptance-evidence.md
-[github-com-illusion-tech-laneflow-issues-1063]: https://github.com/illusion-tech/laneflow/issues/1063
-[physical-injection-plan-研究用途与启动条件]: ../../research/issue-963-integrity-evidence/physical-injection-plan.md#研究用途与启动条件
+[issue-1063]: https://github.com/illusion-tech/laneflow/issues/1063
+[physical-injection-plan-start]: ../../research/issue-963-integrity-evidence/physical-injection-plan.md#研究用途与启动条件

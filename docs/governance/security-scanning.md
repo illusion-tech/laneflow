@@ -56,13 +56,13 @@ setup identity。冻结配置为：
   必须同版本，三行同钉该 commit；`upload-sarif` 行自 #1302 起用于 skip 分支上传）：official
   repository 的 annotated tag `v4.39.3`（tag object
   `f3bbb05694c2f74569081c28664c0866d64dec21`）peel 至该 commit，来源为
-  [GitHub 官方仓库][github-com-github-codeql-action]，该 revision 的
-  [许可证为 MIT][github-com-github-codeql-action-blob-33d7b85da1a04171e211befe2c739303b9a4c066-license]。
+  [GitHub 官方仓库][codeql-action]，该 revision 的
+  [许可证为 MIT][codeql-license]。
   当日 upstream advisory 核验：
-  [GHSA-vqf5-2xx6-9wfm][github-com-github-codeql-action-security-advisories-ghsa-vqf5-2xx6-9wfm]
+  [GHSA-vqf5-2xx6-9wfm][codeql-advisory-vqf5]
   公布受影响范围为 `>= 2.26.11, < 3.0.0` 与 `>= 3.26.11, <= 3.28.2`，不包含 `v4.39.3`，repo
   advisory 索引无新增条目；
-  [GHSA-g36v-2xff-pv5m][github-com-github-codeql-action-security-advisories-ghsa-g36v-2xff-pv5m]
+  [GHSA-g36v-2xff-pv5m][codeql-advisory-g36v]
   当日未出现在全局 advisory API 索引（返回 404，未按零覆盖解释），维持 repository advisory
   公布的受影响范围（`CodeQL runner < codeql-bundle-20210304`，止于旧 CodeQL runner），同样不包含
   `v4.39.3`。当日仓库侧三类开放告警（code scanning、Dependabot、secret scanning）均为 0，
@@ -112,10 +112,10 @@ Merge Queue 的 required status checks 固定为：
 不同 workflow。修改 required workflow 时仍须检查 workflow 来源与实际 Check Run；不得把 App 绑定写成
 workflow 级防伪。
 
-GitHub 官方说明见 [Code scanning merge protection][docs-github-com-en-code-security-concepts-code-scanning-merge-protection]、
-[CodeQL workflow configuration options][docs-github-com-en-code-security-reference-code-scanning-workflow-configuration-options]、
-[Advanced setup][docs-github-com-en-code-security-how-tos-find-and-fix-code-vulnerabilities-configure-code-scanning-configuring-advanced-setup-for-code-scanning]
-和 [Managing a merge queue][docs-github-com-en-repositories-configuring-branches-and-merges-in-your-repository-configuring-pull-request-merges-managing-a-merge-queue]。
+GitHub 官方说明见 [Code scanning merge protection][merge-protection]、
+[CodeQL workflow configuration options][code-scanning-workflow]、
+[Advanced setup][code-scanning-advanced-setup]
+和 [Managing a merge queue][merge-queue]。
 
 ### 2.2 Secret Scanning
 
@@ -235,11 +235,11 @@ GitHub API 版本或返回结构变化时，应在验证脚本或命令中固定
 - 临时 bypass 只处理被明确阻断的操作，不改变扫描结论；永久 bypass 授权也不能把失败、无分析或开放告警记为通过。
 - 结束本次治理工作前必须复核文档与 GitHub 实际设置一致，并确认未留下临时权限、临时 workflow 或未跟踪告警。
 
-[github-com-github-codeql-action]: https://github.com/github/codeql-action
-[github-com-github-codeql-action-blob-33d7b85da1a04171e211befe2c739303b9a4c066-license]: https://github.com/github/codeql-action/blob/33d7b85da1a04171e211befe2c739303b9a4c066/LICENSE
-[github-com-github-codeql-action-security-advisories-ghsa-vqf5-2xx6-9wfm]: https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm
-[github-com-github-codeql-action-security-advisories-ghsa-g36v-2xff-pv5m]: https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m
-[docs-github-com-en-code-security-concepts-code-scanning-merge-protection]: https://docs.github.com/en/code-security/concepts/code-scanning/merge-protection
-[docs-github-com-en-code-security-reference-code-scanning-workflow-configuration-options]: https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options
-[docs-github-com-en-code-security-how-tos-find-and-fix-code-vulnerabilities-configure-code-scanning-configuring-advanced-setup-for-code-scanning]: https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning
-[docs-github-com-en-repositories-configuring-branches-and-merges-in-your-repository-configuring-pull-request-merges-managing-a-merge-queue]: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue
+[codeql-action]: https://github.com/github/codeql-action
+[codeql-license]: https://github.com/github/codeql-action/blob/33d7b85da1a04171e211befe2c739303b9a4c066/LICENSE
+[codeql-advisory-vqf5]: https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm
+[codeql-advisory-g36v]: https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m
+[merge-protection]: https://docs.github.com/en/code-security/concepts/code-scanning/merge-protection
+[code-scanning-workflow]: https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options
+[code-scanning-advanced-setup]: https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning
+[merge-queue]: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue

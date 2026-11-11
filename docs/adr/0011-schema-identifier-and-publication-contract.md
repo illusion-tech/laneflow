@@ -1,6 +1,6 @@
 # 0011 Schema Identifier and Public Publication Contract
 
-**状态**: Superseded（被 [ADR 0026][0026-merge-governance-rebuild] 取代）
+**状态**: Superseded（被 [ADR 0026][adr-0026] 取代）
 **日期**: 2026-07-17
 **适用范围**: 历史记录：LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；current JSON loader 已随 #301 从运行入口拆除。
 **目标态取代登记**: Accepted ADR 0020 将把发布目录从仅描述 JSON Schema 系列扩展
@@ -138,4 +138,4 @@ Core、`laneflow-data` production loader、Adapter 与 hermetic runtime tests �
 - #134：把 catalog 提升为 multi-family contractVersion 2，登记 Spatial/Scenario Manifest v0.1 current source；后续唯一 Delivery PR 固定 `main` provenance、部署并完成 live monitor。
 - 首次 1.0 格式冻结、迁移到自有域名/CDN、修改 retention SLA 或需要严格 `application/schema+json` headers 时，创建独立 Issue 和 ADR 修订。
 
-[0026-merge-governance-rebuild]: 0026-merge-governance-rebuild.md
+[adr-0026]: 0026-merge-governance-rebuild.md

@@ -6,12 +6,12 @@
 
 **关联文档**:
 
-- [`traffic-runtime-shared-consumption.md`][traffic-runtime-shared-consumption]
+- [`traffic-runtime-shared-consumption.md`][shared-consumption]
 - [`vehicle-following.md`][vehicle-following]
 - [`parking-system.md`][parking-system]
-- [`traffic-runtime-near-gate-frontier.md`][traffic-runtime-near-gate-frontier]
-- [`traffic-runtime-contender-frontier.md`][traffic-runtime-contender-frontier]
-- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][0021-traffic-infrastructure-and-host-boundary]
+- [`traffic-runtime-near-gate-frontier.md`][near-gate]
+- [`traffic-runtime-contender-frontier.md`][contender-frontier]
+- [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][adr-0021]
 
 不新开 ADR。快照车辆记录和逐拍状态不变。公开变化是 `SpawnError` 与 `ReplaceError` 增加可区分的拒绝原因，以及 `VehicleSpawnInput` 可以附上可选的出发状态和开放入口。未附上时，`new` 的参数和字段默认值不变。车尾超出路线起点、却没有开放入口时，不再把这段车尾截掉，而是返回 `EntranceBody::Unbound` 或 `EntranceBody::InDomainTail`。Adapter 把当前停车约束、前车和后车这些暂时不能接纳的替换结果当成可重试。降不到前方限速、出发声明不合法、初速超过这份声明的速度上界，以及开放入口或范围内车身无法解释，都不是可重试结果，须修正输入。现有可重试分类见 [`adapter-api.md`][adapter-api]。出发声明的两类错误在实现时同样不进入可重试分支。
 
@@ -41,7 +41,7 @@
 | `leave_parking`             | 走自己的资源转移 | 复用同一后车算式，候选速度仍为 0 | 不套用                             | 不套用                                                 |
 | 快照恢复、修订切换          | 保持原有完整性   | 不走                             | 不走                               | 不走                                                   |
 
-恢复和切换不把已经在世界里的状态重新当成新生成。已经在路上、之后才来不及停的车，仍按 [#740][traffic-runtime-near-gate-frontier] 的运动到达下界处理。出生检查不改那条运行时规则。回归测试若要保留“已经停不住仍按运动到达”的场面，在测试特性 `placement-fixtures` 下用 `place_existing_active_vehicle` 走同一条提交，不把速度改温和。已经完成的车要在同一场面换成下一代时，用 `replace_existing_completed_vehicle`。默认构建没有这两个入口，它们也不是宿主的新需求入口。信号走廊 catalog 的初始人口走 `spawn_vehicle`：计划位置不变，初速若过不了当前检查就按 1 m/s 降低到放得进为止。之后新进入走廊的车仍走 `spawn_vehicle`。
+恢复和切换不把已经在世界里的状态重新当成新生成。已经在路上、之后才来不及停的车，仍按 [#740][near-gate] 的运动到达下界处理。出生检查不改那条运行时规则。回归测试若要保留“已经停不住仍按运动到达”的场面，在测试特性 `placement-fixtures` 下用 `place_existing_active_vehicle` 走同一条提交，不把速度改温和。已经完成的车要在同一场面换成下一代时，用 `replace_existing_completed_vehicle`。默认构建没有这两个入口，它们也不是宿主的新需求入口。信号走廊 catalog 的初始人口走 `spawn_vehicle`：计划位置不变，初速若过不了当前检查就按 1 m/s 降低到放得进为止。之后新进入走廊的车仍走 `spawn_vehicle`。
 
 同一拍里连续调用时，先成功的车已经提交。后一次检查和下一拍都能看见它。失败不留下车辆、路线引用、停车资源、冲突状态或命令游标。占用索引若在失败前重建，只影响派生索引，不改变已提交车辆。
 
@@ -263,9 +263,9 @@ Bevy 适配器只把当前停车约束、前车和后车映射成可重试。这
 
 ### 8.4 panic 与执行合同
 
-并行重建在执行作用域里运行。worker panic 按[并行执行 §4.3][traffic-runtime-parallel-execution-43-join取消与失败清理]收拢后传播，世界退出可用状态。不让出的路径上，命令里的 panic 合同不变。
+并行重建在执行作用域里运行。worker panic 按[并行执行 §4.3][parallel-execution-join]收拢后传播，世界退出可用状态。不让出的路径上，命令里的 panic 合同不变。
 
-这是生命周期命令第一次借用执行资源。[执行配置][traffic-runtime-execution-config]第 2 节“生命周期命令消费完整已提交世界”不变，实现时在该文补充：命令可以借执行资源重建派生占用索引。
+这是生命周期命令第一次借用执行资源。[执行配置][execution-config]第 2 节“生命周期命令消费完整已提交世界”不变，实现时在该文补充：命令可以借执行资源重建派生占用索引。
 
 ### 8.5 代价与预期
 
@@ -346,14 +346,14 @@ Bevy 适配器只把当前停车约束、前车和后车映射成可重试。这
 
 实际交付的验证见研究记录第 3 节；变异检查中让填桶不写入车辆，两个直接相关的测试失败。
 
-[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[shared-consumption]: traffic-runtime-shared-consumption.md
 [vehicle-following]: vehicle-following.md
 [parking-system]: parking-system.md
-[traffic-runtime-near-gate-frontier]: traffic-runtime-near-gate-frontier.md
-[traffic-runtime-contender-frontier]: traffic-runtime-contender-frontier.md
-[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[near-gate]: traffic-runtime-near-gate-frontier.md
+[contender-frontier]: traffic-runtime-contender-frontier.md
+[adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
 [adapter-api]: adapter-api.md
-[traffic-runtime-parallel-execution-43-join取消与失败清理]: traffic-runtime-parallel-execution.md#43-join取消与失败清理
-[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
+[parallel-execution-join]: traffic-runtime-parallel-execution.md#43-join取消与失败清理
+[execution-config]: traffic-runtime-execution-config.md
 [command-occupancy-results]: ../../research/issue-707-city-parallel/command-occupancy-results.md
 [overlap-yield-results]: ../../research/issue-707-city-parallel/overlap-yield-results.md

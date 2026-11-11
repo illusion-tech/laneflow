@@ -5,7 +5,7 @@
 实时元数据为准。
 
 官方能力说明见 GitHub Docs:
-[https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions][docs-github-com-en-copilot-how-tos-copilot-on-github-customize-copilot-add-custom-instructions-add-repository-instructions]。
+[https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions][copilot-instructions]。
 
 ## 必读入口
 
@@ -32,4 +32,4 @@
 - Copilot review 对 custom instructions 的生效以 base branch 中的 instructions
   为准；修改本文件的 PR 不一定影响该 PR 当前这轮 review。
 
-[docs-github-com-en-copilot-how-tos-copilot-on-github-customize-copilot-add-custom-instructions-add-repository-instructions]: https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions
+[copilot-instructions]: https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions

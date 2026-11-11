@@ -3,9 +3,9 @@
 **文档状态**: Accepted<br>
 **最后更新**: 2026-09-27<br>
 **适用范围**: 道路机动车首版独立计算并行、规范串行联合裁决与整拍提交<br>
-**设计入口**: [#220][github-com-illusion-tech-laneflow-issues-220]<br>
-**关联决策**: [ADR 0030（Accepted）][0030-single-world-parallel-execution]<br>
-**配套设计**: [执行配置与资源][traffic-runtime-execution-config]、
+**设计入口**: [#220][issue-220]<br>
+**关联决策**: [ADR 0030（Accepted）][adr-0030]<br>
+**配套设计**: [执行配置与资源][execution-config]、
 [串行阶段协议][traffic-runtime-phase-protocol]
 
 本文定义首版并行范围：分发只读输入上的独立计算，P4 联合资源裁决由协调器按现行
@@ -17,9 +17,9 @@
 P3 已冻结只读输入上的候选字段求值与 P5 逐车最终运动为真实多 worker 分发，协调器
 保序规范组装；frontier 归约、P4 联合裁决、P5 资源转移与 P7 发布仍由协调器串行；
 城市性能认证未完成（#707）。领域算法唯一由
-[Waiting/Conflict 联合合同][waiting-zone-conflict-right-of-way]、
+[Waiting/Conflict 联合合同][waiting-zone]、
 [Waiting 本地合同][traffic-runtime-waiting-zone]、
-[路权策略][traffic-runtime-right-of-way-policy]、[跟车][vehicle-following]及
+[路权策略][right-of-way]、[跟车][vehicle-following]及
 [停车][parking-system]定义；本文只细化等价执行方式。
 
 ## 1. 等价范围
@@ -52,7 +52,7 @@ Active 投影保序分块，块数可大于线程数。非 Active 的异常 memb
 驱动的只读邻域覆盖完整前车链、环、车身区间和资源查询，可用全世界的窄只读视图
 表达，不要求复制 halo，也不能使用固定距离或各块独立 projection 截断依赖。
 
-列式运动正本的后继执行允许物理块和规范消费位置分离，独占 Next 行、完整句柄映射、attempt 有效性及首错补齐遵守 [列式批量执行设计][traffic-runtime-columnar-execution]。上文 Active 保序分块描述现有逐车分发，不限制已冻结后继布局；资源消费与 §4.2 的真实检查顺序继续适用。
+列式运动正本的后继执行允许物理块和规范消费位置分离，独占 Next 行、完整句柄映射、attempt 有效性及首错补齐遵守 [列式批量执行设计][columnar-execution]。上文 Active 保序分块描述现有逐车分发，不限制已冻结后继布局；资源消费与 §4.2 的真实检查顺序继续适用。
 
 任务只持有当前操作的借用。换根、spawn/despawn、路线变更、提交后 Active 投影变化
 及同 tick 失败重试均须维护计划/工作集有效性；相同槽位数、容量或 NetworkRevisionId
@@ -221,7 +221,7 @@ cell 注入必须命中真实必要增长，记录实际访问位置与需求；
 
 LaneFlow 持有的并行专用缓冲、登记队列和任务分段有 checked 长度与明确上界，
 不能按块复制全世界。Rayon 内部调度分配的进程级 OOM 边界见
-[执行配置与资源 §3][traffic-runtime-execution-config-3-私有所有权]，不把后端
+[执行配置与资源 §3][execution-config-ownership]，不把后端
 内部队列的分配描述为全部可恢复。
 活动/候选/退休计划、输出、局部变长声明、队列、辅助线程栈与保留容量分别计账。
 候选/运动输出暂存目标为 `O(N + C)`，N 为实际活动计算数，C 为声明数；共享输入
@@ -326,7 +326,7 @@ P5 的 Wi 以缓存复用后的真实工作计量：分别记录 `MotionPreview`
 不支持的项明确未测；未测不能登记为通过。集中竞争检验保留的 P4 串行成本，不要求
 首版生成组件或 SCC 图。
 
-规模矩阵继承[产品性能合同][core-runtime-performance-baseline]：一万道路机动车
+规模矩阵继承[产品性能合同][performance-baseline]：一万道路机动车
 16 ms 固定步长、Runtime p95 2 ms/tick；十万规模 33 ms、Runtime p95 16 ms/tick。
 标称个体数、Active 数和呈现数分开；CN-URBAN 衰减轨迹与稳定 Active 对照分列，
 不把 CN-URBAN 改称 LF-SYNTH W1。P4 保持串行不降低预算，也不预先保证预算通过。
@@ -387,15 +387,15 @@ P4 的进一步并行不属于首版完成条件。若另立设计，应重新�
 最小 DAG 跨度。构图若不能抵消成本，继续使用首版规范串行 P4；不为后续实验保留
 两套生产资源正本、兼容开关或预先安装未使用的组件目录。
 
-[github-com-illusion-tech-laneflow-issues-220]: https://github.com/illusion-tech/laneflow/issues/220
-[0030-single-world-parallel-execution]: ../adr/0030-single-world-parallel-execution.md
-[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
+[issue-220]: https://github.com/illusion-tech/laneflow/issues/220
+[adr-0030]: ../adr/0030-single-world-parallel-execution.md
+[execution-config]: traffic-runtime-execution-config.md
 [traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
-[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[waiting-zone]: waiting-zone-conflict-right-of-way.md
 [traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md
-[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[right-of-way]: traffic-runtime-right-of-way-policy.md
 [vehicle-following]: vehicle-following.md
 [parking-system]: parking-system.md
-[traffic-runtime-columnar-execution]: traffic-runtime-columnar-execution.md
-[traffic-runtime-execution-config-3-私有所有权]: traffic-runtime-execution-config.md#3-私有所有权
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[columnar-execution]: traffic-runtime-columnar-execution.md
+[execution-config-ownership]: traffic-runtime-execution-config.md#3-私有所有权
+[performance-baseline]: core-runtime-performance-baseline.md

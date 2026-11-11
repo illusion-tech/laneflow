@@ -21,8 +21,8 @@
 本文是 #301 的实现级 G1 输入，并已按 #511 登记同修订换根事务入口（§4）。
 已提交一维几何以 `traffic-runtime-integer-geometry.md` / ADR 0028 为现行
 合同。#302 的跨修订直移、迁移增量日志与快照容器仍由
-[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover] 与
-[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] 合同与后续任务
+[`traffic-runtime-revision-cutover.md`][revision-cutover] 与
+[`traffic-runtime-snapshot.md`][runtime-snapshot] 合同与后续任务
 交付；#441 系统化性能账本、#303 Routing 与 #294 残留改名同理不在本文。
 
 > **实现状态**：当前生产入口以 `ParkingFacility` 完整替换 `ParkingArea`，允许显式泊位
@@ -64,9 +64,9 @@
 - 不把城市经济、出行需求或路线选择策略放进 Runtime。
 - 不做完整 Adapter 生产接线或 corridor 规模人口；最小 Bevy 只证明同一根上的
   tick + pose 能驱动代理位移。历史 `signalized_corridor` 最小路径由
-  [#472][github-com-illusion-tech-laneflow-issues-472] 交付；50–200 原子替换见
-  [#475][github-com-illusion-tech-laneflow-issues-475]。当前持续车流宿主是
-  `corridor_traffic`，契约见 [Bevy 设计 §13][bevy-reference-adapter-13-corridor_traffic-宿主生命周期]。
+  [#472][issue-472] 交付；50–200 原子替换见
+  [#475][issue-475]。当前持续车流宿主是
+  `corridor_traffic`，契约见 [Bevy 设计 §13][bevy-adapter-lifecycle]。
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
 - #301 当时未恢复独立 `despawn`，回流只由 #475 原子替换交付；#540 已显式修订该边界，
@@ -222,7 +222,7 @@ checked 预计算 → 暂存（逐路线对 target 修订重编译 +
 来源 / 信号重导出 / 占用索引 / 世界世代 / 观测状态序号重置，全部不可失败换绑）。当期
 `RouteHandle` / `VehicleHandle` 跨换根保持有效；任一失败旧世界原样继续。
 完整事务合同见
-[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover]。
+[`traffic-runtime-revision-cutover.md`][revision-cutover]。
 
 ### 4.1 安装与绑定
 
@@ -234,7 +234,7 @@ checked 预计算 → 暂存（逐路线对 target 修订重编译 +
   `NetworkRevisionId`、或裸 component。
 - `ExecutionConfig` 由宿主显式提供，不进入交通配置、快照或摘要；支持 worker 1–16（#705），
   不支持的值在完整交通准备后返回 `ExecutionInit`，不静默降级。恢复的执行错误位于
-  完整逻辑状态与派生索引重建之后，见[执行配置合同][traffic-runtime-execution-config]。
+  完整逻辑状态与派生索引重建之后，见[执行配置合同][execution-config]。
 - 失败原子：失败不留下可观察的半个 world / session。
 - 多世界：再次 `install`，只克隆根 `Arc`。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
@@ -273,7 +273,7 @@ checked 预计算 → 暂存（逐路线对 target 修订重编译 +
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。它表示当前提交时点的状态，不表示
   车辆从路线起点零速出发。生成和替换还要满足
-  [新生成的运动安全准入][traffic-runtime-vehicle-placement]：当前必须停车的约束
+  [新生成的运动安全准入][vehicle-placement]：当前必须停车的约束
   停得住、前方更低限速降得到、前后车按紧急制动接得住。车尾超出路线起点时，只有调用方
   绑定的合法开放入口才能省略范围外的那一段；已建模前驱上的车尾必须写进路线，运行时不代选。
   快照恢复和修订切换不套用这层运动检查，也不套用开放入口检查。重叠、非法路线/下标/进度、
@@ -284,7 +284,7 @@ checked 预计算 → 暂存（逐路线对 target 修订重编译 +
   两车会共同进入同一非空区间；该约束也返回 `Overlap`。跨边车尾和重复物理边 occurrence 都
   参与判断，非空区间端点相接不重叠。
   `spawn_vehicle`、`replace_completed_vehicle`、`leave_parking`、快照恢复与切换复核
-  使用相同区间语义。准入缓存与复杂度见 [vehicle-following.md §7.4][vehicle-following-74-道路准入候选索引]。
+  使用相同区间语义。准入缓存与复杂度见 [vehicle-following.md §7.4][vehicle-following-admission-index]。
 - #475 交付 `replace_completed_vehicle`；到达终点写成
   `Completed`，保留句柄、容量与路线引用，不进 pose、不占车道；replace 成功时再迁移
   路线引用。真正移除走 `despawn_vehicle`，但不把它反写成 #301 当时已有入口。
@@ -348,8 +348,8 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 
 不得把动态 occurrence 写回共享静态路网。`SharedIdentityIndex` 不进入 steady tick；只用于
 install 核对、`register_route` 重建，以及后继 #302 快照/修订切换（合同见
-[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover] 与
-[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot]）。禁止：
+[`traffic-runtime-revision-cutover.md`][revision-cutover] 与
+[`traffic-runtime-snapshot.md`][runtime-snapshot]）。禁止：
 
 - 先投影成 `LaneGraph` / 各 registry 再调用任何 `CoreWorld` 步进；
 - Runtime 依赖 `laneflow-core`；
@@ -405,8 +405,8 @@ CI 必须同时：
 演示。
 
 历史 `signalized_corridor` 薄路径、catalog 绑定与走廊 LFCA 由
-[#472][github-com-illusion-tech-laneflow-issues-472] 交付。50–200 原子替换见
-[#475][github-com-illusion-tech-laneflow-issues-475]。#301 只要求它们不再以
+[#472][issue-472] 交付。50–200 原子替换见
+[#475][issue-475]。#301 只要求它们不再以
 `CoreWorld` 为可运行入口。
 
 ### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
@@ -505,12 +505,12 @@ Core。
 内分提交，提交顺序须保证审查时能看出「先有 Runtime 再拆旧入口」，且默认分支终态
 满足 §7。
 
-[traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
-[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
-[github-com-illusion-tech-laneflow-issues-472]: https://github.com/illusion-tech/laneflow/issues/472
-[github-com-illusion-tech-laneflow-issues-475]: https://github.com/illusion-tech/laneflow/issues/475
-[bevy-reference-adapter-13-corridor_traffic-宿主生命周期]: bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
-[traffic-runtime-execution-config]: traffic-runtime-execution-config.md
-[traffic-runtime-vehicle-placement]: traffic-runtime-vehicle-placement.md
-[vehicle-following-74-道路准入候选索引]: vehicle-following.md#74-道路准入候选索引
+[revision-cutover]: traffic-runtime-revision-cutover.md
+[runtime-snapshot]: traffic-runtime-snapshot.md
+[issue-472]: https://github.com/illusion-tech/laneflow/issues/472
+[issue-475]: https://github.com/illusion-tech/laneflow/issues/475
+[bevy-adapter-lifecycle]: bevy-reference-adapter.md#13-corridor_traffic-宿主生命周期
+[execution-config]: traffic-runtime-execution-config.md
+[vehicle-placement]: traffic-runtime-vehicle-placement.md
+[vehicle-following-admission-index]: vehicle-following.md#74-道路准入候选索引
 [traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md

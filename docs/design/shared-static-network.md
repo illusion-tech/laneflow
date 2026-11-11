@@ -214,7 +214,7 @@ Traffic component 必须提供以下 Runtime 静态事实：
 - Traffic/Spatial 共用的 edge/frame ordinal contract。
 
 显示名、来源位置、规范身份 field-tag/value 原像、LFSM/LFSD 和 compiler provenance 不进入
-Traffic retained data。字段与关系的逐项归属由 [§13][link-13-runtime-关系闭包] 冻结。
+Traffic retained data。字段与关系的逐项归属由 [§13][shared-static-network-runtime] 冻结。
 
 ### 5.2 默认物理策略
 
@@ -277,7 +277,7 @@ LFCA、`NetworkRevisionId` 或存档兼容性，也不得改变精确执行结�
 `lane_pose() -> None`，不能伪造空的全覆盖 edge ranges。`LaneEdgeGeometry` 非空时才要求与
 Traffic LaneEdge 同基数、同 ordinal；frame 必须精确闭合。长度先把
 `lengthMillimetres` 换成米，再复用
-[§3.7.1 规范几何数值闭合][portable-canonical-artifact-371-规范几何数值闭合]
+[§3.7.1 规范几何数值闭合][portable-artifact-geometry]
 的冻结谓词：令 `declared = f64(lengthMillimetres) / 1000`、
 `arc = f64(arcLengthMeters)`，必须
 `abs(declared - arc) <= max(0.01 m, 1.0e-6 * max(declared, arc))`。
@@ -356,7 +356,7 @@ component 内没有锁、原子字段或 interior mutability；运行时可变 a
 和执行计划全部 per world。
 
 共享路网修订认证（#955 G1，见
-[`traffic-runtime-state-integrity.md`][traffic-runtime-state-integrity] §4.2）是宿主在
+[`traffic-runtime-state-integrity.md`][state-integrity] §4.2）是宿主在
 安装、恢复、Spatial 绑定与切换之前及审计时调用的只读入口：它调用本 crate 现有的
 `build_shared_network_revision` 重建候选修订并与修订逐表比对，不改变根的所有权、句柄与
 accessor 形状，不给根引入可变状态，本 crate 不解析 asset key、不做文件 I/O。输入、步骤、
@@ -411,7 +411,7 @@ CommittedRoadNetwork {
   提交后 target LFCA 原子成为新 diff base，失败则继续保留旧 base。缺失或 origin 错配时
   不得发射/提交 LFSD；
 - committed `RoadEditingState` 的形状、编辑来源变体与 `EditableDiffBase` 的对应关系判据、
-  重编译责任与快照绑定由 [`committed-road-editing-state.md`][committed-road-editing-state]
+  重编译责任与快照绑定由 [`committed-road-editing-state.md`][committed-editing]
   冻结；
 - 加载 editable 来源时重新编译和构建；加载 published reference 时重新认证并读取被引用的
   LFCA 再构建。editable 加载先以新编译 LFCA 建立根与 diff base，再按相同 revision/contract
@@ -717,7 +717,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 - 固定时制相位解析必须每 tick 扫描/累加 `duration_ms`，或每 world 重建累计边界；
 - 必须把路线边序列或出现记录写回共享静态路网才能完成 tick 或 #302 快照。
 
-[link-13-runtime-关系闭包]: #13-runtime-关系闭包
-[portable-canonical-artifact-371-规范几何数值闭合]: portable-canonical-artifact.md#371-规范几何数值闭合
-[traffic-runtime-state-integrity]: traffic-runtime-state-integrity.md
-[committed-road-editing-state]: committed-road-editing-state.md
+[shared-static-network-runtime]: #13-runtime-关系闭包
+[portable-artifact-geometry]: portable-canonical-artifact.md#371-规范几何数值闭合
+[state-integrity]: traffic-runtime-state-integrity.md
+[committed-editing]: committed-road-editing-state.md

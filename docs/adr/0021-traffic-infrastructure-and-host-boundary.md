@@ -82,7 +82,7 @@ LaneFlow 的公开组件定位为：
 当前唯一可运行特化是道路机动车。交通参与单元、更多交通执行域与城市级扩展是
 长期抽象和研究方向，各自需要设计与实现证据，不构成交付时间承诺。一万、十万和
 一百万的角色、硬件与证据边界由
-[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline] 裁决。
+[`core-runtime-performance-baseline.md`][performance-baseline] 裁决。
 
 公开文档以组件职责、已交付能力和可复核技术场景为依据，不指定第一消费者或具体
 产品计划。README 提供简洁入口，architecture、roadmap、术语表和 Agent 工作流
@@ -122,7 +122,7 @@ LaneFlow 的公开组件定位为：
 #303 G1 已接受设计选择宿主自有 Routing 实现 + LaneFlow 纯契约边界：不新增 reference
 `laneflow-routing` 算法 crate 或 LaneFlow wire；Runtime 只导出观测并验证/注册候选，
 具体合同见
-[`traffic-observation-and-routing-integration.md`][traffic-observation-and-routing-integration]。
+[`traffic-observation-and-routing-integration.md`][routing-integration]。
 交通运行时的参与单元热路径仍不得执行全图寻路。
 
 ### 3. 地区交通规则通过数据、政策和工作负载（Workload）表达
@@ -231,7 +231,7 @@ digest，也不证明发布真实性或迁移权限。Runtime 当前修订来自
 在线静默提交停顿预算必须覆盖日志排空、最终校验、原子提交与主线程停顿；准备、
 追赶对活动 tick 的干扰和旧/新修订、候选、日志的共存峰值内存也须分别计量。
 具体限额和失败判据以
-[`traffic-runtime-revision-cutover.md`][traffic-runtime-revision-cutover]
+[`traffic-runtime-revision-cutover.md`][revision-cutover]
 为准，不能用固定步进数量代替墙钟停顿证据。
 
 短期施工、事故封闭、动态车道用途或法规时窗若不改变静态身份/拓扑，应由显式
@@ -251,7 +251,7 @@ digest，也不证明发布真实性或迁移权限。Runtime 当前修订来自
 运行时快照（Runtime Snapshot）是独立版本化制品。LFCA origin、已提交来源、
 Runtime / 静态契约版本、世界配置和策略选择、快照局部世界身份、tick/time、
 命令/事件游标及每世界可变状态的绑定集，以
-[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] 为准。
+[`traffic-runtime-snapshot.md`][runtime-snapshot] 为准。
 快照不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定。
 
 同修订恢复检查路网修订与静态 / Runtime 契约，并从共享路网修订的冷身份索引重建稳定
@@ -362,7 +362,7 @@ Runtime 不为方便存档而新增隐藏随机数。
 未接受的数值方案都不是既定生产架构。并行、保真度和地区工作负载按各自 G1 与
 验证证据推进，公开定位不替代这些决策。
 
-[core-runtime-performance-baseline]: ../design/core-runtime-performance-baseline.md
-[traffic-observation-and-routing-integration]: ../design/traffic-observation-and-routing-integration.md
-[traffic-runtime-revision-cutover]: ../design/traffic-runtime-revision-cutover.md
-[traffic-runtime-snapshot]: ../design/traffic-runtime-snapshot.md
+[performance-baseline]: ../design/core-runtime-performance-baseline.md
+[routing-integration]: ../design/traffic-observation-and-routing-integration.md
+[revision-cutover]: ../design/traffic-runtime-revision-cutover.md
+[runtime-snapshot]: ../design/traffic-runtime-snapshot.md

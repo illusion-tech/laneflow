@@ -1,9 +1,9 @@
 # 统一五轴汇总 Gate 执行器
 
-交付 [#1268][github-com-illusion-tech-laneflow-issues-1268]：以 `LF-SYNTH-v2`
+交付 [#1268][issue-1268]：以 `LF-SYNTH-v2`
 与中国特色城市负载各轴（behavior / determinism / performance / snapshot / routing）
 既有正式记录为**声明式输入**，产出统一汇总回执——逐格携带来源提交、被测二进制、
-输入身份、覆盖边界与例外状态，供 [#305][github-com-illusion-tech-laneflow-issues-305]
+输入身份、覆盖边界与例外状态，供 [#305][issue-305]
 最终验收消费。
 
 边界：不运行正式汇总、不替代各轴分立 harness、不重跑正式测量、不批准例外；
@@ -142,18 +142,18 @@ cargo +1.99.1 clippy --locked -p laneflow-gate-summary --all-targets -- -D warni
 
 ## 关联
 
-[#1268][github-com-illusion-tech-laneflow-issues-1268]、
-[#539][github-com-illusion-tech-laneflow-issues-539]、
-[#305][github-com-illusion-tech-laneflow-issues-305]、
-[#1279][github-com-illusion-tech-laneflow-issues-1279]、
-[#1271][github-com-illusion-tech-laneflow-issues-1271]、
-[#1266 回执][github-com-illusion-tech-laneflow-issues-1266-issuecomment-6651487168]、
+[#1268][issue-1268]、
+[#539][issue-539]、
+[#305][issue-305]、
+[#1279][issue-1279]、
+[#1271][issue-1271]、
+[#1266 回执][issue-1266-receipt]、
 ADR 0033（摘要角色；本工具不新增摘要）、
 `docs/governance/documentation-policy.md` §3（研究结论与过程数据边界）。
 
-[github-com-illusion-tech-laneflow-issues-1268]: https://github.com/illusion-tech/laneflow/issues/1268
-[github-com-illusion-tech-laneflow-issues-305]: https://github.com/illusion-tech/laneflow/issues/305
-[github-com-illusion-tech-laneflow-issues-539]: https://github.com/illusion-tech/laneflow/issues/539
-[github-com-illusion-tech-laneflow-issues-1279]: https://github.com/illusion-tech/laneflow/issues/1279
-[github-com-illusion-tech-laneflow-issues-1271]: https://github.com/illusion-tech/laneflow/issues/1271
-[github-com-illusion-tech-laneflow-issues-1266-issuecomment-6651487168]: https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168
+[issue-1268]: https://github.com/illusion-tech/laneflow/issues/1268
+[issue-305]: https://github.com/illusion-tech/laneflow/issues/305
+[issue-539]: https://github.com/illusion-tech/laneflow/issues/539
+[issue-1279]: https://github.com/illusion-tech/laneflow/issues/1279
+[issue-1271]: https://github.com/illusion-tech/laneflow/issues/1271
+[issue-1266-receipt]: https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168

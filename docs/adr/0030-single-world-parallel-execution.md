@@ -4,13 +4,13 @@
 **日期**: 2026-09-16<br>
 **最后更新**: 2026-09-17；2026-10-07（#814）修订 N ≥ 2 时由 N 个池线程计算<br>
 **适用范围**: `TrafficWorld` 首版独立计算并行、执行配置、快照与修订切换边界<br>
-**设计入口**: [#220][github-com-illusion-tech-laneflow-issues-220]<br>
-**关联设计**: [并行执行][traffic-runtime-parallel-execution]、
-[执行配置与资源][traffic-runtime-execution-config]、
+**设计入口**: [#220][issue-220]<br>
+**关联设计**: [并行执行][parallel-execution]、
+[执行配置与资源][execution-config]、
 [串行阶段协议][traffic-runtime-phase-protocol]
 
-本文具体化 [ADR 0003][0003-runtime-tick-and-determinism] 的同环境确定性合同与
-[ADR 0021][0021-traffic-infrastructure-and-host-boundary] 的单世界并行边界。首版
+本文具体化 [ADR 0003][adr-0003] 的同环境确定性合同与
+[ADR 0021][adr-0021] 的单世界并行边界。首版
 并行化独立计算，P4 联合资源裁决保持规范串行。当前配置 API 已拆分、快照采用
 LFRS 7，生产支持 worker 1–16（#705 开放 P2 预览，#706 扩展至 P3 已冻结只读输入上的
 候选字段求值与 P5 逐车最终运动的真实分发；协调器保序规范组装，frontier 归约、
@@ -58,7 +58,7 @@ restore 显式接收。非零 worker 数是参与计算的线程数：1 使用�
 资源，目标计划在换根前准备并同界晋升，失败不发布半个世界。
 
 worker/分块不进入共享静态路网、快照、交通身份和摘要，延续
-[ADR 0025][0025-checked-canonical-network-and-shared-static-network] 的分层。
+[ADR 0025][adr-0025] 的分层。
 首版计划保存修订绑定、独立任务范围与缓冲需求，不提前维护后续资源组件布局。
 
 ### 4. 首错、join 和提交保持精确
@@ -98,7 +98,7 @@ P4 串行限制潜在加速，但减少首版每拍图准备、跨组件资源�
 小工作集和可选准备失败的融合求值共享同一领域原语，不保留两套交通求解器。
 私有执行资源采用每世界独占的 Rayon `rayon-core` 线程池，作用域借用归还与 OS
 线程退出分别结算。LaneFlow 自有计划、缓冲和登记表采用 checked reserve；后端
-内部调度分配遵循进程级 OOM 语义，边界见[执行配置与资源 §3][traffic-runtime-execution-config-3-私有所有权]。
+内部调度分配遵循进程级 OOM 语义，边界见[执行配置与资源 §3][execution-config-ownership]。
 任务粒度仍按真实独立计算与整步测量选择。
 
 ## 未采用的方向
@@ -120,11 +120,11 @@ P4 串行限制潜在加速，但减少首版每拍图准备、跨组件资源�
 继续适用。G1 接受不等于实现完成，部分阶段或配置拆分通过也不等于首版整体通过。
 测量与进度留在 GitHub，不把单次探针写成长期能力事实。
 
-[github-com-illusion-tech-laneflow-issues-220]: https://github.com/illusion-tech/laneflow/issues/220
-[traffic-runtime-parallel-execution]: ../design/traffic-runtime-parallel-execution.md
-[traffic-runtime-execution-config]: ../design/traffic-runtime-execution-config.md
+[issue-220]: https://github.com/illusion-tech/laneflow/issues/220
+[parallel-execution]: ../design/traffic-runtime-parallel-execution.md
+[execution-config]: ../design/traffic-runtime-execution-config.md
 [traffic-runtime-phase-protocol]: ../design/traffic-runtime-phase-protocol.md
-[0003-runtime-tick-and-determinism]: 0003-runtime-tick-and-determinism.md
-[0021-traffic-infrastructure-and-host-boundary]: 0021-traffic-infrastructure-and-host-boundary.md
-[0025-checked-canonical-network-and-shared-static-network]: 0025-checked-canonical-network-and-shared-static-network.md
-[traffic-runtime-execution-config-3-私有所有权]: ../design/traffic-runtime-execution-config.md#3-私有所有权
+[adr-0003]: 0003-runtime-tick-and-determinism.md
+[adr-0021]: 0021-traffic-infrastructure-and-host-boundary.md
+[adr-0025]: 0025-checked-canonical-network-and-shared-static-network.md
+[execution-config-ownership]: ../design/traffic-runtime-execution-config.md#3-私有所有权

@@ -104,10 +104,10 @@ Refs: #12
 `BREAKING CHANGE:` 留在这段之前。人类合作者的 `Co-authored-by` 仍然允许，但必须放在 `Refs:` /
 `Closes:` 之前。`Model` 填写提交时实际模型对应的已登记规范 ID，不要照抄工具自动生成的值；
 别名和未知 ID 会被拒绝，登记与离线目录更新见
-[`commit-convention.md` 第 6.1 节][commit-convention-61-模型目录与登记]。
+[`commit-convention.md` 第 6.1 节][commit-convention-models]。
 `Harness` 采用已登记的 `<发布者>/<产品>/<入口形态>`，例如 `openai/codex/desktop`；
 CLI/TUI、Web、Desktop、IDE 扩展与完整 IDE 分别登记，`Codex` 等模糊名称不能通过。
-入口判定与登记流程见[第 6.2 节][commit-convention-62-执行框架目录与入口登记]。
+入口判定与登记流程见[第 6.2 节][commit-convention-harness]。
 
 使用这些工具时关闭自动署名，再按上面的 trailer 手写：
 
@@ -202,5 +202,5 @@ LaneFlow 公开仓库采用 Apache-2.0-only，完整条款见根目录 `LICENSE`
 
 许可证允许商业使用不代表自动满足具体分发物的全部义务。发布者仍须复核第三方许可证、attribution、修改说明、商标和目标市场要求。依赖与发布检查见 `docs/governance/dependency-security.md`。
 
-[commit-convention-61-模型目录与登记]: docs/reference/commit-convention.md#61-模型目录与登记
-[commit-convention-62-执行框架目录与入口登记]: docs/reference/commit-convention.md#62-执行框架目录与入口登记
+[commit-convention-models]: docs/reference/commit-convention.md#61-模型目录与登记
+[commit-convention-harness]: docs/reference/commit-convention.md#62-执行框架目录与入口登记

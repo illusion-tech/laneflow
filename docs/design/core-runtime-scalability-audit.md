@@ -10,23 +10,23 @@
 
 审计正文、候选方案、原型结果与可扩展性约束 C1–C13 只存在于 git 历史，不再作为实现
 输入。查阅当时全文使用提交
-[`caf1c90f581a7731b795a32c594f4977f51e71b2`][github-com-illusion-tech-laneflow-blob-caf1c90f581a7731b795a32c594f4977f51e71b2-docs-design-core-runtime-scalability-audit-md]。
+[`caf1c90f581a7731b795a32c594f4977f51e71b2`][scalability-audit]。
 
 仍有效的结论：
 
 - 城市级单世界交通执行是 ADR 0021 保留的规模演进方向；多世界吞吐不能替代单个大型
   世界的扩展证据。生产分区与归约须由独立研究、证据与 G1/ADR 支持。
 - 历史阈值与单机数字不能替代
-  [`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
+  [`core-runtime-performance-baseline.md`][performance-baseline]
   要求的集成认证。
 - 原约束中仍适用于现行路径的部分已由对应长期文档承接：tick、确定性与失败原子性见
-  [`../adr/0003-runtime-tick-and-determinism.md`][0003-runtime-tick-and-determinism]；
+  [`../adr/0003-runtime-tick-and-determinism.md`][adr-0003]；
   句柄不透明、无公开排序见
-  [`../adr/0005-core-identity-and-handle-model.md`][0005-core-identity-and-handle-model]
+  [`../adr/0005-core-identity-and-handle-model.md`][adr-0005]
   与 `core-id-handles.md`；静态执行约束与每世界执行计划分层见 ADR 0020/0021；路网修订、
   快照与切换见 ADR 0024/0025 与 `traffic-runtime-shared-consumption.md`。
 
-[github-com-illusion-tech-laneflow-blob-caf1c90f581a7731b795a32c594f4977f51e71b2-docs-design-core-runtime-scalability-audit-md]: https://github.com/illusion-tech/laneflow/blob/caf1c90f581a7731b795a32c594f4977f51e71b2/docs/design/core-runtime-scalability-audit.md
-[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
-[0003-runtime-tick-and-determinism]: ../adr/0003-runtime-tick-and-determinism.md
-[0005-core-identity-and-handle-model]: ../adr/0005-core-identity-and-handle-model.md
+[scalability-audit]: https://github.com/illusion-tech/laneflow/blob/caf1c90f581a7731b795a32c594f4977f51e71b2/docs/design/core-runtime-scalability-audit.md
+[performance-baseline]: core-runtime-performance-baseline.md
+[adr-0003]: ../adr/0003-runtime-tick-and-determinism.md
+[adr-0005]: ../adr/0005-core-identity-and-handle-model.md
