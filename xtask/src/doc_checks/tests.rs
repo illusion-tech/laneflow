@@ -670,6 +670,22 @@ fn numeric_references_follow_html_replacements_and_duplicate_attributes_keep_the
 }
 
 #[test]
+fn semicolonless_numeric_references_and_template_contents_follow_html() {
+    let repo = TestRepo::new("template-ref");
+    repo.write(
+        "a.md",
+        "<a id=\"&#65\"></a>\n<template>\n<a id=\"hidden\"></a>\n</template>\n<a id=\"shown\"></a>\n\n[letter](#A)\n[no](#hidden)\n[yes](#shown)\n",
+    );
+    let targets: Vec<_> = repo
+        .check()
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(targets, vec!["#hidden".to_string()]);
+}
+
+#[test]
 fn crate_and_tool_child_readmes_skip_excluded_directory_names() {
     let repo = TestRepo::new("child-skip");
     repo.write("crates/demo/README.md", "# Demo\n");
