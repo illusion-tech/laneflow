@@ -69,7 +69,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 | 查询字符串、非法百分号编码、反斜线、盘符、其他协议            | 可见 `skip`，不算锚点已通过                                           |
 | `..` 越出仓库，或路径组件是符号链接                           | `missing-path`                                                        |
 
-百分号编码只解码一次。`%20` 是空格，`+` 不是空格，`%2520` 不会再解成空格。`{#id}` 不作为自定义锚点扩展。不解析任意 HTML 标题，也不解析 HTML 属性里的路径；`<a href="missing.md">` 因此不会被当成 Markdown 链接。
+百分号编码只解码一次。`%20` 是空格，`+` 不是空格，`%2520` 不会再解成空格。以 `//` 开头的协议相对地址和 `http` / `https` 一样不访问，计入 `http`；单个 `/` 仍从仓库根解析。`{#id}` 不作为自定义锚点扩展。不解析任意 HTML 标题，也不解析 HTML 属性里的路径；`<a href="missing.md">` 因此不会被当成 Markdown 链接。
 
 行内代码里的路径默认不当链接。只有第 5 节把 `accept_code_span` 设为 true 的边，才接受整段代码恰好是该路径。代码围栏、缩进代码块和 HTML 注释里的假链接不检查。
 
@@ -108,7 +108,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口。
+[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 

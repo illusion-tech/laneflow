@@ -586,6 +586,102 @@ reason = "必须是导航链接"
     );
 }
 
+#[test]
+fn directory_form_references_do_not_satisfy_file_edges() {
+    let repo = TestRepo::new("dir-span");
+    repo.config(
+        r#"
+[[required]]
+source = "AGENTS.md"
+target = ".agents/README.md"
+accept_code_span = true
+reason = "必须是文件路径"
+"#,
+    );
+    repo.write(".agents/README.md", "# Agents\n");
+    repo.write("AGENTS.md", "`.agents/README.md/`\n");
+    assert!(
+        texts(&repo.check())
+            .iter()
+            .any(|line| line.contains("missing-required-entry")),
+        "{}",
+        texts(&repo.check()).join("\n")
+    );
+    repo.write("AGENTS.md", "[agents](.agents/README.md/)\n");
+    assert!(
+        texts(&repo.check())
+            .iter()
+            .any(|line| line.contains("missing-required-entry"))
+    );
+    repo.write("AGENTS.md", "`.agents/README.md`\n");
+    assert!(
+        texts(&repo.check()).is_empty(),
+        "{}",
+        texts(&repo.check()).join("\n")
+    );
+}
+
+#[test]
+fn protocol_relative_urls_stay_external_and_repo_root_paths_stay_local() {
+    let repo = TestRepo::new("protocol-relative");
+    repo.write("docs/README.md", "# Docs\n");
+    repo.write(
+        "a.md",
+        "[ext](//example.com/docs)\n[root](/docs/README.md)\n",
+    );
+    let report = repo.check();
+    assert!(texts(&report).is_empty(), "{}", texts(&report).join("\n"));
+    assert_eq!(report.skips.get(&SkipKind::Http).copied(), Some(1));
+}
+
+#[test]
+fn quoted_greater_than_does_not_hide_the_anchor_id() {
+    let repo = TestRepo::new("gt-attr");
+    repo.write(
+        "a.md",
+        "<a title=\"1 > 0\" id=\"section\"></a>\n\n[ok](#section)\n",
+    );
+    assert!(
+        texts(&repo.check()).is_empty(),
+        "{}",
+        texts(&repo.check()).join("\n")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_existing_source_root_is_an_execution_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = TestRepo::new("unreadable-root");
+    let crates = repo.path.join("crates");
+    fs::create_dir(&crates).expect("crates");
+    let _restore = RestoreMode(crates.clone());
+    let blocked = fs::Permissions::from_mode(0o0);
+    fs::set_permissions(&crates, blocked).expect("chmod");
+    let readable = fs::read_dir(&crates).is_ok();
+    let result = collect_sources(&repo.path, None);
+    if readable {
+        return;
+    }
+    let error = result.expect_err("unreadable crates");
+    assert!(error.contains("无法读取目录"), "{error}");
+}
+
+#[cfg(unix)]
+struct RestoreMode(PathBuf);
+
+#[cfg(unix)]
+impl Drop for RestoreMode {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&self.0)
+            .map(|metadata| metadata.permissions())
+            .unwrap_or_else(|_| fs::Permissions::from_mode(0o755));
+        permissions.set_mode(0o755);
+        let _ = fs::set_permissions(&self.0, permissions);
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn default_sources_do_not_follow_symlinked_roots() {

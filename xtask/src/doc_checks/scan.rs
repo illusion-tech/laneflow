@@ -171,14 +171,11 @@ fn add_child_readmes(root: &Path, dir: &Path, files: &mut BTreeSet<String>) -> R
     let Some(dir) = real_directory(root, dir) else {
         return Ok(());
     };
-    let Ok(entries) = read_sorted(&dir) else {
-        return Ok(());
-    };
-    for entry in entries {
+    for entry in read_sorted(&dir)? {
         let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("无法读取路径 `{}`: {error}", path.display()))?;
         if file_type.is_symlink() || !file_type.is_dir() {
             continue;
         }
@@ -191,14 +188,11 @@ fn add_top_level_md(root: &Path, dir: &Path, files: &mut BTreeSet<String>) -> Re
     let Some(dir) = real_directory(root, dir) else {
         return Ok(());
     };
-    let Ok(entries) = read_sorted(&dir) else {
-        return Ok(());
-    };
-    for entry in entries {
+    for entry in read_sorted(&dir)? {
         let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("无法读取路径 `{}`: {error}", path.display()))?;
         if file_type.is_symlink() || !file_type.is_file() || !is_markdown(&path) {
             continue;
         }
