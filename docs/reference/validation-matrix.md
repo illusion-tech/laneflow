@@ -218,7 +218,7 @@ cargo +1.99.1 run --locked -p xtask -- check-docs [<path...>]
 
 无参数时扫描 `docs/reference/documentation-checks.md` 列出的默认来源。传入路径只收窄或扩展来源扫描，不关闭关键索引入口检查。成功退出 0，规则或执行失败退出 1。没有修复模式。
 
-它检查 Markdown 链接和图片的本地路径是否存在、Markdown 目标上的 fragment 是否命中受支持的标题或 `<a id>` / `<a name>`，以及 `xtask/data/doc-checks.toml` 里的 source→target 边。完整规则、正反例和跳过条件只写在 [`documentation-checks.md`][documentation-checks]，这里不复制一遍。
+它检查 Markdown 链接和图片的本地路径是否存在、Markdown 目标上的 fragment 是否命中受支持的标题或 `<a id>` / `<a name>`，以及 `xtask/data/doc-checks.toml` 里的 source→target 边。围栏外的行内链接、行内图片和自动链接失败；页脚引用继续按路径和锚点检查。完整规则、正反例和跳过条件只写在 [`documentation-checks.md`][documentation-checks]，这里不复制一遍。
 
 范围、误报与边界：
 

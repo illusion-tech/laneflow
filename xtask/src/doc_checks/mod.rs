@@ -207,6 +207,7 @@ pub(crate) enum FindingKind {
     Path,
     Anchor,
     RequiredEntry,
+    Inline,
 }
 
 impl FindingKind {
@@ -215,6 +216,7 @@ impl FindingKind {
             Self::Path => "missing-path",
             Self::Anchor => "missing-anchor",
             Self::RequiredEntry => "missing-required-entry",
+            Self::Inline => "inline-form",
         }
     }
 }

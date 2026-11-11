@@ -108,7 +108,7 @@ fn reports_missing_path_and_missing_anchor() {
     let repo = TestRepo::new("missing");
     repo.write(
         "a.md",
-        "# Hello\n\n[gone](missing.md)\n\n[bad](b.md#nope)\n\n[ok](b.md#hello)\n\n[self](#hello)\n",
+        "# Hello\n\n[gone][gone]\n\n[bad][bad]\n\n[ok][ok]\n\n[self][self]\n\n[gone]: missing.md\n[bad]: b.md#nope\n[ok]: b.md#hello\n[self]: #hello\n",
     );
     repo.write("b.md", "# Hello\n");
     let report = repo.check();
@@ -129,7 +129,7 @@ fn accepts_same_file_and_cross_file_references() {
     let repo = TestRepo::new("refs");
     repo.write(
         "a.md",
-        "## 快速开始\n\n[self](#快速开始)\n\n[cross](b.md#第二节)\n",
+        "## 快速开始\n\n[self][self]\n\n[cross][cross]\n\n[self]: #快速开始\n[cross]: b.md#第二节\n",
     );
     repo.write("b.md", "## 第二节\n");
     let report = repo.check();
@@ -143,7 +143,7 @@ fn accepts_chinese_names_and_percent_encoding() {
     repo.write("a b.md", "# Spaced\n");
     repo.write(
         "index.md",
-        "[cn](%E4%B8%AD%E6%96%87.md#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)\n[sp](a%20b.md#spaced)\n",
+        "[cn][cn]\n[sp][sp]\n\n[cn]: %E4%B8%AD%E6%96%87.md#%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B\n[sp]: a%20b.md#spaced\n",
     );
     let report = repo.check();
     assert!(texts(&report).is_empty(), "{}", texts(&report).join("\n"));
@@ -154,11 +154,11 @@ fn duplicate_heading_suffixes_and_collisions_use_hand_written_fragments() {
     let repo = TestRepo::new("dup");
     repo.write(
         "suffix.md",
-        "# 重复\n\n# 重复\n\n# 重复-1\n\n[a](#重复)\n[b](#重复-1)\n[c](#重复-1-1)\n[d](#重复-2)\n",
+        "# 重复\n\n# 重复\n\n# 重复-1\n\n[a][a]\n[b][b]\n[c][c]\n[d][d]\n\n[a]: #重复\n[b]: #重复-1\n[c]: #重复-1-1\n[d]: #重复-2\n",
     );
     repo.write(
         "collision.md",
-        "# Dup-1\n\n# Dup\n\n# Dup\n\n[a](#dup-1)\n[b](#dup)\n[c](#dup-2)\n[d](#dup-3)\n",
+        "# Dup-1\n\n# Dup\n\n# Dup\n\n[a][a]\n[b][b]\n[c][c]\n[d][d]\n\n[a]: #dup-1\n[b]: #dup\n[c]: #dup-2\n[d]: #dup-3\n",
     );
     let report = repo.check();
     assert_eq!(
@@ -177,7 +177,7 @@ fn html_id_and_name_are_anchors_and_custom_heading_syntax_is_not() {
     let repo = TestRepo::new("html");
     repo.write(
         "a.md",
-        "<a id=\"templates\"></a>\n<a name='legacy'></a>\n<a id=\"gamma\" name=\"delta\"></a>\n<!-- <a id=\"hidden\"></a> -->\n<!--\n<a id=\"multiline\"></a>\n-->\n<a id=raw></a>\n<abbr id=\"nope\"></abbr>\n## Title {#custom}\n\n[t](#templates)\n[l](#legacy)\n[g](#gamma)\n[d](#delta)\n[h](#hidden)\n[m](#multiline)\n[r](#raw)\n[n](#nope)\n[c](#custom)\n[s](#title-custom)\n<a title=\"example id='quoted'\"></a>\n<a title=\"id='skip'\" id=\"kept\"></a>\n[q](#quoted)\n[k](#kept)\n",
+        "<a id=\"templates\"></a>\n<a name='legacy'></a>\n<a id=\"gamma\" name=\"delta\"></a>\n<!-- <a id=\"hidden\"></a> -->\n<!--\n<a id=\"multiline\"></a>\n-->\n<a id=raw></a>\n<abbr id=\"nope\"></abbr>\n## Title {#custom}\n\n[t][t]\n[l][l]\n[g][g]\n[d][d]\n[h][h]\n[m][m]\n[r][r]\n[n][n]\n[c][c]\n[s][s]\n<a title=\"example id='quoted'\"></a>\n<a title=\"id='skip'\" id=\"kept\"></a>\n[q][q]\n[k][k]\n\n[t]: #templates\n[l]: #legacy\n[g]: #gamma\n[d]: #delta\n[h]: #hidden\n[m]: #multiline\n[r]: #raw\n[n]: #nope\n[c]: #custom\n[s]: #title-custom\n[q]: #quoted\n[k]: #kept\n",
     );
     let report = repo.check();
     let targets: Vec<_> = report
@@ -217,7 +217,7 @@ fn ignores_fake_links_in_code_and_comments_and_keeps_real_ones() {
     let repo = TestRepo::new("fake");
     repo.write(
         "a.md",
-        "# Title\n\n```\n[nope](missing-from-fence.md)\n```\n\n    [nope](missing-from-indent.md)\n\nInline `[nope](missing-from-code.md)` stays.\n\n<!-- [nope](missing-from-comment.md) -->\n\n[shortcut]\n\n[real](missing-real.md)\n",
+        "# Title\n\n```\n[nope](missing-from-fence.md)\n```\n\n    [nope](missing-from-indent.md)\n\nInline `[nope](missing-from-code.md)` stays.\n\n<!-- [nope](missing-from-comment.md) -->\n\n[shortcut]\n\n[real][real]\n\n[real]: missing-real.md\n",
     );
     let report = repo.check();
     assert_eq!(
@@ -231,12 +231,12 @@ fn historical_and_http_urls_are_counted_not_fetched() {
     let repo = TestRepo::new("http");
     repo.write(
         "a.md",
-        "[ext](https://example.invalid/nope)\n[hist](https://github.com/illusion-tech/laneflow/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/README.md)\n[mail](mailto:dev@example.com)\n<user@example.com>\n[sym](std::vec::Vec)\n[local](http://127.0.0.1:9/should-not-be-fetched)\n",
+        "[ext][ext]\n[hist][hist]\n[mail][mail]\n[sym][sym]\n[local][local]\n\n[ext]: https://example.invalid/nope\n[hist]: https://github.com/illusion-tech/laneflow/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/README.md\n[mail]: mailto:dev@example.com\n[sym]: std::vec::Vec\n[local]: http://127.0.0.1:9/should-not-be-fetched\n",
     );
     let report = repo.check();
     assert!(texts(&report).is_empty(), "{}", texts(&report).join("\n"));
     assert_eq!(report.skips.get(&SkipKind::Http).copied(), Some(3));
-    assert_eq!(report.skips.get(&SkipKind::Mailto).copied(), Some(2));
+    assert_eq!(report.skips.get(&SkipKind::Mailto).copied(), Some(1));
     assert_eq!(report.skips.get(&SkipKind::Rustdoc).copied(), Some(1));
     assert!(report.skip_notes.is_empty());
 }
@@ -246,14 +246,14 @@ fn rejects_path_escape_symlinks_queries_and_non_markdown_fragments() {
     let repo = TestRepo::new("escape");
     repo.write(
         "nested/a.md",
-        "[out](../../outside.md)\n[up](/outside.md)\n",
+        "[out][out]\n[up][up]\n\n[out]: ../../outside.md\n[up]: /outside.md\n",
     );
     repo.write("real.md", "# Title\n");
     repo.write("file.rs", "fn main() {}\n");
     repo.write("dir/readme.txt", "x\n");
     repo.write(
         "links.md",
-        "[sym](link.md)\n[code](file.rs#L10)\n[dir](dir/#section)\n[query](real.md?plain=1)\n[bad](%ZZ.md)\n[slash](nested/a.md/)\n",
+        "[sym][sym]\n[code][code]\n[dir][dir]\n[query][query]\n[bad][bad]\n[slash][slash]\n\n[sym]: link.md\n[code]: file.rs#L10\n[dir]: dir/#section\n[query]: real.md?plain=1\n[bad]: %ZZ.md\n[slash]: nested/a.md/\n",
     );
     #[cfg(unix)]
     {
@@ -297,7 +297,7 @@ fn inline_formatting_setext_and_atx_closing_hashes() {
     let repo = TestRepo::new("format");
     repo.write(
         "a.md",
-        "## **Foo** `Bar` [baz](https://example.invalid)\n\n[ok](#foo-bar-baz)\n\nHello\n=====\n\n[setext](#hello)\n\n## Closing ##\n\n[close](#closing)\n",
+        "## **Foo** `Bar` [baz][baz]\n\n[ok][ok]\n\nHello\n=====\n\n[setext][setext]\n\n## Closing ##\n\n[close][close]\n\n[baz]: https://example.invalid\n[ok]: #foo-bar-baz\n[setext]: #hello\n[close]: #closing\n",
     );
     let report = repo.check();
     assert!(texts(&report).is_empty(), "{}", texts(&report).join("\n"));
@@ -332,7 +332,7 @@ reason = "必须指向锚点"
     repo.write(".agents/skills/demo/SKILL.md", "# Demo\n");
     repo.write(
         "docs/adr/README.md",
-        "[门禁](../governance/development-gates.md#62-required-checks)\n",
+        "[门禁][门禁]\n\n[门禁]: ../governance/development-gates.md#62-required-checks\n",
     );
     repo.write(
         "docs/governance/development-gates.md",
@@ -401,8 +401,11 @@ target = "missing-entry.md"
 reason = "入口缺失"
 "#,
     );
-    repo.write("z.md", "[z](no-z.md)\n");
-    repo.write("a.md", "[one](no-a.md)\n[two](no-a.md)\n");
+    repo.write("z.md", "[z][z]\n\n[z]: no-z.md\n");
+    repo.write(
+        "a.md",
+        "[one][one]\n[two][two]\n\n[one]: no-a.md\n[two]: no-a.md\n",
+    );
     let report = repo.check();
     assert_eq!(
         texts(&report),
@@ -418,8 +421,11 @@ reason = "入口缺失"
 #[test]
 fn column_counts_unicode_scalars_and_crlf_lines() {
     let repo = TestRepo::new("columns");
-    repo.write("utf8.md", "中文 [x](missing.md)\n");
-    repo.write("crlf.md", "# Title\r\n\r\n[bad](missing.md)\r\n");
+    repo.write("utf8.md", "中文 [x][x]\n\n[x]: missing.md\n");
+    repo.write(
+        "crlf.md",
+        "# Title\r\n\r\n[bad][bad]\r\n\r\n[bad]: missing.md\r\n",
+    );
     let report = repo.check();
     let utf8 = report
         .findings
@@ -559,7 +565,7 @@ reason = "必须是导航链接"
     repo.write("docs/README.md", "# Docs\n");
     repo.write(
         "README.md",
-        "![preview](docs/README.md)\n![gone](missing.png)\n",
+        "![preview][preview]\n![gone][gone]\n\n[preview]: docs/README.md\n[gone]: missing.png\n",
     );
     let image_only = texts(&repo.check()).join("\n");
     assert!(
@@ -570,7 +576,7 @@ reason = "必须是导航链接"
 
     repo.write(
         "README.md",
-        "[docs](docs/README.md)\n![gone](missing.png)\n",
+        "[docs][docs]\n![gone][gone]\n\n[docs]: docs/README.md\n[gone]: missing.png\n",
     );
     let linked = texts(&repo.check());
     assert_eq!(
@@ -593,7 +599,10 @@ reason = "不能藏在图片替代文字里"
     );
     repo.write(".agents/README.md", "# Agents\n");
     repo.write("preview.png", "png");
-    repo.write("AGENTS.md", "![see `.agents/README.md`](preview.png)\n");
+    repo.write(
+        "AGENTS.md",
+        "![see `.agents/README.md`][preview]\n\n[preview]: preview.png\n",
+    );
     assert!(
         texts(&repo.check())
             .join("\n")
@@ -630,7 +639,10 @@ reason = "必须是文件路径"
         "{}",
         texts(&repo.check()).join("\n")
     );
-    repo.write("AGENTS.md", "[agents](.agents/README.md/)\n");
+    repo.write(
+        "AGENTS.md",
+        "[agents][agents]\n\n[agents]: .agents/README.md/\n",
+    );
     assert!(
         texts(&repo.check())
             .iter()
@@ -650,7 +662,7 @@ fn protocol_relative_urls_stay_external_and_repo_root_paths_stay_local() {
     repo.write("docs/README.md", "# Docs\n");
     repo.write(
         "a.md",
-        "[ext](//example.com/docs)\n[root](/docs/README.md)\n",
+        "[ext][ext]\n[root][root]\n\n[ext]: //example.com/docs\n[root]: /docs/README.md\n",
     );
     let report = repo.check();
     assert!(texts(&report).is_empty(), "{}", texts(&report).join("\n"));
@@ -662,7 +674,7 @@ fn anchor_values_decode_entities_and_ignore_raw_text() {
     let repo = TestRepo::new("entities");
     repo.write(
         "a.md",
-        "<a id=\"a&amp;b\"></a>\n<script type=\"text/plain\">\n<a id=\"hidden\"></a>\n</script>\n\n[ok](#a%26b)\n[raw](#a&amp;b)\n[no](#hidden)\n",
+        "<a id=\"a&amp;b\"></a>\n<script type=\"text/plain\">\n<a id=\"hidden\"></a>\n</script>\n\n[ok][ok]\n[raw][raw]\n[no][no]\n\n[ok]: #a%26b\n[raw]: #a&amp;b\n[no]: #hidden\n",
     );
     let targets: Vec<_> = texts(&repo.check())
         .into_iter()
@@ -681,7 +693,7 @@ fn numeric_references_follow_html_replacements_and_duplicate_attributes_keep_the
     let repo = TestRepo::new("numeric-anchor");
     repo.write(
         "a.md",
-        "<a id=\"&#128;\"></a>\n<a id=\"real\" id=\"hidden\"></a>\n\n[euro](#%E2%82%AC)\n[control](#%C2%80)\n[first](#real)\n[second](#hidden)\n",
+        "<a id=\"&#128;\"></a>\n<a id=\"real\" id=\"hidden\"></a>\n\n[euro][euro]\n[control][control]\n[first][first]\n[second][second]\n\n[euro]: #%E2%82%AC\n[control]: #%C2%80\n[first]: #real\n[second]: #hidden\n",
     );
     let targets: Vec<_> = repo
         .check()
@@ -697,7 +709,7 @@ fn semicolonless_numeric_references_and_template_contents_follow_html() {
     let repo = TestRepo::new("template-ref");
     repo.write(
         "a.md",
-        "<a id=\"&#65\"></a>\n<template>\n<a id=\"hidden\"></a>\n</template>\n<a id=\"shown\"></a>\n\n[letter](#A)\n[no](#hidden)\n[yes](#shown)\n",
+        "<a id=\"&#65\"></a>\n<template>\n<a id=\"hidden\"></a>\n</template>\n<a id=\"shown\"></a>\n\n[letter][letter]\n[no][no]\n[yes][yes]\n\n[letter]: #A\n[no]: #hidden\n[yes]: #shown\n",
     );
     let targets: Vec<_> = repo
         .check()
@@ -734,20 +746,38 @@ fn crate_and_tool_child_readmes_skip_excluded_directory_names() {
 #[test]
 fn empty_link_destination_points_at_the_current_document() {
     let repo = TestRepo::new("empty-dest");
-    repo.write("a.md", "# Title\n\n[back]()\n");
-    repo.write("b.md", "![]()\n");
+    repo.write("a.md", "# Title\n\n[back][back]\n\n[back]: <>\n");
+    repo.write("b.md", "![][shot]\n\n[shot]: <>\n");
     let report = repo.check();
-    let targets: Vec<_> = report
-        .findings
-        .iter()
-        .map(|finding| finding.target.clone())
-        .collect();
-    assert_eq!(targets, vec![String::new()]);
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].path, "b.md");
+    assert_eq!(report.findings[0].kind, FindingKind::Path);
+    assert!(report.findings[0].reason.contains("链接目标为空"));
+}
+
+#[test]
+fn inline_links_images_and_autolinks_fail_outside_fences() {
+    let repo = TestRepo::new("inline-form");
+    repo.write(
+        "a.md",
+        "# Title\n\n[inline](missing.md)\n\n![pic](missing.png)\n\n<https://example.invalid/nope>\n\n<user@example.com>\n\n```\n[fence](not-a-link.md)\n![fence](not-a-picture.png)\n<https://example.invalid/fenced>\n<fence@example.com>\n```\n\n[ok][ok]\n\n[collapsed][]\n\n[shortcut]\n\n[ok]: #title\n[collapsed]: #title\n[shortcut]: #title\n",
+    );
+    let report = repo.check();
+    assert_eq!(
+        texts(&report),
+        vec![
+            "a.md:3:1: target=missing.md: inline-form: 围栏外不允许行内链接".to_string(),
+            "a.md:5:1: target=missing.png: inline-form: 围栏外不允许行内图片".to_string(),
+            "a.md:7:1: target=https://example.invalid/nope: inline-form: 围栏外不允许自动链接"
+                .to_string(),
+            "a.md:9:1: target=user@example.com: inline-form: 围栏外不允许自动链接".to_string(),
+        ]
+    );
     assert!(
         report
             .findings
             .iter()
-            .all(|finding| finding.path == "b.md" && finding.kind == FindingKind::Path)
+            .all(|finding| finding.kind == FindingKind::Inline)
     );
 }
 
@@ -756,7 +786,7 @@ fn other_raw_text_elements_and_plaintext_hide_anchors() {
     let repo = TestRepo::new("raw-more");
     repo.write(
         "a.md",
-        "[x](#x)\n[i](#i)\n[p](#p)\n[s](#shown)\n\n<xmp><a id=\"x\"></a></xmp>\n<iframe><a id=\"i\"></a></iframe>\n<a id=\"shown\"></a>\n<plaintext>\n<a id=\"p\"></a>\n",
+        "[x][x]\n[i][i]\n[p][p]\n[s][s]\n\n<xmp><a id=\"x\"></a></xmp>\n<iframe><a id=\"i\"></a></iframe>\n<a id=\"shown\"></a>\n<plaintext>\n<a id=\"p\"></a>\n\n[x]: #x\n[i]: #i\n[p]: #p\n[s]: #shown\n",
     );
     let targets: Vec<_> = repo
         .check()
@@ -794,7 +824,7 @@ fn self_closing_raw_text_tags_still_hide_following_anchors() {
     let repo = TestRepo::new("script-slash");
     repo.write(
         "a.md",
-        "<script/>\n<a id=\"hidden\"></a>\n</script>\n<a id=\"shown\"></a>\n\n[h](#hidden)\n[s](#shown)\n",
+        "<script/>\n<a id=\"hidden\"></a>\n</script>\n<a id=\"shown\"></a>\n\n[h][h]\n[s][s]\n\n[h]: #hidden\n[s]: #shown\n",
     );
     let targets: Vec<_> = repo
         .check()
@@ -811,7 +841,7 @@ fn path_spelling_is_case_sensitive() {
     repo.write("docs/README.md", "# Docs\n");
     repo.write(
         "a.md",
-        "[wrong-dir](Docs/README.md)\n[wrong-file](docs/readme.md)\n[ok](docs/README.md)\n",
+        "[wrong-dir][wrong-dir]\n[wrong-file][wrong-file]\n[ok][ok]\n\n[wrong-dir]: Docs/README.md\n[wrong-file]: docs/readme.md\n[ok]: docs/README.md\n",
     );
     let targets: Vec<_> = repo
         .check()
@@ -844,7 +874,10 @@ reason = "不带 fragment"
             .join("\n")
             .contains("missing-required-entry")
     );
-    repo.write("AGENTS.md", "[agents](.agents/README.md#missing)\n");
+    repo.write(
+        "AGENTS.md",
+        "[agents][agents]\n\n[agents]: .agents/README.md#missing\n",
+    );
     assert!(
         texts(&repo.check())
             .join("\n")
@@ -863,7 +896,7 @@ fn quoted_greater_than_does_not_hide_the_anchor_id() {
     let repo = TestRepo::new("gt-attr");
     repo.write(
         "a.md",
-        "<a title=\"1 > 0\" id=\"section\"></a>\n\n[ok](#section)\n",
+        "<a title=\"1 > 0\" id=\"section\"></a>\n\n[ok][ok]\n\n[ok]: #section\n",
     );
     assert!(
         texts(&repo.check()).is_empty(),
