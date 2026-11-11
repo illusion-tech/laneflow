@@ -187,14 +187,7 @@ fn html_id_and_name_are_anchors_and_custom_heading_syntax_is_not() {
         .collect();
     assert_eq!(
         targets,
-        vec![
-            "#hidden",
-            "#multiline",
-            "#raw",
-            "#nope",
-            "#custom",
-            "#quoted"
-        ]
+        vec!["#hidden", "#multiline", "#nope", "#custom", "#quoted"]
     );
     assert!(
         report

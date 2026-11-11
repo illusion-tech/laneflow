@@ -8,6 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+html5gum = { version = "0.9.1", default-features = false }
 proc-macro2 = "1.0"
 pulldown-cmark = { version = "0.13.6", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
