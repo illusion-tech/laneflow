@@ -587,6 +587,36 @@ reason = "必须是导航链接"
 }
 
 #[test]
+fn code_spans_inside_image_alt_do_not_satisfy_required_edges() {
+    let repo = TestRepo::new("image-alt");
+    repo.config(
+        r#"
+[[required]]
+source = "AGENTS.md"
+target = ".agents/README.md"
+accept_code_span = true
+reason = "不能藏在图片替代文字里"
+"#,
+    );
+    repo.write(".agents/README.md", "# Agents\n");
+    repo.write("preview.png", "png");
+    repo.write("AGENTS.md", "![see `.agents/README.md`](preview.png)\n");
+    assert!(
+        texts(&repo.check())
+            .join("\n")
+            .contains("missing-required-entry"),
+        "{}",
+        texts(&repo.check()).join("\n")
+    );
+    repo.write("AGENTS.md", "`.agents/README.md`\n");
+    assert!(
+        texts(&repo.check()).is_empty(),
+        "{}",
+        texts(&repo.check()).join("\n")
+    );
+}
+
+#[test]
 fn directory_form_references_do_not_satisfy_file_edges() {
     let repo = TestRepo::new("dir-span");
     repo.config(
