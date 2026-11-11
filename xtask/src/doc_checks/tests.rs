@@ -739,6 +739,64 @@ fn crate_and_tool_child_readmes_skip_excluded_directory_names() {
 }
 
 #[test]
+fn empty_link_destination_points_at_the_current_document() {
+    let repo = TestRepo::new("empty-dest");
+    repo.write("a.md", "# Title\n\n[back]()\n");
+    repo.write("b.md", "![]()\n");
+    let report = repo.check();
+    let targets: Vec<_> = report
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(targets, vec![String::new()]);
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|finding| finding.path == "b.md" && finding.kind == FindingKind::Path)
+    );
+}
+
+#[test]
+fn other_raw_text_elements_and_plaintext_hide_anchors() {
+    let repo = TestRepo::new("raw-more");
+    repo.write(
+        "a.md",
+        "[x](#x)\n[i](#i)\n[p](#p)\n[s](#shown)\n\n<xmp><a id=\"x\"></a></xmp>\n<iframe><a id=\"i\"></a></iframe>\n<a id=\"shown\"></a>\n<plaintext>\n<a id=\"p\"></a>\n",
+    );
+    let targets: Vec<_> = repo
+        .check()
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(
+        targets,
+        vec!["#x".to_string(), "#i".to_string(), "#p".to_string()]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_child_readme_is_an_execution_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = TestRepo::new("unreadable-readme");
+    let child = repo.path.join("crates/demo");
+    fs::create_dir_all(&child).expect("child");
+    fs::write(child.join("README.md"), "# Demo\n").expect("readme");
+    let _restore = RestoreMode(child.clone());
+    fs::set_permissions(&child, fs::Permissions::from_mode(0o0)).expect("chmod");
+    let readable = fs::read_dir(&child).is_ok();
+    let result = collect_sources(&repo.path, None);
+    if readable {
+        return;
+    }
+    let error = result.expect_err("unreadable child");
+    assert!(error.contains("无法读取"), "{error}");
+}
+
+#[test]
 fn self_closing_raw_text_tags_still_hide_following_anchors() {
     let repo = TestRepo::new("script-slash");
     repo.write(
