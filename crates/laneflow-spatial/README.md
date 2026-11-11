@@ -1,21 +1,12 @@
-# laneflow_spatial
+# laneflow-spatial
 
-LaneFlow 引擎无关的标准空间类型与共享静态路网位姿采样 crate。
+引擎无关的标准空间类型，以及共享修订上的位姿采样。交通裁决不在这里。
 
-当前入口：
+## 职责与边界
 
-- 拥有稳定字符串身份的 `CanonicalFrameId`；
-- 使用 `f32`、字段私有且只允许受检构造的 canonical 点、向量与单位方向；
-- `SpatialSession::bind(Arc<SharedNetworkRevision>)` 绑定共享路网修订；无 Spatial
-  component 时返回 `Ok(None)`；有 Spatial 但无 `lane_pose` 时返回
-  `Err(SpatialBindError::MissingLanePose)`；
-- pose 批次使用不透明 `PoseRecordId`、`PoseSource` 与 `PoseInput`，不导入 Runtime handle；
-- `PoseSource::Parking` 只接受显式 `ParkingSpaceOrdinal`；virtual Parked 没有 pose input，
-  无 pose 也不表示 vehicle 已移除；
-- `extract_pose_batch(token, inputs, &mut output)` 回显 `FramePlacementToken`，
-  全部记录成功后才写入 `output`，失败保持旧批次。
+`SpatialSession` 绑定 `Arc<SharedNetworkRevision>`，消费调用方给出的已提交位姿来源。它不导入运行时句柄，也不依赖 `laneflow-runtime`。无窗口交通可以完全不使用本 crate。
 
-依赖方向固定为：
+依赖方向是：
 
 ```text
 laneflow-spatial -> laneflow-static-network
@@ -23,5 +14,37 @@ laneflow-spatial -> laneflow-static-contract
 laneflow-spatial -X-> laneflow-runtime
 ```
 
-本 crate 不向公共 API 泄漏第三方数学类型或宿主引擎类型。契约见
-`docs/design/traffic-runtime-shared-consumption.md`。
+公共 API 不泄漏第三方数学类型或宿主引擎类型。
+
+## 最小使用入口
+
+无窗口示例用 `SpatialBuildOption::Omit` 构建修订，因此没有 Spatial component，也不创建 session。见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+
+修订保留了 Spatial 时：
+
+1. `SpatialSession::bind(revision)`。
+2. 从 `TrafficWorld` 读取已提交位姿来源。
+3. `extract_pose_batch` 写入调用方自己的输出缓冲。全部记录成功才替换输出，失败保持旧批次。
+
+## 主要约束与限制
+
+- 修订没有 Spatial component 时，`bind` 返回 `Ok(None)`。有 Spatial 但缺少 lane pose 时，返回 `MissingLanePose`。
+- 几何使用有界的 canonical `f32`。交通进度和距离仍以整数毫米为准。
+- `PoseSource::Parking` 只接受显式车位序号。虚拟停泊没有位姿输入；没有位姿也不表示车辆已移除。
+- 提供给 Bevy 时，session 必须和世界指向同一根 `Arc`。
+
+## 示例与验证
+
+Bevy 示例在需要画面时绑定 Spatial。无窗口示例故意省略它，用来确认交通推进本身不依赖空间采样。
+
+```powershell
+cargo +1.99.1 test --locked -p laneflow-spatial
+cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+```
+
+## 深入阅读
+
+- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
+- [空间几何](../../docs/design/spatial-geometry.md)
+- [当前能力与限制 · Spatial](../../docs/reference/capabilities.md#spatial)
+- [Bevy 参考适配](../../crates/laneflow-bevy/README.md)

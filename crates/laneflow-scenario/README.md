@@ -1,34 +1,41 @@
 # laneflow-scenario
 
-`laneflow-scenario` 提供可选、引擎无关的 reference scenario catalog 线格式。
+可选的、引擎无关的参考场景 catalog。它不是交通运行时的加载器，人口政策也不进入 `step`。
 
-当前保留 v0.10 protected-turning signalized-corridor catalog 0.4 的 TOML wire
-类型，以及 caller-owned `50..=200` 人口/回流 policy。`validate` 闭合 catalog 0.4；
-`bind(catalog, &SharedNetworkRevision)` 用 Identity v1 把编制字符串派生为
-`StableId128`，再经已安装修订的 `SharedIdentityIndex` 得到类型化序号，并记下
-`NetworkRevisionId` 与 `WorldPolicySelection`。热路径不查字符串。`CorridorPopulationPrepare` /
-`CorridorPopulationController` 在 `TrafficWorld` 上做 Fisher–Yates、portal/lane
-抽样、blocked retry 与原子替换调度；不把政策写入 `step`。
+## 职责与边界
 
-测试用 `toml 1.1.4+spec-1.1.0`（crates.io，MIT OR Apache-2.0）解析检入 catalog。
-工作区路径依赖 `laneflow-compiler` / `laneflow-runtime` /
-`laneflow-static-contract` / `laneflow-static-network` 与本仓库同为 Apache-2.0。
+当前保留信号走廊 catalog 0.4 的 TOML 类型，以及调用方持有的 `50..=200` 辆车回流政策。`validate` 闭合 catalog。`bind(catalog, &SharedNetworkRevision)` 用 Identity v1 把编制字符串变成这条修订上的序号，并记下 `NetworkRevisionId` 与 `WorldPolicySelection`。
 
-默认 `cargo test` 覆盖 50/200 车短容量 soak，以及独立 world 上同一 per-tick 回流链的确定性对拍（不声称测了 Bevy catch-up 调度）。完整 10,000 次成功 `Replaced`：
+`CorridorPopulationPrepare` / `CorridorPopulationController` 在世界外面做抽样、阻塞重试和原子替换调度。宿主决定要不要使用它们。无窗口示例只使用 `bind`，然后自己 `register_route` 和 `spawn_vehicle`，不启动控制器。
+
+## 最小使用入口
+
+检入资产是 `examples/data/v0.2-signalized-corridor.catalog.toml` 与同名 LFCA。文件名里的 `v0.2` 是场景制品名，不是 catalog 版本，也不是 LFCA 版本。catalog 版本是 0.4。
+
+无窗口程序的完整顺序见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。持续车流再使用人口控制器，见下方设计文档。
+
+## 主要约束与限制
+
+- `policy_selection` 是 catalog 顶层必填项。`pinned` 只带策略稳定标识，`not_required` 不带其他字段。
+- 整网存在门、冲突区或参与者流时，`not_required` 在 `bind` 阶段被拒绝。走廊必须显式 Pinned。
+- 热路径不再查找编制字符串。槽位和路线按 portal 的 spawn slot 对齐，不按边长挑选。
+- 控制器校验修订与策略。拒绝时不修改待替换队列。它不证明 Bevy 的 catch-up 调度。
+- 测试用 `toml` 只解析检入 catalog，不进入交通运行时的生产依赖。
+
+## 示例与验证
+
+一辆车、一条路线的无窗口路径：
 
 ```powershell
-cargo +1.99.1 test --offline -p laneflow-scenario --test signalized_corridor_population soak_50_cars_10000_replacements -- --ignored --exact
+cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 ```
 
-`policy_selection` 是 catalog 顶层必填的闭合选择。`pinned` 仅携带规范 policy StableId
-文本，`not_required` 不带其他字段。绑定阶段拒绝未知身份以及带 Gate 的共享静态路网上
-`not_required`。生成器明确编制 `protected-entry`，工程法域 `engineering`、
-版本 `protected-entry-1`、依据 `repository:corridor/protected-entry-1`；
-示例声明只表示受保护信号组准入，不宣称覆盖现实道路法规全集。
-调用方把 bind 结果的 `policy_selection` 传入唯一世界安装入口。
+人口控制器的短容量测试随 `cargo test -p laneflow-scenario` 运行。完整一万次成功替换是忽略测试，命令见[人口与回流设计](../../docs/design/signalized-corridor-population.md)。
 
-初始计划和 controller 的持续消费均校验修订与策略；
-`apply_pending(network_revision, policy_selection, callback)` 必须接收替换目标世界的
-显式上下文，拒绝时不调用 callback、不修改 pending。宿主仍负责将 controller、
-世界局部句柄和 callback 绑定到同一个世界实例。完整启动顺序与契约见
-[人口与回流设计](../../docs/design/signalized-corridor-population.md)。
+## 深入阅读
+
+- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
+- [人口与回流设计](../../docs/design/signalized-corridor-population.md)
+- [`laneflow-runtime`](../../crates/laneflow-runtime/README.md)
+- [当前能力与限制](../../docs/reference/capabilities.md)

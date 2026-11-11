@@ -27,6 +27,7 @@ docs/
   README.md
   architecture.md
   roadmap.md
+  guides/
   adr/
   design/
   governance/
@@ -37,6 +38,7 @@ docs/
 
 - `docs/adr/`：记录高影响、难回退的架构决策，重点回答“为什么这样定”。
 - `docs/design/`：记录 Traffic Runtime、数据格式、Adapter、运行时规则等设计，重点回答“具体怎么做”。
+- `docs/guides/`：操作性接入教程。引用真实示例，不替代 design 与 ADR。
 - `docs/governance/`：记录 GitHub 工作流、开发阶段评审、AI Agent 开发规则和文档边界。
 - `docs/reference/`：记录术语、模板、校验矩阵和长期复用的辅助规范。
 - `.agents/`：记录跨 Agent 的执行工作流；工具专用入口只应薄包装这些工作流。
@@ -57,17 +59,18 @@ docs/
 ## 推荐阅读顺序
 
 1. [README.md](../README.md)
-2. [架构说明](architecture.md)
-3. [当前能力与限制](reference/capabilities.md)
-4. [路线图](roadmap.md)
-5. [ADR 0021](adr/0021-traffic-infrastructure-and-host-boundary.md)
-6. [AGENTS.md](../AGENTS.md)
-7. [Agent 工作流](../.agents/README.md)
-8. [文档边界政策](governance/documentation-policy.md)
-9. [GitHub 工作流](governance/github-workflow.md)
-10. [开发阶段评审](governance/development-gates.md)
-11. [Agent 开发指南](governance/agent-development-guide.md)
-12. [安全扫描](governance/security-scanning.md)
-13. [依赖安全](governance/dependency-security.md)
-14. [ADR 索引](adr/README.md)
-15. [设计索引](design/README.md)
+2. [从源码接入无窗口交通运行时](guides/source-integration.md)（程序：[`headless.rs`](../crates/laneflow-runtime/examples/headless.rs)）
+3. [架构说明](architecture.md)
+4. [当前能力与限制](reference/capabilities.md)
+5. [路线图](roadmap.md)
+6. [ADR 0021](adr/0021-traffic-infrastructure-and-host-boundary.md)
+7. [AGENTS.md](../AGENTS.md)
+8. [Agent 工作流](../.agents/README.md)
+9. [文档边界政策](governance/documentation-policy.md)
+10. [GitHub 工作流](governance/github-workflow.md)
+11. [开发阶段评审](governance/development-gates.md)
+12. [Agent 开发指南](governance/agent-development-guide.md)
+13. [安全扫描](governance/security-scanning.md)
+14. [依赖安全](governance/dependency-security.md)
+15. [ADR 索引](adr/README.md)
+16. [设计索引](design/README.md)

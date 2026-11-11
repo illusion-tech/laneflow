@@ -1,100 +1,54 @@
 # laneflow-runtime
 
-LaneFlow 交通运行时（Traffic Runtime）。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界
-可变状态；热路径借用共享静态路网静态 accessor，并读本世界已提交表。`WorldConfig` 只含
-四类容量和固定步长，安装/恢复还须显式传入 `ExecutionConfig::new(NonZeroU32::MIN)`。
-执行配置不进入快照、逻辑摘要或交通身份；支持 worker 1–16，完整交通准备后才
-拒绝不支持的执行请求。活动 facade 独占私有执行资源；候选只拥有 `WorldState`
-和目标计划，恢复/切换失败不发布半个世界。P2 运动/前视预览、P3 候选字段求值与 P5
-逐车最终运动在满足分发条件时按 worker 真实分发，协调器保序组装；frontier 归约、P4
-联合裁决、P5 资源转移与 P7 发布仍由协调器串行，边界见
-[`traffic-runtime-parallel-execution.md`](../../docs/design/traffic-runtime-parallel-execution.md)。执行器 panic 在 join 后使世界失效，宿主捕获 panic
-后只能销毁或重建，不能继续交通查询、命令或管理操作。
+LaneFlow 交通运行时。`TrafficWorld` 是当前唯一的可运行交通世界，现只实现道路机动车。
 
-私有实现分为 `kernel/`、`admin/`、`facade/`；格式读取集中于
-`admin/format_admission.rs`，公开 re-export 保持现有入口。开发边界与检查命令见
-[`traffic-runtime-module-boundary.md`](../../docs/design/traffic-runtime-module-boundary.md)。
+## 职责与边界
 
-安装的第六个必填参数为 `WorldPolicySelection`。宿主以 `Pinned(PolicyPin)` 指定策略
-稳定标识；仅当整个共享静态路网没有门、冲突区或参与者流时可用 `NotRequired`。不推断默认
-策略、不读取业务日期，也没有安装后 setter。`policy()` 借用所选共享规则；
-`policy_gap_profiles()` 保存本世界固定步长对应的 checked 间隙派生值。
+世界安装一整份 `Arc<SharedNetworkRevision>`，只分配这个世界自己的可变状态。热路径借用共享修订里的静态数据，并读取本世界已经提交的表。路线、车辆、信号遵守、等待区与冲突区裁决、停车和固定步进都在这里。出行需求、出发计划和路线选择策略不在 `step` 里产生。
 
-LFRS 7 / runtime state 5 保存策略选择、Conflict eligibility/reservation/Clearing 与 lag
-history，digest 8 纳入相同逻辑字段。downstream 以热路径物理区间并集保存，并由
-reservation 的 route/Gate/passages、车辆全长和边长在 capture/restore/cutover 精确重建；
-不为可合并的物理区间保存含糊的单一 route occurrence。切换描述符 2 保持字段形状；
-跨修订保留策略身份、法域和法规版本，并按稳定 passage locator 与 reservation 证明精确
-迁移 authority。新增或语义不连续的冷 cell 使用最终静默提交时间的 `CutoverFloor`，
-不生成虚构 clear。
-正式 fixed tick 已组合 Gate policy、Waiting entitlement、gap、Conflict reservation 与
-downstream claim，并以 single-writer 顺序提交 crossing、`Clearing` 和 tail-clear。跨修订
-Prepare 只全量迁移 Conflict 一次，在线 tick journal 记录 eligibility、reservation、claim
-与 lag history 增量，静默点只排空增量并最终化新增/不连续 cell 的 `CutoverFloor` 地址计划。
-普通 spawn/replace/leave/rebind 不能在已越过 Conflict Gate 的位置凭空创建 authority，
-这类调用以 `ConflictAuthorityRequired` 失败；restore/cutover 只接受可完整证明的既有
-authority。
+本 crate 的生产依赖不包括 Spatial、编译器、Serde、文件系统或引擎。位姿采样由宿主另接 `laneflow-spatial`。展示和实体生命周期由 Adapter 负责。
 
-固定步进先暂存运动与资源转移，再推导一次最终 traversal 并形成只读输出，最后原子
-提交。grant 准备后的可恢复错误统一撤销暂存授权，保留已提交状态；车尾清空与路线
-完成可以在同一 tick 提交。Waiting 本地预选不直接发布 `Granted`，组合拒绝通过
-`NoGrant(CombinedResource(reason))` 表达，尚未进入组合求值的 entry 为 `Deferred`。
-`latest_transition_events()` 返回统一 `TrafficTransitionEvent` 批次，覆盖 Gate crossing、
-Waiting leave/enter、reservation acquire/release、Conflict enter/clear 和尾部净空后的
-恰一次 maneuver completion；`TrafficTransitionAnchor::position()` 是实际触发的规范路线
-位置。同拍取得又释放资源仍保留两类事件，未越门的暂存 grant 不发布取得事件。
-跨修订成功切换清空 Waiting/Conflict 历史决策与统一事件批次，避免旧 ordinal 被
-误读为目标修订实体；同修订和失败切换保留批次。
+## 最小使用入口
 
-组合仲裁每 tick 构建一次实际 Waiting 依赖图，通过增量拓扑检查和阈值索引处理候选；
-全局只比较各 zone 已冻结顺序的就绪队首。紧凑 owner 槽位索引、zone 所有权摘要与
-downstream AVL 区间索引定位资源；提交和释放按 owner 范围处理并批量压缩。派生索引
-不进入持久化，restore/cutover 从领域状态重建并完整验证。
+从源码检出仓库后，直接运行无窗口示例：
 
-生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
-车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。
-`despawn_vehicle` 原子移除任意合法 live status 并释放 route/parking binding；人口政策仍
-不进入 `step`。
+```powershell
+cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+```
 
-停车由私有 `ParkingRuntimeState` 持有唯一动态 authority。caller 以 tagged
-`ParkingTarget::{ExplicitSpace, VirtualPool}` 精确选择资源，并经
-`reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /
-`rebind_parking_route` / `spawn_parked_vehicle` 驱动 lifecycle。virtual capacity 不展开为
-slot；virtual Parked 保留 live identity 但不进入 `active_order`、lane occupancy 或 pose。
-`ParkingSpaceOrdinal` 等静态序号由本 crate 再导出，Adapter 不必直接依赖静态合同包。
+该程序检查检入走廊 LFCA、省略 Spatial 保留数据、按 catalog 的 portal 入口注册一条路线并生成一辆车，再以 16 毫秒固定步进，最后导出 Full 观测。它不启动持续人口控制器。步骤、实跑输出和失败分类见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
 
-交通观测由宿主显式打开 `ObservationExportSession` 并请求 full/delta；Runtime 只从
-当前已提交车辆状态重算所选 LaneEdge 的整数聚合。无导出调用时不维护观测副本、
-dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapshot。
+安装入口是 `TrafficWorld::install`。调用方同时给出 `WorldConfig`、`ExecutionConfig`、已提交来源、世界身份和 `WorldPolicySelection`。
 
-动态成本 payload 与 Routing 算法仍由宿主拥有。Runtime 只从实际观测批次构造
-`ObservationSetBinding`，签发 `RoutingAdmissionSession`，并由
-`register_candidate_route` 校验世界/世代/修订/模型/有效窗后把 LaneEdge 稳定标识降低到
-唯一路线编译入口。回放/恢复使用不含旧成本 provenance 的
-`register_admitted_route`；两条路径与 direct `register_route` 共用路线槽和边出现记录容量。
+## 主要约束与限制
 
-Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
-`encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
-预算，再执行版本、v7 table 未知字段槽、来源、配置、标识、引用、排列、tagged 停车、
-Waiting 与 Conflict authority/lag 不变量 lowering；所有路线
-经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
-重建，Conflict occupant/cleared 从 reservation、车辆整车位置和 passage 锚点派生；完全
-成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。Conflict eligibility 还必须在
-已恢复时刻由所选 policy 对 exact admission Gate 给出 `Candidate`；`DenyAndStop` 不能仅凭
-locator 与车辆位置合法而恢复为已提交资格。
-`deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、
-局部 ID、Published 审计地址或 worker 计划；容量、tick/时间/双游标与 live 顺序仍进入
-摘要原像。该摘要是 [ADR 0033](../../docs/adr/0033-digest-role-and-algorithm-selection-authority.md)
-定义的内部完整性摘要（BLAKE3-256），用于宿主检查点对拍与审计重放，不承担发布身份。
-检查点宿主可从不可变 `CapturedRoute` / `CapturedVehicle` 读取局部 ID 与逻辑字段，
-恢复后从 `RestoredSnapshot::route_mappings` / `vehicle_mappings` 取得按局部 ID 排序的
-完整新句柄表；检查点后的实体继续由宿主命令自带耐久 ID，Runtime 不接管输入日志。
-快照预算证据按仪器拆分为 allocation ledger、DHAT restore heap high-water mark 与
-未插桩 release wall-clock 三个独立 integration binaries，避免把累计分配量或插桩
-计时误报为恢复峰值/产品门槛。
+- 发布来源在安装时严格核对 `NetworkRevisionId`。digest / length 不同只用于来源审计，不是拒绝条件。编辑来源的差异基线则必须与 origin 的 LFCA digest / length 对应。
+- `WorldPolicySelection::NotRequired` 仅当整个共享修订没有 `ManeuverGate`、`ConflictZone` 和 `ParticipantStream` 时合法。走廊 catalog 必须使用 `Pinned`。没有默认策略，也没有安装后的 setter。
+- `fixed_delta_time_ms` 必须落在 `4..=1000`，并且与信号相位对齐。检入走廊使用 16 毫秒。
+- 四个容量是车辆、路线、路线边出现记录和路线冲突出现记录。它们进入快照和逻辑摘要。worker 数另由 `ExecutionConfig` 指定，不进入快照。
+- 新观测 session 的第一次导出必须是 Full。观测从当前已提交状态计算；失败不推进 session。
+- 生命周期命令只在两次 `step` 之间调用。命令失败不留下半条路线或半辆车。
+- 执行 panic 不是可恢复的 `StepError`。世界因此失效后，只能销毁并重建，不能继续查询或发命令。
+- dev-dependencies 已经启用 `laneflow-static-network` 的 `attestation-fixtures`，供其他测试使用。无窗口示例不调用这些测试入口。
 
-本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
-[共享静态路网消费](../../docs/design/traffic-runtime-shared-consumption.md)、
-[交通观测与 Routing](../../docs/design/traffic-observation-and-routing-integration.md)、
-[运行时快照](../../docs/design/traffic-runtime-snapshot.md) 与
-[停车](../../docs/design/parking-system.md)。
+固定预构造换道、停车、快照和修订切换的拒绝条件见能力页与对应合同，不在这里列账。
+
+## 示例与验证
+
+```powershell
+cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
+```
+
+`headless_smoke` 复用示例里的 `run`。它检查受检构建、Pinned 策略、来源修订、一条路线与一辆车、64 步后的精确时间、车辆位移，以及错误步长和首次 Delta 都不提交。
+
+## 深入阅读
+
+- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
+- [当前能力与限制](../../docs/reference/capabilities.md)
+- [共享静态路网消费](../../docs/design/traffic-runtime-shared-consumption.md)
+- [执行配置](../../docs/design/traffic-runtime-execution-config.md)
+- [并行执行](../../docs/design/traffic-runtime-parallel-execution.md)
+- [观测与 Routing](../../docs/design/traffic-observation-and-routing-integration.md)
+- [运行时快照](../../docs/design/traffic-runtime-snapshot.md)
+- [修订切换](../../docs/design/traffic-runtime-revision-cutover.md)
