@@ -410,7 +410,7 @@ admissions 时整个 step 失败，禁止 rollover、饱和或重新编号既有
 counter 或 motion 错误都使 world、最新 batch、tick/time 与失败前一致。成功 step 的
 迁移日志字节上界溢出沿用切换合同：放弃切换候选，旧世界继续步进；它不是使 step
 失败的 journal 错误。阶段和日志提交边界见
-[`traffic-runtime-phase-protocol.md`](traffic-runtime-phase-protocol.md)。
+[`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol]。
 
 ### 6.2 约束只收紧
 
@@ -835,3 +835,5 @@ leader/RouteEnd/no-overlap attribution。优先级只决定观察记录，不改
   authority 搬出 `TrafficWorld`；
 - 无保护转向与 keep-clear 的运行时证明属于 #284；其实现不代表 #285 最终跨层场景
   与 Adapter debug surface 已交付。
+
+[traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md

@@ -5,10 +5,10 @@
 **适用范围**: LaneFlow 已完成版本的能力边界、v0.10 验收证据范围，以及已裁定的后续版本目标
 
 本文记录版本能力边界和已验收结论。现行系统见
-[架构](architecture.md)。GitHub Milestone 是实施状态入口；本文不镜像 Project
+[架构][architecture]。GitHub Milestone 是实施状态入口；本文不镜像 Project
 列、未决 Issue、责任人或依赖。
 
-[ADR 0021](adr/0021-traffic-infrastructure-and-host-boundary.md) 定义可嵌入、
+[ADR 0021][0021-traffic-infrastructure-and-host-boundary] 定义可嵌入、
 引擎无关、确定性的道路交通运行时与工具链。城市经济、出行需求、土地利用和游戏
 规则属于宿主。下表的完成不表示对应历史实现仍是现行入口。
 
@@ -20,33 +20,33 @@ loader、schema 和实施链留在 git 历史与所链设计中。
 
 | 版本 | 完成时间   | 能力边界                                             | 现行设计                                                                                                                                          |
 | ---- | ---------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| v0.1 | 2026-07-12 | 最小车辆状态、显式步进、基本车道图遍历与路线跟随     | [车道图](design/lane-graph.md)、[路线](design/route-system.md)                                                                                    |
-| v0.2 | 2026-07-12 | 车道连接、路线定义与路线校验                         | [车道图](design/lane-graph.md)、[路线](design/route-system.md)                                                                                    |
-| v0.3 | 2026-07-14 | 前车避让、纵向舒适控制与安全投影                     | [跟车](design/vehicle-following.md)、[ADR 0006](adr/0006-vehicle-following-control-and-safety.md)                                                 |
-| v0.4 | 2026-07-15 | 固定时制信号、指示与 Gate 合规                       | [信号](design/signal-system.md)、[ADR 0009](adr/0009-signal-indication-gate-and-policy-separation.md)                                             |
-| v0.5 | 2026-07-17 | 停车位占用、绑定和与纵向约束的组合                   | [停车](design/parking-system.md)、[ADR 0010](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)                                         |
-| v0.6 | 2026-07-21 | 整数毫米一维交通几何，以及引擎无关的空间帧与位姿采样 | [数值表示](design/numeric-representation.md)、[空间几何](design/spatial-geometry.md)、[ADR 0028](adr/0028-integer-millimeter-traffic-geometry.md) |
-| v0.7 | 2026-07-21 | 首个参考适配器：把已提交交通状态映射到宿主实体与变换 | [Bevy 适配器](design/bevy-reference-adapter.md)、[Adapter API](design/adapter-api.md)                                                             |
-| v0.8 | 2026-07-24 | 直行信号化走廊，以及调用方拥有的持续车流             | [示例场景](design/example-scenarios.md)、[ADR 0016](adr/0016-scenario-population-and-recycle-lifecycle-authority.md)                              |
-| v0.9 | 2026-07-26 | 受保护左转、直行和右转的信号化走廊，以及路口静态身份 | [路口模型](design/road-junction-model.md)、[受保护转向](design/signalized-corridor-protected-turning.md)                                          |
+| v0.1 | 2026-07-12 | 最小车辆状态、显式步进、基本车道图遍历与路线跟随     | [车道图][lane-graph]、[路线][route-system]                                                                                    |
+| v0.2 | 2026-07-12 | 车道连接、路线定义与路线校验                         | [车道图][lane-graph]、[路线][route-system]                                                                                    |
+| v0.3 | 2026-07-14 | 前车避让、纵向舒适控制与安全投影                     | [跟车][vehicle-following]、[ADR 0006][0006-vehicle-following-control-and-safety]                                                 |
+| v0.4 | 2026-07-15 | 固定时制信号、指示与 Gate 合规                       | [信号][signal-system]、[ADR 0009][0009-signal-indication-gate-and-policy-separation]                                             |
+| v0.5 | 2026-07-17 | 停车位占用、绑定和与纵向约束的组合                   | [停车][parking-system]、[ADR 0010][0010-parking-binding-and-vehicle-lifecycle-authority]                                         |
+| v0.6 | 2026-07-21 | 整数毫米一维交通几何，以及引擎无关的空间帧与位姿采样 | [数值表示][numeric-representation]、[空间几何][spatial-geometry]、[ADR 0028][0028-integer-millimeter-traffic-geometry] |
+| v0.7 | 2026-07-21 | 首个参考适配器：把已提交交通状态映射到宿主实体与变换 | [Bevy 适配器][bevy-reference-adapter]、[Adapter API][adapter-api]                                                             |
+| v0.8 | 2026-07-24 | 直行信号化走廊，以及调用方拥有的持续车流             | [示例场景][example-scenarios]、[ADR 0016][0016-scenario-population-and-recycle-lifecycle-authority]                              |
+| v0.9 | 2026-07-26 | 受保护左转、直行和右转的信号化走廊，以及路口静态身份 | [路口模型][road-junction-model]、[受保护转向][signalized-corridor-protected-turning]                                          |
 
 横断面静态模型和 Waiting / Conflict 已进入现行能力。`RoadCorridor` 组织方向性
 路段；静态准入在车辆生成和替换时按参与者类别检查路线后缀。Waiting、Conflict 与显式路权由
 `TrafficWorld` 在固定步进中裁决。时变准入仍是已接受但未实现的运行时求值。见
-[横断面与准入](design/cross-section-access.md)、
-[Waiting / Conflict](design/waiting-zone-conflict-right-of-way.md) 与
-[路权策略](design/traffic-runtime-right-of-way-policy.md)。
+[横断面与准入][cross-section-access]、
+[Waiting / Conflict][waiting-zone-conflict-right-of-way] 与
+[路权策略][traffic-runtime-right-of-way-policy]。
 
 ## v0.10 编译器拥有的静态路网与切换
 
 本版本的能力边界是：静态路网由编译器拥有，运行世界安装不可变的
 `SharedNetworkRevision`，路网变化走失败关闭的修订切换。生产数据流、crate 依赖
-和生命周期见 [架构](architecture.md)。专题合同见
-[ADR 0020](adr/0020-compiler-owned-static-network-and-static-image.md)、
-[ADR 0025](adr/0025-checked-canonical-network-and-shared-static-network.md)、
-[网络编译器](design/network-compiler.md)、
-[共享静态路网](design/shared-static-network.md) 与
-[修订切换](design/traffic-runtime-revision-cutover.md)。
+和生命周期见 [架构][architecture]。专题合同见
+[ADR 0020][0020-compiler-owned-static-network-and-static-image]、
+[ADR 0025][0025-checked-canonical-network-and-shared-static-network]、
+[网络编译器][network-compiler]、
+[共享静态路网][shared-static-network] 与
+[修订切换][traffic-runtime-revision-cutover]。
 
 里程碑已于 2026-11-09 关闭。该日期只说明版本容器关闭，不是新的性能或 LuST
 基线。
@@ -55,9 +55,9 @@ loader、schema 和实施链留在 git 历史与所链设计中。
 
 #305 以验收提交 `c0045f8f`（#1282 冻结）运行统一五轴正式汇总，未完成项为零。
 本节结论只绑定该提交，不是当前 `main` 的性能认证或 LuST 认证。
-[汇总记录](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678897695)、
-[适用性核对](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678716065)
-与[裁定和更正](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6708446002)
+[汇总记录][github-com-illusion-tech-laneflow-issues-305-issuecomment-6678897695]、
+[适用性核对][github-com-illusion-tech-laneflow-issues-305-issuecomment-6678716065]
+与[裁定和更正][github-com-illusion-tech-laneflow-issues-305-issuecomment-6708446002]
 是本结论的唯一事实来源，本节只作入口摘要：
 
 - `LF-SYNTH-v2`：behavior、determinism、snapshot 为语义对照通过，routing 为执行回执
@@ -89,7 +89,7 @@ loader、schema 和实施链留在 git 历史与所链设计中。
 未认证项和 LuST 缺证也不因版本号前进而变成认证。
 
 实施状态见里程碑
-[v0.11 任意位置变道与 LuST 真实路网验收](https://github.com/illusion-tech/laneflow/milestone/14)。
+[v0.11 任意位置变道与 LuST 真实路网验收][github-com-illusion-tech-laneflow-milestone-14]。
 
 ## 城市级扩展研究
 
@@ -100,7 +100,7 @@ loader、schema 和实施链留在 git 历史与所链设计中。
 
 #72 何时进入版本范围留待对应版本规划。未来稳定运行时 API 的设计冻结前，必须
 解决或显式接受
-[城市规模扩展决策基线](design/traffic-runtime-scale-decision-baseline.md)
+[城市规模扩展决策基线][traffic-runtime-scale-decision-baseline]
 中标为需要补证据和存在实际阻碍的接口项。该复核不表示已经选定生产架构。
 
 后继城市级工作仍至少包括四个独立设计题目。道路机动车世界里已经实现的
@@ -113,7 +113,7 @@ worker 1–16、快照 v7、失败关闭切换和观测注册，只覆盖当前�
 3. 路径规划服务、动态成本快照和出行编排接入。观测与候选注册已实现；路径
    算法由宿主拥有。v0.10 的城市 Routing 豁免仍然只绑定 `c0045f8f`。
 4. 城市拓扑、需求与运行时工作负载 `LF-CN-URBAN-v1`。首版交付合同见
-   [中国特色城市负载](design/chinese-style-city-workload.md)。公交运营、出租
+   [中国特色城市负载][chinese-style-city-workload]。公交运营、出租
    派单、上下客和动态路侧摩擦不属于该合同的本版交付。非机动车和步行不作为该
    负载的隐含验收项。
 
@@ -129,3 +129,37 @@ worker 1–16、快照 v7、失败关闭切换和观测注册，只覆盖当前�
 证明、稳定性承诺的关系都未冻结。里程碑名称存在，不表示未决工作已经绑定到
 v1.0，也不表示 v1.0 的范围已经进入 v0.11。范围须经后续治理决策和设计冻结
 重新建立。
+
+[architecture]: architecture.md
+[0021-traffic-infrastructure-and-host-boundary]: adr/0021-traffic-infrastructure-and-host-boundary.md
+[lane-graph]: design/lane-graph.md
+[route-system]: design/route-system.md
+[vehicle-following]: design/vehicle-following.md
+[0006-vehicle-following-control-and-safety]: adr/0006-vehicle-following-control-and-safety.md
+[signal-system]: design/signal-system.md
+[0009-signal-indication-gate-and-policy-separation]: adr/0009-signal-indication-gate-and-policy-separation.md
+[parking-system]: design/parking-system.md
+[0010-parking-binding-and-vehicle-lifecycle-authority]: adr/0010-parking-binding-and-vehicle-lifecycle-authority.md
+[numeric-representation]: design/numeric-representation.md
+[spatial-geometry]: design/spatial-geometry.md
+[0028-integer-millimeter-traffic-geometry]: adr/0028-integer-millimeter-traffic-geometry.md
+[bevy-reference-adapter]: design/bevy-reference-adapter.md
+[adapter-api]: design/adapter-api.md
+[example-scenarios]: design/example-scenarios.md
+[0016-scenario-population-and-recycle-lifecycle-authority]: adr/0016-scenario-population-and-recycle-lifecycle-authority.md
+[road-junction-model]: design/road-junction-model.md
+[signalized-corridor-protected-turning]: design/signalized-corridor-protected-turning.md
+[cross-section-access]: design/cross-section-access.md
+[waiting-zone-conflict-right-of-way]: design/waiting-zone-conflict-right-of-way.md
+[traffic-runtime-right-of-way-policy]: design/traffic-runtime-right-of-way-policy.md
+[0020-compiler-owned-static-network-and-static-image]: adr/0020-compiler-owned-static-network-and-static-image.md
+[0025-checked-canonical-network-and-shared-static-network]: adr/0025-checked-canonical-network-and-shared-static-network.md
+[network-compiler]: design/network-compiler.md
+[shared-static-network]: design/shared-static-network.md
+[traffic-runtime-revision-cutover]: design/traffic-runtime-revision-cutover.md
+[github-com-illusion-tech-laneflow-issues-305-issuecomment-6678897695]: https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678897695
+[github-com-illusion-tech-laneflow-issues-305-issuecomment-6678716065]: https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6678716065
+[github-com-illusion-tech-laneflow-issues-305-issuecomment-6708446002]: https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6708446002
+[github-com-illusion-tech-laneflow-milestone-14]: https://github.com/illusion-tech/laneflow/milestone/14
+[traffic-runtime-scale-decision-baseline]: design/traffic-runtime-scale-decision-baseline.md
+[chinese-style-city-workload]: design/chinese-style-city-workload.md

@@ -235,7 +235,7 @@ tick-start snapshot
 
 Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index。
 
-Parking 不改变 signal permission authority。ParkingStop 与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 的组合与 atomic commit 见 [`parking-system.md`](parking-system.md)。
+Parking 不改变 signal permission authority。ParkingStop 与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 的组合与 atomic commit 见 [`parking-system.md`][parking-system]。
 
 ## 8. 观察边界
 
@@ -250,7 +250,7 @@ Gate 的 `signalControl:none` 只表示没有信号绑定；permission 也只是
 
 ## 9. 事件
 
-信号相位与灯色变化不发布事件，调用方读取 `committed_signal_groups()`。车辆越过 Gate 由 `TrafficWorld::latest_transition_events()` 的 `GateCrossed` 观察；转移事件的语义见 [`junction-observation-and-validation.md`](junction-observation-and-validation.md)。
+信号相位与灯色变化不发布事件，调用方读取 `committed_signal_groups()`。车辆越过 Gate 由 `TrafficWorld::latest_transition_events()` 的 `GateCrossed` 观察；转移事件的语义见 [`junction-observation-and-validation.md`][junction-observation-and-validation]。
 
 ## 10. Determinism 与失败原子性
 
@@ -342,7 +342,7 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。
 - 中段 StopLine：未来扩展 `edgeProgress`，或继续通过拆 edge authoring。
 
 #235 的 Accepted 设计
-[`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
 已把上述组合细化为 registration-time Gate/Waiting/Conflict occurrence、车辆级
 Gate decision、Traffic Runtime ConflictArbiter 与 tick-local grant/reservation。该设计保持
 本文 Controller -> indication -> policy -> conflict -> safety 顺序，并要求 pinned
@@ -353,14 +353,20 @@ debug surface 仍独立交付，不能由运行时实现替代。
 
 法规行为必须由明确版本、适用地区与可审计依据驱动。#284 的中国机动车红灯右转
 策略、法规来源与支持边界以
-[`waiting-zone-conflict-right-of-way.md` §6.2.1](waiting-zone-conflict-right-of-way.md#621-中国机动车红灯右转的最小策略)
+[`waiting-zone-conflict-right-of-way.md` §6.2.1][waiting-zone-conflict-right-of-way-621-中国机动车红灯右转的最小策略]
 为准；法规版本通过 policy pin 固定，不把“最新法规”或页面链接硬编码为 runtime 规则。
 
 ## 15. 走廊 protected-turning profile
 
 #196 已在
-[`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
+[`signalized-corridor-protected-turning.md`][signalized-corridor-protected-turning]
 冻结每个 Junction 的 `main-left`、`main-through-right`、`secondary-left`、
 `secondary-through-right` 四个 group、完整 12-phase/84 秒 program、32 个
 group-controlled entry ManeuverGate 和 authoring compatibility matrix。该 profile
 不扩展 SignalController runtime authority。
+
+[parking-system]: parking-system.md
+[junction-observation-and-validation]: junction-observation-and-validation.md
+[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[waiting-zone-conflict-right-of-way-621-中国机动车红灯右转的最小策略]: waiting-zone-conflict-right-of-way.md#621-中国机动车红灯右转的最小策略
+[signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md

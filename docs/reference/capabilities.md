@@ -2,7 +2,7 @@
 
 **文档状态**: Active<br>
 **最后核对**: 2026-11-11，基线
-[`2d0c07070fbe6543f8597b0093322ab301881d5b`](https://github.com/illusion-tech/laneflow/commit/2d0c07070fbe6543f8597b0093322ab301881d5b)<br>
+[`2d0c07070fbe6543f8597b0093322ab301881d5b`][github-com-illusion-tech-laneflow-commit-2d0c07070fbe6543f8597b0093322ab301881d5b]<br>
 **适用范围**: 道路机动车特化的 `TrafficWorld`，以及按源码集成的宿主
 
 本页是当前实现与限制的阅读入口，不替代所链专题合同，也不扩大公开支持承诺。
@@ -19,7 +19,7 @@
 
 明确不支持、已知缺口和保守拒绝是补充说明，不另排一条状态流水线。后继缺口只按已登记、尚无关闭修复证明来引用。
 首次 Alpha 的范围、稳定性、平台、MSRV 和 feature 支持矩阵不由本页决定
-（[#1327](https://github.com/illusion-tech/laneflow/issues/1327)、[#1329](https://github.com/illusion-tech/laneflow/issues/1329)）。
+（[#1327][github-com-illusion-tech-laneflow-issues-1327]、[#1329][github-com-illusion-tech-laneflow-issues-1329]）。
 
 ## 当前能力
 
@@ -29,32 +29,32 @@
 
 - **条件与边界**：检查、绑定或资源限额失败时停在当前阶段。Runtime 不解析 JSON，也不直接安装 LFCA。
   道路编辑来源和可移植对象各有自己的版本轴。P100 初始配置档的已知单次发射限额只描述该档
-  （[#1288](https://github.com/illusion-tech/laneflow/issues/1288)），不能当成所有档的最大路网规模。按容量推导限额仍是建议设计
-  （[#1296](https://github.com/illusion-tech/laneflow/issues/1296)）。本页不复制该数字，也不另立格式版本表。这不是容量或性能认证。
-- **依据**：[后发射检查 §4](../design/compiler-post-emission-check-and-minimal-publication-closure.md#4-公共检查-api)、
-  [§5](../design/compiler-post-emission-check-and-minimal-publication-closure.md#5-检查顺序)、
-  [§7](../design/compiler-post-emission-check-and-minimal-publication-closure.md#7-compiler-候选与消费生命周期)、
-  [§8](../design/compiler-post-emission-check-and-minimal-publication-closure.md#8-lfcp-v2)；
-  [共享静态路网 §3](../design/shared-static-network.md#3-构建输入与-admission)。格式细节见
-  [`portable-canonical-artifact.md`](../design/portable-canonical-artifact.md)。
-  [`check_portable_candidate`](../../crates/laneflow-compiler/src/portable_publication/mod.rs) 只是检查委托，不是完整检查实现。
+  （[#1288][github-com-illusion-tech-laneflow-issues-1288]），不能当成所有档的最大路网规模。按容量推导限额仍是建议设计
+  （[#1296][github-com-illusion-tech-laneflow-issues-1296]）。本页不复制该数字，也不另立格式版本表。这不是容量或性能认证。
+- **依据**：[后发射检查 §4][compiler-post-emission-check-and-minimal-publication-closure-4-公共检查-api]、
+  [§5][compiler-post-emission-check-and-minimal-publication-closure-5-检查顺序]、
+  [§7][compiler-post-emission-check-and-minimal-publication-closure-7-compiler-候选与消费生命周期]、
+  [§8][compiler-post-emission-check-and-minimal-publication-closure-8-lfcp-v2]；
+  [共享静态路网 §3][shared-static-network-3-构建输入与-admission]。格式细节见
+  [`portable-canonical-artifact.md`][portable-canonical-artifact]。
+  [`check_portable_candidate`][mod] 只是检查委托，不是完整检查实现。
 
 ### 车辆行为与路权
 
 **已实现**：固定步进下的道路机动车跟驰、固定时制信号，以及 Waiting 与 Conflict 的联合裁决。世界安装时绑定完整路权策略。
 
 - **条件与边界**：生成和替换要满足路线后缀的静态准入和放置条件。停止约束仍可能在一拍内把速度收到零
-  （[#1272](https://github.com/illusion-tech/laneflow/issues/1272)）。感应信号和自适应信号不是当前能力。
+  （[#1272][github-com-illusion-tech-laneflow-issues-1272]）。感应信号和自适应信号不是当前能力。
   舒适制动和物理平顺没有据此通过。
-- **依据**：[路权策略 §3](../design/traffic-runtime-right-of-way-policy.md#3-灯态解释与禁令)、
-  [§5](../design/traffic-runtime-right-of-way-policy.md#5-世界和场景绑定)、
-  [§6](../design/traffic-runtime-right-of-way-policy.md#6-仲裁持久状态与生命周期)；
-  [跟车 §6](../design/vehicle-following.md#6-leader-detection-与-route-relative-distance)、
-  [§8](../design/vehicle-following.md#8-longitudinal-constraints)、
-  [§10.2](../design/vehicle-following.md#102-emergency-safe-speed)；[信号 §1](../design/signal-system.md#1-目标状态与非目标)、
-  [§5](../design/signal-system.md#5-fixed-tick-phase-timing)；
-  [横断面与准入 §6.5](../design/cross-section-access.md#65-运行时集成边界)。生成与替换的拒绝见
-  [`SpawnError` / `ReplaceError`](../../crates/laneflow-runtime/src/kernel/error.rs)。
+- **依据**：[路权策略 §3][traffic-runtime-right-of-way-policy-3-灯态解释与禁令]、
+  [§5][traffic-runtime-right-of-way-policy-5-世界和场景绑定]、
+  [§6][traffic-runtime-right-of-way-policy-6-仲裁持久状态与生命周期]；
+  [跟车 §6][vehicle-following-6-leader-detection-与-route-relative-distance]、
+  [§8][vehicle-following-8-longitudinal-constraints]、
+  [§10.2][vehicle-following-102-emergency-safe-speed]；[信号 §1][signal-system-1-目标状态与非目标]、
+  [§5][signal-system-5-fixed-tick-phase-timing]；
+  [横断面与准入 §6.5][cross-section-access-65-运行时集成边界]。生成与替换的拒绝见
+  [`SpawnError` / `ReplaceError`][error]。
 
 ### 停车
 
@@ -63,10 +63,10 @@
 - **条件与边界**：reserve、park、leave，以及 cancel、rebind、despawn，受状态、精确绑定、锚点、路线匹配和安全插入约束。
   没有位姿的停驻车辆仍然保留身份。容量耗尽、锚点不属于设施、入口已经越过、尚未到达、离场重叠或后车不安全时可以拒绝。
   这些命令路径没有带来性能认证。
-- **依据**：[停车 §2](../design/parking-system.md#2-产品边界)、[§4](../design/parking-system.md#4-运行时资源与唯一规范依据)、
-  [§5](../design/parking-system.md#5-生命周期命令)、[§5.7](../design/parking-system.md#57-幂等和错误分类)、
-  [§8](../design/parking-system.md#8-spatial-与-adapter)。拒绝种类见
-  [`ParkingError`](../../crates/laneflow-runtime/src/kernel/error.rs)。
+- **依据**：[停车 §2][parking-system-2-产品边界]、[§4][parking-system-4-运行时资源与唯一规范依据]、
+  [§5][parking-system-5-生命周期命令]、[§5.7][parking-system-57-幂等和错误分类]、
+  [§8][parking-system-8-spatial-与-adapter]。拒绝种类见
+  [`ParkingError`][error]。
 
 ### 固定预构造换道
 
@@ -74,16 +74,16 @@
 
 - **条件与边界**：路线编译会拒绝一部分互不可见的共横向过渡段；同向相邻或纵向分开的组合也可能被保守拒绝。
   已登记且尚无关闭修复证明的缺口有三项：平行边直行车对过渡仍可能不可见
-  （[#1271](https://github.com/illusion-tech/laneflow/issues/1271)）；未使用的公共后继可能绕过现有注册拒绝
-  （[#1321](https://github.com/illusion-tech/laneflow/issues/1321)）；循环路线可能把近端制动边界选错
-  （[#1322](https://github.com/illusion-tech/laneflow/issues/1322)）。回归 `straight_vehicle_on_parallel_edge_is_a_registered_gap`
+  （[#1271][github-com-illusion-tech-laneflow-issues-1271]）；未使用的公共后继可能绕过现有注册拒绝
+  （[#1321][github-com-illusion-tech-laneflow-issues-1321]）；循环路线可能把近端制动边界选错
+  （[#1322][github-com-illusion-tech-laneflow-issues-1322]）。回归 `straight_vehicle_on_parallel_edge_is_a_registered_gap`
   记录的是 #1271 的缺口。#1321 与 #1322 的反例目前只登记在 Issue 中。这些拒绝没有构成完整安全保证，任意位置变道也不是这项能力。
-- **依据**：[最小换道合同 §3](../design/lane-change-minimal-contract.md#3-承载形式裁定-a1-回写)、
-  [§5](../design/lane-change-minimal-contract.md#5-同拍联合求解与预约约束裁定-a3a4-回写核心)、
-  [§6](../design/lane-change-minimal-contract.md#6-能力检查裁定-a6-选项-3-回写)、
-  [§9](../design/lane-change-minimal-contract.md#9-持久化与版本轴裁定-a5规范定义见-snapshot-衔接注记)、
-  [§10](../design/lane-change-minimal-contract.md#10-排除能力限制与缺口)。缺口回归见
-  [`transition_visibility.rs`](../../crates/laneflow-runtime/src/kernel/tests/transition_visibility.rs)。
+- **依据**：[最小换道合同 §3][lane-change-minimal-contract-3-承载形式裁定-a1-回写]、
+  [§5][lane-change-minimal-contract-5-同拍联合求解与预约约束裁定-a3a4-回写核心]、
+  [§6][lane-change-minimal-contract-6-能力检查裁定-a6-选项-3-回写]、
+  [§9][lane-change-minimal-contract-9-持久化与版本轴裁定-a5规范定义见-snapshot-衔接注记]、
+  [§10][lane-change-minimal-contract-10-排除能力限制与缺口]。缺口回归见
+  [`transition_visibility.rs`][transition_visibility]。
 
 ### 快照与恢复
 
@@ -91,26 +91,26 @@
 
 - **条件与边界**：恢复核对语义容量和完整性，容量不能缩小。活动过渡，以及当前格式不能忠实表达的过渡预约或历史，以
   `UnsupportedTransitionState` 结构化拒绝，世界可以继续运行。同修订的完整过渡持久化尚未交付
-  （[#1200](https://github.com/illusion-tech/laneflow/issues/1200)）。最小换道合同 §9 中的版本升级是后续格式设计。生产版本以
+  （[#1200][github-com-illusion-tech-laneflow-issues-1200]）。最小换道合同 §9 中的版本升级是后续格式设计。生产版本以
   `SNAPSHOT_FORMAT_VERSION`、`RUNTIME_STATE_VERSION` 和 `RUNTIME_STATE_DIGEST_VERSION` 为准，本页不另立版本表。
-- **依据**：[快照 §2](../design/traffic-runtime-snapshot.md#2-版本轴与绑定集)、
-  [§5](../design/traffic-runtime-snapshot.md#5-保存与恢复)、[§6](../design/traffic-runtime-snapshot.md#6-回放与确定性状态摘要)、
-  [§9](../design/traffic-runtime-snapshot.md#9-runtime-snapshot-v7-的-g2-边界与必测义务)。常量与过渡准入门见
-  [`snapshot.rs`](../../crates/laneflow-runtime/src/admin/snapshot.rs)；摘要版本常量在 `snapshot_digest.rs`。
+- **依据**：[快照 §2][traffic-runtime-snapshot-2-版本轴与绑定集]、
+  [§5][traffic-runtime-snapshot-5-保存与恢复]、[§6][traffic-runtime-snapshot-6-回放与确定性状态摘要]、
+  [§9][traffic-runtime-snapshot-9-runtime-snapshot-v7-的-g2-边界与必测义务]。常量与过渡准入门见
+  [`snapshot.rs`][snapshot]；摘要版本常量在 `snapshot_digest.rs`。
 
 ### 修订切换
 
 **已实现**：候选在事务里追赶。只有成功提交才发布目标修订和切换事件。
 
 - **条件与边界**：映射、预算或等价证明失败时，旧世界继续，没有部分发布。过渡相关迁移的拒绝比「当前有车正在换道」更宽，
-  受结构化拒绝限制，详见合同与 [#1217](https://github.com/illusion-tech/laneflow/issues/1217)。
+  受结构化拒绝限制，详见合同与 [#1217][github-com-illusion-tech-laneflow-issues-1217]。
   含过渡资源的各切换模式没有在这里逐项归纳，触发范围以合同和该 Issue 为准。
-- **依据**：[切换 §3](../design/traffic-runtime-revision-cutover.md#3-迁移策略封闭种类选择器)、
-  [§4](../design/traffic-runtime-revision-cutover.md#4-状态机)、
-  [§7](../design/traffic-runtime-revision-cutover.md#7-原子晋升与共存)、
-  [§8](../design/traffic-runtime-revision-cutover.md#8-失败关闭故障映射)；
-  [快照 §7](../design/traffic-runtime-snapshot.md#7-跨修订迁移入口)。迁移拒绝见
-  [`cutover_migration.rs`](../../crates/laneflow-runtime/src/admin/cutover_migration.rs) 的
+- **依据**：[切换 §3][traffic-runtime-revision-cutover-3-迁移策略封闭种类选择器]、
+  [§4][traffic-runtime-revision-cutover-4-状态机]、
+  [§7][traffic-runtime-revision-cutover-7-原子晋升与共存]、
+  [§8][traffic-runtime-revision-cutover-8-失败关闭故障映射]；
+  [快照 §7][traffic-runtime-snapshot-7-跨修订迁移入口]。迁移拒绝见
+  [`cutover_migration.rs`][cutover_migration] 的
   `CutoverError::UnsupportedTransitionState`。
 
 ### 观测
@@ -119,10 +119,10 @@
 
 - **条件与边界**：新 session 的第一次导出必须是 full。绑定失效、选择非法，以及容量、算术或分配失败，都返回 `ObservationError`。
   不同逻辑时点的分区不能拼成一批。这不是交通工程分析产品。
-- **依据**：[观测与 Routing §2](../design/traffic-observation-and-routing-integration.md#2-已提交交通观测)、
-  [§3](../design/traffic-observation-and-routing-integration.md#3-动态成本快照)、
-  [§5](../design/traffic-observation-and-routing-integration.md#5-与-302-切换快照和回放的接缝)。入口见
-  [`open_observation_export`](../../crates/laneflow-runtime/src/facade/observation.rs)。
+- **依据**：[观测与 Routing §2][traffic-observation-and-routing-integration-2-已提交交通观测]、
+  [§3][traffic-observation-and-routing-integration-3-动态成本快照]、
+  [§5][traffic-observation-and-routing-integration-5-与-302-切换快照和回放的接缝]。入口见
+  [`open_observation_export`][observation]。
 
 ### Routing 接入
 
@@ -130,15 +130,15 @@
 
 - **条件与边界**：成本、世界、修订和模型身份，有效窗，稳定边身份与连通性，以及路线和出现记录容量，都参与准入。摘要不授予拓扑信任。
   过期、来自未来、模型或修订错配都会拒绝。设计 §7.1 的旧 Routing G2 fixture 仍登记为不能按该入口执行
-  （[#1288](https://github.com/illusion-tech/laneflow/issues/1288)），尚无关闭修复证明；注册接缝本身仍是已实现能力。
+  （[#1288][github-com-illusion-tech-laneflow-issues-1288]），尚无关闭修复证明；注册接缝本身仍是已实现能力。
   §7.2 与 §7.3 是另外的负载和范围。城市负载的验收边界见文末。
-- **依据**：[观测与 Routing §1](../design/traffic-observation-and-routing-integration.md#1-产品选择与正本边界)、
-  [§4](../design/traffic-observation-and-routing-integration.md#4-候选路线注册)、
-  [§4.1](../design/traffic-observation-and-routing-integration.md#41-统一路线边出现记录容量)、
-  [§7.1](../design/traffic-observation-and-routing-integration.md#71-lf-routing-g2-linear-v1-首轮描述性证据)、
-  [§7.2](../design/traffic-observation-and-routing-integration.md#72-lf-routing-candidate-lfsynth-v1-首轮确定性证据1267)、
-  [§7.3](../design/traffic-observation-and-routing-integration.md#73-lf-routing-candidate-lfsynth-v1-墙钟与-tick-间隔干扰1279)。
-  注册见 [`register_candidate_route`](../../crates/laneflow-runtime/src/facade/routing.rs)。出现记录容量的字段是
+- **依据**：[观测与 Routing §1][traffic-observation-and-routing-integration-1-产品选择与正本边界]、
+  [§4][traffic-observation-and-routing-integration-4-候选路线注册]、
+  [§4.1][traffic-observation-and-routing-integration-41-统一路线边出现记录容量]、
+  [§7.1][traffic-observation-and-routing-integration-71-lf-routing-g2-linear-v1-首轮描述性证据]、
+  [§7.2][traffic-observation-and-routing-integration-72-lf-routing-candidate-lfsynth-v1-首轮确定性证据1267]、
+  [§7.3][traffic-observation-and-routing-integration-73-lf-routing-candidate-lfsynth-v1-墙钟与-tick-间隔干扰1279]。
+  注册见 [`register_candidate_route`][routing]。出现记录容量的字段是
   `WorldConfig::route_edge_occurrence_capacity`。
 
 ### 单世界并行
@@ -148,14 +148,14 @@
 - **条件与边界**：P4 仍按规范串行。同步 `step` 返回前收拢任务。超出支持范围、资源预留失败、线程创建失败或计划失败都会拒绝，
   不会静默减少 worker。worker 数不进入快照或逻辑摘要。同一环境下的并行等价，不推出跨版本或跨平台的全部一致。城市性能未认证。
   上限以 `MAX_SUPPORTED_WORKERS` 为准，本页不抄数字。
-- **依据**：[执行配置 §2](../design/traffic-runtime-execution-config.md#2-公开-api)、
-  [§4.3](../design/traffic-runtime-execution-config.md#43-错误类型)、
-  [§6](../design/traffic-runtime-execution-config.md#6-格式与版本轴)；
-  [并行 §1](../design/traffic-runtime-parallel-execution.md#1-等价范围)、
-  [§3](../design/traffic-runtime-parallel-execution.md#3-首版阶段图与写入者)、
-  [§4](../design/traffic-runtime-parallel-execution.md#4-独立计算与规范消费接口)、
-  [§6](../design/traffic-runtime-parallel-execution.md#6-p4-规范串行联合裁决)。上限与校验见
-  [`config.rs`](../../crates/laneflow-runtime/src/kernel/config.rs) 的 `MAX_SUPPORTED_WORKERS` 和
+- **依据**：[执行配置 §2][traffic-runtime-execution-config-2-公开-api]、
+  [§4.3][traffic-runtime-execution-config-43-错误类型]、
+  [§6][traffic-runtime-execution-config-6-格式与版本轴]；
+  [并行 §1][traffic-runtime-parallel-execution-1-等价范围]、
+  [§3][traffic-runtime-parallel-execution-3-首版阶段图与写入者]、
+  [§4][traffic-runtime-parallel-execution-4-独立计算与规范消费接口]、
+  [§6][traffic-runtime-parallel-execution-6-p4-规范串行联合裁决]。上限与校验见
+  [`config.rs`][config] 的 `MAX_SUPPORTED_WORKERS` 和
   `ExecutionConfig::validate_supported`。
 
 ### Spatial
@@ -164,10 +164,10 @@
 
 - **条件与边界**：修订没有 Spatial 组件时，`SpatialSession::bind` 返回 `Ok(None)`。有 Spatial 组件但缺少 lane-pose 时，绑定失败
   （`MissingLanePose`）。几何使用有界的 canonical `f32`。交通进度和距离仍以整数毫米为正本。
-- **依据**：[空间几何 §1.1](../design/spatial-geometry.md#11-291300-共享空间路网已交付)、
-  [§6](../design/spatial-geometry.md#6-长度正本与绑定)、[§7](../design/spatial-geometry.md#7-采样语义)；
-  [Adapter API](../design/adapter-api.md)；[架构 §3](../architecture.md#3-crate-依赖与所有权)。绑定见
-  [`session.rs`](../../crates/laneflow-spatial/src/session.rs)。
+- **依据**：[空间几何 §1.1][spatial-geometry-11-291300-共享空间路网已交付]、
+  [§6][spatial-geometry-6-长度正本与绑定]、[§7][spatial-geometry-7-采样语义]；
+  [Adapter API][adapter-api]；[架构 §3][architecture-3-crate-依赖与所有权]。绑定见
+  [`session.rs`][session]。
 
 ### Bevy 接入
 
@@ -175,44 +175,139 @@
 
 - **条件与边界**：提供 Spatial 时，必须与世界满足同一根 `Arc::ptr_eq`，失配则拒绝。批量提取完成之后才发布 Transform。示例规模、
   截图和有界性能报告不是城市认证。平台、MSRV 和 feature 的公开支持范围不在本页给定
-  （[#1329](https://github.com/illusion-tech/laneflow/issues/1329)）。
-- **依据**：[Bevy §2](../design/bevy-reference-adapter.md#2-版本工具链与依赖边界)、
-  [§3](../design/bevy-reference-adapter.md#3-最终裁决职责与-session-边界)、
-  [§4](../design/bevy-reference-adapter.md#4-fixed-schedule)、[§5](../design/bevy-reference-adapter.md#5-vehicle-与-entity-映射)、
-  [§6](../design/bevy-reference-adapter.md#6-canonical-frame-与-bevy-transform)、
-  [§7](../design/bevy-reference-adapter.md#7-批量提取与原子-transform-提交)、
-  [§16](../design/bevy-reference-adapter.md#16-修订绑定生命周期与维护暂停式切换534)；
-  [`laneflow-bevy` README](../../crates/laneflow-bevy/README.md)。会话构造见
-  [`LaneFlowSession::new`](../../crates/laneflow-bevy/src/session.rs)。
+  （[#1329][github-com-illusion-tech-laneflow-issues-1329]）。
+- **依据**：[Bevy §2][bevy-reference-adapter-2-版本工具链与依赖边界]、
+  [§3][bevy-reference-adapter-3-最终裁决职责与-session-边界]、
+  [§4][bevy-reference-adapter-4-fixed-schedule]、[§5][bevy-reference-adapter-5-vehicle-与-entity-映射]、
+  [§6][bevy-reference-adapter-6-canonical-frame-与-bevy-transform]、
+  [§7][bevy-reference-adapter-7-批量提取与原子-transform-提交]、
+  [§16][bevy-reference-adapter-16-修订绑定生命周期与维护暂停式切换534]；
+  [`laneflow-bevy` README][laneflow-bevy-readme]。会话构造见
+  [`LaneFlowSession::new`][src-session]。
 
 ## 已接受但未实现与明确边界
 
 - 时变准入的运行时求值已接受但未实现。`FacilityBand` 作为 `AccessRule` 目标也已接受但未实现；编译器当前拒绝这一目标
   （`AccessCapability::FacilityBandTarget`）。本页不把 `TimeWindows` 写成现行生产拒绝守卫。见
-  [横断面与准入 §6.2](../design/cross-section-access.md#62-target-平面与展开)、
-  [§6.5](../design/cross-section-access.md#65-运行时集成边界) 和
-  [`hir/access.rs`](../../crates/laneflow-compiler/src/hir/access.rs)。
+  [横断面与准入 §6.2][cross-section-access-62-target-平面与展开]、
+  [§6.5][cross-section-access-65-运行时集成边界] 和
+  [`hir/access.rs`][access]。
 - 任意位置变道是后续能力目标。固定预制过渡不是该目标的等价实现。提前制动
-  （[#1272](https://github.com/illusion-tech/laneflow/issues/1272)）仍待设计与实施；立项本身不是已接受的设计，也不是已经完成的行为。
+  （[#1272][github-com-illusion-tech-laneflow-issues-1272]）仍待设计与实施；立项本身不是已接受的设计，也不是已经完成的行为。
 - 非机动车、行人、轨道执行域，感应或自适应信号，以及其他引擎的正式适配，都不是现行能力。`ParticipantClass` 只是准入分类，
   不表示这些执行域已经实现。
 - Routing 算法、出行需求、出发计划和最终表现由宿主拥有。LaneFlow 不提供专业交通工程分析。这是职责边界。
 
 ## 历史验收与认证边界
 
-v0.10 的 [#305](https://github.com/illusion-tech/laneflow/issues/305) 综合结论与
-[#306](https://github.com/illusion-tech/laneflow/issues/306) 独立审阅绑定 `c0045f8f`，不是当前 main 的新认证。
-LF-SYNTH 和城市负载的实际覆盖及授权范围见 [路线图验收摘要](../roadmap.md#v010-验收结论) 与原始回执；performance、
+v0.10 的 [#305][github-com-illusion-tech-laneflow-issues-305] 综合结论与
+[#306][github-com-illusion-tech-laneflow-issues-306] 独立审阅绑定 `c0045f8f`，不是当前 main 的新认证。
+LF-SYNTH 和城市负载的实际覆盖及授权范围见 [路线图验收摘要][roadmap-v010-验收结论] 与原始回执；performance、
 resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证。关闭任务或里程碑不改变这些边界。历史性能和资源测量只能按原提交、
 输入、硬件与执行配置解释，不能升级为当前能力承诺。
 
-原始回执：[#305 综合结论](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6707563062)、
-[维护者裁定与更正](https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6708446002)、
-[#306 最终复核](https://github.com/illusion-tech/laneflow/issues/306#issuecomment-6729858464)。
+原始回执：[#305 综合结论][github-com-illusion-tech-laneflow-issues-305-issuecomment-6707563062]、
+[维护者裁定与更正][github-com-illusion-tech-laneflow-issues-305-issuecomment-6708446002]、
+[#306 最终复核][github-com-illusion-tech-laneflow-issues-306-issuecomment-6729858464]。
 
 下面两项只限制核查或证据的区分能力。它们是已登记、尚无关闭修复证明的限制，不构成新的复现结论，也不撤销已经绑定基线的验收：
 
-- [#1318](https://github.com/illusion-tech/laneflow/issues/1318)：L1 核查标签尚未绑定完整输入身份。
+- [#1318][github-com-illusion-tech-laneflow-issues-1318]：L1 核查标签尚未绑定完整输入身份。
   这个缺口限制标签能区分的输入范围。本页不据此宣称历史正式记录挂错输入，也不把 clean 标签提升成任意参数都已核查。
-- [#1323](https://github.com/illusion-tech/laneflow/issues/1323)：LF-SYNTH 换道事件证据里，多簇过渡资源身份可能被折成同一个常量。
+- [#1323][github-com-illusion-tech-laneflow-issues-1323]：LF-SYNTH 换道事件证据里，多簇过渡资源身份可能被折成同一个常量。
   这个缺口限制证据能否分出真实过渡身份。本页不据此宣称 Runtime 发错事件，也不否定已有的 F1、F2、F3 回执。
+
+[github-com-illusion-tech-laneflow-commit-2d0c07070fbe6543f8597b0093322ab301881d5b]: https://github.com/illusion-tech/laneflow/commit/2d0c07070fbe6543f8597b0093322ab301881d5b
+[github-com-illusion-tech-laneflow-issues-1327]: https://github.com/illusion-tech/laneflow/issues/1327
+[github-com-illusion-tech-laneflow-issues-1329]: https://github.com/illusion-tech/laneflow/issues/1329
+[github-com-illusion-tech-laneflow-issues-1288]: https://github.com/illusion-tech/laneflow/issues/1288
+[github-com-illusion-tech-laneflow-issues-1296]: https://github.com/illusion-tech/laneflow/issues/1296
+[compiler-post-emission-check-and-minimal-publication-closure-4-公共检查-api]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md#4-公共检查-api
+[compiler-post-emission-check-and-minimal-publication-closure-5-检查顺序]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md#5-检查顺序
+[compiler-post-emission-check-and-minimal-publication-closure-7-compiler-候选与消费生命周期]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md#7-compiler-候选与消费生命周期
+[compiler-post-emission-check-and-minimal-publication-closure-8-lfcp-v2]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md#8-lfcp-v2
+[shared-static-network-3-构建输入与-admission]: ../design/shared-static-network.md#3-构建输入与-admission
+[portable-canonical-artifact]: ../design/portable-canonical-artifact.md
+[mod]: ../../crates/laneflow-compiler/src/portable_publication/mod.rs
+[github-com-illusion-tech-laneflow-issues-1272]: https://github.com/illusion-tech/laneflow/issues/1272
+[traffic-runtime-right-of-way-policy-3-灯态解释与禁令]: ../design/traffic-runtime-right-of-way-policy.md#3-灯态解释与禁令
+[traffic-runtime-right-of-way-policy-5-世界和场景绑定]: ../design/traffic-runtime-right-of-way-policy.md#5-世界和场景绑定
+[traffic-runtime-right-of-way-policy-6-仲裁持久状态与生命周期]: ../design/traffic-runtime-right-of-way-policy.md#6-仲裁持久状态与生命周期
+[vehicle-following-6-leader-detection-与-route-relative-distance]: ../design/vehicle-following.md#6-leader-detection-与-route-relative-distance
+[vehicle-following-8-longitudinal-constraints]: ../design/vehicle-following.md#8-longitudinal-constraints
+[vehicle-following-102-emergency-safe-speed]: ../design/vehicle-following.md#102-emergency-safe-speed
+[signal-system-1-目标状态与非目标]: ../design/signal-system.md#1-目标状态与非目标
+[signal-system-5-fixed-tick-phase-timing]: ../design/signal-system.md#5-fixed-tick-phase-timing
+[cross-section-access-65-运行时集成边界]: ../design/cross-section-access.md#65-运行时集成边界
+[error]: ../../crates/laneflow-runtime/src/kernel/error.rs
+[parking-system-2-产品边界]: ../design/parking-system.md#2-产品边界
+[parking-system-4-运行时资源与唯一规范依据]: ../design/parking-system.md#4-运行时资源与唯一规范依据
+[parking-system-5-生命周期命令]: ../design/parking-system.md#5-生命周期命令
+[parking-system-57-幂等和错误分类]: ../design/parking-system.md#57-幂等和错误分类
+[parking-system-8-spatial-与-adapter]: ../design/parking-system.md#8-spatial-与-adapter
+[github-com-illusion-tech-laneflow-issues-1271]: https://github.com/illusion-tech/laneflow/issues/1271
+[github-com-illusion-tech-laneflow-issues-1321]: https://github.com/illusion-tech/laneflow/issues/1321
+[github-com-illusion-tech-laneflow-issues-1322]: https://github.com/illusion-tech/laneflow/issues/1322
+[lane-change-minimal-contract-3-承载形式裁定-a1-回写]: ../design/lane-change-minimal-contract.md#3-承载形式裁定-a1-回写
+[lane-change-minimal-contract-5-同拍联合求解与预约约束裁定-a3a4-回写核心]: ../design/lane-change-minimal-contract.md#5-同拍联合求解与预约约束裁定-a3a4-回写核心
+[lane-change-minimal-contract-6-能力检查裁定-a6-选项-3-回写]: ../design/lane-change-minimal-contract.md#6-能力检查裁定-a6-选项-3-回写
+[lane-change-minimal-contract-9-持久化与版本轴裁定-a5规范定义见-snapshot-衔接注记]: ../design/lane-change-minimal-contract.md#9-持久化与版本轴裁定-a5规范定义见-snapshot-衔接注记
+[lane-change-minimal-contract-10-排除能力限制与缺口]: ../design/lane-change-minimal-contract.md#10-排除能力限制与缺口
+[transition_visibility]: ../../crates/laneflow-runtime/src/kernel/tests/transition_visibility.rs
+[github-com-illusion-tech-laneflow-issues-1200]: https://github.com/illusion-tech/laneflow/issues/1200
+[traffic-runtime-snapshot-2-版本轴与绑定集]: ../design/traffic-runtime-snapshot.md#2-版本轴与绑定集
+[traffic-runtime-snapshot-5-保存与恢复]: ../design/traffic-runtime-snapshot.md#5-保存与恢复
+[traffic-runtime-snapshot-6-回放与确定性状态摘要]: ../design/traffic-runtime-snapshot.md#6-回放与确定性状态摘要
+[traffic-runtime-snapshot-9-runtime-snapshot-v7-的-g2-边界与必测义务]: ../design/traffic-runtime-snapshot.md#9-runtime-snapshot-v7-的-g2-边界与必测义务
+[snapshot]: ../../crates/laneflow-runtime/src/admin/snapshot.rs
+[github-com-illusion-tech-laneflow-issues-1217]: https://github.com/illusion-tech/laneflow/issues/1217
+[traffic-runtime-revision-cutover-3-迁移策略封闭种类选择器]: ../design/traffic-runtime-revision-cutover.md#3-迁移策略封闭种类选择器
+[traffic-runtime-revision-cutover-4-状态机]: ../design/traffic-runtime-revision-cutover.md#4-状态机
+[traffic-runtime-revision-cutover-7-原子晋升与共存]: ../design/traffic-runtime-revision-cutover.md#7-原子晋升与共存
+[traffic-runtime-revision-cutover-8-失败关闭故障映射]: ../design/traffic-runtime-revision-cutover.md#8-失败关闭故障映射
+[traffic-runtime-snapshot-7-跨修订迁移入口]: ../design/traffic-runtime-snapshot.md#7-跨修订迁移入口
+[cutover_migration]: ../../crates/laneflow-runtime/src/admin/cutover_migration.rs
+[traffic-observation-and-routing-integration-2-已提交交通观测]: ../design/traffic-observation-and-routing-integration.md#2-已提交交通观测
+[traffic-observation-and-routing-integration-3-动态成本快照]: ../design/traffic-observation-and-routing-integration.md#3-动态成本快照
+[traffic-observation-and-routing-integration-5-与-302-切换快照和回放的接缝]: ../design/traffic-observation-and-routing-integration.md#5-与-302-切换快照和回放的接缝
+[observation]: ../../crates/laneflow-runtime/src/facade/observation.rs
+[traffic-observation-and-routing-integration-1-产品选择与正本边界]: ../design/traffic-observation-and-routing-integration.md#1-产品选择与正本边界
+[traffic-observation-and-routing-integration-4-候选路线注册]: ../design/traffic-observation-and-routing-integration.md#4-候选路线注册
+[traffic-observation-and-routing-integration-41-统一路线边出现记录容量]: ../design/traffic-observation-and-routing-integration.md#41-统一路线边出现记录容量
+[traffic-observation-and-routing-integration-71-lf-routing-g2-linear-v1-首轮描述性证据]: ../design/traffic-observation-and-routing-integration.md#71-lf-routing-g2-linear-v1-首轮描述性证据
+[traffic-observation-and-routing-integration-72-lf-routing-candidate-lfsynth-v1-首轮确定性证据1267]: ../design/traffic-observation-and-routing-integration.md#72-lf-routing-candidate-lfsynth-v1-首轮确定性证据1267
+[traffic-observation-and-routing-integration-73-lf-routing-candidate-lfsynth-v1-墙钟与-tick-间隔干扰1279]: ../design/traffic-observation-and-routing-integration.md#73-lf-routing-candidate-lfsynth-v1-墙钟与-tick-间隔干扰1279
+[routing]: ../../crates/laneflow-runtime/src/facade/routing.rs
+[traffic-runtime-execution-config-2-公开-api]: ../design/traffic-runtime-execution-config.md#2-公开-api
+[traffic-runtime-execution-config-43-错误类型]: ../design/traffic-runtime-execution-config.md#43-错误类型
+[traffic-runtime-execution-config-6-格式与版本轴]: ../design/traffic-runtime-execution-config.md#6-格式与版本轴
+[traffic-runtime-parallel-execution-1-等价范围]: ../design/traffic-runtime-parallel-execution.md#1-等价范围
+[traffic-runtime-parallel-execution-3-首版阶段图与写入者]: ../design/traffic-runtime-parallel-execution.md#3-首版阶段图与写入者
+[traffic-runtime-parallel-execution-4-独立计算与规范消费接口]: ../design/traffic-runtime-parallel-execution.md#4-独立计算与规范消费接口
+[traffic-runtime-parallel-execution-6-p4-规范串行联合裁决]: ../design/traffic-runtime-parallel-execution.md#6-p4-规范串行联合裁决
+[config]: ../../crates/laneflow-runtime/src/kernel/config.rs
+[spatial-geometry-11-291300-共享空间路网已交付]: ../design/spatial-geometry.md#11-291300-共享空间路网已交付
+[spatial-geometry-6-长度正本与绑定]: ../design/spatial-geometry.md#6-长度正本与绑定
+[spatial-geometry-7-采样语义]: ../design/spatial-geometry.md#7-采样语义
+[adapter-api]: ../design/adapter-api.md
+[architecture-3-crate-依赖与所有权]: ../architecture.md#3-crate-依赖与所有权
+[session]: ../../crates/laneflow-spatial/src/session.rs
+[bevy-reference-adapter-2-版本工具链与依赖边界]: ../design/bevy-reference-adapter.md#2-版本工具链与依赖边界
+[bevy-reference-adapter-3-最终裁决职责与-session-边界]: ../design/bevy-reference-adapter.md#3-最终裁决职责与-session-边界
+[bevy-reference-adapter-4-fixed-schedule]: ../design/bevy-reference-adapter.md#4-fixed-schedule
+[bevy-reference-adapter-5-vehicle-与-entity-映射]: ../design/bevy-reference-adapter.md#5-vehicle-与-entity-映射
+[bevy-reference-adapter-6-canonical-frame-与-bevy-transform]: ../design/bevy-reference-adapter.md#6-canonical-frame-与-bevy-transform
+[bevy-reference-adapter-7-批量提取与原子-transform-提交]: ../design/bevy-reference-adapter.md#7-批量提取与原子-transform-提交
+[bevy-reference-adapter-16-修订绑定生命周期与维护暂停式切换534]: ../design/bevy-reference-adapter.md#16-修订绑定生命周期与维护暂停式切换534
+[laneflow-bevy-readme]: ../../crates/laneflow-bevy/README.md
+[src-session]: ../../crates/laneflow-bevy/src/session.rs
+[cross-section-access-62-target-平面与展开]: ../design/cross-section-access.md#62-target-平面与展开
+[access]: ../../crates/laneflow-compiler/src/hir/access.rs
+[github-com-illusion-tech-laneflow-issues-305]: https://github.com/illusion-tech/laneflow/issues/305
+[github-com-illusion-tech-laneflow-issues-306]: https://github.com/illusion-tech/laneflow/issues/306
+[roadmap-v010-验收结论]: ../roadmap.md#v010-验收结论
+[github-com-illusion-tech-laneflow-issues-305-issuecomment-6707563062]: https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6707563062
+[github-com-illusion-tech-laneflow-issues-305-issuecomment-6708446002]: https://github.com/illusion-tech/laneflow/issues/305#issuecomment-6708446002
+[github-com-illusion-tech-laneflow-issues-306-issuecomment-6729858464]: https://github.com/illusion-tech/laneflow/issues/306#issuecomment-6729858464
+[github-com-illusion-tech-laneflow-issues-1318]: https://github.com/illusion-tech/laneflow/issues/1318
+[github-com-illusion-tech-laneflow-issues-1323]: https://github.com/illusion-tech/laneflow/issues/1323

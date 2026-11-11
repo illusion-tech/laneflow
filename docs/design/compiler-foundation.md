@@ -29,10 +29,10 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - `compiler-budget-calibration.md`（#308 已关闭；证据在 git 历史）
 - `current-package-import.md`
 - `../reference/v0.10-compiler-production-baseline.md`
-- [G4 工作负载清单](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json)
-- [G4 R0 报告](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md)
-- [G4 R0 Evidence](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json)
-- [G4 R0 raw](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json)
+- [G4 工作负载清单][github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-compiler-calibration-workloads-v1-json]
+- [G4 R0 报告][github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-v0-10-compiler-budget-calibration-report-md]
+- [G4 R0 Evidence][github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-v0-10-compiler-budget-calibration-evidence-json]
+- [G4 R0 raw][github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-v0-10-compiler-budget-calibration-raw-json]
 - `../reference/glossary.md`
 
 ## 术语规范
@@ -353,7 +353,7 @@ pub struct CompilationUnit {
 文档”充当模块摘要，也不能让单文档模块把文档摘要与文档集摘要混为同一语义。
 
 **来源摘要的制品归类。** 按
-[ADR 0033 §9](../adr/0033-digest-role-and-algorithm-selection-authority.md)，下列来源追溯
+[ADR 0033 §9][0033-digest-role-and-algorithm-selection-authority]，下列来源追溯
 摘要随可移植规范制品家族保持 SHA-256。重放、缓存比较与来源链是用途，不代表摘要
 只在进程内存在；判定须追踪到实际持久化字段，不能据调用次数改选瞬态指纹或内部完整性
 摘要的默认算法。
@@ -368,8 +368,8 @@ pub struct CompilationUnit {
 | `frontendOptionsDigest`（模块描述符）               | LFSM `SourceModule` tag 7 `frontendOptionsDigest:Sha256`                                                                          | 保持 SHA-256                     |
 | 道路编辑来源的 `Provenance.frontend_options_digest` | 原值保存于 LFRE；与几何近似语义版本、精度和方向档位一起派生模块描述符的 `frontendOptionsDigest`，再写入 LFSM                      | 保持 SHA-256；原值与派生值不混同 |
 
-字段与原像以[可移植规范制品](portable-canonical-artifact.md) §3.7、§4.1、§6 和
-[道路编辑来源登记](../../schemas/road-editing/v4/README.md) §4 为准。逐文档摘要与文档集
+字段与原像以[可移植规范制品][portable-canonical-artifact] §3.7、§4.1、§6 和
+[道路编辑来源登记][v4-readme] §4 为准。逐文档摘要与文档集
 摘要直接写入 LFSM；LFCA 通过来源集合摘要绑定它们，不直接保存这两个字段。
 `compileOptionsDigest` 不由来源文档聚合产生，也不是生成器编制选项摘要。
 
@@ -703,7 +703,7 @@ verifier、主要规模上限、失败原子性或 canonical LIR 语义。
 
 #819 将该保守 ceiling 中的道路编辑结构部分按真实存储类型分类：外层声明、嵌套
 slice / Box 和临时 authoring 曲线分别计量，内嵌字段不重复当作完整声明预留；具体
-生命周期见[道路编辑正式接入](road-editing-source-and-geometry-frontend.md#97-来源位置与公共入口)。
+生命周期见[道路编辑正式接入][road-editing-source-and-geometry-frontend-97-来源位置与公共入口]。
 HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和 ManeuverGate 数量
 预留，哈希桶的保守倍率保持不变。此校准不改变任何配置档上限，也不替代 #374 的
 完整分配器与生命周期证据。
@@ -711,7 +711,7 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 道路编辑来源的借用预检索引也属于阶段 scratch：每次分配前核对请求容量、平台可表示性
 和与既有模块共同存续的总字节数；顺序释放的索引按峰值计入准入账本。预算不足时先
 返回预算诊断，预算充足时保留原字段首错顺序，具体规则见
-[道路编辑来源的内存边界](road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界)。
+[道路编辑来源的内存边界][road-editing-source-and-geometry-frontend-96-不可信输入与内存边界]。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取 G4 原始测量制品 `v0.10-compiler-budget-calibration-raw.json`（现仅存 git 历史
@@ -1345,3 +1345,13 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 642529→3211621 字节，保留容量恒为 0。完整紧凑证据与环境边界见
 `v0.10-compiler-production-baseline.md` 和配对 JSON。
 该结果成为后继同机生产回退对照，不是产品 SLA、城市容量或 #298 制品发射预算。
+
+[github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-compiler-calibration-workloads-v1-json]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json
+[github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-v0-10-compiler-budget-calibration-report-md]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md
+[github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-v0-10-compiler-budget-calibration-evidence-json]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json
+[github-com-illusion-tech-laneflow-blob-de4cd460a96415cafbd811141568b81f74d73534-docs-reference-v0-10-compiler-budget-calibration-raw-json]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
+[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[portable-canonical-artifact]: portable-canonical-artifact.md
+[v4-readme]: ../../schemas/road-editing/v4/README.md
+[road-editing-source-and-geometry-frontend-97-来源位置与公共入口]: road-editing-source-and-geometry-frontend.md#97-来源位置与公共入口
+[road-editing-source-and-geometry-frontend-96-不可信输入与内存边界]: road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界

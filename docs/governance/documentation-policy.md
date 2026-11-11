@@ -1,7 +1,7 @@
 # 文档边界政策
 
 **文档状态**: Active  
-**最后更新**: 2026-10-22
+**最后更新**: 2026-11-11
 **适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
 
 ## 1. 目标
@@ -182,7 +182,7 @@ B1 仍是未发布的内部 source。
 迁移；独立的产品、供应链安全校验和任务专项要求不因本节自动取消。证据清理默认走
 普通 PR，保留旧提交历史；重写 Git 历史另行取得明确授权。本规则适用于后续研究和
 今后的清理，不追补历史档案，也不要求将已有完整索引改成轻量格式。
-研究证据目录及历史归档入口见 [`research/README.md`](../../research/README.md)。
+研究证据目录及历史归档入口见 [`research/README.md`][research-readme]。
 
 ## 4. 决策回写规则
 
@@ -252,3 +252,39 @@ LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文
   正文必须以中文说明其规范语义。
 
 代码文档注释和开发者可读的模块说明默认使用中文，除非 API 生态、外部规范或工具字段明确需要英文。运行时错误信息、对外 API 命名语言可在后续专门 ADR 或 design 文档中另行约定；当前阶段默认与项目主要协作者语言一致，优先中文说明。注释的功能分层与 rustdoc 契约段落（`# Errors` / `# Panics`）规范见 `docs/reference/rust-code-style.md` §5，本政策不复制细节。
+
+## 7. 受检 Markdown 的链接写法
+
+默认文档检查范围内的 Markdown 必须使用页脚引用定义。同一文件内指向同一目标的引用共用一条定义，定义放在该文件末尾。
+
+默认范围与 `xtask check-docs` 不带路径参数时的来源一致：
+
+- 仓库根目录的 `README.md`、`CONTRIBUTING.md`、`AGENTS.md`
+- `docs/**/*.md`
+- `.agents/**/*.md`
+- `.cursor/skills/**/SKILL.md`
+- `crates/*/README.md`
+- `tools/*/README.md`
+- `schemas/**/*.md`
+- `.github/*.md`（只含该目录下一层的 Markdown，不递归其中的 fixture）
+- `research/README.md`（不递归研究历史、fixture 或 evidence）
+
+行内链接、行内图片和自动链接都不允许。`[文字][标]`、`[文字][]` 和已经定义的 shortcut `[文字]` 都可以；图片写作 `![说明][标]`。代码围栏里的示例只用于说明写法，不视为正文中的链接。
+
+允许：
+
+```markdown
+见 [文档边界政策][documentation-policy]。
+
+[documentation-policy]: ../governance/documentation-policy.md
+```
+
+不允许：
+
+```markdown
+[文字](../governance/documentation-policy.md)
+![说明](image.png)
+<https://example.com>
+```
+
+[research-readme]: ../../research/README.md

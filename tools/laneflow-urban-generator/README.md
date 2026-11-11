@@ -2,7 +2,7 @@
 
 本工具编译路网、构建共享静态路网、安装空世界和注册路线，不生成活跃车辆。这里的规模是后续
 需求计划的名义个体数。二进制按已接受的
-[城市工作负载设计](../../docs/design/chinese-style-city-workload.md) §3.2 生成多车道模板。
+[城市工作负载设计][chinese-style-city-workload] §3.2 生成多车道模板。
 七项行为验证由 #544 交付，Adapter、保存/恢复及固定增容变体由 #545 交付，产品认证由
 #539 / #305 负责。
 
@@ -48,7 +48,7 @@ manifest 与摘要基线。正式两档的报告在 `fixtures/v1/10k`、`fixture
 ## 正式模板与连接规则
 
 本节描述当前二进制输出的模板，规范细节在
-[城市工作负载设计](../../docs/design/chinese-style-city-workload.md) §3.2。配置标识、
+[城市工作负载设计][chinese-style-city-workload] §3.2。配置标识、
 fixture 和本节一起替换单车道模板，不保留旧模板开关。
 
 `examples/config/cn-urban.toml` 将固定 `connected-cn-urban-v2`、十个模板槽、按车道序号的
@@ -139,3 +139,5 @@ CLI 的分配器观测按阶段记录分配调用数、累计请求字节和净�
 
 本工具只依赖工作区 crate 和锁文件已有版本的 serde、sha2、thiserror、toml、tempfile、
 stats_alloc；统计分配器只安装在 CLI，不进入 Runtime 固定步进或引擎适配器。
+
+[chinese-style-city-workload]: ../../docs/design/chinese-style-city-workload.md

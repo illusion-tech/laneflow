@@ -170,7 +170,7 @@ capability 只在三个来源句柄都可克隆时实现 `Clone`，不要求 `Co
 `canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致，Genesis target 合同行须与 LFCA
 一致。
 `NetworkRevisionId` 仍按
-[`portable-canonical-artifact.md` §3.8](portable-canonical-artifact.md#38-路网修订标识) 的 v1 算法重算
+[`portable-canonical-artifact.md` §3.8][portable-canonical-artifact-38-路网修订标识] 的 v1 算法重算
 （派生版本保持 `1`）。公开入口不带世代后缀。详见 ADR 0028。
 
 LFSD 4 策略增量另由 compiler 的 `check_portable_policy_diff` 从实际 base/target
@@ -328,7 +328,7 @@ unknown/future 值，也不能由 `publisherBuildId` 推断种类。
 - 不存在 `ValidationReceiptBinding`、`receiptObjectKey` 或 LFSD binding。
 
 LFCP v2 exact bytes 由新的
-[`LFCP-MIN-BINDINGS`](../../crates/laneflow-compiler/tests/fixtures/portable/lfcp-min-bindings/README.md)
+[`LFCP-MIN-BINDINGS`][lfcp-min-bindings-readme]
 固定向量覆盖。
 
 ### 8.1 v1 处置
@@ -427,3 +427,6 @@ file-backed LFCA 必须可直接构造现有 `SharedNetworkRevision`。
 - 共享静态构建必须依赖新的语义能力而非本设计的 checked view；
 - 实现需要完整身份、图语义或 LFSD 重建才能满足验收；
 - 需要改变 LFCA 5 / LFSM 4 / LFSD 4 wire，而不仅是 LFCP 2。
+
+[portable-canonical-artifact-38-路网修订标识]: portable-canonical-artifact.md#38-路网修订标识
+[lfcp-min-bindings-readme]: ../../crates/laneflow-compiler/tests/fixtures/portable/lfcp-min-bindings/README.md

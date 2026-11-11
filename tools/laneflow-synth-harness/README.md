@@ -1,8 +1,8 @@
 # LF-SYNTH 执行核验
 
-消费 [`laneflow-synth-generator`](../laneflow-synth-generator/README.md) 的正式四文件
-输入。交通合同来自 [性能基线 §4](../../docs/design/core-runtime-performance-baseline.md)，
-消费及证据编码见 [执行核验设计](../../docs/design/lf-synth-execution.md)。
+消费 [`laneflow-synth-generator`][laneflow-synth-generator-readme] 的正式四文件
+输入。交通合同来自 [性能基线 §4][core-runtime-performance-baseline]，
+消费及证据编码见 [执行核验设计][lf-synth-execution]。
 
 ## 运行
 
@@ -87,7 +87,7 @@ worker 之和不超过 32。它只核验语义，不采集延迟或加速比。
 
 该矩阵只覆盖标称输入和成功路径。非标称交叉组合、强制调度置换、跨 worker
 失败/重试、快照恢复、Routing、表现接线与完整五轴仍需各自证据，不能把相等结果
-写成产品认证。具体比较与证据边界见[执行设计 §7](../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照)。
+写成产品认证。具体比较与证据边界见[执行设计 §7][lf-synth-execution-7-标称矩阵的跨-worker-对照]。
 
 `worker-retry-matrix` 覆盖一万/16 ms、十万/33 ms 的 W3/W4 四个标称身份。
 它先由普通工具二进制生成四个完整单 worker 正常参考，再调用同一实现的 optimized
@@ -110,15 +110,15 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 从干净冻结检出构建、复制至仓库外并记录身份；不根据文件名猜测构建来源。
 两类二进制都在矩阵前后核对 SHA-256。输出目录必须全新；首错停止新启动并保留
 已启动材料，不补跑拼接。此入口不采集性能，不证明其他 failpoint、多错误首错、
-强制调度置换或快照解码恢复；详见[执行设计 §8](../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试)。
+强制调度置换或快照解码恢复；详见[执行设计 §8][lf-synth-execution-8-标称-w3w4-的跨-worker-失败与重试]。
 
 ## 表现与测量
 
 完整矩阵、独立原始数据复核、数值预算缺口与资源口径见
-[LF-SYNTH-v2 表现与测量报告](../../research/issue-1166-lf-synth-measurement/README.md)。
+[LF-SYNTH-v2 表现与测量报告][issue-1166-lf-synth-measurement-readme]。
 该报告是冻结源码的研究结果，保留产品未认证边界。
 
-接线遵循 [LF-SYNTH 测量设计](../../docs/design/lf-synth-measurement.md)。同一提交的
+接线遵循 [LF-SYNTH 测量设计][lf-synth-measurement]。同一提交的
 `measure` 使用真实 Bevy Session/Plugin、Spatial 与 Transform；W2 只调用 Traffic Runtime。
 固定选择绑定 logical rank，Completed 暂时没有来源，despawn/spawn 与原子替换
 复用同一 Entity。完整批次预检成功后才写入所有 Transform。
@@ -216,7 +216,7 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
 ## 快照恢复与继续运行
 
 正式矩阵、独立文件复核与覆盖边界见
-[LF-SYNTH-v2 快照恢复核验报告](../../research/issue-1197-lf-synth-restore/README.md)。
+[LF-SYNTH-v2 快照恢复核验报告][issue-1197-lf-synth-restore-readme]。
 
 ```text
 laneflow-synth-harness restore-probe <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
@@ -239,7 +239,7 @@ laneflow-synth-harness restore-run <input-directory> <implementation-commit> <wo
 `source_clean=true`、`rustc_vv`、`cargo_version`、`target`、`build_command`。
 目录必须全新；首错停止新启动、收集已启动进程，不自动补跑。输出保留两份 LFRS、
 两份宿主检查点、完整参考与恢复后缀、分阶段耗时、SHA-256 文件身份及汇总。
-原始材料与副本留仓库外。完整规则见[执行设计 §9](../../docs/design/lf-synth-execution.md)。
+原始材料与副本留仓库外。完整规则见[执行设计 §9][lf-synth-execution]。
 
 ## 回归命令
 
@@ -251,3 +251,12 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 默认测试覆盖两步长相位边界、正式一万人口初始化与短序列、错误状态拒绝、重复
 到达/预约拒绝、屏障与窗口边界、输入顺序摘要、输出保留、轨迹/检查点/重试证明
 篡改比较和并发子进程失败收集。长窗口与正式失败重试由上述三个矩阵入口显式执行。
+
+[laneflow-synth-generator-readme]: ../laneflow-synth-generator/README.md
+[core-runtime-performance-baseline]: ../../docs/design/core-runtime-performance-baseline.md
+[lf-synth-execution]: ../../docs/design/lf-synth-execution.md
+[lf-synth-execution-7-标称矩阵的跨-worker-对照]: ../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照
+[lf-synth-execution-8-标称-w3w4-的跨-worker-失败与重试]: ../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试
+[issue-1166-lf-synth-measurement-readme]: ../../research/issue-1166-lf-synth-measurement/README.md
+[lf-synth-measurement]: ../../docs/design/lf-synth-measurement.md
+[issue-1197-lf-synth-restore-readme]: ../../research/issue-1197-lf-synth-restore/README.md

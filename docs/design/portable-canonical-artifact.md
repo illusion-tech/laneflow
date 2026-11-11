@@ -6,20 +6,20 @@
 失败关闭与格式安全天花板<br>
 **关联决策与设计**:
 
-- [`../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`](../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)
-- [`../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`](../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md)
-- [`../adr/0025-checked-canonical-network-and-shared-static-network.md`](../adr/0025-checked-canonical-network-and-shared-static-network.md)
-- [`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)
-- [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)
-- [`parking-system.md`](parking-system.md)
-- [`network-compiler.md`](network-compiler.md)
-- [`compiler-post-emission-check-and-minimal-publication-closure.md`](compiler-post-emission-check-and-minimal-publication-closure.md)
-- [`shared-static-network.md`](shared-static-network.md)
+- [`../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`][0010-parking-binding-and-vehicle-lifecycle-authority]
+- [`../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`][0024-compiler-post-emission-check-and-minimal-publication-closure]
+- [`../adr/0025-checked-canonical-network-and-shared-static-network.md`][0025-checked-canonical-network-and-shared-static-network]
+- [`../adr/0028-integer-millimeter-traffic-geometry.md`][0028-integer-millimeter-traffic-geometry]
+- [`../adr/0029-retire-precompiled-static-route.md`][0029-retire-precompiled-static-route]
+- [`parking-system.md`][parking-system]
+- [`network-compiler.md`][network-compiler]
+- [`compiler-post-emission-check-and-minimal-publication-closure.md`][compiler-post-emission-check-and-minimal-publication-closure]
+- [`shared-static-network.md`][shared-static-network]
 
 ## 1. 规范结论
 
 LFCA 5 的策略表和机动方向按
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §4.1 登记。
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §4.1 登记。
 该实施合同 §4.3、§4.4、§8 还约束 LFSD 4、LFSM 4 与运行时的整体升级；单个格式
 登记不代表策略编制、共享静态路网或冲突裁决已经交付，完整组合必须按该合同原子发布。
 
@@ -713,8 +713,8 @@ Identity 原像中重复表达的所有权或边界语义必须与实体行严�
 `FacilityBand.kindId` 只允许 `sidewalk`、`median`、`plantingStrip`、`facilityStrip`、
 `shoulder` 或 `x-` 加非空后缀，但 `x-lane-` 仍属于 RoadSection。两者都先通过非空 ASCII
 token 语法。整数毫米、停车、VehicleProfile 与信号计时的逐字段闭包以
-[`traffic-runtime-integer-geometry.md`](traffic-runtime-integer-geometry.md) 和
-[`numeric-representation.md`](numeric-representation.md) 的现行表为准，LFCA reader
+[`traffic-runtime-integer-geometry.md`][traffic-runtime-integer-geometry] 和
+[`numeric-representation.md`][numeric-representation] 的现行表为准，LFCA reader
 必须执行同一闭包；这些引用不是只约束编译输入。特别地：边长 `100..=10000000 mm`、
 限速 `1..=100000 mm/s`、停车 progress 相对提交后边长两端各留 1 mm、存储 `+π` 非法、
 所有信号 duration/cycle checked sum 与 offset 均受 `9007199254740991 ms` 上限约束。
@@ -1020,7 +1020,7 @@ NetworkRevisionIdV1 := SHA-256(
 ## 4. LFSM 4
 
 #284 的 LFSM 4 完整登记见
-[`traffic-runtime-right-of-way-policy.md` §4.4](traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合)：
+[`traffic-runtime-right-of-way-policy.md` §4.4][traffic-runtime-right-of-way-policy-44-lfsm-4-来源编码与闭合]：
 包含 Road Editing v4 container/member、来源关系代码、policy 与局部成员的主来源和
 贡献来源投影。格式层提供 `ValidatedSourceMapInput::policy_sources()` 和独立
 `check_portable_policy_sources`；两个正式前端的非空策略生产由 W2 接续。
@@ -1145,7 +1145,7 @@ SHA-256(
 3=OwnerLocal`；`occurrenceKind` 固定为 `0=OrderedProductOrdinal,
 1=CanonicalSetOrdinal`；`stepKind` 固定为 `0=TableField, 1=StructMember,
 2=UnionVariant`。Road Editing 的 container/member 闭合集以 Road Editing v4 schema 和
-[`road-editing-source-and-geometry-frontend.md`](road-editing-source-and-geometry-frontend.md)
+[`road-editing-source-and-geometry-frontend.md`][road-editing-source-and-geometry-frontend]
 冻结的 property-path 登记为准，LFSM 不接受未登记的自由组合。
 
 `ownerKind = 0 ModuleHeader / 1 Address`。`roadEditingRelationKind` 是 LFSM 自己的封闭代码，
@@ -1496,7 +1496,7 @@ LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 5 exact bytes，再暴露任一
 
 LFSD 4 新增策略局部成员变更节，完整行字段、成员值编码、排序、
 Genesis/Artifact 操作与双端闭合见
-[`traffic-runtime-right-of-way-policy.md` §4.3](traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更)
+[`traffic-runtime-right-of-way-policy.md` §4.3][traffic-runtime-right-of-way-policy-43-lfsd-4-策略局部成员变更]
 ；前六节延续下述合同，第七节按该实施合同唯一登记，不保留 LFSD 3 读写入口。
 
 `magic = "LFSD"`，`semanticDiffFormatVersion = 4`。七节和各自唯一的表为：
@@ -1882,7 +1882,7 @@ LaneFlow 顺序固定为：关闭 LFCA/LFSM/LFSD 候选 → 对最终 bytes 做�
 持久化与认证这些 exact bytes；内容仓库、atomic no-replace、winner 和目录持久化不属于本
 wire 或 compiler/format 核心合同。加载方仍须按受认证 LFCP/宿主描述符重新验证收到的 bytes。
 职责边界见
-[`compiler-post-emission-check-and-minimal-publication-closure.md` §9](compiler-post-emission-check-and-minimal-publication-closure.md#9-宿主持久化与原子边界)。
+[`compiler-post-emission-check-and-minimal-publication-closure.md` §9][compiler-post-emission-check-and-minimal-publication-closure-9-宿主持久化与原子边界]。
 
 ## 7. 格式安全天花板
 
@@ -1958,7 +1958,7 @@ bytes 和对象摘要相应变化。不得为了制造伪 exact-byte 相等而�
 
 三档 official source 编译都必须显式选择
 `LF-COMP-SINGLE-NETWORK-1M-v2`，其精确有限向量见
-[`compiler-foundation.md` §5.3](compiler-foundation.md#53-编译资源上限)。一百万档必须在
+[`compiler-foundation.md` §5.3][compiler-foundation-53-编译资源上限]。一百万档必须在
 `max_stable_entity_count = 1000000` 内完成真实 compiler/emitter；手工拼装 LFCA、只运行
 reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构成该容量证据。大型配置档
 只控制失败关闭资源上限，emitter 的 LFCA/LFSM/LFSD 必须落入 sealed closed staged file；
@@ -2016,3 +2016,21 @@ base-target 错配和所有 hard-limit `+1`。staging 矩阵在 write、patch、
 领域 Runtime 行为不属于本公共格式合同；实现不得顺带引入 Waiting admission、
 ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订规范设计，
 不能让实现细节成为第二套事实来源。
+
+[0010-parking-binding-and-vehicle-lifecycle-authority]: ../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md
+[0024-compiler-post-emission-check-and-minimal-publication-closure]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[0025-checked-canonical-network-and-shared-static-network]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
+[0028-integer-millimeter-traffic-geometry]: ../adr/0028-integer-millimeter-traffic-geometry.md
+[0029-retire-precompiled-static-route]: ../adr/0029-retire-precompiled-static-route.md
+[parking-system]: parking-system.md
+[network-compiler]: network-compiler.md
+[compiler-post-emission-check-and-minimal-publication-closure]: compiler-post-emission-check-and-minimal-publication-closure.md
+[shared-static-network]: shared-static-network.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
+[numeric-representation]: numeric-representation.md
+[traffic-runtime-right-of-way-policy-44-lfsm-4-来源编码与闭合]: traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
+[road-editing-source-and-geometry-frontend]: road-editing-source-and-geometry-frontend.md
+[traffic-runtime-right-of-way-policy-43-lfsd-4-策略局部成员变更]: traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更
+[compiler-post-emission-check-and-minimal-publication-closure-9-宿主持久化与原子边界]: compiler-post-emission-check-and-minimal-publication-closure.md#9-宿主持久化与原子边界
+[compiler-foundation-53-编译资源上限]: compiler-foundation.md#53-编译资源上限

@@ -7,16 +7,16 @@
 
 **关联文档**:
 
-- [ADR 0019](../adr/0019-waiting-zone-conflict-right-of-way-authority.md)
-- [ADR 0021](../adr/0021-traffic-infrastructure-and-host-boundary.md)
-- [联合仲裁合同](waiting-zone-conflict-right-of-way.md)
-- [路权策略实施合同](traffic-runtime-right-of-way-policy.md)
-- [Adapter API](adapter-api.md)
-- [Bevy Reference Adapter](bevy-reference-adapter.md)
-- [性能基线](core-runtime-performance-baseline.md)
-- [中国城市工作负载](chinese-style-city-workload.md)
-- [需求与无界面验证](urban-demand-harness.md)
-- [后发射检查与最小发布闭合](compiler-post-emission-check-and-minimal-publication-closure.md)
+- [ADR 0019][0019-waiting-zone-conflict-right-of-way-authority]
+- [ADR 0021][0021-traffic-infrastructure-and-host-boundary]
+- [联合仲裁合同][waiting-zone-conflict-right-of-way]
+- [路权策略实施合同][traffic-runtime-right-of-way-policy]
+- [Adapter API][adapter-api]
+- [Bevy Reference Adapter][bevy-reference-adapter]
+- [性能基线][core-runtime-performance-baseline]
+- [中国城市工作负载][chinese-style-city-workload]
+- [需求与无界面验证][urban-demand-harness]
+- [后发射检查与最小发布闭合][compiler-post-emission-check-and-minimal-publication-closure]
 
 ## 1. 决策与边界
 
@@ -154,7 +154,7 @@ F2 默认关闭的调试 overlay（静态 Gate 标记、Waiting 区间 ribbon、
 `deterministic_state_digest` 与每拍 transition／决策摘要一致；同测覆盖车辆
 Transform 推进与足够拍数后的非空决策批次。面板与标注的可见文本受 bevy 内嵌
 ASCII 字体限制使用精确英文标识符；实现与纪律见
-[Bevy Reference Adapter §8](bevy-reference-adapter.md)。
+[Bevy Reference Adapter §8][bevy-reference-adapter]。
 
 ## 5. 有限正确性矩阵
 
@@ -243,3 +243,14 @@ API／格式影响、实际测量与未测量项；不另设长期取证或认�
 如果发现求解语义缺口，转回相应 owner 的设计与实现边界；不得以调试色彩、隐藏车辆、
 修改呈现比例或减少需求让错误不可见。普通 review、required checks 与 Merge Queue
 继续按现行治理；不恢复 G3/G4、Gate Ledger 或第二套合并授权。
+
+[0019-waiting-zone-conflict-right-of-way-authority]: ../adr/0019-waiting-zone-conflict-right-of-way-authority.md
+[0021-traffic-infrastructure-and-host-boundary]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[adapter-api]: adapter-api.md
+[bevy-reference-adapter]: bevy-reference-adapter.md
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[chinese-style-city-workload]: chinese-style-city-workload.md
+[urban-demand-harness]: urban-demand-harness.md
+[compiler-post-emission-check-and-minimal-publication-closure]: compiler-post-emission-check-and-minimal-publication-closure.md

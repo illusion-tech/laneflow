@@ -7,10 +7,10 @@
 
 **关联文档**:
 
-- [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-- [`spatial-geometry.md`](spatial-geometry.md)
-- [`../governance/dependency-security.md`](../governance/dependency-security.md)
-- [#224 当前 G1 纠偏冻结判断](https://github.com/illusion-tech/laneflow/issues/224#issuecomment-5078718717)
+- [`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
+- [`spatial-geometry.md`][spatial-geometry]
+- [`../governance/dependency-security.md`][dependency-security]
+- [#224 当前 G1 纠偏冻结判断][github-com-illusion-tech-laneflow-issues-224-issuecomment-5078718717]
 
 ## 1. 目的、状态与声明边界
 
@@ -45,8 +45,8 @@ harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实�
   交通代表性。
 
 v0.8 Signalized Corridor 的 50–200 车辆 native reference 场景仍由
-[`example-scenarios.md`](example-scenarios.md) 和
-[`signalized-corridor-population.md`](signalized-corridor-population.md) 管理。它
+[`example-scenarios.md`][example-scenarios] 和
+[`signalized-corridor-population.md`][signalized-corridor-population] 管理。它
 验证 production loader、Signals、人口与回流闭环，不承担本文一万真实路网
 workload 的规模或代表性职责。
 
@@ -216,7 +216,7 @@ fail closed 回到 #224 G1。
   声明转移为**次选**，仅在严格语义（`from_lane == 到达 lane`）失败时启用，
   不改变既有成功选择与上条 lexicographic 顺序；无声明处语义与旧合同逐字一致
   （旧输入零新拒绝）。过渡材料的承载形式、占用投影与能力检查见
-  [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md)。
+  [`lane-change-minimal-contract.md`][lane-change-minimal-contract]。
 - 相同 lane occurrence sequence 可归一化为同一个 route catalog entry，但 source
   record 仍保存自己的 stable `population_rank`、profile 和 route reference。
 
@@ -383,7 +383,7 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 > **实现状态（边内换道，另立 issue 跟踪）**：当前 pinned 基线上 routes 阶段
 > 整体受阻——§3.1 车道级展开（`can_complete`）禁止边内换道，而 SUMO DUE
 > route 为道路级、真实走法依赖边内换道，v2 入选人口中 9,344 条不可展开，见
-> [人口迁移与诊断基线](../../research/issue-1053-lust-population-v2/README.md)。
+> [人口迁移与诊断基线][issue-1053-lust-population-v2-readme]。
 > 这是**实现语义缺口而非契约否定**：
 > §4 契约语义不变；修复落地前 CLI 不产出 `routes.toml`。
 
@@ -391,7 +391,7 @@ source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯
 
 ### 4.1 排序摘要的角色与算法
 
-本用途属于 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md) 的
+本用途属于 [ADR 0033][0033-digest-role-and-algorithm-selection-authority] 的
 **确定性派生摘要（deterministic derivation digest）**。重建方为 LaneFlow 转换器与
 工作负载构建流程，持久化范围是共享人口表、报告及由其派生的工作负载输入。
 排序主键不充当车辆身份，不以主键相等证明 ID 或内容相同。
@@ -409,7 +409,7 @@ key = XXH3_64bits_withSeed(preimage, seed = 0)
 order = (key as unsigned u64 ascending, original vehicle-ID bytes lexicographic)
 ```
 
-算法以 [xxHash v0.8.3 参考实现](https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h)
+算法以 [xxHash v0.8.3 参考实现][github-com-cyan4973-xxhash-blob-e626a72bc2321cd320e953a0ccf1584cad60f363-xxhash-h]
 的 `XXH3_64bits_withSeed` 为定义，使用标准 192 字节 `XXH3_kSecret`，禁止替换 secret、
 加入运行时随机 seed 或用 XXH64 / XXH3-128 代替。`\0` 是单个 `0x00` 字节；前缀为
 27 字节，之后恰好一个变长 ID 字段，不加长度字段、终止零或其他分隔符。不得使用
@@ -423,7 +423,7 @@ Rust `Hash` trait 的对象编码或机器原生结构体内存作为原像。
 字节一致性，与派生算法独立。该 workload 不提供参与者自由提交 ID 的公平抽签服务，
 不承诺不可预测性或抗操纵；若引入此类输入边界，须另行设计，不能仅换一个哈希名称。
 
-[固定输入实验](../../research/issue-1029-lust-digest/xxh3-review.md)在保留旧原像的
+[固定输入实验][xxh3-review]在保留旧原像的
 对照中测得 XXH3 的候选哈希快约 11–12 倍、每批节省约 0.41–0.43 ms，但未证明
 转换器整体提速。此处选择 XXH3 的依据是角色匹配及有证据的单项收益；占比小与
 一次性重建成本不单独否决迁移。该实验没有使用本节的新域前缀，其 559 条人口替换
@@ -435,7 +435,7 @@ Rust `Hash` trait 的对象编码或机器原生结构体内存作为原像。
 provenance；不改制品完整性算法或 `SemanticConfig` 的执行侧隔离规则。
 
 LuST/Bevy 示例的 seeded 无放回抽样另由
-[`lust-bevy-population-control.md`](lust-bevy-population-control.md) §4 约束，不替代
+[`lust-bevy-population-control.md`][lust-bevy-population-control] §4 约束，不替代
 这里的共享人口选取规则。
 
 ### 4.2 固定派生测试向量
@@ -792,7 +792,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 | 任务     | 交付                                                                                                          | 依赖/边界                                                                                                                                                                          |
 | -------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`](../../tools/laneflow-lust-converter/)；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
+| A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`][laneflow-lust-converter]；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
 | B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                             |
 | C        | DEMAND caller policy、plan、harness 与 evidence                                                               | 依赖 A                                                                                                                                                                             |
 | D        | DUA rerouting                                                                                                 | 独立 G1/ADR 判断                                                                                                                                                                   |
@@ -804,7 +804,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 | 任务     | 交付                               | 依赖/边界                                                                                |
 | -------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
+| H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`][lust-bevy-population-control] |
 | I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 正本）与 H 的契约；C/DEMAND 仍可选           |
 
 本文不改变 Traffic Runtime API、Data format、Spatial API、Adapter API、production runtime
@@ -814,3 +814,17 @@ behavior 或 crate dependency direction，也不新增 ADR。
 Parking 合成、感应信号、rerouting、bus stop、partition/scheduler 或新的 Spatial
 frame contract，必须停止对应任务类别并完成独立 G1；满足 ADR 触发条件时先写 ADR，再
 进入实现。
+
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[spatial-geometry]: spatial-geometry.md
+[dependency-security]: ../governance/dependency-security.md
+[github-com-illusion-tech-laneflow-issues-224-issuecomment-5078718717]: https://github.com/illusion-tech/laneflow/issues/224#issuecomment-5078718717
+[example-scenarios]: example-scenarios.md
+[signalized-corridor-population]: signalized-corridor-population.md
+[lane-change-minimal-contract]: lane-change-minimal-contract.md
+[issue-1053-lust-population-v2-readme]: ../../research/issue-1053-lust-population-v2/README.md
+[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[github-com-cyan4973-xxhash-blob-e626a72bc2321cd320e953a0ccf1584cad60f363-xxhash-h]: https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h
+[xxh3-review]: ../../research/issue-1029-lust-digest/xxh3-review.md
+[lust-bevy-population-control]: lust-bevy-population-control.md
+[laneflow-lust-converter]: ../../tools/laneflow-lust-converter/

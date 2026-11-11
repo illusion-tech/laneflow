@@ -14,7 +14,7 @@
 check_canonical_network_input → build_shared_network_revision → Arc<SharedNetworkRevision>
 ```
 
-无窗口示例使用 `SpatialBuildOption::Omit`，再把得到的修订交给 `TrafficWorld::install`。完整命令和实跑输出见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+无窗口示例使用 `SpatialBuildOption::Omit`，再把得到的修订交给 `TrafficWorld::install`。完整命令和实跑输出见[从源码接入无窗口交通运行时][source-integration]。
 
 ## 主要约束与限制
 
@@ -34,7 +34,12 @@ cargo +1.99.1 test --locked -p laneflow-static-network
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [共享静态路网](../../docs/design/shared-static-network.md)
-- [交通运行时共享消费](../../docs/design/traffic-runtime-shared-consumption.md)
-- [当前能力与限制 · 编译与加载](../../docs/reference/capabilities.md#编译与加载)
+- [从源码接入无窗口交通运行时][source-integration]
+- [共享静态路网][shared-static-network]
+- [交通运行时共享消费][traffic-runtime-shared-consumption]
+- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[shared-static-network]: ../../docs/design/shared-static-network.md
+[traffic-runtime-shared-consumption]: ../../docs/design/traffic-runtime-shared-consumption.md
+[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载

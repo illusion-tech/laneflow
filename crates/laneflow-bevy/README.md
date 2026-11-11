@@ -8,7 +8,7 @@ LaneFlow 的 Bevy 0.20 Reference Adapter。它负责窗口、实体和变换，�
 
 宿主在第一次 `App::update` 之前安装 Bevy `TimePlugin`（或包含它的 plugin group），并插入一个 `LaneFlowSession`。本 crate 不修改 Bevy `Time<Fixed>`，也不替宿主重复安装时间插件。固定步进仍由交通运行时执行；Adapter 按自己的 accumulator 决定一次外帧里步进几次，再提取已经提交的位姿。
 
-交通需求、路线选择和引擎生命周期属于宿主。无窗口接入不需要本 crate，见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+交通需求、路线选择和引擎生命周期属于宿主。无窗口接入不需要本 crate，见[从源码接入无窗口交通运行时][source-integration]。
 
 ## 最小使用入口
 
@@ -40,7 +40,7 @@ fn install(app: &mut App, world: TrafficWorld, spatial: Option<SpatialSession>) 
 - `LaneFlowSession::{cross_revision_cutover, same_revision_restore}` 是同步的维护暂停式切换，不是低停顿在线切换。`LaneFlowTargetSpatial::Headless` 是显式改成无 Spatial 的唯一形态。
 - 走廊示例的 `toml` 和 smoke 用的 `bevy_math` 是 dev-dependency，不进入 `laneflow-bevy` 的生产依赖图。
 
-阶段顺序、批量提取和切换的完整合同见[Bevy 设计](../../docs/design/bevy-reference-adapter.md)。历史 debug gizmo 占位 API 已删除（[#473](https://github.com/illusion-tech/laneflow/issues/473)）。
+阶段顺序、批量提取和切换的完整合同见[Bevy 设计][bevy-reference-adapter]。历史 debug gizmo 占位 API 已删除（[#473][github-com-illusion-tech-laneflow-issues-473]）。
 
 ## 示例与验证
 
@@ -100,12 +100,20 @@ cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example
 ```
 
 完整 C01–C13 验收、确定性出图与独立无窗口摘要对照见
-[Bevy 设计 §15](../../docs/design/bevy-reference-adapter.md#15-corridor_traffic-验收矩阵)。
+[Bevy 设计 §15][bevy-reference-adapter-15-corridor_traffic-验收矩阵]。
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [Bevy 设计](../../docs/design/bevy-reference-adapter.md)
-- [当前能力与限制 · Bevy 接入](../../docs/reference/capabilities.md#bevy-接入)
-- [`laneflow-runtime`](../laneflow-runtime/README.md)
-- [`laneflow-spatial`](../laneflow-spatial/README.md)
+- [从源码接入无窗口交通运行时][source-integration]
+- [Bevy 设计][bevy-reference-adapter]
+- [当前能力与限制 · Bevy 接入][capabilities-bevy-接入]
+- [`laneflow-runtime`][laneflow-runtime-readme]
+- [`laneflow-spatial`][laneflow-spatial-readme]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[bevy-reference-adapter]: ../../docs/design/bevy-reference-adapter.md
+[github-com-illusion-tech-laneflow-issues-473]: https://github.com/illusion-tech/laneflow/issues/473
+[bevy-reference-adapter-15-corridor_traffic-验收矩阵]: ../../docs/design/bevy-reference-adapter.md#15-corridor_traffic-验收矩阵
+[capabilities-bevy-接入]: ../../docs/reference/capabilities.md#bevy-接入
+[laneflow-runtime-readme]: ../laneflow-runtime/README.md
+[laneflow-spatial-readme]: ../laneflow-spatial/README.md

@@ -80,7 +80,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 ## 规则
 
 - 新实现默认使用 Rust；任何拟新增或修改的非 Rust 代码（纯删除除外）必须先完成
-  [`docs/governance/code-language-policy.md`](../../../docs/governance/code-language-policy.md)
+  [`docs/governance/code-language-policy.md`][code-language-policy]
   的代码语言立项审查。研究、测试、CI 和嵌入脚本均按该唯一事实来源执行，Agent 不得自行豁免。
 
 - 研究与实验类变更只把结论报告和复现输入提交到 `research/`：逐区间或逐样本测量、
@@ -139,3 +139,5 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 - 文档是否更新或为何无需更新
 - 剩余风险或后续 Issue
 - PR 合并路径（默认 Merge Queue，队列最终 Rebase）与 `H_pr/H_mg/H_main` 状态
+
+[code-language-policy]: ../../../docs/governance/code-language-policy.md

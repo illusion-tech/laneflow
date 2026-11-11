@@ -4,7 +4,7 @@
 **最后更新**: 2026-11-11
 
 本文是操作性接入教程。它引用仓库里的真实示例，不替代
-[架构说明](../architecture.md)、[当前能力与限制](../reference/capabilities.md)
+[架构说明][architecture]、[当前能力与限制][capabilities]
 或任何 design / ADR。
 
 ## 适用范围
@@ -13,8 +13,8 @@
 当前工作区 crate 都是 `0.0.0` 且 `publish = false`，只支持从源码集成。这里不承诺可以从
 registry 安装，也不把仓库相对路径写成安装后仍然有效。外部 registry 消费示例不在本教程范围内。
 
-产品定位和六个 Bevy 示例见[仓库首页](../../README.md)。使用条件、拒绝情形和证据范围见
-[当前能力与限制](../reference/capabilities.md)。首次 Alpha 的范围、稳定性、平台和
+产品定位和六个 Bevy 示例见[仓库首页][readme]。使用条件、拒绝情形和证据范围见
+[当前能力与限制][capabilities]。首次 Alpha 的范围、稳定性、平台和
 公开支持矩阵不在这里写。
 
 可移植对象的现行版本是 LFCA 5 / LFSM 4 / LFSD 4 / LFCP 2。下面用到的文件名
@@ -23,7 +23,7 @@ registry 安装，也不把仓库相对路径写成安装后仍然有效。外�
 ## 先运行
 
 唯一完整程序是
-[`crates/laneflow-runtime/examples/headless.rs`](../../crates/laneflow-runtime/examples/headless.rs)。
+[`crates/laneflow-runtime/examples/headless.rs`][headless]。
 在仓库根目录执行：
 
 ```powershell
@@ -109,7 +109,7 @@ front_vehicle_count=1
 ## 示例怎么接
 
 程序正文在
-[`headless.rs`](../../crates/laneflow-runtime/examples/headless.rs)。
+[`headless.rs`][headless]。
 下面只解释各段在做什么。
 
 ### 格式与构建预算，以及 Spatial Omit
@@ -117,7 +117,7 @@ front_vehicle_count=1
 检查 LFCA 时传入 `FormatLimits::HARD`。这是本仓库示例使用的格式天花板，不是推荐给任意
 不受信路网的安全预算。接收方应按自己的部署收紧对象字节数等调用方预算。格式天花板和
 接收方预算的差别见
-[可移植规范制品 §7](../design/portable-canonical-artifact.md#7-格式安全天花板)。
+[可移植规范制品 §7][portable-canonical-artifact-7-格式安全天花板]。
 
 构建预算是另外两层调用方上限：保留 `64 * 1_024 * 1_024` 字节，暂存
 `16 * 1_024 * 1_024` 字节。它们只覆盖这份检入走廊，同样不是任意路网的安全预算。
@@ -127,7 +127,7 @@ component 留在共享修订里。实跑结果是 `spatial=omitted`。本示例�
 Spatial 或 Bevy。`laneflow-runtime` 的 dev-dependencies 里已经有 `laneflow-spatial`，
 因此 `cargo run --example headless` 仍会编译这个 crate；那不是对 Spatial API 的使用。
 需要位姿时再单独绑定，见
-[能力页 · Spatial](../reference/capabilities.md#spatial)。
+[能力页 · Spatial][capabilities-spatial]。
 
 ### 来源绑定
 
@@ -141,7 +141,7 @@ Spatial 或 Bevy。`laneflow-runtime` 的 dev-dependencies 里已经有 `laneflo
 digest / length 对应。本示例走的是发布来源。
 
 合同见
-[运行时快照 §5](../design/traffic-runtime-snapshot.md#5-保存与恢复)。
+[运行时快照 §5][traffic-runtime-snapshot-5-保存与恢复]。
 
 ### 四容量与固定步长
 
@@ -166,8 +166,8 @@ digest / length 对应。本示例走的是发布来源。
 `ExecutionConfig::new(NonZeroU32::MIN)` 是 1 个 worker，在调用线程上计算，不创建辅助线程。
 输出里的 `worker_count=1` 就是这个值。当前后端接受的 worker 数有上限，超出会在安装时拒绝，
 不会静默降下来。worker 数不进入快照或逻辑摘要。并行范围见
-[能力页 · 单世界并行](../reference/capabilities.md#单世界并行) 和
-[执行配置](../design/traffic-runtime-execution-config.md)。
+[能力页 · 单世界并行][capabilities-单世界并行] 和
+[执行配置][traffic-runtime-execution-config]。
 
 ### Pinned 策略
 
@@ -237,22 +237,46 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 执行 panic 不是 `StepError`。在支持 unwind 的构建里，运行时先收拢已分发任务和借用，
 再把 panic 传出来；这个世界退出可用状态。宿主即使捕获了 panic，也不能继续查询、发命令
 或做管理操作，只能销毁并重建。`panic=abort` 则按进程终止处理。见
-[并行执行 §4.3](../design/traffic-runtime-parallel-execution.md#43-join取消与失败清理)。
+[并行执行 §4.3][traffic-runtime-parallel-execution-43-join取消与失败清理]。
 
 ## 当前限制
 
 - 交通运行时不生成出行需求，也不替宿主选择路线。本示例只注册 catalog 里已经写明的一条边序列。
 - 固定预构造换道只执行已经编制好的过渡。它不是任意位置变道。见
-  [能力页 · 固定预构造换道](../reference/capabilities.md#固定预构造换道)。
+  [能力页 · 固定预构造换道][capabilities-固定预构造换道]。
 - 上面的 64 步只确认时间和位移。它不是性能认证，也不能外推到其他路网或车辆数。
 
 ## 延伸阅读
 
-- 快照与恢复：[运行时快照](../design/traffic-runtime-snapshot.md)
-- 运行中更换修订：[修订切换](../design/traffic-runtime-revision-cutover.md)
-- 可选位姿：[空间几何](../design/spatial-geometry.md)、[`laneflow-spatial`](../../crates/laneflow-spatial/README.md)
-- 窗口和 Bevy 宿主：[`laneflow-bevy`](../../crates/laneflow-bevy/README.md)
-- 编译器、线格式和共享修订：[`laneflow-compiler`](../../crates/laneflow-compiler/README.md)、[`laneflow-format`](../../crates/laneflow-format/README.md)、[`laneflow-static-network`](../../crates/laneflow-static-network/README.md)、[`laneflow-static-contract`](../../crates/laneflow-static-contract/README.md)
-- catalog 与 `bind`：[`laneflow-scenario`](../../crates/laneflow-scenario/README.md)
-- 运行时入口：[`laneflow-runtime`](../../crates/laneflow-runtime/README.md)
-- 回到[当前能力与限制](../reference/capabilities.md)和[文档首页](../README.md)
+- 快照与恢复：[运行时快照][traffic-runtime-snapshot]
+- 运行中更换修订：[修订切换][traffic-runtime-revision-cutover]
+- 可选位姿：[空间几何][spatial-geometry]、[`laneflow-spatial`][laneflow-spatial-readme]
+- 窗口和 Bevy 宿主：[`laneflow-bevy`][laneflow-bevy-readme]
+- 编译器、线格式和共享修订：[`laneflow-compiler`][laneflow-compiler-readme]、[`laneflow-format`][laneflow-format-readme]、[`laneflow-static-network`][laneflow-static-network-readme]、[`laneflow-static-contract`][laneflow-static-contract-readme]
+- catalog 与 `bind`：[`laneflow-scenario`][laneflow-scenario-readme]
+- 运行时入口：[`laneflow-runtime`][laneflow-runtime-readme]
+- 回到[当前能力与限制][capabilities]和[文档首页][readme-md]
+
+[architecture]: ../architecture.md
+[capabilities]: ../reference/capabilities.md
+[readme]: ../../README.md
+[headless]: ../../crates/laneflow-runtime/examples/headless.rs
+[portable-canonical-artifact-7-格式安全天花板]: ../design/portable-canonical-artifact.md#7-格式安全天花板
+[capabilities-spatial]: ../reference/capabilities.md#spatial
+[traffic-runtime-snapshot-5-保存与恢复]: ../design/traffic-runtime-snapshot.md#5-保存与恢复
+[capabilities-单世界并行]: ../reference/capabilities.md#单世界并行
+[traffic-runtime-execution-config]: ../design/traffic-runtime-execution-config.md
+[traffic-runtime-parallel-execution-43-join取消与失败清理]: ../design/traffic-runtime-parallel-execution.md#43-join取消与失败清理
+[capabilities-固定预构造换道]: ../reference/capabilities.md#固定预构造换道
+[traffic-runtime-snapshot]: ../design/traffic-runtime-snapshot.md
+[traffic-runtime-revision-cutover]: ../design/traffic-runtime-revision-cutover.md
+[spatial-geometry]: ../design/spatial-geometry.md
+[laneflow-spatial-readme]: ../../crates/laneflow-spatial/README.md
+[laneflow-bevy-readme]: ../../crates/laneflow-bevy/README.md
+[laneflow-compiler-readme]: ../../crates/laneflow-compiler/README.md
+[laneflow-format-readme]: ../../crates/laneflow-format/README.md
+[laneflow-static-network-readme]: ../../crates/laneflow-static-network/README.md
+[laneflow-static-contract-readme]: ../../crates/laneflow-static-contract/README.md
+[laneflow-scenario-readme]: ../../crates/laneflow-scenario/README.md
+[laneflow-runtime-readme]: ../../crates/laneflow-runtime/README.md
+[readme-md]: ../README.md

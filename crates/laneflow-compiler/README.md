@@ -14,7 +14,7 @@ LaneFlow 的生产编译器。它把受检官方来源编译成只读的已验�
 
 ## 最小使用入口
 
-无窗口交通接入从已经检入的受检 LFCA 开始，不在运行时里调用编译器。见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+无窗口交通接入从已经检入的受检 LFCA 开始，不在运行时里调用编译器。见[从源码接入无窗口交通运行时][source-integration]。
 
 需要自己编制路网时，从 `Compiler` 的原子编译入口进入，再用 `emit_portable_candidate` 取出可移植候选。官方前端和道路编辑来源都走这条编译器私有接入路径，不另建一套语义后端。
 
@@ -37,9 +37,16 @@ cargo +1.99.1 test --locked -p laneflow-compiler
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [网络编译器](../../docs/design/network-compiler.md)
-- [编译器基础](../../docs/design/compiler-foundation.md)
-- [可移植规范制品](../../docs/design/portable-canonical-artifact.md)
-- [后发射检查](../../docs/design/compiler-post-emission-check-and-minimal-publication-closure.md)
-- [当前能力与限制 · 编译与加载](../../docs/reference/capabilities.md#编译与加载)
+- [从源码接入无窗口交通运行时][source-integration]
+- [网络编译器][network-compiler]
+- [编译器基础][compiler-foundation]
+- [可移植规范制品][portable-canonical-artifact]
+- [后发射检查][compiler-post-emission-check-and-minimal-publication-closure]
+- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[network-compiler]: ../../docs/design/network-compiler.md
+[compiler-foundation]: ../../docs/design/compiler-foundation.md
+[portable-canonical-artifact]: ../../docs/design/portable-canonical-artifact.md
+[compiler-post-emission-check-and-minimal-publication-closure]: ../../docs/design/compiler-post-emission-check-and-minimal-publication-closure.md
+[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载

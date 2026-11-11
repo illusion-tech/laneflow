@@ -10,7 +10,7 @@
 
 ## 最小使用入口
 
-宿主通常不直接组装这些值，而是从受检 LFCA 或 `TrafficWorld` 读出它们。无窗口示例比较的 `NetworkRevisionId` 就来自共享修订 origin。见[从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)。
+宿主通常不直接组装这些值，而是从受检 LFCA 或 `TrafficWorld` 读出它们。无窗口示例比较的 `NetworkRevisionId` 就来自共享修订 origin。见[从源码接入无窗口交通运行时][source-integration]。
 
 ## 主要约束与限制
 
@@ -26,7 +26,12 @@ cargo +1.99.1 test --locked -p laneflow-static-contract
 
 ## 深入阅读
 
-- [从源码接入无窗口交通运行时](../../docs/guides/source-integration.md)
-- [可移植规范制品](../../docs/design/portable-canonical-artifact.md)
-- [共享静态路网](../../docs/design/shared-static-network.md)
-- [当前能力与限制 · 编译与加载](../../docs/reference/capabilities.md#编译与加载)
+- [从源码接入无窗口交通运行时][source-integration]
+- [可移植规范制品][portable-canonical-artifact]
+- [共享静态路网][shared-static-network]
+- [当前能力与限制 · 编译与加载][capabilities-编译与加载]
+
+[source-integration]: ../../docs/guides/source-integration.md
+[portable-canonical-artifact]: ../../docs/design/portable-canonical-artifact.md
+[shared-static-network]: ../../docs/design/shared-static-network.md
+[capabilities-编译与加载]: ../../docs/reference/capabilities.md#编译与加载

@@ -203,7 +203,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Traffic Runtime 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
-**过渡投影衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`](lane-change-minimal-contract.md) §4）**：
+**过渡投影衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`][lane-change-minimal-contract] §4）**：
 换道期间不生成投影占用记录，占用记录只表示实际车体，重叠分类沿用本节分档；过渡段
 资源格作为投影障碍，由换道合同 §5 的预约约束承担（#1220）。
 
@@ -322,10 +322,10 @@ Physical constraints 不可绕过；regulatory constraints 由后续 policy subs
 
 不公开 constraint provider，也不允许 Adapter 任意注入 constraint。
 
-Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`](parking-system.md)。
+Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`][parking-system]。
 
 #235 的 Accepted 设计
-[`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way]
 把 GateStop、WaitingZone capacity/storage 与 missing ConflictGrant 定义为新的
 Runtime-owned spatial constraints。它们只能收紧 candidate motion；right-of-way
 business priority 与 reducer attribution tie-break 完全分离，grant 不能覆盖
@@ -643,3 +643,7 @@ Private：
 - Scratch buffers 必须复用，event 分配只与实际离散事件量相关。
 - speed-limit transition metadata 按 route 共享；无 transition 时 fast reject，steady tick 不做 per-vehicle heap allocation。
 - 一万到十万不得呈现 `O(V^2)` 趋势。
+
+[lane-change-minimal-contract]: lane-change-minimal-contract.md
+[parking-system]: parking-system.md
+[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md

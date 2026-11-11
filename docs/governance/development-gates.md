@@ -9,8 +9,8 @@
 
 本文定义 LaneFlow 的轻量开发阶段评审。人流程写在 Issue 模板里，机器不解析正文。
 合并由 required checks、GitHub 原生未解决对话阻断和 Merge Queue 执行。基础重建见
-[ADR 0026](../adr/0026-merge-governance-rebuild.md)，External Review 退役与当前目标态见
-[ADR 0027](../adr/0027-retire-external-review-check.md)。
+[ADR 0026][0026-merge-governance-rebuild]，External Review 退役与当前目标态见
+[ADR 0027][0027-retire-external-review-check]。
 
 人可读阶段：
 
@@ -39,7 +39,7 @@
 ## 3. G0 立项
 
 拟新增或修改非 Rust 代码（纯删除除外）时，还必须在 G0 完成
-[代码语言立项审查](code-language-policy.md)，取得覆盖该语言、用途和路径的维护者
+[代码语言立项审查][code-language-policy]，取得覆盖该语言、用途和路径的维护者
 明确接受结论后才可进入该方案的 G2。研究、测试、CI 与嵌入脚本均无默认豁免；
 本项独立于 G1 是否适用。
 
@@ -121,12 +121,12 @@ Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` �
 - **合跑**：一个窗口可串行运行多个测量，各自单独记录，不并发。
 
 本节不追溯已关闭的任务。产品测量协议以
-[`core-runtime-performance-baseline.md`](../design/core-runtime-performance-baseline.md)
+[`core-runtime-performance-baseline.md`][core-runtime-performance-baseline]
 为准。
 
 ## 6. 合并检查
 
-语言选型属于 [代码语言立项审查](code-language-policy.md) 规定的 G0/G2 人流程，
+语言选型属于 [代码语言立项审查][code-language-policy] 规定的 G0/G2 人流程，
 不增加机器合并检查输入。审阅者发现实际 diff 不符合接受范围时，以普通 review
 conversation 处理，继续适用下面的原生对话解决规则。
 
@@ -206,3 +206,8 @@ Project 将以 `Completed` 关闭的 Issue 移到 `Done`；以 `Not planned` 或
 内容等价 rebase、provider / 平台故障、安全或紧急 hotfix 只能走显式、有期限的
 仓库设置例外，并记录原因、风险、到期和 Cleanup owner。不得把例外扩展成日常
 bypass。确认的检查缺陷另开 Issue 修复，不在评论里发明第二套协议。
+
+[0026-merge-governance-rebuild]: ../adr/0026-merge-governance-rebuild.md
+[0027-retire-external-review-check]: ../adr/0027-retire-external-review-check.md
+[code-language-policy]: code-language-policy.md
+[core-runtime-performance-baseline]: ../design/core-runtime-performance-baseline.md

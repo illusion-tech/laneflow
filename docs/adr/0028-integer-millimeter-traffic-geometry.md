@@ -11,9 +11,9 @@
 **不取代**: ADR 0015 有界 canonical `f32` 空间几何；ADR 0022 编制 `f64` 曲线 →
 规范 `f32` 折线；ADR 0003 的「不读墙钟、固定步进、可变 Δt 非法、跨 CPU 不承诺
 浮点位级确定性」。本 ADR **不**给已提交整数状态补一条跨 CPU / 跨机器位级承诺。<br>
-**关联 Issue**: [#496](https://github.com/illusion-tech/laneflow/issues/496)；
-编译器 IR 统一表示 [#500](https://github.com/illusion-tech/laneflow/issues/500)。
-#496 的已提交整数合同是 [#302](https://github.com/illusion-tech/laneflow/issues/302)
+**关联 Issue**: [#496][github-com-illusion-tech-laneflow-issues-496]；
+编译器 IR 统一表示 [#500][github-com-illusion-tech-laneflow-issues-500]。
+#496 的已提交整数合同是 [#302][github-com-illusion-tech-laneflow-issues-302]
 快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。<br>
 **关联文档**:
 
@@ -282,7 +282,7 @@ LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑
 `LaneEdgeGeometry` / `segments` 仍为 `f32` 米，不进本表。
 
 检入走廊必须按 v2 重生。`NetworkRevisionId` **随语义载荷字节变化**；哈希算法仍是
-[`portable-canonical-artifact.md` §3.8](../design/portable-canonical-artifact.md#38-路网修订标识) 的 v1：
+[`portable-canonical-artifact.md` §3.8][portable-canonical-artifact-38-路网修订标识] 的 v1：
 `SHA-256("laneflow.network-revision.v1\0" || canonicalNetworkSemanticPayloadV1)`
 （组帧仍为语义节 `0x0001..0x0006`）。**禁止**空升 `networkRevisionDerivationVersion`
 却不定义新算法。毫米字段改变载荷字节，同一套 v1 算法已得到不同 ID。
@@ -380,3 +380,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 任何实现必须同时更新 compiler IR/发射、唯一登记表、admission、共享列、Runtime 热状态、
 公开 `Canonical*View` 与可移植 fixture。若必须改变毫米量子、步长区间、加速度下限或
 「先整数硬约束再余数」，须重新进入设计决策，不得在实现中静默改变。
+
+[github-com-illusion-tech-laneflow-issues-496]: https://github.com/illusion-tech/laneflow/issues/496
+[github-com-illusion-tech-laneflow-issues-500]: https://github.com/illusion-tech/laneflow/issues/500
+[github-com-illusion-tech-laneflow-issues-302]: https://github.com/illusion-tech/laneflow/issues/302
+[portable-canonical-artifact-38-路网修订标识]: ../design/portable-canonical-artifact.md#38-路网修订标识

@@ -4,13 +4,13 @@
 **最后更新**: 2026-08-30<br>
 **适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、连续身份登记、运行时编译、
 场景 catalog 0.4 与每世界路线表形状<br>
-**关联文档**: [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
-[`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)、
-[`portable-canonical-artifact.md`](portable-canonical-artifact.md)、
-[`shared-static-network.md`](shared-static-network.md)、
-[`route-system.md`](route-system.md)、
-[`compiler-foundation.md`](compiler-foundation.md)、
-[`example-scenarios.md`](example-scenarios.md)
+**关联文档**: [`../adr/0029-retire-precompiled-static-route.md`][0029-retire-precompiled-static-route]、
+[`traffic-runtime-shared-consumption.md`][traffic-runtime-shared-consumption]、
+[`portable-canonical-artifact.md`][portable-canonical-artifact]、
+[`shared-static-network.md`][shared-static-network]、
+[`route-system.md`][route-system]、
+[`compiler-foundation.md`][compiler-foundation]、
+[`example-scenarios.md`][example-scenarios]
 
 本文是 ADR 0029 的实现级合同。为什么删除见 ADR。旧对象由 exact version 整体拒绝；
 现行登记不保留 `StaticRoute` 编号墓碑，也不恢复制品路线。
@@ -86,8 +86,8 @@ StaticRoute table、关系和 property path 不能通过新格式闭合。
 第 2 节与 §6 中 format 4、23 张实体表和 33 张逻辑表记录 #498 路线退役时的基线。
 #284 W1 已将当前 LFCA 升至 5，实体表扩展为 24 张、逻辑表共 38 张；当前读取器只接受
 LFCA 5。后续版本及来源登记增量以
-[`portable-canonical-artifact.md`](portable-canonical-artifact.md) 和
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §8 为准。
+[`portable-canonical-artifact.md`][portable-canonical-artifact] 和
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §8 为准。
 以下退役语义继续适用，历史数量不作为当前 reader 的接纳条件。
 
 `CanonicalEntityTables` 精确包含连续 `0x0001..=0x0017` 共 23 个逻辑表种类。
@@ -171,7 +171,7 @@ seal 不再为路线做 owner-local 分区或出现记录闭合。空路线不�
 
 `catalog_version = "0.4"`，拒绝 `0.3` 及更早版本。顶层必填
 `policy_selection`，闭合形状与世界策略绑定见
-[`signalized-corridor-population.md`](signalized-corridor-population.md#3-catalog-契约)。
+[`signalized-corridor-population.md`][signalized-corridor-population-3-catalog-契约]。
 `bind` 解析策略与边序号，宿主显式选策略安装世界后再 `install_routes`。
 
 `RouteCatalogEntry` 使用有序边键，语义如下：
@@ -271,3 +271,13 @@ controller 校验的是 `(NetworkRevisionId, WorldPolicySelection)`，宿主保�
 - 同进程切修订后走廊 catalog controller 不得继续 `consume_world` / `apply_pending`；
   必须按新修订重新 bind。重绑不得新分配句柄、不得丢掉已保住的句柄。不测 catalog
   原子热切换。
+
+[0029-retire-precompiled-static-route]: ../adr/0029-retire-precompiled-static-route.md
+[traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[portable-canonical-artifact]: portable-canonical-artifact.md
+[shared-static-network]: shared-static-network.md
+[route-system]: route-system.md
+[compiler-foundation]: compiler-foundation.md
+[example-scenarios]: example-scenarios.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[signalized-corridor-population-3-catalog-契约]: signalized-corridor-population.md#3-catalog-契约

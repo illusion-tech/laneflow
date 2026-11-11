@@ -1,9 +1,9 @@
 # 交通运行时列式批量执行
 
 **文档状态**: Accepted<br>
-**设计入口**: [#814](https://github.com/illusion-tech/laneflow/issues/814)<br>
-**关联决策**: [ADR 0031](../adr/0031-columnar-motion-authority.md)<br>
-**既有合同**: [阶段协议](traffic-runtime-phase-protocol.md)、[精确并行](traffic-runtime-parallel-execution.md)、[整数几何](traffic-runtime-integer-geometry.md)
+**设计入口**: [#814][github-com-illusion-tech-laneflow-issues-814]<br>
+**关联决策**: [ADR 0031][0031-columnar-motion-authority]<br>
+**既有合同**: [阶段协议][traffic-runtime-phase-protocol]、[精确并行][traffic-runtime-parallel-execution]、[整数几何][traffic-runtime-integer-geometry]
 
 本文冻结维护者授权的目标架构和实施边界，不声明已实现或已测得收益。当前车辆特化仍采用整数毫米正本；其它交通执行域未实现。实施进度、测量、未通过项留在 #814 和交付 PR。
 
@@ -75,7 +75,7 @@ Scalar、AVX2、AVX-512 共用私有来源计数函数；普通 Direct 的无统
 
 保持每车表达式顺序，禁止 FMA、fast-math、近似倒数和半精度。`u32` 不截为 `i32`；跨 hop gap 为 `i64`；瞬时 SI 为 `f32`；受检量化为 `f64`。长路线保留分段坐标和 `BoundedDistance`，Finite/BeyondFinite/unknown/absent 不混为一个 bool。后端不改变舍入模式，不要求跨平台位级承诺。
 
-AMD 官方规格支持 9955HX 的 AVX2/AVX512；实际进程可用性仍以运行时检测为准。Rust 1.89 已稳定相关 AVX-512 target features/intrinsics，使用仓库 Rust 1.99.1。资料：[AMD](https://www.amd.com/en/products/processors/laptop/ryzen/9000-series/amd-ryzen-9-9955hx.html)、[Rust 发布说明](https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/)、[ISPC 数据布局指南](https://ispc.github.io/perfguide.html#use-structure-of-arrays-layout-when-possible)。资料支持可行性，不替代本项目性能证据。
+AMD 官方规格支持 9955HX 的 AVX2/AVX512；实际进程可用性仍以运行时检测为准。Rust 1.89 已稳定相关 AVX-512 target features/intrinsics，使用仓库 Rust 1.99.1。资料：[AMD][www-amd-com-en-products-processors-laptop-ryzen-9000-series-amd-ryzen-9-9955hx-html]、[Rust 发布说明][blog-rust-lang-org-2025-08-07-rust-1-89-0]、[ISPC 数据布局指南][ispc-github-io-perfguide-html-use-structure-of-arrays-layout-when-possible]。资料支持可行性，不替代本项目性能证据。
 
 ## 4. 独占输出、首错与提交
 
@@ -126,3 +126,12 @@ P1 occupancy 保留精确区间、循环 occurrence、跨边车身、零进度�
 成本账报告实际基础查询、提案/投影调用、有效通道/密度/回退、列读写/中间物化/栈帧、规范消费/资源/归并/发布；普通 release 以完整矩阵报告 mean/p95/p99、稳定 Active 与资源账本。诊断和普通计时分开；所有争用、波动和失败保留。完整源码、构建身份、原始结果与验封在可下载冻结归档中，Git 只留源码/方案/结论/小型索引。
 
 十万总车辆的短窗不等于持续十万 Active 或 #707 达标。16 ms 是原目标；70% 覆盖/2.5 倍的成本模型是假设，不能写成收益。
+
+[github-com-illusion-tech-laneflow-issues-814]: https://github.com/illusion-tech/laneflow/issues/814
+[0031-columnar-motion-authority]: ../adr/0031-columnar-motion-authority.md
+[traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
+[traffic-runtime-parallel-execution]: traffic-runtime-parallel-execution.md
+[traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
+[www-amd-com-en-products-processors-laptop-ryzen-9000-series-amd-ryzen-9-9955hx-html]: https://www.amd.com/en/products/processors/laptop/ryzen/9000-series/amd-ryzen-9-9955hx.html
+[blog-rust-lang-org-2025-08-07-rust-1-89-0]: https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/
+[ispc-github-io-perfguide-html-use-structure-of-arrays-layout-when-possible]: https://ispc.github.io/perfguide.html#use-structure-of-arrays-layout-when-possible

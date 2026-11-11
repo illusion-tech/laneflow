@@ -3,10 +3,10 @@
 **文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
 **最后更新**: 2026-10-25<br>
 **适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
-**关联文档**: [工作负载合同](chinese-style-city-workload.md)、
-[停车](parking-system.md)、[Waiting](traffic-runtime-waiting-zone.md)、
-[路权策略](traffic-runtime-right-of-way-policy.md)、
-[快照](traffic-runtime-snapshot.md)、[性能基线](core-runtime-performance-baseline.md)
+**关联文档**: [工作负载合同][chinese-style-city-workload]、
+[停车][parking-system]、[Waiting][traffic-runtime-waiting-zone]、
+[路权策略][traffic-runtime-right-of-way-policy]、
+[快照][traffic-runtime-snapshot]、[性能基线][core-runtime-performance-baseline]
 
 ## 1. 交付边界
 
@@ -367,7 +367,7 @@ oracle，但不额外物化全量 pose；独立全量对照逐 tick 核对交通
 performance 窗口。三轮正常 release 与独立 allocator、内部阶段插桩构建分开，均绑定
 干净且远端可达的源码提交、工具链、输入、计划、窗口与策略。缓冲容量按当前所有者
 记录，交换不消除两侧存储，逻辑复制字节不等于实测内存流量。编排及拒绝路径见
-[按需表现取证](../../research/issue-713-selected-presentation/README.md)。
+[按需表现取证][issue-713-selected-presentation-readme]。
 
 ### 完整窗口
 
@@ -407,7 +407,7 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
   命令行、phase 耗时、计时范围、实际 Active/intent 分布、内存值及测量方法。
 
 首段 Mixed 实现的具体角色、命令与摘要口径见
-[运行程序说明](../../tools/laneflow-urban-harness/README.md)。短试跑和正确性运行的
+[运行程序说明][laneflow-urban-harness-readme]。短试跑和正确性运行的
 `diagnostics.json` 提供执行编号、环境与诊断计时，不替代正式性能结果；其他 case 与
 100k 仍需各自取证。
 
@@ -490,7 +490,7 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 ### 摘要角色与算法（#1042）
 
 运行程序自己产生的摘要只由运行程序自身重算：运行核对、续跑核对、两次运行比较、三轮
-聚合、存档恢复与来源核对。按 [ADR 0033](../adr/0033-digest-role-and-algorithm-selection-authority.md)，
+聚合、存档恢复与来源核对。按 [ADR 0033][0033-digest-role-and-algorithm-selection-authority]，
 它们属于内部完整性摘要，唯一算法为 BLAKE3-256，不保留 SHA-256 计算或比对路径。每个
 摘要的原像以 ASCII 域分隔前缀开头、以 `\0` 结尾，前缀中的版本即派生版本；摘要值以
 64 位小写十六进制记录。
@@ -522,7 +522,7 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 摘要随写出计算：流式写出的日志与证据文件按写入字节同步计算摘要，写完后读回一次核对；
 一次写完的文件按源字节计算摘要，经写后读回核对写出。读回与写出不一致时不记录摘要；
 源数据仍在内存的文件有界重写，流式无源的文件使本次运行失败，失配现场按
-[验证矩阵](../reference/validation-matrix.md) §8 判读。
+[验证矩阵][validation-matrix] §8 判读。
 
 计划版本保持 `urban-demand-v3`：计划中的 `manifest_digest` 是输入 manifest 的文件字节
 摘要，其值本来就随输入制品变化，算法更换不改变需求语义。`fixtures/v3/plans.json` 是
@@ -531,12 +531,12 @@ profile 设置与构建提交（build_commit），正式二进制限 `xtask buil
 ## 7. 存档与续跑
 
 **状态**：已实现（#874；G1 设计 #875）。依据 #861 长窗验收
-（[`long-window-acceptance-results.md`](../../research/issue-707-city-parallel/long-window-acceptance-results.md)）。
+（[`long-window-acceptance-results.md`][long-window-acceptance-results]）。
 
 ### 7.1 目的与边界
 
 运行程序是 `TrafficWorld` 的宿主。宿主存档由两部分组成：Runtime Snapshot 保存世界的
-全部每世界可变状态（[快照](traffic-runtime-snapshot.md) §3），宿主自己的耐久状态由宿主
+全部每世界可变状态（[快照][traffic-runtime-snapshot] §3），宿主自己的耐久状态由宿主
 保存（快照 §6 回放身份；ADR 0021 的宿主边界）。运行程序已经在检查点捕获完整快照，
 `transitions` 证据也在进程内做过保存、恢复与句柄重绑，但 `run` 不能在某一拍写出存档，
 也不能从存档在新进程里继续同一计划。本节补上这一能力。
@@ -809,3 +809,15 @@ A/B 用法：两次运行从同一存档续跑。候选改变快照格式或恢�
   起跑的运行初始检查点不同，比较失败；宿主累计量（如 `tile_evidence`）被篡改而逐拍日志相同的
   续跑，比较失败；终点
   检查点不等时比较失败；比较报告记录区间与两次运行的起止。
+
+[chinese-style-city-workload]: chinese-style-city-workload.md
+[parking-system]: parking-system.md
+[traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[issue-713-selected-presentation-readme]: ../../research/issue-713-selected-presentation/README.md
+[laneflow-urban-harness-readme]: ../../tools/laneflow-urban-harness/README.md
+[0033-digest-role-and-algorithm-selection-authority]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[validation-matrix]: ../reference/validation-matrix.md
+[long-window-acceptance-results]: ../../research/issue-707-city-parallel/long-window-acceptance-results.md

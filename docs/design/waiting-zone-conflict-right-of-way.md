@@ -10,7 +10,7 @@ Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 
 - `traffic-runtime-waiting-zone.md`
 - `traffic-runtime-conflict-occurrence.md`
-- [`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md)（#284 已接受实施合同）
+- [`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy]（#284 已接受实施合同）
 - `traffic-runtime-shared-consumption.md`
 - `traffic-runtime-integer-geometry.md`
 - `traffic-runtime-snapshot.md`
@@ -214,7 +214,7 @@ ownership 分离不重新打开这些算法选择。#282 的本地 Waiting reduc
 `route_conflict_occurrence_capacity`。regulation/policy source 由两个官方前端经唯一
 compiler/LFCA/shared static network 路径引入；不得恢复 current JSON 或让 `TrafficWorld` 解析文件。
 具体来源、世界绑定与唯一原子版本组合见
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §2–§8；
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §2–§8；
 该合同与正式 Runtime state/digest 共同实现。
 
 #284 消费 #282 已提交的 Waiting membership、occupancy、counter 与 local admission
@@ -287,10 +287,10 @@ policy 安装还必须对全部 steady signal phase 做 protected coherence：�
 #### 6.2.1 中国机动车红灯右转的最小策略
 
 #284 首版包含中国机动车红灯条件右转。法规依据是
-[《中华人民共和国道路交通安全法实施条例》2017 年修订本](https://xzfg.moj.gov.cn/law/download?LawID=1614&type=pdf)
+[《中华人民共和国道路交通安全法实施条例》2017 年修订本][xzfg-moj-gov-cn-law-download]
 第 38、41、51、53 条；国家行政法规库将该版本列为现行有效，本次核验日期为
 2026-09-02。圆形灯、方向指示灯及禁止右转标志的区别同时参照
-[盐城市公安局 2025-11-26 公开说明](https://www.yancheng.gov.cn/art/2025/11/26/art_34214_4383922.html)。
+[盐城市公安局 2025-11-26 公开说明][www-yancheng-gov-cn-art-2025-11-26-art_34214_4383922-html]。
 本节将已核实规则映射为运行时合同，不把地方说明作为额外的全国性法规。
 
 - 普通圆形红灯、右转且没有适用的禁止右转约束时，在不妨碍被放行车辆、行人的
@@ -489,7 +489,7 @@ lag equality 通过该项检查。
 直接使用无历史；切换新增或无法证明语义连续的无 occupant/reservation cell，以最终
 静默提交的模拟时刻作为 lag 基准，不从 Prepare 起算，也不生成实际 clear 事件。
 具体 tagged value、持久化和独立迁移期望值见
-[`traffic-runtime-right-of-way-policy.md`](traffic-runtime-right-of-way-policy.md) §6.1–§6.2
+[`traffic-runtime-right-of-way-policy.md`][traffic-runtime-right-of-way-policy] §6.1–§6.2
 （Accepted）。ActualClear 与 CutoverFloor 使用同一间隙比较边界，lead 检查不变。
 
 ### 6.6 mandatory downstream-clearance
@@ -664,7 +664,7 @@ tick 同批次安装后原子移除 #559 临时错误；当前不存在单独绕
 ### 6.9 fixed step、观察、事件与 first-error
 
 上述领域算法在串行阶段协议中的读写集、内部所有权与提交计划细化见
-[`traffic-runtime-phase-protocol.md`](traffic-runtime-phase-protocol.md)。
+[`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol]。
 P0～P8 不改变本节候选、转移、输出和首错顺序。
 
 #284 扩展 staged step，但不改变“只收紧 motion”：
@@ -971,3 +971,8 @@ prevention；这些由 #284 的完整合同覆盖。
 - no-overlap 与 minimum gap 成立；
 - grant 不覆盖更严格 motion constraint；
 - digest/replay 与稳定事件顺序不依赖本地 handle 或执行完成顺序。
+
+[traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[xzfg-moj-gov-cn-law-download]: https://xzfg.moj.gov.cn/law/download?LawID=1614&type=pdf
+[www-yancheng-gov-cn-art-2025-11-26-art_34214_4383922-html]: https://www.yancheng.gov.cn/art/2025/11/26/art_34214_4383922.html
+[traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md

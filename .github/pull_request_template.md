@@ -19,7 +19,7 @@
 
 - 是否新增或修改非 Rust 代码（包括嵌入脚本，纯删除除外）：`否` / `是`
 - 若为是：语言选型 Issue、维护者接受结论链接、覆盖本次 diff 的语言/用途/路径：
-- 依据：[代码语言立项审查](https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md)（G0/G2 人流程）
+- 依据：[代码语言立项审查][github-com-illusion-tech-laneflow-blob-main-docs-governance-code-language-policy-md]（G0/G2 人流程）
 
 ## 影响
 
@@ -53,3 +53,5 @@
 - [ ] commit 使用 Conventional 标题、`Refs: #<issue>`；破坏性变更同时有标题 `!` 和 `BREAKING CHANGE:`。AI 参与时在 `Refs` 前成对写已登记规范 ID 的 `Harness:` / `Model:`，`Harness` 区分入口形态，不用 `Co-authored-by` 标注工具或模型
 - [ ] 未解决的 review conversation 已处理（由 GitHub 原生规则拦截）
 - [ ] 合入走 Merge Queue，不使用 `--admin`
+
+[github-com-illusion-tech-laneflow-blob-main-docs-governance-code-language-policy-md]: https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md

@@ -5,7 +5,7 @@
 **适用范围**: 官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、
 运行时快照与修订切换<br>
 **设计依据**: ADR 0009、0019、0025、0028、0029；
-[`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md) §6
+[`waiting-zone-conflict-right-of-way.md`][waiting-zone-conflict-right-of-way] §6
 
 ## 1. 决策与适用关系
 
@@ -271,7 +271,7 @@ world 安装时 checked 派生，不能把某个世界的步长写进共享静�
 
 ### 4.3 LFSD 4 策略局部成员变更
 
-本节是 LFSD 4 的封闭增量，复用[规范制品格式](portable-canonical-artifact.md) §2、
+本节是 LFSD 4 的封闭增量，复用[规范制品格式][portable-canonical-artifact] §2、
 §5 的 framing、两端绑定及既有六节；仅本节列出的登记和字段分类改变。
 `magic="LFSD"`、`semanticDiffFormatVersion=4`，七节按 kind `1..7` 排列，逻辑表总数为 7。
 新增 section `0x0007 PolicyLocalChanges`，其中唯一 table 为
@@ -391,7 +391,7 @@ Movement 的方向 Modify。方向缺失、显式零和其他合法值不能彼�
 
 ### 4.4 LFSM 4 来源编码与闭合
 
-本节与 §4.3 一同构成格式增量；复用[规范制品格式](portable-canonical-artifact.md)
+本节与 §4.3 一同构成格式增量；复用[规范制品格式][portable-canonical-artifact]
 §4 的完整 LFSM 表形状，仅替换本节明确列出的版本、代码登记和投影。
 `magic="LFSM"`、`sourceMapFormatVersion=4`，仍为五节、八张逻辑表，首节偏移
 `0x0098`；section format 2、table schema 1、SourceLocation tag 1–21 不变。
@@ -561,7 +561,7 @@ pin，不能在场景库或 Adapter 内复制绿色放行算法。无 Gate 的�
 `apply_pending(network_revision, policy_selection, callback)` 在修改队列或调用回调前
 校验宿主传入的目标上下文。可复制上下文不表示世界实例身份，宿主仍负责将局部句柄、
 controller 和 callback 绑定到同一个世界；完整顺序见
-[`signalized-corridor-population.md`](signalized-corridor-population.md)。
+[`signalized-corridor-population.md`][signalized-corridor-population]。
 
 ## 6. 仲裁、持久状态与生命周期
 
@@ -667,7 +667,7 @@ firstEligibleTick 只在同一 arrival occurrence 和 predicate 仍成立时保�
 
 跨修订先绑定 LFSD 的完整 base/target LFCA，按 locator 中 stream 与 zone 的 StableId
 定位两侧关系，再核对 role 31 及 `ParticipantStream.passages` tag 5 的完整 before/
-after 投影（见[规范制品格式 §5.3](portable-canonical-artifact.md#53-字段变化分类)）。
+after 投影（见[规范制品格式 §5.3][portable-canonical-artifact-53-字段变化分类]）。
 仅 local index 重排不影响匹配；entry/exit 的解释必须使用各自根的 ManeuverPath
 edge occurrence 序列，不能只比较仍可能相同的 boundaryIndex/pathEdgeIndex 数字。
 相同 locator 不足以证明语义连续，还须核验路径、派生 admission Gate、物理区间及
@@ -822,7 +822,7 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 
 本表记录路权部分的版本选择。后继 ADR 0030 的执行配置分离仅将 LFRS 容器推进至 6，
 runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒绝面以
-[`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md) 为准。
+[`traffic-runtime-snapshot.md`][traffic-runtime-snapshot] 为准。
 
 几何计算和浮点量化算法未变，其独立 geometry semantics 版本保持不变。
 
@@ -879,3 +879,9 @@ runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒�
 文档验证运行 Markdown 表格与本地链接检查；生产实现还须满足仓库对应 Rust、codegen、
 制品和场景测试。文档检查不能替代正式路径的实现验收；Issue 完成与主干交付事实以
 GitHub 中对应的验收及合并证据为准。
+
+[waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+[portable-canonical-artifact]: portable-canonical-artifact.md
+[signalized-corridor-population]: signalized-corridor-population.md
+[portable-canonical-artifact-53-字段变化分类]: portable-canonical-artifact.md#53-字段变化分类
+[traffic-runtime-snapshot]: traffic-runtime-snapshot.md
