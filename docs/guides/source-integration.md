@@ -11,8 +11,7 @@
 
 这份教程面向已经检出本仓库源码、使用 Rust 1.99.1、只跑道路机动车、并且不需要窗口的宿主。
 当前工作区 crate 都是 `0.0.0` 且 `publish = false`，只支持从源码集成。这里不承诺可以从
-registry 安装，也不把仓库相对路径写成安装后仍然有效。外部 registry 消费示例仍由
-[#1331](https://github.com/illusion-tech/laneflow/issues/1331) 负责。
+registry 安装，也不把仓库相对路径写成安装后仍然有效。外部 registry 消费示例不在本教程范围内。
 
 产品定位和六个 Bevy 示例见[仓库首页](../../README.md)。使用条件、拒绝情形和证据范围见
 [当前能力与限制](../reference/capabilities.md)。首次 Alpha 的范围、稳定性、平台和
@@ -124,8 +123,10 @@ front_vehicle_count=1
 `16 * 1_024 * 1_024` 字节。它们只覆盖这份检入走廊，同样不是任意路网的安全预算。
 
 `SpatialBuildOption::Omit` 在 LFCA 带有空间载荷时仍检查几何连通，但不把 Spatial
-component 留在共享修订里。实跑结果是 `spatial=omitted`。无窗口交通不需要
-`laneflow-spatial`，本示例也不依赖它或 Bevy。需要位姿时再单独绑定，见
+component 留在共享修订里。实跑结果是 `spatial=omitted`。本示例源码不导入、不调用
+Spatial 或 Bevy。`laneflow-runtime` 的 dev-dependencies 里已经有 `laneflow-spatial`，
+因此 `cargo run --example headless` 仍会编译这个 crate；那不是对 Spatial API 的使用。
+需要位姿时再单独绑定，见
 [能力页 · Spatial](../reference/capabilities.md#spatial)。
 
 ### 来源绑定
