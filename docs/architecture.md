@@ -1,419 +1,275 @@
 # 架构
 
-**文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界；ADR 0028 / #496 已落地整数毫米一维几何）<br>
-**最后更新**: 2026-09-06<br>
-**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的交通基础设施、宿主边界与静态编译架构
+**文档状态**: Active（现行系统视图；规范正文在 ADR 与 `docs/design/`）<br>
+**最后更新**: 2026-11-11<br>
+**适用范围**: 当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界
 
-## 1. 架构目标
+本文只描述开工基线 `eaa5d0357e2e20ba49fbc2f4e55249ba846fccb0` 上的现行系统。
+算法、格式字段和失败枚举以链接的专题合同为准。本文不新选运行时架构，也不把
+专题正文搬进总览。
 
-LaneFlow 是可嵌入、引擎无关、确定性的道路交通运行时与工具链。ADR 0021 定义
-组件与宿主的职责边界；地区交通规则和城市工作负载作为通用技术验证场景。
-#300 / #301 已交付共享静态路网与 `TrafficWorld` 当前可运行路径。当前只实现道路
-机动车；出行编排和 Routing 算法由宿主拥有，更多执行域与城市级扩展需要独立的
-设计和实现证据。
+## 1. 系统上下文
 
-当前架构与 #291 已接受目标态设计共同关注：
+LaneFlow 是可嵌入、引擎无关、确定性的道路交通运行时与工具链。宿主分层以
+[ADR 0021](adr/0021-traffic-infrastructure-and-host-boundary.md) 为准：
 
-- 交通运行时与具体游戏引擎解耦。
-- 数据格式可以被工具、示例和多个 Adapter 共享。
-- Adapter 负责引擎集成和表现层，不复制交通规则。
-- 示例场景用于验证最小可用闭环。
-- 城市经济、市民出行需求、土地利用和游戏规则由上层拥有，LaneFlow 通过显式
-  命令、快照、事件和路径接入边界提供交通能力。
-- 城市级目标必须同时保持确定性、可诊断、可存档、可修改路网和可扩展性，不能用
-  多世界吞吐或表现层细节层次替代单个大型交通世界的正确性。
+| 层级                 | 裁决内容                                                                     |
+| -------------------- | ---------------------------------------------------------------------------- |
+| 宿主应用层           | 人口、经济、土地利用、建筑、物流任务与游戏规则                               |
+| 出行与交通编排层     | 出行需求、出发时刻、参与单元生成、目的地、人口生命周期与路线选择策略         |
+| 路径规划服务         | 从静态路网和已提交动态成本快照生成候选路径；不在固定步进内做全图寻路         |
+| 编译器与共享静态路网 | 静态标识、拓扑、几何、规则、索引、执行约束和静态布局                         |
+| 交通运行时           | 固定步进、已实现执行域的参与单元、动态通行定义、信号、冲突、停驻和每世界状态 |
+| 引擎适配器与表现层   | 宿主生命周期、实体、变换、动画、细节层次、界面和调试可视化                   |
 
-ADR 0021 定义的长期职责分层为：
+当前唯一可运行特化是道路机动车 `TrafficWorld`（`laneflow-runtime`）。
+`VehicleState`、每世界 `Route` 和停车占用是这一执行域的投影，不是全部交通参与
+单元的终态模型。非机动车、行人和轨道执行域仍是长期方向。
 
-```text
-宿主应用层
-  -> 出行与交通编排层
-  -> 路径规划服务
-  -> LaneFlow 编译器 / 共享静态路网 + LaneFlow 交通运行时
-  -> 引擎适配器 / 表现层
+出行需求决定谁在何时出发；路径规划决定候选路径；交通运行时决定参与单元如何在
+所属执行域里安全推进。路径算法留在宿主。Runtime 导出已提交观测，并验证、注册
+候选动态通行定义。合同见
+[观测与路径规划接入](design/traffic-observation-and-routing-integration.md)。
+
+## 2. 生产数据流
+
+编制来源进入编译器，经受检 LFCA / LFCP 准入建成 `SharedNetworkRevision`。
+`TrafficWorld` 安装这根修订；需要位姿时，`SpatialSession` 绑定同一根修订。
+Adapter 只消费世界和可选会话。
+
+```mermaid
+flowchart TD
+  source["编制来源"] --> compiler["编译器"]
+  compiler --> checked["受检 LFCA / LFCP 准入"]
+  checked --> revision["SharedNetworkRevision"]
+  revision --> auth{"修订认证"}
+  auth -->|"非 Pass"| denied["不安装"]
+  auth -->|"Pass"| world["TrafficWorld"]
+  auth -->|"Pass"| spatial["可选 SpatialSession"]
+  raw["JSON 或未构建的 LFCA"] -.->|"Runtime 不解析"| denied
+  world --> adapter["Adapter"]
+  spatial --> adapter
+  world --> cutover{"修订切换"}
+  cutover -->|"失败"| keep["不发布，旧世界继续"]
 ```
 
-出行需求决定谁在何时为何出发；交通运行时导出已提交交通观测快照；路径规划/
-出行编排层再结合静态路网、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
-路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
-在所属执行域安全推进。当前 `TrafficWorld` 只实现道路机动车车辆特化；长期通用抽象不把
-非机动车、行人或轨道交通排除在目标交通运行时（Target Traffic Runtime）之外。
-组件与宿主边界见 ADR 0021。#301 已使 `TrafficWorld` 成为唯一可运行交通世界。
+失败关闭点：
 
-## 2. 分层
+- 修订认证结论不是 `Pass` 时，宿主不把该修订用于安装、恢复、Spatial 绑定或切换。
+  认证只读，不改变这些入口的签名。见
+  [状态完整性](design/traffic-runtime-state-integrity.md) 与
+  [ADR 0032](adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md)。
+- `TrafficWorld` 不解析 JSON，也不把 LFCA 当作安装格式。共享修订只由
+  `laneflow-static-network` 从受检 LFCA 构建。Runtime 对 `laneflow-format` 的
+  生产依赖用于切换时的 LFSD 认证和 LFRS 准入。
+- 修订切换无法证明等价、超限或映射失败时不发布切换事件，旧世界继续。见
+  [修订切换](design/traffic-runtime-revision-cutover.md)。
 
-```text
-Authoring / Compiler Layer
-  │
-  v
-Shared Static Network (`laneflow-static-network`)
-  │
-  v
-LaneFlow Traffic Runtime (`laneflow-runtime`)
-  │
-  v
-Engine Adapter Layer
-  │
-  v
-Presentation Layer
+后发射检查失败时不返回 `PostEmissionCheckedBundle`，也不构建共享修订。发布加载
+先核对 LFCP v2 绑定，再消费受检 LFCA；本地确认建造直接消费该 bundle。两条路
+建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 5、LFSM 4、
+LFSD 4、LFCP 2。道路编辑来源 `format_version = 4` 是另一条版本轴。见
+[可移植规范制品](design/portable-canonical-artifact.md)、
+[后发射检查](design/compiler-post-emission-check-and-minimal-publication-closure.md)
+与 [ADR 0023](adr/0023-road-editing-state-and-phased-network-replacement.md)。
+
+## 3. Crate 依赖与所有权
+
+下图只画 LaneFlow 生产依赖。第三方 crate、可选 `laneflow-format-mmap`，以及
+只出现在 dev-dependencies 里的 compiler、spatial 和 `serde_json` 不在图中。
+编译器与 `laneflow-static-network` 之间没有生产依赖：编译器发射受检制品，共享
+修订由 `build_shared_network_revision` 另一次构建。
+
+```mermaid
+flowchart TB
+  compiler["laneflow-compiler"] --> format["laneflow-format"]
+  compiler --> contract["laneflow-static-contract"]
+  compiler --> editing["laneflow-road-editing-wire"]
+  format --> contract
+  network["laneflow-static-network"] --> format
+  network --> contract
+  runtime["laneflow-runtime"] --> network
+  runtime --> contract
+  runtime --> format
+  runtime --> motion["laneflow-motion-kernel"]
+  runtime --> snapshotWire["laneflow-runtime-snapshot-wire"]
+  spatial["laneflow-spatial"] --> network
+  spatial --> contract
+  adapter["laneflow-bevy"] --> runtime
+  adapter --> spatial
+  adapter --> network
 ```
 
-当前 Rust crate 依赖方向固定为：
+`laneflow-runtime` 与 `laneflow-spatial` 互不依赖。多个世界用 `Arc` 克隆复用同一
+根 `SharedNetworkRevision`；修订拥有自己的连续数组，不借用 LFCA 的 backing。
+`SpatialSession::bind` 绑定这根 `Arc`。无 Spatial 组件时返回 `Ok(None)`；有
+Spatial 但没有 lane-pose 时绑定失败。同时持有世界和会话的 Adapter 必须让
+`TrafficWorld::revision()` 与 `SpatialSession::revision()` 满足 `Arc::ptr_eq`。
+当前 Bevy 会话在失配时拒绝创建或换绑。见
+[共享静态路网](design/shared-static-network.md)、
+[空间几何](design/spatial-geometry.md) 与
+[Adapter API](design/adapter-api.md)。
+
+正常生产入口是：
 
 ```text
-laneflow-runtime -> laneflow-static-network
-laneflow-runtime -> laneflow-static-contract
-laneflow-spatial -> laneflow-static-network
-laneflow-spatial -> laneflow-static-contract
-laneflow-runtime -X-> laneflow-spatial
-laneflow-spatial -X-> laneflow-runtime
-
-Engine Adapter -> laneflow-runtime
-Engine Adapter -> laneflow-spatial
+TrafficWorld::install(
+    Arc<SharedNetworkRevision>,
+    WorldConfig,
+    ExecutionConfig,
+    CommittedNetworkSource,
+    world_id,
+    WorldPolicySelection,
+)
 ```
 
-Runtime 不依赖 JSON、Serde、JSON Schema、文件系统、compiler 或 Adapter。current JSON 不再安装可运行世界。详细决策见 `design/traffic-runtime-shared-consumption.md`。
+`PostEmissionCheckedBundle` 按值持有 LFCA、LFSM、LFSD 三个来源句柄。它是进程内
+能力，不表示已发布或可信。`canonical_network_input(self)` 消费 bundle，只留下
+LFCA 与已完成的检查证明。安装签名与这条入口的合同见
+[共享消费 §4](design/traffic-runtime-shared-consumption.md#4-公开入口)。该文里
+按 #301 切片写下的 1-worker 和“尚未交付快照/切换”不是当前实现边界；并行、快照
+和切换以本节之后的专题为准。
 
-v0.6 #123 已在 G1 接受引擎无关的空间层（Spatial Layer），#133 已建立首个生产 `laneflow-spatial` crate。当前与目标依赖方向为：
+## 4. 生命周期
 
-```text
-laneflow-spatial -> laneflow-static-network
-laneflow-spatial -> laneflow-static-contract  (共享静态空间数值边界)
-引擎适配器 -> laneflow-runtime / laneflow-spatial
-laneflow-runtime -X-> laneflow-spatial
-```
+### 安装
 
-#301 后 Spatial 绑定共享路网修订 `Arc`，不再依赖已拆除的 `laneflow-core`。Spatial 拥有有界 local canonical frame、中心线、弧长与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误，以及绑定 `SharedNetworkRevision` 的 `SpatialSession` 批量提取。
+`install` 一次绑定完整共享修订、世界配置、执行配置、已提交来源、世界身份和
+路权策略选择。来源的 `NetworkRevisionId` 必须与修订 origin 一致。失败不留下
+可观察的半个世界。交通准备完成之后，执行配置超出后端能力或执行计划失败都会
+拒绝安装，不静默降级。见
+[共享消费 §4](design/traffic-runtime-shared-consumption.md#4-公开入口) 与
+[执行配置](design/traffic-runtime-execution-config.md)。
 
-### 2.1 #291 目标静态编译分层
+### 执行策略
 
-Accepted ADR 0020 的目标态不在上述 current 链条旁增加 L1/L2，而是把全部静态
-路网编译前移。Accepted ADR 0025（#300 G1 Pass）进一步取消独立静态镜像文件/ABI，
-改为以受检 LFCA 构建进程内共享静态路网：
+`ExecutionConfig` 携带非零 worker 数，不进入快照、摘要或共享静态路网。当前
+后端接受 1–16。1 在调用线程上计算，不创建辅助线程；2–16 由该世界独占的池线程
+计算，调用线程只等待。这是已实现的执行配置。城市性能仍未认证。见
+[并行执行](design/traffic-runtime-parallel-execution.md) 与
+[ADR 0030](adr/0030-single-world-parallel-execution.md)。
 
-本节术语以 [`reference/glossary.md`](reference/glossary.md) 的中文定义为正本，
-英文只作辅助理解；代码和制品标识符保留精确拼写。
+### 路线注册
 
-```text
-Road Editing / Synthetic DSL / imported / other checked source modules
-  -> authoritative source module graph
-  -> typed AST -> HIR -> MIR -> validated canonical LIR
-  -> LFCA + LFSM + LFSD
-  -> laneflow-format checked LFCA capability
-  -> laneflow-static-network -> SharedNetworkRevision
+静态路网不预编译路线。调用方把有序边序号交给 `TrafficWorld::register_route`，
+出现记录只进入该世界的表。稳态步进使用稠密句柄，不扫描共享路网里的路线表。见
+[ADR 0029](adr/0029-retire-precompiled-static-route.md) 与
+[路线](design/route-system.md)。
 
-SharedNetworkRevision
-  -> required SharedTrafficNetwork + SharedIdentityIndex + PartitionPlanningHints
-  -> laneflow-runtime: shared immutable Traffic data + per-world mutable state
-     + per-world RuntimeExecutionPlan
-  -> laneflow-spatial: optional SharedSpatialNetwork; lane_pose capability + pose scratch/output
-  -> Adapter: Runtime/Spatial public API + committed snapshot + pose batch
-```
+### 步进
 
-这里的 `semantic diff` 是 #298 基于规范 LIR 的路网影响差异；C 阶段道路编辑控制点等
-authoring-only 差异由后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)
-`RoadEditingSourceDiff` 负责。
+`step` 按世界固定步长推进已提交状态。阶段协议用 P0–P8 表达读写边界，不要求
+九次遍历。精确路径在同一逻辑边界提交，不因分区多延迟一拍。见
+[阶段协议](design/traffic-runtime-phase-protocol.md) 与
+[ADR 0003](adr/0003-runtime-tick-and-determinism.md)。
 
-compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length
-与 dense layout，**不**预编译路线出现记录（ADR 0029）；target `LaneFlow Traffic Runtime`
-（`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
-（Dynamic Traversal Definition）和其他可变交通正本（Mutable Traffic
-Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
-Accepted ADR 0024 已冻结 LFCA 后发射检查和最小发布闭合。Accepted ADR 0025 让发布加载和
-玩家确认建造在 admission 之后共用同一条构建路径：宿主发布加载先认证 LFCP v2/
-manifest 绑定，本地玩家编辑则直接消费 `PostEmissionCheckedBundle`；两者都由
-`laneflow-format` 提供受检 LFCA capability，再由 `laneflow-static-network` 完成
-跨表引用、身份双射、Traffic/Spatial 对齐和执行约束闭合。目标 Runtime 不解析 JSON、
-LFCA 或 compiler-private LIR，也不按 external ID 重建登记表。
+### 观测
 
-`SharedNetworkRevision` 的 Traffic、冷稳定身份索引和分区规划提示必选，Spatial
-component 可选。headless 构建不保留 geometry；稳定身份索引不进入 steady tick，
-但任何构建模式都不得删除它。Spatial component 可以是 facility/profile/frame-only；只有
-非空 LaneEdge geometry 才形成完整 lane-pose sampling capability。共享结果拥有自己的连续
-数组且不借用 LFCA backing。runtime-only 世界可以在构建后释放 LFCA；可编辑 session 为
-后续 LFSD 保留的 exact base LFCA 由 editor/#302 独立拥有，不进入共享路网修订。#300 v1 不定义
-静态镜像 descriptor、integrity manifest、SharedNetwork mmap ABI、磁盘 cache 或
-target/profile 文件变体；#551 的私有 staged backing 只读映射不是共享静态路网布局或持久化缓存。
+世界按观测导出节奏交出已提交交通观测。宿主用它构造动态成本快照，再把候选路径
+交回 Runtime 验证和注册。修订不匹配的候选失败关闭。LaneFlow 不提供路径算法
+crate。见
+[观测与路径规划接入](design/traffic-observation-and-routing-integration.md)。
 
-LFCA 的规范关系保存编译器派生的静态执行约束事实（Static Execution Constraint
-Facts）；LFCA 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
-version 确定性派生 `PartitionPlanningHints` component，Runtime 可以忽略或重建，但不得保存
-最终分区/工作线程分配（Partition/Worker Assignment）。每个世界依据这些约束、硬件与
-动态负载建立自己的
-运行时执行计划（Runtime Execution Plan）。精确执行的所有分区只读取已提交状态
-`T`，在同一逻辑边界原子提交 `T + Δ`；不能因跨分区而额外延迟一 tick。互不相交的
-资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约裁决方。该裁决方
-定义唯一结果而非单一物理线程；生产方案必须用资源分段、强连通分量（Strongly
-Connected Component，SCC）、凝聚有向无环图（Condensation Directed Acyclic
-Graph，Condensation DAG）与稳定合并证明归约工作量/跨度（Reduction Work/Span），
-并以集中式组件归约作为精确参考预言机。
+### 快照与恢复
 
-静态也不等于城市永不变化：编译器每次产生不可变路网修订（Network Revision），
-运行世界通过失败关闭的路网修订切换事务（Network Revision Cutover Transaction）迁移。默认在线
-流程在旧世界继续固定步进时准备候选，以有界迁移增量日志（Migration Delta
-Journal）记录已提交动态状态/生命周期变化及命令/事件游标，并让候选重解释这条
-已提交变更流；最后在安全边界的静默提交窗口（Quiescent Commit Window）排空日志尾
-并把新共享修订/状态绑定与规范排序的切换事件批次原子地只发布一次。候选不得重新执行
-输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧根对象。
-语义差异不能自行授予迁移决定，必须由对象外可信的
-路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
-稳定身份索引完成引用翻译。Accepted ADR 0024 的 compiler 后发射检查从目标无关规范路网语义载荷
-（Canonical Network Semantic Payload）重算路网修订标识（Network Revision ID）
-`NetworkRevisionId`；LFCP/manifest、共享修订 origin 及切换描述符按各自职责绑定该
-标识，Runtime 不接受调用方或 LFSD 自报修订。#300/#302 分别冻结共享静态路网和切换
-输入。当前 production descriptor 是不含 receipt 的 LFCP v2；LFCP v1 只保留为
-#298 已实现的历史契约。目标职责、上层
-边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024。现行可运行世界只有
-`TrafficWorld`；旧 Core 路径不属于本文当前合同。精确消费边界以
-`docs/design/traffic-runtime-shared-consumption.md` 为准。
+已实现的生产快照是 Runtime Snapshot v7：LFRS `formatVersion = 7`、
+`runtime_state_version = 5`、确定性状态摘要版本 `8`（BLAKE3-256）。worker 数与
+`ExecutionConfig` 不进入快照。含活动过渡的世界在保存时返回
+`SnapshotCaptureError::UnsupportedTransitionState`。这是已实现的版本合同，不是
+性能或资源认证。见
+[快照 §2](design/traffic-runtime-snapshot.md#2-版本轴与绑定集)、
+[快照 §5](design/traffic-runtime-snapshot.md#5-保存与恢复) 与
+[ADR 0033](adr/0033-digest-role-and-algorithm-selection-authority.md)。
 
-## 3. Authoring Layer
+### 修订切换
 
-Authoring Layer 负责生成或编辑交通数据：
+在线修改路网时，旧世界继续步进，候选在失败关闭的切换事务里追赶已提交变更。
+提交窗口只把新修订和切换事件发布一次。失败、放弃或无法证明等价时零事件，旧根
+继续有效。见
+[修订切换](design/traffic-runtime-revision-cutover.md#8-失败关闭故障映射)。
 
-- 道路编辑
-- 车道编辑
-- 路线编辑
-- 红绿灯配置
-- 停车位配置
-- 示例数据生成
+## 5. 领域位置
 
-它可以是独立工具、引擎编辑器插件或离线转换脚本。
+本节只说明权威归属和实现状态。
 
-#291 target 中，唯一逻辑 authoring authority 是显式、可重放的 source module graph。
-ADR 0023 进一步把城市项目/存档中的道路编辑状态定义为 production 编制事实：可视化
-编辑器与可发布程序化生成器共享有类型道路编辑模型；#296 已实现按模块
-size-prefixed FlatBuffers 的内部 B1 production compiler 入口。该格式尚未发布，也不承担
-长期存档兼容承诺。
-Synthetic DSL source 继续只服务测试、benchmark、示例和
-非发布程序化场景；importer 保存原始 source digest、tool/options/provenance。全部正式
-来源输出 owning module、稳定实体/属性或画布选择位置及 typed AST，不直接构造
-Traffic Runtime 或 Spatial 对象。
+### 路口
 
-道路建成后仍可修改。近期产品通过候选道路的整体编译/验证和新路网修订替换实现；长期
-在同一事务上增加直接调整与影响预览。道路编辑状态保存重建当前走向所需的编制定义，
-共享静态路网只保留规范折线和静态表，不保存控制点或交互历史。鼠标拖动与预览不触发
-完整编译；用户确认建造后才构建候选。城市存档只保存活动 Runtime 修订的 committed
-network source：可编辑世界保存道路编辑状态，只从发布 LFCA 启动的 runtime-only 世界
-保存绑定 LFCA digest/length/revision 的持久 asset reference；working/candidate 不进入
-存档。发布资产要进入道路编辑流程，必须同时提供可重编译并核对到同一修订的 committed
-道路编辑状态，不能从 LFCA 逆向恢复 authoring-only 曲线；#302 先用重编译 exact LFCA 原子
-rebase root/source/diff-base binding，再启用编辑。可编辑 session 内存保留当前 exact base
-LFCA 供下一次 `PortableDiffBase::Artifact`，但存档仍只保存 committed 道路状态。
+编译器把 `Junction`、`Movement`、`ManeuverPath` 和 `ManeuverGate` 写入静态路网。
+`register_route` 在本世界编译出现记录。路线拥有车辆实际通过；信号控制器和
+Adapter 不拥有最终通行权。这一静态身份和出现记录已实现。见
+[路口模型](design/road-junction-model.md) 与
+[ADR 0017](adr/0017-static-road-junction-maneuver-and-gate-identity.md)。
 
-## 4. Traffic Data Layer
+### 横断面与准入
 
-Traffic Data Layer 保存可被编译器和共享静态路网消费的静态交通事实：
+`RoadCorridor` 组织方向性 `RoadSection` 和可选 `LaneGroup`。`FacilityBand`
+是非遍历设施，进入共享静态路网。静态准入在车辆生成和替换时按参与者类别
+检查路线后缀，已实现。`FacilityBand` 作为准入目标时，编译器拒绝该能力。时变
+准入的运行时求值已接受但未实现。见
+[横断面与准入](design/cross-section-access.md) 与
+[ADR 0018](adr/0018-multimodal-cross-section-and-access-overlay.md)。
 
-- lane graph
-- signal
-- parking
-- spawn rules
-- vehicle profiles
+### Waiting 与 Conflict
 
-通行计划不属于本层。调用方把有序边序号交给 `TrafficWorld::register_route`，出现记录只进每世界表。
+Waiting 资格、Conflict 出现记录、显式路权策略和预约由 `TrafficWorld` 在固定
+步进里联合裁决。Spatial 拥有规范几何，不拥有通行权。该运行时路径已实现。见
+[Waiting / Conflict](design/waiting-zone-conflict-right-of-way.md)、
+[路权策略](design/traffic-runtime-right-of-way-policy.md)。
 
-数据格式应尽量保持引擎无关。
+### 停车
 
-当前生产路径不经过 JSON loader。静态交通数据由编译器从受检编制来源产出 LFCA，
-`laneflow-static-network` 构建 `SharedNetworkRevision`，`TrafficWorld` 安装该共享路网修订。
-`laneflow-data`、`laneflow-current-source` 与 current JSON Schema（Traffic v0.10、
-Spatial v0.1、Scenario Manifest v0.1）已随 #301 拆除。走廊生成器写出 catalog 0.4 与
-LFCA（路线边序列在 catalog，不进 LFCA；ADR 0029）；可运行世界只安装 LFCA 构建的共享路网修订。50–200 确定性回流见
-[#475](https://github.com/illusion-tech/laneflow/issues/475)。
+共享修订保存设施、显式泊位几何、虚拟容量和锚点，不保存预约或占用。占用裁决在
+`TrafficWorld`：显式泊位与虚拟容量都以 tagged binding 管理，已实现。停驻车辆
+保留身份；无位姿不等于移除。见
+[停车](design/parking-system.md) 与
+[ADR 0010](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)。
 
-portable canonical artifact 由 `laneflow-format`/compiler contract 描述。静态
-semantic normalization 在 compiler；共享静态路网不取代 LFCA publication/provenance
-与宿主 admission 契约。current JSON 未曾作为外部资产发布，不接入 compiler，也不形成
-长期兼容或迁移工具承诺。
+### 信号
 
-静态领域模型（车道图、Junction/Movement/ManeuverPath、StopLine、ManeuverGate、
-SignalGroup、固定时制 Controller/Phase、`ParkingFacility/ParkingSpace`、横断面与准入、
-WaitingZone）由编译器写入 Canonical LIR / LFCA，再进入共享静态路网。JSON schema
-与 `laneflow-data` 已删除，不再是现行契约。详细现行路径见
-`design/portable-canonical-artifact.md`、`design/shared-static-network.md` 与对应
-领域设计。
+控制器产生指示，Gate 与停止线表达空间准入，合规策略解释许可，纵向约束保证
+结果不可绕过。Adapter 只查询和表现。固定时制已实现。感应式和自适应控制不是
+现行能力。见 [信号](design/signal-system.md) 与
+[ADR 0009](adr/0009-signal-indication-gate-and-policy-separation.md)。
 
-共享静态路网承载 immutable `ParkingFacility/ParkingSpace`、显式泊位几何、
-virtual capacity 与规范 entry/exit anchors，不持久化 reservation、occupancy、
-initial parked vehicles 或 runtime handles。停车占用裁决归 `TrafficWorld`。一个设施
-可以同时组织显式泊位和不物化泊位的虚拟容量；Runtime 以 tagged
-`ExplicitSpace | VirtualPool` binding 管理 reserve/park/leave；虚拟 Parked 车辆保留
-live identity，但不产生 committed pose。真正移除仍由原子 `despawn_vehicle` 完成，并
-在同一提交释放停车 binding/route 引用；无 pose 不等于移除。完整合同见
-[`parking-system.md`](design/parking-system.md)。
+已提交一维几何是整数毫米和 `mm/s`。见
+[ADR 0028](adr/0028-integer-millimeter-traffic-geometry.md)。
 
-**实现状态**：当前代码已移除 `ParkingArea` / `occupy_parking`，由按车辆下标和句柄
-代际读取的私有 aggregate 统一管理显式/虚拟 reservation 与 occupancy。Runtime Snapshot v7
-（LFRS `formatVersion = 7`）、修订切换、回放、Spatial 与 Bevy 消费同一 authority。
-这是已实现的生产快照版本，不是性能或资源认证。
+## 6. 扩展边界
 
-#229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
-Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。
-RoadSection、LaneGroup 与 JunctionGroup 只冻结长期语义，不进入该次 schema
-（Traffic `0.8`，即 v0.9 产品里程碑的数据格式）。
-SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
-`design/road-junction-model.md`。
+已实现、已接受但未实现、已验收且绑定基线、未认证是四种不同事实。Accepted 设计
+不自动等于已实现或已认证。
 
-#234 已按 ADR 0018 冻结多模式横断面与准入分层的长期语义：`RoadCorridor` 作为
-横断面唯一 owner 组织方向性 `RoadSection` 与非遍历 `FacilityBand`，
-`FacilityKind`（物理设施）、`ParticipantClass`（数据声明的单继承参与者分类）与
-`AccessRule`（target/effect/时间窗口/法规 provenance 的准入 overlay）显式分离。
-其 Core/Data 生产化与 Traffic `0.8 -> 0.9` 原子迁移已由 #234 拆出的最小
-production Issue #262 交付（v0.9 schema 已发布并经 live 验证）；
-SSOT 见 `design/cross-section-access.md`。
+### 已实现
 
-#235/ADR 0019 已接受多阶段复杂路口 G1：沿用 ManeuverPath/Route authority，把
-multiple Gate、WaitingZone 与 ConflictZone occurrence 在 Route 注册期编译；
-Traffic/Runtime 中显式声明的 ParticipantStream/ConflictZone 关系拥有行为 authority，
-并复用 current Traffic v0.10 的 ParticipantClass/AccessRegistry 静态准入结果；
-Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
-`design/waiting-zone-conflict-right-of-way.md`；其中 #281 static/Data 已生产化，
-#282–#285 已交付 Waiting 运行时、Conflict 出现记录与仲裁、路权策略及复杂路口组合验证，
-现行执行合同见 `crates/laneflow-runtime/README.md`。
+- 道路机动车 `TrafficWorld`，以及编译器、受检 LFCA、`SharedNetworkRevision`、
+  可选 `SpatialSession` 和 Bevy 参考适配器这条生产路径。
+- 安装、固定步进、每世界路线注册、观测导出、快照 v7 / state 5 / digest 8、
+  失败关闭的修订切换，以及投入使用前的修订认证。
+- 路口静态身份、横断面静态模型、静态准入、Waiting / Conflict、显式与虚拟停车、
+  固定时制信号。
+- 固定预制过渡换道。活动过渡拒绝保存。
+- worker 1–16 的执行配置。
 
-## 5. LaneFlow 交通运行时
+### 已接受但未实现
 
-LaneFlow 交通运行时负责运行时交通逻辑：
+- 时变准入的运行时求值。
+- `FacilityBand` 作为 `AccessRule` 目标。编译器目前拒绝这一能力。
 
-- vehicle state
-- route following
-- lane graph traversal
-- vehicle following
-- signal compliance
-- intersection rules
-- parking behavior
+v0.10 的五轴汇总是已验收且绑定基线 `c0045f8f` 的结论。其中 performance 与
+resource 为未认证，城市 Routing 为授权豁免，LuST 不在该基线内。该结论不是当前
+`main` 的性能或 LuST 认证。并行合同仍把城市性能标为未认证；本文不做新的认证。
+证据范围见
+[路线图的 v0.10 验收结论](roadmap.md#v010-验收结论)。
 
-Runtime 不依赖具体游戏引擎 API。
+### 长期方向
 
-Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWorld` 表达。
-`laneflow-core` / `CoreWorld` 已拆除。Static/shared contract 在
-`laneflow-static-contract` 与 `laneflow-static-network`；Runtime 共享
-`SharedTrafficNetwork`，不再从 `InitialTrafficData` 构建静态 registries。
-每个 `TrafficWorld` 只拥有已实现执行域的交通参与
-单元、动态通行定义、控制器/预约/停驻状态（Stationary State）等可变数组，
-以及世界 identity、输入命令游标、运行时执行计划和当前路网修订绑定。当前
-投影仍是车辆/路线/停车占用特化；人口、
-Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
-授予随机流裁决权时才拥有相应随机流。
-路线出现记录只在 `TrafficWorld::register_route` 编进每世界表；steady tick
-继续只使用 typed dense handle，不读共享静态路网路线表（ADR 0029）。
-
-运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。当前已实现的生产合同是
-Runtime Snapshot v7：LFRS `formatVersion = 7`、`runtime_state_version = 5`、确定性状态摘要版本
-`8`（BLAKE3-256，[ADR 0033](adr/0033-digest-role-and-algorithm-selection-authority.md)
-定义的内部完整性摘要）。worker 数与 `ExecutionConfig` 不进入快照。保存与恢复已实现；
-含活动过渡的世界在该版本上结构化拒绝保存。这不是性能或资源认证。规范见
-[`traffic-runtime-snapshot.md`](design/traffic-runtime-snapshot.md)。
-Accepted ADR 0025 要求
-#302 使用版本化路网修订标识、LFCA origin digest/length、静态契约版本、world identity、
-tick、输入命令游标和全部每世界可变状态完成绑定；内部 dense ordinal、地址、布局和
-partition plan 不进入快照。ADR 0028 把那些可变状态中的一维几何与速度定为整数毫米 /
-`mm/s` 加微米余数；#302 不得先冻 `f64` 米进度。只要 snapshot/runtime contract 与身份/执行约束版本兼容，
-加载时可以从已提交道路编辑状态重新编译 LFCA、构建同一修订并借助
-`SharedIdentityIndex` 完整重建引用。dense ordinal 不能跨路网修订直接复用。
-任何保留旧状态的跨修订切换/恢复都必须消费经 #302 接受的可信切换输入绑定的语义
-差异；`SharedIdentityIndex` 只复核 StableId128 ↔ typed ordinal 映射，不能证明
-语义兼容，缺失该证据时迁移失败关闭。
-回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射
-生成失同步诊断制品。交通运行时按观测导出节奏（Observation Export Cadence）导出
-完整基线或版本化增量/分区选择的已提交交通观测；路径规划据此构造动态成本快照，
-不进入交通参与单元 fixed-tick 热路径，也不要求每 tick 全量复制全网。
-#303 G1 已接受设计选择宿主自有 Routing + LaneFlow 纯契约边界，不新增算法 crate
-或 LaneFlow wire；观测、成本绑定、候选注册与 #302 失效接缝见
-[`traffic-observation-and-routing-integration.md`](design/traffic-observation-and-routing-integration.md)。
-
-历史 `InitialTrafficData` 只表示 Core 时代可用于初始化 world 的已验证静态 JSON
-输入。#301 后可运行世界由 `TrafficWorld::install(Arc<SharedNetworkRevision>)`
-安装，不再从 current JSON / `InitialTrafficData` 构造。
-
-Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
-表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、
-安全投影与 permission-aware traversal 保证结果不可绕过。SignalController 不硬编码
-国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009、
-`design/signal-system.md`。
-
-#229 在不改变上述职责分层的前提下实现了 ADR 0017：
-`Junction -> Movement -> ManeuverPath` immutable owner hierarchy、derived
-internal-edge Junction ownership 和一等 ManeuverGate。Route 继续拥有车辆实际
-traversal；`register_route` 在本世界编译 Maneuver/Gate occurrences，vehicle
-tick 不匹配 path、不查 external ID 或扫描全局 catalog。#229 时的 Core API 只公开
-Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pair key。
-
-#234/ADR 0018 在此之上冻结横断面与准入的长期职责边界：横断面是 LaneGraph 之上的
-可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑正本）；准入规则
-作为 regulatory constraint 进入 Traffic Runtime constraint 管线，静态规则在 (class, Route)
-绑定期原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Traffic Runtime
-safety。上述 ParticipantClass/CrossSection/Access registries、typed handles 与静态
-route-binding 校验已由 #262 生产化；时变准入与 FacilityBand target 仍未生产化。
-
-#235/ADR 0019 Accepted 设计在 signal/regulatory 与 Traffic Runtime safety 之间增加独立 conflict
-domain：versioned compliance policy 只产生 protected/permissive/uncontrolled
-candidate，Traffic Runtime ConflictArbiter 才能结合 yield/priority、gap acceptance、zone
-occupancy/reservation 产生 vehicle-specific tick grant；crossing 成功后 grant
-原子升级为 reservation。v1 grant 前还必须以 route-local occupancy/hard boundary
-证明车辆能让车尾清空 coverage zone，并在 stable single-writer arbitration 中原子
-取得 Waiting/Conflict/physical downstream claim；不能证明下游存储或与
-committed/earlier-staged claim 冲突时 fail closed。candidate proposal 可以并行，
-但线程调度/锁竞争不能决定 winner。
-SignalController、Adapter、JunctionGroup 与二维几何均不拥有最终通行权；任何
-grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该设计已
-通过 G1，并已由 #282–#285 生产化：正式 fixed tick 组合 Gate policy、Waiting
-entitlement、gap、Conflict reservation 与 downstream claim，以 single-writer 顺序提交。
-
-Parking runtime 由私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与
-exact Occupied binding 一致，Parked vehicle 保留 live identity 但不进入 travel-lane
-occupancy。#108/#109 是显式泊位历史实现；当前以
-`ParkingFacility` 同时承载显式泊位与稀疏 virtual capacity，Reserved entry 必须由 caller
-精确选择并保持前向可达，不保留 route-completion 自动释放。ParkingStop、SignalStop、
-RouteEnd 与 leader/no-overlap 仍进入同一 fixed-tick constraint/traversal pipeline；Adapter
-只消费 immutable registry、snapshot、typed records/observations 和 position authority。
-该 clean break 由 #541 实现。详细设计见 ADR 0010 与 `design/parking-system.md`。
-
-## 6. Engine Adapter Layer
-
-Engine Adapter 负责把已提交交通状态映射到具体引擎：
-
-- tick 调用
-- actor / entity 生命周期
-- transform 同步
-- mesh / prefab / scene object 绑定
-- debug draw
-- UI 面板
-- LOD 和性能策略
-
-Adapter 不应把引擎依赖引入 Runtime。
-
-Adapter 不再从 current JSON 安装可运行世界；它消费 `TrafficWorld` 与可选 `SpatialSession`。不得要求 Runtime 理解引擎路径、asset handle 或异步加载协议。
-
-ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
-状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。宿主在安装、恢复、Spatial 绑定与切换之前调用共享路网修订认证
-（#955 G1，ADR 0032；只读，不改变这些入口的签名），认证非 `Pass` 的修订不投入使用。
-Runtime 安装完整修订；Spatial 只 `bind` 同一根 `Arc`，不依赖
-Runtime，也不从 Runtime 发布的 snapshot/facade 借用。同时持有 world 与 session 的 Adapter
-必须 `Arc::ptr_eq`。不存在独立 component 安装或重新组合 API。#302 若发布
-revision-bound 只读 facade，必须内部保留同一根 `Arc`，不得把 Spatial 绑到 Runtime 类型。
-Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则或单独替换 component。
-它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或
-统一改变模拟时间推进速度，但不能静默丢 fixed tick、丢事件或让不同分区读取不同
-逻辑时点。任何多频率或 aggregate 降级必须由独立 fidelity contract 和 G1 冻结。
-
-ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样正本；它们从 `TrafficWorld::committed_pose_sources()` 构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
-
-v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.20 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 占位 API 已删除，不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。最小证据为 `quickstart` 与无窗口 smoke。Adapter 边界见 `design/bevy-reference-adapter.md`。
-
-v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `TrafficWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Runtime 不提供人口 controller。走廊编制与 catalog 绑定由 [#472](https://github.com/illusion-tech/laneflow/issues/472) 迁到 `TrafficWorld`；50–200 原子替换见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。静态制品不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`。
-
-## 7. Presentation Layer
-
-Presentation Layer 负责用户可见效果：
-
-- 车辆模型
-- 道路表现
-- 动画
-- 灯光
-- 调试可视化
-- 示例场景 UI
-
-Presentation 可以因引擎不同而完全不同。
+- 非机动车、行人和轨道执行域。`ParticipantClass` 只是准入分类。
+- 任意位置变道，以及 LuST 真实路网五轴验收。二者是已裁定的 v0.11 能力目标，
+  还没有作为现行行为实现，也没有认证。固定预制过渡不代表任意位置模型。
+- 道路编辑的直接调整与影响预览。当前生产是确认建造后的整修订替换。见
+  [ADR 0023](adr/0023-road-editing-state-and-phased-network-replacement.md)。
+- `JunctionGroup`、感应式或自适应信号、运行中完整性轮转校验，以及用多频率或
+  表现层细节层次代替单世界保真度。这些都需要各自的后续设计，当前合同没有把
+  它们写成已实现能力。
+- 城市级单世界扩展和 v1.0 的产品范围。它们不是 v0.11 的隐含内容。见
+  [路线图](roadmap.md)。
