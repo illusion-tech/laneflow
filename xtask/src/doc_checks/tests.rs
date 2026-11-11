@@ -426,6 +426,7 @@ fn column_counts_unicode_scalars_and_crlf_lines() {
         "crlf.md",
         "# Title\r\n\r\n[bad][bad]\r\n\r\n[bad]: missing.md\r\n",
     );
+    repo.write("cr.md", "# Title\r\r[bad][bad]\r\r[bad]: missing.md\r");
     let report = repo.check();
     let utf8 = report
         .findings
@@ -439,6 +440,12 @@ fn column_counts_unicode_scalars_and_crlf_lines() {
         .find(|finding| finding.path == "crlf.md")
         .expect("crlf finding");
     assert_eq!((crlf.line, crlf.column), (3, 1));
+    let cr = report
+        .findings
+        .iter()
+        .find(|finding| finding.path == "cr.md")
+        .expect("cr finding");
+    assert_eq!((cr.line, cr.column), (3, 1));
 }
 
 #[test]
@@ -616,6 +623,68 @@ reason = "不能藏在图片替代文字里"
         "{}",
         texts(&repo.check()).join("\n")
     );
+}
+
+#[test]
+fn links_inside_image_alt_do_not_satisfy_required_edges() {
+    let repo = TestRepo::new("image-alt-link");
+    repo.config(
+        r#"
+[[required]]
+source = "README.md"
+target = "docs/README.md"
+reason = "不能藏在图片替代文字里"
+"#,
+    );
+    repo.write("docs/README.md", "# Docs\n");
+    repo.write("preview.png", "png");
+    repo.write(
+        "README.md",
+        "![see [docs][docs]][preview]\n\n[docs]: docs/README.md\n[preview]: preview.png\n",
+    );
+    let rendered = texts(&repo.check()).join("\n");
+    assert!(rendered.contains("missing-required-entry"), "{rendered}");
+    assert!(!rendered.contains("missing-path"), "{rendered}");
+}
+
+#[test]
+fn html_anchors_inside_image_alt_are_not_registered() {
+    let repo = TestRepo::new("image-alt-html");
+    repo.write("preview.png", "png");
+    repo.write(
+        "a.md",
+        "![<a id=\"hidden\"></a>][preview]\n\n<a id=\"shown\"></a>\n\n[no][no]\n[yes][yes]\n\n[preview]: preview.png\n[no]: #hidden\n[yes]: #shown\n",
+    );
+    let targets: Vec<_> = repo
+        .check()
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(targets, vec!["#hidden".to_string()]);
+}
+
+#[test]
+fn git_metadata_is_not_a_committed_target() {
+    let repo = TestRepo::new("git-dir");
+    fs::create_dir_all(repo.path.join(".git")).expect("git dir");
+    fs::write(repo.path.join(".git/config"), "x\n").expect("git config");
+    repo.write("README.md", "# Readme\n");
+    repo.write(
+        "a.md",
+        "[meta][meta]\n[inside][inside]\n[ok][ok]\n\n[meta]: .git\n[inside]: .git/config\n[ok]: README.md\n",
+    );
+    let rendered = texts(&repo.check()).join("\n");
+    assert!(rendered.contains("target=.git:"), "{rendered}");
+    assert!(rendered.contains("target=.git/config:"), "{rendered}");
+    assert!(rendered.contains(".git 不是已提交内容"), "{rendered}");
+    assert!(!rendered.contains("target=README.md"), "{rendered}");
+
+    let worktree = TestRepo::new("git-file");
+    fs::write(worktree.path.join(".git"), "gitdir: /tmp/elsewhere\n").expect("git file");
+    worktree.write("a.md", "[meta][meta]\n\n[meta]: .git\n");
+    let file_case = texts(&worktree.check()).join("\n");
+    assert!(file_case.contains(".git 不是已提交内容"), "{file_case}");
 }
 
 #[test]

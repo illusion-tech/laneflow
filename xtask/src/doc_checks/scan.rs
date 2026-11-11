@@ -18,6 +18,8 @@ pub(super) struct Resolved {
 #[derive(Debug)]
 pub(super) enum ResolveError {
     Escape,
+    /// 解析结果含 `.git` 组件。它是仓库元数据，不是已提交内容。
+    GitMetadata,
     Unsupported(&'static str),
 }
 
@@ -396,6 +398,9 @@ pub(super) fn resolve_decoded(base_rel: &str, decoded: &str) -> Result<Resolved,
             continue;
         }
         parts.push(part);
+    }
+    if parts.contains(&".git") {
+        return Err(ResolveError::GitMetadata);
     }
     Ok(Resolved {
         rel: parts.join("/"),
