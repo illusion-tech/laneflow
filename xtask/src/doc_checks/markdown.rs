@@ -1,8 +1,10 @@
 //! 用 pulldown-cmark 抽取链接、图片、标题和行内代码。不扫描 `](...)` 正则。
+//! Markdown 事件里的 HTML 交给 `html5gum` 分词。
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
+use html5gum::{StartTag, State, Token, Tokenizer};
 use pulldown_cmark::{BrokenLink, Event, LinkType, Options, Parser, Tag, TagEnd};
 
 use super::scan::{self, ResolveError, Resolved};
@@ -52,8 +54,9 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     let mut in_heading = false;
     let mut in_code = 0_u32;
     let mut in_image = 0_u32;
-    // HTML 块按行拆成多次事件。注释和 raw text 元素都可能跨事件。
-    let mut html_scan = HtmlScan::default();
+    // pulldown-cmark 会把同一段 HTML 拆成多次事件。先按文档顺序拼起来，
+    // 再交给同一个分词器；事件边界不能当成 EOF，否则跨事件的注释和原始文本会断开。
+    let mut html_bytes = Vec::new();
     let lines = LineIndex::new(text);
     let broken_links = RefCell::new(Vec::<(usize, String)>::new());
     {
@@ -95,10 +98,8 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                     heading.push_str(&text);
                 }
                 Event::SoftBreak | Event::HardBreak if in_heading => heading.push(' '),
-                Event::Html(html) | Event::InlineHtml(html) => {
-                    if in_code == 0 {
-                        html_scan = push_anchor_ids(&html, &mut anchors, html_scan);
-                    }
+                Event::Html(html) | Event::InlineHtml(html) if in_code == 0 => {
+                    html_bytes.extend_from_slice(html.as_bytes());
                 }
                 Event::Start(Tag::Link {
                     link_type,
@@ -149,6 +150,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
             }
         }
     }
+    anchors.extend(explicit_html_anchors(&html_bytes));
 
     for (offset, reference) in broken_links.into_inner() {
         let (line, column) = lines.position(text, offset);
@@ -459,314 +461,68 @@ impl LineIndex {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-struct HtmlScan {
-    in_comment: bool,
-    raw: Option<String>,
-    template_depth: u32,
-    plaintext: bool,
-}
-
-fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlScan) -> HtmlScan {
-    let bytes = html.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if scan.plaintext {
-            return scan;
-        }
-        if let Some(name) = scan.raw.clone() {
-            if let Some(after) = find_raw_end(html, index, &name) {
-                scan.raw = None;
-                index = after;
-                continue;
-            }
-            return scan;
-        }
-        if scan.in_comment {
-            if let Some(relative) = html[index..].find("-->") {
-                scan.in_comment = false;
-                index += relative + 3;
-                continue;
-            }
-            return scan;
-        }
-        if bytes[index] != b'<' {
-            index += 1;
-            continue;
-        }
-        if bytes.get(index..index + 4) == Some(b"<!--") {
-            if let Some(relative) = html[index + 4..].find("-->") {
-                index = index + 4 + relative + 3;
-                continue;
-            }
-            scan.in_comment = true;
-            return scan;
-        }
-        let closing = bytes.get(index + 1) == Some(&b'/');
-        let name_at = index + 1 + usize::from(closing);
-        if name_at > html.len() {
-            break;
-        }
-        let rest = &html[name_at..];
-        let name_len = rest
-            .char_indices()
-            .find(|(_, ch)| ch.is_ascii_whitespace() || *ch == '>' || *ch == '/')
-            .map(|(offset, _)| offset)
-            .unwrap_or(rest.len());
-        let name = &rest[..name_len];
-        let Some(close) = tag_end(html, index) else {
-            break;
+/// 从一整段 HTML 字节里收集 `<a id>` / `<a name>`。
+///
+/// `html5gum` 只做分词，不会按树构建切换状态。看到会改变分词状态的开始标签后，
+/// 立刻 `set_state`；`/>` 不结束这些非 void 元素。`noscript` 只在启用脚本时才是
+/// raw text，这里不启用脚本。`<template>` 里的标记仍会被分词，但不登记为锚点。
+fn explicit_html_anchors(html: &[u8]) -> BTreeSet<String> {
+    let mut anchors = BTreeSet::new();
+    if html.is_empty() {
+        return anchors;
+    }
+    let mut template_depth = 0_u32;
+    let mut tokenizer = Tokenizer::new(html);
+    while let Some(token) = tokenizer.next() {
+        let token = match token {
+            Ok(token) => token,
+            Err(error) => match error {},
         };
-        // HTML 不把这些非空元素的 `/>` 当成结束。plaintext 没有结束标签。
-        let raw_text = matches!(
-            name.to_ascii_lowercase().as_str(),
-            "script" | "style" | "textarea" | "title" | "xmp" | "iframe" | "noembed" | "noframes"
-        );
-        if !closing && name.eq_ignore_ascii_case("template") {
-            scan.template_depth = scan.template_depth.saturating_add(1);
-        } else if closing && name.eq_ignore_ascii_case("template") {
-            scan.template_depth = scan.template_depth.saturating_sub(1);
-        } else if !closing && name.eq_ignore_ascii_case("plaintext") {
-            scan.plaintext = true;
-        } else if !closing && raw_text {
-            scan.raw = Some(name.to_ascii_lowercase());
-        } else if !closing && scan.template_depth == 0 && name.eq_ignore_ascii_case("a") {
-            anchors.extend(
-                quoted_anchor_values(&html[index..=close])
-                    .into_iter()
-                    .map(|value| decode_html_entities(&value))
-                    .filter(|value| !value.is_empty()),
-            );
-        }
-        index = close + 1;
-    }
-    scan
-}
-
-fn find_raw_end(html: &str, start: usize, name: &str) -> Option<usize> {
-    let needle = format!("</{name}");
-    let bytes = html.as_bytes();
-    let mut index = start;
-    while index < bytes.len() {
-        let lower = html[index..].to_ascii_lowercase();
-        let relative = lower.find(&needle)?;
-        let after_name = index + relative + needle.len();
-        let boundary = bytes.get(after_name).copied().unwrap_or(b'>');
-        if boundary.is_ascii_whitespace() || boundary == b'>' || boundary == b'/' {
-            let close = tag_end(html, index + relative)?;
-            return Some(close + 1);
-        }
-        index = after_name;
-    }
-    None
-}
-
-fn decode_html_entities(value: &str) -> String {
-    let mut decoded = String::new();
-    let mut index = 0;
-    while index < value.len() {
-        let Some(start) = value[index..].find('&') else {
-            decoded.push_str(&value[index..]);
-            break;
-        };
-        let at = index + start;
-        decoded.push_str(&value[index..at]);
-        if let Some((ch, consumed)) = decode_numeric_reference(&value[at..]) {
-            decoded.push(ch);
-            index = at + consumed;
-            continue;
-        }
-        let Some(end) = value[at + 1..].find(';') else {
-            decoded.push('&');
-            index = at + 1;
-            continue;
-        };
-        let entity = &value[at + 1..at + 1 + end];
-        if let Some(ch) = decode_html_entity(entity) {
-            decoded.push(ch);
-            index = at + 1 + end + 1;
-        } else {
-            decoded.push('&');
-            index = at + 1;
+        match token {
+            Token::StartTag(tag) => {
+                if let Some(state) = element_tokenizer_state(&tag.name) {
+                    tokenizer.set_state(state);
+                }
+                note_anchor_start_tag(&tag, &mut template_depth, &mut anchors);
+            }
+            Token::EndTag(tag) if tag.name == b"template" => {
+                template_depth = template_depth.saturating_sub(1);
+            }
+            _ => {}
         }
     }
-    decoded
+    anchors
 }
 
-/// 数字字符引用可以不写分号。`&#65` 与 `&#65;` 都是 `A`。
-fn decode_numeric_reference(input: &str) -> Option<(char, usize)> {
-    let bytes = input.as_bytes();
-    if bytes.first() != Some(&b'&') || bytes.get(1) != Some(&b'#') {
-        return None;
-    }
-    let mut index = 2;
-    let hex = matches!(bytes.get(index), Some(b'x' | b'X'));
-    if hex {
-        index += 1;
-    }
-    let digits_start = index;
-    while index < bytes.len()
-        && (if hex {
-            bytes[index].is_ascii_hexdigit()
-        } else {
-            bytes[index].is_ascii_digit()
-        })
-    {
-        index += 1;
-    }
-    if index == digits_start {
-        return None;
-    }
-    let digits = &input[digits_start..index];
-    let code = if hex {
-        u32::from_str_radix(digits, 16).ok()?
-    } else {
-        digits.parse().ok()?
-    };
-    if bytes.get(index) == Some(&b';') {
-        index += 1;
-    }
-    Some((html_numeric_character(code), index))
-}
-
-fn decode_html_entity(entity: &str) -> Option<char> {
-    match entity {
-        "amp" => Some('&'),
-        "lt" => Some('<'),
-        "gt" => Some('>'),
-        "quot" => Some('"'),
-        "apos" => Some('\''),
+fn element_tokenizer_state(name: &[u8]) -> Option<State> {
+    match name {
+        b"textarea" | b"title" => Some(State::RcData),
+        b"plaintext" => Some(State::PlainText),
+        b"script" => Some(State::ScriptData),
+        b"style" | b"xmp" | b"iframe" | b"noembed" | b"noframes" => Some(State::RawText),
         _ => None,
     }
 }
 
-/// HTML 数字字符引用的替换：C1 控制区按 Windows-1252，非法码位换成 U+FFFD。
-fn html_numeric_character(code: u32) -> char {
-    let replaced = match code {
-        0x00 | 0xD800..=0xDFFF | 0x0011_0000.. => 0xFFFD,
-        0x80 => 0x20AC,
-        0x82 => 0x201A,
-        0x83 => 0x0192,
-        0x84 => 0x201E,
-        0x85 => 0x2026,
-        0x86 => 0x2020,
-        0x87 => 0x2021,
-        0x88 => 0x02C6,
-        0x89 => 0x2030,
-        0x8A => 0x0160,
-        0x8B => 0x2039,
-        0x8C => 0x0152,
-        0x8E => 0x017D,
-        0x91 => 0x2018,
-        0x92 => 0x2019,
-        0x93 => 0x201C,
-        0x94 => 0x201D,
-        0x95 => 0x2022,
-        0x96 => 0x2013,
-        0x97 => 0x2014,
-        0x98 => 0x02DC,
-        0x99 => 0x2122,
-        0x9A => 0x0161,
-        0x9B => 0x203A,
-        0x9C => 0x0153,
-        0x9E => 0x017E,
-        0x9F => 0x0178,
-        other => other,
-    };
-    char::from_u32(replaced).unwrap_or('\u{FFFD}')
-}
-
-fn tag_end(html: &str, start: usize) -> Option<usize> {
-    let bytes = html.as_bytes();
-    let mut index = start;
-    let mut quote = 0_u8;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if quote != 0 {
-            if byte == quote {
-                quote = 0;
-            }
-            index += 1;
+fn note_anchor_start_tag(
+    tag: &StartTag<()>,
+    template_depth: &mut u32,
+    anchors: &mut BTreeSet<String>,
+) {
+    if tag.name == b"template" {
+        *template_depth = template_depth.saturating_add(1);
+        return;
+    }
+    if *template_depth > 0 || tag.name != b"a" {
+        return;
+    }
+    for name in [b"id".as_slice(), b"name"] {
+        let Some(value) = tag.attributes.get(name) else {
+            continue;
+        };
+        if value.is_empty() {
             continue;
         }
-        match byte {
-            b'"' | b'\'' => quote = byte,
-            b'>' => return Some(index),
-            _ => {}
-        }
-        index += 1;
+        anchors.insert(String::from_utf8_lossy(value).into_owned());
     }
-    None
-}
-
-/// 只读取 `<a>` 上带引号的 `id` / `name`。引号值内部不再扫描，避免把 `title="id='hidden'"` 当成锚点。
-fn quoted_anchor_values(tag: &str) -> Vec<String> {
-    let bytes = tag.as_bytes();
-    let mut index = 1;
-    while index < bytes.len()
-        && !bytes[index].is_ascii_whitespace()
-        && bytes[index] != b'>'
-        && bytes[index] != b'/'
-    {
-        index += 1;
-    }
-    let mut values = Vec::new();
-    let mut seen_names = BTreeSet::new();
-    while index < bytes.len() && bytes[index] != b'>' {
-        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-            index += 1;
-        }
-        if index >= bytes.len() || bytes[index] == b'>' || bytes[index] == b'/' {
-            break;
-        }
-        let name_start = index;
-        while index < bytes.len()
-            && !bytes[index].is_ascii_whitespace()
-            && bytes[index] != b'='
-            && bytes[index] != b'>'
-            && bytes[index] != b'/'
-        {
-            index += 1;
-        }
-        let name = &tag[name_start..index];
-        let first = seen_names.insert(name.to_ascii_lowercase());
-        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-            index += 1;
-        }
-        if index >= bytes.len() || bytes[index] != b'=' {
-            continue;
-        }
-        index += 1;
-        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-            index += 1;
-        }
-        if index >= bytes.len() {
-            break;
-        }
-        let quote = bytes[index];
-        if quote == b'"' || quote == b'\'' {
-            index += 1;
-            let start = index;
-            while index < bytes.len() && bytes[index] != quote {
-                index += 1;
-            }
-            if first
-                && (name.eq_ignore_ascii_case("id") || name.eq_ignore_ascii_case("name"))
-                && index > start
-                && tag.is_char_boundary(start)
-                && tag.is_char_boundary(index)
-            {
-                values.push(tag[start..index].to_string());
-            }
-            if index < bytes.len() {
-                index += 1;
-            }
-        } else {
-            while index < bytes.len() && !bytes[index].is_ascii_whitespace() && bytes[index] != b'>'
-            {
-                index += 1;
-            }
-        }
-    }
-    values
 }

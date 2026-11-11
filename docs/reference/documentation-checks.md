@@ -54,7 +54,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 ## 3. 链接与路径
 
-解析器是 `pulldown-cmark`（CommonMark，并打开表格、删除线和任务列表）。不使用正则扫描 `](...)`。链接和图片使用同一套目标规则。未定义的 shortcut（单独的 `[text]`，且没有链接定义）不是链接。
+解析器是 `pulldown-cmark`（CommonMark，并打开表格、删除线和任务列表）。不使用正则扫描 `](...)`。链接和图片使用同一套目标规则。未定义的 shortcut（单独的 `[text]`，且没有链接定义）不是链接。Markdown 事件中的 HTML 由 `html5gum` 按 WHATWG 分词，不是手写的 HTML 子集。
 
 | 目标                                                          | 结果                                                                  |
 | ------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -103,12 +103,12 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 - `Title {#custom}` 的 slug 是 `title-custom`。`{#custom}` 不会另建锚点 `custom`。
 - 顺序为 `重复`、`重复`、`重复-1` 时，三个锚点是 `重复`、`重复-1`、`重复-1-1`，不是 `重复-2`。
 - 顺序为 `Dup-1`、`Dup`、`Dup` 时，第三个锚点是 `dup-2`，因为 `dup-1` 已被第一个标题占用。
-- `<a id=raw>` 这种无引号属性不识别。注释和 `<abbr id>` 里的值也不是锚点。
-- 需要稳定显式锚点时，写 `<a id="name"></a>` 或 `<a name="name"></a>`，使用单引号或双引号。
+- 注释和 `<abbr id>` 里的值不是锚点。`<a id>` / `<a name>` 由 `html5gum` 读取，因此无引号的 `<a id=raw>` 也会登记。
+- 需要稳定显式锚点时，写 `<a id="name"></a>` 或 `<a name="name"></a>`。单引号、双引号和无引号属性都可以。
 
 ## 5. 关键索引入口
 
-[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`id` / `name` 的引号值会解码 `&amp;`、`&lt;`、`&gt;`、`&quot;`、`&apos;` 和数字字符引用；数字引用按 HTML 的 C1 替换表和非法码位规则处理，分号可以省略；同一标签上的重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`xmp`、`iframe`、`noembed`、`noframes` 与 `plaintext` 和 `script` 一样按原始文本处理，`plaintext` 一直持续到文档结束。空的 Markdown 链接目标指向当前文档。`script`、`style`、`textarea`、`title` 的内容不是锚点；`<script/>` 这种写法在 HTML 里仍会打开该元素。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
+[`xtask/data/doc-checks.toml`](../../xtask/data/doc-checks.toml) 是这些边的列表。每条包含来源、目标和原因。它不要求每份 Markdown 都进入索引，也不能加入“忽略这个文件的错误”之类的条目。图片里的路径仍按第 3 节检查是否存在，但不能充当这些导航入口；图片替代文字中的行内代码同样不算。带结尾斜杠的行内代码是目录形式，也不能满足指向文件的入口。没有 fragment 的入口只接受同样不带 fragment 的链接或行内代码。`<a id>` / `<a name>` 的属性值由 `html5gum` 按 WHATWG 解码字符引用；重复属性只保留第一个。`<template>` 里的 `<a>` 不登记为锚点。`script` 进入 script data，`style`、`xmp`、`iframe`、`noembed` 与 `noframes` 进入 raw text，`textarea` 与 `title` 进入 RCDATA，其中的 `<a>` 不是锚点；`plaintext` 一直持续到文档结束。`<script/>` 在 HTML 里仍会打开该元素。空的 Markdown 链接目标指向当前文档。`crates/` 与 `tools/` 下名为 `tests`、`fixtures`、`evidence`、`target`、`vendor` 或 `node_modules` 的直接子目录也不作为默认来源。
 
 当前保护的是根 README、文档首页、reference / design / ADR 索引、`AGENTS.md`、`.agents/README.md`、五个 Cursor skill 薄包装，以及 Runtime README 上已经存在的入口。`AGENTS.md`、Agent 工作流首页和 Cursor skill 这些边接受精确行内代码路径，不把它们改写成导航链接，也不扫描代码围栏里的路径。
 
@@ -127,5 +127,5 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 - 非 ASCII 字母不做 Unicode 小写。
 - 特殊空白（如不换行空格）会变成 `-`，而不是从 slug 中删掉。
 - HTML 锚点不占用重复标题的后缀计数。
-- 不解析 HTML 标题、无引号属性和属性中的 URL。
+- 不解析 HTML 标题，也不解析 HTML 属性中的 URL。
 - 同一份 README 若被 rustdoc `include_str!` 引用，这里仍按仓库里的 Markdown 位置解释相对链接，不模拟 rustdoc 输出目录。
