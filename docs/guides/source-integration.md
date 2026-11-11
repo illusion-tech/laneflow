@@ -36,7 +36,7 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 - `examples/data/v0.2-signalized-corridor.lfca`
 - `examples/data/v0.2-signalized-corridor.catalog.toml`
 
-行为测试复用同一份 `run`，不另写一套装配：
+行为测试和这份程序是同一个文件。Cargo 把它登记成集成测试 `headless_smoke`，nextest 会执行其中的断言，不另写一套装配：
 
 ```powershell
 cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke

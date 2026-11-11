@@ -12,6 +12,12 @@ publish = false
 name = "laneflow_runtime"
 path = "src/lib.rs"
 
+# 与自动发现的 example 共用 examples/headless.rs。集成测试目标使 nextest
+# 执行该文件里的断言；源码不再用 path 属性指向包根之外。
+[[test]]
+name = "headless_smoke"
+path = "examples/headless.rs"
+
 [[test]]
 name = "spawn_overlap_allocation"
 harness = false

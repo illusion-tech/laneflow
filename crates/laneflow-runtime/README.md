@@ -40,7 +40,7 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
 ```
 
-`headless_smoke` 复用示例里的 `run`。它检查受检构建、Pinned 策略、来源修订、一条路线与一辆车、64 步后的精确时间、车辆位移，以及错误步长和首次 Delta 都不提交。
+`headless_smoke` 与上面的示例是同一个 `examples/headless.rs`，由集成测试目标执行其中的断言。它检查受检构建、Pinned 策略、来源修订、一条路线与一辆车、64 步后的精确时间、车辆位移，以及错误步长和首次 Delta 都不提交。
 
 ## 深入阅读
 
