@@ -654,6 +654,22 @@ fn anchor_values_decode_entities_and_ignore_raw_text() {
 }
 
 #[test]
+fn numeric_references_follow_html_replacements_and_duplicate_attributes_keep_the_first() {
+    let repo = TestRepo::new("numeric-anchor");
+    repo.write(
+        "a.md",
+        "<a id=\"&#128;\"></a>\n<a id=\"real\" id=\"hidden\"></a>\n\n[euro](#%E2%82%AC)\n[control](#%C2%80)\n[first](#real)\n[second](#hidden)\n",
+    );
+    let targets: Vec<_> = repo
+        .check()
+        .findings
+        .iter()
+        .map(|finding| finding.target.clone())
+        .collect();
+    assert_eq!(targets, vec!["#%C2%80".to_string(), "#hidden".to_string()]);
+}
+
+#[test]
 fn path_spelling_is_case_sensitive() {
     let repo = TestRepo::new("case");
     repo.write("docs/README.md", "# Docs\n");
