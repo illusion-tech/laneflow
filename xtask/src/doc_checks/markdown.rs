@@ -51,8 +51,8 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     let mut heading = String::new();
     let mut in_heading = false;
     let mut in_code = 0_u32;
-    // HTML 块按行拆成多次事件。注释可能在一行开始、在后面某行结束。
-    let mut in_html_comment = false;
+    // HTML 块按行拆成多次事件。注释和 raw text 元素都可能跨事件。
+    let mut html_scan = HtmlScan::default();
     let lines = LineIndex::new(text);
     let broken_links = RefCell::new(Vec::<(usize, String)>::new());
     {
@@ -96,7 +96,7 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
                 Event::SoftBreak | Event::HardBreak if in_heading => heading.push(' '),
                 Event::Html(html) | Event::InlineHtml(html) => {
                     if in_code == 0 {
-                        in_html_comment = push_anchor_ids(&html, &mut anchors, in_html_comment);
+                        html_scan = push_anchor_ids(&html, &mut anchors, html_scan);
                     }
                 }
                 Event::Start(Tag::Link {
@@ -377,7 +377,7 @@ pub(super) fn code_span_matches(
         },
         None => None,
     };
-    if fragment.as_deref() != target_fragment && target_fragment.is_some() {
+    if fragment.as_deref() != target_fragment {
         return false;
     }
     if target_fragment.is_none() && path.is_empty() {
@@ -411,10 +411,7 @@ pub(super) fn code_span_matches(
 }
 
 fn fragment_ok(required: Option<&str>, actual: Option<&str>) -> bool {
-    match required {
-        None => true,
-        Some(expected) => actual == Some(expected),
-    }
+    required == actual
 }
 
 struct LineIndex {
@@ -441,17 +438,31 @@ impl LineIndex {
     }
 }
 
-fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut in_comment: bool) -> bool {
+#[derive(Clone, Debug, Default)]
+struct HtmlScan {
+    in_comment: bool,
+    raw: Option<String>,
+}
+
+fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlScan) -> HtmlScan {
     let bytes = html.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
-        if in_comment {
+        if let Some(name) = scan.raw.clone() {
+            if let Some(after) = find_raw_end(html, index, &name) {
+                scan.raw = None;
+                index = after;
+                continue;
+            }
+            return scan;
+        }
+        if scan.in_comment {
             if let Some(relative) = html[index..].find("-->") {
-                in_comment = false;
+                scan.in_comment = false;
                 index += relative + 3;
                 continue;
             }
-            return true;
+            return scan;
         }
         if bytes[index] != b'<' {
             index += 1;
@@ -462,9 +473,15 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut in_comment: b
                 index = index + 4 + relative + 3;
                 continue;
             }
-            return true;
+            scan.in_comment = true;
+            return scan;
         }
-        let rest = &html[index + 1..];
+        let closing = bytes.get(index + 1) == Some(&b'/');
+        let name_at = index + 1 + usize::from(closing);
+        if name_at > html.len() {
+            break;
+        }
+        let rest = &html[name_at..];
         let name_len = rest
             .char_indices()
             .find(|(_, ch)| ch.is_ascii_whitespace() || *ch == '>' || *ch == '/')
@@ -474,12 +491,88 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut in_comment: b
         let Some(close) = tag_end(html, index) else {
             break;
         };
-        if name.eq_ignore_ascii_case("a") {
-            anchors.extend(quoted_anchor_values(&html[index..=close]));
+        let self_closing = !closing && close > index && bytes[close - 1] == b'/';
+        if !closing
+            && !self_closing
+            && matches!(
+                name.to_ascii_lowercase().as_str(),
+                "script" | "style" | "textarea" | "title"
+            )
+        {
+            scan.raw = Some(name.to_ascii_lowercase());
+        } else if !closing && name.eq_ignore_ascii_case("a") {
+            anchors.extend(
+                quoted_anchor_values(&html[index..=close])
+                    .into_iter()
+                    .map(|value| decode_html_entities(&value))
+                    .filter(|value| !value.is_empty()),
+            );
         }
         index = close + 1;
     }
-    in_comment
+    scan
+}
+
+fn find_raw_end(html: &str, start: usize, name: &str) -> Option<usize> {
+    let needle = format!("</{name}");
+    let bytes = html.as_bytes();
+    let mut index = start;
+    while index < bytes.len() {
+        let lower = html[index..].to_ascii_lowercase();
+        let relative = lower.find(&needle)?;
+        let after_name = index + relative + needle.len();
+        let boundary = bytes.get(after_name).copied().unwrap_or(b'>');
+        if boundary.is_ascii_whitespace() || boundary == b'>' || boundary == b'/' {
+            let close = tag_end(html, index + relative)?;
+            return Some(close + 1);
+        }
+        index = after_name;
+    }
+    None
+}
+
+fn decode_html_entities(value: &str) -> String {
+    let mut decoded = String::new();
+    let mut rest = value;
+    while let Some(start) = rest.find('&') {
+        decoded.push_str(&rest[..start]);
+        let Some(end) = rest[start + 1..].find(';') else {
+            decoded.push_str(&rest[start..]);
+            return decoded;
+        };
+        let entity = &rest[start + 1..start + 1 + end];
+        if let Some(ch) = decode_html_entity(entity) {
+            decoded.push(ch);
+            rest = &rest[start + 1 + end + 1..];
+        } else {
+            decoded.push('&');
+            rest = &rest[start + 1..];
+        }
+    }
+    decoded.push_str(rest);
+    decoded
+}
+
+fn decode_html_entity(entity: &str) -> Option<char> {
+    match entity {
+        "amp" => Some('&'),
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        "quot" => Some('"'),
+        "apos" => Some('\''),
+        _ => {
+            let digits = entity.strip_prefix('#')?;
+            let code = if let Some(hex) = digits
+                .strip_prefix('x')
+                .or_else(|| digits.strip_prefix('X'))
+            {
+                u32::from_str_radix(hex, 16).ok()?
+            } else {
+                digits.parse().ok()?
+            };
+            char::from_u32(code)
+        }
+    }
 }
 
 fn tag_end(html: &str, start: usize) -> Option<usize> {
