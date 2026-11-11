@@ -195,12 +195,27 @@ fn record_link(
     } else {
         destination.dest_url.to_string()
     };
+    // CommonMark 的空目标 `href=""` 指向当前文档。空图片地址仍然无效。
+    let kind = if destination.dest_url.is_empty()
+        && !destination.image
+        && !matches!(
+            destination.link_type,
+            LinkType::ReferenceUnknown | LinkType::CollapsedUnknown
+        ) {
+        LinkKind::Local {
+            rel: source_rel.to_string(),
+            directory: false,
+            fragment: None,
+        }
+    } else {
+        classify_destination(destination.link_type, destination.dest_url, source_rel)
+    };
     links.push(LinkRec {
         line,
         column,
         raw,
         image: destination.image,
-        kind: classify_destination(destination.link_type, destination.dest_url, source_rel),
+        kind,
     });
 }
 
@@ -449,12 +464,16 @@ struct HtmlScan {
     in_comment: bool,
     raw: Option<String>,
     template_depth: u32,
+    plaintext: bool,
 }
 
 fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlScan) -> HtmlScan {
     let bytes = html.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
+        if scan.plaintext {
+            return scan;
+        }
         if let Some(name) = scan.raw.clone() {
             if let Some(after) = find_raw_end(html, index, &name) {
                 scan.raw = None;
@@ -498,17 +517,18 @@ fn push_anchor_ids(html: &str, anchors: &mut BTreeSet<String>, mut scan: HtmlSca
         let Some(close) = tag_end(html, index) else {
             break;
         };
-        // HTML 不把 script/style/textarea/title 的 `/>` 当成空元素，后面的内容仍算元素正文。
+        // HTML 不把这些非空元素的 `/>` 当成结束。plaintext 没有结束标签。
+        let raw_text = matches!(
+            name.to_ascii_lowercase().as_str(),
+            "script" | "style" | "textarea" | "title" | "xmp" | "iframe" | "noembed" | "noframes"
+        );
         if !closing && name.eq_ignore_ascii_case("template") {
             scan.template_depth = scan.template_depth.saturating_add(1);
         } else if closing && name.eq_ignore_ascii_case("template") {
             scan.template_depth = scan.template_depth.saturating_sub(1);
-        } else if !closing
-            && matches!(
-                name.to_ascii_lowercase().as_str(),
-                "script" | "style" | "textarea" | "title"
-            )
-        {
+        } else if !closing && name.eq_ignore_ascii_case("plaintext") {
+            scan.plaintext = true;
+        } else if !closing && raw_text {
             scan.raw = Some(name.to_ascii_lowercase());
         } else if !closing && scan.template_depth == 0 && name.eq_ignore_ascii_case("a") {
             anchors.extend(
