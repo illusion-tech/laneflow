@@ -297,17 +297,10 @@ bytes，并用 LFCP binding 建立自身认证清单；LaneFlow 不把某种文�
 
 ## 8. LFCP v2
 
-LFCP v2 保持 magic `LFCP`，设置
-`canonicalPublicationDescriptorVersion = 2`，精确包含三个 section/table：
+LFCP 2 的节、字段、offset 与 object key 以
+[可移植规范制品 §6][portable-lfcp] 为线格式正本。本节只规定检查行为。
 
-| Section  | Table                      | 字段                                                                                                                                                                                                    |
-| -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0x0001` | `CanonicalArtifactBinding` | `1:canonicalArtifactFormatVersion:u16:R`, `2:networkRevisionDerivationVersion:u16:R`, `3:networkRevision:Sha256:R`, `4:canonicalArtifactDigest:Sha256:R`, `5:canonicalArtifactByteLength:u64:R`         |
-| `0x0002` | `SourceMapBinding`         | `1:sourceMapFormatVersion:u16:R`, `2:sourceMapDigest:Sha256:R`, `3:sourceMapByteLength:u64:R`, `4:compilerBuildId:Utf8:R`, `5:sourceCollectionDigestVersion:u16:R`, `6:sourceCollectionDigest:Sha256:R` |
-| `0x0003` | `PublicationProvenance`    | `1:publisherKind:u8:R`, `2:publisherBuildId:Utf8:R`, `3:artifactObjectKey:Utf8:R`, `4:sourceMapObjectKey:Utf8:R`, `5:controlledBuildProvenance:Utf8:O`, `6:controlledTimestamp:Utf8:O`                  |
-
-LFCP v2 独立冻结 `PortablePublisherKindV2` 的封闭编码，数值与 v1 保持一致但不依赖 v1
-parser 或 registry：
+`publisherKind` 的封闭编码不依赖 v1 parser 或 registry：
 
 | Wire 值 | `PortablePublisherKindV2` | 含义         |
 | ------- | ------------------------- | ------------ |
@@ -318,16 +311,7 @@ parser 或 registry：
 任何其他 `u8` 值都必须由 LFCP v2 直接值域预检以 `Format` 类错误拒绝，不能映射为
 unknown/future 值，也不能由 `publisherBuildId` 推断种类。
 
-因此：
-
-- object preamble section count 为 `3`；
-- registry table 总数为 `3`；
-- 第一节规范 offset 为 `32 + 3 * 24 = 104 (0x0068)`；
-- `artifactObjectKey` 和 `sourceMapObjectKey` 必须分别等于
-  `"sha256/" + hexLower(digest)`；
-- 不存在 `ValidationReceiptBinding`、`receiptObjectKey` 或 LFSD binding。
-
-LFCP v2 exact bytes 由新的
+LFCP v2 exact bytes 由
 [`LFCP-MIN-BINDINGS`][lfcp-min-bindings-readme]
 固定向量覆盖。
 
@@ -429,4 +413,5 @@ file-backed LFCA 必须可直接构造现有 `SharedNetworkRevision`。
 - 需要改变 LFCA 5 / LFSM 4 / LFSD 4 wire，而不仅是 LFCP 2。
 
 [portable-artifact-revision-id]: portable-canonical-artifact.md#38-路网修订标识
+[portable-lfcp]: portable-canonical-artifact.md#6-lfcp-2-与发布闭合
 [lfcp-min-bindings-readme]: ../../crates/laneflow-compiler/tests/fixtures/portable/lfcp-min-bindings/README.md
