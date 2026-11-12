@@ -31,17 +31,15 @@
 - **标准坐标（canonical）**：LaneFlow 在一个有界局部 frame 内统一使用、尚未转换为宿主坐标的空间。
 - **宿主坐标（host coordinates）**：Adapter 把 canonical frame 放置到具体引擎场景后使用的坐标。
 - **位姿（pose）**：位置、切向量和上方向向量的组合。
-- **制品（artifact）**：可独立版本化、摘要校验和加载的数据文件。
-- **场景清单（manifest）**：引用并精确配对交通包和空间包的入口制品。
-- **层级名称**：Traffic Runtime、Data、Spatial、Adapter 分别表示交通运行时层、数据层、空间层和适配层。
+- **制品（artifact）**：编译器发射的受检 LFCA，以及由它建成的共享路网修订。
+- **层级名称**：Traffic Runtime、Spatial、Adapter 分别表示交通运行时层、空间层和适配层。
 - **应用程序接口（API）**：供其他包或宿主调用的稳定程序边界。
 
-| 层级            | 最终裁决职责                                           | 不负责                                               |
-| --------------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| Traffic Runtime | 拓扑、`EdgeLength`、路线区段、`EdgeProgress`、交通状态 | 标准或世界坐标、中心线、宿主变换                     |
-| Spatial         | 标准坐标框架、中心线、弧长、绑定、采样和位姿           | 交通规则、网格与材质、引擎生命周期                   |
-| Data            | 交通包、空间包和清单的线格式校验与规范化               | 运行时推进、文件或网络输入/输出（I/O）、宿主资源句柄 |
-| Adapter         | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度正本                     |
+| 层级            | 最终裁决职责                                     | 不负责                             |
+| --------------- | ------------------------------------------------ | ---------------------------------- |
+| Traffic Runtime | 拓扑、边长、路线区段、边上进度、交通状态         | 标准或世界坐标、中心线、宿主变换   |
+| Spatial         | 标准坐标框架、中心线、弧长、绑定、采样和位姿     | 交通规则、网格与材质、引擎生命周期 |
+| Adapter         | 快照调度、frame 放置、宿主朝向基与变换、表现提交 | 重算交通进度、覆盖几何或长度正本   |
 
 `TrafficWorld` 可以在没有 Spatial 时以无图形宿主方式运行；需要车辆空间位姿的调用方必须绑定共享路网修订并取得 `SpatialSession`。
 
@@ -228,7 +226,7 @@ geometry_s = ratio * geometry_arc_length
 实现必须用 LaneFlow 自有的结构化错误区分：
 
 - 未知、重复或缺失的交通边绑定；
-- 坐标框架不匹配、场景清单摘要不匹配；
+- 坐标框架不匹配；
 - 点数量不足或坐标非有限；
 - 退化线段或退化朝向基；
 - 交通边长与几何长度不一致；
@@ -298,16 +296,15 @@ heading = anchor.tangent * cos(heading_offset_radians)
 - 相同布局下相对 `f64` 候选 retained memory 至少降低 `25%`，吞吐回退不超过 `5%`；
 - Bevy 宿主的坐标轴、手性和 `f32 Transform` 集成（v0.7）。
 
-#135 已以 production 单元测试、公共 API 测试及 #134 loader 集成测试验证上述单条折线契约。#136 进一步验证 Lane/Parking 稳定顺序、frame mismatch 优先级、placement token 切换、record 上下文、Parking offset/heading/range、伪宿主 stale-token 拒绝，以及中间失败时旧 batch 不变。#137 已交付误差 oracle、稳态零分配、retained memory 和一万/十万性能 Gate；历史研究原型不替代 production 验证或性能结论。
+#135 已以 production 单元测试与公共 API 测试验证上述单条折线契约。#136 进一步验证 Lane/Parking 稳定顺序、frame mismatch 优先级、placement token 切换、record 上下文、Parking offset/heading/range、伪宿主 stale-token 拒绝，以及中间失败时旧 batch 不变。#137 已交付误差 oracle、稳态零分配、retained memory 和一万/十万性能 Gate；历史研究原型不替代 production 验证或性能结论。
 
 ## 13. G1 后实施拆分
 
-1. LaneFlow 自有 Spatial 类型、注册表与 Rust 包依赖方向（#133 已建立生产边界）。
-2. 空间数据包及其模式、场景清单、加载器与交通包配对（#134 已交付）。
-3. 折线构建、长度绑定、拓扑连续性与采样（#135 已交付）。
-4. canonical `f32` 批量位姿、frame placement token 与停车位姿解析（#136 已交付）。
-5. 性质测试与边界测试、一万/十万性能验证，以及适配器契约冒烟测试（#137 已交付）。
-6. v0.6 Spatial 最终审阅；之后 #121/v0.7 才能进入 Bevy 实施。
+1. LaneFlow 自有 Spatial 类型与 Rust 包依赖方向（#133 已建立生产边界）。
+2. 折线构建、长度绑定、拓扑连续性与采样（#135 已交付）。
+3. canonical `f32` 批量位姿、frame placement token 与停车位姿解析（#136 已交付）。
+4. 性质测试与边界测试、一万/十万性能验证，以及适配器契约冒烟测试（#137 已交付）。
+5. v0.6 Spatial 最终审阅；之后 #121/v0.7 才能进入 Bevy 实施。
 
 #141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#127 已完成 target-f32 量化余量标定；#144 原子迁移形成不迁移（no-go）结论后，Spatial 生产绑定仍不能把目标 `f32 EdgeLength` 当作当前稳定输入。ADR 0015 进一步把 Spatial runtime geometry 修订为有界 `f32` canonical frame；#134/#135/#136 已分别交付转换、量化后几何和批量 frame/placement 生命周期，#137 已固化 production correctness、allocation、retained memory 与性能证据。
 
