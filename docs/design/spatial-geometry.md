@@ -31,7 +31,7 @@
 - **标准坐标（canonical）**：LaneFlow 在一个有界局部 frame 内统一使用、尚未转换为宿主坐标的空间。
 - **宿主坐标（host coordinates）**：Adapter 把 canonical frame 放置到具体引擎场景后使用的坐标。
 - **位姿（pose）**：位置、切向量和上方向向量的组合。
-- **制品（artifact）**：编译器发射的受检 LFCA，以及由它建成的共享路网修订。
+- **制品（artifact）**：编译器发射的受检 LFCA。共享路网修订是由该制品建成的进程内不可变根对象，不是另一份可发布制品。
 - **层级名称**：Traffic Runtime、Spatial、Adapter 分别表示交通运行时层、空间层和适配层。
 - **应用程序接口（API）**：供其他包或宿主调用的稳定程序边界。
 
@@ -249,7 +249,7 @@ geometry_s = ratio * geometry_arc_length
 
 ## 10. 停车位姿
 
-停车系统继续由 Traffic Runtime 拥有边相对正本：入口边与进度、横向偏移、朝向偏移、长度和宽度。Spatial 解析标准位姿：
+停车位的入口边、入口进度、横向偏移、朝向、长度和宽度存放在共享路网修订的交通关系里。`PoseSource::Parking` 只携带停车位序号。Spatial 用该序号读取这些静态值，再采样标准位姿：
 
 ```text
 anchor = sample(entry_edge, entry_progress)
@@ -259,7 +259,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
         + left * sin(heading_offset_radians)
 ```
 
-`PoseSource::Parking` 使用共享路网修订上的停车位几何解析入口锚点。Traffic Runtime 的横向与朝向只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定正本仍在 Traffic Runtime；适配器只消费最终位姿。
+横向偏移在采样时由毫米换到米，朝向为弧度；结果必须进入 canonical `f32` 点与单位方向。越界时作为对应 batch record 的结构化错误返回。长度和宽度仍留在该静态关系中，不由 Runtime 再提供一份几何。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。车辆生命周期和泊位绑定仍由 Traffic Runtime 拥有；适配器只消费最终位姿。
 
 ## 11. 第三方 Rust 包边界
 
