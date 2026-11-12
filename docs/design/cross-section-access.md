@@ -1,9 +1,9 @@
 # 多模式横断面与准入分层
 
-**文档状态**: Accepted（横断面所有者与准入分层仍有效；#262 的 Traffic JSON 交付与当时实现说明为 #301 前的历史。现行静态数据由编译器发射 LFCA，经受检共享路网修订安装，见 `network-compiler.md` 与 `shared-static-network.md`。`data-format.md` 只说明 JSON 已退役）<br>
+**文档状态**: Accepted（横断面所有者与准入分层；静态数据由编译器发射 LFCA，经受检共享路网修订安装）<br>
 **最后更新**: 2026-11-08<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
-**实现状态**: 历史（#301 前）：静态模型曾由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则当时由 capability guard 结构化拒绝。现行静态数据由编译器发射 LFCA、经受检共享路网修订安装 `TrafficWorld`。横断面与准入的所有者关系以本章为准，线格式以 `network-compiler.md` 与 `portable-canonical-artifact.md` 为准。`data-format.md` 不是现行入口
+**实现状态**: 静态数据由编译器发射 LFCA，经受检共享路网修订安装 `TrafficWorld`。时变规则与 FacilityBand target 由能力保护拒绝。线格式见 `network-compiler.md` 与 `portable-canonical-artifact.md`。
 
 **关联文档**:
 
@@ -21,7 +21,6 @@
 - `road-junction-model.md`
 - `lane-graph.md`
 - `spatial-geometry.md`
-- `data-format.md`
 - `network-compiler.md`
 - GitHub: #227、#228、#229、#234、#237、#262
 
@@ -45,23 +44,11 @@
   normalization、first-error、确定性与性能边界；
 - 最小 production 实现 Issue 的拆分边界。
 
-### 1.2 #301 前的 production（历史）
+### 1.2 现行范围
 
-> 下表记录 #301 拆除 Traffic JSON 与 Core 装载入口前的生产状态，只作历史导航。
-> 现行静态数据入口是编译器发射 LFCA、由受检共享路网修订安装 `TrafficWorld`。
-> `data-format.md` 只说明 JSON 已退役。本章的所有者关系与准入分层条款继续有效。
+横断面所有者关系与准入分层继续有效。`ParticipantClass` 是数据声明上的单继承；`VehicleProfile` 必填 `participantClassId`。`(class, Route)` 在绑定期校验。时变规则与 FacilityBand target 由能力保护拒绝。横向几何不在本文冻结。
 
-| 范围           | Current production                                                                      |
-| -------------- | --------------------------------------------------------------------------------------- |
-| Traffic        | exact-current `0.10`（继承 0.9 横断面/准入片段，并含 #281 WaitingZone static）          |
-| Lane topology  | LaneEdge 无类型；RoadSection/LaneGroup 已生产化为 LaneGraph 之上的结构 overlay          |
-| 参与者分类     | ParticipantClass 已存在（数据声明、单继承）；VehicleProfile 必填 `participantClassId`   |
-| 准入规则       | AccessRule 静态模型已存在；(class, Route) 绑定期校验；时变/FacilityBand target 规则拒绝 |
-| 横断面横向几何 | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）                                          |
-
-本章的横断面所有者关系与准入分层语义继续有效；#291 目标态（Target）复用其中的唯一
-所有者关系（Unique Owner Relation）和完备所有者树（Complete Owner Tree）作为稳定
-标识派生输入。编译器路径已随 #301 成为唯一生产路径，静态镜像方案已由 ADR 0025 取消。完整目标标识和迁移契约见 `network-compiler.md`。
+#291 目标态复用唯一所有者关系（Unique Owner Relation）和完备所有者树（Complete Owner Tree）作为稳定标识派生输入。静态镜像不进入生产构建，见 `network-compiler.md`。
 
 ### 1.3 非目标
 
@@ -561,79 +548,9 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 | 横断面渲染/宽度/材质             | Adapter/Presentation                                 | Runtime/Data                               |
 | 中心线几何/pose                  | Spatial edge binding（不变）                         | 横断面 overlay                             |
 
-## 9. Wire shape 与版本
-
-### 9.1 概念 JSON
-
-以下概念 JSON 只展示已拆除的 Traffic JSON 片段形状，不是可加载 package，也不是现行静态入口。现行入口是编译器发射的 LFCA。字段语义不得偏离本章前面的所有者关系：
-
-```json
-{
-  "formatVersion": "0.9",
-  "participantClasses": [
-    { "id": "motorVehicle" },
-    { "id": "bus", "extendsId": "motorVehicle" }
-  ],
-  "facilityBands": [
-    { "id": "band-median-1", "kindId": "median" }
-  ],
-  "roadSections": [
-    {
-      "id": "section-main-east",
-      "kindId": "motorLane",
-      "lanes": [
-        { "edgeIds": ["edge-main-e-l1", "edge-main-e-l1-b"], "laneGroupId": "group-bus" },
-        { "edgeIds": ["edge-main-e-l2", "edge-main-e-l2-b"] }
-      ]
-    }
-  ],
-  "laneGroups": [
-    { "id": "group-bus", "roadSectionId": "section-main-east" }
-  ],
-  "roadCorridors": [
-    {
-      "id": "corridor-main",
-      "referenceSectionId": "section-main-east",
-      "elements": [
-        { "bandId": "band-median-1" },
-        { "sectionId": "section-main-east" }
-      ]
-    }
-  ],
-  "accessRules": [
-    {
-      "id": "rule-bus-lane",
-      "target": { "kind": "laneGroup", "id": "group-bus" },
-      "effect": "deny",
-      "participantClassIds": ["motorVehicle"]
-    },
-    {
-      "id": "rule-bus-lane-allow-bus",
-      "target": { "kind": "laneGroup", "id": "group-bus" },
-      "effect": "allow",
-      "participantClassIds": ["bus"]
-    }
-  ]
-}
-```
-
-### 9.2 版本政策
-
-下列版本政策描述 #301 前的 Traffic JSON loader，不是现行 LFCA 入口。
-
-- production 实现按 ADR 0008 原子 clean-break：Traffic `0.8 -> 0.9`，loader 只接受
-  exact current，不留 dual schema/alias/migration shim。
-- `vehicleProfiles[].participantClassId` 为必填新字段，属破坏性变更，随同一
-  bump 切换。
-- SpatialPackage 与 ScenarioManifest 保持 `0.1`；横断面不改变 edge centerline
-  binding。
-- 历史 schema/bytes 由 Git 历史与不可变 commit 保存，不进入当前树或 production loader
-  （ADR 0026）。
-
 ## 10. Validation 与 first-error
 
-下列 phase 是 #301 前 JSON loader 的首错顺序（`data-loading.md` 只说明该 loader 已拆除：
-profiles → lane graph → Junction → Signals → Parking → Routes），不是现行编译器入口：
+横断面与准入按下列依赖顺序返回首错。ParticipantClass 与 profile 的 class 引用不依赖拓扑，先于车道图。RoadSection、LaneGroup、RoadCorridor 与 AccessRule 在拓扑对象可解析之后检查。
 
 - **profile 域段**（下表 phase 1–2）：随 `normalize_profiles` 一并完成，在
   lane graph 之前——ParticipantClass 与 profile 的 class 引用不依赖任何
@@ -643,7 +560,7 @@ profiles → lane graph → Junction → Signals → Parking → Routes），不
   phase 之后——RoadSection 需解析 LaneGraph edge，AccessRule 需解析
   Junction ManeuverPath 与 lane/section 成员。
 
-同 phase 内按 input order 返回首错，任一错误不得发布部分 registry：
+同一阶段内按输入顺序返回首错，任一错误不得发布部分结果：
 
 1. ParticipantClass：ID syntax/duplicate、unknown `extendsId`、继承环；
 2. VehicleProfile：unknown `participantClassId`（依赖 phase 1 的 class identity

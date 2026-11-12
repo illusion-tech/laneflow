@@ -270,7 +270,7 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为裁�
 
 它必须输出带稳定 authoring key 和 source span 的 typed AST，不得：
 
-- 直接构造 `InitialTrafficData` 或 `SpatialRegistry`；
+- 绕过编译器直接构造运行时对象；
 - 跳过 HIR/MIR/LIR validation；
 - 使用 Rust 容器遍历顺序作为标识/顺序；
 - 把 builder-only TOML/Rust type 公开为 interchange contract。
@@ -592,7 +592,7 @@ validated canonical LIR 必须保存有类型（Typed）的
 - Geometry/Synthetic/Editor 来源若展开出逻辑边，必须从显式稳定 authoring key
   产生并持久化边键；几何坐标、曲线离散片段、数组下标和遍历顺序均不得成为边键；
 - 后继若为其他真实来源增加导入器，必须在自身 G1 冻结稳定命名空间、显式边键和角色
-  关系降阶；不得恢复已取消的 current JSON 映射，也不得按角色选择不同实体种类；
+  关系降阶；不得按角色选择不同实体种类；
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
   边身份。
 
@@ -811,25 +811,15 @@ backing；runtime-only 调用方可释放 LFCA，可编辑 session 所需 exact 
 静态镜像文件/ABI、descriptor、integrity manifest、mmap、磁盘 cache 或 target/profile
 文件变体。具体 API、内存布局、资源和测试矩阵见 `shared-static-network.md`。
 
-#### 被 Accepted ADR 0025 取代的历史镜像草案
-
-镜像 digest、分块、描述符和 `TrustedStaticImage` 加载步骤只存在于本节的 git 历史，不是现行实现输入。现行构建见上文与 [共享静态路网][shared-static-network]。
-
-### 8.3 外部镜像描述符（External Image Descriptor，历史）
-
-本节已经被 Accepted ADR 0025 整体取代。#300 v1 不定义 `StaticImageDescriptor`、镜像摘要、长度、完整性清单、分块或镜像 trust capability。字段草案只存在于本节的 git 历史，不是现行实现输入，其中的「必须」不再约束实现。
-
-现行信任边界是后发射检查与 [LFCP 2][portable-lfcp]，不是镜像描述符。见 [后发射检查][post-emission]。
-
 ### 8.4 源映射与诊断（Source Map and Diagnostics）
 
-现行源映射线格式是 [LFSM 4][portable-lfsm]。带内嵌 `records` 的 `SourceMapEnvelope` 和 `canonical-publication-v1` 描述符不是现行实现输入，字段草案见 git 历史。发布 binding 的检查行为见 [后发射检查 §8][post-emission-lfcp]。
+源映射线格式是 [LFSM 4][portable-lfsm]。发布 binding 的检查行为见 [后发射检查 §8][post-emission-lfcp]。
 
 源映射不是一组可以脱离编译批次复用的裸记录。即使实体 `StableId128` 与 typed ordinal 都未变化，来源位置、来源模块或编译输入变化也必须生成新的 LFSM exact bytes。诊断使用稳定 code、severity、primary/secondary source location、原因和可执行建议；文本来源可把 location 渲染为 span。authoring error 指向 source 或画布；artifact corruption 或 version mismatch 面向运维，不返回 generated JSON 行号。
 
 ### 8.5 语义差异（Semantic Diff）
 
-现行语义差异线格式是 [LFSD 4][portable-lfsd]。带内嵌 `records` 的 `SemanticDiffEnvelope` 不是现行 wire，字段草案见 git 历史。
+语义差异线格式是 [LFSD 4][portable-lfsd]。
 
 语义差异不能脱离旧/新规范制品解释。Stable entity 按 `StableId128` 报告；owner-local derived record 在 owning `StableId128` 与 typed role 内按 canonical relation value 做确定性 sequence diff，报告 before/after `localIndex`，但不把位置当成跨编译标识：
 
@@ -900,10 +890,6 @@ pose 批次上的 `NetworkRevisionId` 保证。详细契约见
 `PostEmissionCheckedBundle` 提供第 2 类输入。无论来源为何，builder 不接受裸
 `&[u8]`、调用方自报 digest/revision 或 compiler-private LIR。
 
-#### 被 Accepted ADR 0025 取代的历史镜像加载状态
-
-`UnverifiedImageBytes`、`StructurallyVerifiedImage` 与 `TrustedStaticImage` 的分块和 mmap 方案只存在于本节的 git 历史，不是现行实现输入。
-
 ### 9.4 共享构建闭合（Shared Build Closure）
 
 当前 builder 在最终对象成功前检查 canonical row/order、typed count/range、跨表引用、
@@ -912,10 +898,6 @@ output/retained/scratch budget。它不检查路线出现记录：当前 LFCA �
 关系表，出现记录只在 `TrafficWorld::register_route` 之后进入本世界（ADR 0029）。它不重新
 执行来源、HIR/MIR/LIR 的完整编译语义，也不建立第二套 validator/receipt/证明平台。具体
 闭合和错误矩阵以 `shared-static-network.md` §7/§11 为准。
-
-#### 被 Accepted ADR 0025 取代的历史镜像结构校验器
-
-镜像文件读取检查只存在于本节的 git 历史。现行构建闭合见上文，并以 [共享静态路网][shared-static-network] 为准。
 
 ### 9.5 并行就绪执行规划（Parallel-ready Execution Planning）
 
@@ -980,7 +962,7 @@ Reference Oracle），不能未经工作量/跨度证据直接成为 production 
 
 `SharedNetworkRevision` 代表一个路网修订。结构性道路编辑在用户确认建造后重新进入正本来源模块图，顺序发射 file-backed LFCA/LFSM/LFSD，经后发射检查后直接从同一 backing 交给 builder 生成候选；不得保留完整对象级内存 LFCA，共享数组不得原地 mutation。候选构建期间当前修订继续运行。
 
-失败关闭的切换事务、描述符、迁移策略与原子提交的现行合同见 [修订切换][revision-cutover]。临时封闭等不改变静态身份或拓扑的状态不伪装成静态修订。本文不另写运行时步骤，也不把历史 image/receipt 字段当作现行描述符；那些草案见 git 历史。
+失败关闭的切换事务、描述符、迁移策略与原子提交见 [修订切换][revision-cutover]。临时封闭等不改变静态身份或拓扑的状态不伪装成静态修订。
 
 ### 9.7 运行时快照、存档与回放
 
@@ -1203,7 +1185,7 @@ laneflow-adapter-* ------> laneflow-runtime
 laneflow-adapter-* ------> laneflow-spatial
 ```
 
-compiler 不依赖 JSON loader，也不建立迁移 crate、兼容特性或长期离线导入入口。
+编译器的来源前端是合成领域专用语言与道路编辑来源。它不导入 JSON，也不提供离线兼容转换。
 
 职责与禁止依赖：
 

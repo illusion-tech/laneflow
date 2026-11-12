@@ -11,8 +11,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 （Diagnostic）与正本来源投影<br>
 
 编译器以有类型来源模块为入口，经 Typed AST → HIR → MIR → Canonical LIR 原子产出
-受检规范制品与来源伴随数据。路线生命周期由 `TrafficWorld::register_route` 拥有；
-已删除的 JSON 入口不构成编译器前端或兼容合同。
+受检规范制品与来源伴随数据。路线生命周期由 `TrafficWorld::register_route` 拥有。
 
 **关联决策与设计**:
 
@@ -57,7 +56,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - 所有正式前端是正本来源模块图（Authoritative Source Module Graph）中的平级来源
   模块（Source Module）；
 - 只有以已验证规范低层中间表示为静态语义核心的成功编译结果可以进入编译发射器
-  （Compiler Emitter）；#301 前的集成专用投影已删除（见第 9 节）；
+  （Compiler Emitter）；
 - 稳定声明 / 可独立寻址派生实体使用稳定标识（Stable Identifier），所有者局部关系
   （Owner-local Relation）/ 所有者局部出现记录（Owner-local Occurrence）和低层表行
   使用各自不同的引用形式；
@@ -117,15 +116,13 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 ### 2.3 #315 官方前端共同接入、#296 道路编辑与 #297 调整后边界
 
 #315 建立的共同受检模块接入继续服务 Synthetic、道路编辑和后续正式编制前端。
-JSON 不属于编译器前端：
 
 ```text
 laneflow-compiler ----------------> laneflow-static-contract / laneflow-format
-laneflow-compiler -X-------------> JSON loader / runtime / spatial
+laneflow-compiler -X-------------> runtime / spatial
 ```
 
-编译器不建立 current JSON 导入特性或迁移包；编译器原生有类型模块是测试和生产接入的
-唯一输入。
+编译器不依赖 Runtime 或 Spatial。测试与生产接入使用编译器原生有类型模块。
 
 道路编辑 FlatBuffers 合同选择字段私有、借用完整 size-prefixed FlatBuffers bytes 的
 `RoadEditingModuleInput`，并由唯一原子
@@ -137,11 +134,8 @@ laneflow-compiler -X-------------> JSON loader / runtime / spatial
 owner-scoped key 只在直接 parent 下唯一，来源地址和 writer 顺序携带完整 owner-key
 tuple。第一方 Rust 接口同时提供字段私有有类型来源构造面和 writer；writer 只生成
 标准 owned bytes，编译器仍把 reader/verifier 作为不受信任字节的唯一准入边界。
+当前 fixture 使用编译器原生有类型来源。
 
-### 2.4 JSON 退役边界
-
-项目没有已发布或用户持有的旧 JSON，因此不建立迁移前端、严格导入能力、资产报告或
-离线导入器。旧迁移方案只保留在 Git 历史；当前 fixture 使用编译器原生有类型来源。
 ## 3. 公共接口与构造规范
 
 ### 3.1 生产公共面
@@ -239,7 +233,7 @@ impl CompileLimits {
 - 不公开未验证 LIR 的后端入口；编译失败不返回部分 LIR 或部分源映射；
 - 编译器实例可以复用暂存区容量，但上次失败不能污染下次编译结果。
 
-后继正式前端可以增加各自的受检 `add_*_module` 方法；current JSON 不在其中。
+后继正式前端可以增加各自的受检 `add_*_module` 方法。
 ### 3.2 官方前端封闭边界
 
 #292 与 v0.10 不承诺稳定的第三方自定义前端扩展接口。编译器可以在包内使用封闭特征
@@ -389,7 +383,7 @@ ADR 0033 §9 的同一格式家族约束，不是已测得更换算法没有性�
 `TypedAstDeclaration`。HIR 只遍历
 `TypedAstModule` 与 `TypedAstDeclaration`，不能按 `SourceLanguage`、前端种类或公开
 模块封装在记录级分支。`SourceLanguage` 连续登记为 `1=SyntheticDsl`、
-`2=RoadEditingSource`；不增加 current JSON 来源语言。
+`2=RoadEditingSource`。来源语言只有这两项。
 
 `CompilationUnitBuilder` 的公开入口保持具体且封闭：
 
@@ -461,8 +455,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 
 `LF-COMP-P100-INITIAL-v1` 的维度和数值保持不可变，只描述单文档 Synthetic 路径。
 共同接入使用 `LF-COMP-P100-INITIAL-v2`：除新增
-`max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是共同接入容量，
-不构成任何 current JSON 前端承诺；后继前端若需要更高文档总数，必须
+`max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是共同接入容量。后继前端若需要更高文档总数，必须
 携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现记录
 维度。
 
@@ -487,8 +480,7 @@ LFCA 的一百万稳定静态实体端到端路径使用独立的
 字符串或几何点循环都不得承担前端变体分支或虚调用。
 
 职责归属保持互补：#315 只拥有共同表示、模块/文档独立登记与源映射不变量、原子接入、
-生命周期和共享测试；#296 只拥有道路编辑来源契约及专用降阶；#297 调整后只拥有
-current JSON 退役与投影测试边界，不再拥有编译器前端。
+生命周期和共享测试；#296 只拥有道路编辑来源契约及专用降阶。编译器前端是合成领域专用语言与道路编辑来源。
 
 ## 4. 阶段表示与内存所有权
 
@@ -758,7 +750,7 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_source_document_count` |     1566 | 来源文档描述符  |
 
 该上限等于既有 `max_module_count` 522 乘以 #315 实现时采用的每模块三个来源文档容量；
-它在共同接入写入文档索引前给出直接基数边界，不构成 current JSON 前端承诺。
+它在共同接入写入文档索引前给出直接基数边界。
 `SourceDocumentCount` 不包含模块头或声明；它们分别继续由 `ModuleCount` /
 `TypedAstRecordCount` 计数。配置档 v2 在实现中成为生产选择前，必须按第 3.3 与 10.4 节完成五级、
 多文档和边界重新资格验证。
@@ -950,14 +942,12 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 field tag `1..=34` 连续登记）。支持“声明该实体”不表示对应交通运行时
 执行域或动态能力已经实现。
 
-### 6.3 迁移场景
+### 6.3 前端必须表达的领域
 
-G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件已随 #301 删除。
-编译器正确性继续使用编译器原生有类型模块；不得把已删除 JSON 当作现行 fixture 或
-预言机。走廊 catalog 仍为
-`examples/data/v0.2-signalized-corridor.catalog.toml`。
+走廊 catalog 是 `examples/data/v0.2-signalized-corridor.catalog.toml`。
+编译器正确性使用编译器原生有类型模块。
 
-当时覆盖的领域仍必须能由合成 DSL / 道路编辑前端表达：完整车道拓扑、横断面 /
+合成 DSL 与道路编辑前端必须能表达：完整车道拓扑、横断面 /
 准入、信号、停车、规范几何，以及单个机动路径的多机动门与等待区。
 自环边、合法孤立边和重复边出现记录都不依赖道路区段或路口所有者。路线出现记录不由
 编制来源声明（ADR 0029）。
@@ -1047,13 +1037,6 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
 为独立来源文档序号；来源模块序号不能替代或推导文档序号。该多文档解析规则已经由
 跨文档来源映射测试证明。
-
-## 9. 集成专用的已验证规范低层中间表示到当前态投影（历史）
-
-> 本节是 #297 交付、#301 删除的迁移桥的历史记录。`laneflow-compiler-test-support`、
-> `InitialTrafficData`、当前态 Core/Spatial 构造器与 `projection_equivalence` 测试已随
-> #301 拆除 Core/JSON 运行时入口一并删除，不是现行组件或验收输入。现行编译器正确性由
-> 编译器原生有类型模块、后发射检查与共享静态路网构建承担。投影步骤与当时验收清单见本节的 git 历史。
 
 ## 10. 容器、依赖与性能选择
 
@@ -1187,8 +1170,6 @@ LIR 或后继制品。
 | `LF-COMP-CORRIDOR-v1`      | 合成校准 / 压力 | 线性走廊、信号 / 停车 / 横断面扩展             | 边、关系、路线、信号状态、几何点     |
 | `LF-COMP-JUNCTION-GRID-v1` | 合成校准 / 压力 | 密集路口、路径 / 机动门 / 等待区出现记录与索引 | 路口、路径、机动门、等待区、出现记录 |
 
-第 9 节的集成专用投影已随 #301 删除；本节不定义 current JSON 性能工作负载。
-
 | 工作负载 | 模块图配置档       | 基础规模 `B` | 正式五级规模      | 校准规模 | 压力规模 |
 | -------- | ------------------ | -----------: | ----------------- | -------: | -------: |
 | 标识     | 宽星形 / 深链形    |           32 | 32/64/128/256/512 |      128 |      256 |
@@ -1279,8 +1260,7 @@ R0 研究基线；产品负责人另行把同一台 `LF-P100-REF-01` 物理机�
 2. 将 #308 明确降为不作验收的容量估算输入，另以真实产品场景和生产编译管线建立首轮
    基线。
 
-不得通过忽略不适用分层、复用原自然身份或只测两个固定样例来伪造生产性能通过。两个
-固定样例的迁移等价证据只作为第 9.1 节的历史记录，不是现行验收输入。
+不得通过忽略不适用分层、复用原自然身份或只测两个固定样例来伪造生产性能通过。
 
 ### 11.5 首轮生产基线
 

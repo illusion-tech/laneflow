@@ -212,7 +212,7 @@ ownership 分离不重新打开这些算法选择。#282 的本地 Waiting reduc
 当前共享静态路网仍是受检 LFCA / `SharedNetworkRevision`，route conflict operands 来自 #559
 已经交付的 `ConflictPassageOccurrence`、Gate ranges 与
 `route_conflict_occurrence_capacity`。regulation/policy source 由两个官方前端经唯一
-compiler/LFCA/shared static network 路径引入；不得恢复 current JSON 或让 `TrafficWorld` 解析文件。
+compiler/LFCA/shared static network 路径引入。`TrafficWorld` 不解析文件。
 具体来源、世界绑定与唯一原子版本组合见
 [`traffic-runtime-right-of-way-policy.md`][right-of-way] §2–§8；
 该合同与正式 Runtime state/digest 共同实现。

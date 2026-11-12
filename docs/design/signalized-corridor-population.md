@@ -224,8 +224,7 @@ contract。blocked retry 不 draw、不改变 frozen plan。修改其中任一�
 catalog `0.2 -> 0.3` 是无兼容 clean break（补边键、启动时 `register_route`），
 `0.3 -> 0.4` 继续直接替换当前格式（必填策略选择），不提供旧 DTO、dual parser、
 alias 或 migration shim。本实现通过
-`TrafficWorld::replace_completed_vehicle` 与 Adapter typed 换绑交付回流；不恢复
-current JSON / `laneflow-data`，也不把人口政策写入 `step`。
+`TrafficWorld::replace_completed_vehicle` 与 Adapter typed 换绑交付回流。人口政策不写入 `step`。
 
 ## 9. 当时 catalog 0.2 实现（历史；现行契约为 0.4）
 

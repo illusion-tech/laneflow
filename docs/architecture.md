@@ -126,9 +126,7 @@ TrafficWorld::install(
 `PostEmissionCheckedBundle` 按值持有 LFCA、LFSM、LFSD 三个来源句柄。它是进程内
 能力，不表示已发布或可信。`canonical_network_input(self)` 消费 bundle，只留下
 LFCA 与已完成的检查证明。安装签名与这条入口的合同见
-[共享消费 §4][shared-consumption-api]。该文里
-按 #301 切片写下的 1-worker 和“尚未交付快照/切换”不是当前实现边界；并行、快照
-和切换以本节之后的专题为准。
+[共享消费 §4][shared-consumption-api]。并行、快照和切换以本节之后的专题为准。
 
 ## 4. 生命周期
 

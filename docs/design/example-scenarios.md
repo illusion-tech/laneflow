@@ -28,9 +28,8 @@ v0.8 首先交付一个可持续运行、可复现的直行 native reference 场
 envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adapter 分层不变的
 前提下，clean-break 切换为受保护左转、直行和右转 profile。
 
-current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
-与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.4 与 LFCA。可运行世界从
-共享静态路网安装。现行走廊 Bevy 最小路径见
+走廊几何与人口策略按下列边界描述。仓库使用 catalog 0.4 与 LFCA。可运行世界从
+共享静态路网安装。走廊 Bevy 最小路径见
 [#472][issue-472]；50–200 人口与回流见
 [#475][issue-475]。
 
@@ -49,18 +48,8 @@ current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
 运行时热修改信号、行人、停车、匝道、路网编辑器和 runtime snapshot。
 
-Traffic v0.7 per-edge 限速基础由 #185 交付；#229 已把同一场景制品 clean-break
-迁移到 Traffic v0.8 并显式增加 2 Junction、8 Movement 与 20
-ManeuverPath/ManeuverGate。TrafficWorld 原子替换与走廊回流由 #475 交付；历史
-`CoreWorld` 命令见已关闭的 #186/#203。#262 随后把 canonical Traffic
-artifact 原子迁移到 v0.9，并加入 ParticipantClass、CrossSection 与 AccessRule
-静态模型；protected-turning topology、Signals、人口和回流行为保持不变。
-
-v0.9 的 Accepted 受保护转向 SSOT 见
+原子替换与走廊回流由 #475 交付。受保护转向的现行合同见
 [`signalized-corridor-protected-turning.md`][protected-turning]。
-它当时以 catalog 0.2、32 条 ManeuverPath 和 28 条 Route 替换 v0.8 的直行 profile；
-#190 交付该具体 profile 与最小 native 集成，#191 扩大 cross-layer 验证，#192
-只执行独立最终审阅。
 
 ## 2. 单位、坐标与道路尺度
 

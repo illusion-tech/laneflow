@@ -4,13 +4,13 @@
 **最后更新**: 2026-11-07<br>
 **关联议题**: #72、#199、#204、#207、#210、#212
 
-#199 是 #72 的 Core API 可扩展性前置审计，已于 2026-07-22 关闭。审计对象
-`laneflow-core` / `CoreWorld` 已随 #301 拆除；#204、#207、#210、#212 的私有原型研究
-（阶段与事件合并、分区占用、选择性快照与批处理、降频语义）随之成为历史证据。
+本页不是实现输入。城市规模的现行决策见
+[`traffic-runtime-scale-decision-baseline.md`][scale-baseline]，产品测量协议见
+[`core-runtime-performance-baseline.md`][performance-baseline]。
 
-审计正文、候选方案、原型结果与可扩展性约束 C1–C13 只存在于 git 历史，不再作为实现
-输入。查阅当时全文使用提交
-[`caf1c90f581a7731b795a32c594f4977f51e71b2`][scalability-audit]。
+当时全文在提交
+[`caf1c90f581a7731b795a32c594f4977f51e71b2`][scalability-audit]，
+因为那些原型结果不在当前工作区，而单世界扩展结论仍需要能找到出处。
 
 仍有效的结论：
 
@@ -28,5 +28,6 @@
 
 [scalability-audit]: https://github.com/illusion-tech/laneflow/blob/caf1c90f581a7731b795a32c594f4977f51e71b2/docs/design/core-runtime-scalability-audit.md
 [performance-baseline]: core-runtime-performance-baseline.md
+[scale-baseline]: traffic-runtime-scale-decision-baseline.md
 [adr-0003]: ../adr/0003-runtime-tick-and-determinism.md
 [adr-0005]: ../adr/0005-core-identity-and-handle-model.md
