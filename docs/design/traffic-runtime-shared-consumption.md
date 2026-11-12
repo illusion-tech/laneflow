@@ -47,7 +47,10 @@ worker 范围、快照容器与修订切换分别见
 3. Runtime **禁止**依赖 Spatial、compiler、Serde 或文件系统。
 4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车集成测试，
    以及同一编制上的最小 Bevy 示例。
-5. 不抽第三求解 crate。执行配置不进入快照，worker 范围见 [执行配置][execution-config]。
+5. 不另建拥有车辆、路线或资源裁决的第二交通求解运行时。
+   `laneflow-motion-kernel` 只做受检列切片上的纯纵向数值，不接收这些裁决，见
+   [列式执行 §3][columnar-kernel] 与 [架构 §3][architecture-crates]。
+   执行配置不进入快照，worker 范围见 [执行配置][execution-config]。
 6. 当前是车辆 / 动态 Route / 停车占用特化，不得写成终态唯一参与者模型。
 7. S1、最小 Bevy 与 §6.4 要调用的公开入口只列在 §4。
 
@@ -342,7 +345,7 @@ install 核对、`register_route` 重建，以及快照与修订切换（合同�
 [`traffic-runtime-snapshot.md`][runtime-snapshot]）。禁止：
 
 - 先投影成 `LaneGraph` 再步进；
-- 抽出 `laneflow-motion` 或同职责第三包。
+- 另建拥有交通裁决的第二求解运行时。纯数值执行留在 `laneflow-motion-kernel`。
 
 当前覆盖车辆特化：跟车、信号遵守、停车占用。不把这套写成终态全部交通参与
 单元的公共基类。人口、Routing 和游戏规则的 seed/随机流仍属 caller，不进入
@@ -447,3 +450,5 @@ CI 必须同时：
 [vehicle-following-admission-index]: vehicle-following.md#74-道路准入候选索引
 [traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
 [parallel-execution]: traffic-runtime-parallel-execution.md
+[columnar-kernel]: traffic-runtime-columnar-execution.md#3-内核和-isa
+[architecture-crates]: ../architecture.md#3-crate-依赖与所有权

@@ -134,7 +134,8 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 ### 6.2 Spatial frame 映射与失败语义
 
-运行时顺序、批次头与失败原子性的正本见 [空间几何 §2.2][spatial-frame] 与
+运行时顺序见 [空间几何 §2.2][spatial-frame]。批次头字段见
+[Adapter API §4][adapter-api-pose]。提取与失败原子性见
 [Adapter API §6][adapter-api-batch]。数值层只保留这些边界：
 
 - 转换由 LaneFlow 拥有，返回结构化数值域或范围错误；失败不能留下部分输出或修改正本状态。
@@ -147,6 +148,7 @@ Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的�
 
 [spatial-frame]: spatial-geometry.md#22-frame-与宿主放置
 [road-editing-encoding]: road-editing-source-and-geometry-frontend.md#92-精确物理编码
+[adapter-api-pose]: adapter-api.md#4-位姿输入与输出
 [adapter-api-batch]: adapter-api.md#6-批量处理与错误语义
 [bevy-transform]: https://docs.rs/bevy_transform/latest/bevy_transform/components/struct.Transform.html
 [unity-vector3]: https://docs.unity3d.com/ja/current/ScriptReference/Vector3-ctor.html
