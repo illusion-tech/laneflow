@@ -41,7 +41,7 @@
 - 准入 overlay 对 LaneEdge/LaneGroup/RoadSection/ManeuverPath/facility 的引用方式，
   保持 ADR 0017 的全局 ManeuverPath traversal coherence；
 - Runtime/Data/Spatial/Authoring/Adapter/Presentation 的 authority、external ID/handle、
-  normalization、first-error、确定性与性能边界；
+  normalization、确定性与性能边界；
 - 最小 production 实现 Issue 的拆分边界。
 
 ### 1.2 现行范围
@@ -385,7 +385,7 @@ AccessRule
 - **端点界值**：`startMinuteOfDay ∈ [0, 1439]`（起点必须落在当日内）；
   `endMinuteOfDay ∈ [1, 1440]`，`1440` 表示当日 24:00，仅作半开终点合法
   （跨午夜窗口的 end 是次日时刻，界值相同）。全天窗口编码为 `0–1440`；
-  `start == end` 由 §10 shape 检查拒绝，不产生空窗口歧义。
+  `start == end` 不构成有效窗口，避免空窗口歧义。
 
 ### 6.2 Target 平面与展开
 
@@ -431,7 +431,7 @@ band 准入语义（可能引入参与者 category/capability 字段）由 #236 
   为保证审计口径一致，同一 package 内所有声明了 `regulation` 的规则必须共享
   同一 `(jurisdiction, version)`（`source` 可不同）；未声明 `regulation` 的
   规则视为 provenance 未指定，不参与该约束。normalization 对违例返回结构化
-  错误（§10）。
+  错误。
 
 ### 6.4 确定性组合语义
 
@@ -548,63 +548,11 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 | 横断面渲染/宽度/材质             | Adapter/Presentation                                 | Runtime/Data                               |
 | 中心线几何/pose                  | Spatial edge binding（不变）                         | 横断面 overlay                             |
 
-## 10. Validation 与 first-error
+## 10. 检查归属
 
-横断面与准入按下列依赖顺序返回首错。ParticipantClass 与 profile 的 class 引用不依赖拓扑，先于车道图。RoadSection、LaneGroup、RoadCorridor 与 AccessRule 在拓扑对象可解析之后检查。
+本文 §3–§6 规定横断面所有者、准入组合和拒绝条件。本文不规定编译器按何种阶段顺序报告这些错误。
 
-- **profile 域段**（下表 phase 1–2）：随 `normalize_profiles` 一并完成，在
-  lane graph 之前——ParticipantClass 与 profile 的 class 引用不依赖任何
-  拓扑，放在拓扑 phase 之后会让 class/profile 错误与拓扑错误的首错顺序
-  背离 canonical 顺序；
-- **拓扑依赖段**（phase 3–10）：在现有 lane graph / Junction / Signals
-  phase 之后——RoadSection 需解析 LaneGraph edge，AccessRule 需解析
-  Junction ManeuverPath 与 lane/section 成员。
-
-同一阶段内按输入顺序返回首错，任一错误不得发布部分结果：
-
-1. ParticipantClass：ID syntax/duplicate、unknown `extendsId`、继承环；
-2. VehicleProfile：unknown `participantClassId`（依赖 phase 1 的 class identity
-   解析结果；profile 其余字段校验沿用现有 pipeline，本设计不新增）；
-3. FacilityBand：ID syntax/duplicate、unknown kindId、kind 类别错误；
-4. RoadSection identity：ID syntax/duplicate（先于 LaneGroup parent 解析，
-   否则 `laneGroups[].roadSectionId` 指向 malformed/重复 ID 时
-   "unknown parent" 无确定性归因）；
-5. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
-   RoadSection 成员检查，否则 lane 的 `laneGroupId` 无法无歧义解析）；
-6. RoadSection body：unknown/non-lane-bearing kindId、empty lanes、empty
-   lane chain、unknown edge、chain 内 disconnected transition、lane 链内 edge
-   重复、同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane
-   引用 group 的 `roadSectionId` 与该 lane 所属 section 不一致；
-7. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
-   检查；
-8. RoadCorridor：ID syntax/duplicate、empty elements（先于一切 element 依赖
-   检查，否则 reference 成员性恒失败、empty 错误不可达）、unknown element
-   引用、elements 内重复
-   引用同一 section/band、同一 section/band 出现在多个 corridor、section/band
-   零归属（§3.1 完备所有者树）、referenceSectionId 不是成员 section；
-9. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
-   capability guard（FacilityBand target 或声明 timeWindows 的规则返回
-   capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
-   检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
-   意义）、timeWindow shape（timeWindows 空数组、days 空集、分钟越界——
-   `start ∈ [0, 1439]`、`end ∈ [1, 1440]`、`start == end`）、`priority`
-   shape（整数性 + i32 范围；definition 存原始数值字面量，统一在 guard
-   之后执行）、
-   `regulation`
-   shape（jurisdiction/version/source 长度 1 到 128 字符；definition 不预校验，
-   统一在 guard 之后执行）、`regulation`
-   provenance 混合（声明了 regulation 的规则不共享同一
-   `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
-   第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
-   (segment, path, class)，含 always-active segment）；
-10. 构造 dense storage、member ranges、class 子树区间与 resolved effect 表。
-
-phase order 的组织原则：**identity phase 一律先于引用解析 phase**——LaneGroup
-的 identity/membership 拆分与 RoadSection 的 identity/body 拆分同形，任何
-"解析对 X 的引用"的检查都排在"X 的 ID syntax/duplicate"之后。
-
-Schema 只校验 syntax/shape/range；owner、reference、containment、组合歧义由
-Core constructors/normalization 报告（ADR 0007 分层不变）。
+后发射检查的顺序只覆盖调用方长度预算、摘要、路网修订重算和 LFCA/LFSM/LFSD 绑定，见 [后发射检查 §5][post-emission-order]。该检查不重新运行拓扑、所有者或准入语义，见 [路网编译器 §10][network-compiler-post-emission]。编译失败不返回部分 LIR 或部分源映射，见 [编译器基础 §3.1][compiler-foundation-api]。
 
 ## 11. Determinism 与性能边界
 
@@ -702,7 +650,7 @@ no-allocation 测试矩阵。
   首版限制）；本文的顺序拓扑是其自然锚点，同向不变量的几何校验补强与段级
   边界锚定也在该 G1 解冻。
 - **多法规版本共存**：v1 强制同一 package 内 regulation provenance 单一
-  （§6.3/§10）；跨法域 rule set 的组合与冲突裁决留待真实需求触发，用
+  （§6.3）；跨法域 rule set 的组合与冲突裁决留待真实需求触发，用
   package 级分离。
 - **多维度参与者分类**：v1 单继承单维度（§5.2）；多 membership + 绑定期跨
   成员组合（含 specificity 歧义裁决与 resolved 表形状变化）必须独立 G1。
@@ -741,3 +689,7 @@ no-allocation 测试矩阵。
 
 若 production 实现发现必须改变 owner 层级、组合语义、版本政策或 steady-tick
 复杂度，必须回到 #234 更新本设计与 ADR 0018，不得通过 private 实现静默改变。
+
+[post-emission-order]: compiler-post-emission-check-and-minimal-publication-closure.md#5-检查顺序
+[network-compiler-post-emission]: network-compiler.md#10-后发射检查与后继信任边界
+[compiler-foundation-api]: compiler-foundation.md#31-生产公共面
