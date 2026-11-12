@@ -390,8 +390,9 @@ authoring 证据，不是通用动态 clearance solver。
 - exact 28 Routes、44 Maneuver occurrences、32 ManeuverPaths，且 path coverage
   无遗漏；
 - Traffic/Spatial/catalog 从同一 config canonical、byte-deterministic regeneration；
-- exact Traffic `0.8`、catalog `0.2`、Spatial `0.1`、ScenarioManifest `0.1`
-  production loader round-trip；
+- 现行可运行制品是受检 LFCA `v0.2-signalized-corridor.lfca` 与 catalog 0.4
+  `v0.2-signalized-corridor.catalog.toml`。文件名是场景制品名，不是格式版本。
+  见[示例场景 §9.1][example-scenarios-artifacts]；
 - 50/100/200 vehicles、seed 0 和规范 stress seeds；
 - 所有 left/straight/right path 的 headless traversal、SignalStop/release、
   Following/no-overlap；
@@ -478,6 +479,7 @@ closure 名义新增 production 行为。
 
 [road-junction-model]: road-junction-model.md
 [example-scenarios]: example-scenarios.md
+[example-scenarios-artifacts]: example-scenarios.md#91-production-制品
 [corridor-population]: signalized-corridor-population.md
 [signal-system]: signal-system.md
 [spatial-geometry]: spatial-geometry.md
