@@ -330,6 +330,12 @@ fn finish_local(
             fragment,
         };
     }
+    if scan::contains_encoded_slash(path) {
+        return LinkKind::Failure {
+            kind: FindingKind::Path,
+            reason: "编码斜线不是目录分隔符",
+        };
+    }
     let base_rel = scan::parent_rel(source_rel);
     let decoded = match scan::percent_decode(path) {
         Ok(decoded) => decoded,
@@ -436,6 +442,9 @@ pub(super) fn code_span_matches(
         return false;
     }
     if target_fragment.is_none() && path.is_empty() {
+        return false;
+    }
+    if scan::contains_encoded_slash(path) {
         return false;
     }
     let decoded = if path.is_empty() {
