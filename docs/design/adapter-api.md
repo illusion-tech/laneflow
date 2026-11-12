@@ -38,7 +38,7 @@
 
 本文中的“宿主”指接入 LaneFlow 的 Bevy、Unity、Unreal、Godot 或 Web 运行环境；“位姿（pose）”指位置和朝向基向量；“批量（batch）”指按稳定顺序一次处理多辆车。组件名 Runtime、Data、Spatial、Adapter 和 Presentation 分别表示交通运行时、数据层、空间层、适配层和表现层。
 
-`laneflow-core` / `CoreWorld` / JSON 运行时入口已由 #301 拆除。current 可运行世界是 `laneflow-runtime::TrafficWorld`。历史 Core snapshot / `SpatialRegistry` 形状不再是生产契约。
+可运行世界是 `laneflow-runtime::TrafficWorld`。
 
 > **实现状态**：当前 Runtime/Spatial/Bevy 路径中，显式 parked vehicle 继续使用
 > ParkingSpace pose；virtual
@@ -204,8 +204,7 @@ Bevy 提供全量 `extract_committed_pose_batch(token, output)` 与选择
 
 #475 冻结 `TrafficWorld::replace_completed_vehicle` 与 Bevy typed replace-and-rebind。
 #540 修订 ADR 0016：保留真正移除用的原子 `despawn_vehicle`，并要求 Adapter 提供 typed
-despawn-and-unbind；它不得被拼成 replacement 的“先删后建”，也不恢复已拆除的全局事件
-backlog。
+despawn-and-unbind。它不得被拼成 replacement 的“先删后建”。
 
 ```rust
 TrafficWorld::replace_completed_vehicle(

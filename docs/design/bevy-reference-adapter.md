@@ -24,7 +24,7 @@
 
 ## 1. 目标
 
-`laneflow-bevy` 是 LaneFlow 的首个 Reference Adapter。它用一个真实 Rust 游戏引擎验证 fixed tick 调度、车辆与实体生命周期、批量位姿到宿主 Transform 的转换、调试可视化和最小可运行示例，但不改变 Runtime 或 Spatial 的最终裁决职责。#301 后 Session 安装 `TrafficWorld` 与可选 `SpatialSession`；`CoreWorld` 与 current JSON 入口已拆除。历史 campus / 走廊 Core 示例不再是现行证据。
+`laneflow-bevy` 是 LaneFlow 的首个 Reference Adapter。它用一个真实 Rust 游戏引擎验证 fixed tick 调度、车辆与实体生命周期、批量位姿到宿主 Transform 的转换、调试可视化和最小可运行示例，但不改变 Runtime 或 Spatial 的最终裁决职责。Session 安装 `TrafficWorld` 与可选 `SpatialSession`。
 
 v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依赖面受控的 Bevy 集成路径。Bevy 不是跨 ABI、跨语言兼容性的唯一证明。
 
@@ -142,47 +142,16 @@ v0.7 不支持一个 `App` 中的多活动 Session、多活动 canonical frame �
 
 ## 7. 批量提取与原子 Transform 提交
 
-`quickstart` / `corridor_traffic` 的现行提取由宿主在 `Observe` 之后调用
+`quickstart` / `corridor_traffic` 在 `Observe` 之后调用
 [§16][bevy-sealed-extraction] 的 `LaneFlowSession::extract_committed_pose_batch`，
-再自行写入 Transform。以下到本节末尾是 v0.7 历史冻结的 presentation 目标
-（见 §6 实现状态说明），不是当前 baseline 的已交付能力。
-
-每个 outer frame 在完成零次、一次或多次 LaneFlow fixed step 后，最多执行一次 presentation extraction/apply：
-
-```text
-committed Traffic Runtime snapshot/events
-  -> stable PoseInputRecord sequence
-  -> SpatialRegistry::extract_pose_batch
-  -> Adapter validation/staging
-  -> Bevy local Transform commit
-  -> Bevy transform propagation
-```
-
-Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems::Propagate` 之前。
-
-提交采用两阶段处理：
-
-1. 在可复用 scratch 中验证 batch frame、placement token、稳定映射、所有有限值、Entity 存活与转换后的 Transform。
-2. 只有全部已映射记录通过后，才把 staged local Transform 写入 ECS。
-
-错误语义：
-
-- 任一已映射记录失败时，所有目标 Transform 保持进入本轮前的值。
-- 未绑定记录是允许的，按稳定顺序跳过，不使批次失败。
-- duplicate、registered-stale、frame/token mismatch、non-finite 与无效旋转均为结构化错误。
-- 默认同步路径不得对每辆车调用 Spatial 单记录查询。
-- 稳定容量下必须复用 extraction、validation 与 Transform staging 内存。
-
-Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose inputs：Active vehicle 使用当前 route edge 与 progress；explicit Parked 使用已提交 `ParkingSpace` pose；virtual Parked 与 Completed 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。无 pose 不能被解释为 removal。
-
-`LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。这段 exclusive 系统同样属于上面标明的 v0.7 历史目标。
+再由宿主写入 Transform。提取失败时不发布部分 Transform。无 pose 不能被解释为移除。
+虚拟泊位与已完成车辆不进入表现批次。默认同步路径不对每辆车做单记录查询。
 
 ## 8. 可选调试可视化
 
 #285 阶段二以 `junction_debug` native example 交付了可见诊断（[#285][issue-285]）：
 默认关闭的 F2 调试 overlay 全部用 Bevy mesh 与文本落地，不恢复 Gizmos 公共 API，也不
-为恢复历史 Gizmos API 增加兼容层。v0.7 / #172 的预算受控 gizmos 与 campus /
-`debug_gizmos_smoke` 只存在于 git 历史。
+为恢复历史 Gizmos API 增加兼容层。现行诊断是 `junction_debug` 的 F2 overlay。
 
 overlay 内容与纪律（设计 §4，`junction-observation-and-validation.md`）：
 
@@ -314,7 +283,7 @@ Spatial batch extract
 
 共享 CI 运行 correctness、determinism、allocation、workspace/MSRV、example/benchmark compile 与 dependency policy。绝对 wall-clock Gate 只在记录了机器、source commit、命令、样本和后台负载的固定环境运行，不作为跨平台 SLA。
 
-#171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的一万/十万完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`。逐轮协议见 git 历史。该结果是当时 Bevy 0.19 campus 路径证据，不是 #301 后 `TrafficWorld` 的产品 SLA。
+#171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的一万/十万完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`。逐轮协议见该次测量记录。这组数字不是当前产品认证。
 
 ## 11. 执行批次与 PR 角色
 

@@ -9,9 +9,8 @@
 ## 当前可运行路径
 
 - [`traffic-runtime-shared-consumption.md`][shared-consumption]：
-  `TrafficWorld` 安装共享静态路网，Spatial 只 bind 同一根 `Arc`，current Core/JSON
-  入口已拆除。路线入口只留 `register_route`（ADR 0029）。该文记录 #301 切片；
-  现行 worker 范围见下方单世界并行设计，不以该文的 1-worker 切片代替当前执行合同。
+  `TrafficWorld` 安装共享静态路网，Spatial 只 bind 同一根 `Arc`。路线入口是
+  `register_route`（ADR 0029）。worker 范围见下方单世界并行设计。
 - [`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol]：串行 P0～P8、
   内部状态五分区、窄视图与 `CommitPlan`。该文定义阶段顺序，不单独证明并行执行；
   worker 范围见下方单世界并行设计。
@@ -133,14 +132,12 @@
 
 ## 已退役（只保留结论）
 
-- [`core-runtime.md`][core-runtime]：早期运行时基线；现行路径见
+- [`core-runtime.md`][core-runtime]：不是生产合同。现行消费见
   [`traffic-runtime-shared-consumption.md`][shared-consumption]。
 - [`data-format.md`][data-format] / [`data-loading.md`][data-loading] /
-  [`current-package-import.md`][current-package-import]：早期数据入口与加载
-  crate 已删除。
-- [`compiler-budget-calibration.md`][budget-calibration]：#308 一次性研究已关闭，证据在 git 历史。
-- [`core-runtime-scalability-audit.md`][scalability-audit]：#199 Core API 可扩展性前置审计；`laneflow-core`
-  已随 #301 拆除，正文与 #204/#207/#210/#212 原型证据在 git 历史；现行决策入口见
+  [`current-package-import.md`][current-package-import]：不是生产合同，只指向现行静态数据与加载路径。
+- [`compiler-budget-calibration.md`][budget-calibration]：工作区已无该次研究执行器；页内给出证据提交，避免把研究数字当成产品通过。
+- [`core-runtime-scalability-audit.md`][scalability-audit]：不是实现输入。现行决策见
   [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]。
 
 ## 文档状态
@@ -149,7 +146,7 @@
 - `Review`：可审阅，仍可能调整。
 - `Accepted`：当前阶段实现输入。
 - `Active`：持续维护的治理或索引。
-- `Retired`：结论仍有效，正文已收缩；细节见 git 历史。
+- `Retired`：不是生产合同，只把读者带到现行文档。
 
 正式设计文档页头建议包含状态、最后更新、适用范围和关联文档。涉及 Runtime API、
 数据格式或 Adapter 协议的实现应先有相关 design 或 ADR。设计文档不记录单次 PR

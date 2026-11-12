@@ -23,8 +23,7 @@ Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
   lifecycle observation。
 
 两个 workload 都是道路机动车特化，统一声明
-`execution_domain=road_motor_vehicle`。立项时的运行世界是 `CoreWorld`；#301 已拆除
-该入口，可运行世界是 `TrafficWorld`（见 §3.6）。LuST 五轴验收已移至 v0.11（#1269），
+`execution_domain=road_motor_vehicle`。可运行世界是 `TrafficWorld`（见 §3.6）。LuST 五轴验收已移至 v0.11（#1269），
 本文工作负载尚未在 `TrafficWorld` 上执行。以下计数约定沿用立项时的口径：#291 G1 与性能基线状态原子化更新前，本文
 继续使用 #215 Accepted 的 current 五项计数字段；无下标的 `N_individual`、
 `N_traffic_active`、`N_intent`、`N_presented` 与 `N_aggregate` 都是道路机动车
@@ -790,22 +789,22 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 #224 G4 后分别创建以下 G0 Issue：
 
-| 任务     | 交付                                                                                                          | 依赖/边界                                                                                                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 任务     | 交付                                                                                                          | 依赖/边界                                                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`][laneflow-lust-converter]；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
-| B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                             |
-| C        | DEMAND caller policy、plan、harness 与 evidence                                                               | 依赖 A                                                                                                                                                                             |
-| D        | DUA rerouting                                                                                                 | 独立 G1/ADR 判断                                                                                                                                                                   |
-| E        | bus/stop semantics                                                                                            | 独立 G1                                                                                                                                                                            |
-| F        | 中国特色手工 authoring 样本和独立 workload ID                                                                 | 独立排期                                                                                                                                                                           |
-| G        | BeST 十万来源、裁剪和 workload                                                                                | 一万获取/转换链路稳定后独立 G1                                                                                                                                                     |
+| B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                |
+| C        | DEMAND caller policy、plan、harness 与 evidence                                                               | 依赖 A                                                                                                                                                                |
+| D        | DUA rerouting                                                                                                 | 独立 G1/ADR 判断                                                                                                                                                      |
+| E        | bus/stop semantics                                                                                            | 独立 G1                                                                                                                                                               |
+| F        | 中国特色手工 authoring 样本和独立 workload ID                                                                 | 独立排期                                                                                                                                                              |
+| G        | BeST 十万来源、裁剪和 workload                                                                                | 一万获取/转换链路稳定后独立 G1                                                                                                                                        |
 
 产品路径上另有示例层任务（Parent #252），**不**改变上表 A–G 的 workload 语义：
 
-| 任务     | 交付                               | 依赖/边界                                                                                |
-| -------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| 任务     | 交付                               | 依赖/边界                                                                             |
+| -------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
 | H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`][lust-bevy-population-control] |
-| I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 正本）与 H 的契约；C/DEMAND 仍可选           |
+| I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 正本）与 H 的契约；C/DEMAND 仍可选        |
 
 本文不改变 Traffic Runtime API、Data format、Spatial API、Adapter API、production runtime
 behavior 或 crate dependency direction，也不新增 ADR。

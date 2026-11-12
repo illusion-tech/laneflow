@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#300/#301 共享空间路网已交付；一维进度为 `progress_mm`）
 
-**最后更新**: 2026-11-12（生产入口保持 `SpatialSession`；已拆除的 JSON 配对与 `SpatialRegistry` 只留结论）
+**最后更新**: 2026-11-12
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -57,16 +57,13 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
 - Spatial component 可以只有 facility/profile/frame；只有 LaneEdge geometry 非空时才
   与 `SharedTrafficNetwork` 共享 logical edge ordinal/cross-table index，并保持完整 edge
   coverage。缺少 lane geometry 时 lane-pose capability 明确不可用；
-- Spatial 直接读取 immutable geometry/sampling tables，不再按 external edge ID
-  join 两个 JSON package，也不重建 `HashMap<EdgeHandle, slot>`；
+- Spatial 直接读取修订上的不可变 geometry/sampling tables，按边序号采样；
 - 多个 world/Adapter session 可共享同一根 `Arc<SharedNetworkRevision>`，只保留各自 pose
   scratch/output 和 placement lifecycle；Spatial 不独立安装 component。
 
-本章 §3 的 JSON Traffic/Spatial/Manifest 三制品只描述已拆除的 current 路径。
 生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`，车道进度为
-`progress_mm`。`laneflow-core` 已拆除。无 Spatial 的 headless Traffic Runtime 仍合法。
-本文其余各节的 Traffic Runtime 指交通侧的最终裁决层：边长度现由共享静态路网承载，进度与
-交通状态现由 `TrafficWorld` 承载。
+`progress_mm`。无 Spatial 的 headless Traffic Runtime 仍合法。边长由共享静态路网承载，进度与
+交通状态由 `TrafficWorld` 承载。
 
 ## 2. 坐标框架
 
@@ -103,20 +100,10 @@ frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态�
 
 ## 3. 制品模型
 
-### 3.1 三类制品
-
-Traffic v0.10 JSON、SpatialPackage v0.1 与 ScenarioManifest v0.1 是已拆除的
-current 路径。字段级形状与按外部边 ID 配对的步骤只存在于 git 历史。退役说明见
-[数据格式][data-format]。
-
-生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`。几何在可选的
-`SharedSpatialNetwork` 上，无 Spatial 组件时 `bind` 返回 `Ok(None)`。见 §1.1。
-
-### 3.2 配对与加载顺序
-
-按 JSON 清单校验、暂存 `f64` 再生成 `SpatialRegistry` 的顺序属于同一已拆除路径，
-步骤见 git 历史。现行绑定失败不留下可观察的半个 session。批量采样先写满再提交，
-失败保持旧输出，正本见 [Adapter API §6][adapter-api-batch]。
+几何在可选的 `SharedSpatialNetwork` 上。生产入口是
+`SpatialSession::bind(Arc<SharedNetworkRevision>)`。无 Spatial 组件时 `bind` 返回
+`Ok(None)`。绑定失败不留下可观察的半个 session。批量采样先写满再提交，失败保持旧输出，
+见 [Adapter API §6][adapter-api-batch]。
 
 ## 4. LaneFlow 自有空间类型
 
@@ -129,7 +116,6 @@ current 路径。字段级形状与按外部边 ID 配对的步骤只存在于 g
 现行公共几何类型包括 `CanonicalFrameId`、`CanonicalPoint3F32`、
 `CanonicalVector3F32`、`CanonicalUnitVector3F32`、`CanonicalPoseF32`、
 `FramePlacementToken`、`PoseSource`、`PoseInput`、`SpatialError` 与 `SpatialAxis`。
-`SpatialRegistry`、`SpatialEdgeInput` 与 `PoseInputRecord` 已拆除，构造顺序见 git 历史。
 位姿输入与批次形状见 [Adapter API §4][adapter-api-pose]。
 
 其中：
@@ -255,7 +241,7 @@ geometry_s = ratio * geometry_arc_length
 
 ## 9. 批量位姿提取
 
-现行输入是 `PoseInput`，输出是 `CanonicalPoseBatch`。形状、首错与「先写入 scratch、全部成功后才提交 output」见 [Adapter API §4][adapter-api-pose] 与 [§6][adapter-api-batch]。`PoseInputRecord` / `SpatialRegistry::extract_pose_batch` 是已拆除入口，调用顺序见 git 历史。
+输入是 `PoseInput`，输出是 `CanonicalPoseBatch`。形状、首错与「先写入 scratch、全部成功后才提交 output」见 [Adapter API §4][adapter-api-pose] 与 [§6][adapter-api-batch]。
 
 - 批量 API 不遍历引擎实体组件系统（ECS），也不持有宿主演员或实体。
 - 采样按已解析的边序号或停车位序号查询，不在每辆车的高频路径中解析外部字符串 ID。
@@ -364,7 +350,6 @@ SpatialPackage 0.1。
 
 [protected-turning]: signalized-corridor-protected-turning.md
 [waiting-zone]: waiting-zone-conflict-right-of-way.md
-[data-format]: data-format.md
 [adapter-api-pose]: adapter-api.md#4-位姿输入与输出
 [adapter-api-batch]: adapter-api.md#6-批量处理与错误语义
 [performance-baseline]: core-runtime-performance-baseline.md

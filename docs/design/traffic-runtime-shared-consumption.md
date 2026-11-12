@@ -2,17 +2,15 @@
 
 **文档状态**: Accepted（#301 G1；#469 合入后完成）<br>
 **最后更新**: 2026-11-12<br>
-**适用范围**: `laneflow-runtime` / `TrafficWorld` 对共享路网修订的消费、
-`SpatialSession` 绑定、#301 端到端证据，以及 current `laneflow-core` / JSON
-运行时入口拆除。本文记录 #301 切片；当时的 1-worker 和「尚未交付快照/切换」
-不是现行执行、快照或切换边界<br>
+**适用范围**: `laneflow-runtime` / `TrafficWorld` 对共享路网修订的消费，以及
+`SpatialSession` 绑定<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0021-traffic-infrastructure-and-host-boundary.md`、
 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
 `../adr/0029-retire-precompiled-static-route.md`、
 `../adr/0026-merge-governance-rebuild.md`、
 `network-compiler.md`、`shared-static-network.md`、
-`portable-canonical-artifact.md`、`current-package-import.md`、
+`portable-canonical-artifact.md`、
 `traffic-observation-and-routing-integration.md`、
 `adapter-api.md`、
 `../adr/0003-runtime-tick-and-determinism.md`、
@@ -20,9 +18,9 @@
 `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`、
 `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 
-本文是 #301 的实现级 G1 输入，并已按 #511 登记同修订换根事务入口（§4）。
-已提交一维几何以 `traffic-runtime-integer-geometry.md` / ADR 0028 为现行
-合同。现行 worker 范围、快照容器与修订切换分别见
+本文规定 `TrafficWorld` 如何安装并消费 `SharedNetworkRevision`。同修订换根的入口形状在 §4，事务合同不在本文。
+已提交一维几何以 `traffic-runtime-integer-geometry.md` / ADR 0028 为准。
+worker 范围、快照容器与修订切换分别见
 [执行配置][execution-config]、[单世界并行][parallel-execution]、
 [运行时快照][runtime-snapshot] 与 [修订切换][revision-cutover]。
 #441 系统化性能账本、#303 Routing 与 #294 残留改名不在本文。
@@ -33,49 +31,41 @@
 
 ## 1. 结论
 
-#301 交付目标交通运行时对已构建 `SharedNetworkRevision` 的消费路径，并使它成为
-**唯一可运行的交通世界**。仓库没有在跑的外部消费者、未发布 1.0，因此不保留
-「Core 继续生产、Runtime 作旁路」的双轨，也不用 `CoreWorld` 作预言机。
+`TrafficWorld` 是唯一可运行的交通世界。它消费已构建的 `SharedNetworkRevision`。
 
 冻结句：
 
-1. 新建 `laneflow-runtime`。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，
-   只分配每世界可变状态。#301 切片的执行计划只表达 1-worker；现行 worker 范围见
-   [执行配置][execution-config] 与 [单世界并行][parallel-execution]。热路径借共享静态路网静态连续 accessor，
+1. `TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，只分配每世界可变状态。
+   worker 范围见 [执行配置][execution-config] 与 [单世界并行][parallel-execution]。
+   热路径借共享静态路网静态连续 accessor，
    **并**读本世界已提交/已编译表（车辆、占用、动态 Route occurrence）；不把动态
    occurrence 写回共享静态路网，也不把 `SharedIdentityIndex` 推进 steady tick。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
    **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
    必须 `Arc::ptr_eq`（或两者来自同一保留的根对象 `Arc`）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
-3. Runtime **禁止**依赖 Spatial、compiler、Serde、文件系统、`laneflow-core`。
+3. Runtime **禁止**依赖 Spatial、compiler、Serde 或文件系统。
 4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车集成测试，
-   以及同一编制上的最小 Bevy 示例。#301 当时以 1-worker 运行该证据。禁止同一场景对拍 `CoreWorld`。
-5. #301 的完成 PR 合入 `main` 时，`laneflow-core`、current JSON 运行时入口和
-   LIR→Core 投影一并消失；Bevy / 示例不得再构造 `CoreWorld`。
-6. 不抽第三求解 crate。#301 切片的 `RuntimeExecutionPlan` 只表达 1-worker 身份；
-   现行执行配置不进入快照，worker 范围见 [执行配置][execution-config]。
-7. 第一刀仍是车辆 / 动态 Route / 停车占用特化，不得写成终态唯一参与者模型。
-8. 凡 S1、最小 Bevy、§6.4 要调用的公开入口只列在 §4。G2 不得另发明生产路径
-   API 来凑这些证据。
+   以及同一编制上的最小 Bevy 示例。
+5. 不抽第三求解 crate。执行配置不进入快照，worker 范围见 [执行配置][execution-config]。
+6. 当前是车辆 / 动态 Route / 停车占用特化，不得写成终态唯一参与者模型。
+7. S1、最小 Bevy 与 §6.4 要调用的公开入口只列在 §4。
 
 ## 2. 明确不做
 
-- #301 切片不实现修订切换、Runtime Snapshot、动态状态迁移或 committed 道路状态晋升。
-  这些能力的现行合同见 [修订切换][revision-cutover] 与 [运行时快照][runtime-snapshot]。
-- 不交付 #441 的 retained/scratch/多 world 字节账与 wall-clock 证据；#301 只做
+- 修订切换与 Runtime Snapshot 的合同见 [修订切换][revision-cutover] 与
+  [运行时快照][runtime-snapshot]，不在本文展开。
+- 不交付 #441 的 retained/scratch/多 world 字节账与 wall-clock 证据；本文只要求
   「克隆根 `Arc`、不复制静态 component」的功能断言。
-- #301 切片不实现多 worker / 分区算法，也不把最终 partition 写入共享静态路网。
-  现行 worker 范围见 [执行配置][execution-config] 与 [单世界并行][parallel-execution]；
-  partition 仍不写回共享静态路网。
+- worker 范围见 [执行配置][execution-config] 与 [单世界并行][parallel-execution]。
+  最终 partition 不写回共享静态路网。
 - 不把城市经济、出行需求或路线选择策略放进 Runtime。
 - 不做完整 Adapter 生产接线或 corridor 规模人口；最小 Bevy 只证明同一根上的
   tick + pose 能驱动代理位移。历史 `signalized_corridor` 最小路径由
   [#472][issue-472] 交付；50–200 原子替换见
   [#475][issue-475]。当前持续车流宿主是
   `corridor_traffic`，契约见 [Bevy 设计 §13][bevy-adapter-lifecycle]。
-- 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
-  保留 `laneflow-core` crate）。
+- 不把 `laneflow-core-design` Skill 标识符改名。该标识符只作发现入口。
 - #301 当时未恢复独立 `despawn`，回流只由 #475 原子替换交付；#540 已显式修订该边界，
   #541 已增加真正移除用的原子 `despawn_vehicle`，包括 Active/Parked 车辆所带的
   Reserved/Occupied binding 释放闭环。它不能用于拼接可失败的 despawn + spawn 回流。
@@ -101,10 +91,10 @@ Adapter / 示例 ─────────────────> laneflow-s
 （Adapter 生产 graph 不直接依赖 laneflow-static-contract；停车序号由 Runtime 再导出。）
 ```
 
-| 包                 | 拥有                                                                                                                           | 禁止                                                                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、每世界执行计划（#301 切片为 1-worker；现行范围见执行配置） | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 C 部分；LFCA 解析仍由 static-network builder 承担） |
-| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享静态路网序号                                  | Traffic tick 正本、compiler、引擎、Runtime、车辆 handle                                                                                                                         |
+| 包                 | 拥有                                                                                                 | 禁止                                                                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、每世界执行计划（范围见执行配置） | Spatial、compiler、Serde、文件系统、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 C 部分；LFCA 解析仍由 static-network builder 承担） |
+| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享静态路网序号        | Traffic tick 正本、compiler、引擎、Runtime、车辆 handle                                                                                                        |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，
 session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用一份
@@ -340,34 +330,33 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 该设计保持本节公开行为和领域正本，不新增公开入口。生产并行的现行范围见
 [单世界并行][parallel-execution]；worker 数不得改变已提交状态。
 
-公开推进入口是 `TrafficWorld::step`（§4.4）。#301 切片以 1-worker 读取：
+公开推进入口是 `TrafficWorld::step`（§4.4）。步进读取：
 
 - 共享静态路网 `SharedTrafficNetwork` 的连续 slice（后继 CSR、准入 resolved 表、机动
   路径/门/等待区、信号 program、停车静态关系）；
 - **本世界**已提交/已编译表（车辆列、车道与停车占用、已注册 Route occurrence）。
 
 不得把动态 occurrence 写回共享静态路网。`SharedIdentityIndex` 不进入 steady tick；只用于
-install 核对、`register_route` 重建，以及后继 #302 快照/修订切换（合同见
+install 核对、`register_route` 重建，以及快照与修订切换（合同见
 [`traffic-runtime-revision-cutover.md`][revision-cutover] 与
 [`traffic-runtime-snapshot.md`][runtime-snapshot]）。禁止：
 
-- 先投影成 `LaneGraph` / 各 registry 再调用任何 `CoreWorld` 步进；
-- Runtime 依赖 `laneflow-core`；
+- 先投影成 `LaneGraph` 再步进；
 - 抽出 `laneflow-motion` 或同职责第三包。
 
-第一刀覆盖当前车辆特化：跟车、信号遵守、停车占用。不把这套写成终态全部交通参与
+当前覆盖车辆特化：跟车、信号遵守、停车占用。不把这套写成终态全部交通参与
 单元的公共基类。人口、Routing 和游戏规则的 seed/随机流仍属 caller，不进入
 `TrafficWorld` 隐藏状态。
 
-#301 切片的 `RuntimeExecutionPlan` 固定为单 worker。现行 worker 范围见
-[执行配置][execution-config]。分区算法、边界缓冲和置换等价测试不在 #301。
+worker 范围见 [执行配置][execution-config]。worker 数不得改变已提交状态。
+分区算法、边界缓冲和置换等价测试不在本文。
 
 ## 6. 证据：零预言机与 S1 e2e
 
 ### 6.1 禁止的证明
 
-- 同一编制分别喂给 `CoreWorld` 与 `TrafficWorld` 再比较 event / pose / 轨迹。
-- 以 campus JSON、`InitialTrafficData` 或 LIR→Core 投影作为 Runtime 正确性预言机。
+- 用第二套运行时对照 event / pose / 轨迹。
+- 用 JSON 或投影结果作为 Runtime 正确性预言机。
 - 以走廊 50–200 辆人口或 LuST 作为本部分完成条件。
 
 ### 6.2 必做的证明
@@ -377,7 +366,7 @@ install 核对、`register_route` 重建，以及后继 #302 快照/修订切换
 它含 Identity、信号、停车、lane-pose 几何和可组成
 `entry → middle → exit` 的边。
 
-Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同一路线前后排列的车，经 `step` 做 1-worker 固定步数。CI 集成
+Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同一路线前后排列的车，经 `step` 推进固定步数。CI 集成
 测试（无窗口）必须断言：
 
 - `install` 成功且只保留一根 `Arc`；
@@ -404,10 +393,7 @@ CI 必须同时：
 `cargo check` 不能单独作为完成证据。这是「新的端到端示例」，不是 corridor 规模
 演示。
 
-历史 `signalized_corridor` 薄路径、catalog 绑定与走廊 LFCA 由
-[#472][issue-472] 交付。50–200 原子替换见
-[#475][issue-475]。#301 只要求它们不再以
-`CoreWorld` 为可运行入口。
+走廊最小路径见 [#472][issue-472]。50–200 原子替换见 [#475][issue-475]。
 
 ### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
 
@@ -437,73 +423,19 @@ CI 必须同时：
 空实现若只过 S1 两车推进/pose 不得视为完成。停车 lifecycle 已由 #541 独立任务交付；
 受保护转向走廊、50–200 辆人口及其余历史变体仍按各自 Issue 完成验收。
 
-这些测试只链接 `laneflow-runtime`（及共享静态路网/format/compiler fixture），不链接
-`laneflow-core`。
+这些测试只链接 `laneflow-runtime`（及共享静态路网、format 与 compiler fixture）。
 
-## 7. 拆除（合入 `main` 的完成定义）
+## 7. 运行时边界
 
-#301 使用 **一个完成 PR**（同一分支上的提交序列）。合入后 `main` 上：
+可运行交通世界是 `TrafficWorld`，安装 `Arc<SharedNetworkRevision>`。
+`schemas/road-editing/` 保留。正确性证据使用编译器原生模块和 §6 的 Runtime 测试。
+安装与正确性不以性能或规模认证为前提。
 
-必须消失或不再作为运行时入口：
-
-- `crates/laneflow-core` 与 `laneflow-core-test-support`（前提：§6.4 覆盖已存在）；
-- `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口（本完成 PR 已删除 crate）；
-- current JSON schema：`laneflow-data-v0.10`、`laneflow-spatial-v0.1`、
-  `laneflow-scenario-manifest-v0.1`（本完成 PR 已删除文件）。不得删除 `schemas/road-editing/`。
-  走廊生成器不再构造 current JSON；编制走 compiler，检入 catalog 与 LFCA；
-- `laneflow-compiler-test-support` 的 LIR→Core 投影；
-- `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享路网修订 bind）；
-- `laneflow-bevy`、`laneflow-scenario`、`laneflow-corridor-generator` 以及
-  campus / `native_reference` / `signalized_corridor` 中任何 `CoreWorld` /
-  `InitialTrafficData` 构造。campus / native 接得上 S1 就改接，接不上就删除。
-  走廊示例允许从本部分删除 Core 入口；迁到 Runtime 是 follow-up，不作为本 PR
-  成功标准。
-- research 代码中以 Core 为 `fixture-oracle` 的可选依赖：删除或改为非 CI 遗留，
-  不得再作为可运行入口。
-
-合入 `main` 时禁止出现「Runtime 已在、Bevy/示例仍跑 Core」的双入口。分支内部
-提交可以暂时并存；**最后一个进入默认分支的状态**必须满足本节。
-
-#294 不再拥有生产切换或拆除旧运行时路径。若本 PR 已删除 `laneflow-core` crate，
-#294 只可能残留文档导航 / Skill 标识符改名；不得再把 Core 当正式世界。
-
-#305 不再要求「current 与 target 同时存在时的等价矩阵」。阶段 7 认证目标路径
-本身；其 G1 另开，不在本文展开。#301 拆除 Core **不以** #441/#305 的性能、规模或
-安全检查通过为前提：仓库没有生产回退路径，正本在 #301 切换。本部分的「生产切换」
-即此正本切换，定义见 `../reference/glossary.md`；不再要求先过等价、性能或安全检查。#301 完成后 `laneflow-runtime` 为当前态，不得再把 `laneflow-core` 写成当前
-生产路径。
-
-## 8. 路线图关系
-
-阶段 6 的完成语义改为：共享静态路网（#300 子任务）加上 #301 使 `TrafficWorld`
-成为唯一可运行交通世界并拆除 current Core/JSON 运行时入口。
-
-阶段 8 不再是「那一天才把正本从 Core 交给 Runtime」。正本在 #301 完成时已经切换。
-#302 仍独占在线修订与 snapshot。#441 仍等至少一个 production kernel，但不再要求
-以 Core 为对照。
-
-历史 ADR 中「#294 G4 前 current JSON/Core 仍是 production contract」的时间表由
-ADR 0020 §10 的本 G1 修订取代。编译器拥有静态路网、Runtime 终态名、Runtime ↛
-Spatial、不得用 Core 对象图当 compiler IR，保持有效。
-
-## 9. 返回 G1 的条件
-
-实现中出现下列任一情况必须停止并修订本文后再求新的 G1：
+出现下列情况必须先修订本文：
 
 - 热路径无法只借共享 accessor，需要复制静态表才能步进；
 - Spatial 不得不依赖 Runtime 才能正确采样，或 pose 批次不得不嵌入车辆 handle；
-- 完成 PR 无法在不合入 Core 双入口的前提下拆除旧 crate，需要改变 L1/Q；
-- `lfca-full-spatial` 无法支撑两车跟车的可观察断言，需要新的 S2 编制；
-- 认为必须恢复 Core 预言机、产品双轨，或以 #305 通过为拆除前提。
-
-## 10. 对 G2 的输入
-
-G2 开工前 Issue 须为 `Ready` 或等价。本文已 Accepted。不得在 Review 稿上开工拆
-Core。
-
-实现按本文一次完成，不拆成可独立交付、合入后语义不完整的子 Issue。允许同一 PR
-内分提交，提交顺序须保证审查时能看出「先有 Runtime 再拆旧入口」，且默认分支终态
-满足 §7。
+- `lfca-full-spatial` 无法支撑两车跟车的可观察断言。
 
 [revision-cutover]: traffic-runtime-revision-cutover.md
 [runtime-snapshot]: traffic-runtime-snapshot.md
