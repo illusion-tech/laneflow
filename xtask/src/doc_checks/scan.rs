@@ -419,6 +419,13 @@ pub(super) fn parent_rel(rel: &str) -> &str {
     }
 }
 
+/// 本地路径原文里的 `%2F` / `%2f`。它不是目录分隔符。`%252F` 不含这段字节，只解码一次后是字面量 `%2F`。
+pub(super) fn contains_encoded_slash(path: &str) -> bool {
+    path.as_bytes()
+        .windows(3)
+        .any(|window| window[0] == b'%' && window[1] == b'2' && matches!(window[2], b'F' | b'f'))
+}
+
 pub(super) fn percent_decode(input: &str) -> Result<String, ()> {
     let bytes = input.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());

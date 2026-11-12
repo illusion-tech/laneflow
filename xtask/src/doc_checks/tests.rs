@@ -137,6 +137,61 @@ fn accepts_same_file_and_cross_file_references() {
 }
 
 #[test]
+fn encoded_slash_is_not_a_directory_separator() {
+    let repo = TestRepo::new("encoded-slash");
+    repo.config(
+        r#"
+[[required]]
+source = "AGENTS.md"
+target = "docs/README.md"
+accept_code_span = true
+reason = "编码斜线不能充当入口"
+"#,
+    );
+    repo.write("docs/README.md", "# Docs\n");
+    repo.write("docs%2FREADME.md", "# Literal\n");
+    repo.write(
+        "a.md",
+        "[upper][upper]\n[lower][lower]\n[once][once]\n[plain][plain]\n[frag][frag]\n\n[upper]: docs%2FREADME.md\n[lower]: docs%2fREADME.md\n[once]: docs%252FREADME.md\n[plain]: docs/README.md\n[frag]: docs/README.md#a%2Fb\n",
+    );
+    repo.write("AGENTS.md", "`docs%2FREADME.md`\n");
+    let rendered = texts(&repo.check()).join("\n");
+    assert!(
+        rendered.contains("target=docs%2FREADME.md:")
+            && rendered.contains("target=docs%2fREADME.md:")
+            && rendered.contains("编码斜线不是目录分隔符"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("docs%252FREADME.md"), "{rendered}");
+    assert!(rendered.contains("missing-required-entry"), "{rendered}");
+    assert!(
+        rendered.contains("missing-anchor") && rendered.contains("#a%2Fb"),
+        "{rendered}"
+    );
+    assert!(!code_span_matches(
+        "AGENTS.md",
+        "docs%2FREADME.md",
+        "docs/README.md",
+        None
+    ));
+    assert!(!code_span_matches(
+        "AGENTS.md",
+        "docs%2fREADME.md",
+        "docs/README.md",
+        None
+    ));
+    assert!(code_span_matches(
+        "AGENTS.md",
+        "docs/README.md",
+        "docs/README.md",
+        None
+    ));
+    repo.write("AGENTS.md", "`docs/README.md`\n");
+    let accepted = texts(&repo.check()).join("\n");
+    assert!(!accepted.contains("missing-required-entry"), "{accepted}");
+}
+
+#[test]
 fn accepts_chinese_names_and_percent_encoding() {
     let repo = TestRepo::new("encoding");
     repo.write("中文.md", "## 快速开始\n");
