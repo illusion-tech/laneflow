@@ -134,21 +134,10 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 ### 6.2 Spatial frame 映射与失败语义
 
-ADR 0015 接受的 runtime 顺序是：
+运行时顺序、批次头与失败原子性的正本见 [空间几何 §2.2][spatial-frame] 与
+[Adapter API §6][adapter-api-batch]。数值层只保留这些边界：
 
-```text
-Traffic Runtime 的有效进度
-  -> Spatial 有界 canonical f32 采样
-  -> frame/有限性/点范围/基向量校验
-  -> canonical f32 位姿批次
-  -> Adapter 解析 frame 到宿主场景的放置
-  -> 宿主 Transform
-```
-
-- 转换和批量 API 必须由 LaneFlow 拥有，返回结构化数值域/范围错误，并对整个批次执行“先计算、后提交”；失败不能留下部分输出或修改正本状态。
-- `f32` 批次只在 header 携带一次 `CanonicalFrameId + FramePlacementToken`；每条记录只携带 vehicle handle 与 canonical pose，不重复 frame/placement identity。
-- `FramePlacementToken(u64)` 是 Adapter/调用方颁发、Spatial 原样回显的不透明等值 token。同一 frame 重新放置、切 tile 或 rebase 时必须颁发新 token；Adapter 提交宿主 Transform 前必须比较当前 token 并拒绝旧批次。
-- output frame mismatch 在读取 records 前失败；record 错误携带稳定输入序号和车辆句柄。全部记录先写调用方 scratch，成功后才交换 committed output 并更新 token；任何失败保持旧 frame/token/records 不变。
+- 转换由 LaneFlow 拥有，返回结构化数值域或范围错误；失败不能留下部分输出或修改正本状态。
 - 双精度宿主把 canonical `f32` 位置升宽后应用自己的 frame/world placement；这不会形成第二套 Spatial/Runtime 状态。
 - 表现插值、原点重设和细节层级（LOD）只影响显示，不能反馈写入进度、速度、占用、状态或事件。
 
@@ -156,6 +145,8 @@ Traffic Runtime 的有效进度
 
 Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的变化必须按 ADR 0008 视为数据格式 / API 迁移；编制数值只能通过显式受检转换进入 Traffic Runtime。
 
+[spatial-frame]: spatial-geometry.md#22-frame-与宿主放置
+[adapter-api-batch]: adapter-api.md#6-批量处理与错误语义
 [bevy-transform]: https://docs.rs/bevy_transform/latest/bevy_transform/components/struct.Transform.html
 [unity-vector3]: https://docs.unity3d.com/ja/current/ScriptReference/Vector3-ctor.html
 [unreal-core]: https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core
