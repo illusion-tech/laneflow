@@ -45,8 +45,8 @@ worker 范围、快照容器与修订切换分别见
    必须 `Arc::ptr_eq`（或两者来自同一保留的根对象 `Arc`）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
 3. Runtime **禁止**依赖 Spatial、compiler、Serde 或文件系统。
-4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车集成测试，
-   以及同一编制上的最小 Bevy 示例。
+4. `lfca-full-spatial` 上的两车 S1 与最小 Bevy 示例只证明共享路网修订能安装、
+   步进并采样。它们不能单独替代 §6.4 的 Runtime 原生覆盖。
 5. 不另建拥有车辆、路线或资源裁决的第二交通求解运行时。
    `laneflow-motion-kernel` 只做受检列切片上的纯纵向数值，不接收这些裁决，见
    [列式执行 §3][columnar-kernel] 与 [架构 §3][architecture-crates]。
@@ -376,8 +376,7 @@ Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同�
 - 两车都能推进；后车受前车约束可观察（跟车或至少不能穿透前车占用）；
 - 因 fixture 有 `lane_pose`，同一 `Arc` 上 `bind` 后用 `committed_pose_sources()`
   构造 pose 输入，`extract_pose_batch` 能产出 pose 批次；
-- 安装或步进失败不留下半个 world；
-- 测试 crate 不链接 `laneflow-core`。
+- 安装或步进失败不留下半个 world。
 
 不要求：完整停车离场状态机、红灯停止线的独立故事 fixture、多 worker、走廊规模人口、
 与任何历史 Core 轨迹相等。S1 是共享路网修订集成证据，**不能**单独替代下列 Runtime
@@ -398,24 +397,22 @@ CI 必须同时：
 
 走廊最小路径见 [#472][issue-472]。50–200 原子替换见 [#475][issue-475]。
 
-### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
+### 6.4 Runtime 原生覆盖
 
-删除 `laneflow-core` 及其测试支持 crate 之前，必须有 **Runtime 原生** 测试覆盖下列
-保留的当前运行时合同（不把 Core 轨迹当预言机，不要求逐条搬迁测试文件）：
+Runtime 原生测试必须覆盖下列合同。不用第二套运行时轨迹作预言机：
 
 - 跟车安全间隙（`step` 读已提交 T 的前车；`committed_pose_sources` 进度）；
 - 信号停车与许可通行（车辆用 snapshot(T)；成功 step 后 `committed_signal_groups`
   为 T + D。相位边界落在 `[T, T + D)` 时该拍不得提前用 T + D 灯色）；
 - 停车裁决权（显式/虚拟资源守恒、完整 lifecycle、arrival/leave/rebind 边界、typed
-  despawn、Snapshot v3/cutover/replay 与失败原子性；定向矩阵见 `parking-system.md` §10）；
+  despawn、快照、切换、回放与失败原子性；定向矩阵见 `parking-system.md` §10）；
 - 确定性固定步进（`step`：`fixed_delta_time_ms ∈ [4, 1000]`、delta 不匹配则拒绝、
   `tick_index`/`time_ms` 溢出则拒绝且世界不变、同输入序列同结果）；
 - 信号 program 每个 phase `durationMs >= dt && durationMs % dt == 0`，否则
   `install` 以可区分错误失败（短于一步 / 不能整除）；
 
 - 安装/步进/命令失败原子性（失败不留下半个 world 或已提交半更新）；
-- 成功 tick 不因错误边界新分配诊断（不要求继承 Core `TickInvariantError` 的
-  `Copy` / 64 / 72 字节布局）；
+- 成功 tick 不因错误边界新分配诊断，也不要求诊断类型满足固定字节布局；
 - 路线注册与编译 occurrence（`register_route` / `remove_route`，ADR 0017 / 0029；
   tick 只读本世界 occurrence 表；不含走廊级人口与回流）；
 - spawn 绑定期准入（按 ADR 0018 `(ParticipantClass, Route)` 后缀拒绝，失败不留车）；
