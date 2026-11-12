@@ -46,7 +46,7 @@ harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实�
 v0.8 Signalized Corridor 的 50–200 车辆 native reference 场景仍由
 [`example-scenarios.md`][example-scenarios] 和
 [`signalized-corridor-population.md`][corridor-population] 管理。它
-验证 production loader、Signals、人口与回流闭环，不承担本文一万真实路网
+验证信号、人口与回流闭环，不承担本文一万真实路网
 workload 的规模或代表性职责。
 
 ## 2. 来源选择
