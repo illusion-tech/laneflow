@@ -134,8 +134,10 @@
 
 - [`core-runtime.md`][core-runtime]：不是生产合同。现行消费见
   [`traffic-runtime-shared-consumption.md`][shared-consumption]。
-- [`data-format.md`][data-format] / [`data-loading.md`][data-loading] /
-  [`current-package-import.md`][current-package-import]：不是生产合同，只指向现行静态数据与加载路径。
+- [`data-format.md`][data-format] / [`data-loading.md`][data-loading]：
+  不是生产合同，只指向现行静态数据与加载路径。
+- [`current-package-import.md`][current-package-import]：只约束从未对外发布的
+  Traffic / Spatial / Scenario JSON，不提供这组 JSON 的编译器导入、批量迁移或长期离线兼容。
 - [`compiler-budget-calibration.md`][budget-calibration]：工作区已无该次研究执行器；页内给出证据提交，避免把研究数字当成产品通过。
 - [`core-runtime-scalability-audit.md`][scalability-audit]：不是实现输入。现行决策见
   [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]。

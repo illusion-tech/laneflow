@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（横断面所有者与准入分层；静态数据由编译器发射 LFCA，经受检共享路网修订安装）<br>
 **最后更新**: 2026-11-08<br>
-**适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
+**适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity、authority 与 validation<br>
 **实现状态**: 静态数据由编译器发射 LFCA，经受检共享路网修订安装 `TrafficWorld`。时变规则与 FacilityBand target 由能力保护拒绝。线格式见 `network-compiler.md` 与 `portable-canonical-artifact.md`。
 
 **关联文档**:
@@ -41,8 +41,7 @@
 - 准入 overlay 对 LaneEdge/LaneGroup/RoadSection/ManeuverPath/facility 的引用方式，
   保持 ADR 0017 的全局 ManeuverPath traversal coherence；
 - Runtime/Data/Spatial/Authoring/Adapter/Presentation 的 authority、external ID/handle、
-  normalization、确定性与性能边界；
-- 最小 production 实现 Issue 的拆分边界。
+  normalization、确定性与性能边界。
 
 ### 1.2 现行范围
 
@@ -58,8 +57,7 @@
 - 不冻结车道宽度、横向偏移、道路横坡或任何横断面几何；横断面只冻结横向
   **顺序** 拓扑。
 - 不把 LaneFlow 扩张为专业交通工程仿真器或完整 SUMO-like 系统。
-- 不修改 #229 已交付的 v0.9 最小 Junction/Movement/ManeuverPath 实现范围。
-- 不引入动态拓扑；横断面与准入 registry 与 lane graph 一样按初始化后稳定处理。
+- 不引入动态拓扑；横断面与准入在安装后保持稳定，与 lane graph 相同。
 
 ## 2. 横断面总 owner 判断
 
@@ -169,7 +167,7 @@ lane
   可寻址拓扑实体：道路区段覆盖（Road-section Coverage）与路口内部边角色
   （Junction-internal Edge Role）均不参与边的 `StableId128`。因此添加 / 移除本
   overlay 不改变同一边身份，合法未覆盖边也不需要伪造 RoadSection/Junction
-  所有者；完整编码与 current v0.10 导入规则见 `network-compiler.md` §7。
+  所有者；完整编码见 `network-compiler.md` §7。
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
   量**：同一 section 的所有 lane 链必须同向行驶——反向链会让 section 方向
   派生自相矛盾（同一 section 两个行驶方向），lane index 的 reference 系语义
@@ -578,42 +576,7 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   simulation clock，不读墙钟。
 - catalog 规模不进入无关车辆的 steady-tick 复杂度。
 
-## 12. 影响矩阵
-
-| 层                  | Target 影响                                                           | 本 Issue 变更 | 后续 owner       |
-| ------------------- | --------------------------------------------------------------------- | ------------- | ---------------- |
-| Traffic Runtime API | 新增 6 类 handle/resolver/registry；(class, Route) 绑定期准入校验     | 无（设计）    | production Issue |
-| LaneGraph           | 不变；edge 成员关系由 RoadSection 引用反查                            | 无            | —                |
-| Route               | 保持 class-agnostic；绑定期增加静态准入与 occurrence 级 path 规则校验 | 无            | production Issue |
-| Traffic Data        | exact-current `0.9` 新 arrays + profile 必填字段                      | 无            | production Issue |
-| Spatial             | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何                        | 无            | —                |
-| Manifest            | shape 保持 `0.1`；production 后更新 Traffic size/digest               | 无            | production Issue |
-| Authoring           | 显式 corridor/section/lane/rule 输入；generator 显式生成              | 无            | production Issue |
-| Adapter             | observation 新增 corridor/section/rule 只读 query；无裁决权           | 无            | production Issue |
-| Presentation        | 可按 cross-section 顺序渲染横断面；宽度/材质自有                      | 无            | production Issue |
-| Fixtures/artifacts  | 原子切换 v0.9 并更新 canonical bytes/digests                          | 无            | production Issue |
-
-## 13. 最小 production 实现拆分
-
-#234 之后拆出一个最小 production Issue（#262）：
-
-**范围**：生产化 §3–§7 的静态模型——RoadCorridor/RoadSection/LaneGroup/
-FacilityBand/ParticipantClass/AccessRule 的 Core registry、handle、resolver、
-validation、Traffic v0.9 schema/DTO/loader/fixtures、
-(class, Route) 绑定期静态准入校验（edge 平面查表 + path 平面 occurrence 校验）、
-generator 显式横断面输出与 canonical artifacts 原子切换。
-
-**显式不做**：时变规则的 runtime constraint（v1 对带 timeWindows 的规则返回
-capability-unavailable 结构化错误，拒绝载入；runtime 独立后续 G1）、
-FacilityBand target 规则语义（同形 guard，归 #236）、违规/劝诫式准入语义
-（独立 G1）、lane change/adjacency 消费（#237）、非机动车/行人行为（#236）、
-横断面横向几何、Adapter 渲染实现。
-
-**验收对齐**：road-junction-model §14 同形的 identity/owner、reference、
-first-error、determinism、permutation、round-trip 与 steady-tick no-scan/
-no-allocation 测试矩阵。
-
-## 14. #237 消费契约
+## 12. #237 消费契约
 
 #234 与 #237 保持独立 G1（接口共设计，不合并）。本文向 #237 提供以下**冻结
 保证**，#237 的 G1 只做契约校验，不得重复冻结：
@@ -637,7 +600,7 @@ no-allocation 测试矩阵。
 
 ## 15. Future extension boundary
 
-- **#237（动态车道用途/lane change/resolved lane plan）**：在 §14 消费契约上
+- **#237（动态车道用途/lane change/resolved lane plan）**：在 §12 消费契约上
   冻结车道边界标线表达、变道许可 policy、静态 kind 与动态/条件 rule、
   lane-use state 与 lane-change plan 的引用关系。
 - **#236（非机动车/步行）**：决定是否让 nonMotorLane/sidewalk 获得 traversal
@@ -678,14 +641,13 @@ no-allocation 测试矩阵。
   （`(edge, class)` / `(path, class)`），时变规则按
   time segment 切换 segment 索引结构（共享未变条目，禁止全量物化），tick
   O(1) 查表；
-- Traffic `0.8 -> 0.9` 原子 clean-break；Spatial/Manifest 保持 `0.1`；
 - 静态规则在 (ParticipantClass, Route) 绑定期 fail-fast（Route 保持
   class-agnostic，v1 仅严格语义）；绑定期校验只覆盖车辆**当前 route cursor
   起的可达后缀**（cursor 之前的 edge/occurrence 不会被 traversal，不参与
   校验；cursor 落在某 occurrence 内部时该 occurrence 作为原子整体校验）；
   时变规则与 FacilityBand target 规则在 v1 由 capability guard 结构化拒绝，
   语义各自独立 G1；
-- 与 #237 的接口共设计契约（§14），两 Issue 不合并。
+- 与 #237 的接口共设计契约（§12），两 Issue 不合并。
 
 若 production 实现发现必须改变 owner 层级、组合语义、版本政策或 steady-tick
 复杂度，必须回到 #234 更新本设计与 ADR 0018，不得通过 private 实现静默改变。
