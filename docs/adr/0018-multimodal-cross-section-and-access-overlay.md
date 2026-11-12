@@ -260,7 +260,7 @@ lane index 顺序本身就是声明，方向关系无法与任何结构交叉验
 
 #237 的硬核（lane-change plan、lane-use 动态状态、与 following/occupancy 的
 交互）是行为设计，不反哺本文静态本体；合并只会拉长冻结周期并扩大评审面。两
-Issue 保持独立 G1，以 `cross-section-access.md` §14 的冻结消费契约衔接；契约
+Issue 保持独立 G1，以 `cross-section-access.md` §12 的冻结消费契约衔接；契约
 不足时回到本 ADR 修订，不得绕开。
 
 ### 纯 priority 组合（无 specificity）

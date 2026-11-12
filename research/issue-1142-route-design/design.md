@@ -120,7 +120,7 @@
 
 ### 2.3 #237 最小子合同（本设计冻结的边界外侧，首版最小内容）
 
-承接修订稿 §5.1 的必要合同矩阵；消费 `cross-section-access.md` §14 的冻结
+承接修订稿 §5.1 的必要合同矩阵；消费 `cross-section-access.md` §12 的冻结
 保证（相邻事实源、整边界锚点、overlay 模式、物理/policy 分层），#237 的 G1
 只做契约校验，不得重复冻结：
 
@@ -340,7 +340,7 @@ catalog 拥有示例边序列。因此"路线展开"产物（`routes.toml` 车�
   占用投影：`kernel/occupancy.rs`、`kernel/tables.rs` 车身展开；
   门与失败关闭：`kernel/tick.rs`；组合资源：`kernel/conflict.rs`、
   `kernel/conflict_tick.rs`；快照：`admin/snapshot.rs`。
-- 合同文档：`docs/design/route-system.md`、`cross-section-access.md` §3.2/§14、
+- 合同文档：`docs/design/route-system.md`、`cross-section-access.md` §3.2/§12、
   `road-junction-model.md` §3/§7/§17.4、`vehicle-following.md` §6、
   `real-road-workloads.md` §3.1、`network-compiler.md`、ADR 0029。
 - Issue：#806（问题陈述）、#237（最小换道能力，G1 未接受）、#273（共享
