@@ -369,12 +369,9 @@ accessor 形状，不给根引入可变状态，本 crate 不解析 asset key、
 - Identity round-trip；
 - Traffic/Spatial component compatibility。
 
-#302 在固定步进安全边界把 root handle、迁移后的动态状态、对应
-`CommittedNetworkSource` 和 editable 来源必需的 optional `EditableDiffBase` binding 作为一个
-活动修订 aggregate 原子替换；玩家确认建造时该 source 是 committed `RoadEditingState`，
-发布修订更新时可以是 `PublishedLfcaReference`。它只从该 aggregate 发布 revision-bound
-snapshot/facade，并负责事件恰一次和旧根对象退休；旧根对象在最后一个 Runtime/Spatial/Adapter
-根 borrow/`Arc` 退出后释放。
+活动修订的原子替换、事件恰一次与旧根对象退休由
+[修订切换 §7][revision-cutover-promotion] 规定。来源种类与失败时旧聚合是否保持
+也以该合同为准。本 crate 仍只提供可独立丢弃的候选修订。
 
 ## 9. 道路编辑与保存
 
@@ -721,3 +718,4 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 [portable-artifact-geometry]: portable-canonical-artifact.md#371-规范几何数值闭合
 [state-integrity]: traffic-runtime-state-integrity.md
 [committed-editing]: committed-road-editing-state.md
+[revision-cutover-promotion]: traffic-runtime-revision-cutover.md#7-原子晋升与共存

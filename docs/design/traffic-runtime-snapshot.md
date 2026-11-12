@@ -348,12 +348,8 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 `SharedIdentityIndex` 完整重建。同修订换根（含重发布制品）走切换事务的
 `same_revision_restore` 路径。
 
-跨修订恢复对 Reserved target 采用与在线 cutover 相同的 entry 规则：virtual
-reservation 的已保存 semantic entry 必须 exact 存在；explicit reservation 从同一
-`ParkingSpace` 的目标静态 entry 重新解析，并相对已保存 vehicle cursor 重做前向可达
-判定。显式 entry 向前移动可恢复，移到 cursor 后方则整次失败；reader 不倒车、teleport
-或自动改派另一 entry。Occupied binding 不保留旧 entry，仍按目标修订验证 target 与
-离场静态闭合。
+跨修订恢复的停车重绑与在线 cutover 使用同一规则，正本见
+[修订切换 §3.1][revision-cutover-parking]。本文不另写一套入口、前移或失败条件。
 
 ## 8. G1 预算与度量
 
@@ -504,6 +500,7 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 [adr-0028]: ../adr/0028-integer-millimeter-traffic-geometry.md
 [adr-0029]: ../adr/0029-retire-precompiled-static-route.md
 [revision-cutover]: traffic-runtime-revision-cutover.md
+[revision-cutover-parking]: traffic-runtime-revision-cutover.md#31-停车-target-的重绑合同
 [routing-integration]: traffic-observation-and-routing-integration.md
 [retire-precompiled-static-route]: retire-precompiled-static-route.md
 [shared-static-network]: shared-static-network.md
