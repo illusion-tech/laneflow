@@ -108,12 +108,12 @@
       "kind": "fixed-premade-transition",
       "direction": "0 -> 1",
       "boundary_anchor": { "section": "TZ", "lane_pair": [0, 1], "kind": "section-internal-whole-boundary" },
-      "adjacency_fact_source": "RoadSection ordered lanes（cross-section-access.md §3.2/§14）；不得按 ID 或空间接近猜邻接",
+      "adjacency_fact_source": "RoadSection ordered lanes（cross-section-access.md §3.2/§12）；不得按 ID 或空间接近猜邻接",
       "permission": {
         "layer": "policy",
         "rule": "允许 ParticipantClass=passenger 在全时段跨越；未知/缺失/拒绝一律失败关闭",
         "physical_marking": "虚线（物理标线事实，不承载许可语义）",
-        "note": "标线事实与许可 policy 分层（cross-section-access.md §14 第 4 条）"
+        "note": "标线事实与许可 policy 分层（cross-section-access.md §12 第 4 条）"
       },
       "entry": { "stop_line": "sl-t01", "on_edge": "B0_up", "position": "edge-end", "arbitration": "硬停进入点：进入前原子取得源/目标所需资源；同拍竞争按稳定顺序裁决" },
       "edge_chain": ["T01"],

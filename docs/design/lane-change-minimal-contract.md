@@ -225,7 +225,7 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 - `vehicle-following.md` §6.4/§7：overlap 分类与占用记录形状为 §4 的判据来源。
 - `traffic-runtime-phase-protocol.md` §3：P3/P4/P5/P7 阶段语义与读写集不变，
   §5 为其上的领域合同。
-- `cross-section-access.md` §14：相邻事实来源与整边界锚点（禁止段级锚定）。
+- `cross-section-access.md` §12：相邻事实来源与整边界锚点（禁止段级锚定）。
 - `traffic-runtime-snapshot.md`：持久化与版本轴（§9 指向）。
 
 ## 9. 持久化与版本轴（裁定 A5，规范定义见 snapshot 衔接注记）

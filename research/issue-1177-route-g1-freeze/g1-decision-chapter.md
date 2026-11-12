@@ -151,7 +151,7 @@
 **触发登记 #273 为真实依赖**（任一即登记）：任意纵向位置过渡；部分区间投影
 需要共享 stationing；出现长度百分比/跨 lane 进度换算诉求；段级边界锚点成为
 必要输入。
-依据：`cross-section-access.md` §3.2.1/§14（整边界锚点、段级推迟）；#273
+依据：`cross-section-access.md` §3.2.1/§12（整边界锚点、段级推迟）；#273
 非目标（明文不阻塞整边界/预制过渡首版）；统筹裁决 1。
 
 ### S2. 跨层合同落地条件（⑥）
@@ -192,7 +192,7 @@ snapshot.md` §5 恢复链「执行能力校验……任一失败只丢弃 stagi
     （`target/issue-790-806-handoff-20261026/kimi-806-a0/`、`kimi-806-a1/`，
     交接材料）：真实反例、连续对照、六类诊断、A1 几何修复失败原文。
 - **主线合同文档**：`route-system.md` D1–D8；`cross-section-access.md`
-  §3.2/§3.2.1/§5/§6/§14；`road-junction-model.md` §3.2/§3.3/§7/§17.4；
+  §3.2/§3.2.1/§5/§6/§12；`road-junction-model.md` §3.2/§3.3/§7/§17.4；
   `vehicle-following.md` §6.4/§7；`real-road-workloads.md` §3.1；
   `traffic-runtime-phase-protocol.md` §3/§3.1；`traffic-runtime-snapshot.md`
   §2/§3/§5/§6；`traffic-runtime-execution-config.md` §1/§4/§6。
