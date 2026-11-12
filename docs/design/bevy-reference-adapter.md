@@ -142,6 +142,11 @@ v0.7 不支持一个 `App` 中的多活动 Session、多活动 canonical frame �
 
 ## 7. 批量提取与原子 Transform 提交
 
+`quickstart` / `corridor_traffic` 的现行提取由宿主在 `Observe` 之后调用
+[§16][bevy-sealed-extraction] 的 `LaneFlowSession::extract_committed_pose_batch`，
+再自行写入 Transform。以下到本节末尾是 v0.7 历史冻结的 presentation 目标
+（见 §6 实现状态说明），不是当前 baseline 的已交付能力。
+
 每个 outer frame 在完成零次、一次或多次 LaneFlow fixed step 后，最多执行一次 presentation extraction/apply：
 
 ```text
@@ -170,11 +175,7 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 
 Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose inputs：Active vehicle 使用当前 route edge 与 progress；explicit Parked 使用已提交 `ParkingSpace` pose；virtual Parked 与 Completed 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。无 pose 不能被解释为 removal。
 
-`LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
-
-上两段同属 v0.7 历史冻结的 presentation 规范目标（见 §6 实现状态说明），不是当前
-baseline 的已交付能力；`quickstart` / `corridor_traffic` 现行示例由宿主系统
-在 `Observe` 后调用受控提取并自行写入 Transform。
+`LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。这段 exclusive 系统同样属于上面标明的 v0.7 历史目标。
 
 ## 8. 可选调试可视化
 
@@ -304,7 +305,7 @@ Spatial batch extract
   + Bevy transform propagation
 ```
 
-该边界不包含 Traffic Runtime 交通求解和 renderer。冻结门槛为：
+该边界不包含 Traffic Runtime 交通求解和 renderer。下列毫秒门槛是 #171 / v0.7 历史 Gate，不是当前产品认证；数字保持当时记录，认证口径见 [性能基线][performance-baseline]。历史门槛为：
 
 - 稳定容量下，一万/十万 Adapter-owned batch 路径零 allocation/reallocation；
 - 一万 p95 不超过 `4 ms`；
@@ -1019,3 +1020,5 @@ cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example
 [parking-system]: parking-system.md
 [adapter-api]: adapter-api.md
 [revision-cutover]: traffic-runtime-revision-cutover.md
+[bevy-sealed-extraction]: #16-修订绑定生命周期与维护暂停式切换534
+[performance-baseline]: core-runtime-performance-baseline.md

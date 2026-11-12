@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#300/#301 共享空间路网已交付；一维进度为 `progress_mm`）
 
-**最后更新**: 2026-11-06（#294：更正依赖方向；#496：采样输入为整数毫米；生产入口是 `SpatialSession`）
+**最后更新**: 2026-11-12（生产入口保持 `SpatialSession`；已拆除的 JSON 配对与 `SpatialRegistry` 只留结论）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -105,52 +105,18 @@ frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态�
 
 ### 3.1 三类制品
 
-三类制品采用独立版本系列；它们不会把空间字段塞入当前 Traffic v0.10：
+Traffic v0.10 JSON、SpatialPackage v0.1 与 ScenarioManifest v0.1 是已拆除的
+current 路径。字段级形状与按外部边 ID 配对的步骤只存在于 git 历史。退役说明见
+[数据格式][data-format]。
 
-```text
-ScenarioManifest（场景清单）
-  formatVersion: "0.1"
-  traffic/spatial: artifactRef + mediaType + raw byte size + SHA-256 digest
-
-TrafficPackage v0.10（当前 source/loader；已按固定 provenance 发布并通过 live byte-equality 验证）
-  laneGraph.edges[].id / length / connections
-  junctions / movements / maneuverPaths
-  routes / profiles / signals / parking
-  participantClasses / facilityBands / roadSections
-  laneGroups / roadCorridors / accessRules / waitingZones
-
-SpatialPackage v0.1
-  formatVersion: "0.1"
-  frameId
-  edges[].trafficEdgeId
-  edges[].centerline.points[]: [x, y, z]
-```
-
-- 场景清单使用制品原始 bytes 的长度与 SHA-256 摘要精确配对内容。`artifactRef` 是调用方作用域内不透明、大小写敏感的匹配键；路径或文件名不构成格式身份，也不得先重新序列化 JSON 再计算摘要。
-- 空间边使用交通数据中的外部边 ID 绑定，加载后转换为紧凑的不透明绑定。
-- 如果提供空间包，它必须完整覆盖交通车道图。缺失、重复或未知交通边全部返回阻断错误；只使用 Core 的调用方可以完全不提供空间包。
-- 空间点固定为三个 JSON number 的 `[x, y, z]` 数组，避免重复字段名且不引入首版全局 vertex pool/index。每条中心线至少两个点。
-- 当前 Traffic Data v0.10 的模式、加载范围和诊断继续独立于 Spatial。Spatial/Manifest schema source、严格 loader、规范样例和双阶段发布目录由 #134 交付。
-- 加载器接收调用方已经读取的字节或字符串，不读取引擎路径，不解析远端 `$id`，也不创建引擎资源。
+生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`。几何在可选的
+`SharedSpatialNetwork` 上，无 Spatial 组件时 `bind` 返回 `Ok(None)`。见 §1.1。
 
 ### 3.2 配对与加载顺序
 
-```text
-校验清单结构、版本、制品 ref、size 和摘要
-  -> 校验当前有效的交通包
-  -> 校验空间包版本、坐标框架和 closed shape
-  -> f64 暂存并检查有限性/范围，再转换为 canonical f32 点
-  -> 校验外部边身份、唯一性与完整覆盖
-  -> 生成按 Traffic lane graph 稳定顺序排列的 #135 输入
-  --- #134 / #135 ownership boundary ---
-  -> 校验折线结构
-  -> 预计算几何弧长
-  -> 校验 Core 长度与几何长度的一致性
-  -> 校验相连端点的连续性
-  -> 生成不可变的已绑定 Spatial 注册表
-```
-
-任一步失败都不得返回部分注册表，也不得修改已存在的 Core 世界。
+按 JSON 清单校验、暂存 `f64` 再生成 `SpatialRegistry` 的顺序属于同一已拆除路径，
+步骤见 git 历史。现行绑定失败不留下可观察的半个 session。批量采样先写满再提交，
+失败保持旧输出，正本见 [Adapter API §6][adapter-api-batch]。
 
 ## 4. LaneFlow 自有空间类型
 
@@ -160,58 +126,23 @@ SpatialPackage v0.1
 中立的 `laneflow-static-contract` 只提供 Spatial、编译器和 Runtime 共同解释的数值
 边界；Spatial 与 Runtime 互不依赖（`xtask` 运行时架构检查）。
 
-#133/#135 已固化以下公共类型：
-
-```text
-CanonicalFrameId
-CanonicalPoint3F32
-CanonicalVector3F32
-CanonicalUnitVector3F32
-SpatialEdgeInput<'a>
-CanonicalPoseF32
-FramePlacementToken
-PoseSource
-PoseInputRecord
-CanonicalPoseRecordF32
-CanonicalPoseBatchF32
-CanonicalPoseBatchScratch
-SpatialRegistry
-SpatialError
-SpatialAxis
-```
+现行公共几何类型包括 `CanonicalFrameId`、`CanonicalPoint3F32`、
+`CanonicalVector3F32`、`CanonicalUnitVector3F32`、`CanonicalPoseF32`、
+`FramePlacementToken`、`PoseSource`、`PoseInput`、`SpatialError` 与 `SpatialAxis`。
+`SpatialRegistry`、`SpatialEdgeInput` 与 `PoseInputRecord` 已拆除，构造顺序见 git 历史。
+位姿输入与批次形状见 [Adapter API §4][adapter-api-pose]。
 
 其中：
 
 - 点与向量是不同类型，不能用一个裸三元组同时表达二者。
-- `CanonicalFrameId` 拥有 1–128 字节稳定 ASCII token，模式为 `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`；每个 registry 只拥有一个 frame ID，点/向量不逐项复制身份字符串。
+- `CanonicalFrameId` 拥有 1–128 字节稳定 ASCII token，模式为 `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`。点/向量不逐项复制 frame 身份；一批只使用一个 canonical frame，混用整批失败，见 [Adapter API §4][adapter-api-pose]。
 - 点、向量和单位方向的字段私有，只能通过受检构造器和返回 `Result` 的命名运算进入有效状态；公共表面不实现可绕过有限性/范围不变量的裸 `Add`、`Sub`、`Mul` 或 `Div`。
 - 公共字段不暴露 `euclid`、`glam`、`nalgebra`、Bevy 或其他第三方类型。
 - 所有构造器在进入正本状态前拒绝非有限值，并把带符号零规范化为正零；点每轴还必须位于 `±16_384 m`，返回点的运算重新校验范围。
 - 向量不套用点范围；两个合法端点的差可以达到 `±32_768 m`。
 - `CanonicalUnitVector3F32` 只能从有限非零向量通过缩放归一化产生；近垂直道路的 projected-up 阈值仍由折线/basis 切片拥有，不是通用向量 epsilon。
-- `SpatialRegistry` 是 opaque immutable aggregate，按 `LaneGraph::edges()` 顺序保存 dense edge handles，并使用私有 `HashMap<EdgeHandle, u32>` lookup；HashMap 只用于查找，不作为确定性迭代来源。
-- `SpatialEdgeInput<'a>` 借用 `EdgeHandle + &[CanonicalPoint3F32]`；#134 的 `LoadedSpatialEdge` 可直接映射，不引入 Data 反向依赖或第二次点转换。
-- `SpatialRegistry::try_new(&LaneGraph, CanonicalFrameId, inputs)` 按 frame/capacity、输入 unknown/duplicate、逐折线 geometry、LaneGraph missing、graph/next-edge join 的稳定顺序原子构造；任一失败都不返回部分 registry，也不修改 Core。
 - `CanonicalPoseF32` 的字段私有，getter 只返回已经通过 canonical 点、单位切向量与单位上方向不变量的值。
-
-其中 #136 固化的批量边界为：
-
-```text
-PoseInputRecord {
-  vehicle
-  source: Lane { edge, progress } | Parking { space }
-}
-
-CanonicalPoseBatchF32 {
-  frame_id
-  placement_token
-  records: Vec<CanonicalPoseRecordF32>
-}
-
-CanonicalPoseRecordF32 { vehicle, pose }
-```
-
-frame 与 placement token 只在 batch header 保存一次，不逐点或逐车辆复制。`CanonicalPoseBatchScratch` 保留未提交 records；只有全部输入成功后才与 committed batch 交换。不同坐标框架或不同宿主放置不能在没有检查的情况下混用。原始 `f64` 载荷只允许在 #134 的转换前诊断或 Core Parking geometry 输入中暂存，不形成第二份 runtime 几何正本。
+- frame 与 placement token 只在批次头保存一次，不逐点或逐车辆复制。失败原子性见 [Adapter API §6][adapter-api-batch]。不同坐标框架或不同宿主放置不能在没有检查的情况下混用。编制 `f64` 不形成第二份 runtime 几何正本。
 
 ## 5. 折线与预计算
 
@@ -324,32 +255,11 @@ geometry_s = ratio * geometry_arc_length
 
 ## 9. 批量位姿提取
 
-面向适配器的输入是已提交 Traffic Runtime 快照中的稳定序列：
-
-```text
-PoseInputRecord {
-  vehicle
-  source: Lane { edge, progress } | Parking { space }
-}
-```
-
-输出保持相同顺序，并由批次聚合携带 frame ID 与 placement token：
-
-```text
-CanonicalPoseBatchF32 {
-  frame_id
-  placement_token
-  records: Vec<CanonicalPoseRecordF32>
-}
-
-CanonicalPoseRecordF32 { vehicle, pose }
-```
+现行输入是 `PoseInput`，输出是 `CanonicalPoseBatch`。形状、首错与「先写入 scratch、全部成功后才提交 output」见 [Adapter API §4][adapter-api-pose] 与 [§6][adapter-api-batch]。`PoseInputRecord` / `SpatialRegistry::extract_pose_batch` 是已拆除入口，调用顺序见 git 历史。
 
 - 批量 API 不遍历引擎实体组件系统（ECS），也不持有宿主演员或实体。
-- Spatial 注册表按已解析的边句柄或索引查询，不在每辆车的高频路径中解析外部字符串 ID。
-- output frame 与 registry frame 不匹配时在读取 records 前失败。record 失败按输入顺序返回 first-error，携带输入序号、vehicle handle 和结构化 source。
-- `SpatialRegistry::extract_pose_batch` 先把全部记录计算到调用方拥有的 `CanonicalPoseBatchScratch`；任何失败都清空 scratch 并保持旧 output 的 frame/token/records 不变，全部成功后才 swap 并更新 token。
-- 调用方可以为 output/scratch 预留容量并跨 tick 复用；#137 已验证稳定容量下的零分配和一万/十万性能。逐轮固定机结果见 git 历史。
+- 采样按已解析的边序号或停车位序号查询，不在每辆车的高频路径中解析外部字符串 ID。
+- 调用方可跨 tick 复用输出；#137 已验证稳定容量下的零分配和一万/十万性能。逐轮固定机结果见 git 历史，那些毫秒数不是当前产品认证。
 - Adapter 在提交宿主 Transform 前比较 batch token 与当前 placement token；同一 frame 的 placement 切换必须颁发新 token。
 - 表现插值、细节层次和相机相对原点切换不能回写 Runtime/Spatial 的正本状态。
 
@@ -365,7 +275,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
         + left * sin(heading_offset_radians)
 ```
 
-`Parking { space }` 由 #136 使用 immutable `ParkingRegistry` 的 entry anchor 与 geometry 实现。Traffic Runtime `f64` lateral/heading 只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定正本仍在 Traffic Runtime；适配器只消费最终位姿。
+`PoseSource::Parking` 使用共享路网修订上的停车位几何解析入口锚点。Traffic Runtime 的横向与朝向只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定正本仍在 Traffic Runtime；适配器只消费最终位姿。
 
 ## 11. 第三方 Rust 包边界
 
@@ -398,7 +308,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 - 坐标框架或宿主放置不匹配、溢出、非有限值和批量失败原子性；
 - 一万和十万记录的批量吞吐量、内存分配与保留内存；
 - 相对同一条 `f64` 参考折线的位置误差 `<= 1 cm`、切线角误差 `<= 0.5°`；
-- 固定性能机上的一万 p95 `<= 2 ms`、十万 p95 `<= 20 ms`、稳态零分配和 `<= 12x` 扩展；
+- #137 固定性能机上的一万 p95 `<= 2 ms`、十万 p95 `<= 20 ms`、稳态零分配和 `<= 12x` 扩展；这些是当时的 Spatial 提取门槛，不是当前产品认证，协议见 [性能基线][performance-baseline]；
 - 相同布局下相对 `f64` 候选 retained memory 至少降低 `25%`，吞吐回退不超过 `5%`；
 - Bevy 宿主的坐标轴、手性和 `f32 Transform` 集成（v0.7）。
 
@@ -454,3 +364,7 @@ SpatialPackage 0.1。
 
 [protected-turning]: signalized-corridor-protected-turning.md
 [waiting-zone]: waiting-zone-conflict-right-of-way.md
+[data-format]: data-format.md
+[adapter-api-pose]: adapter-api.md#4-位姿输入与输出
+[adapter-api-batch]: adapter-api.md#6-批量处理与错误语义
+[performance-baseline]: core-runtime-performance-baseline.md
