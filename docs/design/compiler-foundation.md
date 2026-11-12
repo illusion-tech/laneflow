@@ -1053,55 +1053,8 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 > 本节是 #297 交付、#301 删除的迁移桥的历史记录。`laneflow-compiler-test-support`、
 > `InitialTrafficData`、当前态 Core/Spatial 构造器与 `projection_equivalence` 测试已随
 > #301 拆除 Core/JSON 运行时入口一并删除，不是现行组件或验收输入。现行编译器正确性由
-> 编译器原生有类型模块、后发射检查与共享静态路网构建承担。
+> 编译器原生有类型模块、后发射检查与共享静态路网构建承担。投影步骤与当时验收清单见本节的 git 历史。
 
-`laneflow-compiler-test-support` 只接受 `&ValidatedCanonicalLir`，并产生：
-
-- 当前态 `InitialTrafficData`；
-- 当前态 `SpatialRegistry` 所需输入与绑定；
-- 用于等价断言的稳定映射报告。
-
-投影固定遵守：
-
-- LIR 已完成的稳定标识、所有者、拓扑、长度、出现记录和顺序语义不在投影中重算；
-- 当前态构造器仍可执行自己的防御校验，但其结果不是编译器语义验证的实现；
-- 当前态句柄 / 登记表序号只存在于投影结果，不回写 LIR；
-- 投影对象的 current external ID 使用对应 `StableId` 的规范文本，避免不同来源模块的
-  owner-local key 在当前全局 ID 空间碰撞；稳定映射报告负责关联 LIR ordinal、
-  `StableId` 与 current external ID，当前没有独立 ID 的 `SectionLane` 明确记为无映射；
-- 当前 `SpatialRegistry` 只能完整绑定一个 `CanonicalFrame`；无几何 LIR 投影为无
-  `SpatialRegistry`，多 frame LIR 在本迁移桥显式失败，不把该限制回写为编译器契约；
-- 不读取当前态 `Traffic v0.10` `JSON` 形成目标态语义；
-- 投影不成为 `laneflow-compiler` 功能特性（feature），不被生产编译发射器复用；
-- #301 拆除 current Core/JSON 运行时入口时删除。
-
-调整后的投影验证矩阵覆盖：
-
-| 证据层     | 比较内容                                                                 |
-| ---------- | ------------------------------------------------------------------------ |
-| 静态语义   | 实体、稳定关系、有序关系、长度、信号、停车、准入和等待区出现记录         |
-| 当前态构造 | 当前 Core/Spatial 构造器全部成功，投影关系可从公开查询面逐项核对         |
-| 确定性     | 重复编译语义指纹和 LIR ordinal / StableId / current external ID 映射一致 |
-| 空间层     | 规范坐标框架、车道图边绑定以及采样位置与切向                             |
-
-旧 `LF-COMP-CURRENT-EQUIV-v1` 曾覆盖的车辆逐步行为、事件和 current JSON
-对照只保留为 #292 历史证据，不再是调整后 #297 的活动验收要求。运行时行为由对应
-Traffic Runtime 任务验证；编译器资源基线必须使用编译器原生 workload 另行建立。
-
-### 9.1 历史投影证据
-
-`projection_equivalence` 集成测试直接构造一个覆盖两条可区分所有权链、共七条边、两套
-横断面与路口关系、四道机动门、两个等待区、两套固定时制信号、两组停车所有权、
-参与者分类、准入、两套车辆配置、两条路线和规范几何的编译器有类型模块，然后验证：
-
-- Canonical LIR 的全部代表性实体数量、完整映射报告和路线出现记录；
-- 车道拓扑、横断面所有者、路口/机动路径、停止线/门/等待区、信号相位、停车、参与者
-  继承、准入裁决、车辆配置与路线序列逐项投影语义；
-- 七条边的代表性几何位置、切向和局部基采样；
-- 重复编译语义指纹和投影映射确定性，并对两次投影执行同一套有类型语义断言。
-
-测试不依赖 `laneflow-data` 或 `serde_json`，也不从 current JSON 生成编译器输入。旧
-loader 的正确性由其自身测试负责。
 ## 10. 容器、依赖与性能选择
 
 ### 10.1 已冻结选择

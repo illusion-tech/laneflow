@@ -1,9 +1,9 @@
 # 多模式横断面与准入分层
 
-**文档状态**: Accepted（横断面所有者与准入分层仍有效；#262 的 Traffic JSON 交付与当时实现说明为 #301 前的历史，现行静态数据入口见 `data-format.md`）<br>
+**文档状态**: Accepted（横断面所有者与准入分层仍有效；#262 的 Traffic JSON 交付与当时实现说明为 #301 前的历史。现行静态数据由编译器发射 LFCA，经受检共享路网修订安装，见 `network-compiler.md` 与 `shared-static-network.md`。`data-format.md` 只说明 JSON 已退役）<br>
 **最后更新**: 2026-11-08<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
-**实现状态**: 历史（#301 前）：静态模型曾由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则当时由 capability guard 结构化拒绝。现行静态数据由编译器发射 LFCA、经受检共享路网修订安装 `TrafficWorld`，其横断面与准入能力以 `network-compiler.md` 与 `data-format.md` 为准
+**实现状态**: 历史（#301 前）：静态模型曾由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则当时由 capability guard 结构化拒绝。现行静态数据由编译器发射 LFCA、经受检共享路网修订安装 `TrafficWorld`。横断面与准入的所有者关系以本章为准，线格式以 `network-compiler.md` 与 `portable-canonical-artifact.md` 为准。`data-format.md` 不是现行入口
 
 **关联文档**:
 
@@ -48,8 +48,8 @@
 ### 1.2 #301 前的 production（历史）
 
 > 下表记录 #301 拆除 Traffic JSON 与 Core 装载入口前的生产状态，只作历史导航。
-> 现行静态数据入口是编译器发射 LFCA、由受检共享路网修订安装 `TrafficWorld`
-> （`data-format.md`）；本章的所有者关系与准入分层条款继续有效。
+> 现行静态数据入口是编译器发射 LFCA、由受检共享路网修订安装 `TrafficWorld`。
+> `data-format.md` 只说明 JSON 已退役。本章的所有者关系与准入分层条款继续有效。
 
 | 范围           | Current production                                                                      |
 | -------------- | --------------------------------------------------------------------------------------- |
@@ -565,8 +565,7 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 
 ### 9.1 概念 JSON
 
-以下概念 JSON 只展示新增片段形状，非可加载 package；字段命名以 production
-schema 为准，语义不得偏离：
+以下概念 JSON 只展示已拆除的 Traffic JSON 片段形状，不是可加载 package，也不是现行静态入口。现行入口是编译器发射的 LFCA。字段语义不得偏离本章前面的所有者关系：
 
 ```json
 {
@@ -620,6 +619,8 @@ schema 为准，语义不得偏离：
 
 ### 9.2 版本政策
 
+下列版本政策描述 #301 前的 Traffic JSON loader，不是现行 LFCA 入口。
+
 - production 实现按 ADR 0008 原子 clean-break：Traffic `0.8 -> 0.9`，loader 只接受
   exact current，不留 dual schema/alias/migration shim。
 - `vehicleProfiles[].participantClassId` 为必填新字段，属破坏性变更，随同一
@@ -631,8 +632,8 @@ schema 为准，语义不得偏离：
 
 ## 10. Validation 与 first-error
 
-新校验 phase 按数据依赖分两段插入 canonical loader 顺序（`data-loading.md`：
-profiles → lane graph → Junction → Signals → Parking → Routes）：
+下列 phase 是 #301 前 JSON loader 的首错顺序（`data-loading.md` 只说明该 loader 已拆除：
+profiles → lane graph → Junction → Signals → Parking → Routes），不是现行编译器入口：
 
 - **profile 域段**（下表 phase 1–2）：随 `normalize_profiles` 一并完成，在
   lane graph 之前——ParticipantClass 与 profile 的 class 引用不依赖任何
