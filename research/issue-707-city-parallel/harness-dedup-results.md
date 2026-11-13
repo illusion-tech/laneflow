@@ -142,10 +142,10 @@ paged-memory 高水位约 524.5–525.2MiB。没有明显的新增大缓存成�
   9.29% 降幅。[`harness-dedup-summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/harness-dedup-summary.json)
   完整保留原 JSON 数据，并按仓库规则将 CRLF 规范化为 LF；manifest 另保留原文件
   长度与 SHA-256。
-- [`harness-dedup-public-step.csv`](evidence/harness-dedup-public-step.csv) 保存
+- [`harness-dedup-public-step.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/harness-dedup-public-step.csv) 保存
   reference/fused/fused/reference 四臂各 448 个暖机后整数纳秒样本，共 1,792 行；
   同时保留 Core、observation、iteration、advance、writer 和 public command。
-- [`retained-foundation-source-patch.tar.zst`](evidence/retained-foundation-source-patch.tar.zst)
+- [`retained-foundation-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/retained-foundation-source-patch.tar.zst)
   中基准→H1 与 B1→H1 两条路径都回放为 451 文件的历史 H1 构建源清单
   `538d72b23b04d0869cb3bcef8992be4d92b0a65dc60a106d229cfa04827c0c90`。历史记录中的
   `tools/laneflow-urban-harness/Cargo.toml` 是 CRLF；较早 M2 封套为增量谱系保存了同

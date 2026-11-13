@@ -1,9 +1,11 @@
 # Spatial 缓冲所有权交换 A/B 测量
 
-> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。研究结论、结果表与既有证据保留在原位；历史构建与运行命令只在归档制品内有效。
-
+> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。
+>
 > **旧工具退役**：本目录的原始证据和分析／拒绝测试脚本已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **过程 CSV 已退役（#1364）**：`results.csv` 已按 #1364 从当前源码树退役（保留 [summary-table.md](summary-table.md) 与本结论），链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原字节恢复。
 
 
 关联 [#711](https://github.com/illusion-tech/laneflow/issues/711)。本目录是独立
@@ -78,7 +80,7 @@ B 侧在测量源码提交后取证，只允许 evidence 输出未跟踪。
 
 当时数值由归档内 `analyze.ps1` 从完整原始 evidence 自动汇总（含样本唯一性、逐轮 oracle 完整
 性、分配样本、A/B 程序来源一致性校验；当时的拒绝测试见归档内 `test-analyze.ps1`，8/8
-通过）。完整表见 [results.csv](results.csv) 与自动生成的
+通过）。完整表见 [results.csv](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-711-spatial-buffer-swap/results.csv) 与自动生成的
 [summary-table.md](summary-table.md)；三轮中位数与全部原始样本在
 [归档内原始样本](../archives/2026-10-01-json-migration.md)。环境：AMD Ryzen 9 9955HX、Windows 29661、单 logical
 processor 固定、**rustc/cargo 1.98.1（environment.json 取证记录；CI 门禁另用

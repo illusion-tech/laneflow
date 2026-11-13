@@ -57,14 +57,14 @@ Git 补丁和 M3→M8 两文件增量。测量时加 `LF707_COAST=on`，并保�
   它绑定四次运行各 15 个文件的完整输出树身份、同一精确二进制与计划身份、每臂
   `LF707_COAST` 有效模式、完整 `prefix-result`、交通文件哈希、未舍入统计和最终计数。
   逐拍紧凑报告见
-  [`frontier-replay-public-step.csv`](evidence/frontier-replay-public-step.csv)，包含
+  [`frontier-replay-public-step.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/frontier-replay-public-step.csv)，包含
   4 × 192 个 Core、frontier、冲突准备、observation 与 iteration 样本。
-- [`frontier-replay-source-patch.tar.zst`](evidence/frontier-replay-source-patch.tar.zst)
+- [`frontier-replay-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/frontier-replay-source-patch.tar.zst)
   包含两个只涉及 Rust/Cargo 构建源码的二进制 Git 补丁：从基准提交到 M8 的
   49 文件累计补丁，以及从已提交精确 M3 源码到 M8 的 2 文件增量。两条路径均已在
   新目录回放，并与 451 个原 M8 构建源文件逐字节一致。
 - 基准提交是 `4de40e045398e4b010b2aa36522afc02a4094c4d`；M3 父源码可由已提交的
-  [`motion-input-source-patch.tar.zst`](evidence/motion-input-source-patch.tar.zst)
+  [`motion-input-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/motion-input-source-patch.tar.zst)
   重建。
 - Rust 1.98.0，release，locked，offline，`CARGO_INCREMENTAL=0`，
   feature `entry-frontier,barrier-reach,short-profile`。

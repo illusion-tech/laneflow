@@ -1,3 +1,0 @@
-Total Wpr rundown count : 1
- StartTime EndTime, FileName
-     81285- Max time,Wpr_Initiated_Rundown

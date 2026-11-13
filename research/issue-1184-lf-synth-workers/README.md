@@ -1,9 +1,11 @@
 # LF-SYNTH-v2 标称矩阵的跨 worker 确定性
 
+> **过程数据已退役（#1364）**：本目录的过程摘要 JSON（`results.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺未入库原包或历史原字节的外部恢复。
+
 2026-10-31，完成 [#1184](https://github.com/illusion-tech/laneflow/issues/1184) 的
 F1 子切片：**120 个完整窗口、112 对语义比较全部通过，零运行或比较错误。**
 八个标称身份各使用 1/2/4/8/16 worker、三个全新进程；本矩阵没有失败补跑、跳过
-或替换轮次。便于审阅的八行结果见 [results.json](results.json)。
+或替换轮次。便于审阅的八行结果见 [results.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1184-lf-synth-workers/results.json)。
 
 共完成 3,232,860 次步进，保存 780 个状态检查点记录和 198,000 条命令收据。
 独立复核遍历 3,232,980 条拍记录，核对 3,316,500 次过门，重算 480 个文件摘要；

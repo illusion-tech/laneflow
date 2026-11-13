@@ -2,6 +2,8 @@
 
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **脚本与原始日志已退役（#1364）**：`analyze.py` 与 `evidence/` 下的原始文本输出已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
 
 本报告交付 [#583](https://github.com/illusion-tech/laneflow/issues/583) 的有限研究切片。
 生产基线为 `298da8a80a5c2edf6a1bbe521f59db77d1d8b76e`，已包含正式 Conflict/Policy、
@@ -45,7 +47,7 @@ python research/issue-583-runtime-profile/analyze.py
 ```
 
 当时实际直接运行 `--no-run` 生成的四个 exe，过滤参数与上述当时命令相同。
-[`evidence/`](evidence/) 保存完整测试输出；[`analyze.py`](analyze.py) 只读取这些固定记录，
+[`evidence/`](https://github.com/illusion-tech/laneflow/tree/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-583-runtime-profile/evidence) 保存完整测试输出；[`analyze.py`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-583-runtime-profile/analyze.py) 只读取这些固定记录，
 校验数量、各轮次/入口的最终摘要和日志字节、owner 总账、阶段调用次数及耗时包含关系，
 输出 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-583-runtime-profile/summary.json)。脚本不运行基准、不引入依赖或 CI 耗时阈值。
 
@@ -58,7 +60,7 @@ python research/issue-583-runtime-profile/analyze.py
 `research/issue-537-target-path-baseline/README.md` §6。
 
 本次实际直接运行 `--no-run` 生成的四个 exe，过滤参数与上述命令相同。
-[`evidence/`](evidence/) 保存完整测试输出；[`analyze.py`](analyze.py) 只读取这些固定记录，
+[`evidence/`](https://github.com/illusion-tech/laneflow/tree/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-583-runtime-profile/evidence) 保存完整测试输出；[`analyze.py`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-583-runtime-profile/analyze.py) 只读取这些固定记录，
 校验数量、各轮次/入口的最终摘要和日志字节、owner 总账、阶段调用次数及耗时包含关系，
 输出 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-583-runtime-profile/summary.json)。脚本不运行基准、不引入依赖或 CI 耗时阈值。
 

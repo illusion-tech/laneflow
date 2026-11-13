@@ -1,3 +1,6 @@
+# #1364 过程数据退役注记：下文 [files] 登记的 `.log` / `.stderr` 原始日志已从当前源码树退役，
+# 历史原件仅保留于主线冻结提交 f71123b5ec38cc7021710c7742a4acb79b4acf90 及更早 Git 历史；
+# 本次不另制外部归档，不承诺外部原字节恢复。
 schema = 1
 source_commit = "5c93c0413ec6b591ec8d4972358cc70e4872bf39"
 source_tree = "f138c880a197e5303ca4404598e8e9e151832cc7"

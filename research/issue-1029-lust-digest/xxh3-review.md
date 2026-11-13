@@ -1,5 +1,7 @@
 # LuST 确定性派生与 XXH3 复核
 
+> **过程数据已退役（#1364）**：本目录的过程样本文件（`xxh3-samples.csv`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`（`f71123b5ec38cc7021710c7742a4acb79b4acf90`）；本次不另制外部归档，不承诺外部原字节恢复。
+
 关联 [#1029](https://github.com/illusion-tech/laneflow/issues/1029)；测量日期：2026-10-25。
 这是固定输入的非生产实验，以下结论与实现状态保留测量时口径。
 后续 [#1051](https://github.com/illusion-tech/laneflow/issues/1051) 已接受确定性派生角色；
@@ -38,7 +40,7 @@ XXH3 是值得进入 G1 的候选，不能由 SHA/BLAKE3 两项比较排除。�
 - Cargo.lock Git blob：`d2c679c7d854a53d9c1308e77f00694ee5ae9c4e`。
 - 三轮使用同一二进制，SHA-256：
   `473765ed2416ee2af4bb6fd667290e3faa01b4513c5d269e130756f5bdbd1f33`。
-- [462 个原始批次样本](xxh3-samples.csv)：3 个独立进程 × 14 项 × 11 样本。
+- [462 个原始批次样本](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1029-lust-digest/xxh3-samples.csv)：3 个独立进程 × 14 项 × 11 样本。
 - `sha2 0.11.1`、`blake3 1.8.7`、`twox-hash 2.1.3`。XXH3 只在 converter 的
   dev-dependencies 中启用 `std` / `xxhash3_64`，关闭默认 features；复用原 lockfile
   已有版本，不升级既有 `ruzstd` 依赖。两项测试依赖纳入根 cargo-deny 约束。

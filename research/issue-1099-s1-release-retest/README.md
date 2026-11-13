@@ -2,6 +2,10 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
+>
+> 2026-11-13 政策 #1364：本目录其余非 `.md`/`.toml` 过程数据（`environment.json`、
+> `protocol.json`）亦已按 #1364 从当前源码树退役，链接改为锚定主线冻结提交 `f71123b5`；
+> 本次不另制外部归档，不承诺外部原包原字节恢复。
 
 任务：[#1099](https://github.com/illusion-tech/laneflow/issues/1099)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。本报告重测
@@ -41,12 +45,12 @@ D 相对 C 为 -2.10%，范围 -3.86%～-1.44%；D 相对 B 为 -1.59%，范围
 ## 模式、电源与实际负载
 
 - 主机为 AMD Ryzen 9 9955HX、32 个逻辑处理器；Windows 11 Pro Insider
-  Build 29695。完整版本见 [environment.json](environment.json)。
+  Build 29695。完整版本见 [environment.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1099-s1-release-retest/environment.json)。
 - 用户确认已设置狂暴模式；初始检查及全部 36 个块的前后只读检查均得到 OEM
   `MainOption.json` 的 `OperatingMode = 2`，交流供电均在线。
 - Windows 电源计划全程为 `381b4222-f694-41f0-9685-ff5bb260df2e`（平衡）。
   它与厂商模式分别记录；没有将 Windows“平衡”解释为厂商未进入狂暴模式。
-- OEM 配置路径在 [protocol.json](protocol.json) 中记录。该证据为用户确认加配置
+- OEM 配置路径在 [protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1099-s1-release-retest/protocol.json) 中记录。该证据为用户确认加配置
   交叉核对，未独立读取固件实际状态，也没有采集温度、功耗或时钟频率。
 - 正式块背景 CPU 占整机能力的中位数为 **5.653%**，范围 **4.919%–9.326%**。
   320 个进程运行区间的背景 CPU 最大值为 **16.138%**；这是区间平均值的最大值，

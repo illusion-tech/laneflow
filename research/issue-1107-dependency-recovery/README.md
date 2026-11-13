@@ -2,8 +2,11 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
-> > #1249 栈层 C：old-searches/grid-searches/inventory/inputs 四件活测试消费数据原样迁移为 crate fixture（tests/fixtures/，字节不变）；results.json 及迁移四件原件经冻结提交 dc90156f 查阅。
+> `#1249` 栈层 C：`old-searches`/`grid-searches`/`inventory`/`inputs` 四件活测试消费
+> 数据已迁移为 crate fixture（`tests/fixtures/`，字节不变）；`results.json` 及迁移四件
+> 原件经冻结提交 `dc90156f` 查阅。2026-11-13 按 #1364 将本目录遗留的非 `.md`/`.toml`
+> 文件（`environment.json`、`experiment-protocol.json`）一并退役出当前源码树，链接锚定
+> 至主线冻结提交 `f71123b5`（不另制外部归档，不承诺外部原包原字节恢复）。
 
 **结论：研究完成，生产 S1 的 G1 仍未接受。** 本轮冻结 15 个完整依赖分量、18 条
 失败边后，补搜原候选族恢复了一条此前遗漏的无信号路径；新参数网格族零完整候选。
@@ -113,7 +116,7 @@
 ## 实际成本与资源边界
 
 机器为 Ryzen 9 9955HX（16 核 / 32 逻辑处理器）、Windows 11 build 29695、Rust 1.99.1，
-详见 [environment.json](environment.json)。四次独立原生进程在同一冻结输入与可执行
+详见 [environment.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1107-dependency-recovery/environment.json)。四次独立原生进程在同一冻结输入与可执行
 文件上顺序运行，搜索次序为旧→新、新→旧、新→旧、旧→新。
 
 | 运行 | 原族搜索 18 边（秒） | 网格族搜索 18 边（秒） | 完整研究进程（秒） |

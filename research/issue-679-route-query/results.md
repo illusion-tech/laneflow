@@ -1,5 +1,7 @@
 # #679 长路线查询成本结果
 
+> **过程数据已退役（#1364）**：本目录 `evidence/` 下的原始过程日志（`wall.log`、`diagnostic.log` 等 `.log`/`.stderr`）已按 #1364 从当前源码树退役，保留 [manifest](evidence/manifest.toml) 索引与本结论；日志链接已锚定至主线冻结提交 `f71123b5`，不另制外部归档，不承诺外部原字节恢复。
+
 2026-09-28。**不采用新的限制门结果缓存；保留跨阶段定位优化方向，优先减少无跨边
 区间的重复搜索。** 本 PR 交付研究入口与证据，不接入稠密索引原型，不关闭 #707。
 
@@ -30,7 +32,7 @@
 全部 18 组的末状态位置/速度和均为 `1332736691`，车辆数、Active 状态与首边
 游标均通过断言。这是有限窗口的状态核验，不是完整世界等价证明。source/artifact
 身份、输入摘要、逐拍样本与二进制摘要见 [manifest](evidence/manifest.toml) 和
-[wall.log](evidence/wall.log)。
+[wall.log](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-679-route-query/evidence/wall.log)。
 
 采样前 10 秒整机 CPU 为约 9%–18%，已知 compiler/research 竞争进程的前置检查
 和 500 ms 周期检查为空。一般桌面负载未隔离，也未连续采集 CPU 利用率；不把这组
@@ -59,7 +61,7 @@
 | `transitions:265`、`transitions:369`、`transitions:372`        |            3 | GateCrossed 与 ManeuverExited 的 old/next 区间                            |
 | `tick:5127`、`tick:5259`                                       |            2 | 本夹具为空的降速表；不得计作长出现项表成本                                |
 
-完整 site 清单与独立小夹具计数见 [diagnostic.log](evidence/diagnostic.log)。Waiting
+完整 site 清单与独立小夹具计数见 [diagnostic.log](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-679-route-query/evidence/diagnostic.log)。Waiting
 夹具保持 membership，Conflict 夹具保持 reservation 和 NoGrant/retry；诊断结束
 核验 resource authority。它们补充近门/持有路径，不是长 Conflict 出现项扩容矩阵。
 本组墙钟增长与更长定位表一致，但没有以受控整步 A/B 隔离其贡献，不能把全部差值

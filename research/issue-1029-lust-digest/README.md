@@ -1,5 +1,7 @@
 # LuST 短前像摘要成本复核：SHA / BLAKE3 阶段记录
 
+> **过程数据已退役（#1364）**：本目录的过程样本文件（`samples.csv`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`（`f71123b5ec38cc7021710c7742a4acb79b4acf90`）；本次不另制外部归档，不承诺外部原字节恢复。
+
 关联 [#1029](https://github.com/illusion-tech/laneflow/issues/1029)；测量日期：2026-10-25。
 
 后续 [XXH3 与确定性派生复核](xxh3-review.md)补充第三种算法、威胁模型和规则修订
@@ -22,7 +24,7 @@ crate。这样可复用实际解析、候选谓词、记录类型和来源验证
 
 - [第一阶段 Rust 实验源码](https://github.com/illusion-tech/laneflow/blob/779f845920ad7abe2c16758a356604101fa4f6e4/tools/laneflow-lust-converter/src/convert/population/digest_benchmark.rs)。
 - [生产选取函数](../../tools/laneflow-lust-converter/src/convert/population.rs)。
-- [全部 330 个批次样本](samples.csv)：三次独立进程，每进程每项 11 个样本、共 10 项。
+- [全部 330 个批次样本](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1029-lust-digest/samples.csv)：三次独立进程，每进程每项 11 个样本、共 10 项。
 - 源码 Git blob：`96d2173f92a31499e9fd9a06383a5597a6622ae3`。
 - Cargo.lock Git blob：`5d402a430095951ce81a51b1b2adb7881fbf6cbb`。
 - 三轮使用同一测试二进制；SHA-256：

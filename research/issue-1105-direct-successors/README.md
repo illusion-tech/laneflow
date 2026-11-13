@@ -2,8 +2,10 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
-> > results.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+> `results.json` 活测试消费数据已迁移为 crate fixture（`tests/fixtures/`，字节不变），
+> 原件经冻结提交 `28581553` 查阅；2026-11-13 按 #1364 将本目录遗留的非 `.md`/`.toml`
+> 文件（`protocol.json`）一并退役出当前源码树，链接锚定至主线冻结提交 `f71123b5`
+>（不另制外部归档，不承诺外部原包原字节恢复）。
 
 本轮修复 LuST 转换器漏发普通段间后继的问题。`sumo:-20604` 与 `sumo:-22774`
 的完整信号闭包分别包含 4 条、6 条关联路径，均通过生产编译、LFCA 发射及后发射检查。
@@ -62,7 +64,7 @@ entry → exit 后继，按发射边键排序并去重。含内边的转换继�
 ## 完整不变性与确定性证据
 
 修复前源提交为 `4d377ff3`，修复后源提交为 `4ebd388b`；完整 SHA、可执行文件摘要及
-运行状态见 [protocol.json](protocol.json)。固定输入为 LuST
+运行状态见 [protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1105-direct-successors/protocol.json)。固定输入为 LuST
 `c4bd5bd3751d426d42a9a1749c815e47ea188549`，输入文件经过现有验证器校验。
 
 每次运行先捕获真实生产发射结果，再保存下列完整内容。修复后的两次独立进程均用

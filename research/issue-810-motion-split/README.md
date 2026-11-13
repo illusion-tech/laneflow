@@ -1,5 +1,7 @@
 # 公共运动原语拆分对照
 
+> **过程数据已退役（#1364）**：`laneflow-motion-split-research` 源码（原位于 `issue-762-post-p3-hotspots`）与 `evidence/summary.json` 已按 #1364 从当前源码树退役，保留 [archive.toml](evidence/archive.toml) 外部 Release 下载索引与本 `.md` 结论；摘要链接已锚定主线冻结提交 `f71123b5`（不另制新归档，原外部归档仍见既有 Release，不承诺未发布外部原包的恢复）。
+
 对应 #810；只隔离 #808 公共 prepare/finish 拆分的整拍成本。正式 Runtime、公开 API、格式、Adapter 与资源合同不变。
 
 已完成结果见 [results.md](results.md)。本轮方向筛选未通过，不能量化归因，
@@ -48,7 +50,7 @@ cargo test -p laneflow-post-p3-research patches_frozen -- --ignored
 仓库保留源码、采集前方案、结果报告、小型统计摘要与验封索引。完整源码清单、
 构建环境、逐进程结果和原始日志放在仓库外归档，不随每个研究切片重复入库。
 归档下载地址、长度和 SHA-256 见 [archive.toml](evidence/archive.toml)；全部六个
-窗口的统计摘要见 [summary.json](evidence/summary.json)。摘要不替代原始证据，
+窗口的统计摘要见 [summary.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-810-motion-split/evidence/summary.json)。摘要不替代原始证据，
 也不能作为采集器 `verify` 的输入。
 
 完整原始证据与发布凭据已保存为 [Research Evidence Release](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-810-motion-split-354bd602)。原始归档字节与封存一致；发布凭据 ZIP 同时保留完整 JSON 原件及本次迁移前的报告与索引。下载后核对 `archive.toml` 的摘要，再把原始归档解压到全新目录，使用以下入口复核：

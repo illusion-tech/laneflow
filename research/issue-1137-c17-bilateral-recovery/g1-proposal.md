@@ -1,8 +1,8 @@
 # C17 双边恢复新变量族探索后的生产决策材料
 
-> > k2-old-family-frozen.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+> `k2-old-family-frozen.json` 及 `short-span-certificate.json` 的活测试消费数据已迁移至 crate fixture（`tools/laneflow-lust-converter/tests/fixtures/`）；本目录过程 JSON 已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`（不另制外部归档，不承诺外部原包原字节恢复）。
 
-**状态：Proposed；未接受生产 G1。** 继承 [#1133/#1136 决策边界](../issue-1136-c12-curve-design/g1-proposal.md)与 #1137 冻结方案（[design.md](design.md) v3、[短首段证书](short-span-certificate.json)）；ADR 0022 / 0028 / 0033 现行权威不变。
+**状态：Proposed；未接受生产 G1。** 继承 [#1133/#1136 决策边界](../issue-1136-c12-curve-design/g1-proposal.md)与 #1137 冻结方案（[design.md](design.md) v3、[短首段证书](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1137-c17-bilateral-recovery/short-span-certificate.json)）；ADR 0022 / 0028 / 0033 现行权威不变。
 
 ## 本轮事实
 

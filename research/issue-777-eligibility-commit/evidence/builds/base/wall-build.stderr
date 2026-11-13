@@ -1,4 +1,0 @@
-   Compiling laneflow-runtime v0.0.0 (<worktree>\crates\laneflow-runtime)
-   Compiling laneflow-scenario v0.0.0 (<worktree>\crates\laneflow-scenario)
-   Compiling laneflow-corridor-generator v0.0.0 (<worktree>\tools\laneflow-corridor-generator)
-    Finished `release` profile [optimized] target(s) in 28.14s

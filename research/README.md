@@ -24,8 +24,9 @@ manifest、逐字节一致性声明或 SHA-256 登记等归档物，任务明确
 `issue-1142-route-design/sample/minimal-closed-loop.json` 仍作为 Accepted 合同输入
 随源码保留；活测试消费的冻结数据统一放在所属 crate 的 `tests/fixtures/`。
 原 `issue-679-route-query/evidence/` 的历史日志完整性校验与 `include_str!` 读取
-已从 Runtime（`route_query_evidence`）及 `laneflow-post-p3-research` 活测试解耦
-（#1364），对应历史校验代码保留在冻结提交 `f71123b5` 之前的 Git 历史中。
+已从 Runtime（`route_query_evidence`）及 `laneflow-post-p3-research` 活测试解耦，
+其目录原始日志连同 `.gitattributes` 特殊规则亦已随 #1364 从当前源码树退役；对应
+历史校验代码及原始过程日志保留在冻结提交 `f71123b5` 之前的 Git 历史中。
 
 研究 crate 的 workspace 归属（workspace 成员或独立 `[workspace]`）由立项 Issue 决定，
 并在各目录 `README.md` 声明理由；两种形态都必须 `publish = false`、声明非生产身份，
@@ -68,12 +69,22 @@ SHA-256。
 简短结论、冻结身份、下载地址和摘要，不安排例行复核；相关回归或结论争议由调查者
 按需恢复归档。生产回归 fixture 和其他仍使用的研究源码保留。
 
-- **#1364 已关闭研究 Rust 代码退役（关联 #1249）**：随着 #762 及关联性能研究切片全部关闭，
-  `issue-762-post-p3-hotspots`（`laneflow-post-p3-research`）已退出根 workspace，
-  其 Cargo manifest 与全部 `.rs` 源码连同 `issue-707-city-parallel/bounded-profile`
-  的 `timers.rs`、`instrumentation.patch` 及 `issue-757-current-scope` 下的隔离 `.rs`
-  源码一并从当前源码树退役。退役前完整代码最后保留于主线提交 `f71123b5` 及更早 Git 历史，
-  按维护者边界不再另制外部归档包，也不承诺外部原包原字节的外部恢复。
+- **#1364 已关闭研究代码与存量过程数据全量退役（关联 #1249、#1295）**：
+  - 随着 #762 及关联性能研究切片全部关闭，`issue-762-post-p3-hotspots`
+    （`laneflow-post-p3-research`）已退出根 workspace，其 Cargo manifest 与全部
+    `.rs` 源码连同 `issue-707-city-parallel/bounded-profile` 的 `timers.rs`、
+    `instrumentation.patch` 及 `issue-757-current-scope` 下的隔离 `.rs` 源码一并
+    从当前源码树退役。
+  - 按维护者裁定的存量过程数据退役边界，除本 `archives/` 目录、Accepted 合同输入
+    `issue-1142-route-design/sample/minimal-closed-loop.json`、唯一数值权威或开放归因
+    目录（`issue-537-target-path-baseline/`、`issue-963-integrity-evidence/`、
+    `issue-1166-lf-synth-measurement/`）以及各目录的 `.md`/`.toml` 结论与索引文件外，
+    其余所有非 `.md`/`.toml` 文件（已关闭切片脚本 `.py`/`.ps1`/`.mjs`/`.wpaProfile`/
+    `.wprp`/`.patch`、历史汇总 CSV/JSON、#1367 解耦退仓后的遗留 JSON、原 `#679` /
+    `#682` / `#707` / `#777` / `#779` 等过程日志与辅助配置）均已从当前源码树退役。
+  - 所有失效相对链接已更新锚定至主线冻结提交 `f71123b5`
+    （`f71123b5ec38cc7021710c7742a4acb79b4acf90`）或既有历史归档提交；本次退役不另制
+    外部归档 bundle，且不保证外部原包或历史原字节的外部恢复。
 
 [documentation-policy-research]: ../docs/governance/documentation-policy.md#研究结论与过程数据边界
 [dependency-security]: ../docs/governance/dependency-security.md

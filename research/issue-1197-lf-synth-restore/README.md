@@ -1,10 +1,12 @@
 # LF-SYNTH-v2 标称矩阵的快照恢复与继续运行
 
+> **过程数据已退役（#1364）**：本目录的过程摘要 JSON（`results.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺未入库原包或历史原字节的外部恢复。
+
 2026-10-31，完成 [#1197](https://github.com/illusion-tech/laneflow/issues/1197) 的
 F3 核验：**八个完整正常参考、十六个检查点、240 次新进程恢复全部通过，零错误。**
 覆盖一万/16 ms、十万/33 ms 的 W1–W4；保存端固定单 worker，每个检查点以
 1/2/4/8/16 worker 各恢复三次，继续到原定终点。没有失败补跑、跳过或替换轮次。
-八行结果与精确计数见 [results.json](results.json)。
+八行结果与精确计数见 [results.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1197-lf-synth-restore/results.json)。
 
 正式矩阵耗时 6696.7288346 秒，约 1 小时 51 分 37 秒。八个参考完成 215,524 次
 成功世界步进，恢复后缀完成 3,232,830 次，合计 3,448,354 次。独立文件复核验证

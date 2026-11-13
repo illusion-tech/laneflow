@@ -174,11 +174,11 @@ Conflict room=0。`findings.json` 对这些关联逐项断言，`dependencies.js
   原 provenance 的全部 376 个结果身份，以及从未舍入逐拍样本复算的 5.44% Core
   降幅。[`boundary-summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/boundary-summary.json) 完整保留原 JSON 数据，
   并按仓库规则将 CRLF 规范化为 LF；manifest 另保留原文件长度与 SHA-256。
-- [`boundary-public-step.csv`](evidence/boundary-public-step.csv) 保存 off/on/on/off
+- [`boundary-public-step.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/boundary-public-step.csv) 保存 off/on/on/off
   四臂各 448 个暖机后整数纳秒样本，共 1,792 行，可独立重算 mean、p95、p99 和
   两臂均值差。长窗不作为正式性能声明，因此不复制 8,192 拍计时正文；manifest
   保留两臂所有文件身份、进程包络、交通汇总与长等待记录。
-- [`retained-foundation-source-patch.tar.zst`](evidence/retained-foundation-source-patch.tar.zst)
+- [`retained-foundation-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/retained-foundation-source-patch.tar.zst)
   使用 zstd，包含基准→B1、基准→H1、B1→H1 三份仅涉及 Rust/Cargo 构建源码的
   二进制 Git 补丁。B1 的 449 文件构建源清单为
   `d7c3cb5580c4716305c9d56ffd7e12657098d1e881dba3ba09fed1d909a3607a`；三条路径均在

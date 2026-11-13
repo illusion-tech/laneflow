@@ -1,5 +1,7 @@
 # LF-SYNTH-v2 正式输入生成验证
 
+> **过程数据已退役（#1364）**：本目录的过程摘要 JSON（`matrix-summary.json`、`external-digests.json`、`partial-977b7ebe.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺本机原包或历史原字节的外部恢复。
+
 ## 验证边界
 
 2026-10-29，在 Windows x86-64、Rust 1.99.1 上验证输入生成切片。
@@ -14,10 +16,10 @@ W1–W4 执行窗口、停车 barrier、表现层或五轴结果。
 
 机器可读记录：
 
-- [完整矩阵](matrix-summary.json)：全部身份、计数、三个摘要、精确长度和验证结果，
+- [完整矩阵](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1156-lf-synth-generator/matrix-summary.json)：全部身份、计数、三个摘要、精确长度和验证结果，
   `complete=true`。
-- [外部工具摘要复核](external-digests.json)：48 个文件的通用 SHA-256 核对结果。
-- [首轮部分记录](partial-977b7ebe.json)：`977b7ebe` 的 8/16 行，`complete=false`；
+- [外部工具摘要复核](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1156-lf-synth-generator/external-digests.json)：48 个文件的通用 SHA-256 核对结果。
+- [首轮部分记录](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1156-lf-synth-generator/partial-977b7ebe.json)：`977b7ebe` 的 8/16 行，`complete=false`；
   该轮未通过，不是正式交付结果。
 
 原始双份输入与运行日志保留在本机 `E:\projects\laneflow-evidence` 下的

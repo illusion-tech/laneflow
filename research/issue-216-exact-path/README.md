@@ -2,6 +2,8 @@
 
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **脚本与原始日志已退役（#1364）**：本目录的分析/采集脚本（`.py`/`.ps1`/`.wpaProfile`）及 `evidence*` 下的 TXT/folded 过程数据已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
 
 本报告交付 [#216](https://github.com/illusion-tech/laneflow/issues/216) 当前重启范围，
 不是历史 CoreWorld 候选的恢复，也不是城市级性能认证。
@@ -117,7 +119,7 @@ occupancy、预收集输入，再分别批量执行路线 / 配置定位、前�
 成本项；不能仅因为 occupancy rebuild 约 6% 就把 #216 全部成本当成 6%。
 这里预热了输入与查询缓存、改变了真实循环的交错顺序，且路线距离组没有活动停车预约或
 信号 stop，因此不把表中数字换算成整步占比，也不泛化到资源密集城市输入。
-原始批次总量见 [`query-replay.txt`](evidence-query-replay/query-replay.txt)。
+原始批次总量见 [`query-replay.txt`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/evidence-query-replay/query-replay.txt)。
 
 ## 4. 配对整步、尾部与内存
 
@@ -133,7 +135,7 @@ occupancy、预收集输入，再分别批量执行路线 / 配置定位、前�
 
 10k / 16 边的逐轮 p95 变化范围为约 -30.4%～+96.6%，说明尾部样本不足以证明稳定收益。
 64 拍的 nearest-rank p99 就是当轮最大值。完整各轮数据、p99、max、五分区账本及
-分配字段见 [`pairs.txt`](evidence/pairs.txt) 和 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/summary.json)。
+分配字段见 [`pairs.txt`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/evidence/pairs.txt) 和 [`summary.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-216-exact-path/summary.json)。
 
 内存沿用 `WorldMemoryLedger` 的逻辑 backing 口径：capacity × 元素大小；
 共享根单列，不计容器固定字段、分配器 / HashMap 桶开销，不是进程 RSS 或峰值。
@@ -182,7 +184,7 @@ cargo +1.98.0 run --release --locked -p xtask -- check-runtime-architecture
 Markdown 表格检查及两份测量源码清单核对均通过。全 workspace / CodeQL 由 PR CI 验证，
 不把本地 package 测试冒充这些门禁。
 
-[`analyze.py`](analyze.py) 只读取固定原始记录，验证数量、采样次数、精确工作量、
+[`analyze.py`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/analyze.py) 只读取固定原始记录，验证数量、采样次数、精确工作量、
 各入口摘要、配对顺序、分配与内存账本，再输出汇总。批量查询回放也核对工作量与摘要，
 不与不同口径的计时相加。它不运行基准，也不设置 CI 延迟门禁。
 

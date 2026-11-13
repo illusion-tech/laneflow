@@ -1,5 +1,7 @@
 # 公共运动原语拆分的整拍对照结果
 
+> **过程数据已退役（#1364）**：本目录 `evidence/summary.json` 已按 #1364 从当前源码树退役，保留 [archive.toml](evidence/archive.toml) 外部 Release 下载索引与本结论；文中摘要链接已改为锚定主线冻结提交 `f71123b5`（不另制新归档，不承诺未发布原包的外部恢复）。
+
 #810 的单次 24 进程矩阵、交通与逐拍状态复核已完成。十万筛选窗原路径均值为 23.493799 ms，仅公共拆分为 23.893998 ms，差值 +1.703%；三组均回退，所有臂最大组内同臂跨度为 3.177992%。采集前筛选判据输出 `inconclusive`，`continue_candidate=false`。一万平均进程 p95 差值为 -1.966%。
 
 本轮没有通过可重复方向筛选，不能把公共拆分定为上一轮回退的主要来源，也没有证明它无成本。不同矩阵的绝对时间或百分比不能直接相减；拆分与批处理的交互仍未隔离。
@@ -62,7 +64,7 @@
 
 原始归档已复制到仓库外 `<evidence-root>/issue-810/354bd602/issue-810-motion-split.tar.zst`：116944188 字节，SHA-256 `971f63851ceb19850cb5318d8b940dcaf05d294890eeb53c4c0dabccf4e0579c`，6671 个载荷加一份 seal。副本长度与摘要复核一致，原归档未改写。全新目录解压后全部路径/长度/SHA-256 与文件数量验证通过；解压后的采集器重验证和全部 24 轮结果重派生通过。原始及负向损坏副本均保留。
 
-入库只保留 [summary.json](evidence/summary.json) 的六窗口统计和 [archive.toml](evidence/archive.toml) 的下载索引。来源、完整环境、负向验证及验封凭据随公开资产保存；原始归档内部的 `results.json` 与 `810-validation-summary.json` 是完整版本。摘要的六窗口数值与封存原件逐项一致，`summary.json` 不能作为采集器 `verify` 的输入。
+入库只保留 [summary.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-810-motion-split/evidence/summary.json) 的六窗口统计和 [archive.toml](evidence/archive.toml) 的下载索引。来源、完整环境、负向验证及验封凭据随公开资产保存；原始归档内部的 `results.json` 与 `810-validation-summary.json` 是完整版本。摘要的六窗口数值与封存原件逐项一致，`summary.json` 不能作为采集器 `verify` 的输入。
 
 原始归档与发布凭据现可从 [Research Evidence Release](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-810-motion-split-354bd602) 下载。两份下载文件的长度、SHA-256 和发布资产摘要一致；全新解压的 6671 个载荷逐文件验封、采集器及全部 24 轮重派生再次通过，没有重新测量。发布凭据 ZIP 保留此前完整 JSON 和迁移前当前报告。复现 prepare/run 使用上述冻结提交；报告提交和合并提交不替代它。入口见 [README.md](README.md)。历史 #805/#808 的源码、归档和结果没有修改。
 
