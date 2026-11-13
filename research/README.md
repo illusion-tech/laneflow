@@ -20,9 +20,12 @@ manifest、逐字节一致性声明或 SHA-256 登记等归档物，任务明确
 仍可恢复，则按承诺范围验证下载和恢复。Git 历史只保存实际提交过的材料，不代表
 外部原包也有备份；不再保留完整证据时应说明恢复边界。
 
-生产契约、规范输入和现有测试 fixture（固定测试环境）按实际用途保留。比如
-`issue-679-route-query/evidence/` 是当前 Runtime 完整性测试与研究编译使用的 fixture，
-仍随源码交付。
+生产契约、规范输入和现有测试 fixture（固定测试环境）按实际用途保留，例如
+`issue-1142-route-design/sample/minimal-closed-loop.json` 仍作为 Accepted 合同输入
+随源码保留；活测试消费的冻结数据统一放在所属 crate 的 `tests/fixtures/`。
+原 `issue-679-route-query/evidence/` 的历史日志完整性校验与 `include_str!` 读取
+已从 Runtime（`route_query_evidence`）及 `laneflow-post-p3-research` 活测试解耦
+（#1364），对应历史校验代码保留在冻结提交 `f71123b5` 之前的 Git 历史中。
 
 研究 crate 的 workspace 归属（workspace 成员或独立 `[workspace]`）由立项 Issue 决定，
 并在各目录 `README.md` 声明理由；两种形态都必须 `publish = false`、声明非生产身份，

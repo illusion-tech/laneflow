@@ -1,5 +1,12 @@
 # #679 长路线查询成本
 
+> 2026-11-13 政策 #1364：已从 `crates/laneflow-runtime` 的活测试（`route_query_evidence`）
+> 解除对本目录 `evidence/` 的运行时校验依赖，并从 `research/issue-762-post-p3-hotspots`
+> 解除对 `evidence/wall.log` 的编译期嵌入；历史校验逻辑及原始过程日志索引仍可在冻结提交
+> `f71123b5` 之前的 Git 历史中查阅（`evidence/` 目录过程日志待 #1364 阶段 4 与 `.gitattributes`
+> 同步处置）。当前 `route_query_evidence` 测试目标仍保留 `route_query_fixture_axes`
+> 活测试与 `route_query_wall` 手动测量入口。
+
 研究基线：`72102fabb2cda5ebadde52dc1260c8402762efda`。本切片使用 Rust 测试入口，
 不增加运行时 API、缓存或策略权威。[测量结果与决定](results.md)已完成。
 
