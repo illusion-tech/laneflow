@@ -78,24 +78,46 @@ pub(crate) fn wall(text: &str) -> Result<Samples, String> {
 #[cfg(test)]
 mod tests {
     use super::wall;
-    const VALID: &str = include_str!("../../issue-679-route-query/evidence/wall.log");
+
+    fn valid_matrix() -> String {
+        let mut out = String::new();
+        for round in 0..3_u32 {
+            for red in [false, true] {
+                for repeats in [8_usize, 128, 2_048] {
+                    for tick in 0..128_usize {
+                        out.push_str(&format!(
+                            "route-tick round={round} red={red} repeats={repeats} tick={tick} ns={}\n",
+                            100_000 + tick
+                        ));
+                    }
+                    out.push_str(&format!(
+                        "route-end round={round} red={red} repeats={repeats} vehicles=512 warm=16 steps=128 build_ns=1000 state_sum=1332736691 input=sha-{red}\n"
+                    ));
+                }
+            }
+        }
+        out.push_str("test result: ok. 1 passed; 0 failed;\n");
+        out
+    }
 
     #[test]
-    fn historical_wall_matrix_is_complete() {
-        let samples = wall(VALID).unwrap();
+    fn synthetic_wall_matrix_is_complete() {
+        let valid = valid_matrix();
+        let samples = wall(&valid).unwrap();
         assert_eq!(samples.len(), 18);
         assert!(samples.values().all(|values| values.len() == 128));
     }
 
     #[test]
     fn rejects_missing_duplicate_and_bad_samples() {
-        let row = VALID
+        let valid = valid_matrix();
+        let row = valid
             .lines()
             .find(|line| line.starts_with("route-tick "))
             .unwrap();
-        assert!(wall(&VALID.replacen(row, "", 1)).is_err());
-        assert!(wall(&VALID.replacen(row, &format!("{row}\n{row}"), 1)).is_err());
-        assert!(wall(&VALID.replacen("repeats=8", "repeats=9", 1)).is_err());
-        assert!(wall(&VALID.replace("state_sum=1332736691", "state_sum=0")).is_err());
+        assert!(wall(&valid.replacen(row, "", 1)).is_err());
+        assert!(wall(&valid.replacen(row, &format!("{row}\n{row}"), 1)).is_err());
+        assert!(wall(&valid.replacen("repeats=8", "repeats=9", 1)).is_err());
+        assert!(wall(&valid.replace("state_sum=1332736691", "state_sum=0")).is_err());
     }
 }
