@@ -109,15 +109,11 @@ jobs:
               - 'tools/**/licenses/**'
               - 'examples/**'
               # research 精确到 Rust 文件与 Cargo 清单/锁文件：研究结论文档不参与
-              # workspace 构建，research 数据禁止编译期嵌入（#1293）。json 与
-              # issue-1134 plan.md 为临时守卫：converter 存量 16 处 include_str!
-              # 编译期嵌入且被活测试消费（违反 AGENTS.md 禁令），迁移完成前
-              # 收窄会产生漏测；迁移承接 #1295，完成后删除以下两条。
+              # workspace 构建，research 数据禁止编译期嵌入且活测试运行时读取已清零
+              # （#1293、#1295、#1364）。
               - 'research/**/*.rs'
               - 'research/**/Cargo.toml'
               - 'research/**/Cargo.lock'
-              - 'research/**/*.json'
-              - 'research/issue-1134-cohort2-coverage-diagnosis/plan.md'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
