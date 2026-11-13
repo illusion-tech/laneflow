@@ -1,6 +1,6 @@
-//! 冻结研究数据的运行时读取（仅测试）。数据文件已按 #1249 退仓出源码树；
-//! `#[ignore]` 手动重放实验经 `PINNED_RESEARCH_ROOT` 指向含数据提交
-//! （如 `564f9ac8`）checkout 的 `research/` 目录读取。
+//! 冻结研究数据的运行时读取（仅测试）。数据文件已按 #1249 / #1364 退仓出源码树；
+//! `#[ignore]` 手动重放实验经 `PINNED_RESEARCH_ROOT` 指向各目录 `README.md` 登记
+//! 的含数据冻结提交（如 `564f9ac8`、`f71123b5`）checkout 的 `research/` 目录读取。
 
 /// 读取退仓的冻结研究数据文本。
 ///
@@ -9,7 +9,7 @@
 pub(crate) fn text(relative: &str) -> String {
     let root = std::env::var("PINNED_RESEARCH_ROOT").unwrap_or_else(|_| {
         panic!(
-            "PINNED_RESEARCH_ROOT 未设置：冻结研究数据已退仓（#1249），             须指向含数据提交（如 564f9ac8）checkout 的 research/ 目录"
+            "PINNED_RESEARCH_ROOT 未设置：冻结研究数据已退仓（#1249/#1364），须指向含数据冻结提交（如 564f9ac8 或 f71123b5，见对应研究 README）checkout 的 research/ 目录"
         )
     });
     std::fs::read_to_string(std::path::Path::new(&root).join(relative))

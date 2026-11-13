@@ -68,6 +68,13 @@ SHA-256。
 简短结论、冻结身份、下载地址和摘要，不安排例行复核；相关回归或结论争议由调查者
 按需恢复归档。生产回归 fixture 和其他仍使用的研究源码保留。
 
+- **#1364 已关闭研究 Rust 代码退役（关联 #1249）**：随着 #762 及关联性能研究切片全部关闭，
+  `issue-762-post-p3-hotspots`（`laneflow-post-p3-research`）已退出根 workspace，
+  其 Cargo manifest 与全部 `.rs` 源码连同 `issue-707-city-parallel/bounded-profile`
+  的 `timers.rs`、`instrumentation.patch` 及 `issue-757-current-scope` 下的隔离 `.rs`
+  源码一并从当前源码树退役。退役前完整代码最后保留于主线提交 `f71123b5` 及更早 Git 历史，
+  按维护者边界不再另制外部归档包，也不承诺外部原包原字节的外部恢复。
+
 [documentation-policy-research]: ../docs/governance/documentation-policy.md#研究结论与过程数据边界
 [dependency-security]: ../docs/governance/dependency-security.md
 [2026-10-01-json-migration]: archives/2026-10-01-json-migration.md
