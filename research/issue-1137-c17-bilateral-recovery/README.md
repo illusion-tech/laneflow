@@ -1,14 +1,14 @@
 # C17 双边恢复：新变量族执行与两程序齐备验收（B 路）
 
-> > k2-old-family-frozen.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+> `k2-old-family-frozen.json` 活测试消费数据已迁移为 crate fixture（`tests/fixtures/`，字节不变），原件经冻结提交 `28581553` 查阅；本目录遗留的 `edges.json` 与 `short-span-certificate.json`（活测试副本位于 `tools/laneflow-lust-converter/tests/fixtures/issue-1137-short-span-certificate.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`（不另制外部归档，不承诺外部原包原字节恢复）。
 
 **结论：有限新族探索完成，C17 两程序不齐备——如实记不齐备（零恢复为有效结论）。** 新族（S1 内部结点切向扰动 + S2 pair-L/pair-R 逐组独立柄因子）对两条失败边**零候选**：`sumo::-10564_3_0` 5 配置、`sumo::-10564_6_0` 542 配置全部访问、**无预算停止**；负对照（`-10564_6_0` S1-keep 25 + S2-pair-R 256 共 281 配置）**零合法程序**、最早拒绝阶段如实记录，与短首段硬障碍证书（保守下界 2.7804511 mm）一致。C17 保持 `missing_real_programs`，联合赋值 0 次（未进入），完整路径 `target_check_not_completed`。基线重新验证与 E0 重锚（92 池行代际）逐值一致（**28/84** 无回退）。**这是测试研究的有限探索记录，不是生产转换接入或生产 G1 接受**；本族未通过不作无解证明。
 
-本研究对应 #1137（六路协调任务书 v2 的 B 路，设计前置闸口全程执行）。方案经维护者三轮审阅冻结于 `432fc097`（[design.md](design.md) v3 + [short-span-certificate.json](short-span-certificate.json) + 复核/参数化负验证测试），实现冻结于 `3849d1ec`（含 E 驱动 `0bbcfa7a`、实测证据修复 `57eeb02f`、K1–K4 校准 `9d0477dc`）。生产采样、compiler、阈值、原成功几何、拓扑与控制锚点均未修改；工作预算零提高。生产 S1 的 G1 保持 Proposed（[决策材料](g1-proposal.md)）。
+本研究对应 #1137（六路协调任务书 v2 的 B 路，设计前置闸口全程执行）。方案经维护者三轮审阅冻结于 `432fc097`（[design.md](design.md) v3 + [short-span-certificate.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1137-c17-bilateral-recovery/short-span-certificate.json) + 复核/参数化负验证测试），实现冻结于 `3849d1ec`（含 E 驱动 `0bbcfa7a`、实测证据修复 `57eeb02f`、K1–K4 校准 `9d0477dc`）。生产采样、compiler、阈值、原成功几何、拓扑与控制锚点均未修改；工作预算零提高。生产 S1 的 G1 保持 Proposed（[决策材料](g1-proposal.md)）。
 
 ## 冻结与样本
 
-C17 单条完整路径 `sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0`，两程序齐备才可验收（[edges.json](edges.json)）：
+C17 单条完整路径 `sumo:-10564:--32172#4_0-to--31194_0::-10564_3_0.:-10564_6_0`，两程序齐备才可验收（[edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1137-c17-bilateral-recovery/edges.json)）：
 
 | 边                 |   s | 点上限 96s+1 | 首末钳制（冻结原 f64 位）                      | 既有状态                                     |
 | ------------------ | --: | -----------: | ---------------------------------------------- | -------------------------------------------- |

@@ -50,7 +50,7 @@ Evidence 制品共同绑定：
 
 - manifest：[`retained-best-evidence-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-evidence-manifest.json)
 - 源码：基线 `4de40e045398e4b010b2aa36522afc02a4094c4d` 加
-  [`retained-best-source-patch.tar.zst`](evidence/retained-best-source-patch.tar.zst)；归档内明文补丁
+  [`retained-best-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/retained-best-source-patch.tar.zst)；归档内明文补丁
   SHA-256 为 `c15fbaf8ffbf4cf0a61c72d2644804412846e9ab0ae2d29b860b85fd1c82abc7`
 - 精确二进制：[Research Evidence prerelease](https://github.com/illusion-tech/laneflow/releases/tag/research-evidence-707-m16-best-19bf7ecb) 的
   `issue-707-m16-best-19bf7ecb5dfd.tar.zst`；发布身份和上传摘要见

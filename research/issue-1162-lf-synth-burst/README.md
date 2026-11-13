@@ -1,5 +1,7 @@
 # LF-SYNTH W3/W4 命令闭环与失败重试验证
 
+> **过程数据已退役（#1364）**：本目录的过程摘要 JSON（`normal-summary.json`、`normal-audit.json`、`retry-summary.json`、`retry-audit.json`、`environment.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺本机原包或历史原字节的外部恢复。
+
 ## 来源与边界
 
 2026-10-30，Windows x86-64、Rust 1.99.1。正式消费实现固定为
@@ -71,16 +73,16 @@ W3 重试 guardrail 在前两条观察拍结束后停止，完整 W3 窗口由�
 
 ## 证据
 
-- [正常矩阵回执](normal-summary.json)：完整输入身份、来源/实现提交、实际计数、
+- [正常矩阵回执](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1162-lf-synth-burst/normal-summary.json)：完整输入身份、来源/实现提交、实际计数、
   到达/完成观测、命令批次、检查点及双进程精确比较。
-- [正常文件独立复核](normal-audit.json)：PowerShell `Get-FileHash -Algorithm SHA256`
+- [正常文件独立复核](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1162-lf-synth-burst/normal-audit.json)：PowerShell `Get-FileHash -Algorithm SHA256`
   与 .NET `BinaryReader` 核对 16 个轨迹文件的头部、长度和全部连续 tick 编号，
   16 个命令文件的记录数、尝试序号、boundary 和 cursor 连续性；32 对文件摘要相等。
-- [失败重试回执](retry-summary.json)：逐行保存预定错误、唯一失败次数、命令批次、
+- [失败重试回执](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1162-lf-synth-burst/retry-summary.json)：逐行保存预定错误、唯一失败次数、命令批次、
   输入、游标、失败前后及重试状态，全部与正常矩阵对应边界和检查点相等。
-- [快照独立复核](retry-audit.json)：56 份 LFRS 文件的完整长度和 SHA-256；每行
+- [快照独立复核](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1162-lf-synth-burst/retry-audit.json)：56 份 LFRS 文件的完整长度和 SHA-256；每行
   post-command / failed / fresh-post-command 三者相等，retry / fresh 相等。
-- [构建环境](environment.json)：完整 rustc/cargo 版本、构建命令、两种二进制的
+- [构建环境](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1162-lf-synth-burst/environment.json)：完整 rustc/cargo 版本、构建命令、两种二进制的
   SHA-256、并发/worker 配置，无额外 RUSTFLAGS；在干净实现提交上构建并记录。
 
 SHA-256 是供外部通用工具重算的文件互操作摘要，覆盖完整文件，不替换 harness

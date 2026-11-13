@@ -2,6 +2,8 @@
 
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **过程文本已退役（#1364）**：`evidence/` 下的过程诊断文本（`.txt`）与 `.gitattributes` 已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
 
 Refs #779、#679、#707。
 
@@ -11,7 +13,7 @@ Refs #779、#679、#707。
 - [判据、验证与测量边界](results.md)
 - [长路线三组 ABBA](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-779-empty-ranges/evidence/route.json)
 - [城市第一轮](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-779-empty-ranges/evidence/city-first.json)、[针对波动的补测](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-779-empty-ranges/evidence/city-repeat.json)
-- [独立诊断与内存](evidence/diagnostic.txt)
+- [独立诊断与内存](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-779-empty-ranges/evidence/diagnostic.txt)
 
 普通 release 的 Runtime 不插桩；城市 host 只在公共 step 计时结束后输出计时值。
 长路线使用既有普通 integration test，诊断使用单独的 unit test，不能互换解释。

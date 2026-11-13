@@ -1,4 +1,7 @@
 # 历史诊断 JSON 的地址已迁为冻结提交；归档与校验入口见 ../archives/2026-10-01-json-migration.md。
+# #1364 过程数据退役注记：本目录 CSV / TXT / tar.zst / WPR 导出等非 `.md`/`.toml` 过程数据
+# 已从当前源码树退役，对应条目链接已改为锚定主线冻结提交 f71123b5ec38cc7021710c7742a4acb79b4acf90；
+# 本次不另制外部归档，不承诺外部原包原字节恢复。
 # #707 第二切片证据索引（<evidence-root>/issue-707/4de40e04/）
 # pilot 小型证据封套已绑定入本目录 evidence/（comparison/diagnostics/manifest
 # 共 14 份，另有 1 份冻结计划重放记录）；D1/D2 r1 另绑定 1 份机器记录与
@@ -23,55 +26,55 @@ input_diff = "input-diff.md"
 frozen_plan_replay = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frozen-plan-replay.json"
 formal_r1_evidence = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/formal-r1-evidence.json"
 wpr_trace_identities = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-trace-identities.json"
-retained_foundation_source_patch = "evidence/retained-foundation-source-patch.tar.zst"
+retained_foundation_source_patch = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/retained-foundation-source-patch.tar.zst"
 boundary_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/boundary-evidence-manifest.json"
 boundary_summary = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/boundary-summary.json"
-boundary_public_step = "evidence/boundary-public-step.csv"
+boundary_public_step = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/boundary-public-step.csv"
 harness_dedup_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/harness-dedup-evidence-manifest.json"
 harness_dedup_summary = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/harness-dedup-summary.json"
-harness_dedup_public_step = "evidence/harness-dedup-public-step.csv"
+harness_dedup_public_step = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/harness-dedup-public-step.csv"
 motion_barrier_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/motion-barrier-evidence-manifest.json"
-motion_barrier_source_patch = "evidence/motion-barrier-source-patch.tar.zst"
-motion_barrier_public_step = "evidence/motion-barrier-public-step.csv"
+motion_barrier_source_patch = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/motion-barrier-source-patch.tar.zst"
+motion_barrier_public_step = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/motion-barrier-public-step.csv"
 motion_input_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/motion-input-evidence-manifest.json"
-motion_input_source_patch = "evidence/motion-input-source-patch.tar.zst"
-motion_input_public_step = "evidence/motion-input-public-step.csv"
+motion_input_source_patch = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/motion-input-source-patch.tar.zst"
+motion_input_public_step = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/motion-input-public-step.csv"
 frontier_replay_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/frontier-replay-evidence-manifest.json"
-frontier_replay_source_patch = "evidence/frontier-replay-source-patch.tar.zst"
-frontier_replay_public_step = "evidence/frontier-replay-public-step.csv"
+frontier_replay_source_patch = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/frontier-replay-source-patch.tar.zst"
+frontier_replay_public_step = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/frontier-replay-public-step.csv"
 wpr_b1_reports = [
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-b1/analysis.json",
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-b1/capture.json",
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-b1/identity.json",
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-b1/provenance.json",
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/wpr-b1/verification.json",
-    "evidence/wpr-b1/trace-stats.txt",
-    "evidence/wpr-b1/frequency.txt",
-    "evidence/wpr-b1/rundown.txt",
-    "evidence/wpr-b1/hotspots-exclusive-hits.csv",
-    "evidence/wpr-b1/hotspots-exclusive-weighted.csv",
-    "evidence/wpr-b1/hotspots-inclusive.csv",
-    "evidence/wpr-b1/thread-activity.csv",
-    "evidence/wpr-b1/caller-callee.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/trace-stats.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/frequency.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/rundown.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/hotspots-exclusive-hits.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/hotspots-exclusive-weighted.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/hotspots-inclusive.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/thread-activity.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-b1/caller-callee.csv",
 ]
 wpr_l3_reports = [
-    "evidence/wpr-l3/early-harness-timeline.csv",
-    "evidence/wpr-l3/early-range-top-symbols.csv",
-    "evidence/wpr-l3/early-top-symbols.csv",
-    "evidence/wpr-l3/early-stats.txt",
-    "evidence/wpr-l3/early-frequency.txt",
-    "evidence/wpr-l3/early-rundown.txt",
-    "evidence/wpr-l3/late-harness-timeline.csv",
-    "evidence/wpr-l3/late-range-top-symbols.csv",
-    "evidence/wpr-l3/late-top-symbols.csv",
-    "evidence/wpr-l3/late-stats.txt",
-    "evidence/wpr-l3/late-frequency.txt",
-    "evidence/wpr-l3/late-rundown.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-harness-timeline.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-range-top-symbols.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-top-symbols.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-stats.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-frequency.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-rundown.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-harness-timeline.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-range-top-symbols.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-top-symbols.csv",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-stats.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-frequency.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-rundown.txt",
 ]
 calibration_aa_repeat_envelope = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-aa-repeat-envelope.json"
-calibration_aa_public_step = "evidence/calibration-aa-public-step.csv"
+calibration_aa_public_step = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/calibration-aa-public-step.csv"
 calibration_audit_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-audit-manifest.json"
-calibration_audit_source_patch = "evidence/calibration-audit-source-patch.tar.zst"
+calibration_audit_source_patch = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/calibration-audit-source-patch.tar.zst"
 calibration_audit_outputs = [
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-audit.json",
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-prefix-result.json",
@@ -79,13 +82,13 @@ calibration_audit_outputs = [
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-extended-quality.json",
 ]
 formal_r1_power_boundaries = [
-    "evidence/formal-power-10k-w1.txt",
-    "evidence/formal-power-10k-w4.txt",
-    "evidence/formal-power-100k-w1.txt",
-    "evidence/formal-power-100k-w4.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/formal-power-10k-w1.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/formal-power-10k-w4.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/formal-power-100k-w1.txt",
+    "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/formal-power-100k-w4.txt",
 ]
 retained_best_manifest = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-evidence-manifest.json"
-retained_best_source_patch = "evidence/retained-best-source-patch.tar.zst"
+retained_best_source_patch = "https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/retained-best-source-patch.tar.zst"
 retained_best_release = "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-release.json"
 retained_best_prefix_results = [
     "https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/retained-best-old1-prefix-result.json",

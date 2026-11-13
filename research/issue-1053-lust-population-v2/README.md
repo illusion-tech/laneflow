@@ -1,5 +1,7 @@
 # LuST v2 人口迁移与诊断重建
 
+> **过程数据已退役（#1364）**：`baseline.json`、`verification.json` 与 `samples.csv` 已按 #1364 从当前源码树退役（`baseline.json` 的活测试消费数据已先于 #1367 迁移至 `tools/laneflow-lust-converter/tests/fixtures/`），链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
+
 关联 [#1053](https://github.com/illusion-tech/laneflow/issues/1053)；设计依据为已接受的
 [#1051](https://github.com/illusion-tech/laneflow/issues/1051) 与
 [`real-road-workloads.md` §4.1、§7.1](../../docs/design/real-road-workloads.md)。
@@ -15,7 +17,7 @@
   7–14 字节，不提供生产算法选择或旧路径回退。
 - 三个固定来源文件共 215,526 条源记录，过滤后 10,592 个候选，选取 10,000 条。
 - 报告 `formatVersion=0.3`，`population.derivationId=LF-REAL-LUST-POPULATION-v2`。
-- [机器可读基线](baseline.json)固定完整人口表、路线失败诊断、转换报告和几何诊断
+- [机器可读基线](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1053-lust-population-v2/baseline.json)固定完整人口表、路线失败诊断、转换报告和几何诊断
   的 SHA-256；忽略测试直接消费该基线，不能只改文字而不重建证据。
 
 与旧 SHA 人口共有 9,443 条，移出/移入各 557 条；共同记录中 9,442 条 rank 改变，
@@ -71,7 +73,7 @@ road-edge 序列及两个 source ordinal。`converted/` 保留真实转换报告
 测量日期：2026-10-26（Asia/Tokyo）。使用
 [`9a0bde5974bf4e6ac6cc6b298f145d62aab20455`](https://github.com/illusion-tech/laneflow/commit/9a0bde5974bf4e6ac6cc6b298f145d62aab20455)
 的同一 release 测试二进制；后续提交只补充本文和证据数据。身份见
-[`verification.json`](verification.json)，全部 88 个批次样本见 [`samples.csv`](samples.csv)。
+[`verification.json`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1053-lust-population-v2/verification.json)，全部 88 个批次样本见 [`samples.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1053-lust-population-v2/samples.csv)。
 
 - 人口实现 Git blob：`7eeb22c0b31a10c715dfe4e1d438461c00d18c90`。
 - 迁移测试 Git blob：`f90dbc65d3ee1513e32902da33eaf6a8ac64c1c3`。

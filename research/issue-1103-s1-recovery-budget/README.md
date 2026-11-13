@@ -2,8 +2,10 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
-> > results.json（84,073 行）活测试消费部分已提取为 crate fixture（tests/fixtures/，564f9ac8 键路径 tiers/source/schema），其余引用为运行时读取；原件经冻结提交 564f9ac8 查阅。
+> 活测试消费部分已迁入 `tools/laneflow-lust-converter/tests/fixtures/`，原 `results.json`
+>（84,073 行）经冻结提交 `564f9ac8` 查阅；2026-11-13 按 #1364 将本目录遗留的非
+> `.md`/`.toml` 文件（`environment.json`、`protocol.json`）一并退役出当前源码树，
+> 链接锚定至主线冻结提交 `f71123b5`（不另制外部归档，不承诺外部原包原字节恢复）。
 
 任务：[#1103](https://github.com/illusion-tech/laneflow/issues/1103)，父议题
 [#790](https://github.com/illusion-tech/laneflow/issues/790)。本轮只增加 `cfg(test)` 研究入口
@@ -40,7 +42,7 @@
 
 release 构建使用 Rust 1.99.1、`opt_level=3`。源码冻结为
 `5388d19f58f51b8466331c3e542f10a76107e453`；二进制 SHA-256、构建 profile 和顺序见
-[protocol.json](protocol.json)。预热各档一次，正式顺序为 `ABCDDCBAABCDDCBA`，
+[protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1103-s1-recovery-budget/protocol.json)。预热各档一次，正式顺序为 `ABCDDCBAABCDDCBA`，
 每次启动新原生进程。计时覆盖搜索及候选诊断构造，排除源数据准备和旧程序重放；
 进程墙钟与 CPU 时间另存。该实验用于预算成本比较，不能外推为全转换器或交通运行时性能。
 
@@ -89,7 +91,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 最终搜索原九条失败样本和队列新增失败边的并集，共 43 条。两档覆盖预算分别为默认值
 和 262,144；原样本中非截断的三条失败对照仍保持默认值。完整路径验证源码冻结为
 `4bb1f89d0b351bb9dde68219bc0c053eb2bbb098`，完整身份见
-[protocol.json](protocol.json)。两次新进程执行，计时仅作诊断。
+[protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1103-s1-recovery-budget/protocol.json)。两次新进程执行，计时仅作诊断。
 
 | 检查层级                         | 原程序基线 | 默认预算候选 | 8 倍预算候选 |
 | -------------------------------- | ---------- | ------------ | ------------ |
@@ -161,7 +163,7 @@ JSON 的末位舍入差异而停止，正式进程数为零；修正为同一 JS
 - [inputs.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/inputs.json)、[cohort.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/cohort.json)、[results.json](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1103-s1-recovery-budget/results.json)：
   真实输入位值、冻结选择、两档完整覆盖结果；结果 SHA-256 为
   `7279aa6d355663d591f4860a2f2df7377c22cef358b7f42ded2774991e25c9ee`。
-- [environment.json](environment.json)、[protocol.json](protocol.json)、
+- [environment.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1103-s1-recovery-budget/environment.json)、[protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1103-s1-recovery-budget/protocol.json)、
   [coverage-timing.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/coverage-timing.json)、[evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1103-s1-recovery-budget/evidence-manifest.json)：
   环境、源码与构建身份、运行状态、诊断耗时和文件摘要。
 

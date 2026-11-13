@@ -1,9 +1,11 @@
 # 借用来源与 Adapter 缓冲复用 A/B 测量
 
-> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。研究结论、结果表与既有证据保留在原位；历史构建与运行命令只在归档制品内有效。
-
+> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。
+>
 > **旧工具退役**：本目录的原始证据和分析／拒绝测试脚本已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **过程 CSV 已退役（#1364）**：`results.csv` 已按 #1364 从当前源码树退役（保留 [summary-table.md](summary-table.md) 与本结论），历史原件保留于主线冻结提交 `f71123b5` 及更早 Git 历史；本次不另制外部归档，不承诺外部原字节恢复。
 
 
 关联 [#712](https://github.com/illusion-tech/laneflow/issues/712)。独立 workspace

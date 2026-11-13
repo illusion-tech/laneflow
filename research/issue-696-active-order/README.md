@@ -1,5 +1,7 @@
 # 停车命令活动顺序增量维护
 
+> **过程脚本与 CSV 已退役（#1364）**：`analyze.py`、`test_analyze.py`、`run.ps1` 与 `results.csv` 已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
+
 关联 [#696](https://github.com/illusion-tech/laneflow/issues/696)。
 生产基线为 `4194789d7077bd8fadf55f97abe14e37c46ce987`；测量入口先独立提交为
 `511fc23d1c42b71bc72978949c0f6271ba1c527a`，此时尚无生产优化。
@@ -14,7 +16,7 @@
 这不是所有负载都加速；一次冷成功有额外建表成本，小幅变化还受到A/A波动影响。
 
 下表均为批次API耗时和，单位µs；变化率为 `(B/A - 1) × 100%`，负数更快。
-完整42场景、所有冷/热/拒绝分类及逐轮结果见 [results.csv](results.csv)，其时长单位
+完整42场景、所有冷/热/拒绝分类及逐轮结果见 [results.csv](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-696-active-order/results.csv)，其时长单位
 为ns，包含p50/p95/p99/max、样本数和摘要。
 
 | 形状       | Active / Parked | API数 / 成功率 | A p50   | B p50   | A/B变化 | A/A变化 |

@@ -1,12 +1,14 @@
 # 单缺边分量设计变量方法复用（C09/C11/C20/C21/C28/C37/C41）
 
+> **过程数据已退役（#1364）**：`edges.json` 已按 #1364 从当前源码树退役（#1367 已解除活测试自洽嵌入），链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原字节恢复。
+
 **结论：七边全零恢复（有效结论），方法复用性结论为「148 族在该形态 0/7 出候选」。** 每边 148 个预定义几何配置**全部访问、无预算停止**，**0 份保留候选、0 份合格候选**——两关叠加的第二关（#1154 裁定 B 同表示资格闸）无候选可评；7 个单路径分量保持 `missing_real_programs`、组合赋值 0 次。基线重新验证与共同基线锚逐值一致（84 目标 = 28 接受 + 3 跨边方向拒绝 + 53 未完成目标检查，文本 token 域核验）。族内拒绝以**双向来源拟合拒绝（53–63%）**为主导。这是测试研究的有限探索记录，不是生产转换接入或生产 G1 接受；零恢复不写可行或不可行结论。
 
-本研究对应 #1174（六路协调第二批 A-2），方案冻结于 `e247e796`（[plan.md](plan.md) + [edges.json](edges.json)，维护者审阅通过并含复核域计费口径澄清 `dc1ff15b`），实现冻结于 `1c1065f3`。方法 = [design.md](../issue-1115-failed-curve-design/design.md) 148 配置族 + #1154 裁定 B 同表示资格闸（两关叠加，维护者裁决）+ 共享 `WorkBudget` 计费 + 文本 token 域位级比较；实现模板为 [#1136 基准形态](../issue-1136-c12-curve-design/README.md)。生产采样、compiler 配置档、阈值、原成功几何、拓扑与控制锚点均未修改。生产 S1 的 G1 保持 Proposed（[决策材料](g1-proposal.md)）。
+本研究对应 #1174（六路协调第二批 A-2），方案冻结于 `e247e796`（[plan.md](plan.md) + [edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1174-single-edge-design-reuse/edges.json)，维护者审阅通过并含复核域计费口径澄清 `dc1ff15b`），实现冻结于 `1c1065f3`。方法 = [design.md](../issue-1115-failed-curve-design/design.md) 148 配置族 + #1154 裁定 B 同表示资格闸（两关叠加，维护者裁决）+ 共享 `WorkBudget` 计费 + 文本 token 域位级比较；实现模板为 [#1136 基准形态](../issue-1136-c12-curve-design/README.md)。生产采样、compiler 配置档、阈值、原成功几何、拓扑与控制锚点均未修改。生产 S1 的 G1 保持 Proposed（[决策材料](g1-proposal.md)）。
 
 ## 冻结与证据
 
-**样本**（7 边 7 分量，单缺边单路径；样本 ID 程序化提取自 #1134 冻结记录，见 [edges.json](edges.json) 与 2026-10-30 纪律条）：
+**样本**（7 边 7 分量，单缺边单路径；样本 ID 程序化提取自 #1134 冻结记录，见 [edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1174-single-edge-design-reuse/edges.json) 与 2026-10-30 纪律条）：
 
 | 码 | 缺边 | s / 点上限 | 进入依据双记录（#1134 诊断，只作记录） |
 | --- | --- | --- | --- |

@@ -2,9 +2,12 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
-> 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
-> > searches.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 2f137bb9 查阅。
+> 手动重放：checkout 含数据的提交（如 `564f9ac8`、`f71123b5`），设 `PINNED_RESEARCH_ROOT`
+> 指向其 `research/` 目录（#1249 第一批）。`searches.json` 活测试消费数据已迁移为 crate
+> fixture（`tests/fixtures/`，字节不变），原件经冻结提交 `2f137bb9` 查阅。2026-11-13
+> 按 #1364 将本目录遗留的非 `.md`/`.toml` 文件（`environment.json`、`experiment-protocol.json`、
+> `inputs.json`、`stage-protocol.json`）一并退役出当前源码树，链接锚定至主线冻结提交
+> `f71123b5`（不另制外部归档，不承诺外部原包原字节恢复）。
 
 本轮在两条原失败边内部调整控制柄并合并分段，恢复 `sumo:-16502` 与
 `sumo:-28860` 两处完整信号闭包。全部四条 / 八条关联路径联合编译接受，LFCA
@@ -17,7 +20,7 @@
 `c4bd5bd3751d426d42a9a1749c815e47ea188549`。[执行前方案](plan.md)和
 [设计](design.md)先于实验冻结。首轮源码为 `fb6488ef649f81364d0e318152157f8f01a717a1`，
 正式源码为 `57a6a222ab57ee3b66a27802627804fd047fd7d2`；独立二进制和源码归档的
-身份见 [experiment-protocol.json](experiment-protocol.json)。
+身份见 [experiment-protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1115-failed-curve-design/experiment-protocol.json)。
 
 只允许 `sumo::-16502_0_0`、`sumo::-28860_3_0` 的内部控制柄与分段改变。
 边界端点、首末钳制、全部 16,265 条原成功程序及规范点、拓扑与完整控制信息不变。
@@ -88,7 +91,7 @@
 程序/规范点、控制信息、原失败诊断、候选、分量结果及接受制品；除计时文件外
 每轮 60 个非计时文件（88,639,257 字节）逐文件 `fc.exe /b` 比较，文件名集合也完全相同。文件清单、大小和外部互操作用
 SHA-256 见 [evidence-manifest.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/evidence-manifest.json)，计时见
-[measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/measurements.json)，机器与工具链见 [environment.json](environment.json)。
+[measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1115-failed-curve-design/measurements.json)，机器与工具链见 [environment.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1115-failed-curve-design/environment.json)。
 
 四轮整进程墙钟为 64.890、67.013、69.063、65.534 秒。两条边的搜索均值分别为
 0.040774、0.061645 秒；基线 / 新增组完整验证均值分别为 4.827080 / 5.265838 秒，

@@ -1,9 +1,11 @@
 # 已提交位姿提取研究
 
-> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。研究结论、结果表与既有证据保留在原位；历史构建与运行命令只在归档制品内有效。
-
+> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。
+>
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **过程数据已退役（#1364）**：`results.csv` 与 `evidence/` 下的过程 CSV/日志已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
 
 关联 [#681](https://github.com/illusion-tech/laneflow/issues/681)。生产基线固定为
 `0fb7024c76a99aea987afa956aadb98001199659`。本目录是独立 workspace 的研究程序，
@@ -34,9 +36,9 @@ Runtime 借用来源与全量缓冲复用（[#712](https://github.com/illusion-t
   `c19994c4cb7bb3e4ec182db5fb26300689efef2b0d64922a83822a692f6dbf83`。
 - 每档三个独立正常进程，每 case 暖机 4 次，7 个样本，每样本 32 次调用；parking
   每样本 512 次。每进程每档 175 行，共 1050 行正常墙钟；分配构建每档另跑一次，
-  共 350 行。所有原始 CSV/log 与环境记录保存在 [evidence](evidence/)。
+  共 350 行。所有原始 CSV/log 与环境记录保存在 [evidence](https://github.com/illusion-tech/laneflow/tree/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-681-pose-extraction/evidence)。
 - 先对每个样本除以调用次数，再取每进程 7 个样本的中位数，最后取三进程中位数。
-  [results.csv](results.csv) 保留三轮值；不池化样本，不把分配构建耗时用于结论。
+  [results.csv](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-681-pose-extraction/results.csv) 保留三轮值；不池化样本，不把分配构建耗时用于结论。
 - 正常 release opt-level 3、debug 1；Rust 1.98.1 / LLVM 22.1.8、MSVC target，
   Windows 29661、AMD Ryzen 9 9955HX、平衡电源方案；进程固定 logical processor 16。
   未锁频、未测温度；case 固定顺序而非 A/B 交错，因此局部差值不等于完整产品加速比。

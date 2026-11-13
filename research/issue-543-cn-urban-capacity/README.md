@@ -1,6 +1,8 @@
 # #543 LF-CN-URBAN-v1 容量调研（10k/100k exact-object 证据）
 
-> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。研究结论、结果表与既有证据保留在原位；历史构建与运行命令只在归档制品内有效。
+> **代码退役**：本目录的 Cargo manifest、lockfile、源码与构建脚本已于 2026-10-12 退役并迁入[冻结归档](../archives/2026-10-12-research-crate-retirement.md)（Refs [#897](https://github.com/illusion-tech/laneflow/issues/897)）。
+>
+> **过程数据已退役（#1364）**：`evidence/` 下的过程输出文本（`.txt`）已按 #1364 从当前源码树退役，研究结论、结果表保留在本文件；历史过程输出原件保留于主线冻结提交 `f71123b5` 及更早 Git 历史，本次不另制外部归档，不承诺外部原字节恢复。
 
 本目录保存 #543 调研 spike 的结果与证据；可执行证据生成器的源码、manifest 与构建脚本
 已随顶部横幅退役，可运行形态只存在于归档制品。该生成器退役前是独立 Rust workspace，

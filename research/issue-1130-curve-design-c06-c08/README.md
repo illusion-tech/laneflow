@@ -1,12 +1,14 @@
 # C06+C08 失败边曲线/分段设计变量研究（流 B）
 
+> **过程数据已退役（#1364）**：`edges.json` 与 `inputs.json` 已按 #1364 从当前源码树退役（`edges.json` 活测试消费部分此前已迁入 `tools/laneflow-lust-converter/tests/fixtures/`），链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
+
 **结论：研究完成，四条失败边在冻结候选族下零恢复；生产 S1 的 G1 保持 Proposed。** 本切片按[冻结计划](plan.md)（冻结提交 `fe539989`）执行流 B：对 `sumo::-10004_3_0`、`sumo::-10004_8_0`、`sumo:--30306#2_0`、`sumo::-8806_4_0` 四条失败边运行 [design.md](../issue-1115-failed-curve-design/design.md) 口径的有限几何设计变量候选，逐边严格分列：三条边**完成 148 预定义配置 × 双划分族的有限族、族内未通过**，`sumo:--30306#2_0` 为**来源拟合工作预算停止**（32,000,000 到限，访问 80/148 配置）。零恢复只表示本族未通过，不作无解证明。基线候选池按计划 §5 四来源固定顺序合并逐值成立（6 边 48 份 → 7 边 56 份 → 7 边 72 份 → 9 边 75 份）；基线重新验证与 #1115 [`results.json`](https://github.com/illusion-tech/laneflow/blob/564f9ac8/research/issue-1115-failed-curve-design/results.json) `variants.new` 逐值一致（**接受 28/84**，仅结果对照）；新增池无新增候选，基线/新增两组均 28/84、无回退。C06/C08 保持 `missing_real_programs`，未进入联合赋值。生产采样、compiler、阈值、原成功几何、拓扑与控制锚点均未修改；不提高任何预算。
 
 本研究对应 #1130（父任务 #790），基线 `main` = `779bdd22d6d596cc5a9c148abec978dc87ee7fe4`，LuST 输入 `c4bd5bd3751d426d42a9a1749c815e47ea188549`。本轮只增加 Rust `cfg(test)` 研究入口与研究记录；Traffic Runtime API、数据格式、Adapter API、依赖与许可证均无变化。
 
 ## 样本、段容量与冻结输入
 
-样本与进入依据冻结于 [edges.json](edges.json)：C06 = `sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0`（1 条完整路径），C08 = 4 条完整路径（跨 -10034 / -8806），组合须含既有候选边 `sumo::-10034_0_0`（8 份）。段容量按每边原修复参考链实际 cubic 数 s 冻结（计划 §6），6 段断言按 s 参数化，合并组段数只减不增：
+样本与进入依据冻结于 [edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1130-curve-design-c06-c08/edges.json)：C06 = `sumo:-10004:-30608#6_2-to--31916_0::-10004_3_0.:-10004_8_0`（1 条完整路径），C08 = 4 条完整路径（跨 -10034 / -8806），组合须含既有候选边 `sumo::-10034_0_0`（8 份）。段容量按每边原修复参考链实际 cubic 数 s 冻结（计划 §6），6 段断言按 s 参数化，合并组段数只减不增：
 
 | 边 | s | 临时程序点上限 96s+1 | 原 SUMO `@length`（米） |
 | --- | ---: | ---: | ---: |
@@ -15,7 +17,7 @@
 | `sumo:--30306#2_0` | 9 | 865 | 67.22 |
 | `sumo::-8806_4_0` | 5 | 481 | 5.73 |
 
-四边冻结输入为 [inputs.json](inputs.json)（纯 JSON，沿 #1103 / #1111 inputs.json 先例）：文本自 #1121 run-00 的 pinned 捕获逐块原样提取（同一 LuST 钉版、同一捕获代码），完整实验每轮逐值断言新捕获输入与失败诊断不变（`unchanged source and emission failure`）。
+四边冻结输入为 [inputs.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1130-curve-design-c06-c08/inputs.json)（纯 JSON，沿 #1103 / #1111 inputs.json 先例）：文本自 #1121 run-00 的 pinned 捕获逐块原样提取（同一 LuST 钉版、同一捕获代码），完整实验每轮逐值断言新捕获输入与失败诊断不变（`unchanged source and emission failure`）。
 
 ## 逐边设计变量候选：拒绝阶段、尝试数、成功 n
 

@@ -1,5 +1,7 @@
 # 第 0 步：阶段闭合与 WPR 能力试跑
 
+> **过程配置已退役（#1364）**：`pmu-cswitch.wprp` 已按 #1364 从当前源码树退役，保留 [归档索引](measurement-archive.toml) 与本 `.md` 结论；文中链接已锚定主线冻结提交 `f71123b5`（不另制外部归档，不承诺未发布外部原包的恢复）。
+
 本页保留能力试跑交付边界；32 条状态记录的后续解读与逐拍工具见
 [Windows 窗口验收](windows-window-results.md)。旧试跑的 PMC 已被拒绝进入性能比较。
 
@@ -14,7 +16,7 @@ Debian WSL2 当前没有 `cpu` 硬件 PMU、`perf` 或逐 CPU 频率控制接口
 `InstructionsRetired`（26），没有在用 PMC 会话。[微软 PMU 文档]说明如何在
 CSwitch 事件上记录硬件计数；采样次数不能替代计数差值。
 
-纯声明式配置见 [pmu-cswitch.wprp](pmu-cswitch.wprp)。本机 WPR 的 `profiles` 与
+纯声明式配置见 [pmu-cswitch.wprp](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-814-columnar-runtime/pmu-cswitch.wprp)。本机 WPR 的 `profiles` 与
 `profiledetails` 校验成功；计数器使用 `Strict=true`，不静默忽略配置失败。
 首次普通权限启动返回 `0x80070005`，没有开始跟踪，拒绝原件保留。
 维护者随后授权一次临时 UAC 提权，完成一组 AoS 和一组 AVX2 列式能力试跑。

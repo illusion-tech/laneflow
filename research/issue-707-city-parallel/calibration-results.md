@@ -121,7 +121,7 @@
 摘要已绑定在
 [`calibration-aa-repeat-envelope.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-aa-repeat-envelope.json)；
 可独立重算的 768 个 `public_step_ns` 样本见
-[`calibration-aa-public-step.csv`](evidence/calibration-aa-public-step.csv)。
+[`calibration-aa-public-step.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/calibration-aa-public-step.csv)。
 短测程序没有输出 `execution_id`，因此封套使用有序 `evidence_run_id` 加上述
 完整身份定义每次执行；这个替代边界已显式记录。
 
@@ -182,9 +182,9 @@ LF707_DEMAND=held
 
 M16 保留组合现可由基线提交
 `4de40e045398e4b010b2aa36522afc02a4094c4d` 与仓库内
-[`retained-best-source-patch.tar.zst`](evidence/retained-best-source-patch.tar.zst)
+[`retained-best-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/retained-best-source-patch.tar.zst)
 重建。M21 审计相对 M16 的五个 Rust 文件增量以单成员补丁提交在
-[`calibration-audit-source-patch.tar.zst`](evidence/calibration-audit-source-patch.tar.zst)，完整重建
+[`calibration-audit-source-patch.tar.zst`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/calibration-audit-source-patch.tar.zst)，完整重建
 链、规范化源码清单、逐文件前后哈希、构建产品与运行配置见
 [`calibration-audit-manifest.json`](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-707-city-parallel/evidence/calibration-audit-manifest.json)。本地 M16/M21
 目录另有 35 个未进入原 M16 补丁的实验辅助文件；其中没有 Cargo/Rust 构建输入，

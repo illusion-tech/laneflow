@@ -2,6 +2,8 @@
 
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **过程日志已退役（#1364）**：`evidence/` 下的 `.log`/`.stderr` 原始日志已按 #1364 从当前源码树退役，文中目录链接已锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原字节恢复。
 
 **优先验证 Conflict 资格表的容量维护路径。** 在 Active、live 和历史槽位长度均为
 1000 时，仅把配置容量从 10000 提高到 100000，三轮正常库整拍 mean 从约
@@ -27,7 +29,7 @@
   诊断进程，共 55 个进程记录。安装、编译、暖机和输出不计入 step 墙钟。
 
 [机器核验结果](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/results.json)、[完整数表](measurements.md)、
-[schema 2 原始日志与元数据](evidence/v2)、[原 schema 1 记录](evidence/v1) 均随 Git
+[schema 2 原始日志与元数据](https://github.com/illusion-tech/laneflow/tree/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-682-sparse-cost/evidence/v2)、[原 schema 1 记录](https://github.com/illusion-tech/laneflow/tree/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-682-sparse-cost/evidence/v1) 均随 Git
 保存。每个进程记录 UUID、输入摘要、源码/tree、manifest/lock、rustc、二进制摘要、
 日志摘要和前后负载。环境记录见 [采集前](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/environment-before.json) 与
 [采集后](https://github.com/illusion-tech/laneflow/blob/bc1bf666a54aebc50a2b7efa50fb1bc3b05ba567/research/issue-682-sparse-cost/evidence/environment-after.json)。后续核验在采集源码的后代提交上运行。

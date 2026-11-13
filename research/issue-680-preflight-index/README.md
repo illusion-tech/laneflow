@@ -1,15 +1,17 @@
 # 道路编辑预检索引
 
+> **过程脚本、补丁与 CSV 已退役（#1364）**：`analyze.py`、`test_analyze.py`、`run.ps1`、`baseline-harness.patch` 与 `results.csv` 已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
+
 关联 [#680](https://github.com/illusion-tech/laneflow/issues/680)。生产基线固定为
 `fceafad26f919780eb3fd2a47757325480e2d259`；候选生产代码与本报告同提交。
-基线只添加 [baseline-harness.patch](baseline-harness.patch) 中的测试入口，未修改生产
+基线只添加 [baseline-harness.patch](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-680-preflight-index/baseline-harness.patch) 中的测试入口，未修改生产
 算法。候选使用 `road_editing::preflight::benchmark` 的同一来源构造、规模和计时边界。
 
 ## 实测结论
 
 通用去重的两两比较已替换为排序和相邻检查。下表的时间是三轮各自三次样本中位数的
 中位数，单位 ms；scratch 是同时存续的请求容量峰值，单位 B。逐轮数据见
-[results.csv](results.csv)。比较计数单独运行，未放入计时区。
+[results.csv](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-680-preflight-index/results.csv)。比较计数单独运行，未放入计时区。
 
 | 键数量 | 原比较次数 | 候选比较次数 |  原耗时 ms | 候选耗时 ms | 候选 scratch B |
 | -----: | ---------: | -----------: | ---------: | ----------: | -------------: |

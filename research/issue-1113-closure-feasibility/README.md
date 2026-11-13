@@ -2,9 +2,12 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
-> 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
-> > guided-search.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 28581553 查阅。
+> 手动重放：checkout 含数据的提交（如 `564f9ac8`、`f71123b5`），设 `PINNED_RESEARCH_ROOT`
+> 指向其 `research/` 目录（#1249 第一批）。`guided-search.json` 活测试消费数据已迁移
+> 为 crate fixture（`tests/fixtures/`，字节不变），原件经冻结提交 `28581553` 查阅。
+> 2026-11-13 按 #1364 将本目录遗留的非 `.md`/`.toml` 文件（`endpoint-feasibility.json`、
+> `environment.json`、`experiment-protocol.json`、`seam-feasibility.json`、`seam-input.json`）
+> 一并退役出当前源码树，链接锚定至主线冻结提交 `f71123b5`（不另制外部归档，不承诺外部原包原字节恢复）。
 
 #1113 区分了两类问题，但没有新增信号闭包恢复。在原成功几何、控制锚点、固定曲线和验收阈值不变时：
 
@@ -26,7 +29,7 @@
 | 固定相邻 cubic 接缝  | `8e7331ab8ebdb3bf6858db2801bceb60c0f07328` | 接缝参数域全部排除，无未决            |
 | 完整证据与回归       | `018040fa1ce6b899d20012ee971eed1653cca83a` | 保存二分叶并重放，重验完整原基线      |
 
-前三阶段输出分别为 [endpoint-feasibility.json](endpoint-feasibility.json)、[guided-search.json](https://github.com/illusion-tech/laneflow/blob/28581553/research/issue-1113-closure-feasibility/guided-search.json)、[seam-feasibility.json](seam-feasibility.json)，保留原始结果。正式回归的 [endpoint-certificates.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/endpoint-certificates.json)、[seam-certificate.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/seam-certificate.json) 与 [guided-prefix-search.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/guided-prefix-search.json) 补充完整排除叶和已发射前缀；剥去新增观察字段后，逐值重现前三阶段的全部结果。
+前三阶段输出分别为 [endpoint-feasibility.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1113-closure-feasibility/endpoint-feasibility.json)、[guided-search.json](https://github.com/illusion-tech/laneflow/blob/28581553/research/issue-1113-closure-feasibility/guided-search.json)、[seam-feasibility.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1113-closure-feasibility/seam-feasibility.json)，保留原始结果。正式回归的 [endpoint-certificates.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/endpoint-certificates.json)、[seam-certificate.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/seam-certificate.json) 与 [guided-prefix-search.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/guided-prefix-search.json) 补充完整排除叶和已发射前缀；剥去新增观察字段后，逐值重现前三阶段的全部结果。
 
 ## `-28860`：首弦约束冲突
 
@@ -76,7 +79,7 @@
 
 ## 成本与检查
 
-四个独立 release 进程按诊断先/后/后/先顺序执行；机器、工具链及测量条件见 [environment.json](environment.json)，完整原始计时见 [measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/measurements.json)。
+四个独立 release 进程按诊断先/后/后/先顺序执行；机器、工具链及测量条件见 [environment.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1113-closure-feasibility/environment.json)，完整原始计时见 [measurements.json](https://github.com/illusion-tech/laneflow/blob/a89ffd11/research/issue-1113-closure-feasibility/measurements.json)。
 
 | 轮次 | 首弦排除（毫秒） | 末两弦见证（毫秒） | 接缝排除及复核（毫秒） | 引导整边搜索（秒） | 本轮新增研究合计（秒） | 完整进程（秒） |
 | ---- | ---------------: | -----------------: | ---------------------: | -----------------: | ---------------------: | -------------: |

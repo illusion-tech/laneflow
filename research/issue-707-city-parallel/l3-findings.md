@@ -84,8 +84,8 @@ ETL 头部 CPU Speed 字段不是窗口内实测频率。本次没有完整 Read
 分母为上述各自裁剪区间内目标进程全部 CPU 采样权重，包含所有线程和模块。
 这是函数 IP 的采样分布，受内联归属影响；不是调用树累计时间，也不是 Core p95。
 表中数值可由精确时间窗的
-[`early-range-top-symbols.csv`](evidence/wpr-l3/early-range-top-symbols.csv) 与
-[`late-range-top-symbols.csv`](evidence/wpr-l3/late-range-top-symbols.csv) 复核：
+[`early-range-top-symbols.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/early-range-top-symbols.csv) 与
+[`late-range-top-symbols.csv`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3/late-range-top-symbols.csv) 复核：
 早窗目标进程总权重为 100,054,919，晚窗为 226,351,791，表格将
 `process_percent` 四舍五入到两位小数。两份不带 `range` 的
 `early-top-symbols.csv` / `late-top-symbols.csv` 是整段 trace 摘要，分母不同，
@@ -142,7 +142,7 @@ L3 只有 w4，早晚车辆状态和命令组合不同。
 ## 5. 复核产物
 
 派生报告原件位于 `<checkout>/target/issue707-l3-analysis-20260921/`。
-仓库在 [`evidence/wpr-l3/`](evidence/wpr-l3/) 提交 12 份隐私筛选后的紧凑副本：
+仓库在 [`evidence/wpr-l3/`](https://github.com/illusion-tech/laneflow/tree/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-707-city-parallel/evidence/wpr-l3) 提交 12 份隐私筛选后的紧凑副本：
 
 - 已提交：早/晚窗 `*-stats.txt`、`*-rundown.txt`、`*-frequency.txt`、
   `*-harness-timeline.csv`、整段 trace 的 `*-top-symbols.csv`，以及复核本页热点表的

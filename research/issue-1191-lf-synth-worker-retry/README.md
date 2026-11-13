@@ -1,10 +1,12 @@
 # LF-SYNTH-v2 标称矩阵的跨 worker 失败与重试
 
+> **过程数据已退役（#1364）**：本目录的过程摘要 JSON（`results.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺未入库原包或历史原字节的外部恢复。
+
 2026-10-31，完成 [#1191](https://github.com/illusion-tech/laneflow/issues/1191) 的
 F2 核验：**四个完整正常参考、60 次失败重试运行、56 对跨运行比较全部通过，零错误。**
 四个标称 W3/W4 身份各使用 1/2/4/8/16 worker、三个全新测试进程；每次独立安装
 失败与 fresh 两个世界。没有失败补跑、跳过或替换轮次。四行结果见
-[results.json](results.json)。
+[results.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1191-lf-synth-worker-retry/results.json)。
 
 包括正常参考、完整预热和失败/fresh 两世界，共完成 1,379,572 次成功世界步进，
 并注入 60 次预期失败。独立复核重算 560 个运行文件的长度/SHA-256，核对 56 对

@@ -2,6 +2,8 @@
 
 > **证据归档**：本目录的历史诊断 JSON 已迁入[冻结归档](../archives/2026-10-01-json-migration.md)。
 > 本文的 JSON 链接指向原提交；文中相对 JSON 路径及依赖它们的历史命令按归档内 `source/` 目录解释。
+>
+> **脚本与原始栈数据已退役（#1364）**：本目录的分析/采集脚本（`.py`/`.ps1`/`.wpaProfile`）及 `evidence-cpu/*.folded` 过程数据已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原包原字节恢复。
 
 ## 1. 结论
 
@@ -153,14 +155,14 @@ cargo +1.98.0 test --release --locked --offline -p laneflow-runtime --test runti
 WPR 使用系统 `CPU` profile、`-filemode`、独占 `-instancename`，保存时
 `-skipPdbGen -compress`。仅管理员录制器提权，普通权限运行被测 EXE。
 
-[`record-cpu.ps1`](record-cpu.ps1) 只消费四个固定场景的开始/结束标记；
-[`capture-cpu-window.ps1`](capture-cpu-window.ps1) 负责普通权限工作负载及摘要；
-[`export-cpu.ps1`](export-cpu.ps1) 导出 trace 质量、镜像地址、函数及完整样本栈。
-[`cpu-samples.wpaProfile`](cpu-samples.wpaProfile) 保持无分组 raw rows，
+[`record-cpu.ps1`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/record-cpu.ps1) 只消费四个固定场景的开始/结束标记；
+[`capture-cpu-window.ps1`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/capture-cpu-window.ps1) 负责普通权限工作负载及摘要；
+[`export-cpu.ps1`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/export-cpu.ps1) 导出 trace 质量、镜像地址、函数及完整样本栈。
+[`cpu-samples.wpaProfile`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/cpu-samples.wpaProfile) 保持无分组 raw rows，
 避免只导出折叠的进程汇总行。
 
-[`analyze-cpu.py`](analyze-cpu.py) 校验丢事件、PID、raw rows、线程及栈锚点后汇总；
-[`symbolize-cpu.py`](symbolize-cpu.py) 由各 trace 的镜像装载地址恢复 RVA，
+[`analyze-cpu.py`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/analyze-cpu.py) 校验丢事件、PID、raw rows、线程及栈锚点后汇总；
+[`symbolize-cpu.py`](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-216-exact-path/symbolize-cpu.py) 由各 trace 的镜像装载地址恢复 RVA，
 校验 EXE/PDB 哈希，再展开内联及源码行。分析器拒绝覆盖既有输出目录。
 导出机制见 [Microsoft Exporter](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/exporter)。
 

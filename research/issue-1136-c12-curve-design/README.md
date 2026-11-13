@@ -1,12 +1,14 @@
 # C12 单缺边的曲线/分段设计变量有限探索
 
+> **过程数据已退役（#1364）**：`edges.json` 已按 #1364 从当前源码树退役（#1367 已解除活测试自洽嵌入），链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺外部原字节恢复。
+
 **结论：有限设计变量探索完成，C12 保持 `missing_real_programs`，本轮零恢复（有效结论）。** `sumo::-10100_1_0`（s=4，临时程序上限 385 点）的 148 个预定义几何配置**全部访问、无预算停止**（`completed_finite_geometry_family`），**0 份保留候选**；C12 单条完整路径保持缺程序、组合赋值 0 次。基线重新验证与重锚 `results-anchor.json`（92 池行代际）逐值一致（84 目标 = 28 接受 + 3 跨边方向拒绝 + 53 未完成目标检查）。首弦全参数域排除与 span 0 末弦见证均只对**原固定曲线**成立；本族无候选只表示本族未通过，**不作无解证明**。这是测试研究的有限探索记录，不是生产转换接入或生产 G1 接受。
 
-本研究对应 #1136（六路协调任务书 v2 的 A 路），方案冻结于 `4236b685`（[plan.md](plan.md) + [edges.json](edges.json)，维护者审阅四点确认），实现冻结于 `c7449993`（含 E0 门面修复 `5beb4a84`）。执行口径冻结于[计划](plan.md)，方法事实源为[design.md](../issue-1115-failed-curve-design/design.md)，实现模板为[流 A 前作](../issue-1131-curve-design-c29-c17/README.md)。生产采样、compiler 配置档、阈值、原成功几何、拓扑与控制锚点均未修改；本轮只增加 Rust `cfg(test)` 研究入口与本报告。Traffic Runtime API、数据格式、Adapter API、依赖与许可证均无变化。生产 S1 的 G1 保持 Proposed（[决策材料](g1-proposal.md)）。
+本研究对应 #1136（六路协调任务书 v2 的 A 路），方案冻结于 `4236b685`（[plan.md](plan.md) + [edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1136-c12-curve-design/edges.json)，维护者审阅四点确认），实现冻结于 `c7449993`（含 E0 门面修复 `5beb4a84`）。执行口径冻结于[计划](plan.md)，方法事实源为[design.md](../issue-1115-failed-curve-design/design.md)，实现模板为[流 A 前作](../issue-1131-curve-design-c29-c17/README.md)。生产采样、compiler 配置档、阈值、原成功几何、拓扑与控制锚点均未修改；本轮只增加 Rust `cfg(test)` 研究入口与本报告。Traffic Runtime API、数据格式、Adapter API、依赖与许可证均无变化。生产 S1 的 G1 保持 Proposed（[决策材料](g1-proposal.md)）。
 
 ## 冻结与证据
 
-C12 为**单缺边分量**：唯一缺边 `sumo::-10100_1_0`，单条完整路径 `sumo:-10100:--31480_0-to--30896_0::-10100_1_0.:-10100_4_0`。进入依据双记录（详见 [edges.json](edges.json)）：
+C12 为**单缺边分量**：唯一缺边 `sumo::-10100_1_0`，单条完整路径 `sumo:-10100:--31480_0-to--30896_0::-10100_1_0.:-10100_4_0`。进入依据双记录（详见 [edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1136-c12-curve-design/edges.json)）：
 
 - **首弦全参数域排除**（span 0，起始边界钳制）：39 盒/深度 7/20 排除叶（最短弦 2 / 起始方向 18），复核器通过——覆盖全部首弦与单弦情形，单独否定该**固定 cubic** 的完整发射（量化弦长下限与起始边界钳制方向锥的已证固定冲突，继 `sumo:--30306#2_0` 后第二例）。不禁止改控制柄/合并分段的曲线设计。
 - **span 0 末弦局部见证**（规定倒圆，无方向条件）：t=0.5、见证弦长 0.3821 m——**仅为局部问题存在性记录，不是整条边末端的可行证明**；与首弦排除正交并存。
@@ -74,7 +76,7 @@ C12 为**单缺边分量**：唯一缺边 `sumo::-10100_1_0`，单条完整路�
 - 正式实验入口（四轮 ABBA，`--exact --ignored --nocapture --test-threads=1`）：`output::emit::s1::recovery_coverage::dependency_recovery::c12_curve_design::pinned_lust_c12_curve_experiment`
 - 常规（非 ignore）单测：`…c12_curve_design::c12_cohort_and_capacities_match_the_frozen_plan`、`…c12_curve_design::c12_fillet_seam_crossing_tracks_group_boundaries`、`…c12_curve_design::curve_capacity_parameterization_keeps_the_frozen_six_default`
 - 环境变量：`LUST_SOURCE_DIR`（pinned LuST）、`DIRECT_SUCCESSOR_BASELINE_DIR`（#1105 修复后基线）、`SIX_STREAMS_BASELINE_DIR`（E0 基线包解压目录，`shared_baseline::shared_pools()`/`results_anchor_pinned()` 哈希断言）、`CURVE_DESIGN_OUTPUT_DIR`（每次必须为不存在的新目录）、`CURVE_DESIGN_ORDER`（`baseline-new` / `new-baseline`，四次按 ABBA 各设一个值）、`CURVE_DESIGN_FROZEN_RESULT`。输出目录、结果文件与测试模块命名以 `c12` 区分。
-- 构建：`cargo +1.99.1 test --locked --release -p laneflow-lust-converter --lib --no-run`（Rust 1.99.1）；正式四轮用冻结二进制直跑（本机脚本 `run-formal.ps1` / `collect-evidence.ps1`，不入库）。输入、样本与预算由冻结源码与 [edges.json](edges.json) 固定，不得换样后沿用结论。
+- 构建：`cargo +1.99.1 test --locked --release -p laneflow-lust-converter --lib --no-run`（Rust 1.99.1）；正式四轮用冻结二进制直跑（本机脚本 `run-formal.ps1` / `collect-evidence.ps1`，不入库）。输入、样本与预算由冻结源码与 [edges.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1136-c12-curve-design/edges.json) 固定，不得换样后沿用结论。
 
 ## 结论边界与差异记录
 

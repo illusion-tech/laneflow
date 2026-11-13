@@ -2,9 +2,12 @@
 
 > 2026-11-04 政策 #1244：本目录的原始过程数据（逐区间测量、搜索轨迹、全量结果集）
 > 已退役出源码树，正文中的数据文件链接改为冻结提交 `a89ffd11`；结论与本报告保留。
-> 被 `tools/laneflow-lust-converter` 测试以 `include_str!` 编译期嵌入的输入文件按测试 fixture（固定测试环境）豁免保留在本目录。
-> 手动重放：checkout 含数据的提交（如 `564f9ac8`），设 `PINNED_RESEARCH_ROOT` 指向其 `research/` 目录（#1249 第一批）。
-> > grid-searches.json 活测试消费数据已迁移为 crate fixture（tests/fixtures/，字节不变），原件经冻结提交 ee68f4a 查阅。
+> 手动重放：checkout 含数据的提交（如 `564f9ac8`、`f71123b5`），设 `PINNED_RESEARCH_ROOT`
+> 指向其 `research/` 目录（#1249 第一批）。`grid-searches.json` 活测试消费数据已迁移
+> 为 crate fixture（`tests/fixtures/`，字节不变），原件经冻结提交 `ee68f4a` 查阅。
+> 2026-11-13 按 #1364 将本目录遗留的非 `.md`/`.toml` 文件（`environment.json`、
+> `experiment-protocol.json`）一并退役出当前源码树，链接锚定至主线冻结提交 `f71123b5`
+>（不另制外部归档，不承诺外部原包原字节恢复）。
 
 #1111 在 #1107 的固定输入上查明旧网格搜索零候选的原因，并得到两条正向边各八份
 可通过真实完整路径编译的新网格候选。原 84 条目标的接受数仍为 26；两处单缺边
@@ -113,7 +116,7 @@ Proposed。后续决策见 [g1-proposal.md](g1-proposal.md)。
 
 ## 成本与确定性
 
-测量机器、工具链与范围见 [environment.json](environment.json)。四组按旧网格→校准
+测量机器、工具链与范围见 [environment.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1111-grid-calibration/environment.json)。四组按旧网格→校准
 网格、校准→旧、校准→旧、旧→校准的次序运行；旧网格使用诊断阶段冻结可执行文件。
 校准可执行文件内又按原候选族→网格、网格→原族、网格→原族、原族→网格交替。
 原候选族在四条边的完整报告与候选逐值重现 #1107。
@@ -146,7 +149,7 @@ JSON/JSONL。后三轮分别与首轮运行 Windows `fc.exe /b`，每组 86 份�
 完整本机证据目录：
 `E:/projects/laneflow/target/issue-790-806-handoff-20261026/grid-calibration-20261028`。
 按 [#1105 说明](../issue-1105-direct-successors/README.md#复现与检查) 生成修复后完整基线，
-或使用 [experiment-protocol.json](experiment-protocol.json) 保存的基线路径。
+或使用 [experiment-protocol.json](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1111-grid-calibration/experiment-protocol.json) 保存的基线路径。
 构建对应冻结提交的 Rust 1.99.1 release lib test，再直接运行生成的测试可执行文件。
 
 旧网格精确测试名：

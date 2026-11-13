@@ -1,5 +1,7 @@
 # LF-SYNTH W1/W2 全窗口语义验证
 
+> **过程数据已退役（#1364）**：本目录的过程摘要 JSON（`matrix-summary.json`、`trace-audit.json`、`environment.json`、`failed-e9dddc61.json`、`partial-65dfce5e.json`、`interruption-65dfce5e.json`）已按 #1364 从当前源码树退役，链接锚定至主线冻结提交 `f71123b5`；本次不另制外部归档，不承诺本机原包或历史原字节的外部恢复。
+
 ## 来源与边界
 
 2026-10-30，Windows x86-64、Rust 1.99.1。正式消费实现固定为
@@ -31,13 +33,13 @@ Spatial/Adapter、外层帧、性能/分配/资源、快照恢复、Routing 或�
 全部行的逐拍身份/人口、停车绑定/占用者、信号、运动/重叠和事件因果断言通过，
 初始化后调用方命令为零，Completed 与 parking arrival 均为零。
 
-- [完整矩阵回执](matrix-summary.json)：输入身份、三个文件摘要、来源/实现提交、
+- [完整矩阵回执](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1159-lf-synth-steady/matrix-summary.json)：输入身份、三个文件摘要、来源/实现提交、
   实际计数、全部检查点与每行双进程精确比较结果，`complete=true`。
-- [独立轨迹复核](trace-audit.json)：通过 PowerShell `Get-FileHash -Algorithm SHA256`
+- [独立轨迹复核](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1159-lf-synth-steady/trace-audit.json)：通过 PowerShell `Get-FileHash -Algorithm SHA256`
   和 .NET `BinaryReader` 核对 16 个文件的头部、精确长度、每个连续 tick 编号和两轮
   文件摘要一致性。此 SHA-256 是供外部通用工具重算的文件互操作摘要，覆盖含域头的
   完整文件；不替换 harness 的内部 BLAKE3 轨迹摘要。
-- [构建环境](environment.json)：完整 rustc/cargo 版本、target、构建命令、二进制
+- [构建环境](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1159-lf-synth-steady/environment.json)：完整 rustc/cargo 版本、target、构建命令、二进制
   SHA-256 和并发/worker 配置；没有额外 RUSTFLAGS。
 
 每行两个全新进程，各自独立安装初始化并推进完整窗口；最多四个消费进程并发，
@@ -68,8 +70,8 @@ Spatial/Adapter、外层帧、性能/分配/资源、快照恢复、Routing 或�
 回执仍为 `complete=false`。已完成的四行有效，但该矩阵整体未完成，不能称 8/8。
 正式实现 `4c0338f9` 从头重跑全部八行，没有拼接或跳过已中断行。
 
-仓库保留[首轮失败回执](failed-e9dddc61.json)、[串行部分矩阵](partial-65dfce5e.json)
-和[主动中断说明](interruption-65dfce5e.json)，它们均不得作为完整通过结果。
+仓库保留[首轮失败回执](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1159-lf-synth-steady/failed-e9dddc61.json)、[串行部分矩阵](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1159-lf-synth-steady/partial-65dfce5e.json)
+和[主动中断说明](https://github.com/illusion-tech/laneflow/blob/f71123b5ec38cc7021710c7742a4acb79b4acf90/research/issue-1159-lf-synth-steady/interruption-65dfce5e.json)，它们均不得作为完整通过结果。
 
 ## 复现与材料
 
