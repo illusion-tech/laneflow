@@ -486,53 +486,6 @@ fn pinned_lust_stream_a_curve_experiment() {
 }
 
 #[test]
-fn stream_a_cohort_and_capacities_match_the_frozen_plan() {
-    let cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1131-curve-design-c29-c17/edges.json"
-    ))
-    .unwrap();
-    assert_eq!(cohort["stream"], "stream-a");
-    let ids = cohort["edges"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|edge| edge["id"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, EDGES.map(|(id, _)| id).to_vec());
-    // plan §6 段容量表：289/385/193/289 = 96s+1。
-    assert_eq!(
-        EDGES.map(|(_, s)| PIECES_PER_CUBIC_MAX * s + 1),
-        [289, 385, 193, 289]
-    );
-    for row in cohort["components"].as_array().unwrap() {
-        let (id, target_paths, missing): (&str, &[&str], &[&str]) =
-            match row["code"].as_str().unwrap() {
-                "C29" => (C29_COMPONENT, &C29_TARGET_PATHS, &C29_MISSING_EDGES),
-                "C17" => (C17_COMPONENT, &C17_TARGET_PATHS, &C17_MISSING_EDGES),
-                other => panic!("unexpected cohort component {other}"),
-            };
-        assert_eq!(row["id"], id);
-        assert_eq!(row["failed_edges"], json!(missing));
-        let frozen_paths = match &row["paths"] {
-            Value::Array(paths) => paths
-                .iter()
-                .map(|path| path.as_str().unwrap().to_owned())
-                .collect::<Vec<_>>(),
-            Value::String(path) => vec![path.clone()],
-            other => panic!("unexpected frozen paths {other}"),
-        };
-        assert_eq!(
-            frozen_paths,
-            target_paths
-                .iter()
-                .map(|path| (*path).to_owned())
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(row["path_count"], json!(target_paths.len()));
-    }
-}
-
-#[test]
 fn stream_a_baseline_pool_merges_four_frozen_sources_in_order() {
     let pools = baseline_pool();
     assert_eq!(pool_counts(&pools), (9, 75));

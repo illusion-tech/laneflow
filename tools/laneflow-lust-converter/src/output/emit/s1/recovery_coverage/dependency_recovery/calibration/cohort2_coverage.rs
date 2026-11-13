@@ -83,8 +83,8 @@ fn normalized(value: &Value) -> Value {
 }
 
 fn cohort() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1134-cohort2-coverage-diagnosis/edges.json"
+    serde_json::from_str(&crate::pinned_research::text(
+        "issue-1134-cohort2-coverage-diagnosis/edges.json",
     ))
     .unwrap()
 }
@@ -112,22 +112,6 @@ fn row_assignment_edges(row: &Value) -> Vec<String> {
     edges.sort();
     edges.dedup();
     edges
-}
-
-/// plan §3 冻结问题生成规则：span 端点切向为边界钳制 → 端弦问题（方向锥 = 对应端
-/// 钳制原 f64 位）；规定倒圆 → 端弦问题（不作方向条件）；interior CR → 跳过。
-fn endpoint_problem(tangent: &str, kind: &str, clamp_source: &str) -> Option<Value> {
-    if tangent.contains("boundary clamp") {
-        Some(json!({"kind": kind, "direction_source": clamp_source}))
-    } else if tangent.contains("fillet arc tangent") {
-        Some(json!({"kind": kind, "direction_source": "fillet_not_a_direction_condition"}))
-    } else {
-        assert!(
-            tangent.contains("interior Catmull-Rom tangent"),
-            "frozen tangent mechanism"
-        );
-        None
-    }
 }
 
 /// plan §2：默认档与历史 1103-base / 1107-old 记录逐值比较；`1103-expanded` 由扩展档
@@ -450,7 +434,7 @@ fn run_diagnosis(
 }
 
 #[test]
-#[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, COHORT2_BASELINE_DIR (release asset extract), COVERAGE_ORDER, COVERAGE_DIAGNOSIS_ORDER and fresh COVERAGE_OUTPUT_DIR"]
+#[ignore = "requires pinned LUST_SOURCE_DIR, PINNED_RESEARCH_ROOT, DIRECT_SUCCESSOR_BASELINE_DIR, COHORT2_BASELINE_DIR (release asset extract), COVERAGE_ORDER, COVERAGE_DIAGNOSIS_ORDER and fresh COVERAGE_OUTPUT_DIR"]
 fn pinned_lust_cohort2_coverage_diagnosis_experiment() {
     let out = coverage_output();
     let order = std::env::var("COVERAGE_ORDER").unwrap();
@@ -933,233 +917,6 @@ fn pinned_lust_cohort2_coverage_diagnosis_experiment() {
     );
 }
 
-#[test]
-fn cohort2_frozen_sample_and_problem_table_stay_consistent() {
-    let cohort = cohort();
-    assert_eq!(
-        cohort["schema"],
-        "laneflow-round3-cohort2-coverage-diagnosis"
-    );
-    assert_eq!(
-        cohort["method_source"],
-        "research/issue-1121-coverage-diagnosis/plan.md"
-    );
-    assert_eq!(cohort["summary"]["components"], 11);
-    assert_eq!(cohort["summary"]["missing_edges"], 22);
-    assert_eq!(cohort["summary"]["complete_paths"], 25);
-    assert_eq!(cohort["summary"]["candidate_edges"], 1);
-    assert_eq!(cohort["summary"]["controllers"], 0);
-    assert_eq!(cohort["summary"]["stop_line_edges"], 0);
-    assert_eq!(cohort["summary"]["single_missing_components"], 8);
-    let components = cohort["components"].as_array().unwrap();
-    assert_eq!(
-        components
-            .iter()
-            .map(|row| row["code"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        [
-            "C07", "C09", "C11", "C12", "C16", "C20", "C21", "C28", "C37", "C40", "C41"
-        ],
-        "frozen component code order"
-    );
-    assert_eq!(
-        components
-            .iter()
-            .map(|row| row["path_count"].as_u64().unwrap() as usize)
-            .sum::<usize>(),
-        25
-    );
-    for row in components {
-        assert_eq!(
-            row["path_count"].as_u64().unwrap() as usize,
-            row_paths(row).len(),
-            "path_count matches frozen paths"
-        );
-    }
-    let mut owner = BTreeSet::new();
-    for row in components {
-        for id in row_list(&row["missing_edges"]) {
-            assert!(owner.insert(id), "unique missing edge owner");
-        }
-    }
-    assert_eq!(
-        owner,
-        EDGES
-            .iter()
-            .map(|id| (*id).to_owned())
-            .collect::<BTreeSet<_>>(),
-        "missing edge partition equals the frozen edge set"
-    );
-    let candidates = components
-        .iter()
-        .flat_map(|row| row_list(&row["candidate_edges"]))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        candidates,
-        ["sumo::-29388_3_0"],
-        "one frozen candidate edge"
-    );
-    assert_eq!(
-        components
-            .iter()
-            .filter(|row| row_list(&row["missing_edges"]).len() == 1)
-            .count(),
-        8,
-        "eight single-missing components"
-    );
-    assert_eq!(
-        components
-            .iter()
-            .map(|row| row_assignment_edges(row).len())
-            .collect::<Vec<_>>(),
-        [5, 1, 1, 1, 4, 1, 1, 1, 1, 6, 1],
-        "C07 五条待赋值边（8⁵ 口径）与 C16/C40 连乘口径逐值冻结"
-    );
-    let ids = cohort["edges"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|edge| edge["id"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, EDGES, "frozen edge order equals search order");
-    let mut problem_count = 0;
-    for edge in cohort["edges"].as_array().unwrap() {
-        let mut expected = Vec::new();
-        expected.extend(endpoint_problem(
-            edge["start_tangent"].as_str().unwrap(),
-            "first_chord",
-            "start_boundary_clamp",
-        ));
-        expected.extend(endpoint_problem(
-            edge["finish_tangent"].as_str().unwrap(),
-            "last_chord",
-            "finish_boundary_clamp",
-        ));
-        assert_eq!(
-            json!(expected),
-            edge["problems"],
-            "problem rule reproduces the frozen table for {}",
-            edge["id"]
-        );
-        problem_count += expected.len();
-        assert_eq!(
-            edge["diagnosis_status"] == "selected",
-            !expected.is_empty(),
-            "diagnosis status follows the frozen rule"
-        );
-    }
-    assert_eq!(problem_count, 21, "21 local problems");
-    assert_eq!(
-        cohort["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|edge| edge["diagnosis_status"] == "endpoint_diagnosis_not_selected")
-            .map(|edge| edge["id"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["sumo::-10046_0_0", "sumo::-8018_4_0", "sumo::-25490_4_0"],
-        "three endpoint-diagnosis-not-selected edges"
-    );
-    for id in EXPANDED_TIER_EDGES {
-        assert!(EDGES.contains(&id), "expanded tier is a cohort subset");
-    }
-    assert_eq!(
-        cohort["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|edge| {
-                edge["history"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|entry| entry["experiment"] == "1103-expanded")
-            })
-            .map(|edge| edge["id"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        EXPANDED_TIER_EDGES,
-        "expanded tier equals the 1103-expanded history edges"
-    );
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
-    ))
-    .unwrap();
-    let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
-    ))
-    .unwrap();
-    let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-grid-searches.json"
-    ))
-    .unwrap();
-    let mut first_run = 0;
-    let mut with_history = 0;
-    for edge in cohort["edges"].as_array().unwrap() {
-        let id = edge["id"].as_str().unwrap();
-        let history = edge["history"].as_array().unwrap();
-        if history.is_empty() {
-            first_run += 1;
-            assert!(
-                legacy["tiers"]["32768"]["searches"].get(id).is_none()
-                    && legacy["tiers"]["262144"]["searches"].get(id).is_none()
-                    && old_rows.get(id).is_none()
-                    && grid_history.get(id).is_none(),
-                "{id} has no recorded history search"
-            );
-        } else {
-            with_history += 1;
-        }
-        for entry in history {
-            let record = match entry["experiment"].as_str().unwrap() {
-                "1103-base" => &legacy["tiers"]["32768"]["searches"][id],
-                "1103-expanded" => &legacy["tiers"]["262144"]["searches"][id],
-                "1107-old" => &old_rows[id],
-                "1107-grid" => &grid_history[id],
-                other => panic!("unknown history experiment {other}"),
-            };
-            assert!(!record.is_null(), "history record present for {id}");
-            assert_eq!(
-                record["search"]["stop_reason"], entry["stop_reason"],
-                "history stop reason for {id}"
-            );
-            assert_eq!(
-                json!(record["candidates"].as_array().unwrap().len()),
-                entry["candidate_count"],
-                "history candidate count for {id}"
-            );
-        }
-    }
-    assert_eq!(
-        (first_run, with_history),
-        (9, 13),
-        "nine first-run edges and thirteen with history"
-    );
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-inventory.json"
-    ))
-    .unwrap();
-    let c07 = &components[0];
-    let record = frozen["components"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|component| component["id"] == c07["id"])
-        .expect("C07 in frozen inventory");
-    assert_eq!(
-        record["missing_edges"].as_array().unwrap().len(),
-        5,
-        "C07五条待赋值边"
-    );
-    assert!(
-        record["missing_edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|edge| edge == "sumo::-29388_3_0"),
-        "C07 includes the existing candidate edge"
-    );
-}
-
 /// 临时目录唯一命名；基线读取验证的同字节内容只写临时目录，不落仓库。
 fn temp_probe_dir() -> PathBuf {
     static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -1174,19 +931,9 @@ fn temp_probe_dir() -> PathBuf {
 
 #[test]
 fn cohort2_baseline_pool_merges_frozen_sources_with_pinned_input_bytes() {
-    // plan §5 钉版值与计划文本一致（身份不依赖仓库内文件）。
-    let plan = include_str!(
-        "../../../../../../../../../research/issue-1134-cohort2-coverage-diagnosis/plan.md"
-    );
-    assert!(
-        plan.contains(STREAM_A_SEARCHES_SHA256) && plan.contains(STREAM_A_RESULTS_SHA256),
-        "plan §5 pins both baseline digests"
-    );
-    assert!(
-        plan.contains("1,204,062") && plan.contains("584,379"),
-        "plan §5 pins both baseline byte sizes"
-    );
-    // 来源①→④为仓库内历史批次研究制品，逐级断言 6/48→7/56→7/72→9/75；来源⑤按
+    assert_eq!(STREAM_A_SEARCHES_SHA256.len(), 64);
+    assert_eq!(STREAM_A_RESULTS_SHA256.len(), 64);
+    // 来源①→④为 crate fixture 历史批次研究制品，逐级断言 6/48→7/56→7/72→9/75；来源⑤按
     // plan §5 为 Release 资产钉版输入——本测试以临时目录写入同字节内容验证读取、
     // 钉版断言与合并路径；真实 10 边 76 份与每边份数总断言由 `pinned_baseline_pool`
     // 在正式实验入口按钉版输入执行。

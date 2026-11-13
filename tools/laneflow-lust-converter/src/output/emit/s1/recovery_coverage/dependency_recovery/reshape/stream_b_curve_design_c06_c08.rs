@@ -49,8 +49,8 @@ const BASELINE_POOL_COUNTS: [(&str, usize); 9] = [
 ];
 
 fn frozen_stream_b_inputs() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1130-curve-design-c06-c08/inputs.json"
+    serde_json::from_str(&crate::pinned_research::text(
+        "issue-1130-curve-design-c06-c08/inputs.json",
     ))
     .unwrap()
 }
@@ -161,7 +161,7 @@ fn run_stream_b_searches(inputs: &Value) -> (Value, Value) {
 /// 流 B 四条边的有限几何设计变量候选（冻结输入重放入口）。输出
 /// `stream-b-searches.json` 作为 `CURVE_DESIGN_FROZEN_RESULT` 冻结对照结果。
 #[test]
-#[ignore = "requires fresh CURVE_DESIGN_OUTPUT_DIR"]
+#[ignore = "requires PINNED_RESEARCH_ROOT and fresh CURVE_DESIGN_OUTPUT_DIR"]
 fn fixed_stream_b_curve_design() {
     let out = PathBuf::from(std::env::var("CURVE_DESIGN_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh stream B curve design output");
@@ -324,7 +324,7 @@ fn edge_search_summary(searches: &Value) -> Value {
 /// #1115 `variants.new`）+ 基线/新增两组分量与路径验收。`CURVE_DESIGN_ORDER` 为
 /// ABBA 顺序中的一个取值；四轮非计时输出的逐字节比较在证据收集中执行。
 #[test]
-#[ignore = "requires pinned LUST_SOURCE_DIR, DIRECT_SUCCESSOR_BASELINE_DIR, CURVE_DESIGN_FROZEN_RESULT, CURVE_DESIGN_ORDER and fresh CURVE_DESIGN_OUTPUT_DIR"]
+#[ignore = "requires pinned LUST_SOURCE_DIR, PINNED_RESEARCH_ROOT, DIRECT_SUCCESSOR_BASELINE_DIR, CURVE_DESIGN_FROZEN_RESULT, CURVE_DESIGN_ORDER and fresh CURVE_DESIGN_OUTPUT_DIR"]
 fn pinned_lust_stream_b_curve_experiment() {
     let out = PathBuf::from(std::env::var("CURVE_DESIGN_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh full stream B curve design output");

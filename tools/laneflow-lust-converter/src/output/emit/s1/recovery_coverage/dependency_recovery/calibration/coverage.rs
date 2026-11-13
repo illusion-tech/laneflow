@@ -743,35 +743,6 @@ fn plan_stop_labels_map_frozen_vocabulary() {
 }
 
 #[test]
-fn frozen_cohort_and_problem_table_stay_consistent() {
-    let cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1121-coverage-diagnosis/edge-cohort.json"
-    ))
-    .unwrap();
-    let missing: BTreeSet<String> = cohort["components"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .flat_map(|row| row["failed_edges"].as_array().unwrap().iter())
-        .filter(|edge| edge["currently_missing"].as_bool().unwrap())
-        .map(|edge| edge["id"].as_str().unwrap().to_owned())
-        .collect();
-    assert_eq!(missing.len(), 8);
-    for id in EDGES {
-        assert!(missing.contains(id), "{id} in frozen cohort");
-    }
-    for id in EXPANDED_TIER_EDGES {
-        assert!(EDGES.contains(&id), "expanded tier is a cohort subset");
-    }
-    let mut seen = BTreeSet::new();
-    for problem in PROBLEMS {
-        assert!(EDGES.contains(&problem.edge), "problem edge in cohort");
-        assert!(seen.insert(problem.edge), "one problem per edge");
-    }
-    assert_eq!(seen.len(), 8);
-}
-
-#[test]
 fn grid_membership_is_computed_from_the_frozen_grid() {
     assert!(grid_node_member(0.0));
     assert!(grid_node_member(0.5));

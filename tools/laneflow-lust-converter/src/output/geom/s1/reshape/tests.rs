@@ -89,8 +89,8 @@ fn reference_capture_recovers_the_frozen_real_controls_without_a_program() {
         "../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
-    let endpoints: Value = serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
+    let controls: Value = serde_json::from_str(include_str!(
+        "../../../../../tests/fixtures/issue-1113-closure-controls.json"
     ))
     .unwrap();
     for (id, count, index) in [("sumo::-16502_0_0", 4, 1), ("sumo::-28860_3_0", 6, 0)] {
@@ -106,7 +106,7 @@ fn reference_capture_recovers_the_frozen_real_controls_without_a_program() {
         assert_eq!(curves.len(), count);
         assert_eq!(
             json!(curves[index].map(|p| p.map(f64::to_bits))),
-            endpoints[id]["control_f64_bits"]
+            controls["endpoints"][id]["control_f64_bits"]
         );
         assert!(!capture_if_active(control()), "capture state reset");
         assert!(

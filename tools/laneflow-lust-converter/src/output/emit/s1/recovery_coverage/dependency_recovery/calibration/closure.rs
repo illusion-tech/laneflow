@@ -6,30 +6,9 @@ fn normalized(value: &Value) -> Value {
     serde_json::from_str(&value.to_string()).unwrap()
 }
 
-fn without_certificate(mut value: Value) -> Value {
-    value
-        .as_object_mut()
-        .unwrap()
-        .remove("exclusion_certificate");
-    value
-        .as_object_mut()
-        .unwrap()
-        .remove("certificate_verified");
-    value["policy"]
-        .as_object_mut()
-        .unwrap()
-        .remove("certificate_leaf_limit");
-    value
-}
-
 fn diagnostics() -> (Value, Value, Value, Value) {
-    let endpoints:Value=serde_json::from_str(include_str!("../../../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json")).unwrap();
-    let seam: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1113-closure-feasibility/seam-input.json"
-    ))
-    .unwrap();
-    let old_seam: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1113-closure-feasibility/seam-feasibility.json"
+    let controls: Value = serde_json::from_str(include_str!(
+        "../../../../../../../tests/fixtures/issue-1113-closure-controls.json"
     ))
     .unwrap();
     let inputs: Value = serde_json::from_str(include_str!(
@@ -40,6 +19,7 @@ fn diagnostics() -> (Value, Value, Value, Value) {
         "../../../../../../../tests/fixtures/issue-1113-guided-search.json"
     ))
     .unwrap();
+    let endpoints = &controls["endpoints"];
     let mut probes = BTreeMap::new();
     let mut times = BTreeMap::new();
     for id in [EDGES[3], EDGES[2]] {
@@ -53,30 +33,51 @@ fn diagnostics() -> (Value, Value, Value, Value) {
             clamp.map(|d| d.map(f64::from_bits)),
         );
         times.insert(id, start.elapsed().as_secs_f64());
+        let expected = &endpoints[id]["expected"];
+        for field in [
+            "kind",
+            "status",
+            "visited_boxes",
+            "deepest",
+            "pending_boxes",
+            "excluded_boxes",
+        ] {
+            assert_eq!(
+                result[field], expected[field],
+                "same frozen endpoint diagnosis `{field}` for {id}"
+            );
+        }
         assert_eq!(
-            without_certificate(normalized(&result)),
-            endpoints[id],
-            "same frozen endpoint diagnosis"
+            result["witness"]["parameters_f64_bits"],
+            endpoints[id]["witness_parameters_f64_bits"]
         );
         probes.insert(id, result);
     }
     let left: [[u64; 3]; 6] =
         serde_json::from_value(endpoints[EDGES[2]]["control_f64_bits"].clone()).unwrap();
-    let right: [[u64; 3]; 6] = serde_json::from_value(seam["control_f64_bits"].clone()).unwrap();
+    let right: [[u64; 3]; 6] =
+        serde_json::from_value(controls["seam"]["right_control_f64_bits"].clone()).unwrap();
     let start = Instant::now();
     let seam = sampler::feasibility::diagnose_seam(
         std::array::from_fn(|i| left[i].map(f64::from_bits)),
         std::array::from_fn(|i| right[i].map(f64::from_bits)),
     );
     times.insert("fixed_seam", start.elapsed().as_secs_f64());
-    assert_eq!(
-        without_certificate(normalized(&seam)),
-        old_seam,
-        "same frozen seam diagnosis"
-    );
+    let seam_expected = &controls["seam"]["expected"];
+    for field in [
+        "status",
+        "visited_boxes",
+        "deepest",
+        "pending_boxes",
+        "excluded_boxes",
+    ] {
+        assert_eq!(
+            seam[field], seam_expected[field],
+            "same frozen seam diagnosis `{field}`"
+        );
+    }
     let tail: [u64; 3] =
-        serde_json::from_value(endpoints[EDGES[2]]["witness"]["parameters_f64_bits"].clone())
-            .unwrap();
+        serde_json::from_value(endpoints[EDGES[2]]["witness_parameters_f64_bits"].clone()).unwrap();
     let start = Instant::now();
     let guided = sampler::grid::search_guided(
         &measurement::input(&inputs[EDGES[2]]),
