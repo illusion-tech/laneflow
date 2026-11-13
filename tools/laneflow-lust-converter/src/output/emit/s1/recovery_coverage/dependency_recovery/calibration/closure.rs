@@ -23,13 +23,16 @@ fn without_certificate(mut value: Value) -> Value {
 }
 
 fn diagnostics() -> (Value, Value, Value, Value) {
-    let endpoints:Value=serde_json::from_str(include_str!("../../../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json")).unwrap();
+    let endpoints: Value = serde_json::from_str(include_str!(
+        "../../../../../../../tests/fixtures/issue-1113-endpoint-feasibility.json"
+    ))
+    .unwrap();
     let seam: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1113-closure-feasibility/seam-input.json"
+        "../../../../../../../tests/fixtures/issue-1113-seam-input.json"
     ))
     .unwrap();
     let old_seam: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1113-closure-feasibility/seam-feasibility.json"
+        "../../../../../../../tests/fixtures/issue-1113-seam-feasibility.json"
     ))
     .unwrap();
     let inputs: Value = serde_json::from_str(include_str!(

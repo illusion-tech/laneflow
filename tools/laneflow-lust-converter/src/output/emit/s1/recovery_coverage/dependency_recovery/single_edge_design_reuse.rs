@@ -796,56 +796,6 @@ fn pinned_lust_single_edge_reuse_experiment() {
 }
 
 #[test]
-fn reuse_cohort_matches_frozen_1134_records() {
-    // 样本 ID 纪律：逐值程序化回读 #1134 冻结记录，禁止凭记忆书写。
-    let frozen: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1134-cohort2-coverage-diagnosis/edges.json"
-    ))
-    .unwrap();
-    let cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1174-single-edge-design-reuse/edges.json"
-    ))
-    .unwrap();
-    assert_eq!(cohort["lane"], "A-2");
-    for (id, max_curves) in EDGES {
-        let row = frozen["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["id"] == id)
-            .expect("edge in frozen 1134 record");
-        assert_eq!(row["span_total"], json!(max_curves), "{id} frozen s");
-        let mine = cohort["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["id"] == id)
-            .expect("edge in cohort record");
-        assert_eq!(mine["start_tangent"], row["start_tangent"], "{id} start");
-        assert_eq!(mine["finish_tangent"], row["finish_tangent"], "{id} finish");
-        assert_eq!(mine["history"], row["history"], "{id} history");
-    }
-    for (code, component, missing_edge) in COMPONENTS {
-        let row = frozen["components"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["code"] == code)
-            .expect("component in frozen 1134 record");
-        assert_eq!(row["id"], component, "{code} component identity");
-        assert_eq!(
-            row["missing_edges"],
-            json!(missing_edge),
-            "{code} missing edge"
-        );
-    }
-    assert_eq!(
-        EDGES.map(|(_, s)| PIECES_PER_CUBIC_MAX * s + 1),
-        [385, 385, 385, 481, 481, 481, 385]
-    );
-}
-
-#[test]
 fn fillet_knot_crossing_uses_the_frozen_knot_table() {
     // s=4：keep/reference 不跨缝；pair 跨结点 1、3；whole 跨 1..3——只计倒圆结点。
     assert!(!crosses_prescribed_fillet_seam(

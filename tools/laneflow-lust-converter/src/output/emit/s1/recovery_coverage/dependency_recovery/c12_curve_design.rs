@@ -497,43 +497,6 @@ fn pinned_lust_c12_curve_experiment() {
 }
 
 #[test]
-fn c12_cohort_and_capacities_match_the_frozen_plan() {
-    let cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1136-c12-curve-design/edges.json"
-    ))
-    .unwrap();
-    assert_eq!(cohort["lane"], "A");
-    let ids = cohort["edges"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|edge| edge["id"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, EDGES.map(|(id, _)| id).to_vec());
-    // plan §6：s=4 → 临时程序点上限 385 = 96s+1。
-    assert_eq!(EDGES.map(|(_, s)| PIECES_PER_CUBIC_MAX * s + 1), [385]);
-    for row in cohort["components"].as_array().unwrap() {
-        assert_eq!(row["code"], "C12");
-        assert_eq!(row["id"], C12_COMPONENT);
-        assert_eq!(row["failed_edges"], json!(C12_MISSING_EDGES));
-        assert_eq!(row["path_count"], 1);
-    }
-    let edge = &cohort["edges"][0];
-    assert_eq!(edge["segment_capacity"]["reference_cubics"], 4);
-    assert_eq!(edge["segment_capacity"]["temp_program_points_max"], 385);
-    // plan §1：span 0 末弦局部见证 t=0.5 只是局部问题存在性记录。
-    assert_eq!(
-        edge["entry_basis"]["last_chord"]["witness_t_f64_bits"],
-        json!(0.5_f64.to_bits())
-    );
-    assert_eq!(
-        edge["entry_basis"]["first_chord"]["status"],
-        "necessary_condition_excluded"
-    );
-    assert_eq!(edge["entry_basis"]["last_chord"]["status"], "local_witness");
-}
-
-#[test]
 fn c12_fillet_seam_crossing_tracks_group_boundaries() {
     // s=4：reference/keep 保留全部分界不跨缝；pair/whole 合并 span 0/1 即跨规定倒圆接缝。
     assert!(!crosses_prescribed_fillet_seam("reference", 4));

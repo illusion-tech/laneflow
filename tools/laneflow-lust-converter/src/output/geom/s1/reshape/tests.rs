@@ -89,11 +89,36 @@ fn reference_capture_recovers_the_frozen_real_controls_without_a_program() {
         "../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
-    let endpoints: Value = serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
-    ))
-    .unwrap();
-    for (id, count, index) in [("sumo::-16502_0_0", 4, 1), ("sumo::-28860_3_0", 6, 0)] {
+    // 收缩控制点正本（原出自 #1113 endpoint-feasibility.json 的两边缘参考控制位）。
+    const FROZEN_CONTROLS: [(&str, usize, usize, [[u64; 3]; 6]); 2] = [
+        (
+            "sumo::-16502_0_0",
+            4,
+            1,
+            [
+                [13_862_387_164_458_443_080, 0, 4_655_015_308_771_993_846],
+                [13_862_384_193_822_325_522, 0, 4_655_016_326_933_566_396],
+                [13_862_381_141_529_851_931, 0, 4_655_017_349_990_150_296],
+                [13_862_376_960_990_537_318, 0, 4_655_018_299_443_621_396],
+                [4_599_843_899_495_991_925, 0, 4_606_637_215_741_038_519],
+                [4_602_357_792_311_913_445, 0, 4_606_066_178_973_635_054],
+            ],
+        ),
+        (
+            "sumo::-28860_3_0",
+            6,
+            0,
+            [
+                [13_875_855_830_054_978_191, 0, 4_655_233_144_015_688_827],
+                [13_875_858_281_081_106_028, 0, 4_655_233_656_986_549_693],
+                [13_875_860_838_204_137_095, 0, 4_655_233_110_628_027_768],
+                [13_875_863_342_278_716_547, 0, 4_655_233_093_934_197_238],
+                [13_830_363_443_550_450_828, 0, 4_596_548_516_256_258_305],
+                [13_830_554_255_501_481_530, 0, 13_797_708_031_575_004_769],
+            ],
+        ),
+    ];
+    for (id, count, index, expected_control) in FROZEN_CONTROLS {
         let points: Vec<[u64; 3]> = serde_json::from_value(inputs[id]["points"].clone()).unwrap();
         let clamps: [Option<[u64; 3]>; 2] =
             serde_json::from_value(inputs[id]["clamps"].clone()).unwrap();
@@ -104,10 +129,7 @@ fn reference_capture_recovers_the_frozen_real_controls_without_a_program() {
         };
         let curves = reference(&input);
         assert_eq!(curves.len(), count);
-        assert_eq!(
-            json!(curves[index].map(|p| p.map(f64::to_bits))),
-            endpoints[id]["control_f64_bits"]
-        );
+        assert_eq!(curves[index].map(|p| p.map(f64::to_bits)), expected_control);
         assert!(!capture_if_active(control()), "capture state reset");
         assert!(
             repair_curve(&input.points, input.clamps[0], input.clamps[1], None, None).is_err(),

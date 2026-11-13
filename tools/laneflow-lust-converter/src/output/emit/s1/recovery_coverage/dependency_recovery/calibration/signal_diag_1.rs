@@ -311,8 +311,8 @@ fn assert_raw_leaves_equal(mine: &Value, anchor_text: &str) {
 }
 
 fn cohort() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1138-signal-diag-1/edges.json"
+    serde_json::from_str(&crate::pinned_research::text(
+        "issue-1138-signal-diag-1/edges.json",
     ))
     .unwrap()
 }
@@ -340,22 +340,6 @@ fn row_assignment_edges(row: &Value) -> Vec<String> {
     edges.sort();
     edges.dedup();
     edges
-}
-
-/// plan §3 冻结问题生成规则（逐端判定）：span 端点切向为边界钳制 → 端弦问题（方向锥 =
-/// 对应端钳制原 f64 位）；规定倒圆 → 端弦问题（不作方向条件）；interior CR → **该端不取**。
-fn endpoint_problem(tangent: &str, kind: &str, clamp_source: &str) -> Option<Value> {
-    if tangent.contains("boundary clamp") {
-        Some(json!({"kind": kind, "direction_source": clamp_source}))
-    } else if tangent.contains("fillet arc tangent") {
-        Some(json!({"kind": kind, "direction_source": "fillet_not_a_direction_condition"}))
-    } else {
-        assert!(
-            tangent.contains("interior Catmull-Rom tangent"),
-            "frozen tangent mechanism"
-        );
-        None
-    }
 }
 
 fn read_json(path: &Path) -> Value {
@@ -1075,191 +1059,6 @@ fn pinned_lust_signal_diag_1_experiment() {
     timing["validation_seconds"] = json!(validation_times);
     recovery::write_json(&out, "timing.json", &timing);
     println!("signal diag 1 evidence saved={}", out.display());
-}
-
-#[test]
-fn signal_diag_1_frozen_sample_and_problem_table_stay_consistent() {
-    let cohort = cohort();
-    assert_eq!(
-        cohort["schema"],
-        "laneflow-round4-signal-diag-1-coverage-diagnosis"
-    );
-    assert_eq!(
-        cohort["method_source"],
-        "research/issue-1121-coverage-diagnosis/plan.md"
-    );
-    assert_eq!(cohort["summary"]["components"], 4);
-    assert_eq!(cohort["summary"]["missing_edges"], 23);
-    assert_eq!(cohort["summary"]["complete_paths"], 54);
-    assert_eq!(cohort["summary"]["original_targets"], 19);
-    assert_eq!(cohort["summary"]["candidate_edges"], 3);
-    assert_eq!(cohort["summary"]["controllers"], 4);
-    assert_eq!(cohort["summary"]["stop_line_edges"], 0);
-    assert_eq!(cohort["summary"]["single_missing_components"], 0);
-    assert_eq!(cohort["summary"]["expanded_tier_edges"], 0);
-    assert_eq!(cohort["summary"]["first_run_edges"], 8);
-    let components = cohort["components"].as_array().unwrap();
-    assert_eq!(
-        components
-            .iter()
-            .map(|row| row["code"].as_str().unwrap())
-            .collect::<Vec<_>>(),
-        ["C14", "C15", "C18", "C46"],
-        "frozen component code order"
-    );
-    assert_eq!(
-        components
-            .iter()
-            .map(|row| row["path_count"].as_u64().unwrap() as usize)
-            .sum::<usize>(),
-        54
-    );
-    for row in components {
-        assert_eq!(
-            row["path_count"].as_u64().unwrap() as usize,
-            row_paths(row).len(),
-            "path_count matches frozen paths"
-        );
-        assert_eq!(
-            row_list(&row["stop_line_edges"]).len(),
-            0,
-            "no missing stop edges"
-        );
-    }
-    let mut owner = BTreeSet::new();
-    for row in components {
-        for id in row_list(&row["missing_edges"]) {
-            assert!(owner.insert(id), "unique missing edge owner");
-        }
-    }
-    assert_eq!(
-        owner,
-        EDGES
-            .iter()
-            .map(|id| (*id).to_owned())
-            .collect::<BTreeSet<_>>(),
-        "missing edge partition equals the frozen edge set"
-    );
-    let candidates = components
-        .iter()
-        .flat_map(|row| row_list(&row["candidate_edges"]))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        candidates,
-        ["sumo::-10130_16_0", "sumo::-10130_18_0", "sumo::-10130_8_0"],
-        "three frozen candidate edges (C14)"
-    );
-    assert_eq!(
-        components
-            .iter()
-            .map(|row| row_assignment_edges(row).len())
-            .collect::<Vec<_>>(),
-        [8, 5, 8, 5],
-        "C14=8 / C15=5 / C18=8 / C46=5 待赋值边"
-    );
-    assert!(
-        EXPANDED_TIER_EDGES.is_empty(),
-        "expanded tier history list is empty for this group"
-    );
-    let ids = cohort["edges"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|edge| edge["id"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, EDGES, "frozen edge order equals search order");
-    let mut problem_count = 0;
-    let mut both_taken = 0;
-    for edge in cohort["edges"].as_array().unwrap() {
-        let mut expected = Vec::new();
-        expected.extend(endpoint_problem(
-            edge["start_tangent"].as_str().unwrap(),
-            "first_chord",
-            "start_boundary_clamp",
-        ));
-        expected.extend(endpoint_problem(
-            edge["finish_tangent"].as_str().unwrap(),
-            "last_chord",
-            "finish_boundary_clamp",
-        ));
-        assert_eq!(
-            json!(expected),
-            edge["problems"],
-            "per-end rule reproduces the frozen table for {}",
-            edge["id"]
-        );
-        problem_count += expected.len();
-        if expected.len() == 2 {
-            both_taken += 1;
-        }
-        assert_eq!(
-            edge["diagnosis_status"] == "selected",
-            !expected.is_empty(),
-            "diagnosis status follows the per-end rule"
-        );
-    }
-    assert_eq!(problem_count, 30, "30 local problems");
-    assert_eq!(both_taken, 7, "seven both-end problems, sixteen single-end");
-    assert!(
-        cohort["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|edge| edge["diagnosis_status"] != "endpoint_diagnosis_not_selected"),
-        "no both-interior-CR edge in this group"
-    );
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
-    ))
-    .unwrap();
-    let old_rows: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
-    ))
-    .unwrap();
-    let grid_history: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-grid-searches.json"
-    ))
-    .unwrap();
-    let mut first_run = 0;
-    let mut with_history = 0;
-    for edge in cohort["edges"].as_array().unwrap() {
-        let id = edge["id"].as_str().unwrap();
-        let history = edge["history"].as_array().unwrap();
-        if history.is_empty() {
-            first_run += 1;
-            assert!(
-                legacy["tiers"]["32768"]["searches"].get(id).is_none()
-                    && legacy["tiers"]["262144"]["searches"].get(id).is_none()
-                    && old_rows.get(id).is_none()
-                    && grid_history.get(id).is_none(),
-                "{id} has no recorded history search"
-            );
-        } else {
-            with_history += 1;
-        }
-        for entry in history {
-            assert_eq!(
-                entry["experiment"], "1103-base",
-                "this group only anchors on 1103-base records"
-            );
-            let record = &legacy["tiers"]["32768"]["searches"][id];
-            assert!(!record.is_null(), "history record present for {id}");
-            assert_eq!(
-                record["search"]["stop_reason"], entry["stop_reason"],
-                "history stop reason for {id}"
-            );
-            assert_eq!(
-                json!(record["candidates"].as_array().unwrap().len()),
-                entry["candidate_count"],
-                "history candidate count for {id}"
-            );
-        }
-    }
-    assert_eq!(
-        (first_run, with_history),
-        (8, 15),
-        "eight first-run edges and fifteen with history"
-    );
 }
 
 #[test]

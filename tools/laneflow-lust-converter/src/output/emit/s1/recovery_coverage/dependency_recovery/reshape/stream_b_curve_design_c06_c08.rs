@@ -49,8 +49,8 @@ const BASELINE_POOL_COUNTS: [(&str, usize); 9] = [
 ];
 
 fn frozen_stream_b_inputs() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1130-curve-design-c06-c08/inputs.json"
+    serde_json::from_str(&crate::pinned_research::text(
+        "issue-1130-curve-design-c06-c08/inputs.json",
     ))
     .unwrap()
 }
