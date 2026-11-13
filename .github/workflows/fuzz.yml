@@ -33,8 +33,49 @@ permissions:
   contents: read
 
 jobs:
+  # #1363：merge_group 路径门。PR 是否触发由上方 workflow 级 pull_request.paths
+  # 决定，workflow_dispatch 恒全量，两者不经本 job；本 job 只在合并组上按快照
+  # 相对 base 的累计 diff 判定，口径与 pull_request.paths 保持一致。
+  changes:
+    name: Detect fuzz path changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'merge_group'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      fuzz: ${{ steps.filter.outputs.fuzz }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Detect fuzz path changes on the merge-group snapshot
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            fuzz:
+              - 'crates/laneflow-road-editing-wire/**'
+              - 'crates/laneflow-compiler/**'
+              - 'crates/laneflow-format-mmap/**'
+              - 'crates/laneflow-format/**'
+              - 'crates/laneflow-static-contract/**'
+              - 'crates/laneflow-static-network/**'
+              - 'crates/laneflow-runtime/**'
+              - 'crates/laneflow-runtime-snapshot-wire/**'
+              - 'crates/laneflow-motion-kernel/**'
+              - 'schemas/road-editing/**'
+              - 'schemas/runtime-snapshot/**'
+              - 'fuzz/**'
+              - '.github/workflows/fuzz.yml'
+
   input-fuzz:
     name: Input fuzz (${{ matrix.target }})
+    needs: changes
+    # #1363：纯文档合并组不拉起六路 campaign。只有检测 job 明确判 false 才跳过
+    # （job 级跳过、不分配 runner）；检测失败或输出缺失时失败关闭——照常全跑，
+    # 不静默跳过。PR 路径命中即触发、workflow_dispatch 恒全量，均不受此门影响。
+    if: ${{ !cancelled() && needs.changes.outputs.fuzz != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
