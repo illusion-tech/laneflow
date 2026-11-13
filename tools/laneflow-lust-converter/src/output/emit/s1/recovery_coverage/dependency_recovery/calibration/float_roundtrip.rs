@@ -4,9 +4,9 @@
 //! `f64::from_str` 标准库正确舍入 → `to_bits` 比较）：serde 解析域位值只作被测对象，
 //! 不作比较基准——解析域折叠对忠实锚误报、对折叠对漏报。
 //!
-//! 构建形态双态自适应：serde_json `float_roundtrip` 是否生效取决于 feature 统一
-//! （workspace 构建合并 `research/issue-762` 的请求，单包构建没有）。两种形态下本模块
-//! 全绿，且把两侧行为都钉死：
+//! 构建形态双态自适应：serde_json `float_roundtrip` 是否生效取决于实际编译目标的
+//! 依赖图（此前 workspace 构建曾由现已退役的 `research/issue-762` 触发统一；
+//! #1173 后本 crate 及相关工具清单均已显式启用）。两种形态下本模块全绿，且把两侧行为都钉死：
 //!
 //! - 已知反例（#1155 背景口径 / #1140 差异记录 4）实测对照：
 //!   - `10.220051765441895`：正确舍入 bits `4621942995720077312`；默认解析误舍入
@@ -68,7 +68,7 @@ const LOSSY_UNDER_DEFAULT: &[&str] = &[
 ];
 
 /// 探测当前构建形态 serde_json 浮点解析是否已启用 `float_roundtrip`（feature 统一
-/// 因构建形态而异：workspace 构建合并 `research/issue-762` 的请求，单包构建没有）。
+/// 随编译依赖图而异；本 crate 清单已按 #1173 显式启用）。
 fn float_roundtrip_active() -> bool {
     serde_json::from_str::<f64>("10.220051765441895")
         .unwrap()

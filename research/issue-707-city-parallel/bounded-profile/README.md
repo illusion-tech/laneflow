@@ -1,5 +1,7 @@
 # 持续负载有界性能剖析
 
+> **代码已退役（#1364）**：`instrumentation.patch` 与 `timers.rs` 已按 #1364 从当前源码树退役，仅保留本说明与[性能剖析结果](../bounded-profile-results.md)。退役前完整源码保留于主线提交 `f71123b5`（`f71123b5ec38cc7021710c7742a4acb79b4acf90`）及更早 Git 历史；本次退役不另制外部归档，不承诺外部原包原字节的外部恢复。
+
 Refs #826。源码基线 `9d61f8d2b0d2ccceb22580a346b1031fdc153022`。
 
 `instrumentation.patch` 只给研究构建接入 `timers.rs`，不改变正式 Runtime API 或状态
