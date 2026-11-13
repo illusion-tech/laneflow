@@ -41,12 +41,11 @@ fn write_json(root: &std::path::Path, name: &str, value: &impl serde::Serialize)
 }
 
 #[test]
-#[ignore = "#1053：需要固定 LUST_SOURCE_DIR；可设 LUST_MIGRATION_OUTPUT_DIR 保留独立进程证据"]
+#[ignore = "#1053：需要固定 LUST_SOURCE_DIR 与 PINNED_RESEARCH_ROOT；可设 LUST_MIGRATION_OUTPUT_DIR 保留独立进程证据"]
 fn pinned_lust_population_migration() {
-    let baseline: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../research/issue-1053-lust-population-v2/baseline.json"
-    )))
+    let baseline: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1053-lust-population-v2/baseline.json",
+    ))
     .expect("frozen migration baseline");
     let benchmark = std::env::var_os("LUST_POPULATION_BENCH").is_some();
     assert!(

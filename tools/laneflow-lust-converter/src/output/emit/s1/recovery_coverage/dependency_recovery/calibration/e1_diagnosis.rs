@@ -368,11 +368,11 @@ fn calibration_b() -> Value {
     );
     assert_eq!(seam["pair"]["certificate_verified"], true, "B 排除叶复核");
     let endpoints: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
+        "../../../../../../../tests/fixtures/issue-1113-controls.json"
     ))
     .unwrap();
     let control = control_from_bits(&endpoints["sumo::-16502_0_0"]["control_f64_bits"]);
-    let u = 380923_f64 / 524_288.0;
+    let u = 380_923_f64 / 524_288.0;
     let v = 453_299_f64 / 524_288.0;
     assert!(
         replay_pair_witness(PairKind::LastTwo, control, u, v).is_some(),
@@ -387,8 +387,8 @@ fn calibration_b() -> Value {
 /// （冻结问题表 `edges.json`）；既有诊断器（`diagnose_end_chord`/`diagnose_seam`/
 /// 证书复核器）代码未改动，其单测为「旧入口/旧输入/既有结论」逐值不变的回归面。
 fn calibration_c_labels() -> Value {
-    let cohort: Value = serde_json::from_str(include_str!(
-        "../../../../../../../../../research/issue-1134-cohort2-coverage-diagnosis/edges.json"
+    let cohort: Value = serde_json::from_str(&crate::pinned_research::text(
+        "issue-1134-cohort2-coverage-diagnosis/edges.json",
     ))
     .unwrap();
     let mut labels = Vec::new();
@@ -408,7 +408,7 @@ fn calibration_c_labels() -> Value {
 
 /// 校准 B/C 入口（A/A′ 见 `e1_calibration_a_and_aprime`）。
 #[test]
-#[ignore = "no external env; run with A/A′ for full calibration gate"]
+#[ignore = "requires PINNED_RESEARCH_ROOT; run with A/A′ for full calibration gate"]
 fn e1_calibration_b_and_c() {
     let b = calibration_b();
     assert_eq!(b["certificate_verified"], true);

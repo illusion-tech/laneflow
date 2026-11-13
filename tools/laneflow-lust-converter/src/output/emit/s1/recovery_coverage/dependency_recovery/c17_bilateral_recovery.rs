@@ -454,7 +454,7 @@ fn short_first_span_obstruction_certificate_recheck() {
         "intrinsic obstruction inequality"
     );
     let certificate: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1137-c17-bilateral-recovery/short-span-certificate.json"
+        "../../../../../../tests/fixtures/issue-1137-short-span-certificate.json"
     ))
     .unwrap();
     verify_certificate(&certificate, &computed).expect("certificate claims verified");
@@ -477,7 +477,7 @@ fn short_first_span_obstruction_certificate_recheck() {
 fn certificate_tampering_is_rejected() {
     let computed = certificate_recompute();
     let certificate: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../../../../research/issue-1137-c17-bilateral-recovery/short-span-certificate.json"
+        "../../../../../../tests/fixtures/issue-1137-short-span-certificate.json"
     ))
     .unwrap();
     verify_certificate(&certificate, &computed).expect("intact certificate verifies");

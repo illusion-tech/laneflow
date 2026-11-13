@@ -90,7 +90,7 @@ fn reference_capture_recovers_the_frozen_real_controls_without_a_program() {
     ))
     .unwrap();
     let endpoints: Value = serde_json::from_str(include_str!(
-        "../../../../../../../research/issue-1113-closure-feasibility/endpoint-feasibility.json"
+        "../../../../../tests/fixtures/issue-1113-controls.json"
     ))
     .unwrap();
     for (id, count, index) in [("sumo::-16502_0_0", 4, 1), ("sumo::-28860_3_0", 6, 0)] {

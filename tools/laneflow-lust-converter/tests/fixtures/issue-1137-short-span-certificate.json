@@ -1,0 +1,64 @@
+{
+  "schema": "laneflow-1137-short-span-obstruction-certificate",
+  "purpose": "#1137 维护者复审意见 2 的独立复核与固化：sumo::-10564_6_0 短首段在冻结常数下的采样硬障碍；结论只覆盖列明配置，不写整条边无解",
+  "recheck_entry": "laneflow-lust-converter 测试 short_first_span_obstruction_certificate_recheck（自冻结控制点位全量重算，并读取本证书逐声明核对）；负验证清单见 certificate_tampering_is_rejected（篡改任一证明常量或边界值 → 该测试族必须失败）",
+  "bound_semantics": "上界声明向上取整（必须 ≥ 复算值）、下界声明向下取整（必须 ≤ 复算值），单向核对；展示值仅供阅读、不参与证明；三个证明常量的声明值必须与复核测试的计算使用值逐项一致",
+  "frozen_input": {
+    "source": "research/issue-1131-curve-design-c29-c17 冻结实验 stream-a-searches.json 的 reference_controls_f64_bits（sumo::-10564_3_0 s=2、sumo::-10564_6_0 s=3）",
+    "note": "控制点位 f64 bits 全量内嵌于复核测试；本 JSON 存声明值，测试独立重算并按边界方向核对声明"
+  },
+  "constants": {
+    "legal_chord_floor_m": 0.099999,
+    "legal_chord_rule": "量化弦长严格大于 0.1 m（证明常量取保守下限 0.099999 m）",
+    "weld_max_turn_deg": 1.95,
+    "pieces_per_cubic_min": 2,
+    "f32_ulp_m": 0.0001220703125,
+    "quantization_margin_rule": "√3 × 2⁻¹³：f32 逐坐标舍入每点位移 ≤ 0.5·ulp·√3，两点距上界 = d + √3·ulp",
+    "eval_roundoff_model": "沿 feasibility/interval.rs 的 roundoff 口径 128·f64::EPSILON·坐标尺度（浮点曲线求值舍入余量，独立于最终 f32 转换余量）"
+  },
+  "claims": {
+    "span0_endpoint_distance_display_m": 0.196977,
+    "span0_endpoint_distance_exact_note": "复算精确值 0.19697715603589877 m；0.196977 为四舍五入展示值，非严格上界",
+    "affected_config_hull_upper_bound_m": 0.19697716,
+    "affected_config_hull_note": "S1 五种首结点扰动与 pair-R 首组 16 组柄因子的控制点凸包直径复算值 0.19697715603589877 m，上界声明向上取整",
+    "total_margin_upper_bound_m": 0.000211432024,
+    "total_margin_note": "复算精确值 0.00021143202381065056 m = f32 量化 √3×2⁻¹³（0.0002114319833）+ 曲线求值舍入 128·ε·尺度（0.0000000000405）；上界声明向上取整",
+    "chord_pair_lower_bound_m": 0.1999690432,
+    "chord_pair_lower_formula": "2 × legal_chord_floor_m × cos(weld_max_turn_deg / 2)，复算精确值 0.1999690432949 m，下界声明向下取整",
+    "gap_lower_bound_m": 0.0027804511,
+    "gap_display_m": 0.0027804552,
+    "conclusion": "首段（固定端点 cubic）控制点凸包直径上界 + 总余量上界 < 两条连续合法弦端距下界 ⇒ 每 cubic ≥ pieces_per_cubic_min 片的任何划分不可能产生两条连续合法弦；后续段无法消除"
+  },
+  "negative_control_criterion": {
+    "expectation": "负对照预期零合法程序；最早拒绝阶段如实记录（管线先采样偏离后 sink，不预期全 sink 拒绝）",
+    "counter_example": {
+      "config": "pair-R 首组因子 (1.5, 1)、等 t、n=2 首窗",
+      "first_window_deviation_lower_bound_m": 0.0120074,
+      "first_window_deviation_display_m": 0.0120074537,
+      "effect": "首弦采样偏离 ≈ 0.01200745 m > 0.01 m，执行该划分先返回 sampling_deviation"
+    }
+  },
+  "affected_configs": {
+    "scope": "仅列明配置；不构成 sumo::-10564_6_0 整条边或 C17 的无解证明",
+    "s1_edge6_keep_25": "keep 模式首 cubic = 短首段（δ1×δ2 25 组合的首 cubic 均落在短首段上）",
+    "s2_pair_r_256": "pair-R 首组 = [0] 单 cubic = 短首段（16 组首因子 × 16 组次组因子）",
+    "role": "负对照：保留遍历、如实记录最早拒绝阶段；预期零合法程序（判据见 negative_control_criterion），不预期特定拒绝标签"
+  },
+  "unaffected_forms": {
+    "e6_s1_lower_bound_m": 2.2108143,
+    "e6_s2_lower_bound_m": 2.583815,
+    "e6_pair_l_first_group_lower_bound_m": 2.3940969,
+    "e6_pair_l_second_group_lower_bound_m": 2.583815,
+    "e6_pair_r_second_group_lower_bound_m": 4.7166301,
+    "e6_whole_lower_bound_m": 4.8819053,
+    "e3_s0_lower_bound_m": 2.5817242,
+    "e3_s1_lower_bound_m": 2.0215835,
+    "e3_whole_lower_bound_m": 4.5301765,
+    "note": "下界声明向下取整；即使取下界仍远超两条连续合法弦端距下界，两弦论据不适用（不构成可行证明）；pair-L / whole 合并短首段后必要条件方向改变，为恢复探索优先方向"
+  },
+  "tangent_source_assertions": {
+    "knot1_tangent": "interior Catmull-Rom 中心差分（相邻结点弦单位化），非规定倒圆切向；复核测试断言 |t1 − unit(P2 − P0)| < 1e-12",
+    "primary_orthogonal_component": "CR 切向与中心弦同向 ⇒ 第一层正交分量必然退化（|w| < 1e-9，断言于复核测试）",
+    "rotation_plane_fallback": "前一弦（P1−P0）方向的正交分量为正常路径"
+  }
+}
