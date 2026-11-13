@@ -45,8 +45,50 @@ permissions:
   contents: read
 
 jobs:
+  # #1363：merge_group 路径门，语义同 fuzz.yml 的 changes job。PR 与 main push
+  # 是否触发由上方 workflow 级 paths 决定，不经本 job；口径与 pull_request.paths
+  # 一致（含 .github/actions/** 与 .github/workflows/**）。
+  changes:
+    name: Detect codegen path changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'merge_group'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      codegen: ${{ steps.filter.outputs.codegen }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Detect codegen path changes on the merge-group snapshot
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            codegen:
+              - 'schemas/road-editing/**'
+              - 'schemas/runtime-snapshot/**'
+              - 'crates/laneflow-road-editing-wire/**'
+              - 'crates/laneflow-runtime-snapshot-wire/**'
+              - '**/Cargo.toml'
+              - 'xtask/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain*'
+              - '.github/actions/**'
+              - '.github/workflows/**'
+              - 'tools/lfre-crosslang-writer/**'
+              - 'crates/laneflow-compiler/tests/fixtures/lfre-crosslang/**'
+              - 'crates/laneflow-compiler/tests/crosslang_lfre_fixtures.rs'
+
   codegen:
     name: ${{ matrix.label }}
+    needs: changes
+    # #1363：同 fuzz.yml 的门语义——只有检测明确判 false 才跳过（不拉起
+    # Windows runner 与 pinned flatc）；检测失败或输出缺失时失败关闭，照常全跑。
+    if: ${{ !cancelled() && needs.changes.outputs.codegen != 'false' }}
     strategy:
       fail-fast: false
       matrix:
@@ -147,6 +189,9 @@ jobs:
 
   crosslang-fixture:
     name: Cross-language LFRE writer fixtures
+    needs: changes
+    # #1363：同上——只有检测明确判 false 才跳过；检测失败时失败关闭，照常全跑。
+    if: ${{ !cancelled() && needs.changes.outputs.codegen != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

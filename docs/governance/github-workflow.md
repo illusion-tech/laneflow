@@ -228,6 +228,10 @@ required status checks 固定为 `Commit message`、`Rust checks`、`Evidence fi
 `merge_group` 同名。九项机器检查 expected source 绑定 GitHub Actions App
 `integration_id=15368`。原生 CodeQL rule 不能替代 `H_mg` 上的两个 `Analyze`。
 
+非必查 workflow（`Fuzz`、`Schema Codegen`）同样在 `merge_group` 上触发，但按合并组
+快照相对 base 的累计 diff 做路径门：纯文档合并组不执行昂贵检查，触及各自口径的
+代码 / schema / workflow 变更时照常执行。门语义与失败关闭边界见 §8（#1363）。
+
 ### 7.1 日常入队与失效边界
 
 - PR Head `H_pr` 是补丁身份，绑定 PR 级机器检查与 GitHub 原生协作状态。
@@ -295,6 +299,21 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   以满足原生 `code_scanning` 规则（仅 `pull_request` 事件，不构成扫描证据），
   检测失败时失败关闭；main push、每周调度与手工 dispatch 恒全量
   （#1283、#1293、#1298、#1302）。事实源见 `security-scanning.md`。
+- `Fuzz`：六路 Input fuzz 有界 campaign（nightly 与 cargo-fuzz 0.13.2 钉版，PR
+  默认 300 秒、`workflow_dispatch` 可选 1800）。PR 是否触发由 workflow 级
+  `pull_request.paths` 决定（九个 wire / format / compiler / static / runtime 相关
+  crate、`schemas/road-editing/`、`schemas/runtime-snapshot/`、`fuzz/**` 与本
+  workflow 文件）；merge_group 由 `Detect fuzz path changes` job 按合并组快照相对
+  base 的累计 diff 判定同口径路径，纯文档合并组 job 级跳过、不分配 runner；
+  检测失败或输出缺失时失败关闭——照常全跑，不静默跳过；`workflow_dispatch`
+  恒全量（#1363）。非必查。
+- `Schema Codegen`：钉版 flatc 的 Ubuntu / Windows 精确代码生成与 unsafe 边界
+  检查、生成 Rust 绑定编译，以及 Cross-language LFRE writer fixtures 字节对拍。
+  PR 与 main push 是否触发由 workflow 级 `paths` 决定（schemas、两个 wire crate、
+  Cargo 清单 / 锁、xtask、工具链、`.github/**` 与 crosslang 工具 / fixture）；
+  merge_group 由 `Detect codegen path changes` job 按累计 diff 判定同口径路径，
+  纯文档合并组不拉起 Windows runner 与 crosslang 构建；检测失败时失败关闭——
+  照常全跑（#1363）。非必查。
 
 证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规检查，由
 `Evidence` workflow（`schedule` + `workflow_dispatch`，钉版 nextest
