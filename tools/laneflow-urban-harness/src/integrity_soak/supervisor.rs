@@ -191,6 +191,76 @@ impl Drop for ChildGuard {
     }
 }
 
+/// 必需成员（看护与驻留进程）在一次采样中的工作集测得情况（#1097）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResidentMemory {
+    /// 本次采样测得非零工作集。
+    Measured,
+    /// 已由 `try_wait` 回收，或本次采样看到的是已退出未回收的僵尸进程。
+    /// Linux 上僵尸进程的 `statm` 为零，不能当作“未测得”。
+    Exited,
+    /// 仍存活但本次未测得非零工作集（含进程正在退出、内存已释放的瞬间）。
+    Unmeasured,
+}
+
+/// 判定看护进程是否测得，以及驻留进程处于哪一种测得状态。
+fn required_memory(
+    members: &[serde_json::Value],
+    supervisor_pid: u32,
+    resident_pid: u32,
+    reaped: bool,
+) -> (bool, ResidentMemory) {
+    let member = |pid: u32| members.iter().find(|member| member["pid"] == pid);
+    let measured = |pid: u32| {
+        member(pid).is_some_and(|member| member["resident_bytes"].as_u64().unwrap_or(0) > 0)
+    };
+    let resident = if measured(resident_pid) {
+        ResidentMemory::Measured
+    } else if reaped || member(resident_pid).is_some_and(|member| member["terminated"] == true) {
+        ResidentMemory::Exited
+    } else {
+        ResidentMemory::Unmeasured
+    };
+    (measured(supervisor_pid), resident)
+}
+
+/// 未测得失败的可判读证据：哪一侧未测得，以及确认前后两次采样中必需成员的记录。
+fn unmeasured_evidence(
+    previous: &serde_json::Value,
+    current: &serde_json::Value,
+    supervisor_pid: u32,
+    resident_pid: u32,
+) -> String {
+    let side = |record: &serde_json::Value| {
+        let members = record["members"].as_array().map_or(&[][..], Vec::as_slice);
+        let (supervisor, resident) = required_memory(members, supervisor_pid, resident_pid, false);
+        let mut sides = Vec::new();
+        if !supervisor {
+            sides.push("supervisor");
+        }
+        if resident == ResidentMemory::Unmeasured {
+            sides.push("resident");
+        }
+        sides
+    };
+    let sample = |record: &serde_json::Value| {
+        let members = record["members"].as_array().map_or(&[][..], Vec::as_slice);
+        let pick = |pid: u32| {
+            members
+                .iter()
+                .find(|member| member["pid"] == pid)
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)
+        };
+        serde_json::json!({
+            "ordinal":record["ordinal"], "wall_seconds":record["wall_seconds"],
+            "unmeasured":side(record),
+            "supervisor":pick(supervisor_pid), "resident":pick(resident_pid),
+        })
+    };
+    serde_json::json!({"samples":[sample(previous), sample(current)]}).to_string()
+}
+
 /// #1173：soak 摘要浮点判定谓词的可测提取（#1155 审计「待验证」清单收尾）。
 ///
 /// 语义与 supervisor 收尾判定逐条相同（原 :316-321 记账谓词 + :332-335 值谓词），
@@ -248,20 +318,21 @@ pub(super) fn watch(
         let mut peak: Option<u64> = None;
         let mut complete_memory_samples = 0_u64;
         let mut observed_resident = false;
+        // 期限后的单次未测得先挂起，由下一次采样确认（#1097）。
+        let mut pending_miss: Option<serde_json::Value> = None;
         let result = (|| -> Result<()> {
             loop {
                 let exit_status = guard.child.try_wait()?;
                 let members = guard.members();
-                let measured = |pid: u32| {
-                    members.iter().any(|member| {
-                        member["pid"] == pid && member["resident_bytes"].as_u64().unwrap_or(0) > 0
-                    })
-                };
-                let supervisor_measured = measured(std::process::id());
-                let resident_measured = measured(guard.child.id());
-                observed_resident |= resident_measured;
+                let (supervisor_measured, resident) = required_memory(
+                    &members,
+                    std::process::id(),
+                    guard.child.id(),
+                    exit_status.is_some(),
+                );
+                observed_resident |= resident == ResidentMemory::Measured;
                 let required_memory_measured =
-                    supervisor_measured && (resident_measured || exit_status.is_some());
+                    supervisor_measured && resident != ResidentMemory::Unmeasured;
                 let memory_sample_complete = required_memory_measured
                     && members.iter().all(|member| {
                         member["terminated"] == true || member["resident_bytes"].as_u64().is_some()
@@ -296,7 +367,22 @@ pub(super) fn watch(
                     samples.clear();
                 }
                 if !required_memory_measured && elapsed() >= Duration::from_secs(3) {
-                    return Err(invalid("无法测得看护或存活驻留进程的工作集（Incomplete）"));
+                    // 单次未测得可能是驻留进程正在退出：内存已释放而尚未成为僵尸。
+                    // 下一次采样仍未测得且驻留进程未退出，才判 Incomplete。
+                    if let Some(previous) = pending_miss.take() {
+                        return Err(invalid(format!(
+                            "无法测得看护或存活驻留进程的工作集（Incomplete）：{}",
+                            unmeasured_evidence(
+                                &previous,
+                                &record,
+                                std::process::id(),
+                                guard.child.id(),
+                            )
+                        )));
+                    }
+                    pending_miss = Some(record);
+                } else {
+                    pending_miss = None;
                 }
                 if bytes > spec.config.max_memory_bytes {
                     return Err(invalid(
@@ -406,6 +492,91 @@ pub(super) fn watch(
     }
     record_failure(output, &result);
     result
+}
+
+#[cfg(test)]
+mod required_memory_tests {
+    use super::{ResidentMemory, required_memory, unmeasured_evidence};
+
+    const SUPERVISOR: u32 = 10;
+    const RESIDENT: u32 = 20;
+
+    fn member(pid: u32, bytes: Option<u64>, terminated: bool) -> serde_json::Value {
+        serde_json::json!({"pid":pid, "resident_bytes":bytes, "terminated":terminated})
+    }
+
+    #[test]
+    fn zombie_resident_counts_as_exited_not_unmeasured() {
+        let members = [
+            member(SUPERVISOR, Some(4096), false),
+            member(RESIDENT, None, true),
+        ];
+        assert_eq!(
+            required_memory(&members, SUPERVISOR, RESIDENT, false),
+            (true, ResidentMemory::Exited)
+        );
+    }
+
+    #[test]
+    fn live_resident_without_bytes_is_unmeasured() {
+        let members = [
+            member(SUPERVISOR, Some(4096), false),
+            member(RESIDENT, None, false),
+        ];
+        assert_eq!(
+            required_memory(&members, SUPERVISOR, RESIDENT, false),
+            (true, ResidentMemory::Unmeasured)
+        );
+        assert_eq!(
+            required_memory(&members[..1], SUPERVISOR, RESIDENT, false),
+            (true, ResidentMemory::Unmeasured)
+        );
+        assert_eq!(
+            required_memory(&members, SUPERVISOR, RESIDENT, true),
+            (true, ResidentMemory::Exited)
+        );
+    }
+
+    #[test]
+    fn measured_members_and_missing_supervisor() {
+        let members = [member(RESIDENT, Some(8192), false)];
+        assert_eq!(
+            required_memory(&members, SUPERVISOR, RESIDENT, false),
+            (false, ResidentMemory::Measured)
+        );
+    }
+
+    #[test]
+    fn evidence_names_the_unmeasured_side_for_both_samples() {
+        let record = |ordinal: u64, members: Vec<serde_json::Value>| serde_json::json!({"ordinal":ordinal, "wall_seconds":4.0, "members":members});
+        let previous = record(
+            4,
+            vec![
+                member(SUPERVISOR, Some(4096), false),
+                member(RESIDENT, None, false),
+            ],
+        );
+        let current = record(5, vec![member(SUPERVISOR, None, false)]);
+        let evidence: serde_json::Value = serde_json::from_str(&unmeasured_evidence(
+            &previous, &current, SUPERVISOR, RESIDENT,
+        ))
+        .unwrap();
+        assert_eq!(evidence["samples"][0]["ordinal"], 4);
+        assert_eq!(
+            evidence["samples"][0]["unmeasured"],
+            serde_json::json!(["resident"])
+        );
+        assert_eq!(
+            evidence["samples"][0]["resident"]["resident_bytes"],
+            serde_json::Value::Null
+        );
+        assert_eq!(evidence["samples"][1]["ordinal"], 5);
+        assert_eq!(
+            evidence["samples"][1]["unmeasured"],
+            serde_json::json!(["supervisor", "resident"])
+        );
+        assert_eq!(evidence["samples"][1]["resident"], serde_json::Value::Null);
+    }
 }
 
 #[cfg(test)]
