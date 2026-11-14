@@ -86,10 +86,11 @@ fn slug_examples_are_hand_written_literals() {
     assert_eq!(github_subset_slug("Foo_Bar-Baz"), "foo_bar-baz");
     assert_eq!(github_subset_slug("Title {#custom}"), "title-custom");
     assert_eq!(github_subset_slug("É"), "É");
-    assert_eq!(github_subset_slug("a  b"), "a-b");
+    assert_eq!(github_subset_slug("a  b"), "a--b");
+    assert_eq!(github_subset_slug("A = B"), "a--b");
     assert_eq!(
         github_subset_slug("6. 能力检查（裁定 A6 = 选项 3 回写）"),
-        "6-能力检查裁定-a6-选项-3-回写"
+        "6-能力检查裁定-a6--选项-3-回写"
     );
 
     let mut slugger = Slugger::default();
@@ -101,6 +102,24 @@ fn slug_examples_are_hand_written_literals() {
     assert_eq!(collision.next("Dup-1"), "dup-1");
     assert_eq!(collision.next("Dup"), "dup");
     assert_eq!(collision.next("Dup"), "dup-2");
+}
+
+#[test]
+fn removed_punctuation_keeps_both_surrounding_spaces_in_anchor() {
+    let repo = TestRepo::new("spaces");
+    repo.write(
+        "a.md",
+        "# A = B\n\n[double][double]\n\n[single][single]\n\n[double]: #a--b\n[single]: #a-b\n",
+    );
+    let report = repo.check();
+    assert_eq!(
+        texts(&report),
+        vec![
+            "a.md:5:1: target=#a-b: missing-anchor: 目标 Markdown 中没有匹配的标题或显式 HTML 锚点"
+                .to_string(),
+        ]
+    );
+    assert_eq!(report.links, 2);
 }
 
 #[test]

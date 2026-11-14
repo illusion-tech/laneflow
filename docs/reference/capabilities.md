@@ -31,11 +31,14 @@
   道路编辑来源和可移植对象各有自己的版本轴。P100 初始配置档的已知单次发射限额只描述该档
   （[#1288][issue-1288]），不能当成所有档的最大路网规模。按容量推导限额仍是建议设计
   （[#1296][issue-1296]）。本页不复制该数字，也不另立格式版本表。这不是容量或性能认证。
+  宿主须在安装、恢复或 Spatial 绑定之前认证共享修订，安装入口不代为执行；无窗口示例在安装前
+  认证，只有 `Pass` 才继续（[源码接入指南][source-integration-attestation]）。
 - **依据**：[后发射检查 §4][post-emission-api]、
   [§5][post-emission-order]、
   [§7][post-emission-lifecycle]、
   [§8][post-emission-lfcp]；
-  [共享静态路网 §3][shared-static-network-admission]。格式细节见
+  [共享静态路网 §3][shared-static-network-admission]；
+  [状态完整性 §4.2][state-integrity-attestation]。格式细节见
   [`portable-canonical-artifact.md`][portable-artifact]。
   [`check_portable_candidate`][mod-rs] 只是检查委托，不是完整检查实现。
 
@@ -250,7 +253,9 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [issue-1322]: https://github.com/illusion-tech/laneflow/issues/1322
 [lane-change-contract-a1]: ../design/lane-change-minimal-contract.md#3-承载形式裁定-a1-回写
 [lane-change-contract-a3]: ../design/lane-change-minimal-contract.md#5-同拍联合求解与预约约束裁定-a3a4-回写核心
-[lane-change-contract-a6]: ../design/lane-change-minimal-contract.md#6-能力检查裁定-a6-选项-3-回写
+[lane-change-contract-a6]: ../design/lane-change-minimal-contract.md#6-能力检查裁定-a6--选项-3-回写
+[source-integration-attestation]: ../guides/source-integration.md#安装前修订认证
+[state-integrity-attestation]: ../design/traffic-runtime-state-integrity.md#42-共享路网修订认证
 [lane-change-contract-a5]: ../design/lane-change-minimal-contract.md#9-持久化与版本轴裁定-a5规范定义见-snapshot-衔接注记
 [lane-change-contract-limits]: ../design/lane-change-minimal-contract.md#10-排除能力限制与缺口
 [transition-visibility-rs]: ../../crates/laneflow-runtime/src/kernel/tests/transition_visibility.rs

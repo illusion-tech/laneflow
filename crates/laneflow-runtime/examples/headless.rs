@@ -1,4 +1,5 @@
-//! 无窗口源码接入：检入走廊 LFCA 与 catalog，注册一条路线、生成一辆车并固定步进。
+//! 无窗口源码接入：检入走廊 LFCA 与 catalog，认证共享路网修订后安装，注册一条路线、
+//! 生成一辆车并固定步进。
 //!
 //! 本文件是唯一完整程序。Cargo 同时把它登记为集成测试 `headless_smoke`：
 //! `cargo run --example headless` 打印结果，`cargo test --test headless_smoke`
@@ -14,18 +15,21 @@ use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, ObservationError, ObservationExportMode,
     ObservationSelection, PublishedLfcaReference, RouteError, RouteRegisterInput, StepError,
     TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldPolicySelection,
+    attest_published_shared_network_revision,
 };
 use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, PASSENGER_CAR_PROFILE_KEY, PORTAL_IDS, bind,
 };
 use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
-    build_shared_network_revision,
+    AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
+    SharedNetworkRevision, SpatialBuildOption, build_shared_network_revision,
 };
 
 /// 检入场景制品名。`v0.2` 是走廊文件名，不是可移植对象版本。
 const ASSET_KEY: &str = "checked-in:v0.2-signalized-corridor";
+/// 检查、构建与认证共用的格式天花板，不是任意不受信路网的安全预算。
+const FORMAT_LIMITS: FormatLimits = FormatLimits::HARD;
 const LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CATALOG: &str = include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
@@ -52,6 +56,8 @@ struct HeadlessReport {
     pub policy: WorldPolicySelection,
     /// 共享路网修订标识的小写十六进制。
     pub network_revision: String,
+    /// 安装前修订认证的结论。只有 `Pass` 才会继续安装。
+    pub attestation_verdict: AttestationVerdict,
     /// 已提交来源的修订标识是否与共享路网修订相同。
     pub source_revision_matches: bool,
     /// catalog 首个 portal。
@@ -136,6 +142,11 @@ impl HeadlessReport {
         } else {
             "present"
         };
+        let attestation = match self.attestation_verdict {
+            AttestationVerdict::Pass => "pass",
+            AttestationVerdict::Mismatch => "mismatch",
+            AttestationVerdict::Untrusted => "untrusted",
+        };
         let session_after_rejected_delta = if self.rejected_delta_left_session_empty {
             "empty"
         } else {
@@ -148,6 +159,7 @@ catalog_version={CATALOG_VERSION}
 spatial=omitted
 policy={policy}
 network_revision={revision}
+attestation={attestation}
 source_revision_matches={source_matches}
 portal={portal}
 lane_index={lane}
@@ -211,7 +223,7 @@ front_vehicle_count={fronts}
     }
 }
 
-/// 检查检入 LFCA、省略 Spatial 保留数据，并安装一辆车的世界。
+/// 检查检入 LFCA、省略 Spatial 保留数据、认证修订，并安装一辆车的世界。
 fn run() -> ExampleResult<HeadlessReport> {
     let catalog: laneflow_scenario::signalized_corridor::CorridorCatalog = toml::from_str(CATALOG)?;
     if catalog.catalog_version != CATALOG_VERSION {
@@ -221,14 +233,16 @@ fn run() -> ExampleResult<HeadlessReport> {
         )
         .into());
     }
-    let revision = shared_revision()?;
+    let (revision, reference) = admit_and_build(LFCA)?;
     let bound = bind(&catalog, &revision)?;
     let WorldPolicySelection::Pinned(_) = bound.policy_selection else {
         return Err("走廊含 Gate / ConflictZone / ParticipantStream，不能使用 NotRequired".into());
     };
     let choice = entry_choice(&catalog, &bound)?;
-    let mut world = install_world(
+    let (attestation_verdict, mut world) = attest_and_install(
         &revision,
+        reference,
+        LFCA,
         bound.policy_selection,
         u64::try_from(choice.edges.len())?,
     )?;
@@ -326,6 +340,7 @@ fn run() -> ExampleResult<HeadlessReport> {
     Ok(HeadlessReport {
         policy: bound.policy_selection,
         network_revision: format!("{:x}", revision.network_revision().as_digest()),
+        attestation_verdict,
         source_revision_matches,
         portal_id: choice.portal_id,
         lane_index: choice.lane_index,
@@ -374,38 +389,69 @@ fn debug_error(error: impl core::fmt::Debug) -> Box<dyn Error> {
     format!("{error:?}").into()
 }
 
-fn shared_revision() -> ExampleResult<Arc<SharedNetworkRevision>> {
-    // `FormatLimits::HARD` 是仓库示例使用的格式天花板，不是任意不受信路网的安全预算。
-    let input = check_canonical_network_input(LFCA, FormatLimits::HARD).map_err(debug_error)?;
-    let revision = build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::Omit,
-            SharedNetworkBuildLimits::new(BUILD_RETAINED_BYTES, BUILD_SCRATCH_BYTES),
-        ),
+fn build_options() -> SharedNetworkBuildOptions<'static> {
+    SharedNetworkBuildOptions::new(
+        SpatialBuildOption::Omit,
+        SharedNetworkBuildLimits::new(BUILD_RETAINED_BYTES, BUILD_SCRATCH_BYTES),
     )
-    .map_err(debug_error)?;
+}
+
+/// 宿主准入阶段：检查 LFCA，在受检输入上记录发布来源引用，再构建共享路网修订。
+///
+/// 引用取自受检输入（reader 对本次字节重算的 digest、精确长度与修订标识），
+/// 不取自之后构建出的修订的 `origin`。真实宿主保存自己发布或准入时记录的引用。
+fn admit_and_build(
+    lfca: &'static [u8],
+) -> ExampleResult<(Arc<SharedNetworkRevision>, PublishedLfcaReference)> {
+    let input = check_canonical_network_input(lfca, FORMAT_LIMITS).map_err(debug_error)?;
+    let reference = PublishedLfcaReference::new(
+        ASSET_KEY,
+        input.canonical_artifact_digest(),
+        input.canonical_artifact_byte_length(),
+        input.network_revision(),
+    )?;
+    let revision = build_shared_network_revision(input, build_options()).map_err(debug_error)?;
     if revision.spatial().is_some() {
         return Err("SpatialBuildOption::Omit 仍保留了 Spatial component".into());
     }
-    Ok(revision)
+    Ok((revision, reference))
 }
 
-fn install_world(
+/// 安装前认证修订，只有 `Pass` 才安装；其他结论与操作失败都停止本次接入。
+///
+/// 认证使用与检查、构建相同的格式限额、Spatial 选项和构建预算。安装时发布来源
+/// 只按 `NetworkRevisionId` 拒绝错修订；digest / 精确长度只作来源审计。
+fn attest_and_install(
     revision: &Arc<SharedNetworkRevision>,
+    reference: PublishedLfcaReference,
+    lfca: &[u8],
     policy: WorldPolicySelection,
     edge_occurrences: u64,
-) -> ExampleResult<TrafficWorld> {
-    let origin = revision.canonical_origin();
-    // 发布来源在安装时只按 NetworkRevisionId 拒绝错修订。digest / length 写入来源供审计，
-    // 同修订重发布即使这两项不同也不构成拒绝。这里记录的是本次受检字节的原值。
-    let reference = PublishedLfcaReference::new(
-        ASSET_KEY,
-        origin.canonical_artifact_digest(),
-        origin.canonical_artifact_byte_length(),
-        origin.network_revision(),
-    )?;
-    Ok(TrafficWorld::install(
+) -> ExampleResult<(AttestationVerdict, TrafficWorld)> {
+    let outcome = attest_published_shared_network_revision(
+        revision,
+        &reference,
+        lfca,
+        FORMAT_LIMITS,
+        build_options(),
+        None,
+    );
+    let verdict = match outcome {
+        AttestationOutcome::Concluded(report) if report.verdict == AttestationVerdict::Pass => {
+            report.verdict
+        }
+        AttestationOutcome::Concluded(report) => {
+            return Err(format!(
+                "修订认证未通过，停止安装：verdict={:?} cause={:?}",
+                report.verdict, report.cause
+            )
+            .into());
+        }
+        AttestationOutcome::OperationFailed(failure) => {
+            return Err(format!("修订认证操作失败，停止安装：{failure:?}").into());
+        }
+    };
+    let world = TrafficWorld::install(
         Arc::clone(revision),
         WorldConfig::new(
             1,
@@ -418,7 +464,8 @@ fn install_world(
         CommittedNetworkSource::Published { reference },
         WORLD_ID,
         policy,
-    )?)
+    )?;
+    Ok((verdict, world))
 }
 
 fn entry_choice(
@@ -485,8 +532,9 @@ fn main() -> ExampleResult<()> {
 
 #[cfg(test)]
 mod behavior {
-    use super::run;
+    use super::{LFCA, admit_and_build, attest_and_install, run};
     use laneflow_runtime::{ObservationExportMode, VehicleStatus, WorldPolicySelection};
+    use laneflow_static_network::AttestationVerdict;
 
     #[test]
     fn checked_corridor_advances_one_vehicle_and_bad_delta_does_not_commit() {
@@ -497,6 +545,7 @@ mod behavior {
             matches!(report.policy, WorldPolicySelection::Pinned(_)),
             "corridor catalog must pin a policy"
         );
+        assert_eq!(report.attestation_verdict, AttestationVerdict::Pass);
         assert!(report.source_revision_matches, "published source revision");
         assert_eq!(
             report.network_revision,
@@ -536,7 +585,29 @@ mod behavior {
         assert_eq!(report.front_vehicle_count, 1);
         assert!(text.contains(&format!("time_ms={}", report.time_ms)));
         assert!(text.contains(&format!("network_revision={}", report.network_revision)));
+        assert!(text.contains("attestation=pass"));
         assert!(text.contains("rejected_step=DeltaMismatch"));
         assert!(text.contains("rejected_observation=FirstExportMustBeFull"));
+    }
+
+    #[test]
+    fn failed_attestation_stops_before_install() {
+        let (revision, reference) = admit_and_build(LFCA).expect("admit checked corridor");
+        // 交给认证的来源字节被截断：来源准备阶段失败，不得继续安装。
+        let truncated = &LFCA[..LFCA.len() - 1];
+        let error = attest_and_install(
+            &revision,
+            reference,
+            truncated,
+            WorldPolicySelection::NotRequired,
+            0,
+        )
+        .err()
+        .expect("non-Pass attestation must stop the integration");
+        let message = error.to_string();
+        assert!(
+            message.contains("停止安装") && message.contains("cause=Some(Source)"),
+            "rejection must come from attestation, got {message}"
+        );
     }
 }

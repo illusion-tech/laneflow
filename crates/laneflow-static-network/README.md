@@ -14,7 +14,7 @@
 check_canonical_network_input → build_shared_network_revision → Arc<SharedNetworkRevision>
 ```
 
-无窗口示例使用 `SpatialBuildOption::Omit`，再把得到的修订交给 `TrafficWorld::install`。完整命令和实跑输出见[从源码接入无窗口交通运行时][source-integration]。
+无窗口示例使用 `SpatialBuildOption::Omit`，用 `attest_published_shared_network_revision` 认证得到的修订，只有 `Pass` 才交给 `TrafficWorld::install`。完整命令和实跑输出见[从源码接入无窗口交通运行时][source-integration]。
 
 ## 主要约束与限制
 
