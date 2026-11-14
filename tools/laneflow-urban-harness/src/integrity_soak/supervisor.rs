@@ -579,6 +579,57 @@ mod required_memory_tests {
     }
 }
 
+/// #1097 根因的确定性回归：Linux 上已退出未回收的驻留进程是僵尸，`statm` 的 RSS
+/// 为 0。经真实 `ChildGuard::members` 采样，它必须判为已退出，而不是“存活但未测得”。
+#[cfg(all(test, target_os = "linux"))]
+mod linux_zombie_sampling_tests {
+    use std::{
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use sysinfo::System;
+
+    use super::{ChildGuard, ResidentMemory, required_memory};
+
+    #[test]
+    fn unreaped_exited_resident_is_a_zombie_with_zero_rss_and_counts_as_exited() {
+        let child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let resident = child.id();
+        let mut guard = ChildGuard::new(child, System::new().unwrap());
+        // 不调用 try_wait：子进程退出后保持未回收状态，直到 sysinfo 观测到僵尸。
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let members = loop {
+            let members = guard.members();
+            let zombie = members
+                .iter()
+                .any(|member| member["pid"] == resident && member["terminated"] == true);
+            if zombie {
+                break members;
+            }
+            assert!(Instant::now() < deadline, "child never became a zombie");
+            thread::sleep(Duration::from_millis(10));
+        };
+        let member = members
+            .iter()
+            .find(|member| member["pid"] == resident)
+            .unwrap();
+        assert_eq!(member["resident_bytes"], serde_json::Value::Null);
+        let (supervisor_measured, state) =
+            required_memory(&members, std::process::id(), resident, false);
+        assert!(supervisor_measured);
+        assert_eq!(state, ResidentMemory::Exited);
+        guard.terminate().unwrap();
+    }
+}
+
 #[cfg(test)]
 mod float_judgment_tests {
     //! #1173：soak 浮点判定谓词的 ±1 ULP 边界注入翻转测试与输入域零漂移证明
