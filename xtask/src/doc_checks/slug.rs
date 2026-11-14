@@ -7,12 +7,11 @@ use std::collections::BTreeMap;
 /// 从标题可见文本生成 slug。
 ///
 /// 先去掉首尾空白，再只把 ASCII `A-Z` 收成小写。连字符与下划线保留，
-/// Unicode 字母和数字（含中文）保留。连续空白合并成一个 `-`，其余字符删除。
-/// 夹在空白之间的标点删掉后，两侧空白仍只留下一个 `-`，因此
-/// `A6 = 选项` 变成 `a6-选项`，而不是 `a6--选项`。
+/// Unicode 字母和数字（含中文）保留。每个空白字符各映射为一个 `-`，不合并；
+/// 其余字符删除。夹在空白之间的标点删掉后，两侧空白各留一个 `-`，因此
+/// `A6 = 选项` 变成 `a6--选项`，`a  b` 变成 `a--b`。
 pub(super) fn github_subset_slug(text: &str) -> String {
     let mut slug = String::new();
-    let mut pending_hyphen = false;
     for ch in text.trim().chars() {
         let ch = if ch.is_ascii_uppercase() {
             ch.to_ascii_lowercase()
@@ -20,14 +19,8 @@ pub(super) fn github_subset_slug(text: &str) -> String {
             ch
         };
         if ch.is_whitespace() {
-            pending_hyphen = true;
-            continue;
-        }
-        if ch == '-' || ch == '_' || ch.is_alphanumeric() {
-            if pending_hyphen && !slug.is_empty() {
-                slug.push('-');
-            }
-            pending_hyphen = false;
+            slug.push('-');
+        } else if ch == '-' || ch == '_' || ch.is_alphanumeric() {
             slug.push(ch);
         }
     }

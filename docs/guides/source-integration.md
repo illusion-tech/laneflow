@@ -1,7 +1,7 @@
 # 从源码接入无窗口交通运行时
 
 **文档状态**: Active
-**最后更新**: 2026-11-11
+**最后更新**: 2026-11-15
 
 本文是操作性接入教程。它引用仓库里的真实示例，不替代
 [架构说明][architecture]、[当前能力与限制][capabilities]
@@ -49,6 +49,7 @@ catalog_version=0.4
 spatial=omitted
 policy=pinned
 network_revision=2de4820d35bee0ef71374cae49036fbef75155a2a587cbd13b351d5f7655ad27
+attestation=pass
 source_revision_matches=true
 portal=portal-main-west
 lane_index=0
@@ -88,7 +89,8 @@ front_vehicle_count=1
 
 这个 example 用到 `laneflow-runtime` 的 dev-dependencies，其中包括 `laneflow-scenario` 和
 `toml`。同一组 dev-dependencies 已经为其他测试打开 `laneflow-static-network` 的
-`attestation-fixtures`。本示例不调用该测试模块，也不能据此说整条 dev 依赖图没有测试 feature。
+`attestation-fixtures`。本示例只调用公开认证入口 `attest_published_shared_network_revision`，
+不调用该测试模块，也不能据此说整条 dev 依赖图没有测试 feature。
 
 ## 管线
 
@@ -97,12 +99,14 @@ front_vehicle_count=1
 
 顺序是：
 
-1. `check_canonical_network_input` 得到受检 LFCA（`CheckedCanonicalNetworkInput`）。
+1. `check_canonical_network_input` 得到受检 LFCA（`CheckedCanonicalNetworkInput`），宿主
+   在这一步从受检输入记下发布来源引用 `PublishedLfcaReference`。
 2. `build_shared_network_revision` 得到进程内的 `SharedNetworkRevision`。
-3. `TrafficWorld::install` 安装这根修订，并带上宿主点名的已提交来源和策略选择。
-4. 宿主 `register_route`，再 `spawn_vehicle`。
-5. 以世界配置里的固定步长调用 `step`。
-6. 打开观测 session，第一次导出必须是 Full。
+3. `attest_published_shared_network_revision` 认证这份修订。只有结论为 `Pass` 才继续。
+4. `TrafficWorld::install` 安装这份修订，并带上宿主点名的已提交来源和策略选择。
+5. 宿主 `register_route`，再 `spawn_vehicle`。
+6. 以世界配置里的固定步长调用 `step`。
+7. 打开观测 session，第一次导出必须是 Full。
 
 共享修订不是文件、ABI 或存档。路线只存在于这个世界里，不写回静态制品。
 
@@ -133,6 +137,8 @@ Spatial 或 Bevy。`laneflow-runtime` 的 dev-dependencies 里已经有 `laneflo
 
 `asset` 那一行的 `checked-in:v0.2-signalized-corridor` 是宿主资产键，不是安装后的文件路径。
 `PublishedLfcaReference` 记下这次受检字节的 digest、精确长度和 `NetworkRevisionId`。
+这三个值取自受检输入，也就是 reader 对本次字节重算的结果，不取自之后构建出的修订的
+origin。真实宿主应保存自己发布或准入时记录的引用。
 
 安装发布来源时，严格核对的是 `NetworkRevisionId` 与共享修订 origin 一致。实跑
 `source_revision_matches=true` 只表示这两份修订标识相同。digest 或 length 不同只供来源审计，
@@ -142,6 +148,23 @@ digest / length 对应。本示例走的是发布来源。
 
 合同见
 [运行时快照 §5][runtime-snapshot-restore]。
+
+### 安装前修订认证
+
+宿主须在首次安装或绑定之前认证将要投入使用的修订；`TrafficWorld::install` 不代为执行。
+本示例在构建之后、安装之前调用 `attest_published_shared_network_revision`，传入：
+
+- 刚构建的共享修订；
+- 准入阶段保存的 `PublishedLfcaReference`，作为独立的来源期望值；
+- 同一份 LFCA 字节；
+- 与检查、构建相同的 `FormatLimits::HARD`、`SpatialBuildOption::Omit` 和构建预算。
+
+认证从来源重建候选修订并逐表比对。期望值不能取自被认证修订自身的 origin，否则比对
+没有意义。来源同修订的判据仍是 `NetworkRevisionId`；digest / length 差异只记入来源审计，
+不影响结论。实跑 `attestation=pass`。结论为 `Mismatch`、`Untrusted` 或操作失败时，示例返回
+错误并停止本次接入，不安装世界。合同与处置见
+[状态完整性 §2.2][state-integrity-expectation] 和
+[状态完整性 §4.2][state-integrity-attestation]。
 
 ### 四容量与固定步长
 
@@ -221,7 +244,11 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 
 ## 失败定位
 
-三类失败不要混成一种“调用失败”：
+安装前的修订认证未通过，属于接入前就停止的情形：示例返回错误，不安装世界，也就没有
+后续步骤。共用测试 `failed_attestation_stops_before_install` 把截断后的 LFCA 交给认证，
+得到判因为来源的 `Mismatch`，并确认停止在安装之前。
+
+安装之后，三类失败不要混成一种“调用失败”：
 
 | 种类            | 本示例里的样子                                 | 提交了什么                 | 之后还能用这个世界吗                       |
 | --------------- | ---------------------------------------------- | -------------------------- | ------------------------------------------ |
@@ -264,6 +291,8 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 [portable-artifact-safety]: ../design/portable-canonical-artifact.md#7-格式安全天花板
 [capabilities-spatial]: ../reference/capabilities.md#spatial
 [runtime-snapshot-restore]: ../design/traffic-runtime-snapshot.md#5-保存与恢复
+[state-integrity-expectation]: ../design/traffic-runtime-state-integrity.md#22-期望值来源时点与绑定
+[state-integrity-attestation]: ../design/traffic-runtime-state-integrity.md#42-共享路网修订认证
 [capabilities-parallel]: ../reference/capabilities.md#单世界并行
 [execution-config]: ../design/traffic-runtime-execution-config.md
 [parallel-execution-join]: ../design/traffic-runtime-parallel-execution.md#43-join取消与失败清理

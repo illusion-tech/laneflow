@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Active（版本能力边界；实施状态在 GitHub）<br>
-**最后更新**: 2026-11-11
+**最后更新**: 2026-11-15
 **适用范围**: LaneFlow 已完成版本的能力边界、v0.10 验收证据范围，以及已裁定的后续版本目标
 
 本文记录版本能力边界和已验收结论。现行系统见
@@ -25,10 +25,14 @@ loader、schema 和实施链留在 git 历史与所链设计中。
 | v0.3 | 2026-07-14 | 前车避让、纵向舒适控制与安全投影                     | [跟车][vehicle-following]、[ADR 0006][adr-0006]                                                 |
 | v0.4 | 2026-07-15 | 固定时制信号、指示与 Gate 合规                       | [信号][signal-system]、[ADR 0009][adr-0009]                                             |
 | v0.5 | 2026-07-17 | 停车位占用、绑定和与纵向约束的组合                   | [停车][parking-system]、[ADR 0010][adr-0010]                                         |
-| v0.6 | 2026-07-21 | 整数毫米一维交通几何，以及引擎无关的空间帧与位姿采样 | [数值表示][numeric-representation]、[空间几何][spatial-geometry]、[ADR 0028][adr-0028] |
+| v0.6 | 2026-07-21 | 一维交通几何，以及引擎无关的空间帧与位姿采样         | [数值表示][numeric-representation]、[空间几何][spatial-geometry]、[ADR 0028][adr-0028] |
 | v0.7 | 2026-07-21 | 首个参考适配器：把已提交交通状态映射到宿主实体与变换 | [Bevy 适配器][bevy-adapter]、[Adapter API][adapter-api]                                                             |
 | v0.8 | 2026-07-24 | 直行信号化走廊，以及调用方拥有的持续车流             | [示例场景][example-scenarios]、[ADR 0016][adr-0016]                              |
 | v0.9 | 2026-07-26 | 受保护左转、直行和右转的信号化走廊，以及路口静态身份 | [路口模型][road-junction-model]、[受保护转向][protected-turning]                                          |
+
+v0.6 的完成不包含交通一维几何整数化。现行的整数毫米表示由之后的 #496（Runtime，
+2026-08-25 关闭）与 #500（Compiler，2026-08-26 关闭）完成，合同见
+[数值表示][numeric-representation]。
 
 横断面静态模型和 Waiting / Conflict 已进入现行能力。`RoadCorridor` 组织方向性
 路段；静态准入在车辆生成和替换时按参与者类别检查路线后缀。Waiting、Conflict 与显式路权由
