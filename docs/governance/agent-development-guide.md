@@ -42,6 +42,8 @@ AI Agent 应遵守以下流程：
 5. 修改代码或文档。
 6. 运行与变更匹配的检查。
 7. 在 PR 中记录测试、风险和未覆盖范围。
+8. 任务在 GitHub 侧终局后，按[分支与工作树清理][branch-cleanup]清理本任务创建的
+   分支与工作树；超出该节自主边界的对象先请示维护者。
 
 新实现默认使用 Rust。任何拟新增或修改的非 Rust 代码（含研究、测试、CI 和嵌入脚本，纯删除除外），
 开工前必须按[代码语言立项审查][code-language-policy]取得维护者明确接受；
@@ -143,3 +145,4 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 GitHub Actions App `integration_id=15368`。
 
 [code-language-policy]: code-language-policy.md
+[branch-cleanup]: github-workflow.md
