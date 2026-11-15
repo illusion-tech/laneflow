@@ -535,11 +535,3 @@ fn resource_rows_match_complete_resource_lifecycle_and_retry_traces() {
         );
     }
 }
-
-#[test]
-fn occupancy_candidate_preserves_exact_trace_and_first_error_priority() {
-    crate::kernel::exact_path_research::with_candidate(true, || {
-        exact_baseline_trace_and_retry_match();
-        input_and_preparation_errors_precede_staged_failure();
-    });
-}

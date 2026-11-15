@@ -4123,9 +4123,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         #[cfg(test)]
         note_columnar_work(0, 1);
         #[cfg(test)]
-        let inputs_timer = super::exact_path_research::begin(
-            super::exact_path_research::Stage::RouteProfileInputs,
-        );
+        let inputs_timer =
+            super::stage_attribution::begin(super::stage_attribution::Stage::RouteProfileInputs);
         let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(position.route_edge_index).ok()?;
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
@@ -4144,7 +4143,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         drop(inputs_timer);
         #[cfg(test)]
         let horizon_timer =
-            super::exact_path_research::begin(super::exact_path_research::Stage::LeaderHorizon);
+            super::stage_attribution::begin(super::stage_attribution::Stage::LeaderHorizon);
         let horizon = match horizon {
             Some(horizon) => horizon,
             None => leader_query_horizon(state.speed_mm_s(), profile, delta_s)?,
@@ -4152,8 +4151,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         #[cfg(test)]
         drop(horizon_timer);
         #[cfg(test)]
-        let gap_timer =
-            super::exact_path_research::begin(super::exact_path_research::Stage::LeaderGap);
+        let gap_timer = super::stage_attribution::begin(super::stage_attribution::Stage::LeaderGap);
         let leader_gap = match leader_gap_override {
             Some(gap) => gap,
             None => self.derived.occupancy.leader_gap(
@@ -4169,7 +4167,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         drop(gap_timer);
         #[cfg(test)]
         let stop_timer =
-            super::exact_path_research::begin(super::exact_path_research::Stage::RouteStopQueries);
+            super::stage_attribution::begin(super::stage_attribution::Stage::RouteStopQueries);
         let route_end = remaining_to_route_end(hop.remaining_to_end?, position.progress_mm);
         let reach = MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s);
         // 下一受控门本拍够不着时与逐门解释同为 None，不再读受控链。

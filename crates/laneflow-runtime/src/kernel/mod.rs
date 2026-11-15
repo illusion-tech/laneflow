@@ -95,10 +95,10 @@ pub(crate) mod execution_evidence;
 #[cfg(test)]
 pub(crate) mod performance_profile;
 
-/// #216 测试专用 exact 路径归因和有限候选；不进入生产构建。
+/// 测试构建的批次/查询阶段归因支撑（占用四阶段批次与抽样查询）；不进入生产构建。
 #[cfg(test)]
-#[path = "tests/exact_path.rs"]
-pub(crate) mod exact_path_research;
+#[path = "tests/stage_attribution.rs"]
+pub(crate) mod stage_attribution;
 
 /// #285 使用相同正式输入的内存/候选访问账本；不作为 latency 事实来源。
 #[cfg(test)]
