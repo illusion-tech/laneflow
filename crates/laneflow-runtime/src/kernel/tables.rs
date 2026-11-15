@@ -2349,7 +2349,8 @@ pub(crate) mod compile_route_tests {
         .unwrap()
     }
 
-    /// S3（#1194）：合成样本网络（`sample/minimal-closed-loop.json` v5 派生）。
+    /// S3（#1194）：合成样本网络（`docs/design/fixtures/lane-change/minimal-closed-loop.json`
+    /// v5 派生；本模块按其拓扑构造，不读取该 JSON）。
     /// 来源保真：合成来源原生声明（SyntheticDsl）；`T01` 为 uncovered 非 junction
     /// 过渡段（前后邻边分属同走廊不同 lane 链），不冒充 SUMO connection。
     pub(crate) mod s3_lane_change {

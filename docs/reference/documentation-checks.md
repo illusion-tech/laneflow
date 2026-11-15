@@ -46,11 +46,10 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 - `.agents/**/*.md`、`.cursor/skills/**/SKILL.md`
 - `crates/*/README.md`、`tools/*/README.md`、`schemas/**/*.md`
 - `.github/*.md`，不递归其中的 fixture
-- `research/README.md`，不递归研究历史
 
-默认不从这些位置收集来源：`research/**`（除首页）、`**/tests/**`、`**/fixtures/**`、`**/evidence/**`、`**/src/generated/**`、`.git/`、`target/`，以及防御性的 `vendor/` 与 `node_modules/`。
+默认不从这些位置收集来源：`**/tests/**`、`**/fixtures/**`、`**/evidence/**`、`**/src/generated/**`、`.git/`、`target/`，以及防御性的 `vendor/` 与 `node_modules/`。
 
-这是不从来源目录收集，不是忽略指向 fixture、测试或生成文件的链接。指向真实 fixture、JSON 或 `.rs` 的本地路径仍检查存在性，但不解析非 Markdown 文件里的锚点。`.git` 单独处理：它是仓库元数据，不是已提交内容。链接指向 `.git` 或其下路径时记为 `missing-path`，即使工作区里该路径存在（普通 clone 是目录，链接 worktree 可能是文件）。显式传入路径可以进入 research 文档；仍然不跟随符号链接，也不离开仓库。
+这是不从来源目录收集，不是忽略指向 fixture、测试或生成文件的链接。指向真实 fixture、JSON 或 `.rs` 的本地路径仍检查存在性，但不解析非 Markdown 文件里的锚点。`.git` 单独处理：它是仓库元数据，不是已提交内容。链接指向 `.git` 或其下路径时记为 `missing-path`，即使工作区里该路径存在（普通 clone 是目录，链接 worktree 可能是文件）。显式传入路径可以检查默认范围外的 Markdown；仍然不跟随符号链接，也不离开仓库。
 
 ## 3. 链接与路径
 

@@ -172,5 +172,5 @@ W  = dt * (v + nU) + nU * nU / b
 父任务 #707 的四基线、三轮完整观察、交通质量和正式资源认证继续独立开放。
 
 [contender-filter]: traffic-runtime-admission-contender-filter.md
-[admission-distant-results]: ../../research/issue-707-city-parallel/admission-distant-results.md
-[admission-filter-results]: ../../research/issue-707-city-parallel/admission-filter-results.md
+[admission-distant-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/admission-distant-results.md
+[admission-filter-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/admission-filter-results.md

@@ -733,8 +733,8 @@ E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
 [performance-baseline]: core-runtime-performance-baseline.md
 [attestation-baseline]: ../reference/v0.10-attestation-production-baseline.md
 [digest-baseline]: ../reference/v0.10-direct-digest-optimization-baseline.md
-[24-hour-soak]: ../../research/issue-963-integrity-evidence/24-hour-soak.md
-[long-soak-driver]: ../../research/issue-963-integrity-evidence/long-soak-driver.md
-[acceptance-evidence]: ../../research/issue-963-integrity-evidence/acceptance-evidence.md
+[24-hour-soak]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/24-hour-soak.md
+[long-soak-driver]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/long-soak-driver.md
+[acceptance-evidence]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/acceptance-evidence.md
 [issue-1063]: https://github.com/illusion-tech/laneflow/issues/1063
-[physical-injection-plan-start]: ../../research/issue-963-integrity-evidence/physical-injection-plan.md#研究用途与启动条件
+[physical-injection-plan-start]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/physical-injection-plan.md#研究用途与启动条件

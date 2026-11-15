@@ -537,8 +537,8 @@ case。身份选择（维护者 2026-11-05 裁定：W2 规模对 + L1 换道族�
 | certification boundary | `Product TBD / Uncertified`；确定性维度亦仅为描述性                                                                                                                                            |
 
 可重放身份（三身份的 manifest / network revision / workload manifest /
-state / selection / observation set / cost snapshot digest 逐身份登记于
-`research/issue-1267-routing-candidate-admission/`；三个证据面输出中的
+state / selection / observation set / cost snapshot digest 逐身份登记于固定提交中的
+[#1267 研究记录][routing-candidate-admission]；三个证据面输出中的
 workload manifest digest 逐身份一致，证明绑定同一冻结工作负载）。
 
 三路径集成证据：三身份 `complete=true`。成功路径 27/27/30 个探针
@@ -688,3 +688,4 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [performance-baseline]: core-runtime-performance-baseline.md
 [pull-521-comment]: https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930
 [issue-1279-record]: https://github.com/illusion-tech/laneflow/issues/1279#issuecomment-6676712976
+[routing-candidate-admission]: https://github.com/illusion-tech/laneflow/tree/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1267-routing-candidate-admission

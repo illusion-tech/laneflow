@@ -13,8 +13,9 @@
 - `traffic-runtime-snapshot.md`（持久化与版本轴衔接注记）
 - `cross-section-access.md`（相邻事实来源与整边界锚点，#237 消费契约）
 - `road-junction-model.md`（ManeuverPath/Gate；merge/diverge 边界）
-- `research/issue-1142-route-design/design.md`（边界设计与最小闭环样本）
-- 裁定记录双源：#237 冻结提案（issuecomment-6529967139，立时可解析）与 `research/production-g1-decision-package/g1-decision-package.md` §七（维护者 2026-10-31 裁定；PR #1183 精确提交 `451cdaa104a3d2304480f848a67bb86743cd3350`，合入后补 merge SHA）——两者同载 A1–A6 裁定原文
+- `fixtures/lane-change/minimal-closed-loop.json`（最小闭环样本，§7 末）；#1142
+  [边界设计][route-design-1142]为历史设计材料，固定提交可查
+- 裁定记录双源：#237 冻结提案（issuecomment-6529967139，立时可解析）与 [G1 决策包][g1-decision-package] §七（维护者 2026-10-31 裁定；PR #1183 精确提交 `451cdaa104a3d2304480f848a67bb86743cd3350`，合入后补 merge SHA）——两者同载 A1–A6 裁定原文
 
 本文是 #237 首版 G1 冻结对象，将维护者 A1–A3/A4/A6 裁定（2026-10-31，G1
 裁定记录双源）落为正式合同文本；A5（持久化与版本轴）的规范定义在
@@ -214,9 +215,10 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 | 失败面   | 车头离开即释放；只检查过渡区边不检查源/目标区间；长车跨边占用被漏算                                                                     |
 | 任务归属 | S4 运行时验收 × 持久化交叉（清空期快照恢复见 S5）                                                                                       |
 
-输入直接复用 `research/issue-1142-route-design/sample/minimal-closed-loop.json`
+输入直接复用 `docs/design/fixtures/lane-change/minimal-closed-loop.json`
 （v5）钉版场景（s4/s6/s12）；样本调整一律走 `meta.version` 递增流程，不得
-就地改值。
+就地改值。该样本是冻结的设计与验收场景定义：现行 Runtime 测试由 Rust builder
+按其 v5 拓扑构造派生网络，并不读取此 JSON，路径本身不表示测试已执行该样本。
 
 ## 8. 与既有合同的衔接
 
@@ -252,7 +254,7 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
   - **已知缺口**：直行车走与过渡段平行的边、路线不含过渡段的前驱和后继时（例如
     目标车道在汇入点之前分岔），P4 不覆盖该车，两车可能同时汇向同一位置而都不减速。
     注册拒绝覆盖不到这种情况，含此类拓扑的路网不应用于安全验收。
-- 缺口登记沿 G-A…G-F（G1 决策包 §四）：G-A 逐修订身份（§3.3 落地）；G-B
+- 缺口登记沿 G-A…G-F（[G1 决策包][g1-decision-package] §四）：G-A 逐修订身份（§3.3 落地）；G-B
   整边投影规避（§4）；G-C merge/diverge profile 缺（备选启用前必须补齐）；
   G-D 不适用（A6 裁定选项 3，无 WorldConfig 扩项）；G-E **更新**：活动过渡/
   持预约世界跨修订迁移或拒绝，首版取拒绝，迁移后续设计；G-F 诊断升格另评。
@@ -260,7 +262,11 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 ## 11. 实现边界
 
 - 本合同完成并冻结 #237 后，S1（展开器过渡感知）/S3（过渡材料化与静态发射）
-  方可立项（`research/issue-1177-route-g1-freeze/slice-s1-s3.md`）；S4 承接
-  运行时执行与 R1–R3 验收；S5 承接持久化。
+  方可立项（[S1/S3 实现计划][slice-s1-s3]）；S4 承接运行时执行与 R1–R3 验收；
+  S5 承接持久化。
 - 生产行为变更（hop 许可增加预约判据、预约仲裁、能力拒绝入口）按本合同
   G1 记录后实现；实现前不放宽生产路线行为。
+
+[route-design-1142]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1142-route-design/design.md
+[g1-decision-package]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/production-g1-decision-package/g1-decision-package.md
+[slice-s1-s3]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1177-route-g1-freeze/slice-s1-s3.md

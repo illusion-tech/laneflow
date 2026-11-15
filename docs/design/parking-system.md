@@ -835,6 +835,6 @@ Active 插入/删除仍有 `O(A_i)` 查找或连续内存移动。位置表保�
 #542 的正式拓扑生成、#544 的车辆运行或 #545 的跨层取证；#543 的研究容量报告也不
 代替这些交付。#304 整体 G1 接受不等于工作负载已经交付或达到 Product Pass。
 
-[parking-commands-readme]: ../../research/issue-678-parking-commands/README.md
-[active-order-readme]: ../../research/issue-696-active-order/README.md
+[parking-commands-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-678-parking-commands/README.md
+[active-order-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-696-active-order/README.md
 [chinese-style-city-workload]: chinese-style-city-workload.md

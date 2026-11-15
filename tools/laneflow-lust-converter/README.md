@@ -27,7 +27,7 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 共享人口按 §4.1 使用 `LF-REAL-LUST-POPULATION-v2`、XXH3-64 seed 0 与原始
 UTF-8 ID 次键。转换报告为 `formatVersion=0.3`，明确携带 `population.derivationId`；
 来源、制品与 provenance 仍以 SHA-256 校验。人口迁移与诊断证据见
-[`research/issue-1053-lust-population-v2`][lust-population-v2-readme]。
+固定提交中的 [#1053 研究记录][lust-population-v2-readme]。
 
 ## 用法
 
@@ -49,6 +49,12 @@ cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip
 `regenerate_lust_stub_weld_candidates_manifest` 覆写 `evidence/` 的候选 manifest
 基线——与比对测试并行竞争，漂移基线会被覆写后门检失效。regenerate 只在
 更新基线时显式单独运行（见 `evidence/README.md` 更新流程）。
+
+部分 ignored 重放实验（#1053 人口迁移、S1 恢复覆盖系列）还需
+`PINNED_RESEARCH_ROOT` 指向含数据冻结提交（如 `564f9ac8`、`f71123b5`）checkout 的
+`research/` 目录；未设置即失败，不回落到当前树（根 `research/` 已随 #1378 移除）。
+源码注释、测试 fixture 与输出来源字段中的 `research/...` 路径均以冻结提交为根，
+见 `src/pinned_research.rs` 模块说明。
 
 ### 精确十进制渲染回归与局部测量
 
@@ -90,4 +96,4 @@ output_dir = "E:/data/laneflow-lust-out"
 converter 自带 `licenses/NOTICE` 与 `licenses/ODbL-1.0.txt`；upstream `LICENSE.md` 从 pinned source 复制。
 
 [real-road-workloads]: ../../docs/design/real-road-workloads.md
-[lust-population-v2-readme]: ../../research/issue-1053-lust-population-v2/README.md
+[lust-population-v2-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1053-lust-population-v2/README.md

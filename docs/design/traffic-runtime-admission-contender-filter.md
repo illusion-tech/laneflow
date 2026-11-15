@@ -208,6 +208,6 @@ step 退化或资源成本上升，保留结果并停止本候选，不自动追
 [near-gate]: traffic-runtime-near-gate-frontier.md
 [traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
 [shared-consumption]: traffic-runtime-shared-consumption.md
-[admission-filter-results]: ../../research/issue-707-city-parallel/admission-filter-results.md
+[admission-filter-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/admission-filter-results.md
 [speed-drop-proof]: traffic-runtime-admission-speed-drop-proof.md
-[admission-distant-results]: ../../research/issue-707-city-parallel/admission-distant-results.md
+[admission-distant-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/admission-distant-results.md

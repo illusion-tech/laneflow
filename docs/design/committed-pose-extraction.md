@@ -180,14 +180,14 @@ Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但�
    API 迁移。
 2. Runtime 借用来源与 Adapter 全量缓冲迁移（已由 #712 实施）：依赖本设计
    G1，使用同一来源原语，一次迁移所有调用方；验收稳态 source 分配消失、
-   原有首错和全量输出等价（测量见 research/issue-712-borrowed-sources）。
+   原有首错和全量输出等价（测量见固定提交中的 [#712 研究记录][borrowed-sources]）。
 3. Adapter 选取入口与产品式 harness：依赖第 2 项及本设计 G1；引入完整选择验证、
    失效语义与真实生命周期矩阵，保持全量验证模式。重新测量完整产品式链路。
 4. Parking pose 缓存：暂缓实施。须先在真实显式停车比例与多 Session 工作负载上
    比较冷/热收益、缓存内存和失效成本，再决定是否立项。
 
 第 1、2 项没有实现依赖；第 3 项消费第 2 项。性能改进的采纳结论与实际完成状态
-记录在 GitHub；具体测量样例和局限见 research 报告，不将微测量写成产品达标事实。
+记录在 GitHub；具体测量样例和局限见上述研究记录，不将微测量写成产品达标事实。
 
 [adapter-api]: adapter-api.md
 [spatial-geometry]: spatial-geometry.md
@@ -195,3 +195,4 @@ Selected 的逐帧数量验证仍检查完整 live 状态/停车 binding，但�
 [revision-cutover]: traffic-runtime-revision-cutover.md
 [urban-demand-harness]: urban-demand-harness.md
 [adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[borrowed-sources]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-712-borrowed-sources/README.md

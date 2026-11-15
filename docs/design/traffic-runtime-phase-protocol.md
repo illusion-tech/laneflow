@@ -557,4 +557,4 @@ downstream 索引容量，Waiting 首尾数组在安装/切换准备时独立分
 [traffic-runtime-module-boundary]: traffic-runtime-module-boundary.md
 [execution-config]: traffic-runtime-execution-config.md
 [parallel-execution]: traffic-runtime-parallel-execution.md
-[runtime-profile-readme]: ../../research/issue-583-runtime-profile/README.md
+[runtime-profile-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-583-runtime-profile/README.md

@@ -816,8 +816,8 @@ A/B 用法：两次运行从同一存档续跑。候选改变快照格式或恢�
 [right-of-way]: traffic-runtime-right-of-way-policy.md
 [runtime-snapshot]: traffic-runtime-snapshot.md
 [performance-baseline]: core-runtime-performance-baseline.md
-[selected-presentation-readme]: ../../research/issue-713-selected-presentation/README.md
+[selected-presentation-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-713-selected-presentation/README.md
 [laneflow-urban-harness-readme]: ../../tools/laneflow-urban-harness/README.md
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [validation-matrix]: ../reference/validation-matrix.md
-[long-window-acceptance-results]: ../../research/issue-707-city-parallel/long-window-acceptance-results.md
+[long-window-acceptance-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/long-window-acceptance-results.md

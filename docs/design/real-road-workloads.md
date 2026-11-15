@@ -821,9 +821,9 @@ frame contract，必须停止对应任务类别并完成独立 G1；满足 ADR �
 [example-scenarios]: example-scenarios.md
 [corridor-population]: signalized-corridor-population.md
 [lane-change-contract]: lane-change-minimal-contract.md
-[lust-population-v2-readme]: ../../research/issue-1053-lust-population-v2/README.md
+[lust-population-v2-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1053-lust-population-v2/README.md
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [xxhash]: https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h
-[xxh3-review]: ../../research/issue-1029-lust-digest/xxh3-review.md
+[xxh3-review]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1029-lust-digest/xxh3-review.md
 [lust-bevy-population-control]: lust-bevy-population-control.md
 [laneflow-lust-converter]: ../../tools/laneflow-lust-converter/

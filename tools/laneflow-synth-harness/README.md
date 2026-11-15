@@ -257,6 +257,6 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 [lf-synth-execution]: ../../docs/design/lf-synth-execution.md
 [lf-synth-execution-matrix]: ../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照
 [lf-synth-execution-retry]: ../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试
-[lf-synth-measurement-readme]: ../../research/issue-1166-lf-synth-measurement/README.md
+[lf-synth-measurement-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1166-lf-synth-measurement/README.md
 [lf-synth-measurement]: ../../docs/design/lf-synth-measurement.md
-[lf-synth-restore-readme]: ../../research/issue-1197-lf-synth-restore/README.md
+[lf-synth-restore-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1197-lf-synth-restore/README.md

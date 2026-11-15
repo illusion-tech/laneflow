@@ -401,8 +401,8 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_c
 exact `3,312 B`。保存前后稳态 tick 账本**相等**的硬断言通过（实测两侧均 `0/0`；
 断言对象是相等性，不是 0 值本身）。已实现的 §9 义务的回归面随 CI 保持；本节未新增
 覆盖，墙钟类证据为手动取证；Editable 来源与 editable load 见下文 #529 节。完整记录、
-原始输出与复现命令见
-`research/issue-537-target-path-baseline/`（结果表为数值正本）。
+原始输出与复现命令见固定提交中的
+[#537 研究报告][target-path-baseline]（结果表为数值正本）。
 
 ### 2026-10-28 editable load 初值（#529，v7）
 
@@ -511,3 +511,4 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 [lane-change-contract]: lane-change-minimal-contract.md
 [state-integrity]: traffic-runtime-state-integrity.md
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[target-path-baseline]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-537-target-path-baseline/README.md

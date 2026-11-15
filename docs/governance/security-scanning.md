@@ -36,7 +36,7 @@ setup identity。冻结配置为：
   与真实分析一致，run 内写明未执行分析与 workflow 运行链接，生成或上传失败时 job
   红；`merge_group` 不上传），`main` 的 `push`、每周调度与手工 dispatch 恒全量分析。
   适用源代码路径以 `.github/workflows/codeql.yml` 的过滤器为准，
-  与 `ci.yml` 的 Rust 过滤器同口径；`research/**` 与 `tools/**` 两侧精确到实际输入
+  与 `ci.yml` 的 Rust 过滤器同口径；`tools/**` 两侧精确到实际输入
   （CodeQL 侧只含 `.rs`——rust 库不含其他文件；CI 侧另含 Cargo 清单与锁文件，
   tools 另含 tests/fixtures/evidence/licenses 内的嵌入与测试数据），依据全仓
   100 目标编译期嵌入清点（#1293、#1298）。`crates/**`、`examples/**`、`xtask/**`
