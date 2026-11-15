@@ -362,18 +362,6 @@ impl Drop for GridReset {
     }
 }
 
-pub(crate) fn policy() -> Value {
-    json!({"grid_steps":STEPS,"states_per_cubic":STATE_LIMIT,
-        "representatives_per_cubic":REPRESENTATIVE_LIMIT,"frames":FRAME_LIMIT,
-        "retained_points":POINT_LIMIT,"work":EVALUATION_LIMIT,
-        "programs_per_edge":PROGRAM_LIMIT,"deviation_estimate_m":DEVIATION_METERS,
-        "end_degrees":END_DEGREES,"metrics_excluded_from_search_work":true,
-        "state_merge":"first BFS prefix per directed chord",
-        "initial_chord":"original complete-edge start clamp checked before prefix selection",
-        "transition_reuse":"remove directed chord after first BFS reach; preserve remaining order",
-        "scope":"retained finite representatives only; not continuous completeness or allocator peak"})
-}
-
 /// 跨调用共享三分量工作预算（#1154 冻结口径：标准网格与全部注入变体共享每边
 /// 32,000,000 网格工作预算、**不按见证续杯**；B 自定义几何驱动与 D 注入变体共用
 /// 同一句柄，reshape 侧 `source_fit`/`sampling` 分量同句柄扣减）。
@@ -431,11 +419,6 @@ pub(crate) fn search_guided(input: &EdgeInput, guide: Guide) -> EdgeSearch {
     search_guided_with_budget(input, guide, &mut WorkBudget::per_call_default())
 }
 
-/// #1221 §3.5：见证参数注入后的整边搜索；预算与上限不增加。
-pub(crate) fn search_injected(input: &EdgeInput, injection: Injection) -> EdgeSearch {
-    search_injected_with_budget(input, injection, &mut WorkBudget::per_call_default())
-}
-
 pub(crate) fn search_with_budget(input: &EdgeInput, budget: &mut WorkBudget) -> EdgeSearch {
     search_impl(input, false, None, None, budget)
 }
@@ -450,14 +433,6 @@ pub(crate) fn search_guided_with_budget(
     budget: &mut WorkBudget,
 ) -> EdgeSearch {
     search_impl(input, true, Some(guide), None, budget)
-}
-
-pub(crate) fn search_injected_with_budget(
-    input: &EdgeInput,
-    injection: Injection,
-    budget: &mut WorkBudget,
-) -> EdgeSearch {
-    search_impl(input, true, None, Some(injection), budget)
 }
 
 pub(crate) fn local_probe(control: [Vec3; 6], start_clamp: Option<Vec3>) -> Value {

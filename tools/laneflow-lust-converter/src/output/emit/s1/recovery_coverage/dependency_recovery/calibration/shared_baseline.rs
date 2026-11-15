@@ -23,27 +23,6 @@ pub(in super::super) use super::coverage::{
     span_control,
 };
 
-/// 需求单 merge_order 六项链（顺序不得更换）。
-const MERGE_ORDER: [&str; 6] = ["1103", "1107", "1111", "1115", "1131", "1134"];
-
-/// plan §1 逐级断言（边数/份数）：6/48 → 7/56 → 7/72 → 9/75 → 10/76 → 11/92。
-const PER_STAGE_COUNTS: [[usize; 2]; 6] = [[6, 48], [7, 56], [7, 72], [9, 75], [10, 76], [11, 92]];
-
-/// plan §1 最终逐边份数（11 边 92 份逐值，BTreeMap 键序）。
-const FINAL_PER_EDGE: [(&str, usize); 11] = [
-    ("sumo::-10004_5_1", 16),
-    ("sumo::-10034_0_0", 8),
-    ("sumo::-10130_16_0", 8),
-    ("sumo::-10130_18_0", 8),
-    ("sumo::-10130_8_0", 8),
-    ("sumo::-10564_3_0", 1),
-    ("sumo::-16502_0_0", 1),
-    ("sumo::-25332_7_0", 16),
-    ("sumo::-28860_3_0", 2),
-    ("sumo::-29388_3_0", 8),
-    ("sumo::-7348_3_0", 16),
-];
-
 /// 结果对照锚取材钉版（锚代际错位事故返工后）：#1134 run-03 `results.json`
 /// （631,650 字节）`#variants.new` 整行 = 92 池行。
 const RUN3_RESULTS_SHA256: &str =
@@ -208,9 +187,6 @@ fn json_numeric_literals(text: &[u8]) -> Vec<&[u8]> {
 
 /// 资产钉版（`shared-baseline-inputs.zip` 三成员；plan §2 同步钉版）。
 const POOL_JSON_SHA256: &str = "31fca69617e2fd5d818aafc64b6704451475e05bf3aa3918391e1a2f9feb1bb3";
-const RESULTS_ANCHOR_SHA256: &str =
-    "d025c4bf6cd2a6c815e9586124034d21c8232d6c9cb46266ad0a5727e658847b";
-const MANIFEST_SHA256: &str = "656fb97e66f0b8829664082a9e231c8eef35cb129d5496ddc3262de2375a2bcc";
 
 /// program 对象 u64 位逐个提取（lead ④ 裁决硬门 1：几何/判定唯一正本输入的位级断言）。
 /// 入参为 `{"start":[…],"segments":[{"end":[…]}]}` 形态的 program 对象。
@@ -374,44 +350,6 @@ fn build_pool(sources: &[(usize, &Value)]) -> (Value, Value, Value) {
     (rows, provenance, json!(per_stage))
 }
 
-/// plan §3 冻结链断言：逐级计数、11 边逐边份数、总数 92（与 MANIFEST 交叉一致）。
-fn assert_frozen_chain(rows: &Value, manifest: &Value) {
-    assert_eq!(
-        manifest["merge_order"],
-        json!(MERGE_ORDER),
-        "frozen merge order"
-    );
-    assert_eq!(
-        manifest["per_stage_counts"],
-        json!(PER_STAGE_COUNTS),
-        "frozen per-stage counts"
-    );
-    assert_eq!(
-        manifest["final"]["edge_count"],
-        FINAL_PER_EDGE.len(),
-        "manifest edge count"
-    );
-    assert_eq!(
-        manifest["final"]["candidate_count"], 92,
-        "manifest candidate count"
-    );
-    let edges = rows.as_object().unwrap();
-    assert_eq!(edges.len(), FINAL_PER_EDGE.len(), "frozen edge count");
-    let mut total = 0;
-    for (id, count) in FINAL_PER_EDGE {
-        let candidates = edges.get(id).unwrap_or_else(|| panic!("frozen edge {id}"))["candidates"]
-            .as_array()
-            .unwrap();
-        assert_eq!(candidates.len(), count, "frozen per-edge count {id}");
-        assert_eq!(
-            manifest["final"]["per_edge"][id], count,
-            "manifest per-edge count {id}"
-        );
-        total += count;
-    }
-    assert_eq!(total, 92, "frozen candidate count");
-}
-
 /// plan §3 ④：包内候选逐份往返校验——`program` 位逐字经 `frozen_candidate` 往返、
 /// 规范 f32 点位键逐边唯一（由程序点位重算，包内不另存）、每边 ≤16。校验通过后返回
 /// 可消费的 `combinations::Pools`（程序顺序 = 冻结合并顺序）。
@@ -496,73 +434,6 @@ fn results_anchor_text(source_text: &str) -> String {
     let interior = &source_text[inner_start..inner_end];
     let source_json = serde_json::to_string(&anchor_source_value()).unwrap();
     format!("{{\n  \"source\": {source_json},{interior}\n}}\n")
-}
-
-fn pinned_baseline_dir() -> PathBuf {
-    PathBuf::from(std::env::var("SIX_STREAMS_BASELINE_DIR").expect("SIX_STREAMS_BASELINE_DIR"))
-}
-
-/// 池原始记录读取（E1 A′ 派生等研究用途）：含 `spans`（`control_f64_bits`/
-/// `partition`/`pieces`）供参数恢复逐位核对；钉版断言同 `shared_pools`。
-pub(in super::super) fn shared_pool_records() -> Value {
-    let dir = pinned_baseline_dir();
-    let rows = read_pinned_json(&dir.join("pool.json"), POOL_JSON_SHA256);
-    let manifest = read_pinned_json(&dir.join("MANIFEST.json"), MANIFEST_SHA256);
-    assert_frozen_chain(&rows, &manifest);
-    rows
-}
-
-/// 需求单「池读取/断言」入口：A–D 唯一基线读取点。三资产 SHA-256 钉版断言 + 代码内
-/// 哈希/合并顺序/逐边份数断言 + 逐份往返校验后返回 `combinations::Pools`
-/// （旧 9/10 边池禁用）。
-pub(in super::super) fn shared_pools() -> combinations::Pools {
-    let dir = pinned_baseline_dir();
-    let rows = read_pinned_json(&dir.join("pool.json"), POOL_JSON_SHA256);
-    let _anchor = read_pinned_json(&dir.join("results-anchor.json"), RESULTS_ANCHOR_SHA256);
-    let manifest = read_pinned_json(&dir.join("MANIFEST.json"), MANIFEST_SHA256);
-    for (name, expected) in [
-        ("pool.json", POOL_JSON_SHA256),
-        ("results-anchor.json", RESULTS_ANCHOR_SHA256),
-    ] {
-        assert_eq!(
-            manifest["files"][name]["sha256"], expected,
-            "manifest files.{name}.sha256"
-        );
-        assert_eq!(
-            manifest["files"][name]["bytes"],
-            fs::read(dir.join(name)).unwrap().len(),
-            "manifest files.{name}.bytes"
-        );
-    }
-    assert_frozen_chain(&rows, &manifest);
-    verified_pools(&rows)
-}
-
-/// 需求单「结果对照锚」读取（仅对照，不作候选点位来源）。取材身份三件套
-/// （asset/json_pointer/release_tag）+ 代际标签断言（A 路入口同款钉版断言）。
-pub(in super::super) fn results_anchor_pinned() -> Value {
-    let dir = pinned_baseline_dir();
-    let anchor = read_pinned_json(&dir.join("results-anchor.json"), RESULTS_ANCHOR_SHA256);
-    let source = &anchor["source"];
-    assert_eq!(source["comparison_only"], true, "comparison-only anchor");
-    assert_eq!(
-        source["asset"], "evidence/run-03/results.json",
-        "anchor source asset"
-    );
-    assert_eq!(
-        source["json_pointer"], "#variants.new",
-        "anchor source json_pointer"
-    );
-    assert_eq!(
-        source["release_tag"], "research-evidence-1140-shared-baseline",
-        "anchor source release_tag"
-    );
-    assert_eq!(source["generation"], "92-池行", "anchor generation label");
-    assert_eq!(
-        source["sha256"], RUN3_RESULTS_SHA256,
-        "anchor source digest"
-    );
-    anchor
 }
 
 /// 临时目录唯一命名；钉版读取验证的同字节内容只写临时目录，不落仓库。
