@@ -22,6 +22,48 @@ const AUDITED_MMAP_EXPRESSION: &str = "unsafe { MmapOptions::new().len(expected)
 pub(crate) const AUDITED_MOTION_PACKAGE_NAME: &str = "laneflow-motion-kernel";
 const AUDITED_MOTION_PACKAGE_ROOT: &str = "crates/laneflow-motion-kernel";
 const AUDITED_MOTION_MANIFEST_PATH: &str = "crates/laneflow-motion-kernel/Cargo.toml";
+/// os-probe.md §4：本进程与整机计数器读取 crate，第三个受审计手写 unsafe 例外。
+pub(crate) const AUDITED_PROBE_PACKAGE_NAME: &str = "laneflow-os-probe";
+pub(crate) const AUDITED_PROBE_PACKAGE_ROOT: &str = "tools/laneflow-os-probe";
+pub(crate) const AUDITED_PROBE_MANIFEST_PATH: &str = "tools/laneflow-os-probe/Cargo.toml";
+/// 登记的全部 Rust 源文件（相对 package 根）；增删文件必须同步本表。
+const AUDITED_PROBE_SOURCES: [&str; 6] = [
+    "src/lib.rs",
+    "src/linux.rs",
+    "src/proc_text.rs",
+    "src/tests.rs",
+    "src/windows.rs",
+    "tests/read_without_allocation.rs",
+];
+/// unsafe 唯一允许出现的源文件。
+const AUDITED_PROBE_UNSAFE_SOURCE: &str = "src/windows.rs";
+/// os-probe.md §4.1 的 5 处固定调用；比对前去除全部空白，排版变化不影响匹配。
+const AUDITED_PROBE_EXPRESSIONS: [&str; 5] = [
+    "unsafe { (GetActiveProcessorGroupCount(), GetActiveProcessorCount(ALL_PROCESSOR_GROUPS), GetSystemTimes(&mut idle, &mut kernel, &mut user),) }",
+    "unsafe { GetProcessTimes(GetCurrentProcess(), &mut creation, &mut exit, &mut kernel, &mut user,) }",
+    "unsafe { GetThreadTimes(GetCurrentThread(), &mut creation, &mut exit, &mut kernel, &mut user,) }",
+    "unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), pointer, SIZE) }",
+    "unsafe { GetSystemPowerStatus(&mut status) }",
+];
+/// 受审计 os-probe 源码中禁止的 token：源码加载与间接、lint 放宽、汇编、自写
+/// FFI 声明与符号导出、内存重解释。
+const AUDITED_PROBE_FORBIDDEN_TOKENS: [&str; 15] = [
+    "include",
+    "cfg_attr",
+    "macro_rules",
+    "unsafe_code",
+    "unsafe_op_in_unsafe_fn",
+    "rust_2024_compatibility",
+    "asm",
+    "global_asm",
+    "llvm_asm",
+    "extern",
+    "no_mangle",
+    "export_name",
+    "link_name",
+    "link_section",
+    "transmute",
+];
 
 #[derive(Default, serde::Deserialize)]
 struct ManifestLints {
@@ -393,6 +435,10 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         .join(AUDITED_MOTION_MANIFEST_PATH)
         .canonicalize()
         .map_err(|error| format!("无法解析 SIMD 数值边界 manifest: {error}"))?;
+    let audited_probe_manifest = repository_root
+        .join(AUDITED_PROBE_MANIFEST_PATH)
+        .canonicalize()
+        .map_err(|error| format!("无法解析 os-probe 受审计边界 manifest: {error}"))?;
 
     let manifests = workspace_manifest_paths(repository_root)?;
     for manifest in manifests {
@@ -407,6 +453,15 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
             parsed_manifest.get("lints"),
             &manifest.display().to_string(),
         )?;
+        if manifest == audited_probe_manifest {
+            if lints.rust.unsafe_code.as_deref() != Some("allow") {
+                return Err(format!(
+                    "受审计 os-probe package 必须保持 crate 级 `unsafe_code = \"allow\"` 登记例外：`{}`",
+                    manifest.display()
+                ));
+            }
+            continue;
+        }
         if manifest == audited_mmap_manifest {
             if lints.rust.unsafe_code.as_deref() != Some("allow") {
                 return Err(format!(
@@ -439,6 +494,7 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
     }
     check_audited_mmap_sources(repository_root)?;
     check_audited_motion_sources(repository_root)?;
+    check_audited_probe_sources(repository_root)?;
     Ok(())
 }
 
@@ -531,6 +587,90 @@ pub(crate) fn check_audited_motion_sources(repository_root: &Path) -> Result<(),
             .replace('\\', "/");
         let text = fs::read_to_string(&source).map_err(|error| error.to_string())?;
         check_audited_motion_source(&relative, &text)?;
+    }
+    Ok(())
+}
+
+/// 去除全部空白，供受审计表达式做与排版无关的比对。
+fn without_whitespace(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+/// 复核受审计 os-probe 单个源文件（os-probe.md §4）：禁源码加载、间接与 lint
+/// 放宽等 token；unsafe 只许出现在 Windows 源文件，恰为 5 处登记表达式。
+pub(crate) fn check_audited_probe_source(relative: &str, text: &str) -> Result<(), String> {
+    if !AUDITED_PROBE_SOURCES.contains(&relative) {
+        return Err(format!("未登记的 os-probe 源文件：{relative}"));
+    }
+    if contains_source_loading_directive(text) {
+        return Err(format!(
+            "受审计 os-probe 源码禁止 `#[path]` 与 `include!`：{relative}"
+        ));
+    }
+    let code = strip_non_code(text);
+    for token in AUDITED_PROBE_FORBIDDEN_TOKENS {
+        if contains_bare_token(&code, token) {
+            return Err(format!("受审计 os-probe 源码禁止 `{token}`：{relative}"));
+        }
+    }
+    if contains_metavariable_invocation(&code) {
+        return Err(format!(
+            "受审计 os-probe 源码禁止元变量调用 `$m!`：{relative}"
+        ));
+    }
+    check_path_attribute_values(text, relative, PathAttributePolicy::RejectAll)?;
+    if relative == AUDITED_PROBE_UNSAFE_SOURCE {
+        let normalized = without_whitespace(&code);
+        let registered = AUDITED_PROBE_EXPRESSIONS
+            .iter()
+            .all(|expression| normalized.matches(&without_whitespace(expression)).count() == 1);
+        if count_unsafe_tokens(&code) != AUDITED_PROBE_EXPRESSIONS.len() || !registered {
+            return Err(format!(
+                "受审计 os-probe 的 unsafe 必须恰为 {} 处登记表达式（os-probe.md §4.1）：{relative}",
+                AUDITED_PROBE_EXPRESSIONS.len()
+            ));
+        }
+    } else if contains_unsafe_token(&code) {
+        return Err(format!(
+            "受审计 os-probe 的 unsafe 只许出现在 `{AUDITED_PROBE_UNSAFE_SOURCE}`：{relative}"
+        ));
+    }
+    Ok(())
+}
+
+/// 复核受审计 os-probe package 的源文件全集：恰为登记清单，逐个通过
+/// [`check_audited_probe_source`]，不得越出 package 目录。
+pub(crate) fn check_audited_probe_sources(repository_root: &Path) -> Result<(), String> {
+    let package_root = repository_root
+        .join(AUDITED_PROBE_PACKAGE_ROOT)
+        .canonicalize()
+        .map_err(|error| format!("os-probe 受审计边界目录：{error}"))?;
+    let mut sources = Vec::new();
+    collect_extension_files(&package_root, OsStr::new("rs"), &mut sources)?;
+    let mut seen = Vec::with_capacity(sources.len());
+    for source in sources {
+        let resolved = source
+            .canonicalize()
+            .map_err(|error| format!("os-probe source：{error}"))?;
+        if !resolved.starts_with(&package_root) {
+            return Err("os-probe 源文件不得越过登记目录".into());
+        }
+        let relative = source
+            .strip_prefix(&package_root)
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let text = fs::read_to_string(&source).map_err(|error| error.to_string())?;
+        check_audited_probe_source(&relative, &text)?;
+        seen.push(relative);
+    }
+    seen.sort_unstable();
+    if seen != AUDITED_PROBE_SOURCES {
+        return Err(format!(
+            "os-probe 源文件集合 {seen:?} 与登记清单 {AUDITED_PROBE_SOURCES:?} 不符"
+        ));
     }
     Ok(())
 }

@@ -1,0 +1,40 @@
+[package]
+name = "laneflow-os-probe"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "本进程与整机操作系统计数器读取（docs/design/os-probe.md）。"
+publish = false
+# 关闭 Cargo 自动 target 发现：未经 manifest 段登记的文件不得成为编译入口，
+# 否则逃逸 check-wire-audit 的受审计 unsafe 边界。
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[lib]
+name = "laneflow_os_probe"
+path = "src/lib.rs"
+
+# 构造后读取不分配堆内存的验证（os-probe.md §6）：独立进程、无 libtest 线程。
+[[test]]
+name = "read_without_allocation"
+path = "tests/read_without_allocation.rs"
+harness = false
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", default-features = false, features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Power"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "=1.1.6", default-features = false, features = ["param"] }
+
+[dev-dependencies]
+stats_alloc = "=0.1.10"
+
+# os-probe.md §4：workspace 内第三个受审计的手写 unsafe 例外。unsafe 只在
+# src/windows.rs 的 5 处固定调用，由 check-wire-audit 逐处比对。
+[lints.rust]
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "forbid"

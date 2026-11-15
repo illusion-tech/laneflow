@@ -17,6 +17,7 @@ members = [
     "tools/laneflow-gate-summary",
     "tools/laneflow-junction-generator",
     "tools/laneflow-lust-converter",
+    "tools/laneflow-os-probe",
     "tools/laneflow-synth-generator",
     "tools/laneflow-synth-harness",
     "tools/laneflow-urban-generator",

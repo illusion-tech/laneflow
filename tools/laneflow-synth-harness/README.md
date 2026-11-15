@@ -174,8 +174,11 @@ allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Traffic Ru
   oracle 比较的有序事件、命令回执、批次字段与状态检查点。W3 比较共同的
   初始/预热/H/2H/4H/最终检查点；W4 比较初始/预热/B0/B1。
 - `resources.json`：声明边界的 Runtime owned-capacity 账本、宿主选择/暂存容量、
-  working set、private bytes、进程生命周期 working-set/commit peak。Windows 只读
-  `GetProcessMemoryInfo`；其他平台明确报告不可用。进程峰值包含输入重建、初始化和
+  working set、private bytes、进程生命周期 working-set/commit peak。进程内存经
+  [`laneflow-os-probe`][os-probe] 读取（`method = "laneflow-os-probe"`，#1391 起；此前
+  为 `GetProcessMemoryInfo/PROCESS_MEMORY_COUNTERS_EX`，Windows 字段名与口径不变）。
+  Linux 改报 `linux_vm_rss_bytes`、`linux_vm_hwm_bytes`、`linux_rss_anon_bytes` 与
+  `linux_major_page_fault_count`，Windows 专属字段为 `null`；已发布记录不改写。进程峰值包含输入重建、初始化和
   证据缓冲，不能解释为 Traffic Runtime heap peak。Runtime capacity 是 retained storage，
   不能解释为每拍写入量。
 - 子进程日志：诊断构建的现有 Adapter/Spatial 容量计数；矩阵汇总每字段最大值，
@@ -253,6 +256,7 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 篡改比较和并发子进程失败收集。长窗口与正式失败重试由上述三个矩阵入口显式执行。
 
 [laneflow-synth-generator-readme]: ../laneflow-synth-generator/README.md
+[os-probe]: ../../docs/design/os-probe.md
 [performance-baseline]: ../../docs/design/core-runtime-performance-baseline.md
 [lf-synth-execution]: ../../docs/design/lf-synth-execution.md
 [lf-synth-execution-matrix]: ../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照

@@ -1,7 +1,8 @@
 //! Wire / toolchain 审计边界（#376）。
 //!
-//! 不变量：workspace 内仅钉版 flatc 生成物、登记的 mmap 与 ADR 0031 数值
-//! crate 可含 unsafe，且该边界不能被配置 / 环境注入削弱。机制：
+//! 不变量：workspace 内仅钉版 flatc 生成物、登记的 mmap、ADR 0031 数值与
+//! os-probe（docs/design/os-probe.md）crate 可含 unsafe，且该边界不能被配置 /
+//! 环境注入削弱。机制：
 //!
 //! 1. Cargo.lock resolved 钉版唯一性（有界文本检查）：flatbuffers（wire 生成物
 //!    运行时）与 memmap2/tempfile（mmap 例外 crate 的全部依赖）逐一断言
@@ -23,7 +24,8 @@
 //! 3. workspace 成员 lint 分类断言（真 TOML 解析每个成员 manifest）：继承
 //!    workspace `unsafe_code = "forbid"` 的成员构成 forbid 集；
 //!    `[lints.rust] unsafe_code = "allow"` 只允许两个 wire crate、手写
-//!    laneflow-format-mmap 与 laneflow-motion-kernel。allow 集逐一与登记名单比对，新增例外或
+//!    laneflow-format-mmap、laneflow-motion-kernel 与 laneflow-os-probe。allow
+//!    集逐一与登记名单比对，新增例外或
 //!    改类一律 fail closed；`deny` 不再是可登记形态（中间档既允许文件级
 //!    allow 覆盖、又制造模糊地带，已随 mmap 例外独立成 crate 删除）。
 //! 4. forbid 成员的每个 target（lib/bin/test/bench/example）以 hermetic
@@ -80,6 +82,12 @@
 //!    外部依赖、额外编译入口、build.rs、源码加载、汇编和文件级 lint 放宽，
 //!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
 //!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。
+//!    laneflow-os-probe 例外：manifest 形状精确匹配（auto* 关闭、唯一登记的
+//!    无 harness 测试 target、cfg(windows) 下钉版 windows-sys 与四个 feature、
+//!    Linux 下钉版 rustix `param`、唯一 dev 依赖钉版 stats_alloc、无 build 脚本）；
+//!    源文件全集等于登记清单，unsafe 只在 src/windows.rs 且恰为 5 处登记表达式，
+//!    全 crate 禁源码加载、间接、lint 放宽、汇编、自写 FFI 与 transmute；
+//!    `crates/` 下生产依赖不得引用本 crate（dev 依赖除外）。
 //! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
 //!    若存在，禁止一切可替换 CI 检查执行语义的键——`[env]` 段（经
 //!    `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的 HOME/CARGO_HOME
@@ -128,29 +136,67 @@ struct LockfilePin {
     package: &'static str,
     version: &'static str,
     checksum: &'static str,
+    /// 为真时同名 package 允许存在其他版本（其他依赖引入），只要求钉版版本
+    /// 恰有一条记录且 source/checksum 一致；为假时同名 package 必须唯一。
+    allow_other_versions: bool,
 }
 
 const LOCKFILE_REGISTRY_SOURCE: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 /// resolved 钉版清单：flatbuffers 是 wire 生成物运行时；memmap2/tempfile 是
 /// mmap 例外 crate 的全部依赖（manifest 拼写钉版之外，resolved source/checksum
-/// 也在此闭合）。升级任一钉版必须在同一 PR 更新本表，diff 随评审可见。
-const LOCKFILE_PINS: [LockfilePin; 3] = [
+/// 也在此闭合）；windows-sys/rustix/stats_alloc 是 os-probe 例外 crate 的全部
+/// 直接依赖，前两者在锁文件中另有其他依赖引入的版本，只钉所用版本。升级任一
+/// 钉版必须在同一 PR 更新本表，diff 随评审可见。
+const LOCKFILE_PINS: [LockfilePin; 6] = [
     LockfilePin {
         package: "flatbuffers",
         version: schema_codegen::FLATBUFFERS_VERSION,
         checksum: "35f6839d7b3b98adde531effaf34f0c2badc6f4735d26fe74709d8e513a96ef3",
+        allow_other_versions: false,
     },
     LockfilePin {
         package: "memmap2",
         version: "0.9.12",
         checksum: "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157",
+        allow_other_versions: false,
     },
     LockfilePin {
         package: "tempfile",
         version: "3.27.0",
         checksum: "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd",
+        allow_other_versions: false,
     },
+    LockfilePin {
+        package: "windows-sys",
+        version: PROBE_WINDOWS_SYS_VERSION,
+        checksum: "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc",
+        allow_other_versions: true,
+    },
+    LockfilePin {
+        package: "rustix",
+        version: PROBE_RUSTIX_VERSION,
+        checksum: "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa",
+        allow_other_versions: true,
+    },
+    LockfilePin {
+        package: "stats_alloc",
+        version: PROBE_STATS_ALLOC_VERSION,
+        checksum: "5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec",
+        allow_other_versions: false,
+    },
+];
+
+/// os-probe 例外 crate 的依赖钉版（manifest 拼写与 resolved 记录共用）。
+const PROBE_WINDOWS_SYS_VERSION: &str = "0.61.2";
+const PROBE_RUSTIX_VERSION: &str = "1.1.6";
+const PROBE_STATS_ALLOC_VERSION: &str = "0.1.10";
+/// os-probe.md §2 登记的 windows-sys feature（按字典序）。
+const PROBE_WINDOWS_SYS_FEATURES: [&str; 4] = [
+    "Win32_Foundation",
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
 ];
 
 /// wire crate 包装器 lib.rs 的钉版副本（与 crate 内文件字节相等）。
@@ -203,13 +249,16 @@ pub(crate) fn run() -> Result<(), String> {
     check_lockfile_pins(&repository_root)?;
     check_wire_manifest_hygiene(&repository_root)?;
     check_mmap_manifest_hygiene(&repository_root)?;
+    check_probe_manifest_hygiene(&repository_root)?;
     check_wire_lib_rs_pins(&repository_root)?;
     check_generated_rs_pins(&repository_root)?;
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     schema_codegen::check_audited_motion_sources(&repository_root)?;
+    schema_codegen::check_audited_probe_sources(&repository_root)?;
+    check_probe_consumers(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），os-probe 例外闭合（manifest 形状与依赖钉版、源文件清单、5 处登记 unsafe 表达式、生产 crate 不得引用），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -318,6 +367,9 @@ fn require_lockfile_pin(lock_text: &str, pin: &LockfilePin) -> Result<(), String
         if lock_string_value(block, "name") != Some(pin.package) {
             continue;
         }
+        if pin.allow_other_versions && lock_string_value(block, "version") != Some(pin.version) {
+            continue;
+        }
         found += 1;
         let version = lock_string_value(block, "version")
             .ok_or_else(|| format!("Cargo.lock 的 {} package 缺少 version", pin.package))?;
@@ -349,6 +401,10 @@ fn require_lockfile_pin(lock_text: &str, pin: &LockfilePin) -> Result<(), String
         }
     }
     match found {
+        0 if pin.allow_other_versions => Err(format!(
+            "Cargo.lock 缺少 {} {} package（钉版版本必须存在）",
+            pin.package, pin.version
+        )),
         0 => Err(format!("Cargo.lock 缺少 {} package", pin.package)),
         1 => Ok(()),
         _ => Err(format!(
@@ -640,6 +696,271 @@ fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// os-probe 例外 crate 的 manifest 卫生（os-probe.md §2、§4.3）：顶层段只许
+/// package/lib/test/target/dev-dependencies/lints；auto* 关闭、无 build 键；
+/// [lib] 固定 src/lib.rs；唯一测试 target 为登记的无 harness 文件；无
+/// [dependencies] 与 [build-dependencies]；[target] 恰为 cfg(windows) 下钉版
+/// windows-sys（四个 feature）与 Linux 下钉版 rustix `param`；唯一 dev 依赖为
+/// 钉版 stats_alloc；lint 只许 crate 级 unsafe_code allow 与
+/// unsafe_op_in_unsafe_fn forbid。package 根不得有 build.rs 与自动发现目录。
+fn check_probe_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
+    let manifest_path = schema_codegen::AUDITED_PROBE_MANIFEST_PATH;
+    let text = fs::read_to_string(repository_root.join(manifest_path))
+        .map_err(|error| format!("无法读取 `{manifest_path}`: {error}"))?;
+    require_probe_manifest_hygiene(
+        &text,
+        &repository_root.join(schema_codegen::AUDITED_PROBE_PACKAGE_ROOT),
+    )
+}
+
+fn require_probe_manifest_hygiene(text: &str, package_root: &Path) -> Result<(), String> {
+    let label = "os-probe 例外 manifest";
+    let manifest: toml::Table = text
+        .parse()
+        .map_err(|error| format!("{label} TOML 解析失败，无法静态审计: {error}"))?;
+    let allowed_sections = [
+        "package",
+        "lib",
+        "test",
+        "target",
+        "dev-dependencies",
+        "lints",
+    ];
+    if let Some(section) = manifest
+        .keys()
+        .find(|key| !allowed_sections.contains(&key.as_str()))
+    {
+        return Err(format!("{label} 不得声明 [{section}] 段"));
+    }
+    let package = manifest
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("{label} 缺少 [package] 段"))?;
+    if package.get("name").and_then(toml::Value::as_str)
+        != Some(schema_codegen::AUDITED_PROBE_PACKAGE_NAME)
+    {
+        return Err(format!(
+            "{label} 的包名必须为 `{}`",
+            schema_codegen::AUDITED_PROBE_PACKAGE_NAME
+        ));
+    }
+    if package.contains_key("build") {
+        return Err(format!("{label} 不得声明 build 脚本键"));
+    }
+    for key in ["autobins", "autotests", "autoexamples", "autobenches"] {
+        if package.get(key).and_then(toml::Value::as_bool) != Some(false) {
+            return Err(format!("{label} 的 [package] 必须显式 `{key} = false`"));
+        }
+    }
+    let lib = manifest
+        .get("lib")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("{label} 缺少 [lib] 段"))?;
+    if lib.get("path").and_then(toml::Value::as_str) != Some("src/lib.rs")
+        || lib
+            .keys()
+            .any(|key| !["name", "path"].contains(&key.as_str()))
+    {
+        return Err(format!(
+            "{label} 的 [lib] 只许 name 与固定为 `src/lib.rs` 的 path"
+        ));
+    }
+    let tests = manifest
+        .get("test")
+        .and_then(toml::Value::as_array)
+        .ok_or_else(|| format!("{label} 缺少登记的 [[test]] target"))?;
+    let registered_test = tests.len() == 1
+        && tests[0].as_table().is_some_and(|test| {
+            test.len() == 3
+                && test.get("name").and_then(toml::Value::as_str) == Some("read_without_allocation")
+                && test.get("path").and_then(toml::Value::as_str)
+                    == Some("tests/read_without_allocation.rs")
+                && test.get("harness").and_then(toml::Value::as_bool) == Some(false)
+        });
+    if !registered_test {
+        return Err(format!(
+            "{label} 的 [[test]] 必须恰为登记的 read_without_allocation（tests/read_without_allocation.rs，harness = false）"
+        ));
+    }
+    let target = manifest
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("{label} 缺少 [target] 平台依赖段"))?;
+    let windows_cfg = "cfg(windows)";
+    let linux_cfg = "cfg(target_os = \"linux\")";
+    if target.len() != 2 || !target.contains_key(windows_cfg) || !target.contains_key(linux_cfg) {
+        return Err(format!(
+            "{label} 的 [target] 必须恰为 `{windows_cfg}` 与 `{linux_cfg}` 两段"
+        ));
+    }
+    let windows_sys_version = format!("={PROBE_WINDOWS_SYS_VERSION}");
+    require_probe_platform_dependency(
+        target.get(windows_cfg),
+        "windows-sys",
+        &windows_sys_version,
+        &PROBE_WINDOWS_SYS_FEATURES,
+        label,
+    )?;
+    let rustix_version = format!("={PROBE_RUSTIX_VERSION}");
+    require_probe_platform_dependency(
+        target.get(linux_cfg),
+        "rustix",
+        &rustix_version,
+        &["param"],
+        label,
+    )?;
+    let dev = manifest
+        .get("dev-dependencies")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("{label} 缺少 [dev-dependencies] 段"))?;
+    let stats_alloc_version = format!("={PROBE_STATS_ALLOC_VERSION}");
+    if dev.len() != 1
+        || dev.get("stats_alloc").and_then(toml::Value::as_str)
+            != Some(stats_alloc_version.as_str())
+    {
+        return Err(format!(
+            "{label} 的 [dev-dependencies] 必须恰为 `stats_alloc = \"{stats_alloc_version}\"`"
+        ));
+    }
+    let lints = manifest
+        .get("lints")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| format!("{label} 缺少 [lints] 段"))?;
+    let rust = lints.get("rust").and_then(toml::Value::as_table);
+    let expected_lints = lints.len() == 1
+        && rust.is_some_and(|rust| {
+            rust.len() == 2
+                && rust.get("unsafe_code").and_then(toml::Value::as_str) == Some("allow")
+                && rust
+                    .get("unsafe_op_in_unsafe_fn")
+                    .and_then(toml::Value::as_str)
+                    == Some("forbid")
+        });
+    if !expected_lints {
+        return Err(format!(
+            "{label} 的 [lints] 必须恰为 `[lints.rust] unsafe_code = \"allow\"` 与 `unsafe_op_in_unsafe_fn = \"forbid\"`"
+        ));
+    }
+    if package_root.join("build.rs").is_file() {
+        return Err(format!("{label} 的 package 不得包含 build.rs"));
+    }
+    for directory in ["src/bin", "benches", "examples"] {
+        if package_root.join(directory).is_dir() {
+            return Err(format!("{label} 的 package 不得包含 `{directory}/` 目录"));
+        }
+    }
+    Ok(())
+}
+
+/// 平台段必须恰为 `dependencies` 下一条内联表依赖：精确钉版、关闭默认 feature、
+/// feature 集合与登记一致，不得有 `package` 改名等其他键。
+fn require_probe_platform_dependency(
+    section: Option<&toml::Value>,
+    name: &str,
+    version: &str,
+    features: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    let error = || {
+        format!(
+            "{label} 的 {name} 平台依赖必须恰为 `{{ version = \"{version}\", default-features = false, features = {features:?} }}`"
+        )
+    };
+    let section = section.and_then(toml::Value::as_table).ok_or_else(error)?;
+    if section.len() != 1 {
+        return Err(error());
+    }
+    let dependencies = section
+        .get("dependencies")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(error)?;
+    if dependencies.len() != 1 {
+        return Err(error());
+    }
+    let dependency = dependencies
+        .get(name)
+        .and_then(toml::Value::as_table)
+        .ok_or_else(error)?;
+    let mut actual_features: Vec<&str> = dependency
+        .get("features")
+        .and_then(toml::Value::as_array)
+        .ok_or_else(error)?
+        .iter()
+        .map(|feature| feature.as_str().ok_or_else(error))
+        .collect::<Result<_, _>>()?;
+    actual_features.sort_unstable();
+    let mut expected_features = features.to_vec();
+    expected_features.sort_unstable();
+    if dependency.len() != 3
+        || dependency.get("version").and_then(toml::Value::as_str) != Some(version)
+        || dependency
+            .get("default-features")
+            .and_then(toml::Value::as_bool)
+            != Some(false)
+        || actual_features != expected_features
+    {
+        return Err(error());
+    }
+    Ok(())
+}
+
+/// os-probe.md §2：`crates/` 下 workspace 成员的生产依赖（dependencies、
+/// build-dependencies 及其 target 条件形态）不得引用 os-probe；dev 依赖除外。
+fn check_probe_consumers(repository_root: &Path) -> Result<(), String> {
+    let crates_root = repository_root
+        .join("crates")
+        .canonicalize()
+        .map_err(|error| format!("无法解析 crates 目录: {error}"))?;
+    for manifest in schema_codegen::workspace_manifest_paths(repository_root)? {
+        let manifest = manifest
+            .canonicalize()
+            .map_err(|error| format!("无法解析 `{}`: {error}", manifest.display()))?;
+        if !manifest.starts_with(&crates_root) {
+            continue;
+        }
+        let text = fs::read_to_string(&manifest)
+            .map_err(|error| format!("无法读取 `{}`: {error}", manifest.display()))?;
+        require_no_probe_production_dependency(&text, &manifest.display().to_string())?;
+    }
+    Ok(())
+}
+
+fn require_no_probe_production_dependency(text: &str, label: &str) -> Result<(), String> {
+    let manifest: toml::Table = text
+        .parse()
+        .map_err(|error| format!("成员 manifest `{label}` TOML 解析失败: {error}"))?;
+    let mut tables: Vec<&toml::Table> = Vec::new();
+    for section in ["dependencies", "build-dependencies"] {
+        if let Some(table) = manifest.get(section).and_then(toml::Value::as_table) {
+            tables.push(table);
+        }
+    }
+    if let Some(targets) = manifest.get("target").and_then(toml::Value::as_table) {
+        for platform in targets.values().filter_map(toml::Value::as_table) {
+            for section in ["dependencies", "build-dependencies"] {
+                if let Some(table) = platform.get(section).and_then(toml::Value::as_table) {
+                    tables.push(table);
+                }
+            }
+        }
+    }
+    let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
+    for table in tables {
+        for (key, value) in table {
+            let renamed = value
+                .as_table()
+                .and_then(|dependency| dependency.get("package"))
+                .and_then(toml::Value::as_str);
+            if key == probe || renamed == Some(probe) {
+                return Err(format!(
+                    "生产 crate `{label}` 不得依赖 `{probe}`（只许 tools/ 下的 crate 依赖或作为 dev-dependency 引用，os-probe.md §2）"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// wire crate 的手写载体只有包装器 lib.rs；它与钉版副本字节相等，因此
 /// 其中不可能出现未审计内容。合法变更（flatc 升级导致模块形态变化等）必须
 /// 在同一 PR 同步更新钉版副本，diff 随评审可见。
@@ -763,6 +1084,7 @@ fn require_expected_classification(classified: &[(String, UnsafeLevel)]) -> Resu
         .to_vec();
     expected_allow.push(AUDITED_MMAP_PACKAGE_NAME);
     expected_allow.push(schema_codegen::AUDITED_MOTION_PACKAGE_NAME);
+    expected_allow.push(schema_codegen::AUDITED_PROBE_PACKAGE_NAME);
     expected_allow.sort_unstable();
     if allow != expected_allow {
         return Err(format!(
@@ -1641,6 +1963,191 @@ mod tests {
     }
 
     #[test]
+    fn versioned_lockfile_pin_ignores_other_versions_but_requires_its_own() {
+        let pin = LOCKFILE_PINS
+            .iter()
+            .find(|pin| pin.package == "windows-sys")
+            .unwrap();
+        let block = |version: &str, checksum: &str| {
+            format!(
+                "[[package]]\nname = \"windows-sys\"\nversion = \"{version}\"\nsource = \"{LOCKFILE_REGISTRY_SOURCE}\"\nchecksum = \"{checksum}\"\n"
+            )
+        };
+        let own = block(pin.version, pin.checksum);
+        let other = block("0.52.0", "00");
+        require_lockfile_pin(&format!("{other}{own}"), pin).unwrap();
+        let error = require_lockfile_pin(&other, pin).unwrap_err();
+        assert!(error.contains("钉版版本必须存在"), "{error}");
+        let error = require_lockfile_pin(&block(pin.version, "ff"), pin).unwrap_err();
+        assert!(error.contains("checksum"), "{error}");
+        let error = require_lockfile_pin(&format!("{own}{own}"), pin).unwrap_err();
+        assert!(error.contains("唯一"), "{error}");
+    }
+
+    fn probe_manifest() -> &'static str {
+        include_str!("../../tools/laneflow-os-probe/Cargo.toml")
+    }
+
+    #[test]
+    fn probe_manifest_hygiene_accepts_checked_in_manifest() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask 必须有父目录（仓库根）");
+        check_probe_manifest_hygiene(repository_root).unwrap();
+    }
+
+    #[test]
+    fn probe_manifest_hygiene_rejects_dependency_feature_and_target_drift() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-probe-hygiene-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let manifest = probe_manifest();
+        let reject = |text: String, expected: &str| {
+            let error = require_probe_manifest_hygiene(&text, &root).unwrap_err();
+            assert!(error.contains(expected), "{expected}: {error}");
+        };
+        // 新增依赖：顶层 [dependencies] 段。
+        reject(
+            format!("{manifest}\n[dependencies]\nserde = \"1\"\n"),
+            "[dependencies]",
+        );
+        // 多开 windows-sys feature。
+        reject(
+            manifest.replace(
+                "\"Win32_System_Power\"]",
+                "\"Win32_System_Power\", \"Win32_System_Memory\"]",
+            ),
+            "windows-sys",
+        );
+        // windows-sys 未精确钉版。
+        reject(manifest.replace("\"=0.61.2\"", "\"0.61.2\""), "windows-sys");
+        // rustix 打开默认 feature。
+        reject(
+            manifest.replace(
+                "rustix = { version = \"=1.1.6\", default-features = false",
+                "rustix = { version = \"=1.1.6\", default-features = true",
+            ),
+            "rustix",
+        );
+        // 额外平台段。
+        reject(
+            format!("{manifest}\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n"),
+            "[target]",
+        );
+        // 新增 dev 依赖。
+        reject(
+            manifest.replace(
+                "stats_alloc = \"=0.1.10\"",
+                "stats_alloc = \"=0.1.10\"\nserde = \"1\"",
+            ),
+            "dev-dependencies",
+        );
+        // 测试 target 打开 harness 或新增 target。
+        reject(
+            manifest.replace("harness = false", "harness = true"),
+            "[[test]]",
+        );
+        reject(format!("{manifest}\n[[bin]]\nname = \"x\"\n"), "[bin]");
+        // 自动发现未关闭、lint 放宽。
+        reject(
+            manifest.replace("autotests = false", "autotests = true"),
+            "autotests",
+        );
+        reject(
+            manifest.replace(
+                "unsafe_op_in_unsafe_fn = \"forbid\"",
+                "unsafe_op_in_unsafe_fn = \"allow\"",
+            ),
+            "[lints]",
+        );
+        // build.rs 与自动发现目录。
+        fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
+        reject(manifest.to_string(), "build.rs");
+        fs::remove_file(root.join("build.rs")).unwrap();
+        fs::create_dir_all(root.join("examples")).unwrap();
+        reject(manifest.to_string(), "examples");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn probe_sources_accept_checked_in_package() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask 必须有父目录（仓库根）");
+        schema_codegen::check_audited_probe_sources(repository_root).unwrap();
+    }
+
+    #[test]
+    fn probe_sources_reject_extra_unsafe_unregistered_file_and_ffi() {
+        let windows = include_str!("../../tools/laneflow-os-probe/src/windows.rs");
+        schema_codegen::check_audited_probe_source("src/windows.rs", windows).unwrap();
+        // 第 6 处 unsafe。
+        let extra =
+            format!("{windows}\nfn extra() {{ let _ = unsafe {{ GetCurrentProcess() }}; }}\n");
+        let error =
+            schema_codegen::check_audited_probe_source("src/windows.rs", &extra).unwrap_err();
+        assert!(error.contains("5 处登记表达式"), "{error}");
+        // 改写登记表达式。
+        let changed = windows.replace(
+            "GetSystemPowerStatus(&mut status)",
+            "GetSystemPowerStatus(pointer)",
+        );
+        assert!(schema_codegen::check_audited_probe_source("src/windows.rs", &changed).is_err());
+        // Windows 文件之外出现 unsafe。
+        let lib = include_str!("../../tools/laneflow-os-probe/src/lib.rs");
+        let error = schema_codegen::check_audited_probe_source(
+            "src/lib.rs",
+            &format!("{lib}\nfn f() {{ unsafe {{}} }}\n"),
+        )
+        .unwrap_err();
+        assert!(error.contains("只许出现在"), "{error}");
+        // 未登记的源文件。
+        let error =
+            schema_codegen::check_audited_probe_source("src/extra.rs", "fn f() {}\n").unwrap_err();
+        assert!(error.contains("未登记"), "{error}");
+        // 自写 FFI、源码加载与 lint 放宽。
+        for source in [
+            "unsafe extern \"system\" { fn GetTickCount() -> u32; }\n",
+            "include!(\"payload.rs\");\n",
+            "#![allow(unsafe_op_in_unsafe_fn)]\n",
+            "fn f() -> u32 { unsafe { std::mem::transmute(1_f32) } }\n",
+        ] {
+            assert!(
+                schema_codegen::check_audited_probe_source("src/linux.rs", source).is_err(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn probe_consumers_accept_checked_in_workspace() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask 必须有父目录（仓库根）");
+        check_probe_consumers(repository_root).unwrap();
+    }
+
+    #[test]
+    fn probe_consumers_reject_production_but_allow_dev_dependency() {
+        let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
+        let dev =
+            format!("[package]\nname = \"c\"\n[dev-dependencies]\n{probe} = {{ path = \"x\" }}\n");
+        require_no_probe_production_dependency(&dev, "c").unwrap();
+        for text in [
+            format!("[dependencies]\n{probe} = {{ path = \"x\" }}\n"),
+            format!("[build-dependencies]\n{probe} = {{ path = \"x\" }}\n"),
+            format!("[target.'cfg(windows)'.dependencies]\n{probe} = {{ path = \"x\" }}\n"),
+            format!("[dependencies]\nalias = {{ package = \"{probe}\", path = \"x\" }}\n"),
+        ] {
+            let error = require_no_probe_production_dependency(&text, "c").unwrap_err();
+            assert!(error.contains("不得依赖"), "{error}");
+        }
+    }
+
+    #[test]
     fn lockfile_pins_match_checked_in_lockfile() {
         let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -2053,6 +2560,10 @@ mod tests {
             (AUDITED_MMAP_PACKAGE_NAME.to_string(), UnsafeLevel::Allow),
             (
                 schema_codegen::AUDITED_MOTION_PACKAGE_NAME.to_string(),
+                UnsafeLevel::Allow,
+            ),
+            (
+                schema_codegen::AUDITED_PROBE_PACKAGE_NAME.to_string(),
                 UnsafeLevel::Allow,
             ),
             (
