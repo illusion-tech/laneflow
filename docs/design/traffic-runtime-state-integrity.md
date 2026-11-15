@@ -588,16 +588,17 @@ Runtime 内**无轮转、无抽样、无增量**。共享路网修订的检测�
 
 **认证停顿与峰值**（实测归实现A 部分，描述性数据，不进产品 Gate）：
 
-认证成本以 [`v0.10-attestation-production-baseline.md`][attestation-baseline]
-及其 JSON 为历史参考。数据绑定 Rust 1.98.0 与测量源码
+认证成本以固定提交中的
+[认证基线正本与配对 JSON][attestation-baseline]（#1382 已从当前树退役）
+为历史参考。数据绑定 Rust 1.98.0 与测量源码
 `06f239c39b3983efd8d39ecb0820131bc140fd77`，不作为后续主干版本的重新测量：
 三档认证中位约 11.8 ms／120 ms／1.21 s；合同增量堆峰值约 5.46／54.59／545.85 MB，
 合同共存约 6.38／63.80／637.94 MB，新增稳态保留三档均为零。十万静态实体、
 一万辆车的四轮并发观测中位差为 −0.03% 至 +1.64%，p95 差为 −4.78% 至 +14.81%；
 该范围不构成长期上界，不外推为任意生产运行负载无干扰。完整口径与局限见基线。
 
-直算摘要另见 Rust 1.99.1 的
-[`三版本优化对照`][digest-baseline]。
+直算摘要另见 Rust 1.99.1 的[三版本优化对照][digest-baseline]
+（固定提交副本，#1382 已从当前树退役）。
 十万辆车合成档位中，车辆连续缓冲版相对原始实现的调用耗时合并中位减少 39.30%，
 相对查找优化与分组预留版减少 16.74%，后者对照的堆峰值增加约 0.82 MB；
 一万辆车档位没有显示连续缓冲的额外速度收益。归一化预算因范围与视图表的
@@ -731,8 +732,8 @@ E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
 [state-integrity-g2-list]: #11-g2-落定清单实现内容不属-g1-冻结
 [portable-artifact-revision-id]: portable-canonical-artifact.md#38-路网修订标识
 [performance-baseline]: core-runtime-performance-baseline.md
-[attestation-baseline]: ../reference/v0.10-attestation-production-baseline.md
-[digest-baseline]: ../reference/v0.10-direct-digest-optimization-baseline.md
+[attestation-baseline]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference/v0.10-attestation-production-baseline.md
+[digest-baseline]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference/v0.10-direct-digest-optimization-baseline.md
 [24-hour-soak]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/24-hour-soak.md
 [long-soak-driver]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/long-soak-driver.md
 [acceptance-evidence]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-963-integrity-evidence/acceptance-evidence.md
