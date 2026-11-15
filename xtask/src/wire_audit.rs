@@ -311,8 +311,7 @@ fn check_lockfile_pins(repository_root: &Path) -> Result<(), String> {
 
 /// 断言 workspace Cargo.lock 中被钉版依赖恰好有一条 resolved 记录，且
 /// version/source/checksum 与钉版常量完全一致——`[patch.crates-io]` 换名替换
-/// 或 registry 漂移都在这里被拒绝。`research/` 下的独立 lock 不属于
-/// 本 workspace，不在此扫描。
+/// 或 registry 漂移都在这里被拒绝。只扫描根 workspace 的 lock。
 fn require_lockfile_pin(lock_text: &str, pin: &LockfilePin) -> Result<(), String> {
     let mut found = 0usize;
     for block in lock_text.split("[[package]]").skip(1) {

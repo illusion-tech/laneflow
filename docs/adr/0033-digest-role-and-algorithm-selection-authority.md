@@ -219,4 +219,4 @@ Issue 的盘点逐项复核。
 [portable-artifact]: ../design/portable-canonical-artifact.md
 [state-integrity]: ../design/traffic-runtime-state-integrity.md
 [real-road-workloads]: ../design/real-road-workloads.md
-[xxh3-review]: ../../research/issue-1029-lust-digest/xxh3-review.md
+[xxh3-review]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1029-lust-digest/xxh3-review.md

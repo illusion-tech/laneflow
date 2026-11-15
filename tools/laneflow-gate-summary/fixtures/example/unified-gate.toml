@@ -1,0 +1,112 @@
+# 统一五轴汇总的自包含示例输入（lf-unified-gate-manifest-1）。
+#
+# 证据全部取自本 crate 的 tests/fixtures：--repo-root 指向 tests/fixtures/repo，
+# --evidence-root 指向 tests/fixtures/evidence-root。README 默认命令与
+# tests/summary.rs 都消费本文件，失败关闭路径的测试在其基础上逐项改写。
+# 数值与提交号均为测试用值，不是任何负载的真实结论。
+
+format = "lf-unified-gate-manifest-1"
+title = "统一汇总示例"
+mode_note = "自包含示例（fixtures/example/unified-gate.toml）：记录取自 tests/fixtures，不是真实验收结论"
+required_loads = ["LF-SYNTH-v2", "LuST"]
+required_l1_identities = ["10000-L1-16"]
+
+[global]
+single_world_statement = "不以多世界吞吐替代单世界扩展语义。"
+
+[global.performance]
+verdict = "未认证"
+product_status = "Product TBD / Uncertified"
+real_budget_failures = 0
+authorized_exceptions = 0
+contract_level_exceedances = ["测试超标条目（研究观察）"]
+receipt = "https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168"
+evidence = [ { kind = "repo-doc", path = "docs/mini-formal.md", anchors = ["150/150"] } ]
+
+[global.allocation_diagnostics]
+statement = "测试 allocation 口径"
+evidence = [ { kind = "repo-doc", path = "docs/mini-formal.md" } ]
+
+[global.checkpoint_verification_cost]
+statement = "测试 checkpoint 成本"
+evidence = [ { kind = "repo-doc", path = "docs/mini-formal.md" } ]
+
+[[scope_adjudication]]
+item = "worker 两两组合"
+disposition = "授权豁免"
+uncovered = "测试未覆盖范围"
+authorization = "测试授权"
+
+[[capability_limits]]
+statement = "测试能力限制"
+boundary = "测试边界"
+evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1271" } ]
+
+[[l1_checks]]
+identity = "10000-L1-16"
+record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }
+
+[[loads]]
+id = "LF-SYNTH-v2"
+kind = "axes"
+input_identity = "测试输入身份（10 身份）"
+
+[[loads.cells]]
+axis = "behavior"
+status = "semantic-pass"
+conclusion = "测试 behavior 结论"
+source_commit = "8b05abce00000000000000000000000000000000"
+binary = "bin9/fixture"
+input_identity = "同负载输入身份"
+coverage = "测试覆盖边界"
+evidence = [
+  { kind = "repo-doc", path = "docs/mini-formal.md", anchors = ["8b05abce", "150/150"] },
+  { kind = "synth-summary-json", path = "records/synth-summary.json", expect = { implementation_commit = "8b05abce00000000000000000000000000000000", complete = true } },
+]
+pending = []
+
+[[loads.cells]]
+axis = "determinism"
+status = "semantic-pass"
+conclusion = "测试 determinism 结论"
+source_commit = "8b05abce00000000000000000000000000000000"
+binary = "bin9/fixture"
+input_identity = "同负载输入身份"
+coverage = "测试覆盖边界"
+evidence = [ { kind = "gate-json", path = "records/gate.json", expect = { status = "gate-witness-pass", commit = "85ec589200000000000000000000000000000000" } } ]
+pending = []
+
+[[loads.cells]]
+axis = "performance"
+status = "uncertified-performance"
+conclusion = "测试 performance 结论：未认证"
+source_commit = "8b05abce00000000000000000000000000000000"
+binary = "bin9/fixture"
+input_identity = "同负载输入身份"
+coverage = "测试覆盖边界"
+evidence = [ { kind = "routing-kv", path = "records/routing.txt", expect = ["workload_id=LF-ROUTING-G2-LINEAR-v1"] } ]
+pending = []
+
+[[loads.cells]]
+axis = "snapshot"
+status = "semantic-pass"
+conclusion = "测试 snapshot 结论"
+source_commit = "8b05abce00000000000000000000000000000000"
+binary = "bin9/fixture"
+input_identity = "同负载输入身份"
+coverage = "测试覆盖边界"
+evidence = [ { kind = "repo-doc", path = "docs/mini-formal.md", anchors = ["300/300"] } ]
+pending = []
+
+[[loads.cells]]
+axis = "routing"
+status = "pending"
+conclusion = "测试 routing 待 #1279"
+evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1279" } ]
+pending = ["#1279 计时记录（冻结后运行）"]
+
+[[loads]]
+id = "LuST"
+kind = "deferred"
+note = "五轴均未在 LuST 上验证，不记为通过"
+authorization = "测试延后授权"

@@ -53,7 +53,6 @@ fn collect_default(root: &Path) -> Result<BTreeSet<String>, String> {
     for name in ["README.md", "CONTRIBUTING.md", "AGENTS.md"] {
         add_optional_file(root, &root.join(name), &mut files)?;
     }
-    add_optional_file(root, &root.join("research/README.md"), &mut files)?;
     walk_optional(root, &root.join("docs"), true, None, &mut files)?;
     walk_optional(root, &root.join(".agents"), true, None, &mut files)?;
     walk_optional(

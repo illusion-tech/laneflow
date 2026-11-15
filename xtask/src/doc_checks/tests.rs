@@ -523,14 +523,14 @@ fn column_counts_unicode_scalars_and_crlf_lines() {
 }
 
 #[test]
-fn default_source_set_skips_research_history_and_explicit_paths_can_enter() {
+fn default_source_set_skips_out_of_scope_paths_and_explicit_paths_can_enter() {
     let repo = TestRepo::new("scope");
     for rel in [
         "README.md",
         "CONTRIBUTING.md",
         "AGENTS.md",
-        "research/README.md",
-        "research/history/old.md",
+        "notes/README.md",
+        "notes/history/old.md",
         "docs/guide.md",
         "docs/tests/hidden.md",
         "docs/pkg/src/generated/skip.md",
@@ -558,7 +558,6 @@ fn default_source_set_skips_research_history_and_explicit_paths_can_enter() {
             "README.md".to_string(),
             "CONTRIBUTING.md".to_string(),
             "AGENTS.md".to_string(),
-            "research/README.md".to_string(),
             "docs/guide.md".to_string(),
             "crates/demo/README.md".to_string(),
             "tools/demo/README.md".to_string(),
@@ -568,18 +567,15 @@ fn default_source_set_skips_research_history_and_explicit_paths_can_enter() {
             ".agents/skills/demo/SKILL.md".to_string(),
         ])
     );
-    let explicit = collect_sources(
-        &repo.path,
-        Some(&[PathBuf::from("research/history/old.md")]),
-    )
-    .expect("explicit");
+    let explicit = collect_sources(&repo.path, Some(&[PathBuf::from("notes/history/old.md")]))
+        .expect("explicit");
     assert_eq!(
         explicit,
-        BTreeSet::from(["research/history/old.md".to_string()])
+        BTreeSet::from(["notes/history/old.md".to_string()])
     );
     let report = check(
         &repo.path,
-        Some(&[PathBuf::from("research/history/old.md")]),
+        Some(&[PathBuf::from("notes/history/old.md")]),
         &config,
     )
     .expect("explicit still checks required edges");

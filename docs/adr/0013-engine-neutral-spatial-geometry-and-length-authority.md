@@ -26,7 +26,7 @@
 - 详细设计与证据：
   - `../design/spatial-geometry.md`
   - `../design/adapter-api.md`
-  - `../../research/issue-123-spatial-prototype/README.md`
+  - [#123 空间原型研究][spatial-prototype]（固定提交中的历史记录）
 
 ## 背景
 
@@ -162,3 +162,5 @@ MSRV 只能经独立治理判断显式提高（1.96 → 1.98 由 #495 落定，1
 - #133/#134/#135：依次交付 LaneFlow-owned F32 primitive 与 registry 边界、配套制品加载，以及量化后折线/长度/basis/join 校验和确定性单边采样；#135 不复制 current-f64 Core 的私有边界 epsilon。
 - v0.7：Bevy Adapter 消费批量位姿，并验证 frame 放置、坐标轴与手性和真实 `Transform` 同步。
 - 只有真实曲线、道路倾斜、坐标参考系统、空间索引或宿主类型互操作需求出现时，才重新评估相应 Rust 包与格式扩展。
+
+[spatial-prototype]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-123-spatial-prototype/README.md

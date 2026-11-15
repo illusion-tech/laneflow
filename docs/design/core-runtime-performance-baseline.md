@@ -946,11 +946,11 @@ aggregate、public World/shard 或 snapshot contract。
 [adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
 [validation-matrix]: ../reference/validation-matrix.md
 [issue-215-g1]: https://github.com/illusion-tech/laneflow/issues/215#issuecomment-5060652396
-[runtime-profile-readme]: ../../research/issue-583-runtime-profile/README.md
+[runtime-profile-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-583-runtime-profile/README.md
 [lf-synth-input-bundle-network]: lf-synth-input-bundle.md#3-静态网络与引用
 [lf-synth-measurement]: lf-synth-measurement.md
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
 [laneflow-synth-generator-readme]: ../../tools/laneflow-synth-generator/README.md
 [lf-synth-execution]: lf-synth-execution.md
-[lf-synth-contract-readme]: ../../research/issue-1148-lf-synth-contract/README.md
+[lf-synth-contract-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1148-lf-synth-contract/README.md
 [reference-machine-json]: ../reference/road-editing-source-reference-machine-v1.json

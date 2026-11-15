@@ -425,7 +425,7 @@ fixture = `lfsd-migration` oracle 对（2 边 + 1 车位 + 1 profile 的 8 车�
 整次调用外部借用保持 `0.023 ms`、调用内同步回收 `0.039 ms`、旧根对象孤立析构 `0.008 ms`；
 C 部分 口径 Prepare `0.025 ms`、尾泵空提交 `0.032 ms`、整本排空 `0.060 ms`、维护暂停
 整段 `0.082 ms`（维护暂停窗实况含目标修订构建与二次规范校验，且 paused 形态泵为空转，
-窗口构成披露与规模档差异见 research README §2.4/§2.5）。跨修订日志算术
+窗口构成披露与规模档差异见 [#537 研究报告][target-path-baseline] §2.4/§2.5）。跨修订日志算术
 `37 B 头 + 78 B/变化车` 硬断言随 CI 保持。#531 规模 fixture 3 样本中位（µs）：
 
 | 车辆/边/路线（模式） |   准备 |  泵入 |                  提交 | 独立摘要 |
@@ -444,7 +444,7 @@ C 部分 口径 Prepare `0.025 ms`、尾泵空提交 `0.032 ms`、整本排空 `
 当前值与之及 `18c64ced`/`dada8b4a` 等占用重建/重叠索引改动的方向一致，但未做受控
 A/B 归因。以上仍是同机描述性口径；3 样本中位不构成正式预算判定（本文未定义多轮
 静默窗口认证协议），事件批次余量与 scratch 随规模的登记义务不变。完整记录、原始
-输出与复现命令见 `research/issue-537-target-path-baseline/`（结果表为数值正本）。
+输出与复现命令见固定提交中的 [#537 研究报告][target-path-baseline]（结果表为数值正本）。
 
 ## 10. G2 边界与必测义务
 
@@ -563,3 +563,4 @@ spawn/despawn 的增量追赶；任一失败保全旧 world/snapshot 且零发�
 [parking-system]: parking-system.md
 [right-of-way]: traffic-runtime-right-of-way-policy.md
 [execution-config]: traffic-runtime-execution-config.md
+[target-path-baseline]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-537-target-path-baseline/README.md

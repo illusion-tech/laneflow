@@ -355,5 +355,5 @@ Bevy 适配器只把当前停车约束、前车和后车映射成可重试。这
 [adapter-api]: adapter-api.md
 [parallel-execution-join]: traffic-runtime-parallel-execution.md#43-join取消与失败清理
 [execution-config]: traffic-runtime-execution-config.md
-[command-occupancy-results]: ../../research/issue-707-city-parallel/command-occupancy-results.md
-[overlap-yield-results]: ../../research/issue-707-city-parallel/overlap-yield-results.md
+[command-occupancy-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/command-occupancy-results.md
+[overlap-yield-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/overlap-yield-results.md

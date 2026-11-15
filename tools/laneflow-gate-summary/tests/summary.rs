@@ -1,7 +1,8 @@
 //! 汇编器集成测试：fixture manifest → 回执；以及失败关闭路径。
 //!
 //! fixture 记录在 `tests/fixtures/`（repo/ 充当仓库根、evidence-root/ 充当
-//! 仓库外证据根）；真实试跑见 `fixtures/v0.10-trial/` 与 README。
+//! 仓库外证据根）；基础 manifest 是 `fixtures/example/unified-gate.toml`，与 README
+//! 默认命令共用。
 
 use std::path::Path;
 
@@ -29,115 +30,10 @@ fn write_manifest(body: &str) -> std::path::PathBuf {
     path
 }
 
+/// 自包含示例 manifest（README 默认命令同用），各失败路径测试在其上逐项改写。
 fn base_manifest() -> String {
-    r##"
-format = "lf-unified-gate-manifest-1"
-title = "测试汇总"
-mode_note = "单元测试 fixture"
-required_loads = ["LF-SYNTH-v2", "LuST"]
-required_l1_identities = ["10000-L1-16"]
-
-[global]
-single_world_statement = "不以多世界吞吐替代单世界扩展语义。"
-
-[global.performance]
-verdict = "未认证"
-product_status = "Product TBD / Uncertified"
-real_budget_failures = 0
-authorized_exceptions = 0
-contract_level_exceedances = ["测试超标条目（研究观察）"]
-receipt = "https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168"
-evidence = [ { kind = "repo-doc", path = "research/mini-formal.md", anchors = ["150/150"] } ]
-
-[global.allocation_diagnostics]
-statement = "测试 allocation 口径"
-evidence = [ { kind = "repo-doc", path = "research/mini-formal.md" } ]
-
-[global.checkpoint_verification_cost]
-statement = "测试 checkpoint 成本"
-evidence = [ { kind = "repo-doc", path = "research/mini-formal.md" } ]
-
-[[scope_adjudication]]
-item = "worker 两两组合"
-disposition = "授权豁免"
-uncovered = "测试未覆盖范围"
-authorization = "测试授权"
-
-[[capability_limits]]
-statement = "测试能力限制"
-boundary = "测试边界"
-evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1271" } ]
-
-[[l1_checks]]
-identity = "10000-L1-16"
-record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }
-
-[[loads]]
-id = "LF-SYNTH-v2"
-kind = "axes"
-input_identity = "测试输入身份（10 身份）"
-
-[[loads.cells]]
-axis = "behavior"
-status = "semantic-pass"
-conclusion = "测试 behavior 结论"
-source_commit = "8b05abce00000000000000000000000000000000"
-binary = "bin9/fixture"
-input_identity = "同负载输入身份"
-coverage = "测试覆盖边界"
-evidence = [
-  { kind = "repo-doc", path = "research/mini-formal.md", anchors = ["8b05abce", "150/150"] },
-  { kind = "synth-summary-json", path = "records/synth-summary.json", expect = { implementation_commit = "8b05abce00000000000000000000000000000000", complete = true } },
-]
-pending = []
-
-[[loads.cells]]
-axis = "determinism"
-status = "semantic-pass"
-conclusion = "测试 determinism 结论"
-source_commit = "8b05abce00000000000000000000000000000000"
-binary = "bin9/fixture"
-input_identity = "同负载输入身份"
-coverage = "测试覆盖边界"
-evidence = [ { kind = "gate-json", path = "records/gate.json", expect = { status = "gate-witness-pass", commit = "85ec589200000000000000000000000000000000" } } ]
-pending = []
-
-[[loads.cells]]
-axis = "performance"
-status = "uncertified-performance"
-conclusion = "测试 performance 结论：未认证"
-source_commit = "8b05abce00000000000000000000000000000000"
-binary = "bin9/fixture"
-input_identity = "同负载输入身份"
-coverage = "测试覆盖边界"
-evidence = [ { kind = "routing-kv", path = "records/routing.txt", expect = ["workload_id=LF-ROUTING-G2-LINEAR-v1"] } ]
-pending = []
-
-[[loads.cells]]
-axis = "snapshot"
-status = "semantic-pass"
-conclusion = "测试 snapshot 结论"
-source_commit = "8b05abce00000000000000000000000000000000"
-binary = "bin9/fixture"
-input_identity = "同负载输入身份"
-coverage = "测试覆盖边界"
-evidence = [ { kind = "repo-doc", path = "research/mini-formal.md", anchors = ["300/300"] } ]
-pending = []
-
-[[loads.cells]]
-axis = "routing"
-status = "pending"
-conclusion = "测试 routing 待 #1279"
-evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1279" } ]
-pending = ["#1279 计时记录（冻结后运行）"]
-
-[[loads]]
-id = "LuST"
-kind = "deferred"
-note = "五轴均未在 LuST 上验证，不记为通过"
-authorization = "测试延后授权"
-"##
-    .to_owned()
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/example/unified-gate.toml");
+    std::fs::read_to_string(&path).expect("读取示例 manifest")
 }
 
 fn output_dir(tag: &str) -> std::path::PathBuf {
@@ -344,7 +240,7 @@ exception = { disposition = "authorized-exemption", scope = "", authorization = 
 fn empty_evidence_list_on_passing_cell_is_rejected() {
     // 通过性格清空证据列表：必须拒绝（#1285 评审 P2）。
     let body = base_manifest().replace(
-        r#"evidence = [ { kind = "repo-doc", path = "research/mini-formal.md", anchors = ["300/300"] } ]
+        r#"evidence = [ { kind = "repo-doc", path = "docs/mini-formal.md", anchors = ["300/300"] } ]
 pending = []"#,
         r#"evidence = []
 pending = []"#,

@@ -83,10 +83,10 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   [`docs/governance/code-language-policy.md`][code-language-policy]
   的代码语言立项审查。研究、测试、CI 和嵌入脚本均按该唯一事实来源执行，Agent 不得自行豁免。
 
-- 研究与实验类变更只把结论报告和复现输入提交到 `research/`：逐区间或逐样本测量、
-  搜索轨迹、全量结果集等研究过程数据留在 `target/` 或仓库外，不入仓，也不自发
-  生产 manifest、逐字节一致性声明或 SHA-256 登记等归档物。复现类生成文件单文件
-  不超过 1,000 行、单目录合计不超过 5,000 行。`research/` 文件不得被
+- 研究与实验类变更不设专用资料目录：现行结论原位回写所属 `docs/design/`、ADR 或
+  现行 reference，计划、阶段记录与一次性结论报告由 Issue / PR 承载。逐区间或逐样本
+  测量、搜索轨迹、全量结果集等研究过程数据留在 `target/` 或仓库外，不入仓，也不
+  自发生产 manifest、逐字节一致性声明或 SHA-256 登记等归档物。冻结研究数据不得被
   `include_str!` / `include_bytes!` 编译期嵌入：`#[ignore]` 重放实验经环境变量
   （如 `PINNED_RESEARCH_ROOT`）运行时读取，活测试数据放所属 crate 的
   `tests/fixtures/`，新增大体量 fixture 在 PR 说明体积必要性。边界见

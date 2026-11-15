@@ -8,18 +8,18 @@
 
 边界：不运行正式汇总、不替代各轴分立 harness、不重跑正式测量、不批准例外；
 全部来源身份从既有记录**原样携带**，本工具不重算摘要（ADR 0033 §3）、不联网
-核验、不执行测量；离线运行。`research/` 等仓库文件只在运行时读取，不编译期嵌入。
+核验、不执行测量；离线运行。manifest 引用的仓库文件只在运行时读取，不编译期嵌入。
 
 ## 命令
 
 ```powershell
 cargo +1.99.1 build --release --locked -p laneflow-gate-summary
 
-# 汇总（试跑：允许未完成项）
+# 汇总（自包含示例，试跑模式允许未完成项）
 target/release/laneflow-gate-summary summarize `
-  --manifest tools/laneflow-gate-summary/fixtures/v0.10-trial/unified-gate.toml `
-  --repo-root <checkout> `
-  --evidence-root <evidence-root> `
+  --manifest tools/laneflow-gate-summary/fixtures/example/unified-gate.toml `
+  --repo-root tools/laneflow-gate-summary/tests/fixtures/repo `
+  --evidence-root tools/laneflow-gate-summary/tests/fixtures/evidence-root `
   --output <尚不存在的输出目录>
 
 # L1 输入 #1271 拓扑核查（对一份 LF-SYNTH 输入包目录）
@@ -41,7 +41,11 @@ target/release/laneflow-gate-summary check-transitions `
 
 ## 声明式输入（`lf-unified-gate-manifest-1`）
 
-试跑副本在 `fixtures/v0.10-trial/unified-gate.toml`，其结构即文档：
+自包含示例在 `fixtures/example/unified-gate.toml`，证据取自本 crate 的
+`tests/fixtures/`，数值与提交号均为测试用值；`tests/summary.rs` 以它为基础
+manifest，所以默认命令随测试持续可执行。v0.10 两负载的历史试跑清单不在当前树，
+见固定提交中的[试跑副本][v0-10-trial]；它引用的仓库文档只存在于该提交，重放时
+`--repo-root` 须指向该提交的 checkout。结构说明：
 
 - `required_loads`：本轮汇总必须覆盖的负载（含延后负载）；`loads` 须与该集合
   **恰好一一对应**（缺失、重复或多挂都失败），防止整个负载被误删后静默通过。
@@ -75,7 +79,9 @@ target/release/laneflow-gate-summary check-transitions `
 前置：#1282 冻结验收提交；#1279 完成冻结后计时并形成记录（stdout 捕获为
 key=value 文本）；L1 两份输入包（`10000-L1-16`、`100000-L1-33`）完成核查。
 
-1. 制作正式 manifest：复制试跑副本到仓库外工作目录，改 `mode_note`；逐格更新：
+1. 制作正式 manifest：以历史[试跑副本][v0-10-trial]为起点复制到仓库外工作目录，
+   改 `mode_note`；`repo-doc` 证据须指向验收提交中实际存在的文件，不存在的改用
+   `<evidence-root>/` 前缀的仓库外记录或 `github` 链接；逐格更新：
 
    - routing 两格：补 `#1279` 记录与 #1267 证据结论，`status` 离开 `pending`。
      #1279 每个身份一条 `routing-kv`，`expect` 至少含
@@ -102,8 +108,8 @@ key=value 文本）；L1 两份输入包（`10000-L1-16`、`100000-L1-33`）完�
      --mode formal --require-complete
    ```
 
-4. 回执结论回写 #305（GitHub 可链接结论；如需入仓，research/ 结论目录只放
-   结论 md 与紧凑 receipt 副本，遵守单文件 ≤ 1,000 行限额，不拷过程数据）。
+4. 回执结论回写 #305（GitHub 可链接结论）；影响现行合同的结论回写所属设计文档，
+   回执本身不入仓，不拷过程数据。
 
 正式 L1 输入包从 `laneflow-synth-generator generate` 按冻结身份重建，或直接使用
 正式矩阵的输入缓存目录；核查对象身份（manifest 摘要与来源提交）由记录原样携带。
@@ -136,7 +142,7 @@ cargo +1.99.1 test --locked -p laneflow-gate-summary
 cargo +1.99.1 clippy --locked -p laneflow-gate-summary --all-targets -- -D warnings
 ```
 
-`tests/summary.rs` 覆盖 fixture 汇总与全部失败关闭路径（性能判定词、锚点未命中、
+`tests/summary.rs` 以示例 manifest 覆盖汇总与全部失败关闭路径（性能判定词、锚点未命中、
 身份不符、未完成项拒绝、占位路径缺根、输出目录已存在）；`tests/l1_generated.rs`
 为忽略级进程内全链（编译 LFCA 属重负载，按窗口手动运行）。
 
@@ -157,3 +163,4 @@ ADR 0033（摘要角色；本工具不新增摘要）、
 [issue-1279]: https://github.com/illusion-tech/laneflow/issues/1279
 [issue-1271]: https://github.com/illusion-tech/laneflow/issues/1271
 [issue-1266-receipt]: https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168
+[v0-10-trial]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/tools/laneflow-gate-summary/fixtures/v0.10-trial/unified-gate.toml

@@ -333,7 +333,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Dependency policy`：cargo-deny。
 - `Analyze (actions)` / `Analyze (rust)`：advanced CodeQL。PR 与 merge_group 上由
   `Detect CodeQL paths` job 判定适用源代码路径（与 Rust 路径过滤器同口径，
-  `research/**` 与 `tools/**` 精确到实际输入，另含 `fuzz/**`），无适用路径时
+  `tools/**` 精确到实际输入，另含 `fuzz/**`），无适用路径时
   两个 job 以显式 skip 模式成功完成，且 PR 的 skip 分支另上传不含告警的 SARIF
   以满足原生 `code_scanning` 规则（仅 `pull_request` 事件，不构成扫描证据），
   检测失败时失败关闭；main push、每周调度与手工 dispatch 恒全量

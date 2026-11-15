@@ -67,7 +67,7 @@ jobs:
         run: |
           set +e
           cargo +1.99.1 run --locked -p xtask -- format-md-tables --check \
-            README.md AGENTS.md CONTRIBUTING.md crates docs research schemas .github .agents .cursor
+            README.md AGENTS.md CONTRIBUTING.md crates docs schemas .github .agents .cursor
           status=$?
           set -e
           if [[ "$status" -ne 0 ]]; then
@@ -108,12 +108,6 @@ jobs:
               - 'tools/**/evidence/**'
               - 'tools/**/licenses/**'
               - 'examples/**'
-              # research 精确到 Rust 文件与 Cargo 清单/锁文件：研究结论文档不参与
-              # workspace 构建，research 数据禁止编译期嵌入且活测试运行时读取已清零
-              # （#1293、#1295、#1364）。
-              - 'research/**/*.rs'
-              - 'research/**/Cargo.toml'
-              - 'research/**/Cargo.lock'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
