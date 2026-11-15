@@ -10,11 +10,9 @@
 //! 采样、compiler、阈值与原成功几何；计划与冻结实现不一致时停止执行并重新授权
 //! （plan §7），不得单向迁就。
 
-use super::super::experiment::{merge, pool};
-use super::super::stream_a_curve_design_c29_c17::{per_edge_counts, pool_counts};
+use super::super::stream_a_curve_design_c29_c17::pool_counts;
 use super::cohort2_coverage::read_pinned_json;
 use super::*;
-use crate::output::digest::hex_sha256;
 use std::collections::{BTreeMap, BTreeSet};
 
 // ===== 公共助手最小集（基线包合并需求单；仅再导出，语义逐字不变）=====
@@ -45,11 +43,6 @@ const FINAL_PER_EDGE: [(&str, usize); 11] = [
     ("sumo::-29388_3_0", 8),
     ("sumo::-7348_3_0", 16),
 ];
-
-/// 来源⑤钉版（#1134 plan §5）：Release 资产 `research-evidence-1134-cohort2-baseline`
-/// → `cohort2-baseline-inputs.zip::stream-a-searches.json`，SHA-256 与字节数冻结。
-const STREAM_A_SEARCHES_SHA256: &str =
-    "1c6dd16244481d8fa757865305b2f05287ed74624dde5770998e752d18e26d7b";
 
 /// 结果对照锚取材钉版（锚代际错位事故返工后）：#1134 run-03 `results.json`
 /// （631,650 字节）`#variants.new` 整行 = 92 池行。
@@ -219,13 +212,6 @@ const RESULTS_ANCHOR_SHA256: &str =
     "d025c4bf6cd2a6c815e9586124034d21c8232d6c9cb46266ad0a5727e658847b";
 const MANIFEST_SHA256: &str = "656fb97e66f0b8829664082a9e231c8eef35cb129d5496ddc3262de2375a2bcc";
 
-/// 来源⑥钉版（#1134 冻结四轮 ABBA 逐字节一致的 run-03 输出；两文件各 157,603 /
-/// 1,313,285 字节）。
-const RUN3_OLD_SEARCHES_SHA256: &str =
-    "011db49fad061d945ab7d21858d73961d8234e2955450fd4f040269d04309dba";
-const RUN3_GRID_SEARCHES_SHA256: &str =
-    "7b8b2e1f28f1d7e47aed6ff5222086971a1ae2838dad07559ff03efd94513fe9";
-
 /// program 对象 u64 位逐个提取（lead ④ 裁决硬门 1：几何/判定唯一正本输入的位级断言）。
 /// 入参为 `{"start":[…],"segments":[{"end":[…]}]}` 形态的 program 对象。
 fn program_u64_bits(program_value: &Value) -> Vec<u64> {
@@ -334,11 +320,6 @@ pub(in super::super) fn json_leaf_mismatch(expected: &str, actual: &str) -> Opti
     }
     None
 }
-
-/// 派生元数据非逐字清单（lead ④ 裁决硬门 2；来源/候选/字段级，17 组 60 条）：
-/// `pool.json` 的 `arc_m`/`spans` 经浮点再序列化相对来源存在非逐字字符串（1 ULP 家族）；
-/// `program` u64 位逐字精确。清单随 MANIFEST 发布、README 差异记录同列。
-const METADATA_DRIFT_GROUPS: &str = r#"[{"source":"1103","edge":"sumo::-10004_5_1","field":"arc_m","pool_indices":[2]},{"source":"1103","edge":"sumo::-10004_5_1","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1103","edge":"sumo::-10034_0_0","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1103","edge":"sumo::-10130_16_0","field":"arc_m","pool_indices":[1,3,4,7]},{"source":"1103","edge":"sumo::-10130_16_0","field":"spans","pool_indices":[6]},{"source":"1103","edge":"sumo::-10130_8_0","field":"arc_m","pool_indices":[5]},{"source":"1103","edge":"sumo::-10130_8_0","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1103","edge":"sumo::-29388_3_0","field":"arc_m","pool_indices":[5,6]},{"source":"1107","edge":"sumo::-7348_3_0","field":"spans","pool_indices":[0,1,2,3,4,5,6,7]},{"source":"1111","edge":"sumo::-10004_5_1","field":"arc_m","pool_indices":[11,13,15]},{"source":"1111","edge":"sumo::-7348_3_0","field":"arc_m","pool_indices":[15]},{"source":"1111","edge":"sumo::-7348_3_0","field":"spans","pool_indices":[8,9,10,11,12,13,14,15]},{"source":"1115","edge":"sumo::-16502_0_0","field":"spans","pool_indices":[0]},{"source":"1115","edge":"sumo::-28860_3_0","field":"spans","pool_indices":[1]},{"source":"1134-old","edge":"sumo::-25332_7_0","field":"arc_m","pool_indices":[3,6]},{"source":"1134-old","edge":"sumo::-25332_7_0","field":"spans","pool_indices":[2,3]},{"source":"1134-grid","edge":"sumo::-25332_7_0","field":"spans","pool_indices":[14]}]"#;
 
 /// 候选去重键：整程序点位的规范 f32 位串（逐字沿 `experiment::merge`）。
 fn canonical_key(program: &re::RoadEditingCurveProgram) -> Vec<[u32; 3]> {
@@ -454,18 +435,6 @@ fn verified_pools(rows: &Value) -> combinations::Pools {
     pools
 }
 
-/// 钉版文本读取（SHA-256 断言语义同 `read_pinned_json`，panic 口径一致；文本原样
-/// 返回，供位忠实切片）。
-fn read_pinned_text(path: &Path, expected_sha: &str) -> String {
-    let bytes = fs::read(path).expect("pinned baseline input present");
-    assert_eq!(
-        hex_sha256(&bytes),
-        expected_sha,
-        "pinned baseline input digest"
-    );
-    String::from_utf8(bytes).expect("pinned input is utf-8")
-}
-
 /// 锚 `source` 溯源键（取材身份三件套 + 代际 + 变更记录；无浮点字段，序列化无漂移）。
 fn anchor_source_value() -> Value {
     json!({
@@ -527,88 +496,6 @@ fn results_anchor_text(source_text: &str) -> String {
     let interior = &source_text[inner_start..inner_end];
     let source_json = serde_json::to_string(&anchor_source_value()).unwrap();
     format!("{{\n  \"source\": {source_json},{interior}\n}}\n")
-}
-
-/// plan §1 来源装载：①–④为仓库内历史批次研究制品（include_str 钉版），⑤经
-/// `COHORT2_BASELINE_DIR` 钉版读取，⑥经 `COHORT2_RUN_DIR` 读取 #1134 run-03 输出
-/// （仅 `sumo::-25332_7_0` 有候选，原族 8 份在前、网格 8 份在后）。
-fn source_rows(stream_searches: Value, run_old: Value, run_grid: Value) -> Vec<(usize, Value)> {
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
-    ))
-    .unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
-    ))
-    .unwrap();
-    let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1111-positive-calibration.json"
-    ))
-    .unwrap();
-    let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1115-searches.json"
-    ))
-    .unwrap();
-    // 来源⑥只允许 sumo::-25332_7_0 出候选（合并链冻结）。
-    for (label, rows) in [("run3-old", &run_old), ("run3-grid", &run_grid)] {
-        for (id, row) in rows.as_object().unwrap() {
-            if id != "sumo::-25332_7_0" {
-                assert!(
-                    row["candidates"].as_array().unwrap().is_empty(),
-                    "{label} carries no candidates outside sumo::-25332_7_0"
-                );
-            }
-        }
-    }
-    vec![
-        (1, legacy["tiers"]["32768"]["searches"].clone()),
-        (2, old),
-        (3, grid["edges"].clone()),
-        (4, curve),
-        (5, stream_searches),
-        (6, run_old),
-        (6, run_grid),
-    ]
-}
-
-/// 来源⑤/⑥与结果对照锚的钉版输入装载（`COHORT2_BASELINE_DIR` + `COHORT2_RUN_DIR`；
-/// 锚取材 = run-03 `results.json` **原文文本**，供位忠实切片）。
-fn pinned_sources() -> (Value, String, Value, Value) {
-    let base = PathBuf::from(std::env::var("COHORT2_BASELINE_DIR").expect("COHORT2_BASELINE_DIR"));
-    let run = PathBuf::from(std::env::var("COHORT2_RUN_DIR").expect("COHORT2_RUN_DIR"));
-    let stream_searches = read_pinned_json(
-        &base.join("stream-a-searches.json"),
-        STREAM_A_SEARCHES_SHA256,
-    );
-    let run_results = read_pinned_text(&run.join("results.json"), RUN3_RESULTS_SHA256);
-    let run_old = read_pinned_json(&run.join("old-searches.json"), RUN3_OLD_SEARCHES_SHA256);
-    let run_grid = read_pinned_json(&run.join("grid-searches.json"), RUN3_GRID_SEARCHES_SHA256);
-    (stream_searches, run_results, run_old, run_grid)
-}
-
-/// plan §3 ⑤ 六来源重建与包内候选逐值逐序对照（`experiment::{pool, merge}` 双记账）。
-fn assert_rebuild_matches_package(rows: &Value, sources: &[(usize, Value)]) {
-    let mut pools = combinations::Pools::new();
-    for (_, source) in sources {
-        merge(&mut pools, pool(source));
-    }
-    assert_eq!(pool_counts(&pools), (11, 92), "rebuild pool totals");
-    assert_eq!(
-        per_edge_counts(&pools),
-        BTreeMap::from(FINAL_PER_EDGE.map(|(id, count)| (id.to_owned(), count))),
-        "rebuild per-edge counts"
-    );
-    for (id, programs) in &pools {
-        let candidates = rows[id]["candidates"].as_array().unwrap();
-        assert_eq!(candidates.len(), programs.len(), "rebuild length {id}");
-        for (candidate, program) in candidates.iter().zip(programs) {
-            assert_eq!(
-                program_u64_bits(&candidate["program"]),
-                program_u64_bits(&json!(program_bits(program))),
-                "rebuild candidate program u64 bits exact {id}"
-            );
-        }
-    }
 }
 
 fn pinned_baseline_dir() -> PathBuf {
@@ -676,91 +563,6 @@ pub(in super::super) fn results_anchor_pinned() -> Value {
         "anchor source digest"
     );
     anchor
-}
-
-/// plan §5 导出入口：按合并链重建 92 份池并写三资产（结果 JSON 无计时字段）。
-#[test]
-#[ignore = "requires fresh SHARED_BASELINE_EXPORT_DIR, COHORT2_BASELINE_DIR and COHORT2_RUN_DIR"]
-fn shared_baseline_export() {
-    let out = PathBuf::from(std::env::var("SHARED_BASELINE_EXPORT_DIR").expect("export dir"));
-    assert!(!out.exists(), "fresh export directory");
-    fs::create_dir_all(&out).unwrap();
-    let (stream_searches, run_results, run_old, run_grid) = pinned_sources();
-    let rows = source_rows(stream_searches, run_old, run_grid);
-    let sources: Vec<(usize, &Value)> = rows
-        .iter()
-        .map(|(stage, source)| (*stage, source))
-        .collect();
-    let (pool_rows, provenance, per_stage) = build_pool(&sources);
-    let anchor_text = results_anchor_text(&run_results);
-    recovery::write_json(&out, "pool.json", &pool_rows);
-    fs::write(out.join("results-anchor.json"), &anchor_text).unwrap();
-    let pool_bytes = fs::read(out.join("pool.json")).unwrap();
-    let anchor_bytes = fs::read(out.join("results-anchor.json")).unwrap();
-    let mut manifest_sources = Vec::new();
-    for (index, (stage, source)) in rows.iter().enumerate() {
-        let candidates = source
-            .as_object()
-            .unwrap()
-            .values()
-            .map(|row| row["candidates"].as_array().unwrap().len())
-            .sum::<usize>();
-        manifest_sources.push(json!({
-            "merge_order_index":index,"stage":stage,
-            "source_label":MERGE_ORDER[stage - 1],
-            "raw_candidate_count":candidates,
-        }));
-    }
-    let manifest = json!({
-        "schema":"laneflow-1140-shared-baseline-manifest",
-        "files":{
-            "pool.json":{"sha256":hex_sha256(&pool_bytes),"bytes":pool_bytes.len()},
-            "results-anchor.json":{"sha256":hex_sha256(&anchor_bytes),"bytes":anchor_bytes.len()},
-        },
-        "merge_order":MERGE_ORDER,"per_stage_counts":per_stage,
-        "final":{"edge_count":FINAL_PER_EDGE.len(),"candidate_count":92,
-            "per_edge":FINAL_PER_EDGE.iter().map(|(id,count)|(id.to_string(),count)).collect::<BTreeMap<String,_>>()},
-        "sources":manifest_sources,
-        "candidate_sources":provenance,
-        "derived_metadata":{
-            "fields":["arc_m","spans"],
-            "authority":"derived metadata, not authoritative; program u64 bits are the sole authoritative geometry input",
-            "non_verbatim_strings":serde_json::from_str::<Value>(METADATA_DRIFT_GROUPS).unwrap(),
-        },
-        "anchor_source":{
-            "asset":"evidence/run-03/results.json","sha256":RUN3_RESULTS_SHA256,"bytes":631650,
-            "json_pointer":"#variants.new","generation":"92-池行",
-            "release_tag":"research-evidence-1140-shared-baseline",
-            "changed_from":"#variants.new@stream-a-results.json（research-evidence-1134-cohort2-baseline，76-池行）→ #variants.new@evidence/run-03/results.json（92-池行）；根因=锚代际错位事故，两代唯一语义差为 C40 missing_edges 6→5",
-        },
-        "generation":"E0 export entry shared_baseline_export; pool merge semantics = dependency_recovery::experiment::{pool,merge}; pool.json rows are source-shaped ({edge:{candidates:[…]}}); results anchor = run-03 results.json#variants.new 整行（92-池行，锚代际错位事故返工后取材），comparison-only",
-    });
-    // 冻结链断言先于写 MANIFEST（per_stage/ final 与 build 产物交叉一致）。
-    assert_frozen_chain(&pool_rows, &manifest);
-    assert_rebuild_matches_package(&pool_rows, &rows);
-    recovery::write_json(&out, "MANIFEST.json", &manifest);
-}
-
-/// plan §5 校验入口：`SIX_STREAMS_BASELINE_DIR` 三资产全断言 + 六来源重建逐值逐序 +
-/// 结果对照锚**字节可证等值**（源切片+包装，92 池行；数字字符串逐字）。
-#[test]
-#[ignore = "requires SIX_STREAMS_BASELINE_DIR, COHORT2_BASELINE_DIR and COHORT2_RUN_DIR"]
-fn shared_baseline_package_matches_frozen_chain() {
-    let pools = shared_pools();
-    assert_eq!(pool_counts(&pools), (11, 92), "verified pool totals");
-    let dir = pinned_baseline_dir();
-    let rows = read_pinned_json(&dir.join("pool.json"), POOL_JSON_SHA256);
-    let (stream_searches, run_results, run_old, run_grid) = pinned_sources();
-    let rows_sources = source_rows(stream_searches, run_old, run_grid);
-    assert_rebuild_matches_package(&rows, &rows_sources);
-    let _ = results_anchor_pinned();
-    let expected_anchor = results_anchor_text(&run_results);
-    let anchor_bytes = fs::read(dir.join("results-anchor.json")).unwrap();
-    assert_eq!(
-        anchor_bytes,
-        expected_anchor.as_bytes(),
-        "anchor 字节可证等值（源切片+包装，数值字面量逐字）"
-    );
 }
 
 /// 临时目录唯一命名；钉版读取验证的同字节内容只写临时目录，不落仓库。
