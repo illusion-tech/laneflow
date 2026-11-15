@@ -52,21 +52,20 @@ pub(super) fn finish(before: AllocationStart) -> Option<Allocation> {
 }
 
 pub(super) fn process() -> Result<Value, Error> {
-    #[cfg(windows)]
-    {
-        let p = win32job::utils::get_process_memory_info(win32job::utils::get_current_process())?;
-        Ok(
-            json!({"method":"GetProcessMemoryInfo/PROCESS_MEMORY_COUNTERS_EX",
-            "pid":std::process::id(),"working_set_bytes":p.working_set_size,
-            "peak_working_set_bytes":p.peak_working_set_size,"private_bytes":p.private_usage,
-            "commit_peak_bytes":p.peak_pagefile_usage,"page_fault_count":p.page_fault_count,
-            "peak_scope":"process_lifetime_includes_initialization_and_evidence_buffers"}),
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(json!({"method":"unavailable_on_this_platform","pid":std::process::id()}))
-    }
+    let memory = laneflow_os_probe::Probe::new()?.memory()?;
+    Ok(
+        json!({"method":"laneflow-os-probe","pid":std::process::id(),
+        "working_set_bytes":cfg!(windows).then_some(memory.resident_bytes).flatten(),
+        "peak_working_set_bytes":cfg!(windows).then_some(memory.peak_resident_bytes).flatten(),
+        "private_bytes":memory.windows_private_bytes,
+        "commit_peak_bytes":memory.windows_peak_commit_bytes,
+        "page_fault_count":memory.page_faults,
+        "linux_vm_rss_bytes":cfg!(target_os = "linux").then_some(memory.resident_bytes).flatten(),
+        "linux_vm_hwm_bytes":cfg!(target_os = "linux").then_some(memory.peak_resident_bytes).flatten(),
+        "linux_rss_anon_bytes":memory.linux_anonymous_resident_bytes,
+        "linux_major_page_fault_count":memory.linux_major_page_faults,
+        "peak_scope":"process_lifetime_includes_initialization_and_evidence_buffers"}),
+    )
 }
 
 pub(super) fn runtime(world: &TrafficWorld) -> Value {
