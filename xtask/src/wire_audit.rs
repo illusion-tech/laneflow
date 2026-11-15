@@ -87,7 +87,8 @@
 //!    Linux 下钉版 rustix `param`、唯一 dev 依赖钉版 stats_alloc、无 build 脚本）；
 //!    源文件全集等于登记清单，unsafe 只在 src/windows.rs 且恰为 5 处登记表达式，
 //!    全 crate 禁源码加载、间接、lint 放宽、汇编、自写 FFI 与 transmute；
-//!    `crates/` 下生产依赖不得引用本 crate（dev 依赖除外）。
+//!    `crates/` 下生产依赖不得引用本 crate（dev 依赖除外）；同一检查也覆盖
+//!    安全 crate laneflow-host-observe（host-observe.md §2）。
 //! 8. 仓库 cargo config 卫生：`.cargo/config.toml`（及旧式 `.cargo/config`）
 //!    若存在，禁止一切可替换 CI 检查执行语义的键——`[env]` 段（经
 //!    `cargo run` 进程环境投毒 hermetic 嵌套 cargo 的 HOME/CARGO_HOME
@@ -255,10 +256,10 @@ pub(crate) fn run() -> Result<(), String> {
     schema_codegen::check_audited_mmap_sources(&repository_root)?;
     schema_codegen::check_audited_motion_sources(&repository_root)?;
     schema_codegen::check_audited_probe_sources(&repository_root)?;
-    check_probe_consumers(&repository_root)?;
+    check_tool_only_consumers(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），os-probe 例外闭合（manifest 形状与依赖钉版、源文件清单、5 处登记 unsafe 表达式、生产 crate 不得引用），workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），os-probe 例外闭合（manifest 形状与依赖钉版、源文件清单、5 处登记 unsafe 表达式），os-probe 与 host-observe 不得被生产 crate 引用，workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -903,14 +904,26 @@ fn require_probe_platform_dependency(
     Ok(())
 }
 
-/// os-probe.md §2：`crates/` 下 workspace 成员的生产依赖（dependencies、
-/// build-dependencies 及其 target 条件形态）不得引用 os-probe；dev 依赖除外。
-/// 经根 `[workspace.dependencies]` 改名再以 `workspace = true` 继承的形态同样
-/// 拒绝：先解析根 manifest 中指向 os-probe 的全部依赖名。
-fn check_probe_consumers(repository_root: &Path) -> Result<(), String> {
+/// 只许 `tools/` 下的 crate 依赖、或作为 dev-dependency 引用的 package，及其设计
+/// 依据：os-probe 含受审计 `unsafe`（os-probe.md §2）；host-observe 枚举进程、
+/// 启动外部命令并读取机器标识（host-observe.md §2）。
+const TOOL_ONLY_PACKAGES: &[(&str, &str)] = &[
+    (schema_codegen::AUDITED_PROBE_PACKAGE_NAME, "os-probe.md §2"),
+    ("laneflow-host-observe", "host-observe.md §2"),
+];
+
+/// 根 manifest `[workspace.dependencies]` 中指向受限 package 的依赖名，及其所指
+/// package 与设计依据。
+type ToolOnlyAlias = (String, (&'static str, &'static str));
+
+/// `crates/` 下 workspace 成员的生产依赖（dependencies、build-dependencies 及其
+/// target 条件形态）不得引用 [`TOOL_ONLY_PACKAGES`]；dev 依赖除外。经根
+/// `[workspace.dependencies]` 改名再以 `workspace = true` 继承的形态同样拒绝：
+/// 先解析根 manifest 中指向这些 package 的全部依赖名。
+fn check_tool_only_consumers(repository_root: &Path) -> Result<(), String> {
     let root_manifest = fs::read_to_string(repository_root.join("Cargo.toml"))
         .map_err(|error| format!("无法读取根 Cargo.toml: {error}"))?;
-    let aliases = probe_workspace_aliases(&root_manifest)?;
+    let aliases = tool_only_workspace_aliases(&root_manifest)?;
     let crates_root = repository_root
         .join("crates")
         .canonicalize()
@@ -924,23 +937,28 @@ fn check_probe_consumers(repository_root: &Path) -> Result<(), String> {
         }
         let text = fs::read_to_string(&manifest)
             .map_err(|error| format!("无法读取 `{}`: {error}", manifest.display()))?;
-        require_no_probe_production_dependency(&text, &manifest.display().to_string(), &aliases)?;
+        require_no_tool_only_production_dependency(
+            &text,
+            &manifest.display().to_string(),
+            &aliases,
+        )?;
     }
     Ok(())
 }
 
-/// 依赖条目是否直接指向 os-probe：依赖名即包名，或 `package` 改名为包名。
-fn names_probe(key: &str, value: &toml::Value) -> bool {
-    let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
+/// 依赖条目直接指向的受限 package：依赖名即包名，或 `package` 改名为包名。
+fn names_tool_only(key: &str, value: &toml::Value) -> Option<(&'static str, &'static str)> {
     let renamed = value
         .as_table()
         .and_then(|dependency| dependency.get("package"))
         .and_then(toml::Value::as_str);
-    key == probe || renamed == Some(probe)
+    TOOL_ONLY_PACKAGES
+        .iter()
+        .find(|(package, _)| key == *package || renamed == Some(*package))
+        .copied()
 }
 
-/// 根 manifest `[workspace.dependencies]` 中指向 os-probe 的依赖名集合。
-fn probe_workspace_aliases(root_manifest: &str) -> Result<Vec<String>, String> {
+fn tool_only_workspace_aliases(root_manifest: &str) -> Result<Vec<ToolOnlyAlias>, String> {
     let manifest: toml::Table = root_manifest
         .parse()
         .map_err(|error| format!("根 Cargo.toml TOML 解析失败: {error}"))?;
@@ -952,17 +970,18 @@ fn probe_workspace_aliases(root_manifest: &str) -> Result<Vec<String>, String> {
         .map(|dependencies| {
             dependencies
                 .iter()
-                .filter(|(key, value)| names_probe(key, value))
-                .map(|(key, _)| key.clone())
+                .filter_map(|(key, value)| {
+                    names_tool_only(key, value).map(|hit| (key.clone(), hit))
+                })
                 .collect()
         })
         .unwrap_or_default())
 }
 
-fn require_no_probe_production_dependency(
+fn require_no_tool_only_production_dependency(
     text: &str,
     label: &str,
-    workspace_aliases: &[String],
+    workspace_aliases: &[ToolOnlyAlias],
 ) -> Result<(), String> {
     let manifest: toml::Table = text
         .parse()
@@ -982,7 +1001,6 @@ fn require_no_probe_production_dependency(
             }
         }
     }
-    let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
     for table in tables {
         for (key, value) in table {
             let inherited = value
@@ -990,9 +1008,16 @@ fn require_no_probe_production_dependency(
                 .and_then(|dependency| dependency.get("workspace"))
                 .and_then(toml::Value::as_bool)
                 == Some(true);
-            if names_probe(key, value) || (inherited && workspace_aliases.contains(key)) {
+            let aliased = || {
+                workspace_aliases
+                    .iter()
+                    .find(|(alias, _)| alias == key)
+                    .map(|(_, hit)| *hit)
+            };
+            let hit = names_tool_only(key, value).or_else(|| inherited.then(aliased).flatten());
+            if let Some((package, reference)) = hit {
                 return Err(format!(
-                    "生产 crate `{label}` 不得依赖 `{probe}`（只许 tools/ 下的 crate 依赖或作为 dev-dependency 引用，os-probe.md §2）"
+                    "生产 crate `{label}` 不得依赖 `{package}`（只许 tools/ 下的 crate 依赖或作为 dev-dependency 引用，{reference}）"
                 ));
             }
         }
@@ -2165,49 +2190,69 @@ mod tests {
     }
 
     #[test]
-    fn probe_consumers_accept_checked_in_workspace() {
+    fn tool_only_consumers_accept_checked_in_workspace() {
         let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("xtask 必须有父目录（仓库根）");
-        check_probe_consumers(repository_root).unwrap();
+        check_tool_only_consumers(repository_root).unwrap();
     }
 
     #[test]
-    fn probe_consumers_reject_production_but_allow_dev_dependency() {
-        let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
-        let dev =
-            format!("[package]\nname = \"c\"\n[dev-dependencies]\n{probe} = {{ path = \"x\" }}\n");
-        require_no_probe_production_dependency(&dev, "c", &[]).unwrap();
-        for text in [
-            format!("[dependencies]\n{probe} = {{ path = \"x\" }}\n"),
-            format!("[build-dependencies]\n{probe} = {{ path = \"x\" }}\n"),
-            format!("[target.'cfg(windows)'.dependencies]\n{probe} = {{ path = \"x\" }}\n"),
-            format!("[dependencies]\nalias = {{ package = \"{probe}\", path = \"x\" }}\n"),
-        ] {
-            let error = require_no_probe_production_dependency(&text, "c", &[]).unwrap_err();
-            assert!(error.contains("不得依赖"), "{error}");
+    fn tool_only_consumers_reject_production_but_allow_dev_dependency() {
+        for (package, reference) in TOOL_ONLY_PACKAGES {
+            let dev = format!(
+                "[package]\nname = \"c\"\n[dev-dependencies]\n{package} = {{ path = \"x\" }}\n"
+            );
+            require_no_tool_only_production_dependency(&dev, "c", &[]).unwrap();
+            for text in [
+                format!("[dependencies]\n{package} = {{ path = \"x\" }}\n"),
+                format!("[build-dependencies]\n{package} = {{ path = \"x\" }}\n"),
+                format!("[target.'cfg(windows)'.dependencies]\n{package} = {{ path = \"x\" }}\n"),
+                format!("[dependencies]\nalias = {{ package = \"{package}\", path = \"x\" }}\n"),
+            ] {
+                let error =
+                    require_no_tool_only_production_dependency(&text, "c", &[]).unwrap_err();
+                assert!(
+                    error.contains("不得依赖")
+                        && error.contains(package)
+                        && error.contains(reference),
+                    "{error}"
+                );
+            }
         }
     }
 
     #[test]
-    fn probe_consumers_resolve_workspace_dependency_aliases() {
+    fn tool_only_consumers_resolve_workspace_dependency_aliases() {
         let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
         let root = format!(
-            "[workspace]\nmembers = []\n[workspace.dependencies]\nalias = {{ package = \"{probe}\", path = \"tools/x\" }}\nserde = \"1\"\n"
+            "[workspace]\nmembers = []\n[workspace.dependencies]\nalias = {{ package = \"{probe}\", path = \"tools/x\" }}\nobserve = {{ package = \"laneflow-host-observe\", path = \"tools/y\" }}\nserde = \"1\"\n"
         );
-        let aliases = probe_workspace_aliases(&root).unwrap();
-        assert_eq!(aliases, vec!["alias".to_string()]);
-        for text in [
-            "[dependencies]\nalias.workspace = true\n",
-            "[dependencies]\nalias = { workspace = true }\n",
-            "[target.'cfg(unix)'.build-dependencies]\nalias = { workspace = true, optional = true }\n",
+        let aliases = tool_only_workspace_aliases(&root).unwrap();
+        let names: Vec<&str> = aliases.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["alias", "observe"]);
+        for (text, package) in [
+            ("[dependencies]\nalias.workspace = true\n", probe),
+            ("[dependencies]\nalias = { workspace = true }\n", probe),
+            (
+                "[target.'cfg(unix)'.build-dependencies]\nalias = { workspace = true, optional = true }\n",
+                probe,
+            ),
+            (
+                "[dependencies]\nobserve.workspace = true\n",
+                "laneflow-host-observe",
+            ),
         ] {
-            let error = require_no_probe_production_dependency(text, "c", &aliases).unwrap_err();
-            assert!(error.contains("不得依赖"), "{text}: {error}");
+            let error =
+                require_no_tool_only_production_dependency(text, "c", &aliases).unwrap_err();
+            assert!(
+                error.contains("不得依赖") && error.contains(package),
+                "{text}: {error}"
+            );
         }
         // 同名但不继承 workspace 的条目、其他继承依赖与 dev 依赖不受影响。
-        require_no_probe_production_dependency(
-            "[dependencies]\nalias = { path = \"x\" }\nserde.workspace = true\n[dev-dependencies]\nalias.workspace = true\n",
+        require_no_tool_only_production_dependency(
+            "[dependencies]\nalias = { path = \"x\" }\nserde.workspace = true\n[dev-dependencies]\nalias.workspace = true\nobserve.workspace = true\n",
             "c",
             &aliases,
         )

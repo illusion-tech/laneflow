@@ -3178,6 +3178,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-host-observe"
+version = "0.0.0"
+dependencies = [
+ "laneflow-os-probe",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sysinfo",
+ "tempfile",
+]
+
+[[package]]
 name = "laneflow-junction-generator"
 version = "0.0.0"
 dependencies = [
@@ -3378,6 +3390,7 @@ dependencies = [
  "laneflow-bevy",
  "laneflow-compiler",
  "laneflow-format",
+ "laneflow-host-observe",
  "laneflow-runtime",
  "laneflow-spatial",
  "laneflow-static-contract",

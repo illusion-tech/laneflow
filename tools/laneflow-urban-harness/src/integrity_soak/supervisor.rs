@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     fs,
     path::Path,
     process::{Child, Command, Stdio},
@@ -7,8 +6,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use laneflow_host_observe::child::{ChildObserver, Scope};
 use serde::{Deserialize, Serialize};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System};
 
 use super::{Config, control, directory_bytes, record_failure};
 use crate::{Result, invalid};
@@ -77,118 +76,32 @@ pub(super) fn command(entry: &str) -> Result<Command> {
     Ok(command)
 }
 
-pub(super) struct ChildGuard {
-    pub(super) child: Child,
-    system: System,
-    known: BTreeMap<Pid, u64>,
-    root: Pid,
-    root_start: Option<u64>,
-    finished: bool,
+/// 进程组清理期限：先停驻留进程，再按 PID + 启动时刻终止已观察后代。
+pub(super) const TERMINATION_DEADLINE: Duration = Duration::from_secs(3);
+
+/// 以进程组范围观测驻留进程（host-observe.md §5.1）：成员按 PID + 启动时刻
+/// 追踪，已观察后代即使重新挂靠也继续追踪；观测器被丢弃时终止进程组。
+pub(super) fn observe(child: Child) -> Result<ChildObserver> {
+    ChildObserver::new(child, Scope::ProcessGroup)
+        .map_err(|error| invalid(format!("初始化进程观测失败：{error}")))
 }
 
-impl ChildGuard {
-    pub(super) fn new(child: Child, system: System) -> Self {
-        let root = Pid::from_u32(child.id());
-        let mut guard = Self {
-            child,
-            system,
-            known: BTreeMap::new(),
-            root,
-            root_start: None,
-            finished: false,
-        };
-        guard.refresh();
-        guard
-    }
-
-    fn refresh(&mut self) {
-        self.system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing().with_memory().without_tasks(),
-        );
-        self.known.retain(|pid, start| {
-            self.system
-                .process(*pid)
-                .is_some_and(|process| process.start_time() == *start)
-        });
-        if let Some(process) = self.system.process(self.root) {
-            let expected = *self.root_start.get_or_insert(process.start_time());
-            if expected == process.start_time() {
-                self.known.entry(self.root).or_insert(expected);
-            }
-        }
-        loop {
-            let before = self.known.len();
-            for (pid, process) in self.system.processes() {
-                if let Some(parent) = process.parent().and_then(|pid| self.known.get(&pid))
-                    && process.start_time() >= *parent
-                {
-                    self.known.entry(*pid).or_insert(process.start_time());
-                }
-            }
-            if self.known.len() == before {
-                break;
-            }
-        }
-    }
-
-    fn members(&mut self) -> Vec<serde_json::Value> {
-        self.refresh();
-        let supervisor = Pid::from_u32(std::process::id());
-        self.known
-            .keys()
-            .chain(std::iter::once(&supervisor))
-            .filter_map(|pid| {
-                self.system.process(*pid).map(|process| {
-                    serde_json::json!({
-                        "pid":pid.as_u32(), "start_time":process.start_time(),
-                        "resident_bytes":(process.memory() > 0).then_some(process.memory()),
-                        "terminated":process.status() == ProcessStatus::Zombie,
-                        "parent_pid":process.parent().map(Pid::as_u32),
-                    })
-                })
+/// 一次采样中进程组成员与看护进程自身的记录；字段与 #1097 起的资源记录一致。
+pub(super) fn members(observer: &mut ChildObserver) -> Vec<serde_json::Value> {
+    let sample = observer.sample();
+    sample
+        .members
+        .iter()
+        .chain(sample.observer.as_ref())
+        .map(|member| {
+            serde_json::json!({
+                "pid":member.pid, "start_time":member.start_time_s,
+                "resident_bytes":member.resident_bytes,
+                "terminated":member.exited_unreaped,
+                "parent_pid":member.parent_pid,
             })
-            .collect()
-    }
-
-    pub(super) fn terminate(&mut self) -> Result<()> {
-        if self.finished {
-            return Ok(());
-        }
-        self.refresh();
-        // 先停父进程，阻止继续派生；已观察后代即使重新挂靠，也按 PID + 启动时间追踪。
-        let _ = self.child.kill();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        loop {
-            for pid in self.known.keys() {
-                if let Some(process) = self.system.process(*pid) {
-                    let _ = process.kill();
-                }
-            }
-            let reaped = self.child.try_wait()?.is_some();
-            self.refresh();
-            let remaining = self.known.keys().any(|pid| {
-                self.system
-                    .process(*pid)
-                    .is_some_and(|process| process.status() != ProcessStatus::Zombie)
-            });
-            if reaped && !remaining {
-                self.finished = true;
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                return Err(invalid("进程清理未确认完成"));
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-    }
-}
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        let _ = self.terminate();
-    }
+        })
+        .collect()
 }
 
 /// 必需成员（看护与驻留进程）在一次采样中的工作集测得情况（#1097）。
@@ -310,9 +223,7 @@ pub(super) fn watch(
             .stderr(Stdio::from(fs::File::create(
                 output.join("resident.stderr.log"),
             )?));
-        let system =
-            System::new().map_err(|error| invalid(format!("初始化进程观测失败：{error}")))?;
-        let mut guard = ChildGuard::new(command.spawn()?, system);
+        let mut guard = observe(command.spawn()?)?;
         let mut samples = Vec::new();
         let mut ordinal = 0_u64;
         let mut peak: Option<u64> = None;
@@ -322,12 +233,12 @@ pub(super) fn watch(
         let mut pending_miss: Option<serde_json::Value> = None;
         let result = (|| -> Result<()> {
             loop {
-                let exit_status = guard.child.try_wait()?;
-                let members = guard.members();
+                let exit_status = guard.try_wait()?;
+                let members = members(&mut guard);
                 let (supervisor_measured, resident) = required_memory(
                     &members,
                     std::process::id(),
-                    guard.child.id(),
+                    guard.id(),
                     exit_status.is_some(),
                 );
                 observed_resident |= resident == ResidentMemory::Measured;
@@ -372,12 +283,7 @@ pub(super) fn watch(
                     if let Some(previous) = pending_miss.take() {
                         return Err(invalid(format!(
                             "无法测得看护或存活驻留进程的工作集（Incomplete）：{}",
-                            unmeasured_evidence(
-                                &previous,
-                                &record,
-                                std::process::id(),
-                                guard.child.id(),
-                            )
+                            unmeasured_evidence(&previous, &record, std::process::id(), guard.id(),)
                         )));
                     }
                     pending_miss = Some(record);
@@ -436,7 +342,7 @@ pub(super) fn watch(
                         || !clock_ok
                         || !paced_ok
                         || summary["requested_seconds"] != spec.config.seconds
-                        || summary["resident_pid"] != guard.child.id()
+                        || summary["resident_pid"] != guard.id()
                         || summary["runtime_workers"] != 1
                         || summary["world_id"].as_u64().is_none()
                         || summary["complete_match_batches"].as_u64().unwrap_or(0) == 0
@@ -462,7 +368,9 @@ pub(super) fn watch(
                 thread::sleep(Duration::from_secs(1));
             }
         })();
-        let cleanup = guard.terminate();
+        let cleanup = guard
+            .terminate(TERMINATION_DEADLINE)
+            .map_err(|error| invalid(format!("进程清理未确认完成：{error}")));
         control::publish(
             &output.join("supervisor.result.json"),
             &serde_json::json!({
@@ -580,7 +488,7 @@ mod required_memory_tests {
 }
 
 /// #1097 根因的确定性回归：Linux 上已退出未回收的驻留进程是僵尸，`statm` 的 RSS
-/// 为 0。经真实 `ChildGuard::members` 采样，它必须判为已退出，而不是“存活但未测得”。
+/// 为 0。经真实 [`members`] 采样，它必须判为已退出，而不是“存活但未测得”。
 #[cfg(all(test, target_os = "linux"))]
 mod linux_zombie_sampling_tests {
     use std::{
@@ -589,9 +497,7 @@ mod linux_zombie_sampling_tests {
         time::{Duration, Instant},
     };
 
-    use sysinfo::System;
-
-    use super::{ChildGuard, ResidentMemory, required_memory};
+    use super::{ResidentMemory, TERMINATION_DEADLINE, members, observe, required_memory};
 
     #[test]
     fn unreaped_exited_resident_is_a_zombie_with_zero_rss_and_counts_as_exited() {
@@ -603,11 +509,11 @@ mod linux_zombie_sampling_tests {
             .spawn()
             .unwrap();
         let resident = child.id();
-        let mut guard = ChildGuard::new(child, System::new().unwrap());
-        // 不调用 try_wait：子进程退出后保持未回收状态，直到 sysinfo 观测到僵尸。
+        let mut guard = observe(child).unwrap();
+        // 不调用 try_wait：子进程退出后保持未回收状态，直到进程表读到僵尸。
         let deadline = Instant::now() + Duration::from_secs(10);
         let members = loop {
-            let members = guard.members();
+            let members = members(&mut guard);
             let zombie = members
                 .iter()
                 .any(|member| member["pid"] == resident && member["terminated"] == true);
@@ -626,7 +532,7 @@ mod linux_zombie_sampling_tests {
             required_memory(&members, std::process::id(), resident, false);
         assert!(supervisor_measured);
         assert_eq!(state, ResidentMemory::Exited);
-        guard.terminate().unwrap();
+        guard.terminate(TERMINATION_DEADLINE).unwrap();
     }
 }
 

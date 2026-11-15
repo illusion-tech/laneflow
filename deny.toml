@@ -55,6 +55,7 @@ deny = [
         "laneflow-corridor-generator",
         "laneflow-format",
         "laneflow-fuzz", # #536：既有 wire SHA-256 合同及语料字节库存的互操作摘要
+        "laneflow-host-observe", # #1392：P100 机器指纹 v2 方案的互操作 SHA-256（host-observe.md §3.4）
         "laneflow-junction-generator",
         "laneflow-lust-converter",
         "laneflow-runtime",

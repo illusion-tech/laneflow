@@ -436,14 +436,14 @@ fn supervisor_pipe_disconnect_stops_a_paused_resident() {
         .stderr(fs::File::create(output.join("resident.stderr.log")).unwrap())
         .spawn()
         .unwrap();
-    let mut guard = supervisor::ChildGuard::new(child, sysinfo::System::new().unwrap());
+    let mut guard = supervisor::observe(child).unwrap();
     wait_status(&output, "Running");
     control::issue(&output, "pause").unwrap();
     wait_status(&output, "Paused");
-    drop(guard.child.stdin.take());
+    drop(guard.child_mut().stdin.take());
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        if let Some(status) = guard.child.try_wait().unwrap() {
+        if let Some(status) = guard.try_wait().unwrap() {
             assert!(!status.success());
             break;
         }

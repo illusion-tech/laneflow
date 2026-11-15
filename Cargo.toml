@@ -15,6 +15,7 @@ members = [
     "tools/laneflow-audit-test-support",
     "tools/laneflow-corridor-generator",
     "tools/laneflow-gate-summary",
+    "tools/laneflow-host-observe",
     "tools/laneflow-junction-generator",
     "tools/laneflow-lust-converter",
     "tools/laneflow-os-probe",
