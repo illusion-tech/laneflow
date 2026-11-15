@@ -433,14 +433,15 @@ rustc、显式 `CARGO_INCREMENTAL=0`，并要求依赖源码全部落在工作�
 observation 累计 step 前的 `step_before` 采集、Active/intent 计数、红灯等待扫描，
 以及 step 后的信号采集、事件/状态摘要和校验；两段均不含 step 调用。三项
 不覆盖全部调用方工作，不能相加冒充整轮墙钟。该计时范围绑定
-`urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags、
-profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
+`urban-performance-measurements-v6`（v6 起环境字段取自
+[`host-observe.md`][host-observe] 环境记录，两份记录列入文件摘要清单并逐轮核对；
+v5 起 provenance 记录归一化构建 rustflags、profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域 1..=16，v2 固定单 worker），不转换或合并旧口径载荷。
 按性能合同逐轮计算 p50/p95/p99 后取三轮中位数，max 取三轮最坏值，不池化样本求分位；
 合并报告 `urban-performance-comparison-v4` 显式记录该口径（v4 起各轮回执与测量记录的文件字节摘要改用 BLAKE3-256；v3 起记录三轮已验证的共同 worker 数；v3 及更早报告不转换），样本数仍报告三轮总数。
 不能把两个正确性运行当性能轮次；工具链
 变化须重跑用于当前判断的三个轮次。未测内存项写明未测量，不填 0。
 正式运行在初始化前与窗口结束后核对来源；提交、干净状态、Rust/Cargo/target、构建参数、
-构建期归一化 rustflags、profile 设置与嵌入的构建提交（build_commit）、OS/架构、硬件/电源角色、worker 和计时范围必须可用且不变。三轮合并逐项比较这些字段，
+构建期归一化 rustflags、profile 设置与嵌入的构建提交（build_commit）、OS 与 build、架构、硬件角色、厂商性能模式、电源来源与计划、机器指纹、worker 和计时范围必须可用（平台不提供的环境字段记为 unavailable）且不变；环境字段取自测量前后两份环境记录，前后不一致即拒绝。三轮合并逐项比较这些字段，
 并核对各列样本数等于观察窗口长度；缺失、不可用、脏工作树或混合来源均拒绝。
 三轮除计时/环境测量文件外的完整语义结果也必须相同：逐 tick、命令和事件文件摘要、
 检查点、计数、角色见证及最终世界状态均逐项比较，不能只核对每个包自身文件摘要。
@@ -821,3 +822,4 @@ A/B 用法：两次运行从同一存档续跑。候选改变快照格式或恢�
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [validation-matrix]: ../reference/validation-matrix.md
 [long-window-acceptance-results]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-707-city-parallel/long-window-acceptance-results.md
+[host-observe]: host-observe.md

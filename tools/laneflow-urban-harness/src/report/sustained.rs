@@ -472,7 +472,7 @@ pub(super) fn verify(
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::{measurement_fixture, round_result};
+    use super::super::tests::{environment_fixture, measurement_fixture, round_result};
     use super::super::{compare_performance_runs, compare_runs, line};
     use super::fixture::{CopyStats, Fixture, FixtureDirectory};
     use super::*;
@@ -507,6 +507,18 @@ mod tests {
             "measurements.toml",
             toml::to_string(&measurement)?.as_bytes(),
         )?;
+        for (name, phase) in [
+            (
+                crate::environment::BEFORE,
+                laneflow_host_observe::environment::Phase::Before,
+            ),
+            (
+                crate::environment::AFTER,
+                laneflow_host_observe::environment::Phase::After,
+            ),
+        ] {
+            fixture.write(name, &environment_fixture(&measurement, phase).to_json())?;
+        }
         let mut result = round_result(BTreeMap::new());
         let plan = ResolvedPlan {
             version: "urban-demand-v3".into(),

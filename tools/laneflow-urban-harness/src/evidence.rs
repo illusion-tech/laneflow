@@ -47,6 +47,15 @@ fn target_ticks(planned: u64, wall_ms: Option<u64>, prefix: Option<u64>) -> Resu
     }
 }
 
+/// 本机环境摘要（host-observe.md §3）：执行者输入经 `LANEFLOW_ENVIRONMENT_INPUT`
+/// 指定，其余字段自动采集；证据前后两次读取须相同。
+fn environment_summary() -> Result<Value> {
+    let manual = crate::environment::manual()?;
+    let (record, _) =
+        crate::environment::collect(laneflow_host_observe::environment::Phase::Before, &manual)?;
+    Ok(crate::environment::stable_summary(&record))
+}
+
 pub(crate) fn source() -> Result<Value> {
     let read = |program, args: &[&str]| {
         command_output(program, args)
@@ -71,8 +80,7 @@ pub(crate) fn source() -> Result<Value> {
         "allocation":cfg!(feature = "allocation"),
         "pose_profiling":cfg!(feature = "pose-profiling"),
         "build_parameters":if cfg!(feature = "allocation") {"cargo +1.99.1 build -p laneflow-urban-harness --features allocation --release --locked"} else if cfg!(feature = "pose-profiling") {"cargo +1.99.1 build -p laneflow-urban-harness --features pose-profiling --release --locked"} else {"cargo +1.99.1 build -p laneflow-urban-harness --features adapter --release --locked"},
-        "hardware_role":std::env::var("LANEFLOW_HARDWARE_ROLE").map_err(|_| invalid("missing hardware role"))?,
-        "power_role":std::env::var("LANEFLOW_POWER_ROLE").map_err(|_| invalid("missing power role"))?,
+        "environment":environment_summary()?,
         "os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"workers":1}))
 }
 
