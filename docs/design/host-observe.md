@@ -1,6 +1,6 @@
 # 测量环境与进程观测
 
-> **状态**：Proposed（[#1392][issue-1392] G1）<br>
+> **状态**：Accepted（[#1392][issue-1392] G1，2026-11-16；设计已接受不等于实现完成）<br>
 > **日期**：2026-11-16<br>
 > **决策依据**：[#1392][issue-1392]；[`core-runtime-performance-baseline.md`][performance-baseline]
 > §5、§8.4；[`lf-synth-measurement.md`][lf-synth-measurement] §7.5；
