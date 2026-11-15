@@ -1,9 +1,7 @@
 //! 共享精确一万来源人口选取（real-road-workloads §4）。
 
 #[cfg(test)]
-mod digest_benchmark;
-#[cfg(test)]
-mod migration;
+mod source_regression;
 
 use std::collections::HashSet;
 

@@ -51,7 +51,7 @@ cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip
 基线——与比对测试并行竞争，漂移基线会被覆写后门检失效。regenerate 只在
 更新基线时显式单独运行（见 `evidence/README.md` 更新流程）。
 
-部分 ignored 重放实验（#1053 人口迁移、S1 恢复覆盖系列）还需
+部分 ignored 重放实验（S1 恢复覆盖系列）还需
 `PINNED_RESEARCH_ROOT` 指向含数据冻结提交（如 `564f9ac8`、`f71123b5`）checkout 的
 `research/` 目录；未设置即失败，不回落到当前树（根 `research/` 已随 #1378 移除）。
 源码注释、测试 fixture 与输出来源字段中的 `research/...` 路径均以冻结提交为根，
