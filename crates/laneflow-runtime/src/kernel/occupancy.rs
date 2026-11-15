@@ -544,8 +544,6 @@ pub(crate) struct OccupancyScratch {
     upstream_generation: u32,
     upstream_seen: Vec<u32>,
     upstream_distance: Vec<u32>,
-    #[cfg(test)]
-    exact_pending: Vec<OccupancyRecord>,
 }
 
 /// 一段连续 live 序号的占用记录与该段首错；段间按序号先后合并。
@@ -579,20 +577,12 @@ impl OccupancyScratch {
             upstream_generation: _,
             upstream_seen,
             upstream_distance,
-            #[cfg(test)]
-            exact_pending,
         } = self;
-        // 测试专用诊断字段只在测试构建存在。
-        #[cfg(test)]
-        let diagnostics = crate::kernel::state::vec_bytes(exact_pending);
-        #[cfg(not(test))]
-        let diagnostics = 0;
         crate::kernel::state::vec_bytes(positions)
             + crate::kernel::state::vec_bytes(maneuver_upstream_offsets)
             + crate::kernel::state::vec_bytes(maneuver_upstream_sources)
             + crate::kernel::state::vec_bytes(upstream_seen)
             + crate::kernel::state::vec_bytes(upstream_distance)
-            + diagnostics
     }
 }
 
@@ -802,8 +792,6 @@ impl OccupancyIndex {
             upstream_generation: 0,
             upstream_seen: Vec::new(),
             upstream_distance: Vec::new(),
-            #[cfg(test)]
-            exact_pending: Vec::new(),
         };
         index.try_prepare_scratch(&mut scratch, 0)?;
         Ok((index, scratch))
@@ -825,8 +813,6 @@ impl OccupancyIndex {
             upstream_generation: 0,
             upstream_seen: Vec::new(),
             upstream_distance: Vec::new(),
-            #[cfg(test)]
-            exact_pending: Vec::new(),
         };
         let index = Self {
             source: None,
@@ -876,14 +862,6 @@ impl OccupancyIndex {
     #[cfg(test)]
     pub(crate) fn suffix_capacity(&self) -> usize {
         self.buckets.suffix.capacity()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn records_snapshot(&self) -> Vec<OccupancyRecord> {
-        self.buckets
-            .iter()
-            .flat_map(|bucket| bucket.records.iter().copied())
-            .collect()
     }
 
     #[cfg(test)]
@@ -1930,12 +1908,8 @@ fn rebuild_occupancy_index(
 ) -> Result<(), StepError> {
     occupancy.ahead_epoch = 0;
     #[cfg(test)]
-    if super::exact_path_research::candidate_enabled() {
-        return exact_candidate::rebuild(binding, committed, active_order, occupancy, scratch);
-    }
-    #[cfg(test)]
     let count_timer =
-        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyCount);
+        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancyCount);
     let bucket_count = usize::try_from(binding.revision.traffic().lane_edge_count())
         .expect("lane edge count fits usize");
     let ceiling = occupancy_record_limit(binding.config.vehicle_capacity());
@@ -2006,13 +1980,13 @@ fn rebuild_occupancy_index(
     drop(count_timer);
     #[cfg(test)]
     let layout_timer =
-        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyLayout);
+        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancyLayout);
     occupancy.finish_layout(scratch, bucket_count);
     #[cfg(test)]
     drop(layout_timer);
     #[cfg(test)]
     let fill_timer =
-        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancyFill);
+        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancyFill);
     visit_occupancy_records(
         active_order,
         &committed.vehicles,
@@ -2024,7 +1998,7 @@ fn rebuild_occupancy_index(
     drop(fill_timer);
     #[cfg(test)]
     let _sort_timer =
-        super::exact_path_research::begin(super::exact_path_research::Stage::OccupancySortSuffix);
+        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancySortSuffix);
     occupancy.sort_buckets_with(bucket_count, execution);
     if let Some(epoch) = occupancy.prepare_ahead(committed.vehicles.capacity(), bucket_count) {
         let OccupancyIndex {
@@ -2047,10 +2021,6 @@ fn rebuild_occupancy_index(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "tests/occupancy_exact_candidate.rs"]
-pub(crate) mod exact_candidate;
 
 impl crate::kernel::state::WorldState {
     /// 针对给定修订与 staged 路线纯构造一份占用索引（不触及活动状态）。
@@ -4202,7 +4172,6 @@ pub(crate) mod tests {
             upstream_generation: 0,
             upstream_seen: Vec::new(),
             upstream_distance: Vec::new(),
-            exact_pending: Vec::new(),
         };
         let pending = vec![
             OccupancyRecord {
@@ -4748,18 +4717,5 @@ pub(crate) mod tests {
             before_len,
             "failed rebuild must not replace occupancy records"
         );
-    }
-
-    #[test]
-    fn candidate_preserves_existing_occupancy_oracles_and_boundaries() {
-        crate::kernel::exact_path_research::with_candidate(true, || {
-            full_spatial_follower_matches_scan_oracle();
-            leader_fully_on_next_edge_matches_scan();
-            cycle_wrap_uses_later_occurrence_of_vehicle_behind();
-            parked_and_completed_are_not_leaders();
-            diverge_overhang_matches_scan_and_occupancy_front_gap();
-            formula_horizon_hides_leader_beyond_and_matches_filtered_scan();
-            corrupt_route_index_fails_closed_occupancy_rebuild();
-        });
     }
 }

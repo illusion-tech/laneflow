@@ -551,9 +551,8 @@ fn carry_step_hooks() -> impl FnOnce() + Send {
         crate::kernel::waiting::preview_stage::carry_test_hooks(),
         crate::kernel::world::carry_test_hooks(),
         crate::kernel::performance_profile::carry_test_hooks(),
-        crate::kernel::exact_path_research::carry_test_hooks(),
+        crate::kernel::stage_attribution::carry_test_hooks(),
         crate::kernel::motion_participation::carry_test_hooks(),
-        crate::kernel::occupancy::exact_candidate::carry_test_hooks(),
         crate::kernel::parking_command_research::carry_test_hooks(),
         crate::kernel::route_query_research::carry_test_hooks(),
         crate::kernel::sparse_cost_research::carry_test_hooks(),
@@ -594,7 +593,6 @@ fn carry_step_hooks() -> impl FnOnce() + Send {
                 h25,
                 h26,
                 h27,
-                h28,
             ) = tests;
             h0();
             h1();
@@ -624,7 +622,6 @@ fn carry_step_hooks() -> impl FnOnce() + Send {
             h25();
             h26();
             h27();
-            h28();
         }
     }
 }

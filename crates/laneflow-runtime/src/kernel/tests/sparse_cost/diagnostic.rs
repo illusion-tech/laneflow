@@ -1,7 +1,7 @@
 //! #682 正交账本与嵌套批次诊断。绝不把本二进制当未插桩生产延迟。
 use crate as runtime_types;
 pub(crate) mod fixture;
-use crate::kernel::{exact_path_research, performance_profile};
+use crate::kernel::{performance_profile, stage_attribution};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region};
 use std::{cell::Cell, time::Instant};
 
@@ -107,7 +107,7 @@ fn sparse_cost_diagnostic() {
         let mut walks = 0;
         let region = Region::new(&INSTRUMENTED_SYSTEM);
         let session = Session::start();
-        let (((), phases), occupancy) = exact_path_research::measure_batches(|| {
+        let (((), phases), occupancy) = stage_attribution::measure_batches(|| {
             performance_profile::measure(|| {
                 for _ in 0..fixture::STEPS {
                     {
