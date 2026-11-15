@@ -169,6 +169,23 @@ pub fn matrix(
         "binary_sha256":hash(&fs::read(&binary)?),"instrumented":cfg!(feature="allocation"),"stretch_observation":stretch,
         "max_concurrent_measurements":1,"fresh_process_rounds":rounds,"execution_order":[],"runs":[],"aggregates":[],"errors":[]});
     write_json(&output.join("summary.json"), &summary)?;
+    // 启动任何子进程前生成并核对测量前环境记录（host-observe.md §6）。
+    let session = match crate::host::Session::begin(environment, implementation, output, false) {
+        Ok((session, environment)) => {
+            summary["environment"] = environment;
+            write_json(&output.join("summary.json"), &summary)?;
+            session
+        }
+        Err(error) => {
+            summary["errors"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"environment":error.to_string()}));
+            write_json(&output.join("summary.json"), &summary)?;
+            return Err(error);
+        }
+    };
+    let before = crate::host::Session::before_path(output);
     let mut reports = vec![Vec::new(); rows.len()];
     for round in 1..=rounds {
         for offset in 0..rows.len() {
@@ -185,7 +202,7 @@ pub fn matrix(
                     .to_string(),
                 oracle.join(row.input_label()).display().to_string(),
                 implementation.to_owned(),
-                environment.display().to_string(),
+                before.display().to_string(),
                 row.percent.to_string(),
                 round.to_string(),
                 target.display().to_string(),
@@ -201,17 +218,26 @@ pub fn matrix(
                 rows.len() * rounds
             );
             let started = std::time::Instant::now();
-            let status = Command::new(&binary)
-                .args(&command)
-                .stdout(Stdio::null())
-                .stderr(log)
-                .status()?;
+            let mut child = crate::host::Observed::new(
+                Command::new(&binary)
+                    .args(&command)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(log)
+                    .spawn()?,
+            )?;
+            let status = loop {
+                if let Some(status) = child.poll()? {
+                    break status;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            };
             let elapsed = started.elapsed().as_secs_f64();
+            let process = child.record();
             if !status.success() {
-                summary["errors"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(json!({"label":label,"exit":status.to_string(),"elapsed_s":elapsed}));
+                summary["errors"].as_array_mut().unwrap().push(
+                    json!({"label":label,"exit":status.to_string(),"elapsed_s":elapsed,"process":process}),
+                );
                 write_json(&output.join("summary.json"), &summary)?;
                 return Err(Error::Invalid(format!(
                     "正式运行失败 {label}；停止矩阵，保留失败目录"
@@ -234,8 +260,22 @@ pub fn matrix(
                 same_semantics(previous, &report)?;
             }
             let capacity = read_capacity_high_water(&output.join(format!("{label}.log")))?;
+            let resources: Value =
+                serde_json::from_slice(&fs::read(target.join("resources.json"))?)?;
+            let self_reported: Vec<&Value> = resources
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|entry| &entry["process"])
+                .chain(std::iter::once(&report["final_process"]))
+                .collect();
+            let self_report_check = crate::host::self_report_check(
+                &self_reported,
+                process["summary"]["sampled_peak_resident_bytes"].as_u64(),
+            );
             summary["runs"].as_array_mut().unwrap().push(json!({"label":label,"elapsed_s":elapsed,
-                "report_sha256":hash(&fs::read(target.join("report.json"))?),"statistics":report["statistics"],"capacity_high_water":capacity}));
+                "report_sha256":hash(&fs::read(target.join("report.json"))?),"statistics":report["statistics"],"capacity_high_water":capacity,
+                "process":process,"self_report_check":self_report_check}));
             reports[index].push(report);
             if reports[index].len() == rounds {
                 summary["aggregates"].as_array_mut().unwrap().push(json!({"row":row.label(),"rounds":rounds,
@@ -243,6 +283,17 @@ pub fn matrix(
             }
             write_json(&output.join("summary.json"), &summary)?;
             eprintln!("measurement {label} complete {elapsed:.1}s");
+        }
+    }
+    match session.finish(output) {
+        Ok(after) => summary["environment"]["after"] = after,
+        Err(error) => {
+            summary["errors"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"environment":error.to_string()}));
+            write_json(&output.join("summary.json"), &summary)?;
+            return Err(error);
         }
     }
     summary["complete"] = json!(true);

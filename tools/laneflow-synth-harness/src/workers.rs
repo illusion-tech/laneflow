@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use laneflow_synth_harness::Error;
+use laneflow_synth_harness::host::{Observed, Session};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -205,17 +206,11 @@ pub(super) fn file_identity(path: &Path) -> Result<Value, Error> {
     Ok(json!({"bytes":bytes.len(),"sha256":digest}))
 }
 
+/// 返回 I/O 错误或展开时，观测器被丢弃即按身份终止并回收子进程；正常首错仍先
+/// 收集已经启动的完整运行。
 struct Running {
     job: Job,
-    child: Child,
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        // 返回 I/O 错误或展开时也收回子进程；正常首错仍先收集已经启动的完整运行。
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+    child: Observed,
 }
 
 fn launch(
@@ -226,16 +221,18 @@ fn launch(
     job: Job,
 ) -> Result<Running, Error> {
     let log = File::create(output.join(format!("{}.log", job.key())))?;
-    let child = Command::new(binary)
-        .arg("worker-run")
-        .arg(input.join(format!("{}-a", job.identity())))
-        .arg(implementation)
-        .arg(job.workers.to_string())
-        .arg(output.join(job.key()))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log))
-        .spawn()?;
+    let child = Observed::new(
+        Command::new(binary)
+            .arg("worker-run")
+            .arg(input.join(format!("{}-a", job.identity())))
+            .arg(implementation)
+            .arg(job.workers.to_string())
+            .arg(output.join(job.key()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(log))
+            .spawn()?,
+    )?;
     Ok(Running { job, child })
 }
 
@@ -275,24 +272,10 @@ fn run_matrix(
     output: &Path,
     summary: &mut Value,
 ) -> Result<(), Error> {
-    let environment: Value = serde_json::from_slice(&fs::read(environment)?)?;
-    if !environment.is_object()
-        || environment["implementation_commit"] != implementation
-        || environment["source_clean"] != true
-    {
-        return Err(invalid("环境声明须为对象，并绑定相同实现提交与干净源码"));
-    }
-    for field in ["rustc_vv", "cargo_version", "target", "build_command"] {
-        if !environment[field]
-            .as_str()
-            .is_some_and(|value| !value.is_empty())
-        {
-            return Err(invalid(format!("缺少环境声明字段：{field}")));
-        }
-    }
+    let (session, environment) = Session::begin(environment, implementation, output, false)?;
+    summary["environment"] = environment;
     let binary = std::env::current_exe()?;
     summary["binary"] = file_identity(&binary)?;
-    summary["environment"] = environment;
     let jobs = jobs();
     let mut running = Vec::<Running>::new();
     let mut completed = BTreeMap::<String, (Job, Value)>::new();
@@ -316,32 +299,36 @@ fn run_matrix(
         }
         let mut progress = false;
         for index in (0..running.len()).rev() {
-            let Some(status) = running[index].child.try_wait()? else {
+            let Some(status) = running[index].child.poll()? else {
                 continue;
             };
             let run = running.swap_remove(index);
-            let result = collect(input, implementation, output, run.job, status).and_then(|row| {
-                completed.insert(run.job.key(), (run.job, row["report"].clone()));
-                summary["runs"].as_array_mut().unwrap().push(row);
-                for (key, (job, report)) in &completed {
-                    if stopped {
-                        break;
+            let process = run.child.record();
+            let result =
+                collect(input, implementation, output, run.job, status).and_then(|mut row| {
+                    row["process"] = process.clone();
+                    completed.insert(run.job.key(), (run.job, row["report"].clone()));
+                    summary["runs"].as_array_mut().unwrap().push(row);
+                    for (key, (job, report)) in &completed {
+                        if stopped {
+                            break;
+                        }
+                        if *job == job.baseline() || comparisons.contains_key(key) {
+                            continue;
+                        }
+                        if let Some((_, baseline)) = completed.get(&job.baseline().key()) {
+                            comparisons
+                                .insert(key.clone(), compare(output, *job, baseline, report)?);
+                        }
                     }
-                    if *job == job.baseline() || comparisons.contains_key(key) {
-                        continue;
-                    }
-                    if let Some((_, baseline)) = completed.get(&job.baseline().key()) {
-                        comparisons.insert(key.clone(), compare(output, *job, baseline, report)?);
-                    }
-                }
-                Ok(())
-            });
+                    Ok(())
+                });
             if let Err(error) = result {
                 stopped = true;
                 summary["errors"]
                     .as_array_mut()
                     .unwrap()
-                    .push(json!({"finished_run":run.job.key(),"error":error.to_string()}));
+                    .push(json!({"finished_run":run.job.key(),"error":error.to_string(),"process":process}));
             }
             summary["comparisons"] = json!(comparisons.values().collect::<Vec<_>>());
             summary["runs"]
@@ -373,6 +360,7 @@ fn run_matrix(
     if file_identity(&binary)? != summary["binary"] {
         return Err(invalid("矩阵执行前后二进制身份发生变化"));
     }
+    summary["environment"]["after"] = session.finish(output)?;
     Ok(())
 }
 

@@ -823,6 +823,16 @@ pub(crate) fn has_hidden_index_entries(ls_files: &str) -> bool {
         .any(|line| line.starts_with(|c: char| c.is_ascii_lowercase()) || line.starts_with('S'))
 }
 
+/// `directory` 所在 git checkout 的顶层目录，用于定位 [`REFERENCE_MACHINE_PATH`]。
+/// 路径只供本机读取，不写入记录。
+///
+/// # Errors
+///
+/// 不在 git checkout 内或 git 不可用时返回错误。
+pub fn repository_root(directory: &Path) -> io::Result<PathBuf> {
+    command::output("git", &["rev-parse", "--show-toplevel"], Some(directory)).map(PathBuf::from)
+}
+
 fn source(repository: &Path) -> io::Result<Source> {
     let top = command::output("git", &["rev-parse", "--show-toplevel"], Some(repository))?;
     let top_path = Path::new(&top);

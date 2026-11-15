@@ -19,6 +19,7 @@ bevy_transform = { version = "0.20", default-features = false, features = ["bevy
 blake3 = "1.8"
 laneflow-bevy = { version = "0.0.0", path = "../../crates/laneflow-bevy" }
 laneflow-format = { version = "0.0.0", path = "../../crates/laneflow-format" }
+laneflow-host-observe = { version = "0.0.0", path = "../laneflow-host-observe" }
 laneflow-os-probe = { version = "0.0.0", path = "../laneflow-os-probe" }
 laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial" }

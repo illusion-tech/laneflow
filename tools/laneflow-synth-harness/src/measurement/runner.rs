@@ -250,7 +250,9 @@ pub fn run(
         Err(Error::Invalid(message))
     });
     match result {
-        Ok(report) => {
+        Ok(mut report) => {
+            // 退出前最后一次自报：供矩阵核对“自报驻留峰值不小于父进程采样峰值”。
+            report["final_process"] = resources::process()?;
             write_json(&output.join("report.json"), &report)?;
             Ok(report)
         }
@@ -354,21 +356,21 @@ fn run_inner(
         &serde_json::to_value(bundle.manifest())?,
         implementation,
     )?;
-    let environment: Value = serde_json::from_slice(&fs::read(environment)?)?;
+    // 测量前环境记录由矩阵在启动子进程前生成；这里只核对并以摘要引用。
+    let environment_record_sha256 = crate::host::verify_record(environment, implementation)?;
     let inputs = frames::inputs(&plan);
     let selected = frames::selection(plan.identity.scale, percent);
     let inputs_bytes = serde_json::to_vec(&inputs)?;
     let selected_bytes = serde_json::to_vec(&selected)?;
     fs::write(output.join("frame-inputs.json"), &inputs_bytes)?;
     fs::write(output.join("selection.json"), &selected_bytes)?;
-    write_json(&output.join("environment.json"), &environment)?;
     let binary = std::env::current_exe()?;
     let manifest = json!({"implementation_commit":implementation,"binary":binary,"binary_sha256":hash(&fs::read(&binary)?),
         "input_manifest":bundle.manifest(),"outer_frame_sha256":hash(&inputs_bytes),"selection_sha256":hash(&selected_bytes),
         "round":round,"presentation_percent":percent,"instrumented":cfg!(feature="allocation"),
         "fixed_delta_ms":plan.identity.fixed_delta_ms,"max_catch_up_steps":2,"workers":1,
         "timing":"continuous_frame; Core brackets Bevy Step set including scheduler boundary; snapshots/files/sorting between frames",
-        "observation_extra_full_population_audit_inside_frame":false,"environment":environment,
+        "observation_extra_full_population_audit_inside_frame":false,"environment_record_sha256":environment_record_sha256,
         "oracle_report_sha256":hash(&fs::read(oracle_path.join("report.json"))?)});
     write_json(&output.join("manifest.json"), &manifest)?;
     let sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN))?;
