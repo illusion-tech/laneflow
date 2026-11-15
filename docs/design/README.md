@@ -123,7 +123,7 @@
 - [`lf-synth-execution.md`][lf-synth-execution]：W1/W2 完整窗口消费、逐拍语义核验与独立进程证据编码。
 - [`lf-synth-measurement.md`][lf-synth-measurement]：Accepted；E 的固定表现、外层帧、
   W4 两帧与计时接线合同，实施与正式证据由 #1166 承担。
-- [`os-probe.md`][os-probe]：#1391 Proposed，`laneflow-os-probe` 本进程与整机操作系统计数器读取与受审计
+- [`os-probe.md`][os-probe]：#1391 G1 Accepted，`laneflow-os-probe` 本进程与整机操作系统计数器读取与受审计
   `unsafe` 例外。
 - [`real-road-workloads.md`][real-road-workloads]：LuST 真实路网契约。
 - [`lust-bevy-population-control.md`][lust-bevy-population-control]：LuST / Bevy 示例层人口调节。
