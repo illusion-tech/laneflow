@@ -31,8 +31,8 @@
 
 - 分配计数与堆峰值：继续由 `stats_alloc`、`dhat` 在各自 feature 下负责；计时测量
   不与计数分配器同进程运行的规则不变。
-- 其他进程或子进程观测、进程快照与环境记录：由 [#1392][issue-1392] 的诊断记录层
-  承担。
+- 其他进程或子进程观测、进程快照与环境记录：由 [#1392][issue-1392] 的
+  [`host-observe.md`][host-observe] 承担。
 - 有效频率：周期计数可能以固定速率计数，见 `lf-synth-measurement.md` §7.1。
 - 百分比、速率或任何经时间窗换算的派生量：由调用方按差值计算。
 - WMI、PDH、ETW、性能计数器服务或常驻采集进程。
@@ -132,7 +132,7 @@
 Windows `BatteryFlag` 的 255 表示状态未知，其二进制同时含“无电池”位，必须先判断
 255，再解读各位。
 
-电源计划与厂商性能模式不在本设计范围内，由 #1392 的环境记录采集。
+电源计划与厂商性能模式不在本设计范围内，由 [`host-observe.md`][host-observe] 的环境记录采集。
 
 ## 4. `unsafe` 边界
 
@@ -191,8 +191,8 @@ synth-harness 的进程内存读取改用本 crate，移除 `win32job` 依赖：
   Windows 专属字段为 `null`；
 - 口径变化在 synth-harness README 中说明，已发布测量记录不改写。
 
-[#1388][issue-1388] 的逐段负载记录与 [#1392][issue-1392] 的诊断记录层在本设计
-合入后接入。
+[#1388][issue-1388] 的逐段负载记录与 [#1392][issue-1392] 的
+[`host-observe.md`][host-observe] 在本设计合入后接入。
 
 ## 6. 实现验证
 
@@ -217,6 +217,7 @@ synth-harness 的进程内存读取改用本 crate，移除 `win32job` 依赖：
 [issue-1388]: https://github.com/illusion-tech/laneflow/issues/1388
 [issue-1391]: https://github.com/illusion-tech/laneflow/issues/1391
 [issue-1392]: https://github.com/illusion-tech/laneflow/issues/1392
+[host-observe]: host-observe.md
 [lf-synth-measurement]: lf-synth-measurement.md
 [shared-static-network]: shared-static-network.md
 [state-integrity]: traffic-runtime-state-integrity.md

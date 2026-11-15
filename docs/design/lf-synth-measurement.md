@@ -229,7 +229,8 @@ G1 已接受 §1/§4 的 W4 两帧方案，以及 §3 的确定性输入与边�
   在报告中标注；不得改用更宽的阈值重新判定。
 - 废弃的 round 可供归因分析引用，不进入 §8.2 的 p50/p95/p99 与 max。
 - 需要识别干扰进程时，只在受扰 round 结束后、下一个 round 开始前采集一次进程快照，
-  写入该 round 目录；round 运行中不采集。
+  写入该 round 目录；round 运行中不采集。快照字段与采集方式见
+  [`host-observe.md`][host-observe] §4。
 
 ### 7.6 实现验证
 
@@ -247,6 +248,7 @@ G1 已接受 §1/§4 的 W4 两帧方案，以及 §3 的确定性输入与边�
 [issue-1165]: https://github.com/illusion-tech/laneflow/issues/1165
 [issue-1273]: https://github.com/illusion-tech/laneflow/issues/1273
 [issue-1388]: https://github.com/illusion-tech/laneflow/issues/1388
+[host-observe]: host-observe.md
 [os-probe]: os-probe.md
 [performance-baseline]: core-runtime-performance-baseline.md
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
