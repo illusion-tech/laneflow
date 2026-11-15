@@ -31,6 +31,8 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 4. 稳定结论回写到 `docs/adr/`、`docs/design/` 或 `docs/governance/`。
 5. 中文术语以 `docs/reference/glossary.md` 为准；精确代码/协议标识符保留原文。
 6. 交通仿真规模不得使用 `Agent` 或“代理”计数。
+7. 任务终局后的分支与工作树清理按 `docs/governance/github-workflow.md` §5.1
+   执行；合并真值、删除前核对与 Agent 自主边界以该节为准，本 Skill 不复制。
 
 ## Issue
 
