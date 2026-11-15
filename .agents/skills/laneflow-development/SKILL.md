@@ -87,9 +87,10 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   现行 reference，计划、阶段记录与一次性结论报告由 Issue / PR 承载。逐区间或逐样本
   测量、搜索轨迹、全量结果集等研究过程数据留在 `target/` 或仓库外，不入仓，也不
   自发生产 manifest、逐字节一致性声明或 SHA-256 登记等归档物。冻结研究数据不得被
-  `include_str!` / `include_bytes!` 编译期嵌入：`#[ignore]` 重放实验经环境变量
-  （如 `PINNED_RESEARCH_ROOT`）运行时读取，活测试数据放所属 crate 的
-  `tests/fixtures/`，新增大体量 fixture 在 PR 说明体积必要性。边界见
+  `include_str!` / `include_bytes!` 编译期嵌入：活测试数据放所属 crate 的
+  `tests/fixtures/`，新增大体量 fixture 在 PR 说明体积必要性；确需外部冻结数据的
+  手动重放经环境变量从冻结提交 checkout 运行时读取（最后一个此类入口已随 #1385
+  退役）。边界见
   `docs/governance/documentation-policy.md` 研究结论与过程数据边界。
 
 - 含计量的任务按 `docs/governance/development-gates.md` §5.1 声明类别。Agent 不得
