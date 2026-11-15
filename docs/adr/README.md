@@ -89,12 +89,12 @@ ADR 状态建议使用：
 - `Superseded`
 
 被取代的决策应登记后继 ADR 与取代关系。1.0 前按
-[1.0 前开发原则](../../.agents/skills/laneflow-pre-1-0/SKILL.md)，G1/ADR 服务当前
-正本：已取消方案的 API 清单与运营细节可压缩为决策理由、仍有效边界与后继入口，
+[1.0 前开发原则][pre-1-0]，G1/ADR 服务当前正本：已取消方案的 API 清单与运营细节可压缩为决策理由、仍有效边界与后继入口，
 原件以固定提交追溯（#1382 先例），不得形成第二套旧规范；1.0 后以新增 ADR 记录
 演进为主。
 
 [development-gates-checks]: ../governance/development-gates.md#62-required-checks
+[pre-1-0]: ../../.agents/skills/laneflow-pre-1-0/SKILL.md
 [adr-0001]: 0001-project-scope.md
 [adr-0002]: 0002-dependency-and-licensing-constraints.md
 [adr-0003]: 0003-runtime-tick-and-determinism.md
