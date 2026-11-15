@@ -208,9 +208,9 @@ StableId 作为父锚点，不能只复制父实体在其来源模块内稳定�
    事实；内含每个稳定实体的规范身份表（Canonical Identity Table）
    `CanonicalIdentityTable`，保存完整 field-tag/value 原像、声明的 `StableId128` 与
    typed ordinal，承接 public artifact、独立身份重算、迁移和跨实现互操作；
-2. **目标静态镜像（Target Static Image）**：按目标平台、布局版本、封闭配置档
-   （Closed Profile）、分区提示版本与性能要求
-   生成，可重建、面向 mmap/顺序读取和直接索引；
+2. **目标交付（原「目标静态镜像」）**：镜像文件/ABI 已由 ADR 0025 决定不交付，
+   现行目标交付是受检 LFCA 经 `laneflow-static-network` 构建的进程内
+   `SharedNetworkRevision`；
 3. **源映射 / 诊断制品（Source Map / Diagnostics Artifact）**：从
    `(entityKind, StableId128, typed ordinal)` 到 source span 和 pass provenance 的
    映射；使用绑定 `networkRevision`、`canonicalArtifactDigest`、compiler build 与
@@ -224,77 +224,38 @@ StableId 作为父锚点，不能只复制父实体在其来源模块内稳定�
 规范发布描述符（Canonical Publication Descriptor）
 `CanonicalPublicationDescriptor` 对完整 portable artifact bytes 绑定
 `canonicalArtifactDigest + canonicalArtifactByteLength`，并以
-`sourceMapDigest + sourceMapByteLength` 绑定完整 `SourceMapEnvelope` exact bytes，
-同时认证 `canonical-publication-v1` 收据的
-`validationReceiptFormatVersion + validationReceiptKind + validationReceiptDigest +
-validationReceiptByteLength`。
-源映射封套绑定单份制品摘要与编译来源链；语义差异封套绑定旧/新制品摘要、精确
-长度和路网修订；静态镜像引用其来源制品摘要，并另外由外部 descriptor 绑定
-target/profile-specific `staticImageDigest + staticImageByteLength`。任何输出失败，
-本次 compilation unit 都不得发布部分结果。
+`sourceMapDigest + sourceMapByteLength` 绑定完整 `SourceMapEnvelope` exact bytes
+（收据绑定已随 ADR 0024 取消）。源映射封套绑定单份制品摘要与编译来源链；语义
+差异封套绑定旧/新制品摘要、精确长度和路网修订；目标交付引用其来源制品摘要，
+不再有独立的镜像外 descriptor 绑定（ADR 0025）。任何输出失败，本次 compilation
+unit 都不得发布部分结果。
 
 Portable canonical artifact 是发行与治理契约，不是运行时热布局。Target static
 image 是可丢弃、可按目标重新生成的派生制品，不获得独立 authoring authority。
 authoritative source module graph 始终是唯一 authoring SSOT；generated artifact
 是否 checked in 只属于发布和审阅策略，不能形成第二套可手改事实来源。
 
-### 5. 交通运行时（Traffic Runtime）与空间层（Spatial）消费配置档控制的静态镜像
+### 5. 交通运行时（Traffic Runtime）与空间层（Spatial）消费共享静态路网
 
-Target `StaticNetworkImage` 是 sectioned container：
+本节原「配置档控制的静态镜像」目标格式——`StaticNetworkImage` 分节容器、
+`traffic-headless-v1` / `traffic-spatial-v1` 配置档、平面分块完整性清单、
+eager/lazy/background 分块验证与镜像外描述符机制——已由 Accepted ADR 0025 /
+#300 G1 决定不交付。现行交付是受检 LFCA 经 `laneflow-static-network` 构建
+`SharedNetworkRevision`，无镜像文件、ABI 或配置档；原方案全文见基线提交
+[3f80b65f][adr0020-history]。
 
-```text
-StaticNetworkImage
-  Header / provenance / profile
-  SectionDirectory
-  Required: StaticTrafficImage
-  Required: StaticIdentityIndex
-  Required: PartitionPlanningHints
-  Optional: StaticSpatialImage
-```
+仍有效的边界（以现行术语表达）：
 
-- `traffic-headless-v1` 要求 Traffic + StaticIdentityIndex + PartitionPlanningHints；
-  `traffic-spatial-v1` 再要求 Spatial；v1 不定义泛型 `WarmQueryTables`、
-  `ColdDiagnostics` 或 `traffic-debug-v1`。运行时必需的低频索引进入对应 required
-  typed section，显示名、规范身份原像、来源位置和诊断文本由 portable artifact、
-  source map 与独立 diagnostics artifact 外置提供；
-- target `laneflow-runtime`/`TrafficWorld` 只借用或共享 `StaticTrafficView`，不要求
-  Spatial bytes；
-- `StaticIdentityIndex` 对稳定实体保存 typed ordinal → StableId128 正向表和按
-  `(entityKind, StableId128)` 排序的反向表；它是 snapshot save/load、dynamic Route
-  重建和路网修订切换的生产必需冷索引，但不进入 steady tick；
-- `CanonicalIdentityTable` 只属于 portable artifact / independent validation 输入；
-  static image 不复制规范元组原像，生产 Runtime 不为身份重算元数据承担 retained
-  memory 或 cache 成本；
-- Spatial section 存在时完整覆盖 v1 所需 edge，并与 Traffic 使用同一 logical edge
-  ordinal/cross-index；v1 不引入 sparse geometry mapping；
-- Adapter 继续只消费 Traffic committed snapshot 与 Spatial pose batch，不读取
+- `SharedIdentityIndex` 是 snapshot save/load、动态路线重建和路网修订切换的生产
+  必需冷索引，不进入 steady tick；规范身份原像只属于可移植制品侧，运行时不为
+  身份重算元数据承担 retained memory 或 cache 成本；
+- Spatial 数据存在时与 Traffic 使用同一 logical edge ordinal / cross-index，
+  不引入 sparse geometry mapping；
+- Adapter 只消费 Traffic committed snapshot 与 Spatial pose batch，不读取
   compiler IR，也不获得静态规则 authority；
-- 多个 `TrafficWorld`/Spatial session 可以共享同一 immutable image。
-- image 必须保存工作线程数无关的静态执行约束图；v1
-  `PartitionPlanningHints` 节保存可被运行时忽略或重建的分区规划提示，但不得
-  保存最终分区、工作线程、边界邻域所有权（Halo Ownership）或动态负载状态。
-
-生产启动不得执行 JSON parse、external string rebind、static hash registry rebuild、
-topology reconstruction、Traffic/Spatial package join 或 initial Route occurrence
-recompile。Production fast path 必须先把 image bytes 与 image 外部的 trusted
-descriptor/validation receipt 绑定，再执行有界结构验证并建立只读 view。
-
-外部描述符同时绑定版本化静态镜像完整性清单（Static Image Integrity Manifest）
-`StaticImageIntegrityManifest` 的摘要与精确长度。v1 清单是覆盖完整镜像精确字节的
-平面 SHA-256 分块表（Flat Chunk Table），并记录节到分块区间的闭合映射。分块大小由
-已认证的约束集、配置档与完整性方案版本唯一确定，发布者不能任意选择；具体值由实现
-G1 在最低产品硬件上基准后写入约束集。生产启动先认证描述符/清单，再预先验证
-（Eager Verification）Traffic、identity、partition-hint 等目标
-视图的必需分块；Spatial 分块可在创建 Spatial session 前采用延迟验证或后台验证，
-未验证字节不得暴露给有类型视图。全镜像 SHA-256 继续作为发布身份、独立重建与
-显式完整审计（Full Audit），不是每次启动建立 Traffic view 的强制串行步骤；分块
-摘要不进入 fixed tick 或 pose 热路径。
-v1 采用平面分块表而非默克尔树（Merkle Tree），因为外部信任锚先认证整份有界小型
-清单，平面表已满足节级随机/并行验证且校验器攻击面更小；未来远端认证分页必须提升
-完整性方案版本，不能原地改变 v1。
-分块验证与有类型视图必须绑定同一个不可变字节后备存储（Immutable Byte Backing）。
-宿主不能保证已打开资产在视图生命周期内不可替换/改写时，必须把已验证分块复制并
-封存到只读拥有存储，或拒绝建立可信视图；验证路径后重开或保留可写别名均不可信。
+- 多个 `TrafficWorld` / Spatial session 共享同一不可变 `SharedNetworkRevision`；
+- 生产启动不执行 JSON parse、external string rebind、topology reconstruction、
+  Traffic/Spatial package join 或 initial Route occurrence recompile。
 
 ### 6. 静态镜像与可变运行时状态物理分离
 
@@ -345,190 +306,51 @@ steady tick。Spatial section 可以按 closed profile 从 headless/server image
 分页控制内存和 cache 影响。Artifact digest、source map 和外部诊断制品仍能恢复
 完整诊断。
 
-### 7. 可移植制品（Portable Artifact）与静态镜像（Static Image）分离版本与绑定字段
+### 7. 可移植制品（Portable Artifact）与目标交付分离版本与绑定字段
 
 字段不得再被一个 `formatVersion` 混合表达，也不能把版本号、构建选择器和内容绑定
-都称为“版本轴”。
+都称为「版本轴」。本节原列出的 `staticImage*` 与 `validationReceipt*` 字段族已随
+镜像方案（ADR 0025 决定不交付）与验证收据（ADR 0024 取消）退役；现行各对象的
+版本轴、绑定字段与摘要口径以 `../design/portable-canonical-artifact.md` 为准。
+原字段清单见基线提交 [3f80b65f][adr0020-history]。
 
-契约版本轴（Contract Version Axes）：
+仍有效的规则：
 
-- `authoringFormatVersion`
-- `canonicalFormatVersion`
-- `canonicalPublicationDescriptorVersion`
-- `identityEncodingVersion`
-- `identityRegistryRevision`
-- `networkRevisionDerivationVersion`
-- `staticImageLayoutVersion`
-- `staticImageDescriptorVersion`
-- `staticImageIntegritySchemeVersion`
-- `sourceMapFormatVersion`
-- `semanticDiffFormatVersion`
-- `validationReceiptFormatVersion`
-- `networkRevisionCutoverDescriptorVersion`
-- `migrationPolicyVersion`
-- `executionConstraintVersion`
-- `partitionHintVersion`
-- `runtimeSnapshotVersion`
-- `constraintSetVersion`
+- 每个摘要都是各自目标对象完整 exact bytes 的 SHA-256，对象不得把自身摘要嵌回
+  自身字节序列；摘要必须由受认证的外部对象同时绑定同一对象的精确 `u64` 字节长度。
+- 消费者在任何与输入大小成正比的读取、解压、分配、解析或 hash 之前，先检查
+  调用方上限、地址空间与 exact length；未知长度 stream 只允许 checked
+  length+1 bounded reader，不能以最终 digest mismatch 作为输入大小防线。
+- `NetworkRevisionId` 不复用 exact-bytes digest：以带域分离的 SHA-256 对冻结的
+  目标无关规范路网语义载荷计算；载荷包含 identity/constraint/execution-
+  constraint versions 和全部静态路网语义，排除摘要自身、artifact envelope、工具
+  provenance、source map/diagnostics、publication metadata 与目标/布局/分区提示。
+  格式检查必须从可移植制品独立重算；同一规范语义的不同目标构建共享修订，任何
+  运行时可观察静态语义变化都产生新修订。相同 `NetworkRevisionId` 对应不同规范
+  语义载荷时必须以 `NetworkRevisionDigestCollision` 失败关闭，不得追加 ordinal、
+  salt 或 suffix。
+- `SourceMapEnvelope` / `SemanticDiffEnvelope` 以各自格式版本绑定
+  `networkRevision`、`canonicalArtifactDigest` 与来源链/两侧修订记录，不内嵌自身
+  摘要；跨修订迁移的外部描述符必须认证同一语义差异版本与摘要长度对，缺失、未知
+  或错配时不得解析记录或进入迁移事务。
+- 加载与运行时对 layout、target、descriptor 与 digest 采用 exact-current、
+  fail-closed 规则，不在生产启动路径执行历史迁移；旧制品经离线 compiler
+  upgrade/migration 进入当前版本。
 
-构建与目标选择器（Build and Target Selectors）：
+### 8. 验证（Validation）与信任（Trust）
 
-- `staticImageProfileId`
-- `compilerBuildId`
-- `validatorBuildId`
-- `targetTriple`
-
-封闭种类选择器（Closed Kind Selectors）：
-
-- `validationReceiptKind`
-
-内容身份与长度绑定（Content Identity and Length Bindings）：
-
-- `networkRevision`
-- `canonicalArtifactDigest`
-- `canonicalArtifactByteLength`
-- `staticImageDigest`
-- `staticImageByteLength`
-- `staticImageIntegrityManifestDigest`
-- `staticImageIntegrityManifestByteLength`
-- `sourceMapDigest`
-- `sourceMapByteLength`
-- `semanticDiffDigest`
-- `semanticDiffByteLength`
-- `validationReceiptDigest`
-- `validationReceiptByteLength`
-
-六个 digest 均为各自目标对象完整 exact bytes 的 SHA-256，因此任何对象都不得把
-自己的 digest 嵌回自身 byte sequence。Publication manifest / external descriptor
-负责保存目标对象的 digest；image header 可以保存另一个对象的
-`canonicalArtifactDigest`，但不保存自己的 `staticImageDigest`。
-每个 digest 必须由受认证 descriptor/manifest 同时绑定同一对象的精确 `u64` byte
-length。消费者在任何线性读取、解压、分配、解析或 hash 前先检查调用方上限、
-地址空间和 exact length；未知长度 stream 只允许 checked length+1 bounded reader。
-该规则统一适用于 portable artifact、static image、静态镜像完整性清单、source map、
-semantic diff 和 validation receipt，不能以最终 digest mismatch 作为输入大小防线。
-约束集或宿主策略必须分别提供 `maxCanonicalArtifactBytes`、
-`maxStaticImageBytes`、`maxStaticImageIntegrityManifestBytes`、
-`maxSourceMapBytes`、`maxSemanticDiffBytes` 与 `maxValidationReceiptBytes`；这些
-上限不能由待验证对象自报。
-
-`StaticImageDescriptor` 必须同时认证 `staticImageByteLength`，表示参与
-`staticImageDigest` 的原始未压缩 image exact bytes 的 `u64` 长度；validation
-receipt 与 independent rebuild comparison 绑定 digest + length。Loader 先认证有
-固定小上限的 descriptor，再在任何与输入大小成正比的读取、解压、分配或 hash 前
-检查该长度非零、可表示且不超过 caller/process limit。已知长度的 buffer/mmap/blob
-执行 O(1) exact-length 比较；未知长度 stream 只能通过最多读取
-checked `staticImageByteLength + 1` bytes 的 bounded reader，并拒绝
-truncated/appended 输入。压缩传输同时限制压缩输入与解压输出；结构校验器的内部
-count/range limits 作为后续第二道防线，不能替代 pre-hash byte bound。
-同一 descriptor 还必须绑定
-`canonicalArtifactDigest + canonicalArtifactByteLength`、
-`staticImageIntegritySchemeVersion +
-staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength` 与
-`validationReceiptFormatVersion + validationReceiptKind +
-validationReceiptDigest + validationReceiptByteLength`；Runtime 不读取 artifact /
-receipt 时只比较已认证绑定，validator、publisher 或审计消费者读取时仍必须执行统一
-的 pre-hash 长度上限和 bounded-reader 规则。
-
-完整性清单必须按镜像偏移量连续、无缺口/重叠地认证全部分块，并闭合镜像头、节目录
-与配置档必需节的覆盖。发布者与独立镜像重建器必须证明有序分块、全镜像
-`staticImageDigest + staticImageByteLength` 和同一最终镜像精确字节一致。加载器对
-描述符/清单各自先做调用方长度上限与摘要前预检，再验证目标节分块和有界结构；未
-验证节不得通过任何视图暴露。
-
-`SourceMapEnvelope` 必须内含 `sourceMapFormatVersion`、
-`networkRevisionDerivationVersion + networkRevision`、`canonicalArtifactDigest`、
-`compilerBuildId` 与来源链记录。它不内嵌自己的摘要；外部
-`CanonicalPublicationDescriptor` 认证上述配对及
-`canonicalArtifactDigest + canonicalArtifactByteLength`、
-`sourceMapDigest + sourceMapByteLength` 与
-`validationReceiptFormatVersion + validationReceiptKind +
-validationReceiptDigest + validationReceiptByteLength`。消费者先认证小型
-descriptor，再执行统一的 pre-hash 长度预检，并要求 descriptor、source-map
-envelope 与已验证 portable artifact 的 artifact/revision/provenance 字段全部精确
-相等。记录级 StableId/ordinal key 只能在该配对成功后查找；任何错配以
-`SourceMapArtifactMismatch` 失败关闭。
-
-`SemanticDiffEnvelope` 必须内含 `semanticDiffFormatVersion`，并分别绑定旧/新
-`networkRevisionDerivationVersion + networkRevision` 与
-`canonicalArtifactDigest + canonicalArtifactByteLength`。跨修订迁移时，外部
-`NetworkRevisionCutoverDescriptor` 必须认证同一
-`semanticDiffFormatVersion + semanticDiffDigest + semanticDiffByteLength`；
-独立验证器按该版本解析并从两份已验证规范制品重算或验证完整差异。缺失、未知或错配
-版本时不得解析记录或进入迁移事务。
-
-路网修订标识（Network Revision ID）`NetworkRevisionId` 不复用上述 exact-bytes
-digest。v1 以带域分离（Domain Separation）的 SHA-256 对冻结的目标无关规范路网
-语义载荷（Canonical Network Semantic Payload）计算 `networkRevision`；该载荷包含
-identity/constraint/execution-constraint versions
-和全部静态路网语义，排除摘要自身、artifact envelope、工具 provenance、source
-map/diagnostics、publication metadata、target/profile/layout/partition-hint。
-Independent validator
-必须从 portable artifact 独立重算；validation receipt、`StaticImageDescriptor`
-和 image header 的外部核对必须绑定
-`networkRevisionDerivationVersion + networkRevision`。因此同一规范语义的不同
-target/profile image 共享修订，而任何运行时可观察静态语义变化都会产生新修订。
-相同 `NetworkRevisionId` 对应不同规范路网语义载荷时 publication/cutover 必须以
-`NetworkRevisionDigestCollision` 失败关闭，不得追加 ordinal、salt 或 suffix。
-
-loader/runtime 对 static image layout、target、profile、descriptor 与 digest 采用 exact-current、
-fail-closed 规则；不在生产启动路径执行历史迁移。旧 authoring/canonical artifact
-通过离线 compiler upgrade/migration 进入当前版本。Static image 可以在保持
-canonical artifact 不变时因布局或 CPU target 变化而重建。
-
-### 8. 验证（Validation）与信任（Trust）采用四道分离防线
-
-1. **Compiler validation**：对 AST/HIR/MIR/LIR 执行完整语义和生成前置检查；
-2. **独立验证器（Independent Validator）**：只消费 portable canonical artifact 和公开
-   constraint contract，独立实现 topology、标识、ownership、coverage、
-   geometry 与 occurrence 检查；必须从 artifact 内 `CanonicalIdentityTable` 的完整
-   原像独立编码并重算每个 BLAKE3-128 `StableId128`，验证 parent anchor、duplicate
-   tuple 与 digest collision；不得调用 compiler semantic validation，也不得依赖
-   source map 补齐身份字段；
-3. **验证收据封套（Validation Receipt Envelope）/外部描述符（External
-   Descriptor）**：以独立 `validationReceiptFormatVersion` 和封闭
-   `validationReceiptKind` 绑定路网修订标识、
-   artifact/image/完整性清单/source-map digest 与各自 exact byte length、完整性
-   scheme、target、profile、constraint、compiler/validator build 与 compilation
-   provenance；其 authenticity 由签名 publication manifest、宿主认证 asset chain
-   或 pinned digest 提供；
-4. **Static image structural verifier**：对不可信 bytes 有界检查 header、版本、
-   offset/alignment、table/range/cross-index、numeric/runtime precondition 和 load
-   limits，不重跑全量 authoring 语义。
-
-compiler 与 independent validator 可以共享机器可读的常量/枚举/约束声明，但不得
-共享实现同一语义判定的函数。CI 与 publication 至少要求 canonical artifact 通过
-独立 validator，且 validator/oracle 不复用 compiler image emitter，从该 artifact
-按相同 target/layout/profile 独立重建出的 image 与 compiler image 具有相同 exact
-bytes digest；structural verifier 还必须接受该镜像。
-
-Image header 内的 canonical artifact digest/target/provenance 只是待核对声明，不能
-作为自证 trust anchor。
-Published trusted image 必须匹配外部 descriptor；local build 必须绑定刚完成的
-independent validation receipt；untrusted external input 必须提供 portable artifact
-并在本地验证/重建，只有 image bytes 时拒绝。
-
-每份验证收据必须使用 `ValidationReceiptEnvelope`，内含
-`validationReceiptFormatVersion + validationReceiptKind + validatorBuildId +
-subjectBindings + checkResults`，且不得内嵌自己的摘要。外部描述符在读取收据前必须
-认证同一版本、种类、摘要和精确长度；未知或错配版本/种类失败关闭，不能用
-`validatorBuildId` 推断 wire format。v1 收据种类封闭为
-`canonical-publication-v1`、`static-image-v1` 与 `revision-cutover-v1`，分别要求
-source-map 闭合、独立镜像重建或完整语义差异验证的对应受检对象绑定和成功证据，不得
-互相替代。
-
-`static-image-v1` 收据必须记录 artifact semantic validation（包括全部稳定身份独立
-重算）、路网修订标识独立重算与 independent image rebuild comparison 的成功结果。
-缺失 / 篡改身份原像或声明 ID 不匹配时必须失败，未完成三者时不得签发可进入
-production fast path 的 descriptor。运行时当前修订只来自已认证
-`StaticImageDescriptor`，不接受调用方或 image header 自报。
-
-独立镜像重建器只能消费独立验证器刚建立的已验证规范制品视图（Validated Artifact
-View）；跨进程时可以消费由已认证 `canonical-publication-v1` descriptor/receipt
-重新建立的等价能力。
-包含重建比较结果的 `static-image-v1` 最终收据必须在比较成功后才签发，绝不能作为
-自身独立重建或比较的输入。`revision-cutover-v1` 同理只能在两侧可信描述符和完整
-语义差异验证完成后签发。
+原四道分离防线（compiler validation、独立验证器、验证收据封套/外部描述符、
+static image structural verifier）中的后三道已由 Accepted ADR 0024 重新裁决：
+pre-1.0 不创建 `laneflow-validator` 独立验证器，验证收据从 LFCP v2 移除，镜像
+结构校验随镜像方案一并退役。现行验证边界是编译器语义验证加后发射检查
+（`check_post_emission_bundle`：只依据最终 LFCA/LFSM/LFSD、显式 diff base 与
+limits 重算 digest/length/revision 并核对跨对象 binding）；发布闭合与信任锚
+职责见 ADR 0024 与
+`../design/compiler-post-emission-check-and-minimal-publication-closure.md`。
+仍有效的原则：任何 header 自报的 digest/target/provenance 只是待核对声明，不能
+作为自证 trust anchor；只有目标交付字节而无受检可移植制品来源时拒绝。原四道
+防线与收据种类的完整清单见基线提交
+[3f80b65f][adr0020-history]。
 
 ### 9. 包（Crate）目标边界
 
@@ -547,8 +369,10 @@ laneflow-adapter-* ------> laneflow-runtime / spatial / static-image
 `laneflow-static-contract` 只拥有 StableId/kind/tag、`NetworkRevisionId`、typed
 ordinal 和 version/digest/profile primitives，不依赖 Serde、filesystem、Runtime
 或 Spatial。
-`laneflow-static-image` 只拥有 image ABI、section/profile、bounded verifier 和
-borrowed views，不依赖 compiler/validator/Runtime/Spatial。
+原规划的 `laneflow-static-image`（image ABI、section/profile、bounded verifier）
+与 `laneflow-validator` 未创建（ADR 0024/0025 裁决）；上图中两者及
+`static-image` 依赖边是历史目标态，进程内共享层由现行 `laneflow-static-network`
+承担。现行 crate 清单以仓库 `crates/` 为准。
 
 Target `laneflow-runtime` 是 current `laneflow-core` 的 clean-break 名称，只拥有
 tick、已实现执行域的交通参与单元、动态通行定义和每 world 可变交通状态。当前首个
@@ -633,45 +457,38 @@ Oracle）。运行时至少报告组件/SCC 分布、最大 SCC 提案占比、�
 
 ### 12. 运行时快照、回放和路径规划不进入共享静态正本
 
-运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定创建快照时的
-`originCanonicalArtifactDigest + originCanonicalArtifactByteLength`、
-`originStaticImageDigest + originStaticImageByteLength`、运行时/快照版本、
-identity/constraint/execution-constraint versions、
-`networkRevisionDerivationVersion + networkRevision`、world identity、tick、
-输入命令游标和全部每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有随机流
-才进入该快照。Caller-owned seed/随机流由上层 Save Manifest 绑定，不进入 Traffic
-Runtime 隐藏状态。保存和恢复只能从 `TrustedStaticImage` descriptor 复制/比较
-修订 token，不能由调用方或镜像头覆盖。
+运行时快照（Runtime Snapshot）是独立版本化制品，绑定创建快照时的来源
+LFCA digest/length 与 `networkRevision`、运行时/快照版本、
+identity/constraint/execution-constraint versions、world identity、tick、
+输入命令游标和全部每世界可变交通状态；现行绑定字段与版本以
+`../design/traffic-runtime-snapshot.md` 为准。只有后续 G1 显式授予的 Runtime
+自有随机流才进入该快照。Caller-owned seed/随机流由上层 Save Manifest 绑定，不进入
+Traffic Runtime 隐藏状态。保存和恢复只能复制/比较修订认证结果，不能由调用方
+自报覆盖。
 
-同修订恢复可以使用另一个已认证 target/profile image，即使 compiler provenance 或
-artifact envelope 重发布导致其 canonical artifact digest/length 不同；候选可信镜像
-必须由独立验证收据证明从自身 artifact 重算得到与快照相同的版本化路网修订，
-identity/constraint/execution-constraint versions 必须精确相等，并通过
-`StaticIdentityIndex` 完整重建稳定静态引用。快照中的原规范制品与原镜像
-digest/length 只承担来源审计及同制品/同镜像快速恢复，不是同修订兼容条件。跨修订
-恢复必须通过稳定标识与受信任语义差异执行显式迁移；旧 dense ordinal 不得直接解释
-为新修订实体。动态通行定义、交通参与单元和其他运行时实体以快照局部标识保存引用
+同修订恢复可以换用另一份重算得到相同 `networkRevision` 的受检 LFCA，即使
+compiler provenance 或 artifact envelope 重发布导致其 canonical artifact
+digest/length 不同；identity/constraint/execution-constraint versions 必须精确
+相等，并通过 `SharedIdentityIndex` 完整重建稳定静态引用。快照中的原制品
+digest/length 只承担来源审计及同制品快速恢复，不是同修订兼容条件。跨修订恢复
+必须通过稳定标识与受信任语义差异执行显式迁移；旧 dense ordinal 不得直接解释为
+新修订实体。动态通行定义、交通参与单元和其他运行时实体以快照局部标识保存引用
 关系；当前 vehicle/dynamic Route 只是首个特化。原进程 runtime
 handle/slot/generation 不得成为恢复后身份。
 
-任何保留旧世界状态的跨修订切换/恢复都必须由受信任 semantic diff 驱动。外部可信
-`NetworkRevisionCutoverDescriptor` 必须绑定 base/target canonical artifact 和
-static image digest/length、base/target 路网修订标识、
-`baseCanonicalArtifactByteLength` / `targetCanonicalArtifactByteLength`、
-`semanticDiffFormatVersion + semanticDiffDigest + semanticDiffByteLength`、
-migration policy version 与
-`validationReceiptFormatVersion + validationReceiptKind +
-validationReceiptDigest + validationReceiptByteLength`，其中种类必须是
-`revision-cutover-v1`。Runtime 先认证该小型
-descriptor，再按调用方上限和统一 pre-hash 规则有界读取 semantic diff；随后核对其
-base/target revision/artifact/image 三元组与两个可信 image descriptor 精确一致，
-再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定或验证的 diff 只能用于诊断，
-不得成为状态迁移正本；缺失 diff 时也不得用两个索引和迁移策略执行 index-only
-回退，因为稳定身份相同不能证明 topology、geometry、access 或 control 语义相容。
-本地玩家改路必须先由独立验证器比较两份已验证 portable artifact、重算或验证完整
-diff 并签发 receipt，再由宿主认证 asset chain 或 pinned digest 认证切换描述符；
-否则旧世界继续运行。显式放弃旧状态并在新修订上创建空世界不属于状态迁移。
-运行时执行计划在恢复时按当前硬件重建，快照不得要求复现原分区/工作线程布局。
+任何保留旧世界状态的跨修订切换/恢复都必须由受信任 semantic diff 驱动；切换
+描述符的现行绑定字段、失败关闭与两阶段提交合同以
+`../design/traffic-runtime-revision-cutover.md` 为准（原 image/receipt 绑定清单
+已随 ADR 0024/0025 退役，原件见基线提交 [3f80b65f][adr0020-history]）。仍有效的
+原则：先认证小型描述符，再按调用方上限和统一 pre-hash 规则有界读取 semantic
+diff；核对 base/target 修订与两侧受检来源精确一致后，以旧/新 `SharedIdentityIndex`
+复核全部映射。未绑定或验证的 diff 只能用于诊断，不得成为状态迁移正本；缺失 diff
+时也不得用两个索引和迁移策略执行 index-only 回退，因为稳定身份相同不能证明
+topology、geometry、access 或 control 语义相容。本地玩家改路必须先比较两份已
+验证 portable artifact、重算或验证完整 diff 并完成后发射检查，再由宿主认证
+asset chain 或 pinned digest 认证切换；否则旧世界继续运行。显式放弃旧状态并在
+新修订上创建空世界不属于状态迁移。运行时执行计划在恢复时按当前硬件重建，快照
+不得要求复现原分区/工作线程布局。
 
 回放使用显式输入命令序列（Input Command Sequence）、checkpoint 和确定性状态
 摘要。调试构建可以借助冷标识与源映射产生失同步诊断制品，定位首个分歧 tick、
@@ -870,3 +687,4 @@ fast path 必须有认证的 image 外部 trust anchor；拒绝 header self-atte
     映射，缺失证据时 index-only 路径失败关闭。
 
 [routing-integration]: ../design/traffic-observation-and-routing-integration.md
+[adr0020-history]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/adr/0020-compiler-owned-static-network-and-static-image.md
