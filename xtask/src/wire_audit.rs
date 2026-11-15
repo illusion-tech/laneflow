@@ -83,7 +83,7 @@
 //!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
 //!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。
 //!    laneflow-os-probe 例外：manifest 形状精确匹配（auto* 关闭、唯一登记的
-//!    单测试 target、cfg(windows) 下钉版 windows-sys 与四个 feature、
+//!    单测试 target 且 harness = false、cfg(windows) 下钉版 windows-sys 与四个 feature、
 //!    Linux 下钉版 rustix `param`、唯一 dev 依赖钉版 stats_alloc、无 build 脚本）；
 //!    源文件全集等于登记清单，unsafe 只在 src/windows.rs 且恰为 5 处登记表达式，
 //!    全 crate 禁源码加载、间接、lint 放宽、汇编、自写 FFI 与 transmute；
@@ -772,14 +772,15 @@ fn require_probe_manifest_hygiene(text: &str, package_root: &Path) -> Result<(),
         .ok_or_else(|| format!("{label} 缺少登记的 [[test]] target"))?;
     let registered_test = tests.len() == 1
         && tests[0].as_table().is_some_and(|test| {
-            test.len() == 2
+            test.len() == 3
                 && test.get("name").and_then(toml::Value::as_str) == Some("read_without_allocation")
                 && test.get("path").and_then(toml::Value::as_str)
                     == Some("tests/read_without_allocation.rs")
+                && test.get("harness").and_then(toml::Value::as_bool) == Some(false)
         });
     if !registered_test {
         return Err(format!(
-            "{label} 的 [[test]] 必须恰为登记的 read_without_allocation（tests/read_without_allocation.rs，不得设置 harness 等其他键）"
+            "{label} 的 [[test]] 必须恰为登记的 read_without_allocation（tests/read_without_allocation.rs，harness = false，不得设置其他键）"
         ));
     }
     let target = manifest
@@ -2109,12 +2110,14 @@ mod tests {
             ),
             "dev-dependencies",
         );
-        // 测试 target 增加 harness 等键或新增 target。
+        // 测试 target 缺少 harness = false、改为 harness = true、增加其他键，或新增 target。
+        reject(manifest.replace("harness = false\n", ""), "[[test]]");
         reject(
-            manifest.replace(
-                "path = \"tests/read_without_allocation.rs\"",
-                "path = \"tests/read_without_allocation.rs\"\nharness = false",
-            ),
+            manifest.replace("harness = false", "harness = true"),
+            "[[test]]",
+        );
+        reject(
+            manifest.replace("harness = false", "harness = false\ntest = true"),
             "[[test]]",
         );
         reject(format!("{manifest}\n[[bin]]\nname = \"x\"\n"), "[bin]");
