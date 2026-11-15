@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use laneflow_synth_harness::Error;
+use laneflow_synth_harness::host::{Observed, Session};
 use serde_json::{Value, json};
 
 use super::retry::TEST;
@@ -320,16 +321,10 @@ impl Task {
     }
 }
 
+/// 观测器被丢弃时按身份终止并回收子进程。
 struct Running {
     task: Task,
-    child: Child,
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+    child: Observed,
 }
 
 fn launch(
@@ -372,11 +367,13 @@ fn launch(
         }
         command
     };
-    let child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log.try_clone()?))
-        .stderr(Stdio::from(log))
-        .spawn()?;
+    let child = Observed::new(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log))
+            .spawn()?,
+    )?;
     Ok(Running { task, child })
 }
 
@@ -481,29 +478,11 @@ fn run_matrix(
                 .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
         "实现来源必须是完整提交 ID",
     )?;
-    let environment: Value = serde_json::from_slice(&fs::read(environment)?)?;
-    ensure(
-        environment.is_object()
-            && environment["implementation_commit"] == implementation
-            && environment["source_clean"] == true,
-        "环境须绑定相同实现提交与干净源码",
-    )?;
-    for field in [
-        "rustc_vv",
-        "cargo_version",
-        "target",
-        "build_command",
-        "test_build_command",
-    ] {
-        ensure(
-            environment[field].as_str().is_some_and(|s| !s.is_empty()),
-            &format!("缺少环境字段：{field}"),
-        )?;
-    }
+    let (session, environment) = Session::begin(environment, implementation, output, true)?;
+    summary["environment"] = environment;
     let binary = std::env::current_exe()?;
     summary["binary"] = file_identity(&binary)?;
     summary["test_binary"] = file_identity(test_binary)?;
-    summary["environment"] = environment;
     let tasks = tasks();
     let mut normals = BTreeMap::new();
     let mut completed = BTreeMap::<String, (Task, Value)>::new();
@@ -547,12 +526,14 @@ fn run_matrix(
         }
         let mut progress = false;
         for index in (0..running.len()).rev() {
-            let Some(status) = running[index].child.try_wait()? else {
+            let Some(status) = running[index].child.poll()? else {
                 continue;
             };
             let run = running.swap_remove(index);
+            let process = run.child.record();
             let result = collect(input, implementation, output, run.task, status, &normals)
-                .and_then(|row| {
+                .and_then(|mut row| {
+                    row["process"] = process.clone();
                     if run.task.normal {
                         normals.insert(run.task.job.identity(), row["report"].clone());
                         summary["normal_runs"].as_array_mut().unwrap().push(row);
@@ -579,7 +560,7 @@ fn run_matrix(
                 summary["errors"]
                     .as_array_mut()
                     .unwrap()
-                    .push(json!({"finished_run":run.task.key(),"error":error.to_string()}));
+                    .push(json!({"finished_run":run.task.key(),"error":error.to_string(),"process":process}));
             }
             summary["comparisons"] = json!(comparisons.values().collect::<Vec<_>>());
             for field in ["normal_runs", "runs"] {
@@ -613,7 +594,9 @@ fn run_matrix(
         file_identity(&binary)? == summary["binary"]
             && file_identity(test_binary)? == summary["test_binary"],
         "执行前后二进制身份发生变化",
-    )
+    )?;
+    summary["environment"]["after"] = session.finish(output)?;
+    Ok(())
 }
 
 pub(super) fn matrix(

@@ -62,8 +62,8 @@ W1/W2 初始化后只调用 `step` 和只读查询。W3/W4 按受检计划执行
 
 ```text
 laneflow-synth-harness worker-run <input-directory> <implementation-commit> <workers> <new-output-directory>
-laneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
-laneflow-synth-harness worker-retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
+laneflow-synth-harness worker-matrix <generator-matrix-root> <implementation-commit> <environment-input.json> <new-output-root>
+laneflow-synth-harness worker-retry-matrix <runtime-test-binary> <generator-matrix-root> <implementation-commit> <environment-input.json> <new-output-root>
 ```
 
 `worker-run` 走同一完整语义窗口，将显式配置传给真实 `TrafficWorld`，成功回执的
@@ -77,13 +77,13 @@ worker 之和不超过 32。它只核验语义，不采集延迟或加速比。
 源码、完整输入 manifest、窗口和检查点，再只排除 `workers` 比较全部其他字段。
 轨迹、有序事件逐字节比较；W3/W4 另比较命令收据与批次。任一失败停止启动新进程，
 收集已经启动的运行；不覆盖旧目录，不自动补跑。`summary.json` 保留每次完整回执、
-启动次序、binary/运行文件 SHA-256、环境与比较结果，全部完成才有 `complete=true`。
+启动次序、binary/运行文件 SHA-256、环境记录、每个子进程的观测记录与比较结果，
+全部完成才有 `complete=true`。
 
-从冻结提交的干净检出构建并复制二进制到工作树外。`environment.json` 至少包含
-`implementation_commit`（与参数相同）、`source_clean`（true）、`rustc_vv`、
-`cargo_version`、`target`、`build_command`，并附 OS、CPU、内存与采集时间。
-这些是执行者声明；工具记录实际可执行文件的 SHA-256 并核对运行前后身份，不能
-替代源码到二进制的构建证明。正式采集期间不修改源码、二进制或输入。
+从冻结提交的干净检出构建并复制二进制到工作树外，在该检出目录内运行矩阵。环境
+记录与子进程观测见下文[环境记录与子进程观测][host-observe-section]。工具记录实际
+可执行文件的 SHA-256 并核对运行前后身份，不能替代源码到二进制的构建证明。正式
+采集期间不修改源码、二进制或输入。
 
 该矩阵只覆盖标称输入和成功路径。非标称交叉组合、强制调度置换、跨 worker
 失败/重试、快照恢复、Routing、表现接线与完整五轴仍需各自证据，不能把相等结果
@@ -127,8 +127,8 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 
 ```text
 measure prepare-oracles <semantic-binary> <generator-matrix-root> <implementation-commit> <new-oracle-root>
-measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment.json> <new-output-root>
-measure stretch-matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment.json> <new-stretch-output>
+measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output-root>
+measure stretch-matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-stretch-output>
 measure guardrail <W1-input-directory> <new-guardrail-output>
 ```
 
@@ -138,11 +138,18 @@ W2 Runtime-only、W4 对应规模的固定主行。每行三个全新进程，�
 不表示其他 stretch 行已测量。guardrail 独立覆盖两种步长的零/一/两拍、两 quantum
 backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
 
-`environment.json` 由执行者采集：记录 `rustc -Vv`、`cargo -V`、构建命令、target、
-源码干净状态、OS/CPU/内存、AC、电源计划、厂商模式和后台进程。工具保留这些声明，
-不把缺项当成已验证。每个运行另绑定当前 binary SHA-256、输入 manifest、比例、轮次、
+环境记录由矩阵生成（见[环境记录与子进程观测][host-observe-section]）。`measure run`
+的第四个参数是矩阵写出的 `environment-before.json`：子进程核对其格式、版本、提交与
+干净状态，并在 `manifest.json` 中以 `environment_record_sha256` 引用，不再复制
+`environment.json`。每个运行另绑定当前 binary SHA-256、输入 manifest、比例、轮次、
 完整帧序列与固定选择 SHA-256。源码与 binary 的关联须由干净检出、构建日志和归档
 共同证明。各目录必须全新；失败停止矩阵并保留首错与已有材料。
+
+矩阵为每个子进程记录 `process`（退出状态与 1 s 间隔的采样峰值、采样 CPU 时间，
+二者是下界），并以 `self_report_check` 核对子进程自报的生命周期驻留峰值（Windows
+`peak_working_set_bytes`、Linux `linux_vm_hwm_bytes`，取 `resources.json` 与
+`report.json` 的 `final_process`）不小于父进程采样峰值；不满足时 `consistent=false`，
+如实记录，不改变运行结论。
 
 正常 release 构建不启用任何测量 feature。独立诊断构建启用 `allocation`，同时启用
 已有 execution-evidence 与 pose-profiling；诊断矩阵每行一个完整窗口，其耗时明确排除：
@@ -216,14 +223,54 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
 矩阵对应检查点比较。原始快照用于本次逐值/字节比较，不代表恢复认证；测试构建
 耗时不作 latency/tail 结论。失败保留 `complete=false` 及已写材料。
 
+## 环境记录与子进程观测
+
+`worker-matrix`、`worker-retry-matrix`、`measure matrix`/`stretch-matrix` 与
+`restore-probe`/`restore-matrix` 使用 [`laneflow-host-observe`][host-observe]
+（`host-observe.md` §6）：
+
+- 第三个参数是执行者输入文件 `environment-input.json`，只含环境记录的必填字段与
+  构建声明，不得含自动采集字段：
+
+  ```json
+  {
+    "environment": { "vendor_performance_mode": "无厂商性能模式", "hardware_role": "uncertified" },
+    "build_command": "cargo +1.99.1 build -p laneflow-synth-harness --release --locked",
+    "test_build_command": "仅 worker-retry-matrix 要求"
+  }
+  ```
+
+  `hardware_role` 取 `R0`、`P10`、`P100`、`O1` 或 `uncertified`；`vendor_performance_mode`
+  不得为空或占位值，没有厂商性能模式时写明“无厂商性能模式”。
+- 启动任何子进程前，工具在当前 git 检出内生成 `environment-before.json`
+  （`laneflow-environment-record` 第 1 版，工具链为 `+1.99.1`），核对工作树干净、HEAD
+  与实现提交参数相同、工具链可用，`P100` 角色另须匹配参考机指纹；任一不满足即
+  停止，不启动子进程。全部运行完成后生成 `environment-after.json` 并比较，前后不一致
+  时矩阵不标记完整。两份记录的文件名、SHA-256 与字节数写入 `summary.json` 的
+  `environment`。
+- 每个子进程按“仅直接子进程”范围、1 s 间隔采样，记录在对应运行或错误条目的
+  `process` 中。
+
+旧 `environment.json` 字段与新记录的对应：
+
+| 旧字段                                                    | 新位置                                                                |
+| --------------------------------------------------------- | --------------------------------------------------------------------- |
+| `implementation_commit`                                   | 环境记录 `source.commit`，工具核对与命令行参数相同                    |
+| `source_clean`                                            | 环境记录 `source.clean`，由工具判定                                   |
+| `rustc_vv`、`cargo_version`、`target`                     | 环境记录 `toolchain.rustc_vv`、`cargo_version`、`host_target`         |
+| `build_command`、`test_build_command`                     | 执行者输入文件的构建声明，原样写入 `summary.json`                     |
+| OS、CPU、内存、AC、电源计划、厂商模式、后台进程、采集时间 | 环境记录的自动字段、`manual` 与 `processes`，采集时刻为 `recorded_at` |
+
+已发布测量记录与历史 `environment.json` 不改写。
+
 ## 快照恢复与继续运行
 
 正式矩阵、独立文件复核与覆盖边界见
 [LF-SYNTH-v2 快照恢复核验报告][lf-synth-restore-readme]。
 
 ```text
-laneflow-synth-harness restore-probe <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
-laneflow-synth-harness restore-matrix <generator-matrix-root> <implementation-commit> <environment.json> <new-output-root>
+laneflow-synth-harness restore-probe <generator-matrix-root> <implementation-commit> <environment-input.json> <new-output-root>
+laneflow-synth-harness restore-matrix <generator-matrix-root> <implementation-commit> <environment-input.json> <new-output-root>
 laneflow-synth-harness restore-reference <input-directory> <implementation-commit> <new-output-directory>
 laneflow-synth-harness restore-run <input-directory> <implementation-commit> <workers> <reference-directory> <checkpoint-0-or-1> <new-output-directory>
 ```
@@ -264,3 +311,5 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 [lf-synth-measurement-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1166-lf-synth-measurement/README.md
 [lf-synth-measurement]: ../../docs/design/lf-synth-measurement.md
 [lf-synth-restore-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1197-lf-synth-restore/README.md
+[host-observe]: ../laneflow-host-observe/README.md
+[host-observe-section]: #环境记录与子进程观测

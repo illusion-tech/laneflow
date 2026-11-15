@@ -1,6 +1,7 @@
 //! LF-SYNTH-v2 语义验证与表现测量；结果不直接构成产品认证。
 
 mod burst;
+pub mod host;
 mod install;
 pub mod measurement;
 mod observe;

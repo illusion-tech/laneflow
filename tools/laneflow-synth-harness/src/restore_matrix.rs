@@ -2,11 +2,12 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::num::NonZeroU32;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::workers::Job;
 use laneflow_runtime::ExecutionConfig;
+use laneflow_synth_harness::host::{Observed, Session};
 use laneflow_synth_harness::{Error, restore};
 use serde_json::{Value, json};
 
@@ -85,16 +86,11 @@ fn tasks(probe: bool, references: bool) -> Vec<Task> {
     result
 }
 
+/// 观测器被丢弃时按身份终止并回收子进程。
 struct Running {
     task: Task,
-    child: Child,
+    child: Observed,
     start: Instant,
-}
-impl Drop for Running {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
 }
 
 fn launch(
@@ -125,12 +121,14 @@ fn launch(
             .arg(output.join(task.reference()))
             .arg(index.to_string());
     }
-    let child = command
-        .arg(output.join(task.key()))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log))
-        .spawn()?;
+    let child = Observed::new(
+        command
+            .arg(output.join(task.key()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(log))
+            .spawn()?,
+    )?;
     Ok(Running {
         task,
         child,
@@ -266,10 +264,11 @@ fn run_stage_using(
             super::write(&output.join("summary.json"), summary)?;
         }
         for index in (0..running.len()).rev() {
-            let Some(status) = running[index].child.try_wait()? else {
+            let Some(status) = running[index].child.poll()? else {
                 continue;
             };
             let run = running.swap_remove(index);
+            let process = run.child.record();
             let result = (|| {
                 if !status.success() {
                     return Err(Error::Invalid(format!(
@@ -308,7 +307,7 @@ fn run_stage_using(
                         }
                     }
                 }
-                summary["runs"].as_array_mut().unwrap().push(json!({"run":run.task.key(),"reference":run.task.reference(),"checkpoint":run.task.checkpoint,"round":run.task.job.round,"workers":run.task.job.workers,"wall_seconds":run.start.elapsed().as_secs_f64(),"report":report,"files":files}));
+                summary["runs"].as_array_mut().unwrap().push(json!({"run":run.task.key(),"reference":run.task.reference(),"checkpoint":run.task.checkpoint,"round":run.task.job.round,"workers":run.task.job.workers,"wall_seconds":run.start.elapsed().as_secs_f64(),"report":report,"files":files,"process":process}));
                 Ok(())
             })();
             completed += 1;
@@ -317,7 +316,7 @@ fn run_stage_using(
                 summary["errors"]
                     .as_array_mut()
                     .unwrap()
-                    .push(json!({"run":run.task.key(),"error":error.to_string()}));
+                    .push(json!({"run":run.task.key(),"error":error.to_string(),"process":run.child.record()}));
             }
             super::write(&output.join("summary.json"), summary)?;
             eprintln!(
@@ -350,19 +349,11 @@ fn matrix(
     let mut summary = json!({"format":"lf-synth-restore-matrix-1","complete":false,"probe":probe,"implementation_commit":implementation,"expected_references":if probe {8} else {10},"expected_restores":if probe {32} else {300},"max_processes":4,"max_configured_workers":32,"execution_order":[],"runs":[],"errors":[]});
     super::write(&output.join("summary.json"), &summary)?;
     let result = (|| {
-        let environment: Value = serde_json::from_slice(&fs::read(environment)?)?;
-        if environment["implementation_commit"] != implementation
-            || environment["source_clean"] != true
-            || ["rustc_vv", "cargo_version", "target", "build_command"]
-                .iter()
-                .any(|f| !environment[f].as_str().is_some_and(|s| !s.is_empty()))
-        {
-            return Err(Error::Invalid("来源环境声明不完整".into()));
-        }
+        let (session, environment) = Session::begin(environment, implementation, output, false)?;
+        summary["environment"] = environment;
         let binary = std::env::current_exe()?;
         let identity = restore::file_identity(&binary)?;
         summary["binary"] = identity.clone();
-        summary["environment"] = environment;
         run_stage(
             &binary,
             input,
@@ -384,6 +375,7 @@ fn matrix(
         if identity != restore::file_identity(&binary)? {
             return Err(Error::Invalid("矩阵前后二进制变化".into()));
         }
+        summary["environment"]["after"] = session.finish(output)?;
         Ok(())
     })();
     summary["elapsed_seconds"] = json!(start.elapsed().as_secs_f64());
@@ -409,7 +401,7 @@ pub(super) fn dispatch(args: &[OsString]) -> Option<Result<(), Error>> {
             ("restore-reference"|"restore-probe-reference",4)=>{restore::reference(Path::new(&args[1]),implementation,name=="restore-probe-reference",Path::new(&args[3]))?;},
             ("restore-run",7)=>{let workers:NonZeroU32=args[3].to_str().unwrap_or("").parse().map_err(|_|Error::Invalid("worker 必须是非零整数".into()))?;let index=args[5].to_str().unwrap_or("").parse().map_err(|_|Error::Invalid("检查点编号非法".into()))?;restore::resume(Path::new(&args[1]),implementation,ExecutionConfig::new(workers),Path::new(&args[4]),index,Path::new(&args[6]))?;},
             ("restore-matrix"|"restore-probe",5)=>matrix(Path::new(&args[1]),implementation,Path::new(&args[3]),Path::new(&args[4]),name=="restore-probe")?,
-            _=>return Err(Error::Invalid("restore-reference INPUT SHA OUTPUT；restore-run INPUT SHA WORKERS REFERENCE CHECKPOINT OUTPUT；restore-matrix/restore-probe INPUT SHA ENV OUTPUT".into())),
+            _=>return Err(Error::Invalid("restore-reference INPUT SHA OUTPUT；restore-run INPUT SHA WORKERS REFERENCE CHECKPOINT OUTPUT；restore-matrix/restore-probe INPUT SHA ENVIRONMENT-INPUT OUTPUT".into())),
         }
         Ok(())
     })())
@@ -481,7 +473,7 @@ mod tests {
             .unwrap();
         Running {
             task,
-            child,
+            child: Observed::new(child).unwrap(),
             start: Instant::now(),
         }
     }

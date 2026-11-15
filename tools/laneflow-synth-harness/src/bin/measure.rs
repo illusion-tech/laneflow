@@ -15,7 +15,7 @@ fn execute() -> Result<(), Error> {
     };
     if args.len() == 1 && args[0] == "--help" {
         println!(
-            "measure run <input-directory> <oracle-directory> <implementation-commit> <environment.json> <percent> <round> <new-output>\nmeasure prepare-oracles <semantic-binary> <input-root> <implementation-commit> <new-output>\nmeasure matrix|stretch-matrix <input-root> <oracle-root> <implementation-commit> <environment.json> <new-output>\nmeasure guardrail <W1-input> <new-output>"
+            "measure run <input-directory> <oracle-directory> <implementation-commit> <environment-before.json> <percent> <round> <new-output>\nmeasure prepare-oracles <semantic-binary> <input-root> <implementation-commit> <new-output>\nmeasure matrix|stretch-matrix <input-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output>\nmeasure guardrail <W1-input> <new-output>"
         );
         return Ok(());
     }

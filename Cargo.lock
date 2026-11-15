@@ -3344,6 +3344,7 @@ dependencies = [
  "blake3",
  "laneflow-bevy",
  "laneflow-format",
+ "laneflow-host-observe",
  "laneflow-os-probe",
  "laneflow-runtime",
  "laneflow-spatial",
