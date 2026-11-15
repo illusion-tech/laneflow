@@ -74,45 +74,14 @@ manifest，所以默认命令随测试持续可执行。v0.10 两负载的历史
 都须命中；`expect` 须含 `workload_id`，LF-SYNTH 记录还须含 `identity`；期望键
 缺失不容忍、未知键前向容忍）、`l1-record`（本工具 `check-transitions` 记录）。
 
-## #305 正式汇总的命令与输入
+## #305 正式汇总执行记录（已完成）
 
-前置：#1282 冻结验收提交；#1279 完成冻结后计时并形成记录（stdout 捕获为
-key=value 文本）；L1 两份输入包（`10000-L1-16`、`100000-L1-33`）完成核查。
-
-1. 制作正式 manifest：以历史[试跑副本][v0-10-trial]为起点复制到仓库外工作目录，
-   改 `mode_note`；`repo-doc` 证据须指向验收提交中实际存在的文件，不存在的改用
-   `<evidence-root>/` 前缀的仓库外记录或 `github` 链接；逐格更新：
-
-   - routing 两格：补 `#1279` 记录与 #1267 证据结论，`status` 离开 `pending`。
-     #1279 每个身份一条 `routing-kv`，`expect` 至少含
-     `workload_id=LF-ROUTING-CANDIDATE-LFSYNTH-v1-<身份>` 与 `identity=<身份>`；
-   - 城市性能格：写入验收提交适用性核对结论，清空或改写 `pending`；
-   - 各语义格按需挂接 `synth-summary-json` / `gate-json`（`expect` 绑定
-     `implementation_commit` / `source.commit` 等身份）。
-
-2. 对冻结的正式 L1 输入包运行核查（两份身份各一次）：
-
-   ```powershell
-   target/release/laneflow-gate-summary check-transitions --bundle <formal-inputs>/10000-L1-16 --output <evidence-root>/1268-formal/l1-check-10000-L1-16.json
-   target/release/laneflow-gate-summary check-transitions --bundle <formal-inputs>/100000-L1-33 --output <evidence-root>/1268-formal/l1-check-100000-L1-33.json
-   ```
-
-3. 运行正式汇总：
-
-   ```powershell
-   target/release/laneflow-gate-summary summarize `
-     --manifest <正式 manifest> `
-     --repo-root <checkout@验收提交> `
-     --evidence-root <evidence-root> `
-     --output <新目录> `
-     --mode formal --require-complete
-   ```
-
-4. 回执结论回写 #305（GitHub 可链接结论）；影响现行合同的结论回写所属设计文档，
-   回执本身不入仓，不拷过程数据。
-
-正式 L1 输入包从 `laneflow-synth-generator generate` 按冻结身份重建，或直接使用
-正式矩阵的输入缓存目录；核查对象身份（manifest 摘要与来源提交）由记录原样携带。
+v0.10 统一验收线已收尾：#1282 冻结验收提交，#1279 完成冻结后计时并形成记录，
+两份正式 L1 输入包（`10000-L1-16`、`100000-L1-33`）完成拓扑核查，#305 于
+2026-11-09 完成（completed）关闭。正式 manifest 逐格更新、L1 核查与正式汇总的
+一次性操作明细见基线提交 3f80b65f 的本文副本；通用命令、manifest 结构、身份
+校验与 fail-closed 语义以上文各节为准，未来新验收轮按同语义新建 manifest，
+不复用历史试跑清单。
 
 ## L1 拓扑核查的判定（#1271）
 

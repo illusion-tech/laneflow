@@ -34,8 +34,11 @@ Accepted 工作负载。
 旧的 `LF-REAL-LUST-v1` 在任何 artifact 或 benchmark result 产生前退役。不得用
 旧 ID 生成新结果，也不得把两个新 workload 的结果合并回旧 ID。
 
-本文当前只冻结设计契约。converter、Release assets、TOPO/DEMAND plan、benchmark
-harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实现和证据完成前：
+本文当前只冻结设计契约。下游交付状态：source/static converter 与确定性
+fail-closed 诊断清单已由 #253 交付；`network.lfca` 与 Release assets 待
+「路口级 maneuver 几何合成」（#790）及车道级路线展开语义修订（#806）；TOPO /
+DEMAND plan 与 benchmark harness 分别由 #254 / #255 承担（见 §10）。在这些
+实现和证据完成前：
 
 - `LF-SYNTH-v2` 继续是一万/十万唯一 canonical product Gate baseline；
 - TOPO 只能形成真实拓扑压力的补充结果，不能单独形成 Product Pass；
@@ -787,11 +790,11 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 ## 10. 下游任务与治理边界
 
-#224 G4 后分别创建以下 G0 Issue：
+各方向按下列任务推进（#224 本体已完成；A 已交付，其余未交付）：
 
 | 任务     | 交付                                                                                                          | 依赖/边界                                                                                                                                                             |
 | -------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A (#253) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`][laneflow-lust-converter]；Release assets / `network.lfca` 移交「路口级 maneuver 几何合成」新 G1；其他 workload 的共同前置 |
+| A (#253，已交付) | source/static converter、provenance 与 conversion report；验收为 converter 交付 + 确定性 fail-closed 诊断清单 | 实现入口：[`tools/laneflow-lust-converter`][laneflow-lust-converter]；`routes.toml` 车道级展开语义待 #806 修订；Release assets / `network.lfca` 待「路口级 maneuver 几何合成」（#790）；其他 workload 的共同前置 |
 | B        | TOPO plan、harness 与 evidence                                                                                | 依赖 A                                                                                                                                                                |
 | C        | DEMAND caller policy、plan、harness 与 evidence                                                               | 依赖 A                                                                                                                                                                |
 | D        | DUA rerouting                                                                                                 | 独立 G1/ADR 判断                                                                                                                                                      |

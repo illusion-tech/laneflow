@@ -285,20 +285,15 @@ Spatial batch extract
 
 #171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的一万/十万完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`。逐轮协议见该次测量记录。这组数字不是当前产品认证。
 
-## 11. 执行批次与 PR 角色
+## 11. 执行批次记录
 
-| Issue | 交付批次                                               | 直接前置            |
-| ----: | ------------------------------------------------------ | ------------------- |
-|  #169 | 最小 crate、Plugin/Session 与 fixed schedule（已完成） | 无活动 blocker      |
-|  #170 | Vehicle/Entity 映射与原子批量 Transform（已完成）      | #169（已完成）      |
-|  #171 | headless E2E、allocation/performance 与 CI（已完成）   | #170（已完成）      |
-|  #172 | 可选、预算受控的 debug Gizmos（已完成）                | #170（已完成）      |
-|  #173 | 最小 native reference example（已完成）                | #170（已完成）      |
-|  #174 | 最终集成文档与独立 closure review                      | #171-#173（已完成） |
+父任务 #121 与子任务 #169–#174（最小 crate 与 Plugin/Session、Vehicle/Entity
+映射与批量 Transform、headless E2E 与 CI、debug Gizmos、native reference
+example、最终集成文档与独立 closure review）已全部完成并关闭；当时的分批
+Delivery PR 流程、逐子任务验收与完成记录见 git 历史，不再是现行流程指令。
 
-每个子 Issue 使用自己的唯一 Delivery PR。#169-#173 的 PR 对父 #121 只使用 Related PR 语义，不得以 closing keyword 覆盖父 tracker。#174 的最终 integration PR 同时作为 #174 与 #121 的唯一 Delivery PR；所有子 Issue G4 后才允许 #121 进入最终 G3/G4。
-
-#174 的独立审阅没有发现需要回开生产实现、Adapter API 或 CI 契约的缺口。当时完成记录见 git 历史。本节的剩余项继续是明确的后续非目标。
+#174 的独立审阅没有发现需要回开生产实现、Adapter API 或 CI 契约的缺口。本节的
+剩余项继续是明确的后续非目标。
 
 ## 12. 兼容性与后续演进
 
