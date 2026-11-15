@@ -123,7 +123,7 @@
 - [`lf-synth-execution.md`][lf-synth-execution]：W1/W2 完整窗口消费、逐拍语义核验与独立进程证据编码。
 - [`lf-synth-measurement.md`][lf-synth-measurement]：Accepted；E 的固定表现、外层帧、
   W4 两帧与计时接线合同，实施与正式证据由 #1166 承担。
-- [`host-observe.md`][host-observe]：#1392 G1 Proposed，`laneflow-host-observe` 测量环境记录、进程快照与
+- [`host-observe.md`][host-observe]：#1392 G1 Accepted，`laneflow-host-observe` 测量环境记录、进程快照与
   子进程观测。
 - [`os-probe.md`][os-probe]：#1391 G1 Accepted，`laneflow-os-probe` 本进程与整机操作系统计数器读取与受审计
   `unsafe` 例外。
