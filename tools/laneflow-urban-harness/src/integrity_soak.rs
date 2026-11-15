@@ -378,25 +378,23 @@ fn replay_entry(request: &Path, timeout: Duration, entry: &str) -> Result<Respon
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let system =
-        sysinfo::System::new().map_err(|error| invalid(format!("初始化进程观测失败：{error}")))?;
-    let mut child = supervisor::ChildGuard::new(command.spawn()?, system);
-    let child_pid = child.child.id();
+    let mut child = supervisor::observe(command.spawn()?)?;
+    let child_pid = child.id();
     let started = Instant::now();
     loop {
-        if let Some(status) = child.child.try_wait()? {
+        if let Some(status) = child.try_wait()? {
             if !status.success() {
                 return Err(invalid(format!("Incomplete: replay child {status}")));
             }
             break;
         }
         if started.elapsed() > timeout {
-            child.terminate()?;
+            child.terminate(supervisor::TERMINATION_DEADLINE)?;
             return Err(invalid("Incomplete: replay child timeout"));
         }
         thread::sleep(Duration::from_millis(20));
     }
-    child.terminate()?;
+    child.terminate(supervisor::TERMINATION_DEADLINE)?;
     let path = request.with_extension("response.json");
     if fs::metadata(&path)?.len() > 128 * 1_024 {
         return Err(invalid("Incomplete: oversized replay response"));
