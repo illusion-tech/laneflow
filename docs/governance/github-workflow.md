@@ -316,7 +316,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   static-contract、static-network、compiler 或 `examples/data/` 变更时编译。
 - `Wire toolchain audit`：`xtask check-wire-audit` 与
   `xtask check-runtime-architecture`，覆盖仓库 cargo config 卫生、依赖与生成物
-  钉版、workspace unsafe 边界的 hermetic 双特性编译与注入金丝雀，以及运行时模块
+  钉版、workspace unsafe 边界（含 `laneflow-os-probe` 受审计例外）的 hermetic
+  双特性编译与注入金丝雀，以及运行时模块
   架构检查（自 `Rust checks` 拆出，#1061）。与 `Rust checks` 并行执行，压缩合并
   路径关键路径；非 Rust 路径变更时以 skip 模式成功完成。
 - `Evidence fixture tests`：证据仪器与 fixture 重测（urban-harness 浸泡/存档/报告仪器、urban-generator 生成器、bevy `corridor_traffic_smoke` 走廊 fixture），自 `Rust checks` 的 workspace 步拆出、与之并行（#1108）；workspace 步跑补集，两处合计覆盖不变。非 Rust 路径跳过并显式记录 skip。`RUSTC_WRAPPER` 与 sccache 接线同 `Rust checks`。
