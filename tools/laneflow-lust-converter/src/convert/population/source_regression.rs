@@ -166,7 +166,7 @@ fn pinned_lust_population_source_regression() {
         report_digest
     );
     assert_eq!(build["rawOutputDigests"]["conversionReport"], report_digest);
-    assert_eq!(report["sourceCommit"], Value::from(LUST_COMMIT));
+    assert_eq!(report["source"]["commit"], Value::from(LUST_COMMIT));
     println!("report_digest,{report_digest}");
     println!("evidence_directory,{}", root.display());
 }
