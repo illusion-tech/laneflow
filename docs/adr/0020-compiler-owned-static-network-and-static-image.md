@@ -26,7 +26,9 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 **2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
 只属于当前仓库加载器和 fixture；它不建立 compiler import frontend、批量迁移工具或长期
 离线兼容入口。编译器迁移正确性以原生有类型来源模块和集成专用 LIR→current 投影
-验证，精确边界见 `../design/current-package-import.md`。本澄清不改变通用外部来源导入
+验证。该边界只约束 Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1
+这组从未对外发布的仓库内 JSON：不提供其编译器导入前端、批量迁移工具或长期离线
+兼容入口（原 `current-package-import.md` 已随 #1382 退役）。本澄清不改变通用外部来源导入
 前端或规范制品版本迁移能力。
 
 **关联文档**:
@@ -48,8 +50,6 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 - 详细设计:
   - `../design/network-compiler.md`
   - `../design/compiler-foundation.md`
-  - `../design/data-format.md`
-  - `../design/data-loading.md`
   - `../design/spatial-geometry.md`
   - `../design/core-id-handles.md`
   - `../reference/glossary.md`

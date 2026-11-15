@@ -28,7 +28,7 @@
   - `../architecture.md`
   - `../design/network-compiler.md`
   - `../design/shared-static-network.md`
-  - `../design/core-runtime-scalability-audit.md`
+  - `../design/traffic-runtime-scale-decision-baseline.md`
   - `../design/core-runtime-performance-baseline.md`
   - `../design/traffic-runtime-revision-cutover.md`
   - `../design/traffic-runtime-snapshot.md`

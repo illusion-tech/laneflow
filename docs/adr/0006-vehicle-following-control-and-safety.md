@@ -18,7 +18,6 @@
   - `../design/vehicle-following.md`
   - `../design/lane-graph.md`
   - `../design/route-system.md`
-  - `../design/data-format.md`
 
 ## 背景
 

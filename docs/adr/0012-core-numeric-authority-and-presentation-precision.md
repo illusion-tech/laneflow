@@ -19,8 +19,6 @@
 - 详细设计与证据:
   - `0014-residual-aware-f32-core-authority-and-migration-gates.md`
   - `../design/numeric-representation.md`
-  - `../design/core-runtime.md`
-  - `../design/data-format.md`
   - `../roadmap.md`
 
 ## 背景

@@ -16,7 +16,6 @@
   - `0003-runtime-tick-and-determinism.md`
   - `0004-core-implementation-language.md`
 - 相关设计:
-  - `../design/core-runtime.md`
   - `../design/core-id-handles.md`
 
 ## 背景

@@ -17,7 +17,6 @@
   - `../design/cross-section-access.md`
   - `../design/road-junction-model.md`
   - `../design/lane-graph.md`
-  - `../design/data-format.md`
 - GitHub:
   - #227
   - #228

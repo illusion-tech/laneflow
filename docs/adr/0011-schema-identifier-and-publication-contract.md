@@ -16,8 +16,6 @@
   - `0008-pre-1.0-data-format-version-policy.md`
   - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - 详细设计与治理:
-  - `../design/data-format.md`
-  - `../design/data-loading.md`
   - `../governance/documentation-policy.md`
   - `../governance/dependency-security.md`
   - `../../schemas/README.md`

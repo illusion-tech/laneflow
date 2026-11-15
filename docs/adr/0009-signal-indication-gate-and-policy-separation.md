@@ -17,8 +17,6 @@
   - `../design/signal-system.md`
   - `../design/road-junction-model.md`
   - `../design/vehicle-following.md`
-  - `../design/data-format.md`
-  - `../design/data-loading.md`
 
 ## 背景
 

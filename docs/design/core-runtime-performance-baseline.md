@@ -8,8 +8,6 @@ Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，
 **关联文档**:
 
 - [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]
-- [`core-runtime-scalability-audit.md`][scalability-audit]
-- [`core-runtime.md`][core-runtime]
 - [`real-road-workloads.md`][real-road-workloads]
 - [`adapter-api.md`][adapter-api]
 - [`bevy-reference-adapter.md`][bevy-adapter]
@@ -887,8 +885,8 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 
 ## 12. 下游依赖与事实来源
 
-- `core-runtime-scalability-audit.md`（Retired）指向 #199、#204、#207、#210、#212 的
-  历史研究证据、no-regret constraints 与架构候选（正文在 git 历史）；本文保存当前产品
+- 已退役 scalability audit（#199/#204/#207/#210/#212 的历史研究证据与架构候选，
+  正文在 git 历史）由[决策基线][scale-baseline]承接；本文保存当前产品
   target/measurement contract。历史数字不能替代本文要求的 integrated certification。
 - #216、#217、#219、#220 已完成，#218 已按 Not planned 关闭；城市规模扩展的后续
   方向与启动条件见[决策基线][scale-baseline]。
@@ -936,8 +934,6 @@ aggregate、public World/shard 或 snapshot contract。
 暂停当前任务并建立新的设计输入。
 
 [scale-baseline]: traffic-runtime-scale-decision-baseline.md
-[scalability-audit]: core-runtime-scalability-audit.md
-[core-runtime]: core-runtime.md
 [real-road-workloads]: real-road-workloads.md
 [adapter-api]: adapter-api.md
 [bevy-adapter]: bevy-reference-adapter.md

@@ -15,7 +15,6 @@
 - 相关设计:
   - `../design/traffic-runtime-shared-consumption.md`
   - `../design/traffic-runtime-integer-geometry.md`
-  - `../design/core-runtime.md`（Retired）
 
 ## 背景
 
