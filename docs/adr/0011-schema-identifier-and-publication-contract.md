@@ -3,11 +3,10 @@
 **状态**: Superseded（被 [ADR 0026][adr-0026] 取代）
 **日期**: 2026-07-17
 **适用范围**: 历史记录：LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；current JSON loader 已随 #301 从运行入口拆除。
-**目标态取代登记**: Accepted ADR 0020 将把发布目录从仅描述 JSON Schema 系列扩展
-为同时描述可移植规范制品与历史静态镜像变体；Accepted ADR 0025 / #300 G1 已决定不发布静态
-镜像变体。Accepted ADR 0024 已取消 #299 的验证收据，
-并把规范发布描述符收缩为不含 receipt 的 LFCP v2。LFCP v1 只保留为 #298 已实现的
-历史契约。不可变发布、规范 URL、来源链和运行时不联网继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
+**目标态取代登记**: 本文的公共发布义务已被 ADR 0026 取代（schema publication
+退役）。现行静态数据契约是可移植规范制品（LFCA / LFSM / LFSD / LFCP v2，ADR
+0024）；验证收据已取消。不可变发布、规范 URL、来源链和运行时不联网的原则仍
+有效。本文 current 契约已随 #301 退出生产路径，只保留历史语义。
 
 **关联文档**:
 
@@ -71,28 +70,12 @@ Pages 同时提供全部 published versions 的副本和 machine-readable catalo
 
 新 schema family 或新 version 采用两阶段交付：第一阶段把 current source、loader、fixture 与 contract tests 合入 `main`，catalog 可以保留空的 `publishedSchemas`；第二阶段从已存在的 `main` commit 固定 source revision/blob，再把它加入 published set 并部署。这样 source 可在 PR 中完整评审，同时 rebase 不会使 provenance hash 漂移，也不会在部署前误宣称 public retrieval 已完成。一个格式只有在 canonical URL 部署成功并通过 live monitor 后才算完成 public publication。
 
-### 5. GitHub Pages 使用官方 Actions 发布路径
+### 5–6. 历史发布机制（已退役）
 
-GitHub Pages 配置为 `build_type=workflow` 且强制 HTTPS。部署 workflow：
-
-- 只从 `main` push 或以 `main` 为 ref 的人工 dispatch 发布；其他 ref 只能构建 artifact，不能部署；
-- 使用官方 `configure-pages`、`upload-pages-artifact` 和 `deploy-pages` actions，并固定完整 commit SHA；
-- 使用 `github-pages` environment、`pages: write`、`id-token: write` 与单并发 deployment；
-- 从 validated publication catalog 构建 `_site/schema/`，不手写第二套页面内容；
-- deployment 完成后重新读取 canonical URLs 并验证内容。
-
-### 6. CI 与定时监测
-
-PR/main CI 运行：
-
-```powershell
-cargo +1.99.1 run --locked -p xtask -- check-schema-publication-contract
-cargo +1.99.1 run --locked -p xtask -- build-schema-publication target/schema-publication-site
-```
-
-检查覆盖 multi-family catalog shape、current source 文件、published version 顺序、文件名、`$schema`、`$id`、source revision/blob OID、working-tree/source byte equality、runtime source 无 canonical URL 硬编码，以及 Pages artifact 只包含 published set。
-
-每日 scheduled monitor 对 catalog 的全部 canonical URLs 检查 HTTPS、最终 HTTP 200、兼容 media type、合法 JSON 与 byte equality。失败日志必须列出 URL、HTTP/media type、期望/实际 content digest 和重新部署命令。404、网络错误、内容漂移或解析失败都不是“零问题”。
+GitHub Pages 官方 Actions 部署路径、PR/main CI 的 publication contract 检查命令与
+每日 scheduled monitor 的原始操作要求已随 ADR 0026 的 schema publication 退役，不再
+是现行指令；操作细节见基线提交 3f80b65f 的本文副本。运行时不联网解析 `$id` /
+`$schema`、不把外部发布可用性作为运行前置的边界继续有效（见第 7 节）。
 
 ### 7. Runtime 与安全边界不增加网络依赖
 
