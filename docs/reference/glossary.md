@@ -179,7 +179,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 编辑器编制界面          | editor authoring surface                                  | —                                         | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                                                                                                |
 | 交换格式                | interchange format                                        | —                                         | 可由独立工具跨进程或跨语言读写、具有显式版本与兼容规则的序列化数据契约。                                                                                                                          |
 | 来源位置                | source location                                           | `SourceLocation`                          | 诊断和源映射使用的闭合和类型；文本来源使用真实 `SourceSpan` 行列，道路编辑来源使用稳定实体/owner-local subject、schema property 与可选画布选区，只有结构损坏可使用 byte range。                   |
-| 道路编辑来源差异        | road-editing source diff                                  | `RoadEditingSourceDiff`                   | C 阶段后继 [#345][issue-345]，比较稳定道路编辑实体、属性和 authoring-only 改动；#296 A 只提供所需稳定位置，不实现该差异引擎。                          |
+| 道路编辑来源差异        | road-editing source diff                                  | `RoadEditingSourceDiff`                   | C 阶段后继 [#345][issue-345]，比较稳定道路编辑实体、属性和 authoring-only 改动；#296 A 只提供所需稳定位置，不实现该差异引擎。                                                                     |
 | 来源链                  | provenance                                                | —                                         | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                                                                                                |
 | 降阶                    | lowering                                                  | —                                         | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                                                                                                                  |
 | 有类型抽象语法树        | typed abstract syntax tree                                | typed AST                                 | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。准入后交通一维不再把编制 `f64` 米当存储正本。                                                                                             |
@@ -222,7 +222,7 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 编译器压力规模          | compiler stress scale                                     | —                                         | 目标态已接受（#292 G1；#308 研究证据只在 git 历史），放大编制/中间表示对象、用于暴露资源增长和失败边界的合成规模；不构成产品 SLA。                                                                |
 | 编译器控制总存续内存    | compiler-controlled total live memory                     | —                                         | 目标态已接受（#292 G1；#308 研究证据只在 git 历史），编译请求同时拥有的来源、各阶段记录、字符串、诊断、暂存区和输出构造的存续请求字节总量；不等于进程工作集。                                     |
 | 当前核心对象图          | current Core object graph                                 | —                                         | 已拆除的 `laneflow-core` 对象/句柄/登记表构造；不是编译器中间表示，也不再作为可运行世界。                                                                                                         |
-| 当前空间会话            | current Spatial session                                   | `SpatialSession`                          | 绑定 `SharedNetworkRevision` 的规范几何采样对象。静态几何在 `SharedSpatialNetwork`；已拆除的独立 `SpatialRegistry` 不是编译器中间表示。                                             |
+| 当前空间会话            | current Spatial session                                   | `SpatialSession`                          | 绑定 `SharedNetworkRevision` 的规范几何采样对象。静态几何在 `SharedSpatialNetwork`；已拆除的独立 `SpatialRegistry` 不是编译器中间表示。                                                           |
 
 ## 4. 标识、引用与数据布局
 
@@ -683,15 +683,16 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 下列用词明确泛称“封套”的实际对象。源映射封套、语义差异封套、验证收据封套及上下文
 明确指代它们的简称继续使用原登记名称；记录的校验、比较和可信边界仍以对应设计为准。
 
-| 中文规范术语 | 英文辅助名               | 中文规范含义                                                                                                                             |
-| ------------ | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 测量记录     | measurement record       | harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、来源、运行配置与样本；不因记录存在就证明达到产品预算。                    |
-| 诊断记录     | diagnostic record        | harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、计时等运行信息；其文件摘要独立核对，和测量记录的交叉检查按现有合同执行。 |
-| 逐拍计时日志 | per-tick timing log      | harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在性、摘要和计时一致性仍须校验，非确定性耗时不参与跨运行语义相等比较。        |
-| 文件摘要清单 | file digest manifest     | `result.files` 中文件名到摘要的映射，用于核对同一次运行的文件完整性；摘要和文件在同一可写目录，不提供执行或来源真实性证明。              |
-| 运行记录     | run records              | 单次运行产生的回执、测量记录、诊断记录、日志等信息的统称；具体校验和比较须说明文件及字段，不默认所有记录均参与语义相等比较。             |
-| 包装类型     | wrapper type             | 在类型层面包裹已有值的类型，如按值持有 `Vec` 的批次类型；不据此推定存在文件格式或版本化制品。                                            |
-| 外层编码结构 | outer encoding structure | 在被描述的内容之外添加层级或组帧信息的编码结构；例如限定 Bytes 只包含 RowV1 时，被排除的 TableV1 或其他外层结构。                        |
+| 中文规范术语 | 英文辅助名               | 中文规范含义                                                                                                                                                            |
+| ------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 测量记录     | measurement record       | harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、来源、运行配置与样本；不因记录存在就证明达到产品预算。                                                   |
+| 诊断记录     | diagnostic record        | harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、计时等运行信息；其文件摘要独立核对，和测量记录的交叉检查按现有合同执行。                                |
+| 逐拍计时日志 | per-tick timing log      | harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在性、摘要和计时一致性仍须校验，非确定性耗时不参与跨运行语义相等比较。                                       |
+| 文件摘要清单 | file digest manifest     | `result.files` 中文件名到摘要的映射，用于核对同一次运行的文件完整性；摘要和文件在同一可写目录，不提供执行或来源真实性证明。                                             |
+| 环境记录     | environment record       | harness 在测量前后各采集一次的本机环境、工具链、源码状态、执行者必填字段、机器指纹与进程快照，格式与一致性规则见 `host-observe.md` §3；不替代测量记录中的构建协议字段。 |
+| 运行记录     | run records              | 单次运行产生的回执、测量记录、诊断记录、日志等信息的统称；具体校验和比较须说明文件及字段，不默认所有记录均参与语义相等比较。                                            |
+| 包装类型     | wrapper type             | 在类型层面包裹已有值的类型，如按值持有 `Vec` 的批次类型；不据此推定存在文件格式或版本化制品。                                                                           |
+| 外层编码结构 | outer encoding structure | 在被描述的内容之外添加层级或组帧信息的编码结构；例如限定 Bytes 只包含 RowV1 时，被排除的 TableV1 或其他外层结构。                                                       |
 
 ## 8. 静态路网领域标识符
 
