@@ -10,6 +10,7 @@ mod child_diagnostics_tests;
 mod digest;
 #[cfg(test)]
 mod editable_load_evidence;
+mod environment;
 #[cfg(feature = "adapter")]
 mod evidence;
 #[cfg(feature = "execution-evidence")]

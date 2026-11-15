@@ -7,6 +7,7 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use laneflow_host_observe::environment::{EnvironmentRecord, Phase};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -25,8 +26,17 @@ mod timing;
 // 构建 flag 经编译期环境变量嵌入（wire 审计禁止 harness 携带 build.rs）：xtask
 // 按同一映射表写出实际 CARGO_ENCODED_RUSTFLAGS 与归一化（占位符）记录
 // 各一份，测量 provenance 逐项校验；后者永不携带本机路径。
-const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v5";
+// v6 起环境字段取自 host-observe 环境记录（#1392）：硬件角色与厂商性能模式由
+// 执行者输入文件提供，电源状态、指纹与 OS build 自动采集；两份环境记录列入
+// 文件摘要清单，读取时核对其与测量来源一致。
+const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v6";
 const BUILD_PARAMETERS: &str = "cargo +1.99.1 run --locked -p xtask -- build-measurement";
+/// 正式运行逐次独立校验、不参与跨运行语义比较的记录文件。
+const PERFORMANCE_RECORD_FILES: [&str; 3] = [
+    "measurements.toml",
+    crate::environment::BEFORE,
+    crate::environment::AFTER,
+];
 const BUILD_RUSTFLAGS: &str = match option_env!("LANEFLOW_MEASUREMENT_RUSTFLAGS") {
     Some(value) => value,
     None => "",
@@ -235,10 +245,12 @@ pub(crate) fn valid_workers(workers: u32) -> bool {
     (1..=MAX_WORKERS).contains(&workers)
 }
 
+/// 测量来源：构建协议字段由本 harness 固定并核对；环境字段取自测量前环境记录
+/// （host-observe.md §3），两份记录作为独立文件列入文件摘要清单。三轮与跨 worker
+/// 对照要求本结构全等，因此只含同一机器与配置下稳定的字段。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct MeasurementProvenance {
     git_commit: String,
-    git_status: String,
     rustc: String,
     cargo: String,
     target: String,
@@ -247,68 +259,62 @@ struct MeasurementProvenance {
     build_profile: String,
     build_commit: String,
     os: String,
+    os_build: String,
     architecture: String,
     hardware_role: String,
-    power_role: String,
+    vendor_performance_mode: String,
+    power_source: String,
+    power_plan: String,
+    machine_fingerprint: String,
     workers: u32,
     timing_range: String,
 }
 
 impl MeasurementProvenance {
-    fn capture(hardware_role: String, power_role: String, workers: u32) -> Result<Self> {
-        let read = |program, args: &[&str]| {
-            command_output(program, args)
-                .ok_or_else(|| invalid(format!("unavailable provenance: {program}")))
-        };
-        let rustc = read("rustc", &["+1.99.1", "-Vv"])?;
-        let target = rustc
-            .lines()
-            .find_map(|line| line.strip_prefix("host: "))
-            .ok_or_else(|| invalid("unavailable target provenance"))?
-            .to_owned();
-        // git 读取先解析 checkout，再锚定到该目录：从别的目录启动时来源核对
-        // 不能读到别的仓库。首个 rev-parse 只能由进程 cwd 解析，这是入口语义。
-        let checkout = read("git", &["rev-parse", "--show-toplevel"])?;
-        let read_git = |args: &[&str]| {
-            // --work-tree 压住仓库本地 config 的 core.worktree：读取锚定到该 checkout。
-            command_output_at(
-                "git",
-                &[["--work-tree", checkout.as_str()].as_slice(), args].concat(),
-                Some(Path::new(&checkout)),
-            )
-            .ok_or_else(|| invalid("unavailable provenance: git"))
-        };
-        let git_status = read_git(&["status", "--porcelain", "--untracked-files=all"])?;
-        // skip-worktree/assume-unchanged 索引位让被改的 tracked 文件在 status
-        // 里隐身：小写标签或 S 即拒绝。
-        let ls_files = read_git(&["ls-files", "-v"])?;
-        if ls_files
-            .lines()
-            .any(|line| line.starts_with(|c: char| c.is_ascii_lowercase()) || line.starts_with('S'))
-        {
-            return Err(invalid(
-                "checkout has skip-worktree/assume-unchanged entries; cleanliness is not attestable",
-            ));
-        }
-        let provenance = Self {
-            git_commit: read_git(&["rev-parse", "HEAD"])?,
-            git_status,
-            rustc,
-            cargo: read("cargo", &["+1.99.1", "-V"])?,
-            target,
+    /// 读取执行者输入，采集并核对测量前环境记录，据此构造来源。
+    fn capture(workers: u32) -> Result<(Self, EnvironmentRecord)> {
+        let manual = crate::environment::manual()?;
+        let (record, repository) = crate::environment::collect(Phase::Before, &manual)?;
+        crate::environment::require_ready(&record, &repository)?;
+        let provenance = Self::from_record(&record, workers)?;
+        provenance.validate()?;
+        Ok((provenance, record))
+    }
+
+    /// 由环境记录与本 harness 的构建协议常量构造来源。
+    fn from_record(record: &EnvironmentRecord, workers: u32) -> Result<Self> {
+        use crate::environment::{fingerprint, power_plan, power_source, text};
+        let toolchain = record
+            .toolchain
+            .value()
+            .ok_or_else(|| invalid("unavailable toolchain in environment record"))?;
+        let source = record
+            .source
+            .value()
+            .ok_or_else(|| invalid("unavailable source state in environment record"))?;
+        Ok(Self {
+            git_commit: source.commit.clone(),
+            rustc: toolchain.rustc_vv.clone(),
+            cargo: toolchain.cargo_version.clone(),
+            target: toolchain.host_target.clone(),
             build_parameters: BUILD_PARAMETERS.into(),
             build_rustflags: BUILD_RUSTFLAGS.into(),
             build_profile: BUILD_PROFILE.into(),
             build_commit: BUILD_SOURCE_COMMIT.into(),
-            os: std::env::consts::OS.into(),
-            architecture: std::env::consts::ARCH.into(),
-            hardware_role,
-            power_role,
+            os: text(&record.os.long_version),
+            os_build: text(&record.os.kernel),
+            architecture: record.os.architecture.clone(),
+            hardware_role: serde_json::to_value(record.manual.hardware_role)?
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            vendor_performance_mode: record.manual.vendor_performance_mode.clone(),
+            power_source: power_source(record),
+            power_plan: power_plan(record),
+            machine_fingerprint: fingerprint(record),
             workers,
             timing_range: TIMING_RANGE.into(),
-        };
-        provenance.validate()?;
-        Ok(provenance)
+        })
     }
 
     fn validate(&self) -> Result<()> {
@@ -324,15 +330,23 @@ impl MeasurementProvenance {
             &self.os,
             &self.architecture,
             &self.hardware_role,
-            &self.power_role,
+            &self.vendor_performance_mode,
             &self.timing_range,
         ] {
             if value.trim().is_empty() || value.trim().eq_ignore_ascii_case("unavailable") {
                 return Err(invalid("missing or unavailable performance provenance"));
             }
         }
-        if !self.git_status.is_empty() {
-            return Err(invalid("formal performance requires a clean checkout"));
+        // 平台可能不提供的环境字段允许为 unavailable，但不得为空。
+        for value in [
+            &self.os_build,
+            &self.power_source,
+            &self.power_plan,
+            &self.machine_fingerprint,
+        ] {
+            if value.trim().is_empty() {
+                return Err(invalid("missing performance environment provenance"));
+            }
         }
         if self.git_commit.len() != 40
             || !self.git_commit.bytes().all(|b| b.is_ascii_hexdigit())
@@ -356,6 +370,45 @@ impl MeasurementProvenance {
         }
         Ok(())
     }
+}
+
+/// 核对正式运行目录中的两份环境记录：格式与版本有效、阶段为前后、测量前记录的
+/// 工作树干净、§3.5 字段前后一致，且由测量前记录构造的来源与测量记录全等。
+fn verify_environment_records(directory: &Path, provenance: &MeasurementProvenance) -> Result<()> {
+    let read = |name: &str| -> Result<EnvironmentRecord> {
+        EnvironmentRecord::from_json(&fs::read(directory.join(name))?)
+            .map_err(|error| invalid(format!("{name}: {error}")))
+    };
+    let before = read(crate::environment::BEFORE)?;
+    let after = read(crate::environment::AFTER)?;
+    if !before.source.value().is_some_and(|source| source.clean) {
+        return Err(invalid(
+            "performance environment record does not attest a clean checkout",
+        ));
+    }
+    let differences = before.differences(&after);
+    if !differences.is_empty() {
+        return Err(invalid(format!(
+            "performance environment changed during the run: {}",
+            differences.join(", ")
+        )));
+    }
+    // 构建协议字段由 validate 对照本 harness 的固定值核对；这里只比较环境字段。
+    let mut expected = MeasurementProvenance::from_record(&before, provenance.workers)?;
+    expected
+        .build_parameters
+        .clone_from(&provenance.build_parameters);
+    expected
+        .build_rustflags
+        .clone_from(&provenance.build_rustflags);
+    expected.build_profile.clone_from(&provenance.build_profile);
+    expected.build_commit.clone_from(&provenance.build_commit);
+    if expected != *provenance {
+        return Err(invalid(
+            "performance provenance differs from the environment record",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -509,10 +562,6 @@ pub fn run_with_options(
             .ok_or_else(|| invalid("unavailable checkout for performance output validation"))?;
         validate_performance_output(&std::path::absolute(output)?, Path::new(&checkout))?;
         Some(MeasurementProvenance::capture(
-            std::env::var("LANEFLOW_HARDWARE_ROLE")
-                .map_err(|_| invalid("performance requires LANEFLOW_HARDWARE_ROLE"))?,
-            std::env::var("LANEFLOW_POWER_ROLE")
-                .map_err(|_| invalid("performance requires LANEFLOW_POWER_ROLE"))?,
             execution.worker_count().get(),
         )?)
     } else {
@@ -718,20 +767,31 @@ pub fn run_with_options(
             after_step: sample_summary(&mut active_samples.clone())?,
         });
     }
-    if let Some(provenance) = &performance_context
+    // 测量后环境记录：§3.5 字段与测量前不一致时，本轮不得作为正式结果。
+    let mut environment_after = None;
+    if let Some((_, before)) = &performance_context
         && result.error.is_none()
-        && MeasurementProvenance::capture(
-            provenance.hardware_role.clone(),
-            provenance.power_role.clone(),
-            provenance.workers,
-        )
-        .as_ref()
-        .ok()
-            != Some(provenance)
     {
-        result.status = "failed".into();
-        result.error =
-            Some("performance provenance changed or became unavailable during the run".into());
+        match crate::environment::collect(Phase::After, &before.manual) {
+            Ok((after, _)) => {
+                let differences = before.differences(&after);
+                if differences.is_empty() {
+                    environment_after = Some(after);
+                } else {
+                    result.status = "failed".into();
+                    result.error = Some(format!(
+                        "performance environment changed during the run: {}",
+                        differences.join(", ")
+                    ));
+                }
+            }
+            Err(error) => {
+                result.status = "failed".into();
+                result.error = Some(format!(
+                    "performance environment became unavailable during the run: {error}"
+                ));
+            }
+        }
     }
     // Keep committed observations from a failed advance visible, without marking that tick passed.
     if result.error.is_some() {
@@ -763,7 +823,8 @@ pub fn run_with_options(
     result.removals = harness.removals;
     result.committed_world_tick = harness.world.tick_index();
     result.files.insert("resolved-plan.toml".into(), plan_file);
-    if let Some(provenance) = performance_context
+    if let Some((provenance, before)) = performance_context
+        && let Some(after) = environment_after
         && result.error.is_none()
     {
         let measured_steps = times
@@ -802,6 +863,13 @@ pub fn run_with_options(
             toml::to_string_pretty(&measurements)?.as_bytes(),
         )?;
         result.files.insert("measurements.toml".into(), digest);
+        for (name, record) in [
+            (crate::environment::BEFORE, &before),
+            (crate::environment::AFTER, &after),
+        ] {
+            let digest = crate::written::write_verified(&output.join(name), &record.to_json())?;
+            result.files.insert(name.into(), digest);
+        }
     }
     if result.error.is_none()
         && formal
@@ -1089,8 +1157,8 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
         timing::FILE_NAME,
     ];
     if performance {
-        // 正式运行的测量记录同样纳入本次运行的文件摘要自校验。
-        expected_files.push("measurements.toml");
+        // 正式运行的测量记录与两份环境记录同样纳入本次运行的文件摘要自校验。
+        expected_files.extend(PERFORMANCE_RECORD_FILES);
     }
     for name in expected_files {
         let Some(expected) = result.files.get(name) else {
@@ -1140,6 +1208,7 @@ fn read_run(dir: &Path) -> Result<ReadRun> {
             return Err(invalid("performance execution identity differs"));
         }
         measurement.provenance.validate()?;
+        verify_environment_records(dir, &measurement.provenance)?;
         for samples in [
             &measurement.command_samples_ns,
             &measurement.traffic_world_step_samples_ns,
@@ -1277,7 +1346,7 @@ fn compare_complete(
             ));
         }
     }
-    // 语义比较排除已逐次运行独立验证的测量记录文件 measurements.toml
+    // 语义比较排除已逐次运行独立验证的测量记录文件 measurements.toml、两份环境记录
     // 与诊断记录文件 diagnostics.json（计时、执行编号、workers 的载体；
     // 其摘要已在逐次运行的 files 校验中与各次运行自身内容绑定）。probe/correctness
     // 运行无 measurements.toml，移除为空操作；其余字段（含检查点、角色见证、
@@ -1286,7 +1355,9 @@ fn compare_complete(
     // 不改变语义（正式运行只有非 performance 计划可以带存档）。
     let semantic = |run: &RunResult| {
         let mut run = run.clone();
-        run.files.remove("measurements.toml");
+        for name in PERFORMANCE_RECORD_FILES {
+            run.files.remove(name);
+        }
         run.files.remove("diagnostics.json");
         run.files.remove(timing::FILE_NAME);
         run.saves.clear();
@@ -1505,6 +1576,8 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             "commands.jsonl",
             "events.jsonl",
             "measurements.toml",
+            crate::environment::BEFORE,
+            crate::environment::AFTER,
             "diagnostics.json",
             timing::FILE_NAME,
         ] {
@@ -1554,6 +1627,7 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
             ));
         }
         measurement.provenance.validate()?;
+        verify_environment_records(directory, &measurement.provenance)?;
         // 与 compare_runs 同款交叉核对：diagnostics 与 measurements 的
         // worker 记录矛盾即拒绝（即使各摘要已一致重算）。
         if read_diagnostics_workers(directory)? != measurement.provenance.workers {
@@ -1597,7 +1671,9 @@ pub fn compare_performance_runs(directories: [&Path; 3]) -> Result<PerformanceCo
         identity.get_or_insert(current);
         // 测量记录、诊断记录与逐拍计时日志均已核对各轮自身摘要，其余语义轨迹完整比较。
         let mut semantic = result.clone();
-        semantic.files.remove("measurements.toml");
+        for name in PERFORMANCE_RECORD_FILES {
+            semantic.files.remove(name);
+        }
         semantic.files.remove("diagnostics.json");
         semantic.files.remove(timing::FILE_NAME);
         if semantic_result
@@ -1863,13 +1939,16 @@ mod tests {
     pub(super) fn measurement_fixture() -> serde_json::Value {
         json!({
             "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
-            "git_commit":"a".repeat(40), "git_status":"",
+            "git_commit":"a".repeat(40),
             "rustc":"rustc 1.99.1 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 23.1.1",
             "cargo":"cargo 1.99.1 (fixture)", "target":"x86_64-pc-windows-msvc",
-            "build_parameters":BUILD_PARAMETERS, "os":"windows", "architecture":"x86_64",
+            "build_parameters":BUILD_PARAMETERS, "os":"Windows 11 Pro", "os_build":"29704",
+            "architecture":"x86_64",
             "build_rustflags":EXPECTED_BUILD_RUSTFLAGS, "build_profile":EXPECTED_BUILD_PROFILE,
             "build_commit":"a".repeat(40),
-            "hardware_role":"fixture-machine", "power_role":"balanced", "workers":1,
+            "hardware_role":"uncertified", "vendor_performance_mode":"无厂商性能模式",
+            "power_source":"ac", "power_plan":"381b4222-f694-41f0-9685-ff5bb260df2e",
+            "machine_fingerprint":"e".repeat(64), "workers":1,
             "timing_range":TIMING_RANGE,
             "command_samples_ns":[1,2], "traffic_world_step_samples_ns":[3,4],
             "observation_samples_ns":[5,6], "active_samples":[1,1], "intent_samples":[1,1]
@@ -2122,6 +2201,16 @@ mod tests {
         .unwrap();
         fs::write(directory.join("commands.jsonl"), "").unwrap();
         fs::write(directory.join("events.jsonl"), "").unwrap();
+        for (name, phase) in [
+            (crate::environment::BEFORE, Phase::Before),
+            (crate::environment::AFTER, Phase::After),
+        ] {
+            fs::write(
+                directory.join(name),
+                environment_fixture(&measurement, phase).to_json(),
+            )
+            .unwrap();
+        }
         let samples = |field: &str| -> Vec<u64> {
             serde_json::from_value(measurement[field].clone()).unwrap_or_default()
         };
@@ -2175,6 +2264,8 @@ mod tests {
             "commands.jsonl",
             "events.jsonl",
             "measurements.toml",
+            crate::environment::BEFORE,
+            crate::environment::AFTER,
             "diagnostics.json",
             timing::FILE_NAME,
         ]
@@ -2182,6 +2273,109 @@ mod tests {
         .map(|name| (name.into(), digest_file(&directory.join(name)).unwrap()))
         .collect();
         write_json(&directory.join("result.json"), &round_result(files)).unwrap();
+    }
+
+    /// 与测量记录来源字段一一对应的环境记录：`from_record` 由它构造出同一来源。
+    pub(super) fn environment_fixture(
+        measurement: &serde_json::Value,
+        phase: Phase,
+    ) -> EnvironmentRecord {
+        use laneflow_host_observe::{
+            Field,
+            environment::{
+                Collection, Cpu, Fingerprint, Firmware, HardwareRole, ManualFields, Memory, Os,
+                Power, PowerPlan, Source, Toolchain,
+            },
+            snapshot::ProcessSnapshot,
+        };
+        let text = |key: &str| measurement[key].as_str().unwrap_or_default().to_owned();
+        let field = |key: &str| {
+            let value = text(key);
+            if value == "unavailable" {
+                Field::Unavailable("fixture".into())
+            } else {
+                Field::Value(value)
+            }
+        };
+        EnvironmentRecord {
+            format: laneflow_host_observe::environment::FORMAT.into(),
+            version: laneflow_host_observe::environment::VERSION,
+            collection: Collection {
+                recorded_at: "2026-11-16T00:00:00.000Z".into(),
+                phase,
+                collector_version: "0.0.0".into(),
+            },
+            os: Os {
+                name: Field::Value("Windows".into()),
+                version: Field::Value("11".into()),
+                long_version: field("os"),
+                kernel: field("os_build"),
+                architecture: text("architecture"),
+            },
+            cpu: Cpu {
+                model: Field::Value("fixture".into()),
+                physical_cores: Field::Value(16),
+                logical_processors: Field::Value(32),
+            },
+            memory: Memory {
+                physical_bytes: Field::Value(1 << 30),
+            },
+            power: Power {
+                ac_online: match text("power_source").as_str() {
+                    "ac" => Field::Value(true),
+                    "battery" => Field::Value(false),
+                    _ => Field::Unavailable("fixture".into()),
+                },
+                battery_present: Field::Value(false),
+                battery_percent: Field::Unavailable("fixture".into()),
+                windows_power_plan: match text("power_plan").as_str() {
+                    "unavailable" => Field::Unavailable("fixture".into()),
+                    guid => Field::Value(PowerPlan {
+                        guid: guid.into(),
+                        name: Field::Value("Balanced".into()),
+                    }),
+                },
+                linux_cpufreq_governors: Field::Unavailable("fixture".into()),
+                linux_platform_profile: Field::Unavailable("fixture".into()),
+            },
+            firmware: Firmware {
+                bios_vendor: Field::Value("fixture".into()),
+                bios_version: Field::Value("1".into()),
+                bios_date: Field::Value("01/01/2025".into()),
+            },
+            toolchain: Field::Value(Toolchain {
+                selector: Some("1.99.1".into()),
+                rustc_vv: text("rustc"),
+                cargo_version: text("cargo"),
+                host_target: text("target"),
+            }),
+            source: Field::Value(Source {
+                commit: text("git_commit"),
+                tree: "b".repeat(40),
+                clean: true,
+            }),
+            fingerprint: match text("machine_fingerprint").as_str() {
+                "unavailable" => Field::Unavailable("fixture".into()),
+                sha256 => Field::Value(Fingerprint {
+                    scheme: laneflow_host_observe::environment::FINGERPRINT_SCHEME.into(),
+                    sha256: sha256.into(),
+                }),
+            },
+            manual: ManualFields {
+                vendor_performance_mode: match text("vendor_performance_mode").trim() {
+                    "" | "unavailable" => "fixture".into(),
+                    value => value.into(),
+                },
+                hardware_role: serde_json::from_value(measurement["hardware_role"].clone())
+                    .unwrap_or(HardwareRole::Uncertified),
+            },
+            processes: ProcessSnapshot {
+                captured_at: "2026-11-16T00:00:01.000Z".into(),
+                interval_ms: 1000,
+                cpu_time_unit: "ms".into(),
+                processes: Vec::new(),
+            },
+        }
     }
 
     pub(super) fn round_result(files: BTreeMap<String, crate::digest::FileDigest>) -> RunResult {
@@ -2386,6 +2580,68 @@ mod tests {
         );
     }
 
+    /// #1392：正式运行的两份环境记录逐次核对；摘要已重算时，拒绝必须来自记录内容：
+    /// 前后不一致、未证明干净检出、阶段错误或与测量来源不符。
+    #[test]
+    fn performance_rounds_require_consistent_environment_records() {
+        use laneflow_host_observe::Field;
+        let temp = tempfile::tempdir().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        for (path, id) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            write_round(path, id, measurement_fixture());
+        }
+        compare_performance_runs([&a, &b, &c]).unwrap();
+        let rewrite = |name: &str, record: &EnvironmentRecord| {
+            fs::write(b.join(name), record.to_json()).unwrap();
+            let mut result: RunResult =
+                serde_json::from_slice(&fs::read(b.join("result.json")).unwrap()).unwrap();
+            result
+                .files
+                .insert(name.into(), digest_file(&b.join(name)).unwrap());
+            write_json(&b.join("result.json"), &result).unwrap();
+        };
+        let fixture = measurement_fixture();
+        let before = environment_fixture(&fixture, Phase::Before);
+        let after = environment_fixture(&fixture, Phase::After);
+        type Tamper = fn(&mut EnvironmentRecord, &mut EnvironmentRecord);
+        let cases: [(&str, Tamper); 4] = [
+            ("changed during the run", |_, after| {
+                after.power.ac_online = Field::Value(false);
+            }),
+            ("clean checkout", |before, after| {
+                for record in [before, after] {
+                    if let Field::Value(source) = &mut record.source {
+                        source.clean = false;
+                    }
+                }
+            }),
+            ("changed during the run", |_, after| {
+                after.collection.phase = Phase::Before;
+            }),
+            ("differs from the environment record", |before, after| {
+                for record in [before, after] {
+                    record.fingerprint = Field::Unavailable("fixture".into());
+                }
+            }),
+        ];
+        for (expected, tamper) in cases {
+            write_round(&b, "b", measurement_fixture());
+            let (mut changed_before, mut changed_after) = (before.clone(), after.clone());
+            tamper(&mut changed_before, &mut changed_after);
+            rewrite(crate::environment::BEFORE, &changed_before);
+            rewrite(crate::environment::AFTER, &changed_after);
+            let error = compare_performance_runs([&a, &b, &c])
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        write_round(&b, "b", measurement_fixture());
+        fs::remove_file(b.join(crate::environment::AFTER)).unwrap();
+        assert!(compare_performance_runs([&a, &b, &c]).is_err());
+    }
+
     #[test]
     fn performance_comparison_rejects_mixed_dirty_missing_and_old_provenance() {
         let temp = tempfile::tempdir().unwrap();
@@ -2400,7 +2656,6 @@ mod tests {
         assert_eq!(result.rounds.len(), 3);
         for (field, value) in [
             ("git_commit", json!("b".repeat(40))),
-            ("git_status", json!(" M source.rs")),
             (
                 "rustc",
                 json!("rustc 1.99.1 (different)\nhost: x86_64-pc-windows-msvc"),
@@ -2414,12 +2669,17 @@ mod tests {
             ),
             ("build_profile", json!("dev;debug-assertions=on")),
             ("os", json!("linux")),
+            ("os_build", json!("1")),
             ("architecture", json!("aarch64")),
-            ("hardware_role", json!("other-machine")),
-            ("power_role", json!("power-saver")),
+            ("hardware_role", json!("R0")),
+            ("vendor_performance_mode", json!("Turbo")),
+            ("power_source", json!("battery")),
+            ("power_plan", json!("a1841308-3541-4fab-bc81-f71556f20b4a")),
+            ("machine_fingerprint", json!("f".repeat(64))),
             ("workers", json!(2)),
             ("timing_range", json!("whole-command-phase")),
             ("build_commit", json!("b".repeat(40))),
+            ("version", json!("urban-performance-measurements-v5")),
             ("version", json!("urban-performance-measurements-v4")),
             ("version", json!("urban-performance-measurements-v3")),
             ("version", json!("urban-performance-measurements-v1")),
@@ -2436,7 +2696,6 @@ mod tests {
         }
         for field in [
             "git_commit",
-            "git_status",
             "rustc",
             "cargo",
             "target",
@@ -2445,9 +2704,13 @@ mod tests {
             "build_profile",
             "build_commit",
             "os",
+            "os_build",
             "architecture",
             "hardware_role",
-            "power_role",
+            "vendor_performance_mode",
+            "power_source",
+            "power_plan",
+            "machine_fingerprint",
             "workers",
             "timing_range",
         ] {
@@ -2461,7 +2724,6 @@ mod tests {
         }
         for field in [
             "git_commit",
-            "git_status",
             "rustc",
             "cargo",
             "target",
@@ -2472,13 +2734,10 @@ mod tests {
             "os",
             "architecture",
             "hardware_role",
-            "power_role",
+            "vendor_performance_mode",
             "timing_range",
         ] {
             for unavailable in ["", "unavailable"] {
-                if field == "git_status" && unavailable.is_empty() {
-                    continue;
-                }
                 let mut changed = measurement_fixture();
                 changed[field] = json!(unavailable);
                 // All three rounds share the invalid value; equality alone must not accept it.

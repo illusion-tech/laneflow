@@ -186,23 +186,37 @@ cargo +1.99.1 run --locked -p xtask -- check-binary-paths <binary>
 target/release-measurement/<triple>/release/laneflow-urban-harness plan <artifact-directory> <plan.toml> --performance
 ```
 
-运行前必须设置 `LANEFLOW_HARDWARE_ROLE` 和 `LANEFLOW_POWER_ROLE`。每轮只统计观察
+运行前必须设置 `LANEFLOW_ENVIRONMENT_INPUT`，指向执行者输入文件（只含环境记录的
+必填字段，格式见 [`laneflow-host-observe`][host-observe-readme]）：
+
+```json
+{ "vendor_performance_mode": "无厂商性能模式", "hardware_role": "uncertified" }
+```
+
+原 `LANEFLOW_HARDWARE_ROLE` 与 `LANEFLOW_POWER_ROLE` 已退役：硬件角色改由输入文件
+提供，电源来源、电源计划、OS build 与机器指纹由环境记录自动采集。`P100` 角色须
+匹配参考机指纹。正式运行在初始化前生成测量前环境记录并核对干净检出，窗口结束后
+生成测量后记录并比较，两份记录写为 `environment-before.json` 与
+`environment-after.json` 并列入 `result.files`。适配器证据入口（`evidence`、`transitions`、
+`gate`、`seams`）的来源记录同样经该变量取得环境摘要。每轮只统计观察
 窗口，分别记录公共生命周期命令调用、`TrafficWorld::step` 和观测开销的 p50/p95/p99/max，实际
 Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。每档仍须按治理
 流程启动三个新进程；单轮文件不代表三轮合并结论或产品预算认证。
 三轮完成后仍通过 `compare` 入口做文件摘要、计划摘要和独立执行编号校验，并精确合并
 三轮保存的观察窗口样本：p50/p95/p99 先逐轮计算，再取三个轮次值的中位数，max 取
 三个轮次的最坏值；不将样本池化后求分位。每轮提交、干净状态、Rust/Cargo/target、构建参数、
-构建期归一化 rustflags、profile 设置与嵌入的构建提交（build_commit）、OS/架构、
-硬件/电源角色、worker 与计时口径必须可用且一致；缺字段、脏工作树、样本数与窗口不符
-均拒绝。正式运行在初始化前和窗口结束后核对来源，变化或无法读取时不产出性能通过包：
+构建期归一化 rustflags、profile 设置与嵌入的构建提交（build_commit）、OS 与 build、
+架构、硬件角色、厂商性能模式、电源来源与计划、机器指纹、worker 与计时口径必须可用
+（平台不提供的环境字段记为 `unavailable`）且一致；缺字段、环境记录未证明干净检出、
+前后环境记录不一致、来源与环境记录不符、样本数与窗口不符均拒绝。环境在窗口期间
+变化或无法读取时不产出性能通过包：
 
 ```text
 target/release-measurement/<triple>/release/laneflow-urban-harness compare <performance-a> <performance-b> <performance-c> <performance-comparison.toml>
 ```
 
-三轮还须保持相同完整语义轨迹：除 `measurements.toml`、`diagnostics.json` 与 `timings.jsonl` 三个
-文件外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。这三个文件
+三轮还须保持相同完整语义轨迹：除 `measurements.toml`、两份环境记录、`diagnostics.json` 与
+`timings.jsonl` 外的结果字段、文件摘要、检查点、角色见证及状态/计数均精确相等。这些文件
 均已逐轮独立校验后才排除（摘要绑定入各轮 `result.files`，worker 计数做
 measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要但彼此轨迹不同，
 仍拒绝合并。运行目录应使用 Git 忽略的 `target/` 或 checkout 外目录；未来输出目录
@@ -213,7 +227,9 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 已验证的共同 worker 数，执行配置可归属；v3 及更早报告不转换），显式记录统计
 合并口径。
 
-当前测量载荷为 `urban-performance-measurements-v5`（v5 起 provenance 记录归一化构建 rustflags、profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
+当前测量载荷为 `urban-performance-measurements-v6`（v6 起环境字段取自 host-observe 环境记录，
+`git_status` 与 `power_role` 移除，新增 `os_build`、`vendor_performance_mode`、`power_source`、
+`power_plan`、`machine_fingerprint`；v5 起 provenance 记录归一化构建 rustflags、profile 设置与构建提交（build_commit），正式二进制限 `xtask build-measurement` 产出；v4 起观察窗口原始样本数组按 tick 顺序保留，v3 为升序；v3 起 workers 合法域为 1..=16；v2 固定单 worker 口径），旧计时载荷拒绝合并，不补写或转换。
 `command_ns` 是该 tick 内六类公共生命周期调用（spawn/despawn/replace/leave/reserve/park）
 的耗时之和，含实际调用后的拒绝，不含调用方延期；无调用时为 0。输入准备、排队、
 完整快照、诊断断言及日志记账均在此计时外。`observation_ns` 累计 step 前的
@@ -424,3 +440,4 @@ target/release/laneflow-urban-harness evidence <artifacts> <frozen-plan.toml> <n
 [pull-614]: https://github.com/illusion-tech/laneflow/pull/614
 [plans-json]: fixtures/v3/plans.json
 [laneflow-urban-generator-readme]: ../laneflow-urban-generator/README.md
+[host-observe-readme]: ../laneflow-host-observe/README.md
