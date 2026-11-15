@@ -148,8 +148,9 @@ G1 已接受 §1/§4 的 W4 两帧方案，以及 §3 的确定性输入与边�
   不改变冻结的 delta 序列。
 - 不使用 WMI、ETW 会话、性能计数器服务或常驻采集进程。这些方式经服务进程转发，
   自身就会产生被测干扰。只使用本进程直接发起的系统调用或 `/proc` 读取。
-- 工作区禁止 `unsafe`。所需系统接口须经依赖策略审查后的安全封装取得；没有可用
-  安全封装的信号如实记为不可用，不为此开 `unsafe` 例外。
+- 工作区禁止 `unsafe`。所需系统接口经 [`os-probe.md`][os-probe] 登记的受审计例外
+  `laneflow-os-probe` 取得，不在 harness 内另开 `unsafe`；该 crate 不提供的信号
+  如实记为不可用。
 - 没有标记不能证明未受扰：内存带宽、SMT 同核争用、降频与温控等干扰不一定体现在
   下列信号中。降频不设标记：Windows 的线程与进程周期计数可能以固定速率计数、不随
   实际频率变化，以周期数除以 CPU 时间得不到实际频率；不经服务进程、可经安全封装
@@ -242,6 +243,7 @@ G1 已接受 §1/§4 的 W4 两帧方案，以及 §3 的确定性输入与边�
 [issue-1165]: https://github.com/illusion-tech/laneflow/issues/1165
 [issue-1273]: https://github.com/illusion-tech/laneflow/issues/1273
 [issue-1388]: https://github.com/illusion-tech/laneflow/issues/1388
+[os-probe]: os-probe.md
 [performance-baseline]: core-runtime-performance-baseline.md
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
 [lf-synth-execution]: lf-synth-execution.md
