@@ -1,7 +1,8 @@
 //! os-probe.md §6：构造后 CPU 时间与进程内存读取不分配堆内存。
 //!
-//! `harness = false`：本文件即独立测试进程的 `main`，没有 libtest 线程与输出
-//! 并发分配，全局计数分配器的区间读数只反映被测读取。
+//! 本测试二进制只含这一个测试，是独立进程：nextest 每个测试一个进程，
+//! `cargo test` 下本进程也没有其他测试并发分配。全局计数分配器的区间读数只
+//! 反映被测读取。
 
 use std::alloc::System;
 
@@ -11,7 +12,8 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
-fn main() {
+#[test]
+fn reads_after_construction_do_not_allocate() {
     let mut probe = Probe::new().expect("构造读取器");
     // 预热一次：首次调用可能触发运行时惰性初始化。
     read_all(&mut probe);
@@ -25,7 +27,6 @@ fn main() {
         (0, 0),
         "构造后读取发生堆分配：{change:?}"
     );
-    println!("read_without_allocation: ok");
 }
 
 fn read_all(probe: &mut Probe) {

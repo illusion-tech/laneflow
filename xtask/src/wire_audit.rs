@@ -83,7 +83,7 @@
 //!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
 //!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。
 //!    laneflow-os-probe 例外：manifest 形状精确匹配（auto* 关闭、唯一登记的
-//!    无 harness 测试 target、cfg(windows) 下钉版 windows-sys 与四个 feature、
+//!    单测试 target、cfg(windows) 下钉版 windows-sys 与四个 feature、
 //!    Linux 下钉版 rustix `param`、唯一 dev 依赖钉版 stats_alloc、无 build 脚本）；
 //!    源文件全集等于登记清单，unsafe 只在 src/windows.rs 且恰为 5 处登记表达式，
 //!    全 crate 禁源码加载、间接、lint 放宽、汇编、自写 FFI 与 transmute；
@@ -698,7 +698,7 @@ fn check_mmap_manifest_hygiene(repository_root: &Path) -> Result<(), String> {
 
 /// os-probe 例外 crate 的 manifest 卫生（os-probe.md §2、§4.3）：顶层段只许
 /// package/lib/test/target/dev-dependencies/lints；auto* 关闭、无 build 键；
-/// [lib] 固定 src/lib.rs；唯一测试 target 为登记的无 harness 文件；无
+/// [lib] 固定 src/lib.rs；唯一测试 target 为登记文件；无
 /// [dependencies] 与 [build-dependencies]；[target] 恰为 cfg(windows) 下钉版
 /// windows-sys（四个 feature）与 Linux 下钉版 rustix `param`；唯一 dev 依赖为
 /// 钉版 stats_alloc；lint 只许 crate 级 unsafe_code allow 与
@@ -771,15 +771,14 @@ fn require_probe_manifest_hygiene(text: &str, package_root: &Path) -> Result<(),
         .ok_or_else(|| format!("{label} 缺少登记的 [[test]] target"))?;
     let registered_test = tests.len() == 1
         && tests[0].as_table().is_some_and(|test| {
-            test.len() == 3
+            test.len() == 2
                 && test.get("name").and_then(toml::Value::as_str) == Some("read_without_allocation")
                 && test.get("path").and_then(toml::Value::as_str)
                     == Some("tests/read_without_allocation.rs")
-                && test.get("harness").and_then(toml::Value::as_bool) == Some(false)
         });
     if !registered_test {
         return Err(format!(
-            "{label} 的 [[test]] 必须恰为登记的 read_without_allocation（tests/read_without_allocation.rs，harness = false）"
+            "{label} 的 [[test]] 必须恰为登记的 read_without_allocation（tests/read_without_allocation.rs，不得设置 harness 等其他键）"
         ));
     }
     let target = manifest
@@ -906,7 +905,12 @@ fn require_probe_platform_dependency(
 
 /// os-probe.md §2：`crates/` 下 workspace 成员的生产依赖（dependencies、
 /// build-dependencies 及其 target 条件形态）不得引用 os-probe；dev 依赖除外。
+/// 经根 `[workspace.dependencies]` 改名再以 `workspace = true` 继承的形态同样
+/// 拒绝：先解析根 manifest 中指向 os-probe 的全部依赖名。
 fn check_probe_consumers(repository_root: &Path) -> Result<(), String> {
+    let root_manifest = fs::read_to_string(repository_root.join("Cargo.toml"))
+        .map_err(|error| format!("无法读取根 Cargo.toml: {error}"))?;
+    let aliases = probe_workspace_aliases(&root_manifest)?;
     let crates_root = repository_root
         .join("crates")
         .canonicalize()
@@ -920,12 +924,46 @@ fn check_probe_consumers(repository_root: &Path) -> Result<(), String> {
         }
         let text = fs::read_to_string(&manifest)
             .map_err(|error| format!("无法读取 `{}`: {error}", manifest.display()))?;
-        require_no_probe_production_dependency(&text, &manifest.display().to_string())?;
+        require_no_probe_production_dependency(&text, &manifest.display().to_string(), &aliases)?;
     }
     Ok(())
 }
 
-fn require_no_probe_production_dependency(text: &str, label: &str) -> Result<(), String> {
+/// 依赖条目是否直接指向 os-probe：依赖名即包名，或 `package` 改名为包名。
+fn names_probe(key: &str, value: &toml::Value) -> bool {
+    let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
+    let renamed = value
+        .as_table()
+        .and_then(|dependency| dependency.get("package"))
+        .and_then(toml::Value::as_str);
+    key == probe || renamed == Some(probe)
+}
+
+/// 根 manifest `[workspace.dependencies]` 中指向 os-probe 的依赖名集合。
+fn probe_workspace_aliases(root_manifest: &str) -> Result<Vec<String>, String> {
+    let manifest: toml::Table = root_manifest
+        .parse()
+        .map_err(|error| format!("根 Cargo.toml TOML 解析失败: {error}"))?;
+    Ok(manifest
+        .get("workspace")
+        .and_then(toml::Value::as_table)
+        .and_then(|workspace| workspace.get("dependencies"))
+        .and_then(toml::Value::as_table)
+        .map(|dependencies| {
+            dependencies
+                .iter()
+                .filter(|(key, value)| names_probe(key, value))
+                .map(|(key, _)| key.clone())
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn require_no_probe_production_dependency(
+    text: &str,
+    label: &str,
+    workspace_aliases: &[String],
+) -> Result<(), String> {
     let manifest: toml::Table = text
         .parse()
         .map_err(|error| format!("成员 manifest `{label}` TOML 解析失败: {error}"))?;
@@ -947,11 +985,12 @@ fn require_no_probe_production_dependency(text: &str, label: &str) -> Result<(),
     let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
     for table in tables {
         for (key, value) in table {
-            let renamed = value
+            let inherited = value
                 .as_table()
-                .and_then(|dependency| dependency.get("package"))
-                .and_then(toml::Value::as_str);
-            if key == probe || renamed == Some(probe) {
+                .and_then(|dependency| dependency.get("workspace"))
+                .and_then(toml::Value::as_bool)
+                == Some(true);
+            if names_probe(key, value) || (inherited && workspace_aliases.contains(key)) {
                 return Err(format!(
                     "生产 crate `{label}` 不得依赖 `{probe}`（只许 tools/ 下的 crate 依赖或作为 dev-dependency 引用，os-probe.md §2）"
                 ));
@@ -2045,9 +2084,12 @@ mod tests {
             ),
             "dev-dependencies",
         );
-        // 测试 target 打开 harness 或新增 target。
+        // 测试 target 增加 harness 等键或新增 target。
         reject(
-            manifest.replace("harness = false", "harness = true"),
+            manifest.replace(
+                "path = \"tests/read_without_allocation.rs\"",
+                "path = \"tests/read_without_allocation.rs\"\nharness = false",
+            ),
             "[[test]]",
         );
         reject(format!("{manifest}\n[[bin]]\nname = \"x\"\n"), "[bin]");
@@ -2135,16 +2177,41 @@ mod tests {
         let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
         let dev =
             format!("[package]\nname = \"c\"\n[dev-dependencies]\n{probe} = {{ path = \"x\" }}\n");
-        require_no_probe_production_dependency(&dev, "c").unwrap();
+        require_no_probe_production_dependency(&dev, "c", &[]).unwrap();
         for text in [
             format!("[dependencies]\n{probe} = {{ path = \"x\" }}\n"),
             format!("[build-dependencies]\n{probe} = {{ path = \"x\" }}\n"),
             format!("[target.'cfg(windows)'.dependencies]\n{probe} = {{ path = \"x\" }}\n"),
             format!("[dependencies]\nalias = {{ package = \"{probe}\", path = \"x\" }}\n"),
         ] {
-            let error = require_no_probe_production_dependency(&text, "c").unwrap_err();
+            let error = require_no_probe_production_dependency(&text, "c", &[]).unwrap_err();
             assert!(error.contains("不得依赖"), "{error}");
         }
+    }
+
+    #[test]
+    fn probe_consumers_resolve_workspace_dependency_aliases() {
+        let probe = schema_codegen::AUDITED_PROBE_PACKAGE_NAME;
+        let root = format!(
+            "[workspace]\nmembers = []\n[workspace.dependencies]\nalias = {{ package = \"{probe}\", path = \"tools/x\" }}\nserde = \"1\"\n"
+        );
+        let aliases = probe_workspace_aliases(&root).unwrap();
+        assert_eq!(aliases, vec!["alias".to_string()]);
+        for text in [
+            "[dependencies]\nalias.workspace = true\n",
+            "[dependencies]\nalias = { workspace = true }\n",
+            "[target.'cfg(unix)'.build-dependencies]\nalias = { workspace = true, optional = true }\n",
+        ] {
+            let error = require_no_probe_production_dependency(text, "c", &aliases).unwrap_err();
+            assert!(error.contains("不得依赖"), "{text}: {error}");
+        }
+        // 同名但不继承 workspace 的条目、其他继承依赖与 dev 依赖不受影响。
+        require_no_probe_production_dependency(
+            "[dependencies]\nalias = { path = \"x\" }\nserde.workspace = true\n[dev-dependencies]\nalias.workspace = true\n",
+            "c",
+            &aliases,
+        )
+        .unwrap();
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use crate::proc_text::{
-    PidStat, StatCpu, parse_cpu_list_count, parse_pid_stat, parse_schedstat_wait, parse_stat_cpu,
-    parse_status_bytes, ticks_to_ns,
+    PidStat, StatCpu, is_thread_gone, parse_cpu_list_count, parse_pid_stat, parse_schedstat_wait,
+    parse_stat_cpu, parse_status_bytes, ticks_to_ns,
 };
 use crate::{
     PageFaultCounter, PowerStatus, Probe, decode_windows_power, hundred_ns_to_ns,
@@ -12,7 +12,7 @@ use crate::{
 #[test]
 fn stat_cpu_line_parses_fields_and_excludes_guest_from_busy() {
     let text = "cpu  10 20 30 400 50 6 7 8 9 10\ncpu0 1 2 3 4 5 6 7 8 9 10\n";
-    let stat = parse_stat_cpu(text).unwrap();
+    let stat = parse_stat_cpu(text.as_bytes()).unwrap();
     assert_eq!(
         stat,
         StatCpu {
@@ -32,10 +32,10 @@ fn stat_cpu_line_parses_fields_and_excludes_guest_from_busy() {
 
 #[test]
 fn stat_cpu_line_rejects_missing_or_malformed_fields() {
-    assert!(parse_stat_cpu("").is_err());
-    assert!(parse_stat_cpu("cpu0 1 2 3 4 5 6 7 8\n").is_err());
-    assert!(parse_stat_cpu("cpu  1 2 3 4 5 6 7\n").is_err());
-    assert!(parse_stat_cpu("cpu  1 2 x 4 5 6 7 8\n").is_err());
+    assert!(parse_stat_cpu(b"").is_err());
+    assert!(parse_stat_cpu(b"cpu0 1 2 3 4 5 6 7 8\n").is_err());
+    assert!(parse_stat_cpu(b"cpu  1 2 3 4 5 6 7\n").is_err());
+    assert!(parse_stat_cpu(b"cpu  1 2 x 4 5 6 7 8\n").is_err());
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn pid_stat_parses_after_last_parenthesis_even_with_spaces_in_name() {
     // majflt cmajflt utime stime …
     let text = "1234 (a (b) c) S 1 2 3 4 5 6 111 7 222 8 333 444 9 10\n";
     assert_eq!(
-        parse_pid_stat(text).unwrap(),
+        parse_pid_stat(text.as_bytes()).unwrap(),
         PidStat {
             minflt: 111,
             majflt: 222,
@@ -52,50 +52,89 @@ fn pid_stat_parses_after_last_parenthesis_even_with_spaces_in_name() {
             stime: 444,
         }
     );
-    assert!(parse_pid_stat("1234 comm S 1 2").is_err());
-    assert!(parse_pid_stat("1234 (comm) S 1 2 3").is_err());
+    assert!(parse_pid_stat(b"1234 comm S 1 2").is_err());
+    assert!(parse_pid_stat(b"1234 (comm) S 1 2 3").is_err());
 }
 
 #[test]
 fn status_bytes_reads_kib_fields_and_reports_absent_as_none() {
     let text = "Name:\tx\nVmHWM:\t    2048 kB\nVmRSS:\t    1024 kB\nRssAnon:\t512 kB\n";
     assert_eq!(
-        parse_status_bytes(text, "VmRSS").unwrap(),
+        parse_status_bytes(text.as_bytes(), "VmRSS").unwrap(),
         Some(1024 * 1024)
     );
     assert_eq!(
-        parse_status_bytes(text, "VmHWM").unwrap(),
+        parse_status_bytes(text.as_bytes(), "VmHWM").unwrap(),
         Some(2048 * 1024)
     );
     assert_eq!(
-        parse_status_bytes(text, "RssAnon").unwrap(),
+        parse_status_bytes(text.as_bytes(), "RssAnon").unwrap(),
         Some(512 * 1024)
     );
-    assert_eq!(parse_status_bytes(text, "VmSwap").unwrap(), None);
+    assert_eq!(parse_status_bytes(text.as_bytes(), "VmSwap").unwrap(), None);
     // 前缀相同的其他键不误匹配。
     assert_eq!(
-        parse_status_bytes("VmRSSx:\t1 kB\n", "VmRSS").unwrap(),
+        parse_status_bytes(b"VmRSSx:\t1 kB\n", "VmRSS").unwrap(),
         None
     );
-    assert!(parse_status_bytes("VmRSS:\tabc kB\n", "VmRSS").is_err());
-    assert!(parse_status_bytes("VmRSS:\t1 MB\n", "VmRSS").is_err());
+    assert!(parse_status_bytes(b"VmRSS:\tabc kB\n", "VmRSS").is_err());
+    assert!(parse_status_bytes(b"VmRSS:\t1 MB\n", "VmRSS").is_err());
+}
+
+#[test]
+fn proc_parsers_accept_non_utf8_and_truncated_process_names() {
+    // comm 是任意字节序列；内核 15 字节截断还可能切开多字节 UTF-8 字符。
+    let truncated = "x交通运行时线程".as_bytes()[..15].to_vec();
+    assert!(std::str::from_utf8(&truncated).is_err());
+    for name in [vec![0xff, 0xfe, b')', b' '], truncated] {
+        let mut stat = b"1234 (".to_vec();
+        stat.extend_from_slice(&name);
+        stat.extend_from_slice(
+            b") S 1 2 3 4 5 6 111 7 222 8 333 444 9 10
+",
+        );
+        assert_eq!(parse_pid_stat(&stat).unwrap().utime, 333);
+        let mut status = b"Name:	".to_vec();
+        status.extend_from_slice(&name);
+        status.extend_from_slice(
+            b"
+VmRSS:	   8 kB
+",
+        );
+        assert_eq!(
+            parse_status_bytes(&status, "VmRSS").unwrap(),
+            Some(8 * 1024)
+        );
+    }
+}
+
+#[test]
+fn thread_disappearance_covers_enoent_and_esrch_only() {
+    assert!(is_thread_gone(&std::io::Error::from(
+        std::io::ErrorKind::NotFound
+    )));
+    assert!(is_thread_gone(&std::io::Error::from_raw_os_error(3)));
+    assert!(!is_thread_gone(&std::io::Error::from(
+        std::io::ErrorKind::PermissionDenied
+    )));
+    assert!(!is_thread_gone(&std::io::Error::from_raw_os_error(13)));
 }
 
 #[test]
 fn schedstat_reads_second_column() {
-    assert_eq!(parse_schedstat_wait("100 200 3\n").unwrap(), 200);
-    assert!(parse_schedstat_wait("").is_err());
-    assert!(parse_schedstat_wait("100\n").is_err());
+    assert_eq!(parse_schedstat_wait(b"100 200 3\n").unwrap(), 200);
+    assert!(parse_schedstat_wait(b"").is_err());
+    assert!(parse_schedstat_wait(b"100\n").is_err());
 }
 
 #[test]
 fn cpu_list_counts_ranges_and_singletons() {
-    assert_eq!(parse_cpu_list_count("0-31\n").unwrap(), 32);
-    assert_eq!(parse_cpu_list_count("0-3,8,10-11").unwrap(), 7);
-    assert_eq!(parse_cpu_list_count("0").unwrap(), 1);
-    assert!(parse_cpu_list_count("").is_err());
-    assert!(parse_cpu_list_count("3-1").is_err());
-    assert!(parse_cpu_list_count("a-b").is_err());
+    assert_eq!(parse_cpu_list_count(b"0-31\n").unwrap(), 32);
+    assert_eq!(parse_cpu_list_count(b"0-3,8,10-11").unwrap(), 7);
+    assert_eq!(parse_cpu_list_count(b"0").unwrap(), 1);
+    assert!(parse_cpu_list_count(b"").is_err());
+    assert!(parse_cpu_list_count(b"3-1").is_err());
+    assert!(parse_cpu_list_count(b"a-b").is_err());
 }
 
 #[test]
@@ -161,15 +200,31 @@ fn decreasable_counter_difference_is_unavailable_when_negative() {
     assert_eq!(difference(15, 10), None);
 }
 
-fn spin(duration: Duration) {
+/// 空转直到调用线程自身的 CPU 时间增加 `target`，最多等 `timeout` 墙钟。
+/// 以线程自己的计数为终止条件：被抢占时只是多等，不把调度争用误判为计数缺陷。
+#[cfg(any(windows, target_os = "linux"))]
+fn spin_until_thread_cpu_advances(probe: &mut Probe, target: Duration, timeout: Duration) {
+    let total = |cpu: crate::CpuTime| cpu.user_ns.unwrap() + cpu.kernel_ns.unwrap();
+    let start_cpu = total(probe.thread_cpu().unwrap());
     let start = Instant::now();
     let mut value = 0_u64;
-    while start.elapsed() < duration {
-        value = std::hint::black_box(value.wrapping_mul(6364136223846793005).wrapping_add(1));
+    loop {
+        for _ in 0..10_000 {
+            value = std::hint::black_box(value.wrapping_mul(6364136223846793005).wrapping_add(1));
+        }
+        let advanced = total(probe.thread_cpu().unwrap()) - start_cpu;
+        if advanced >= target.as_nanos() as u64 {
+            return;
+        }
+        assert!(
+            start.elapsed() < timeout,
+            "{timeout:?} 内线程 CPU 只增加 {advanced} ns，计数器未随空转推进"
+        );
     }
 }
 
-/// 单调累计字段两次读取不减；空转后本进程 CPU 增量与墙钟增量量级一致。
+/// 单调累计字段两次读取不减；线程 CPU 增量不超过墙钟增量，进程 CPU 增量
+/// 不小于线程 CPU 增量（各留两档粒度）。不要求线程获得最低 CPU 份额。
 #[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn live_monotonic_counters_do_not_decrease_and_track_busy_spin() {
@@ -179,7 +234,11 @@ fn live_monotonic_counters_do_not_decrease_and_track_busy_spin() {
     let thread_before = probe.thread_cpu().unwrap();
     let memory_before = probe.memory().unwrap();
     let start = Instant::now();
-    spin(Duration::from_millis(300));
+    spin_until_thread_cpu_advances(
+        &mut probe,
+        Duration::from_millis(50),
+        Duration::from_secs(10),
+    );
     let wall = start.elapsed();
     let system_after = probe.system_cpu().unwrap();
     let process_after = probe.process_cpu().unwrap();
@@ -200,15 +259,19 @@ fn live_monotonic_counters_do_not_decrease_and_track_busy_spin() {
         assert!(system_after.idle_ns.unwrap() >= system_before.idle_ns.unwrap());
     }
 
-    // 两档粒度：Windows 约 15.6 ms，Linux 常见 10 ms；放宽到 50 ms 容纳调度。
-    let slack = Duration::from_millis(50).as_nanos() as u64;
+    // 两档粒度：Windows 约 15.6 ms，Linux 常见 10 ms；取 2 × 16 ms。
+    let slack = Duration::from_millis(32).as_nanos() as u64;
     let thread_delta = total(thread_after) - total(thread_before);
+    let process_delta = total(process_after) - total(process_before);
     let wall_ns = wall.as_nanos() as u64;
     assert!(
-        thread_delta + slack >= wall_ns / 2,
-        "线程 CPU 增量 {thread_delta} ns 远小于墙钟 {wall_ns} ns"
+        thread_delta <= wall_ns + slack,
+        "线程 CPU 增量 {thread_delta} ns 超过墙钟 {wall_ns} ns"
     );
-    assert!(thread_delta <= wall_ns + slack);
+    assert!(
+        process_delta + slack >= thread_delta,
+        "进程 CPU 增量 {process_delta} ns 小于线程 CPU 增量 {thread_delta} ns"
+    );
 }
 
 #[cfg(windows)]
