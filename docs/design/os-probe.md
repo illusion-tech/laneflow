@@ -63,36 +63,49 @@
 - 不暴露句柄、裸指针或 Win32 结构体。
 - 读取器在构造时分配所需缓冲区。之后 CPU 时间与进程内存的每次读取不分配堆内存，
   可在帧间高频调用；就绪等待与电源状态需要枚举目录，可能分配，只适合低频调用。
+- 每个字段属于以下一类，在本节各表中标明：
+  - **单调累计**：操作系统保证不减，如 CPU 忙碌与空闲时间、本进程与线程 CPU 时间、
+    缺页次数、峰值；
+  - **可减累计**：累计量，但来源允许减少，如 Linux `iowait`、就绪等待之和；
+  - **瞬时值**：读取时刻的状态，如驻留、private、commit 与电源状态。
+
+  可减累计按原样返回，不截断。调用方取差值遇到负数时，该区间的派生量记为不可用，
+  不按零处理。
 - 累计值的粒度如实记录：Windows CPU 时间按时钟中断（约 15.6 ms）累计；Linux
   `/proc` 的 CPU 时间按时钟中断计数（常见为 10 ms），`schedstat` 为纳秒。调用方
   按粒度选择差值窗口，见 `lf-synth-measurement.md` §7.3。
 
 ### 3.2 CPU 时间
 
-| 字段               | Windows                              | Linux                                                        |
-| ------------------ | ------------------------------------ | ------------------------------------------------------------ |
-| 整机忙碌           | `GetSystemTimes`：内核 − 空闲 + 用户 | `/proc/stat` 汇总行：user、nice、system、irq、softirq、steal |
-| 整机空闲           | `GetSystemTimes` 空闲                | `/proc/stat` 汇总行：idle、iowait                            |
-| 本进程用户、内核   | `GetProcessTimes`                    | `/proc/self/stat` 的 utime、stime                            |
-| 当前线程用户、内核 | `GetThreadTimes`                     | `/proc/thread-self/stat` 的 utime、stime                     |
+| 字段               | 类别     | Windows                              | Linux                                                        |
+| ------------------ | -------- | ------------------------------------ | ------------------------------------------------------------ |
+| 整机忙碌           | 单调累计 | `GetSystemTimes`：内核 − 空闲 + 用户 | `/proc/stat` 汇总行：user、nice、system、irq、softirq、steal |
+| 整机空闲           | 单调累计 | `GetSystemTimes` 空闲                | `/proc/stat` 汇总行：idle                                    |
+| Linux 整机 iowait  | 可减累计 | 不可用                               | `/proc/stat` 汇总行：iowait                                  |
+| 本进程用户、内核   | 单调累计 | `GetProcessTimes`                    | `/proc/self/stat` 的 utime、stime                            |
+| 当前线程用户、内核 | 单调累计 | `GetThreadTimes`                     | `/proc/thread-self/stat` 的 utime、stime                     |
 
-- 整机值是全部逻辑 CPU 的总和，逻辑 CPU 数一并返回。
+- 整机值是全部逻辑 CPU 的总和，逻辑 CPU 数一并返回，统计全部处理器组。
+- Windows `GetSystemTimes` 只返回调用线程所在主处理器组的时间。活动处理器组多于
+  一个（逻辑处理器超过 64 个）时，整机忙碌与空闲返回不可用；不通过切换线程处理器
+  组亲和性拼接各组时间。
+- Linux 内核文档允许 `iowait` 减少，因此单列为可减累计，不并入空闲。
 - Windows 内核时间包含空闲时间，忙碌值须扣除；Linux 的 guest 时间已计入 user，
   不重复累加。
 - 当前线程指调用线程；读取其他线程不在本设计范围内。
 
 ### 3.3 本进程内存
 
-| 字段                | Windows（`K32GetProcessMemoryInfo`，`PROCESS_MEMORY_COUNTERS_EX`） | Linux（`/proc/self/status`、`/proc/self/stat`） |
-| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------- |
-| 驻留字节            | `WorkingSetSize`                                                   | `VmRSS`                                         |
-| 驻留峰值            | `PeakWorkingSetSize`                                               | `VmHWM`                                         |
-| Windows private     | `PrivateUsage`                                                     | 不可用                                          |
-| Windows commit      | `PagefileUsage`                                                    | 不可用                                          |
-| Windows commit 峰值 | `PeakPagefileUsage`                                                | 不可用                                          |
-| Linux 匿名驻留      | 不可用                                                             | `RssAnon`                                       |
-| 缺页总数            | `PageFaultCount`（含软缺页）                                       | minflt + majflt                                 |
-| Linux 主缺页        | 不可用                                                             | majflt                                          |
+| 字段                | 类别     | Windows（`K32GetProcessMemoryInfo`，`PROCESS_MEMORY_COUNTERS_EX`） | Linux（`/proc/self/status`、`/proc/self/stat`） |
+| ------------------- | -------- | ------------------------------------------------------------------ | ----------------------------------------------- |
+| 驻留字节            | 瞬时值   | `WorkingSetSize`                                                   | `VmRSS`                                         |
+| 驻留峰值            | 单调累计 | `PeakWorkingSetSize`                                               | `VmHWM`                                         |
+| Windows private     | 瞬时值   | `PrivateUsage`                                                     | 不可用                                          |
+| Windows commit      | 瞬时值   | `PagefileUsage`                                                    | 不可用                                          |
+| Windows commit 峰值 | 单调累计 | `PeakPagefileUsage`                                                | 不可用                                          |
+| Linux 匿名驻留      | 瞬时值   | 不可用                                                             | `RssAnon`                                       |
+| 缺页总数            | 单调累计 | `PageFaultCount`（含软缺页）                                       | minflt + majflt                                 |
+| Linux 主缺页        | 单调累计 | 不可用                                                             | majflt                                          |
 
 - 峰值都是进程生命周期峰值，包含初始化与证据缓冲，不能按阶段重置。需要阶段峰值时，
   由调用方在独立进程中测量或另行声明口径。
@@ -104,17 +117,20 @@
 ### 3.4 就绪等待（仅 Linux）
 
 `/proc/self/task/*/schedstat` 第二列之和：本进程全部线程处于可运行但未获得 CPU
-的累计纳秒数。读取期间退出的线程不计入，新建的线程从其创建起计入；调用方按差值
-使用时，须在其测量协议中说明线程增减带来的误差。Windows 没有不经 ETW 的等价计数，
-返回不可用。
+的累计纳秒数，属于可减累计。已退出线程的累计值随线程消失而不再计入，因此两次读取
+之间有线程退出时，和可能减少；新建线程从其创建起计入。负差值按 §3.1 处理。Windows
+没有不经 ETW 的等价计数，返回不可用。
 
 ### 3.5 交流电与电池
 
-| 字段     | Windows（`GetSystemPowerStatus`）              | Linux（`/sys/class/power_supply`） |
-| -------- | ---------------------------------------------- | ---------------------------------- |
-| 交流电   | `ACLineStatus`：1 为接通，0 为断开，其余不可用 | `type=Mains` 的 `online`           |
-| 电池存在 | `BatteryFlag` 不含“无电池”位                   | 存在 `type=Battery` 条目           |
-| 电量     | `BatteryLifePercent`，255 为不可用             | `type=Battery` 的 `capacity`       |
+| 字段     | 类别   | Windows（`GetSystemPowerStatus`）                              | Linux（`/sys/class/power_supply`） |
+| -------- | ------ | -------------------------------------------------------------- | ---------------------------------- |
+| 交流电   | 瞬时值 | `ACLineStatus`：1 为接通，0 为断开，其余不可用                 | `type=Mains` 的 `online`           |
+| 电池存在 | 瞬时值 | `BatteryFlag`：255 为不可用；否则以是否含“无电池”位（128）判断 | 存在 `type=Battery` 条目           |
+| 电量     | 瞬时值 | `BatteryFlag` 或 `BatteryLifePercent` 为 255 时不可用          | `type=Battery` 的 `capacity`       |
+
+Windows `BatteryFlag` 的 255 表示状态未知，其二进制同时含“无电池”位，必须先判断
+255，再解读各位。
 
 电源计划与厂商性能模式不在本设计范围内，由 #1392 的环境记录采集。
 
@@ -131,17 +147,18 @@
   `// SAFETY:` 说明；Linux 模块与公共接口不含 `unsafe`；
 - 源文件清单固定。
 
-| 位置         | 调用                                           |
-| ------------ | ---------------------------------------------- |
-| 整机 CPU     | `GetSystemTimes`                               |
-| 本进程 CPU   | `GetCurrentProcess`、`GetProcessTimes`         |
-| 当前线程 CPU | `GetCurrentThread`、`GetThreadTimes`           |
-| 本进程内存   | `GetCurrentProcess`、`K32GetProcessMemoryInfo` |
-| 电源状态     | `GetSystemPowerStatus`                         |
+| 位置         | 调用                                                                        |
+| ------------ | --------------------------------------------------------------------------- |
+| 整机 CPU     | `GetActiveProcessorGroupCount`、`GetActiveProcessorCount`、`GetSystemTimes` |
+| 本进程 CPU   | `GetCurrentProcess`、`GetProcessTimes`                                      |
+| 当前线程 CPU | `GetCurrentThread`、`GetThreadTimes`                                        |
+| 本进程内存   | `GetCurrentProcess`、`K32GetProcessMemoryInfo`                              |
+| 电源状态     | `GetSystemPowerStatus`                                                      |
 
 ### 4.2 安全论证
 
-五处调用具有相同的形态，论证在模块文档中集中给出：
+五处调用具有相同的形态，论证在模块文档中集中给出。`GetActiveProcessorGroupCount`
+与 `GetActiveProcessorCount` 不接收指针，只返回整数：
 
 1. 输出参数全部是调用方栈上已按零初始化、类型与 `windows-sys` 声明一致的
    `FILETIME`、`PROCESS_MEMORY_COUNTERS_EX` 或 `SYSTEM_POWER_STATUS`；需要声明
@@ -181,7 +198,10 @@ synth-harness 的进程内存读取改用本 crate，移除 `win32job` 依赖：
 
 实现至少验证：
 
-- 各累计量两次读取单调不减；
+- 单调累计字段两次读取不减；可减累计字段不做单调断言，负差值按 §3.1 处理的规则
+  有单元测试；
+- 活动处理器组多于一个时整机 CPU 字段为 `None`（以注入的组数测试判定逻辑）；
+- Windows `BatteryFlag` 为 255 时电池存在与电量为 `None`；
 - 本进程空转一段时间后，本进程 CPU 增量与墙钟增量的量级一致，整机忙碌增量不小于
   本进程 CPU 增量减去两档粒度；
 - 平台不提供的字段为 `None`；
