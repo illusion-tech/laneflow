@@ -358,19 +358,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 exact bytes、save 停顿（墙钟与主线程）、load 停顿（editable 重编译与
 published 认证分别度量）、恢复峰值内存、保存期间对稳态 tick 的干扰。
 
-### 历史B 部分 初值（v1 published fresh restore）
-
-以下是切换前 v1 的同机描述性基线，不得作为当前版本 exact bytes 或性能结论复用：
-`LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
-workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
-420,332 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
-快照点 `tick = 64`、`command_cursor = 30`。以下数字均为初值，不是产品 Pass 阈值。
-
-证据按仪器隔离：`snapshot_budget_evidence.rs` 用 `stats_alloc` 量捕获/编码/恢复账本
-并硬断言保存前后稳态 tick 分配账本相等（实测均为零）及保存后的确定性；`snapshot_peak_evidence.rs` 是只有一个
-测试的独立 DHAT integration binary，profiler 只包围一次 fresh restore，量恢复调用
-新增堆块的实际高水位；`snapshot_wall_clock_evidence.rs` 不插桩且 `#[ignore]`，量
-release 墙钟中位和后台编码竞争。复现命令：
+证据按仪器隔离：`snapshot_budget_evidence.rs`（`stats_alloc` 账本，随 CI 运行，
+硬断言保存前后稳态 tick 分配账本相等与保存后确定性）、`snapshot_peak_evidence.rs`
+（独立 DHAT integration binary，量恢复调用新增堆块高水位）、
+`snapshot_wall_clock_evidence.rs`（未插桩 `#[ignore]`，量 release 墙钟中位与后台
+编码竞争）。复现命令：
 
 ```text
 cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_budget_evidence -- --nocapture
@@ -378,20 +370,22 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_peak_e
 cargo +1.99.1 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
 ```
 
-| 维度                 | B 部分 初值（release，LF-P100-REF-01）                                                                                                                                                                                                          |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 快照制品 exact bytes | LFRS `3,248` bytes                                                                                                                                                                                                                              |
-| save 主线程停顿      | 边界 `capture_snapshot` 中位 `0.002 ms`；账本 34 次分配 / 3,435 bytes，返回时净 live `2,955` bytes。随后 `encode_lfrs` 可移到后台，中位 `0.0072 ms`；账本 34 次分配 + 12 次重分配 / 9,480 allocated bytes，返回时净 live `7,448` bytes          |
-| published load 停顿  | 目标 Published 根/source 已由调用方取得后，`restore_lfrs` 内绑定认证 + verifier + 语义 lowering + fresh world 重建整次中位 `0.063 ms`；账本 386 次分配 + 13 次重分配 / 23,240 allocated bytes，返回时净 live `18,256` bytes                     |
-| editable load 停顿   | B 部分 时没有编辑来源变体，未登记；现行初值见下文「2026-10-28 editable load 初值」                                                                                                                                                              |
-| 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享路网修订/source 在 profiler 前准备，不重复计入增量                                                                               |
-| 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
+### 历史 B 部分初值（v1 published fresh restore）
 
+切换前 v1 的同机描述性初值（`LF-P100-REF-01`，2026-08-28，rustc 1.98.0，release；
+workload `signalized-corridor-v1`，LFCA exact `420,332` bytes、28 条 catalog 路线、
+2 车辆、`4 ms` 固定步进，快照点 `tick = 64`、`command_cursor = 30`）：LFRS exact
+`3,248` bytes；主线程 `capture_snapshot` 中位 `0.002 ms`、`encode_lfrs` 中位
+`0.0072 ms`；published `restore_lfrs` 整次中位 `0.063 ms`；恢复增量堆高水位
+`19,240` bytes / 272 blocks；保存前后稳态 tick 分配账本相等（实测均 0），后台
+4,096 次 encode 竞争下 tick 墙钟与无竞争基线相同。不得作为当前版本（v7）exact
+bytes 或性能结论复用；仪器隔离、逐项分配账本与完整表格见基线提交 3f80b65f 的
+本文副本。editable load 的现行初值见下文「2026-10-28 editable load 初值」。
 ### 2026-10-19 再登记（#537，exact head `6cf9056365dcf106bedeba85035863c4fda5a8c1`，v6）
 
 同机 LF-P100-REF-01、rustc 1.98.0、Windows build 29683；fixture 为当前 corridor
 （LFCA exact `425,418 B`，28 路线、2 车、4 ms 步进），故与B 部分 初值（v1、`420,332 B`）
-不作回归比较，本节为 v6 当前基线。未插桩墙钟中位：`capture_snapshot` 主线程
+不作回归比较；本节为 v6 当期登记基线，现行版本为 v7（见 §9），v6 数值保持原身份。未插桩墙钟中位：`capture_snapshot` 主线程
 `0.0016 ms`；`encode_lfrs` 无竞争主线程中位 `0.0029 ms`（后台化可行性沿 §8 初值节
 口径，竞争影响由竞争 tick 行覆盖）；published `restore_lfrs` 整次
 `0.0324 ms`；基线 tick `0.0012 ms` / 后台 4,096 次 encode 竞争下 `0.0027 ms`。
