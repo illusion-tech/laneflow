@@ -6,8 +6,8 @@ use std::io::{self, Read};
 use std::path::Path;
 
 use crate::proc_text::{
-    parse_cpu_list_count, parse_pid_stat, parse_schedstat_wait, parse_stat_cpu, parse_status_bytes,
-    ticks_to_ns,
+    is_thread_gone, parse_cpu_list_count, parse_pid_stat, parse_schedstat_wait, parse_stat_cpu,
+    parse_status_bytes, ticks_to_ns,
 };
 use crate::{CpuTime, PowerStatus, ProcessMemory, SystemCpu};
 
@@ -29,8 +29,9 @@ impl State {
     }
 
     /// 把文件读入预分配缓冲区。`prefix_only` 为真时允许文件超过缓冲区（只用
-    /// 开头部分），否则超长视为错误。
-    fn read(&mut self, path: &str, prefix_only: bool) -> io::Result<&str> {
+    /// 开头部分），否则超长视为错误。返回字节，不做 UTF-8 校验（见
+    /// `proc_text` 模块文档）。
+    fn read(&mut self, path: &str, prefix_only: bool) -> io::Result<&[u8]> {
         let mut file = File::open(path)?;
         let mut filled = 0;
         while filled < self.buffer.len() {
@@ -46,8 +47,7 @@ impl State {
                 "文件超过读取缓冲区",
             ));
         }
-        std::str::from_utf8(&self.buffer[..filled])
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "文件不是 UTF-8"))
+        Ok(&self.buffer[..filled])
     }
 
     fn ns(&self, ticks: u64) -> u64 {
@@ -96,20 +96,27 @@ impl State {
         })
     }
 
-    /// 各线程 `schedstat` 第二列之和。读取期间退出的线程（目录项已列出但文件
-    /// 不存在）不计入。
+    /// 各线程 `schedstat` 第二列之和。读取期间退出的线程（打开时 `ENOENT`、
+    /// 读取中 `ESRCH`）不计入，其他错误照常返回。
     pub fn run_queue_wait_ns(&mut self) -> io::Result<u64> {
         let mut total = 0_u64;
         for entry in fs::read_dir("/proc/self/task")? {
             let path = entry?.path().join("schedstat");
-            let text = match fs::read_to_string(&path) {
-                Ok(text) => text,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error),
+            let Some(bytes) = skip_gone_thread(fs::read(&path))? else {
+                continue;
             };
-            total = total.saturating_add(parse_schedstat_wait(&text)?);
+            total = total.saturating_add(parse_schedstat_wait(&bytes)?);
         }
         Ok(total)
+    }
+}
+
+/// 线程已退出时返回 `None`，其他错误原样返回。
+fn skip_gone_thread<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if is_thread_gone(&error) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
