@@ -1,6 +1,6 @@
 # 操作系统计数器读取
 
-> **状态**：Proposed（[#1391][issue-1391] G1）<br>
+> **状态**：Accepted（[#1391][issue-1391] G1，2026-11-16；设计已接受不等于实现完成）<br>
 > **日期**：2026-11-16<br>
 > **决策依据**：[#1391][issue-1391]；[`lf-synth-measurement.md`][lf-synth-measurement] §7<br>
 
