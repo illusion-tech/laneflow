@@ -10,7 +10,6 @@
   - `0002-dependency-and-licensing-constraints.md`
   - `0003-runtime-tick-and-determinism.md`
 - 相关设计:
-  - `../design/core-runtime.md`
 
 ## 背景
 

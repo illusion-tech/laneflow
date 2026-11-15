@@ -14,9 +14,11 @@
 
 ## 1. 目的与边界
 
-本文取代已退役的 [`core-runtime-scalability-audit.md`][scalability-audit]
-作为城市规模扩展的决策入口，记录现行 `TrafficWorld` 接口的可扩展性复核、证据边界和
-各方向的启动条件。复核基线为 `main@d819c151`。
+本文是城市规模扩展的决策入口（前身为已随 #1382 退役的 core-runtime scalability
+audit，原文见基线提交 3f80b65f 的 `docs/design/` 副本），记录现行 `TrafficWorld`
+接口的可扩展性复核、证据边界和各方向的启动条件。城市级单世界交通执行是 ADR 0021
+保留的规模演进方向，多世界吞吐不能替代单个大型世界的扩展证据；历史阈值与单机
+数字不能替代产品测量协议要求的集成认证。复核基线为 `main@d819c151`。
 
 本文不选择生产分区、调度、降频或聚合方案，不改变 Runtime API、数据格式或 Adapter
 协议。产品目标与测量协议以
@@ -85,4 +87,3 @@
 [runtime-snapshot]: traffic-runtime-snapshot.md
 [revision-cutover]: traffic-runtime-revision-cutover.md
 [adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
-[scalability-audit]: core-runtime-scalability-audit.md

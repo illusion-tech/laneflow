@@ -207,7 +207,7 @@ check 中逐目录执行 `cargo deny check`（或等价方案），并由 Depend
 
 ### 8.3 历史禁令的适用范围
 
-`#308` 的「研究执行器不得加回工作区」只约束 #308 自身（原文见
-`docs/design/compiler-budget-calibration.md`），不是项目级通则。不得把它扩写成
+`#308` 的「研究执行器不得加回工作区」只约束 #308 自身（原文见基线提交 3f80b65f 的
+`docs/design/compiler-budget-calibration.md` 副本），不是项目级通则。不得把它扩写成
 「研究代码不得进入生产 crate 或 workspace 成员」一类的全局规则；引用历史禁令时必须
 保留其原本的适用范围。

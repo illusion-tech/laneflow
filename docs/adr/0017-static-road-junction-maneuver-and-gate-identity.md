@@ -25,7 +25,6 @@ initial route 目录的条款。<br>
   - `../design/lane-graph.md`
   - `../design/route-system.md`
   - `../design/signal-system.md`
-  - `../design/data-format.md`
 - GitHub:
   - #227
   - #228

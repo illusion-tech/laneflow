@@ -23,7 +23,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
    `docs/design/traffic-runtime-shared-consumption.md`
 9. 涉及已关闭的 #308 编译器预算校准时，只读
-   `docs/design/compiler-budget-calibration.md` 的短结论。查阅当时制品使用 G4
+   `docs/design/compiler-foundation.md` §11.3–11.5 的边界短结论（原校准页已随 #1382 退役）。查阅当时制品使用 G4
    精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310。不得把该
    研究重新加回生产 crate 或工作区成员
 10. 涉及 #292、#315、#296、#297、`laneflow-static-contract`、
@@ -32,8 +32,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
     LIR→当前态投影时，额外读取
    `docs/design/compiler-foundation.md`；#296 还须读取
    `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
-   `docs/design/road-editing-source-and-geometry-frontend.md`；复核生产编译性能时读取
-   `docs/reference/v0.10-compiler-production-baseline.md`
+   `docs/design/road-editing-source-and-geometry-frontend.md`；复核生产编译性能时读取其
+   §11.5 及固定提交 3f80b65f 中的生产基线正本
 11. 涉及 #298、`laneflow-format`、可移植规范制品、源映射封套、语义差异封套、
     规范发布描述符、逐字节确定性或原子发布时，额外读取
     `docs/design/portable-canonical-artifact.md` 与

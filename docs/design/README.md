@@ -130,25 +130,18 @@
 - [`urban-demand-harness.md`][urban-demand-harness]：#544 G1 Accepted，细化初态分配、
   七套调用方计划、稳定个体编号、有限校验、计数与 headless 结果包。
 
-## 已退役（只保留结论）
-
-- [`core-runtime.md`][core-runtime]：不是生产合同。现行消费见
-  [`traffic-runtime-shared-consumption.md`][shared-consumption]。
-- [`data-format.md`][data-format] / [`data-loading.md`][data-loading]：
-  不是生产合同，只指向现行静态数据与加载路径。
-- [`current-package-import.md`][current-package-import]：只约束从未对外发布的
-  Traffic / Spatial / Scenario JSON，不提供这组 JSON 的编译器导入、批量迁移或长期离线兼容。
-- [`compiler-budget-calibration.md`][budget-calibration]：工作区已无该次研究执行器；页内给出证据提交，避免把研究数字当成产品通过。
-- [`core-runtime-scalability-audit.md`][scalability-audit]：不是实现输入。现行决策见
-  [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]。
-
 ## 文档状态
 
 - `Draft`：不能直接作为稳定实现输入。
 - `Review`：可审阅，仍可能调整。
 - `Accepted`：当前阶段实现输入。
 - `Active`：持续维护的治理或索引。
-- `Retired`：不是现行生产入口。页内写明仍有效的结论继续有效；没有写在页内的旧正文不在本目录展开。
+
+历史 Retired 页（core-runtime、data-format、data-loading、current-package-import、
+compiler-budget-calibration、core-runtime-scalability-audit）已随 #1382 整体退役；
+仍有效结论由各现行责任文档承接（消费路径见共享消费、加载路径见共享静态路网、
+旧未发布 JSON 边界见 ADR 0020、#308 校准边界见 compiler-foundation §11.3–11.5、
+规模决策见规模决策基线）。追溯原件使用基线提交 3f80b65f 的 `docs/design/` 副本。
 
 正式设计文档页头建议包含状态、最后更新、适用范围和关联文档。涉及 Runtime API、
 数据格式或 Adapter 协议的实现应先有相关 design 或 ADR。设计文档不记录单次 PR
@@ -213,9 +206,3 @@
 [lust-bevy-population-control]: lust-bevy-population-control.md
 [chinese-style-city-workload]: chinese-style-city-workload.md
 [urban-demand-harness]: urban-demand-harness.md
-[core-runtime]: core-runtime.md
-[data-format]: data-format.md
-[data-loading]: data-loading.md
-[current-package-import]: current-package-import.md
-[budget-calibration]: compiler-budget-calibration.md
-[scalability-audit]: core-runtime-scalability-audit.md

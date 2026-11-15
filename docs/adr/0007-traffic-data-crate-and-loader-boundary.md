@@ -18,8 +18,6 @@
   - `0008-pre-1.0-data-format-version-policy.md`
 - 详细设计:
   - `../architecture.md`
-  - `../design/data-format.md`
-  - `../design/data-loading.md`
   - `../design/vehicle-following.md`
 
 ## 背景
@@ -117,6 +115,6 @@ v0.3 不公开 raw wire DTO 或 Rust serialization API，不设置固定 edge/ro
 
 - #73：实现 `laneflow-data`、v0.2/v0.3 loader、Vehicle Profile、registry/resolver、`InitialTrafficData`、schema 和测试迁移。
 - #74：让 VehicleState、spawn input 和 CoreWorld 初始化消费 profile handle 与 `InitialTrafficData`。
-- 当时 JSON loader 的 API、validation、error 与输入安全约束见 git 历史。现行加载路径见 `../design/shared-static-network.md` 与 `../design/data-loading.md`。`data-loading.md` 只写出这条现行路径。
+- 当时 JSON loader 的 API、validation、error 与输入安全约束见 git 历史。现行加载路径见 `../design/shared-static-network.md`（受检 LFCA 能力构建 `SharedNetworkRevision`，由 `TrafficWorld::install` 安装）。
 
 若未来改变 crate 依赖方向、让 Core 依赖 wire format、公开 raw DTO，或把 schema validator 带入 production loader，应新增或 supersede 本 ADR，不得静默修改。
