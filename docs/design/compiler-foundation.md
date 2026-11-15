@@ -25,9 +25,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - `numeric-representation.md`
 - `spatial-geometry.md`
 - `core-runtime-performance-baseline.md`（复用 P100 硬件身份，不复用运行时规模或预算）
-- `compiler-budget-calibration.md`（#308 已关闭；证据在 git 历史）
-- `current-package-import.md`
-- `../reference/v0.10-compiler-production-baseline.md`
+- #308 校准证据与首轮生产基线原件见[固定提交][retired-baselines-tree]（#1382 退役）
 - [G4 工作负载清单][calibration-workloads]
 - [G4 R0 报告][calibration-report]
 - [G4 R0 Evidence][calibration-evidence]
@@ -1275,11 +1273,13 @@ R0 研究基线；产品负责人另行把同一台 `LF-P100-REF-01` 物理机�
 P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造在停表外，唯一计时区只
 覆盖 `Compiler::compile`。全部 35 个样本成功且同级语义指纹一致；1→5 份走廊的墙钟
 中位数为 2.2446→11.3253 ms，含源映射冻结的全管线编译器控制峰值为
-642529→3211621 字节，保留容量恒为 0。完整紧凑证据与环境边界见
-`v0.10-compiler-production-baseline.md` 和配对 JSON。
+642529→3211621 字节，保留容量恒为 0。完整紧凑证据与环境边界见固定提交中的
+[基线正本与配对 JSON][production-baseline]（#1382 已从当前树退役）。
 该结果成为后继同机生产回退对照，不是产品 SLA、城市容量或 #298 制品发射预算。
 
 [calibration-workloads]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json
+[retired-baselines-tree]: https://github.com/illusion-tech/laneflow/tree/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference
+[production-baseline]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference/v0.10-compiler-production-baseline.md
 [calibration-report]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md
 [calibration-evidence]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
