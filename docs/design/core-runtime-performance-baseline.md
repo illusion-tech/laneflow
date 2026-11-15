@@ -817,6 +817,8 @@ p50/p95/p99/max；W2 只报告 Runtime tick p50/p95/p99/max。普通帧、catch-
   制品时附链接，否则明确标记未长期保留。
 - 外部干扰导致废弃时重跑整个 round 并记录原因；不得选择性删除样本或只发布
   最好 round。
+  LF-SYNTH harness 的逐段负载记录、受扰判定与重跑上限见
+  [`lf-synth-measurement.md`][lf-synth-measurement] §7。
 - 每份结果保存第 5 节要求的 OS、CPU、memory、AC、电源计划、厂商模式与后台进程
   provenance。
 
