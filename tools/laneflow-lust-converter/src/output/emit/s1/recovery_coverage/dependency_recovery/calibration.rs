@@ -20,12 +20,12 @@ fn fixed_signal_seam_feasibility() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh seam diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let endpoints: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1113-closure-feasibility/endpoint-feasibility.json",
+    let endpoints: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1113-endpoint-feasibility.json"
     ))
     .unwrap();
-    let seam: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1113-closure-feasibility/seam-input.json",
+    let seam: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1113-seam-input.json"
     ))
     .unwrap();
     let left: [[u64; 3]; 6] =
@@ -46,12 +46,12 @@ fn fixed_signal_guided_recovery() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh guided output");
     fs::create_dir_all(&out).unwrap();
-    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1107-dependency-recovery/inputs.json",
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
-    let endpoints: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1113-closure-feasibility/endpoint-feasibility.json",
+    let endpoints: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1113-endpoint-feasibility.json"
     ))
     .unwrap();
     let id = "sumo::-16502_0_0";
@@ -81,8 +81,8 @@ fn fixed_signal_endpoint_feasibility() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh endpoint diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let old: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1111-grid-calibration/local-probes.json",
+    let old: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1111-local-probes.json"
     ))
     .unwrap();
     let mut rows = BTreeMap::new();
@@ -147,8 +147,8 @@ fn fixed_grid_calibration() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let inputs: Value = serde_json::from_str(&crate::pinned_research::text(
-        "issue-1107-dependency-recovery/inputs.json",
+    let inputs: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
     let mut rows = BTreeMap::new();

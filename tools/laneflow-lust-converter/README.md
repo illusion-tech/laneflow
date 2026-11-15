@@ -51,11 +51,10 @@ cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip
 基线——与比对测试并行竞争，漂移基线会被覆写后门检失效。regenerate 只在
 更新基线时显式单独运行（见 `evidence/README.md` 更新流程）。
 
-部分 ignored 重放实验（S1 恢复覆盖系列）还需
-`PINNED_RESEARCH_ROOT` 指向含数据冻结提交（如 `564f9ac8`、`f71123b5`）checkout 的
-`research/` 目录；未设置即失败，不回落到当前树（根 `research/` 已随 #1378 移除）。
-源码注释、测试 fixture 与输出来源字段中的 `research/...` 路径均以冻结提交为根，
-见 `src/pinned_research.rs` 模块说明。
+历史 pinned 重放入口与 `PINNED_RESEARCH_ROOT` 外部数据依赖已随 #1385 退役；
+仍有效的最小回归输入已按文档边界归位到 `tests/fixtures/`（含从冻结提交
+`564f9ac8` 迁回的 1111/1113 局部输入），源码注释与输出来源字段中的
+`research/...` 路径以含数据冻结提交 checkout 为根，正本在该提交可查。
 
 ### 精确十进制渲染回归与局部测量
 

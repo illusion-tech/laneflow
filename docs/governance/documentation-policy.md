@@ -161,10 +161,11 @@ B1 仍是未发布的内部 source。
 明确要求外不生成；允许入仓不等于要求生成或提交。
 
 冻结研究数据不得被任何代码以 `include_str!` / `include_bytes!` 编译期嵌入
-（#1249）。`#[ignore]` 手动重放实验的冻结数据经环境变量（如
-`PINNED_RESEARCH_ROOT`）从冻结提交的 checkout 运行时读取；活测试消费的冻结数据放在
-所属 crate 的 `tests/fixtures/`，新增大体量 fixture 须在 PR 说明其体积为断言必要
-数据（对拍或字节迁移证据）。
+（#1249）。活测试消费的冻结数据放在所属 crate 的 `tests/fixtures/`，新增大体量
+fixture 须在 PR 说明其体积为断言必要数据（对拍或字节迁移证据）；确需外部冻结
+数据的手动重放实验经环境变量从冻结提交 checkout 运行时读取，不得回落到当前树
+（最后一个此类入口 `PINNED_RESEARCH_ROOT` 已随 #1385 退役，有效最小输入已归位
+`tests/fixtures/`）。
 
 清理证据时区分：
 
