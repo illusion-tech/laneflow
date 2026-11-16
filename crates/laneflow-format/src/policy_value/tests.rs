@@ -159,3 +159,41 @@ fn outer_change_shape_requires_exact_payload_sides() {
         }
     }
 }
+
+#[test]
+fn checked_policy_member_row_reuses_policy_local_preflight() {
+    // kind 2（stream）完整成员：含稳定引用与向量，预检通过后给出受检遍历入口。
+    let value = stream();
+    let view = checked_policy_member_row(2, &value, FormatLimits::HARD).unwrap();
+    assert_eq!(view.field_count(), 6);
+    assert!(matches!(
+        view.field_by_tag(5).unwrap().value().unwrap(),
+        crate::RegistryCheckedFieldValue::I32(0)
+    ));
+    assert!(view.field_by_tag(8).is_some());
+
+    // 未登记成员 kind 拒绝，不猜读。
+    assert!(matches!(
+        checked_policy_member_row(9, &value, FormatLimits::HARD).unwrap_err(),
+        FormatError::UnknownKind { .. }
+    ));
+
+    // 任意字节不经过预检就得不到受检视图。
+    let garbage = [0xff_u8; 8];
+    assert!(checked_policy_member_row(2, &garbage, FormatLimits::HARD).is_err());
+
+    // 与成员 kind 不对应的 schema 也在同一预检路径上失败。
+    let gate = row(&[
+        field(3, 10, &stable(8, 1)),
+        field(5, 1, &[0]),
+        field(6, 1, &[0]),
+        field(
+            7,
+            12,
+            &[&1_u32.to_le_bytes()[..], &row(&[field(1, 9, b"e")])].concat(),
+        ),
+    ]);
+    assert!(checked_policy_member_row(2, &gate, FormatLimits::HARD).is_err());
+    let gate_row = checked_policy_member_row(3, &gate, FormatLimits::HARD).unwrap();
+    assert_eq!(gate_row.field_count(), 4);
+}

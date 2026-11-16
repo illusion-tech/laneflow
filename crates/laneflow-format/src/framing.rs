@@ -53,6 +53,12 @@ impl<'a> ObjectFramingView<'a> {
         self.kind.section_count()
     }
 
+    /// 已与前导核对的对象当前格式版本；framing 预检保证它与线值相等。
+    #[must_use]
+    pub const fn format_version(self) -> u16 {
+        self.kind.format_version()
+    }
+
     /// 按零基目录 ordinal 取得只证明 framing 的节借用。
     #[must_use]
     pub fn section(self, ordinal: u32) -> Option<SectionFramingView<'a>> {
@@ -64,6 +70,12 @@ impl<'a> ObjectFramingView<'a> {
         let kind = read_u16(
             self.bytes,
             directory_offset,
+            FormatStructure::SectionDirectoryEntry,
+        )
+        .ok()?;
+        let format_version = read_u16(
+            self.bytes,
+            directory_offset + 2,
             FormatStructure::SectionDirectoryEntry,
         )
         .ok()?;
@@ -86,7 +98,13 @@ impl<'a> ObjectFramingView<'a> {
             FormatStructure::Section,
         )
         .ok()?;
-        Some(SectionFramingView { kind, bytes })
+        Some(SectionFramingView {
+            kind,
+            format_version,
+            byte_offset,
+            byte_length,
+            bytes,
+        })
     }
 }
 
@@ -104,6 +122,9 @@ impl ObjectFramingProof {
 #[derive(Clone, Copy, Debug)]
 pub struct SectionFramingView<'a> {
     kind: u16,
+    format_version: u16,
+    byte_offset: u64,
+    byte_length: u64,
     bytes: &'a [u8],
 }
 
@@ -112,6 +133,24 @@ impl<'a> SectionFramingView<'a> {
     #[must_use]
     pub const fn kind(self) -> u16 {
         self.kind
+    }
+
+    /// 目录登记的 section 线格式版本；framing 预检已与对象种类的期望值核对。
+    #[must_use]
+    pub const fn format_version(self) -> u16 {
+        self.format_version
+    }
+
+    /// 该节相对对象起点的 byte offset；framing 预检已核对连续无间隙。
+    #[must_use]
+    pub const fn byte_offset(self) -> u64 {
+        self.byte_offset
+    }
+
+    /// 该节的 exact byte length；framing 预检已核对不越界、首尾衔接对象总长。
+    #[must_use]
+    pub const fn byte_length(self) -> u64 {
+        self.byte_length
     }
 
     /// 尚未经过节内 registry/语义预检的原始节 bytes。

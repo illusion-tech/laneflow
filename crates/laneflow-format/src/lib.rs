@@ -38,6 +38,7 @@ pub use object::{
     preflight_object_registry,
 };
 pub use object_source::{BoundedReReadableObjectSource, ObjectSourceError};
+pub use policy_value::checked_policy_member_row;
 pub use post_emission::{
     ExpectedSemanticDiffBase, PostEmissionCheckError, PostEmissionCheckedBundle,
     check_post_emission_bundle,

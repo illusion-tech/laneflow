@@ -79,6 +79,12 @@ impl<'a> RegistryCheckedObjectView<'a> {
         self.framing.section_count()
     }
 
+    /// 已与前导核对的对象当前格式版本；registry 预检保证它与线值相等。
+    #[must_use]
+    pub const fn format_version(self) -> u16 {
+        self.framing.format_version()
+    }
+
     /// 按 wire 顺序遍历全部已受检 section。
     #[must_use]
     pub fn sections(self) -> RegistryCheckedSectionIter<'a> {
@@ -125,6 +131,24 @@ impl<'a> RegistryCheckedSectionView<'a> {
     #[must_use]
     pub const fn kind(self) -> u16 {
         self.framing.kind()
+    }
+
+    /// 目录登记的 section 线格式版本；framing 预检已与对象种类的期望值核对。
+    #[must_use]
+    pub const fn format_version(self) -> u16 {
+        self.framing.format_version()
+    }
+
+    /// 该节相对对象起点的 byte offset；framing 预检已核对连续无间隙。
+    #[must_use]
+    pub const fn byte_offset(self) -> u64 {
+        self.framing.byte_offset()
+    }
+
+    /// 该节的 exact byte length。
+    #[must_use]
+    pub const fn byte_length(self) -> u64 {
+        self.framing.byte_length()
     }
 
     /// 该节已完成 registry 结构预检的 exact bytes。
@@ -256,6 +280,81 @@ impl<'a> RegistryCheckedTableView<'a> {
         .ok()
     }
 
+    /// 指定物理 chunk 在 chunk 目录中的序号；同 table kind 从 0 连续。
+    ///
+    /// LFCP singleton 节没有 chunk 目录；对这些表本访问器返回 `None`，
+    /// 不为统一版式伪造目录值。
+    #[must_use]
+    pub fn chunk_index(self, chunk_ordinal: u32) -> Option<u32> {
+        if !self.chunked || chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        read_u32(
+            self.directory,
+            u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH + 4,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()
+    }
+
+    /// 指定物理 chunk 的首个零基全表逻辑行序号。
+    ///
+    /// LFCP singleton 节没有 chunk 目录；对这些表本访问器返回 `None`。
+    #[must_use]
+    pub fn chunk_first_logical_row(self, chunk_ordinal: u32) -> Option<u32> {
+        if !self.chunked || chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        read_u32(
+            self.directory,
+            u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH + 8,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()
+    }
+
+    /// 指定物理 chunk 相对 section 起点的 byte offset；预检已核对连续无空洞。
+    ///
+    /// LFCP singleton 节没有 chunk 目录；对这些表本访问器返回 `None`。
+    #[must_use]
+    pub fn chunk_byte_offset(self, chunk_ordinal: u32) -> Option<u64> {
+        if !self.chunked || chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        read_u64(
+            self.directory,
+            u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH + 24,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()
+    }
+
+    /// 指定物理 chunk 在目录登记的 SHA-256 摘要；registry 预检已与 chunk
+    /// exact bytes 逐位核对。
+    ///
+    /// LFCP singleton 节没有 chunk 目录，也不存在 chunkDigest；对这些表
+    /// 本访问器返回 `None`，不为统一版式伪造摘要。
+    #[must_use]
+    pub fn chunk_digest(self, chunk_ordinal: u32) -> Option<Sha256Digest> {
+        if !self.chunked || chunk_ordinal >= self.chunk_count {
+            return None;
+        }
+        let entry = self.first_chunk.checked_add(chunk_ordinal)?;
+        let offset = u64::from(entry) * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH + 40;
+        let bytes = checked_slice(
+            self.directory,
+            offset,
+            32,
+            FormatStructure::ChunkDirectoryEntry,
+        )
+        .ok()?;
+        let digest: [u8; 32] = bytes.try_into().ok()?;
+        Some(Sha256Digest::from_bytes(digest))
+    }
+
     /// 指定物理 chunk 的 exact bytes。
     #[must_use]
     pub fn chunk_exact_byte_length(self, chunk_ordinal: u32) -> Option<u64> {
@@ -374,6 +473,22 @@ pub struct RegistryCheckedRowView<'a> {
 }
 
 impl<'a> RegistryCheckedRowView<'a> {
+    /// 从已通过预检的完整 RowV1 bytes 构造受检行视图。
+    ///
+    /// 仅限 crate 内部：调用方必须已经按 `schema` 完成同一 bytes 的结构预检
+    /// （table registry 预检或 [`crate::policy_value`] 的内嵌行预检）。
+    pub(crate) fn from_preflighted(
+        bytes: &'a [u8],
+        schema: &'static PortableRowSchema,
+    ) -> Option<Self> {
+        let field_count = read_u32(bytes, 8, FormatStructure::Row).ok()?;
+        Some(Self {
+            bytes,
+            schema,
+            field_count,
+        })
+    }
+
     /// 该行已完成 registry 结构预检的 exact bytes。
     #[must_use]
     pub const fn bytes(self) -> &'a [u8] {
@@ -2647,5 +2762,94 @@ mod tests {
                 limit: 4,
             }
         );
+    }
+
+    #[test]
+    fn section_directory_accessors_report_checked_offsets_and_versions() {
+        for kind in PortableObjectKind::ALL {
+            let bytes = encoded_object(kind);
+            let view = preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
+            assert_eq!(view.format_version(), kind.format_version());
+
+            let mut expected_offset = kind.first_section_offset();
+            for (ordinal, section) in view.sections().enumerate() {
+                assert_eq!(
+                    section.kind(),
+                    u16::try_from(ordinal + 1).unwrap(),
+                    "{kind:?} section {ordinal}"
+                );
+                assert_eq!(section.format_version(), kind.section_format_version());
+                assert_eq!(section.byte_offset(), expected_offset);
+                assert_eq!(
+                    section.byte_length(),
+                    u64::try_from(section.bytes().len()).unwrap()
+                );
+                assert_eq!(
+                    &bytes[expected_offset as usize
+                        ..expected_offset as usize + section.bytes().len()],
+                    section.bytes()
+                );
+                expected_offset += section.byte_length();
+            }
+            assert_eq!(expected_offset, u64::try_from(bytes.len()).unwrap());
+        }
+    }
+
+    #[test]
+    fn chunk_directory_accessors_report_registry_checked_entries() {
+        for kind in PortableObjectKind::ALL {
+            let bytes = encoded_object(kind);
+            let view = preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
+
+            for section in view.sections() {
+                for table in section.tables() {
+                    if kind == PortableObjectKind::CanonicalPublicationDescriptor {
+                        // singleton 节没有 chunk 目录，不伪造目录值或摘要。
+                        assert_eq!(table.chunk_count(), 1);
+                        assert_eq!(table.chunk_index(0), None);
+                        assert_eq!(table.chunk_first_logical_row(0), None);
+                        assert_eq!(table.chunk_byte_offset(0), None);
+                        assert_eq!(table.chunk_digest(0), None);
+                        continue;
+                    }
+                    for chunk in 0..table.chunk_count() {
+                        assert_eq!(
+                            table.chunk_index(chunk),
+                            Some(chunk),
+                            "{} table {} chunk {chunk}",
+                            section.kind(),
+                            table.kind()
+                        );
+                        let first = table.chunk_first_logical_row(chunk).unwrap();
+                        let count = table.chunk_row_count(chunk).unwrap();
+                        let offset = table.chunk_byte_offset(chunk).unwrap();
+                        let length = table.chunk_exact_byte_length(chunk).unwrap();
+                        // firstLogicalRow 与相邻 chunk 的区间衔接一致。
+                        assert_eq!(
+                            u64::from(first) + u64::from(count),
+                            if chunk + 1 == table.chunk_count() {
+                                u64::from(table.row_count() - first)
+                            } else {
+                                u64::from(table.chunk_first_logical_row(chunk + 1).unwrap() - first)
+                            }
+                        );
+                        // 指向 section 内偏移的目录值确实圈出同一 chunk 的 exact bytes。
+                        let section_bytes = section.bytes();
+                        assert_eq!(
+                            &section_bytes[usize::try_from(offset).unwrap()
+                                ..usize::try_from(offset + length).unwrap()],
+                            table.chunk_bytes(chunk).unwrap()
+                        );
+                        let digest: [u8; 32] =
+                            Sha256::digest(table.chunk_bytes(chunk).unwrap()).into();
+                        assert_eq!(
+                            table.chunk_digest(chunk).unwrap(),
+                            Sha256Digest::from_bytes(digest)
+                        );
+                    }
+                    assert_eq!(table.chunk_index(table.chunk_count()), None);
+                }
+            }
+        }
     }
 }

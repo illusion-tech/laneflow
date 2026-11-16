@@ -2,6 +2,7 @@
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension,
+    object::RegistryCheckedRowView,
     table::{PreflightBudget, charge_stable_vector, preflight_embedded_row},
     wire::{checked_slice, read_u16, read_u32, read_u64},
 };
@@ -77,6 +78,36 @@ pub(crate) fn preflight_member_value(
             _ => {}
         }
         Ok(())
+    })
+}
+
+/// 对已受检 LFSD 策略成员 Bytes 值给出最小受检遍历入口。
+///
+/// 输入 `kind` 是 LFSD 变更行 tag 3 登记的成员种类，`bytes` 是 tag 5/6 字段的完整
+/// Bytes 载荷。本函数复用完整对象预检的同一检查路径（`policy_local_value_schema`
+/// 的 RowV1 登记加稳定引用向量核对）；未通过预检的任意字节不会得到受检视图，
+/// 成功返回的 [`RegistryCheckedRowView`] 与该成员的登记 schema 保持对应。
+///
+/// 本入口不判断该 Bytes 是否确实来自 LFSD 变更行的成员字段；调用方自行保证
+/// 只对登记为 RowV1 且已受检的 Bytes 调用。其他 Bytes（稳定引用、引用向量等）
+/// 保持不透明，不凭内容猜测类型。
+///
+/// # Errors
+///
+/// 成员 kind 未登记或 bytes 未通过策略局部 RowV1 预检时返回相应 [`FormatError`]。
+pub fn checked_policy_member_row<'a>(
+    kind: u8,
+    bytes: &'a [u8],
+    limits: FormatLimits,
+) -> Result<RegistryCheckedRowView<'a>, FormatError> {
+    let mut budget = PreflightBudget::default();
+    preflight_member_value(kind, bytes, limits, &mut budget)?;
+    let schema = policy_local_value_schema(kind).ok_or(FormatError::UnknownKind {
+        structure: FormatStructure::FieldValue,
+        code: u64::from(kind),
+    })?;
+    RegistryCheckedRowView::from_preflighted(bytes, schema).ok_or(FormatError::BindingMismatch {
+        structure: FormatStructure::FieldValue,
     })
 }
 
