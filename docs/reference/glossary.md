@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-11-05<br>
+**最后更新**: 2026-11-16<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案、交通基础设施与宿主边界
 
@@ -206,11 +206,14 @@ G0/G2 人流程。纯删除不适用；具体规则由
 | 语义差异封套            | semantic diff envelope                                    | `SemanticDiffEnvelope`                    | 规范缩写为 `LFSD`；版本化绑定旧/新路网修订与规范制品精确字节，并承载规范排序差异记录的派生制品封套。                                                                                              |
 | 验证收据封套            | validation receipt envelope                               | `ValidationReceiptEnvelope`               | ADR 0020 原计划由 #299 交付的独立验证制品；Accepted ADR 0024 已取消该方案，现只保留为历史术语。                                                                                                   |
 | 确定性合并顺序          | deterministic merge order                                 | —                                         | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                                                                                              |
-| 编译资源上限            | compile limits                                            | `CompileLimits`                           | 目标态已接受（#292 G1），在后继阶段分配前限制来源、记录、关系、字符串、诊断、暂存区和编译器控制总存续内存的失败关闭边界；v0.10 首轮精确值由具名 P100 配置档冻结。                                 |
-| P100 首轮编译资源配置档 | P100 initial compile limits profile                       | `LF-COMP-P100-INITIAL-v1`                 | 目标态已接受（#292 G1），以 #308 压力分层逐维上包络冻结、由宿主显式选择且不提供无限模式的首轮生产编译资源上限向量。                                                                               |
+| 编译资源上限            | compile limits                                            | `CompileLimits`                           | 目标态已接受（#292 G1），在后继阶段分配前限制来源、记录、关系、字符串、诊断、暂存区和编译器控制总存续内存的失败关闭边界；配置档定义方式见 ADR 0035（#1296 G1）。                                  |
+| 容量维度                | capacity dimension                                        | —                                         | ADR 0035（#1296 G1）：配置档声明的输入与中间记录规模上限，如模块、来源字节、声明、稳定实体、各阶段记录、引用、字符串与几何点。                                                                    |
+| 宿主预算维度            | host budget dimension                                     | —                                         | ADR 0035（#1296 G1）：配置档声明的宿主资源上限，即编译器控制总存续字节与一次编译后允许保留的容量字节。                                                                                            |
+| 推导字节维度            | derived byte dimension                                    | —                                         | ADR 0035（#1296 G1）：描述编译器自身结构的字节上限（各阶段暂存、输出、可移植对象与 bundle），由全部容量上限代入与运行期记账共用的成本公式求出，不手写常量；超限表示记账超出公式，属编译器缺陷。 |
+| 配置档自洽检查          | compile limits profile self-consistency check             | —                                         | ADR 0035（#1296 G1）：配置档必须通过的推导闭合与单维最大输入检查；后者对每个容量维度构造单独取上限的输入，要求编译、发射与差异发射在全部维度内通过。                                              |
+| P100 编译资源配置档     | P100 compile limits profile                               | `LF-COMP-P100`                            | ADR 0035（#1296 G1）：继承 #308 压力分层逐维上包络的容量与宿主预算、由宿主显式选择且不提供无限模式的生产编译资源配置档；取代 `LF-COMP-P100-INITIAL-v1/v2`。                                       |
 | 来源文档计数            | source document count                                     | `SourceDocumentCount`                     | 目标态已接受（#315 G1），一个编译单元内独立来源文档描述符的累计数量；它不属于有类型抽象语法树领域记录，不能挤入 `TypedAstRecordCount`。                                                           |
-| 第二版编译资源配置档    | P100 second compile limits profile                        | `LF-COMP-P100-INITIAL-v2`                 | 目标态已接受（#315 G1），保持仅以 `ModuleCount` 覆盖一模块一文档的 v1 不变；v2 新增来源文档计数上限，多文档模块必须显式选择该档或后继同维度版本，并重新取得资格。                                 |
-| 百万单路网配置档        | single-network million compile limits profile             | `LF-COMP-SINGLE-NETWORK-1M-v2`            | LFCA 的具名大型编译上限；以一百万个现实混合稳定静态实体的端到端证据取得资格，不提供无限模式或调用方覆写。                                                                                         |
+| 百万单路网配置档        | single-network million compile limits profile             | `LF-COMP-SINGLE-NETWORK-1M`               | LFCA 的具名大型编译配置档；以一百万个现实混合稳定静态实体的端到端证据取得资格，不提供无限模式或调用方覆写；取代 `LF-COMP-SINGLE-NETWORK-1M-v2`（ADR 0035）。                                     |
 | P100 首轮编译性能门槛   | P100 initial compiler performance gate                    | `LF-COMP-P100-R0-v1`                      | #292 原 G1 输入；G2 发现 #308 抽象工作负载不能无损映射生产语义，后继 G1 修订已将其降为非验收容量估算和实现选型输入，不构成产品通过（Product Pass）。                                              |
 | P100 首轮生产编译基线   | P100 initial production compiler baseline                 | `LF-COMP-P100-PRODUCTION-R0-v1`           | #292 G1 修订后接受，以真实合法产品场景在 `LF-P100-REF-01` 上形成的首轮描述性生产 R0；用于后继同机回退对照，不是产品 SLA 或城市容量。                                                              |
 | P100 首轮认证实测基线   | P100 initial attestation production baseline              | `LF-ATTEST-P100-PRODUCTION-R0-v1`         | #987 的共享路网修订认证与直算摘要三档合成网历史实测；绑定源码、工具链和环境，报告墙钟、堆峰值、稳态保留及并发干扰。不是后续主干性能认证或产品 SLA，不进产品 Gate。                                |
