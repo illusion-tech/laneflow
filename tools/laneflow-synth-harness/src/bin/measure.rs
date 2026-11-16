@@ -25,7 +25,7 @@ fn execute() -> Result<(), Error> {
     };
     if args.len() == 1 && args[0] == "--help" {
         println!(
-            "measure run <input-directory> <oracle-directory> <implementation-commit> <environment-before.json> <percent> <round> <new-output> [--no-load-sampling]\nmeasure prepare-oracles <semantic-binary> <input-root> <implementation-commit> <new-output>\nmeasure matrix|stretch-matrix <input-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output> [--no-load-sampling]\nmeasure guardrail <W1-input> <new-output>"
+            "measure run <input-directory> <oracle-directory> <implementation-commit> <environment-before.json> <percent> <round> <new-output> [--no-load-sampling]\nmeasure prepare-oracles <semantic-binary> <input-root> <implementation-commit> <new-output>\nmeasure matrix <input-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output> [--rows <label,...>] [--no-load-sampling]\nmeasure stretch-matrix <input-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output> [--no-load-sampling]\nmeasure guardrail <W1-input> <new-output>"
         );
         return Ok(());
     }
@@ -41,14 +41,23 @@ fn execute() -> Result<(), Error> {
             Path::new(&args[4]),
         );
     }
-    if args.len() == 6 && (args[0] == "matrix" || args[0] == "stretch-matrix") {
+    let subset = args.len() == 8 && args[0] == "matrix" && args[6] == "--rows";
+    if subset || (args.len() == 6 && (args[0] == "matrix" || args[0] == "stretch-matrix")) {
+        let selection = if subset {
+            // 子集矩阵只用于采样开销对比与阈值校准，不是正式矩阵结果。
+            measurement::RowSelection::Subset(text(7)?.split(',').map(str::to_owned).collect())
+        } else if args[0] == "stretch-matrix" {
+            measurement::RowSelection::Stretch
+        } else {
+            measurement::RowSelection::Nominal
+        };
         return measurement::matrix(
             Path::new(&args[1]),
             Path::new(&args[2]),
             text(3)?,
             Path::new(&args[4]),
             Path::new(&args[5]),
-            args[0] == "stretch-matrix",
+            &selection,
             load_sampling,
         );
     }

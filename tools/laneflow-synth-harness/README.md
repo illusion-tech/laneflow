@@ -127,7 +127,7 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 
 ```text
 measure prepare-oracles <semantic-binary> <generator-matrix-root> <implementation-commit> <new-oracle-root>
-measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output-root> [--no-load-sampling]
+measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output-root> [--rows <label,...>] [--no-load-sampling]
 measure stretch-matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-stretch-output> [--no-load-sampling]
 measure guardrail <W1-input-directory> <new-guardrail-output>
 ```
@@ -168,6 +168,12 @@ backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
 `round_status`，`discarded` 登记废弃原因（受标记段及其信号值）与快照摘要；聚合只
 使用 `accepted` 的 round。allocation 诊断构建与 `--no-load-sampling` 运行不按负载
 废弃。
+
+`matrix` 加 `--rows`（逗号分隔的标称行标签，如 `10000-W1-16-p100`）时只跑这些行，
+按标称顺序排列；环境记录、子进程观测、负载判定与重跑、三轮语义比较和聚合与完整
+矩阵相同。空列表、重复或非标称行一律拒绝。`summary.json` 记录 `rows_filter`，
+`matrix_scope` 标为子集。子集矩阵只用于采样开销对比与 §7.4 阈值校准，不是正式
+矩阵结果，不得作为性能基线的测量引用。
 
 正常 release 构建不启用任何测量 feature。独立诊断构建启用 `allocation`，同时启用
 已有 execution-evidence 与 pose-profiling；诊断矩阵每行一个完整窗口，其耗时明确排除：
