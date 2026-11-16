@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn sparse_shared_zone_uses_indexed_targets_with_linear_work() {
         let (mut unit, mut mir) = super::super::fixture();
-        unit.limits = crate::CompileLimits::single_network_1m_v2();
+        unit.limits = crate::CompileLimits::single_network_1m();
         let count = 2_000;
         let mut passages = Vec::new();
         for (index, stream) in mir.participant_streams.iter_mut().enumerate() {

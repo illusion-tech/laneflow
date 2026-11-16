@@ -274,7 +274,7 @@ pub(crate) fn unit_with_control(
     aspects: Option<[SignalAspect; 2]>,
     mutate: impl FnOnce(&mut Vec<PolicyStreamRuleInput<'_>>, &mut Vec<PolicyGateRuleInput<'_>>),
 ) -> Result<CompilationUnit, DiagnosticBundle> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let topology = re::RoadEditingSourceWriter::new(&limits)
         .write(
             super::portable_fixture_tests::policy_topology_variant(&limits, direction, aspects)
@@ -529,7 +529,7 @@ fn raw_slot(bytes: &[u8], table: usize, field: usize) -> (usize, usize) {
 #[test]
 fn malformed_lfre_policy_is_rejected_and_admission_can_retry() {
     use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let valid = editing_policy(&limits);
     let root = wire::size_prefixed_root_as_road_editing_source(valid.as_bytes()).unwrap();
     let policy = root.right_of_way_policy_sets().get(0);
@@ -626,7 +626,7 @@ fn truncated_vtable_fails_closed_before_closure_field_counting() {
     // 保留 required 字段，MissingRequiredField 先行拒绝。本测试钉住该失败关闭
     // 行为——封闭性检查的字段计数减法会下溢，准入不得因 required 巧合移除而 panic。
     use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let valid = editing_policy(&limits);
     let root = wire::size_prefixed_root_as_road_editing_source(valid.as_bytes()).unwrap();
     let stream = root
@@ -681,7 +681,7 @@ fn nearer_class_precedes_priority_and_access_denied_stream_needs_no_rule() {
         streams.push(specific);
     })
     .unwrap();
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let policy = editing_policy_custom(&limits, |builder, policy| {
         policy.streams = policy
             .streams
@@ -756,7 +756,7 @@ fn unit_editing_custom(
         &mut re::RightOfWayPolicySetInput,
     ),
 ) -> Result<CompilationUnit, DiagnosticBundle> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let policy = editing_policy_custom(&limits, customize);
     let topology = re::RoadEditingSourceWriter::new(&limits)
         .write(
@@ -840,7 +840,7 @@ fn denied_policy_candidates_exhaust_work_budget_and_can_retry() {
 #[test]
 fn duplicate_policy_key_fails_during_raw_admission_and_can_retry() {
     use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let source = editing_policy_custom(&limits, |builder, policy| {
         let mut other = policy.clone();
         other.key = "other".into();

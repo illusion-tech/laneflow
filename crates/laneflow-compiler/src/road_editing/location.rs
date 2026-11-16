@@ -892,7 +892,7 @@ mod tests {
 
     #[test]
     fn factory_resolves_owner_address_property_and_canvas_after_wire_order_changes() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",
@@ -942,7 +942,7 @@ mod tests {
 
     #[test]
     fn factory_represents_module_import_as_module_owned_relation() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",

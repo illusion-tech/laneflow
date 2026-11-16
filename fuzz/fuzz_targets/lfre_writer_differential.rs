@@ -31,7 +31,7 @@ const SEED_DOCUMENT_KEY: &str = "roads/fuzz-differential";
 const MAX_MUTATION_OPS: usize = 16;
 
 fn build_seed() -> Option<Vec<u8>> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = RoadEditingModuleHeader::try_new(
         SEED_NAMESPACE,
         SEED_DOCUMENT_KEY,
@@ -75,7 +75,7 @@ fn check_unmutated_seed_admits(seed: &[u8]) {
         let Ok(input) = RoadEditingModuleInput::try_new(SEED_DOCUMENT_KEY, seed, None) else {
             return;
         };
-        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
         if let Err(bundle) = builder.add_road_editing_module(input) {
             panic!("LFRE writer/reader differential: unmutated writer output rejected: {bundle}");
         }
@@ -112,7 +112,7 @@ fuzz_target!(|data: &[u8]| {
     let Ok(input) = RoadEditingModuleInput::try_new(SEED_DOCUMENT_KEY, &mutated, None) else {
         return;
     };
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
     match builder.add_road_editing_module(input) {
         Ok(_) => {
             // 接受路径：弱化 roundtrip 断言——不 panic 即通过；builder 析构

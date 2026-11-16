@@ -109,7 +109,7 @@ fn compile_open_and_closed() -> Arc<SharedNetworkRevision> {
 }
 
 fn compile_module(extend: impl FnOnce(&mut SyntheticModuleBuilder)) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/runtime-coverage",
@@ -179,7 +179,7 @@ fn compile_module(extend: impl FnOnce(&mut SyntheticModuleBuilder)) -> Arc<Share
 }
 
 fn route(world: &mut TrafficWorld, keys: &[&str]) -> laneflow_runtime::RouteHandle {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {

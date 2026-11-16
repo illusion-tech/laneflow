@@ -124,7 +124,7 @@ pub(super) fn bind(
         .peak_controlled_live_bytes
         .saturating_add(owned)
         .saturating_add(lookup);
-    crate::policy::check_budget(&unit.limits, lookup, live)?;
+    crate::policy::check_budget(&unit.limits, live)?;
     let total_records = hir.hir_record_count.saturating_add(records);
     let limit = unit.limits.value(CompileLimitDimension::HirRecordCount);
     if total_records > limit {

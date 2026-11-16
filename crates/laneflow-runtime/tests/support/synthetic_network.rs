@@ -64,7 +64,7 @@ pub(crate) struct WorkloadShape {
 impl WorkloadShape {
     pub(crate) fn for_stable_entities(stable_entities: u32) -> Self {
         // 策略集自身占 1 个稳定实体（install 要求 pinned 策略），从合成侧预留，
-        // 使三档的稳定实体总数恰为档位目标值、不越 single_network_1m_v2 限额。
+        // 使三档的稳定实体总数恰为档位目标值、不越 single_network_1m 限额。
         const POLICY_SET_ENTITIES: u32 = 1;
         let conflict_tiles = stable_entities / 800;
         let conflict_entities = conflict_tiles * 31;
@@ -686,7 +686,7 @@ fn build_conflict_module(
 }
 
 pub(crate) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> CompilationUnit {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/portable-resource-probe",

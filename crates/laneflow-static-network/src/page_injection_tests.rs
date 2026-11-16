@@ -193,7 +193,7 @@ fn snapshot(words: &[u32]) -> Vec<u8> {
 }
 
 fn fixture() -> Result<Vec<u8>> {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "test/page-injection",

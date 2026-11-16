@@ -229,9 +229,8 @@ pub enum PortableEmissionError {
     /// 从已封存 staged backing 读取 exact bytes 失败：越界、底层读取失败或
     /// backing 漂移（`emit_portable_candidate_to_staging`）。
     ObjectSource(ObjectSourceError),
-    /// 预备对象的 `PortableObjectBytes`、三对象合计的 `PortableBundleBytes` 或
-    /// 检查器 scratch 的 `StageScratchBytes` 超出编译资源配置档；全部发射与检查
-    /// 入口均可达。
+    /// 发射或检查的受控存续超出编译资源配置档的 `CompilerControlledLiveBytes`；
+    /// 全部发射与检查入口均可达。
     CompileLimitExceeded {
         /// 超出上限的编译资源维度。
         dimension: CompileLimitDimension,

@@ -346,7 +346,7 @@ pub(crate) fn local_id(
     namespace: &str,
     key: &str,
 ) -> Result<laneflow_static_contract::StableId128> {
-    derive_canonical_stable_id_v1(kind, namespace, key, &CompileLimits::single_network_1m_v2())
+    derive_canonical_stable_id_v1(kind, namespace, key, &CompileLimits::single_network_1m())
         .map_err(|e| validation("identity", e))
 }
 

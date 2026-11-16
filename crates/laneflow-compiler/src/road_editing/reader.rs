@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn verifies_writer_output_with_explicit_limits_and_exact_table_count() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
@@ -1143,7 +1143,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_accepts_every_first_party_declaration_shape() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = RoadEditingSourceWriter::new(&limits)
             .write(super::super::writer::tests::module_with_every_declaration(
                 &limits,
@@ -1162,7 +1162,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_rejects_unspecified_profile_after_wire_verification() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         overwrite_root_u8_field(&mut bytes, 2, 0);
@@ -1193,7 +1193,7 @@ mod tests {
 
     #[test]
     fn parking_preflight_uses_current_facility_field_paths() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = parking_source_buffer(&limits);
         let mut bytes = buffer.as_bytes().to_vec();
         let key = b"facility-a";
@@ -1261,7 +1261,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_applies_exact_string_item_budget() {
-        let normal_limits = CompileLimits::p100_initial_v1();
+        let normal_limits = CompileLimits::p100();
         let buffer = source_buffer(&normal_limits, "roads/main");
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
@@ -1286,7 +1286,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_rejects_non_reciprocal_signal_phase_owner() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = RoadEditingSourceWriter::new(&limits)
             .write(super::super::writer::tests::module_with_every_declaration(
                 &limits,
@@ -1323,7 +1323,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_rejects_imported_signal_group_owner() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = signal_source_buffer(&limits);
         let mut bytes = buffer.as_bytes().to_vec();
         let reference_offset = {
@@ -1362,7 +1362,7 @@ mod tests {
 
     #[test]
     fn rejects_prefix_mismatch_before_flatbuffers_verifier() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         bytes[0] ^= 1;
@@ -1390,7 +1390,7 @@ mod tests {
 
     #[test]
     fn rejects_file_identifier_before_verifier() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         bytes[8..12].copy_from_slice(b"NOPE");
@@ -1413,7 +1413,7 @@ mod tests {
 
     #[test]
     fn rejects_structural_corruption_after_identifier_check() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
@@ -1432,7 +1432,7 @@ mod tests {
 
     #[test]
     fn verifier_trace_preserves_root_vector_index_and_checked_byte_range() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let key_position = bytes
@@ -1469,7 +1469,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_format_version_before_current_schema_verification() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         overwrite_format_version(&mut bytes, 1);
@@ -1491,7 +1491,7 @@ mod tests {
 
     #[test]
     fn binds_verified_document_key_to_external_expected_identity() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/actual");
         let input = RoadEditingModuleInput::try_new("roads/expected", buffer.as_bytes(), None)
             .expect("input");
@@ -1510,7 +1510,7 @@ mod tests {
 
     #[test]
     fn document_key_mismatch_does_not_copy_an_unbounded_wire_key() {
-        let normal_limits = CompileLimits::p100_initial_v1();
+        let normal_limits = CompileLimits::p100();
         let actual_key = "a".repeat(53);
         let buffer = source_buffer(&normal_limits, &actual_key);
         let limits = normal_limits.with_test_single_string_limit(8);
@@ -1532,7 +1532,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_rejects_a_self_qualified_reference() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer_with_imported_frame(&limits);
         let mut bytes = buffer.as_bytes().to_vec();
         let valid = b"base::frame";
@@ -1562,7 +1562,7 @@ mod tests {
 
     #[test]
     fn semantic_preflight_rejects_duplicate_lane_edge_successors() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer_with_lane_successors(&limits);
         let mut bytes = buffer.as_bytes().to_vec();
         let successor_offset = {
@@ -1599,7 +1599,7 @@ mod tests {
 
     #[test]
     fn verifier_table_limit_maps_to_typed_ast_resource_dimension() {
-        let normal_limits = CompileLimits::p100_initial_v1();
+        let normal_limits = CompileLimits::p100();
         let buffer = source_buffer(&normal_limits, "roads/main");
         let limits =
             normal_limits.with_test_admission_limit(CompileLimitDimension::TypedAstRecordCount, 1);
@@ -1619,7 +1619,7 @@ mod tests {
 
     #[test]
     fn source_byte_limits_fail_before_verifier() {
-        let normal_limits = CompileLimits::p100_initial_v1();
+        let normal_limits = CompileLimits::p100();
         let buffer = source_buffer(&normal_limits, "roads/main");
         let source_len = u32::try_from(buffer.as_bytes().len()).expect("portable source len");
         let input =
@@ -1653,7 +1653,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_input_and_every_truncated_length_before_verifier() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let bytes = buffer.as_bytes();
 
@@ -1694,7 +1694,7 @@ mod tests {
 
     #[test]
     fn rejects_size_prefix_off_by_one_in_both_directions() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let actual = u64::try_from(buffer.as_bytes().len() - 4).expect("payload length");
         for declared in [actual - 1, actual + 1] {
@@ -1720,7 +1720,7 @@ mod tests {
 
     #[test]
     fn rejects_trailing_bytes_after_declared_end() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let declared = u64::try_from(buffer.as_bytes().len() - 4).expect("declared length");
         let mut bytes = buffer.as_bytes().to_vec();
@@ -1743,7 +1743,7 @@ mod tests {
 
     #[test]
     fn rejects_identifier_case_and_adjacent_byte_variants() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         for identifier in [b"lfre", b"LFRD", b"LFRF", b"LFRe"] {
             let mut bytes = buffer.as_bytes().to_vec();
@@ -1764,7 +1764,7 @@ mod tests {
 
     #[test]
     fn rejects_root_offset_pointing_at_buffer_end() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let root_offset = u32::try_from(bytes.len() - 4).expect("portable root offset");
@@ -1784,7 +1784,7 @@ mod tests {
 
     #[test]
     fn rejects_misaligned_root_table_offset() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         bytes[4..8].copy_from_slice(&5_u32.to_le_bytes());
@@ -1803,7 +1803,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_bounds_vtable_offset() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let root_position = root_table_position(&bytes);
@@ -1823,7 +1823,7 @@ mod tests {
 
     #[test]
     fn rejects_truncated_vtable_beyond_buffer() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let vtable_position = table_vtable_position(&bytes, root_table_position(&bytes));
@@ -1843,7 +1843,7 @@ mod tests {
 
     #[test]
     fn rejects_vector_length_beyond_buffer() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let vector_position = table_field_target_position(
@@ -1867,7 +1867,7 @@ mod tests {
 
     #[test]
     fn rejects_string_missing_null_terminator() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let key_position = bytes
@@ -1892,7 +1892,7 @@ mod tests {
 
     #[test]
     fn rejects_string_offset_beyond_buffer() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let frame_position = {
@@ -1923,7 +1923,7 @@ mod tests {
 
     #[test]
     fn rejects_union_value_without_discriminant_at_verifier() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer_with_imported_frame(&limits);
         let mut bytes = buffer.as_bytes().to_vec();
         let segment_position = {
@@ -1957,7 +1957,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_union_discriminant_after_verification() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer_with_imported_frame(&limits);
         let mut bytes = buffer.as_bytes().to_vec();
         let segment_position = {
@@ -1996,7 +1996,7 @@ mod tests {
 
     #[test]
     fn rejects_absent_required_field_at_verifier() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         let frame_position = {
@@ -2024,7 +2024,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_geometry_profile_enum_after_verification() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
         overwrite_root_u8_field(&mut bytes, 2, 200);
@@ -2046,7 +2046,7 @@ mod tests {
 
     #[test]
     fn verifier_depth_admits_schema_longest_path() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer_with_imported_frame(&limits);
         let input =
             RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
@@ -2059,7 +2059,7 @@ mod tests {
 
     #[test]
     fn verifier_dos_errors_map_to_closed_violations() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
 
         let error = verifier_error(
             InvalidFlatbuffer::DepthLimitReached,
@@ -2102,7 +2102,7 @@ mod tests {
 
     #[test]
     fn verifier_apparent_size_admits_boundary_and_rejects_boundary_plus_one() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut accepted_copies = 0_usize;
         let mut rejection = None;
         for copies in 1..=5_000 {

@@ -13,7 +13,8 @@ pub(super) fn append_policy_sources(
     members: &mut Vec<OwnerLocalProjection>,
     limits: &crate::CompileLimits,
 ) -> Result<(), PortableEmissionError> {
-    let mut scratch = Scratch::new(limits.value(CompileLimitDimension::StageScratchBytes));
+    let mut scratch =
+        Scratch::new(limits.value(CompileLimitDimension::CompilerControlledLiveBytes));
     let mut sources =
         reserved::<crate::PolicySourceView<'_>>(source_map.policy_sources().len(), &mut scratch)?;
     sources.extend(source_map.policy_sources());

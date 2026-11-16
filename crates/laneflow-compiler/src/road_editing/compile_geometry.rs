@@ -2500,7 +2500,7 @@ mod tests {
     }
 
     fn lowered_geometry_fixture() -> (Box<[RoadAlignmentDeclaration]>, Vec<TypedAstDeclaration>) {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let module = super::super::writer::tests::module_with_every_declaration(&limits);
         let (alignments, mut declarations) = lowered_module(&limits, module);
         declarations.retain(|declaration| {
@@ -2703,7 +2703,7 @@ mod tests {
 
     #[test]
     fn curve_program_retains_closed_start_segment_and_point_source_paths() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let reference = RoadEditingCurveProgram::try_new(
             fixture_point(0.0, 0.0),
             vec![
@@ -2894,7 +2894,7 @@ mod tests {
 
     #[test]
     fn degenerate_reference_segment_freeze_points_at_the_segment_span() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let reference = RoadEditingCurveProgram::try_new(
             fixture_point(0.0, 0.0),
             vec![
@@ -2937,7 +2937,7 @@ mod tests {
 
     #[test]
     fn explicit_curve_direction_break_points_at_the_following_segment_span() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let reference = RoadEditingCurveProgram::try_new(
             fixture_point(0.0, 0.0),
             vec![RoadEditingCurveSegment::line(fixture_point(20.0, 0.0))],
@@ -3000,7 +3000,7 @@ mod tests {
 
     #[test]
     fn corridor_join_direction_freeze_points_at_the_preceding_segment_end() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         // 90° 折点：join 的共享点在 source 中唯一属于前一段的 end 字段。
         let reference = RoadEditingCurveProgram::try_new(
             fixture_point(0.0, 0.0),

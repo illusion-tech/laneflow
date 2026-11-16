@@ -288,15 +288,10 @@ LFCA 不发射分区提示 payload。可丢弃、可重建且不拥有行为裁�
 来源虚构模块、命名空间或导入边。
 
 来源文档是来源伴随记录，不纳入 `TypedAstRecordCount`。#315 增加独立
-`SourceDocumentCount`，并通过新的 `LF-COMP-P100-INITIAL-v2` 约束编译单元文档总数；v1
-配置档保持不可变。v2 的初始上限、三文档容量推导和重新资格验证以
-`compiler-foundation.md` 第 3.3、10.4 节为准。
-v1 只以 `ModuleCount` 隐式约束一模块一文档形状，当前 Synthetic 符合该形状；任何多文档模块都
-必须在前端按规模分配和共同接入提交前确认宿主显式选择了 v2 或后继携带
-`SourceDocumentCount` 的版本化配置档。多文档正式前端必须在读取、哈希或解析前拒绝
-不具备 `SourceDocumentCount` 的配置档；#296 道路编辑来源按“一模块一个 source
-buffer/document”应用
-同一规则，不得为 v1 猜测默认值或自动升级。
+`SourceDocumentCount` 约束编译单元文档总数；现行每个具名配置档都定义该维度（ADR 0035），
+初始上限与三文档容量推导以 `compiler-foundation.md` 第 3.3、10.4 节为准。多文档正式前端
+必须在读取、哈希或解析前按 `SourceDocumentCount` 检查；#296 道路编辑来源按“一模块一个
+source buffer/document”应用同一规则。
 
 来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源载荷
 （exact source record）只存续到官方前端 `finish` 完成一次摘要、长度和来源位置派生；

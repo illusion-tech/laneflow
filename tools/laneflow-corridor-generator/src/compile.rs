@@ -42,7 +42,7 @@ pub(crate) fn compile_corridor(
     corridor: &CorridorBuild,
     cross_section: &CrossSectionDocs,
 ) -> Result<CompilationOutput, Error> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: AUTHORING_NAMESPACE,

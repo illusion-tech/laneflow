@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn valid_header_is_owned_without_a_self_reported_content_digest() {
         let input = valid_input();
-        let header = SourceModuleHeader::new(input, &CompileLimits::p100_initial_v1()).unwrap();
+        let header = SourceModuleHeader::new(input, &CompileLimits::p100()).unwrap();
 
         assert_eq!(
             header.authoring_namespace_id(),
@@ -361,7 +361,7 @@ mod tests {
             ..valid_input()
         };
 
-        let bundle = match SourceModuleHeader::new(input, &CompileLimits::p100_initial_v1()) {
+        let bundle = match SourceModuleHeader::new(input, &CompileLimits::p100()) {
             Ok(_) => panic!("invalid source module header must fail"),
             Err(bundle) => bundle,
         };
@@ -395,10 +395,10 @@ mod tests {
         let over_bound = "a".repeat(54);
         let mut input = valid_input();
         input.generator_build_id = &at_bound;
-        assert!(SourceModuleHeader::new(input, &CompileLimits::p100_initial_v1()).is_ok());
+        assert!(SourceModuleHeader::new(input, &CompileLimits::p100()).is_ok());
 
         input.generator_build_id = &over_bound;
-        let bundle = match SourceModuleHeader::new(input, &CompileLimits::p100_initial_v1()) {
+        let bundle = match SourceModuleHeader::new(input, &CompileLimits::p100()) {
             Ok(_) => panic!("over-limit source module header must fail"),
             Err(bundle) => bundle,
         };
@@ -418,7 +418,7 @@ mod tests {
     fn million_profile_keeps_identity_namespace_at_53_without_narrowing_metadata() {
         let at_bound = "a".repeat(53);
         let over_bound = "a".repeat(54);
-        let limits = CompileLimits::single_network_1m_v2();
+        let limits = CompileLimits::single_network_1m();
         let mut input = valid_input();
         input.authoring_namespace_id = &at_bound;
         input.provenance = &over_bound;
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn aggregate_limit_payload_keeps_dimension_limit_and_observed_order() {
-        let limits = CompileLimits::p100_initial_v1().with_test_string_limits(1, 1);
+        let limits = CompileLimits::p100().with_test_string_limits(1, 1);
         let bundle = match SourceModuleHeader::new(valid_input(), &limits) {
             Ok(_) => panic!("aggregate over-limit source module header must fail"),
             Err(bundle) => bundle,

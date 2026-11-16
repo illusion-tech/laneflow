@@ -271,7 +271,7 @@ pub fn dynamic_cost_snapshot_digest(
 }
 
 fn build_linear_revision() -> (Arc<SharedNetworkRevision>, Vec<StableId128>) {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let workload_manifest_digest = domain_digest(WORKLOAD_MANIFEST.as_bytes());
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {

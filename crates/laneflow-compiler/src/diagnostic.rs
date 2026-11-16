@@ -263,8 +263,6 @@ pub enum DiagnosticCode {
     DuplicateCanonicalIdentity,
     /// 不同完整规范身份派生出相同 StableId128。
     IdentityDigestCollision,
-    /// 选择的编译资源配置档不支持候选官方模块必需的维度。
-    CompileProfileIncompatible,
     /// 候选输入或阶段工作集超过显式编译资源配置档。
     CompileLimitExceeded,
 }
@@ -368,7 +366,6 @@ impl DiagnosticCode {
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
-            Self::CompileProfileIncompatible => "LF-COMP-PROFILE-INCOMPATIBLE",
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
         }
     }
@@ -1037,13 +1034,6 @@ pub enum DiagnosticPayload {
         limit: u64,
         /// 候选输入或工作集的实际观测值。
         observed: u64,
-    },
-    /// 缺少必需维度的配置档标识与维度。
-    CompileProfileIncompatible {
-        /// 不支持必需维度的配置档标识。
-        profile_id: Box<str>,
-        /// 候选模块必需但配置档缺失的维度。
-        required_dimension: CompileLimitDimension,
     },
     /// 导入命名空间的文本失败原因。
     InvalidImportNamespace {
@@ -1876,25 +1866,6 @@ impl Diagnostic {
             stable_key: None,
             related_spans: Box::default(),
         }
-    }
-
-    /// 构造所选编译资源配置档不支持候选官方模块必需维度的诊断。
-    pub(crate) fn compile_profile_incompatible(
-        profile_id: &str,
-        required_dimension: CompileLimitDimension,
-        primary_span: impl Into<SourceLocation>,
-        stable_key: &str,
-    ) -> Self {
-        Self::error_with_context(
-            DiagnosticCode::CompileProfileIncompatible,
-            DiagnosticPayload::CompileProfileIncompatible {
-                profile_id: profile_id.into(),
-                required_dimension,
-            },
-            Some(primary_span),
-            Box::default(),
-            Some(stable_key.into()),
-        )
     }
 
     /// 构造导入命名空间不是合法外部 token 的诊断。
@@ -3698,14 +3669,6 @@ impl fmt::Display for Diagnostic {
                 "编译资源维度 {} 超过上限：允许 {limit}，实际 {observed}",
                 dimension.as_str()
             ),
-            DiagnosticPayload::CompileProfileIncompatible {
-                profile_id,
-                required_dimension,
-            } => write!(
-                formatter,
-                "编译资源配置档 {profile_id} 不支持必需维度 {}",
-                required_dimension.as_str()
-            ),
             DiagnosticPayload::InvalidImportNamespace { violation } => write!(
                 formatter,
                 "导入模块命名空间非法：{}",
@@ -4926,8 +4889,6 @@ mod tests {
         let dimensions = [
             CompileLimitDimension::RetainedCapacityBytes,
             CompileLimitDimension::CompilerControlledLiveBytes,
-            CompileLimitDimension::OutputBytes,
-            CompileLimitDimension::StageScratchBytes,
             CompileLimitDimension::DiagnosticCount,
             CompileLimitDimension::TotalStringBytes,
             CompileLimitDimension::SingleStringBytes,
@@ -4964,9 +4925,7 @@ mod tests {
                 diagnostic.payload(),
                 DiagnosticPayload::CompileLimitExceeded {
                     dimension: CompileLimitDimension::RetainedCapacityBytes
-                        | CompileLimitDimension::CompilerControlledLiveBytes
-                        | CompileLimitDimension::OutputBytes
-                        | CompileLimitDimension::StageScratchBytes,
+                        | CompileLimitDimension::CompilerControlledLiveBytes,
                     ..
                 }
             )

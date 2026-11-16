@@ -177,7 +177,7 @@ fn shared_owner_index_preserves_access_holes_classes_and_distinct_policies() {
                 .unwrap();
         })
         .unwrap();
-        unit.limits = CompileLimits::single_network_1m_v2();
+        unit.limits = CompileLimits::single_network_1m();
         let output = Compiler::new().compile(unit).unwrap();
         let candidate = emit_portable_candidate(
             &output,
@@ -324,7 +324,7 @@ fn output(permuted: bool, signals: bool, overflow: bool) -> CompilationOutput {
         },
     )
     .unwrap();
-    unit.limits = CompileLimits::single_network_1m_v2();
+    unit.limits = CompileLimits::single_network_1m();
     Compiler::new().compile(unit).unwrap()
 }
 

@@ -49,7 +49,8 @@ const LOCATION_CONTEXT_FIXED_UPPER_BOUND_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Copy)]
 struct GeometryScratchAllowance {
-    stage_limit: u64,
+    /// 几何阶段开始前已在候选存续上界中预收费的 alignment 输入 backing。
+    stage_base: u64,
     live_headroom: u64,
     live_bytes_before_scratch: u64,
 }
@@ -58,6 +59,8 @@ struct GeometryScratchAllowance {
 struct RoadEditingAdmissionSizing {
     structure: StructureSizing,
     import_count: u64,
+    // 暂存不再是限额（ADR 0035）；保留计算供测试核对，资源账本第二步并入报告。
+    #[cfg_attr(not(test), allow(dead_code))]
     frontend_scratch_upper_bound: u64,
     frontend_dynamic_live_upper_bound: u64,
     alignment_input_scratch_bytes: u64,
@@ -380,29 +383,21 @@ fn precheck_accumulated_counts(
             ));
         }
     }
-    if let Some(limit) = limits.source_document_count_limit() {
-        let observed = builder
-            .already_admitted(CompileLimitDimension::SourceDocumentCount)
-            .saturating_add(1);
-        if observed > limit {
-            return Err(accumulated_limit_error(
-                CompileLimitDimension::SourceDocumentCount,
-                limit,
-                observed,
-                verified,
-            ));
-        }
-    }
-
-    let scratch_limit = limits.value(CompileLimitDimension::StageScratchBytes);
-    if sizing.frontend_scratch_upper_bound > scratch_limit {
+    let source_document_limit = limits.value(CompileLimitDimension::SourceDocumentCount);
+    let observed_documents = builder
+        .already_admitted(CompileLimitDimension::SourceDocumentCount)
+        .saturating_add(1);
+    if observed_documents > source_document_limit {
         return Err(accumulated_limit_error(
-            CompileLimitDimension::StageScratchBytes,
-            scratch_limit,
-            sizing.frontend_scratch_upper_bound,
+            CompileLimitDimension::SourceDocumentCount,
+            source_document_limit,
+            observed_documents,
             verified,
         ));
     }
+
+    // 前端暂存上界中的 alignment 输入已计入候选存续上界，lowering 与导入排序视图计入
+    // 动态存续上界；暂存不再单独设限，统一按宿主预算核对。
     let candidate_live_upper =
         preallocation_live_upper_bound(counts, display_items, display_bytes, &sizing);
     let observed_live = builder
@@ -445,7 +440,7 @@ fn geometry_scratch_allowance(
         .value(CompileLimitDimension::CompilerControlledLiveBytes)
         .saturating_sub(live_bytes_before_scratch);
     GeometryScratchAllowance {
-        stage_limit: limits.value(CompileLimitDimension::StageScratchBytes),
+        stage_base: sizing.alignment_input_scratch_bytes,
         live_headroom,
         live_bytes_before_scratch,
     }
@@ -524,10 +519,13 @@ fn lower_verified_source(
         profiles.accuracy,
         profiles.direction,
         GeometryCompilationBudget {
-            station_row_byte_limit: geometry_scratch_allowance.stage_limit,
+            station_row_byte_limit: geometry_scratch_allowance.live_headroom,
             point_limit: remaining_geometry_points
                 .saturating_sub(counts.conflict_region_point_count()),
-            scratch_limit: geometry_scratch_allowance.stage_limit,
+            // 暂存不单独设限：几何暂存只受预收费 base 加存续余量约束。
+            scratch_limit: geometry_scratch_allowance
+                .stage_base
+                .saturating_add(geometry_scratch_allowance.live_headroom),
             live_headroom: geometry_scratch_allowance.live_headroom,
         },
     )
@@ -540,7 +538,12 @@ fn lower_verified_source(
             geometry_scratch_allowance,
         )
     })?;
-    debug_assert!(geometry_usage.peak_scratch_bytes <= geometry_scratch_allowance.stage_limit);
+    debug_assert!(
+        geometry_usage.peak_scratch_bytes
+            <= geometry_scratch_allowance
+                .stage_base
+                .saturating_add(geometry_scratch_allowance.live_headroom)
+    );
     let geometry_point_count = geometry_usage
         .output_point_count
         .saturating_add(counts.conflict_region_point_count());
@@ -835,11 +838,18 @@ fn geometry_compilation_diagnostic(
         observed,
     } = error
     {
-        debug_assert_eq!(error_limit, scratch_allowance.stage_limit);
+        debug_assert_eq!(
+            error_limit,
+            scratch_allowance
+                .stage_base
+                .saturating_add(scratch_allowance.live_headroom)
+        );
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
-            CompileLimitDimension::StageScratchBytes,
-            limits.value(CompileLimitDimension::StageScratchBytes),
-            observed,
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+            scratch_allowance
+                .live_bytes_before_scratch
+                .saturating_add(observed.saturating_sub(scratch_allowance.stage_base)),
             Some(locations.module_header()),
             Some(
                 verified
@@ -893,11 +903,14 @@ fn geometry_compilation_diagnostic(
         ));
     }
     if error.kind() == NumericFreezeKind::StationRowLimit {
-        let limit = limits.value(CompileLimitDimension::StageScratchBytes);
+        let limit = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
-            CompileLimitDimension::StageScratchBytes,
+            CompileLimitDimension::CompilerControlledLiveBytes,
             limit,
-            limit.saturating_add(1),
+            scratch_allowance
+                .live_bytes_before_scratch
+                .saturating_add(scratch_allowance.live_headroom)
+                .saturating_add(1),
             Some(locations.module_header()),
             Some(
                 verified
@@ -1568,7 +1581,7 @@ mod tests {
 
     #[test]
     fn admission_owns_results_without_retaining_wire_bytes() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "city", "roads/main");
         let expected_digest = source_document_digest(buffer.as_bytes());
         let mut builder = CompilationUnitBuilder::new(limits);
@@ -1621,7 +1634,7 @@ mod tests {
         );
 
         let descriptor_digest = |accuracy, direction| {
-            let limits = CompileLimits::p100_initial_v1();
+            let limits = CompileLimits::p100();
             let buffer =
                 source_buffer_with_profiles(&limits, "city", "roads/profiles", accuracy, direction);
             let mut builder = CompilationUnitBuilder::new(limits);
@@ -1651,7 +1664,7 @@ mod tests {
 
     #[test]
     fn authoring_control_points_do_not_consume_the_canonical_precheck_budget() {
-        let normal_limits = CompileLimits::p100_initial_v1();
+        let normal_limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "roads/curves",
@@ -1718,7 +1731,7 @@ mod tests {
 
     #[test]
     fn display_source_obeys_the_single_string_limit_before_retention() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = source_buffer(&limits, "city", "roads/display-source");
         let exact = "x".repeat(
             usize::try_from(limits.value(CompileLimitDimension::SingleStringBytes)).unwrap(),
@@ -1757,7 +1770,7 @@ mod tests {
 
     #[test]
     fn small_module_does_not_reserve_the_global_remaining_point_capacity() {
-        let normal_limits = CompileLimits::p100_initial_v1();
+        let normal_limits = CompileLimits::p100();
         let buffer = source_buffer(&normal_limits, "city", "roads/main");
         let limits = normal_limits
             .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 150_000);
@@ -1772,7 +1785,7 @@ mod tests {
 
     #[test]
     fn controlled_live_bytes_counts_geometry_source_range_backing_exactly() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = complete_geometry_buffer(&limits);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -1798,7 +1811,7 @@ mod tests {
 
     #[test]
     fn complete_geometry_controlled_live_boundary_includes_source_ranges() {
-        let broad_limits = CompileLimits::p100_initial_v1();
+        let broad_limits = CompileLimits::p100();
         let buffer = complete_geometry_buffer(&broad_limits);
         let mut broad_builder = CompilationUnitBuilder::new(broad_limits.clone());
         broad_builder
@@ -1839,7 +1852,7 @@ mod tests {
 
     #[test]
     fn geometry_outputs_and_import_sort_share_one_live_boundary() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let imports = (0..1_032).map(|index| format!("dependency-{index:04}"));
         let buffer = complete_geometry_buffer_with_imports(&broad, imports.collect());
         let input =
@@ -1862,7 +1875,7 @@ mod tests {
             &broad,
             broad.value(CompileLimitDimension::GeometryPointCount),
             GeometryScratchAllowance {
-                stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
+                stage_base: sizing.alignment_input_scratch_bytes,
                 live_headroom: u64::MAX,
                 live_bytes_before_scratch: base,
             },
@@ -1915,7 +1928,7 @@ mod tests {
             &broad,
             broad.value(CompileLimitDimension::GeometryPointCount),
             GeometryScratchAllowance {
-                stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
+                stage_base: sizing.alignment_input_scratch_bytes,
                 live_headroom: exact_headroom,
                 live_bytes_before_scratch: base,
             },
@@ -1928,7 +1941,7 @@ mod tests {
             &broad,
             broad.value(CompileLimitDimension::GeometryPointCount),
             GeometryScratchAllowance {
-                stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
+                stage_base: sizing.alignment_input_scratch_bytes,
                 live_headroom: exact_headroom - 1,
                 live_bytes_before_scratch: base,
             },
@@ -1939,9 +1952,32 @@ mod tests {
         );
     }
 
+    /// 预检核对的精确存续：既有 builder 存续 + 候选预分配上界 + 前端动态存续上界。
+    fn exact_precheck_live(
+        builder: &CompilationUnitBuilder,
+        verified: &VerifiedRoadEditingSource<'_>,
+    ) -> u32 {
+        let display_source = verified.input().display_source();
+        let display_items = u64::from(display_source.is_some());
+        let display_bytes =
+            display_source.map_or(0, |value| u64::try_from(value.len()).unwrap_or(u64::MAX));
+        let sizing =
+            RoadEditingAdmissionSizing::from_root(verified.root(), verified.preflight_counts());
+        let live = builder
+            .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
+            .saturating_add(preallocation_live_upper_bound(
+                verified.preflight_counts(),
+                display_items,
+                display_bytes,
+                &sizing,
+            ))
+            .saturating_add(sizing.frontend_dynamic_live_upper_bound);
+        u32::try_from(live).expect("small fixture live bytes")
+    }
+
     #[test]
     fn lowering_scratch_counts_root_and_nested_sort_views_together() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let buffer = nested_sort_buffer(&broad);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("roads/nested-sort", buffer.as_bytes(), None).unwrap(),
@@ -1957,11 +1993,14 @@ mod tests {
             expected,
             "the lane-edge root sort stays live while one successor set is sorted"
         );
-        let expected = u32::try_from(expected).expect("small scratch fixture");
 
-        let limits = broad
-            .clone()
-            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, expected);
+        // 暂存计入存续：精确存续边界通过，差一单位在提交候选前失败。
+        let exact_live =
+            exact_precheck_live(&CompilationUnitBuilder::new(broad.clone()), &verified);
+        let limits = broad.clone().with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            exact_live,
+        );
         precheck_accumulated_counts(
             &CompilationUnitBuilder::new(limits.clone()),
             &limits,
@@ -1970,8 +2009,8 @@ mod tests {
         .expect("the exact root-plus-nested scratch boundary must pass");
 
         let limits = broad.with_test_admission_limit(
-            CompileLimitDimension::StageScratchBytes,
-            expected.saturating_sub(1),
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            exact_live - 1,
         );
         let builder = CompilationUnitBuilder::new(limits.clone());
         assert!(
@@ -1986,7 +2025,7 @@ mod tests {
 
     #[test]
     fn lowering_scratch_counts_both_signal_orders_and_nested_view() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let buffer = signal_sort_buffer(&broad);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("roads/signal-sort", buffer.as_bytes(), None).unwrap(),
@@ -2006,11 +2045,14 @@ mod tests {
             expected,
             "signal lowering retains controller and phase order tables beside one nested view"
         );
-        let expected = u32::try_from(expected).expect("small signal scratch fixture");
 
-        let limits = broad
-            .clone()
-            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, expected);
+        // 暂存计入存续：精确存续边界通过，差一单位在提交候选前失败。
+        let exact_live =
+            exact_precheck_live(&CompilationUnitBuilder::new(broad.clone()), &verified);
+        let limits = broad.clone().with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            exact_live,
+        );
         precheck_accumulated_counts(
             &CompilationUnitBuilder::new(limits.clone()),
             &limits,
@@ -2019,8 +2061,8 @@ mod tests {
         .expect("the exact signal order-plus-nested scratch boundary must pass");
 
         let limits = broad.with_test_admission_limit(
-            CompileLimitDimension::StageScratchBytes,
-            expected.saturating_sub(1),
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            exact_live - 1,
         );
         let builder = CompilationUnitBuilder::new(limits.clone());
         assert!(
@@ -2035,7 +2077,7 @@ mod tests {
 
     #[test]
     fn lowering_scratch_counts_authoring_lane_and_section_views_together() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = complete_geometry_buffer(&limits);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -2062,7 +2104,7 @@ mod tests {
 
     #[test]
     fn alignment_backing_and_later_lowering_views_are_gated_before_lowering() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let buffer = complete_geometry_buffer(&broad);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -2079,9 +2121,12 @@ mod tests {
         assert_eq!(sizing.frontend_scratch_upper_bound, expected);
         assert!(sizing.alignment_input_scratch_bytes > 0);
 
+        // 暂存计入存续：精确存续边界通过，差一单位在分配 alignment 树前失败。
+        let exact_live =
+            exact_precheck_live(&CompilationUnitBuilder::new(broad.clone()), &verified);
         let exact = broad.clone().with_test_admission_limit(
-            CompileLimitDimension::StageScratchBytes,
-            u32::try_from(expected).unwrap(),
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            exact_live,
         );
         precheck_accumulated_counts(
             &CompilationUnitBuilder::new(exact.clone()),
@@ -2091,8 +2136,8 @@ mod tests {
         .expect("the exact alignment-plus-lowering boundary must pass before lowering");
 
         let rejected = broad.with_test_admission_limit(
-            CompileLimitDimension::StageScratchBytes,
-            u32::try_from(expected - 1).unwrap(),
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            exact_live - 1,
         );
         let builder = CompilationUnitBuilder::new(rejected.clone());
         assert!(
@@ -2107,7 +2152,7 @@ mod tests {
 
     #[test]
     fn preflight_index_budget_failures_leave_builder_reusable() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "roads/main",
@@ -2133,8 +2178,18 @@ mod tests {
             .write(source.finish().unwrap())
             .unwrap();
         let small = source_buffer(&broad, "city", "roads/main");
-        let limits =
-            broad.with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 16_384);
+        // 上限恰好容纳小模块的准入峰值；大模块的预检索引在分配前超出。
+        let mut probe = CompilationUnitBuilder::new(broad.clone());
+        probe
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new("roads/main", small.as_bytes(), None).unwrap(),
+            )
+            .unwrap();
+        let small_peak = u32::try_from(probe.build().unwrap().admission_peak_live_bytes).unwrap();
+        let limits = broad.with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            small_peak,
+        );
         let mut builder = CompilationUnitBuilder::new(limits);
         for _ in 0..32 {
             let input =
@@ -2146,10 +2201,10 @@ mod tests {
             assert!(matches!(
                 error.diagnostics()[0].payload(),
                 crate::DiagnosticPayload::CompileLimitExceeded {
-                    dimension: CompileLimitDimension::StageScratchBytes,
-                    limit: 16_384,
+                    dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+                    limit,
                     ..
-                }
+                } if *limit == u64::from(small_peak)
             ));
             for dimension in [
                 CompileLimitDimension::ModuleCount,
@@ -2173,7 +2228,7 @@ mod tests {
 
     #[test]
     fn malformed_candidate_does_not_pollute_builder_and_retry_succeeds() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = CompilationUnitBuilder::new(limits.clone());
         let malformed = [0_u8; 12];
         let input = RoadEditingModuleInput::try_new("bad", &malformed, None).unwrap();
@@ -2200,7 +2255,7 @@ mod tests {
 
     #[test]
     fn numeric_freeze_failure_is_structured_and_builder_remains_reusable() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let invalid = degenerate_geometry_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits.clone());
         let Err(error) = builder.add_road_editing_module(
@@ -2269,7 +2324,7 @@ mod tests {
 
     #[test]
     fn accumulated_source_limit_failure_keeps_the_first_module() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let first = source_buffer(&broad, "city/a", "roads/a");
         let second = source_buffer(&broad, "city/b", "roads/b");
         let total_limit = u32::try_from(first.as_bytes().len() + second.as_bytes().len() - 1)
@@ -2303,7 +2358,7 @@ mod tests {
 
     #[test]
     fn common_admission_failure_does_not_commit_candidate_indexes() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let first = source_buffer(&limits, "city", "roads/a");
         let duplicate = source_buffer(&limits, "city", "roads/b");
         let retry = source_buffer(&limits, "city/other", "roads/b");
@@ -2335,7 +2390,7 @@ mod tests {
     #[test]
     fn road_editing_add_order_does_not_change_canonical_module_order() {
         fn order(reverse: bool) -> Vec<String> {
-            let limits = CompileLimits::p100_initial_v1();
+            let limits = CompileLimits::p100();
             let first = source_buffer(&limits, "city/a", "roads/a");
             let second = source_buffer(&limits, "city/b", "roads/b");
             let inputs = if reverse {
@@ -2371,7 +2426,7 @@ mod tests {
 
     #[test]
     fn parking_facility_virtual_anchors_resolve_locations_through_admission() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = parking_virtual_anchor_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2471,7 +2526,7 @@ mod tests {
 
     #[test]
     fn complete_authoring_fixture_reaches_the_common_compiler_pipeline() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = complete_geometry_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2496,7 +2551,7 @@ mod tests {
 
     #[test]
     fn direct_maneuver_without_internal_edges_reaches_the_common_compiler_pipeline() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = direct_maneuver_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2519,9 +2574,10 @@ mod tests {
 
     #[test]
     fn geometry_scratch_limit_fails_before_candidate_commit() {
-        let broad = CompileLimits::p100_initial_v1();
+        let broad = CompileLimits::p100();
         let buffer = complete_geometry_buffer(&broad);
-        let limits = broad.with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 1);
+        let limits =
+            broad.with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 1);
         let mut builder = CompilationUnitBuilder::new(limits);
         let Err(error) = builder.add_road_editing_module(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -2531,7 +2587,7 @@ mod tests {
         assert!(matches!(
             error.diagnostics()[0].payload(),
             crate::DiagnosticPayload::CompileLimitExceeded {
-                dimension: CompileLimitDimension::StageScratchBytes,
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
                 limit: 1,
                 observed,
             } if *observed > 1
@@ -2574,7 +2630,7 @@ mod tests {
 
     #[test]
     fn signal_cycle_duration_overflow_points_at_overflowing_phase_duration_leaf() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = signal_duration_buffer(
             &limits,
             "roads/signal-cycle-overflow",
@@ -2618,7 +2674,7 @@ mod tests {
 
     #[test]
     fn invalid_signal_controller_offset_points_at_offset_leaf() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer =
             signal_duration_buffer(&limits, "roads/signal-offset", 100, &[("phase-a", 100)]);
         let mut builder = CompilationUnitBuilder::new(limits);
@@ -2651,7 +2707,7 @@ mod tests {
 
     #[test]
     fn invalid_parking_anchor_progress_points_at_space_anchor_leaf() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         // 写入端与 preflight 只按全局上限放行 10.0m；10m 边的 HIR 可用闭区间是
         // [1mm, 9999mm]，端点净距拒绝恰好落在远端的 entry 锚点。
         let buffer = parking_space_anchor_buffer(&limits, 10.0);
@@ -2695,7 +2751,7 @@ mod tests {
 
     #[test]
     fn invalid_parking_anchor_progress_points_at_facility_virtual_anchor_leaf() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = parking_virtual_anchor_overflow_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2758,7 +2814,7 @@ mod tests {
 
     #[test]
     fn corridor_alignment_mismatch_points_at_alignment_reference_leaf() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = complete_geometry_buffer_with_alignment_reference(
             &limits,
             Vec::new(),

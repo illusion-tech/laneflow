@@ -29,7 +29,7 @@ fn generous_limits() -> SnapshotRestoreLimits {
 
 /// 单模块道路编辑状态：base（`target = false`）或插入前置 passage 的 target。
 fn state(target: bool) -> RoadEditingState {
-    let limits = CompileLimits::p100_initial_v2();
+    let limits = CompileLimits::p100();
     let bytes = lfre::RoadEditingSourceWriter::new(&limits)
         .write(conflict_cutover_test_module(target, false, false, false))
         .expect("Road Editing source")
@@ -52,7 +52,7 @@ struct Recompiled {
 
 /// 宿主重编译：逐模块 `LFRE` 准入 → 编译 → 发射 → 后发射检查 → 构建修订。
 fn recompile(state: &RoadEditingState, provenance: &str, base: Option<&[u8]>) -> Recompiled {
-    let limits = CompileLimits::p100_initial_v2();
+    let limits = CompileLimits::p100();
     let mut unit = CompilationUnitBuilder::new(limits);
     for module in state.modules() {
         let input = lfre::RoadEditingModuleInput::try_new(

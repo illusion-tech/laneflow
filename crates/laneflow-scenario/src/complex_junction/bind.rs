@@ -247,7 +247,7 @@ pub fn bind(
             }
         }
     }
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let mut routes = BTreeMap::new();
     for route in &catalog.routes {
         let mut edges = Vec::with_capacity(route.edge_ids.len());

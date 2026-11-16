@@ -26,7 +26,7 @@ fn lane_revision(edge_count: u32) -> Arc<SharedNetworkRevision> {
 }
 
 fn road_revision(edge_count: u32, length_meters: f64, cyclic: bool) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "runtime/overlap-evidence",

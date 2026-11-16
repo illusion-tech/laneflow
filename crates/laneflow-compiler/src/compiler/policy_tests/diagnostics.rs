@@ -20,7 +20,7 @@ fn synthetic_local_errors_preserve_the_failing_rule_text_span() {
         std::sync::LazyLock::new(|| SourceSpan::point(DOCUMENT.into(), 20, 4));
     static GATE: std::sync::LazyLock<SourceSpan> =
         std::sync::LazyLock::new(|| SourceSpan::point(DOCUMENT.into(), 30, 7));
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     for gate in [false, true] {
         for (case, violation) in [
             PolicyViolation::MissingEvidence,

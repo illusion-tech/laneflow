@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn policy_identity_uses_namespace_and_policy_key() {
-        let limits = CompileLimits::single_network_1m_v2();
+        let limits = CompileLimits::single_network_1m();
         let derive = |namespace, key| {
             derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, key, &limits)
                 .unwrap()
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn public_namespaced_key_derivation_matches_encoder() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let encoded = encode_canonical_identity(
             EntityKind::LaneEdge,
             &lane_edge_fields(b"city/vector", b"edge-a"),
@@ -560,7 +560,7 @@ mod tests {
     fn larger_profile_string_limit_cannot_widen_identity_ascii_fields() {
         let at_bound = "a".repeat(53);
         let over_bound = "a".repeat(54);
-        let limits = CompileLimits::single_network_1m_v2();
+        let limits = CompileLimits::single_network_1m();
 
         assert!(
             derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &at_bound, &limits,)
@@ -755,7 +755,7 @@ mod tests {
                 actual: 0
             }
         );
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         assert_eq!(
             derive_canonical_stable_id_v1(EntityKind::ParticipantStream, "city/x", "k", &limits)
                 .unwrap_err(),

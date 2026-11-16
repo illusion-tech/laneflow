@@ -174,9 +174,8 @@ impl ArenaCapacities {
 pub(super) fn encode_owned_object(
     object: &OwnedObject,
     limits: FormatLimits,
-    object_limit: Option<u64>,
 ) -> Result<Box<[u8]>, PortableEmissionError> {
-    with_prepared_owned_object(object, limits, object_limit, |prepared| {
+    with_prepared_owned_object(object, limits, |prepared| {
         let length = prepared.byte_len();
         let output_length =
             usize::try_from(length).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
@@ -191,10 +190,9 @@ pub(super) fn encode_owned_object(
 pub(super) fn stage_owned_object(
     object: &OwnedObject,
     limits: FormatLimits,
-    object_limit: Option<u64>,
     directory: &Path,
 ) -> Result<ClosedStagedObjectSource, PortableEmissionError> {
-    with_prepared_owned_object(object, limits, object_limit, |prepared| {
+    with_prepared_owned_object(object, limits, |prepared| {
         Ok(StagedObjectWriter::create_in(directory, prepared)?.finish()?)
     })
 }
@@ -202,7 +200,6 @@ pub(super) fn stage_owned_object(
 fn with_prepared_owned_object<T>(
     object: &OwnedObject,
     limits: FormatLimits,
-    object_limit: Option<u64>,
     finish: impl FnOnce(laneflow_format::PreparedObject<'_>) -> Result<T, PortableEmissionError>,
 ) -> Result<T, PortableEmissionError> {
     let capacities = ArenaCapacities::for_object(object)?;
@@ -319,15 +316,6 @@ fn with_prepared_owned_object<T>(
         sections: &sections,
     };
     let prepared = prepare_object(input, limits)?;
-    if let Some(limit) = object_limit
-        && prepared.byte_len() > limit
-    {
-        return Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::PortableObjectBytes,
-            actual: prepared.byte_len(),
-            limit,
-        });
-    }
     finish(prepared)
 }
 
@@ -386,13 +374,12 @@ mod tests {
     #[test]
     fn complete_object_is_not_misclassified_as_staged_chunk_scratch() {
         let object = minimal_lfcp_shape();
-        let length = encode_owned_object(&object, FormatLimits::HARD, None)
+        let length = encode_owned_object(&object, FormatLimits::HARD)
             .unwrap()
             .len() as u64;
         let mut config = laneflow_format::FormatLimitConfig::HARD;
         config.max_staged_chunk_bytes = length - 1;
-        let encoded =
-            encode_owned_object(&object, FormatLimits::try_new(config).unwrap(), None).unwrap();
+        let encoded = encode_owned_object(&object, FormatLimits::try_new(config).unwrap()).unwrap();
         assert_eq!(encoded.len() as u64, length);
     }
 }

@@ -19,7 +19,7 @@ pub use source::{
 pub fn compile_source(source: &GeneratedSource) -> Result<laneflow_compiler::CompilationOutput> {
     use laneflow_compiler::road_editing::RoadEditingModuleInput;
     let mut unit = laneflow_compiler::CompilationUnitBuilder::new(
-        laneflow_compiler::CompileLimits::single_network_1m_v2(),
+        laneflow_compiler::CompileLimits::single_network_1m(),
     );
     for (document, bytes) in [
         (source::COMMON_DOCUMENT_KEY, source.common.as_bytes()),

@@ -61,7 +61,7 @@ pub fn create(case: &str) -> (rt::TrafficWorld, String) {
             EntityKind::RightOfWayPolicySet,
             "runtime-fixture-policy",
             "fixture-policy",
-            &laneflow_compiler::CompileLimits::p100_initial_v1(),
+            &laneflow_compiler::CompileLimits::p100(),
         )
         .unwrap(),
     );

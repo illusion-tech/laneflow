@@ -81,7 +81,7 @@ fn fixture() -> OwnedObject {
             EntityKind::RightOfWayPolicySet,
             "fixture/policy",
             key,
-            &crate::CompileLimits::single_network_1m_v2(),
+            &crate::CompileLimits::single_network_1m(),
         )
         .unwrap()
         .into_bytes();
@@ -162,7 +162,7 @@ fn fixture() -> OwnedObject {
 }
 
 fn raw_bytes(object: &OwnedObject) -> Box<[u8]> {
-    encode_owned_object(object, FormatLimits::HARD, None).unwrap()
+    encode_owned_object(object, FormatLimits::HARD).unwrap()
 }
 
 fn check(object: &OwnedObject, scratch_limit: u64) -> Result<(), PortableEmissionError> {
@@ -289,7 +289,7 @@ fn local_reference_scratch_is_measured_before_allocation_and_retry_is_clean() {
     assert_eq!(
         check(&object, exact - 1),
         Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::StageScratchBytes,
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
             actual: exact,
             limit: exact - 1,
         })

@@ -81,7 +81,7 @@ cargo +1.99.1 run --locked -p laneflow-junction-generator -- check --config exam
 
 - 编制只用 IEEE 精确运算（加减乘除、`sqrt`、硬编码常量），禁止三角函数与
   `hypot`；两次 `generate` 必须产出逐字节相同的 catalog、LFCA 与 portable sidecars。
-- 编译/发射用 `CompileLimits::single_network_1m_v2`（声明规模超出 p100 暂存上限）；
+- 编译/发射用 `CompileLimits::single_network_1m()`（场景规模按大型配置档选择）；
   StableId 按内容派生与限制档位无关，catalog policy pin 与 binder 侧身份派生固定用
   p100（身份键长上限 53 字节即身份上限），两侧结果一致。
 - 环路回连边与道路边一样由 alignment → corridor → section → lane 链派生几何

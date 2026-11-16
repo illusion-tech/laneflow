@@ -131,7 +131,7 @@ fn iidm() -> IidmVehicleProfileInput {
 fn compile_revision(
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
-    compile_revision_with_limits(CompileLimits::p100_initial_v1(), configure)
+    compile_revision_with_limits(CompileLimits::p100(), configure)
 }
 
 fn compile_revision_with_limits(
@@ -196,7 +196,7 @@ fn compile_revision_with_limits(
 }
 
 fn compile_road_editing_output(module: lfre::RoadEditingSourceModule) -> CompilationOutput {
-    compile_road_editing_output_with_limits(module, CompileLimits::p100_initial_v2())
+    compile_road_editing_output_with_limits(module, CompileLimits::p100())
 }
 
 fn compile_road_editing_output_with_limits(
@@ -229,7 +229,7 @@ fn compile_road_editing_output_with_limits(
 fn compile_road_editing_revision(
     module: lfre::RoadEditingSourceModule,
 ) -> Arc<SharedNetworkRevision> {
-    compile_road_editing_revision_with_limits(module, CompileLimits::p100_initial_v2())
+    compile_road_editing_revision_with_limits(module, CompileLimits::p100())
 }
 
 fn compile_road_editing_revision_with_limits(
@@ -499,7 +499,7 @@ fn shared_downstream_road_editing_module() -> lfre::RoadEditingSourceModule {
 fn shared_downstream_road_editing_module_with_cross(
     cross_exit: bool,
 ) -> lfre::RoadEditingSourceModule {
-    let limits = CompileLimits::p100_initial_v2();
+    let limits = CompileLimits::p100();
     let header = lfre::RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
         "runtime-conflict.lfre",
@@ -1077,7 +1077,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
     };
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
-    let limits = CompileLimits::p100_initial_v2();
+    let limits = CompileLimits::p100();
     let header = lfre::RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
         "runtime-conflict.lfre",
@@ -1880,7 +1880,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
 
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
@@ -3257,7 +3257,7 @@ fn conflict_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfi
         EntityKind::VehicleProfile,
         "city/runtime-conflict",
         key,
-        &CompileLimits::p100_initial_v2(),
+        &CompileLimits::p100(),
     )
     .expect("profile identity");
     revision
@@ -5452,7 +5452,7 @@ fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
                 ..ConflictPolicyFixture::default()
             },
         ),
-        CompileLimits::single_network_1m_v2(),
+        CompileLimits::single_network_1m(),
     )
 }
 
@@ -6362,7 +6362,7 @@ fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
 fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
     let revision = compile_road_editing_revision_with_limits(
         shared_downstream_road_editing_module_with_cross(true),
-        CompileLimits::single_network_1m_v2(),
+        CompileLimits::single_network_1m(),
     );
     let car = conflict_profile(revision.as_ref(), "car");
     let dot = conflict_profile(revision.as_ref(), "dot");
@@ -6569,7 +6569,7 @@ fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehiclePr
         EntityKind::VehicleProfile,
         "city/runtime-conflict",
         key,
-        &CompileLimits::p100_initial_v2(),
+        &CompileLimits::p100(),
     )
     .expect("calibration profile identity");
     revision
@@ -7970,7 +7970,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
 
 #[test]
 fn road_editing_conflict_zone_requires_two_distinct_streams() {
-    let limits = CompileLimits::p100_initial_v2();
+    let limits = CompileLimits::p100();
     let source = lfre::RoadEditingSourceWriter::new(&limits)
         .write(conflict_road_editing_module_with_stream_count(1))
         .expect("Road Editing source");

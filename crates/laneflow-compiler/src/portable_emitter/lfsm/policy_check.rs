@@ -278,7 +278,8 @@ pub fn check_portable_policy_sources(
     {
         return Err(MISMATCH);
     }
-    let mut scratch = Scratch::new(compile_limits.value(CompileLimitDimension::StageScratchBytes));
+    let mut scratch =
+        Scratch::new(compile_limits.value(CompileLimitDimension::CompilerControlledLiveBytes));
     let documents = check_documents(source, view, &mut scratch)?;
     let location_table = table(view, 1, 2)?;
     let root = canonical.registry_view();

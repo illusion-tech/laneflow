@@ -1741,9 +1741,10 @@ fn output_overflow(
     limits: &crate::CompileLimits,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
+    // 输出字节无法表示时，其存续必然超出宿主预算，按宿主预算维度报告。
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
-        CompileLimitDimension::OutputBytes,
-        limits.value(CompileLimitDimension::OutputBytes),
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
         u64::MAX,
         primary_span,
         None,

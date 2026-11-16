@@ -36,7 +36,7 @@ fn build_genesis_lfsd(
     let mut scratch = Scratch::new(
         output
             .compile_limits()
-            .value(CompileLimitDimension::StageScratchBytes),
+            .value(CompileLimitDimension::CompilerControlledLiveBytes),
     );
     let target_index = ArtifactIndex::build(
         target,
@@ -121,7 +121,7 @@ pub(super) fn build_lfsd(
             limits,
             output
                 .compile_limits()
-                .value(CompileLimitDimension::StageScratchBytes),
+                .value(CompileLimitDimension::CompilerControlledLiveBytes),
         ),
     }
 }
@@ -136,7 +136,7 @@ pub(super) fn verify_target_relation_projection(
     let mut scratch = Scratch::new(
         output
             .compile_limits()
-            .value(CompileLimitDimension::StageScratchBytes),
+            .value(CompileLimitDimension::CompilerControlledLiveBytes),
     );
     let target_index = ArtifactIndex::build(
         target,

@@ -27,7 +27,7 @@ fn module(
     imports: &[&str],
     edges: &[(&str, f64, &[LaneEdgeReference<'_>])],
 ) -> SyntheticModule {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -59,7 +59,7 @@ fn module(
 }
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -67,7 +67,7 @@ fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
 }
 
 fn cross_section_module(permuted: bool) -> SyntheticModule {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/cross-section",
@@ -178,7 +178,7 @@ fn spatial_cross_section_unit_with_frame(
     include_facility_geometry: bool,
     imported_facility_frame: bool,
 ) -> CompilationUnit {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/spatial-cross-section",
@@ -358,7 +358,7 @@ fn spatial_cross_section_unit_with_frame(
 }
 
 fn junction_builder(document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/junction",
@@ -838,7 +838,7 @@ fn compile_diagnostic_codes(builder: SyntheticModuleBuilder) -> Vec<DiagnosticCo
 }
 
 fn parking_builder(document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/parking",
@@ -856,7 +856,7 @@ fn parking_builder(document: &str) -> SyntheticModuleBuilder {
 }
 
 fn access_builder(document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/access",
@@ -1220,56 +1220,44 @@ fn compiler_atomically_returns_lir_source_map_and_success_diagnostics() {
 }
 
 #[test]
-fn portable_object_and_bundle_limits_accept_exact_and_reject_plus_one() {
+fn portable_object_bytes_follow_the_caller_format_budget() {
+    // 单对象字节只受调用方 FormatLimits 与线格式硬上限约束（ADR 0035 第 2 节）；
+    // 编译资源配置档不再设单对象或 bundle 限额。
     let input = unit([module(
         "city/portable-limit",
         "portable-limit.document",
         &[],
         &[("edge-a", 10.0, &[])],
     )]);
-    let mut output = Compiler::new().compile(input).unwrap();
+    let output = Compiler::new().compile(input).unwrap();
     let provenance =
         crate::PortableEmissionProvenance::try_new("laneflow-portable-limit-test").unwrap();
-    let emit = |output: &CompilationOutput| {
+    let emit = |limits: laneflow_format::FormatLimits| {
         crate::emit_portable_candidate(
-            output,
+            &output,
             &provenance,
-            laneflow_format::FormatLimits::HARD,
+            limits,
             crate::PortableDiffBase::Genesis,
         )
     };
+    let with_object_budget = |max_object_bytes: u64| {
+        let mut config = laneflow_format::FormatLimitConfig::HARD;
+        config.max_object_bytes = max_object_bytes;
+        laneflow_format::FormatLimits::try_new(config).unwrap()
+    };
 
-    let baseline = emit(&output).unwrap();
-    let lengths = [
+    let baseline = emit(laneflow_format::FormatLimits::HARD).unwrap();
+    let largest = [
         baseline.canonical_artifact().byte_length().get(),
         baseline.source_map().byte_length().get(),
         baseline.semantic_diff().byte_length().get(),
-    ];
-    let largest = lengths.into_iter().max().unwrap();
-    let total = lengths.into_iter().sum();
+    ]
+    .into_iter()
+    .max()
+    .unwrap();
 
-    output.set_test_portable_limits(largest, total);
-    emit(&output).expect("exact object and bundle limits");
-
-    output.set_test_portable_limits(largest - 1, total);
-    assert!(matches!(
-        emit(&output),
-        Err(crate::PortableEmissionError::CompileLimitExceeded {
-            dimension: crate::CompileLimitDimension::PortableObjectBytes,
-            actual,
-            limit,
-        }) if actual == largest && limit == largest - 1
-    ));
-
-    output.set_test_portable_limits(largest, total - 1);
-    assert_eq!(
-        emit(&output),
-        Err(crate::PortableEmissionError::CompileLimitExceeded {
-            dimension: crate::CompileLimitDimension::PortableBundleBytes,
-            actual: total,
-            limit: total - 1,
-        })
-    );
+    assert_eq!(emit(with_object_budget(largest)).unwrap(), baseline);
+    assert!(emit(with_object_budget(largest - 1)).is_err());
 }
 
 #[test]
@@ -2401,7 +2389,7 @@ fn movement_approach_identity_fields_reject_non_ascii_input_atomically() {
 
 #[test]
 fn compiler_rejects_cross_section_semantic_failures_before_lir() {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let make_builder = || {
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
@@ -2739,53 +2727,6 @@ fn thirty_two_failures_do_not_pollute_reused_compiler() {
             .inner
             .semantic_digest
     );
-}
-
-#[test]
-fn source_map_output_limit_fails_after_lir_without_exposing_partial_output() {
-    let probe = unit([module(
-        "city/a",
-        "city-a.document",
-        &[],
-        &[("edge-a", 10.0, &[])],
-    )]);
-    let hir = build_hir(&probe).unwrap();
-    let mir = lower_to_mir(&probe, &hir).unwrap();
-    let lir_output_bytes = freeze_lir(&probe, &mir).unwrap().lir.output_bytes;
-
-    let mut constrained = unit([module(
-        "city/a",
-        "city-a.document",
-        &[],
-        &[("edge-a", 10.0, &[])],
-    )]);
-    constrained.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
-        u32::MAX,
-        u32::MAX,
-        u32::try_from(lir_output_bytes).unwrap(),
-        u32::MAX,
-    );
-    let mut compiler = Compiler::new();
-    let diagnostics = match compiler.compile(constrained) {
-        Ok(_) => panic!("expected source-map output limit failure"),
-        Err(diagnostics) => diagnostics,
-    };
-    assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
-        diagnostic.payload(),
-        DiagnosticPayload::CompileLimitExceeded {
-            dimension: CompileLimitDimension::OutputBytes,
-            limit,
-            observed,
-        } if *limit == lir_output_bytes && observed > limit
-    )));
-
-    let recovered = unit([module(
-        "city/recovered",
-        "recovered.document",
-        &[],
-        &[("edge-a", 10.0, &[])],
-    )]);
-    assert!(compiler.compile(recovered).is_ok());
 }
 
 #[test]
@@ -3330,12 +3271,8 @@ fn parking_virtual_anchors_are_records_in_both_mir_and_lir_limits() {
     assert_eq!(with_virtual_lir.parking_facility_virtual_exits.len(), 2);
 
     let mir_limit = u32::try_from(baseline_mir.mir_record_count).expect("small fixture");
-    with_virtual.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
-        u32::MAX,
-        mir_limit,
-        u32::MAX,
-        u32::MAX,
-    );
+    with_virtual.limits =
+        CompileLimits::p100().with_test_pipeline_limits(u32::MAX, mir_limit, u32::MAX);
     let mir_failure = match lower_to_mir(&with_virtual, &with_virtual_hir) {
         Ok(_) => panic!("virtual anchors must consume the MIR record limit"),
         Err(diagnostics) => diagnostics,
@@ -3351,12 +3288,7 @@ fn parking_virtual_anchors_are_records_in_both_mir_and_lir_limits() {
     )));
 
     let lir_limit = u32::try_from(baseline_lir.lir_record_count).expect("small fixture");
-    with_virtual.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
-        lir_limit,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-    );
+    with_virtual.limits = CompileLimits::p100().with_test_lir_limits(lir_limit, u32::MAX);
     let lir_failure = match freeze_lir(&with_virtual, &with_virtual_mir) {
         Ok(_) => panic!("virtual anchors must consume the LIR record limit"),
         Err(diagnostics) => diagnostics,
@@ -4171,7 +4103,7 @@ fn spatial_geometry_rejects_length_mismatch_without_partial_output() {
 #[test]
 fn spatial_geometry_set_order_does_not_change_lir_semantics() {
     let compile = |reverse: bool| {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: "city/spatial-order",
@@ -4254,7 +4186,7 @@ fn spatial_geometry_set_order_does_not_change_lir_semantics() {
 
 #[test]
 fn spatial_geometry_requires_complete_coverage_once_enabled() {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/spatial-coverage",

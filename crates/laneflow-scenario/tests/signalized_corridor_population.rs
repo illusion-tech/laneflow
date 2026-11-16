@@ -37,7 +37,7 @@ fn fixture_policy(namespace: &str, key: &str) -> laneflow_runtime::WorldPolicySe
                 laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                 namespace,
                 key,
-                &laneflow_compiler::CompileLimits::p100_initial_v1(),
+                &laneflow_compiler::CompileLimits::p100(),
             )
             .expect("explicit fixture policy identity"),
         ),

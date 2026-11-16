@@ -28,7 +28,7 @@ pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
             EntityKind::RightOfWayPolicySet,
             "runtime-fixture-policy",
             "fixture-policy",
-            &laneflow_compiler::CompileLimits::p100_initial_v1(),
+            &laneflow_compiler::CompileLimits::p100(),
         )
         .map_err(|error| format!("{error:?}"))?,
     );

@@ -227,10 +227,6 @@ impl HirBuildPlan {
                 self.memory.hir_record_count,
             ),
             (
-                CompileLimitDimension::StageScratchBytes,
-                self.memory.stage_scratch_bytes,
-            ),
-            (
                 CompileLimitDimension::CompilerControlledLiveBytes,
                 self.memory.controlled_live_bytes,
             ),
@@ -1445,7 +1441,7 @@ mod tests {
 
     #[test]
     fn unrelated_declarations_only_grow_the_conflict_sort_view() {
-        let mut unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1())
+        let mut unit = CompilationUnitBuilder::new(CompileLimits::p100())
             .build()
             .unwrap();
         let counts = ConflictCounts {
@@ -1482,7 +1478,7 @@ mod tests {
     fn junction_budget_accounts_member_index_layout() {
         // P2-6（#1219）：成员索引 CSR 三笔全入 scratch（starts(N+1) + 构造游标(N) +
         // 路径键(M)）；边际增量钉住"不得低估"，M 按出现记录上界入账。
-        let unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1())
+        let unit = CompilationUnitBuilder::new(CompileLimits::p100())
             .build()
             .unwrap();
         let counts = JunctionCounts {

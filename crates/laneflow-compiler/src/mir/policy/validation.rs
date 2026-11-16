@@ -16,7 +16,6 @@ pub(super) fn budget(
 ) -> Result<(), DiagnosticBundle> {
     crate::policy::check_budget(
         &unit.limits,
-        scratch,
         unit.controlled_live_bytes
             .saturating_add(mir.controlled_live_bytes)
             .saturating_add(scratch),
@@ -519,14 +518,18 @@ mod tests {
     fn normalization_checks_its_own_scratch_before_allocating_and_can_retry() {
         let (mut unit, mut mir) = super::super::fixture();
         let limits = unit.limits.clone();
-        unit.limits = limits
-            .clone()
-            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 1);
+        // 暂存计入存续总量：只给出输入存续，规范化暂存一字节也放不下。
+        let input_live = u32::try_from(unit.controlled_live_bytes + mir.controlled_live_bytes)
+            .expect("fixture live bytes fit u32");
+        unit.limits = limits.clone().with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            input_live,
+        );
         let errors = validate(&unit, &mut mir).unwrap_err();
         assert!(errors.diagnostics().iter().any(|d| matches!(
             d.payload(),
             crate::DiagnosticPayload::CompileLimitExceeded {
-                dimension: CompileLimitDimension::StageScratchBytes,
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
                 ..
             }
         )));

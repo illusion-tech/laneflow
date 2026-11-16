@@ -38,7 +38,7 @@ fn verify(base: &[u8], target: &[u8], diff: &OwnedObject) -> Result<(), Portable
         target,
         &raw_bytes(diff),
         FormatLimits::HARD,
-        &CompileLimits::single_network_1m_v2(),
+        &CompileLimits::single_network_1m(),
     )
 }
 
@@ -153,7 +153,7 @@ fn policy_diff_checker_rejects_omission_extra_wrong_owner_kind_side_and_payload(
         }
         // unknown member schema 可在 writer 的结构预检更早拒绝。
         if mutation == 5 {
-            assert!(encode_owned_object(&bad, FormatLimits::HARD, None).is_err());
+            assert!(encode_owned_object(&bad, FormatLimits::HARD).is_err());
         } else {
             assert!(verify(&base, &target, &bad).is_err(), "mutation {mutation}");
         }
@@ -182,7 +182,7 @@ fn policy_diff_checker_rejects_omission_extra_wrong_owner_kind_side_and_payload(
     assert!(verify(&base, &target, &split).is_err());
     let mut missing_section = good.clone();
     missing_section.sections = good.sections[..6].into();
-    assert!(encode_owned_object(&missing_section, FormatLimits::HARD, None).is_err());
+    assert!(encode_owned_object(&missing_section, FormatLimits::HARD).is_err());
     verify(&base, &target, &good).unwrap();
 }
 
@@ -306,7 +306,7 @@ fn movement_add_remove_and_genesis_check_complete_direction_payloads() {
             target,
             &raw_bytes(diff),
             FormatLimits::HARD,
-            &CompileLimits::single_network_1m_v2(),
+            &CompileLimits::single_network_1m(),
         )
     };
     // 缺失、显式零和另一合法方向的 fullRowV1 都结构合法，但不能彼此替代。
@@ -452,9 +452,9 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
         FormatLimits::HARD,
     )
     .unwrap();
-    let tiny = CompileLimits::single_network_1m_v2()
+    let tiny = CompileLimits::single_network_1m()
         // 索引本身也必须在首次分配前受同一个预算约束。
-        .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 64);
+        .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 64);
     assert!(matches!(
         check_portable_policy_diff(
             PortableDiffBase::Artifact(base_view),
@@ -464,7 +464,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
             &tiny
         ),
         Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::StageScratchBytes,
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
             ..
         })
     ));
@@ -486,7 +486,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
             config.max_utf8_field_bytes = 8;
         }
         let limits = FormatLimits::try_new(config).unwrap();
-        assert!(encode_owned_object(&diff, limits, None).is_err());
+        assert!(encode_owned_object(&diff, limits).is_err());
         assert!(
             preflight_object_values(&raw_bytes(&diff), PortableObjectKind::SemanticDiff, limits)
                 .is_err()
@@ -519,13 +519,13 @@ fn policy_diff_counts_both_artifact_indexes_in_one_scratch_budget() {
     let _base_index =
         ArtifactIndex::build(base_view.registry_view(), MISMATCH, &mut measured).unwrap();
     assert!(measured.used() > one_index);
-    let limit = CompileLimits::single_network_1m_v2().with_test_admission_limit(
-        CompileLimitDimension::StageScratchBytes,
+    let limit = CompileLimits::single_network_1m().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
         one_index.try_into().unwrap(),
     );
     assert!(
         matches!(check_portable_policy_diff(PortableDiffBase::Artifact(base_view), &target, &raw_bytes(&diff), FormatLimits::HARD, &limit),
-        Err(PortableEmissionError::CompileLimitExceeded { dimension: CompileLimitDimension::StageScratchBytes, actual, limit }) if actual > limit && limit == one_index)
+        Err(PortableEmissionError::CompileLimitExceeded { dimension: CompileLimitDimension::CompilerControlledLiveBytes, actual, limit }) if actual > limit && limit == one_index)
     );
     // 预算失败不污染下一次同输入检查。
     verify(&base, &target, &diff).unwrap();

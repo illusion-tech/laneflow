@@ -296,7 +296,7 @@ fn compile_part(
         .iter()
         .flat_map(|p| [p.entry_edge_id.as_str(), p.exit_edge_id.as_str()])
         .collect();
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = re::RoadEditingModuleHeader::try_new(
         LUST_NAMESPACE,
         DOCUMENT_KEY,

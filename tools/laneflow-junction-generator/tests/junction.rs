@@ -499,7 +499,7 @@ fn identity_ascii_keys_stay_below_compile_string_limit() {
     use laneflow_static_contract::FieldTag;
 
     let generated = default_generated();
-    let limit = CompileLimits::p100_initial_v1().max_single_string_bytes();
+    let limit = CompileLimits::p100().max_single_string_bytes();
     let mut longest = 0_u64;
     for edge in generated.lir().lane_edges() {
         let field = edge
