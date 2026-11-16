@@ -1,6 +1,7 @@
 # WaitingZone、ConflictZone 与通行权分层
 
-**文档状态**: Accepted（#235 联合架构；#282 与 #284 已实现）<br>
+**文档状态**: Accepted（#235 联合架构；#282 与 #284 已实现；§8 含 #1272 停止目标时序）<br>
+**最后更新**: 2026-11-16<br>
 **适用范围**: WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、
 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
 **交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法由 #235 接受，
@@ -842,6 +843,16 @@ decision，不重复产生 boundary projection event。
 每个 scratch batch 都以实际 checked count 在 committed mutation 前 `try_reserve`。
 不能把“每车最多一个新 claim”误用为 decision/transition/event 也必然每车一条：
 same-tick enter+leave、shared boundary 与 traversal completion 都可能增加条目。
+
+#1272 的停止目标时序（见 `traffic-runtime-phase-protocol.md` §3.1.1）：制动前视
+窗内**已知持续阻塞**的入口（资源被占用或持有、满载，且是对本车、精确 route
+occurrence 的真实不可用；本车已有 ownership 或 membership 不计）以只读世界事实
+形成提前停止目标，随其源事实失效；尚未申请且无已知阻塞的入口不因「没有
+grant」自行制造目标。P4 确定的动态停止（授权拒绝、组合裁决落选）在 P5 最终
+运动阶段合并并重新归约。Waiting/Conflict 候选的到达判定用申请预览，仅排除
+本次待申请资源自身产生的停止目标造成的循环依赖。入口在车辆进入制动前视窗
+之前已持续阻塞并在接近期间保持阻塞时，车辆必须提前制动，不得等近门申请
+被拒后按「约束骤现」豁免。
 
 ## 9. 正式 Conflict authority 边界
 
