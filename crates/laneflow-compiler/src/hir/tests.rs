@@ -2397,3 +2397,119 @@ fn parking_anchor_accepts_progress_legal_against_longer_arc() {
         .compile(unit)
         .expect("emission must use the same millimetre length as HIR parking closure");
 }
+
+/// #1320：L 条边的纯 Synthetic 链（一 junction、一 movement、一 maneuver
+/// path：首边 entry、中间全 internal、末边 exit）。Synthetic 路口的显式
+/// approach/internal 集合恒空，ordinary successor 引用侧没有适用显式域。
+fn synthetic_chain_unit(len: usize) -> CompilationUnit {
+    let limits = CompileLimits::p100();
+    let mut builder = SyntheticModuleBuilder::new(header("city/chain"), &limits).unwrap();
+    // 边键集中持有：LaneEdgeReference 借用 &str，引用必须比 builder 用得久。
+    let keys: Vec<String> = (0..len).map(|index| format!("edge-{index:04}")).collect();
+    for index in 0..len {
+        let successors: Vec<LaneEdgeReference> = if index + 1 < len {
+            vec![LaneEdgeReference::local(&keys[index + 1])]
+        } else {
+            Vec::new()
+        };
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: &keys[index],
+                length_meters: 1.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &successors,
+            })
+            .unwrap();
+    }
+    builder
+        .add_canonical_frame(CanonicalFrameInput {
+            canonical_frame_key: "frame-chain",
+            lane_edge_geometries: &[],
+        })
+        .unwrap()
+        .add_junction(JunctionInput {
+            junction_key: "junction-chain",
+        })
+        .unwrap()
+        .add_movement(MovementInput {
+            turn_direction: None,
+            movement_key: "movement-through",
+            junction: JunctionReference::local("junction-chain"),
+            directed_entry_approach_key: "approach-west",
+            directed_exit_approach_key: "approach-east",
+        })
+        .unwrap();
+    let internal: Vec<LaneEdgeReference> = (1..len - 1)
+        .map(|index| LaneEdgeReference::local(&keys[index]))
+        .collect();
+    builder
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "path-chain",
+            movement: MovementReference::local("movement-through"),
+            entry_edge: LaneEdgeReference::local(&keys[0]),
+            internal_edges: &internal,
+            exit_edge: LaneEdgeReference::local(&keys[len - 1]),
+        })
+        .unwrap()
+        .add_stop_line(StopLineInput {
+            stop_line_key: "stop-chain",
+            lane_edge: LaneEdgeReference::local(&keys[0]),
+        })
+        .unwrap()
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "gate-chain",
+            maneuver_path: ManeuverPathReference::local("path-chain"),
+            transition_index: 0,
+            stop_line: StopLineReference::local("stop-chain"),
+            signal_control: SignalControlInput::None,
+        })
+        .unwrap();
+    let mut unit = unit([builder.finish().unwrap()]);
+    install_compiled_lane_geometries(
+        &mut unit,
+        "city/chain",
+        GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Balanced2Deg,
+        },
+        |edge_key| {
+            let index: u32 = edge_key.strip_prefix("edge-").unwrap().parse().unwrap();
+            // 首末边（entry/exit）需要 canonical frame；路径派生的 internal
+            // 边沿用 fixture 惯例（"internal" → None）。
+            let frame = if index == 0 || index as usize == len - 1 {
+                Some(("city/chain", "frame-chain"))
+            } else {
+                None
+            };
+            (
+                frame,
+                vec![
+                    point(index as f32, 0.0, 0.0),
+                    point(index as f32 + 1.0, 0.0, 0.0),
+                ],
+            )
+        },
+    );
+    unit
+}
+
+/// #1320：无适用显式 internal 域（Synthetic 路口显式集合恒空）时，ordinary
+/// successor 引用侧不得执行路径成员扫描。三档长链各自清零计数、构建、读数
+/// 后统一断言为零——修复前该位置的成员比较次数为 C(L)=L(L-1)/2-1
+/// （128→8,127、256→32,639、512→130,815，与 issue 探针一致）。
+#[test]
+fn synthetic_long_paths_skip_inapplicable_member_scan() {
+    let mut observed = Vec::new();
+    for len in [128usize, 256, 512] {
+        let unit = synthetic_chain_unit(len);
+        super::junction::SUCCESSOR_MEMBER_COMPARISONS.with(|count| count.set(0));
+        let hir = build_hir(&unit).unwrap();
+        assert_eq!(hir.maneuver_paths.len(), 1, "len = {len}");
+        let comparisons = super::junction::SUCCESSOR_MEMBER_COMPARISONS.with(|count| count.get());
+        observed.push((len, comparisons));
+    }
+    assert!(
+        observed.iter().all(|(_, count)| *count == 0),
+        "无适用显式 internal 域不得执行路径成员扫描：{observed:?}"
+    );
+}
