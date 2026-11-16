@@ -511,45 +511,45 @@ Traffic Runtime。
 
 ## 性能与确定性契约
 
-实现进入 G2 前必须冻结并验证：
+实现进入 G2 前必须冻结并验证（目标交付为受检 LFCA 经 `laneflow-static-network`
+构建的 `SharedNetworkRevision`，无镜像文件/ABI/配置档——ADR 0025）：
 
-- image hot tables 使用 SoA/CSR/flat ranges，索引宽度默认 `u32`；
-- 顶层 section byte offset/length 使用 checked `u64`，避免把城市级 image 人为限制
-  在 4 GiB；table row ordinal、count 和 hot relation range 仍使用 `u32`；
-- Traffic Runtime/Spatial 对 image 的读取不经 trait object、字符串 resolver 或 per-record bounds
-  graph walk；必要安全检查在 image verifier 或 batch boundary 聚合；
+- 共享静态路网 hot columns 使用 SoA/CSR/flat ranges，索引宽度默认 `u32`；
+- 制品/来源映射的 byte offset/length 检查使用 checked `u64`，不把城市级输入人为
+  限制在 4 GiB；table row ordinal、count 和 hot relation range 仍使用 `u32`；
+- Traffic Runtime/Spatial 对共享静态数据的读取不经 trait object、字符串 resolver
+  或 per-record bounds graph walk；必要安全检查在受检读取（format capability）或
+  batch boundary 聚合；
 - steady tick 与稳定容量 pose batch 零分配；
-- 多 world 共享 image 时静态内存不按 world 复制；
+- 多 world 共享同一 `Arc<SharedNetworkRevision>` 时静态内存不按 world 复制；
 - 多世界共享不能替代单个大型城市世界的 partition/barrier/边界交换与动态负载
   基准；
-- static image 加载时间、峰值分配和 retained memory 相对 current JSON +
-  normalization 基线具有量化 Gate；
-- 描述符/完整性清单认证、必需节预先验证（Eager Verification）、Spatial
-  延迟验证/后台验证（Lazy/Background Verification）和显式全镜像审计分别报告读取量、
-  墙钟耗时（Wall Time）、CPU 并行度与峰值分配，
-  并在最低产品硬件 sizing；
-- 当前直接路径、显式参考精确路径、融合单工作线程与多工作线程精确路径
-  分别报告阶段/端到端成本；一万/十万交通运行时固定步进（Traffic Runtime Tick）与
-  空间位姿（Spatial Pose）既有能力基线不得无解释回退；
-- `traffic-headless-v1` 不携带 Spatial bytes；2/8/32 worlds 共享 Traffic section；
-- load limits 在任何 per-world allocation 前验证，恶意 cardinality/size 不得触发
-  无界分配；
+- 受检 LFCA 读取与共享静态路网构建的墙钟、峰值分配和 retained memory 相对历史
+  JSON + normalization 基线具有量化对照（现行证据口径见
+  `traffic-runtime-state-integrity.md` §8 与城市基线）；
+- 信任与验证边界以 ADR 0024/0025 为准：编译器语义验证 + 后发射检查
+  （`check_post_emission_bundle`），不要求镜像描述符/分块验证体系；
+- 直接路径、显式参考精确路径与单/多工作线程精确路径分别报告阶段/端到端成本；
+  一万/十万交通运行时固定步进（Traffic Runtime Tick）与空间位姿（Spatial Pose）
+  既有能力基线不得无解释回退；
+- 无空间数据需求的构建调用使用 `SpatialBuildOption::Omit`，不产生 target 文件；
+  2/8/32 worlds 共享同一 Traffic 数据；
+- load limits（格式硬上限与调用方运行上限）在任何 per-world allocation 前验证，
+  恶意 cardinality/size 不得触发无界分配；
 - 单线程/并行、clean/incremental、受支持平台的 portable artifact 逐字节一致；
 - 同一冻结场景在支持的 worker 数与 partition plan 矩阵中产生相同 committed
   state、事件和确定性状态摘要，且不引入 partition-induced extra tick delay；
 - 单大型世界在信号协调、冲突区链、排队溢流和长前车链场景下报告组件/SCC
   分布、最大 SCC 提案占比、归约工作量/跨度、临界路径和实际扩展效率；
-- 在线镜像切换报告准备期 tick 干扰、日志增长/溢出、追赶落后量、静默提交停顿、
-  双修订峰值内存、失败放弃和切换事件批次恰一次发布；维护暂停模式单独报告完整停顿；
+- 在线路网修订切换报告准备期 tick 干扰、日志增长/溢出、追赶落后量、静默提交
+  停顿、双修订峰值内存、失败放弃和切换事件批次恰一次发布；维护暂停模式单独
+  报告完整停顿（现行合同见 `traffic-runtime-revision-cutover.md` §9）；
 - 运行时快照保存/加载（Save/Load）报告制品大小、墙钟耗时、主线程停顿、后台干扰、
   峰值内存与回放；观测完整/增量（Full/Delta）导出和动态成本快照接收/候选注册报告
-  字节、分配、节奏与 tick 干扰；
-- target-specific image 只要求相同 target/layout/profile 下逐字节一致，不要求不同
-  target 的 bytes 相同，但它们必须引用同一 canonical digest。
+  字节、分配、节奏与 tick 干扰。
 
-Target image 的具体零拷贝/归档实现（自有 offset tables、经过审计的 archive crate 或
-其他方案）必须通过布局稳定性、安全 verifier、MSRV、维护性和 benchmark 比较后
-选择；本 ADR 不以某个库名替代性能与安全契约。
+无 target-specific 交付：同一规范语义的不同构建共享 `NetworkRevisionId`，进程内
+构建不承诺跨平台字节一致；逐字节一致义务由上一条 portable artifact 承担。
 
 ## 对既有 ADR 的取代矩阵
 
@@ -665,26 +665,25 @@ fast path 必须有认证的 image 外部 trust anchor；拒绝 header self-atte
 职责分层，必须重新进入相应架构 G1：
 
 1. `network-compiler.md`、ADR 0021 与本 ADR 对 source module graph、IR、标识、
-   artifact/image、trust/profile、execution planning、crate DAG 和 migration 的
-   描述一致；
+   artifact/交付、trust、execution planning、crate DAG 和 migration 的描述一致
+   （现行目标交付与信任边界以 ADR 0024/0025 修订为准）；
 2. architecture、Data、current Core/target Traffic Runtime、Spatial、Adapter 文档
    清楚区分 current production 与 target；
 3. #292 不再承诺 L1 或 Core-shaped 输出，而是 compiler foundation + Synthetic DSL
    frontend 的首个纵向实现；
 4. 受影响 ADR 的继续有效与取代范围逐项登记；
-5. 性能 Gate 包含 headless profile、启动/load limits、内存共享和一万/十万
-   runtime；编译器 workload、规模与预算由后继实现 G1 依据产品证据独立冻结，不从
-   运行时参与单元规模反推；
-6. untrusted image rejection、标识 registry known vectors、全 production profile
-   `StaticIdentityIndex` 与 external descriptor/cutover descriptor trust path 已进入
-   implementation acceptance；
+5. 性能 Gate 包含 headless 构建（`SpatialBuildOption::Omit`）、启动/load
+   limits、内存共享和一万/十万 runtime；编译器 workload、规模与预算由后继实现
+   G1 依据产品证据独立冻结，不从运行时参与单元规模反推；
+6. 不可信来源拒绝、标识 registry known vectors、`SharedIdentityIndex` 与受检
+   规范路网输入/后发射检查信任路径已进入 implementation acceptance；
 7. 所有 `LaneEdge` 均以独立稳定边键进入身份闭包；道路区段 / 路口角色变化不改写
    既有边身份，current 合法未覆盖边无需伪造所有者即可迁移；
 8. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
 9. 宿主应用层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
    已同步到 architecture、roadmap、glossary 与 Agent Skills。
-10. 跨修订状态迁移必须有受信任 semantic diff 与独立验证证据；稳定身份索引只复核
-    映射，缺失证据时 index-only 路径失败关闭。
+10. 跨修订状态迁移必须有受信任 semantic diff；稳定身份索引只复核映射，缺失
+    证据时 index-only 路径失败关闭（现行切换事务合同见 #302 / cutover 文档）。
 
 [routing-integration]: ../design/traffic-observation-and-routing-integration.md
 [adr0020-history]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/adr/0020-compiler-owned-static-network-and-static-image.md

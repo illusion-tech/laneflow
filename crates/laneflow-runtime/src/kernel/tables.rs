@@ -2350,7 +2350,7 @@ pub(crate) mod compile_route_tests {
     }
 
     /// S3（#1194）：合成样本网络（`docs/design/fixtures/lane-change/minimal-closed-loop.json`
-    /// v6 派生；本模块按其拓扑构造，不读取该 JSON）。
+    /// v7 派生；本模块按其拓扑构造，不读取该 JSON）。
     /// 来源保真：合成来源原生声明（SyntheticDsl）；`T01` 为 uncovered 非 junction
     /// 过渡段（前后邻边分属同走廊不同 lane 链），不冒充 SUMO connection。
     pub(crate) mod s3_lane_change {
@@ -2363,7 +2363,7 @@ pub(crate) mod compile_route_tests {
         use laneflow_compiler::*;
         use laneflow_format::{FormatLimits, check_post_emission_bundle};
 
-        /// sample v6 钉版长度（米）与中心线端点（米，(x0, z0) → (x1, z1)）。
+        /// sample v7 钉版长度（米）与中心线端点（米，(x0, z0) → (x1, z1)）。
         /// 另含评审补充段：`T0a…T0b` 多段过渡链（P1-1）、`X`/`C1` 纵向
         /// uncovered 连接（P2-2 负例，跨走廊）、`P0/SP/Q0` 相邻单 lane section
         /// 横向接缝（P1 补全正例）。
@@ -2957,7 +2957,7 @@ pub(crate) mod compile_route_tests {
                 .map(|(_, meters, ..)| (*meters * 1000.0).round() as u32)
                 .collect();
             expected.sort_unstable();
-            assert_eq!(lengths, expected, "sample v6 pinned edge lengths");
+            assert_eq!(lengths, expected, "sample v7 pinned edge lengths");
             let named = named_ordinals(revision.as_ref());
             let edge = |name: &str| *named.get(name).unwrap();
             // 直行链（连续对照）：静态序列验证 + 能力门放行（无过渡段）。
@@ -3529,7 +3529,7 @@ pub(crate) mod compile_route_tests {
                         "car",
                         editing::ParticipantClassReference::local("car-class").unwrap(),
                         editing::IidmVehicleProfileInput::try_new(
-                            // 钉版红线（样本 v6）：desired ≥13.9 实落 15.0、
+                            // 钉版红线（样本 v7）：desired ≥13.9 实落 15.0、
                             // min_gap 2.5、comfort 4.5（a_service）、emergency
                             // 9.0——d_stop(13.9)=26.75m 合同规范口径。
                             4.5, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0,

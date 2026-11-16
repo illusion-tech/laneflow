@@ -1,7 +1,6 @@
 //! #1115：有限几何候选的完整依赖分量验证，保留原成功几何及控制锚点。
 
 use super::*;
-use experiment::{merge, pool};
 
 mod stream_b_curve_design_c06_c08;
 

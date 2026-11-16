@@ -70,7 +70,6 @@ deny = [
         "bevy_animation",
         "bevy_asset",
         "laneflow-compiler",
-        "laneflow-lust-converter", # #1029：仅测试构建中的摘要对比实验
         "laneflow-runtime",
         "laneflow-synth-harness",
         "laneflow-urban-harness",

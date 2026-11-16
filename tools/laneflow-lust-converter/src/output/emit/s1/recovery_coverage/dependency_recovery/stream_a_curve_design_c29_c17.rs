@@ -6,7 +6,6 @@
 //! 预算停止分别保存，均不写可行或不可行结论（plan §6）。
 
 use super::*;
-use experiment::{merge, pool};
 
 /// plan §1/§6 冻结样本与段容量表：顺序即搜索顺序，`s` 为原修复参考链实际 cubic 数。
 const EDGES: [(&str, usize); 4] = [
@@ -25,74 +24,6 @@ fn frozen_inputs() -> Value {
 
 pub(super) fn pool_counts(pools: &combinations::Pools) -> (usize, usize) {
     (pools.len(), pools.values().map(Vec::len).sum())
-}
-
-pub(super) fn per_edge_counts(pools: &combinations::Pools) -> BTreeMap<String, usize> {
-    pools
-        .iter()
-        .map(|(id, candidates)| (id.clone(), candidates.len()))
-        .collect()
-}
-
-/// plan §5 冻结基线候选池：四来源固定顺序①→④合并，去重键为规范 f32 点位；
-/// 断言 9 边 75 份（边集与每边份数）。任一来源缺失或逐值不符即停止执行并重新授权。
-fn baseline_pool() -> combinations::Pools {
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
-    ))
-    .unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1107-old-searches.json"
-    ))
-    .unwrap();
-    let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1111-positive-calibration.json"
-    ))
-    .unwrap();
-    let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1115-searches.json"
-    ))
-    .unwrap();
-    let mut pools = pool(&legacy["tiers"]["32768"]["searches"]);
-    assert_eq!(
-        pool_counts(&pools),
-        (6, 48),
-        "source 1: 6 edges 48 candidates"
-    );
-    merge(&mut pools, pool(&old));
-    assert_eq!(
-        pool_counts(&pools),
-        (7, 56),
-        "source 2: 7 edges 56 candidates"
-    );
-    merge(&mut pools, pool(&grid["edges"]));
-    assert_eq!(
-        pool_counts(&pools),
-        (7, 72),
-        "source 3: 7 edges 72 candidates"
-    );
-    merge(&mut pools, pool(&curve));
-    assert_eq!(
-        pool_counts(&pools),
-        (9, 75),
-        "source 4: 9 edges 75 candidates"
-    );
-    assert_eq!(
-        per_edge_counts(&pools),
-        BTreeMap::from([
-            ("sumo::-10004_5_1".to_owned(), 16),
-            ("sumo::-10034_0_0".to_owned(), 8),
-            ("sumo::-10130_8_0".to_owned(), 8),
-            ("sumo::-10130_16_0".to_owned(), 8),
-            ("sumo::-10130_18_0".to_owned(), 8),
-            ("sumo::-16502_0_0".to_owned(), 1),
-            ("sumo::-28860_3_0".to_owned(), 2),
-            ("sumo::-29388_3_0".to_owned(), 8),
-            ("sumo::-7348_3_0".to_owned(), 16),
-        ]),
-        "frozen baseline per-edge candidate counts"
-    );
-    pools
 }
 
 /// 每边按冻结段容量 s 执行 design.md 口径的有限几何设计变量候选搜索。
@@ -134,12 +65,6 @@ fn fixed_stream_a_curve_design() {
     let (searches, timing) = run_searches(&frozen_inputs());
     recovery::write_json(&out, "stream-a-searches.json", &searches);
     recovery::write_json(&out, "stream-a-timing.json", &timing);
-}
-
-#[test]
-fn stream_a_baseline_pool_merges_four_frozen_sources_in_order() {
-    let pools = baseline_pool();
-    assert_eq!(pool_counts(&pools), (9, 75));
 }
 
 #[test]
