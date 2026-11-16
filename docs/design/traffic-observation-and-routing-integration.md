@@ -631,12 +631,14 @@ G2 已按 §2 落定完整/增量/分区观测实现：
 - `ObservationStreamBinding` 直接复用世界身份/共同世界世代，不维护第三套 stream
   状态；成功切换与世代递增同界重置状态序号，旧 session stale；
 - `AllLaneEdges` 与严格升序显式 LaneEdge 集合在 open 时一次性解析并摘要；full 含
-  全零行，delta 严格比较上一次成功基线并显式发送归零行；`AllLaneEdges` 按共享身份
-  索引已有的 LaneEdge StableId 顺序（[共享静态路网 §6.1][shared-identity-order]）
-  遍历，open 时不再排序（#1296），输出顺序与摘要不变；
+  全零行，delta 严格比较上一次成功基线并显式发送归零行；
 - 导出从当前 `VehicleState` / compiled route 重算前杠归属与跨边车身区间并集，不读取
   前一拍 `OccupancyIndex`；所有输出预留可失败，任一失败不推进 session；
 - batch/session 的 logical/retained bytes 按 §2.1 的实现内布局函数精确报告。
+
+**#1296 实现时调整（目标设计，尚未实现）：**`AllLaneEdges` 改为按共享身份索引已有的
+LaneEdge StableId 顺序（[共享静态路网 §6.1][shared-identity-order]）遍历，去掉 open 时
+的排序；输出行序与选择摘要不变。open 仍需线性构建选择表、ordinal 映射与摘要。
 
 G2 也已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写，
 并复用 #302 的字段私有 `WorldGeneration(u64)`：安装初值 `0`，成功切换 checked
