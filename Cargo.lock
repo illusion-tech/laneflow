@@ -3088,6 +3088,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-artifact-inspect"
+version = "0.0.0"
+dependencies = [
+ "laneflow-format",
+ "laneflow-static-contract",
+ "sha2",
+]
+
+[[package]]
 name = "laneflow-audit-test-support"
 version = "0.0.0"
 
