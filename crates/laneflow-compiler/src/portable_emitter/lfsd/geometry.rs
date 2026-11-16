@@ -312,13 +312,13 @@ mod tests {
             let base = ArtifactIndex::build(
                 base_view,
                 PortableEmissionError::DiffBaseSemanticMismatch,
-                &mut Scratch::new(u64::MAX),
+                &crate::portable_emitter::budget::test_pass(),
             )
             .unwrap();
             let target = ArtifactIndex::build(
                 target_view,
                 PortableEmissionError::InternalBindingMismatch,
-                &mut Scratch::new(u64::MAX),
+                &crate::portable_emitter::budget::test_pass(),
             )
             .unwrap();
 
@@ -369,13 +369,13 @@ mod tests {
         let base = ArtifactIndex::build(
             base_view,
             PortableEmissionError::DiffBaseSemanticMismatch,
-            &mut Scratch::new(u64::MAX),
+            &crate::portable_emitter::budget::test_pass(),
         )
         .unwrap();
         let target = ArtifactIndex::build(
             target_view,
             PortableEmissionError::InternalBindingMismatch,
-            &mut Scratch::new(u64::MAX),
+            &crate::portable_emitter::budget::test_pass(),
         )
         .unwrap();
 

@@ -1,15 +1,19 @@
 //! 从真实两份修订独立重建局部成员全集；不调用 emitter 的配对或规范值编码器。
 
+use super::super::budget::{Accounting, granted, with_check_ledger};
 use super::base::{
     checked_ordinal_vector_with, checked_stable_id_with, checked_u8_with, checked_u16_with,
     checked_u32_with,
 };
-use super::policy_change::{Scratch, reserved};
+use super::policy::policy_reference_plan;
 use super::*;
+use crate::ledger::{PassBudget, Plan};
 use laneflow_static_contract::PortableFieldType;
 
 const MISMATCH: PortableEmissionError = PortableEmissionError::PolicyDiffMismatch;
 type Key<'a> = ([u8; 16], u8, &'a str);
+/// 原表分工核对的排序键：差异节、实体种类、稳定标识与属性标签。
+type PartitionKey = (u8, u16, [u8; 16], u16);
 
 #[derive(Clone, Copy)]
 struct SourceMember<'a> {
@@ -34,7 +38,7 @@ struct Actual<'a> {
 /// 不一致（mismatch）、基线兼容性失败（非 Genesis base 的静态/执行契约跨修订
 /// 不一致 `UnsupportedSemanticContractTransition`，或 StableId 跨修订改变种类/
 /// 身份 `CrossRevisionStableIdCollision`）、target/diff/base 字节格式预检失败
-/// （`Format`）、scratch 预留失败（`AllocationFailure`）、编译预算上限超限
+/// （`Format`）、受控存储分配失败（`AllocationFailure`）、宿主存续预算超限
 /// （`CompileLimitExceeded`）或聚合行数换算溢出（`ArithmeticOverflow`）时返回
 /// 相应 [`PortableEmissionError`]。
 pub fn check_portable_policy_diff(
@@ -43,6 +47,52 @@ pub fn check_portable_policy_diff(
     diff: &[u8],
     limits: FormatLimits,
     compile_limits: &crate::CompileLimits,
+) -> Result<(), PortableEmissionError> {
+    with_check_ledger(compile_limits, |accounting| {
+        check_policy_diff(accounting, base, target, diff, limits)
+    })
+}
+
+/// 本检查的计划峰值：两侧实体索引同时存续，策略引用键取两侧峰值，另加两侧局部成员、
+/// 实际变更行与原表分工核对的借用视图；行数取自已通过格式预检的表。
+fn policy_diff_plan(
+    base: Option<RegistryCheckedObjectView<'_>>,
+    target: RegistryCheckedObjectView<'_>,
+    diff: RegistryCheckedObjectView<'_>,
+) -> Plan {
+    let rows = |view: RegistryCheckedObjectView<'_>, section: u32, table: u32| {
+        view.section(section)
+            .and_then(|s| s.table(table))
+            .map_or(0, |t| t.row_count() as usize)
+    };
+    let members = |view| {
+        (1..=4)
+            .map(|t| rows(view, 3, t))
+            .fold(0_usize, usize::saturating_add)
+    };
+    let mut plan = ArtifactIndex::plan(target);
+    let mut references = policy_reference_plan(target);
+    let mut member_rows = members(target);
+    if let Some(base) = base {
+        plan = plan.plus(ArtifactIndex::plan(base));
+        references = references.max(policy_reference_plan(base));
+        member_rows = member_rows.saturating_add(members(base));
+    }
+    plan.plus(references)
+        .array::<SourceMember<'_>>(member_rows)
+        .array::<Actual<'_>>(rows(diff, 6, 0))
+        .array::<(PartitionKey, RegistryCheckedRowView<'_>)>(
+            rows(diff, 1, 0).saturating_add(rows(diff, 4, 0)),
+        )
+}
+
+/// [`check_portable_policy_diff`] 的内部实现；发射以发射账本直接调用。
+pub(in crate::portable_emitter) fn check_policy_diff(
+    accounting: Accounting<'_>,
+    base: PortableDiffBase<'_>,
+    target: &[u8],
+    diff: &[u8],
+    limits: FormatLimits,
 ) -> Result<(), PortableEmissionError> {
     let target_view =
         preflight_object_values(target, PortableObjectKind::CanonicalArtifact, limits)?;
@@ -70,17 +120,23 @@ pub fn check_portable_policy_diff(
     } else if checked_u8_with(bindings, 1, MISMATCH)? != 0 {
         return Err(MISMATCH);
     }
-    let mut scratch =
-        Scratch::new(compile_limits.value(CompileLimitDimension::CompilerControlledLiveBytes));
-    let target_index = ArtifactIndex::build(target_view.registry_view(), MISMATCH, &mut scratch)?;
+    let pass = accounting.admit(
+        "policy-diff-check",
+        policy_diff_plan(
+            base_view.map(|v| v.registry_view()),
+            target_view.registry_view(),
+            diff_view,
+        ),
+    )?;
+    let target_index = ArtifactIndex::build(target_view.registry_view(), MISMATCH, &pass)?;
     let base_index = base_view
-        .map(|v| ArtifactIndex::build(v.registry_view(), MISMATCH, &mut scratch))
+        .map(|v| ArtifactIndex::build(v.registry_view(), MISMATCH, &pass))
         .transpose()?;
     if let Some(base) = &base_index {
         verify_artifact_diff_compatibility(base.view, target_index.view, base, &target_index)?;
     }
     for index in base_index.iter().chain(core::iter::once(&target_index)) {
-        validate_policy_references(index, &mut scratch, MISMATCH)?;
+        validate_policy_references(index, &pass, MISMATCH)?;
     }
     let indices = [base_index.as_ref(), Some(&target_index)];
     let mut count = 0_usize;
@@ -98,7 +154,7 @@ pub fn check_portable_policy_diff(
                 .ok_or(PortableEmissionError::ArithmeticOverflow)?;
         }
     }
-    let mut source = reserved::<SourceMember<'_>>(count, &mut scratch)?;
+    let mut source = granted::<SourceMember<'_>>(count, &pass)?;
     // K 来自两份修订完整局部表，不由实际差异行反推扫描范围。
     for (side, index) in indices.iter().enumerate() {
         let Some(index) = index else {
@@ -124,7 +180,7 @@ pub fn check_portable_policy_diff(
                         kind,
                         text(row, 2)?,
                     ),
-                });
+                })?;
             }
         }
     }
@@ -133,7 +189,7 @@ pub fn check_portable_policy_diff(
         .section(6)
         .and_then(|s| s.table(0))
         .ok_or(MISMATCH)?;
-    let mut actual = reserved::<Actual<'_>>(table.row_count() as usize, &mut scratch)?;
+    let mut actual = granted::<Actual<'_>>(table.row_count() as usize, &pass)?;
     for row in table.rows() {
         actual.push(Actual {
             row,
@@ -142,7 +198,7 @@ pub fn check_portable_policy_diff(
                 checked_u8_with(row, 3, MISMATCH)?,
                 text(row, 4)?,
             ),
-        });
+        })?;
     }
     actual.sort_unstable_by(|a, b| a.key.cmp(&b.key));
     let (mut position, mut emitted) = (0, 0);
@@ -196,7 +252,9 @@ pub fn check_portable_policy_diff(
     if emitted != actual.len() {
         return Err(MISMATCH);
     }
-    check_field_partition(base_index.as_ref(), &target_index, diff_view, &mut scratch)?;
+    check_field_partition(base_index.as_ref(), &target_index, diff_view, &pass)?;
+    drop((source, actual, base_index, target_index));
+    pass.finish(0)?;
     Ok(())
 }
 
@@ -370,10 +428,9 @@ fn check_field_partition(
     base: Option<&ArtifactIndex<'_>>,
     target: &ArtifactIndex<'_>,
     diff: RegistryCheckedObjectView<'_>,
-    scratch: &mut Scratch,
+    pass: &PassBudget<'_>,
 ) -> Result<(), PortableEmissionError> {
     // policy 的实体增删、保留属性与 Movement 方向属于原表，不能用局部成员行顶替。
-    type PartitionKey = (u8, u16, [u8; 16], u16);
     let relevant =
         |section: u8, row: RegistryCheckedRowView<'_>| -> Result<bool, PortableEmissionError> {
             let kind = checked_u16_with(row, 2, MISMATCH)?;
@@ -395,7 +452,7 @@ fn check_field_partition(
             }
         }
     }
-    let mut actual = reserved::<(PartitionKey, RegistryCheckedRowView<'_>)>(count, scratch)?;
+    let mut actual = granted::<(PartitionKey, RegistryCheckedRowView<'_>)>(count, pass)?;
     for section in [1, 4] {
         for row in diff
             .section(u32::from(section))
@@ -416,7 +473,7 @@ fn check_field_partition(
                         },
                     ),
                     row,
-                ));
+                ))?;
             }
         }
     }

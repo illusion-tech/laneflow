@@ -1,10 +1,11 @@
 //! 从最终 LFCA 行核对策略引用；不消费 LIR，也不解析运行时的有效规则。
 
+use super::super::budget::granted;
 use super::base::{
     ArtifactIndex, checked_ordinal_vector_with, checked_record_vector_with, checked_u32_with,
 };
-use super::policy_change::{Scratch, reserved};
 use super::*;
+use crate::ledger::{PassBudget, Plan};
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 struct LocalKey<'a> {
@@ -13,13 +14,27 @@ struct LocalKey<'a> {
     key: &'a str,
 }
 
+/// 策略引用核对的计划峰值：evidence 与 gap 两表完整逻辑行数的借用键。
+pub(super) fn policy_reference_plan(view: RegistryCheckedObjectView<'_>) -> Plan {
+    let rows = |table| {
+        view.section(3)
+            .and_then(|section| section.table(table))
+            .map_or(0, |table| table.row_count() as usize)
+    };
+    rows(1)
+        .checked_add(rows(2))
+        .map_or(Plan::ZERO.array::<LocalKey<'_>>(usize::MAX), |count| {
+            Plan::ZERO.array::<LocalKey<'_>>(count)
+        })
+}
+
 /// 核对所有 policy，包括未被世界选择的策略及未被规则引用的局部成员。
 ///
 /// 实体 lookup 复用已闭合的 Identity/实体索引。新增 scratch 只保存 evidence/gap
 /// 的借用键，按两个表的完整逻辑行数计量；不会复制字符串或按引用数重新扫描表。
 pub(super) fn validate_policy_references(
     index: &ArtifactIndex<'_>,
-    scratch: &mut Scratch,
+    pass: &PassBudget<'_>,
     mismatch: PortableEmissionError,
 ) -> Result<(), PortableEmissionError> {
     let section = index.view.section(3).ok_or(mismatch)?;
@@ -28,9 +43,9 @@ pub(super) fn validate_policy_references(
     let count = u64::from(evidence.row_count())
         .checked_add(u64::from(gaps.row_count()))
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let mut keys = reserved::<LocalKey<'_>>(
+    let mut keys = granted::<LocalKey<'_>>(
         usize::try_from(count).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
-        scratch,
+        pass,
     )?;
     for table in [evidence, gaps] {
         for row in table.rows() {
@@ -39,7 +54,7 @@ pub(super) fn validate_policy_references(
             if keys.last().is_some_and(|previous| *previous >= key) {
                 return Err(mismatch);
             }
-            keys.push(key);
+            keys.push(key)?;
         }
     }
 
@@ -81,7 +96,6 @@ pub(super) fn validate_policy_references(
             }
         }
     }
-    scratch.release((keys.capacity() * size_of::<LocalKey<'_>>()) as u64);
     Ok(())
 }
 

@@ -4,6 +4,7 @@ mod policy_check;
 mod policy_projection;
 #[cfg(test)]
 mod policy_tests;
+pub(super) use policy_check::check_policy_sources;
 pub use policy_check::check_portable_policy_sources;
 
 fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {

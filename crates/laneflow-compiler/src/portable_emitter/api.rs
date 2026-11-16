@@ -220,6 +220,12 @@ pub enum PortableEmissionError {
     /// emitter 自建对象的内部结构读取失败，或 LIR 规范关系与 LFCA 投影不一致；
     /// 属内部绑定防御，正常输出不应触达（两个 emit 入口）。
     InternalBindingMismatch,
+    /// 资源账本记账缺陷：授予超出编译遍计划、编译遍结束仍有未归还授予等。属内部防御，
+    /// 正常输出不应触达，换用配置档不能绕过；全部发射与检查入口均可达。
+    InternalAccountingDefect {
+        /// 出现缺陷的记账点名称，只用于定位，不属于稳定接口。
+        point: &'static str,
+    },
     /// 发射到临时目录时的文件 I/O 失败（`emit_portable_candidate_to_staging`）。
     StagedObjectIo,
     /// 封存核对时 staged backing 实际长度与预检 exact length 不一致

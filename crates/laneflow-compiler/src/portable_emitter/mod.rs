@@ -6,6 +6,7 @@
 //! exact bytes 的持久化、认证与发布由宿主负责。
 
 mod api;
+mod budget;
 mod lfca;
 mod lfsd;
 mod lfsm;
@@ -20,9 +21,9 @@ pub use api::{
 pub(crate) use api::{close_object, close_staged_object, object_key, sha256};
 use lfca::build_lfca;
 pub use lfsd::check_portable_policy_diff;
-use lfsd::{build_lfsd, verify_target_relation_projection};
-use lfsm::build_lfsm;
+use lfsd::{build_lfsd, check_policy_diff, verify_target_relation_projection};
 pub use lfsm::check_portable_policy_sources;
+use lfsm::{build_lfsm, check_policy_sources};
 use model::*;
 use wire::*;
 
@@ -44,7 +45,9 @@ use laneflow_static_contract::{
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path};
 
+use crate::ledger::{Ledger, LedgerStage};
 use crate::{CompilationOutput, CompileLimitDimension};
+use budget::Accounting;
 
 const SOURCE_COLLECTION_DIGEST_VERSION_V1: u16 = 1;
 const CHUNKED_EMITTER_VERSION: u16 = 2;
@@ -164,7 +167,16 @@ fn emit_portable_candidate_with(
     base: PortableDiffBase<'_>,
     mut emit_object: impl FnMut(&OwnedObject) -> Result<PortableObjectCandidate, PortableEmissionError>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
-    let compile_limits = output.compile_limits();
+    // 发射账本：发射内部的关系投影自校验、策略来源检查与差异检查共用这一份账本。
+    let ledger = Ledger::new(output.compile_limits());
+    let single = Accounting {
+        ledger: &ledger,
+        stage: LedgerStage::SingleEmission,
+    };
+    let diff = Accounting {
+        ledger: &ledger,
+        stage: LedgerStage::DiffEmission,
+    };
     let source_collection_digest = source_collection_digest(output)?;
     let mut lfca = build_lfca(
         output,
@@ -183,7 +195,7 @@ fn emit_portable_candidate_with(
         limits,
     )?
     .registry_view();
-    verify_target_relation_projection(output, canonical_view)?;
+    verify_target_relation_projection(output, canonical_view, single)?;
     drop(lfca);
 
     let lfsm = build_lfsm(
@@ -196,16 +208,22 @@ fn emit_portable_candidate_with(
     let source_map = emit_object(&lfsm)?;
     preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
     drop(lfsm);
-    check_portable_policy_sources(
+    check_policy_sources(
+        single,
         canonical_artifact.bytes(),
         output.source_map_input(),
         source_map.bytes(),
         limits,
-        compile_limits,
     )?;
 
-    let (lfsd, expected_semantic_diff_base) =
-        build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
+    let (lfsd, expected_semantic_diff_base) = build_lfsd(
+        output,
+        base,
+        network_revision,
+        &canonical_artifact,
+        limits,
+        diff,
+    )?;
     let semantic_diff = emit_object(&lfsd)?;
     preflight_object_values(
         semantic_diff.bytes(),
@@ -213,13 +231,14 @@ fn emit_portable_candidate_with(
         limits,
     )?;
     drop(lfsd);
-    check_portable_policy_diff(
+    check_policy_diff(
+        diff,
         base,
         canonical_artifact.bytes(),
         semantic_diff.bytes(),
         limits,
-        compile_limits,
     )?;
+    ledger.close()?;
 
     Ok(PortablePublicationCandidate {
         canonical_artifact,

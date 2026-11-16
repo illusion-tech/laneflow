@@ -21,7 +21,7 @@ fn generate(base: &[u8], target: &[u8]) -> OwnedObject {
         revision,
         &close_object(target.into()),
         FormatLimits::HARD,
-        u64::MAX,
+        crate::portable_emitter::budget::test_accounting(u64::MAX),
     )
     .unwrap()
     .0
@@ -110,6 +110,7 @@ fn policy_diff_add_remove_modify_and_genesis_include_every_member() {
         network_revision(&base, FormatLimits::HARD).unwrap(),
         &close_object(base.clone()),
         FormatLimits::HARD,
+        crate::portable_emitter::budget::test_accounting(u64::MAX),
     )
     .unwrap();
     check_portable_policy_diff(
@@ -350,6 +351,7 @@ fn movement_add_remove_and_genesis_check_complete_direction_payloads() {
             network_revision(artifact, FormatLimits::HARD).unwrap(),
             &close_object(artifact.clone()),
             FormatLimits::HARD,
+            crate::portable_emitter::budget::test_accounting(u64::MAX),
         )
         .unwrap();
         for (base, target, diff, payload_tag) in [
@@ -474,7 +476,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
             network_revision(&target, FormatLimits::HARD).unwrap(),
             &close_object(target.clone()),
             FormatLimits::HARD,
-            64
+            crate::portable_emitter::budget::test_accounting(64)
         ),
         Err(PortableEmissionError::CompileLimitExceeded { .. })
     ));
@@ -512,13 +514,14 @@ fn policy_diff_counts_both_artifact_indexes_in_one_scratch_budget() {
         FormatLimits::HARD,
     )
     .unwrap();
-    let mut measured = Scratch::new(u64::MAX);
-    let _target_index =
-        ArtifactIndex::build(target_view.registry_view(), MISMATCH, &mut measured).unwrap();
-    let one_index = measured.used();
-    let _base_index =
-        ArtifactIndex::build(base_view.registry_view(), MISMATCH, &mut measured).unwrap();
-    assert!(measured.used() > one_index);
+    let one_index = ArtifactIndex::plan(target_view.registry_view())
+        .bytes()
+        .unwrap();
+    let both_indexes = ArtifactIndex::plan(base_view.registry_view())
+        .plus(ArtifactIndex::plan(target_view.registry_view()))
+        .bytes()
+        .unwrap();
+    assert!(both_indexes > one_index);
     let limit = CompileLimits::single_network_1m().with_test_admission_limit(
         CompileLimitDimension::CompilerControlledLiveBytes,
         one_index.try_into().unwrap(),

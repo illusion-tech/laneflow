@@ -173,9 +173,12 @@ fn check(object: &OwnedObject, scratch_limit: u64) -> Result<(), PortableEmissio
         FormatLimits::HARD,
     )?
     .registry_view();
-    let mut scratch = Scratch::new(scratch_limit);
-    let index = ArtifactIndex::build(view, MISMATCH, &mut scratch)?;
-    validate_policy_references(&index, &mut scratch, MISMATCH)
+    let pass = crate::portable_emitter::budget::test_accounting(scratch_limit).admit(
+        "test-policy-references",
+        ArtifactIndex::plan(view).plus(super::policy_reference_plan(view)),
+    )?;
+    let index = ArtifactIndex::build(view, MISMATCH, &pass)?;
+    validate_policy_references(&index, &pass, MISMATCH)
 }
 
 fn replace_field(object: &mut OwnedObject, table: usize, tag: u16, value: OwnedValue) {
@@ -283,9 +286,8 @@ fn local_reference_scratch_is_measured_before_allocation_and_retry_is_clean() {
     )
     .unwrap()
     .registry_view();
-    let mut scratch = Scratch::new(u64::MAX);
-    let _index = ArtifactIndex::build(view, MISMATCH, &mut scratch).unwrap();
-    let exact = scratch.used() + 2 * core::mem::size_of::<LocalKey<'_>>() as u64;
+    let exact = ArtifactIndex::plan(view).bytes().unwrap()
+        + 2 * core::mem::size_of::<LocalKey<'_>>() as u64;
     assert_eq!(
         check(&object, exact - 1),
         Err(PortableEmissionError::CompileLimitExceeded {
@@ -321,9 +323,9 @@ fn evidence_reference_and_duplicate_detection_cross_chunk_boundaries() {
     .unwrap()
     .registry_view();
     assert_eq!(view.section(3).unwrap().table(1).unwrap().chunk_count(), 2);
-    let mut scratch = Scratch::new(u64::MAX);
-    let index = ArtifactIndex::build(view, MISMATCH, &mut scratch).unwrap();
-    validate_policy_references(&index, &mut scratch, MISMATCH).unwrap();
+    let pass = crate::portable_emitter::budget::test_pass();
+    let index = ArtifactIndex::build(view, MISMATCH, &pass).unwrap();
+    validate_policy_references(&index, &pass, MISMATCH).unwrap();
     object.sections[3].tables[1].rows[65_536].fields[1].value =
         OwnedValue::Utf8("key-65535".into());
     assert!(matches!(
@@ -357,7 +359,7 @@ fn artifact_diff_rejects_dangling_policy_in_both_roots() {
                 NetworkRevisionId::from_digest(Sha256Digest::ZERO),
                 &target,
                 FormatLimits::HARD,
-                u64::MAX
+                crate::portable_emitter::budget::test_accounting(u64::MAX)
             ),
             Err(expected)
         );
