@@ -116,7 +116,7 @@ fn pinned_lust_population_source_regression() {
     let root = std::env::var_os("LUST_POPULATION_REGRESSION_OUTPUT_DIR").map_or_else(
         || {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-                "../../target/lust-population-regression-{}",
+                "target/lust-population-regression-{}",
                 std::process::id()
             ))
         },
