@@ -197,7 +197,7 @@ target/release-measurement/<triple>/release/laneflow-urban-harness plan <artifac
 提供，电源来源、电源计划、OS build 与机器指纹由环境记录自动采集。`P100` 角色须
 匹配参考机指纹。正式运行在初始化前生成测量前环境记录并核对干净检出，窗口结束后
 生成测量后记录并比较，两份记录写为 `environment-before.json` 与
-`environment-after.json` 并列入 `result.files`。适配器证据入口（`evidence`、`transitions`、
+`environment-after.json` 并列入 `result.files`；被拒绝或失败的轮次同样保留已采集的记录，供排查。适配器证据入口（`evidence`、`transitions`、
 `gate`、`seams`）的来源记录同样经该变量取得环境摘要。每轮只统计观察
 窗口，分别记录公共生命周期命令调用、`TrafficWorld::step` 和观测开销的 p50/p95/p99/max，实际
 Active/intent 分布及进程 peak resident bytes 写入 `measurements.toml`。每档仍须按治理

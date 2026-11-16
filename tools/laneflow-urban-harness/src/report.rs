@@ -372,6 +372,27 @@ impl MeasurementProvenance {
     }
 }
 
+/// 写出正式性能运行的环境记录并列入文件摘要清单：测量前记录总是写出，测量后
+/// 记录在采集成功时写出；与运行成败及 `measurements.toml` 无关（host-observe.md
+/// §3.1）。
+fn write_environment_records(
+    output: &Path,
+    before: &EnvironmentRecord,
+    after: Option<&EnvironmentRecord>,
+    files: &mut BTreeMap<String, crate::digest::FileDigest>,
+) -> Result<()> {
+    for (name, record) in [
+        (crate::environment::BEFORE, Some(before)),
+        (crate::environment::AFTER, after),
+    ] {
+        if let Some(record) = record {
+            let digest = crate::written::write_verified(&output.join(name), &record.to_json())?;
+            files.insert(name.into(), digest);
+        }
+    }
+    Ok(())
+}
+
 /// 核对正式运行目录中的两份环境记录：格式与版本有效、阶段为前后、测量前记录的
 /// 工作树干净、§3.5 字段前后一致，且由测量前记录构造的来源与测量记录全等。
 fn verify_environment_records(directory: &Path, provenance: &MeasurementProvenance) -> Result<()> {
@@ -767,29 +788,30 @@ pub fn run_with_options(
             after_step: sample_summary(&mut active_samples.clone())?,
         });
     }
-    // 测量后环境记录：§3.5 字段与测量前不一致时，本轮不得作为正式结果。
+    // 测量后环境记录（host-observe.md §3.1）：正式性能运行无论成败都采集并保留，
+    // 供排查被拒绝或失败的轮次。§3.5 字段与测量前不一致时本轮失败；运行已因其他
+    // 原因失败时保留原错误。
     let mut environment_after = None;
-    if let Some((_, before)) = &performance_context
-        && result.error.is_none()
-    {
+    if let Some((_, before)) = &performance_context {
         match crate::environment::collect(Phase::After, &before.manual) {
             Ok((after, _)) => {
                 let differences = before.differences(&after);
-                if differences.is_empty() {
-                    environment_after = Some(after);
-                } else {
+                if !differences.is_empty() && result.error.is_none() {
                     result.status = "failed".into();
                     result.error = Some(format!(
                         "performance environment changed during the run: {}",
                         differences.join(", ")
                     ));
                 }
+                environment_after = Some(after);
             }
             Err(error) => {
-                result.status = "failed".into();
-                result.error = Some(format!(
-                    "performance environment became unavailable during the run: {error}"
-                ));
+                if result.error.is_none() {
+                    result.status = "failed".into();
+                    result.error = Some(format!(
+                        "performance environment became unavailable during the run: {error}"
+                    ));
+                }
             }
         }
     }
@@ -823,8 +845,16 @@ pub fn run_with_options(
     result.removals = harness.removals;
     result.committed_world_tick = harness.world.tick_index();
     result.files.insert("resolved-plan.toml".into(), plan_file);
-    if let Some((provenance, before)) = performance_context
-        && let Some(after) = environment_after
+    if let Some((_, before)) = &performance_context {
+        write_environment_records(
+            output,
+            before,
+            environment_after.as_ref(),
+            &mut result.files,
+        )?;
+    }
+    if let Some((provenance, _)) = performance_context
+        && environment_after.is_some()
         && result.error.is_none()
     {
         let measured_steps = times
@@ -863,13 +893,6 @@ pub fn run_with_options(
             toml::to_string_pretty(&measurements)?.as_bytes(),
         )?;
         result.files.insert("measurements.toml".into(), digest);
-        for (name, record) in [
-            (crate::environment::BEFORE, &before),
-            (crate::environment::AFTER, &after),
-        ] {
-            let digest = crate::written::write_verified(&output.join(name), &record.to_json())?;
-            result.files.insert(name.into(), digest);
-        }
     }
     if result.error.is_none()
         && formal
@@ -2578,6 +2601,36 @@ mod tests {
                 .to_string()
                 .contains("诊断标记")
         );
+    }
+
+    /// #1392：环境记录与运行成败无关地写出并列入文件摘要清单；只有测量前记录时
+    /// 只写一份，前后不一致的两份记录都保留供排查。
+    #[test]
+    fn environment_records_are_written_independently_of_measurements() {
+        let measurement = measurement_fixture();
+        let before = environment_fixture(&measurement, Phase::Before);
+        let mut changed = environment_fixture(&measurement, Phase::After);
+        changed.power.ac_online = laneflow_host_observe::Field::Value(false);
+        let only_before = tempfile::tempdir().unwrap();
+        let mut files = BTreeMap::new();
+        write_environment_records(only_before.path(), &before, None, &mut files).unwrap();
+        assert_eq!(
+            files.keys().map(String::as_str).collect::<Vec<_>>(),
+            [crate::environment::BEFORE]
+        );
+        assert!(!only_before.path().join(crate::environment::AFTER).exists());
+        let both = tempfile::tempdir().unwrap();
+        let mut files = BTreeMap::new();
+        write_environment_records(both.path(), &before, Some(&changed), &mut files).unwrap();
+        for name in [crate::environment::BEFORE, crate::environment::AFTER] {
+            assert_eq!(files[name], digest_file(&both.path().join(name)).unwrap());
+        }
+        let kept = EnvironmentRecord::from_json(
+            &fs::read(both.path().join(crate::environment::AFTER)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(kept, changed);
+        assert_eq!(before.differences(&kept), ["power.ac_online"]);
     }
 
     /// #1392：证据入口与正式测量使用同一就绪核对；P100 角色缺少参考机声明或
