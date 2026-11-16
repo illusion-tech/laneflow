@@ -1,20 +1,22 @@
-//! 单对象检视：识别、预检、有界摘要与按登记展开。
+//! 单对象检视：识别、预检、事实域摘要与按登记展开。
 //!
-//! 检查语义完全复用 `laneflow-format::preflight_object_registry`：framing、
-//! registry 与直接值域三层预检在无摘要探针的闭包内执行；本模块只组织摘要
-//! 与展开数据，不解释未受检内容。
+//! 分层：[`ObjectFacts`] 是 wire 真相（magic、版本、全对象节/表/行/chunk
+//! 总数），在筛选作用之前计算、不可被展示策略改动；`sections` / `fields`
+//! 是 [`DisplayPolicy`](crate::session::DisplayPolicy) 筛选后的展示明细。
+//! 检查语义完全复用 `laneflow-format::preflight_object_registry`：预检在
+//! 无摘要探针的闭包内执行，本模块不解释未受检内容。
 
 use laneflow_format::{FormatError, FormatLimits, RegistryCheckedObjectView, without_digest_probe};
 use laneflow_static_contract::{PortableObjectKind, Sha256Digest};
 
-use crate::budget::ReportLimits;
-use crate::value::{ValueDisplay, display_field_value, embedded_row_display};
+use crate::session::{DisplayPolicy, InspectFilters, SessionConfig};
+use crate::value::{RowBudget, ValueDisplay, display_field_value, embedded_row_display};
 use crate::walk::{
-    FieldLocation, SectionIdentity, TableIdentity, field_name, is_policy_local_change_table,
-    object_offset, policy_member_kind, section_identity, table_identity,
+    FieldPath, SectionIdentity, SideWalk, TableIdentity, field_name, is_policy_local_change_table,
+    policy_member_kind, section_identity, table_identity,
 };
 
-/// 检视展开选项。
+/// 检视展开选项（属于展示策略的「展开维度」，与筛选互补）。
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ExpandSet {
     /// 展开对象前导的逐字段值。
@@ -27,51 +29,30 @@ pub struct ExpandSet {
     pub fields: bool,
 }
 
-/// 行范围：零基全表逻辑行，左闭右开。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RowRange {
-    /// 起始行（含）。
-    pub start: u32,
-    /// 结束行（不含）。
-    pub end: u32,
-}
-
-/// 检视筛选。
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct InspectFilters {
-    /// 按零基序号或登记名筛选节；`None` 为全部。
-    pub section: Option<SectionSelector>,
-    /// 按 kind 数值或登记名筛选表；`None` 为全部。
-    pub table: Option<TableSelector>,
-    /// 行范围（作用于每张表的零基逻辑行）。
-    pub rows: Option<RowRange>,
-}
-
-/// 节选择器。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SectionSelector {
-    /// 零基节序号。
-    Ordinal(u32),
-    /// 节登记名（区分大小写）。
-    Name(String),
-}
-
-/// 表选择器。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TableSelector {
-    /// 表登记 kind。
-    Kind(u16),
-    /// 表登记名（区分大小写）。
-    Name(String),
-}
-
 /// 检视选项。
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct InspectOptions {
     /// 展开集。
     pub expand: ExpandSet,
-    /// 筛选。
-    pub filters: InspectFilters,
+}
+
+/// 全对象 wire 事实：在筛选作用之前计算，展示策略无路径可改写。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObjectFacts {
+    /// 已识别并通过预检的对象种类。
+    pub kind: PortableObjectKind,
+    /// 对象格式版本。
+    pub format_version: u16,
+    /// 对象 exact bytes 长度。
+    pub object_byte_length: u64,
+    /// 精确节数。
+    pub section_count: u32,
+    /// 逻辑表总数。
+    pub table_count: u32,
+    /// 全对象总行数。
+    pub row_count: u64,
+    /// 物理 chunk 总数；LFCP 无 chunk 目录时为 `None`。
+    pub chunk_count: Option<u32>,
 }
 
 /// 一个物理 chunk 的目录摘要。
@@ -128,63 +109,25 @@ pub struct SectionSummary {
 /// 一条展开的字段值。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FieldEntry {
-    /// 字段路径与物理位置。
-    pub location: FieldLocation,
+    /// 字段逻辑路径。
+    pub path: FieldPath,
+    /// 本侧物理偏移。
+    pub offset: u64,
     /// 值展示。
     pub value: ValueDisplay,
 }
 
-/// 检视报告。
+/// 检视报告：wire 事实 + 筛选后的展示明细。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InspectReport {
-    /// 已识别并通过预检的对象种类。
-    pub kind: PortableObjectKind,
-    /// 对象格式版本。
-    pub format_version: u16,
-    /// 对象 exact bytes 长度。
-    pub object_byte_length: u64,
-    /// 节摘要（含表与 chunk 概览）。
+    /// 全对象事实（不可筛）。
+    pub facts: ObjectFacts,
+    /// 筛选后的节摘要。
     pub sections: Vec<SectionSummary>,
     /// 展开的字段条目（受筛选与限额约束）。
     pub fields: Vec<FieldEntry>,
-    /// 字段展开因行数限额被截断的表（表名）与剩余行数。
+    /// 字段展开因行数限额被截断的表与剩余行数。
     pub truncated_tables: Vec<(TableIdentity, u32)>,
-}
-
-impl InspectReport {
-    /// 逻辑表总数。
-    #[must_use]
-    pub fn table_count(&self) -> u32 {
-        self.sections
-            .iter()
-            .map(|section| section.table_count)
-            .sum()
-    }
-
-    /// 全对象总行数。
-    #[must_use]
-    pub fn row_count(&self) -> u64 {
-        self.sections.iter().map(|section| section.row_count).sum()
-    }
-
-    /// 物理 chunk 总数；LFCP 无 chunk 目录时返回 `None`。
-    #[must_use]
-    pub fn chunk_count(&self) -> Option<u32> {
-        if self
-            .sections
-            .iter()
-            .any(|section| section.tables.iter().any(|table| table.no_chunk_directory))
-        {
-            return None;
-        }
-        Some(
-            self.sections
-                .iter()
-                .flat_map(|section| section.tables.iter())
-                .map(|table| table.chunk_count)
-                .sum(),
-        )
-    }
 }
 
 /// 检视错误。
@@ -197,7 +140,7 @@ pub enum InspectError {
     },
     /// magic 无法识别为当前支持的对象种类。
     UnknownMagic {
-        /// 前 4 个字节（不足 4 时补齐展示）。
+        /// 前 4 个字节。
         magic: Vec<u8>,
     },
     /// 正式预检失败。
@@ -227,10 +170,10 @@ impl core::fmt::Display for InspectError {
 
 impl std::error::Error for InspectError {}
 
-/// 对完整对象执行检视：识别、预检、摘要与（可选）字段展开。
+/// 对完整对象执行检视：识别、预检、事实摘要与（可选）字段展开。
 ///
 /// 预检在 `without_digest_probe` 内执行，损坏输入不写 #794 取证转储。
-/// 展示限额只影响 `fields` 展开条数；摘要与检查结论不受影响。
+/// 展示限额只影响 `fields` 展开条数；`facts` 与检查结论不受影响。
 ///
 /// # Errors
 ///
@@ -238,18 +181,22 @@ impl std::error::Error for InspectError {}
 pub fn inspect(
     bytes: &[u8],
     options: &InspectOptions,
-    format_limits: FormatLimits,
-    report_limits: &ReportLimits,
+    policy: &DisplayPolicy,
+    config: &SessionConfig,
 ) -> Result<InspectReport, InspectError> {
-    let view = preflight_view(bytes, format_limits)?;
-    let mut expand_rows_budget = report_limits.max_expanded_rows;
-    Ok(build_report(
-        view,
-        options,
-        report_limits,
-        format_limits,
-        &mut expand_rows_budget,
-    ))
+    let view = preflight_view(bytes, config.format)?;
+    let facts = collect_facts(view);
+    let mut remaining_rows = policy.limits.max_expanded_rows;
+    let mut rows = RowBudget::new(&mut remaining_rows);
+    let walk = SideWalk::new(view.bytes());
+    let (sections, fields, truncated_tables) =
+        build_selection(view, options, policy, config, &walk, &mut rows);
+    Ok(InspectReport {
+        facts,
+        sections,
+        fields,
+        truncated_tables,
+    })
 }
 
 /// 识别并预检对象，返回受检视图。
@@ -270,30 +217,67 @@ fn preflight_view(
         .map_err(InspectError::Preflight)
 }
 
-fn build_report<'a>(
-    view: RegistryCheckedObjectView<'a>,
-    options: &InspectOptions,
-    report_limits: &ReportLimits,
-    format_limits: FormatLimits,
-    expand_rows_budget: &mut usize,
-) -> InspectReport {
+/// 事实域：遍历全对象（不受筛选影响）计算 wire 真相。
+fn collect_facts(view: RegistryCheckedObjectView<'_>) -> ObjectFacts {
     let kind = view.kind();
     let no_directory = kind == PortableObjectKind::CanonicalPublicationDescriptor;
-    let mut sections = Vec::with_capacity(usize::try_from(view.section_count()).unwrap_or(0));
+    let mut table_count = 0_u32;
+    let mut row_count = 0_u64;
+    let mut chunk_count = 0_u32;
+    for section in view.sections() {
+        for table in section.tables() {
+            table_count += 1;
+            row_count += u64::from(table.row_count());
+            chunk_count += table.chunk_count();
+        }
+    }
+    ObjectFacts {
+        kind,
+        format_version: view.format_version(),
+        object_byte_length: u64::try_from(view.bytes().len()).unwrap_or(u64::MAX),
+        section_count: view.section_count(),
+        table_count,
+        row_count,
+        chunk_count: (!no_directory).then_some(chunk_count),
+    }
+}
+
+/// 展示域：按策略筛选构建节/表/chunk 摘要与字段展开。
+fn build_selection<'a>(
+    view: RegistryCheckedObjectView<'a>,
+    options: &InspectOptions,
+    policy: &DisplayPolicy,
+    config: &SessionConfig,
+    walk: &SideWalk<'a>,
+    rows: &mut RowBudget<'_>,
+) -> (
+    Vec<SectionSummary>,
+    Vec<FieldEntry>,
+    Vec<(TableIdentity, u32)>,
+) {
+    let kind = view.kind();
+    let no_directory = kind == PortableObjectKind::CanonicalPublicationDescriptor;
+    let mut sections = Vec::new();
     let mut fields = Vec::new();
     let mut truncated_tables = Vec::new();
 
     for (ordinal, section) in view.sections().enumerate() {
         let ordinal = u32::try_from(ordinal).unwrap_or(u32::MAX);
         let identity = section_identity(kind, &section, ordinal);
-        if !section_selected(options, &identity) {
+        if !policy
+            .filters
+            .selects_section(identity.ordinal, identity.name)
+        {
             continue;
         }
         let mut table_summaries = Vec::new();
         for (table_ordinal, table) in section.tables().enumerate() {
             let table_ordinal = u32::try_from(table_ordinal).unwrap_or(u32::MAX);
             let table_identity = table_identity(kind, ordinal, &table, table_ordinal);
-            if !table_selected(options, &table_identity) {
+            if !policy
+                .filters
+                .selects_table(table_identity.kind, table_identity.name)
+            {
                 continue;
             }
             let chunks = (0..table.chunk_count())
@@ -320,28 +304,25 @@ fn build_report<'a>(
                 let Some(schema) = laneflow_static_contract::portable_object_schema(kind)
                     .sections
                     .get(usize::try_from(ordinal).unwrap_or(usize::MAX))
-                    .and_then(|section| {
-                        section
+                    .and_then(|section_schema| {
+                        section_schema
                             .tables
                             .get(usize::try_from(table_ordinal).unwrap_or(usize::MAX))
                     })
                 else {
                     continue;
                 };
-                let range = effective_row_range(options, table.row_count());
-                let rows_in_range = range.end.saturating_sub(range.start);
-                let member_table = is_policy_local_change_table(kind, ordinal, table_ordinal);
+                let rows_in_range = count_rows_in_range(table.row_count(), &policy.filters);
                 let shown = expand_table_fields(
-                    view.bytes(),
+                    walk,
                     &table,
                     &identity,
                     &table_identity,
-                    range,
+                    policy,
                     schema.row,
-                    member_table,
-                    report_limits,
-                    format_limits,
-                    expand_rows_budget,
+                    is_policy_local_change_table(kind, ordinal, table_ordinal),
+                    config,
+                    rows,
                     &mut fields,
                 );
                 if shown < rows_in_range {
@@ -362,87 +343,59 @@ fn build_report<'a>(
             tables: table_summaries,
         });
     }
-
-    InspectReport {
-        kind,
-        format_version: view.format_version(),
-        object_byte_length: u64::try_from(view.bytes().len()).unwrap_or(u64::MAX),
-        sections,
-        fields,
-        truncated_tables,
-    }
+    (sections, fields, truncated_tables)
 }
 
-fn effective_row_range(options: &InspectOptions, row_count: u32) -> RowRange {
-    match options.filters.rows {
-        Some(range) => RowRange {
-            start: range.start.min(row_count),
-            end: range.end.min(row_count),
-        },
-        None => RowRange {
-            start: 0,
-            end: row_count,
-        },
-    }
-}
-
-fn section_selected(options: &InspectOptions, identity: &SectionIdentity) -> bool {
-    match &options.filters.section {
-        None => true,
-        Some(SectionSelector::Ordinal(ordinal)) => *ordinal == identity.ordinal,
-        Some(SectionSelector::Name(name)) => *name == identity.name,
-    }
-}
-
-fn table_selected(options: &InspectOptions, identity: &TableIdentity) -> bool {
-    match &options.filters.table {
-        None => true,
-        Some(TableSelector::Kind(kind)) => *kind == identity.kind,
-        Some(TableSelector::Name(name)) => *name == identity.name,
-    }
+/// 行范围内（筛选后的）应展开行数：用于与实际展开数对账截断。
+fn count_rows_in_range(row_count: u32, filters: &InspectFilters) -> u32 {
+    u32::try_from(
+        (0..row_count)
+            .filter(|row| filters.selects_row(*row))
+            .count(),
+    )
+    .unwrap_or(u32::MAX)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn expand_table_fields(
-    object_bytes: &[u8],
+    walk: &SideWalk<'_>,
     table: &laneflow_format::RegistryCheckedTableView<'_>,
     section: &SectionIdentity,
     table_identity: &TableIdentity,
-    range: RowRange,
+    policy: &DisplayPolicy,
     row_schema: &laneflow_static_contract::PortableRowSchema,
     member_table: bool,
-    report_limits: &ReportLimits,
-    format_limits: FormatLimits,
-    expand_rows_budget: &mut usize,
+    config: &SessionConfig,
+    rows: &mut RowBudget<'_>,
     fields: &mut Vec<FieldEntry>,
 ) -> u32 {
     let mut shown = 0_u32;
-    for logical_row in range.start..range.end {
-        if *expand_rows_budget == 0 {
+    for (logical_row, row) in walk.table_rows(*table) {
+        if !policy.filters.selects_row(logical_row) {
+            continue;
+        }
+        if !rows.try_consume() {
             break;
         }
-        let Some(row) = table.row(logical_row) else {
-            break;
-        };
-        *expand_rows_budget -= 1;
         shown += 1;
         let member_kind = member_table.then(|| policy_member_kind(row)).flatten();
         for field in row.fields() {
-            let location = FieldLocation::top_level(
-                section,
-                table_identity,
+            let path = FieldPath {
+                section: *section,
+                table: *table_identity,
                 logical_row,
-                field.tag(),
-                field_name(row_schema, field.tag()).unwrap_or(""),
-                Some(object_offset(object_bytes, field.value_bytes())),
-            );
+                field_tag: field.tag(),
+                field_name: field_name(row_schema, field.tag()).unwrap_or(""),
+                nested: Vec::new(),
+            };
             push_field_or_member(
                 field,
-                &location,
+                &path,
                 member_kind,
-                report_limits,
-                format_limits,
-                expand_rows_budget,
+                walk,
+                policy,
+                config,
+                rows,
                 fields,
             );
         }
@@ -453,11 +406,12 @@ fn expand_table_fields(
 #[allow(clippy::too_many_arguments)]
 fn push_field_or_member(
     field: laneflow_format::RegistryCheckedFieldView<'_>,
-    location: &FieldLocation,
+    path: &FieldPath,
     member_kind: Option<u8>,
-    report_limits: &ReportLimits,
-    format_limits: FormatLimits,
-    expand_rows_budget: &mut usize,
+    walk: &SideWalk<'_>,
+    policy: &DisplayPolicy,
+    config: &SessionConfig,
+    rows: &mut RowBudget<'_>,
     fields: &mut Vec<FieldEntry>,
 ) {
     // LFSD 已登记成员 Bytes：只有明确登记为 RowV1 且已受检的 Bytes 才展开；
@@ -472,29 +426,28 @@ fn push_field_or_member(
         let member = embedded_row_display(
             kind,
             field.value_bytes(),
-            report_limits,
-            expand_rows_budget,
-            format_limits,
+            path,
+            &policy.limits,
+            rows,
+            config.format,
         );
         if let Ok(display) = member {
-            let mut member_location = location.clone();
-            member_location
-                .nested
-                .push(crate::walk::NestedStep::PolicyMember {
+            fields.push(FieldEntry {
+                path: path.with_step(crate::walk::NestedStep::PolicyMember {
                     kind,
                     field_tag: field.tag(),
-                    field_name: location.field_name,
-                });
-            fields.push(FieldEntry {
-                location: member_location,
+                    field_name: path.field_name,
+                }),
+                offset: walk.value_offset(field),
                 value: display,
             });
             return;
         }
     }
-    if let Ok(value) = display_field_value(field, location, report_limits, expand_rows_budget) {
+    if let Ok(value) = display_field_value(field, path, &policy.limits, rows) {
         fields.push(FieldEntry {
-            location: location.clone(),
+            path: path.clone(),
+            offset: walk.value_offset(field),
             value,
         });
     }

@@ -5,14 +5,22 @@
 //! `laneflow-format` 的正式预检与登记：工具不复制线格式偏移常量，不新增
 //! 独立 lf* 解析器，也不放宽任何检查。
 //!
+//! 架构分层：
+//! - [`session`]：资源策略（[`session::SessionConfig`]，格式预算只能收紧
+//!   构造）与展示策略（[`session::DisplayPolicy`]，筛选谓词的唯一实现）。
+//! - [`walk`]：逻辑联接键（[`walk::FieldPath`]）与双侧顺序游标
+//!   （[`walk::SideWalk`]）——遍历契约与两侧物理偏移的唯一载体。
+//! - [`value`]：统一截断协议（完整 / 截断 / 限额内省略，绝不静默丢内容）。
+//! - [`inspect`] / [`diff`] / [`render`]：wire 事实与展示明细分层产出。
+//!
 //! 检查范围声明：本工具执行按登记、按逻辑位置的单对象结构比较；跨对象绑定、
 //! 运行时静态路网构建与发布真实性不在检查范围内。诊断文本不是数据契约。
 
-pub mod budget;
 pub mod diff;
 pub mod input;
 pub mod inspect;
 pub mod render;
+pub mod session;
 pub mod value;
 pub mod walk;
 
@@ -39,16 +47,12 @@ pub fn assert_portable_object_matches(actual: &[u8], expected: &[u8], context: &
     if actual == expected {
         return;
     }
-    let options = diff::DiffOptions::default();
-    let report = diff::diff_bytes(expected, actual);
+    let config = session::SessionConfig::hardened();
+    let policy = session::DisplayPolicy::default();
+    let report = diff::diff_bytes(expected, actual, &policy, &config);
     let mut message = String::new();
     let _ = writeln!(message, "portable object bytes mismatch: {context}");
-    render::render_diff_into(
-        &mut message,
-        &report,
-        &options,
-        &budget::ReportLimits::default(),
-    );
+    render::render_diff_into(&mut message, &report, &policy);
     panic!("{message}");
 }
 

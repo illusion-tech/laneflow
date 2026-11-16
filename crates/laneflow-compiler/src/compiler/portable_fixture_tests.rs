@@ -1262,30 +1262,39 @@ fn artifact_inspect_diff_locates_source_location_start_line_drift() {
     let report = laneflow_artifact_inspect::diff::diff_bytes(
         old.source_map().bytes(),
         new.source_map().bytes(),
+        &laneflow_artifact_inspect::session::DisplayPolicy::default(),
+        &laneflow_artifact_inspect::session::SessionConfig::hardened(),
     );
     assert!(!report.equal());
     let start_line_diff = report
         .fields
         .iter()
-        .find(|diff| diff.location.field_name == "startLine")
+        .find(|diff| diff.path.field_name == "startLine")
         .expect("来源行号漂移必须定位到 SourceLocation.startLine");
     let (
-        laneflow_artifact_inspect::diff::ValueSnapshot::Present(
-            laneflow_artifact_inspect::value::ValueDisplay::U32(old_line),
-        ),
-        laneflow_artifact_inspect::diff::ValueSnapshot::Present(
-            laneflow_artifact_inspect::value::ValueDisplay::U32(new_line),
-        ),
+        laneflow_artifact_inspect::diff::FieldSide::Present {
+            value: old_value, ..
+        },
+        laneflow_artifact_inspect::diff::FieldSide::Present {
+            value: new_value, ..
+        },
     ) = (&start_line_diff.expected, &start_line_diff.actual)
     else {
-        panic!("startLine 差异应为两侧 U32 值：{start_line_diff:?}");
+        panic!("startLine 差异应为两侧存在：{start_line_diff:?}");
+    };
+    let (
+        laneflow_artifact_inspect::value::ValueDisplay::U32(old_line),
+        laneflow_artifact_inspect::value::ValueDisplay::U32(new_line),
+    ) = (old_value, new_value)
+    else {
+        panic!("startLine 差异应为 U32 值：{start_line_diff:?}");
     };
     assert!(
-        *new_line > *old_line,
+        new_line > old_line,
         "方向必须 expected/旧 → actual/新：{old_line} → {new_line}"
     );
-    assert_eq!(start_line_diff.location.table_name, "SourceLocation");
-    assert_eq!(start_line_diff.location.section_name, "SourceModules");
+    assert_eq!(start_line_diff.path.table.name, "SourceLocation");
+    assert_eq!(start_line_diff.path.section.name, "SourceModules");
 }
 
 #[test]
@@ -1295,18 +1304,16 @@ fn artifact_inspect_renders_every_frozen_portable_fixture_kind() {
         ("LFSM", FULL_SPATIAL_EXPECTED_LFSM),
         ("LFSD", FULL_SPATIAL_EXPECTED_LFSD),
     ] {
+        let options = laneflow_artifact_inspect::inspect::InspectOptions::default();
+        let policy = laneflow_artifact_inspect::session::DisplayPolicy::default();
         let report = laneflow_artifact_inspect::inspect::inspect(
             bytes,
-            &laneflow_artifact_inspect::inspect::InspectOptions::default(),
-            laneflow_format::FormatLimits::HARD,
-            &laneflow_artifact_inspect::budget::ReportLimits::default(),
+            &options,
+            &policy,
+            &laneflow_artifact_inspect::session::SessionConfig::hardened(),
         )
         .unwrap_or_else(|error| panic!("{label} 检入 fixture 应通过检视：{error:?}"));
-        let text = laneflow_artifact_inspect::render::render_inspect(
-            &report,
-            &laneflow_artifact_inspect::inspect::InspectOptions::default(),
-            &laneflow_artifact_inspect::budget::ReportLimits::default(),
-        );
+        let text = laneflow_artifact_inspect::render::render_inspect(&report, &options, &policy);
         assert!(text.contains(label), "{label} 摘要缺失：\n{text}");
         assert!(
             text.contains("check: 单对象结构与直接值域检查 PASS"),

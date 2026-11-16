@@ -231,3 +231,24 @@ fn binary_output_is_deterministic_across_runs() {
     let second = run(&["diff", left.path_str(), right.path_str()]);
     assert_eq!(stdout(&first), stdout(&second), "同机两次运行正文须一致");
 }
+
+#[test]
+fn diff_enforces_tightened_budget_consistently_with_inspect() {
+    // 评审 #1 的 CLI 面：同一收紧预算下 inspect 与 diff 行为一致（都退 2）。
+    let bytes = minimal_object(laneflow_static_contract::PortableObjectKind::CanonicalArtifact);
+    let file = TempFile::new("budget.lfca", &bytes);
+    let inspect = run(&["inspect", "--max-object-bytes=1024", file.path_str()]);
+    assert_eq!(inspect.status.code(), Some(2));
+    let diff = run(&[
+        "diff",
+        "--max-object-bytes=1024",
+        file.path_str(),
+        file.path_str(),
+    ]);
+    assert_eq!(
+        diff.status.code(),
+        Some(2),
+        "diff 须与会话收紧预算一致地拒绝：{}",
+        stdout(&diff)
+    );
+}
