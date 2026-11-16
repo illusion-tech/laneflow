@@ -373,3 +373,36 @@ fn ledger_budget_is_the_profile_host_budget() {
         .unwrap();
     ledger.close().unwrap();
 }
+
+#[test]
+fn output_of_ended_sub_pass_is_not_charged_to_a_later_sibling() {
+    let ledger = Ledger::with_budget(300);
+    let parent = ledger.admit_pass(SINGLE, 300).unwrap();
+    let first = parent.admit_sub(SUB, 100).unwrap();
+    let output = first.vec::<u8>(100).unwrap();
+    first.finish(100).unwrap();
+    let sibling = parent.admit_sub(SUB, 100).unwrap();
+    let sibling_scratch = sibling.vec::<u8>(60).unwrap();
+    // 先前子编译遍的输出归父编译遍；释放时不得减少同深度新子编译遍的在用量。
+    drop(output);
+    assert_eq!(sibling.in_use(), 60);
+    assert_eq!(parent.in_use(), 0);
+    assert_conserved(&ledger);
+    drop(sibling_scratch);
+    sibling.finish(0).unwrap();
+    parent.finish(0).unwrap();
+    ledger.close().unwrap();
+}
+
+#[test]
+fn repeated_passes_keep_ledger_state_bounded() {
+    let ledger = Ledger::with_budget(64);
+    for _ in 0..10_000 {
+        let pass = ledger.admit_pass(SINGLE, 0).unwrap();
+        pass.admit_sub(SUB, 0).unwrap().finish(0).unwrap();
+        pass.finish(0).unwrap();
+    }
+    let frames_capacity = lock(&ledger.state).frames.capacity();
+    assert!(frames_capacity <= 4, "账本状态不得随编译遍次数增长");
+    ledger.close().unwrap();
+}

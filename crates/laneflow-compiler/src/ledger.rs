@@ -130,19 +130,21 @@ impl LedgerReport {
     }
 }
 
-/// 授予的记账归属：根账户（不属于任何活动编译遍的存续）、活动编译遍，或已结束编译遍
-/// 转交给的账户。
-#[derive(Clone, Copy)]
-enum Account {
-    Root,
-    Active,
-    Redirect(usize),
+/// 编译遍标识：栈深度与账本内单调递增的序号。
+///
+/// 授予记录创建它的编译遍标识。该编译遍结束后，名下存续转给父编译遍；父编译遍是当时
+/// 栈中更浅一层的编译遍，在子编译遍存活期间不会出栈。因此当前栈中深度不超过记录深度、
+/// 序号不大于记录序号的最深编译遍，就是授予现在的归属；没有这样的编译遍时归属根账户
+/// （不属于任何活动编译遍的存续）。归属由栈与序号直接推出，账本不为已结束的编译遍保留
+/// 任何记录，反复准入编译遍不会使账本状态增长。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PassId {
+    depth: usize,
+    id: u64,
 }
 
-const ROOT: usize = 0;
-
 struct Frame {
-    account: usize,
+    id: u64,
     label: PassLabel,
     plan: u64,
     in_use: u64,
@@ -169,48 +171,53 @@ struct State {
     reserved: u64,
     report: LedgerReport,
     frames: Vec<Frame>,
-    accounts: Vec<Account>,
+    next_id: u64,
 }
 
 impl State {
-    fn resolve(&self, mut account: usize) -> usize {
-        while let Account::Redirect(next) = self.accounts[account] {
-            account = next;
-        }
-        account
+    /// 授予现在的归属编译遍在栈中的位置；`None` 表示根账户。
+    fn resolve(&self, pass: PassId) -> Option<usize> {
+        let deepest = pass.depth.min(self.frames.len().checked_sub(1)?);
+        (0..=deepest).rev().find(|&k| self.frames[k].id <= pass.id)
     }
 
-    fn frame_mut(&mut self, account: usize) -> Option<&mut Frame> {
+    fn frame(&self, pass: PassId) -> Option<&Frame> {
         self.frames
-            .iter_mut()
-            .find(|frame| frame.account == account)
+            .get(pass.depth)
+            .filter(|frame| frame.id == pass.id)
     }
 
-    fn top_label(&self, account: usize) -> Result<PassLabel, AccountingDefect> {
-        match self.frames.last() {
-            Some(top) if top.account == account => Ok(top.label),
+    fn frame_mut(&mut self, pass: PassId) -> Option<&mut Frame> {
+        self.frames
+            .get_mut(pass.depth)
+            .filter(|frame| frame.id == pass.id)
+    }
+
+    fn top_label(&self, pass: PassId) -> Result<PassLabel, AccountingDefect> {
+        match self.frame(pass) {
+            Some(frame) if pass.depth + 1 == self.frames.len() => Ok(frame.label),
             _ => Err(AccountingDefect::InactivePass),
         }
     }
 
-    fn label_of(&self, account: usize) -> PassLabel {
-        self.frames
-            .iter()
-            .find(|frame| frame.account == account)
-            .map_or(INACTIVE_LABEL, |frame| frame.label)
+    fn label_of(&self, pass: PassId) -> PassLabel {
+        self.frame(pass).map_or(INACTIVE_LABEL, |frame| frame.label)
     }
 
-    fn push_frame(&mut self, label: PassLabel, plan: u64) -> usize {
-        let account = self.accounts.len();
-        self.accounts.push(Account::Active);
+    fn push_frame(&mut self, label: PassLabel, plan: u64) -> PassId {
+        let pass = PassId {
+            depth: self.frames.len(),
+            id: self.next_id,
+        };
+        self.next_id += 1;
         self.frames.push(Frame {
-            account,
+            id: pass.id,
             label,
             plan,
             in_use: 0,
             carved: 0,
         });
-        account
+        pass
     }
 
     fn record_peaks(&mut self) {
@@ -222,9 +229,9 @@ impl State {
         }
     }
 
-    fn grant(&mut self, account: usize, bytes: u64) -> Result<(), LedgerError> {
-        let label = self.label_of(account);
-        let frame = self.frame_mut(account).ok_or(LedgerError::Defect {
+    fn grant(&mut self, pass: PassId, bytes: u64) -> Result<(), LedgerError> {
+        let label = self.label_of(pass);
+        let frame = self.frame_mut(pass).ok_or(LedgerError::Defect {
             label,
             defect: AccountingDefect::InactivePass,
         })?;
@@ -241,7 +248,7 @@ impl State {
         Ok(())
     }
 
-    fn give_back(&mut self, account: usize, bytes: u64, outcome: Outcome) {
+    fn give_back(&mut self, pass: PassId, bytes: u64, outcome: Outcome) {
         debug_assert!(self.live >= bytes, "账本存续不足以归还授予");
         self.live = self.live.saturating_sub(bytes);
         match outcome {
@@ -249,8 +256,8 @@ impl State {
             Outcome::Transferred => self.report.transferred += bytes,
             Outcome::RolledBack => {}
         }
-        let account = self.resolve(account);
-        if let Some(frame) = self.frame_mut(account) {
+        if let Some(index) = self.resolve(pass) {
+            let frame = &mut self.frames[index];
             debug_assert!(frame.in_use >= bytes, "编译遍在用量不足以归还授予");
             frame.in_use = frame.in_use.saturating_sub(bytes);
             self.reserved += bytes;
@@ -270,12 +277,8 @@ impl State {
                 // 存续转为父编译遍的在用量，预留总量不变。
                 parent.carved -= frame.plan;
                 parent.in_use += frame.in_use;
-                self.accounts[frame.account] = Account::Redirect(parent.account);
             }
-            None => {
-                self.reserved -= unconsumed;
-                self.accounts[frame.account] = Account::Redirect(ROOT);
-            }
+            None => self.reserved -= unconsumed,
         }
     }
 }
@@ -306,7 +309,7 @@ impl Ledger {
                 reserved: 0,
                 report: LedgerReport::default(),
                 frames: Vec::new(),
-                accounts: vec![Account::Root],
+                next_id: 0,
             })),
         }
     }
@@ -378,7 +381,7 @@ impl Ledger {
 /// 退还未消费预留，名下仍存续的授予转给父编译遍或根账户，由其所有者析构时归还。
 pub(crate) struct PassBudget<'l> {
     ledger: &'l Ledger,
-    account: usize,
+    account: PassId,
     finished: bool,
 }
 
@@ -413,11 +416,7 @@ impl PassBudget<'_> {
     /// 本编译遍当前在用量 `U`。
     pub(crate) fn in_use(&self) -> u64 {
         let state = lock(&self.ledger.state);
-        state
-            .frames
-            .iter()
-            .find(|frame| frame.account == self.account)
-            .map_or(0, |frame| frame.in_use)
+        state.frame(self.account).map_or(0, |frame| frame.in_use)
     }
 
     /// 结束编译遍：`output_bytes` 是转为输出、继续存续的授予字节，必须等于当前在用量；
@@ -498,7 +497,7 @@ impl Drop for PassBudget<'_> {
 /// 一笔授予：随存储持有与移动，存储释放时归还额度。
 struct Grant {
     state: Option<Arc<Mutex<State>>>,
-    account: usize,
+    account: PassId,
     bytes: u64,
 }
 
