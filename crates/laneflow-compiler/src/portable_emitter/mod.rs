@@ -24,7 +24,7 @@ pub use api::{
 pub(crate) use api::{close_object, close_staged_object, object_key, sha256};
 use lfca::{build_lfca, set_lfca_tree_revision};
 pub use lfsd::check_portable_policy_diff;
-use lfsd::{build_lfsd, check_policy_diff, verify_target_relation_projection};
+use lfsd::{build_lfsd, build_target_index, check_policy_diff, verify_target_relation_projection};
 pub use lfsm::check_portable_policy_sources;
 use lfsm::{build_lfsm, check_policy_sources};
 use model::*;
@@ -307,7 +307,10 @@ fn emit_portable_candidate_with(
         limits,
     )?
     .registry_view();
-    verify_target_relation_projection(output, canonical_view, single)?;
+    // 目标实体索引由发射上下文建立一次，供关系投影自校验与 LFSD 构建共用，存续到 LFSD
+    // 构建结束（ADR 0035 第 5 节）。
+    let target_index = build_target_index(canonical_view, single)?;
+    verify_target_relation_projection(output, &target_index, single)?;
 
     let lfsm = build_lfsm(
         output,
@@ -333,9 +336,11 @@ fn emit_portable_candidate_with(
         base,
         network_revision,
         &canonical_artifact.candidate,
+        &target_index,
         limits,
         diff,
     )?;
+    drop(target_index);
     let semantic_diff = emit_object(&lfsd, diff, ("lfsd-lowering", "lfsd-encode"))?;
     drop(lfsd);
     preflight_object_values(

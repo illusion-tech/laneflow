@@ -39,24 +39,10 @@ fn build_genesis_lfsd(
     output: &CompilationOutput,
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
-    limits: FormatLimits,
+    target_index: &ArtifactIndex<'_>,
     accounting: Accounting<'_>,
 ) -> Result<ObjectTree, PortableEmissionError> {
-    let target = preflight_object_values(
-        artifact.bytes(),
-        PortableObjectKind::CanonicalArtifact,
-        limits,
-    )?
-    .registry_view();
-    // 目标实体索引作为索引编译遍的输出，供变化编译遍使用。
-    let index_pass = accounting.admit("genesis-diff-index", ArtifactIndex::plan(target))?;
-    let target_index = ArtifactIndex::build(
-        target,
-        PortableEmissionError::InternalBindingMismatch,
-        &index_pass,
-    )?;
-    index_pass.finish(target_index.granted_bytes())?;
-
+    let target = target_index.view;
     let lir = output.lir().unit();
     let mut bounds = ChangeBounds {
         entity: genesis_entity_bound(target)?,
@@ -65,7 +51,7 @@ fn build_genesis_lfsd(
     };
     // Genesis 不建立几何值表，只取目标一侧的变化与暂存上界。
     geometry_change_bounds(None, target, &mut bounds)?;
-    let members = policy_change::policy_change_bounds(None, &target_index, &mut bounds)?;
+    let members = policy_change::policy_change_bounds(None, target_index, &mut bounds)?;
     let pass = accounting.admit(
         "genesis-diff-changes",
         bounds
@@ -76,7 +62,7 @@ fn build_genesis_lfsd(
     let mut changes = bounds.grant(&pass)?;
     policy_change::policy_changes(
         None,
-        &target_index,
+        target_index,
         &pass,
         &mut changes.policy,
         &mut changes.staged,
@@ -93,7 +79,6 @@ fn build_genesis_lfsd(
             .bytes(),
     ));
     pass.finish(changes.granted_bytes())?;
-    drop(target_index);
 
     let header = DiffHeader::Genesis {
         network_revision,
@@ -111,64 +96,78 @@ fn build_genesis_lfsd(
 /// 按显式 base 选择构建 LFSD 语义差异对象树。
 ///
 /// `Genesis` 输出相对空基线的全量新增差异；`Artifact` 输出相对基线制品的增量差异，
-/// 并返回调用方必须核对的期望 base 绑定。实体索引、变化表与对象树依次在三个编译遍内
-/// 由发射账本授予：索引与变化表分别作为前一遍的输出延续到后一遍结束。
+/// 并返回调用方必须核对的期望 base 绑定。目标实体索引由发射上下文建立一次后借用
+/// （[`build_target_index`]）；base 索引、变化表与对象树依次在各自编译遍内由发射账本
+/// 授予：索引与变化表分别作为前一遍的输出延续到后一遍结束。
 pub(super) fn build_lfsd(
     output: &CompilationOutput,
     base: PortableDiffBase<'_>,
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
+    target_index: &ArtifactIndex<'_>,
     limits: FormatLimits,
     accounting: Accounting<'_>,
 ) -> Result<(ObjectTree, ExpectedSemanticDiffBase), PortableEmissionError> {
     match base {
         PortableDiffBase::Genesis => Ok((
-            build_genesis_lfsd(output, network_revision, artifact, limits, accounting)?,
+            build_genesis_lfsd(output, network_revision, artifact, target_index, accounting)?,
             ExpectedSemanticDiffBase::Genesis,
         )),
-        PortableDiffBase::Artifact(base) => {
-            build_artifact_lfsd(base, network_revision, artifact, limits, accounting)
-        }
+        PortableDiffBase::Artifact(base) => build_artifact_lfsd(
+            base,
+            network_revision,
+            artifact,
+            target_index,
+            limits,
+            accounting,
+        ),
     }
+}
+
+/// 建立发射上下文的目标实体索引（ADR 0035 第 5 节）。
+///
+/// 在一个顶层编译遍内建立目标 LFCA 的 StableId 排列并校验路权策略引用；索引作为该遍的
+/// 输出存续，供目标关系投影自校验与 LFSD 构建共用，由调用方在 LFSD 构建结束后释放。
+pub(super) fn build_target_index<'a>(
+    target: RegistryCheckedObjectView<'a>,
+    accounting: Accounting<'_>,
+) -> Result<ArtifactIndex<'a>, PortableEmissionError> {
+    let pass = accounting.admit(
+        "target-entity-index",
+        ArtifactIndex::plan(target).plus(policy_reference_plan(target)),
+    )?;
+    let index = ArtifactIndex::build(
+        target,
+        PortableEmissionError::InternalBindingMismatch,
+        &pass,
+    )?;
+    validate_policy_references(
+        &index,
+        &pass,
+        PortableEmissionError::InternalBindingMismatch,
+    )?;
+    pass.finish(index.granted_bytes())?;
+    Ok(index)
 }
 
 /// 核对目标 LFCA 投影出的关系元组与 LIR 规范关系完全一致。
 ///
-/// 先在索引编译遍内重建目标制品索引并校验路权策略引用，索引作为输出延续；再在比较
-/// 编译遍内按索引计数授予两侧关系元组。不一致即报内部绑定错误，返回前全部释放。
+/// 借用发射上下文的目标实体索引，在比较编译遍内按索引计数授予两侧关系元组。不一致
+/// 即报内部绑定错误，返回前释放比较工作集。
 pub(super) fn verify_target_relation_projection(
     output: &CompilationOutput,
-    target: RegistryCheckedObjectView<'_>,
+    target_index: &ArtifactIndex<'_>,
     accounting: Accounting<'_>,
 ) -> Result<(), PortableEmissionError> {
-    let index_pass = accounting.admit(
-        "relation-projection-index",
-        ArtifactIndex::plan(target).plus(policy_reference_plan(target)),
-    )?;
-    let target_index = ArtifactIndex::build(
-        target,
-        PortableEmissionError::InternalBindingMismatch,
-        &index_pass,
-    )?;
-    validate_policy_references(
-        &target_index,
-        &index_pass,
-        PortableEmissionError::InternalBindingMismatch,
-    )?;
-    index_pass.finish(target_index.granted_bytes())?;
-
     let lir = output.lir().unit();
     let pass = accounting.admit(
         "relation-projection",
-        artifact_relation_plan(
-            &target_index,
-            PortableEmissionError::InternalBindingMismatch,
-        )?
-        .array::<RelationTuple>(canonical_relation_count(lir))
-        .array::<u32>(canonical_relation_scratch_len(lir)),
+        artifact_relation_plan(target_index, PortableEmissionError::InternalBindingMismatch)?
+            .array::<RelationTuple>(canonical_relation_count(lir))
+            .array::<u32>(canonical_relation_scratch_len(lir)),
     )?;
     let projected = artifact_relation_tuples(
-        &target_index,
+        target_index,
         PortableEmissionError::InternalBindingMismatch,
         &pass,
     )?;
@@ -178,7 +177,6 @@ pub(super) fn verify_target_relation_projection(
     }
     drop((projected, canonical));
     pass.finish(0)?;
-    drop(target_index);
     Ok(())
 }
 
@@ -186,6 +184,7 @@ fn build_artifact_lfsd(
     base: ValueCheckedObjectView<'_>,
     target_network_revision: NetworkRevisionId,
     target_artifact: &PortableObjectCandidate,
+    target_index: &ArtifactIndex<'_>,
     limits: FormatLimits,
     accounting: Accounting<'_>,
 ) -> Result<(ObjectTree, ExpectedSemanticDiffBase), PortableEmissionError> {
@@ -195,28 +194,16 @@ fn build_artifact_lfsd(
     let base =
         preflight_object_values(base.bytes(), PortableObjectKind::CanonicalArtifact, limits)?;
     let base_view = base.registry_view();
-    let target_view = preflight_object_values(
-        target_artifact.bytes(),
-        PortableObjectKind::CanonicalArtifact,
-        limits,
-    )?
-    .registry_view();
-    // 两侧索引同时存续，作为索引编译遍的输出；两次策略引用核对先后进行，键在各自结束时
-    // 释放，取峰值。
+    let target_view = target_index.view;
+    // base 索引作为索引编译遍的输出，与借用的目标索引同时存续；base 策略引用键在核对
+    // 结束时释放。
     let index_pass = accounting.admit(
         "artifact-diff-index",
-        ArtifactIndex::plan(base_view)
-            .plus(ArtifactIndex::plan(target_view))
-            .plus(policy_reference_plan(base_view).max(policy_reference_plan(target_view))),
+        ArtifactIndex::plan(base_view).plus(policy_reference_plan(base_view)),
     )?;
     let base_index = ArtifactIndex::build(
         base_view,
         PortableEmissionError::DiffBaseSemanticMismatch,
-        &index_pass,
-    )?;
-    let target_index = ArtifactIndex::build(
-        target_view,
-        PortableEmissionError::InternalBindingMismatch,
         &index_pass,
     )?;
     validate_policy_references(
@@ -224,13 +211,8 @@ fn build_artifact_lfsd(
         &index_pass,
         PortableEmissionError::DiffBaseSemanticMismatch,
     )?;
-    validate_policy_references(
-        &target_index,
-        &index_pass,
-        PortableEmissionError::InternalBindingMismatch,
-    )?;
-    verify_artifact_diff_compatibility(base_view, target_view, &base_index, &target_index)?;
-    index_pass.finish(base_index.granted_bytes() + target_index.granted_bytes())?;
+    verify_artifact_diff_compatibility(base_view, target_view, &base_index, target_index)?;
+    index_pass.finish(base_index.granted_bytes())?;
 
     let base_network_revision = network_revision_from_checked(base)?;
     let base_digest = sha256(base.bytes());
@@ -240,24 +222,21 @@ fn build_artifact_lfsd(
 
     // 变化表：容量按两侧行数求上界。关系元组表、几何值表与策略成员表先后使用，取峰值。
     let mut bounds = ChangeBounds::default();
-    field_change_bounds(&base_index, &target_index, &mut bounds)?;
+    field_change_bounds(&base_index, target_index, &mut bounds)?;
     bounds.relation =
         artifact_relation_count(&base_index, PortableEmissionError::DiffBaseSemanticMismatch)?
             .checked_add(artifact_relation_count(
-                &target_index,
+                target_index,
                 PortableEmissionError::InternalBindingMismatch,
             )?)
             .ok_or(PortableEmissionError::ArithmeticOverflow)?;
     let tuples =
         artifact_relation_plan(&base_index, PortableEmissionError::DiffBaseSemanticMismatch)?.plus(
-            artifact_relation_plan(
-                &target_index,
-                PortableEmissionError::InternalBindingMismatch,
-            )?,
+            artifact_relation_plan(target_index, PortableEmissionError::InternalBindingMismatch)?,
         );
     let geometries = geometry_change_bounds(Some(base_view), target_view, &mut bounds)?;
     let members =
-        policy_change::policy_change_bounds(Some(&base_index), &target_index, &mut bounds)?;
+        policy_change::policy_change_bounds(Some(&base_index), target_index, &mut bounds)?;
     let pass = accounting.admit(
         "artifact-diff-changes",
         bounds.plan().plus(tuples.max(geometries).max(members)),
@@ -265,7 +244,7 @@ fn build_artifact_lfsd(
     let mut changes = bounds.grant(&pass)?;
     artifact_entity_changes(
         &base_index,
-        &target_index,
+        target_index,
         &mut changes.entity,
         &mut changes.staged,
     )?;
@@ -276,7 +255,7 @@ fn build_artifact_lfsd(
             &pass,
         )?;
         let mut target_tuples = artifact_relation_tuples(
-            &target_index,
+            target_index,
             PortableEmissionError::InternalBindingMismatch,
             &pass,
         )?;
@@ -284,27 +263,27 @@ fn build_artifact_lfsd(
     }
     artifact_geometry_changes(
         &base_index,
-        &target_index,
+        target_index,
         &pass,
         &mut changes.geometry,
         &mut changes.staged,
     )?;
     artifact_static_rule_changes(
         &base_index,
-        &target_index,
+        target_index,
         &mut changes.static_rule,
         &mut changes.staged,
     )?;
-    changes.spatial = artifact_spatial_configuration_change(&base_index, &target_index)?;
+    changes.spatial = artifact_spatial_configuration_change(&base_index, target_index)?;
     policy_change::policy_changes(
         Some(&base_index),
-        &target_index,
+        target_index,
         &pass,
         &mut changes.policy,
         &mut changes.staged,
     )?;
     pass.finish(changes.granted_bytes())?;
-    drop((base_index, target_index));
+    drop(base_index);
 
     let expected_base = ExpectedSemanticDiffBase::Artifact {
         network_revision_derivation_version: NETWORK_REVISION_DERIVATION_VERSION,
@@ -329,6 +308,25 @@ fn build_artifact_lfsd(
     Ok((tree, expected_base))
 }
 
+/// 测试用：如发射上下文那样为 `artifact` 建立目标实体索引，在索引存续期间执行 `build`，
+/// 返回前释放索引。
+#[cfg(test)]
+fn with_target_index<T>(
+    artifact: &PortableObjectCandidate,
+    limits: FormatLimits,
+    accounting: Accounting<'_>,
+    build: impl FnOnce(&ArtifactIndex<'_>) -> Result<T, PortableEmissionError>,
+) -> Result<T, PortableEmissionError> {
+    let target = preflight_object_values(
+        artifact.bytes(),
+        PortableObjectKind::CanonicalArtifact,
+        limits,
+    )?
+    .registry_view();
+    let index = build_target_index(target, accounting)?;
+    build(&index)
+}
+
 /// 测试用：构造 Genesis LFSD 并还原为拥有型嵌套对象。
 #[cfg(test)]
 fn build_genesis_lfsd_owned(
@@ -338,10 +336,33 @@ fn build_genesis_lfsd_owned(
     limits: FormatLimits,
     accounting: Accounting<'_>,
 ) -> Result<OwnedObject, PortableEmissionError> {
-    Ok(
-        build_genesis_lfsd(output, network_revision, artifact, limits, accounting)?
-            .to_owned_object(),
-    )
+    with_target_index(artifact, limits, accounting, |index| {
+        Ok(
+            build_genesis_lfsd(output, network_revision, artifact, index, accounting)?
+                .to_owned_object(),
+        )
+    })
+}
+
+/// 测试用：建立目标实体索引后构造制品差异 LFSD，返回前释放目标索引。
+#[cfg(test)]
+fn build_artifact_lfsd_with_target(
+    base: ValueCheckedObjectView<'_>,
+    target_network_revision: NetworkRevisionId,
+    target_artifact: &PortableObjectCandidate,
+    limits: FormatLimits,
+    accounting: Accounting<'_>,
+) -> Result<(ObjectTree, ExpectedSemanticDiffBase), PortableEmissionError> {
+    with_target_index(target_artifact, limits, accounting, |index| {
+        build_artifact_lfsd(
+            base,
+            target_network_revision,
+            target_artifact,
+            index,
+            limits,
+            accounting,
+        )
+    })
 }
 
 /// 测试用：构造制品差异 LFSD 并还原为拥有型嵌套对象。
@@ -353,7 +374,7 @@ fn build_artifact_lfsd_owned(
     limits: FormatLimits,
     accounting: Accounting<'_>,
 ) -> Result<(OwnedObject, ExpectedSemanticDiffBase), PortableEmissionError> {
-    let (tree, expected) = build_artifact_lfsd(
+    let (tree, expected) = build_artifact_lfsd_with_target(
         base,
         target_network_revision,
         target_artifact,
@@ -445,14 +466,15 @@ mod tests {
         .unwrap();
         let view = base.registry_view();
         let target = close_object(EXPECTED_LFCA.to_vec().into_boxed_slice());
-        // 预算恰好容纳两侧实体索引与策略引用键：索引编译遍通过，变化表计划被拒绝。
+        // 预算恰好容纳两侧实体索引与一侧策略引用键：目标索引与 base 索引编译遍先后通过，
+        // 变化表计划被拒绝。
         let index_plan = ArtifactIndex::plan(view)
             .plus(ArtifactIndex::plan(view))
             .plus(policy_reference_plan(view))
             .bytes()
             .unwrap();
         let accounting = crate::portable_emitter::budget::test_accounting(index_plan);
-        let error = build_artifact_lfsd(
+        let error = build_artifact_lfsd_with_target(
             base,
             NetworkRevisionId::from_digest(Sha256Digest::ZERO),
             &target,
@@ -477,7 +499,7 @@ mod tests {
 
         // 预算充足时变化表与对象树全部释放，账本结束时归零。
         let accounting = crate::portable_emitter::budget::test_accounting(u64::MAX);
-        let (tree, _) = build_artifact_lfsd(
+        let (tree, _) = build_artifact_lfsd_with_target(
             base,
             NetworkRevisionId::from_digest(Sha256Digest::ZERO),
             &target,
@@ -487,6 +509,48 @@ mod tests {
         .unwrap();
         assert_eq!(accounting.ledger.live(), tree.granted_bytes());
         drop(tree);
+        assert_eq!(accounting.ledger.live(), 0);
+        assert_eq!(accounting.ledger.reserved(), 0);
+    }
+
+    #[test]
+    fn target_index_lookup_holds_when_identity_order_differs_from_stable_id_order() {
+        let view = preflight_object_values(
+            EXPECTED_LFCA,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .unwrap()
+        .registry_view();
+        let accounting = crate::portable_emitter::budget::test_accounting(u64::MAX);
+        let index = build_target_index(view, accounting).unwrap();
+        assert_eq!(accounting.ledger.live(), index.granted_bytes());
+
+        // 固定向量：同一实体种类内存在 Identity v1 原像顺序与 StableId 字节序相反的相邻实体。
+        let keys = index.entities().map(|(key, _)| *key).collect::<Vec<_>>();
+        assert!(
+            keys.windows(2)
+                .any(|pair| pair[0].0 == pair[1].0 && pair[0].1 > pair[1].1),
+            "fixture 须含原像顺序与 StableId 顺序不同的实体"
+        );
+        for (ordinal_in_index, key) in keys.iter().enumerate() {
+            let record = index.entity(key).expect("按 StableId 查找已索引实体");
+            assert_eq!(
+                record.row.bytes(),
+                index
+                    .entities()
+                    .nth(ordinal_in_index)
+                    .unwrap()
+                    .1
+                    .row
+                    .bytes()
+            );
+        }
+        let mut absent = keys[0];
+        absent.1 = [0xff; 16];
+        assert!(index.entity(&absent).is_none());
+
+        drop(index);
         assert_eq!(accounting.ledger.live(), 0);
         assert_eq!(accounting.ledger.reserved(), 0);
     }
