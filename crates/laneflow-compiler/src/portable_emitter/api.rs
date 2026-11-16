@@ -101,6 +101,65 @@ pub struct PortablePublicationCandidate {
     pub(super) source_collection_digest_version: u16,
     pub(super) source_collection_digest: [u8; 32],
     pub(super) expected_semantic_diff_base: ExpectedSemanticDiffBase,
+    pub(super) resource_report: PortableEmissionResourceReport,
+}
+
+/// 发射账本在返回点封存的资源报告。
+///
+/// 单位是受控请求字节：账本授予请求的 `Layout` 大小，不含分配器内部开销，不等于进程堆
+/// 峰值或驻留集。报告不是限额，用于证据记录与回归比较；暂存目录中的对象字节与只读
+/// 映射不计入。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PortableEmissionResourceReport {
+    peak_live_bytes: u64,
+    single_emission_peak_bytes: u64,
+    diff_emission_peak_bytes: u64,
+    transferred_bytes: u64,
+    released_bytes: u64,
+}
+
+impl PortableEmissionResourceReport {
+    /// 发射账本生命周期内同时存续的受控请求字节峰值。
+    #[must_use]
+    pub const fn peak_live_bytes(&self) -> u64 {
+        self.peak_live_bytes
+    }
+
+    /// 单制品发射（LFCA/LFSM 对象树、编码与内部检查）的工作集峰值。
+    #[must_use]
+    pub const fn single_emission_peak_bytes(&self) -> u64 {
+        self.single_emission_peak_bytes
+    }
+
+    /// 差异发射（差异索引、LFSD 对象树、编码与差异检查）的工作集峰值。
+    #[must_use]
+    pub const fn diff_emission_peak_bytes(&self) -> u64 {
+        self.diff_emission_peak_bytes
+    }
+
+    /// 返回点随候选转交宿主的字节。
+    #[must_use]
+    pub const fn transferred_bytes(&self) -> u64 {
+        self.transferred_bytes
+    }
+
+    /// 发射期间实际释放并归还的字节。
+    #[must_use]
+    pub const fn released_bytes(&self) -> u64 {
+        self.released_bytes
+    }
+}
+
+impl From<crate::ledger::LedgerReport> for PortableEmissionResourceReport {
+    fn from(report: crate::ledger::LedgerReport) -> Self {
+        Self {
+            peak_live_bytes: report.peak_live,
+            single_emission_peak_bytes: report.stage_peak(LedgerStage::SingleEmission),
+            diff_emission_peak_bytes: report.stage_peak(LedgerStage::DiffEmission),
+            transferred_bytes: report.transferred,
+            released_bytes: report.released,
+        }
+    }
 }
 
 /// LFSD 的显式 base 选择。
@@ -163,6 +222,12 @@ impl PortablePublicationCandidate {
     #[must_use]
     pub const fn expected_semantic_diff_base(&self) -> ExpectedSemanticDiffBase {
         self.expected_semantic_diff_base
+    }
+
+    /// 返回发射账本在返回点封存的资源报告。
+    #[must_use]
+    pub const fn resource_report(&self) -> PortableEmissionResourceReport {
+        self.resource_report
     }
 
     /// 消耗候选并拆解为后发射检查的输入：三份不可变对象来源与显式 diff base binding。
@@ -274,9 +339,12 @@ pub(crate) fn sha256(bytes: &[u8]) -> Sha256Digest {
     Sha256Digest::from_bytes(Sha256::digest(bytes).into())
 }
 
+/// object key 的字节长度：`sha256/` 与 64 位小写十六进制。
+pub(super) const OBJECT_KEY_BYTES: usize = 71;
+
 /// 从摘要派生唯一的 `sha256/<64 lowercase hex>` object key。
 pub(crate) fn object_key(digest: Sha256Digest) -> Box<str> {
-    let mut key = String::with_capacity(71);
+    let mut key = String::with_capacity(OBJECT_KEY_BYTES);
     key.push_str("sha256/");
     write!(&mut key, "{digest:x}").expect("writing to String is infallible");
     key.into_boxed_str()
@@ -287,6 +355,16 @@ pub(crate) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
     let digest = sha256(&bytes);
     PortableObjectCandidate {
         source: ImmutableObjectSource::from_boxed_bytes(bytes),
+        digest,
+        object_key: object_key(digest),
+    }
+}
+
+/// 关闭一份引用计数共享的内存 exact bytes：计算摘要与 object key，绑定为候选。
+pub(super) fn close_shared_object(bytes: std::sync::Arc<[u8]>) -> PortableObjectCandidate {
+    let digest = sha256(&bytes);
+    PortableObjectCandidate {
+        source: ImmutableObjectSource::Owned(bytes),
         digest,
         object_key: object_key(digest),
     }
@@ -325,6 +403,7 @@ mod tests {
             source_collection_digest_version: 1,
             source_collection_digest: [0; 32],
             expected_semantic_diff_base: ExpectedSemanticDiffBase::Genesis,
+            resource_report: PortableEmissionResourceReport::default(),
         };
         let network_revision: NetworkRevisionId = publication.network_revision();
         assert_eq!(network_revision.into_digest(), digest);

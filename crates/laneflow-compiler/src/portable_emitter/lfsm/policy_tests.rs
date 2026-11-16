@@ -351,8 +351,10 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
         &provenance,
         collection,
         NetworkRevisionId::from_digest(Sha256Digest::ZERO),
+        crate::portable_emitter::budget::test_accounting(u64::MAX),
     )
-    .unwrap();
+    .unwrap()
+    .to_owned_object();
     artifact.sections[6] = fresh.sections[6].clone();
     let mut policy_ids = Vec::new();
     for (i, key) in ["a", "b"].iter().enumerate() {
@@ -539,7 +541,7 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
     let revision = network_revision(&bytes(&artifact), FormatLimits::HARD).unwrap();
     set_lfca_network_revision(&mut artifact, revision).unwrap();
     let artifact = close_object(bytes(&artifact));
-    let map = build_lfsm(&output, &provenance, collection, revision, &artifact).unwrap();
+    let map = build_lfsm_owned(&output, &provenance, collection, revision, &artifact).unwrap();
     Fixture {
         output,
         artifact,

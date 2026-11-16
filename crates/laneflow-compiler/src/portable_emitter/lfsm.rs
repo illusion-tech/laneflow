@@ -1,4 +1,4 @@
-use super::relations::canonical_relation_tuples;
+use super::relations::canonical_relation_tuple_vec;
 use super::*;
 mod policy_check;
 mod policy_projection;
@@ -402,7 +402,7 @@ fn expected_stable_source_keys(lir: &crate::lir::LirUnit) -> Vec<(EntityKind, [u
 fn expected_owner_local_source_keys(
     lir: &crate::lir::LirUnit,
 ) -> Vec<(EntityKind, [u8; 16], u8, u32)> {
-    let mut keys: Vec<_> = canonical_relation_tuples(lir)
+    let mut keys: Vec<_> = canonical_relation_tuple_vec(lir)
         .into_iter()
         .map(|relation| {
             (
@@ -467,8 +467,31 @@ fn expected_owner_local_source_keys(
 }
 
 /// 从受检来源映射输入、发射 provenance、来源集合摘要与已关闭的 LFCA 候选构造 LFSM
-/// 源映射封套的拥有型 object 投影。
+/// 源映射封套的对象树。
 pub(super) fn build_lfsm(
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+    source_collection_digest: [u8; 32],
+    network_revision: NetworkRevisionId,
+    artifact: &PortableObjectCandidate,
+    accounting: super::budget::Accounting<'_>,
+) -> Result<super::tree::ObjectTree, PortableEmissionError> {
+    let owned = build_lfsm_owned(
+        output,
+        provenance,
+        source_collection_digest,
+        network_revision,
+        artifact,
+    )?;
+    super::tree::build_tree(
+        accounting,
+        "lfsm-tree",
+        PortableObjectKind::SourceMap,
+        |t| Ok::<_, PortableEmissionError>(t.copy_owned(&owned)),
+    )
+}
+
+pub(super) fn build_lfsm_owned(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,
     source_collection_digest: [u8; 32],

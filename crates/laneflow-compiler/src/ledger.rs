@@ -49,6 +49,14 @@ impl Plan {
         ))
     }
 
+    /// 加上一次按 `layout` 发起的分配请求；`None` 表示请求无法表示。
+    #[must_use]
+    pub(crate) fn layout(self, layout: Option<Layout>) -> Self {
+        self.plus(Self(
+            layout.and_then(|layout| u64::try_from(layout.size()).ok()),
+        ))
+    }
+
     /// 两份同时存续的计划之和。
     #[must_use]
     pub(crate) fn plus(self, other: Self) -> Self {
@@ -126,6 +134,8 @@ pub(crate) enum AccountingDefect {
     UnreturnedGrant,
     /// 账本结束时存续或预留不为零，或仍有活动编译遍。
     LedgerNotSettled,
+    /// 按计数求出的计划与实际写入量不一致：同一份构造代码两次运行的写入量不同。
+    ShapeMismatch,
 }
 
 /// 账本错误。只携带维度数值与标识，不分配堆内存。
@@ -469,6 +479,11 @@ impl PassBudget<'_> {
         })
     }
 
+    /// 本编译遍的标识。
+    pub(crate) fn label(&self) -> PassLabel {
+        lock(&self.ledger.state).label_of(self.account)
+    }
+
     /// 本编译遍当前在用量 `U`。
     pub(crate) fn in_use(&self) -> u64 {
         let state = lock(&self.ledger.state);
@@ -528,6 +543,22 @@ impl PassBudget<'_> {
         })
     }
 
+    /// 为随后由调用方发起的一次分配请求取得授予，按 `layout` 的大小计费。
+    ///
+    /// 只用于账本存储入口无法直接创建的存储（如 `Arc<[u8]>` 的引用计数分配）：调用方
+    /// 取得授予后立即发起请求，并让授予与该存储同生命周期持有。
+    pub(crate) fn grant_layout(&self, layout: Layout) -> Result<Grant, LedgerError> {
+        let bytes = u64::try_from(layout.size()).map_err(|_| {
+            let state = lock(&self.ledger.state);
+            LedgerError::BudgetExceeded {
+                label: state.label_of(self.account),
+                requested: u64::MAX,
+                limit: state.budget,
+            }
+        })?;
+        self.grant(bytes)
+    }
+
     fn grant(&self, bytes: u64) -> Result<Grant, LedgerError> {
         lock(&self.ledger.state).grant(self.account, bytes)?;
         Ok(Grant {
@@ -551,7 +582,7 @@ impl Drop for PassBudget<'_> {
 }
 
 /// 一笔授予：随存储持有与移动，存储释放时归还额度。
-struct Grant {
+pub(crate) struct Grant {
     state: Option<Arc<Mutex<State>>>,
     account: PassId,
     bytes: u64,
@@ -569,8 +600,13 @@ impl Grant {
         self.settle(Outcome::RolledBack);
     }
 
+    /// 授予的受控请求字节。
+    pub(crate) const fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
     /// 返回点转交宿主：额度移出 `L`，记为转交宿主。
-    fn transfer_to_host(mut self) {
+    pub(crate) fn transfer_to_host(mut self) {
         self.settle(Outcome::Transferred);
     }
 }
