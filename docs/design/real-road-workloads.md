@@ -142,9 +142,10 @@ compiler 验收**；`:-1000_7_0` 平滑为 159°/165°/175° 三折线。
 另有 off-ramp 节点簇内车道，以及 authored 边 697 条。以 47.2% 的内车道
 失败率计，修通全网等价于重画全部路口内车道并扩容相当比例的口袋，工程上
 不可行；逐点修复路线就此终结，出路只剩治理层选项（发射架构/预算口径
-调整、真实路网验收标准重议、或大规模源数据重授权）。全量清单为随仓库
-提交的 `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`
-（`target/` 不进库）。
+调整、真实路网验收标准重议、或大规模源数据重授权）。全量清单由 converter
+诊断模式生成（验收以固定 SHA-256 摘要锁定；#1386 前入库的正本见该单退役
+提交的 `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`，
+运行产物落 `target/`）。
 
 已复核的 source health anchors 为：
 
@@ -171,7 +172,9 @@ fail closed 回到 #224 G1。
   `speed`，单位保持 m 和 m/s。不得丢弃 internal lane 或把路口两侧 external lane
   直接连接。唯一例外是 #253 G1 最终确认（2026-09-30，issuecomment-5902944418）
   的点状 stub 删焊：pinned 基线内经
-  `tools/laneflow-lust-converter/evidence/lust-stub-weld-candidates.json` 清单
+  `tools/laneflow-lust-converter/src/convert/approved_stub_weld.json` 生产批准
+  集合（net digest + 84 身份三元组，含 4 个 rejected-shared-entry；处置由
+  动态复核裁定）
   确认的单段 stub（完整展开后恰一条、端点距 < 0.5 m 的点状边），在位移
   ≤ 0.5 m、形状局部性 ≤ 0.05 m、via/from 引用各唯一、共享入口关联穿越重验
   通过时可移除并把入口末点焊到出口首点（有界源几何归一化，实测 80 条）；
@@ -317,8 +320,8 @@ artifact digest，必须使用新 workload ID。
 > 完整编译产出 `network.lfca` 与 Release assets 依赖未来的「路口级 maneuver
 > 几何合成」新设计（另立 G1），落地前 `network.lfca` 静态 bundle 不交付。本节
 > 描述的产物轴与验收语义对该未来状态仍然有效。诊断清单的语义与锁定数字见
-> §2.2.1 与随仓库提交的
-> `tools/laneflow-lust-converter/evidence/lust-infeasible-survey.md`。
+> §2.2.1；全量正本由 converter 诊断模式生成并落 `target/`，验收以固定摘要
+> 锁定（#1386 前入库副本见该单退役提交）。
 
 converter 分别生成（G1 修订，2026-09-27：产物轴从旧 JSON 三件套 retarget 至
 compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON schema 与 Core 装载

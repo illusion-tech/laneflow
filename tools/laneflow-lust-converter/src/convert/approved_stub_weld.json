@@ -1,0 +1,427 @@
+{
+  "ruleVersion": "stub-weld/g1-six-cond@2",
+  "pinnedCommit": "c4bd5bd3751d426d42a9a1749c815e47ea188549",
+  "netDigest": "sha256:6f5d76223cf14b797ae6267f13b23eb6c872d76adec1fb22a8569a806dc09341",
+  "candidates": [
+    {
+      "stubLaneId": ":-11256_0_0",
+      "entryLaneId": "-30574#0_0",
+      "exitLaneId": "-30574#1_0"
+    },
+    {
+      "stubLaneId": ":-11556_0_0",
+      "entryLaneId": "-31690_0",
+      "exitLaneId": "-32858#0_0"
+    },
+    {
+      "stubLaneId": ":-11556_0_1",
+      "entryLaneId": "-31690_1",
+      "exitLaneId": "-32858#0_1"
+    },
+    {
+      "stubLaneId": ":-11556_0_2",
+      "entryLaneId": "-31690_2",
+      "exitLaneId": "-32858#0_2"
+    },
+    {
+      "stubLaneId": ":-12400_1_0",
+      "entryLaneId": "-31622#10-AddedOffRampEdge_1",
+      "exitLaneId": "-31622#11_0"
+    },
+    {
+      "stubLaneId": ":-12400_1_1",
+      "entryLaneId": "-31622#10-AddedOffRampEdge_2",
+      "exitLaneId": "-31622#11_1"
+    },
+    {
+      "stubLaneId": ":-12400_1_2",
+      "entryLaneId": "-31622#10-AddedOffRampEdge_3",
+      "exitLaneId": "-31622#11_2"
+    },
+    {
+      "stubLaneId": ":-14502_0_0",
+      "entryLaneId": "-32400#0-AddedOffRampEdge_0",
+      "exitLaneId": "-32310_0"
+    },
+    {
+      "stubLaneId": ":-14844_0_0",
+      "entryLaneId": "--32122#0_0",
+      "exitLaneId": "--32792#1_0"
+    },
+    {
+      "stubLaneId": ":-14844_0_1",
+      "entryLaneId": "--32122#0_1",
+      "exitLaneId": "--32792#1_1"
+    },
+    {
+      "stubLaneId": ":-14844_2_0",
+      "entryLaneId": "-32792#1_0",
+      "exitLaneId": "-32122#0_0"
+    },
+    {
+      "stubLaneId": ":-14844_2_1",
+      "entryLaneId": "-32792#1_1",
+      "exitLaneId": "-32122#0_1"
+    },
+    {
+      "stubLaneId": ":-15490_0_0",
+      "entryLaneId": "--31202_0",
+      "exitLaneId": "-32772_0"
+    },
+    {
+      "stubLaneId": ":-15490_1_0",
+      "entryLaneId": "-32156_0",
+      "exitLaneId": "-31202_0"
+    },
+    {
+      "stubLaneId": ":-15606_0_0",
+      "entryLaneId": "-32454#2_0",
+      "exitLaneId": "-32706_0"
+    },
+    {
+      "stubLaneId": ":-15606_0_1",
+      "entryLaneId": "-32454#2_1",
+      "exitLaneId": "-32706_1"
+    },
+    {
+      "stubLaneId": ":-15606_0_2",
+      "entryLaneId": "-32454#2_2",
+      "exitLaneId": "-32706_2"
+    },
+    {
+      "stubLaneId": ":-16224_0_0",
+      "entryLaneId": "--31444#1_0",
+      "exitLaneId": "--31444#0_0"
+    },
+    {
+      "stubLaneId": ":-16224_1_0",
+      "entryLaneId": "-31444#0_0",
+      "exitLaneId": "-31444#1_0"
+    },
+    {
+      "stubLaneId": ":-1974_0_0",
+      "entryLaneId": "-31272#8_0",
+      "exitLaneId": "-31690_0"
+    },
+    {
+      "stubLaneId": ":-1974_0_1",
+      "entryLaneId": "-31272#8_1",
+      "exitLaneId": "-31690_1"
+    },
+    {
+      "stubLaneId": ":-1974_0_2",
+      "entryLaneId": "-31272#8_2",
+      "exitLaneId": "-31690_2"
+    },
+    {
+      "stubLaneId": ":-20604_0_0",
+      "entryLaneId": "--30872#8_0",
+      "exitLaneId": "--30872#7_0"
+    },
+    {
+      "stubLaneId": ":-20604_0_1",
+      "entryLaneId": "--30872#8_1",
+      "exitLaneId": "--30872#7_1"
+    },
+    {
+      "stubLaneId": ":-20604_2_0",
+      "entryLaneId": "-30872#7_0",
+      "exitLaneId": "-30872#8_0"
+    },
+    {
+      "stubLaneId": ":-20604_2_1",
+      "entryLaneId": "-30872#7_1",
+      "exitLaneId": "-30872#8_1"
+    },
+    {
+      "stubLaneId": ":-21778_3_0",
+      "entryLaneId": "-30326_0",
+      "exitLaneId": "-32858#1-AddedOnRampEdge_0"
+    },
+    {
+      "stubLaneId": ":-21938_0_0",
+      "entryLaneId": "--32320_0",
+      "exitLaneId": "-31902_0"
+    },
+    {
+      "stubLaneId": ":-21938_1_0",
+      "entryLaneId": "-31658_0",
+      "exitLaneId": "-32320_0"
+    },
+    {
+      "stubLaneId": ":-22774_0_0",
+      "entryLaneId": "-32924#2_0",
+      "exitLaneId": "-32924#3_0"
+    },
+    {
+      "stubLaneId": ":-22774_0_1",
+      "entryLaneId": "-32924#2_1",
+      "exitLaneId": "-32924#3_1"
+    },
+    {
+      "stubLaneId": ":-22774_0_2",
+      "entryLaneId": "-32924#2_2",
+      "exitLaneId": "-32924#3_2"
+    },
+    {
+      "stubLaneId": ":-22774_3_0",
+      "entryLaneId": "--32924#3_0",
+      "exitLaneId": "--32924#2_0"
+    },
+    {
+      "stubLaneId": ":-22774_3_1",
+      "entryLaneId": "--32924#3_1",
+      "exitLaneId": "--32924#2_1"
+    },
+    {
+      "stubLaneId": ":-22774_3_2",
+      "entryLaneId": "--32924#3_2",
+      "exitLaneId": "--32924#2_2"
+    },
+    {
+      "stubLaneId": ":-23560_0_0",
+      "entryLaneId": "--30260_0",
+      "exitLaneId": "--31938_0"
+    },
+    {
+      "stubLaneId": ":-23560_0_1",
+      "entryLaneId": "--30260_1",
+      "exitLaneId": "--31938_1"
+    },
+    {
+      "stubLaneId": ":-24338_1_0",
+      "entryLaneId": "-31622#5-AddedOffRampEdge_1",
+      "exitLaneId": "-31622#6_0"
+    },
+    {
+      "stubLaneId": ":-24338_1_1",
+      "entryLaneId": "-31622#5-AddedOffRampEdge_2",
+      "exitLaneId": "-31622#6_1"
+    },
+    {
+      "stubLaneId": ":-24338_1_2",
+      "entryLaneId": "-31622#5-AddedOffRampEdge_3",
+      "exitLaneId": "-31622#6_2"
+    },
+    {
+      "stubLaneId": ":-25018_0_0",
+      "entryLaneId": "--31980#0_0",
+      "exitLaneId": "-30634#0_0"
+    },
+    {
+      "stubLaneId": ":-25018_1_0",
+      "entryLaneId": "-32104#1_0",
+      "exitLaneId": "-31980#0_0"
+    },
+    {
+      "stubLaneId": ":-25170_1_0",
+      "entryLaneId": "-30668#13_0",
+      "exitLaneId": "-30668#14-AddedOnRampEdge_1"
+    },
+    {
+      "stubLaneId": ":-25170_1_1",
+      "entryLaneId": "-30668#13_1",
+      "exitLaneId": "-30668#14-AddedOnRampEdge_2"
+    },
+    {
+      "stubLaneId": ":-25170_1_2",
+      "entryLaneId": "-30668#13_2",
+      "exitLaneId": "-30668#14-AddedOnRampEdge_3"
+    },
+    {
+      "stubLaneId": ":-25412_0_0",
+      "entryLaneId": "-30514#0_0",
+      "exitLaneId": "-30514#1_0"
+    },
+    {
+      "stubLaneId": ":-25748_0_0",
+      "entryLaneId": "-31384#0_0",
+      "exitLaneId": "-31384#1_0"
+    },
+    {
+      "stubLaneId": ":-25748_1_0",
+      "entryLaneId": "--31384#1_0",
+      "exitLaneId": "--31384#0_0"
+    },
+    {
+      "stubLaneId": ":-268_0_0",
+      "entryLaneId": "--30378#3_0",
+      "exitLaneId": "--30378#2_0"
+    },
+    {
+      "stubLaneId": ":-268_1_0",
+      "entryLaneId": "-30378#2_0",
+      "exitLaneId": "-30378#3_0"
+    },
+    {
+      "stubLaneId": ":-27626_0_0",
+      "entryLaneId": "-30576#0_0",
+      "exitLaneId": "-30576#1_0"
+    },
+    {
+      "stubLaneId": ":-27626_1_0",
+      "entryLaneId": "--30576#1_0",
+      "exitLaneId": "--30576#0_0"
+    },
+    {
+      "stubLaneId": ":-28674_0_0",
+      "entryLaneId": "-30528#18_0",
+      "exitLaneId": "-30528#19_0"
+    },
+    {
+      "stubLaneId": ":-28674_0_1",
+      "entryLaneId": "-30528#18_1",
+      "exitLaneId": "-30528#19_1"
+    },
+    {
+      "stubLaneId": ":-28674_0_2",
+      "entryLaneId": "-30528#18_2",
+      "exitLaneId": "-30528#19_2"
+    },
+    {
+      "stubLaneId": ":-28674_3_0",
+      "entryLaneId": "--30528#19_0",
+      "exitLaneId": "--30528#18_0"
+    },
+    {
+      "stubLaneId": ":-28674_3_1",
+      "entryLaneId": "--30528#19_1",
+      "exitLaneId": "--30528#18_1"
+    },
+    {
+      "stubLaneId": ":-28674_3_2",
+      "entryLaneId": "--30528#19_2",
+      "exitLaneId": "--30528#18_2"
+    },
+    {
+      "stubLaneId": ":-29084_1_2",
+      "entryLaneId": "-30668#5_2",
+      "exitLaneId": "-30668#6-AddedOnRampEdge_3"
+    },
+    {
+      "stubLaneId": ":-29712_1_0",
+      "entryLaneId": "-32858#2_0",
+      "exitLaneId": "-31366#0-AddedOnRampEdge_1"
+    },
+    {
+      "stubLaneId": ":-29712_1_1",
+      "entryLaneId": "-32858#2_1",
+      "exitLaneId": "-31366#0-AddedOnRampEdge_2"
+    },
+    {
+      "stubLaneId": ":-29712_1_2",
+      "entryLaneId": "-32858#2_2",
+      "exitLaneId": "-31366#0-AddedOnRampEdge_3"
+    },
+    {
+      "stubLaneId": ":-346_0_0",
+      "entryLaneId": "--30528#27_0",
+      "exitLaneId": "--30528#26_0"
+    },
+    {
+      "stubLaneId": ":-346_0_1",
+      "entryLaneId": "--30528#27_1",
+      "exitLaneId": "--30528#26_1"
+    },
+    {
+      "stubLaneId": ":-346_0_2",
+      "entryLaneId": "--30528#27_2",
+      "exitLaneId": "--30528#26_2"
+    },
+    {
+      "stubLaneId": ":-346_3_0",
+      "entryLaneId": "-30528#26_0",
+      "exitLaneId": "-30528#27_0"
+    },
+    {
+      "stubLaneId": ":-346_3_1",
+      "entryLaneId": "-30528#26_1",
+      "exitLaneId": "-30528#27_1"
+    },
+    {
+      "stubLaneId": ":-346_3_2",
+      "entryLaneId": "-30528#26_2",
+      "exitLaneId": "-30528#27_2"
+    },
+    {
+      "stubLaneId": ":-4410_0_0",
+      "entryLaneId": "-31902_0",
+      "exitLaneId": "--31202_0"
+    },
+    {
+      "stubLaneId": ":-4410_2_0",
+      "entryLaneId": "-31202_0",
+      "exitLaneId": "-31658_0"
+    },
+    {
+      "stubLaneId": ":-4658_0_0",
+      "entryLaneId": "-31622#14-AddedOffRampEdge_0",
+      "exitLaneId": "-30322_0"
+    },
+    {
+      "stubLaneId": ":-5540_0_0",
+      "entryLaneId": "-32772_0",
+      "exitLaneId": "--30804_0"
+    },
+    {
+      "stubLaneId": ":-5540_2_0",
+      "entryLaneId": "-30804_0",
+      "exitLaneId": "-32156_0"
+    },
+    {
+      "stubLaneId": ":-78_0_0",
+      "entryLaneId": "-31952#5_0",
+      "exitLaneId": "-31952#6_0"
+    },
+    {
+      "stubLaneId": ":-78_0_1",
+      "entryLaneId": "-31952#5_1",
+      "exitLaneId": "-31952#6_1"
+    },
+    {
+      "stubLaneId": ":-78_0_2",
+      "entryLaneId": "-31952#5_2",
+      "exitLaneId": "-31952#6_2"
+    },
+    {
+      "stubLaneId": ":-78_3_0",
+      "entryLaneId": "--31952#6_0",
+      "exitLaneId": "--31952#5_0"
+    },
+    {
+      "stubLaneId": ":-78_3_1",
+      "entryLaneId": "--31952#6_1",
+      "exitLaneId": "--31952#5_1"
+    },
+    {
+      "stubLaneId": ":-78_3_2",
+      "entryLaneId": "--31952#6_2",
+      "exitLaneId": "--31952#5_2"
+    },
+    {
+      "stubLaneId": ":-80_0_0",
+      "entryLaneId": "-30478#0_0",
+      "exitLaneId": "-30478#1_0"
+    },
+    {
+      "stubLaneId": ":-80_1_0",
+      "entryLaneId": "--30478#1_0",
+      "exitLaneId": "--30478#0_0"
+    },
+    {
+      "stubLaneId": ":-8998_1_0",
+      "entryLaneId": "-32454#1-AddedOffRampEdge_1",
+      "exitLaneId": "-32454#2_0"
+    },
+    {
+      "stubLaneId": ":-8998_1_1",
+      "entryLaneId": "-32454#1-AddedOffRampEdge_2",
+      "exitLaneId": "-32454#2_1"
+    },
+    {
+      "stubLaneId": ":-8998_1_2",
+      "entryLaneId": "-32454#1-AddedOffRampEdge_3",
+      "exitLaneId": "-32454#2_2"
+    }
+  ]
+}

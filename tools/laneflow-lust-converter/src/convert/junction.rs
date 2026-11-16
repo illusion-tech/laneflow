@@ -812,7 +812,7 @@ fn evaluate_stub_candidate(
 }
 
 /// 全网点状 stub 候选扫描（G1 六条件之限定适用域：候选身份由可复现清单
-/// 固定；`evidence/lust-stub-weld-candidates.json` 的生成与防漂移比对的
+/// 固定；候选诊断 manifest（`target/`）的生成与生产批准集合防漂移比对的
 /// 共同数据源）。身份口径与 normalize 一致：外部 connection、原 via 恰
 /// 一条且首段 shape 端点距 < 0.5 m。扫描以 Unrestricted 门控评估几何
 /// 处置——R8 的授权域检查（BlockedOutOfDomain）是 runtime-only，manifest
@@ -938,7 +938,7 @@ struct StubWeldManifestThresholds {
     join_gap_source: &'static str,
 }
 
-/// 候选 manifest（evidence/lust-stub-weld-candidates.json 的内容）：头部为
+/// 候选诊断 manifest（生成到 `target/issue253-stub-weld-candidates.json`）：头部为
 /// 规则版本、pinned commit、net digest 与生成器；条目为全部候选（含 rejected
 /// 的处置与度量），身份由 `scan_stub_weld_candidates` 可复现固定。
 #[cfg(test)]
@@ -1011,7 +1011,7 @@ pub(crate) const STUB_WELD_MAX_LOCALITY_M: f64 = 0.05;
 pub(crate) const STUB_WELD_JOIN_GAP_M: f64 = 0.005;
 
 /// 焊接处置逐条记录（G1 六条件之可追溯记录）：字段与
-/// `evidence/lust-stub-weld-candidates.json` 候选条目一致，随诊断清单渲染
+/// 生产批准集合 `approved_stub_weld.json` 的候选身份一致，随诊断清单渲染
 /// 落出（已归一化类）。
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1122,7 +1122,7 @@ pub(crate) enum StubWeldGate {
     Unrestricted,
 }
 
-/// 批准的 stub 候选集合（`evidence/lust-stub-weld-candidates.json` 内嵌，
+/// 批准的 stub 候选集合（`approved_stub_weld.json` 内嵌，
 /// OnceLock 懒解析一次）。身份口径：SUMO 原始 id 三元组。
 struct ApprovedStubSet {
     net_digest: String,
@@ -1147,7 +1147,7 @@ struct ApprovedCandidateView {
 }
 
 /// 内嵌的候选 manifest（junction.rs 位于 src/convert/，evidence 在其上两级）。
-const APPROVED_MANIFEST_JSON: &str = include_str!("../../evidence/lust-stub-weld-candidates.json");
+const APPROVED_MANIFEST_JSON: &str = include_str!("approved_stub_weld.json");
 
 fn approved_stub_set() -> Result<&'static ApprovedStubSet> {
     static SET: std::sync::OnceLock<std::result::Result<ApprovedStubSet, String>> =
@@ -2397,7 +2397,8 @@ mod stub_weld_manifest_tests {
 
     use crate::{
         convert::junction::{
-            StubWeldDisposition, scan_stub_weld_candidates, stub_weld_manifest_json,
+            StubWeldDisposition, approved_stub_set, scan_stub_weld_candidates,
+            stub_weld_manifest_json,
         },
         output::digest::hex_sha256,
         sumo::parse_sumo_network_xml,
@@ -2405,7 +2406,10 @@ mod stub_weld_manifest_tests {
 
     fn manifest_path() -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("evidence/lust-stub-weld-candidates.json")
+            .join("..")
+            .join("..")
+            .join("target")
+            .join("issue253-stub-weld-candidates.json")
     }
 
     fn pinned_network() -> (String, crate::sumo::SumoNetwork) {
@@ -2417,10 +2421,12 @@ mod stub_weld_manifest_tests {
         let network = parse_sumo_network_xml(&net_xml).expect("parse pinned net");
         (net_xml, network)
     }
-    /// 重新生成 manifest（候选身份、度量或门控阈值变化后手动跑：
-    /// `LUST_SOURCE_DIR=... cargo test -- --ignored regenerate`）。
+    /// 生成完整候选诊断 manifest 到 `target/`（候选身份、度量或门控阈值变化后
+    /// 手动跑：`LUST_SOURCE_DIR=... cargo test -- --ignored regenerate`）。只产
+    /// 诊断产物，不覆写生产批准集合 `approved_stub_weld.json`——批准域变更须
+    /// 单独裁定（#253 G1）并手工更新该文件。
     #[test]
-    #[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3; manual regeneration of the manifest"]
+    #[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3; manual generation of the diagnostic manifest"]
     fn regenerate_lust_stub_weld_candidates_manifest() {
         let (net_xml, network) = pinned_network();
         let digest = format!("sha256:{}", hex_sha256(net_xml.as_bytes()));
@@ -2428,8 +2434,10 @@ mod stub_weld_manifest_tests {
         fs::write(manifest_path(), format!("{json}\n")).expect("write manifest");
     }
 
-    /// 防漂移：对 pinned 源重扫，候选身份与处置同 manifest 一致（归一化换行后
-    /// 逐字节相等）；并锁定阈值 0.06 m 下的处置分布（36 welded / 48 rejected）。
+    /// 防漂移：对 pinned 源重扫，候选身份集合与 net digest 同生产批准集合
+    /// `approved_stub_weld.json` 一致（集合相等，不比 manifest 字节——逐条
+    /// 度量属诊断产物，见 regenerate）；并锁定处置分布 80 welded /
+    /// 4 rejected-shared-entry。
     #[test]
     #[ignore = "requires LUST_SOURCE_DIR at c4bd5bd3"]
     fn lust_stub_weld_candidates_match_manifest() {
@@ -2467,12 +2475,28 @@ mod stub_weld_manifest_tests {
         }
 
         let digest = format!("sha256:{}", hex_sha256(net_xml.as_bytes()));
-        let generated = stub_weld_manifest_json(&network, &digest).expect("manifest json");
-        let on_disk = fs::read_to_string(manifest_path()).expect("read manifest");
+        let approved = approved_stub_set().expect("approved set");
+        assert_eq!(approved.net_digest, digest, "approved net digest");
+        let rescan: std::collections::BTreeSet<(String, String, String)> = candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    candidate.stub_lane_id.clone(),
+                    candidate.entry_lane_id.clone(),
+                    candidate.exit_lane_id.clone(),
+                )
+            })
+            .collect();
+        let approved_set: std::collections::BTreeSet<(String, String, String)> = approved
+            .identities
+            .iter()
+            .map(|(stub, entry, exit)| {
+                ((*stub).to_owned(), (*entry).to_owned(), (*exit).to_owned())
+            })
+            .collect();
         assert_eq!(
-            on_disk.replace("\r\n", "\n").trim_end(),
-            generated.trim_end(),
-            "manifest drifted: rescan the pinned source and regenerate"
+            rescan, approved_set,
+            "approved stub identities drifted: adjudicate via #253 G1 and update approved_stub_weld.json by hand"
         );
     }
 }

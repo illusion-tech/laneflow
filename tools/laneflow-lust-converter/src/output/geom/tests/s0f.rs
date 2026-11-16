@@ -768,12 +768,13 @@ fn pinned_lust_path_adjacency_survey() {
     });
     let artifacts = artifacts.expect("diagnostic conversion");
     let report = artifacts.infeasibility_report.as_ref().expect("report");
-    // 观察的发射与检入清单是同一状态：失败集合计数一致、清单逐字节一致。
-    let evidence = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md"),
-    )
-    .expect("committed survey");
-    assert_eq!(report.rendered, evidence.replace("\r\n", "\n"));
+    // 观察的发射与检入清单是同一状态：失败集合计数一致；清单以固定摘要锁
+    //（全量正本已退役，#1386）。
+    assert_eq!(
+        crate::output::digest::sha256_digest(report.rendered.as_bytes()),
+        "sha256:7d4f8243ee23fb06199986fd8f103ff0558a23992caadbc256d1c545f21fff6c",
+        "observed survey digest drifted from the frozen baseline"
+    );
     let failed = observation
         .edges
         .iter()
