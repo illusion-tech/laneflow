@@ -1,5 +1,4 @@
-//! 测试构建的阶段归因支撑：占用四阶段批次墙钟与逐 67 次查询一次的确定性采样。
-//! 查询计时不是 sampled CPU，外推值也不是未插桩整步延迟。
+//! 测试构建的阶段归因支撑：占用四阶段批次墙钟（每批计时，无抽样）。
 
 use stats_alloc::{INSTRUMENTED_SYSTEM, StatsAlloc};
 use std::alloc::System;
@@ -11,8 +10,7 @@ use std::time::Instant;
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
-const STAGES: usize = 8;
-const QUERY_STRIDE: u64 = 67;
+const STAGES: usize = 4;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Stage {
@@ -20,19 +18,12 @@ pub(crate) enum Stage {
     OccupancyLayout,
     OccupancyFill,
     OccupancySortSuffix,
-    RouteProfileInputs,
-    LeaderHorizon,
-    LeaderGap,
-    RouteStopQueries,
 }
 
 #[derive(Clone, Default)]
 struct Profile {
     enabled: bool,
-    batches_only: bool,
-    phase: u64,
     calls: [u64; STAGES],
-    samples: [u64; STAGES],
     nanos: [u128; STAGES],
 }
 
@@ -44,20 +35,14 @@ crate::kernel::execution::carry_hooks!(carry_test_hooks: PROFILE);
 pub(crate) struct Span(Option<(Stage, Instant)>);
 
 pub(crate) fn begin(stage: Stage) -> Span {
-    let sampled = PROFILE.with_borrow_mut(|profile| {
+    let timed = PROFILE.with_borrow_mut(|profile| {
         if !profile.enabled {
             return false;
         }
-        let index = stage as usize;
-        if profile.batches_only && index >= Stage::RouteProfileInputs as usize {
-            return false;
-        }
-        let ordinal = profile.calls[index];
-        profile.calls[index] += 1;
-        index < Stage::RouteProfileInputs as usize
-            || (ordinal + profile.phase).is_multiple_of(QUERY_STRIDE)
+        profile.calls[stage as usize] += 1;
+        true
     });
-    Span(sampled.then(|| (stage, Instant::now())))
+    Span(timed.then(|| (stage, Instant::now())))
 }
 
 impl Drop for Span {
@@ -65,7 +50,6 @@ impl Drop for Span {
         if let Some((stage, started)) = self.0 {
             let elapsed = started.elapsed().as_nanos();
             PROFILE.with_borrow_mut(|profile| {
-                profile.samples[stage as usize] += 1;
                 profile.nanos[stage as usize] += elapsed;
             });
         }
@@ -74,25 +58,23 @@ impl Drop for Span {
 
 struct Session;
 
-/// 只测既有 Occupancy 四个批次，不打开逐车查询抽样。
+/// 测既有 Occupancy 四个批次的墙钟（每批计时）。
 pub(crate) fn measure_batches<R>(run: impl FnOnce() -> R) -> (R, [u128; 4]) {
-    let session = Session::start(0);
-    PROFILE.with_borrow_mut(|profile| profile.batches_only = true);
+    let session = Session::start();
     let result = run();
     drop(session);
     (
         result,
-        PROFILE.with_borrow(|profile| profile.nanos[..4].try_into().unwrap()),
+        PROFILE.with_borrow(|profile| profile.nanos),
     )
 }
 
 impl Session {
-    fn start(phase: u64) -> Self {
+    fn start() -> Self {
         PROFILE.with_borrow_mut(|profile| {
             assert!(!profile.enabled, "research sessions must not nest");
             *profile = Profile {
                 enabled: true,
-                phase,
                 ..Profile::default()
             };
         });
@@ -107,22 +89,22 @@ impl Drop for Session {
 }
 
 #[test]
-fn attribution_sampling_counts_calls_and_disables_on_unwind() {
+fn attribution_counts_calls_and_disables_on_unwind() {
     let unwind = std::panic::catch_unwind(|| {
-        let _session = Session::start(0);
-        for _ in 0..(QUERY_STRIDE * 2) {
-            drop(begin(Stage::LeaderGap));
+        let _session = Session::start();
+        for _ in 0..8 {
+            drop(begin(Stage::OccupancyFill));
         }
         panic!("test session unwind");
     });
     assert!(unwind.is_err());
     PROFILE.with_borrow(|profile| {
         assert!(!profile.enabled);
-        assert_eq!(profile.calls[Stage::LeaderGap as usize], QUERY_STRIDE * 2);
-        assert_eq!(profile.samples[Stage::LeaderGap as usize], 2);
+        assert_eq!(profile.calls[Stage::OccupancyFill as usize], 8);
+        assert!(profile.nanos[Stage::OccupancyFill as usize] > 0, "每批计时");
     });
-    drop(begin(Stage::LeaderGap));
+    drop(begin(Stage::OccupancyFill));
     PROFILE.with_borrow(|profile| {
-        assert_eq!(profile.calls[Stage::LeaderGap as usize], QUERY_STRIDE * 2);
+        assert_eq!(profile.calls[Stage::OccupancyFill as usize], 8);
     });
 }

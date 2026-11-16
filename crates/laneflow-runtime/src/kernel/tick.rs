@@ -4122,9 +4122,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index));
         #[cfg(test)]
         note_columnar_work(0, 1);
-        #[cfg(test)]
-        let inputs_timer =
-            super::stage_attribution::begin(super::stage_attribution::Stage::RouteProfileInputs);
         let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(position.route_edge_index).ok()?;
         let lengths = self.binding.revision.traffic().lane_lengths_millimetres();
@@ -4139,19 +4136,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         let current_limit = hop.limit_mm_s?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
-        #[cfg(test)]
-        drop(inputs_timer);
-        #[cfg(test)]
-        let horizon_timer =
-            super::stage_attribution::begin(super::stage_attribution::Stage::LeaderHorizon);
         let horizon = match horizon {
             Some(horizon) => horizon,
             None => leader_query_horizon(state.speed_mm_s(), profile, delta_s)?,
         };
-        #[cfg(test)]
-        drop(horizon_timer);
-        #[cfg(test)]
-        let gap_timer = super::stage_attribution::begin(super::stage_attribution::Stage::LeaderGap);
         let leader_gap = match leader_gap_override {
             Some(gap) => gap,
             None => self.derived.occupancy.leader_gap(
@@ -4163,11 +4151,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 horizon,
             ),
         };
-        #[cfg(test)]
-        drop(gap_timer);
-        #[cfg(test)]
-        let stop_timer =
-            super::stage_attribution::begin(super::stage_attribution::Stage::RouteStopQueries);
         let route_end = remaining_to_route_end(hop.remaining_to_end?, position.progress_mm);
         let reach = MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s);
         // 下一受控门本拍够不着时与逐门解释同为 None，不再读受控链。
@@ -4181,8 +4164,6 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             self.signal_stop_distance(compiled, state, cursor, reach)
         };
         let parking = self.parking_stop_distance(compiled, state, cursor, parking_binding)?;
-        #[cfg(test)]
-        drop(stop_timer);
         let parking_stop = parking.map(|(_, distance)| distance);
         let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
         let mut movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))

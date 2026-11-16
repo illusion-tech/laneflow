@@ -5,8 +5,6 @@
 //! compiler 配置档、阈值与原成功几何。计划与冻结实现不一致时停止执行并重新授权
 //! （计划 §7），不得单向迁就。
 
-use super::super::experiment::{merge, pool};
-use super::super::stream_a_curve_design_c29_c17::{per_edge_counts, pool_counts};
 use super::coverage::span_control;
 use super::*;
 use crate::output::digest::hex_sha256;
@@ -29,55 +27,6 @@ pub(super) fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-/// plan §5 冻结基线候选池：来源①→④（仓库内历史批次研究制品）按固定顺序合并并逐级
-/// 断言（6/48→7/56→7/72→9/75），再合并 Release 资产 `stream-a-searches.json` 的新增
-/// 候选（来源⑤，钉版输入）；总断言（10 边 76 份与每边份数）由 `pinned_baseline_pool`
-/// 按钉版输入执行。任一来源缺失或逐值不符即停止执行并重新授权。
-fn baseline_pool(stream_searches: &Value) -> combinations::Pools {
-    let legacy: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
-    ))
-    .unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
-    ))
-    .unwrap();
-    let grid: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1111-positive-calibration.json"
-    ))
-    .unwrap();
-    let curve: Value = serde_json::from_str(include_str!(
-        "../../../../../../../tests/fixtures/issue-1115-searches.json"
-    ))
-    .unwrap();
-    let mut pools = pool(&legacy["tiers"]["32768"]["searches"]);
-    assert_eq!(
-        pool_counts(&pools),
-        (6, 48),
-        "source 1: 6 edges 48 candidates"
-    );
-    merge(&mut pools, pool(&old));
-    assert_eq!(
-        pool_counts(&pools),
-        (7, 56),
-        "source 2: 7 edges 56 candidates"
-    );
-    merge(&mut pools, pool(&grid["edges"]));
-    assert_eq!(
-        pool_counts(&pools),
-        (7, 72),
-        "source 3: 7 edges 72 candidates"
-    );
-    merge(&mut pools, pool(&curve));
-    assert_eq!(
-        pool_counts(&pools),
-        (9, 75),
-        "source 4: 9 edges 75 candidates"
-    );
-    merge(&mut pools, pool(stream_searches));
-    pools
-}
-
 /// 临时目录唯一命名；基线读取验证的同字节内容只写临时目录，不落仓库。
 fn temp_probe_dir() -> PathBuf {
     static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -88,33 +37,6 @@ fn temp_probe_dir() -> PathBuf {
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-#[test]
-fn cohort2_baseline_pool_merges_frozen_sources_with_pinned_input_bytes() {
-    // 来源①→④为 crate fixture 历史批次研究制品，逐级断言 6/48→7/56→7/72→9/75；来源⑤按
-    // plan §5 为 Release 资产钉版输入——本测试以临时目录写入同字节内容验证读取、
-    // 钉版断言与合并路径；真实 10 边 76 份与每边份数总断言由 `pinned_baseline_pool`
-    // 在正式实验入口按钉版输入执行。
-    let candidate = json!({"program":{"start":[0,0,0],
-        "segments":[{"end":[10.0_f64.to_bits(),0,0],"canvas_selection":null}]},
-        "arc_m":10.0,"spans":[]});
-    let source = json!({"sumo::cohort2-synthetic":{"candidates":[candidate]}});
-    let bytes = serde_json::to_vec(&source).unwrap();
-    let dir = temp_probe_dir();
-    let path = dir.join("stream-a-searches.json");
-    fs::write(&path, &bytes).unwrap();
-    assert_eq!(fs::read(&path).unwrap(), bytes, "same-byte write and read");
-    let loaded = read_pinned_json(&path, &hex_sha256(&bytes));
-    assert_eq!(loaded, source, "pinned loader parses the written bytes");
-    let pools = baseline_pool(&loaded);
-    assert_eq!(
-        pool_counts(&pools),
-        (10, 76),
-        "sources 1-4 chain plus source 5"
-    );
-    assert_eq!(per_edge_counts(&pools)["sumo::cohort2-synthetic"], 1);
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

@@ -43,22 +43,3 @@ pub(super) fn pool(rows: &Value) -> Pools {
         })
         .collect()
 }
-
-pub(super) fn merge(pools: &mut Pools, new: Pools) {
-    let bits = |p: &re::RoadEditingCurveProgram| {
-        program_points(p)
-            .into_iter()
-            .map(|v| v.map(|x| (x as f32).to_bits()))
-            .collect::<Vec<_>>()
-    };
-    for (id, candidates) in new {
-        let selected = pools.entry(id).or_default();
-        for candidate in candidates {
-            let key = bits(&candidate);
-            if !selected.iter().any(|p| bits(p) == key) {
-                assert!(selected.len() < 16, "bounded merged pool");
-                selected.push(candidate);
-            }
-        }
-    }
-}

@@ -1,7 +1,7 @@
 {
   "meta": {
     "id": "issue-1142-minimal-closed-loop",
-    "version": 6,
+    "version": 7,
     "kind": "synthetic-pinned-input",
     "purpose": "#806 路线展开与 #237 最小换道边界的最小闭环样本（设计材料，不是运行结果）",
     "basis": {
@@ -17,7 +17,7 @@
     "expressibility_legend": {
       "route-expansion-today": "现行严格展开合同可表达/可验证（converter 侧）",
       "registration-today": "register_route 静态序列与出现项合同可表达（不代表安全）",
-      "needs-237-subcontract": "需要 #237 最小子合同的运行时能力（未交付；#237/#806 开放中，v0.11 轴）",
+      "needs-237-subcontract": "场景依赖 #237 最小换道子合同的运行时语义；其中固定预制过渡的注册与执行已交付（S4 授权，capabilities「固定预构造换道」与 transition_visibility 回归），同修订过渡持久化（#1200/S5）、#806 路线展开与任意位置变道尚未交付",
       "needs-g1": "需要对应切片 G1 冻结后才能定形"
     },
     "actor_conventions": {

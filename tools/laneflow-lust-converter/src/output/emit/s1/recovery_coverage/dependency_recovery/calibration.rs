@@ -20,17 +20,14 @@ fn fixed_signal_seam_feasibility() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh seam diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let endpoints: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1113-endpoint-feasibility.json"
-    ))
-    .unwrap();
-    let seam: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1113-seam-input.json"
+    let controls: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1113-controls.json"
     ))
     .unwrap();
     let left: [[u64; 3]; 6] =
-        serde_json::from_value(endpoints["sumo::-16502_0_0"]["control_f64_bits"].clone()).unwrap();
-    let right: [[u64; 3]; 6] = serde_json::from_value(seam["control_f64_bits"].clone()).unwrap();
+        serde_json::from_value(controls["sumo::-16502_0_0"]["control_f64_bits"].clone()).unwrap();
+    let right: [[u64; 3]; 6] =
+        serde_json::from_value(controls["seam_right_control_f64_bits"].clone()).unwrap();
     let left = std::array::from_fn(|i| left[i].map(f64::from_bits));
     let right = std::array::from_fn(|i| right[i].map(f64::from_bits));
     let started = Instant::now();
@@ -50,14 +47,19 @@ fn fixed_signal_guided_recovery() {
         "../../../../../../tests/fixtures/issue-1107-inputs.json"
     ))
     .unwrap();
-    let endpoints: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1113-endpoint-feasibility.json"
+    let controls: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1113-controls.json"
     ))
     .unwrap();
     let id = "sumo::-16502_0_0";
-    let control = serde_json::from_value(endpoints[id]["control_f64_bits"].clone()).unwrap();
-    let tail: [u64; 3] =
-        serde_json::from_value(endpoints[id]["witness"]["parameters_f64_bits"].clone()).unwrap();
+    let control = serde_json::from_value(controls[id]["control_f64_bits"].clone()).unwrap();
+    // #1113 见证尾参数位值（独立固定预期；原件见退役提交的
+    // issue-1113-endpoint-feasibility.json witness 记录，#1411 收敛时内联）。
+    let tail: [u64; 3] = [
+        4_604_719_426_854_453_248,
+        4_605_962_837_066_514_432,
+        4_607_182_418_800_017_408,
+    ];
     let started = Instant::now();
     let search = sampler::grid::search_guided(
         &measurement::input(&inputs[id]),
@@ -81,17 +83,17 @@ fn fixed_signal_endpoint_feasibility() {
     let out = PathBuf::from(std::env::var("GRID_CALIBRATION_OUTPUT_DIR").unwrap());
     assert!(!out.exists(), "fresh endpoint diagnostic output");
     fs::create_dir_all(&out).unwrap();
-    let old: Value = serde_json::from_str(include_str!(
-        "../../../../../../tests/fixtures/issue-1111-local-probes.json"
+    let controls: Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/fixtures/issue-1113-controls.json"
     ))
     .unwrap();
     let mut rows = BTreeMap::new();
     let mut timing = BTreeMap::new();
     for id in ["sumo::-28860_3_0", "sumo::-16502_0_0"] {
         let bits: [[u64; 3]; 6] =
-            serde_json::from_value(old[id]["control_f64_bits"].clone()).unwrap();
+            serde_json::from_value(controls[id]["control_f64_bits"].clone()).unwrap();
         let clamp: Option<[u64; 3]> =
-            serde_json::from_value(old[id]["start_clamp"].clone()).unwrap();
+            serde_json::from_value(controls[id]["clamp_f64_bits"].clone()).unwrap();
         let started = Instant::now();
         rows.insert(
             id,
