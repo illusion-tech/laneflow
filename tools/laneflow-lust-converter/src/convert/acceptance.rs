@@ -270,16 +270,12 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
             .rendered,
         "diagnostic report must be byte-deterministic across runs"
     );
-    // 验收证据逐字节比对（evidence/README.md 的锁定方式）：随仓库提交的清单
-    // 必须与 pinned 基线重扫结果一致（归一化换行，防 CRLF checkout 干扰）。
-    let evidence = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md"),
-    )
-    .expect("read committed evidence survey");
+    // 固定摘要锁（#1386 起不再入库全量清单）：digest 取自退役正本
+    // evidence/lust-infeasible-survey.md（固定提交可追溯），独立于当次运行。
     assert_eq!(
-        report.rendered,
-        evidence.replace("\r\n", "\n"),
-        "committed evidence survey drifted from the pinned baseline rescan"
+        crate::output::digest::sha256_digest(report.rendered.as_bytes()),
+        "sha256:7d4f8243ee23fb06199986fd8f103ff0558a23992caadbc256d1c545f21fff6c",
+        "diagnostic survey digest drifted from the frozen baseline (fixed-commit copy retired with #1386)"
     );
     // R2：验收输入即 pinned 基线字节，清单头必须如实标注「一致」+「verify-source
     // 已通过」（摘要取实际转换字节；两种声明互不越权）。
@@ -360,15 +356,11 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
         .join("issue253-infeasible-survey.md");
     fs::write(&out_path, &report.rendered).expect("write diagnostic survey file");
 
-    // G3 验收证据：与提交仓库的 evidence/lust-infeasible-survey.md 逐字节
-    // 一致（发射语义变化时按 evidence/README.md 流程双跑重锁并同步更新）。
-    let evidence_path =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md");
-    let evidence = fs::read_to_string(&evidence_path).expect("read committed survey evidence");
+    // G3 固定摘要锁：与主验收同源的独立固定预期（全量正本已退役，#1386）。
     assert_eq!(
-        evidence.replace("\r\n", "\n").trim_end(),
-        report.rendered.trim_end(),
-        "survey drifted from committed evidence: regenerate per evidence/README.md and update both copies"
+        crate::output::digest::sha256_digest(report.rendered.as_bytes()),
+        "sha256:7d4f8243ee23fb06199986fd8f103ff0558a23992caadbc256d1c545f21fff6c",
+        "diagnostic survey digest drifted from the frozen baseline (fixed-commit copy retired with #1386)"
     );
 }
 
@@ -548,13 +540,13 @@ output_dir = {:?}
     let paths = crate::convert(&config_path).expect("CLI convert");
     let read =
         |path: &std::path::Path| -> String { fs::read_to_string(path).expect("read output") };
-    // 诊断交付物：survey 字节 = evidence。
+    // 诊断交付物：survey 字节摘要 = 固定预期（全量正本已退役，#1386）。
     let survey = fs::read(&paths.infeasibility_survey).expect("read survey");
-    let evidence = fs::read(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("evidence/lust-infeasible-survey.md"),
-    )
-    .expect("read evidence");
-    assert_eq!(survey, evidence, "survey 必须与 evidence 逐字节一致");
+    assert_eq!(
+        crate::output::digest::sha256_digest(&survey),
+        "sha256:7d4f8243ee23fb06199986fd8f103ff0558a23992caadbc256d1c545f21fff6c",
+        "survey digest drifted from the frozen baseline"
+    );
     // 不产出排除产物。
     assert!(paths.network_lfca.is_none());
     assert!(paths.static_tar.is_none());

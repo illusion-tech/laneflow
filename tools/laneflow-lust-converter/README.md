@@ -9,8 +9,8 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 - `verify-source`：按 §2.2 对固定 commit / 文件做 size + SHA-256 fail-closed 校验。
 - `convert`：校验 source 后生成（G1 验收重划口径，诊断模式输出集合）：
   - `issue253-infeasible-survey.md`：确定性 fail-closed 诊断清单（全网不可行
-    普查，当前交付物；同基线与
-    `evidence/lust-infeasible-survey.md` 逐字节一致）
+    普查，当前交付物；验收以固定 SHA-256 摘要锁定，全量正本已随 #1386 退役，
+    追溯见退役前提交的 `evidence/lust-infeasible-survey.md`）
   - `routes.toml`：**实现中**——DUE 展开 route catalog + 精确一万 population
     record；车道级展开语义待修订（`can_complete` 禁止边内换道，v2 人口入选
     10,000 中 9,344 条途径不可展开）——诊断模式不产出
@@ -43,13 +43,15 @@ cargo +1.99.1 run -p laneflow-lust-converter -- convert --config <toml>
 
 ```text
 set LUST_SOURCE_DIR=<LuSTScenario根目录>
-cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored --skip regenerate
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored
 ```
 
-`--skip regenerate` 不可省略：`--ignored` 会并发跑全部 ignored 测试，其中
-`regenerate_lust_stub_weld_candidates_manifest` 覆写 `evidence/` 的候选 manifest
-基线——与比对测试并行竞争，漂移基线会被覆写后门检失效。regenerate 只在
-更新基线时显式单独运行（见 `evidence/README.md` 更新流程）。
+两个 stub 相关 ignored 测试已随 #1386 分离：`regenerate` 只把完整候选诊断
+manifest 写到 `target/issue253-stub-weld-candidates.json`（不覆写任何入库
+文件，可与防漂移比对并发）；生产批准集合是 `src/convert/approved_stub_weld.json`
+（net digest + 84 身份三元组，含 4 个 rejected-shared-entry），防漂移测试对
+pinned 源重扫比对身份集合——批准域变更须先回 #253 走 G1 裁定并手工更新该
+文件，不以 regenerate 覆写。诊断清单全文生成到 `target/issue253-infeasible-survey.md`。
 
 历史 pinned 重放入口与 `PINNED_RESEARCH_ROOT` 外部数据依赖已随 #1385 退役；
 仍有效的最小回归输入已按文档边界归位到 `tests/fixtures/`（含从冻结提交
