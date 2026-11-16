@@ -289,6 +289,14 @@ fn render_diff_body(writer: &mut BoundedWriter<'_>, report: &DiffReport, policy:
         for diff in container_selected.iter() {
             writer.line(&render_container(diff));
         }
+        // 截断协议：容器差异被条数预算省略时明确标记，与字段通道对称。
+        if report.container_diff_total > container_selected.len() {
+            writer.line(&format!(
+                "  …（容器差异共 {} 条，展示前 {} 条）",
+                report.container_diff_total,
+                container_selected.len()
+            ));
+        }
         for row in &report.row_counts {
             if policy
                 .filters

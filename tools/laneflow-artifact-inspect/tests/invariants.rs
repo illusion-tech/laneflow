@@ -328,3 +328,34 @@ fn late_row_difference_is_located_without_rescanning() {
             })
     );
 }
+
+#[test]
+fn container_entry_budget_truncation_is_marked() {
+    // 第三轮评审例：容器差异超过条数预算时，部分目录诊断不得伪装成完整。
+    // identity 值变长会平移后续节的偏移/长度并改变 chunk 摘要，产生多条
+    // 容器差异；预算收紧到 1 条后必须出现明确截断标记。
+    let expected = common::lfca_with_identity_field_values(&[b"a", b"b"]);
+    let actual = common::lfca_with_identity_field_values(&[b"longer", b"c"]);
+    let policy = DisplayPolicy {
+        filters: InspectFilters::default(),
+        limits: ReportLimits {
+            max_diff_entries: 1,
+            ..ReportLimits::default()
+        },
+    };
+    let report = diff_bytes(&expected, &actual, &policy, &SessionConfig::hardened());
+    assert!(
+        report.container_diff_total > 1,
+        "本例应产生多条容器差异：{}",
+        report.container_diff_total
+    );
+    assert_eq!(report.container.len(), 1, "展示通道受条数上限约束");
+    let text = render_diff(&report, &policy);
+    assert!(
+        text.contains(&format!(
+            "容器差异共 {} 条，展示前 1 条",
+            report.container_diff_total
+        )),
+        "容器截断必须有明确标记：\n{text}"
+    );
+}
