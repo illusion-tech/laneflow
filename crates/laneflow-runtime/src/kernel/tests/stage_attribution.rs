@@ -14,10 +14,10 @@ const STAGES: usize = 4;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Stage {
-    OccupancyCount,
-    OccupancyLayout,
-    OccupancyFill,
-    OccupancySortSuffix,
+    Count,
+    Layout,
+    Fill,
+    SortSuffix,
 }
 
 #[derive(Clone, Default)]
@@ -90,18 +90,18 @@ fn attribution_counts_calls_and_disables_on_unwind() {
     let unwind = std::panic::catch_unwind(|| {
         let _session = Session::start();
         for _ in 0..8 {
-            drop(begin(Stage::OccupancyFill));
+            drop(begin(Stage::Fill));
         }
         panic!("test session unwind");
     });
     assert!(unwind.is_err());
     PROFILE.with_borrow(|profile| {
         assert!(!profile.enabled);
-        assert_eq!(profile.calls[Stage::OccupancyFill as usize], 8);
-        assert!(profile.nanos[Stage::OccupancyFill as usize] > 0, "每批计时");
+        assert_eq!(profile.calls[Stage::Fill as usize], 8);
+        assert!(profile.nanos[Stage::Fill as usize] > 0, "每批计时");
     });
-    drop(begin(Stage::OccupancyFill));
+    drop(begin(Stage::Fill));
     PROFILE.with_borrow(|profile| {
-        assert_eq!(profile.calls[Stage::OccupancyFill as usize], 8);
+        assert_eq!(profile.calls[Stage::Fill as usize], 8);
     });
 }
