@@ -20,7 +20,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - `../adr/0021-traffic-infrastructure-and-host-boundary.md`
 - `../adr/0023-road-editing-state-and-phased-network-replacement.md`
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`
-- `../adr/0035-capacity-derived-compile-limits.md`
+- `../adr/0035-compile-limits-and-resource-ledger.md`
 - `network-compiler.md`
 - `road-editing-source-and-geometry-frontend.md`
 - `numeric-representation.md`
@@ -438,8 +438,8 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 `ManeuverGateCount`、`WaitingZoneCount`、`GeometryPointCount`、
 `SymbolCount`、`StringItemCount`、`TotalStringBytes` 和接入后实际
 `CompilerControlledLiveBytes`。`SourceBytesPerModule`、`SingleStringBytes` 与前端构造
-峰值由具体前端在 `finish` 前检查；HIR/MIR/LIR、诊断、暂存区、输出与保留容量维度仍由
-各自阶段检查。共同接入信任字段私有模块携带的一次性模块资源计数，不重新遍历记录；
+峰值由具体前端在 `finish` 前检查；HIR/MIR/LIR 记录、诊断与保留容量维度仍由各自阶段
+检查，各阶段的暂存与输出存储由该阶段的资源账本计量，并计入宿主总存续检查。共同接入信任字段私有模块携带的一次性模块资源计数，不重新遍历记录；
 这既不会漏掉维度，也不会复制其他阶段的验证正本。
 
 `SourceDocumentDescriptor` 是来源伴随记录，不是有类型抽象语法树领域记录，因此不能挤入
@@ -459,7 +459,7 @@ LFCA 的一百万稳定静态实体端到端路径使用独立的 `LF-COMP-SINGL
 `LF-COMP-P100` 的隐式升级，也不改变既有生产基线。该配置档只由显式构造器选择，保持字段
 私有、没有 `Default`/unlimited/调用方覆写。
 
-`CompileLimits` 私有保存配置档身份、容量维度、宿主预算维度与推导字节维度，不能由调用方
+`CompileLimits` 私有保存配置档身份、容量维度与宿主预算维度，不能由调用方
 补字段或隐式升级。任何产生多文档模块的正式前端都必须在读取、哈希、解析或按规模分配前
 按 `SourceDocumentCount` 检查。
 第 5 项不改变逐文档 `sourceDocumentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
