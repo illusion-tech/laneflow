@@ -555,9 +555,10 @@ fn policy_diff_fixed_bytes_cover_all_four_complete_member_values() {
         .unwrap();
         return;
     }
-    assert_eq!(
+    laneflow_artifact_inspect::assert_portable_object_matches!(
         bytes.as_ref(),
-        include_bytes!("../../../../../tests/fixtures/portable/lfsd-policy-members/expected.lfsd")
+        include_bytes!("../../../../../tests/fixtures/portable/lfsd-policy-members/expected.lfsd"),
+        "lfsd-policy-members/expected.lfsd（DUMP_PORTABLE 重生成）"
     );
     assert_eq!(bytes.len(), 2_266);
     assert_eq!(

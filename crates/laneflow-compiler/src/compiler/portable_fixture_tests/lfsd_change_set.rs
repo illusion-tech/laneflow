@@ -147,7 +147,11 @@ fn row_tags(row: laneflow_format::RegistryCheckedRowView<'_>) -> Vec<u16> {
 #[test]
 fn portable_change_set_diff_matches_frozen_exact_bytes() {
     let (base, target) = candidate();
-    assert_eq!(target.semantic_diff().bytes(), EXPECTED_LFSD);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        target.semantic_diff().bytes(),
+        EXPECTED_LFSD,
+        "lfsd-change-set/expected.lfsd（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(
         target.semantic_diff().byte_length(),
         exact_byte_length(2_999)

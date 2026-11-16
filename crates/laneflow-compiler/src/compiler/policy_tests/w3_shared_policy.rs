@@ -413,11 +413,12 @@ fn shared_policy_fixture_closes_and_is_declaration_order_invariant() {
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("expected.lfca"), bytes).unwrap();
         } else if !permuted {
-            assert!(
-                bytes
-                    == include_bytes!(
-                        "../../../tests/fixtures/portable/lfca-world-policies/expected.lfca"
-                    )
+            laneflow_artifact_inspect::assert_portable_object_matches!(
+                bytes,
+                include_bytes!(
+                    "../../../tests/fixtures/portable/lfca-world-policies/expected.lfca"
+                ),
+                "lfca-world-policies/expected.lfca（DUMP_W3_POLICY 重生成）"
             );
         }
     }
@@ -448,7 +449,11 @@ fn world_policy_boundary_fixtures_are_reproducible() {
             } else {
                 include_bytes!("../../../tests/fixtures/portable/lfca-world-policies/overflow.lfca")
             };
-            assert!(candidate.canonical_artifact().bytes() == expected, "{name}");
+            laneflow_artifact_inspect::assert_portable_object_matches!(
+                candidate.canonical_artifact().bytes(),
+                expected,
+                &format!("lfca-world-policies/{name}.lfca（DUMP_W3_POLICY 重生成）")
+            );
         }
     }
 }

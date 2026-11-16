@@ -362,9 +362,21 @@ fn diff_view(bytes: &[u8]) -> laneflow_format::RegistryCheckedObjectView<'_> {
 #[test]
 fn portable_migration_pair_matches_frozen_exact_bytes() {
     let (base, target) = migration_pair();
-    assert_eq!(base.canonical_artifact().bytes(), MIGRATION_BASE);
-    assert_eq!(target.canonical_artifact().bytes(), MIGRATION_TARGET);
-    assert_eq!(target.semantic_diff().bytes(), MIGRATION_LFSD);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        base.canonical_artifact().bytes(),
+        MIGRATION_BASE,
+        "lfsd-migration/base.lfca（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        target.canonical_artifact().bytes(),
+        MIGRATION_TARGET,
+        "lfsd-migration/target.lfca（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        target.semantic_diff().bytes(),
+        MIGRATION_LFSD,
+        "lfsd-migration/expected.lfsd（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(
         target.semantic_diff().object_key(),
         "sha256/c244ada8f865f85a80135aa641280a8bcd0c812d87761dbc47589ecaf57ec8de"
@@ -372,9 +384,21 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     assert_ne!(base.network_revision(), target.network_revision());
 
     let (obase, otarget) = oracle_pair();
-    assert_eq!(obase.canonical_artifact().bytes(), ORACLE_BASE);
-    assert_eq!(otarget.canonical_artifact().bytes(), ORACLE_TARGET);
-    assert_eq!(otarget.semantic_diff().bytes(), ORACLE_LFSD);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        obase.canonical_artifact().bytes(),
+        ORACLE_BASE,
+        "lfsd-migration/oracle-base.lfca（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        otarget.canonical_artifact().bytes(),
+        ORACLE_TARGET,
+        "lfsd-migration/oracle-target.lfca（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        otarget.semantic_diff().bytes(),
+        ORACLE_LFSD,
+        "lfsd-migration/oracle-expected.lfsd（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(
         otarget.semantic_diff().object_key(),
         "sha256/e6772818ee386bbcc35a5b5cd9d74f16287d836f93022437138c27678d3f4a54"
@@ -384,9 +408,21 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     // profile 漂移对：target 仅改 standard-car 车长（4.5 m → 6.0 m），
     // 派生不变量重验证的不可映射场景（运行时侧消费）。
     let (pbase, ptarget) = profile_drift_pair();
-    assert_eq!(pbase.canonical_artifact().bytes(), PROFILE_BASE);
-    assert_eq!(ptarget.canonical_artifact().bytes(), PROFILE_TARGET);
-    assert_eq!(ptarget.semantic_diff().bytes(), PROFILE_LFSD);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        pbase.canonical_artifact().bytes(),
+        PROFILE_BASE,
+        "lfsd-migration/profile-base.lfca（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        ptarget.canonical_artifact().bytes(),
+        PROFILE_TARGET,
+        "lfsd-migration/profile-target.lfca（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        ptarget.semantic_diff().bytes(),
+        PROFILE_LFSD,
+        "lfsd-migration/profile-expected.lfsd（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(
         ptarget.semantic_diff().object_key(),
         "sha256/706764e4f8caa87ccc39a00a89082065d00edd7471b8217300cafb9aa2c31aeb"

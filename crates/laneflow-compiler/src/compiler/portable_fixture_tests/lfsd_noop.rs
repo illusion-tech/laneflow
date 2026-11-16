@@ -24,12 +24,21 @@ fn candidate() -> crate::PortablePublicationCandidate {
 #[test]
 fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     let candidate = candidate();
-    assert_eq!(
+    laneflow_artifact_inspect::assert_portable_object_matches!(
         candidate.canonical_artifact().bytes(),
-        FULL_SPATIAL_EXPECTED_LFCA
+        FULL_SPATIAL_EXPECTED_LFCA,
+        "lfca-full-spatial/expected.lfca（DUMP_PORTABLE 重生成）"
     );
-    assert_eq!(candidate.source_map().bytes(), FULL_SPATIAL_EXPECTED_LFSM);
-    assert_eq!(candidate.semantic_diff().bytes(), EXPECTED_LFSD);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        candidate.source_map().bytes(),
+        FULL_SPATIAL_EXPECTED_LFSM,
+        "lfca-full-spatial/expected.lfsm（DUMP_PORTABLE 重生成）"
+    );
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        candidate.semantic_diff().bytes(),
+        EXPECTED_LFSD,
+        "lfsd-noop/expected.lfsd（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(
         candidate.semantic_diff().byte_length(),
         exact_byte_length(673)
