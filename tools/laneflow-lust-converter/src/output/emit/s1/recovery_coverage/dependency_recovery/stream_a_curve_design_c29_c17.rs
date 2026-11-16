@@ -22,10 +22,6 @@ fn frozen_inputs() -> Value {
     .unwrap()
 }
 
-pub(super) fn pool_counts(pools: &combinations::Pools) -> (usize, usize) {
-    (pools.len(), pools.values().map(Vec::len).sum())
-}
-
 /// 每边按冻结段容量 s 执行 design.md 口径的有限几何设计变量候选搜索。
 fn run_searches(inputs: &Value) -> (Value, Value) {
     let mut searches = BTreeMap::new();

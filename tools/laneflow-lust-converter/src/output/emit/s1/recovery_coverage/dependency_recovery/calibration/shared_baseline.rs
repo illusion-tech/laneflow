@@ -1,27 +1,9 @@
-//! #1140：六路共同基线（11 边 92 份候选池）与最小公共测试助手（E0 交付）。
+//! 文本 token 域比较助手（E0 #1140 交付的最小公共件）。
 //!
-//! 执行口径冻结于 `research/issue-1140-shared-baseline/plan.md`，共同口径沿六路协调
-//! 章程 v2 与基线包合并需求单（Issue #1140 评论，含 A 路消费形状澄清）：包布局为
-//! `pool.json`（与历史候选来源同构的行形状，`experiment::pool` 可直接消费）、
-//! `results-anchor.json`（结果对照锚）与 `MANIFEST.json`（`files.<name>.sha256/bytes`
-//! 与 `merge_order` 六项链），读取经 `SIX_STREAMS_BASELINE_DIR`，旧 9/10 边池禁用。
-//! 合并语义逐字沿 `dependency_recovery::experiment::{pool, merge}`（规范 f32 点位
-//! 去重、先到先留、每边上限 16）。本模块只新增研究入口与公共助手再导出，不改生产
-//! 采样、compiler、阈值与原成功几何；计划与冻结实现不一致时停止执行并重新授权
-//! （plan §7），不得单向迁就。
-
-use super::super::stream_a_curve_design_c29_c17::pool_counts;
-use super::cohort2_coverage::read_pinned_json;
-use super::*;
-use std::collections::{BTreeMap, BTreeSet};
-
-// ===== 公共助手最小集（基线包合并需求单；仅再导出，语义逐字不变）=====
-// 词汇映射、载体三层链（fresh 两族 → 1107 history → repair_curve 重放回退）、
-// 网格节点判定；池读取/断言由本模块 `shared_pools` 提供。
-pub(in super::super) use super::coverage::{
-    SpanControl, find_span_control, grid_node_member, plan_stop_label, replay_span_controls,
-    span_control,
-};
+//! 数字叶以原字面量比较（不做浮点再序列化），供浮点往返与候选位值回归消费。
+//! 六来源基线包（pool.json / results-anchor / MANIFEST、`SIX_STREAMS_BASELINE_DIR`
+//! 读取、旧拼池与锚文本设施）已随 #1411 退役；历史执行口径见冻结提交
+//! （#1385 退役基线 3f80b65f 可查）。
 
 // ===== 文本拼接原语（位忠实导出；数值字符串逐字保留，不做浮点再序列化）=====
 // 背景（README 差异记录「导出路径有损再序列化（1 ULP）」）：经浮点解析/写出的
@@ -93,24 +75,6 @@ fn skip_json_value(text: &[u8], pos: &mut usize) {
             }
         }
     }
-}
-
-/// 资产钉版（`shared-baseline-inputs.zip` 三成员；plan §2 同步钉版）。
-const POOL_JSON_SHA256: &str = "31fca69617e2fd5d818aafc64b6704451475e05bf3aa3918391e1a2f9feb1bb3";
-
-/// program 对象 u64 位逐个提取（lead ④ 裁决硬门 1：几何/判定唯一正本输入的位级断言）。
-/// 入参为 `{"start":[…],"segments":[{"end":[…]}]}` 形态的 program 对象。
-fn program_u64_bits(program_value: &Value) -> Vec<u64> {
-    let mut bits = Vec::new();
-    for value in program_value["start"].as_array().unwrap() {
-        bits.push(value.as_u64().unwrap());
-    }
-    for segment in program_value["segments"].as_array().unwrap() {
-        for value in segment["end"].as_array().unwrap() {
-            bits.push(value.as_u64().unwrap());
-        }
-    }
-    bits
 }
 
 /// JSON 文本叶 token（文本 token 域位级比较原语；serde_json 1.0.154 默认解析对 17 位
@@ -207,122 +171,6 @@ pub(in super::super) fn json_leaf_mismatch(expected: &str, actual: &str) -> Opti
     None
 }
 
-/// 候选去重键：整程序点位的规范 f32 位串（逐字沿 `experiment::merge`）。
-fn canonical_key(program: &re::RoadEditingCurveProgram) -> Vec<[u32; 3]> {
-    program_points(program)
-        .into_iter()
-        .map(|v| v.map(|x| (x as f32).to_bits()))
-        .collect()
-}
-
-/// plan §1 六来源合并的机械过程：规范 f32 点位去重（先到先留、每边上限 16）、合并
-/// 顺序保留。输出：① `pool.json` 行形状（`{edge: {"candidates": [候选原值]}}`，与历史
-/// 候选来源同构、`experiment::pool` 可直接消费）；② 逐份来源标记（MANIFEST
-/// `candidate_sources`：每边按包内顺序记首次引入来源）；③ 逐级计数。`sources` 为逐段
-/// 输入 `(stage, rows)`；同一来源多文件（来源⑥原族/网格两份）只记一个断言级。
-fn build_pool(sources: &[(usize, &Value)]) -> (Value, Value, Value) {
-    let mut rows: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    let mut provenance: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    let mut seen: BTreeMap<String, BTreeSet<Vec<[u32; 3]>>> = BTreeMap::new();
-    let mut per_stage = Vec::new();
-    let mut stage_open = 0;
-    for (stage, source) in sources {
-        if *stage != stage_open {
-            if stage_open != 0 {
-                let edges = seen.len();
-                let candidates = seen.values().map(BTreeSet::len).sum::<usize>();
-                per_stage.push(json!([edges, candidates]));
-            }
-            stage_open = *stage;
-        }
-        for (id, row) in source.as_object().unwrap() {
-            for candidate in row["candidates"].as_array().unwrap() {
-                let program = successors::frozen_candidate(candidate).repaired.program;
-                let key = canonical_key(&program);
-                let keys = seen.entry(id.clone()).or_default();
-                if keys.insert(key) {
-                    assert!(keys.len() <= 16, "bounded merged pool");
-                    rows.entry(id.clone()).or_default().push(candidate.clone());
-                    provenance.entry(id.clone()).or_default().push(*stage);
-                }
-            }
-        }
-    }
-    let edges = seen.len();
-    let candidates = seen.values().map(BTreeSet::len).sum::<usize>();
-    per_stage.push(json!([edges, candidates]));
-    let rows = json!(
-        rows.into_iter()
-            .map(|(id, candidates)| (id, json!({"candidates":candidates})))
-            .collect::<BTreeMap<String, Value>>()
-    );
-    let provenance = json!(provenance);
-    (rows, provenance, json!(per_stage))
-}
-
-/// plan §3 ④：包内候选逐份往返校验——`program` 位逐字经 `frozen_candidate` 往返、
-/// 规范 f32 点位键逐边唯一（由程序点位重算，包内不另存）、每边 ≤16。校验通过后返回
-/// 可消费的 `combinations::Pools`（程序顺序 = 冻结合并顺序）。
-fn verified_pools(rows: &Value) -> combinations::Pools {
-    let mut pools = combinations::Pools::new();
-    for (id, row) in rows.as_object().unwrap() {
-        let candidates = row["candidates"].as_array().unwrap();
-        assert!(candidates.len() <= 16, "bounded merged pool {id}");
-        let mut keys = BTreeSet::new();
-        let mut programs = Vec::new();
-        for candidate in candidates {
-            let program = successors::frozen_candidate(candidate).repaired.program;
-            assert!(
-                keys.insert(canonical_key(&program)),
-                "unique canonical key {id}"
-            );
-            programs.push(program);
-        }
-        pools.insert(id.clone(), programs);
-    }
-    pools
-}
-
-/// 临时目录唯一命名；钉版读取验证的同字节内容只写临时目录，不落仓库。
-fn temp_probe_dir() -> PathBuf {
-    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "laneflow-shared-baseline-{}-{n}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[test]
-fn shared_baseline_program_fields_are_bit_exact() {
-    // 硬门 1（lead ④ 裁决）：program 为几何/判定唯一正本输入，u64 位逐位精确——
-    // 大位模式（1 ULP 相邻对）经合并/池文本往返后逐位相等，锁死不经浮点化。
-    let a = json!({"program":{"start":[4624643347766747136u64,0,0],
-        "segments":[{"end":[4624643347766747137u64,0,0],"canvas_selection":null}]},
-        "arc_m":10.220051765441895,"spans":[]});
-    let source = json!({"sumo::e0-synthetic":{"candidates":[a.clone()]}});
-    let (rows, _provenance, _per_stage) = build_pool(&[(1, &source)]);
-    let reparsed: Value = serde_json::from_str(&rows.to_string()).unwrap();
-    let record = &reparsed["sumo::e0-synthetic"]["candidates"][0];
-    assert_eq!(
-        program_u64_bits(&record["program"]),
-        program_u64_bits(&a["program"]),
-        "program u64 bits exact"
-    );
-    assert_eq!(
-        program_u64_bits(&record["program"])[0],
-        4_624_643_347_766_747_136,
-        "large bit pattern"
-    );
-    assert_eq!(
-        program_u64_bits(&record["program"])[3],
-        4_624_643_347_766_747_137,
-        "1 ULP neighbour"
-    );
-}
-
 #[test]
 fn shared_baseline_text_token_domain_distinguishes_ulp_pair() {
     // 回归（lead 插队规格 3）：17 位十进制相邻对 …895/…896 在文本 token 域必须区分
@@ -357,60 +205,4 @@ fn shared_baseline_text_token_domain_distinguishes_ulp_pair() {
         None,
         "leaf domain ties to verbatim splice"
     );
-}
-
-fn synthetic_candidate(end_x: f64, arc_m: f64) -> Value {
-    json!({"program":{"start":[0,0,0],
-        "segments":[{"end":[end_x.to_bits(),0,0],"canvas_selection":null}]},
-        "arc_m":arc_m,"spans":[]})
-}
-
-#[test]
-fn shared_baseline_merge_dedups_canonical_points_in_frozen_order() {
-    // 合并机械：规范 f32 点位去重、先到先留（重复项不覆盖首份原值）、合并顺序与逐份
-    // 来源标记保留、逐级计数记录；pool.json 行形状与历史候选来源同构。
-    let a = synthetic_candidate(10.0, 10.0);
-    let b = synthetic_candidate(20.0, 20.0);
-    let dup = json!({"program":a["program"],"arc_m":99.0,"spans":[{"probe":1}]});
-    let c = synthetic_candidate(30.0, 30.0);
-    let source_1 = json!({"sumo::e0-synthetic":{"candidates":[a.clone(), b.clone()]}});
-    let source_2 = json!({"sumo::e0-synthetic":{"candidates":[dup, c.clone()]}});
-    let (rows, provenance, per_stage) = build_pool(&[(1, &source_1), (2, &source_2)]);
-    assert_eq!(per_stage, json!([[1, 2], [1, 3]]), "per-stage counts");
-    let candidates = rows["sumo::e0-synthetic"]["candidates"].as_array().unwrap();
-    assert_eq!(candidates.len(), 3, "duplicate canonical key dropped");
-    assert_eq!(
-        candidates[0], a,
-        "source-shaped rows; first representative wins"
-    );
-    assert_eq!(candidates[1], b, "order preserved");
-    assert_eq!(candidates[2], c, "order preserved");
-    assert_eq!(
-        provenance["sumo::e0-synthetic"],
-        json!([1, 1, 2]),
-        "per-candidate provenance"
-    );
-    let pools = verified_pools(&rows);
-    assert_eq!(pool_counts(&pools), (1, 3), "verified synthetic pool");
-}
-
-#[test]
-fn shared_baseline_facade_exposes_required_helper_set() {
-    // 需求单最小集门面冒烟 + 契约签名钉版（语义由既有 coverage/cohort2 单测覆盖）：
-    // 词汇映射、网格节点、载体三层链三构件与 SpanControl 结果形态。
-    let _: fn(&Value, u64) -> &'static str = plan_stop_label;
-    let _: fn(f64) -> bool = grid_node_member;
-    let _: fn(&Value, usize) -> Option<[[f64; 3]; 6]> = find_span_control;
-    let _: fn(&observe::EdgeInput) -> BTreeMap<usize, [[f64; 3]; 6]> = replay_span_controls;
-    let _: fn(&BTreeMap<String, Value>, &Value, &str, usize, &observe::EdgeInput) -> SpanControl =
-        span_control;
-}
-
-#[test]
-#[should_panic(expected = "pinned baseline input digest")]
-fn shared_baseline_loader_rejects_unpinned_bytes() {
-    let dir = temp_probe_dir();
-    let path = dir.join("pool.json");
-    fs::write(&path, b"not the pinned shared baseline bytes").unwrap();
-    let _ = read_pinned_json(&path, POOL_JSON_SHA256);
 }

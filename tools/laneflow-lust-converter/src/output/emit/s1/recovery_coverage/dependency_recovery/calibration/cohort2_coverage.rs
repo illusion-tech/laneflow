@@ -7,46 +7,6 @@
 
 use super::coverage::span_control;
 use super::*;
-use crate::output::digest::hex_sha256;
-
-/// plan §5 钉版基线输入（Release 资产 `research-evidence-1134-cohort2-baseline`，
-/// 资产 `cohort2-baseline-inputs.zip`）：SHA-256 与字节数冻结，身份不依赖仓库内文件。
-const STREAM_A_SEARCHES_SHA256: &str =
-    "1c6dd16244481d8fa757865305b2f05287ed74624dde5770998e752d18e26d7b";
-
-/// 读取钉版基线输入并在代码内断言 SHA-256 与 plan §5 钉版值一致（发行资产可验证为
-/// 冻结输入）；写入什么字节即校验与解析什么字节。（#1140：仅可见性放宽供
-/// `calibration::shared_baseline` 复用，语义逐字不变。）
-pub(super) fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
-    let bytes = fs::read(path).expect("pinned baseline input present");
-    assert_eq!(
-        hex_sha256(&bytes),
-        expected_sha,
-        "pinned baseline input digest"
-    );
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-/// 临时目录唯一命名；基线读取验证的同字节内容只写临时目录，不落仓库。
-fn temp_probe_dir() -> PathBuf {
-    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "laneflow-cohort2-baseline-{}-{n}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[test]
-#[should_panic(expected = "pinned baseline input digest")]
-fn cohort2_pinned_baseline_loader_rejects_unpinned_bytes() {
-    let dir = temp_probe_dir();
-    let path = dir.join("stream-a-searches.json");
-    fs::write(&path, b"not the pinned baseline bytes").unwrap();
-    let _ = read_pinned_json(&path, STREAM_A_SEARCHES_SHA256);
-}
 
 #[test]
 fn cohort2_span_control_fallback_preserves_existing_carriers() {
