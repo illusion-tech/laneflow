@@ -13,7 +13,6 @@
 //! 合并顺序与逐边份数断言）；不得使用旧 9/10 边池或任何替代来源。
 
 use super::*;
-use crate::output::digest::hex_sha256;
 use crate::output::model::{ManeuverGate, SignalControl, StopLine};
 use std::collections::BTreeSet;
 
@@ -77,17 +76,6 @@ fn row_list(value: &Value) -> Vec<String> {
 
 fn row_paths(row: &Value) -> Vec<String> {
     row_list(&row["paths"])
-}
-
-/// 读取钉版输入并在代码内断言 SHA-256 与冻结值一致（写入什么字节即校验与解析什么字节）。
-fn read_pinned_json(path: &Path, expected_sha: &str) -> Value {
-    let bytes = fs::read(path).expect("pinned baseline input present");
-    assert_eq!(
-        hex_sha256(&bytes),
-        expected_sha,
-        "pinned baseline input digest"
-    );
-    serde_json::from_slice(&bytes).unwrap()
 }
 
 /// plan §3 冻结问题生成规则：span 端点切向为边界钳制 → 端弦问题（方向锥 = 对应端
@@ -605,39 +593,6 @@ fn signal_diag_2_stop_line_table_pins_exact_edge_ids() {
         success_edges.contains("sumo:-32230#6_0"),
         "single dash edge sumo:-32230#6_0 stays distinct from missing edge ids"
     );
-}
-
-/// 临时目录唯一命名；基线读取验证的同字节内容只写临时目录，不落仓库。
-fn temp_probe_dir() -> PathBuf {
-    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "laneflow-signal-diag-2-baseline-{}-{n}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[test]
-fn signal_diag_2_pinned_loader_parses_same_bytes_and_rejects_others() {
-    let source = json!({"sumo::signal-diag-2-synthetic":{"candidates":[]}});
-    let bytes = serde_json::to_vec(&source).unwrap();
-    let dir = temp_probe_dir();
-    let path = dir.join("pinned.json");
-    fs::write(&path, &bytes).unwrap();
-    assert_eq!(fs::read(&path).unwrap(), bytes, "same-byte write and read");
-    let loaded = read_pinned_json(&path, &hex_sha256(&bytes));
-    assert_eq!(loaded, source, "pinned loader parses the written bytes");
-    fs::remove_dir_all(&dir).unwrap();
-    let dir = temp_probe_dir();
-    let path = dir.join("pinned.json");
-    fs::write(&path, b"not the pinned baseline bytes").unwrap();
-    let result = std::panic::catch_unwind(|| {
-        let _ = read_pinned_json(&path, &hex_sha256(&bytes));
-    });
-    assert!(result.is_err(), "unpinned bytes are rejected");
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

@@ -100,8 +100,8 @@ pinned 源重扫比对身份集合——批准域变更须先回 #253 走 G1 裁
 差分、信号时长、车辆参数及全部 DUE 出发时间；普通测试另覆盖 i128 边界与
 重复求中点产生的高精度小数。
 
-设置 `LUST_SOURCE_DIR` 后，上面的全量集成命令包含这项回归。局部性能测量还需
-设置 `LUST_DECIMAL_BENCH=1`，然后单独运行：
+这项回归**不在上面的全量集成命令内**，需按下方命令单独运行；局部性能测量在
+此基础上再设置 `LUST_DECIMAL_BENCH=1`：
 
 ```text
 cargo +1.99.1 test --release --locked -p laneflow-lust-converter --lib sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference -- --exact --ignored --nocapture

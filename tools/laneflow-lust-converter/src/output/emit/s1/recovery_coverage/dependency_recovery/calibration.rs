@@ -10,7 +10,6 @@ mod experiment;
 mod float_roundtrip;
 mod resource_boundary;
 pub(super) mod shared_baseline;
-mod signal_diag_1;
 mod signal_diag_2;
 mod witness_guided_search;
 

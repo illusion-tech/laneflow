@@ -102,7 +102,7 @@ mod tests {
         stop_distance_millimetres, yieldable_by_stopping,
     };
 
-    /// 钉版参数（sample v5 `safety_proof`/`profiles`）：固定步长 100 ms、
+    /// 钉版参数（sample v7 `safety_proof`/`profiles`，参数自 v3 起未变）：固定步长 100 ms、
     /// 服务减速度 4500 mm/s²、最小间隙 2500 mm、r = 2 拍。
     const DELTA_MS: u64 = 100;
     const SERVICE_DECEL_MM_S2: u64 = 4_500;
