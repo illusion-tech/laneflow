@@ -39,11 +39,44 @@ cargo +1.99.1 run -p laneflow-lust-converter -- verify-source --source-dir <LuST
 cargo +1.99.1 run -p laneflow-lust-converter -- convert --config <toml>
 ```
 
-可选全量集成（默认 `cargo test` 跳过）：
+可选全量集成（默认 `cargo test` 跳过；均需 pinned `c4bd5bd3` 的
+`LUST_SOURCE_DIR`，**按组用精确测试名运行**——多个测试共享输出目录变量且各自
+要求 fresh 目录，全量 `--ignored` 并发会互相踩目录， regenerate 也会写
+`target/`）：
+
+真实源回归（只需 `LUST_SOURCE_DIR`；诊断清单落
+`target/issue253-infeasible-survey.md`，人口回归可用
+`LUST_POPULATION_REGRESSION_OUTPUT_DIR` 改输出目录）：
 
 ```text
 set LUST_SOURCE_DIR=<LuSTScenario根目录>
-cargo +1.99.1 test -p laneflow-lust-converter --locked --lib -- --ignored
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_net_topology_matches_external_lane_anchor
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_convert_cli_end_to_end
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_source_verification_precedes_diagnostic_convert
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored verified_record_with_tampered_bytes_fails_closed
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored lust_stub_weld_candidates_match_manifest
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored pinned_lust_population_source_regression
+```
+
+S0F 邻接普查（另需**不存在**的 `S0F_OUTPUT_DIR`）：
+
+```text
+set S0F_OUTPUT_DIR=<尚不存在的目录>
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored pinned_lust_path_adjacency_survey
+```
+
+局部诊断（各自需**不存在**的 `GRID_CALIBRATION_OUTPUT_DIR` 或
+`CURVE_DESIGN_OUTPUT_DIR`，每个入口独立分配路径）：
+
+```text
+set GRID_CALIBRATION_OUTPUT_DIR=<尚不存在的目录>
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored fixed_signal_seam_feasibility
+:: 其余同组入口：fixed_signal_guided_recovery / fixed_signal_endpoint_feasibility /
+:: fixed_grid_calibration / fixed_signal_span_probe —— 每个换一个新目录
+set CURVE_DESIGN_OUTPUT_DIR=<尚不存在的目录>
+cargo +1.99.1 test -p laneflow-lust-converter --locked --lib --release -- --ignored fixed_stream_a_curve_design
+:: 其余同组入口：fixed_c12_curve_design / fixed_c17_bilateral_design /
+:: fixed_single_edge_design_reuse / fixed_failed_curve_design —— 每个换一个新目录
 ```
 
 两个 stub 相关 ignored 测试已随 #1386 分离：`regenerate` 只把完整候选诊断
@@ -51,11 +84,12 @@ manifest 写到 `target/issue253-stub-weld-candidates.json`（不覆写任何入
 文件，可与防漂移比对并发）；生产批准集合是 `src/convert/approved_stub_weld.json`
 （net digest + 84 身份三元组，含 4 个 rejected-shared-entry），防漂移测试对
 pinned 源重扫比对身份集合——批准域变更须先回 #253 走 G1 裁定并手工更新该
-文件，不以 regenerate 覆写。诊断清单全文生成到 `target/issue253-infeasible-survey.md`。
+文件，不以 regenerate 覆写。
 
 历史 pinned 重放入口与 `PINNED_RESEARCH_ROOT` 外部数据依赖已随 #1385 退役；
-仍有效的最小回归输入已按文档边界归位到 `tests/fixtures/`（含从冻结提交
-`564f9ac8` 迁回的 1111/1113 局部输入），源码注释与输出来源字段中的
+仍有效的最小回归输入已按文档边界归位到 `tests/fixtures/`（#1411 起信号闭合
+局部输入统一复用 `issue-1113-controls.json`，历史迁入件已退役），源码注释与
+输出来源字段中的
 `research/...` 路径以含数据冻结提交 checkout 为根，正本在该提交可查。
 
 ### 精确十进制渲染回归与局部测量

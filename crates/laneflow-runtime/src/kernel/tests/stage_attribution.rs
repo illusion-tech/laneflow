@@ -63,10 +63,7 @@ pub(crate) fn measure_batches<R>(run: impl FnOnce() -> R) -> (R, [u128; 4]) {
     let session = Session::start();
     let result = run();
     drop(session);
-    (
-        result,
-        PROFILE.with_borrow(|profile| profile.nanos),
-    )
+    (result, PROFILE.with_borrow(|profile| profile.nanos))
 }
 
 impl Session {
