@@ -110,7 +110,7 @@ pub(crate) fn fingerprint(record: &EnvironmentRecord) -> String {
 
 /// 同一机器与配置下前后两次采集应相同的环境摘要，用于证据入口的来源比较。
 #[cfg(feature = "adapter")]
-pub(crate) fn stable_summary(record: &EnvironmentRecord) -> Value {
+fn stable_summary(record: &EnvironmentRecord) -> Value {
     json!({
         "format":environment::FORMAT, "version":environment::VERSION,
         "os":text(&record.os.long_version), "os_build":text(&record.os.kernel),
@@ -122,4 +122,16 @@ pub(crate) fn stable_summary(record: &EnvironmentRecord) -> Value {
         "hardware_role":serde_json::to_value(record.manual.hardware_role).unwrap_or(Value::Null),
         "vendor_performance_mode":record.manual.vendor_performance_mode,
     })
+}
+
+/// 证据入口的环境摘要：先按正式测量的同一规则核对（工作树干净、工具链可用、
+/// 必填字段合格、P100 角色的指纹与参考机声明一致，host-observe.md §3.3），
+/// 再生成摘要。
+#[cfg(feature = "adapter")]
+pub(crate) fn ready_summary(
+    record: &EnvironmentRecord,
+    repository: &std::path::Path,
+) -> Result<Value> {
+    require_ready(record, repository)?;
+    Ok(stable_summary(record))
 }

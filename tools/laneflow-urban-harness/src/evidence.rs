@@ -51,9 +51,9 @@ fn target_ticks(planned: u64, wall_ms: Option<u64>, prefix: Option<u64>) -> Resu
 /// 指定，其余字段自动采集；证据前后两次读取须相同。
 fn environment_summary() -> Result<Value> {
     let manual = crate::environment::manual()?;
-    let (record, _) =
+    let (record, repository) =
         crate::environment::collect(laneflow_host_observe::environment::Phase::Before, &manual)?;
-    Ok(crate::environment::stable_summary(&record))
+    crate::environment::ready_summary(&record, &repository)
 }
 
 pub(crate) fn source() -> Result<Value> {
