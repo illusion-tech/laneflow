@@ -1,5 +1,7 @@
-use super::relations::canonical_relation_tuple_vec;
+use super::budget::Accounting;
+use super::tree::{ObjectTree, RowRef, SectionRef, TreeBuilder, Value, build_tree, field};
 use super::*;
+use crate::ledger::{BoundedVec, Plan};
 mod policy_check;
 mod policy_projection;
 #[cfg(test)]
@@ -39,121 +41,62 @@ fn source_language_code(value: crate::SourceLanguage) -> u16 {
     }
 }
 
-fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16 {
-    match value {
-        crate::RoadEditingTableKind::RoadEditingSource => 0,
-        crate::RoadEditingTableKind::ModuleHeader => 1,
-        crate::RoadEditingTableKind::Provenance => 2,
-        crate::RoadEditingTableKind::LineSegment => 3,
-        crate::RoadEditingTableKind::CubicBezierSegment => 4,
-        crate::RoadEditingTableKind::CurveSegment => 5,
-        crate::RoadEditingTableKind::CurveProgram => 6,
-        crate::RoadEditingTableKind::RoadAlignment => 7,
-        crate::RoadEditingTableKind::CorridorElement => 8,
-        crate::RoadEditingTableKind::RoadCorridor => 9,
-        crate::RoadEditingTableKind::RoadSection => 10,
-        crate::RoadEditingTableKind::AuthoringLane => 11,
-        crate::RoadEditingTableKind::LaneEdge => 12,
-        crate::RoadEditingTableKind::Junction => 13,
-        crate::RoadEditingTableKind::Movement => 14,
-        crate::RoadEditingTableKind::ManeuverPath => 15,
-        crate::RoadEditingTableKind::ManeuverGate => 16,
-        crate::RoadEditingTableKind::WaitingZone => 17,
-        crate::RoadEditingTableKind::StopLine => 18,
-        crate::RoadEditingTableKind::SignalGroup => 19,
-        crate::RoadEditingTableKind::SignalController => 20,
-        crate::RoadEditingTableKind::SignalPhaseState => 21,
-        crate::RoadEditingTableKind::SignalPhase => 22,
-        crate::RoadEditingTableKind::ParkingFacility => 23,
-        crate::RoadEditingTableKind::ParkingLaneAnchor => 24,
-        crate::RoadEditingTableKind::ParkingSpaceGeometry => 25,
-        crate::RoadEditingTableKind::ParkingSpace => 26,
-        crate::RoadEditingTableKind::LaneGroup => 27,
-        crate::RoadEditingTableKind::FacilityBand => 28,
-        crate::RoadEditingTableKind::ParticipantClass => 29,
-        crate::RoadEditingTableKind::AccessRegulation => 30,
-        crate::RoadEditingTableKind::AccessRule => 31,
-        crate::RoadEditingTableKind::IidmVehicleProfile => 32,
-        crate::RoadEditingTableKind::VehicleProfile => 33,
-        crate::RoadEditingTableKind::ConflictZoneRegion => 34,
-        crate::RoadEditingTableKind::CanonicalFrame => 35,
-        crate::RoadEditingTableKind::ConflictZone => 36,
-        crate::RoadEditingTableKind::PathAnchor => 37,
-        crate::RoadEditingTableKind::ConflictPassage => 38,
-        crate::RoadEditingTableKind::ParticipantStream => 39,
-        crate::RoadEditingTableKind::RightOfWayPolicySet => 40,
-        crate::RoadEditingTableKind::PolicyEvidence => 41,
-        crate::RoadEditingTableKind::PolicyGapProfile => 42,
-        crate::RoadEditingTableKind::PolicyStreamRule => 43,
-        crate::RoadEditingTableKind::PolicyGateRule => 44,
+/// 来源文档键到（模块序号, 文档序号）的有序查找表，由发射账本授予。
+pub(super) struct DocumentOrdinals<'a> {
+    entries: BoundedVec<(&'a str, u32, u32)>,
+}
+
+impl DocumentOrdinals<'_> {
+    fn get(&self, key: &str) -> Option<(u32, u32)> {
+        self.entries
+            .binary_search_by(|entry| entry.0.cmp(key))
+            .ok()
+            .map(|index| (self.entries[index].1, self.entries[index].2))
+    }
+
+    const fn granted_bytes(&self) -> u64 {
+        self.entries.granted_bytes()
     }
 }
 
-fn road_editing_struct_code(value: crate::RoadEditingStructKind) -> u16 {
-    match value {
-        crate::RoadEditingStructKind::Digest256 => 0,
-        crate::RoadEditingStructKind::OptionalU64 => 1,
-        crate::RoadEditingStructKind::Vec3F64 => 2,
-        crate::RoadEditingStructKind::LinearWidthProfile => 3,
-        crate::RoadEditingStructKind::Vec2F64 => 4,
+#[cfg(test)]
+impl<'a> DocumentOrdinals<'a> {
+    /// 测试用：由（文档键, 模块序号, 文档序号）构造查找表。
+    pub(super) fn for_test(entries: &[(&'a str, u32, u32)]) -> Self {
+        let mut granted = super::budget::test_pass().vec(entries.len()).unwrap();
+        granted.extend_from_slice(entries).unwrap();
+        granted.sort_unstable();
+        Self { entries: granted }
     }
 }
 
-fn road_editing_union_code(value: crate::RoadEditingUnionKind) -> u16 {
-    match value {
-        crate::RoadEditingUnionKind::CurveSegmentGeometry => 0,
-    }
-}
+type AddressProjection<'a> = (&'a str, Option<u16>, [Option<&'a str>; 3], &'a str);
 
-fn property_steps(path: Option<&crate::RoadEditingPropertyPath>) -> Option<Box<[(u8, u16, u16)]>> {
-    path.map(|path| {
-        path.steps()
-            .iter()
-            .map(|step| match *step {
-                crate::RoadEditingPropertyStep::TableField { table, field_id } => {
-                    (0, road_editing_table_code(table), field_id)
-                }
-                crate::RoadEditingPropertyStep::StructMember {
-                    structure,
-                    member_id,
-                } => (1, road_editing_struct_code(structure), u16::from(member_id)),
-                crate::RoadEditingPropertyStep::UnionVariant {
-                    union,
-                    discriminant,
-                } => (2, road_editing_union_code(union), u16::from(discriminant)),
-            })
-            .collect()
-    })
-}
-
-type DocumentOrdinals<'a> = BTreeMap<&'a str, (u32, u32)>;
-
-fn address_projection(
-    address: crate::RoadEditingSourceAddress,
-    context: &crate::RoadEditingLocationContext,
-) -> RoadEditingAddressProjection {
+fn address_projection<'a>(
+    address: &'a crate::RoadEditingSourceAddress,
+    context: &'a crate::RoadEditingLocationContext,
+) -> AddressProjection<'a> {
     let mut owner_local_keys = [None, None, None];
     for (slot, key) in owner_local_keys
         .iter_mut()
         .zip(address.owner_local_keys(context))
     {
-        *slot = Some(Box::from(key));
+        *slot = Some(key);
     }
     (
-        Box::from(address.module_namespace(context)),
+        address.module_namespace(context),
         address.entity_kind().map(EntityKind::code),
         owner_local_keys,
-        Box::from(address.local_key(context)),
+        address.local_key(context),
     )
 }
 
 fn location_value<'a>(
     view: crate::SourceLocationView<'a>,
-    documents: &DocumentOrdinals<'a>,
-) -> Result<LocationValue, PortableEmissionError> {
+    documents: &DocumentOrdinals<'_>,
+) -> Result<LocationValue<'a>, PortableEmissionError> {
     let (source_module_ordinal, source_document_ordinal) = documents
         .get(view.source_document_key())
-        .copied()
         .ok_or(PortableEmissionError::InternalBindingMismatch)?;
     match view {
         crate::SourceLocationView::Text { start, end, .. } => Ok(LocationValue::Text {
@@ -177,7 +120,7 @@ fn location_value<'a>(
             let mut relation_kind = None;
             let mut occurrence_kind = None;
             let mut occurrence_ordinal = None;
-            let subject_kind = match *location.subject() {
+            let subject_kind = match location.subject() {
                 crate::RoadEditingSubject::ModuleHeader => 0,
                 crate::RoadEditingSubject::RoadAlignment { address } => {
                     let (namespace, entity, owners, key) = address_projection(address, context);
@@ -212,8 +155,8 @@ fn location_value<'a>(
                             local_key = Some(key);
                         }
                     }
-                    relation_kind = Some(road_editing_relation_code(relation));
-                    let (kind, ordinal) = match occurrence {
+                    relation_kind = Some(road_editing_relation_code(*relation));
+                    let (kind, ordinal) = match *occurrence {
                         crate::RoadEditingRelationOccurrence::OrderedProductOrdinal(ordinal) => {
                             (0, ordinal)
                         }
@@ -241,16 +184,18 @@ fn location_value<'a>(
                 relation_kind,
                 occurrence_kind,
                 occurrence_ordinal,
-                property_steps: property_steps(location.property_path()),
-                canvas_selection: location.canvas_selection().map(Box::from),
+                property_steps: location
+                    .property_path()
+                    .map(|path| PropertySteps(path.steps())),
+                canvas_selection: location.canvas_selection(),
             })
         }
     }
 }
 
 fn location_ordinal(
-    locations: &[LocationValue],
-    location: &LocationValue,
+    locations: &[LocationValue<'_>],
+    location: &LocationValue<'_>,
 ) -> Result<u32, PortableEmissionError> {
     let index = locations
         .binary_search(location)
@@ -258,21 +203,31 @@ fn location_ordinal(
     u32::try_from(index).map_err(|_| PortableEmissionError::ArithmeticOverflow)
 }
 
-fn location_set_ordinals(
-    locations: &[LocationValue],
-    values: &[LocationValue],
-) -> Result<Box<[u32]>, PortableEmissionError> {
-    let mut values = values.to_vec();
-    values.sort_unstable();
-    values.dedup();
-    values
-        .iter()
-        .map(|value| location_ordinal(locations, value))
-        .collect()
+/// 把一组来源位置的序号去重后按升序追加到序号集合存储，返回其区间。位置池按位置值
+/// 排序，序号升序即位置值升序。
+fn push_location_set<'l, 'a: 'l>(
+    sets: &mut BoundedVec<u32>,
+    locations: &[LocationValue<'_>],
+    values: impl IntoIterator<Item = &'l LocationValue<'a>>,
+) -> Result<Slots, PortableEmissionError> {
+    let start = sets.len();
+    for value in values {
+        sets.push(location_ordinal(locations, value)?)?;
+    }
+    sets[start..].sort_unstable();
+    let mut end = start;
+    for read in start..sets.len() {
+        if end == start || sets[read] != sets[end - 1] {
+            sets[end] = sets[read];
+            end += 1;
+        }
+    }
+    sets.truncate(end);
+    Ok(Slots { start, end })
 }
 
-fn location_row(ordinal: u32, location: &LocationValue) -> OwnedRow {
-    match location {
+fn location_row(t: &TreeBuilder, ordinal: u32, location: &LocationValue<'_>) -> RowRef {
+    match *location {
         LocationValue::Text {
             source_module_ordinal,
             source_document_ordinal,
@@ -280,15 +235,15 @@ fn location_row(ordinal: u32, location: &LocationValue) -> OwnedRow {
             start_column,
             end_line,
             end_column,
-        } => row([
-            field(1, OwnedValue::U32(ordinal)),
-            field(2, OwnedValue::U8(0)),
-            field(3, OwnedValue::U32(*source_module_ordinal)),
-            field(4, OwnedValue::U32(*source_document_ordinal)),
-            field(5, OwnedValue::U32(*start_line)),
-            field(6, OwnedValue::U32(*start_column)),
-            field(7, OwnedValue::U32(*end_line)),
-            field(8, OwnedValue::U32(*end_column)),
+        } => t.row([
+            field(1, Value::U32(ordinal)),
+            field(2, Value::U8(0)),
+            field(3, Value::U32(source_module_ordinal)),
+            field(4, Value::U32(source_document_ordinal)),
+            field(5, Value::U32(start_line)),
+            field(6, Value::U32(start_column)),
+            field(7, Value::U32(end_line)),
+            field(8, Value::U32(end_column)),
         ]),
         LocationValue::RoadEditing {
             source_module_ordinal,
@@ -305,453 +260,504 @@ fn location_row(ordinal: u32, location: &LocationValue) -> OwnedRow {
             property_steps,
             canvas_selection,
         } => {
-            let mut fields = vec![
-                field(1, OwnedValue::U32(ordinal)),
-                field(2, OwnedValue::U8(1)),
-                field(3, OwnedValue::U32(*source_module_ordinal)),
-                field(4, OwnedValue::U32(*source_document_ordinal)),
-                field(9, OwnedValue::U8(*subject_kind)),
-            ];
-            if let Some(value) = module_namespace {
-                fields.push(field(10, OwnedValue::Utf8(value.clone())));
-            }
-            if let Some(value) = entity_kind {
-                fields.push(field(11, OwnedValue::U16(*value)));
-            }
-            for (tag, value) in (12..=14).zip(owner_local_keys) {
-                if let Some(value) = value {
-                    fields.push(field(tag, OwnedValue::Utf8(value.clone())));
-                }
-            }
-            if let Some(value) = local_key {
-                fields.push(field(15, OwnedValue::Utf8(value.clone())));
-            }
-            if let Some(value) = owner_kind {
-                fields.push(field(16, OwnedValue::U8(*value)));
-            }
-            if let Some(value) = relation_kind {
-                fields.push(field(17, OwnedValue::U8(*value)));
-            }
-            if let Some(value) = occurrence_kind {
-                fields.push(field(18, OwnedValue::U8(*value)));
-            }
-            if let Some(value) = occurrence_ordinal {
-                fields.push(field(19, OwnedValue::U32(*value)));
-            }
-            if let Some(steps) = property_steps {
-                let rows = steps
-                    .iter()
-                    .map(|(kind, container, member)| {
-                        row([
-                            field(1, OwnedValue::U8(*kind)),
-                            field(2, OwnedValue::U16(*container)),
-                            field(3, OwnedValue::U16(*member)),
-                        ])
-                    })
-                    .collect();
-                fields.push(field(20, OwnedValue::RecordVector(rows)));
-            }
-            if let Some(value) = canvas_selection {
-                fields.push(field(21, OwnedValue::Utf8(value.clone())));
-            }
-            row(fields)
+            let [first, second, third] = owner_local_keys.map(|key| key.map(|key| t.utf8(key)));
+            t.row([
+                Some(field(1, Value::U32(ordinal))),
+                Some(field(2, Value::U8(1))),
+                Some(field(3, Value::U32(source_module_ordinal))),
+                Some(field(4, Value::U32(source_document_ordinal))),
+                Some(field(9, Value::U8(subject_kind))),
+                module_namespace.map(|value| field(10, t.utf8(value))),
+                entity_kind.map(|value| field(11, Value::U16(value))),
+                first.map(|value| field(12, value)),
+                second.map(|value| field(13, value)),
+                third.map(|value| field(14, value)),
+                local_key.map(|value| field(15, t.utf8(value))),
+                owner_kind.map(|value| field(16, Value::U8(value))),
+                relation_kind.map(|value| field(17, Value::U8(value))),
+                occurrence_kind.map(|value| field(18, Value::U8(value))),
+                occurrence_ordinal.map(|value| field(19, Value::U32(value))),
+                property_steps.map(|steps| {
+                    field(
+                        20,
+                        t.records(steps.codes().map(|(kind, container, member)| {
+                            t.record([
+                                field(1, Value::U8(kind)),
+                                field(2, Value::U16(container)),
+                                field(3, Value::U16(member)),
+                            ])
+                        })),
+                    )
+                }),
+                canvas_selection.map(|value| field(21, t.utf8(value))),
+            ])
         }
     }
 }
 
-fn expected_stable_source_keys(lir: &crate::lir::LirUnit) -> Vec<(EntityKind, [u8; 16], u32)> {
-    let mut keys = Vec::new();
-    macro_rules! append {
-        ($kind:expr, $records:expr) => {
-            keys.extend($records.iter().map(|record| {
-                (
-                    $kind,
-                    stable_id_bytes(record.stable_id),
-                    record.ordinal.raw(),
-                )
-            }));
+/// 对每个稳定实体来源族展开 `$apply!(实体种类, 来源迭代器)`。
+macro_rules! for_each_stable_family {
+    ($source_map:expr, $apply:ident) => {
+        $apply!(
+            EntityKind::RoadCorridor,
+            $source_map.road_corridor_sources()
+        );
+        $apply!(EntityKind::RoadSection, $source_map.road_section_sources());
+        $apply!(
+            EntityKind::AuthoringLane,
+            $source_map.authoring_lane_sources()
+        );
+        $apply!(EntityKind::LaneEdge, $source_map.lane_edge_sources());
+        $apply!(EntityKind::Junction, $source_map.junction_sources());
+        $apply!(EntityKind::Movement, $source_map.movement_sources());
+        $apply!(
+            EntityKind::ManeuverPath,
+            $source_map.maneuver_path_sources()
+        );
+        $apply!(
+            EntityKind::ManeuverGate,
+            $source_map.maneuver_gate_sources()
+        );
+        $apply!(EntityKind::WaitingZone, $source_map.waiting_zone_sources());
+        $apply!(EntityKind::StopLine, $source_map.stop_line_sources());
+        $apply!(EntityKind::SignalGroup, $source_map.signal_group_sources());
+        $apply!(
+            EntityKind::SignalController,
+            $source_map.signal_controller_sources()
+        );
+        $apply!(EntityKind::SignalPhase, $source_map.signal_phase_sources());
+        $apply!(
+            EntityKind::ConflictZone,
+            $source_map.conflict_zone_sources()
+        );
+        $apply!(
+            EntityKind::ParticipantStream,
+            $source_map.participant_stream_sources()
+        );
+        $apply!(
+            EntityKind::ParkingFacility,
+            $source_map.parking_facility_sources()
+        );
+        $apply!(
+            EntityKind::ParkingSpace,
+            $source_map.parking_space_sources()
+        );
+        $apply!(EntityKind::LaneGroup, $source_map.lane_group_sources());
+        $apply!(
+            EntityKind::FacilityBand,
+            $source_map.facility_band_sources()
+        );
+        $apply!(
+            EntityKind::ParticipantClass,
+            $source_map.participant_class_sources()
+        );
+        $apply!(EntityKind::AccessRule, $source_map.access_rule_sources());
+        $apply!(
+            EntityKind::VehicleProfile,
+            $source_map.vehicle_profile_sources()
+        );
+        $apply!(
+            EntityKind::CanonicalFrame,
+            $source_map.canonical_frame_sources()
+        );
+    };
+}
+
+/// 对每个 LIR 稳定实体表展开 `$apply!(实体种类, 记录表)`。
+macro_rules! for_each_lir_entity_table {
+    ($lir:expr, $apply:ident) => {
+        $apply!(EntityKind::RoadCorridor, $lir.road_corridors);
+        $apply!(EntityKind::RoadSection, $lir.road_sections);
+        $apply!(EntityKind::AuthoringLane, $lir.authoring_lanes);
+        $apply!(EntityKind::LaneEdge, $lir.lane_edges);
+        $apply!(EntityKind::Junction, $lir.junctions);
+        $apply!(EntityKind::Movement, $lir.movements);
+        $apply!(EntityKind::ManeuverPath, $lir.maneuver_paths);
+        $apply!(EntityKind::ManeuverGate, $lir.maneuver_gates);
+        $apply!(EntityKind::WaitingZone, $lir.waiting_zones);
+        $apply!(EntityKind::StopLine, $lir.stop_lines);
+        $apply!(EntityKind::SignalGroup, $lir.signal_groups);
+        $apply!(EntityKind::SignalController, $lir.signal_controllers);
+        $apply!(EntityKind::SignalPhase, $lir.signal_phases);
+        $apply!(EntityKind::ParkingFacility, $lir.parking_facilities);
+        $apply!(EntityKind::ParkingSpace, $lir.parking_spaces);
+        $apply!(EntityKind::LaneGroup, $lir.lane_groups);
+        $apply!(EntityKind::FacilityBand, $lir.facility_bands);
+        $apply!(EntityKind::ParticipantClass, $lir.participant_classes);
+        $apply!(EntityKind::AccessRule, $lir.access_rules);
+        $apply!(EntityKind::VehicleProfile, $lir.vehicle_profiles);
+        $apply!(EntityKind::ConflictZone, $lir.conflict_zones);
+        $apply!(EntityKind::CanonicalFrame, $lir.canonical_frames);
+        $apply!(EntityKind::ParticipantStream, $lir.participant_streams);
+    };
+}
+
+/// 对每个所有者局部来源族（不含 successor 与空间关系）展开
+/// `$apply!(来源迭代器, 来源 => 所有者种类与稳定标识)`。
+macro_rules! for_each_owner_family {
+    ($source_map:expr, $apply:ident) => {
+        $apply!($source_map.cross_section_relation_sources(), source => match source.owner() {
+            crate::CrossSectionRelationOwner::RoadCorridor(_, id) => {
+                (EntityKind::RoadCorridor, stable_id_bytes(id))
+            }
+            crate::CrossSectionRelationOwner::RoadSection(_, id) => {
+                (EntityKind::RoadSection, stable_id_bytes(id))
+            }
+            crate::CrossSectionRelationOwner::AuthoringLane(_, id) => {
+                (EntityKind::AuthoringLane, stable_id_bytes(id))
+            }
+            crate::CrossSectionRelationOwner::LaneGroup(_, id) => {
+                (EntityKind::LaneGroup, stable_id_bytes(id))
+            }
+        });
+        $apply!($source_map.junction_relation_sources(), source => match source.owner() {
+            crate::JunctionRelationOwner::Junction(_, id) => {
+                (EntityKind::Junction, stable_id_bytes(id))
+            }
+            crate::JunctionRelationOwner::Movement(_, id) => {
+                (EntityKind::Movement, stable_id_bytes(id))
+            }
+            crate::JunctionRelationOwner::ManeuverPath(_, id) => {
+                (EntityKind::ManeuverPath, stable_id_bytes(id))
+            }
+            crate::JunctionRelationOwner::StopLine(_, id) => {
+                (EntityKind::StopLine, stable_id_bytes(id))
+            }
+        });
+        $apply!($source_map.signal_relation_sources(), source => match source.owner() {
+            crate::SignalRelationOwner::SignalController(_, id) => {
+                (EntityKind::SignalController, stable_id_bytes(id))
+            }
+            crate::SignalRelationOwner::SignalPhase(_, id) => {
+                (EntityKind::SignalPhase, stable_id_bytes(id))
+            }
+            crate::SignalRelationOwner::ManeuverGate(_, id) => {
+                (EntityKind::ManeuverGate, stable_id_bytes(id))
+            }
+        });
+        $apply!($source_map.parking_relation_sources(), source => (
+            EntityKind::ParkingSpace,
+            stable_id_bytes(source.owner_stable_id())
+        ));
+        $apply!($source_map.parking_facility_relation_sources(), source => (
+            EntityKind::ParkingFacility,
+            stable_id_bytes(source.owner_stable_id())
+        ));
+        $apply!($source_map.conflict_relation_sources(), source => (
+            EntityKind::ParticipantStream,
+            stable_id_bytes(source.owner_stable_id())
+        ));
+        $apply!($source_map.access_relation_sources(), source => match source.owner() {
+            crate::AccessRelationOwner::ParticipantClass(_, id) => {
+                (EntityKind::ParticipantClass, stable_id_bytes(id))
+            }
+            crate::AccessRelationOwner::VehicleProfile(_, id) => {
+                (EntityKind::VehicleProfile, stable_id_bytes(id))
+            }
+            crate::AccessRelationOwner::AccessRule(_, id) => {
+                (EntityKind::AccessRule, stable_id_bytes(id))
+            }
+        });
+    };
+}
+
+/// 来源映射各类来源的计数，由不分配的遍历求得，是 LFSM 来源投影的计划输入。
+#[derive(Clone, Copy, Debug, Default)]
+struct SourceCounts {
+    stable: usize,
+    owner: usize,
+    spatial_ranges: usize,
+    contributing: usize,
+    policy: usize,
+    lir_entities: usize,
+    expected_owner: usize,
+}
+
+fn source_counts(output: &CompilationOutput) -> SourceCounts {
+    let source_map = output.source_map_input();
+    let lir = output.lir().unit();
+    let mut counts = SourceCounts::default();
+    macro_rules! stable_family {
+        ($kind:expr, $iterator:expr) => {
+            for source in $iterator {
+                counts.stable += 1;
+                counts.contributing += source.contributing_sources().len();
+            }
         };
     }
-    append!(EntityKind::RoadCorridor, lir.road_corridors);
-    append!(EntityKind::RoadSection, lir.road_sections);
-    append!(EntityKind::AuthoringLane, lir.authoring_lanes);
-    append!(EntityKind::LaneEdge, lir.lane_edges);
-    append!(EntityKind::Junction, lir.junctions);
-    append!(EntityKind::Movement, lir.movements);
-    append!(EntityKind::ManeuverPath, lir.maneuver_paths);
-    append!(EntityKind::ManeuverGate, lir.maneuver_gates);
-    append!(EntityKind::WaitingZone, lir.waiting_zones);
-    append!(EntityKind::StopLine, lir.stop_lines);
-    append!(EntityKind::SignalGroup, lir.signal_groups);
-    append!(EntityKind::SignalController, lir.signal_controllers);
-    append!(EntityKind::SignalPhase, lir.signal_phases);
-    append!(EntityKind::ParkingFacility, lir.parking_facilities);
-    append!(EntityKind::ParkingSpace, lir.parking_spaces);
-    append!(EntityKind::LaneGroup, lir.lane_groups);
-    append!(EntityKind::FacilityBand, lir.facility_bands);
-    append!(EntityKind::ParticipantClass, lir.participant_classes);
-    append!(EntityKind::AccessRule, lir.access_rules);
-    append!(EntityKind::VehicleProfile, lir.vehicle_profiles);
-    append!(EntityKind::ConflictZone, lir.conflict_zones);
-    append!(EntityKind::CanonicalFrame, lir.canonical_frames);
-    append!(EntityKind::ParticipantStream, lir.participant_streams);
-    keys.sort_unstable();
-    keys
-}
-
-fn expected_owner_local_source_keys(
-    lir: &crate::lir::LirUnit,
-) -> Vec<(EntityKind, [u8; 16], u8, u32)> {
-    let mut keys: Vec<_> = canonical_relation_tuple_vec(lir)
-        .into_iter()
-        .map(|relation| {
-            (
-                relation.owner_entity_kind,
-                relation.owner_stable_id,
-                relation.role,
-                relation.local_index,
-            )
-        })
-        .collect();
-    for phase in &lir.signal_phases {
-        for (local_index, _) in lir.signal_phase_states[phase.states.as_usize_range()]
-            .iter()
-            .enumerate()
-        {
-            keys.push((
-                EntityKind::SignalPhase,
-                stable_id_bytes(phase.stable_id),
-                19,
-                u32::try_from(local_index).expect("compile limits cap relation counts at u32"),
-            ));
+    for_each_stable_family!(source_map, stable_family);
+    for source in source_map.lane_edge_successor_sources() {
+        counts.owner += 1;
+        counts.contributing += source.contributing_sources().len();
+    }
+    macro_rules! owner_family {
+        ($iterator:expr, $source:ident => $owner:expr) => {
+            for $source in $iterator {
+                counts.owner += 1;
+                counts.contributing += $source.contributing_sources().len();
+            }
+        };
+    }
+    for_each_owner_family!(source_map, owner_family);
+    for source in source_map.spatial_relation_sources() {
+        counts.owner += 1;
+        counts.contributing += source.contributing_sources().len();
+        counts.spatial_ranges += source.geometry_source_ranges().len();
+    }
+    for source in source_map.policy_sources() {
+        counts.policy += 1;
+        counts.contributing += source.contributing_sources().len();
+        match source.target() {
+            crate::PolicySourceTarget::Declaration { .. } => counts.stable += 1,
+            crate::PolicySourceTarget::Member { .. } => counts.owner += 1,
+            crate::PolicySourceTarget::MovementDirection { .. } => {}
         }
     }
-    let mut next_lane_geometry_index = vec![0_u32; lir.canonical_frames.len()];
-    for geometry in &lir.lane_edge_geometries {
-        let frame = geometry.canonical_frame;
-        let local_index = next_lane_geometry_index[frame.index()];
-        next_lane_geometry_index[frame.index()] += 1;
-        keys.push((
-            EntityKind::CanonicalFrame,
-            stable_id_bytes(lir.canonical_frames[frame.index()].stable_id),
-            28,
-            local_index,
-        ));
+    macro_rules! lir_entities {
+        ($kind:expr, $records:expr) => {
+            counts.lir_entities += $records.len();
+        };
     }
-    let mut next_facility_geometry_index = vec![0_u32; lir.canonical_frames.len()];
-    for geometry in &lir.facility_band_geometries {
-        let frame = geometry.canonical_frame;
-        let local_index = next_facility_geometry_index[frame.index()];
-        next_facility_geometry_index[frame.index()] += 1;
-        keys.push((
-            EntityKind::CanonicalFrame,
-            stable_id_bytes(lir.canonical_frames[frame.index()].stable_id),
-            29,
-            local_index,
-        ));
-    }
-    let mut next_conflict_region_index = vec![0_u32; lir.canonical_frames.len()];
-    for region in &lir.conflict_zone_regions {
-        let frame = region.canonical_frame;
-        let local_index = next_conflict_region_index[frame.index()];
-        next_conflict_region_index[frame.index()] += 1;
-        keys.push((
-            EntityKind::CanonicalFrame,
-            stable_id_bytes(lir.canonical_frames[frame.index()].stable_id),
-            32,
-            local_index,
-        ));
-    }
-    keys.sort_unstable();
-    keys
+    for_each_lir_entity_table!(lir, lir_entities);
+    counts.expected_owner = super::relations::canonical_relation_count(lir)
+        + lir
+            .signal_phases
+            .iter()
+            .map(|phase| phase.states.as_usize_range().len())
+            .sum::<usize>()
+        + lir.lane_edge_geometries.len()
+        + lir.facility_band_geometries.len()
+        + lir.conflict_zone_regions.len();
+    counts
 }
 
-/// 从受检来源映射输入、发射 provenance、来源集合摘要与已关闭的 LFCA 候选构造 LFSM
-/// 源映射封套的对象树。
-pub(super) fn build_lfsm(
-    output: &CompilationOutput,
-    provenance: &PortableEmissionProvenance,
-    source_collection_digest: [u8; 32],
-    network_revision: NetworkRevisionId,
-    artifact: &PortableObjectCandidate,
-    accounting: super::budget::Accounting<'_>,
-) -> Result<super::tree::ObjectTree, PortableEmissionError> {
-    let owned = build_lfsm_owned(
-        output,
-        provenance,
-        source_collection_digest,
-        network_revision,
-        artifact,
-    )?;
-    super::tree::build_tree(
-        accounting,
-        "lfsm-tree",
-        PortableObjectKind::SourceMap,
-        |t| Ok::<_, PortableEmissionError>(t.copy_owned(&owned)),
-    )
+/// LFSM 构造前一次求出、两遍构造共用的来源投影，全部由发射账本授予。
+struct LfsmSources<'a> {
+    documents: BoundedVec<(u32, &'a str, crate::SourceDocumentView<'a>)>,
+    document_ordinals: DocumentOrdinals<'a>,
+    stable: BoundedVec<StableSourceProjection<'a>>,
+    owner_local: BoundedVec<OwnerLocalProjection<'a>>,
+    spatial_ranges: BoundedVec<SpatialRangeProjection<'a>>,
+    contributing: BoundedVec<LocationValue<'a>>,
+    locations: BoundedVec<LocationValue<'a>>,
+    sets: BoundedVec<u32>,
 }
 
-pub(super) fn build_lfsm_owned(
-    output: &CompilationOutput,
-    provenance: &PortableEmissionProvenance,
-    source_collection_digest: [u8; 32],
-    network_revision: NetworkRevisionId,
-    artifact: &PortableObjectCandidate,
-) -> Result<OwnedObject, PortableEmissionError> {
+impl LfsmSources<'_> {
+    const fn granted_bytes(&self) -> u64 {
+        self.documents.granted_bytes()
+            + self.document_ordinals.granted_bytes()
+            + self.stable.granted_bytes()
+            + self.owner_local.granted_bytes()
+            + self.spatial_ranges.granted_bytes()
+            + self.contributing.granted_bytes()
+            + self.locations.granted_bytes()
+            + self.sets.granted_bytes()
+    }
+}
+
+/// 按计数求 LFSM 来源投影的计划峰值：输出投影与位置池同时存续；模块序号表、策略来源
+/// 排序表、successor 局部下标计数器与两份期望键表只在本遍内存续，期望键表先后使用取峰值。
+fn sources_plan(output: &CompilationOutput, counts: SourceCounts) -> Plan {
     let source_map = output.source_map_input();
-    let modules: Vec<_> = source_map.source_modules().collect();
-    let module_ordinals: BTreeMap<_, _> = modules
-        .iter()
-        .enumerate()
-        .map(|(ordinal, module)| {
-            Ok((
-                module.authoring_namespace_id(),
-                u32::try_from(ordinal).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
-            ))
-        })
-        .collect::<Result<_, PortableEmissionError>>()?;
-    let mut documents: Vec<_> = source_map
-        .source_documents()
-        .map(|document| {
-            let module = module_ordinals
-                .get(document.authoring_namespace_id())
-                .copied()
-                .ok_or(PortableEmissionError::InternalBindingMismatch)?;
-            Ok((module, document.source_document_key(), document))
-        })
-        .collect::<Result<_, PortableEmissionError>>()?;
+    let lir = output.lir().unit();
+    let modules = source_map.source_modules().len();
+    let documents = source_map.source_documents().len();
+    let location_capacity = modules
+        + counts.stable
+        + counts.owner
+        + counts.spatial_ranges
+        + counts.contributing
+        + counts.policy;
+    let set_capacity = 2 * counts.contributing + counts.policy + counts.owner;
+    let stable_keys = Plan::ZERO.array::<(EntityKind, [u8; 16], u32)>(counts.lir_entities);
+    let owner_keys = Plan::ZERO
+        .array::<(EntityKind, [u8; 16], u8, u32)>(counts.expected_owner)
+        .array::<u32>(lir.canonical_frames.len());
+    Plan::ZERO
+        .array::<(u32, &str, crate::SourceDocumentView<'_>)>(documents)
+        .array::<(&str, u32, u32)>(documents)
+        .array::<StableSourceProjection<'_>>(counts.stable)
+        .array::<OwnerLocalProjection<'_>>(counts.owner)
+        .array::<SpatialRangeProjection<'_>>(counts.spatial_ranges)
+        .array::<LocationValue<'_>>(counts.contributing)
+        .array::<LocationValue<'_>>(location_capacity)
+        .array::<u32>(set_capacity)
+        .array::<(&str, u32)>(modules)
+        .array::<crate::PolicySourceView<'_>>(counts.policy)
+        .array::<u32>(lir.lane_edges.len())
+        .plus(stable_keys.max(owner_keys))
+}
+
+fn prepare_sources<'a>(
+    output: &'a CompilationOutput,
+    accounting: Accounting<'_>,
+) -> Result<LfsmSources<'a>, PortableEmissionError> {
+    let source_map = output.source_map_input();
+    let lir = output.lir().unit();
+    let counts = source_counts(output);
+    let pass = accounting.admit("lfsm-sources", sources_plan(output, counts))?;
+
+    let mut module_ordinals = pass.vec::<(&str, u32)>(source_map.source_modules().len())?;
+    for (ordinal, module) in source_map.source_modules().enumerate() {
+        module_ordinals.push((
+            module.authoring_namespace_id(),
+            u32::try_from(ordinal).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
+        ))?;
+    }
+    module_ordinals.sort_unstable();
+    let mut documents = pass.vec(source_map.source_documents().len())?;
+    for document in source_map.source_documents() {
+        let module = module_ordinals
+            .binary_search_by(|entry| entry.0.cmp(document.authoring_namespace_id()))
+            .map(|index| module_ordinals[index].1)
+            .map_err(|_| PortableEmissionError::InternalBindingMismatch)?;
+        documents.push((module, document.source_document_key(), document))?;
+    }
+    drop(module_ordinals);
     documents.sort_unstable_by(|left, right| {
         left.0
             .cmp(&right.0)
             .then_with(|| left.1.as_bytes().cmp(right.1.as_bytes()))
     });
-    let document_ordinals: DocumentOrdinals<'_> = documents
-        .iter()
-        .enumerate()
-        .map(|(ordinal, (module, key, _))| {
-            Ok((
-                *key,
-                (
-                    *module,
-                    u32::try_from(ordinal)
-                        .map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
-                ),
-            ))
-        })
-        .collect::<Result<_, PortableEmissionError>>()?;
-    let lir = output.lir().unit();
+    let mut entries = pass.vec(documents.len())?;
+    for (ordinal, (module, key, _)) in documents.iter().enumerate() {
+        entries.push((
+            *key,
+            *module,
+            u32::try_from(ordinal).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
+        ))?;
+    }
+    entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
+    let document_ordinals = DocumentOrdinals { entries };
 
-    let mut stable_sources = Vec::new();
-    macro_rules! append_stable_sources {
+    let mut contributing = pass.vec::<LocationValue<'a>>(counts.contributing)?;
+    let mut stable = pass.vec::<StableSourceProjection<'a>>(counts.stable)?;
+    macro_rules! stable_family {
         ($kind:expr, $iterator:expr) => {
             for source in $iterator {
-                stable_sources.push(StableSourceProjection {
+                let primary = location_value(source.primary_source(), &document_ordinals)?;
+                let start = contributing.len();
+                for location in source.contributing_sources() {
+                    contributing.push(location_value(location, &document_ordinals)?)?;
+                }
+                stable.push(StableSourceProjection {
                     entity_kind: $kind,
                     stable_id: stable_id_bytes(source.stable_id()),
                     typed_ordinal: source.ordinal().raw(),
-                    primary: location_value(source.primary_source(), &document_ordinals)?,
-                    contributing: source
-                        .contributing_sources()
-                        .map(|location| location_value(location, &document_ordinals))
-                        .collect::<Result<_, _>>()?,
-                });
+                    primary,
+                    contributing: Slots {
+                        start,
+                        end: contributing.len(),
+                    },
+                    direction: None,
+                    set: Slots::default(),
+                })?;
             }
         };
     }
-    append_stable_sources!(EntityKind::RoadCorridor, source_map.road_corridor_sources());
-    append_stable_sources!(EntityKind::RoadSection, source_map.road_section_sources());
-    append_stable_sources!(
-        EntityKind::AuthoringLane,
-        source_map.authoring_lane_sources()
-    );
-    append_stable_sources!(EntityKind::LaneEdge, source_map.lane_edge_sources());
-    append_stable_sources!(EntityKind::Junction, source_map.junction_sources());
-    append_stable_sources!(EntityKind::Movement, source_map.movement_sources());
-    append_stable_sources!(EntityKind::ManeuverPath, source_map.maneuver_path_sources());
-    append_stable_sources!(EntityKind::ManeuverGate, source_map.maneuver_gate_sources());
-    append_stable_sources!(EntityKind::WaitingZone, source_map.waiting_zone_sources());
-    append_stable_sources!(EntityKind::StopLine, source_map.stop_line_sources());
-    append_stable_sources!(EntityKind::SignalGroup, source_map.signal_group_sources());
-    append_stable_sources!(
-        EntityKind::SignalController,
-        source_map.signal_controller_sources()
-    );
-    append_stable_sources!(EntityKind::SignalPhase, source_map.signal_phase_sources());
-    append_stable_sources!(EntityKind::ConflictZone, source_map.conflict_zone_sources());
-    append_stable_sources!(
-        EntityKind::ParticipantStream,
-        source_map.participant_stream_sources()
-    );
-    append_stable_sources!(
-        EntityKind::ParkingFacility,
-        source_map.parking_facility_sources()
-    );
-    append_stable_sources!(EntityKind::ParkingSpace, source_map.parking_space_sources());
-    append_stable_sources!(EntityKind::LaneGroup, source_map.lane_group_sources());
-    append_stable_sources!(EntityKind::FacilityBand, source_map.facility_band_sources());
-    append_stable_sources!(
-        EntityKind::ParticipantClass,
-        source_map.participant_class_sources()
-    );
-    append_stable_sources!(EntityKind::AccessRule, source_map.access_rule_sources());
-    append_stable_sources!(
-        EntityKind::VehicleProfile,
-        source_map.vehicle_profile_sources()
-    );
-    append_stable_sources!(
-        EntityKind::CanonicalFrame,
-        source_map.canonical_frame_sources()
-    );
-    stable_sources.sort_unstable_by_key(|source| {
+    for_each_stable_family!(source_map, stable_family);
+    stable.sort_unstable_by_key(|source| {
         (source.entity_kind, source.stable_id, source.typed_ordinal)
     });
-    let actual_stable_keys: Vec<_> = stable_sources
-        .iter()
-        .map(|source| (source.entity_kind, source.stable_id, source.typed_ordinal))
-        .collect();
-    if actual_stable_keys != expected_stable_source_keys(lir) {
-        return Err(PortableEmissionError::InternalBindingMismatch);
-    }
-
-    let mut owner_local_sources = Vec::new();
-    let mut spatial_ranges = Vec::new();
-    let internal_edges: Vec<bool> = (0..lir.lane_edges.len())
-        .map(|ordinal| {
-            lir.junction_internal_edges
-                .binary_search_by_key(
-                    &u32::try_from(ordinal).expect("compile limits cap entity counts at u32"),
-                    |entry| entry.edge.raw(),
-                )
-                .is_ok()
-        })
-        .collect();
-    let mut next_successor_index_by_owner = vec![0_u32; lir.lane_edges.len()];
-    for source in source_map.lane_edge_successor_sources() {
-        let owner = source.owner_ordinal();
-        let edge = &lir.lane_edges[owner.index()];
-        let target = lir.lane_edge_successors[edge.successors.as_usize_range()][usize::try_from(
-            source.local_index(),
-        )
-        .expect("supported compiler targets can index a validated local relation")];
-        if internal_edges[owner.index()] || internal_edges[target.index()] {
-            continue;
+    {
+        let mut expected = pass.vec::<(EntityKind, [u8; 16], u32)>(counts.lir_entities)?;
+        macro_rules! expected_keys {
+            ($kind:expr, $records:expr) => {
+                for record in &$records {
+                    expected.push((
+                        $kind,
+                        stable_id_bytes(record.stable_id),
+                        record.ordinal.raw(),
+                    ))?;
+                }
+            };
         }
-        let local_index = next_successor_index_by_owner[owner.index()];
-        next_successor_index_by_owner[owner.index()] += 1;
-        owner_local_sources.push(OwnerLocalProjection {
-            owner_entity_kind: EntityKind::LaneEdge,
-            owner_stable_id: stable_id_bytes(source.owner_stable_id()),
-            role: source_relation_role_code(source.role()),
-            local_index,
-            primary: location_value(source.primary_source(), &document_ordinals)?,
-            contributing: source
-                .contributing_sources()
-                .map(|location| location_value(location, &document_ordinals))
-                .collect::<Result<_, _>>()?,
-        });
+        for_each_lir_entity_table!(lir, expected_keys);
+        expected.sort_unstable();
+        if !stable
+            .iter()
+            .map(|source| (source.entity_kind, source.stable_id, source.typed_ordinal))
+            .eq(expected.iter().copied())
+        {
+            return Err(PortableEmissionError::InternalBindingMismatch);
+        }
     }
 
-    macro_rules! push_owner_local {
-        ($kind:expr, $stable_id:expr, $source:expr) => {{
-            let source = $source;
-            owner_local_sources.push(OwnerLocalProjection {
-                owner_entity_kind: $kind,
-                owner_stable_id: stable_id_bytes($stable_id),
+    let mut owner_local = pass.vec::<OwnerLocalProjection<'a>>(counts.owner)?;
+    let mut spatial_ranges = pass.vec::<SpatialRangeProjection<'a>>(counts.spatial_ranges)?;
+    {
+        let mut next_successor_index_by_owner = pass.vec::<u32>(lir.lane_edges.len())?;
+        next_successor_index_by_owner.resize(lir.lane_edges.len(), 0)?;
+        for source in source_map.lane_edge_successor_sources() {
+            let owner = source.owner_ordinal();
+            let edge = &lir.lane_edges[owner.index()];
+            let target = lir.lane_edge_successors[edge.successors.as_usize_range()]
+                [usize::try_from(source.local_index())
+                    .expect("supported compiler targets can index a validated local relation")];
+            if super::relations::is_internal_edge(lir, owner.raw())
+                || super::relations::is_internal_edge(lir, target.raw())
+            {
+                continue;
+            }
+            let local_index = next_successor_index_by_owner[owner.index()];
+            next_successor_index_by_owner[owner.index()] += 1;
+            let primary = location_value(source.primary_source(), &document_ordinals)?;
+            let start = contributing.len();
+            for location in source.contributing_sources() {
+                contributing.push(location_value(location, &document_ordinals)?)?;
+            }
+            owner_local.push(OwnerLocalProjection {
+                owner_entity_kind: EntityKind::LaneEdge,
+                owner_stable_id: stable_id_bytes(source.owner_stable_id()),
                 role: source_relation_role_code(source.role()),
-                local_index: source.local_index(),
-                primary: location_value(source.primary_source(), &document_ordinals)?,
-                contributing: source
-                    .contributing_sources()
-                    .map(|location| location_value(location, &document_ordinals))
-                    .collect::<Result<_, _>>()?,
-            });
-        }};
-    }
-    for source in source_map.cross_section_relation_sources() {
-        match source.owner() {
-            crate::CrossSectionRelationOwner::RoadCorridor(_, id) => {
-                push_owner_local!(EntityKind::RoadCorridor, id, source)
-            }
-            crate::CrossSectionRelationOwner::RoadSection(_, id) => {
-                push_owner_local!(EntityKind::RoadSection, id, source)
-            }
-            crate::CrossSectionRelationOwner::AuthoringLane(_, id) => {
-                push_owner_local!(EntityKind::AuthoringLane, id, source)
-            }
-            crate::CrossSectionRelationOwner::LaneGroup(_, id) => {
-                push_owner_local!(EntityKind::LaneGroup, id, source)
-            }
+                local_index,
+                primary,
+                contributing: Slots {
+                    start,
+                    end: contributing.len(),
+                },
+                set: Slots::default(),
+                derived_set: Slots::default(),
+            })?;
         }
     }
-    for source in source_map.junction_relation_sources() {
-        match source.owner() {
-            crate::JunctionRelationOwner::Junction(_, id) => {
-                push_owner_local!(EntityKind::Junction, id, source)
+    macro_rules! owner_family {
+        ($iterator:expr, $source:ident => $owner:expr) => {
+            for $source in $iterator {
+                let (owner_entity_kind, owner_stable_id) = $owner;
+                let primary = location_value($source.primary_source(), &document_ordinals)?;
+                let start = contributing.len();
+                for location in $source.contributing_sources() {
+                    contributing.push(location_value(location, &document_ordinals)?)?;
+                }
+                owner_local.push(OwnerLocalProjection {
+                    owner_entity_kind,
+                    owner_stable_id,
+                    role: source_relation_role_code($source.role()),
+                    local_index: $source.local_index(),
+                    primary,
+                    contributing: Slots {
+                        start,
+                        end: contributing.len(),
+                    },
+                    set: Slots::default(),
+                    derived_set: Slots::default(),
+                })?;
             }
-            crate::JunctionRelationOwner::Movement(_, id) => {
-                push_owner_local!(EntityKind::Movement, id, source)
-            }
-            crate::JunctionRelationOwner::ManeuverPath(_, id) => {
-                push_owner_local!(EntityKind::ManeuverPath, id, source)
-            }
-            crate::JunctionRelationOwner::StopLine(_, id) => {
-                push_owner_local!(EntityKind::StopLine, id, source)
-            }
-        }
+        };
     }
-    for source in source_map.signal_relation_sources() {
-        match source.owner() {
-            crate::SignalRelationOwner::SignalController(_, id) => {
-                push_owner_local!(EntityKind::SignalController, id, source)
-            }
-            crate::SignalRelationOwner::SignalPhase(_, id) => {
-                push_owner_local!(EntityKind::SignalPhase, id, source)
-            }
-            crate::SignalRelationOwner::ManeuverGate(_, id) => {
-                push_owner_local!(EntityKind::ManeuverGate, id, source)
-            }
-        }
-    }
-    for source in source_map.parking_relation_sources() {
-        push_owner_local!(EntityKind::ParkingSpace, source.owner_stable_id(), source);
-    }
-    for source in source_map.parking_facility_relation_sources() {
-        push_owner_local!(
-            EntityKind::ParkingFacility,
-            source.owner_stable_id(),
-            source
-        );
-    }
-    for source in source_map.conflict_relation_sources() {
-        push_owner_local!(
-            EntityKind::ParticipantStream,
-            source.owner_stable_id(),
-            source
-        );
-    }
-    for source in source_map.access_relation_sources() {
-        match source.owner() {
-            crate::AccessRelationOwner::ParticipantClass(_, id) => {
-                push_owner_local!(EntityKind::ParticipantClass, id, source)
-            }
-            crate::AccessRelationOwner::VehicleProfile(_, id) => {
-                push_owner_local!(EntityKind::VehicleProfile, id, source)
-            }
-            crate::AccessRelationOwner::AccessRule(_, id) => {
-                push_owner_local!(EntityKind::AccessRule, id, source)
-            }
-        }
-    }
+    for_each_owner_family!(source_map, owner_family);
     for source in source_map.spatial_relation_sources() {
         let owner_entity_kind = EntityKind::CanonicalFrame;
         let owner_stable_id = stable_id_bytes(source.owner_stable_id());
         let role = source_relation_role_code(source.role());
         let local_index = source.local_index();
         let primary = location_value(source.primary_source(), &document_ordinals)?;
-        let contributing = source
-            .contributing_sources()
-            .map(|location| location_value(location, &document_ordinals))
-            .collect::<Result<Vec<_>, _>>()?;
+        let start = contributing.len();
+        for location in source.contributing_sources() {
+            contributing.push(location_value(location, &document_ordinals)?)?;
+        }
         for range in source.geometry_source_ranges() {
             let points = range.point_range();
             spatial_ranges.push(SpatialRangeProjection {
@@ -763,19 +769,23 @@ pub(super) fn build_lfsm_owned(
                 point_end_exclusive: points.end,
                 source_segment_ordinal: range.source_segment_ordinal(),
                 source: location_value(range.source(), &document_ordinals)?,
-            });
+            })?;
         }
-        owner_local_sources.push(OwnerLocalProjection {
+        owner_local.push(OwnerLocalProjection {
             owner_entity_kind,
             owner_stable_id,
             role,
             local_index,
             primary,
-            contributing,
-        });
+            contributing: Slots {
+                start,
+                end: contributing.len(),
+            },
+            set: Slots::default(),
+            derived_set: Slots::default(),
+        })?;
     }
-    // W1 新增来源独立投影；既有 LIR 来源键核对仍保持原样。
-    owner_local_sources.sort_unstable_by_key(|source| {
+    owner_local.sort_unstable_by_key(|source| {
         (
             source.owner_entity_kind,
             source.owner_stable_id,
@@ -783,29 +793,21 @@ pub(super) fn build_lfsm_owned(
             source.local_index,
         )
     });
-    let actual_owner_local_keys: Vec<_> = owner_local_sources
-        .iter()
-        .map(|source| {
-            (
-                source.owner_entity_kind,
-                source.owner_stable_id,
-                source.role,
-                source.local_index,
-            )
-        })
-        .collect();
-    if actual_owner_local_keys != expected_owner_local_source_keys(lir) {
-        return Err(PortableEmissionError::InternalBindingMismatch);
+    verify_owner_local_keys(lir, &pass, counts.expected_owner, &owner_local)?;
+
+    {
+        let mut policy_sources = pass.vec(counts.policy)?;
+        policy_projection::append_policy_sources(
+            source_map,
+            &document_ordinals,
+            &mut policy_sources,
+            &mut stable,
+            &mut owner_local,
+            &mut contributing,
+        )?;
     }
-    policy_projection::append_policy_sources(
-        source_map,
-        &document_ordinals,
-        &mut stable_sources,
-        &mut owner_local_sources,
-        output.compile_limits(),
-    )?;
-    stable_sources.sort_unstable_by_key(|s| (s.entity_kind, s.stable_id, s.typed_ordinal));
-    owner_local_sources.sort_unstable_by_key(|s| {
+    stable.sort_unstable_by_key(|s| (s.entity_kind, s.stable_id, s.typed_ordinal));
+    owner_local.sort_unstable_by_key(|s| {
         (
             s.owner_entity_kind,
             s.owner_stable_id,
@@ -823,240 +825,383 @@ pub(super) fn build_lfsm_owned(
         )
     });
 
-    let module_source_views: Vec<_> = source_map.source_module_sources().collect();
-    if module_source_views.len() != modules.len() {
+    if source_map.source_module_sources().len() != source_map.source_modules().len() {
         return Err(PortableEmissionError::InternalBindingMismatch);
     }
-    let mut locations = Vec::new();
-    for source in &module_source_views {
-        locations.push(location_value(source.primary_source(), &document_ordinals)?);
+    let location_capacity = source_map.source_modules().len()
+        + counts.stable
+        + counts.owner
+        + counts.spatial_ranges
+        + counts.contributing
+        + counts.policy;
+    let mut locations = pass.vec::<LocationValue<'a>>(location_capacity)?;
+    for source in source_map.source_module_sources() {
+        locations.push(location_value(source.primary_source(), &document_ordinals)?)?;
     }
-    for source in &stable_sources {
-        locations.push(source.primary.clone());
-        locations.extend(source.contributing.iter().cloned());
+    for source in &stable {
+        locations.push(source.primary)?;
+        locations.extend_from_slice(source.contributing.of(&contributing))?;
+        if let Some(direction) = source.direction {
+            locations.push(direction)?;
+        }
     }
-    for source in &owner_local_sources {
-        locations.push(source.primary.clone());
-        locations.extend(source.contributing.iter().cloned());
+    for source in &owner_local {
+        locations.push(source.primary)?;
+        locations.extend_from_slice(source.contributing.of(&contributing))?;
     }
-    locations.extend(spatial_ranges.iter().map(|range| range.source.clone()));
+    locations.try_extend(spatial_ranges.iter().map(|range| range.source))?;
     locations.sort_unstable();
     locations.dedup();
 
-    let source_module_rows = module_source_views
-        .iter()
-        .enumerate()
-        .map(|(ordinal, source)| {
-            let descriptor = source.descriptor();
-            let mut fields = vec![
-                field(
-                    1,
-                    OwnedValue::U32(
-                        u32::try_from(ordinal).expect("compile limits cap source modules at u32"),
-                    ),
-                ),
-                field(
-                    2,
-                    OwnedValue::Utf8(Box::from(descriptor.authoring_namespace_id())),
-                ),
-                field(
-                    3,
-                    OwnedValue::U16(source_language_code(descriptor.source_language())),
-                ),
-                field(
-                    4,
-                    OwnedValue::Sha256(*descriptor.source_document_set_digest()),
-                ),
-                field(
-                    5,
-                    OwnedValue::U32(descriptor.source_document_set_digest_version()),
-                ),
-                field(6, OwnedValue::U32(descriptor.frontend_version())),
-                field(7, OwnedValue::Sha256(*descriptor.frontend_options_digest())),
-                field(
-                    8,
-                    OwnedValue::Utf8(Box::from(descriptor.generator_build_id())),
-                ),
-                field(
-                    9,
-                    OwnedValue::Sha256(*descriptor.parameters_and_inputs_digest()),
-                ),
-            ];
-            if let Some(seed) = descriptor.random_seed() {
-                fields.push(field(10, OwnedValue::U64(seed)));
-            }
-            fields.push(field(
-                11,
-                OwnedValue::Utf8(Box::from(descriptor.provenance())),
-            ));
-            let imports = descriptor
-                .imports()
-                .map(|namespace| row([field(1, OwnedValue::Utf8(Box::from(namespace)))]))
-                .collect();
-            fields.push(field(12, OwnedValue::RecordVector(imports)));
-            let primary = location_value(source.primary_source(), &document_ordinals)?;
-            fields.push(field(
-                13,
-                OwnedValue::U32(location_ordinal(&locations, &primary)?),
-            ));
-            Ok(row(fields))
-        })
-        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
-    let source_document_rows =
-        documents
-            .iter()
-            .enumerate()
-            .map(|(ordinal, (module_ordinal, _, document))| {
-                let mut fields = vec![
-                    field(
-                        1,
-                        OwnedValue::U32(
-                            u32::try_from(ordinal)
-                                .expect("compile limits cap source documents at u32"),
-                        ),
-                    ),
-                    field(2, OwnedValue::U32(*module_ordinal)),
-                    field(
-                        3,
-                        OwnedValue::Utf8(Box::from(document.source_document_key())),
-                    ),
-                    field(4, OwnedValue::Sha256(*document.source_document_digest())),
-                    field(5, OwnedValue::U32(document.source_record_byte_len())),
-                ];
-                if let Some(display_source) = document.origin().display_source() {
-                    fields.push(field(6, OwnedValue::Utf8(Box::from(display_source))));
-                }
-                row(fields)
-            });
-    let source_location_rows = locations.iter().enumerate().map(|(ordinal, location)| {
-        location_row(
-            u32::try_from(ordinal).expect("compile limits cap source locations at u32"),
-            location,
-        )
-    });
-    let stable_source_rows = stable_sources
-        .iter()
-        .map(|source| {
-            Ok(row([
-                field(1, OwnedValue::U16(source.entity_kind.code())),
-                field(2, OwnedValue::StableId128(source.stable_id)),
-                field(3, OwnedValue::U32(source.typed_ordinal)),
-                field(
-                    4,
-                    OwnedValue::U32(location_ordinal(&locations, &source.primary)?),
-                ),
-                field(
-                    5,
-                    OwnedValue::OrdinalVectorU32(location_set_ordinals(
-                        &locations,
-                        &source.contributing,
-                    )?),
-                ),
-            ]))
-        })
-        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
-    let owner_local_rows = owner_local_sources
-        .iter()
-        .map(|source| {
-            Ok(row([
-                field(1, OwnedValue::U16(source.owner_entity_kind.code())),
-                field(2, OwnedValue::StableId128(source.owner_stable_id)),
-                field(3, OwnedValue::U8(source.role)),
-                field(4, OwnedValue::U32(source.local_index)),
-                field(
-                    5,
-                    OwnedValue::U32(location_ordinal(&locations, &source.primary)?),
-                ),
-                field(
-                    6,
-                    OwnedValue::OrdinalVectorU32(location_set_ordinals(
-                        &locations,
-                        &source.contributing,
-                    )?),
-                ),
-            ]))
-        })
-        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
-    let spatial_range_rows = spatial_ranges
-        .iter()
-        .map(|source| {
-            Ok(row([
-                field(1, OwnedValue::U16(source.owner_entity_kind.code())),
-                field(2, OwnedValue::StableId128(source.owner_stable_id)),
-                field(3, OwnedValue::U8(source.role)),
-                field(4, OwnedValue::U32(source.local_index)),
-                field(5, OwnedValue::U32(source.point_start)),
-                field(6, OwnedValue::U32(source.point_end_exclusive)),
-                field(7, OwnedValue::U32(source.source_segment_ordinal)),
-                field(
-                    8,
-                    OwnedValue::U32(location_ordinal(&locations, &source.source)?),
-                ),
-            ]))
-        })
-        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
-    let derived_rows = owner_local_sources
-        .iter()
-        .filter(|source| source.role == 9)
-        .map(|source| {
-            let mut source_locations = source.contributing.clone();
-            source_locations.push(source.primary.clone());
-            let constraint_version = CONSTRAINT_CONTRACT_VERSION;
-            Ok(row([
-                field(1, OwnedValue::U16(source.owner_entity_kind.code())),
-                field(2, OwnedValue::StableId128(source.owner_stable_id)),
-                field(3, OwnedValue::U8(source.role)),
-                field(4, OwnedValue::U32(source.local_index)),
-                field(5, OwnedValue::U16(1)),
-                field(6, OwnedValue::U16(constraint_version)),
-                field(
-                    7,
-                    OwnedValue::OrdinalVectorU32(location_set_ordinals(
-                        &locations,
-                        &source_locations,
-                    )?),
-                ),
-            ]))
-        })
-        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
+    let mut sets = pass.vec::<u32>(2 * counts.contributing + counts.policy + counts.owner)?;
+    for source in stable.iter_mut() {
+        source.set = push_location_set(
+            &mut sets,
+            &locations,
+            source
+                .contributing
+                .of(&contributing)
+                .iter()
+                .chain(source.direction.as_ref()),
+        )?;
+    }
+    for source in owner_local.iter_mut() {
+        source.set =
+            push_location_set(&mut sets, &locations, source.contributing.of(&contributing))?;
+        if source.role == 9 {
+            source.derived_set = push_location_set(
+                &mut sets,
+                &locations,
+                source
+                    .contributing
+                    .of(&contributing)
+                    .iter()
+                    .chain([&source.primary]),
+            )?;
+        }
+    }
 
-    Ok(OwnedObject {
-        kind: PortableObjectKind::SourceMap,
-        sections: vec![
-            section(
-                1,
-                [table(
-                    1,
-                    [row([
-                        field(1, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(
-                            2,
-                            OwnedValue::Sha256(network_revision.into_digest().into_bytes()),
+    let sources = LfsmSources {
+        documents,
+        document_ordinals,
+        stable,
+        owner_local,
+        spatial_ranges,
+        contributing,
+        locations,
+        sets,
+    };
+    pass.finish(sources.granted_bytes())?;
+    Ok(sources)
+}
+
+/// 核对来源映射给出的所有者局部来源键与 LIR 规范关系、信号相位状态与规范坐标系几何
+/// 推出的键完全一致。期望键在本编译遍内授予，核对后释放。
+fn verify_owner_local_keys(
+    lir: &crate::lir::LirUnit,
+    pass: &crate::ledger::PassBudget<'_>,
+    expected_count: usize,
+    owner_local: &[OwnerLocalProjection<'_>],
+) -> Result<(), PortableEmissionError> {
+    let mut expected = pass.vec::<(EntityKind, [u8; 16], u8, u32)>(expected_count)?;
+    let mut overflow = None;
+    super::relations::for_each_canonical_relation_tuple(lir, &mut |relation| {
+        if let Err(error) = expected.push((
+            relation.owner_entity_kind,
+            relation.owner_stable_id,
+            relation.role,
+            relation.local_index,
+        )) {
+            overflow.get_or_insert(error);
+        }
+    });
+    if let Some(error) = overflow {
+        return Err(error.into());
+    }
+    for phase in &lir.signal_phases {
+        for local_index in 0..phase.states.as_usize_range().len() {
+            expected.push((
+                EntityKind::SignalPhase,
+                stable_id_bytes(phase.stable_id),
+                19,
+                u32::try_from(local_index).expect("compile limits cap relation counts at u32"),
+            ))?;
+        }
+    }
+    let mut next_index = pass.vec::<u32>(lir.canonical_frames.len())?;
+    macro_rules! frame_keys {
+        ($records:expr, $role:expr) => {
+            next_index.resize(0, 0)?;
+            next_index.resize(lir.canonical_frames.len(), 0)?;
+            for record in &$records {
+                let frame = record.canonical_frame;
+                let local_index = next_index[frame.index()];
+                next_index[frame.index()] += 1;
+                expected.push((
+                    EntityKind::CanonicalFrame,
+                    stable_id_bytes(lir.canonical_frames[frame.index()].stable_id),
+                    $role,
+                    local_index,
+                ))?;
+            }
+        };
+    }
+    frame_keys!(lir.lane_edge_geometries, 28);
+    frame_keys!(lir.facility_band_geometries, 29);
+    frame_keys!(lir.conflict_zone_regions, 32);
+    drop(next_index);
+    expected.sort_unstable();
+    if owner_local
+        .iter()
+        .map(|source| {
+            (
+                source.owner_entity_kind,
+                source.owner_stable_id,
+                source.role,
+                source.local_index,
+            )
+        })
+        .eq(expected.iter().copied())
+    {
+        Ok(())
+    } else {
+        Err(PortableEmissionError::InternalBindingMismatch)
+    }
+}
+
+/// 从受检来源映射输入、发射 provenance、来源集合摘要与已关闭的 LFCA 候选构造 LFSM
+/// 源映射封套的对象树。来源投影与对象树均由发射账本授予。
+pub(super) fn build_lfsm(
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+    source_collection_digest: [u8; 32],
+    network_revision: NetworkRevisionId,
+    artifact: &PortableObjectCandidate,
+    accounting: Accounting<'_>,
+) -> Result<ObjectTree, PortableEmissionError> {
+    let sources = prepare_sources(output, accounting)?;
+    let tree = build_tree(
+        accounting,
+        "lfsm-tree",
+        PortableObjectKind::SourceMap,
+        |t| {
+            emit_lfsm(
+                t,
+                output,
+                provenance,
+                source_collection_digest,
+                network_revision,
+                artifact,
+                &sources,
+            )
+        },
+    )?;
+    drop(sources);
+    Ok(tree)
+}
+
+/// 测试用：以不受限的测试账本构造 LFSM，并还原为拥有型嵌套对象。
+#[cfg(test)]
+pub(super) fn build_lfsm_owned(
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+    source_collection_digest: [u8; 32],
+    network_revision: NetworkRevisionId,
+    artifact: &PortableObjectCandidate,
+) -> Result<OwnedObject, PortableEmissionError> {
+    Ok(build_lfsm(
+        output,
+        provenance,
+        source_collection_digest,
+        network_revision,
+        artifact,
+        super::budget::test_accounting(u64::MAX),
+    )?
+    .to_owned_object())
+}
+
+fn emit_lfsm(
+    t: &TreeBuilder,
+    output: &CompilationOutput,
+    provenance: &PortableEmissionProvenance,
+    source_collection_digest: [u8; 32],
+    network_revision: NetworkRevisionId,
+    artifact: &PortableObjectCandidate,
+    sources: &LfsmSources<'_>,
+) -> Result<[SectionRef; 5], PortableEmissionError> {
+    let source_map = output.source_map_input();
+    let locations = &sources.locations;
+    let set = |slots: Slots| t.ordinals(slots.of(&sources.sets).iter().copied());
+
+    let bindings = t.section(
+        1,
+        [t.table(
+            1,
+            [t.row([
+                field(1, Value::U16(NETWORK_REVISION_DERIVATION_VERSION)),
+                field(2, t.sha256(network_revision.into_digest().into_bytes())),
+                field(3, Value::U16(CANONICAL_ARTIFACT_FORMAT_VERSION)),
+                field(4, t.sha256(artifact.digest().into_bytes())),
+                field(5, Value::U64(artifact.byte_length().get())),
+                field(6, t.utf8(&provenance.compiler_build_id)),
+                field(7, Value::U16(SOURCE_COLLECTION_DIGEST_VERSION_V1)),
+                field(8, t.sha256(source_collection_digest)),
+            ])],
+        )],
+    );
+    let documents = t.section_with(2, || {
+        t.table_with(1, || {
+            for (ordinal, source) in source_map.source_module_sources().enumerate() {
+                let descriptor = source.descriptor();
+                let primary = location_value(source.primary_source(), &sources.document_ordinals)?;
+                let primary = location_ordinal(locations, &primary)?;
+                let imports = t.records(
+                    descriptor
+                        .imports()
+                        .map(|namespace| t.record([field(1, t.utf8(namespace))])),
+                );
+                t.row([
+                    Some(field(
+                        1,
+                        Value::U32(
+                            u32::try_from(ordinal)
+                                .expect("compile limits cap source modules at u32"),
                         ),
-                        field(3, OwnedValue::U16(CANONICAL_ARTIFACT_FORMAT_VERSION)),
-                        field(4, OwnedValue::Sha256(artifact.digest().into_bytes())),
-                        field(5, OwnedValue::U64(artifact.byte_length().get())),
-                        field(6, OwnedValue::Utf8(provenance.compiler_build_id.clone())),
-                        field(7, OwnedValue::U16(SOURCE_COLLECTION_DIGEST_VERSION_V1)),
-                        field(8, OwnedValue::Sha256(source_collection_digest)),
-                    ])],
-                )],
-            ),
-            section(
-                2,
-                [
-                    table(1, source_module_rows),
-                    table(2, source_document_rows),
-                    table(3, source_location_rows),
-                ],
-            ),
-            section(3, [table(1, stable_source_rows)]),
-            section(
-                4,
-                [table(1, owner_local_rows), table(2, spatial_range_rows)],
-            ),
-            section(5, [table(1, derived_rows)]),
-        ]
-        .into_boxed_slice(),
-    })
+                    )),
+                    Some(field(2, t.utf8(descriptor.authoring_namespace_id()))),
+                    Some(field(
+                        3,
+                        Value::U16(source_language_code(descriptor.source_language())),
+                    )),
+                    Some(field(4, t.sha256(*descriptor.source_document_set_digest()))),
+                    Some(field(
+                        5,
+                        Value::U32(descriptor.source_document_set_digest_version()),
+                    )),
+                    Some(field(6, Value::U32(descriptor.frontend_version()))),
+                    Some(field(7, t.sha256(*descriptor.frontend_options_digest()))),
+                    Some(field(8, t.utf8(descriptor.generator_build_id()))),
+                    Some(field(
+                        9,
+                        t.sha256(*descriptor.parameters_and_inputs_digest()),
+                    )),
+                    descriptor
+                        .random_seed()
+                        .map(|seed| field(10, Value::U64(seed))),
+                    Some(field(11, t.utf8(descriptor.provenance()))),
+                    Some(field(12, imports)),
+                    Some(field(13, Value::U32(primary))),
+                ]);
+            }
+            Ok::<_, PortableEmissionError>(())
+        })?;
+        t.table(
+            2,
+            sources
+                .documents
+                .iter()
+                .enumerate()
+                .map(|(ordinal, (module_ordinal, _, document))| {
+                    t.row([
+                        Some(field(
+                            1,
+                            Value::U32(
+                                u32::try_from(ordinal)
+                                    .expect("compile limits cap source documents at u32"),
+                            ),
+                        )),
+                        Some(field(2, Value::U32(*module_ordinal))),
+                        Some(field(3, t.utf8(document.source_document_key()))),
+                        Some(field(4, t.sha256(*document.source_document_digest()))),
+                        Some(field(5, Value::U32(document.source_record_byte_len()))),
+                        document
+                            .origin()
+                            .display_source()
+                            .map(|display_source| field(6, t.utf8(display_source))),
+                    ])
+                }),
+        );
+        t.table(
+            3,
+            locations.iter().enumerate().map(|(ordinal, location)| {
+                location_row(
+                    t,
+                    u32::try_from(ordinal).expect("compile limits cap source locations at u32"),
+                    location,
+                )
+            }),
+        );
+        Ok::<_, PortableEmissionError>(())
+    })?;
+    let stable = t.section_with(3, || {
+        t.table_with(1, || {
+            for source in &sources.stable {
+                let primary = location_ordinal(locations, &source.primary)?;
+                t.row([
+                    field(1, Value::U16(source.entity_kind.code())),
+                    field(2, Value::StableId128(source.stable_id)),
+                    field(3, Value::U32(source.typed_ordinal)),
+                    field(4, Value::U32(primary)),
+                    field(5, set(source.set)),
+                ]);
+            }
+            Ok::<_, PortableEmissionError>(())
+        })?;
+        Ok::<_, PortableEmissionError>(())
+    })?;
+    let owner_local = t.section_with(4, || {
+        t.table_with(1, || {
+            for source in &sources.owner_local {
+                let primary = location_ordinal(locations, &source.primary)?;
+                t.row([
+                    field(1, Value::U16(source.owner_entity_kind.code())),
+                    field(2, Value::StableId128(source.owner_stable_id)),
+                    field(3, Value::U8(source.role)),
+                    field(4, Value::U32(source.local_index)),
+                    field(5, Value::U32(primary)),
+                    field(6, set(source.set)),
+                ]);
+            }
+            Ok::<_, PortableEmissionError>(())
+        })?;
+        t.table_with(2, || {
+            for range in &sources.spatial_ranges {
+                let source = location_ordinal(locations, &range.source)?;
+                t.row([
+                    field(1, Value::U16(range.owner_entity_kind.code())),
+                    field(2, Value::StableId128(range.owner_stable_id)),
+                    field(3, Value::U8(range.role)),
+                    field(4, Value::U32(range.local_index)),
+                    field(5, Value::U32(range.point_start)),
+                    field(6, Value::U32(range.point_end_exclusive)),
+                    field(7, Value::U32(range.source_segment_ordinal)),
+                    field(8, Value::U32(source)),
+                ]);
+            }
+            Ok::<_, PortableEmissionError>(())
+        })?;
+        Ok::<_, PortableEmissionError>(())
+    })?;
+    let derived = t.section(
+        5,
+        [t.table(
+            1,
+            sources
+                .owner_local
+                .iter()
+                .filter(|source| source.role == 9)
+                .map(|source| {
+                    t.row([
+                        field(1, Value::U16(source.owner_entity_kind.code())),
+                        field(2, Value::StableId128(source.owner_stable_id)),
+                        field(3, Value::U8(source.role)),
+                        field(4, Value::U32(source.local_index)),
+                        field(5, Value::U16(1)),
+                        field(6, Value::U16(CONSTRAINT_CONTRACT_VERSION)),
+                        field(7, set(source.derived_set)),
+                    ])
+                }),
+        )],
+    );
+    Ok([bindings, documents, stable, owner_local, derived])
 }

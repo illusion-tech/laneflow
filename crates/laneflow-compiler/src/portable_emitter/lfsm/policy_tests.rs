@@ -1,3 +1,4 @@
+use super::super::wire::{field, row, section, table};
 use super::*;
 use crate::compiler::portable_fixture_tests::{
     full_spatial_portable_fixture_output, full_spatial_portable_fixture_unit,
@@ -29,9 +30,7 @@ fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner(
         .unwrap()
         .source_document_key()
         .to_owned();
-    let documents = [(document.as_str(), (module as u32, 0))]
-        .into_iter()
-        .collect();
+    let documents = DocumentOrdinals::for_test(&[(document.as_str(), module as u32, 0)]);
     let locations: Vec<SourceLocation> = (0..4096)
         .map(|i| SourceSpan::point(document.clone().into(), i + 2, 1).into())
         .collect();
@@ -48,23 +47,24 @@ fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner(
         end_line: 1,
         end_column: 1,
     };
-    let mut stable = Vec::new();
+    let mut original = Vec::new();
     for kind in [
         EntityKind::LaneEdge,
         EntityKind::Movement,
         EntityKind::ParticipantStream,
     ] {
         for i in 0..4096 {
-            stable.push(StableSourceProjection {
+            original.push(StableSourceProjection {
                 entity_kind: kind,
                 stable_id: id(i).into_bytes(),
                 typed_ordinal: i,
-                primary: primary.clone(),
-                contributing: Vec::new(),
+                primary,
+                contributing: Slots::default(),
+                direction: None,
+                set: Slots::default(),
             });
         }
     }
-    let original = stable.clone();
     let mut inputs: Vec<_> = locations
         .iter()
         .enumerate()
@@ -91,19 +91,28 @@ fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner(
         .test_source_map_mut()
         .set_test_policy_sources(&unit, &inputs)
         .unwrap();
-    let mut members = Vec::new();
-    policy_projection::append_policy_sources(
-        output.source_map_input(),
-        &documents,
-        &mut stable,
-        &mut members,
-        &unit.limits,
-    )
-    .unwrap();
+    let pass = super::super::budget::test_pass();
+    let append = |stable: &mut crate::ledger::BoundedVec<_>| {
+        let mut sources = pass.vec(inputs.len()).unwrap();
+        let mut members = pass.vec(0).unwrap();
+        let mut contributing = pass.vec(0).unwrap();
+        policy_projection::append_policy_sources(
+            output.source_map_input(),
+            &documents,
+            &mut sources,
+            stable,
+            &mut members,
+            &mut contributing,
+        )
+        .map(|()| (members.len(), contributing.len()))
+    };
+    let mut stable = pass.vec(original.len() + 1).unwrap();
+    stable.extend_from_slice(&original).unwrap();
+    assert_eq!(append(&mut stable), Ok((0, 0)));
     assert_eq!(stable.len(), original.len() + 1);
-    assert!(members.is_empty());
     for entry in &stable[..original.len()] {
         assert_eq!(entry.primary, primary);
+        assert!(entry.contributing.is_empty());
         if entry.entity_kind == EntityKind::Movement {
             let expected = LocationValue::Text {
                 source_module_ordinal: module as u32,
@@ -113,21 +122,22 @@ fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner(
                 start_column: 1,
                 end_column: 1,
             };
-            assert_eq!(entry.contributing, [expected]);
+            assert_eq!(entry.direction, Some(expected));
         } else {
-            assert!(entry.contributing.is_empty());
+            assert!(entry.direction.is_none());
         }
     }
-    let mut missing = original;
-    missing.retain(|s| s.entity_kind != EntityKind::Movement || s.typed_ordinal != 2048);
+    let mut missing = pass.vec(original.len() + 1).unwrap();
+    missing
+        .try_extend(
+            original
+                .iter()
+                .copied()
+                .filter(|s| s.entity_kind != EntityKind::Movement || s.typed_ordinal != 2048),
+        )
+        .unwrap();
     assert_eq!(
-        policy_projection::append_policy_sources(
-            output.source_map_input(),
-            &documents,
-            &mut missing,
-            &mut Vec::new(),
-            &unit.limits
-        ),
+        append(&mut missing),
         Err(PortableEmissionError::PolicySourceMismatch)
     );
 }

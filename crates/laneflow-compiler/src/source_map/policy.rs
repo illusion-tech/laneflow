@@ -53,25 +53,28 @@ pub struct PolicySourceView<'a> {
     pub(super) record: &'a PolicySourceRecord,
 }
 
-impl PolicySourceView<'_> {
+impl<'a> PolicySourceView<'a> {
     /// 返回该记录绑定的语义目标。
     #[must_use]
-    pub const fn target(&self) -> &PolicySourceTarget {
+    pub const fn target(&self) -> &'a PolicySourceTarget {
         &self.record.target
     }
 
     /// 返回规范主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// C(view) 由消费方对这些真实位置按完整语义值排序去重。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> + use<'a> {
+        let source_map = self.source_map;
         self.record
             .contributing
             .iter()
-            .map(|r| self.source_map.location(r))
+            .map(move |r| source_map.location(r))
     }
 }
 

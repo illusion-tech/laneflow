@@ -7,7 +7,7 @@ pub(super) enum OwnedValue {
     U16(u16),
     U32(u32),
     U64(u64),
-    // 只由 LFCA 写出；LFSD 构造代码直接写入对象树之前，拥有型对象仍供 LFSM/LFSD 与测试使用。
+    // LFSD 构造代码直接写入对象树之前，拥有型对象仍供 LFSD 与测试使用；以下变体只由测试构造。
     #[cfg_attr(not(test), allow(dead_code))]
     F32(f32),
     #[allow(dead_code)]
@@ -16,7 +16,9 @@ pub(super) enum OwnedValue {
     Sha256([u8; 32]),
     Utf8(Box<str>),
     Bytes(Box<[u8]>),
+    #[cfg_attr(not(test), allow(dead_code))]
     OrdinalVectorU32(Box<[u32]>),
+    #[cfg_attr(not(test), allow(dead_code))]
     RecordVector(Box<[OwnedRow]>),
     #[cfg_attr(not(test), allow(dead_code))]
     I32(i32),
