@@ -14,7 +14,7 @@ type IndexedEntity<'a> = ((EntityKind, [u8; 16]), EntityRecord<'a>);
 /// 一份受检规范制品的实体索引。
 ///
 /// 按实体种类与有类型序号顺序保存全部实体记录，另存稳定标识排序索引以支持二分查找。
-pub(super) struct ArtifactIndex<'a> {
+pub(in crate::portable_emitter) struct ArtifactIndex<'a> {
     pub(super) view: RegistryCheckedObjectView<'a>,
     // 原始 kind/ordinal 顺序支持 O(1) 引用；StableId 查询仅另存 u32 排序索引。
     entities: BoundedVec<IndexedEntity<'a>>,
