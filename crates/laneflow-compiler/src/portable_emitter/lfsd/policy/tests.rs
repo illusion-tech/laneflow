@@ -354,7 +354,7 @@ fn artifact_diff_rejects_dangling_policy_in_both_roots() {
         .unwrap();
         let target = close_object(raw_bytes(target_object));
         assert_eq!(
-            build_artifact_lfsd(
+            build_artifact_lfsd_owned(
                 base,
                 NetworkRevisionId::from_digest(Sha256Digest::ZERO),
                 &target,

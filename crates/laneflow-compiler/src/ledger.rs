@@ -408,12 +408,6 @@ impl Ledger {
         })
     }
 
-    /// 宿主预算中既未授予也未预留的余量 `B − L − R`。
-    pub(crate) fn headroom(&self) -> u64 {
-        let state = lock(&self.state);
-        state.budget - state.live - state.reserved
-    }
-
     /// 当前存续 `L`。
     pub(crate) fn live(&self) -> u64 {
         lock(&self.state).live

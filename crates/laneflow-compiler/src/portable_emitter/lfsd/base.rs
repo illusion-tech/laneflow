@@ -107,6 +107,22 @@ impl<'a> ArtifactIndex<'a> {
         })
     }
 
+    /// 已索引实体数。
+    pub(super) fn len(&self) -> usize {
+        self.entities.len()
+    }
+
+    /// 某实体种类的已索引实体数。
+    pub(super) fn kind_count(&self, kind: EntityKind) -> usize {
+        let (start, end) = self.kind_ranges[usize::from(kind.code() - 1)];
+        end - start
+    }
+
+    /// 索引持有的受控请求字节。
+    pub(super) const fn granted_bytes(&self) -> u64 {
+        self.entities.granted_bytes() + self.by_stable_id.granted_bytes()
+    }
+
     /// 按实体种类与有类型序号顺序遍历全部已索引实体。
     pub(super) fn entities(
         &self,

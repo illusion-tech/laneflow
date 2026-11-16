@@ -13,6 +13,7 @@ mod lfsm;
 mod model;
 mod relations;
 mod tree;
+#[cfg(test)]
 mod wire;
 
 use api::{OBJECT_KEY_BYTES, close_shared_object};
@@ -29,7 +30,8 @@ use lfsm::{build_lfsm, check_policy_sources};
 use model::*;
 #[cfg(test)]
 use tree::encode_owned_object;
-use tree::{ObjectTree, arc_bytes_layout, build_tree, share_bytes};
+use tree::{ObjectTree, arc_bytes_layout, share_bytes};
+#[cfg(test)]
 use wire::*;
 
 use laneflow_format::{
@@ -46,7 +48,7 @@ use laneflow_static_contract::{
     Ordinal, PortableObjectKind, STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest, StableId,
 };
 use sha2::{Digest, Sha256};
-use std::{alloc::Layout, collections::BTreeMap, path::Path};
+use std::{alloc::Layout, path::Path};
 
 use crate::ledger::{Grant, Ledger, LedgerStage, Plan};
 use crate::{CompilationOutput, CompileLimitDimension};
@@ -334,12 +336,8 @@ fn emit_portable_candidate_with(
         limits,
         diff,
     )?;
-    let lfsd_tree = build_tree(diff, "lfsd-tree", PortableObjectKind::SemanticDiff, |t| {
-        Ok::<_, PortableEmissionError>(t.copy_owned(&lfsd))
-    })?;
+    let semantic_diff = emit_object(&lfsd, diff, ("lfsd-lowering", "lfsd-encode"))?;
     drop(lfsd);
-    let semantic_diff = emit_object(&lfsd_tree, diff, ("lfsd-lowering", "lfsd-encode"))?;
-    drop(lfsd_tree);
     preflight_object_values(
         semantic_diff.bytes(),
         PortableObjectKind::SemanticDiff,

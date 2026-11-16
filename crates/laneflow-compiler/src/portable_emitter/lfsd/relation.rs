@@ -3,13 +3,14 @@ use super::base::{
     checked_u32_with,
 };
 use super::*;
+use crate::ledger::{BoundedVec, PassBudget, Plan};
 
 #[allow(
     clippy::too_many_arguments,
     reason = "the closed A.5 tuple is clearer when every semantic coordinate is explicit"
 )]
 fn push_artifact_relation(
-    relations: &mut Vec<RelationTuple>,
+    relations: &mut dyn FnMut(RelationTuple) -> Result<(), PortableEmissionError>,
     index: &ArtifactIndex<'_>,
     owner_entity_kind: EntityKind,
     owner_stable_id: [u8; 16],
@@ -19,15 +20,14 @@ fn push_artifact_relation(
     subject_ordinal: u32,
     mismatch: PortableEmissionError,
 ) -> Result<(), PortableEmissionError> {
-    relations.push(RelationTuple {
+    relations(RelationTuple {
         owner_entity_kind,
         owner_stable_id,
         role,
         local_index,
         subject_entity_kind,
         subject_stable_id: index.stable_id(subject_entity_kind, subject_ordinal, mismatch)?,
-    });
-    Ok(())
+    })
 }
 
 #[allow(
@@ -35,7 +35,7 @@ fn push_artifact_relation(
     reason = "the closed A.5 vector projection keeps owner, field, role, and subject kind explicit"
 )]
 fn push_vector_relations(
-    relations: &mut Vec<RelationTuple>,
+    relations: &mut dyn FnMut(RelationTuple) -> Result<(), PortableEmissionError>,
     index: &ArtifactIndex<'_>,
     owner_entity_kind: EntityKind,
     owner_stable_id: [u8; 16],
@@ -62,16 +62,21 @@ fn push_vector_relations(
     Ok(())
 }
 
-/// 把已索引制品的全部所有者局部关系投影为规范关系元组。
-///
-/// 逐实体按冻结角色展开关系字段，主体的有类型序号经索引解析为稳定标识。
-pub(super) fn artifact_relation_tuples(
+/// 路口成员关系的待排序记录：（路口序号, 成员序号）。
+#[derive(Clone, Copy)]
+enum Membership {
+    ConflictZone(u32, u32),
+    ParticipantStream(u32, u32),
+}
+
+/// 逐实体按冻结角色展开所有者局部关系字段，主体的有类型序号经索引解析为稳定标识；
+/// 路口的冲突区与参与者流成员关系只记录成员序号，由调用方按路口排序后展开。
+fn walk_owner_relations(
     index: &ArtifactIndex<'_>,
     mismatch: PortableEmissionError,
-) -> Result<Vec<RelationTuple>, PortableEmissionError> {
-    let mut relations = Vec::new();
-    let mut conflict_zone_memberships = Vec::<(u32, u32)>::new();
-    let mut participant_stream_memberships = Vec::<(u32, u32)>::new();
+    relations: &mut dyn FnMut(RelationTuple) -> Result<(), PortableEmissionError>,
+    memberships: &mut dyn FnMut(Membership) -> Result<(), PortableEmissionError>,
+) -> Result<(), PortableEmissionError> {
     for ((owner_kind, owner_stable_id), owner) in index.entities() {
         match owner_kind {
             EntityKind::RoadCorridor => {
@@ -85,7 +90,7 @@ pub(super) fn artifact_relation_tuples(
                         _ => return Err(mismatch),
                     };
                     push_artifact_relation(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -98,7 +103,7 @@ pub(super) fn artifact_relation_tuples(
                 }
             }
             EntityKind::RoadSection => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -109,7 +114,7 @@ pub(super) fn artifact_relation_tuples(
                 mismatch,
             )?,
             EntityKind::AuthoringLane => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -120,7 +125,7 @@ pub(super) fn artifact_relation_tuples(
                 mismatch,
             )?,
             EntityKind::LaneEdge => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -131,7 +136,7 @@ pub(super) fn artifact_relation_tuples(
                 mismatch,
             )?,
             EntityKind::Junction => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -142,7 +147,7 @@ pub(super) fn artifact_relation_tuples(
                 mismatch,
             )?,
             EntityKind::Movement => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -159,7 +164,7 @@ pub(super) fn artifact_relation_tuples(
                     (6, 11, EntityKind::WaitingZone),
                 ] {
                     push_vector_relations(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -174,7 +179,7 @@ pub(super) fn artifact_relation_tuples(
             EntityKind::ManeuverGate => {
                 if let Some(signal_group) = owner.row.field_by_tag(7) {
                     push_artifact_relation(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -190,7 +195,7 @@ pub(super) fn artifact_relation_tuples(
                 }
             }
             EntityKind::StopLine => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -206,7 +211,7 @@ pub(super) fn artifact_relation_tuples(
                     (6, 18, EntityKind::SignalPhase),
                 ] {
                     push_vector_relations(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -225,7 +230,7 @@ pub(super) fn artifact_relation_tuples(
                         _ => return Err(mismatch),
                     };
                     push_artifact_relation(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -238,7 +243,7 @@ pub(super) fn artifact_relation_tuples(
                 }
                 for (field_tag, role) in [(4, 22), (6, 23)] {
                     push_artifact_relation(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -251,7 +256,7 @@ pub(super) fn artifact_relation_tuples(
                 }
             }
             EntityKind::LaneGroup => push_vector_relations(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -268,7 +273,7 @@ pub(super) fn artifact_relation_tuples(
                         _ => return Err(mismatch),
                     };
                     push_artifact_relation(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -289,7 +294,7 @@ pub(super) fn artifact_relation_tuples(
                     _ => return Err(mismatch),
                 };
                 push_artifact_relation(
-                    &mut relations,
+                    relations,
                     index,
                     *owner_kind,
                     *owner_stable_id,
@@ -300,7 +305,7 @@ pub(super) fn artifact_relation_tuples(
                     mismatch,
                 )?;
                 push_vector_relations(
-                    &mut relations,
+                    relations,
                     index,
                     *owner_kind,
                     *owner_stable_id,
@@ -312,7 +317,7 @@ pub(super) fn artifact_relation_tuples(
                 )?;
             }
             EntityKind::VehicleProfile => push_artifact_relation(
-                &mut relations,
+                relations,
                 index,
                 *owner_kind,
                 *owner_stable_id,
@@ -327,7 +332,7 @@ pub(super) fn artifact_relation_tuples(
                     let anchors = checked_record_vector_with(owner.row, field_tag, mismatch)?;
                     for (local_index, anchor) in anchors.rows().enumerate() {
                         push_artifact_relation(
-                            &mut relations,
+                            relations,
                             index,
                             *owner_kind,
                             *owner_stable_id,
@@ -344,9 +349,12 @@ pub(super) fn artifact_relation_tuples(
             EntityKind::ParticipantStream => {
                 let stream_ordinal = checked_u32_with(owner.row, 1, mismatch)?;
                 let junction_ordinal = checked_u32_with(owner.row, 3, mismatch)?;
-                participant_stream_memberships.push((junction_ordinal, stream_ordinal));
+                memberships(Membership::ParticipantStream(
+                    junction_ordinal,
+                    stream_ordinal,
+                ))?;
                 push_artifact_relation(
-                    &mut relations,
+                    relations,
                     index,
                     *owner_kind,
                     *owner_stable_id,
@@ -359,7 +367,7 @@ pub(super) fn artifact_relation_tuples(
                 let passages = checked_record_vector_with(owner.row, 5, mismatch)?;
                 for (local_index, passage) in passages.rows().enumerate() {
                     push_artifact_relation(
-                        &mut relations,
+                        relations,
                         index,
                         *owner_kind,
                         *owner_stable_id,
@@ -372,10 +380,10 @@ pub(super) fn artifact_relation_tuples(
                     )?;
                 }
             }
-            EntityKind::ConflictZone => conflict_zone_memberships.push((
+            EntityKind::ConflictZone => memberships(Membership::ConflictZone(
                 checked_u32_with(owner.row, 3, mismatch)?,
                 checked_u32_with(owner.row, 1, mismatch)?,
-            )),
+            ))?,
             EntityKind::WaitingZone
             | EntityKind::SignalGroup
             | EntityKind::SignalPhase
@@ -384,19 +392,97 @@ pub(super) fn artifact_relation_tuples(
             | EntityKind::CanonicalFrame => {}
         }
     }
+    Ok(())
+}
 
-    for (role, subject_kind, mut memberships) in [
-        (15, EntityKind::ConflictZone, conflict_zone_memberships),
+/// 已索引制品的所有者局部关系元组数量，即 [`artifact_relation_tuples`] 的容量。
+pub(super) fn artifact_relation_count(
+    index: &ArtifactIndex<'_>,
+    mismatch: PortableEmissionError,
+) -> Result<usize, PortableEmissionError> {
+    let mut count = 0_usize;
+    walk_owner_relations(
+        index,
+        mismatch,
+        &mut |_| {
+            count += 1;
+            Ok(())
+        },
+        &mut |_| Ok(()),
+    )?;
+    let internal_edges = index
+        .view
+        .section(3)
+        .and_then(|section| section.table(0))
+        .ok_or(mismatch)?
+        .row_count() as usize;
+    [
+        index.kind_count(EntityKind::ConflictZone),
+        index.kind_count(EntityKind::ParticipantStream),
+        internal_edges,
+    ]
+    .into_iter()
+    .try_fold(count, |total, value| {
+        total
+            .checked_add(value)
+            .ok_or(PortableEmissionError::ArithmeticOverflow)
+    })
+}
+
+/// [`artifact_relation_tuples`] 的计划峰值：元组表，以及成员关系排序表与路口内部边局部下标
+/// 计数器。
+pub(super) fn artifact_relation_plan(
+    index: &ArtifactIndex<'_>,
+    mismatch: PortableEmissionError,
+) -> Result<Plan, PortableEmissionError> {
+    Ok(Plan::ZERO
+        .array::<RelationTuple>(artifact_relation_count(index, mismatch)?)
+        .array::<(u32, u32)>(index.kind_count(EntityKind::ConflictZone))
+        .array::<(u32, u32)>(index.kind_count(EntityKind::ParticipantStream))
+        .array::<u32>(index.kind_count(EntityKind::Junction)))
+}
+
+/// 把已索引制品的全部所有者局部关系投影为按规范顺序排序的关系元组，存入编译遍授予的
+/// 序列；计划见 [`artifact_relation_plan`]。
+pub(super) fn artifact_relation_tuples(
+    index: &ArtifactIndex<'_>,
+    mismatch: PortableEmissionError,
+    pass: &PassBudget<'_>,
+) -> Result<BoundedVec<RelationTuple>, PortableEmissionError> {
+    let mut relations = pass.vec::<RelationTuple>(artifact_relation_count(index, mismatch)?)?;
+    let mut conflict_zone_memberships =
+        pass.vec::<(u32, u32)>(index.kind_count(EntityKind::ConflictZone))?;
+    let mut participant_stream_memberships =
+        pass.vec::<(u32, u32)>(index.kind_count(EntityKind::ParticipantStream))?;
+    walk_owner_relations(
+        index,
+        mismatch,
+        &mut |relation| Ok(relations.push(relation)?),
+        &mut |membership| {
+            match membership {
+                Membership::ConflictZone(junction, zone) => {
+                    conflict_zone_memberships.push((junction, zone))?;
+                }
+                Membership::ParticipantStream(junction, stream) => {
+                    participant_stream_memberships.push((junction, stream))?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    let relations_sink = &mut |relation| Ok(relations.push(relation)?);
+    for (role, subject_kind, memberships) in [
+        (15, EntityKind::ConflictZone, &mut conflict_zone_memberships),
         (
             16,
             EntityKind::ParticipantStream,
-            participant_stream_memberships,
+            &mut participant_stream_memberships,
         ),
     ] {
         memberships.sort_unstable();
         let mut previous_junction = None;
         let mut local_index = 0_u32;
-        for (junction_ordinal, subject_ordinal) in memberships {
+        for &(junction_ordinal, subject_ordinal) in memberships.iter() {
             if previous_junction != Some(junction_ordinal) {
                 previous_junction = Some(junction_ordinal);
                 local_index = 0;
@@ -404,7 +490,7 @@ pub(super) fn artifact_relation_tuples(
             let owner_stable_id =
                 index.stable_id(EntityKind::Junction, junction_ordinal, mismatch)?;
             push_artifact_relation(
-                &mut relations,
+                relations_sink,
                 index,
                 EntityKind::Junction,
                 owner_stable_id,
@@ -419,32 +505,36 @@ pub(super) fn artifact_relation_tuples(
                 .ok_or(PortableEmissionError::ArithmeticOverflow)?;
         }
     }
+    drop((conflict_zone_memberships, participant_stream_memberships));
 
     let relation_section = index.view.section(3).ok_or(mismatch)?;
     let internal_edges = relation_section.table(0).ok_or(mismatch)?;
-    let mut next_internal_index = BTreeMap::<[u8; 16], u32>::new();
+    let junctions = index.kind_count(EntityKind::Junction);
+    let mut next_internal_index = pass.vec::<u32>(junctions)?;
+    next_internal_index.resize(junctions, 0)?;
     for relation in internal_edges.rows() {
-        let owner_stable_id = index.stable_id(
-            EntityKind::Junction,
-            checked_u32_with(relation, 2, mismatch)?,
-            mismatch,
-        )?;
-        let local_index = next_internal_index.entry(owner_stable_id).or_default();
+        let junction_ordinal = checked_u32_with(relation, 2, mismatch)?;
+        let owner_stable_id = index.stable_id(EntityKind::Junction, junction_ordinal, mismatch)?;
+        let local_index = next_internal_index
+            .get_mut(junction_ordinal as usize)
+            .ok_or(mismatch)?;
+        let current = *local_index;
+        *local_index = current
+            .checked_add(1)
+            .ok_or(PortableEmissionError::ArithmeticOverflow)?;
         push_artifact_relation(
-            &mut relations,
+            relations_sink,
             index,
             EntityKind::Junction,
             owner_stable_id,
             9,
-            *local_index,
+            current,
             EntityKind::LaneEdge,
             checked_u32_with(relation, 1, mismatch)?,
             mismatch,
         )?;
-        *local_index = local_index
-            .checked_add(1)
-            .ok_or(PortableEmissionError::ArithmeticOverflow)?;
     }
+    drop(next_internal_index);
     relations.sort_unstable();
     Ok(relations)
 }
@@ -465,8 +555,9 @@ fn relation_pairing(role: u8) -> Option<RelationPairing> {
     }
 }
 
+/// 一条关系变化（LFSD 第 3 节行）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct RelationChangeProjection {
+pub(super) struct RelationChange {
     change_kind: u8,
     owner_entity_kind: EntityKind,
     owner_stable_id: [u8; 16],
@@ -478,8 +569,11 @@ struct RelationChangeProjection {
     after_target: Option<[u8; 16]>,
 }
 
-fn relation_add(tuple: RelationTuple) -> RelationChangeProjection {
-    RelationChangeProjection {
+/// 关系变化的接收端；写入超出授予容量时返回记账缺陷。
+type ChangeSink<'s> = &'s mut dyn FnMut(RelationChange) -> Result<(), PortableEmissionError>;
+
+fn relation_add(tuple: RelationTuple) -> RelationChange {
+    RelationChange {
         change_kind: 0,
         owner_entity_kind: tuple.owner_entity_kind,
         owner_stable_id: tuple.owner_stable_id,
@@ -492,8 +586,8 @@ fn relation_add(tuple: RelationTuple) -> RelationChangeProjection {
     }
 }
 
-fn relation_remove(tuple: RelationTuple) -> RelationChangeProjection {
-    RelationChangeProjection {
+fn relation_remove(tuple: RelationTuple) -> RelationChange {
+    RelationChange {
         change_kind: 1,
         owner_entity_kind: tuple.owner_entity_kind,
         owner_stable_id: tuple.owner_stable_id,
@@ -506,8 +600,8 @@ fn relation_remove(tuple: RelationTuple) -> RelationChangeProjection {
     }
 }
 
-fn relation_move(before: RelationTuple, after: RelationTuple) -> RelationChangeProjection {
-    RelationChangeProjection {
+fn relation_move(before: RelationTuple, after: RelationTuple) -> RelationChange {
+    RelationChange {
         change_kind: 2,
         owner_entity_kind: before.owner_entity_kind,
         owner_stable_id: before.owner_stable_id,
@@ -520,8 +614,8 @@ fn relation_move(before: RelationTuple, after: RelationTuple) -> RelationChangeP
     }
 }
 
-fn relation_reconnect(before: RelationTuple, after: RelationTuple) -> RelationChangeProjection {
-    RelationChangeProjection {
+fn relation_reconnect(before: RelationTuple, after: RelationTuple) -> RelationChange {
+    RelationChange {
         change_kind: 3,
         owner_entity_kind: before.owner_entity_kind,
         owner_stable_id: before.owner_stable_id,
@@ -534,10 +628,7 @@ fn relation_reconnect(before: RelationTuple, after: RelationTuple) -> RelationCh
     }
 }
 
-fn compare_relation_changes(
-    left: &RelationChangeProjection,
-    right: &RelationChangeProjection,
-) -> std::cmp::Ordering {
+fn compare_relation_changes(left: &RelationChange, right: &RelationChange) -> std::cmp::Ordering {
     left.change_kind
         .cmp(&right.change_kind)
         .then_with(|| left.owner_entity_kind.cmp(&right.owner_entity_kind))
@@ -567,82 +658,79 @@ fn compare_relation_changes(
         })
 }
 
-fn group_relations(
-    relations: Vec<RelationTuple>,
+const fn group_key(relation: &RelationTuple) -> (EntityKind, [u8; 16], u8) {
+    (
+        relation.owner_entity_kind,
+        relation.owner_stable_id,
+        relation.role,
+    )
+}
+
+const fn subject_key(relation: &RelationTuple) -> (EntityKind, [u8; 16]) {
+    (relation.subject_entity_kind, relation.subject_stable_id)
+}
+
+/// 一组关系（同一所有者与角色）的局部下标必须恰为 `0..n`；元组表已按规范顺序排序。
+fn check_group_local_indexes(
+    group: &[RelationTuple],
     mismatch: PortableEmissionError,
-) -> Result<RelationGroups, PortableEmissionError> {
-    let mut groups = BTreeMap::new();
-    for relation in relations {
-        groups
-            .entry((
-                relation.owner_entity_kind,
-                relation.owner_stable_id,
-                relation.role,
-            ))
-            .or_insert_with(Vec::new)
-            .push(relation);
-    }
-    for relations in groups.values_mut() {
-        relations.sort_unstable_by_key(|relation| relation.local_index);
-        for (expected, relation) in relations.iter().enumerate() {
-            if relation.local_index
-                != u32::try_from(expected).map_err(|_| PortableEmissionError::ArithmeticOverflow)?
-            {
-                return Err(mismatch);
-            }
+) -> Result<(), PortableEmissionError> {
+    for (expected, relation) in group.iter().enumerate() {
+        if relation.local_index
+            != u32::try_from(expected).map_err(|_| PortableEmissionError::ArithmeticOverflow)?
+        {
+            return Err(mismatch);
         }
     }
-    Ok(groups)
+    Ok(())
+}
+
+/// 规范顺序元组表中下一组（同一所有者与角色）的长度。
+fn group_len(relations: &[RelationTuple]) -> usize {
+    relations.first().map_or(0, |first| {
+        relations.partition_point(|relation| group_key(relation) <= group_key(first))
+    })
 }
 
 fn pair_set_relations(
-    base: &[RelationTuple],
-    target: &[RelationTuple],
-    changes: &mut Vec<RelationChangeProjection>,
+    base: &mut [RelationTuple],
+    target: &mut [RelationTuple],
+    changes: ChangeSink<'_>,
 ) -> Result<(), PortableEmissionError> {
-    let mut base_members = BTreeMap::new();
-    for relation in base {
-        if base_members
-            .insert(
-                (relation.subject_entity_kind, relation.subject_stable_id),
-                *relation,
-            )
-            .is_some()
+    for (relations, mismatch) in [
+        (&mut *base, PortableEmissionError::DiffBaseSemanticMismatch),
+        (&mut *target, PortableEmissionError::InternalBindingMismatch),
+    ] {
+        relations.sort_unstable_by_key(subject_key);
+        if relations
+            .windows(2)
+            .any(|pair| subject_key(&pair[0]) == subject_key(&pair[1]))
         {
-            return Err(PortableEmissionError::DiffBaseSemanticMismatch);
+            return Err(mismatch);
         }
     }
-    let mut target_members = BTreeMap::new();
-    for relation in target {
-        if target_members
-            .insert(
-                (relation.subject_entity_kind, relation.subject_stable_id),
-                *relation,
-            )
-            .is_some()
-        {
-            return Err(PortableEmissionError::InternalBindingMismatch);
+    let contains = |relations: &[RelationTuple], relation: &RelationTuple| {
+        relations
+            .binary_search_by_key(&subject_key(relation), subject_key)
+            .is_ok()
+    };
+    for relation in base.iter() {
+        if !contains(target, relation) {
+            changes(relation_remove(*relation))?;
         }
     }
-    changes.extend(
-        base_members
-            .iter()
-            .filter(|(subject, _)| !target_members.contains_key(subject))
-            .map(|(_, relation)| relation_remove(*relation)),
-    );
-    changes.extend(
-        target_members
-            .iter()
-            .filter(|(subject, _)| !base_members.contains_key(subject))
-            .map(|(_, relation)| relation_add(*relation)),
-    );
+    for relation in target.iter() {
+        if !contains(base, relation) {
+            changes(relation_add(*relation))?;
+        }
+    }
     Ok(())
 }
 
 fn pair_scalar_relations(
     base: &[RelationTuple],
     target: &[RelationTuple],
-    changes: &mut Vec<RelationChangeProjection>,
+    changes: ChangeSink<'_>,
 ) -> Result<(), PortableEmissionError> {
     if base.len() > 1 {
         return Err(PortableEmissionError::DiffBaseSemanticMismatch);
@@ -652,13 +740,10 @@ fn pair_scalar_relations(
     }
     match (base.first().copied(), target.first().copied()) {
         (None, None) => {}
-        (None, Some(after)) => changes.push(relation_add(after)),
-        (Some(before), None) => changes.push(relation_remove(before)),
-        (Some(before), Some(after))
-            if (before.subject_entity_kind, before.subject_stable_id)
-                != (after.subject_entity_kind, after.subject_stable_id) =>
-        {
-            changes.push(relation_reconnect(before, after));
+        (None, Some(after)) => changes(relation_add(after))?,
+        (Some(before), None) => changes(relation_remove(before))?,
+        (Some(before), Some(after)) if subject_key(&before) != subject_key(&after) => {
+            changes(relation_reconnect(before, after))?;
         }
         (Some(_), Some(_)) => {}
     }
@@ -666,137 +751,139 @@ fn pair_scalar_relations(
 }
 
 fn pair_domain_relations(
-    base: &[RelationTuple],
-    target: &[RelationTuple],
-    changes: &mut Vec<RelationChangeProjection>,
-) {
-    let mut base_occurrences = BTreeMap::<(EntityKind, [u8; 16]), Vec<RelationTuple>>::new();
-    let mut target_occurrences = BTreeMap::<(EntityKind, [u8; 16]), Vec<RelationTuple>>::new();
-    for relation in base {
-        base_occurrences
-            .entry((relation.subject_entity_kind, relation.subject_stable_id))
-            .or_default()
-            .push(*relation);
-    }
-    for relation in target {
-        target_occurrences
-            .entry((relation.subject_entity_kind, relation.subject_stable_id))
-            .or_default()
-            .push(*relation);
-    }
-    for occurrences in base_occurrences.values_mut() {
-        occurrences.sort_unstable_by_key(|relation| relation.local_index);
-    }
-    for occurrences in target_occurrences.values_mut() {
-        occurrences.sort_unstable_by_key(|relation| relation.local_index);
-    }
-    let mut subjects: Vec<_> = base_occurrences
-        .keys()
-        .chain(target_occurrences.keys())
-        .copied()
-        .collect();
-    subjects.sort_unstable();
-    subjects.dedup();
-    for subject in &subjects {
-        let before = base_occurrences.get(subject).map_or(&[][..], Vec::as_slice);
-        let after = target_occurrences
-            .get(subject)
-            .map_or(&[][..], Vec::as_slice);
+    base: &mut [RelationTuple],
+    target: &mut [RelationTuple],
+    changes: ChangeSink<'_>,
+) -> Result<(), PortableEmissionError> {
+    let occurrence_key = |relation: &RelationTuple| (subject_key(relation), relation.local_index);
+    base.sort_unstable_by_key(occurrence_key);
+    target.sort_unstable_by_key(occurrence_key);
+    let run = |relations: &[RelationTuple], subject| {
+        relations.partition_point(|relation| subject_key(relation) <= subject)
+    };
+    let (mut base, mut target) = (&*base, &*target);
+    while let Some(subject) = match (base.first(), target.first()) {
+        (Some(b), Some(a)) => Some(subject_key(b).min(subject_key(a))),
+        (Some(b), None) => Some(subject_key(b)),
+        (None, Some(a)) => Some(subject_key(a)),
+        (None, None) => None,
+    } {
+        let (before, rest) = base.split_at(run(base, subject));
+        base = rest;
+        let (after, rest) = target.split_at(run(target, subject));
+        target = rest;
         let paired_count = before.len().min(after.len());
         for rank in 0..paired_count {
             if before[rank].local_index != after[rank].local_index {
-                changes.push(relation_move(before[rank], after[rank]));
+                changes(relation_move(before[rank], after[rank]))?;
             }
         }
-        changes.extend(before[paired_count..].iter().copied().map(relation_remove));
-        changes.extend(after[paired_count..].iter().copied().map(relation_add));
+        for relation in &before[paired_count..] {
+            changes(relation_remove(*relation))?;
+        }
+        for relation in &after[paired_count..] {
+            changes(relation_add(*relation))?;
+        }
     }
+    Ok(())
 }
 
-fn relation_change_row(change: RelationChangeProjection) -> OwnedRow {
-    let mut fields = vec![
-        field(1, OwnedValue::U8(change.change_kind)),
-        field(2, OwnedValue::U16(change.owner_entity_kind.code())),
-        field(3, OwnedValue::StableId128(change.owner_stable_id)),
-    ];
-    if let Some(subject) = change.subject_stable_id {
-        fields.push(field(4, OwnedValue::StableId128(subject)));
-    }
-    fields.push(field(5, OwnedValue::U8(change.role)));
-    if let Some(index) = change.before_local_index {
-        fields.push(field(7, OwnedValue::U32(index)));
-    }
-    if let Some(index) = change.after_local_index {
-        fields.push(field(8, OwnedValue::U32(index)));
-    }
-    if let Some(target) = change.before_target {
-        fields.push(field(9, OwnedValue::StableId128(target)));
-    }
-    if let Some(target) = change.after_target {
-        fields.push(field(10, OwnedValue::StableId128(target)));
-    }
-    row(fields)
+/// 写出一条关系变化行。
+pub(super) fn relation_change_row(
+    t: &super::super::tree::TreeBuilder,
+    change: RelationChange,
+) -> super::super::tree::RowRef {
+    use super::super::tree::{Value, field};
+    t.row([
+        Some(field(1, Value::U8(change.change_kind))),
+        Some(field(2, Value::U16(change.owner_entity_kind.code()))),
+        Some(field(3, Value::StableId128(change.owner_stable_id))),
+        change
+            .subject_stable_id
+            .map(|subject| field(4, Value::StableId128(subject))),
+        Some(field(5, Value::U8(change.role))),
+        change
+            .before_local_index
+            .map(|index| field(7, Value::U32(index))),
+        change
+            .after_local_index
+            .map(|index| field(8, Value::U32(index))),
+        change
+            .before_target
+            .map(|target| field(9, Value::StableId128(target))),
+        change
+            .after_target
+            .map(|target| field(10, Value::StableId128(target))),
+    ])
 }
 
-/// 生成两版制品之间的关系差异行（LFSD 第 3 节）。
+/// 写入两版制品之间的关系变化（LFSD 第 3 节）。
 ///
-/// 元组按所有者、角色与主体种类分组，依各角色冻结的配对方式配对后输出增删、
-/// 移动与重连变更，并按规范顺序排序。
+/// 两侧元组表已按规范顺序排序，同一所有者与角色的元组相邻成组；逐组依各角色冻结的
+/// 配对方式配对后输出增删、移动与重连变更，并按规范顺序排序。组内配对会就地重排
+/// 元组表。变化至多为两侧元组数之和。
 pub(super) fn artifact_relation_changes(
-    base: &ArtifactIndex<'_>,
-    target: &ArtifactIndex<'_>,
-) -> Result<Vec<OwnedRow>, PortableEmissionError> {
-    let mut base_groups = group_relations(
-        artifact_relation_tuples(base, PortableEmissionError::DiffBaseSemanticMismatch)?,
-        PortableEmissionError::DiffBaseSemanticMismatch,
-    )?;
-    let mut target_groups = group_relations(
-        artifact_relation_tuples(target, PortableEmissionError::InternalBindingMismatch)?,
-        PortableEmissionError::InternalBindingMismatch,
-    )?;
-    let mut group_keys: Vec<_> = base_groups
-        .keys()
-        .chain(target_groups.keys())
-        .copied()
-        .collect();
-    group_keys.sort_unstable();
-    group_keys.dedup();
-    let mut changes = Vec::new();
-    for key in group_keys {
-        let base_relations = base_groups.remove(&key).unwrap_or_default();
-        let target_relations = target_groups.remove(&key).unwrap_or_default();
+    base: &mut [RelationTuple],
+    target: &mut [RelationTuple],
+    changes: &mut BoundedVec<RelationChange>,
+) -> Result<(), PortableEmissionError> {
+    let (mut base, mut target) = (base, target);
+    let sink: ChangeSink<'_> = &mut |change| Ok(changes.push(change)?);
+    while !base.is_empty() || !target.is_empty() {
+        let key = match (base.first(), target.first()) {
+            (Some(b), Some(a)) => group_key(b).min(group_key(a)),
+            (Some(b), None) => group_key(b),
+            (None, Some(a)) => group_key(a),
+            (None, None) => break,
+        };
+        let base_len = if base.first().is_some_and(|b| group_key(b) == key) {
+            group_len(base)
+        } else {
+            0
+        };
+        let target_len = if target.first().is_some_and(|a| group_key(a) == key) {
+            group_len(target)
+        } else {
+            0
+        };
+        let (base_group, base_rest) = core::mem::take(&mut base).split_at_mut(base_len);
+        let (target_group, target_rest) = core::mem::take(&mut target).split_at_mut(target_len);
+        base = base_rest;
+        target = target_rest;
+        check_group_local_indexes(base_group, PortableEmissionError::DiffBaseSemanticMismatch)?;
+        check_group_local_indexes(target_group, PortableEmissionError::InternalBindingMismatch)?;
         match relation_pairing(key.2).ok_or(PortableEmissionError::InternalBindingMismatch)? {
-            RelationPairing::Set => {
-                pair_set_relations(&base_relations, &target_relations, &mut changes)?;
-            }
-            RelationPairing::Scalar => {
-                pair_scalar_relations(&base_relations, &target_relations, &mut changes)?;
-            }
+            RelationPairing::Set => pair_set_relations(base_group, target_group, sink)?,
+            RelationPairing::Scalar => pair_scalar_relations(base_group, target_group, sink)?,
             RelationPairing::DomainOccurrence => {
-                pair_domain_relations(&base_relations, &target_relations, &mut changes);
+                pair_domain_relations(base_group, target_group, sink)?;
             }
         }
     }
     changes.sort_unstable_by(compare_relation_changes);
-    Ok(changes.into_iter().map(relation_change_row).collect())
+    Ok(())
 }
 
-/// 把 LIR 的规范关系元组全部投影为 Genesis 新增差异行。
-pub(super) fn genesis_relation_changes(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
-    canonical_relation_tuple_vec(lir)
-        .into_iter()
-        .map(|relation| {
-            row([
-                field(1, OwnedValue::U8(0)),
-                field(2, OwnedValue::U16(relation.owner_entity_kind.code())),
-                field(3, OwnedValue::StableId128(relation.owner_stable_id)),
-                field(4, OwnedValue::StableId128(relation.subject_stable_id)),
-                field(5, OwnedValue::U8(relation.role)),
-                field(8, OwnedValue::U32(relation.local_index)),
-            ])
-        })
-        .collect()
+/// 把 LIR 的规范关系元组全部写为 Genesis 新增变化；容量为规范关系元组数，路口局部序号
+/// 暂存由 `pass` 授予。
+pub(super) fn genesis_relation_changes(
+    lir: &crate::lir::LirUnit,
+    pass: &crate::ledger::PassBudget<'_>,
+    changes: &mut BoundedVec<RelationChange>,
+) -> Result<(), PortableEmissionError> {
+    let mut overflow = None;
+    super::super::relations::for_each_canonical_relation_tuple(lir, pass, &mut |relation| {
+        if let Err(error) = changes.push(relation_add(relation)) {
+            overflow.get_or_insert(error);
+        }
+    })?;
+    if let Some(error) = overflow {
+        return Err(error.into());
+    }
+    changes.sort_unstable_by(compare_relation_changes);
+    Ok(())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -816,17 +903,33 @@ mod tests {
         }
     }
 
+    /// 收集一次配对写出的关系变化。
+    fn collect(
+        pair: impl FnOnce(ChangeSink<'_>) -> Result<(), PortableEmissionError>,
+    ) -> Result<Vec<RelationChange>, PortableEmissionError> {
+        let mut changes = Vec::new();
+        pair(&mut |change| {
+            changes.push(change);
+            Ok(())
+        })?;
+        Ok(changes)
+    }
+
     #[test]
     fn set_pairing_ignores_canonical_position_only_changes() {
-        let mut changes = Vec::new();
-        pair_set_relations(&[relation(1, 1, 7)], &[relation(1, 0, 7)], &mut changes).unwrap();
+        let changes = collect(|sink| {
+            pair_set_relations(&mut [relation(1, 1, 7)], &mut [relation(1, 0, 7)], sink)
+        })
+        .unwrap();
         assert!(changes.is_empty());
     }
 
     #[test]
     fn scalar_pairing_emits_one_reconnect() {
-        let mut changes = Vec::new();
-        pair_scalar_relations(&[relation(20, 0, 7)], &[relation(20, 0, 8)], &mut changes).unwrap();
+        let changes = collect(|sink| {
+            pair_scalar_relations(&[relation(20, 0, 7)], &[relation(20, 0, 8)], sink)
+        })
+        .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].change_kind, 3);
         assert_eq!(
@@ -841,12 +944,14 @@ mod tests {
 
     #[test]
     fn occurrence_pairing_uses_same_subject_rank() {
-        let mut changes = Vec::new();
-        pair_domain_relations(
-            &[relation(8, 0, 7), relation(8, 2, 7)],
-            &[relation(8, 1, 7), relation(8, 2, 7)],
-            &mut changes,
-        );
+        let changes = collect(|sink| {
+            pair_domain_relations(
+                &mut [relation(8, 0, 7), relation(8, 2, 7)],
+                &mut [relation(8, 1, 7), relation(8, 2, 7)],
+                sink,
+            )
+        })
+        .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].change_kind, 2);
         assert_eq!(changes[0].before_local_index, Some(0));
@@ -874,12 +979,13 @@ mod tests {
 
     #[test]
     fn set_pairing_rejects_duplicates_and_reports_only_membership_changes() {
-        let mut changes = Vec::new();
-        pair_set_relations(
-            &[relation(1, 0, 7), relation(1, 1, 8)],
-            &[relation(1, 0, 8), relation(1, 1, 9)],
-            &mut changes,
-        )
+        let changes = collect(|sink| {
+            pair_set_relations(
+                &mut [relation(1, 0, 7), relation(1, 1, 8)],
+                &mut [relation(1, 0, 8), relation(1, 1, 9)],
+                sink,
+            )
+        })
         .unwrap();
         assert_eq!(
             changes
@@ -892,7 +998,7 @@ mod tests {
             ]
         );
 
-        for (base, target, expected) in [
+        for (mut base, mut target, expected) in [
             (
                 vec![relation(1, 0, 7), relation(1, 1, 7)],
                 vec![],
@@ -905,7 +1011,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                pair_set_relations(&base, &target, &mut Vec::new()),
+                collect(|sink| pair_set_relations(&mut base, &mut target, sink)),
                 Err(expected)
             );
         }
@@ -919,8 +1025,7 @@ mod tests {
             (vec![relation(20, 0, 7)], vec![relation(20, 0, 7)], None),
             (vec![relation(20, 0, 7)], vec![relation(20, 0, 8)], Some(3)),
         ] {
-            let mut changes = Vec::new();
-            pair_scalar_relations(&base, &target, &mut changes).unwrap();
+            let changes = collect(|sink| pair_scalar_relations(&base, &target, sink)).unwrap();
             assert_eq!(
                 changes.first().map(|change| change.change_kind),
                 expected_kind
@@ -928,31 +1033,33 @@ mod tests {
             assert_eq!(changes.len(), usize::from(expected_kind.is_some()));
         }
         assert_eq!(
-            pair_scalar_relations(
+            collect(|sink| pair_scalar_relations(
                 &[relation(20, 0, 7), relation(20, 1, 8)],
                 &[],
-                &mut Vec::new()
-            ),
+                sink
+            )),
             Err(PortableEmissionError::DiffBaseSemanticMismatch)
         );
         assert_eq!(
-            pair_scalar_relations(
+            collect(|sink| pair_scalar_relations(
                 &[],
                 &[relation(20, 0, 7), relation(20, 1, 8)],
-                &mut Vec::new()
-            ),
+                sink
+            )),
             Err(PortableEmissionError::InternalBindingMismatch)
         );
     }
 
     #[test]
     fn domain_occurrence_pairing_closes_moves_and_unpaired_ranks() {
-        let mut changes = Vec::new();
-        pair_domain_relations(
-            &[relation(13, 0, 7), relation(13, 1, 8), relation(13, 2, 7)],
-            &[relation(13, 0, 8), relation(13, 1, 7), relation(13, 2, 8)],
-            &mut changes,
-        );
+        let changes = collect(|sink| {
+            pair_domain_relations(
+                &mut [relation(13, 0, 7), relation(13, 1, 8), relation(13, 2, 7)],
+                &mut [relation(13, 0, 8), relation(13, 1, 7), relation(13, 2, 8)],
+                sink,
+            )
+        })
+        .unwrap();
         assert_eq!(changes.len(), 4);
         assert_eq!(
             changes
@@ -986,19 +1093,29 @@ mod tests {
     #[test]
     fn relation_groups_reject_non_contiguous_local_indexes_before_pairing() {
         assert!(
-            group_relations(
-                vec![relation(13, 0, 7)],
+            check_group_local_indexes(
+                &[relation(13, 0, 7)],
                 PortableEmissionError::DiffBaseSemanticMismatch
             )
             .is_ok()
         );
         assert_eq!(
-            group_relations(
-                vec![relation(13, 1, 7)],
+            check_group_local_indexes(
+                &[relation(13, 1, 7)],
                 PortableEmissionError::DiffBaseSemanticMismatch,
             )
             .unwrap_err(),
             PortableEmissionError::DiffBaseSemanticMismatch
+        );
+        // 两侧各一组时，组内局部下标不连续的一侧在配对前被拒绝。
+        let mut changes = crate::portable_emitter::budget::test_pass().vec(4).unwrap();
+        assert_eq!(
+            artifact_relation_changes(
+                &mut [relation(13, 0, 7)],
+                &mut [relation(13, 1, 7)],
+                &mut changes,
+            ),
+            Err(PortableEmissionError::InternalBindingMismatch)
         );
     }
 }

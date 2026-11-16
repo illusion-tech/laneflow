@@ -16,7 +16,7 @@ fn generate(base: &[u8], target: &[u8]) -> OwnedObject {
     )
     .unwrap();
     let revision = network_revision(target, FormatLimits::HARD).unwrap();
-    build_artifact_lfsd(
+    build_artifact_lfsd_owned(
         base,
         revision,
         &close_object(target.into()),
@@ -105,7 +105,7 @@ fn policy_diff_add_remove_modify_and_genesis_include_every_member() {
         }
     }
     let output = crate::compiler::portable_fixture_tests::full_spatial_portable_fixture_output();
-    let genesis = build_genesis_lfsd(
+    let genesis = build_genesis_lfsd_owned(
         &output,
         network_revision(&base, FormatLimits::HARD).unwrap(),
         &close_object(base.clone()),
@@ -346,7 +346,7 @@ fn movement_add_remove_and_genesis_check_complete_direction_payloads() {
         })
         .collect();
     for (direction, artifact) in roots.iter().enumerate() {
-        let genesis = build_genesis_lfsd(
+        let genesis = build_genesis_lfsd_owned(
             &output,
             network_revision(artifact, FormatLimits::HARD).unwrap(),
             &close_object(artifact.clone()),
@@ -471,7 +471,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
         })
     ));
     assert!(matches!(
-        build_artifact_lfsd(
+        build_artifact_lfsd_owned(
             base_view,
             network_revision(&target, FormatLimits::HARD).unwrap(),
             &close_object(target.clone()),
