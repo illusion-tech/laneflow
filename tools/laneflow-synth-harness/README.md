@@ -159,6 +159,16 @@ backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
 开关写入 `manifest.json` 的 `load_sampling` 并参与运行身份，两种配置的计时不得
 合并统计。§7.4 阈值仍是初值，须在安静测量窗口校准后才能用于正式测量。
 
+正式 latency 矩阵按 §7.5 使用判定：`disturbed` 的 round 整轮废弃，原目录保留，
+随即采集一次进程快照写入该目录的 `process-snapshot.json`，再以同一配置、同一轮号
+在新进程中重跑，目录名加 `-retry1`、`-retry2`；不改变其余 round 的轮换顺序。
+每个（行，轮号）最多重跑 2 次，3 次都受扰、或判定为 `undeterminable` 时停止该行，
+其余行继续，矩阵结束后以失败退出并在 `summary.json` 的 `stopped_rows` 中报告，
+须由维护者决定。`summary.json` 的 `runs` 记录每次尝试的 `attempt`、`load` 与
+`round_status`，`discarded` 登记废弃原因（受标记段及其信号值）与快照摘要；聚合只
+使用 `accepted` 的 round。allocation 诊断构建与 `--no-load-sampling` 运行不按负载
+废弃。
+
 正常 release 构建不启用任何测量 feature。独立诊断构建启用 `allocation`，同时启用
 已有 execution-evidence 与 pose-profiling；诊断矩阵每行一个完整窗口，其耗时明确排除：
 

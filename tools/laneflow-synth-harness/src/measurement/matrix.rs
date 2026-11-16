@@ -170,7 +170,8 @@ pub fn matrix(
     let rounds = if cfg!(feature = "allocation") { 1 } else { 3 };
     let mut summary = json!({"format":"lf-synth-measurement-matrix-1","complete":false,"implementation_commit":implementation,
         "binary_sha256":hash(&fs::read(&binary)?),"instrumented":cfg!(feature="allocation"),"stretch_observation":stretch,
-        "load_sampling":load_sampling,"max_concurrent_measurements":1,"fresh_process_rounds":rounds,"execution_order":[],"runs":[],"aggregates":[],"errors":[]});
+        "load_sampling":load_sampling,"max_concurrent_measurements":1,"fresh_process_rounds":rounds,
+        "max_attempts_per_round":MAX_ATTEMPTS,"execution_order":[],"runs":[],"aggregates":[],"discarded":[],"stopped_rows":[],"errors":[]});
     write_json(&output.join("summary.json"), &summary)?;
     // 启动任何子进程前生成并核对测量前环境记录（host-observe.md §6）。
     let session = match crate::host::Session::begin(environment, implementation, output, false) {
@@ -190,106 +191,142 @@ pub fn matrix(
     };
     let before = crate::host::Session::before_path(output);
     let mut reports = vec![Vec::new(); rows.len()];
+    // §7.5：受扰 round 整轮废弃并以同一配置、同一轮号在新进程中立即重跑；
+    // allocation 诊断构建与关闭采样的运行不按负载废弃。
+    let apply_load = load_sampling && !cfg!(feature = "allocation");
+    let mut stopped = vec![false; rows.len()];
     for round in 1..=rounds {
         for offset in 0..rows.len() {
             let index = (offset + (round - 1) * 7) % rows.len();
             let row = &rows[index];
-            let label = format!("{}-r{round}", row.label());
-            let target = output.join(&label);
-            let log = File::create(output.join(format!("{label}.log")))?;
-            let mut command = vec![
-                "run".to_owned(),
-                input
-                    .join(format!("{}-a", row.input_label()))
-                    .display()
-                    .to_string(),
-                oracle.join(row.input_label()).display().to_string(),
-                implementation.to_owned(),
-                before.display().to_string(),
-                row.percent.to_string(),
-                round.to_string(),
-                target.display().to_string(),
-            ];
-            if !load_sampling {
-                command.push("--no-load-sampling".to_owned());
+            if stopped[index] {
+                continue;
             }
-            summary["execution_order"]
-                .as_array_mut()
-                .unwrap()
-                .push(json!({"label":label,"arguments":command}));
-            write_json(&output.join("summary.json"), &summary)?;
-            eprintln!(
-                "measurement {label} start ({}/{})",
-                summary["runs"].as_array().unwrap().len() + 1,
-                rows.len() * rounds
-            );
-            let started = std::time::Instant::now();
-            let mut child = crate::host::Observed::new(
-                Command::new(&binary)
-                    .args(&command)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(log)
-                    .spawn()?,
-            )?;
-            let status = loop {
-                if let Some(status) = child.poll()? {
-                    break status;
+            for attempt in 1..=MAX_ATTEMPTS {
+                let label = attempt_label(&row.label(), round, attempt);
+                let target = output.join(&label);
+                let log = File::create(output.join(format!("{label}.log")))?;
+                let mut command = vec![
+                    "run".to_owned(),
+                    input
+                        .join(format!("{}-a", row.input_label()))
+                        .display()
+                        .to_string(),
+                    oracle.join(row.input_label()).display().to_string(),
+                    implementation.to_owned(),
+                    before.display().to_string(),
+                    row.percent.to_string(),
+                    round.to_string(),
+                    target.display().to_string(),
+                ];
+                if !load_sampling {
+                    command.push("--no-load-sampling".to_owned());
                 }
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            };
-            let elapsed = started.elapsed().as_secs_f64();
-            let process = child.record();
-            if !status.success() {
-                summary["errors"].as_array_mut().unwrap().push(
-                    json!({"label":label,"exit":status.to_string(),"elapsed_s":elapsed,"process":process}),
-                );
+                summary["execution_order"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"label":label,"arguments":command}));
                 write_json(&output.join("summary.json"), &summary)?;
-                return Err(Error::Invalid(format!(
-                    "正式运行失败 {label}；停止矩阵，保留失败目录"
-                )));
+                eprintln!(
+                    "measurement {label} start ({}/{})",
+                    summary["runs"].as_array().unwrap().len() + 1,
+                    rows.len() * rounds
+                );
+                let started = std::time::Instant::now();
+                let mut child = crate::host::Observed::new(
+                    Command::new(&binary)
+                        .args(&command)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(log)
+                        .spawn()?,
+                )?;
+                let status = loop {
+                    if let Some(status) = child.poll()? {
+                        break status;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                };
+                let elapsed = started.elapsed().as_secs_f64();
+                let process = child.record();
+                if !status.success() {
+                    summary["errors"].as_array_mut().unwrap().push(
+                        json!({"label":label,"exit":status.to_string(),"elapsed_s":elapsed,"process":process}),
+                    );
+                    write_json(&output.join("summary.json"), &summary)?;
+                    return Err(Error::Invalid(format!(
+                        "正式运行失败 {label}；停止矩阵，保留失败目录"
+                    )));
+                }
+                let report: Value = serde_json::from_slice(&fs::read(target.join("report.json"))?)?;
+                require(
+                    report["complete"] == true
+                        && report["identity"]["scale"] == row.scale
+                        && crate::scenario_label(&report["identity"]) == row.case
+                        && report["identity"]["fixed_delta_ms"] == row.dt
+                        && report["presentation_percent"] == row.percent
+                        && report["round"] == round
+                        && report["implementation_commit"] == implementation
+                        && report["instrumented"] == cfg!(feature = "allocation")
+                        && report["manifest"]["load_sampling"] == load_sampling
+                        && report["load"]["sampling"] == load_sampling
+                        && report["manifest"]["binary_sha256"] == summary["binary_sha256"],
+                    || format!("子进程回执身份不符 {label}"),
+                )?;
+                let decision = decide(&report, apply_load, attempt);
+                let capacity = read_capacity_high_water(&output.join(format!("{label}.log")))?;
+                let resources: Value =
+                    serde_json::from_slice(&fs::read(target.join("resources.json"))?)?;
+                let self_reported: Vec<&Value> = resources
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|entry| &entry["process"])
+                    .chain(std::iter::once(&report["final_process"]))
+                    .collect();
+                let self_report_check = crate::host::self_report_check(
+                    &self_reported,
+                    process["summary"]["sampled_peak_resident_bytes"].as_u64(),
+                );
+                summary["runs"].as_array_mut().unwrap().push(json!({"label":label,"elapsed_s":elapsed,
+                    "report_sha256":hash(&fs::read(target.join("report.json"))?),"statistics":report["statistics"],"capacity_high_water":capacity,
+                    "process":process,"self_report_check":self_report_check,
+                    "round":round,"attempt":attempt,"load":report["load"],"round_status":decision.status()}));
+                match decision {
+                    Decision::Accept => {
+                        if let Some(previous) = reports[index].first() {
+                            same_semantics(previous, &report)?;
+                        }
+                        reports[index].push(report);
+                        if reports[index].len() == rounds {
+                            summary["aggregates"].as_array_mut().unwrap().push(json!({"row":row.label(),"rounds":rounds,
+                                "statistics":aggregate(&reports[index])?,"semantics_equal_across_rounds":true}));
+                        }
+                    }
+                    Decision::Retry | Decision::StopRow(_) => {
+                        if decision.disturbed() {
+                            // 受扰 round 结束后、下一个 round 开始前采集一次进程快照，写入该 round 目录。
+                            let snapshot = capture_snapshot(&target);
+                            summary["discarded"].as_array_mut().unwrap().push(json!({"label":label,"row":row.label(),
+                                "round":round,"attempt":attempt,"flagged_segments":report["load"]["flagged_segments"],
+                                "process_snapshot":snapshot}));
+                        }
+                        if let Decision::StopRow(reason) = decision {
+                            stopped[index] = true;
+                            summary["stopped_rows"].as_array_mut().unwrap().push(json!({"row":row.label(),
+                                "round":round,"attempt":attempt,"reason":reason,"load":report["load"]}));
+                        }
+                    }
+                }
+                write_json(&output.join("summary.json"), &summary)?;
+                eprintln!(
+                    "measurement {label} complete {elapsed:.1}s ({})",
+                    decision.status()
+                );
+                if !matches!(decision, Decision::Retry) {
+                    break;
+                }
             }
-            let report: Value = serde_json::from_slice(&fs::read(target.join("report.json"))?)?;
-            require(
-                report["complete"] == true
-                    && report["identity"]["scale"] == row.scale
-                    && crate::scenario_label(&report["identity"]) == row.case
-                    && report["identity"]["fixed_delta_ms"] == row.dt
-                    && report["presentation_percent"] == row.percent
-                    && report["round"] == round
-                    && report["implementation_commit"] == implementation
-                    && report["instrumented"] == cfg!(feature = "allocation")
-                    && report["manifest"]["load_sampling"] == load_sampling
-                    && report["manifest"]["binary_sha256"] == summary["binary_sha256"],
-                || format!("子进程回执身份不符 {label}"),
-            )?;
-            if let Some(previous) = reports[index].first() {
-                same_semantics(previous, &report)?;
-            }
-            let capacity = read_capacity_high_water(&output.join(format!("{label}.log")))?;
-            let resources: Value =
-                serde_json::from_slice(&fs::read(target.join("resources.json"))?)?;
-            let self_reported: Vec<&Value> = resources
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|entry| &entry["process"])
-                .chain(std::iter::once(&report["final_process"]))
-                .collect();
-            let self_report_check = crate::host::self_report_check(
-                &self_reported,
-                process["summary"]["sampled_peak_resident_bytes"].as_u64(),
-            );
-            summary["runs"].as_array_mut().unwrap().push(json!({"label":label,"elapsed_s":elapsed,
-                "report_sha256":hash(&fs::read(target.join("report.json"))?),"statistics":report["statistics"],"capacity_high_water":capacity,
-                "process":process,"self_report_check":self_report_check}));
-            reports[index].push(report);
-            if reports[index].len() == rounds {
-                summary["aggregates"].as_array_mut().unwrap().push(json!({"row":row.label(),"rounds":rounds,
-                    "statistics":aggregate(&reports[index])?,"semantics_equal_across_rounds":true}));
-            }
-            write_json(&output.join("summary.json"), &summary)?;
-            eprintln!("measurement {label} complete {elapsed:.1}s");
         }
     }
     match session.finish(output) {
@@ -303,8 +340,92 @@ pub fn matrix(
             return Err(error);
         }
     }
+    if stopped.contains(&true) {
+        let stopped_rows = summary["stopped_rows"].clone();
+        summary["errors"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "stopped_rows": stopped_rows }));
+        write_json(&output.join("summary.json"), &summary)?;
+        return Err(Error::Invalid(
+            "有行因受扰或无法判定而停止，须报告维护者；见 summary.json 的 stopped_rows".into(),
+        ));
+    }
     summary["complete"] = json!(true);
     write_json(&output.join("summary.json"), &summary)
+}
+
+/// 每个（行，轮号）最多尝试次数：首次加 2 次重跑（§7.5）。
+const MAX_ATTEMPTS: u8 = 3;
+
+/// 尝试目录名：首次沿用原标签，重跑加 `-retryN`，废弃的目录原样保留。
+fn attempt_label(row: &str, round: usize, attempt: u8) -> String {
+    if attempt == 1 {
+        format!("{row}-r{round}")
+    } else {
+        format!("{row}-r{round}-retry{}", attempt - 1)
+    }
+}
+
+/// 依据子进程负载判定决定本次尝试的去向（§7.4/§7.5）；只读 `load`，不读计时。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Decision {
+    /// 进入聚合。
+    Accept,
+    /// 受扰，废弃并重跑。
+    Retry,
+    /// 停止该行并报告维护者。
+    StopRow(&'static str),
+}
+
+/// 3 次尝试都受扰时停止该行的原因。
+const DISTURBED_ON_EVERY_ATTEMPT: &str = "disturbed_on_every_attempt";
+
+impl Decision {
+    /// 本次尝试受扰（废弃重跑或第 3 次仍受扰）。
+    fn disturbed(self) -> bool {
+        matches!(
+            self,
+            Self::Retry | Self::StopRow(DISTURBED_ON_EVERY_ATTEMPT)
+        )
+    }
+
+    fn status(self) -> &'static str {
+        match self {
+            Self::Accept => "accepted",
+            Self::Retry => "discarded",
+            Self::StopRow(_) => "stopped",
+        }
+    }
+}
+
+fn decide(report: &Value, apply_load: bool, attempt: u8) -> Decision {
+    if !apply_load {
+        return Decision::Accept;
+    }
+    match report["load"]["judgment"].as_str() {
+        Some("undisturbed") => Decision::Accept,
+        Some("disturbed") if attempt < MAX_ATTEMPTS => Decision::Retry,
+        Some("disturbed") => Decision::StopRow(DISTURBED_ON_EVERY_ATTEMPT),
+        Some("undeterminable") => Decision::StopRow("undeterminable"),
+        _ => Decision::StopRow("load_judgment_missing"),
+    }
+}
+
+/// 采集一次进程快照写入 round 目录；失败如实记录，不中断矩阵。
+fn capture_snapshot(target: &Path) -> Value {
+    let path = target.join("process-snapshot.json");
+    let result =
+        laneflow_host_observe::snapshot::capture(laneflow_host_observe::snapshot::DEFAULT_INTERVAL)
+            .map_err(Error::from)
+            .and_then(|snapshot| {
+                write_json(&path, &json!(snapshot))?;
+                Ok(hash(&fs::read(&path)?))
+            });
+    match result {
+        Ok(sha256) => json!({"file":"process-snapshot.json","sha256":sha256}),
+        Err(error) => json!({"error":error.to_string()}),
+    }
 }
 
 fn same_semantics(a: &Value, b: &Value) -> Result<(), Error> {
@@ -413,6 +534,39 @@ fn read_capacity_high_water(path: &Path) -> Result<Value, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// §7.5：受扰最多重跑 2 次，第 3 次仍受扰时停止该行；无法判定或缺少判定时
+    /// 停止该行，不按未受扰处理；不应用负载判定时一律进入聚合。
+    #[test]
+    fn load_judgment_drives_discard_retry_and_stop() {
+        let report = |judgment: Value| json!({"load":{"judgment":judgment}});
+        let disturbed = report(json!("disturbed"));
+        assert_eq!(
+            decide(&report(json!("undisturbed")), true, 1),
+            Decision::Accept
+        );
+        assert_eq!(decide(&disturbed, true, 1), Decision::Retry);
+        assert_eq!(decide(&disturbed, true, 2), Decision::Retry);
+        assert_eq!(
+            decide(&disturbed, true, 3),
+            Decision::StopRow("disturbed_on_every_attempt")
+        );
+        assert_eq!(
+            decide(&report(json!("undeterminable")), true, 1),
+            Decision::StopRow("undeterminable")
+        );
+        assert_eq!(
+            decide(&report(Value::Null), true, 1),
+            Decision::StopRow("load_judgment_missing")
+        );
+        assert_eq!(decide(&disturbed, false, 1), Decision::Accept);
+        assert_eq!(attempt_label("10000-W1-16-p1", 2, 1), "10000-W1-16-p1-r2");
+        assert_eq!(
+            attempt_label("10000-W1-16-p1", 2, 3),
+            "10000-W1-16-p1-r2-retry2"
+        );
+    }
+
     #[test]
     fn nominal_rows_and_round_rotation_cover_exactly_twenty_configs() {
         let nominal = rows(false);
