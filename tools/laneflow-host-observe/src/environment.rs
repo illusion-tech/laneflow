@@ -833,7 +833,7 @@ pub fn repository_root(directory: &Path) -> io::Result<PathBuf> {
     command::output("git", &["rev-parse", "--show-toplevel"], Some(directory)).map(PathBuf::from)
 }
 
-fn source(repository: &Path) -> io::Result<Source> {
+pub(crate) fn source(repository: &Path) -> io::Result<Source> {
     let top = command::output("git", &["rev-parse", "--show-toplevel"], Some(repository))?;
     let top_path = Path::new(&top);
     // --work-tree 压住仓库本地 config 的 core.worktree：读取锚定到该 checkout。

@@ -17,6 +17,7 @@ use crate::{
 };
 
 const HELPER: &str = "LANEFLOW_HOST_OBSERVE_HELPER";
+const SOURCE_DIRECTORY: &str = "LANEFLOW_HOST_OBSERVE_SOURCE_DIRECTORY";
 
 fn manual() -> ManualFields {
     ManualFields {
@@ -490,6 +491,11 @@ fn helper(mode: &str) -> Command {
 fn helper_process() {
     match std::env::var(HELPER).as_deref() {
         Ok("exit3") => std::process::exit(3),
+        Ok("source") => {
+            let directory = std::env::var_os(SOURCE_DIRECTORY).unwrap();
+            let source = environment::source(Path::new(&directory)).unwrap();
+            println!("source commit={} clean={}", source.commit, source.clean);
+        }
         Ok("sleep") => thread::sleep(Duration::from_secs(60)),
         Ok("spawn") => {
             let mut grandchild = helper("sleep").spawn().unwrap();
@@ -582,4 +588,86 @@ fn process_group_tracks_descendants_and_terminates_by_identity() {
                 && process.status() != sysinfo::ProcessStatus::Zombie
         });
     assert!(!alive, "孙进程未被终止");
+}
+
+#[test]
+fn git_commands_drop_inherited_git_overrides() {
+    let mut command = Command::new("git");
+    crate::command::sanitize_git_environment(
+        &mut command,
+        ["GIT_DIR", "git_work_tree", "XDG_CONFIG_HOME", "PATH"].map(Into::into),
+    );
+    let envs: Vec<(String, Option<String>)> = command
+        .get_envs()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().to_ascii_uppercase(),
+                value.map(|value| value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect();
+    for removed in ["GIT_DIR", "GIT_WORK_TREE", "XDG_CONFIG_HOME"] {
+        assert!(
+            envs.contains(&(removed.to_owned(), None)),
+            "{removed} 未被移除：{envs:?}"
+        );
+    }
+    assert!(envs.contains(&("GIT_NO_REPLACE_OBJECTS".to_owned(), Some("1".to_owned()))));
+    assert!(!envs.iter().any(|(key, _)| key == "PATH"));
+}
+
+fn git(repository: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args([
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+        ])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(repository)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// 继承的 `GIT_DIR`、`GIT_WORK_TREE` 指向另一个干净克隆时，源码状态仍取自给定
+/// 目录所在的 checkout：不干净的工作树不能借此通过核对。
+#[test]
+fn source_state_ignores_inherited_git_directory_overrides() {
+    let root = tempfile::tempdir().unwrap();
+    let clean = root.path().join("clean");
+    let dirty = root.path().join("dirty");
+    for repository in [&clean, &dirty] {
+        std::fs::create_dir(repository).unwrap();
+        git(repository, &["init", "-q"]);
+        git(
+            repository,
+            &["commit", "-q", "--allow-empty", "-m", "fixture"],
+        );
+    }
+    std::fs::write(dirty.join("untracked.txt"), b"x").unwrap();
+    let dirty_commit = git(&dirty, &["rev-parse", "HEAD"]);
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "tests::helper_process",
+            "--nocapture",
+        ])
+        .env(HELPER, "source")
+        .env(SOURCE_DIRECTORY, &dirty)
+        .env("GIT_DIR", clean.join(".git"))
+        .env("GIT_WORK_TREE", &clean)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&format!("source commit={dirty_commit} clean=false")),
+        "{stdout}"
+    );
 }

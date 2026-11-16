@@ -2580,6 +2580,39 @@ mod tests {
         );
     }
 
+    /// #1392：证据入口与正式测量使用同一就绪核对；P100 角色缺少参考机声明或
+    /// 指纹不符时拒绝，非 P100 角色不读取参考机声明。
+    #[cfg(feature = "adapter")]
+    #[test]
+    fn evidence_summary_requires_p100_reference_fingerprint() {
+        let root = tempfile::tempdir().unwrap();
+        let mut measurement = measurement_fixture();
+        let uncertified = environment_fixture(&measurement, Phase::Before);
+        crate::environment::ready_summary(&uncertified, root.path()).unwrap();
+        measurement["hardware_role"] = json!("P100");
+        let p100 = environment_fixture(&measurement, Phase::Before);
+        assert!(crate::environment::ready_summary(&p100, root.path()).is_err());
+        let declaration = root
+            .path()
+            .join(laneflow_host_observe::environment::REFERENCE_MACHINE_PATH);
+        fs::create_dir_all(declaration.parent().unwrap()).unwrap();
+        for (sha256, accepted) in [("f".repeat(64), false), ("e".repeat(64), true)] {
+            fs::write(
+                &declaration,
+                json!({
+                    "hardwareIdentityScheme":laneflow_host_observe::environment::FINGERPRINT_SCHEME,
+                    "hardwareIdentitySha256":sha256,
+                })
+                .to_string(),
+            )
+            .unwrap();
+            assert_eq!(
+                crate::environment::ready_summary(&p100, root.path()).is_ok(),
+                accepted
+            );
+        }
+    }
+
     /// #1392：正式运行的两份环境记录逐次核对；摘要已重算时，拒绝必须来自记录内容：
     /// 前后不一致、未证明干净检出、阶段错误或与测量来源不符。
     #[test]
