@@ -817,11 +817,12 @@ pub(crate) fn contains_cfg_attr_token(code: &str) -> bool {
     contains_bare_token(code, "cfg_attr")
 }
 
-/// 识别 macro_rules 转写器里的元变量调用（`$m!`，其间可夹 trivia）：宏
-/// 调用名被元变量间接后，`include!` 等源码加载指令可藏出文本扫描。
-/// forbid 成员的 `macro_rules!` 本身合法，禁令只落在元变量调用位置。
-/// `$crate`（后跟 `::`）、重复结构 `$( ... )*`、元变量类型标注
-/// `$x:expr` 均不匹配。输入应为 strip 后的代码文本（字面量已剥除）。
+/// 识别 macro_rules 转写器里的元变量调用（`$m!`，其间可夹 trivia）。现仅
+/// 服务于受审计 os-probe 源码的专项检查（`check_audited_probe_source`）：
+/// 该合同把宏调用名间接化本身列为禁项。普通 forbid 成员不再调用——正常
+/// 安全回调合法，危险标识符按裸名检查（#1430）。`$crate`（后跟 `::`）、
+/// 重复结构 `$( ... )*`、元变量类型标注 `$x:expr` 均不匹配。输入应为
+/// strip 后的代码文本（字面量已剥除）。
 pub(crate) fn contains_metavariable_invocation(code: &str) -> bool {
     let bytes = code.as_bytes();
     let mut index = 0;
@@ -853,6 +854,17 @@ pub(crate) fn contains_metavariable_invocation(code: &str) -> bool {
 /// 留下该标识符。`include_str!` / `include_bytes!` 是不同标识符，不受影响。
 pub(crate) fn contains_include_identifier(code: &str) -> bool {
     contains_bare_token(code, "include")
+}
+
+/// 识别 strip 后代码中的裸 `global_asm` 标识符（任意上下文）。forbid 成员
+/// 禁绝该标识符：`global_asm!` 不要求 unsafe 块，活动分支由 hermetic
+/// `-F unsafe_code` 编译拒绝，非活动 cfg 分支不进当前编译单元，只能由
+/// 文本层覆盖；直接调用、限定路径（`core::arch::global_asm!`）、别名导入
+/// 与本地回调传参（`load!(global_asm, ...)`）都必然在源码中留下该标识符。
+/// 宏展开无法拼出新标识符，裸标识符检查即闭合本地间接形态；外部依赖宏
+/// 归既有残余信任边界。
+pub(crate) fn contains_global_asm_identifier(code: &str) -> bool {
+    contains_bare_token(code, "global_asm")
 }
 
 /// 经 `cargo metadata --no-deps --locked` 列出 workspace 全部成员的 manifest 路径。
@@ -1832,7 +1844,7 @@ mod tests {
 
     #[test]
     fn metavariable_invocation_detection_respects_macro_grammar() {
-        // `$m!`（含 trivia 变体）是元变量调用：可把宏调用名间接化。
+        // `$m!`（含 trivia 变体）是元变量调用：os-probe 专项审计的禁项。
         assert!(contains_metavariable_invocation(
             "macro_rules! load { ($m:ident) => { $m!(\"p.txt\"); } }"
         ));
@@ -1861,6 +1873,10 @@ mod tests {
         assert!(contains_include_identifier(
             "macro_rules! load { ($m:ident, $b:tt, $p:literal) => { $m $b ($p) } }\nload!(include, !, \"p.txt\");"
         ));
+        // raw 标识符与限定路径形态：`#` 与 `:` 都不是标识符字符，裸标识符
+        // 检查天然覆盖。
+        assert!(contains_include_identifier("r#include!(\"p.rs\");"));
+        assert!(contains_include_identifier("core::include!(\"p.rs\");"));
         // 数据加载宏是不同标识符，不受影响。
         assert!(!contains_include_identifier(
             "const D: &[u8] = include_bytes!(\"d.bin\");"
@@ -1871,5 +1887,31 @@ mod tests {
         // 标识符边界：后缀/前缀粘连不匹配。
         assert!(!contains_include_identifier("let my_include = 1;"));
         assert!(!contains_include_identifier("fn include_data() {}"));
+    }
+
+    #[test]
+    fn global_asm_identifier_detection_covers_indirect_forms() {
+        // 直接调用与限定路径、别名导入。
+        assert!(contains_global_asm_identifier("global_asm!(\".nop\");"));
+        assert!(contains_global_asm_identifier(
+            "#[cfg(windows)]\ncore::arch::global_asm!(\"\");"
+        ));
+        assert!(contains_global_asm_identifier(
+            "use core::arch::global_asm;"
+        ));
+        // 本地回调传参形态：`global_asm` 在调用点字面出现。
+        assert!(contains_global_asm_identifier(
+            "macro_rules! call { ($m:ident, $p:literal) => { $m!($p) } }\ncall!(global_asm, \"\");"
+        ));
+        // raw 标识符与限定路径中的裸名：`#` 与 `:` 不是标识符字符。
+        assert!(contains_global_asm_identifier("r#global_asm!(\"\");"));
+        assert!(contains_global_asm_identifier("core::arch::global_asm {}"));
+        // 标识符边界：后缀/前缀粘连不匹配。
+        assert!(!contains_global_asm_identifier(
+            "fn my_global_asm_stub() {}"
+        ));
+        assert!(!contains_global_asm_identifier(
+            "const G: u8 = global_asm_len;"
+        ));
     }
 }

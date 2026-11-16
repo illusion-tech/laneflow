@@ -60,9 +60,12 @@
 //!    标识符，故直接调用与元变量碎片拼装形态（宏体 `include $b ($p)`、
 //!    调用点 `load!(include, !, ...)` 传参）都必然在源码中留下该标识符；
 //!    `include_str!`/`include_bytes!` 是不同标识符，不受影响。path 属性
-//!    （含 cfg_attr 包裹形态）目标必须是以 .rs 结尾的包内相对路径，且禁止
-//!    元变量调用 `$m!`（宏调用名间接化可把源码加载指令藏出文本扫描，
-//!    payload 再经 cfg 门控避开单平台 hermetic 编译）。forbid 成员（及根
+//!    （含 cfg_attr 包裹形态）目标必须是以 .rs 结尾的包内相对路径。裸
+//!    `global_asm` 标识符同禁：`global_asm!` 不要求 unsafe 块，活动分支由
+//!    hermetic `-F unsafe_code` 编译拒绝，非活动 cfg 分支不进当前编译
+//!    单元，只能由本文本层拒绝；直接调用、限定路径、别名导入与本地回调
+//!    传参都在源码中留下该标识符。正常宏回调（`$m!` 转写）不受限——危险
+//!    标识符按名检查，不再禁调用名间接化本身。forbid 成员（及根
 //!    manifest `[workspace.dependencies]` 表）的 path 依赖只能指向
 //!    workspace 成员 package 目录：仓库内 workspace 外 package（如 exclude
 //!    的 fuzz/ 树）不经 `cargo metadata --no-deps` 显形，其
@@ -259,7 +262,7 @@ pub(crate) fn run() -> Result<(), String> {
     check_tool_only_consumers(&repository_root)?;
     check_workspace_unsafe_boundary(&repository_root)?;
     println!(
-        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），os-probe 例外闭合（manifest 形状与依赖钉版、源文件清单、5 处登记 unsafe 表达式），os-probe 与 host-observe 不得被生产 crate 引用，workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs、元变量调用 `$m!` 禁绝），forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
+        "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），os-probe 例外闭合（manifest 形状与依赖钉版、源文件清单、5 处登记 unsafe 表达式），os-probe 与 host-observe 不得被生产 crate 引用，workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs）且裸 global_asm 标识符禁绝，forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
     Ok(())
 }
@@ -1453,6 +1456,12 @@ fn run_workspace_unsafe_boundary(repository_root: &Path, audit_root: &Path) -> R
 /// 全集就是本扫描的 .rs 全集。检测经词法感知 walker
 /// （`schema_codegen::check_path_attribute_values`），注释与字面量里的
 /// 字样不触发误判。
+///
+/// 裸 `global_asm` 标识符同禁：`global_asm!` 不要求 unsafe 块，活动分支由
+/// hermetic `-F unsafe_code` 编译拒绝，非活动 cfg 分支不进当前编译单元，
+/// 单平台编译抓不住，只能由本文本层拒绝；直接调用、限定路径、别名导入与
+/// 本地回调传参都必然在源码中留下该标识符。正常宏回调（`$m!` 转写）合法，
+/// 危险标识符按名检查。
 fn check_forbid_textual_boundary(
     members: &[MemberPackage],
     classified: &[(String, UnsafeLevel)],
@@ -1499,12 +1508,9 @@ fn check_forbid_textual_boundary(
                     source.display()
                 ));
             }
-            // 元变量调用（`$m!`）可把宏调用名间接化，让 include! 等加载指令
-            // 藏出文本扫描（payload 再经 cfg 门控避开单平台 hermetic 编译）。
-            // macro_rules 本身合法，禁令只落在元变量调用位置。
-            if schema_codegen::contains_metavariable_invocation(&code) {
+            if schema_codegen::contains_global_asm_identifier(&code) {
                 return Err(format!(
-                    "forbid 成员 `{}` 的源文件含元变量调用 `$...!` 形态（可把 include! 等源码加载指令间接化藏出文本扫描）：`{}`",
+                    "forbid 成员 `{}` 的源文件含裸 `global_asm` 标识符（`global_asm!` 无需 unsafe 块，非活动 cfg 分支不进编译单元；直接调用、限定路径、别名导入与本地回调传参形态一并禁绝）：`{}`",
                     member.name,
                     source.display()
                 ));
@@ -2558,7 +2564,7 @@ mod tests {
     }
 
     #[test]
-    fn forbid_textual_boundary_rejects_include_and_escaping_path() {
+    fn forbid_textual_boundary_covers_include_global_asm_and_safe_callbacks() {
         let root = std::env::temp_dir().join(format!(
             "laneflow-wire-audit-source-loading-{}",
             std::process::id()
@@ -2605,18 +2611,60 @@ mod tests {
         )
         .unwrap();
         check_forbid_textual_boundary(&members, &classified).unwrap();
-        // 元变量调用（`$m!`）可把宏调用名间接化藏出文本扫描（payload 再经
-        // cfg 门控避开单平台 hermetic 编译）：拒绝。固件用 `env` 占位，避免
-        // 与裸 include 标识符禁令的报错分支重叠。
+        // 正常安全回调（`$m!` 转写，ident 与 path 片段）放行：危险标识符按
+        // 裸名检查，调用名间接化本身不再禁止。固件与可独立编译的安全示例
+        // 同构（call!(stringify)）。
         fs::write(
             root.join("src/lib.rs"),
-            "macro_rules! load { ($m:ident, $p:literal) => { #[cfg(windows)] $m!($p); } }\nload!(env, \"payload.txt\");\n",
+            "macro_rules! call { ($m:ident) => { $m!(hello) } }\npub const TEXT: &str = call!(stringify);\nmacro_rules! call_path { ($m:path) => { $m!(hello) } }\npub const PATH_TEXT: &str = call_path!(stringify);\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
+        // 同类回调本地传入 include：调用点字面出现该标识符，仍由裸
+        // include 分支拒绝（此前该形态由 `$m!` 分支拒绝，禁令删除后边界
+        // 落到裸标识符检查上）。
+        fs::write(
+            root.join("src/lib.rs"),
+            "macro_rules! call { ($m:ident, $p:literal) => { $m!($p) } }\ncall!(include, \"payload.rs\");\n",
         )
         .unwrap();
         let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
-        assert!(error.contains("元变量"), "{error}");
-        // 标点元变量拼装逃逸 `$m!` 检测（`$b:tt` 承接 `!`），但宏体内的
-        // 裸 `include` 标识符必然以字面出现：被裸标识符禁令捕获。
+        assert!(error.contains("裸 `include` 标识符"), "{error}");
+        // 裸 `global_asm` 标识符禁绝：`global_asm!` 无需 unsafe 块，非活动
+        // cfg 分支不进当前编译单元、单平台 hermetic 编译抓不住，只能由文本
+        // 层拒绝。限定路径形态（直接调用同构，不单列）。
+        fs::write(
+            root.join("src/lib.rs"),
+            "#[cfg(windows)]\ncore::arch::global_asm!(\"\");\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("裸 `global_asm` 标识符"), "{error}");
+        // 别名导入形态。
+        fs::write(
+            root.join("src/lib.rs"),
+            "#[cfg(windows)]\nuse core::arch::global_asm;\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("裸 `global_asm` 标识符"), "{error}");
+        // 本地回调传参形态：调用点字面出现该标识符。
+        fs::write(
+            root.join("src/lib.rs"),
+            "macro_rules! call { ($m:ident, $p:literal) => { #[cfg(windows)] $m!($p); } }\ncall!(global_asm, \"\");\n",
+        )
+        .unwrap();
+        let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
+        assert!(error.contains("裸 `global_asm` 标识符"), "{error}");
+        // 注释与字符串字面量里的字样放行；更长标识符的粘连不匹配。
+        fs::write(
+            root.join("src/lib.rs"),
+            "// global_asm!(\"evil\")\nconst NOTE: &str = \"global_asm\";\nfn my_global_asm_stub() {}\n",
+        )
+        .unwrap();
+        check_forbid_textual_boundary(&members, &classified).unwrap();
+        // 标点元变量拼装（`$b:tt` 承接 `!`），但宏体内的裸 `include`
+        // 标识符必然以字面出现：被裸标识符禁令捕获。
         fs::write(
             root.join("src/lib.rs"),
             "macro_rules! load { ($b:tt, $p:literal) => { include $b ($p) } }\nload!(!, \"payload.txt\");\n",
@@ -2633,8 +2681,7 @@ mod tests {
         .unwrap();
         let error = check_forbid_textual_boundary(&members, &classified).unwrap_err();
         assert!(error.contains("裸 `include` 标识符"), "{error}");
-        // 无元变量调用的普通宏定义是合法用法（$crate、$x:expr、重复结构均
-        // 不匹配）：放行。
+        // 普通宏定义（$crate、$x:expr、重复结构）是合法用法：放行。
         fs::write(
             root.join("src/lib.rs"),
             "macro_rules! double { ($x:expr) => { $x + $x } }\nmacro_rules! reexport { () => { $crate::helper!() } }\nfn f() { double!(1); }\n",
