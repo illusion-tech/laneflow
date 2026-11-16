@@ -388,7 +388,11 @@ fn policy_reference_fixture_matches_frozen_bytes() {
     }
     let expected =
         include_bytes!("../../../../tests/fixtures/portable/lfca-policy-references/expected.lfca");
-    assert_eq!(bytes.as_ref(), expected);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        bytes.as_ref(),
+        expected,
+        "lfca-policy-references/expected.lfca（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(bytes.len(), 32_066);
     assert_eq!(
         object_key(sha256(&bytes)).as_ref(),

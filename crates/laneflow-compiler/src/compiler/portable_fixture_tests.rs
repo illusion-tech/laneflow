@@ -802,14 +802,14 @@ fn dump_portable_full_spatial_when_requested() {
 #[test]
 fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     let candidate = full_spatial_portable_fixture_candidate();
-    assert_eq!(
+    assert_full_spatial_lfca(
         candidate.canonical_artifact().bytes(),
-        FULL_SPATIAL_EXPECTED_LFCA
+        FULL_SPATIAL_EXPECTED_LFCA,
     );
-    assert_eq!(candidate.source_map().bytes(), FULL_SPATIAL_EXPECTED_LFSM);
-    assert_eq!(
+    assert_full_spatial_lfsm(candidate.source_map().bytes(), FULL_SPATIAL_EXPECTED_LFSM);
+    assert_full_spatial_lfsd(
         candidate.semantic_diff().bytes(),
-        FULL_SPATIAL_EXPECTED_LFSD
+        FULL_SPATIAL_EXPECTED_LFSD,
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
@@ -1164,18 +1164,153 @@ fn runtime_full_spatial_policy_fixture_is_reproducible() {
         )
         .unwrap();
     } else {
-        assert!(
-            bytes == std::fs::read(&path).unwrap(),
-            "runtime LFCA is stale"
+        laneflow_artifact_inspect::assert_portable_object_matches!(
+            bytes,
+            &std::fs::read(&path).unwrap(),
+            "lfca-world-policies/full-spatial.lfca（DUMP_W3_POLICY 重生成）"
         );
-        assert!(
-            candidate.source_map().bytes() == std::fs::read(path.with_extension("lfsm")).unwrap(),
-            "runtime LFSM is stale"
+        laneflow_artifact_inspect::assert_portable_object_matches!(
+            candidate.source_map().bytes(),
+            &std::fs::read(path.with_extension("lfsm")).unwrap(),
+            "lfca-world-policies/full-spatial.lfsm（DUMP_W3_POLICY 重生成）"
         );
+        laneflow_artifact_inspect::assert_portable_object_matches!(
+            candidate.semantic_diff().bytes(),
+            &std::fs::read(path.with_extension("lfsd")).unwrap(),
+            "lfca-world-policies/full-spatial.lfsd（DUMP_W3_POLICY 重生成）"
+        );
+    }
+}
+
+#[track_caller]
+fn assert_full_spatial_lfca(actual: &[u8], expected: &[u8]) {
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        actual,
+        expected,
+        "lfca-full-spatial/expected.lfca（DUMP_PORTABLE 重生成）"
+    );
+}
+
+#[track_caller]
+fn assert_full_spatial_lfsm(actual: &[u8], expected: &[u8]) {
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        actual,
+        expected,
+        "lfca-full-spatial/expected.lfsm（DUMP_PORTABLE 重生成）"
+    );
+}
+
+#[track_caller]
+fn assert_full_spatial_lfsd(actual: &[u8], expected: &[u8]) {
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        actual,
+        expected,
+        "lfca-full-spatial/expected.lfsd（DUMP_PORTABLE 重生成）"
+    );
+}
+
+#[test]
+fn artifact_inspect_diff_locates_source_location_start_line_drift() {
+    // #1421/#1424 回归：SyntheticModuleBuilder 的 #[track_caller] 声明把 Rust
+    // 调用点行列记入来源位置。两份对象经正式编码路径生成且均通过预检，仅
+    // add_lane_edge 的调用行不同；diff 必须定位到
+    // SourceModules.SourceLocation[…].startLine，且 expected/旧 → actual/新
+    // 方向正确。不更新任何检入 fixture。
+    fn module_with_edge_at_upper_line() -> SyntheticModule {
+        let mut builder = portable_fixture_builder("city/drift-e2e", "drift-e2e.document");
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "root",
+                length_meters: 1.0,
+                speed_limit_meters_per_second: 1.0,
+                successors: &[],
+            })
+            .unwrap();
+        builder.finish().unwrap()
+    }
+    fn module_with_edge_at_lower_line() -> SyntheticModule {
+        // 与上者逐项同构；多出的注释行使 add_lane_edge 调用行下移，来源位置
+        // 随之平移且区间关系保持合法。
+        //
+        //
+        let mut builder = portable_fixture_builder("city/drift-e2e", "drift-e2e.document");
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "root",
+                length_meters: 1.0,
+                speed_limit_meters_per_second: 1.0,
+                successors: &[],
+            })
+            .unwrap();
+        builder.finish().unwrap()
+    }
+    let emit_candidate = |module: SyntheticModule| {
+        let output = Compiler::new().compile(unit([module])).unwrap();
+        crate::emit_portable_candidate(
+            &output,
+            &crate::PortableEmissionProvenance::try_new("drift-e2e").unwrap(),
+            laneflow_format::FormatLimits::HARD,
+            crate::PortableDiffBase::Genesis,
+        )
+        .unwrap()
+    };
+    let old = emit_candidate(module_with_edge_at_upper_line());
+    let new = emit_candidate(module_with_edge_at_lower_line());
+    // 来源位置平移会同时渗入声明派生摘要与 LFSM 来源表；两份对象均通过预检。
+    assert_ne!(old.source_map().bytes(), new.source_map().bytes());
+
+    let report = laneflow_artifact_inspect::diff::diff_bytes(
+        old.source_map().bytes(),
+        new.source_map().bytes(),
+    );
+    assert!(!report.equal());
+    let start_line_diff = report
+        .fields
+        .iter()
+        .find(|diff| diff.location.field_name == "startLine")
+        .expect("来源行号漂移必须定位到 SourceLocation.startLine");
+    let (
+        laneflow_artifact_inspect::diff::ValueSnapshot::Present(
+            laneflow_artifact_inspect::value::ValueDisplay::U32(old_line),
+        ),
+        laneflow_artifact_inspect::diff::ValueSnapshot::Present(
+            laneflow_artifact_inspect::value::ValueDisplay::U32(new_line),
+        ),
+    ) = (&start_line_diff.expected, &start_line_diff.actual)
+    else {
+        panic!("startLine 差异应为两侧 U32 值：{start_line_diff:?}");
+    };
+    assert!(
+        *new_line > *old_line,
+        "方向必须 expected/旧 → actual/新：{old_line} → {new_line}"
+    );
+    assert_eq!(start_line_diff.location.table_name, "SourceLocation");
+    assert_eq!(start_line_diff.location.section_name, "SourceModules");
+}
+
+#[test]
+fn artifact_inspect_renders_every_frozen_portable_fixture_kind() {
+    for (label, bytes) in [
+        ("LFCA", FULL_SPATIAL_EXPECTED_LFCA),
+        ("LFSM", FULL_SPATIAL_EXPECTED_LFSM),
+        ("LFSD", FULL_SPATIAL_EXPECTED_LFSD),
+    ] {
+        let report = laneflow_artifact_inspect::inspect::inspect(
+            bytes,
+            &laneflow_artifact_inspect::inspect::InspectOptions::default(),
+            laneflow_format::FormatLimits::HARD,
+            &laneflow_artifact_inspect::budget::ReportLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("{label} 检入 fixture 应通过检视：{error:?}"));
+        let text = laneflow_artifact_inspect::render::render_inspect(
+            &report,
+            &laneflow_artifact_inspect::inspect::InspectOptions::default(),
+            &laneflow_artifact_inspect::budget::ReportLimits::default(),
+        );
+        assert!(text.contains(label), "{label} 摘要缺失：\n{text}");
         assert!(
-            candidate.semantic_diff().bytes()
-                == std::fs::read(path.with_extension("lfsd")).unwrap(),
-            "runtime LFSD is stale"
+            text.contains("check: 单对象结构与直接值域检查 PASS"),
+            "{label} 检查行缺失：\n{text}"
         );
     }
 }

@@ -232,8 +232,13 @@ fn assert_exact_candidate(
     expected: &[u8],
     expected_length: u64,
     expected_key: &str,
+    fixture: &str,
 ) {
-    assert_eq!(candidate.canonical_artifact().bytes(), expected);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        candidate.canonical_artifact().bytes(),
+        expected,
+        fixture
+    );
     assert_eq!(
         candidate.canonical_artifact().byte_length(),
         exact_byte_length(expected_length)
@@ -261,6 +266,7 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
         MIN_HEADLESS_EXPECTED,
         MIN_HEADLESS_LENGTH,
         MIN_HEADLESS_KEY,
+        "lfca-variants/min-headless.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_eq!(
         candidate.network_revision(),
@@ -313,18 +319,21 @@ fn portable_provenance_only_variants_preserve_revision_and_fix_distinct_bytes() 
         PROVENANCE_BASE_EXPECTED,
         PROVENANCE_BASE_LENGTH,
         PROVENANCE_BASE_KEY,
+        "lfca-variants/provenance-base.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_exact_candidate(
         &source,
         PROVENANCE_SOURCE_EXPECTED,
         PROVENANCE_SOURCE_LENGTH,
         PROVENANCE_SOURCE_KEY,
+        "lfca-variants/provenance-source.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_exact_candidate(
         &build,
         PROVENANCE_BUILD_EXPECTED,
         PROVENANCE_BUILD_LENGTH,
         PROVENANCE_BUILD_KEY,
+        "lfca-variants/provenance-build.lfca（DUMP_PORTABLE 重生成）",
     );
     let expected_revision = network_revision(MIN_HEADLESS_REVISION);
     assert_eq!(base.network_revision(), expected_revision);
@@ -402,12 +411,14 @@ fn portable_reorder_equivalent_inputs_match_one_frozen_artifact() {
         REORDER_EQUIVALENT_EXPECTED,
         REORDER_EQUIVALENT_LENGTH,
         REORDER_EQUIVALENT_KEY,
+        "lfca-variants/reorder-equivalent.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_exact_candidate(
         &reverse,
         REORDER_EQUIVALENT_EXPECTED,
         REORDER_EQUIVALENT_LENGTH,
         REORDER_EQUIVALENT_KEY,
+        "lfca-variants/reorder-equivalent.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_eq!(forward.network_revision(), reverse.network_revision());
     assert_eq!(forward.source_map(), reverse.source_map());
@@ -423,12 +434,14 @@ fn portable_signed_zero_input_matches_positive_zero_and_wire_negative_zero_fails
         SIGNED_ZERO_EXPECTED,
         SIGNED_ZERO_LENGTH,
         SIGNED_ZERO_KEY,
+        "lfca-variants/signed-zero.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_exact_candidate(
         &positive,
         SIGNED_ZERO_EXPECTED,
         SIGNED_ZERO_LENGTH,
         SIGNED_ZERO_KEY,
+        "lfca-variants/signed-zero.lfca（DUMP_PORTABLE 重生成）",
     );
     assert_eq!(
         first_lane_edge_point_x(SIGNED_ZERO_EXPECTED),
@@ -461,9 +474,10 @@ fn portable_signed_zero_input_matches_positive_zero_and_wire_negative_zero_fails
 #[test]
 fn portable_claim_mismatch_is_structurally_valid_but_not_the_frozen_revision() {
     let candidate = min_headless_portable_fixture_candidate();
-    assert_eq!(
+    laneflow_artifact_inspect::assert_portable_object_matches!(
         claim_mismatch_bytes(candidate.canonical_artifact().bytes()).as_ref(),
-        CLAIM_MISMATCH_EXPECTED
+        CLAIM_MISMATCH_EXPECTED,
+        "lfca-variants/claim-mismatch.lfca（DUMP_PORTABLE 重生成）"
     );
     assert_eq!(CLAIM_MISMATCH_EXPECTED.len() as u64, CLAIM_MISMATCH_LENGTH);
     assert_eq!(

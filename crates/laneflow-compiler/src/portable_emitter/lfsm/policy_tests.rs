@@ -928,13 +928,15 @@ fn policy_source_fixture_matches_frozen_wire() {
         std::fs::write(directory.join("expected.lfca"), fixture.artifact.bytes()).unwrap();
         std::fs::write(directory.join("expected.lfsm"), &map).unwrap();
     }
-    assert_eq!(
+    laneflow_artifact_inspect::assert_portable_object_matches!(
         map.as_ref(),
-        include_bytes!("../../../tests/fixtures/portable/lfsm-policy-sources/expected.lfsm")
+        include_bytes!("../../../tests/fixtures/portable/lfsm-policy-sources/expected.lfsm"),
+        "lfsm-policy-sources/expected.lfsm（DUMP_PORTABLE 重生成）"
     );
-    assert_eq!(
+    laneflow_artifact_inspect::assert_portable_object_matches!(
         fixture.artifact.bytes(),
-        include_bytes!("../../../tests/fixtures/portable/lfsm-policy-sources/expected.lfca")
+        include_bytes!("../../../tests/fixtures/portable/lfsm-policy-sources/expected.lfca"),
+        "lfsm-policy-sources/expected.lfca（DUMP_PORTABLE 重生成）"
     );
     assert_eq!(map.len(), 54_823);
     assert_eq!(

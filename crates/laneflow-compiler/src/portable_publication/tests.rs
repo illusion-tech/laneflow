@@ -522,7 +522,11 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
             u8::try_from((high << 4) | low).unwrap()
         })
         .collect::<Vec<_>>();
-    assert_eq!(first.bytes(), expected);
+    laneflow_artifact_inspect::assert_portable_object_matches!(
+        first.bytes(),
+        &expected,
+        "lfcp-min-bindings/expected.lfcp.hex（DUMP_PORTABLE 重生成）"
+    );
     assert_eq!(first.byte_length(), ExactByteLength::new(800));
     assert_eq!(
         first.object_key(),
@@ -530,4 +534,30 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
     );
     assert_eq!(first.bytes(), second.bytes());
     assert_eq!(first.digest(), second.digest());
+}
+
+#[test]
+fn artifact_inspect_renders_frozen_lfcp_fixture() {
+    // #1424 冒烟：检入的 LFCP hex fixture 经 hex 外层解码进入正式读取器，
+    // inspect 摘要标 singleton（无 chunk 目录），不为统一版式伪造目录。
+    let expected = laneflow_artifact_inspect::input::decode_object_input(
+        include_bytes!("../../tests/fixtures/portable/lfcp-min-bindings/expected.lfcp.hex"),
+        laneflow_artifact_inspect::input::InputEncoding::Hex,
+        laneflow_artifact_inspect::budget::InputLimits::HARD_DEFAULT,
+    )
+    .unwrap();
+    let options = laneflow_artifact_inspect::inspect::InspectOptions::default();
+    let limits = laneflow_artifact_inspect::budget::ReportLimits::default();
+    let report = laneflow_artifact_inspect::inspect::inspect(
+        &expected,
+        &options,
+        FormatLimits::HARD,
+        &limits,
+    )
+    .unwrap_or_else(|error| panic!("LFCP 检入 fixture 应通过检视：{error:?}"));
+    let text = laneflow_artifact_inspect::render::render_inspect(&report, &options, &limits);
+    assert!(
+        text.contains("LFCP") && text.contains("chunks: 不适用（LFCP singleton 节无 chunk 目录）"),
+        "LFCP 摘要缺 singleton 标注：\n{text}"
+    );
 }
