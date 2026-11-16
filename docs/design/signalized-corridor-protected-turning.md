@@ -1,7 +1,7 @@
 # Signalized Corridor Protected Turning Profile
 
-**文档状态**: Accepted（#196 G1）<br>
-**最后更新**: 2026-10-23（默认相位时长对齐检入配置的 16 ms Tick）<br>
+**文档状态**: Accepted（#196 G1；§7.3 清空判据含 #1272 黄灯入场项）<br>
+**最后更新**: 2026-11-16（默认相位时长对齐检入配置的 16 ms Tick）<br>
 **适用范围**: v0.9 双路口走廊的受保护左转、直行、右转、lane-level
 ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
 **实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
@@ -382,6 +382,17 @@ group-level compatibility matrix 固定为：
 yellow + following all-red 合计 `4 s`，高于默认最慢比例下本 profile 最大
 free-flow connector traversal 的约 `3.18 s`。该关系是默认 profile 的
 authoring 证据，不是通用动态 clearance solver。
+
+#1272 黄灯困境区许可引入黄灯期入场后，清空判据补入场时间项：
+
+```text
+t_entry + T_clear ≤ Y + R
+```
+
+旧关系只覆盖 `T_clear`。黄灯末拍入场车辆的清空预算接近全红时长（本 profile
+`all_red_ms = 1008`），不能由「3.18 s < 黄灯+全红」直接推出安全清空；依赖
+困境区豁免的新鲜摆放已被准入拒绝（`traffic-runtime-vehicle-placement.md`），
+在途放行车辆的清空在 #1272 实现验收时按新判据重新核验并如实登记结论。
 
 ## 8. Runtime、验证与 failure policy
 

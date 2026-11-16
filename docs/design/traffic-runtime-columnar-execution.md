@@ -1,6 +1,6 @@
 # 交通运行时列式批量执行
 
-**文档状态**: Accepted<br>
+**文档状态**: Accepted（§2 已并入 #1272 停止目标的输入时序）<br>
 **设计入口**: [#814][issue-814]<br>
 **关联决策**: [ADR 0031][adr-0031]<br>
 **既有合同**: [阶段协议][traffic-runtime-phase-protocol]、[精确并行][parallel-execution]、[整数几何][traffic-runtime-integer-geometry]
@@ -33,13 +33,13 @@ Active 进入/退出、销毁和替换由准备完毕的生命周期转移更新
 
 ## 2. 同拍共享输入
 
-绑定期只保存已受检静态/profile 表，不能让 Runtime 获得编译器或共享路网的第二份正本。P2/P5 共用同一 C(T)、完整车辆句柄和 attempt 上的基础查询：路线/context、当前限速、horizon、精确 leader gap、route end、signal/parking stop，以及真实需要的未量化提案。
+绑定期只保存已受检静态/profile 表，不能让 Runtime 获得编译器或共享路网的第二份正本。P2/P5 共用同一 C(T)、完整车辆句柄和 attempt 上的基础查询：路线/context、当前限速、horizon、精确 leader gap、route end、signal/parking stop、拍初可知的停止目标与制动前视窗（#1272；P4 确定的动态停止在 P5 最终归约合并，P2 结果不代表最终停止上界），以及真实需要的未量化提案。窗口每行在准备基础输入时按同一 O(1) 代数式计算并在距离比较前向上取整到整数毫米，不为窗口新增屏障或逐行分配。
 
 只对现有消费者要求的车辆生产基础数据，P2 筛掉的预览不得因批量化重新全算。字段组按消费者生命周期保存，块级有效位与 touched 集合负责失效，不为每字段维护逐车 epoch。基础列每 Active 的初始预算为 128 字节；超过预算必须说明消费者和测量依据，不让各阶段分别复制同一份。
 
 共同缓存项与 P2 结果槽只保存身份、规范位置、可达性、horizon、轻量完整预览和基础载荷索引；基础数值及其完整来源证明单独存入稀疏载荷，不嵌入所有 Active 行的共同结果类型。P2 分发块独占自己的载荷缓冲，完整 join 后协调器按既有规范消费顺序合并并改写索引；融合入口直接写同一稀疏载荷。可选载荷分配失败、索引缺失或来源证明不成立时，保留完整预览、horizon 与可达性，P5 按既有原语重算所缺基础数据。每次 attempt 开始、失败和消费完成时清除有效长度，保留缓冲容量不表示保留旧索引。当前仍只保存实际完整预览生产者的基础输入；提前返回路径的部分事实共享另行实施，不能据此宣布 B 全部完成。
 
-现有 `iidm_step` 只依赖速度、期望速度、leader gap、profile 和步长；movement stop 在 `si_comfort_travel` 的后续投影生效。P4 新增 Waiting/Conflict stop 时，相同提案输入可以复用未量化 IIDM 结果，但必须重新执行安全限制、积分、量化、carry、路线行走与到达。其它提案输入改变时重算 IIDM；不能只截短旧位置。现有完整预览 `reuse` 证明成立时可直接交付其结果。
+现有 `iidm_step` 只依赖速度、期望速度、leader gap、profile 和步长；停止目标不进入提案输入，在 `si_comfort_travel` 的速度归约与后续投影生效（#1272：级联含速度上界与紧急下界，见整数几何 §5）。P4 新增 Waiting/Conflict stop 时，相同提案输入可以复用未量化 IIDM 结果，但必须重新执行停止目标速度归约、安全限制、积分、量化、carry、路线行走与到达。其它提案输入改变时重算 IIDM；不能只截短旧位置。现有完整预览 `reuse` 证明成立时可直接交付其结果；证明条件以 `traffic-runtime-phase-protocol.md` §3.1 现行为准（速度侧同样须证明）。
 
 跨屏障仅物化必要列；同块、同消费者、无外部依赖的步骤尽量融合。工作掩码区分 needs_preview、has_base_proposal、full_preview_reusable、needs_final_projection、needs_route_walk、has_resource_obligation 和 has_error。
 

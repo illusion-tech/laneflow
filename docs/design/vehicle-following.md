@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
-**文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
-**最后更新**: 2026-11-09
+**文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI；#1272 停止目标速度归约与制动前视窗已冻结，实现随 #1272 实现交付）<br>
+**最后更新**: 2026-11-16
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -322,6 +322,15 @@ Physical constraints 不可绕过；regulatory constraints 由后续 policy subs
 
 不公开 constraint provider，也不允许 Adapter 任意注入 constraint。
 
+#1272 把停止类 spatial target 冻结为**速度上界**归约（落地规则见
+`traffic-runtime-integer-geometry.md` §5）：denied 信号/策略门、已判定的
+Waiting/Conflict 停止、已知持续阻塞、过渡预约、停车入口与有限路终，在制动
+前视窗（§10.3）内以目标速度 `0` 参与「舒适可行域 → 紧急可行域 → 具名投影」
+级联；紧急减速下界在共同候选形成时施加。「尚未申请」的资源本身不构成停止
+目标；提前发现阻塞不等于提前申请或持有资源。求解器可行域（含本拍减速上界
+与拍内停稳实际减速度定义域）与求根稳定性的行为要求由 integer-geometry 合同
+规定，修正波及 §8.1 降限速与摆放预览共用的求解函数。
+
 Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`][parking-system]。
 
 #235 的 Accepted 设计
@@ -428,6 +437,24 @@ front_query_horizon = bumper_gap_horizon + max_vehicle_length
 
 `+ MAX_VEHICLE_LENGTH_MM` 的行走窗余量恰好覆盖跨分支 overhang 候选（§6.1）按未裁剪投影语义进入视野所需的行走范围，可作未来 merge/conflict constraint 的讨论基础。
 
+### 10.3 停止目标制动前视窗（#1272）
+
+停止类空间目标的速度归约查询范围是**制动前视窗**，不是本拍位移上界：
+
+```text
+W = Δt·(v + u) + u² / b_c
+```
+
+`u` 取 raw proposal 与本拍已证速度上界中的较大者（保守）。该式约为舒适
+全停距离的 2 倍；保守侧误差只增加窗内目标数，不改变行为。**查询窗在距离
+比较前向上取整到整数毫米**，窗内距离排除用毫米值——毫米取整余量
+（≤ 999 µm）覆盖 `carry_um` 与位移舍入；乘法余量不随速度缩小、不能覆盖
+carry 的绝对上界。本拍位移上界（`MotionReach`）仍用于硬空间许可读取等
+位置截断类裁剪，见 `traffic-runtime-phase-protocol.md` §3.1.1。门拓扑与
+停止距离锚点在路线注册期预编译；逐目标判定 O(1)，窗内单调行走、窗外早停，
+不逐车扫描全部目标或堆分配。已知持续阻塞事实的只读查询与缓存失效成本
+计入 §16 性能验收。
+
 ### 10.2 Emergency safe-speed
 
 令 `b_f`、`b_l` 为 follower/leader emergency deceleration，`u` 为待求 next speed：
@@ -489,6 +516,9 @@ v_candidate = 0
 ```
 
 不得产生负速度后再简单 clamp，也不采用 explicit/semi-implicit Euler 作为正本积分。
+停车分支由**实际选中**的减速度决定（#1272：停稳分支实际减速度取档位值且
+`A ∈ [v/Δt, b]`，未停稳分支由终速唯一反推）；停止目标归约产出的速度、制动
+分支与位移是一致三元组，禁止用终态速度无条件重建梯形位移。
 
 ### 11.2 Final geometry constraint
 
@@ -607,6 +637,10 @@ Private：
 - IIDM free/interaction 各分支和 desired speed 上下边界。
 - Safe-speed discriminant、emergency floor 和 projection threshold。
 - 当前 edge ceiling、60→40 advance braking、40→60 不提前加速、连续多个降限、repeated edge、hard projection attribution 与 over-limit spawn 原子失败。
+- 停止目标级联三域、实际加速度选择与三元组一致（含 raw 提案低于紧急下界而
+  安全域非空、拍内停稳实际减速度越界两类反例）；制动前视窗毫米外取整；六源
+  各自与混合目标；空闲绿灯入口无已知阻塞不出现非预期制动、入口在进窗前已
+  持续阻塞时必须提前制动；耗尽决策表与正常停车 `v_n − v_{n+1} ≤ b_e·Δt + ε_v`。
 - Ballistic 中途停车。
 - Acyclic platoon、same-tick hard-stop 的三车以上 front-to-back 传播、multiple followers、repeated edge 和 explicit cycle anchor。
 - `min_gap == 0` 的 no-overlap 退化行为，以及可行 snapshot 的 `final_gap >= min_gap` / 异常 snapshot 的 `final_gap >= g0` property。

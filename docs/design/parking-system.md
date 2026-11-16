@@ -1,7 +1,7 @@
 # 停车系统设计
 
-**文档状态**: Accepted（#540 G1）<br>
-**最后更新**: 2026-09-23<br>
+**文档状态**: Accepted（#540 G1；§5.3 到位拍语义含 #1272 冻结边界）<br>
+**最后更新**: 2026-11-16<br>
 **适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
 **实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
@@ -383,6 +383,12 @@ tick-start snapshot 归约 final admissible motion；数值 target 完全相同�
 生命周期结果。合法 Reserved entry 始终前向可达，因此正常步进不存在
 `Completed + Reserved` 或 route-completion 自动释放分支；若实现仍推导出该组合，整拍以
 内部不变量错误失败关闭。
+
+#1272 下 ParkingStop 的接近过程由停止目标速度归约承担（目标速度 0、制动前视窗
+查询）；**停车到位拍维持当拍零速并清零 carry**——arrival 的 exact 谓词（零速零
+carry）是本合同的现行义务，到位拍清零列入 integer-geometry 的具名例外清单，
+不改为带残余速度的衰减到位。归因顺序只是 observation attribution，不作速度
+决策序。
 
 ### 5.4 Park
 

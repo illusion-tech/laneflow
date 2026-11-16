@@ -1,7 +1,7 @@
 # Signal System 设计
 
-**文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍）<br>
-**最后更新**: 2026-11-09<br>
+**文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍；#1272 停止目标速度归约、制动前视窗与黄灯困境区逐拍许可已冻结，实现随 #1272 实现交付）<br>
+**最后更新**: 2026-11-16<br>
 **适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。<br>
 
 **关联文档**:
@@ -201,9 +201,26 @@ Boundary 在 tick 内发生时，车辆观察延迟严格小于一个 fixed tick
 | red                  | `DenyAndStop`                          |
 | `signalControl:none` | 不产生 signal constraint               |
 
-Restrictive yellow 的判断读取 tick-start snapshot。只有原子完成对应 route occurrence 的 `fromEdge -> toEdge` transition 才算 `CrossedGate`；仍在 fromEdge，包括 front bumper 精确位于 edge end，均是 PreGate。不保存 `YellowCommitted` 状态。
+Restrictive yellow 的判断读取 tick-start snapshot。只有原子完成对应 route occurrence 的 `fromEdge -> toEdge` transition 才算 `CrossedGate`；仍在 fromEdge，包括 front bumper 精确位于 edge end，均是 PreGate。不保存 `YellowCommitted` 状态——#1272 后其理由为：接受黄灯困境区的逐拍语义（见下），避免额外承诺状态及其生命周期。
 
-Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入只能通过显式 projection 和 attribution 保证合规，不得静默转换成合法 permission；不模拟概率违章或“不可避免越线”结果。
+Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入只能通过显式 projection 和 attribution 保证合规；#1272 起**唯一**允许的显式转换是黄灯困境区逐拍许可（见下），除此之外不得静默转换成合法 permission；不模拟概率违章或“不可避免越线”结果。
+
+**黄灯困境区逐拍许可（#1272）**：限制性黄灯下，对每辆 PreGate 车辆按
+（车辆, route gate occurrence）逐拍求值「本拍有效法规决定」——若按紧急
+减速度的完整停车可行性不成立（能力判据 `v²/(2b_e) >` 到停止线的路线距离，
+含拍内停稳分支；独立于 raw proposal 是否合适），则该门对该车当拍为许可：
+移除该黄灯产生的停止约束，继续接受其余纵向与资源约束。许可不提升候选
+保护等级（Protected/Permissive 维持原判级与让行义务）；只解除该黄灯造成的
+拒绝，独立禁止规则、资源授权、下游空间与 no-overlap 继续独立生效。**豁免
+仅在黄灯生效**：红灯仍按现行法规解释及独立禁令求值（`CnCircularRightTurn`
+红灯 Permissive 等既有解释不变），不增加任何黄转红宽限。黄转红后该门按
+现行策略仍为 `DenyAndStop` 且车辆拍初不可停时，按「红转边界不可停」具名
+投影归因（integer-geometry 例外清单）。放行车辆的清空由 authoring 的
+`t_entry + T_clear ≤ Y + R` 配时预算承担（全红提供清空时间，不提供跨线
+许可）；该判据含黄灯期入场时间，早于只有 `T_clear ≤ Y + R` 的旧关系。
+本决定在停止目标查询、冲突候选生成、实际 traversal、事件与校验三处消费
+点一致消费；纯 aspect→decision 表保留为输入件。新鲜摆放（spawn/replace）
+不得依赖困境区豁免通过停止安全准入，见 `traffic-runtime-vehicle-placement.md`。
 
 Denied Gate 允许车辆 front bumper 精确到达 StopLine，但禁止 transition。信号停车不改变 vehicle status；车辆保持 Active，速度可以为零。green 后只移除 signal constraint，车辆通过既有 controller/leader pipeline 自然恢复，不增加 startup delay。
 
@@ -226,8 +243,8 @@ tick-start snapshot
   -> atomic commit
 ```
 
-- 每辆 Active vehicle 沿确定 route occurrences，在安全/舒适 lookahead 内查找最近 denied Gate；允许跳过 permitted Gate。
-- SignalStop 使用 route distance、target speed 0、front-bumper desired/hard clearance 0。
+- 每辆 Active vehicle 沿确定 route occurrences，在制动前视窗（`vehicle-following.md` §10.3，距离比较前向上取整到整数毫米）内查找最近 denied Gate（黄灯困境区许可的门除外）；允许跳过 permitted Gate。本拍位移上界不再作为信号停止查询的判据。
+- SignalStop 使用 route distance、target speed 0、front-bumper desired/hard clearance 0；#1272 起 SignalStop 以目标速度 0 参与停止目标速度归约（`traffic-runtime-integer-geometry.md` §5），不再只是行程截断。
 - SignalStop 的 clearance 只约束首车与 StopLine，不替代车辆间 minimum gap；后车 final geometry cap 使用 follower `min_gap`。
 - 多约束按共同允许的最严格 motion 归约；numeric priority 不表达业务优先级，tie-break 只影响 attribution。
 - signal hard projection 先确定 leader final travel，随后 minimum-gap-preserving geometry projection 沿 functional leader graph 从前向后传播；两者只在实际进一步收紧 final motion 时生效。
@@ -302,6 +319,14 @@ Signals 服从完整 Runtime step 总预算，不叠加专项预算：
 - matched all-green controlled 与 all-none 场景必须报告增量，`>20%` 必须 profile；
 - 十万同时把车辆和 signal topology 放大 10 倍，一万→十万耗时比目标 `<= 20x`；
 - 发现 vehicle × all-Gates/Controllers/Groups、全表扫描、per-vehicle allocation 或接近二次增长时直接阻断。
+
+#1272 增量测量的比较口径：20% 分析 / 30% 默认阻断用于**同机、同 workload 的
+修改前后比较**（对上表各比较项按其原文适用）；六源全进后除既有 workload
+至少覆盖高速长制动窗连续绿灯密集门链、空闲与竞争状态的 Waiting/Conflict、
+密集过渡预约、停车入口、有限路终、无需停止制动的普通快路径，并报告完整
+预览复用率与 fused/分阶段路径比例的变化及吞吐、实际活动车辆数等行为信息
+——车辆普遍减速使实际完成工作减少的墙钟改善不得记为实现更高效。测量
+方法的接受与实测结果的接受分开（#1272 验收标准 5）。
 
 当前道路机动车执行域（`execution_domain=road_motor_vehicle`）的一万 common
 workload 固定为 `N_traffic_active=10000`、100 Controllers、每 Controller 4 Groups/Gates
