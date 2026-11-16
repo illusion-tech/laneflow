@@ -1,5 +1,6 @@
-use super::policy_change::{Scratch, reserved};
+use super::super::budget::granted;
 use super::*;
+use crate::ledger::{BoundedVec, PassBudget, Plan};
 
 /// 一份已索引实体的行视图及其规范身份字段原像。
 #[derive(Clone, Copy, Debug)]
@@ -16,19 +17,31 @@ type IndexedEntity<'a> = ((EntityKind, [u8; 16]), EntityRecord<'a>);
 pub(super) struct ArtifactIndex<'a> {
     pub(super) view: RegistryCheckedObjectView<'a>,
     // 原始 kind/ordinal 顺序支持 O(1) 引用；StableId 查询仅另存 u32 排序索引。
-    entities: Vec<IndexedEntity<'a>>,
-    by_stable_id: Vec<u32>,
+    entities: BoundedVec<IndexedEntity<'a>>,
+    by_stable_id: BoundedVec<u32>,
     kind_ranges: [(usize, usize); EntityKind::ALL.len()],
 }
 
 impl<'a> ArtifactIndex<'a> {
-    /// 从受检制品视图建立实体索引。
+    /// 实体索引的计划峰值：按身份表行数为实体记录与稳定标识排序索引各授予一份定长
+    /// 序列。身份表缺失时为空计划，由 [`ArtifactIndex::build`] 报告结构错误。
+    pub(super) fn plan(view: RegistryCheckedObjectView<'_>) -> Plan {
+        let count = view
+            .section(1)
+            .and_then(|section| section.table(0))
+            .map_or(0, |table| table.row_count() as usize);
+        Plan::ZERO
+            .array::<IndexedEntity<'_>>(count)
+            .array::<u32>(count)
+    }
+
+    /// 从受检制品视图建立实体索引；索引存储由 `pass` 授予，随索引释放归还。
     ///
     /// 逐实体核对身份表与实体表的种类、有类型序号和稳定标识一致性，并拒绝重复稳定标识。
     pub(super) fn build(
         view: RegistryCheckedObjectView<'a>,
         mismatch: PortableEmissionError,
-        scratch: &mut Scratch,
+        pass: &PassBudget<'_>,
     ) -> Result<Self, PortableEmissionError> {
         let identity_table = view
             .section(1)
@@ -43,8 +56,8 @@ impl<'a> ArtifactIndex<'a> {
         if entity_count != count {
             return Err(mismatch);
         }
-        let mut entities = reserved::<IndexedEntity<'a>>(count, scratch)?;
-        let mut by_stable_id = reserved::<u32>(count, scratch)?;
+        let mut entities = granted::<IndexedEntity<'a>>(count, pass)?;
+        let mut by_stable_id = granted::<u32>(count, pass)?;
         let mut kind_ranges = [(0, 0); EntityKind::ALL.len()];
         let mut identities = identity_table.rows();
         let mut entity_tables = entity_section.tables();
@@ -70,14 +83,14 @@ impl<'a> ArtifactIndex<'a> {
                         row: entity,
                         canonical_fields: identity.field_by_tag(4).ok_or(mismatch)?.value_bytes(),
                     },
-                ));
+                ))?;
             }
             kind_ranges[usize::from(entity_kind.code() - 1)] = (start, entities.len());
         }
         if entity_tables.next().is_some() || identities.next().is_some() {
             return Err(mismatch);
         }
-        by_stable_id.extend(0..identity_table.row_count());
+        by_stable_id.try_extend(0..identity_table.row_count())?;
         by_stable_id.sort_unstable_by_key(|i| entities[*i as usize].0.1);
         if by_stable_id
             .windows(2)

@@ -6,6 +6,7 @@ mod policy;
 /// 路权策略局部成员变更的配对投影与暂存区字节计量。
 pub(super) mod policy_change;
 mod policy_check;
+pub(super) use policy_check::check_policy_diff;
 pub use policy_check::check_portable_policy_diff;
 mod relation;
 
@@ -14,18 +15,28 @@ use entity::{artifact_entity_changes, artifact_static_rule_changes, genesis_enti
 use geometry::{
     artifact_geometry_changes, artifact_spatial_configuration_changes, genesis_geometry_changes,
 };
-use policy::validate_policy_references;
+use policy::{policy_reference_plan, validate_policy_references};
 use policy_change::Scratch;
 use relation::{artifact_relation_changes, artifact_relation_tuples, genesis_relation_changes};
 
+use super::budget::Accounting;
 use super::relations::{canonical_relation_tuples, entity_stable_id};
 use super::*;
+
+/// 策略局部成员变更行仍由暂存计量器记账，额度取账本当前余量。
+///
+/// 变更行随 LFSD 对象树离开编译遍，对象树计入账本前（同一 Stack 的上层）不能以授予
+/// 表达；余量计量保证这部分与账本已授予、已预留的额度之和不超过宿主预算。
+fn policy_change_scratch(accounting: Accounting<'_>) -> Scratch {
+    Scratch::new(accounting.ledger.headroom())
+}
 
 fn build_genesis_lfsd(
     output: &CompilationOutput,
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
+    accounting: Accounting<'_>,
 ) -> Result<OwnedObject, PortableEmissionError> {
     let target = preflight_object_values(
         artifact.bytes(),
@@ -33,17 +44,16 @@ fn build_genesis_lfsd(
         limits,
     )?
     .registry_view();
-    let mut scratch = Scratch::new(
-        output
-            .compile_limits()
-            .value(CompileLimitDimension::CompilerControlledLiveBytes),
-    );
+    let pass = accounting.admit("genesis-diff-index", ArtifactIndex::plan(target))?;
     let target_index = ArtifactIndex::build(
         target,
         PortableEmissionError::InternalBindingMismatch,
-        &mut scratch,
+        &pass,
     )?;
-    let policy_changes = policy_change::policy_changes(None, &target_index, &mut scratch)?;
+    let policy_changes =
+        policy_change::policy_changes(None, &target_index, &mut policy_change_scratch(accounting))?;
+    drop(target_index);
+    pass.finish(0)?;
     let entity_changes = genesis_entity_changes(target)?;
     let relation_changes = genesis_relation_changes(output.lir().unit());
     let geometry_changes = genesis_geometry_changes(output.lir().unit(), target)?;
@@ -108,44 +118,40 @@ pub(super) fn build_lfsd(
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
+    accounting: Accounting<'_>,
 ) -> Result<(OwnedObject, ExpectedSemanticDiffBase), PortableEmissionError> {
     match base {
         PortableDiffBase::Genesis => Ok((
-            build_genesis_lfsd(output, network_revision, artifact, limits)?,
+            build_genesis_lfsd(output, network_revision, artifact, limits, accounting)?,
             ExpectedSemanticDiffBase::Genesis,
         )),
-        PortableDiffBase::Artifact(base) => build_artifact_lfsd(
-            base,
-            network_revision,
-            artifact,
-            limits,
-            output
-                .compile_limits()
-                .value(CompileLimitDimension::CompilerControlledLiveBytes),
-        ),
+        PortableDiffBase::Artifact(base) => {
+            build_artifact_lfsd(base, network_revision, artifact, limits, accounting)
+        }
     }
 }
 
 /// 核对目标 LFCA 投影出的关系元组与 LIR 规范关系完全一致。
 ///
 /// 重建目标制品索引并校验路权策略引用后比较两侧关系元组；不一致即报内部绑定错误。
+/// 索引与策略引用键在本编译遍内授予，返回前全部释放。
 pub(super) fn verify_target_relation_projection(
     output: &CompilationOutput,
     target: RegistryCheckedObjectView<'_>,
+    accounting: Accounting<'_>,
 ) -> Result<(), PortableEmissionError> {
-    let mut scratch = Scratch::new(
-        output
-            .compile_limits()
-            .value(CompileLimitDimension::CompilerControlledLiveBytes),
-    );
+    let pass = accounting.admit(
+        "relation-projection",
+        ArtifactIndex::plan(target).plus(policy_reference_plan(target)),
+    )?;
     let target_index = ArtifactIndex::build(
         target,
         PortableEmissionError::InternalBindingMismatch,
-        &mut scratch,
+        &pass,
     )?;
     validate_policy_references(
         &target_index,
-        &mut scratch,
+        &pass,
         PortableEmissionError::InternalBindingMismatch,
     )?;
     if artifact_relation_tuples(
@@ -155,6 +161,8 @@ pub(super) fn verify_target_relation_projection(
     {
         return Err(PortableEmissionError::InternalBindingMismatch);
     }
+    drop(target_index);
+    pass.finish(0)?;
     Ok(())
 }
 
@@ -163,7 +171,7 @@ fn build_artifact_lfsd(
     target_network_revision: NetworkRevisionId,
     target_artifact: &PortableObjectCandidate,
     limits: FormatLimits,
-    policy_scratch_limit: u64,
+    accounting: Accounting<'_>,
 ) -> Result<(OwnedObject, ExpectedSemanticDiffBase), PortableEmissionError> {
     if base.kind() != PortableObjectKind::CanonicalArtifact {
         return Err(PortableEmissionError::InvalidDiffBaseKind);
@@ -177,25 +185,31 @@ fn build_artifact_lfsd(
         limits,
     )?
     .registry_view();
-    let mut scratch = Scratch::new(policy_scratch_limit);
+    // 两侧索引同时存续；两次策略引用核对先后进行，键在各自结束时释放，取峰值。
+    let pass = accounting.admit(
+        "artifact-diff-index",
+        ArtifactIndex::plan(base_view)
+            .plus(ArtifactIndex::plan(target_view))
+            .plus(policy_reference_plan(base_view).max(policy_reference_plan(target_view))),
+    )?;
     let base_index = ArtifactIndex::build(
         base_view,
         PortableEmissionError::DiffBaseSemanticMismatch,
-        &mut scratch,
+        &pass,
     )?;
     let target_index = ArtifactIndex::build(
         target_view,
         PortableEmissionError::InternalBindingMismatch,
-        &mut scratch,
+        &pass,
     )?;
     validate_policy_references(
         &base_index,
-        &mut scratch,
+        &pass,
         PortableEmissionError::DiffBaseSemanticMismatch,
     )?;
     validate_policy_references(
         &target_index,
-        &mut scratch,
+        &pass,
         PortableEmissionError::InternalBindingMismatch,
     )?;
     verify_artifact_diff_compatibility(base_view, target_view, &base_index, &target_index)?;
@@ -210,8 +224,13 @@ fn build_artifact_lfsd(
     let geometry_changes = artifact_geometry_changes(&base_index, &target_index)?;
     let static_rule_changes = artifact_static_rule_changes(&base_index, &target_index)?;
     let spatial_changes = artifact_spatial_configuration_changes(&base_index, &target_index)?;
-    let policy_changes =
-        policy_change::policy_changes(Some(&base_index), &target_index, &mut scratch)?;
+    let policy_changes = policy_change::policy_changes(
+        Some(&base_index),
+        &target_index,
+        &mut policy_change_scratch(accounting),
+    )?;
+    drop((base_index, target_index));
+    pass.finish(0)?;
 
     let expected_base = ExpectedSemanticDiffBase::Artifact {
         network_revision_derivation_version: NETWORK_REVISION_DERIVATION_VERSION,
@@ -326,7 +345,7 @@ mod tests {
                 NetworkRevisionId::from_digest(Sha256Digest::ZERO),
                 &target,
                 limits,
-                u64::MAX,
+                crate::portable_emitter::budget::test_accounting(u64::MAX),
             ),
             Err(PortableEmissionError::Format(FormatError::LimitExceeded {
                 dimension: LimitDimension::ObjectBytes,

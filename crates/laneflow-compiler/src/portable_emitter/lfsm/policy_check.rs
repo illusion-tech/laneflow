@@ -1,8 +1,9 @@
 //! 从同次受检 source view 独立核对最终位置；不调用 emitter 的位置编码/成员配对。
 
+use super::super::budget::{Accounting, granted, with_check_ledger};
 use super::super::lfsd::base::{checked_stable_id_with, checked_u32_with};
-use super::super::lfsd::policy_change::{Scratch, reserved};
 use super::*;
+use crate::ledger::{BoundedVec, PassBudget, Plan};
 use crate::{PolicySourceTarget, SourceLocationView, ValidatedSourceMapInput};
 use laneflow_format::RegistryCheckedTableView;
 
@@ -241,8 +242,8 @@ struct Member<'a> {
 /// # Errors
 ///
 /// LFSM 策略来源与实际 LFCA/文档描述符重建的全集不一致（mismatch）、LFCA 或
-/// LFSM 字节格式预检失败（`Format`）、scratch 投影预留失败（`AllocationFailure`）
-/// 或编译预算上限超限（`CompileLimitExceeded`）时返回相应
+/// LFSM 字节格式预检失败（`Format`）、受控存储分配失败（`AllocationFailure`）
+/// 或宿主存续预算超限（`CompileLimitExceeded`）时返回相应
 /// [`PortableEmissionError`]；超大 LFCA 的实体表聚合行数超出 `u32` 时返回
 /// `ArithmeticOverflow`。
 pub fn check_portable_policy_sources(
@@ -251,6 +252,19 @@ pub fn check_portable_policy_sources(
     map: &[u8],
     limits: FormatLimits,
     compile_limits: &crate::CompileLimits,
+) -> Result<(), PortableEmissionError> {
+    with_check_ledger(compile_limits, |accounting| {
+        check_policy_sources(accounting, artifact, source, map, limits)
+    })
+}
+
+/// [`check_portable_policy_sources`] 的内部实现；发射以发射账本直接调用。
+pub(in crate::portable_emitter) fn check_policy_sources(
+    accounting: Accounting<'_>,
+    artifact: &[u8],
+    source: &ValidatedSourceMapInput,
+    map: &[u8],
+    limits: FormatLimits,
 ) -> Result<(), PortableEmissionError> {
     let canonical =
         preflight_object_values(artifact, PortableObjectKind::CanonicalArtifact, limits)?;
@@ -278,10 +292,6 @@ pub fn check_portable_policy_sources(
     {
         return Err(MISMATCH);
     }
-    let mut scratch =
-        Scratch::new(compile_limits.value(CompileLimitDimension::CompilerControlledLiveBytes));
-    let documents = check_documents(source, view, &mut scratch)?;
-    let location_table = table(view, 1, 2)?;
     let root = canonical.registry_view();
     let member_count = (1..=4).try_fold(0_usize, |n, t| {
         n.checked_add(table(root, 3, t)?.row_count() as usize)
@@ -293,31 +303,88 @@ pub fn check_portable_policy_sources(
         || table(root, 2, 5)?
             .rows()
             .any(|r| r.field_by_tag(7).is_some());
+    let pass = accounting.admit(
+        "policy-source-check",
+        policy_source_plan(source, view, root, member_count, needs_projection)?,
+    )?;
+    check_source_projection(&pass, source, view, root, member_count, needs_projection)?;
+    pass.finish(0)?;
+    Ok(())
+}
+
+/// 本检查的计划峰值。文档表、位置键与语言码贯穿全程；模块主来源、位置引用位图与
+/// 策略投影三个子阶段先后进行，取峰值。空策略路网不建立位置键副本与策略投影。
+fn policy_source_plan(
+    source: &ValidatedSourceMapInput,
+    view: RegistryCheckedObjectView<'_>,
+    root: RegistryCheckedObjectView<'_>,
+    member_count: usize,
+    needs_projection: bool,
+) -> Result<Plan, PortableEmissionError> {
+    let documents = source.source_documents().len();
+    let modules = source.source_modules().len();
+    let location_rows = table(view, 1, 2)?.row_count() as usize;
+    let mut plan = Plan::ZERO
+        .array::<(&str, u32)>(documents)
+        .array::<u32>(documents)
+        .array::<LocationKey<'_>>(if needs_projection { location_rows } else { 0 })
+        .array::<u8>(modules);
+    let primaries = Plan::ZERO.array::<(u32, crate::SourceModuleSourceView<'_>)>(modules);
+    let used = Plan::ZERO.array::<bool>(location_rows);
+    let mut phases = primaries.max(used);
+    if needs_projection {
+        let contributing = source
+            .policy_sources()
+            .map(|s| s.contributing_sources().len())
+            .max()
+            .unwrap_or(0);
+        let projection = Plan::ZERO
+            .array::<[u8; 16]>(table(root, 2, 23)?.row_count() as usize)
+            .array::<Member<'_>>(member_count)
+            .array::<crate::PolicySourceView<'_>>(source.policy_sources().len())
+            .array::<Row<'_>>(table(view, 2, 0)?.row_count() as usize)
+            .array::<Row<'_>>(table(view, 3, 0)?.row_count() as usize)
+            .array::<u32>(contributing)
+            .array::<([u8; 16], crate::MovementSourceView<'_>)>(source.movement_sources().len());
+        phases = phases.max(projection);
+    }
+    plan = plan.plus(phases);
+    Ok(plan)
+}
+
+fn check_source_projection(
+    pass: &PassBudget<'_>,
+    source: &ValidatedSourceMapInput,
+    view: RegistryCheckedObjectView<'_>,
+    root: RegistryCheckedObjectView<'_>,
+    member_count: usize,
+    needs_projection: bool,
+) -> Result<(), PortableEmissionError> {
+    let documents = check_documents(source, view, pass)?;
+    let location_table = table(view, 1, 2)?;
     // 空策略路网只做流式位置扫描和引用位图；不为既有 P100 配置建立完整位置键副本。
-    let mut locations = reserved::<LocationKey<'_>>(
+    let mut locations = granted::<LocationKey<'_>>(
         if needs_projection {
             location_table.row_count() as usize
         } else {
             0
         },
-        &mut scratch,
+        pass,
     )?;
-    let mut languages = reserved::<u8>(source.source_modules().len(), &mut scratch)?;
-    languages.extend(
+    let mut languages = granted::<u8>(source.source_modules().len(), pass)?;
+    languages.try_extend(
         source
             .source_modules()
             .map(|m| (source_language_code(m.source_language()) - 1) as u8),
-    );
-    // 只保存来源借用及 LFSM ordinal；按实际 ordinal 合并位置流，不随机重扫位置表。
-    let mut primaries = reserved::<(u32, crate::SourceModuleSourceView<'_>)>(
-        source.source_modules().len(),
-        &mut scratch,
     )?;
+    // 只保存来源借用及 LFSM ordinal；按实际 ordinal 合并位置流，不随机重扫位置表。
+    let mut primaries =
+        granted::<(u32, crate::SourceModuleSourceView<'_>)>(source.source_modules().len(), pass)?;
     for (row, module) in table(view, 1, 0)?
         .rows()
         .zip(source.source_module_sources())
     {
-        primaries.push((checked_u32_with(row, 13, MISMATCH)?, module));
+        primaries.push((checked_u32_with(row, 13, MISMATCH)?, module))?;
     }
     primaries.sort_unstable_by_key(|p| p.0);
     let mut primary_index = 0;
@@ -346,17 +413,14 @@ pub fn check_portable_policy_sources(
         }
         previous_location = Some(key);
         if needs_projection {
-            locations.push(key);
+            locations.push(key)?;
         }
     }
     if primary_index != primaries.len() {
         return Err(MISMATCH);
     }
-    scratch.release(
-        (primaries.capacity() * size_of::<(u32, crate::SourceModuleSourceView<'_>)>()) as u64,
-    );
     drop(primaries);
-    let projection_rows = check_pool(view, location_table.row_count() as usize, &mut scratch)?;
+    let projection_rows = check_pool(view, location_table.row_count() as usize, pass)?;
     if projection_rows.policies != table(root, 2, 23)?.row_count() as usize
         || projection_rows.members != member_count
         || projection_rows.movements != table(root, 2, 5)?.row_count() as usize
@@ -370,8 +434,8 @@ pub fn check_portable_policy_sources(
         return Ok(());
     }
     let policies = table(root, 2, 23)?;
-    let owners = policy_owner_ids(policies, &mut scratch)?;
-    let mut members = reserved::<Member<'_>>(member_count, &mut scratch)?;
+    let owners = policy_owner_ids(policies, pass)?;
+    let mut members = granted::<Member<'_>>(member_count, pass)?;
     for kind in 0..4_u8 {
         let mut previous_owner = None;
         let mut local_index = 0;
@@ -387,26 +451,22 @@ pub fn check_portable_policy_sources(
                 key: text(row, 2)?,
                 local_index,
                 row,
-            });
+            })?;
             local_index += 1;
         }
     }
-    scratch.release((owners.capacity() * size_of::<[u8; 16]>()) as u64);
     drop(owners);
     members.sort_unstable_by_key(|m| (m.owner, m.kind, m.key));
-    let mut sources =
-        reserved::<crate::PolicySourceView<'_>>(source.policy_sources().len(), &mut scratch)?;
-    sources.extend(source.policy_sources());
+    let mut sources = granted::<crate::PolicySourceView<'_>>(source.policy_sources().len(), pass)?;
+    sources.try_extend(source.policy_sources())?;
     sources.sort_unstable_by(|a, b| a.target().cmp(b.target()));
     if sources.windows(2).any(|w| w[0].target() == w[1].target()) {
         return Err(MISMATCH);
     }
-    let mut stable_rows =
-        reserved::<Row<'_>>(table(view, 2, 0)?.row_count() as usize, &mut scratch)?;
-    stable_rows.extend(table(view, 2, 0)?.rows());
-    let mut local_rows =
-        reserved::<Row<'_>>(table(view, 3, 0)?.row_count() as usize, &mut scratch)?;
-    local_rows.extend(table(view, 3, 0)?.rows());
+    let mut stable_rows = granted::<Row<'_>>(table(view, 2, 0)?.row_count() as usize, pass)?;
+    stable_rows.try_extend(table(view, 2, 0)?.rows())?;
+    let mut local_rows = granted::<Row<'_>>(table(view, 3, 0)?.row_count() as usize, pass)?;
+    local_rows.try_extend(table(view, 3, 0)?.rows())?;
     let mut seen = 0_usize;
     let mut identities = policy_identities(root)?;
     for row in policies.rows() {
@@ -428,7 +488,7 @@ pub fn check_portable_policy_sources(
         if number(actual, 3)? != u64::from(ordinal) {
             return Err(MISMATCH);
         }
-        check_projection(source_view, actual, 4, &locations, &documents, &mut scratch)?;
+        check_projection(source_view, actual, 4, &locations, &documents, pass)?;
         let primary = source_key(source_view.primary_source(), &documents)?;
         check_policy_primary(primary, identity, source)?;
         check_road_fields(source_view, primary, row, None, &documents)?;
@@ -458,7 +518,7 @@ pub fn check_portable_policy_sources(
             member.kind + 33,
             member.local_index,
         )?;
-        check_projection(source_view, actual, 5, &locations, &documents, &mut scratch)?;
+        check_projection(source_view, actual, 5, &locations, &documents, pass)?;
         let primary = source_key(source_view.primary_source(), &documents)?;
         let owner = find_source(
             &sources,
@@ -492,15 +552,15 @@ pub fn check_portable_policy_sources(
         )?;
         seen += 1;
     }
-    let mut movement_sources = reserved::<([u8; 16], crate::MovementSourceView<'_>)>(
+    let mut movement_sources = granted::<([u8; 16], crate::MovementSourceView<'_>)>(
         source.movement_sources().len(),
-        &mut scratch,
+        pass,
     )?;
-    movement_sources.extend(
+    movement_sources.try_extend(
         source
             .movement_sources()
             .map(|s| (stable_id_bytes(s.stable_id()), s)),
-    );
+    )?;
     movement_sources.sort_unstable_by_key(|s| s.0);
     for row in table(root, 2, 5)?.rows() {
         let id = checked_stable_id_with(row, 2, MISMATCH)?;
@@ -614,15 +674,15 @@ fn find_local<'a>(
 
 fn policy_owner_ids(
     policies: RegistryCheckedTableView<'_>,
-    scratch: &mut Scratch,
-) -> Result<Vec<[u8; 16]>, PortableEmissionError> {
+    pass: &PassBudget<'_>,
+) -> Result<BoundedVec<[u8; 16]>, PortableEmissionError> {
     // 只索引成员需要的 StableId；共用累计预算，不复制策略或 Identity 载荷。
-    let mut owners = reserved::<[u8; 16]>(policies.row_count() as usize, scratch)?;
+    let mut owners = granted::<[u8; 16]>(policies.row_count() as usize, pass)?;
     for (ordinal, row) in policies.rows().enumerate() {
         if checked_u32_with(row, 1, MISMATCH)? as usize != ordinal {
             return Err(MISMATCH);
         }
-        owners.push(checked_stable_id_with(row, 2, MISMATCH)?);
+        owners.push(checked_stable_id_with(row, 2, MISMATCH)?)?;
     }
     Ok(owners)
 }
@@ -704,16 +764,16 @@ fn check_projection(
     primary_tag: u16,
     locations: &[LocationKey<'_>],
     documents: &Documents<'_>,
-    scratch: &mut Scratch,
+    pass: &PassBudget<'_>,
 ) -> Result<(), PortableEmissionError> {
     let primary = source_key(source.primary_source(), documents)?;
     if locations.get(number(row, primary_tag)? as usize) != Some(&primary) {
         return Err(MISMATCH);
     }
-    let mut expected = reserved::<u32>(source.contributing_sources().len(), scratch)?;
+    let mut expected = granted::<u32>(source.contributing_sources().len(), pass)?;
     for view in source.contributing_sources() {
         let key = source_key(view, documents)?;
-        expected.push(locations.binary_search(&key).map_err(|_| MISMATCH)? as u32);
+        expected.push(locations.binary_search(&key).map_err(|_| MISMATCH)? as u32)?;
     }
     expected.sort_unstable();
     expected.dedup();
@@ -726,7 +786,6 @@ fn check_projection(
     {
         return Err(MISMATCH);
     }
-    scratch.release((expected.capacity() * size_of::<u32>()) as u64);
     Ok(())
 }
 
@@ -787,8 +846,8 @@ fn check_road_fields(
 
 struct Documents<'a> {
     // entries 保持真实全局 ordinal，by_key 只保存排序索引，不重排或复制文档键。
-    entries: Vec<(&'a str, u32)>,
-    by_key: Vec<u32>,
+    entries: BoundedVec<(&'a str, u32)>,
+    by_key: BoundedVec<u32>,
 }
 
 impl Documents<'_> {
@@ -805,7 +864,7 @@ impl Documents<'_> {
 fn check_documents<'a>(
     source: &'a ValidatedSourceMapInput,
     view: RegistryCheckedObjectView<'_>,
-    scratch: &mut Scratch,
+    pass: &PassBudget<'_>,
 ) -> Result<Documents<'a>, PortableEmissionError> {
     let module_table = table(view, 1, 0)?;
     if module_table.row_count() as usize != source.source_modules().len() {
@@ -843,7 +902,7 @@ fn check_documents<'a>(
             }
         }
     }
-    let mut documents = reserved::<(&str, u32)>(source.source_documents().len(), scratch)?;
+    let mut documents = granted::<(&str, u32)>(source.source_documents().len(), pass)?;
     let table = table(view, 1, 1)?;
     if table.row_count() as usize != source.source_documents().len() {
         return Err(MISMATCH);
@@ -868,10 +927,10 @@ fn check_documents<'a>(
         {
             return Err(MISMATCH);
         }
-        documents.push((doc.source_document_key(), module));
+        documents.push((doc.source_document_key(), module))?;
     }
-    let mut by_key = reserved::<u32>(documents.len(), scratch)?;
-    by_key.extend(0..u32::try_from(documents.len()).map_err(|_| MISMATCH)?);
+    let mut by_key = granted::<u32>(documents.len(), pass)?;
+    by_key.try_extend(0..u32::try_from(documents.len()).map_err(|_| MISMATCH)?)?;
     by_key.sort_unstable_by_key(|i| documents[*i as usize].0);
     if by_key
         .windows(2)
@@ -896,10 +955,10 @@ struct ProjectionRowCounts {
 fn check_pool(
     view: RegistryCheckedObjectView<'_>,
     location_count: usize,
-    scratch: &mut Scratch,
+    pass: &PassBudget<'_>,
 ) -> Result<ProjectionRowCounts, PortableEmissionError> {
-    let mut used = reserved::<bool>(location_count, scratch)?;
-    used.resize(location_count, false);
+    let mut used = granted::<bool>(location_count, pass)?;
+    used.resize(location_count, false)?;
     let mut counts = ProjectionRowCounts::default();
     let mut previous_stable = None;
     for (section, table_id, scalar, vector) in [
@@ -946,6 +1005,5 @@ fn check_pool(
     if used.iter().any(|v| !v) {
         return Err(MISMATCH);
     }
-    scratch.release(used.capacity() as u64);
     Ok(counts)
 }

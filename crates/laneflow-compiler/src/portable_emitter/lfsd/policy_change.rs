@@ -20,7 +20,10 @@ impl Member<'_> {
     }
 }
 
-/// LFSD 构建暂存区的字节计量器，按编译资源上限记账。
+/// 路权策略局部成员变更行的暂存字节计量器。
+///
+/// 变更行随 LFSD 对象树离开编译遍，对象树计入资源账本前暂由本计量器按账本余量记账；
+/// 其余发射与检查工作集已由资源账本授予。
 pub(in crate::portable_emitter) struct Scratch {
     used: u64,
     limit: u64,
@@ -53,12 +56,6 @@ impl Scratch {
     /// 释放 `bytes` 字节暂存用量。
     pub(in crate::portable_emitter) fn release(&mut self, bytes: u64) {
         self.used -= bytes;
-    }
-
-    /// 返回当前已计入的暂存字节用量。
-    #[cfg(test)]
-    pub(in crate::portable_emitter) const fn used(&self) -> u64 {
-        self.used
     }
 }
 

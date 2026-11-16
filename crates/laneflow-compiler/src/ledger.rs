@@ -10,8 +10,8 @@
 //! 账本内部状态在互斥锁内维护，授予句柄可随存储跨线程移动；同一账本同一时刻只有一个
 //! 活动的顶层编译遍，子编译遍按栈嵌套。账本错误不分配堆内存。
 
-// 本模块是 #1296 第一步的账本核心；发射、差异发射与公开检查入口在同一 Stack 的上层
-// 迁入，届时去掉此项。
+// 发射与检查的工作集已迁入账本；子编译遍、返回点转交与资源报告的入口由对象树计入账本
+// 与编译管线迁入后使用，届时去掉此项。
 #![cfg_attr(not(test), allow(dead_code))]
 
 use std::alloc::Layout;
@@ -22,6 +22,50 @@ use crate::{CompileLimitDimension, CompileLimits};
 
 #[cfg(test)]
 mod tests;
+
+/// 编译遍计划峰值的受检累加器（资源账本设计第 3.2 节）。
+///
+/// 按授予请求的 `Layout` 累加；任一步无法表示时整份计划记为无法表示，准入时按宿主预算
+/// 超限拒绝（观测值 `u64::MAX`）。互斥的子阶段用 [`Plan::max`] 取峰值。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Plan(Option<u64>);
+
+impl Plan {
+    /// 空计划。
+    pub(crate) const ZERO: Self = Self(Some(0));
+
+    /// 恰为 `bytes` 字节的计划。
+    pub(crate) const fn of(bytes: u64) -> Self {
+        Self(Some(bytes))
+    }
+
+    /// 加上 `count` 个 `T` 的定长序列请求。
+    #[must_use]
+    pub(crate) fn array<T>(self, count: usize) -> Self {
+        self.plus(Self(
+            Layout::array::<T>(count)
+                .ok()
+                .and_then(|layout| u64::try_from(layout.size()).ok()),
+        ))
+    }
+
+    /// 两份同时存续的计划之和。
+    #[must_use]
+    pub(crate) fn plus(self, other: Self) -> Self {
+        Self(self.0.zip(other.0).and_then(|(a, b)| a.checked_add(b)))
+    }
+
+    /// 两份互斥子阶段计划的峰值。
+    #[must_use]
+    pub(crate) fn max(self, other: Self) -> Self {
+        Self(self.0.zip(other.0).map(|(a, b)| a.max(b)))
+    }
+
+    /// 计划字节；无法表示时为 `None`。
+    pub(crate) const fn bytes(self) -> Option<u64> {
+        self.0
+    }
+}
 
 /// 资源报告中工作集峰值的归属阶段（资源账本设计第 7 节）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -318,7 +362,7 @@ impl Ledger {
     pub(crate) fn admit_pass(
         &self,
         label: PassLabel,
-        plan: u64,
+        plan: Plan,
     ) -> Result<PassBudget<'_>, LedgerError> {
         let mut state = lock(&self.state);
         if !state.frames.is_empty() {
@@ -327,20 +371,23 @@ impl Ledger {
                 defect: AccountingDefect::NestedTopLevelPass,
             });
         }
-        let requested = state
-            .live
-            .checked_add(state.reserved)
-            .and_then(|held| held.checked_add(plan));
-        match requested {
-            Some(requested) if requested <= state.budget => {}
+        let requested = plan.bytes().and_then(|plan| {
+            state
+                .live
+                .checked_add(state.reserved)?
+                .checked_add(plan)
+                .map(|requested| (plan, requested))
+        });
+        let plan = match requested {
+            Some((plan, requested)) if requested <= state.budget => plan,
             _ => {
                 return Err(LedgerError::BudgetExceeded {
                     label,
-                    requested: requested.unwrap_or(u64::MAX),
+                    requested: requested.map_or(u64::MAX, |(_, requested)| requested),
                     limit: state.budget,
                 });
             }
-        }
+        };
         state.reserved += plan;
         let account = state.push_frame(label, plan);
         drop(state);
@@ -349,6 +396,12 @@ impl Ledger {
             account,
             finished: false,
         })
+    }
+
+    /// 宿主预算中既未授予也未预留的余量 `B − L − R`。
+    pub(crate) fn headroom(&self) -> u64 {
+        let state = lock(&self.state);
+        state.budget - state.live - state.reserved
     }
 
     /// 当前存续 `L`。
@@ -390,19 +443,22 @@ impl PassBudget<'_> {
     pub(crate) fn admit_sub(
         &self,
         label: PassLabel,
-        plan: u64,
+        plan: Plan,
     ) -> Result<PassBudget<'_>, LedgerError> {
         let mut state = lock(&self.ledger.state);
         let parent_label = state
             .top_label(self.account)
             .map_err(|defect| LedgerError::Defect { label, defect })?;
         let parent = state.frames.last_mut().expect("栈顶编译遍已在上一步确认");
-        if plan > parent.unconsumed() {
-            return Err(LedgerError::Defect {
-                label: parent_label,
-                defect: AccountingDefect::SubPlanExceedsParent,
-            });
-        }
+        let plan = match plan.bytes() {
+            Some(plan) if plan <= parent.unconsumed() => plan,
+            _ => {
+                return Err(LedgerError::Defect {
+                    label: parent_label,
+                    defect: AccountingDefect::SubPlanExceedsParent,
+                });
+            }
+        };
         parent.carved += plan;
         let account = state.push_frame(label, plan);
         drop(state);
@@ -568,7 +624,37 @@ impl<T> BoundedVec<T> {
     }
 }
 
+impl<T> BoundedVec<T> {
+    /// 逐项追加迭代器产出的元素；超出授予容量时停在容量处并返回记账缺陷。
+    pub(crate) fn try_extend(
+        &mut self,
+        values: impl IntoIterator<Item = T>,
+    ) -> Result<(), LedgerError> {
+        for value in values {
+            self.push(value)?;
+        }
+        Ok(())
+    }
+
+    /// 去掉相邻重复元素；逻辑容量不变。
+    pub(crate) fn dedup(&mut self)
+    where
+        T: PartialEq,
+    {
+        self.items.dedup();
+    }
+}
+
 impl<T: Clone> BoundedVec<T> {
+    /// 把长度调整为 `len`，新增位置填 `value`；超出授予容量时不改变并返回记账缺陷。
+    pub(crate) fn resize(&mut self, len: usize, value: T) -> Result<(), LedgerError> {
+        if len > self.capacity {
+            return Err(self.overflow());
+        }
+        self.items.resize(len, value);
+        Ok(())
+    }
+
     /// 追加一段元素；超出授予容量时整体不写入并返回记账缺陷。
     pub(crate) fn extend_from_slice(&mut self, values: &[T]) -> Result<(), LedgerError> {
         if values.len() > self.capacity - self.items.len() {
@@ -584,6 +670,15 @@ impl<T> Deref for BoundedVec<T> {
 
     fn deref(&self) -> &[T] {
         &self.items
+    }
+}
+
+impl<'v, T> IntoIterator for &'v BoundedVec<T> {
+    type Item = &'v T;
+    type IntoIter = std::slice::Iter<'v, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.iter()
     }
 }
 

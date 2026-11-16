@@ -23,13 +23,13 @@ fn assert_conserved(ledger: &Ledger) {
 #[test]
 fn admission_accepts_exact_budget_and_rejects_one_more() {
     let ledger = Ledger::with_budget(1024);
-    let pass = ledger.admit_pass(SINGLE, 1024).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(1024)).unwrap();
     assert_eq!(ledger.reserved(), 1024);
     assert_conserved(&ledger);
     pass.finish(0).unwrap();
     assert_eq!(ledger.reserved(), 0);
 
-    let rejected = ledger.admit_pass(SINGLE, 1025).err().unwrap();
+    let rejected = ledger.admit_pass(SINGLE, Plan::of(1025)).err().unwrap();
     assert_eq!(
         rejected,
         LedgerError::BudgetExceeded {
@@ -45,12 +45,12 @@ fn admission_accepts_exact_budget_and_rejects_one_more() {
 #[test]
 fn admission_counts_live_output_of_earlier_passes() {
     let ledger = Ledger::with_budget(1000);
-    let pass = ledger.admit_pass(SINGLE, 600).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(600)).unwrap();
     let output = pass.vec::<u8>(600).unwrap();
     pass.finish(output.granted_bytes()).unwrap();
     assert_eq!((ledger.live(), ledger.reserved()), (600, 0));
 
-    let rejected = ledger.admit_pass(CHECK, 401).err().unwrap();
+    let rejected = ledger.admit_pass(CHECK, Plan::of(401)).err().unwrap();
     assert!(matches!(
         rejected,
         LedgerError::BudgetExceeded {
@@ -58,7 +58,11 @@ fn admission_counts_live_output_of_earlier_passes() {
             ..
         }
     ));
-    ledger.admit_pass(CHECK, 400).unwrap().finish(0).unwrap();
+    ledger
+        .admit_pass(CHECK, Plan::of(400))
+        .unwrap()
+        .finish(0)
+        .unwrap();
     drop(output);
     let report = ledger.close().unwrap();
     assert_eq!(report.released, 600);
@@ -68,10 +72,10 @@ fn admission_counts_live_output_of_earlier_passes() {
 #[test]
 fn unrepresentable_plan_is_a_budget_rejection() {
     let ledger = Ledger::with_budget(u64::MAX);
-    let first = ledger.admit_pass(SINGLE, 1).unwrap();
+    let first = ledger.admit_pass(SINGLE, Plan::of(1)).unwrap();
     let kept = first.vec::<u8>(1).unwrap();
     first.finish(1).unwrap();
-    let overflow = ledger.admit_pass(SINGLE, u64::MAX).err().unwrap();
+    let overflow = ledger.admit_pass(SINGLE, Plan::of(u64::MAX)).err().unwrap();
     assert_eq!(
         overflow,
         LedgerError::BudgetExceeded {
@@ -82,7 +86,7 @@ fn unrepresentable_plan_is_a_budget_rejection() {
     );
     drop(kept);
 
-    let pass = ledger.admit_pass(SINGLE, 16).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(16)).unwrap();
     let huge = pass.vec::<u64>(usize::MAX).err().unwrap();
     assert!(matches!(
         huge,
@@ -98,8 +102,8 @@ fn unrepresentable_plan_is_a_budget_rejection() {
 #[test]
 fn second_top_level_pass_is_a_defect() {
     let ledger = Ledger::with_budget(100);
-    let pass = ledger.admit_pass(SINGLE, 10).unwrap();
-    let nested = ledger.admit_pass(CHECK, 10).err().unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(10)).unwrap();
+    let nested = ledger.admit_pass(CHECK, Plan::of(10)).err().unwrap();
     assert_eq!(
         nested,
         LedgerError::Defect {
@@ -115,7 +119,7 @@ fn second_top_level_pass_is_a_defect() {
 #[test]
 fn grant_beyond_pass_plan_is_a_defect_without_allocation() {
     let ledger = Ledger::with_budget(100);
-    let pass = ledger.admit_pass(SINGLE, 8).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(8)).unwrap();
     let err = pass.vec::<u32>(3).err().unwrap();
     assert_eq!(
         err,
@@ -132,7 +136,7 @@ fn grant_beyond_pass_plan_is_a_defect_without_allocation() {
 #[test]
 fn released_quota_can_be_granted_again_and_peak_is_in_use_not_total() {
     let ledger = Ledger::with_budget(512);
-    let pass = ledger.admit_pass(SINGLE, 512).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(512)).unwrap();
     for _ in 0..3 {
         let scratch = pass.vec::<u8>(512).unwrap();
         assert_eq!(pass.in_use(), 512);
@@ -151,10 +155,10 @@ fn released_quota_can_be_granted_again_and_peak_is_in_use_not_total() {
 #[test]
 fn nested_sub_pass_draws_from_parent_and_returns_output_to_parent() {
     let ledger = Ledger::with_budget(1000);
-    let parent = ledger.admit_pass(SINGLE, 800).unwrap();
+    let parent = ledger.admit_pass(SINGLE, Plan::of(800)).unwrap();
     let parent_scratch = parent.vec::<u8>(100).unwrap();
 
-    let too_large = parent.admit_sub(SUB, 701).err().unwrap();
+    let too_large = parent.admit_sub(SUB, Plan::of(701)).err().unwrap();
     assert_eq!(
         too_large,
         LedgerError::Defect {
@@ -164,10 +168,10 @@ fn nested_sub_pass_draws_from_parent_and_returns_output_to_parent() {
     );
 
     let reserved_before = ledger.reserved();
-    let child = parent.admit_sub(SUB, 500).unwrap();
+    let child = parent.admit_sub(SUB, Plan::of(500)).unwrap();
     assert_eq!(ledger.reserved(), reserved_before, "划出子计划不改变 R");
     assert_conserved(&ledger);
-    let grandchild = child.admit_sub(SUB, 200).unwrap();
+    let grandchild = child.admit_sub(SUB, Plan::of(200)).unwrap();
     let deep = grandchild.vec::<u8>(200).unwrap();
     assert_conserved(&ledger);
     grandchild.finish(200).unwrap();
@@ -194,7 +198,9 @@ fn nested_sub_pass_draws_from_parent_and_returns_output_to_parent() {
 fn allocator_rejection_rolls_back_the_grant() {
     let ledger = Ledger::with_budget(u64::MAX);
     let capacity = usize::try_from(isize::MAX).unwrap();
-    let pass = ledger.admit_pass(SINGLE, capacity as u64).unwrap();
+    let pass = ledger
+        .admit_pass(SINGLE, Plan::of(capacity as u64))
+        .unwrap();
     let err = pass.vec::<u8>(capacity).err().unwrap();
     assert_eq!(err, LedgerError::AllocationFailure { label: SINGLE });
     assert_eq!((ledger.live(), pass.in_use()), (0, 0));
@@ -207,8 +213,8 @@ fn allocator_rejection_rolls_back_the_grant() {
 #[test]
 fn early_return_without_finish_returns_unconsumed_reserve() {
     fn failing_pass(ledger: &Ledger) -> Result<(), LedgerError> {
-        let pass = ledger.admit_pass(SINGLE, 256)?;
-        let child = pass.admit_sub(SUB, 128)?;
+        let pass = ledger.admit_pass(SINGLE, Plan::of(256))?;
+        let child = pass.admit_sub(SUB, Plan::of(128))?;
         let _scratch = child.vec::<u8>(64)?;
         let _more = pass.vec::<u8>(64)?;
         Err(LedgerError::AllocationFailure { label: SUB })
@@ -219,7 +225,11 @@ fn early_return_without_finish_returns_unconsumed_reserve() {
     assert_eq!((ledger.live(), ledger.reserved()), (0, 0));
     assert!(lock(&ledger.state).frames.is_empty());
     // 同一账本可以立即准入下一编译遍。
-    ledger.admit_pass(SINGLE, 256).unwrap().finish(0).unwrap();
+    ledger
+        .admit_pass(SINGLE, Plan::of(256))
+        .unwrap()
+        .finish(0)
+        .unwrap();
     let report = ledger.close().unwrap();
     assert_eq!(report.released, 128);
 }
@@ -228,7 +238,7 @@ fn early_return_without_finish_returns_unconsumed_reserve() {
 fn storage_surviving_a_dropped_pass_returns_quota_when_released() {
     let ledger = Ledger::with_budget(100);
     let kept = {
-        let pass = ledger.admit_pass(SINGLE, 100).unwrap();
+        let pass = ledger.admit_pass(SINGLE, Plan::of(100)).unwrap();
         pass.vec::<u8>(40).unwrap()
     };
     assert_eq!((ledger.live(), ledger.reserved()), (40, 0));
@@ -239,7 +249,7 @@ fn storage_surviving_a_dropped_pass_returns_quota_when_released() {
 #[test]
 fn finish_with_unreturned_grant_is_a_defect() {
     let ledger = Ledger::with_budget(100);
-    let pass = ledger.admit_pass(SINGLE, 100).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(100)).unwrap();
     let leaked = pass.vec::<u8>(30).unwrap();
     let err = pass.finish(0).unwrap_err();
     assert_eq!(
@@ -270,7 +280,7 @@ fn ledger_with_live<T>(vec: &BoundedVec<T>) -> Ledger {
 #[test]
 fn ok_and_err_return_points_transfer_to_host() {
     let ledger = Ledger::with_budget(1000);
-    let pass = ledger.admit_pass(SINGLE, 1000).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(1000)).unwrap();
     let mut candidate = pass.vec::<u16>(100).unwrap();
     for value in 0..100 {
         candidate.push(value).unwrap();
@@ -295,7 +305,7 @@ fn ok_and_err_return_points_transfer_to_host() {
 #[test]
 fn writes_beyond_granted_capacity_are_defects() {
     let ledger = Ledger::with_budget(100);
-    let pass = ledger.admit_pass(SINGLE, 100).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(100)).unwrap();
     let mut bytes = pass.vec::<u8>(4).unwrap();
     bytes.extend_from_slice(&[1, 2, 3]).unwrap();
     let overflow = bytes.extend_from_slice(&[4, 5]).unwrap_err();
@@ -320,7 +330,7 @@ fn writes_beyond_granted_capacity_are_defects() {
 #[test]
 fn zero_sized_requests_need_no_quota() {
     let ledger = Ledger::with_budget(0);
-    let pass = ledger.admit_pass(SINGLE, 0).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(0)).unwrap();
     let mut empty = pass.vec::<u64>(0).unwrap();
     assert!(empty.push(1).is_err());
     let mut units = pass.vec::<()>(3).unwrap();
@@ -334,10 +344,10 @@ fn zero_sized_requests_need_no_quota() {
 #[test]
 fn stage_peaks_are_tracked_per_top_level_stage() {
     let ledger = Ledger::with_budget(1000);
-    let single = ledger.admit_pass(SINGLE, 400).unwrap();
+    let single = ledger.admit_pass(SINGLE, Plan::of(400)).unwrap();
     drop(single.vec::<u8>(400).unwrap());
     single.finish(0).unwrap();
-    let check = ledger.admit_pass(CHECK, 100).unwrap();
+    let check = ledger.admit_pass(CHECK, Plan::of(100)).unwrap();
     drop(check.vec::<u8>(90).unwrap());
     check.finish(0).unwrap();
     let report = ledger.close().unwrap();
@@ -349,7 +359,7 @@ fn stage_peaks_are_tracked_per_top_level_stage() {
 #[test]
 fn granted_storage_moves_across_threads_without_recharging() {
     let ledger = Ledger::with_budget(64);
-    let pass = ledger.admit_pass(SINGLE, 64).unwrap();
+    let pass = ledger.admit_pass(SINGLE, Plan::of(64)).unwrap();
     let mut bytes = pass.vec::<u8>(64).unwrap();
     bytes.push(7).unwrap();
     let bytes = std::thread::spawn(move || bytes).join().unwrap();
@@ -365,9 +375,9 @@ fn ledger_budget_is_the_profile_host_budget() {
     let limits = CompileLimits::p100();
     let budget = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
     let ledger = Ledger::new(&limits);
-    assert!(ledger.admit_pass(SINGLE, budget + 1).is_err());
+    assert!(ledger.admit_pass(SINGLE, Plan::of(budget + 1)).is_err());
     ledger
-        .admit_pass(SINGLE, budget)
+        .admit_pass(SINGLE, Plan::of(budget))
         .unwrap()
         .finish(0)
         .unwrap();
@@ -377,11 +387,11 @@ fn ledger_budget_is_the_profile_host_budget() {
 #[test]
 fn output_of_ended_sub_pass_is_not_charged_to_a_later_sibling() {
     let ledger = Ledger::with_budget(300);
-    let parent = ledger.admit_pass(SINGLE, 300).unwrap();
-    let first = parent.admit_sub(SUB, 100).unwrap();
+    let parent = ledger.admit_pass(SINGLE, Plan::of(300)).unwrap();
+    let first = parent.admit_sub(SUB, Plan::of(100)).unwrap();
     let output = first.vec::<u8>(100).unwrap();
     first.finish(100).unwrap();
-    let sibling = parent.admit_sub(SUB, 100).unwrap();
+    let sibling = parent.admit_sub(SUB, Plan::of(100)).unwrap();
     let sibling_scratch = sibling.vec::<u8>(60).unwrap();
     // 先前子编译遍的输出归父编译遍；释放时不得减少同深度新子编译遍的在用量。
     drop(output);
@@ -398,11 +408,65 @@ fn output_of_ended_sub_pass_is_not_charged_to_a_later_sibling() {
 fn repeated_passes_keep_ledger_state_bounded() {
     let ledger = Ledger::with_budget(64);
     for _ in 0..10_000 {
-        let pass = ledger.admit_pass(SINGLE, 0).unwrap();
-        pass.admit_sub(SUB, 0).unwrap().finish(0).unwrap();
+        let pass = ledger.admit_pass(SINGLE, Plan::of(0)).unwrap();
+        pass.admit_sub(SUB, Plan::of(0)).unwrap().finish(0).unwrap();
         pass.finish(0).unwrap();
     }
     let frames_capacity = lock(&ledger.state).frames.capacity();
     assert!(frames_capacity <= 4, "账本状态不得随编译遍次数增长");
+    ledger.close().unwrap();
+}
+
+#[test]
+fn plan_accumulates_layouts_and_rejects_unrepresentable_plans() {
+    let plan = Plan::ZERO.array::<u32>(3).array::<[u8; 16]>(2);
+    assert_eq!(plan.bytes(), Some(12 + 32));
+    assert_eq!(
+        Plan::of(10).max(Plan::of(7)).plus(Plan::of(1)).bytes(),
+        Some(11)
+    );
+    let unrepresentable = Plan::ZERO.array::<u64>(usize::MAX);
+    assert_eq!(unrepresentable.bytes(), None);
+    assert_eq!(unrepresentable.max(Plan::ZERO).bytes(), None);
+    assert_eq!(Plan::of(u64::MAX).plus(Plan::of(1)).bytes(), None);
+
+    // 即使宿主预算为 u64::MAX，无法表示的计划也按预算超限拒绝。
+    let ledger = Ledger::with_budget(u64::MAX);
+    assert_eq!(
+        ledger.admit_pass(SINGLE, unrepresentable).err().unwrap(),
+        LedgerError::BudgetExceeded {
+            label: SINGLE,
+            requested: u64::MAX,
+            limit: u64::MAX,
+        }
+    );
+    let pass = ledger.admit_pass(SINGLE, Plan::of(8)).unwrap();
+    assert!(matches!(
+        pass.admit_sub(SUB, unrepresentable).err().unwrap(),
+        LedgerError::Defect {
+            defect: AccountingDefect::SubPlanExceedsParent,
+            ..
+        }
+    ));
+    pass.finish(0).unwrap();
+    ledger.close().unwrap();
+}
+
+#[test]
+fn batch_writes_respect_granted_capacity() {
+    let ledger = Ledger::with_budget(64);
+    let pass = ledger.admit_pass(SINGLE, Plan::of(64)).unwrap();
+    let mut values = pass.vec::<u32>(4).unwrap();
+    values.try_extend([3, 1, 1]).unwrap();
+    values.dedup();
+    assert_eq!(&*values, &[3, 1]);
+    assert!(values.try_extend([5, 6, 7]).is_err());
+    assert_eq!(values.len(), 4, "超出容量时停在容量处");
+    let mut flags = pass.vec::<bool>(3).unwrap();
+    flags.resize(3, false).unwrap();
+    assert!(flags.resize(4, true).is_err());
+    assert_eq!(&*flags, &[false; 3]);
+    drop((values, flags));
+    pass.finish(0).unwrap();
     ledger.close().unwrap();
 }

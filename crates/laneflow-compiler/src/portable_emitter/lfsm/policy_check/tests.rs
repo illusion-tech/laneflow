@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn policy_owner_index_charges_the_existing_scratch_budget_before_allocation() {
+fn policy_owner_index_is_granted_within_the_pass_plan_before_allocation() {
     let artifact =
         include_bytes!("../../../../tests/fixtures/portable/lfca-policy-references/expected.lfca");
     let root = preflight_object_values(
@@ -14,20 +14,23 @@ fn policy_owner_index_charges_the_existing_scratch_budget_before_allocation() {
     let policies = table(root, 2, 23).unwrap();
     let required = u64::from(policies.row_count()) * size_of::<[u8; 16]>() as u64;
     assert!(required > 0);
-    let mut too_small = Scratch::new(required);
-    too_small.charge(1).unwrap();
+    let accounting = crate::portable_emitter::budget::test_accounting(u64::MAX);
+    let too_small = accounting
+        .admit("test-owners", Plan::of(required - 1))
+        .unwrap();
     assert_eq!(
-        policy_owner_ids(policies, &mut too_small),
-        Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
-            limit: required,
-            actual: required + 1,
+        policy_owner_ids(policies, &too_small).err(),
+        Some(PortableEmissionError::InternalAccountingDefect {
+            point: "test-owners"
         })
     );
-    assert_eq!(too_small.used(), 1);
-    let mut enough = Scratch::new(required + 1);
-    enough.charge(1).unwrap();
-    let owners = policy_owner_ids(policies, &mut enough).unwrap();
+    assert_eq!(too_small.in_use(), 0, "授予被拒绝时不分配");
+    too_small.finish(0).unwrap();
+    let enough = accounting.admit("test-owners", Plan::of(required)).unwrap();
+    let owners = policy_owner_ids(policies, &enough).unwrap();
     assert_eq!(owners.len(), policies.row_count() as usize);
-    assert_eq!(enough.used(), required + 1);
+    assert_eq!(enough.in_use(), required);
+    drop(owners);
+    enough.finish(0).unwrap();
+    assert_eq!(accounting.ledger.live(), 0);
 }
