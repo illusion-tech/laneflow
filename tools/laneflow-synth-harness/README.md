@@ -127,8 +127,8 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 
 ```text
 measure prepare-oracles <semantic-binary> <generator-matrix-root> <implementation-commit> <new-oracle-root>
-measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output-root>
-measure stretch-matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-stretch-output>
+measure matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output-root> [--no-load-sampling]
+measure stretch-matrix <generator-matrix-root> <oracle-root> <implementation-commit> <environment-input.json> <new-stretch-output> [--no-load-sampling]
 measure guardrail <W1-input-directory> <new-guardrail-output>
 ```
 
@@ -150,6 +150,14 @@ backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
 `peak_working_set_bytes`、Linux `linux_vm_hwm_bytes`，取 `resources.json` 与
 `report.json` 的 `final_process`）不小于父进程采样峰值；不满足时 `consistent=false`，
 如实记录，不改变运行结论。
+
+逐段负载采样按[测量设计 §7][load-section]默认开启：每轮在帧间（W2 为拍间）经
+`laneflow-os-probe` 分段读取整机忙碌 CPU、本进程 CPU、线程就绪等待（仅 Linux）与
+缺页，段长不短于 1 s，采样不进入任何计时区间。round 结束时只依据负载记录判定
+`undisturbed`、`disturbed`、`undeterminable` 或 `sampling_disabled`，写入
+`report.json` 的 `load`。末尾加 `--no-load-sampling` 关闭采样，仅用于采样开销对比；
+开关写入 `manifest.json` 的 `load_sampling` 并参与运行身份，两种配置的计时不得
+合并统计。§7.4 阈值仍是初值，须在安静测量窗口校准后才能用于正式测量。
 
 正常 release 构建不启用任何测量 feature。独立诊断构建启用 `allocation`，同时启用
 已有 execution-evidence 与 pose-profiling；诊断矩阵每行一个完整窗口，其耗时明确排除：
@@ -191,6 +199,11 @@ allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Traffic Ru
 - 子进程日志：诊断构建的现有 Adapter/Spatial 容量计数；矩阵汇总每字段最大值，
   保留 capacity、元素大小和实际 batch 长度的不同口径。HashMap capacity 不是含
   allocator/control-byte 开销的完整堆占用。
+- `load.json`：逐段负载记录。文件头写平台、逻辑 CPU 数、目标段长、采样开关、
+  阈值、各信号来源与不可用原因；每段写首末位置（W2 为拍号）、是否观测段、墙钟、
+  各计数差值、`external_load`（`L_ext`）、`run_queue_wait`（`Q`）与标记。不可用
+  信号为 `null`，不填零。逐帧缺页差值写入 `frames.json` 的 `page_faults`，W2 写入
+  `ticks.json`。
 - `report.json`、`summary.json`：原始文件 SHA-256、同源检查、分组统计和三轮聚合。
   percentile 使用 nearest-rank；先求每轮 p50/p95/p99，再取三轮中位数；max 取三轮最坏。
 
@@ -310,6 +323,7 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 [lf-synth-execution-retry]: ../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试
 [lf-synth-measurement-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1166-lf-synth-measurement/README.md
 [lf-synth-measurement]: ../../docs/design/lf-synth-measurement.md
+[load-section]: ../../docs/design/lf-synth-measurement.md#7-逐段负载记录与受扰轮次
 [lf-synth-restore-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1197-lf-synth-restore/README.md
 [host-observe]: ../laneflow-host-observe/README.md
 [host-observe-section]: #环境记录与子进程观测

@@ -6,8 +6,18 @@ use laneflow_synth_harness::{Error, measurement};
 #[global_allocator]
 static ALLOCATOR: &stats_alloc::StatsAlloc<std::alloc::System> = &stats_alloc::INSTRUMENTED_SYSTEM;
 
+const NO_LOAD_SAMPLING: &str = "--no-load-sampling";
+
 fn execute() -> Result<(), Error> {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    // lf-synth-measurement.md §7.3：逐段负载采样默认开启；末尾 `--no-load-sampling`
+    // 关闭，仅用于采样开销对比，两种配置的计时不得合并统计。
+    let load_sampling = if args.last().is_some_and(|arg| arg == NO_LOAD_SAMPLING) {
+        args.pop();
+        false
+    } else {
+        true
+    };
     let text = |index: usize| {
         args[index]
             .to_str()
@@ -15,7 +25,7 @@ fn execute() -> Result<(), Error> {
     };
     if args.len() == 1 && args[0] == "--help" {
         println!(
-            "measure run <input-directory> <oracle-directory> <implementation-commit> <environment-before.json> <percent> <round> <new-output>\nmeasure prepare-oracles <semantic-binary> <input-root> <implementation-commit> <new-output>\nmeasure matrix|stretch-matrix <input-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output>\nmeasure guardrail <W1-input> <new-output>"
+            "measure run <input-directory> <oracle-directory> <implementation-commit> <environment-before.json> <percent> <round> <new-output> [--no-load-sampling]\nmeasure prepare-oracles <semantic-binary> <input-root> <implementation-commit> <new-output>\nmeasure matrix|stretch-matrix <input-root> <oracle-root> <implementation-commit> <environment-input.json> <new-output> [--no-load-sampling]\nmeasure guardrail <W1-input> <new-output>"
         );
         return Ok(());
     }
@@ -39,6 +49,7 @@ fn execute() -> Result<(), Error> {
             Path::new(&args[4]),
             Path::new(&args[5]),
             args[0] == "stretch-matrix",
+            load_sampling,
         );
     }
     if args.len() != 8 || args[0] != "run" {
@@ -60,8 +71,11 @@ fn execute() -> Result<(), Error> {
         Path::new(&args[2]),
         text(3)?,
         Path::new(&args[4]),
-        percent,
-        round,
+        measurement::RunConfig {
+            percent,
+            round,
+            load_sampling,
+        },
         Path::new(&args[7]),
     )?;
     println!("{}", serde_json::to_string(&report)?);

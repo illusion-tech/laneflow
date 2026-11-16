@@ -24,6 +24,7 @@ use crate::{Error, Plan, failure, install::Sample, require, write_json};
 use super::{
     driver::Driver,
     frames::{self, FrameInput},
+    load,
     presentation::Presentation,
     resources::{self, Allocation, AllocationStart},
 };
@@ -63,6 +64,10 @@ struct TickSample {
     /// 与 lifecycle_ns 守恒，residual 显式列示（本实现为 0）。
     lifecycle_segments: Value,
     traffic_active_before_step: u32,
+    /// W2 逐拍缺页差值（§7.2），在计时区间外读取；`null` 为不可用。Bevy 路径按帧
+    /// 记录在 [`FrameSample`]，这里不输出该字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_faults: Option<Option<u64>>,
 }
 
 #[derive(Serialize)]
@@ -80,6 +85,8 @@ struct FrameSample {
     integrated_ns: u64,
     group: &'static str,
     population: [u32; 3],
+    /// 逐帧缺页差值（§7.2），在计时区间外读取；`null` 为不可用或关闭采样。
+    page_faults: Option<u64>,
 }
 
 #[derive(Resource)]
@@ -176,6 +183,7 @@ fn end_step(ecs: &mut World) {
         lifecycle_allocation: timing.lifecycle_allocation,
         lifecycle_segments,
         traffic_active_before_step: timing.active_before,
+        page_faults: None,
     };
     timing.ticks.push(row);
 }
@@ -200,6 +208,17 @@ pub(super) fn hash(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// 单个完整窗口的运行配置；三项都参与运行身份。
+#[derive(Clone, Copy, Debug)]
+pub struct RunConfig {
+    /// 表现比例。
+    pub percent: u8,
+    /// 轮号（1–3）。
+    pub round: u8,
+    /// 逐段负载采样开关（lf-synth-measurement.md §7.3）。
+    pub load_sampling: bool,
+}
+
 /// 在新进程中执行一次完整窗口；oracle 必须来自同输入的独立语义运行。
 ///
 /// # Errors
@@ -210,10 +229,14 @@ pub fn run(
     oracle: &Path,
     implementation: &str,
     environment: &Path,
-    percent: u8,
-    round: u8,
+    config: RunConfig,
     output: &Path,
 ) -> Result<Value, Error> {
+    let RunConfig {
+        percent,
+        round,
+        load_sampling,
+    } = config;
     require(
         implementation.len() == 40
             && implementation
@@ -224,18 +247,11 @@ pub fn run(
     )?;
     fs::create_dir(output)?;
     let mut status = json!({"format":"lf-synth-measurement-1","complete":false,"implementation_commit":implementation,
-        "instrumented":cfg!(feature="allocation"),"round":round,"presentation_percent":percent});
+        "instrumented":cfg!(feature="allocation"),"round":round,"presentation_percent":percent,
+        "load_sampling":load_sampling});
     write_json(&output.join("report.json"), &status)?;
     let result = std::panic::catch_unwind(|| {
-        run_inner(
-            input,
-            oracle,
-            implementation,
-            environment,
-            percent,
-            round,
-            output,
-        )
+        run_inner(input, oracle, implementation, environment, config, output)
     })
     .unwrap_or_else(|panic| {
         let message = if let Some(e) = panic.downcast_ref::<Error>() {
@@ -328,10 +344,14 @@ fn run_inner(
     oracle_path: &Path,
     implementation: &str,
     environment: &Path,
-    percent: u8,
-    round: u8,
+    config: RunConfig,
     output: &Path,
 ) -> Result<Value, Error> {
+    let RunConfig {
+        percent,
+        round,
+        load_sampling,
+    } = config;
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
     let case = plan.identity.case.clone();
@@ -368,7 +388,7 @@ fn run_inner(
     let manifest = json!({"implementation_commit":implementation,"binary":binary,"binary_sha256":hash(&fs::read(&binary)?),
         "input_manifest":bundle.manifest(),"outer_frame_sha256":hash(&inputs_bytes),"selection_sha256":hash(&selected_bytes),
         "round":round,"presentation_percent":percent,"instrumented":cfg!(feature="allocation"),
-        "fixed_delta_ms":plan.identity.fixed_delta_ms,"max_catch_up_steps":2,"workers":1,
+        "load_sampling":load_sampling,"fixed_delta_ms":plan.identity.fixed_delta_ms,"max_catch_up_steps":2,"workers":1,
         "timing":"continuous_frame; Core brackets Bevy Step set including scheduler boundary; snapshots/files/sorting between frames",
         "observation_extra_full_population_audit_inside_frame":false,"environment_record_sha256":environment_record_sha256,
         "oracle_report_sha256":hash(&fs::read(oracle_path.join("report.json"))?)});
@@ -387,10 +407,18 @@ fn run_inner(
     let total = plan.warm_up_ticks + plan.observation_ticks;
     #[cfg(feature = "allocation")]
     let mut transition_cost = laneflow_runtime::TransitionCostEvidence::default();
-    let (ticks, frames, driver) = if case == Case::W2 {
+    // §7.3：W1–W3 在预热与观测分界处强制分段，W4 不强制；W2 以拍为位置。
+    let mut load = load::Sampler::new(
+        load_sampling,
+        case != Case::W4,
+        if case == Case::W2 { "tick" } else { "frame" },
+    )?;
+    let (ticks, frames, driver, load_end) = if case == Case::W2 {
         let mut world = sample.world;
         let mut ticks = Vec::with_capacity(total as usize);
         for tick in 1..=total {
+            load.before(tick, tick > plan.warm_up_ticks);
+            let faults_before = load.page_faults();
             let allocation = resources::start();
             let started = Instant::now();
             let result = world
@@ -398,6 +426,7 @@ fn run_inner(
                 .map_err(|e| failure("Runtime-only step", e))?;
             let elapsed = nanos(started);
             let allocation = resources::finish(allocation);
+            let faults_after = load.page_faults();
             #[cfg(feature = "allocation")]
             accumulate_transition_cost(
                 &mut transition_cost,
@@ -417,6 +446,7 @@ fn run_inner(
                     "harness_command_bookkeeping_ns":0,"harness_other_ns":0,
                     "validation_ns":0,"residual_ns":0,"conserved":true}),
                 traffic_active_before_step: driver.counts[0],
+                page_faults: Some(page_fault_delta(faults_before, faults_after)),
             });
             if is_checkpoint(&plan, tick) {
                 let (checkpoint, validation_ns) = checkpoint(&world, &driver, &oracle)?;
@@ -427,16 +457,19 @@ fn run_inner(
                 eprintln!("W2 tick={tick}/{total}");
             }
         }
-        (ticks, Vec::new(), driver)
+        (ticks, Vec::new(), driver, total + 1)
     } else {
         let mut app = create_app(sample, &plan, selected, driver)?;
         let mut frames = Vec::with_capacity(inputs.len());
+        let load_end = inputs.len() as u64;
         for input in inputs {
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(Duration::from_nanos(input.delta_ns));
             app.world_mut().resource_mut::<Timing>().frame = input.index;
             app.world_mut().resource_mut::<Driver>().lifecycle_commands = 0;
+            load.before(input.index, input.observation);
+            let faults_before = load.page_faults();
             let started = Instant::now();
             app.update();
             #[cfg(feature = "allocation")]
@@ -455,6 +488,7 @@ fn run_inner(
             )?;
             let spatial_adapter_ns = nanos(presentation_started);
             let integrated_ns = nanos(started);
+            let faults_after = load.page_faults();
             let ecs = app.world();
             let session = ecs.resource::<LaneFlowSession>();
             if let Some(error) = session.last_error() {
@@ -482,6 +516,7 @@ fn run_inner(
                 integrated_ns,
                 group,
                 population: driver.counts,
+                page_faults: page_fault_delta(faults_before, faults_after),
             });
             if input.boundary || input.burst.is_some() {
                 let tick = session.world().tick_index();
@@ -508,8 +543,11 @@ fn run_inner(
         }
         let ticks = app.world_mut().remove_resource::<Timing>().unwrap().ticks;
         let driver = app.world_mut().remove_resource::<Driver>().unwrap();
-        (ticks, frames, driver)
+        (ticks, frames, driver, load_end)
     };
+    // round 判定只读负载记录（§7.4）；记录随每轮输出并列入文件摘要清单。
+    let (load_record, load_summary) = load.finish(load_end);
+    write_json(&output.join("load.json"), &load_record)?;
     require(
         ticks.len() as u64 == total
             && ticks
@@ -559,7 +597,7 @@ fn run_inner(
     write_json(&output.join("resources.json"), &json!(memory))?;
     save_partial(output, &ticks, &frames, &checkpoints)?;
     let statistics = statistics(&ticks, &frames, case);
-    let files=["ticks.json","frames.json","events.bin","checkpoints.json","resources.json","batches.json"]
+    let files=["ticks.json","frames.json","events.bin","checkpoints.json","resources.json","batches.json","load.json"]
         .into_iter().map(|name| Ok((name.to_owned(),json!({"sha256":hash(&fs::read(output.join(name))?),"bytes":fs::metadata(output.join(name))?.len()}))))
         .collect::<Result<serde_json::Map<_,_>,Error>>()?;
     #[cfg(feature = "allocation")]
@@ -622,9 +660,15 @@ fn run_inner(
         "caller_commands":driver.command_count,"blocked_commands":driver.blocked_count,"checkpoints":checkpoints,
         "lifecycle_validation_ns":lifecycle_validation_ns,
         "lifecycle_segments":lifecycle_segments,
-        "transition_cost":transition_cost_json,
+        "transition_cost":transition_cost_json,"load":load_summary,
         "completion_records":driver.completion_records,"arrival_records":driver.arrival_records,"files":files}),
     )
+}
+
+fn page_fault_delta(before: Option<u64>, after: Option<u64>) -> Option<u64> {
+    after
+        .zip(before)
+        .and_then(|(after, before)| after.checked_sub(before))
 }
 
 fn is_checkpoint(plan: &Plan, tick: u64) -> bool {

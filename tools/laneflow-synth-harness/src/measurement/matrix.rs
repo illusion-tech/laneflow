@@ -150,6 +150,8 @@ pub fn prepare_oracles(
 }
 
 /// 串行启动正式三轮或独立 allocation 单轮；stretch 只覆盖十万 W1/16 ms/10%。
+/// `load_sampling` 为逐段负载采样开关，传给每个子进程并参与运行身份
+/// （lf-synth-measurement.md §7.3）。
 ///
 /// # Errors
 /// 输出冲突、输入/子进程失败、身份或三轮语义不一致、I/O 失败时返回错误并保留已完成行。
@@ -160,6 +162,7 @@ pub fn matrix(
     environment: &Path,
     output: &Path,
     stretch: bool,
+    load_sampling: bool,
 ) -> Result<(), Error> {
     fs::create_dir(output)?;
     let binary = std::env::current_exe()?;
@@ -167,7 +170,7 @@ pub fn matrix(
     let rounds = if cfg!(feature = "allocation") { 1 } else { 3 };
     let mut summary = json!({"format":"lf-synth-measurement-matrix-1","complete":false,"implementation_commit":implementation,
         "binary_sha256":hash(&fs::read(&binary)?),"instrumented":cfg!(feature="allocation"),"stretch_observation":stretch,
-        "max_concurrent_measurements":1,"fresh_process_rounds":rounds,"execution_order":[],"runs":[],"aggregates":[],"errors":[]});
+        "load_sampling":load_sampling,"max_concurrent_measurements":1,"fresh_process_rounds":rounds,"execution_order":[],"runs":[],"aggregates":[],"errors":[]});
     write_json(&output.join("summary.json"), &summary)?;
     // 启动任何子进程前生成并核对测量前环境记录（host-observe.md §6）。
     let session = match crate::host::Session::begin(environment, implementation, output, false) {
@@ -194,7 +197,7 @@ pub fn matrix(
             let label = format!("{}-r{round}", row.label());
             let target = output.join(&label);
             let log = File::create(output.join(format!("{label}.log")))?;
-            let command = vec![
+            let mut command = vec![
                 "run".to_owned(),
                 input
                     .join(format!("{}-a", row.input_label()))
@@ -207,6 +210,9 @@ pub fn matrix(
                 round.to_string(),
                 target.display().to_string(),
             ];
+            if !load_sampling {
+                command.push("--no-load-sampling".to_owned());
+            }
             summary["execution_order"]
                 .as_array_mut()
                 .unwrap()
@@ -253,6 +259,7 @@ pub fn matrix(
                     && report["round"] == round
                     && report["implementation_commit"] == implementation
                     && report["instrumented"] == cfg!(feature = "allocation")
+                    && report["manifest"]["load_sampling"] == load_sampling
                     && report["manifest"]["binary_sha256"] == summary["binary_sha256"],
                 || format!("子进程回执身份不符 {label}"),
             )?;
@@ -317,6 +324,7 @@ fn same_semantics(a: &Value, b: &Value) -> Result<(), Error> {
         "outer_frame_sha256",
         "selection_sha256",
         "binary_sha256",
+        "load_sampling",
     ] {
         require(a["manifest"][key] == b["manifest"][key], || {
             format!("三轮输入不同：{key}")

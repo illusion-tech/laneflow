@@ -3,10 +3,11 @@
 mod driver;
 pub(crate) mod events;
 mod frames;
+mod load;
 mod matrix;
 mod presentation;
 mod resources;
 mod runner;
 
 pub use matrix::{matrix, prepare_oracles};
-pub use runner::{guardrail, run};
+pub use runner::{RunConfig, guardrail, run};
