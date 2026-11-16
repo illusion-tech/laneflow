@@ -150,6 +150,14 @@ impl Hash for ManeuverPathSequence<'_> {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// #1320 回归计数：ordinary successor 引用侧内层成员比较的执行次数——
+    /// 只在该扫描位置累加（owner 侧不并入），测试构建专用。
+    pub(super) static SUCCESSOR_MEMBER_COMPARISONS: std::cell::Cell<u64> =
+        const { std::cell::Cell::new(0) };
+}
+
 /// 构建路口领域 HIR：登记路口与通行流向，闭合机动路径遍历序列并派生路口内部边。
 #[allow(clippy::too_many_lines)]
 // Every parameter is one explicit HIR stage dependency; an aggregate context would broaden
@@ -830,20 +838,10 @@ pub(crate) fn build_junction_hir(
             let Some(claim) = internal_claims[successor.target.index()].as_ref() else {
                 continue;
             };
-            // R-7（#1199）：引用边 ∈ **含目标 internal 的路径**全边集时合法
-            // （成员索引 O(1) 查候选路径集、claims 切片错位免疫）；路径外引用仍
-            // 拒。成员身份同用 typed key（#1219 P2-5）。
-            let candidates = &member_path_keys[member_starts[edge_key.index()]
-                ..member_starts[edge_key.index().saturating_add(1)]];
-            let same_path_member = candidates.iter().any(|candidate_key| {
-                let path = paths.get(*candidate_key);
-                path_edges[path.edges.as_usize_range()]
-                    .iter()
-                    .any(|member| member.target == successor.target)
-            });
-            if same_path_member {
-                continue;
-            }
+            // R-7（#1199）只约束**显式声明**的 internal 边——先按
+            // (claim.junction, successor.target) 精确判适用域再扫描（#1320，
+            // 与普通连通性检查同序）：Synthetic 路口显式集合恒空，不适用即
+            // 跳过，不为无显式域的输入执行下面的路径成员扫描。
             let Some(declared) = find_declared_junction_edge(
                 &declared_internal_edges,
                 claim.junction,
@@ -851,6 +849,26 @@ pub(crate) fn build_junction_hir(
             ) else {
                 continue;
             };
+            // 引用边 ∈ **含目标 internal 的路径**全边集时合法（成员索引 O(1)
+            // 查候选路径集、claims 切片错位免疫）；路径外引用仍拒。成员身份
+            // 同用 typed key（#1219 P2-5）。
+            let candidates = &member_path_keys[member_starts[edge_key.index()]
+                ..member_starts[edge_key.index().saturating_add(1)]];
+            let same_path_member = candidates.iter().any(|candidate_key| {
+                let path = paths.get(*candidate_key);
+                path_edges[path.edges.as_usize_range()]
+                    .iter()
+                    .any(|member| {
+                        #[cfg(test)]
+                        SUCCESSOR_MEMBER_COMPARISONS.with(|count| {
+                            count.set(count.get() + 1);
+                        });
+                        member.target == successor.target
+                    })
+            });
+            if same_path_member {
+                continue;
+            }
             let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
                 &junctions.get(claim.junction).stable_key,
                 &lane_edges.get(successor.target).stable_key,
