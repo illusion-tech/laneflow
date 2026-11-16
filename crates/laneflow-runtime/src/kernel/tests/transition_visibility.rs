@@ -981,3 +981,145 @@ fn straight_vehicle_on_parallel_edge_is_a_registered_gap() {
     assert_eq!(run.a_entered, run.b_entered);
     assert!(run.bodies_together_in_transitions);
 }
+
+/// #1322：循环路线先经过过渡段 T 的直接后继 D、绕行后才回到 T 时，P4 不得让远处的
+/// 未来 T 出现记录遮蔽更近的 D 边界——P4 证明边界必须与 P5 的预约停车边界一致
+///（合同 §5.3）。换道车首次进入过渡段的那一拍，直行车到最近边界（D 起点）的距离
+/// 不得小于其生产停止距离；对照路线截去未来 T 后，共享前缀期间沿用同一近端判定。
+#[test]
+fn loop_route_future_transition_does_not_hide_nearer_downstream_boundary() {
+    let mut topology = cross_topology();
+    for spec in &mut topology.edges {
+        if spec.key == "e2a" {
+            spec.successors = &["s2"];
+        }
+        if spec.key == "exit1" {
+            spec.successors = &["loop-return"];
+        }
+    }
+    topology.edges.retain(|spec| spec.key != "t2");
+    topology
+        .edges
+        .push(edge("loop-return", (79.0, 3.0), (0.0, 0.0), &["e0a"]));
+    topology.lanes.push(("lane-return", vec!["loop-return"]));
+    let revision = build(&topology);
+    let traffic = revision.traffic();
+    let lengths = traffic.lane_lengths_millimetres().to_vec();
+    let get = |length| by_length(&revision, length);
+    let (e0a, e2a) = (get(26_000), get(27_000));
+    let t = transition_after(&revision, e0a);
+    let s2 = straight_after(&revision, e2a);
+    let (e2b, int1, exit1) = (get(31_000), get(8_000), get(10_000));
+    let return_edge = traffic.successors(exit1).unwrap()[0];
+    let changer_edges = vec![e0a, t, e2b, int1, exit1];
+    let straight_loop = vec![
+        e2a,
+        s2,
+        e2b,
+        int1,
+        exit1,
+        return_edge,
+        e0a,
+        t,
+        e2b,
+        int1,
+        exit1,
+    ];
+    let mut outcomes = Vec::new();
+    let mut baselines: Vec<(bool, Trace)> = Vec::new();
+    for workers in [1, 2, 4] {
+        for looping in [false, true] {
+            let mut world = install(revision.clone(), workers);
+            let mut spawn = |edges: &[LaneEdgeOrdinal], progress_mm: u32| {
+                let handle = world
+                    .register_route(crate::RouteRegisterInput::new(edges.to_vec()))
+                    .expect("route registers");
+                world
+                    .spawn_vehicle(
+                        crate::VehicleSpawnInput::new(
+                            laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                            handle,
+                            0,
+                            progress_mm,
+                            SPEED_MM_S,
+                        )
+                        .with_open_entrance(),
+                    )
+                    .expect("spawn")
+            };
+            let changer = spawn(&changer_edges, 15_000);
+            let straight_edges = if looping {
+                straight_loop.clone()
+            } else {
+                straight_loop[..5].to_vec()
+            };
+            let straight = spawn(&straight_edges, 16_000);
+            world.state.rebuild_occupancy_index().unwrap();
+            let mut trace = Trace::new();
+            let mut entered = None;
+            for tick in 0..100 {
+                let before = {
+                    let state = world.state.committed.vehicles.state(straight).unwrap();
+                    (state.route_edge_index, state.progress_mm, state.speed_mm_s)
+                };
+                world.state.prepare_waiting_step(0.1).unwrap();
+                world.step(crate::TickInput::new(100)).unwrap();
+                let (changed, continued) = {
+                    let changer = world.state.committed.vehicles.state(changer).unwrap();
+                    let straight = world.state.committed.vehicles.state(straight).unwrap();
+                    (
+                        (changer.route_edge_index, changer.progress_mm),
+                        (straight.route_edge_index, straight.progress_mm),
+                    )
+                };
+                trace.push((changed.0, changed.1, continued.0, continued.1));
+                if changed.0 > 0 {
+                    // 换道车首次进入 T：核对直行车拍初到最近边界（D 起点，即 P5 的
+                    // 预约停车边界）的距离与生产停止距离。直行路线前两条边是
+                    // e2a、s2，D（e2b）起点 = e2a 剩余 + s2 全长；下标 ≥3 表示
+                    // 已越过 D，之后最近有效目标只剩远处的未来 T。
+                    let near_boundary_mm = match before.0 {
+                        0 => u64::from(lengths[e2a.index()] - before.1 + lengths[s2.index()]),
+                        1 => u64::from(lengths[s2.index()] - before.1),
+                        _ => 0,
+                    };
+                    // 具名参数取进入者档案（profile 0：服务减速度 4500 mm/s²、
+                    // 最小间距 2500 mm），与 P4 逐进入者证明同一口径。
+                    let stop_mm = crate::kernel::lane_change::stop_distance_millimetres(
+                        u64::from(before.2),
+                        100,
+                        4_500,
+                        2_500,
+                    );
+                    let safe = before.0 >= 3 || near_boundary_mm >= stop_mm;
+                    outcomes.push((workers, looping, tick, before.0, near_boundary_mm, stop_mm));
+                    assert!(
+                        safe,
+                        "P4 不得在近端下游边界不可安全让行时授予换道: {outcomes:?}"
+                    );
+                    entered = Some(tick);
+                    break;
+                }
+            }
+            assert!(
+                entered.is_some(),
+                "changer must eventually enter: workers={workers}, looping={looping}"
+            );
+            match baselines.iter_mut().find(|(known, _)| *known == looping) {
+                Some((_, baseline)) => {
+                    assert_eq!(
+                        &trace, baseline,
+                        "workers={workers}, looping={looping} 与单 worker 基线不一致"
+                    );
+                }
+                None => baselines.push((looping, trace)),
+            }
+        }
+    }
+    // 验收第 2 项：截去未来 T 的对照与循环路线在共享前缀期间使用相同近端证明
+    // 边界——两份基线都在换道车首次进入处截断，授予时点一致则逐拍全等。
+    assert_eq!(
+        baselines[0].1, baselines[1].1,
+        "对照与循环路线必须沿用同一近端证明边界"
+    );
+}

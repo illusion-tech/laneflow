@@ -7219,33 +7219,35 @@ impl ConflictTaskView<'_> {
         // 区间边界目标（进入者路线到 T 的最短路线空间距离）：目标出现记录
         // 从进入者游标定位「首次不早于游标」（#1216）——循环路线重复边
         // 不得回选身后出现记录（身后目标返 `None` 是正确语义，误选会把真实
-        // 前方进入者误判「已过区间」跳过证明）。
+        // 前方进入者误判「已过区间」跳过证明）。T 入口与全部邻接边界取并集、
+        // 由调用方按最近距离聚合（#1322）：循环路线先经过 T 的直接后继时，
+        // 远处的未来 T 出现记录不得遮蔽更近的邻接边界——证明边界须与 P5
+        // `transition_reservation_stop` 的预约停车边界一致（合同 §5.3）。
         let boundary_targets = |route: &crate::kernel::tables::CompiledRoute, cursor: u32| {
             let mut targets = Vec::new();
             if let Some(index) = route.first_edge_occurrence_at_or_after(interval_edge, cursor) {
                 targets.push((index as usize, occurrence.entry.progress_mm));
-            } else {
-                for edge in first_ring {
-                    if *edge == interval_edge {
-                        continue;
-                    }
-                    let Some(index) = route.first_edge_occurrence_at_or_after(*edge, cursor) else {
-                        continue;
-                    };
-                    let progress = if traffic
-                        .successors(interval_edge)
-                        .is_some_and(|list| list.contains(edge))
-                    {
-                        0
-                    } else {
-                        traffic
-                            .lane_lengths_millimetres()
-                            .get(edge.index())
-                            .copied()
-                            .unwrap_or(u32::MAX)
-                    };
-                    targets.push((index as usize, progress));
+            }
+            for edge in first_ring {
+                if *edge == interval_edge {
+                    continue;
                 }
+                let Some(index) = route.first_edge_occurrence_at_or_after(*edge, cursor) else {
+                    continue;
+                };
+                let progress = if traffic
+                    .successors(interval_edge)
+                    .is_some_and(|list| list.contains(edge))
+                {
+                    0
+                } else {
+                    traffic
+                        .lane_lengths_millimetres()
+                        .get(edge.index())
+                        .copied()
+                        .unwrap_or(u32::MAX)
+                };
+                targets.push((index as usize, progress));
             }
             targets
         };
