@@ -50,6 +50,8 @@
   后发射检查与 LFCP v2 最小发布闭合。
 - [`compiler-foundation.md`][compiler-foundation]：编译器 crate、Typed AST → HIR → MIR → Canonical LIR、
   合成 DSL 与官方前端接入。
+- [`compiler-resource-ledger.md`][compiler-resource-ledger]：编译、发射与公开检查共用的资源账本
+  （#1296，Proposed）。
 - [`network-compiler.md`][network-compiler]：#291 目标静态编译架构。
 - [`road-editing-source-and-geometry-frontend.md`][road-editing]：
   道路编辑 FlatBuffers v4 来源与几何编制前端合同。
@@ -170,6 +172,7 @@ compiler-budget-calibration、core-runtime-scalability-audit）已随 #1382 整�
 [portable-artifact]: portable-canonical-artifact.md
 [post-emission]: compiler-post-emission-check-and-minimal-publication-closure.md
 [compiler-foundation]: compiler-foundation.md
+[compiler-resource-ledger]: compiler-resource-ledger.md
 [network-compiler]: network-compiler.md
 [road-editing]: road-editing-source-and-geometry-frontend.md
 [parallel-execution]: traffic-runtime-parallel-execution.md
