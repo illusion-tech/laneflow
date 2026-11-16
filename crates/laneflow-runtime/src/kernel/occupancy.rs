@@ -1908,8 +1908,7 @@ fn rebuild_occupancy_index(
 ) -> Result<(), StepError> {
     occupancy.ahead_epoch = 0;
     #[cfg(test)]
-    let count_timer =
-        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancyCount);
+    let count_timer = super::stage_attribution::begin(super::stage_attribution::Stage::Count);
     let bucket_count = usize::try_from(binding.revision.traffic().lane_edge_count())
         .expect("lane edge count fits usize");
     let ceiling = occupancy_record_limit(binding.config.vehicle_capacity());
@@ -1979,14 +1978,12 @@ fn rebuild_occupancy_index(
     #[cfg(test)]
     drop(count_timer);
     #[cfg(test)]
-    let layout_timer =
-        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancyLayout);
+    let layout_timer = super::stage_attribution::begin(super::stage_attribution::Stage::Layout);
     occupancy.finish_layout(scratch, bucket_count);
     #[cfg(test)]
     drop(layout_timer);
     #[cfg(test)]
-    let fill_timer =
-        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancyFill);
+    let fill_timer = super::stage_attribution::begin(super::stage_attribution::Stage::Fill);
     visit_occupancy_records(
         active_order,
         &committed.vehicles,
@@ -1997,8 +1994,7 @@ fn rebuild_occupancy_index(
     #[cfg(test)]
     drop(fill_timer);
     #[cfg(test)]
-    let _sort_timer =
-        super::stage_attribution::begin(super::stage_attribution::Stage::OccupancySortSuffix);
+    let _sort_timer = super::stage_attribution::begin(super::stage_attribution::Stage::SortSuffix);
     occupancy.sort_buckets_with(bucket_count, execution);
     if let Some(epoch) = occupancy.prepare_ahead(committed.vehicles.capacity(), bucket_count) {
         let OccupancyIndex {
