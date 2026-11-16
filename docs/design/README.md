@@ -42,7 +42,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [已提交道路编辑状态与编辑来源][doc-design-committed-road-editing-state] — 已接受；无生效取代。定义已提交道路编辑状态和来源绑定。
 - [编译器基础设施与合成领域专用语言前端][doc-design-compiler-foundation] — 已接受；无生效取代。定义编译器中间表示、前端接入与编译基础合同。
 - [编译器后发射检查与最小发布闭合][doc-design-compiler-post-emission-check-and-minimal-publication-closure] — 已接受；无生效取代。定义后发射检查与发布绑定的执行合同。
-- [编译器资源账本][doc-design-compiler-resource-ledger] — 已接受；无生效取代。定义编译、发射与公开检查共用的资源账本。
+- [编译器资源账本][doc-design-compiler-resource-ledger] — 待审阅；无生效取代。定义编译、发射与公开检查共用的资源账本。
 - [Traffic Runtime 标识与句柄模型][doc-design-core-id-handles] — 已接受；无生效取代。定义稳定标识、修订内序号和代际句柄。
 - [Traffic Runtime 产品性能基线][doc-design-core-runtime-performance-baseline] — 已接受；无生效取代。定义运行时产品规模目标、研究包络与测量边界。
 - [多模式横断面与准入分层][doc-design-cross-section-access] — 已接受；无生效取代。定义横断面、所有者与准入覆盖规则。
