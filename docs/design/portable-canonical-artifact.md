@@ -1485,7 +1485,7 @@ digest/length、provenance、来源模块和文档描述符，再从 LFCA 与受
 新增来源记录及贡献位置纳入来源冻结的 occurrence、output、scratch 和 live 计量；
 来源 context 已由共同准入计入，克隆引用不重复计费。发射器对新增位置、路径、
 字符串和行的同时存活副本预先收取保守上界；检查器的借用索引及临时 ordinal
-集合计入 StageScratchBytes，返回前释放。本检查不提升为既有全部来源语义或
+集合计入 `EmissionScratchBytes`，返回前释放。本检查不提升为既有全部来源语义或
 正式前端的策略生产证明；W2 仍须提供同次真实来源输入。
 
 LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 5 exact bytes，再暴露任一来源行。
@@ -1559,7 +1559,7 @@ compiler 的 `check_portable_policy_diff` 从实际 LFCA base/target 重建完�
 重新核对 exact binding、NetworkRevision 和共有 Identity 原像；不调用 emitter 的
 成员配对或值编码函数。它独立解析最终载荷并逐字段、逐稳定引用比较，验证必需操作和
 全集完备性，并核对 policy 实体增删、保留属性以及 Movement 方向在原表中的排他分工。
-新增排序索引与 emitter 的成员值、返回行缓冲按同时存活量计入 `StageScratchBytes`；
+新增排序索引与 emitter 的成员值、返回行缓冲按同时存活量计入 `DiffEmissionScratchBytes`；
 checker 借用载荷，不复制完整 before/after。候选发射结束前必须通过该检查。
 此能力不替代其他既有领域的完整差异语义、LFSM 来源真实性或共享静态路网运行时语义。
 

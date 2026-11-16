@@ -1,7 +1,7 @@
 # 交通观测与 Routing 接入
 
 **文档状态**: Accepted（#303 G1 Pass）<br>
-**最后更新**: 2026-10-25（#1044 观测摘要角色与算法）<br>
+**最后更新**: 2026-11-16（#1296 AllLaneEdges 复用身份索引顺序）<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`][adr-0020]、
@@ -631,7 +631,9 @@ G2 已按 §2 落定完整/增量/分区观测实现：
 - `ObservationStreamBinding` 直接复用世界身份/共同世界世代，不维护第三套 stream
   状态；成功切换与世代递增同界重置状态序号，旧 session stale；
 - `AllLaneEdges` 与严格升序显式 LaneEdge 集合在 open 时一次性解析并摘要；full 含
-  全零行，delta 严格比较上一次成功基线并显式发送归零行；
+  全零行，delta 严格比较上一次成功基线并显式发送归零行；`AllLaneEdges` 按共享身份
+  索引已有的 LaneEdge StableId 顺序（[共享静态路网 §6.1][shared-identity-order]）
+  遍历，open 时不再排序（#1296），输出顺序与摘要不变；
 - 导出从当前 `VehicleState` / compiled route 重算前杠归属与跨边车身区间并集，不读取
   前一拍 `OccupancyIndex`；所有输出预留可失败，任一失败不推进 session；
 - batch/session 的 logical/retained bytes 按 §2.1 的实现内布局函数精确报告。
@@ -689,3 +691,4 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [pull-521-comment]: https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930
 [issue-1279-record]: https://github.com/illusion-tech/laneflow/issues/1279#issuecomment-6676712976
 [routing-candidate-admission]: https://github.com/illusion-tech/laneflow/tree/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1267-routing-candidate-admission
+[shared-identity-order]: shared-static-network.md#61-sharedidentityindex

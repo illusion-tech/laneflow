@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-09-09<br>
+**最后更新**: 2026-11-16<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -236,13 +236,30 @@ memory 代价。
 每个稳定声明/可寻址派生实体必须恰有：
 
 - typed ordinal → `StableId128` 正向表；
-- 按 `(EntityKind, StableId128)` 严格排序的反向表；
+- 按 `(EntityKind, StableId128)` 严格有序的反向查找；
 - round-trip 双射。
 
 这里的双射以 LFCA 中由 compiler 声明的 `StableId128` 为键。builder 必须核对
 `CanonicalIdentity` 与对应实体行的 kind/typed ordinal/StableId 一致，但不消费
 `identityFields` 重新编码或哈希；Identity v1 派生算法由 compiler known vectors 与
 后发射/端到端测试负责。
+
+**反向查找布局（#1296）。**反向查找按实体种类各保存一份 typed ordinal 排列：排列中的
+ordinal 按其正向表 `StableId128` 严格升序排列，每个稳定实体保留 4 B。查找在对应种类的
+排列上二分，比较时经正向表取 `StableId128`；不再保存逐条携带种类、`StableId128` 与
+ordinal 的反向条目。`StableId128` 只在正向表保存一份。
+
+StableId 全局唯一（跨种类）的检查保留在构建期：builder 可以使用临时暂存按
+`StableId128` 全局排序或等价方式检出重复，暂存在 seal 前释放，不进入保留内存。
+`retained_logical_bytes` 按正向表与各种类排列的实际元素数报告。
+
+`SharedIdentityIndex` 公开按 `StableId128` 升序遍历某一种类 typed ordinal 的只读访问，
+返回连续切片，不分配。需要按 StableId 顺序遍历全部实体的消费者（如观测导出的
+`AllLaneEdges` 选择）必须使用该访问，不得在每次调用时重新排序。
+
+该布局属于 ADR 0025 §5 允许的运行时内部布局调整，不改变 LFCA、格式版本或
+`NetworkRevisionId`。按每实体约 20 B 推算，一百万实体的每个修订约少 20 MB 常驻，切换期间
+两个修订共存时约少 40 MB；推算值须由实现给出精确保留字节对照。
 
 反向查找允许 binary search 或经证据支持的紧凑索引；不得默认使用每 world `HashMap`。
 身份索引不进入 steady tick，但不能从 headless 或 Spatial 构建模式裁掉。
