@@ -2390,7 +2390,50 @@ pub(crate) mod compile_route_tests {
             ("R0", 82.0, 62.0, 0.0, -20.0, 0.0),
         ];
 
+        /// S3 过渡段组合变体（#1321 拆分）：默认 `Single` 只含单段 `T01`；
+        /// `MultiOnly` 只含多段链 `T0a→T0b`；`Both` 保留历史并存组合——并存
+        /// 对共享前驱 `B0_up`（且出口全同 `B1_down`），现行可见性判定按分岔
+        /// 结构化拒绝并优先于汇合放行，作负例钉住该优先级。跳过的边不进入
+        /// 任何声明；`B0_up` 后继随变体收紧，其余 successor 行保持（无迭代
+        /// 即不生效）。
+        #[derive(Clone, Copy)]
+        pub(crate) enum S3Transitions {
+            Single,
+            MultiOnly,
+            Both,
+        }
+
+        impl S3Transitions {
+            const fn skipped(self) -> &'static [&'static str] {
+                match self {
+                    Self::Single => &["T0a", "T0b"],
+                    Self::MultiOnly => &["T01"],
+                    Self::Both => &[],
+                }
+            }
+
+            const fn b0_up_successors(self) -> &'static [&'static str] {
+                match self {
+                    Self::Single => &["S00", "T01"],
+                    Self::MultiOnly => &["S00", "T0a"],
+                    Self::Both => &["S00", "T01", "T0a"],
+                }
+            }
+
+            fn keeps(self, key: &str) -> bool {
+                !self.skipped().contains(&key)
+            }
+        }
+
+        /// 默认 S3 修订：单段 `T01`（不含多段替代链，避免共横向配对触发
+        /// #1321 收紧后的注册拒绝）。
         pub(crate) fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+            revision_variant(S3Transitions::Single)
+        }
+
+        pub(crate) fn revision_variant(
+            variant: S3Transitions,
+        ) -> Arc<laneflow_static_network::SharedNetworkRevision> {
             let limits = CompileLimits::p100_initial_v1();
             let header = SourceModuleHeader::new(
                 SourceModuleHeaderInput {
@@ -2428,7 +2471,7 @@ pub(crate) mod compile_route_tests {
             let successors: std::collections::HashMap<&str, Vec<&str>> = [
                 ("A0", vec!["I1"]),
                 ("I1", vec!["B0_up"]),
-                ("B0_up", vec!["S00", "T01", "T0a"]),
+                ("B0_up", variant.b0_up_successors().to_vec()),
                 ("B1_up", vec!["S11"]),
                 ("S00", vec!["B0_down"]),
                 ("S11", vec!["B1_down"]),
@@ -2450,6 +2493,9 @@ pub(crate) mod compile_route_tests {
             .into_iter()
             .collect();
             for (key, length, ..) in EDGES {
+                if !variant.keeps(key) {
+                    continue;
+                }
                 let refs: Vec<_> = successors[key]
                     .iter()
                     .map(|target| LaneEdgeReference::local(target))
@@ -2670,6 +2716,7 @@ pub(crate) mod compile_route_tests {
 
             let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = EDGES
                 .iter()
+                .filter(|(key, ..)| variant.keeps(key))
                 .map(|(_, _, x0, z0, x1, z1)| {
                     [
                         CanonicalPoint3F32Input {
@@ -2687,6 +2734,7 @@ pub(crate) mod compile_route_tests {
                 .collect();
             let geometries: Vec<_> = EDGES
                 .iter()
+                .filter(|(key, ..)| variant.keeps(key))
                 .zip(point_pairs.iter())
                 .map(|((key, ..), centerline_points)| LaneEdgeGeometryInput {
                     lane_edge: LaneEdgeReference::local(key),
@@ -2873,7 +2921,7 @@ pub(crate) mod compile_route_tests {
 
         /// 按机动路径长度签名与唯一长度推导命名 ordinal（声明顺序 ≠ ordinal
         /// 顺序，身份规范化重排；推导顺序无关）。
-        pub(super) fn named_ordinals(
+        pub(crate) fn named_ordinals(
             revision: &laneflow_static_network::SharedNetworkRevision,
         ) -> std::collections::HashMap<&'static str, LaneEdgeOrdinal> {
             let traffic = revision.traffic();
@@ -2954,6 +3002,7 @@ pub(crate) mod compile_route_tests {
             lengths.sort_unstable();
             let mut expected: Vec<u32> = EDGES
                 .iter()
+                .filter(|(key, ..)| S3Transitions::Single.keeps(key))
                 .map(|(_, meters, ..)| (*meters * 1000.0).round() as u32)
                 .collect();
             expected.sort_unstable();
@@ -3028,27 +3077,33 @@ pub(crate) mod compile_route_tests {
 
         #[test]
         fn p1_multi_segment_and_route_end_transitions_are_detected() {
-            let revision = revision();
-            let named = named_ordinals(revision.as_ref());
-            let edge = |name: &str| *named.get(name).unwrap();
+            // 多段链（T0a→T0b）与单段 T01 共享前驱 B0_up 与出口 B1_down，
+            // #1321 后并存组合按分岔结构化拒绝——多段正断言改用 MultiOnly
+            // 变体（只含 T0a/T0b，孤立多段链无共横向配对，仍可编译）。
+            let multi_revision = revision_variant(S3Transitions::MultiOnly);
+            let multi_named = named_ordinals(multi_revision.as_ref());
+            let multi_edge = |name: &str| *multi_named.get(name).unwrap();
             // 多段过渡链（T0a→T0b）：段级分类命中（P1-1 纯层钉版保持）；
             // 路线级=fixture 补流后合法编译（P1-2 拒绝针对无绑定路线——本 fixture
             // J1/J2b 流绑定齐、正断言）。
             let multi = [
-                edge("A0"),
-                edge("I1"),
-                edge("B0_up"),
-                edge("T0a"),
-                edge("T0b"),
-                edge("B1_down"),
-                edge("I2"),
-                edge("C0"),
+                multi_edge("A0"),
+                multi_edge("I1"),
+                multi_edge("B0_up"),
+                multi_edge("T0a"),
+                multi_edge("T0b"),
+                multi_edge("B1_down"),
+                multi_edge("I2"),
+                multi_edge("C0"),
             ];
             let multi_compiled =
-                compile_route(revision.as_ref(), &multi, 0, u64::MAX).expect("multi");
+                compile_route(multi_revision.as_ref(), &multi, 0, u64::MAX).expect("multi");
             assert_eq!(multi_compiled.edges.len(), multi.len());
             // 起/止于过渡的单边/双边路线：无 maneuver 绑定→P1-2 结构化拒
-            // （ManeuverMismatch）——拒绝新钉。
+            // （ManeuverMismatch）——拒绝新钉（单段 T01 用默认修订）。
+            let revision = revision();
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
             assert!(compile_route(revision.as_ref(), &[edge("T01")], 0, u64::MAX).is_err());
             assert!(
                 compile_route(
@@ -4605,20 +4660,6 @@ pub(crate) mod compile_route_tests {
                     ],
                     false,
                 ),
-                (
-                    "多段链（分量多边，T0a→T0b）",
-                    vec![
-                        edge("A0"),
-                        edge("I1"),
-                        edge("B0_up"),
-                        edge("T0a"),
-                        edge("T0b"),
-                        edge("B1_down"),
-                        edge("I2"),
-                        edge("C0"),
-                    ],
-                    false,
-                ),
                 ("起止过渡（单边路线 [T01]）", vec![edge("T01")], true),
                 (
                     "起止过渡（首过渡 [B0_up,T01]）",
@@ -4683,6 +4724,76 @@ pub(crate) mod compile_route_tests {
                     assert!(result.is_ok(), "{name} 须编译通过：{result:?}");
                 }
             }
+            // 多段链（分量多边，T0a→T0b）：与 T01 并存会触发 #1321 分岔拒绝，
+            // 正例在 MultiOnly 变体上验证（孤立多段链仍编译通过）。
+            let multi_revision = revision_variant(S3Transitions::MultiOnly);
+            let multi_named = named_ordinals(multi_revision.as_ref());
+            let multi_edge = |name: &str| *multi_named.get(name).unwrap();
+            let multi = vec![
+                multi_edge("A0"),
+                multi_edge("I1"),
+                multi_edge("B0_up"),
+                multi_edge("T0a"),
+                multi_edge("T0b"),
+                multi_edge("B1_down"),
+                multi_edge("I2"),
+                multi_edge("C0"),
+            ];
+            assert!(
+                compile_route(multi_revision.as_ref(), &multi, 0, u64::MAX).is_ok(),
+                "多段链（分量多边，T0a→T0b，MultiOnly 变体）须编译通过"
+            );
+        }
+
+        /// #1321：S3 并存组合（Both 变体：T01 与 T0a→T0b 同时在图上）共享
+        /// 前驱 `B0_up` 且出口全同 `B1_down`——分岔拒绝优先于汇合放行，
+        /// 两条过渡路线均 `TransitionUnsupported`；直行线编译前后逐字段
+        /// 一致（能力检查不污染输入或后续编译；注册失败原子性由
+        /// `register_route` 侧断言承担，见 transition_visibility 测试）。
+        #[test]
+        fn coexisting_transitions_on_shared_predecessor_are_rejected() {
+            let revision = revision_variant(S3Transitions::Both);
+            let named = named_ordinals(revision.as_ref());
+            let edge = |name: &str| *named.get(name).unwrap();
+            let straight = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("S00"),
+                edge("B0_down"),
+                edge("I0"),
+                edge("C0"),
+            ];
+            let single = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("T01"),
+                edge("B1_down"),
+                edge("I2"),
+                edge("C0"),
+            ];
+            let multi = [
+                edge("A0"),
+                edge("I1"),
+                edge("B0_up"),
+                edge("T0a"),
+                edge("T0b"),
+                edge("B1_down"),
+                edge("I2"),
+                edge("C0"),
+            ];
+            let before = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
+            for (name, route) in [("单段 T01", &single[..]), ("多段 T0a→T0b", &multi[..])] {
+                assert_eq!(
+                    compile_route(revision.as_ref(), route, 0, u64::MAX).map(|_| ()),
+                    Err(RouteError::TransitionUnsupported),
+                    "{name}：共享前驱并存组合须按分岔结构化拒绝"
+                );
+            }
+            let after = compile_route(revision.as_ref(), &straight, 0, u64::MAX).unwrap();
+            assert_eq!(before.edges, after.edges);
+            assert_eq!(before.maneuvers.len(), after.maneuvers.len());
         }
 
         /// #1216 反例集 A–F（S4 潜在进入者距离裁剪 P1-1 × 循环路线出现记录查询

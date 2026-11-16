@@ -17,7 +17,7 @@ use crate::admin::snapshot_digest::{
 };
 use crate::kernel::conflict::{ConflictResource, UnsupportedTransitionState};
 use crate::kernel::tables::compile_route_tests::s3_lane_change::{
-    install, revision as sample_revision, stream_bearing_revision,
+    S3Transitions, install, named_ordinals, revision_variant, stream_bearing_revision,
 };
 use crate::{
     ConflictEligibilityState, ConflictLagReference, ConflictPassageAddress, TickInput, TrafficWorld,
@@ -360,24 +360,30 @@ fn s4_mixed_t_and_static_history_rejects_whole_entry_with_distinct_identity() {
 /// 坍缩成同一 `(stream 0, 归属 zone)` 键（多 T 历史在恢复端必成重复 locator
 /// 或错绑），本面以真身份逐格断言。世界级多 T 场景载体缺口（样本网络无策略
 /// 声明、不可安装世界）登记 findings.md；世界级拒绝口径与 S4 同一代码路径
-/// （任一 T 行即整入口拒绝），在此之上本用例钉多格身份不互覆。
+/// （任一 T 行即整入口拒绝），在此之上本用例钉多格身份不互覆。#1321 拆分
+/// 后默认修订只含单段 T01，本用例显式用 MultiOnly 变体并显式选取多段链
+/// 两个成员边的资源格（不依赖地址排序或剩余边数量）。
 #[test]
 fn s5_multi_t_history_keeps_distinct_resource_identity() {
     use crate::kernel::conflict::ConflictArbiter;
 
-    let revision = sample_revision();
+    let revision = revision_variant(S3Transitions::MultiOnly);
+    let named = named_ordinals(revision.as_ref());
     let mut arbiter = ConflictArbiter::install(&revision, 8).expect("install arbiter");
-    let t_addresses: Vec<ConflictPassageAddress> = arbiter
-        .read()
-        .addresses()
-        .filter(|address| matches!(address.resource(), ConflictResource::Transition(_)))
-        .collect();
-    assert!(
-        t_addresses.len() >= 2,
-        "多 T 场景需要至少两个过渡资源格（样本网络多段过渡链），实际 {}",
-        t_addresses.len()
-    );
-    let (first, second) = (t_addresses[0], t_addresses[1]);
+    let pick = |name: &str| {
+        let edge = *named.get(name).unwrap();
+        arbiter
+            .read()
+            .addresses()
+            .find(|address| {
+                matches!(
+                    address.resource(),
+                    ConflictResource::Transition(found) if found == edge
+                )
+            })
+            .unwrap_or_else(|| panic!("多段链成员边 {name} 须有过渡资源格"))
+    };
+    let (first, second) = (pick("T0a"), pick("T0b"));
     arbiter
         .write()
         .restore_lag_reference(first, ConflictLagReference::ActualClear(1_000))
