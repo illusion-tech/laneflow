@@ -9,5 +9,5 @@ mod presentation;
 mod resources;
 mod runner;
 
-pub use matrix::{matrix, prepare_oracles};
+pub use matrix::{RowSelection, matrix, prepare_oracles};
 pub use runner::{RunConfig, guardrail, run};

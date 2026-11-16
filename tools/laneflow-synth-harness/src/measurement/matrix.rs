@@ -65,6 +65,42 @@ fn rows(stretch: bool) -> Vec<Row> {
     result
 }
 
+/// 矩阵覆盖的行。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RowSelection {
+    /// 标称 20 行，正式矩阵。
+    Nominal,
+    /// stretch 观测行（十万 W1/16 ms/10%）。
+    Stretch,
+    /// 标称行的子集，以行标签（如 `10000-W1-16-p100`）指定；只用于采样开销对比与
+    /// 阈值校准（lf-synth-measurement.md §7.4、§7.6），不是正式矩阵结果。
+    Subset(Vec<String>),
+}
+
+/// 按选择取行；子集保持标称顺序。子集为空、有重复或含非标称行标签时拒绝。
+fn select_rows(selection: &RowSelection) -> Result<Vec<Row>, Error> {
+    match selection {
+        RowSelection::Nominal => Ok(rows(false)),
+        RowSelection::Stretch => Ok(rows(true)),
+        RowSelection::Subset(labels) => {
+            require(!labels.is_empty(), || "--rows 不能为空".into())?;
+            let nominal = rows(false);
+            for (position, label) in labels.iter().enumerate() {
+                require(nominal.iter().any(|row| row.label() == *label), || {
+                    format!("--rows 含非标称行：{label}")
+                })?;
+                require(!labels[..position].contains(label), || {
+                    format!("--rows 行重复：{label}")
+                })?;
+            }
+            Ok(nominal
+                .into_iter()
+                .filter(|row| labels.contains(&row.label()))
+                .collect())
+        }
+    }
+}
+
 /// 生成同输入的完整窗口语义 oracle；最多四个进程并行，不采纳其计时。
 ///
 /// # Errors
@@ -149,7 +185,8 @@ pub fn prepare_oracles(
     write_json(&output.join("summary.json"), &summary)
 }
 
-/// 串行启动正式三轮或独立 allocation 单轮；stretch 只覆盖十万 W1/16 ms/10%。
+/// 串行启动正式三轮或独立 allocation 单轮；stretch 只覆盖十万 W1/16 ms/10%；
+/// 子集只覆盖指定的标称行，`summary.json` 标为非正式矩阵。
 /// `load_sampling` 为逐段负载采样开关，传给每个子进程并参与运行身份
 /// （lf-synth-measurement.md §7.3）。
 ///
@@ -161,16 +198,24 @@ pub fn matrix(
     implementation: &str,
     environment: &Path,
     output: &Path,
-    stretch: bool,
+    selection: &RowSelection,
     load_sampling: bool,
 ) -> Result<(), Error> {
+    let rows = select_rows(selection)?;
     fs::create_dir(output)?;
     let binary = std::env::current_exe()?;
-    let rows = rows(stretch);
+    let stretch = *selection == RowSelection::Stretch;
+    let (rows_filter, scope) = match selection {
+        RowSelection::Subset(_) => (
+            json!(rows.iter().map(Row::label).collect::<Vec<_>>()),
+            "subset_for_sampling_overhead_and_threshold_calibration_not_formal_matrix",
+        ),
+        _ => (Value::Null, "full_matrix"),
+    };
     let rounds = if cfg!(feature = "allocation") { 1 } else { 3 };
     let mut summary = json!({"format":"lf-synth-measurement-matrix-1","complete":false,"implementation_commit":implementation,
         "binary_sha256":hash(&fs::read(&binary)?),"instrumented":cfg!(feature="allocation"),"stretch_observation":stretch,
-        "load_sampling":load_sampling,"max_concurrent_measurements":1,"fresh_process_rounds":rounds,
+        "rows_filter":rows_filter,"matrix_scope":scope,"load_sampling":load_sampling,"max_concurrent_measurements":1,"fresh_process_rounds":rounds,
         "max_attempts_per_round":MAX_ATTEMPTS,"execution_order":[],"runs":[],"aggregates":[],"discarded":[],"stopped_rows":[],"errors":[]});
     write_json(&output.join("summary.json"), &summary)?;
     // 启动任何子进程前生成并核对测量前环境记录（host-observe.md §6）。
@@ -534,6 +579,36 @@ fn read_capacity_high_water(path: &Path) -> Result<Value, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 子集按标称顺序取行，拒绝空列表、重复与非标称行；轮换对子集取模后每轮
+    /// 仍恰好覆盖每行一次。
+    #[test]
+    fn subset_selection_keeps_nominal_rows_and_rotation() {
+        let labels =
+            |list: &[&str]| RowSelection::Subset(list.iter().map(|s| (*s).to_owned()).collect());
+        let chosen = select_rows(&labels(&["100000-W1-33-p100", "10000-W1-16-p100"])).unwrap();
+        assert_eq!(
+            chosen.iter().map(Row::label).collect::<Vec<_>>(),
+            ["10000-W1-16-p100", "100000-W1-33-p100"]
+        );
+        for round in 0..3 {
+            let mut order: Vec<_> = (0..chosen.len())
+                .map(|i| (i + round * 7) % chosen.len())
+                .collect();
+            order.sort_unstable();
+            assert_eq!(order, [0, 1]);
+        }
+        for bad in [
+            labels(&[]),
+            labels(&["10000-W1-16-p100", "10000-W1-16-p100"]),
+            labels(&["100000-W1-16-p10"]),
+            labels(&["10000-W1-16-p7"]),
+        ] {
+            assert!(select_rows(&bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(select_rows(&RowSelection::Nominal).unwrap().len(), 20);
+        assert_eq!(select_rows(&RowSelection::Stretch).unwrap().len(), 1);
+    }
 
     /// §7.5：受扰最多重跑 2 次，第 3 次仍受扰时停止该行；无法判定或缺少判定时
     /// 停止该行，不按未受扰处理；不应用负载判定时一律进入聚合。

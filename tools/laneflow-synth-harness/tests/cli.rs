@@ -307,3 +307,56 @@ fn measurement_matrix_refuses_to_start_without_environment_input() {
     assert!(summary["execution_order"].as_array().unwrap().is_empty());
     assert!(summary["errors"][0]["environment"].is_string());
 }
+
+/// `--rows` 子集矩阵：非标称行在创建输出前拒绝；合法子集记录筛选身份与非正式
+/// 范围，只启动所选行。
+#[test]
+fn measurement_subset_matrix_records_filter_and_rejects_unknown_rows() {
+    let fixture = fixture(declaration(false));
+    let rejected = fixture.root.path().join("rejected");
+    let result = Command::new(env!("CARGO_BIN_EXE_measure"))
+        .arg("matrix")
+        .arg(fixture.root.path().join("missing-inputs"))
+        .arg(fixture.root.path().join("missing-oracles"))
+        .arg(&fixture.commit)
+        .arg(&fixture.input)
+        .arg(&rejected)
+        .args(["--rows", "10000-W1-16-p7"])
+        .current_dir(&fixture.repository)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(!rejected.exists());
+
+    let output = fixture.root.path().join("subset");
+    let result = Command::new(env!("CARGO_BIN_EXE_measure"))
+        .arg("matrix")
+        .arg(fixture.root.path().join("missing-inputs"))
+        .arg(fixture.root.path().join("missing-oracles"))
+        .arg(&fixture.commit)
+        .arg(&fixture.input)
+        .arg(&output)
+        .args([
+            "--rows",
+            "100000-W1-33-p100,10000-W1-16-p100",
+            "--no-load-sampling",
+        ])
+        .current_dir(&fixture.repository)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let summary = read(&output.join("summary.json"));
+    assert_eq!(
+        summary["rows_filter"],
+        serde_json::json!(["10000-W1-16-p100", "100000-W1-33-p100"])
+    );
+    assert_ne!(summary["matrix_scope"], "full_matrix");
+    assert_eq!(summary["load_sampling"], false);
+    let order = summary["execution_order"].as_array().unwrap();
+    assert_eq!(order.len(), 1);
+    assert_eq!(order[0]["label"], "10000-W1-16-p100-r1");
+    assert_eq!(
+        order[0]["arguments"].as_array().unwrap().last().unwrap(),
+        "--no-load-sampling"
+    );
+}
