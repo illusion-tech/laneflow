@@ -12,40 +12,43 @@ mod lfsd;
 mod lfsm;
 mod model;
 mod relations;
+mod tree;
 mod wire;
 
+use api::{OBJECT_KEY_BYTES, close_shared_object};
 pub use api::{
-    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
-    PortablePublicationCandidate,
+    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
+    PortableEmissionResourceReport, PortableObjectCandidate, PortablePublicationCandidate,
 };
 pub(crate) use api::{close_object, close_staged_object, object_key, sha256};
-use lfca::build_lfca;
+use lfca::{build_lfca, set_lfca_tree_revision};
 pub use lfsd::check_portable_policy_diff;
 use lfsd::{build_lfsd, check_policy_diff, verify_target_relation_projection};
 pub use lfsm::check_portable_policy_sources;
 use lfsm::{build_lfsm, check_policy_sources};
 use model::*;
+#[cfg(test)]
+use tree::encode_owned_object;
+use tree::{ObjectTree, arc_bytes_layout, build_tree, share_bytes};
 use wire::*;
 
 use laneflow_format::{
-    ClosedStagedObjectSource, ExpectedSemanticDiffBase, FieldWriteInput, FieldWriteValue,
-    FormatError, FormatLimits, ImmutableObjectSource, ObjectSourceError, ObjectWriteInput,
-    RegistryCheckedFieldValue, RegistryCheckedObjectView, RegistryCheckedOrdinalVectorView,
-    RegistryCheckedRecordVectorView, RegistryCheckedRowView, RowWriteInput, SectionWriteInput,
-    StagedObjectError, StagedObjectWriter, TableWriteInput, ValueCheckedObjectView,
-    encode_prepared_object, preflight_object_values, prepare_object,
+    ClosedStagedObjectSource, ExpectedSemanticDiffBase, FormatError, FormatLimits,
+    ImmutableObjectSource, ObjectSourceError, RegistryCheckedFieldValue, RegistryCheckedObjectView,
+    RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView, RegistryCheckedRowView,
+    StagedObjectError, StagedObjectWriter, ValueCheckedObjectView, encode_prepared_object,
+    preflight_object_values,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, EntityKind, EntityKindMarker,
     ExactByteLength, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
     NETWORK_REVISION_DERIVATION_VERSION, NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId,
-    Ordinal, OrdinalKind, PortableObjectKind, STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest,
-    StableId,
+    Ordinal, PortableObjectKind, STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest, StableId,
 };
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::Path};
+use std::{alloc::Layout, collections::BTreeMap, path::Path};
 
-use crate::ledger::{Ledger, LedgerStage};
+use crate::ledger::{Grant, Ledger, LedgerStage, Plan};
 use crate::{CompilationOutput, CompileLimitDimension};
 use budget::Accounting;
 
@@ -133,9 +136,13 @@ pub fn emit_portable_candidate(
     limits: FormatLimits,
     base: PortableDiffBase<'_>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
-    emit_portable_candidate_with(output, provenance, limits, base, |object| {
-        Ok(close_object(encode_owned_object(object, limits)?))
-    })
+    emit_portable_candidate_with(
+        output,
+        provenance,
+        limits,
+        base,
+        |tree, accounting, points| emit_in_memory(tree, accounting, points, limits),
+    )
 }
 
 /// 把三份百万级候选直接发射到调用方选择的临时目录，并在返回前关闭 LaneFlow 的全部
@@ -155,9 +162,106 @@ pub fn emit_portable_candidate_to_staging(
     base: PortableDiffBase<'_>,
     staging_directory: &Path,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
-    emit_portable_candidate_with(output, provenance, limits, base, |object| {
-        close_staged_object(stage_owned_object(object, limits, staging_directory)?)
-    })
+    emit_portable_candidate_with(
+        output,
+        provenance,
+        limits,
+        base,
+        |tree, accounting, points| {
+            emit_to_staging(tree, accounting, points, limits, staging_directory)
+        },
+    )
+}
+
+/// 已发射的对象候选，以及仍由发射账本计量、在返回点转交宿主的存储授予。
+struct Emitted {
+    candidate: PortableObjectCandidate,
+    grants: [Option<Grant>; 2],
+}
+
+impl Emitted {
+    fn bytes(&self) -> &[u8] {
+        self.candidate.bytes()
+    }
+
+    /// 返回点：候选随返回值离开账本，授予记为转交宿主。
+    fn into_host(self) -> PortableObjectCandidate {
+        for grant in self.grants.into_iter().flatten() {
+            grant.transfer_to_host();
+        }
+        self.candidate
+    }
+}
+
+fn object_key_layout() -> Layout {
+    Layout::array::<u8>(OBJECT_KEY_BYTES).expect("object key length is a small constant")
+}
+
+/// 编码进授予的缓冲，复制为引用计数共享的字节后释放缓冲；计划覆盖两者共存。
+fn emit_in_memory(
+    tree: &ObjectTree,
+    accounting: Accounting<'_>,
+    points: (&'static str, &'static str),
+    limits: FormatLimits,
+) -> Result<Emitted, PortableEmissionError> {
+    tree.encode(
+        accounting,
+        points,
+        limits,
+        |length| {
+            let length = usize::try_from(length).unwrap_or(usize::MAX);
+            Plan::ZERO
+                .array::<u8>(length)
+                .layout(arc_bytes_layout(length))
+                .layout(Some(object_key_layout()))
+        },
+        |prepared, pass| {
+            let length = usize::try_from(prepared.byte_len())
+                .map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
+            let mut buffer = pass.vec::<u8>(length)?;
+            buffer.resize(length, 0)?;
+            encode_prepared_object(prepared, &mut buffer)?;
+            let (shared, bytes_grant) = share_bytes(pass, &buffer)?;
+            drop(buffer);
+            let key_grant = pass.grant_layout(object_key_layout())?;
+            let output = bytes_grant.bytes() + key_grant.bytes();
+            Ok((
+                Emitted {
+                    candidate: close_shared_object(shared),
+                    grants: [Some(bytes_grant), Some(key_grant)],
+                },
+                output,
+            ))
+        },
+    )
+}
+
+/// 经 staged writer 写入暂存目录并关闭；暂存目录中的对象字节与只读映射不计入受控存续。
+fn emit_to_staging(
+    tree: &ObjectTree,
+    accounting: Accounting<'_>,
+    points: (&'static str, &'static str),
+    limits: FormatLimits,
+    directory: &Path,
+) -> Result<Emitted, PortableEmissionError> {
+    tree.encode(
+        accounting,
+        points,
+        limits,
+        |_| Plan::ZERO.layout(Some(object_key_layout())),
+        |prepared, pass| {
+            let source = StagedObjectWriter::create_in(directory, prepared)?.finish()?;
+            let key_grant = pass.grant_layout(object_key_layout())?;
+            let output = key_grant.bytes();
+            Ok((
+                Emitted {
+                    candidate: close_staged_object(source)?,
+                    grants: [Some(key_grant), None],
+                },
+                output,
+            ))
+        },
+    )
 }
 
 fn emit_portable_candidate_with(
@@ -165,9 +269,13 @@ fn emit_portable_candidate_with(
     provenance: &PortableEmissionProvenance,
     limits: FormatLimits,
     base: PortableDiffBase<'_>,
-    mut emit_object: impl FnMut(&OwnedObject) -> Result<PortableObjectCandidate, PortableEmissionError>,
+    mut emit_object: impl FnMut(
+        &ObjectTree,
+        Accounting<'_>,
+        (&'static str, &'static str),
+    ) -> Result<Emitted, PortableEmissionError>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
-    // 发射账本：发射内部的关系投影自校验、策略来源检查与差异检查共用这一份账本。
+    // 发射账本：对象树、编码、关系投影自校验、策略来源检查与差异检查共用这一份账本。
     let ledger = Ledger::new(output.compile_limits());
     let single = Accounting {
         ledger: &ledger,
@@ -183,12 +291,14 @@ fn emit_portable_candidate_with(
         provenance,
         source_collection_digest,
         NetworkRevisionId::from_digest(Sha256Digest::ZERO),
+        single,
     )?;
-    let preliminary_lfca = emit_object(&lfca)?;
+    let preliminary_lfca = emit_object(&lfca, single, ("lfca-lowering", "lfca-encode"))?;
     let network_revision = network_revision(preliminary_lfca.bytes(), limits)?;
     drop(preliminary_lfca);
-    set_lfca_network_revision(&mut lfca, network_revision)?;
-    let canonical_artifact = emit_object(&lfca)?;
+    set_lfca_tree_revision(&mut lfca, network_revision)?;
+    let canonical_artifact = emit_object(&lfca, single, ("lfca-lowering", "lfca-encode"))?;
+    drop(lfca);
     let canonical_view = preflight_object_values(
         canonical_artifact.bytes(),
         PortableObjectKind::CanonicalArtifact,
@@ -196,18 +306,18 @@ fn emit_portable_candidate_with(
     )?
     .registry_view();
     verify_target_relation_projection(output, canonical_view, single)?;
-    drop(lfca);
 
     let lfsm = build_lfsm(
         output,
         provenance,
         source_collection_digest,
         network_revision,
-        &canonical_artifact,
+        &canonical_artifact.candidate,
+        single,
     )?;
-    let source_map = emit_object(&lfsm)?;
-    preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
+    let source_map = emit_object(&lfsm, single, ("lfsm-lowering", "lfsm-encode"))?;
     drop(lfsm);
+    preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
     check_policy_sources(
         single,
         canonical_artifact.bytes(),
@@ -220,17 +330,21 @@ fn emit_portable_candidate_with(
         output,
         base,
         network_revision,
-        &canonical_artifact,
+        &canonical_artifact.candidate,
         limits,
         diff,
     )?;
-    let semantic_diff = emit_object(&lfsd)?;
+    let lfsd_tree = build_tree(diff, "lfsd-tree", PortableObjectKind::SemanticDiff, |t| {
+        Ok::<_, PortableEmissionError>(t.copy_owned(&lfsd))
+    })?;
+    drop(lfsd);
+    let semantic_diff = emit_object(&lfsd_tree, diff, ("lfsd-lowering", "lfsd-encode"))?;
+    drop(lfsd_tree);
     preflight_object_values(
         semantic_diff.bytes(),
         PortableObjectKind::SemanticDiff,
         limits,
     )?;
-    drop(lfsd);
     check_policy_diff(
         diff,
         base,
@@ -238,18 +352,32 @@ fn emit_portable_candidate_with(
         semantic_diff.bytes(),
         limits,
     )?;
-    ledger.close()?;
 
-    Ok(PortablePublicationCandidate {
-        canonical_artifact,
-        source_map,
-        semantic_diff,
+    // 候选携带的编译器构建标识副本同样在返回点转交宿主。
+    let metadata = single.admit(
+        "candidate-metadata",
+        Plan::ZERO.array::<u8>(provenance.compiler_build_id.len()),
+    )?;
+    let build_id_grant = metadata.grant_layout(Layout::for_value::<[u8]>(
+        provenance.compiler_build_id.as_bytes(),
+    ))?;
+    let compiler_build_id = provenance.compiler_build_id.clone();
+    metadata.finish(build_id_grant.bytes())?;
+
+    let mut candidate = PortablePublicationCandidate {
+        canonical_artifact: canonical_artifact.into_host(),
+        source_map: source_map.into_host(),
+        semantic_diff: semantic_diff.into_host(),
         network_revision,
-        compiler_build_id: provenance.compiler_build_id.clone(),
+        compiler_build_id,
         source_collection_digest_version: SOURCE_COLLECTION_DIGEST_VERSION_V1,
         source_collection_digest,
         expected_semantic_diff_base,
-    })
+        resource_report: PortableEmissionResourceReport::default(),
+    };
+    build_id_grant.transfer_to_host();
+    candidate.resource_report = ledger.close()?.into();
+    Ok(candidate)
 }
 
 fn source_collection_digest(output: &CompilationOutput) -> Result<[u8; 32], PortableEmissionError> {
@@ -315,6 +443,8 @@ fn network_revision_from_checked(
     )))
 }
 
+/// 测试用：改写拥有型 LFCA 对象第 8 节的声明网络修订。
+#[cfg(test)]
 fn set_lfca_network_revision(
     object: &mut OwnedObject,
     revision: NetworkRevisionId,

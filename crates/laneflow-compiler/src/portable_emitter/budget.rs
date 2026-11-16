@@ -35,6 +35,11 @@ pub(super) struct Accounting<'l> {
 }
 
 impl<'l> Accounting<'l> {
+    /// 本阶段以 `point` 为记账点的编译遍标识。
+    pub(super) const fn label(self, point: &'static str) -> PassLabel {
+        PassLabel::new(self.stage, point)
+    }
+
     /// 以 `point` 为记账点准入本阶段的顶层编译遍。
     pub(super) fn admit(
         self,

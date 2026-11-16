@@ -47,7 +47,7 @@ pub(super) fn entity_stable_id(
     reason = "the compiler-private A.5 tuple projection keeps both typed endpoints explicit"
 )]
 fn push_relation_tuple(
-    relations: &mut Vec<RelationTuple>,
+    relations: &mut RelationSink<'_>,
     lir: &crate::lir::LirUnit,
     owner_kind: EntityKind,
     owner_ordinal: u32,
@@ -56,7 +56,7 @@ fn push_relation_tuple(
     subject_kind: EntityKind,
     subject_ordinal: u32,
 ) {
-    relations.push(RelationTuple {
+    (relations.0)(RelationTuple {
         owner_entity_kind: owner_kind,
         owner_stable_id: entity_stable_id(lir, owner_kind, owner_ordinal),
         role,
@@ -66,27 +66,66 @@ fn push_relation_tuple(
     });
 }
 
-/// 从冻结 LIR 投影全部规范关系元组并按规范顺序排序；路口内部边不参与 successor 关系。
-pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<RelationTuple> {
+/// 规范关系元组的接收端。
+struct RelationSink<'s>(&'s mut dyn FnMut(RelationTuple));
+
+/// 交通边是否为路口内部边；路口内部边表按边序号排序。
+fn is_internal_edge(lir: &crate::lir::LirUnit, edge: u32) -> bool {
+    lir.junction_internal_edges
+        .binary_search_by_key(&edge, |entry| entry.edge.raw())
+        .is_ok()
+}
+
+/// 规范关系元组的数量，即 [`canonical_relation_tuples`] 的计划容量。
+pub(super) fn canonical_relation_count(lir: &crate::lir::LirUnit) -> usize {
+    let mut count = 0_usize;
+    for_each_canonical_relation(lir, &mut RelationSink(&mut |_| count += 1));
+    count
+}
+
+/// 从冻结 LIR 投影全部规范关系元组并按规范顺序排序，存入编译遍授予的序列；路口内部边
+/// 不参与 successor 关系。授予容量为 [`canonical_relation_count`]。
+pub(super) fn canonical_relation_tuples(
+    lir: &crate::lir::LirUnit,
+    pass: &crate::ledger::PassBudget<'_>,
+) -> Result<crate::ledger::BoundedVec<RelationTuple>, PortableEmissionError> {
+    let mut relations = pass.vec(canonical_relation_count(lir))?;
+    let mut overflow = None;
+    for_each_canonical_relation(
+        lir,
+        &mut RelationSink(&mut |relation| {
+            if let Err(error) = relations.push(relation) {
+                overflow.get_or_insert(error);
+            }
+        }),
+    );
+    if let Some(error) = overflow {
+        return Err(error.into());
+    }
+    relations.sort_unstable();
+    Ok(relations)
+}
+
+/// 不经账本的规范关系元组；只供 LFSD 构造代码直接写入对象树之前的差异路径使用。
+pub(super) fn canonical_relation_tuple_vec(lir: &crate::lir::LirUnit) -> Vec<RelationTuple> {
     let mut relations = Vec::new();
-    let internal_edges: Vec<bool> = (0..lir.lane_edges.len())
-        .map(|ordinal| {
-            lir.junction_internal_edges
-                .binary_search_by_key(
-                    &u32::try_from(ordinal).expect("compile limits cap entity counts at u32"),
-                    |entry| entry.edge.raw(),
-                )
-                .is_ok()
-        })
-        .collect();
+    for_each_canonical_relation(
+        lir,
+        &mut RelationSink(&mut |relation| relations.push(relation)),
+    );
+    relations.sort_unstable();
+    relations
+}
+
+fn for_each_canonical_relation(lir: &crate::lir::LirUnit, relations: &mut RelationSink<'_>) {
     for edge in &lir.lane_edges {
         let mut local_index = 0_u32;
         for successor in &lir.lane_edge_successors[edge.successors.as_usize_range()] {
-            if internal_edges[edge.ordinal.index()] || internal_edges[successor.index()] {
+            if is_internal_edge(lir, edge.ordinal.raw()) || is_internal_edge(lir, successor.raw()) {
                 continue;
             }
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::LaneEdge,
                 edge.ordinal.raw(),
@@ -112,7 +151,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
                 }
             };
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::RoadCorridor,
                 corridor.ordinal.raw(),
@@ -131,7 +170,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
                     .enumerate()
                 {
                     push_relation_tuple(
-                        &mut relations,
+                        relations,
                         lir,
                         $owner_kind,
                         owner.ordinal.raw(),
@@ -198,7 +237,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         let local_index = next_internal_index[relation.junction.index()];
         next_internal_index[relation.junction.index()] += 1;
         push_relation_tuple(
-            &mut relations,
+            relations,
             lir,
             EntityKind::Junction,
             relation.junction.raw(),
@@ -245,7 +284,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         ] {
             for (local_index, anchor) in anchors.iter().enumerate() {
                 push_relation_tuple(
-                    &mut relations,
+                    relations,
                     lir,
                     EntityKind::ParkingFacility,
                     facility.ordinal.raw(),
@@ -262,7 +301,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         let local_index = next_zone_index[zone.junction.index()];
         next_zone_index[zone.junction.index()] += 1;
         push_relation_tuple(
-            &mut relations,
+            relations,
             lir,
             EntityKind::Junction,
             zone.junction.raw(),
@@ -277,7 +316,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         let local_index = next_stream_index[stream.junction.index()];
         next_stream_index[stream.junction.index()] += 1;
         push_relation_tuple(
-            &mut relations,
+            relations,
             lir,
             EntityKind::Junction,
             stream.junction.raw(),
@@ -287,7 +326,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
             stream.ordinal.raw(),
         );
         push_relation_tuple(
-            &mut relations,
+            relations,
             lir,
             EntityKind::ParticipantStream,
             stream.ordinal.raw(),
@@ -301,7 +340,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
             .enumerate()
         {
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::ParticipantStream,
                 stream.ordinal.raw(),
@@ -331,7 +370,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
     for gate in &lir.maneuver_gates {
         if let crate::lir::LirSignalControl::Group(group) = gate.signal_control {
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::ManeuverGate,
                 gate.ordinal.raw(),
@@ -345,7 +384,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
     for space in &lir.parking_spaces {
         if let Some(area) = space.parking_facility {
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::ParkingSpace,
                 space.ordinal.raw(),
@@ -357,7 +396,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         }
         for (role, edge) in [(22, space.entry.lane_edge), (23, space.exit.lane_edge)] {
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::ParkingSpace,
                 space.ordinal.raw(),
@@ -371,7 +410,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
     for class in &lir.participant_classes {
         if let Some(parent) = class.parent {
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::ParticipantClass,
                 class.ordinal.raw(),
@@ -394,7 +433,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
             }
         };
         push_relation_tuple(
-            &mut relations,
+            relations,
             lir,
             EntityKind::AccessRule,
             rule.ordinal.raw(),
@@ -409,7 +448,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         .enumerate()
         {
             push_relation_tuple(
-                &mut relations,
+                relations,
                 lir,
                 EntityKind::AccessRule,
                 rule.ordinal.raw(),
@@ -422,7 +461,7 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
     }
     for profile in &lir.vehicle_profiles {
         push_relation_tuple(
-            &mut relations,
+            relations,
             lir,
             EntityKind::VehicleProfile,
             profile.ordinal.raw(),
@@ -432,6 +471,4 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
             profile.participant_class.raw(),
         );
     }
-    relations.sort_unstable();
-    relations
 }

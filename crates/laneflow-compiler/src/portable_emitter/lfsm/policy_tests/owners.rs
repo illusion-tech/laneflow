@@ -114,7 +114,7 @@ fn many_policy_fixture(count: u32, all_member_kinds: bool) -> Fixture {
     let revision = network_revision(&bytes(&artifact), FormatLimits::HARD).unwrap();
     set_lfca_network_revision(&mut artifact, revision).unwrap();
     fixture.artifact = close_object(bytes(&artifact));
-    fixture.map = build_lfsm(
+    fixture.map = build_lfsm_owned(
         &fixture.output,
         &PortableEmissionProvenance::try_new("policy-source-review-regression").unwrap(),
         source_collection_digest(&fixture.output).unwrap(),

@@ -82,9 +82,10 @@ pub use module::{
     SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
 };
 pub use portable_emitter::{
-    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
-    PortablePublicationCandidate, check_portable_policy_diff, check_portable_policy_sources,
-    emit_portable_candidate, emit_portable_candidate_to_staging,
+    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
+    PortableEmissionResourceReport, PortableObjectCandidate, PortablePublicationCandidate,
+    check_portable_policy_diff, check_portable_policy_sources, emit_portable_candidate,
+    emit_portable_candidate_to_staging,
 };
 pub use portable_publication::{
     PortablePublicationError, PortablePublicationProvenance, PortablePublisherKind,

@@ -20,7 +20,10 @@ use policy_change::Scratch;
 use relation::{artifact_relation_changes, artifact_relation_tuples, genesis_relation_changes};
 
 use super::budget::Accounting;
-use super::relations::{canonical_relation_tuples, entity_stable_id};
+use super::relations::{
+    canonical_relation_count, canonical_relation_tuple_vec, canonical_relation_tuples,
+    entity_stable_id,
+};
 use super::*;
 
 /// 策略局部成员变更行仍由暂存计量器记账，额度取账本当前余量。
@@ -134,7 +137,7 @@ pub(super) fn build_lfsd(
 /// 核对目标 LFCA 投影出的关系元组与 LIR 规范关系完全一致。
 ///
 /// 重建目标制品索引并校验路权策略引用后比较两侧关系元组；不一致即报内部绑定错误。
-/// 索引与策略引用键在本编译遍内授予，返回前全部释放。
+/// 索引、策略引用键与 LIR 规范关系元组在本编译遍内授予，返回前全部释放。
 pub(super) fn verify_target_relation_projection(
     output: &CompilationOutput,
     target: RegistryCheckedObjectView<'_>,
@@ -142,7 +145,9 @@ pub(super) fn verify_target_relation_projection(
 ) -> Result<(), PortableEmissionError> {
     let pass = accounting.admit(
         "relation-projection",
-        ArtifactIndex::plan(target).plus(policy_reference_plan(target)),
+        ArtifactIndex::plan(target)
+            .plus(policy_reference_plan(target))
+            .array::<RelationTuple>(canonical_relation_count(output.lir().unit())),
     )?;
     let target_index = ArtifactIndex::build(
         target,
@@ -154,14 +159,17 @@ pub(super) fn verify_target_relation_projection(
         &pass,
         PortableEmissionError::InternalBindingMismatch,
     )?;
+    let canonical = canonical_relation_tuples(output.lir().unit(), &pass)?;
     if artifact_relation_tuples(
         &target_index,
         PortableEmissionError::InternalBindingMismatch,
-    )? != canonical_relation_tuples(output.lir().unit())
+    )?
+    .as_slice()
+        != &canonical[..]
     {
         return Err(PortableEmissionError::InternalBindingMismatch);
     }
-    drop(target_index);
+    drop((target_index, canonical));
     pass.finish(0)?;
     Ok(())
 }

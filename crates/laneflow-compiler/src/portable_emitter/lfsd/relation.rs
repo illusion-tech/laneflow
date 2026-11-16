@@ -783,7 +783,7 @@ pub(super) fn artifact_relation_changes(
 
 /// 把 LIR 的规范关系元组全部投影为 Genesis 新增差异行。
 pub(super) fn genesis_relation_changes(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
-    canonical_relation_tuples(lir)
+    canonical_relation_tuple_vec(lir)
         .into_iter()
         .map(|relation| {
             row([
