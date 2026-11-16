@@ -12,6 +12,7 @@ members = [
     "crates/laneflow-spatial",
     "crates/laneflow-static-contract",
     "crates/laneflow-static-network",
+    "tools/laneflow-artifact-inspect",
     "tools/laneflow-audit-test-support",
     "tools/laneflow-corridor-generator",
     "tools/laneflow-gate-summary",
