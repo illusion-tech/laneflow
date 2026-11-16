@@ -551,8 +551,8 @@ LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
 所有权闭合仍拒绝命名空间限定，不能把同名但不同 owner 的实体合并。
 
 每个临时索引先读取精确项数，以 checked arithmetic 计算请求容量字节并验证平台
-可表示性，再检查 `PipelineScratchBytes` 与“既有 builder 存续字节 + 当前所有共存预检
-索引”的 `CompilerControlledLiveBytes`。通过后只分配一次，作用域结束即释放；排序
+可表示性，再经准入账本核对“既有 builder 存续字节 + 当前所有共存预检索引”的
+`CompilerControlledLiveBytes`。通过后只分配一次，作用域结束即释放；排序
 本身不申请额外堆工作区。预检峰值进入前端准入峰值账本，外部借用 source bytes 不重复
 计入该账本。预算充足时首个完整诊断不变；索引无法容纳时，在该操作处优先返回现有
 预算超限诊断，不回退到平方扫描。此资源失败顺序依据 [#680 的 G1 补充][preflight-index-g1]，
