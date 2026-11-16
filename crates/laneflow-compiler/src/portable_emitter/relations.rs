@@ -124,19 +124,6 @@ pub(super) fn canonical_relation_tuples(
     Ok(relations)
 }
 
-/// 不经账本的规范关系元组；只供 LFSD 构造代码直接写入对象树之前的差异路径使用。
-pub(super) fn canonical_relation_tuple_vec(lir: &crate::lir::LirUnit) -> Vec<RelationTuple> {
-    let mut relations = Vec::new();
-    let mut junction_next = vec![0_u32; canonical_relation_scratch_len(lir)];
-    for_each_canonical_relation(
-        lir,
-        Some(&mut junction_next),
-        &mut RelationSink(&mut |relation| relations.push(relation)),
-    );
-    relations.sort_unstable();
-    relations
-}
-
 /// 路口局部序号计数器清零；只计数时无暂存。
 fn reset_junction_next(junction_next: &mut Option<&mut [u32]>) {
     if let Some(next) = junction_next {

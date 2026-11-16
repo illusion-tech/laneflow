@@ -1,7 +1,9 @@
 //! emitter 的 K 配对与完整 RowV1 投影。checker 只复用预算/分配原语，不调用配对或编码。
 
 use super::base::{checked_ordinal_vector_with, checked_u32_with};
+use super::changes::{ChangeBounds, PolicyChange, add, stage};
 use super::*;
+use crate::ledger::{BoundedVec, PassBudget, Plan};
 use laneflow_static_contract::PortableFieldType;
 
 const MISMATCH: PortableEmissionError = PortableEmissionError::InternalBindingMismatch;
@@ -20,55 +22,20 @@ impl Member<'_> {
     }
 }
 
-/// 路权策略局部成员变更行的暂存字节计量器。
-///
-/// 变更行随 LFSD 对象树离开编译遍，对象树计入资源账本前暂由本计量器按账本余量记账；
-/// 其余发射与检查工作集已由资源账本授予。
-pub(in crate::portable_emitter) struct Scratch {
-    used: u64,
-    limit: u64,
-}
-
-impl Scratch {
-    /// 创建用量为零、上限为 `limit` 的暂存计量器。
-    pub(in crate::portable_emitter) const fn new(limit: u64) -> Self {
-        Self { used: 0, limit }
-    }
-    /// 计入 `bytes` 字节暂存用量；超过上限时返回 `CompileLimitExceeded` 错误。
-    pub(in crate::portable_emitter) fn charge(
-        &mut self,
-        bytes: u64,
-    ) -> Result<(), PortableEmissionError> {
-        let actual = self
-            .used
-            .checked_add(bytes)
-            .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-        if actual > self.limit {
-            return Err(PortableEmissionError::CompileLimitExceeded {
-                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
-                actual,
-                limit: self.limit,
-            });
-        }
-        self.used = actual;
-        Ok(())
-    }
-    /// 释放 `bytes` 字节暂存用量。
-    pub(in crate::portable_emitter) fn release(&mut self, bytes: u64) {
-        self.used -= bytes;
-    }
+fn member_count(index: &ArtifactIndex<'_>) -> Result<usize, PortableEmissionError> {
+    let section = index.view.section(3).ok_or(MISMATCH)?;
+    (1..=4).try_fold(0_usize, |n, i| {
+        n.checked_add(section.table(i).ok_or(MISMATCH)?.row_count() as usize)
+            .ok_or(PortableEmissionError::ArithmeticOverflow)
+    })
 }
 
 fn members<'a>(
     index: &ArtifactIndex<'a>,
-    scratch: &mut Scratch,
-) -> Result<Vec<Member<'a>>, PortableEmissionError> {
+    pass: &PassBudget<'_>,
+) -> Result<BoundedVec<Member<'a>>, PortableEmissionError> {
     let section = index.view.section(3).ok_or(MISMATCH)?;
-    let count = (1..=4).try_fold(0_usize, |n, i| {
-        n.checked_add(section.table(i).ok_or(MISMATCH)?.row_count() as usize)
-            .ok_or(PortableEmissionError::ArithmeticOverflow)
-    })?;
-    let mut members = reserved::<Member<'a>>(count, scratch)?;
+    let mut members = pass.vec::<Member<'a>>(member_count(index)?)?;
     for kind in 0..4_u8 {
         for row in section.table(u32::from(kind) + 1).ok_or(MISMATCH)?.rows() {
             let owner = index.stable_id(
@@ -86,50 +53,51 @@ fn members<'a>(
                 kind,
                 key,
                 row,
-            });
+            })?;
         }
     }
     members.sort_unstable_by(|a, b| a.key().cmp(&b.key()));
     Ok(members)
 }
 
-/// 在暂存预算内创建预留 `count` 个元素容量的空 `Vec`。
+/// 策略局部成员变化（第 7 节）的容量与暂存字节上界，以及两侧成员表的计划。
 ///
-/// 先按元素大小折算字节并记账，再执行精确预留；分配失败返回 `AllocationFailure`。
-pub(in crate::portable_emitter) fn reserved<T>(
-    count: usize,
-    scratch: &mut Scratch,
-) -> Result<Vec<T>, PortableEmissionError> {
-    let bytes = count
-        .checked_mul(core::mem::size_of::<T>())
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    scratch.charge(u64::try_from(bytes).map_err(|_| PortableEmissionError::ArithmeticOverflow)?)?;
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(count)
-        .map_err(|_| PortableEmissionError::AllocationFailure)?;
-    Ok(values)
-}
-
-/// 生成两版制品之间的路权策略局部成员变更行（LFSD 第 7 节）。
-///
-/// 按策略稳定标识、成员种类与原始 key 配对成员并投影完整载荷；`base` 为 `None`
-/// 时全部成员按新增输出。
-pub(super) fn policy_changes(
+/// 变化至多为两侧成员数之和；暂存字节至多为两侧全部成员完整投影之和。
+pub(super) fn policy_change_bounds(
     base: Option<&ArtifactIndex<'_>>,
     target: &ArtifactIndex<'_>,
-    scratch: &mut Scratch,
-) -> Result<Vec<OwnedRow>, PortableEmissionError> {
-    let before = base
-        .map(|b| members(b, scratch))
-        .transpose()?
-        .unwrap_or_default();
-    let after = members(target, scratch)?;
-    let maximum = before
-        .len()
-        .checked_add(after.len())
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    let mut changes = reserved::<(u8, [u8; 16], u8, &str, OwnedRow)>(maximum, scratch)?;
+    bounds: &mut ChangeBounds,
+) -> Result<Plan, PortableEmissionError> {
+    let mut plan = Plan::ZERO;
+    for index in base.into_iter().chain([target]) {
+        let count = member_count(index)?;
+        add(&mut bounds.policy, count)?;
+        plan = plan.array::<Member<'_>>(count);
+        let section = index.view.section(3).ok_or(MISMATCH)?;
+        for kind in 0..4_u8 {
+            for row in section.table(u32::from(kind) + 1).ok_or(MISMATCH)?.rows() {
+                add(&mut bounds.staged, projection_len(kind, row)?)?;
+            }
+        }
+    }
+    Ok(plan)
+}
+
+/// 写入两版制品之间的路权策略局部成员变化（LFSD 第 7 节）。
+///
+/// 按策略稳定标识、成员种类与原始 key 配对成员并投影完整载荷；`base` 为 `None`
+/// 时全部成员按新增输出。两侧成员表在本函数内授予并释放；前后投影相同的成员不保留
+/// 暂存字节。
+pub(super) fn policy_changes<'a>(
+    base: Option<&ArtifactIndex<'a>>,
+    target: &ArtifactIndex<'a>,
+    pass: &PassBudget<'_>,
+    changes: &mut BoundedVec<PolicyChange<'a>>,
+    staged: &mut BoundedVec<u8>,
+) -> Result<(), PortableEmissionError> {
+    let before_members = base.map(|b| members(b, pass)).transpose()?;
+    let before: &[Member<'a>] = before_members.as_deref().unwrap_or_default();
+    let after = members(target, pass)?;
     let (mut i, mut j) = (0, 0);
     while i < before.len() || j < after.len() {
         let b = before.get(i);
@@ -154,15 +122,13 @@ pub(super) fn policy_changes(
                 (b, a)
             }
         };
+        let mark = staged.len();
         let bv = b
-            .map(|m| project(base.ok_or(MISMATCH)?, *m, scratch))
+            .map(|m| project(base.ok_or(MISMATCH)?, *m, staged))
             .transpose()?;
-        let av = a.map(|m| project(target, *m, scratch)).transpose()?;
-        if bv == av {
-            scratch.release(
-                bv.as_ref().map_or(0, |v| v.len() as u64)
-                    + av.as_ref().map_or(0, |v| v.len() as u64),
-            );
+        let av = a.map(|m| project(target, *m, staged)).transpose()?;
+        if bv.map(|v| v.of(staged)) == av.map(|v| v.of(staged)) {
+            staged.truncate(mark);
             continue;
         }
         let member = a.or(b).ok_or(MISMATCH)?;
@@ -171,35 +137,19 @@ pub(super) fn policy_changes(
             (_, None) => 1,
             _ => 2,
         };
-        let mut fields = reserved::<OwnedField>(if op == 2 { 6 } else { 5 }, scratch)?;
-        scratch.charge(member.key.len() as u64)?;
-        fields.extend([
-            field(1, OwnedValue::U8(op)),
-            field(2, OwnedValue::StableId128(member.owner)),
-            field(3, OwnedValue::U8(member.kind)),
-            field(4, OwnedValue::Utf8(member.key.into())),
-        ]);
-        if let Some(v) = bv {
-            fields.push(field(5, OwnedValue::Bytes(v)));
-        }
-        if let Some(v) = av {
-            fields.push(field(6, OwnedValue::Bytes(v)));
-        }
-        changes.push((
+        changes.push(PolicyChange {
             op,
-            member.owner,
-            member.kind,
-            member.key,
-            OwnedRow {
-                fields: fields.into_boxed_slice(),
-            },
-        ));
+            owner: member.owner,
+            kind: member.kind,
+            key: member.key,
+            before: bv,
+            after: av,
+        })?;
     }
-    changes.sort_unstable_by(|a, b| (a.0, a.1, a.2, a.3).cmp(&(b.0, b.1, b.2, b.3)));
-    // 排序记录与返回行缓冲短暂同时存活，两个都计入峰值。
-    let mut rows = reserved::<OwnedRow>(changes.len(), scratch)?;
-    rows.extend(changes.into_iter().map(|r| r.4));
-    Ok(rows)
+    changes.sort_unstable_by(|a, b| {
+        (a.op, a.owner, a.kind, a.key).cmp(&(b.op, b.owner, b.kind, b.key))
+    });
+    Ok(())
 }
 
 fn reference(kind: u8, tag: u16) -> Option<(EntityKind, bool)> {
@@ -212,17 +162,16 @@ fn reference(kind: u8, tag: u16) -> Option<(EntityKind, bool)> {
     }
 }
 
-fn project(
-    index: &ArtifactIndex<'_>,
-    member: Member<'_>,
-    scratch: &mut Scratch,
-) -> Result<Box<[u8]>, PortableEmissionError> {
+/// 成员完整投影的精确字节数：长度前缀、字段数、保留字与逐字段（标签、类型、长度、值）。
+fn projection_len(
+    kind: u8,
+    row: RegistryCheckedRowView<'_>,
+) -> Result<usize, PortableEmissionError> {
     let mut length = 16_usize;
-    let mut count = 0_u32;
-    for f in member.row.fields().filter(|f| f.tag() >= 3) {
-        let size = match reference(member.kind, f.tag()) {
+    for f in row.fields().filter(|f| f.tag() >= 3) {
+        let size = match reference(kind, f.tag()) {
             Some((_, false)) => 18,
-            Some((_, true)) => (checked_ordinal_vector_with(member.row, f.tag(), MISMATCH)?.len()
+            Some((_, true)) => (checked_ordinal_vector_with(row, f.tag(), MISMATCH)?.len()
                 as usize)
                 .checked_mul(18)
                 .and_then(|v| v.checked_add(4))
@@ -233,42 +182,53 @@ fn project(
             .checked_add(12)
             .and_then(|v| v.checked_add(size))
             .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-        count += 1;
     }
-    let mut bytes = reserved::<u8>(length, scratch)?;
-    bytes.extend_from_slice(&(length as u64).to_le_bytes());
-    bytes.extend_from_slice(&count.to_le_bytes());
-    bytes.extend_from_slice(&0_u32.to_le_bytes());
-    for f in member.row.fields().filter(|f| f.tag() >= 3) {
-        bytes.extend_from_slice(&f.tag().to_le_bytes());
-        if let Some((kind, vector)) = reference(member.kind, f.tag()) {
-            bytes.extend_from_slice(&[PortableFieldType::Bytes as u8, 0]);
-            if vector {
-                let refs = checked_ordinal_vector_with(member.row, f.tag(), MISMATCH)?;
-                bytes.extend_from_slice(&(4 + u64::from(refs.len()) * 18).to_le_bytes());
-                bytes.extend_from_slice(&refs.len().to_le_bytes());
-                for position in 0..refs.len() {
-                    bytes.extend_from_slice(&kind.code().to_le_bytes());
+    Ok(length)
+}
+
+fn project(
+    index: &ArtifactIndex<'_>,
+    member: Member<'_>,
+    staged: &mut BoundedVec<u8>,
+) -> Result<Slots, PortableEmissionError> {
+    let length = projection_len(member.kind, member.row)?;
+    let count = u32::try_from(member.row.fields().filter(|f| f.tag() >= 3).count())
+        .map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
+    stage(staged, |bytes| {
+        bytes.extend_from_slice(&(length as u64).to_le_bytes())?;
+        bytes.extend_from_slice(&count.to_le_bytes())?;
+        bytes.extend_from_slice(&0_u32.to_le_bytes())?;
+        for f in member.row.fields().filter(|f| f.tag() >= 3) {
+            bytes.extend_from_slice(&f.tag().to_le_bytes())?;
+            if let Some((kind, vector)) = reference(member.kind, f.tag()) {
+                bytes.extend_from_slice(&[PortableFieldType::Bytes as u8, 0])?;
+                if vector {
+                    let refs = checked_ordinal_vector_with(member.row, f.tag(), MISMATCH)?;
+                    bytes.extend_from_slice(&(4 + u64::from(refs.len()) * 18).to_le_bytes())?;
+                    bytes.extend_from_slice(&refs.len().to_le_bytes())?;
+                    for position in 0..refs.len() {
+                        bytes.extend_from_slice(&kind.code().to_le_bytes())?;
+                        bytes.extend_from_slice(&index.stable_id(
+                            kind,
+                            refs.get(position).ok_or(MISMATCH)?,
+                            MISMATCH,
+                        )?)?;
+                    }
+                } else {
+                    bytes.extend_from_slice(&18_u64.to_le_bytes())?;
+                    bytes.extend_from_slice(&kind.code().to_le_bytes())?;
                     bytes.extend_from_slice(&index.stable_id(
                         kind,
-                        refs.get(position).ok_or(MISMATCH)?,
+                        checked_u32_with(member.row, f.tag(), MISMATCH)?,
                         MISMATCH,
-                    )?);
+                    )?)?;
                 }
             } else {
-                bytes.extend_from_slice(&18_u64.to_le_bytes());
-                bytes.extend_from_slice(&kind.code().to_le_bytes());
-                bytes.extend_from_slice(&index.stable_id(
-                    kind,
-                    checked_u32_with(member.row, f.tag(), MISMATCH)?,
-                    MISMATCH,
-                )?);
+                bytes.extend_from_slice(&[f.field_type() as u8, 0])?;
+                bytes.extend_from_slice(&(f.value_bytes().len() as u64).to_le_bytes())?;
+                bytes.extend_from_slice(f.value_bytes())?;
             }
-        } else {
-            bytes.extend_from_slice(&[f.field_type() as u8, 0]);
-            bytes.extend_from_slice(&(f.value_bytes().len() as u64).to_le_bytes());
-            bytes.extend_from_slice(f.value_bytes());
         }
-    }
-    Ok(bytes.into_boxed_slice())
+        Ok::<_, PortableEmissionError>(())
+    })
 }

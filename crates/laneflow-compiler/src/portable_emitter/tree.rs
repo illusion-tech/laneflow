@@ -21,8 +21,10 @@ use laneflow_static_contract::PortableObjectKind;
 
 use crate::ledger::{AccountingDefect, BoundedVec, LedgerError, PassBudget, PassLabel, Plan};
 
+use super::PortableEmissionError;
 use super::budget::Accounting;
-use super::{OwnedObject, OwnedValue, PortableEmissionError};
+#[cfg(test)]
+use super::{OwnedObject, OwnedValue};
 
 #[cfg(test)]
 mod tests;
@@ -450,59 +452,6 @@ impl TreeBuilder {
         Span { start, end }
     }
 
-    /// 把拥有型嵌套对象逐节复制进对象树，返回其节目录。
-    ///
-    /// 用于尚未直接写入对象树的构造代码：嵌套对象本身不由账本授予，复制得到的对象树
-    /// 由账本授予。
-    pub(super) fn copy_owned(
-        &self,
-        object: &OwnedObject,
-    ) -> impl Iterator<Item = SectionRef> + use<> {
-        let first = self.len(|arenas| arenas.sections.len());
-        for section in &object.sections {
-            self.section(
-                section.kind,
-                section.tables.iter().map(|table| {
-                    self.table(
-                        table.kind,
-                        table.rows.iter().map(|row| {
-                            self.row(
-                                row.fields
-                                    .iter()
-                                    .map(|owned| field(owned.tag, self.copy_value(&owned.value))),
-                            )
-                        }),
-                    )
-                }),
-            );
-        }
-        (first..self.len(|arenas| arenas.sections.len())).map(SectionRef)
-    }
-
-    fn copy_value(&self, value: &OwnedValue) -> Value {
-        match value {
-            OwnedValue::U8(value) => Value::U8(*value),
-            OwnedValue::U16(value) => Value::U16(*value),
-            OwnedValue::U32(value) => Value::U32(*value),
-            OwnedValue::U64(value) => Value::U64(*value),
-            OwnedValue::F32(value) => Value::F32(*value),
-            OwnedValue::F64(value) => Value::F64(*value),
-            OwnedValue::I32(value) => Value::I32(*value),
-            OwnedValue::StableId128(value) => Value::StableId128(*value),
-            OwnedValue::Sha256(value) => self.sha256(*value),
-            OwnedValue::Utf8(value) => self.utf8(value),
-            OwnedValue::Bytes(value) => self.bytes(value),
-            OwnedValue::OrdinalVectorU32(values) => self.ordinals(values.iter().copied()),
-            OwnedValue::RecordVector(rows) => self.records(rows.iter().map(|row| {
-                self.record(
-                    row.fields
-                        .iter()
-                        .map(|owned| field(owned.tag, self.copy_value(&owned.value))),
-                )
-            })),
-        }
-    }
-
     /// 计数模式结束：返回各段元素数。
     pub(super) fn shape(self) -> Result<TreeShape, PortableEmissionError> {
         if let Some(error) = self.error.take() {
@@ -880,4 +829,59 @@ pub(super) fn encode_owned_object(
             Ok((Box::from(&buffer[..]), 0))
         },
     )
+}
+
+#[cfg(test)]
+impl TreeBuilder {
+    /// 把拥有型嵌套对象逐节复制进对象树，返回其节目录。
+    ///
+    /// 测试以拥有型嵌套对象构造输入后，经此复制进对象树再编码。
+    pub(super) fn copy_owned(
+        &self,
+        object: &OwnedObject,
+    ) -> impl Iterator<Item = SectionRef> + use<> {
+        let first = self.len(|arenas| arenas.sections.len());
+        for section in &object.sections {
+            self.section(
+                section.kind,
+                section.tables.iter().map(|table| {
+                    self.table(
+                        table.kind,
+                        table.rows.iter().map(|row| {
+                            self.row(
+                                row.fields
+                                    .iter()
+                                    .map(|owned| field(owned.tag, self.copy_value(&owned.value))),
+                            )
+                        }),
+                    )
+                }),
+            );
+        }
+        (first..self.len(|arenas| arenas.sections.len())).map(SectionRef)
+    }
+
+    fn copy_value(&self, value: &OwnedValue) -> Value {
+        match value {
+            OwnedValue::U8(value) => Value::U8(*value),
+            OwnedValue::U16(value) => Value::U16(*value),
+            OwnedValue::U32(value) => Value::U32(*value),
+            OwnedValue::U64(value) => Value::U64(*value),
+            OwnedValue::F32(value) => Value::F32(*value),
+            OwnedValue::F64(value) => Value::F64(*value),
+            OwnedValue::I32(value) => Value::I32(*value),
+            OwnedValue::StableId128(value) => Value::StableId128(*value),
+            OwnedValue::Sha256(value) => self.sha256(*value),
+            OwnedValue::Utf8(value) => self.utf8(value),
+            OwnedValue::Bytes(value) => self.bytes(value),
+            OwnedValue::OrdinalVectorU32(values) => self.ordinals(values.iter().copied()),
+            OwnedValue::RecordVector(rows) => self.records(rows.iter().map(|row| {
+                self.record(
+                    row.fields
+                        .iter()
+                        .map(|owned| field(owned.tag, self.copy_value(&owned.value))),
+                )
+            })),
+        }
+    }
 }

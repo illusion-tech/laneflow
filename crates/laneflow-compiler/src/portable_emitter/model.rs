@@ -208,11 +208,6 @@ pub(super) fn road_editing_union_code(value: crate::RoadEditingUnionKind) -> u16
     }
 }
 
-/// 以（实体种类, 稳定标识）为键的几何编码值集合。
-pub(super) type GeometryValues = BTreeMap<(EntityKind, [u8; 16]), Box<[u8]>>;
-/// 以（所有者实体种类, 所有者稳定标识, 关系角色）分组的关系元组集合。
-pub(super) type RelationGroups = BTreeMap<(EntityKind, [u8; 16], u8), Vec<RelationTuple>>;
-
 /// 一条规范关系元组：所有者端点、关系角色、所有者局部下标与主体端点，两端均以
 /// 实体种类和稳定标识表达。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
