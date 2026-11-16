@@ -12,6 +12,7 @@ mod diagnostic;
 mod geometry_profile;
 mod hir;
 mod identity;
+mod ledger;
 mod limits;
 mod lir;
 mod mir;
