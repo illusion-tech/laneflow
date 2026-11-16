@@ -70,10 +70,18 @@ fn push_relation_tuple(
 struct RelationSink<'s>(&'s mut dyn FnMut(RelationTuple));
 
 /// 交通边是否为路口内部边；路口内部边表按边序号排序。
-fn is_internal_edge(lir: &crate::lir::LirUnit, edge: u32) -> bool {
+pub(super) fn is_internal_edge(lir: &crate::lir::LirUnit, edge: u32) -> bool {
     lir.junction_internal_edges
         .binary_search_by_key(&edge, |entry| entry.edge.raw())
         .is_ok()
+}
+
+/// 依次产出全部规范关系元组（未排序），不分配。
+pub(super) fn for_each_canonical_relation_tuple(
+    lir: &crate::lir::LirUnit,
+    f: &mut dyn FnMut(RelationTuple),
+) {
+    for_each_canonical_relation(lir, &mut RelationSink(f));
 }
 
 /// 规范关系元组的数量，即 [`canonical_relation_tuples`] 的计划容量。

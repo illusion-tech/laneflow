@@ -24,6 +24,9 @@ use crate::ledger::{AccountingDefect, BoundedVec, LedgerError, PassBudget, PassL
 use super::budget::Accounting;
 use super::{OwnedObject, OwnedValue, PortableEmissionError};
 
+#[cfg(test)]
+mod tests;
+
 /// 同一段存储内的半开区间。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct Span {

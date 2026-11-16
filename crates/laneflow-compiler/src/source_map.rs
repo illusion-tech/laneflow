@@ -944,7 +944,7 @@ pub struct LaneEdgeSourceView<'a> {
     record: &'a LaneEdgeSourceRecord,
 }
 
-impl LaneEdgeSourceView<'_> {
+impl<'a> LaneEdgeSourceView<'a> {
     /// 返回本次 LIR 中定位实体的有类型序号。
     #[must_use]
     pub const fn ordinal(&self) -> LaneEdgeOrdinal {
@@ -959,12 +959,12 @@ impl LaneEdgeSourceView<'_> {
 
     /// 返回拥有该声明的主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 返回额外贡献来源位置；当前显式 `LaneEdge` 声明没有额外贡献项。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -978,7 +978,7 @@ macro_rules! stable_source_view {
             record: &'a StableEntitySourceRecord<$ordinal, $id>,
         }
 
-        impl $view<'_> {
+        impl<'a> $view<'a> {
             /// 返回本次 LIR 中定位实体的有类型序号。
             #[must_use]
             pub const fn ordinal(&self) -> $ordinal {
@@ -993,14 +993,14 @@ macro_rules! stable_source_view {
 
             /// 返回拥有该声明的主要来源位置。
             #[must_use]
-            pub fn primary_source(&self) -> SourceLocationView<'_> {
+            pub fn primary_source(&self) -> SourceLocationView<'a> {
                 self.source_map.location(&self.record.primary)
             }
 
             /// 当前显式声明没有额外贡献来源。
             pub fn contributing_sources(
                 &self,
-            ) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+            ) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
                 core::iter::empty()
             }
         }
@@ -1092,7 +1092,7 @@ impl CrossSectionRelationOwner {
     }
 }
 
-impl CrossSectionRelationSourceView<'_> {
+impl<'a> CrossSectionRelationSourceView<'a> {
     /// 返回关系 owner 的有类型 LIR 序号与稳定标识。
     #[must_use]
     pub const fn owner(&self) -> CrossSectionRelationOwner {
@@ -1126,12 +1126,12 @@ impl CrossSectionRelationSourceView<'_> {
 
     /// 返回关系声明的主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式关系没有额外贡献来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1170,7 +1170,7 @@ impl JunctionRelationOwner {
     }
 }
 
-impl JunctionRelationSourceView<'_> {
+impl<'a> JunctionRelationSourceView<'a> {
     /// 返回关系 owner 的有类型 LIR 序号与稳定标识。
     #[must_use]
     pub const fn owner(&self) -> JunctionRelationOwner {
@@ -1209,12 +1209,12 @@ impl JunctionRelationSourceView<'_> {
 
     /// 返回显式关系或派生内部边声明的规范主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前关系没有额外贡献来源；共享内部边只登记规范选定的主要路径来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1250,7 +1250,7 @@ pub struct SignalRelationSourceView<'a> {
     record: &'a SignalRelationSourceRecord,
 }
 
-impl SignalRelationSourceView<'_> {
+impl<'a> SignalRelationSourceView<'a> {
     /// 返回关系 owner 的有类型 LIR 序号与稳定标识。
     #[must_use]
     pub const fn owner(&self) -> SignalRelationOwner {
@@ -1281,12 +1281,12 @@ impl SignalRelationSourceView<'_> {
 
     /// 返回建立该静态信号关系的主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式信号关系没有额外贡献来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1298,7 +1298,7 @@ pub struct ParkingRelationSourceView<'a> {
     record: &'a ParkingRelationSourceRecord,
 }
 
-impl ParkingRelationSourceView<'_> {
+impl<'a> ParkingRelationSourceView<'a> {
     /// 返回拥有区域归属或锚点关系的停车位序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> ParkingSpaceOrdinal {
@@ -1325,12 +1325,12 @@ impl ParkingRelationSourceView<'_> {
 
     /// 返回建立该停车静态关系的主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式停车关系没有额外贡献来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1342,7 +1342,7 @@ pub struct ParkingFacilityRelationSourceView<'a> {
     record: &'a ParkingFacilityRelationSourceRecord,
 }
 
-impl ParkingFacilityRelationSourceView<'_> {
+impl<'a> ParkingFacilityRelationSourceView<'a> {
     /// 返回 owner 停车设施的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> ParkingFacilityOrdinal {
@@ -1369,12 +1369,12 @@ impl ParkingFacilityRelationSourceView<'_> {
 
     /// 返回该关系的规范主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前关系没有额外贡献来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1386,7 +1386,7 @@ pub struct ConflictRelationSourceView<'a> {
     record: &'a ConflictRelationSourceRecord,
 }
 
-impl ConflictRelationSourceView<'_> {
+impl<'a> ConflictRelationSourceView<'a> {
     /// 返回 owner 参与者流的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> ParticipantStreamOrdinal {
@@ -1413,12 +1413,12 @@ impl ConflictRelationSourceView<'_> {
 
     /// 返回该关系的规范主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前关系没有额外贡献来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1437,7 +1437,7 @@ pub struct SpatialGeometrySourceRangeView<'a> {
     record: &'a SpatialGeometrySourceRangeRecord,
 }
 
-impl SpatialRelationSourceView<'_> {
+impl<'a> SpatialRelationSourceView<'a> {
     /// 返回 owner 规范坐标框架的 LIR 序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> CanonicalFrameOrdinal {
@@ -1464,12 +1464,12 @@ impl SpatialRelationSourceView<'_> {
 
     /// 返回该关系的规范主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 返回逐几何来源范围的伴随来源位置。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         self.record
             .source_ranges
             .iter()
@@ -1479,18 +1479,16 @@ impl SpatialRelationSourceView<'_> {
     /// 按中心线点顺序返回 authoring source segment 的有类型范围映射。
     pub fn geometry_source_ranges(
         &self,
-    ) -> impl ExactSizeIterator<Item = SpatialGeometrySourceRangeView<'_>> {
+    ) -> impl ExactSizeIterator<Item = SpatialGeometrySourceRangeView<'a>> + use<'a> {
+        let source_map = self.source_map;
         self.record
             .source_ranges
             .iter()
-            .map(|record| SpatialGeometrySourceRangeView {
-                source_map: self.source_map,
-                record,
-            })
+            .map(move |record| SpatialGeometrySourceRangeView { source_map, record })
     }
 }
 
-impl SpatialGeometrySourceRangeView<'_> {
+impl<'a> SpatialGeometrySourceRangeView<'a> {
     /// 返回相对于该中心线点表的半开点区间。
     #[must_use]
     pub const fn point_range(&self) -> core::ops::Range<u32> {
@@ -1505,7 +1503,7 @@ impl SpatialGeometrySourceRangeView<'_> {
 
     /// 返回该范围映射的来源位置。
     #[must_use]
-    pub fn source(&self) -> SourceLocationView<'_> {
+    pub fn source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.source)
     }
 }
@@ -1541,7 +1539,7 @@ pub struct AccessRelationSourceView<'a> {
     record: &'a AccessRelationSourceRecord,
 }
 
-impl AccessRelationSourceView<'_> {
+impl<'a> AccessRelationSourceView<'a> {
     /// 返回关系 owner 的有类型 LIR 序号与稳定标识。
     #[must_use]
     pub const fn owner(&self) -> AccessRelationOwner {
@@ -1572,12 +1570,12 @@ impl AccessRelationSourceView<'_> {
 
     /// 返回关系引用的精确来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式准入关系没有额外贡献来源。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }
@@ -1589,7 +1587,7 @@ pub struct LaneEdgeSuccessorSourceView<'a> {
     record: &'a LaneEdgeSuccessorSourceRecord,
 }
 
-impl LaneEdgeSuccessorSourceView<'_> {
+impl<'a> LaneEdgeSuccessorSourceView<'a> {
     /// 返回拥有该关系的稳定实体序号。
     #[must_use]
     pub const fn owner_ordinal(&self) -> LaneEdgeOrdinal {
@@ -1616,12 +1614,12 @@ impl LaneEdgeSuccessorSourceView<'_> {
 
     /// 返回显式关系声明的主要来源位置。
     #[must_use]
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
         self.source_map.location(&self.record.primary)
     }
 
     /// 返回生成关系的贡献来源；当前显式 successor 关系没有推导链。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'a>> {
         core::iter::empty()
     }
 }

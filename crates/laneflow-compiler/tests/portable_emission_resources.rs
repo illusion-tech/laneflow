@@ -995,6 +995,16 @@ fn run_resource_tier(stable_entity_count: u32) {
         0,
         0,
     );
+    let ledger_report = candidate.resource_report();
+    println!(
+        "portable-resource emission-ledger stable_entities={} peak_live_bytes={} single_emission_peak_bytes={} diff_emission_peak_bytes={} transferred_bytes={} released_bytes={}",
+        shape.stable_entities,
+        ledger_report.peak_live_bytes(),
+        ledger_report.single_emission_peak_bytes(),
+        ledger_report.diff_emission_peak_bytes(),
+        ledger_report.transferred_bytes(),
+        ledger_report.released_bytes(),
+    );
     drop(output);
 
     if shape.stable_entities == RESOURCE_TIERS[0] {
