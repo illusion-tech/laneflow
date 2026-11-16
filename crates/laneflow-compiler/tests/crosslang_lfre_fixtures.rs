@@ -186,7 +186,7 @@ fn assert_reader_accepts(fixture_name: &str) {
 
     assert_fixed_module_semantics(fixture_name, &bytes);
 
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let mut builder = CompilationUnitBuilder::new(limits);
     let input = RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, &bytes, None)
         .expect("fixture 的 expected key/bytes 必须满足输入契约");

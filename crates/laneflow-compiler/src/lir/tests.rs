@@ -13,7 +13,7 @@ fn module(
     imports: &[&str],
     edges: &[(&str, f64, &[LaneEdgeReference<'_>])],
 ) -> SyntheticModule {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -45,7 +45,7 @@ fn module(
 }
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -224,21 +224,11 @@ fn lir_checks_record_scratch_output_and_live_limits_before_allocation() {
 
     for (limits, expected_dimension) in [
         (
-            CompileLimits::p100_initial_v1().with_test_lir_limits(1, u32::MAX, u32::MAX, u32::MAX),
+            CompileLimits::p100().with_test_lir_limits(1, u32::MAX),
             CompileLimitDimension::LirRecordCount,
         ),
         (
-            CompileLimits::p100_initial_v1().with_test_lir_limits(u32::MAX, 0, u32::MAX, u32::MAX),
-            CompileLimitDimension::StageScratchBytes,
-        ),
-        (
-            CompileLimits::p100_initial_v1().with_test_lir_limits(u32::MAX, u32::MAX, 0, u32::MAX),
-            CompileLimitDimension::OutputBytes,
-        ),
-        (
-            CompileLimits::p100_initial_v1().with_test_lir_limits(
-                u32::MAX,
-                u32::MAX,
+            CompileLimits::p100().with_test_lir_limits(
                 u32::MAX,
                 u32::try_from(unit.controlled_live_bytes + mir.controlled_live_bytes).unwrap(),
             ),

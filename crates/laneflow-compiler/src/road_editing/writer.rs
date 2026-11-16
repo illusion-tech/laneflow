@@ -1529,7 +1529,7 @@ pub(super) mod tests {
 
     #[test]
     fn writer_emits_checked_size_prefixed_lfre_buffer() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = RoadEditingSourceWriter::new(&limits)
             .write(module_with_frames(&limits, &["frame-b", "frame-a"]))
             .expect("buffer");
@@ -1561,7 +1561,7 @@ pub(super) mod tests {
 
     #[test]
     fn root_input_order_does_not_change_wire_bytes() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let first = RoadEditingSourceWriter::new(&limits)
             .write(module_with_frames(
                 &limits,
@@ -1580,7 +1580,7 @@ pub(super) mod tests {
 
     #[test]
     fn unordered_reference_input_does_not_change_wire_bytes() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let first = RoadEditingSourceWriter::new(&limits)
             .write(module_with_junction(&limits, &["edge-b", "edge-a"]))
             .expect("first buffer");
@@ -1593,7 +1593,7 @@ pub(super) mod tests {
 
     #[test]
     fn every_stable_declaration_encoder_produces_a_verified_root_vector() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let buffer = RoadEditingSourceWriter::new(&limits)
             .write(module_with_every_declaration(&limits))
             .expect("complete buffer");
@@ -1625,7 +1625,7 @@ pub(super) mod tests {
 
     #[test]
     fn unordered_references_sort_by_resolved_namespace() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "z-city",
             "road-editing",

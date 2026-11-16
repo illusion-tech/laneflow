@@ -288,7 +288,7 @@ fn ring_candidate(
     provenance: &str,
     diff_base: PortableDiffBase<'_>,
 ) -> laneflow_compiler::PortablePublicationCandidate {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/waiting-scale",
@@ -517,7 +517,7 @@ fn ring_policy() -> WorldPolicySelection {
                 EntityKind::RightOfWayPolicySet,
                 "city/waiting-scale",
                 "waiting-policy",
-                &CompileLimits::p100_initial_v1(),
+                &CompileLimits::p100(),
             )
             .expect("waiting policy stable id"),
         ),

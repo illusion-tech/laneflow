@@ -77,7 +77,7 @@ fn policy(revision: &SharedNetworkRevision) -> WorldPolicySelection {
             EntityKind::RightOfWayPolicySet,
             "runtime-fixture-policy",
             "fixture-policy",
-            &CompileLimits::p100_initial_v1(),
+            &CompileLimits::p100(),
         )
         .expect("fixture policy ID"),
     );
@@ -152,7 +152,7 @@ pub(crate) fn populate(world: &mut TrafficWorld, full_spatial: bool) {
 }
 
 pub(crate) fn lfre_module(document_key: &str) -> Vec<u8> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = RoadEditingModuleHeader::try_new(
         "security-fuzz",
         document_key,
@@ -181,7 +181,7 @@ pub(crate) fn lfre_module(document_key: &str) -> Vec<u8> {
 
 fn editable_fixture() -> Fixture {
     let bytes = lfre_module(DOCUMENT_KEY);
-    let mut unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    let mut unit = CompilationUnitBuilder::new(CompileLimits::p100());
     unit.add_road_editing_module(
         RoadEditingModuleInput::try_new(DOCUMENT_KEY, &bytes, None).expect("module input"),
     )

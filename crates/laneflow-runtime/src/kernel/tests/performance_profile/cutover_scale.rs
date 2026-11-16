@@ -32,7 +32,7 @@ pub struct Revisions {
 
 pub fn revisions() -> Revisions {
     let compile = |speed_limit| {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: "runtime/cutover-scale",

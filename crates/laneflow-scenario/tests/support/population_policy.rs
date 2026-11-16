@@ -22,7 +22,7 @@ pub fn fixture(
     CorridorCatalog,
     [WorldPolicySelection; 3],
 ) {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: AUTHORING_NAMESPACE,

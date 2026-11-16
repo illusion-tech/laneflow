@@ -2411,7 +2411,7 @@ mod tests {
 
     #[test]
     fn independent_declarations_are_lowered_in_stable_key_order() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",
@@ -2483,7 +2483,7 @@ mod tests {
 
     #[test]
     fn independent_reference_declarations_preserve_imports_and_ordered_occurrences() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",
@@ -2556,7 +2556,7 @@ mod tests {
 
     #[test]
     fn owner_scoped_declarations_keep_complete_parent_tuples() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let module = super::super::writer::tests::module_with_every_declaration(&limits);
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input =
@@ -2666,7 +2666,7 @@ mod tests {
 
     #[test]
     fn junction_relation_locations_preserve_the_owner_canvas_selection() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",
@@ -2779,7 +2779,7 @@ mod tests {
 
     #[test]
     fn authoring_topology_and_curves_lower_without_losing_owner_or_parameter_authority() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let module = super::super::writer::tests::module_with_every_declaration(&limits);
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input =
@@ -2865,7 +2865,7 @@ mod tests {
 
     #[test]
     fn authoring_lane_owner_mismatch_is_rejected_before_lowering() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let module = super::super::writer::tests::module_with_every_declaration(&limits);
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let mut malformed = bytes.as_bytes().to_vec();
@@ -2898,7 +2898,7 @@ mod tests {
 
     #[test]
     fn aggregate_declarations_preserve_product_and_set_relation_locations() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let module = super::super::writer::tests::module_with_every_declaration(&limits);
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
         let input =
@@ -3009,7 +3009,7 @@ mod tests {
 
     #[test]
     fn first_party_unicode_access_regulation_round_trips_through_lowering() {
-        let limits = CompileLimits::p100_initial_v2();
+        let limits = CompileLimits::p100();
         let source = super::super::writer::tests::module_with_every_declaration(&limits);
         let mut builder = RoadEditingSourceModuleBuilder::new(
             source.header().clone(),

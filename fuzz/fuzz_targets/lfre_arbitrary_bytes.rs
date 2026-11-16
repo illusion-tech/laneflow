@@ -18,7 +18,7 @@ fuzz_target!(|data: &[u8]| {
     let Ok(input) = RoadEditingModuleInput::try_new("roads/fuzz", data, None) else {
         return;
     };
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
     // 成功或失败关闭均可；唯一硬性要求是 admission 原子失败、不 panic。
     if let Err(bundle) = builder.add_road_editing_module(input) {
         for diagnostic in bundle.diagnostics() {

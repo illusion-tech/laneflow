@@ -286,7 +286,7 @@ fn compile_pair(
         add(right_geometry.end, scale(last, LEAD_METERS)),
     );
 
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = re::RoadEditingModuleHeader::try_new(
         "laneflow/s0f-adjacency",
         "s0f-adjacency",

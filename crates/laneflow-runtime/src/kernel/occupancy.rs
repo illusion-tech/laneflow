@@ -2413,7 +2413,7 @@ pub(crate) mod tests {
     pub(super) fn compile_revision(
         configure: impl FnOnce(&mut SyntheticModuleBuilder),
     ) -> Arc<SharedNetworkRevision> {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: "city/occupancy-index",

@@ -382,7 +382,7 @@ pub fn generate(
         tile_columns: generated.layout.tile_columns,
         nominal_individuals: scale.nominal_individual_count(),
         fixed_step_ms: scale.fixed_step_ms(),
-        compile_limits: CompileLimits::single_network_1m_v2().profile_id().into(),
+        compile_limits: CompileLimits::single_network_1m().profile_id().into(),
         format_limits: "FormatLimits::HARD".into(),
         shared_build_limits: BTreeMap::from([
             ("max_retained_bytes".into(), limits.max_retained_bytes()),

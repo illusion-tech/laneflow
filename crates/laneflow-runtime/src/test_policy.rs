@@ -13,7 +13,7 @@ pub fn selection(revision: &SharedNetworkRevision) -> WorldPolicySelection {
                 EntityKind::RightOfWayPolicySet,
                 namespace,
                 key,
-                &laneflow_compiler::CompileLimits::p100_initial_v1(),
+                &laneflow_compiler::CompileLimits::p100(),
             )
             .unwrap(),
         );

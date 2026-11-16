@@ -3,7 +3,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 fn revision(count: usize) -> Arc<SharedNetworkRevision> {
-    compile_revision_with_limits(CompileLimits::single_network_1m_v2(), |module| {
+    compile_revision_with_limits(CompileLimits::single_network_1m(), |module| {
         add_standard_profiles(module);
         let mut gates = Vec::new();
         for index in 0..count {

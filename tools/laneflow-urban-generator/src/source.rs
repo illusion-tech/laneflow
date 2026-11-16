@@ -139,7 +139,7 @@ fn generate_source_inner(
     increment: Option<&str>,
 ) -> Result<GeneratedSource> {
     config.validate()?;
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let config_text = toml::to_string(config)?;
     let config_digest: [u8; 32] = Sha256::digest(config_text.as_bytes()).into();
     let mut topology_digest = Sha256::new();

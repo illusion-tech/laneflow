@@ -140,7 +140,7 @@ fn debug(error: impl Debug) -> String {
 }
 
 fn compile(edges: &[EdgeSpec]) -> Result<CompilationOutput, String> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,
@@ -289,8 +289,7 @@ fn source_of(
 }
 
 fn stable(kind: EntityKind, key: &str) -> Result<StableId128, String> {
-    derive_canonical_stable_id_v1(kind, NAMESPACE, key, &CompileLimits::p100_initial_v1())
-        .map_err(debug)
+    derive_canonical_stable_id_v1(kind, NAMESPACE, key, &CompileLimits::p100()).map_err(debug)
 }
 
 /// 序号可能随修订变化，边必须按稳定身份逐修订解析。

@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn owner_index_distinguishes_full_addresses_and_counts_claims() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let scratch = PreflightScratch::new(&limits, 0);
         let mut index = OwnerIndex::new(
             [("a>section", "lane"), ("b>section", "lane")].into_iter(),

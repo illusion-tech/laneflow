@@ -106,22 +106,14 @@ pub(crate) fn error(
     ))
 }
 
-/// 核对策略阶段的暂存与存续字节是否超出所选编译上限。
-pub(crate) fn check_budget(
-    limits: &CompileLimits,
-    scratch: u64,
-    live: u64,
-) -> Result<(), DiagnosticBundle> {
-    for (dimension, actual) in [
-        (CompileLimitDimension::StageScratchBytes, scratch),
-        (CompileLimitDimension::CompilerControlledLiveBytes, live),
-    ] {
-        let limit = limits.value(dimension);
-        if actual > limit {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_limit_exceeded(dimension, limit, actual),
-            ));
-        }
+/// 核对策略阶段含暂存在内的存续字节是否超出所选配置档的宿主预算。
+pub(crate) fn check_budget(limits: &CompileLimits, live: u64) -> Result<(), DiagnosticBundle> {
+    let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
+    let limit = limits.value(dimension);
+    if live > limit {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::compile_limit_exceeded(dimension, limit, live),
+        ));
     }
     Ok(())
 }

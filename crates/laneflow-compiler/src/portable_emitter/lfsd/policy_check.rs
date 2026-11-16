@@ -70,7 +70,8 @@ pub fn check_portable_policy_diff(
     } else if checked_u8_with(bindings, 1, MISMATCH)? != 0 {
         return Err(MISMATCH);
     }
-    let mut scratch = Scratch::new(compile_limits.value(CompileLimitDimension::StageScratchBytes));
+    let mut scratch =
+        Scratch::new(compile_limits.value(CompileLimitDimension::CompilerControlledLiveBytes));
     let target_index = ArtifactIndex::build(target_view.registry_view(), MISMATCH, &mut scratch)?;
     let base_index = base_view
         .map(|v| ArtifactIndex::build(v.registry_view(), MISMATCH, &mut scratch))

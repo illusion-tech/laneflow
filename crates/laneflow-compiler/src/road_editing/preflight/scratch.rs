@@ -31,35 +31,26 @@ impl<'a> PreflightScratch<'a> {
         I: ExactSizeIterator<Item = T>,
     {
         let count = values.len();
-        let stage_limit = self.limits.value(CompileLimitDimension::StageScratchBytes);
+        let live_limit = self
+            .limits
+            .value(CompileLimitDimension::CompilerControlledLiveBytes);
+        let overflow = || {
+            limit_error(
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                live_limit,
+                u64::MAX,
+            )
+        };
         let bytes = count
             .checked_mul(size_of::<T>())
             .filter(|bytes| *bytes <= isize::MAX as usize)
             .and_then(|bytes| u64::try_from(bytes).ok())
-            .ok_or_else(|| {
-                limit_error(
-                    CompileLimitDimension::StageScratchBytes,
-                    stage_limit,
-                    u64::MAX,
-                )
-            })?;
-        let live = self.live_bytes.get().checked_add(bytes).ok_or_else(|| {
-            limit_error(
-                CompileLimitDimension::StageScratchBytes,
-                stage_limit,
-                u64::MAX,
-            )
-        })?;
-        if live > stage_limit {
-            return Err(limit_error(
-                CompileLimitDimension::StageScratchBytes,
-                stage_limit,
-                live,
-            ));
-        }
-        let live_limit = self
-            .limits
-            .value(CompileLimitDimension::CompilerControlledLiveBytes);
+            .ok_or_else(overflow)?;
+        let live = self
+            .live_bytes
+            .get()
+            .checked_add(bytes)
+            .ok_or_else(overflow)?;
         let total = self.admitted_live_bytes.checked_add(live).ok_or_else(|| {
             limit_error(
                 CompileLimitDimension::CompilerControlledLiveBytes,
@@ -137,8 +128,8 @@ mod tests {
 
     #[test]
     fn budget_rejects_before_reading_or_allocating_entries() {
-        let limits = CompileLimits::p100_initial_v1()
-            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 15);
+        let limits = CompileLimits::p100()
+            .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 15);
         let scratch = PreflightScratch::new(&limits, 0);
         let reads = Cell::new(0);
         let error = match scratch.collect((0_u32..2).map(|_| {
@@ -154,7 +145,7 @@ mod tests {
         assert!(matches!(
             error.diagnostics()[0].payload(),
             DiagnosticPayload::CompileLimitExceeded {
-                dimension: CompileLimitDimension::StageScratchBytes,
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
                 limit: 15,
                 observed: 16,
             }
@@ -163,8 +154,8 @@ mod tests {
 
     #[test]
     fn simultaneous_requests_count_until_their_scopes_end() {
-        let limits = CompileLimits::p100_initial_v1()
-            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 48);
+        let limits = CompileLimits::p100()
+            .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 48);
         let scratch = PreflightScratch::new(&limits, 0);
         let first = scratch.collect((0_u32..4).map(u64::from)).unwrap();
         let second = scratch.collect((0_u32..2).map(u64::from)).unwrap();
@@ -181,7 +172,7 @@ mod tests {
 
     #[test]
     fn existing_modules_consume_the_same_live_budget() {
-        let limits = CompileLimits::p100_initial_v1()
+        let limits = CompileLimits::p100()
             .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 35);
         let scratch = PreflightScratch::new(&limits, 20);
         let error = match scratch.collect((0_u32..2).map(u64::from)) {
@@ -203,7 +194,7 @@ mod tests {
 
     #[test]
     fn unrepresentable_capacity_is_rejected_before_allocation() {
-        let limits = CompileLimits::single_network_1m_v2();
+        let limits = CompileLimits::single_network_1m();
         let scratch = PreflightScratch::new(&limits, 0);
         assert!(
             scratch

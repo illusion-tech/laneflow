@@ -28,11 +28,10 @@ pub(crate) fn compile_cells(
     config: &JunctionConfig,
     cells: &[TopologyBuild],
 ) -> Result<CompilationOutput, Error> {
-    // 编译/发射用 single_network_1m_v2：p100 的 StageScratchBytes 上限按走廊级
-    // 场景标定，本场景 20 条 corridor 链 + 24 段圆弧的声明规模超出其暂存上限
-    // 约 1.5%。限制只检查不改字节；StableId 按内容派生，与限制档位无关，
-    // 因此 catalog pin 与 binder 侧的 p100 身份派生结果与这里完全一致。
-    let limits = CompileLimits::single_network_1m_v2();
+    // 编译/发射用 single_network_1m：该场景的规模按大型配置档选择。限制只检查
+    // 不改字节；StableId 按内容派生，与限制档位无关，因此 catalog pin 与 binder
+    // 侧的 p100 身份派生结果与这里完全一致。
+    let limits = CompileLimits::single_network_1m();
     let mut config_text = toml::to_string(config)?;
     if cells.len() != 1 || cells[0].junction_key != JUNCTION_KEY {
         config_text.push_str(&format!(

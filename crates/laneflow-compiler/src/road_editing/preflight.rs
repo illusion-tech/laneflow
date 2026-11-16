@@ -2453,7 +2453,7 @@ mod tests {
 
     #[test]
     fn relation_capacity_is_checked_before_usage_is_mutated() {
-        let limits = CompileLimits::p100_initial_v1()
+        let limits = CompileLimits::p100()
             .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 2);
         let mut usage = RoadEditingPreflightCounts {
             relation_occurrence_count: 1,
@@ -2471,7 +2471,7 @@ mod tests {
 
     #[test]
     fn generated_build_id_uses_the_token_rule() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut usage = RoadEditingPreflightCounts::default();
 
         assert!(
@@ -2576,7 +2576,7 @@ mod tests {
 
     #[test]
     fn regulation_text_accepts_bounded_unicode_and_rejects_empty_values() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut usage = RoadEditingPreflightCounts::default();
 
         usage

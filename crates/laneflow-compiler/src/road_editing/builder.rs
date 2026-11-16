@@ -1265,7 +1265,7 @@ mod tests {
 
     #[test]
     fn duplicate_add_does_not_pollute_builder() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         builder
             .add_declaration(RoadEditingDeclaration::CanonicalFrame(
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[test]
     fn conflict_zone_local_key_is_unique_only_within_its_junction_owner() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let zone = |junction: &str| {
             RoadEditingDeclaration::ConflictZone(
@@ -1315,7 +1315,7 @@ mod tests {
 
     #[test]
     fn finish_rejects_missing_identity_owner() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let missing_section =
             RoadSectionReference::owner_scoped(vec!["corridor-a".into()], "section-a")
@@ -1331,7 +1331,7 @@ mod tests {
 
     #[test]
     fn add_rejects_imported_identity_owner() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let imported_section =
             RoadSectionReference::imported("other-city", vec!["corridor-a".into()], "section-a")
@@ -1349,7 +1349,7 @@ mod tests {
 
     #[test]
     fn add_checks_string_limits_before_mutation() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let oversized_key = "x".repeat(54);
         assert!(
@@ -1369,7 +1369,7 @@ mod tests {
 
     #[test]
     fn module_header_is_the_only_initial_typed_ast_record() {
-        let limits = CompileLimits::p100_initial_v1()
+        let limits = CompileLimits::p100()
             .with_test_admission_limit(CompileLimitDimension::TypedAstRecordCount, 1);
 
         assert!(builder(&limits).finish().is_ok());
@@ -1377,7 +1377,7 @@ mod tests {
 
     #[test]
     fn add_rejects_a_self_qualified_reference() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let self_qualified_frame = CanonicalFrameReference::imported("city", Vec::new(), "frame-a")
             .expect("self-qualified frame reference");
@@ -1400,7 +1400,7 @@ mod tests {
 
     #[test]
     fn add_rejects_a_reference_outside_declared_imports() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1435,7 +1435,7 @@ mod tests {
 
     #[test]
     fn finish_requires_every_phase_to_cover_its_controllers_groups() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let group_a = SignalGroupReference::local("group-a").expect("group a");
         let group_b = SignalGroupReference::local("group-b").expect("group b");
@@ -1481,7 +1481,7 @@ mod tests {
 
     #[test]
     fn finish_does_not_treat_an_imported_phase_group_as_the_local_owned_group() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1534,7 +1534,7 @@ mod tests {
 
     #[test]
     fn finish_rejects_an_owner_vector_that_disagrees_with_the_child_parent() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         let group_a = SignalGroupReference::local("group-a").expect("group a");
         let group_b = SignalGroupReference::local("group-b").expect("group b");
@@ -1611,7 +1611,7 @@ mod tests {
 
     #[test]
     fn owner_qualified_reference_charges_each_semantic_component() {
-        let limits = CompileLimits::p100_initial_v1()
+        let limits = CompileLimits::p100()
             .with_test_admission_limit(CompileLimitDimension::StringItemCount, 12);
         let mut builder = builder(&limits);
         builder
@@ -1652,7 +1652,7 @@ mod tests {
 
     #[test]
     fn same_phase_key_under_different_controllers_is_legal() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut builder = builder(&limits);
         for controller_key in ["controller-a", "controller-b"] {
             let group_key = format!("group-{}", &controller_key[11..]);

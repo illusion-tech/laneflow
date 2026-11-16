@@ -42,7 +42,7 @@ fn revision(
     namespace: &str,
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -129,7 +129,7 @@ fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWor
 }
 
 fn register_named(world: &mut TrafficWorld, namespace: &str, keys: &[&str]) -> RouteHandle {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {

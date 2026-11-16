@@ -30,7 +30,7 @@ use laneflow_static_network::{
 };
 
 fn compile_single_frame() -> laneflow_compiler::CompilationOutput {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/pose-extraction-allocation",

@@ -109,15 +109,6 @@ impl CompilationOutput {
         &self.limits
     }
 
-    /// 测试专用：覆写输出记录中的可移植对象与捆包字节上限。
-    #[cfg(test)]
-    pub(crate) fn set_test_portable_limits(&mut self, object_bytes: u64, bundle_bytes: u64) {
-        self.limits = self
-            .limits
-            .clone()
-            .with_test_portable_limits(object_bytes, bundle_bytes);
-    }
-
     /// 借用所有静态语义后端的唯一输入。
     #[must_use]
     pub const fn lir(&self) -> &ValidatedCanonicalLir {

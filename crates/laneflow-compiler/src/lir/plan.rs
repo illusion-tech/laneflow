@@ -61,6 +61,8 @@ pub(crate) struct LirFreezePlan {
     pub(crate) spatial: LirSpatialCounts,
     pub(crate) access: LirAccessCounts,
     pub(crate) lir_record_count: u64,
+    /// 本阶段暂存字节；不再是限额（ADR 0035），已计入存续总量，保留供测试核对。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) stage_scratch_bytes: u64,
     pub(crate) output_bytes: u64,
     pub(crate) output_owned_bytes: u64,
@@ -426,7 +428,7 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<(u32, bool)>(
                 access.participant_classes.saturating_mul(2),
             ));
-        // OutputBytes 使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
+        // 输出逻辑字节使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
         // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
         let output_bytes = lane_edge_count
             .saturating_mul(LIR_LANE_EDGE_LOGICAL_BYTES)
@@ -823,11 +825,6 @@ impl LirFreezePlan {
             DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
         for (dimension, observed) in [
             (CompileLimitDimension::LirRecordCount, self.lir_record_count),
-            (
-                CompileLimitDimension::StageScratchBytes,
-                self.stage_scratch_bytes,
-            ),
-            (CompileLimitDimension::OutputBytes, self.output_bytes),
             (
                 CompileLimitDimension::CompilerControlledLiveBytes,
                 self.controlled_live_bytes,

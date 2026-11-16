@@ -95,7 +95,7 @@ fn compile_revision_with_limits(
 
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
@@ -224,7 +224,7 @@ pub fn cases() -> Vec<Case> {
 }
 
 pub fn revision() -> Arc<SharedNetworkRevision> {
-    compile_revision_with_limits(CompileLimits::p100_initial_v1(), |module| {
+    compile_revision_with_limits(CompileLimits::p100(), |module| {
         add_standard_profiles(module);
         module
             .add_lane_edge(LaneEdgeInput {

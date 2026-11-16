@@ -28,7 +28,7 @@ fn build_compiler_output(
     spatial: SpatialBuildOption,
     artifact_base: bool,
 ) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/static-network-test",

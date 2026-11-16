@@ -1000,10 +1000,6 @@ pub(crate) fn lower_to_mir(
     for (dimension, observed) in [
         (CompileLimitDimension::MirRecordCount, mir_record_count),
         (
-            CompileLimitDimension::StageScratchBytes,
-            stage_scratch_bytes,
-        ),
-        (
             CompileLimitDimension::CompilerControlledLiveBytes,
             controlled_live_bytes,
         ),
@@ -1939,7 +1935,7 @@ mod tests {
         imports: &[&str],
         edges: &[(&str, &[LaneEdgeReference<'_>])],
     ) -> SyntheticModule {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: namespace,
@@ -1971,7 +1967,7 @@ mod tests {
     }
 
     fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
         for module in modules {
             builder.add_synthetic_module(module).unwrap();
         }
@@ -2067,17 +2063,12 @@ mod tests {
     }
 
     #[test]
-    fn mir_checks_record_scratch_and_live_byte_limits_before_stage_allocation() {
+    fn mir_checks_record_and_live_byte_limits_before_stage_allocation() {
         let successors = [LaneEdgeReference::local("edge-a")];
         let mut unit = unit([module("city/a", &[], &[("edge-a", &successors)])]);
         let hir = build_hir(&unit).unwrap();
 
-        unit.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
-            u32::MAX,
-            1,
-            u32::MAX,
-            u32::MAX,
-        );
+        unit.limits = CompileLimits::p100().with_test_pipeline_limits(u32::MAX, 1, u32::MAX);
         let record_failure = match lower_to_mir(&unit, &hir) {
             Ok(_) => panic!("MIR record limit must fail closed"),
             Err(diagnostics) => diagnostics,
@@ -2091,38 +2082,10 @@ mod tests {
             }
         ));
 
-        unit.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
-            u32::MAX,
-            u32::MAX,
-            0,
-            u32::MAX,
-        );
-        let scratch_failure = match lower_to_mir(&unit, &hir) {
-            Ok(_) => panic!("MIR scratch limit must fail closed"),
-            Err(diagnostics) => diagnostics,
-        };
-        assert!(
-            scratch_failure
-                .diagnostics()
-                .iter()
-                .any(|diagnostic| matches!(
-                    diagnostic.payload(),
-                    DiagnosticPayload::CompileLimitExceeded {
-                        dimension: CompileLimitDimension::StageScratchBytes,
-                        limit: 0,
-                        observed,
-                    } if *observed > 0
-                ))
-        );
-
         let input_live_bytes =
             u32::try_from(unit.controlled_live_bytes + hir.controlled_live_bytes).unwrap();
-        unit.limits = CompileLimits::p100_initial_v1().with_test_pipeline_limits(
-            u32::MAX,
-            u32::MAX,
-            u32::MAX,
-            input_live_bytes,
-        );
+        unit.limits =
+            CompileLimits::p100().with_test_pipeline_limits(u32::MAX, u32::MAX, input_live_bytes);
         let live_failure = match lower_to_mir(&unit, &hir) {
             Ok(_) => panic!("MIR live byte limit must fail closed"),
             Err(diagnostics) => diagnostics,

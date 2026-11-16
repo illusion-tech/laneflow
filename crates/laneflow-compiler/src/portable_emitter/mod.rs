@@ -122,7 +122,7 @@ fn geometry_direction_profile_code(value: crate::GeometryDirectionProfile) -> u8
 ///
 /// 来源摘要派生、对象构建/编码、网络修订派生、格式预检、语义差异基线校验
 /// （`base` 非 LFCA 或其语义契约/引用/稳定身份与目标不兼容）、发射后策略闭合
-/// 复核（`PolicySourceMismatch` / `PolicyDiffMismatch`）、对象/bundle 预算超限
+/// 复核（`PolicySourceMismatch` / `PolicyDiffMismatch`）、宿主存续预算或格式对象预算超限
 /// 或分配失败时返回相应 [`PortableEmissionError`]；失败不返回部分候选。
 pub fn emit_portable_candidate(
     output: &CompilationOutput,
@@ -130,12 +130,8 @@ pub fn emit_portable_candidate(
     limits: FormatLimits,
     base: PortableDiffBase<'_>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
-    emit_portable_candidate_with(output, provenance, limits, base, |object, object_limit| {
-        Ok(close_object(encode_owned_object(
-            object,
-            limits,
-            object_limit,
-        )?))
+    emit_portable_candidate_with(output, provenance, limits, base, |object| {
+        Ok(close_object(encode_owned_object(object, limits)?))
     })
 }
 
@@ -146,7 +142,7 @@ pub fn emit_portable_candidate(
 ///
 /// 来源摘要派生、对象构建/编码、网络修订派生、格式预检、语义差异基线校验、
 /// 发射后策略闭合复核（`PolicySourceMismatch` / `PolicyDiffMismatch`）、
-/// 对象/bundle 预算超限、分配失败、临时目录 I/O 失败，或封存/首次只读映射时
+/// 宿主存续预算或格式对象预算超限、分配失败、临时目录 I/O 失败，或封存/首次只读映射时
 /// backing 完整性漂移（`StagedBackingChanged` / `ObjectSource`）时返回相应
 /// [`PortableEmissionError`]；失败不返回部分候选。
 pub fn emit_portable_candidate_to_staging(
@@ -156,13 +152,8 @@ pub fn emit_portable_candidate_to_staging(
     base: PortableDiffBase<'_>,
     staging_directory: &Path,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
-    emit_portable_candidate_with(output, provenance, limits, base, |object, object_limit| {
-        close_staged_object(stage_owned_object(
-            object,
-            limits,
-            object_limit,
-            staging_directory,
-        )?)
+    emit_portable_candidate_with(output, provenance, limits, base, |object| {
+        close_staged_object(stage_owned_object(object, limits, staging_directory)?)
     })
 }
 
@@ -171,15 +162,9 @@ fn emit_portable_candidate_with(
     provenance: &PortableEmissionProvenance,
     limits: FormatLimits,
     base: PortableDiffBase<'_>,
-    mut emit_object: impl FnMut(
-        &OwnedObject,
-        Option<u64>,
-    ) -> Result<PortableObjectCandidate, PortableEmissionError>,
+    mut emit_object: impl FnMut(&OwnedObject) -> Result<PortableObjectCandidate, PortableEmissionError>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
     let compile_limits = output.compile_limits();
-    let object_limit = compile_limits.max_portable_object_bytes();
-    let bundle_limit = compile_limits.max_portable_bundle_bytes();
-    let mut bundle_bytes = 0_u64;
     let source_collection_digest = source_collection_digest(output)?;
     let mut lfca = build_lfca(
         output,
@@ -187,16 +172,11 @@ fn emit_portable_candidate_with(
         source_collection_digest,
         NetworkRevisionId::from_digest(Sha256Digest::ZERO),
     )?;
-    let preliminary_lfca = emit_object(&lfca, object_limit)?;
+    let preliminary_lfca = emit_object(&lfca)?;
     let network_revision = network_revision(preliminary_lfca.bytes(), limits)?;
     drop(preliminary_lfca);
     set_lfca_network_revision(&mut lfca, network_revision)?;
-    let canonical_artifact = emit_object(&lfca, object_limit)?;
-    add_to_portable_bundle(
-        &mut bundle_bytes,
-        canonical_artifact.byte_length(),
-        bundle_limit,
-    )?;
+    let canonical_artifact = emit_object(&lfca)?;
     let canonical_view = preflight_object_values(
         canonical_artifact.bytes(),
         PortableObjectKind::CanonicalArtifact,
@@ -213,8 +193,7 @@ fn emit_portable_candidate_with(
         network_revision,
         &canonical_artifact,
     )?;
-    let source_map = emit_object(&lfsm, object_limit)?;
-    add_to_portable_bundle(&mut bundle_bytes, source_map.byte_length(), bundle_limit)?;
+    let source_map = emit_object(&lfsm)?;
     preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
     drop(lfsm);
     check_portable_policy_sources(
@@ -227,8 +206,7 @@ fn emit_portable_candidate_with(
 
     let (lfsd, expected_semantic_diff_base) =
         build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
-    let semantic_diff = emit_object(&lfsd, object_limit)?;
-    add_to_portable_bundle(&mut bundle_bytes, semantic_diff.byte_length(), bundle_limit)?;
+    let semantic_diff = emit_object(&lfsd)?;
     preflight_object_values(
         semantic_diff.bytes(),
         PortableObjectKind::SemanticDiff,
@@ -253,27 +231,6 @@ fn emit_portable_candidate_with(
         source_collection_digest,
         expected_semantic_diff_base,
     })
-}
-
-fn add_to_portable_bundle(
-    total: &mut u64,
-    byte_length: ExactByteLength,
-    limit: Option<u64>,
-) -> Result<(), PortableEmissionError> {
-    let actual = total
-        .checked_add(byte_length.get())
-        .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    if let Some(limit) = limit
-        && actual > limit
-    {
-        return Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::PortableBundleBytes,
-            actual,
-            limit,
-        });
-    }
-    *total = actual;
-    Ok(())
 }
 
 fn source_collection_digest(output: &CompilationOutput) -> Result<[u8; 32], PortableEmissionError> {

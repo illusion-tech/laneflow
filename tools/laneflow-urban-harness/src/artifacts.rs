@@ -288,7 +288,7 @@ impl Artifacts {
             EntityKind::SignalGroup,
             &self.catalog.namespace,
             key,
-            &CompileLimits::single_network_1m_v2(),
+            &CompileLimits::single_network_1m(),
         )
         .map_err(|error| invalid(format!("signal group identity: {error:?}")))?;
         self.revision

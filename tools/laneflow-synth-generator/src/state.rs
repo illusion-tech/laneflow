@@ -57,7 +57,7 @@ pub(crate) fn stable_id_in(
         kind,
         namespace,
         source_key,
-        &CompileLimits::single_network_1m_v2(),
+        &CompileLimits::single_network_1m(),
     )
     .map_err(|error| compile_error("stable identity", error))?;
     Ok(format!("lfid1_{}_{id:x}", kind.slug()))

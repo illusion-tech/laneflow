@@ -19,7 +19,7 @@ fn policy_owner_index_charges_the_existing_scratch_budget_before_allocation() {
     assert_eq!(
         policy_owner_ids(policies, &mut too_small),
         Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::StageScratchBytes,
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
             limit: required,
             actual: required + 1,
         })

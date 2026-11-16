@@ -1530,7 +1530,7 @@ fn build_catalog(
                     laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                     laneflow_scenario::signalized_corridor::AUTHORING_NAMESPACE,
                     laneflow_scenario::signalized_corridor::PROTECTED_ENTRY_POLICY_KEY,
-                    &laneflow_compiler::CompileLimits::p100_initial_v1(),
+                    &laneflow_compiler::CompileLimits::p100(),
                 )
                 .map_err(|error| Error::Catalog(format!("policy identity: {error:?}")))?,
             )

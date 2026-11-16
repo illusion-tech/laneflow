@@ -16,7 +16,7 @@ mod shared_network_revision;
 fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner() {
     let mut output = full_spatial_portable_fixture_output();
     let mut unit = full_spatial_portable_fixture_unit();
-    unit.limits = crate::CompileLimits::single_network_1m_v2();
+    unit.limits = crate::CompileLimits::single_network_1m();
     let module = unit
         .modules
         .iter()
@@ -178,7 +178,7 @@ fn own_object(bytes: &[u8], kind: PortableObjectKind) -> OwnedObject {
     }
 }
 fn bytes(object: &OwnedObject) -> Box<[u8]> {
-    encode_owned_object(object, FormatLimits::HARD, None).unwrap()
+    encode_owned_object(object, FormatLimits::HARD).unwrap()
 }
 fn value(row: &mut OwnedRow, tag: u16) -> &mut OwnedValue {
     &mut row.fields.iter_mut().find(|f| f.tag == tag).unwrap().value
@@ -297,7 +297,7 @@ fn empty_policy_fast_path_rejects_each_orphan_member_table() {
                 fixture.output.source_map_input(),
                 &bytes(&map),
                 FormatLimits::HARD,
-                &crate::CompileLimits::single_network_1m_v2()
+                &crate::CompileLimits::single_network_1m()
             ),
             Err(PortableEmissionError::PolicySourceMismatch),
             "member table {table}"
@@ -312,7 +312,7 @@ impl Fixture {
             self.output.source_map_input(),
             &bytes(map),
             FormatLimits::HARD,
-            &crate::CompileLimits::single_network_1m_v2(),
+            &crate::CompileLimits::single_network_1m(),
         )
     }
 }
@@ -321,8 +321,8 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
     let mut output = full_spatial_portable_fixture_output();
     let mut unit = full_spatial_portable_fixture_unit();
     if evidence_count > 10_000 {
-        unit.limits = crate::CompileLimits::single_network_1m_v2();
-        output.set_test_compile_limits(crate::CompileLimits::single_network_1m_v2());
+        unit.limits = crate::CompileLimits::single_network_1m();
+        output.set_test_compile_limits(crate::CompileLimits::single_network_1m());
     }
     let module_index = unit
         .modules
@@ -360,7 +360,7 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
             EntityKind::RightOfWayPolicySet,
             namespace,
             key,
-            &crate::CompileLimits::single_network_1m_v2(),
+            &crate::CompileLimits::single_network_1m(),
         )
         .unwrap()
         .into_bytes();
@@ -763,7 +763,7 @@ fn policy_source_checker_rejects_missing_extra_and_forged_projections() {
             }
             _ => unreachable!(),
         }
-        match encode_owned_object(&map, FormatLimits::HARD, None) {
+        match encode_owned_object(&map, FormatLimits::HARD) {
             Err(_) => {}
             Ok(bytes) => assert!(
                 check_portable_policy_sources(
@@ -771,7 +771,7 @@ fn policy_source_checker_rejects_missing_extra_and_forged_projections() {
                     fixture.output.source_map_input(),
                     &bytes,
                     FormatLimits::HARD,
-                    &crate::CompileLimits::single_network_1m_v2()
+                    &crate::CompileLimits::single_network_1m()
                 )
                 .is_err(),
                 "mutation {mutation}"
@@ -795,7 +795,7 @@ fn policy_sources_keep_global_ordinals_across_real_chunks() {
         fixture.output.source_map_input(),
         &bytes,
         FormatLimits::HARD,
-        &crate::CompileLimits::single_network_1m_v2(),
+        &crate::CompileLimits::single_network_1m(),
     )
     .unwrap();
     let mut wrong = fixture.map.clone();
@@ -814,8 +814,8 @@ fn policy_sources_keep_global_ordinals_across_real_chunks() {
 fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
     let mut fixture = fixture(true, Some("node"), 1);
     let original = bytes(&fixture.map);
-    let small = crate::CompileLimits::single_network_1m_v2()
-        .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 1);
+    let small = crate::CompileLimits::single_network_1m()
+        .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 1);
     assert!(matches!(
         check_portable_policy_sources(
             fixture.artifact.bytes(),
@@ -825,7 +825,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
             &small
         ),
         Err(PortableEmissionError::CompileLimitExceeded {
-            dimension: CompileLimitDimension::StageScratchBytes,
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
             ..
         })
     ));
@@ -838,7 +838,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
             fixture.output.source_map_input(),
             &original,
             limits,
-            &crate::CompileLimits::single_network_1m_v2()
+            &crate::CompileLimits::single_network_1m()
         )
         .is_err()
     );
@@ -879,7 +879,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
         .unwrap()
         .source_document_key()
         .to_owned();
-    small_unit.limits = crate::CompileLimits::single_network_1m_v2()
+    small_unit.limits = crate::CompileLimits::single_network_1m()
         .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 0);
     let real: SourceLocation = SourceSpan::point(document.into(), 1, 1).into();
     assert!(
@@ -910,7 +910,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
             fixture.output.source_map_input(),
             &old,
             FormatLimits::HARD,
-            &crate::CompileLimits::single_network_1m_v2()
+            &crate::CompileLimits::single_network_1m()
         )
         .is_err()
     );

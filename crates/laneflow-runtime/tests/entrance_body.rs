@@ -49,7 +49,7 @@ fn published(revision: &SharedNetworkRevision) -> CommittedNetworkSource {
 }
 
 fn compile_network() -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/runtime-coverage",
@@ -139,7 +139,7 @@ fn add_edge(module: &mut SyntheticModuleBuilder, key: &str, length_m: f64, next:
 }
 
 fn route(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {

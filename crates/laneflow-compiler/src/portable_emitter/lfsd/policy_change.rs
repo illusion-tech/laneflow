@@ -42,7 +42,7 @@ impl Scratch {
             .ok_or(PortableEmissionError::ArithmeticOverflow)?;
         if actual > self.limit {
             return Err(PortableEmissionError::CompileLimitExceeded {
-                dimension: CompileLimitDimension::StageScratchBytes,
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
                 actual,
                 limit: self.limit,
             });

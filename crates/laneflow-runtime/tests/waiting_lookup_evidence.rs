@@ -28,7 +28,7 @@ const WARMUP: usize = 128;
 const SAMPLES: usize = 4_096;
 
 fn revision() -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/waiting-scale",

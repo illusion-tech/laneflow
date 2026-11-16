@@ -746,7 +746,7 @@ impl AdmissionSizing {
 ///
 /// ```compile_fail
 /// use laneflow_compiler::{CompilationUnitBuilder, CompileLimits};
-/// let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+/// let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
 /// let _generic_admission = builder.add_module;
 /// ```
 pub struct CompilationUnitBuilder {
@@ -875,10 +875,6 @@ impl CompilationUnitBuilder {
             | CompileLimitDimension::HirRecordCount
             | CompileLimitDimension::MirRecordCount
             | CompileLimitDimension::LirRecordCount
-            | CompileLimitDimension::StageScratchBytes
-            | CompileLimitDimension::OutputBytes
-            | CompileLimitDimension::PortableObjectBytes
-            | CompileLimitDimension::PortableBundleBytes
             | CompileLimitDimension::RetainedCapacityBytes => 0,
         }
     }
@@ -904,16 +900,6 @@ impl CompilationUnitBuilder {
             document_count, 0,
             "official logical module construction guarantees a non-empty document set"
         );
-        if document_count > 1 && self.limits.source_document_count_limit().is_none() {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_profile_incompatible(
-                    self.limits.profile_id(),
-                    CompileLimitDimension::SourceDocumentCount,
-                    module.declaration_span.clone(),
-                    namespace,
-                ),
-            ));
-        }
         if let Some(pair) = module.source_documents.windows(2).find(|pair| {
             pair[0].source_document_key.as_ref() == pair[1].source_document_key.as_ref()
         }) {
@@ -985,9 +971,11 @@ impl CompilationUnitBuilder {
                 ));
             }
         }
-        if let Some(limit) = self.limits.source_document_count_limit()
-            && next_totals.source_document_count > limit
-        {
+        let source_document_limit = self
+            .limits
+            .value(CompileLimitDimension::SourceDocumentCount);
+        if next_totals.source_document_count > source_document_limit {
+            let limit = source_document_limit;
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded_at(
                     CompileLimitDimension::SourceDocumentCount,
@@ -1059,29 +1047,19 @@ impl CompilationUnitBuilder {
                 .authoring_namespace_id
                 .cmp(&right.descriptor.authoring_namespace_id)
         });
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::StageScratchBytes,
-                sizing.build_scratch_bytes,
-            ),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
-                sizing.build_peak_live_bytes,
-            ),
-        ] {
-            let limit = self.limits.value(dimension);
-            if observed > limit {
-                return Err(DiagnosticBundle::single(
-                    Diagnostic::compile_limit_exceeded_at(
-                        dimension,
-                        limit,
-                        observed,
-                        primary_module.map(|module| module.declaration_span.clone()),
-                        primary_module
-                            .map(|module| module.descriptor.authoring_namespace_id.as_ref().into()),
-                    ),
-                ));
-            }
+        let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
+        let limit = self.limits.value(dimension);
+        if sizing.build_peak_live_bytes > limit {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::compile_limit_exceeded_at(
+                    dimension,
+                    limit,
+                    sizing.build_peak_live_bytes,
+                    primary_module.map(|module| module.declaration_span.clone()),
+                    primary_module
+                        .map(|module| module.descriptor.authoring_namespace_id.as_ref().into()),
+                ),
+            ));
         }
 
         let mut diagnostics =

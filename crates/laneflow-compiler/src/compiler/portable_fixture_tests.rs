@@ -23,7 +23,7 @@ use laneflow_static_contract::{CanonicalFrameKind, EntityKind};
 use std::sync::Arc;
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -31,7 +31,7 @@ fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
 }
 
 fn portable_fixture_builder(namespace: &str, document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -656,7 +656,7 @@ pub(crate) fn full_spatial_portable_fixture_unit() -> CompilationUnit {
 }
 
 fn full_spatial_portable_fixture_unit_with_policy(with_policy: bool) -> CompilationUnit {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let conflict_source = portable_fixture_full_spatial_conflict_source(&limits);
     let mut builder = CompilationUnitBuilder::new(limits);
     builder
@@ -1013,15 +1013,11 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
         zone.participant_streams = range;
     }
 
-    let exact_scratch = u32::try_from(plan.stage_scratch_bytes).expect("fixture scratch fits u32");
-    unit.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
-        u32::MAX,
-        exact_scratch,
-        u32::MAX,
-        u32::MAX,
-    );
+    // 暂存计入存续总量：计划存续刚好够，差一单位即 fail closed。
+    let exact_live = u32::try_from(plan.controlled_live_bytes).expect("fixture live fits u32");
+    unit.limits = CompileLimits::p100().with_test_lir_limits(u32::MAX, exact_live);
     let frozen = crate::lir::freeze_lir(&unit, &mir)
-        .expect("exact LIR scratch boundary")
+        .expect("exact LIR live boundary")
         .lir;
     assert_eq!(frozen.controlled_live_bytes, plan.output_owned_bytes);
     assert_eq!(
@@ -1029,24 +1025,19 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
         plan.controlled_live_bytes
     );
 
-    unit.limits = CompileLimits::p100_initial_v1().with_test_lir_limits(
-        u32::MAX,
-        exact_scratch - 1,
-        u32::MAX,
-        u32::MAX,
-    );
+    unit.limits = CompileLimits::p100().with_test_lir_limits(u32::MAX, exact_live - 1);
     let failure = match crate::lir::freeze_lir(&unit, &mir) {
-        Ok(_) => panic!("one byte below LIR scratch must fail closed"),
+        Ok(_) => panic!("one byte below LIR live budget must fail closed"),
         Err(diagnostics) => diagnostics,
     };
     assert!(failure.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.payload(),
         crate::DiagnosticPayload::CompileLimitExceeded {
-            dimension: crate::CompileLimitDimension::StageScratchBytes,
+            dimension: crate::CompileLimitDimension::CompilerControlledLiveBytes,
             limit,
             observed,
-        } if *limit == plan.stage_scratch_bytes - 1
-            && *observed == plan.stage_scratch_bytes
+        } if *limit == plan.controlled_live_bytes - 1
+            && *observed == plan.controlled_live_bytes
     )));
 }
 

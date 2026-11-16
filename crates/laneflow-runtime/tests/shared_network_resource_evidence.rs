@@ -136,7 +136,7 @@ fn emit_and_build(
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
     spatial: SpatialBuildOption,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>, Arc<SharedNetworkRevision>) {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/441-evidence",

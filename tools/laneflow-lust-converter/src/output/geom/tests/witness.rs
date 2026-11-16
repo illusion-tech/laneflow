@@ -304,7 +304,7 @@ pub(super) fn approach_declarations(
 /// 构造 `entry → internal → exit` 单路径最小模块，走 converter 同档位
 /// （Balanced5Cm + Balanced2Deg）的真实受检入口，逐阶段记录拒绝。
 fn compile_path(internal: &[Vec3], lead_in: [Vec3; 2], lead_out: [Vec3; 2]) -> CompileVerdict {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = re::RoadEditingModuleHeader::try_new(
         "laneflow/s0-witness",
         "s0-witness",

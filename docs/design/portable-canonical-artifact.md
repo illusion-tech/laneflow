@@ -1958,7 +1958,7 @@ official source exact bytes 时，三对象 exact bytes 必须相同；若直接
 bytes 和对象摘要相应变化。不得为了制造伪 exact-byte 相等而丢弃真实来源绑定。
 
 三档 official source 编译都必须显式选择
-`LF-COMP-SINGLE-NETWORK-1M-v2`，其精确有限向量见
+`LF-COMP-SINGLE-NETWORK-1M`，其精确有限向量见
 [`compiler-foundation.md` §5.3][compiler-foundation-budget]。一百万档必须在
 `max_stable_entity_count = 1000000` 内完成真实 compiler/emitter；手工拼装 LFCA、只运行
 reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构成该容量证据。大型配置档
@@ -1980,7 +1980,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
    来源投影、语义差异、规范排序扰动和旧 LFCA 版本 rejection 定向反例；
 7. `10000`/`100000`/`1000000` 单修订证据、真实 round-trip、bundle 失败零受检能力与
    SharedNetworkRevision 构建失败零部分修订验证。
-   三档均使用 `LF-COMP-SINGLE-NETWORK-1M-v2`，一百万档不得在 emission 前由较小 P100
+   三档均使用 `LF-COMP-SINGLE-NETWORK-1M`，一百万档不得在 emission 前由较小 P100
    profile 拒绝；
 
 固定向量不得在测试运行时用 production emitter 自己生成 expected。目标实现至少冻结并

@@ -394,7 +394,7 @@ impl ValidatedSourceMapInput {
         inputs: &[policy::PolicySourceInput<'_>],
     ) -> Result<(), DiagnosticBundle> {
         let (records, _, _) =
-            policy::freeze_policy_sources(unit, inputs, self.peak_controlled_live_bytes, 0, 0)?;
+            policy::freeze_policy_sources(unit, inputs, self.peak_controlled_live_bytes)?;
         self.policy_sources = records;
         Ok(())
     }

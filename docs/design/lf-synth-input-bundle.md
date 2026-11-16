@@ -64,8 +64,8 @@ LFCA 发射身份均为 `laneflow-synth-generator-1`。实体键使用
 逐段 f32 累加也精确。按 ADR 0028，编译器从规范弧长提交交通毫米边长；本几何
 必须使每条边的提交值仍为 5130000 mm，不使用编制声明强行覆盖编译结果。
 政策对所有已声明 gate 明确使用 `ProtectedGroup`，不靠扫描补默认通行规则。
-使用现有 `single_network_1m_v2` 编译预算档：旧 `p100_initial_v1` 的静态实体与
-几何预算不足以承载本合同的十万个停车位，不扩大生产全局硬上限。
+使用现有 `single_network_1m` 编译资源配置档：`p100` 的静态实体与几何容量不足以
+承载本合同的十万个停车位，不扩大生产全局硬上限。
 
 编译后走 LFCA/LFSM/LFSD 发射及 `check_post_emission_bundle`，只交付已受检 LFCA。
 LFSM/LFSD 为生成时验证材料，不进入本输入包；本工具不产生 LFCP 发布声明。

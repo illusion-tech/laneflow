@@ -1,10 +1,10 @@
 use std::alloc::System;
 
 use laneflow_compiler::{
-    CanonicalFrameInput, CompilationOutput, CompilationUnitBuilder, CompileLimitDimension,
-    CompileLimits, Compiler, PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
-    SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder,
-    check_portable_policy_diff, check_portable_policy_sources, emit_portable_candidate,
+    CanonicalFrameInput, CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler,
+    PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
+    SyntheticModuleBuilder, check_portable_policy_diff, check_portable_policy_sources,
+    emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, preflight_object_values};
 use laneflow_static_contract::PortableObjectKind;
@@ -14,7 +14,7 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 fn output(modules: u32, frames_per_module: u32) -> CompilationOutput {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let mut unit = CompilationUnitBuilder::new(limits.clone());
     for module in 0..modules {
         let namespace = format!("review/module-{module:05}");
@@ -52,8 +52,9 @@ fn output(modules: u32, frames_per_module: u32) -> CompilationOutput {
 #[test]
 fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
     let provenance = PortableEmissionProvenance::try_new("review-resource-test").unwrap();
-    let small = CompileLimits::p100_initial_v1();
-    const SCRATCH_LIMIT: usize = 304_896;
+    let small = CompileLimits::p100();
+    // #1288：旧 P100 暂存常量只容纳 4,011 个稳定实体；暂存改为计入宿主存续预算后，
+    // P100 的单侧与双侧检查索引都应放得下。
     for count in [4_000, 8_000] {
         let output = output(1, count);
         let candidate = emit_portable_candidate(
@@ -65,81 +66,43 @@ fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
         .unwrap();
         let artifact = candidate.canonical_artifact().bytes();
         let region = Region::new(GLOBAL);
-        let result = check_portable_policy_diff(
-            PortableDiffBase::Genesis,
-            artifact,
-            candidate.semantic_diff().bytes(),
-            FormatLimits::HARD,
-            &small,
-        );
-        let stats = region.change();
-        assert_eq!(stats.bytes_allocated, stats.bytes_deallocated);
-        if count == 8_000 {
-            assert!(matches!(
-                result,
-                Err(PortableEmissionError::CompileLimitExceeded {
-                    dimension: CompileLimitDimension::StageScratchBytes,
-                    ..
-                })
-            ));
-            assert_eq!(
-                stats.allocations, 0,
-                "reject before the first index allocation"
-            );
-        } else {
-            result.unwrap();
-            assert!(stats.bytes_allocated > 0 && stats.bytes_allocated <= SCRATCH_LIMIT);
-            let base = preflight_object_values(
-                artifact,
-                PortableObjectKind::CanonicalArtifact,
-                FormatLimits::HARD,
-            )
-            .unwrap();
-            let no_op = emit_portable_candidate(
-                &output,
-                &provenance,
-                FormatLimits::HARD,
-                PortableDiffBase::Artifact(base),
-            )
-            .unwrap();
-            let region = Region::new(GLOBAL);
-            let result = check_portable_policy_diff(
-                PortableDiffBase::Artifact(base),
-                artifact,
-                no_op.semantic_diff().bytes(),
-                FormatLimits::HARD,
-                &small,
-            );
-            let stats = region.change();
-            assert!(
-                matches!(
-                    result,
-                    Err(PortableEmissionError::CompileLimitExceeded {
-                        dimension: CompileLimitDimension::StageScratchBytes,
-                        ..
-                    })
-                ),
-                "two roots must share the limit"
-            );
-            assert!(stats.bytes_allocated > 0 && stats.bytes_allocated <= SCRATCH_LIMIT);
-            assert_eq!(stats.bytes_allocated, stats.bytes_deallocated);
-            check_portable_policy_diff(
-                PortableDiffBase::Artifact(base),
-                artifact,
-                no_op.semantic_diff().bytes(),
-                FormatLimits::HARD,
-                &CompileLimits::single_network_1m_v2(),
-            )
-            .unwrap();
-        }
         check_portable_policy_diff(
             PortableDiffBase::Genesis,
             artifact,
             candidate.semantic_diff().bytes(),
             FormatLimits::HARD,
-            &CompileLimits::single_network_1m_v2(),
+            &small,
         )
         .unwrap();
+        let stats = region.change();
+        assert!(stats.bytes_allocated > 0);
+        assert_eq!(stats.bytes_allocated, stats.bytes_deallocated);
+
+        let base = preflight_object_values(
+            artifact,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::HARD,
+        )
+        .unwrap();
+        let no_op = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Artifact(base),
+        )
+        .unwrap();
+        let region = Region::new(GLOBAL);
+        check_portable_policy_diff(
+            PortableDiffBase::Artifact(base),
+            artifact,
+            no_op.semantic_diff().bytes(),
+            FormatLimits::HARD,
+            &small,
+        )
+        .unwrap();
+        let stats = region.change();
+        assert!(stats.bytes_allocated > 0);
+        assert_eq!(stats.bytes_allocated, stats.bytes_deallocated);
     }
     let many_modules = output(1_024, 1);
     let candidate = emit_portable_candidate(
@@ -158,7 +121,7 @@ fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
         many_modules.source_map_input(),
         candidate.source_map().bytes(),
         FormatLimits::HARD,
-        &CompileLimits::single_network_1m_v2(),
+        &CompileLimits::single_network_1m(),
     )
     .unwrap();
 }

@@ -21,7 +21,7 @@ pub(crate) const LC_ROUTE: [&str; 5] = ["lc-e0", "lc-t", "lc-e2", "lc-int", "lc-
 pub(crate) const LC_EDIT_NAMESPACE: &str = "lf-synth-road";
 
 pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,

@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn movement_direction_charges_logical_records_and_relations_before_admission() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         fn new_builder(limits: &CompileLimits) -> RoadEditingSourceModuleBuilder<'_> {
             let mut builder = RoadEditingSourceModuleBuilder::new(
                 RoadEditingModuleHeader::try_new(
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn policy_reference_members_share_builder_and_raw_relation_limits() {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut policy = None;
         crate::compiler::policy_tests::editing_policy_custom(&limits, |_, value| {
             for rule in &mut value.streams {

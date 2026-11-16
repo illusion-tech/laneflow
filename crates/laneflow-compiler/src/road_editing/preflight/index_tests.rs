@@ -14,7 +14,7 @@ fn wire_strings(values: &[&str]) -> Vec<u8> {
 
 #[test]
 fn sorted_duplicates_match_pairwise_spelling_and_namespace_rules() {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let scratch = PreflightScratch::new(&limits, 0);
     let alphabet = ["a", "city::a", "other::a", "b", "", "::a", "a::b::c"];
     for size in 0..=4_u32 {
@@ -57,7 +57,7 @@ fn sorted_duplicates_match_pairwise_spelling_and_namespace_rules() {
 
 #[test]
 fn duplicate_witness_keeps_the_first_source_index() {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let scratch = PreflightScratch::new(&limits, 0);
     for mut seed in 0..1_024 {
         let values: Vec<_> = (0..5)
@@ -79,9 +79,9 @@ fn duplicate_witness_keeps_the_first_source_index() {
 }
 
 #[test]
-fn scratch_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
-    let limits = CompileLimits::p100_initial_v1()
-        .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 0);
+fn live_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
+    let limits = CompileLimits::p100()
+        .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 0);
     let scratch = PreflightScratch::new(&limits, 0);
     let bytes = wire_strings(&["a", "a"]);
     let wire = runtime::root::<StringVector<'_>>(&bytes).unwrap();
@@ -89,12 +89,12 @@ fn scratch_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
     assert!(matches!(
         error.diagnostics()[0].payload(),
         crate::DiagnosticPayload::CompileLimitExceeded {
-            dimension: CompileLimitDimension::StageScratchBytes,
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
             ..
         }
     ));
     let exact = limits.with_test_admission_limit(
-        CompileLimitDimension::StageScratchBytes,
+        CompileLimitDimension::CompilerControlledLiveBytes,
         (2 * size_of::<&str>()) as u32,
     );
     let scratch = PreflightScratch::new(&exact, 0);
@@ -112,7 +112,7 @@ fn scratch_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
 
 #[test]
 fn preflight_peak_has_an_exact_boundary_and_does_not_include_external_source_bytes() {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let buffer = benchmark::corridor_source(4, &limits);
     let input = super::super::RoadEditingModuleInput::try_new(
         "preflight-benchmark",
@@ -123,13 +123,16 @@ fn preflight_peak_has_an_exact_boundary_and_does_not_include_external_source_byt
     let verified = super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
     let peak = verified.preflight_counts().preflight_peak_scratch_bytes();
     assert!(peak > 0 && peak < buffer.as_bytes().len() as u64);
-    let exact = limits
-        .clone()
-        .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, peak as u32);
+    let exact = limits.clone().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        peak as u32,
+    );
     let exact_result = super::super::reader::verify_source(input, &exact, 0, 0, 0).unwrap();
     assert_eq!(verified.preflight_counts(), exact_result.preflight_counts());
-    let short = exact
-        .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, (peak - 1) as u32);
+    let short = exact.with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        (peak - 1) as u32,
+    );
     assert!(super::super::reader::verify_source(input, &short, 0, 0, 0).is_err());
     let live = limits.with_test_admission_limit(
         CompileLimitDimension::CompilerControlledLiveBytes,

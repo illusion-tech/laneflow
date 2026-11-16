@@ -32,7 +32,7 @@ pub const DELTA_MS: u64 = 100;
 /// 构造 count 条 idle-zone 三边路线的合成修订（与 kernel 测试 fixture 同形）。
 pub fn build_revision(count: usize) -> Arc<SharedNetworkRevision> {
     const NS: &str = "city/waiting-scale";
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NS,
@@ -299,7 +299,7 @@ pub fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u6
             EntityKind::RightOfWayPolicySet,
             "city/waiting-scale",
             "waiting-policy",
-            &CompileLimits::p100_initial_v1(),
+            &CompileLimits::p100(),
         )
         .expect("policy id"),
     );

@@ -4299,7 +4299,7 @@ pub(crate) mod tests {
             crate::test_policy::selection(&revision),
         )
         .unwrap();
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut vehicles = Vec::new();
         for (prefix, progress) in [("idle-0-right", 19_300), ("idle-0-left", 19_500)] {
             let edges = [prefix, "idle-0-entry", "idle-0-storage", "idle-0-exit"].map(|key| {
@@ -4718,7 +4718,7 @@ pub(crate) mod tests {
         const NS: &str = "city/waiting-scale";
         const STEM_COUNT: usize = 64;
         // 多 WaitingZone fixture 的显式策略也参与后发射预算，使用已有规模档。
-        let limits = CompileLimits::single_network_1m_v2();
+        let limits = CompileLimits::single_network_1m();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: NS,
@@ -5185,7 +5185,7 @@ pub(crate) mod tests {
             crate::test_policy::selection(&revision),
         )
         .expect("install");
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let mut keys = (0..STEM_COUNT)
             .map(|index| format!("stem-{index:02}"))
             .collect::<Vec<_>>();

@@ -1027,7 +1027,7 @@ mod capacity_tests {
             EntityKind::LaneEdge,
             NAMESPACE,
             key,
-            &CompileLimits::p100_initial_v1(),
+            &CompileLimits::p100(),
         )
         .expect("edge stable id");
         root.identity()
@@ -1036,7 +1036,7 @@ mod capacity_tests {
     }
 
     fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-        let limits = CompileLimits::p100_initial_v1();
+        let limits = CompileLimits::p100();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: NAMESPACE,

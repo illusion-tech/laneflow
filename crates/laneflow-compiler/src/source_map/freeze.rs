@@ -8,6 +8,8 @@ use super::*;
 /// 文本/道路编辑位置 variant 累计，在位置记录冻结完成后单独校验。
 #[derive(Clone, Copy)]
 struct SourceMapSizing {
+    // 暂存不再是限额（ADR 0035）；资源账本第二步把它并入报告，此前保留计算。
+    #[allow(dead_code)]
     scratch_bytes: u64,
     controlled_live_bytes: u64,
 }
@@ -34,14 +36,11 @@ impl SourceMapSizing {
     }
 
     #[inline]
-    const fn limit_observations(self) -> [(CompileLimitDimension, u64); 2] {
-        [
-            (CompileLimitDimension::StageScratchBytes, self.scratch_bytes),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
-                self.controlled_live_bytes,
-            ),
-        ]
+    const fn limit_observations(self) -> [(CompileLimitDimension, u64); 1] {
+        [(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            self.controlled_live_bytes,
+        )]
     }
 }
 
@@ -1541,23 +1540,12 @@ pub(crate) fn freeze_source_map(
         spatial_relation_sources.len(),
         usize::try_from(spatial_relation_count).unwrap_or(usize::MAX)
     );
-    let output_bytes = frozen_lir
+    // 输出逻辑字节不再是限额（ADR 0035）；资源账本第二步把它并入报告，此前保留计算。
+    let _output_bytes = frozen_lir
         .lir
         .output_bytes
         .saturating_add(source_map_fixed_logical_bytes)
         .saturating_add(location.logical_bytes());
-    let output_limit = unit.limits.value(CompileLimitDimension::OutputBytes);
-    if output_bytes > output_limit {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::compile_limit_exceeded_at(
-                CompileLimitDimension::OutputBytes,
-                output_limit,
-                output_bytes,
-                primary_span,
-                stable_key,
-            ),
-        ));
-    }
     let direction_count = mir
         .movements
         .iter()
@@ -1587,22 +1575,13 @@ pub(crate) fn freeze_source_map(
     let input_bytes = (policy_count as u64)
         .saturating_mul(size_of::<policy::PolicySourceInput<'_>>() as u64)
         .saturating_add(key_bytes);
-    for (dimension, actual) in [
-        (
-            CompileLimitDimension::StageScratchBytes,
-            sizing.scratch_bytes.saturating_add(input_bytes),
-        ),
-        (
-            CompileLimitDimension::CompilerControlledLiveBytes,
-            sizing.controlled_live_bytes.saturating_add(input_bytes),
-        ),
-    ] {
-        let limit = unit.limits.value(dimension);
-        if actual > limit {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_limit_exceeded(dimension, limit, actual),
-            ));
-        }
+    let live_dimension = CompileLimitDimension::CompilerControlledLiveBytes;
+    let live_limit = unit.limits.value(live_dimension);
+    let live_actual = sizing.controlled_live_bytes.saturating_add(input_bytes);
+    if live_actual > live_limit {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::compile_limit_exceeded(live_dimension, live_limit, live_actual),
+        ));
     }
     let mut policy_inputs = Vec::with_capacity(policy_count);
     for movement in &mir.movements {
@@ -1658,8 +1637,6 @@ pub(crate) fn freeze_source_map(
         &unit,
         &policy_inputs,
         sizing.controlled_live_bytes.saturating_add(input_bytes),
-        output_bytes,
-        sizing.scratch_bytes.saturating_add(input_bytes),
     )?;
     let (source_modules, source_documents) = unit.into_source_descriptors();
     Ok(ValidatedSourceMapInput {
@@ -1714,9 +1691,11 @@ fn output_overflow(
     unit: &CompilationUnit,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
+    // 输出字节无法表示时，其存续必然超出宿主预算，按宿主预算维度报告。
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
-        CompileLimitDimension::OutputBytes,
-        unit.limits.value(CompileLimitDimension::OutputBytes),
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        unit.limits
+            .value(CompileLimitDimension::CompilerControlledLiveBytes),
         u64::MAX,
         primary_span,
         None,

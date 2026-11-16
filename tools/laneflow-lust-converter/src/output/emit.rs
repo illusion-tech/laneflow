@@ -129,7 +129,7 @@ fn compile_network_lfca_inner(
     internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
     let mut diagnostic_entries = report.as_ref().map(|_| Vec::new());
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let config_text = format!(
         "lust-converter-v1\nsource_commit={LUST_COMMIT}\nframe={LUST_FRAME_ID}\ngeometry=balanced-5cm-2deg\n"
     );

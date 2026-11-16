@@ -4,9 +4,9 @@ fn many_policy_fixture(count: u32, all_member_kinds: bool) -> Fixture {
     let mut fixture = empty_policy_fixture();
     fixture
         .output
-        .set_test_compile_limits(crate::CompileLimits::single_network_1m_v2());
+        .set_test_compile_limits(crate::CompileLimits::single_network_1m());
     let mut unit = full_spatial_portable_fixture_unit();
-    unit.limits = crate::CompileLimits::single_network_1m_v2();
+    unit.limits = crate::CompileLimits::single_network_1m();
     let module = unit
         .modules
         .iter()

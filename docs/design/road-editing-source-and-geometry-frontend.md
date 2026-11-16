@@ -996,8 +996,8 @@ production 依赖或实现。
   verifier table/depth/apparent size 与 `CompilerControlledLiveBytes` 的边界/边界加一。
 
 道路编辑入口与其余官方前端共同受
-`LF-COMP-SINGLE-NETWORK-1M-v2` 计数、来源字节、暂存、编译器控制存续内存和 file-backed
-制品上限约束。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v4` writer 生成输入，并报告
+`LF-COMP-SINGLE-NETWORK-1M` 的容量维度与编译器控制存续内存约束；暂存与 file-backed
+制品字节由资源账本报告，不另设配置档上限。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v4` writer 生成输入，并报告
 实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
 的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实来源。
 

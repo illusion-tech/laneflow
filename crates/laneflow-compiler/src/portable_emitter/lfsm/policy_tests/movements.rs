@@ -143,7 +143,7 @@ fn excess_movement_sources_across_chunks_fail_in_the_empty_policy_path() {
             fixture.output.source_map_input(),
             &map,
             FormatLimits::HARD,
-            &crate::CompileLimits::p100_initial_v1(),
+            &crate::CompileLimits::p100(),
         ),
         Err(PortableEmissionError::PolicySourceMismatch)
     );

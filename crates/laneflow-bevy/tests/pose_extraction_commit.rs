@@ -40,20 +40,16 @@ const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
 
 /// 边序号由修订身份派生，不假设插入顺序。
 fn edge_ordinal(root: &SharedNetworkRevision, key: &str) -> LaneEdgeOrdinal {
-    let stable = derive_canonical_stable_id_v1(
-        EntityKind::LaneEdge,
-        NAMESPACE,
-        key,
-        &CompileLimits::p100_initial_v1(),
-    )
-    .expect("edge stable id");
+    let stable =
+        derive_canonical_stable_id_v1(EntityKind::LaneEdge, NAMESPACE, key, &CompileLimits::p100())
+            .expect("edge stable id");
     root.identity()
         .ordinal(LaneEdgeId::from_untyped(stable))
         .expect("edge ordinal")
 }
 
 fn compile_two_frame() -> laneflow_compiler::CompilationOutput {
-    let limits = CompileLimits::p100_initial_v1();
+    let limits = CompileLimits::p100();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/pose-extraction-commit",

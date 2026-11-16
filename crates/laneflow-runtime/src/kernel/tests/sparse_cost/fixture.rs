@@ -113,7 +113,7 @@ pub const CASES: [Case; 9] = [
 ];
 
 pub fn revision(case: Case) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::single_network_1m_v2();
+    let limits = CompileLimits::single_network_1m();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "research/sparse-cost",
