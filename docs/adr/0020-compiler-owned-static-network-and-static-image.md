@@ -358,17 +358,21 @@ limits 重算 digest/length/revision 并核对跨对象 binding）；发布闭�
 
 ```text
 laneflow-format ----------> laneflow-static-contract
-laneflow-format-mmap -----> laneflow-static-contract / format
-laneflow-road-editing-wire > laneflow-static-contract
+laneflow-format --(std feature 可选 staged 适配)--> laneflow-format-mmap
+laneflow-static-network --> laneflow-static-contract / format
 laneflow-compiler --------> laneflow-static-contract / format / road-editing-wire
-laneflow-static-network --> laneflow-static-contract / format / format-mmap
-laneflow-motion-kernel ---> laneflow-static-contract
-laneflow-runtime ---------> laneflow-static-contract / static-network / motion-kernel
-laneflow-spatial ---------> laneflow-static-contract / runtime / static-network
-laneflow-scenario --------> laneflow-static-contract / runtime
-laneflow-runtime-snapshot-wire > laneflow-static-contract
-laneflow-adapter(bevy) ---> laneflow-runtime / spatial
+laneflow-runtime ---------> laneflow-static-contract / format / static-network /
+                            motion-kernel / runtime-snapshot-wire
+laneflow-spatial ---------> laneflow-static-contract / static-network（不依赖 runtime）
+laneflow-scenario --------> laneflow-static-contract / static-network / compiler / runtime
+laneflow-adapter(bevy) ---> laneflow-compiler / runtime / spatial / static-network
 ```
+
+无 LaneFlow 内依赖的成员：`laneflow-format-mmap`（仅 memmap2/tempfile，workspace
+唯一登记的 unsafe 例外）、`laneflow-road-editing-wire` 与
+`laneflow-runtime-snapshot-wire`（仅钉版 FlatBuffers 生成物）、
+`laneflow-motion-kernel`（无依赖）。边集与各 crate `[dependencies]` 逐一对应，
+省略的部分只是外部依赖。
 
 `laneflow-static-contract` 只拥有 StableId/kind/tag、`NetworkRevisionId`、typed
 ordinal 和 version/digest/profile primitives，不依赖 Serde、filesystem、Runtime
@@ -415,9 +419,9 @@ IR」：
 - 无法局部化时必须归入同一归约裁决方的连接资源组件。
 
 该图是静态交通语义的派生事实，必须对工作线程数和实际分区计划（Partition Plan）
-中立。编译器
-还可以发射分区规划提示（Partition Planning Hints），例如预估成本、边界权重和推荐
-切分（Cut）；提示只影响性能，必须可丢弃、可重建，并且不能改变已提交状态
+中立。分区规划提示（Partition Planning Hints，如预估成本、边界权重和推荐切分）
+由 `laneflow-static-network` 在共享静态构建时从受检关系派生（ADR 0025），LFCA 不
+保存该 payload；提示只影响性能，必须可丢弃、可重建，并且不能改变已提交状态
 （Committed State）。
 
 每个 `TrafficWorld` 依据静态约束、硬件拓扑、世界容量和动态负载建立可变的

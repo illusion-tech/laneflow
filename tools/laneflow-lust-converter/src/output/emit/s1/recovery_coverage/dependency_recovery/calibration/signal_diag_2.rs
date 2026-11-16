@@ -6,11 +6,11 @@
 //! 配置档、阈值与原成功几何。计划与冻结实现不一致时停止执行并重新授权（plan §8），
 //! 不得单向迁就。
 //!
-//! 基线接线（plan §6）：共同基线 = E0（Issue #1140）冻结交付的 11 边 92 份
-//! （六来源按序合并、规范 f32 点位去重），结果对照锚为 #1134 新增变体（53 分量、
-//! 84 路径计数）逐值。经 E0 冻结门面读取：env `SIX_STREAMS_BASELINE_DIR` +
-//! `shared_baseline::shared_pools()` / `results_anchor_pinned()`（代码内哈希、
-//! 合并顺序与逐边份数断言）；不得使用旧 9/10 边池或任何替代来源。
+//! S1 信号诊断二段的现行回归：消费 `tests/fixtures/` 的 `issue-1139-edges`（#1139
+//! 诊断 cohort）与 `issue-1103`/`issue-1107-old`/`issue-1107-grid`（历史记录对账），
+//! 断言冻结样本与问题表一致、停止线表钉版边集与三案例清单闭合。六来源共同基线
+//! 门面（SIX_STREAMS_BASELINE_DIR / shared_pools / results_anchor_pinned）已随
+//! #1411 退役，历史口径见冻结提交。
 
 use super::*;
 use crate::output::model::{ManeuverGate, SignalControl, StopLine};
