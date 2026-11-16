@@ -495,6 +495,23 @@ fn transition_after(revision: &SharedNetworkRevision, pred: LaneEdgeOrdinal) -> 
         .expect("predecessor has a lateral transition successor")
 }
 
+/// 按稳定 id 解析边序号：用于长度/前驱都不唯一的边（如 #1321 的独立下游链）。
+fn named(revision: &SharedNetworkRevision, key: &str) -> LaneEdgeOrdinal {
+    let stable_id = derive_canonical_stable_id_v1(
+        laneflow_static_contract::EntityKind::LaneEdge,
+        SYNTH,
+        key,
+        &CompileLimits::single_network_1m_v2(),
+    )
+    .unwrap();
+    revision
+        .identity()
+        .ordinal(laneflow_static_contract::LaneEdgeId::from_untyped(
+            stable_id,
+        ))
+        .unwrap()
+}
+
 fn cross_topology() -> Topology {
     Topology {
         edges: vec![
@@ -803,41 +820,64 @@ fn absolute_position(lengths: &[u32], route: &[LaneEdgeOrdinal], index: u32, pro
         + u64::from(progress)
 }
 
+/// #1321 拒绝面的公共断言：三种 worker 配置下均在注册阶段得到
+/// `TransitionUnsupported`；失败原子直接核对注册表状态——三类计数为零、
+/// 路线槽位与空闲槽位仍空、命令游标未推进（世界路线容量只有 4，
+/// 「再注册一条直行线」不足以证明失败没有泄漏槽位）；最后验证拒绝不波及
+/// 同一路网上不经过这些过渡段的路线。
 fn assert_rejected(
     revision: &Arc<SharedNetworkRevision>,
     routes: &[&[LaneEdgeOrdinal]],
     still_allowed: &[LaneEdgeOrdinal],
 ) {
-    let mut world = install(revision.clone(), 1);
-    for route in routes {
-        assert_eq!(
-            world
-                .register_route(crate::RouteRegisterInput::new(route.to_vec()))
-                .map(|_| ()),
-            Err(crate::RouteError::TransitionUnsupported),
-        );
-    }
-    // 拒绝不留注册残留，也不波及同一路网上不经过这些过渡段的路线。
-    let route = world
-        .register_route(crate::RouteRegisterInput::new(still_allowed.to_vec()))
-        .expect("route without transitions still registers");
-    world
-        .spawn_vehicle(
-            crate::VehicleSpawnInput::new(
-                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                15_000,
-                SPEED_MM_S,
+    for workers in [1, 2, 4] {
+        let mut world = install(revision.clone(), workers);
+        for (position, route) in routes.iter().enumerate() {
+            assert_eq!(
+                world
+                    .register_route(crate::RouteRegisterInput::new(route.to_vec()))
+                    .map(|_| ()),
+                Err(crate::RouteError::TransitionUnsupported),
+                "workers = {workers}, route #{position}"
+            );
+            let committed = &world.state.committed;
+            assert_eq!(committed.live_route_count, 0, "workers = {workers}");
+            assert_eq!(
+                committed.live_route_edge_occurrence_count, 0,
+                "workers = {workers}"
+            );
+            assert_eq!(
+                committed.live_route_conflict_occurrence_count, 0,
+                "workers = {workers}"
+            );
+            assert!(
+                committed.routes.is_empty() && committed.free_routes.is_empty(),
+                "注册失败不得占用路线槽位：workers = {workers}"
+            );
+            assert_eq!(world.command_cursor(), 0, "workers = {workers}");
+        }
+        // 拒绝不波及同一路网上不经过这些过渡段的路线。
+        let route = world
+            .register_route(crate::RouteRegisterInput::new(still_allowed.to_vec()))
+            .expect("route without transitions still registers");
+        world
+            .spawn_vehicle(
+                crate::VehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    15_000,
+                    SPEED_MM_S,
+                )
+                .with_open_entrance(),
             )
-            .with_open_entrance(),
-        )
-        .expect("spawn on allowed route");
-    world.state.rebuild_occupancy_index().unwrap();
-    world.state.prepare_waiting_step(0.1).unwrap();
-    world
-        .step(crate::TickInput::new(100))
-        .expect("world continues");
+            .expect("spawn on allowed route");
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        world
+            .step(crate::TickInput::new(100))
+            .expect("world continues");
+    }
 }
 
 fn straight_after(revision: &SharedNetworkRevision, pred: LaneEdgeOrdinal) -> LaneEdgeOrdinal {
@@ -1122,4 +1162,440 @@ fn loop_route_future_transition_does_not_hide_nearer_downstream_boundary() {
         baselines[0].1, baselines[1].1,
         "对照与循环路线必须沿用同一近端证明边界"
     );
+}
+
+/// #1321 复现族：merge_topology 之上为 T1/T2 追加独立后继分支。`t1_extra`/
+/// `t2_extra` 取 ""（不加）、"c"（挂 c 链）或 "d"（挂 d 链）。两条独立下游
+/// 链总是声明——悬空边不进入未被选为后继一侧的邻接（f1/f2 悬空先例）。
+fn branched_merge_topology(t1_extra: &str, t2_extra: &str) -> Topology {
+    let branch = |key: &str, extra: &str| -> &'static [&'static str] {
+        match (key, extra) {
+            (_, "") => &["e1b"],
+            (_, "c") => &["e1b", "review-c"],
+            (_, "d") => &["e1b", "review-d"],
+            _ => unreachable!("未知分支组合"),
+        }
+    };
+    let mut topology = merge_topology();
+    for spec in &mut topology.edges {
+        if spec.key == "t1" {
+            spec.successors = branch("t1", t1_extra);
+        }
+        if spec.key == "t2" {
+            spec.successors = branch("t2", t2_extra);
+        }
+    }
+    topology.edges.extend([
+        edge("review-c", (30.0, 3.0), (63.0, 0.0), &[]),
+        edge("review-d", (30.0, 3.0), (65.0, 6.0), &[]),
+        edge("review-ic", (63.0, 0.0), (71.0, 0.0), &[]),
+        edge("review-oc", (71.0, 0.0), (81.0, 0.0), &[]),
+        edge("review-id", (65.0, 6.0), (74.0, 6.0), &[]),
+        edge("review-od", (74.0, 6.0), (85.0, 6.0), &[]),
+        edge("review-fc", (29.0, 0.0), (63.0, 0.0), &[]),
+        edge("review-fd", (28.0, 6.0), (65.0, 6.0), &[]),
+    ]);
+    topology.lanes.extend([
+        ("review-lane-c", vec!["review-c"]),
+        ("review-lane-d", vec!["review-d"]),
+        ("review-lane-fc", vec!["review-fc"]),
+        ("review-lane-fd", vec!["review-fd"]),
+    ]);
+    topology.junctions.extend([
+        JunctionSpec {
+            key: "review-jc",
+            entry: "review-c",
+            second_entry: "review-fc",
+            internal: "review-ic",
+            exit: "review-oc",
+        },
+        JunctionSpec {
+            key: "review-jd",
+            entry: "review-d",
+            second_entry: "review-fd",
+            internal: "review-id",
+            exit: "review-od",
+        },
+    ]);
+    topology
+}
+
+/// #1321 ①：T1、T2 共享可选后继 e1b，两条路线都改走各自独立后继——图上
+/// 允许的分支不受 P4/P5 覆盖，两条过渡路线均在注册阶段被结构化拒绝
+/// （未修复基线上两车同拍进入，见 issue 实测 tick 12、workers 1/2/4）。
+#[test]
+fn unused_common_successor_with_independent_branches_is_rejected() {
+    let revision = build(&branched_merge_topology("c", "d"));
+    let route_a = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "review-c"),
+        named(&revision, "review-ic"),
+        named(&revision, "review-oc"),
+    ];
+    let route_b = [
+        named(&revision, "e2a"),
+        named(&revision, "t2"),
+        named(&revision, "review-d"),
+        named(&revision, "review-id"),
+        named(&revision, "review-od"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&route_a, &route_b], &straight);
+}
+
+/// #1321 ②：T1、T2 出口集合相等但含两个出口 {e1b, review-c}，实际路线各选
+/// 其一——集合相等不等于共同唯一出口，各自分流会让两份过渡预约的下游空间
+/// 不相交（循环互等），必须拒绝。
+#[test]
+fn equal_multi_exit_sets_are_rejected_without_unique_common_exit() {
+    let revision = build(&branched_merge_topology("c", "c"));
+    let via_common = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "e1b"),
+        named(&revision, "int"),
+        named(&revision, "exit"),
+    ];
+    let via_branch = [
+        named(&revision, "e2a"),
+        named(&revision, "t2"),
+        named(&revision, "review-c"),
+        named(&revision, "review-ic"),
+        named(&revision, "review-oc"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&via_common, &via_branch], &straight);
+}
+
+/// #1321 ③：只有一侧追加独立出口同样拒绝——放行证明要求双向出口覆盖，
+/// 单侧未覆盖即不成立；两个方向分别钉住。
+#[test]
+fn one_sided_independent_successor_is_rejected_in_both_directions() {
+    for (t1_extra, t2_extra) in [("c", ""), ("", "d")] {
+        let revision = build(&branched_merge_topology(t1_extra, t2_extra));
+        let route_a = [
+            named(&revision, "e0a"),
+            named(&revision, "t1"),
+            named(&revision, "e1b"),
+            named(&revision, "int"),
+            named(&revision, "exit"),
+        ];
+        let route_b = [
+            named(&revision, "e2a"),
+            named(&revision, "t2"),
+            named(&revision, "e1b"),
+            named(&revision, "int"),
+            named(&revision, "exit"),
+        ];
+        let straight = [
+            named(&revision, "e0a"),
+            named(&revision, "s0"),
+            named(&revision, "e0b"),
+        ];
+        assert_rejected(&revision, &[&route_a, &route_b], &straight);
+    }
+}
+
+/// #1321 ④：#1321 图上即使两条路线实际都走公共后继 e1b，注册仍然拒绝——
+/// 覆盖证明是图级的（图允许未覆盖分支即无法证明），注册拒绝是控制点。
+#[test]
+fn shared_branch_graph_rejects_even_routes_using_it() {
+    let revision = build(&branched_merge_topology("c", "d"));
+    let route_a = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "e1b"),
+        named(&revision, "int"),
+        named(&revision, "exit"),
+    ];
+    let route_b = [
+        named(&revision, "e2a"),
+        named(&revision, "t2"),
+        named(&revision, "e1b"),
+        named(&revision, "int"),
+        named(&revision, "exit"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&route_a, &route_b], &straight);
+}
+
+/// #1321 ⑤⑥：T1、T2 共享前驱 e0a（分岔型）。`shared_exit` 为真时两者还共享
+/// 唯一出口 e1b（出口全同）——分岔拒绝必须优先于汇合放行成立；为假时 T2 改走
+/// 独立出口 e2b。现行 P4/P5 对已进入对方过渡段、位于共享入口附近的车没有证明
+/// 手段，两种形态都拒绝。补 j2 让 e2b 下游与 e1b 一样有 junction 机动流
+/// （§8 流绑定：纯过渡路线会被 ManeuverMismatch 先拒，测不到能力判定）。
+fn shared_predecessor_topology(shared_exit: bool) -> Topology {
+    let mut topology = merge_topology();
+    for spec in &mut topology.edges {
+        if spec.key == "e0a" {
+            spec.successors = &["s0", "t1", "t2"];
+        }
+        if spec.key == "e2a" {
+            spec.successors = &["s2"];
+        }
+        if spec.key == "t2" {
+            // 从共享前驱 e0a 的终点 (26,0) 出发（后继接续要求几何连续）；
+            // 共享出口时终于 e1b 起点 (30,3)（与 t1 中心线重合，两端被
+            // 接续关系钉死），独立出口时终于 e2b 起点 (30,6)。
+            *spec = if shared_exit {
+                edge("t2", (26.0, 0.0), (30.0, 3.0), &["e1b"])
+            } else {
+                edge("t2", (26.0, 0.0), (30.0, 6.0), &["e2b"])
+            };
+        }
+    }
+    topology.edges.extend([
+        edge("f2", (32.0, 6.0), (62.0, 6.0), &[]),
+        edge("int2", (62.0, 6.0), (70.0, 6.0), &[]),
+        edge("exit2", (70.0, 6.0), (80.0, 6.0), &[]),
+    ]);
+    topology.lanes.push(("lane-f2", vec!["f2"]));
+    topology.junctions.push(JunctionSpec {
+        key: "j2",
+        entry: "e2b",
+        second_entry: "f2",
+        internal: "int2",
+        exit: "exit2",
+    });
+    topology
+}
+
+/// #1321 ⑤：共享前驱、独立后继——分岔分支专测。
+#[test]
+fn shared_predecessor_with_independent_exits_is_rejected() {
+    let revision = build(&shared_predecessor_topology(false));
+    let route_a = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "e1b"),
+        named(&revision, "int"),
+        named(&revision, "exit"),
+    ];
+    let route_b = [
+        named(&revision, "e0a"),
+        named(&revision, "t2"),
+        named(&revision, "e2b"),
+        named(&revision, "int2"),
+        named(&revision, "exit2"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&route_a, &route_b], &straight);
+}
+
+/// #1321 ⑥：共享前驱且出口全同（S3 并存对同构）——即使出口覆盖条件满足，
+/// 分岔拒绝优先成立，不得被汇合放行遮蔽。
+#[test]
+fn shared_predecessor_wins_over_full_exit_coverage() {
+    let revision = build(&shared_predecessor_topology(true));
+    let route_a = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "e1b"),
+        named(&revision, "int"),
+        named(&revision, "exit"),
+    ];
+    let route_b = [
+        named(&revision, "e0a"),
+        named(&revision, "t2"),
+        named(&revision, "e1b"),
+        named(&revision, "int"),
+        named(&revision, "exit"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&route_a, &route_b], &straight);
+}
+
+/// #1321 ⑦：exits(F1)={m}、entries(F2)={m} 看似单锚接力，但 m 同时是 F2 的
+/// 出口（t2 的后继回环到 m，exits(F2)={m,b}）——汇合分支必须终决，出口集合
+/// 不相等即拒绝，不得回落接力放行。b 下游补 junction 机动流满足 §8 流绑定。
+fn looped_relay_topology() -> Topology {
+    Topology {
+        edges: vec![
+            edge("e0a", (0.0, 0.0), (26.0, 0.0), &["s0", "t1"]),
+            edge("s0", (26.0, 0.0), (30.0, 0.0), &["e0b"]),
+            edge("e0b", (30.0, 0.0), (60.0, 0.0), &[]),
+            edge("t1", (26.0, 0.0), (30.0, 3.0), &["m"]),
+            edge("m", (30.0, 3.0), (40.0, 0.0), &["t2"]),
+            edge("t2", (40.0, 0.0), (30.0, 3.0), &["m", "b"]),
+            edge("b", (30.0, 3.0), (38.0, 3.0), &[]),
+            edge("bf", (32.0, 3.0), (38.0, 3.0), &[]),
+            edge("intb", (38.0, 3.0), (46.0, 3.0), &[]),
+            edge("exitb", (46.0, 3.0), (56.0, 3.0), &[]),
+        ],
+        lanes: vec![
+            ("lane-0", vec!["e0a", "s0", "e0b"]),
+            ("lane-m", vec!["m"]),
+            ("lane-b", vec!["b"]),
+            ("lane-bf", vec!["bf"]),
+        ],
+        junctions: vec![JunctionSpec {
+            key: "jb",
+            entry: "b",
+            second_entry: "bf",
+            internal: "intb",
+            exit: "exitb",
+        }],
+    }
+}
+
+#[test]
+fn failed_merge_coverage_does_not_fall_back_to_relay() {
+    let revision = build(&looped_relay_topology());
+    let through = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "m"),
+        named(&revision, "t2"),
+        named(&revision, "b"),
+        named(&revision, "intb"),
+        named(&revision, "exitb"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&through], &straight);
+}
+
+/// #1321 ⑧：两条多段过渡链 {a1,a2}、{b1,b2} 首段即交叉（(2.5,3) 附近）、
+/// 尾部共享唯一出口 x——运行时保护单位是成员边，分量级出口全同不足以证明
+/// 首段交叉受覆盖，多成员配对保守拒绝。x 下游补 junction 机动流满足 §8
+/// 流绑定。
+fn crossing_chains_topology() -> Topology {
+    Topology {
+        edges: vec![
+            edge("pa", (-20.0, 0.0), (0.0, 0.0), &["a1", "sa"]),
+            edge("sa", (0.0, 0.0), (10.0, 0.0), &["sb"]),
+            edge("sb", (10.0, 0.0), (20.0, 0.0), &[]),
+            edge("a1", (0.0, 0.0), (5.0, 6.0), &["a2"]),
+            edge("a2", (5.0, 6.0), (10.0, 3.0), &["x"]),
+            edge("x", (10.0, 3.0), (20.0, 3.0), &[]),
+            edge("pb", (-5.0, 6.0), (0.0, 6.0), &["b1"]),
+            edge("b1", (0.0, 6.0), (5.0, 0.0), &["b2"]),
+            edge("b2", (5.0, 0.0), (10.0, 3.0), &["x"]),
+            edge("xf", (12.0, 3.0), (20.0, 3.0), &[]),
+            edge("intx", (20.0, 3.0), (28.0, 3.0), &[]),
+            edge("exitx", (28.0, 3.0), (38.0, 3.0), &[]),
+        ],
+        lanes: vec![
+            ("lane-0", vec!["pa", "sa", "sb"]),
+            ("lane-1", vec!["pb"]),
+            ("lane-x", vec!["x"]),
+            ("lane-xf", vec!["xf"]),
+        ],
+        junctions: vec![JunctionSpec {
+            key: "jx",
+            entry: "x",
+            second_entry: "xf",
+            internal: "intx",
+            exit: "exitx",
+        }],
+    }
+}
+
+#[test]
+fn multi_member_components_sharing_unique_exit_are_rejected() {
+    let revision = build(&crossing_chains_topology());
+    let route_a = [
+        named(&revision, "pa"),
+        named(&revision, "a1"),
+        named(&revision, "a2"),
+        named(&revision, "x"),
+        named(&revision, "intx"),
+        named(&revision, "exitx"),
+    ];
+    let route_b = [
+        named(&revision, "pb"),
+        named(&revision, "b1"),
+        named(&revision, "b2"),
+        named(&revision, "x"),
+        named(&revision, "intx"),
+        named(&revision, "exitx"),
+    ];
+    let straight = [
+        named(&revision, "pa"),
+        named(&revision, "sa"),
+        named(&revision, "sb"),
+    ];
+    assert_rejected(&revision, &[&route_a, &route_b], &straight);
+}
+
+/// #1321 ⑨：exits(F1)={m,c}、entries(F2)={m,d}——图上存在接力关系 m，但
+/// F1 可走 c 绕过 m、F2 可从 d 进入绕过 m，单锚必经不成立，拒绝。b 下游补
+/// junction 机动流满足 §8 流绑定。
+fn bypassable_relay_topology() -> Topology {
+    Topology {
+        edges: vec![
+            edge("e0a", (0.0, 0.0), (26.0, 0.0), &["s0", "t1"]),
+            edge("s0", (26.0, 0.0), (30.0, 0.0), &["e0b"]),
+            edge("e0b", (30.0, 0.0), (60.0, 0.0), &[]),
+            edge("t1", (26.0, 0.0), (30.0, 3.0), &["m", "c"]),
+            edge("m", (30.0, 3.0), (40.0, 3.0), &["t2"]),
+            edge("c", (30.0, 3.0), (40.0, 1.0), &["cb"]),
+            edge("cb", (40.0, 1.0), (50.0, 1.0), &[]),
+            edge("d", (34.0, 6.0), (40.0, 3.0), &["t2"]),
+            edge("t2", (40.0, 3.0), (44.0, 6.0), &["b"]),
+            edge("b", (44.0, 6.0), (54.0, 6.0), &[]),
+            edge("bf", (46.0, 6.0), (54.0, 6.0), &[]),
+            edge("intb", (54.0, 6.0), (62.0, 6.0), &[]),
+            edge("exitb", (62.0, 6.0), (72.0, 6.0), &[]),
+        ],
+        lanes: vec![
+            ("lane-0", vec!["e0a", "s0", "e0b"]),
+            ("lane-m", vec!["m"]),
+            ("lane-c", vec!["c", "cb"]),
+            ("lane-d", vec!["d"]),
+            ("lane-b", vec!["b"]),
+            ("lane-bf", vec!["bf"]),
+        ],
+        junctions: vec![JunctionSpec {
+            key: "jb",
+            entry: "b",
+            second_entry: "bf",
+            internal: "intb",
+            exit: "exitb",
+        }],
+    }
+}
+
+#[test]
+fn relay_shared_edge_with_bypass_branches_is_rejected() {
+    let revision = build(&bypassable_relay_topology());
+    let through = [
+        named(&revision, "e0a"),
+        named(&revision, "t1"),
+        named(&revision, "m"),
+        named(&revision, "t2"),
+        named(&revision, "b"),
+        named(&revision, "intb"),
+        named(&revision, "exitb"),
+    ];
+    let straight = [
+        named(&revision, "e0a"),
+        named(&revision, "s0"),
+        named(&revision, "e0b"),
+    ];
+    assert_rejected(&revision, &[&through], &straight);
 }
