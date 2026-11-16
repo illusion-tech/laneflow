@@ -50,6 +50,7 @@ deny = [
     # 并在 Issue 或设计文档中写明新增摘要的角色与验证方。bevy_animation、bevy_asset 是 Bevy
     # 上游的传递依赖，不受 ADR 0033 约束，登记只为保留现有依赖图。
     { crate = "sha2", wrappers = [
+        "laneflow-artifact-inspect", # #1424: 检视报告中截断 Bytes 预览的互操作 SHA-256（仅展示，不参与检查语义）
         "laneflow-bevy",
         "laneflow-compiler",
         "laneflow-corridor-generator",
