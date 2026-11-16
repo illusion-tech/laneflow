@@ -1,17 +1,22 @@
 //! 稳定报告的有界渲染。
 //!
-//! 渲染逐行写入并受 `max_output_bytes` 与条数限额约束：先限制再展开，截断时
-//! 输出明确标记行。同一工具版本、相同输入与相同选项的渲染正文逐字节一致：
-//! 固定遍历顺序、固定换行与值格式，不注入工作目录、时间或平台信息。
+//! 渲染逐行写入并受 `max_output_bytes` 约束：先限制再展开，截断时输出明确
+//! 标记行。同一工具版本、相同输入与相同选项的渲染正文逐字节一致：固定遍历
+//! 顺序、固定换行与值格式，不注入工作目录、时间或平台信息。
+//!
+//! 筛选契约：wire 事实（检查结果、字节差异、结论、全对象总数）不经过
+//! [`DisplayPolicy`]——代码上没有应用筛选的路径；全部可展示类别（容器、
+//! 字段、行数、表汇总）统一经过策略谓词，没有类别能绕过。
 
 use laneflow_format::FormatError;
 use laneflow_static_contract::PortableObjectKind;
 
-use crate::budget::ReportLimits;
 use crate::diff::{
-    ByteDivergence, ContainerDiff, ContainerKind, DiffReport, FieldDiff, Side, ValueSnapshot,
+    ByteDivergence, ContainerDiff, ContainerKind, DiffReport, DigestComparison, FieldDiff,
+    FieldSide, Side,
 };
-use crate::inspect::{InspectOptions, InspectReport, SectionSelector, TableSelector};
+use crate::inspect::{InspectOptions, InspectReport};
+use crate::session::DisplayPolicy;
 use crate::value::ValueDisplay;
 
 /// 对象种类的稳定中文名。
@@ -25,15 +30,15 @@ pub fn object_kind_name(kind: PortableObjectKind) -> &'static str {
     }
 }
 
-/// 渲染 inspect 报告（应用筛选与限额）。
+/// 渲染 inspect 报告（应用展示策略）。
 #[must_use]
 pub fn render_inspect(
     report: &InspectReport,
     options: &InspectOptions,
-    limits: &ReportLimits,
+    policy: &DisplayPolicy,
 ) -> String {
     let mut out = String::new();
-    render_inspect_into(&mut out, report, options, limits);
+    render_inspect_into(&mut out, report, options, policy);
     out
 }
 
@@ -42,34 +47,25 @@ pub fn render_inspect_into(
     out: &mut String,
     report: &InspectReport,
     options: &InspectOptions,
-    limits: &ReportLimits,
+    policy: &DisplayPolicy,
 ) {
-    let mut writer = BoundedWriter::new(out, limits.max_output_bytes);
-    render_inspect_body(&mut writer, report, options);
+    let mut writer = BoundedWriter::new(out, policy.limits.max_output_bytes);
+    render_inspect_body(&mut writer, report, options, policy);
     writer.finish();
 }
 
-/// 渲染 diff 报告（应用筛选与限额）。
+/// 渲染 diff 报告（应用展示策略）。
 #[must_use]
-pub fn render_diff(
-    report: &DiffReport,
-    options: &crate::diff::DiffOptions,
-    limits: &ReportLimits,
-) -> String {
+pub fn render_diff(report: &DiffReport, policy: &DisplayPolicy) -> String {
     let mut out = String::new();
-    render_diff_into(&mut out, report, options, limits);
+    render_diff_into(&mut out, report, policy);
     out
 }
 
 /// 渲染 diff 报告到既有缓冲（受 `max_output_bytes` 约束）。
-pub fn render_diff_into(
-    out: &mut String,
-    report: &DiffReport,
-    options: &crate::diff::DiffOptions,
-    limits: &ReportLimits,
-) {
-    let mut writer = BoundedWriter::new(out, limits.max_output_bytes);
-    render_diff_body(&mut writer, report, options, limits);
+pub fn render_diff_into(out: &mut String, report: &DiffReport, policy: &DisplayPolicy) {
+    let mut writer = BoundedWriter::new(out, policy.limits.max_output_bytes);
+    render_diff_body(&mut writer, report, policy);
     writer.finish();
 }
 
@@ -116,17 +112,18 @@ fn render_inspect_body(
     writer: &mut BoundedWriter<'_>,
     report: &InspectReport,
     options: &InspectOptions,
+    policy: &DisplayPolicy,
 ) {
-    writer.line(&format!("object: {}", object_kind_name(report.kind)));
-    writer.line(&format!("formatVersion: {}", report.format_version));
-    writer.line(&format!("bytes: {}", report.object_byte_length));
+    let facts = &report.facts;
+    // 摘要与前导是 wire 事实：不经过筛选谓词。
+    writer.line(&format!("object: {}", object_kind_name(facts.kind)));
+    writer.line(&format!("formatVersion: {}", facts.format_version));
+    writer.line(&format!("bytes: {}", facts.object_byte_length));
     writer.line(&format!(
         "sections: {} / tables: {} / rows: {}",
-        report.sections.len(),
-        report.table_count(),
-        report.row_count()
+        facts.section_count, facts.table_count, facts.row_count
     ));
-    match report.chunk_count() {
+    match facts.chunk_count {
         Some(count) => writer.line(&format!("chunks: {count}")),
         None => writer.line("chunks: 不适用（LFCP singleton 节无 chunk 目录）"),
     }
@@ -137,17 +134,14 @@ fn render_inspect_body(
         writer.line("preamble:");
         writer.line(&format!(
             "  magic: {}",
-            crate::value::hex_string(&report.kind.magic(), 8)
+            crate::value::hex_string(&facts.kind.magic(), 8)
         ));
-        writer.line(&format!("  formatVersion: {}", report.format_version));
+        writer.line(&format!("  formatVersion: {}", facts.format_version));
         writer.line("  headerByteLength: 32");
         writer.line("  flags: 0");
-        writer.line(&format!("  sectionCount: {}", report.sections.len()));
+        writer.line(&format!("  sectionCount: {}", facts.section_count));
         writer.line("  sectionDirectoryOffset: 32");
-        writer.line(&format!(
-            "  objectByteLength: {}",
-            report.object_byte_length
-        ));
+        writer.line(&format!("  objectByteLength: {}", facts.object_byte_length));
     }
 
     if options.expand.sections {
@@ -188,7 +182,8 @@ fn render_inspect_body(
                         chunk.row_count,
                         chunk.byte_offset,
                         chunk.byte_length,
-                        chunk.digest
+                        chunk
+                            .digest
                             .as_ref()
                             .map_or_else(|| "—".to_string(), crate::value::digest_hex)
                     ));
@@ -202,7 +197,7 @@ fn render_inspect_body(
         for entry in &report.fields {
             writer.line(&format!(
                 "  {} = {}",
-                entry.location.render(),
+                entry.path.render(),
                 render_value(&entry.value)
             ));
         }
@@ -213,14 +208,11 @@ fn render_inspect_body(
             ));
         }
     }
+    let _ = policy;
 }
 
-fn render_diff_body(
-    writer: &mut BoundedWriter<'_>,
-    report: &DiffReport,
-    options: &crate::diff::DiffOptions,
-    limits: &ReportLimits,
-) {
+fn render_diff_body(writer: &mut BoundedWriter<'_>, report: &DiffReport, policy: &DisplayPolicy) {
+    // 检查状态、字节差异与结论是事实：不经过筛选谓词。
     writer.line("check:");
     writer.line(&format!(
         "  expected: {}",
@@ -262,8 +254,10 @@ fn render_diff_body(
         } else {
             "conclusion: 对象不同（精确字节相等是相等判据）"
         });
-    } else if matches!((&report.expected.check, &report.actual.check), (Ok(left), Ok(right)) if left != right)
-    {
+    } else if matches!(
+        (&report.expected.check, &report.actual.check),
+        (Ok(left), Ok(right)) if left != right
+    ) {
         writer.line("conclusion: 无法完成比较（两侧对象种类不一致）");
     } else {
         writer.line("conclusion: 无法完成比较（存在预检失败的一侧；字节差异仍如上报告）");
@@ -278,64 +272,75 @@ fn render_diff_body(
         writer.line("  （FormatError 偏移为正式读取器的结构局部坐标或未知，不是文件绝对位置）");
     }
 
-    let filters = &options.filters;
-    let container_shown: Vec<&ContainerDiff> = report
+    // 以下全部是可展示类别：统一经过策略谓词。
+    let container_selected: Vec<&ContainerDiff> = report
         .container
         .iter()
-        .filter(|diff| container_selected(diff, filters))
+        .filter(|diff| container_selected(diff, policy))
         .collect();
-    let fields_shown: Vec<&FieldDiff> = report
+    let fields_selected: Vec<&FieldDiff> = report
         .fields
         .iter()
-        .filter(|diff| field_selected(diff, filters))
+        .take(policy.limits.max_diff_entries)
         .collect();
 
-    if !report.container.is_empty() || !report.row_counts.is_empty() {
+    if report.container_diff_total > 0 || !report.row_counts.is_empty() {
         writer.line("container:");
-        for diff in container_shown.iter() {
+        for diff in container_selected.iter() {
             writer.line(&render_container(diff));
         }
         for row in &report.row_counts {
-            if row_selected(row.identity.kind, row.identity.name, filters) {
+            if policy
+                .filters
+                .selects_section(row.section.ordinal, row.section.name)
+                && policy.filters.selects_table(row.table.kind, row.table.name)
+            {
                 writer.line(&format!(
-                    "  {}：行数 {} → {}",
-                    row.identity.name, row.expected, row.actual
+                    "  {}[{}].{}：行数 {} → {}",
+                    row.section.name, row.section.ordinal, row.table.name, row.expected, row.actual
                 ));
             }
         }
     }
 
-    let shown_entries = fields_shown.len().min(limits.max_diff_entries);
     if report.field_diff_total > 0 {
         writer.line(&format!(
             "fields: 共 {} 条（按节、表、逻辑行、tag 顺序）",
             report.field_diff_total
         ));
-        for diff in fields_shown.iter().take(shown_entries) {
+        for diff in fields_selected.iter() {
             writer.line(&render_field_diff(diff));
         }
-        if report.field_diff_total > shown_entries {
+        if report.field_diff_total > fields_selected.len() {
             writer.line(&format!(
-                "  …（字段差异共 {} 条，展示前 {shown_entries} 条）",
-                report.field_diff_total
+                "  …（字段差异共 {} 条，展示前 {} 条）",
+                report.field_diff_total,
+                fields_selected.len()
             ));
         }
     } else if report.both_checked_same_kind && !report.bytes_equal {
         writer.line("fields: 无字段差异（差异在容器或字节层）");
     }
 
-    let tables_shown: Vec<&crate::diff::TableDiffSummary> = report
+    let tables_selected: Vec<&crate::diff::TableDiffSummary> = report
         .tables
         .iter()
-        .filter(|summary| table_selected_filter(summary.table.kind, summary.table.name, filters))
+        .filter(|summary| {
+            policy
+                .filters
+                .selects_section(summary.section.ordinal, summary.section.name)
+                && policy
+                    .filters
+                    .selects_table(summary.table.kind, summary.table.name)
+        })
         .collect();
     if !report.tables.is_empty() {
         writer.line("tables:");
-        for summary in tables_shown {
-            let digest_note = if summary.chunk_digests_equal {
-                "chunk 摘要一致"
-            } else {
-                "chunk 摘要不同"
+        for summary in tables_selected {
+            let digest_note = match &summary.chunk_digests {
+                DigestComparison::Equal => "chunk 摘要一致",
+                DigestComparison::NotApplicable => "chunk 摘要不适用（singleton）",
+                DigestComparison::Differ { .. } => "chunk 摘要不同",
             };
             let rows_note = if summary.row_counts.0 == summary.row_counts.1 {
                 format!("rows {}={}", summary.row_counts.0, summary.row_counts.1)
@@ -355,10 +360,24 @@ fn render_diff_body(
         }
     }
 
-    if options.filters != crate::inspect::InspectFilters::default() {
-        let any_shown = !container_shown.is_empty()
-            || !fields_shown.is_empty()
-            || !report.row_counts.is_empty();
+    if policy.filters.is_active() {
+        let any_shown = !container_selected.is_empty()
+            || !fields_selected.is_empty()
+            || report.row_counts.iter().any(|row| {
+                policy
+                    .filters
+                    .selects_section(row.section.ordinal, row.section.name)
+                    && policy.filters.selects_table(row.table.kind, row.table.name)
+            })
+            || report.tables.iter().any(|summary| {
+                summary.first_field_diff.is_some()
+                    && policy
+                        .filters
+                        .selects_section(summary.section.ordinal, summary.section.name)
+                    && policy
+                        .filters
+                        .selects_table(summary.table.kind, summary.table.name)
+            });
         if !any_shown && report.both_checked_same_kind && !report.bytes_equal {
             writer
                 .line("range: 选定范围未发现差异；全对象比较结论为「对象不同」（筛选只影响展示）");
@@ -381,6 +400,22 @@ fn render_format_error(error: Option<&FormatError>) -> String {
     error.map_or_else(|| "—".to_string(), crate::diff::format_error_display)
 }
 
+fn container_selected(diff: &ContainerDiff, policy: &DisplayPolicy) -> bool {
+    match (diff.section(), diff.table()) {
+        (None, None) => true,
+        (Some(section), None) => policy
+            .filters
+            .selects_section(section.ordinal, section.name),
+        (Some(section), Some(table)) => {
+            policy
+                .filters
+                .selects_section(section.ordinal, section.name)
+                && policy.filters.selects_table(table.kind, table.name)
+        }
+        (None, Some(_)) => false,
+    }
+}
+
 fn render_container(diff: &ContainerDiff) -> String {
     let label = match &diff.kind {
         ContainerKind::ObjectLength => "对象长度".to_string(),
@@ -391,44 +426,37 @@ fn render_container(diff: &ContainerDiff) -> String {
             format!("节[{}].{} 长度", section.ordinal, section.name)
         }
         ContainerKind::TableChunkCount(section, table) => {
-            format!("{}.{} chunk 数", section.name, short_table(table))
-        }
-        ContainerKind::ChunkOffset(section, table, chunk) => {
             format!(
-                "{}.{} chunk[{chunk}] 偏移",
-                section.name,
-                short_table(table)
+                "{}[{}].{} chunk 数",
+                section.name, section.ordinal, table.name
             )
         }
-        ContainerKind::ChunkLength(section, table, chunk) => {
-            format!(
-                "{}.{} chunk[{chunk}] 长度",
-                section.name,
-                short_table(table)
-            )
-        }
+        ContainerKind::ChunkOffset(section, table, chunk) => format!(
+            "{}[{}].{} chunk[{chunk}] 偏移",
+            section.name, section.ordinal, table.name
+        ),
+        ContainerKind::ChunkLength(section, table, chunk) => format!(
+            "{}[{}].{} chunk[{chunk}] 长度",
+            section.name, section.ordinal, table.name
+        ),
         ContainerKind::ChunkDigest(section, table, chunk) => {
             if let Some((expected, actual)) = diff.digests {
                 return format!(
-                    "  {}.{} chunk[{chunk}] 摘要 {} → {}",
+                    "  {}[{}].{} chunk[{chunk}] 摘要 {} → {}",
                     section.name,
-                    short_table(table),
+                    section.ordinal,
+                    table.name,
                     crate::value::digest_hex(&expected),
                     crate::value::digest_hex(&actual)
                 );
             }
             format!(
-                "{}.{} chunk[{chunk}] 摘要",
-                section.name,
-                short_table(table)
+                "{}[{}].{} chunk[{chunk}] 摘要",
+                section.name, section.ordinal, table.name
             )
         }
     };
     format!("  {label} {} → {}", diff.expected, diff.actual)
-}
-
-fn short_table(table: &crate::walk::TableIdentity) -> String {
-    table.name.to_string()
 }
 
 fn render_field_diff(diff: &FieldDiff) -> String {
@@ -436,26 +464,22 @@ fn render_field_diff(diff: &FieldDiff) -> String {
 }
 
 fn render_field_diff_inline(diff: &FieldDiff) -> String {
-    let expected = render_snapshot(&diff.expected);
-    let actual = render_snapshot(&diff.actual);
-    let offset = diff
-        .location
-        .object_offset
-        .map_or_else(String::new, |offset| format!("（expected@{offset}）"));
-    let actual_offset = diff
-        .location
-        .object_offset
-        .map_or_else(String::new, |offset| format!("（actual@{offset}）"));
-    format!(
-        "{}：{expected} → {actual}{offset}{actual_offset}",
-        diff.location.render()
-    )
+    let expected = render_side_value(&diff.expected);
+    let actual = render_side_value(&diff.actual);
+    let mut note = String::new();
+    if let FieldSide::Present { offset, .. } = &diff.expected {
+        note.push_str(&format!("（expected@{offset}）"));
+    }
+    if let FieldSide::Present { offset, .. } = &diff.actual {
+        note.push_str(&format!("（actual@{offset}）"));
+    }
+    format!("{}：{expected} → {actual}{note}", diff.path.render())
 }
 
-fn render_snapshot(snapshot: &ValueSnapshot) -> String {
-    match snapshot {
-        ValueSnapshot::Missing => "缺失".to_string(),
-        ValueSnapshot::Present(value) => render_value(value),
+fn render_side_value(side: &FieldSide) -> String {
+    match side {
+        FieldSide::Missing => "缺失".to_string(),
+        FieldSide::Present { value, .. } => render_value(value),
     }
 }
 
@@ -468,12 +492,8 @@ pub fn render_value(value: &ValueDisplay) -> String {
         ValueDisplay::U32(v) => format!("{v}"),
         ValueDisplay::U64(v) => format!("{v}"),
         ValueDisplay::I32(v) => format!("{v}"),
-        ValueDisplay::F32 { decimal, bits } => {
-            format!("{decimal}（位模式 0x{bits:08x}）")
-        }
-        ValueDisplay::F64 { decimal, bits } => {
-            format!("{decimal}（位模式 0x{bits:016x}）")
-        }
+        ValueDisplay::F32 { decimal, bits } => format!("{decimal}（位模式 0x{bits:08x}）"),
+        ValueDisplay::F64 { decimal, bits } => format!("{decimal}（位模式 0x{bits:016x}）"),
         ValueDisplay::StableId128(hex) => format!("stable-id:{hex}"),
         ValueDisplay::Sha256(hex) => format!("sha256:{hex}"),
         ValueDisplay::Utf8 {
@@ -527,75 +547,15 @@ pub fn render_value(value: &ValueDisplay) -> String {
                 format!("records[{total}]：{}", shown.join("; "))
             }
         }
-        ValueDisplay::EmbeddedRow { kind, fields } => {
-            let inner: Vec<String> = fields
-                .iter()
-                .map(|(tag, value)| format!("{}={}", tag, render_value(value)))
-                .collect();
-            format!("member{{kind={kind}}}{{{}}}", inner.join(", "))
-        }
-    }
-}
-
-fn container_selected(diff: &ContainerDiff, filters: &crate::inspect::InspectFilters) -> bool {
-    let (section_ordinal, section_name) = match &diff.kind {
-        ContainerKind::ObjectLength => return true,
-        ContainerKind::SectionOffset(section) | ContainerKind::SectionLength(section) => {
-            (Some(section.ordinal), section.name)
-        }
-        ContainerKind::TableChunkCount(section, table)
-        | ContainerKind::ChunkOffset(section, table, _)
-        | ContainerKind::ChunkLength(section, table, _)
-        | ContainerKind::ChunkDigest(section, table, _) => {
-            return table_selected_filter(table.kind, table.name, filters)
-                && section_selected_filter(filters, section.ordinal, section.name);
-        }
-    };
-    section_selected_filter(filters, section_ordinal.unwrap_or(u32::MAX), section_name)
-}
-
-fn section_selected_filter(
-    filters: &crate::inspect::InspectFilters,
-    ordinal: u32,
-    name: &str,
-) -> bool {
-    match &filters.section {
-        None => true,
-        Some(SectionSelector::Ordinal(expected)) => *expected == ordinal,
-        Some(SectionSelector::Name(expected)) => *expected == name,
-    }
-}
-
-fn field_selected(diff: &FieldDiff, filters: &crate::inspect::InspectFilters) -> bool {
-    if !row_selected(diff.location.table_kind, diff.location.table_name, filters) {
-        return false;
-    }
-    match &filters.section {
-        None => {}
-        Some(SectionSelector::Ordinal(ordinal)) if *ordinal != diff.location.section_ordinal => {
-            return false;
-        }
-        Some(SectionSelector::Name(name)) if *name != diff.location.section_name => {
-            return false;
-        }
-        _ => {}
-    }
-    if let Some(range) = filters.rows
-        && (diff.location.logical_row < range.start || diff.location.logical_row >= range.end)
-    {
-        return false;
-    }
-    true
-}
-
-fn row_selected(kind: u16, name: &str, filters: &crate::inspect::InspectFilters) -> bool {
-    table_selected_filter(kind, name, filters)
-}
-
-fn table_selected_filter(kind: u16, name: &str, filters: &crate::inspect::InspectFilters) -> bool {
-    match &filters.table {
-        None => true,
-        Some(TableSelector::Kind(expected)) => *expected == kind,
-        Some(TableSelector::Name(expected)) => *expected == name,
+        ValueDisplay::EmbeddedRow { kind, fields } => match fields {
+            None => format!("member{{kind={kind}}}（行数限额截断，内容未展开）"),
+            Some(fields) => {
+                let inner: Vec<String> = fields
+                    .iter()
+                    .map(|(tag, value)| format!("{}={}", tag, render_value(value)))
+                    .collect();
+                format!("member{{kind={kind}}}{{{}}}", inner.join(", "))
+            }
+        },
     }
 }

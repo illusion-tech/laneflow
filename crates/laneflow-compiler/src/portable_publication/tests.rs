@@ -543,19 +543,19 @@ fn artifact_inspect_renders_frozen_lfcp_fixture() {
     let expected = laneflow_artifact_inspect::input::decode_object_input(
         include_bytes!("../../tests/fixtures/portable/lfcp-min-bindings/expected.lfcp.hex"),
         laneflow_artifact_inspect::input::InputEncoding::Hex,
-        laneflow_artifact_inspect::budget::InputLimits::HARD_DEFAULT,
+        laneflow_artifact_inspect::session::InputLimits::HARD_DEFAULT,
     )
     .unwrap();
     let options = laneflow_artifact_inspect::inspect::InspectOptions::default();
-    let limits = laneflow_artifact_inspect::budget::ReportLimits::default();
+    let policy = laneflow_artifact_inspect::session::DisplayPolicy::default();
     let report = laneflow_artifact_inspect::inspect::inspect(
         &expected,
         &options,
-        FormatLimits::HARD,
-        &limits,
+        &policy,
+        &laneflow_artifact_inspect::session::SessionConfig::hardened(),
     )
     .unwrap_or_else(|error| panic!("LFCP 检入 fixture 应通过检视：{error:?}"));
-    let text = laneflow_artifact_inspect::render::render_inspect(&report, &options, &limits);
+    let text = laneflow_artifact_inspect::render::render_inspect(&report, &options, &policy);
     assert!(
         text.contains("LFCP") && text.contains("chunks: 不适用（LFCP singleton 节无 chunk 目录）"),
         "LFCP 摘要缺 singleton 标注：\n{text}"

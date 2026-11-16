@@ -1,13 +1,16 @@
-//! 借用遍历的字段路径、物理位置与登记名称解析。
+//! 借用遍历：字段联接键、双侧顺序游标与登记名称解析。
 //!
-//! 路径按「节登记名.表登记名[零基全表逻辑行].字段登记名」组织，嵌套向量与
-//! LFSD 已登记内嵌行沿完整路径展开。物理位置是值载荷在对象 exact bytes 内的
-//! 绝对偏移，由同一分配内的借用指针差得出，不复制线格式偏移常量。
+//! 遍历契约只有一个入口：[`SideWalk`] 按节→表→行顺序推进，行与字段只经
+//! `rows()` / `fields()` 单游标迭代器访问（不做 `row(i)` 随机重扫）；物理
+//! 位置由本侧对象字节与借用切片的指针差给出，两侧各自计算、互不共用。
+//! [`FieldPath`] 是纯逻辑联接键（节/表/逻辑行/嵌套步骤/tag/登记名），不携带
+//! 任何单侧物理事实——那是 `FieldSide` 的职责。
 
 use laneflow_format::{
-    RegistryCheckedRowView, RegistryCheckedSectionView, RegistryCheckedTableView,
+    RegistryCheckedFieldView, RegistryCheckedRowView, RegistryCheckedSectionView,
+    RegistryCheckedTableView,
 };
-use laneflow_static_contract::{PortableObjectKind, PortableRowShape, portable_object_schema};
+use laneflow_static_contract::{PortableObjectKind, PortableRowSchema, portable_object_schema};
 
 /// 路径中的嵌套步骤。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,89 +35,32 @@ pub enum NestedStep {
     },
 }
 
-/// 一个字段的完整逻辑路径与物理位置。
+/// 字段的完整逻辑路径（联接键）：外层字段先行，下标/成员标注随嵌套步骤，
+/// 叶字段名收尾。渲染形如 `SourceModules.SourceLocation[7].startLine`、
+/// `Sec.CanonicalIdentity[0].identityFields[1].value`。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FieldLocation {
-    /// 零基节序号。
-    pub section_ordinal: u32,
-    /// 节登记名。
-    pub section_name: &'static str,
-    /// 表登记 kind。
-    pub table_kind: u16,
-    /// 表登记名。
-    pub table_name: &'static str,
+pub struct FieldPath {
+    /// 节身份。
+    pub section: SectionIdentity,
+    /// 表身份。
+    pub table: TableIdentity,
     /// 零基全表逻辑行序号。
     pub logical_row: u32,
-    /// 字段登记 tag。
+    /// 叶字段登记 tag。
     pub field_tag: u16,
-    /// 字段登记名。
+    /// 叶字段登记名。
     pub field_name: &'static str,
     /// 嵌套步骤（空 = 顶层字段）。
     pub nested: Vec<NestedStep>,
-    /// 值载荷在对象 exact bytes 内的绝对偏移（适用时）。
-    pub object_offset: Option<u64>,
 }
 
-impl FieldLocation {
-    /// 内嵌行内部的根路径（继承外层行与成员步骤，字段信息由后续步骤给出）。
-    #[must_use]
-    pub fn root() -> Self {
-        Self {
-            section_ordinal: 0,
-            section_name: "",
-            table_kind: 0,
-            table_name: "",
-            logical_row: 0,
-            field_tag: 0,
-            field_name: "",
-            nested: Vec::new(),
-            object_offset: None,
-        }
-    }
-
-    /// 构造顶层字段路径。
-    #[must_use]
-    pub fn top_level(
-        section: &SectionIdentity,
-        table: &TableIdentity,
-        logical_row: u32,
-        field_tag: u16,
-        field_name: &'static str,
-        object_offset: Option<u64>,
-    ) -> Self {
-        Self {
-            section_ordinal: section.ordinal,
-            section_name: section.name,
-            table_kind: table.kind,
-            table_name: table.name,
-            logical_row,
-            field_tag,
-            field_name,
-            nested: Vec::new(),
-            object_offset,
-        }
-    }
-
-    /// 复制当前路径并进入一个 RecordVector 项。
-    #[must_use]
-    pub fn clone_record_vector_item(&self, index: u32) -> Self {
-        let mut nested = self.clone();
-        nested.nested.push(NestedStep::RecordVectorItem {
-            index,
-            field_tag: self.field_tag,
-            field_name: self.field_name,
-        });
-        nested
-    }
-
-    /// 渲染为点分路径文本（确定性）：外层字段先行，下标/成员标注随嵌套步骤，
-    /// 叶字段名收尾，例如 `SourceModules.SourceLocation[7].startLine`、
-    /// `Sec.CanonicalIdentity[0].identityFields[1].value`。
+impl FieldPath {
+    /// 渲染为点分路径文本（确定性）。
     #[must_use]
     pub fn render(&self) -> String {
         let mut out = format!(
             "{}.{}[{}]",
-            self.section_name, self.table_name, self.logical_row
+            self.section.name, self.table.name, self.logical_row
         );
         for step in &self.nested {
             match step {
@@ -137,6 +83,14 @@ impl FieldLocation {
         out.push('.');
         out.push_str(self.field_name);
         out
+    }
+
+    /// 追加一个嵌套步骤后的路径副本。
+    #[must_use]
+    pub fn with_step(&self, step: NestedStep) -> Self {
+        let mut nested = self.clone();
+        nested.nested.push(step);
+        nested
     }
 }
 
@@ -198,10 +152,7 @@ pub fn table_identity(
 
 /// 按 tag 解析行 schema 中的字段登记名；未知 tag 返回 `None`。
 #[must_use]
-pub fn field_name(
-    row_schema: &laneflow_static_contract::PortableRowSchema,
-    tag: u16,
-) -> Option<&'static str> {
+pub fn field_name(row_schema: &PortableRowSchema, tag: u16) -> Option<&'static str> {
     row_schema
         .fields
         .iter()
@@ -224,7 +175,9 @@ pub fn is_policy_local_change_table(
                 .tables
                 .get(usize::try_from(table_ordinal).unwrap_or(usize::MAX))
         })
-        .is_some_and(|table| table.row.shape == PortableRowShape::PolicyLocalChange)
+        .is_some_and(|table| {
+            table.row.shape == laneflow_static_contract::PortableRowShape::PolicyLocalChange
+        })
 }
 
 /// 从 LFSD 策略局部变更行提取成员种类（tag 3 的 `U8` 值）。
@@ -237,10 +190,55 @@ pub fn policy_member_kind(row: RegistryCheckedRowView<'_>) -> Option<u8> {
     }
 }
 
-/// 值载荷在对象 exact bytes 内的绝对偏移：同一分配内的借用指针差。
-#[must_use]
-pub fn object_offset(object_bytes: &[u8], value_bytes: &[u8]) -> u64 {
-    let base = object_bytes.as_ptr() as usize;
-    let value = value_bytes.as_ptr() as usize;
-    u64::try_from(value.saturating_sub(base)).unwrap_or(0)
+/// 一个对象侧的顺序游标：行遍历契约与物理偏移的唯一载体。
+///
+/// - 行只经 [`RegistryCheckedTableView::rows`] 单游标顺序推进，随机访问
+///   `row(i)` 的重复扫描在本层没有入口。
+/// - 物理位置 = 本侧对象 exact bytes 与借用切片起点的指针差（同一分配内，
+///   safe 计算）；两侧各持一个 `SideWalk`，偏移天然各自正确。
+#[derive(Clone, Copy)]
+pub struct SideWalk<'a> {
+    object_bytes: &'a [u8],
+}
+
+impl<'a> SideWalk<'a> {
+    /// 绑定一个对象侧。
+    #[must_use]
+    pub const fn new(object_bytes: &'a [u8]) -> Self {
+        Self { object_bytes }
+    }
+
+    /// 本侧对象 exact bytes。
+    #[must_use]
+    pub const fn object_bytes(self) -> &'a [u8] {
+        self.object_bytes
+    }
+
+    /// 按顺序枚举一张表的（零基逻辑行，行视图）。
+    pub fn table_rows(
+        self,
+        table: RegistryCheckedTableView<'a>,
+    ) -> impl Iterator<Item = (u32, RegistryCheckedRowView<'a>)> {
+        table
+            .rows()
+            .enumerate()
+            .map(|(index, row)| (u32::try_from(index).unwrap_or(u32::MAX), row))
+    }
+
+    /// 一个值载荷在本侧对象内的绝对偏移。
+    #[must_use]
+    pub fn value_offset(self, field: RegistryCheckedFieldView<'_>) -> u64 {
+        // 借用切片与本侧对象同属一个分配：指针差是 safe 且精确的。
+        let base = self.object_bytes.as_ptr() as usize;
+        let value = field.value_bytes().as_ptr() as usize;
+        u64::try_from(value.saturating_sub(base)).unwrap_or(0)
+    }
+
+    /// 一行在本侧对象内的绝对偏移。
+    #[must_use]
+    pub fn row_offset(self, row: RegistryCheckedRowView<'_>) -> u64 {
+        let base = self.object_bytes.as_ptr() as usize;
+        let start = row.bytes().as_ptr() as usize;
+        u64::try_from(start.saturating_sub(base)).unwrap_or(0)
+    }
 }

@@ -411,3 +411,126 @@ pub fn lfca_with_identity_field_values(values: &[&[u8]]) -> Vec<u8> {
     encode_object(input, FormatLimits::HARD, &mut bytes).expect("编码 LFCA");
     bytes
 }
+
+/// 构造带指定 `publisherBuildId` 的 LFCP（其余保持最小对象形状）。
+pub fn lfcp_with_build_note(note: &str) -> Vec<u8> {
+    let schema = portable_object_schema(PortableObjectKind::CanonicalPublicationDescriptor);
+    let mut sections: Vec<SectionWriteInput<'static>> = Vec::new();
+    for section in schema.sections {
+        let mut tables: Vec<TableWriteInput<'static>> = Vec::new();
+        for table in section.tables {
+            let rows: Vec<RowWriteInput<'static>> =
+                if table.cardinality == PortableRowCardinality::ExactlyOne {
+                    let mut fields = Vec::new();
+                    for field in table.row.fields {
+                        if field.presence != PortableFieldPresence::Required {
+                            continue;
+                        }
+                        let value = if section.kind == 3 && field.tag == 2 {
+                            FieldWriteValue::Utf8(Box::leak(note.to_string().into_boxed_str()))
+                        } else {
+                            match default_value(field) {
+                                Some(value) => value,
+                                None => continue,
+                            }
+                        };
+                        fields.push(FieldWriteInput {
+                            tag: field.tag,
+                            value,
+                        });
+                    }
+                    vec![RowWriteInput {
+                        fields: leak_fields(fields),
+                    }]
+                } else {
+                    Vec::new()
+                };
+            tables.push(TableWriteInput {
+                kind: table.kind,
+                rows: leak_rows(rows),
+            });
+        }
+        sections.push(SectionWriteInput {
+            kind: section.kind,
+            tables: Box::leak(tables.into_boxed_slice()),
+        });
+    }
+    let input = ObjectWriteInput {
+        kind: PortableObjectKind::CanonicalPublicationDescriptor,
+        sections: Box::leak(sections.into_boxed_slice()),
+    };
+    let length = measure_object(input, FormatLimits::HARD).expect("LFCP 应通过写入预检");
+    let mut bytes = vec![0_u8; usize::try_from(length).expect("长度")];
+    encode_object(input, FormatLimits::HARD, &mut bytes).expect("编码 LFCP");
+    bytes
+}
+
+/// 构造带可控 provenance 可选字段的 LFCP（评审 #5/#7 复现锚）。
+pub fn lfcp_with_controlled_fields(
+    build_note: &str,
+    provenance: Option<&str>,
+    timestamp: Option<&str>,
+) -> Vec<u8> {
+    let leak = |text: Option<&str>, tag: u16, fields: &mut Vec<FieldWriteInput<'static>>| {
+        if let Some(text) = text {
+            fields.push(FieldWriteInput {
+                tag,
+                value: FieldWriteValue::Utf8(Box::leak(text.to_string().into_boxed_str())),
+            });
+        }
+    };
+    let schema = portable_object_schema(PortableObjectKind::CanonicalPublicationDescriptor);
+    let mut sections: Vec<SectionWriteInput<'static>> = Vec::new();
+    for section in schema.sections {
+        let mut tables: Vec<TableWriteInput<'static>> = Vec::new();
+        for table in section.tables {
+            let rows: Vec<RowWriteInput<'static>> = if table.cardinality
+                == PortableRowCardinality::ExactlyOne
+            {
+                let mut fields = Vec::new();
+                for field in table.row.fields {
+                    if field.presence != PortableFieldPresence::Required {
+                        continue;
+                    }
+                    let value = if section.kind == 3 && field.tag == 2 {
+                        FieldWriteValue::Utf8(Box::leak(build_note.to_string().into_boxed_str()))
+                    } else {
+                        match default_value(field) {
+                            Some(value) => value,
+                            None => continue,
+                        }
+                    };
+                    fields.push(FieldWriteInput {
+                        tag: field.tag,
+                        value,
+                    });
+                }
+                if section.kind == 3 {
+                    leak(provenance, 5, &mut fields);
+                    leak(timestamp, 6, &mut fields);
+                }
+                vec![RowWriteInput {
+                    fields: leak_fields(fields),
+                }]
+            } else {
+                Vec::new()
+            };
+            tables.push(TableWriteInput {
+                kind: table.kind,
+                rows: leak_rows(rows),
+            });
+        }
+        sections.push(SectionWriteInput {
+            kind: section.kind,
+            tables: Box::leak(tables.into_boxed_slice()),
+        });
+    }
+    let input = ObjectWriteInput {
+        kind: PortableObjectKind::CanonicalPublicationDescriptor,
+        sections: Box::leak(sections.into_boxed_slice()),
+    };
+    let length = measure_object(input, FormatLimits::HARD).expect("LFCP 应通过写入预检");
+    let mut bytes = vec![0_u8; usize::try_from(length).expect("长度")];
+    encode_object(input, FormatLimits::HARD, &mut bytes).expect("编码 LFCP");
+    bytes
+}

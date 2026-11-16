@@ -1,6 +1,11 @@
-//! 受检字段值的确定性展示：浮点十进制加位模式、字符串转义、Bytes 有界预览。
+//! 受检字段值的确定性展示：统一截断协议与值格式化。
 //!
-//! 展示只影响可读性：截断时明确给出总长度与 SHA-256 摘要，不改变比较结论。
+//! 截断协议（不变量）：一个值要么完整展示，要么带明确截断标记，要么声明
+//! 「限额内省略」——绝不静默丢内容。UTF-8 的预算按转义后的输出域计，以
+//! 一个转义单元为原子追加；预算耗尽的嵌套结构（LFSD 内嵌成员）产出
+//! 省略状态，与真空值结构性可区分。
+//!
+//! 展示只影响可读性：截断时给出总长度与 SHA-256 摘要，不改变比较结论。
 
 use laneflow_format::{
     FormatError, FormatLimits, RegistryCheckedFieldValue, RegistryCheckedFieldView,
@@ -9,8 +14,8 @@ use laneflow_format::{
 use laneflow_static_contract::Sha256Digest;
 use sha2::{Digest, Sha256};
 
-use crate::budget::ReportLimits;
-use crate::walk::FieldLocation;
+use crate::session::ReportLimits;
+use crate::walk::{FieldPath, NestedStep};
 
 /// 一个字段值的确定性展示快照。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,9 +29,19 @@ pub enum ValueDisplay {
     /// `U64` 值。
     U64(u64),
     /// `F32` 值：十进制与位模式。
-    F32 { decimal: String, bits: u32 },
+    F32 {
+        /// 最短往返十进制。
+        decimal: String,
+        /// IEEE 位模式。
+        bits: u32,
+    },
     /// `F64` 值：十进制与位模式。
-    F64 { decimal: String, bits: u64 },
+    F64 {
+        /// 最短往返十进制。
+        decimal: String,
+        /// IEEE 位模式。
+        bits: u64,
+    },
     /// `I32` 值。
     I32(i32),
     /// 128 位稳定标识的十六进制。
@@ -37,7 +52,7 @@ pub enum ValueDisplay {
     Utf8 {
         /// 转义并截断后的文本。
         text: String,
-        /// 是否因限额截断。
+        /// 是否因限额截断（有输入字符未消费）。
         truncated: bool,
         /// 原始字节总长。
         total: usize,
@@ -60,18 +75,43 @@ pub enum ValueDisplay {
     },
     /// 一层 `RecordVector`：总项数与受行数限额约束的逐项字段展示。
     RecordVector {
-        /// 受行数限额约束的逐项字段展示。
+        /// 受限额约束的逐项字段展示。
         rows: Vec<Vec<(u16, ValueDisplay)>>,
         /// 向量总项数。
         total: u32,
     },
-    /// LFSD 已登记 Bytes 内嵌行的有界字段展示。
+    /// LFSD 已登记 Bytes 内嵌行：`fields` 为 `None` 表示行数限额耗尽、内容
+    /// 整体省略（区别于空行）。
     EmbeddedRow {
         /// 成员种类（LFSD 变更行 tag 3）。
         kind: u8,
-        /// 内嵌行字段展示。
-        fields: Vec<(u16, ValueDisplay)>,
+        /// 内嵌行字段展示；`None` = 限额内省略。
+        fields: Option<Vec<(u16, ValueDisplay)>>,
     },
+}
+
+/// 展开行预算：跨值构造传递的行数限额句柄。
+///
+/// 预算耗尽可能性由构造侧如实反映（省略状态 / 截断标记），调用方不再
+/// 各自猜测预算状态。
+pub struct RowBudget<'a> {
+    remaining: &'a mut usize,
+}
+
+impl<'a> RowBudget<'a> {
+    /// 绑定剩余行数。
+    pub fn new(remaining: &'a mut usize) -> Self {
+        Self { remaining }
+    }
+
+    /// 尝试消费一行预算；耗尽时返回 `false`。
+    pub fn try_consume(&mut self) -> bool {
+        if *self.remaining == 0 {
+            return false;
+        }
+        *self.remaining -= 1;
+        true
+    }
 }
 
 /// 按登记类型解码并生成字段值的展示快照。
@@ -82,9 +122,9 @@ pub enum ValueDisplay {
 /// 该分支是预检已证实路径的防御性回退）。
 pub fn display_field_value(
     field: RegistryCheckedFieldView<'_>,
-    location: &FieldLocation,
+    path: &FieldPath,
     limits: &ReportLimits,
-    expand_rows_budget: &mut usize,
+    rows: &mut RowBudget<'_>,
 ) -> Result<ValueDisplay, FormatError> {
     Ok(match field.value()? {
         RegistryCheckedFieldValue::U8(v) => ValueDisplay::U8(v),
@@ -105,29 +145,39 @@ pub fn display_field_value(
         }
         RegistryCheckedFieldValue::Sha256(v) => ValueDisplay::Sha256(hex_string(v.as_bytes(), 64)),
         RegistryCheckedFieldValue::Utf8(text) => {
-            let total = text.len();
-            let truncated = total > limits.max_value_display_bytes;
-            let mut shown = String::new();
-            for c in text.chars() {
-                if shown.len() >= limits.max_value_display_bytes {
-                    break;
-                }
-                shown.push_str(&escape_char(c));
-            }
-            ValueDisplay::Utf8 {
-                text: shown,
-                truncated,
-                total,
-            }
+            escape_bounded(text, limits.max_value_display_bytes)
         }
         RegistryCheckedFieldValue::Bytes(bytes) => bytes_preview(bytes, limits),
         RegistryCheckedFieldValue::OrdinalVectorU32(vector) => {
             ordinal_vector_preview(vector, limits)
         }
         RegistryCheckedFieldValue::RecordVector(vector) => {
-            record_vector_preview(vector, location, limits, expand_rows_budget)
+            record_vector_preview(vector, path, limits, rows)
         }
     })
+}
+
+/// UTF-8 截断协议：以一个转义单元为原子追加，放不下即停并标记截断。
+///
+/// `truncated` 的判定是「有输入字符未被消费」——预算按转义后的输出域计，
+/// 转义扩张导致的丢字符同样会被标记。
+fn escape_bounded(text: &str, budget: usize) -> ValueDisplay {
+    let total = text.len();
+    let mut shown = String::new();
+    let mut truncated = false;
+    for c in text.chars() {
+        let escaped = escape_char(c);
+        if shown.len() + escaped.len() > budget {
+            truncated = true;
+            break;
+        }
+        shown.push_str(&escaped);
+    }
+    ValueDisplay::Utf8 {
+        text: shown,
+        truncated,
+        total,
+    }
 }
 
 /// 不透明 Bytes 的有界预览：截断时给出总长度与 SHA-256 摘要。
@@ -162,39 +212,43 @@ fn ordinal_vector_preview(
 
 fn record_vector_preview(
     vector: RegistryCheckedRecordVectorView<'_>,
-    location: &FieldLocation,
+    path: &FieldPath,
     limits: &ReportLimits,
-    expand_rows_budget: &mut usize,
+    rows: &mut RowBudget<'_>,
 ) -> ValueDisplay {
     let total = vector.len();
     let take = usize::try_from(total)
         .unwrap_or(usize::MAX)
         .min(limits.max_vector_items);
-    let mut rows = Vec::with_capacity(take);
-    for index in 0..take {
-        if *expand_rows_budget == 0 {
+    let mut shown_rows = Vec::with_capacity(take);
+    for (index, row) in vector.rows().enumerate().take(take) {
+        if !rows.try_consume() {
             break;
         }
-        let Some(row) = vector.row(u32::try_from(index).unwrap_or(u32::MAX)) else {
-            break;
-        };
-        *expand_rows_budget -= 1;
-        let nested = location.clone_record_vector_item(u32::try_from(index).unwrap_or(0));
+        let nested = path.with_step(NestedStep::RecordVectorItem {
+            index: u32::try_from(index).unwrap_or(u32::MAX),
+            field_tag: path.field_tag,
+            field_name: path.field_name,
+        });
         let mut fields = Vec::with_capacity(usize::try_from(row.field_count()).unwrap_or(0));
         for field in row.fields() {
-            if let Ok(value) = display_field_value(field, &nested, limits, expand_rows_budget) {
+            if let Ok(value) = display_field_value(field, &nested, limits, rows) {
                 fields.push((field.tag(), value));
             }
         }
-        rows.push(fields);
+        shown_rows.push(fields);
     }
-    ValueDisplay::RecordVector { rows, total }
+    ValueDisplay::RecordVector {
+        rows: shown_rows,
+        total,
+    }
 }
 
 /// LFSD 已登记成员 Bytes 的有界内嵌行展示。
 ///
 /// 复用 `checked_policy_member_row` 的同一预检路径；预检失败的成员值返回
-/// [`FormatError`]，调用方按检查失败语义处理。
+/// [`FormatError`]，调用方按检查失败语义处理。行预算耗尽时返回省略状态
+/// （`fields = None`），不伪装成空行。
 ///
 /// # Errors
 ///
@@ -202,25 +256,43 @@ fn record_vector_preview(
 pub fn embedded_row_display(
     kind: u8,
     bytes: &[u8],
+    outer_path: &FieldPath,
     limits: &ReportLimits,
-    expand_rows_budget: &mut usize,
+    rows: &mut RowBudget<'_>,
     format_limits: FormatLimits,
 ) -> Result<ValueDisplay, FormatError> {
     let row = checked_policy_member_row(kind, bytes, format_limits)?;
-    if *expand_rows_budget == 0 {
-        return Ok(ValueDisplay::EmbeddedRow {
-            kind,
-            fields: Vec::new(),
-        });
+    let member_path = outer_path.with_step(NestedStep::PolicyMember {
+        kind,
+        field_tag: outer_path.field_tag,
+        field_name: outer_path.field_name,
+    });
+    if !rows.try_consume() {
+        return Ok(ValueDisplay::EmbeddedRow { kind, fields: None });
     }
-    *expand_rows_budget -= 1;
     let mut fields = Vec::with_capacity(usize::try_from(row.field_count()).unwrap_or(0));
     for field in row.fields() {
-        let value = display_field_value(field, &FieldLocation::root(), limits, expand_rows_budget)?;
+        let mut leaf = member_path.clone();
+        leaf.field_tag = field.tag();
+        leaf.field_name = crate::walk::field_name(row_schema_of(kind), field.tag()).unwrap_or("");
+        let value = display_field_value(field, &leaf, limits, rows)?;
         fields.push((field.tag(), value));
     }
-    Ok(ValueDisplay::EmbeddedRow { kind, fields })
+    Ok(ValueDisplay::EmbeddedRow {
+        kind,
+        fields: Some(fields),
+    })
 }
+
+fn row_schema_of(kind: u8) -> &'static laneflow_static_contract::PortableRowSchema {
+    laneflow_static_contract::policy_local_value_schema(kind).unwrap_or(&EMPTY_MEMBER_SCHEMA)
+}
+
+static EMPTY_MEMBER_SCHEMA: laneflow_static_contract::PortableRowSchema =
+    laneflow_static_contract::PortableRowSchema {
+        fields: &[],
+        shape: laneflow_static_contract::PortableRowShape::Uniform,
+    };
 
 /// 十六进制串；超过 `max_chars` 时截断并以省略号标记。
 #[must_use]
@@ -243,7 +315,7 @@ fn escape_char(c: char) -> String {
         '\t' => "\\t".to_string(),
         '\\' => "\\\\".to_string(),
         '"' => "\\\"".to_string(),
-        c if (c as u32) < 0x20 || c as u32 == 0x7f => format!("\\x{:02x}", c as u32),
+        c if (u32::from(c) < 0x20) || (u32::from(c) == 0x7f) => format!("\\x{:02x}", u32::from(c)),
         c => c.to_string(),
     }
 }

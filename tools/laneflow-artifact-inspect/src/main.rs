@@ -1,21 +1,22 @@
 //! CLI：参数、文件读取、输出与退出码。
 //!
-//! 退出码约定：`0` = inspect 完成规定的单对象检查与请求的有界展示，或 diff
-//! 检查完成且 bytes 相同；`1` = diff 检查完成且 bytes 不同；`2` = 无法完成
-//! （参数、I/O、格式、版本、对象种类或资源限制错误）。报告正文走 stdout，
-//! 执行错误走 stderr；诊断文本不是机器可读 schema。
+//! 资源策略只构造一次（[`SessionConfig::tighten`]，只能收紧），inspect 与
+//! diff 的全部路径共用——不存在「校验后被丢弃」的限额通道。退出码约定：
+//! `0` = inspect 完成规定的单对象检查与请求的有界展示，或 diff 检查完成且
+//! bytes 相同；`1` = diff 检查完成且 bytes 不同；`2` = 无法完成（参数、I/O、
+//! 格式、版本、对象种类或资源限制错误）。报告正文走 stdout，执行错误走
+//! stderr；诊断文本不是机器可读 schema。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use laneflow_artifact_inspect::budget::{InputLimits, ReportLimits, ToolFormatBudget};
-use laneflow_artifact_inspect::diff::{DiffOptions, diff_bytes};
+use laneflow_artifact_inspect::diff::{DiffReport, diff_bytes};
 use laneflow_artifact_inspect::input::{InputEncoding, InputError, read_object_input};
-use laneflow_artifact_inspect::inspect::{
-    ExpandSet, InspectError, InspectFilters, InspectOptions, RowRange, SectionSelector,
-    TableSelector,
-};
+use laneflow_artifact_inspect::inspect::{InspectError, InspectOptions};
 use laneflow_artifact_inspect::render::{render_diff, render_inspect};
+use laneflow_artifact_inspect::session::{
+    DisplayPolicy, InspectFilters, RowRange, SectionSelector, SessionConfig, TableSelector,
+};
 
 const USAGE: &str = "\
 用法：
@@ -66,22 +67,27 @@ fn main() -> ExitCode {
     }
 }
 
-struct CommonOptions {
+enum Side {
+    Expected,
+    Actual,
+}
+
+struct CliOptions {
     hex_left: bool,
     hex_right: bool,
-    expand: ExpandSet,
+    expand: laneflow_artifact_inspect::inspect::ExpandSet,
     filters: InspectFilters,
     max_object_bytes: Option<u64>,
     max_chunks_per_section: Option<u32>,
     max_report_bytes: Option<usize>,
 }
 
-impl CommonOptions {
+impl CliOptions {
     fn new() -> Self {
         Self {
             hex_left: false,
             hex_right: false,
-            expand: ExpandSet::default(),
+            expand: Default::default(),
             filters: InspectFilters::default(),
             max_object_bytes: None,
             max_chunks_per_section: None,
@@ -100,11 +106,23 @@ impl CommonOptions {
             InputEncoding::Raw
         }
     }
-}
 
-enum Side {
-    Expected,
-    Actual,
+    fn session(&self) -> Result<SessionConfig, String> {
+        SessionConfig::tighten(self.max_object_bytes, self.max_chunks_per_section)
+            .map_err(|error| error.to_string())
+    }
+
+    fn policy(&self) -> DisplayPolicy {
+        DisplayPolicy {
+            filters: self.filters.clone(),
+            limits: laneflow_artifact_inspect::session::ReportLimits {
+                max_output_bytes: self.max_report_bytes.unwrap_or(
+                    laneflow_artifact_inspect::session::ReportLimits::DEFAULT.max_output_bytes,
+                ),
+                ..laneflow_artifact_inspect::session::ReportLimits::DEFAULT
+            },
+        }
+    }
 }
 
 fn run(args: &[String]) -> Result<ExitCode, String> {
@@ -128,44 +146,25 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn run_inspect(args: &[String]) -> Result<ExitCode, String> {
-    let mut options = CommonOptions::new();
+    let mut options = CliOptions::new();
     let mut positional: Vec<PathBuf> = Vec::new();
     parse_args(args, &mut options, &mut positional, 1)?;
     let Some(path) = positional.first() else {
         return Err("inspect 需要恰好一个 PATH 参数".to_string());
     };
 
-    let format_limits =
-        ToolFormatBudget::tighten(options.max_object_bytes, options.max_chunks_per_section)
-            .map_err(|error| error.to_string())?;
-    let input_limits = InputLimits {
-        max_input_bytes: options
-            .max_object_bytes
-            .unwrap_or(InputLimits::HARD_DEFAULT.max_input_bytes),
-        max_object_bytes: options
-            .max_object_bytes
-            .unwrap_or(InputLimits::HARD_DEFAULT.max_object_bytes),
-    };
-    let bytes = read_object_input(path, options.encoding_for(Side::Expected), input_limits)
+    let config = options.session()?;
+    let policy = options.policy();
+    let bytes = read_object_input(path, options.encoding_for(Side::Expected), config.input)
         .map_err(|error| input_error_message(&error, "expected"))?;
 
-    let report_limits = report_limits(options.max_report_bytes);
     let inspect_options = InspectOptions {
         expand: options.expand.clone(),
-        filters: options.filters.clone(),
     };
-    match laneflow_artifact_inspect::inspect::inspect(
-        &bytes,
-        &inspect_options,
-        format_limits,
-        &report_limits,
-    ) {
+    match laneflow_artifact_inspect::inspect::inspect(&bytes, &inspect_options, &policy, &config) {
         Ok(report) => {
-            validate_filters_against_schema(&options, report.kind)?;
-            println!(
-                "{}",
-                render_inspect(&report, &inspect_options, &report_limits)
-            );
+            validate_filters_against_schema(&options, report.facts.kind)?;
+            println!("{}", render_inspect(&report, &inspect_options, &policy));
             Ok(ExitCode::SUCCESS)
         }
         Err(InspectError::Preflight(error)) => Err(format!(
@@ -176,32 +175,25 @@ fn run_inspect(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn run_diff(args: &[String]) -> Result<ExitCode, String> {
-    let mut options = CommonOptions::new();
+    let mut options = CliOptions::new();
     let mut positional: Vec<PathBuf> = Vec::new();
     parse_args(args, &mut options, &mut positional, 2)?;
     let (Some(expected_path), Some(actual_path)) = (positional.first(), positional.get(1)) else {
         return Err("diff 需要恰好两个参数：EXPECTED ACTUAL".to_string());
     };
 
-    ToolFormatBudget::tighten(options.max_object_bytes, options.max_chunks_per_section)
-        .map_err(|error| error.to_string())?;
-    let object_budget = options
-        .max_object_bytes
-        .unwrap_or(InputLimits::HARD_DEFAULT.max_object_bytes);
-    let input_limits = InputLimits {
-        max_input_bytes: object_budget,
-        max_object_bytes: object_budget,
-    };
+    let config = options.session()?;
+    let policy = options.policy();
     let expected = read_object_input(
         expected_path,
         options.encoding_for(Side::Expected),
-        input_limits,
+        config.input,
     )
     .map_err(|error| input_error_message(&error, "expected"))?;
     let actual = read_object_input(
         actual_path,
         options.encoding_for(Side::Actual),
-        input_limits,
+        config.input,
     )
     .map_err(|error| input_error_message(&error, "actual"))?;
 
@@ -216,12 +208,8 @@ fn run_diff(args: &[String]) -> Result<ExitCode, String> {
         validate_filters_against_schema(&options, kind)?;
     }
 
-    let diff_options = DiffOptions {
-        filters: options.filters.clone(),
-    };
-    let report = diff_bytes(&expected, &actual);
-    let report_limits = report_limits(options.max_report_bytes);
-    println!("{}", render_diff(&report, &diff_options, &report_limits));
+    let report: DiffReport = diff_bytes(&expected, &actual, &policy, &config);
+    println!("{}", render_diff(&report, &policy));
     if report.incomplete() {
         eprintln!(
             "error: 无法完成比较：expected 检查 {}，actual 检查 {}",
@@ -256,20 +244,12 @@ fn kind_of(bytes: &[u8]) -> Result<laneflow_static_contract::PortableObjectKind,
     .ok_or(())
 }
 
-fn report_limits(max_report_bytes: Option<usize>) -> ReportLimits {
-    let mut limits = ReportLimits::default();
-    if let Some(max) = max_report_bytes {
-        limits.max_output_bytes = max;
-    }
-    limits
-}
-
 fn input_error_message(error: &InputError, side: &str) -> String {
     format!("{side} 输入：{error}")
 }
 
 fn validate_filters_against_schema(
-    options: &CommonOptions,
+    options: &CliOptions,
     kind: laneflow_static_contract::PortableObjectKind,
 ) -> Result<(), String> {
     let schema = laneflow_static_contract::portable_object_schema(kind);
@@ -317,7 +297,7 @@ fn validate_filters_against_schema(
 
 fn parse_args(
     args: &[String],
-    options: &mut CommonOptions,
+    options: &mut CliOptions,
     positional: &mut Vec<PathBuf>,
     expected_positional: usize,
 ) -> Result<(), String> {
