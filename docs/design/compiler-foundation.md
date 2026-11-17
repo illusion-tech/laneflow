@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-compiler-foundation"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-17"
+revised_date = "2026-11-18"
 summary = "定义编译器中间表示、前端接入与编译基础合同。"
 scope = "laneflow-static-contract、laneflow-compiler、有类型抽象语法树（Typed Abstract Syntax Tree， Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层 中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断 （Diagnostic）与正本来源投影"
 applicability = "#applicability"
@@ -862,6 +862,15 @@ Identity 原像顺序与 StableId 顺序不同的固定向量，核对查找、�
 与两侧统计实现 → 由最终规范统计与支持的工作负载给出经批准的初始值 → 两端执行 → 完整资格
 验证及必要的再校准。
 
+`CanonicalRelationCount` 的初始值取资格工作负载最终规范统计的上包络，不留余量。
+`LF-COMP-SINGLE-NETWORK-1M` 取百万档端到端证据入口的混合工作负载在一百万稳定实体时的
+实测值 `1406986`；该工作负载在 10000、100000 与 1000000 三档的规范关系出现记录分别为
+14054、140692 与 1406986，与稳定实体数成正比。`LF-COMP-P100` 暂不登记：其各维度取自研究
+替身的逐维上包络，彼此不协调；同一混合工作负载在该配置档下先受 `SourceBytesTotal` 约束，
+3602 个稳定实体时即达来源字节上限，此时取得的规范关系数不代表该配置档承诺的规模。该配置档
+的维度协调、按承诺规模改名与本维度取值由 #1441 处理；该维度登记前，两端执行不对该配置档
+的 `CanonicalRelationCount` 准入。
+
 #296 道路编辑来源按“一模块一个 source buffer/document”执行 `SourceDocumentCount`。
 
 **道路编辑来源最小资源护栏：**道路编辑来源继续执行来源字节、verifier depth/table/
@@ -889,33 +898,33 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 两类来源的精确取数口径与被取代的 `LF-COMP-P100-INITIAL-v1/v2`、
 `LF-COMP-SINGLE-NETWORK-1M-v2` 原表见[固定提交][retired-compile-limits]。
 
-| 私有配置字段                          | `LF-COMP-P100` | `LF-COMP-SINGLE-NETWORK-1M` | 边界 | 计数对象 / 单位                                                               |
-| ------------------------------------- | -------------: | --------------------------: | ---- | ----------------------------------------------------------------------------- |
-| `max_module_count`                    |            522 |                       65536 | 来源 | 来源模块                                                                      |
-| `max_source_document_count`           |           1566 |                      196608 | 来源 | 来源文档描述符                                                                |
-| `max_import_edge_count`               |           1032 |                      262144 | 来源 | 模块导入边                                                                    |
-| `max_source_bytes_per_module`         |         542741 |                   536870912 | 来源 | 单个来源模块字节；与总量同界，另作入口前检查                                  |
-| `max_source_bytes_total`              |         542741 |                   536870912 | 来源 | 编译单元来源字节                                                              |
-| `max_declaration_count`               |          11265 |                     1500000 | 来源 | 来源声明                                                                      |
-| `max_stable_entity_count`             |          11265 |                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                                 |
-| `max_typed_ast_record_count`          |          58387 |                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                                      |
-| `max_hir_record_count`                |          58387 |                     8000000 | 来源 | HIR 逻辑记录                                                                  |
-| `max_mir_record_count`                |          38112 |                     8000000 | 来源 | MIR 逻辑记录                                                                  |
-| `max_lir_record_count`                |          38112 |                     8000000 | 来源 | LIR 逻辑记录                                                                  |
-| `max_reference_count`                 |          37920 |                    16000000 | 来源 | 有类型引用                                                                    |
-| `max_relation_occurrence_count`       |          10032 |                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                                              |
-| `max_canonical_relation_count`        |         待校准 |                      待校准 | 规范 | 规范关系出现记录（role 1–32）；初始值经批准后先于两端执行登记，不复制来源侧值 |
-| `max_identity_field_occurrence_count` |          29184 |                     8000000 | 来源 | 标识字段出现记录                                                              |
-| `max_maneuver_gate_count`             |           2304 |                     1000000 | 规范 | 最终规范路网的机动门                                                          |
-| `max_waiting_zone_count`              |           1536 |                     1000000 | 规范 | 最终规范路网的等待区                                                          |
-| `max_geometry_point_count`            |          22368 |                    16000000 | 规范 | 规范几何点记录                                                                |
-| `max_symbol_count`                    |          11265 |                     2000000 | 来源 | 符号                                                                          |
-| `max_string_item_count`               |          36894 |                     8000000 | 来源 | 驻留字符串项                                                                  |
-| `max_single_string_bytes`             |             53 |                        4096 | 来源 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限                 |
-| `max_total_string_bytes`              |         991537 |                   536870912 | 来源 | 驻留字符串总字节                                                              |
-| `max_diagnostic_count`                |             16 |                          16 | 来源 | 规范排序后保留的诊断                                                          |
-| `max_compiler_controlled_live_bytes`  |       43269120 |                  6442450944 | 操作 | 编译器控制总存续请求字节；不含 file-backed 暂存字节                           |
-| `max_retained_capacity_bytes`         |       36925688 |                   536870912 | 操作 | 一次编译返回后编译器允许保留的无语义容量字节                                  |
+| 私有配置字段                          | `LF-COMP-P100` | `LF-COMP-SINGLE-NETWORK-1M` | 边界 | 计数对象 / 单位                                               |
+| ------------------------------------- | -------------: | --------------------------: | ---- | ------------------------------------------------------------- |
+| `max_module_count`                    |            522 |                       65536 | 来源 | 来源模块                                                      |
+| `max_source_document_count`           |           1566 |                      196608 | 来源 | 来源文档描述符                                                |
+| `max_import_edge_count`               |           1032 |                      262144 | 来源 | 模块导入边                                                    |
+| `max_source_bytes_per_module`         |         542741 |                   536870912 | 来源 | 单个来源模块字节；与总量同界，另作入口前检查                  |
+| `max_source_bytes_total`              |         542741 |                   536870912 | 来源 | 编译单元来源字节                                              |
+| `max_declaration_count`               |          11265 |                     1500000 | 来源 | 来源声明                                                      |
+| `max_stable_entity_count`             |          11265 |                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
+| `max_typed_ast_record_count`          |          58387 |                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
+| `max_hir_record_count`                |          58387 |                     8000000 | 来源 | HIR 逻辑记录                                                  |
+| `max_mir_record_count`                |          38112 |                     8000000 | 来源 | MIR 逻辑记录                                                  |
+| `max_lir_record_count`                |          38112 |                     8000000 | 来源 | LIR 逻辑记录                                                  |
+| `max_reference_count`                 |          37920 |                    16000000 | 来源 | 有类型引用                                                    |
+| `max_relation_occurrence_count`       |          10032 |                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
+| `max_canonical_relation_count`        |         待校准 |                     1406986 | 规范 | 规范关系出现记录（role 1–32）；不复制来源侧值，取数见下文     |
+| `max_identity_field_occurrence_count` |          29184 |                     8000000 | 来源 | 标识字段出现记录                                              |
+| `max_maneuver_gate_count`             |           2304 |                     1000000 | 规范 | 最终规范路网的机动门                                          |
+| `max_waiting_zone_count`              |           1536 |                     1000000 | 规范 | 最终规范路网的等待区                                          |
+| `max_geometry_point_count`            |          22368 |                    16000000 | 规范 | 规范几何点记录                                                |
+| `max_symbol_count`                    |          11265 |                     2000000 | 来源 | 符号                                                          |
+| `max_string_item_count`               |          36894 |                     8000000 | 来源 | 驻留字符串项                                                  |
+| `max_single_string_bytes`             |             53 |                        4096 | 来源 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限 |
+| `max_total_string_bytes`              |         991537 |                   536870912 | 来源 | 驻留字符串总字节                                              |
+| `max_diagnostic_count`                |             16 |                          16 | 来源 | 规范排序后保留的诊断                                          |
+| `max_compiler_controlled_live_bytes`  |       43269120 |                  6442450944 | 操作 | 编译器控制总存续请求字节；不含 file-backed 暂存字节           |
+| `max_retained_capacity_bytes`         |       36925688 |                   536870912 | 操作 | 一次编译返回后编译器允许保留的无语义容量字节                  |
 
 `max_source_document_count = 1566` 等于 `max_module_count` 522 乘以 #315 实现时采用的每模块
 三个来源文档容量，在共同接入写入文档索引前给出直接基数边界。`SourceDocumentCount` 不包含
