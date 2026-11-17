@@ -16,7 +16,7 @@ related = ["design-waiting-zone-conflict-right-of-way"]
 <a id="applicability"></a>
 ## 适用边界与依据
 
-本文定义路权策略与正式冲突仲裁。§3.3 的本拍有效法规决定已接受为设计，对应实现与验收由 #1272 承担。
+本文定义路权策略与正式冲突仲裁。§3.3 的本拍有效法规决定已随 #1272 实现交付。
 
 设计依据： ADR 0009、0019、0025、0028、0029；
 [`waiting-zone-conflict-right-of-way.md`][waiting-zone] §6

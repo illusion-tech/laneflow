@@ -16,7 +16,8 @@ related = ["adr-0003", "adr-0014", "adr-0015", "adr-0022", "adr-0028", "design-n
 <a id="applicability"></a>
 ## 适用边界与依据
 
-停止目标速度归约与耗尽决策表已接受为设计，对应实现由 #1272 承担。设计与现行代码的差异见 §5；不能从设计接受推断生产切换已完成。
+停止目标速度归约与耗尽决策表已随 #1272 实现交付（求解器可行域、候选形成、
+耗尽决策表、制动前视窗与恢复校验同批落地）。
 
 关联文档： `../adr/0028-integer-millimeter-traffic-geometry.md`、
 `../adr/0003-runtime-tick-and-determinism.md`、

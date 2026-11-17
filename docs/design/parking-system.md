@@ -16,7 +16,7 @@ related = ["adr-0010", "adr-0025", "design-adapter-api", "design-chinese-style-c
 <a id="applicability"></a>
 ## 适用边界与依据
 
-§5.3 到位拍语义包含停止约束提前制动的冻结设计边界，设计接受不等于对应实现已交付。
+§5.3 到位拍语义的停止约束提前制动边界已随 #1272 实现交付。
 
 实现状态： 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
 `ExplicitSpace | VirtualPool` 和按车辆下标、句柄代际读取的私有 binding 槽位表完成 clean break；旧
