@@ -38,7 +38,7 @@ fn profile() -> IidmVehicleProfileInput {
     }
 }
 
-fn revision(
+pub(crate) fn revision(
     namespace: &str,
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
@@ -107,7 +107,10 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     install_dt(revision, 100)
 }
 
-fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWorld {
+pub(crate) fn install_dt(
+    revision: Arc<SharedNetworkRevision>,
+    delta_ms: u64,
+) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         Arc::clone(&revision),
@@ -128,7 +131,7 @@ fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWor
     .expect("install")
 }
 
-fn register_named(world: &mut TrafficWorld, namespace: &str, keys: &[&str]) -> RouteHandle {
+pub(crate) fn register_named(world: &mut TrafficWorld, namespace: &str, keys: &[&str]) -> RouteHandle {
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
@@ -158,7 +161,7 @@ fn register_edges(world: &mut TrafficWorld, edges: &[u32]) -> RouteHandle {
         .expect("route")
 }
 
-fn spawn(
+pub(crate) fn spawn(
     world: &mut TrafficWorld,
     route: RouteHandle,
     edge: u32,
@@ -201,7 +204,10 @@ fn add_edge(
         .expect(key);
 }
 
-fn add_signal_corridor(module: &mut SyntheticModuleBuilder, aspect: SignalAspect) {
+pub(crate) fn add_signal_corridor(
+    module: &mut SyntheticModuleBuilder,
+    aspect: SignalAspect,
+) {
     add_edge(module, "entry", 10.0, 10.0, Some("middle"));
     add_edge(module, "middle", 8.0, 10.0, Some("exit"));
     add_edge(module, "exit", 12.0, 10.0, None);

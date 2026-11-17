@@ -4182,32 +4182,42 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         };
         let route_end = remaining_to_route_end(hop.remaining_to_end?, position.progress_mm);
         let reach = MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s);
-        // 下一受控门本拍够不着时与逐门解释同为 None，不再读受控链。
-        let signal_stop = if reach.is_some_and(|reach| {
+        // #1272：停止目标速度归约的查询范围是制动前视窗（距离比较前毫米向上
+        // 取整），本拍位移上界只保留给位置截断类裁剪（hard_room 许可读取）。
+        let window = MotionReach::from_braking_window(
+            state.speed_mm_s(),
+            profile.desired_speed_mm_s(),
+            profile.max_accel(),
+            profile.comfort_decel(),
+            delta_s,
+        )
+        .or(reach);
+        // 窗外没有受控门时与逐门解释同为 None，不再读受控链。
+        let signal_stop = if window.is_some_and(|window| {
             hop.signal_from_start.is_none_or(|distance| {
-                reach.class_is_unreachable(Some(distance), position.progress_mm)
+                window.class_is_unreachable(Some(distance), position.progress_mm)
             })
         }) {
             None
         } else {
-            self.signal_stop_distance(compiled, state, cursor, reach)
+            self.signal_stop_distance(compiled, state, cursor, window)
         };
         let parking = self.parking_stop_distance(compiled, state, cursor, parking_binding)?;
         let parking_stop = parking.map(|(_, distance)| distance);
         let selected_stop = select_movement_stop(signal_stop, parking_stop, route_end);
         let mut movement_stop = (!matches!(selected_stop.attribution, StopAttribution::RouteEnd))
             .then_some(selected_stop.distance);
-        // 信号链看不到没有信号组的拒绝门。这一拍够得到时，硬房间算到那道门，
-        // 不能等 apply_travel 截断后还留着原来的速度。
+        // 信号链看不到没有信号组的拒绝门。窗内查询硬房间；位置截断仍按本拍
+        // reach（apply_travel 的真实跨门检查不变）。
         let gate_unreachable =
-            cursor_row.is_some_and(|row| row.gate_stop_unreachable(position.progress_mm, reach));
+            cursor_row.is_some_and(|row| row.gate_stop_unreachable(position.progress_mm, window));
         if let Some(gate_stop) = (!gate_unreachable)
             .then(|| {
                 self.restrictive_gate_stop_from(
                     compiled,
                     state,
                     cursor,
-                    reach,
+                    window,
                     hop.gate_first as usize,
                 )
             })
@@ -5545,6 +5555,27 @@ impl MotionReach {
         }
         // 500 = 0.5 × 1_000，把 m/s² 的半加速度项换成毫米。
         let millimeters = f64::from(speed_mm_s) * dt + 500.0 * accel * dt * dt + 50.0;
+        millimeters.is_finite().then_some(Self { millimeters })
+    }
+
+    /// #1272 停止目标制动前视窗（毫米向上取整）：`dt·(v+u) + u²/b_c`，u 取
+    /// 本拍可达且不超过期望的速度上界。用作停止查询的裁剪界；不可证明时
+    /// `None`，调用方做完整查询。
+    pub(crate) fn from_braking_window(
+        speed_mm_s: u32,
+        desired_mm_s: u32,
+        max_accel_m_s2: f32,
+        comfort_m_s2: f32,
+        delta_s: f32,
+    ) -> Option<Self> {
+        let window = speed_drop_window_upper(
+            si_speed(speed_mm_s),
+            si_speed(desired_mm_s),
+            max_accel_m_s2,
+            comfort_m_s2,
+            delta_s,
+        )?;
+        let millimeters = (f64::from(window.max(0.0)) * 1_000.0).ceil();
         millimeters.is_finite().then_some(Self { millimeters })
     }
 
