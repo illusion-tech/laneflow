@@ -4234,7 +4234,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             || {
                 #[cfg(test)]
                 note_barrier_query(|counts| counts.hard_room_permissions += 1);
-                self.hop_permitted(state.route(), edges, cursor, state.profile())
+                let compiled = self.compiled_route(state.route())?;
+                self.hop_gate_permitted_with_dilemma(
+                    compiled,
+                    cursor,
+                    state.profile(),
+                    state.speed_mm_s(),
+                )
             };
         let speed_drop_first = hop.speed_drop_first as usize;
         Some(MotionInputs {
@@ -4463,10 +4469,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         } else {
             state.carry_um = u16::try_from(um % 1_000).ok()?;
         }
-        let route = state.route;
         let vehicle_profile = state.profile;
+        let state_speed = state.speed_mm_s;
         apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
-            self.hop_permitted(route, edges, index, vehicle_profile)
+            self.hop_gate_permitted_with_dilemma(compiled, index, vehicle_profile, state_speed)
                 && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
                 && conflict_stop.is_none_or(|conflict| conflict.hop as usize != index)
                 && transition.is_none_or(|bound| bound.stop.hop as usize != index)
@@ -4648,8 +4654,16 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             }
             #[cfg(test)]
             note_barrier_query(|counts| counts.signal_gates += 1);
-            if self.gate_is_restrictive(next.gate, state.profile()) {
-                return Some(from_cursor_start.saturating_sub(position.progress_mm));
+            let stop_distance = from_cursor_start.saturating_sub(position.progress_mm);
+            let dilemma_exempt = matches!(stop_distance, BoundedDistance::Finite(mm)
+                if self.gate_yellow_dilemma_exempt(
+                    next.gate,
+                    state.profile(),
+                    state.speed_mm_s(),
+                    mm,
+                ));
+            if self.gate_is_restrictive(next.gate, state.profile()) && !dilemma_exempt {
+                return Some(stop_distance);
             }
             let next_hop = usize::try_from(next.hop).ok()?.checked_add(1)?;
             if next_hop <= hop {
@@ -4695,52 +4709,20 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 .get(usize::try_from(hop).ok()?)
                 .copied()
                 .flatten()
-                .is_some_and(|gate| self.gate_is_restrictive(gate, state.profile()))
+                .is_some_and(|gate| {
+                    self.gate_is_restrictive(gate, state.profile())
+                        && !self.gate_yellow_dilemma_exempt(
+                            gate,
+                            state.profile(),
+                            state.speed_mm_s(),
+                            distance,
+                        )
+                })
             {
                 return Some(BoundedDistance::Finite(distance));
             }
         }
         None
-    }
-
-    /// 判断该 hop 允许越过：不是路线末边，且其 Gate 对该车辆配置不拒绝。
-    pub(crate) fn hop_permitted(
-        self,
-        route: crate::RouteHandle,
-        edges: &[LaneEdgeOrdinal],
-        hop_index: usize,
-        profile: VehicleProfileOrdinal,
-    ) -> bool {
-        if hop_index + 1 >= edges.len() {
-            return false;
-        }
-        let Some(compiled) = self.compiled_route(route) else {
-            return false;
-        };
-        self.hop_gate_permitted(compiled, hop_index, profile)
-    }
-
-    /// 同一冻结借用已经取得路线时复用解析结果；路线末端与 Gate 策略仍逐次检查。
-    fn hop_permitted_compiled(
-        self,
-        compiled: &CompiledRoute,
-        hop_index: usize,
-        profile: VehicleProfileOrdinal,
-    ) -> bool {
-        hop_index + 1 < compiled.edges.len()
-            && self.hop_gate_permitted(compiled, hop_index, profile)
-    }
-
-    fn hop_gate_permitted(
-        self,
-        compiled: &CompiledRoute,
-        hop_index: usize,
-        profile: VehicleProfileOrdinal,
-    ) -> bool {
-        match compiled.hop_gate.get(hop_index).copied().flatten() {
-            Some(gate) => !self.gate_is_restrictive(gate, profile),
-            None => true,
-        }
     }
 
     /// 判断该机动门对指定车辆配置是否拒绝并停车。
@@ -4797,6 +4779,86 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
         crate::kernel::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
             .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
+    }
+
+    /// #1272 黄灯困境区逐拍许可（本拍有效法规决定的能力判据）：该门当前
+    /// 决定为 `DenyAndStop`、绑定组灯色为限制性黄灯、且按该车紧急减速度的
+    /// 完整停车距离放不进到停止线的距离时，当拍该门对该车为许可。逐拍、
+    /// 无状态、独立于 raw proposal；红灯与既有政策解释不受影响。
+    pub(crate) fn gate_yellow_dilemma_exempt(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+        speed_mm_s: u32,
+        distance_mm: u32,
+    ) -> bool {
+        if self.gate_policy_decision(gate, profile) != crate::GatePolicyDecision::DenyAndStop {
+            return false;
+        }
+        let Some(gate_view) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .maneuver_gate(gate)
+        else {
+            return false;
+        };
+        let Some(group) = gate_view.signal_group() else {
+            return false;
+        };
+        if self.committed.signal_aspects.get(group.index()).copied()
+            != Some(laneflow_static_contract::SignalAspect::Yellow)
+        {
+            return false;
+        }
+        let Some(emergency) = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(profile)
+            .map(|profile| profile.emergency_decel())
+        else {
+            return false;
+        };
+        let speed = si_speed(speed_mm_s);
+        speed * speed / (2.0 * emergency) > si_meters(distance_mm)
+    }
+
+    /// #1272 跨门判定的黄灯困境区许可：限制性黄灯门对本拍移动中的车辆放行
+    /// 跨越。停得住的黄灯门由停止目标收紧位移，不会走到跨门询问，因此这里
+    /// 只会命中拍初已豁免（停止查询跳过）的门；红灯与既有拒绝不受影响。
+    pub(crate) fn hop_gate_permitted_with_dilemma(
+        self,
+        compiled: &CompiledRoute,
+        hop_index: usize,
+        profile: VehicleProfileOrdinal,
+        speed_mm_s: u32,
+    ) -> bool {
+        match compiled.hop_gate.get(hop_index).copied().flatten() {
+            Some(gate) => {
+                !self.gate_is_restrictive(gate, profile)
+                    || (speed_mm_s > 0
+                        && self.committed_signal_group_of(gate)
+                            == Some(laneflow_static_contract::SignalAspect::Yellow))
+            }
+            None => true,
+        }
+    }
+
+    fn committed_signal_group_of(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+    ) -> Option<laneflow_static_contract::SignalAspect> {
+        let group = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .maneuver_gate(gate)?
+            .signal_group()?;
+        self.committed.signal_aspects.get(group.index()).copied()
     }
 }
 

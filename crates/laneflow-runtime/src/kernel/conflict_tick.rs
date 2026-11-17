@@ -359,6 +359,55 @@ struct GateHopEvaluation {
 /// 共用领域段（#706 R3-3a）：单 hop Gate 决定求值——maneuver 定位、
 /// anchor/range/passage 构造、policy 决定与 outcome 仲裁（waiting plan
 /// 组合）。Ok(outcome=Some) → 无资源决定；Ok(outcome=None) → 资源候选
+/// #1272：从拍初位置到该门所在 hop 边末（停止线）的有限距离。
+fn gate_hop_line_distance(
+    compiled: &crate::kernel::tables::CompiledRoute,
+    state: &VehicleState,
+    gate_hop: u32,
+) -> Option<u32> {
+    let to = usize::try_from(gate_hop).ok()?.checked_add(1)?;
+    match crate::kernel::tables::distance_to_occurrence_start(
+        &compiled.occurrence_segments,
+        &compiled.occurrence_offsets,
+        &compiled.segment_totals,
+        state.route_edge_index as usize,
+        state.progress_mm,
+        to,
+    )? {
+        laneflow_static_network::BoundedDistance::Finite(mm) => Some(mm),
+        laneflow_static_network::BoundedDistance::BeyondFinite => None,
+    }
+}
+
+/// #1272：困境区豁免后的候选保护等级——取该门规则绿列的解释结果，
+/// 保留原判级（保护型 Protected、许可型 Permissive）。
+fn gate_green_column_decision(
+    read: crate::kernel::phase::StepReadView<'_>,
+    gate: laneflow_static_contract::ManeuverGateOrdinal,
+    profile: VehicleProfileOrdinal,
+) -> Option<GatePolicyDecision> {
+    let gate_view = read
+        .binding
+        .revision
+        .traffic()
+        .relations()
+        .maneuver_gate(gate)?;
+    let class = read
+        .binding
+        .revision
+        .traffic()
+        .relations()
+        .vehicle_profile(profile)
+        .map(|p| p.class())?;
+    let rule = read.policy().and_then(|policy| policy.gate(gate, class))?;
+    let signal_group = gate_view.signal_group();
+    crate::kernel::conflict::interpret_gate_policy(
+        *rule,
+        signal_group.is_some(),
+        Some(laneflow_static_contract::SignalAspect::Green),
+    )
+}
+
 /// （kind/waiting_zone 有效）。融合与分发同一实现。
 #[allow(clippy::too_many_arguments)]
 fn evaluate_gate_hop(
@@ -417,7 +466,32 @@ fn evaluate_gate_hop(
     };
     let gate = compiled.hop_gate[gate_hop as usize];
     let decision = match gate {
-        Some(gate) => read.gate_policy_decision(gate, state.profile),
+        Some(gate) => {
+            let decision = read.gate_policy_decision(gate, state.profile);
+            // #1272 黄灯困境区逐拍许可：拍初按紧急减速度停不住的黄灯门当拍
+            // 放行为候选，候选保护等级保留该解释的原判级（绿列），让行义务
+            // 与资源仲裁继续独立生效。
+            if decision == GatePolicyDecision::DenyAndStop {
+                let distance_to_line = gate_hop_line_distance(compiled, &state, gate_hop);
+                if distance_to_line.is_some_and(|mm| {
+                    read.gate_yellow_dilemma_exempt(
+                        gate,
+                        state.profile,
+                        state.speed_mm_s,
+                        mm,
+                    )
+                }) {
+                    gate_green_column_decision(read, gate, state.profile)
+                        .unwrap_or(GatePolicyDecision::Candidate(
+                            GateCandidateKind::Permissive,
+                        ))
+                } else {
+                    decision
+                }
+            } else {
+                decision
+            }
+        }
         None => {
             // 修形①②（#1199）：无 gate 的冲突 hop（如过渡边 T 的资源格
             // 准入）——资源候选形态、Uncontrolled 法规；准入判据=P4 具名
