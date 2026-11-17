@@ -833,7 +833,9 @@ fn scalar_row<const TRACK: bool>(
             .as_mut()
         {
             // 已证速度上界（本拍最大可达且不超过期望）取窗，不随目标收紧缩小。
-            let upper = (speed + input.max_accel[row] * delta_s).min(desired).max(0.0);
+            let upper = (speed + input.max_accel[row] * delta_s)
+                .min(desired)
+                .max(0.0);
             window[row] = delta_s * (speed + upper) + upper * upper / input.comfort_decel[row];
         }
         output.valid[row] = raw_valid(input, row, delta_s, raw_travel, raw_speed);

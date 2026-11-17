@@ -717,8 +717,8 @@ fn compute(
             batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
-            batch.service_tier[row] = transition
-                .is_some_and(|bound| limits.stop == Some(bound.stop.distance));
+            batch.service_tier[row] =
+                transition.is_some_and(|bound| limits.stop == Some(bound.stop.distance));
             batch.transition_hop[row] = transition.map(|bound| bound.stop.hop);
             chunk.cursor[row] = position.route_edge_index;
             Ok(())
@@ -843,8 +843,7 @@ fn compute(
                         index,
                         profile,
                         source.speed_mm_s[offset + row],
-                    )
-                        && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
+                    ) && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.transition_hop[row].is_none_or(|hop| hop as usize != index));
                 batch.has_next[row] = index + 1 < compiled.edges.len();
