@@ -1,10 +1,20 @@
++++
+schema_version = 1
+id = "design-retire-precompiled-static-route"
+kind = "design"
+status = "accepted"
+summary = "定义移除静态路线后的场景目录与运行时接入。"
+scope = "从路网产品删除 StaticRoute 后的制品表、连续身份登记、运行时编译、 场景 catalog 0.4 与每世界路线表形状"
+applicability = "#applicability"
+related = ["adr-0029", "design-compiler-foundation", "design-example-scenarios", "design-portable-canonical-artifact", "design-route-system", "design-shared-static-network", "design-traffic-runtime-shared-consumption"]
++++
+
 # 退役预编译静态路线
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-08-30<br>
-**适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、连续身份登记、运行时编译、
-场景 catalog 0.4 与每世界路线表形状<br>
-**关联文档**: [`../adr/0029-retire-precompiled-static-route.md`][adr-0029]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联文档： [`../adr/0029-retire-precompiled-static-route.md`][adr-0029]、
 [`traffic-runtime-shared-consumption.md`][shared-consumption]、
 [`portable-canonical-artifact.md`][portable-artifact]、
 [`shared-static-network.md`][shared-static-network]、

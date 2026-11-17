@@ -1,10 +1,21 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-shared-consumption"
+kind = "design"
+status = "accepted"
+summary = "定义运行时对共享静态路网的消费合同。"
+scope = "laneflow-runtime / TrafficWorld 对共享路网修订的消费，以及 SpatialSession 绑定"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/301", "https://github.com/illusion-tech/laneflow/issues/469"]
+related = ["adr-0003", "adr-0017", "adr-0018", "adr-0020", "adr-0021", "adr-0025", "adr-0026", "adr-0028", "adr-0029", "design-adapter-api", "design-network-compiler", "design-parking-system", "design-portable-canonical-artifact", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-execution-config", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-snapshot"]
++++
+
 # 交通运行时共享静态路网消费
 
-**文档状态**: Accepted（#301 G1；#469 合入后完成）<br>
-**最后更新**: 2026-11-12<br>
-**适用范围**: `laneflow-runtime` / `TrafficWorld` 对共享路网修订的消费，以及
-`SpatialSession` 绑定<br>
-**关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联文档： `../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0021-traffic-infrastructure-and-host-boundary.md`、
 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
 `../adr/0029-retire-precompiled-static-route.md`、
@@ -25,7 +36,7 @@ worker 范围、快照容器与修订切换分别见
 [运行时快照][runtime-snapshot] 与 [修订切换][revision-cutover]。
 #441 系统化性能账本、#303 Routing 与 #294 残留改名不在本文。
 
-> **实现状态**：当前生产入口以 `ParkingFacility` 完整替换 `ParkingArea`，允许显式泊位
+> 实现状态：当前生产入口以 `ParkingFacility` 完整替换 `ParkingArea`，允许显式泊位
 > 与虚拟容量混合，并以 tagged target 交付 reserve/cancel/park/leave/rebind、parked
 > spawn 与原子 despawn；旧 `occupy_parking` 不保留 façade。规范见 `parking-system.md`。
 

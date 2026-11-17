@@ -44,6 +44,14 @@ jobs:
         shell: bash
         run: cargo +1.99.1 run --locked -p xtask -- check-commit-messages
 
+      - name: Check documentation model and generated indexes
+        shell: bash
+        run: cargo +1.99.1 run --locked -p xtask -- check-docs
+
+      - name: Test documentation checks
+        shell: bash
+        run: cargo +1.99.1 test --locked -p xtask doc_checks
+
   markdown-tables:
     name: Markdown tables
     runs-on: ubuntu-latest

@@ -1,10 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-near-gate-frontier"
+kind = "design"
+status = "accepted"
+summary = "定义近门车辆集合、入口更新与休眠。"
+scope = "TrafficWorld 冲突接近记录的维护，以及红灯门前的到达下界"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/740", "https://github.com/illusion-tech/laneflow/issues/946"]
+related = ["adr-0021", "design-signal-system", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-phase-protocol", "design-traffic-runtime-right-of-way-policy"]
++++
+
 # 近门车辆的入口 frontier
 
-**文档状态**: Accepted（#740；#946 增补零贡献休眠）<br>
-**最后更新**: 2026-10-15<br>
-**适用范围**: `TrafficWorld` 冲突接近记录的维护，以及红灯门前的到达下界
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文包括零贡献休眠的设计范围。
+
+关联文档：
 
 - [`traffic-runtime-conflict-occurrence.md`][conflict-occurrence]
 - [`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol]

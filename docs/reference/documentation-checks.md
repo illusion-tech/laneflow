@@ -1,10 +1,16 @@
++++
+schema_version = 1
+id = "reference-documentation-checks"
+kind = "reference"
+status = "active"
+summary = "定义文档结构、元数据、关系与索引的离线检查。"
+scope = "xtask check-docs 检查的本地路径、标题锚点与关键索引入口"
+related = ["governance-documentation-policy", "reference-validation-matrix"]
++++
+
 # 离线文档结构检查
 
-**文档状态**: Active
-**最后更新**: 2026-11-11
-
-**适用范围**: `xtask check-docs` 检查的本地路径、标题锚点与关键索引入口
-**关联文档**:
+## 相关文档
 
 - [`validation-matrix.md`][validation-matrix] 第 9 节：这条检查在验证矩阵中的位置
 - [`../../xtask/data/doc-checks.toml`][doc-checks]：关键索引入口的 source→target 列表
@@ -18,7 +24,7 @@
 cargo +1.99.1 run --locked -p xtask -- check-docs [<path...>]
 ```
 
-- 无参数时扫描第 2 节的默认来源。传入路径只收窄或扩展来源扫描，不关闭关键索引入口检查。
+- 无参数时扫描第 2 节的默认链接来源。传入路径只收窄或扩展链接扫描，不关闭关键索引入口及全量正式文档模型检查。
 - 只读，没有修复模式。成功退出 0；规则失败或无法读取、越界、显式符号链接等执行失败退出 1。
 - 仓库根是进程当前工作目录，不是编译期源码路径。
 - 依赖已在本地缓存后，可以用 `cargo +1.99.1 run --offline --locked -p xtask -- check-docs`。已构建的检查器本身不访问网络。`--locked` 不表示首次构建不会下载依赖。
@@ -42,7 +48,7 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 作为来源扫描：
 
 - 根目录 `README.md`、`CONTRIBUTING.md`、`AGENTS.md`
-- `docs/**/*.md`，含保留的 Retired 短结论和历史测量说明；只检结构，不检语义
+- `docs/**/*.md`；正式页面额外检查 TOML 元数据、关系图和生成索引
 - `.agents/**/*.md`、`.cursor/skills/**/SKILL.md`
 - `crates/*/README.md`、`tools/*/README.md`、`schemas/**/*.md`
 - `.github/*.md`，不递归其中的 fixture
@@ -124,9 +130,30 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 可见的 `skip` 表示这项没有完成锚点校验。它不是失败，也不是“锚点已经正确”。HTTP、mailto、rustdoc 和非 Markdown fragment 只出现在汇总计数里，避免把外部地址刷满输出。
 
-不要用配置文件掩盖存量错误。默认全量扫描目前允许有路径或锚点失败；那些结果留给后续文档删并，而不是在这次检查里逐文件忽略。
+不要用配置文件掩盖存量错误。默认全量扫描必须通过，不设逐文件豁免。
 
-结构检查通过，只说明所覆盖的路径和锚点对得上。它不判断文档语义，不维护旧词清单，不编译示例，也不代替跨文档一致性复核。它也还不是合并门禁。
+检查通过说明所覆盖的路径、锚点、元数据模型、关系登记和索引生成一致。它不验证批准
+事实或技术语义，不维护旧词清单，不编译示例，也不替代人工跨文档一致性复核。
+CI 的既有 `Commit message` job 在 PR 和 merge_group 同时运行该检查及文档检查测试，
+任一步失败都会使现有 required check 失败；不新增 required check 名称或平台配置。
+
+## 7. 正式文档模型与生成入口
+
+[文档元数据与发布模型][document-metadata]定义 TOML 页头、状态语义、有效性、关系与
+稳定 ID。所有 docs 正式页面的页头必须可解析；非正式 Skill/模板等仍使用原生格式。
+页头从 Markdown 链接和标题解析输入屏蔽，保留诊断行号。元数据的 URL 是类型化字段，
+不受正文“只用页脚引用”的语法规则约束，但仍按字段定义验证。
+
+```powershell
+cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes
+cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes --check
+cargo +1.99.1 run --locked -p xtask -- export-docs
+```
+
+生成器仅更新 index 页的受控区域；检查模式只读。目录导出先复用完整检查，写入
+`target/docs/catalog.json`，不提交构建产物。正式文档模型始终全量验证，避免路径参数
+绕过全局 ID、关系或索引检查。元数据错误报告来源路径，TOML 语法错误带页头内位置；
+关系与索引错误直接列出文档 ID 或文件，不解释成普通链接错误计数。
 
 已知子集差异：
 
@@ -138,4 +165,5 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 [validation-matrix]: validation-matrix.md
 [doc-checks]: ../../xtask/data/doc-checks.toml
+[document-metadata]: document-metadata.md
 [documentation-policy]: ../governance/documentation-policy.md

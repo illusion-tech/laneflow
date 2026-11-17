@@ -1,8 +1,24 @@
++++
+schema_version = 1
+id = "design-compiler-resource-ledger"
+kind = "design"
+status = "accepted"
+summary = "定义编译、发射与公开检查共用的资源账本。"
+scope = "定义编译、发射与公开检查共用的资源账本。"
+date = "2026-11-16"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1296"]
+related = ["adr-0035", "design-compiler-foundation"]
++++
+
 # 编译器资源账本
 
-> **状态**：Accepted（[#1296][issue-1296] G1，2026-11-16，随 [ADR 0035][adr-0035] 修订一并冻结；设计已接受不等于实现完成）<br>
-> **日期**：2026-11-16<br>
-> **决策依据**：[ADR 0035][adr-0035]；[编译器基础 §5.3][compiler-limits]
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文与 ADR 0035 一并定义资源账本合同。设计接受不等于实现完成，实施与验收进度见关联议题。
+
+> 决策依据：[ADR 0035][adr-0035]；[编译器基础 §5.3][compiler-limits]
 
 ## 1. 目标与非目标
 

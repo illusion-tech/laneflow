@@ -1,12 +1,23 @@
++++
+schema_version = 1
+id = "design-signalized-corridor-population"
+kind = "design"
+status = "accepted"
+summary = "定义信号化走廊人口与车辆回流。"
+scope = "current v0.10 signalized-corridor catalog 0.4 人口/回流 policy； caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订 （#472）；50–200 原子替换由 #475 交付。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/203", "https://github.com/illusion-tech/laneflow/issues/475"]
+related = ["adr-0016", "design-bevy-reference-adapter", "design-example-scenarios", "design-signalized-corridor-protected-turning", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-shared-consumption"]
++++
+
 # Signalized Corridor Population
 
-**文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
-**最后更新**: 2026-10-23<br>
-**适用范围**: current v0.10 signalized-corridor catalog 0.4 人口/回流 policy；
-caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
-（#472）；50–200 原子替换由 #475 交付。
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文包含 Runtime 完成路线后的回流设计。
+
+关联文档：
 
 - [`example-scenarios.md`][example-scenarios]
 - [`signalized-corridor-protected-turning.md`][protected-turning]

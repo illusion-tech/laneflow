@@ -1,13 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-integer-geometry"
+kind = "design"
+status = "accepted"
+summary = "定义整数毫米运动、速度与停止约束。"
+scope = "TrafficWorld 已提交一维几何与速度、WorldConfig 步长、 laneflow-static-network 热列、LFCA 长度/速度字段、compiler Typed AST / HIR / MIR / LIR 交通一维存储、公开 Canonical*View、compiler 边长派生、 Spatial 采样钉死端点"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
+related = ["adr-0003", "adr-0014", "adr-0015", "adr-0022", "adr-0028", "design-numeric-representation", "design-portable-canonical-artifact", "design-route-system", "design-shared-static-network", "design-signal-system", "design-traffic-runtime-shared-consumption", "design-vehicle-following"]
++++
+
 # 交通运行时整数毫米几何
 
-**文档状态**: Accepted（#1272 停止目标速度归约与耗尽决策表已冻结，实现随
-#1272 实现交付，此前现行代码仍按 §5 原序列）<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
-`laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
-MIR / LIR 交通一维存储、公开 `Canonical*View`、compiler 边长派生、
-Spatial 采样钉死端点<br>
-**关联文档**: `../adr/0028-integer-millimeter-traffic-geometry.md`、
+<a id="applicability"></a>
+## 适用边界与依据
+
+停止目标速度归约与耗尽决策表已接受为设计，对应实现由 #1272 承担。设计与现行代码的差异见 §5；不能从设计接受推断生产切换已完成。
+
+关联文档： `../adr/0028-integer-millimeter-traffic-geometry.md`、
 `../adr/0003-runtime-tick-and-determinism.md`、
 `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`、
 `../adr/0015-bounded-f32-canonical-spatial-frames.md`、

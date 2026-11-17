@@ -1,9 +1,13 @@
-# LaneFlow 双语术语表
++++
+schema_version = 1
+id = "reference-glossary"
+kind = "reference"
+status = "active"
+summary = "统一中文规范术语、英文辅助名与废弃旧称。"
+scope = "LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、 #291 编译器时代静态路网方案、交通基础设施与宿主边界"
++++
 
-**文档状态**: Active<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
-#291 编译器时代静态路网方案、交通基础设施与宿主边界
+# LaneFlow 双语术语表
 
 ## 1. 规范性规则
 

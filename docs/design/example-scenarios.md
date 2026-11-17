@@ -1,18 +1,30 @@
++++
+schema_version = 1
+id = "design-example-scenarios"
+kind = "design"
+status = "accepted"
+summary = "定义参考场景的几何、路线与验证用途。"
+scope = "信号化走廊几何、受保护转向 profile、catalog 0.4、人口和车辆回流策略。 JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的复杂路口参考场景。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/184", "https://github.com/illusion-tech/laneflow/issues/196"]
+related = ["adr-0013", "adr-0015", "adr-0016", "adr-0029", "design-lust-bevy-population-control", "design-real-road-workloads", "design-signalized-corridor-population"]
++++
+
 # 示例场景设计
 
-**文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-10-23<br>
-**适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.4、人口和车辆回流策略。
-JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的复杂路口参考场景。
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联 ADR**:
+本文包括 v0.9 场景增量的设计范围。
+
+关联 ADR：
 
 - [`../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`][adr-0013]
 - [`../adr/0015-bounded-f32-canonical-spatial-frames.md`][adr-0015]
 - [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`][adr-0016]
 - [`../adr/0029-retire-precompiled-static-route.md`][adr-0029]
 
-**关联设计**:
+关联设计：
 
 - [`signalized-corridor-population.md`][corridor-population]：走廊
   `50..=200` caller-owned reference policy。

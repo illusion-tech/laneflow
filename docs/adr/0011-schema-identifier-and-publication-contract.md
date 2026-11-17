@@ -1,14 +1,31 @@
++++
+schema_version = 1
+id = "adr-0011"
+kind = "adr"
+status = "accepted"
+summary = "记录历史 JSON Schema 标识与公开发布义务。"
+scope = "历史记录：LaneFlow 多 family JSON Schema $id、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；current JSON loader 已随 #301 从运行入口拆除。"
+date = "2026-07-17"
+applicability = "#applicability"
+
+related = ["adr-0007", "adr-0008", "adr-0024", "governance-dependency-security", "governance-documentation-policy"]
+[[supersedes]]
+target = "adr-0008"
+extent = "partial"
+explanation = "#supersedes-adr-0008"
++++
+
 # 0011 Schema Identifier and Public Publication Contract
 
-**状态**: Superseded（被 [ADR 0026][adr-0026] 取代）
-**日期**: 2026-07-17
-**适用范围**: 历史记录：LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；current JSON loader 已随 #301 从运行入口拆除。
-**目标态取代登记**: 本文的公共发布义务已被 ADR 0026 取代（schema publication
+<a id="applicability"></a>
+## 适用边界与依据
+
+目标态取代登记： 本文的公共发布义务已被 ADR 0026 取代（schema publication
 退役）。现行静态数据契约是可移植规范制品（LFCA / LFSM / LFSD / LFCP v2，ADR
 0024）；验证收据已取消。不可变发布、规范 URL、来源链和运行时不联网的原则仍
 有效。本文 current 契约已随 #301 退出生产路径，只保留历史语义。
 
-**关联文档**:
+关联文档：
 
 - 上游决策:
   - `0007-traffic-data-crate-and-loader-boundary.md`
@@ -119,4 +136,15 @@ Core、`laneflow-data` production loader、Adapter 与 hermetic runtime tests �
 - #134：把 catalog 提升为 multi-family contractVersion 2，登记 Spatial/Scenario Manifest v0.1 current source；后续唯一 Delivery PR 固定 `main` provenance、部署并完成 live monitor。
 - 首次 1.0 格式冻结、迁移到自有域名/CDN、修改 retention SLA 或需要严格 `application/schema+json` headers 时，创建独立 Issue 和 ADR 修订。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0008"></a>
+### adr-0008
+
+[adr-0008][replacement-adr-0008]：当时对已公开 schema 增加不可变发布与永久保留义务；该后继义务又由 ADR 0026 取消，不恢复旧 loader 兼容。
+
+
 [adr-0026]: 0026-merge-governance-rebuild.md
+
+[replacement-adr-0008]: 0008-pre-1.0-data-format-version-policy.md

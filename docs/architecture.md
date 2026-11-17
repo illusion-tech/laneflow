@@ -1,8 +1,19 @@
++++
+schema_version = 1
+id = "architecture"
+kind = "reference"
+status = "active"
+summary = "说明现行组件分层、数据流与宿主集成边界。"
+scope = "当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界"
+applicability = "#applicability"
++++
+
 # 架构
 
-**文档状态**: Active（现行系统视图；规范正文在 ADR 与 `docs/design/`）<br>
-**最后更新**: 2026-11-11<br>
-**适用范围**: 当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文提供现行系统视图；精确规范由 ADR 和专题设计文档拥有。
 
 本文只描述开工基线 `eaa5d0357e2e20ba49fbc2f4e55249ba846fccb0` 上的现行系统。
 算法、格式字段和失败枚举以链接的专题合同为准。本文不新选运行时架构，也不把

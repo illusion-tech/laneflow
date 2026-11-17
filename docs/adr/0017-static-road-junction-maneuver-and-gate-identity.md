@@ -1,15 +1,32 @@
++++
+schema_version = 1
+id = "adr-0017"
+kind = "adr"
+status = "accepted"
+summary = "规定路口、机动路径与机动门的静态身份。"
+scope = "LaneFlow 的 Junction、Movement、ManeuverPath、RoadSection、JunctionGroup、ManeuverGate、Route occurrence 与 v0.9 最小静态生产化边界"
+date = "2026-07-24"
+applicability = "#applicability"
+
+related = ["adr-0001", "adr-0003", "adr-0005", "adr-0007", "adr-0008", "adr-0009", "adr-0011", "adr-0013", "design-lane-graph", "design-road-junction-model", "design-route-system", "design-signal-system"]
+[[supersedes]]
+target = "adr-0009"
+extent = "partial"
+explanation = "#supersedes-adr-0009"
++++
+
 # ADR 0017：静态 Road/Junction/Maneuver 与 Gate 身份
 
-**状态**: Accepted<br>
-**日期**: 2026-07-24<br>
-**适用范围**: LaneFlow 的 Junction、Movement、ManeuverPath、RoadSection、JunctionGroup、ManeuverGate、Route occurrence 与 v0.9 最小静态生产化边界<br>
-**目标态取代登记**: Accepted ADR 0020 将取代核心规范化位置；Accepted ADR 0029
+<a id="applicability"></a>
+## 适用边界与依据
+
+目标态取代登记： Accepted ADR 0020 将取代核心规范化位置；Accepted ADR 0029
 进一步取消「编译器预编译初始路线出现记录」：路网产品不再拥有 `StaticRoute`，出现记录
 只在 `TrafficWorld::register_route` 编进每世界表。路口、通行流向、机动路径、机动
-门、出现记录匹配规则、共享内部边和热路径无字符串继续有效。<br>
-**后继决策**: ADR 0029（Accepted；#498 G1）部分取代本文关于预编译静态路线 /
-initial route 目录的条款。<br>
-**关联文档**:
+门、出现记录匹配规则、共享内部边和热路径无字符串继续有效。
+后继决策： ADR 0029（Accepted；#498 G1）部分取代本文关于预编译静态路线 /
+initial route 目录的条款。
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`
@@ -277,3 +294,13 @@ schema 语义，超出 protected-turning 最小闭环，因此拒绝。
 SignalController/Adapter、允许 dynamic topology，或让 JunctionGroup 成为单一行为
 求解器，必须新增或 supersede 本 ADR，不得通过 private 实现静默改变 Accepted
 语义。
+
+## 取代范围
+
+<a id="supersedes-adr-0009"></a>
+### adr-0009
+
+[adr-0009][replacement-adr-0009]：替代按车道对定义机动门身份的方案；灯色、法规策略、冲突仲裁与安全的职责分层继续有效。
+
+
+[replacement-adr-0009]: 0009-signal-indication-gate-and-policy-separation.md

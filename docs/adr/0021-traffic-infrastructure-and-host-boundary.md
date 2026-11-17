@@ -1,19 +1,28 @@
++++
+schema_version = 1
+id = "adr-0021"
+kind = "adr"
+status = "accepted"
+summary = "规定公开组件定位、宿主边界与规模演进原则。"
+scope = "LaneFlow 公开组件定位、宿主应用边界、交通编排、路径规划、 路网修订、存档/回放、过载优雅降级（Graceful Overload Degradation）与中国特色 城市工作负载（Chinese-style City Workload）"
+date = "2026-07-29"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0003", "adr-0016", "adr-0020", "adr-0024", "adr-0025", "adr-0029", "architecture", "design-core-runtime-performance-baseline", "design-network-compiler", "design-shared-static-network", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-scale-decision-baseline", "design-traffic-runtime-snapshot", "reference-glossary"]
++++
+
 # ADR 0021：交通基础设施定位与宿主边界
 
-**状态**: Accepted<br>
-**日期**: 2026-07-29<br>
-**最后更新**: 2026-09-06<br>
-**适用范围**: LaneFlow 公开组件定位、宿主应用边界、交通编排、路径规划、
-路网修订、存档/回放、过载优雅降级（Graceful Overload Degradation）与中国特色
-城市工作负载（Chinese-style City Workload）<br>
-**扩展**: ADR 0001；本 ADR 不让 LaneFlow 自身拥有城市经济、市民出行需求或完整
-交通工程仿真职责<br>
+<a id="applicability"></a>
+## 适用边界与依据
+
+扩展： ADR 0001；本 ADR 不让 LaneFlow 自身拥有城市经济、市民出行需求或完整
+交通工程仿真职责
 
 本文冻结组件职责、规模口径与确定性约束。后发射检查和 LFCP binding 以 ADR 0024
 为准，共享静态路网以 ADR 0025 为准，每世界路线以 ADR 0029 为准；修订切换与快照的
 精确协议分别由对应 design 文档定义。
 
-**关联文档**:
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

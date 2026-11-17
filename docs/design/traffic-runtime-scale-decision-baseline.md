@@ -1,10 +1,22 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-scale-decision-baseline"
+kind = "design"
+status = "active"
+summary = "记录城市规模扩展的现行决策与证据边界。"
+scope = "现行 TrafficWorld 道路机动车路径的城市规模扩展决策与接口可扩展性复核"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1336", "https://github.com/illusion-tech/laneflow/issues/72"]
+related = ["adr-0021", "design-core-runtime-performance-baseline", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-snapshot"]
++++
+
 # Traffic Runtime 城市规模扩展决策基线
 
-**文档状态**: Active<br>
-**最后更新**: 2026-11-09<br>
-**适用范围**: 现行 `TrafficWorld` 道路机动车路径的城市规模扩展决策与接口可扩展性复核<br>
-**关联议题**: #72、#1336<br>
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联议题： #72、#1336
+关联文档：
 
 - [`core-runtime-performance-baseline.md`][performance-baseline]
 - [`traffic-runtime-parallel-execution.md`][parallel-execution]

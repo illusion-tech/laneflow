@@ -2,7 +2,9 @@
 //!
 //! 仓库根是进程当前工作目录。检查器只读，不访问网络。
 
+pub(crate) mod catalog;
 mod markdown;
+mod metadata;
 mod scan;
 mod slug;
 
@@ -39,7 +41,10 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         eprintln!("{note}");
     }
     if report.findings.is_empty() {
+        let catalog = catalog::Catalog::load(&root)?;
+        catalog.indexes(&root, false)?;
         println!("{}", report.summary());
+        println!("formal-documents={}", catalog.pages.len());
         Ok(())
     } else {
         Err(report.summary())

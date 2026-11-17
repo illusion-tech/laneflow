@@ -1,8 +1,22 @@
++++
+schema_version = 1
+id = "adr-0031"
+kind = "adr"
+status = "accepted"
+summary = "规定列式运动正本与独立 SIMD 数值边界。"
+scope = "规定列式运动正本与独立 SIMD 数值边界。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/814"]
+related = ["design-traffic-runtime-columnar-execution"]
++++
+
 # 0031 列式运动正本与独立 SIMD 数值边界
 
-**状态**: Accepted<br>
-**设计入口**: [#814][issue-814]<br>
-**关联设计**: [列式批量执行][columnar-execution]
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#814][issue-814]
+关联设计： [列式批量执行][columnar-execution]
 
 ## 背景
 

@@ -1,14 +1,20 @@
++++
+schema_version = 1
+id = "design-lf-synth-measurement"
+kind = "design"
+status = "accepted"
+summary = "定义合成工作负载的表现选择、帧输入和计时接线。"
+scope = "LF-SYNTH-v2 宿主 harness 的固定表现选择、外层帧输入与同次运行计时。 交通输入、步进规则和产品预算仍由 core-runtime-performance-baseline.md、 lf-synth-input-bundle.md 和 lf-synth-execution.md 约束。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1165", "https://github.com/illusion-tech/laneflow/issues/1166", "https://github.com/illusion-tech/laneflow/issues/1388"]
++++
+
 # LF-SYNTH-v2 表现与测量接线
 
-**文档状态**：Accepted（[#1165][issue-1165]）；
-设计已接受，实施与正式测量由 #1166 承担，不能据此宣称实现或产品认证完成。
-§7 逐段负载记录与受扰轮次已经 [#1388][issue-1388] G1 接受，实现由 #1388 承担。
+<a id="applicability"></a>
+## 适用边界与依据
 
-**适用范围**：LF-SYNTH-v2 宿主 harness 的固定表现选择、外层帧输入与同次运行计时。
-交通输入、步进规则和产品预算仍由
-[`core-runtime-performance-baseline.md`][performance-baseline]、
-[`lf-synth-input-bundle.md`][lf-synth-input-bundle] 和
-[`lf-synth-execution.md`][lf-synth-execution] 约束。
+设计已接受；实施与正式测量由 #1166 承担，不能据此宣称实现或产品认证完成。§7 的逐段负载记录与受扰轮次设计由 #1388 接受，实施进度见对应议题。
 
 ## 1. 需要裁决的接缝
 

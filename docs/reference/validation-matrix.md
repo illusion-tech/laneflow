@@ -1,10 +1,16 @@
++++
+schema_version = 1
+id = "reference-validation-matrix"
+kind = "reference"
+status = "active"
+summary = "规定各任务类别的最低验证要求。"
+scope = "LaneFlow 各任务类别在合并前的最小验证要求，以及 CI 失败后的偶发签名判读"
+related = ["adr-0026", "adr-0027", "governance-dependency-security", "governance-development-gates", "governance-github-workflow", "governance-security-scanning", "reference-commit-convention"]
++++
+
 # 验证矩阵
 
-**文档状态**: Active
-**最后更新**: 2026-11-15
-
-**适用范围**: LaneFlow 各任务类别在合并前的最小验证要求，以及 CI 失败后的偶发签名判读
-**关联文档**:
+## 相关文档
 
 - 上游治理:
   - `../governance/development-gates.md`
@@ -225,6 +231,6 @@ cargo +1.99.1 run --locked -p xtask -- check-docs [<path...>]
 - 默认不把测试、fixture、evidence 和生成代码当作来源；指向这些真实文件的链接仍然检查路径是否存在。
 - HTTP(S)、mailto、历史 commit / tree / blob URL 和 rustdoc 符号链接只计数、不访问。不能可靠判定的扩展语法记为可见的 skip，不算锚点已通过，也不报 missing-anchor。
 - 配置文件只登记关键入口，不是逐文件忽略表。存量路径或锚点错误应改正文档，或留给后续文档删并；不能靠新增忽略项变成通过。
-- 结构检查通过只说明路径和锚点对得上。它不判断术语、语义或跨文档是否一致，也不是合并门禁，不能代替 #1345 的最终跨文档一致性复核。
+- 检查同时验证正式文档 TOML 模型、关系图与生成索引，随既有 `Commit message` required check 执行；批准事实、术语与技术语义仍由人工复核，不以结构通过代替跨文档审阅。
 
 [documentation-checks]: documentation-checks.md

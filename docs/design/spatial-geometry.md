@@ -1,12 +1,23 @@
++++
+schema_version = 1
+id = "design-spatial-geometry"
+kind = "design"
+status = "accepted"
+summary = "定义有界空间几何、长度绑定与位姿采样。"
+scope = "v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/300", "https://github.com/illusion-tech/laneflow/issues/301"]
+related = ["adr-0012", "adr-0013", "adr-0014", "adr-0015", "adr-0020", "adr-0022", "adr-0025", "design-adapter-api", "design-numeric-representation", "design-parking-system", "design-signalized-corridor-protected-turning", "reference-glossary"]
++++
+
 # 空间几何设计
 
-**文档状态**: Accepted（#300/#301 共享空间路网已交付；一维进度为 `progress_mm`）
+<a id="applicability"></a>
+## 适用边界与依据
 
-**最后更新**: 2026-11-12
+共享空间路网采用现行共享修订合同；一维进度表示为 `progress_mm`。
 
-**适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
-
-**关联文档**:
+关联文档：
 
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`

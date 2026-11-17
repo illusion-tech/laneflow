@@ -1,12 +1,23 @@
++++
+schema_version = 1
+id = "design-chinese-style-city-workload"
+kind = "design"
+status = "accepted"
+summary = "定义城市工作负载、需求计划与有限验证范围。"
+scope = "LF-CN-URBAN 当前模板 cn-urban-template-v2 的 topology / demand / runtime 分层、计数口径、首批场景边界与阶段依赖 本文定义工作负载的交付合同，不以设计接受代替生成器、运行程序或产品认证。 G1 判断、交付进度与本次测量结果保存在 GitHub Issue / PR。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/540", "https://github.com/illusion-tech/laneflow/issues/816"]
+related = ["adr-0010", "adr-0021", "design-core-runtime-performance-baseline", "design-cross-section-access", "design-parking-system", "design-real-road-workloads", "design-signalized-corridor-protected-turning", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-snapshot", "design-urban-demand-harness", "design-waiting-zone-conflict-right-of-way"]
++++
+
 # 中国特色城市工作负载 v1
 
-**文档状态**: Accepted（#816 G1，2026-10-03 接受；§4 保留 #540 Accepted 停车合同）<br>
-**最后更新**: 2026-10-03<br>
-**适用范围**: `LF-CN-URBAN` 当前模板 `cn-urban-template-v2` 的 topology / demand /
-runtime 分层、计数口径、首批场景边界与阶段依赖<br>
-本文定义工作负载的交付合同，不以设计接受代替生成器、运行程序或产品认证。
-G1 判断、交付进度与本次测量结果保存在 GitHub Issue / PR。
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+§4 继续使用停车系统的已接受合同。
+
+关联文档：
 
 - `parking-system.md`
 - `core-runtime-performance-baseline.md`

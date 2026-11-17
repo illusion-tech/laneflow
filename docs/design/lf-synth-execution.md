@@ -1,7 +1,20 @@
++++
+schema_version = 1
+id = "design-lf-synth-execution"
+kind = "design"
+status = "active"
+summary = "定义合成工作负载执行窗口与逐拍语义核验。"
+scope = "定义合成工作负载执行窗口与逐拍语义核验。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
++++
+
 # LF-SYNTH 执行核验
 
-**文档状态**: Active（§1 速度差口径随 #1272 整数几何合同翻转）<br>
-**最后更新**: 2026-11-16
+<a id="applicability"></a>
+## 适用边界与依据
+
+§1 的速度差口径以现行整数几何合同为准。
 
 ## 1. 语义消费边界
 

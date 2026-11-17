@@ -1,10 +1,47 @@
++++
+schema_version = 1
+id = "adr-0029"
+kind = "adr"
+status = "accepted"
+summary = "移除预编译静态路线，保留每世界路线注册入口。"
+scope = "路网产品中的路线实体、LFCA / 共享静态路网 / 编制来源、TrafficWorld 路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状"
+date = "2026-08-26"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/303", "https://github.com/illusion-tech/laneflow/issues/498"]
+
+related = ["adr-0017", "adr-0020", "adr-0021", "adr-0023", "adr-0025", "adr-0028", "design-example-scenarios", "design-portable-canonical-artifact", "design-retire-precompiled-static-route", "design-route-system", "design-shared-static-network", "design-traffic-runtime-shared-consumption"]
+[[supersedes]]
+target = "adr-0005"
+extent = "partial"
+explanation = "#supersedes-adr-0005"
+
+[[supersedes]]
+target = "adr-0017"
+extent = "partial"
+explanation = "#supersedes-adr-0017"
+
+[[supersedes]]
+target = "adr-0020"
+extent = "partial"
+explanation = "#supersedes-adr-0020"
+
+[[supersedes]]
+target = "adr-0023"
+extent = "partial"
+explanation = "#supersedes-adr-0023"
+
+[[supersedes]]
+target = "adr-0025"
+extent = "partial"
+explanation = "#supersedes-adr-0025"
++++
+
 # 0029 退役预编译静态路线，路线入口只留 `register_route`
 
-**状态**: Accepted<br>
-**日期**: 2026-08-26<br>
-**适用范围**: 路网产品中的路线实体、LFCA / 共享静态路网 / 编制来源、`TrafficWorld`
-路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状<br>
-**部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现记录」；ADR 0020 /
+<a id="applicability"></a>
+## 适用边界与依据
+
+部分取代： ADR 0017 中「目标态由编译器预编译初始路线出现记录」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
 共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。道路编辑根表按后继路权策略合同 §4.4 使用
 `format_version = 4`，包含 24 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
@@ -13,12 +50,12 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 `RouteHandle`。`network-compiler.md` §9.7
 对动态通行定义的耐久指名改为：快照局部 ID + 共享静态路网实体 `StableId128`，不把运行时
 槽位 / generation / 密集序号写入存档。路口 / 通行流向 / 机动路径 / 机动门 /
-出现记录匹配规则 / 热路径无字符串继续有效。<br>
-**不取代**: ADR 0021 出行编排与路径规划分层；ADR 0018 `register_route` 不做
-`(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。<br>
-**关联 Issue**: [#498][issue-498]、
-[#303][issue-303]（下述容量接缝已由 G1 接受）<br>
-**关联文档**:
+出现记录匹配规则 / 热路径无字符串继续有效。
+不取代： ADR 0021 出行编排与路径规划分层；ADR 0018 `register_route` 不做
+`(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。
+关联 Issue： [#498][issue-498]、
+[#303][issue-303]（下述容量接缝已由 G1 接受）
+关联文档：
 
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
 - `0020-compiler-owned-static-network-and-static-image.md`
@@ -281,6 +318,41 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - 磁盘快照合同：局部路线 ID + 边 `StableId128`；不落盘槽位 / generation / 密集序号 /
   出现记录。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0005"></a>
+### adr-0005
+
+[adr-0005][replacement-adr-0005]：Runtime 不再持有 route external ID resolver，移除路线不返回外部路线 ID；外部目录身份归宿主，运行时保留 RouteHandle。
+
+<a id="supersedes-adr-0017"></a>
+### adr-0017
+
+[adr-0017][replacement-adr-0017]：取消编译器预编译初始路线出现记录的目标方案；路口、通行流向、机动路径与机动门身份规则继续有效。
+
+<a id="supersedes-adr-0020"></a>
+### adr-0020
+
+[adr-0020][replacement-adr-0020]：StaticRoute 不再是 Identity 必选声明种类；路线属于每世界注册对象，编译器静态路网所有权不变。
+
+<a id="supersedes-adr-0023"></a>
+### adr-0023
+
+[adr-0023][replacement-adr-0023]：移除 §2.1 来源形状中的静态路线；道路编辑来源持久化与候选替换边界继续有效。
+
+<a id="supersedes-adr-0025"></a>
+### adr-0025
+
+[adr-0025][replacement-adr-0025]：StaticRoute 不再属于 Traffic 必需关系；共享静态路网与修订身份原则不变。
+
+
 [issue-498]: https://github.com/illusion-tech/laneflow/issues/498
 [issue-303]: https://github.com/illusion-tech/laneflow/issues/303
 [right-of-way]: ../design/traffic-runtime-right-of-way-policy.md
+
+[replacement-adr-0005]: 0005-core-identity-and-handle-model.md
+[replacement-adr-0017]: 0017-static-road-junction-maneuver-and-gate-identity.md
+[replacement-adr-0020]: 0020-compiler-owned-static-network-and-static-image.md
+[replacement-adr-0023]: 0023-road-editing-state-and-phased-network-replacement.md
+[replacement-adr-0025]: 0025-checked-canonical-network-and-shared-static-network.md

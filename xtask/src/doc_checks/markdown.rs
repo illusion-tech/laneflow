@@ -13,9 +13,19 @@ use super::{FindingKind, SkipKind};
 
 #[derive(Debug)]
 pub(super) struct Document {
+    pub(super) titles: Vec<String>,
+    pub(super) headings: Vec<Heading>,
     pub(super) links: Vec<LinkRec>,
     pub(super) anchors: BTreeSet<String>,
+    pub(super) duplicate_anchors: BTreeSet<String>,
     pub(super) code_spans: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(super) struct Heading {
+    pub(super) level: u8,
+    pub(super) text: String,
+    pub(super) anchor: String,
 }
 
 #[derive(Clone, Debug)]
@@ -46,7 +56,14 @@ pub(super) enum LinkKind {
 }
 
 pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
+    let masked = super::metadata::mask(text);
+    let text = masked.as_ref();
+    let mut titles = Vec::new();
+    let mut headings = Vec::new();
+    let mut h1 = false;
+    let mut heading_level = 0;
     let mut anchors = BTreeSet::new();
+    let mut duplicate_anchors = BTreeSet::new();
     let mut links = Vec::new();
     let mut code_spans = Vec::new();
     let mut slugger = Slugger::default();
@@ -78,13 +95,24 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
             match event {
                 Event::Start(Tag::CodeBlock(_)) => in_code += 1,
                 Event::End(TagEnd::CodeBlock) => in_code = in_code.saturating_sub(1),
-                Event::Start(Tag::Heading { .. }) => {
+                Event::Start(Tag::Heading { level, .. }) => {
+                    heading_level = level as u8;
+                    h1 = level == pulldown_cmark::HeadingLevel::H1;
                     in_heading = true;
                     heading.clear();
                 }
                 Event::End(TagEnd::Heading(_)) => {
+                    if h1 {
+                        titles.push(heading.clone());
+                    }
                     in_heading = false;
-                    anchors.insert(slugger.next(&heading));
+                    let anchor = slugger.next(&heading);
+                    anchors.insert(anchor.clone());
+                    headings.push(Heading {
+                        level: heading_level,
+                        text: heading.clone(),
+                        anchor,
+                    });
                     heading.clear();
                 }
                 Event::Text(text) if in_heading => heading.push_str(&text),
@@ -153,7 +181,11 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
             }
         }
     }
-    anchors.extend(explicit_html_anchors(&html_bytes));
+    for anchor in explicit_html_anchors(&html_bytes) {
+        if !anchors.insert(anchor.clone()) {
+            duplicate_anchors.insert(anchor);
+        }
+    }
 
     for (offset, reference) in broken_links.into_inner() {
         // 图片自身的引用从 `!` 开始，和图片范围起点相同，仍然报告。替代文字里的引用起点更靠后。
@@ -177,8 +209,11 @@ pub(super) fn parse_document(text: &str, source_rel: &str) -> Document {
     }
 
     Document {
+        titles,
+        headings,
         links,
         anchors,
+        duplicate_anchors,
         code_spans,
     }
 }
@@ -520,8 +555,8 @@ impl LineIndex {
 /// `html5gum` 只做分词，不会按树构建切换状态。看到会改变分词状态的开始标签后，
 /// 立刻 `set_state`；`/>` 不结束这些非 void 元素。`noscript` 只在启用脚本时才是
 /// raw text，这里不启用脚本。`<template>` 里的标记仍会被分词，但不登记为锚点。
-fn explicit_html_anchors(html: &[u8]) -> BTreeSet<String> {
-    let mut anchors = BTreeSet::new();
+fn explicit_html_anchors(html: &[u8]) -> Vec<String> {
+    let mut anchors = Vec::new();
     if html.is_empty() {
         return anchors;
     }
@@ -558,11 +593,7 @@ fn element_tokenizer_state(name: &[u8]) -> Option<State> {
     }
 }
 
-fn note_anchor_start_tag(
-    tag: &StartTag<()>,
-    template_depth: &mut u32,
-    anchors: &mut BTreeSet<String>,
-) {
+fn note_anchor_start_tag(tag: &StartTag<()>, template_depth: &mut u32, anchors: &mut Vec<String>) {
     if tag.name == b"template" {
         *template_depth = template_depth.saturating_add(1);
         return;
@@ -570,6 +601,7 @@ fn note_anchor_start_tag(
     if *template_depth > 0 || tag.name != b"a" {
         return;
     }
+    let mut element_anchors = BTreeSet::new();
     for name in [b"id".as_slice(), b"name"] {
         let Some(value) = tag.attributes.get(name) else {
             continue;
@@ -577,6 +609,7 @@ fn note_anchor_start_tag(
         if value.is_empty() {
             continue;
         }
-        anchors.insert(String::from_utf8_lossy(value).into_owned());
+        element_anchors.insert(String::from_utf8_lossy(value).into_owned());
     }
+    anchors.extend(element_anchors);
 }

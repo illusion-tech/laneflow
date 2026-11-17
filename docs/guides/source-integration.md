@@ -1,7 +1,18 @@
++++
+schema_version = 1
+id = "guides-source-integration"
+kind = "guide"
+status = "active"
+summary = "指导从源码接入无窗口交通运行时。"
+scope = "指导从源码接入无窗口交通运行时。"
+applicability = "#applicability"
+related = ["architecture", "reference-capabilities"]
++++
+
 # 从源码接入无窗口交通运行时
 
-**文档状态**: Active
-**最后更新**: 2026-11-15
+<a id="applicability"></a>
+## 适用边界与依据
 
 本文是操作性接入教程。它引用仓库里的真实示例，不替代
 [架构说明][architecture]、[当前能力与限制][capabilities]

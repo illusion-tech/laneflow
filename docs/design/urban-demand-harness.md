@@ -1,9 +1,17 @@
++++
+schema_version = 1
+id = "design-urban-demand-harness"
+kind = "design"
+status = "accepted"
+summary = "定义城市需求计划、无界面执行与结果核验。"
+scope = "LF-CN-URBAN-v1 的调用方需求、无界面运行程序、有限行为校验和结果包"
+issues = ["https://github.com/illusion-tech/laneflow/issues/544", "https://github.com/illusion-tech/laneflow/issues/608"]
+related = ["design-chinese-style-city-workload", "design-core-runtime-performance-baseline", "design-parking-system", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-snapshot", "design-traffic-runtime-waiting-zone"]
++++
+
 # LF-CN-URBAN 需求计划与无界面验证
 
-**文档状态**: Accepted（#544 G1；#608 合入后在 Issue 记录接受）<br>
-**最后更新**: 2026-10-25<br>
-**适用范围**: `LF-CN-URBAN-v1` 的调用方需求、无界面运行程序、有限行为校验和结果包<br>
-**关联文档**: [工作负载合同][chinese-style-city-workload]、
+## 相关文档 [工作负载合同][chinese-style-city-workload]、
 [停车][parking-system]、[Waiting][traffic-runtime-waiting-zone]、
 [路权策略][right-of-way]、
 [快照][runtime-snapshot]、[性能基线][performance-baseline]

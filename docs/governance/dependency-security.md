@@ -1,9 +1,20 @@
++++
+schema_version = 1
+id = "governance-dependency-security"
+kind = "governance"
+status = "active"
+summary = "规定许可证、依赖安全与漏洞治理。"
+scope = "LaneFlow 公开仓库的源代码许可、Rust/Cargo 依赖许可证、漏洞、来源与持续更新治理"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/56"]
++++
+
 # 许可证与依赖安全基线
 
-**文档状态**: Active  
-**最后更新**: 2026-07-17
-**适用范围**: LaneFlow 公开仓库的源代码许可、Rust/Cargo 依赖许可证、漏洞、来源与持续更新治理  
-**关联 Issue**: `#56`
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联 Issue： `#56`
 
 ## 1. 目标
 

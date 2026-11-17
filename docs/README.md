@@ -1,101 +1,54 @@
++++
+schema_version = 1
+id = "docs-index"
+kind = "index"
+status = "active"
+summary = "提供 LaneFlow 正式文档的分类与阅读入口。"
++++
+
 # LaneFlow 文档
 
-本目录保存 LaneFlow 的长期设计依据、架构决策、治理规则、参考资料和开发约定。
-
-GitHub 用于管理当前任务、协作状态和合并证据；仓库文档用于保存可版本化、可审查、可被 AI Agent 稳定读取的长期事实。
-
-ADR 0021 将 LaneFlow 定位为可嵌入、引擎无关、确定性的道路交通运行时与工具链。
-应用业务、出行需求和路线选择策略由宿主拥有；地区交通规则与城市工作负载用于
-通用技术验证。当前唯一可运行特化是道路机动车，更多执行域与城市级扩展是需要
-独立证据的长期方向，不构成交付时间承诺。
-`laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。契约见
-[共享静态路网消费][shared-consumption]。
-已提交一维几何合同见 [ADR 0028][adr-0028]
-（#496；整数毫米 / `mm/s`）。
-编译器 IR 交通一维整数毫米统一表示见 ADR 0028 / #500（准入后 Typed AST / HIR / MIR / LIR 存整数毫米）。
-路网产品不声明路线。`TrafficWorld` 路线入口是 `register_route`，见
-[ADR 0029][adr-0029]。道路编辑来源
-`format_version = 4`；现行可移植对象为 LFCA 5 / LFSM 4 / LFSD 4 / LFCP 2。
-LF-CN-URBAN 的正式静态输入、路线目录与两档重建命令见
-[`laneflow-urban-generator`][laneflow-urban-generator-readme]。
-
-## 目录结构
-
-```text
-docs/
-  README.md
-  architecture.md
-  roadmap.md
-  guides/
-  adr/
-  design/
-  governance/
-  reference/
-```
-
-## 目录职责
-
-- `docs/adr/`：记录高影响、难回退的架构决策，重点回答“为什么这样定”。
-- `docs/design/`：记录 Traffic Runtime、数据格式、Adapter、运行时规则等设计，重点回答“具体怎么做”。
-- `docs/guides/`：操作性接入教程。引用真实示例，不替代 design 与 ADR。
-- `docs/governance/`：记录 GitHub 工作流、开发阶段评审、AI Agent 开发规则和文档边界。
-- `docs/reference/`：记录术语、模板、校验矩阵和长期复用的辅助规范。
-- `.agents/`：记录跨 Agent 的执行工作流；工具专用入口只应薄包装这些工作流。
-
-语言约定：长期设计、模板与治理规范以中文为准，英文仅作辅助理解；双语术语
-以 [glossary][glossary] 为 SSOT，详见
-[文档边界政策][documentation-policy] 第 6 节。
-
-仓库安全扫描的期望配置、状态语义和发布阻断规则见
-[安全扫描][security-scanning]。
-
-默认实现语言及非 Rust 代码入库前的代码语言立项审查见
-[代码语言立项审查][code-language-policy]。研究与脚本同样适用。
-
-源代码许可证、开放/商业边界、Cargo 依赖许可证、RustSec 与 Dependabot 基线见
-[依赖安全][dependency-security]。
+仓库文档保存长期事实、设计依据与治理规范；GitHub 管当前任务、协作与合并证据。
+文档被接受不表示实现或产品认证完成，专题页的适用边界与能力依据需要一并阅读。
 
 ## 推荐阅读顺序
 
-1. [README.md][readme]
-2. [从源码接入无窗口交通运行时][source-integration]（程序：[`headless.rs`][headless-rs]）
-3. [架构说明][architecture]
-4. [当前能力与限制][capabilities]
-5. [路线图][roadmap]
-6. [ADR 0021][adr-0021]
-7. [AGENTS.md][agents]
-8. [Agent 工作流][agents-readme]
-9. [文档边界政策][documentation-policy]
-10. [GitHub 工作流][github-workflow]
-11. [开发阶段评审][development-gates]
-12. [Agent 开发指南][agent-development-guide]
-13. [安全扫描][security-scanning]
-14. [依赖安全][dependency-security]
-15. [ADR 索引][adr-readme]
-16. [设计索引][design-readme]
-17. [参考资料索引][reference-readme]
+1. [项目首页][readme]与[从源码接入][source-integration]。
+2. [当前能力与限制][capabilities]与[架构说明][architecture]。
+3. 按目标选择下面的设计、ADR、指南和参考资料。
+4. 参与开发先读[贡献指南][contributing]、[Agent 说明][agents]和[文档边界政策][documentation-policy]。
 
-[shared-consumption]: design/traffic-runtime-shared-consumption.md
-[adr-0028]: adr/0028-integer-millimeter-traffic-geometry.md
-[adr-0029]: adr/0029-retire-precompiled-static-route.md
-[laneflow-urban-generator-readme]: ../tools/laneflow-urban-generator/README.md
-[glossary]: reference/glossary.md
-[documentation-policy]: governance/documentation-policy.md
-[security-scanning]: governance/security-scanning.md
-[code-language-policy]: governance/code-language-policy.md
-[dependency-security]: governance/dependency-security.md
+中文规范术语以[术语表][glossary]为准；正式页头、状态与生成索引遵循
+[文档元数据与发布模型][document-metadata]。
+
+## 分类与文档
+
 [readme]: ../README.md
 [source-integration]: guides/source-integration.md
-[headless-rs]: ../crates/laneflow-runtime/examples/headless.rs
-[architecture]: architecture.md
 [capabilities]: reference/capabilities.md
-[roadmap]: roadmap.md
-[adr-0021]: adr/0021-traffic-infrastructure-and-host-boundary.md
+[architecture]: architecture.md
+[contributing]: ../CONTRIBUTING.md
 [agents]: ../AGENTS.md
-[agents-readme]: ../.agents/README.md
-[github-workflow]: governance/github-workflow.md
-[development-gates]: governance/development-gates.md
-[agent-development-guide]: governance/agent-development-guide.md
-[adr-readme]: adr/README.md
-[design-readme]: design/README.md
-[reference-readme]: reference/README.md
+[documentation-policy]: governance/documentation-policy.md
+[glossary]: reference/glossary.md
+[document-metadata]: reference/document-metadata.md
+
+<!-- generated-doc-index:start -->
+
+- [架构][doc-architecture] — 持续维护；无生效取代。说明现行组件分层、数据流与宿主集成边界。
+- [架构决策记录][doc-docs-adr-index] — 持续维护；无生效取代。提供架构决策记录及其有效性关系的生成索引。
+- [设计文档][doc-docs-design-index] — 持续维护；无生效取代。提供运行时、数据、场景与引擎适配的设计索引。
+- [项目治理][doc-docs-governance-index] — 持续维护；无生效取代。提供项目工作流、文档职责与安全治理的索引。
+- [接入指南][doc-docs-guides-index] — 持续维护；无生效取代。提供操作性接入指南的索引。
+- [参考资料][doc-docs-reference-index] — 持续维护；无生效取代。提供术语、能力、开发约定与文档规范的索引。
+- [路线图][doc-roadmap] — 持续维护；无生效取代。说明版本能力边界与已裁定的长期方向。
+
+[doc-architecture]: architecture.md
+[doc-docs-adr-index]: adr/README.md
+[doc-docs-design-index]: design/README.md
+[doc-docs-governance-index]: governance/README.md
+[doc-docs-guides-index]: guides/README.md
+[doc-docs-reference-index]: reference/README.md
+[doc-roadmap]: roadmap.md
+
+<!-- generated-doc-index:end -->

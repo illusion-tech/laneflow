@@ -1,11 +1,24 @@
++++
+schema_version = 1
+id = "design-cross-section-access"
+kind = "design"
+status = "accepted"
+summary = "定义横断面、所有者与准入覆盖规则。"
+scope = "#234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity、authority 与 validation"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0005", "adr-0007", "adr-0008", "adr-0009", "adr-0013", "adr-0017", "adr-0020", "architecture", "design-lane-graph", "design-network-compiler", "design-portable-canonical-artifact", "design-road-junction-model", "design-spatial-geometry", "reference-glossary", "roadmap"]
++++
+
 # 多模式横断面与准入分层
 
-**文档状态**: Accepted（横断面所有者与准入分层；静态数据由编译器发射 LFCA，经受检共享路网修订安装）<br>
-**最后更新**: 2026-11-08<br>
-**适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity、authority 与 validation<br>
-**实现状态**: 静态数据由编译器发射 LFCA，经受检共享路网修订安装 `TrafficWorld`。时变规则与 FacilityBand target 由能力保护拒绝。线格式见 `network-compiler.md` 与 `portable-canonical-artifact.md`。
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+横断面所有者与准入分别分层；静态数据由编译器发射 LFCA，经受检共享路网修订安装。
+
+实现状态： 静态数据由编译器发射 LFCA，经受检共享路网修订安装 `TrafficWorld`。时变规则与 FacilityBand target 由能力保护拒绝。线格式见 `network-compiler.md` 与 `portable-canonical-artifact.md`。
+
+关联文档：
 
 - `../architecture.md`
 - `../roadmap.md`

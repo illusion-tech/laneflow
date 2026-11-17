@@ -1,21 +1,37 @@
++++
+schema_version = 1
+id = "adr-0028"
+kind = "adr"
+status = "accepted"
+summary = "规定交通一维几何整数毫米与固定步进合同。"
+scope = "交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维 存储、跟车占用/投影离散判定；以及 #302 快照字段的数值输入"
+date = "2026-08-24"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/496", "https://github.com/illusion-tech/laneflow/issues/500"]
+
+related = ["adr-0003", "adr-0014", "adr-0015", "adr-0022", "adr-0025", "design-numeric-representation", "design-portable-canonical-artifact", "design-route-system", "design-shared-static-network", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-shared-consumption", "design-vehicle-following"]
+[[supersedes]]
+target = "adr-0014"
+extent = "partial"
+explanation = "#supersedes-adr-0014"
++++
+
 # 0028 交通一维几何整数毫米与固定步进合同
 
-**状态**: Accepted<br>
-**日期**: 2026-08-24<br>
-**适用范围**: 交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA
-长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维
-存储、跟车占用/投影离散判定；以及 #302 快照字段的数值输入<br>
-**部分取代**: ADR 0014 中「生产继续 current-`f64`」的实施状态，以及「下一
+<a id="applicability"></a>
+## 适用边界与依据
+
+部分取代： ADR 0014 中「生产继续 current-`f64`」的实施状态，以及「下一
 生产正本为补偿残差感知 `f32` 进度」的目标合同。0014 保持 Accepted 作为 #144
-历史证据，不再约束现行生产。#144 的取证与 no-go 不作为必须与旧 `f64` tick 零分歧的验收要求。<br>
-**不取代**: ADR 0015 有界 canonical `f32` 空间几何；ADR 0022 编制 `f64` 曲线 →
+历史证据，不再约束现行生产。#144 的取证与 no-go 不作为必须与旧 `f64` tick 零分歧的验收要求。
+不取代： ADR 0015 有界 canonical `f32` 空间几何；ADR 0022 编制 `f64` 曲线 →
 规范 `f32` 折线；ADR 0003 的「不读墙钟、固定步进、可变 Δt 非法、跨 CPU 不承诺
-浮点位级确定性」。本 ADR **不**给已提交整数状态补一条跨 CPU / 跨机器位级承诺。<br>
-**关联 Issue**: [#496][issue-496]；
+浮点位级确定性」。本 ADR **不**给已提交整数状态补一条跨 CPU / 跨机器位级承诺。
+关联 Issue： [#496][issue-496]；
 编译器 IR 统一表示 [#500][issue-500]。
 #496 的已提交整数合同是 [#302][issue-302]
-快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。<br>
-**关联文档**:
+快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。
+关联文档：
 
 - `0003-runtime-tick-and-determinism.md`
 - `0014-residual-aware-f32-core-authority-and-migration-gates.md`
@@ -381,7 +397,18 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 公开 `Canonical*View` 与可移植 fixture。若必须改变毫米量子、步长区间、加速度下限或
 「先整数硬约束再余数」，须重新进入设计决策，不得在实现中静默改变。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0014"></a>
+### adr-0014
+
+[adr-0014][replacement-adr-0014]：替代生产继续 f64 与下一生产正本为补偿残差 f32 进度的条款；历史 no-go 不再作为现行生产迁移验收，单边长度与速度上界继续沿用。
+
+
 [issue-496]: https://github.com/illusion-tech/laneflow/issues/496
 [issue-500]: https://github.com/illusion-tech/laneflow/issues/500
 [issue-302]: https://github.com/illusion-tech/laneflow/issues/302
 [portable-artifact-revision-id]: ../design/portable-canonical-artifact.md#38-路网修订标识
+
+[replacement-adr-0014]: 0014-residual-aware-f32-core-authority-and-migration-gates.md

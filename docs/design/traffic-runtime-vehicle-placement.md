@@ -1,10 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-vehicle-placement"
+kind = "design"
+status = "accepted"
+summary = "定义车辆新生成与替换的运动安全准入。"
+scope = "spawn_vehicle 与 replace_completed_vehicle 在提交前的运动安全准入"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/742", "https://github.com/illusion-tech/laneflow/issues/861"]
+related = ["adr-0021", "design-adapter-api", "design-parking-system", "design-traffic-runtime-contender-frontier", "design-traffic-runtime-near-gate-frontier", "design-traffic-runtime-shared-consumption", "design-vehicle-following"]
++++
+
 # 新生成的运动安全准入
 
-**文档状态**: Accepted（#742；第 8、9 节 #861 已实现；§3.1 黄灯新鲜摆放边界为 #1272 冻结设计）<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: `spawn_vehicle` 与 `replace_completed_vehicle` 在提交前的运动安全准入
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+§3.1 黄灯新生成边界属于 #1272 已接受设计，对应实现与验收不得由页头状态推断。
+
+关联文档：
 
 - [`traffic-runtime-shared-consumption.md`][shared-consumption]
 - [`vehicle-following.md`][vehicle-following]

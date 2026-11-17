@@ -1,13 +1,24 @@
++++
+schema_version = 1
+id = "design-lust-bevy-population-control"
+kind = "design"
+status = "accepted"
+summary = "定义 LuST 与 Bevy 示例层的人口调节。"
+scope = "LuST 真实路网 Bevy native 示例（#257）的一至一万个体人口调节、 展示计数与确定性抽样；不覆盖走廊 50..=200 reference policy，也不改写 TOPO/DEMAND workload ID"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/256"]
+related = ["adr-0016", "design-core-runtime-performance-baseline", "design-example-scenarios", "design-real-road-workloads", "design-signalized-corridor-population"]
++++
+
 # LuST / Bevy 个体人口调节契约
 
-**文档状态**: Accepted（#256 G1）<br>
-**最后更新**: 2026-11-09<br>
-**实现状态**: #257 示例尚未交付，LuST 五轴验收在 v0.11（#1269）<br>
-**适用范围**: LuST 真实路网 Bevy native 示例（#257）的一至一万个体人口调节、
-展示计数与确定性抽样；不覆盖走廊 `50..=200` reference policy，也不改写
-TOPO/DEMAND workload ID
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+实现状态： #257 示例尚未交付，LuST 五轴验收在 v0.11（#1269）
+
+
+关联文档：
 
 - [`real-road-workloads.md`][real-road-workloads]
 - [`example-scenarios.md`][example-scenarios]

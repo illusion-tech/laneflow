@@ -1,9 +1,21 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-revision-cutover"
+kind = "design"
+status = "accepted"
+summary = "定义在线路网修订切换事务与失败原子性。"
+scope = "在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/302"]
+related = ["adr-0020", "adr-0021", "adr-0025", "adr-0029", "design-parking-system", "design-retire-precompiled-static-route", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-snapshot"]
++++
+
 # 修订切换事务
 
-**文档状态**: Accepted（#302 G1）<br>
-**最后更新**: 2026-10-20<br>
-**适用范围**: 在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算<br>
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联文档：
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`][adr-0020]、
 [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][adr-0021]、
 [`../adr/0025-checked-canonical-network-and-shared-static-network.md`][adr-0025]、
@@ -21,7 +33,7 @@
 本文 §4.1 及 §7 的观测/Routing 接缝已由 #303 G1 接受，与 #302 合同共同构成当前
 唯一实现正本。
 
-> **实现状态**：当前切换实现已把停车迁移纳入 tagged
+> 实现状态：当前切换实现已把停车迁移纳入 tagged
 > `ExplicitSpace | VirtualPool` binding，并严格服从本文整事务、失败关闭和 zero-publish
 > 原则。capacity 增减、stable identity、virtual semantic entry、状态矩阵与增量追赶均在
 > 候选内重建/复验，失败只丢弃候选。规则见下节与 `parking-system.md` §7。

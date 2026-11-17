@@ -1,7 +1,13 @@
-# LF-SYNTH 规范输入交付
++++
+schema_version = 1
+id = "design-lf-synth-input-bundle"
+kind = "design"
+status = "active"
+summary = "定义正式合成规模、规范输入和受检交付。"
+scope = "定义正式合成规模、规范输入和受检交付。"
++++
 
-**文档状态**: Active
-**最后更新**: 2026-10-29
+# LF-SYNTH 规范输入交付
 
 ## 1. 职责与身份
 

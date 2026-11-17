@@ -1,22 +1,32 @@
++++
+schema_version = 1
+id = "design-committed-road-editing-state"
+kind = "design"
+status = "accepted"
+summary = "定义已提交道路编辑状态和来源绑定。"
+scope = "committed RoadEditingState 的形状与所属层级、CommittedNetworkSource 编辑 来源变体、EditableDiffBase 的持有与校验、重编译责任与信任边界、编辑来源在安装 / 恢复 / 切换 / 审计各入口的合同、快照中的编辑来源绑定"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1116"]
+related = ["adr-0023", "adr-0025", "adr-0033", "design-portable-canonical-artifact", "design-road-editing-source-and-geometry-frontend", "design-shared-static-network", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-snapshot", "design-traffic-runtime-state-integrity"]
++++
+
 # 已提交道路编辑状态与编辑来源
 
-**文档状态**: Accepted（#1116 G1）<br>
-**最后更新**: 2026-10-28<br>
-**适用范围**: committed `RoadEditingState` 的形状与所属层级、`CommittedNetworkSource` 编辑
-来源变体、`EditableDiffBase` 的持有与校验、重编译责任与信任边界、编辑来源在安装 / 恢复 /
-切换 / 审计各入口的合同、快照中的编辑来源绑定<br>
-**设计入口**: [#1116][issue-1116]<br>
-**关联决策**: [ADR 0023][adr-0023]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#1116][issue-1116]
+关联决策： [ADR 0023][adr-0023]、
 [ADR 0025][adr-0025]、
-[ADR 0033][adr-0033]<br>
-**关联设计**: [`shared-static-network.md`][shared-static-network] §8/§9、
+[ADR 0033][adr-0033]
+关联设计： [`shared-static-network.md`][shared-static-network] §8/§9、
 [`traffic-runtime-snapshot.md`][runtime-snapshot] §2/§5/§9、
 [`traffic-runtime-revision-cutover.md`][revision-cutover] §3/§7、
 [`traffic-runtime-state-integrity.md`][state-integrity] §2.2/§4.2、
 [`road-editing-source-and-geometry-frontend.md`][road-editing] §4/§5、
 [`portable-canonical-artifact.md`][portable-artifact] §3
 
-> **层次约定**：§1–§7 只冻结合同与不变量；API 标识符、错误变体名与模块落点登记在
+> 层次约定：§1–§7 只冻结合同与不变量；API 标识符、错误变体名与模块落点登记在
 > [§9 G2 落定清单][committed-editing-g2-list]。本文不新增合同数值；编辑来源的
 > 停顿数据是描述性实测，登记于快照合同 §8（#529）。
 

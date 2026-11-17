@@ -1,13 +1,27 @@
++++
+schema_version = 1
+id = "adr-0022"
+kind = "adr"
+status = "accepted"
+summary = "分离编制曲线、规范折线与运行时表示的误差预算。"
+scope = "道路编辑来源格式中的解析曲线、编译器几何中层表示、已验证规范 低层中间表示中的有界 f32 折线、当前/目标 Spatial 采样，以及 Adapter 表现几何边界"
+date = "2026-08-07"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/296"]
+related = ["adr-0013", "adr-0015", "adr-0020", "adr-0025", "design-network-compiler", "design-road-editing-source-and-geometry-frontend", "design-spatial-geometry"]
++++
+
 # ADR 0022：编制曲线与规范折线的误差预算分层
 
-**状态**: Accepted（#296 FlatBuffers G1 Pass；B1 内部验证路径）<br>
-**日期**: 2026-08-07<br>
-**适用范围**: 道路编辑来源格式中的解析曲线、编译器几何中层表示、已验证规范
-低层中间表示中的有界 `f32` 折线、当前/目标 Spatial 采样，以及 Adapter 表现几何边界<br>
-**扩展**: ADR 0013、0015；不取代 ADR 0015 的有界 `f32` 坐标、运行时表示误差、
-连接容差、长度绑定或性能契约<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文的来源格式属于 B1 内部验证路径。
+
+扩展： ADR 0013、0015；不取代 ADR 0015 的有界 `f32` 坐标、运行时表示误差、
+连接容差、长度绑定或性能契约
+
+关联文档：
 
 - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `0015-bounded-f32-canonical-spatial-frames.md`

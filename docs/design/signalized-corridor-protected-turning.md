@@ -1,15 +1,28 @@
++++
+schema_version = 1
+id = "design-signalized-corridor-protected-turning"
+kind = "design"
+status = "accepted"
+summary = "定义信号化走廊受保护转向与清空判据。"
+scope = "v0.9 双路口走廊的受保护左转、直行、右转、lane-level ManeuverPath、完整 Route catalog、固定时制与验证边界"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196"]
+related = ["adr-0017", "design-example-scenarios", "design-road-junction-model", "design-signal-system", "design-signalized-corridor-population", "design-spatial-geometry"]
++++
+
 # Signalized Corridor Protected Turning Profile
 
-**文档状态**: Accepted（#196 G1；§7.3 清空判据含 #1272 黄灯入场项）<br>
-**最后更新**: 2026-11-16（默认相位时长对齐检入配置的 16 ms Tick）<br>
-**适用范围**: v0.9 双路口走廊的受保护左转、直行、右转、lane-level
-ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
-**实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
+<a id="applicability"></a>
+## 适用边界与依据
+
+§7.3 清空判据包含停止约束设计的黄灯入场项；默认相位时长对齐检入配置的 16 ms Tick。
+
+实现状态： #229 已交付通用 Traffic 0.8 static domains 与一等
 `ManeuverGate`；#190-#192 已交付 production profile artifacts、当时 catalog 0.2、
 scenario policy、native example、扩大验证与独立最终审阅；#262 已将相同 profile
 artifact 迁移到 current Traffic v0.10 并保持 protected-turning behavior 不变
 
-**关联文档**:
+关联文档：
 
 - [`road-junction-model.md`][road-junction-model]
 - [`example-scenarios.md`][example-scenarios]

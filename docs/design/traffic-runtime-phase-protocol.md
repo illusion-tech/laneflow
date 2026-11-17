@@ -1,9 +1,24 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-phase-protocol"
+kind = "design"
+status = "active"
+summary = "定义串行阶段协议、状态分区与借用边界。"
+scope = "laneflow-runtime 的道路机动车固定步进、内部状态所有权与后续等价重构"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/580", "https://github.com/illusion-tech/laneflow/issues/581"]
+related = ["adr-0003", "adr-0020", "adr-0021", "adr-0025"]
++++
+
 # TrafficWorld 串行阶段协议与内部状态分区
 
-**状态**: Active（#581 实现五分区、嵌套聚合拆分与串行阶段借用边界）<br>
-**适用范围**: `laneflow-runtime` 的道路机动车固定步进、内部状态所有权与后续等价重构<br>
-**设计入口**: [#580][issue-580]<br>
-**关联决策**: [ADR 0003][adr-0003]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文定义五分区、嵌套聚合拆分与串行阶段借用边界。
+
+设计入口： [#580][issue-580]
+关联决策： [ADR 0003][adr-0003]、
 [ADR 0020][adr-0020]、
 [ADR 0021][adr-0021]、
 [ADR 0025][adr-0025]

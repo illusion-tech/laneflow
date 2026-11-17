@@ -1,15 +1,36 @@
++++
+schema_version = 1
+id = "adr-0024"
+kind = "adr"
+status = "accepted"
+summary = "规定编译器后发射检查与最小发布绑定。"
+scope = "LFCA/LFSM/LFSD 最终字节检查、laneflow-format 职责、LFCP、 compiler 制品边界、宿主发布分工、#300/#302 的上游输入边界"
+date = "2026-08-18"
+applicability = "#applicability"
+
+related = ["adr-0020", "adr-0025", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-network-compiler", "design-portable-canonical-artifact", "design-shared-static-network"]
+[[supersedes]]
+target = "adr-0020"
+extent = "partial"
+explanation = "#supersedes-adr-0020"
+
+[[supersedes]]
+target = "adr-0021"
+extent = "partial"
+explanation = "#supersedes-adr-0021"
++++
+
 # ADR 0024：编译器后发射检查与最小发布闭合
 
-**状态**: Accepted<br>
-**日期**: 2026-08-18<br>
-**适用范围**: LFCA/LFSM/LFSD 最终字节检查、`laneflow-format` 职责、LFCP、
-compiler 制品边界、宿主发布分工、#300/#302 的上游输入边界<br>
-**部分取代**: ADR 0020 中独立 `laneflow-validator`、规范发布验证收据、
+<a id="applicability"></a>
+## 适用边界与依据
+
+部分取代： ADR 0020 中独立 `laneflow-validator`、规范发布验证收据、
 `canonical-publication-v1` receipt 及由 #299 统一交付三类 receipt 的决定；同时取代
 ADR 0021 对独立 validator/receipt 的依赖假设；不改变编译器拥有静态路网、Canonical
-LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
+LIR、可移植规范制品、目标静态镜像或对象外信任锚决定
 
-> **后继决策（2026-08-18）**：ADR 0025（Accepted；#300 G1 Pass）不改变本文
+> 后继决策（2026-08-18）：ADR 0025（Accepted；#300 G1 Pass）不改变本文
 > LFCA/LFSM/LFSD、LFCP v2 或后发射检查；它把本文面向 #300 的“构造目标静态镜像”
 > 下游改为“从同一受检 LFCA capability 构建进程内 `SharedNetworkRevision`”，并取消
 > 独立镜像发布对象。
@@ -20,7 +41,7 @@ LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
 > source handle，不要求 `Box<[u8]>`。LaneFlow 不拥有内容仓库、原子文件安装或 manifest
 > 提交；这些由选择持久化制品的宿主负责。
 
-**关联文档**:
+关联文档：
 
 - `0020-compiler-owned-static-network-and-static-image.md`
 - `0025-checked-canonical-network-and-shared-static-network.md`
@@ -232,3 +253,19 @@ no-replace、并发 winner、目录耐久和平台文件事务作为后发射前
 ### 在本 ADR 同时决定静态镜像和修订切换证明
 
 这会重新扩大 #299，并越过 #300/#302 的产品与实现决策。
+
+## 取代范围
+
+<a id="supersedes-adr-0020"></a>
+### adr-0020
+
+[adr-0020][replacement-adr-0020]：替代独立 validator、规范发布验证收据和三类 receipt 的统一交付决定；编译器、Canonical LIR 与可移植制品职责继续有效。
+
+<a id="supersedes-adr-0021"></a>
+### adr-0021
+
+[adr-0021][replacement-adr-0021]：替代对独立 validator 和 receipt 的依赖假设；宿主职责与公开定位继续有效。
+
+
+[replacement-adr-0020]: 0020-compiler-owned-static-network-and-static-image.md
+[replacement-adr-0021]: 0021-traffic-infrastructure-and-host-boundary.md

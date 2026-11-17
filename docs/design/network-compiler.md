@@ -1,19 +1,25 @@
++++
+schema_version = 1
+id = "design-network-compiler"
+kind = "design"
+status = "accepted"
+summary = "定义静态路网编译架构、实体身份和规范化。"
+scope = "正本来源模块图（Authoritative Source Module Graph）、编译器中间表示 （Compiler IR）、静态路网编译裁决方、标识派生、可移植规范制品（Portable Canonical Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异 （Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、 静态执行约束（Static Execution Constraints）、不可变路网修订 （Immutable Network Revision）"
+applicability = "#applicability"
+related = ["adr-0003", "adr-0005", "adr-0007", "adr-0008", "adr-0013", "adr-0015", "adr-0017", "adr-0020", "adr-0021", "adr-0024", "adr-0025", "design-compiler-foundation", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-core-id-handles", "design-cross-section-access", "design-portable-canonical-artifact", "design-road-junction-model", "design-shared-static-network", "design-signal-system", "design-spatial-geometry", "design-waiting-zone-conflict-right-of-way", "reference-glossary"]
++++
+
 # 路网编译器与共享静态路网
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-11-06<br>
-**适用范围**: 正本来源模块图（Authoritative Source Module Graph）、编译器中间表示
-（Compiler IR）、静态路网编译裁决方、标识派生、可移植规范制品（Portable Canonical
-Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异
-（Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、
-静态执行约束（Static Execution Constraints）、不可变路网修订
-（Immutable Network Revision）<br>
-**现行路径**: 道路编辑/合成有类型来源进入
+<a id="applicability"></a>
+## 适用边界与依据
+
+现行路径： 道路编辑/合成有类型来源进入
 `laneflow-compiler`，经 Typed AST → HIR → MIR → Canonical LIR 发射 LFCA/LFSM/LFSD，
 再由受检 LFCA 构建 `SharedNetworkRevision` 并供 `TrafficWorld` 与可选
-`SharedSpatialNetwork` 消费<br>
+`SharedSpatialNetwork` 消费
 
-**关联决策与设计**:
+关联决策与设计：
 
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
@@ -1009,8 +1015,6 @@ identity、topology、ownership、geometry、rule 或 semantic-diff 算法。Lan
 - 共享修订的构造见 [共享静态路网][shared-static-network]；
 - 切换绑定见 [修订切换][revision-cutover]；
 - Runtime 不信任 LFSD 或调用方自报 revision；revision 来自受检 LFCA 及共享路网修订。
-
-
 
 ## 11. 版本、发布与供应链
 

@@ -32,6 +32,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
             commit_messages::check_commit_message_file(path)
         }
         Some("check-docs") => doc_checks::run(&args[1..]),
+        Some("generate-doc-indexes") => doc_checks::catalog::generate(&args[1..]),
+        Some("export-docs") => doc_checks::catalog::export(&args[1..]),
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-road-editing-codegen") => schema_codegen::run(&schema_codegen::ROAD_EDITING, &args[1..]),
         Some("check-runtime-snapshot-codegen") => {

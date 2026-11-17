@@ -1,9 +1,20 @@
++++
+schema_version = 1
+id = "governance-security-scanning"
+kind = "governance"
+status = "active"
+summary = "规定安全扫描的期望配置与发布边界。"
+scope = "LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/451", "https://github.com/illusion-tech/laneflow/issues/56", "https://github.com/illusion-tech/laneflow/issues/88"]
++++
+
 # 安全扫描基线
 
-**文档状态**: Active  
-**最后更新**: 2026-11-07  
-**适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
-**关联 Issue**: `#88`、`#56`、`#451`
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联 Issue： `#88`、`#56`、`#451`
 
 ## 1. 目标
 

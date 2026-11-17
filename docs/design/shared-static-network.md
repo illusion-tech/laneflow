@@ -1,10 +1,16 @@
++++
+schema_version = 1
+id = "design-shared-static-network"
+kind = "design"
+status = "accepted"
+summary = "定义从受检制品构建共享静态路网修订。"
+scope = "laneflow-static-network、受检 LFCA admission、共享静态路网构建、 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收"
+related = ["adr-0025", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-network-compiler", "design-portable-canonical-artifact", "design-road-editing-source-and-geometry-frontend"]
++++
+
 # 共享静态路网
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
-Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
-**关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
+## 相关文档 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
 `network-compiler.md`、`portable-canonical-artifact.md`、
 `compiler-post-emission-check-and-minimal-publication-closure.md`、
 `road-editing-source-and-geometry-frontend.md`

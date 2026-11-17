@@ -1,21 +1,32 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-state-integrity"
+kind = "design"
+status = "accepted"
+summary = "定义状态完整性校验、失真恢复与宿主处置。"
+scope = "运行时状态完整性的检测范围与分期、可信期望值与原像、共享路网修订认证、失真 处置裁决权边界、结论与遥测、认证成本报告口径与 retained-memory 分类"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/955"]
+related = ["adr-0021", "adr-0030", "adr-0032", "design-portable-canonical-artifact", "design-shared-static-network", "design-traffic-runtime-snapshot", "reference-glossary", "reference-validation-matrix"]
++++
+
 # 运行时状态完整性校验与失真恢复
 
-**文档状态**: Accepted（#955 G1）<br>
-**最后更新**: 2026-10-26<br>
-**适用范围**: 运行时状态完整性的检测范围与分期、可信期望值与原像、共享路网修订认证、失真
-处置裁决权边界、结论与遥测、认证成本报告口径与 retained-memory 分类<br>
-**设计入口**: [#955][issue-955]<br>
-**关联决策**: [ADR 0032][adr-0032]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#955][issue-955]
+关联决策： [ADR 0032][adr-0032]、
 [ADR 0021][adr-0021]、
-[ADR 0030][adr-0030]<br>
-**关联设计**: [`traffic-runtime-snapshot.md`][runtime-snapshot] §5/§6、
+[ADR 0030][adr-0030]
+关联设计： [`traffic-runtime-snapshot.md`][runtime-snapshot] §5/§6、
 [`shared-static-network.md`][shared-static-network] §8/§10.2、
 [`portable-canonical-artifact.md`][portable-artifact] §3.8、
 [`../reference/glossary.md`][glossary] §7.6
 
-> **层次约定**：§1–§8 只冻结合同与不变量（G1 本体）；算法与取得路径选型、API
+> 层次约定：§1–§8 只冻结合同与不变量（G1 本体）；算法与取得路径选型、API
 > 标识符统一登记在 [§11 G2 落定清单][state-integrity-g2-list]。
-> **合同值集合（穷尽）**：完整性**不进入 tick 路径**（不在 P0–P8 内、不增加每拍工作、
+> 合同值集合（穷尽）：完整性**不进入 tick 路径**（不在 P0–P8 内、不增加每拍工作、
 > 不增加稳态保留内存）；§5 漏检面声明。其余数字均为待验证或描述性数据，不是合同值。
 
 本文是 #955 G1 设计，冻结运行时状态完整性校验的**检测范围**与失真处置的**裁决权

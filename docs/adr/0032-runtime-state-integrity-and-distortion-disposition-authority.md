@@ -1,13 +1,25 @@
++++
+schema_version = 1
+id = "adr-0032"
+kind = "adr"
+status = "accepted"
+summary = "规定运行时状态完整性检测与失真处置裁决权。"
+scope = "运行时状态失真的检测权、停用语义与恢复处置裁决权边界"
+date = "2026-10-16"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/955"]
+related = ["adr-0021", "adr-0030", "design-traffic-runtime-snapshot", "design-traffic-runtime-state-integrity"]
++++
+
 # 0032 运行时状态完整性校验与失真处置裁决权
 
-**状态**: Accepted<br>
-**日期**: 2026-10-16<br>
-**最后更新**: 2026-10-25<br>
-**适用范围**: 运行时状态失真的检测权、停用语义与恢复处置裁决权边界<br>
-**设计入口**: [#955][issue-955]<br>
-**关联决策**: [ADR 0021][adr-0021]、
-[ADR 0030][adr-0030]<br>
-**关联设计**: [运行时状态完整性校验与失真恢复][state-integrity]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#955][issue-955]
+关联决策： [ADR 0021][adr-0021]、
+[ADR 0030][adr-0030]
+关联设计： [运行时状态完整性校验与失真恢复][state-integrity]、
 [运行时快照 §6][runtime-snapshot]
 
 本文冻结运行时状态完整性失真的处置裁决权与 Runtime 内检测范围。详细机制（原像、共享路网修订认证、

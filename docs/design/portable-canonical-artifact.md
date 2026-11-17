@@ -1,10 +1,20 @@
++++
+schema_version = 1
+id = "design-portable-canonical-artifact"
+kind = "design"
+status = "accepted"
+summary = "定义可移植规范制品、分块和容量合同。"
+scope = "LFCA、LFSM、LFSD、LFCP 的规范格式、规范排序、跨对象绑定、 失败关闭与格式安全天花板"
+applicability = "#applicability"
+related = ["adr-0010", "adr-0024", "adr-0025", "adr-0028", "adr-0029", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-network-compiler", "design-parking-system", "design-shared-static-network"]
++++
+
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-09-03<br>
-**适用范围**: LFCA、LFSM、LFSD、LFCP 的规范格式、规范排序、跨对象绑定、
-失败关闭与格式安全天花板<br>
-**关联决策与设计**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联决策与设计：
 
 - [`../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`][adr-0010]
 - [`../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`][adr-0024]

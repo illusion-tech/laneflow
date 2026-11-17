@@ -1,9 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-snapshot"
+kind = "design"
+status = "accepted"
+summary = "定义运行时快照、恢复、摘要与跨修订迁移。"
+scope = "版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/540"]
+related = ["adr-0020", "adr-0021", "adr-0028", "adr-0029", "design-parking-system", "design-retire-precompiled-static-route", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-revision-cutover"]
++++
+
 # 运行时快照
 
-**文档状态**: Accepted（#302 G1；停车 #540；路线冲突出现记录 #283；Waiting #282）<br>
-**最后更新**: 2026-10-25<br>
-**适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+快照绑定覆盖停车、路线冲突出现记录与等待区；精确状态和版本以正文合同为准。
+
+关联文档：
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`][adr-0020]（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
 [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][adr-0021]、
 [`../adr/0028-integer-millimeter-traffic-geometry.md`][adr-0028]、
@@ -21,7 +35,7 @@
 本文的 #303 观测/Routing 恢复与回放接缝已由 #303 G1 接受，与 #302 合同共同构成
 当前唯一实现正本。
 
-> **实现状态**：当前唯一生产合同与实现均为 Runtime Snapshot v7；来源绑定封闭为发布 / 编辑两种
+> 实现状态：当前唯一生产合同与实现均为 Runtime Snapshot v7；来源绑定封闭为发布 / 编辑两种
 > 形状（编辑来源只绑定道路编辑状态摘要、总长度与模块数）；停车使用 tagged
 > `ExplicitSpace | VirtualPool` binding，并保存 Reserved/Occupied 状态、所有 Reserved
 > binding 的精确 entry route occurrence 和 virtual reservation 的 semantic entry anchor；

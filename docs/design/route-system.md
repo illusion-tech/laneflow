@@ -1,10 +1,16 @@
++++
+schema_version = 1
+id = "design-route-system"
+kind = "design"
+status = "accepted"
+summary = "定义每世界路线、注册与车辆跟随。"
+scope = "route definition、route validation、route lifecycle 和 simple route following 边界"
+related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-road-junction-model", "roadmap"]
++++
+
 # Route System 设计
 
-**文档状态**: Accepted  
-**最后更新**: 2026-11-09
-
-**适用范围**: route definition、route validation、route lifecycle 和 simple route following 边界  
-**关联文档**:
+## 相关文档
 
 - `core-id-handles.md`
 - `lane-graph.md`

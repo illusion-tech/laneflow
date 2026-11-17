@@ -52,6 +52,9 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 2. 修改前先阅读现有代码与测试。
 3. 变更范围限定在 Issue 或用户请求内。
 4. 若改变长期行为或契约，同步更新文档。
+   正式 docs 页面按 `docs/reference/document-metadata.md` 使用 TOML 页头；修改标题、
+   状态、摘要或取代关系后运行 `generate-doc-indexes` 和 `check-docs`。不手改生成区，
+   不以 accepted 推断实现完成，不恢复旧加粗页头或 YAML 双轨。
 5. 按任务类别运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
 7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks 与适用 CodeQL；

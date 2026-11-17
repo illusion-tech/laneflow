@@ -1,9 +1,20 @@
++++
+schema_version = 1
+id = "adr-0016"
+kind = "adr"
+status = "accepted"
+summary = "规定参考场景人口与车辆回流的职责边界。"
+scope = "Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换/移除命令、seeded 回流、Bevy proxy 复用与启动配置边界"
+date = "2026-07-22"
+applicability = "#applicability"
++++
+
 # 0016 Scenario Population 与车辆回流生命周期裁决权
 
-**状态**: Accepted<br>
-**日期**: 2026-07-22<br>
-**最后更新**: 2026-10-23（对齐现行 replacement 错误分类与走廊宿主边界）<br>
-**适用范围**: Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换/移除命令、seeded 回流、Bevy proxy 复用与启动配置边界
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文使用现行原子替换错误分类，并将走廊人口调节留在宿主层。
 
 ## 背景
 

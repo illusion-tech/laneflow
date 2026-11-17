@@ -1,7 +1,13 @@
-# mcpls 可选开发工具
++++
+schema_version = 1
+id = "reference-mcpls"
+kind = "reference"
+status = "active"
+summary = "说明可选 Rust 语义开发工具及其信任边界。"
+scope = "在 Windows Codex Desktop 中对 LaneFlow Rust workspace 做只读语义导航"
++++
 
-**文档状态**: Active<br>
-**适用范围**: 在 Windows Codex Desktop 中对 LaneFlow Rust workspace 做只读语义导航
+# mcpls 可选开发工具
 
 ## 1. 定位与边界
 

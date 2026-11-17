@@ -1,217 +1,155 @@
++++
+schema_version = 1
+id = "docs-design-index"
+kind = "index"
+status = "active"
+summary = "提供运行时、数据、场景与引擎适配的设计索引。"
++++
+
 # 设计文档
 
-本目录回答“系统具体怎么做”。`docs/adr/` 回答“为什么这样定”。GitHub 记录当前
-任务与评审；这里只保存仍约束实现的长期设计。已关闭任务的完成记录、验证轮次和
-截图不进本目录，见 git 历史。
+本目录回答“系统具体怎么做”；ADR 回答“为什么这样定”。设计只保存仍约束实现的
+长期合同，单次验证和任务进度由 Issue/PR 承载。
 
-跨领域的当前能力与限制先读[当前能力与限制][capabilities]；规范细节仍以下列专题为准。
+## 阅读入口
 
-## 当前可运行路径
-
-- [`traffic-runtime-shared-consumption.md`][shared-consumption]：
-  `TrafficWorld` 安装共享静态路网，Spatial 只 bind 同一根 `Arc`。路线入口是
-  `register_route`（ADR 0029）。worker 范围见下方单世界并行设计。
-- [`traffic-runtime-phase-protocol.md`][traffic-runtime-phase-protocol]：串行 P0～P8、
-  内部状态五分区、窄视图与 `CommitPlan`。该文定义阶段顺序，不单独证明并行执行；
-  worker 范围见下方单世界并行设计。
-- [`traffic-runtime-module-boundary.md`][traffic-runtime-module-boundary]：仿真内核、
-  管理平面与 facade 的私有模块边界、LFSD/LFRS 唯一格式入口，以及 xtask 架构检查。
-- [`retire-precompiled-static-route.md`][retire-precompiled-static-route]：路网制品不声明路线；
-  场景 catalog 0.4 拥有示例边序列（ADR 0029）。
-- [`traffic-runtime-revision-cutover.md`][revision-cutover]：在线修订切换事务、
-  切换描述符、封闭迁移策略、迁移增量日志与失败关闭预算。#302 G1 已接受，切换事务已实现。
-  含活动过渡的世界拒绝跨修订迁移；该限制不是性能认证。
-- [`traffic-runtime-snapshot.md`][runtime-snapshot]：版本化运行时快照容器、保存/恢复合同、
-  回放与跨修订迁移入口。#302 G1 已接受。当前已实现 Runtime Snapshot v7
-  （LFRS `formatVersion = 7`、runtime state 5、确定性状态摘要版本 8 / BLAKE3-256）。
-  活动过渡的保存被结构化拒绝，版本轴 7→8 尚未实施。
-- [`traffic-runtime-state-integrity.md`][state-integrity]：运行时状态完整性校验与失真恢复——Runtime 侧只在
-  投入使用前与宿主审计时认证共享路网修订（不进 tick 路径），C(T) 由宿主审计重放覆盖；停用 +
-  宿主处置的恢复裁决权边界、漏检面、遥测与认证成本口径
-  （#955 G1；配套 [ADR 0032][adr-0032]）。
-- [`traffic-observation-and-routing-integration.md`][routing-integration]：
-  已提交交通观测 full/delta/partition、宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝。
-  #303 G1 已接受，观测导出与候选路线注册已实现；独立性能验收不在本索引宣称完成。
-- [`traffic-runtime-conflict-occurrence.md`][conflict-occurrence]：#283 的路线冲突出现记录、
-  route-local 坐标、独立容量与正式 Conflict authority 的活动车辆边界。
-- [`traffic-runtime-waiting-zone.md`][traffic-runtime-waiting-zone]：#282 G1 Accepted 的 WaitingZone 本地
-  membership/admission/storage/queue 设计，以及当前 LFRS 7、runtime state 5、
-  deterministic digest 8 合同；#284 的组合 ledger 与持久化由下列路权文档管理。
-- [`shared-static-network.md`][shared-static-network]：从受检 LFCA 构建 `SharedNetworkRevision`。
-- [`committed-road-editing-state.md`][committed-editing]：committed `RoadEditingState` 的形状与所属层级、
-  `CommittedNetworkSource` 编辑来源变体、`EditableDiffBase` 对应关系、宿主重编译的信任
-  边界与快照编辑来源绑定（#1116 G1；实现见 #1119，认证分支与端到端验证见 #529）。
-- [`adapter-api.md`][adapter-api]：Runtime / Spatial 与引擎适配器的只读快照、位姿和正本边界。
-- [`committed-pose-extraction.md`][committed-pose-extraction]：#681 位姿来源借用、Spatial 缓冲交换与按需提取
-  的已接受设计；实现状态以独立任务为准。
-- [`portable-canonical-artifact.md`][portable-artifact]：统一 LFCA 5 / LFSM 4 / LFSD 4 /
-  LFCP 2、确定性分块与单路网一百万现实混合静态实体容量合同。
-- [`compiler-post-emission-check-and-minimal-publication-closure.md`][post-emission]：
-  后发射检查与 LFCP v2 最小发布闭合。
-- [`compiler-foundation.md`][compiler-foundation]：编译器 crate、Typed AST → HIR → MIR → Canonical LIR、
-  合成 DSL 与官方前端接入。
-- [`compiler-resource-ledger.md`][compiler-resource-ledger]：编译、发射与公开检查共用的资源账本
-  （#1296 G1，Accepted）。
-- [`network-compiler.md`][network-compiler]：#291 目标静态编译架构。
-- [`road-editing-source-and-geometry-frontend.md`][road-editing]：
-  道路编辑 FlatBuffers v4 来源与几何编制前端合同。
-
-## 单世界并行设计
-
-- [`traffic-runtime-parallel-execution.md`][parallel-execution]：Accepted；
-  首版独立计算并行、P4 规范串行、首错/join/重试、完整提交与成本验收。
-- [`traffic-runtime-execution-config.md`][execution-config]：Accepted；
-  配置分离 API、世界执行资源、候选计划、安装/恢复/切换与 LFRS 版本轴。
-
-两文配套 [ADR 0030][adr-0030]（Accepted）。
-配置分离与 worker 1–16 已实现（#705，现行 LFRS 7 不保存 worker）。这是执行能力，不是城市性能认证；
-#707 的记录不外推为当前 main 认证。
-
-- [`traffic-runtime-columnar-execution.md`][columnar-execution]：[ADR 0031][adr-0031] 接受的列式运动正本、共享基础输入、完整纵向 SIMD 和稀疏资源控制目标；实施与性能结论以 #814 的验收为准，本索引不把它写成已认证。
-- [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]：Active；#72 城市规模扩展的决策入口，含现行接口复核、证据边界、方向裁定与资源预算口径。
-
-## 领域规则
-
-这些文档约束 Runtime 仍实现的道路机动车行为，不表示早期运行入口或数据入口仍存在。
-
-- [`core-id-handles.md`][core-id-handles]：稳定标识、修订内序号、代际句柄与生命周期。
-- [`lane-graph.md`][lane-graph]：车道图与连接。
-- [`route-system.md`][route-system]：路线定义与跟随。
-- [`lane-change-minimal-contract.md`][lane-change-contract]：#237 G1 已接受的固定预制过渡合同。
-  具名停止判据已接入内核；活动过渡的快照持久化尚未实施，当前 Runtime Snapshot v7 结构化拒绝保存
-  （#1217，完整格式归 #1200）。合同接受与局部判据都不等于首版换道已验收。
-- [`vehicle-following.md`][vehicle-following]：跟车、安全距离与投影。
-- [`signal-system.md`][signal-system]：固定时制信号、门控与车辆合规。
-- [`parking-system.md`][parking-system]：#540 G1 已接受，#541 已实现
-  `ParkingFacility`、显式泊位/虚拟容量、anchor selector、reserve/park/leave、原子 despawn、
-  无 pose 停驻与 tagged binding。该实现不是性能认证。
-- [`road-junction-model.md`][road-junction-model]：Junction / Movement / ManeuverPath / ManeuverGate。
-- [`waiting-zone-conflict-right-of-way.md`][waiting-zone]：#282 G1 Accepted 的 Waiting 本地边界与 #284
-  组合仲裁边界；冲突静态 exact shape 见 LFCA/共享静态路网文档，正式仲裁、持久化、
-  修订迁移与生产 fixed tick 共同实现。
-- [`traffic-runtime-right-of-way-policy.md`][right-of-way]：#284
-  已接受实施合同，细化策略来源、中国右转灯态解释、世界绑定、格式版本矩阵与
-  持久化验收，以及具名参考参数和可复现校准口径；交付状态以 GitHub 为准。
-- [`traffic-runtime-near-gate-frontier.md`][near-gate]：#740
-  已接受。入口 frontier 只为近门车辆打开路线，失效车辆整段重走，其余复用冲突距离；
-  本拍生命周期增量必须成为接近来源；红灯门前的到达下界不早于下一档放行。
-- [`traffic-runtime-vehicle-placement.md`][vehicle-placement]：#742
-  已接受。新生成不要求从路线起点零速开到当前速度；生成和替换要能停住当前约束、
-  降到前方更低限速，并且不让前后车立刻无法紧急制动。恢复和修订切换不套用这层检查。
-- [`traffic-runtime-contender-frontier.md`][contender-frontier]：#861
-  已接受，第一步已实现。准入候选名单的申请者与排队进入者只对已发布近门集合、失效名单和生命周期
-  增量求值，格点到达在第一次读取时求值；格点 owner 的平局键统一为 live 序号；
-  绑定不成立时整份退回全量重建。
-- [`cross-section-access.md`][cross-section-access]：横断面与准入 overlay。
-- [`traffic-runtime-admission-contender-filter.md`][contender-filter]：
-  Accepted（#828）；准入缓存完整重建前的空贡献证明、同边运动上界、owner/失败语义与有界验证。
-- [`traffic-runtime-admission-speed-drop-proof.md`][speed-drop-proof]：
-  Accepted（#832 / #834）；首项精确有限距离在制动窗外的成功性证明；#834 候选未采用。
-- [`numeric-representation.md`][numeric-representation]：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
-- [`traffic-runtime-integer-geometry.md`][traffic-runtime-integer-geometry]：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 编译器 IR 交通一维同一套整数毫米。
-- [`spatial-geometry.md`][spatial-geometry]：有界 canonical `f32` 几何与位姿。
-
-## 场景、规模与 Adapter
-
-- [`example-scenarios.md`][example-scenarios]、
-  [`signalized-corridor-protected-turning.md`][protected-turning]、
-  [`signalized-corridor-population.md`][corridor-population]：信号化走廊几何、转向 profile 与人口策略。
-- [`bevy-reference-adapter.md`][bevy-adapter]：Bevy 0.20 Reference Adapter。
-- [`junction-observation-and-validation.md`][junction-observation]：#285
-  Accepted，复杂路口精确机动门定位、借用式领域观测、参考场景和跨层验证；已提供
-  `TrafficWorld::route_gate`、`LaneFlowSession::junction_observation` 与 `junction_debug` 示例。
-- [`core-runtime-performance-baseline.md`][performance-baseline]：一万 / 十万产品目标与一百万研究包络。
-- [`lf-synth-input-bundle.md`][lf-synth-input-bundle]：LF-SYNTH-v2 正式规模生成、规范输入编码与受检交付。
-- [`lf-synth-execution.md`][lf-synth-execution]：W1/W2 完整窗口消费、逐拍语义核验与独立进程证据编码。
-- [`lf-synth-measurement.md`][lf-synth-measurement]：Accepted；E 的固定表现、外层帧、
-  W4 两帧与计时接线合同，实施与正式证据由 #1166 承担。
-- [`host-observe.md`][host-observe]：#1392 G1 Accepted，`laneflow-host-observe` 测量环境记录、进程快照与
-  子进程观测。
-- [`os-probe.md`][os-probe]：#1391 G1 Accepted，`laneflow-os-probe` 本进程与整机操作系统计数器读取与受审计
-  `unsafe` 例外。
-- [`real-road-workloads.md`][real-road-workloads]：LuST 真实路网契约。
-- [`lust-bevy-population-control.md`][lust-bevy-population-control]：LuST / Bevy 示例层人口调节。
-- [`chinese-style-city-workload.md`][chinese-style-city-workload]：#304 的连通路网、七套需求计划、10k/100k 运行与有限
-  跨层验证合同；停车复用 #540 Accepted 合同，产品认证独立执行。
-- [`urban-demand-harness.md`][urban-demand-harness]：#544 G1 Accepted，细化初态分配、
-  七套调用方计划、稳定个体编号、有限校验、计数与 headless 结果包。
+跨领域能力先读[当前能力与限制][capabilities]；运行时接入从
+[共享静态路网消费][shared-consumption]开始。设计接受、实现存在和性能认证是不同
+事实，按专题页的适用边界和具体依据判断。
 
 ## 文档状态
 
-- `Draft`：不能直接作为稳定实现输入。
-- `Review`：可审阅，仍可能调整。
-- `Accepted`：当前阶段实现输入。
-- `Active`：持续维护的治理或索引。
+状态值、取代关系及页头格式由[文档元数据与发布模型][document-metadata]统一定义。
+不在此重复维护枚举或实现进度。当前 Accepted 与 Active 设计都按其原有语义保留。
 
-历史 Retired 页（core-runtime、data-format、data-loading、current-package-import、
-compiler-budget-calibration、core-runtime-scalability-audit）已随 #1382 整体退役；
-仍有效结论由各现行责任文档承接（消费路径见共享消费、加载路径见共享静态路网、
-旧未发布 JSON 边界见 ADR 0020、#308 校准边界见 compiler-foundation §11.3–11.5、
-规模决策见规模决策基线）。追溯原件使用基线提交 3f80b65f 的 `docs/design/` 副本。
+历史 Retired 页已退役，有效结论由现行责任文档承接；追溯原件可查
+[固定提交中的设计文档][retired-designs]。历史内容不构成第二套当前合同。
 
-正式设计文档页头建议包含状态、最后更新、适用范围和关联文档。涉及 Runtime API、
-数据格式或 Adapter 协议的实现应先有相关 design 或 ADR。设计文档不记录单次 PR
-的测试结果。
+## 专题文档
 
 [capabilities]: ../reference/capabilities.md
 [shared-consumption]: traffic-runtime-shared-consumption.md
-[traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
-[traffic-runtime-module-boundary]: traffic-runtime-module-boundary.md
-[retire-precompiled-static-route]: retire-precompiled-static-route.md
-[revision-cutover]: traffic-runtime-revision-cutover.md
-[runtime-snapshot]: traffic-runtime-snapshot.md
-[state-integrity]: traffic-runtime-state-integrity.md
-[adr-0032]: ../adr/0032-runtime-state-integrity-and-distortion-disposition-authority.md
-[routing-integration]: traffic-observation-and-routing-integration.md
-[conflict-occurrence]: traffic-runtime-conflict-occurrence.md
-[traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md
-[shared-static-network]: shared-static-network.md
-[committed-editing]: committed-road-editing-state.md
-[adapter-api]: adapter-api.md
-[committed-pose-extraction]: committed-pose-extraction.md
-[portable-artifact]: portable-canonical-artifact.md
-[post-emission]: compiler-post-emission-check-and-minimal-publication-closure.md
-[compiler-foundation]: compiler-foundation.md
-[compiler-resource-ledger]: compiler-resource-ledger.md
-[network-compiler]: network-compiler.md
-[road-editing]: road-editing-source-and-geometry-frontend.md
-[parallel-execution]: traffic-runtime-parallel-execution.md
-[execution-config]: traffic-runtime-execution-config.md
-[adr-0030]: ../adr/0030-single-world-parallel-execution.md
-[columnar-execution]: traffic-runtime-columnar-execution.md
-[adr-0031]: ../adr/0031-columnar-motion-authority.md
-[scale-baseline]: traffic-runtime-scale-decision-baseline.md
-[core-id-handles]: core-id-handles.md
-[lane-graph]: lane-graph.md
-[route-system]: route-system.md
-[lane-change-contract]: lane-change-minimal-contract.md
-[vehicle-following]: vehicle-following.md
-[signal-system]: signal-system.md
-[parking-system]: parking-system.md
-[road-junction-model]: road-junction-model.md
-[waiting-zone]: waiting-zone-conflict-right-of-way.md
-[right-of-way]: traffic-runtime-right-of-way-policy.md
-[near-gate]: traffic-runtime-near-gate-frontier.md
-[vehicle-placement]: traffic-runtime-vehicle-placement.md
-[contender-frontier]: traffic-runtime-contender-frontier.md
-[cross-section-access]: cross-section-access.md
-[contender-filter]: traffic-runtime-admission-contender-filter.md
-[speed-drop-proof]: traffic-runtime-admission-speed-drop-proof.md
-[numeric-representation]: numeric-representation.md
-[traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
-[spatial-geometry]: spatial-geometry.md
-[example-scenarios]: example-scenarios.md
-[protected-turning]: signalized-corridor-protected-turning.md
-[corridor-population]: signalized-corridor-population.md
-[bevy-adapter]: bevy-reference-adapter.md
-[junction-observation]: junction-observation-and-validation.md
-[performance-baseline]: core-runtime-performance-baseline.md
-[lf-synth-input-bundle]: lf-synth-input-bundle.md
-[lf-synth-execution]: lf-synth-execution.md
-[lf-synth-measurement]: lf-synth-measurement.md
-[host-observe]: host-observe.md
-[os-probe]: os-probe.md
-[real-road-workloads]: real-road-workloads.md
-[lust-bevy-population-control]: lust-bevy-population-control.md
-[chinese-style-city-workload]: chinese-style-city-workload.md
-[urban-demand-harness]: urban-demand-harness.md
+[document-metadata]: ../reference/document-metadata.md
+[retired-designs]: https://github.com/illusion-tech/laneflow/tree/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/design
+
+<!-- generated-doc-index:start -->
+
+- [适配器应用程序接口（API）][doc-design-adapter-api] — 已接受；无生效取代。定义引擎适配器与运行时、空间层的接口边界。
+- [Bevy Reference Adapter][doc-design-bevy-reference-adapter] — 已接受；无生效取代。定义 Bevy 参考适配器的接入与生命周期。
+- [中国特色城市工作负载 v1][doc-design-chinese-style-city-workload] — 已接受；无生效取代。定义城市工作负载、需求计划与有限验证范围。
+- [已提交位姿缓冲与按需提取][doc-design-committed-pose-extraction] — 已接受；无生效取代。定义已提交位姿来源借用、缓冲交换与按需提取。
+- [已提交道路编辑状态与编辑来源][doc-design-committed-road-editing-state] — 已接受；无生效取代。定义已提交道路编辑状态和来源绑定。
+- [编译器基础设施与合成领域专用语言前端][doc-design-compiler-foundation] — 已接受；无生效取代。定义编译器中间表示、前端接入与编译基础合同。
+- [编译器后发射检查与最小发布闭合][doc-design-compiler-post-emission-check-and-minimal-publication-closure] — 已接受；无生效取代。定义后发射检查与发布绑定的执行合同。
+- [编译器资源账本][doc-design-compiler-resource-ledger] — 已接受；无生效取代。定义编译、发射与公开检查共用的资源账本。
+- [Traffic Runtime 标识与句柄模型][doc-design-core-id-handles] — 已接受；无生效取代。定义稳定标识、修订内序号和代际句柄。
+- [Traffic Runtime 产品性能基线][doc-design-core-runtime-performance-baseline] — 已接受；无生效取代。定义运行时产品规模目标、研究包络与测量边界。
+- [多模式横断面与准入分层][doc-design-cross-section-access] — 已接受；无生效取代。定义横断面、所有者与准入覆盖规则。
+- [示例场景设计][doc-design-example-scenarios] — 已接受；无生效取代。定义参考场景的几何、路线与验证用途。
+- [测量环境与进程观测][doc-design-host-observe] — 已接受；无生效取代。定义测量环境记录、进程快照与子进程观测。
+- [复杂路口只读观测与跨层验证][doc-design-junction-observation-and-validation] — 已接受；无生效取代。定义复杂路口只读观测、参考场景与有限验证。
+- [最小换道合同（Lane Change Minimal Contract）][doc-design-lane-change-minimal-contract] — 已接受；无生效取代。定义固定预制过渡的最小换道合同与验收边界。
+- [Lane Graph 设计][doc-design-lane-graph] — 已接受；无生效取代。定义车道图、连接和交通拓扑。
+- [LF-SYNTH 执行核验][doc-design-lf-synth-execution] — 持续维护；无生效取代。定义合成工作负载执行窗口与逐拍语义核验。
+- [LF-SYNTH 规范输入交付][doc-design-lf-synth-input-bundle] — 持续维护；无生效取代。定义正式合成规模、规范输入和受检交付。
+- [LF-SYNTH-v2 表现与测量接线][doc-design-lf-synth-measurement] — 已接受；无生效取代。定义合成工作负载的表现选择、帧输入和计时接线。
+- [LuST / Bevy 个体人口调节契约][doc-design-lust-bevy-population-control] — 已接受；无生效取代。定义 LuST 与 Bevy 示例层的人口调节。
+- [路网编译器与共享静态路网][doc-design-network-compiler] — 已接受；无生效取代。定义静态路网编译架构、实体身份和规范化。
+- [数值表示与精度][doc-design-numeric-representation] — 已接受；无生效取代。定义编制、交通与空间数值表示的分层。
+- [操作系统计数器读取][doc-design-os-probe] — 已接受；无生效取代。定义本进程与整机操作系统计数器读取。
+- [停车系统设计][doc-design-parking-system] — 已接受；无生效取代。定义停车资源、预留、停入、离场与车辆移除。
+- [可移植规范制品与辅助制品格式][doc-design-portable-canonical-artifact] — 已接受；无生效取代。定义可移植规范制品、分块和容量合同。
+- [真实路网 Workload][doc-design-real-road-workloads] — 已接受；无生效取代。定义 LuST 真实路网工作负载与验收范围。
+- [退役预编译静态路线][doc-design-retire-precompiled-static-route] — 已接受；无生效取代。定义移除静态路线后的场景目录与运行时接入。
+- [道路编辑来源与几何编制前端][doc-design-road-editing-source-and-geometry-frontend] — 已接受；无生效取代。定义道路编辑来源与几何编制前端。
+- [Road / Junction / Maneuver 静态模型][doc-design-road-junction-model] — 已接受；无生效取代。定义道路、路口、通行流向与机动路径模型。
+- [Route System 设计][doc-design-route-system] — 已接受；无生效取代。定义每世界路线、注册与车辆跟随。
+- [共享静态路网][doc-design-shared-static-network] — 已接受；无生效取代。定义从受检制品构建共享静态路网修订。
+- [Signal System 设计][doc-design-signal-system] — 已接受；无生效取代。定义固定时制信号、门控与车辆合规。
+- [Signalized Corridor Population][doc-design-signalized-corridor-population] — 已接受；无生效取代。定义信号化走廊人口与车辆回流。
+- [Signalized Corridor Protected Turning Profile][doc-design-signalized-corridor-protected-turning] — 已接受；无生效取代。定义信号化走廊受保护转向与清空判据。
+- [空间几何设计][doc-design-spatial-geometry] — 已接受；无生效取代。定义有界空间几何、长度绑定与位姿采样。
+- [交通观测与 Routing 接入][doc-design-traffic-observation-and-routing-integration] — 已接受；无生效取代。定义交通观测、动态成本与宿主候选路线接入。
+- [准入缓存完整重建前的保守筛选][doc-design-traffic-runtime-admission-contender-filter] — 已接受；无生效取代。定义准入缓存重建前的保守空贡献筛选。
+- [准入空贡献筛选的远处限速下降证明][doc-design-traffic-runtime-admission-speed-drop-proof] — 已接受；无生效取代。定义准入筛选中远处限速下降的成功性证明。
+- [交通运行时列式批量执行][doc-design-traffic-runtime-columnar-execution] — 已接受；无生效取代。定义列式批量执行、共享输入和稀疏资源控制。
+- [路线冲突出现记录与正式仲裁能力边界][doc-design-traffic-runtime-conflict-occurrence] — 已接受；无生效取代。定义路线冲突出现记录与正式仲裁能力边界。
+- [准入候选名单复用入口 frontier][doc-design-traffic-runtime-contender-frontier] — 已接受；无生效取代。定义准入候选名单复用与失效重建。
+- [TrafficWorld 执行配置、资源与快照边界][doc-design-traffic-runtime-execution-config] — 已接受；无生效取代。定义世界执行配置、资源和快照边界。
+- [交通运行时整数毫米几何][doc-design-traffic-runtime-integer-geometry] — 已接受；无生效取代。定义整数毫米运动、速度与停止约束。
+- [Traffic Runtime 仿真与管理模块边界][doc-design-traffic-runtime-module-boundary] — 持续维护；无生效取代。定义仿真内核与管理模块的私有依赖边界。
+- [近门车辆的入口 frontier][doc-design-traffic-runtime-near-gate-frontier] — 已接受；无生效取代。定义近门车辆集合、入口更新与休眠。
+- [TrafficWorld 单世界精确并行执行][doc-design-traffic-runtime-parallel-execution] — 已接受；无生效取代。定义单世界精确并行的阶段、提交与失败语义。
+- [TrafficWorld 串行阶段协议与内部状态分区][doc-design-traffic-runtime-phase-protocol] — 持续维护；无生效取代。定义串行阶段协议、状态分区与借用边界。
+- [修订切换事务][doc-design-traffic-runtime-revision-cutover] — 已接受；无生效取代。定义在线路网修订切换事务与失败原子性。
+- [路权策略编译与 ConflictArbiter 实施合同][doc-design-traffic-runtime-right-of-way-policy] — 已接受；无生效取代。定义路权策略编译与正式冲突仲裁合同。
+- [Traffic Runtime 城市规模扩展决策基线][doc-design-traffic-runtime-scale-decision-baseline] — 持续维护；无生效取代。记录城市规模扩展的现行决策与证据边界。
+- [交通运行时共享静态路网消费][doc-design-traffic-runtime-shared-consumption] — 已接受；无生效取代。定义运行时对共享静态路网的消费合同。
+- [运行时快照][doc-design-traffic-runtime-snapshot] — 已接受；无生效取代。定义运行时快照、恢复、摘要与跨修订迁移。
+- [运行时状态完整性校验与失真恢复][doc-design-traffic-runtime-state-integrity] — 已接受；无生效取代。定义状态完整性校验、失真恢复与宿主处置。
+- [新生成的运动安全准入][doc-design-traffic-runtime-vehicle-placement] — 已接受；无生效取代。定义车辆新生成与替换的运动安全准入。
+- [Traffic Runtime WaitingZone 运行时][doc-design-traffic-runtime-waiting-zone] — 已接受；无生效取代。定义等待区准入、存储、队列与持久化。
+- [LF-CN-URBAN 需求计划与无界面验证][doc-design-urban-demand-harness] — 已接受；无生效取代。定义城市需求计划、无界面执行与结果核验。
+- [Vehicle Following 设计][doc-design-vehicle-following] — 已接受；无生效取代。定义跟车、纵向控制、安全距离与投影。
+- [WaitingZone、ConflictZone 与通行权分层][doc-design-waiting-zone-conflict-right-of-way] — 已接受；无生效取代。定义等待区、冲突区与通行权联合分层。
+
+[doc-design-adapter-api]: adapter-api.md
+[doc-design-bevy-reference-adapter]: bevy-reference-adapter.md
+[doc-design-chinese-style-city-workload]: chinese-style-city-workload.md
+[doc-design-committed-pose-extraction]: committed-pose-extraction.md
+[doc-design-committed-road-editing-state]: committed-road-editing-state.md
+[doc-design-compiler-foundation]: compiler-foundation.md
+[doc-design-compiler-post-emission-check-and-minimal-publication-closure]: compiler-post-emission-check-and-minimal-publication-closure.md
+[doc-design-compiler-resource-ledger]: compiler-resource-ledger.md
+[doc-design-core-id-handles]: core-id-handles.md
+[doc-design-core-runtime-performance-baseline]: core-runtime-performance-baseline.md
+[doc-design-cross-section-access]: cross-section-access.md
+[doc-design-example-scenarios]: example-scenarios.md
+[doc-design-host-observe]: host-observe.md
+[doc-design-junction-observation-and-validation]: junction-observation-and-validation.md
+[doc-design-lane-change-minimal-contract]: lane-change-minimal-contract.md
+[doc-design-lane-graph]: lane-graph.md
+[doc-design-lf-synth-execution]: lf-synth-execution.md
+[doc-design-lf-synth-input-bundle]: lf-synth-input-bundle.md
+[doc-design-lf-synth-measurement]: lf-synth-measurement.md
+[doc-design-lust-bevy-population-control]: lust-bevy-population-control.md
+[doc-design-network-compiler]: network-compiler.md
+[doc-design-numeric-representation]: numeric-representation.md
+[doc-design-os-probe]: os-probe.md
+[doc-design-parking-system]: parking-system.md
+[doc-design-portable-canonical-artifact]: portable-canonical-artifact.md
+[doc-design-real-road-workloads]: real-road-workloads.md
+[doc-design-retire-precompiled-static-route]: retire-precompiled-static-route.md
+[doc-design-road-editing-source-and-geometry-frontend]: road-editing-source-and-geometry-frontend.md
+[doc-design-road-junction-model]: road-junction-model.md
+[doc-design-route-system]: route-system.md
+[doc-design-shared-static-network]: shared-static-network.md
+[doc-design-signal-system]: signal-system.md
+[doc-design-signalized-corridor-population]: signalized-corridor-population.md
+[doc-design-signalized-corridor-protected-turning]: signalized-corridor-protected-turning.md
+[doc-design-spatial-geometry]: spatial-geometry.md
+[doc-design-traffic-observation-and-routing-integration]: traffic-observation-and-routing-integration.md
+[doc-design-traffic-runtime-admission-contender-filter]: traffic-runtime-admission-contender-filter.md
+[doc-design-traffic-runtime-admission-speed-drop-proof]: traffic-runtime-admission-speed-drop-proof.md
+[doc-design-traffic-runtime-columnar-execution]: traffic-runtime-columnar-execution.md
+[doc-design-traffic-runtime-conflict-occurrence]: traffic-runtime-conflict-occurrence.md
+[doc-design-traffic-runtime-contender-frontier]: traffic-runtime-contender-frontier.md
+[doc-design-traffic-runtime-execution-config]: traffic-runtime-execution-config.md
+[doc-design-traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
+[doc-design-traffic-runtime-module-boundary]: traffic-runtime-module-boundary.md
+[doc-design-traffic-runtime-near-gate-frontier]: traffic-runtime-near-gate-frontier.md
+[doc-design-traffic-runtime-parallel-execution]: traffic-runtime-parallel-execution.md
+[doc-design-traffic-runtime-phase-protocol]: traffic-runtime-phase-protocol.md
+[doc-design-traffic-runtime-revision-cutover]: traffic-runtime-revision-cutover.md
+[doc-design-traffic-runtime-right-of-way-policy]: traffic-runtime-right-of-way-policy.md
+[doc-design-traffic-runtime-scale-decision-baseline]: traffic-runtime-scale-decision-baseline.md
+[doc-design-traffic-runtime-shared-consumption]: traffic-runtime-shared-consumption.md
+[doc-design-traffic-runtime-snapshot]: traffic-runtime-snapshot.md
+[doc-design-traffic-runtime-state-integrity]: traffic-runtime-state-integrity.md
+[doc-design-traffic-runtime-vehicle-placement]: traffic-runtime-vehicle-placement.md
+[doc-design-traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md
+[doc-design-urban-demand-harness]: urban-demand-harness.md
+[doc-design-vehicle-following]: vehicle-following.md
+[doc-design-waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md
+
+<!-- generated-doc-index:end -->

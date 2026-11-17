@@ -1,8 +1,20 @@
++++
+schema_version = 1
+id = "design-compiler-post-emission-check-and-minimal-publication-closure"
+kind = "design"
+status = "accepted"
+summary = "定义后发射检查与发布绑定的执行合同。"
+scope = "定义后发射检查与发布绑定的执行合同。"
+date = "2026-08-30"
+applicability = "#applicability"
++++
+
 # 编译器后发射检查与最小发布闭合
 
-> **状态**：Accepted<br>
-> **日期**：2026-08-30<br>
-> **决策依据**：ADR 0024<br>
+<a id="applicability"></a>
+## 适用边界与依据
+
+> 决策依据：ADR 0024
 
 ## 1. 目标与非目标
 

@@ -1,8 +1,13 @@
-# 文档边界政策
++++
+schema_version = 1
+id = "governance-documentation-policy"
+kind = "governance"
+status = "active"
+summary = "规定仓库文档、协作平台与研究资料的职责边界。"
+scope = "LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文"
++++
 
-**文档状态**: Active  
-**最后更新**: 2026-11-11
-**适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
+# 文档边界政策
 
 ## 1. 目标
 
@@ -11,6 +16,11 @@
 核心原则：
 
 > GitHub 管当前状态和协作流，仓库文档管长期事实和设计依据。
+
+正式文档使用 [TOML 元数据与发布模型][document-metadata]。文档身份、类型、接受或
+维护状态、日期与取代关系由类型化页头保存，状态不得附带括号、审批流水或技术合同。
+重要适用限制进入正文并提供范围入口；索引状态与反向取代关系由工具生成，不手工复制。
+`accepted` 不表示实现或验收完成；文档接受情况与条款是否被取代分别表达。
 
 ## 2. GitHub 负责什么
 
@@ -296,3 +306,5 @@ LaneFlow 的长期设计、模板与治理规范采用**以中文为准、英文
 [证据][github-com-example-blob-0123abcd-docs-reference-calibration-evidence-json]
 [测试与验证][contributing-8-测试与验证]
 ```
+
+[document-metadata]: ../reference/document-metadata.md

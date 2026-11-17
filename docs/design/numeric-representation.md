@@ -1,12 +1,22 @@
++++
+schema_version = 1
+id = "design-numeric-representation"
+kind = "design"
+status = "accepted"
+summary = "定义编制、交通与空间数值表示的分层。"
+scope = "数值分层、误差预算、compiler 前端几何正本，以及已提交整数毫米合同"
+applicability = "#applicability"
+related = ["adr-0003", "adr-0004", "adr-0012", "adr-0015", "adr-0022", "adr-0028", "architecture", "design-compiler-foundation", "design-parking-system", "design-road-editing-source-and-geometry-frontend", "design-traffic-runtime-integer-geometry", "design-vehicle-following", "roadmap"]
++++
+
 # 数值表示与精度
 
-**文档状态**: Accepted（已提交一维几何为整数毫米；Road Editing 3 / 来源编号修订已纳入现行规范）
+<a id="applicability"></a>
+## 适用边界与依据
 
-**最后更新**: 2026-11-09
+已提交一维几何采用整数毫米；道路编辑来源与来源编号使用正文定义的现行规范。
 
-**适用范围**: 数值分层、误差预算、compiler 前端几何正本，以及已提交整数毫米合同
-
-**关联文档**:
+关联文档：
 
 - `../architecture.md`
 - `../roadmap.md`

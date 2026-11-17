@@ -1,19 +1,23 @@
++++
+schema_version = 1
+id = "design-compiler-foundation"
+kind = "design"
+status = "accepted"
+summary = "定义编译器中间表示、前端接入与编译基础合同。"
+scope = "laneflow-static-contract、laneflow-compiler、有类型抽象语法树（Typed Abstract Syntax Tree， Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层 中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断 （Diagnostic）与正本来源投影"
+applicability = "#applicability"
+related = ["adr-0014", "adr-0020", "adr-0021", "adr-0023", "adr-0025", "adr-0035", "design-core-runtime-performance-baseline", "design-network-compiler", "design-numeric-representation", "design-road-editing-source-and-geometry-frontend", "design-spatial-geometry", "reference-glossary"]
++++
+
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: `laneflow-static-contract`、`laneflow-compiler`、有类型抽象语法树（Typed Abstract Syntax Tree，
-Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
-中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示
-（Validated Canonical Low-level Intermediate Representation，Canonical LIR）、
-合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL
-Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断
-（Diagnostic）与正本来源投影<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
 编译器以有类型来源模块为入口，经 Typed AST → HIR → MIR → Canonical LIR 原子产出
 受检规范制品与来源伴随数据。路线生命周期由 `TrafficWorld::register_route` 拥有。
 
-**关联决策与设计**:
+关联决策与设计：
 
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`

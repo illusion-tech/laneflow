@@ -1,17 +1,33 @@
++++
+schema_version = 1
+id = "adr-0026"
+kind = "adr"
+status = "accepted"
+summary = "记录合并治理重建与 Schema 公共发布义务退役。"
+scope = "LaneFlow 合并检查、External Review Check、commit message 校验、Issue/PR 模板、GitHub Ruleset / Merge Queue、JSON Schema 公共发布义务"
+date = "2026-08-21"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/468"]
+
+related = ["governance-development-gates", "governance-documentation-policy", "governance-github-workflow", "reference-commit-convention"]
+[[supersedes]]
+target = "adr-0011"
+extent = "full"
+explanation = "#supersedes-adr-0011"
++++
+
 # 0026 合并治理重建：原生审阅 Check、Merge Queue 与 Schema Publication 退役
 
-**状态**: Accepted（第 5–9 节及相关后果已被
-[ADR 0027][adr-0027] 取代）
-**日期**: 2026-08-21
-**适用范围**: LaneFlow 合并检查、External Review Check、commit message 校验、Issue/PR
-模板、GitHub Ruleset / Merge Queue、JSON Schema 公共发布义务
-**取代**: ADR 0011 的公共发布、永久 URL 与历史保留现行义务
-**后续修订**: ADR 0027 退役 External Review 自定义 Check，并把 required status
+<a id="applicability"></a>
+## 适用边界与依据
+
+取代： ADR 0011 的公共发布、永久 URL 与历史保留现行义务
+后续修订： ADR 0027 退役 External Review 自定义 Check，并把 required status
 checks 收敛为五项；本文其它 G3/G4、commit message、模板与 Schema Publication
 决策继续有效
-**关联 Issue**: [#468][issue-468]
+关联 Issue： [#468][issue-468]
 
-**关联文档**:
+关联文档：
 
 - `../governance/development-gates.md`
 - `../governance/github-workflow.md`
@@ -182,5 +198,16 @@ GitHub 设置不进 git，切换当天由所有者执行：
 4. 停止 Schema Pages；若 Pages 仅此用途则关闭 Pages。
 5. 真实队列 canary 通过后：required `External Review`，并移除 bypass。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0011"></a>
+### adr-0011
+
+[adr-0011][replacement-adr-0011]：取消 ADR 0011 的公共发布、永久 URL 与历史保留现行义务；该文只保留历史说明，现行可移植制品合同由对应责任文档拥有。
+
+
 [adr-0027]: 0027-retire-external-review-check.md
 [issue-468]: https://github.com/illusion-tech/laneflow/issues/468
+
+[replacement-adr-0011]: 0011-schema-identifier-and-publication-contract.md

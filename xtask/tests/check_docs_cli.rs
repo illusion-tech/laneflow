@@ -23,6 +23,8 @@ impl TestDirectory {
         ));
         fs::create_dir_all(path.join("xtask/data")).expect("temp repo");
         fs::write(path.join("xtask/data/doc-checks.toml"), "required = []\n").expect("config");
+        fs::create_dir_all(path.join("docs")).expect("docs");
+        fs::write(path.join("docs/page.md"), "+++\nschema_version = 1\nid = \"page\"\nkind = \"reference\"\nstatus = \"active\"\nsummary = \"说明\"\nscope = \"测试\"\n+++\n# Page\n").expect("formal document");
         Self(path)
     }
 
@@ -69,4 +71,40 @@ fn check_docs_exits_zero_when_the_fixture_is_clean() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("errors=0"), "{stdout}");
+}
+
+#[test]
+fn export_docs_checks_metadata_and_writes_a_site_catalog() {
+    let repo = TestDirectory::new();
+    let output = repo.xtask(&["export-docs"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let exported = fs::read_to_string(repo.0.join("target/docs/catalog.json")).unwrap();
+    let catalog: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    assert_eq!(catalog["pages"][0]["url"], "/docs/page/");
+    assert_eq!(catalog["pages"][0]["headings"][0]["anchor"], "page");
+    assert!(
+        !catalog["pages"][0]["body"]
+            .as_str()
+            .unwrap()
+            .contains("schema_version")
+    );
+    fs::write(repo.0.join("docs/page.md"), "# Missing metadata\n").unwrap();
+    let output = repo.xtask(&["export-docs"]);
+    assert!(!output.status.success());
+    assert_eq!(
+        exported,
+        fs::read_to_string(repo.0.join("target/docs/catalog.json")).unwrap()
+    );
+}
+
+#[test]
+fn check_docs_path_filter_does_not_bypass_formal_metadata() {
+    let repo = TestDirectory::new();
+    fs::write(repo.0.join("README.md"), "# Readme\n").unwrap();
+    fs::write(repo.0.join("docs/page.md"), "# Missing metadata\n").unwrap();
+    assert!(!repo.xtask(&["check-docs", "README.md"]).status.success());
 }
