@@ -1013,7 +1013,10 @@ fn straight_vehicle_on_parallel_edge_is_a_registered_gap() {
     let route_a = [e0a, t1, get(31_000), get(8_000), get(10_000)];
     let route_b = [e2a, straight_after(&revision, e2a), get(34_000)];
     let run = drive(&revision, 1, &route_a, 15_000, &route_b, 16_000);
-    assert_eq!(run.a_entered, run.b_entered);
+    // #1272 后的现状：A（过渡段路线）在制动前视窗内为过渡资源提前减速，
+    // B（平行边直行）不受 P4 枚举、先于 A 进入。P4 不覆盖 B 的缺口本身
+    // 未变，仍按合同待修。
+    assert!(run.b_entered < run.a_entered);
     assert!(run.bodies_together_in_transitions);
 }
 

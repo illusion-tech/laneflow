@@ -4320,6 +4320,7 @@ pub(crate) mod compile_route_tests {
                 .unwrap();
             world.state.rebuild_occupancy_index().unwrap();
             let mut straight_passed = false;
+            let mut straight_previous: Option<u32> = None;
             let mut prev_changer_edge = 0_u32;
             let mut changer_entered_tick = None;
             for tick in 1_u64..=80 {
@@ -4327,11 +4328,20 @@ pub(crate) mod compile_route_tests {
                 world.step(crate::TickInput::new(100)).unwrap();
                 let straight_state = world.state.committed.vehicles.state(straight).unwrap();
                 let changer_state = world.state.committed.vehicles.state(changer).unwrap();
-                // 直行车不入 P4 枚举队：全程匀速零驻留（队外直行语义）。
+                // 直行车不入 P4 枚举队（队外直行语义）。#1272：允许为窗内
+                // 已知阻塞与路终提前制动，但不得停让（零驻留）且单拍减速
+                // 不超过紧急界——停让/急刹才是入队观测。
                 assert!(
-                    straight_state.speed_mm_s >= 10_000,
-                    "straight stays out of the P4 queue (no braking)"
+                    straight_state.speed_mm_s > 0,
+                    "straight stays out of the P4 queue (no stopping)"
                 );
+                if let Some(previous) = straight_previous {
+                    assert!(
+                        previous <= straight_state.speed_mm_s + 900 + 2,
+                        "straight braking stays within the emergency bound"
+                    );
+                }
+                straight_previous = Some(straight_state.speed_mm_s);
                 // 换道停让（§5.2 枚举=区间内+上下游）：直行未过区间期间
                 // 换道方进入跃迁即违。
                 let window_open = straight_state.route_edge_index < 2 && !straight_passed;
@@ -4417,7 +4427,7 @@ pub(crate) mod compile_route_tests {
             world.state.rebuild_occupancy_index().unwrap();
             let mut leader_entered = None;
             let mut follower_entered = None;
-            for tick in 1_u64..=80 {
+            for tick in 1_u64..=240 {
                 world.state.prepare_waiting_step(0.1).unwrap();
                 world.step(crate::TickInput::new(100)).unwrap();
                 let leader_state = world.state.committed.vehicles.state(leader).unwrap();
