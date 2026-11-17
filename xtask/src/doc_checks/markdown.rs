@@ -274,7 +274,7 @@ fn record_link(
     });
 }
 
-fn parser_options() -> Options {
+pub(super) fn parser_options() -> Options {
     // 不打开 ENABLE_HEADING_ATTRIBUTES：`{#id}` 只是标题文本，不是自定义锚点。
     Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
 }

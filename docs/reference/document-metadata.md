@@ -186,6 +186,12 @@ cargo +1.99.1 run --locked -p xtask -- export-docs
 正文换行统一为 LF；源文件排序和结构输出确定；不含本机绝对路径或
 构建时间，不将构建目录作为第二份正本提交。
 
+目录导出格式当前为 `schema_version = 2`；`pages` 保留上述页面模型，新增
+`terminology` 承载结构化概念、旧称与措辞规则。该对象与生成术语阅读页共用
+TOML 正本及 Rust 模型，字段、稳定词条 URL 和文档联结规则见
+[术语目录格式与维护][terminology-catalog]。正式文档页头仍为 schema_version 1，
+不得与目录导出的格式版本混用。
+
 正文继续用文件相对链接和页脚引用；导出为正式页面链接提供 page_id 和逻辑 URL，
 指向正式目录的链接映射到该目录 README 的 ID；非正式源码/附件链接保留 target、
 directory 与 fragment。下游须分别映射页面、资源和源码；
@@ -214,3 +220,4 @@ directory 与 fragment。下游须分别映射页面、资源和源码；
 产品未发布阶段只有一套当前模型，不维护旧加粗页头回退解析器或 YAML/TOML 双轨。
 
 [documentation-checks]: documentation-checks.md
+[terminology-catalog]: terminology-catalog.md

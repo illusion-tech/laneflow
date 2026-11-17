@@ -46,6 +46,10 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 若任务涉及 Traffic Runtime API、数据格式或 Adapter API，
 但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。
 
+术语表是生成阅读页；新增或修改词条须编辑 `docs/reference/terms/` 的 TOML 正本，
+按 `docs/reference/terminology-catalog.md` 运行 `generate-glossary`；语言用法与旧称
+处理遵循 `docs/governance/terminology-policy.md`，不手改生成正文。
+
 ## 工作流
 
 1. 确认任务类别与影响范围。
@@ -109,7 +113,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 - 不要在不更新 design 文档的情况下改变数据格式语义。静态数据现行路径是 LFCA /
   共享静态路网，不是已删除的 current JSON。
 - 长期文档中的领域术语必须以中文为准、英文辅助；新术语先补
-  `docs/reference/glossary.md`，代码和协议标识符保留精确原文。
+  `docs/reference/terms/` 并生成术语表，代码和协议标识符保留精确原文。
 - 面向读者的数量必须让数量级、单位和计数对象清楚且无歧义；零较多的中文正文建议
   使用规范中文数量，表格、公式和机器输入建议使用完整十进制数字。上下文明确时
   `k`/`M` 等缩写或 `1 万` 等写法可以保留，仅作可读性与一致性建议，不设自动检查；

@@ -1,0 +1,86 @@
+schema_version = 1
+
+[[terms]]
+id = "canonical-frame"
+name = "规范坐标框架"
+english_aliases = ["canonical frame"]
+domains = ["spatial"]
+definition = "空间几何和位姿共享的稳定局部坐标框架。"
+symbols = [{ value = "CanonicalFrame", kind = "type" }]
+references = [{ document = "design-spatial-geometry" }]
+
+[[terms]]
+id = "center-to-outer-end-distance"
+name = "路口中心至道路外端距离"
+english_aliases = ["center-to-outer-end distance"]
+domains = ["spatial"]
+definition = "路口生成器的 `arm_length_meters` 参数；其值从路口中心计量，不能当作扣除路口半径后的外部道路长度。代码与配置键保持原文。"
+references = [{ document = "design-example-scenarios" }]
+
+[[terms]]
+id = "conflict-zone-region"
+name = "冲突区空间区域"
+english_aliases = ["conflict zone region"]
+domains = ["spatial"]
+definition = "与冲突区配对的可选 2.5D 简单 XZ 多边形及高度范围；只服务验证、调试和表现，不拥有冲突行为。"
+symbols = [{ value = "ConflictZoneRegion", kind = "type" }]
+references = [{ document = "design-spatial-geometry" }]
+
+[[terms]]
+id = "external-road-segment"
+name = "路口外部道路"
+english_aliases = ["external road segment"]
+domains = ["spatial"]
+definition = "生成场景中位于路口内部连接之外、通向相邻路口或外围环路的道路部分；上下文明确后可简称“外部道路”。数量须区分有向道路、双向道路和车道，不代替“进口道/出口道”的有向接近关系。"
+references = [{ document = "design-example-scenarios" }]
+short_forms = [{ name = "外部道路", scope = "生成场景道路几何语境已明确。" }]
+
+[[terms]]
+id = "geometry"
+name = "几何"
+english_aliases = ["geometry"]
+domains = ["spatial"]
+definition = "坐标框架、曲线、折线、弧长和采样数据。"
+references = [{ document = "design-spatial-geometry" }]
+
+[[terms]]
+id = "phase-state-position"
+name = "相位状态位置"
+english_aliases = ["phase state position"]
+domains = ["spatial"]
+definition = "信号相位状态向量中按 `linkIndex` 关联受控连接的位置；“未认领位置”不是一条道路或一条进口道。转换器是否接受及如何报告，以现有信号源健康检查合同为准。"
+references = [{ document = "design-example-scenarios" }]
+
+[[terms]]
+id = "placement-token"
+name = "放置令牌"
+english_aliases = ["placement token"]
+domains = ["spatial"]
+definition = "绑定规范坐标框架与宿主放置状态、防止过期位姿写入的令牌。"
+references = [{ document = "design-spatial-geometry" }]
+
+[[terms]]
+id = "pose-batch"
+name = "位姿批次"
+english_aliases = ["pose batch"]
+domains = ["spatial"]
+definition = "空间层按稳定顺序批量产生的位置和朝向结果。"
+references = [{ document = "design-spatial-geometry" }]
+
+[[terms]]
+id = "spatial-layer"
+name = "空间层"
+english_aliases = ["Spatial layer"]
+domains = ["spatial"]
+definition = "拥有规范几何采样和位姿语义、但不拥有交通规则的引擎无关组件。"
+symbols = [{ value = "laneflow-spatial", kind = "crate" }]
+references = [{ document = "design-spatial-geometry" }]
+
+[[terms]]
+id = "spatial-session"
+name = "空间会话"
+english_aliases = ["spatial session"]
+domains = ["spatial"]
+definition = "绑定共享路网修订、消费共享空间路网进行规范几何采样的会话。"
+symbols = [{ value = "SpatialSession", kind = "type" }]
+references = [{ document = "design-spatial-geometry" }]

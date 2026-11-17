@@ -25,7 +25,23 @@ impl TestDirectory {
         fs::write(path.join("xtask/data/doc-checks.toml"), "required = []\n").expect("config");
         fs::create_dir_all(path.join("docs")).expect("docs");
         fs::write(path.join("docs/page.md"), "+++\nschema_version = 1\nid = \"page\"\nkind = \"reference\"\nstatus = \"active\"\nsummary = \"说明\"\nscope = \"测试\"\n+++\n# Page\n").expect("formal document");
-        Self(path)
+        fs::create_dir_all(path.join("docs/reference/terms")).unwrap();
+        fs::write(path.join("docs/reference/terms/catalog.toml"), "schema_version = 1\nfiles = [\"terms.toml\"]\n[[domains]]\nid = \"example\"\nname = \"示例\"\n").unwrap();
+        fs::write(path.join("docs/reference/terms/terms.toml"), "schema_version = 1\n[[terms]]\nid = \"example\"\nname = \"示例概念\"\nenglish_aliases = [\"example concept\"]\ndomains = [\"example\"]\ndefinition = \"用于说明的概念。\"\nreferences = [{ document = \"page\" }]\n").unwrap();
+        for (file, id) in [
+            ("glossary", "reference-glossary"),
+            ("wording-guide", "reference-wording-guide"),
+        ] {
+            fs::write(path.join(format!("docs/reference/{file}.md")), format!("+++\nschema_version = 1\nid = \"{id}\"\nkind = \"reference\"\nstatus = \"active\"\nsummary = \"说明\"\nscope = \"测试\"\n+++\n# 阅读页\n\n<!-- generated-terminology:start -->\n\n<!-- generated-terminology:end -->\n")).unwrap();
+        }
+        let repo = Self(path);
+        let generated = repo.xtask(&["generate-glossary"]);
+        assert!(
+            generated.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        repo
     }
 
     fn xtask(&self, args: &[&str]) -> Output {
@@ -90,6 +106,13 @@ fn export_docs_checks_metadata_and_writes_a_site_catalog() {
     );
     let exported = fs::read_to_string(repo.0.join("target/docs/catalog.json")).unwrap();
     let catalog: serde_json::Value = serde_json::from_str(&exported).unwrap();
+    assert_eq!(catalog["schema_version"], 2);
+    assert_eq!(catalog["terminology"]["schema_version"], 1);
+    let concept = &catalog["terminology"]["terms"][0];
+    assert_eq!(concept["name"], "示例概念");
+    assert_eq!(concept["source"], "docs/reference/terms/terms.toml");
+    assert_eq!(concept["url"], "/docs/reference-glossary/#term-example");
+    assert_eq!(concept["references"][0]["document"], "page");
     assert_eq!(catalog["pages"][0]["url"], "/docs/page/");
     assert_eq!(
         catalog["pages"][0]["metadata"]["revised_date"],
@@ -117,4 +140,38 @@ fn check_docs_path_filter_does_not_bypass_formal_metadata() {
     fs::write(repo.0.join("README.md"), "# Readme\n").unwrap();
     fs::write(repo.0.join("docs/page.md"), "# Missing metadata\n").unwrap();
     assert!(!repo.xtask(&["check-docs", "README.md"]).status.success());
+}
+
+#[test]
+fn doc_checks_and_export_reject_terminology_drift_until_regenerated() {
+    let repo = TestDirectory::new();
+    fs::write(repo.0.join("README.md"), "# Readme\n").unwrap();
+    assert!(repo.xtask(&["export-docs"]).status.success());
+    let destination = repo.0.join("target/docs/catalog.json");
+    let exported = fs::read_to_string(&destination).unwrap();
+    let source_path = repo.0.join("docs/reference/terms/terms.toml");
+    let source = fs::read_to_string(&source_path).unwrap();
+    fs::write(
+        source_path,
+        source.replace("用于说明的概念。", "修订后的概念定义。"),
+    )
+    .unwrap();
+    let check = repo.xtask(&["check-docs", "README.md"]);
+    assert_eq!(check.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&check.stderr).contains("阅读页已漂移"));
+    assert!(
+        !repo
+            .xtask(&["generate-glossary", "--check"])
+            .status
+            .success()
+    );
+    assert!(!repo.xtask(&["export-docs"]).status.success());
+    assert_eq!(fs::read_to_string(&destination).unwrap(), exported);
+    assert!(repo.xtask(&["generate-glossary"]).status.success());
+    assert!(repo.xtask(&["export-docs"]).status.success());
+    assert!(
+        fs::read_to_string(destination)
+            .unwrap()
+            .contains("修订后的概念定义。")
+    );
 }

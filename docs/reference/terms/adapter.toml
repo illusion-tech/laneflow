@@ -1,0 +1,27 @@
+schema_version = 1
+
+[[terms]]
+id = "engine-adapter"
+name = "引擎适配器"
+english_aliases = ["engine adapter", "Adapter"]
+domains = ["adapter"]
+definition = "把运行时快照和空间位姿映射到宿主引擎生命周期与表现对象的组件。"
+references = [{ document = "design-adapter-api" }]
+
+[[terms]]
+id = "host-transform"
+name = "宿主变换"
+english_aliases = ["host transform"]
+domains = ["adapter"]
+definition = "宿主引擎中的位置、旋转和缩放表示；不得反写为交通进度正本。"
+symbols = [{ value = "Transform", kind = "type" }]
+references = [{ document = "design-adapter-api" }]
+
+[[terms]]
+id = "level-of-detail"
+name = "细节层次"
+english_aliases = ["level of detail"]
+domains = ["adapter"]
+definition = "按距离、预算或表现需求选择渲染/调试细节的适配器策略。"
+symbols = [{ value = "LOD", kind = "acronym" }]
+references = [{ document = "design-adapter-api" }]

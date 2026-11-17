@@ -23,7 +23,7 @@ related = ["adr-0021", "adr-0030", "adr-0032", "design-portable-canonical-artifa
 关联设计： [`traffic-runtime-snapshot.md`][runtime-snapshot] §5/§6、
 [`shared-static-network.md`][shared-static-network] §8/§10.2、
 [`portable-canonical-artifact.md`][portable-artifact] §3.8、
-[`../reference/glossary.md`][glossary] §7.6
+[术语表中的失真及相关概念][glossary]
 
 > 层次约定：§1–§8 只冻结合同与不变量（G1 本体）；算法与取得路径选型、API
 > 标识符统一登记在 [§11 G2 落定清单][state-integrity-g2-list]。
@@ -740,7 +740,7 @@ E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
 [runtime-snapshot]: traffic-runtime-snapshot.md
 [shared-static-network]: shared-static-network.md
 [portable-artifact]: portable-canonical-artifact.md
-[glossary]: ../reference/glossary.md
+[glossary]: ../reference/glossary.md#term-distortion
 [state-integrity-g2-list]: #11-g2-落定清单实现内容不属-g1-冻结
 [portable-artifact-revision-id]: portable-canonical-artifact.md#38-路网修订标识
 [performance-baseline]: core-runtime-performance-baseline.md

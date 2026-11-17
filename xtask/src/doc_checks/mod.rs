@@ -7,6 +7,7 @@ mod markdown;
 mod metadata;
 mod scan;
 mod slug;
+pub(crate) mod terminology;
 
 #[cfg(test)]
 mod tests;
@@ -43,6 +44,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if report.findings.is_empty() {
         let catalog = catalog::Catalog::load(&root)?;
         catalog.indexes(&root, false)?;
+        let terms = terminology::TermCatalog::load(&root, &catalog)?;
+        terms.pages(&root, &catalog, false)?;
         println!("{}", report.summary());
         println!("formal-documents={}", catalog.pages.len());
         Ok(())

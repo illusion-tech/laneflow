@@ -21,6 +21,10 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
     fidelity 时，额外阅读 `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 12. 1.0 正式发布前阅读 `.agents/skills/laneflow-pre-1-0/SKILL.md`。
 
+术语表是生成阅读页；新增或修改词条须编辑 `docs/reference/terms/` 的 TOML 正本，
+按 `docs/reference/terminology-catalog.md` 运行 `generate-glossary`；语言用法与旧称
+处理遵循 `docs/governance/terminology-policy.md`，不手改生成正文。
+
 ## 工作流
 
 1. 将任务归类为任务类别之一：`docs-only`、`governance`、`core-runtime`、

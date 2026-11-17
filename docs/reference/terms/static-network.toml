@@ -1,0 +1,368 @@
+schema_version = 1
+
+[[terms]]
+id = "access-rule"
+name = "准入规则"
+english_aliases = ["access rule"]
+domains = ["static-network"]
+definition = "对参与者与目标施加允许、拒绝或约束效果的静态规则。"
+symbols = [{ value = "AccessRule", kind = "type" }]
+references = [{ document = "design-cross-section-access" }]
+
+[[terms]]
+id = "approach"
+name = "进口道"
+english_aliases = ["approach"]
+domains = ["static-network"]
+definition = "路口中指向入口方向的有向接近关系；中文交通工程标准词，与出口道成对。"
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "authoring-lane"
+name = "编制车道"
+english_aliases = ["authoring lane"]
+domains = ["static-network"]
+definition = "来源模块中具有稳定键、可展开为道路车道边的车道声明。"
+symbols = [{ value = "AuthoringLane", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "canonical-network-origin"
+name = "规范路网来源绑定"
+english_aliases = ["canonical network origin"]
+domains = ["static-network"]
+definition = "共享路网修订保存的 LFCA digest/length、`NetworkRevisionId` 与静态契约版本；用于恢复/切换核对，不是可序列化 descriptor 或发布信任锚。"
+symbols = [{ value = "CanonicalNetworkOrigin", kind = "type" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "canonical-network-semantic-payload"
+name = "规范路网语义载荷"
+english_aliases = ["canonical network semantic payload"]
+domains = ["static-network"]
+definition = "排除工具来源、诊断和目标布局，完整冻结运行时可观察静态路网语义及其派生契约版本的目标无关规范字节。"
+symbols = [{ value = "canonicalNetworkSemanticPayload", kind = "field" }]
+references = [{ document = "design-portable-canonical-artifact" }]
+
+[[terms]]
+id = "conflict-passage"
+name = "冲突通行段"
+english_aliases = ["conflict passage"]
+domains = ["static-network"]
+definition = "某参与者流穿过一个冲突区的所有者局部 entry/exit 路径区间；不具有独立稳定身份。"
+symbols = [{ value = "ConflictPassage", kind = "type" }]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+
+[[terms]]
+id = "conflict-passage-occurrence"
+name = "路线冲突出现记录"
+english_aliases = ["conflict passage occurrence"]
+domains = ["static-network"]
+definition = "某条每世界路线中的一次冲突通行段出现；以参与者流 ordinal 与所有者局部 passage 下标回指共享静态事实。"
+symbols = [{ value = "ConflictPassageOccurrence", kind = "type" }]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+
+[[terms]]
+id = "conflict-zone"
+name = "冲突区"
+english_aliases = ["conflict zone"]
+domains = ["static-network"]
+definition = "多个参与者流可能发生空间冲突、需要运行时裁决的区域。"
+symbols = [{ value = "ConflictZone", kind = "type" }]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+
+[[terms]]
+id = "coverage"
+name = "覆盖关系"
+english_aliases = ["coverage"]
+domains = ["static-network"]
+definition = "门、等待区、冲突区或规则对路径/出现记录的适用范围。"
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "exit-approach"
+name = "出口道"
+english_aliases = ["exit approach"]
+domains = ["static-network"]
+definition = "路口中指向出口方向的有向接近关系；与进口道成对。"
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "facility-band"
+name = "设施带"
+english_aliases = ["facility band"]
+domains = ["static-network"]
+definition = "道路走廊内不直接承担机动车遍历拓扑的设施横带。"
+symbols = [{ value = "FacilityBand", kind = "type" }]
+references = [{ document = "design-cross-section-access" }]
+
+[[terms]]
+id = "junction"
+name = "路口"
+english_aliases = ["junction"]
+domains = ["static-network"]
+definition = "组织通行流向和机动路径的静态路口声明。"
+symbols = [{ value = "Junction", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "junction-group"
+name = "路口组"
+english_aliases = ["junction group"]
+domains = ["static-network"]
+definition = "组织多个路口的更高层静态组合；尚未进入标识 v1（Identity v1）。"
+symbols = [{ value = "JunctionGroup", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+scope_notes = ["属于候选扩展，不因术语登记进入现行静态标识或制品格式。"]
+
+[[terms]]
+id = "lane-edge"
+name = "车道图边"
+english_aliases = ["lane edge"]
+domains = ["static-network"]
+definition = "具有显式稳定边键、可独立寻址的基础遍历拓扑实体；道路车道覆盖与路口内部边归属只是关系 / 角色，不参与其稳定身份。"
+symbols = [{ value = "LaneEdge", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "lane-group"
+name = "车道组"
+english_aliases = ["lane group"]
+domains = ["static-network"]
+definition = "道路区段内组织车道成员的静态分组。"
+symbols = [{ value = "LaneGroup", kind = "type" }]
+references = [{ document = "design-cross-section-access" }]
+
+[[terms]]
+id = "maneuver-gate"
+name = "机动门"
+english_aliases = ["maneuver gate"]
+domains = ["static-network"]
+definition = "绑定机动路径、用于空间准入和信号约束的静态门。"
+symbols = [{ value = "ManeuverGate", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "maneuver-path"
+name = "机动路径"
+english_aliases = ["maneuver path"]
+domains = ["static-network"]
+definition = "某通行流向内连接入口边、内部边和出口边的可遍历路径。"
+symbols = [{ value = "ManeuverPath", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "movement"
+name = "通行流向"
+english_aliases = ["movement"]
+domains = ["static-network"]
+definition = "从进口道到出口道的静态通行意图；转向类别只是元数据。"
+symbols = [{ value = "Movement", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "network-revision"
+name = "路网修订"
+english_aliases = ["network revision"]
+domains = ["static-network"]
+definition = "在其生命周期内不可变、经编译和检查，并由重算路网修订标识绑定的一个静态路网版本。"
+references = [{ document = "design-portable-canonical-artifact" }]
+
+[[terms]]
+id = "network-revision-id"
+name = "路网修订标识"
+english_aliases = ["network revision ID"]
+domains = ["static-network"]
+definition = "对规范路网语义载荷计算、由后发射检查重算的版本化不透明摘要；发布时由 LFCP/manifest 绑定，只支持相等性比较。"
+symbols = [{ value = "NetworkRevisionId", kind = "type" }]
+references = [{ document = "design-portable-canonical-artifact" }]
+
+[[terms]]
+id = "parking-facility"
+name = "停车设施"
+english_aliases = ["parking facility"]
+domains = ["static-network", "runtime"]
+definition = "组织显式停车位与虚拟停车容量，并可拥有多个虚拟入口和出口的唯一停车设施实体。"
+symbols = [{ value = "ParkingFacility", kind = "type" }]
+references = [{ document = "design-parking-system" }]
+related = ["parking-space", "virtual-parking-capacity"]
+
+[[terms]]
+id = "parking-space"
+name = "停车位"
+english_aliases = ["parking space"]
+domains = ["static-network"]
+definition = "有排他占用、静态几何和 parked pose 的具体位置；可选归属于停车设施，该组织关系不构成停车位身份父锚点。"
+symbols = [{ value = "ParkingSpace", kind = "type" }]
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "participant-class"
+name = "参与者类别"
+english_aliases = ["participant class"]
+domains = ["static-network"]
+definition = "数据声明、可继承的准入分类；不定义交通执行域，也不证明对应运行时行为已经实现。"
+symbols = [{ value = "ParticipantClass", kind = "type" }]
+references = [{ document = "design-cross-section-access" }]
+
+[[terms]]
+id = "participant-stream"
+name = "参与者流"
+english_aliases = ["participant stream"]
+domains = ["static-network"]
+definition = "进入冲突裁决的有向参与者流。"
+symbols = [{ value = "ParticipantStream", kind = "type" }]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+
+[[terms]]
+id = "path-anchor"
+name = "路径锚点"
+english_aliases = ["path anchor"]
+domains = ["static-network"]
+definition = "以机动门、路径边界或边内整数毫米位置精确标识机动路径位置的闭合联合。"
+symbols = [{ value = "PathAnchor", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "road-corridor"
+name = "道路走廊"
+english_aliases = ["road corridor"]
+domains = ["static-network"]
+definition = "组织方向性道路区段与非遍历设施带的横断面所有者。"
+symbols = [{ value = "RoadCorridor", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "road-section"
+name = "道路区段"
+english_aliases = ["road section"]
+domains = ["static-network"]
+definition = "道路走廊内具有方向和横断面成员关系的区段。"
+symbols = [{ value = "RoadSection", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "shared-identity-index"
+name = "稳定身份索引"
+english_aliases = ["shared identity index"]
+domains = ["static-network"]
+definition = "所有共享路网修订都必须包含、在稳定标识与 typed ordinal 之间双向映射的冷数据索引；它不进入 steady tick，也不证明跨修订语义兼容。"
+symbols = [{ value = "SharedIdentityIndex", kind = "type" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "shared-network-revision"
+name = "共享路网修订"
+english_aliases = ["shared network revision"]
+domains = ["static-network"]
+definition = "绑定同一路网修订标识的交通、身份、规划提示与可选空间组件的共享对象；各组件不得独立切换。"
+symbols = [{ value = "SharedNetworkRevision", kind = "type" }]
+references = [{ document = "design-shared-static-network" }]
+short_forms = [{ name = "修订", scope = "运行时状态完整性语境，且上下文已经明确所指共享路网修订。" }]
+related = ["shared-static-network", "shared-traffic-network", "shared-spatial-network"]
+
+[[terms]]
+id = "shared-spatial-network"
+name = "共享空间路网"
+english_aliases = ["shared spatial network"]
+domains = ["static-network"]
+definition = "共享路网修订中可选的规范空间数据；可以只有 facility/profile/frame，非空 LaneEdge geometry 才提供 lane-pose sampling；不得与其他修订的 Traffic component 混用。"
+symbols = [{ value = "SharedSpatialNetwork", kind = "type" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "shared-static-network"
+name = "共享静态路网"
+english_aliases = ["shared static network"]
+domains = ["static-network"]
+definition = "从受检规范制品有界构建、不可变且可由多个世界共享的进程内静态数据层；不是文件、ABI、存档或发布对象。"
+symbols = [{ value = "laneflow-static-network", kind = "crate" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "shared-traffic-network"
+name = "共享交通路网"
+english_aliases = ["shared traffic network"]
+domains = ["static-network"]
+definition = "共享路网修订中面向 Traffic Runtime 的必选性能数据；采用类型化密集句柄、连续 hot/cold columns、CSR/range 与预计算 occurrence/constraints。"
+symbols = [{ value = "SharedTrafficNetwork", kind = "type" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "signal-controller"
+name = "信号控制器"
+english_aliases = ["signal controller"]
+domains = ["static-network"]
+definition = "产生信号相位和指示时间序列的静态控制程序。"
+symbols = [{ value = "SignalController", kind = "type" }]
+references = [{ document = "design-signal-system" }]
+
+[[terms]]
+id = "signal-group"
+name = "信号组"
+english_aliases = ["signal group"]
+domains = ["static-network"]
+definition = "面向一组门或通行意图输出信号指示的静态组。"
+symbols = [{ value = "SignalGroup", kind = "type" }]
+references = [{ document = "design-signal-system" }]
+
+[[terms]]
+id = "signal-phase"
+name = "信号相位"
+english_aliases = ["signal phase"]
+domains = ["static-network"]
+definition = "信号控制器内具有稳定键的阶段声明。"
+symbols = [{ value = "SignalPhase", kind = "type" }]
+references = [{ document = "design-signal-system" }]
+
+[[terms]]
+id = "spatial-retention-build-option"
+name = "空间保留构建选项"
+english_aliases = ["spatial retention build option"]
+domains = ["static-network"]
+definition = "构建共享静态路网时决定是否保留可用空间组件的选项；不进入制品、存档或发布对象。"
+symbols = [{ value = "SpatialBuildOption", kind = "type" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "static-network"
+name = "静态路网"
+english_aliases = ["static network"]
+domains = ["static-network"]
+definition = "不随世界固定步进改变的道路、关系、规则、几何和预计算索引集合。"
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "stop-line"
+name = "停止线"
+english_aliases = ["stop line"]
+domains = ["static-network"]
+definition = "表达车辆必须在其前满足通行约束的静态线。"
+symbols = [{ value = "StopLine", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "topology"
+name = "拓扑"
+english_aliases = ["topology"]
+domains = ["static-network"]
+definition = "边、节点、连接、所有权和可遍历关系。"
+references = [{ document = "design-road-junction-model" }]
+
+[[terms]]
+id = "vehicle-profile"
+name = "车辆配置"
+english_aliases = ["vehicle profile"]
+domains = ["static-network"]
+definition = "冻结车辆运动与安全参数的静态配置。"
+symbols = [{ value = "VehicleProfile", kind = "type" }]
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "waiting-zone"
+name = "等待区"
+english_aliases = ["waiting zone"]
+domains = ["static-network"]
+definition = "绑定机动路径并表达等待容量、顺序或位置的静态区域。"
+symbols = [{ value = "WaitingZone", kind = "type" }]
+references = [{ document = "design-road-junction-model" }]
