@@ -1152,9 +1152,18 @@ fn loop_route_future_transition_does_not_hide_nearer_downstream_boundary() {
         }
     }
     // 验收第 2 项：截去未来 T 的对照与循环路线在共享前缀期间使用相同近端证明
-    // 边界——两份基线都在换道车首次进入处截断，授予时点一致则逐拍全等。
+    // 边界——两份基线都在换道车首次进入处截断，授予时点一致则换道车逐拍全等。
+    // #1272：对照路线更短，直行车接近路终时按新语义提前制动，末端位置可以
+    // 不同；近端证明边界的等价性由换道车轨迹承载。
+    let changer_trace = |trace: &[_]| {
+        trace
+            .iter()
+            .map(|(edge, progress, _, _)| (*edge, *progress))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
-        baselines[0].1, baselines[1].1,
+        changer_trace(&baselines[0].1),
+        changer_trace(&baselines[1].1),
         "对照与循环路线必须沿用同一近端证明边界"
     );
 }

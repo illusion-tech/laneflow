@@ -706,7 +706,9 @@ fn run_corridor_chain(workers: u32) -> Vec<String> {
     }
     assert_fused_path(&world, "corridor scenario");
     let mut records = Vec::with_capacity(160);
-    for _ in 0..160 {
+    // #1272：到位改按耗尽上界逐拍衰减、路终提前制动，排队疏散变慢；
+    // 预算从 160/130 拍放宽到 480 拍，只影响到达时点，不改变跨 worker 对照。
+    for _ in 0..480 {
         let outcome = world.step(TickInput::new(16)).expect("corridor step");
         records.push(tick_record(&world, &outcome));
     }
@@ -952,7 +954,7 @@ fn run_parking_transition_fused(workers: u32) -> Vec<String> {
     let mut records = Vec::with_capacity(160);
     let mut parked = false;
     let mut completed = false;
-    for _ in 0..160 {
+    for _ in 0..480 {
         if !parked {
             world.park_vehicle(parker, target).expect("park");
             parked = true;
@@ -1263,7 +1265,7 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
     let mut records = Vec::with_capacity(130);
     let mut completed = false;
     let mut completion_backfill = false;
-    for _ in 0..130 {
+    for _ in 0..480 {
         let outcome = world
             .step(TickInput::new(DELTA_MS))
             .expect("hybrid parking step");

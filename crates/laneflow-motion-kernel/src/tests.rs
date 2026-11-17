@@ -21,6 +21,7 @@ struct Fixture {
     stop: [f32; N],
     end: [f32; N],
     envelope: [f32; N],
+    service_tier: [bool; N],
     has_proposal: [bool; N],
     proposal_speed: [f32; N],
     proposal_travel: [f32; N],
@@ -47,6 +48,7 @@ impl Fixture {
             stop: [f32::INFINITY; N],
             end: [f32::INFINITY; N],
             envelope: [f32::INFINITY; N],
+            service_tier: [false; N],
             has_proposal: [false; N],
             proposal_speed: [0.0; N],
             proposal_travel: [0.0; N],
@@ -85,6 +87,7 @@ impl Fixture {
             if row % 2 == 0 {
                 f.stop_cap[row] = 9_550;
             }
+            f.service_tier[row] = row % 23 == 0 && f.stop[row] != f32::INFINITY;
             f.end[row] = match row % 13 {
                 0 => 1.0,
                 _ => f32::INFINITY,
@@ -117,6 +120,7 @@ impl Fixture {
             stop_m: &self.stop[..n],
             route_end_m: &self.end[..n],
             envelope_m: &self.envelope[..n],
+            stop_target_service_tier: &self.service_tier[..n],
             has_proposal: &self.has_proposal[..n],
             proposal_speed_m_s: &self.proposal_speed[..n],
             proposal_travel_m: &self.proposal_travel[..n],
@@ -251,22 +255,27 @@ fn assert_proposal_counts(stats: Stats, computed: usize, reused: usize) {
 }
 
 #[test]
-fn exhausted_cap_preserves_lower_projected_speeds_and_only_applies_at_the_boundary() {
-    // 同一批含普通停车、过渡预约、投影零速、较低限速及未耗尽行；17 行覆盖向量尾。
+fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary() {
+    // 同一批含 floor 抬升、上界更紧、停稳分支、较低限速及未耗尽行；17 行覆盖向量尾。
+    // #1272：候选形成把低于紧急下界 F 的提案抬到 F；耗尽拍 committed = min(归约速度, 上界)。
+    // (speed_mm_s, proposal_m_s, cap, limit, room, expected)
     let cases = [
-        (0, 10.0, 0, u32::MAX, 0),
-        (0, 10.0, 9_550, u32::MAX, 9_550),
-        (100, 0.0, 9_550, u32::MAX, 0),
-        (100, 4.0, 9_550, u32::MAX, 4_000),
-        (100, 10.0, 9_550, 6_000, 6_000),
-        (u32::MAX, 10.0, 0, u32::MAX, 10_000),
+        (10_000, 10.0, u32::MAX, u32::MAX, 0, 10_000),
+        (10_000, 9.0, u32::MAX, u32::MAX, 0, 9_600),
+        (10_000, 10.0, 9_550, u32::MAX, 0, 9_550),
+        (400, 0.0, u32::MAX, u32::MAX, 100, 0),
+        (10_000, 10.0, 9_550, 6_000, 0, 6_000),
+        (10_000, 10.0, u32::MAX, u32::MAX, u32::MAX, 10_000),
     ];
     let mut f = Fixture::new(1_199);
     for row in 0..17 {
-        let (room, proposal, cap, limit, _) = cases[row % cases.len()];
+        let (speed, proposal, cap, limit, room, _) = cases[row % cases.len()];
         f.enabled[row] = true;
         f.has_proposal[row] = true;
         f.has_leader[row] = false;
+        f.speed[row] = speed;
+        f.comfort[row] = 2.0;
+        f.emergency[row] = 4.0;
         f.stop[row] = f32::INFINITY;
         f.end[row] = f32::INFINITY;
         f.envelope[row] = f32::INFINITY;
@@ -288,7 +297,7 @@ fn exhausted_cap_preserves_lower_projected_speeds_and_only_applies_at_the_bounda
             assert!(result.valid[row]);
             assert_eq!(
                 result.speed[row],
-                cases[row % cases.len()].4,
+                cases[row % cases.len()].5,
                 "{backend:?}, row {row}"
             );
         }
@@ -675,7 +684,10 @@ fn nonfinite_proposals_and_quantization_overflow_are_rejected() {
     fixture.envelope.fill(f32::INFINITY);
     fixture.room.fill(u32::MAX);
     for row in 0..N {
-        fixture.proposal_travel[row] = match row % 3 {
+        // #1272 起提案速度是唯一被消费的提案列（位移按一致三元组重算），
+        // 非有限拒绝锚定在速度列上。
+        fixture.proposal_travel[row] = 1.0;
+        fixture.proposal_speed[row] = match row % 3 {
             0 => f32::NAN,
             1 => f32::INFINITY,
             _ => f32::MAX,
@@ -731,4 +743,42 @@ fn direct_preserves_invalid_delta_and_existing_parameter_comparisons() {
             direct.assert_motion_eq(&reference);
         }
     }
+}
+
+/// #1272 求解器可行域回归锚：本拍减速上界、拍内停稳实际减速度与安全求根。
+#[test]
+fn stop_constraint_feasibility_domain_rejects_super_decel_tier_and_root_anchors() {
+    // 15 m / 100 ms：舒适档域空（旧实现返回 u≈7.516，一拍 24.84 m/s² 伪舒适），
+    // 紧急档可行且本拍无需减速。
+    assert!(max_next_speed_for_decel(10.0, 10.0, 0.1, 15.0, 0.0, 2.0).is_none());
+    let emergency = max_next_speed_for_decel(10.0, 10.0, 0.1, 15.0, 0.0, 4.0);
+    assert_eq!(emergency, Some(10.0));
+
+    // 25 m / 16 ms 舒适边界：任何结果都不得低于该档一拍下界（旧实现因 1.9 µm
+    // 代回超界弃根回退 linear=0，产生 625 m/s²）。
+    for distance in [24.8_f32, 24.9, 25.0, 25.0001, 25.1, 25.2] {
+        if let Some(u) = max_next_speed_for_decel(10.0, 10.0, 0.016, distance, 0.0, 2.0) {
+            assert!(u >= 10.0 - 2.0 * 0.016, "u={u} at d={distance}");
+        }
+    }
+
+    // 拍内停稳实际减速度定义域：真实不可停（紧急停车距离 0.125 m > 0.01 m）
+    // 不得被终速判据误判可停；两档皆空进入具名投影。
+    assert!(max_next_speed_for_decel(1.0, 1.0, 1.0, 0.01, 0.0, 2.0).is_none());
+    assert!(max_next_speed_for_decel(1.0, 1.0, 1.0, 0.01, 0.0, 4.0).is_none());
+
+    // 停稳分支用档位减速度的实际停车位移 v²/(2b)：0.26 m 内 1 m/s 可舒适停稳。
+    assert_eq!(
+        max_next_speed_for_decel(1.0, 1.0, 1.0, 0.26, 0.0, 2.0),
+        Some(0.0)
+    );
+    assert!(speed_down_constraint_holds(1.0, 0.0, 1.0, 0.26, 0.0, 2.0));
+    assert!(!speed_down_constraint_holds(1.0, 0.0, 1.0, 0.24, 0.0, 2.0));
+
+    // 候选低于该档一拍下界时域为空，不抬高候选（级联交由调用方）。
+    assert!(max_next_speed_for_decel(10.0, 9.0, 0.1, 100.0, 0.0, 4.0).is_none());
+    assert_eq!(
+        max_next_speed_for_decel(10.0, 9.7, 0.1, 100.0, 0.0, 4.0),
+        Some(9.7)
+    );
 }

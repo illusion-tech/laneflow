@@ -390,7 +390,7 @@ fn add_later_closed_gate(module: &mut SyntheticModuleBuilder) {
 }
 
 #[test]
-fn later_closed_gate_rejects_when_this_tick_reaches_it() {
+fn later_closed_gate_admits_a_stoppable_spawn_and_rejects_the_unstoppable() {
     let revision = revision("runtime-fixture-policy", add_later_closed_gate);
     let mut world = install_dt(Arc::clone(&revision), 1_000);
     let route = register_named(
@@ -398,11 +398,16 @@ fn later_closed_gate_rejects_when_this_tick_reaches_it() {
         "runtime-fixture-policy",
         &["before", "approach", "exit"],
     );
+    // 刹停距离 8 m 放不进 7.5 m 时仍拒绝。
     assert_eq!(
-        spawn(&mut world, route, 0, 22_800, 8_000).unwrap_err(),
+        spawn(&mut world, route, 0, 23_500, 8_000).unwrap_err(),
         SpawnError::StopConstraintUnsatisfiable,
-        "8.2 米外的拒绝门这一拍够得到，连续刹停距离却还够"
+        "紧急刹停距离放不下的拒绝门仍拒绝"
     );
+    // #1272：8 m/s 距拒绝门 8.2 m，紧急刹停距离 8 m 放得下；首拍按停止目标
+    // 减速（紧急域根 ≈4.1 m/s），不再一拍清零，准入成功。
+    spawn(&mut world, route, 0, 22_800, 8_000)
+        .expect("够得到的拒绝门前紧急刹停距离仍放得下");
     let mut farther = install_dt(revision, 1_000);
     let route = register_named(
         &mut farther,
@@ -1105,7 +1110,7 @@ fn shorter_upstream_path_is_not_hidden_by_an_earlier_long_path() {
 }
 
 #[test]
-fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
+fn near_red_light_admits_a_stoppable_spawn_and_rejects_the_unstoppable() {
     let revision = revision("runtime-fixture-policy", |module| {
         add_signal_corridor(module, SignalAspect::Red);
     });
@@ -1115,18 +1120,36 @@ fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
         "runtime-fixture-policy",
         &["entry", "middle", "exit"],
     );
-    let cursor = world.command_cursor();
-    assert_eq!(
-        spawn(&mut world, route, 0, 9_968, 500).unwrap_err(),
-        SpawnError::StopConstraintUnsatisfiable,
-        "连续刹停距离够 32 mm，但第一拍仍会被红灯打成急停"
-    );
-    assert_eq!(world.command_cursor(), cursor);
-    assert!(world.live_vehicles().is_empty());
+    // #1272：0.5 m/s 距停止线 32 mm，紧急刹停距离 31.25 mm 放得下；首拍按
+    // 停止目标减速（紧急域根 ≈0.1 m/s），不再被红灯打成急停，准入成功。
+    spawn(&mut world, route, 0, 9_968, 500).expect("停止线前紧急刹停距离放得下");
 
-    let parked = spawn(&mut world, route, 0, 4_500, 0).expect("待替换的车");
+    // 刹停距离 31.25 mm 放不进 30 mm 时仍拒绝。
+    let mut closer = install(Arc::clone(&revision));
+    let closer_route = register_named(
+        &mut closer,
+        "runtime-fixture-policy",
+        &["entry", "middle", "exit"],
+    );
+    let cursor = closer.command_cursor();
+    assert_eq!(
+        spawn(&mut closer, closer_route, 0, 9_970, 500).unwrap_err(),
+        SpawnError::StopConstraintUnsatisfiable,
+        "连续刹停距离放不下的红灯仍拒绝"
+    );
+    assert_eq!(closer.command_cursor(), cursor);
+    assert!(closer.live_vehicles().is_empty());
+
+    // 替换路径的不可停拒绝用独立世界（避免与成功案例的车身重叠）。
+    let mut replacing = install(Arc::clone(&revision));
+    let route = register_named(
+        &mut replacing,
+        "runtime-fixture-policy",
+        &["entry", "middle", "exit"],
+    );
+    let parked = spawn(&mut replacing, route, 0, 4_500, 0).expect("待替换的车");
     let index = usize::try_from(parked.index()).expect("index");
-    world
+    replacing
         .state
         .committed
         .vehicles
@@ -1135,17 +1158,17 @@ fn near_red_light_is_rejected_when_the_first_tick_would_hard_stop() {
         .as_mut()
         .expect("vehicle")
         .status = VehicleStatus::Completed;
-    world.state.rebuild_active_order();
-    world.state.derived.spawn_overlap.mark_stale();
-    world
+    replacing.state.rebuild_active_order();
+    replacing.state.derived.spawn_overlap.mark_stale();
+    replacing
         .state
         .rebuild_occupancy_index()
         .expect("完成后的车退出占用索引");
     assert_eq!(
-        world
+        replacing
             .replace_completed_vehicle(
                 parked,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_968, 500)
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 9_970, 500)
                     .with_open_entrance(),
             )
             .unwrap_err(),
