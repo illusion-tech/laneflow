@@ -838,7 +838,12 @@ fn compute(
                     .get(edge.index())?;
                 let boundary = batch.travel_mm[row] >= length.saturating_sub(chunk.progress[row]);
                 batch.can_hop[row] = !boundary
-                    || (view.read.hop_permitted_compiled(compiled, index, profile)
+                    || (view.read.hop_gate_permitted_with_dilemma(
+                        compiled,
+                        index,
+                        profile,
+                        source.speed_mm_s[offset + row],
+                    )
                         && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.transition_hop[row].is_none_or(|hop| hop as usize != index));
