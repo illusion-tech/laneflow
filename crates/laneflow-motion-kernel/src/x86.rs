@@ -272,19 +272,29 @@ macro_rules! limit_step {
                     let quadratic = $select($cmp::<_CMP_GE_OQ>(discriminant, zero),
                         $min($div($add($sub(zero, b_dt), $sqrt(discriminant)), two), next), $set(f32::NEG_INFINITY));
                     let holds = |candidate| {
-                        let travel = $mul($mul(half, $add(current, candidate)), dt);
+                        // 拍内停稳分支用档位减速度的实际停车位移，未停稳用梯形。
+                        let stop_travel = $div($mul(current, current), $mul(two, decel));
+                        let trap_travel = $mul($mul(half, $add(current, candidate)), dt);
+                        let stopped = $and($cmp::<_CMP_LE_OQ>(candidate, zero), $cmp::<_CMP_LE_OQ>(current, b_dt));
+                        let travel = $select(stopped, stop_travel, trap_travel);
                         let braking = $div($max($sub($mul(candidate, candidate), $mul(limit, limit)), zero), $mul(two, decel));
                         $cmp::<_CMP_LE_OQ>($add(travel, braking), distance)
                     };
+                    // 本拍减速上界：低于 floor 的终速不在该档可行域内。
+                    let floor = $max($sub(current, b_dt), zero);
+                    let domain_ok = $cmp::<_CMP_LE_OQ>(floor, next);
                     let better = $and($cmp::<_CMP_GT_OQ>(quadratic, limit), holds(quadratic));
                     let best = $select(better, $max(linear, quadratic), linear);
-                    let legal = $and($and($cmp::<_CMP_GT_OQ>(decel, zero), $cmp::<_CMP_GT_OQ>(dt, zero)),
-                        $and($cmp::<_CMP_LE_OQ>($mul($mul(half, current), dt), distance), holds(best)));
-                    ($max($min(best, next), zero), legal)
+                    // floor 已验证可行且左侧随 u 单调，可行最大值不低于 floor。
+                    let best = $max(best, floor);
+                    let legal = $and($and($and($cmp::<_CMP_GT_OQ>(decel, zero), $cmp::<_CMP_GT_OQ>(dt, zero)), domain_ok),
+                        $and(holds(floor), holds(best)));
+                    ($min(best, next), legal)
                 };
                 let (comfort, comfort_valid) = solve($load($input.comfort_decel.as_ptr().add(start)));
                 let (emergency, emergency_valid) = solve($load($input.emergency_decel.as_ptr().add(start)));
-                let capped = $select(comfort_valid, comfort, $select(emergency_valid, emergency, zero));
+                // 两域皆空（#1272）：crossing 投影按 §8.1 收到目标限速，不再归零。
+                let capped = $select(comfort_valid, comfort, $select(emergency_valid, emergency, limit));
                 let candidate = $select($cmp::<_CMP_GE_OQ>(limit, next), next, capped);
                 let candidate = $select($cmp::<_CMP_EQ_OQ>(distance, zero), $min(next, limit), candidate);
                 $store($output.next_speed_m_s.as_mut_ptr().add(start), $select(work, candidate, next));
@@ -557,9 +567,10 @@ macro_rules! arithmetic {
     ($input:ident, $output:ident, $delta:ident, $phase:ident, $stats:ident, $track:ident, $quantize:ident, $width:literal,
      $set:ident, $load:ident, $store:ident, $uint:ident, $mask:ident,
      $add:ident, $sub:ident, $mul:ident, $div:ident, $max:ident, $min:ident,
-     $cmp:ident, $select:ident) => {{
+     $sqrt:ident, $cmp:ident, $and:ident, $select:ident) => {{
         let end = $input.enabled.len() / $width * $width;
-        let zero = $set(0.0); let one = $set(1.0); let dt = $set($delta);
+        let zero = $set(0.0); let one = $set(1.0); let two = $set(2.0); let half = $set(0.5);
+        let dt = $set($delta); let inf = $set(f32::INFINITY);
         for start in (0..end).step_by($width) {
             if $phase == Phase::Direct && !$input.enabled[start..start + $width].iter().any(|&v| v) {
                 $output.valid[start..start + $width].fill(false);
@@ -577,8 +588,8 @@ macro_rules! arithmetic {
                 let project = matches!($phase, Phase::Project | Phase::FloatProject);
                 let all_reused = project || (start..start + $width).all(|row|
                     $input.has_proposal[row] || $phase == Phase::Direct && !$input.enabled[row]);
-                let (raw_travel, raw_speed) = if all_reused {
-                    ($load($input.proposal_travel_m.as_ptr().add(start)), $load($input.proposal_speed_m_s.as_ptr().add(start)))
+                let raw_speed = if all_reused {
+                    $load($input.proposal_speed_m_s.as_ptr().add(start))
                 } else {
                     let ratio = $max($div(speed, desired), zero);
                     let square = $mul(ratio, ratio);
@@ -588,15 +599,68 @@ macro_rules! arithmetic {
                     let gap_term = $select(present, $mul(gap_ratio, gap_ratio), zero);
                     let accel = $mul($load($input.max_accel.as_ptr().add(start)), $sub($sub(one, speed_term), gap_term));
                     let raw_speed = $min($max($add(speed, $mul(accel, dt)), zero), $max(desired, zero));
-                    let raw_speed = $select(present, $select($cmp::<_CMP_LE_OQ>(leader, zero), zero, raw_speed), raw_speed);
-                    let raw_travel = $max($mul($mul($add(speed, raw_speed), $set(0.5)), dt), zero);
-                    let raw_travel = $select(present, $select($cmp::<_CMP_LE_OQ>(leader, zero), zero, raw_travel), raw_travel);
-                    ($select(reused, $load($input.proposal_travel_m.as_ptr().add(start)), raw_travel),
-                     $select(reused, $load($input.proposal_speed_m_s.as_ptr().add(start)), raw_speed))
+                    $select(present, $select($cmp::<_CMP_LE_OQ>(leader, zero), zero, raw_speed),
+                        $select(reused, $load($input.proposal_speed_m_s.as_ptr().add(start)), raw_speed))
                 };
+                // #1272 候选形成与停止目标速度归约（与 scalar_row 同式；仅提案
+                // 诞生处，Project 读到的提案已经过归约不得重放地板）：减速下界
+                // 先于空间目标（过渡预约用服务/舒适档）；目标距离 0 归耗尽语义。
+                let comfort = $load($input.comfort_decel.as_ptr().add(start));
+                let emergency = $load($input.emergency_decel.as_ptr().add(start));
+                let stop_target = $min($load($input.stop_m.as_ptr().add(start)), $load($input.route_end_m.as_ptr().add(start)));
+                let raw_speed = if !project {
+                    let service = $mask($input.stop_target_service_tier, start);
+                    let floor_tier = $select(service, comfort, emergency);
+                    let floor = $max($sub(speed, $mul(floor_tier, dt)), zero);
+                    let lifted = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
+                    let has_target = $and($and($cmp::<_CMP_GT_OQ>(stop_target, zero), $cmp::<_CMP_LT_OQ>(stop_target, inf)),
+                        $cmp::<_CMP_GT_OQ>(lifted, zero));
+                    let solve_stop = |decel: _| {
+                        // 与 max_next_speed_for_decel（L=0）逐式同序：线性根恒 0；二次根
+                        // 仅在判别式非负时求根（sqrt 负数产生 NaN，min 会把它变成
+                        // 第二操作数）；可行域含本拍减速上界与拍内停稳分支。
+                        let b_dt = $mul(decel, dt);
+                        let constant = $sub($sub($mul($mul(decel, speed), dt), zero), $mul($mul(two, decel), stop_target));
+                        let discriminant = $sub($mul(b_dt, b_dt), $mul(two, $mul(two, constant)));
+                        let sqrt_disc = $sqrt($max(discriminant, zero));
+                        let quadratic = $select($cmp::<_CMP_GE_OQ>(discriminant, zero),
+                            $min($div($add($sub(zero, b_dt), sqrt_disc), two), lifted), $set(f32::NEG_INFINITY));
+                        let holds = |candidate: _| {
+                            let stop_branch = $div($mul(speed, speed), $mul(two, decel));
+                            let trapezoid = $max($mul($mul($add(speed, candidate), half), dt), zero);
+                            let stopped = $and($cmp::<_CMP_LE_OQ>(candidate, zero), $cmp::<_CMP_LE_OQ>(speed, b_dt));
+                            let braking = $div($mul(candidate, candidate), $mul(two, decel));
+                            $cmp::<_CMP_LE_OQ>($add($select(stopped, stop_branch, trapezoid), braking), stop_target)
+                        };
+                        let tier_floor = $max($sub(speed, b_dt), zero);
+                        let domain = $cmp::<_CMP_LE_OQ>(tier_floor, lifted);
+                        let root_ok = $and($cmp::<_CMP_GT_OQ>(quadratic, zero), holds(quadratic));
+                        let best = $max($select(root_ok, quadratic, zero), tier_floor);
+                        let legal = $and($and($and($cmp::<_CMP_GT_OQ>(decel, zero), $cmp::<_CMP_GT_OQ>(dt, zero)), domain), holds(best));
+                        ($min(best, lifted), legal)
+                    };
+                    let (comfort_cap, comfort_ok) = solve_stop(comfort);
+                    let (emergency_cap, emergency_ok) = solve_stop(emergency);
+                    // 两域皆空（具名投影）：保持档位下界推进（过渡用服务/舒适档），
+                    // 位移由硬空间收到目标，线上速度交耗尽层按主导源分档。
+                    let cascade = $select(comfort_ok, comfort_cap, $select(emergency_ok, emergency_cap, floor));
+                    $select(has_target, $min(lifted, cascade), lifted)
+                } else {
+                    raw_speed
+                };
+                // 归约后位移按一致三元组重算；未触及行与原梯形逐位相同。
+                let comfort_stop = $div($mul(speed, speed), $mul(two, comfort));
+                let emergency_stop = $div($mul(speed, speed), $mul(two, emergency));
+                let use_comfort = $and($cmp::<_CMP_LE_OQ>(raw_speed, zero),
+                    $and($cmp::<_CMP_LE_OQ>(speed, $mul(comfort, dt)), $cmp::<_CMP_LE_OQ>(comfort_stop, stop_target)));
+                let use_emergency = $and($cmp::<_CMP_LE_OQ>(raw_speed, zero),
+                    $and($cmp::<_CMP_LE_OQ>(speed, $mul(emergency, dt)), $cmp::<_CMP_LE_OQ>(emergency_stop, stop_target)));
+                let raw_travel = $select($and(use_comfort, $cmp::<_CMP_GT_OQ>(speed, zero)), comfort_stop,
+                    $select(use_emergency, emergency_stop,
+                        $max($mul($mul($add(speed, raw_speed), half), dt), zero)));
                 let travel = if $phase != Phase::Proposal {
                     let leader_room = $max($sub(leader, min_gap), zero);
-                    let reintegrated = if project { $max($mul($mul($add(speed, raw_speed), $set(0.5)), dt), zero) } else { raw_travel };
+                    let reintegrated = raw_travel;
                     let mut travel = $select(present, $min(reintegrated, leader_room), reintegrated);
                     travel = $min(travel, $max($load($input.stop_m.as_ptr().add(start)), zero));
                     travel = $min(travel, $max($load($input.route_end_m.as_ptr().add(start)), zero));
@@ -608,7 +672,9 @@ macro_rules! arithmetic {
                     $store(floats.proposal_speed_m_s.as_mut_ptr().add(start), raw_speed);
                     $store(floats.proposal_travel_m.as_mut_ptr().add(start), raw_travel);
                     if $phase == Phase::Proposal && let Some(window) = floats.window_m.as_mut() {
-                        let value = $add($mul(dt, $add(speed, raw_speed)), $div($mul(raw_speed, raw_speed), $load($input.comfort_decel.as_ptr().add(start))));
+                        // 已证速度上界（本拍最大可达且不超过期望）取窗，不随目标收紧缩小。
+                        let upper = $max($min($add(speed, $mul($load($input.max_accel.as_ptr().add(start)), dt)), $max(desired, zero)), zero);
+                        let value = $add($mul(dt, $add(speed, upper)), $div($mul(upper, upper), comfort));
                         $store(window.as_mut_ptr().add(start), value);
                     }
                 } else {
@@ -773,7 +839,9 @@ pub(super) unsafe fn avx2<const TRACK: bool>(
             _mm256_div_ps,
             _mm256_max_ps,
             _mm256_min_ps,
+            _mm256_sqrt_ps,
             _mm256_cmp_ps,
+            _mm256_and_ps,
             select256
         )
     };
@@ -868,7 +936,9 @@ pub(super) unsafe fn avx512<const TRACK: bool>(
             _mm512_div_ps,
             _mm512_max_ps,
             _mm512_min_ps,
+            _mm512_sqrt_ps,
             _mm512_cmp_ps_mask,
+            and512,
             select512
         )
     };

@@ -380,7 +380,27 @@ struct MotionLimits {
 impl MotionLimits {
     fn exhausted_speed_cap(&self, inputs: &MotionInputs, delta_s: f32) -> u32 {
         if !self.transition_limited {
-            return 0;
+            // #1272 耗尽决策表：过渡预约维持舒适衰减；停车到位与 leader 几何
+            // 投影保持清零（到位零速义务与跟车轴例外）；其余停止源耗尽改紧急
+            // 衰减——该式在 v 小时自然为 0，包含并取代清零。路终耗尽由
+            // `at_route_end` 分支以零速收尾，不经过这里。
+            let leader_room = inputs
+                .leader_gap
+                .map(|gap| snapshot_leader_room_mm(gap, inputs.min_gap_mm));
+            let stop_binding = inputs.parking.is_none()
+                && self.stop.is_some_and(|stop| {
+                    let BoundedDistance::Finite(mm) = stop else {
+                        return false;
+                    };
+                    leader_room.is_none_or(|room| mm <= room)
+                });
+            if !stop_binding {
+                return 0;
+            }
+            let rate_mm_s2 = (inputs.emergency_decel * 1_000.0) as u64;
+            return inputs
+                .speed_mm_s
+                .saturating_sub((rate_mm_s2 as f64 * f64::from(delta_s)) as u32);
         }
         let rate_mm_s2 = (inputs.comfort_decel * 1_000.0) as u64;
         inputs
@@ -530,6 +550,9 @@ enum MotionBounds {
         proposed_mm: u64,
         committed_mm: u32,
         exhausted: bool,
+        /// #1272 停止目标制动前视窗（毫米向上取整）；新目标在窗外才不改变
+        /// 速度归约与停稳分支。不可证明时为 `u64::MAX`，复用一律失败。
+        window_mm: u64,
     },
 }
 
@@ -596,17 +619,23 @@ impl MotionPreview {
         let beyond_motion = match self.bounds {
             // 同距离的新约束可能改变停车原因与提交速度，必须重算。
             MotionBounds::TransitionStopped | MotionBounds::Unknown => false,
-            // 原 hard_room 已为零；额外停止约束仍走相同的零位移提前返回。
-            MotionBounds::HardStopped => return true,
+            // #1272 耗尽速度上界按主导源分档，新约束可能改变主导源；已停稳
+            // （速度 0）时各源上界同为 0，零位移结果不变，仍可复用。
+            MotionBounds::HardStopped => self.next.speed_mm_s == 0,
             MotionBounds::Travel {
                 meters,
                 proposed_mm,
+                window_mm,
                 ..
             } => match stop.distance {
                 BoundedDistance::Finite(mm) => {
                     // SI clamp 不变，且新整数硬边界严格在含 carry/舍入的提案外，
-                    // 因而不会改变 exhausted、余量或速度。不能只比较整数位置。
-                    u64::from(mm) > proposed_mm && si_meters(mm) >= meters
+                    // 因而不会改变 exhausted 或余量。#1272 起停止目标参与速度
+                    // 归约：本拍够不到但处于制动前视窗内的目标同样改变速度与
+                    // 停稳分支，窗外才可复用。不能只比较整数位置。
+                    u64::from(mm) > proposed_mm
+                        && si_meters(mm) >= meters
+                        && u64::from(mm) > window_mm
                 }
                 BoundedDistance::BeyondFinite => true,
             },
@@ -4371,9 +4400,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 inputs,
             });
         }
+        let stop_target_service = transition
+            .is_some_and(|bound| limits.stop == Some(bound.stop.distance));
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             &inputs,
             limits.stop,
+            stop_target_service,
             compiled,
             lengths,
             speed_limits,
@@ -4421,6 +4453,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 proposed_mm: um / 1_000,
                 committed_mm: travel_mm_for_bounds,
                 exhausted: exhausted_for_bounds,
+                window_mm: motion_preview_window_mm(&inputs, delta_s),
             };
         }
         let travel_mm = travel_mm_for_bounds;
@@ -5622,6 +5655,7 @@ fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
 fn si_comfort_travel(
     basis: &MotionInputs,
     signal_stop: Option<BoundedDistance>,
+    stop_target_service: bool,
     compiled: &CompiledRoute,
     _lengths: &[u32],
     _speed_limits: &[u32],
@@ -5634,7 +5668,39 @@ fn si_comfort_travel(
     let min_gap_m = si_meters(basis.min_gap_mm);
     let route_end = basis.route_end;
     let envelope = basis.envelope_m;
-    let (mut travel, mut next_speed) = basis.proposal?;
+    let (_, mut next_speed) = basis.proposal?;
+    // #1272 候选形成与停止目标速度归约（与运动内核同式）：减速下界先于
+    // 空间目标（过渡预约用服务/舒适档）；目标距离 0 归耗尽语义，不在此归零。
+    let floor_tier = if stop_target_service {
+        basis.comfort_decel
+    } else {
+        basis.emergency_decel
+    };
+    let floor = (speed - floor_tier * delta_s).max(0.0);
+    next_speed = next_speed.max(floor);
+    let stop_target = signal_stop
+        .and_then(finite_meters)
+        .unwrap_or(f32::INFINITY)
+        .min(finite_meters(route_end).unwrap_or(f32::INFINITY));
+    if stop_target > 0.0 && stop_target.is_finite() && next_speed > 0.0 {
+        next_speed = next_speed.min(motion_stop_target_cap(
+            speed,
+            next_speed,
+            delta_s,
+            stop_target,
+            basis.comfort_decel,
+            basis.emergency_decel,
+            stop_target_service,
+        ));
+    }
+    let mut travel = motion_stop_aware_travel(
+        speed,
+        next_speed,
+        delta_s,
+        stop_target,
+        basis.comfort_decel,
+        basis.emergency_decel,
+    );
     travel = clamp_si_travel(
         travel,
         leader_m,
@@ -5657,7 +5723,14 @@ fn si_comfort_travel(
         basis.emergency_decel,
         basis.speed_drop_first,
     )?;
-    travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
+    travel = motion_stop_aware_travel(
+        speed,
+        next_speed,
+        delta_s,
+        stop_target,
+        basis.comfort_decel,
+        basis.emergency_decel,
+    );
     travel = clamp_si_travel(
         travel,
         leader_m,
@@ -5677,6 +5750,50 @@ fn si_comfort_travel(
         basis.speed_drop_first,
     )?;
     Some((travel.max(0.0), next_speed.max(0.0)))
+}
+
+/// L=0 停止目标级联（与运动内核 `cap_next_speed_for_stop_target` 同式）：
+/// 舒适 → 紧急 → 具名投影；两域皆空时保持档位下界推进（过渡预约用服务/
+/// 舒适档），位移由硬空间收到目标，线上速度交耗尽层按主导源分档。
+fn motion_stop_target_cap(
+    speed: f32,
+    next: f32,
+    delta_s: f32,
+    distance: f32,
+    comfort: f32,
+    emergency: f32,
+    service_tier: bool,
+) -> f32 {
+    let floor_tier = if service_tier { comfort } else { emergency };
+    max_next_speed_for_decel(speed, next, delta_s, distance, 0.0, comfort)
+        .or_else(|| max_next_speed_for_decel(speed, next, delta_s, distance, 0.0, emergency))
+        .unwrap_or_else(|| (speed - floor_tier * delta_s).max(0.0))
+}
+
+/// 与运动内核同式的拍内停稳位移：终速 0 且档位减速度足以本拍停住时用实际
+/// 停车位移 `v²/(2b)`（舒适档优先，两档都停不进目标时保留终态梯形交边界
+/// 投影），未停稳用梯形积分。
+fn motion_stop_aware_travel(
+    speed: f32,
+    next: f32,
+    delta_s: f32,
+    stop_target: f32,
+    comfort: f32,
+    emergency: f32,
+) -> f32 {
+    let trapezoid = ((speed + next) * 0.5 * delta_s).max(0.0);
+    if next > 0.0 || speed <= 0.0 {
+        return trapezoid;
+    }
+    let comfort_stop = (speed * speed) / (2.0 * comfort);
+    if speed <= comfort * delta_s && comfort_stop <= stop_target {
+        return comfort_stop;
+    }
+    let emergency_stop = (speed * speed) / (2.0 * emergency);
+    if speed <= emergency * delta_s && emergency_stop <= stop_target {
+        return emergency_stop;
+    }
+    trapezoid
 }
 
 fn clamp_si_travel(
@@ -5859,6 +5976,20 @@ fn speed_drop_window_upper(
     window.is_finite().then_some(window)
 }
 
+/// #1272 完整预览复用证明的制动前视窗（毫米向上取整）；不可证明时返回
+/// `u64::MAX`，使任何窗外比较失败、复用一律重算。
+fn motion_preview_window_mm(inputs: &MotionInputs, delta_s: f32) -> u64 {
+    speed_drop_window_upper(
+        si_speed(inputs.speed_mm_s),
+        si_speed(inputs.desired_mm_s),
+        inputs.max_accel,
+        inputs.comfort_decel,
+        delta_s,
+    )
+    .map(|window| (f64::from(window.max(0.0)) * 1_000.0).ceil() as u64)
+    .unwrap_or(u64::MAX)
+}
+
 fn cap_next_speed_for_limit(
     current_speed: f32,
     next_speed: f32,
@@ -5881,7 +6012,9 @@ fn cap_next_speed_for_limit(
         limit,
         emergency,
     )
-    .or(Some(0.0))
+    // 两域皆空（#1272）：crossing 无法合规时按 §8.1 投影——travel 投影到首个
+    // 违规边界、final speed 不超过目标限速，不再归零。
+    .or(Some(limit.max(0.0).min(next_speed).max(0.0)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6181,6 +6314,7 @@ mod motion_reuse_tests {
                     proposed_mm,
                     committed_mm: 0,
                     exhausted: false,
+                    window_mm: 0,
                 },
             };
             let stop = WaitingStopConstraint {
@@ -6198,6 +6332,7 @@ mod motion_reuse_tests {
                 proposed_mm: 0,
                 committed_mm: 0,
                 exhausted: false,
+                window_mm: 0,
             },
         };
         let stop = WaitingStopConstraint {
@@ -7473,9 +7608,11 @@ mod barrier_query_tests {
             "an unauthorized admission does not let the vehicle cross"
         );
         assert!(after.progress_mm <= edge_length);
+        // #1272：到位拍速度按耗尽决策表紧急衰减（可为正、逐拍下降），
+        // 不越线即可；不再要求一拍清零。
         assert!(
-            after.progress_mm < edge_length || after.speed_mm_s == 0,
-            "reaching the admission stops the vehicle instead of passing it"
+            after.progress_mm < edge_length || after.speed_mm_s <= mid.speed_mm_s,
+            "reaching the admission holds the vehicle at the boundary"
         );
     }
 }

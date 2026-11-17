@@ -106,7 +106,7 @@ batch_columns! {
     leader: f32 = f32::INFINITY, has_leader: bool = false,
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
-    envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
+    envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0, service_tier: bool = false,
     edge_length: u32 = 0, exhausted_speed_cap: u32 = 0,
     transition_hop: Option<u32> = None,
     waiting_hop: Option<u32> = None,
@@ -369,6 +369,7 @@ fn numerical(
         stop_m: &batch.stop[range.clone()],
         route_end_m: &batch.route_end[range.clone()],
         envelope_m: &batch.envelope[range.clone()],
+        stop_target_service_tier: &batch.service_tier[range.clone()],
         has_proposal: &batch.has_proposal[range.clone()],
         proposal_speed_m_s: proposal_speed,
         proposal_travel_m: proposal_travel,
@@ -716,6 +717,8 @@ fn compute(
             batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
+            batch.service_tier[row] = transition
+                .is_some_and(|bound| limits.stop == Some(bound.stop.distance));
             batch.transition_hop[row] = transition.map(|bound| bound.stop.hop);
             chunk.cursor[row] = position.route_edge_index;
             Ok(())
@@ -1450,6 +1453,9 @@ mod tests {
                                 target_mm_s: 4_000,
                             });
                         route.refresh_hops(&lengths, &speeds).unwrap();
+                        // 测试内变更已注册路线后，游标行缓存按（路线, 游标）键
+                        // 命中旧「无下降」结论；作废后 _at 回退完整计算。
+                        world.state.workspace.motion_cursor_rows.fill(None);
                     }
                     world.state.rebuild_occupancy_index().unwrap();
                     world.state.prepare_waiting_step(0.1).unwrap();
@@ -1593,7 +1599,9 @@ mod tests {
                         assert!(read.committed.parking.binding(handle).is_none());
                         assert_eq!(
                             (state.route_edge_index, state.progress_mm, state.speed_mm_s),
-                            (1, 499, 0),
+                            // #1272：紧急域也放不下时速度收到目标限速（§8.1
+                            // crossing 投影），同拍按包络过边，已提交速度合规。
+                            (1, 699, 4_000),
                             "speed-limit projection without a transition reservation"
                         );
                     }

@@ -4030,6 +4030,9 @@ pub(crate) mod compile_route_tests {
                 world.state.rebuild_occupancy_index().unwrap();
 
                 let view = world.state.read_view();
+                // #1272：到位拍速度按耗尽决策表取紧急衰减上界（emergency 9.0
+                // m/s²），不再一拍清零；位置仍精确停在停止距离处。
+                let stop_speed = if direct { 100 } else { 9_100 };
                 for mm in [room / 2, room] {
                     let ordinary = crate::kernel::waiting::WaitingStopConstraint {
                         distance: laneflow_static_network::BoundedDistance::Finite(mm),
@@ -4040,7 +4043,7 @@ pub(crate) mod compile_route_tests {
                         .unwrap();
                     assert_eq!(
                         (stopped.progress_mm, stopped.speed_mm_s),
-                        (before.progress_mm + mm, 0),
+                        (before.progress_mm + mm, stop_speed),
                         "a nearer or equally restrictive waiting stop keeps its stop semantics"
                     );
                 }

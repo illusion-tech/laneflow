@@ -94,10 +94,16 @@ pub(super) fn scalar(
             input.emergency_decel[row],
         )
     })
-    .unwrap_or(0.0);
+    // 两域皆空（#1272）：crossing 投影按 §8.1 收到目标限速，不再归零。
+    .unwrap_or(limit);
 }
 
 /// 一次制动约束的精确 f32 线性/二次解；无可行解时返回 None。
+///
+/// 可行域同时约束本拍位移（含拍内停稳分支）与后续制动，以及本拍减速上界
+/// `u >= max(0, v - b*dt)`（终速在零处饱和，仅检查终速无法约束实际减速度；
+/// 停稳分支由档位减速度承担同一义务）。候选 `next` 低于该档下界时域为空，
+/// 由调用方级联到更低档或具名投影；本函数不抬高候选。
 pub fn max_next_speed_for_decel(
     current: f32,
     next: f32,
@@ -106,10 +112,15 @@ pub fn max_next_speed_for_decel(
     limit: f32,
     decel: f32,
 ) -> Option<f32> {
-    if decel <= 0.0 || delta <= 0.0 || 0.5 * current * delta > distance {
+    if decel <= 0.0 || delta <= 0.0 {
         return None;
     }
     let limit = limit.max(0.0);
+    let floor = (current - decel * delta).max(0.0);
+    if floor > next || !speed_down_constraint_holds(current, floor, delta, distance, limit, decel)
+    {
+        return None;
+    }
     let linear = ((2.0 * distance / delta) - current)
         .min(limit)
         .min(next)
@@ -128,11 +139,17 @@ pub fn max_next_speed_for_decel(
     {
         best = best.max(quadratic);
     }
+    // floor 已验证可行且约束左侧随 u 单调不减，可行最大值不低于 floor。
+    best = best.max(floor);
     speed_down_constraint_holds(current, best, delta, distance, limit, decel)
-        .then_some(best.min(next).max(0.0))
+        .then_some(best.min(next))
 }
 
 /// 相同 f32 运算顺序的可行性判定，供摆放、标量预览和向量差分使用。
+///
+/// 拍内停稳（终速为 0 且档位减速度足以本拍停住）时，位移用与
+/// vehicle-following §11.1 一致的实际加速度停车分支 `v^2/(2b)`；
+/// 未停稳用梯形积分。
 pub fn speed_down_constraint_holds(
     current: f32,
     next: f32,
@@ -141,7 +158,11 @@ pub fn speed_down_constraint_holds(
     limit: f32,
     decel: f32,
 ) -> bool {
-    let travel = 0.5 * (current + next) * delta;
+    let travel = if next <= 0.0 && current <= decel * delta {
+        (current * current) / (2.0 * decel)
+    } else {
+        0.5 * (current + next) * delta
+    };
     let braking = (next * next - limit * limit).max(0.0) / (2.0 * decel);
     travel + braking <= distance
 }
