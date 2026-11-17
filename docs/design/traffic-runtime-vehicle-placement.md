@@ -16,7 +16,7 @@ related = ["adr-0021", "design-adapter-api", "design-parking-system", "design-tr
 <a id="applicability"></a>
 ## 适用边界与依据
 
-§3.1 黄灯新生成边界属于 #1272 已接受设计，对应实现与验收不得由页头状态推断。
+§3.1 黄灯新生成边界已随 #1272 实现交付（新鲜摆放按纯 aspect 解释拒绝不可停摆放）。
 
 关联文档：
 
