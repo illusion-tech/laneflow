@@ -90,6 +90,47 @@ fn issue_links(output: &mut String, values: &[u32], links: &mut Links) {
 }
 
 impl TermCatalog {
+    fn domain_index(&self, output: &mut String, domain: &Domain, links: &mut Links) {
+        let terms: Vec<_> = self
+            .terms
+            .iter()
+            .filter(|t| t.record.domains.contains(&domain.id) && t.record.retirement.is_none())
+            .collect();
+        if terms.is_empty() {
+            return;
+        }
+        output.push_str("点击中文规范名查看完整定义；跨领域概念指向同一词条。\n\n| 中文规范名 | 英文辅助名 | 精确标识符 |\n| --- | --- | --- |\n");
+        for term in terms {
+            let term = &term.record;
+            let name = links.link(
+                &term.name,
+                &format!("term-{}", term.id),
+                format!("glossary.md#term-{}", term.id),
+            );
+            let english = term
+                .english_aliases
+                .iter()
+                .map(|name| label(name))
+                .collect::<Vec<_>>()
+                .join("；");
+            let symbols = term
+                .symbols
+                .iter()
+                .map(|symbol| code(&symbol.value))
+                .collect::<Vec<_>>()
+                .join("、");
+            let cells = [name, english, symbols].map(|cell| {
+                if cell.is_empty() {
+                    "—".to_string()
+                } else {
+                    cell.replace('|', "\\|")
+                }
+            });
+            output.push_str(&format!("| {} |\n", cells.join(" | ")));
+        }
+        output.push('\n');
+    }
+
     fn choice_links(&self, output: &mut String, choices: &[Choice], links: &mut Links) {
         for choice in choices {
             let (name, anchor) =
@@ -210,35 +251,13 @@ impl TermCatalog {
                 domain.id,
                 label(&domain.name)
             ));
+            self.domain_index(&mut output, domain, &mut links);
             for term in self
                 .terms
                 .iter()
                 .filter(|t| t.record.domains[0] == domain.id && t.record.retirement.is_none())
             {
                 self.term(&mut output, &term.record, documents, &mut links);
-            }
-            let secondary: Vec<_> = self
-                .terms
-                .iter()
-                .filter(|t| {
-                    t.record.domains[0] != domain.id
-                        && t.record.domains.contains(&domain.id)
-                        && t.record.retirement.is_none()
-                })
-                .collect();
-            if !secondary.is_empty() {
-                output.push_str("本领域还使用以下概念：\n\n");
-                for term in secondary {
-                    output.push_str(&format!(
-                        "- {}\n",
-                        links.link(
-                            &term.record.name,
-                            &format!("term-{}", term.record.id),
-                            format!("glossary.md#term-{}", term.record.id)
-                        )
-                    ));
-                }
-                output.push('\n');
             }
         }
         output.push_str("<a id=\"retired-concepts\"></a>\n## 停止采用的概念\n\n本节用于识别旧文档中的概念，不作为现行 API、格式或能力说明。\n\n");
@@ -264,7 +283,7 @@ impl TermCatalog {
             issue_links(&mut output, &change.issues, &mut links);
         }
         links.finish(&mut output);
-        output
+        crate::markdown_tables::format_markdown(&output)
     }
 
     pub(super) fn wording(&self, documents: &Catalog) -> String {

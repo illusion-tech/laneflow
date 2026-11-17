@@ -374,7 +374,17 @@ fn multi_domain_concepts_have_one_definition_and_cross_links() {
     repo.put("docs/reference/terms/one.toml", &data);
     let rendered = repo.load().unwrap().glossary(&repo.documents());
     assert_eq!(rendered.matches("具有明确边界的概念。").count(), 1);
-    assert!(rendered.contains("[概念][term-one]"));
+    assert_eq!(rendered.matches("[概念][term-one]").count(), 2);
+    let table_count =
+        pulldown_cmark::Parser::new_ext(&rendered, pulldown_cmark::Options::ENABLE_TABLES)
+            .filter(|event| {
+                matches!(
+                    event,
+                    pulldown_cmark::Event::Start(pulldown_cmark::Tag::Table(_))
+                )
+            })
+            .count();
+    assert_eq!(table_count, 2);
 }
 
 #[test]
@@ -459,10 +469,10 @@ fn render_escapes_names_and_uses_existing_markdown_link_rules() {
     let repo = Repo::new();
     let data = source(&term(
         "one",
-        "<Name> [label] * ~~value~~",
-        "concept",
+        "<Name> [label] * ~~value~~ | name",
+        "concept | alias",
         "first",
-    )) + "symbols = [{ value = \"Vec<T> `literal`\", kind = \"type\" }]\n";
+    )) + "symbols = [{ value = \"Vec<T> `literal` | field\", kind = \"type\" }]\n";
     repo.put("docs/reference/terms/one.toml", &data);
     let catalog = repo.load().unwrap();
     catalog.pages(&repo.0, &repo.documents(), true).unwrap();
@@ -479,8 +489,24 @@ fn render_escapes_names_and_uses_existing_markdown_link_rules() {
         parsed
             .headings
             .iter()
-            .any(|h| h.text == "<Name> [label] * ~~value~~")
+            .any(|h| h.text == "<Name> [label] * ~~value~~ | name")
     );
+    let mut in_table = false;
+    let mut cells = 0;
+    let mut table_code = Vec::new();
+    for event in pulldown_cmark::Parser::new_ext(&generated, pulldown_cmark::Options::ENABLE_TABLES)
+    {
+        use pulldown_cmark::{Event, Tag, TagEnd};
+        match event {
+            Event::Start(Tag::Table(_)) => in_table = true,
+            Event::End(TagEnd::Table) => in_table = false,
+            Event::Start(Tag::TableCell) if in_table => cells += 1,
+            Event::Code(value) if in_table => table_code.push(value.into_string()),
+            _ => {}
+        }
+    }
+    assert_eq!(cells, 6);
+    assert_eq!(table_code, ["Vec<T> `literal` | field"]);
 }
 
 #[cfg(unix)]

@@ -121,7 +121,8 @@ fn is_markdown_file(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
-fn format_markdown(content: &str) -> String {
+/// 使用仓库统一格式整理 Markdown 表格，保留非表格内容。
+pub(crate) fn format_markdown(content: &str) -> String {
     let line_ending = if content.contains("\r\n") {
         "\r\n"
     } else {
