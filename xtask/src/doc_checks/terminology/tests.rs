@@ -492,11 +492,14 @@ fn refuses_symlinked_terminology_sources() {
         "outside.toml",
         &source(&term("two", "其他", "other", "second")),
     );
+    // 文档目录也拒绝符号链接；先加载以单独验证术语来源的拒绝边界。
+    let documents = repo.documents();
     fs::remove_file(repo.0.join("docs/reference/terms/one.toml")).unwrap();
     symlink(
         repo.0.join("outside.toml"),
         repo.0.join("docs/reference/terms/one.toml"),
     )
     .unwrap();
-    assert!(repo.load().is_err());
+    let error = TermCatalog::load(&repo.0, &documents).unwrap_err();
+    assert!(error.contains("术语目录只允许普通 TOML 文件"));
 }
