@@ -73,7 +73,11 @@ mod spawn_overlap_tests;
 
 #[cfg(test)]
 #[path = "tests/placement_admission.rs"]
-mod placement_admission_tests;
+pub(crate) mod placement_admission_tests;
+
+#[cfg(test)]
+#[path = "tests/advance_braking.rs"]
+mod advance_braking;
 
 #[cfg(test)]
 #[path = "tests/lf_synth_contract.rs"]
