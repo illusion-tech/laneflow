@@ -143,3 +143,129 @@ fn yellow_boundary_ride_stays_within_emergency_bounds_and_crosses() {
         "骑紧急界全程单拍速度差 {max_drop} ≤ 紧急界 {bound}"
     );
 }
+
+/// 有前车红灯（静止 leader，30 m 入口边）：跟车轴由 IIDM 平滑减速；主体
+/// 减速不超过紧急界、末端清零拍属裁定保留的 leader 几何投影例外。
+#[test]
+fn red_light_with_stopped_leader_brakes_smoothly() {
+    let revision = revision("runtime-fixture-policy", |module| {
+        // 与 add_signal_corridor 同构的 30 m 入口边走廊（停车线在入口边末）。
+        super::placement_admission_tests::add_edge(module, "entry", 30.0, 10.0, Some("middle"));
+        super::placement_admission_tests::add_edge(module, "middle", 8.0, 10.0, Some("exit"));
+        super::placement_admission_tests::add_edge(module, "exit", 12.0, 10.0, None);
+        add_signal_corridor_gates(module, SignalAspect::Red);
+    });
+    let mut world = install_dt(revision, 100);
+    let route = route_of(&mut world);
+    // 前车停在停止线前 5 m（进度 25_000）；后车 8 m/s 从边起点接近，
+    // 初始间隙 20.5 m 足够 IIDM 平滑减速。
+    let leader = spawn(&mut world, route, 0, 25_000, 0).expect("leader spawn");
+    let follower = spawn(&mut world, route, 0, 0, 8_000).expect("follower spawn");
+    let mut previous = 8_000_u32;
+    let mut max_drop = 0_u32;
+    let mut stopped = false;
+    for _ in 0..400 {
+        world
+            .step(crate::TickInput::new(100))
+            .expect("follower step");
+        let state = world.vehicle(follower).expect("follower");
+        let leader_front = world.vehicle(leader).expect("leader").progress_mm;
+        // 前车在低速窗内可向停止线蠕行（裁定窗口语义），以实际车位比对。
+        assert!(
+            state.progress_mm + 4_500 + 2_000 <= leader_front,
+            "不侵入前车 min_gap：{} + 6500 <= {leader_front}",
+            state.progress_mm
+        );
+        // 末端清零拍（该拍速度归零）属裁定保留的 leader 几何投影例外，
+        // 不计入主体减速界。
+        if state.speed_mm_s > 0 {
+            max_drop = max_drop.max(previous.saturating_sub(state.speed_mm_s));
+        }
+        previous = state.speed_mm_s;
+        if state.speed_mm_s == 0 {
+            stopped = true;
+            break;
+        }
+    }
+    assert!(stopped, "follower 停稳在前车后方");
+    let bound = (4.0 * 100.0) as u32 + 2;
+    assert!(
+        max_drop <= bound,
+        "主体减速 {max_drop} ≤ 紧急界 {bound}"
+    );
+    let leader_state = world.vehicle(leader).expect("leader");
+    assert_eq!(leader_state.route_edge_index, 0, "前车不越过停止线");
+    assert!(leader_state.progress_mm <= 30_000, "前车停在入口边内");
+}
+
+/// `add_signal_corridor` 的门/信号部分（边由调用方先建）。
+fn add_signal_corridor_gates(
+    module: &mut laneflow_compiler::SyntheticModuleBuilder,
+    aspect: SignalAspect,
+) {
+    use laneflow_compiler::{
+        JunctionInput, JunctionReference, LaneEdgeReference, ManeuverGateInput,
+        ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+        SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
+        SignalGroupStateInput, SignalPhaseInput, StopLineInput, StopLineReference,
+    };
+    let states = [SignalGroupStateInput {
+        signal_group: SignalGroupReference::local("group-entry"),
+        aspect,
+    }];
+    let groups = [SignalGroupReference::local("group-entry")];
+    module
+        .add_junction(JunctionInput {
+            junction_key: "junction-main",
+        })
+        .expect("junction")
+        .add_movement(MovementInput {
+            turn_direction: None,
+            movement_key: "movement-through",
+            junction: JunctionReference::local("junction-main"),
+            directed_entry_approach_key: "approach-westbound",
+            directed_exit_approach_key: "approach-eastbound",
+        })
+        .expect("movement")
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "path-main",
+            movement: MovementReference::local("movement-through"),
+            entry_edge: LaneEdgeReference::local("entry"),
+            internal_edges: &[LaneEdgeReference::local("middle")],
+            exit_edge: LaneEdgeReference::local("exit"),
+        })
+        .expect("path")
+        .add_stop_line(StopLineInput {
+            stop_line_key: "stop-entry",
+            lane_edge: LaneEdgeReference::local("entry"),
+        })
+        .expect("stop")
+        .add_signal_group(SignalGroupInput {
+            signal_group_key: "group-entry",
+        })
+        .expect("group")
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "gate-entry",
+            maneuver_path: ManeuverPathReference::local("path-main"),
+            transition_index: 0,
+            stop_line: StopLineReference::local("stop-entry"),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("group-entry")),
+        })
+        .expect("gate")
+        .add_signal_controller(SignalControllerInput {
+            signal_controller_key: "controller-main",
+            offset_ms: 0,
+            signal_groups: &groups,
+            phases: &[SignalPhaseInput {
+                signal_phase_key: "phase-shown",
+                duration_ms: 10_000,
+                states: &states,
+            }],
+        })
+        .expect("controller");
+    crate::test_policy::add_gate_policy(
+        module,
+        "fixture-policy",
+        &[("gate-entry", laneflow_compiler::GateInterpretation::ProtectedGroup)],
+    );
+}

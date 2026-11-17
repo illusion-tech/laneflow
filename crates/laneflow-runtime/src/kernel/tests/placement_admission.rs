@@ -180,7 +180,7 @@ pub(crate) fn spawn(
     )
 }
 
-fn add_edge(
+pub(crate) fn add_edge(
     module: &mut SyntheticModuleBuilder,
     key: &str,
     length_m: f64,
