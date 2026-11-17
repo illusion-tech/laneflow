@@ -474,17 +474,10 @@ fn evaluate_gate_hop(
             if decision == GatePolicyDecision::DenyAndStop {
                 let distance_to_line = gate_hop_line_distance(compiled, &state, gate_hop);
                 if distance_to_line.is_some_and(|mm| {
-                    read.gate_yellow_dilemma_exempt(
-                        gate,
-                        state.profile,
-                        state.speed_mm_s,
-                        mm,
-                    )
+                    read.gate_yellow_dilemma_exempt(gate, state.profile, state.speed_mm_s, mm)
                 }) {
                     gate_green_column_decision(read, gate, state.profile)
-                        .unwrap_or(GatePolicyDecision::Candidate(
-                            GateCandidateKind::Permissive,
-                        ))
+                        .unwrap_or(GatePolicyDecision::Candidate(GateCandidateKind::Permissive))
                 } else {
                     decision
                 }

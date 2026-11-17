@@ -4416,8 +4416,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 inputs,
             });
         }
-        let stop_target_service = transition
-            .is_some_and(|bound| limits.stop == Some(bound.stop.distance));
+        let stop_target_service =
+            transition.is_some_and(|bound| limits.stop == Some(bound.stop.distance));
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             &inputs,
             limits.stop,
@@ -4666,12 +4666,12 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             note_barrier_query(|counts| counts.signal_gates += 1);
             let stop_distance = from_cursor_start.saturating_sub(position.progress_mm);
             let dilemma_exempt = matches!(stop_distance, BoundedDistance::Finite(mm)
-                if self.gate_yellow_dilemma_exempt(
-                    next.gate,
-                    state.profile(),
-                    state.speed_mm_s(),
-                    mm,
-                ));
+            if self.gate_yellow_dilemma_exempt(
+                next.gate,
+                state.profile(),
+                state.speed_mm_s(),
+                mm,
+            ));
             if self.gate_is_restrictive(next.gate, state.profile()) && !dilemma_exempt {
                 return Some(stop_distance);
             }
@@ -4986,9 +4986,7 @@ impl<'a> MotionTaskView<'a> {
                 profile.comfort_decel(),
                 delta_s,
             )
-            .or_else(|| {
-                MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
-            })
+            .or_else(|| MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s))
         });
         let (skip_conflict, skip_waiting) =
             match cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index)) {

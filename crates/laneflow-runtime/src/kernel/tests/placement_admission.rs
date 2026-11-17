@@ -107,10 +107,7 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     install_dt(revision, 100)
 }
 
-pub(crate) fn install_dt(
-    revision: Arc<SharedNetworkRevision>,
-    delta_ms: u64,
-) -> TrafficWorld {
+pub(crate) fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWorld {
     let origin = *revision.canonical_origin();
     TrafficWorld::install(
         Arc::clone(&revision),
@@ -131,7 +128,11 @@ pub(crate) fn install_dt(
     .expect("install")
 }
 
-pub(crate) fn register_named(world: &mut TrafficWorld, namespace: &str, keys: &[&str]) -> RouteHandle {
+pub(crate) fn register_named(
+    world: &mut TrafficWorld,
+    namespace: &str,
+    keys: &[&str],
+) -> RouteHandle {
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
@@ -204,10 +205,7 @@ pub(crate) fn add_edge(
         .expect(key);
 }
 
-pub(crate) fn add_signal_corridor(
-    module: &mut SyntheticModuleBuilder,
-    aspect: SignalAspect,
-) {
+pub(crate) fn add_signal_corridor(module: &mut SyntheticModuleBuilder, aspect: SignalAspect) {
     add_edge(module, "entry", 10.0, 10.0, Some("middle"));
     add_edge(module, "middle", 8.0, 10.0, Some("exit"));
     add_edge(module, "exit", 12.0, 10.0, None);
@@ -412,8 +410,7 @@ fn later_closed_gate_admits_a_stoppable_spawn_and_rejects_the_unstoppable() {
     );
     // #1272：8 m/s 距拒绝门 8.2 m，紧急刹停距离 8 m 放得下；首拍按停止目标
     // 减速（紧急域根 ≈4.1 m/s），不再一拍清零，准入成功。
-    spawn(&mut world, route, 0, 22_800, 8_000)
-        .expect("够得到的拒绝门前紧急刹停距离仍放得下");
+    spawn(&mut world, route, 0, 22_800, 8_000).expect("够得到的拒绝门前紧急刹停距离仍放得下");
     let mut farther = install_dt(revision, 1_000);
     let route = register_named(
         &mut farther,

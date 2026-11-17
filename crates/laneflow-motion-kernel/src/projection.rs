@@ -117,8 +117,7 @@ pub fn max_next_speed_for_decel(
     }
     let limit = limit.max(0.0);
     let floor = (current - decel * delta).max(0.0);
-    if floor > next || !speed_down_constraint_holds(current, floor, delta, distance, limit, decel)
-    {
+    if floor > next || !speed_down_constraint_holds(current, floor, delta, distance, limit, decel) {
         return None;
     }
     let linear = ((2.0 * distance / delta) - current)

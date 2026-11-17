@@ -47,10 +47,7 @@ fn red_light_brakes_in_advance_and_decel_is_step_size_independent() {
                 .step(crate::TickInput::new(delta_ms))
                 .expect("red light step");
             let state = world.vehicle(vehicle).expect("vehicle");
-            assert_eq!(
-                state.route_edge_index, 0,
-                "红灯不越门（dt={delta_ms}）"
-            );
+            assert_eq!(state.route_edge_index, 0, "红灯不越门（dt={delta_ms}）");
             assert!(state.progress_mm <= 10_000, "不越过停止线（dt={delta_ms}）");
             let drop = previous.saturating_sub(state.speed_mm_s);
             max_drop = max_drop.max(drop);
@@ -189,10 +186,7 @@ fn red_light_with_stopped_leader_brakes_smoothly() {
     }
     assert!(stopped, "follower 停稳在前车后方");
     let bound = (4.0 * 100.0) as u32 + 2;
-    assert!(
-        max_drop <= bound,
-        "主体减速 {max_drop} ≤ 紧急界 {bound}"
-    );
+    assert!(max_drop <= bound, "主体减速 {max_drop} ≤ 紧急界 {bound}");
     let leader_state = world.vehicle(leader).expect("leader");
     assert_eq!(leader_state.route_edge_index, 0, "前车不越过停止线");
     assert!(leader_state.progress_mm <= 30_000, "前车停在入口边内");
@@ -204,10 +198,10 @@ fn add_signal_corridor_gates(
     aspect: SignalAspect,
 ) {
     use laneflow_compiler::{
-        JunctionInput, JunctionReference, LaneEdgeReference, ManeuverGateInput,
-        ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-        SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
-        SignalGroupStateInput, SignalPhaseInput, StopLineInput, StopLineReference,
+        JunctionInput, JunctionReference, LaneEdgeReference, ManeuverGateInput, ManeuverPathInput,
+        ManeuverPathReference, MovementInput, MovementReference, SignalControlInput,
+        SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
+        SignalPhaseInput, StopLineInput, StopLineReference,
     };
     let states = [SignalGroupStateInput {
         signal_group: SignalGroupReference::local("group-entry"),
@@ -266,6 +260,9 @@ fn add_signal_corridor_gates(
     crate::test_policy::add_gate_policy(
         module,
         "fixture-policy",
-        &[("gate-entry", laneflow_compiler::GateInterpretation::ProtectedGroup)],
+        &[(
+            "gate-entry",
+            laneflow_compiler::GateInterpretation::ProtectedGroup,
+        )],
     );
 }
