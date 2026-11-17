@@ -23,6 +23,10 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
 9. 涉及宿主应用集成、存档/回放、路网切换或 fidelity 时，读取
    `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
+术语表是生成阅读页；新增或修改词条须编辑 `docs/reference/terms/` 的 TOML 正本，
+按 `docs/reference/terminology-catalog.md` 运行 `generate-glossary`；语言用法与旧称
+处理遵循 `docs/governance/terminology-policy.md`，不手改生成正文。
+
 ## 按任务读取
 
 | 修改内容                               | 按需读取                                                                                     |

@@ -1,0 +1,1118 @@
+schema_version = 1
+
+[[terms]]
+id = "active-compact-position"
+name = "活动紧凑位置"
+english_aliases = ["Active Compact Position"]
+domains = ["runtime"]
+definition = "Active 工作集中的连续定位下标，必须映射到完整车辆句柄和逻辑更新位置。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "active-motion-pool"
+name = "活动运动池"
+english_aliases = ["Active Motion Pool"]
+domains = ["runtime"]
+definition = "只保存 Active 车辆正本热运动列的存储池；非活动记录不参与常规热扫描。"
+references = [{ document = "design-traffic-runtime-columnar-execution" }]
+
+[[terms]]
+id = "administrative-state"
+name = "管理状态"
+english_aliases = ["administrative state"]
+domains = ["runtime"]
+definition = "迁移日志、事务配对世代等每世界管理数据；可参与提交，不能仅因位于管理分区而视为可丢弃缓存。"
+symbols = [{ value = "AdministrativeState", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "amdahl-bottleneck"
+name = "阿姆达尔瓶颈"
+english_aliases = ["Amdahl bottleneck"]
+domains = ["runtime"]
+definition = "不可并行的临界路径限制整体加速比、使增加工作线程不再获得相称收益的扩展性瓶颈。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "attempt-epoch"
+name = "尝试世代"
+english_aliases = ["Attempt Epoch"]
+domains = ["runtime"]
+definition = "区分同一已提交 tick 的不同执行尝试，防止旧回报或 capability 污染重试；不持久化。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "authentication-operational-failure"
+name = "认证操作失败"
+english_aliases = ["authentication operational failure"]
+domains = ["runtime"]
+definition = "共享路网修订认证因资源、限额、取消或来源不可得等操作条件而未产生比较结论的结果；不判因、不停用，也不宣称认证通过。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "authoring-admission-quantization"
+name = "编制准入量化"
+english_aliases = ["authoring admission quantization"]
+domains = ["runtime"]
+definition = "编制 `f64` SI 在官方前端 / 共同接入边界 round-ties-to-even 一次进入整数毫米或受检 `f32` SI；之后 IR 不得再把交通一维存成编制米列。"
+references = [{ document = "design-traffic-runtime-integer-geometry" }]
+
+[[terms]]
+id = "barrier"
+name = "屏障"
+english_aliases = ["barrier"]
+domains = ["runtime"]
+definition = "一个逻辑阶段等待全部必需分区输入就绪后才允许进入规范归约或提交的同步边界。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "block-soa"
+name = "分块列式布局"
+english_aliases = ["Block SoA"]
+domains = ["runtime"]
+definition = "固定行数块内同字段连续存储；块大小属于执行布局，不属于交通身份或持久格式。"
+references = [{ document = "design-traffic-runtime-columnar-execution" }]
+
+[[terms]]
+id = "body-spill-occupancy"
+name = "车身溢出占用"
+english_aliases = ["body spill occupancy"]
+domains = ["runtime"]
+definition = "车身仍覆盖、但前保险杠已离开的更早物理边上的占用记录；不是变道双占用。"
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "boundary-exchange"
+name = "边界交换"
+english_aliases = ["boundary exchange"]
+domains = ["runtime"]
+definition = "同一 tick 内分区间传递规范输入、提案或资源声明的私有运行时过程。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "candidate"
+name = "候选"
+english_aliases = ["candidate"]
+domains = ["runtime"]
+definition = "尚未通过全部约束、验证或裁决的可能结果。"
+
+[[terms]]
+id = "candidate-execution-dependency-graph"
+name = "候选执行依赖图"
+english_aliases = ["Candidate Execution Dependency Graph"]
+domains = ["runtime"]
+definition = "以不可交换候选操作为节点并按规范先后定向的执行约束图。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "canonical-logical-position"
+name = "规范逻辑位置"
+english_aliases = ["Canonical Logical Position"]
+domains = ["runtime"]
+definition = "独立计算的规范消费位置；车辆级顺序来自逻辑更新位置，车内顺序来自逻辑检查地址。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "canonical-reduction-authority"
+name = "规范归约裁决方"
+english_aliases = ["canonical reduction authority"]
+domains = ["runtime"]
+definition = "对一个连接资源组件按稳定键形成唯一提交结果的逻辑裁决方；不要求由单一物理线程串行执行。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "committed-world-state"
+name = "已提交世界状态"
+english_aliases = ["committed world state"]
+domains = ["runtime"]
+definition = "当前世界的车辆、路线、资源裁决权、时钟和游标，以及成功提交后可查询的发布批次；内部归属不等同于快照保存范围。"
+symbols = [{ value = "CommittedWorldState", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "completion-frontier"
+name = "完成前沿"
+english_aliases = ["Completion Frontier"]
+domains = ["runtime"]
+definition = "证明某错误之前的必要逻辑检查已解析的记录；缺失回报不能当作成功或跳过。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "condensation-directed-acyclic-graph"
+name = "凝聚有向无环图"
+english_aliases = ["condensation directed acyclic graph"]
+domains = ["runtime"]
+definition = "把强连通分量收缩为节点后得到、可用于确定性波次调度的有向无环图。"
+symbols = [{ value = "condensation DAG", kind = "notation" }]
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "conflict-lag-reference"
+name = "冲突滞后基准"
+english_aliases = ["conflict lag reference"]
+domains = ["runtime"]
+definition = "单元的无历史、实际清空时间或保守切换起点三种状态；后两者参与相同的滞后间隙检查，切换起点不表示真实清空事件。"
+symbols = [{ value = "ConflictLagReference", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "conflict-passage-locator"
+name = "冲突通行段持久定位值"
+english_aliases = ["conflict passage locator"]
+domains = ["runtime"]
+definition = "stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一局部关系；不是独立实体或新的运行时地址。"
+symbols = [{ value = "ConflictPassageLocator", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "constraint"
+name = "约束"
+english_aliases = ["constraint"]
+domains = ["runtime"]
+definition = "对有效值、行为候选或运行时结果施加的不可绕过条件。"
+
+[[terms]]
+id = "core-world"
+name = "核心世界"
+english_aliases = ["core world"]
+domains = ["runtime"]
+definition = "旧核心运行时中的世界类型。"
+symbols = [{ value = "CoreWorld", kind = "type" }]
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+retirement = { reason = "旧组件及其世界类型已拆除。", replacements = [{ target = "traffic-world", condition = "现行职责对应；不表示 API 或字节兼容。" }] }
+
+[[terms]]
+id = "derived-indexes"
+name = "派生索引"
+english_aliases = ["derived indexes"]
+domains = ["runtime"]
+definition = "从当前绑定与已提交状态重建的查询、执行顺序和定位结构；不独立授予交通权利，重建不得改变语义顺序。"
+symbols = [{ value = "DerivedIndexes", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "deterministic-commit-plan"
+name = "确定性提交计划"
+english_aliases = ["Deterministic Commit Plan"]
+domains = ["runtime"]
+definition = "对同一基线完整验证的车辆、资源、时钟、游标、日志效果及发布结果；一次消费后无可恢复错误地提交，不是世界副本或新的存档对象。"
+symbols = [{ value = "CommitPlan", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "deterministic-radix-bucket-sorting"
+name = "确定性基数/桶排序"
+english_aliases = ["deterministic radix/bucket sorting"]
+domains = ["runtime"]
+definition = "对固定宽度规范键采用与输入规模线性相关、且不依赖线程完成顺序的排序策略族。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "distortion"
+name = "失真"
+english_aliases = ["distortion"]
+domains = ["runtime"]
+definition = "运行时状态完整性语境中，数据内容偏离应有内容的现象；该用词本身不确定原因、判因结论或检测覆盖。具体对象与检测、处置边界以完整性设计为准。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "distortion-attribution"
+name = "判因"
+english_aliases = ["distortion attribution"]
+domains = ["runtime"]
+definition = "对完整性失配原因作出的归属判断；允许无法判因，不承诺唯一根因。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "distortion-fingerprint"
+name = "失真指纹"
+english_aliases = ["distortion fingerprint"]
+domains = ["runtime"]
+definition = "失配现场的页级形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。共享路网修订认证只报告逻辑位置，不输出页级指纹。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "durable-revision-content-baseline"
+name = "耐久修订内容基线"
+english_aliases = ["durable revision content baseline"]
+domains = ["runtime"]
+definition = "由构建方建立、宿主随来源持久保存或重建的修订内容依据，是共享路网修订认证的期望值来源之一；发布来源与编辑来源的保存方式不同。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "durable-revision-content-preimage"
+name = "耐久修订内容原像"
+english_aliases = ["durable revision content preimage"]
+domains = ["runtime"]
+definition = "与路网修订标识共用的规范路网语义载荷原像；不包含布局与派生表，也不另设第二套编码。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "dynamic-traversal-definition"
+name = "动态通行定义"
+english_aliases = ["dynamic traversal definition"]
+domains = ["runtime"]
+definition = "目标交通运行时中描述参与单元运行时通行路径及进度语义的通用概念；当前道路机动车执行域的具体投影是 `Route`。"
+references = [{ document = "adr-0021" }]
+scope_notes = ["当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。"]
+
+[[terms]]
+id = "entry-frontier"
+name = "入口 frontier"
+english_aliases = ["entry frontier"]
+domains = ["runtime"]
+definition = "为让行查询维护的冲突接近记录。只为近门车辆打开路线，失效车辆整段重走，其余按反向索引复用冲突距离。"
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "exact-execution-path"
+name = "精确执行路径"
+english_aliases = ["exact execution path"]
+domains = ["runtime"]
+definition = "不降低交通保真度、且结果不依赖工作线程数或分区计划的执行路径。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "exact-reference-oracle"
+name = "精确参考预言机"
+english_aliases = ["exact reference oracle"]
+domains = ["runtime"]
+definition = "以直观集中式算法产生规范结果、用于证明优化执行路径语义等价而不要求成为生产热路径的实现。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "execution-block"
+name = "执行块"
+english_aliases = ["Execution Block"]
+domains = ["runtime"]
+definition = "独占任务输出范围的物理调度分块；不创建新的交通身份或公开子世界。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "execution-configuration"
+name = "执行配置"
+english_aliases = ["Execution Configuration"]
+domains = ["runtime"]
+definition = "安装和恢复时由宿主显式提供的执行能力要求；不进入交通快照、摘要或身份。"
+symbols = [{ value = "ExecutionConfig", kind = "type" }]
+references = [{ document = "design-traffic-runtime-execution-config" }]
+
+[[terms]]
+id = "execution-resources"
+name = "执行资源"
+english_aliases = ["Execution Resources"]
+domains = ["runtime"]
+definition = "活动世界拥有的线程与调度资源，和可重建的目标执行计划分开管理。"
+references = [{ document = "design-traffic-runtime-execution-config" }]
+
+[[terms]]
+id = "fidelity-contract"
+name = "保真度契约"
+english_aliases = ["fidelity contract"]
+domains = ["runtime"]
+definition = "明确允许的个体、时间、空间与行为语义损失及其验证边界的版本化契约。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "fidelity-degradation"
+name = "保真度降级"
+english_aliases = ["fidelity degradation"]
+domains = ["runtime"]
+definition = "显式减少个体、时间、空间或行为语义的目标能力变化；必须由独立保真度契约和 G1/ADR 授权，不能伪装成调度或表现优化。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "fixed-tick"
+name = "固定步进"
+english_aliases = ["fixed tick"]
+domains = ["runtime"]
+definition = "以确定输入和顺序推进交通状态的一次运行时更新。合法步长 `4..=1000` ms，4 ms 为最细量子，不是默认。"
+symbols = [{ value = "tick", kind = "function" }]
+references = [{ document = "design-traffic-runtime-integer-geometry" }]
+
+[[terms]]
+id = "fresh-placement"
+name = "新生成"
+english_aliases = ["fresh placement"]
+domains = ["runtime"]
+definition = "在当前提交时点把一辆尚未处于该运动状态的车放入世界的操作；不意味着从路线起点以零速出发。"
+symbols = [{ value = "spawn_vehicle", kind = "function" }]
+references = [{ document = "design-traffic-runtime-vehicle-placement" }]
+scope_notes = ["运动安全、开放入口与显式历史起点的可达性检查各有适用条件，以车辆放置设计为准。"]
+
+[[terms]]
+id = "fused-single-worker-executor"
+name = "融合单工作线程执行器"
+english_aliases = ["fused single-worker executor"]
+domains = ["runtime"]
+definition = "保留精确路径可观察语义、但不物化无并发价值的队列、任务图或真实屏障的单工作线程实现。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "gap-acceptance-profile"
+name = "间隙接受参数"
+english_aliases = ["gap acceptance profile"]
+domains = ["runtime"]
+definition = "具名且版本化的最小领先间隙、最小滞后间隙和清空缓冲；属于策略集局部成员。"
+symbols = [{ value = "GapAcceptanceProfile", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "gate-compliance-rule"
+name = "门合规规则"
+english_aliases = ["gate compliance rule"]
+domains = ["runtime"]
+definition = "针对机动门及参与者类别，把适用灯态与禁令解释为停止或候选的封闭规则，不直接授予通行权。"
+symbols = [{ value = "GateComplianceRule", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "graceful-overload-degradation"
+name = "过载优雅降级"
+english_aliases = ["graceful overload degradation"]
+domains = ["runtime"]
+definition = "宿主在过载时通过暂停、慢放或统一调整时间推进保持全部逻辑步进、事件和交通语义的显式处置；不等同于保真度降级。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "grant"
+name = "授权"
+english_aliases = ["grant"]
+domains = ["runtime"]
+definition = "运行时对特定车辆在当前条件下通过冲突资源的许可。"
+
+[[terms]]
+id = "halo"
+name = "边界邻域"
+english_aliases = ["halo"]
+domains = ["runtime"]
+definition = "分区为同一 tick 依赖读取的相邻状态范围；不能通过过期一 tick 数据改变精确语义。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "host-audit-replay"
+name = "宿主审计重放"
+english_aliases = ["host audit replay"]
+domains = ["runtime"]
+definition = "宿主使用独立世界重放较早检查点后的输入并比较检查点状态的审计方法；未完成区间不计入覆盖。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+scope_notes = ["被审计世界仍运行时，独立世界须位于独立进程或另一台机器；结果区分完整匹配、分歧与未完成，管理边界限制见完整性设计。"]
+
+[[terms]]
+id = "integer-millimetre"
+name = "整数毫米"
+english_aliases = ["integer millimetre"]
+domains = ["runtime"]
+definition = "已提交交通一维几何的正本长度量子；边长、边内进度、车长、间距与停车锚点使用整数毫米。准入后编译器 Typed AST / HIR / MIR / LIR 的交通一维存储正本同为整数毫米。"
+symbols = [{ value = "mm", kind = "unit" }]
+references = [{ document = "design-traffic-runtime-integer-geometry" }]
+
+[[terms]]
+id = "integrity-disablement"
+name = "停用"
+english_aliases = ["integrity disablement"]
+domains = ["runtime"]
+definition = "检测判定失真对象失配后停止使用的语义；不自动纠偏、回滚、重演或重启，已发布结果不撤销，由宿主执行。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+scope_notes = ["交通运行时不持有失效状态；停止使用的触发条件和边界由完整性设计规定。"]
+
+[[terms]]
+id = "intersection-rules"
+name = "路口规则"
+english_aliases = ["intersection rules"]
+domains = ["runtime"]
+definition = "对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。"
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+
+[[terms]]
+id = "lane-flow-junction-observation"
+name = "路口观测视图"
+english_aliases = ["lane flow junction observation"]
+domains = ["runtime"]
+definition = "从活动 Bevy Session 借出的只读领域视图，组合当前状态与分别标明语义的最近成功步进记录，不拥有动态交通正本。"
+symbols = [{ value = "LaneFlowJunctionObservation", kind = "type" }]
+references = [{ document = "design-junction-observation-and-validation" }]
+
+[[terms]]
+id = "lane-graph"
+name = "车道图"
+english_aliases = ["lane graph"]
+domains = ["runtime"]
+definition = "供运行时遍历和路线跟随使用的有向车道拓扑。"
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+
+[[terms]]
+id = "laneflow-core"
+name = "LaneFlow 核心"
+english_aliases = ["LaneFlow Core"]
+domains = ["runtime"]
+definition = "已拆除的前动态执行层组件。"
+symbols = [{ value = "laneflow-core", kind = "crate" }]
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+retirement = { reason = "由 LaneFlow 交通运行时一次性替代，不保留可运行旧入口。", replacements = [{ target = "laneflow-traffic-runtime", condition = "现行职责对应；不表示 API 或字节兼容。" }] }
+
+[[terms]]
+id = "laneflow-traffic-runtime"
+name = "LaneFlow 交通运行时"
+english_aliases = ["LaneFlow Traffic Runtime"]
+domains = ["runtime"]
+definition = "当前可运行动态执行层。拥有固定步进、已实现执行域的交通参与单元、动态通行定义和每世界可变交通状态。"
+symbols = [{ value = "laneflow-runtime", kind = "crate" }]
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+scope_notes = ["当前交付为 TrafficWorld 道路机动车特化；长期职责不表示其他执行域已经实现。"]
+short_forms = [{ name = "交通运行时", scope = "上下文已明确属于 LaneFlow。" }, { name = "运行时", scope = "与空间层、适配器并列，或明确修饰步进与交通指标。" }, { name = "Traffic Runtime", scope = "英文辅助表述中已明确属于 LaneFlow。" }, { name = "Runtime", scope = "英文辅助表述中与 Spatial、Adapter 并列，或明确修饰 step、tick、p95 等交通运行时指标。" }]
+
+[[terms]]
+id = "lifecycle"
+name = "生命周期"
+english_aliases = ["lifecycle"]
+domains = ["runtime"]
+definition = "交通参与单元、动态通行定义、世界或会话从创建、活动到释放的状态变化规则；当前投影包括车辆与路线。"
+
+[[terms]]
+id = "local-intent-batch"
+name = "局部意图批次"
+english_aliases = ["local intent batch"]
+domains = ["runtime"]
+definition = "车辆局部运动预览、求值前沿和候选输入的逻辑集合；不是最终位移或已取得的通行权，也不要求独立分配容器。"
+symbols = [{ value = "LocalIntentBatch", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "logical-check-address"
+name = "逻辑检查地址"
+english_aliases = ["Logical Check Address"]
+domains = ["runtime"]
+definition = "由串行调用路径、规范循环位置与分支构成的检查位置，用于保持首错及故障注入对应。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "logical-digest-preimage"
+name = "逻辑摘要原像"
+english_aliases = ["logical digest preimage"]
+domains = ["runtime"]
+definition = "对已提交运行时逻辑状态规范化所得、与物理布局无关的摘要输入。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "logical-update-position"
+name = "逻辑更新位置"
+english_aliases = ["Logical Update Position"]
+domains = ["runtime"]
+definition = "当前拍 live 序列中的规范位置，用于保留业务次序；不等于槽位或线程编号。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "maneuver-direction"
+name = "机动方向"
+english_aliases = ["maneuver direction"]
+domains = ["runtime"]
+definition = "Movement 的显式直行、左转、右转或掉头声明；是非身份属性，未声明不能推断为某一方向。"
+symbols = [{ value = "ManeuverDirection", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "micrometre-accumulator"
+name = "微米累加器"
+english_aliases = ["micrometre accumulator"]
+domains = ["runtime"]
+definition = "每车 `0..=999` 的亚毫米余数。整数硬约束剩余空间为正时才累加；硬停清零；跨边保留；完成/停车/替换清零。"
+symbols = [{ value = "carry_um", kind = "field" }]
+references = [{ document = "design-traffic-runtime-integer-geometry" }]
+
+[[terms]]
+id = "millimetres-per-second"
+name = "毫米每秒"
+english_aliases = ["millimetres per second"]
+domains = ["runtime"]
+definition = "已提交车速、边限速与期望车速的整数量子；IIDM 仍用瞬时 SI。不另设速度余数。"
+symbols = [{ value = "mm/s", kind = "unit" }]
+references = [{ document = "design-traffic-runtime-integer-geometry" }]
+
+[[terms]]
+id = "missed-detection-surface"
+name = "漏检面"
+english_aliases = ["missed-detection surface"]
+domains = ["runtime"]
+definition = "校验方法明确不能覆盖的对象或条件集合；须以对应完整性设计的穷尽边界为准。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "mutually-invisible-co-lateral-transition-segments"
+name = "互不可见的共横向过渡段"
+english_aliases = ["mutually invisible co-lateral transition segments"]
+domains = ["runtime"]
+definition = "同一走廊中横向跨度相交、且现行运动与仲裁证明无法证明允许路线分支互相覆盖的两条横向过渡段。"
+references = [{ document = "design-lane-change-minimal-contract" }]
+scope_notes = ["现行固定预制过渡对这种组合存在能力限制；允许或拒绝条件以最小换道合同的覆盖证明为准。"]
+
+[[terms]]
+id = "near-gate-vehicle"
+name = "近门车辆"
+english_aliases = ["near-gate vehicle"]
+domains = ["runtime"]
+definition = "下一拍 frontier 将读到的状态下，换边时记下的门距仍落在一拍最大加速度可达上界内的活动车辆。不是全部 Active，也不包含没有下一道 Gate 的车。"
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "occupancy"
+name = "占用"
+english_aliases = ["occupancy"]
+domains = ["runtime"]
+definition = "实体当前物理占据道路、停车位或冲突资源的事实。"
+
+[[terms]]
+id = "occupancy-bucket"
+name = "占用桶"
+english_aliases = ["occupancy bucket"]
+domains = ["runtime"]
+definition = "占用索引的分桶键；当前与 `LaneEdgeOrdinal` 1:1。"
+symbols = [{ value = "OccupancyBucketOrdinal", kind = "type" }]
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "occupancy-index"
+name = "占用索引"
+english_aliases = ["occupancy index"]
+domains = ["runtime"]
+definition = "固定步进求解前由 snapshot(T) 重建的私有车道边占用表；供该拍跟车，step 提交后不代表 T+D 观测。"
+symbols = [{ value = "OccupancyIndex", kind = "type" }]
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "occupancy-record"
+name = "占用记录"
+english_aliases = ["occupancy record"]
+domains = ["runtime"]
+definition = "占用索引中一条物理边上的占用片段（车辆、桶、`lo_mm`/`hi_mm`）；不是资源声明。"
+symbols = [{ value = "OccupancyRecord", kind = "type" }]
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "open-entrance"
+name = "开放入口"
+english_aliases = ["open entrance"]
+domains = ["runtime"]
+definition = "由调用方在本次车辆生成或替换中显式绑定的路线起点进入边界；合法绑定决定范围外车尾是否可以不占路，不由拓扑或画面边缘推断。"
+symbols = [{ value = "VehicleEntrance", kind = "type" }]
+references = [{ document = "design-traffic-runtime-vehicle-placement" }]
+
+[[terms]]
+id = "page-level-memory-distortion"
+name = "页级内存失真"
+english_aliases = ["page-level memory distortion"]
+domains = ["runtime"]
+definition = "以整页替换、置零或按页整数倍位移等形态出现的内存内容异常；适用环境、证据和检测边界由完整性设计规定。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "parking"
+name = "停车"
+english_aliases = ["parking"]
+domains = ["runtime"]
+definition = "对停车设施、显式停车位、虚拟容量、预约、进入、占用和离开进行管理的领域行为。"
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "parking-arrival"
+name = "停车到达"
+english_aliases = ["parking arrival"]
+domains = ["runtime"]
+definition = "预留车辆在指定路线出现记录和停车锚点上静止、且亚毫米余数为零的已提交事实；到达观测的触发规则由停车合同规定。"
+symbols = [{ value = "ParkingArrivalObservation", kind = "type" }]
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "parking-binding"
+name = "停车绑定"
+english_aliases = ["parking binding"]
+domains = ["runtime"]
+definition = "以完整车辆身份绑定其停车预留或占用及精确目标的运行时私有关系，是停车资源计数与车辆状态关联的动态事实来源。"
+symbols = [{ value = "ParkingBinding", kind = "type" }]
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "parking-target"
+name = "停车目标"
+english_aliases = ["parking target"]
+domains = ["runtime"]
+definition = "caller 精确选择的 tagged 资源：具体 `ExplicitSpace` 或设施 `VirtualPool`。Runtime 不在二者之间自动选位。"
+symbols = [{ value = "ParkingTarget", kind = "type" }]
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "partition"
+name = "分区"
+english_aliases = ["partition"]
+domains = ["runtime"]
+definition = "运行时执行计划中的私有物理所有权/调度单元；不构成公共身份或静态语义。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "partition-planning-hints"
+name = "分区规划提示"
+english_aliases = ["partition planning hints"]
+domains = ["runtime"]
+definition = "LFCA 不保存的非语义性能提示；由 `laneflow-static-network` 按显式 derivation version 从受检规范关系确定性派生，可安全忽略或重建。"
+symbols = [{ value = "PartitionPlanningHints", kind = "type" }]
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "per-world-mutable-state"
+name = "每世界可变状态"
+english_aliases = ["per-world mutable state"]
+domains = ["runtime"]
+definition = "交通参与单元、通行定义、控制器时钟、预约、占用和缓冲区等不能进入共享静态路网的状态；当前投影包括车辆、路线和停车。"
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+
+[[terms]]
+id = "physical-row"
+name = "物理行"
+english_aliases = ["Physical Row"]
+domains = ["runtime"]
+definition = "车辆在活动列块中的存储/独占计算位置，必须映射回完整句柄与逻辑更新位置。"
+references = [{ document = "design-traffic-runtime-columnar-execution" }]
+
+[[terms]]
+id = "policy"
+name = "策略"
+english_aliases = ["policy"]
+domains = ["runtime"]
+definition = "在既定事实和安全约束内解释候选或选择行为的可版本化规则。"
+
+[[terms]]
+id = "policy-local-change"
+name = "策略局部成员变更"
+english_aliases = ["policy local change"]
+domains = ["runtime"]
+definition = "LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删改记录；成员无独立 StableId，载荷以稳定引用表达。"
+symbols = [{ value = "PolicyLocalChange", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "policy-pin"
+name = "策略绑定"
+english_aliases = ["policy pin"]
+domains = ["runtime"]
+definition = "世界显式选择的策略稳定身份；策略正文和版本由安装路网修订固定，不绑定真实公历。"
+symbols = [{ value = "PolicyPin", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "potential-resource-support-graph"
+name = "潜在资源支持图"
+english_aliases = ["Potential Resource Support Graph"]
+domains = ["runtime"]
+definition = "包含当前和可能激活的资源关联、休眠依赖及 watcher 的图，用于识别条件交互。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "proposal"
+name = "提案"
+english_aliases = ["proposal"]
+domains = ["runtime"]
+definition = "并行求值阶段生成、尚未取得提交裁决的候选状态变化。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "reduction-span"
+name = "归约跨度"
+english_aliases = ["reduction span"]
+domains = ["runtime"]
+definition = "在无限并行资源下仍不可消除的规范依赖临界路径成本。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "reduction-work"
+name = "归约工作量"
+english_aliases = ["reduction work"]
+domains = ["runtime"]
+definition = "完成一次规范归约需要执行的总操作量，用于区别总成本与临界路径。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "regulation-identity"
+name = "法规身份"
+english_aliases = ["regulation identity"]
+domains = ["runtime"]
+definition = "法域、法规版本及可选来源的共同值；来源信息本身不授予车辆通行权。"
+symbols = [{ value = "RegulationIdentity", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "reservation"
+name = "预约"
+english_aliases = ["reservation"]
+domains = ["runtime"]
+definition = "对停车位、冲突资源或其他有界资源的持有关系。"
+
+[[terms]]
+id = "resolution-batch"
+name = "裁决批次"
+english_aliases = ["resolution batch"]
+domains = ["runtime"]
+definition = "按规范顺序取得或拒绝完整组合资源后的暂存结果；grant 必须经实际 crossing 才能转成已提交资源裁决权。"
+symbols = [{ value = "ResolutionBatch", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "resolved-gate-policy-cell"
+name = "已解析门策略单元"
+english_aliases = ["resolved gate policy cell"]
+domains = ["runtime"]
+definition = "编译后对应一份策略、一个门与实际使用的可准入参与者类别的只读解释结果；同类车辆配置共享，并保留稳定规则归因。"
+symbols = [{ value = "ResolvedGatePolicyCell", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "resolved-stream-rule"
+name = "已解析通行流规则"
+english_aliases = ["resolved stream rule"]
+domains = ["runtime"]
+definition = "编译后对应一份策略、一个流与实际使用的可准入参与者类别的唯一规则及让行目标范围；同类车辆配置共享。"
+symbols = [{ value = "ResolvedStreamRule", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "resource-claim"
+name = "资源声明"
+english_aliases = ["resource claim", "claim"]
+domains = ["runtime"]
+definition = "对共享交通资源提出的确定性占用请求；必须经规范归约后才能提交。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "resource-dependency-component"
+name = "资源依赖组件"
+english_aliases = ["Resource Dependency Component"]
+domains = ["runtime"]
+definition = "本拍候选及潜在资源交互形成的逻辑闭包；不等同于地理块或单一物理线程。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "right-of-way-policy-set"
+name = "路权策略集"
+english_aliases = ["right of way policy set"]
+domains = ["runtime"]
+definition = "由一份法规身份固定含义的规则、依据和间隙参数集合；具有独立稳定身份，由宿主显式选择，不按日期筛选。"
+symbols = [{ value = "RightOfWayPolicySet", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "road-motor-vehicle-execution-domain"
+name = "道路机动车执行域"
+english_aliases = ["road motor vehicle execution domain"]
+domains = ["runtime"]
+definition = "当前 `TrafficWorld` 与既有车辆工作负载的报告域；该标记不是生产数据枚举，也不冻结其他执行域的类型体系。"
+symbols = [{ value = "road_motor_vehicle", kind = "notation" }]
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "route"
+name = "路线"
+english_aliases = ["route"]
+domains = ["runtime"]
+definition = "当前道路机动车执行域中由有序遍历边和相关出现记录组成的车辆行驶计划；唯一生产入口是 `register_route`，得到代际感知句柄，不获得持久 `StableId128`。"
+symbols = [{ value = "Route", kind = "type" }]
+references = [{ document = "design-route-system" }]
+
+[[terms]]
+id = "route-gate-observation"
+name = "路线机动门观测"
+english_aliases = ["route gate observation"]
+domains = ["runtime"]
+definition = "当前世界已注册路线某个 hop 的机动门及整数毫米位置，只用于精确定位，不授予通行权。"
+symbols = [{ value = "RouteGateObservation", kind = "type" }]
+references = [{ document = "design-junction-observation-and-validation" }]
+
+[[terms]]
+id = "runtime-overlay"
+name = "运行时覆盖层"
+english_aliases = ["runtime overlay"]
+domains = ["runtime"]
+definition = "不改变静态身份或拓扑、按显式命令暂时修改运行时约束的版本化动态状态。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "serial-phase-protocol"
+name = "串行阶段协议"
+english_aliases = ["Serial Phase Protocol"]
+domains = ["runtime"]
+definition = "一次固定步进的逻辑阶段、数据依赖、读写权限、确定性顺序与失败边界；允许单工作线程融合执行，不要求通用任务图或物理屏障。"
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "session"
+name = "会话"
+english_aliases = ["session"]
+domains = ["runtime"]
+definition = "宿主或空间层中具有明确生命周期和资源所有权的一次活动上下文。"
+
+[[terms]]
+id = "shared-network-revision-authentication"
+name = "共享路网修订认证"
+english_aliases = ["shared network revision authentication"]
+domains = ["runtime"]
+definition = "在共享路网修订投入使用前或审计时，对照独立来源核对修订内容的只读操作；不进入固定步进路径，确认与处置由宿主负责。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+scope_notes = ["来源准备、修订比较、确认与处置的阶段边界，以及比较算子、操作失败和判因规则，均由完整性设计维护。"]
+short_forms = [{ name = "修订认证", scope = "全文首次给出完整规范名后，且认证对象明确。" }]
+
+[[terms]]
+id = "signal"
+name = "信号"
+english_aliases = ["signal"]
+domains = ["runtime"]
+definition = "由信号控制器和信号组产生、供车辆解释通行约束的运行时指示。"
+references = [{ document = "design-signal-system" }]
+
+[[terms]]
+id = "snapshot"
+name = "快照"
+english_aliases = ["snapshot"]
+domains = ["runtime"]
+definition = "在明确时点冻结、供只读消费的运行时状态视图。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "static-execution-constraint-graph"
+name = "静态执行约束图"
+english_aliases = ["static execution constraint graph"]
+domains = ["runtime"]
+definition = "编译器从静态资源依赖派生的工作线程数无关约束、可切分边界与规范合并顺序。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "static-route"
+name = "静态路线"
+english_aliases = ["static route"]
+domains = ["runtime"]
+definition = "旧方案中拟预编译到静态制品的路线实体。"
+symbols = [{ value = "StaticRoute", kind = "type" }]
+references = [{ document = "adr-0029" }]
+retirement = { reason = "路线改由每世界注册，不属于现行标识或制品登记。", replacements = [{ target = "route", condition = "现行职责对应；不表示 API 或字节兼容。" }] }
+
+[[terms]]
+id = "stationary-state"
+name = "停驻状态"
+english_aliases = ["stationary state"]
+domains = ["runtime"]
+definition = "参与单元暂不沿通行路径运动、但仍保留身份和领域占用语义的运行时状态；当前道路机动车投影包括停车状态。"
+references = [{ document = "adr-0021" }]
+scope_notes = ["当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。"]
+
+[[terms]]
+id = "steady-state-tick"
+name = "稳态步进"
+english_aliases = ["steady-state tick"]
+domains = ["runtime"]
+definition = "初始化和容量稳定后的高频固定步进路径。"
+references = [{ document = "design-traffic-runtime-integer-geometry" }]
+
+[[terms]]
+id = "step-read-view"
+name = "步进只读视图"
+english_aliases = ["step read view"]
+domains = ["runtime"]
+definition = "绑定同一拍初世界及必要派生查询的内部借用视图；不克隆整个世界，不允许领域函数借此修改已提交状态。"
+symbols = [{ value = "StepReadView", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "stream-right-of-way-rule"
+name = "通行流路权规则"
+english_aliases = ["stream right of way rule"]
+domains = ["runtime"]
+definition = "针对参与者流及类别，选择法规优先级、让行目标和间隙参数的规则；不覆盖本地物理先后顺序。"
+symbols = [{ value = "StreamRightOfWayRule", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "strongly-connected-component"
+name = "强连通分量"
+english_aliases = ["strongly connected component"]
+domains = ["runtime"]
+definition = "资源依赖图中任意两节点互相可达、需要作为循环依赖分析单元的最大子图。"
+symbols = [{ value = "SCC", kind = "acronym" }]
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "tick-workspace"
+name = "步进工作区"
+english_aliases = ["tick workspace"]
+domains = ["runtime"]
+definition = "单次步进的意图、资源暂存、下一状态和待发布结果及其复用存储；失败丢弃本次结果，不清空上次成功发布的批次。"
+symbols = [{ value = "TickWorkspace", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "traffic-configuration"
+name = "交通配置"
+english_aliases = ["Traffic Configuration"]
+domains = ["runtime"]
+definition = "影响交通准入与行为的四类容量及固定步长；不含执行参数。"
+symbols = [{ value = "WorldConfig", kind = "type" }]
+references = [{ document = "design-traffic-runtime-execution-config" }]
+
+[[terms]]
+id = "traffic-execution-domain"
+name = "交通执行域"
+english_aliases = ["traffic execution domain"]
+domains = ["runtime"]
+definition = "共享网络、运动/安全求解和生命周期契约的一类交通参与单元；与准入用 `ParticipantClass` 正交。"
+references = [{ document = "adr-0021" }]
+scope_notes = ["当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。"]
+
+[[terms]]
+id = "traffic-fidelity"
+name = "交通保真度"
+english_aliases = ["traffic fidelity"]
+domains = ["runtime"]
+definition = "交通个体、时间、空间、规则与事件语义相对精确路径的保留程度。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "traffic-participant"
+name = "交通参与者"
+english_aliases = ["traffic participant"]
+domains = ["runtime"]
+definition = "直接使用交通网络或占用交通空间的动态参与者；不等同于城市居民、乘客、出行需求或 AI Agent。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "traffic-participant-unit"
+name = "交通参与单元"
+english_aliases = ["traffic participant unit"]
+domains = ["runtime"]
+definition = "交通运行时中可独立保留身份的计数原子；机动车、骑行者组合、行人或轨道运营编组的具体原子由对应执行域 G1 冻结。"
+references = [{ document = "adr-0021" }]
+scope_notes = ["当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。"]
+related = ["traffic-execution-domain", "vehicle-runtime-unit"]
+
+[[terms]]
+id = "traffic-transition-event"
+name = "交通转移事件"
+english_aliases = ["traffic transition event"]
+definition = "一次成功固定步进已经提交的机动门、等待区、冲突区或机动完成变化。"
+domains = ["runtime"]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+symbols = [{ value = "TrafficTransitionEvent", kind = "type" }]
+
+[[terms]]
+id = "traffic-world"
+name = "交通世界"
+english_aliases = ["traffic world"]
+domains = ["runtime"]
+definition = "安装共享静态路网并持有每世界可变状态的运行时实例。"
+symbols = [{ value = "TrafficWorld", kind = "type" }]
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+
+[[terms]]
+id = "transition-anchor"
+name = "转移锚点"
+english_aliases = ["transition anchor"]
+definition = "同时标识交通转移事件的路线出现记录和实际触发位置的值；车尾事件按净空时所需的前保险杠位置排序。"
+domains = ["runtime"]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+symbols = [{ value = "TrafficTransitionAnchor", kind = "type" }]
+
+[[terms]]
+id = "trusted-baseline"
+name = "可信基准"
+english_aliases = ["trusted baseline"]
+domains = ["runtime"]
+definition = "经独立核验成立的期望值集合及其绑定闭合；期望值不得取自被校验对象自身；无法建立时不得宣称检测或恢复成功。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "vehicle-directory"
+name = "车辆目录"
+english_aliases = ["Vehicle Directory"]
+domains = ["runtime"]
+definition = "按完整句柄的索引与代次定位存储类别和物理行的登记表；不拥有第二份运动状态。"
+references = [{ document = "design-traffic-runtime-columnar-execution" }]
+
+[[terms]]
+id = "vehicle-following"
+name = "跟车"
+english_aliases = ["vehicle following"]
+domains = ["runtime"]
+definition = "根据同一路径上的前车状态施加安全间距和速度约束的运行时行为。"
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "vehicle-following-front-lookahead"
+name = "跟车前视"
+english_aliases = ["vehicle-following front lookahead"]
+domains = ["runtime"]
+definition = "根据当前速度与车辆配置推导的每车每拍占用查询行走范围；不是目视距离，也不改变占用索引的全体活动车辆重建范围。"
+symbols = [{ value = "front_query_horizon", kind = "field" }]
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
+id = "vehicle-runtime-unit"
+name = "车辆运行单元"
+english_aliases = ["vehicle runtime unit"]
+domains = ["runtime"]
+definition = "当前道路机动车执行域的车辆特化交通参与单元；不表示交通运行时只允许车辆。"
+symbols = [{ value = "VehicleState", kind = "type" }]
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "vehicle-state"
+name = "车辆状态"
+english_aliases = ["vehicle state"]
+domains = ["runtime"]
+definition = "当前车辆运行单元在某一固定步进边界上的运动、路线与行为状态。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "virtual-parked-state"
+name = "虚拟停驻"
+english_aliases = ["virtual parked state"]
+domains = ["runtime"]
+definition = "车辆仍保留 live identity、route 和设施 binding，但不进入道路运动/占用，也不产生 committed pose 的 Parked 状态；不等于 despawn、聚合车辆或隐藏路网。"
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "virtual-parking-capacity"
+name = "虚拟停车容量"
+english_aliases = ["virtual parking capacity"]
+domains = ["runtime"]
+definition = "停车设施中不展开为具体泊位、内部路网或 parked pose 的计数容量。Runtime 虚拟池只保留 reserved/occupied 计数，不按该容量建立 binding 槽位。"
+symbols = [{ value = "virtual_capacity", kind = "field" }]
+references = [{ document = "design-parking-system" }]
+
+[[terms]]
+id = "waiting-dependency-view"
+name = "等待依赖视图"
+english_aliases = ["waiting dependency view"]
+definition = "表达资源持有及容量不足导致的等待关系的可重建执行数据；不是持久化正本。"
+domains = ["runtime"]
+references = [{ document = "design-waiting-zone-conflict-right-of-way" }]
+
+[[terms]]
+id = "worker"
+name = "工作线程"
+english_aliases = ["worker"]
+domains = ["runtime"]
+definition = "执行一个或多个运行时任务的计算资源；数量和完成顺序不得改变精确结果。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "world-binding-state"
+name = "世界绑定状态"
+english_aliases = ["world binding state"]
+domains = ["runtime"]
+definition = "活动共享路网修订、已提交来源、世界身份与世代、配置及策略选择的统一绑定；固定步进只读，安装、恢复或切换按各自事务更新。"
+symbols = [{ value = "WorldBindingState", kind = "type" }]
+references = [{ document = "design-traffic-runtime-phase-protocol" }]
+
+[[terms]]
+id = "world-policy-selection"
+name = "世界策略选择"
+english_aliases = ["world policy selection"]
+domains = ["runtime"]
+definition = "显式选择策略绑定，或在整个共享静态路网没有门与冲突输入时声明不需要策略；不存在隐式默认策略。"
+symbols = [{ value = "WorldPolicySelection", kind = "type" }]
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]

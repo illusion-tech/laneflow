@@ -1,0 +1,199 @@
+schema_version = 1
+
+[[terms]]
+id = "area-label"
+name = "领域标签"
+english_aliases = ["area label"]
+domains = ["governance"]
+definition = "表达 Issue 或 PR 影响领域的 GitHub Label；跨层工作使用多个领域标签，进入 `Ready` 前至少设置一个。"
+symbols = [{ value = "area:*", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "authority"
+name = "最终裁决职责"
+english_aliases = ["authority"]
+domains = ["governance"]
+definition = "对某类事实作最终裁决并承担一致性责任的组件职责。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "blocking-dependency"
+name = "真实阻塞依赖"
+english_aliases = ["blocking dependency"]
+domains = ["governance"]
+definition = "GitHub 原生 Issue 依赖关系，表示某项工作实际阻止另一项工作前进；父子分解本身不自动形成阻塞。"
+symbols = [{ value = "blocked-by / blocking", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "clean-break"
+name = "一次性不兼容切换"
+english_aliases = ["clean break"]
+domains = ["governance"]
+definition = "不保留长期双 API 的显式破坏性切换。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "code-language-proposal-review"
+name = "代码语言立项审查"
+english_aliases = ["code language proposal review"]
+definition = "新增或修改拟入库非 Rust 代码前，对语言必要性、用途、工具链、验证与维护范围作出明确接受结论的人流程；纯删除不适用。"
+domains = ["governance"]
+references = [{ document = "governance-code-language-policy" }]
+
+[[terms]]
+id = "commit-harness-identifier"
+name = "提交执行框架标识"
+english_aliases = ["commit harness identifier"]
+definition = "提交归属的 AI 执行产品及入口形态的已登记标识，不表示模型身份。"
+domains = ["governance"]
+references = [{ document = "reference-commit-convention", anchor = "62-执行框架目录与入口登记" }]
+symbols = [{ value = "Harness", kind = "field" }]
+
+[[terms]]
+id = "current-state"
+name = "当前态"
+english_aliases = ["current state"]
+domains = ["governance"]
+definition = "当前已实现、并受现有 ADR/API 约束的唯一可运行生产事实。生产切换完成后由新路径承担，不得再把已拆除路径写成当前态。"
+symbols = [{ value = "current", kind = "notation" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "design-gate-field"
+name = "设计评审字段"
+english_aliases = ["design gate field"]
+domains = ["governance"]
+definition = "Project 单选字段，取值为 `N/A`、`Required`、`Accepted`；它索引 G1 判断，不替代 ADR、design 或 Issue 中的设计证据。"
+symbols = [{ value = "Design gate", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "development-gate"
+name = "开发阶段评审"
+english_aliases = ["development gate"]
+domains = ["governance"]
+definition = "LaneFlow 从立项、设计冻结到开工的人流程；合并由 required checks、GitHub 原生未解决对话阻断与 Merge Queue 承担。"
+symbols = [{ value = "G0–G2", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "harness-surface"
+name = "入口形态"
+english_aliases = ["harness surface"]
+definition = "提供任务交互和上下文集成的产品入口类别；不按底层进程或执行位置分类。"
+domains = ["governance"]
+references = [{ document = "reference-commit-convention", anchor = "62-执行框架目录与入口登记" }]
+
+[[terms]]
+id = "integration-only-bridge"
+name = "集成专用桥"
+english_aliases = ["integration-only bridge"]
+domains = ["governance"]
+definition = "只服务迁移验证、不属于生产 API，并在切换后删除的桥接实现。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "issue-type"
+name = "Issue 类型"
+english_aliases = ["issue type"]
+domains = ["governance"]
+definition = "GitHub 原生的工作性质字段：功能、缺陷或任务；不由标题前缀或同义标签重复表达。"
+symbols = [{ value = "Feature", kind = "notation" }, { value = "Bug", kind = "notation" }, { value = "Task", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "merge-group"
+name = "合并组"
+english_aliases = ["merge group"]
+domains = ["governance"]
+definition = "合并队列为最新默认分支、队列前序变更与当前 PR 生成的临时集成候选；其 Head SHA 承载队列级机器检查。"
+symbols = [{ value = "merge_group", kind = "field" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "merge-queue"
+name = "合并队列"
+english_aliases = ["merge queue"]
+domains = ["governance"]
+definition = "GitHub 对已满足 PR 级要求的变更按队列顺序创建合并组、验证最新默认分支组合并在成功后执行合并的平台机制。"
+symbols = [{ value = "GitHub Merge Queue", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "migration-oracle"
+name = "迁移预言机"
+english_aliases = ["migration oracle"]
+domains = ["governance"]
+definition = "用于对照目标实现语义、行为或字节结果的独立基准实现。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "production-cutover"
+name = "生产切换"
+english_aliases = ["production cutover"]
+domains = ["governance"]
+definition = "目标路径替代当前生产路径，成为仓库内唯一可运行世界。不以 current/target 等价对照为前提，也不以后继性能、规模或安全认证通过为前提；那些认证针对已切换路径本身。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "production-path"
+name = "生产路径"
+english_aliases = ["production path"]
+domains = ["governance"]
+definition = "被正式产品入口使用、受现行验证与治理约束的执行路径；对外兼容义务按项目发布阶段确定。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "project-status"
+name = "项目状态"
+english_aliases = ["project status"]
+domains = ["governance"]
+definition = "表达 Issue 当前生命周期阶段的 Project 字段；阻塞由原生依赖关系表达，不设置 `Blocked` 状态。"
+symbols = [{ value = "Status", kind = "field" }]
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "single-source-of-truth"
+name = "唯一事实来源"
+english_aliases = ["single source of truth"]
+domains = ["governance"]
+definition = "同一事实只由一个规范来源拥有，派生物不得反向与正本竞争。"
+symbols = [{ value = "SSOT", kind = "acronym" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "target-state"
+name = "目标态"
+english_aliases = ["target state"]
+domains = ["governance"]
+definition = "已经由相应 G1 或 ADR 接受、但尚未完成生产切换的设计事实；生产切换完成后成为当前态。"
+symbols = [{ value = "target", kind = "notation" }]
+references = [{ document = "design-network-compiler" }]
+related = ["current-state", "production-cutover"]
+
+[[terms]]
+id = "task-category"
+name = "任务类别"
+english_aliases = ["task category"]
+domains = ["governance"]
+definition = "PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-runtime`、`data-spec`、`adapter`、`authoring-tool`、`example`、`cross-layer`；类别值保留英文原文，与 Issue Type、`area:*` 标签不是同一维度。"
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "telemetry-only"
+name = "仅遥测"
+english_aliases = ["telemetry-only"]
+domains = ["governance"]
+definition = "只记录或观察状态、不发布 required 结论也不更新既有检查结论的运行方式。"
+references = [{ document = "governance-github-workflow" }]
+
+[[terms]]
+id = "work-mode-label"
+name = "工作方式标签"
+english_aliases = ["work-mode label"]
+domains = ["governance"]
+definition = "表达设计、调研、验证或安全等工作方式的 GitHub Label；不表达生命周期状态。"
+symbols = [{ value = "work:*", kind = "notation" }]
+references = [{ document = "governance-github-workflow" }]

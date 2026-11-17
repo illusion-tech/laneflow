@@ -1,0 +1,163 @@
+schema_version = 1
+
+[[terms]]
+id = "additional-check"
+name = "补充检查"
+english_aliases = ["additional check"]
+domains = ["testing"]
+definition = "在已有检查之外核对另一条件或粒度；须明示检查对象、执行阶段以及当前未检查的范围。"
+
+[[terms]]
+id = "alternative-test-execution"
+name = "备用测试方式"
+english_aliases = ["alternative test execution"]
+domains = ["testing"]
+definition = "可选用的另一种测试执行方式；libtest 与 nextest 的线程模型和计时结果不可混同。"
+
+[[terms]]
+id = "compile-fail-test"
+name = "编译失败测试"
+english_aliases = ["compile-fail test"]
+domains = ["testing"]
+definition = "以预期无法通过类型检查的调用证明非法公共接口组合在编译期不可表达的测试。"
+
+[[terms]]
+id = "default-rule"
+name = "默认规则"
+english_aliases = ["default rule"]
+domains = ["testing"]
+definition = "未指定可选过滤条件时采用的规则；策略声明中的 rank 0 低于显式命中的类别选择器，不等于“全部类别”过滤器。"
+references = [{ document = "design-traffic-runtime-right-of-way-policy" }]
+
+[[terms]]
+id = "differential-testing"
+name = "差分测试"
+english_aliases = ["differential testing"]
+domains = ["testing"]
+definition = "对相同输入比较两个独立实现的语义、诊断、标识或字节结果。"
+
+[[terms]]
+id = "fallback-path"
+name = "回退路径"
+english_aliases = ["fallback path"]
+domains = ["testing"]
+definition = "当前路径的条件不成立时转入的既有路径；例如申请者名单退回全量重建，不表示可忽略错误。"
+
+[[terms]]
+id = "fault-injection"
+name = "故障注入"
+english_aliases = ["fault injection"]
+domains = ["testing"]
+definition = "在受检点强制返回受控失败以验证失败原子性等硬不变量的测试机制；注入检查点不得进入默认发布构建。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "final-sort-key"
+name = "最终排序键"
+english_aliases = ["final sort key"]
+domains = ["testing"]
+definition = "前序字段全部相同时才比较的键；受控连接排序中的 linkIndex 属此类，不是失败后的替代路径。"
+
+[[terms]]
+id = "fixture"
+name = "fixture"
+domains = ["testing"]
+definition = "测试与证据链中固定不变的受控输入环境与样本。"
+borrowed = { language = "en", first_use_gloss = "固定测试环境" }
+
+[[terms]]
+id = "fuzz-testing"
+name = "模糊测试"
+english_aliases = ["fuzz testing", "fuzz"]
+domains = ["testing"]
+definition = "以大量生成或变异输入检查崩溃、越界和失败关闭行为。"
+
+[[terms]]
+id = "instrumentation-probe-boundary"
+name = "仪器探针边界"
+english_aliases = ["instrumentation probe boundary"]
+domains = ["testing"]
+definition = "生产路径持有空操作默认探针、研究态注入测量实现的显式接缝；默认发布构建必须与无仪器构建等价。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "known-vector"
+name = "已知向量"
+english_aliases = ["known vector"]
+domains = ["testing"]
+definition = "冻结输入及其精确字节/标识/摘要预期值的跨实现测试向量。"
+
+[[terms]]
+id = "metamorphic-test"
+name = "变形测试"
+english_aliases = ["metamorphic test"]
+domains = ["testing"]
+definition = "通过不应改变结果的输入变换验证稳定性契约的测试。"
+
+[[terms]]
+id = "performance-attribution-timing"
+name = "性能归因计时"
+english_aliases = ["performance attribution timing"]
+domains = ["testing"]
+definition = "在生产步进路径的具名阶段边界采集、只用于机制归因的耗时测量；不构成产品延迟取证。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "placeholder-output"
+name = "占位输出"
+english_aliases = ["placeholder output"]
+domains = ["testing"]
+definition = "为继续诊断保留结构或计数的替代内容；转换器的诊断用占位曲线不进入 compiler 验收，也不据此交付 LFCA。"
+
+[[terms]]
+id = "property-testing"
+name = "属性测试"
+english_aliases = ["property testing"]
+domains = ["testing"]
+definition = "生成满足约束的输入并检查不变量、往返或关系性质，而不是只断言少量固定样例的测试。"
+
+[[terms]]
+id = "research-test-instrumentation"
+name = "研究/测试仪器"
+english_aliases = ["research/test instrumentation"]
+domains = ["testing"]
+definition = "为研究取证或测试检查目的嵌入或接入运行时执行路径的测量、观察与注入机制的总称；不是生产语义的一部分。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "retained-memory-ledger"
+name = "保留内存账本"
+english_aliases = ["retained memory ledger"]
+domains = ["testing"]
+definition = "按所有权穷尽枚举组件的保留内存核算结构；新增字段必须触发编译失败以强制分类。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "semantic-research-prototype"
+name = "语义研究原型"
+english_aliases = ["semantic research prototype"]
+domains = ["testing"]
+definition = "以单线程生产执行为精确预言机、验证候选架构精确等价或在显式保真度预算内有界等价的非生产研究执行器；结论可登记为研究证据，不自动成为生产架构。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "semantic-validation"
+name = "语义验证"
+english_aliases = ["semantic validation"]
+domains = ["testing"]
+definition = "检查来源、实体、关系和领域规则是否满足规范语义的验证。"
+
+[[terms]]
+id = "structural-verification"
+name = "结构验证"
+english_aliases = ["structural verification"]
+domains = ["testing"]
+definition = "在不重跑完整领域语义的前提下，检查数据布局、引用边界和消费前置条件的验证。"
+
+[[terms]]
+id = "test-support-seam"
+name = "测试支持接缝"
+english_aliases = ["test-support seam"]
+domains = ["testing"]
+definition = "以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。"
+references = [{ document = "design-traffic-runtime-module-boundary" }]

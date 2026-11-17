@@ -23,6 +23,7 @@ summary = "提供项目工作流、文档职责与安全治理的索引。"
 - [文档边界政策][doc-governance-documentation-policy] — 持续维护；无生效取代。规定仓库文档、协作平台与研究资料的职责边界。
 - [GitHub 工作流][doc-governance-github-workflow] — 持续维护；无生效取代。规定 GitHub 议题、PR、项目与合并队列工作流。
 - [安全扫描基线][doc-governance-security-scanning] — 持续维护；无生效取代。规定安全扫描的期望配置与发布边界。
+- [语言与术语政策][doc-governance-terminology-policy] — 持续维护；无生效取代。规定中文术语、简称、旧称与措辞的使用和维护边界。
 
 [doc-governance-agent-development-guide]: agent-development-guide.md
 [doc-governance-code-language-policy]: code-language-policy.md
@@ -31,5 +32,6 @@ summary = "提供项目工作流、文档职责与安全治理的索引。"
 [doc-governance-documentation-policy]: documentation-policy.md
 [doc-governance-github-workflow]: github-workflow.md
 [doc-governance-security-scanning]: security-scanning.md
+[doc-governance-terminology-policy]: terminology-policy.md
 
 <!-- generated-doc-index:end -->

@@ -133,8 +133,9 @@ path:line:column: target=<原始目标>: skip: <中文原因>
 
 不要用配置文件掩盖存量错误。默认全量扫描必须通过，不设逐文件豁免。
 
-检查通过说明所覆盖的路径、锚点、元数据模型、关系登记和索引生成一致。它不验证批准
-事实或技术语义，不维护旧词清单，不编译示例，也不替代人工跨文档一致性复核。
+检查通过说明所覆盖的路径、锚点、元数据模型、关系登记、术语模型与生成内容一致。
+它不验证批准事实或技术语义，不扫描自然语言判断旧词违规，不编译示例，也不替代
+人工跨文档一致性复核。
 CI 的既有 `Commit message` job 在 PR 和 merge_group 同时运行该检查及文档检查测试，
 任一步失败都会使现有 required check 失败；不新增 required check 名称或平台配置。
 
@@ -148,6 +149,8 @@ CI 的既有 `Commit message` job 在 PR 和 merge_group 同时运行该检查�
 ```powershell
 cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes
 cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes --check
+cargo +1.99.1 run --locked -p xtask -- generate-glossary
+cargo +1.99.1 run --locked -p xtask -- generate-glossary --check
 cargo +1.99.1 run --locked -p xtask -- export-docs
 ```
 
@@ -155,6 +158,11 @@ cargo +1.99.1 run --locked -p xtask -- export-docs
 `target/docs/catalog.json`，不提交构建产物。正式文档模型始终全量验证，避免路径参数
 绕过全局 ID、关系或索引检查。元数据错误报告来源路径，TOML 语法错误带页头内位置；
 关系与索引错误直接列出文档 ID 或文件，不解释成普通链接错误计数。
+
+[术语目录格式与维护][terminology-catalog]定义 `docs/reference/terms/` 的 TOML
+正本、引用、名称语境与旧称关系。`check-docs` 始终验证完整术语目录及两份生成
+阅读页，不因路径参数跳过；目录导出的 `terminology` 使用同一模型。新增测试
+位于 `doc_checks::terminology`，由既有文档测试入口覆盖，不另设 CI 检查。
 
 已知子集差异：
 
@@ -168,3 +176,4 @@ cargo +1.99.1 run --locked -p xtask -- export-docs
 [doc-checks]: ../../xtask/data/doc-checks.toml
 [document-metadata]: document-metadata.md
 [documentation-policy]: ../governance/documentation-policy.md
+[terminology-catalog]: terminology-catalog.md

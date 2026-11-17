@@ -1,0 +1,161 @@
+schema_version = 1
+
+[[name_changes]]
+id = "artifact-capacity"
+names = ["制品容量"]
+domains = ["compiler"]
+scope = "外部可移植字节准入语境。"
+replacements = [{ target = "canonical-network-capacity", condition = "约束 LFCA 表达的规范路网规模。" }, { target = "artifact-shape", condition = "描述物理结构并作为资源计划输入。" }]
+include_compounds = true
+issues = [1296]
+
+[[name_changes]]
+id = "byte-backing-label"
+names = ["不可变字节背板", "字节背板"]
+domains = ["artifacts"]
+scope = "byte backing 存储语境。"
+replacements = [{ target = "immutable-byte-backing", condition = "描述受检字节的存储所有权。" }]
+include_compounds = true
+issues = [1229]
+exceptions = ["信号灯硬件背板不适用。"]
+
+[[name_changes]]
+id = "compile-capacity-dimension"
+names = ["容量维度"]
+domains = ["compiler"]
+scope = "仅指编译资源配置档的维度分类。"
+replacements = [{ target = "source-processing-limits", condition = "约束来源准入或编译中间阶段规模。" }, { target = "canonical-network-capacity", condition = "约束最终规范路网规模。" }]
+include_compounds = true
+issues = [1296]
+exceptions = ["运行时快照等其他语境中的容量维度不适用。"]
+
+[[name_changes]]
+id = "durable-root-baseline"
+names = ["耐久根内容基线"]
+domains = ["runtime"]
+scope = "修订完整性期望值语境。"
+replacements = [{ target = "durable-revision-content-baseline", condition = "描述修订内容依据。" }]
+include_compounds = true
+issues = [985]
+
+[[name_changes]]
+id = "durable-root-preimage"
+names = ["耐久根内容前像"]
+domains = ["runtime"]
+scope = "修订完整性摘要原像语境。"
+replacements = [{ target = "durable-revision-content-preimage", condition = "描述规范修订内容。" }]
+include_compounds = true
+issues = [985]
+
+[[name_changes]]
+id = "fixture-label"
+names = ["夹具"]
+domains = ["testing"]
+scope = "测试与证据链语境。"
+replacements = [{ target = "fixture", condition = "首次出现夹注固定测试环境。" }]
+include_compounds = true
+issues = [1229]
+exceptions = ["路径、required check 名和代码标识符保留原文。"]
+
+[[name_changes]]
+id = "fresh-placement-label"
+names = ["新鲜摆放"]
+domains = ["runtime"]
+scope = "fresh placement 操作语境。"
+replacements = [{ target = "fresh-placement", condition = "把车辆放入世界的操作。" }]
+include_compounds = true
+issues = [1229]
+exceptions = ["spawn_vehicle 等标识符保留。"]
+
+[[name_changes]]
+id = "generator-arm-length"
+names = ["臂长"]
+domains = ["spatial"]
+scope = "路口生成器 arm_length_meters 参数；不可与扣除路口半径后的道路长度混同。"
+replacements = [{ target = "center-to-outer-end-distance", condition = "描述该参数含义。" }]
+include_compounds = true
+issues = [1012]
+exceptions = ["配置键不改名。"]
+
+[[name_changes]]
+id = "host-budget-dimension"
+names = ["宿主预算维度"]
+domains = ["compiler"]
+scope = "编译资源配置档的宿主操作资源语境。"
+replacements = [{ target = "operation-resource-budget", condition = "约束一次操作控制的存续字节与保留容量。" }]
+include_compounds = true
+issues = [1296]
+
+[[name_changes]]
+id = "measurement-envelope"
+names = ["测量封套"]
+domains = ["measurement"]
+scope = "harness 的 measurements.toml 输出。"
+replacements = [{ target = "measurement-record", condition = "明确该文件载荷。" }]
+include_compounds = true
+issues = [1012]
+
+[[name_changes]]
+id = "occurrence-label"
+names = ["出现项"]
+domains = ["static-network"]
+scope = "occurrence 概念及其同义派生复合词。"
+replacements = [{ target = "occurrence", condition = "规范出现位置记录。" }]
+include_compounds = true
+issues = [1229]
+
+[[name_changes]]
+id = "profile-self-consistency"
+names = ["配置档自洽检查"]
+domains = ["compiler"]
+scope = "编译资源配置档语境。"
+replacements = [{ target = "compile-limits-profile-validation", condition = "核对配置档值域、单位与平台可表示性。" }, { target = "compile-limits-profile-qualification", condition = "验证具名配置档兑现公开能力。" }]
+include_compounds = true
+issues = [1296]
+
+[[name_changes]]
+id = "provenance-label"
+names = ["来源沿袭", "沿袭"]
+domains = ["compiler"]
+scope = "provenance 关系语境。"
+replacements = [{ target = "provenance", condition = "描述输入、工具与处理过程的来源关系。" }]
+include_compounds = true
+issues = [1229]
+exceptions = ["动词“沿袭”表示沿用旧制时不适用；代码和协议标识符保留原文。"]
+
+[[name_changes]]
+id = "shared-root"
+names = ["共享根", "共享静态根", "shared root", "shared-root"]
+domains = ["static-network"]
+scope = "曾用 Rust 所有权视角泛指共享静态层或某份共享路网修订。"
+replacements = [{ target = "shared-static-network", condition = "描述层、内容、布局或内存度量。" }, { target = "shared-network-revision", condition = "描述实例、身份、生命周期、绑定、比较或处置。" }]
+include_compounds = true
+issues = [985]
+exceptions = ["根对象、根 Arc、根借用与根更替等对所有权结构的明确描述，以及格式根表、分类树根、Merkle 根和文件系统根不属于旧称。", "公开 API 和外部协议标识符保留精确拼写；历史证据中的旧键不改写。"]
+
+[[name_changes]]
+id = "shared-root-authentication"
+names = ["共享根认证", "根认证"]
+domains = ["static-network"]
+scope = "共享路网修订完整性认证语境。"
+replacements = [{ target = "shared-network-revision-authentication", condition = "核对某份共享路网修订的内容。" }]
+include_compounds = true
+issues = [985]
+
+[[name_changes]]
+id = "signal-declaration-arm"
+names = ["声明臂"]
+domains = ["static-network"]
+scope = "信号源健康检查中未被受控连接认领的状态向量位置。"
+replacements = [{ target = "phase-state-position", condition = "描述位置及是否被认领。" }]
+include_compounds = true
+issues = [1012]
+exceptions = ["保留 UnclaimedSignalArm 等代码标识符和原健康检查规则。"]
+
+[[name_changes]]
+id = "spatial-session-label"
+names = ["当前空间会话"]
+domains = ["spatial"]
+scope = "规范几何采样会话；名称不再携带迁移阶段。"
+replacements = [{ target = "spatial-session", condition = "统一使用空间会话。" }]
+include_compounds = true

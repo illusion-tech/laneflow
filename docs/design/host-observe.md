@@ -65,7 +65,7 @@ related = ["design-core-runtime-performance-baseline", "design-lf-synth-measurem
 - 依赖 `laneflow-os-probe`（交流电与电池）、`sysinfo`（进程表、OS 与硬件信息，
   已在锁文件中）与 `sha2`（机器指纹，§3.4）。需要新依赖读取 WMI、注册表或 DMI 时，
   在实现 PR 中按依赖策略说明。
-- 命名说明：Issue 暂名“诊断记录层”。[词汇表][glossary] §7.8 已将“诊断记录”登记为
+- 命名说明：Issue 暂名“诊断记录层”。[术语表中的诊断记录][glossary] 已将“诊断记录”登记为
   harness 的 `diagnostics.json`，为避免同名异义改用本名。
 
 ## 3. 环境记录
@@ -273,7 +273,7 @@ P100 参考机上复现已发布指纹属于人工验证，在实现 PR 中记�
 
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [development-gates]: ../governance/development-gates.md
-[glossary]: ../reference/glossary.md
+[glossary]: ../reference/glossary.md#term-diagnostic-record
 [issue-1392]: https://github.com/illusion-tech/laneflow/issues/1392
 [lf-synth-measurement]: lf-synth-measurement.md
 [os-probe]: os-probe.md

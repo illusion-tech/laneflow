@@ -431,6 +431,7 @@ pub(crate) fn export(args: &[String]) -> Result<(), String> {
     super::run(&[])?;
     let root = std::env::current_dir().map_err(|e| e.to_string())?;
     let catalog = Catalog::load(&root)?;
+    let terminology = super::terminology::TermCatalog::load(&root, &catalog)?;
     for component in ["target", "target/docs", "target/docs/catalog.json"] {
         match fs::symlink_metadata(root.join(component)) {
             Ok(meta) if meta.file_type().is_symlink() => {
@@ -442,7 +443,18 @@ pub(crate) fn export(args: &[String]) -> Result<(), String> {
         }
     }
     fs::create_dir_all(root.join("target/docs")).map_err(|e| e.to_string())?;
-    let data = serde_json::to_string_pretty(&catalog).map_err(|e| e.to_string())?;
+    #[derive(Serialize)]
+    struct Export<'a> {
+        schema_version: u32,
+        pages: &'a [Page],
+        terminology: &'a super::terminology::TermCatalog,
+    }
+    let data = serde_json::to_string_pretty(&Export {
+        schema_version: 2,
+        pages: &catalog.pages,
+        terminology: &terminology,
+    })
+    .map_err(|e| e.to_string())?;
     fs::write(root.join("target/docs/catalog.json"), format!("{data}\n"))
         .map_err(|e| e.to_string())?;
     println!("已导出 target/docs/catalog.json");

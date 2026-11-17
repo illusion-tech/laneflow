@@ -1,0 +1,46 @@
+schema_version = 1
+files = ["adapter.toml", "artifacts.toml", "compiler.toml", "former-names.toml", "governance.toml", "host.toml", "identity.toml", "measurement.toml", "runtime.toml", "spatial.toml", "static-network.toml", "testing.toml", "wording.toml"]
+
+[[domains]]
+id = "governance"
+name = "治理与文档"
+
+[[domains]]
+id = "compiler"
+name = "编制与编译"
+
+[[domains]]
+id = "identity"
+name = "标识与数据布局"
+
+[[domains]]
+id = "static-network"
+name = "静态路网"
+
+[[domains]]
+id = "artifacts"
+name = "制品与验证"
+
+[[domains]]
+id = "runtime"
+name = "交通运行时"
+
+[[domains]]
+id = "host"
+name = "宿主与世界管理"
+
+[[domains]]
+id = "spatial"
+name = "空间与几何"
+
+[[domains]]
+id = "adapter"
+name = "引擎适配"
+
+[[domains]]
+id = "measurement"
+name = "测量与记录"
+
+[[domains]]
+id = "testing"
+name = "测试与检查"

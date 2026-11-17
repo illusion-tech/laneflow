@@ -19,6 +19,10 @@ Skill 标识符（Skill ID）`laneflow-core-design` 沿用历史名称，仅作�
 7. 涉及公开组件定位与宿主边界、出行编排、Routing、路网修订、存档/回放、并行或
    fidelity 时，读取 `docs/adr/0021-traffic-infrastructure-and-host-boundary.md`
 
+术语表是生成阅读页；新增或修改词条须编辑 `docs/reference/terms/` 的 TOML 正本，
+按 `docs/reference/terminology-catalog.md` 运行 `generate-glossary`；语言用法与旧称
+处理遵循 `docs/governance/terminology-policy.md`，不手改生成正文。
+
 ## 按任务读取
 
 下表是条件导航：只读取与本次修改相关的合同；算法、格式版本与验收数字以合同为准，

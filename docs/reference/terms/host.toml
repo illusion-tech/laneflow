@@ -1,0 +1,406 @@
+schema_version = 1
+
+[[terms]]
+id = "admitted-route-registration-command"
+name = "已准入路线注册命令"
+english_aliases = ["admitted route registration command"]
+domains = ["host"]
+definition = "候选路线准入成功后供宿主耐久记录和重放的规范化注册输入；不重放观测或成本计算过程。"
+symbols = [{ value = "AdmittedRouteRegisterInput", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "candidate-route"
+name = "候选路线"
+english_aliases = ["candidate route"]
+domains = ["host"]
+definition = "Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验证后成为普通路线。"
+symbols = [{ value = "CandidateRouteInput", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "checkpoint"
+name = "检查点"
+english_aliases = ["checkpoint"]
+domains = ["host"]
+definition = "在回放序列中周期保存、用于缩短恢复和失同步定位区间的版本化状态锚点。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "committed-mutation-stream"
+name = "已提交变更流"
+english_aliases = ["committed mutation stream"]
+domains = ["host"]
+definition = "旧世界在原子提交后产生、供候选迁移状态重解释且不会重复执行输入或发布重复旧世界事件的规范动态状态变化序列。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "committed-network-source"
+name = "已提交路网来源"
+english_aliases = ["committed network source"]
+domains = ["host"]
+definition = "已经进入活动交通运行时修订、可用于重建该修订的来源；编辑来源与发布制品引用具有不同恢复合同。"
+symbols = [{ value = "CommittedNetworkSource", kind = "type" }]
+references = [{ document = "design-committed-road-editing-state" }]
+
+[[terms]]
+id = "committed-road-network"
+name = "已提交道路路网"
+english_aliases = ["committed road network"]
+domains = ["host"]
+definition = "已提交路网来源与对应共享路网修订的逻辑聚合；工作中与候选编辑状态不属于该对象。"
+symbols = [{ value = "CommittedRoadNetwork", kind = "type" }]
+references = [{ document = "design-committed-road-editing-state" }]
+
+[[terms]]
+id = "committed-traffic-observation-snapshot"
+name = "已提交交通观测快照"
+english_aliases = ["committed traffic observation snapshot"]
+domains = ["host"]
+definition = "从同一已提交交通状态提取的只读观测集合；具体计数、单位与覆盖范围由观测合同规定。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "cost-model-identifier"
+name = "成本模型标识"
+english_aliases = ["cost model identifier"]
+domains = ["host"]
+definition = "宿主所选成本模型身份的 32 字节不透明标识；Runtime 只做精确相等比较，不规定产生算法，不属于 LaneFlow 摘要。"
+symbols = [{ value = "CostModelId", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "cutover-event-batch"
+name = "切换事件批次"
+english_aliases = ["cutover event batch"]
+domains = ["host"]
+definition = "迁移函数生成、在准备期保持不可见，并只与新共享修订/状态绑定原子提交一次的规范排序事件集合；切换放弃时零发布。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "delta-catch-up"
+name = "增量追赶"
+english_aliases = ["delta catch-up"]
+domains = ["host"]
+definition = "候选世界在后台按规范顺序应用基准状态之后的迁移增量，逐步追近运行中旧世界提交点的阶段。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "desynchronization-diagnostic-artifact"
+name = "失同步诊断制品"
+english_aliases = ["desynchronization diagnostic artifact"]
+domains = ["host"]
+definition = "结合冷标识与源映射记录首个分歧 tick、phase、实体和资源组件的调试制品。"
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "deterministic-state-digest"
+name = "确定性状态摘要"
+english_aliases = ["deterministic state digest"]
+domains = ["host"]
+definition = "对运行时已提交逻辑状态按规范排序计算、与容器编码无关的稳定摘要；用于回放校验、对拍和定位首个分歧区间，不承担发布身份。"
+symbols = [{ value = "StateDigest", kind = "type" }]
+references = [{ document = "design-traffic-runtime-snapshot" }]
+scope_notes = ["算法与原像版本由运行时快照和摘要角色合同维护，不能从词条登记推断摘要字节兼容。"]
+
+[[terms]]
+id = "dynamic-cost-snapshot"
+name = "动态成本快照"
+english_aliases = ["dynamic cost snapshot"]
+domains = ["host"]
+definition = "对象由宿主 Routing 拥有，Runtime 不解释成本 payload。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "dynamic-cost-snapshot-binding"
+name = "动态成本快照绑定"
+english_aliases = ["dynamic cost snapshot binding"]
+domains = ["host"]
+definition = "绑定世界、修订、观测时点、成本模型、有效窗与载荷摘要的候选路线来源描述；运行时不接收成本载荷。"
+symbols = [{ value = "DynamicCostSnapshotBinding", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "editable-diff-base"
+name = "可编辑差异基线"
+english_aliases = ["editable diff base"]
+domains = ["host"]
+definition = "与当前编辑修订的规范制品精确字节对应、供下一次语义差异计算使用的基线；随来源提交原子更替，不进入存档。"
+symbols = [{ value = "EditableDiffBase", kind = "type" }]
+references = [{ document = "design-committed-road-editing-state" }]
+
+[[terms]]
+id = "equivalence-proof"
+name = "等价证明"
+english_aliases = ["equivalence proof"]
+domains = ["host"]
+definition = "切换提交前证明候选状态与切换事件批次等价于确定性迁移函数作用于旧世界提交状态的证据义务；证明失败即放弃候选。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "full-delta-export"
+name = "完整/增量导出"
+english_aliases = ["full/delta export"]
+domains = ["host"]
+definition = "v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观测。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "host-application-layer"
+name = "宿主应用层"
+english_aliases = ["host application layer"]
+domains = ["host"]
+definition = "拥有应用业务、需求与规则的宿主上层；人口、经济、土地利用、建筑、工作/居住、物流任务与游戏规则是可能的业务内容，不归交通运行时裁决。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "input-command-cursor"
+name = "输入命令游标"
+english_aliases = ["input command cursor"]
+domains = ["host"]
+definition = "已成功应用的生命周期命令计数，是快照与切换基线比对的命令侧锚点；计入范围、耗尽与失败行为由生命周期合同规定。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "input-command-sequence"
+name = "输入命令序列"
+english_aliases = ["input command sequence"]
+domains = ["host"]
+definition = "按规范顺序驱动世界、可与检查点共同重放的显式外部命令流。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "migration-delta-journal"
+name = "迁移增量日志"
+english_aliases = ["migration delta journal"]
+domains = ["host"]
+definition = "在线迁移准备期间有界记录已提交动态状态/生命周期变化及命令/事件游标、供候选世界迁移追赶的版本化日志。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "mobility-and-traffic-orchestration-layer"
+name = "出行与交通编排层"
+english_aliases = ["mobility and traffic orchestration layer"]
+domains = ["host"]
+definition = "拥有出行需求、出发时刻、交通参与单元生成、目的地、人口生命周期与路线选择策略的上层。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "network-revision-cutover-descriptor"
+name = "路网修订切换描述符"
+english_aliases = ["network revision cutover descriptor"]
+domains = ["host"]
+definition = "在待验证对象之外可信绑定两侧修订、规范制品来源、语义差异与迁移策略的切换输入。"
+symbols = [{ value = "NetworkRevisionCutoverDescriptor", kind = "type" }]
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "network-revision-cutover-transaction"
+name = "路网修订切换事务"
+english_aliases = ["network revision cutover transaction"]
+domains = ["host"]
+definition = "在固定步进安全边界原子切换共享修订、动态状态和 committed 道路状态的失败关闭事务；“镜像切换”仅为历史名。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "observation-export-cadence"
+name = "观测导出节奏"
+english_aliases = ["observation export cadence"]
+domains = ["host"]
+definition = "上层或宿主明确选择的观测完整基线/增量导出频率；不等同于每个固定步进全网复制。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "observation-export-session"
+name = "观测导出会话"
+english_aliases = ["observation export session"]
+domains = ["host"]
+definition = "Runtime 签发、字段私有且无公共构造器，绑定世界/世代、修订、选择及上一成功批次的调用方能力；不进快照。"
+symbols = [{ value = "ObservationExportSession", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "observation-selection"
+name = "观测选择"
+english_aliases = ["observation selection"]
+domains = ["host"]
+definition = "`AllLaneEdges` 或按 `StableId128` 规范排序的 LaneEdge 集合；不是执行计划分区。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "observation-selection-digest"
+name = "观测选择摘要"
+english_aliases = ["observation selection digest"]
+domains = ["host"]
+definition = "观测选择解析后内容的 BLAKE3-256 内部完整性摘要（ADR 0033）；内容相同的两种选择表达得到相同值，不进快照。"
+symbols = [{ value = "ObservationSelectionDigest", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "observation-set-digest"
+name = "观测输入集合摘要"
+english_aliases = ["observation set digest"]
+domains = ["host"]
+definition = "一组同状态观测批次规范排列后的 BLAKE3-256 内部完整性摘要（ADR 0033），由 `bind_observation_set` 产生，作为成本快照摘要的输入。"
+symbols = [{ value = "ObservationSetDigest", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "observation-state-sequence"
+name = "观测状态序号"
+english_aliases = ["observation state sequence"]
+domains = ["host"]
+definition = "字段私有的严格 `u64`：同一世界世代/stream 内从 `0` 开始，排序成功 step 与影响 v1 行的已提交生命周期变化；checked 耗尽失败关闭，不进快照。"
+symbols = [{ value = "ObservationStateSequence", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "observation-stream-binding"
+name = "观测 stream 绑定"
+english_aliases = ["observation stream binding"]
+domains = ["host"]
+definition = "Runtime 签发的 `(world_id, WorldGeneration)` 进程内能力；每个活动世界世代只有一个观测 stream，不另维护可能漂移的重复计数器。"
+symbols = [{ value = "ObservationStreamBinding", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "paused-maintenance-mode"
+name = "维护暂停模式"
+english_aliases = ["paused maintenance mode"]
+domains = ["host"]
+definition = "由宿主显式声明世界已暂停、允许一次性完成迁移且单独预算完整停顿的切换模式。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "published-lfca-reference"
+name = "已发布 LFCA 引用"
+english_aliases = ["published LFCA reference"]
+domains = ["host"]
+definition = "runtime-only 存档中的不透明宿主持久 asset key 与 LFCA digest/length/revision 绑定；不复制 LFCA，也不替代加载时的资产认证。"
+symbols = [{ value = "PublishedLfcaReference", kind = "type" }]
+references = [{ document = "design-committed-road-editing-state" }]
+
+[[terms]]
+id = "quiescent-commit-window"
+name = "静默提交窗口"
+english_aliases = ["quiescent commit window"]
+domains = ["host"]
+definition = "固定步进安全边界上短暂冻结旧世界输入、排空日志尾并原子切换绑定的有界时间窗口。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "road-editing-state-digest"
+name = "道路编辑状态摘要"
+english_aliases = ["road editing state digest"]
+domains = ["host"]
+definition = "对已提交道路编辑状态的规范来源字节计算的内部完整性摘要；不替代来源集合摘要，也不参与路网修订标识。"
+references = [{ document = "design-committed-road-editing-state" }]
+
+[[terms]]
+id = "route-edge-occurrence-capacity"
+name = "路线边出现记录容量"
+english_aliases = ["route edge occurrence capacity"]
+domains = ["host"]
+definition = "`WorldConfig` 对全部存活动态路线边序列 occurrence 总数的语义容量；重复边重复计数，所有路线入口共用，不等于共享静态路网物理边数。"
+symbols = [{ value = "route_edge_occurrence_capacity", kind = "field" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "routing-admission-session"
+name = "Routing 准入会话"
+english_aliases = ["routing admission session"]
+domains = ["host"]
+definition = "Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世界/世代/修订与 `CostModelKey`；不进快照。"
+symbols = [{ value = "RoutingAdmissionSession", kind = "type" }]
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "routing-service"
+name = "路径规划服务"
+english_aliases = ["routing service"]
+domains = ["host"]
+definition = "从静态路网和已提交动态成本快照生成候选路径、但不拥有交通参与单元固定步进的服务。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "runtime-execution-plan"
+name = "运行时执行计划"
+english_aliases = ["runtime execution plan"]
+domains = ["host"]
+definition = "每世界依据静态约束、硬件与动态负载建立的分区、工作线程、边界交换和迁移计划。"
+references = [{ document = "design-traffic-runtime-parallel-execution" }]
+
+[[terms]]
+id = "runtime-snapshot"
+name = "运行时快照"
+english_aliases = ["runtime snapshot"]
+domains = ["host"]
+definition = "绑定版本化路网修订、LFCA origin 与静态契约版本，并可借助共享稳定身份索引在重建的共享修订上精确恢复的每世界可变状态存档制品。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+related = ["snapshot-local-identity", "save-manifest"]
+
+[[terms]]
+id = "save-manifest"
+name = "存档清单"
+english_aliases = ["save manifest"]
+domains = ["host"]
+definition = "原子绑定宿主应用、出行编排和 LaneFlow 各版本化存档制品及摘要的上层清单。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "snapshot-local-identity"
+name = "快照局部标识"
+english_aliases = ["snapshot-local identity"]
+domains = ["host"]
+definition = "只在一个运行时快照内稳定、用于重建动态实体引用且不复用原进程句柄的持久键。"
+references = [{ document = "design-traffic-runtime-snapshot" }]
+
+[[terms]]
+id = "traffic-infrastructure"
+name = "交通基础设施"
+english_aliases = ["traffic infrastructure"]
+domains = ["host"]
+definition = "可嵌入、引擎无关、确定性的道路交通运行时与工具链；当前提供道路机动车能力，并为规模与执行域演进保留明确边界。人口经济、出行需求与路线选择策略由宿主拥有。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "travel-demand"
+name = "出行需求"
+english_aliases = ["travel demand"]
+domains = ["host"]
+definition = "描述谁在何时为何出发的上层输入；不由交通运行时隐藏生成。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "trip-orchestration-layer"
+name = "出行编排层"
+english_aliases = ["trip orchestration layer"]
+domains = ["host"]
+definition = "拥有出行需求、候选路线选择、收费/政策偏好和调用方随机流，并以显式边界驱动 LaneFlow 的上层系统。"
+references = [{ document = "design-traffic-observation-and-routing-integration" }]
+
+[[terms]]
+id = "world"
+name = "世界"
+english_aliases = ["world"]
+domains = ["host"]
+definition = "共享静态数据并持有一份独立可变运行时状态的实例。"
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "world-generation"
+name = "世界世代"
+english_aliases = ["world generation"]
+domains = ["host"]
+definition = "Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次成功切换或原位恢复 checked 递增，失败/放弃不变。它与世界身份共同绑定切换、观测与 Routing 会话，不进入 Runtime Snapshot。"
+symbols = [{ value = "WorldGeneration", kind = "type" }]
+references = [{ document = "design-traffic-runtime-revision-cutover" }]
+
+[[terms]]
+id = "world-identity"
+name = "世界身份"
+english_aliases = ["world identity"]
+domains = ["host"]
+definition = "宿主指定的每世界唯一身份，安装时作为 `install` 必填参数进入运行时；切换描述符 `worldBinding` 以它做错误世界守卫。同一宿主进程内不得对多个世界复用；编码与生命周期由宿主拥有，运行时不解释。"
+symbols = [{ value = "world_id", kind = "field" }]
+references = [{ document = "design-traffic-runtime-revision-cutover" }]

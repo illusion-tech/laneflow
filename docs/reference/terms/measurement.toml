@@ -1,0 +1,299 @@
+schema_version = 1
+
+[[terms]]
+id = "active-traffic-participant-count"
+name = "活动交通参与单元数"
+english_aliases = ["active traffic participant count"]
+domains = ["measurement"]
+definition = "执行域 `d` 中当前参与该域运动、安全或占用求解的个体交通参与单元数。"
+symbols = [{ value = "N_active[d]", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。"]
+
+[[terms]]
+id = "aggregate-equivalent-participant-count"
+name = "聚合等价参与单元数"
+english_aliases = ["aggregate-equivalent participant count"]
+domains = ["measurement"]
+definition = "执行域 `d` 中聚合表示所代表的交通参与单元数，用于描述保真度与覆盖规模；不能替代聚合交通记录数。"
+symbols = [{ value = "N_aggregate_equivalent[d]", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。"]
+
+[[terms]]
+id = "aggregate-traffic-population"
+name = "聚合交通量"
+english_aliases = ["aggregate traffic population"]
+domains = ["measurement"]
+definition = "只以流、包或计数存在、没有完整逐车身份的交通量。"
+symbols = [{ value = "N_aggregate", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。"]
+
+[[terms]]
+id = "aggregate-traffic-record-count"
+name = "聚合交通记录数"
+english_aliases = ["aggregate traffic record count"]
+domains = ["measurement"]
+definition = "执行域 `d` 中由运行时实际存储、调度或更新的聚合流、包、单元格等记录数，用于衡量计算与内存成本。"
+symbols = [{ value = "N_aggregate_records[d]", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。"]
+
+[[terms]]
+id = "chinese-style-city-workload"
+name = "中国特色城市工作负载"
+english_aliases = ["Chinese-style city workload"]
+domains = ["measurement"]
+definition = "用版本化拓扑、需求与运行时指标表达中国特色交通压力的代表性工作负载族。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "diagnostic-record"
+name = "诊断记录"
+english_aliases = ["diagnostic record"]
+domains = ["measurement"]
+definition = "harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、计时等运行信息；其文件摘要独立核对，和测量记录的交叉检查按现有合同执行。"
+references = [{ document = "design-lf-synth-measurement" }]
+
+[[terms]]
+id = "environment-record"
+name = "环境记录"
+english_aliases = ["environment record"]
+domains = ["measurement"]
+definition = "测量前后采集的本机环境、工具链、源码状态、执行者信息、机器指纹与进程快照；不替代测量记录的构建协议字段。"
+references = [{ document = "design-host-observe" }]
+
+[[terms]]
+id = "execution-path"
+name = "执行路径"
+english_aliases = ["execution path"]
+domains = ["measurement"]
+definition = "在给定条件下实际经过的代码路径，例如融合、分发或回退路径；区别于配置名称，实际路径由既有路径计数等证据确认。"
+
+[[terms]]
+id = "experimental-variant"
+name = "实验方案"
+english_aliases = ["experimental variant"]
+domains = ["measurement"]
+definition = "与参考实现比较的候选实现或方法；同一方案可按冻结配置重复运行，方案内波动与方案间差异分开判断。"
+
+[[terms]]
+id = "file-digest-manifest"
+name = "文件摘要清单"
+english_aliases = ["file digest manifest"]
+domains = ["measurement"]
+definition = "`result.files` 中文件名到摘要的映射，用于核对同一次运行的文件完整性；摘要和文件在同一可写目录，不提供执行或来源真实性证明。"
+references = [{ document = "design-lf-synth-measurement" }]
+
+[[terms]]
+id = "individual-run"
+name = "单次运行"
+english_aliases = ["individual run"]
+domains = ["measurement"]
+definition = "测试或测量的一次执行及其记录；上下文明确后可称“一次运行”或“运行”。起止拍号、是否续跑或分段、完成状态与证据资格按各自合同判断，不由这一称呼推定。"
+short_forms = [{ name = "一次运行", scope = "当前段落已经明确是一次测试或测量执行。" }, { name = "运行", scope = "当前段落已经明确是一次测试或测量执行。" }]
+
+[[terms]]
+id = "individual-traffic-participant-count"
+name = "个体交通参与单元数"
+english_aliases = ["individual traffic participant count"]
+domains = ["measurement"]
+definition = "执行域 `d` 中仍存在并保留完整身份与生命周期状态的交通参与单元数。"
+symbols = [{ value = "N_individual[d]", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。"]
+
+[[terms]]
+id = "individual-vehicle-count"
+name = "个体车辆数"
+english_aliases = ["individual vehicle count"]
+domains = ["measurement"]
+definition = "当前 `TrafficWorld` 中仍存在并保留完整身份、路线/进度、停车与生命周期状态的车辆数。"
+symbols = [{ value = "N_individual", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。"]
+
+[[terms]]
+id = "intent-update-participant-count"
+name = "意图更新参与单元数"
+english_aliases = ["intent-update participant count"]
+domains = ["measurement"]
+definition = "当前固定步进在执行域 `d` 中实际重新计算昂贵行为或控制意图的个体交通参与单元数。"
+symbols = [{ value = "N_intent[d]", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。"]
+
+[[terms]]
+id = "intent-update-vehicle-count"
+name = "意图更新车辆数"
+english_aliases = ["intent-update vehicle count"]
+domains = ["measurement"]
+definition = "当前固定步进实际重新计算昂贵控制意图的车辆数。"
+symbols = [{ value = "N_intent", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。"]
+
+[[terms]]
+id = "measurement-record"
+name = "测量记录"
+english_aliases = ["measurement record"]
+domains = ["measurement"]
+definition = "harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、来源、运行配置与样本；不因记录存在就证明达到产品预算。"
+references = [{ document = "design-lf-synth-measurement" }]
+
+[[terms]]
+id = "multi-world-ensemble"
+name = "多世界集合"
+english_aliases = ["multi-world ensemble", "ensemble"]
+domains = ["measurement"]
+definition = "共享静态数据、但各自持有独立可变状态的一组世界，用于回放、探索或吞吐测量。"
+references = [{ document = "adr-0021" }]
+
+[[terms]]
+id = "p100-initial-attestation-production-baseline"
+name = "P100 首轮认证实测基线"
+english_aliases = ["P100 initial attestation production baseline"]
+domains = ["measurement"]
+definition = "共享路网修订认证与直算摘要的具名历史实测基线；结论受被测源码、工具链、环境及工作负载约束，不代表后续主干性能认证。"
+symbols = [{ value = "LF-ATTEST-P100-PRODUCTION-R0-v1", kind = "constant" }]
+references = [{ document = "design-traffic-runtime-state-integrity" }]
+
+[[terms]]
+id = "p100-initial-compiler-performance-gate"
+name = "P100 首轮编译性能门槛"
+english_aliases = ["P100 initial compiler performance gate"]
+domains = ["measurement"]
+definition = "原编译器研究使用的首轮抽象工作负载门槛。"
+symbols = [{ value = "LF-COMP-P100-R0-v1", kind = "constant" }]
+references = [{ document = "design-compiler-foundation" }]
+retirement = { reason = "抽象工作负载不能无损映射生产语义，已降为容量估算与实现选型输入，不构成产品验收。", replacements = [] }
+
+[[terms]]
+id = "p100-initial-production-compiler-baseline"
+name = "P100 首轮生产编译基线"
+english_aliases = ["P100 initial production compiler baseline"]
+domains = ["measurement"]
+definition = "真实合法产品场景在具名参考机上形成的首轮描述性编译基线；用于同机回退对照，不是产品 SLA 或城市容量。"
+symbols = [{ value = "LF-COMP-P100-PRODUCTION-R0-v1", kind = "constant" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "peak-allocation"
+name = "峰值分配"
+english_aliases = ["peak allocation"]
+domains = ["measurement"]
+definition = "某操作期间同时存在的最大动态分配量。"
+references = [{ document = "design-core-runtime-performance-baseline" }]
+
+[[terms]]
+id = "per-tick-timing-log"
+name = "逐拍计时日志"
+english_aliases = ["per-tick timing log"]
+domains = ["measurement"]
+definition = "harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在性、摘要和计时一致性仍须校验，非确定性耗时不参与跨运行语义相等比较。"
+references = [{ document = "design-lf-synth-measurement" }]
+
+[[terms]]
+id = "presented-traffic-participant-count"
+name = "表现交通参与单元数"
+english_aliases = ["presented traffic participant count"]
+domains = ["measurement"]
+definition = "当前外层帧在执行域 `d` 中由适配器或表现层按个体身份实例化、提取或提交的交通参与单元数。"
+symbols = [{ value = "N_presented[d]", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。"]
+
+[[terms]]
+id = "presented-vehicle-count"
+name = "表现车辆数"
+english_aliases = ["presented vehicle count"]
+domains = ["measurement"]
+definition = "当前外层帧由适配器或表现层实例化、提取或提交的车辆数。"
+symbols = [{ value = "N_presented", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。"]
+
+[[terms]]
+id = "quiet-measurement-window"
+name = "安静测量窗口"
+english_aliases = ["quiet measurement window"]
+domains = ["measurement"]
+definition = "维护者批准的一段独占机器的时间，用于运行结果随同机负载变化的正式测量；共享 CI runner 不构成此窗口。"
+references = [{ document = "governance-development-gates", anchor = "51-负载敏感计量" }]
+
+[[terms]]
+id = "reference-machine-asset-identifier"
+name = "参考机资产标识"
+english_aliases = ["reference-machine asset identifier"]
+domains = ["measurement"]
+definition = "仓库为一台选定物理参考机分配的持久逻辑标识；设备更换不得沿用，硬件维修是否保留须由硬件身份指纹和变更记录共同裁决。"
+symbols = [{ value = "referenceMachineId", kind = "field" }]
+references = [{ document = "design-core-runtime-performance-baseline" }]
+
+[[terms]]
+id = "reference-machine-hardware-identity-fingerprint"
+name = "参考机硬件身份指纹"
+english_aliases = ["reference-machine hardware identity fingerprint"]
+domains = ["measurement"]
+definition = "按版本化规范从本机 SMBIOS 身份字段计算的 SHA-256；用于确认正式运行是否发生在同一物理参考机，不公开原始序列号，也不单独证明运行环境或产品通过。"
+symbols = [{ value = "hardwareIdentitySha256", kind = "field" }]
+references = [{ document = "design-core-runtime-performance-baseline" }]
+
+[[terms]]
+id = "retained-memory"
+name = "保留内存"
+english_aliases = ["retained memory"]
+domains = ["measurement"]
+definition = "初始化完成后仍由组件持有的内存。"
+references = [{ document = "design-core-runtime-performance-baseline" }]
+
+[[terms]]
+id = "road-traffic-active-vehicle-count"
+name = "道路交通活动车辆数"
+english_aliases = ["road-traffic active vehicle count"]
+domains = ["measurement"]
+definition = "当前处于道路交通系统、每个 TrafficWorld 固定步进参与运动、安全或占用求解的车辆数。"
+symbols = [{ value = "N_traffic_active", kind = "notation" }]
+references = [{ document = "adr-0021" }, { document = "design-core-runtime-performance-baseline" }]
+scope_notes = ["用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。"]
+
+[[terms]]
+id = "run-configuration"
+name = "运行配置"
+english_aliases = ["run configuration"]
+domains = ["measurement"]
+definition = "一次测试或测量采用的参数组合，如 worker 数、分区参数与分发开关；上下文明确后可简称“配置”。同一配置可以重复运行，配置本身不等于一次执行。"
+short_forms = [{ name = "配置", scope = "当前段落已经明确是测试或测量参数组合。" }]
+
+[[terms]]
+id = "run-records"
+name = "运行记录"
+english_aliases = ["run records"]
+domains = ["measurement"]
+definition = "单次运行产生的回执、测量记录、诊断记录、日志等信息的统称；具体校验和比较须说明文件及字段，不默认所有记录均参与语义相等比较。"
+references = [{ document = "design-lf-synth-measurement" }]
+
+[[terms]]
+id = "target-product-recommended-reference-machine"
+name = "目标产品推荐参考机型"
+english_aliases = ["target product recommended reference machine"]
+domains = ["measurement"]
+definition = "由产品负责人选定、用于目标产品性能预算与最终认证的具名物理硬件；它由参考机资产标识和硬件身份指纹共同绑定，不是只凭系列或配置继承的机型类别。它不是最低产品机，选定该角色不等于产品通过，等价或替代机型仍须单独验证。"
+symbols = [{ value = "P100", kind = "notation" }]
+references = [{ document = "design-core-runtime-performance-baseline" }]
+
+[[terms]]
+id = "test-case-group"
+name = "测试分组"
+english_aliases = ["test case group"]
+domains = ["measurement"]
+definition = "为某组输入、故障或边界条件组织的测试用例；不表示运行时分支或交通分组。"
+
+[[terms]]
+id = "workload"
+name = "工作负载"
+english_aliases = ["workload"]
+domains = ["measurement"]
+definition = "冻结输入、规模、拓扑、行为组合和测量协议的可复现实验场景。"
+references = [{ document = "adr-0021" }]

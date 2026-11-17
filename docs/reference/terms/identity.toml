@@ -1,0 +1,283 @@
+schema_version = 1
+
+[[terms]]
+id = "arena-key"
+name = "区块分配键"
+english_aliases = ["arena key"]
+domains = ["identity"]
+definition = "仅在一次编译的有类型区块分配器内有效、不得进入 LIR 或持久制品的私有 `u32` 引用。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "canonical-identity-table"
+name = "规范身份表"
+english_aliases = ["canonical identity table"]
+domains = ["identity"]
+definition = "可移植规范制品中保存稳定实体完整标识原像、声明稳定标识与有类型逻辑序号的不可裁剪语义表。"
+symbols = [{ value = "CanonicalIdentityTable", kind = "type" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "canonical-identity-tuple"
+name = "规范标识元组"
+english_aliases = ["canonical identity tuple"]
+domains = ["identity"]
+definition = "由编制命名空间、实体种类及稳定父/局部锚点组成的标识正本。"
+symbols = [{ value = "CanonicalIdentity", kind = "type" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "cold-data"
+name = "冷数据"
+english_aliases = ["cold data"]
+domains = ["identity"]
+definition = "主要在加载、恢复、修订切换或诊断边界读取的数据；“冷”不表示可以从生产配置档裁剪。"
+symbols = [{ value = "cold", kind = "notation" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "complete-owner-tree"
+name = "完备所有者树"
+english_aliases = ["complete owner tree"]
+domains = ["identity"]
+definition = "所有要求归属的成员都具有唯一所有者、且不存在重复归属或孤儿成员的所有者 / 成员结构。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "compressed-sparse-row"
+name = "压缩稀疏行"
+english_aliases = ["compressed sparse row"]
+domains = ["identity"]
+definition = "用偏移量/区间表示变长邻接或成员序列的紧凑布局。"
+symbols = [{ value = "CSR", kind = "acronym" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "cross-index"
+name = "交叉索引"
+english_aliases = ["cross-index"]
+domains = ["identity"]
+definition = "在两个有类型表或数据节之间预计算的定向引用索引。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "dense-handle"
+name = "密集句柄"
+english_aliases = ["dense handle"]
+domains = ["identity"]
+definition = "运行时使用的紧凑有类型引用；热路径不携带字符串或稳定标识。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "deterministic-derivation-digest"
+name = "确定性派生摘要"
+english_aliases = ["deterministic derivation digest"]
+domains = ["identity"]
+definition = "ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排序键、采样值或派生参数；可决定持久结果，但不作为唯一身份或内容相等证明。满足输入信任、碰撞处理与分布要求后默认采用 XXH3-64，算法及字节规则须版本化。"
+references = [{ document = "adr-0033" }]
+
+[[terms]]
+id = "digest"
+name = "摘要"
+english_aliases = ["digest"]
+domains = ["identity"]
+definition = "对完整字节或规范原像计算的固定长度值；用途由 ADR 0033 的角色定义，不天然构成身份或完整性证明。"
+references = [{ document = "adr-0033" }]
+
+[[terms]]
+id = "entity-kind"
+name = "实体种类"
+english_aliases = ["entity kind"]
+domains = ["identity"]
+definition = "标识登记表中具有固定代码、英文短名（slug）和必需字段序列的实体类别。"
+symbols = [{ value = "entityKind", kind = "field" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "field-tag"
+name = "字段标签"
+english_aliases = ["field tag"]
+domains = ["identity"]
+definition = "标识编码中用于标明规范字段语义的冻结数字标签。"
+symbols = [{ value = "field_tag", kind = "field" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "flat-range"
+name = "扁平区间"
+english_aliases = ["flat range"]
+domains = ["identity"]
+definition = "以起点和长度引用连续表片段、避免逐项指针的数据表示。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "hot-column"
+name = "热列"
+english_aliases = ["hot column"]
+domains = ["identity"]
+definition = "按字段分列保存、供热路径高频读取的热数据列，例如共享静态路网的边长与边限速列；描述访问与布局，不另立数据正本、单位或持久格式。"
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "hot-data"
+name = "热数据"
+english_aliases = ["hot data"]
+domains = ["identity"]
+definition = "固定步进或位姿批次高频读取、必须按连续布局和缓存局部性优化的数据；热度不单独决定配置档必选性。"
+symbols = [{ value = "hot", kind = "notation" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "hot-path"
+name = "热路径"
+english_aliases = ["hot path"]
+domains = ["identity"]
+definition = "高频固定步进/位姿执行路径；禁止字符串、哈希查找和持久标识计算。"
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "identity-encoding-envelope"
+name = "标识编码封装"
+english_aliases = ["identity encoding envelope"]
+domains = ["identity"]
+definition = "冻结魔数、编码版本、实体种类、字段数量和标签/长度/值序列的公共字节外壳。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "internal-integrity-digest"
+name = "内部完整性摘要"
+english_aliases = ["internal integrity digest"]
+domains = ["identity"]
+definition = "ADR 0033 摘要角色之一：认证字节或规范值未被改变、只由 LaneFlow 实现产生和重算的摘要；默认 BLAKE3-256。"
+references = [{ document = "adr-0033" }]
+
+[[terms]]
+id = "interoperable-digest"
+name = "互操作摘要"
+english_aliases = ["interoperable digest"]
+domains = ["identity"]
+definition = "ADR 0033 摘要角色之一：须允许 LaneFlow 之外的实现、通用工具或人工流程独立重算的摘要；默认 SHA-256，须写明外部重算方。"
+references = [{ document = "adr-0033" }]
+
+[[terms]]
+id = "key"
+name = "键"
+english_aliases = ["key"]
+domains = ["identity"]
+definition = "在明确作用域内区分声明或关系的值；只有冻结为稳定锚点时才参与持久标识。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "owner"
+name = "所有者 / 成员"
+english_aliases = ["owner", "member"]
+domains = ["identity"]
+definition = "负责组织事实的实体及其直接从属记录。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "owner-local-occurrence"
+name = "所有者局部出现记录"
+english_aliases = ["owner-local occurrence"]
+domains = ["identity"]
+definition = "由 `(ownerOrdinal, role, localIndex)` 定位的当前快照记录；`localIndex` 不是跨编译标识。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "owner-local-relation"
+name = "所有者局部关系"
+english_aliases = ["owner-local relation"]
+domains = ["identity"]
+definition = "只在所属实体的当前序列快照内有意义、没有全局稳定标识的关系记录。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "persistent-identity-digest"
+name = "持久标识摘要"
+english_aliases = ["persistent identity digest"]
+domains = ["identity"]
+definition = "ADR 0033 摘要角色之一：从规范原像派生、作为实体或对象稳定标识持久保存的摘要；默认 BLAKE3，现行 `StableId128` 为 BLAKE3-128。"
+references = [{ document = "adr-0033" }]
+
+[[terms]]
+id = "reverse-index"
+name = "反向索引"
+english_aliases = ["reverse index"]
+domains = ["identity"]
+definition = "从目标或成员回到所有者、关系或候选集合的预计算索引。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "role"
+name = "角色"
+english_aliases = ["role"]
+domains = ["identity"]
+definition = "在所有者局部键中区分同一所有者下不同关系序列的有类型语义。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "stable-anchor"
+name = "稳定锚点"
+english_aliases = ["stable anchor"]
+domains = ["identity"]
+definition = "显式持久键或父实体稳定标识；坐标、数组位置和遍历顺序不得作为锚点。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "stable-identifier"
+name = "稳定标识"
+english_aliases = ["stable identifier"]
+domains = ["identity"]
+definition = "对规范标识元组执行冻结编码和 BLAKE3-128 后得到的 128 位持久标识。"
+symbols = [{ value = "StableId128", kind = "type" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "structure-of-arrays"
+name = "数组分列结构"
+english_aliases = ["structure of arrays"]
+domains = ["identity"]
+definition = "按字段分列保存同类记录，以提高连续访问和向量化效率的数据布局。"
+symbols = [{ value = "SoA", kind = "acronym" }]
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "transient-fingerprint"
+name = "瞬态指纹"
+english_aliases = ["transient fingerprint"]
+domains = ["identity"]
+definition = "ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与候选匹配的指纹；命中后须比较完整正本值，不得持久化或影响确定性输出。"
+references = [{ document = "adr-0033" }]
+
+[[terms]]
+id = "typed-logical-ordinal"
+name = "有类型逻辑序号"
+english_aliases = ["typed logical ordinal"]
+domains = ["identity"]
+definition = "在单份 LIR 或规范制品内按逻辑表类型区分的行序号；不是物理分块位置或跨制品稳定身份。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "unique-owner-relation"
+name = "唯一所有者关系"
+english_aliases = ["unique owner relation"]
+domains = ["identity"]
+definition = "一个成员必须解析到恰好一个有效所有者；零所有者或多所有者均为结构化错误。"
+references = [{ document = "design-network-compiler" }]
+
+[[terms]]
+id = "warm-data"
+name = "温数据"
+english_aliases = ["warm data"]
+domains = ["identity"]
+definition = "低于稳态热路径频率、但仍可能由运行时查询或边界操作读取的数据；是否必选由有类型节与封闭配置档裁决。"
+symbols = [{ value = "warm", kind = "notation" }]
+references = [{ document = "design-shared-static-network" }]
+
+[[terms]]
+id = "zero-copy"
+name = "零拷贝"
+english_aliases = ["zero-copy"]
+domains = ["identity"]
+definition = "验证后直接借用不可变底层字节建立视图、不复制所指数据的访问方式；不表示整个构建或运行过程无分配。"
+references = [{ document = "design-portable-canonical-artifact" }]

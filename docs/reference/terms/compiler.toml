@@ -1,0 +1,935 @@
+schema_version = 1
+
+[[terms]]
+id = "artifact-shape"
+name = "制品结构统计"
+english_aliases = ["artifact shape"]
+domains = ["compiler"]
+definition = "一份物理制品实际包含的行、字段、UTF-8 字节、向量元素、来源位置、路径步、变化行与载荷大小；只作为资源计划的输入，不与任何限额维度比较。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "authoring"
+name = "数据编制"
+english_aliases = ["authoring"]
+domains = ["compiler"]
+definition = "创建、导入、编辑或生成静态路网来源的活动。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "authoring-namespace-id"
+name = "编制命名空间标识"
+english_aliases = ["authoring namespace ID"]
+domains = ["compiler"]
+definition = "隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。"
+symbols = [{ value = "authoringNamespaceId", kind = "field" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "authoritative-source-module-graph"
+name = "正本来源模块图"
+english_aliases = ["authoritative source module graph"]
+domains = ["compiler"]
+definition = "一个编译单元内唯一可重放的编制事实来源；节点是来源模块，边是显式导入关系。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "backend"
+name = "后端"
+english_aliases = ["backend"]
+domains = ["compiler"]
+definition = "从已验证编译结果生成特定制品的编译器末端；静态语义只能来自 LIR，源映射可另读已验证来源伴随数据。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "base-construction"
+name = "基础构造"
+english_aliases = ["base construction"]
+domains = ["compiler"]
+definition = "编译器构建 HIR 时统一建立模块轴、符号、身份与引用解析索引的私有阶段。"
+symbols = [{ value = "HirBase", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "behavior-equivalence"
+name = "行为等价"
+english_aliases = ["behavior equivalence"]
+domains = ["compiler"]
+definition = "当前态与目标态在冻结场景中产生相同交通状态、事件和安全结果。"
+
+[[terms]]
+id = "build-plan"
+name = "构建计划"
+english_aliases = ["build plan"]
+domains = ["compiler"]
+definition = "编译器私有结构：统一记录编译单元各静态语义领域的计数与容量规划，供预算聚合和领域降阶使用。"
+symbols = [{ value = "HirBuildPlan", kind = "type" }]
+references = [{ document = "design-compiler-resource-ledger" }]
+
+[[terms]]
+id = "builder"
+name = "构建器"
+english_aliases = ["builder"]
+domains = ["compiler"]
+definition = "按已冻结输入构造目标对象的组件；不得隐式补充未文档化语义。"
+
+[[terms]]
+id = "cache"
+name = "缓存"
+english_aliases = ["cache"]
+domains = ["compiler"]
+definition = "只影响复用和性能、不改变规范结果的暂存数据。"
+
+[[terms]]
+id = "candidate-road-revision"
+name = "候选道路修订"
+english_aliases = ["candidate road revision"]
+domains = ["compiler"]
+definition = "尚未提交、必须先完成编译和验证，失败或取消时不得改变当前路网修订的道路编辑候选。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "canonical-network-capacity"
+name = "规范路网容量"
+english_aliases = ["canonical network capacity"]
+domains = ["compiler"]
+definition = "编译端与消费端共同约束的最终规范路网规模上限，维度为稳定实体、机动门、等待区、规范关系出现记录与规范几何点；编译端按最终 LIR、消费端按最终 LFCA 字节以同一计数定义各自统计，差异 base 与公开检查入口的 LFCA 在建立索引前准入。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "canonical-network-usage"
+name = "规范路网规模"
+english_aliases = ["canonical network usage"]
+domains = ["compiler"]
+definition = "一份最终规范路网实际包含的规范路网容量各维度数量，只与规范路网容量比较。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "canonical-orders"
+name = "规范排列"
+english_aliases = ["canonical orders"]
+domains = ["compiler"]
+definition = "按规范标识原像形成的实体 MIR 与 LIR 双向排列；所有者局部排列仍由各领域冻结产生。"
+symbols = [{ value = "CanonicalOrders", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "canonical-relation-occurrence"
+name = "规范关系出现记录"
+english_aliases = ["canonical relation occurrence"]
+domains = ["compiler"]
+definition = "纳入容量计数的规范关联出现位置，由所有者、角色及该角色规定的局部序号确定；包含编译器派生关系，不按端点去重，同一关联的双向表示只计一次。"
+symbols = [{ value = "CanonicalRelationCount", kind = "type" }]
+references = [{ document = "adr-0035" }]
+scope_notes = ["参与角色集合由规范路网容量合同统一登记；与来源侧关系出现记录分别定义、分别执行。"]
+
+[[terms]]
+id = "clean-compile"
+name = "干净编译"
+english_aliases = ["clean compile"]
+domains = ["compiler"]
+definition = "不使用增量缓存、从完整来源重新执行的编译。"
+
+[[terms]]
+id = "clean-single-thread-compile"
+name = "干净单工作线程编译"
+english_aliases = ["clean single-thread compile"]
+domains = ["compiler"]
+definition = "不使用增量缓存、只由一个工作线程从完整来源执行全部生产编译遍的确定性参考路径；内存 LIR 保持规范语义一致，后继制品存在时保持精确字节一致。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "closed-contract"
+name = "封闭契约"
+english_aliases = ["closed contract"]
+domains = ["compiler"]
+definition = "以登记的闭合集合冻结允许的类型、字段、配置和组合；未知或未登记输入必须失败关闭，调用方不得任意扩展。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "cold-instance-compile"
+name = "冷实例编译"
+english_aliases = ["cold-instance compile"]
+domains = ["compiler"]
+definition = "以新建编译器实例和空暂存容量执行的干净编译；规模相关来源物化是否计时由具名基准协议冻结，进程启动与磁盘读取不计时。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compilation-metrics"
+name = "编译观测值"
+english_aliases = ["compilation metrics"]
+domains = ["compiler"]
+definition = "只读描述一次成功编译的记录规模、逻辑输出、编译器控制峰值和同版本语义指纹；不等同于进程内存或制品摘要。"
+symbols = [{ value = "CompilationMetrics", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compilation-unit"
+name = "编译单元"
+english_aliases = ["compilation unit"]
+domains = ["compiler"]
+definition = "由一个正本来源模块图及其显式选项共同构成的原子编译输入。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compile-limits"
+name = "编译资源上限"
+english_aliases = ["compile limits"]
+domains = ["compiler"]
+definition = "编译管线在分配前执行的来源处理限额、规范路网容量与操作资源预算组合；制品格式边界独立约束。"
+symbols = [{ value = "CompileLimits", kind = "type" }]
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "compile-limits-profile-qualification"
+name = "配置档资格验证"
+english_aliases = ["compile limits profile qualification"]
+domains = ["compiler"]
+definition = "验证具名配置档兑现其公开能力，包括可成功规模、规范统计一致性、诊断与账本完整性，以及各类边界的拒绝行为。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "compile-limits-profile-validation"
+name = "配置档校验"
+english_aliases = ["compile limits profile validation"]
+domains = ["compiler"]
+definition = "核对配置档的维度归属、单位、值域、相关整数与平台可表示性，以及失败出口最低资源要求；不包含具体对象格式检查或可选静态生成上界证明。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "compiler-calibration-scale"
+name = "编译器校准规模"
+english_aliases = ["compiler calibration scale"]
+domains = ["compiler"]
+definition = "用于观察固定成本、复杂度及缓存/内存拐点的合成编制/中间表示规模；不表示真实城市或产品容量。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compiler-controlled-total-live-memory"
+name = "编译器控制总存续内存"
+english_aliases = ["compiler-controlled total live memory"]
+domains = ["compiler"]
+definition = "编译请求同时拥有的来源、各阶段记录、字符串、诊断、暂存区和输出构造的存续请求字节总量；不等于进程工作集。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compiler-emitter"
+name = "编译发射器"
+english_aliases = ["compiler emitter"]
+domains = ["compiler"]
+definition = "从已验证 LIR 生成规范制品的编译器后端。"
+symbols = [{ value = "emitter", kind = "notation" }]
+
+[[terms]]
+id = "compiler-foundation"
+name = "编译器基础设施"
+english_aliases = ["compiler foundation"]
+domains = ["compiler"]
+definition = "承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compiler-intermediate-representation"
+name = "编译器中间表示"
+english_aliases = ["compiler intermediate representation"]
+domains = ["compiler"]
+definition = "编译器内部从有类型抽象语法树经 HIR、MIR 到 canonical LIR 的有类型阶段表示总称；各阶段的精确职责由专门词条定义。"
+symbols = [{ value = "compiler IR", kind = "acronym" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compiler-owned-static-network"
+name = "编译器拥有的静态路网"
+english_aliases = ["compiler-owned static network"]
+domains = ["compiler"]
+definition = "全部静态标识、拓扑、几何、规则和索引由编译器统一裁决的静态路网职责划分。"
+
+[[terms]]
+id = "compiler-pass"
+name = "编译遍"
+english_aliases = ["compiler pass"]
+domains = ["compiler"]
+definition = "具有显式输入、输出、诊断和确定性要求的一次编译转换或验证步骤。"
+symbols = [{ value = "pass", kind = "notation" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "compiler-resource-ledger"
+name = "编译器资源账本"
+english_aliases = ["compiler resource ledger"]
+domains = ["compiler"]
+definition = "按宿主顶层操作记录受控存储、计划、预留与授予，并在分配前对照操作资源预算的包内记账结构。"
+references = [{ document = "design-compiler-resource-ledger" }, { document = "adr-0035" }]
+scope_notes = ["计划准入、同时存续的授予守恒、转交与峰值报告以资源账本设计为准。"]
+
+[[terms]]
+id = "compiler-stress-scale"
+name = "编译器压力规模"
+english_aliases = ["compiler stress scale"]
+domains = ["compiler"]
+definition = "放大编制/中间表示对象、用于暴露资源增长和失败边界的合成规模；不构成产品 SLA。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "crate-dependency-graph"
+name = "包依赖图"
+english_aliases = ["crate dependency graph"]
+domains = ["compiler"]
+definition = "Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运行时的依赖关系图。"
+symbols = [{ value = "crate DAG", kind = "notation" }]
+
+[[terms]]
+id = "current-core-object-graph"
+name = "当前核心对象图"
+english_aliases = ["current Core object graph"]
+domains = ["compiler"]
+definition = "旧动态执行层的对象、句柄与登记表构造。"
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+retirement = { reason = "旧核心运行时已拆除，不作为可运行世界或编译器中间表示。", replacements = [] }
+
+[[terms]]
+id = "current-json"
+name = "当前 JSON"
+english_aliases = ["current JSON"]
+domains = ["compiler"]
+definition = "已删除的 Traffic、SpatialPackage 与 ScenarioManifest JSON 生产入口的历史合称。"
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+retirement = { reason = "生产编制与消费已转为编译器、可移植规范制品与共享静态路网。", replacements = [] }
+
+[[terms]]
+id = "determinism"
+name = "确定性"
+english_aliases = ["determinism"]
+domains = ["compiler"]
+definition = "相同规范输入在冻结条件下产生相同语义、顺序和要求范围内相同字节。"
+
+[[terms]]
+id = "deterministic-merge-order"
+name = "确定性合并顺序"
+english_aliases = ["deterministic merge order"]
+domains = ["compiler"]
+definition = "并行或分片结果按固定规则合并，使输出不依赖线程调度。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "deterministic-oracle"
+name = "确定性预言机"
+english_aliases = ["deterministic oracle"]
+domains = ["compiler"]
+definition = "其他执行模式必须在冻结的语义或精确字节边界上匹配的参考执行路径。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "diagnostic"
+name = "诊断"
+english_aliases = ["diagnostic"]
+domains = ["compiler"]
+definition = "带稳定代码、严重程度、来源位置、原因和建议的编译或验证反馈。"
+
+[[terms]]
+id = "domain-budget"
+name = "领域预算"
+english_aliases = ["domain budget"]
+domains = ["compiler"]
+definition = "单个静态语义领域对持久表、查找表与暂存区字节的独立估算；聚合规则由编译器内存设计规定。"
+symbols = [{ value = "DomainBudget", kind = "type" }]
+references = [{ document = "design-compiler-resource-ledger" }]
+
+[[terms]]
+id = "editor-authoring-surface"
+name = "编辑器编制界面"
+english_aliases = ["editor authoring surface"]
+domains = ["compiler"]
+definition = "编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "feature-bits"
+name = "特性位"
+english_aliases = ["feature bits"]
+domains = ["compiler"]
+definition = "可组合的功能位；不能用任意特性位组合替代合同规定的封闭配置档。"
+
+[[terms]]
+id = "fingerprint"
+name = "指纹"
+english_aliases = ["fingerprint"]
+domains = ["compiler"]
+definition = "用于快速候选匹配的短摘要；命中后仍须比较完整正本值。"
+
+[[terms]]
+id = "freeze-plan"
+name = "冻结计划"
+english_aliases = ["freeze plan"]
+domains = ["compiler"]
+definition = "编译器根据 MIR 统一规划 LIR 记录计数、暂存与输出字节、限额观测的私有结构。"
+symbols = [{ value = "LirFreezePlan", kind = "type" }]
+references = [{ document = "design-compiler-resource-ledger" }]
+
+[[terms]]
+id = "frontend"
+name = "前端"
+english_aliases = ["frontend"]
+domains = ["compiler"]
+definition = "只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "generated-binding-boundary"
+name = "生成绑定边界"
+english_aliases = ["generated binding boundary"]
+domains = ["compiler"]
+definition = "只承载固定 `flatc` Rust 生成物并隔离 generated accessor `unsafe` 的私有、不可发布 package；不成为公共 SDK、第二套领域模型或第三方前端接口。"
+symbols = [{ value = "laneflow-road-editing-wire", kind = "crate" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "geometry-accuracy-profile"
+name = "几何精度配置档"
+english_aliases = ["Geometry accuracy profile"]
+domains = ["compiler"]
+definition = "规定编制曲线转换为规范几何时位置误差工程目标的封闭配置档；固定采样与离线观测不构成连续最大误差保证。"
+symbols = [{ value = "GeometryAccuracyProfile", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "geometry-direction-profile"
+name = "几何方向配置档"
+english_aliases = ["Geometry direction profile"]
+domains = ["compiler"]
+definition = "规定折线方向连续性工程目标的封闭配置档；与位置精度配置档正交组合，同一编译单元内一致。"
+symbols = [{ value = "GeometryDirectionProfile", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "geometry-direction-profile-applicability-flag"
+name = "几何方向配置档适用标记"
+english_aliases = ["Geometry direction profile applicability flag"]
+domains = ["compiler"]
+definition = "逐规范几何的二值标记，决定哪些内部弦与连接应用同次编译的全局方向配置档；不引入逐行配置档。"
+symbols = [{ value = "directionProfileApplies", kind = "field" }]
+references = [{ document = "design-portable-canonical-artifact" }]
+
+[[terms]]
+id = "geometry-document-frontend"
+name = "几何文档前端"
+english_aliases = ["Geometry document frontend"]
+domains = ["compiler"]
+definition = "严格 JSON 几何文档方案中的编制前端。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+retirement = { reason = "道路编辑来源已采用 FlatBuffers，该方案不再作为实现输入。", replacements = [{ target = "road-editing-frontend", condition = "现行职责对应；不表示 API 或字节兼容。" }] }
+
+[[terms]]
+id = "geometry-source-module"
+name = "几何来源模块"
+english_aliases = ["Geometry source module"]
+domains = ["compiler"]
+definition = "旧 JSON 几何方案拟公开的预构造模块类型。"
+symbols = [{ value = "GeometryModule", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+retirement = { reason = "道路编辑前端使用借用来源输入和共同受检接入，不公开该模块类型。", replacements = [{ target = "road-editing-source-input", condition = "现行职责对应；不表示 API 或字节兼容。" }] }
+
+[[terms]]
+id = "handle"
+name = "句柄"
+english_aliases = ["handle"]
+domains = ["compiler"]
+definition = "进程或世界内使用的有类型实体引用。"
+
+[[terms]]
+id = "high-level-intermediate-representation"
+name = "高层中间表示"
+english_aliases = ["high-level intermediate representation"]
+domains = ["compiler"]
+definition = "已完成模块、命名空间、符号、引用、单位和编制语义解析的表示。交通一维存储正本为整数毫米。"
+symbols = [{ value = "HIR", kind = "acronym" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "import-frontend"
+name = "导入前端"
+english_aliases = ["import frontend"]
+domains = ["compiler"]
+definition = "把外部来源及其工具、选项和来源链显式转换为来源模块的前端。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "incremental-compile"
+name = "增量编译"
+english_aliases = ["incremental compile"]
+domains = ["compiler"]
+definition = "复用未失效中间结果、但必须与干净编译产生相同规范结果的编译。"
+
+[[terms]]
+id = "interchange-format"
+name = "交换格式"
+english_aliases = ["interchange format"]
+domains = ["compiler"]
+definition = "可由独立工具跨进程或跨语言读写、具有显式版本与兼容规则的序列化数据契约。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "join"
+name = "联结"
+english_aliases = ["join"]
+domains = ["compiler"]
+definition = "按共同键把两个独立制品或表的记录关联起来。"
+
+[[terms]]
+id = "layout"
+name = "布局"
+english_aliases = ["layout"]
+domains = ["compiler"]
+definition = "表、字段、偏移量、对齐和节的确定性字节组织方式。"
+
+[[terms]]
+id = "loader"
+name = "加载器"
+english_aliases = ["loader"]
+domains = ["compiler"]
+definition = "读取并验证输入、构造目标对象或受检视图的边界组件。"
+
+[[terms]]
+id = "local-index"
+name = "局部索引"
+english_aliases = ["local index"]
+domains = ["compiler"]
+definition = "当前所有者序列快照中的位置；不构成跨编译稳定标识。"
+symbols = [{ value = "localIndex", kind = "field" }]
+
+[[terms]]
+id = "lowering"
+name = "降阶"
+english_aliases = ["lowering"]
+domains = ["compiler"]
+definition = "把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "memory-plan"
+name = "内存计划"
+english_aliases = ["memory plan"]
+domains = ["compiler"]
+definition = "由构建计划聚合的 HIR 持久表、查找表和互斥暂存峰值预算；不进入公共 API 或制品。"
+symbols = [{ value = "HirMemoryPlan", kind = "type" }]
+references = [{ document = "design-compiler-resource-ledger" }]
+
+[[terms]]
+id = "metadata"
+name = "元数据"
+english_aliases = ["metadata"]
+domains = ["compiler"]
+definition = "可重算或辅助解释、但不单独拥有行为裁决权的数据。"
+scope_notes = ["本词条指编译与运行时中的辅助数据；正式文档元数据按其独立规范承载文档身份、状态与关系。"]
+
+[[terms]]
+id = "mid-level-intermediate-representation"
+name = "中层中间表示"
+english_aliases = ["mid-level intermediate representation"]
+domains = ["compiler"]
+definition = "已完成拓扑、几何展开和全局静态语义推导、但尚未绑定目标布局的表示。交通一维存储正本为整数毫米。"
+symbols = [{ value = "MIR", kind = "acronym" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "module-resource-counts"
+name = "模块资源计数"
+english_aliases = ["module resource counts"]
+domains = ["compiler"]
+definition = "由官方前端在受检构造期间一次性派生、供共同接入累计检查来源字节、声明、引用、关系、字符串、几何点和存续内存等上限的字段私有计数集合。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "normalization"
+name = "规范化"
+english_aliases = ["normalization"]
+domains = ["compiler"]
+definition = "把输入转换为满足统一单位、默认、顺序和不变量的规范形态。"
+
+[[terms]]
+id = "occurrence"
+name = "出现记录"
+english_aliases = ["occurrence"]
+domains = ["compiler"]
+definition = "某静态声明在路线（Route）、路径或所有者序列中的具体位置记录。"
+
+[[terms]]
+id = "official-frontend-module"
+name = "官方前端模块"
+english_aliases = ["official frontend module"]
+domains = ["compiler"]
+definition = "对 LaneFlow 官方前端完成受检构造、以具体字段私有类型绑定来源记录身份、描述符、导入、声明和模块资源计数的模块所作的共同分类；它不是第三方扩展协议。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "operation-resource-budget"
+name = "操作资源预算"
+english_aliases = ["operation resource budget"]
+domains = ["compiler"]
+definition = "宿主为一次编译、发射或公开检查提供的资源，即编译器控制总存续字节与一次编译后允许保留的容量字节，由编译器资源账本在分配前执行；工作量与取消同属操作资源，另行立项。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "p100-compile-limits-profile"
+name = "P100 编译资源配置档"
+english_aliases = ["P100 compile limits profile"]
+domains = ["compiler"]
+definition = "由宿主显式选择、组合来源处理限额、规范路网容量和操作资源预算的具名生产编译资源配置档。"
+symbols = [{ value = "LF-COMP-P100", kind = "constant" }]
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "parallel-compile"
+name = "并行编译"
+english_aliases = ["parallel compile"]
+domains = ["compiler"]
+definition = "并发执行编译遍、并按确定性合并顺序产生结果的编译。"
+
+[[terms]]
+id = "parts-finish"
+name = "部件装配"
+english_aliases = ["parts finish"]
+domains = ["compiler"]
+definition = "在各领域降阶零错误后原子组装 HIR 的私有边界；失败不提交部分结果。"
+symbols = [{ value = "HirParts", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "per-document-source-origin-record"
+name = "逐文档来源记录"
+english_aliases = ["per-document source origin record"]
+domains = ["compiler"]
+definition = "冷显示/审计元数据；区分文档角色，Traffic/Spatial 另绑定清单制品引用。宿主来源未认证；不证明内容或发布真实性，不进入标识、LIR 语义或文档集摘要。"
+symbols = [{ value = "SourceDocumentOrigin", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "provenance"
+name = "来源链"
+english_aliases = ["provenance"]
+domains = ["compiler"]
+definition = "关联输入、工具、参数、构建、转换与发布过程的可审计来源关系。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "rebind"
+name = "重绑定"
+english_aliases = ["rebind"]
+domains = ["compiler"]
+definition = "在另一个图、世界或制品上下文中重新解析并建立引用。"
+
+[[terms]]
+id = "registry"
+name = "登记表"
+english_aliases = ["registry"]
+domains = ["compiler"]
+definition = "按稳定规则保存实体、句柄或解析关系的集合。"
+
+[[terms]]
+id = "resolver"
+name = "解析器"
+english_aliases = ["resolver"]
+domains = ["compiler"]
+definition = "把外部标识、稳定标识或键解析为有类型引用的组件。"
+
+[[terms]]
+id = "road-alignment-definition"
+name = "道路走向定义"
+english_aliases = ["road alignment definition"]
+domains = ["compiler"]
+definition = "重建当前道路所需的编制描述；来源 v1 只保存 line/cubic Bézier，其他曲线按 B1 工程目标转换并记录观测误差；不属于运行时规范几何。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-frontend"
+name = "道路编辑前端"
+english_aliases = ["road editing frontend"]
+domains = ["compiler"]
+definition = "把版本化道路编辑状态有界解码为共同有类型道路编辑模型，并产生结构化来源位置的 production 前端。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-location-context"
+name = "道路编辑位置上下文"
+english_aliases = ["road editing location context"]
+domains = ["compiler"]
+definition = "在失败诊断或成功源映射中拥有 intern 属性路径、画布选择键与显示字节并解析紧凑 ordinal 的字段私有上下文。"
+symbols = [{ value = "RoadEditingLocationContext", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-property-path"
+name = "道路编辑属性路径"
+english_aliases = ["road editing property path"]
+domains = ["compiler"]
+definition = "由已知 table field、struct member 与 union variant 组成的闭合叶属性 step 序列；不接受任意字符串或向量下标。"
+symbols = [{ value = "RoadEditingPropertyPath", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-source-address"
+name = "道路编辑来源地址"
+english_aliases = ["road editing source address"]
+domains = ["compiler"]
+definition = "由模块 namespace、实体 kind、完整 owner-key tuple 和 sibling-local key 构成；不同 parent 可复用同名 local key；不参与稳定标识。"
+symbols = [{ value = "RoadEditingSourceAddress", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-source-buffer"
+name = "道路编辑来源缓冲区"
+english_aliases = ["road editing source buffer"]
+domains = ["compiler"]
+definition = "以 FlatBuffers 编码一个道路编辑模块的版本化来源文档；精确版本、根表与字节要求由道路编辑来源合同规定。"
+symbols = [{ value = "LF-ROAD-EDITING-SOURCE-v4", kind = "constant" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-source-diff"
+name = "道路编辑来源差异"
+english_aliases = ["road-editing source diff"]
+domains = ["compiler"]
+definition = "比较稳定道路编辑实体、属性和仅编制内容变化的结构化差异；能力与适用边界由道路编辑来源设计规定。"
+symbols = [{ value = "RoadEditingSourceDiff", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "road-editing-source-input"
+name = "道路编辑来源输入"
+english_aliases = ["road editing source input"]
+domains = ["compiler"]
+definition = "借用完整道路编辑来源缓冲区、经编译单元构建器原子完成验证、语义预检、降阶和共同接入的输入。"
+symbols = [{ value = "RoadEditingModuleInput", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-source-root"
+name = "道路编辑来源根表"
+english_aliases = ["road editing source root"]
+domains = ["compiler"]
+definition = "保存精确格式版本、唯一模块头、道路走向定义及 Identity v1 有类型稳定声明向量；owner-local 值留在 owner table，table offset 不构成领域身份。"
+symbols = [{ value = "RoadEditingSource", kind = "type" }]
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "road-editing-state"
+name = "道路编辑状态"
+english_aliases = ["road editing state"]
+domains = ["compiler"]
+definition = "可编辑、可重放的道路编制事实，保存走向、横断面、连接、规则和稳定关系；不包含共享数组、车辆或交互历史。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+scope_notes = ["存档只接受已经进入活动交通运行时的已提交编辑状态；工作中和候选状态由宿主另行管理。"]
+
+[[terms]]
+id = "shared-checked-module-admission"
+name = "共同受检模块接入"
+english_aliases = ["shared checked module admission"]
+domains = ["compiler"]
+definition = "把不同官方前端模块原子移入同一编译单元，并统一执行唯一性、资源上限、导入图和规范顺序检查的编译器私有接入路径。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "single-network-million-compile-limits-profile"
+name = "百万单路网配置档"
+english_aliases = ["single-network million compile limits profile"]
+domains = ["compiler"]
+definition = "以一百万个现实混合稳定静态实体为公开规模目标、须通过端到端资格验证的具名大型编译配置档；不提供无限模式或调用方覆写。"
+symbols = [{ value = "LF-COMP-SINGLE-NETWORK-1M", kind = "constant" }]
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "source-collection-digest"
+name = "来源集合摘要"
+english_aliases = ["source collection digest"]
+domains = ["compiler"]
+definition = "按依赖优先模块顺序对命名空间及每模块来源文档集摘要进行版本化、域分隔聚合所得的 SHA-256；它绑定一次 LFSM 的完整来源模块集合，不替代逐文档摘要，也不进入路网修订标识。"
+symbols = [{ value = "sourceCollectionDigest", kind = "field" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-document-count"
+name = "来源文档计数"
+english_aliases = ["source document count"]
+domains = ["compiler"]
+definition = "一个编译单元内独立来源文档描述符的累计数量；它不属于有类型抽象语法树领域记录，不能挤入 `TypedAstRecordCount`。"
+symbols = [{ value = "SourceDocumentCount", kind = "type" }]
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "source-document-descriptor"
+name = "来源文档描述符"
+english_aliases = ["source document descriptor"]
+domains = ["compiler"]
+definition = "把一个来源文档的稳定文档键、精确内容摘要、原始字节长度、所属逻辑模块及逐文档来源记录不可分绑定的字段私有值；模块与文档不要求一一对应。"
+symbols = [{ value = "SourceDocumentDescriptor", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-document-digest"
+name = "来源文档摘要"
+english_aliases = ["source document digest"]
+domains = ["compiler"]
+definition = "由官方前端对一份版本化规范来源记录的精确原始字节计算一次所得的 SHA-256；它不由调用方自报，也不参与实体稳定标识。"
+symbols = [{ value = "sourceDocumentDigest", kind = "field" }]
+references = [{ document = "design-compiler-foundation" }]
+related = ["source-document-set-digest", "source-collection-digest"]
+
+[[terms]]
+id = "source-document-set-digest"
+name = "来源文档集摘要"
+english_aliases = ["source document-set digest"]
+domains = ["compiler"]
+definition = "对一个逻辑模块内按文档键规范排序的文档键、精确长度和逐文档摘要进行版本化、域分隔聚合所得的 SHA-256；它用于模块级重放/缓存比较，不替代逐文档身份。"
+symbols = [{ value = "sourceDocumentSetDigest", kind = "field" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-language"
+name = "来源语言"
+english_aliases = ["source language"]
+domains = ["compiler"]
+definition = "定义来源模块语法和来源保真的输入语言。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-location"
+name = "来源位置"
+english_aliases = ["source location"]
+domains = ["compiler"]
+definition = "诊断和源映射使用的闭合和类型；文本来源使用真实 `SourceSpan` 行列，道路编辑来源使用稳定实体/owner-local subject、schema property 与可选画布选区，只有结构损坏可使用 byte range。"
+symbols = [{ value = "SourceLocation", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-module"
+name = "来源模块"
+english_aliases = ["source module"]
+domains = ["compiler"]
+definition = "绑定命名空间、来源语言、工具/选项与来源链的逻辑编译节点；合成前端恰有一份文档，后继官方前端可拥有多份文档并绑定文档集摘要。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-module-header"
+name = "来源模块头"
+english_aliases = ["source module header"]
+domains = ["compiler"]
+definition = "调用方提供非内容字段，官方前端派生模块描述符、文档集摘要、逐文档摘要与描述符。"
+symbols = [{ value = "SourceModuleHeader", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "source-processing-limits"
+name = "来源处理限额"
+english_aliases = ["source processing limits"]
+domains = ["compiler"]
+definition = "编译单元准入与编译管线执行的来源与阶段规模上限，如模块、来源字节、声明、各阶段记录、有类型引用、来源关系出现记录、标识字段出现记录、符号、字符串与诊断；字符串与关系维度为来源侧口径，不用于约束外部制品。"
+references = [{ document = "adr-0035" }]
+
+[[terms]]
+id = "stable-capacity-reuse-compile"
+name = "稳定容量复用编译"
+english_aliases = ["stable-capacity reuse compile"]
+domains = ["compiler"]
+definition = "复用编译器的无语义暂存容量、但不复用语义结果的干净编译；它不是增量编译，结果和诊断必须与冷实例编译一致。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "static-contract"
+name = "静态契约"
+english_aliases = ["static contract"]
+domains = ["compiler"]
+definition = "编译器、格式检查、共享静态路网、运行时与空间层共享的目标中立值、登记表和版本契约。"
+symbols = [{ value = "laneflow-static-contract", kind = "crate" }]
+
+[[terms]]
+id = "stationing"
+name = "道路里程站位"
+english_aliases = ["Stationing"]
+domains = ["compiler"]
+definition = "从道路参考线起点沿配置档无关的编译期 reference station 基表单调累计的距离坐标，用于区段、横断面和连接几何的纵向定位；不属于持久身份，也不由最终输出档位反向改变。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "synthetic-dsl-frontend"
+name = "合成领域专用语言前端"
+english_aliases = ["Synthetic DSL frontend"]
+domains = ["compiler"]
+definition = "面向测试、基准、示例和程序化场景的可重放来源前端。"
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "synthetic-source-module"
+name = "合成来源模块"
+english_aliases = ["synthetic source module"]
+domains = ["compiler"]
+definition = "由 `SyntheticModuleBuilder` 受检构造、承载可重放合成来源的具体编译模块。"
+symbols = [{ value = "SyntheticModule", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "table-row"
+name = "表行"
+english_aliases = ["table row", "row"]
+domains = ["compiler"]
+definition = "静态表中的一条记录；LIR 与规范制品的逻辑表行使用有类型逻辑序号。"
+
+[[terms]]
+id = "typed-abstract-syntax-tree"
+name = "有类型抽象语法树"
+english_aliases = ["typed abstract syntax tree"]
+domains = ["compiler"]
+definition = "保留前端语法、显式键、类型、单位和来源位置的第一层表示。准入后交通一维不再把编制 `f64` 米当存储正本。"
+symbols = [{ value = "typed AST", kind = "acronym" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "typed-road-editing-model"
+name = "有类型道路编辑模型"
+english_aliases = ["typed road editing model"]
+domains = ["compiler"]
+definition = "由可视化编辑器、可发布程序化生成器、SDK 与 importer 共享的字段、单位、稳定身份、引用和不变量契约；物理编码不拥有第二套语义。"
+references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
+
+[[terms]]
+id = "validated-canonical-low-level-intermediate-representation"
+name = "已验证规范低层中间表示"
+english_aliases = ["validated canonical low-level intermediate representation"]
+domains = ["compiler"]
+definition = "后端唯一输入；包含稳定标识、有类型序号、规范数值、确定性关系和布局无关预计算。交通一维与 LFCA 同一套整数毫米。"
+symbols = [{ value = "canonical LIR", kind = "acronym" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "validated-compilation-output"
+name = "已验证编译结果"
+english_aliases = ["validated compilation output"]
+domains = ["compiler"]
+definition = "原子拥有 LIR、已验证源映射输入和非错误级诊断的成功编译结果；错误级诊断存在时不得构造。"
+symbols = [{ value = "CompilationOutput", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "validated-current-source-bundle"
+name = "已验证当前态来源包"
+english_aliases = ["validated current-source bundle"]
+domains = ["compiler"]
+definition = "旧 JSON 加载链路中的历史内部来源 DTO。"
+symbols = [{ value = "ValidatedCurrentSourceBundle", kind = "type" }]
+references = [{ document = "design-traffic-runtime-shared-consumption" }]
+retirement = { reason = "所属加载组件已拆除，不是现行编译器输入。", replacements = [] }
+
+[[terms]]
+id = "validated-source-map-input"
+name = "已验证源映射输入"
+english_aliases = ["validated source-map input"]
+domains = ["compiler"]
+definition = "与 LIR 同次成功编译冻结、只保存来源模块、来源位置、来源链及 LIR 键关联且不能补充静态语义的伴随数据。"
+symbols = [{ value = "ValidatedSourceMapInput", kind = "type" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "view"
+name = "视图"
+english_aliases = ["view"]
+domains = ["compiler"]
+definition = "借用或共享已验证底层存储、且不复制正本数据的只读访问接口。"
