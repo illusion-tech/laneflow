@@ -223,7 +223,7 @@ pub(in crate::portable_emitter) fn checked_stable_id_with(
 }
 
 /// 读取指定标签的有类型序号向量字段；字段缺失或类型不符时返回给定的错误。
-pub(super) fn checked_ordinal_vector_with(
+pub(in crate::portable_emitter) fn checked_ordinal_vector_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     mismatch: PortableEmissionError,
@@ -235,7 +235,7 @@ pub(super) fn checked_ordinal_vector_with(
 }
 
 /// 读取指定标签的记录向量字段；字段缺失或类型不符时返回给定的错误。
-pub(super) fn checked_record_vector_with(
+pub(in crate::portable_emitter) fn checked_record_vector_with(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     mismatch: PortableEmissionError,

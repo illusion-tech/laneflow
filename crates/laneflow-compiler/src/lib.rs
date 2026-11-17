@@ -6,6 +6,7 @@
 // 管线封装为对外的 ValidatedCanonicalLir 与配对来源伴随数据。
 #[allow(dead_code)]
 mod arena;
+mod canonical_usage;
 mod compiler;
 mod declaration;
 mod diagnostic;

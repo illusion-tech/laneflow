@@ -8,6 +8,7 @@
 mod freeze;
 /// 路权来源绑定的受检投影接缝。
 pub(crate) mod policy;
+pub use laneflow_static_contract::SourceRelationRole;
 pub use policy::{PolicySourceTarget, PolicySourceView};
 
 pub(crate) use freeze::freeze_source_map;
@@ -88,87 +89,6 @@ mod logical_byte_tests {
             4 + 4 + 4 + 4 + 16 + 4
         );
     }
-}
-
-/// owner-local 来源记录中登记的有类型语义角色。
-///
-/// 数值只在当前编译结果内区分来源记录类别，不是后继源映射线格式代码。
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[repr(u16)]
-#[non_exhaustive]
-pub enum SourceRelationRole {
-    /// `LaneEdge` 声明中的一项下游连接。
-    LaneEdgeSuccessor = 1,
-    /// 道路走廊有序横断面中的一项成员。
-    RoadCorridorElement = 2,
-    /// 道路区段有序车道集合中的一项成员。
-    RoadSectionLane = 3,
-    /// 编制车道有序覆盖链中的一项车道图边。
-    AuthoringLaneEdge = 4,
-    /// 车道组中的一项编制车道成员。
-    LaneGroupMember = 5,
-    /// 路口拥有的一项转向动作。
-    JunctionMovement = 6,
-    /// 转向动作拥有的一项机动路径。
-    MovementManeuverPath = 7,
-    /// 机动路径完整 `entry + internal + exit` 序列中的一项边引用。
-    ManeuverPathEdge = 8,
-    /// 从全部机动路径派生的一项路口内部边排他所有权。
-    JunctionInternalEdge = 9,
-    /// 机动路径按转换顺序拥有的一项机动门。
-    ManeuverPathGate = 10,
-    /// 机动路径按入口转换顺序拥有的一项等待区。
-    ManeuverPathWaitingZone = 11,
-    /// 停止线被一项机动门引用的反向关系。
-    StopLineManeuverGate = 12,
-    /// 停车设施的一项虚拟入口锚点。
-    ParkingFacilityVirtualEntry = 13,
-    /// 停车设施的一项虚拟出口锚点。
-    ParkingFacilityVirtualExit = 14,
-    /// 路口拥有的一项冲突区。
-    JunctionConflictZone = 15,
-    /// 路口拥有的一项参与者流。
-    JunctionParticipantStream = 16,
-    /// 信号控制器唯一拥有的一项信号组。
-    SignalControllerGroup = 17,
-    /// 信号控制器固定时制程序中的一个有序相位。
-    SignalControllerPhase = 18,
-    /// 信号相位对控制器内一个信号组的灯色赋值。
-    SignalPhaseState = 19,
-    /// 机动门到固定时制信号组的控制绑定。
-    ManeuverGateSignalGroup = 20,
-    /// 停车位到可选停车设施的组织归属。
-    ParkingSpaceFacility = 21,
-    /// 停车位入口到车道图边严格内部位置的锚定。
-    ParkingSpaceEntry = 22,
-    /// 停车位出口到车道图边严格内部位置的锚定。
-    ParkingSpaceExit = 23,
-    /// 参与者类别到其可选单继承父类的关系。
-    ParticipantClassExtends = 24,
-    /// 准入规则到其静态目标的关系。
-    AccessRuleTarget = 25,
-    /// 准入规则集合中的一项参与者类别选择器。
-    AccessRuleParticipantClass = 26,
-    /// 车辆配置到其唯一参与者类别的静态分类关系。
-    VehicleProfileParticipantClass = 27,
-    /// 规范坐标框架拥有的一条车道图边中心线。
-    CanonicalFrameLaneEdgeGeometry = 28,
-    /// 规范坐标框架拥有的一条 non-traversable 设施带中心线。
-    CanonicalFrameFacilityBandGeometry = 29,
-    /// 参与者流绑定的唯一机动路径。
-    ParticipantStreamManeuverPath = 30,
-    /// 参与者流中的一项冲突通行段。
-    ParticipantStreamConflictPassage = 31,
-    /// 规范坐标框架拥有的一项冲突区区域。
-    CanonicalFrameConflictZoneRegion = 32,
-    /// 策略内按 key 排序的一项依据。
-    PolicyEvidence = 33,
-    /// 策略内按 key 排序的一项间隙配置。
-    PolicyGapProfile = 34,
-    /// 策略内按 key 排序的一项流规则。
-    PolicyStreamRule = 35,
-    /// 策略内按 key 排序的一项门规则。
-    PolicyGateRule = 36,
 }
 
 #[derive(Clone)]

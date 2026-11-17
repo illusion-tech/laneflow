@@ -1750,3 +1750,102 @@ fn output_overflow(
         None,
     ))
 }
+
+/// 对每个 LIR 稳定实体表展开 `$apply!(实体种类, 记录表)`。
+macro_rules! for_each_lir_entity_table {
+    ($lir:expr, $apply:ident) => {
+        $apply!(
+            laneflow_static_contract::EntityKind::RoadCorridor,
+            $lir.road_corridors
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::RoadSection,
+            $lir.road_sections
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::AuthoringLane,
+            $lir.authoring_lanes
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::LaneEdge,
+            $lir.lane_edges
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::Junction,
+            $lir.junctions
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::Movement,
+            $lir.movements
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ManeuverPath,
+            $lir.maneuver_paths
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ManeuverGate,
+            $lir.maneuver_gates
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::WaitingZone,
+            $lir.waiting_zones
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::StopLine,
+            $lir.stop_lines
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::SignalGroup,
+            $lir.signal_groups
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::SignalController,
+            $lir.signal_controllers
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::SignalPhase,
+            $lir.signal_phases
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ParkingFacility,
+            $lir.parking_facilities
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ParkingSpace,
+            $lir.parking_spaces
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::LaneGroup,
+            $lir.lane_groups
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::FacilityBand,
+            $lir.facility_bands
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ParticipantClass,
+            $lir.participant_classes
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::AccessRule,
+            $lir.access_rules
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::VehicleProfile,
+            $lir.vehicle_profiles
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ConflictZone,
+            $lir.conflict_zones
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::CanonicalFrame,
+            $lir.canonical_frames
+        );
+        $apply!(
+            laneflow_static_contract::EntityKind::ParticipantStream,
+            $lir.participant_streams
+        );
+    };
+}
+pub(crate) use for_each_lir_entity_table;

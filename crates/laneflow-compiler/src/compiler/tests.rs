@@ -4729,3 +4729,51 @@ fn access_validation_closes_shape_capability_reference_and_regulation_failures()
         [DiagnosticCode::AccessRegulationMismatch]
     );
 }
+
+/// 编译并发射一份制品；发射期核对 LFCA 与 LIR 两侧规范统计逐角色一致。
+fn canonical_usage_after_emission(
+    input: CompilationUnit,
+) -> laneflow_static_contract::CanonicalNetworkUsage {
+    let output = Compiler::new().compile(input).unwrap();
+    crate::emit_portable_candidate(
+        &output,
+        &crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap(),
+        laneflow_format::FormatLimits::HARD,
+        crate::PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    output.lir().canonical_network_usage()
+}
+
+#[test]
+fn canonical_network_usage_counts_lane_edge_successors_outside_junctions() {
+    let usage = canonical_usage_after_emission(unit([module(
+        "city/canonical-usage",
+        "canonical-usage.document",
+        &[],
+        &[
+            ("edge-a", 10.0, &[LaneEdgeReference::local("edge-b")]),
+            ("edge-b", 10.0, &[LaneEdgeReference::local("edge-c")]),
+            ("edge-c", 10.0, &[]),
+        ],
+    )]));
+    // 三条车道边、两条 role 1 后继；无几何，规范几何点为 0。
+    assert_eq!(
+        usage,
+        laneflow_static_contract::CanonicalNetworkUsage::new(3, 0, 0, 2, 0)
+    );
+}
+
+#[test]
+fn canonical_network_usage_counts_each_parking_anchor_occurrence() {
+    let usage = canonical_usage_after_emission(unit([parking_module_with_virtual_anchors(
+        "canonical-usage-parking.document",
+        "area-main",
+    )]));
+    // 两条车道边、一个设施、两个停车位；role 13、14 各 2，
+    // role 21 仅归属设施的停车位计 1，role 22、23 每个停车位各计 1。
+    assert_eq!(
+        usage,
+        laneflow_static_contract::CanonicalNetworkUsage::new(5, 0, 0, 9, 0)
+    );
+}
