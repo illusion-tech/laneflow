@@ -1,11 +1,16 @@
++++
+schema_version = 1
+id = "design-lane-graph"
+kind = "design"
+status = "accepted"
+summary = "定义车道图、连接和交通拓扑。"
+scope = "Lane Graph + Route 的 Traffic Runtime 模型、edge / connection / topology 与 per-edge 基础道路限速"
+related = ["adr-0003", "adr-0005", "adr-0017", "adr-0025", "adr-0028", "design-core-id-handles", "design-road-junction-model", "design-route-system", "design-shared-static-network", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "roadmap"]
++++
+
 # Lane Graph 设计
 
-**文档状态**: Accepted  
-**最后更新**: 2026-11-09
-
-**适用范围**: Lane Graph + Route 的 Traffic Runtime 模型、edge / connection / topology 与 per-edge 基础道路限速
-
-**关联文档**:
+## 相关文档
 
 - `core-id-handles.md`
 - `road-junction-model.md`

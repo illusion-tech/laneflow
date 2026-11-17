@@ -1,8 +1,24 @@
++++
+schema_version = 1
+id = "design-os-probe"
+kind = "design"
+status = "accepted"
+summary = "定义本进程与整机操作系统计数器读取。"
+scope = "定义本进程与整机操作系统计数器读取。"
+date = "2026-11-16"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1391"]
+related = ["design-lf-synth-measurement"]
++++
+
 # 操作系统计数器读取
 
-> **状态**：Accepted（[#1391][issue-1391] G1，2026-11-16；设计已接受不等于实现完成）<br>
-> **日期**：2026-11-16<br>
-> **决策依据**：[#1391][issue-1391]；[`lf-synth-measurement.md`][lf-synth-measurement] §7<br>
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计已接受不等于实现完成；实施与验收进度见关联议题。
+
+> 决策依据：[#1391][issue-1391]；[`lf-synth-measurement.md`][lf-synth-measurement] §7
 
 ## 1. 目标与非目标
 

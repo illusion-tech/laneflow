@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-parallel-execution"
+kind = "design"
+status = "accepted"
+summary = "定义单世界精确并行的阶段、提交与失败语义。"
+scope = "道路机动车首版独立计算并行、规范串行联合裁决与整拍提交"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/220"]
+related = ["adr-0030", "design-parking-system", "design-traffic-runtime-execution-config", "design-traffic-runtime-phase-protocol", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-waiting-zone", "design-vehicle-following", "design-waiting-zone-conflict-right-of-way"]
++++
+
 # TrafficWorld 单世界精确并行执行
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-09-27<br>
-**适用范围**: 道路机动车首版独立计算并行、规范串行联合裁决与整拍提交<br>
-**设计入口**: [#220][issue-220]<br>
-**关联决策**: [ADR 0030（Accepted）][adr-0030]<br>
-**配套设计**: [执行配置与资源][execution-config]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#220][issue-220]
+关联决策： [ADR 0030（Accepted）][adr-0030]
+配套设计： [执行配置与资源][execution-config]、
 [串行阶段协议][traffic-runtime-phase-protocol]
 
 本文定义首版并行范围：分发只读输入上的独立计算，P4 联合资源裁决由协调器按现行

@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-execution-config"
+kind = "design"
+status = "accepted"
+summary = "定义世界执行配置、资源和快照边界。"
+scope = "世界安装、fresh restore、同/跨修订切换、执行资源与 LFRS 版本轴"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/220"]
+related = ["adr-0030", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-snapshot"]
++++
+
 # TrafficWorld 执行配置、资源与快照边界
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-10-11<br>
-**适用范围**: 世界安装、fresh restore、同/跨修订切换、执行资源与 LFRS 版本轴<br>
-**设计入口**: [#220][issue-220]<br>
-**关联决策**: [ADR 0030（Accepted）][adr-0030]<br>
-**配套合同**: [并行执行][parallel-execution]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#220][issue-220]
+关联决策： [ADR 0030（Accepted）][adr-0030]
+配套合同： [并行执行][parallel-execution]、
 [快照][runtime-snapshot]、[修订切换][revision-cutover]
 
 本文定义已接受的配置 API 与执行生命周期合同。当前配置已分离，LFRS 7 只保存

@@ -1,14 +1,26 @@
++++
+schema_version = 1
+id = "adr-0005"
+kind = "adr"
+status = "accepted"
+summary = "定义标识、句柄与对象生命周期的决策依据。"
+scope = "LaneFlow Core 的 external ID、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界"
+date = "2026-06-24"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0002", "adr-0003", "adr-0004", "design-core-id-handles"]
++++
+
 # 0005 Core Identity and Handle Model
 
-**状态**: Accepted  
-**日期**: 2026-06-24  
-**适用范围**: LaneFlow Core 的 external ID、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
-**目标态取代登记**: Accepted ADR 0020 将取代核心初始化时分配静态句柄/登记表的
+<a id="applicability"></a>
+## 适用边界与依据
+
+目标态取代登记： Accepted ADR 0020 将取代核心初始化时分配静态句柄/登记表的
 位置，并把目标态动态执行层改名为交通运行时；外部稳定标识、有类型密集句柄、热冷
 分离及动态车辆/路线生命周期继续有效。Accepted ADR 0029 部分取代本文对
 `TrafficWorld` 的 route external ID：Runtime 不持有 route ID resolver，
-`remove_route` 不返回 catalog / 外部路线 ID。本文其余 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。<br>
-**关联文档**:
+`remove_route` 不返回 catalog / 外部路线 ID。本文其余 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

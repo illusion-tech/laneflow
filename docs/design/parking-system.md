@@ -1,13 +1,26 @@
++++
+schema_version = 1
+id = "design-parking-system"
+kind = "design"
+status = "accepted"
+summary = "定义停车资源、预留、停入、离场与车辆移除。"
+scope = "ParkingFacility / ParkingSpace 静态模型、显式与虚拟停车资源、 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/540"]
+related = ["adr-0010", "adr-0025", "design-adapter-api", "design-chinese-style-city-workload", "design-network-compiler", "design-portable-canonical-artifact", "design-shared-static-network", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
++++
+
 # 停车系统设计
 
-**文档状态**: Accepted（#540 G1；§5.3 到位拍语义含 #1272 冻结边界）<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: `ParkingFacility` / `ParkingSpace` 静态模型、显式与虚拟停车资源、
-Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界<br>
-**实现状态**: 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
+<a id="applicability"></a>
+## 适用边界与依据
+
+§5.3 到位拍语义包含停止约束提前制动的冻结设计边界，设计接受不等于对应实现已交付。
+
+实现状态： 当前实现已以 `ParkingFacility + ParkingSpace`、tagged
 `ExplicitSpace | VirtualPool` 和按车辆下标、句柄代际读取的私有 binding 槽位表完成 clean break；旧
-`ParkingArea` / `occupy_parking` 入口、Runtime Snapshot v1 reader/writer 均不保留。<br>
-**关联文档**:
+`ParkingArea` / `occupy_parking` 入口、Runtime Snapshot v1 reader/writer 均不保留。
+关联文档：
 
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`

@@ -1,9 +1,13 @@
++++
+schema_version = 1
+id = "governance-github-workflow"
+kind = "governance"
+status = "active"
+summary = "规定 GitHub 议题、PR、项目与合并队列工作流。"
+scope = "LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理"
++++
+
 # GitHub 工作流
-
-**文档状态**: Active
-**最后更新**: 2026-11-06
-
-**适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
 

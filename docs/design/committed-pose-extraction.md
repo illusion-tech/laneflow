@@ -1,8 +1,21 @@
++++
+schema_version = 1
+id = "design-committed-pose-extraction"
+kind = "design"
+status = "accepted"
+summary = "定义已提交位姿来源借用、缓冲交换与按需提取。"
+scope = "Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/681", "https://github.com/illusion-tech/laneflow/issues/711", "https://github.com/illusion-tech/laneflow/issues/712"]
+related = ["adr-0021", "design-adapter-api", "design-spatial-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-urban-demand-harness"]
++++
+
 # 已提交位姿缓冲与按需提取
 
-**文档状态**：Accepted（#681；2026-09-17 用户接受；第 1 部分 已由 #711 实施、第 2 部分 已由 #712 实施）<br>
-**最后更新**：2026-09-18<br>
-**适用范围**：Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文定义位姿来源借用、Spatial 缓冲交换与按需提取；设计接受不替代实现和性能验收。
 
 相关合同：[Adapter API][adapter-api]、[Spatial 几何][spatial-geometry]、
 [共享静态路网消费][shared-consumption]、

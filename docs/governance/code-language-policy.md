@@ -1,8 +1,21 @@
++++
+schema_version = 1
+id = "governance-code-language-policy"
+kind = "governance"
+status = "active"
+summary = "规定非 Rust 代码入库前的语言立项审查。"
+scope = "规定非 Rust 代码入库前的语言立项审查。"
+date = "2026-09-26"
+applicability = "#applicability"
+related = ["reference-glossary"]
++++
+
 # 代码语言立项审查
 
-**状态**：Active  
-**生效日期**：2026-09-26  
-**依据**：#765；维护者明确要求未来非 Rust 代码进入正式仓库前完成立项审查。
+<a id="applicability"></a>
+## 适用边界与依据
+
+依据：#765；维护者明确要求未来非 Rust 代码进入正式仓库前完成立项审查。
 
 规范术语“代码语言立项审查”（Code Language Proposal Review）登记于
 [术语表][glossary]，本文规定其适用范围与人流程。

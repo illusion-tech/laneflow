@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-contender-frontier"
+kind = "design"
+status = "accepted"
+summary = "定义准入候选名单复用与失效重建。"
+scope = "spawn_vehicle 与 replace_completed_vehicle 运动安全准入里的候选名单 （冲突区申请者、排队进入者、格点到达）如何得到"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/861"]
+related = ["design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-near-gate-frontier", "design-traffic-runtime-vehicle-placement", "design-traffic-runtime-waiting-zone"]
++++
+
 # 准入候选名单复用入口 frontier
 
-**文档状态**: Accepted（#861；三步均已实现）<br>
-**最后更新**: 2026-10-10<br>
-**适用范围**: `spawn_vehicle` 与 `replace_completed_vehicle` 运动安全准入里的候选名单
-（冲突区申请者、排队进入者、格点到达）如何得到
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文定义准入候选名单复用；相关实施记录由 #861 承载。
+
+关联文档：
 
 - [`traffic-runtime-vehicle-placement.md`][vehicle-placement]
 - [`traffic-runtime-near-gate-frontier.md`][near-gate]

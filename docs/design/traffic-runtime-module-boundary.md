@@ -1,8 +1,20 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-module-boundary"
+kind = "design"
+status = "active"
+summary = "定义仿真内核与管理模块的私有依赖边界。"
+scope = "laneflow-runtime 私有模块、格式入口与生产依赖方向"
+applicability = "#applicability"
+related = ["design-traffic-runtime-phase-protocol", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
++++
+
 # Traffic Runtime 仿真与管理模块边界
 
-**状态**: Active<br>
-**适用范围**: `laneflow-runtime` 私有模块、格式入口与生产依赖方向<br>
-**关联合同**: [串行阶段协议][traffic-runtime-phase-protocol]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+关联合同： [串行阶段协议][traffic-runtime-phase-protocol]、
 [共享静态消费][shared-consumption]、
 [运行时快照][runtime-snapshot]、
 [修订切换][revision-cutover]

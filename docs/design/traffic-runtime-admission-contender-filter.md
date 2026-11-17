@@ -1,8 +1,21 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-admission-contender-filter"
+kind = "design"
+status = "accepted"
+summary = "定义准入缓存重建前的保守空贡献筛选。"
+scope = "道路机动车 spawn_vehicle / replace_completed_vehicle 的派生候选缓存完整重建"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/828", "https://github.com/illusion-tech/laneflow/issues/829", "https://github.com/illusion-tech/laneflow/issues/830"]
+related = ["design-traffic-runtime-integer-geometry", "design-traffic-runtime-near-gate-frontier", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-vehicle-placement"]
++++
+
 # 准入缓存完整重建前的保守筛选
 
-**文档状态**: Accepted（#828 / PR #829；#830 的 G1 输入）<br>
-**最后更新**: 2026-10-08<br>
-**适用范围**: 道路机动车 `spawn_vehicle` / `replace_completed_vehicle` 的派生候选缓存完整重建
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文是后续筛选优化的设计输入；设计接受不自动证明候选收益。
 
 关联：[新生成准入][vehicle-placement]、
 [入口 frontier][near-gate]、

@@ -1,13 +1,26 @@
++++
+schema_version = 1
+id = "design-waiting-zone-conflict-right-of-way"
+kind = "design"
+status = "accepted"
+summary = "定义等待区、冲突区与通行权联合分层。"
+scope = "WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/235", "https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/284"]
+related = ["adr-0019", "design-parking-system", "design-signal-system", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-traffic-runtime-waiting-zone", "design-vehicle-following"]
++++
+
 # WaitingZone、ConflictZone 与通行权分层
 
-**文档状态**: Accepted（#235 联合架构；#282 与 #284 已实现；§8 含 #1272 停止目标时序）<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、
-Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界<br>
-**交付边界**: WaitingZone 本地动态 authority 属于 #282；§6 的联合算法由 #235 接受，
-#284 已交付 policy、downstream/Conflict 组合仲裁、持久化、修订迁移与生产 fixed tick<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文定义等待区与正式冲突仲裁的联合架构；§8 包含停止目标的输入时序。
+
+交付边界： WaitingZone 本地动态 authority 属于 #282；§6 的联合算法由 #235 接受，
+#284 已交付 policy、downstream/Conflict 组合仲裁、持久化、修订迁移与生产 fixed tick
+
+关联文档：
 
 - `traffic-runtime-waiting-zone.md`
 - `traffic-runtime-conflict-occurrence.md`

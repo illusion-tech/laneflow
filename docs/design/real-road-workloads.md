@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-real-road-workloads"
+kind = "design"
+status = "accepted"
+summary = "定义 LuST 真实路网工作负载与验收范围。"
+scope = "LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万 真实路网性能补充 workload 与需求代表性 observation"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1051", "https://github.com/illusion-tech/laneflow/issues/224", "https://github.com/illusion-tech/laneflow/issues/253"]
+related = ["design-core-runtime-performance-baseline", "design-spatial-geometry", "governance-dependency-security"]
++++
+
 # 真实路网 Workload
 
-**文档状态**: Accepted（#1051 的确定性派生与 workload v2 修订；其余沿用 #224 G1，#253 验收重划见 §3.6）<br>
-**最后更新**: 2026-11-08<br>
-**适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万
-真实路网性能补充 workload 与需求代表性 observation
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文包含确定性派生与 workload v2 修订；验收范围的划分见 §3.6。
+
+关联文档：
 
 - [`core-runtime-performance-baseline.md`][performance-baseline]
 - [`spatial-geometry.md`][spatial-geometry]

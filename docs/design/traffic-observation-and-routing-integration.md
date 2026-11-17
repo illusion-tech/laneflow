@@ -1,9 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-observation-and-routing-integration"
+kind = "design"
+status = "accepted"
+summary = "定义交通观测、动态成本与宿主候选路线接入。"
+scope = "已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/303"]
+related = ["adr-0020", "adr-0021", "adr-0029", "adr-0033", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
++++
+
 # 交通观测与 Routing 接入
 
-**文档状态**: Accepted（#303 G1 Pass）<br>
-**最后更新**: 2026-11-16（#1296 AllLaneEdges 复用身份索引顺序）<br>
-**适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收<br>
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+`AllLaneEdges` 复用身份索引顺序，具体枚举合同见正文；修订依据见 #1296。
+
+关联文档：
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`][adr-0020]、
 [`../adr/0021-traffic-infrastructure-and-host-boundary.md`][adr-0021]、
 [`../adr/0029-retire-precompiled-static-route.md`][adr-0029]、

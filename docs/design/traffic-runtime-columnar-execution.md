@@ -1,9 +1,25 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-columnar-execution"
+kind = "design"
+status = "accepted"
+summary = "定义列式批量执行、共享输入和稀疏资源控制。"
+scope = "定义列式批量执行、共享输入和稀疏资源控制。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/814"]
+related = ["adr-0031", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-phase-protocol"]
++++
+
 # 交通运行时列式批量执行
 
-**文档状态**: Accepted（§2 已并入 #1272 停止目标的输入时序）<br>
-**设计入口**: [#814][issue-814]<br>
-**关联决策**: [ADR 0031][adr-0031]<br>
-**既有合同**: [阶段协议][traffic-runtime-phase-protocol]、[精确并行][parallel-execution]、[整数几何][traffic-runtime-integer-geometry]
+<a id="applicability"></a>
+## 适用边界与依据
+
+§2 共享输入遵循停止目标的拍内输入时序。
+
+设计入口： [#814][issue-814]
+关联决策： [ADR 0031][adr-0031]
+既有合同： [阶段协议][traffic-runtime-phase-protocol]、[精确并行][parallel-execution]、[整数几何][traffic-runtime-integer-geometry]
 
 本文冻结维护者授权的目标架构和实施边界，不声明已实现或已测得收益。当前车辆特化仍采用整数毫米正本；其它交通执行域未实现。实施进度、测量、未通过项留在 #814 和交付 PR。
 

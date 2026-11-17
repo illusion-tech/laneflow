@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-conflict-occurrence"
+kind = "design"
+status = "accepted"
+summary = "定义路线冲突出现记录与正式仲裁能力边界。"
+scope = "TrafficWorld 路线冲突出现记录、路线坐标规范化、资源容量，以及 正式 Conflict authority 的活动车辆边界"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/284"]
+related = ["adr-0019", "design-portable-canonical-artifact", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-near-gate-frontier", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-waiting-zone-conflict-right-of-way"]
++++
+
 # 路线冲突出现记录与正式仲裁能力边界
 
-**文档状态**: Accepted（#283 路线出现记录；#284 正式仲裁已接管）<br>
-**最后更新**: 2026-09-05<br>
-**适用范围**: `TrafficWorld` 路线冲突出现记录、路线坐标规范化、资源容量，以及
-正式 Conflict authority 的活动车辆边界
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+路线出现记录由本文定义；正式冲突裁决归路权策略与正式仲裁合同。
+
+关联文档：
 
 - [`../adr/0019-waiting-zone-conflict-right-of-way-authority.md`][adr-0019]
 - [`portable-canonical-artifact.md`][portable-artifact]

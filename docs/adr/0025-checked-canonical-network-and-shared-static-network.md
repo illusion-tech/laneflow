@@ -1,16 +1,52 @@
++++
+schema_version = 1
+id = "adr-0025"
+kind = "adr"
+status = "accepted"
+summary = "规定受检规范路网与进程内共享静态修订。"
+scope = "LFCA 到目标态交通运行时/Spatial 的静态数据构建、内存布局、共享生命周期、 不可变路网修订、玩家道路编辑与保存边界"
+date = "2026-08-18"
+applicability = "#applicability"
+
+related = ["adr-0020", "adr-0021", "adr-0023", "adr-0024", "adr-0028", "adr-0029", "design-network-compiler", "design-portable-canonical-artifact", "design-shared-static-network"]
+[[supersedes]]
+target = "adr-0015"
+extent = "partial"
+explanation = "#supersedes-adr-0015"
+
+[[supersedes]]
+target = "adr-0020"
+extent = "partial"
+explanation = "#supersedes-adr-0020"
+
+[[supersedes]]
+target = "adr-0021"
+extent = "partial"
+explanation = "#supersedes-adr-0021"
+
+[[supersedes]]
+target = "adr-0023"
+extent = "partial"
+explanation = "#supersedes-adr-0023"
+
+[[supersedes]]
+target = "adr-0024"
+extent = "partial"
+explanation = "#supersedes-adr-0024"
++++
+
 # ADR 0025：受检规范路网与共享静态路网
 
-**状态**: Accepted<br>
-**日期**: 2026-08-18<br>
-**适用范围**: LFCA 到目标态交通运行时/Spatial 的静态数据构建、内存布局、共享生命周期、
-不可变路网修订、玩家道路编辑与保存边界<br>
-**部分取代**: ADR 0020 中 target/profile-specific 静态镜像文件、稳定镜像 ABI、
+<a id="applicability"></a>
+## 适用边界与依据
+
+部分取代： ADR 0020 中 target/profile-specific 静态镜像文件、稳定镜像 ABI、
 `StaticImageDescriptor`、静态镜像完整性清单、mmap/chunk 验证、镜像摘要/长度和
 跨 target 镜像变体决定；ADR 0021 中 `TrustedStaticImage`、镜像摘要快照绑定和
 “镜像切换”作为当前目标命名的决定。保留编译器拥有静态路网、LFCA、不可变路网修订、
-Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭切换原则。<br>
+Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭切换原则。
 
-**关联文档**:
+关联文档：
 
 - `0020-compiler-owned-static-network-and-static-image.md`
 - `0021-traffic-infrastructure-and-host-boundary.md`
@@ -22,7 +58,7 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
 
-> **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：移除静态路线。对象版本按 #284 格式登记更新，只承认
+> #496 / ADR 0028：交通热列为整数毫米。**#498 / ADR 0029**：移除静态路线。对象版本按 #284 格式登记更新，只承认
 > `formatVersion = 5` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
 > 读取器拒绝 `formatVersion != 5`。
 >
@@ -314,3 +350,37 @@ LFCA 是规范发布格式，顺序 cursor 适合检查和构建；保留的 ord
 
 它会重新引入未版本化 ABI、padding/target/依赖漂移和不可信读取问题；缓存必须另行设计，
 拒绝当前实现顺带写盘。
+
+## 取代范围
+
+<a id="supersedes-adr-0015"></a>
+### adr-0015
+
+[adr-0015][replacement-adr-0015]：目标静态空间数据改由共享路网修订的可选 SharedSpatialNetwork 承载；有界 f32 空间表示及误差边界不变。
+
+<a id="supersedes-adr-0020"></a>
+### adr-0020
+
+[adr-0020][replacement-adr-0020]：替代目标专用静态镜像文件、稳定 ABI、描述符、完整性清单、映射验证及镜像摘要长度决定；保留编译器拥有静态路网与 LFCA。
+
+<a id="supersedes-adr-0021"></a>
+### adr-0021
+
+[adr-0021][replacement-adr-0021]：替代 TrustedStaticImage、镜像摘要快照绑定和镜像切换命名；宿主边界与交通、空间、每世界状态分层继续有效。
+
+<a id="supersedes-adr-0023"></a>
+### adr-0023
+
+[adr-0023][replacement-adr-0023]：把目标静态镜像改为进程内共享路网修订；道路编辑状态正本与 A 到 C 候选替换不变。
+
+<a id="supersedes-adr-0024"></a>
+### adr-0024
+
+[adr-0024][replacement-adr-0024]：把下游构造静态镜像改为从受检 LFCA 构建共享路网修订，取消独立镜像发布对象；后发射检查与 LFCP 合同不变。
+
+
+[replacement-adr-0015]: 0015-bounded-f32-canonical-spatial-frames.md
+[replacement-adr-0020]: 0020-compiler-owned-static-network-and-static-image.md
+[replacement-adr-0021]: 0021-traffic-infrastructure-and-host-boundary.md
+[replacement-adr-0023]: 0023-road-editing-state-and-phased-network-replacement.md
+[replacement-adr-0024]: 0024-compiler-post-emission-check-and-minimal-publication-closure.md

@@ -1,47 +1,51 @@
++++
+schema_version = 1
+id = "docs-reference-index"
+kind = "index"
+status = "active"
+summary = "提供术语、能力、开发约定与文档规范的索引。"
++++
+
 # 参考资料
 
-本目录保存可复用的辅助规范，不承载高层决策，也不替代设计文档。
+本目录保存可复用的辅助规范与仍约束实现的机器可读输入，不替代高层决策和具体设计。
+里程碑审阅、逐任务验证流水账与原始测量留在 Git 历史及 Issue/PR。
 
-适合放在这里的内容：术语表、命名约定、校验矩阵、机器可读编制种子。不适合：
-里程碑最终审阅、逐任务验证流水账、性能轮次原始 JSON、smoke 截图。那些当时证据
-只保留在 git 历史与对应 GitHub Issue / PR。
+## 机器可读输入
 
-## 当前文档
+- [道路编辑来源语义种子][semantic-seed]仅供测试和研究生成器读取，不是生产 JSON 入口。
+- [校准参考机][reference-machine]说明道路编辑来源的参考条件。
 
-- [`glossary.md`][glossary]：双语术语唯一事实来源；以中文术语和中文定义为准。
-- [`capabilities.md`][capabilities]：当前实现、使用条件与已知限制的索引。它连接专题合同和少量实现证据，是现行事实的阅读入口，不替代设计，也不记录计划进度。
-- [`commit-convention.md`][commit-convention]：Conventional Commits、`Refs` / `Closes`、必要时的
-  `BREAKING CHANGE:`，以及 AI 署名的 `Harness:` / `Model:`；PR 默认经 Merge Queue
-  最终 Rebase。
-- [`rust-code-style.md`][rust-code-style]：`rustfmt` 无法表达的仓库级可读性约定。
-- [`validation-matrix.md`][validation-matrix]：任务类别到最小验证要求。
-- [`documentation-checks.md`][documentation-checks]：离线文档结构检查的命令、范围、锚点规则与能力边界。它只检查路径和锚点，不判断文档语义。
-- [`mcpls.md`][mcpls]：可选 Rust 语义开发工具的安装、信任与回退边界。
-- [`road-editing-source-semantic-seed-v1.json`][semantic-seed-json]：
-  #296 不可变 benchmark 语义种子；只供 test/research generator 读取，不是 production JSON。
-- [`road-editing-source-reference-machine-v1.json`][reference-machine-json]：
-  #296 道路编辑来源校准参考机。
+三组 v0.10 历史测量基线已退役，有效聚合结论与限制见编译器基础及运行时状态完整性
+设计。历史原件见[固定提交][retired-baselines]；#308 研究执行器的当时证据见
+[固定证据提交][calibration-tree]与[交付 PR][pull-310]。
 
-#308 研究执行器与 R0 巨大 Evidence 不在当前工作区。G4 精确证据提交为
-[`de4cd460a96415cafbd811141568b81f74d73534`][calibration-tree]，
-交付 PR 为 [#310][pull-310]。
+## 规范文档
 
-三组 v0.10 历史测量基线（compiler production baseline、attestation production
-baseline、direct-digest optimization baseline 的 Markdown 与 JSON）已退役；仍有效的
-聚合结论与适用限制原位保留在现行责任文档（编译器见
-`../design/compiler-foundation.md` §11.5，认证与摘要成本见
-`../design/traffic-runtime-state-integrity.md` §8）。追溯原件使用固定提交
-[3f80b65f][retired-baselines-tree] 下的 `docs/reference/` 副本。
-
-[glossary]: glossary.md
-[capabilities]: capabilities.md
-[commit-convention]: commit-convention.md
-[rust-code-style]: rust-code-style.md
-[validation-matrix]: validation-matrix.md
-[documentation-checks]: documentation-checks.md
-[mcpls]: mcpls.md
-[semantic-seed-json]: road-editing-source-semantic-seed-v1.json
-[reference-machine-json]: road-editing-source-reference-machine-v1.json
+[semantic-seed]: road-editing-source-semantic-seed-v1.json
+[reference-machine]: road-editing-source-reference-machine-v1.json
+[retired-baselines]: https://github.com/illusion-tech/laneflow/tree/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference
 [calibration-tree]: https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534
-[retired-baselines-tree]: https://github.com/illusion-tech/laneflow/tree/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference
 [pull-310]: https://github.com/illusion-tech/laneflow/pull/310
+
+<!-- generated-doc-index:start -->
+
+- [当前能力与限制][doc-reference-capabilities] — 持续维护；无生效取代。提供当前实现能力、条件与限制的阅读入口。
+- [提交规范][doc-reference-commit-convention] — 持续维护；无生效取代。规定提交标题、关联议题和工具归属格式。
+- [文档元数据与发布模型][doc-reference-document-metadata] — 持续维护；无生效取代。定义正式文档的 TOML 元数据、有效性关系和发布数据模型。
+- [离线文档结构检查][doc-reference-documentation-checks] — 持续维护；无生效取代。定义文档结构、元数据、关系与索引的离线检查。
+- [LaneFlow 双语术语表][doc-reference-glossary] — 持续维护；无生效取代。统一中文规范术语、英文辅助名与废弃旧称。
+- [mcpls 可选开发工具][doc-reference-mcpls] — 持续维护；无生效取代。说明可选 Rust 语义开发工具及其信任边界。
+- [Rust 代码风格][doc-reference-rust-code-style] — 持续维护；无生效取代。规定 Rust 可读性、注释与契约文档约定。
+- [验证矩阵][doc-reference-validation-matrix] — 持续维护；无生效取代。规定各任务类别的最低验证要求。
+
+[doc-reference-capabilities]: capabilities.md
+[doc-reference-commit-convention]: commit-convention.md
+[doc-reference-document-metadata]: document-metadata.md
+[doc-reference-documentation-checks]: documentation-checks.md
+[doc-reference-glossary]: glossary.md
+[doc-reference-mcpls]: mcpls.md
+[doc-reference-rust-code-style]: rust-code-style.md
+[doc-reference-validation-matrix]: validation-matrix.md
+
+<!-- generated-doc-index:end -->

@@ -1,13 +1,23 @@
++++
+schema_version = 1
+id = "adr-0001"
+kind = "adr"
+status = "accepted"
+summary = "定义交通运行时的项目定位、宿主职责与非目标。"
+scope = "LaneFlow 项目定位、非目标和核心边界"
+date = "2026-06-17"
+applicability = "#applicability"
+related = ["adr-0021"]
++++
+
 # 0001 Project Scope
+
+<a id="applicability"></a>
+## 适用边界与依据
 
 > 后继扩展：[ADR 0021][adr-0021] 定义公开
 > 组件定位、宿主职责和单世界规模演进边界，保留本文对城市经济、市民出行需求和
 > 专业交通工程仿真的职责排除。长期方向需要独立证据，不表示实现已经交付。
-
-**状态**: Accepted  
-**日期**: 2026-06-17  
-**最后更新**: 2026-09-06<br>
-**适用范围**: LaneFlow 项目定位、非目标和核心边界
 
 ## 背景
 

@@ -1,13 +1,25 @@
++++
+schema_version = 1
+id = "adr-0007"
+kind = "adr"
+status = "accepted"
+summary = "记录交通数据加载与运行时依赖边界的决策。"
+scope = "LaneFlow 外部数据格式、Rust crate 依赖方向、production loader 与 Core domain normalization 边界"
+date = "2026-07-13"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0002", "adr-0004", "adr-0005", "adr-0006", "adr-0008", "architecture", "design-vehicle-following"]
++++
+
 # 0007 Traffic Data Crate and Loader Boundary
 
-**状态**: Accepted  
-**日期**: 2026-07-13  
-**适用范围**: LaneFlow 外部数据格式、Rust crate 依赖方向、production loader 与 Core domain normalization 边界  
-**后续修订**: ADR 0008 已替代本文的 v0.2/v0.3 双版本 loader/result 决策；crate 依赖、private DTO、normalization、I/O 与 validation 分层继续有效  
-**目标态取代登记**: Accepted ADR 0020 将取代私有 DTO → `InitialTrafficData` 作为
+<a id="applicability"></a>
+## 适用边界与依据
+
+后续修订： ADR 0008 已替代本文的 v0.2/v0.3 双版本 loader/result 决策；crate 依赖、private DTO、normalization、I/O 与 validation 分层继续有效。
+目标态取代登记： Accepted ADR 0020 将取代私有 DTO → `InitialTrafficData` 作为
 终态唯一输入以及核心构造器拥有全部静态规范化裁决权的条款；运行时不依赖 Serde/
-文件系统/引擎、内存中字节边界和分层继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。<br>
-**关联文档**:
+文件系统/引擎、内存中字节边界和分层继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

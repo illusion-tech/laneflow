@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-junction-observation-and-validation"
+kind = "design"
+status = "accepted"
+summary = "定义复杂路口只读观测、参考场景与有限验证。"
+scope = "道路机动车复杂路口的 Runtime 只读定位、Bevy 观测与参考场景、 有限正确性回归和一万／十万有界运行"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/285"]
+related = ["adr-0019", "adr-0021", "design-adapter-api", "design-bevy-reference-adapter", "design-chinese-style-city-workload", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-core-runtime-performance-baseline", "design-traffic-runtime-right-of-way-policy", "design-urban-demand-harness", "design-waiting-zone-conflict-right-of-way"]
++++
+
 # 复杂路口只读观测与跨层验证
 
-**文档状态**: Accepted（#285；只读观测、参考场景、有限回归与有界性能报告）<br>
-**最后更新**: 2026-09-14（#285 经用户授权调整为可运行示例与有界性能报告）<br>
-**适用范围**: 道路机动车复杂路口的 Runtime 只读定位、Bevy 观测与参考场景、
-有限正确性回归和一万／十万有界运行
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本文约束只读观测、参考场景、有限回归与有界性能报告，不构成产品认证。
+
+关联文档：
 
 - [ADR 0019][adr-0019]
 - [ADR 0021][adr-0021]

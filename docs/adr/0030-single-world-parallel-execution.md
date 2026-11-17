@@ -1,11 +1,25 @@
++++
+schema_version = 1
+id = "adr-0030"
+kind = "adr"
+status = "accepted"
+summary = "规定单世界精确并行及执行配置分离。"
+scope = "TrafficWorld 首版独立计算并行、执行配置、快照与修订切换边界"
+date = "2026-09-16"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/220"]
+related = ["adr-0003", "adr-0021", "design-traffic-runtime-execution-config", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-phase-protocol"]
++++
+
 # 0030 单世界精确并行与执行配置分离
 
-**状态**: Accepted<br>
-**日期**: 2026-09-16<br>
-**最后更新**: 2026-09-17；2026-10-07（#814）修订 N ≥ 2 时由 N 个池线程计算<br>
-**适用范围**: `TrafficWorld` 首版独立计算并行、执行配置、快照与修订切换边界<br>
-**设计入口**: [#220][issue-220]<br>
-**关联设计**: [并行执行][parallel-execution]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+当 N ≥ 2 时，由 N 个池线程计算；该线程职责边界的修订依据见 #814。
+
+设计入口： [#220][issue-220]
+关联设计： [并行执行][parallel-execution]、
 [执行配置与资源][execution-config]、
 [串行阶段协议][traffic-runtime-phase-protocol]
 

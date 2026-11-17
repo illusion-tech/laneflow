@@ -1,8 +1,20 @@
++++
+schema_version = 1
+id = "roadmap"
+kind = "reference"
+status = "active"
+summary = "说明版本能力边界与已裁定的长期方向。"
+scope = "LaneFlow 已完成版本的能力边界、v0.10 验收证据范围，以及已裁定的后续版本目标"
+applicability = "#applicability"
+related = ["adr-0021", "architecture"]
++++
+
 # 路线图
 
-**文档状态**: Active（版本能力边界；实施状态在 GitHub）<br>
-**最后更新**: 2026-11-15
-**适用范围**: LaneFlow 已完成版本的能力边界、v0.10 验收证据范围，以及已裁定的后续版本目标
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文保存版本能力边界；实时实施状态以 GitHub 为准。
 
 本文记录版本能力边界和已验收结论。现行系统见
 [架构][architecture]。GitHub Milestone 是实施状态入口；本文不镜像 Project

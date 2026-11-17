@@ -1,30 +1,49 @@
++++
+schema_version = 1
+id = "adr-0015"
+kind = "adr"
+status = "accepted"
+summary = "规定有界 f32 空间框架与运行时表示误差。"
+scope = "LaneFlow Spatial 的 canonical primitive、坐标范围、几何输入、位姿输出、运行时性能边界，以及 Adapter 的 frame 映射（#133-#138）"
+date = "2026-07-19"
+applicability = "#applicability"
+
+related = ["adr-0013", "adr-0014", "design-adapter-api", "design-spatial-geometry"]
+[[supersedes]]
+target = "adr-0013"
+extent = "partial"
+explanation = "#supersedes-adr-0013"
+
+[[supersedes]]
+target = "adr-0014"
+extent = "partial"
+explanation = "#supersedes-adr-0014"
++++
+
 # 0015 有界 f32 Canonical 空间框架
 
-**状态**: Accepted
+<a id="applicability"></a>
+## 适用边界与依据
 
-**日期**: 2026-07-19
-
-**适用范围**: LaneFlow Spatial 的 canonical primitive、坐标范围、几何输入、位姿输出、运行时性能边界，以及 Adapter 的 frame 映射（#133-#138）
-
-**目标态取代登记**: Accepted ADR 0020 将取代空间层初始化时从核心句柄和 JSON
+目标态取代登记： Accepted ADR 0020 将取代空间层初始化时从核心句柄和 JSON
 几何重建登记表的条款；Accepted ADR 0025 / #300 G1 已进一步改由共享路网修订的可选
 `SharedSpatialNetwork` component 承载目标静态空间数据。有界规范
 `f32` 坐标框架、误差、内存和批量性能边界继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
 
-**后继分层**: ADR 0022（#296 FlatBuffers G1 已接受）为上游解析曲线→规范折线提出独立
+后继分层： ADR 0022（#296 FlatBuffers G1 已接受）为上游解析曲线→规范折线提出独立
 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭几何精度配置档，并另设
 `Smooth1Deg`、`Balanced2Deg`、`Compact5Deg` 三个封闭几何方向配置档；本文的 `1 cm`
 `f64` 参考折线→`f32` 运行时表示误差、`0.5°` 切线误差和 `5 mm` 连接容差在九种组合中
 均保持不变。ADR 0022 当前 B1 只把 `2/5/10 cm` 作为内部验证的确定性工程目标，不把
 有限采样结果声明为连续曲线硬上限。该候选状态不修改本文任何 current production 常量。
 
-**取代范围**:
+取代范围：
 
 - 取代 ADR 0013 中“Spatial canonical 标量、顶点、弧长和标准位姿必须使用 `f64`”以及“同时提供标准 `f64` 与局部 `f32` 位姿”的精度条款。
 - 取代 ADR 0014 中“Spatial 标准几何、弧长和标准位姿继续使用 `f64`”以及先在 `f64` 中减局部原点再转换的 Spatial 专属条款。
 - 不取代上述 ADR 的分层、长度正本、制品配对、Core 数值正本、失败原子性、坐标手性或 Adapter 隔离决策。
 
-**关联文档**:
+关联文档：
 
 - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `0014-residual-aware-f32-core-authority-and-migration-gates.md`
@@ -146,3 +165,19 @@ CanonicalUnitVector3F32
 4. #136 已交付 batch-level frame/placement 生命周期、批量位姿、Parking pose 与全批次失败原子性。
 5. #137 已交付性质、误差、内存、分配、一万/十万性能和伪 Adapter smoke。
 6. #138 对照本 ADR 和所有实施证据完成 Spatial 最终验收；不得用后续验收放宽本 ADR 的范围或性能 Gate。
+
+## 取代范围
+
+<a id="supersedes-adr-0013"></a>
+### adr-0013
+
+[adr-0013][replacement-adr-0013]：替代 Spatial f64 精度与双套位姿输出条款；分层、长度正本、制品配对、坐标手性与失败原子性继续有效。
+
+<a id="supersedes-adr-0014"></a>
+### adr-0014
+
+[adr-0014][replacement-adr-0014]：替代 Spatial f64 精度与局部原点转换条款；交通一维迁移判断另由 ADR 0028 处理。
+
+
+[replacement-adr-0013]: 0013-engine-neutral-spatial-geometry-and-length-authority.md
+[replacement-adr-0014]: 0014-residual-aware-f32-core-authority-and-migration-gates.md

@@ -1,16 +1,59 @@
++++
+schema_version = 1
+id = "adr-0020"
+kind = "adr"
+status = "accepted"
+summary = "规定编译器拥有静态路网的架构与消费职责。"
+scope = "正本来源模块图（Authoritative Source Module Graph）、编译器中间表示 （Compiler IR）、静态路网正本、可移植规范制品（Portable Canonical Artifact）、 目标静态镜像（Target Static Image）、验证收据（Validation Receipt）、源映射 （Source Map）、独立验证器（Independent Validator），以及当前态 Core / 目标态 交通运行时（Traffic Runtime）、Data、Spatial 初始化边界"
+date = "2026-07-29"
+applicability = "#applicability"
+
+related = ["adr-0001", "adr-0003", "adr-0005", "adr-0007", "adr-0008", "adr-0011", "adr-0013", "adr-0015", "adr-0017", "adr-0021", "adr-0024", "adr-0025", "design-compiler-foundation", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-core-id-handles", "design-network-compiler", "design-shared-static-network", "design-spatial-geometry", "design-traffic-runtime-shared-consumption", "reference-glossary"]
+[[supersedes]]
+target = "adr-0005"
+extent = "partial"
+explanation = "#supersedes-adr-0005"
+
+[[supersedes]]
+target = "adr-0007"
+extent = "partial"
+explanation = "#supersedes-adr-0007"
+
+[[supersedes]]
+target = "adr-0008"
+extent = "partial"
+explanation = "#replacement-matrix"
+
+[[supersedes]]
+target = "adr-0011"
+extent = "partial"
+explanation = "#replacement-matrix"
+
+[[supersedes]]
+target = "adr-0013"
+extent = "partial"
+explanation = "#supersedes-adr-0013"
+
+[[supersedes]]
+target = "adr-0015"
+extent = "partial"
+explanation = "#supersedes-adr-0015"
+
+[[supersedes]]
+target = "adr-0017"
+extent = "partial"
+explanation = "#supersedes-adr-0017"
++++
+
 # ADR 0020：编译器拥有的静态路网与目标静态镜像
 
-**状态**: Accepted<br>
-**日期**: 2026-07-29<br>
-**适用范围**: 正本来源模块图（Authoritative Source Module Graph）、编译器中间表示
-（Compiler IR）、静态路网正本、可移植规范制品（Portable Canonical Artifact）、
-目标静态镜像（Target Static Image）、验证收据（Validation Receipt）、源映射
-（Source Map）、独立验证器（Independent Validator），以及当前态 Core / 目标态
-交通运行时（Traffic Runtime）、Data、Spatial 初始化边界<br>
-**目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`。<br>
-**迁移时间表修订（#301 G1）**: 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换正本。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
-**后继决策**: ADR 0029（Accepted；#498 G1）取消本文把 `StaticRoute` 列为 Identity
+目标取代范围： ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`。
+迁移时间表修订（#301 G1）： 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换正本。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。
+
+后继决策： ADR 0029（Accepted；#498 G1）取消本文把 `StaticRoute` 列为 Identity
 v1 必选声明种类、并由编译器预编译初始路线出现记录的条款。ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
 `laneflow-validator`、`canonical-publication-v1` receipt、由 #299 统一交付三类
 验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定。本文关于编译器
@@ -21,9 +64,9 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 承载已形成的受检 LFCA 到共享路网基础投影，#440 闭合剩余 Runtime 静态关系，#441
 独立记录资源与性能证据；#300 保持父级跟踪项。精确后继边界见
 `../design/compiler-post-emission-check-and-minimal-publication-closure.md` 与
-`../design/shared-static-network.md`。<br>
+`../design/shared-static-network.md`。
 
-**2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
+2026-08-10 范围澄清：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
 只属于当前仓库加载器和 fixture；它不建立 compiler import frontend、批量迁移工具或长期
 离线兼容入口。编译器迁移正确性以原生有类型来源模块和集成专用 LIR→current 投影
 验证。该边界只约束 Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1
@@ -31,7 +74,7 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 兼容入口（原 `current-package-import.md` 已随 #1382 退役）。本澄清不改变通用外部来源导入
 前端或规范制品版本迁移能力。
 
-**关联文档**:
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`
@@ -554,6 +597,7 @@ Traffic Runtime。
 无 target-specific 交付：同一规范语义的不同构建共享 `NetworkRevisionId`，进程内
 构建不承诺跨平台字节一致；逐字节一致义务由上一条 portable artifact 承担。
 
+<a id="replacement-matrix"></a>
 ## 对既有 ADR 的取代矩阵
 
 | ADR  | 继续有效                                                                                                      | 本 ADR 目标取代                                                                           |
@@ -567,9 +611,8 @@ Traffic Runtime。
 | 0017 | 路口、通行流向、机动路径、机动门、路线出现记录语义，共享内部边，热路径无字符串                                | 核心规范化 / 路线注册期首次编译静态出现记录；静态初始出现记录改由编译器镜像预编译         |
 
 本矩阵只取代“工作发生在哪一层、何时发生、如何存储”的条款，不重新定义上述 ADR
-已经冻结的交通、空间和运行时行为语义。ADR 0020 Accepted 状态提交在各历史 ADR
-页头登记精确的目标态取代范围；#301 拆除 `laneflow-core` 运行时入口时，再原子更新
-各历史 ADR 的实际 Superseded/Partially Superseded 状态。
+已经冻结的交通、空间和运行时行为语义。取代关系在本页 TOML 页头登记，前驱有效性
+与反向关系由目录生成；实现切换由 #301 的证据及现行消费合同说明，不能由接受状态推断。
 
 ## 后果
 
@@ -690,5 +733,40 @@ asset chain 或 pinned digest 绑定的受检 LFCA），拒绝 header self-attes
 10. 跨修订状态迁移必须有受信任 semantic diff；稳定身份索引只复核映射，缺失
     证据时 index-only 路径失败关闭（现行切换事务合同见 #302 / cutover 文档）。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0005"></a>
+### adr-0005
+
+[adr-0005][replacement-adr-0005]：静态句柄和登记表的初始化归编译与静态路网消费；稳定标识、有类型密集句柄和动态生命周期原则继续有效。
+
+<a id="supersedes-adr-0007"></a>
+### adr-0007
+
+[adr-0007][replacement-adr-0007]：替代私有 DTO 到 InitialTrafficData 作为终态输入及核心构造器拥有静态规范化的条款；运行时不依赖 Serde、文件系统和引擎的边界继续有效。
+
+<a id="supersedes-adr-0013"></a>
+### adr-0013
+
+[adr-0013][replacement-adr-0013]：替代交通和空间独立制品在运行时按外部标识与清单摘要联结的方案；分层、规范几何、长度绑定与失败原子性继续有效。
+
+<a id="supersedes-adr-0015"></a>
+### adr-0015
+
+[adr-0015][replacement-adr-0015]：替代从核心句柄与 JSON 几何重建空间登记表的初始化方案；有界坐标、误差和性能边界继续有效。
+
+<a id="supersedes-adr-0017"></a>
+### adr-0017
+
+[adr-0017][replacement-adr-0017]：静态规范化与机动身份构建归编译器；道路、路口、通行流向、机动路径和机动门的身份语义继续有效。
+
+
 [routing-integration]: ../design/traffic-observation-and-routing-integration.md
 [adr0020-history]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/adr/0020-compiler-owned-static-network-and-static-image.md
+
+[replacement-adr-0005]: 0005-core-identity-and-handle-model.md
+[replacement-adr-0007]: 0007-traffic-data-crate-and-loader-boundary.md
+[replacement-adr-0013]: 0013-engine-neutral-spatial-geometry-and-length-authority.md
+[replacement-adr-0015]: 0015-bounded-f32-canonical-spatial-frames.md
+[replacement-adr-0017]: 0017-static-road-junction-maneuver-and-gate-identity.md

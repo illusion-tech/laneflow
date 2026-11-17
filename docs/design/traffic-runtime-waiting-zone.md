@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-waiting-zone"
+kind = "design"
+status = "accepted"
+summary = "定义等待区准入、存储、队列与持久化。"
+scope = "laneflow-runtime / TrafficWorld 的 WaitingZone 准入、物理存储、 成员关系、队列、固定步进、只读观察、快照与路网修订切换"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/282"]
+related = ["adr-0019", "design-parking-system", "design-signal-system", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-vehicle-following", "design-waiting-zone-conflict-right-of-way"]
++++
+
 # Traffic Runtime WaitingZone 运行时
 
-**文档状态**: Accepted（#282 G1，2026-09-01）<br>
-**适用范围**: `laneflow-runtime` / `TrafficWorld` 的 WaitingZone 准入、物理存储、
-成员关系、队列、固定步进、只读观察、快照与路网修订切换<br>
-**交付边界**: 本文是 #282 当前唯一详细合同；实时交付进度以 GitHub Issue 为准
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+交付边界： 本文是 #282 当前唯一详细合同；实时交付进度以 GitHub Issue 为准
+
+关联文档：
 
 - `../adr/0019-waiting-zone-conflict-right-of-way-authority.md`
 - `waiting-zone-conflict-right-of-way.md`

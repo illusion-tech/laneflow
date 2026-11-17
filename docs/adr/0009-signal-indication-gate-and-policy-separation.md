@@ -1,9 +1,23 @@
++++
+schema_version = 1
+id = "adr-0009"
+kind = "adr"
+status = "accepted"
+summary = "分离信号灯色、空间准入、法规策略与安全裁决。"
+scope = "LaneFlow Signals 的 indication、空间准入边界、法规策略、冲突仲裁与 Core safety 所有权"
+date = "2026-07-15"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0003", "adr-0005", "adr-0006", "adr-0007", "adr-0008", "adr-0017", "design-road-junction-model", "design-signal-system", "design-vehicle-following"]
++++
+
 # 0009 Signal Indication, Movement Gate, and Policy Separation
 
-**状态**: Accepted（pair-based Gate identity target 由 ADR 0017 取代；indication/policy/conflict/safety 分层继续有效）<br>
-**日期**: 2026-07-15  
-**适用范围**: LaneFlow Signals 的 indication、空间准入边界、法规策略、冲突仲裁与 Core safety 所有权  
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+pair-based Gate identity 已由 ADR 0017 取代；indication、policy、conflict 与 safety 的分层继续有效。
+
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

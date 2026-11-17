@@ -1,13 +1,27 @@
++++
+schema_version = 1
+id = "adr-0010"
+kind = "adr"
+status = "accepted"
+summary = "规定停车设施、资源绑定与车辆生命周期裁决权。"
+scope = "停车静态实体、显式泊位与虚拟容量、Runtime binding/lifecycle、 快照/修订切换、Spatial/Adapter 表现边界"
+date = "2026-08-30"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/540"]
+related = ["adr-0003", "adr-0005", "adr-0008", "adr-0025", "adr-0028", "adr-0029", "design-adapter-api", "design-chinese-style-city-workload", "design-parking-system", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
++++
+
 # ADR 0010：停车设施、资源绑定与车辆生命周期裁决权
 
-**状态**: Accepted（#540 G1）<br>
-**日期**: 2026-08-30；2026-09-23（#743）修订每世界 binding 的物理存储<br>
-**适用范围**: 停车静态实体、显式泊位与虚拟容量、Runtime binding/lifecycle、
-快照/修订切换、Spatial/Adapter 表现边界<br>
-**取代**: 本 ADR 的 v0.5 历史版本中“`ParkingArea` 只分组显式
+<a id="applicability"></a>
+## 适用边界与依据
+
+每世界 binding 的物理存储以正文现行合同为准；修订依据见 #743。
+
+取代： 本 ADR 的 v0.5 历史版本中“`ParkingArea` 只分组显式
 `ParkingSpace`、拒绝匿名容量”的决定。pre-1.0 不保留旧/新两套正本；历史实现和判断
-可从 git 历史追溯。<br>
-**关联文档**:
+可从 git 历史追溯。
+关联文档：
 
 - `0003-runtime-tick-and-determinism.md`
 - `0005-core-identity-and-handle-model.md`

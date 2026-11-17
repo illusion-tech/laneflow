@@ -1,20 +1,33 @@
++++
+schema_version = 1
+id = "adr-0014"
+kind = "adr"
+status = "accepted"
+summary = "记录补偿残差数值方案、迁移判断及其适用边界。"
+scope = "LaneFlow Core、Data、Spatial 与 Adapter 的下一数值契约、产品范围、公开数值表面、路线距离派生索引及生产迁移门槛（#141）"
+date = "2026-07-18"
+applicability = "#applicability"
+
+related = ["adr-0003", "adr-0007", "adr-0008", "adr-0012", "adr-0013", "adr-0015", "adr-0028", "design-numeric-representation", "design-route-system", "design-spatial-geometry"]
+[[supersedes]]
+target = "adr-0012"
+extent = "full"
+explanation = "#supersedes-adr-0012"
++++
+
 # 0014 补偿残差感知的 f32 Core 数值正本与迁移验收
 
-**状态**: Accepted（Spatial 精度条款已被 Accepted ADR 0015 部分取代）
+<a id="applicability"></a>
+## 适用边界与依据
 
-**后续合同**: ADR 0028 / #496 已部分取代本文「生产继续 current-`f64`」的实施状态，以及「下一生产正本为补偿残差感知 `f32` 进度」的目标合同。本文保持 Accepted 作为 #144 历史证据，不得按残差 `f32` 实施现行生产。#144 取证与 `5%` no-go 仍是历史事实，不再作为必须与旧 `f64` tick 零分歧的现行验收要求。单边 10 km 与速度 `100 m/s` 产品上界由 0028 沿用。现行已提交一维几何见 ADR 0028。
+后续合同： ADR 0028 / #496 已部分取代本文「生产继续 current-`f64`」的实施状态，以及「下一生产正本为补偿残差感知 `f32` 进度」的目标合同。本文保持 Accepted 作为 #144 历史证据，不得按残差 `f32` 实施现行生产。#144 取证与 `5%` no-go 仍是历史事实，不再作为必须与旧 `f64` tick 零分歧的现行验收要求。单边 10 km 与速度 `100 m/s` 产品上界由 0028 沿用。现行已提交一维几何见 ADR 0028。
 
-**实施说明（历史）**: #144 的首次生产迁移因稳态性能仅提升 `4.257%`、未达到当时 `5%` 门槛而回退。该回退不再构成现行交通正本；现行一维几何是 ADR 0028 的整数毫米。
+实施说明（历史）： #144 的首次生产迁移因稳态性能仅提升 `4.257%`、未达到当时 `5%` 门槛而回退。该回退不再构成现行交通正本；现行一维几何是 ADR 0028 的整数毫米。
 
-**Spatial 修订**: ADR 0015 已取代本文的 Spatial `f64` 精度与局部原点转换条款；该部分继续有效。
+Spatial `f64` 精度与局部原点转换条款已由 ADR 0015 取代；ADR 0015 的该部分合同继续有效。
+公开数值表面、标定与生产取证的历史依据分别见 #126、#127 和 #144。
 
-**后续冻结**: #126 于 2026-07-19 冻结公开数值表面与 Data v0.6 迁移输入；#127 完成离线标定；#144 于 2026-07-20 完成真实生产取证并按本 ADR 回退
-
-**日期**: 2026-07-18
-
-**适用范围**: LaneFlow Core、Data、Spatial 与 Adapter 的下一数值契约、产品范围、公开数值表面、路线距离派生索引及生产迁移门槛（#141）
-
-**关联文档**:
+关联文档：
 
 - 被本 ADR 取代的决策：
   - `0012-core-numeric-authority-and-presentation-precision.md`
@@ -283,3 +296,13 @@ Core 量化余量必须覆盖合法范围内 `f64 -> f32` 舍入到最近可表�
 5. #144 已完成生产候选、完整内存和性能取证；因稳态几何平均只提升 `4.257%` 而按第 9.4 节完整回退。未来如重启，必须新建议题并重新通过 G1，不保留双重正本或通用近似比较辅助函数。
 6. #128 对照本 ADR、实现、Data、Spatial 和验证证据完成 #122 最终验收；未通过的范围拆出后续议题，不得由最终审阅放宽验收。
 7. 交付 PR 必须包含人工审阅和 Copilot 审阅；Copilot 不替代 CI、审阅线程、GitHub 元数据或 G3/G4 验收证据。
+
+## 取代范围
+
+<a id="supersedes-adr-0012"></a>
+### adr-0012
+
+[adr-0012][replacement-adr-0012]：替代 ADR 0012 的数值正本与表现精度方案；后续整数毫米与空间 f32 的有效边界分别见 ADR 0028 和 ADR 0015。
+
+
+[replacement-adr-0012]: 0012-core-numeric-authority-and-presentation-precision.md

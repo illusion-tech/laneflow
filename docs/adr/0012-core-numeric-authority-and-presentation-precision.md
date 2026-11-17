@@ -1,14 +1,23 @@
++++
+schema_version = 1
+id = "adr-0012"
+kind = "adr"
+status = "accepted"
+summary = "记录被后继数值决策替代的精度方案。"
+scope = "LaneFlow Core/Data/Spatial/Adapter 的数值 authority、累计精度、presentation 转换与量化边界（#122）"
+date = "2026-07-18"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0003", "adr-0004", "adr-0007", "adr-0008", "adr-0014", "design-numeric-representation", "roadmap"]
++++
+
 # 0012 Core 数值正本与表现层精度
 
-**状态**: Superseded
+<a id="applicability"></a>
+## 适用边界与依据
 
-**实施说明**: 已被 ADR 0014 取代；#144 迁移按当时门槛回退后，生产一维几何现行为 ADR 0028 的整数毫米，本文的 `f64` 实施状态只是历史记录
+实施说明： 已被 ADR 0014 取代；#144 迁移按当时门槛回退后，生产一维几何现行为 ADR 0028 的整数毫米，本文的 `f64` 实施状态只是历史记录
 
-**日期**: 2026-07-18
-
-**适用范围**: LaneFlow Core/Data/Spatial/Adapter 的数值 authority、累计精度、presentation 转换与量化边界（#122）
-
-**关联文档**:
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

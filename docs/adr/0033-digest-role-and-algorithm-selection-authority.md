@@ -1,17 +1,30 @@
++++
+schema_version = 1
+id = "adr-0033"
+kind = "adr"
+status = "accepted"
+summary = "规定摘要角色分类与算法选型职责。"
+scope = "LaneFlow 主树中所有摘要（digest）与指纹（fingerprint）的角色划分、算法选择、 持久化要求与依赖约束"
+date = "2026-10-24"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1022", "https://github.com/illusion-tech/laneflow/issues/1051"]
+related = ["adr-0020", "adr-0024", "adr-0028", "adr-0032", "design-network-compiler", "design-portable-canonical-artifact", "design-real-road-workloads", "design-traffic-runtime-state-integrity"]
++++
+
 # 0033 摘要角色与摘要算法选型裁决权
 
-**状态**: Accepted（#1051 修订；既有四类角色的约束保持）<br>
-**日期**: 2026-10-24<br>
-**最后更新**: 2026-10-26<br>
-**适用范围**: LaneFlow 主树中所有摘要（digest）与指纹（fingerprint）的角色划分、算法选择、
-持久化要求与依赖约束<br>
-**设计入口**: [#1022][issue-1022]、
-[#1051][issue-1051]<br>
-**关联决策**: [ADR 0020][adr-0020]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+确定性派生摘要修订不改变既有四类角色的约束。
+
+设计入口： [#1022][issue-1022]、
+[#1051][issue-1051]
+关联决策： [ADR 0020][adr-0020]、
 [ADR 0024][adr-0024]、
 [ADR 0028][adr-0028]、
-[ADR 0032][adr-0032]<br>
-**关联设计**: [网络编译器 §7.6][network-compiler]、
+[ADR 0032][adr-0032]
+关联设计： [网络编译器 §7.6][network-compiler]、
 [可移植规范制品][portable-artifact]、
 [运行时状态完整性校验与失真恢复][state-integrity]
 

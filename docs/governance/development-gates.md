@@ -1,9 +1,13 @@
++++
+schema_version = 1
+id = "governance-development-gates"
+kind = "governance"
+status = "active"
+summary = "规定 G0–G2 人流程及合并检查。"
+scope = "LaneFlow 的需求、设计、实现、评审与合并"
++++
+
 # 开发阶段评审
-
-**文档状态**: Active
-**最后更新**: 2026-11-05
-
-**适用范围**: LaneFlow 的需求、设计、实现、评审与合并
 
 ## 1. 目标
 
@@ -179,6 +183,10 @@ PR 与 `merge_group` 使用相同的九个 required check 名称：
 8. `Analyze (actions)`
 9. `Analyze (rust)`
 `Markdown tables` 只警告。Schema publication 不参与合并检查。
+
+`Commit message` job 同时运行 `xtask check-docs` 与文档检查测试，任何失败均阻断该
+required check；文档元数据、取代关系和生成索引没有独立的另一套批准检查。不新增
+required check 名称，PR 与 merge_group 使用相同执行入口。
 
 ### 6.3 入队
 

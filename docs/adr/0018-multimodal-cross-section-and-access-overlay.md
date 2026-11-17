@@ -1,9 +1,17 @@
++++
+schema_version = 1
+id = "adr-0018"
+kind = "adr"
+status = "accepted"
+summary = "规定横断面所有权和交通参与类别准入分层。"
+scope = "LaneFlow 的 RoadCorridor/RoadSection/LaneGroup/FacilityBand 横断面分层、FacilityKind、ParticipantClass、AccessRule 时间/地区 overlay 与 Traffic v0.9 演进边界"
+date = "2026-07-26"
+related = ["adr-0001", "adr-0005", "adr-0007", "adr-0008", "adr-0009", "adr-0013", "adr-0017", "design-cross-section-access", "design-lane-graph", "design-road-junction-model"]
++++
+
 # ADR 0018：多模式横断面 owner 与参与者准入 overlay
 
-**状态**: Accepted<br>
-**日期**: 2026-07-26<br>
-**适用范围**: LaneFlow 的 RoadCorridor/RoadSection/LaneGroup/FacilityBand 横断面分层、FacilityKind、ParticipantClass、AccessRule 时间/地区 overlay 与 Traffic v0.9 演进边界<br>
-**关联文档**:
+## 相关文档
 
 - 上游决策:
   - `0001-project-scope.md`

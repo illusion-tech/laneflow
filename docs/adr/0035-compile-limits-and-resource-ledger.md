@@ -1,12 +1,26 @@
++++
+schema_version = 1
+id = "adr-0035"
+kind = "adr"
+status = "accepted"
+summary = "规定容量限额、宿主预算与受控分配资源账本。"
+scope = "laneflow-compiler 的 CompileLimits 维度集合与配置档、编译与发射阶段的 受控分配记账、外部可移植字节的准入与配置档自洽检查；不改变任何可移植制品字节、格式 版本或 NetworkRevisionId"
+date = "2026-11-16"
+decision_date = "2026-11-16"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1288", "https://github.com/illusion-tech/laneflow/issues/1296"]
+related = ["adr-0024", "adr-0025", "design-compiler-foundation", "design-compiler-resource-ledger"]
++++
+
 # 0035 编译资源上限只声明容量与宿主预算，受控分配统一经资源账本
 
-**状态**: Accepted（2026-11-16 维护者批准修订合并，即 #1296 G1 修订冻结；取代同日以 Accepted 合入的初版，初版见[固定提交][adr-0035-initial]）<br>
-**日期**: 2026-11-16<br>
-**适用范围**: `laneflow-compiler` 的 `CompileLimits` 维度集合与配置档、编译与发射阶段的
-受控分配记账、外部可移植字节的准入与配置档自洽检查；不改变任何可移植制品字节、格式
-版本或 `NetworkRevisionId`<br>
-**设计入口**: [#1296][issue-1296]、[#1288][issue-1288]<br>
-**关联决策**: [ADR 0024][adr-0024]、[ADR 0025][adr-0025]
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文为 2026-11-16 接受的修订正本；同日初版见[固定提交][adr-0035-initial]。
+
+设计入口： [#1296][issue-1296]、[#1288][issue-1288]
+关联决策： [ADR 0024][adr-0024]、[ADR 0025][adr-0025]
 
 本文决定：编译资源上限配置档只声明容量维度与宿主预算维度，二者是全部限额；编译、
 发射与公开检查的受控分配一律经同一个编译器资源账本按计划授予，暂存与输出字节成为

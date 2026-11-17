@@ -1,11 +1,24 @@
++++
+schema_version = 1
+id = "adr-0019"
+kind = "adr"
+status = "accepted"
+summary = "规定等待区、冲突区与车辆级通行权的分层。"
+scope = "多阶段 ManeuverGate、WaitingZone、ConflictZone、车辆级通行权、 Traffic Runtime 安全组合、持久化与引擎边界"
+date = "2026-09-01"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/284"]
+related = ["adr-0017", "adr-0018", "adr-0025", "adr-0028", "design-parking-system", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-traffic-runtime-waiting-zone", "design-waiting-zone-conflict-right-of-way"]
++++
+
 # ADR 0019：WaitingZone、ConflictZone 与车辆级通行权 authority
 
-**状态**: Accepted（架构决策；#282 与 #284 已实现）<br>
-**日期**: 2026-09-01<br>
-**适用范围**: 多阶段 ManeuverGate、WaitingZone、ConflictZone、车辆级通行权、
-Traffic Runtime 安全组合、持久化与引擎边界<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+本 ADR 规定架构分层；Waiting 与正式冲突仲裁的具体合同见对应设计文档。
+
+关联文档：
 
 - `../design/traffic-runtime-waiting-zone.md`
 - `../design/waiting-zone-conflict-right-of-way.md`

@@ -1,8 +1,13 @@
-# Rust 代码风格
++++
+schema_version = 1
+id = "reference-rust-code-style"
+kind = "reference"
+status = "active"
+summary = "规定 Rust 可读性、注释与契约文档约定。"
+scope = "LaneFlow workspace 中的 Rust 源码、测试、基准和治理工具"
++++
 
-**文档状态**: Active<br>
-**最后更新**: 2026-09-16<br>
-**适用范围**: LaneFlow workspace 中的 Rust 源码、测试、基准和治理工具
+# Rust 代码风格
 
 ## 1. 目标
 

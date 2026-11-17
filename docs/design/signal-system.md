@@ -1,10 +1,23 @@
++++
+schema_version = 1
+id = "design-signal-system"
+kind = "design"
+status = "accepted"
+summary = "定义固定时制信号、门控与车辆合规。"
+scope = "Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
+related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0009", "adr-0017", "adr-0028", "architecture", "design-parking-system", "design-road-junction-model", "design-route-system", "design-signalized-corridor-protected-turning", "design-traffic-runtime-integer-geometry", "design-vehicle-following", "roadmap"]
++++
+
 # Signal System 设计
 
-**文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍；#1272 停止目标速度归约、制动前视窗与黄灯困境区逐拍许可已冻结，实现随 #1272 实现交付）<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
-**关联文档**:
+固定时制与 Gate 合规继续有效；相位时长必须是世界步长的正整数倍。停止目标速度归约、制动前视窗与黄灯困境区逐拍许可已接受为设计；对应实现与验收由 #1272 承担。
+
+关联文档：
 
 - `../architecture.md`
 - `../roadmap.md`

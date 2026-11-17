@@ -1,8 +1,21 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-admission-speed-drop-proof"
+kind = "design"
+status = "accepted"
+summary = "定义准入筛选中远处限速下降的成功性证明。"
+scope = "道路机动车准入候选缓存完整重建时，非空限速下降后缀的预览成功性"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/832", "https://github.com/illusion-tech/laneflow/issues/833", "https://github.com/illusion-tech/laneflow/issues/834"]
+related = ["design-traffic-runtime-admission-contender-filter"]
++++
+
 # 准入空贡献筛选的远处限速下降证明
 
-**文档状态**: Accepted（#832 / PR #833；#834 接受设计，候选未采用）<br>
-**最后更新**: 2026-10-08<br>
-**适用范围**: 道路机动车准入候选缓存完整重建时，非空限速下降后缀的预览成功性
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计已接受，但 #834 候选未采用；不得将证明或设计接受解释为生产优化已启用。
 
 本提案补充[准入筛选合同][contender-filter]第 3.4 节，
 不替换其已接受的身份、权利、ETA、严格同边运动、原校验、空 owner、错误及资源合同。

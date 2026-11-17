@@ -1,10 +1,24 @@
++++
+schema_version = 1
+id = "adr-0003"
+kind = "adr"
+status = "accepted"
+summary = "规定固定步进与确定性执行原则。"
+scope = "LaneFlow 交通运行时的 tick 输入、时间推进与确定性策略"
+date = "2026-06-20"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/496"]
+related = ["adr-0001", "adr-0002", "adr-0004", "adr-0028", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-shared-consumption"]
++++
+
 # 0003 Runtime Tick and Determinism
 
-**状态**: Accepted（#496 / ADR 0028 已落地步长合法区间与相位倍数；正文 v0.1「Core」指当时执行层，现行世界是 `TrafficWorld`）
-**日期**: 2026-06-20
-**最后更新**: 2026-08-24
-**适用范围**: LaneFlow 交通运行时的 tick 输入、时间推进与确定性策略
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+ADR 0028 定义现行步长合法区间与相位倍数。正文 v0.1 的“Core”指当时执行层，现行世界是 `TrafficWorld`。
+
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

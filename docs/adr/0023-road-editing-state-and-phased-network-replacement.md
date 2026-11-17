@@ -1,28 +1,45 @@
++++
+schema_version = 1
+id = "adr-0023"
+kind = "adr"
+status = "accepted"
+summary = "规定道路编辑状态正本与分阶段路网替换。"
+scope = "可视化道路编辑、程序化道路生成、道路编辑状态、编译器来源、道路建成后的 再次修改、不可变路网修订与来源持久化边界"
+date = "2026-08-10"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/296"]
+
+related = ["adr-0020", "adr-0021", "adr-0022", "adr-0025", "adr-0029", "design-network-compiler", "design-road-editing-source-and-geometry-frontend", "design-shared-static-network"]
+[[supersedes]]
+target = "adr-0020"
+extent = "partial"
+explanation = "#supersedes-adr-0020"
++++
+
 # ADR 0023：道路编辑状态正本与分阶段路网替换
 
-**状态**: Accepted（#296 FlatBuffers G1 Pass）<br>
-**日期**: 2026-08-10<br>
-**适用范围**: 可视化道路编辑、程序化道路生成、道路编辑状态、编译器来源、道路建成后的
-再次修改、不可变路网修订与来源持久化边界<br>
-**扩展**: ADR 0020、ADR 0021；重新打开 ADR 0020 中“Geometry 文档是 production 主要
-编制语言、编辑器默认持久化 Geometry 文档”的具体格式选择，不改变正本来源模块图、
-编译器中间表示或不可变路网修订决策<br>
+<a id="applicability"></a>
+## 适用边界与依据
 
-> **后继决策（2026-08-18）**：ADR 0025（Accepted；#300 G1 Pass）保留本文
+扩展： ADR 0020、ADR 0021；重新打开 ADR 0020 中“Geometry 文档是 production 主要
+编制语言、编辑器默认持久化 Geometry 文档”的具体格式选择，不改变正本来源模块图、
+编译器中间表示或不可变路网修订决策
+
+> 后继决策（2026-08-18）：ADR 0025（Accepted；#300 G1 Pass）保留本文
 > 道路编辑状态正本和 A → C 候选替换，但把目标静态镜像改为进程内
 > `SharedNetworkRevision`。working/candidate 状态不进入存档；可编辑世界只保存已成功进入
 > Runtime 的 committed `RoadEditingState`。没有对应道路编辑状态的发布 LFCA 世界只能作为
 > runtime-only 来源，以已认证 asset reference 重载；其晋升与 Runtime 修订切换由 #302 原子
 > 提交。
 >
-> **后继决策**：ADR 0029 取代本文 §2.1 的静态路线来源形状；路权策略合同 §4.4
+> 后继决策：ADR 0029 取代本文 §2.1 的静态路线来源形状；路权策略合同 §4.4
 > 增加策略声明并升级 LFRE。当前生产
 > `format_version = 4` 根表保存 24 个可构造 Identity 声明向量及 owner-local
 > `conflict_zone_regions`，无 `static_routes` 字段，field id 连续至 29。
 > 道路编辑状态正本、A → C 候选替换与 FlatBuffers 编码选择继续有效；本文旧来源
 > 形状只作历史背景。
 
-**关联文档**:
+关联文档：
 
 - `0020-compiler-owned-static-network-and-static-image.md`
 - `0021-traffic-infrastructure-and-host-boundary.md`
@@ -319,4 +336,15 @@ verifier + 借用 view 和更少自定义协议为优先，接受受控 generate
 6. `RoadEditingSourceDiff` 与 authoring-only 冲突合并已登记为独立后继 Delivery Issue
    [#345]；未实现时只能陈述稳定来源定位能力，不能宣称 C 阶段已覆盖来源差异。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0020"></a>
+### adr-0020
+
+[adr-0020][replacement-adr-0020]：替代 Geometry 文档作为主要编制语言和编辑器默认持久化格式的选择；来源模块图、编译器中间表示和不可变修订原则继续有效。
+
+
 [#345]: https://github.com/illusion-tech/laneflow/issues/345
+
+[replacement-adr-0020]: 0020-compiler-owned-static-network-and-static-image.md

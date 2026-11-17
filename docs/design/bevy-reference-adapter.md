@@ -1,12 +1,22 @@
++++
+schema_version = 1
+id = "design-bevy-reference-adapter"
+kind = "design"
+status = "accepted"
+summary = "定义 Bevy 参考适配器的接入与生命周期。"
+scope = "Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0013", "adr-0015", "adr-0016", "architecture", "design-adapter-api", "design-example-scenarios", "design-parking-system", "design-spatial-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "reference-validation-matrix", "roadmap"]
++++
+
 # Bevy Reference Adapter
 
-**文档状态**: Accepted
+<a id="applicability"></a>
+## 适用边界与依据
 
-**最后更新**: 2026-11-03（`revision_cutover` 运行中修订切换设计，#929）
+本文包含 `revision_cutover` 的运行中修订切换设计；适用条件见对应章节，依据见 #929。
 
-**适用范围**: Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
-
-**关联文档**:
+关联文档：
 
 - `../architecture.md`
 - `../roadmap.md`

@@ -1,16 +1,22 @@
++++
+schema_version = 1
+id = "adr-0004"
+kind = "adr"
+status = "accepted"
+summary = "选择 Rust 作为主要实现语言。"
+scope = "LaneFlow Core 的主要实现语言、crate 边界与后续 Adapter 绑定策略"
+date = "2026-06-20"
+related = ["adr-0001", "adr-0002", "adr-0003"]
++++
+
 # 0004 Core Implementation Language
 
-**状态**: Accepted
-**日期**: 2026-06-20
-**适用范围**: LaneFlow Core 的主要实现语言、crate 边界与后续 Adapter 绑定策略
-**关联文档**:
+## 相关文档
 
 - 上游决策:
   - `0001-project-scope.md`
   - `0002-dependency-and-licensing-constraints.md`
   - `0003-runtime-tick-and-determinism.md`
-- 相关设计:
-
 ## 背景
 
 LaneFlow Core 需要作为引擎无关 runtime 被 Unity、Unreal、Godot、O3DE、Web 或其他数字孪生运行环境复用。

@@ -1,11 +1,16 @@
++++
+schema_version = 1
+id = "design-core-runtime-performance-baseline"
+kind = "design"
+status = "accepted"
+summary = "定义运行时产品规模目标、研究包络与测量边界。"
+scope = "当前 Traffic Runtime 车辆特化、目标多执行域、 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、 硬件和证据协议"
+related = ["adr-0001", "adr-0003", "adr-0021", "design-adapter-api", "design-bevy-reference-adapter", "design-real-road-workloads", "design-traffic-runtime-scale-decision-baseline", "reference-validation-matrix"]
++++
+
 # Traffic Runtime 产品性能基线
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-11-09<br>
-**适用范围**: 当前 Traffic Runtime 车辆特化、目标多执行域、
-Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
-硬件和证据协议<br>
-**关联文档**:
+## 相关文档
 
 - [`traffic-runtime-scale-decision-baseline.md`][scale-baseline]
 - [`real-road-workloads.md`][real-road-workloads]

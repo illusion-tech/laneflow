@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "adr-0006"
+kind = "adr"
+status = "accepted"
+summary = "定义跟车控制模型、安全约束与职责分层。"
+scope = "LaneFlow Core 的纵向决策分层、Vehicle Following 控制模型、安全所有权与扩展边界"
+date = "2026-07-12"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0002", "adr-0003", "adr-0004", "adr-0005", "adr-0008", "design-lane-graph", "design-route-system", "design-vehicle-following"]
++++
+
 # 0006 Vehicle Following Control and Safety Architecture
 
-**状态**: Accepted  
-**日期**: 2026-07-12  
-**适用范围**: LaneFlow Core 的纵向决策分层、Vehicle Following 控制模型、安全所有权与扩展边界  
-**后续修订**: ADR 0008 已替代本文第 5 节中保留 v0.2 schema 的版本兼容策略；Vehicle Profile 与安全架构决策继续有效  
-**2026-07-24 修订**: #222 将 `min_gap` 冻结为可行 snapshot 的最终净距下限，并保留既有 sub-min-gap 输入的非恶化语义<br>
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+后续修订： ADR 0008 已替代本文第 5 节中保留 v0.2 schema 的版本兼容策略；Vehicle Profile 与安全架构决策继续有效。
+2026-07-24 修订： #222 将 `min_gap` 冻结为可行 snapshot 的最终净距下限，并保留既有 sub-min-gap 输入的非恶化语义
+关联文档：
 
 - 上游决策:
   - `0001-project-scope.md`

@@ -1,10 +1,16 @@
++++
+schema_version = 1
+id = "design-road-editing-source-and-geometry-frontend"
+kind = "design"
+status = "accepted"
+summary = "定义道路编辑来源与几何编制前端。"
+scope = "道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、 来源持久化编码与 topology/geometry MIR 降阶"
+related = ["adr-0020", "adr-0021", "adr-0023", "adr-0025", "design-compiler-foundation", "design-network-compiler", "design-shared-static-network"]
++++
+
 # 道路编辑来源与几何编制前端
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-09-17<br>
-**适用范围**: 道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、
-来源持久化编码与 topology/geometry MIR 降阶<br>
-**关联文档**: `network-compiler.md`、`compiler-foundation.md`、
+## 相关文档 `network-compiler.md`、`compiler-foundation.md`、
 `../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0021-traffic-infrastructure-and-host-boundary.md`、
 `../adr/0023-road-editing-state-and-phased-network-replacement.md`、

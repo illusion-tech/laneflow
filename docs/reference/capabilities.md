@@ -1,9 +1,19 @@
++++
+schema_version = 1
+id = "reference-capabilities"
+kind = "reference"
+status = "active"
+summary = "提供当前实现能力、条件与限制的阅读入口。"
+scope = "道路机动车特化的 TrafficWorld，以及按源码集成的宿主"
+verified_date = "2026-11-11"
+verified_revision = "2d0c07070fbe6543f8597b0093322ab301881d5b"
+applicability = "#applicability"
++++
+
 # 当前能力与限制
 
-**文档状态**: Active<br>
-**最后核对**: 2026-11-11，基线
-[`2d0c07070fbe6543f8597b0093322ab301881d5b`][capabilities-commit]<br>
-**适用范围**: 道路机动车特化的 `TrafficWorld`，以及按源码集成的宿主
+<a id="applicability"></a>
+## 适用边界与依据
 
 本页是当前实现与限制的阅读入口，不替代所链专题合同，也不扩大公开支持承诺。
 当前可运行执行域是道路机动车 `TrafficWorld`。设计被接受、实现已存在、历史验收通过

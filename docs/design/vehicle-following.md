@@ -1,11 +1,23 @@
++++
+schema_version = 1
+id = "design-vehicle-following"
+kind = "design"
+status = "accepted"
+summary = "定义跟车、纵向控制、安全距离与投影。"
+scope = "Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
+related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architecture", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-route-system", "design-traffic-runtime-integer-geometry", "roadmap"]
++++
+
 # Vehicle Following 设计
 
-**文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI；#1272 停止目标速度归约与制动前视窗已冻结，实现随 #1272 实现交付）<br>
-**最后更新**: 2026-11-16
+<a id="applicability"></a>
+## 适用边界与依据
 
-**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
+纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已接受为设计，对应实现与验收由 #1272 承担。
 
-**关联文档**:
+关联文档：
 
 - `../architecture.md`
 - `../roadmap.md`

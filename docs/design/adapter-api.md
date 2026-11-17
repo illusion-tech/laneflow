@@ -1,12 +1,25 @@
++++
+schema_version = 1
+id = "design-adapter-api"
+kind = "design"
+status = "accepted"
+summary = "定义引擎适配器与运行时、空间层的接口边界。"
+scope = "交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 bevy-reference-adapter.md"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/301"]
+related = ["adr-0001", "adr-0012", "adr-0013", "adr-0015", "adr-0016", "adr-0020", "adr-0024", "adr-0025", "architecture", "design-bevy-reference-adapter", "design-committed-pose-extraction", "design-example-scenarios", "design-junction-observation-and-validation", "design-parking-system", "design-spatial-geometry", "design-traffic-runtime-shared-consumption", "reference-glossary"]
++++
+
 # 适配器应用程序接口（API）
 
-**文档状态**: Accepted（#301 后 current 为 `TrafficWorld` + `SpatialSession`）
+<a id="applicability"></a>
+## 适用边界与依据
 
-**最后更新**: 2026-08-31（#541 typed parking lifecycle）
+现行运行时与空间层分别为 `TrafficWorld` 和 `SpatialSession`。
 
-**适用范围**: 交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 `bevy-reference-adapter.md`
+停车生命周期通过有类型的适配器入口表达，具体合同见正文；修订依据见 #541。
 
-**关联文档**:
+关联文档：
 
 - [`committed-pose-extraction.md`][committed-pose-extraction]：#681 来源缓冲、
   成功批次交换与按需提取的已接受设计，已由 #711、#712 实施；全量与选择两种入口见 §6。

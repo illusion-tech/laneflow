@@ -28,6 +28,8 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 2. 人流程：G0 立项、G1 设计冻结（高影响变更）、G2 开工。这些写在 Issue 里给人看，
    机器不解析正文。
 3. 区分 GitHub 与仓库文档：GitHub 记录当前状态与评审；仓库文档保存长期事实。
+   正式文档的 TOML 元数据、状态与取代关系以 `docs/reference/document-metadata.md`
+   为准；索引从元数据生成。接受情况、有效性与实现边界分别表达。
 4. 稳定结论回写到 `docs/adr/`、`docs/design/` 或 `docs/governance/`。
 5. 中文术语以 `docs/reference/glossary.md` 为准；精确代码/协议标识符保留原文。
 6. 交通仿真规模不得使用 `Agent` 或“代理”计数。

@@ -1,8 +1,13 @@
-# 提交规范
++++
+schema_version = 1
+id = "reference-commit-convention"
+kind = "reference"
+status = "active"
+summary = "规定提交标题、关联议题和工具归属格式。"
+scope = "LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查"
++++
 
-**文档状态**: Active
-**最后更新**: 2026-10-28
-**适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查
+# 提交规范
 
 ## 1. 目标
 

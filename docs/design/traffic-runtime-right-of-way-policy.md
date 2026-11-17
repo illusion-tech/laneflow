@@ -1,10 +1,23 @@
++++
+schema_version = 1
+id = "design-traffic-runtime-right-of-way-policy"
+kind = "design"
+status = "accepted"
+summary = "定义路权策略编译与正式冲突仲裁合同。"
+scope = "官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、 运行时快照与修订切换"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/284"]
+related = ["design-waiting-zone-conflict-right-of-way"]
++++
+
 # 路权策略编译与 ConflictArbiter 实施合同
 
-**文档状态**: Accepted（#284 路权策略与正式冲突仲裁合同；§3.3 #1272 本拍有效法规决定已冻结，实现随 #1272 实现交付）<br>
-**最后更新**: 2026-11-16<br>
-**适用范围**: 官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、
-运行时快照与修订切换<br>
-**设计依据**: ADR 0009、0019、0025、0028、0029；
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文定义路权策略与正式冲突仲裁。§3.3 的本拍有效法规决定已接受为设计，对应实现与验收由 #1272 承担。
+
+设计依据： ADR 0009、0019、0025、0028、0029；
 [`waiting-zone-conflict-right-of-way.md`][waiting-zone] §6
 
 ## 1. 决策与适用关系

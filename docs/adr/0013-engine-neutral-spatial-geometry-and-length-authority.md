@@ -1,18 +1,27 @@
++++
+schema_version = 1
+id = "adr-0013"
+kind = "adr"
+status = "accepted"
+summary = "定义空间几何、长度正本与引擎无关职责。"
+scope = "LaneFlow 空间层（Spatial）、交通数据、Core 长度与进度、适配器位姿提取，以及空间制品配对（#123）"
+date = "2026-07-18"
+applicability = "#applicability"
+related = ["adr-0001", "adr-0005", "adr-0007", "adr-0008", "adr-0010", "adr-0012", "adr-0014", "adr-0015", "design-adapter-api", "design-spatial-geometry"]
++++
+
 # 0013 引擎无关的空间几何与长度正本
 
-**状态**: 部分取代（Partially Superseded）
+<a id="applicability"></a>
+## 适用边界与依据
 
-**取代说明**: ADR 0015 已取代本文的 Spatial `f64` 精度与双套位姿输出条款；分层、长度正本、制品配对、坐标手性和失败原子性继续有效
+取代说明： ADR 0015 已取代本文的 Spatial `f64` 精度与双套位姿输出条款；分层、长度正本、制品配对、坐标手性和失败原子性继续有效
 
-**目标态取代登记**: Accepted ADR 0020 将取代交通/空间两个独立制品在运行时按外部
+目标态取代登记： Accepted ADR 0020 将取代交通/空间两个独立制品在运行时按外部
 标识和清单摘要联结的条款；交通运行时/空间层/适配器裁决权、规范几何、长度/位姿、
 失败原子性和无图形支持继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
 
-**日期**: 2026-07-18
-
-**适用范围**: LaneFlow 空间层（Spatial）、交通数据、Core 长度与进度、适配器位姿提取，以及空间制品配对（#123）
-
-**关联文档**:
+关联文档：
 
 - 上游决策：
   - `0001-project-scope.md`

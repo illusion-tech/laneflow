@@ -1,10 +1,26 @@
++++
+schema_version = 1
+id = "design-host-observe"
+kind = "design"
+status = "accepted"
+summary = "定义测量环境记录、进程快照与子进程观测。"
+scope = "定义测量环境记录、进程快照与子进程观测。"
+date = "2026-11-16"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1392"]
+related = ["design-core-runtime-performance-baseline", "design-lf-synth-measurement", "governance-development-gates"]
++++
+
 # 测量环境与进程观测
 
-> **状态**：Accepted（[#1392][issue-1392] G1，2026-11-16；设计已接受不等于实现完成）<br>
-> **日期**：2026-11-16<br>
-> **决策依据**：[#1392][issue-1392]；[`core-runtime-performance-baseline.md`][performance-baseline]
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计已接受不等于实现完成；实施与验收进度见关联议题。
+
+> 决策依据：[#1392][issue-1392]；[`core-runtime-performance-baseline.md`][performance-baseline]
 > §5、§8.4；[`lf-synth-measurement.md`][lf-synth-measurement] §7.5；
-> [`development-gates.md`][development-gates] §5.1<br>
+> [`development-gates.md`][development-gates] §5.1
 
 ## 1. 目标与非目标
 

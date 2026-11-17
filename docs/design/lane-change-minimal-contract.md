@@ -1,11 +1,24 @@
++++
+schema_version = 1
+id = "design-lane-change-minimal-contract"
+kind = "design"
+status = "accepted"
+decision_date = "2026-10-31"
+summary = "定义固定预制过渡的最小换道合同与验收边界。"
+scope = "固定预制过渡（Fixed Pre-made Transition）首版的承载形式、占用 分类与投影、同拍联合求解、预约约束与能力检查；必验反例 R1–R3 的可执行验收形态"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/237"]
+related = ["design-cross-section-access", "design-road-junction-model", "design-route-system", "design-traffic-runtime-phase-protocol", "design-traffic-runtime-snapshot", "design-vehicle-following"]
++++
+
 # 最小换道合同（Lane Change Minimal Contract）
 
-**文档状态**: Accepted（#237 G1 冻结接受，维护者 2026-10-31；裁定记录见 #237
-与 G1 决策包 §七双源）
-**最后更新**: 2026-11-05
-**适用范围**: 固定预制过渡（Fixed Pre-made Transition）首版的承载形式、占用
-分类与投影、同拍联合求解、预约约束与能力检查；必验反例 R1–R3 的可执行验收形态
-**关联文档**:
+<a id="applicability"></a>
+## 适用边界与依据
+
+本文为固定预制过渡的已接受设计；裁定来源见 #237。设计接受不表示首版换道实现和验收完成。
+
+关联文档：
 
 - `route-system.md`（路线定义与跟随；注册契约）
 - `vehicle-following.md`（跟车、占用、overlap 分类）

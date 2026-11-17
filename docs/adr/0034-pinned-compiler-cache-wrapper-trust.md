@@ -1,13 +1,26 @@
++++
+schema_version = 1
+id = "adr-0034"
+kind = "adr"
+status = "accepted"
+summary = "规定钉版编译缓存包装器的信任与溯源检查。"
+scope = "LaneFlow CI 构建路径上的编译缓存包装器（compiler cache wrapper）信任边界； laneflow-lust-converter 溯源检查 build_compiler_matches_pinned_toolchain 的判定契约"
+date = "2026-10-26"
+decision_date = "2026-10-26"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1061", "https://github.com/illusion-tech/laneflow/issues/1071", "https://github.com/illusion-tech/laneflow/issues/1074"]
+related = ["adr-0002", "adr-0032", "adr-0033"]
++++
+
 # 0034 钉版编译缓存包装器信任与溯源检查契约
 
-**状态**: Accepted（2026-10-26 维护者批准合并，即 G1 冻结）<br>
-**日期**: 2026-10-26<br>
-**适用范围**: LaneFlow CI 构建路径上的编译缓存包装器（compiler cache wrapper）信任边界；
-`laneflow-lust-converter` 溯源检查 `build_compiler_matches_pinned_toolchain` 的判定契约<br>
-**设计入口**: [#1061][issue-1061]、
+<a id="applicability"></a>
+## 适用边界与依据
+
+设计入口： [#1061][issue-1061]、
 [#1071][issue-1071]、
-[#1074][issue-1074]<br>
-**关联决策**: [ADR 0002][adr-0002]、
+[#1074][issue-1074]
+关联决策： [ADR 0002][adr-0002]、
 [ADR 0032][adr-0032]、
 [ADR 0033][adr-0033]
 

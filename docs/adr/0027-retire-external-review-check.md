@@ -1,12 +1,28 @@
++++
+schema_version = 1
+id = "adr-0027"
+kind = "adr"
+status = "accepted"
+summary = "退役自定义外部审阅检查并采用原生审阅边界。"
+scope = "LaneFlow 合并检查、GitHub Ruleset / Merge Queue、Review conversation、 GitHub Actions 与 xtask 治理工具"
+date = "2026-08-24"
+applicability = "#applicability"
+issues = ["https://github.com/illusion-tech/laneflow/issues/468", "https://github.com/illusion-tech/laneflow/issues/492", "https://github.com/illusion-tech/laneflow/issues/493"]
+
+[[supersedes]]
+target = "adr-0026"
+extent = "partial"
+explanation = "#supersedes-adr-0026"
++++
+
 # 0027 退役 External Review 自定义 Check，收敛五项机器检查
 
-**状态**: Accepted
-**日期**: 2026-08-24
-**适用范围**: LaneFlow 合并检查、GitHub Ruleset / Merge Queue、Review conversation、
-GitHub Actions 与 `xtask` 治理工具
-**部分取代**: ADR 0026 第 5–9 节及其关于 External Review、六项 required checks、
+<a id="applicability"></a>
+## 适用边界与依据
+
+部分取代： ADR 0026 第 5–9 节及其关于 External Review、六项 required checks、
 受信审阅者名单、`H_mg` 盖章和撤销 bypass 启用顺序的后果
-**关联 Issue**: [#492][issue-492]、
+关联 Issue： [#492][issue-492]、
 [#468][issue-468]、
 [#493][issue-493]
 
@@ -106,6 +122,17 @@ message、模板和五项机器检查成果继续有效；其未完成的 `Exter
 - owner bypass 风险转入 #493，不阻塞自定义 Check 的退役。
 - 产品 crate、Core API、Traffic Runtime API、数据格式和 Adapter API 均不受影响。
 
+
+## 取代范围
+
+<a id="supersedes-adr-0026"></a>
+### adr-0026
+
+[adr-0026][replacement-adr-0026]：替代第 5–9 节及相关后果中的 External Review、六项 required checks、受信名单、合并组人审盖章与撤销 bypass 启用顺序。
+
+
 [issue-492]: https://github.com/illusion-tech/laneflow/issues/492
 [issue-468]: https://github.com/illusion-tech/laneflow/issues/468
 [issue-493]: https://github.com/illusion-tech/laneflow/issues/493
+
+[replacement-adr-0026]: 0026-merge-governance-rebuild.md

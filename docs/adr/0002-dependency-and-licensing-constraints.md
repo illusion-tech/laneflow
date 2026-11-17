@@ -1,10 +1,17 @@
++++
+schema_version = 1
+id = "adr-0002"
+kind = "adr"
+status = "accepted"
+summary = "规定依赖和许可证的选择边界。"
+scope = "LaneFlow 公开仓库、Core、Data、Adapter、Authoring 工具的源代码许可、运行时依赖与第三方许可证边界"
+date = "2026-06-18"
+related = ["adr-0001", "governance-dependency-security", "governance-development-gates", "governance-documentation-policy", "governance-security-scanning"]
++++
+
 # 0002 Dependency and Licensing Constraints
 
-**状态**: Accepted  
-**日期**: 2026-06-18  
-**最近修订**: 2026-07-14  
-**适用范围**: LaneFlow 公开仓库、Core、Data、Adapter、Authoring 工具的源代码许可、运行时依赖与第三方许可证边界  
-**关联文档**:
+## 相关文档
 
 - 上游决策:
   - `0001-project-scope.md`
