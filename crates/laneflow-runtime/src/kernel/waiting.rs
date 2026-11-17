@@ -1233,7 +1233,6 @@ impl crate::kernel::state::WorldState {
                     return false;
                 };
                 if release_gate_hop != membership.release_hop
-                    || state.speed_mm_s != 0
                     || state.carry_um != 0
                     || !front_at_hop_boundary(
                         compiled,
@@ -1244,6 +1243,8 @@ impl crate::kernel::state::WorldState {
                 {
                     return false;
                 }
+                // #1272：成员到达释放边界后按耗尽上界逐拍衰减，快照时点可以
+                // 携带正的残余速度；位置钉在边界与 carry 清零仍是硬不变量。
                 let Some(traversal) = expected.as_mut() else {
                     return false;
                 };
