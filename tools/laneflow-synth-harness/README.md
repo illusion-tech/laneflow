@@ -157,7 +157,8 @@ backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
 `undisturbed`、`disturbed`、`undeterminable` 或 `sampling_disabled`，写入
 `report.json` 的 `load`。末尾加 `--no-load-sampling` 关闭采样，仅用于采样开销对比；
 开关写入 `manifest.json` 的 `load_sampling` 并参与运行身份，两种配置的计时不得
-合并统计。§7.4 阈值仍是初值，须在安静测量窗口校准后才能用于正式测量。
+合并统计。`external_load` 阈值已在参考机上校准为 2.5；`run_queue_wait` 阈值仍是初值，
+在 Linux 上校准前不得用于正式测量。其他机器的校准要求见 §7.4。
 
 正式 latency 矩阵按 §7.5 使用判定：`disturbed` 的 round 整轮废弃，原目录保留，
 随即采集一次进程快照写入该目录的 `process-snapshot.json`，再以同一配置、同一轮号

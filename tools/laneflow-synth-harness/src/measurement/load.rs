@@ -18,8 +18,8 @@ use crate::Error;
 pub(super) const FORMAT: &str = "lf-synth-load-1";
 /// 目标段长（§7.3）。
 pub(super) const SEGMENT: Duration = Duration::from_secs(1);
-/// `external_load` 标记阈值初值（§7.4），单位为逻辑 CPU 当量。
-pub(super) const EXTERNAL_LOAD_THRESHOLD: f64 = 1.0;
+/// `external_load` 标记阈值（§7.4，参考机校准值），单位为逻辑 CPU 当量。
+pub(super) const EXTERNAL_LOAD_THRESHOLD: f64 = 2.5;
 /// `run_queue_wait` 标记阈值初值（§7.4，仅 Linux），单位为线程当量。
 pub(super) const RUN_QUEUE_WAIT_THRESHOLD: f64 = 0.05;
 
@@ -253,7 +253,8 @@ impl Sampler {
 
 fn thresholds() -> Value {
     json!({"external_load":EXTERNAL_LOAD_THRESHOLD,"run_queue_wait":RUN_QUEUE_WAIT_THRESHOLD,
-        "status":"initial_values_pending_quiet_window_calibration"})
+        "status":{"external_load":"calibrated_on_reference_machine",
+            "run_queue_wait":"initial_value_pending_linux_calibration"}})
 }
 
 fn sources() -> Value {
@@ -490,8 +491,8 @@ mod tests {
         );
     }
 
-    /// 构造的负载序列：`L_ext` 达到阈值、`Q` 达到阈值都标记；只标记预热段时不判
-    /// 为受扰；负的就绪等待差值记为 `null` 而不按零处理；`L_ext` 小于零时记为零。
+    /// 构造的负载序列：`L_ext` 达到阈值、`Q` 达到阈值都标记；低于阈值的空闲噪声
+    /// 水平不标记；只标记预热段时不判为受扰；负的就绪等待差值记为 `null` 而不按零处理；`L_ext` 小于零时记为零。
     #[test]
     fn constructed_loads_flag_segments_and_judge_round() {
         let quiet = [
@@ -505,10 +506,16 @@ mod tests {
         assert_eq!(result[0].run_queue_wait, Some(0.01));
         assert_eq!(judge(true, &result).0, Judgment::Undisturbed);
 
+        // 空闲采样的最大值约 2.05 逻辑 CPU 当量，低于阈值，不标记。
+        let idle_noise = [at(0, 0, 0, 0, Some(0)), at(10, S, 3 * S, S, Some(0))];
+        let result = segments(&idle_noise, &[true], true);
+        assert_eq!(result[0].external_load, Some(2.0));
+        assert!(result[0].flags.is_empty());
+
         let loaded = [
             at(0, 0, 0, 0, Some(0)),
-            at(10, S, 2 * S, S, Some(0)),
-            at(20, 2 * S, 2 * S, S, Some(S / 20)),
+            at(10, S, 7 * S / 2, S, Some(0)),
+            at(20, 2 * S, 7 * S / 2, S, Some(S / 20)),
         ];
         let result = segments(&loaded, &[true, true], true);
         assert_eq!(result[0].flags, ["external_load"]);
@@ -517,8 +524,8 @@ mod tests {
 
         let warm_loaded = [
             at(0, 0, 0, 0, Some(0)),
-            at(10, S, 2 * S, S, Some(0)),
-            at(20, 2 * S, 2 * S + S / 2, S + S / 2, Some(0)),
+            at(10, S, 7 * S / 2, S, Some(0)),
+            at(20, 2 * S, 4 * S, S + S / 2, Some(0)),
         ];
         let result = segments(&warm_loaded, &[false, true], true);
         assert_eq!(result[0].flags, ["external_load"]);
