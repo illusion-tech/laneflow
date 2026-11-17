@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-lf-synth-input-bundle"
 kind = "design"
 status = "active"
+revised_date = "2026-10-29"
 summary = "定义正式合成规模、规范输入和受检交付。"
 scope = "定义正式合成规模、规范输入和受检交付。"
 +++

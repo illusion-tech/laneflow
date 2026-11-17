@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0032"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-10-25"
 summary = "规定运行时状态完整性检测与失真处置裁决权。"
 scope = "运行时状态失真的检测权、停用语义与恢复处置裁决权边界"
 date = "2026-10-16"

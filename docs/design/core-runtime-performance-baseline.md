@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-core-runtime-performance-baseline"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义运行时产品规模目标、研究包络与测量边界。"
 scope = "当前 Traffic Runtime 车辆特化、目标多执行域、 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、 硬件和证据协议"
 related = ["adr-0001", "adr-0003", "adr-0021", "design-adapter-api", "design-bevy-reference-adapter", "design-real-road-workloads", "design-traffic-runtime-scale-decision-baseline", "reference-validation-matrix"]

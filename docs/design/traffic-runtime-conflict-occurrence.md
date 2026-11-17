@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-conflict-occurrence"
 kind = "design"
 status = "accepted"
+revised_date = "2026-09-05"
 summary = "定义路线冲突出现记录与正式仲裁能力边界。"
 scope = "TrafficWorld 路线冲突出现记录、路线坐标规范化、资源容量，以及 正式 Conflict authority 的活动车辆边界"
 applicability = "#applicability"

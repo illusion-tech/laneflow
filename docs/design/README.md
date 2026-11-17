@@ -3,6 +3,7 @@ schema_version = 1
 id = "docs-design-index"
 kind = "index"
 status = "active"
+revised_date = "2026-11-17"
 summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 +++
 

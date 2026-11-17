@@ -13,6 +13,8 @@ pub(super) struct Metadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revised_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_date: Option<String>,
@@ -195,9 +197,14 @@ impl Metadata {
         if self.scope.as_deref().is_some_and(|s| !plain(s)) {
             return Err("scope 必须是非空单行文本".into());
         }
-        for value in [&self.date, &self.decision_date, &self.verified_date]
-            .into_iter()
-            .flatten()
+        for value in [
+            &self.date,
+            &self.revised_date,
+            &self.decision_date,
+            &self.verified_date,
+        ]
+        .into_iter()
+        .flatten()
         {
             if !date(value) {
                 return Err(format!("日期必须是有效的 YYYY-MM-DD 字符串：{value}"));

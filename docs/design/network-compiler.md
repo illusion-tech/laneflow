@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-network-compiler"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-06"
 summary = "定义静态路网编译架构、实体身份和规范化。"
 scope = "正本来源模块图（Authoritative Source Module Graph）、编译器中间表示 （Compiler IR）、静态路网编译裁决方、标识派生、可移植规范制品（Portable Canonical Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异 （Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、 静态执行约束（Static Execution Constraints）、不可变路网修订 （Immutable Network Revision）"
 applicability = "#applicability"

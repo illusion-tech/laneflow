@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-spatial-geometry"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-12"
 summary = "定义有界空间几何、长度绑定与位姿采样。"
 scope = "v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）"
 applicability = "#applicability"

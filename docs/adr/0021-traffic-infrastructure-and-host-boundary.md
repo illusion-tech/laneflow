@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0021"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-09-06"
 summary = "规定公开组件定位、宿主边界与规模演进原则。"
 scope = "LaneFlow 公开组件定位、宿主应用边界、交通编排、路径规划、 路网修订、存档/回放、过载优雅降级（Graceful Overload Degradation）与中国特色 城市工作负载（Chinese-style City Workload）"
 date = "2026-07-29"

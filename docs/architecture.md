@@ -3,6 +3,7 @@ schema_version = 1
 id = "architecture"
 kind = "reference"
 status = "active"
+revised_date = "2026-11-11"
 summary = "说明现行组件分层、数据流与宿主集成边界。"
 scope = "当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界"
 applicability = "#applicability"

@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-admission-contender-filter"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-08"
 summary = "定义准入缓存重建前的保守空贡献筛选。"
 scope = "道路机动车 spawn_vehicle / replace_completed_vehicle 的派生候选缓存完整重建"
 applicability = "#applicability"

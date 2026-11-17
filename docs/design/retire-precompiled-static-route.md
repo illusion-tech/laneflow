@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-retire-precompiled-static-route"
 kind = "design"
 status = "accepted"
+revised_date = "2026-08-30"
 summary = "定义移除静态路线后的场景目录与运行时接入。"
 scope = "从路网产品删除 StaticRoute 后的制品表、连续身份登记、运行时编译、 场景 catalog 0.4 与每世界路线表形状"
 applicability = "#applicability"

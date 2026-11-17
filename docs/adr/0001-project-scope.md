@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0001"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-09-06"
 summary = "定义交通运行时的项目定位、宿主职责与非目标。"
 scope = "LaneFlow 项目定位、非目标和核心边界"
 date = "2026-06-17"

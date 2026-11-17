@@ -3,6 +3,7 @@ schema_version = 1
 id = "governance-github-workflow"
 kind = "governance"
 status = "active"
+revised_date = "2026-11-06"
 summary = "规定 GitHub 议题、PR、项目与合并队列工作流。"
 scope = "LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理"
 +++

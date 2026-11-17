@@ -76,6 +76,12 @@ fn check_docs_exits_zero_when_the_fixture_is_clean() {
 #[test]
 fn export_docs_checks_metadata_and_writes_a_site_catalog() {
     let repo = TestDirectory::new();
+    let page_path = repo.0.join("docs/page.md");
+    let source = fs::read_to_string(&page_path).unwrap().replace(
+        "status = \"active\"",
+        "status = \"active\"\nrevised_date = \"2026-11-16\"",
+    );
+    fs::write(page_path, source).unwrap();
     let output = repo.xtask(&["export-docs"]);
     assert!(
         output.status.success(),
@@ -85,6 +91,10 @@ fn export_docs_checks_metadata_and_writes_a_site_catalog() {
     let exported = fs::read_to_string(repo.0.join("target/docs/catalog.json")).unwrap();
     let catalog: serde_json::Value = serde_json::from_str(&exported).unwrap();
     assert_eq!(catalog["pages"][0]["url"], "/docs/page/");
+    assert_eq!(
+        catalog["pages"][0]["metadata"]["revised_date"],
+        "2026-11-16"
+    );
     assert_eq!(catalog["pages"][0]["headings"][0]["anchor"], "page");
     assert!(
         !catalog["pages"][0]["body"]

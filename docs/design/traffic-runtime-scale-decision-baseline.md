@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-scale-decision-baseline"
 kind = "design"
 status = "active"
+revised_date = "2026-11-09"
 summary = "记录城市规模扩展的现行决策与证据边界。"
 scope = "现行 TrafficWorld 道路机动车路径的城市规模扩展决策与接口可扩展性复核"
 applicability = "#applicability"

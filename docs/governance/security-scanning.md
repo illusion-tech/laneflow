@@ -3,6 +3,7 @@ schema_version = 1
 id = "governance-security-scanning"
 kind = "governance"
 status = "active"
+revised_date = "2026-11-07"
 summary = "规定安全扫描的期望配置与发布边界。"
 scope = "LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断"
 applicability = "#applicability"

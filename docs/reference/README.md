@@ -3,6 +3,7 @@ schema_version = 1
 id = "docs-reference-index"
 kind = "index"
 status = "active"
+revised_date = "2026-11-17"
 summary = "提供术语、能力、开发约定与文档规范的索引。"
 +++
 

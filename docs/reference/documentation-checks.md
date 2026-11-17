@@ -3,6 +3,7 @@ schema_version = 1
 id = "reference-documentation-checks"
 kind = "reference"
 status = "active"
+revised_date = "2026-11-17"
 summary = "定义文档结构、元数据、关系与索引的离线检查。"
 scope = "xtask check-docs 检查的本地路径、标题锚点与关键索引入口"
 related = ["governance-documentation-policy", "reference-validation-matrix"]

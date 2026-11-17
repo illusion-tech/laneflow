@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-shared-consumption"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-12"
 summary = "定义运行时对共享静态路网的消费合同。"
 scope = "laneflow-runtime / TrafficWorld 对共享路网修订的消费，以及 SpatialSession 绑定"
 applicability = "#applicability"

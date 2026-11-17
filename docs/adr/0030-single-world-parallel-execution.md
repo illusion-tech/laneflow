@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0030"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-10-07"
 summary = "规定单世界精确并行及执行配置分离。"
 scope = "TrafficWorld 首版独立计算并行、执行配置、快照与修订切换边界"
 date = "2026-09-16"

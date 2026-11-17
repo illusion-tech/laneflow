@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-observation-and-routing-integration"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义交通观测、动态成本与宿主候选路线接入。"
 scope = "已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
 applicability = "#applicability"

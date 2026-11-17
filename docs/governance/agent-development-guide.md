@@ -3,6 +3,7 @@ schema_version = 1
 id = "governance-agent-development-guide"
 kind = "governance"
 status = "active"
+revised_date = "2026-10-13"
 summary = "规定 Agent 开发工作流与交付要求。"
 scope = "使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作"
 +++

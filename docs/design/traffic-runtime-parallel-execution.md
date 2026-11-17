@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-parallel-execution"
 kind = "design"
 status = "accepted"
+revised_date = "2026-09-27"
 summary = "定义单世界精确并行的阶段、提交与失败语义。"
 scope = "道路机动车首版独立计算并行、规范串行联合裁决与整拍提交"
 applicability = "#applicability"

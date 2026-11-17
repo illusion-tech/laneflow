@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-committed-pose-extraction"
 kind = "design"
 status = "accepted"
+revised_date = "2026-09-18"
 summary = "定义已提交位姿来源借用、缓冲交换与按需提取。"
 scope = "Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择"
 applicability = "#applicability"

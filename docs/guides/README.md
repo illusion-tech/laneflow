@@ -3,6 +3,7 @@ schema_version = 1
 id = "docs-guides-index"
 kind = "index"
 status = "active"
+revised_date = "2026-11-17"
 summary = "提供操作性接入指南的索引。"
 +++
 

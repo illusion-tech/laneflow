@@ -90,6 +90,47 @@ fn dates_are_calendar_dates_not_just_patterns() {
 }
 
 #[test]
+fn revision_date_is_optional_validated_and_exported_without_date_inference() {
+    let absent = parse(&doc(
+        "one",
+        "accepted",
+        "date = \"2026-11-01\"\ndecision_date = \"2026-11-17\"",
+    ))
+    .unwrap();
+    assert!(absent.revised_date.is_none());
+    assert!(
+        serde_json::to_value(absent)
+            .unwrap()
+            .get("revised_date")
+            .is_none()
+    );
+    for value in ["2026-02-29", "2026-11-17（修订）", "", "2026-1-17"] {
+        assert!(
+            parse(&doc(
+                "one",
+                "accepted",
+                &format!("revised_date = \"{value}\"")
+            ))
+            .is_err()
+        );
+    }
+    assert!(parse(&doc("one", "accepted", "revised_date = 2026-11-17")).is_err());
+    assert!(
+        parse(&doc(
+            "one",
+            "accepted",
+            "revised_date = \"2026-11-16\"\nrevised_date = \"2026-11-17\""
+        ))
+        .is_err()
+    );
+    let metadata = parse(&doc("one", "accepted", "revised_date = \"2026-11-16\"\ndecision_date = \"2026-11-17\"\nverified_date = \"2026-11-01\"\nverified_revision = \"0123456789abcdef0123456789abcdef01234567\"")).unwrap();
+    let exported = serde_json::to_value(metadata).unwrap();
+    assert_eq!(exported["revised_date"], "2026-11-16");
+    assert_eq!(exported["decision_date"], "2026-11-17");
+    assert_eq!(exported["verified_date"], "2026-11-01");
+}
+
+#[test]
 fn scalar_validation_rejects_invalid_identity_status_scope_and_revision() {
     let valid = doc("one", "accepted", "");
     for (from, to) in [

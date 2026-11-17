@@ -55,6 +55,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    正式 docs 页面按 `docs/reference/document-metadata.md` 使用 TOML 页头；修改标题、
    状态、摘要或取代关系后运行 `generate-doc-indexes` 和 `check-docs`。不手改生成区，
    不以 accepted 推断实现完成，不恢复旧加粗页头或 YAML 双轨。
+   新建或实质修订文档时按该规范维护 `revised_date`；纯格式迁移与生成区刷新不推进日期。
 5. 按任务类别运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
 7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks 与适用 CodeQL；

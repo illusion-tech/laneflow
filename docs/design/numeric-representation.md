@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-numeric-representation"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义编制、交通与空间数值表示的分层。"
 scope = "数值分层、误差预算、compiler 前端几何正本，以及已提交整数毫米合同"
 applicability = "#applicability"

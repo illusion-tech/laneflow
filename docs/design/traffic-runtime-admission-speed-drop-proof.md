@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-admission-speed-drop-proof"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-08"
 summary = "定义准入筛选中远处限速下降的成功性证明。"
 scope = "道路机动车准入候选缓存完整重建时，非空限速下降后缀的预览成功性"
 applicability = "#applicability"

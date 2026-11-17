@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-cross-section-access"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-08"
 summary = "定义横断面、所有者与准入覆盖规则。"
 scope = "#234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity、authority 与 validation"
 applicability = "#applicability"

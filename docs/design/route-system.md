@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-route-system"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义每世界路线、注册与车辆跟随。"
 scope = "route definition、route validation、route lifecycle 和 simple route following 边界"
 related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-road-junction-model", "roadmap"]

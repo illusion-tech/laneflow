@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-lane-change-minimal-contract"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-05"
 decision_date = "2026-10-31"
 summary = "定义固定预制过渡的最小换道合同与验收边界。"
 scope = "固定预制过渡（Fixed Pre-made Transition）首版的承载形式、占用 分类与投影、同拍联合求解、预约约束与能力检查；必验反例 R1–R3 的可执行验收形态"

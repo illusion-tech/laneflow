@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0010"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-09-23"
 summary = "规定停车设施、资源绑定与车辆生命周期裁决权。"
 scope = "停车静态实体、显式泊位与虚拟容量、Runtime binding/lifecycle、 快照/修订切换、Spatial/Adapter 表现边界"
 date = "2026-08-30"

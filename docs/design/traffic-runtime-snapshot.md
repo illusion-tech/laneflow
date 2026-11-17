@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-snapshot"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-25"
 summary = "定义运行时快照、恢复、摘要与跨修订迁移。"
 scope = "版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口"
 applicability = "#applicability"

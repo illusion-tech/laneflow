@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-revision-cutover"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-20"
 summary = "定义在线路网修订切换事务与失败原子性。"
 scope = "在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算"
 applicability = "#applicability"

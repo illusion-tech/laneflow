@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0003"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-08-24"
 summary = "规定固定步进与确定性执行原则。"
 scope = "LaneFlow 交通运行时的 tick 输入、时间推进与确定性策略"
 date = "2026-06-20"

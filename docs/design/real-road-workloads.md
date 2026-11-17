@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-real-road-workloads"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-08"
 summary = "定义 LuST 真实路网工作负载与验收范围。"
 scope = "LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万 真实路网性能补充 workload 与需求代表性 observation"
 applicability = "#applicability"

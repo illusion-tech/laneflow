@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-shared-static-network"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义从受检制品构建共享静态路网修订。"
 scope = "laneflow-static-network、受检 LFCA admission、共享静态路网构建、 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收"
 related = ["adr-0025", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-network-compiler", "design-portable-canonical-artifact", "design-road-editing-source-and-geometry-frontend"]
