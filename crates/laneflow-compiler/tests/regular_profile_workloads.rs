@@ -39,8 +39,7 @@ impl Drop for StagingDirectory {
 
 struct Expected {
     name: &'static str,
-    signals: u32,
-    points: u32,
+    shape: WorkloadShape,
     usage: CanonicalNetworkUsage,
     lir_records: u64,
     source_bytes: u64,
@@ -49,11 +48,12 @@ struct Expected {
     lane_geometries: u32,
 }
 
-const CASES: [Expected; 4] = [
+const JOINT: WorkloadShape = WorkloadShape::for_stable_entities(10_000, 32, 65);
+
+const CASES: [Expected; 8] = [
     Expected {
         name: "mixed",
-        signals: 2,
-        points: 2,
+        shape: WorkloadShape::for_stable_entities(10_000, 2, 2),
         usage: CanonicalNetworkUsage::new(10_000, 822, 399, 14_169, 2_682),
         lir_records: 28_904,
         source_bytes: 1_570_997,
@@ -63,8 +63,7 @@ const CASES: [Expected; 4] = [
     },
     Expected {
         name: "signal-dense",
-        signals: 32,
-        points: 2,
+        shape: WorkloadShape::for_stable_entities(10_000, 32, 2),
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 3_918),
         lir_records: 90_974,
         source_bytes: 5_283_991,
@@ -74,8 +73,7 @@ const CASES: [Expected; 4] = [
     },
     Expected {
         name: "geometry-dense",
-        signals: 2,
-        points: 65,
+        shape: WorkloadShape::for_stable_entities(10_000, 2, 65),
         usage: CanonicalNetworkUsage::new(10_000, 822, 399, 14_169, 78_093),
         lir_records: 179_726,
         source_bytes: 2_475_929,
@@ -85,8 +83,7 @@ const CASES: [Expected; 4] = [
     },
     Expected {
         name: "joint",
-        signals: 32,
-        points: 65,
+        shape: JOINT,
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
         lir_records: 319_664,
         source_bytes: 6_656_131,
@@ -94,17 +91,74 @@ const CASES: [Expected; 4] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
+    Expected {
+        name: "partitioned",
+        shape: WorkloadShape {
+            source_partitions: 16,
+            ..JOINT
+        },
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
+        lir_records: 319_664,
+        source_bytes: 6_931_297,
+        disjoint_source_bytes: 7_370_385,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+    },
+    Expected {
+        name: "long-documents",
+        shape: WorkloadShape {
+            long_documents: true,
+            ..JOINT
+        },
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
+        lir_records: 319_664,
+        source_bytes: 6_658_140,
+        disjoint_source_bytes: 7_097_048,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+    },
+    Expected {
+        name: "curved",
+        shape: WorkloadShape {
+            curved: true,
+            ..JOINT
+        },
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 128_511),
+        lir_records: 335_600,
+        source_bytes: 6_665_947,
+        disjoint_source_bytes: 7_104_855,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+    },
+    Expected {
+        name: "combined",
+        shape: WorkloadShape {
+            source_partitions: 16,
+            long_documents: true,
+            curved: true,
+            ..JOINT
+        },
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 128_511),
+        lir_records: 335_600,
+        source_bytes: 6_957_942,
+        disjoint_source_bytes: 7_397_030,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+    },
 ];
 
 fn compile_case(expected: &Expected, shape: WorkloadShape) -> CompilationOutput {
     let unit = build_mixed_network(shape, false);
-    assert_eq!(unit.module_count(), 3);
-    assert_eq!(unit.source_document_count(), 3);
+    assert_eq!(unit.module_count(), shape.source_partitions as usize + 2);
+    assert_eq!(
+        unit.source_document_count(),
+        shape.source_partitions as usize + 2
+    );
     assert_eq!(
         unit.module_descriptors()
             .map(|module| module.imports().len())
             .sum::<usize>(),
-        2
+        shape.source_partitions as usize + 1
     );
     let source_bytes: u64 = unit
         .source_document_descriptors()
@@ -259,7 +313,7 @@ fn regular_profile_candidates_cover_mixed_density_and_diff_operations() {
     let directory = &staging_directory.0;
     fs::create_dir(directory).unwrap();
     for expected in &CASES {
-        let shape = WorkloadShape::for_stable_entities(10_000, expected.signals, expected.points);
+        let shape = expected.shape;
         let output = compile_case(expected, shape);
         let base = emit_and_check(
             expected,
@@ -412,4 +466,85 @@ fn regular_profile_candidates_cover_mixed_density_and_diff_operations() {
         );
     }
     fs::remove_dir(directory).unwrap();
+}
+
+#[test]
+fn regular_profile_source_metadata_preserves_canonical_usage_and_revision() {
+    let ordinary = &CASES[3];
+    let long_documents = &CASES[5];
+    let output = compile_case(ordinary, ordinary.shape);
+    let longer = compile_case(long_documents, long_documents.shape);
+    assert_eq!(
+        output.metrics().semantic_fingerprint(),
+        longer.metrics().semantic_fingerprint()
+    );
+    let base = emit_and_check(
+        ordinary,
+        "metadata-base",
+        &output,
+        PortableDiffBase::Genesis,
+        None,
+    );
+    let changed = emit_and_check(
+        long_documents,
+        "long-documents",
+        &longer,
+        PortableDiffBase::Genesis,
+        None,
+    );
+    assert_eq!(base.network_revision(), changed.network_revision());
+    assert_ne!(
+        base.source_collection_digest(),
+        changed.source_collection_digest()
+    );
+    assert!(changed.source_map().byte_length().get() > base.source_map().byte_length().get());
+    assert_eq!(
+        identities(artifact_view(&base)),
+        identities(artifact_view(&changed))
+    );
+
+    let provenance = PortableEmissionProvenance::try_new("p".repeat(128)).unwrap();
+    let different_provenance = emit_portable_candidate(
+        &output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    assert!(different_provenance.resource_report().peak_live_bytes() <= CANDIDATE_OPERATION_BYTES);
+    assert_eq!(
+        base.network_revision(),
+        different_provenance.network_revision()
+    );
+    assert_eq!(
+        base.source_collection_digest(),
+        different_provenance.source_collection_digest()
+    );
+    assert!(
+        different_provenance
+            .canonical_artifact()
+            .byte_length()
+            .get()
+            > base.canonical_artifact().byte_length().get()
+    );
+    assert_role_coverage(&different_provenance, ordinary);
+    for candidate in [base, changed, different_provenance] {
+        check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
+    }
+}
+
+#[test]
+fn road_editing_document_key_boundary_precedes_profile_admission() {
+    use laneflow_compiler::{SourceTextViolation, road_editing::RoadEditingModuleInput};
+    let document = "d".repeat(53);
+    assert!(RoadEditingModuleInput::try_new(&document, &[], None).is_ok());
+    let overlong = "d".repeat(54);
+    let error = RoadEditingModuleInput::try_new(&overlong, &[], None).unwrap_err();
+    assert_eq!(
+        error.violation(),
+        SourceTextViolation::TooLong {
+            limit: 53,
+            observed: 54
+        }
+    );
 }

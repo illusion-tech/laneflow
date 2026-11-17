@@ -13,10 +13,13 @@ pub(super) struct WorkloadShape {
     pub(super) disjoint: bool,
     pub(super) changed: bool,
     pub(super) reordered: bool,
+    pub(super) source_partitions: u32,
+    pub(super) long_documents: bool,
+    pub(super) curved: bool,
 }
 
 impl WorkloadShape {
-    pub(super) fn for_stable_entities(
+    pub(super) const fn for_stable_entities(
         stable_entities: u32,
         signals: u32,
         geometry_points: u32,
@@ -34,7 +37,31 @@ impl WorkloadShape {
             disjoint: false,
             changed: false,
             reordered: false,
+            source_partitions: 1,
+            long_documents: false,
+            curved: false,
         }
+    }
+}
+
+fn synthetic_namespace(shape: WorkloadShape, partition: u32) -> String {
+    let namespace = if shape.disjoint {
+        "city/regular-profile-other"
+    } else {
+        "city/regular-profile"
+    };
+    if partition == 0 {
+        namespace.to_owned()
+    } else {
+        format!("{namespace}-{partition:03}")
+    }
+}
+
+fn document_key(base: &str, long: bool, bytes: usize) -> String {
+    if long {
+        format!("{base}{}", "x".repeat(bytes - base.len()))
+    } else {
+        base.to_owned()
     }
 }
 
@@ -357,20 +384,24 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
 
 fn build_conflict_module(
     limits: &CompileLimits,
-    tile_count: u32,
+    shape: WorkloadShape,
     permuted: bool,
-    disjoint: bool,
 ) -> Option<editing::OwnedRoadEditingSourceBuffer> {
+    let tile_count = shape.conflict_tiles;
     if tile_count == 0 {
         return None;
     }
     let header = editing::RoadEditingModuleHeader::try_new(
-        if disjoint {
+        if shape.disjoint {
             "city/regular-profile-conflicts-other"
         } else {
             "city/regular-profile-conflicts"
         },
-        "portable-resource-conflicts.document",
+        document_key(
+            "portable-resource-conflicts.document",
+            shape.long_documents,
+            53,
+        ),
         Vec::new(),
         editing::RoadEditingProvenance::direct("deterministic mixed capacity fixture").unwrap(),
     )
@@ -407,13 +438,25 @@ fn build_conflict_module(
         let zone = editing::ConflictZoneReference::owner_scoped(vec![junction_key.clone()], "zone")
             .unwrap();
         let curve = |start_x: f64, end_x: f64| {
-            editing::RoadEditingCurveProgram::try_new(
-                editing::RoadEditingPoint3::try_new(start_x, 0.0, 0.0).unwrap(),
-                vec![editing::RoadEditingCurveSegment::line(
-                    editing::RoadEditingPoint3::try_new(end_x, 0.0, 0.0).unwrap(),
-                )],
-            )
-            .unwrap()
+            let point = |x, y| editing::RoadEditingPoint3::try_new(x, y, 0.0).unwrap();
+            let delta = end_x - start_x;
+            let segments = if shape.curved {
+                vec![
+                    editing::RoadEditingCurveSegment::cubic_bezier(
+                        point(start_x + delta / 6.0, 0.0),
+                        point(start_x + delta / 3.0, 3.0),
+                        point(start_x + delta / 2.0, 3.0),
+                    ),
+                    editing::RoadEditingCurveSegment::cubic_bezier(
+                        point(start_x + 2.0 * delta / 3.0, 3.0),
+                        point(start_x + 5.0 * delta / 6.0, 0.0),
+                        point(end_x, 0.0),
+                    ),
+                ]
+            } else {
+                vec![editing::RoadEditingCurveSegment::line(point(end_x, 0.0))]
+            };
+            editing::RoadEditingCurveProgram::try_new(point(start_x, 0.0), segments).unwrap()
         };
 
         builder
@@ -655,27 +698,36 @@ fn build_conflict_module(
     )
 }
 
-pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> CompilationUnit {
-    let limits = CompileLimits::single_network_1m();
+fn build_synthetic_module(
+    limits: &CompileLimits,
+    shape: WorkloadShape,
+    partition: u32,
+    permuted: bool,
+) -> SyntheticModule {
+    let namespace = synthetic_namespace(shape, partition);
+    let base_document = if partition == 0 {
+        "portable-resource-probe.document".to_owned()
+    } else {
+        format!("portable-resource-probe-{partition:03}.document")
+    };
+    let document = document_key(&base_document, shape.long_documents, 1_024);
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
-            authoring_namespace_id: if shape.disjoint {
-                "city/regular-profile-other"
-            } else {
-                "city/regular-profile"
-            },
-            source_document_key: "portable-resource-probe.document",
+            authoring_namespace_id: &namespace,
+            source_document_key: &document,
             generator_build_id: "git:0123456789abcdef",
             parameters_and_inputs_digest: [0x11; 32],
             frontend_options_digest: [0x22; 32],
             random_seed: Some(42),
             provenance: "repository:laneflow",
         },
-        &limits,
+        limits,
     )
     .unwrap();
-    let mut module = SyntheticModuleBuilder::new(header, &limits).unwrap();
-    let mut synthetic_ordinals = (0..shape.synthetic_tiles).collect::<Vec<_>>();
+    let mut module = SyntheticModuleBuilder::new(header, limits).unwrap();
+    let mut synthetic_ordinals = (0..shape.synthetic_tiles)
+        .filter(|ordinal| ordinal % shape.source_partitions == partition)
+        .collect::<Vec<_>>();
     let mut filler_ordinals = (0..shape.filler_entities).collect::<Vec<_>>();
     if permuted {
         synthetic_ordinals.reverse();
@@ -684,7 +736,7 @@ pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
     for ordinal in synthetic_ordinals {
         add_synthetic_tile(&mut module, ordinal, shape);
     }
-    for ordinal in filler_ordinals {
+    for ordinal in filler_ordinals.into_iter().filter(|_| partition == 0) {
         let filler = key("f", ordinal, "participant");
         module
             .add_participant_class(ParticipantClassInput {
@@ -693,50 +745,64 @@ pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
             })
             .unwrap();
     }
-    let shared_class = "shared-car";
-    let shared_profile = "shared-vehicle";
-    let shared_access = "shared-access";
-    let first_entry = key("t", 0, "entry");
-    module
-        .add_participant_class(ParticipantClassInput {
-            participant_class_key: shared_class,
-            extends: None,
-        })
-        .unwrap()
-        .add_vehicle_profile(VehicleProfileInput {
-            vehicle_profile_key: shared_profile,
-            participant_class: ParticipantClassReference::local(shared_class),
-            iidm: IidmVehicleProfileInput {
-                length_meters: 4.5,
-                desired_speed_meters_per_second: 13.0,
-                min_gap_meters: 2.0,
-                time_headway_seconds: 1.5,
-                max_acceleration_meters_per_second_squared: 1.5,
-                comfortable_deceleration_meters_per_second_squared: 2.0,
-                emergency_deceleration_meters_per_second_squared: 4.0,
-            },
-        })
-        .unwrap()
-        .add_access_rule(AccessRuleInput {
-            access_rule_key: shared_access,
-            target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local(&first_entry)),
-            effect: AccessEffect::Allow,
-            participant_classes: &[ParticipantClassReference::local(shared_class)],
-            regulation: None,
-            priority: 0,
-        })
-        .unwrap();
+    if partition == 0 {
+        let shared_class = "shared-car";
+        let shared_profile = "shared-vehicle";
+        let shared_access = "shared-access";
+        let first_entry = key("t", 0, "entry");
+        module
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: shared_class,
+                extends: None,
+            })
+            .unwrap()
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: shared_profile,
+                participant_class: ParticipantClassReference::local(shared_class),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 4.5,
+                    desired_speed_meters_per_second: 13.0,
+                    min_gap_meters: 2.0,
+                    time_headway_seconds: 1.5,
+                    max_acceleration_meters_per_second_squared: 1.5,
+                    comfortable_deceleration_meters_per_second_squared: 2.0,
+                    emergency_deceleration_meters_per_second_squared: 4.0,
+                },
+            })
+            .unwrap()
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: shared_access,
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local(&first_entry)),
+                effect: AccessEffect::Allow,
+                participant_classes: &[ParticipantClassReference::local(shared_class)],
+                regulation: None,
+                priority: 0,
+            })
+            .unwrap();
+    }
+    module.finish().unwrap()
+}
 
-    let conflicts = build_conflict_module(&limits, shape.conflict_tiles, permuted, shape.disjoint);
+pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> CompilationUnit {
+    assert!(shape.source_partitions > 0 && shape.source_partitions <= shape.synthetic_tiles);
+    let limits = CompileLimits::single_network_1m();
+    let conflicts = build_conflict_module(&limits, shape, permuted);
     let policy = build_policy_module(&limits, shape);
+    let synthetic: Vec<_> = (0..shape.source_partitions)
+        .map(|partition| build_synthetic_module(&limits, shape, partition, permuted))
+        .collect();
     let mut unit = CompilationUnitBuilder::new(limits);
     unit.add_synthetic_module(policy).unwrap();
-    let synthetic = module.finish().unwrap();
+    let conflict_document = document_key(
+        "portable-resource-conflicts.document",
+        shape.long_documents,
+        53,
+    );
     let add_conflicts =
         |unit: &mut CompilationUnitBuilder, conflicts: &editing::OwnedRoadEditingSourceBuffer| {
             unit.add_road_editing_module(
                 editing::RoadEditingModuleInput::try_new(
-                    "portable-resource-conflicts.document",
+                    &conflict_document,
                     conflicts.as_bytes(),
                     None,
                 )
@@ -748,9 +814,13 @@ pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
         if let Some(conflicts) = conflicts.as_ref() {
             add_conflicts(&mut unit, conflicts);
         }
-        unit.add_synthetic_module(synthetic).unwrap();
+        for module in synthetic.into_iter().rev() {
+            unit.add_synthetic_module(module).unwrap();
+        }
     } else {
-        unit.add_synthetic_module(synthetic).unwrap();
+        for module in synthetic {
+            unit.add_synthetic_module(module).unwrap();
+        }
         if let Some(conflicts) = conflicts.as_ref() {
             add_conflicts(&mut unit, conflicts);
         }
@@ -759,16 +829,12 @@ pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
 }
 
 fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> SyntheticModule {
-    let synthetic_namespace = if shape.disjoint {
-        "city/regular-profile-other"
-    } else {
-        "city/regular-profile"
-    };
     let conflict_namespace = if shape.disjoint {
         "city/regular-profile-conflicts-other"
     } else {
         "city/regular-profile-conflicts"
     };
+    let document = document_key("profile-policy.document", shape.long_documents, 1_024);
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: if shape.disjoint {
@@ -776,7 +842,7 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
             } else {
                 "city/regular-profile-policy"
             },
-            source_document_key: "profile-policy.document",
+            source_document_key: &document,
             generator_build_id: "git:0123456789abcdef",
             parameters_and_inputs_digest: [0x11; 32],
             frontend_options_digest: [0x22; 32],
@@ -787,11 +853,12 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
     )
     .unwrap();
     let mut builder = SyntheticModuleBuilder::new(header, limits).unwrap();
-    builder
-        .add_import(synthetic_namespace)
-        .unwrap()
-        .add_import(conflict_namespace)
-        .unwrap();
+    for partition in 0..shape.source_partitions {
+        builder
+            .add_import(&synthetic_namespace(shape, partition))
+            .unwrap();
+    }
+    builder.add_import(conflict_namespace).unwrap();
     let span = builder.policy_source_span();
     let source = PolicyInputSource {
         primary: &span,
@@ -800,10 +867,11 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
     let mut gate_storage = Vec::new();
     let mut stream_storage = Vec::new();
     for ordinal in 0..shape.synthetic_tiles {
+        let namespace = synthetic_namespace(shape, ordinal % shape.source_partitions);
         for suffix in ["entry", "release"] {
             gate_storage.push((
                 key("t", ordinal, suffix),
-                synthetic_namespace,
+                namespace.clone(),
                 key("t", ordinal, &format!("gate-{suffix}")),
                 vec![],
                 GateInterpretation::ProtectedGroup,
@@ -812,7 +880,7 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
         for index in 2..shape.signals {
             gate_storage.push((
                 key("t", ordinal, &format!("extra-{index:03}")),
-                synthetic_namespace,
+                namespace.clone(),
                 key("t", ordinal, &format!("gate-{index:03}")),
                 vec![],
                 GateInterpretation::ProtectedGroup,
@@ -824,7 +892,7 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
             let junction = key("c", ordinal, "junction");
             gate_storage.push((
                 key("c", ordinal, suffix),
-                conflict_namespace,
+                conflict_namespace.to_owned(),
                 "admission".into(),
                 vec![
                     junction.clone(),
