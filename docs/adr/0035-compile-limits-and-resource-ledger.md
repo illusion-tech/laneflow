@@ -2,11 +2,12 @@
 schema_version = 1
 id = "adr-0035"
 kind = "adr"
-status = "review"
+status = "accepted"
 revised_date = "2026-11-17"
 summary = "规定编译资源合同的四类边界、由生产端与消费端共同约束的规范路网容量与受控分配资源账本。"
 scope = "laneflow-compiler 的编译资源配置档与维度分类、规范路网容量的定义与执行、编译与发射阶段的受控分配记账、外部可移植字节的准入与配置档的校验与资格验证；不改变任何可移植制品字节、格式版本或 NetworkRevisionId"
 date = "2026-11-17"
+decision_date = "2026-11-17"
 applicability = "#applicability"
 issues = ["https://github.com/illusion-tech/laneflow/issues/1288", "https://github.com/illusion-tech/laneflow/issues/1296"]
 related = ["adr-0024", "adr-0025", "design-compiler-foundation", "design-compiler-resource-ledger", "design-portable-canonical-artifact"]
@@ -17,7 +18,7 @@ related = ["adr-0024", "adr-0025", "design-compiler-foundation", "design-compile
 <a id="applicability"></a>
 ## 适用边界与依据
 
-本文为 #1296 G1 第二次修订的待接受正本，取代 2026-11-16 接受的第一次修订（见[固定提交][adr-0035-revision-1]）；
+本文为 2026-11-17 接受的 #1296 G1 第二次修订正本，取代 2026-11-16 接受的第一次修订（见[固定提交][adr-0035-revision-1]）；
 初版见[固定提交][adr-0035-initial]。
 
 设计入口： [#1296][issue-1296]、[#1288][issue-1288]

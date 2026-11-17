@@ -2,7 +2,7 @@
 schema_version = 1
 id = "design-compiler-resource-ledger"
 kind = "design"
-status = "review"
+status = "accepted"
 revised_date = "2026-11-17"
 summary = "定义编译、发射与公开检查共用的资源账本。"
 scope = "定义编译、发射与公开检查共用的资源账本。"
@@ -17,7 +17,7 @@ related = ["adr-0035", "design-compiler-foundation"]
 <a id="applicability"></a>
 ## 适用边界与依据
 
-本文与 ADR 0035 一并定义资源账本合同，为 #1296 G1 第二次修订的待接受正本；第一次修订于
+本文与 ADR 0035 一并定义资源账本合同，为 2026-11-17 接受的 #1296 G1 第二次修订正本；第一次修订于
 2026-11-16 接受，见[固定提交][ledger-revision-1]。设计接受不等于实现完成，实施与验收进度见
 关联议题。
 
