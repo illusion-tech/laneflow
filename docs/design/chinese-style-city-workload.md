@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-chinese-style-city-workload"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-03"
 summary = "定义城市工作负载、需求计划与有限验证范围。"
 scope = "LF-CN-URBAN 当前模板 cn-urban-template-v2 的 topology / demand / runtime 分层、计数口径、首批场景边界与阶段依赖 本文定义工作负载的交付合同，不以设计接受代替生成器、运行程序或产品认证。 G1 判断、交付进度与本次测量结果保存在 GitHub Issue / PR。"
 applicability = "#applicability"

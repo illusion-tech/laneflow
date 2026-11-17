@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-lf-synth-execution"
 kind = "design"
 status = "active"
+revised_date = "2026-11-16"
 summary = "定义合成工作负载执行窗口与逐拍语义核验。"
 scope = "定义合成工作负载执行窗口与逐拍语义核验。"
 applicability = "#applicability"

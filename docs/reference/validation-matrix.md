@@ -3,6 +3,7 @@ schema_version = 1
 id = "reference-validation-matrix"
 kind = "reference"
 status = "active"
+revised_date = "2026-11-17"
 summary = "规定各任务类别的最低验证要求。"
 scope = "LaneFlow 各任务类别在合并前的最小验证要求，以及 CI 失败后的偶发签名判读"
 related = ["adr-0026", "adr-0027", "governance-dependency-security", "governance-development-gates", "governance-github-workflow", "governance-security-scanning", "reference-commit-convention"]

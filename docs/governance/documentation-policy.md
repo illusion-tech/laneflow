@@ -3,6 +3,7 @@ schema_version = 1
 id = "governance-documentation-policy"
 kind = "governance"
 status = "active"
+revised_date = "2026-11-17"
 summary = "规定仓库文档、协作平台与研究资料的职责边界。"
 scope = "LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文"
 +++
@@ -21,6 +22,8 @@ scope = "LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上�
 维护状态、日期与取代关系由类型化页头保存，状态不得附带括号、审批流水或技术合同。
 重要适用限制进入正文并提供范围入口；索引状态与反向取代关系由工具生成，不手工复制。
 `accepted` 不表示实现或验收完成；文档接受情况与条款是否被取代分别表达。
+`revised_date` 记录实质内容修订，接受日期与内容核对日期独立维护；纯格式迁移
+不推进修订日期，也不能用 Git 文件修改时间替代它。
 
 ## 2. GitHub 负责什么
 

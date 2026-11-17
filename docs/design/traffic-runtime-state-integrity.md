@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-state-integrity"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-26"
 summary = "定义状态完整性校验、失真恢复与宿主处置。"
 scope = "运行时状态完整性的检测范围与分期、可信期望值与原像、共享路网修订认证、失真 处置裁决权边界、结论与遥测、认证成本报告口径与 retained-memory 分类"
 applicability = "#applicability"

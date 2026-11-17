@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-lane-graph"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义车道图、连接和交通拓扑。"
 scope = "Lane Graph + Route 的 Traffic Runtime 模型、edge / connection / topology 与 per-edge 基础道路限速"
 related = ["adr-0003", "adr-0005", "adr-0017", "adr-0025", "adr-0028", "design-core-id-handles", "design-road-junction-model", "design-route-system", "design-shared-static-network", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "roadmap"]

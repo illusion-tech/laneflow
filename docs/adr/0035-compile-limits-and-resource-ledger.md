@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0035"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "规定容量限额、宿主预算与受控分配资源账本。"
 scope = "laneflow-compiler 的 CompileLimits 维度集合与配置档、编译与发射阶段的 受控分配记账、外部可移植字节的准入与配置档自洽检查；不改变任何可移植制品字节、格式 版本或 NetworkRevisionId"
 date = "2026-11-16"

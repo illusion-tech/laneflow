@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0033"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-10-26"
 summary = "规定摘要角色分类与算法选型职责。"
 scope = "LaneFlow 主树中所有摘要（digest）与指纹（fingerprint）的角色划分、算法选择、 持久化要求与依赖约束"
 date = "2026-10-24"

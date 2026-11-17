@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-vehicle-following"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义跟车、纵向控制、安全距离与投影。"
 scope = "Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收"
 applicability = "#applicability"

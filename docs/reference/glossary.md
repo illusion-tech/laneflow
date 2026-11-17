@@ -3,6 +3,7 @@ schema_version = 1
 id = "reference-glossary"
 kind = "reference"
 status = "active"
+revised_date = "2026-11-16"
 summary = "统一中文规范术语、英文辅助名与废弃旧称。"
 scope = "LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、 #291 编译器时代静态路网方案、交通基础设施与宿主边界"
 +++

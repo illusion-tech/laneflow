@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-parking-system"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义停车资源、预留、停入、离场与车辆移除。"
 scope = "ParkingFacility / ParkingSpace 静态模型、显式与虚拟停车资源、 Traffic Runtime 生命周期、快照/修订切换、Spatial/Adapter 和复杂度边界"
 applicability = "#applicability"

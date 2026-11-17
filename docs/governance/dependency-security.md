@@ -3,6 +3,7 @@ schema_version = 1
 id = "governance-dependency-security"
 kind = "governance"
 status = "active"
+revised_date = "2026-07-17"
 summary = "规定许可证、依赖安全与漏洞治理。"
 scope = "LaneFlow 公开仓库的源代码许可、Rust/Cargo 依赖许可证、漏洞、来源与持续更新治理"
 applicability = "#applicability"

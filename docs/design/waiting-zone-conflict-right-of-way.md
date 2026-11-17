@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-waiting-zone-conflict-right-of-way"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义等待区、冲突区与通行权联合分层。"
 scope = "WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界"
 applicability = "#applicability"

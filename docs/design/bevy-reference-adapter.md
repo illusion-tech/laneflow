@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-bevy-reference-adapter"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-03"
 summary = "定义 Bevy 参考适配器的接入与生命周期。"
 scope = "Bevy 0.20 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example"
 applicability = "#applicability"

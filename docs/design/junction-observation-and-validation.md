@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-junction-observation-and-validation"
 kind = "design"
 status = "accepted"
+revised_date = "2026-09-14"
 summary = "定义复杂路口只读观测、参考场景与有限验证。"
 scope = "道路机动车复杂路口的 Runtime 只读定位、Bevy 观测与参考场景、 有限正确性回归和一万／十万有界运行"
 applicability = "#applicability"

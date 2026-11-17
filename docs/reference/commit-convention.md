@@ -3,6 +3,7 @@ schema_version = 1
 id = "reference-commit-convention"
 kind = "reference"
 status = "active"
+revised_date = "2026-10-28"
 summary = "规定提交标题、关联议题和工具归属格式。"
 scope = "LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查"
 +++

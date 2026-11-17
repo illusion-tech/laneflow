@@ -3,6 +3,7 @@ schema_version = 1
 id = "docs-adr-index"
 kind = "index"
 status = "active"
+revised_date = "2026-11-17"
 summary = "提供架构决策记录及其有效性关系的生成索引。"
 +++
 

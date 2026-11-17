@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0002"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-07-14"
 summary = "规定依赖和许可证的选择边界。"
 scope = "LaneFlow 公开仓库、Core、Data、Adapter、Authoring 工具的源代码许可、运行时依赖与第三方许可证边界"
 date = "2026-06-18"

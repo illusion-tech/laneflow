@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-core-id-handles"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义稳定标识、修订内序号和代际句柄。"
 scope = "稳定标识、共享路网修订内的有类型序号、每世界代际句柄、车辆与路线生命周期，以及热路径的标识边界"
 related = ["adr-0003", "adr-0005", "adr-0010", "adr-0016", "adr-0017", "adr-0020", "adr-0029", "architecture", "design-network-compiler", "design-parking-system", "design-road-junction-model", "design-shared-static-network", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "reference-glossary"]

@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-road-junction-model"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义道路、路口、通行流向与机动路径模型。"
 scope = "长期 Road/Junction/Maneuver 分层、最小静态产品 profile、ManeuverGate、Route occurrence、确定性与性能边界"
 related = ["adr-0003", "adr-0005", "adr-0008", "adr-0009", "adr-0013", "adr-0017", "adr-0018", "architecture", "design-cross-section-access", "design-example-scenarios", "design-lane-graph", "design-route-system", "design-signal-system", "design-signalized-corridor-protected-turning", "design-spatial-geometry", "design-vehicle-following", "roadmap"]

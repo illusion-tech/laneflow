@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-example-scenarios"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-23"
 summary = "定义参考场景的几何、路线与验证用途。"
 scope = "信号化走廊几何、受保护转向 profile、catalog 0.4、人口和车辆回流策略。 JSON 制品与 production loader 已删除。§12 另行登记 #285 阶段二的复杂路口参考场景。"
 applicability = "#applicability"

@@ -3,6 +3,7 @@ schema_version = 1
 id = "guides-source-integration"
 kind = "guide"
 status = "active"
+revised_date = "2026-11-15"
 summary = "指导从源码接入无窗口交通运行时。"
 scope = "指导从源码接入无窗口交通运行时。"
 applicability = "#applicability"

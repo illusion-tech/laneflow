@@ -3,6 +3,7 @@ schema_version = 1
 id = "docs-governance-index"
 kind = "index"
 status = "active"
+revised_date = "2026-11-17"
 summary = "提供项目工作流、文档职责与安全治理的索引。"
 +++
 

@@ -3,6 +3,7 @@ schema_version = 1
 id = "roadmap"
 kind = "reference"
 status = "active"
+revised_date = "2026-11-15"
 summary = "说明版本能力边界与已裁定的长期方向。"
 scope = "LaneFlow 已完成版本的能力边界、v0.10 验收证据范围，以及已裁定的后续版本目标"
 applicability = "#applicability"

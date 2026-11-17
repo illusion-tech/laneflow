@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-near-gate-frontier"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-15"
 summary = "定义近门车辆集合、入口更新与休眠。"
 scope = "TrafficWorld 冲突接近记录的维护，以及红灯门前的到达下界"
 applicability = "#applicability"

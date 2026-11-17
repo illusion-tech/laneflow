@@ -3,6 +3,7 @@ schema_version = 1
 id = "reference-rust-code-style"
 kind = "reference"
 status = "active"
+revised_date = "2026-09-16"
 summary = "规定 Rust 可读性、注释与契约文档约定。"
 scope = "LaneFlow workspace 中的 Rust 源码、测试、基准和治理工具"
 +++

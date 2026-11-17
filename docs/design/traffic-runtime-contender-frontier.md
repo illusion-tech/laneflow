@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-contender-frontier"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-10"
 summary = "定义准入候选名单复用与失效重建。"
 scope = "spawn_vehicle 与 replace_completed_vehicle 运动安全准入里的候选名单 （冲突区申请者、排队进入者、格点到达）如何得到"
 applicability = "#applicability"

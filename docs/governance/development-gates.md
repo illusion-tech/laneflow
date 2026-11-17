@@ -3,6 +3,7 @@ schema_version = 1
 id = "governance-development-gates"
 kind = "governance"
 status = "active"
+revised_date = "2026-11-17"
 summary = "规定 G0–G2 人流程及合并检查。"
 scope = "LaneFlow 的需求、设计、实现、评审与合并"
 +++

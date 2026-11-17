@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-signalized-corridor-population"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-23"
 summary = "定义信号化走廊人口与车辆回流。"
 scope = "current v0.10 signalized-corridor catalog 0.4 人口/回流 policy； caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订 （#472）；50–200 原子替换由 #475 交付。"
 applicability = "#applicability"

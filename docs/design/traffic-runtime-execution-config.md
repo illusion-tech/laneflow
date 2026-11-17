@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-execution-config"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-11"
 summary = "定义世界执行配置、资源和快照边界。"
 scope = "世界安装、fresh restore、同/跨修订切换、执行资源与 LFRS 版本轴"
 applicability = "#applicability"

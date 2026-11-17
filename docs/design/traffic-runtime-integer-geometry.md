@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-integer-geometry"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义整数毫米运动、速度与停止约束。"
 scope = "TrafficWorld 已提交一维几何与速度、WorldConfig 步长、 laneflow-static-network 热列、LFCA 长度/速度字段、compiler Typed AST / HIR / MIR / LIR 交通一维存储、公开 Canonical*View、compiler 边长派生、 Spatial 采样钉死端点"
 applicability = "#applicability"

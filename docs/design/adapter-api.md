@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-adapter-api"
 kind = "design"
 status = "accepted"
+revised_date = "2026-08-31"
 summary = "定义引擎适配器与运行时、空间层的接口边界。"
 scope = "交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 bevy-reference-adapter.md"
 applicability = "#applicability"

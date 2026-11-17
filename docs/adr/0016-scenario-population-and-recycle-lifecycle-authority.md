@@ -3,6 +3,7 @@ schema_version = 1
 id = "adr-0016"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-10-23"
 summary = "规定参考场景人口与车辆回流的职责边界。"
 scope = "Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换/移除命令、seeded 回流、Bevy proxy 复用与启动配置边界"
 date = "2026-07-22"

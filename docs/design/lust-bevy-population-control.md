@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-lust-bevy-population-control"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-09"
 summary = "定义 LuST 与 Bevy 示例层的人口调节。"
 scope = "LuST 真实路网 Bevy native 示例（#257）的一至一万个体人口调节、 展示计数与确定性抽样；不覆盖走廊 50..=200 reference policy，也不改写 TOPO/DEMAND workload ID"
 applicability = "#applicability"

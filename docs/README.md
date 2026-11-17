@@ -3,6 +3,7 @@ schema_version = 1
 id = "docs-index"
 kind = "index"
 status = "active"
+revised_date = "2026-11-17"
 summary = "提供 LaneFlow 正式文档的分类与阅读入口。"
 +++
 

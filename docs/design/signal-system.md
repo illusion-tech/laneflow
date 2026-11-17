@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-signal-system"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义固定时制信号、门控与车辆合规。"
 scope = "Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。"
 applicability = "#applicability"

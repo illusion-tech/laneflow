@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-vehicle-placement"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义车辆新生成与替换的运动安全准入。"
 scope = "spawn_vehicle 与 replace_completed_vehicle 在提交前的运动安全准入"
 applicability = "#applicability"

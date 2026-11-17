@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-urban-demand-harness"
 kind = "design"
 status = "accepted"
+revised_date = "2026-10-25"
 summary = "定义城市需求计划、无界面执行与结果核验。"
 scope = "LF-CN-URBAN-v1 的调用方需求、无界面运行程序、有限行为校验和结果包"
 issues = ["https://github.com/illusion-tech/laneflow/issues/544", "https://github.com/illusion-tech/laneflow/issues/608"]

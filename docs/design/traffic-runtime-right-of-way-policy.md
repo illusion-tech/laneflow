@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-right-of-way-policy"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义路权策略编译与正式冲突仲裁合同。"
 scope = "官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、 运行时快照与修订切换"
 applicability = "#applicability"

@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-compiler-foundation"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义编译器中间表示、前端接入与编译基础合同。"
 scope = "laneflow-static-contract、laneflow-compiler、有类型抽象语法树（Typed Abstract Syntax Tree， Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层 中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断 （Diagnostic）与正本来源投影"
 applicability = "#applicability"

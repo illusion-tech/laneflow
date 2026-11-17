@@ -3,6 +3,7 @@ schema_version = 1
 id = "design-signalized-corridor-protected-turning"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-16"
 summary = "定义信号化走廊受保护转向与清空判据。"
 scope = "v0.9 双路口走廊的受保护左转、直行、右转、lane-level ManeuverPath、完整 Route catalog、固定时制与验证边界"
 applicability = "#applicability"
