@@ -2433,7 +2433,11 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
     assert!(world.conflict_reservation(winner).is_some());
     let loser_state = world.vehicle(loser).expect("loser remains active");
     assert_eq!(loser_state.route_edge_index(), 0);
-    assert_eq!(loser_state.speed_mm_s(), 0);
+    // #1272：败者为窗内停止目标按紧急域上界驻留（耗尽衰减），不再一拍清零。
+    assert!(
+        loser_state.speed_mm_s() <= 10_600,
+        "loser brakes within bound"
+    );
 
     for _ in 0..40 {
         world.step(TickInput::new(100)).expect("retry loser");
@@ -6776,10 +6780,11 @@ fn conservative_gap_profile_calibration_matrix_uses_the_formal_solver() {
         spawn_calibration_vehicle(&mut world, car, routes[1], priority_gate - 6_500, 13_000);
         spawn_calibration_vehicle(&mut world, car, routes[1], priority_gate - 13_000, 13_000);
         let subject = spawn_calibration_vehicle(&mut world, car, routes[0], subject_gate, 10_000);
+        // #1272：饱和排队疏散变慢（窗内提前制动 + 到位衰减），预算放宽。
         saturated.push(wait_for_calibration_grant(
             &mut world,
             subject,
-            120,
+            360,
             &mut saturated_rejects,
         ));
 

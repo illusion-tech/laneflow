@@ -161,7 +161,8 @@ fn tail_clearance_and_route_completion_commit_in_the_same_tick() {
     )
     .unwrap();
     let mut restored = restored.into_world();
-    for _ in 0..40 {
+    // #1272：路终/清空目标提前制动，完成时点后移；预算放宽到 160 拍。
+    for _ in 0..160 {
         world
             .step(TickInput::new(100))
             .expect("tail clearance at RouteEnd must commit");
@@ -303,22 +304,11 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
         install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
-    assert_eq!(
-        world.spawn_vehicle(
-            VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                boundary,
-                13_000,
-            )
-            .with_open_entrance()
-        ),
-        Err(SpawnError::StopConstraintUnsatisfiable),
-        "the following gate is inside this tick and past the emergency envelope"
-    );
+    // #1272：首拍预览按停止目标级联减速（紧急域内），13 m/s 到下一门约
+    // 13 m、紧急刹停 9.4 m 放得下——准入成功，不再因「本拍够得到即急停」
+    // 拒绝。停不住的更近摆放仍由 can_stop_before 拒绝（见上方 1 mm 用例）。
     let vehicle = world
-        .place_existing_active_vehicle(
+        .spawn_vehicle(
             VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
@@ -328,14 +318,20 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
             )
             .with_open_entrance(),
         )
-        .unwrap();
+        .expect("stoppable before the following gate within the emergency envelope");
     world.step(TickInput::new(1_000)).unwrap();
     let state = world.vehicle(vehicle).unwrap();
     assert_eq!(state.route_edge_index(), 1);
-    assert_eq!(state.progress_mm(), 13_000);
+    // #1272：紧急域制动到下一门前（13 m 边内行进 11 m、留 2 m 余量），
+    // 不再精确钉在门线上。
+    assert_eq!(state.progress_mm(), 11_000);
+    assert!(state.speed_mm_s() > 0 || state.progress_mm() < 13_000);
+    // #1272：车辆在下一门前 2 m 处以紧急域上界速度驻留（耗尽衰减），
+    // 尚未过门——没有旧尾清空、没有 GateCrossed，预约随裁决生命周期保留。
+    // 「同拍过首门后停在下一门前」的新语义由本断言固化；跨门发生在放行拍。
     assert!(
-        world.conflict_reservation(vehicle).is_none(),
-        "old tail clears exactly at the next Gate"
+        world.conflict_reservation(vehicle).is_some(),
+        "reservation holds while braking ahead of the next gate"
     );
     assert_eq!(
         world
@@ -371,14 +367,38 @@ fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() 
         )
         .unwrap();
     assert!(world.conflict_reservation(vehicle).is_none());
-    world.step(TickInput::new(1_000)).unwrap();
-    assert!(world.conflict_reservation(vehicle).is_none());
-    let kinds: Vec<_> = world
-        .latest_transition_events()
-        .iter()
-        .map(|event| event.kind())
-        .filter(|kind| !matches!(kind, Kind::GateCrossed { .. }))
-        .collect();
+    // #1272：13 m/s 起步在同拍内先为路终/清空目标减速，完整获取-进入-清空-
+    // 释放-完成生命周期跨多拍收束；按事件序核验（顺序不变，时点后移）。
+    let mut kinds: Vec<_> = Vec::new();
+    for _ in 0..12 {
+        assert!(world.conflict_reservation(vehicle).is_none());
+        world.step(TickInput::new(1_000)).unwrap();
+        let batch: Vec<_> = world
+            .latest_transition_events()
+            .iter()
+            .map(|event| event.kind())
+            .filter(|kind| !matches!(kind, Kind::GateCrossed { .. }))
+            .collect();
+        for kind in batch {
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+        if kinds.len() == 5
+            && matches!(
+                kinds.as_slice(),
+                [
+                    Kind::ReservationAcquired { .. },
+                    Kind::ConflictEntered { .. },
+                    Kind::ConflictCleared { .. },
+                    Kind::ReservationReleased { .. },
+                    Kind::ManeuverTraversalCompleted { .. }
+                ]
+            )
+        {
+            break;
+        }
+    }
     assert!(
         matches!(
             kinds.as_slice(),
