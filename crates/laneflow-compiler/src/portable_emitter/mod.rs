@@ -7,6 +7,7 @@
 
 mod api;
 mod budget;
+mod canonical_usage;
 mod lfca;
 mod lfsd;
 mod lfsm;
@@ -64,47 +65,6 @@ const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
 
 fn stable_id_bytes<K: EntityKindMarker>(id: StableId<K>) -> [u8; 16] {
     id.into_untyped().into_bytes()
-}
-
-fn source_relation_role_code(value: crate::SourceRelationRole) -> u8 {
-    match value {
-        crate::SourceRelationRole::LaneEdgeSuccessor => 1,
-        crate::SourceRelationRole::RoadCorridorElement => 2,
-        crate::SourceRelationRole::RoadSectionLane => 3,
-        crate::SourceRelationRole::AuthoringLaneEdge => 4,
-        crate::SourceRelationRole::LaneGroupMember => 5,
-        crate::SourceRelationRole::JunctionMovement => 6,
-        crate::SourceRelationRole::MovementManeuverPath => 7,
-        crate::SourceRelationRole::ManeuverPathEdge => 8,
-        crate::SourceRelationRole::JunctionInternalEdge => 9,
-        crate::SourceRelationRole::ManeuverPathGate => 10,
-        crate::SourceRelationRole::ManeuverPathWaitingZone => 11,
-        crate::SourceRelationRole::StopLineManeuverGate => 12,
-        crate::SourceRelationRole::ParkingFacilityVirtualEntry => 13,
-        crate::SourceRelationRole::ParkingFacilityVirtualExit => 14,
-        crate::SourceRelationRole::JunctionConflictZone => 15,
-        crate::SourceRelationRole::JunctionParticipantStream => 16,
-        crate::SourceRelationRole::SignalControllerGroup => 17,
-        crate::SourceRelationRole::SignalControllerPhase => 18,
-        crate::SourceRelationRole::SignalPhaseState => 19,
-        crate::SourceRelationRole::ManeuverGateSignalGroup => 20,
-        crate::SourceRelationRole::ParkingSpaceFacility => 21,
-        crate::SourceRelationRole::ParkingSpaceEntry => 22,
-        crate::SourceRelationRole::ParkingSpaceExit => 23,
-        crate::SourceRelationRole::ParticipantClassExtends => 24,
-        crate::SourceRelationRole::AccessRuleTarget => 25,
-        crate::SourceRelationRole::AccessRuleParticipantClass => 26,
-        crate::SourceRelationRole::VehicleProfileParticipantClass => 27,
-        crate::SourceRelationRole::CanonicalFrameLaneEdgeGeometry => 28,
-        crate::SourceRelationRole::CanonicalFrameFacilityBandGeometry => 29,
-        crate::SourceRelationRole::ParticipantStreamManeuverPath => 30,
-        crate::SourceRelationRole::ParticipantStreamConflictPassage => 31,
-        crate::SourceRelationRole::CanonicalFrameConflictZoneRegion => 32,
-        crate::SourceRelationRole::PolicyEvidence => 33,
-        crate::SourceRelationRole::PolicyGapProfile => 34,
-        crate::SourceRelationRole::PolicyStreamRule => 35,
-        crate::SourceRelationRole::PolicyGateRule => 36,
-    }
 }
 
 fn geometry_accuracy_profile_code(value: crate::GeometryAccuracyProfile) -> u8 {
@@ -307,6 +267,14 @@ fn emit_portable_candidate_with(
         limits,
     )?
     .registry_view();
+    // 两侧规范统计逐角色一致：LFCA 一侧只借用受检视图，不分配，在建立索引前执行。
+    if canonical_usage::lfca_statistics(
+        canonical_view,
+        PortableEmissionError::InternalBindingMismatch,
+    )? != crate::canonical_usage::lir_statistics(output.lir().unit())
+    {
+        return Err(PortableEmissionError::InternalBindingMismatch);
+    }
     // 目标实体索引由发射上下文建立一次，供关系投影自校验与 LFSD 构建共用，存续到 LFSD
     // 构建结束（ADR 0035 第 5 节）。
     let target_index = build_target_index(canonical_view, single)?;

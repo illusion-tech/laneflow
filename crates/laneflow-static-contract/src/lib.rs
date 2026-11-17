@@ -5,6 +5,7 @@
 #[cfg(test)]
 extern crate std;
 
+mod canonical_capacity;
 mod policy;
 mod portable;
 mod portable_registry;
@@ -12,6 +13,10 @@ mod registry;
 mod typed;
 mod values;
 
+pub use canonical_capacity::{
+    CanonicalNetworkCapacity, CanonicalNetworkCapacityExceeded, CanonicalNetworkDimension,
+    CanonicalNetworkUsage, CanonicalRelationCapacity, SourceRelationRole,
+};
 pub use portable::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, CANONICAL_PUBLICATION_DESCRIPTOR_VERSION,
     CHUNKED_SECTION_FORMAT_VERSION, CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH,

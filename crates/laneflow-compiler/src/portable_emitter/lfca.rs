@@ -65,7 +65,7 @@ fn prepare_inputs(
     flags.try_extend(spatial.enumerate().map(|(index, source)| {
         (
             source.owner_ordinal().raw(),
-            source_relation_role_code(source.role()),
+            source.role().code(),
             source.local_index(),
             index,
             source.geometry_source_ranges().len() != 0,
@@ -78,9 +78,7 @@ fn prepare_inputs(
 
     let mut counters = pass.vec::<u32>(frames)?;
     counters.resize(frames, 0)?;
-    let lane_role = source_relation_role_code(
-        crate::source_map::SourceRelationRole::CanonicalFrameLaneEdgeGeometry,
-    );
+    let lane_role = crate::source_map::SourceRelationRole::CanonicalFrameLaneEdgeGeometry.code();
     let mut lane_geometry_applies = pass.vec::<bool>(lir.lane_edge_geometries.len())?;
     for geometry in &lir.lane_edge_geometries {
         let local_index = counters[geometry.canonical_frame.index()];
@@ -95,9 +93,8 @@ fn prepare_inputs(
         lane_geometry_applies.push(applies)?;
     }
     counters.fill(0);
-    let facility_role = source_relation_role_code(
-        crate::source_map::SourceRelationRole::CanonicalFrameFacilityBandGeometry,
-    );
+    let facility_role =
+        crate::source_map::SourceRelationRole::CanonicalFrameFacilityBandGeometry.code();
     let mut facility_geometry_applies = pass.vec::<bool>(lir.facility_band_geometries.len())?;
     for geometry in &lir.facility_band_geometries {
         let local_index = counters[geometry.canonical_frame.index()];

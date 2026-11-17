@@ -363,35 +363,6 @@ macro_rules! for_each_stable_family {
     };
 }
 
-/// 对每个 LIR 稳定实体表展开 `$apply!(实体种类, 记录表)`。
-macro_rules! for_each_lir_entity_table {
-    ($lir:expr, $apply:ident) => {
-        $apply!(EntityKind::RoadCorridor, $lir.road_corridors);
-        $apply!(EntityKind::RoadSection, $lir.road_sections);
-        $apply!(EntityKind::AuthoringLane, $lir.authoring_lanes);
-        $apply!(EntityKind::LaneEdge, $lir.lane_edges);
-        $apply!(EntityKind::Junction, $lir.junctions);
-        $apply!(EntityKind::Movement, $lir.movements);
-        $apply!(EntityKind::ManeuverPath, $lir.maneuver_paths);
-        $apply!(EntityKind::ManeuverGate, $lir.maneuver_gates);
-        $apply!(EntityKind::WaitingZone, $lir.waiting_zones);
-        $apply!(EntityKind::StopLine, $lir.stop_lines);
-        $apply!(EntityKind::SignalGroup, $lir.signal_groups);
-        $apply!(EntityKind::SignalController, $lir.signal_controllers);
-        $apply!(EntityKind::SignalPhase, $lir.signal_phases);
-        $apply!(EntityKind::ParkingFacility, $lir.parking_facilities);
-        $apply!(EntityKind::ParkingSpace, $lir.parking_spaces);
-        $apply!(EntityKind::LaneGroup, $lir.lane_groups);
-        $apply!(EntityKind::FacilityBand, $lir.facility_bands);
-        $apply!(EntityKind::ParticipantClass, $lir.participant_classes);
-        $apply!(EntityKind::AccessRule, $lir.access_rules);
-        $apply!(EntityKind::VehicleProfile, $lir.vehicle_profiles);
-        $apply!(EntityKind::ConflictZone, $lir.conflict_zones);
-        $apply!(EntityKind::CanonicalFrame, $lir.canonical_frames);
-        $apply!(EntityKind::ParticipantStream, $lir.participant_streams);
-    };
-}
-
 /// 对每个所有者局部来源族（不含 successor 与空间关系）展开
 /// `$apply!(来源迭代器, 来源 => 所有者种类与稳定标识)`。
 macro_rules! for_each_owner_family {
@@ -518,7 +489,7 @@ fn source_counts(output: &CompilationOutput) -> SourceCounts {
             counts.lir_entities += $records.len();
         };
     }
-    for_each_lir_entity_table!(lir, lir_entities);
+    crate::lir::for_each_lir_entity_table!(lir, lir_entities);
     counts.expected_owner = super::relations::canonical_relation_count(lir)
         + lir
             .signal_phases
@@ -674,7 +645,7 @@ fn prepare_sources<'a>(
                 }
             };
         }
-        for_each_lir_entity_table!(lir, expected_keys);
+        crate::lir::for_each_lir_entity_table!(lir, expected_keys);
         expected.sort_unstable();
         if !stable
             .iter()
@@ -711,7 +682,7 @@ fn prepare_sources<'a>(
             owner_local.push(OwnerLocalProjection {
                 owner_entity_kind: EntityKind::LaneEdge,
                 owner_stable_id: stable_id_bytes(source.owner_stable_id()),
-                role: source_relation_role_code(source.role()),
+                role: source.role().code(),
                 local_index,
                 primary,
                 contributing: Slots {
@@ -735,7 +706,7 @@ fn prepare_sources<'a>(
                 owner_local.push(OwnerLocalProjection {
                     owner_entity_kind,
                     owner_stable_id,
-                    role: source_relation_role_code($source.role()),
+                    role: $source.role().code(),
                     local_index: $source.local_index(),
                     primary,
                     contributing: Slots {
@@ -752,7 +723,7 @@ fn prepare_sources<'a>(
     for source in source_map.spatial_relation_sources() {
         let owner_entity_kind = EntityKind::CanonicalFrame;
         let owner_stable_id = stable_id_bytes(source.owner_stable_id());
-        let role = source_relation_role_code(source.role());
+        let role = source.role().code();
         let local_index = source.local_index();
         let primary = location_value(source.primary_source(), &document_ordinals)?;
         let start = contributing.len();

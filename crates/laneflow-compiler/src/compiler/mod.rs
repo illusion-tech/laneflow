@@ -60,6 +60,15 @@ impl ValidatedCanonicalLir {
         &self.inner
     }
 
+    /// 本规范路网的规范路网规模：稳定实体、机动门、等待区、规范关系出现记录与规范几何点。
+    ///
+    /// 计数定义见编译器基础设计第 5.3 节；同一规范路网从最终 LFCA 字节独立求出的规模与之
+    /// 逐维相等。规模是事实，不是限额。
+    #[must_use]
+    pub fn canonical_network_usage(&self) -> laneflow_static_contract::CanonicalNetworkUsage {
+        crate::canonical_usage::lir_statistics(&self.inner).usage()
+    }
+
     /// 按完整 Identity v1 原像规范顺序遍历全部车道图边。
     pub fn lane_edges(&self) -> impl ExactSizeIterator<Item = CanonicalLaneEdgeView<'_>> {
         self.inner
