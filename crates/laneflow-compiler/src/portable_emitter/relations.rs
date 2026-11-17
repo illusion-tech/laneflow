@@ -76,37 +76,47 @@ pub(super) fn is_internal_edge(lir: &crate::lir::LirUnit, edge: u32) -> bool {
         .is_ok()
 }
 
-/// 依次产出全部规范关系元组（未排序），不分配。
-pub(super) fn for_each_canonical_relation_tuple(
-    lir: &crate::lir::LirUnit,
-    f: &mut dyn FnMut(RelationTuple),
-) {
-    for_each_canonical_relation(lir, &mut RelationSink(f));
+/// 规范关系遍历所需的路口局部序号暂存长度：路口内部边、冲突区与参与者流三组路口成员
+/// 关系逐个路口编号，共用一段按路口序号索引的计数器。
+pub(super) fn canonical_relation_scratch_len(lir: &crate::lir::LirUnit) -> usize {
+    lir.junctions.len()
 }
 
-/// 规范关系元组的数量，即 [`canonical_relation_tuples`] 的计划容量。
+/// 依次产出全部规范关系元组（未排序）。路口局部序号的暂存由调用方从编译遍授予，长度为
+/// [`canonical_relation_scratch_len`]；本函数自身不分配。
+pub(super) fn for_each_canonical_relation_tuple(
+    lir: &crate::lir::LirUnit,
+    pass: &crate::ledger::PassBudget<'_>,
+    f: &mut dyn FnMut(RelationTuple),
+) -> Result<(), PortableEmissionError> {
+    let mut junction_next = pass.vec::<u32>(canonical_relation_scratch_len(lir))?;
+    junction_next.resize(canonical_relation_scratch_len(lir), 0)?;
+    for_each_canonical_relation(lir, Some(&mut junction_next), &mut RelationSink(f));
+    Ok(())
+}
+
+/// 规范关系元组的数量，即 [`canonical_relation_tuples`] 的元组计划容量。不分配，供准入前
+/// 求计划使用。
 pub(super) fn canonical_relation_count(lir: &crate::lir::LirUnit) -> usize {
     let mut count = 0_usize;
-    for_each_canonical_relation(lir, &mut RelationSink(&mut |_| count += 1));
+    for_each_canonical_relation(lir, None, &mut RelationSink(&mut |_| count += 1));
     count
 }
 
 /// 从冻结 LIR 投影全部规范关系元组并按规范顺序排序，存入编译遍授予的序列；路口内部边
-/// 不参与 successor 关系。授予容量为 [`canonical_relation_count`]。
+/// 不参与 successor 关系。授予容量为 [`canonical_relation_count`] 个元组加
+/// [`canonical_relation_scratch_len`] 个 `u32` 暂存。
 pub(super) fn canonical_relation_tuples(
     lir: &crate::lir::LirUnit,
     pass: &crate::ledger::PassBudget<'_>,
 ) -> Result<crate::ledger::BoundedVec<RelationTuple>, PortableEmissionError> {
     let mut relations = pass.vec(canonical_relation_count(lir))?;
     let mut overflow = None;
-    for_each_canonical_relation(
-        lir,
-        &mut RelationSink(&mut |relation| {
-            if let Err(error) = relations.push(relation) {
-                overflow.get_or_insert(error);
-            }
-        }),
-    );
+    for_each_canonical_relation_tuple(lir, pass, &mut |relation| {
+        if let Err(error) = relations.push(relation) {
+            overflow.get_or_insert(error);
+        }
+    })?;
     if let Some(error) = overflow {
         return Err(error.into());
     }
@@ -117,15 +127,40 @@ pub(super) fn canonical_relation_tuples(
 /// 不经账本的规范关系元组；只供 LFSD 构造代码直接写入对象树之前的差异路径使用。
 pub(super) fn canonical_relation_tuple_vec(lir: &crate::lir::LirUnit) -> Vec<RelationTuple> {
     let mut relations = Vec::new();
+    let mut junction_next = vec![0_u32; canonical_relation_scratch_len(lir)];
     for_each_canonical_relation(
         lir,
+        Some(&mut junction_next),
         &mut RelationSink(&mut |relation| relations.push(relation)),
     );
     relations.sort_unstable();
     relations
 }
 
-fn for_each_canonical_relation(lir: &crate::lir::LirUnit, relations: &mut RelationSink<'_>) {
+/// 路口局部序号计数器清零；只计数时无暂存。
+fn reset_junction_next(junction_next: &mut Option<&mut [u32]>) {
+    if let Some(next) = junction_next {
+        next.fill(0);
+    }
+}
+
+/// 取路口的下一个局部序号；只计数时无暂存，返回 0。
+fn next_junction_local(junction_next: &mut Option<&mut [u32]>, junction: usize) -> u32 {
+    let Some(next) = junction_next else {
+        return 0;
+    };
+    let local_index = next[junction];
+    next[junction] += 1;
+    local_index
+}
+
+/// 规范关系遍历，自身不分配。`junction_next` 为 `None` 时只计数：路口内部边、冲突区与
+/// 参与者流关系的局部序号一律为 0，接收端得到的元组只能用于计数。
+fn for_each_canonical_relation(
+    lir: &crate::lir::LirUnit,
+    mut junction_next: Option<&mut [u32]>,
+    relations: &mut RelationSink<'_>,
+) {
     for edge in &lir.lane_edges {
         let mut local_index = 0_u32;
         for successor in &lir.lane_edge_successors[edge.successors.as_usize_range()] {
@@ -240,10 +275,9 @@ fn for_each_canonical_relation(lir: &crate::lir::LirUnit, relations: &mut Relati
         8,
         EntityKind::LaneEdge
     );
-    let mut next_internal_index = vec![0_u32; lir.junctions.len()];
+    reset_junction_next(&mut junction_next);
     for relation in &lir.junction_internal_edges {
-        let local_index = next_internal_index[relation.junction.index()];
-        next_internal_index[relation.junction.index()] += 1;
+        let local_index = next_junction_local(&mut junction_next, relation.junction.index());
         push_relation_tuple(
             relations,
             lir,
@@ -304,10 +338,9 @@ fn for_each_canonical_relation(lir: &crate::lir::LirUnit, relations: &mut Relati
             }
         }
     }
-    let mut next_zone_index = vec![0_u32; lir.junctions.len()];
+    reset_junction_next(&mut junction_next);
     for zone in &lir.conflict_zones {
-        let local_index = next_zone_index[zone.junction.index()];
-        next_zone_index[zone.junction.index()] += 1;
+        let local_index = next_junction_local(&mut junction_next, zone.junction.index());
         push_relation_tuple(
             relations,
             lir,
@@ -319,10 +352,9 @@ fn for_each_canonical_relation(lir: &crate::lir::LirUnit, relations: &mut Relati
             zone.ordinal.raw(),
         );
     }
-    let mut next_stream_index = vec![0_u32; lir.junctions.len()];
+    reset_junction_next(&mut junction_next);
     for stream in &lir.participant_streams {
-        let local_index = next_stream_index[stream.junction.index()];
-        next_stream_index[stream.junction.index()] += 1;
+        let local_index = next_junction_local(&mut junction_next, stream.junction.index());
         push_relation_tuple(
             relations,
             lir,

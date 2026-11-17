@@ -21,8 +21,8 @@ use relation::{artifact_relation_changes, artifact_relation_tuples, genesis_rela
 
 use super::budget::Accounting;
 use super::relations::{
-    canonical_relation_count, canonical_relation_tuple_vec, canonical_relation_tuples,
-    entity_stable_id,
+    canonical_relation_count, canonical_relation_scratch_len, canonical_relation_tuple_vec,
+    canonical_relation_tuples, entity_stable_id,
 };
 use super::*;
 
@@ -147,7 +147,8 @@ pub(super) fn verify_target_relation_projection(
         "relation-projection",
         ArtifactIndex::plan(target)
             .plus(policy_reference_plan(target))
-            .array::<RelationTuple>(canonical_relation_count(output.lir().unit())),
+            .array::<RelationTuple>(canonical_relation_count(output.lir().unit()))
+            .array::<u32>(canonical_relation_scratch_len(output.lir().unit())),
     )?;
     let target_index = ArtifactIndex::build(
         target,

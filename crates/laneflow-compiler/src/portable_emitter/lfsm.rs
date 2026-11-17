@@ -573,6 +573,7 @@ fn sources_plan(output: &CompilationOutput, counts: SourceCounts) -> Plan {
     let stable_keys = Plan::ZERO.array::<(EntityKind, [u8; 16], u32)>(counts.lir_entities);
     let owner_keys = Plan::ZERO
         .array::<(EntityKind, [u8; 16], u8, u32)>(counts.expected_owner)
+        .array::<u32>(super::relations::canonical_relation_scratch_len(lir))
         .array::<u32>(lir.canonical_frames.len());
     Plan::ZERO
         .array::<(u32, &str, crate::SourceDocumentView<'_>)>(documents)
@@ -905,7 +906,7 @@ fn verify_owner_local_keys(
 ) -> Result<(), PortableEmissionError> {
     let mut expected = pass.vec::<(EntityKind, [u8; 16], u8, u32)>(expected_count)?;
     let mut overflow = None;
-    super::relations::for_each_canonical_relation_tuple(lir, &mut |relation| {
+    super::relations::for_each_canonical_relation_tuple(lir, pass, &mut |relation| {
         if let Err(error) = expected.push((
             relation.owner_entity_kind,
             relation.owner_stable_id,
@@ -914,7 +915,7 @@ fn verify_owner_local_keys(
         )) {
             overflow.get_or_insert(error);
         }
-    });
+    })?;
     if let Some(error) = overflow {
         return Err(error.into());
     }
