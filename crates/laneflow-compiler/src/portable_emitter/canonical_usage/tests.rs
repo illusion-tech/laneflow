@@ -111,3 +111,14 @@ fn lfca_statistics_reject_a_missing_entity_section() {
         Err(PortableEmissionError::DiffBaseSemanticMismatch)
     );
 }
+
+#[test]
+fn lfca_projection_registry_matches_canonical_relation_capacity() {
+    for role in SourceRelationRole::ALL {
+        let counted = matches!(
+            role.canonical_relation_capacity(),
+            laneflow_static_contract::CanonicalRelationCapacity::Counted
+        );
+        assert_eq!(lfca_projection(role).is_some(), counted, "{role:?}");
+    }
+}
