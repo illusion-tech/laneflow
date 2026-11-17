@@ -4975,8 +4975,20 @@ impl<'a> MotionTaskView<'a> {
         cursor_row: Option<&MotionCursorRow>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
         let position = state.position();
+        // #1272：已知阻塞（Conflict/Waiting 屏障）的停止查询用制动前视窗——
+        // 窗内的持续阻塞提前形成停止目标（提前发现 ≠ 提前申请或持有资源）；
+        // 不可证明时退回本拍上界。
         let reach = profile.and_then(|profile| {
-            MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
+            MotionReach::from_braking_window(
+                state.speed_mm_s(),
+                profile.desired_speed_mm_s(),
+                profile.max_accel(),
+                profile.comfort_decel(),
+                delta_s,
+            )
+            .or_else(|| {
+                MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
+            })
         });
         let (skip_conflict, skip_waiting) =
             match cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index)) {
@@ -5568,6 +5580,20 @@ impl MotionReach {
         comfort_m_s2: f32,
         delta_s: f32,
     ) -> Option<Self> {
+        // 与 from_tick 相同的已证明范围：合法步长 4–1000 ms、加速度 0.5–50、
+        // 速度 ≤100 m/s；窗外推导只在合法域内成立，短于 4 ms 不证明。
+        if !(delta_s.is_finite() && (0.004..=1.0).contains(&delta_s)) {
+            return None;
+        }
+        if !(max_accel_m_s2.is_finite() && (0.5..=50.0).contains(&max_accel_m_s2)) {
+            return None;
+        }
+        if !(comfort_m_s2.is_finite() && (0.5..=50.0).contains(&comfort_m_s2)) {
+            return None;
+        }
+        if speed_mm_s > 100_000 || desired_mm_s > 100_000 {
+            return None;
+        }
         let window = speed_drop_window_upper(
             si_speed(speed_mm_s),
             si_speed(desired_mm_s),
@@ -7643,10 +7669,11 @@ mod barrier_query_tests {
 
         reset_barrier_query_counts();
         world.step(TickInput::new(100)).expect("first tick");
-        assert_eq!(
-            barrier_query_counts().conflict_scans,
-            0,
-            "the first tick is still beyond the reach"
+        // #1272：屏障在制动前视窗内即被查询（提前形成停止目标），
+        // 不再按本拍位移上界裁剪。
+        assert!(
+            barrier_query_counts().conflict_scans >= 1,
+            "the first tick queries the in-window barrier"
         );
         let mid = world.state.vehicle_state(handle).expect("mid");
         assert_eq!(mid.route_edge_index, admission);

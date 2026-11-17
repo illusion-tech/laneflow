@@ -163,7 +163,9 @@ impl Identity {
     /// 终点晚于败者清空后进入拍、早于任一换道者路线完成拍。
     pub fn lane_change_window(&self) -> (u64, u64) {
         // K=2 钉版窗口（调度可行域推导见 LaneChangeParams::validate）。
-        let observation = if self.fixed_delta_ms == 16 { 304 } else { 144 };
+        // #1272：换道生命周期含提前制动（停让方在制动前视窗内减速），
+        // 观察窗按钉版实测收束边界放宽（16 ms 档 304→624、33 ms 档 144→304）。
+        let observation = if self.fixed_delta_ms == 16 { 624 } else { 304 };
         (16, observation)
     }
 }
