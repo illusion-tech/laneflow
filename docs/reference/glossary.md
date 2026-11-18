@@ -5779,6 +5779,17 @@ byte backing 存储语境。
 
 登记依据：[\#1296][issue-1296]。
 
+<a id="name-compile-profile-aggregate-name"></a>
+### 编译资源上限 / compile limits / CompileLimits
+
+指代来源处理限额、规范路网容量与操作资源预算的聚合配置类型时。
+
+- [编译配置档][term-compile-limits]：现行聚合配置使用编译配置档及精确类型 CompileProfile。
+
+例外：对某项资源上限的普通描述不在此范围；历史提交、固定证据和旧接口说明保留当时名称。
+
+登记依据：[\#1441][issue-1441]、[\#1296][issue-1296]。
+
 <a id="name-durable-root-baseline"></a>
 ### 耐久根内容基线
 
@@ -5862,6 +5873,17 @@ harness 的 measurements.toml 输出。
 
 登记依据：[\#1012][issue-1012]。
 
+<a id="name-million-profile-scale-name"></a>
+### LF-COMP-SINGLE-NETWORK-1M / CompileLimits::single\_network\_1m()
+
+百万单路网编译配置档的现行标识符及构造入口。
+
+- [百万单路网配置档][term-single-network-million-compile-limits-profile]：名称明确计数对象为稳定实体；此项改名不新增百万档完整资格结论。
+
+例外：历史配置档版本、已关闭任务与固定提交证据保留原身份。
+
+登记依据：[\#1441][issue-1441]。
+
 <a id="name-occurrence-label"></a>
 ### 出现项
 
@@ -5897,6 +5919,17 @@ provenance 关系语境。
 例外：动词“沿袭”表示沿用旧制时不适用；代码和协议标识符保留原文。
 
 登记依据：[\#1229][issue-1229]。
+
+<a id="name-regular-profile-p100-name"></a>
+### P100 配置档 / LF-COMP-P100 / CompileLimits::p100()
+
+以 P100 指代现行常规编译配置档的语境。
+
+- [一万实体单路网配置档][term-single-network-10k-compile-profile]：承接局部完整路网编制用途；按新档数值政策和具名入口选择，不表示旧限额或 API 兼容。
+
+例外：LF-P100-REF-01、P100 参考硬件、历史测量基线与固定提交证据保留原身份；已退役 P100 编译资源配置档的历史定义不改写。
+
+登记依据：[\#1441][issue-1441]。
 
 <a id="name-shared-root"></a>
 ### 共享根 / 共享静态根 / shared root / shared-root
@@ -5963,6 +5996,7 @@ provenance 关系语境。
 [issue-1012]: https://github.com/illusion-tech/laneflow/issues/1012
 [issue-1229]: https://github.com/illusion-tech/laneflow/issues/1229
 [issue-1296]: https://github.com/illusion-tech/laneflow/issues/1296
+[issue-1441]: https://github.com/illusion-tech/laneflow/issues/1441
 [issue-985]: https://github.com/illusion-tech/laneflow/issues/985
 [retired-concepts]: #retired-concepts
 [source-adr-0021-417]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
