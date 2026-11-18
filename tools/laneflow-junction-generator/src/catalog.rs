@@ -135,7 +135,6 @@ pub(crate) fn build_catalog(
                     laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                     AUTHORING_NAMESPACE,
                     POLICY_KEY,
-                    &laneflow_compiler::CompileProfile::single_network_10k_stable_entities(),
                 )
                 .map_err(|error| Error::Catalog(format!("policy identity: {error:?}")))?,
             )

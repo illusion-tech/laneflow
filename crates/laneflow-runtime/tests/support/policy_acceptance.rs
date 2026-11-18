@@ -456,13 +456,9 @@ fn register_conflict_route(world: &mut TrafficWorld, keys: &[&str]) -> RouteHand
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
-            let id = derive_canonical_stable_id_v1(
-                EntityKind::LaneEdge,
-                "city/runtime-conflict",
-                key,
-                &limits,
-            )
-            .unwrap();
+            let id =
+                derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/runtime-conflict", key)
+                    .unwrap();
             revision
                 .identity()
                 .ordinal(LaneEdgeId::from_untyped(id))

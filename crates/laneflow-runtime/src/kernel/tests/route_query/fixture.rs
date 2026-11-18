@@ -244,13 +244,8 @@ pub fn world_with_policy(
 ) -> (rt::TrafficWorld, u128) {
     let origin = root.canonical_origin();
     let policy = RightOfWayPolicySetId::from_untyped(
-        derive_canonical_stable_id_v1(
-            EntityKind::RightOfWayPolicySet,
-            NAMESPACE,
-            policy_key,
-            &CompileProfile::single_network_1m_stable_entities(),
-        )
-        .unwrap(),
+        derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, NAMESPACE, policy_key)
+            .unwrap(),
     );
     let mut world = rt::TrafficWorld::install(
         Arc::clone(root),
@@ -315,13 +310,7 @@ pub fn validate(world: &rt::TrafficWorld) -> u64 {
 
 pub fn profile(root: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal {
     let id = VehicleProfileId::from_untyped(
-        derive_canonical_stable_id_v1(
-            EntityKind::VehicleProfile,
-            NAMESPACE,
-            key,
-            &CompileProfile::single_network_1m_stable_entities(),
-        )
-        .unwrap(),
+        derive_canonical_stable_id_v1(EntityKind::VehicleProfile, NAMESPACE, key).unwrap(),
     );
     root.identity().ordinal(id).unwrap()
 }

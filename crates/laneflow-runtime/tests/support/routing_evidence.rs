@@ -346,7 +346,7 @@ fn build_linear_revision() -> (Arc<SharedNetworkRevision>, Vec<StableId128>) {
     let stable_route: Vec<_> = keys
         .iter()
         .map(|key| {
-            let raw = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NAMESPACE, key, &limits)
+            let raw = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NAMESPACE, key)
                 .expect("LaneEdge stable id");
             let ordinal = revision
                 .identity()

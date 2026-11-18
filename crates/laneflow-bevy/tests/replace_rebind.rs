@@ -43,7 +43,6 @@ fn install_fixture(
                     laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                     "runtime-fixture-policy",
                     "fixture-policy",
-                    &CompileProfile::single_network_10k_stable_entities(),
                 )
                 .expect("full-spatial fixture policy identity"),
             ),

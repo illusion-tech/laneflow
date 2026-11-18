@@ -1889,12 +1889,10 @@ fn conflict_road_editing_module_with_shape_and_speed(
 
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
-            let stable =
-                derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key, &limits).expect("id");
+            let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key).expect("id");
             world
                 .revision()
                 .identity()
@@ -3262,13 +3260,9 @@ fn fresh_spawn_waiting_slot_loss_without_a_conflict_at_the_entrance() {
 }
 
 fn conflict_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal {
-    let stable = derive_canonical_stable_id_v1(
-        EntityKind::VehicleProfile,
-        "city/runtime-conflict",
-        key,
-        &CompileProfile::single_network_10k_stable_entities(),
-    )
-    .expect("profile identity");
+    let stable =
+        derive_canonical_stable_id_v1(EntityKind::VehicleProfile, "city/runtime-conflict", key)
+            .expect("profile identity");
     revision
         .identity()
         .ordinal(VehicleProfileId::from_untyped(stable))
@@ -6574,13 +6568,9 @@ impl CalibrationRejects {
 
 #[cfg(feature = "placement-fixtures")]
 fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal {
-    let stable = derive_canonical_stable_id_v1(
-        EntityKind::VehicleProfile,
-        "city/runtime-conflict",
-        key,
-        &CompileProfile::single_network_10k_stable_entities(),
-    )
-    .expect("calibration profile identity");
+    let stable =
+        derive_canonical_stable_id_v1(EntityKind::VehicleProfile, "city/runtime-conflict", key)
+            .expect("calibration profile identity");
     revision
         .identity()
         .ordinal(VehicleProfileId::from_untyped(stable))

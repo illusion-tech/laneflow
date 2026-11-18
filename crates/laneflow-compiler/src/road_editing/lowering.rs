@@ -35,9 +35,8 @@ use crate::declaration::{
 };
 use crate::identity::derive_canonical_stable_id_v1;
 use crate::{
-    CompileProfile, RoadEditingPropertyStep, RoadEditingRelationKind,
-    RoadEditingRelationOccurrence, RoadEditingStructKind, RoadEditingTableKind,
-    RoadEditingUnionKind, SourceLocation,
+    RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
+    RoadEditingStructKind, RoadEditingTableKind, RoadEditingUnionKind, SourceLocation,
 };
 
 const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
@@ -411,7 +410,6 @@ pub(super) fn lower_independent_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
     shared_namespace: &Arc<str>,
-    limits: &CompileProfile,
     declarations: &mut Vec<TypedAstDeclaration>,
 ) {
     let namespace = shared_namespace.as_ref();
@@ -455,7 +453,6 @@ pub(super) fn lower_independent_declarations(
                         EntityKind::LaneEdge,
                         reference.module_namespace,
                         reference.components[0],
-                        limits,
                     )
                     .expect("semantic preflight admitted the LaneEdge identity token");
                     (
@@ -2455,7 +2452,6 @@ mod tests {
             verified.root(),
             &locations,
             &shared_namespace,
-            &limits,
             &mut declarations,
         );
 
@@ -2537,7 +2533,6 @@ mod tests {
             verified.root(),
             &locations,
             &shared_namespace,
-            &limits,
             &mut declarations,
         );
 
@@ -2570,7 +2565,6 @@ mod tests {
             verified.root(),
             &locations,
             &shared_namespace,
-            &limits,
             &mut independent,
         );
         let mut declarations = Vec::new();

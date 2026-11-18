@@ -299,7 +299,6 @@ pub fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u6
             EntityKind::RightOfWayPolicySet,
             "city/waiting-scale",
             "waiting-policy",
-            &CompileProfile::single_network_10k_stable_entities(),
         )
         .expect("policy id"),
     );

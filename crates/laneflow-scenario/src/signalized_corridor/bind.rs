@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
-use laneflow_compiler::{
-    CanonicalIdentityViolation, CompileProfile, derive_canonical_stable_id_v1,
-};
+use laneflow_compiler::{CanonicalIdentityViolation, derive_canonical_stable_id_v1};
 use laneflow_runtime::{RouteError, RouteHandle, RouteRegisterInput, TrafficWorld};
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileId,
@@ -232,12 +230,11 @@ pub fn bind(
             }
         }
     }
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut routes = BTreeMap::new();
     for route in &catalog.routes {
         let mut edges = Vec::with_capacity(route.edge_ids.len());
         for edge_id in &route.edge_ids {
-            edges.push(resolve_edge(revision, edge_id, &limits)?);
+            edges.push(resolve_edge(revision, edge_id)?);
         }
         routes.insert(route.route_id.clone(), edges.into_boxed_slice());
     }
@@ -256,13 +253,13 @@ pub fn bind(
         if edges.contains_key(&slot.edge_id) {
             continue;
         }
-        let ordinal = resolve_edge(revision, &slot.edge_id, &limits)?;
+        let ordinal = resolve_edge(revision, &slot.edge_id)?;
         edges.insert(slot.edge_id.clone(), ordinal);
     }
 
     let mut profiles = BTreeMap::new();
     for key in [PASSENGER_CAR_PROFILE_KEY, SHUTTLE_BUS_PROFILE_KEY] {
-        let ordinal = resolve_profile(revision, key, &limits)?;
+        let ordinal = resolve_profile(revision, key)?;
         profiles.insert(key.to_owned(), ordinal);
     }
 
@@ -475,14 +472,9 @@ fn portal_rank(portal_id: &str) -> usize {
         .expect("validate checked portal")
 }
 
-fn resolve_edge(
-    revision: &SharedNetworkRevision,
-    key: &str,
-    limits: &CompileProfile,
-) -> Result<LaneEdgeOrdinal, BindError> {
-    let stable =
-        derive_canonical_stable_id_v1(EntityKind::LaneEdge, AUTHORING_NAMESPACE, key, limits)
-            .map_err(BindError::Identity)?;
+fn resolve_edge(revision: &SharedNetworkRevision, key: &str) -> Result<LaneEdgeOrdinal, BindError> {
+    let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, AUTHORING_NAMESPACE, key)
+        .map_err(BindError::Identity)?;
     revision
         .identity()
         .ordinal(LaneEdgeId::from_untyped(stable))
@@ -492,10 +484,9 @@ fn resolve_edge(
 fn resolve_profile(
     revision: &SharedNetworkRevision,
     key: &str,
-    limits: &CompileProfile,
 ) -> Result<VehicleProfileOrdinal, BindError> {
     let stable =
-        derive_canonical_stable_id_v1(EntityKind::VehicleProfile, AUTHORING_NAMESPACE, key, limits)
+        derive_canonical_stable_id_v1(EntityKind::VehicleProfile, AUTHORING_NAMESPACE, key)
             .map_err(BindError::Identity)?;
     revision
         .identity()

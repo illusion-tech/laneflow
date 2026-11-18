@@ -1023,13 +1023,9 @@ mod capacity_tests {
         root: &laneflow_static_network::SharedNetworkRevision,
         key: &str,
     ) -> laneflow_static_contract::LaneEdgeOrdinal {
-        let stable = laneflow_compiler::derive_canonical_stable_id_v1(
-            EntityKind::LaneEdge,
-            NAMESPACE,
-            key,
-            &CompileProfile::single_network_10k_stable_entities(),
-        )
-        .expect("edge stable id");
+        let stable =
+            laneflow_compiler::derive_canonical_stable_id_v1(EntityKind::LaneEdge, NAMESPACE, key)
+                .expect("edge stable id");
         root.identity()
             .ordinal(LaneEdgeId::from_untyped(stable))
             .expect("edge ordinal")

@@ -4299,17 +4299,12 @@ pub(crate) mod tests {
             crate::test_policy::selection(&revision),
         )
         .unwrap();
-        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut vehicles = Vec::new();
         for (prefix, progress) in [("idle-0-right", 19_300), ("idle-0-left", 19_500)] {
             let edges = [prefix, "idle-0-entry", "idle-0-storage", "idle-0-exit"].map(|key| {
-                let stable = derive_canonical_stable_id_v1(
-                    EntityKind::LaneEdge,
-                    "city/waiting-scale",
-                    key,
-                    &limits,
-                )
-                .unwrap();
+                let stable =
+                    derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/waiting-scale", key)
+                        .unwrap();
                 revision
                     .identity()
                     .ordinal(LaneEdgeId::from_untyped(stable))
@@ -5185,7 +5180,6 @@ pub(crate) mod tests {
             crate::test_policy::selection(&revision),
         )
         .expect("install");
-        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut keys = (0..STEM_COUNT)
             .map(|index| format!("stem-{index:02}"))
             .collect::<Vec<_>>();
@@ -5198,7 +5192,7 @@ pub(crate) mod tests {
         let edges = keys
             .iter()
             .map(|key| {
-                let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key, &limits)
+                let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key)
                     .expect("stable edge");
                 revision
                     .identity()

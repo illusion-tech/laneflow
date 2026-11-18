@@ -73,12 +73,9 @@ pub(crate) fn published(revision: &SharedNetworkRevision) -> CommittedNetworkSou
 
 fn policy(revision: &SharedNetworkRevision) -> WorldPolicySelection {
     let policy = RightOfWayPolicySetId::from_untyped(
-        derive_canonical_stable_id_v1(
-            EntityKind::RightOfWayPolicySet,
-            "runtime-fixture-policy",
-            "fixture-policy",
-            &CompileProfile::single_network_10k_stable_entities(),
-        )
+        derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet,
+"runtime-fixture-policy",
+"fixture-policy")
         .expect("fixture policy ID"),
     );
     if revision.identity().ordinal(policy).is_some() {

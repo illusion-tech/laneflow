@@ -37,14 +37,10 @@ fn many_policy_fixture(count: u32, all_member_kinds: bool) -> Fixture {
     let mut source_rows = Vec::new();
     for ordinal in 0..count {
         let key = format!("policy-{ordinal:06}");
-        let id = crate::derive_canonical_stable_id_v1(
-            EntityKind::RightOfWayPolicySet,
-            namespace,
-            &key,
-            &unit.limits,
-        )
-        .unwrap()
-        .into_bytes();
+        let id =
+            crate::derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, &key)
+                .unwrap()
+                .into_bytes();
         let mut identity = identity.clone();
         *value(&mut identity, 2) = OwnedValue::U32(ordinal);
         *value(&mut identity, 3) = OwnedValue::StableId128(id);

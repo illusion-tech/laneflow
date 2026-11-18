@@ -289,16 +289,11 @@ impl Sample {
         let mut spaces = Vec::new();
         let mut handles = Vec::new();
         let mut groups = Vec::new();
-        let limits = CompileProfile::single_network_10k_stable_entities();
         for c in 0..cells {
             for r in 0..4 {
-                let id = derive_canonical_stable_id_v1(
-                    EntityKind::SignalGroup,
-                    NS,
-                    &key(c, r, "group"),
-                    &limits,
-                )
-                .unwrap();
+                let id =
+                    derive_canonical_stable_id_v1(EntityKind::SignalGroup, NS, &key(c, r, "group"))
+                        .unwrap();
                 groups.push(
                     world
                         .revision()
@@ -313,7 +308,6 @@ impl Sample {
                             EntityKind::LaneEdge,
                             NS,
                             &key(c, r, suffix),
-                            &limits,
                         )
                         .unwrap();
                         world
@@ -330,7 +324,6 @@ impl Sample {
                         EntityKind::ParkingSpace,
                         NS,
                         &key(c, r, &format!("space{s:02}")),
-                        &limits,
                     )
                     .unwrap();
                     let space = world

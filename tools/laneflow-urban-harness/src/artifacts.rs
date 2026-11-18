@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
-use laneflow_compiler::{CompileProfile, derive_canonical_stable_id_v1};
+use laneflow_compiler::derive_canonical_stable_id_v1;
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, TrafficWorld, WorldConfig,
@@ -284,13 +284,9 @@ impl Artifacts {
     }
 
     pub(crate) fn signal_group(&self, key: &str) -> Result<SignalGroupOrdinal> {
-        let id = derive_canonical_stable_id_v1(
-            EntityKind::SignalGroup,
-            &self.catalog.namespace,
-            key,
-            &CompileProfile::single_network_1m_stable_entities(),
-        )
-        .map_err(|error| invalid(format!("signal group identity: {error:?}")))?;
+        let id =
+            derive_canonical_stable_id_v1(EntityKind::SignalGroup, &self.catalog.namespace, key)
+                .map_err(|error| invalid(format!("signal group identity: {error:?}")))?;
         self.revision
             .identity()
             .ordinal(SignalGroupId::from_untyped(id))

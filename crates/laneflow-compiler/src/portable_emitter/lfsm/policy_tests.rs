@@ -368,14 +368,10 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
     artifact.sections[6] = fresh.sections[6].clone();
     let mut policy_ids = Vec::new();
     for (i, key) in ["a", "b"].iter().enumerate() {
-        let id = crate::derive_canonical_stable_id_v1(
-            EntityKind::RightOfWayPolicySet,
-            namespace,
-            key,
-            &crate::CompileProfile::single_network_1m_stable_entities(),
-        )
-        .unwrap()
-        .into_bytes();
+        let id =
+            crate::derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, key)
+                .unwrap()
+                .into_bytes();
         policy_ids.push(id);
         let identity = artifact.sections[1].tables[0]
             .rows
