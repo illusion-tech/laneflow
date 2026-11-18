@@ -2,6 +2,7 @@ use super::projection::{ROOT_SHRINK_HARD, ROOT_SHRINK_SOFT};
 use super::{
     BoundaryInput, BoundaryOutput, Columns, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
     LimitOutput, Phase, Stats, finish_values, motion_values_valid, raw_valid,
+    stop_solve_participates,
 };
 use std::arch::x86_64::*;
 
@@ -644,6 +645,24 @@ macro_rules! arithmetic {
                     let finite = $and($cmp::<_CMP_LE_OQ>(neg_inf, raw_speed), $cmp::<_CMP_LE_OQ>(raw_speed, inf));
                     let lifted_unchecked = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
                     let lifted = $select(finite, lifted_unchecked, raw_speed);
+                    // R6-3 复审修：整组不存在可能参与速度归约的目标（无效或
+                    // 严格处于保守制动窗外）时跳过两档根式——窗外求解根不
+                    // 低于已抬升提案，逐行 min 不改变结果；判据与 scalar_row
+                    // 同式（stop_solve_participates）。紧急下界归一化与后续
+                    // 投影义务保持不变；混合组继续用精确求解器。
+                    let group_solve = (start..start + $width).any(|row| {
+                        stop_solve_participates(
+                            $input.speed_mm_s[row],
+                            $input.desired_mm_s[row],
+                            $input.max_accel[row],
+                            $input.comfort_decel[row],
+                            $delta,
+                            $input.stop_m[row].min($input.route_end_m[row]),
+                        )
+                    });
+                    if !group_solve {
+                        lifted
+                    } else {
                     let has_target = $and($and($cmp::<_CMP_GT_OQ>(stop_target, zero), $cmp::<_CMP_LT_OQ>(stop_target, inf)),
                         $cmp::<_CMP_GT_OQ>(lifted, zero));
                     let solve_stop = |decel: _| {
@@ -682,6 +701,7 @@ macro_rules! arithmetic {
                     // 位移由硬空间收到目标，线上速度交耗尽层按主导源分档。
                     let cascade = $select(comfort_ok, comfort_cap, $select(emergency_ok, emergency_cap, floor));
                     $select(has_target, $min(lifted, cascade), lifted)
+                    }
                 } else {
                     raw_speed
                 };

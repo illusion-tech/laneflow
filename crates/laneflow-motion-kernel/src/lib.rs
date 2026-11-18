@@ -683,6 +683,36 @@ fn stop_target_distance(input: &Input<'_>, row: usize) -> f32 {
     input.stop_m[row].min(input.route_end_m[row])
 }
 
+/// 停止求解是否可能收紧本拍速度（#1272 R6-3 复审修）：目标有效（有限、
+/// 正距离）且不严格处于保守制动窗外。窗口与运行时 `speed_drop_window_upper`
+/// 同式（`dt·(v+u) + u²/b_c`，u 取本拍可达且不超过期望的速度上界）；
+/// 窗口 ≥ `v·dt + v²/(2b_c)`，窗外目标的求解根不低于提案已被抬升的值，
+/// `min` 不改变结果——标量与向量同判据，据此跳过两档根式即等价。窗口
+/// 证明不了（舒适减速度非正或数值非有限）时按可能参与保守处理。
+fn stop_solve_participates(
+    speed_mm_s: u32,
+    desired_mm_s: u32,
+    max_accel: f32,
+    comfort: f32,
+    delta_s: f32,
+    distance_m: f32,
+) -> bool {
+    if !(distance_m > 0.0 && distance_m < f32::INFINITY) {
+        return false;
+    }
+    let speed = f64::from(speed_mm_s) / 1_000.0;
+    let desired = f64::from(desired_mm_s) / 1_000.0;
+    let dt = f64::from(delta_s);
+    let next = (speed + f64::from(max_accel) * dt).max(0.0).min(desired);
+    let upper = next.max(speed.max(0.0));
+    let window = if comfort > 0.0 {
+        dt * (speed + upper) + upper * upper / f64::from(comfort)
+    } else {
+        f64::INFINITY
+    };
+    !window.is_finite() || f64::from(distance_m) < window
+}
+
 /// L=0 目标的「舒适 → 紧急 → 具名投影」级联。求解器可行域自带本拍减速上界
 /// 与拍内停稳实际减速度定义域；两域皆空（本拍必越过目标）时保持紧急下界
 /// 推进，位移由硬空间收到目标，线上速度交给耗尽层按主导源分档（过渡的
@@ -795,7 +825,21 @@ fn scalar_row<const TRACK: bool>(
         if raw_speed.is_finite() {
             raw_speed = raw_speed.max(floor);
         }
-        if stop_target > 0.0 && stop_target.is_finite() && raw_speed > 0.0 {
+        if stop_target > 0.0
+            && stop_target.is_finite()
+            && raw_speed > 0.0
+            // R6-3 复审修：有限路终等远目标严格处于保守制动窗外时不进求解
+            //（窗外求解根不低于已抬升提案，min 不改变结果；判据与向量
+            // 整组跳过同式）。
+            && stop_solve_participates(
+                input.speed_mm_s[row],
+                input.desired_mm_s[row],
+                input.max_accel[row],
+                input.comfort_decel[row],
+                delta_s,
+                stop_target,
+            )
+        {
             raw_speed = raw_speed.min(cap_next_speed_for_stop_target(
                 speed,
                 raw_speed,

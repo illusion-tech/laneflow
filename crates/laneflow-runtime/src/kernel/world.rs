@@ -328,6 +328,7 @@ impl crate::kernel::state::WorldState {
             vec![crate::kernel::waiting::WaitingQueueEnds::default(); waiting_zone_count]
                 .into_boxed_slice();
         let waiting_links = vec![WaitingQueueLink::default(); vehicle_capacity].into_boxed_slice();
+        let waiting_occupied_storage_mm = vec![0_u64; waiting_zone_count].into_boxed_slice();
         let waiting_member_rows = Vec::with_capacity(vehicle_capacity);
         let waiting_claims = Vec::with_capacity(vehicle_capacity);
         let waiting_plans = Vec::with_capacity(vehicle_capacity);
@@ -384,6 +385,7 @@ impl crate::kernel::state::WorldState {
                 live_order_index: Default::default(),
                 waiting_queue_ends,
                 waiting_links,
+                waiting_occupied_storage_mm,
                 waiting_member_rows,
                 occupancy,
                 spawn_overlap: Default::default(),

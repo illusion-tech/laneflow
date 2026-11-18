@@ -504,6 +504,100 @@ fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
     assert!(slowed_on_first_tick);
 }
 
+/// R6-1 复审修锚：申请预览必须纳入**其他**资源的拍初停止目标（合同
+/// §3.1.1——申请预览仅排除本次待申请资源自身的停止目标）。评审反例：
+/// subject 距近处 Conflict A 1 m、距被 owner 持有的远门 B 14 m、10 m/s；
+/// 预览按无约束行程 ~1_004 mm 判定可达 A 而申请，正式运动纳入 B 的停止
+/// 目标后只走 ~990 mm——grant 未消费却占住 staged claim，本可通行的
+/// competitor 被 NoGrant(ConflictOccupied) 拒绝。修复后 subject 的申请
+/// 预览同口径制动，本拍不申请 A，competitor 照常 Granted。
+#[test]
+fn application_preview_respects_other_resources_stop_targets() {
+    // 内部边加长到 24 m：B（门 1）在 subject 前方 25 m——处于 10 m/s 的
+    // 舒适制动约束内（提前 ~20 mm 制动，本拍 ~980 mm < 1 m），同时
+    // owner（含 4.5 m 车长）在 subject 前车查询界（min_gap + v·headway
+    // ≈ 17 m）之外——持有 B 时构成停止目标而不构成 subject 的 IIDM
+    // 前车（评审反例的隔离条件）。
+    let revision = revision(ConflictPolicyFixture {
+        next_gate: true,
+        clearance: Some((1, 8.5)),
+        close_internal_m: 24.0,
+        ..Default::default()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let boundary = calibration_gate(&world, route);
+    let internal_len =
+        world.traffic().lane_lengths_millimetres()[world.route_edges(route).unwrap()[1].index()];
+    let far_line = boundary + internal_len;
+    // owner 先过门 0，取得门 1（B）的预约并驶入 B 的 passage 深处
+    // （车尾距 subject ≥ 19.5 m > 17 m 前车界）。
+    let owner = world
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary,
+                13_000,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    let mut owner_holds_deep = false;
+    for _ in 0..160 {
+        world.step(TickInput::new(100)).unwrap();
+        let owner_state = world.vehicle(owner).unwrap();
+        if let Some(reservation) = world.conflict_reservation(owner)
+            && reservation.passage_range().admission_gate_hop() == 1
+            && owner_state.route_edge_index() >= 2
+            && u64::from(owner_state.progress_mm()) + u64::from(far_line)
+                >= u64::from(boundary - 1_000) + 22_000
+        {
+            owner_holds_deep = true;
+            break;
+        }
+    }
+    assert!(
+        owner_holds_deep,
+        "owner 必须深入门 1（B）的 passage 并持有预约"
+    );
+    // subject 距 A 1 m、距 B 25 m、10 m/s（评审反例参数同构）。
+    let subject = world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary - 1_000,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    world.step(TickInput::new(100)).unwrap();
+    let after = world.vehicle(subject).unwrap();
+    // B 的停止目标在制动窗内：正式运动本拍到不了 A。
+    assert!(
+        after.route_edge_index() == 0 && after.progress_mm() < boundary,
+        "subject 本拍实际到不了 A（B 的停止目标参与制动）"
+    );
+    // 申请预览同口径制动（合同 §3.1.1）：本拍到不了 A 就不得申请——
+    // 申请+授权而未消费正是评审反例中挤占本可通行车辆的 staged claim。
+    assert!(
+        world
+            .latest_conflict_decisions()
+            .iter()
+            .all(|decision| decision.vehicle() != subject),
+        "预览到不了 A：subject 本拍不得产生 A 的申请决定"
+    );
+    assert!(
+        world.conflict_reservation(subject).is_none(),
+        "subject 不得占用 A 的 staged claim"
+    );
+}
+
 /// R5-2 复审修锚：空闲且可接纳的 Waiting 区不是停止目标——同几何 A/B
 /// （无 Waiting 声明 vs 有），首拍提交必须逐字段一致（评审反例：旧口径
 /// 对空区也计入候选车前间隙，5 m 区放 4.5 m 车被误判 6.5 m 需求而提前

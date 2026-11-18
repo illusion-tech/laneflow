@@ -49,6 +49,38 @@ pub(super) fn gate_may_be_reached(
     )
 }
 
+/// R6-1 复审修：申请预览的「仅停止目标」形态拍初资源停止——取
+/// [`StepReadView::resource_stop_at`] 的 stop 通道同时作 constraint 与
+/// stop（预览不进位置屏障：获批后屏障解除，会把缓存复用变成少位移；
+/// 停止线本身即预览的硬界，与生成预检 `placement_motion` 的
+/// admission_barrier 同形态）。`overlay.exclude_stop_hop` 传入本次待
+/// 申请门时按合同 §3.1.1 排除该门自身的停止目标。
+pub(super) fn application_stop_barrier(
+    read: crate::kernel::phase::StepReadView<'_>,
+    state: &VehicleState,
+    delta_s: f32,
+    compiled: &crate::kernel::tables::CompiledRoute,
+    profile: laneflow_static_network::VehicleProfileView,
+    conflict_read: crate::kernel::conflict::ConflictRead<'_>,
+    overlay: super::tick::ResourceStopOverlay,
+) -> Result<Option<super::tick::ResourceBarrier>, StepError> {
+    Ok(read
+        .resource_stop_at(
+            state,
+            delta_s,
+            compiled,
+            Some(profile),
+            None,
+            overlay,
+            conflict_read,
+        )?
+        .and_then(|barrier| barrier.stop)
+        .map(|stop| super::tick::ResourceBarrier {
+            constraint: stop,
+            stop: Some(stop),
+        }))
+}
+
 pub(super) fn gate_may_be_reached_on_route(
     read: crate::kernel::phase::StepReadView<'_>,
     route: &crate::kernel::tables::CompiledRoute,
@@ -3004,6 +3036,25 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     .copied()
             });
         let waiting_stop = self.waiting_stop_for(&state)?;
+        // R6-1 复审修：拍初已知资源停止目标进申请预览（合同 §3.1.1——申请
+        // 预览仅排除本次待申请资源自身的停止目标，其他资源的停止义务仍
+        // 有效；本拍不可达的车不得挤占本可通行车辆的 staged claim）。缓
+        // 存的 P2 全量版直接复用；最近停止目标恰在本次待申请门上时，循环
+        // 内按门排除重算一版。
+        let tick_stop = application_stop_barrier(
+            self.read_view(),
+            &state,
+            delta_s,
+            compiled,
+            profile,
+            crate::kernel::conflict::ConflictRead::new(
+                &self.committed.conflict,
+                &self.derived.conflict,
+                &self.workspace.conflict,
+            ),
+            crate::kernel::tick::ResourceStopOverlay::default(),
+        )?;
+        let tick_stop_hop = tick_stop.as_ref().map(|barrier| barrier.constraint.hop);
         let mut basis = None;
         let motion = cached
             .and_then(|entry| entry.preview(&self.workspace.motion_previews))
@@ -3013,12 +3064,15 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     state,
                     delta_s,
                     waiting_stop,
+                    tick_stop,
                     Some(horizon),
                     Some(&mut basis),
                 )
             })
             .ok_or(StepError::NonFiniteMotion)?;
         let preview = motion.next;
+        let mut gate_motion: Option<crate::kernel::tick::MotionPreview> = None;
+        let mut gate_basis = None;
         if let Some(entry) = self
             .workspace
             .motion_cache
@@ -3070,6 +3124,48 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress =
                 self.binding.revision.traffic().lane_lengths_millimetres()[gate_edge.index()];
+            // R6-1：reaches 判定用「排除本门自身停止目标」的预览（合同
+            // §3.1.1——本门若获批其停止目标即解除；门上的申请-拒绝流
+            // 程保留）。最近停止目标不在本门时排除不改变结果，直接用
+            // 全量版。全车每拍至多重算一版（最近停止目标唯一）。
+            if tick_stop_hop == Some(gate_hop) && gate_motion.is_none() {
+                let barrier = application_stop_barrier(
+                    self.read_view(),
+                    &state,
+                    delta_s,
+                    compiled,
+                    profile,
+                    crate::kernel::conflict::ConflictRead::new(
+                        &self.committed.conflict,
+                        &self.derived.conflict,
+                        &self.workspace.conflict,
+                    ),
+                    super::tick::ResourceStopOverlay {
+                        exclude_stop_hop: Some(gate_hop),
+                        ..Default::default()
+                    },
+                )?;
+                gate_motion = Some(
+                    self.read_view()
+                        .preview_active_vehicle_with_basis_output(
+                            state,
+                            delta_s,
+                            waiting_stop,
+                            barrier,
+                            Some(horizon),
+                            Some(&mut gate_basis),
+                        )
+                        .ok_or(StepError::NonFiniteMotion)?,
+                );
+            }
+            let preview = if tick_stop_hop == Some(gate_hop) {
+                gate_motion
+                    .as_ref()
+                    .expect("excluded preview computed above")
+                    .next
+            } else {
+                preview
+            };
             let reaches_gate = preview.route_edge_index > gate_hop
                 || (preview.route_edge_index == gate_hop && preview.progress_mm == gate_progress)
                 || (state.route_edge_index == gate_hop && state.progress_mm == gate_progress);
@@ -7774,6 +7870,22 @@ impl ConflictTaskView<'_> {
             Ok(stop) => stop,
             Err(error) => return failed(cache, error),
         };
+        // R6-1 复审修：拍初已知资源停止目标进申请预览（合同 §3.1.1；与
+        // 串行 evaluate_vehicle_gates 同一领域原语）。最近停止目标恰在本
+        // 次待申请门上时，循环内按门排除重算一版。
+        let tick_stop = match application_stop_barrier(
+            self.read,
+            &state,
+            delta_s,
+            compiled,
+            profile,
+            self.conflict,
+            super::tick::ResourceStopOverlay::default(),
+        ) {
+            Ok(barrier) => barrier,
+            Err(error) => return failed(cache, error),
+        };
+        let tick_stop_hop = tick_stop.as_ref().map(|barrier| barrier.constraint.hop);
         let motion = match cached
             .and_then(|entry| entry.preview(self.motion_previews))
             .and_then(|preview| preview.with_waiting_stop(waiting_stop))
@@ -7782,6 +7894,7 @@ impl ConflictTaskView<'_> {
                     state,
                     delta_s,
                     waiting_stop,
+                    tick_stop,
                     Some(horizon),
                     Some(&mut cache.basis),
                 )
@@ -7792,6 +7905,7 @@ impl ConflictTaskView<'_> {
         // §2 #11：preview 在 Gate 循环之前已算出，回报待落缓存。
         cache.preview = Some(motion);
         let preview = motion.next;
+        let mut gate_motion: Option<crate::kernel::tick::MotionPreview> = None;
         // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
         // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
         // P2-2（#1199）：派发迭代从计算分区点起（恢复 first_gate 直起语义
@@ -7811,6 +7925,44 @@ impl ConflictTaskView<'_> {
                 .revision
                 .traffic()
                 .lane_lengths_millimetres()[gate_edge.index()];
+            // R6-1：reaches 判定用「排除本门自身停止目标」的预览（同串行
+            // 路径；最近停止目标不在本门时排除不改变结果）。
+            if tick_stop_hop == Some(gate_hop) && gate_motion.is_none() {
+                let barrier = match application_stop_barrier(
+                    self.read,
+                    &state,
+                    delta_s,
+                    compiled,
+                    profile,
+                    self.conflict,
+                    super::tick::ResourceStopOverlay {
+                        exclude_stop_hop: Some(gate_hop),
+                        ..Default::default()
+                    },
+                ) {
+                    Ok(barrier) => barrier,
+                    Err(error) => return failed(cache, error),
+                };
+                gate_motion = match self.read.preview_active_vehicle_with_basis_output(
+                    state,
+                    delta_s,
+                    waiting_stop,
+                    barrier,
+                    Some(horizon),
+                    Some(&mut cache.basis),
+                ) {
+                    Some(motion) => Some(motion),
+                    None => return failed(cache, StepError::NonFiniteMotion),
+                };
+            }
+            let preview = if tick_stop_hop == Some(gate_hop) {
+                gate_motion
+                    .as_ref()
+                    .expect("excluded preview computed above")
+                    .next
+            } else {
+                preview
+            };
             let reaches_gate = preview.route_edge_index > gate_hop
                 || (preview.route_edge_index == gate_hop && preview.progress_mm == gate_progress)
                 || (state.route_edge_index == gate_hop && state.progress_mm == gate_progress);
