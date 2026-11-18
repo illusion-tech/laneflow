@@ -1,5 +1,5 @@
-use laneflow_compiler::road_editing as editing;
-use laneflow_compiler::*;
+use super::compiler_api::road_editing as editing;
+use super::compiler_api::*;
 
 // 三个共享准入实体与一个覆盖完整路网的路权策略集。
 const FIXED_ENTITIES: u32 = 4;
@@ -16,6 +16,9 @@ pub(super) struct WorkloadShape {
     pub(super) source_partitions: u32,
     pub(super) long_documents: bool,
     pub(super) curved: bool,
+    pub(super) policy_evidence: u32,
+    pub(super) policy_selectors: bool,
+    pub(super) contributing_sources: bool,
 }
 
 impl WorkloadShape {
@@ -40,9 +43,84 @@ impl WorkloadShape {
             source_partitions: 1,
             long_documents: false,
             curved: false,
+            policy_evidence: 0,
+            policy_selectors: false,
+            contributing_sources: false,
         }
     }
 }
+
+const JOINT: WorkloadShape = WorkloadShape::for_stable_entities(10_000, 32, 65);
+pub(super) const CANDIDATE_OPERATION_BYTES: u64 = 256 * 1024 * 1024;
+pub(super) const SHAPES: [(&str, WorkloadShape); 11] = [
+    ("mixed", WorkloadShape::for_stable_entities(10_000, 2, 2)),
+    (
+        "signal-dense",
+        WorkloadShape::for_stable_entities(10_000, 32, 2),
+    ),
+    (
+        "geometry-dense",
+        WorkloadShape::for_stable_entities(10_000, 2, 65),
+    ),
+    ("joint", JOINT),
+    (
+        "partitioned",
+        WorkloadShape {
+            source_partitions: 16,
+            ..JOINT
+        },
+    ),
+    (
+        "long-documents",
+        WorkloadShape {
+            long_documents: true,
+            ..JOINT
+        },
+    ),
+    (
+        "curved",
+        WorkloadShape {
+            curved: true,
+            ..JOINT
+        },
+    ),
+    (
+        "combined",
+        WorkloadShape {
+            source_partitions: 16,
+            long_documents: true,
+            curved: true,
+            ..JOINT
+        },
+    ),
+    (
+        "policy",
+        WorkloadShape {
+            policy_evidence: 16,
+            policy_selectors: true,
+            ..JOINT
+        },
+    ),
+    (
+        "sources",
+        WorkloadShape {
+            contributing_sources: true,
+            ..JOINT
+        },
+    ),
+    (
+        "all",
+        WorkloadShape {
+            source_partitions: 16,
+            long_documents: true,
+            curved: true,
+            policy_evidence: 16,
+            policy_selectors: true,
+            contributing_sources: true,
+            ..JOINT
+        },
+    ),
+];
 
 fn synthetic_namespace(shape: WorkloadShape, partition: u32) -> String {
     let namespace = if shape.disjoint {
@@ -69,7 +147,11 @@ fn key(prefix: &str, ordinal: u32, suffix: &str) -> String {
     format!("{prefix}{ordinal:07}-{suffix}")
 }
 
-fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape: WorkloadShape) {
+fn add_synthetic_tile(
+    builder: &mut SyntheticModuleBuilder,
+    ordinal: u32,
+    shape: WorkloadShape,
+) -> Result<(), DiagnosticBundle> {
     let entry = key("t", ordinal, "entry");
     let middle = key("t", ordinal, "middle");
     let exit = key("t", ordinal, "exit");
@@ -105,22 +187,18 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
     );
     for (index, edge) in extra_edges.iter().enumerate() {
         let successor = extra_edges.get(index + 1).unwrap_or(&exit);
-        builder
-            .add_lane_edge(LaneEdgeInput {
-                lane_edge_key: edge,
-                length_meters: 8.0,
-                speed_limit_meters_per_second: 8.0,
-                successors: &[LaneEdgeReference::local(successor)],
-            })
-            .unwrap();
+        builder.add_lane_edge(LaneEdgeInput {
+            lane_edge_key: edge,
+            length_meters: 8.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[LaneEdgeReference::local(successor)],
+        })?;
     }
 
-    builder
-        .add_lane_group(LaneGroupInput {
-            lane_group_key: &lane_group,
-            road_section: RoadSectionReference::local(&section),
-        })
-        .unwrap();
+    builder.add_lane_group(LaneGroupInput {
+        lane_group_key: &lane_group,
+        road_section: RoadSectionReference::local(&section),
+    })?;
 
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -128,8 +206,7 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
             length_meters: 10.0,
             speed_limit_meters_per_second: if shape.changed { 14.0 } else { 13.0 },
             successors: &[LaneEdgeReference::local(&middle)],
-        })
-        .unwrap()
+        })?
         .add_lane_edge(LaneEdgeInput {
             lane_edge_key: &middle,
             length_meters: 8.0,
@@ -137,15 +214,13 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
             successors: &[LaneEdgeReference::local(
                 extra_edges.first().unwrap_or(&exit),
             )],
-        })
-        .unwrap()
+        })?
         .add_lane_edge(LaneEdgeInput {
             lane_edge_key: &exit,
             length_meters: 12.0,
             speed_limit_meters_per_second: 13.0,
             successors: &[],
-        })
-        .unwrap()
+        })?
         .add_road_section(RoadSectionInput {
             road_section_key: &section,
             kind_id: "motorLane",
@@ -161,105 +236,86 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
                     lane_group: Some(LaneGroupReference::local(&lane_group)),
                 },
             ],
-        })
-        .unwrap()
+        })?
         .add_road_corridor(RoadCorridorInput {
             road_corridor_key: &corridor,
             reference_section: RoadSectionReference::local(&section),
             elements: &[CorridorElementReference::road_section(
                 RoadSectionReference::local(&section),
             )],
-        })
-        .unwrap()
+        })?
         .add_junction(JunctionInput {
             junction_key: &junction,
-        })
-        .unwrap()
+        })?
         .add_movement(MovementInput {
             turn_direction: None,
             movement_key: &movement,
             junction: JunctionReference::local(&junction),
             directed_entry_approach_key: "westbound",
             directed_exit_approach_key: "eastbound",
-        })
-        .unwrap()
+        })?
         .add_maneuver_path(ManeuverPathInput {
             maneuver_path_key: &path,
             movement: MovementReference::local(&movement),
             entry_edge: LaneEdgeReference::local(&entry),
             internal_edges: &internal_edges,
             exit_edge: LaneEdgeReference::local(&exit),
-        })
-        .unwrap()
+        })?
         .add_stop_line(StopLineInput {
             stop_line_key: &stop_entry,
             lane_edge: LaneEdgeReference::local(&entry),
-        })
-        .unwrap()
+        })?
         .add_stop_line(StopLineInput {
             stop_line_key: &stop_middle,
             lane_edge: LaneEdgeReference::local(&middle),
-        })
-        .unwrap()
+        })?
         .add_signal_group(SignalGroupInput {
             signal_group_key: &group_entry,
-        })
-        .unwrap()
+        })?
         .add_signal_group(SignalGroupInput {
             signal_group_key: &group_release,
-        })
-        .unwrap()
+        })?
         .add_maneuver_gate(ManeuverGateInput {
             maneuver_gate_key: &gate_entry,
             maneuver_path: ManeuverPathReference::local(&path),
             transition_index: 0,
             stop_line: StopLineReference::local(&stop_entry),
             signal_control: SignalControlInput::Group(SignalGroupReference::local(&group_entry)),
-        })
-        .unwrap()
+        })?
         .add_maneuver_gate(ManeuverGateInput {
             maneuver_gate_key: &gate_release,
             maneuver_path: ManeuverPathReference::local(&path),
             transition_index: 1,
             stop_line: StopLineReference::local(&stop_middle),
             signal_control: SignalControlInput::Group(SignalGroupReference::local(&group_release)),
-        })
-        .unwrap();
+        })?;
 
-    builder
-        .add_waiting_zone(WaitingZoneInput {
-            waiting_zone_key: &waiting,
-            maneuver_path: ManeuverPathReference::local(&path),
-            entry_gate: ManeuverGateReference::local(&gate_entry),
-            release_gate: ManeuverGateReference::local(&gate_release),
-            max_occupancy: 3,
-        })
-        .unwrap();
+    builder.add_waiting_zone(WaitingZoneInput {
+        waiting_zone_key: &waiting,
+        maneuver_path: ManeuverPathReference::local(&path),
+        entry_gate: ManeuverGateReference::local(&gate_entry),
+        release_gate: ManeuverGateReference::local(&gate_release),
+        max_occupancy: 3,
+    })?;
     let mut group_keys = vec![group_entry, group_release];
     for index in 2..shape.signals {
         let group = key("t", ordinal, &format!("group-{index:03}"));
-        builder
-            .add_signal_group(SignalGroupInput {
-                signal_group_key: &group,
-            })
-            .unwrap();
+        builder.add_signal_group(SignalGroupInput {
+            signal_group_key: &group,
+        })?;
         let stop = key("t", ordinal, &format!("stop-{index:03}"));
         let gate = key("t", ordinal, &format!("gate-{index:03}"));
-        builder
-            .add_stop_line(StopLineInput {
-                stop_line_key: &stop,
-                lane_edge: LaneEdgeReference::local(&extra_edges[index as usize - 2]),
-            })
-            .unwrap();
-        builder
-            .add_maneuver_gate(ManeuverGateInput {
-                maneuver_gate_key: &gate,
-                maneuver_path: ManeuverPathReference::local(&path),
-                transition_index: index,
-                stop_line: StopLineReference::local(&stop),
-                signal_control: SignalControlInput::Group(SignalGroupReference::local(&group)),
-            })
-            .unwrap();
+        builder.add_stop_line(StopLineInput {
+            stop_line_key: &stop,
+            lane_edge: LaneEdgeReference::local(&extra_edges[index as usize - 2]),
+        })?;
+        builder.add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: &gate,
+            maneuver_path: ManeuverPathReference::local(&path),
+            transition_index: index,
+            stop_line: StopLineReference::local(&stop),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local(&group)),
+        })?;
         group_keys.push(group);
     }
     let groups: Vec<_> = group_keys
@@ -305,15 +361,13 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
             offset_ms: u64::from(ordinal % 1_000),
             signal_groups: &groups,
             phases: &phases,
-        })
-        .unwrap()
+        })?
         .add_parking_facility(ParkingFacilityInput {
             parking_facility_key: &parking,
             virtual_capacity: 0,
             virtual_entries: &[],
             virtual_exits: &[],
-        })
-        .unwrap()
+        })?
         .add_parking_space(ParkingSpaceInput {
             parking_space_key: &space,
             parking_facility: Some(ParkingFacilityReference::local(&parking)),
@@ -331,8 +385,7 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
                 length_meters: 5.5,
                 width_meters: 2.6,
             },
-        })
-        .unwrap();
+        })?;
 
     let points = |start: f32, end: f32| {
         (0..shape.geometry_points)
@@ -374,12 +427,11 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32, shape:
             centerline_points: &exit_points,
         },
     ]);
-    builder
-        .add_canonical_frame(CanonicalFrameInput {
-            canonical_frame_key: &frame,
-            lane_edge_geometries: &geometries,
-        })
-        .unwrap();
+    builder.add_canonical_frame(CanonicalFrameInput {
+        canonical_frame_key: &frame,
+        lane_edge_geometries: &geometries,
+    })?;
+    Ok(())
 }
 
 fn build_conflict_module(
@@ -698,12 +750,12 @@ fn build_conflict_module(
     )
 }
 
-fn build_synthetic_module(
+pub(super) fn build_synthetic_module(
     limits: &CompileLimits,
     shape: WorkloadShape,
     partition: u32,
     permuted: bool,
-) -> SyntheticModule {
+) -> Result<SyntheticModule, DiagnosticBundle> {
     let namespace = synthetic_namespace(shape, partition);
     let base_document = if partition == 0 {
         "portable-resource-probe.document".to_owned()
@@ -722,9 +774,8 @@ fn build_synthetic_module(
             provenance: "repository:laneflow",
         },
         limits,
-    )
-    .unwrap();
-    let mut module = SyntheticModuleBuilder::new(header, limits).unwrap();
+    )?;
+    let mut module = SyntheticModuleBuilder::new(header, limits)?;
     let mut synthetic_ordinals = (0..shape.synthetic_tiles)
         .filter(|ordinal| ordinal % shape.source_partitions == partition)
         .collect::<Vec<_>>();
@@ -734,16 +785,14 @@ fn build_synthetic_module(
         filler_ordinals.reverse();
     }
     for ordinal in synthetic_ordinals {
-        add_synthetic_tile(&mut module, ordinal, shape);
+        add_synthetic_tile(&mut module, ordinal, shape)?;
     }
     for ordinal in filler_ordinals.into_iter().filter(|_| partition == 0) {
         let filler = key("f", ordinal, "participant");
-        module
-            .add_participant_class(ParticipantClassInput {
-                participant_class_key: &filler,
-                extends: None,
-            })
-            .unwrap();
+        module.add_participant_class(ParticipantClassInput {
+            participant_class_key: &filler,
+            extends: None,
+        })?;
     }
     if partition == 0 {
         let shared_class = "shared-car";
@@ -754,8 +803,7 @@ fn build_synthetic_module(
             .add_participant_class(ParticipantClassInput {
                 participant_class_key: shared_class,
                 extends: None,
-            })
-            .unwrap()
+            })?
             .add_vehicle_profile(VehicleProfileInput {
                 vehicle_profile_key: shared_profile,
                 participant_class: ParticipantClassReference::local(shared_class),
@@ -768,8 +816,7 @@ fn build_synthetic_module(
                     comfortable_deceleration_meters_per_second_squared: 2.0,
                     emergency_deceleration_meters_per_second_squared: 4.0,
                 },
-            })
-            .unwrap()
+            })?
             .add_access_rule(AccessRuleInput {
                 access_rule_key: shared_access,
                 target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local(&first_entry)),
@@ -777,22 +824,33 @@ fn build_synthetic_module(
                 participant_classes: &[ParticipantClassReference::local(shared_class)],
                 regulation: None,
                 priority: 0,
-            })
-            .unwrap();
+            })?;
     }
-    module.finish().unwrap()
+    module.finish()
 }
 
 pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> CompilationUnit {
+    assemble_mixed_network(shape, permuted, CompileLimits::single_network_1m())
+        .unwrap()
+        .build()
+        .unwrap()
+}
+
+// 受检来源由有限百万档构造；返回尚未冻结的构建器，供包内测试读取真实准入计数或验证候选限额。
+pub(super) fn assemble_mixed_network(
+    shape: WorkloadShape,
+    permuted: bool,
+    admission_limits: CompileLimits,
+) -> Result<CompilationUnitBuilder, DiagnosticBundle> {
     assert!(shape.source_partitions > 0 && shape.source_partitions <= shape.synthetic_tiles);
     let limits = CompileLimits::single_network_1m();
     let conflicts = build_conflict_module(&limits, shape, permuted);
     let policy = build_policy_module(&limits, shape);
     let synthetic: Vec<_> = (0..shape.source_partitions)
-        .map(|partition| build_synthetic_module(&limits, shape, partition, permuted))
+        .map(|partition| build_synthetic_module(&limits, shape, partition, permuted).unwrap())
         .collect();
-    let mut unit = CompilationUnitBuilder::new(limits);
-    unit.add_synthetic_module(policy).unwrap();
+    let mut unit = CompilationUnitBuilder::new(admission_limits);
+    unit.add_synthetic_module(policy)?;
     let conflict_document = document_key(
         "portable-resource-conflicts.document",
         shape.long_documents,
@@ -807,25 +865,25 @@ pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
                     None,
                 )
                 .unwrap(),
-            )
-            .unwrap();
+            )?;
+            Ok::<_, DiagnosticBundle>(())
         };
     if permuted {
         if let Some(conflicts) = conflicts.as_ref() {
-            add_conflicts(&mut unit, conflicts);
+            add_conflicts(&mut unit, conflicts)?;
         }
         for module in synthetic.into_iter().rev() {
-            unit.add_synthetic_module(module).unwrap();
+            unit.add_synthetic_module(module)?;
         }
     } else {
         for module in synthetic {
-            unit.add_synthetic_module(module).unwrap();
+            unit.add_synthetic_module(module)?;
         }
         if let Some(conflicts) = conflicts.as_ref() {
-            add_conflicts(&mut unit, conflicts);
+            add_conflicts(&mut unit, conflicts)?;
         }
     }
-    unit.build().unwrap()
+    Ok(unit)
 }
 
 fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> SyntheticModule {
@@ -860,10 +918,44 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
     }
     builder.add_import(conflict_namespace).unwrap();
     let span = builder.policy_source_span();
+    let contributions = [
+        builder.policy_source_span(),
+        builder.policy_source_span(),
+        builder.policy_source_span(),
+        builder.policy_source_span(),
+    ];
     let source = PolicyInputSource {
         primary: &span,
-        contributing: &[],
+        contributing: if shape.contributing_sources {
+            &contributions
+        } else {
+            &[]
+        },
     };
+    let evidence_keys: Vec<_> = (0..shape.policy_evidence)
+        .map(|index| format!("basis-{index:03}"))
+        .collect();
+    let evidence_refs: Vec<_> = evidence_keys.iter().map(String::as_str).collect();
+    let evidence: Vec<_> = evidence_keys
+        .iter()
+        .map(|key| PolicyEvidenceInput {
+            evidence_key: key,
+            locator: "repository:regular-profile-policy",
+            description: Some("regular-profile policy coverage"),
+            source,
+        })
+        .collect();
+    let gaps: Vec<_> = (shape.policy_evidence > 0)
+        .then_some(PolicyGapProfileInput {
+            profile_key: "gap",
+            parameter_version: "gap-1",
+            minimum_lead_gap_ms: if shape.changed { 1_200 } else { 1_000 },
+            minimum_lag_gap_ms: 500,
+            clearance_buffer_ms: 100,
+            source,
+        })
+        .into_iter()
+        .collect();
     let mut gate_storage = Vec::new();
     let mut stream_storage = Vec::new();
     for ordinal in 0..shape.synthetic_tiles {
@@ -916,7 +1008,7 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
         .iter()
         .map(|row| row.2.iter().map(String::as_str).collect())
         .collect();
-    let gates: Vec<_> = gate_storage
+    let mut gates: Vec<_> = gate_storage
         .iter()
         .zip(&gate_owners)
         .map(
@@ -929,28 +1021,70 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
                 participant_classes: None,
                 interpretation: *interpretation,
                 prohibition: GateProhibition::None,
-                evidence_keys: &[],
+                evidence_keys: &evidence_refs,
                 source,
             },
         )
         .collect();
+    let yields: Vec<Vec<_>> = stream_storage
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            if shape.policy_evidence > 0 && index % 2 == 0 {
+                vec![OwnerQualifiedReference {
+                    target: EntityReference::imported(
+                        conflict_namespace,
+                        &stream_storage[index + 1].1,
+                    ),
+                    owner_keys: &stream_owners[index + 1],
+                }]
+            } else {
+                vec![]
+            }
+        })
+        .collect();
     let streams: Vec<_> = stream_storage
         .iter()
         .zip(&stream_owners)
-        .map(|((key, stream, _), owners)| PolicyStreamRuleInput {
-            rule_key: key,
-            stream: OwnerQualifiedReference {
-                target: EntityReference::imported(conflict_namespace, stream),
-                owner_keys: owners,
+        .enumerate()
+        .map(
+            |(index, ((key, stream, _), owners))| PolicyStreamRuleInput {
+                rule_key: key,
+                stream: OwnerQualifiedReference {
+                    target: EntityReference::imported(conflict_namespace, stream),
+                    owner_keys: owners,
+                },
+                participant_classes: None,
+                priority: if shape.policy_evidence > 0 {
+                    (index % 2 + 1) as i32
+                } else {
+                    0
+                },
+                yield_to_streams: &yields[index],
+                gap_profile_key: (!yields[index].is_empty()).then_some("gap"),
+                evidence_keys: &evidence_refs,
+                source,
             },
-            participant_classes: None,
-            priority: 0,
-            yield_to_streams: &[],
-            gap_profile_key: None,
-            evidence_keys: &[],
-            source,
-        })
+        )
         .collect();
+    let root_namespace = synthetic_namespace(shape, 0);
+    let classes = [EntityReference::imported(&root_namespace, "shared-car")];
+    let selector_keys: Vec<_> = gate_storage
+        .iter()
+        .map(|row| format!("{}-car", row.0))
+        .collect();
+    if shape.policy_selectors {
+        let selected: Vec<_> = gates
+            .iter()
+            .zip(&selector_keys)
+            .map(|(gate, key)| PolicyGateRuleInput {
+                rule_key: key,
+                participant_classes: Some(&classes),
+                ..*gate
+            })
+            .collect();
+        gates.extend(selected);
+    }
     builder
         .add_right_of_way_policy_set(RightOfWayPolicySetInput {
             policy_set_key: "rules",
@@ -959,8 +1093,8 @@ fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> Syntheti
                 version: "candidate-1",
                 source: Some("repository:profile-candidate"),
             },
-            evidence: &[],
-            gap_profiles: &[],
+            evidence: &evidence,
+            gap_profiles: &gaps,
             stream_rules: &streams,
             gate_rules: &gates,
             source,

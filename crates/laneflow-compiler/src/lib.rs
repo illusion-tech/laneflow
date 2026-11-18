@@ -32,6 +32,9 @@ mod source_location;
 mod source_map;
 mod spatial_freeze;
 
+#[cfg(test)]
+mod regular_profile_tests;
+
 pub use compiler::{
     CanonicalAccessRegulationView, CanonicalAccessRuleView, CanonicalAccessTarget,
     CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandGeometryView,
