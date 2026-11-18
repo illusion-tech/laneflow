@@ -503,3 +503,47 @@ fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
     }
     assert!(slowed_on_first_tick);
 }
+
+/// R5-2 复审修锚：空闲且可接纳的 Waiting 区不是停止目标——同几何 A/B
+/// （无 Waiting 声明 vs 有），首拍提交必须逐字段一致（评审反例：旧口径
+/// 对空区也计入候选车前间隙，5 m 区放 4.5 m 车被误判 6.5 m 需求而提前
+/// 减速 9802 vs 10097）。
+#[test]
+fn admissible_empty_waiting_zone_does_not_brake() {
+    let mut outcomes = Vec::new();
+    for waiting in [false, true] {
+        let revision = revision(ConflictPolicyFixture {
+            waiting,
+            late_waiting: true,
+            ..Default::default()
+        });
+        let mut world =
+            install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+        let [route, _] = routes(&mut world, &revision);
+        let boundary = calibration_gate(&world, route);
+        let subject = world
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    boundary - 13_000,
+                    10_000,
+                )
+                .with_open_entrance(),
+            )
+            .unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        let state = world.vehicle(subject).unwrap();
+        outcomes.push((
+            state.route_edge_index(),
+            state.progress_mm(),
+            state.speed_mm_s(),
+            state.carry_um(),
+        ));
+    }
+    assert_eq!(
+        outcomes[0], outcomes[1],
+        "空闲可接纳的 Waiting 声明与无声明同几何同拍逐字段一致"
+    );
+}
