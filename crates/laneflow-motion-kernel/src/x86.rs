@@ -639,10 +639,12 @@ macro_rules! arithmetic {
                 let stop_target = $min($load($input.stop_m.as_ptr().add(start)), $load($input.route_end_m.as_ptr().add(start)));
                 let raw_speed = if !project {
                     let floor = $max($sub(speed, $mul(emergency, dt)), zero);
-                    // R5 复审修（codex P2）：非有限提案（如缓存里的
-                    // NEG_INFINITY）不得被地板抬成有限值——标量路径对非
-                    // 有限提案保持拒绝，向量行先判有限再应用地板。
-                    let finite = $and($cmp::<_CMP_LE_OQ>(neg_inf, raw_speed), $cmp::<_CMP_LE_OQ>(raw_speed, inf));
+                    // R5 复审修（codex P2）：非有限提案（NaN、±∞）不得被
+                    // 地板抬成有限值——标量路径对非有限提案保持拒绝，向量
+                    // 行先判有限再应用地板。R7 复审修：两端用严格有序比较，
+                    // 与 is_finite 同域——`≤` 会把 NEG_INFINITY 判为有限并
+                    // 抬成 5600 一类的合法速度（后端分歧）。
+                    let finite = $and($cmp::<_CMP_LT_OQ>(neg_inf, raw_speed), $cmp::<_CMP_LT_OQ>(raw_speed, inf));
                     let lifted_unchecked = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
                     let lifted = $select(finite, lifted_unchecked, raw_speed);
                     // R6-3 复审修：整组不存在可能参与速度归约的目标（无效或

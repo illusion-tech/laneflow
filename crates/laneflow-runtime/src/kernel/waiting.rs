@@ -4064,6 +4064,10 @@ fn waiting_plan_for_preview(
         // 纳入拍初停止后未过入口的，用排除版复核「若获批本拍可进入」——
         // 满载区仍产生可观察的 Capacity/PhysicalStorage 拒绝，而不是落到
         // 派发处的兜底拒绝理由。
+        // R7 复审收紧：只有本门的停止目标确实作为**最近**拍初停止参与
+        // 归约时，排除它才可能改变结果（更近的停止绑定更紧、更远/空门
+        // 没有可排除的目标）——与 Conflict 派发 `tick_stop_hop == gate_hop`
+        // 同一判据与证据来源，空区/窗外远区不再重复完整运动计算。
         let profile = view
             .binding
             .revision
@@ -4071,22 +4075,38 @@ fn waiting_plan_for_preview(
             .relations()
             .vehicle_profile(state.profile)
             .ok_or(crate::StepError::WaitingInvariantViolation)?;
-        let barrier = super::conflict_tick::application_stop_barrier(
+        let tick_stop_hop = super::conflict_tick::application_stop_barrier(
             view,
             &state,
             delta_s,
             compiled,
             profile,
             view.conflict_read(),
-            crate::kernel::tick::ResourceStopOverlay {
-                exclude_stop_hop: Some(occurrence.entry_hop),
-                ..Default::default()
-            },
-        )?;
-        if let Some(application) =
-            view.preview_active_vehicle_with_basis_output(state, delta_s, None, barrier, None, None)
-        {
-            preview_crossed = application.next.route_edge_index > occurrence.entry_hop;
+            crate::kernel::tick::ResourceStopOverlay::default(),
+        )?
+        .map(|barrier| barrier.constraint.hop);
+        if tick_stop_hop == Some(occurrence.entry_hop) {
+            let barrier = super::conflict_tick::application_stop_barrier(
+                view,
+                &state,
+                delta_s,
+                compiled,
+                profile,
+                view.conflict_read(),
+                crate::kernel::tick::ResourceStopOverlay {
+                    exclude_stop_hop: Some(occurrence.entry_hop),
+                    ..Default::default()
+                },
+            )?;
+            // 复算沿用同一前视界（leader 查询范围与基础预览一致），不重
+            // 复与自身排除无关的查询。
+            let horizon =
+                crate::kernel::tick::leader_query_horizon(state.speed_mm_s, profile, delta_s);
+            if let Some(application) = view.preview_active_vehicle_with_basis_output(
+                state, delta_s, None, barrier, horizon, None,
+            ) {
+                preview_crossed = application.next.route_edge_index > occurrence.entry_hop;
+            }
         }
     }
     let preview_at_boundary = front_at_hop_boundary(
@@ -9800,5 +9820,34 @@ pub(crate) mod tests {
         for _ in 0..3 {
             step_pair_dispatched(&mut reference, &mut parallel);
         }
+    }
+
+    #[test]
+    fn idle_waiting_zone_does_not_recompute_the_application_preview() {
+        // R7-2 复审修锚：Waiting 计划创建的「自身排除」复核只在本次待
+        // 申请门确为最近拍初停止时才重算完整预览——空区/窗外区不是停止
+        // 目标，不得重复完整运动与前视计算（评审计数反例：远端空
+        // Waiting 使 horizon/运动计算翻倍而结果不变）。满载侧的正确性
+        // 由 waiting_capacity_denial（可观察拒绝理由）覆盖。
+        let (mut world, route, _occurrence) = waiting_world();
+        let vehicle = world
+            .spawn_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 10_000)
+                    .with_open_entrance(),
+            )
+            .unwrap();
+        let view = world.state.read_view();
+        let preview: crate::kernel::vehicle_store::MotionValue =
+            world.vehicle(vehicle).unwrap().into();
+        let (horizon_before, motion_before) = crate::kernel::tick::motion_diagnostic_counts();
+        let plan = super::waiting_plan_for_preview(view, 0, preview, 0.1).unwrap();
+        let (horizon_after, motion_after) = crate::kernel::tick::motion_diagnostic_counts();
+        assert!(plan.is_none(), "空区未过门：无 Waiting 计划");
+        assert_eq!(
+            motion_after - motion_before,
+            0,
+            "空区不是停止目标：不得重复完整运动计算"
+        );
+        assert_eq!(horizon_after - horizon_before, 0, "不得重复前视计算");
     }
 }
