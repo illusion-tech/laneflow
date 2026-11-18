@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use laneflow_compiler::road_editing as re;
 use laneflow_compiler::{
-    CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler, GeometryAccuracyProfile,
+    CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler, GeometryAccuracyProfile,
     GeometryDirectionProfile, PortableDiffBase, PortableEmissionProvenance, SignalAspect,
     emit_portable_candidate,
 };
@@ -129,7 +129,7 @@ fn compile_network_lfca_inner(
     internal_lanes: &HashSet<String>,
 ) -> Result<TopologyArtifacts> {
     let mut diagnostic_entries = report.as_ref().map(|_| Vec::new());
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let config_text = format!(
         "lust-converter-v1\nsource_commit={LUST_COMMIT}\nframe={LUST_FRAME_ID}\ngeometry=balanced-5cm-2deg\n"
     );

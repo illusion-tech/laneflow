@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
-use laneflow_compiler::{CompileLimits, derive_canonical_stable_id_v1};
+use laneflow_compiler::{CompileProfile, derive_canonical_stable_id_v1};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, TrafficWorld, WorldConfig,
@@ -288,7 +288,7 @@ impl Artifacts {
             EntityKind::SignalGroup,
             &self.catalog.namespace,
             key,
-            &CompileLimits::single_network_1m(),
+            &CompileProfile::single_network_1m_stable_entities(),
         )
         .map_err(|error| invalid(format!("signal group identity: {error:?}")))?;
         self.revision

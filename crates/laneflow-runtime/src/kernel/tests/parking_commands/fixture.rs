@@ -1,6 +1,6 @@
 //! #678 的生产命令与测试计数共用同一个正式编译 fixture。
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
@@ -33,7 +33,7 @@ fn iidm() -> IidmVehicleProfileInput {
 }
 
 fn compile_revision_with_limits(
-    limits: CompileLimits,
+    limits: CompileProfile,
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
     let header = SourceModuleHeader::new(
@@ -95,7 +95,7 @@ fn compile_revision_with_limits(
 
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
@@ -224,46 +224,49 @@ pub fn cases() -> Vec<Case> {
 }
 
 pub fn revision() -> Arc<SharedNetworkRevision> {
-    compile_revision_with_limits(CompileLimits::p100(), |module| {
-        add_standard_profiles(module);
-        module
-            .add_lane_edge(LaneEdgeInput {
-                lane_edge_key: "background",
-                length_meters: 10_000.0,
-                speed_limit_meters_per_second: 15.0,
-                successors: &[],
-            })
-            .unwrap();
-        let keys: Vec<_> = (0..EXITS).map(|i| format!("exit-{i}")).collect();
-        for key in &keys {
+    compile_revision_with_limits(
+        CompileProfile::single_network_10k_stable_entities(),
+        |module| {
+            add_standard_profiles(module);
             module
                 .add_lane_edge(LaneEdgeInput {
-                    lane_edge_key: key,
-                    length_meters: 100.0,
+                    lane_edge_key: "background",
+                    length_meters: 10_000.0,
                     speed_limit_meters_per_second: 15.0,
                     successors: &[],
                 })
                 .unwrap();
-        }
-        let exits: Vec<_> = keys
-            .iter()
-            .map(|key| ParkingLaneAnchorInput {
-                lane_edge: LaneEdgeReference::local(key),
-                progress_meters: 70.0,
-            })
-            .collect();
-        module
-            .add_parking_facility(ParkingFacilityInput {
-                parking_facility_key: "facility",
-                virtual_capacity: 4_096,
-                virtual_entries: &[ParkingLaneAnchorInput {
-                    lane_edge: LaneEdgeReference::local("background"),
-                    progress_meters: 10.0,
-                }],
-                virtual_exits: &exits,
-            })
-            .unwrap();
-    })
+            let keys: Vec<_> = (0..EXITS).map(|i| format!("exit-{i}")).collect();
+            for key in &keys {
+                module
+                    .add_lane_edge(LaneEdgeInput {
+                        lane_edge_key: key,
+                        length_meters: 100.0,
+                        speed_limit_meters_per_second: 15.0,
+                        successors: &[],
+                    })
+                    .unwrap();
+            }
+            let exits: Vec<_> = keys
+                .iter()
+                .map(|key| ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local(key),
+                    progress_meters: 70.0,
+                })
+                .collect();
+            module
+                .add_parking_facility(ParkingFacilityInput {
+                    parking_facility_key: "facility",
+                    virtual_capacity: 4_096,
+                    virtual_entries: &[ParkingLaneAnchorInput {
+                        lane_edge: LaneEdgeReference::local("background"),
+                        progress_meters: 10.0,
+                    }],
+                    virtual_exits: &exits,
+                })
+                .unwrap();
+        },
+    )
 }
 
 pub struct Fixture {

@@ -21,8 +21,7 @@ use crate::spatial_freeze::{
     freeze_spatial_polyline,
 };
 use crate::{
-    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation,
-    SpatialGeometryViolation,
+    CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation, SpatialGeometryViolation,
 };
 
 use super::{
@@ -240,8 +239,11 @@ pub(crate) fn build_spatial_hir(
             ),
         );
     }
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index)
@@ -993,8 +995,11 @@ pub(crate) fn attach_conflict_zone_regions(
         );
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     let mut pending =
         Vec::with_capacity(count_to_usize(counts.conflict_zone_regions, &unit.limits)?);
     let mut owners = vec![None::<SourceLocation>; conflict_zones.len()];
@@ -1260,7 +1265,7 @@ fn push_geometry_source_ranges(
     pending: &PendingSpatialGeometry<'_>,
     point_start: usize,
     output: &mut Vec<HirGeometrySourceRange>,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
 ) -> Result<(), DiagnosticBundle> {
     for range in pending.source_ranges {
         let local_start = usize::try_from(range.point_start)

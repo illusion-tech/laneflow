@@ -79,14 +79,17 @@ pub use identity::{CanonicalIdentityViolation, derive_canonical_stable_id_v1};
 pub use laneflow_static_contract::{
     AccessEffect, GateInterpretation, GateProhibition, ManeuverDirection, SignalAspect,
 };
-pub use limits::{CompileLimitDimension, CompileLimits};
+pub use limits::{
+    CanonicalConsumerPolicy, CompileLimitDimension, CompileProfile, OperationResourceBudget,
+    OperationResourceDimension, SourceProcessingDimension, SourceProcessingLimits,
+};
 pub use module::{
     CompilationUnit, CompilationUnitBuilder, SOURCE_DOCUMENT_SET_DIGEST_VERSION,
     SYNTHETIC_FRONTEND_VERSION, SourceDocumentDescriptor, SourceDocumentOrigin, SourceLanguage,
     SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
 };
 pub use portable_emitter::{
-    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
+    CanonicalInputSide, PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
     PortableEmissionResourceReport, PortableObjectCandidate, PortablePublicationCandidate,
     check_portable_policy_diff, check_portable_policy_sources, emit_portable_candidate,
     emit_portable_candidate_to_staging,

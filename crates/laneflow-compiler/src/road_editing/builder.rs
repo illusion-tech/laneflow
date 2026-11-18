@@ -6,7 +6,7 @@ use laneflow_static_contract::{EntityKind, EntityKindMarker};
 use super::model::*;
 use super::rules::input_error;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, GeometryAccuracyProfile,
+    CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, GeometryAccuracyProfile,
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
@@ -78,10 +78,12 @@ impl ModuleUsage {
     fn charge_token(
         &mut self,
         value: &str,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<(), DiagnosticBundle> {
         let bytes = u64::try_from(value.len()).unwrap_or(u64::MAX);
-        let limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
         if bytes > limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded(
@@ -105,7 +107,7 @@ impl ModuleUsage {
         value: &RoadEditingReference<K>,
         current_namespace: &str,
         import_namespaces: &BTreeSet<Box<str>>,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<(), DiagnosticBundle> {
         if let Some(namespace) = value.module_namespace()
             && (namespace == current_namespace || !import_namespaces.contains(namespace))
@@ -115,7 +117,9 @@ impl ModuleUsage {
                 RoadEditingInputViolation::InvalidCombination,
             ));
         }
-        let single_limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let single_limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
         let mut component_count = 0_u64;
         let mut component_bytes = 0_u64;
         for component in value
@@ -151,7 +155,7 @@ impl ModuleUsage {
     fn charge_canvas(
         &mut self,
         value: Option<&str>,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<(), DiagnosticBundle> {
         if let Some(value) = value {
             self.charge_token(value, limits)?;
@@ -162,7 +166,7 @@ impl ModuleUsage {
     fn charge_curve(
         &mut self,
         value: &RoadEditingCurveProgram,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<(), DiagnosticBundle> {
         self.typed_ast_record_count = self.typed_ast_record_count.saturating_add(1);
         self.charge_table(2, 28);
@@ -183,53 +187,66 @@ impl ModuleUsage {
         Ok(())
     }
 
-    fn validate(self, limits: &CompileLimits) -> Result<(), DiagnosticBundle> {
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::DeclarationCount,
+    fn validate(self, limits: &CompileProfile) -> Result<(), DiagnosticBundle> {
+        if let Some(violation) = [
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::DeclarationCount,
                 self.declaration_count,
             ),
-            (
-                CompileLimitDimension::TypedAstRecordCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TypedAstRecordCount,
                 self.typed_ast_record_count,
             ),
-            (CompileLimitDimension::ReferenceCount, self.reference_count),
-            (
-                CompileLimitDimension::RelationOccurrenceCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::ReferenceCount,
+                self.reference_count,
+            ),
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::RelationOccurrenceCount,
                 self.relation_occurrence_count,
             ),
-            (
-                CompileLimitDimension::IdentityFieldOccurrenceCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
                 self.identity_field_occurrence_count,
             ),
-            (
-                CompileLimitDimension::ManeuverGateCount,
+            limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::ManeuverGateCount,
                 self.maneuver_gate_count,
             ),
-            (
-                CompileLimitDimension::WaitingZoneCount,
+            limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::WaitingZoneCount,
                 self.waiting_zone_count,
             ),
-            (CompileLimitDimension::SymbolCount, self.symbol_count),
-            (
-                CompileLimitDimension::StringItemCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SymbolCount,
+                self.symbol_count,
+            ),
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
                 self.string_item_count,
             ),
-            (
-                CompileLimitDimension::TotalStringBytes,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
                 self.total_string_bytes,
             ),
-            (
-                CompileLimitDimension::SourceBytesPerModule,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SourceBytesPerModule,
                 self.wire_upper_bound,
             ),
-        ] {
-            let limit = limits.value(dimension);
-            if observed > limit {
-                return Err(DiagnosticBundle::single(
-                    Diagnostic::compile_limit_exceeded(dimension, limit, observed),
-                ));
-            }
+        ]
+        .into_iter()
+        .flatten()
+        .next()
+        {
+            let crate::limits::ResourceLimitExceeded {
+                dimension,
+                limit,
+                observed,
+            } = violation;
+
+            return Err(DiagnosticBundle::single(
+                Diagnostic::compile_limit_exceeded(dimension, limit, observed),
+            ));
         }
         Ok(())
     }
@@ -314,7 +331,7 @@ pub struct RoadEditingSourceModuleBuilder<'limits> {
     header: RoadEditingModuleHeader,
     geometry_accuracy_profile: GeometryAccuracyProfile,
     geometry_direction_profile: GeometryDirectionProfile,
-    limits: &'limits CompileLimits,
+    limits: &'limits CompileProfile,
     road_alignments: Vec<RoadAlignmentInput>,
     declarations: Vec<RoadEditingDeclaration>,
     conflict_zone_regions: Vec<ConflictZoneRegionInput>,
@@ -335,7 +352,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         header: RoadEditingModuleHeader,
         geometry_accuracy_profile: GeometryAccuracyProfile,
         geometry_direction_profile: GeometryDirectionProfile,
-        limits: &'limits CompileLimits,
+        limits: &'limits CompileProfile,
     ) -> Result<Self, DiagnosticBundle> {
         let mut usage = ModuleUsage {
             // root 与 Provenance 不进入 Typed AST；ModuleHeader 恰好消费一条记录。
@@ -358,7 +375,9 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         usage.charge_token(header.provenance().generator_build_id(), limits)?;
         usage.charge_token(header.provenance().description(), limits)?;
         let import_count = u64::try_from(header.imports().len()).unwrap_or(u64::MAX);
-        let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
+        let import_limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::ImportEdgeCount);
         if import_count > import_limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded(
@@ -585,7 +604,7 @@ fn charge_references<K: EntityKindMarker>(
     values: &[RoadEditingReference<K>],
     current_namespace: &str,
     import_namespaces: &BTreeSet<Box<str>>,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<(), DiagnosticBundle> {
     charge_relation(usage, values.len());
     for value in values {
@@ -599,7 +618,7 @@ fn charge_declaration(
     value: &RoadEditingDeclaration,
     current_namespace: &str,
     import_namespaces: &BTreeSet<Box<str>>,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<(), DiagnosticBundle> {
     usage.declaration_count = usage.declaration_count.saturating_add(1);
     usage.symbol_count = usage.symbol_count.saturating_add(1);
@@ -1253,7 +1272,7 @@ mod tests {
         .expect("header")
     }
 
-    fn builder(limits: &CompileLimits) -> RoadEditingSourceModuleBuilder<'_> {
+    fn builder(limits: &CompileProfile) -> RoadEditingSourceModuleBuilder<'_> {
         RoadEditingSourceModuleBuilder::new(
             header(),
             GeometryAccuracyProfile::Balanced5Cm,
@@ -1265,7 +1284,7 @@ mod tests {
 
     #[test]
     fn duplicate_add_does_not_pollute_builder() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         builder
             .add_declaration(RoadEditingDeclaration::CanonicalFrame(
@@ -1291,7 +1310,7 @@ mod tests {
 
     #[test]
     fn conflict_zone_local_key_is_unique_only_within_its_junction_owner() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         let zone = |junction: &str| {
             RoadEditingDeclaration::ConflictZone(
@@ -1315,7 +1334,7 @@ mod tests {
 
     #[test]
     fn finish_rejects_missing_identity_owner() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         let missing_section =
             RoadSectionReference::owner_scoped(vec!["corridor-a".into()], "section-a")
@@ -1331,7 +1350,7 @@ mod tests {
 
     #[test]
     fn add_rejects_imported_identity_owner() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         let imported_section =
             RoadSectionReference::imported("other-city", vec!["corridor-a".into()], "section-a")
@@ -1349,9 +1368,9 @@ mod tests {
 
     #[test]
     fn add_checks_string_limits_before_mutation() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
-        let oversized_key = "x".repeat(54);
+        let oversized_key = "x".repeat(limits.max_single_string_bytes() as usize + 1);
         assert!(
             builder
                 .add_declaration(RoadEditingDeclaration::CanonicalFrame(
@@ -1369,7 +1388,7 @@ mod tests {
 
     #[test]
     fn module_header_is_the_only_initial_typed_ast_record() {
-        let limits = CompileLimits::p100()
+        let limits = CompileProfile::single_network_10k_stable_entities()
             .with_test_admission_limit(CompileLimitDimension::TypedAstRecordCount, 1);
 
         assert!(builder(&limits).finish().is_ok());
@@ -1377,7 +1396,7 @@ mod tests {
 
     #[test]
     fn add_rejects_a_self_qualified_reference() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         let self_qualified_frame = CanonicalFrameReference::imported("city", Vec::new(), "frame-a")
             .expect("self-qualified frame reference");
@@ -1400,7 +1419,7 @@ mod tests {
 
     #[test]
     fn add_rejects_a_reference_outside_declared_imports() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1435,7 +1454,7 @@ mod tests {
 
     #[test]
     fn finish_requires_every_phase_to_cover_its_controllers_groups() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         let group_a = SignalGroupReference::local("group-a").expect("group a");
         let group_b = SignalGroupReference::local("group-b").expect("group b");
@@ -1481,7 +1500,7 @@ mod tests {
 
     #[test]
     fn finish_does_not_treat_an_imported_phase_group_as_the_local_owned_group() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1534,7 +1553,7 @@ mod tests {
 
     #[test]
     fn finish_rejects_an_owner_vector_that_disagrees_with_the_child_parent() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         let group_a = SignalGroupReference::local("group-a").expect("group a");
         let group_b = SignalGroupReference::local("group-b").expect("group b");
@@ -1611,7 +1630,7 @@ mod tests {
 
     #[test]
     fn owner_qualified_reference_charges_each_semantic_component() {
-        let limits = CompileLimits::p100()
+        let limits = CompileProfile::single_network_10k_stable_entities()
             .with_test_admission_limit(CompileLimitDimension::StringItemCount, 12);
         let mut builder = builder(&limits);
         builder
@@ -1652,7 +1671,7 @@ mod tests {
 
     #[test]
     fn same_phase_key_under_different_controllers_is_legal() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = builder(&limits);
         for controller_key in ["controller-a", "controller-b"] {
             let group_key = format!("group-{}", &controller_key[11..]);

@@ -18,7 +18,7 @@ use std::alloc::Layout;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::{CompileLimitDimension, CompileLimits};
+use crate::OperationResourceBudget;
 
 #[cfg(test)]
 mod tests;
@@ -350,8 +350,10 @@ pub(crate) struct Ledger {
 
 impl Ledger {
     /// 以配置档的宿主预算创建空账本。
-    pub(crate) fn new(limits: &CompileLimits) -> Self {
-        Self::with_budget(limits.value(CompileLimitDimension::CompilerControlledLiveBytes))
+    pub(crate) fn new(limits: &OperationResourceBudget) -> Self {
+        Self::with_budget(
+            limits.get(crate::OperationResourceDimension::CompilerControlledLiveBytes),
+        )
     }
 
     /// 以给定宿主预算创建空账本。

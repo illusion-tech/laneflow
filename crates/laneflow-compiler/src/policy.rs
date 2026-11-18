@@ -1,6 +1,6 @@
 //! 路权策略阶段的共同诊断与有界计量。
 
-use crate::{CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, SourceLocation};
 /// 路权策略在各编译阶段共用的只读数据模型。
 pub(crate) mod model;
 
@@ -107,9 +107,11 @@ pub(crate) fn error(
 }
 
 /// 核对策略阶段含暂存在内的存续字节是否超出所选配置档的宿主预算。
-pub(crate) fn check_budget(limits: &CompileLimits, live: u64) -> Result<(), DiagnosticBundle> {
+pub(crate) fn check_budget(limits: &CompileProfile, live: u64) -> Result<(), DiagnosticBundle> {
     let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-    let limit = limits.value(dimension);
+    let limit = limits
+        .operation_budget()
+        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
     if live > limit {
         return Err(DiagnosticBundle::single(
             Diagnostic::compile_limit_exceeded(dimension, limit, live),

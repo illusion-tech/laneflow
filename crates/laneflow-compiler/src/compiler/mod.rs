@@ -553,6 +553,17 @@ impl Compiler {
         let policy_validation_work_units = crate::mir::validate_policies(&unit, &mut mir)?;
         let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
         let frozen_lir = freeze_lir(&unit, &mir)?;
+        let usage = crate::canonical_usage::lir_statistics(&frozen_lir.lir).usage();
+        selected_limits
+            .canonical_capacity()
+            .admit(&usage)
+            .map_err(|violation| {
+                DiagnosticBundle::single(crate::Diagnostic::compile_limit_exceeded(
+                    violation.dimension.into(),
+                    violation.limit,
+                    violation.observed,
+                ))
+            })?;
         let lir_record_count = frozen_lir.lir.lir_record_count;
         let output_logical_bytes = frozen_lir.lir.output_bytes;
         let semantic_fingerprint = frozen_lir.lir.semantic_digest;

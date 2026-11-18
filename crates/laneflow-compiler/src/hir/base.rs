@@ -19,7 +19,7 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, encode_canonical_identity,
 };
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::plan::HirBuildPlan;
 use super::{
@@ -329,8 +329,11 @@ impl HirBase {
         // 第二遍只解析已经规范化的引用序列。未知目标继续收集到有界诊断集合中；该边的
         // 临时区间不会在失败时泄漏，因为整个 HirUnit 仅在零错误后提交。
         let mut references = Vec::with_capacity(reference_capacity);
-        let mut diagnostics =
-            DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+        let mut diagnostics = DiagnosticCollector::new(
+            unit.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
         for source_location in canonical_sources {
             let module_index = usize::try_from(source_location.source_module_index)
                 .expect("u32 module index must fit usize on supported targets");

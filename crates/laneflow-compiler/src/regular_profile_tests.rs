@@ -1,17 +1,18 @@
-//! #1441 候选来源政策的实际计数与有限边界验证；不增加公共配置档入口。
+//! #1441 正式常规档的实际计数、拒绝边界与失败复用验证。
 
 use crate as compiler_api;
 use crate::{
-    CompileLimitDimension as D, CompileLimits, Compiler, DiagnosticBundle, DiagnosticPayload,
+    CompileLimitDimension as D, CompileProfile, Compiler, DiagnosticBundle, DiagnosticPayload,
 };
 
+mod capacity;
 mod workload;
 use workload::{
     CANDIDATE_OPERATION_BYTES, SHAPES, WorkloadShape, assemble_mixed_network, build_mixed_network,
     build_synthetic_module,
 };
 
-// 固定候选集合的包络与达到该值的负载；不是公共生产配置档。
+// 登记工作负载的逐维来源包络与达到该值的负载。
 const ADMISSION_BOUNDARIES: [(D, u32, usize); 16] = [
     (D::ModuleCount, 18, 4),
     (D::SourceDocumentCount, 18, 4),
@@ -35,18 +36,8 @@ const HIR_RECORDS: u32 = 535_364;
 const MIR_RECORDS: u32 = 395_015;
 const LIR_RECORDS: u32 = 396_669;
 
-fn candidate_limits() -> CompileLimits {
-    let mut limits = CompileLimits::single_network_1m();
-    for (dimension, value, _) in ADMISSION_BOUNDARIES {
-        limits = limits.with_test_admission_limit(dimension, value);
-    }
-    limits
-        .with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE, 8_728_106)
-        .with_test_single_string_limit(1_024)
-        .with_test_pipeline_limits(HIR_RECORDS, MIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
-        .with_test_lir_limits(LIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
-        .with_test_retained_limit(16 * 1024 * 1024)
-        .with_test_policy_work_limit(1_000_000)
+fn candidate_limits() -> CompileProfile {
+    CompileProfile::single_network_10k_stable_entities()
 }
 
 fn assert_limit(diagnostics: &DiagnosticBundle, dimension: D) {
@@ -197,7 +188,7 @@ fn candidate_stage_record_limits_reject_without_poisoning_compiler() {
     let mut compiler = Compiler::new();
     // 单独收紧阶段维度，避免把 MIR 策略遍历的遗留工作预算误记为来源边界失败。
     let stage_limits = || {
-        CompileLimits::single_network_1m()
+        CompileProfile::single_network_1m_stable_entities()
             .with_test_pipeline_limits(HIR_RECORDS, MIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
             .with_test_lir_limits(LIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
             .with_test_retained_limit(16 * 1024 * 1024)
@@ -356,13 +347,7 @@ fn combined_policy_diff_fits_256_mib_and_budget_failure_allows_reuse() {
     use laneflow_format::{FormatLimits, preflight_object_values};
     use laneflow_static_contract::PortableObjectKind;
     let shape = SHAPES[10].1;
-    // 仅隔离操作预算，避免把仍未分离的来源工作量边界混入内存拒绝试验。
-    let limits = || {
-        CompileLimits::single_network_1m().with_test_admission_limit(
-            D::CompilerControlledLiveBytes,
-            CANDIDATE_OPERATION_BYTES as u32,
-        )
-    };
+    let limits = candidate_limits;
     let mut compiler = Compiler::new();
     let output = compiler
         .compile(

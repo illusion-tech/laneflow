@@ -310,7 +310,7 @@ pub(super) struct FreezeEnv<'a> {
     pub orders: &'a CanonicalOrders,
     pub identity_fields: &'a mut Vec<LirIdentityField>,
     pub identity_field_bytes: &'a mut Vec<u8>,
-    pub limits: &'a crate::CompileLimits,
+    pub limits: &'a crate::CompileProfile,
     pub primary_span: Option<SourceLocation>,
 }
 
@@ -742,7 +742,7 @@ fn ordinal_mapping<K, O: Copy, E>(
     count: usize,
     canonical_order: &[ArenaKey<K>],
     make_ordinal: fn(usize) -> Result<O, E>,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> Result<Vec<O>, DiagnosticBundle> {
     let first = make_ordinal(0).map_err(|_| ordinal_overflow(limits, primary_span.clone()))?;
@@ -757,7 +757,7 @@ fn ordinal_mapping<K, O: Copy, E>(
 fn relation_range<T>(
     start: usize,
     end: usize,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> Result<TableRange<T>, DiagnosticBundle> {
     TableRange::try_from_usize(start, end.saturating_sub(start))
@@ -772,7 +772,7 @@ fn push_lir_identity(
     namespace: &str,
     stable_key: &str,
     parent: Option<(FieldTag, &[u8; 16])>,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> Result<TableRange<LirIdentityField>, DiagnosticBundle> {
     let start = fields.len();
@@ -949,7 +949,7 @@ fn push_identity_field(
     bytes: &mut Vec<u8>,
     tag: FieldTag,
     value: &[u8],
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> Result<(), DiagnosticBundle> {
     let start = bytes.len();
@@ -1718,19 +1718,21 @@ fn requested_bytes<T>(count: u64) -> u64 {
 
 fn table_overflow(
     _: ArenaKeyOverflow,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     ordinal_overflow(limits, primary_span)
 }
 
 fn ordinal_overflow(
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::LirRecordCount,
-        limits.value(CompileLimitDimension::LirRecordCount),
+        limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::LirRecordCount),
         u64::from(u32::MAX) + 1,
         primary_span,
         None,
@@ -1738,13 +1740,15 @@ fn ordinal_overflow(
 }
 
 fn output_overflow(
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     // 输出字节无法表示时，其存续必然超出宿主预算，按宿主预算维度报告。
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::CompilerControlledLiveBytes,
-        limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+        limits
+            .operation_budget()
+            .get(crate::OperationResourceDimension::CompilerControlledLiveBytes),
         u64::MAX,
         primary_span,
         None,

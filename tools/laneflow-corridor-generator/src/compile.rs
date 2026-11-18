@@ -1,6 +1,6 @@
 use laneflow_compiler::{
     AccessEffect, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
-    CanonicalPoint3F32Input, CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler,
+    CanonicalPoint3F32Input, CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler,
     CorridorElementReference, FacilityBandInput, IidmVehicleProfileInput, JunctionInput,
     LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
     ManeuverGateInput, ManeuverPathInput, MovementInput, MovementReference, ParticipantClassInput,
@@ -42,7 +42,7 @@ pub(crate) fn compile_corridor(
     corridor: &CorridorBuild,
     cross_section: &CrossSectionDocs,
 ) -> Result<CompilationOutput, Error> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: AUTHORING_NAMESPACE,

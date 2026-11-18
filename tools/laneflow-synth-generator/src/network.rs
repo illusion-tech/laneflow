@@ -5,7 +5,7 @@ use crate::encoding::{config_bytes, digest};
 use crate::{BUILD_ID, Case, Error, Identity, NAMESPACE, POLICY_KEY, compile_error, key};
 
 pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,

@@ -12,8 +12,8 @@ use crate::declaration::{OwnedAccessRuleTarget, OwnedRegulationIdentity, TypedAs
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::{
-    AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
-    Diagnostic, DiagnosticBundle, SourceLocation,
+    AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, Diagnostic,
+    DiagnosticBundle, SourceLocation,
 };
 
 use super::{
@@ -284,8 +284,11 @@ pub(crate) fn build_access_hir(
         }
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     for location in &class_sources {
         let module_index = usize::try_from(location.source_module_index)
             .expect("u32 module index must fit usize on supported targets");

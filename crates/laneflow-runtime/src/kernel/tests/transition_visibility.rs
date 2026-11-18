@@ -61,7 +61,7 @@ fn scoped(prefix: &str, key: &str) -> String {
 }
 
 fn build(topology: &Topology) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: SYNTH,
@@ -449,7 +449,7 @@ fn install(revision: Arc<SharedNetworkRevision>, workers: u32) -> crate::Traffic
             laneflow_static_contract::EntityKind::RightOfWayPolicySet,
             ROAD,
             "policy",
-            &CompileLimits::single_network_1m(),
+            &CompileProfile::single_network_1m_stable_entities(),
         )
         .unwrap(),
     );
@@ -501,7 +501,7 @@ fn named(revision: &SharedNetworkRevision, key: &str) -> LaneEdgeOrdinal {
         laneflow_static_contract::EntityKind::LaneEdge,
         SYNTH,
         key,
-        &CompileLimits::single_network_1m(),
+        &CompileProfile::single_network_1m_stable_entities(),
     )
     .unwrap();
     revision

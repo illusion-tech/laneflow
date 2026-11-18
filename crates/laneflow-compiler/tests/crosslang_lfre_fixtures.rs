@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use laneflow_compiler::road_editing::RoadEditingModuleInput;
-use laneflow_compiler::{CompilationUnitBuilder, CompileLimits};
+use laneflow_compiler::{CompilationUnitBuilder, CompileProfile};
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 
 const EXPECTED_SOURCE_DOCUMENT_KEY: &str = "roads/crosslang-writer";
@@ -186,7 +186,7 @@ fn assert_reader_accepts(fixture_name: &str) {
 
     assert_fixed_module_semantics(fixture_name, &bytes);
 
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = CompilationUnitBuilder::new(limits);
     let input = RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, &bytes, None)
         .expect("fixture 的 expected key/bytes 必须满足输入契约");

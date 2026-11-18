@@ -13,7 +13,7 @@ use laneflow_bevy::{
     LaneFlowSession, LaneFlowSessionConfig, LaneFlowTargetSpatial,
 };
 use laneflow_compiler::{
-    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits, Compiler,
+    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileProfile, Compiler,
     IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
     ParticipantClassInput, ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
     SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
@@ -41,7 +41,7 @@ const OFFSET_R2_Y: f32 = 10.0;
 const PREFLIGHT: CutoverPreflightLimits = CutoverPreflightLimits::new(16 * 1_024 * 1_024);
 
 fn compile(frame_offset_y: f32) -> laneflow_compiler::CompilationOutput {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/revision-cutover",

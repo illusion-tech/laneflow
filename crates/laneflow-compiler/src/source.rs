@@ -5,10 +5,7 @@
 //! `SyntheticModuleBuilder::finish` 派生，因此头不能与任意内容摘要自行配对。
 
 use crate::diagnostic::DiagnosticCollector;
-use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceHeaderField,
-    SourceTextViolation,
-};
+use crate::{CompileProfile, Diagnostic, DiagnosticBundle, SourceHeaderField, SourceTextViolation};
 use std::sync::Arc;
 
 /// 调用方提供、随后由编译器受检复制的合成来源模块头输入。
@@ -72,11 +69,16 @@ impl SourceModuleHeader {
     #[track_caller]
     pub fn new(
         input: SourceModuleHeaderInput<'_>,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<Self, DiagnosticBundle> {
-        let mut diagnostics =
-            DiagnosticCollector::new(limits.value(CompileLimitDimension::DiagnosticCount));
-        let single_string_limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let mut diagnostics = DiagnosticCollector::new(
+            limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
+        let single_string_limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
 
         validate_external_token(
             input.authoring_namespace_id,
@@ -107,9 +109,10 @@ impl SourceModuleHeader {
         // 来源链属于描述符元数据，但其复制字节仍计入编译器控制存续内存。
         let string_item_count = 2;
         check_limit(
-            limits,
-            CompileLimitDimension::StringItemCount,
-            string_item_count,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
+                string_item_count,
+            ),
             &mut diagnostics,
         );
         let total_string_bytes = [input.authoring_namespace_id, input.source_document_key]
@@ -119,9 +122,10 @@ impl SourceModuleHeader {
             })
             .unwrap_or(u64::MAX);
         check_limit(
-            limits,
-            CompileLimitDimension::TotalStringBytes,
-            total_string_bytes,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
+                total_string_bytes,
+            ),
             &mut diagnostics,
         );
         let controlled_live_bytes = [
@@ -136,9 +140,10 @@ impl SourceModuleHeader {
         })
         .unwrap_or(u64::MAX);
         check_limit(
-            limits,
-            CompileLimitDimension::CompilerControlledLiveBytes,
-            controlled_live_bytes,
+            limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
+                controlled_live_bytes,
+            ),
             &mut diagnostics,
         );
 
@@ -207,13 +212,15 @@ impl SourceModuleHeader {
 }
 
 fn check_limit(
-    limits: &CompileLimits,
-    dimension: CompileLimitDimension,
-    observed: u64,
+    violation: Option<crate::limits::ResourceLimitExceeded>,
     diagnostics: &mut DiagnosticCollector,
 ) {
-    let limit = limits.value(dimension);
-    if observed > limit {
+    if let Some(crate::limits::ResourceLimitExceeded {
+        dimension,
+        limit,
+        observed,
+    }) = violation
+    {
         diagnostics.push(Diagnostic::compile_limit_exceeded(
             dimension, limit, observed,
         ));
@@ -314,6 +321,7 @@ fn common_text_violation(value: &str, limit: u64) -> Option<SourceTextViolation>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CompileLimitDimension;
     use crate::{DiagnosticPayload, DiagnosticSeverity};
 
     fn valid_input<'a>() -> SourceModuleHeaderInput<'a> {
@@ -331,7 +339,9 @@ mod tests {
     #[test]
     fn valid_header_is_owned_without_a_self_reported_content_digest() {
         let input = valid_input();
-        let header = SourceModuleHeader::new(input, &CompileLimits::p100()).unwrap();
+        let header =
+            SourceModuleHeader::new(input, &CompileProfile::single_network_10k_stable_entities())
+                .unwrap();
 
         assert_eq!(
             header.authoring_namespace_id(),
@@ -361,7 +371,10 @@ mod tests {
             ..valid_input()
         };
 
-        let bundle = match SourceModuleHeader::new(input, &CompileLimits::p100()) {
+        let bundle = match SourceModuleHeader::new(
+            input,
+            &CompileProfile::single_network_10k_stable_entities(),
+        ) {
             Ok(_) => panic!("invalid source module header must fail"),
             Err(bundle) => bundle,
         };
@@ -390,15 +403,22 @@ mod tests {
     }
 
     #[test]
-    fn fifty_three_bytes_is_inclusive_and_plus_one_is_rejected_before_copy() {
-        let at_bound = "a".repeat(53);
-        let over_bound = "a".repeat(54);
+    fn metadata_string_limit_is_inclusive_and_plus_one_is_rejected_before_copy() {
+        let limit = CompileProfile::single_network_10k_stable_entities().max_single_string_bytes();
+        let at_bound = "a".repeat(limit as usize);
+        let over_bound = "a".repeat(limit as usize + 1);
         let mut input = valid_input();
         input.generator_build_id = &at_bound;
-        assert!(SourceModuleHeader::new(input, &CompileLimits::p100()).is_ok());
+        assert!(
+            SourceModuleHeader::new(input, &CompileProfile::single_network_10k_stable_entities())
+                .is_ok()
+        );
 
         input.generator_build_id = &over_bound;
-        let bundle = match SourceModuleHeader::new(input, &CompileLimits::p100()) {
+        let bundle = match SourceModuleHeader::new(
+            input,
+            &CompileProfile::single_network_10k_stable_entities(),
+        ) {
             Ok(_) => panic!("over-limit source module header must fail"),
             Err(bundle) => bundle,
         };
@@ -407,10 +427,10 @@ mod tests {
             DiagnosticPayload::InvalidSourceHeaderField {
                 field: SourceHeaderField::GeneratorBuildId,
                 violation: SourceTextViolation::TooLong {
-                    limit: 53,
-                    observed: 54,
+                    limit: actual_limit,
+                    observed,
                 },
-            }
+            } if *actual_limit == limit && *observed == limit + 1
         ));
     }
 
@@ -418,7 +438,7 @@ mod tests {
     fn million_profile_keeps_identity_namespace_at_53_without_narrowing_metadata() {
         let at_bound = "a".repeat(53);
         let over_bound = "a".repeat(54);
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
         let mut input = valid_input();
         input.authoring_namespace_id = &at_bound;
         input.provenance = &over_bound;
@@ -450,7 +470,8 @@ mod tests {
 
     #[test]
     fn aggregate_limit_payload_keeps_dimension_limit_and_observed_order() {
-        let limits = CompileLimits::p100().with_test_string_limits(1, 1);
+        let limits =
+            CompileProfile::single_network_10k_stable_entities().with_test_string_limits(1, 1);
         let bundle = match SourceModuleHeader::new(valid_input(), &limits) {
             Ok(_) => panic!("aggregate over-limit source module header must fail"),
             Err(bundle) => bundle,

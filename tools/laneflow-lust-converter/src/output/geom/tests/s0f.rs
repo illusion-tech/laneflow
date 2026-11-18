@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use laneflow_compiler::road_editing as re;
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, DiagnosticBundle, DiagnosticPayload,
+    CompilationUnitBuilder, CompileProfile, Compiler, DiagnosticBundle, DiagnosticPayload,
     GeometryAccuracyProfile, GeometryDirectionProfile, SpatialGeometryViolation,
 };
 use serde_json::{Value, json};
@@ -286,7 +286,7 @@ fn compile_pair(
         add(right_geometry.end, scale(last, LEAD_METERS)),
     );
 
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = re::RoadEditingModuleHeader::try_new(
         "laneflow/s0f-adjacency",
         "s0f-adjacency",

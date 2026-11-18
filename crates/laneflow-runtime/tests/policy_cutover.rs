@@ -17,7 +17,7 @@ fn candidate(
     extra: bool,
     base: PortableDiffBase<'_>,
 ) -> PortablePublicationCandidate {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "policy-cutover",
@@ -99,7 +99,7 @@ fn id(key: &str) -> RightOfWayPolicySetId {
             EntityKind::RightOfWayPolicySet,
             "policy-cutover",
             key,
-            &CompileLimits::p100(),
+            &CompileProfile::single_network_10k_stable_entities(),
         )
         .unwrap(),
     )

@@ -10,7 +10,7 @@ use laneflow_bevy::{
     LaneFlowAdapterError, LaneFlowCommittedPoseBatch, LaneFlowSession, LaneFlowSessionConfig,
 };
 use laneflow_compiler::{
-    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits, Compiler,
+    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileProfile, Compiler,
     IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
     ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
     ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
@@ -40,16 +40,20 @@ const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
 
 /// 边序号由修订身份派生，不假设插入顺序。
 fn edge_ordinal(root: &SharedNetworkRevision, key: &str) -> LaneEdgeOrdinal {
-    let stable =
-        derive_canonical_stable_id_v1(EntityKind::LaneEdge, NAMESPACE, key, &CompileLimits::p100())
-            .expect("edge stable id");
+    let stable = derive_canonical_stable_id_v1(
+        EntityKind::LaneEdge,
+        NAMESPACE,
+        key,
+        &CompileProfile::single_network_10k_stable_entities(),
+    )
+    .expect("edge stable id");
     root.identity()
         .ordinal(LaneEdgeId::from_untyped(stable))
         .expect("edge ordinal")
 }
 
 fn compile_two_frame() -> laneflow_compiler::CompilationOutput {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/pose-extraction-commit",

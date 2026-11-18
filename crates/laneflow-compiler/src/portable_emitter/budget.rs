@@ -5,7 +5,7 @@
 //! 受控工作集只经编译遍的存储入口创建。
 
 use crate::ledger::{BoundedVec, Ledger, LedgerError, LedgerStage, PassBudget, PassLabel, Plan};
-use crate::{CompileLimitDimension, CompileLimits};
+use crate::{CompileLimitDimension, OperationResourceBudget};
 
 use super::PortableEmissionError;
 
@@ -54,7 +54,7 @@ impl<'l> Accounting<'l> {
 
 /// 宿主直接调用公开检查时新建检查账本，调用内部实现，返回前核对账本结束条件。
 pub(super) fn with_check_ledger<T>(
-    compile_limits: &CompileLimits,
+    compile_limits: &OperationResourceBudget,
     check: impl FnOnce(Accounting<'_>) -> Result<T, PortableEmissionError>,
 ) -> Result<T, PortableEmissionError> {
     let ledger = Ledger::new(compile_limits);

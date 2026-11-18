@@ -2434,7 +2434,7 @@ pub(crate) mod compile_route_tests {
         pub(crate) fn revision_variant(
             variant: S3Transitions,
         ) -> Arc<laneflow_static_network::SharedNetworkRevision> {
-            let limits = CompileLimits::p100();
+            let limits = CompileProfile::single_network_10k_stable_entities();
             let header = SourceModuleHeader::new(
                 SourceModuleHeaderInput {
                     authoring_namespace_id: "lane-change-s1s3",
@@ -3213,7 +3213,7 @@ pub(crate) mod compile_route_tests {
                 build_shared_network_revision,
             };
 
-            let limits = CompileLimits::p100();
+            let limits = CompileProfile::single_network_10k_stable_entities();
             let synth_header = SourceModuleHeader::new(
                 SourceModuleHeaderInput {
                     authoring_namespace_id: "s4-synth",
@@ -3752,7 +3752,7 @@ pub(crate) mod compile_route_tests {
                     laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                     "s4-road",
                     "policy",
-                    &laneflow_compiler::CompileLimits::single_network_1m(),
+                    &laneflow_compiler::CompileProfile::single_network_1m_stable_entities(),
                 )
                 .unwrap(),
             );
@@ -4860,7 +4860,7 @@ pub(crate) mod compile_route_tests {
                         build_shared_network_revision,
                     };
 
-                    let limits = CompileLimits::p100();
+                    let limits = CompileProfile::single_network_10k_stable_entities();
                     let header = SourceModuleHeader::new(
                         SourceModuleHeaderInput {
                             authoring_namespace_id: "s4-es-synth",
@@ -5502,7 +5502,7 @@ pub(crate) mod compile_route_tests {
                             laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                             "s4-road",
                             "policy",
-                            &laneflow_compiler::CompileLimits::single_network_1m(),
+                            &laneflow_compiler::CompileProfile::single_network_1m_stable_entities(),
                         )
                         .unwrap(),
                     );

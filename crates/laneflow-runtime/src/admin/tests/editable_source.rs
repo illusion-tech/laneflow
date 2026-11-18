@@ -11,7 +11,7 @@ use crate::{
     SemanticDiffOriginBinding, TrafficWorld, WorldPolicySelection, encode_lfrs,
 };
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, PortableDiffBase, PortableEmissionProvenance,
+    CompilationUnitBuilder, CompileProfile, Compiler, PortableDiffBase, PortableEmissionProvenance,
     emit_portable_candidate, road_editing as lfre,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object_values};
@@ -29,7 +29,7 @@ fn generous_limits() -> SnapshotRestoreLimits {
 
 /// 单模块道路编辑状态：base（`target = false`）或插入前置 passage 的 target。
 fn state(target: bool) -> RoadEditingState {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let bytes = lfre::RoadEditingSourceWriter::new(&limits)
         .write(conflict_cutover_test_module(target, false, false, false))
         .expect("Road Editing source")
@@ -52,7 +52,7 @@ struct Recompiled {
 
 /// 宿主重编译：逐模块 `LFRE` 准入 → 编译 → 发射 → 后发射检查 → 构建修订。
 fn recompile(state: &RoadEditingState, provenance: &str, base: Option<&[u8]>) -> Recompiled {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut unit = CompilationUnitBuilder::new(limits);
     for module in state.modules() {
         let input = lfre::RoadEditingModuleInput::try_new(

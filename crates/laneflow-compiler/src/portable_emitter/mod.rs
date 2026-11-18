@@ -5,6 +5,7 @@
 //! LFSD 路权差异在发射后交给独立策略检查器核对实际两份修订，
 //! exact bytes 的持久化、认证与发布由宿主负责。
 
+mod admission;
 mod api;
 mod budget;
 mod canonical_usage;
@@ -17,11 +18,11 @@ mod tree;
 #[cfg(test)]
 mod wire;
 
-use api::{OBJECT_KEY_BYTES, close_shared_object};
 pub use api::{
-    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
+    CanonicalInputSide, PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
     PortableEmissionResourceReport, PortableObjectCandidate, PortablePublicationCandidate,
 };
+use api::{OBJECT_KEY_BYTES, close_shared_object};
 pub(crate) use api::{close_object, close_staged_object, object_key, sha256};
 use lfca::{build_lfca, set_lfca_tree_revision};
 pub use lfsd::check_portable_policy_diff;
@@ -235,8 +236,22 @@ fn emit_portable_candidate_with(
         (&'static str, &'static str),
     ) -> Result<Emitted, PortableEmissionError>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
+    let capacity = output.compile_limits().canonical_capacity();
+    if let PortableDiffBase::Artifact(base) = base {
+        if base.registry_view().kind() != PortableObjectKind::CanonicalArtifact {
+            return Err(PortableEmissionError::InvalidDiffBaseKind);
+        }
+        let view =
+            preflight_object_values(base.bytes(), PortableObjectKind::CanonicalArtifact, limits)?;
+        admission::admit_canonical_view(
+            view.registry_view(),
+            capacity,
+            CanonicalInputSide::Base,
+            PortableEmissionError::DiffBaseSemanticMismatch,
+        )?;
+    }
     // 发射账本：对象树、编码、关系投影自校验、策略来源检查与差异检查共用这一份账本。
-    let ledger = Ledger::new(output.compile_limits());
+    let ledger = Ledger::new(output.compile_limits().operation_budget());
     let single = Accounting {
         ledger: &ledger,
         stage: LedgerStage::SingleEmission,
@@ -295,6 +310,7 @@ fn emit_portable_candidate_with(
         output.source_map_input(),
         source_map.bytes(),
         limits,
+        capacity,
     )?;
 
     let (lfsd, expected_semantic_diff_base) = build_lfsd(
@@ -320,6 +336,7 @@ fn emit_portable_candidate_with(
         canonical_artifact.bytes(),
         semantic_diff.bytes(),
         limits,
+        capacity,
     )?;
 
     // 候选携带的编译器构建标识副本同样在返回点转交宿主。

@@ -246,7 +246,10 @@ impl SyntheticModuleBuilder {
             .saturating_add(size.references.saturating_mul(4))
             .saturating_add(members.saturating_mul(48))
             .saturating_add(64);
-        let string_limit = self.limits.value(CompileLimitDimension::SingleStringBytes);
+        let string_limit = self
+            .limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
         if size.max_string > string_limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded(

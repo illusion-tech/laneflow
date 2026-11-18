@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     LaneEdgeReference, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
     PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
@@ -26,7 +26,7 @@ fn lane_revision(edge_count: u32) -> Arc<SharedNetworkRevision> {
 }
 
 fn road_revision(edge_count: u32, length_meters: f64, cyclic: bool) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "runtime/overlap-evidence",

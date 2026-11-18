@@ -1,4 +1,4 @@
-use laneflow_compiler::{CompileLimits, derive_canonical_stable_id_v1};
+use laneflow_compiler::{CompileProfile, derive_canonical_stable_id_v1};
 use laneflow_static_contract::EntityKind;
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +57,7 @@ pub(crate) fn stable_id_in(
         kind,
         namespace,
         source_key,
-        &CompileLimits::single_network_1m(),
+        &CompileProfile::single_network_1m_stable_entities(),
     )
     .map_err(|error| compile_error("stable identity", error))?;
     Ok(format!("lfid1_{}_{id:x}", kind.slug()))

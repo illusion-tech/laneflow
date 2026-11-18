@@ -23,7 +23,7 @@ fn host_recompile(
     provenance: &'static str,
 ) -> impl FnMut(&RoadEditingState) -> Result<Vec<u8>, RecompileFailure> {
     move |state| {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let content = |error: &dyn std::fmt::Debug| RecompileFailure::Content(format!("{error:?}"));
         let mut unit = CompilationUnitBuilder::new(limits);
         for module in state.modules() {

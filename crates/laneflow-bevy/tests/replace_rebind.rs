@@ -9,7 +9,7 @@ use laneflow_bevy::{
     despawn_vehicle, replace_completed_vehicle,
 };
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
@@ -43,7 +43,7 @@ fn install_fixture(
                     laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                     "runtime-fixture-policy",
                     "fixture-policy",
-                    &CompileLimits::p100(),
+                    &CompileProfile::single_network_10k_stable_entities(),
                 )
                 .expect("full-spatial fixture policy identity"),
             ),
@@ -93,7 +93,7 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 }
 
 fn virtual_parking_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/virtual-parking-acceptance",
@@ -721,7 +721,7 @@ fn parking_failures_keep_entity_mapping_and_only_typed_despawn_removes_it() {
 }
 
 fn speed_drop_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/speed-drop-replace",

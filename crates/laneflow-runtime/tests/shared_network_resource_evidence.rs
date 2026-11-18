@@ -10,7 +10,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Instant;
 
 use laneflow_compiler::{
-    CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, Compiler, PortableDiffBase,
+    CanonicalFrameInput, CompilationUnitBuilder, CompileProfile, Compiler, PortableDiffBase,
     PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, emit_portable_candidate,
 };
@@ -136,7 +136,7 @@ fn emit_and_build(
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
     spatial: SpatialBuildOption,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>, Arc<SharedNetworkRevision>) {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/441-evidence",

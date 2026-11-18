@@ -18,7 +18,7 @@ use crate::declaration::{
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::RegisteredCanonicalIdentity;
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
     AccessCandidate, CanonicalAuthoringLaneSource, CanonicalDeclarationSource,
@@ -213,33 +213,43 @@ impl HirBuildPlan {
             .modules
             .first()
             .map(|module| module.descriptor().authoring_namespace_id().into());
-        let mut limit_diagnostics =
-            DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::GeometryPointCount,
+        let mut limit_diagnostics = DiagnosticCollector::new(
+            unit.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
+        for violation in [
+            unit.limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount,
                 self.spatial
                     .canonical_points
                     .saturating_add(self.spatial.conflict_region_points),
             ),
-            (
-                CompileLimitDimension::HirRecordCount,
+            unit.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::HirRecordCount,
                 self.memory.hir_record_count,
             ),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
+            unit.limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
                 self.memory.controlled_live_bytes,
             ),
-        ] {
-            if observed > unit.limits.value(dimension) {
-                limit_diagnostics.push(Diagnostic::compile_limit_exceeded_at(
-                    dimension,
-                    unit.limits.value(dimension),
-                    observed,
-                    primary_span.clone(),
-                    stable_key.clone(),
-                ));
-            }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let crate::limits::ResourceLimitExceeded {
+                dimension,
+                limit,
+                observed,
+            } = violation;
+
+            limit_diagnostics.push(Diagnostic::compile_limit_exceeded_at(
+                dimension,
+                limit,
+                observed,
+                primary_span.clone(),
+                stable_key.clone(),
+            ));
         }
         if !limit_diagnostics.is_empty() {
             return Err(limit_diagnostics.finish());
@@ -1437,13 +1447,14 @@ fn requested_hash_table_bytes<K, V>(entry_count: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CompilationUnitBuilder, CompileLimits};
+    use crate::{CompilationUnitBuilder, CompileProfile};
 
     #[test]
     fn unrelated_declarations_only_grow_the_conflict_sort_view() {
-        let mut unit = CompilationUnitBuilder::new(CompileLimits::p100())
-            .build()
-            .unwrap();
+        let mut unit =
+            CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities())
+                .build()
+                .unwrap();
         let counts = ConflictCounts {
             zones: 1,
             ..Default::default()
@@ -1478,9 +1489,10 @@ mod tests {
     fn junction_budget_accounts_member_index_layout() {
         // P2-6（#1219）：成员索引 CSR 三笔全入 scratch（starts(N+1) + 构造游标(N) +
         // 路径键(M)）；边际增量钉住"不得低估"，M 按出现记录上界入账。
-        let unit = CompilationUnitBuilder::new(CompileLimits::p100())
-            .build()
-            .unwrap();
+        let unit =
+            CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities())
+                .build()
+                .unwrap();
         let counts = JunctionCounts {
             junctions: 1,
             movements: 1,

@@ -14,7 +14,7 @@ fn wire_strings(values: &[&str]) -> Vec<u8> {
 
 #[test]
 fn sorted_duplicates_match_pairwise_spelling_and_namespace_rules() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let scratch = PreflightScratch::new(&limits, 0);
     let alphabet = ["a", "city::a", "other::a", "b", "", "::a", "a::b::c"];
     for size in 0..=4_u32 {
@@ -57,7 +57,7 @@ fn sorted_duplicates_match_pairwise_spelling_and_namespace_rules() {
 
 #[test]
 fn duplicate_witness_keeps_the_first_source_index() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let scratch = PreflightScratch::new(&limits, 0);
     for mut seed in 0..1_024 {
         let values: Vec<_> = (0..5)
@@ -80,7 +80,7 @@ fn duplicate_witness_keeps_the_first_source_index() {
 
 #[test]
 fn live_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
-    let limits = CompileLimits::p100()
+    let limits = CompileProfile::single_network_10k_stable_entities()
         .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 0);
     let scratch = PreflightScratch::new(&limits, 0);
     let bytes = wire_strings(&["a", "a"]);
@@ -112,7 +112,7 @@ fn live_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
 
 #[test]
 fn preflight_peak_has_an_exact_boundary_and_does_not_include_external_source_bytes() {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let buffer = benchmark::corridor_source(4, &limits);
     let input = super::super::RoadEditingModuleInput::try_new(
         "preflight-benchmark",

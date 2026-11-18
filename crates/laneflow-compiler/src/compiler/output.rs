@@ -1,7 +1,7 @@
 //! 一次成功编译原子拥有的输出与资源观测值。
 
 use crate::source_map::ValidatedSourceMapInput;
-use crate::{CompileLimits, Diagnostic, ValidatedCanonicalLir};
+use crate::{CompileProfile, Diagnostic, ValidatedCanonicalLir};
 
 /// 一次成功编译原子拥有的已验证结果。
 ///
@@ -13,7 +13,7 @@ pub struct CompilationOutput {
     source_map_input: ValidatedSourceMapInput,
     diagnostics: Box<[Diagnostic]>,
     metrics: CompilationMetrics,
-    limits: CompileLimits,
+    limits: CompileProfile,
 }
 
 /// 一次成功生产编译的只读资源与确定性观测值。
@@ -95,7 +95,7 @@ impl CompilationOutput {
     }
     /// 测试专用：覆写输出记录的编译上限配置。
     #[cfg(test)]
-    pub(crate) fn set_test_compile_limits(&mut self, limits: CompileLimits) {
+    pub(crate) fn set_test_compile_limits(&mut self, limits: CompileProfile) {
         self.limits = limits;
     }
     /// 由一次成功编译的原子结果组装输出；仅限 `compiler` 模块的成功路径调用。
@@ -104,7 +104,7 @@ impl CompilationOutput {
         source_map_input: ValidatedSourceMapInput,
         diagnostics: Box<[Diagnostic]>,
         metrics: CompilationMetrics,
-        limits: CompileLimits,
+        limits: CompileProfile,
     ) -> Self {
         Self {
             lir,
@@ -116,7 +116,7 @@ impl CompilationOutput {
     }
 
     /// 返回本次编译实际采用的编译上限配置；仅供编译器内部后端读取。
-    pub(crate) const fn compile_limits(&self) -> &CompileLimits {
+    pub(crate) const fn compile_limits(&self) -> &CompileProfile {
         &self.limits
     }
 

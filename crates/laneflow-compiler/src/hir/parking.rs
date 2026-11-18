@@ -12,10 +12,7 @@ use crate::declaration::TypedAstDeclaration;
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
-use crate::{
-    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, ParkingAnchorRole,
-    SourceLocation,
-};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, ParkingAnchorRole, SourceLocation};
 
 use super::{
     CanonicalDeclarationSource, HirLaneEdge, HirLaneEdgeKey, HirLaneEdgeTag, HirModuleKey,
@@ -208,8 +205,11 @@ pub(crate) fn build_parking_hir(
         }
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     let mut virtual_entries =
         Vec::with_capacity(count_to_usize(counts.virtual_entries, &unit.limits)?);
     let mut virtual_exits = Vec::with_capacity(count_to_usize(counts.virtual_exits, &unit.limits)?);

@@ -11,7 +11,7 @@ use laneflow_compiler::{
         RoadEditingModuleInput, RoadEditingProvenance, RoadEditingSourceModuleBuilder,
         RoadEditingSourceWriter,
     },
-    CompilationUnitBuilder, CompileLimits, Compiler, GeometryAccuracyProfile,
+    CompilationUnitBuilder, CompileProfile, Compiler, GeometryAccuracyProfile,
     GeometryDirectionProfile, PortableDiffBase, PortableEmissionProvenance,
 };
 use laneflow_format::{check_canonical_network_input, check_post_emission_bundle};
@@ -77,7 +77,7 @@ fn policy(revision: &SharedNetworkRevision) -> WorldPolicySelection {
             EntityKind::RightOfWayPolicySet,
             "runtime-fixture-policy",
             "fixture-policy",
-            &CompileLimits::p100(),
+            &CompileProfile::single_network_10k_stable_entities(),
         )
         .expect("fixture policy ID"),
     );
@@ -152,7 +152,7 @@ pub(crate) fn populate(world: &mut TrafficWorld, full_spatial: bool) {
 }
 
 pub(crate) fn lfre_module(document_key: &str) -> Vec<u8> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
         "security-fuzz",
         document_key,
@@ -181,7 +181,7 @@ pub(crate) fn lfre_module(document_key: &str) -> Vec<u8> {
 
 fn editable_fixture() -> Fixture {
     let bytes = lfre_module(DOCUMENT_KEY);
-    let mut unit = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut unit = CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     unit.add_road_editing_module(
         RoadEditingModuleInput::try_new(DOCUMENT_KEY, &bytes, None).expect("module input"),
     )

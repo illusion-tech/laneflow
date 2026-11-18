@@ -34,7 +34,7 @@ use crate::declaration::{
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, ParkingAnchorRole,
+    CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, ParkingAnchorRole,
     ParkingGeometryField, ParkingGeometryViolation, SourceLocation, SourceModuleHeader, SourceSpan,
     SpatialAxis, SpatialGeometryViolation,
 };
@@ -64,7 +64,7 @@ mod policy;
 /// 官方合成领域专用语言 `LFSOURCE` 的受检来源模块构建器。
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,
-    limits: CompileLimits,
+    limits: CompileProfile,
     imports: Vec<ImportRecord>,
     import_index: HashMap<Arc<str>, usize>,
     declarations: Vec<TypedAstDeclaration>,
@@ -129,44 +129,51 @@ impl SyntheticModuleBuilder {
     /// `limits`，返回资源上限诊断且不建立构建器。
     pub fn new(
         header: SourceModuleHeader,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<Self, DiagnosticBundle> {
         let string_bytes = header_resident_string_bytes(&header);
         let controlled_string_bytes = header_controlled_string_bytes(&header);
         let string_item_count = 2;
         let base_source_bytes = encoded_source_record_len(&header, &[], &[]).unwrap_or(u64::MAX);
-        let mut diagnostics =
-            DiagnosticCollector::new(limits.value(CompileLimitDimension::DiagnosticCount));
+        let mut diagnostics = DiagnosticCollector::new(
+            limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
         push_limit_if_exceeded(
             &mut diagnostics,
-            limits,
-            CompileLimitDimension::StringItemCount,
-            string_item_count,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
+                string_item_count,
+            ),
             Some(header.declaration_span.clone()),
             Some(header.authoring_namespace_id.as_ref().into()),
         );
         let controlled_live_bytes = controlled_string_bytes.saturating_add(base_source_bytes);
         push_limit_if_exceeded(
             &mut diagnostics,
-            limits,
-            CompileLimitDimension::CompilerControlledLiveBytes,
-            controlled_live_bytes,
+            limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
+                controlled_live_bytes,
+            ),
             Some(header.declaration_span.clone()),
             Some(header.authoring_namespace_id.as_ref().into()),
         );
         push_limit_if_exceeded(
             &mut diagnostics,
-            limits,
-            CompileLimitDimension::TotalStringBytes,
-            string_bytes,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
+                string_bytes,
+            ),
             Some(header.declaration_span.clone()),
             Some(header.authoring_namespace_id.as_ref().into()),
         );
         push_limit_if_exceeded(
             &mut diagnostics,
-            limits,
-            CompileLimitDimension::SourceBytesPerModule,
-            base_source_bytes,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SourceBytesPerModule,
+                base_source_bytes,
+            ),
             Some(header.declaration_span.clone()),
             Some(header.authoring_namespace_id.as_ref().into()),
         );
@@ -236,7 +243,9 @@ impl SyntheticModuleBuilder {
     ) -> Result<(), DiagnosticBundle> {
         let violation = match external_token_violation(
             kind_id,
-            self.limits.value(CompileLimitDimension::SingleStringBytes),
+            self.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::SingleStringBytes),
         ) {
             Some(violation) => Some(FacilityKindViolation::InvalidToken(violation)),
             None => match facility_kind_category(kind_id) {
@@ -368,58 +377,66 @@ impl SyntheticModuleBuilder {
             .controlled_string_bytes
             .saturating_add(state.controlled_structural_bytes)
             .saturating_add(state.source_record_byte_len);
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::DeclarationCount,
+        for violation in [
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::DeclarationCount,
                 state.declaration_count,
             ),
-            (
-                CompileLimitDimension::TypedAstRecordCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TypedAstRecordCount,
                 state.typed_ast_record_count,
             ),
-            (CompileLimitDimension::ReferenceCount, state.reference_count),
-            (
-                CompileLimitDimension::RelationOccurrenceCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::ReferenceCount,
+                state.reference_count,
+            ),
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::RelationOccurrenceCount,
                 state.relation_occurrence_count,
             ),
-            (
-                CompileLimitDimension::IdentityFieldOccurrenceCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
                 state.identity_field_occurrence_count,
             ),
-            (CompileLimitDimension::SymbolCount, state.symbol_count),
-            (
-                CompileLimitDimension::StringItemCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SymbolCount,
+                state.symbol_count,
+            ),
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
                 state.string_item_count,
             ),
-            (CompileLimitDimension::TotalStringBytes, state.string_bytes),
-            (
-                CompileLimitDimension::SourceBytesPerModule,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
+                state.string_bytes,
+            ),
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SourceBytesPerModule,
                 state.source_record_byte_len,
             ),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
+            self.limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
                 controlled_live_bytes,
             ),
-            (
-                CompileLimitDimension::ManeuverGateCount,
+            self.limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::ManeuverGateCount,
                 state.maneuver_gate_count,
             ),
-            (
-                CompileLimitDimension::WaitingZoneCount,
+            self.limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::WaitingZoneCount,
                 state.waiting_zone_count,
             ),
-            (
-                CompileLimitDimension::GeometryPointCount,
+            self.limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount,
                 state.geometry_point_count,
             ),
-        ] {
-            if let Some(diagnostic) = limit_diagnostic(
-                &self.limits,
-                dimension,
-                observed,
-                Some(span.clone()),
-                Some(stable_key.into()),
-            ) {
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(diagnostic) =
+                limit_diagnostic(Some(violation), Some(span.clone()), Some(stable_key.into()))
+            {
                 return Err(DiagnosticBundle::single(diagnostic));
             }
         }
@@ -483,9 +500,10 @@ impl SyntheticModuleBuilder {
             .saturating_add(1);
         let observed_typed_ast_records = self.typed_ast_record_count.saturating_add(1);
         if let Some(diagnostic) = limit_diagnostic(
-            &self.limits,
-            CompileLimitDimension::ImportEdgeCount,
-            observed_imports,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::ImportEdgeCount,
+                observed_imports,
+            ),
             Some(span.clone()),
             Some(namespace.into()),
         ) {
@@ -501,37 +519,36 @@ impl SyntheticModuleBuilder {
             .checked_add(4 + 16)
             .and_then(|length| length.checked_add(namespace_bytes))
             .unwrap_or(u64::MAX);
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::StringItemCount,
+        for violation in [
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
                 observed_string_items,
             ),
-            (
-                CompileLimitDimension::TotalStringBytes,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
                 observed_string_bytes,
             ),
-            (
-                CompileLimitDimension::SourceBytesPerModule,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SourceBytesPerModule,
                 observed_source_bytes,
             ),
-            (
-                CompileLimitDimension::TypedAstRecordCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TypedAstRecordCount,
                 observed_typed_ast_records,
             ),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
+            self.limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
                 observed_controlled_string_bytes
                     .saturating_add(self.controlled_structural_bytes)
                     .saturating_add(observed_source_bytes),
             ),
-        ] {
-            if let Some(diagnostic) = limit_diagnostic(
-                &self.limits,
-                dimension,
-                observed,
-                Some(span.clone()),
-                Some(namespace.into()),
-            ) {
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(diagnostic) =
+                limit_diagnostic(Some(violation), Some(span.clone()), Some(namespace.into()))
+            {
                 return Err(DiagnosticBundle::single(diagnostic));
             }
         }
@@ -568,11 +585,11 @@ impl SyntheticModuleBuilder {
     ///
     /// ```
     /// use laneflow_compiler::{
-    ///     CompileLimits, DiagnosticBundle, LaneEdgeInput, SourceModuleHeader,
+    ///     CompileProfile, DiagnosticBundle, LaneEdgeInput, SourceModuleHeader,
     ///     SourceModuleHeaderInput, SyntheticModuleBuilder,
     /// };
     ///
-    /// let limits = CompileLimits::p100();
+    /// let limits = CompileProfile::single_network_10k_stable_entities();
     /// let header = SourceModuleHeader::new(
     ///     SourceModuleHeaderInput {
     ///         authoring_namespace_id: "example",
@@ -665,30 +682,37 @@ impl SyntheticModuleBuilder {
         let next_typed_ast_record_count =
             self.typed_ast_record_count.saturating_add(typed_ast_delta);
 
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::DeclarationCount,
+        for violation in [
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::DeclarationCount,
                 next_declaration_count,
             ),
-            (CompileLimitDimension::ReferenceCount, next_reference_count),
-            (
-                CompileLimitDimension::RelationOccurrenceCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::ReferenceCount,
+                next_reference_count,
+            ),
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::RelationOccurrenceCount,
                 next_relation_occurrence_count,
             ),
-            (
-                CompileLimitDimension::IdentityFieldOccurrenceCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
                 next_identity_field_occurrence_count,
             ),
-            (CompileLimitDimension::SymbolCount, next_symbol_count),
-            (
-                CompileLimitDimension::TypedAstRecordCount,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SymbolCount,
+                next_symbol_count,
+            ),
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TypedAstRecordCount,
                 next_typed_ast_record_count,
             ),
-        ] {
+        ]
+        .into_iter()
+        .flatten()
+        {
             if let Some(diagnostic) = limit_diagnostic(
-                &self.limits,
-                dimension,
-                observed,
+                Some(violation),
                 Some(span.clone()),
                 Some(input.lane_edge_key.into()),
             ) {
@@ -760,25 +784,29 @@ impl SyntheticModuleBuilder {
         let next_controlled_live_bytes = next_controlled_string_bytes
             .saturating_add(next_source_record_byte_len)
             .saturating_add(next_controlled_structural_bytes);
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::StringItemCount,
+        for violation in [
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
                 next_string_item_count,
             ),
-            (CompileLimitDimension::TotalStringBytes, next_string_bytes),
-            (
-                CompileLimitDimension::SourceBytesPerModule,
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
+                next_string_bytes,
+            ),
+            self.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SourceBytesPerModule,
                 next_source_record_byte_len,
             ),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
+            self.limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
                 next_controlled_live_bytes,
             ),
-        ] {
+        ]
+        .into_iter()
+        .flatten()
+        {
             if let Some(diagnostic) = limit_diagnostic(
-                &self.limits,
-                dimension,
-                observed,
+                Some(violation),
                 Some(span.clone()),
                 Some(input.lane_edge_key.into()),
             ) {
@@ -1566,7 +1594,9 @@ impl SyntheticModuleBuilder {
         let (entry_progress_mm, exit_progress_mm, geometry) = admit_parking_space_scalars(
             input,
             &span,
-            self.limits.value(CompileLimitDimension::DiagnosticCount),
+            self.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
         )?;
 
         let reference_count = 2_u64.saturating_add(u64::from(input.parking_facility.is_some()));
@@ -2919,13 +2949,15 @@ impl SyntheticModuleBuilder {
             &self.imports,
             &self.declarations,
             self.limits
-                .value(CompileLimitDimension::SourceBytesPerModule),
+                .source_limits()
+                .get(crate::SourceProcessingDimension::SourceBytesPerModule),
         )?;
         let source_record_byte_len = u32::try_from(source_record.len()).map_err(|_| {
             DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
                 CompileLimitDimension::SourceBytesPerModule,
                 self.limits
-                    .value(CompileLimitDimension::SourceBytesPerModule),
+                    .source_limits()
+                    .get(crate::SourceProcessingDimension::SourceBytesPerModule),
                 u64::try_from(source_record.len()).unwrap_or(u64::MAX),
             ))
         })?;
@@ -3048,30 +3080,29 @@ fn header_controlled_string_bytes(header: &SourceModuleHeader) -> u64 {
 }
 
 /// 观测值超过配置档限额时返回对应维度的超限诊断。
-pub(super) fn limit_diagnostic(
-    limits: &CompileLimits,
-    dimension: CompileLimitDimension,
-    observed: u64,
+fn limit_diagnostic(
+    violation: Option<crate::limits::ResourceLimitExceeded>,
     primary_span: Option<SourceSpan>,
     stable_key: Option<Box<str>>,
 ) -> Option<Diagnostic> {
-    let limit = limits.value(dimension);
-    (observed > limit).then(|| {
-        Diagnostic::compile_limit_exceeded_at(dimension, limit, observed, primary_span, stable_key)
+    violation.map(|v| {
+        Diagnostic::compile_limit_exceeded_at(
+            v.dimension,
+            v.limit,
+            v.observed,
+            primary_span,
+            stable_key,
+        )
     })
 }
 
 fn push_limit_if_exceeded(
     diagnostics: &mut DiagnosticCollector,
-    limits: &CompileLimits,
-    dimension: CompileLimitDimension,
-    observed: u64,
+    violation: Option<crate::limits::ResourceLimitExceeded>,
     primary_span: Option<SourceSpan>,
     stable_key: Option<Box<str>>,
 ) {
-    if let Some(diagnostic) =
-        limit_diagnostic(limits, dimension, observed, primary_span, stable_key)
-    {
+    if let Some(diagnostic) = limit_diagnostic(violation, primary_span, stable_key) {
         diagnostics.push(diagnostic);
     }
 }

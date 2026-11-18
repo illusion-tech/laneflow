@@ -444,7 +444,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     close_parking_anchors_to_emitted_length_mm(
         &parking,
         &base.lane_edges,
-        unit.limits.value(CompileLimitDimension::DiagnosticCount),
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
     )?;
     let conflict = build_conflict_hir(
         unit,
@@ -563,18 +565,20 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
     }
 }
 
-fn count_to_usize(count: u64, limits: &crate::CompileLimits) -> Result<usize, DiagnosticBundle> {
+fn count_to_usize(count: u64, limits: &crate::CompileProfile) -> Result<usize, DiagnosticBundle> {
     usize::try_from(count).map_err(|_| arena_overflow(ArenaKeyOverflow, limits, None))
 }
 
 fn arena_overflow(
     _: ArenaKeyOverflow,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::HirRecordCount,
-        limits.value(CompileLimitDimension::HirRecordCount),
+        limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::HirRecordCount),
         u64::from(u32::MAX) + 1,
         primary_span,
         None,

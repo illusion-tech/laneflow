@@ -13,7 +13,7 @@ const JUNCTION: &str = "conflict-junction";
 static VEHICLE_CLASSES: std::sync::LazyLock<[ParticipantClassReference<'static>; 1]> =
     std::sync::LazyLock::new(|| [ParticipantClassReference::local("vehicle")]);
 
-fn header(limits: &CompileLimits) -> SourceModuleHeader {
+fn header(limits: &CompileProfile) -> SourceModuleHeader {
     SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "policy",
@@ -49,7 +49,7 @@ fn reference<'a, K: EntityKindMarker>(
     }
 }
 fn synthetic_policy(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     mutate: impl FnOnce(&mut Vec<PolicyStreamRuleInput<'_>>, &mut Vec<PolicyGateRuleInput<'_>>),
 ) -> Result<SyntheticModule, DiagnosticBundle> {
     let mut builder = SyntheticModuleBuilder::new(header(limits), limits)?;
@@ -143,12 +143,12 @@ fn synthetic_policy(
     })?;
     builder.finish()
 }
-fn editing_policy(limits: &CompileLimits) -> re::OwnedRoadEditingSourceBuffer {
+fn editing_policy(limits: &CompileProfile) -> re::OwnedRoadEditingSourceBuffer {
     editing_policy_custom(limits, |_, _| {})
 }
 /// 构造携带通行权策略集的 road editing 来源 fixture；`customize` 可在写入前调整模块构建器与策略输入。
 pub(crate) fn editing_policy_custom(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     customize: impl FnOnce(
         &mut re::RoadEditingSourceModuleBuilder<'_>,
         &mut re::RightOfWayPolicySetInput,
@@ -274,7 +274,7 @@ pub(crate) fn unit_with_control(
     aspects: Option<[SignalAspect; 2]>,
     mutate: impl FnOnce(&mut Vec<PolicyStreamRuleInput<'_>>, &mut Vec<PolicyGateRuleInput<'_>>),
 ) -> Result<CompilationUnit, DiagnosticBundle> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let topology = re::RoadEditingSourceWriter::new(&limits)
         .write(
             super::portable_fixture_tests::policy_topology_variant(&limits, direction, aspects)
@@ -529,7 +529,7 @@ fn raw_slot(bytes: &[u8], table: usize, field: usize) -> (usize, usize) {
 #[test]
 fn malformed_lfre_policy_is_rejected_and_admission_can_retry() {
     use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let valid = editing_policy(&limits);
     let root = wire::size_prefixed_root_as_road_editing_source(valid.as_bytes()).unwrap();
     let policy = root.right_of_way_policy_sets().get(0);
@@ -626,7 +626,7 @@ fn truncated_vtable_fails_closed_before_closure_field_counting() {
     // 保留 required 字段，MissingRequiredField 先行拒绝。本测试钉住该失败关闭
     // 行为——封闭性检查的字段计数减法会下溢，准入不得因 required 巧合移除而 panic。
     use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let valid = editing_policy(&limits);
     let root = wire::size_prefixed_root_as_road_editing_source(valid.as_bytes()).unwrap();
     let stream = root
@@ -681,7 +681,7 @@ fn nearer_class_precedes_priority_and_access_denied_stream_needs_no_rule() {
         streams.push(specific);
     })
     .unwrap();
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let policy = editing_policy_custom(&limits, |builder, policy| {
         policy.streams = policy
             .streams
@@ -756,7 +756,7 @@ fn unit_editing_custom(
         &mut re::RightOfWayPolicySetInput,
     ),
 ) -> Result<CompilationUnit, DiagnosticBundle> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let policy = editing_policy_custom(&limits, customize);
     let topology = re::RoadEditingSourceWriter::new(&limits)
         .write(
@@ -838,7 +838,7 @@ fn denied_policy_candidates_exhaust_work_budget_and_can_retry() {
 #[test]
 fn duplicate_policy_key_fails_during_raw_admission_and_can_retry() {
     use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let source = editing_policy_custom(&limits, |builder, policy| {
         let mut other = policy.clone();
         other.key = "other".into();

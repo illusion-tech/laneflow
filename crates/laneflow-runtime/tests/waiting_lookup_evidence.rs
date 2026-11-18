@@ -3,7 +3,7 @@
 mod test_policy;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, GateInterpretation, IidmVehicleProfileInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, GateInterpretation, IidmVehicleProfileInput,
     JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput,
     ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
     MovementReference, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
@@ -28,7 +28,7 @@ const WARMUP: usize = 128;
 const SAMPLES: usize = 4_096;
 
 fn revision() -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/waiting-scale",

@@ -123,7 +123,7 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
     if mir.policies.is_empty() {
         return Ok(0);
     }
-    let mut work = WorkBudget::new(&unit.limits);
+    let mut work = WorkBudget::new(unit.limits.operation_budget());
     let passages = PassageIndex::build(unit, mir)?;
     let lamp_bytes = mir.maneuver_gates.len() as u64 + passages.bytes();
     budget(unit, mir, lamp_bytes)?;

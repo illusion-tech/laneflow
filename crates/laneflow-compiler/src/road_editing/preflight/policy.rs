@@ -27,10 +27,12 @@ pub(super) fn closed(table: Table<'_>, fields: usize, key: &str) -> Result<(), D
 fn text(
     usage: &mut RoadEditingPreflightCounts,
     value: &str,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<(), DiagnosticBundle> {
     let observed = value.len() as u64;
-    let limit = limits.value(CompileLimitDimension::SingleStringBytes);
+    let limit = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::SingleStringBytes);
     if observed > limit {
         return Err(limit_error(
             CompileLimitDimension::SingleStringBytes,
@@ -59,7 +61,9 @@ pub(super) fn validate(
     // 保留策略集合既有的关系预算门槛；实际去重使用受预算排序索引。
     let policy_count = root.right_of_way_policy_sets().len() as u64;
     let comparisons = policy_count.saturating_mul(policy_count.saturating_sub(1)) / 2;
-    let relation_limit = limits.value(CompileLimitDimension::RelationOccurrenceCount);
+    let relation_limit = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::RelationOccurrenceCount);
     if comparisons > relation_limit {
         return Err(limit_error(
             CompileLimitDimension::RelationOccurrenceCount,

@@ -7,7 +7,7 @@ use std::{
 };
 
 use laneflow_compiler::{
-    CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, Compiler, LaneEdgeInput,
+    CanonicalFrameInput, CompilationUnitBuilder, CompileProfile, Compiler, LaneEdgeInput,
     LaneEdgeReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, check_portable_candidate,
     emit_portable_candidate_to_staging,
@@ -28,7 +28,7 @@ fn build_compiler_output(
     spatial: SpatialBuildOption,
     artifact_base: bool,
 ) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/static-network-test",

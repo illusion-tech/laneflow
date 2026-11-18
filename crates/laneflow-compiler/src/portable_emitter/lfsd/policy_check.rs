@@ -46,10 +46,10 @@ pub fn check_portable_policy_diff(
     target: &[u8],
     diff: &[u8],
     limits: FormatLimits,
-    compile_limits: &crate::CompileLimits,
+    policy: crate::CanonicalConsumerPolicy<'_>,
 ) -> Result<(), PortableEmissionError> {
-    with_check_ledger(compile_limits, |accounting| {
-        check_policy_diff(accounting, base, target, diff, limits)
+    with_check_ledger(policy.operation_budget(), |accounting| {
+        check_policy_diff(accounting, base, target, diff, limits, policy.capacity())
     })
 }
 
@@ -93,9 +93,16 @@ pub(in crate::portable_emitter) fn check_policy_diff(
     target: &[u8],
     diff: &[u8],
     limits: FormatLimits,
+    capacity: &laneflow_static_contract::CanonicalNetworkCapacity,
 ) -> Result<(), PortableEmissionError> {
     let target_view =
         preflight_object_values(target, PortableObjectKind::CanonicalArtifact, limits)?;
+    super::super::admission::admit_canonical_view(
+        target_view.registry_view(),
+        capacity,
+        super::super::CanonicalInputSide::Target,
+        MISMATCH,
+    )?;
     let diff_view =
         preflight_object_values(diff, PortableObjectKind::SemanticDiff, limits)?.registry_view();
     let base_view = match base {
@@ -106,6 +113,14 @@ pub(in crate::portable_emitter) fn check_policy_diff(
             limits,
         )?),
     };
+    if let Some(base) = base_view {
+        super::super::admission::admit_canonical_view(
+            base.registry_view(),
+            capacity,
+            super::super::CanonicalInputSide::Base,
+            MISMATCH,
+        )?;
+    }
     let bindings = diff_view
         .section(0)
         .and_then(|s| s.table(0))

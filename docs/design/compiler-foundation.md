@@ -159,24 +159,24 @@ pub struct ValidatedCanonicalLir { /* 私有字段 */ }
 pub struct ValidatedSourceMapInput { /* 私有字段 */ }
 pub struct CompilationMetrics { /* 私有字段 */ }
 pub struct CompilationOutput { /* 私有字段 */ }
-pub struct CompileLimits { /* 私有字段 */ }
+pub struct CompileProfile { /* 私有字段 */ }
 pub struct DiagnosticBundle { /* 私有字段 */ }
 
-impl CompileLimits {
-    pub fn p100() -> Self;
+impl CompileProfile {
+    pub fn single_network_10k_stable_entities() -> Self;
 }
 
 impl SyntheticModuleBuilder {
     pub fn new(
         header: SourceModuleHeader,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<Self, DiagnosticBundle>;
 
     pub fn finish(self) -> Result<SyntheticModule, DiagnosticBundle>;
 }
 
 impl CompilationUnitBuilder {
-    pub fn new(limits: CompileLimits) -> Self;
+    pub fn new(limits: CompileProfile) -> Self;
 
     pub fn add_synthetic_module(
         &mut self,
@@ -214,8 +214,8 @@ impl CompilationOutput {
 pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
 pub struct SourceDocumentDescriptor { /* 私有字段 */ }
 
-impl CompileLimits {
-    pub fn single_network_1m() -> Self;
+impl CompileProfile {
+    pub fn single_network_1m_stable_entities() -> Self;
 }
 ```
 
@@ -425,7 +425,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、文档数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
    出现记录、几何点和编译器控制存续字节数的候选累计值，并执行全部
-   `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
+   `CompileProfile` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
    已消费模块被释放。
 4. 全部检查成功后才移动模块及其来源位置 context handle、写入模块/文档索引并提交
    候选累计值。调用方加入顺序仍不是规范
@@ -458,21 +458,19 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 `StringItemCount`、`TotalStringBytes` 与 `CompilerControlledLiveBytes`。
 
 共同接入使用第 5.3 节的具名配置档；每个具名配置档都声明 `SourceDocumentCount`，多文档
-模块不再依赖配置档修订区分准入能力。`LF-COMP-P100` 的 `max_source_document_count = 1566`
-是共同接入容量。后继前端若需要更高文档总数，必须携带实测存续内存和真实工作负载证据
-调整来源处理限额并重新通过配置档资格验证。现行来源处理限额与规范路网容量均不含路线出现
-记录维度。
+模块不再依赖配置档修订区分准入能力。常规档允许十八个来源文档，百万档允许
+196608 个来源文档；来源文档按描述符独立计数，当前官方前端的一模块一文档约束另行执行。
 
-LFCA 的一百万稳定静态实体端到端路径使用独立的 `LF-COMP-SINGLE-NETWORK-1M`；它不是
-`LF-COMP-P100` 的隐式升级，也不改变既有生产基线。该配置档只由显式构造器选择，保持字段
+LFCA 的一百万稳定静态实体端到端路径使用独立的 `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES`；它不是
+`LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` 的隐式升级，也不改变既有生产基线。该配置档只由显式构造器选择，保持字段
 私有、没有 `Default`/unlimited/调用方覆写。
 
-`CompileLimits` 私有保存配置档身份、来源处理限额、规范路网容量与操作资源预算，不能由调用方
+`CompileProfile` 私有保存配置档身份、来源处理限额、规范路网容量与操作资源预算，不能由调用方
 补字段或隐式升级。任何产生多文档模块的正式前端都必须在读取、哈希、解析或按规模分配前
 按 `SourceDocumentCount` 检查。
 第 5 项不改变逐文档 `sourceDocumentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
 计数；文档集聚合只扫描紧凑描述符，不再次扫描来源字节，也不允许把调用方自报摘要变成可信输入。
-来源字节存续期间的实际峰值必须由前端自身的 `CompileLimits` 检查覆盖；共同接入累计
+来源字节存续期间的实际峰值必须由前端自身的 `CompileProfile` 检查覆盖；共同接入累计
 `SourceBytesTotal`，并以释放后的实际
 存续量检查编译单元级编译器控制存续字节数。由此不会把互不共存的多份来源
 全文虚构为同时存续，也不会因摘要已经存在而漏掉总输入规模上限。
@@ -672,9 +670,9 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 
 ### 5.3 编译资源上限
 
-编译资源上限（Compile Limits）的精确类型 `CompileLimits` 是显式输入，不提供隐式
+编译配置档（Compile Profile）的精确类型 `CompileProfile` 是显式输入，不提供隐式
 无限生产模式，也不得以 Rust `Default` 或来源自报字段绕过宿主选择。公共面提供
-`CompileLimits::p100()` 与 `CompileLimits::single_network_1m()`。调用方必须显式选择具名
+`CompileProfile::single_network_10k_stable_entities()` 与 `CompileProfile::single_network_1m_stable_entities()`。调用方必须显式选择具名
 配置档，测试可以在包内构造更小边界，但不能获得无限配置。字段保持私有，避免把内部阶段
 布局变成公共兼容面。配置档的定义方式由 [ADR 0035][adr-0035] 决定，受控分配的记账由
 [编译器资源账本][resource-ledger] 承担。
@@ -686,7 +684,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 | 来源处理限额 | 模块、来源文档、导入边、单模块/总来源字节、声明、Typed AST/HIR/MIR/LIR 记录、有类型引用、来源关系出现记录、标识字段出现记录、符号、字符串项、单字符串字节、总字符串字节、诊断 | 编译单元准入与编译管线       |
 | 规范路网容量 | 稳定实体、机动门、等待区、规范关系出现记录（`CanonicalRelationCount`）、规范几何点                                                                                            | 编译端与外部 LFCA 的消费入口 |
 | 制品格式边界 | 调用方 `FormatLimits` 与线格式原语硬上限                                                                                                                                      | 格式预检                     |
-| 操作资源预算 | 编译器控制总存续字节（`CompilerControlledLiveBytes`）、保留容量字节（`RetainedCapacityBytes`）                                                                                | 编译器资源账本               |
+| 操作资源预算 | 编译器控制总存续字节（`CompilerControlledLiveBytes`）、保留容量字节（`RetainedCapacityBytes`）、策略访问工作量（`PolicyValidationWorkUnits`）                                                                                | 编译器资源账本               |
 
 具名配置档组合一份来源处理限额、一份规范路网容量与一份默认操作资源预算，每个配置档都
 包含全部维度，不存在“该配置档未定义此维度”的状态。来源处理限额只在编译单元准入与编译
@@ -695,6 +693,15 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 线格式硬上限造成的拒绝另属格式边界。阶段暂存峰值、输出逻辑字节与存续峰值由资源账本
 报告，不是限额；原 `StageScratchBytes`、`OutputBytes`、`PortableObjectBytes` 与
 `PortableBundleBytes` 已删除。
+
+**实现类型。**配置档持有 `SourceProcessingLimits`、`CanonicalNetworkCapacity` 与
+`OperationResourceBudget`。来源和操作维度分别为 `SourceProcessingDimension`、
+`OperationResourceDimension`；规范维度使用 `CanonicalNetworkDimension`。各政策只接受
+本领域维度或事实，通用 `CompileLimitDimension` 仅用于拒绝诊断，不用于生产政策查询。
+`CanonicalConsumerPolicy` 只组合规范容量与操作预算；公开策略检查接收该类型，
+账本与策略工作量计数器仅接收 `OperationResourceBudget`。外部 LFCA 的容量拒绝由
+`PortableEmissionError::CanonicalCapacityExceeded` 携带 `CanonicalInputSide`、
+规范维度、实际值和上限。
 
 **规范路网规模与制品结构统计。**规范路网规模是一份最终规范路网实际包含的上表规范路网
 容量各维度的数量，只与规范路网容量比较。制品结构统计是一份物理制品实际包含的行、字段、
@@ -713,8 +720,8 @@ UTF-8 字节、向量元素、来源位置、路径步、变化行与 before/aft
 累计超过预算时，在该批访问前按 `PolicyValidationWorkUnits` 返回资源诊断，报告预算
 与本批尝试后的累计值，不交付部分编译输出。重新编译使用新的计数；不同充足预算不能
 改变规范语义或制品字节。成功输出的 `CompilationMetrics::policy_validation_work_units`
-报告本次消费量，该报告不参与规范身份。常规档预算候选为 1000000 单位，百万档为
-16000000 单位；后者保持既有遍历保护水平，前者以候选资格负载验证。预算是独立宿主
+报告本次消费量，该报告不参与规范身份。常规档预算为 1000000 单位，百万档为
+16000000 单位；后者保持既有遍历保护水平，前者以登记资格负载验证。预算是独立宿主
 政策，不从来源关系包络推导，也不直接等于某次实测最大值。
 
 策略临时索引行数只用于求实际存储字节并检查操作内存预算。工作量预算采用 `u32` 有限
@@ -873,8 +880,8 @@ Identity 原像顺序与 StableId 顺序不同的固定向量，核对查找、�
 预算的组合在分配前按该预算的维度拒绝。以下两个命题也不是要求：“来源处理限额全部通过则
 规范路网容量必然通过”，“规范路网容量全部通过则任意操作组合必然在操作资源预算内”。
 
-`LF-COMP-P100` 的配置档校验、可成功规模、两侧统计一致、诊断保留、差异场景与账本一致性
-在常规 CI 中运行，不得只放在 `#[ignore]` 测试中。`LF-COMP-SINGLE-NETWORK-1M` 在常规 CI
+`LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` 的配置档校验、可成功规模、两侧统计一致、诊断保留、差异场景与账本一致性
+在常规 CI 中运行，不得只放在 `#[ignore]` 测试中。`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 在常规 CI
 中执行配置档校验，可成功规模由百万档端到端证据入口承担。资格验证失败时只能调整来源处理
 限额、规范路网容量或操作资源预算。`CanonicalRelationCount` 按 role 1–32 的口径取值，不直接
 复制来源侧 `RelationOccurrenceCount`，也不沿用现有关系元组数量。落地顺序为：建立统计定义
@@ -882,30 +889,27 @@ Identity 原像顺序与 StableId 顺序不同的固定向量，核对查找、�
 验证及必要的再校准。
 
 `CanonicalRelationCount` 的初始值取资格工作负载最终规范统计的上包络，不留余量。
-`LF-COMP-SINGLE-NETWORK-1M` 取百万档端到端证据入口的混合工作负载在一百万稳定实体时的
+`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 取百万档端到端证据入口的混合工作负载在一百万稳定实体时的
 实测值 `1406986`；该工作负载在 10000、100000 与 1000000 三档的规范关系出现记录分别为
-14054、140692 与 1406986。`LF-COMP-P100` 暂不登记：历史逐维包络缺少合法生产工作负载
-承诺，不能据此声称 11265 个稳定实体均可编译、发射或差异发射。#1441 记录的历史探针在
-一种来源表示下于 3602 个稳定实体成功、3603 个时被 `SourceBytesTotal` 拒绝；生成规则在
-两点之间同时改变了结构组成，不构成通用实体容量或严格单调的规模搜索结论。逐维包络方法
-本身仍适用，取数对象须改为明确支持的合法生产负载。该维度登记前，两端执行不对该配置档
-的 `CanonicalRelationCount` 准入。
+14054、140692 与 1406986。常规档取下列十一组工作负载的规范关系上包络 71773。
+历史 P100 逐维包络未绑定合法生产工作负载，不再作为现行配置档；历史 3602/3603 探针
+只说明某种表示的来源字节边界，不能解释为实体容量。
 
-**常规档用途与候选负载。**常规档保留的独立用途是：宿主在较小操作资源预算下编制一个
+**常规档用途与工作负载。**常规档保留的独立用途是：宿主在较小操作资源预算下编制一个
 完整的局部路网，例如走廊、路口群与局部道路编辑结果。一次操作的输入仍须包含完整逻辑
 路网及其依赖；“局部”不表示增量编译、把一个大路网切块绕过容量，或运行时车辆规模。
 百万档承担较大的单路网编制。两档的容量关系必须逐维比较，不能解析名称推断。
 
-候选目标为 **10000 个稳定实体**，候选单次受控存续预算为 **268435456 B（256 MiB）**。
-两者尚未成为具名生产政策，也不替换下文现行配置表。预算表达宿主愿意为一次操作提供的
-资源；实测用于检查它能否支持承诺操作，不把实测峰值直接设为预算。候选预算不含宿主已
-持有的输入、编译输出或基线制品、分配器开销、文件暂存或进程其他内存，不能解释为进程
-内存上限。编译后保留容量暂提出 **16777216 B（16 MiB）** 的独立宿主预算，供同一编译器
-重复调用时复用；该候选为操作预算的十六分之一，不是来源包络或当前零保留量的推导结果。
-两项预算均须结合最终成功承诺确认，当前不修改生产配置值。
+公开规模为 **10000 个稳定实体**，单次受控存续预算为 **268435456 B（256 MiB）**。
+它们组成 `LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` 的公开规模与操作政策。
+预算表达宿主为一次操作提供的资源；实测用于检验承诺操作，不把峰值直接设为预算。
+受控请求字节不含宿主已有输入、编译输出或基线制品、分配器开销、文件暂存及进程其他
+内存。编译后保留容量为 **16777216 B（16 MiB）**，是独立宿主政策；当前编译器零保留，
+不能据此声称已经验证了可达的十六 MiB 缓存复用边界。
 
-[常规档候选负载测试][regular-profile-workloads]通过正式合成前端与道路编辑前端构造互补
-负载，在现有有限百万档下取数；它不改百万档资格入口，也不把探索成功当成新常规档准入。
+[常规档负载测试][regular-profile-workloads]通过正式合成前端与道路编辑前端构造互补
+负载。初始取数使用有限百万档，最终资格入口从前端构造、共同准入、编译到发射使用
+完整常规档；百万档端到端入口独立保留。
 十一组都含 12 个道路编辑冲突单元（每单元 35 个稳定实体）、3 个共享准入实体和 1 个
 覆盖全网的路权策略集。每个合成单元含一条机动路径、等待区、车道组、停车设施与车位；
 `S` 个门分别使用 `S` 个信号组，控制器有 `S` 个相位，每相位有 `S` 条状态；`S+1` 条车道边
@@ -913,7 +917,7 @@ Identity 原像顺序与 StableId 顺序不同的固定向量，核对查找、�
 每个道路编辑冲突单元含 4 条设施带及其真实前端生成的几何、1 个四点冲突区域和 2 条参与者流。
 这些是确定性的结构压力负载，不是城市交通质量或典型路口形态的认证。
 
-| 候选负载 | `S` | `P` | 合成单元 | 补齐实体 | 稳定实体 | 机动门 | 等待区 | 规范关系出现记录 | 规范几何点 | LIR 逻辑记录 |
+| 工作负载 | `S` | `P` | 合成单元 | 补齐实体 | 稳定实体 | 机动门 | 等待区 | 规范关系出现记录 | 规范几何点 | LIR 逻辑记录 |
 | -------- | --: | --: | -------: | -------: | -------: | -----: | -----: | ---------------: | ---------: | -----------: |
 | 混合语义 | 2 | 2 | 399 | 0 | 10000 | 822 | 399 | 14169 | 2682 | 28904 |
 | 稠密信号状态 | 32 | 2 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 3918 | 90974 |
@@ -976,12 +980,12 @@ LIR 与 LFCA 的完整规范统计。
 LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字节均为 115941070 B；候选
 释放后本次请求全部归还。累计请求与账本释放加转交总量仅相差固定控制结构开销，确认
 没有通过漏账制造峰值改善。这是内存请求与存续的结论，不是墙钟性能结论；文件路径峰值
-保持 151218133 B，返回制品字节不变。当前继续采用 256 MiB 候选预算。
+保持 151218133 B，返回制品字节不变。当前继续采用 256 MiB 操作预算。
 
-**完整候选政策表。**以下来源值为这十一组及其身份不相交变体的逐维上包络，不加额外余量，
-不是任意一万个实体输入的普遍上界。新增形态后须重新取数；所有值尚未登记为公共配置档。
+**完整常规档政策表。**以下来源值为这十一组及其身份不相交变体的逐维上包络，不加额外余量，
+不是任意一万个实体输入的普遍上界。新增形态后须重新取数；下文具名配置档完整登记这些值。
 
-| 来源处理维度 | 候选值 | 计数对象或单位 |
+| 来源处理维度 | 登记值 | 计数对象或单位 |
 | ------------ | -----: | ---------------- |
 | `ModuleCount` | 18 | 模块 |
 | `SourceDocumentCount` | 18 | 来源文档描述符 |
@@ -1002,7 +1006,7 @@ LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字
 | `TotalStringBytes` | 4815555 | 来源字符串总字节 |
 | `DiagnosticCount` | 16 | 规范排序后保留的诊断；沿用有界保留策略，不是成功负载包络 |
 
-| 规范路网容量维度 | 候选值 | 计数对象 |
+| 规范路网容量维度 | 登记值 | 计数对象 |
 | ---------------- | -----: | -------- |
 | `StableEntityCount` | 10000 | 稳定实体完整逻辑行 |
 | `ManeuverGateCount` | 1784 | 机动门 |
@@ -1010,47 +1014,47 @@ LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字
 | `CanonicalRelationCount` | 71773 | role 1–32 的规范关系出现记录 |
 | `GeometryPointCount` | 128511 | 规范几何点 |
 
-| 操作资源维度 | 候选值 | 政策依据 |
+| 操作资源维度 | 登记值 | 政策依据 |
 | ------------ | -----: | -------- |
 | `CompilerControlledLiveBytes` | 268435456 B | 保留较小宿主预算；直接共享字节编码后，已测全组合内存差异通过 |
-| `RetainedCapacityBytes` | 16777216 B | 独立宿主复用预算提案；当前零保留实现不能证明该边界的可达性 |
+| `RetainedCapacityBytes` | 16777216 B | 独立宿主复用预算；当前零保留实现不能证明该边界的可达性 |
 | `PolicyValidationWorkUnits` | 1000000 | 独立策略访问工作量；按本节登记单位累计，不借用来源关系数 |
 
 来源格式硬限制独立执行：身份 ASCII 组件 53 B、道路编辑外部文档身份 53 B、发射
 provenance 1–128 B 不归并为通用来源字符串限额。文件暂存与只读映射不计入受控请求字节，
 文件路径峰值不能解释为进程总内存上限。
 
-**边界验证与机制缺口。**[候选政策边界测试][regular-profile-boundaries]复用正式前端输入，
+**边界验证。**[常规档边界测试][regular-profile-boundaries]复用正式前端输入，
 固定来源准入与 HIR/MIR/LIR 的实际计数。16 个共同准入维度分别验证达到包络的输入在
 对应限额下准入、将限额减一时按该维度拒绝；单模块字节、单字符串和三个阶段记录也有
 达界成功与超界拒绝验证。16/17 条真实未知引用诊断验证保留数量、规范前缀和截断标记，阶段
 或诊断失败后可复用编译器。这些测试没有声称各来源维度可独立增加一条记录：当前前端的
 模块与文档一一对应，导入边、实体与引用／字符串也有连带约束，规范维度的早期来源检查
-还不能替代最终 LIR、LFCA 与 base 的两端容量准入。
+由最终 LIR、LFCA 与 base 的独立两端容量准入再次核对。
 
-单独收紧操作预算到 256 MiB 后，全组合内存与文件差异均成功，三对象字节一致。再将
+采用完整常规档的 256 MiB 操作预算，全组合内存与文件差异均成功，三对象字节一致。再将
 预算设为本次内存发射峰值 205581467 B 时同样成功，低一字节按
 `CompilerControlledLiveBytes` 拒绝；失败后恢复充足预算可复用同一输出，差异字节一致，
-恢复 256 MiB 后 Genesis 发射也成功。文件释放后目录为空。此试验只隔离操作预算，其余
-来源限额保留有限百万档，不代表完整候选配置档成功。
+恢复 256 MiB 后 Genesis 发射也成功。文件释放后目录为空。该回归现使用完整常规档，并验证充足容量与工作量政策下的输出字节一致。
 
 MIR 策略检查现使用独立的 `PolicyValidationWorkUnits`，临时表只按实际存储进入内存
-预算。来源关系限额保持 105919，十一组输入及身份不相交变体均在完整候选来源政策下
+预算。来源关系限额保持 105919，十一组输入及身份不相交变体均在完整常规档来源政策下
 编译成功。稠密信号及全组合输入按实际工作量达界成功、少一单位拒绝，拒绝后可复用，
 两种充足工作量政策生成的三对象字节一致。取消接入仍另行立项。
-本组成功输入的最大策略访问工作量为 134783 单位；常规候选预算保留 1000000 单位，
+本组成功输入的最大策略访问工作量为 134783 单位；常规档预算保留 1000000 单位，
 该余量属于操作政策，不提高来源关系或规范关系容量。
 
-规范规模包络 `(10000, 1784, 399, 71773, 128511)` 尚非最终登记值。后续仍须补充更广的
-导入图、字符串、曲线档位和策略密度，并在 #1296 两端准入机制下验证规范关系边界、base
-超容量、不同充足政策、失败原子性及保留容量释放。完整资格须在最终具名常规档重跑；
-本轮政策取数与隔离边界测试不构成 #1441 完成。
+规范容量登记为 `(10000, 1784, 399, 71773, 128511)`。五个维度分别验证生产端与公开
+消费端的达界成功、少一拒绝；差异 base 单独检查，在零操作内存预算下仍先返回正确一侧的
+容量错误，证明拒绝先于索引准入。失败不返回部分结果，文件发射不留下暂存对象，同一编译器
+或输出可继续用于后续合法操作。完整成功矩阵使用最终具名配置档，并核对两端统计、固定预期、
+来源重排、来源映射密度与正向差异场景。工作量预算和操作字节预算另作独立边界回归。
 
-保留配置档的命名规则为 `LF-COMP-SINGLE-NETWORK-<规模>-STABLE-ENTITIES`；若采用此候选
-规模，则常规档标识为 `LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES`，百万档标识为
-`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES`。规模与完整政策确定后，再与 #1296 一次性
-确定聚合类型和构造器并迁移调用方；当前 API 尚未改名。硬件与历史测量基线的 P100 身份
-不随配置档迁移，配置档身份也不进入可移植制品或修订身份。
+常规档标识为 `LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES`，百万档标识为
+`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES`；聚合类型为 `CompileProfile`，构造器分别为
+`single_network_10k_stable_entities()` 与 `single_network_1m_stable_entities()`。
+旧类型与构造器删除，不保留别名。硬件与历史测量基线的 P100 身份不变；配置档身份不进入
+可移植制品或修订身份。本次资格不宣称 #1296 的编译管线全部存储已迁入账本。
 
 #296 道路编辑来源按“一模块一个 source buffer/document”执行 `SourceDocumentCount`。
 
@@ -1073,45 +1077,45 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 返回预算诊断，预算充足时保留原字段首错顺序，具体规则见
 [道路编辑来源的内存边界][road-editing-memory]。
 
-**具名配置档。**下表登记配置档的全部维度，“边界”列标明维度所属的边界（来源：来源处理
-限额；规范：规范路网容量；操作：操作资源预算）。`LF-COMP-P100` 的计数维度、来源字节与
-字符串字节来自 #308 九个压力分层的逐维上包络，操作资源预算取同一校准的最大建议值；
-两类来源的精确取数口径与被取代的 `LF-COMP-P100-INITIAL-v1/v2`、
-`LF-COMP-SINGLE-NETWORK-1M-v2` 原表见[固定提交][retired-compile-limits]。
+**具名配置档。**下表是全部现行维度。常规档来源值与规范容量取本节登记工作负载的逐维
+上包络；操作内存、保留容量与工作量是独立政策。百万档保留已登记规模与来源边界，规范关系
+容量取百万档端到端实测值，工作量预算为 16000000 单位。历史 P100 取数仅保留为历史证据，
+原始表见[固定提交][retired-compile-limits]。
 
-| 私有配置字段                          | `LF-COMP-P100` | `LF-COMP-SINGLE-NETWORK-1M` | 边界 | 计数对象 / 单位                                               |
+| 私有配置字段                          | `LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` | `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` | 边界 | 计数对象 / 单位                                               |
 | ------------------------------------- | -------------: | --------------------------: | ---- | ------------------------------------------------------------- |
-| `max_module_count`                    |            522 |                       65536 | 来源 | 来源模块                                                      |
-| `max_source_document_count`           |           1566 |                      196608 | 来源 | 来源文档描述符                                                |
-| `max_import_edge_count`               |           1032 |                      262144 | 来源 | 模块导入边                                                    |
-| `max_source_bytes_per_module`         |         542741 |                   536870912 | 来源 | 单个来源模块字节；与总量同界，另作入口前检查                  |
-| `max_source_bytes_total`              |         542741 |                   536870912 | 来源 | 编译单元来源字节                                              |
-| `max_declaration_count`               |          11265 |                     1500000 | 来源 | 来源声明                                                      |
-| `max_stable_entity_count`             |          11265 |                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
-| `max_typed_ast_record_count`          |          58387 |                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
-| `max_hir_record_count`                |          58387 |                     8000000 | 来源 | HIR 逻辑记录                                                  |
-| `max_mir_record_count`                |          38112 |                     8000000 | 来源 | MIR 逻辑记录                                                  |
-| `max_lir_record_count`                |          38112 |                     8000000 | 来源 | LIR 逻辑记录                                                  |
-| `max_reference_count`                 |          37920 |                    16000000 | 来源 | 有类型引用                                                    |
-| `max_relation_occurrence_count`       |          10032 |                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
-| `max_canonical_relation_count`        |         待校准 |                     1406986 | 规范 | 规范关系出现记录（role 1–32）；不复制来源侧值，取数见下文     |
-| `max_identity_field_occurrence_count` |          29184 |                     8000000 | 来源 | 标识字段出现记录                                              |
-| `max_maneuver_gate_count`             |           2304 |                     1000000 | 规范 | 最终规范路网的机动门                                          |
-| `max_waiting_zone_count`              |           1536 |                     1000000 | 规范 | 最终规范路网的等待区                                          |
-| `max_geometry_point_count`            |          22368 |                    16000000 | 规范 | 规范几何点记录                                                |
-| `max_symbol_count`                    |          11265 |                     2000000 | 来源 | 符号                                                          |
-| `max_string_item_count`               |          36894 |                     8000000 | 来源 | 驻留字符串项                                                  |
-| `max_single_string_bytes`             |             53 |                        4096 | 来源 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限 |
-| `max_total_string_bytes`              |         991537 |                   536870912 | 来源 | 驻留字符串总字节                                              |
-| `max_diagnostic_count`                |             16 |                          16 | 来源 | 规范排序后保留的诊断                                          |
-| `max_compiler_controlled_live_bytes`  |       43269120 |                  6442450944 | 操作 | 编译器控制总存续请求字节；不含 file-backed 暂存字节           |
-| `max_retained_capacity_bytes`         |       36925688 |                   536870912 | 操作 | 一次编译返回后编译器允许保留的无语义容量字节                  |
+| `max_module_count`                    | 18 |                       65536 | 来源 | 来源模块                                                      |
+| `max_source_document_count`           | 18 |                      196608 | 来源 | 来源文档描述符                                                |
+| `max_import_edge_count`               | 17 |                      262144 | 来源 | 模块导入边                                                    |
+| `max_source_bytes_per_module`         | 6802717 |                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                  |
+| `max_source_bytes_total`              | 8728106 |                   536870912 | 来源 | 编译单元来源字节                                              |
+| `max_declaration_count`               | 10000 |                     1500000 | 来源 | 来源声明                                                      |
+| `max_stable_entity_count`             | 10000 |                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
+| `max_typed_ast_record_count`          | 381284 |                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
+| `max_hir_record_count`                | 535364 |                     8000000 | 来源 | HIR 逻辑记录                                                  |
+| `max_mir_record_count`                | 395015 |                     8000000 | 来源 | MIR 逻辑记录                                                  |
+| `max_lir_record_count`                | 396669 |                     8000000 | 来源 | LIR 逻辑记录                                                  |
+| `max_reference_count`                 | 77602 |                    16000000 | 来源 | 有类型引用                                                    |
+| `max_relation_occurrence_count`       | 105919 |                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
+| `max_canonical_relation_count`        | 71773 |                     1406986 | 规范 | 规范关系出现记录（role 1–32）；不复制来源侧值，取数见下文     |
+| `max_identity_field_occurrence_count` | 26333 |                     8000000 | 来源 | 标识字段出现记录                                              |
+| `max_maneuver_gate_count`             | 1784 |                     1000000 | 规范 | 最终规范路网的机动门                                          |
+| `max_waiting_zone_count`              | 399 |                     1000000 | 规范 | 最终规范路网的等待区                                          |
+| `max_geometry_point_count`            | 128511 |                    16000000 | 规范 | 规范几何点记录                                                |
+| `max_symbol_count`                    | 10000 |                     2000000 | 来源 | 符号                                                          |
+| `max_string_item_count`               | 164951 |                     8000000 | 来源 | 驻留字符串项                                                  |
+| `max_single_string_bytes`             | 1024 |                        4096 | 来源 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限 |
+| `max_total_string_bytes`              | 4815555 |                   536870912 | 来源 | 驻留字符串总字节                                              |
+| `max_diagnostic_count`                | 16 |                          16 | 来源 | 规范排序后保留的诊断                                          |
+| `max_compiler_controlled_live_bytes`  | 268435456 |                  6442450944 | 操作 | 编译器控制总存续请求字节；不含 file-backed 暂存字节           |
+| `max_retained_capacity_bytes`         | 16777216 |                   536870912 | 操作 | 一次编译返回后编译器允许保留的无语义容量字节                  |
+| `max_policy_validation_work_units` | 1000000 | 16000000 | 操作 | 已登记策略查询、关系访问与扫描单位 |
 
-`max_source_document_count = 1566` 等于 `max_module_count` 522 乘以 #315 实现时采用的每模块
-三个来源文档容量，在共同接入写入文档索引前给出直接基数边界。`SourceDocumentCount` 不包含
-模块头或声明；它们分别继续由 `ModuleCount` / `TypedAstRecordCount` 计数。
+常规档 `max_source_document_count = 18` 与登记工作负载的十八个模块一一对应；百万档的
+196608 个文档上限独立保留。共同接入在写入文档索引前检查文档总数；`SourceDocumentCount`
+不包含模块头或声明，它们分别由 `ModuleCount` / `TypedAstRecordCount` 计数。
 
-`LF-COMP-SINGLE-NETWORK-1M` 是 `10000`/`100000`/`1000000` 三档现实混合稳定静态实体端到端
+`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 是 `10000`/`100000`/`1000000` 三档现实混合稳定静态实体端到端
 证据的唯一大型具名配置档。它不表示所有维度都应预分配到上限，也不保证任意理论性一百万
 实体组合都可接受；官方现实混合 fixture（固定测试环境）必须在每个维度内完成 official
 source → compiler → emission，任一维度超限即配置档未取得一百万资格，不能改用调用方
@@ -1138,7 +1142,7 @@ framing/reference spelling。Identity v1 `Ascii` 字段及其来源侧 namespace
 components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
 `TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
 
-单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；
+单模块来源上限与总来源上限独立登记，常规档分别为 6802717 B 与 8728106 B；
 必须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
 绕过总存续字节上限。上述逐维最大值不是已经测过的“所有维度同时取最大”组合；任意
@@ -1155,7 +1159,7 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 - 来源副本、字符串、各阶段表、关系、诊断、暂存区和正在构造的输出共同形成的
   编译器控制总存续内存峰值，以及编译结束后允许保留的内部容量。
 
-同一个不可变 `CompileLimits` 必须贯穿四个受检边界：
+同一个不可变 `CompileProfile` 必须贯穿四个受检边界：
 
 1. `SyntheticModuleBuilder` 在字符串、来源位置、声明和规范化调用记录扩容前执行
    单模块上限；
@@ -1191,7 +1195,7 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 加一、跨模块累计溢出、编译遍计划超出操作资源预算的拒绝、跨多个已执行编译遍产生超过十六个候选且
 后发现的较小规范键能够替换已保留项，以及连续三十二次失败后复用同一编译器实例
 仍与新实例结果一致。#308 的 16 GiB/24 GiB/60 s 研究停止护栏不进入
-`CompileLimits`。
+`CompileProfile`。
 
 ## 6. 合成领域专用语言前端
 
@@ -1225,7 +1229,7 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 
 领域专用语言构建器的声明方法使用 `#[track_caller]` 或等价宏捕获 Rust 文件、行和
 列作为来源位置。#292 已接受的每个来源模块另有调用方提供、与机器路径无关的稳定
-`sourceDocumentKey`；该键在整个编译单元内必须唯一，并受 `CompileLimits` 的
+`sourceDocumentKey`；该键在整个编译单元内必须唯一，并受 `CompileProfile` 的
 `ASCII` 字符集与长度上限约束，重复键在进入诊断排序前失败。
 `file!()` 结果只作本地显示和来源链。循环展开的多个声明可以共享调用位置，但诊断
 必须同时携带声明的显式稳定键；来源位置、文件路径和展开序号都不得参与标识。
@@ -1435,7 +1439,7 @@ LIR 或后继制品。
   不能只看进程噪声。
 
 自动化验证至少覆盖：现有合成来源公共 API；加入顺序变形；命名空间/来源文档
-冲突与共同接入适用的全部 `CompileLimits` 维度；一个逻辑模块保留三个来源文档、其中一个文档无声明、
+冲突与共同接入适用的全部 `CompileProfile` 维度；一个逻辑模块保留三个来源文档、其中一个文档无声明、
 声明/关系位置分别指向不同文档且源映射精确保留；三个文档拥有可区分的来源记录且原始字节释放后仍可
 查询；文档序号不从模块序号推导；接入失败后构建器不污染；
 未知导入与循环；测试专用第二种官方封装复用同一私有接入而不复制检查；重复性 / 变形测试；
@@ -1458,7 +1462,7 @@ LIR 或后继制品。
 - 表、区间、有类型逻辑序号、模块 / 编译单元累计资源上限和资源账本准入边界；
 - 每个具名配置档的全部维度已知向量；稳定实体、编译器控制总存续内存（含发射账本）与
   retained capacity 在上限值成功、`+1` 时于返回部分候选前稳定失败；
-- 第 5.3 节的配置档校验与资格验证：整数与平台可表示性；`LF-COMP-P100` 的可成功规模、两侧统计
+- 第 5.3 节的配置档校验与资格验证：整数与平台可表示性；`LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` 的可成功规模、两侧统计
   一致、诊断保留失败路径、差异发射验收场景与账本一致性在常规 CI 中通过；规范路网容量
   准入在建立索引前拒绝超限 base；
 - `10000`/`100000`/`1000000` 现实混合 official source 使用同一大型配置档贯通 compiler 与

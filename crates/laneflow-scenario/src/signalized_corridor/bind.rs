@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
-use laneflow_compiler::{CanonicalIdentityViolation, CompileLimits, derive_canonical_stable_id_v1};
+use laneflow_compiler::{
+    CanonicalIdentityViolation, CompileProfile, derive_canonical_stable_id_v1,
+};
 use laneflow_runtime::{RouteError, RouteHandle, RouteRegisterInput, TrafficWorld};
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileId,
@@ -230,7 +232,7 @@ pub fn bind(
             }
         }
     }
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut routes = BTreeMap::new();
     for route in &catalog.routes {
         let mut edges = Vec::with_capacity(route.edge_ids.len());
@@ -476,7 +478,7 @@ fn portal_rank(portal_id: &str) -> usize {
 fn resolve_edge(
     revision: &SharedNetworkRevision,
     key: &str,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<LaneEdgeOrdinal, BindError> {
     let stable =
         derive_canonical_stable_id_v1(EntityKind::LaneEdge, AUTHORING_NAMESPACE, key, limits)
@@ -490,7 +492,7 @@ fn resolve_edge(
 fn resolve_profile(
     revision: &SharedNetworkRevision,
     key: &str,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<VehicleProfileOrdinal, BindError> {
     let stable =
         derive_canonical_stable_id_v1(EntityKind::VehicleProfile, AUTHORING_NAMESPACE, key, limits)

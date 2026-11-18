@@ -4,9 +4,9 @@ fn many_policy_fixture(count: u32, all_member_kinds: bool) -> Fixture {
     let mut fixture = empty_policy_fixture();
     fixture
         .output
-        .set_test_compile_limits(crate::CompileLimits::single_network_1m());
+        .set_test_compile_limits(crate::CompileProfile::single_network_1m_stable_entities());
     let mut unit = full_spatial_portable_fixture_unit();
-    unit.limits = crate::CompileLimits::single_network_1m();
+    unit.limits = crate::CompileProfile::single_network_1m_stable_entities();
     let module = unit
         .modules
         .iter()
@@ -142,7 +142,7 @@ fn check_changed_root(
         fixture.output.source_map_input(),
         &bytes(&map),
         FormatLimits::HARD,
-        fixture.output.compile_limits(),
+        fixture.output.compile_limits().consumer_policy(),
     )
 }
 

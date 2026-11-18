@@ -3,7 +3,7 @@ use crate::hir::build_hir;
 use crate::identity::{IdentityFieldInput, encode_canonical_identity};
 use crate::mir::lower_to_mir;
 use crate::{
-    CompilationUnitBuilder, CompileLimits, DiagnosticPayload, LaneEdgeInput, LaneEdgeReference,
+    CompilationUnitBuilder, CompileProfile, DiagnosticPayload, LaneEdgeInput, LaneEdgeReference,
     SourceModuleHeader, SourceModuleHeaderInput, SyntheticModule, SyntheticModuleBuilder,
 };
 
@@ -13,7 +13,7 @@ fn module(
     imports: &[&str],
     edges: &[(&str, f64, &[LaneEdgeReference<'_>])],
 ) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -45,7 +45,8 @@ fn module(
 }
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -224,11 +225,11 @@ fn lir_checks_record_scratch_output_and_live_limits_before_allocation() {
 
     for (limits, expected_dimension) in [
         (
-            CompileLimits::p100().with_test_lir_limits(1, u32::MAX),
+            CompileProfile::single_network_10k_stable_entities().with_test_lir_limits(1, u32::MAX),
             CompileLimitDimension::LirRecordCount,
         ),
         (
-            CompileLimits::p100().with_test_lir_limits(
+            CompileProfile::single_network_10k_stable_entities().with_test_lir_limits(
                 u32::MAX,
                 u32::try_from(unit.controlled_live_bytes + mir.controlled_live_bytes).unwrap(),
             ),

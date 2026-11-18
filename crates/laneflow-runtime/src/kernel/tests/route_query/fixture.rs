@@ -19,7 +19,7 @@ pub const REPEATS: [usize; 3] = [8, 128, 2_048];
 const NAMESPACE: &str = "research/route-query";
 
 pub fn revision(red: bool) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,
@@ -248,7 +248,7 @@ pub fn world_with_policy(
             EntityKind::RightOfWayPolicySet,
             NAMESPACE,
             policy_key,
-            &CompileLimits::single_network_1m(),
+            &CompileProfile::single_network_1m_stable_entities(),
         )
         .unwrap(),
     );
@@ -319,7 +319,7 @@ pub fn profile(root: &SharedNetworkRevision, key: &str) -> VehicleProfileOrdinal
             EntityKind::VehicleProfile,
             NAMESPACE,
             key,
-            &CompileLimits::single_network_1m(),
+            &CompileProfile::single_network_1m_stable_entities(),
         )
         .unwrap(),
     );

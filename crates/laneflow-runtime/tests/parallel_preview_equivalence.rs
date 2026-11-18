@@ -25,7 +25,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, GateInterpretation, IidmVehicleProfileInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, GateInterpretation, IidmVehicleProfileInput,
     JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput,
     ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
     MovementReference, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
@@ -288,7 +288,7 @@ fn ring_candidate(
     provenance: &str,
     diff_base: PortableDiffBase<'_>,
 ) -> laneflow_compiler::PortablePublicationCandidate {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/waiting-scale",
@@ -517,7 +517,7 @@ fn ring_policy() -> WorldPolicySelection {
                 EntityKind::RightOfWayPolicySet,
                 "city/waiting-scale",
                 "waiting-policy",
-                &CompileLimits::p100(),
+                &CompileProfile::single_network_10k_stable_entities(),
             )
             .expect("waiting policy stable id"),
         ),

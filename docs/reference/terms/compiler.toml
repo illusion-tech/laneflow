@@ -173,11 +173,11 @@ references = [{ document = "design-compiler-foundation" }]
 
 [[terms]]
 id = "compile-limits"
-name = "编译资源上限"
-english_aliases = ["compile limits"]
+name = "编译配置档"
+english_aliases = ["compile profile"]
 domains = ["compiler"]
 definition = "编译管线在分配前执行的来源处理限额、规范路网容量与操作资源预算组合；制品格式边界独立约束。"
-symbols = [{ value = "CompileLimits", kind = "type" }]
+symbols = [{ value = "CompileProfile", kind = "type" }]
 references = [{ document = "adr-0035" }]
 
 [[terms]]
@@ -567,6 +567,7 @@ name = "操作资源预算"
 english_aliases = ["operation resource budget"]
 domains = ["compiler"]
 definition = "宿主为一次编译、发射或公开检查提供的受控存续字节、编译后保留容量字节与已登记工作量；内存由资源账本在分配前执行，策略访问工作量累计消耗且不因存储释放退还，取消接入另行立项。"
+symbols = [{ value = "OperationResourceBudget", kind = "type" }, { value = "OperationResourceDimension", kind = "type" }]
 references = [{ document = "adr-0035" }]
 
 [[terms]]
@@ -574,8 +575,9 @@ id = "p100-compile-limits-profile"
 name = "P100 编译资源配置档"
 english_aliases = ["P100 compile limits profile"]
 domains = ["compiler"]
-definition = "由宿主显式选择、组合来源处理限额、规范路网容量和操作资源预算的具名生产编译资源配置档。"
+definition = "以参考机 P100 命名、继承历史逐维包络的旧编译配置档；已由按稳定实体规模命名的常规档取代，不代表现行规模承诺。"
 symbols = [{ value = "LF-COMP-P100", kind = "constant" }]
+retirement = { reason = "历史包络没有独立的合法生产工作负载承诺，现行配置档按稳定实体规模命名。", replacements = [{ target = "single-network-10k-compile-profile", condition = "常规编制用途的后继；不表示限额数值或 API 兼容。" }] }
 references = [{ document = "adr-0035" }]
 
 [[terms]]
@@ -734,7 +736,7 @@ name = "百万单路网配置档"
 english_aliases = ["single-network million compile limits profile"]
 domains = ["compiler"]
 definition = "以一百万个现实混合稳定静态实体为公开规模目标、须通过端到端资格验证的具名大型编译配置档；不提供无限模式或调用方覆写。"
-symbols = [{ value = "LF-COMP-SINGLE-NETWORK-1M", kind = "constant" }]
+symbols = [{ value = "LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES", kind = "constant" }]
 references = [{ document = "adr-0035" }]
 
 [[terms]]
@@ -823,6 +825,7 @@ name = "来源处理限额"
 english_aliases = ["source processing limits"]
 domains = ["compiler"]
 definition = "编译单元准入与编译管线执行的来源与阶段规模上限，如模块、来源字节、声明、各阶段记录、有类型引用、来源关系出现记录、标识字段出现记录、符号、字符串与诊断；字符串与关系维度为来源侧口径，不用于约束外部制品。"
+symbols = [{ value = "SourceProcessingLimits", kind = "type" }, { value = "SourceProcessingDimension", kind = "type" }]
 references = [{ document = "adr-0035" }]
 
 [[terms]]
@@ -933,3 +936,21 @@ name = "视图"
 english_aliases = ["view"]
 domains = ["compiler"]
 definition = "借用或共享已验证底层存储、且不复制正本数据的只读访问接口。"
+
+[[terms]]
+id = "single-network-10k-compile-profile"
+name = "一万实体单路网配置档"
+english_aliases = ["single-network ten-thousand stable-entity compile profile"]
+domains = ["compiler"]
+definition = "在较小操作资源预算下编制一个含一万个稳定实体的局部完整路网的具名常规配置档；以登记的互补工作负载及操作矩阵取得资格，不承诺任意一万个实体组合均成功。"
+symbols = [{ value = "LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES", kind = "constant" }]
+references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "canonical-consumer-policy"
+name = "规范制品消费政策"
+english_aliases = ["canonical artifact consumer policy"]
+domains = ["compiler"]
+definition = "公开规范制品检查入口使用的规范路网容量与操作资源预算组合，类型中不含来源处理限额；制品格式边界由调用方另外提供。"
+symbols = [{ value = "CanonicalConsumerPolicy", kind = "type" }]
+references = [{ document = "adr-0035" }]

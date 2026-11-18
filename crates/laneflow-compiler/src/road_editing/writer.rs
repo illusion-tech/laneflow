@@ -6,7 +6,7 @@ use super::builder::{RoadEditingSourceModule, RoadEditingSourceModuleParts};
 use super::model::*;
 use super::rules::input_error;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, GeometryAccuracyProfile,
+    CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, GeometryAccuracyProfile,
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
@@ -35,13 +35,13 @@ impl OwnedRoadEditingSourceBuffer {
 
 /// 把字段私有 authoring model 确定性编码为 `LFRE` size-prefixed FlatBuffers。
 pub struct RoadEditingSourceWriter<'limits> {
-    limits: &'limits CompileLimits,
+    limits: &'limits CompileProfile,
 }
 
 impl<'limits> RoadEditingSourceWriter<'limits> {
     /// 以给定编译资源上限创建 writer。
     #[must_use]
-    pub const fn new(limits: &'limits CompileLimits) -> Self {
+    pub const fn new(limits: &'limits CompileProfile) -> Self {
         Self { limits }
     }
 
@@ -57,7 +57,8 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
     ) -> Result<OwnedRoadEditingSourceBuffer, DiagnosticBundle> {
         let capacity_limit = self
             .limits
-            .value(CompileLimitDimension::SourceBytesPerModule);
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SourceBytesPerModule);
         let RoadEditingSourceModuleParts {
             header,
             geometry_accuracy_profile: accuracy,
@@ -1208,7 +1209,7 @@ pub(super) mod tests {
     use super::*;
     use crate::road_editing::RoadEditingSourceModuleBuilder;
 
-    fn module_with_frames(limits: &CompileLimits, keys: &[&str]) -> RoadEditingSourceModule {
+    fn module_with_frames(limits: &CompileProfile, keys: &[&str]) -> RoadEditingSourceModule {
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1234,7 +1235,7 @@ pub(super) mod tests {
     }
 
     fn module_with_junction(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         approach_keys: &[&str],
     ) -> RoadEditingSourceModule {
         let header = RoadEditingModuleHeader::try_new(
@@ -1300,7 +1301,9 @@ pub(super) mod tests {
     }
 
     /// 构造覆盖全部声明种类的来源模块测试 fixture。
-    pub(crate) fn module_with_every_declaration(limits: &CompileLimits) -> RoadEditingSourceModule {
+    pub(crate) fn module_with_every_declaration(
+        limits: &CompileProfile,
+    ) -> RoadEditingSourceModule {
         let mut builder = RoadEditingSourceModuleBuilder::new(
             RoadEditingModuleHeader::try_new(
                 "city",
@@ -1529,7 +1532,7 @@ pub(super) mod tests {
 
     #[test]
     fn writer_emits_checked_size_prefixed_lfre_buffer() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = RoadEditingSourceWriter::new(&limits)
             .write(module_with_frames(&limits, &["frame-b", "frame-a"]))
             .expect("buffer");
@@ -1561,7 +1564,7 @@ pub(super) mod tests {
 
     #[test]
     fn root_input_order_does_not_change_wire_bytes() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let first = RoadEditingSourceWriter::new(&limits)
             .write(module_with_frames(
                 &limits,
@@ -1580,7 +1583,7 @@ pub(super) mod tests {
 
     #[test]
     fn unordered_reference_input_does_not_change_wire_bytes() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let first = RoadEditingSourceWriter::new(&limits)
             .write(module_with_junction(&limits, &["edge-b", "edge-a"]))
             .expect("first buffer");
@@ -1593,7 +1596,7 @@ pub(super) mod tests {
 
     #[test]
     fn every_stable_declaration_encoder_produces_a_verified_root_vector() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = RoadEditingSourceWriter::new(&limits)
             .write(module_with_every_declaration(&limits))
             .expect("complete buffer");
@@ -1625,7 +1628,7 @@ pub(super) mod tests {
 
     #[test]
     fn unordered_references_sort_by_resolved_namespace() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "z-city",
             "road-editing",

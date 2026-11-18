@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-chinese-style-city-workload"
 kind = "design"
 status = "accepted"
-revised_date = "2026-10-03"
+revised_date = "2026-11-18"
 summary = "定义城市工作负载、需求计划与有限验证范围。"
 scope = "LF-CN-URBAN 当前模板 cn-urban-template-v2 的 topology / demand / runtime 分层、计数口径、首批场景边界与阶段依赖 本文定义工作负载的交付合同，不以设计接受代替生成器、运行程序或产品认证。 G1 判断、交付进度与本次测量结果保存在 GitHub Issue / PR。"
 applicability = "#applicability"
@@ -255,7 +255,7 @@ G1 冻结规模、语义和生成规则；#542 从正式生成器冻结逐对象
 
 #543 的容量研究只作为实现选择输入。策略、来源、模板或跨块连接变化后，正式生成器
 必须重新走完整编译、后发射检查、共享静态路网构建及世界安装。空世界安装不证明 10k/100k
-车辆运行容量，未连通样本不证明城市行程。优先复用 `LF-COMP-SINGLE-NETWORK-1M`；
+车辆运行容量，未连通样本不证明城市行程。优先复用 `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES`；
 发生拒绝时先记录实际阶段、维度、限值和输入形状，再判断编制问题或独立编译器缺陷，
 不得直接放宽上限、减少规模或删除场景。
 

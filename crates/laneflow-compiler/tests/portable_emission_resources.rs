@@ -10,7 +10,7 @@ use std::{
 use laneflow_compiler::road_editing as editing;
 use laneflow_compiler::{
     AccessEffect, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
-    CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder, CompileLimits, Compiler,
+    CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder, CompileProfile, Compiler,
     CorridorElementReference, GeometryAccuracyProfile, GeometryDirectionProfile,
     IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeGeometryInput,
     LaneEdgeInput, LaneEdgeReference, ManeuverGateInput, ManeuverPathInput, ManeuverPathReference,
@@ -318,7 +318,7 @@ fn add_synthetic_tile(builder: &mut SyntheticModuleBuilder, ordinal: u32) {
 }
 
 fn build_conflict_module(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     tile_count: u32,
     permuted: bool,
 ) -> Option<editing::OwnedRoadEditingSourceBuffer> {
@@ -593,7 +593,7 @@ fn build_conflict_module(
 }
 
 fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> CompilationUnit {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/portable-resource-probe",

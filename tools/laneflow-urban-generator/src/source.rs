@@ -5,7 +5,7 @@ mod parking;
 use std::collections::BTreeMap;
 
 use laneflow_compiler::road_editing as re;
-use laneflow_compiler::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile};
+use laneflow_compiler::{CompileProfile, GeometryAccuracyProfile, GeometryDirectionProfile};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -139,7 +139,7 @@ fn generate_source_inner(
     increment: Option<&str>,
 ) -> Result<GeneratedSource> {
     config.validate()?;
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let config_text = toml::to_string(config)?;
     let config_digest: [u8; 32] = Sha256::digest(config_text.as_bytes()).into();
     let mut topology_digest = Sha256::new();
@@ -241,7 +241,7 @@ fn builder<'a>(
     namespace: &str,
     document: &str,
     imports: Vec<String>,
-    limits: &'a CompileLimits,
+    limits: &'a CompileProfile,
     input_digest: [u8; 32],
 ) -> Result<Builder<'a>> {
     Ok(re::RoadEditingSourceModuleBuilder::new(
@@ -265,7 +265,7 @@ fn builder<'a>(
 
 fn finish(
     builder: Builder<'_>,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     counts: &mut BTreeMap<String, u64>,
     references: &mut BTreeMap<String, u64>,
     policy_references: u64,

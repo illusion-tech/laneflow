@@ -37,7 +37,7 @@ pub(super) fn revision(
     nominal: bool,
 ) -> Arc<SharedNetworkRevision> {
     assert!((1..=2).contains(&cells), "contract probe only");
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NS,
@@ -289,7 +289,7 @@ impl Sample {
         let mut spaces = Vec::new();
         let mut handles = Vec::new();
         let mut groups = Vec::new();
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         for c in 0..cells {
             for r in 0..4 {
                 let id = derive_canonical_stable_id_v1(

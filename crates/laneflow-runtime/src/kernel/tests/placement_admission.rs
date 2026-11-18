@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, GateInterpretation, GateProhibition,
+    CompilationUnitBuilder, CompileProfile, Compiler, GateInterpretation, GateProhibition,
     IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
     ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
     OwnerQualifiedReference, ParticipantClassInput, ParticipantClassReference, PolicyGateRuleInput,
@@ -42,7 +42,7 @@ fn revision(
     namespace: &str,
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -129,7 +129,7 @@ fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWor
 }
 
 fn register_named(world: &mut TrafficWorld, namespace: &str, keys: &[&str]) -> RouteHandle {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {

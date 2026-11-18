@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn sparse_shared_zone_uses_indexed_targets_with_linear_work() {
         let (mut unit, mut mir) = super::super::fixture();
-        unit.limits = crate::CompileLimits::single_network_1m();
+        unit.limits = crate::CompileProfile::single_network_1m_stable_entities();
         let count = 2_000;
         let mut passages = Vec::new();
         for (index, stream) in mir.participant_streams.iter_mut().enumerate() {
@@ -152,7 +152,7 @@ mod tests {
         }
         mir.conflict_passages = passages.into_boxed_slice();
         let index = PassageIndex::build(&unit, &mir).unwrap();
-        let mut work = WorkBudget::new(&unit.limits);
+        let mut work = WorkBudget::new(unit.limits.operation_budget());
         let table = build(
             &unit,
             &mir,
@@ -219,7 +219,7 @@ mod tests {
             &mir.policies[0],
             &passages,
             passages.bytes(),
-            &mut WorkBudget::new(&unit.limits),
+            &mut WorkBudget::new(unit.limits.operation_budget()),
         )
         .unwrap();
         let shared = table

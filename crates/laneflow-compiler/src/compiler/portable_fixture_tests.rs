@@ -6,7 +6,7 @@ use crate::declaration::{
 use crate::road_editing as editing;
 use crate::{
     AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
-    CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder, CompileLimits,
+    CanonicalPoint3F32Input, CompilationUnit, CompilationUnitBuilder, CompileProfile,
     CorridorElementReference, FacilityBandInput, FacilityBandReference, GeometryAccuracyProfile,
     GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput, JunctionReference,
     LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
@@ -23,7 +23,7 @@ use laneflow_static_contract::{CanonicalFrameKind, EntityKind};
 use std::sync::Arc;
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder = CompilationUnitBuilder::new(fixture_profile());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -31,7 +31,7 @@ fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
 }
 
 fn portable_fixture_builder(namespace: &str, document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100();
+    let limits = fixture_profile();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -345,7 +345,7 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
 }
 
 fn portable_fixture_full_spatial_conflict_source(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> editing::OwnedRoadEditingSourceBuffer {
     editing::RoadEditingSourceWriter::new(limits)
         .write(policy_topology_builder(limits).finish().unwrap())
@@ -353,13 +353,13 @@ fn portable_fixture_full_spatial_conflict_source(
 }
 
 pub(crate) fn policy_topology_builder(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> editing::RoadEditingSourceModuleBuilder<'_> {
     policy_topology_variant(limits, None, None)
 }
 
 pub(crate) fn policy_topology_variant(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     direction: Option<crate::ManeuverDirection>,
     aspects: Option<[SignalAspect; 2]>,
 ) -> editing::RoadEditingSourceModuleBuilder<'_> {
@@ -656,7 +656,7 @@ pub(crate) fn full_spatial_portable_fixture_unit() -> CompilationUnit {
 }
 
 fn full_spatial_portable_fixture_unit_with_policy(with_policy: bool) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = fixture_profile();
     let conflict_source = portable_fixture_full_spatial_conflict_source(&limits);
     let mut builder = CompilationUnitBuilder::new(limits);
     builder
@@ -1015,7 +1015,7 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
 
     // 暂存计入存续总量：计划存续刚好够，差一单位即 fail closed。
     let exact_live = u32::try_from(plan.controlled_live_bytes).expect("fixture live fits u32");
-    unit.limits = CompileLimits::p100().with_test_lir_limits(u32::MAX, exact_live);
+    unit.limits = fixture_profile().with_test_lir_limits(u32::MAX, exact_live);
     let frozen = crate::lir::freeze_lir(&unit, &mir)
         .expect("exact LIR live boundary")
         .lir;
@@ -1025,7 +1025,7 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
         plan.controlled_live_bytes
     );
 
-    unit.limits = CompileLimits::p100().with_test_lir_limits(u32::MAX, exact_live - 1);
+    unit.limits = fixture_profile().with_test_lir_limits(u32::MAX, exact_live - 1);
     let failure = match crate::lir::freeze_lir(&unit, &mir) {
         Ok(_) => panic!("one byte below LIR live budget must fail closed"),
         Err(diagnostics) => diagnostics,
@@ -1320,4 +1320,9 @@ fn artifact_inspect_renders_every_frozen_portable_fixture_kind() {
             "{label} 检查行缺失：\n{text}"
         );
     }
+}
+
+// 保持固定向量的调用位置不随配置档构造器长度变化。
+fn fixture_profile() -> CompileProfile {
+    CompileProfile::single_network_10k_stable_entities()
 }

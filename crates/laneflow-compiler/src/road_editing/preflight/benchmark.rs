@@ -38,7 +38,7 @@ impl Ord for CountedKey<'_> {
 
 pub(super) fn corridor_source(
     count: usize,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> OwnedRoadEditingSourceBuffer {
     let header = RoadEditingModuleHeader::try_new(
         "city",
@@ -143,7 +143,7 @@ pub(super) fn corridor_source(
 #[test]
 #[ignore = "#680 diagnostic oracle; compare exact output between frozen baseline and candidate"]
 fn preflight_diagnostic_oracle() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let buffer = RoadEditingSourceWriter::new(&limits)
         .write(super::super::writer::tests::module_with_every_declaration(
             &limits,
@@ -204,7 +204,7 @@ fn preflight_diagnostic_oracle() {
 #[test]
 #[ignore = "#680 release benchmark; run alone with --nocapture --test-threads=1"]
 fn preflight_scaling() {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     for size in [256, 512, 1_024, 2_048, 4_096, 8_192] {
         // 奇数乘法置换覆盖整个二次幂集合，避免只测已排序输入。
         let keys: Vec<_> = (0..size)

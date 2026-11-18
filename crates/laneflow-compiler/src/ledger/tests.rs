@@ -1,4 +1,5 @@
 use super::*;
+use crate::CompileProfile;
 
 const SINGLE: PassLabel = PassLabel::new(LedgerStage::SingleEmission, "test-single");
 const SUB: PassLabel = PassLabel::new(LedgerStage::SingleEmission, "test-sub");
@@ -372,9 +373,11 @@ fn granted_storage_moves_across_threads_without_recharging() {
 
 #[test]
 fn ledger_budget_is_the_profile_host_budget() {
-    let limits = CompileLimits::p100();
-    let budget = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
-    let ledger = Ledger::new(&limits);
+    let limits = CompileProfile::single_network_10k_stable_entities();
+    let budget = limits
+        .operation_budget()
+        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
+    let ledger = Ledger::new(limits.operation_budget());
     assert!(ledger.admit_pass(SINGLE, Plan::of(budget + 1)).is_err());
     ledger
         .admit_pass(SINGLE, Plan::of(budget))

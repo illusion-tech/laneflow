@@ -2,7 +2,7 @@
 
 use laneflow_compiler::road_editing as re;
 use laneflow_compiler::{
-    CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler, GeometryAccuracyProfile,
+    CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler, GeometryAccuracyProfile,
     GeometryDirectionProfile, PortableDiffBase, PortableEmissionProvenance,
     emit_portable_candidate,
 };
@@ -31,7 +31,7 @@ pub(crate) fn compile_cells(
     // 编译/发射用 single_network_1m：该场景的规模按大型配置档选择。限制只检查
     // 不改字节；StableId 按内容派生，与限制档位无关，因此 catalog pin 与 binder
     // 侧的 p100 身份派生结果与这里完全一致。
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let mut config_text = toml::to_string(config)?;
     if cells.len() != 1 || cells[0].junction_key != JUNCTION_KEY {
         config_text.push_str(&format!(

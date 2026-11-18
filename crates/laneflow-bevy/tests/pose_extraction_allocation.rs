@@ -11,7 +11,7 @@ static ALLOCATOR: &stats_alloc::StatsAlloc<std::alloc::System> = &stats_alloc::I
 
 use laneflow_bevy::{LaneFlowCommittedPoseBatch, LaneFlowSession, LaneFlowSessionConfig};
 use laneflow_compiler::{
-    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits, Compiler,
+    CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileProfile, Compiler,
     IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
     ParticipantClassInput, ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
     SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
@@ -30,7 +30,7 @@ use laneflow_static_network::{
 };
 
 fn compile_single_frame() -> laneflow_compiler::CompilationOutput {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "bevy/pose-extraction-allocation",

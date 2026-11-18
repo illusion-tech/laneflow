@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-right-of-way-policy"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-18"
 summary = "定义路权策略编译与正式冲突仲裁合同。"
 scope = "官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、 运行时快照与修订切换"
 applicability = "#applicability"
@@ -271,7 +271,7 @@ tuple 填入假 StableId。LFSD 4 的局部成员变更使用 §4.3 的专用表
 
 仅保存各策略下 Access 允许的实际使用类别组合；不能预分配全局 policy × owner × class ×
 route 数组。循环生成、内存预留、来源和派生计数均 checked，按实际解析行、CSR 和
-target ranges 计入既有 CompileLimits/BuildLimits，超限失败，不随意提高一百万静态
+target ranges 计入既有 CompileProfile/BuildLimits，超限失败，不随意提高一百万静态
 实体基线的格式上限。不同世界不复制这些静态表。LFCA 保存声明语义，builder 只派生
 当前修订的执行表，不存在同时持久化一份可与声明不一致的 resolved 副本。
 

@@ -248,9 +248,25 @@ impl PortablePublicationCandidate {
     }
 }
 
+/// 规范容量检查所拒绝的输入一侧。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalInputSide {
+    /// 本次发射或公开检查的目标规范路网。
+    Target,
+    /// 非 Genesis 差异的既有规范路网。
+    Base,
+}
+
 /// 可移植候选发射失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortableEmissionError {
+    /// 输入规范规模超出消费政策，借用扫描后、建立索引前拒绝。
+    CanonicalCapacityExceeded {
+        /// 被拒绝的输入一侧。
+        side: CanonicalInputSide,
+        /// 规范容量维度及实际值和上限。
+        violation: laneflow_static_contract::CanonicalNetworkCapacityExceeded,
+    },
     /// build ID 不是 1..=128 字节 ASCII、首字符不是字母/数字，或其余字符不在允许
     /// 集合内（`PortableEmissionProvenance::try_new`）。
     InvalidCompilerBuildId,

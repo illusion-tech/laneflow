@@ -14,7 +14,7 @@ use std::{
 };
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, LaneEdgeInput, PortableDiffBase,
+    CompilationUnitBuilder, CompileProfile, Compiler, LaneEdgeInput, PortableDiffBase,
     PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, emit_portable_candidate,
 };
@@ -193,7 +193,7 @@ fn snapshot(words: &[u32]) -> Vec<u8> {
 }
 
 fn fixture() -> Result<Vec<u8>> {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "test/page-injection",

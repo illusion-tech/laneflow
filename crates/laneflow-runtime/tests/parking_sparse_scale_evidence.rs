@@ -12,7 +12,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
@@ -35,7 +35,7 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 fn compile_capacity(capacity: u32) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/parking-scale",
@@ -148,7 +148,7 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
 }
 
 fn register_route(world: &mut TrafficWorld) -> laneflow_runtime::RouteHandle {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let stable =
         derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/parking-scale", "edge", &limits)
             .expect("edge stable id");

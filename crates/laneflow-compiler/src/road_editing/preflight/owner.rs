@@ -296,11 +296,11 @@ fn validate_signals(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CompileLimits;
+    use crate::CompileProfile;
 
     #[test]
     fn owner_index_distinguishes_full_addresses_and_counts_claims() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let scratch = PreflightScratch::new(&limits, 0);
         let mut index = OwnerIndex::new(
             [("a>section", "lane"), ("b>section", "lane")].into_iter(),

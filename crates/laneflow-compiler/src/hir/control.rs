@@ -12,10 +12,7 @@ use crate::declaration::{TypedAstDeclaration, TypedAstEntityAddress};
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
-use crate::{
-    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation,
-    WaitingZoneGateRole,
-};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation, WaitingZoneGateRole};
 
 use super::{
     CanonicalDeclarationSource, ControlCounts, HirLaneEdge, HirLaneEdgeKey, HirLaneEdgeReference,
@@ -283,8 +280,11 @@ pub(crate) fn build_control_hir(
         }
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     // StopLine 对 LaneEdge 是一对一关系。该表既在解析阶段发现重复所有者，也在后续
     // 覆盖校验中把候选 ManeuverPath 反查到唯一 StopLine，避免按停止线反复扫描路径。
     let mut stop_line_by_edge = vec![None; lane_edges.len()];

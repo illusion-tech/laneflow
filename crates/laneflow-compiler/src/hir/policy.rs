@@ -126,7 +126,10 @@ pub(super) fn bind(
         .saturating_add(lookup);
     crate::policy::check_budget(&unit.limits, live)?;
     let total_records = hir.hir_record_count.saturating_add(records);
-    let limit = unit.limits.value(CompileLimitDimension::HirRecordCount);
+    let limit = unit
+        .limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::HirRecordCount);
     if total_records > limit {
         return Err(DiagnosticBundle::single(
             Diagnostic::compile_limit_exceeded(

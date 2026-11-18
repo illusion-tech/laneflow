@@ -15,7 +15,7 @@ use crate::declaration::{
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
     CanonicalDeclarationSource, CrossSectionCounts, HirAuthoringLaneKey, HirAuthoringLaneTag,
@@ -403,8 +403,11 @@ pub(crate) fn build_cross_section_hir(
         }
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     let mut corridor_elements =
         Vec::with_capacity(count_to_usize(counts.corridor_elements, &unit.limits)?);
     let mut section_owners: Vec<Option<(HirRoadCorridorKey, SourceLocation)>> =
@@ -883,35 +886,35 @@ pub(crate) fn build_cross_section_hir(
 
 fn corridors_capacity(
     counts: &CrossSectionCounts,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
 ) -> Result<usize, DiagnosticBundle> {
     count_to_usize(counts.road_corridors, limits)
 }
 
 fn sections_capacity(
     counts: &CrossSectionCounts,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
 ) -> Result<usize, DiagnosticBundle> {
     count_to_usize(counts.road_sections, limits)
 }
 
 fn lanes_capacity(
     counts: &CrossSectionCounts,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
 ) -> Result<usize, DiagnosticBundle> {
     count_to_usize(counts.authoring_lanes, limits)
 }
 
 fn groups_capacity(
     counts: &CrossSectionCounts,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
 ) -> Result<usize, DiagnosticBundle> {
     count_to_usize(counts.lane_groups, limits)
 }
 
 fn bands_capacity(
     counts: &CrossSectionCounts,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
 ) -> Result<usize, DiagnosticBundle> {
     count_to_usize(counts.facility_bands, limits)
 }

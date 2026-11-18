@@ -6,7 +6,7 @@ pub(super) fn charge(
     value: &RightOfWayPolicySetInput,
     namespace: &str,
     imports: &BTreeSet<Box<str>>,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<(), DiagnosticBundle> {
     usage.charge_table(7, 28);
     value.regulation.validate()?;
@@ -106,8 +106,8 @@ mod tests {
 
     #[test]
     fn movement_direction_charges_logical_records_and_relations_before_admission() {
-        let limits = CompileLimits::p100();
-        fn new_builder(limits: &CompileLimits) -> RoadEditingSourceModuleBuilder<'_> {
+        let limits = CompileProfile::single_network_10k_stable_entities();
+        fn new_builder(limits: &CompileProfile) -> RoadEditingSourceModuleBuilder<'_> {
             let mut builder = RoadEditingSourceModuleBuilder::new(
                 RoadEditingModuleHeader::try_new(
                     "city",
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn policy_reference_members_share_builder_and_raw_relation_limits() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut policy = None;
         crate::compiler::policy_tests::editing_policy_custom(&limits, |_, value| {
             for rule in &mut value.streams {

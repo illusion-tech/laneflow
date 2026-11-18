@@ -4858,7 +4858,7 @@ mod tests {
                     EntityKind::RightOfWayPolicySet,
                     "city/runtime-live-conflict-cutover",
                     "policy",
-                    &laneflow_compiler::CompileLimits::single_network_1m(),
+                    &laneflow_compiler::CompileProfile::single_network_1m_stable_entities(),
                 )
                 .unwrap(),
             );
