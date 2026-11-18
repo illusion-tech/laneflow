@@ -26,7 +26,6 @@ use laneflow_static_contract::{
     VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
-use crate::diagnostic::DiagnosticCollector;
 use crate::lir::LirFreezeOutput;
 use crate::mir::{MirModuleKey, MirSignalControl, MirUnit};
 use crate::module::{ResolvedSourceLocation, SourceDocumentOrdinal};
@@ -223,7 +222,7 @@ struct SpatialRelationSourceRecord {
     role: SourceRelationRole,
     local_index: u32,
     primary: SourceLocationRecord,
-    source_ranges: Box<[SpatialGeometrySourceRangeRecord]>,
+    source_ranges: crate::ledger::Frozen<SpatialGeometrySourceRangeRecord>,
 }
 
 struct SpatialGeometrySourceRangeRecord {
@@ -260,54 +259,126 @@ enum SignalRelationOwnerRecord {
 /// 一份或多份来源文档再按文档键字节序保存；`sourceDocumentKey` 已在共同准入时证明
 /// 全局唯一，并与所属逻辑模块不可分绑定。
 pub struct ValidatedSourceMapInput {
-    policy_sources: Box<[policy::PolicySourceRecord]>,
-    source_modules: Box<[SourceModuleDescriptor]>,
-    source_module_declaration_sources: Box<[SourceLocationRecord]>,
-    source_documents: Box<[SourceDocumentDescriptor]>,
-    lane_edge_sources: Box<[LaneEdgeSourceRecord]>,
-    lane_edge_successor_sources: Box<[LaneEdgeSuccessorSourceRecord]>,
-    road_corridor_sources: Box<[StableEntitySourceRecord<RoadCorridorOrdinal, RoadCorridorId>]>,
-    road_section_sources: Box<[StableEntitySourceRecord<RoadSectionOrdinal, RoadSectionId>]>,
-    authoring_lane_sources: Box<[StableEntitySourceRecord<AuthoringLaneOrdinal, AuthoringLaneId>]>,
-    lane_group_sources: Box<[StableEntitySourceRecord<LaneGroupOrdinal, LaneGroupId>]>,
-    facility_band_sources: Box<[StableEntitySourceRecord<FacilityBandOrdinal, FacilityBandId>]>,
-    cross_section_relation_sources: Box<[CrossSectionRelationSourceRecord]>,
-    junction_sources: Box<[StableEntitySourceRecord<JunctionOrdinal, JunctionId>]>,
-    movement_sources: Box<[StableEntitySourceRecord<MovementOrdinal, MovementId>]>,
-    maneuver_path_sources: Box<[StableEntitySourceRecord<ManeuverPathOrdinal, ManeuverPathId>]>,
-    stop_line_sources: Box<[StableEntitySourceRecord<StopLineOrdinal, StopLineId>]>,
-    maneuver_gate_sources: Box<[StableEntitySourceRecord<ManeuverGateOrdinal, ManeuverGateId>]>,
-    waiting_zone_sources: Box<[StableEntitySourceRecord<WaitingZoneOrdinal, WaitingZoneId>]>,
-    signal_group_sources: Box<[StableEntitySourceRecord<SignalGroupOrdinal, SignalGroupId>]>,
-    signal_controller_sources:
-        Box<[StableEntitySourceRecord<SignalControllerOrdinal, SignalControllerId>]>,
-    signal_phase_sources: Box<[StableEntitySourceRecord<SignalPhaseOrdinal, SignalPhaseId>]>,
-    signal_relation_sources: Box<[SignalRelationSourceRecord]>,
-    conflict_zone_sources: Box<[StableEntitySourceRecord<ConflictZoneOrdinal, ConflictZoneId>]>,
-    participant_stream_sources:
-        Box<[StableEntitySourceRecord<ParticipantStreamOrdinal, ParticipantStreamId>]>,
-    conflict_relation_sources: Box<[ConflictRelationSourceRecord]>,
+    policy_sources: crate::ledger::Frozen<policy::PolicySourceRecord>,
+    source_modules: crate::ledger::Frozen<SourceModuleDescriptor>,
+    source_module_declaration_sources: crate::ledger::Frozen<SourceLocationRecord>,
+    source_documents: crate::ledger::Frozen<SourceDocumentDescriptor>,
+    lane_edge_sources: crate::ledger::Frozen<LaneEdgeSourceRecord>,
+    lane_edge_successor_sources: crate::ledger::Frozen<LaneEdgeSuccessorSourceRecord>,
+    road_corridor_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<RoadCorridorOrdinal, RoadCorridorId>>,
+    road_section_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<RoadSectionOrdinal, RoadSectionId>>,
+    authoring_lane_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<AuthoringLaneOrdinal, AuthoringLaneId>>,
+    lane_group_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<LaneGroupOrdinal, LaneGroupId>>,
+    facility_band_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<FacilityBandOrdinal, FacilityBandId>>,
+    cross_section_relation_sources: crate::ledger::Frozen<CrossSectionRelationSourceRecord>,
+    junction_sources: crate::ledger::Frozen<StableEntitySourceRecord<JunctionOrdinal, JunctionId>>,
+    movement_sources: crate::ledger::Frozen<StableEntitySourceRecord<MovementOrdinal, MovementId>>,
+    maneuver_path_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<ManeuverPathOrdinal, ManeuverPathId>>,
+    stop_line_sources: crate::ledger::Frozen<StableEntitySourceRecord<StopLineOrdinal, StopLineId>>,
+    maneuver_gate_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<ManeuverGateOrdinal, ManeuverGateId>>,
+    waiting_zone_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<WaitingZoneOrdinal, WaitingZoneId>>,
+    signal_group_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<SignalGroupOrdinal, SignalGroupId>>,
+    signal_controller_sources: crate::ledger::Frozen<
+        StableEntitySourceRecord<SignalControllerOrdinal, SignalControllerId>,
+    >,
+    signal_phase_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<SignalPhaseOrdinal, SignalPhaseId>>,
+    signal_relation_sources: crate::ledger::Frozen<SignalRelationSourceRecord>,
+    conflict_zone_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<ConflictZoneOrdinal, ConflictZoneId>>,
+    participant_stream_sources: crate::ledger::Frozen<
+        StableEntitySourceRecord<ParticipantStreamOrdinal, ParticipantStreamId>,
+    >,
+    conflict_relation_sources: crate::ledger::Frozen<ConflictRelationSourceRecord>,
     parking_facility_sources:
-        Box<[StableEntitySourceRecord<ParkingFacilityOrdinal, ParkingFacilityId>]>,
-    parking_space_sources: Box<[StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>]>,
-    parking_relation_sources: Box<[ParkingRelationSourceRecord]>,
-    parking_facility_relation_sources: Box<[ParkingFacilityRelationSourceRecord]>,
-    participant_class_sources:
-        Box<[StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>]>,
+        crate::ledger::Frozen<StableEntitySourceRecord<ParkingFacilityOrdinal, ParkingFacilityId>>,
+    parking_space_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>>,
+    parking_relation_sources: crate::ledger::Frozen<ParkingRelationSourceRecord>,
+    parking_facility_relation_sources: crate::ledger::Frozen<ParkingFacilityRelationSourceRecord>,
+    participant_class_sources: crate::ledger::Frozen<
+        StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>,
+    >,
     vehicle_profile_sources:
-        Box<[StableEntitySourceRecord<VehicleProfileOrdinal, VehicleProfileId>]>,
+        crate::ledger::Frozen<StableEntitySourceRecord<VehicleProfileOrdinal, VehicleProfileId>>,
     canonical_frame_sources:
-        Box<[StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>]>,
-    spatial_relation_sources: Box<[SpatialRelationSourceRecord]>,
-    access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
-    access_relation_sources: Box<[AccessRelationSourceRecord]>,
-    junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
+        crate::ledger::Frozen<StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>>,
+    spatial_relation_sources: crate::ledger::Frozen<SpatialRelationSourceRecord>,
+    access_rule_sources:
+        crate::ledger::Frozen<StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>>,
+    access_relation_sources: crate::ledger::Frozen<AccessRelationSourceRecord>,
+    junction_relation_sources: crate::ledger::Frozen<JunctionRelationSourceRecord>,
+    /// 策略来源记录成员键副本集中持有的授予；各表与嵌套表的授予随表持有。
+    inner_payloads: crate::ledger::OutputGrant,
     /// 源映射冻结完成时的已承诺字节；编译报告取自账本，此值只供测试核对。
     #[cfg_attr(not(test), allow(dead_code))]
     peak_controlled_live_bytes: u64,
 }
 
 impl ValidatedSourceMapInput {
+    /// 返回点转交宿主：各表、嵌套表与内嵌载荷的授予逐项转交，之后不再受账本约束。
+    pub(crate) fn transfer_to_host(&mut self) {
+        macro_rules! transfer {
+            ($($table:ident),* $(,)?) => {
+                $(self.$table.transfer_to_host();)*
+            };
+        }
+        transfer!(
+            source_modules,
+            source_module_declaration_sources,
+            source_documents,
+            lane_edge_sources,
+            lane_edge_successor_sources,
+            road_corridor_sources,
+            road_section_sources,
+            authoring_lane_sources,
+            lane_group_sources,
+            facility_band_sources,
+            cross_section_relation_sources,
+            junction_sources,
+            movement_sources,
+            maneuver_path_sources,
+            stop_line_sources,
+            maneuver_gate_sources,
+            waiting_zone_sources,
+            signal_group_sources,
+            signal_phase_sources,
+            signal_relation_sources,
+            conflict_zone_sources,
+            conflict_relation_sources,
+            parking_space_sources,
+            parking_relation_sources,
+            parking_facility_relation_sources,
+            access_rule_sources,
+            access_relation_sources,
+            junction_relation_sources,
+            signal_controller_sources,
+            participant_stream_sources,
+            parking_facility_sources,
+            participant_class_sources,
+            vehicle_profile_sources,
+            canonical_frame_sources,
+            inner_payloads,
+        );
+        for record in self.policy_sources.iter_mut() {
+            record.transfer_to_host();
+        }
+        self.policy_sources.transfer_to_host();
+        for record in self.spatial_relation_sources.iter_mut() {
+            record.source_ranges.transfer_to_host();
+        }
+        self.spatial_relation_sources.transfer_to_host();
+    }
+
     /// 测试辅助：以给定输入重建并替换策略来源记录。
     #[cfg(test)]
     pub(crate) fn set_test_policy_sources(
@@ -315,8 +386,16 @@ impl ValidatedSourceMapInput {
         unit: &CompilationUnit,
         inputs: &[policy::PolicySourceInput<'_>],
     ) -> Result<(), DiagnosticBundle> {
-        let (records, _, _) =
-            policy::freeze_policy_sources(unit, inputs, self.peak_controlled_live_bytes)?;
+        let ledger = crate::ledger::Ledger::with_budget(u64::MAX);
+        let pass = ledger.admit_pass(
+            crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "test"),
+            crate::ledger::Plan::of(u64::MAX),
+        )?;
+        let mut records = policy::freeze_policy_sources(unit, inputs, &pass)?;
+        for record in records.iter_mut() {
+            record.transfer_to_host();
+        }
+        records.transfer_to_host();
         self.policy_sources = records;
         Ok(())
     }
