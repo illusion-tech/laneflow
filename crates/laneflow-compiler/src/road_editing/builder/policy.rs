@@ -276,4 +276,122 @@ mod tests {
             .unwrap();
         assert_eq!(rejected.usage.relation_occurrence_count, 42);
     }
+
+    #[test]
+    fn many_unique_empty_policy_sets_are_admitted_by_real_relation_count() {
+        // 461 个策略集的两两比较数为 106030，超过常规档来源关系上限 105919；预检只按
+        // 真实字段关系计数（每个无法规来源的空策略集 3 条），去重使用受预算排序。
+        const POLICY_SETS: usize = 461;
+        const RELATIONS: u64 = 3 * POLICY_SETS as u64;
+        let limits = CompileProfile::single_network_10k_stable_entities();
+        assert!(
+            (POLICY_SETS * (POLICY_SETS - 1) / 2) as u64
+                > limits
+                    .source_limits()
+                    .get(crate::SourceProcessingDimension::RelationOccurrenceCount)
+        );
+        let source_with = |limits: &CompileProfile| {
+            let mut builder = RoadEditingSourceModuleBuilder::new(
+                RoadEditingModuleHeader::try_new(
+                    "policy",
+                    "policies",
+                    vec![],
+                    RoadEditingProvenance::direct("many-policy-sets").unwrap(),
+                )
+                .unwrap(),
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                limits,
+            )
+            .unwrap();
+            for index in 0..POLICY_SETS {
+                builder
+                    .add_declaration(RoadEditingDeclaration::RightOfWayPolicySet(
+                        RightOfWayPolicySetInput::try_new(
+                            format!("policy-{index:03}"),
+                            crate::RegulationIdentity::try_new("XX", "2026").unwrap(),
+                            vec![],
+                            vec![],
+                            vec![],
+                            vec![],
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap();
+            }
+            assert_eq!(builder.usage.relation_occurrence_count, RELATIONS);
+            RoadEditingSourceWriter::new(limits)
+                .write(builder.finish().unwrap())
+                .unwrap()
+        };
+        let source = source_with(&limits);
+        let input = RoadEditingModuleInput::try_new("policies", source.as_bytes(), None).unwrap();
+        let checked = super::super::super::reader::verify_source(input, &limits, 0, 0, 0).unwrap();
+        assert_eq!(
+            checked.preflight_counts().relation_occurrence_count(),
+            RELATIONS
+        );
+
+        // 真实关系计数仍按上限准入：达界成功，少一按来源关系维度拒绝，之后同一输入可复用。
+        let exact = limits.clone().with_test_admission_limit(
+            CompileLimitDimension::RelationOccurrenceCount,
+            RELATIONS as u32,
+        );
+        let low = limits.clone().with_test_admission_limit(
+            CompileLimitDimension::RelationOccurrenceCount,
+            RELATIONS as u32 - 1,
+        );
+        assert!(super::super::super::reader::verify_source(input, &exact, 0, 0, 0).is_ok());
+        let error = super::super::super::reader::verify_source(input, &low, 0, 0, 0).unwrap_err();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::RelationOccurrenceCount,
+                ..
+            }
+        ));
+        assert!(super::super::super::reader::verify_source(input, &exact, 0, 0, 0).is_ok());
+
+        // 去重仍由受预算排序完成：把最后一个键改成前一个键按重复拒绝；操作内存预算不足时
+        // 按该维度拒绝。两种拒绝后原输入在正式政策下仍可通过。
+        let mut duplicate = source.as_bytes().to_vec();
+        let offset = {
+            let root = laneflow_road_editing_wire::generated::lane_flow::road_editing::v1::size_prefixed_root_as_road_editing_source(&duplicate)
+                .unwrap();
+            let key = root
+                .right_of_way_policy_sets()
+                .iter()
+                .map(|policy| policy.policy_set_key())
+                .find(|key| *key == "policy-460")
+                .unwrap();
+            key.as_ptr() as usize - duplicate.as_ptr() as usize
+        };
+        duplicate[offset..offset + "policy-460".len()].copy_from_slice(b"policy-459");
+        let duplicate = RoadEditingModuleInput::try_new("policies", &duplicate, None).unwrap();
+        let error =
+            super::super::super::reader::verify_source(duplicate, &limits, 0, 0, 0).unwrap_err();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::InvalidRoadEditingSource {
+                violation: crate::RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::DuplicateValue
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "rightOfWayPolicySets.policySetKey"
+        ));
+        let starved = limits
+            .clone()
+            .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 0);
+        let error =
+            super::super::super::reader::verify_source(input, &starved, 0, 0, 0).unwrap_err();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+                ..
+            }
+        ));
+        assert!(super::super::super::reader::verify_source(input, &limits, 0, 0, 0).is_ok());
+    }
 }
