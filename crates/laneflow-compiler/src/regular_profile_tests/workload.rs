@@ -841,7 +841,7 @@ pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
     .unwrap()
 }
 
-// 受检来源由有限百万档构造；返回尚未冻结的构建器，供包内测试读取真实准入计数或验证候选限额。
+// 前端使用正式常规档；返回构建器供包内测试读取计数或独立收紧编译单元的限额。
 #[allow(dead_code)] // 独立集成测试只使用全程常规档构造入口。
 pub(super) fn assemble_mixed_network(
     shape: WorkloadShape,
@@ -852,7 +852,7 @@ pub(super) fn assemble_mixed_network(
         shape,
         permuted,
         admission_limits,
-        CompileProfile::single_network_1m_stable_entities(),
+        CompileProfile::single_network_10k_stable_entities(),
     )
 }
 
