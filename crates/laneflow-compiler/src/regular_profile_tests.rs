@@ -318,7 +318,7 @@ fn candidate_diagnostics_retain_sixteen_in_canonical_order_and_allow_reuse() {
 }
 
 #[test]
-fn combined_policy_diff_rejects_256_mib_in_memory_but_succeeds_in_files() {
+fn combined_policy_diff_fits_256_mib_and_budget_failure_allows_reuse() {
     use crate::{
         PortableDiffBase, PortableEmissionError, PortableEmissionProvenance,
         check_portable_candidate, emit_portable_candidate, emit_portable_candidate_to_staging,
@@ -342,7 +342,7 @@ fn combined_policy_diff_rejects_256_mib_in_memory_but_succeeds_in_files() {
                 .unwrap(),
         )
         .unwrap();
-    let target = compiler
+    let mut target = compiler
         .compile(
             assemble_mixed_network(
                 WorkloadShape {
@@ -372,13 +372,10 @@ fn combined_policy_diff_rejects_256_mib_in_memory_but_succeeds_in_files() {
     )
     .unwrap();
     let diff_base = PortableDiffBase::Artifact(base_view);
-    let error = emit_portable_candidate(&target, &provenance, FormatLimits::HARD, diff_base)
-        .expect_err("256 MiB must reject");
-    assert!(
-        matches!(error, PortableEmissionError::CompileLimitExceeded {
-        dimension: D::CompilerControlledLiveBytes, actual, limit
-    } if limit == CANDIDATE_OPERATION_BYTES && actual > limit)
-    );
+    let memory =
+        emit_portable_candidate(&target, &provenance, FormatLimits::HARD, diff_base).unwrap();
+    let peak = memory.resource_report().peak_live_bytes();
+    assert!(peak <= CANDIDATE_OPERATION_BYTES);
     let directory = std::env::temp_dir().join(format!(
         "laneflow-regular-policy-budget-{}",
         std::process::id()
@@ -393,10 +390,6 @@ fn combined_policy_diff_rejects_256_mib_in_memory_but_succeeds_in_files() {
     )
     .unwrap();
     assert!(file.resource_report().peak_live_bytes() <= CANDIDATE_OPERATION_BYTES);
-    let mut broad_target = target;
-    broad_target.set_test_compile_limits(CompileLimits::single_network_1m());
-    let memory =
-        emit_portable_candidate(&broad_target, &provenance, FormatLimits::HARD, diff_base).unwrap();
     assert_eq!(
         file.canonical_artifact().bytes(),
         memory.canonical_artifact().bytes()
@@ -404,12 +397,43 @@ fn combined_policy_diff_rejects_256_mib_in_memory_but_succeeds_in_files() {
     assert_eq!(file.source_map().bytes(), memory.source_map().bytes());
     assert_eq!(file.semantic_diff().bytes(), memory.semantic_diff().bytes());
     check_portable_candidate(file, FormatLimits::HARD).unwrap();
-    check_portable_candidate(memory, FormatLimits::HARD).unwrap();
     assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
     std::fs::remove_dir(&directory).unwrap();
-    broad_target.set_test_compile_limits(limits());
+
+    // 动态核对当前实现的真实预算边界，不把优化前的 256 MiB 拒绝固化为产品合同。
+    target.set_test_compile_limits(limits().with_test_admission_limit(
+        D::CompilerControlledLiveBytes,
+        u32::try_from(peak - 1).unwrap(),
+    ));
+    let error = emit_portable_candidate(&target, &provenance, FormatLimits::HARD, diff_base)
+        .expect_err("one byte below peak must reject");
+    assert!(
+        matches!(error, PortableEmissionError::CompileLimitExceeded {
+        dimension: D::CompilerControlledLiveBytes, actual, limit
+    } if limit == peak - 1 && actual > limit)
+    );
+    target.set_test_compile_limits(
+        limits().with_test_admission_limit(
+            D::CompilerControlledLiveBytes,
+            u32::try_from(peak).unwrap(),
+        ),
+    );
+    let exact =
+        emit_portable_candidate(&target, &provenance, FormatLimits::HARD, diff_base).unwrap();
+    assert_eq!(
+        exact.canonical_artifact().bytes(),
+        memory.canonical_artifact().bytes()
+    );
+    assert_eq!(exact.source_map().bytes(), memory.source_map().bytes());
+    assert_eq!(
+        exact.semantic_diff().bytes(),
+        memory.semantic_diff().bytes()
+    );
+    check_portable_candidate(exact, FormatLimits::HARD).unwrap();
+    check_portable_candidate(memory, FormatLimits::HARD).unwrap();
+    target.set_test_compile_limits(limits());
     let retry = emit_portable_candidate(
-        &broad_target,
+        &target,
         &provenance,
         FormatLimits::HARD,
         PortableDiffBase::Genesis,

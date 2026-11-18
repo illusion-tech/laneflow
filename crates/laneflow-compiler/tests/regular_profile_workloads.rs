@@ -45,7 +45,6 @@ struct Expected {
     disjoint_source_bytes: u64,
     signal_states: u64,
     lane_geometries: u32,
-    memory_disjoint_fits: bool,
 }
 
 const JOINT: WorkloadShape = WorkloadShape::for_stable_entities(10_000, 32, 65);
@@ -60,7 +59,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 1_664_701,
         signal_states: 1_596,
         lane_geometries: 1_269,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "signal-dense",
@@ -71,7 +69,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 5_722_899,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "geometry-dense",
@@ -82,7 +79,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 2_569_633,
         signal_states: 1_596,
         lane_geometries: 1_269,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "joint",
@@ -93,7 +89,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 7_095_039,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "partitioned",
@@ -107,7 +102,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 7_370_385,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "long-documents",
@@ -121,7 +115,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 7_097_048,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "curved",
@@ -135,7 +128,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 7_104_855,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "combined",
@@ -151,7 +143,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 7_397_030,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "policy",
@@ -162,7 +153,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 8_188_547,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "sources",
@@ -173,7 +163,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 7_210_815,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: true,
     },
     Expected {
         name: "all",
@@ -184,7 +173,6 @@ const CASES: [Expected; 11] = [
         disjoint_source_bytes: 8_728_106,
         signal_states: 56_320,
         lane_geometries: 1_887,
-        memory_disjoint_fits: false,
     },
 ];
 
@@ -295,6 +283,15 @@ fn diff_rows(candidate: &PortablePublicationCandidate, section: u32) -> u32 {
     .row_count()
 }
 
+fn assert_same_objects(left: &PortablePublicationCandidate, right: &PortablePublicationCandidate) {
+    assert_eq!(
+        left.canonical_artifact().bytes(),
+        right.canonical_artifact().bytes()
+    );
+    assert_eq!(left.source_map().bytes(), right.source_map().bytes());
+    assert_eq!(left.semantic_diff().bytes(), right.semantic_diff().bytes());
+}
+
 fn emit_and_check(
     expected: &Expected,
     operation: &str,
@@ -315,12 +312,7 @@ fn emit_and_check(
     }
     .unwrap();
     let report = candidate.resource_report();
-    if operation == "disjoint" && staging.is_none() && !expected.memory_disjoint_fits {
-        // 有限百万档用于量出负例；256 MiB 的真实拒绝由包内候选预算测试覆盖。
-        assert!(report.peak_live_bytes() > CANDIDATE_OPERATION_BYTES);
-    } else {
-        assert!(report.peak_live_bytes() <= CANDIDATE_OPERATION_BYTES);
-    }
+    assert!(report.peak_live_bytes() <= CANDIDATE_OPERATION_BYTES);
     assert_role_coverage(&candidate, expected);
     check_portable_policy_sources(
         candidate.canonical_artifact().bytes(),
@@ -375,24 +367,27 @@ fn regular_profile_candidates_cover_mixed_density_and_diff_operations() {
             PortableDiffBase::Genesis,
             Some(directory),
         );
-        assert_eq!(
-            base.canonical_artifact().bytes(),
-            file.canonical_artifact().bytes()
-        );
-        assert_eq!(base.source_map().bytes(), file.source_map().bytes());
-        assert_eq!(base.semantic_diff().bytes(), file.semantic_diff().bytes());
+        assert_same_objects(&base, &file);
         check_portable_candidate(file, FormatLimits::HARD).unwrap();
         let base_view = artifact_view(&base);
         let base_identities = identities(base_view);
         assert_eq!(base_identities.len(), 10_000);
-        for staging in [None, Some(directory.as_path())] {
-            let candidate = emit_and_check(
-                expected,
-                "self",
-                &output,
-                PortableDiffBase::Artifact(base_view),
-                staging,
-            );
+        let memory = emit_and_check(
+            expected,
+            "self",
+            &output,
+            PortableDiffBase::Artifact(base_view),
+            None,
+        );
+        let file = emit_and_check(
+            expected,
+            "self",
+            &output,
+            PortableDiffBase::Artifact(base_view),
+            Some(directory),
+        );
+        assert_same_objects(&memory, &file);
+        for candidate in [memory, file] {
             for section in 1..=6 {
                 assert_eq!(diff_rows(&candidate, section), 0, "self diff");
             }
@@ -446,14 +441,22 @@ fn regular_profile_candidates_cover_mixed_density_and_diff_operations() {
             ),
         ] {
             let output = compile_case(expected, variant);
-            for staging in [None, Some(directory.as_path())] {
-                let candidate = emit_and_check(
-                    expected,
-                    operation,
-                    &output,
-                    PortableDiffBase::Artifact(base_view),
-                    staging,
-                );
+            let memory = emit_and_check(
+                expected,
+                operation,
+                &output,
+                PortableDiffBase::Artifact(base_view),
+                None,
+            );
+            let file = emit_and_check(
+                expected,
+                operation,
+                &output,
+                PortableDiffBase::Artifact(base_view),
+                Some(directory),
+            );
+            assert_same_objects(&memory, &file);
+            for candidate in [memory, file] {
                 let target_identities = identities(artifact_view(&candidate));
                 if variant.disjoint {
                     assert!(base_identities.is_disjoint(&target_identities));

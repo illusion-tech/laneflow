@@ -711,14 +711,16 @@ pub(super) fn arc_bytes_layout(length: usize) -> Option<Layout> {
         .map(|(layout, _)| layout.pad_to_align())
 }
 
-/// 把授予的编码缓冲复制为引用计数共享的字节，复制前先取得新存储的授予。
-pub(super) fn share_bytes(
+/// 按授予直接创建最终共享字节，初始由调用方唯一持有并可安全原位编码。
+pub(super) fn zeroed_shared_bytes(
     pass: &PassBudget<'_>,
-    bytes: &[u8],
+    length: usize,
 ) -> Result<(Arc<[u8]>, crate::ledger::Grant), PortableEmissionError> {
-    let layout = arc_bytes_layout(bytes.len()).ok_or(PortableEmissionError::ArithmeticOverflow)?;
+    let layout = arc_bytes_layout(length).ok_or(PortableEmissionError::ArithmeticOverflow)?;
     let grant = pass.grant_layout(layout)?;
-    Ok((Arc::from(bytes), grant))
+    // RepeatN 实现 TrustedLen；Arc::from_iter 对精确定长迭代器保证单次分配。
+    // 不改成普通迭代器或先收集 Vec，避免重新引入未授予的完整中间缓冲（#1441）。
+    Ok((Arc::from_iter(std::iter::repeat_n(0_u8, length)), grant))
 }
 
 #[cfg(test)]

@@ -31,7 +31,7 @@ use lfsm::{build_lfsm, check_policy_sources};
 use model::*;
 #[cfg(test)]
 use tree::encode_owned_object;
-use tree::{ObjectTree, arc_bytes_layout, share_bytes};
+use tree::{ObjectTree, arc_bytes_layout, zeroed_shared_bytes};
 #[cfg(test)]
 use wire::*;
 
@@ -49,7 +49,7 @@ use laneflow_static_contract::{
     Ordinal, PortableObjectKind, STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest, StableId,
 };
 use sha2::{Digest, Sha256};
-use std::{alloc::Layout, path::Path};
+use std::{alloc::Layout, path::Path, sync::Arc};
 
 use crate::ledger::{Grant, Ledger, LedgerStage, Plan};
 use crate::{CompilationOutput, CompileLimitDimension};
@@ -159,7 +159,7 @@ fn object_key_layout() -> Layout {
     Layout::array::<u8>(OBJECT_KEY_BYTES).expect("object key length is a small constant")
 }
 
-/// 编码进授予的缓冲，复制为引用计数共享的字节后释放缓冲；计划覆盖两者共存。
+/// 在唯一持有的最终共享字节中编码；授予随候选存续，不建立完整中间缓冲。
 fn emit_in_memory(
     tree: &ObjectTree,
     accounting: Accounting<'_>,
@@ -173,18 +173,16 @@ fn emit_in_memory(
         |length| {
             let length = usize::try_from(length).unwrap_or(usize::MAX);
             Plan::ZERO
-                .array::<u8>(length)
                 .layout(arc_bytes_layout(length))
                 .layout(Some(object_key_layout()))
         },
         |prepared, pass| {
             let length = usize::try_from(prepared.byte_len())
                 .map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
-            let mut buffer = pass.vec::<u8>(length)?;
-            buffer.resize(length, 0)?;
-            encode_prepared_object(prepared, &mut buffer)?;
-            let (shared, bytes_grant) = share_bytes(pass, &buffer)?;
-            drop(buffer);
+            let (mut shared, bytes_grant) = zeroed_shared_bytes(pass, length)?;
+            let destination =
+                Arc::get_mut(&mut shared).ok_or(PortableEmissionError::InternalBindingMismatch)?;
+            encode_prepared_object(prepared, destination)?;
             let key_grant = pass.grant_layout(object_key_layout())?;
             let output = bytes_grant.bytes() + key_grant.bytes();
             Ok((
