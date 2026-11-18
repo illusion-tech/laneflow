@@ -21,7 +21,6 @@ struct Fixture {
     stop: [f32; N],
     end: [f32; N],
     envelope: [f32; N],
-    service_tier: [bool; N],
     has_proposal: [bool; N],
     proposal_speed: [f32; N],
     proposal_travel: [f32; N],
@@ -48,7 +47,6 @@ impl Fixture {
             stop: [f32::INFINITY; N],
             end: [f32::INFINITY; N],
             envelope: [f32::INFINITY; N],
-            service_tier: [false; N],
             has_proposal: [false; N],
             proposal_speed: [0.0; N],
             proposal_travel: [0.0; N],
@@ -87,7 +85,6 @@ impl Fixture {
             if row % 2 == 0 {
                 f.stop_cap[row] = 9_550;
             }
-            f.service_tier[row] = row % 23 == 0 && f.stop[row] != f32::INFINITY;
             f.end[row] = match row % 13 {
                 0 => 1.0,
                 _ => f32::INFINITY,
@@ -120,7 +117,6 @@ impl Fixture {
             stop_m: &self.stop[..n],
             route_end_m: &self.end[..n],
             envelope_m: &self.envelope[..n],
-            stop_target_service_tier: &self.service_tier[..n],
             has_proposal: &self.has_proposal[..n],
             proposal_speed_m_s: &self.proposal_speed[..n],
             proposal_travel_m: &self.proposal_travel[..n],
@@ -781,4 +777,20 @@ fn stop_constraint_feasibility_domain_rejects_super_decel_tier_and_root_anchors(
         max_next_speed_for_decel(10.0, 9.7, 0.1, 100.0, 0.0, 4.0),
         Some(9.7)
     );
+}
+
+/// F2 回归锚：正根因 f32 舍入微小越界被弃根退到零，导致停在目标前 8 mm
+/// 永久不动（current=0、next=0.2、dt=0.1、d=0.008、limit=0、b=2 时根
+/// ≈0.1049，代回越界 ~4e-7）。修复后取微降根，三后端一致。
+#[test]
+fn root_rounding_regression_keeps_feasible_positive_root() {
+    let result = max_next_speed_for_decel(0.0, 0.2, 0.1, 0.008, 0.0, 2.0);
+    let Some(u) = result else {
+        panic!("feasible positive root must not be discarded");
+    };
+    assert!(
+        u > 0.09,
+        "shrunk root {u} must stay near the mathematical root 0.1049"
+    );
+    assert!(speed_down_constraint_holds(0.0, u, 0.1, 0.008, 0.0, 2.0));
 }

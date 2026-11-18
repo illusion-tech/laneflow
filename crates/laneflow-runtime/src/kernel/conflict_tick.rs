@@ -362,7 +362,7 @@ struct GateHopEvaluation {
 /// #1272：从拍初位置到该门所在 hop 边末（停止线）的有限距离。
 fn gate_hop_line_distance(
     compiled: &crate::kernel::tables::CompiledRoute,
-    state: &VehicleState,
+    state: &crate::kernel::vehicle_store::MotionPosition,
     gate_hop: u32,
 ) -> Option<u32> {
     let to = usize::try_from(gate_hop).ok()?.checked_add(1)?;
@@ -472,7 +472,8 @@ fn evaluate_gate_hop(
             // 放行为候选，候选保护等级保留该解释的原判级（绿列），让行义务
             // 与资源仲裁继续独立生效。
             if decision == GatePolicyDecision::DenyAndStop {
-                let distance_to_line = gate_hop_line_distance(compiled, &state, gate_hop);
+                let position = crate::kernel::vehicle_store::MotionPosition::from(&state);
+                let distance_to_line = gate_hop_line_distance(compiled, &position, gate_hop);
                 if distance_to_line.is_some_and(|mm| {
                     read.gate_yellow_dilemma_exempt(gate, state.profile, state.speed_mm_s, mm)
                 }) {
@@ -1145,7 +1146,36 @@ fn free_gate_decisions(
             .filter(|entry| entry.entry_route_edge_index <= hop)
             .ok_or(StepError::ConflictInvariantViolation)?;
         let gate = compiled.hop_gate[hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
-        let outcome = match read.gate_policy_decision(gate, fields.profile) {
+        // F1 复审修 1：无资源门的事件发布消费同一有效决定——拍初困境区
+        // 豁免的黄灯门如实发布 NotRequired（车辆合法过门），不被纯灯态
+        // 误报为 NotEvaluated。
+        let tick_start_speed = read
+            .committed
+            .vehicles
+            .state(fields.handle)
+            .map(|state| state.speed_mm_s)
+            .unwrap_or(0);
+        let tick_start_distance = gate_hop_line_distance(compiled, &previous, hop);
+        let effective = match read.gate_policy_decision(gate, fields.profile) {
+            GatePolicyDecision::DenyAndStop => {
+                if tick_start_distance.is_some_and(|mm| {
+                    read.gate_yellow_dilemma_exempt(gate, fields.profile, tick_start_speed, mm)
+                }) {
+                    GatePolicyDecision::Candidate(
+                        gate_green_column_decision(read, gate, fields.profile)
+                            .map(|decision| match decision {
+                                GatePolicyDecision::Candidate(kind) => kind,
+                                _ => crate::GateCandidateKind::Permissive,
+                            })
+                            .unwrap_or(crate::GateCandidateKind::Permissive),
+                    )
+                } else {
+                    GatePolicyDecision::DenyAndStop
+                }
+            }
+            candidate => candidate,
+        };
+        let outcome = match effective {
             GatePolicyDecision::DenyAndStop => ConflictDecisionOutcome::NotEvaluated,
             GatePolicyDecision::Candidate(_) => ConflictDecisionOutcome::NotRequired,
         };

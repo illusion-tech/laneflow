@@ -1,3 +1,4 @@
+use super::projection::{ROOT_SHRINK_HARD, ROOT_SHRINK_SOFT};
 use super::{
     BoundaryInput, BoundaryOutput, Columns, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
     LimitOutput, Phase, Stats, finish_values, motion_values_valid, raw_valid,
@@ -283,8 +284,15 @@ macro_rules! limit_step {
                     // 本拍减速上界：低于 floor 的终速不在该档可行域内。
                     let floor = $max($sub(current, b_dt), zero);
                     let domain_ok = $cmp::<_CMP_LE_OQ>(floor, next);
-                    let better = $and($cmp::<_CMP_GT_OQ>(quadratic, limit), holds(quadratic));
-                    let best = $select(better, $max(linear, quadratic), linear);
+                    // 根代回失败时按确定性安全方向微降重试（与标量逐位同序；
+                    // 直接弃根退到 floor 会让停在目标前几十毫米的车永久不动）。
+                    let soft = $mul(quadratic, $set(ROOT_SHRINK_SOFT));
+                    let hard = $mul(quadratic, $set(ROOT_SHRINK_HARD));
+                    let corrected = $select(holds(quadratic), quadratic,
+                        $select(holds(soft), soft,
+                            $select(holds(hard), hard, $set(f32::NEG_INFINITY))));
+                    let better = $and($cmp::<_CMP_GT_OQ>(corrected, limit), $cmp::<_CMP_GT_OQ>(corrected, $set(f32::NEG_INFINITY)));
+                    let best = $select(better, $max(linear, corrected), linear);
                     // floor 已验证可行且左侧随 u 单调，可行最大值不低于 floor。
                     let best = $max(best, floor);
                     let legal = $and($and($and($cmp::<_CMP_GT_OQ>(decel, zero), $cmp::<_CMP_GT_OQ>(dt, zero)), domain_ok),
@@ -599,19 +607,19 @@ macro_rules! arithmetic {
                     let gap_term = $select(present, $mul(gap_ratio, gap_ratio), zero);
                     let accel = $mul($load($input.max_accel.as_ptr().add(start)), $sub($sub(one, speed_term), gap_term));
                     let raw_speed = $min($max($add(speed, $mul(accel, dt)), zero), $max(desired, zero));
-                    $select(present, $select($cmp::<_CMP_LE_OQ>(leader, zero), zero, raw_speed),
-                        $select(reused, $load($input.proposal_speed_m_s.as_ptr().add(start)), raw_speed))
+                    // F6 复审修 6：reused 是最外层选择——有 leader 的行也必须
+                    // 优先消费调用方缓存提案（与标量 scalar_row 同序）。
+                    let masked = $select(present, $select($cmp::<_CMP_LE_OQ>(leader, zero), zero, raw_speed), raw_speed);
+                    $select(reused, $load($input.proposal_speed_m_s.as_ptr().add(start)), masked)
                 };
                 // #1272 候选形成与停止目标速度归约（与 scalar_row 同式；仅提案
-                // 诞生处，Project 读到的提案已经过归约不得重放地板）：减速下界
-                // 先于空间目标（过渡预约用服务/舒适档）；目标距离 0 归耗尽语义。
+                // 诞生处，Project 读到的提案已经过归约不得重放地板）：紧急下界
+                // 先于空间目标（F3：过渡舒适档仅在实际耗尽时生效）。
                 let comfort = $load($input.comfort_decel.as_ptr().add(start));
                 let emergency = $load($input.emergency_decel.as_ptr().add(start));
                 let stop_target = $min($load($input.stop_m.as_ptr().add(start)), $load($input.route_end_m.as_ptr().add(start)));
                 let raw_speed = if !project {
-                    let service = $mask($input.stop_target_service_tier, start);
-                    let floor_tier = $select(service, comfort, emergency);
-                    let floor = $max($sub(speed, $mul(floor_tier, dt)), zero);
+                    let floor = $max($sub(speed, $mul(emergency, dt)), zero);
                     let lifted = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
                     let has_target = $and($and($cmp::<_CMP_GT_OQ>(stop_target, zero), $cmp::<_CMP_LT_OQ>(stop_target, inf)),
                         $cmp::<_CMP_GT_OQ>(lifted, zero));
@@ -634,8 +642,14 @@ macro_rules! arithmetic {
                         };
                         let tier_floor = $max($sub(speed, b_dt), zero);
                         let domain = $cmp::<_CMP_LE_OQ>(tier_floor, lifted);
-                        let root_ok = $and($cmp::<_CMP_GT_OQ>(quadratic, zero), holds(quadratic));
-                        let best = $max($select(root_ok, quadratic, zero), tier_floor);
+                        // 根代回失败时按确定性安全方向微降重试（与标量同序）。
+                        let soft = $mul(quadratic, $set(ROOT_SHRINK_SOFT));
+                        let hard = $mul(quadratic, $set(ROOT_SHRINK_HARD));
+                        let corrected = $select(holds(quadratic), quadratic,
+                            $select(holds(soft), soft,
+                                $select(holds(hard), hard, $set(f32::NEG_INFINITY))));
+                        let root_ok = $and($cmp::<_CMP_GT_OQ>(corrected, zero), $cmp::<_CMP_GT_OQ>(corrected, $set(f32::NEG_INFINITY)));
+                        let best = $max($select(root_ok, corrected, zero), tier_floor);
                         let legal = $and($and($and($cmp::<_CMP_GT_OQ>(decel, zero), $cmp::<_CMP_GT_OQ>(dt, zero)), domain), holds(best));
                         ($min(best, lifted), legal)
                     };
@@ -672,8 +686,9 @@ macro_rules! arithmetic {
                     $store(floats.proposal_speed_m_s.as_mut_ptr().add(start), raw_speed);
                     $store(floats.proposal_travel_m.as_mut_ptr().add(start), raw_travel);
                     if $phase == Phase::Proposal && let Some(window) = floats.window_m.as_mut() {
-                        // 已证速度上界（本拍最大可达且不超过期望）取窗，不随目标收紧缩小。
-                        let upper = $max($min($add(speed, $mul($load($input.max_accel.as_ptr().add(start)), dt)), $max(desired, zero)), zero);
+                        // 已证速度上界取窗：floor 可把候选抬到 desired 之上，
+                        // 取 max(v, ·) 覆盖归一化后的共同候选。
+                        let upper = $max($max($min($add(speed, $mul($load($input.max_accel.as_ptr().add(start)), dt)), $max(desired, zero)), speed), zero);
                         let value = $add($mul(dt, $add(speed, upper)), $div($mul(upper, upper), comfort));
                         $store(window.as_mut_ptr().add(start), value);
                     }

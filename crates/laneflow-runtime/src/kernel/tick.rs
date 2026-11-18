@@ -378,23 +378,33 @@ struct MotionLimits {
 }
 
 impl MotionLimits {
+    /// #1272 耗尽决策表（F5 复审修 5：只合并落在实际耗尽边界 `hard_room_mm`
+    /// 上的独立停止义务，取最严格上界）。过渡预约维持舒适衰减（其
+    /// `transition_limited` 已隐含过渡是实际绑定边界）；leader 同界 →
+    /// 零速（几何投影独立要求零速，最严格）；停车入口绑定当前边界 →
+    /// 零速（到位义务）；其余停止源绑定 → 紧急衰减（v 小时自然为 0，
+    /// 包含并取代清零）。路终耗尽由 `at_route_end` 分支以零速收尾。
     fn exhausted_speed_cap(&self, inputs: &MotionInputs, delta_s: f32) -> u32 {
         if !self.transition_limited {
-            // #1272 耗尽决策表：过渡预约维持舒适衰减；停车到位与 leader 几何
-            // 投影保持清零（到位零速义务与跟车轴例外）；其余停止源耗尽改紧急
-            // 衰减——该式在 v 小时自然为 0，包含并取代清零。路终耗尽由
-            // `at_route_end` 分支以零速收尾，不经过这里。
             let leader_room = inputs
                 .leader_gap
                 .map(|gap| snapshot_leader_room_mm(gap, inputs.min_gap_mm));
-            let stop_binding = inputs.parking.is_none()
-                && self.stop.is_some_and(|stop| {
-                    let BoundedDistance::Finite(mm) = stop else {
-                        return false;
-                    };
-                    leader_room.is_none_or(|room| mm <= room)
-                });
-            if !stop_binding {
+            // leader 同界：几何投影独立要求零速，最严格。
+            if leader_room == Some(self.hard_room_mm) {
+                return 0;
+            }
+            // 停车入口绑定当前边界（距离恰等于 hard_room）：到位零速义务。
+            let parking_binds = inputs.parking.is_some_and(|(_, distance)| {
+                matches!(distance, BoundedDistance::Finite(mm) if mm == self.hard_room_mm)
+            });
+            if parking_binds {
+                return 0;
+            }
+            // 停止源绑定当前边界（距离恰等于 hard_room，且非 parking/leader）：
+            // 紧急衰减。
+            let stop_binds =
+                matches!(self.stop, Some(BoundedDistance::Finite(mm)) if mm == self.hard_room_mm);
+            if !stop_binds {
                 return 0;
             }
             let rate_mm_s2 = (inputs.emergency_decel * 1_000.0) as u64;
@@ -4245,11 +4255,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 #[cfg(test)]
                 note_barrier_query(|counts| counts.hard_room_permissions += 1);
                 let compiled = self.compiled_route(state.route())?;
+                // F1：拍初到当前 hop 边末（该门停止线）的距离。
                 self.hop_gate_permitted_with_dilemma(
                     compiled,
                     cursor,
                     state.profile(),
                     state.speed_mm_s(),
+                    Some(edge_remaining_mm),
                 )
             };
         let speed_drop_first = hop.speed_drop_first as usize;
@@ -4416,12 +4428,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 inputs,
             });
         }
-        let stop_target_service =
-            transition.is_some_and(|bound| limits.stop == Some(bound.stop.distance));
         let (mut travel_m, next_speed_m) = si_comfort_travel(
             &inputs,
             limits.stop,
-            stop_target_service,
             compiled,
             lengths,
             speed_limits,
@@ -4438,9 +4447,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
         let hard_room = limits.hard_room_mm;
         let exhausted_speed = || {
-            limits
-                .exhausted_speed_cap(&inputs, delta_s)
-                .min(round_mm(f64::from(next_speed_m)).unwrap_or(u32::MAX))
+            let cap = limits.exhausted_speed_cap(&inputs, delta_s);
+            if limits.transition_limited {
+                // F3：过渡预约的实际耗尽由舒适衰减主导（合同「耗尽拍由
+                // 该上界主导」）——不用候选的紧急下界 min 拉低（r_p5 钉版：
+                // 550 而非 100）。候选的紧急下界只在接近相生效。
+                cap
+            } else {
+                cap.min(round_mm(f64::from(next_speed_m)).unwrap_or(u32::MAX))
+            }
         };
         if hard_room == 0 {
             if let Some(bounds) = motion_bounds {
@@ -4481,9 +4496,30 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
         let vehicle_profile = state.profile;
         let state_speed = state.speed_mm_s;
+        // F1：拍初位置到各 hop 门的距离（困境区豁免的判定距离）。
+        let start_cursor = state.route_edge_index as usize;
+        let start_progress = state.progress_mm;
+        let gate_distance = |index: usize| -> Option<u32> {
+            match crate::kernel::tables::distance_to_occurrence_start(
+                &compiled.occurrence_segments,
+                &compiled.occurrence_offsets,
+                &compiled.segment_totals,
+                start_cursor,
+                start_progress,
+                index.checked_add(1)?,
+            )? {
+                BoundedDistance::Finite(mm) => Some(mm),
+                BoundedDistance::BeyondFinite => None,
+            }
+        };
         apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
-            self.hop_gate_permitted_with_dilemma(compiled, index, vehicle_profile, state_speed)
-                && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
+            self.hop_gate_permitted_with_dilemma(
+                compiled,
+                index,
+                vehicle_profile,
+                state_speed,
+                gate_distance(index),
+            ) && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
                 && conflict_stop.is_none_or(|conflict| conflict.hop as usize != index)
                 && transition.is_none_or(|bound| bound.stop.hop as usize != index)
         })?;
@@ -4792,9 +4828,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     }
 
     /// #1272 黄灯困境区逐拍许可（本拍有效法规决定的能力判据）：该门当前
-    /// 决定为 `DenyAndStop`、绑定组灯色为限制性黄灯、且按该车紧急减速度的
-    /// 完整停车距离放不进到停止线的距离时，当拍该门对该车为许可。逐拍、
-    /// 无状态、独立于 raw proposal；红灯与既有政策解释不受影响。
+    /// 决定为 `DenyAndStop`、**拒绝来自黄灯灯色本身**（绿列解释不拒绝——
+    /// `Always` 等独立禁令不得被豁免）、且按该车紧急减速度的完整停车距离
+    /// 放不进到停止线的距离时，当拍该门对该车为许可。逐拍、无状态、独立
+    /// 于 raw proposal；红灯与既有政策解释不受影响。
     pub(crate) fn gate_yellow_dilemma_exempt(
         self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
@@ -4822,6 +4859,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         {
             return false;
         }
+        // F1 复审修 1：拒绝须来自黄灯本身——绿列解释仍拒绝说明存在独立
+        // 禁令（Always / OnRed），不得被困境区豁免解除。
+        if self.gate_decision_with_aspect(gate, profile, group.index())
+            == crate::GatePolicyDecision::DenyAndStop
+        {
+            return false;
+        }
         let Some(emergency) = self
             .binding
             .revision
@@ -4836,39 +4880,41 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         speed * speed / (2.0 * emergency) > si_meters(distance_mm)
     }
 
-    /// #1272 跨门判定的黄灯困境区许可：限制性黄灯门对本拍移动中的车辆放行
-    /// 跨越。停得住的黄灯门由停止目标收紧位移，不会走到跨门询问，因此这里
-    /// 只会命中拍初已豁免（停止查询跳过）的门；红灯与既有拒绝不受影响。
+    /// 以指定组的指定灯色求值该门的策略决定；供困境区豁免区分「黄灯
+    /// 造成的拒绝」与「独立禁令造成的拒绝」。
+    fn gate_decision_with_aspect(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+        group_index: usize,
+    ) -> crate::GatePolicyDecision {
+        let mut aspects = self.committed.signal_aspects.clone();
+        if let Some(slot) = aspects.get_mut(group_index) {
+            *slot = laneflow_static_contract::SignalAspect::Green;
+        }
+        self.gate_policy_decision_with_signals(gate, profile, &aspects)
+    }
+
+    /// #1272 跨门判定的黄灯困境区许可：只有拍初按紧急减速度真正停不住的
+    /// 黄灯拒绝门才放行跨越（F1 复审修 1：可停车辆到达边界也不得跨门；
+    /// `Always` 禁令门不得跨门）。`distance_mm` 是拍初到该门停止线的距离。
     pub(crate) fn hop_gate_permitted_with_dilemma(
         self,
         compiled: &CompiledRoute,
         hop_index: usize,
         profile: VehicleProfileOrdinal,
         speed_mm_s: u32,
+        distance_mm: Option<u32>,
     ) -> bool {
         match compiled.hop_gate.get(hop_index).copied().flatten() {
             Some(gate) => {
                 !self.gate_is_restrictive(gate, profile)
-                    || (speed_mm_s > 0
-                        && self.committed_signal_group_of(gate)
-                            == Some(laneflow_static_contract::SignalAspect::Yellow))
+                    || distance_mm.is_some_and(|mm| {
+                        self.gate_yellow_dilemma_exempt(gate, profile, speed_mm_s, mm)
+                    })
             }
             None => true,
         }
-    }
-
-    fn committed_signal_group_of(
-        self,
-        gate: laneflow_static_contract::ManeuverGateOrdinal,
-    ) -> Option<laneflow_static_contract::SignalAspect> {
-        let group = self
-            .binding
-            .revision
-            .traffic()
-            .relations()
-            .maneuver_gate(gate)?
-            .signal_group()?;
-        self.committed.signal_aspects.get(group.index()).copied()
     }
 }
 
@@ -4975,18 +5021,12 @@ impl<'a> MotionTaskView<'a> {
         cursor_row: Option<&MotionCursorRow>,
     ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
         let position = state.position();
-        // #1272：已知阻塞（Conflict/Waiting 屏障）的停止查询用制动前视窗——
-        // 窗内的持续阻塞提前形成停止目标（提前发现 ≠ 提前申请或持有资源）；
-        // 不可证明时退回本拍上界。
+        // F4 复审修 4：「尚未获授权」是位置屏障，不是已知阻塞——把窗口扩展
+        // 到此处会让完全空闲的资源声明也触发提前紧急制动。恢复本拍位移
+        // 上界作为裁剪；已知阻塞的提前制动（cells 被其他车占用 / Waiting
+        // 满载）需要读取实际占用事实，作为后续任务。
         let reach = profile.and_then(|profile| {
-            MotionReach::from_braking_window(
-                state.speed_mm_s(),
-                profile.desired_speed_mm_s(),
-                profile.max_accel(),
-                profile.comfort_decel(),
-                delta_s,
-            )
-            .or_else(|| MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s))
+            MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
         });
         let (skip_conflict, skip_waiting) =
             match cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index)) {
@@ -5772,7 +5812,6 @@ fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
 fn si_comfort_travel(
     basis: &MotionInputs,
     signal_stop: Option<BoundedDistance>,
-    stop_target_service: bool,
     compiled: &CompiledRoute,
     _lengths: &[u32],
     _speed_limits: &[u32],
@@ -5788,11 +5827,7 @@ fn si_comfort_travel(
     let (_, mut next_speed) = basis.proposal?;
     // #1272 候选形成与停止目标速度归约（与运动内核同式）：减速下界先于
     // 空间目标（过渡预约用服务/舒适档）；目标距离 0 归耗尽语义，不在此归零。
-    let floor_tier = if stop_target_service {
-        basis.comfort_decel
-    } else {
-        basis.emergency_decel
-    };
+    let floor_tier = basis.emergency_decel;
     let floor = (speed - floor_tier * delta_s).max(0.0);
     next_speed = next_speed.max(floor);
     let stop_target = signal_stop
@@ -5807,7 +5842,6 @@ fn si_comfort_travel(
             stop_target,
             basis.comfort_decel,
             basis.emergency_decel,
-            stop_target_service,
         ));
     }
     let mut travel = motion_stop_aware_travel(
@@ -5879,9 +5913,8 @@ fn motion_stop_target_cap(
     distance: f32,
     comfort: f32,
     emergency: f32,
-    service_tier: bool,
 ) -> f32 {
-    let floor_tier = if service_tier { comfort } else { emergency };
+    let floor_tier = emergency;
     max_next_speed_for_decel(speed, next, delta_s, distance, 0.0, comfort)
         .or_else(|| max_next_speed_for_decel(speed, next, delta_s, distance, 0.0, emergency))
         .unwrap_or_else(|| (speed - floor_tier * delta_s).max(0.0))
@@ -6089,7 +6122,10 @@ fn speed_drop_window_upper(
         return None;
     }
     let next = (speed + max_accel * delta_s).max(0.0).min(desired);
-    let window = delta_s * (speed + next) + next * next / comfort;
+    // #1272 复审修 7：floor 可把候选抬到 desired 之上（v > desired 的
+    // 降速中间态），上界取 max(v, ·) 覆盖归一化后的共同候选。
+    let upper = next.max(speed.max(0.0));
+    let window = delta_s * (speed + upper) + upper * upper / comfort;
     window.is_finite().then_some(window)
 }
 
@@ -7667,11 +7703,12 @@ mod barrier_query_tests {
 
         reset_barrier_query_counts();
         world.step(TickInput::new(100)).expect("first tick");
-        // #1272：屏障在制动前视窗内即被查询（提前形成停止目标），
-        // 不再按本拍位移上界裁剪。
-        assert!(
-            barrier_query_counts().conflict_scans >= 1,
-            "the first tick queries the in-window barrier"
+        // F4 复审修 4：conflict/waiting 屏障查询恢复本拍位移上界裁剪
+        // （「尚未获授权」≠ 已知阻塞），第一拍不查询窗外屏障。
+        assert_eq!(
+            barrier_query_counts().conflict_scans,
+            0,
+            "the first tick is still beyond the reach"
         );
         let mid = world.state.vehicle_state(handle).expect("mid");
         assert_eq!(mid.route_edge_index, admission);

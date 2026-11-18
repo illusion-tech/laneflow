@@ -123,9 +123,6 @@ pub struct Input<'a> {
     pub stop_m: &'a [f32],
     pub route_end_m: &'a [f32],
     pub envelope_m: &'a [f32],
-    /// #1272：绑定的停止目标是过渡预约（服务减速度档）时，候选下界与两域皆空
-    /// 的回退用舒适档，耗尽拍由舒适衰减上界主导。
-    pub stop_target_service_tier: &'a [bool],
     pub has_proposal: &'a [bool],
     pub proposal_speed_m_s: &'a [f32],
     pub proposal_travel_m: &'a [f32],
@@ -469,7 +466,6 @@ impl Kernel {
             input.comfort_decel.len(),
             input.emergency_decel.len(),
             input.stop_m.len(),
-            input.stop_target_service_tier.len(),
             input.route_end_m.len(),
             input.envelope_m.len(),
             input.has_proposal.len(),
@@ -684,9 +680,9 @@ fn stop_target_distance(input: &Input<'_>, row: usize) -> f32 {
 }
 
 /// L=0 目标的「舒适 → 紧急 → 具名投影」级联。求解器可行域自带本拍减速上界
-/// 与拍内停稳实际减速度定义域；两域皆空（本拍必越过目标）时保持下界推进
-/// （过渡预约用服务/舒适档，其余用紧急档），位移由硬空间收到目标，线上速度
-/// 交给耗尽层按主导源分档。提案加速度不直接作为归约后的实际执行。
+/// 与拍内停稳实际减速度定义域；两域皆空（本拍必越过目标）时保持紧急下界
+/// 推进，位移由硬空间收到目标，线上速度交给耗尽层按主导源分档（过渡的
+/// 舒适衰减仅在实际过渡耗尽时生效——F3 复审修 3）。
 fn cap_next_speed_for_stop_target(
     speed: f32,
     next: f32,
@@ -694,9 +690,8 @@ fn cap_next_speed_for_stop_target(
     distance: f32,
     comfort: f32,
     emergency: f32,
-    service_tier: bool,
 ) -> f32 {
-    let floor_tier = if service_tier { comfort } else { emergency };
+    let floor_tier = emergency;
     projection::max_next_speed_for_decel(speed, next, delta_s, distance, 0.0, comfort)
         .or_else(|| {
             projection::max_next_speed_for_decel(speed, next, delta_s, distance, 0.0, emergency)
@@ -791,11 +786,7 @@ fn scalar_row<const TRACK: bool>(
     let mut raw_speed = raw_speed;
     let stop_target = stop_target_distance(input, row);
     if !project {
-        let floor_tier = if input.stop_target_service_tier[row] {
-            input.comfort_decel[row]
-        } else {
-            input.emergency_decel[row]
-        };
+        let floor_tier = input.emergency_decel[row];
         let floor = (speed - floor_tier * delta_s).max(0.0);
         if raw_speed.is_finite() {
             raw_speed = raw_speed.max(floor);
@@ -808,7 +799,6 @@ fn scalar_row<const TRACK: bool>(
                 stop_target,
                 input.comfort_decel[row],
                 input.emergency_decel[row],
-                input.stop_target_service_tier[row],
             ));
         }
     }
@@ -832,9 +822,11 @@ fn scalar_row<const TRACK: bool>(
             .window_m
             .as_mut()
         {
-            // 已证速度上界（本拍最大可达且不超过期望）取窗，不随目标收紧缩小。
+            // 已证速度上界取窗：floor 可把候选抬到 desired 之上，取
+            // max(v, ·) 覆盖归一化后的共同候选，不随目标收紧缩小。
             let upper = (speed + input.max_accel[row] * delta_s)
                 .min(desired)
+                .max(speed)
                 .max(0.0);
             window[row] = delta_s * (speed + upper) + upper * upper / input.comfort_decel[row];
         }

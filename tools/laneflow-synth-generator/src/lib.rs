@@ -164,8 +164,8 @@ impl Identity {
     pub fn lane_change_window(&self) -> (u64, u64) {
         // K=2 钉版窗口（调度可行域推导见 LaneChangeParams::validate）。
         // #1272：换道生命周期含提前制动（停让方在制动前视窗内减速），
-        // 观察窗按钉版实测收束边界放宽（16 ms 档 304→624、33 ms 档 144→304）。
-        let observation = if self.fixed_delta_ms == 16 { 624 } else { 304 };
+        // 观察窗按钉版实测收束边界放宽（16 ms 档 304→384、33 ms 档 144→184）。
+        let observation = if self.fixed_delta_ms == 16 { 384 } else { 184 };
         (16, observation)
     }
 }

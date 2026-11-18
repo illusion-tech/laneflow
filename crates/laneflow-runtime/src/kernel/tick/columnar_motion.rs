@@ -106,7 +106,7 @@ batch_columns! {
     leader: f32 = f32::INFINITY, has_leader: bool = false,
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
-    envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0, service_tier: bool = false,
+    envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
     edge_length: u32 = 0, exhausted_speed_cap: u32 = 0,
     transition_hop: Option<u32> = None,
     waiting_hop: Option<u32> = None,
@@ -369,7 +369,6 @@ fn numerical(
         stop_m: &batch.stop[range.clone()],
         route_end_m: &batch.route_end[range.clone()],
         envelope_m: &batch.envelope[range.clone()],
-        stop_target_service_tier: &batch.service_tier[range.clone()],
         has_proposal: &batch.has_proposal[range.clone()],
         proposal_speed_m_s: proposal_speed,
         proposal_travel_m: proposal_travel,
@@ -717,8 +716,6 @@ fn compute(
             batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
-            batch.service_tier[row] =
-                transition.is_some_and(|bound| limits.stop == Some(bound.stop.distance));
             batch.transition_hop[row] = transition.map(|bound| bound.stop.hop);
             chunk.cursor[row] = position.route_edge_index;
             Ok(())
@@ -837,12 +834,27 @@ fn compute(
                     .lane_lengths_millimetres()
                     .get(edge.index())?;
                 let boundary = batch.travel_mm[row] >= length.saturating_sub(chunk.progress[row]);
+                // F1：拍初到该门停止线的距离（困境区豁免的判定距离）。
+                let gate_distance = index.checked_add(1).and_then(|to| {
+                    match crate::kernel::tables::distance_to_occurrence_start(
+                        &compiled.occurrence_segments,
+                        &compiled.occurrence_offsets,
+                        &compiled.segment_totals,
+                        source.route_cursor[offset + row] as usize,
+                        source.progress_mm[offset + row],
+                        to,
+                    )? {
+                        laneflow_static_network::BoundedDistance::Finite(mm) => Some(mm),
+                        laneflow_static_network::BoundedDistance::BeyondFinite => None,
+                    }
+                });
                 batch.can_hop[row] = !boundary
                     || (view.read.hop_gate_permitted_with_dilemma(
                         compiled,
                         index,
                         profile,
                         source.speed_mm_s[offset + row],
+                        gate_distance,
                     ) && batch.waiting_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.conflict_hop[row].is_none_or(|hop| hop as usize != index)
                         && batch.transition_hop[row].is_none_or(|hop| hop as usize != index));
