@@ -668,11 +668,12 @@ impl MotionPreview {
         let Some(barrier) = conflict_stop else {
             return Some(self.next);
         };
-        if Some(barrier.constraint) == waiting_stop
-            || barrier.stop.is_some_and(|stop| Some(stop) == waiting_stop)
-        {
+        if Some(barrier.constraint) == waiting_stop {
             return Some(self.next);
         }
+        // R5-1 复审修：stop 与缓存 waiting_stop 相同只证明速度目标已被覆盖，
+        // 不能证明较近的 constraint 屏障未被越过——位置与跨 hop 判据一律
+        // 走下方 unaffected_by，不再在此早退。
         self.unaffected_by(barrier).then_some(self.next)
     }
 
@@ -5200,23 +5201,17 @@ impl<'a> MotionTaskView<'a> {
         if !skip_conflict {
             #[cfg(test)]
             note_barrier_query(|counts| counts.conflict_scans += 1);
-            let mut minimum = first_hop;
-            loop {
-                let index = compiled.conflicts.partition_point({
-                    #[cfg(test)]
-                    super::route_query_research::note_search("tick:4253");
-                    |entry| entry.admission_hop < minimum
-                });
-                let Some(entry) = compiled.conflicts.get(index) else {
-                    break;
-                };
+            // R5-3 复审修：一次定位后按 admission_hop 单调顺序推进（合同
+            // §10.3 窗内单调行走），不再每门重做 partition_point。
+            let mut index = compiled.conflicts.partition_point({
+                #[cfg(test)]
+                super::route_query_research::note_search("tick:4253");
+                |entry| entry.admission_hop < first_hop
+            });
+            while let Some(entry) = compiled.conflicts.get(index) {
                 let hop = entry.admission_hop;
-                let advance = || -> Result<u32, StepError> {
-                    hop.checked_add(1)
-                        .ok_or(StepError::ConflictInvariantViolation)
-                };
                 if authorized(hop) {
-                    minimum = advance()?;
+                    index += 1;
                     continue;
                 }
                 let distance = gate_distance(hop)?;
@@ -5242,7 +5237,14 @@ impl<'a> MotionTaskView<'a> {
                 if conflict_stop.is_some() {
                     break;
                 }
-                minimum = advance()?;
+                // 跳过同一 admission hop 的其余 passage，保持单调推进。
+                while compiled
+                    .conflicts
+                    .get(index)
+                    .is_some_and(|next| next.admission_hop == hop)
+                {
+                    index += 1;
+                }
             }
         }
         // Waiting 扫描：同构二分；已知阻塞 = 容量满载或物理存储不足（R4-3
@@ -5967,9 +5969,12 @@ fn waiting_zone_unavailable(
     let Some(profile) = profile else {
         return true;
     };
-    // 物理存储：沿 committed 队列累计成员（车长 + 间隙）。
+    // 物理存储（R5-2 复审修：与正式准入同口径——队首不计前方间隙，
+    // 空区首车前方间隙为零）：沿 committed 队列累计成员车长，队首之后
+    // 各计其间隙。
     let mut occupied: u64 = 0;
     let mut guard = 0_u32;
+    let mut has_front = false;
     let mut current = read
         .derived
         .waiting_queue_ends
@@ -5979,10 +5984,15 @@ fn waiting_zone_unavailable(
         let Some(state) = read.committed.vehicles.slot(member.index() as usize).state else {
             return true;
         };
-        let gap = relations
-            .vehicle_profile(state.profile)
-            .map_or(0, |profile| profile.min_gap_mm());
-        occupied = occupied.saturating_add(u64::from(state.length_mm) + u64::from(gap));
+        if has_front {
+            occupied = occupied.saturating_add(u64::from(
+                relations
+                    .vehicle_profile(state.profile)
+                    .map_or(0, |profile| profile.min_gap_mm()),
+            ));
+        }
+        occupied = occupied.saturating_add(u64::from(state.length_mm));
+        has_front = true;
         current = read
             .derived
             .waiting_links
@@ -5994,8 +6004,13 @@ fn waiting_zone_unavailable(
             return true;
         }
     }
+    let subject_gap = if occupied == 0 {
+        0
+    } else {
+        u64::from(profile.min_gap_mm())
+    };
     let required = occupied
-        .saturating_add(u64::from(profile.min_gap_mm()))
+        .saturating_add(subject_gap)
         .saturating_add(u64::from(profile.length_mm()));
     required > u64::from(occurrence.storage_length_mm)
 }
@@ -8075,3 +8090,46 @@ mod tick_completion_order;
 
 #[cfg(test)]
 use crate::TrafficWorld;
+
+#[cfg(test)]
+mod r5_reuse_tests {
+    use super::*;
+    use crate::kernel::waiting::WaitingStopConstraint;
+
+    /// R5-1 复审修回归：stop 与缓存 waiting_stop 相同（远端速度目标已被
+    /// 覆盖）不能证明较近的 constraint 屏障未被越过——必须拒绝复用并重算
+    /// （评审复现：近屏障 C 未授权，车被复用预览后提交到 C 门后）。
+    #[test]
+    fn matching_far_stop_does_not_bypass_the_nearer_barrier() {
+        let far = WaitingStopConstraint {
+            distance: BoundedDistance::Finite(3_010),
+            hop: 4,
+        };
+        let near = WaitingStopConstraint {
+            distance: BoundedDistance::Finite(510),
+            hop: 2,
+        };
+        let mut world = crate::kernel::waiting::tests::multi_gate_world(1);
+        world.state.rebuild_occupancy_index().unwrap();
+        let state = world.vehicle(world.state.derived.active_order[0]).unwrap();
+        let preview = MotionPreview {
+            next: state.into(),
+            waiting_stop: Some(far),
+            bounds: MotionBounds::Travel {
+                meters: 0.1,
+                proposed_mm: 2_326,
+                committed_mm: 2_326,
+                exhausted: false,
+                window_mm: 0,
+            },
+        };
+        let barrier = ResourceBarrier {
+            constraint: near,
+            stop: Some(far),
+        };
+        assert!(
+            preview.reuse(Some(far), Some(barrier)).is_none(),
+            "近屏障在提案范围内：stop 匹配缓存也不得复用"
+        );
+    }
+}
