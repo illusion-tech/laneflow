@@ -226,8 +226,10 @@ pub(crate) struct LirUnit {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) lir_record_count: u64,
     pub(crate) output_bytes: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) controlled_live_bytes: u64,
-    pub(crate) peak_controlled_live_bytes: u64,
+    /// LIR 输出持有的编译账本授予；成功返回时转交宿主。
+    pub(crate) ledger_grant: crate::ledger::OutputGrant,
 }
 
 /// LIR 与冻结源映射所需的全部临时阶段排列。
@@ -331,12 +333,27 @@ impl FreezeEnv<'_> {
 ///
 /// 当 LIR 记录数、阶段暂存字节、输出字节、编译器控制存续字节或有类型 `u32` 边界超过
 /// 所选资源配置档时，返回结构化资源诊断且不返回部分 LIR。
+#[cfg(test)]
 pub(crate) fn freeze_lir(
     unit: &CompilationUnit,
     mir: &MirUnit,
 ) -> Result<LirFreezeOutput, DiagnosticBundle> {
-    let plan = LirFreezePlan::analyze(unit, mir);
-    plan.check_limits(unit, mir)?;
+    let ledger = crate::ledger::Ledger::new(unit.limits.operation_budget());
+    let _inputs = ledger.adopt(
+        unit.controlled_live_bytes
+            .saturating_add(mir.controlled_live_bytes),
+    );
+    freeze_lir_in(unit, mir, &ledger)
+}
+
+/// 在编译账本上冻结 LIR；账本已计入编译单元与 MIR 的存续。
+pub(crate) fn freeze_lir_in(
+    unit: &CompilationUnit,
+    mir: &MirUnit,
+    ledger: &crate::ledger::Ledger,
+) -> Result<LirFreezeOutput, DiagnosticBundle> {
+    let plan = LirFreezePlan::analyze(mir);
+    let pass = plan.check_limits(unit, mir, ledger)?;
     let primary_span = mir.modules.first().map(|module| module.source_span.clone());
 
     let edge_capacity =
@@ -577,6 +594,17 @@ pub(crate) fn freeze_lir(
         &identity_fields,
         &identity_field_bytes,
     );
+    let ledger_error = |error| {
+        DiagnosticBundle::single(Diagnostic::from_ledger_error(
+            error,
+            primary_span.clone(),
+            None,
+        ))
+    };
+    let output = pass
+        .grant_bytes(plan.output_owned_bytes)
+        .map_err(ledger_error)?;
+    pass.finish(plan.output_owned_bytes).map_err(ledger_error)?;
     Ok(LirFreezeOutput {
         lir: LirUnit {
             policies,
@@ -637,7 +665,7 @@ pub(crate) fn freeze_lir(
             lir_record_count: plan.lir_record_count,
             output_bytes: plan.output_bytes,
             controlled_live_bytes: plan.output_owned_bytes,
-            peak_controlled_live_bytes: plan.controlled_live_bytes,
+            ledger_grant: crate::ledger::OutputGrant::new(output),
         },
         lane_edges: orders.lane_edges,
         lane_edge_successors: OwnerLocalPermutation::from_rows(lane_edge_successor_mir_rows),

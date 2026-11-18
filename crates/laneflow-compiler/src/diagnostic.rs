@@ -265,6 +265,8 @@ pub enum DiagnosticCode {
     IdentityDigestCollision,
     /// 候选输入或阶段工作集超过显式编译资源配置档。
     CompileLimitExceeded,
+    /// 编译器资源账本发现记账缺陷；这是编译器内部错误，换用配置档不能绕过。
+    ResourceAccountingDefect,
 }
 
 impl DiagnosticCode {
@@ -367,6 +369,7 @@ impl DiagnosticCode {
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
+            Self::ResourceAccountingDefect => "LF-COMP-RESOURCE-ACCOUNTING",
         }
     }
 }
@@ -1025,6 +1028,11 @@ pub enum DiagnosticPayload {
         field: SourceHeaderField,
         /// 该字段的精确文本失败原因。
         violation: SourceTextViolation,
+    },
+    /// 出现记账缺陷的记账点；记账点名称只用于定位，不承诺跨版本稳定。
+    ResourceAccountingDefect {
+        /// 记账点名称。
+        point: &'static str,
     },
     /// 超限维度、配置值与候选观测值。
     CompileLimitExceeded {
@@ -3512,6 +3520,36 @@ impl Diagnostic {
     }
 
     /// 构造候选输入或阶段工作集超过显式编译资源配置档的诊断，可附带来源位置与稳定键。
+    /// 把资源账本错误映射为编译诊断：预算超限按 `CompilerControlledLiveBytes` 报告，记账
+    /// 缺陷与分配失败按资源记账缺陷报告。
+    pub(crate) fn from_ledger_error(
+        error: crate::ledger::LedgerError,
+        primary_span: impl IntoSourceLocationOption,
+        stable_key: Option<Box<str>>,
+    ) -> Self {
+        use crate::ledger::LedgerError;
+        match error {
+            LedgerError::BudgetExceeded {
+                requested, limit, ..
+            } => Self::compile_limit_exceeded_at(
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                limit,
+                requested,
+                primary_span,
+                stable_key,
+            ),
+            LedgerError::Defect { label, .. } | LedgerError::AllocationFailure { label } => {
+                Self::error_with_context(
+                    DiagnosticCode::ResourceAccountingDefect,
+                    DiagnosticPayload::ResourceAccountingDefect { point: label.point },
+                    primary_span,
+                    Box::default(),
+                    stable_key,
+                )
+            }
+        }
+    }
+
     pub(crate) fn compile_limit_exceeded_at(
         dimension: CompileLimitDimension,
         limit: u64,
@@ -3669,6 +3707,9 @@ impl fmt::Display for Diagnostic {
                 "编译资源维度 {} 超过上限：允许 {limit}，实际 {observed}",
                 dimension.as_str()
             ),
+            DiagnosticPayload::ResourceAccountingDefect { point } => {
+                write!(formatter, "编译器资源记账缺陷：记账点 {point}")
+            }
             DiagnosticPayload::InvalidImportNamespace { violation } => write!(
                 formatter,
                 "导入模块命名空间非法：{}",

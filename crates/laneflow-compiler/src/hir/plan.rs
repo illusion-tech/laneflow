@@ -18,6 +18,7 @@ use crate::declaration::{
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::RegisteredCanonicalIdentity;
+use crate::ledger::{Ledger, LedgerError, LedgerStage, PassBudget, PassLabel, Plan};
 use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
@@ -59,7 +60,8 @@ pub(super) struct HirMemoryPlan {
     pub(super) stage_scratch_bytes: u64,
     pub(super) persistent_bytes: u64,
     pub(super) lookup_bytes: u64,
-    pub(super) controlled_live_bytes: u64,
+    /// 本阶段计划峰值：持久表、查找表与互斥暂存峰值之和；上游存续由账本记录。
+    pub(super) stage_bytes: u64,
 }
 
 /// 一次统计形成的 HIR 构建计划：公共基础计数、七领域计数与聚合内存计划。
@@ -98,7 +100,7 @@ impl HirBuildPlan {
                 stage_scratch_bytes: 0,
                 persistent_bytes: 0,
                 lookup_bytes: 0,
-                controlled_live_bytes: 0,
+                stage_bytes: 0,
             },
         };
         plan.memory.hir_record_count = module_count
@@ -191,20 +193,37 @@ impl HirBuildPlan {
             .saturating_add(parking.lookup_bytes)
             .saturating_add(spatial.lookup_bytes)
             .saturating_add(access.lookup_bytes);
-        plan.memory.controlled_live_bytes = unit
-            .controlled_live_bytes
-            .saturating_add(plan.memory.persistent_bytes)
+        plan.memory.stage_bytes = plan
+            .memory
+            .persistent_bytes
             .saturating_add(plan.memory.lookup_bytes)
-            .saturating_add(plan.memory.stage_scratch_bytes)
-            .max(unit.admission_peak_live_bytes);
+            .saturating_add(plan.memory.stage_scratch_bytes);
         plan
+    }
+
+    /// 在编译账本上准入 HIR 编译遍。编译单元的准入峰值仍是 HIR 阶段的下界：计划峰值
+    /// 取本阶段工作集与“准入峰值减去当前存续”的较大者。
+    pub(super) fn admit<'l>(
+        &self,
+        unit: &CompilationUnit,
+        ledger: &'l Ledger,
+    ) -> Result<PassBudget<'l>, LedgerError> {
+        let plan = self
+            .memory
+            .stage_bytes
+            .max(unit.admission_peak_live_bytes.saturating_sub(ledger.live()));
+        ledger.admit_pass(HIR_PASS, Plan::of(plan))
     }
 
     /// 在 base 构造前按所选配置档预检限额维度；任一维度超限即收集诊断并整体早退。
     ///
     /// 维度顺序、诊断构造（首模块 `primary_span`/`stable_key`）与早退语义同拆分前
     /// `build_hir` 的限额校验块。
-    pub(super) fn check_limits(&self, unit: &CompilationUnit) -> Result<(), DiagnosticBundle> {
+    pub(super) fn check_limits<'l>(
+        &self,
+        unit: &CompilationUnit,
+        ledger: &'l Ledger,
+    ) -> Result<PassBudget<'l>, DiagnosticBundle> {
         let primary_span = unit
             .modules
             .first()
@@ -218,6 +237,7 @@ impl HirBuildPlan {
                 .source_limits()
                 .get(crate::SourceProcessingDimension::DiagnosticCount),
         );
+        let admission = self.admit(unit, ledger);
         for violation in [
             unit.limits.early_canonical_exceeded(
                 laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount,
@@ -228,10 +248,6 @@ impl HirBuildPlan {
             unit.limits.source_limits().exceeded(
                 crate::SourceProcessingDimension::HirRecordCount,
                 self.memory.hir_record_count,
-            ),
-            unit.limits.operation_budget().exceeded(
-                crate::OperationResourceDimension::CompilerControlledLiveBytes,
-                self.memory.controlled_live_bytes,
             ),
         ]
         .into_iter()
@@ -251,12 +267,26 @@ impl HirBuildPlan {
                 stable_key.clone(),
             ));
         }
-        if !limit_diagnostics.is_empty() {
-            return Err(limit_diagnostics.finish());
+        let pass = match admission {
+            Ok(pass) => Some(pass),
+            Err(error) => {
+                limit_diagnostics.push(Diagnostic::from_ledger_error(
+                    error,
+                    primary_span.clone(),
+                    stable_key.clone(),
+                ));
+                None
+            }
+        };
+        match pass {
+            Some(pass) if limit_diagnostics.is_empty() => Ok(pass),
+            _ => Err(limit_diagnostics.finish()),
         }
-        Ok(())
     }
 }
+
+/// HIR 主编译遍的记账点。
+pub(super) const HIR_PASS: PassLabel = PassLabel::new(LedgerStage::CompilePipeline, "hir");
 
 /// 公共基础构造（模块轴、导入、LaneEdge 表与规范身份）预算。
 fn base_budget(

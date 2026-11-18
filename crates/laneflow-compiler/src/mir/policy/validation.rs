@@ -7,18 +7,33 @@ use crate::{
     GateInterpretation as I, GateProhibition as P, ManeuverDirection, PolicyViolation as V,
 };
 
-/// 校验策略临时存储与已有输入的共存字节；行数不借用来源限额。
-pub(super) fn budget(
-    unit: &CompilationUnit,
-    mir: &MirUnit,
-    scratch: u64,
-) -> Result<(), DiagnosticBundle> {
-    crate::policy::check_budget(
-        &unit.limits,
+/// 在编译账本上核对策略临时存储与当前存续的共存字节；行数不借用来源限额。
+pub(super) fn budget(ledger: &crate::ledger::Ledger, scratch: u64) -> Result<(), DiagnosticBundle> {
+    ledger
+        .probe(POLICY_VALIDATION_PASS, scratch)
+        .map_err(|error| {
+            DiagnosticBundle::single(Diagnostic::from_ledger_error(
+                error,
+                None::<crate::SourceLocation>,
+                None,
+            ))
+        })
+}
+
+const POLICY_VALIDATION_PASS: crate::ledger::PassLabel = crate::ledger::PassLabel::new(
+    crate::ledger::LedgerStage::CompilePipeline,
+    "mir-policy-validation",
+);
+
+/// 测试入口：以当前配置档新建账本，并按编译单元与 MIR 的存续计入初始存续。
+#[cfg(test)]
+pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64, DiagnosticBundle> {
+    let ledger = crate::ledger::Ledger::new(unit.limits.operation_budget());
+    let _inputs = ledger.adopt(
         unit.controlled_live_bytes
-            .saturating_add(mir.controlled_live_bytes)
-            .saturating_add(scratch),
-    )
+            .saturating_add(mir.controlled_live_bytes),
+    );
+    validate_in(unit, mir, &ledger)
 }
 /// 若 `class` 属于 `ancestor` 的继承子树则返回 `ancestor` 的深度，否则返回 `None`。
 pub(super) fn class_depth(
@@ -119,14 +134,18 @@ fn owner_rules(entries: &[RuleIndex], owner: u32) -> &[RuleIndex] {
         ..entries.partition_point(|v| v.owner <= owner)]
 }
 /// 静态校验全部路权策略集（法规一致性、信号绑定、让行拓扑、让行优先级与保护冲突），并更新峰值受控内存。
-pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64, DiagnosticBundle> {
+pub(crate) fn validate_in(
+    unit: &CompilationUnit,
+    mir: &mut MirUnit,
+    ledger: &crate::ledger::Ledger,
+) -> Result<u64, DiagnosticBundle> {
     if mir.policies.is_empty() {
         return Ok(0);
     }
     let mut work = WorkBudget::new(unit.limits.operation_budget());
-    let passages = PassageIndex::build(unit, mir)?;
+    let passages = PassageIndex::build(ledger, mir)?;
     let lamp_bytes = mir.maneuver_gates.len() as u64 + passages.bytes();
-    budget(unit, mir, lamp_bytes)?;
+    budget(ledger, lamp_bytes)?;
     let mut lamps = vec![0_u8; mir.maneuver_gates.len()];
     // HIR 已拒绝不同的 Access jurisdiction/version；只取唯一规范身份。
     let regulation = mir
@@ -207,13 +226,13 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
         }
     }
     drop(lamps);
-    let access = AccessIndex::build(unit, mir, passages.bytes(), &mut work)?;
+    let access = AccessIndex::build(ledger, mir, passages.bytes(), &mut work)?;
     // 只收集实际配置使用的类别；线性标记后按 ordinal 顺序输出，避免重复解析同类配置。
     let (classes, class_peak) = {
         let flags_count = mir.participant_classes.len() as u64;
         work.charge(flags_count.saturating_mul(2) + mir.vehicle_profiles.len() as u64)?;
         let prior_bytes = passages.bytes().saturating_add(access.bytes());
-        budget(unit, mir, prior_bytes.saturating_add(flags_count))?;
+        budget(ledger, prior_bytes.saturating_add(flags_count))?;
         let mut used = vec![false; mir.participant_classes.len()];
         let mut count = 0;
         for profile in &mir.vehicle_profiles {
@@ -226,7 +245,7 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
         let peak = prior_bytes.saturating_add(flags_count).saturating_add(
             (count as u64).saturating_mul(size_of::<MirParticipantClassKey>() as u64),
         );
-        budget(unit, mir, peak)?;
+        budget(ledger, peak)?;
         let mut classes = Vec::with_capacity(count);
         for (index, used) in used.into_iter().enumerate() {
             if used {
@@ -251,12 +270,11 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
             (classes.len() as u64).saturating_mul(size_of::<MirParticipantClassKey>() as u64),
         )
         .saturating_add(coverage_bytes);
-    let mut protected = ProtectedIndex::build(unit, mir, fixed_bytes)?;
+    let mut protected = ProtectedIndex::build(ledger, mir, fixed_bytes)?;
     let fixed_bytes = fixed_bytes.saturating_add(protected.bytes());
     let check_rows = |gates: u64, streams: u64| {
         budget(
-            unit,
-            mir,
+            ledger,
             fixed_bytes
                 .saturating_add(gates.saturating_mul(size_of::<GateCell>() as u64))
                 .saturating_add(streams.saturating_mul(size_of::<StreamCell>() as u64)),
@@ -283,7 +301,7 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
         .saturating_mul(size_of::<GateCell>() as u64)
         .saturating_add(stream_count.saturating_mul(size_of::<StreamCell>() as u64));
     let base_bytes = fixed_bytes.saturating_add(rows_bytes);
-    budget(unit, mir, base_bytes)?;
+    budget(ledger, base_bytes)?;
     let mut coverage = Vec::with_capacity(mir.conflict_passages.len());
     for stream in &mir.participant_streams {
         for passage in &mir.conflict_passages[stream.passages.as_usize_range()] {
@@ -329,7 +347,7 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
             .saturating_add(p.value.streams.len() as u64)
             .saturating_mul(size_of::<RuleIndex>() as u64);
         let bytes = base_bytes.saturating_add(index_bytes);
-        budget(unit, mir, bytes)?;
+        budget(ledger, bytes)?;
         peak = peak.max(bytes);
         let mut gate_rules: Vec<_> = p
             .value
@@ -379,7 +397,7 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
             let slot = &mut minimum_stream_priority[cell.stream.index()];
             *slot = Some(slot.map_or(priority, |old| old.min(priority)));
         }
-        let targets = super::targets::build(unit, mir, p, &passages, bytes, &mut work)?;
+        let targets = super::targets::build(ledger, mir, p, &passages, bytes, &mut work)?;
         peak = peak.max(bytes.saturating_add(targets.bytes));
         for cell in &streams {
             let rule = &p.value.streams[cell.rule as usize];
@@ -426,11 +444,7 @@ pub(crate) fn validate(unit: &CompilationUnit, mir: &mut MirUnit) -> Result<u64,
             return Err(fail(unit, p, None, V::ProtectedConflict));
         }
     }
-    mir.peak_controlled_live_bytes = mir.peak_controlled_live_bytes.max(
-        unit.controlled_live_bytes
-            .saturating_add(mir.controlled_live_bytes)
-            .saturating_add(peak),
-    );
+    budget(ledger, peak)?;
     Ok(work.used())
 }
 

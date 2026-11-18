@@ -2229,7 +2229,10 @@ fn junction_live_budget_is_exact_at_the_limit_boundary() {
         plan.memory.stage_scratch_bytes > 0,
         "junction fixture must carry scratch budget"
     );
-    let exact = u32::try_from(plan.memory.controlled_live_bytes).expect("live bytes fit u32");
+    // 编译单元的存续由账本计入，HIR 计划峰值叠加其上；准入峰值是下界。
+    let planned_live =
+        (unit.controlled_live_bytes + plan.memory.stage_bytes).max(unit.admission_peak_live_bytes);
+    let exact = u32::try_from(planned_live).expect("live bytes fit u32");
     unit.limits = CompileProfile::single_network_10k_stable_entities().with_test_pipeline_limits(
         u32::MAX,
         u32::MAX,

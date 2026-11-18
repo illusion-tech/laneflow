@@ -473,3 +473,107 @@ fn batch_writes_respect_granted_capacity() {
     pass.finish(0).unwrap();
     ledger.close().unwrap();
 }
+
+const PIPELINE: PassLabel = PassLabel::new(LedgerStage::CompilePipeline, "test-pipeline");
+
+#[test]
+fn adopted_initial_live_counts_toward_admission_and_returns_on_release() {
+    let ledger = Ledger::with_budget(1000);
+    let inputs = ledger.adopt(400);
+    assert_eq!((ledger.live(), ledger.reserved()), (400, 0));
+    assert_eq!(
+        ledger.admit_pass(PIPELINE, Plan::of(601)).err().unwrap(),
+        LedgerError::BudgetExceeded {
+            label: PIPELINE,
+            requested: 1001,
+            limit: 1000,
+        }
+    );
+    let pass = ledger.admit_pass(PIPELINE, Plan::of(600)).unwrap();
+    assert_conserved(&ledger);
+    // 根账户授予不计入任何编译遍的在用量，编译遍可按自身输出结束。
+    let output = pass.grant_bytes(250).unwrap();
+    pass.finish(250).unwrap();
+    assert_eq!((ledger.live(), ledger.reserved()), (650, 0));
+    drop(inputs);
+    assert_eq!((ledger.live(), ledger.reserved()), (250, 0));
+    output.transfer_to_host();
+    let report = ledger.close().unwrap();
+    assert_eq!(report.released, 400);
+    assert_eq!(report.transferred, 250);
+    assert_eq!(report.peak_live, 650);
+    assert_eq!(report.peak_committed, 1000);
+}
+
+#[test]
+fn adopted_initial_live_beyond_budget_rejects_every_later_admission() {
+    let ledger = Ledger::with_budget(100);
+    let inputs = ledger.adopt(150);
+    assert!(matches!(
+        ledger.admit_pass(PIPELINE, Plan::ZERO).err().unwrap(),
+        LedgerError::BudgetExceeded {
+            requested: 150,
+            limit: 100,
+            ..
+        }
+    ));
+    assert!(matches!(
+        ledger.probe(PIPELINE, 1).err().unwrap(),
+        LedgerError::BudgetExceeded {
+            requested: 151,
+            limit: 100,
+            ..
+        }
+    ));
+    drop(inputs);
+    ledger.close().unwrap();
+}
+
+#[test]
+fn probe_checks_live_plus_reserved_without_changing_either() {
+    let ledger = Ledger::with_budget(1000);
+    let _inputs = ledger.adopt(300);
+    let pass = ledger.admit_pass(PIPELINE, Plan::of(500)).unwrap();
+    // 进行中编译遍的计划峰值仍在预留中，瞬时工作集叠加在 L + R 之上。
+    ledger.probe(PIPELINE, 200).unwrap();
+    assert_eq!(
+        ledger.probe(PIPELINE, 201).err().unwrap(),
+        LedgerError::BudgetExceeded {
+            label: PIPELINE,
+            requested: 1001,
+            limit: 1000,
+        }
+    );
+    assert_eq!((ledger.live(), ledger.reserved()), (300, 500));
+    pass.finish(0).unwrap();
+    assert_eq!(
+        ledger.probe(PIPELINE, u64::MAX).err().unwrap(),
+        LedgerError::BudgetExceeded {
+            label: PIPELINE,
+            requested: u64::MAX,
+            limit: 1000,
+        }
+    );
+    drop(_inputs);
+    assert_eq!(ledger.close().unwrap().peak_committed, 1000);
+}
+
+#[test]
+fn grant_bytes_is_bounded_by_the_pass_plan_and_output_grant_transfers_once() {
+    let ledger = Ledger::with_budget(1000);
+    let pass = ledger.admit_pass(PIPELINE, Plan::of(100)).unwrap();
+    assert_eq!(
+        pass.grant_bytes(101).err().unwrap(),
+        LedgerError::Defect {
+            label: PIPELINE,
+            defect: AccountingDefect::GrantExceedsPass,
+        }
+    );
+    let mut output = OutputGrant::new(pass.grant_bytes(100).unwrap());
+    pass.finish(100).unwrap();
+    output.transfer_to_host();
+    output.transfer_to_host();
+    drop(output);
+    let report = ledger.close().unwrap();
+    assert_eq!((report.transferred, report.released), (100, 0));
+}

@@ -4797,7 +4797,6 @@ fn final_lir_admission_checks_all_capacity_dimensions_after_mir() {
         for limit in [count, count - 1] {
             let mut unit = full_spatial_portable_fixture_unit();
             let hir = build_hir(&unit).unwrap();
-            let hir_peak = hir.peak_controlled_live_bytes;
             let mut mir = lower_to_mir(&unit, &hir).unwrap();
             drop(hir);
             let work_units = crate::mir::validate_policies(&unit, &mut mir).unwrap();
@@ -4805,7 +4804,9 @@ fn final_lir_admission_checks_all_capacity_dimensions_after_mir() {
             // 在 HIR/MIR 成功之后才收紧容量，避免早期几何检查掩盖最终 LIR 准入缺失。
             // 调用生产收尾路径，容量拒绝必须先于源映射冻结和成功输出的构造。
             unit.limits = profile.clone().with_test_canonical_limit(dimension, limit);
-            let result = Compiler::finish_compile(unit, mir, hir_peak, work_units);
+            let ledger = crate::ledger::Ledger::new(unit.limits.operation_budget());
+            let inputs = ledger.adopt(unit.controlled_live_bytes + mir.controlled_live_bytes);
+            let result = Compiler::finish_compile(unit, mir, ledger, inputs, work_units);
             if limit == count {
                 assert_eq!(result.unwrap().lir().canonical_network_usage(), expected);
             } else {
@@ -4829,4 +4830,47 @@ fn final_lir_admission_checks_all_capacity_dimensions_after_mir() {
             }
         }
     }
+}
+
+#[test]
+fn compile_ledger_peak_is_the_exact_operation_budget_boundary() {
+    use super::portable_fixture_tests::full_spatial_portable_fixture_unit;
+
+    // 编译账本的已承诺峰值就是本次编译所需的操作资源预算：恰好等于时成功，少一字节时
+    // 按 CompilerControlledLiveBytes 拒绝，拒绝后同一 Compiler 仍可编译。
+    let mut compiler = Compiler::new();
+    let peak = compiler
+        .compile(full_spatial_portable_fixture_unit())
+        .unwrap()
+        .metrics()
+        .compiler_controlled_peak_bytes();
+    let peak_u32 = u32::try_from(peak).expect("fixture peak fits u32");
+    let profile = CompileProfile::single_network_10k_stable_entities();
+
+    let mut exact = full_spatial_portable_fixture_unit();
+    exact.limits = profile
+        .clone()
+        .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, peak_u32);
+    let output = compiler.compile(exact).unwrap();
+    assert_eq!(output.metrics().compiler_controlled_peak_bytes(), peak);
+
+    let mut short = full_spatial_portable_fixture_unit();
+    short.limits = profile.with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        peak_u32 - 1,
+    );
+    let Err(diagnostics) = compiler.compile(short) else {
+        panic!("one byte below the ledger peak must fail");
+    };
+    assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+            limit,
+            observed,
+        } if *limit == peak - 1 && *observed == peak
+    )));
+    compiler
+        .compile(full_spatial_portable_fixture_unit())
+        .unwrap();
 }

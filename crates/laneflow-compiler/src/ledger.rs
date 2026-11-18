@@ -169,6 +169,9 @@ pub(crate) enum LedgerError {
 pub(crate) struct LedgerReport {
     /// 账本生命周期内存续 `L` 的最大值。
     pub(crate) peak_live: u64,
+    /// 账本生命周期内已承诺字节的最大值：存续与预留之和 `L + R`，以及经
+    /// [`Ledger::probe`] 核对的瞬时工作集 `L + R + n`。
+    pub(crate) peak_committed: u64,
     /// 各阶段工作集峰值：该阶段顶层编译遍及其子编译遍同时存续的授予字节之和的最大值。
     pub(crate) stage_peaks: [u64; LedgerStage::COUNT],
     /// 返回点转交宿主的字节。
@@ -276,11 +279,16 @@ impl State {
 
     fn record_peaks(&mut self) {
         self.report.peak_live = self.report.peak_live.max(self.live);
+        self.record_committed(self.live.saturating_add(self.reserved));
         if let Some(stage) = self.frames.first().map(|frame| frame.label.stage) {
             let working_set = self.frames.iter().map(|frame| frame.in_use).sum::<u64>();
             let peak = &mut self.report.stage_peaks[stage.index()];
             *peak = (*peak).max(working_set);
         }
+    }
+
+    fn record_committed(&mut self, committed: u64) {
+        self.report.peak_committed = self.report.peak_committed.max(committed);
     }
 
     fn grant(&mut self, pass: PassId, bytes: u64) -> Result<(), LedgerError> {
@@ -302,7 +310,7 @@ impl State {
         Ok(())
     }
 
-    fn give_back(&mut self, pass: PassId, bytes: u64, outcome: Outcome) {
+    fn give_back(&mut self, pass: Option<PassId>, bytes: u64, outcome: Outcome) {
         debug_assert!(self.live >= bytes, "账本存续不足以归还授予");
         self.live = self.live.saturating_sub(bytes);
         match outcome {
@@ -310,7 +318,7 @@ impl State {
             Outcome::Transferred => self.report.transferred += bytes,
             Outcome::RolledBack => {}
         }
-        if let Some(index) = self.resolve(pass) {
+        if let Some(index) = pass.and_then(|pass| self.resolve(pass)) {
             let frame = &mut self.frames[index];
             debug_assert!(frame.in_use >= bytes, "编译遍在用量不足以归还授予");
             frame.in_use = frame.in_use.saturating_sub(bytes);
@@ -401,6 +409,8 @@ impl Ledger {
             }
         };
         state.reserved += plan;
+        let committed = state.live + state.reserved;
+        state.record_committed(committed);
         let account = state.push_frame(label, plan);
         drop(state);
         Ok(PassBudget {
@@ -408,6 +418,46 @@ impl Ledger {
             account,
             finished: false,
         })
+    }
+
+    /// 计入按值移入本次操作的初始存续（资源账本设计第 3.1 节），返回归属根账户的授予。
+    ///
+    /// 初始存续是移入时已经存在的存储，不经计划准入；若它已超出宿主预算，此后任何计划
+    /// 准入与 [`Ledger::probe`] 都按 `L + R + P` 拒绝，其间不发生受控分配。
+    pub(crate) fn adopt(&self, bytes: u64) -> Grant {
+        let mut state = lock(&self.state);
+        state.live = state.live.saturating_add(bytes);
+        state.record_peaks();
+        drop(state);
+        Grant {
+            state: Some(Arc::clone(&self.state)),
+            account: None,
+            bytes,
+        }
+    }
+
+    /// 核对一段不经授予的瞬时工作集：`L + R + bytes ≤ B` 成立时记入已承诺峰值，否则按
+    /// 宿主预算拒绝。不改变存续与预留。
+    ///
+    /// 只用于尚未迁入账本存储入口的阶段：其工作集由阶段自身的计数计划求出，此处只替换
+    /// 原先手工累加上游存续的比较。
+    pub(crate) fn probe(&self, label: PassLabel, bytes: u64) -> Result<(), LedgerError> {
+        let mut state = lock(&self.state);
+        let requested = state
+            .live
+            .checked_add(state.reserved)
+            .and_then(|committed| committed.checked_add(bytes));
+        match requested {
+            Some(requested) if requested <= state.budget => {
+                state.record_committed(requested);
+                Ok(())
+            }
+            _ => Err(LedgerError::BudgetExceeded {
+                label,
+                requested: requested.unwrap_or(u64::MAX),
+                limit: state.budget,
+            }),
+        }
     }
 
     /// 当前存续 `L`。
@@ -555,11 +605,19 @@ impl PassBudget<'_> {
         self.grant(bytes)
     }
 
+    /// 为一段由阶段自身按计数计划分配、尚未经账本存储入口创建的输出存储取得授予。
+    ///
+    /// 只用于编译管线逐阶段迁入期间：阶段输出整体持有这笔授予，随输出释放或转交宿主；
+    /// 迁入存储入口后由逐项授予取代。
+    pub(crate) fn grant_bytes(&self, bytes: u64) -> Result<Grant, LedgerError> {
+        self.grant(bytes)
+    }
+
     fn grant(&self, bytes: u64) -> Result<Grant, LedgerError> {
         lock(&self.ledger.state).grant(self.account, bytes)?;
         Ok(Grant {
             state: Some(Arc::clone(&self.ledger.state)),
-            account: self.account,
+            account: Some(self.account),
             bytes,
         })
     }
@@ -580,7 +638,8 @@ impl Drop for PassBudget<'_> {
 /// 一笔授予：随存储持有与移动，存储释放时归还额度。
 pub(crate) struct Grant {
     state: Option<Arc<Mutex<State>>>,
-    account: PassId,
+    /// 创建授予的编译遍；`None` 表示根账户（[`Ledger::adopt`] 的初始存续）。
+    account: Option<PassId>,
     bytes: u64,
 }
 
@@ -610,6 +669,40 @@ impl Grant {
 impl Drop for Grant {
     fn drop(&mut self) {
         self.settle(Outcome::Released);
+    }
+}
+
+/// 阶段输出持有的授予：随输出移动、释放时归还，返回点转交宿主。
+///
+/// 输出结构的相等比较与调试输出只看语义内容，不比较授予；空值表示不受账本约束。
+#[derive(Default)]
+pub(crate) struct OutputGrant(Option<Grant>);
+
+impl OutputGrant {
+    /// 持有一笔授予。
+    pub(crate) const fn new(grant: Grant) -> Self {
+        Self(Some(grant))
+    }
+
+    /// 返回点转交宿主；之后不再受账本约束。
+    pub(crate) fn transfer_to_host(&mut self) {
+        if let Some(grant) = self.0.take() {
+            grant.transfer_to_host();
+        }
+    }
+}
+
+impl PartialEq for OutputGrant {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for OutputGrant {}
+
+impl std::fmt::Debug for OutputGrant {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("OutputGrant")
     }
 }
 

@@ -24,7 +24,7 @@ pub(super) struct TargetTable {
 
 /// 为每条通行流路权规则的每个主体通行段展开让行目标，按规范身份排序；全程校验上限并计入工作预算。
 pub(super) fn build(
-    unit: &CompilationUnit,
+    ledger: &crate::ledger::Ledger,
     mir: &MirUnit,
     policy: &MirPolicy,
     passages: &PassageIndex,
@@ -44,8 +44,7 @@ pub(super) fn build(
                 cell_count = cell_count.saturating_add(1);
             })?;
             super::validation::budget(
-                unit,
-                mir,
+                ledger,
                 prior_bytes
                     .saturating_add(range_count.saturating_mul(size_of::<TargetRange>() as u64))
                     .saturating_add(cell_count.saturating_mul(size_of::<TargetCell>() as u64)),
@@ -151,10 +150,11 @@ mod tests {
             stream.passages = TableRange::try_from_usize(start, count).unwrap();
         }
         mir.conflict_passages = passages.into_boxed_slice();
-        let index = PassageIndex::build(&unit, &mir).unwrap();
+        let index =
+            PassageIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir).unwrap();
         let mut work = WorkBudget::new(unit.limits.operation_budget());
         let table = build(
-            &unit,
+            &crate::ledger::Ledger::with_budget(u64::MAX),
             &mir,
             &mir.policies[0],
             &index,
@@ -212,9 +212,10 @@ mod tests {
         mir.participant_streams[subject_stream.index()].passages =
             TableRange::try_from_usize(start, 2).unwrap();
         mir.conflict_passages = passages.into_boxed_slice();
-        let passages = PassageIndex::build(&unit, &mir).unwrap();
+        let passages =
+            PassageIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir).unwrap();
         let table = build(
-            &unit,
+            &crate::ledger::Ledger::with_budget(u64::MAX),
             &mir,
             &mir.policies[0],
             &passages,

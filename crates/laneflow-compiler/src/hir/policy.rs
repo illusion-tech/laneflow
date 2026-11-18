@@ -89,6 +89,7 @@ fn declaration_size(v: &RightOfWayPolicySetDeclaration) -> (u64, u64) {
 /// 在既有静态语义诊断之后，把全部通行权策略集声明绑定进 `HirUnit` 并闭合其跨模块引用。
 pub(super) fn bind(
     unit: &CompilationUnit,
+    ledger: &crate::ledger::Ledger,
     hir: &mut HirUnit,
     identities: &mut IdentityRegistry,
 ) -> Result<(), DiagnosticBundle> {
@@ -120,11 +121,16 @@ pub(super) fn bind(
             (hir.participant_classes.len() as u64)
                 .saturating_mul(size_of::<Lookup<'_, HirParticipantClassKey>>() as u64),
         );
-    let live = hir
-        .peak_controlled_live_bytes
-        .saturating_add(owned)
-        .saturating_add(lookup);
-    crate::policy::check_budget(&unit.limits, live)?;
+    // HIR 主编译遍尚未结束，其计划峰值仍在账本预留中；策略存储与查找表叠加其上。
+    ledger
+        .probe(POLICY_BIND_PASS, owned.saturating_add(lookup))
+        .map_err(|error| {
+            DiagnosticBundle::single(Diagnostic::from_ledger_error(
+                error,
+                None::<crate::SourceLocation>,
+                None,
+            ))
+        })?;
     let total_records = hir.hir_record_count.saturating_add(records);
     let limit = unit
         .limits
@@ -286,6 +292,10 @@ pub(super) fn bind(
     hir.policies = policies.into_boxed_slice();
     hir.hir_record_count = total_records;
     hir.controlled_live_bytes = hir.controlled_live_bytes.saturating_add(owned);
-    hir.peak_controlled_live_bytes = live;
+    // 上一步已核对 L + R + owned + lookup；查找表随本函数返回释放，策略存储继续存续。
+    hir.ledger_grants[1] = crate::ledger::OutputGrant::new(ledger.adopt(owned));
     Ok(())
 }
+
+const POLICY_BIND_PASS: crate::ledger::PassLabel =
+    crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "hir-policy");

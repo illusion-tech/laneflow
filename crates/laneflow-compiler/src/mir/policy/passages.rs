@@ -17,9 +17,12 @@ pub(super) struct PassageIndex {
 
 impl PassageIndex {
     /// 收集全部冲突通行段并排序构建索引；先校验临时内存预算。
-    pub(super) fn build(unit: &CompilationUnit, mir: &MirUnit) -> Result<Self, DiagnosticBundle> {
+    pub(super) fn build(
+        ledger: &crate::ledger::Ledger,
+        mir: &MirUnit,
+    ) -> Result<Self, DiagnosticBundle> {
         let count = mir.conflict_passages.len() as u64;
-        super::validation::budget(unit, mir, count.saturating_mul(size_of::<Entry>() as u64))?;
+        super::validation::budget(ledger, count.saturating_mul(size_of::<Entry>() as u64))?;
         let mut entries = Vec::with_capacity(mir.conflict_passages.len());
         for (stream, value) in mir.participant_streams.iter().enumerate() {
             for passage in value.passages.as_usize_range() {
