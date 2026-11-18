@@ -1,6 +1,6 @@
 //! 停车领域 HIR：停车区域、停车位、车道锚点与矩形几何的记录与构建。
 
-use std::collections::HashMap;
+use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -20,6 +20,7 @@ use super::{
     ParkingCounts, SymbolTable, arena_overflow, count_to_usize, declaration_header,
     derive_identity, resolve_reference,
 };
+use super::{collect_in, filled};
 
 /// 停车区域的一个规范停车位成员。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -76,44 +77,52 @@ pub(crate) struct HirParkingSpace {
 /// 停车领域 HIR 部件：停车设施、停车位、设施成员与虚拟入口/出口锚点表。
 #[derive(Default)]
 pub(crate) struct ParkingHir {
-    pub(crate) parking_facilities: Box<[HirParkingFacility]>,
-    pub(crate) parking_spaces: Box<[HirParkingSpace]>,
-    pub(crate) parking_facility_spaces: Box<[HirParkingFacilitySpace]>,
-    pub(crate) parking_facility_virtual_entries: Box<[HirParkingLaneAnchor]>,
-    pub(crate) parking_facility_virtual_exits: Box<[HirParkingLaneAnchor]>,
+    pub(crate) parking_facilities: crate::ledger::Frozen<HirParkingFacility>,
+    pub(crate) parking_spaces: crate::ledger::Frozen<HirParkingSpace>,
+    pub(crate) parking_facility_spaces: crate::ledger::Frozen<HirParkingFacilitySpace>,
+    pub(crate) parking_facility_virtual_entries: crate::ledger::Frozen<HirParkingLaneAnchor>,
+    pub(crate) parking_facility_virtual_exits: crate::ledger::Frozen<HirParkingLaneAnchor>,
 }
 
 /// 构建停车领域 HIR：登记停车设施与停车位，并闭合可选归属及入口/出口锚点。
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_parking_hir(
     unit: &CompilationUnit,
     counts: &ParkingCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
     defer_emitted_length_close: bool,
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<ParkingHir, DiagnosticBundle> {
     if counts.entity_count() == 0 {
         return Ok(ParkingHir::default());
     }
 
-    let mut areas = TypedArena::<HirParkingFacilityTag, HirParkingFacility>::with_capacity(
+    let mut areas = TypedArena::<HirParkingFacilityTag, HirParkingFacility>::granted(
+        pass,
         count_to_usize(counts.areas, &unit.limits)?,
-    );
-    let mut spaces = TypedArena::<HirParkingSpaceTag, HirParkingSpace>::with_capacity(
+    )?;
+    let mut spaces = TypedArena::<HirParkingSpaceTag, HirParkingSpace>::granted(
+        pass,
         count_to_usize(counts.spaces, &unit.limits)?,
-    );
-    let mut area_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ParkingFacility(_)))
-            .count()
-    }));
-    let mut area_sources = Vec::with_capacity(count_to_usize(counts.areas, &unit.limits)?);
-    let mut space_sources =
-        Vec::<(u32, u32)>::with_capacity(count_to_usize(counts.spaces, &unit.limits)?);
+    )?;
+    let mut area_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| {
+                    matches!(declaration, TypedAstDeclaration::ParkingFacility(_))
+                })
+                .count()
+        }),
+    )?;
+    let mut area_sources = pass.vec(count_to_usize(counts.areas, &unit.limits)?)?;
+    let mut space_sources = pass.vec::<(u32, u32)>(count_to_usize(counts.spaces, &unit.limits)?)?;
 
     // ParkingFacility 必须先完整登记，ParkingSpace 的可选归属因而允许前向和跨模块引用。
     // 两类实体仍分别按模块和稳定键规范排序，来源声明顺序不会进入身份或布局语义。
@@ -123,18 +132,20 @@ pub(crate) fn build_parking_hir(
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
-        let mut area_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::ParkingFacility(_)).then_some(index)
-            })
-            .collect();
+        let mut area_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(declaration, TypedAstDeclaration::ParkingFacility(_)).then_some(index)
+                }),
+        )?;
         area_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
-        for declaration_index in area_indices {
+        for declaration_index in area_indices.iter().copied() {
             let TypedAstDeclaration::ParkingFacility(source) =
                 &source_module.declarations[declaration_index]
             else {
@@ -176,32 +187,34 @@ pub(crate) fn build_parking_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            area_symbols.insert(module_key, source.header.source_address.clone(), key);
+            area_symbols.insert(module_key, source.header.source_address.clone(), key)?;
             area_sources.push(CanonicalDeclarationSource {
                 source_module_index: module_order,
                 declaration_index: u32::try_from(declaration_index)
                     .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
                 hir_key: key,
-            });
+            })?;
         }
 
-        let mut indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::ParkingSpace(_)).then_some(index)
-            })
-            .collect();
+        let mut indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(declaration, TypedAstDeclaration::ParkingSpace(_)).then_some(index)
+                }),
+        )?;
         indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
-        for declaration_index in indices {
+        for declaration_index in indices.iter().copied() {
             space_sources.push((
                 module_order,
                 u32::try_from(declaration_index)
                     .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
-            ));
+            ))?;
         }
     }
 
@@ -210,9 +223,8 @@ pub(crate) fn build_parking_hir(
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
-    let mut virtual_entries =
-        Vec::with_capacity(count_to_usize(counts.virtual_entries, &unit.limits)?);
-    let mut virtual_exits = Vec::with_capacity(count_to_usize(counts.virtual_exits, &unit.limits)?);
+    let mut virtual_entries = pass.vec(count_to_usize(counts.virtual_entries, &unit.limits)?)?;
+    let mut virtual_exits = pass.vec(count_to_usize(counts.virtual_exits, &unit.limits)?)?;
     for location in &area_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
         let TypedAstDeclaration::ParkingFacility(source) =
@@ -245,7 +257,7 @@ pub(crate) fn build_parking_hir(
                         &anchor.lane_edge.span,
                     )?,
                     progress_source_span: anchor.progress_span.as_ref().clone(),
-                });
+                })?;
             }
             destination[start..].sort_unstable_by_key(|anchor| {
                 (
@@ -293,15 +305,16 @@ pub(crate) fn build_parking_hir(
             }
         }
     }
-    let mut area_has_member = areas
-        .iter()
-        .map(|(_, facility)| facility.virtual_capacity != 0)
-        .collect::<Vec<_>>();
-    let mut memberships = Vec::<(HirParkingFacilityKey, HirParkingSpaceKey)>::with_capacity(
+    let mut area_has_member = pass.collect(
+        areas
+            .iter()
+            .map(|(_, facility)| facility.virtual_capacity != 0),
+    )?;
+    let mut memberships = pass.vec::<(HirParkingFacilityKey, HirParkingSpaceKey)>(
         count_to_usize(counts.memberships, &unit.limits)?,
-    );
+    )?;
 
-    for (module_order, declaration_index) in space_sources {
+    for (module_order, declaration_index) in space_sources.iter().copied() {
         let module_index = module_order as usize;
         let source_module = &unit.modules[module_index];
         let TypedAstDeclaration::ParkingSpace(source) =
@@ -416,7 +429,7 @@ pub(crate) fn build_parking_hir(
                 arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
             })?;
         if let Some(area) = parking_facility {
-            memberships.push((area, space_key));
+            memberships.push((area, space_key))?;
         }
     }
 
@@ -448,13 +461,15 @@ pub(crate) fn build_parking_hir(
     memberships.sort_unstable_by_key(|(area, space)| {
         (areas.get(*area).stable_id, spaces.get(*space).stable_id)
     });
-    let area_spaces = memberships
-        .iter()
-        .map(|(_, parking_space)| HirParkingFacilitySpace {
-            parking_space: *parking_space,
-        })
-        .collect::<Vec<_>>();
-    let mut area_ranges = vec![(0_usize, 0_usize); areas.len()];
+    let area_spaces = collect_in(
+        pass,
+        memberships
+            .iter()
+            .map(|(_, parking_space)| HirParkingFacilitySpace {
+                parking_space: *parking_space,
+            }),
+    )?;
+    let mut area_ranges = filled(pass, areas.len(), (0_usize, 0_usize))?;
     let mut cursor = 0_usize;
     while cursor < memberships.len() {
         let area = memberships[cursor].0;
@@ -475,11 +490,11 @@ pub(crate) fn build_parking_hir(
     }
 
     Ok(ParkingHir {
-        parking_facilities: areas.into_boxed_slice(),
-        parking_spaces: spaces.into_boxed_slice(),
-        parking_facility_spaces: area_spaces.into_boxed_slice(),
-        parking_facility_virtual_entries: virtual_entries.into_boxed_slice(),
-        parking_facility_virtual_exits: virtual_exits.into_boxed_slice(),
+        parking_facilities: areas.freeze()?,
+        parking_spaces: spaces.freeze()?,
+        parking_facility_spaces: area_spaces.freeze()?,
+        parking_facility_virtual_entries: virtual_entries.freeze()?,
+        parking_facility_virtual_exits: virtual_exits.freeze()?,
     })
 }
 

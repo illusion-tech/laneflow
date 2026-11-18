@@ -1,6 +1,6 @@
 //! 准入领域 HIR：参与者类别、车辆配置与准入规则的记录、构建与验证。
 
-use std::collections::HashMap;
+use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -23,6 +23,7 @@ use super::{
     HirParticipantClassTag, HirRoadSectionKey, HirVehicleProfileTag, SymbolTable, arena_overflow,
     count_to_usize, declaration_header, derive_identity, resolve_reference,
 };
+use super::{collect_in, filled};
 
 /// 已解析父类并编译单继承层级信息的参与者类别。
 #[derive(Debug, PartialEq)]
@@ -95,10 +96,11 @@ pub(crate) struct HirAccessRule {
 /// 准入领域 HIR 部件：参与者类别、车辆配置、准入规则与规则引用的类别成员表。
 #[derive(Default)]
 pub(crate) struct AccessHir {
-    pub(crate) participant_classes: Box<[HirParticipantClass]>,
-    pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
-    pub(crate) access_rules: Box<[HirAccessRule]>,
-    pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
+    pub(crate) participant_classes: crate::ledger::Frozen<HirParticipantClass>,
+    pub(crate) vehicle_profiles: crate::ledger::Frozen<HirVehicleProfile>,
+    pub(crate) access_rules: crate::ledger::Frozen<HirAccessRule>,
+    pub(crate) access_rule_participant_classes:
+        crate::ledger::Frozen<HirAccessRuleParticipantClass>,
 }
 
 /// 准入组合歧义验证用的单条（目标，参与者类别）候选记录。
@@ -126,111 +128,132 @@ struct FirstAccessRegulation {
 pub(crate) fn build_access_hir(
     unit: &CompilationUnit,
     counts: &AccessCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     cross_section: &CrossSectionHir,
     maneuver_paths: &[HirManeuverPath],
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<AccessHir, DiagnosticBundle> {
     if counts.entity_count() == 0 {
         return Ok(AccessHir::default());
     }
 
-    let mut class_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|item| matches!(item, TypedAstDeclaration::ParticipantClass(_)))
-            .count()
-    }));
-    let mut edge_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|item| matches!(item, TypedAstDeclaration::LaneEdge(_)))
-            .count()
-    }));
-    let mut group_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|item| matches!(item, TypedAstDeclaration::LaneGroup(_)))
-            .count()
-    }));
-    let mut section_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|item| matches!(item, TypedAstDeclaration::RoadSection(_)))
-            .count()
-    }));
-    let mut path_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|item| matches!(item, TypedAstDeclaration::ManeuverPath(_)))
-            .count()
-    }));
-    let mut band_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|item| matches!(item, TypedAstDeclaration::FacilityBand(_)))
-            .count()
-    }));
+    let mut class_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|item| matches!(item, TypedAstDeclaration::ParticipantClass(_)))
+                .count()
+        }),
+    )?;
+    let mut edge_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|item| matches!(item, TypedAstDeclaration::LaneEdge(_)))
+                .count()
+        }),
+    )?;
+    let mut group_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|item| matches!(item, TypedAstDeclaration::LaneGroup(_)))
+                .count()
+        }),
+    )?;
+    let mut section_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|item| matches!(item, TypedAstDeclaration::RoadSection(_)))
+                .count()
+        }),
+    )?;
+    let mut path_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|item| matches!(item, TypedAstDeclaration::ManeuverPath(_)))
+                .count()
+        }),
+    )?;
+    let mut band_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|item| matches!(item, TypedAstDeclaration::FacilityBand(_)))
+                .count()
+        }),
+    )?;
     for (key, edge) in lane_edges.iter() {
-        edge_symbols.insert(edge.module, edge.source_address.clone(), key);
+        edge_symbols.insert(edge.module, edge.source_address.clone(), key)?;
     }
     for (index, group) in cross_section.lane_groups.iter().enumerate() {
         group_symbols.insert(
             group.module,
             group.source_address.clone(),
             HirLaneGroupKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
-        );
+        )?;
     }
     for (index, section) in cross_section.road_sections.iter().enumerate() {
         section_symbols.insert(
             section.module,
             section.source_address.clone(),
             HirRoadSectionKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
-        );
+        )?;
     }
     for (index, path) in maneuver_paths.iter().enumerate() {
         path_symbols.insert(
             path.module,
             path.source_address.clone(),
             HirManeuverPathKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
-        );
+        )?;
     }
     for (index, band) in cross_section.facility_bands.iter().enumerate() {
         band_symbols.insert(
             band.module,
             band.source_address.clone(),
             HirFacilityBandKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
-        );
+        )?;
     }
 
-    let mut classes = TypedArena::<HirParticipantClassTag, HirParticipantClass>::with_capacity(
+    let mut classes = TypedArena::<HirParticipantClassTag, HirParticipantClass>::granted(
+        pass,
         count_to_usize(counts.participant_classes, &unit.limits)?,
-    );
-    let mut class_sources =
-        Vec::with_capacity(count_to_usize(counts.participant_classes, &unit.limits)?);
+    )?;
+    let mut class_sources = pass.vec(count_to_usize(counts.participant_classes, &unit.limits)?)?;
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index).expect("module table is u32-bounded"),
         );
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::ParticipantClass(_)).then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(declaration, TypedAstDeclaration::ParticipantClass(_)).then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             let TypedAstDeclaration::ParticipantClass(source) =
                 &source_module.declarations[declaration_index]
             else {
@@ -273,14 +296,14 @@ pub(crate) fn build_access_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            class_symbols.insert(module_key, source.header.source_address.clone(), key);
+            class_symbols.insert(module_key, source.header.source_address.clone(), key)?;
             class_sources.push(CanonicalDeclarationSource {
                 source_module_index: u32::try_from(module_index)
                     .expect("module table is u32-bounded"),
                 declaration_index: u32::try_from(declaration_index)
                     .expect("declaration table is u32-bounded"),
                 hir_key: key,
-            });
+            })?;
         }
     }
 
@@ -317,19 +340,21 @@ pub(crate) fn build_access_hir(
     }
 
     // 单继承链用三色迭代遍历检测，避免极深分类法消耗线程栈。
-    let mut state = vec![0_u8; classes.len()];
+    let mut state = filled(pass, classes.len(), 0_u8)?;
+    // 每轮遍历复用同一条路径缓冲；路径长度不超过类别数。
+    let mut path = pass.vec(classes.len())?;
     for start_index in 0..classes.len() {
         if state[start_index] != 0 {
             continue;
         }
-        let mut path = Vec::new();
+        path.clear();
         let mut cursor = HirParticipantClassKey::from_raw(
             u32::try_from(start_index).expect("HIR table is u32-bounded"),
         );
         let mut cycle_cursor = None;
         while state[cursor.index()] == 0 {
             state[cursor.index()] = 1;
-            path.push(cursor);
+            path.push(cursor)?;
             let Some(parent) = classes.get(cursor).parent else {
                 break;
             };
@@ -372,7 +397,7 @@ pub(crate) fn build_access_hir(
             diagnostic.set_canonical_module_order(classes.get(representative).module.raw());
             diagnostics.push(diagnostic);
         }
-        for key in path.into_iter().rev() {
+        for key in path.iter().copied().rev() {
             if classes
                 .get(key)
                 .parent
@@ -391,8 +416,8 @@ pub(crate) fn build_access_hir(
     }
 
     // first-child/next-sibling 数组让层级闭包只需连续内存，不为每个类别单独分配 Vec。
-    let mut first_child = vec![None; classes.len()];
-    let mut next_sibling = vec![None; classes.len()];
+    let mut first_child = filled(pass, classes.len(), None)?;
+    let mut next_sibling = filled(pass, classes.len(), None)?;
     let mut first_root = None;
     for (index, sibling_slot) in next_sibling.iter_mut().enumerate() {
         let key = HirParticipantClassKey::from_raw(
@@ -406,10 +431,10 @@ pub(crate) fn build_access_hir(
             first_root = Some(key);
         }
     }
-    let mut stack = Vec::with_capacity(classes.len().saturating_mul(2));
+    let mut stack = pass.vec(classes.len().saturating_mul(2))?;
     let mut root = first_root;
     while let Some(key) = root {
-        stack.push((key, false));
+        stack.push((key, false))?;
         root = next_sibling[key.index()];
     }
     let mut euler = 0_u32;
@@ -426,37 +451,39 @@ pub(crate) fn build_access_hir(
                 Some(classes.get(key).source_span.clone()),
             )
         })?;
-        stack.push((key, true));
+        stack.push((key, true))?;
         let mut child = first_child[key.index()];
         while let Some(child_key) = child {
-            stack.push((child_key, false));
+            stack.push((child_key, false))?;
             child = next_sibling[child_key.index()];
         }
     }
 
     // VehicleProfile 只消费已经闭合的分类法；它不会反向改变类别层级或把车辆参数
     // 提升为跨执行域能力。先登记规范身份，再统一解析类别，保留前向/跨模块引用。
-    let mut profiles = TypedArena::<HirVehicleProfileTag, HirVehicleProfile>::with_capacity(
+    let mut profiles = TypedArena::<HirVehicleProfileTag, HirVehicleProfile>::granted(
+        pass,
         count_to_usize(counts.vehicle_profiles, &unit.limits)?,
-    );
-    let mut profile_sources =
-        Vec::with_capacity(count_to_usize(counts.vehicle_profiles, &unit.limits)?);
+    )?;
+    let mut profile_sources = pass.vec(count_to_usize(counts.vehicle_profiles, &unit.limits)?)?;
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index).expect("module table is u32-bounded"),
         );
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::VehicleProfile(_)).then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(declaration, TypedAstDeclaration::VehicleProfile(_)).then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             let TypedAstDeclaration::VehicleProfile(source) =
                 &source_module.declarations[declaration_index]
             else {
@@ -513,7 +540,7 @@ pub(crate) fn build_access_hir(
                 declaration_index: u32::try_from(declaration_index)
                     .expect("declaration table is u32-bounded"),
                 hir_key: key,
-            });
+            })?;
         }
     }
     for location in &profile_sources {
@@ -539,27 +566,29 @@ pub(crate) fn build_access_hir(
         return Err(diagnostics.finish());
     }
 
-    let mut rules = TypedArena::<HirAccessRuleTag, HirAccessRule>::with_capacity(count_to_usize(
-        counts.access_rules,
-        &unit.limits,
-    )?);
-    let mut rule_sources = Vec::with_capacity(count_to_usize(counts.access_rules, &unit.limits)?);
+    let mut rules = TypedArena::<HirAccessRuleTag, HirAccessRule>::granted(
+        pass,
+        count_to_usize(counts.access_rules, &unit.limits)?,
+    )?;
+    let mut rule_sources = pass.vec(count_to_usize(counts.access_rules, &unit.limits)?)?;
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index).expect("module table is u32-bounded"),
         );
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::AccessRule(_)).then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(declaration, TypedAstDeclaration::AccessRule(_)).then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             let TypedAstDeclaration::AccessRule(source) =
                 &source_module.declarations[declaration_index]
             else {
@@ -610,12 +639,11 @@ pub(crate) fn build_access_hir(
                 declaration_index: u32::try_from(declaration_index)
                     .expect("declaration table is u32-bounded"),
                 hir_key: key,
-            });
+            })?;
         }
     }
 
-    let mut rule_classes =
-        Vec::with_capacity(count_to_usize(counts.rule_class_references, &unit.limits)?);
+    let mut rule_classes = pass.vec(count_to_usize(counts.rule_class_references, &unit.limits)?)?;
     let mut first_regulation: Option<FirstAccessRegulation> = None;
     for location in &rule_sources {
         let module_index = usize::try_from(location.source_module_index)
@@ -652,7 +680,7 @@ pub(crate) fn build_access_hir(
             diagnostics.push(diagnostic);
         }
         let start = rule_classes.len();
-        let mut resolved_classes = Vec::with_capacity(source.participant_classes.len());
+        let mut resolved_classes = pass.vec(source.participant_classes.len())?;
         for reference in &source.participant_classes {
             if let Some(participant_class) = resolve_reference(
                 module_lookup,
@@ -663,17 +691,17 @@ pub(crate) fn build_access_hir(
                 location.source_module_index,
                 &mut diagnostics,
             ) {
-                resolved_classes.push((participant_class, reference.span.clone()));
+                resolved_classes.push((participant_class, reference.span.clone()))?;
             }
         }
         resolved_classes.sort_unstable_by_key(|(participant_class, _)| *participant_class);
         resolved_classes.dedup_by_key(|(participant_class, _)| *participant_class);
-        rule_classes.extend(resolved_classes.into_iter().map(
+        rule_classes.try_extend(resolved_classes.iter().map(
             |(participant_class, source_span)| HirAccessRuleParticipantClass {
-                participant_class,
-                source_span,
+                participant_class: *participant_class,
+                source_span: source_span.clone(),
             },
-        ));
+        ))?;
         rules.get_mut(location.hir_key).participant_classes =
             TableRange::try_from_usize(start, rule_classes.len().saturating_sub(start)).map_err(
                 |overflow| arena_overflow(overflow, &unit.limits, Some(source.header.span.clone())),
@@ -734,22 +762,23 @@ pub(crate) fn build_access_hir(
         &rules,
         &rule_classes,
         &mut diagnostics,
+        pass,
     )?;
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
 
     Ok(AccessHir {
-        participant_classes: classes.into_boxed_slice(),
-        vehicle_profiles: profiles.into_boxed_slice(),
-        access_rules: rules.into_boxed_slice(),
-        access_rule_participant_classes: rule_classes.into_boxed_slice(),
+        participant_classes: classes.freeze()?,
+        vehicle_profiles: profiles.freeze()?,
+        access_rules: rules.freeze()?,
+        access_rule_participant_classes: rule_classes.freeze()?,
     })
 }
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_access_target(
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     edge_symbols: &SymbolTable<HirLaneEdgeKey>,
     group_symbols: &SymbolTable<HirLaneGroupKey>,
     section_symbols: &SymbolTable<HirRoadSectionKey>,
@@ -890,9 +919,9 @@ fn validate_access_ambiguity(
     rules: &TypedArena<HirAccessRuleTag, HirAccessRule>,
     rule_classes: &[HirAccessRuleParticipantClass],
     diagnostics: &mut DiagnosticCollector,
+    pass: &PassBudget<'_>,
 ) -> Result<(), DiagnosticBundle> {
-    let mut candidates =
-        Vec::with_capacity(count_to_usize(counts.rule_class_references, &unit.limits)?);
+    let mut candidates = pass.vec(count_to_usize(counts.rule_class_references, &unit.limits)?)?;
     for (rule_key, rule) in rules.iter() {
         let (plane, target_kind, target_index) = match rule.target {
             HirAccessTarget::LaneEdge(target) => {
@@ -922,7 +951,7 @@ fn validate_access_ambiguity(
                 priority: rule.priority,
                 effect: rule.effect,
                 rule: rule_key,
-            });
+            })?;
         }
     }
     candidates.sort_unstable_by(|left, right| {

@@ -8,7 +8,7 @@
 //! `IdentityRegistry` 在本函数内按原序创建并随产物交还编排层，供全部领域共享后于装配前
 //! 丢弃。
 
-use std::collections::HashMap;
+use crate::ledger::{BoundedHashMap, BoundedVec, LedgerError, PassBudget};
 use std::sync::Arc;
 
 use laneflow_static_contract::{EntityKind, FieldTag, LaneEdgeId, StableId128};
@@ -80,18 +80,20 @@ pub(crate) struct HirLaneEdge {
 
 /// 按 HIR 模块隔离的有类型符号查找索引；不提供规范遍历能力。
 pub(super) struct SymbolTable<K> {
-    by_module: Vec<HashMap<TypedAstEntityAddress, K>>,
+    by_module: BoundedVec<BoundedHashMap<TypedAstEntityAddress, K>>,
 }
 
 impl<K: Copy> SymbolTable<K> {
-    /// 按各模块声明计数预留容量创建空符号表。
-    pub(super) fn new(module_declaration_counts: impl IntoIterator<Item = usize>) -> Self {
-        Self {
-            by_module: module_declaration_counts
-                .into_iter()
-                .map(HashMap::with_capacity)
-                .collect(),
+    /// 按各模块声明计数以编译遍授予创建空符号表：每个模块一张按声明计数预留的哈希表。
+    pub(super) fn new(
+        pass: &PassBudget<'_>,
+        module_declaration_counts: impl ExactSizeIterator<Item = usize>,
+    ) -> Result<Self, LedgerError> {
+        let mut by_module = pass.vec(module_declaration_counts.len())?;
+        for count in module_declaration_counts {
+            by_module.push(pass.hash_map(count)?)?;
         }
+        Ok(Self { by_module })
     }
 
     /// 在指定模块内登记一条源地址到键的映射。
@@ -100,12 +102,13 @@ impl<K: Copy> SymbolTable<K> {
         module: HirModuleKey,
         source_address: TypedAstEntityAddress,
         key: K,
-    ) {
-        let previous = self.by_module[module.index()].insert(source_address, key);
+    ) -> Result<(), LedgerError> {
+        let previous = self.by_module[module.index()].insert(source_address, key)?;
         debug_assert!(
             previous.is_none(),
             "Typed AST rejected duplicate declarations"
         );
+        Ok(())
     }
 
     /// 查找指定模块内源地址对应的键。
@@ -134,10 +137,10 @@ pub(super) struct CanonicalLaneEdgeSource {
 /// 装配时由 `HirParts::finish` 消费本结构并转为平坦 boxed 表。
 pub(super) struct HirBase {
     pub(super) modules: TypedArena<HirModuleTag, HirModule>,
-    pub(super) imports: Vec<HirImport>,
+    pub(super) imports: BoundedVec<HirImport>,
     pub(super) lane_edges: TypedArena<HirLaneEdgeTag, HirLaneEdge>,
-    pub(super) lane_edge_references: Vec<HirLaneEdgeReference>,
-    pub(super) module_lookup: HashMap<Arc<str>, HirModuleKey>,
+    pub(super) lane_edge_references: BoundedVec<HirLaneEdgeReference>,
+    pub(super) module_lookup: BoundedHashMap<Arc<str>, HirModuleKey>,
     pub(super) lane_edge_symbols: SymbolTable<HirLaneEdgeKey>,
 }
 
@@ -148,6 +151,7 @@ impl HirBase {
     pub(super) fn build(
         unit: &CompilationUnit,
         plan: &HirBuildPlan,
+        pass: &PassBudget<'_>,
     ) -> Result<(HirBase, IdentityRegistry), DiagnosticBundle> {
         let primary_span = unit
             .modules
@@ -159,8 +163,8 @@ impl HirBase {
         let reference_capacity = count_to_usize(plan.lane_edge_reference_count, &unit.limits)?;
         // 第一阶段冻结模块键。CompilationUnit 已按依赖优先排序，因此 raw key 顺序可直接
         // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
-        let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
-        let mut module_lookup = HashMap::with_capacity(module_capacity);
+        let mut modules = TypedArena::<HirModuleTag, HirModule>::granted(pass, module_capacity)?;
+        let mut module_lookup = pass.hash_map(module_capacity)?;
         for source_module in &unit.modules {
             let key = modules
                 .push(HirModule {
@@ -169,25 +173,25 @@ impl HirBase {
                     source_span: source_module.declaration_span().clone(),
                 })
                 .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
-            module_lookup.insert(source_module.descriptor().authoring_namespace_arc(), key);
+            module_lookup.insert(source_module.descriptor().authoring_namespace_arc(), key)?;
         }
 
         // 每个模块的导入单独按目标命名空间排序后追加到一个平坦表，TableRange 保留模块
         // 边界并避免每模块 Vec 的额外分配。
-        let mut imports = Vec::with_capacity(import_capacity);
+        let mut imports = pass.vec(import_capacity)?;
         for (module_index, source_module) in unit.modules.iter().enumerate() {
             let module_key = HirModuleKey::from_raw(u32::try_from(module_index).map_err(|_| {
                 arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone())
             })?);
             let start = imports.len();
-            let mut canonical_imports: Vec<_> = source_module.import_records().collect();
+            let mut canonical_imports = pass.collect(source_module.import_records())?;
             canonical_imports.sort_unstable_by(|left, right| left.0.cmp(right.0));
-            for (target_namespace, source_span) in canonical_imports {
+            for (target_namespace, source_span) in canonical_imports.iter().copied() {
                 let target = module_lookup[target_namespace];
                 imports.push(HirImport {
                     target,
                     source_span: source_span.clone(),
-                });
+                })?;
             }
             modules.get_mut(module_key).imports =
                 TableRange::try_from_usize(start, imports.len().saturating_sub(start)).map_err(
@@ -198,25 +202,29 @@ impl HirBase {
         // 先按 `(canonical module order, stable key)` 为全部声明分配键并建立完整符号表。
         // 这一步必须先于连接解析，才能让前向引用、自环和跨模块引用具有相同语义。
         let mut lane_edges =
-            TypedArena::<HirLaneEdgeTag, HirLaneEdge>::with_capacity(lane_edge_capacity);
-        let mut symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-            module
-                .declarations
-                .iter()
-                .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
-                .count()
-        }));
-        let mut identities = IdentityRegistry::with_capacity(count_to_usize(
-            unit.stable_entity_count,
-            &unit.limits,
-        )?);
-        let mut canonical_sources = Vec::with_capacity(lane_edge_capacity);
+            TypedArena::<HirLaneEdgeTag, HirLaneEdge>::granted(pass, lane_edge_capacity)?;
+        let mut symbols = SymbolTable::new(
+            pass,
+            unit.modules.iter().map(|module| {
+                module
+                    .declarations
+                    .iter()
+                    .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
+                    .count()
+            }),
+        )?;
+        let mut identities = IdentityRegistry::granted(
+            pass,
+            count_to_usize(unit.stable_entity_count, &unit.limits)?,
+            super::plan::canonical_identity_bytes(unit),
+        )?;
+        let mut canonical_sources = pass.vec(lane_edge_capacity)?;
         for (module_index, source_module) in unit.modules.iter().enumerate() {
             let module_key = HirModuleKey::from_raw(u32::try_from(module_index).map_err(|_| {
                 arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone())
             })?);
-            let mut declaration_indices: Vec<usize> =
-                (0..source_module.declarations.len()).collect();
+            let mut declaration_indices: BoundedVec<usize> =
+                pass.collect(0..source_module.declarations.len())?;
             declaration_indices.retain(|index| {
                 matches!(
                     source_module.declarations[*index],
@@ -229,7 +237,7 @@ impl HirBase {
                     .header
                     .source_address
             });
-            for declaration_index in declaration_indices {
+            for declaration_index in declaration_indices.iter().copied() {
                 let source = lane_edge_declaration(&source_module.declarations[declaration_index])
                     .expect("filtered declaration must be LaneEdge");
                 let fields = [
@@ -273,6 +281,7 @@ impl HirBase {
                                 existing_span,
                             )
                         }
+                        IdentityRegistrationError::Accounting(error) => return Err(error.into()),
                         IdentityRegistrationError::DigestCollision { existing_span } => {
                             Diagnostic::identity_digest_collision(
                                 identity.kind(),
@@ -306,7 +315,7 @@ impl HirBase {
                     .map_err(|overflow| {
                         arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                     })?;
-                symbols.insert(module_key, source.header.source_address.clone(), key);
+                symbols.insert(module_key, source.header.source_address.clone(), key)?;
                 canonical_sources.push(CanonicalLaneEdgeSource {
                     source_module_index: u32::try_from(module_index).map_err(|_| {
                         arena_overflow(
@@ -323,18 +332,18 @@ impl HirBase {
                         )
                     })?,
                     hir_key: key,
-                });
+                })?;
             }
         }
         // 第二遍只解析已经规范化的引用序列。未知目标继续收集到有界诊断集合中；该边的
         // 临时区间不会在失败时泄漏，因为整个 HirUnit 仅在零错误后提交。
-        let mut references = Vec::with_capacity(reference_capacity);
+        let mut references = pass.vec(reference_capacity)?;
         let mut diagnostics = DiagnosticCollector::new(
             unit.limits
                 .source_limits()
                 .get(crate::SourceProcessingDimension::DiagnosticCount),
         );
-        for source_location in canonical_sources {
+        for source_location in canonical_sources.iter().copied() {
             let module_index = usize::try_from(source_location.source_module_index)
                 .expect("u32 module index must fit usize on supported targets");
             let source_module = &unit.modules[module_index];
@@ -362,7 +371,7 @@ impl HirBase {
                 references.push(HirLaneEdgeReference {
                     target,
                     source_span: successor.span.clone(),
-                });
+                })?;
             }
             lane_edges.get_mut(source_location.hir_key).successors =
                 TableRange::try_from_usize(start, references.len().saturating_sub(start)).map_err(
@@ -427,6 +436,7 @@ pub(super) fn derive_identity(
                     existing_span,
                 )
             }
+            IdentityRegistrationError::Accounting(error) => return Err(error.into()),
             IdentityRegistrationError::DigestCollision { existing_span } => {
                 Diagnostic::identity_digest_collision(
                     entity_kind,
@@ -475,7 +485,7 @@ pub(super) fn register_owner(
 /// 把模块限定的所有者限定引用解析为目标实体键；未命中时推送未知目标诊断并返回 `None`。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn resolve_reference<M, K: Copy>(
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     symbols: &SymbolTable<K>,
     reference: &OwnedEntityReference<M>,
     source_kind: EntityKind,

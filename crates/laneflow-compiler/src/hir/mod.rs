@@ -33,6 +33,7 @@ mod tests;
 use crate::arena::{ArenaKey, ArenaKeyOverflow};
 use crate::declaration::{LaneEdgeDeclaration, TypedAstDeclaration};
 use crate::geometry_profile::GeometryCompilationProfiles;
+use crate::ledger::{BoundedVec, PassBudget};
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use base::{
@@ -209,69 +210,132 @@ pub(crate) type HirParticipantStreamKey = ArenaKey<HirParticipantStreamTag>;
 /// `peak_controlled_live_bytes` 另保存资源预检已经计算的输入、查找表和暂存区共存峰值。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirUnit {
-    pub(crate) policies: Box<[HirPolicy]>,
+    pub(crate) policies: crate::ledger::Frozen<HirPolicy>,
     /// 全编译单元唯一的道路几何编译档；无 RoadEditing 规范几何时为 `None`。
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
-    pub(crate) modules: Box<[HirModule]>,
+    pub(crate) modules: crate::ledger::Frozen<HirModule>,
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) imports: Box<[HirImport]>,
-    pub(crate) lane_edges: Box<[HirLaneEdge]>,
-    pub(crate) lane_edge_references: Box<[HirLaneEdgeReference]>,
-    pub(crate) road_corridors: Box<[HirRoadCorridor]>,
-    pub(crate) corridor_elements: Box<[HirCorridorElement]>,
-    pub(crate) road_sections: Box<[HirRoadSection]>,
-    pub(crate) authoring_lanes: Box<[HirAuthoringLane]>,
-    pub(crate) authoring_lane_edges: Box<[HirAuthoringLaneEdge]>,
-    pub(crate) lane_groups: Box<[HirLaneGroup]>,
-    pub(crate) lane_group_members: Box<[HirLaneGroupMember]>,
-    pub(crate) facility_bands: Box<[HirFacilityBand]>,
-    pub(crate) junctions: Box<[HirJunction]>,
-    pub(crate) movements: Box<[HirMovement]>,
-    pub(crate) junction_movements: Box<[HirJunctionMovement]>,
-    pub(crate) maneuver_paths: Box<[HirManeuverPath]>,
-    pub(crate) movement_maneuver_paths: Box<[HirMovementManeuverPath]>,
-    pub(crate) maneuver_path_edges: Box<[HirManeuverPathEdge]>,
-    pub(crate) junction_internal_edges: Box<[HirJunctionInternalEdge]>,
-    pub(crate) stop_lines: Box<[HirStopLine]>,
-    pub(crate) maneuver_gates: Box<[HirManeuverGate]>,
-    pub(crate) waiting_zones: Box<[HirWaitingZone]>,
-    pub(crate) maneuver_path_gates: Box<[HirManeuverPathGate]>,
-    pub(crate) maneuver_path_waiting_zones: Box<[HirManeuverPathWaitingZone]>,
-    pub(crate) stop_line_maneuver_gates: Box<[HirStopLineManeuverGate]>,
-    pub(crate) signal_groups: Box<[HirSignalGroup]>,
-    pub(crate) signal_controllers: Box<[HirSignalController]>,
-    pub(crate) signal_controller_groups: Box<[HirSignalControllerGroup]>,
-    pub(crate) signal_phases: Box<[HirSignalPhase]>,
-    pub(crate) signal_phase_states: Box<[HirSignalPhaseState]>,
-    pub(crate) signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
-    pub(crate) conflict_zones: Box<[HirConflictZone]>,
-    pub(crate) participant_streams: Box<[HirParticipantStream]>,
-    pub(crate) conflict_passages: Box<[HirConflictPassage]>,
-    pub(crate) conflict_zone_streams: Box<[HirConflictZoneStream]>,
-    pub(crate) parking_facilities: Box<[HirParkingFacility]>,
-    pub(crate) parking_spaces: Box<[HirParkingSpace]>,
-    pub(crate) parking_facility_spaces: Box<[HirParkingFacilitySpace]>,
-    pub(crate) parking_facility_virtual_entries: Box<[HirParkingLaneAnchor]>,
-    pub(crate) parking_facility_virtual_exits: Box<[HirParkingLaneAnchor]>,
-    pub(crate) participant_classes: Box<[HirParticipantClass]>,
-    pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
-    pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
-    pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
-    pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
-    pub(crate) conflict_zone_regions: Box<[HirConflictZoneRegion]>,
-    pub(crate) geometry_source_ranges: Box<[HirGeometrySourceRange]>,
-    pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
-    pub(crate) conflict_region_points: Box<[HirCanonicalPoint2F32]>,
-    pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
-    pub(crate) access_rules: Box<[HirAccessRule]>,
-    pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
+    pub(crate) imports: crate::ledger::Frozen<HirImport>,
+    pub(crate) lane_edges: crate::ledger::Frozen<HirLaneEdge>,
+    pub(crate) lane_edge_references: crate::ledger::Frozen<HirLaneEdgeReference>,
+    pub(crate) road_corridors: crate::ledger::Frozen<HirRoadCorridor>,
+    pub(crate) corridor_elements: crate::ledger::Frozen<HirCorridorElement>,
+    pub(crate) road_sections: crate::ledger::Frozen<HirRoadSection>,
+    pub(crate) authoring_lanes: crate::ledger::Frozen<HirAuthoringLane>,
+    pub(crate) authoring_lane_edges: crate::ledger::Frozen<HirAuthoringLaneEdge>,
+    pub(crate) lane_groups: crate::ledger::Frozen<HirLaneGroup>,
+    pub(crate) lane_group_members: crate::ledger::Frozen<HirLaneGroupMember>,
+    pub(crate) facility_bands: crate::ledger::Frozen<HirFacilityBand>,
+    pub(crate) junctions: crate::ledger::Frozen<HirJunction>,
+    pub(crate) movements: crate::ledger::Frozen<HirMovement>,
+    pub(crate) junction_movements: crate::ledger::Frozen<HirJunctionMovement>,
+    pub(crate) maneuver_paths: crate::ledger::Frozen<HirManeuverPath>,
+    pub(crate) movement_maneuver_paths: crate::ledger::Frozen<HirMovementManeuverPath>,
+    pub(crate) maneuver_path_edges: crate::ledger::Frozen<HirManeuverPathEdge>,
+    pub(crate) junction_internal_edges: crate::ledger::Frozen<HirJunctionInternalEdge>,
+    pub(crate) stop_lines: crate::ledger::Frozen<HirStopLine>,
+    pub(crate) maneuver_gates: crate::ledger::Frozen<HirManeuverGate>,
+    pub(crate) waiting_zones: crate::ledger::Frozen<HirWaitingZone>,
+    pub(crate) maneuver_path_gates: crate::ledger::Frozen<HirManeuverPathGate>,
+    pub(crate) maneuver_path_waiting_zones: crate::ledger::Frozen<HirManeuverPathWaitingZone>,
+    pub(crate) stop_line_maneuver_gates: crate::ledger::Frozen<HirStopLineManeuverGate>,
+    pub(crate) signal_groups: crate::ledger::Frozen<HirSignalGroup>,
+    pub(crate) signal_controllers: crate::ledger::Frozen<HirSignalController>,
+    pub(crate) signal_controller_groups: crate::ledger::Frozen<HirSignalControllerGroup>,
+    pub(crate) signal_phases: crate::ledger::Frozen<HirSignalPhase>,
+    pub(crate) signal_phase_states: crate::ledger::Frozen<HirSignalPhaseState>,
+    pub(crate) signal_group_maneuver_gates: crate::ledger::Frozen<HirSignalGroupManeuverGate>,
+    pub(crate) conflict_zones: crate::ledger::Frozen<HirConflictZone>,
+    pub(crate) participant_streams: crate::ledger::Frozen<HirParticipantStream>,
+    pub(crate) conflict_passages: crate::ledger::Frozen<HirConflictPassage>,
+    pub(crate) conflict_zone_streams: crate::ledger::Frozen<HirConflictZoneStream>,
+    pub(crate) parking_facilities: crate::ledger::Frozen<HirParkingFacility>,
+    pub(crate) parking_spaces: crate::ledger::Frozen<HirParkingSpace>,
+    pub(crate) parking_facility_spaces: crate::ledger::Frozen<HirParkingFacilitySpace>,
+    pub(crate) parking_facility_virtual_entries: crate::ledger::Frozen<HirParkingLaneAnchor>,
+    pub(crate) parking_facility_virtual_exits: crate::ledger::Frozen<HirParkingLaneAnchor>,
+    pub(crate) participant_classes: crate::ledger::Frozen<HirParticipantClass>,
+    pub(crate) vehicle_profiles: crate::ledger::Frozen<HirVehicleProfile>,
+    pub(crate) canonical_frames: crate::ledger::Frozen<HirCanonicalFrame>,
+    pub(crate) lane_edge_geometries: crate::ledger::Frozen<HirLaneEdgeGeometry>,
+    pub(crate) facility_band_geometries: crate::ledger::Frozen<HirFacilityBandGeometry>,
+    pub(crate) conflict_zone_regions: crate::ledger::Frozen<HirConflictZoneRegion>,
+    pub(crate) geometry_source_ranges: crate::ledger::Frozen<HirGeometrySourceRange>,
+    pub(crate) canonical_points: crate::ledger::Frozen<HirCanonicalPoint3F32>,
+    pub(crate) conflict_region_points: crate::ledger::Frozen<HirCanonicalPoint2F32>,
+    pub(crate) spatial_segments: crate::ledger::Frozen<HirSpatialSegment>,
+    pub(crate) access_rules: crate::ledger::Frozen<HirAccessRule>,
+    pub(crate) access_rule_participant_classes:
+        crate::ledger::Frozen<HirAccessRuleParticipantClass>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
-    /// HIR 输出持有的编译账本授予：主编译遍的持久表与策略绑定新增的存储；只为随 HIR
-    /// 释放归还额度而持有。
-    #[allow(dead_code)]
-    pub(crate) ledger_grants: [crate::ledger::OutputGrant; 2],
+    /// 策略记录内嵌的策略值载荷集中持有的授予；各表的授予随表持有。
+    pub(crate) policy_payloads: crate::ledger::OutputGrant,
+}
+
+impl HirUnit {
+    /// HIR 各表与策略存储持有的授予字节之和。
+    pub(crate) fn granted_bytes(&self) -> u64 {
+        [
+            self.policies.granted_bytes(),
+            self.modules.granted_bytes(),
+            self.imports.granted_bytes(),
+            self.lane_edges.granted_bytes(),
+            self.lane_edge_references.granted_bytes(),
+            self.road_corridors.granted_bytes(),
+            self.corridor_elements.granted_bytes(),
+            self.road_sections.granted_bytes(),
+            self.authoring_lanes.granted_bytes(),
+            self.authoring_lane_edges.granted_bytes(),
+            self.lane_groups.granted_bytes(),
+            self.lane_group_members.granted_bytes(),
+            self.facility_bands.granted_bytes(),
+            self.junctions.granted_bytes(),
+            self.movements.granted_bytes(),
+            self.junction_movements.granted_bytes(),
+            self.maneuver_paths.granted_bytes(),
+            self.movement_maneuver_paths.granted_bytes(),
+            self.maneuver_path_edges.granted_bytes(),
+            self.junction_internal_edges.granted_bytes(),
+            self.stop_lines.granted_bytes(),
+            self.maneuver_gates.granted_bytes(),
+            self.waiting_zones.granted_bytes(),
+            self.maneuver_path_gates.granted_bytes(),
+            self.maneuver_path_waiting_zones.granted_bytes(),
+            self.stop_line_maneuver_gates.granted_bytes(),
+            self.signal_groups.granted_bytes(),
+            self.signal_controllers.granted_bytes(),
+            self.signal_controller_groups.granted_bytes(),
+            self.signal_phases.granted_bytes(),
+            self.signal_phase_states.granted_bytes(),
+            self.signal_group_maneuver_gates.granted_bytes(),
+            self.conflict_zones.granted_bytes(),
+            self.participant_streams.granted_bytes(),
+            self.conflict_passages.granted_bytes(),
+            self.conflict_zone_streams.granted_bytes(),
+            self.parking_facilities.granted_bytes(),
+            self.parking_spaces.granted_bytes(),
+            self.parking_facility_spaces.granted_bytes(),
+            self.parking_facility_virtual_entries.granted_bytes(),
+            self.parking_facility_virtual_exits.granted_bytes(),
+            self.participant_classes.granted_bytes(),
+            self.vehicle_profiles.granted_bytes(),
+            self.canonical_frames.granted_bytes(),
+            self.lane_edge_geometries.granted_bytes(),
+            self.facility_band_geometries.granted_bytes(),
+            self.conflict_zone_regions.granted_bytes(),
+            self.geometry_source_ranges.granted_bytes(),
+            self.canonical_points.granted_bytes(),
+            self.conflict_region_points.granted_bytes(),
+            self.spatial_segments.granted_bytes(),
+            self.access_rules.granted_bytes(),
+            self.access_rule_participant_classes.granted_bytes(),
+            self.policy_payloads.bytes(),
+        ]
+        .into_iter()
+        .fold(0, u64::saturating_add)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -300,14 +364,14 @@ struct HirParts {
 impl HirParts {
     /// 原子装配 `HirUnit`：消费全部部件并转为平坦 boxed 表；全部可失败阶段在此之前
     /// 已经完成，本函数不再引入新的失败点。
-    fn finish(self, plan: &HirBuildPlan) -> HirUnit {
-        HirUnit {
-            policies: Box::default(),
+    fn finish(self, plan: &HirBuildPlan) -> Result<HirUnit, DiagnosticBundle> {
+        Ok(HirUnit {
+            policies: Default::default(),
             geometry_profiles: self.spatial.geometry_profiles,
-            modules: self.base.modules.into_boxed_slice(),
-            imports: self.base.imports.into_boxed_slice(),
-            lane_edges: self.base.lane_edges.into_boxed_slice(),
-            lane_edge_references: self.base.lane_edge_references.into_boxed_slice(),
+            modules: self.base.modules.freeze()?,
+            imports: self.base.imports.freeze()?,
+            lane_edges: self.base.lane_edges.freeze()?,
+            lane_edge_references: self.base.lane_edge_references.freeze()?,
             road_corridors: self.cross_section.road_corridors,
             corridor_elements: self.cross_section.corridor_elements,
             road_sections: self.cross_section.road_sections,
@@ -358,8 +422,8 @@ impl HirParts {
             access_rule_participant_classes: self.access.access_rule_participant_classes,
             hir_record_count: plan.memory.hir_record_count,
             controlled_live_bytes: plan.memory.persistent_bytes,
-            ledger_grants: Default::default(),
-        }
+            policy_payloads: Default::default(),
+        })
     }
 }
 
@@ -389,7 +453,7 @@ pub(crate) fn build_hir_in(
     let plan = HirBuildPlan::analyze(unit);
     let pass = plan.check_limits(unit, ledger)?;
 
-    let (mut base, mut identities) = HirBase::build(unit, &plan)?;
+    let (mut base, mut identities) = HirBase::build(unit, &plan, &pass)?;
 
     let cross_section = build_cross_section_hir(
         unit,
@@ -399,6 +463,7 @@ pub(crate) fn build_hir_in(
         &base.lane_edge_references,
         &base.lane_edge_symbols,
         &mut identities,
+        &pass,
     )?;
     let mut junction = build_junction_hir(
         unit,
@@ -409,6 +474,7 @@ pub(crate) fn build_hir_in(
         &base.lane_edge_symbols,
         &cross_section.authoring_lane_edges,
         &mut identities,
+        &pass,
     )?;
     // 仅有的两条跨领域写边之一：control 回写 junction 机动路径的 maneuver_gates /
     // waiting_zones 区间；读者仅 MIR。
@@ -422,6 +488,7 @@ pub(crate) fn build_hir_in(
         &mut junction.maneuver_paths,
         &junction.maneuver_path_edges,
         &mut identities,
+        &pass,
     )?;
     // 仅有的两条跨领域写边之二：signal 回写 control 机动门的 signal_control；读者仅 MIR。
     let signal = build_signal_hir(
@@ -430,6 +497,7 @@ pub(crate) fn build_hir_in(
         &base.module_lookup,
         &mut control.maneuver_gates,
         &mut identities,
+        &pass,
     )?;
     let parking = build_parking_hir(
         unit,
@@ -439,6 +507,7 @@ pub(crate) fn build_hir_in(
         &base.lane_edge_symbols,
         plan.spatial.lane_edge_geometries > 0,
         &mut identities,
+        &pass,
     )?;
     let mut spatial = build_spatial_hir(
         unit,
@@ -454,6 +523,7 @@ pub(crate) fn build_hir_in(
             junction_internal_edges: &junction.junction_internal_edges,
         },
         &mut identities,
+        &pass,
     )?;
     close_parking_anchors_to_emitted_length_mm(
         &parking,
@@ -475,6 +545,7 @@ pub(crate) fn build_hir_in(
         &control.maneuver_path_gates,
         &control.waiting_zones,
         &mut identities,
+        &pass,
     )?;
     attach_conflict_zone_regions(
         unit,
@@ -482,6 +553,7 @@ pub(crate) fn build_hir_in(
         &base.module_lookup,
         &conflict.conflict_zones,
         &mut spatial,
+        &pass,
     )?;
     let access = build_access_hir(
         unit,
@@ -491,6 +563,7 @@ pub(crate) fn build_hir_in(
         &cross_section,
         &junction.maneuver_paths,
         &mut identities,
+        &pass,
     )?;
     // 完整规范原像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
     // 避免在 HIR 与 MIR 中复制可由稳定键和父项重建的 identity envelope。
@@ -505,14 +578,16 @@ pub(crate) fn build_hir_in(
         spatial,
         access,
     }
-    .finish(&plan);
-    let output = pass
-        .grant_bytes(hir.controlled_live_bytes)
-        .map_err(|error| ledger_error(unit, error))?;
-    hir.ledger_grants[0] = crate::ledger::OutputGrant::new(output);
-    policy::bind(unit, ledger, &mut hir, &mut identities)?;
+    .finish(&plan)?;
+    policy::bind(unit, &pass, &plan.memory.policy, &mut hir, &mut identities)?;
+    // 身份登记表与全部查找表只服务本阶段；编译遍结束时只剩 HIR 各表与策略存储。
     drop(identities);
-    pass.finish(plan.memory.persistent_bytes)
+    // HIR 计划的持久表项是计数上界；转为输出的是 HIR 各表与策略存储实际持有的授予，
+    // 其余授予此时必须已全部释放。
+    let output_bytes = hir.granted_bytes();
+    debug_assert!(output_bytes <= plan.memory.output_bytes);
+    hir.controlled_live_bytes = output_bytes;
+    pass.finish(output_bytes)
         .map_err(|error| ledger_error(unit, error))?;
     Ok(hir)
 }
@@ -597,15 +672,45 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
     }
 }
 
+/// 以编译遍授予创建长度为 `len`、每项为 `value` 的序列。
+fn filled<T: Clone>(
+    pass: &PassBudget<'_>,
+    len: usize,
+    value: T,
+) -> Result<BoundedVec<T>, crate::ledger::LedgerError> {
+    let mut items = pass.vec(len)?;
+    items.resize(len, value)?;
+    Ok(items)
+}
+
+/// 以编译遍授予收集迭代器的全部元素：先遍历一次克隆计数，再按计数授予并写入。
+///
+/// 只用于无副作用的筛选迭代器；长度已知的迭代器直接用 [`PassBudget::collect`]。
+fn collect_in<I>(
+    pass: &PassBudget<'_>,
+    items: I,
+) -> Result<BoundedVec<I::Item>, crate::ledger::LedgerError>
+where
+    I: Iterator + Clone,
+{
+    let mut values = pass.vec(items.clone().count())?;
+    values.try_extend(items)?;
+    Ok(values)
+}
+
 fn count_to_usize(count: u64, limits: &crate::CompileProfile) -> Result<usize, DiagnosticBundle> {
     usize::try_from(count).map_err(|_| arena_overflow(ArenaKeyOverflow, limits, None))
 }
 
+/// 阶段表追加失败的诊断：键无法表示按 HIR 记录数超限报告，账本拒绝按资源记账报告。
 fn arena_overflow(
-    _: ArenaKeyOverflow,
+    error: impl Into<crate::arena::ArenaPushError>,
     limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
+    if let crate::arena::ArenaPushError::Ledger(error) = error.into() {
+        return DiagnosticBundle::single(Diagnostic::from_ledger_error(error, primary_span, None));
+    }
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::HirRecordCount,
         limits

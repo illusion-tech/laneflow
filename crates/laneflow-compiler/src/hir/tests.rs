@@ -1005,9 +1005,14 @@ fn typed_symbol_table_distinguishes_equal_local_keys_under_different_owners() {
     assert_eq!(right_address.owner_local_keys()[0].as_ref(), "section-b");
 
     let module = HirModuleKey::from_raw(0);
-    let mut symbols = SymbolTable::new([2]);
-    symbols.insert(module, left_address.clone(), 11_u32);
-    symbols.insert(module, right_address.clone(), 29_u32);
+    let pass = crate::ledger::test_pass();
+    let mut symbols = SymbolTable::new(&pass, [2].into_iter()).unwrap();
+    symbols
+        .insert(module, left_address.clone(), 11_u32)
+        .unwrap();
+    symbols
+        .insert(module, right_address.clone(), 29_u32)
+        .unwrap();
     assert_eq!(symbols.get(module, &left_address), Some(11));
     assert_eq!(symbols.get(module, &right_address), Some(29));
 

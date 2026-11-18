@@ -1,6 +1,6 @@
 //! 空间领域 HIR：规范坐标框架、车道边几何与几何来源映射的记录与构建。
 
-use std::collections::HashMap;
+use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -17,7 +17,7 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::spatial_freeze::{
-    check_spatial_direction, freeze_canonical_polyline, freeze_conflict_zone_region,
+    FreezeFailure, check_spatial_direction, freeze_canonical_polyline, freeze_conflict_zone_region,
     freeze_spatial_polyline,
 };
 use crate::{
@@ -31,6 +31,7 @@ use super::{
     SpatialCounts, SymbolTable, arena_overflow, count_to_usize, declaration_header,
     derive_identity, lane_edge_declaration, resolve_reference,
 };
+use super::{collect_in, filled};
 
 /// 已冻结稳定身份的规范坐标框架。
 ///
@@ -121,14 +122,14 @@ pub(crate) struct HirSpatialSegment {
 #[derive(Default)]
 pub(crate) struct SpatialHir {
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
-    pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
-    pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
-    pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
-    pub(crate) conflict_zone_regions: Box<[HirConflictZoneRegion]>,
-    pub(crate) geometry_source_ranges: Box<[HirGeometrySourceRange]>,
-    pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
-    pub(crate) conflict_region_points: Box<[HirCanonicalPoint2F32]>,
-    pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
+    pub(crate) canonical_frames: crate::ledger::Frozen<HirCanonicalFrame>,
+    pub(crate) lane_edge_geometries: crate::ledger::Frozen<HirLaneEdgeGeometry>,
+    pub(crate) facility_band_geometries: crate::ledger::Frozen<HirFacilityBandGeometry>,
+    pub(crate) conflict_zone_regions: crate::ledger::Frozen<HirConflictZoneRegion>,
+    pub(crate) geometry_source_ranges: crate::ledger::Frozen<HirGeometrySourceRange>,
+    pub(crate) canonical_points: crate::ledger::Frozen<HirCanonicalPoint3F32>,
+    pub(crate) conflict_region_points: crate::ledger::Frozen<HirCanonicalPoint2F32>,
+    pub(crate) spatial_segments: crate::ledger::Frozen<HirSpatialSegment>,
 }
 
 /// 待冻结的车道边中心线几何输入及其来源区间。
@@ -170,9 +171,10 @@ pub(crate) struct PendingConflictZoneRegion<'a> {
 pub(crate) fn build_spatial_hir(
     unit: &CompilationUnit,
     counts: &SpatialCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     context: SpatialHirContext<'_>,
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<SpatialHir, DiagnosticBundle> {
     let SpatialHirContext {
         lane_edges,
@@ -190,46 +192,53 @@ pub(crate) fn build_spatial_hir(
         return Ok(SpatialHir::default());
     }
 
-    let mut frames = TypedArena::<HirCanonicalFrameTag, HirCanonicalFrame>::with_capacity(
+    let mut frames = TypedArena::<HirCanonicalFrameTag, HirCanonicalFrame>::granted(
+        pass,
         count_to_usize(counts.canonical_frames, &unit.limits)?,
-    );
-    let mut geometries: Vec<HirLaneEdgeGeometry> =
-        Vec::with_capacity(count_to_usize(counts.lane_edge_geometries, &unit.limits)?);
-    let mut facility_geometries: Vec<HirFacilityBandGeometry> = Vec::with_capacity(count_to_usize(
+    )?;
+    let mut geometries: BoundedVec<HirLaneEdgeGeometry> =
+        pass.vec(count_to_usize(counts.lane_edge_geometries, &unit.limits)?)?;
+    let mut facility_geometries: BoundedVec<HirFacilityBandGeometry> = pass.vec(count_to_usize(
         counts.facility_band_geometries,
         &unit.limits,
-    )?);
+    )?)?;
     let mut geometry_source_ranges =
-        Vec::with_capacity(count_to_usize(counts.geometry_source_ranges, &unit.limits)?);
-    let mut points = Vec::with_capacity(count_to_usize(counts.canonical_points, &unit.limits)?);
-    let mut segments = Vec::with_capacity(count_to_usize(counts.spatial_segments, &unit.limits)?);
-    let mut pending_geometries: Vec<Option<PendingSpatialGeometry<'_>>> =
-        (0..lane_edges.len()).map(|_| None).collect();
-    let mut pending_facility_geometries: Vec<Option<PendingSpatialGeometry<'_>>> =
-        (0..facility_bands.len()).map(|_| None).collect();
-    let mut facility_frame_assignments: Vec<Option<SpatialFrameAssignment>> =
-        (0..facility_bands.len()).map(|_| None).collect();
-    let mut frame_assignments: Vec<Option<SpatialFrameAssignment>> =
-        (0..lane_edges.len()).map(|_| None).collect();
-    let mut geometry_index_by_edge = vec![None::<usize>; lane_edges.len()];
-    let mut internal_edge_flags = vec![0_u8; lane_edges.len()];
+        pass.vec(count_to_usize(counts.geometry_source_ranges, &unit.limits)?)?;
+    let mut points = pass.vec(count_to_usize(counts.canonical_points, &unit.limits)?)?;
+    let mut segments = pass.vec(count_to_usize(counts.spatial_segments, &unit.limits)?)?;
+    let mut pending_geometries: BoundedVec<Option<PendingSpatialGeometry<'_>>> =
+        pass.collect((0..lane_edges.len()).map(|_| None))?;
+    let mut pending_facility_geometries: BoundedVec<Option<PendingSpatialGeometry<'_>>> =
+        pass.collect((0..facility_bands.len()).map(|_| None))?;
+    let mut facility_frame_assignments: BoundedVec<Option<SpatialFrameAssignment>> =
+        pass.collect((0..facility_bands.len()).map(|_| None))?;
+    let mut frame_assignments: BoundedVec<Option<SpatialFrameAssignment>> =
+        pass.collect((0..lane_edges.len()).map(|_| None))?;
+    let mut geometry_index_by_edge = filled(pass, lane_edges.len(), None::<usize>)?;
+    let mut internal_edge_flags = filled(pass, lane_edges.len(), 0_u8)?;
     for relation in junction_internal_edges {
         internal_edge_flags[relation.edge.index()] = 1;
     }
-    let mut frame_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)))
-            .count()
-    }));
-    let mut facility_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::FacilityBand(_)))
-            .count()
-    }));
+    let mut frame_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)))
+                .count()
+        }),
+    )?;
+    let mut facility_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::FacilityBand(_)))
+                .count()
+        }),
+    )?;
     for (index, band) in facility_bands.iter().enumerate() {
         facility_symbols.insert(
             band.module,
@@ -237,7 +246,7 @@ pub(crate) fn build_spatial_hir(
             HirFacilityBandKey::from_raw(
                 u32::try_from(index).expect("FacilityBand arena length is bounded by u32"),
             ),
-        );
+        )?;
     }
     let mut diagnostics = DiagnosticCollector::new(
         unit.limits
@@ -249,18 +258,20 @@ pub(crate) fn build_spatial_hir(
             u32::try_from(module_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)).then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)).then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             let TypedAstDeclaration::CanonicalFrame(source) =
                 &source_module.declarations[declaration_index]
             else {
@@ -300,7 +311,7 @@ pub(crate) fn build_spatial_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            frame_symbols.insert(module_key, source.header.source_address.clone(), frame_key);
+            frame_symbols.insert(module_key, source.header.source_address.clone(), frame_key)?;
 
             for geometry in &source.lane_edge_geometries {
                 let target_module = module_lookup[geometry.lane_edge.module_namespace.as_ref()];
@@ -361,21 +372,23 @@ pub(crate) fn build_spatial_hir(
             u32::try_from(module_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(
-                    declaration,
-                    TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
-                        geometry_authority: LaneEdgeGeometryAuthority::Compiled(_),
-                        ..
-                    })
-                )
-                .then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(
+                        declaration,
+                        TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
+                            geometry_authority: LaneEdgeGeometryAuthority::Compiled(_),
+                            ..
+                        })
+                    )
+                    .then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by_key(|index| {
             &declaration_header(&source_module.declarations[*index]).source_address
         });
@@ -425,7 +438,7 @@ pub(crate) fn build_spatial_hir(
             }
         }
 
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             let source = lane_edge_declaration(&source_module.declarations[declaration_index])
                 .expect("compiled geometry filter must name a LaneEdge");
             let LaneEdgeGeometryAuthority::Compiled(compiled) = &source.geometry_authority else {
@@ -536,7 +549,7 @@ pub(crate) fn build_spatial_hir(
     {
         return Ok(SpatialHir {
             geometry_profiles: compilation_profiles.map(|(profiles, _)| profiles),
-            canonical_frames: frames.into_boxed_slice(),
+            canonical_frames: frames.freeze()?,
             ..SpatialHir::default()
         });
     }
@@ -654,17 +667,19 @@ pub(crate) fn build_spatial_hir(
         return Err(diagnostics.finish());
     }
 
-    let mut geometry_order = pending_geometries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, pending)| {
-            pending.as_ref().map(|_| {
-                HirLaneEdgeKey::from_raw(
-                    u32::try_from(index).expect("LaneEdge arena length is bounded by u32"),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut geometry_order = collect_in(
+        pass,
+        pending_geometries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, pending)| {
+                pending.as_ref().map(|_| {
+                    HirLaneEdgeKey::from_raw(
+                        u32::try_from(index).expect("LaneEdge arena length is bounded by u32"),
+                    )
+                })
+            }),
+    )?;
     geometry_order.sort_unstable_by_key(|edge| {
         (
             frame_assignments[edge.index()]
@@ -675,17 +690,19 @@ pub(crate) fn build_spatial_hir(
             edge.raw(),
         )
     });
-    let mut facility_geometry_order = pending_facility_geometries
-        .iter()
-        .enumerate()
-        .filter_map(|(index, pending)| {
-            pending.as_ref().map(|_| {
-                HirFacilityBandKey::from_raw(
-                    u32::try_from(index).expect("FacilityBand arena length is bounded by u32"),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut facility_geometry_order = collect_in(
+        pass,
+        pending_facility_geometries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, pending)| {
+                pending.as_ref().map(|_| {
+                    HirFacilityBandKey::from_raw(
+                        u32::try_from(index).expect("FacilityBand arena length is bounded by u32"),
+                    )
+                })
+            }),
+    )?;
     facility_geometry_order.sort_unstable_by_key(|band| {
         (
             facility_frame_assignments[band.index()]
@@ -720,7 +737,8 @@ pub(crate) fn build_spatial_hir(
                 &mut segments,
             ) {
                 Ok(frozen) => frozen,
-                Err(violation) => {
+                Err(FreezeFailure::Ledger(error)) => return Err(error.into()),
+                Err(FreezeFailure::Violation(violation)) => {
                     let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                         Some(&frames.get(frame_key).stable_key),
                         &lane_edges.get(edge).stable_key,
@@ -796,7 +814,7 @@ pub(crate) fn build_spatial_hir(
                 })?,
                 arc_length_meters: frozen.arc_length_meters,
                 source_span: pending.source_span.clone(),
-            });
+            })?;
             geometry_index_by_edge[edge.index()] = Some(geometry_index);
             order_cursor = order_cursor.saturating_add(1);
         }
@@ -824,7 +842,8 @@ pub(crate) fn build_spatial_hir(
                 &mut points,
             ) {
                 Ok(frozen) => frozen,
-                Err(violation) => {
+                Err(FreezeFailure::Ledger(error)) => return Err(error.into()),
+                Err(FreezeFailure::Violation(violation)) => {
                     let band_record = &facility_bands[band.index()];
                     let mut diagnostic = Diagnostic::invalid_facility_band_geometry(
                         Some(&frames.get(frame_key).stable_key),
@@ -862,7 +881,7 @@ pub(crate) fn build_spatial_hir(
                     arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
                 })?,
                 source_span: pending.source_span.clone(),
-            });
+            })?;
             facility_order_cursor = facility_order_cursor.saturating_add(1);
         }
         frames.get_mut(frame_key).facility_band_geometries = TableRange::try_from_usize(
@@ -929,12 +948,12 @@ pub(crate) fn build_spatial_hir(
 
     Ok(SpatialHir {
         geometry_profiles: compilation_profiles.map(|(profiles, _)| profiles),
-        canonical_frames: frames.into_boxed_slice(),
-        lane_edge_geometries: geometries.into_boxed_slice(),
-        facility_band_geometries: facility_geometries.into_boxed_slice(),
-        geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
-        canonical_points: points.into_boxed_slice(),
-        spatial_segments: segments.into_boxed_slice(),
+        canonical_frames: frames.freeze()?,
+        lane_edge_geometries: geometries.freeze()?,
+        facility_band_geometries: facility_geometries.freeze()?,
+        geometry_source_ranges: geometry_source_ranges.freeze()?,
+        canonical_points: points.freeze()?,
+        spatial_segments: segments.freeze()?,
         ..SpatialHir::default()
     })
 }
@@ -944,9 +963,10 @@ pub(crate) fn build_spatial_hir(
 pub(crate) fn attach_conflict_zone_regions(
     unit: &CompilationUnit,
     counts: &SpatialCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     conflict_zones: &[HirConflictZone],
     spatial: &mut SpatialHir,
+    pass: &PassBudget<'_>,
 ) -> Result<(), DiagnosticBundle> {
     if counts.conflict_zone_regions == 0 {
         return Ok(());
@@ -954,13 +974,16 @@ pub(crate) fn attach_conflict_zone_regions(
     debug_assert!(spatial.conflict_zone_regions.is_empty());
     debug_assert!(spatial.conflict_region_points.is_empty());
 
-    let mut frame_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|value| matches!(value, TypedAstDeclaration::CanonicalFrame(_)))
-            .count()
-    }));
+    let mut frame_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|value| matches!(value, TypedAstDeclaration::CanonicalFrame(_)))
+                .count()
+        }),
+    )?;
     for (index, frame) in spatial.canonical_frames.iter().enumerate() {
         frame_symbols.insert(
             frame.module,
@@ -972,15 +995,18 @@ pub(crate) fn attach_conflict_zone_regions(
                     Some(frame.source_span.clone()),
                 )
             })?),
-        );
+        )?;
     }
-    let mut zone_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|value| matches!(value, TypedAstDeclaration::ConflictZone(_)))
-            .count()
-    }));
+    let mut zone_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|value| matches!(value, TypedAstDeclaration::ConflictZone(_)))
+                .count()
+        }),
+    )?;
     for (index, zone) in conflict_zones.iter().enumerate() {
         zone_symbols.insert(
             zone.module,
@@ -992,7 +1018,7 @@ pub(crate) fn attach_conflict_zone_regions(
                     Some(zone.source_span.clone()),
                 )
             })?),
-        );
+        )?;
     }
 
     let mut diagnostics = DiagnosticCollector::new(
@@ -1000,9 +1026,8 @@ pub(crate) fn attach_conflict_zone_regions(
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
-    let mut pending =
-        Vec::with_capacity(count_to_usize(counts.conflict_zone_regions, &unit.limits)?);
-    let mut owners = vec![None::<SourceLocation>; conflict_zones.len()];
+    let mut pending = pass.vec(count_to_usize(counts.conflict_zone_regions, &unit.limits)?)?;
+    let mut owners = filled(pass, conflict_zones.len(), None::<SourceLocation>)?;
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
         for source in source_module.conflict_zone_regions.iter() {
@@ -1049,7 +1074,7 @@ pub(crate) fn attach_conflict_zone_regions(
                 source,
                 conflict_zone,
                 canonical_frame,
-            });
+            })?;
         }
     }
     if !diagnostics.is_empty() {
@@ -1066,10 +1091,9 @@ pub(crate) fn attach_conflict_zone_regions(
             })
     });
 
-    let mut regions = Vec::with_capacity(pending.len());
-    let mut points =
-        Vec::with_capacity(count_to_usize(counts.conflict_region_points, &unit.limits)?);
-    for item in pending {
+    let mut regions = pass.vec(pending.len())?;
+    let mut points = pass.vec(count_to_usize(counts.conflict_region_points, &unit.limits)?)?;
+    for item in pending.iter() {
         let zone = &conflict_zones[item.conflict_zone.index()];
         let frame = &spatial.canonical_frames[item.canonical_frame.index()];
         let frozen = match freeze_conflict_zone_region(
@@ -1079,7 +1103,8 @@ pub(crate) fn attach_conflict_zone_regions(
             &mut points,
         ) {
             Ok(value) => value,
-            Err(violation) => {
+            Err(FreezeFailure::Ledger(error)) => return Err(error.into()),
+            Err(FreezeFailure::Violation(violation)) => {
                 let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                     Some(&frame.stable_key),
                     &zone.stable_key,
@@ -1113,21 +1138,21 @@ pub(crate) fn attach_conflict_zone_regions(
             source_location: unit
                 .resolve_source_location_for_module(item.module_order, &item.source.span)?,
             source_span: item.source.span.clone(),
-        });
+        })?;
     }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
     debug_assert_eq!(regions.len(), counts.conflict_zone_regions as usize);
     debug_assert_eq!(points.len(), counts.conflict_region_points as usize);
-    spatial.conflict_zone_regions = regions.into_boxed_slice();
-    spatial.conflict_region_points = points.into_boxed_slice();
+    spatial.conflict_zone_regions = regions.freeze()?;
+    spatial.conflict_region_points = points.freeze()?;
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_region_reference<M, K: Copy>(
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     symbols: &SymbolTable<K>,
     reference: &OwnedEntityReference<M>,
     source_kind: EntityKind,
@@ -1264,7 +1289,7 @@ pub(crate) fn canonical_point_distance(a: HirCanonicalPoint3F32, b: HirCanonical
 fn push_geometry_source_ranges(
     pending: &PendingSpatialGeometry<'_>,
     point_start: usize,
-    output: &mut Vec<HirGeometrySourceRange>,
+    output: &mut BoundedVec<HirGeometrySourceRange>,
     limits: &crate::CompileProfile,
 ) -> Result<(), DiagnosticBundle> {
     for range in pending.source_ranges {
@@ -1282,7 +1307,7 @@ fn push_geometry_source_ranges(
             points,
             source_segment_ordinal: range.source_segment_ordinal,
             source: range.source.clone(),
-        });
+        })?;
     }
     Ok(())
 }

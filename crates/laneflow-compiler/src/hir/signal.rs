@@ -1,5 +1,6 @@
 //! 信号领域 HIR：固定时制信号控制器、信号组与相位的记录与构建。
 
+use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ use super::{
     HirSignalPhaseTag, SignalCounts, SymbolTable, arena_overflow, count_to_usize,
     declaration_header, derive_identity, resolve_reference,
 };
+use super::{collect_in, filled};
 
 /// 机动门的信号层绑定：`Group` 绑定到已解析信号组，`None` 表示无信号约束。
 #[derive(Clone, Debug, PartialEq)]
@@ -93,12 +95,12 @@ pub(crate) struct HirSignalPhaseState {
 /// 信号领域 HIR 部件：信号组、信号控制器、相位、相位状态及门绑定关系表。
 #[derive(Default)]
 pub(crate) struct SignalHir {
-    pub(crate) signal_groups: Box<[HirSignalGroup]>,
-    pub(crate) signal_controllers: Box<[HirSignalController]>,
-    pub(crate) signal_controller_groups: Box<[HirSignalControllerGroup]>,
-    pub(crate) signal_phases: Box<[HirSignalPhase]>,
-    pub(crate) signal_phase_states: Box<[HirSignalPhaseState]>,
-    pub(crate) signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
+    pub(crate) signal_groups: crate::ledger::Frozen<HirSignalGroup>,
+    pub(crate) signal_controllers: crate::ledger::Frozen<HirSignalController>,
+    pub(crate) signal_controller_groups: crate::ledger::Frozen<HirSignalControllerGroup>,
+    pub(crate) signal_phases: crate::ledger::Frozen<HirSignalPhase>,
+    pub(crate) signal_phase_states: crate::ledger::Frozen<HirSignalPhaseState>,
+    pub(crate) signal_group_maneuver_gates: crate::ledger::Frozen<HirSignalGroupManeuverGate>,
 }
 
 /// 构建信号领域 HIR：登记信号组、控制器与相位，并回写机动门的信号绑定。
@@ -106,48 +108,57 @@ pub(crate) struct SignalHir {
 pub(crate) fn build_signal_hir(
     unit: &CompilationUnit,
     counts: &SignalCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     maneuver_gates: &mut [HirManeuverGate],
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<SignalHir, DiagnosticBundle> {
     if counts.entity_count() == 0 && counts.controlled_gates == 0 {
         return Ok(SignalHir::default());
     }
 
-    let mut groups = TypedArena::<HirSignalGroupTag, HirSignalGroup>::with_capacity(
+    let mut groups = TypedArena::<HirSignalGroupTag, HirSignalGroup>::granted(
+        pass,
         count_to_usize(counts.groups, &unit.limits)?,
-    );
-    let mut controllers = TypedArena::<HirSignalControllerTag, HirSignalController>::with_capacity(
+    )?;
+    let mut controllers = TypedArena::<HirSignalControllerTag, HirSignalController>::granted(
+        pass,
         count_to_usize(counts.controllers, &unit.limits)?,
-    );
-    let mut phases = TypedArena::<HirSignalPhaseTag, HirSignalPhase>::with_capacity(
+    )?;
+    let mut phases = TypedArena::<HirSignalPhaseTag, HirSignalPhase>::granted(
+        pass,
         count_to_usize(counts.phases, &unit.limits)?,
-    );
-    let mut group_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::SignalGroup(_)))
-            .count()
-    }));
-    let mut gate_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ManeuverGate(_)))
-            .count()
-    }));
+    )?;
+    let mut group_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::SignalGroup(_)))
+                .count()
+        }),
+    )?;
+    let mut gate_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::ManeuverGate(_)))
+                .count()
+        }),
+    )?;
     for (index, gate) in maneuver_gates.iter().enumerate() {
         let key = HirManeuverGateKey::from_raw(
             u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        gate_symbols.insert(gate.module, gate.source_address.clone(), key);
+        gate_symbols.insert(gate.module, gate.source_address.clone(), key)?;
     }
 
-    let mut group_sources = Vec::with_capacity(count_to_usize(counts.groups, &unit.limits)?);
-    let mut controller_sources =
-        Vec::with_capacity(count_to_usize(counts.controllers, &unit.limits)?);
+    let mut group_sources = pass.vec(count_to_usize(counts.groups, &unit.limits)?)?;
+    let mut controller_sources = pass.vec(count_to_usize(counts.controllers, &unit.limits)?)?;
 
     // 信号组和控制器先按规范模块顺序、模块内稳定键登记，随后才解析所有权和门绑定。
     // 因此控制器、相位或门都可以前向引用同一编译单元内的组。
@@ -157,25 +168,28 @@ pub(crate) fn build_signal_hir(
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(
-                    declaration,
-                    TypedAstDeclaration::SignalGroup(_) | TypedAstDeclaration::SignalController(_)
-                )
-                .then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(
+                        declaration,
+                        TypedAstDeclaration::SignalGroup(_)
+                            | TypedAstDeclaration::SignalController(_)
+                    )
+                    .then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
             (left.entity_kind.code(), &left.source_address)
                 .cmp(&(right.entity_kind.code(), &right.source_address))
         });
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             let source_index = u32::try_from(declaration_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
             match &source_module.declarations[declaration_index] {
@@ -214,12 +228,12 @@ pub(crate) fn build_signal_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    group_symbols.insert(module_key, source.header.source_address.clone(), key);
+                    group_symbols.insert(module_key, source.header.source_address.clone(), key)?;
                     group_sources.push(CanonicalDeclarationSource {
                         source_module_index: module_order,
                         declaration_index: source_index,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 TypedAstDeclaration::SignalController(source) => {
                     let fields = [
@@ -262,7 +276,7 @@ pub(crate) fn build_signal_hir(
                         source_module_index: module_order,
                         declaration_index: source_index,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 _ => unreachable!("signal source filter admitted unrelated declaration"),
             }
@@ -274,11 +288,11 @@ pub(crate) fn build_signal_hir(
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
-    let mut owners: Vec<Option<(HirSignalControllerKey, SourceLocation)>> =
-        vec![None; groups.len()];
+    let mut owners: BoundedVec<Option<(HirSignalControllerKey, SourceLocation)>> =
+        filled(pass, groups.len(), None)?;
     let mut controller_group_rows =
-        Vec::with_capacity(count_to_usize(counts.controller_groups, &unit.limits)?);
-    let mut phase_states = Vec::with_capacity(count_to_usize(counts.phase_states, &unit.limits)?);
+        pass.vec(count_to_usize(counts.controller_groups, &unit.limits)?)?;
+    let mut phase_states = pass.vec(count_to_usize(counts.phase_states, &unit.limits)?)?;
 
     for location in &controller_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
@@ -307,7 +321,7 @@ pub(crate) fn build_signal_hir(
             diagnostics.push(diagnostic);
         }
 
-        let mut resolved_groups = Vec::with_capacity(source.signal_groups.len());
+        let mut resolved_groups = pass.vec(source.signal_groups.len())?;
         let mut first_group_spans =
             HashMap::<HirSignalGroupKey, SourceLocation>::with_capacity(source.signal_groups.len());
         for reference in &source.signal_groups {
@@ -348,7 +362,7 @@ pub(crate) fn build_signal_hir(
                 owners[group_key.index()] = Some((controller_key, reference.span.clone()));
                 groups.get_mut(group_key).controller = controller_key;
             }
-            resolved_groups.push(group_key);
+            resolved_groups.push(group_key)?;
         }
         // 控制器的组声明是集合语义；这里按 StableId 建立 HIR 阶段局部确定顺序，
         // 只用于消除来源排列，不能把它当作最终 LIR 的完整身份顺序。
@@ -362,7 +376,7 @@ pub(crate) fn build_signal_hir(
                 signal_group,
                 source_location: unit
                     .resolve_source_location_for_module(module_order, source_span)?,
-            });
+            })?;
         }
         controllers.get_mut(controller_key).signal_groups = TableRange::try_from_usize(
             group_start,
@@ -372,12 +386,10 @@ pub(crate) fn build_signal_hir(
             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
         })?;
 
-        let group_positions: HashMap<_, _> = resolved_groups
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(position, key)| (key, position))
-            .collect();
+        let mut group_positions = pass.hash_map(resolved_groups.len())?;
+        for (position, key) in resolved_groups.iter().copied().enumerate() {
+            group_positions.insert(key, position)?;
+        }
         let phase_start = phases.len();
         let mut phase_keys =
             HashMap::<Arc<str>, SourceLocation>::with_capacity(source.phases.len());
@@ -464,8 +476,8 @@ pub(crate) fn build_signal_hir(
                 &fields,
             )?);
 
-            let mut states_by_position: Vec<Option<(SignalAspect, SourceLocation)>> =
-                vec![None; resolved_groups.len()];
+            let mut states_by_position: BoundedVec<Option<(SignalAspect, SourceLocation)>> =
+                filled(pass, resolved_groups.len(), None)?;
             for state in &phase_source.states {
                 let Some(group_key) = resolve_reference(
                     module_lookup,
@@ -525,7 +537,7 @@ pub(crate) fn build_signal_hir(
                     aspect: *aspect,
                     source_location: unit
                         .resolve_source_location_for_module(module_order, source_span)?,
-                });
+                })?;
             }
             phases
                 .push(HirSignalPhase {
@@ -594,28 +606,30 @@ pub(crate) fn build_signal_hir(
     }
 
     // 正向门绑定完成后，按组/门稳定身份建立连续反向表；运行时不需要扫描全部门。
-    let mut usages = Vec::<(HirSignalGroupKey, HirManeuverGateKey)>::with_capacity(count_to_usize(
+    let mut usages = pass.vec::<(HirSignalGroupKey, HirManeuverGateKey)>(count_to_usize(
         counts.controlled_gates,
         &unit.limits,
-    )?);
+    )?)?;
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
-        let mut declarations: Vec<_> = source_module
-            .declarations
-            .iter()
-            .filter_map(|declaration| match declaration {
-                TypedAstDeclaration::ManeuverGate(gate) => Some(gate),
-                _ => None,
-            })
-            .collect();
+        let mut declarations: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .filter_map(|declaration| match declaration {
+                    TypedAstDeclaration::ManeuverGate(gate) => Some(gate),
+                    _ => None,
+                }),
+        )?;
         declarations.sort_unstable_by(|left, right| {
             left.header.source_address.cmp(&right.header.source_address)
         });
-        for source in declarations {
+        for source in declarations.iter().copied() {
             let gate_key = gate_symbols
                 .get(module_key, &source.header.source_address)
                 .expect("control HIR must contain every ManeuverGate symbol");
@@ -638,7 +652,7 @@ pub(crate) fn build_signal_hir(
                         source_location: unit
                             .resolve_source_location_for_module(module_order, &reference.span)?,
                     };
-                    usages.push((group_key, gate_key));
+                    usages.push((group_key, gate_key))?;
                 }
             }
         }
@@ -656,7 +670,7 @@ pub(crate) fn build_signal_hir(
     // `usages` 按 StableId 排序，不能再假设其 owner 顺序与 arena key 相同。先从实际
     // 连续分组回填每个 group 的 range，避免 arena 顺序与 StableId 顺序不一致时把
     // 相邻 group 的成员切片错配给当前 group。
-    let mut usage_ranges = vec![(0_usize, 0_usize); groups.len()];
+    let mut usage_ranges = filled(pass, groups.len(), (0_usize, 0_usize))?;
     let mut usage_cursor = 0_usize;
     while usage_cursor < usages.len() {
         let group = usages[usage_cursor].0;
@@ -686,15 +700,17 @@ pub(crate) fn build_signal_hir(
     }
 
     Ok(SignalHir {
-        signal_groups: groups.into_boxed_slice(),
-        signal_controllers: controllers.into_boxed_slice(),
-        signal_controller_groups: controller_group_rows.into_boxed_slice(),
-        signal_phases: phases.into_boxed_slice(),
-        signal_phase_states: phase_states.into_boxed_slice(),
-        signal_group_maneuver_gates: usages
-            .into_iter()
-            .map(|(_, maneuver_gate)| HirSignalGroupManeuverGate { maneuver_gate })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
+        signal_groups: groups.freeze()?,
+        signal_controllers: controllers.freeze()?,
+        signal_controller_groups: controller_group_rows.freeze()?,
+        signal_phases: phases.freeze()?,
+        signal_phase_states: phase_states.freeze()?,
+        signal_group_maneuver_gates: pass
+            .collect(
+                usages
+                    .iter()
+                    .map(|&(_, maneuver_gate)| HirSignalGroupManeuverGate { maneuver_gate }),
+            )?
+            .freeze()?,
     })
 }
