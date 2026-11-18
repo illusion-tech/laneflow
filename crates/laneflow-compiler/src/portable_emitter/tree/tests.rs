@@ -207,7 +207,7 @@ fn emission_report_records_transfer_to_host_and_released_working_sets() {
         candidate.source_map(),
         candidate.semantic_diff(),
     ];
-    // 每份内存候选转交 Arc<[u8]> 副本与 object key，另有一份编译器构建标识副本。
+    // 每份内存候选转交原位编码的 Arc<[u8]> 与 object key，另有一份编译器构建标识副本。
     let transferred = objects
         .iter()
         .map(|object| {

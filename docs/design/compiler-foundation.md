@@ -934,25 +934,30 @@ role 28 车道边几何记录数分别为 1269 或 1887，role 29 设施带几�
 冲突区域记录固定为 12。LIR 五维统计及以上 LFCA 角色投影均有固定期望；发射器另独立核对
 LIR 与 LFCA 的完整规范统计。
 
-在 `a88db830` 的生产编译器与 Windows x86-64、Rust 1.99.1 下，十一组的编译、内存／文件 Genesis
+在 Windows x86-64、Rust 1.99.1 下，十一组的编译、内存／文件 Genesis
 发射、自身 base、身份保持的限速／灯色／几何修改、相位有序关系反转和身份完全不相交的
 差异均在 `FormatLimits::HARD` 接收条件下成功；两个公开策略检查入口及后发射检查通过。
-内存与文件 Genesis 发射对相同输入、provenance 产生相同三对象字节。混合组的来源重排、
+每组的五类内存／文件配对操作对相同输入、provenance 产生相同三对象字节。混合组的来源重排、
 联合压力组仅增长文档键或增加贡献来源时，规范规模与修订身份保持，来源绑定改变；只将发射 provenance
 增长至 128 B 时，修订身份与来源绑定保持，制品结构字节随之增加。
 
-本轮全部操作中，编译受控峰值最大为 **74604208 B**，内存发射为 **275981777 B**，文件
+本轮全部操作中，编译受控峰值最大为 **74604208 B**，内存发射为 **205581467 B**，文件
 发射为 **151218133 B**；三项峰值均出现在全组合压力的身份不相交操作的编译或发射阶段。
 来源记录累计最大为 **8728106 B**。编译峰值采用现有编译资源模型，发射采用资源账本受控
 请求字节，两种口径分别记录，不互相替代；这些数字不是墙钟或实际进程堆峰值。
 
-相同身份不相交操作，原联合压力、策略成员组、贡献来源组与全组合组的内存发射峰值依次
-为 246300029、265444033、246329541、275981777 B。全组合组比 256 MiB 候选预算多
-7546321 B（约 7.2 MiB）；不能再将全部已测内存操作写成该预算的成功承诺。该输入的
-LFSD 为 70400381 B，当前内存发射先编码到缓冲再复制为共享字节，完整两份短暂共存；
-这是已计账的实现成本，也是减少重叠存续的候选优化点，尚无优化后的资格结论。可选方向为
-优化后重测、将重型双侧操作限定为文件发射成功而内存发射可按预算拒绝，或提高宿主预算以
-扩大内存成功承诺；当前保留 256 MiB 作比较基线，不预先选择提高预算。
+内存发射直接在唯一持有的最终共享字节中编码，省去完整中间缓冲及其复制，账本授予仍
+覆盖最终存储和完整生命周期。以 `268c14f9` 为优化前对照，同一全组合身份不相交操作的
+受控峰值从 275981777 B（263.2 MiB）降至 205581467 B（196.1 MiB），减少约 25.5%，
+在 256 MiB 下余量约 59.9 MiB。对照输入曾超限约 7.2 MiB，这条负面证据说明：五维规范
+容量相同并不足以推断双侧差异预算；当前通过来自真实存储优化，未提高预算或缩减输入。
+
+[独立分配器回归][regular-profile-allocations]对同一操作记录的累计分配请求从
+792027752 B 降至 641258705 B，减少 150769047 B，恰为两次 LFCA 编码与各一次 LFSM、
+LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字节均为 115941070 B；候选
+释放后本次请求全部归还。累计请求与账本释放加转交总量仅相差固定控制结构开销，确认
+没有通过漏账制造峰值改善。这是内存请求与存续的结论，不是墙钟性能结论；文件路径峰值
+保持 151218133 B，返回制品字节不变。当前继续采用 256 MiB 候选预算。
 
 **完整候选政策表。**以下来源值为这十一组及其身份不相交变体的逐维上包络，不加额外余量，
 不是任意一万个实体输入的普遍上界。新增形态后须重新取数；所有值尚未登记为公共配置档。
@@ -988,7 +993,7 @@ LFSD 为 70400381 B，当前内存发射先编码到缓冲再复制为共享字�
 
 | 操作资源维度 | 候选值 | 政策依据 |
 | ------------ | -----: | -------- |
-| `CompilerControlledLiveBytes` | 268435456 B | 较小宿主预算的比较基线；全组合内存差异已观察到超限 |
+| `CompilerControlledLiveBytes` | 268435456 B | 保留较小宿主预算；直接共享字节编码后，已测全组合内存差异通过 |
 | `RetainedCapacityBytes` | 16777216 B | 独立宿主复用预算提案；当前零保留实现不能证明该边界的可达性 |
 
 来源格式硬限制独立执行：身份 ASCII 组件 53 B、道路编辑外部文档身份 53 B、发射
@@ -1003,10 +1008,11 @@ provenance 1–128 B 不归并为通用来源字符串限额。文件暂存与�
 模块与文档一一对应，导入边、实体与引用／字符串也有连带约束，规范维度的早期来源检查
 还不能替代最终 LIR、LFCA 与 base 的两端容量准入。
 
-单独收紧操作预算到 256 MiB 后，全组合内存差异返回 `CompilerControlledLiveBytes`
-超限，文件路径成功；文件与充足预算下内存路径的三对象字节一致，文件释放后目录为空，
-同一输出恢复 256 MiB 政策后 Genesis 发射仍成功。此试验只隔离操作预算，其余来源限额
-保留有限百万档，不代表完整候选配置档成功。
+单独收紧操作预算到 256 MiB 后，全组合内存与文件差异均成功，三对象字节一致。再将
+预算设为本次内存发射峰值 205581467 B 时同样成功，低一字节按
+`CompilerControlledLiveBytes` 拒绝；失败后恢复充足预算可复用同一输出，差异字节一致，
+恢复 256 MiB 后 Genesis 发射也成功。文件释放后目录为空。此试验只隔离操作预算，其余
+来源限额保留有限百万档，不代表完整候选配置档成功。
 
 完整候选来源政策目前暴露出另一个阻碍：来源关系限额 105919 可以接收候选来源记录，
 但 MIR 策略检查还将该限额用作 `WorkBudget` 的访问次数上限，稠密信号及全组合输入在
@@ -1576,6 +1582,7 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 [production-baseline]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference/v0.10-compiler-production-baseline.md
 [regular-profile-workloads]: ../../crates/laneflow-compiler/tests/regular_profile_workloads.rs
 [regular-profile-boundaries]: ../../crates/laneflow-compiler/src/regular_profile_tests.rs
+[regular-profile-allocations]: ../../crates/laneflow-compiler/tests/regular_profile_allocations.rs
 [calibration-report]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md
 [calibration-evidence]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json

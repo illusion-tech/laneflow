@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-compiler-resource-ledger"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-17"
+revised_date = "2026-11-18"
 summary = "定义编译、发射与公开检查共用的资源账本。"
 scope = "定义编译、发射与公开检查共用的资源账本。"
 date = "2026-11-16"
@@ -266,7 +266,15 @@ ADR 0035 第 4 节的规范路网容量准入。LFSM 与 LFSD 不另设容量。
 | 目标实体索引          | 按 ADR 0035 第 5 节只建立一次，授予给发射上下文                                 | LFSD 构建结束            |
 | 关系投影自校验        | 策略引用校验与关系元组比较的工作集                                              | 自校验结束               |
 | LFSM 构建、编码与检查 | LFSM 对象树、编码缓冲、`check_portable_policy_sources` 的借用索引与临时序号集合 | 各自结束时               |
-| 内存发射对象字节      | 编码缓冲与转为 `Arc<[u8]>` 时新建的存储共存，转换后释放编码缓冲                 | 候选返回调用方时离开账本 |
+| 内存发射对象字节      | 直接授予最终 `Arc<[u8]>`，在唯一所有权期间原位编码，不建立完整中间缓冲           | 候选返回调用方时离开账本 |
+
+内存路径先以 `Arc` 引用计数头、载荷和对齐的受检 `Layout` 取得授予，再由精确定长的
+`repeat_n(0_u8, length)` 收集为 `Arc<[u8]>`。该迭代器实现 `TrustedLen`，采用标准库承诺的
+[单次分配路径][arc-from-iterator]；不能替换为会先收集 `Vec` 的普通迭代器。编码只通过
+`Arc::get_mut` 取得的唯一可变借用写入，完成后直接移动到不可变候选，不调用会深复制的
+`make_mut`。全过程不引入 `unsafe`；授予覆盖真实最终存储，不能仅从账本中删掉中间缓冲。
+独立分配器回归核对累计请求与账本释放／转交总量，以及候选释放后的实际释放量，防止
+标准库分配路径变化造成整对象缓冲漏账；同一输入的内存／文件路径仍须逐字节一致。
 
 ### 6.2 差异发射
 
@@ -352,3 +360,4 @@ ADR 0035 第 4 节的规范路网容量准入。LFSM 与 LFSD 不另设容量。
 [compiler-limits]: compiler-foundation.md#53-编译资源上限
 [compiler-foundation-context]: compiler-foundation.md#45-已验证源映射输入与编译结果
 [os-probe]: os-probe.md
+[arc-from-iterator]: https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-FromIterator%3CT%3E-for-Arc%3C%5BT%5D%3E
