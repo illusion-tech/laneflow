@@ -9,6 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use laneflow_compiler as compiler_api;
+
 use laneflow_compiler::{
     CompilationOutput, CompileLimits, Compiler, PortableDiffBase, PortableEmissionProvenance,
     PortablePublicationCandidate, check_portable_candidate, check_portable_policy_diff,
@@ -23,10 +25,7 @@ use laneflow_static_contract::{
 
 #[path = "support/regular_profile_workload.rs"]
 mod workload;
-use workload::{WorkloadShape, build_mixed_network};
-
-// 仅供候选预算评估；生产操作仍明确使用百万档，不能把比较报告当作预算准入已实现。
-const CANDIDATE_OPERATION_BYTES: u64 = 256 * 1024 * 1024;
+use workload::{CANDIDATE_OPERATION_BYTES, SHAPES, WorkloadShape, build_mixed_network};
 
 struct StagingDirectory(PathBuf);
 
@@ -46,11 +45,12 @@ struct Expected {
     disjoint_source_bytes: u64,
     signal_states: u64,
     lane_geometries: u32,
+    memory_disjoint_fits: bool,
 }
 
 const JOINT: WorkloadShape = WorkloadShape::for_stable_entities(10_000, 32, 65);
 
-const CASES: [Expected; 8] = [
+const CASES: [Expected; 11] = [
     Expected {
         name: "mixed",
         shape: WorkloadShape::for_stable_entities(10_000, 2, 2),
@@ -60,6 +60,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 1_664_701,
         signal_states: 1_596,
         lane_geometries: 1_269,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "signal-dense",
@@ -70,6 +71,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 5_722_899,
         signal_states: 56_320,
         lane_geometries: 1_887,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "geometry-dense",
@@ -80,6 +82,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 2_569_633,
         signal_states: 1_596,
         lane_geometries: 1_269,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "joint",
@@ -90,6 +93,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 7_095_039,
         signal_states: 56_320,
         lane_geometries: 1_887,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "partitioned",
@@ -103,6 +107,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 7_370_385,
         signal_states: 56_320,
         lane_geometries: 1_887,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "long-documents",
@@ -116,6 +121,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 7_097_048,
         signal_states: 56_320,
         lane_geometries: 1_887,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "curved",
@@ -129,6 +135,7 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 7_104_855,
         signal_states: 56_320,
         lane_geometries: 1_887,
+        memory_disjoint_fits: true,
     },
     Expected {
         name: "combined",
@@ -144,6 +151,40 @@ const CASES: [Expected; 8] = [
         disjoint_source_bytes: 7_397_030,
         signal_states: 56_320,
         lane_geometries: 1_887,
+        memory_disjoint_fits: true,
+    },
+    Expected {
+        name: "policy",
+        shape: SHAPES[8].1,
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
+        lir_records: 380_733,
+        source_bytes: 7_728_159,
+        disjoint_source_bytes: 8_188_547,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+        memory_disjoint_fits: true,
+    },
+    Expected {
+        name: "sources",
+        shape: SHAPES[9].1,
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
+        lir_records: 319_664,
+        source_bytes: 6_771_907,
+        disjoint_source_bytes: 7_210_815,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+        memory_disjoint_fits: true,
+    },
+    Expected {
+        name: "all",
+        shape: SHAPES[10].1,
+        usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 128_511),
+        lir_records: 396_669,
+        source_bytes: 8_267_538,
+        disjoint_source_bytes: 8_728_106,
+        signal_states: 56_320,
+        lane_geometries: 1_887,
+        memory_disjoint_fits: false,
     },
 ];
 
@@ -274,7 +315,12 @@ fn emit_and_check(
     }
     .unwrap();
     let report = candidate.resource_report();
-    assert!(report.peak_live_bytes() <= CANDIDATE_OPERATION_BYTES);
+    if operation == "disjoint" && staging.is_none() && !expected.memory_disjoint_fits {
+        // 有限百万档用于量出负例；256 MiB 的真实拒绝由包内候选预算测试覆盖。
+        assert!(report.peak_live_bytes() > CANDIDATE_OPERATION_BYTES);
+    } else {
+        assert!(report.peak_live_bytes() <= CANDIDATE_OPERATION_BYTES);
+    }
     assert_role_coverage(&candidate, expected);
     check_portable_policy_sources(
         candidate.canonical_artifact().bytes(),
@@ -503,6 +549,30 @@ fn regular_profile_source_metadata_preserves_canonical_usage_and_revision() {
         identities(artifact_view(&changed))
     );
 
+    let sources = &CASES[9];
+    let contributions = compile_case(sources, sources.shape);
+    assert_eq!(
+        output.metrics().semantic_fingerprint(),
+        contributions.metrics().semantic_fingerprint()
+    );
+    let extra_sources = emit_and_check(
+        sources,
+        "contributing-sources",
+        &contributions,
+        PortableDiffBase::Genesis,
+        None,
+    );
+    assert_eq!(base.network_revision(), extra_sources.network_revision());
+    assert_ne!(
+        base.source_collection_digest(),
+        extra_sources.source_collection_digest()
+    );
+    assert!(extra_sources.source_map().byte_length().get() > base.source_map().byte_length().get());
+    assert_eq!(
+        identities(artifact_view(&base)),
+        identities(artifact_view(&extra_sources))
+    );
+
     let provenance = PortableEmissionProvenance::try_new("p".repeat(128)).unwrap();
     let different_provenance = emit_portable_candidate(
         &output,
@@ -528,7 +598,7 @@ fn regular_profile_source_metadata_preserves_canonical_usage_and_revision() {
             > base.canonical_artifact().byte_length().get()
     );
     assert_role_coverage(&different_provenance, ordinary);
-    for candidate in [base, changed, different_provenance] {
+    for candidate in [base, changed, extra_sources, different_provenance] {
         check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
     }
 }
