@@ -14,7 +14,6 @@ mod test_policy;
 use std::alloc::System;
 use std::hint::black_box;
 
-use laneflow_compiler::{Compiler, PortableEmissionProvenance};
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
@@ -22,7 +21,7 @@ use laneflow_runtime::{
 };
 use laneflow_static_network::{
     AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
-    SharedNetworkRevision, SpatialBuildOption, build_shared_network_revision,
+    SharedNetworkRevision, SpatialBuildOption,
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
@@ -44,29 +43,15 @@ fn allocator_live_bytes() -> u64 {
 }
 
 fn build_tier(stable_entities: u32) -> (Vec<u8>, std::sync::Arc<SharedNetworkRevision>, u64) {
-    let unit = synthetic_network::build_mixed_network(
-        synthetic_network::WorkloadShape::for_stable_entities(stable_entities),
-        false,
-    );
-    let output = Compiler::new().compile(unit).expect("compile");
-    let provenance =
-        PortableEmissionProvenance::try_new(format!("laneflow-987-evidence-{stable_entities}"))
-            .unwrap();
-    let candidate = laneflow_compiler::emit_portable_candidate(
-        &output,
-        &provenance,
-        FormatLimits::HARD,
-        laneflow_compiler::PortableDiffBase::Genesis,
-    )
-    .expect("emit candidate");
+    let output = synthetic_network::compile_attestation_network(stable_entities);
+    let (_provenance, candidate) =
+        synthetic_network::emit_attestation_candidate(&output, stable_entities);
     let lfca: Vec<u8> = candidate.canonical_artifact().bytes().to_vec();
     let root_before = allocator_live_bytes();
-    let root = build_shared_network_revision(
-        laneflow_format::check_canonical_network_input(lfca.as_slice(), FormatLimits::HARD)
-            .unwrap(),
+    let root = synthetic_network::build_attestation_revision(
+        &lfca,
         SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
-    )
-    .expect("build root");
+    );
     let root_live_bytes = allocator_live_bytes()
         .checked_sub(root_before)
         .expect("root live bytes");
