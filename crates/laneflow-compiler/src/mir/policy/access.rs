@@ -19,7 +19,7 @@ pub(super) struct AccessIndex {
 impl AccessIndex {
     /// 两遍展开准入规则目标行；先计工作量并核对内存，再分配索引。
     pub(super) fn build(
-        unit: &CompilationUnit,
+        ledger: &crate::ledger::Ledger,
         mir: &MirUnit,
         prior_scratch: u64,
         work: &mut WorkBudget,
@@ -31,7 +31,7 @@ impl AccessIndex {
             Ok(())
         })?;
         let bytes = count.saturating_mul(size_of::<Entry>() as u64);
-        super::validation::budget(unit, mir, prior_scratch.saturating_add(bytes))?;
+        super::validation::budget(ledger, prior_scratch.saturating_add(bytes))?;
         // 每行先消费工作量；具名预算为 u32，支持的平台 usize 至少为 32 位。
         let mut entries = Vec::with_capacity(usize::try_from(count).expect("bounded policy work"));
         visit(mir, |entry| {

@@ -66,7 +66,8 @@ pub(crate) struct LirFreezePlan {
     pub(crate) stage_scratch_bytes: u64,
     pub(crate) output_bytes: u64,
     pub(crate) output_owned_bytes: u64,
-    pub(crate) controlled_live_bytes: u64,
+    /// 本遍计划峰值：阶段暂存与自有输出之和；上游存续由账本记录。
+    pub(crate) stage_bytes: u64,
 }
 
 /// 横断面领域各 LIR 表与关系辅表的记录计数。
@@ -161,7 +162,7 @@ impl LirFreezePlan {
     }
 
     /// 统计全部计数并聚合预算；不分配任何与记录数成正比的集合。
-    pub(crate) fn analyze(unit: &CompilationUnit, mir: &MirUnit) -> Self {
+    pub(crate) fn analyze(mir: &MirUnit) -> Self {
         let lane_edge_count = mir_len(mir.lane_edges.len());
         let successor_count = mir_len(mir.lane_edge_connections.len());
         let cross_section = LirCrossSectionCounts {
@@ -784,11 +785,7 @@ impl LirFreezePlan {
                 access.rule_class_references,
             ))
             .saturating_add(access_regulation_byte_count);
-        let controlled_live_bytes = unit
-            .controlled_live_bytes
-            .saturating_add(mir.controlled_live_bytes)
-            .saturating_add(stage_scratch_bytes)
-            .saturating_add(output_owned_bytes);
+        let stage_bytes = stage_scratch_bytes.saturating_add(output_owned_bytes);
         Self {
             lane_edge_count,
             successor_count,
@@ -806,16 +803,17 @@ impl LirFreezePlan {
             stage_scratch_bytes,
             output_bytes,
             output_owned_bytes,
-            controlled_live_bytes,
+            stage_bytes,
         }
     }
 
     /// 对照编译资源上限预检 LIR 记录数、阶段暂存字节、输出字节与编译器控制存续字节；任一维度超限即聚合返回资源诊断。
-    pub(crate) fn check_limits(
+    pub(crate) fn check_limits<'l>(
         &self,
         unit: &CompilationUnit,
         mir: &MirUnit,
-    ) -> Result<(), DiagnosticBundle> {
+        ledger: &'l crate::ledger::Ledger,
+    ) -> Result<crate::ledger::PassBudget<'l>, DiagnosticBundle> {
         let primary_span = mir.modules.first().map(|module| module.source_span.clone());
         let stable_key = mir
             .modules
@@ -826,16 +824,11 @@ impl LirFreezePlan {
                 .source_limits()
                 .get(crate::SourceProcessingDimension::DiagnosticCount),
         );
-        for violation in [
-            unit.limits.source_limits().exceeded(
-                crate::SourceProcessingDimension::LirRecordCount,
-                self.lir_record_count,
-            ),
-            unit.limits.operation_budget().exceeded(
-                crate::OperationResourceDimension::CompilerControlledLiveBytes,
-                self.controlled_live_bytes,
-            ),
-        ]
+        let admission = ledger.admit_pass(LIR_PASS, crate::ledger::Plan::of(self.stage_bytes));
+        for violation in [unit.limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::LirRecordCount,
+            self.lir_record_count,
+        )]
         .into_iter()
         .flatten()
         {
@@ -853,12 +846,27 @@ impl LirFreezePlan {
                 stable_key.clone(),
             ));
         }
-        if !diagnostics.is_empty() {
-            return Err(diagnostics.finish());
+        let pass = match admission {
+            Ok(pass) => Some(pass),
+            Err(error) => {
+                diagnostics.push(Diagnostic::from_ledger_error(
+                    error,
+                    primary_span.clone(),
+                    stable_key.clone(),
+                ));
+                None
+            }
+        };
+        match pass {
+            Some(pass) if diagnostics.is_empty() => Ok(pass),
+            _ => Err(diagnostics.finish()),
         }
-        Ok(())
     }
 }
+
+/// LIR 冻结编译遍的记账点。
+const LIR_PASS: crate::ledger::PassLabel =
+    crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "lir");
 
 fn mir_len(len: usize) -> u64 {
     u64::try_from(len).unwrap_or(u64::MAX)

@@ -17,7 +17,7 @@ pub(super) struct ProtectedIndex {
 impl ProtectedIndex {
     /// 收集绿灯相位状态并排序构建索引；先校验临时内存预算。
     pub(super) fn build(
-        unit: &CompilationUnit,
+        ledger: &crate::ledger::Ledger,
         mir: &MirUnit,
         prior_bytes: u64,
     ) -> Result<Self, DiagnosticBundle> {
@@ -32,7 +32,7 @@ impl ProtectedIndex {
                 (mir.signal_phases.len() as u64)
                     .saturating_mul(size_of::<Option<(u32, MirConflictZoneKey)>>() as u64),
             );
-        super::validation::budget(unit, mir, prior_bytes.saturating_add(bytes))?;
+        super::validation::budget(ledger, prior_bytes.saturating_add(bytes))?;
         let mut green = Vec::with_capacity(count);
         for (phase, value) in mir.signal_phases.iter().enumerate() {
             for state in &mir.signal_phase_states[value.states.as_usize_range()] {
@@ -198,7 +198,12 @@ mod tests {
                         } else {
                             (0..2).any(|p| green(p, 0) && green(p, 1))
                         };
-                    let mut index = ProtectedIndex::build(&unit, &mir, 0).unwrap();
+                    let mut index = ProtectedIndex::build(
+                        &crate::ledger::Ledger::with_budget(u64::MAX),
+                        &mir,
+                        0,
+                    )
+                    .unwrap();
                     for policy in 0..2 {
                         assert_eq!(
                             index
@@ -261,7 +266,8 @@ mod tests {
                 zone: MirConflictZoneKey::from_raw(0),
             })
             .collect();
-        let mut index = ProtectedIndex::build(&unit, &mir, 0).unwrap();
+        let mut index =
+            ProtectedIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir, 0).unwrap();
         let mut work = WorkBudget::new(unit.limits.operation_budget());
         assert!(
             index

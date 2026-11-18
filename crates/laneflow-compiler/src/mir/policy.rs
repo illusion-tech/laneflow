@@ -9,7 +9,9 @@ mod protected;
 mod targets;
 mod validation;
 mod work;
+#[cfg(test)]
 pub(crate) use validation::validate;
+pub(crate) use validation::validate_in;
 
 #[cfg(test)]
 fn fixture() -> (CompilationUnit, MirUnit) {

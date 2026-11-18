@@ -268,7 +268,10 @@ pub(crate) struct HirUnit {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
-    pub(crate) peak_controlled_live_bytes: u64,
+    /// HIR 输出持有的编译账本授予：主编译遍的持久表与策略绑定新增的存储；只为随 HIR
+    /// 释放归还额度而持有。
+    #[allow(dead_code)]
+    pub(crate) ledger_grants: [crate::ledger::OutputGrant; 2],
 }
 
 #[derive(Clone, Copy)]
@@ -355,7 +358,7 @@ impl HirParts {
             access_rule_participant_classes: self.access.access_rule_participant_classes,
             hir_record_count: plan.memory.hir_record_count,
             controlled_live_bytes: plan.memory.persistent_bytes,
-            peak_controlled_live_bytes: plan.memory.controlled_live_bytes,
+            ledger_grants: Default::default(),
         }
     }
 }
@@ -367,13 +370,24 @@ impl HirParts {
 /// 当 HIR 记录数、阶段暂存区、编译器控制存续字节或 `u32` 表边界超过所选配置档，
 /// 任一来源位置未登记或跨模块错绑，或任一目标稳定键不存在时，返回规范有序诊断。
 /// 失败不会返回部分 HIR。
+#[cfg(test)]
 pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBundle> {
+    let ledger = crate::ledger::Ledger::new(unit.limits.operation_budget());
+    let _unit = ledger.adopt(unit.controlled_live_bytes);
+    build_hir_in(unit, &ledger)
+}
+
+/// 在编译账本上构建 HIR；账本已计入编译单元的初始存续。
+pub(crate) fn build_hir_in(
+    unit: &CompilationUnit,
+    ledger: &crate::ledger::Ledger,
+) -> Result<HirUnit, DiagnosticBundle> {
     validate_source_document_ownership(unit)?;
 
     // 在任何与记录数成正比的阶段分配前，同时预检持久表、lookup 预算和阶段最大暂存区。
-    // scratch 取互斥工作集的最大值而非总和，live peak 则包含输入与当时存续的全部集合。
+    // scratch 取互斥工作集的最大值而非总和；上游存续由账本记录，准入按 L + R + P 核对。
     let plan = HirBuildPlan::analyze(unit);
-    plan.check_limits(unit)?;
+    let pass = plan.check_limits(unit, ledger)?;
 
     let (mut base, mut identities) = HirBase::build(unit, &plan)?;
 
@@ -492,9 +506,27 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         access,
     }
     .finish(&plan);
-    policy::bind(unit, &mut hir, &mut identities)?;
+    let output = pass
+        .grant_bytes(hir.controlled_live_bytes)
+        .map_err(|error| ledger_error(unit, error))?;
+    hir.ledger_grants[0] = crate::ledger::OutputGrant::new(output);
+    policy::bind(unit, ledger, &mut hir, &mut identities)?;
     drop(identities);
+    pass.finish(plan.memory.persistent_bytes)
+        .map_err(|error| ledger_error(unit, error))?;
     Ok(hir)
+}
+
+fn ledger_error(unit: &CompilationUnit, error: crate::ledger::LedgerError) -> DiagnosticBundle {
+    DiagnosticBundle::single(Diagnostic::from_ledger_error(
+        error,
+        unit.modules
+            .first()
+            .map(|module| module.declaration_span().clone()),
+        unit.modules
+            .first()
+            .map(|module| module.descriptor().authoring_namespace_id().into()),
+    ))
 }
 
 /// 在任何 HIR 语义诊断产生前，核对全部模块、导入、声明与关系位置的文档所有权。

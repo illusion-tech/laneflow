@@ -13,10 +13,13 @@ use laneflow_static_contract::{
     SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 
+#[cfg(test)]
 use crate::hir::build_hir;
-use crate::lir::{LirUnit, freeze_lir};
+use crate::lir::LirUnit;
+#[cfg(test)]
+use crate::lir::freeze_lir;
+#[cfg(test)]
 use crate::mir::lower_to_mir;
-use crate::source_map::freeze_source_map;
 use crate::{CompilationUnit, DiagnosticBundle};
 
 #[cfg(test)]
@@ -543,30 +546,32 @@ impl Compiler {
         &mut self,
         unit: CompilationUnit,
     ) -> Result<CompilationOutput, DiagnosticBundle> {
-        let hir = build_hir(&unit)?;
-        let hir_peak_controlled_live_bytes = hir.peak_controlled_live_bytes;
-        let mut mir = lower_to_mir(&unit, &hir)?;
+        // 一次编译是一次顶层操作：编译账本以编译单元的受控存续为初始存续，各阶段按
+        // L + R + P 准入，不再手工累加上游阶段存续。
+        let ledger = crate::ledger::Ledger::new(unit.limits.operation_budget());
+        let inputs = ledger.adopt(unit.controlled_live_bytes);
+        let hir = crate::hir::build_hir_in(&unit, &ledger)?;
+        let mut mir = crate::mir::lower_to_mir_in(&unit, &hir, &ledger)?;
         // MIR 已拥有后继阶段所需的完整语义与来源位置；尽早释放 HIR，避免把阶段共存
         // 时间延长到 LIR/source-map 冻结并破坏资源峰值模型。
         drop(hir);
-        let policy_validation_work_units = crate::mir::validate_policies(&unit, &mut mir)?;
-        Self::finish_compile(
-            unit,
-            mir,
-            hir_peak_controlled_live_bytes,
-            policy_validation_work_units,
-        )
+        let policy_validation_work_units =
+            crate::mir::validate_policies_in(&unit, &mut mir, &ledger)?;
+        Self::finish_compile(unit, mir, ledger, inputs, policy_validation_work_units)
     }
 
-    fn finish_compile(
+    /// 编译收尾：冻结 LIR、执行规范路网容量准入、冻结源映射，并在返回点转交宿主。
+    ///
+    /// `inputs` 是账本中编译单元（以及测试装配时上游阶段）的初始存续授予。
+    pub(crate) fn finish_compile(
         unit: CompilationUnit,
         mir: crate::mir::MirUnit,
-        hir_peak_controlled_live_bytes: u64,
+        ledger: crate::ledger::Ledger,
+        inputs: crate::ledger::Grant,
         policy_validation_work_units: u64,
     ) -> Result<CompilationOutput, DiagnosticBundle> {
         let selected_limits = unit.limits.clone();
-        let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
-        let frozen_lir = freeze_lir(&unit, &mir)?;
+        let frozen_lir = crate::lir::freeze_lir_in(&unit, &mir, &ledger)?;
         let usage = crate::canonical_usage::lir_statistics(&frozen_lir.lir).usage();
         selected_limits
             .canonical_capacity()
@@ -581,20 +586,28 @@ impl Compiler {
         let lir_record_count = frozen_lir.lir.lir_record_count;
         let output_logical_bytes = frozen_lir.lir.output_bytes;
         let semantic_fingerprint = frozen_lir.lir.semantic_digest;
-        let lir_peak_controlled_live_bytes = frozen_lir.lir.peak_controlled_live_bytes;
-        let source_map_input = freeze_source_map(unit, &mir, &frozen_lir)?;
+        let source_map_input =
+            crate::source_map::freeze_source_map_in(unit, &mir, &frozen_lir, &ledger)?;
+        drop(mir);
+        let crate::lir::LirFreezeOutput { mut lir, .. } = frozen_lir;
+        // 返回点转交宿主：LIR 随编译输出返回；编译单元按值移入，其存储随源映射输入返回或
+        // 已在冻结中释放，剩余授予随输出转交。
+        lir.ledger_grant.transfer_to_host();
+        inputs.transfer_to_host();
+        let report = ledger.close().map_err(|error| {
+            DiagnosticBundle::single(crate::Diagnostic::from_ledger_error(
+                error,
+                None::<crate::SourceLocation>,
+                None,
+            ))
+        })?;
         let metrics = CompilationMetrics::from_pipeline(
             lir_record_count,
             output_logical_bytes,
-            hir_peak_controlled_live_bytes
-                .max(mir_peak_controlled_live_bytes)
-                .max(lir_peak_controlled_live_bytes)
-                .max(source_map_input.peak_controlled_live_bytes()),
+            report.peak_committed,
             policy_validation_work_units,
             semantic_fingerprint,
         );
-        drop(mir);
-        let crate::lir::LirFreezeOutput { lir, .. } = frozen_lir;
         Ok(CompilationOutput::from_success(
             ValidatedCanonicalLir { inner: lir },
             source_map_input,

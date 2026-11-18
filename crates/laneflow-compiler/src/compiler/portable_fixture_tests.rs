@@ -961,7 +961,7 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
     let mut unit = full_spatial_portable_fixture_unit();
     let hir = crate::hir::build_hir(&unit).expect("full-spatial HIR");
     let mut mir = crate::mir::lower_to_mir(&unit, &hir).expect("full-spatial MIR");
-    let plan = crate::lir::LirFreezePlan::analyze(&unit, &mir);
+    let plan = crate::lir::LirFreezePlan::analyze(&mir);
 
     assert_eq!(plan.conflict.zones, 1);
     assert_eq!(plan.conflict.streams, 2);
@@ -978,7 +978,7 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
     for zone in &mut mir.conflict_zones {
         zone.participant_streams = crate::arena::TableRange::empty();
     }
-    let without_reverse_closure = crate::lir::LirFreezePlan::analyze(&unit, &mir);
+    let without_reverse_closure = crate::lir::LirFreezePlan::analyze(&mir);
     let expected_reverse_membership_bytes = u64::try_from(
         core::mem::size_of::<laneflow_static_contract::ParticipantStreamOrdinal>() * 4,
     )
@@ -988,7 +988,7 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
         expected_reverse_membership_bytes
     );
     assert_eq!(
-        plan.controlled_live_bytes - without_reverse_closure.controlled_live_bytes,
+        plan.stage_bytes - without_reverse_closure.stage_bytes,
         expected_reverse_membership_bytes
     );
     assert_eq!(
@@ -997,7 +997,7 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
     );
 
     let conflict_zones = core::mem::take(&mut mir.conflict_zones);
-    let without_conflict_zones = crate::lir::LirFreezePlan::analyze(&unit, &mir);
+    let without_conflict_zones = crate::lir::LirFreezePlan::analyze(&mir);
     let expected_zone_scratch_bytes = u64::try_from(
         core::mem::size_of::<u32>() * 2
             + core::mem::size_of::<Vec<laneflow_static_contract::ParticipantStreamOrdinal>>(),
@@ -1014,16 +1014,16 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
     }
 
     // 暂存计入存续总量：计划存续刚好够，差一单位即 fail closed。
-    let exact_live = u32::try_from(plan.controlled_live_bytes).expect("fixture live fits u32");
+    // 编译单元与 MIR 的存续由账本计入，本遍计划峰值叠加其上。
+    let planned_live = unit.controlled_live_bytes + mir.controlled_live_bytes + plan.stage_bytes;
+    let exact_live = u32::try_from(planned_live).expect("fixture live fits u32");
     unit.limits = fixture_profile().with_test_lir_limits(u32::MAX, exact_live);
     let frozen = crate::lir::freeze_lir(&unit, &mir)
         .expect("exact LIR live boundary")
         .lir;
     assert_eq!(frozen.controlled_live_bytes, plan.output_owned_bytes);
-    assert_eq!(
-        frozen.peak_controlled_live_bytes,
-        plan.controlled_live_bytes
-    );
+    // 本遍授予只覆盖自有输出；暂存不进入输出存续。
+    assert!(plan.stage_bytes >= plan.output_owned_bytes);
 
     unit.limits = fixture_profile().with_test_lir_limits(u32::MAX, exact_live - 1);
     let failure = match crate::lir::freeze_lir(&unit, &mir) {
@@ -1036,8 +1036,8 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
             dimension: crate::CompileLimitDimension::CompilerControlledLiveBytes,
             limit,
             observed,
-        } if *limit == plan.controlled_live_bytes - 1
-            && *observed == plan.controlled_live_bytes
+        } if *limit == planned_live - 1
+            && *observed == planned_live
     )));
 }
 

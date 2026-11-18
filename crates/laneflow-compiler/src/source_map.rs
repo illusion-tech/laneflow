@@ -11,7 +11,7 @@ pub(crate) mod policy;
 pub use laneflow_static_contract::SourceRelationRole;
 pub use policy::{PolicySourceTarget, PolicySourceView};
 
-pub(crate) use freeze::freeze_source_map;
+pub(crate) use freeze::freeze_source_map_in;
 
 use laneflow_static_contract::{
     AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal, CanonicalFrameId,
@@ -302,6 +302,8 @@ pub struct ValidatedSourceMapInput {
     access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
     access_relation_sources: Box<[AccessRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
+    /// 源映射冻结完成时的已承诺字节；编译报告取自账本，此值只供测试核对。
+    #[cfg_attr(not(test), allow(dead_code))]
     peak_controlled_live_bytes: u64,
 }
 
@@ -327,6 +329,7 @@ impl ValidatedSourceMapInput {
     }
 
     /// 返回源映射冻结阶段的编译器控制峰值。
+    #[cfg(test)]
     pub(crate) const fn peak_controlled_live_bytes(&self) -> u64 {
         self.peak_controlled_live_bytes
     }

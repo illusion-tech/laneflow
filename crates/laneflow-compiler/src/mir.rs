@@ -10,7 +10,9 @@
 
 use std::sync::Arc;
 mod policy;
+#[cfg(test)]
 pub(crate) use policy::validate as validate_policies;
+pub(crate) use policy::validate_in as validate_policies_in;
 
 use laneflow_static_contract::{
     AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, ConflictZoneId, FacilityBandId,
@@ -624,8 +626,11 @@ pub(crate) struct MirUnit {
     pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) mir_record_count: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) controlled_live_bytes: u64,
-    pub(crate) peak_controlled_live_bytes: u64,
+    /// MIR 输出持有的编译账本授予；只为随 MIR 释放归还额度而持有。
+    #[allow(dead_code)]
+    pub(crate) ledger_grant: crate::ledger::OutputGrant,
 }
 
 /// 将已解析 HIR 降级为连续 MIR 表，并显式重映射全部阶段键。
@@ -635,9 +640,24 @@ pub(crate) struct MirUnit {
 /// 当 MIR 记录、阶段暂存区、编译器控制存续字节或 `u32` 表边界超过所选配置档时，
 /// 返回资源诊断且不返回部分 MIR。输入 HIR 只能由 `build_hir` 成功产生，因此本函数不
 /// 重复执行文本符号解析。
+#[cfg(test)]
 pub(crate) fn lower_to_mir(
     unit: &CompilationUnit,
     hir: &HirUnit,
+) -> Result<MirUnit, DiagnosticBundle> {
+    let ledger = crate::ledger::Ledger::new(unit.limits.operation_budget());
+    let _inputs = ledger.adopt(
+        unit.controlled_live_bytes
+            .saturating_add(hir.controlled_live_bytes),
+    );
+    lower_to_mir_in(unit, hir, &ledger)
+}
+
+/// 在编译账本上把 HIR 降级为 MIR；账本已计入编译单元与 HIR 的存续。
+pub(crate) fn lower_to_mir_in(
+    unit: &CompilationUnit,
+    hir: &HirUnit,
+    ledger: &crate::ledger::Ledger,
 ) -> Result<MirUnit, DiagnosticBundle> {
     // MIR record 指标计全部稳定实体与关系；模块元数据另计入分配和 live-byte 预检。
     // 在任何阶段表分配前先验证记录、暂存映射和 HIR/MIR 同时存续的峰值。
@@ -985,11 +1005,11 @@ pub(crate) fn lower_to_mir(
                 .try_into()
                 .unwrap_or(u64::MAX),
         ));
-    let controlled_live_bytes = unit
-        .controlled_live_bytes
-        .saturating_add(hir.controlled_live_bytes)
-        .saturating_add(mir_owned_bytes)
-        .saturating_add(stage_scratch_bytes);
+    // 上游存续由账本记录；本遍计划峰值是 MIR 自有表与键映射暂存之和。
+    let admission = ledger.admit_pass(
+        MIR_PASS,
+        crate::ledger::Plan::of(mir_owned_bytes.saturating_add(stage_scratch_bytes)),
+    );
     let primary_span = hir.modules.first().map(|module| module.source_span.clone());
     let stable_key = hir
         .modules
@@ -1000,16 +1020,10 @@ pub(crate) fn lower_to_mir(
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
-    for violation in [
-        unit.limits.source_limits().exceeded(
-            crate::SourceProcessingDimension::MirRecordCount,
-            mir_record_count,
-        ),
-        unit.limits.operation_budget().exceeded(
-            crate::OperationResourceDimension::CompilerControlledLiveBytes,
-            controlled_live_bytes,
-        ),
-    ]
+    for violation in [unit.limits.source_limits().exceeded(
+        crate::SourceProcessingDimension::MirRecordCount,
+        mir_record_count,
+    )]
     .into_iter()
     .flatten()
     {
@@ -1027,9 +1041,21 @@ pub(crate) fn lower_to_mir(
             stable_key.clone(),
         ));
     }
-    if !diagnostics.is_empty() {
-        return Err(diagnostics.finish());
-    }
+    let pass = match admission {
+        Ok(pass) => Some(pass),
+        Err(error) => {
+            diagnostics.push(Diagnostic::from_ledger_error(
+                error,
+                primary_span.clone(),
+                stable_key.clone(),
+            ));
+            None
+        }
+    };
+    let pass = match pass {
+        Some(pass) if diagnostics.is_empty() => pass,
+        _ => return Err(diagnostics.finish()),
+    };
 
     // 不依赖 HIR/MIR raw key 数值碰巧一致：每次插入都记录显式 stage-to-stage 映射。
     let mut modules = TypedArena::<MirModuleTag, MirModule>::with_capacity(hir.modules.len());
@@ -1816,6 +1842,15 @@ pub(crate) fn lower_to_mir(
     debug_assert_eq!(modules.len(), hir.modules.len());
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(connections.len(), connection_capacity);
+    let ledger_error = |error| {
+        DiagnosticBundle::single(Diagnostic::from_ledger_error(
+            error,
+            primary_span.clone(),
+            None,
+        ))
+    };
+    let output = pass.grant_bytes(mir_owned_bytes).map_err(ledger_error)?;
+    pass.finish(mir_owned_bytes).map_err(ledger_error)?;
     Ok(MirUnit {
         policies: hir
             .policies
@@ -1883,9 +1918,12 @@ pub(crate) fn lower_to_mir(
         access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
         mir_record_count,
         controlled_live_bytes: mir_owned_bytes,
-        peak_controlled_live_bytes: controlled_live_bytes,
+        ledger_grant: crate::ledger::OutputGrant::new(output),
     })
 }
+
+const MIR_PASS: crate::ledger::PassLabel =
+    crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "mir");
 
 fn mir_key_for_hir(key: HirLaneEdgeKey, mapping: &[MirLaneEdgeKey]) -> MirLaneEdgeKey {
     mapping[key.index()]

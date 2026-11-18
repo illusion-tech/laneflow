@@ -1,6 +1,6 @@
 //! 路权策略阶段的共同诊断与有界计量。
 
-use crate::{CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{Diagnostic, DiagnosticBundle, SourceLocation};
 /// 路权策略在各编译阶段共用的只读数据模型。
 pub(crate) mod model;
 
@@ -104,20 +104,6 @@ pub(crate) fn error(
         violation,
         source.clone(),
     ))
-}
-
-/// 核对策略阶段含暂存在内的存续字节是否超出所选配置档的宿主预算。
-pub(crate) fn check_budget(limits: &CompileProfile, live: u64) -> Result<(), DiagnosticBundle> {
-    let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-    let limit = limits
-        .operation_budget()
-        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
-    if live > limit {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::compile_limit_exceeded(dimension, limit, live),
-        ));
-    }
-    Ok(())
 }
 
 /// 校验单个路权策略声明的模块内局部约束：成员唯一、引用齐备、证据绑定完整。

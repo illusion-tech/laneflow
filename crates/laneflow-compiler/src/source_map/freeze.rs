@@ -11,25 +11,21 @@ struct SourceMapSizing {
     // 暂存不再是限额（ADR 0035）；资源账本第二步把它并入报告，此前保留计算。
     #[allow(dead_code)]
     scratch_bytes: u64,
-    controlled_live_bytes: u64,
+    /// 本阶段工作集：LIR 冻结排列、源映射新增存储与暂存之和；上游存续由账本记录。
+    stage_bytes: u64,
 }
 
 impl SourceMapSizing {
     #[inline]
     fn from_components(
-        unit: &CompilationUnit,
-        mir: &MirUnit,
         frozen_lir: &LirFreezeOutput,
         source_map_new_owned_bytes: u64,
         scratch_bytes: u64,
     ) -> Self {
         Self {
             scratch_bytes,
-            controlled_live_bytes: unit
-                .controlled_live_bytes
-                .saturating_add(mir.controlled_live_bytes)
-                .saturating_add(frozen_lir.lir.controlled_live_bytes)
-                .saturating_add(frozen_lir.mapping_bytes())
+            stage_bytes: frozen_lir
+                .mapping_bytes()
                 .saturating_add(source_map_new_owned_bytes)
                 .saturating_add(scratch_bytes),
         }
@@ -79,10 +75,12 @@ impl SourceLocationResolver<'_> {
 }
 
 /// 把同次成功编译的编译单元、MIR 与已冻结 LIR 绑定为 `ValidatedSourceMapInput`；全程计入编译上限。
-pub(crate) fn freeze_source_map(
+/// 在编译账本上冻结源映射；账本已计入编译单元、MIR 与 LIR 的存续。
+pub(crate) fn freeze_source_map_in(
     unit: CompilationUnit,
     mir: &MirUnit,
     frozen_lir: &LirFreezeOutput,
+    ledger: &crate::ledger::Ledger,
 ) -> Result<ValidatedSourceMapInput, DiagnosticBundle> {
     let module_count = u64::try_from(unit.modules.len()).unwrap_or(u64::MAX);
     let source_document_count = unit.source_document_count;
@@ -433,8 +431,6 @@ pub(crate) fn freeze_source_map(
             )
             .max(spatial_order_scratch_bytes);
     let sizing = SourceMapSizing::from_components(
-        &unit,
-        mir,
         frozen_lir,
         source_map_new_owned_bytes,
         source_map_scratch_bytes,
@@ -452,14 +448,9 @@ pub(crate) fn freeze_source_map(
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
-    if let Some(v) = unit.limits.operation_budget().exceeded(
-        crate::OperationResourceDimension::CompilerControlledLiveBytes,
-        sizing.controlled_live_bytes,
-    ) {
-        diagnostics.push(Diagnostic::compile_limit_exceeded_at(
-            v.dimension,
-            v.limit,
-            v.observed,
+    if let Err(error) = ledger.probe(SOURCE_MAP_PASS, sizing.stage_bytes) {
+        diagnostics.push(Diagnostic::from_ledger_error(
+            error,
             primary_span.clone(),
             stable_key,
         ));
@@ -1571,17 +1562,21 @@ pub(crate) fn freeze_source_map(
     let input_bytes = (policy_count as u64)
         .saturating_mul(size_of::<policy::PolicySourceInput<'_>>() as u64)
         .saturating_add(key_bytes);
-    let live_dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-    let live_limit = unit
-        .limits
-        .operation_budget()
-        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
-    let live_actual = sizing.controlled_live_bytes.saturating_add(input_bytes);
-    if live_actual > live_limit {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::compile_limit_exceeded(live_dimension, live_limit, live_actual),
-        ));
-    }
+    let stage_with_inputs = sizing.stage_bytes.saturating_add(input_bytes);
+    ledger
+        .probe(SOURCE_MAP_PASS, stage_with_inputs)
+        .map_err(|error| {
+            DiagnosticBundle::single(Diagnostic::from_ledger_error(
+                error,
+                None::<crate::SourceLocation>,
+                None,
+            ))
+        })?;
+    // 策略来源冻结在当前已承诺字节之上继续核对自身新增存储。
+    let committed = ledger
+        .live()
+        .saturating_add(ledger.reserved())
+        .saturating_add(stage_with_inputs);
     let mut policy_inputs = Vec::with_capacity(policy_count);
     for movement in &mir.movements {
         if let Some(source) = &movement.direction_source {
@@ -1632,11 +1627,20 @@ pub(crate) fn freeze_source_map(
         members!(&source.stream_rules, StreamRule);
         members!(&source.gate_rules, GateRule);
     }
-    let (policy_sources, policy_owned, _) = policy::freeze_policy_sources(
-        &unit,
-        &policy_inputs,
-        sizing.controlled_live_bytes.saturating_add(input_bytes),
-    )?;
+    let (policy_sources, policy_owned, _) =
+        policy::freeze_policy_sources(&unit, &policy_inputs, committed)?;
+    ledger
+        .probe(
+            SOURCE_MAP_PASS,
+            stage_with_inputs.saturating_add(policy_owned),
+        )
+        .map_err(|error| {
+            DiagnosticBundle::single(Diagnostic::from_ledger_error(
+                error,
+                None::<crate::SourceLocation>,
+                None,
+            ))
+        })?;
     let (source_modules, source_documents) = unit.into_source_descriptors();
     Ok(ValidatedSourceMapInput {
         policy_sources,
@@ -1675,12 +1679,13 @@ pub(crate) fn freeze_source_map(
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
-        peak_controlled_live_bytes: sizing
-            .controlled_live_bytes
-            .saturating_add(input_bytes)
-            .saturating_add(policy_owned),
+        peak_controlled_live_bytes: committed.saturating_add(policy_owned),
     })
 }
+
+/// 源映射冻结的记账点。源映射存储在后续迁入账本存储入口前不取得授予，只核对工作集。
+const SOURCE_MAP_PASS: crate::ledger::PassLabel =
+    crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "source-map");
 
 fn requested_bytes<T>(count: u64) -> u64 {
     count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
