@@ -360,7 +360,7 @@ struct GateHopEvaluation {
 /// anchor/range/passage 构造、policy 决定与 outcome 仲裁（waiting plan
 /// 组合）。Ok(outcome=Some) → 无资源决定；Ok(outcome=None) → 资源候选
 /// #1272：从拍初位置到该门所在 hop 边末（停止线）的有限距离。
-fn gate_hop_line_distance(
+pub(crate) fn gate_hop_line_distance(
     compiled: &crate::kernel::tables::CompiledRoute,
     state: &crate::kernel::vehicle_store::MotionPosition,
     gate_hop: u32,
@@ -1385,7 +1385,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     pub(crate) fn conflict_stop_for(
         &self,
         state: &VehicleState,
-    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+    ) -> Result<Option<super::tick::ResourceBarrier>, StepError> {
         let grant_hop = self
             .workspace
             .conflict_motion_by_vehicle
@@ -1463,9 +1463,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             hop as usize + 1,
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
-        Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
-            distance,
-            hop,
+        // 旧精确查询不带占用事实分类；按「已知阻塞」语义服务既有停止
+        // 行为测试（生产分类走 MotionTaskView::conflict_stop_at）。
+        Ok(Some(super::tick::ResourceBarrier {
+            constraint: crate::kernel::waiting::WaitingStopConstraint { distance, hop },
+            known_blocked: true,
         }))
     }
 

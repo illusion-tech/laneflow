@@ -84,18 +84,70 @@ fn signal_boundary_publishes_valid_eligibility_and_preserves_continuous_waiting(
             ));
             let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
             let subject = blocked_at_green(&mut world);
-            for expected_time in [200, 300, 400, 500, 600, 700, 800] {
+            // #1272：下游阻塞车的清空时点后移，资格钟与决定拍随新轨迹
+            // 重排（原 500 ms 清空 → 600 ms）。按性质核验，不钉具体拍号：
+            // 阻塞期 NoGrant 在前、放行后边界停驶 NotEvaluated 在后；资格
+            // 钟是锚点——连续等待期间稳定不重置，拒绝期清空，资格回归后
+            // 以新锚点重启。
+            let mut previous_clocks: Option<Vec<u64>> = None;
+            let mut saw_no_grant = false;
+            let mut blocked_before_release = false;
+            let mut saw_not_evaluated = false;
+            let mut saw_clocked = false;
+            let mut saw_cleared = false;
+            let mut saw_restarted = false;
+            for expected_time in [200, 300, 400, 500, 600, 700, 800, 900, 1_000, 1_100, 1_200] {
                 world.step(TickInput::new(100)).unwrap();
                 assert_eq!(world.time_ms(), expected_time);
-                // #1272：下游阻塞车的清空时点后移，资格钟与决定拍随新轨迹
-                // 重排（原 500 ms 清空 → 600 ms）。按「先阻塞后放行」的秩序
-                // 核验，不钉具体拍号。
-                let outcome = calibration_outcome(&world, subject);
+                match calibration_outcome(&world, subject) {
+                    ConflictDecisionOutcome::NoGrant(_) => {
+                        saw_no_grant = true;
+                        if !saw_not_evaluated {
+                            blocked_before_release = true;
+                        }
+                    }
+                    ConflictDecisionOutcome::NotEvaluated => {
+                        saw_not_evaluated = true;
+                    }
+                    other => panic!("边界信号期不期待的决定 {other:?}"),
+                }
                 let clocks = eligibility_clocks(&world);
-                let _ = &outcome;
-                let _ = &clocks;
+                if let Some(previous) = &previous_clocks
+                    && !previous.is_empty()
+                    && !clocks.is_empty()
+                {
+                    assert_eq!(
+                        clocks, *previous,
+                        "连续等待期间资格钟锚点稳定（不逐拍重置）"
+                    );
+                }
+                if clocks.is_empty() {
+                    if saw_clocked {
+                        saw_cleared = true;
+                    }
+                } else {
+                    if saw_cleared {
+                        saw_restarted = true;
+                    }
+                    saw_clocked = true;
+                }
+                previous_clocks = Some(clocks);
                 assert_snapshot_roundtrip(&world);
             }
+            assert!(saw_no_grant, "阻塞期出现 NoGrant");
+            // 黄灯组合经逐拍困境区许可不再必然进入边界停驶态（#1272 语义的
+            // 可观测变化）；其发布面由 advance_braking 锚覆盖。红灯组合保留
+            // 完整「先阻塞后放行 + 边界停驶」秩序。
+            if stop_aspect == SignalAspect::Red {
+                assert!(
+                    blocked_before_release,
+                    "先阻塞后放行：首个 NotEvaluated 之前出现过 NoGrant"
+                );
+                assert!(saw_not_evaluated, "放行后边界停驶出现 NotEvaluated");
+            }
+            assert!(saw_clocked, "资格钟出现");
+            assert!(saw_cleared, "拒绝期间资格钟清空");
+            assert!(saw_restarted, "资格回归后以新锚点重启");
         }
     }
 }
@@ -231,7 +283,10 @@ fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
         // 车辆完成路线后 latest 批次轮换，不再保留资源决定——改核验：
         // 完成前曾出现（或保有）期望决定，且 !blocked 时的预约曾建立。
         let mut decided = false;
+        let mut saw_hop0_not_required = false;
+        let mut saw_hop1_expected = false;
         let mut reserved_once = false;
+        let mut never_held_while_blocked = true;
         for _ in 0..12 {
             world.step(TickInput::new(1_000)).unwrap();
             let decisions: Vec<_> = world
@@ -240,12 +295,18 @@ fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
                 .filter(|decision| decision.vehicle() == subject)
                 .map(|decision| (decision.anchor().hop(), decision.outcome()))
                 .collect();
-            if decisions.contains(&(0, ConflictDecisionOutcome::NotRequired))
-                && decisions.contains(&(1, expected_hop1))
-            {
-                decided = true;
+            // #1272 减速后两跳决定落在不同拍（原同拍）；预算内先后出现即算。
+            if decisions.contains(&(0, ConflictDecisionOutcome::NotRequired)) {
+                saw_hop0_not_required = true;
             }
+            if decisions.contains(&(1, expected_hop1)) {
+                saw_hop1_expected = true;
+            }
+            decided = saw_hop0_not_required && saw_hop1_expected;
             if world.conflict_reservation(subject).is_some() {
+                if blocked {
+                    never_held_while_blocked = false;
+                }
                 reserved_once = true;
             }
             if decided && (blocked || reserved_once) {
@@ -256,14 +317,156 @@ fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
         // 拍；未阻塞路径曾建立并按 resource_free_release 释放（完成后查询为
         // None），阻塞路径自始无预约。预约状态在完成/释放后均为 None——以
         // 「从未违规持有」为验收：blocked 自始 None，未阻塞曾 Some。
-        let _ = decided;
-        if !blocked {
+        assert!(
+            decided,
+            "12 拍预算内先后出现两跳期望决定（blocked={blocked}）"
+        );
+        if blocked {
+            assert!(never_held_while_blocked, "阻塞路径自始不持有预约");
+        } else {
             assert!(
                 reserved_once,
                 "unblocked subject must hold a reservation at some tick"
             );
         }
     }
+}
+
+/// F2' 复审修锚（合同 §3.1.1）：完全空闲的 Conflict 声明不产生停止目标——
+/// 「尚未申请且无已知阻塞的入口不因『没有 grant』自行制造停止目标」。
+/// 同几何 A/B：`include_conflict` 关/开，单车 13 m 入口边、10 m/s、100 ms，
+/// 首拍提交必须逐字段一致（旧实现把空闲资源当停止目标提前紧急制动：
+/// 9802 vs 10097 mm/s）。
+#[test]
+fn idle_conflict_entry_is_a_position_barrier_not_a_stop_target() {
+    let mut outcomes = Vec::new();
+    for include_conflict in [false, true] {
+        let revision =
+            compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+                2,
+                false,
+                include_conflict,
+                false,
+                13.0,
+                ConflictPolicyFixture::default(),
+            ));
+        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+        let [route, _] = right_turn_routes(&mut world);
+        let subject = world
+            .place_existing_active_vehicle(
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 10_000)
+                    .with_open_entrance(),
+            )
+            .unwrap();
+        world.step(TickInput::new(100)).unwrap();
+        let state = world.vehicle(subject).unwrap();
+        outcomes.push((
+            state.route_edge_index(),
+            state.progress_mm(),
+            state.speed_mm_s(),
+            state.carry_um(),
+        ));
+    }
+    assert_eq!(
+        outcomes[0], outcomes[1],
+        "空闲 Conflict 声明与无声明同几何同拍逐字段一致"
+    );
+    assert!(
+        outcomes[0].2 > 9_000,
+        "首拍不因空闲资源提前紧急制动：{:?}",
+        outcomes[0]
+    );
+}
+
+/// F2' 复审修锚：owner 持有共同 Conflict 的预约后，subject 从另一条路线
+/// 10 m/s 接近（初始门距 ≈ 13 m，紧急 4.5 m/s² 刹停 11.1 m 放得进）。
+/// 已知阻塞在制动窗内即形成停止目标——首拍即减速；未取得预约期间全程
+/// 保持可停（v²/(2·b_e) ≤ 剩余门距，不再出现评审反例「一拍内从可停变
+/// 不可停、空间差额 748.7 mm」）、不越门，最终停在门线前等待或等来预约。
+#[test]
+fn held_conflict_brakes_in_advance_and_never_becomes_unstoppable() {
+    let revision =
+        compile_road_editing_revision(conflict_road_editing_module_with_shape_and_speed(
+            2,
+            false,
+            true,
+            false,
+            13.0,
+            ConflictPolicyFixture::default(),
+        ));
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+    let [route, conflicting] = right_turn_routes(&mut world);
+    // owner：沿主路线公开 spawn + step，直至持有共同 Conflict 的预约。
+    let owner = world
+        .spawn_vehicle(
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 10_000)
+                .with_open_entrance(),
+        )
+        .unwrap();
+    let mut owner_holds = false;
+    for _ in 0..40 {
+        world.step(TickInput::new(100)).unwrap();
+        if world.conflict_reservation(owner).is_some() {
+            owner_holds = true;
+            break;
+        }
+    }
+    assert!(owner_holds, "owner 必须取得共同 Conflict 的预约");
+    let gate_line = calibration_gate(&world, conflicting);
+    let subject = world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                conflicting,
+                0,
+                0,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    // profile 0 紧急减速度 4.5 m/s²：完整停车距离（毫米）= v² / 9000。
+    let mut slowed_on_first_tick = false;
+    let mut ended_waiting_or_granted = false;
+    for _ in 0..400 {
+        let before = world.vehicle(subject).unwrap();
+        // 阻塞事实仍成立（owner 仍持有）期间才要求可停不变量；源事实
+        // 释放后停止目标随之失效（合同 §3.1.1），车辆按 IIDM 恢复。
+        let owner_holds = world.conflict_reservation(owner).is_some();
+        world.step(TickInput::new(100)).unwrap();
+        let after = world.vehicle(subject).unwrap();
+        if world.conflict_reservation(subject).is_none() {
+            assert_eq!(after.route_edge_index(), 0, "未授权期间不越门");
+            assert!(after.progress_mm() <= gate_line, "不越过准入门线");
+            if owner_holds {
+                // 已知阻塞仍成立期间停止目标持续参与速度归约：拍初速度的
+                // 紧急停车距离必须放进拍初剩余距离（评审反例「一拍内从
+                // 可停变不可停、空间差额 748.7 mm」不得复现）。
+                let stopping_mm =
+                    u64::from(before.speed_mm_s()) * u64::from(before.speed_mm_s()) / 9_000;
+                assert!(
+                    stopping_mm <= u64::from(gate_line - before.progress_mm()),
+                    "阻塞期间可停不变量：拍初 v²/(2·b_e)={stopping_mm} mm ≤ 拍初剩余 {} mm",
+                    gate_line - before.progress_mm()
+                );
+            }
+        }
+        if !slowed_on_first_tick {
+            assert!(
+                after.speed_mm_s() < before.speed_mm_s(),
+                "已知阻塞在制动窗内：首拍即减速（{} → {}）",
+                before.speed_mm_s(),
+                after.speed_mm_s()
+            );
+            slowed_on_first_tick = true;
+        }
+        if after.speed_mm_s() == 0 || world.conflict_reservation(subject).is_some() {
+            ended_waiting_or_granted = true;
+            break;
+        }
+    }
+    assert!(slowed_on_first_tick);
+    assert!(ended_waiting_or_granted, "subject 停在门线前等待或等来预约");
 }
 
 #[test]

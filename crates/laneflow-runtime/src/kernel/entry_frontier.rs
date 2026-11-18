@@ -172,6 +172,10 @@ impl Default for FrontierSlot {
 struct SignalHold {
     gate_mm: u32,
     delay_ms: Option<u64>,
+    /// 放行证明被黄灯破坏：拍初灯色为黄灯，或 [当前, 放行) 区间存在该组
+    /// 黄灯相位。逐拍困境区许可可能让拍初可停的车辆在黄灯期间合法过门，
+    /// 「可停 ⇒ 必然等到放行」不成立——不得抬升到达下界（F1' 复审修）。
+    exemptible: bool,
 }
 
 /// 同一提交态、同一车辆的信号约束；只在一次借用期间复用，不跨命令或步进保留。
@@ -1008,6 +1012,12 @@ fn raise_signal_bound(
     if delay == 0 {
         return kinematic;
     }
+    // F1' 复审修：保持区间含黄灯（或拍初即黄灯）时，逐拍困境区许可可能
+    // 让车辆在黄灯期间合法过门——没有「必然等到放行」的证明，保留保守的
+    // 运动学下界。纯红等待（红到绿直切）的证明不受影响。
+    if hold.exemptible {
+        return kinematic;
+    }
     // 停不住时运动下界才是最早到达。把它推迟到放行会偏晚。
     if !can_stop_before(speed_mm_s, emergency_decel_m_s2, hold.gate_mm) {
         return kinematic;
@@ -1040,9 +1050,11 @@ fn signal_hold(
     }
     let compiled = read.compiled_route(route)?;
     let (gate, gate_mm) = first_red_gate(read, compiled, profile, position, |_| {})?;
+    let (delay_ms, exemptible) = signal_release_delay_ms(read, gate, profile)?;
     Some(SignalHold {
         gate_mm,
-        delay_ms: signal_release_delay_ms(read, gate, profile),
+        delay_ms: Some(delay_ms),
+        exemptible,
     })
 }
 
@@ -1157,11 +1169,15 @@ fn first_red_gate(
     None
 }
 
+/// 放行等待与「保持区间是否含黄灯」：`(delay_ms, exemptible)`。`exemptible`
+/// 为真表示拍初灯色为黄灯，或从当前相位到首个放行相位之间存在该组的黄灯
+/// 相位——逐拍困境区许可可能让车辆在黄灯期间合法过门，放行等待不能作为
+/// 到达下界抬升的证明（F1' 复审修）。
 fn signal_release_delay_ms(
     read: StepReadView<'_>,
     gate: ManeuverGateOrdinal,
     profile: VehicleProfileOrdinal,
-) -> Option<u64> {
+) -> Option<(u64, bool)> {
     let relations = read.binding.revision.traffic().relations();
     let group = relations.maneuver_gate(gate)?.signal_group()?;
     let controller = relations.signal_controller(relations.signal_group(group)?.controller())?;
@@ -1187,6 +1203,16 @@ fn signal_release_delay_ms(
     let mut wait = relations
         .phase_end_offset_ms(current)?
         .saturating_sub(position);
+    // 拍初灯色以已提交数组为准（程序相位与已提交灯色不一致时同样弃证）。
+    let committed_yellow = read
+        .committed
+        .signal_aspects
+        .get(group.index())
+        .copied()
+        .is_some_and(|aspect| aspect == laneflow_static_contract::SignalAspect::Yellow)
+        || relations_phase_group_aspect(read, current, group)
+            == laneflow_static_contract::SignalAspect::Yellow;
+    let mut exemptible = committed_yellow;
     let mut cursor = index;
     loop {
         cursor += 1;
@@ -1198,10 +1224,33 @@ fn signal_release_delay_ms(
         }
         let phase = phases[cursor];
         if gate_opens(read, gate, profile, phase, group) {
-            return Some(wait);
+            return Some((wait, exemptible));
         }
+        exemptible |= relations_phase_group_aspect(read, phase, group)
+            == laneflow_static_contract::SignalAspect::Yellow;
         wait = wait.saturating_add(relations.phase_duration_ms(phase).unwrap_or(0));
     }
+}
+
+/// 指定相位对该信号组给出的灯色；相位未声明该组时按红灯（保守）。
+fn relations_phase_group_aspect(
+    read: StepReadView<'_>,
+    phase: laneflow_static_contract::SignalPhaseOrdinal,
+    group: SignalGroupOrdinal,
+) -> laneflow_static_contract::SignalAspect {
+    read.binding
+        .revision
+        .traffic()
+        .relations()
+        .phase_states(phase)
+        .and_then(|(groups, aspects)| {
+            groups
+                .iter()
+                .zip(aspects.iter().copied())
+                .find(|(candidate, _)| **candidate == group)
+                .map(|(_, aspect)| aspect)
+        })
+        .unwrap_or(laneflow_static_contract::SignalAspect::Red)
 }
 
 fn gate_opens(
@@ -2210,6 +2259,7 @@ mod tests {
         let hold = SignalHold {
             gate_mm: 0,
             delay_ms: Some(4_000),
+            exemptible: false,
         };
         assert_eq!(
             raise_signal_bound(ApproachEstimate::Finite(0), Some(hold), 0, 5_000, 0, 4.0),
@@ -2221,6 +2271,7 @@ mod tests {
                 Some(SignalHold {
                     gate_mm: 10,
                     delay_ms: Some(4_000),
+                    exemptible: false,
                 }),
                 0,
                 5_000,
@@ -2235,6 +2286,7 @@ mod tests {
                 Some(SignalHold {
                     gate_mm: 0,
                     delay_ms: None,
+                    exemptible: false,
                 }),
                 0,
                 5_000,
@@ -2249,6 +2301,7 @@ mod tests {
                 Some(SignalHold {
                     gate_mm: 0,
                     delay_ms: Some(8_000),
+                    exemptible: false,
                 }),
                 0,
                 5_000,
@@ -2272,6 +2325,7 @@ mod tests {
         let hold = SignalHold {
             gate_mm: 2_000,
             delay_ms: Some(10_000),
+            exemptible: false,
         };
         assert_eq!(
             raise_signal_bound(
@@ -2308,6 +2362,47 @@ mod tests {
             ),
             ApproachEstimate::Finite(350),
             "没有有限紧急减速度时无法证明能停住"
+        );
+    }
+
+    #[test]
+    fn yellow_before_release_keeps_the_kinematic_lower_bound() {
+        // F1' 复审修反例钉版：黄灯 10 s 后转绿，6 m/s、10 m、100 ms 步长。
+        // 拍初可停（6²/(2·9) = 2 m < 10 m），但巡航车骑紧急界进困境区后
+        // 在黄灯期间合法过门（实测 1500 ms）——含黄灯的保持不得把下界抬到
+        // 10000 ms，也不得在 3000 ms 时窗内变 OutsideHorizon。
+        let hold = SignalHold {
+            gate_mm: 10_000,
+            delay_ms: Some(10_000),
+            exemptible: true,
+        };
+        assert_eq!(
+            raise_signal_bound(
+                ApproachEstimate::Finite(1_416),
+                Some(hold),
+                10_000,
+                3_000,
+                6_000,
+                9.0,
+            ),
+            ApproachEstimate::Finite(1_416),
+            "含黄灯的保持没有必然等待证明，保留运动学下界"
+        );
+        assert_eq!(
+            raise_signal_bound(
+                ApproachEstimate::Finite(1_416),
+                Some(SignalHold {
+                    gate_mm: 10_000,
+                    delay_ms: Some(10_000),
+                    exemptible: false,
+                }),
+                10_000,
+                3_000,
+                6_000,
+                9.0,
+            ),
+            ApproachEstimate::OutsideHorizon,
+            "同几何纯红保持（红到绿直切）仍正常抬升出窗"
         );
     }
 

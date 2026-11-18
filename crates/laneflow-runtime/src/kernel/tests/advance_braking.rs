@@ -197,16 +197,38 @@ fn add_signal_corridor_gates(
     module: &mut laneflow_compiler::SyntheticModuleBuilder,
     aspect: SignalAspect,
 ) {
+    add_signal_corridor_program(module, &[(aspect, 10_000)]);
+}
+
+/// 同 [`add_signal_corridor_gates`]，控制器程序按给定 (灯色, 时长) 序列循环；
+/// F1' 复审修锚需要「黄灯 10 s → 绿灯」两相位程序。
+fn add_signal_corridor_program(
+    module: &mut laneflow_compiler::SyntheticModuleBuilder,
+    phases: &[(SignalAspect, u64)],
+) {
     use laneflow_compiler::{
         JunctionInput, JunctionReference, LaneEdgeReference, ManeuverGateInput, ManeuverPathInput,
         ManeuverPathReference, MovementInput, MovementReference, SignalControlInput,
         SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
         SignalPhaseInput, StopLineInput, StopLineReference,
     };
-    let states = [SignalGroupStateInput {
-        signal_group: SignalGroupReference::local("group-entry"),
-        aspect,
-    }];
+    const PHASE_KEYS: [&str; 2] = ["phase-first", "phase-second"];
+    let states: Vec<SignalGroupStateInput> = phases
+        .iter()
+        .map(|(aspect, _)| SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("group-entry"),
+            aspect: *aspect,
+        })
+        .collect();
+    let phase_inputs: Vec<SignalPhaseInput> = phases
+        .iter()
+        .enumerate()
+        .map(|(index, (_, duration_ms))| SignalPhaseInput {
+            signal_phase_key: PHASE_KEYS[index],
+            duration_ms: *duration_ms,
+            states: &states[index..index + 1],
+        })
+        .collect();
     let groups = [SignalGroupReference::local("group-entry")];
     module
         .add_junction(JunctionInput {
@@ -250,11 +272,7 @@ fn add_signal_corridor_gates(
             signal_controller_key: "controller-main",
             offset_ms: 0,
             signal_groups: &groups,
-            phases: &[SignalPhaseInput {
-                signal_phase_key: "phase-shown",
-                duration_ms: 10_000,
-                states: &states,
-            }],
+            phases: &phase_inputs,
         })
         .expect("controller");
     crate::test_policy::add_gate_policy(
@@ -265,4 +283,131 @@ fn add_signal_corridor_gates(
             laneflow_compiler::GateInterpretation::ProtectedGroup,
         )],
     );
+}
+
+/// F1' 复审修生产路径锚：黄灯 10 s → 绿灯程序下，拍初可停（6²/(2·4) =
+/// 4.5 m ＜ 10 m）的车辆，其到达下界保持生产运动学值（≈1 416 ms，不晚于
+/// 实际合法跨门 1 500 ms），不被抬到放行 10 000 ms、也不出 3 000 ms 时窗；
+/// 同几何纯红（红 → 绿直切）保持仍正常抬升出窗——差异只来自区间含黄灯。
+#[test]
+fn yellow_program_keeps_frontier_arrival_lower_bound_conservative() {
+    fn two_phase_world(
+        first: SignalAspect,
+        second: SignalAspect,
+    ) -> (crate::TrafficWorld, crate::VehicleHandle) {
+        let network = revision("runtime-fixture-policy", |module| {
+            super::placement_admission_tests::add_edge(module, "entry", 10.0, 10.0, Some("middle"));
+            super::placement_admission_tests::add_edge(module, "middle", 8.0, 10.0, Some("exit"));
+            super::placement_admission_tests::add_edge(module, "exit", 12.0, 10.0, None);
+            add_signal_corridor_program(module, &[(first, 10_000), (second, 10_000)]);
+        });
+        let mut world = install_dt(network, 100);
+        let route = route_of(&mut world);
+        let vehicle = spawn(&mut world, route, 0, 0, 6_000).expect("spawn");
+        (world, vehicle)
+    }
+    let (world, vehicle) = two_phase_world(SignalAspect::Yellow, SignalAspect::Green);
+    let state = world.vehicle(vehicle).expect("vehicle");
+    let view = world.state.read_view();
+    let prepared = crate::kernel::entry_frontier::PreparedSignalApproach::new(view, &state, 4.0);
+    let eta = crate::kernel::conflict::PreparedApproachEta::new(0, 6_000, 1.5, 3_000)
+        .expect("finite eta inputs");
+    let kinematic = eta.lower_bound(10_000);
+    let crate::ApproachEstimate::Finite(bound_ms) = kinematic else {
+        panic!("kinematic lower bound must be finite");
+    };
+    assert!(
+        bound_ms <= 1_500,
+        "运动学下界 {bound_ms} ms 不晚于实际合法跨门 1 500 ms"
+    );
+    assert_eq!(
+        prepared.apply(kinematic, 10_000, 3_000),
+        kinematic,
+        "含黄灯的保持弃证，保留运动学下界"
+    );
+
+    let (world, vehicle) = two_phase_world(SignalAspect::Red, SignalAspect::Green);
+    let state = world.vehicle(vehicle).expect("vehicle");
+    let view = world.state.read_view();
+    let prepared = crate::kernel::entry_frontier::PreparedSignalApproach::new(view, &state, 4.0);
+    assert_eq!(
+        prepared.apply(kinematic, 10_000, 3_000),
+        crate::ApproachEstimate::OutsideHorizon,
+        "同几何纯红保持（红 → 绿直切）仍抬升出窗"
+    );
+}
+
+/// F5' 复审修锚：黄灯困境区豁免的门对 Waiting 非入口决定发布
+/// `NotRequired`（与 Conflict 发布同源的拍初有效决定），不再被纯灯态误报
+/// `NotEvaluated`；纯红灯无可豁免仍发布 `NotEvaluated`。
+#[test]
+fn waiting_non_entry_outcome_consumes_effective_yellow_decision() {
+    let mut world = aspect_world(SignalAspect::Green, 100);
+    let route = route_of(&mut world);
+    let vehicle = spawn(&mut world, route, 0, 0, 8_000).expect("spawn");
+    // 前进到困境区（8 m/s 紧急刹停 8 m，距停止线约 2 m 放不进）。
+    loop {
+        world.step(crate::TickInput::new(100)).expect("green step");
+        if world.vehicle(vehicle).unwrap().progress_mm >= 8_000 {
+            break;
+        }
+    }
+    world
+        .state
+        .committed
+        .signal_aspects
+        .fill(SignalAspect::Yellow);
+    let state = world.vehicle(vehicle).unwrap();
+    let (gate, distance) = {
+        let view = world.state.read_view();
+        let compiled = view.compiled_route(state.route).expect("compiled");
+        let gate = compiled.hop_gate[0].expect("gate");
+        let position = crate::kernel::vehicle_store::MotionPosition::from(&state);
+        (
+            gate,
+            crate::kernel::conflict_tick::gate_hop_line_distance(compiled, &position, 0),
+        )
+    };
+    world
+        .state
+        .committed
+        .signal_aspects
+        .fill(SignalAspect::Yellow);
+    {
+        let view = world.state.read_view();
+        assert!(
+            distance.is_some_and(|mm| {
+                view.gate_yellow_dilemma_exempt(gate, state.profile, state.speed_mm_s, mm)
+            }),
+            "拍初确处困境区（速度 {}、距线 {:?}）",
+            state.speed_mm_s,
+            distance
+        );
+        assert_eq!(
+            crate::kernel::waiting::non_entry_gate_outcome(
+                view,
+                gate,
+                state.profile,
+                state.speed_mm_s,
+                distance,
+            ),
+            crate::WaitingDecisionOutcome::NotRequired,
+            "困境区豁免的门发布 NotRequired"
+        );
+    }
+    world.state.committed.signal_aspects.fill(SignalAspect::Red);
+    {
+        let view = world.state.read_view();
+        assert_eq!(
+            crate::kernel::waiting::non_entry_gate_outcome(
+                view,
+                gate,
+                state.profile,
+                state.speed_mm_s,
+                distance,
+            ),
+            crate::WaitingDecisionOutcome::NotEvaluated,
+            "纯红灯无可豁免仍发布 NotEvaluated"
+        );
+    }
 }
