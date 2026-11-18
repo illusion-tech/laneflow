@@ -3092,14 +3092,12 @@ pub(crate) mod tests {
             .edges()
             .to_vec();
         assert_eq!(cycle.len(), 3);
-        let limits = CompileProfile::single_network_1m_stable_entities();
         let mut route_edges = (0..70)
             .map(|index| {
                 let stable = laneflow_compiler::derive_canonical_stable_id_v1(
                     EntityKind::LaneEdge,
                     "city/runtime-live-conflict-cutover",
                     &format!("scale-stem-{index:02}"),
-                    &limits,
                 )
                 .expect("Conflict scale stem identity");
                 revision
@@ -3154,7 +3152,6 @@ pub(crate) mod tests {
                         EntityKind::RightOfWayPolicySet,
                         "city/runtime-live-conflict-cutover",
                         "policy",
-                        &CompileProfile::single_network_1m_stable_entities(),
                     )
                     .expect("Conflict scale policy identity"),
                 ),
@@ -3548,7 +3545,6 @@ pub(crate) mod tests {
             EntityKind::RightOfWayPolicySet,
             "city/runtime-signal-frontier",
             "policy",
-            &limits,
         )
         .expect("policy identity");
         let edge_ids = ["entry", "internal", "exit"].map(|key| {
@@ -3556,7 +3552,6 @@ pub(crate) mod tests {
                 EntityKind::LaneEdge,
                 "city/runtime-signal-frontier",
                 key,
-                &limits,
             )
             .expect("edge identity")
         });

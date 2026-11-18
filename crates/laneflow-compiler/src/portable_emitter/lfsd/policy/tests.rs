@@ -81,7 +81,6 @@ fn fixture() -> OwnedObject {
             EntityKind::RightOfWayPolicySet,
             "fixture/policy",
             key,
-            &crate::CompileProfile::single_network_1m_stable_entities(),
         )
         .unwrap()
         .into_bytes();

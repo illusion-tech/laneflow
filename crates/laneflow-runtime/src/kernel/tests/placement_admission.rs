@@ -129,13 +129,11 @@ fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWor
 }
 
 fn register_named(world: &mut TrafficWorld, namespace: &str, keys: &[&str]) -> RouteHandle {
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
-            let stable =
-                derive_canonical_stable_id_v1(EntityKind::LaneEdge, namespace, key, &limits)
-                    .expect("edge id");
+            let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, namespace, key)
+                .expect("edge id");
             world
                 .revision()
                 .identity()

@@ -15,8 +15,6 @@ use laneflow_static_contract::{
     IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC, STABLE_ID_DOMAIN_PREFIX, StableId128,
 };
 
-use crate::limits::CompileProfile;
-
 #[cfg(test)]
 use crate::SourceSpan;
 use crate::source::external_token_violation;
@@ -138,6 +136,9 @@ impl EncodedCanonicalIdentity {
 /// 一致，由本函数按 `EntityKind::required_tags` 组装。独立制品验证器不得把本函数当作
 /// 第二套已知向量预言机。
 ///
+/// 本入口只验证 Identity v1 的固定 token 规则与 53 B 硬上限；来源侧更严格的字符串
+/// 限额由正式前端执行，身份派生成功不等于来源输入获准入。
+///
 /// # Errors
 ///
 /// 组成字段超过 `u32` 字节长度上限（
@@ -149,7 +150,6 @@ pub fn derive_canonical_stable_id_v1(
     kind: EntityKind,
     authoring_namespace_id: &str,
     local_key: &str,
-    limits: &CompileProfile,
 ) -> Result<StableId128, CanonicalIdentityViolation> {
     if !kind.is_constructible() {
         return Err(CanonicalIdentityViolation::UnconstructibleKind { kind: kind.code() });
@@ -172,7 +172,7 @@ pub fn derive_canonical_stable_id_v1(
         IdentityFieldInput::new(tags[0], authoring_namespace_id.as_bytes()),
         IdentityFieldInput::new(tags[1], local_key.as_bytes()),
     ];
-    Ok(encode_canonical_identity(kind, &fields, limits.identity_ascii_bytes_limit())?.stable_id())
+    Ok(encode_canonical_identity(kind, &fields, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?.stable_id())
 }
 
 /// 编码并派生一个完整 Identity v1 身份。
@@ -499,10 +499,8 @@ mod tests {
 
     #[test]
     fn policy_identity_uses_namespace_and_policy_key() {
-        let limits = CompileProfile::single_network_1m_stable_entities();
         let derive = |namespace, key| {
-            derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, key, &limits)
-                .unwrap()
+            derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, key).unwrap()
         };
         let policy = derive("vector/v1", "field-35");
         let expected = KNOWN_VECTORS
@@ -516,16 +514,14 @@ mod tests {
         assert_ne!(derive("vector/other", "field-35"), policy);
         assert_ne!(derive("vector/v1", "other-key"), policy);
         assert_ne!(
-            derive_canonical_stable_id_v1(EntityKind::LaneEdge, "vector/v1", "field-35", &limits)
-                .unwrap(),
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, "vector/v1", "field-35").unwrap(),
             policy
         );
         assert!(matches!(
             derive_canonical_stable_id_v1(
                 EntityKind::RightOfWayPolicySet,
                 "vector/v1",
-                &"a".repeat(54),
-                &limits,
+                &"a".repeat(54)
             ),
             Err(CanonicalIdentityViolation::InvalidAsciiField {
                 tag: 35,
@@ -539,35 +535,26 @@ mod tests {
 
     #[test]
     fn public_namespaced_key_derivation_matches_encoder() {
-        let limits = CompileProfile::single_network_10k_stable_entities();
         let encoded = encode_canonical_identity(
             EntityKind::LaneEdge,
             &lane_edge_fields(b"city/vector", b"edge-a"),
-            limits.max_single_string_bytes(),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
         )
         .unwrap();
         let derived =
-            derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/vector", "edge-a", &limits)
-                .unwrap();
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/vector", "edge-a").unwrap();
         assert_eq!(derived, encoded.stable_id());
-        assert!(
-            derive_canonical_stable_id_v1(EntityKind::Movement, "city/vector", "m", &limits)
-                .is_err()
-        );
+        assert!(derive_canonical_stable_id_v1(EntityKind::Movement, "city/vector", "m").is_err());
     }
 
     #[test]
-    fn larger_profile_string_limit_cannot_widen_identity_ascii_fields() {
+    fn identity_ascii_fields_use_the_fixed_format_boundary() {
         let at_bound = "a".repeat(53);
         let over_bound = "a".repeat(54);
-        let limits = CompileProfile::single_network_1m_stable_entities();
 
-        assert!(
-            derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &at_bound, &limits,)
-                .is_ok()
-        );
+        assert!(derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &at_bound).is_ok());
         assert_eq!(
-            derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &over_bound, &limits,)
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &over_bound)
                 .unwrap_err(),
             CanonicalIdentityViolation::InvalidAsciiField {
                 tag: FieldTag::LaneEdgeKey.code(),
@@ -755,9 +742,8 @@ mod tests {
                 actual: 0
             }
         );
-        let limits = CompileProfile::single_network_10k_stable_entities();
         assert_eq!(
-            derive_canonical_stable_id_v1(EntityKind::ParticipantStream, "city/x", "k", &limits)
+            derive_canonical_stable_id_v1(EntityKind::ParticipantStream, "city/x", "k")
                 .unwrap_err(),
             CanonicalIdentityViolation::FieldCountMismatch {
                 expected: 3,
@@ -785,6 +771,50 @@ mod tests {
             registry.register_prederived(stable_id, b"different", &other_span),
             Err(IdentityRegistrationError::DigestCollision { existing_span })
                 if existing_span == span
+        ));
+    }
+
+    #[test]
+    fn public_identity_derivation_rejects_invalid_namespace_and_key() {
+        for invalid in ["", "has space", "非ASCII", "nul\0byte"] {
+            for (namespace, key) in [(invalid, "edge"), ("city/valid", invalid)] {
+                assert!(matches!(
+                    derive_canonical_stable_id_v1(EntityKind::LaneEdge, namespace, key),
+                    Err(CanonicalIdentityViolation::InvalidAsciiField { .. })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_identity_success_does_not_bypass_stricter_source_admission() {
+        let namespace = "n".repeat(18);
+        assert!(derive_canonical_stable_id_v1(EntityKind::LaneEdge, &namespace, "edge").is_ok());
+        let profile = crate::CompileProfile::single_network_10k_stable_entities()
+            .with_test_single_string_limit(17);
+        let error = crate::SourceModuleHeader::new(
+            crate::SourceModuleHeaderInput {
+                authoring_namespace_id: &namespace,
+                source_document_key: "document",
+                generator_build_id: "test",
+                parameters_and_inputs_digest: [0; 32],
+                frontend_options_digest: [0; 32],
+                random_seed: None,
+                provenance: "test",
+            },
+            &profile,
+        )
+        .err()
+        .expect("source namespace limit");
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::InvalidSourceHeaderField {
+                field: crate::SourceHeaderField::AuthoringNamespaceId,
+                violation: SourceTextViolation::TooLong {
+                    limit: 17,
+                    observed: 18
+                },
+            }
         ));
     }
 }

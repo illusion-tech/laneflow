@@ -544,13 +544,7 @@ fn lower_verified_source(
         .saturating_sub(root.authoring_lanes().len())
         .saturating_sub(root.signal_phases().len());
     let mut declarations = Vec::<TypedAstDeclaration>::with_capacity(top_level_declaration_count);
-    lower_independent_declarations(
-        root,
-        &locations,
-        &shared_namespace,
-        limits,
-        &mut declarations,
-    );
+    lower_independent_declarations(root, &locations, &shared_namespace, &mut declarations);
     lower_owner_scoped_declarations(root, &locations, &shared_namespace, &mut declarations);
     lower_topology_authoring_declarations(root, &locations, &shared_namespace, &mut declarations)?;
     lower_aggregate_declarations(root, &locations, &shared_namespace, &mut declarations);

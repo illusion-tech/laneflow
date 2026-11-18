@@ -517,7 +517,6 @@ fn ring_policy() -> WorldPolicySelection {
                 EntityKind::RightOfWayPolicySet,
                 "city/waiting-scale",
                 "waiting-policy",
-                &CompileProfile::single_network_10k_stable_entities(),
             )
             .expect("waiting policy stable id"),
         ),

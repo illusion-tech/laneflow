@@ -289,13 +289,7 @@ fn source_of(
 }
 
 fn stable(kind: EntityKind, key: &str) -> Result<StableId128, String> {
-    derive_canonical_stable_id_v1(
-        kind,
-        NAMESPACE,
-        key,
-        &CompileProfile::single_network_10k_stable_entities(),
-    )
-    .map_err(debug)
+    derive_canonical_stable_id_v1(kind, NAMESPACE, key).map_err(debug)
 }
 
 /// 序号可能随修订变化，边必须按稳定身份逐修订解析。

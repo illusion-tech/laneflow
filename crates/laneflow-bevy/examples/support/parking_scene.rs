@@ -257,13 +257,7 @@ fn revision() -> Result<Arc<SharedNetworkRevision>, Box<dyn Error>> {
 }
 
 fn stable(kind: EntityKind, key: &str) -> Result<laneflow_static_contract::StableId128, String> {
-    derive_canonical_stable_id_v1(
-        kind,
-        NAMESPACE,
-        key,
-        &CompileProfile::single_network_10k_stable_entities(),
-    )
-    .map_err(debug)
+    derive_canonical_stable_id_v1(kind, NAMESPACE, key).map_err(debug)
 }
 
 fn edge(revision: &SharedNetworkRevision, key: &str) -> Result<LaneEdgeOrdinal, String> {

@@ -139,17 +139,12 @@ fn add_edge(module: &mut SyntheticModuleBuilder, key: &str, length_m: f64, next:
 }
 
 fn route(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
-            let stable = derive_canonical_stable_id_v1(
-                EntityKind::LaneEdge,
-                "city/runtime-coverage",
-                key,
-                &limits,
-            )
-            .expect("id");
+            let stable =
+                derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/runtime-coverage", key)
+                    .expect("id");
             world
                 .revision()
                 .identity()

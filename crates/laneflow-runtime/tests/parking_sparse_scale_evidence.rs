@@ -148,10 +148,8 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
 }
 
 fn register_route(world: &mut TrafficWorld) -> laneflow_runtime::RouteHandle {
-    let limits = CompileProfile::single_network_10k_stable_entities();
-    let stable =
-        derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/parking-scale", "edge", &limits)
-            .expect("edge stable id");
+    let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/parking-scale", "edge")
+        .expect("edge stable id");
     let edge = world
         .revision()
         .identity()

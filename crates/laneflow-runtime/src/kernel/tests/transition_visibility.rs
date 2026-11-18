@@ -449,7 +449,6 @@ fn install(revision: Arc<SharedNetworkRevision>, workers: u32) -> crate::Traffic
             laneflow_static_contract::EntityKind::RightOfWayPolicySet,
             ROAD,
             "policy",
-            &CompileProfile::single_network_1m_stable_entities(),
         )
         .unwrap(),
     );
@@ -497,13 +496,9 @@ fn transition_after(revision: &SharedNetworkRevision, pred: LaneEdgeOrdinal) -> 
 
 /// 按稳定 id 解析边序号：用于长度/前驱都不唯一的边（如 #1321 的独立下游链）。
 fn named(revision: &SharedNetworkRevision, key: &str) -> LaneEdgeOrdinal {
-    let stable_id = derive_canonical_stable_id_v1(
-        laneflow_static_contract::EntityKind::LaneEdge,
-        SYNTH,
-        key,
-        &CompileProfile::single_network_1m_stable_entities(),
-    )
-    .unwrap();
+    let stable_id =
+        derive_canonical_stable_id_v1(laneflow_static_contract::EntityKind::LaneEdge, SYNTH, key)
+            .unwrap();
     revision
         .identity()
         .ordinal(laneflow_static_contract::LaneEdgeId::from_untyped(

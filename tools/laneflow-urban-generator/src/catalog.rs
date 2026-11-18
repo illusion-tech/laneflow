@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-use laneflow_compiler::{CompileProfile, derive_canonical_stable_id_v1};
+use laneflow_compiler::derive_canonical_stable_id_v1;
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, RouteRegisterInput, TrafficWorld,
     WorldConfig, WorldPolicySelection,
@@ -346,13 +346,7 @@ pub(crate) fn local_id(
     namespace: &str,
     key: &str,
 ) -> Result<laneflow_static_contract::StableId128> {
-    derive_canonical_stable_id_v1(
-        kind,
-        namespace,
-        key,
-        &CompileProfile::single_network_1m_stable_entities(),
-    )
-    .map_err(|e| validation("identity", e))
+    derive_canonical_stable_id_v1(kind, namespace, key).map_err(|e| validation("identity", e))
 }
 
 pub(crate) fn install(

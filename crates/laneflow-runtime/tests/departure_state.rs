@@ -179,17 +179,12 @@ fn compile_module(extend: impl FnOnce(&mut SyntheticModuleBuilder)) -> Arc<Share
 }
 
 fn route(world: &mut TrafficWorld, keys: &[&str]) -> laneflow_runtime::RouteHandle {
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
-            let stable = derive_canonical_stable_id_v1(
-                EntityKind::LaneEdge,
-                "city/runtime-coverage",
-                key,
-                &limits,
-            )
-            .expect("id");
+            let stable =
+                derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/runtime-coverage", key)
+                    .expect("id");
             world
                 .revision()
                 .identity()

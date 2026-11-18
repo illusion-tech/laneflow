@@ -95,13 +95,8 @@ fn candidate(
 }
 fn id(key: &str) -> RightOfWayPolicySetId {
     RightOfWayPolicySetId::from_untyped(
-        derive_canonical_stable_id_v1(
-            EntityKind::RightOfWayPolicySet,
-            "policy-cutover",
-            key,
-            &CompileProfile::single_network_10k_stable_entities(),
-        )
-        .unwrap(),
+        derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, "policy-cutover", key)
+            .unwrap(),
     )
 }
 fn root(candidate: &PortablePublicationCandidate) -> Arc<SharedNetworkRevision> {

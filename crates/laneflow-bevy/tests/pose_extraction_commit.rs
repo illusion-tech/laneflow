@@ -40,13 +40,8 @@ const PROFILE: VehicleProfileOrdinal = VehicleProfileOrdinal::from_raw(0);
 
 /// 边序号由修订身份派生，不假设插入顺序。
 fn edge_ordinal(root: &SharedNetworkRevision, key: &str) -> LaneEdgeOrdinal {
-    let stable = derive_canonical_stable_id_v1(
-        EntityKind::LaneEdge,
-        NAMESPACE,
-        key,
-        &CompileProfile::single_network_10k_stable_entities(),
-    )
-    .expect("edge stable id");
+    let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NAMESPACE, key)
+        .expect("edge stable id");
     root.identity()
         .ordinal(LaneEdgeId::from_untyped(stable))
         .expect("edge ordinal")

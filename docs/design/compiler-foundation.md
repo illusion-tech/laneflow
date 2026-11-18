@@ -201,6 +201,7 @@ impl Compiler {
 
 impl CompilationOutput {
     pub fn metrics(&self) -> CompilationMetrics;
+    pub fn compile_profile_id(&self) -> &'static str;
 }
 ```
 
@@ -1304,6 +1305,14 @@ kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 21/23 �
 测试 oracle 继续保护标识规范，但不构成 production validator。#299 后发射检查只消费
 最终 LFCA/LFSM/LFSD 字节并执行 ADR 0024 冻结的摘要、长度、路网修订和跨对象绑定检查。
 
+规范身份合法性与来源准入分开执行。公开的
+`derive_canonical_stable_id_v1(kind, namespace, local_key)` 只处理登记为 namespace
+加单一本地键的实体种类，执行 Identity v1 的字段集合、ASCII token 规则和 53 B 硬上限，
+不接收 `CompileProfile`。场景绑定和已有修订查询不选择编译规模档。正式前端仍按
+`SourceProcessingLimits` 执行来源侧更严格的字符串限额；身份派生成功不表示来源输入
+已获准入，也不放宽该限额。两条入口共用 compiler 内部的规范编码实现，独立制品验证
+与已知向量预言机保持原有独立边界。
+
 ### 7.2 碰撞与重复
 
 - 两个稳定实体声明产生相同完整规范标识元组：
@@ -1480,6 +1489,13 @@ LIR 或后继制品。
 
 `SourceDocumentDescriptor`、逐文档/文档集摘要已知向量和一模块多文档独立源映射测试
 属于第 10.4 节的附加验证，不替代上述通用正确性测试矩阵。
+
+测试构造复用只合并语义一致的正式前端、编译和受检修订装配步骤；行为断言、
+独立身份/字节预期、容量和失败边界仍由各测试拥有。优先使用包内 support；不能以
+越过包根的源码加载或把无关生成器塞入其他测试支持包实现跨包复用。编译器混合资源
+负载与运行时认证负载的策略集、填充实体和安装要求不同，不因共享祖先模板就当作
+同一工作负载。复用不得改变规模、来源含义、计量区间或输出存续；涉及来源位置的迁移
+必须检查 LFSM 与冻结向量，不能通过重生成冻结字节消除差异。
 
 ### 11.2 编译器工作负载
 

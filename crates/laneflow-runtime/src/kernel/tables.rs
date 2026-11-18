@@ -3752,7 +3752,6 @@ pub(crate) mod compile_route_tests {
                     laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                     "s4-road",
                     "policy",
-                    &laneflow_compiler::CompileProfile::single_network_1m_stable_entities(),
                 )
                 .unwrap(),
             );
@@ -5502,7 +5501,6 @@ pub(crate) mod compile_route_tests {
                             laneflow_static_contract::EntityKind::RightOfWayPolicySet,
                             "s4-road",
                             "policy",
-                            &laneflow_compiler::CompileProfile::single_network_1m_stable_entities(),
                         )
                         .unwrap(),
                     );

@@ -95,12 +95,10 @@ fn compile_revision_with_limits(
 
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
-            let stable =
-                derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key, &limits).expect("id");
+            let stable = derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key).expect("id");
             world
                 .revision()
                 .identity()
