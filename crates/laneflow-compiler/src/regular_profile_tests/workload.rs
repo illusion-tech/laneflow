@@ -435,7 +435,7 @@ fn add_synthetic_tile(
 }
 
 fn build_conflict_module(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     shape: WorkloadShape,
     permuted: bool,
 ) -> Option<editing::OwnedRoadEditingSourceBuffer> {
@@ -751,7 +751,7 @@ fn build_conflict_module(
 }
 
 pub(super) fn build_synthetic_module(
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     shape: WorkloadShape,
     partition: u32,
     permuted: bool,
@@ -830,20 +830,39 @@ pub(super) fn build_synthetic_module(
 }
 
 pub(super) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> CompilationUnit {
-    assemble_mixed_network(shape, permuted, CompileLimits::single_network_1m())
-        .unwrap()
-        .build()
-        .unwrap()
+    assemble_with_frontend_profile(
+        shape,
+        permuted,
+        CompileProfile::single_network_10k_stable_entities(),
+        CompileProfile::single_network_10k_stable_entities(),
+    )
+    .unwrap()
+    .build()
+    .unwrap()
 }
 
 // 受检来源由有限百万档构造；返回尚未冻结的构建器，供包内测试读取真实准入计数或验证候选限额。
+#[allow(dead_code)] // 独立集成测试只使用全程常规档构造入口。
 pub(super) fn assemble_mixed_network(
     shape: WorkloadShape,
     permuted: bool,
-    admission_limits: CompileLimits,
+    admission_limits: CompileProfile,
+) -> Result<CompilationUnitBuilder, DiagnosticBundle> {
+    assemble_with_frontend_profile(
+        shape,
+        permuted,
+        admission_limits,
+        CompileProfile::single_network_1m_stable_entities(),
+    )
+}
+
+fn assemble_with_frontend_profile(
+    shape: WorkloadShape,
+    permuted: bool,
+    admission_limits: CompileProfile,
+    limits: CompileProfile,
 ) -> Result<CompilationUnitBuilder, DiagnosticBundle> {
     assert!(shape.source_partitions > 0 && shape.source_partitions <= shape.synthetic_tiles);
-    let limits = CompileLimits::single_network_1m();
     let conflicts = build_conflict_module(&limits, shape, permuted);
     let policy = build_policy_module(&limits, shape);
     let synthetic: Vec<_> = (0..shape.source_partitions)
@@ -886,7 +905,7 @@ pub(super) fn assemble_mixed_network(
     Ok(unit)
 }
 
-fn build_policy_module(limits: &CompileLimits, shape: WorkloadShape) -> SyntheticModule {
+fn build_policy_module(limits: &CompileProfile, shape: WorkloadShape) -> SyntheticModule {
     let conflict_namespace = if shape.disjoint {
         "city/regular-profile-conflicts-other"
     } else {

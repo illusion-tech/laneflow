@@ -3,82 +3,85 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 fn revision(count: usize) -> Arc<SharedNetworkRevision> {
-    compile_revision_with_limits(CompileLimits::single_network_1m(), |module| {
-        add_standard_profiles(module);
-        let mut gates = Vec::new();
-        for index in 0..count {
-            let [entry, inside, exit, junction, movement, path, gate, stop] = [
-                "entry", "inside", "exit", "junction", "movement", "path", "gate", "stop",
-            ]
-            .map(|suffix| format!("output-{index}-{suffix}"));
-            for (edge, successor) in [(&entry, &inside), (&inside, &exit), (&exit, &entry)] {
+    compile_revision_with_limits(
+        CompileProfile::single_network_1m_stable_entities(),
+        |module| {
+            add_standard_profiles(module);
+            let mut gates = Vec::new();
+            for index in 0..count {
+                let [entry, inside, exit, junction, movement, path, gate, stop] = [
+                    "entry", "inside", "exit", "junction", "movement", "path", "gate", "stop",
+                ]
+                .map(|suffix| format!("output-{index}-{suffix}"));
+                for (edge, successor) in [(&entry, &inside), (&inside, &exit), (&exit, &entry)] {
+                    module
+                        .add_lane_edge(LaneEdgeInput {
+                            lane_edge_key: edge,
+                            length_meters: 20.0,
+                            speed_limit_meters_per_second: 13.75,
+                            successors: &[LaneEdgeReference::local(successor)],
+                        })
+                        .unwrap();
+                }
                 module
-                    .add_lane_edge(LaneEdgeInput {
-                        lane_edge_key: edge,
-                        length_meters: 20.0,
-                        speed_limit_meters_per_second: 13.75,
-                        successors: &[LaneEdgeReference::local(successor)],
+                    .add_junction(JunctionInput {
+                        junction_key: &junction,
+                    })
+                    .unwrap()
+                    .add_movement(MovementInput {
+                        movement_key: &movement,
+                        junction: JunctionReference::local(&junction),
+                        directed_entry_approach_key: "in",
+                        directed_exit_approach_key: "out",
+                        turn_direction: None,
+                    })
+                    .unwrap()
+                    .add_maneuver_path(ManeuverPathInput {
+                        maneuver_path_key: &path,
+                        movement: MovementReference::local(&movement),
+                        entry_edge: LaneEdgeReference::local(&entry),
+                        internal_edges: &[LaneEdgeReference::local(&inside)],
+                        exit_edge: LaneEdgeReference::local(&exit),
+                    })
+                    .unwrap()
+                    .add_stop_line(StopLineInput {
+                        stop_line_key: &stop,
+                        lane_edge: LaneEdgeReference::local(&entry),
+                    })
+                    .unwrap()
+                    .add_maneuver_gate(ManeuverGateInput {
+                        maneuver_gate_key: &gate,
+                        maneuver_path: ManeuverPathReference::local(&path),
+                        transition_index: 0,
+                        stop_line: StopLineReference::local(&stop),
+                        signal_control: SignalControlInput::None,
                     })
                     .unwrap();
+                gates.push(gate);
             }
             module
-                .add_junction(JunctionInput {
-                    junction_key: &junction,
-                })
-                .unwrap()
-                .add_movement(MovementInput {
-                    movement_key: &movement,
-                    junction: JunctionReference::local(&junction),
-                    directed_entry_approach_key: "in",
-                    directed_exit_approach_key: "out",
-                    turn_direction: None,
-                })
-                .unwrap()
-                .add_maneuver_path(ManeuverPathInput {
-                    maneuver_path_key: &path,
-                    movement: MovementReference::local(&movement),
-                    entry_edge: LaneEdgeReference::local(&entry),
-                    internal_edges: &[LaneEdgeReference::local(&inside)],
-                    exit_edge: LaneEdgeReference::local(&exit),
-                })
-                .unwrap()
-                .add_stop_line(StopLineInput {
-                    stop_line_key: &stop,
-                    lane_edge: LaneEdgeReference::local(&entry),
-                })
-                .unwrap()
-                .add_maneuver_gate(ManeuverGateInput {
-                    maneuver_gate_key: &gate,
-                    maneuver_path: ManeuverPathReference::local(&path),
-                    transition_index: 0,
-                    stop_line: StopLineReference::local(&stop),
-                    signal_control: SignalControlInput::None,
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "completed",
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 13.75,
+                    successors: &[],
                 })
                 .unwrap();
-            gates.push(gate);
-        }
-        module
-            .add_lane_edge(LaneEdgeInput {
-                lane_edge_key: "completed",
-                length_meters: 20.0,
-                speed_limit_meters_per_second: 13.75,
-                successors: &[],
-            })
-            .unwrap();
-        test_policy::add_gate_policy(
-            module,
-            "signal-policy",
-            &gates
-                .iter()
-                .map(|gate| {
-                    (
-                        gate.as_str(),
-                        laneflow_compiler::GateInterpretation::Uncontrolled,
-                    )
-                })
-                .collect::<Vec<_>>(),
-        );
-    })
+            test_policy::add_gate_policy(
+                module,
+                "signal-policy",
+                &gates
+                    .iter()
+                    .map(|gate| {
+                        (
+                            gate.as_str(),
+                            laneflow_compiler::GateInterpretation::Uncontrolled,
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        },
+    )
 }
 
 fn run(

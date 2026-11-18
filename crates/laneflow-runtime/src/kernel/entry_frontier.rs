@@ -2411,7 +2411,7 @@ mod tests {
         revision: &laneflow_static_network::SharedNetworkRevision,
         key: &str,
     ) -> laneflow_static_contract::LaneEdgeOrdinal {
-        let limits = laneflow_compiler::CompileLimits::single_network_1m();
+        let limits = laneflow_compiler::CompileProfile::single_network_1m_stable_entities();
         let stable = laneflow_compiler::derive_canonical_stable_id_v1(
             laneflow_static_contract::EntityKind::LaneEdge,
             "city/runtime-live-conflict-cutover",

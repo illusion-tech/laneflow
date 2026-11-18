@@ -102,7 +102,7 @@ fn waiting_entry_cannot_share_conflict_coverage_in_a_compiled_network() {
             ..Default::default()
         },
     );
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let source = lfre::RoadEditingSourceWriter::new(&limits)
         .write(module)
         .unwrap();

@@ -995,24 +995,37 @@ pub(crate) fn lower_to_mir(
         .modules
         .first()
         .map(|module| module.authoring_namespace_id.as_ref().into());
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    for (dimension, observed) in [
-        (CompileLimitDimension::MirRecordCount, mir_record_count),
-        (
-            CompileLimitDimension::CompilerControlledLiveBytes,
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
+    for violation in [
+        unit.limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::MirRecordCount,
+            mir_record_count,
+        ),
+        unit.limits.operation_budget().exceeded(
+            crate::OperationResourceDimension::CompilerControlledLiveBytes,
             controlled_live_bytes,
         ),
-    ] {
-        if observed > unit.limits.value(dimension) {
-            diagnostics.push(Diagnostic::compile_limit_exceeded_at(
-                dimension,
-                unit.limits.value(dimension),
-                observed,
-                primary_span.clone(),
-                stable_key.clone(),
-            ));
-        }
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let crate::limits::ResourceLimitExceeded {
+            dimension,
+            limit,
+            observed,
+        } = violation;
+
+        diagnostics.push(Diagnostic::compile_limit_exceeded_at(
+            dimension,
+            limit,
+            observed,
+            primary_span.clone(),
+            stable_key.clone(),
+        ));
     }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
@@ -1896,7 +1909,7 @@ fn dense_mapping<K>(count: usize) -> Result<Vec<ArenaKey<K>>, DiagnosticBundle> 
 
 fn remap_range<T, U>(
     range: TableRange<T>,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     source_span: &SourceLocation,
 ) -> Result<TableRange<U>, DiagnosticBundle> {
     TableRange::try_from_usize(range.start() as usize, range.len() as usize)
@@ -1909,12 +1922,14 @@ fn requested_bytes<T>(count: u64) -> u64 {
 
 fn arena_overflow(
     _: ArenaKeyOverflow,
-    limits: &crate::CompileLimits,
+    limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::MirRecordCount,
-        limits.value(CompileLimitDimension::MirRecordCount),
+        limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::MirRecordCount),
         u64::from(u32::MAX) + 1,
         primary_span,
         None,
@@ -1926,8 +1941,9 @@ mod tests {
     use super::*;
     use crate::hir::build_hir;
     use crate::{
-        CompilationUnitBuilder, CompileLimits, DiagnosticPayload, LaneEdgeInput, LaneEdgeReference,
-        SourceModuleHeader, SourceModuleHeaderInput, SyntheticModule, SyntheticModuleBuilder,
+        CompilationUnitBuilder, CompileProfile, DiagnosticPayload, LaneEdgeInput,
+        LaneEdgeReference, SourceModuleHeader, SourceModuleHeaderInput, SyntheticModule,
+        SyntheticModuleBuilder,
     };
 
     fn module(
@@ -1935,7 +1951,7 @@ mod tests {
         imports: &[&str],
         edges: &[(&str, &[LaneEdgeReference<'_>])],
     ) -> SyntheticModule {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: namespace,
@@ -1967,7 +1983,8 @@ mod tests {
     }
 
     fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+        let mut builder =
+            CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
         for module in modules {
             builder.add_synthetic_module(module).unwrap();
         }
@@ -2068,7 +2085,8 @@ mod tests {
         let mut unit = unit([module("city/a", &[], &[("edge-a", &successors)])]);
         let hir = build_hir(&unit).unwrap();
 
-        unit.limits = CompileLimits::p100().with_test_pipeline_limits(u32::MAX, 1, u32::MAX);
+        unit.limits = CompileProfile::single_network_10k_stable_entities()
+            .with_test_pipeline_limits(u32::MAX, 1, u32::MAX);
         let record_failure = match lower_to_mir(&unit, &hir) {
             Ok(_) => panic!("MIR record limit must fail closed"),
             Err(diagnostics) => diagnostics,
@@ -2084,8 +2102,8 @@ mod tests {
 
         let input_live_bytes =
             u32::try_from(unit.controlled_live_bytes + hir.controlled_live_bytes).unwrap();
-        unit.limits =
-            CompileLimits::p100().with_test_pipeline_limits(u32::MAX, u32::MAX, input_live_bytes);
+        unit.limits = CompileProfile::single_network_10k_stable_entities()
+            .with_test_pipeline_limits(u32::MAX, u32::MAX, input_live_bytes);
         let live_failure = match lower_to_mir(&unit, &hir) {
             Ok(_) => panic!("MIR live byte limit must fail closed"),
             Err(diagnostics) => diagnostics,

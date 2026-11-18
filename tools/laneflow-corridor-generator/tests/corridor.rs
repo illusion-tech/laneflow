@@ -456,10 +456,10 @@ fn every_portal_lane_must_have_spawn_capacity() {
 
 #[test]
 fn identity_ascii_keys_stay_below_compile_string_limit() {
-    use laneflow_compiler::CompileLimits;
+    use laneflow_compiler::CompileProfile;
 
     let generated = default_generated();
-    let limit = CompileLimits::p100().max_single_string_bytes();
+    let limit = CompileProfile::single_network_10k_stable_entities().max_single_string_bytes();
     let mut longest = 0_u64;
     for edge in generated.lir().lane_edges() {
         let key = ascii_field(edge.identity_fields(), FieldTag::LaneEdgeKey);

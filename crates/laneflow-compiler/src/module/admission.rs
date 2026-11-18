@@ -10,7 +10,7 @@ use crate::declaration::{
 use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
+    CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, SourceLocation,
     SourcePosition,
 };
 
@@ -745,12 +745,12 @@ impl AdmissionSizing {
 /// 共同 Typed AST 接入面保持包内私有，外部调用方只能使用具体官方入口：
 ///
 /// ```compile_fail
-/// use laneflow_compiler::{CompilationUnitBuilder, CompileLimits};
-/// let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+/// use laneflow_compiler::{CompilationUnitBuilder, CompileProfile};
+/// let mut builder = CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
 /// let _generic_admission = builder.add_module;
 /// ```
 pub struct CompilationUnitBuilder {
-    limits: CompileLimits,
+    limits: CompileProfile,
     pub(super) modules: Vec<AdmittedOfficialModule>,
     pub(super) module_index: HashMap<Arc<str>, usize>,
     source_document_index: PendingSourceDocumentIndex,
@@ -766,7 +766,7 @@ struct AdmissionPlan {
 impl CompilationUnitBuilder {
     /// 用同一份显式资源配置档建立空编译单元构建器。
     #[must_use]
-    pub fn new(limits: CompileLimits) -> Self {
+    pub fn new(limits: CompileProfile) -> Self {
         Self {
             limits,
             modules: Vec::new(),
@@ -784,7 +784,7 @@ impl CompilationUnitBuilder {
 
     /// 替换构建器使用的限额配置档。
     #[cfg(test)]
-    pub(super) fn set_test_limits(&mut self, limits: CompileLimits) {
+    pub(super) fn set_test_limits(&mut self, limits: CompileProfile) {
         self.limits = limits;
     }
 
@@ -824,7 +824,7 @@ impl CompilationUnitBuilder {
     }
 
     /// 返回构建器使用的限额配置档。
-    pub(crate) const fn road_editing_limits(&self) -> &CompileLimits {
+    pub(crate) const fn road_editing_limits(&self) -> &CompileProfile {
         &self.limits
     }
 
@@ -841,11 +841,61 @@ impl CompilationUnitBuilder {
     /// 返回几何点维度剩余可用的限额额度。
     pub(crate) fn road_editing_remaining_geometry_points(&self) -> u64 {
         self.limits
-            .value(CompileLimitDimension::GeometryPointCount)
+            .canonical_capacity()
+            .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount)
             .saturating_sub(self.totals.geometry_point_count)
     }
 
     /// 返回指定限额维度已准入的累计观测值。
+    /// 共同准入已经持有的来源计数，按来源维度读取。
+    pub(crate) fn admitted_source_usage(&self, dimension: crate::SourceProcessingDimension) -> u64 {
+        match dimension {
+            crate::SourceProcessingDimension::ModuleCount => self.totals.module_count,
+            crate::SourceProcessingDimension::SourceDocumentCount => {
+                self.totals.source_document_count
+            }
+            crate::SourceProcessingDimension::ImportEdgeCount => self.totals.import_edge_count,
+            crate::SourceProcessingDimension::SourceBytesTotal => self.totals.source_bytes_total,
+            crate::SourceProcessingDimension::DeclarationCount => self.totals.declaration_count,
+            crate::SourceProcessingDimension::TypedAstRecordCount => {
+                self.totals.typed_ast_record_count
+            }
+            crate::SourceProcessingDimension::ReferenceCount => self.totals.reference_count,
+            crate::SourceProcessingDimension::RelationOccurrenceCount => {
+                self.totals.relation_occurrence_count
+            }
+            crate::SourceProcessingDimension::IdentityFieldOccurrenceCount => {
+                self.totals.identity_field_occurrence_count
+            }
+            crate::SourceProcessingDimension::SymbolCount => self.totals.symbol_count,
+            crate::SourceProcessingDimension::StringItemCount => self.totals.string_item_count,
+            crate::SourceProcessingDimension::TotalStringBytes => self.totals.string_bytes,
+            crate::SourceProcessingDimension::SourceBytesPerModule
+            | crate::SourceProcessingDimension::SingleStringBytes
+            | crate::SourceProcessingDimension::DiagnosticCount
+            | crate::SourceProcessingDimension::HirRecordCount
+            | crate::SourceProcessingDimension::MirRecordCount
+            | crate::SourceProcessingDimension::LirRecordCount => 0,
+        }
+    }
+    /// 共同准入阶段已知的规范数量；规范关系须由最终 LIR 独立统计。
+    pub(crate) fn admitted_canonical_lower_bound(
+        &self,
+    ) -> laneflow_static_contract::CanonicalNetworkUsage {
+        laneflow_static_contract::CanonicalNetworkUsage::new(
+            self.totals.stable_entity_count,
+            self.totals.maneuver_gate_count,
+            self.totals.waiting_zone_count,
+            0,
+            self.totals.geometry_point_count,
+        )
+    }
+    /// 构建器当前控制的存续字节。
+    pub(crate) fn admitted_controlled_live_bytes(&self) -> u64 {
+        builder_live_requested_bytes(self.totals)
+    }
+
+    #[cfg(test)]
     pub(crate) fn already_admitted(&self, dimension: CompileLimitDimension) -> u64 {
         match dimension {
             CompileLimitDimension::ModuleCount => self.totals.module_count,
@@ -876,7 +926,8 @@ impl CompilationUnitBuilder {
             | CompileLimitDimension::MirRecordCount
             | CompileLimitDimension::LirRecordCount
             | CompileLimitDimension::RetainedCapacityBytes
-            | CompileLimitDimension::PolicyValidationWorkUnits => 0,
+            | CompileLimitDimension::PolicyValidationWorkUnits
+            | CompileLimitDimension::CanonicalRelationCount => 0,
         }
     }
 
@@ -958,8 +1009,16 @@ impl CompilationUnitBuilder {
         next_totals.admission_peak_live_bytes = next_totals
             .admission_peak_live_bytes
             .max(admission_observed_live_bytes);
-        for (dimension, observed) in next_totals.limit_observations(admission_observed_live_bytes) {
-            let limit = self.limits.value(dimension);
+        for violation in next_totals
+            .limit_violations(admission_observed_live_bytes, &self.limits)
+            .into_iter()
+            .flatten()
+        {
+            let crate::limits::ResourceLimitExceeded {
+                dimension,
+                limit,
+                observed,
+            } = violation;
             if observed > limit {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::compile_limit_exceeded_at(
@@ -974,7 +1033,8 @@ impl CompilationUnitBuilder {
         }
         let source_document_limit = self
             .limits
-            .value(CompileLimitDimension::SourceDocumentCount);
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SourceDocumentCount);
         if next_totals.source_document_count > source_document_limit {
             let limit = source_document_limit;
             return Err(DiagnosticBundle::single(
@@ -1041,7 +1101,9 @@ impl CompilationUnitBuilder {
     pub fn build(self) -> Result<CompilationUnit, DiagnosticBundle> {
         let sizing = AdmissionSizing::from_totals(
             self.totals,
-            self.limits.value(CompileLimitDimension::DiagnosticCount),
+            self.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
         );
         let primary_module = self.modules.iter().min_by(|left, right| {
             left.descriptor
@@ -1049,7 +1111,10 @@ impl CompilationUnitBuilder {
                 .cmp(&right.descriptor.authoring_namespace_id)
         });
         let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-        let limit = self.limits.value(dimension);
+        let limit = self
+            .limits
+            .operation_budget()
+            .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
         if sizing.build_peak_live_bytes > limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded_at(
@@ -1063,8 +1128,11 @@ impl CompilationUnitBuilder {
             ));
         }
 
-        let mut diagnostics =
-            DiagnosticCollector::new(self.limits.value(CompileLimitDimension::DiagnosticCount));
+        let mut diagnostics = DiagnosticCollector::new(
+            self.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
         let mut canonical_indices: Vec<_> = (0..self.modules.len()).collect();
         canonical_indices.sort_unstable_by(|left, right| {
             self.modules[*left]
@@ -1175,7 +1243,7 @@ impl CompilationUnitBuilder {
 /// 构造完成后，全部导入目标存在、导入图无环，并且 `modules` 按依赖优先的规范顺序
 /// 排列。类型字段私有，后续阶段可以依赖这些不变量而无需重新接受裸模块数组。
 pub struct CompilationUnit {
-    pub(crate) limits: CompileLimits,
+    pub(crate) limits: CompileProfile,
     pub(crate) modules: Box<[TypedAstModule]>,
     source_document_index: FrozenSourceDocumentIndex,
     pub(crate) source_document_count: u64,

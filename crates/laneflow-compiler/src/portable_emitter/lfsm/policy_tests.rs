@@ -17,7 +17,7 @@ mod shared_network_revision;
 fn direction_projection_finds_many_mixed_kind_sources_and_rejects_missing_owner() {
     let mut output = full_spatial_portable_fixture_output();
     let mut unit = full_spatial_portable_fixture_unit();
-    unit.limits = crate::CompileLimits::single_network_1m();
+    unit.limits = crate::CompileProfile::single_network_1m_stable_entities();
     let module = unit
         .modules
         .iter()
@@ -307,7 +307,7 @@ fn empty_policy_fast_path_rejects_each_orphan_member_table() {
                 fixture.output.source_map_input(),
                 &bytes(&map),
                 FormatLimits::HARD,
-                &crate::CompileLimits::single_network_1m()
+                crate::CompileProfile::single_network_1m_stable_entities().consumer_policy()
             ),
             Err(PortableEmissionError::PolicySourceMismatch),
             "member table {table}"
@@ -322,7 +322,7 @@ impl Fixture {
             self.output.source_map_input(),
             &bytes(map),
             FormatLimits::HARD,
-            &crate::CompileLimits::single_network_1m(),
+            crate::CompileProfile::single_network_1m_stable_entities().consumer_policy(),
         )
     }
 }
@@ -331,8 +331,8 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
     let mut output = full_spatial_portable_fixture_output();
     let mut unit = full_spatial_portable_fixture_unit();
     if evidence_count > 10_000 {
-        unit.limits = crate::CompileLimits::single_network_1m();
-        output.set_test_compile_limits(crate::CompileLimits::single_network_1m());
+        unit.limits = crate::CompileProfile::single_network_1m_stable_entities();
+        output.set_test_compile_limits(crate::CompileProfile::single_network_1m_stable_entities());
     }
     let module_index = unit
         .modules
@@ -372,7 +372,7 @@ fn fixture(road: bool, canvas: Option<&str>, evidence_count: usize) -> Fixture {
             EntityKind::RightOfWayPolicySet,
             namespace,
             key,
-            &crate::CompileLimits::single_network_1m(),
+            &crate::CompileProfile::single_network_1m_stable_entities(),
         )
         .unwrap()
         .into_bytes();
@@ -783,7 +783,7 @@ fn policy_source_checker_rejects_missing_extra_and_forged_projections() {
                     fixture.output.source_map_input(),
                     &bytes,
                     FormatLimits::HARD,
-                    &crate::CompileLimits::single_network_1m()
+                    crate::CompileProfile::single_network_1m_stable_entities().consumer_policy()
                 )
                 .is_err(),
                 "mutation {mutation}"
@@ -807,7 +807,7 @@ fn policy_sources_keep_global_ordinals_across_real_chunks() {
         fixture.output.source_map_input(),
         &bytes,
         FormatLimits::HARD,
-        &crate::CompileLimits::single_network_1m(),
+        crate::CompileProfile::single_network_1m_stable_entities().consumer_policy(),
     )
     .unwrap();
     let mut wrong = fixture.map.clone();
@@ -826,7 +826,7 @@ fn policy_sources_keep_global_ordinals_across_real_chunks() {
 fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
     let mut fixture = fixture(true, Some("node"), 1);
     let original = bytes(&fixture.map);
-    let small = crate::CompileLimits::single_network_1m()
+    let small = crate::CompileProfile::single_network_1m_stable_entities()
         .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 1);
     assert!(matches!(
         check_portable_policy_sources(
@@ -834,7 +834,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
             fixture.output.source_map_input(),
             &original,
             FormatLimits::HARD,
-            &small
+            small.consumer_policy()
         ),
         Err(PortableEmissionError::CompileLimitExceeded {
             dimension: CompileLimitDimension::CompilerControlledLiveBytes,
@@ -850,7 +850,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
             fixture.output.source_map_input(),
             &original,
             limits,
-            &crate::CompileLimits::single_network_1m()
+            crate::CompileProfile::single_network_1m_stable_entities().consumer_policy()
         )
         .is_err()
     );
@@ -891,7 +891,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
         .unwrap()
         .source_document_key()
         .to_owned();
-    small_unit.limits = crate::CompileLimits::single_network_1m()
+    small_unit.limits = crate::CompileProfile::single_network_1m_stable_entities()
         .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 0);
     let real: SourceLocation = SourceSpan::point(document.into(), 1, 1).into();
     assert!(
@@ -922,7 +922,7 @@ fn policy_source_limits_and_foreign_document_fail_without_partial_state() {
             fixture.output.source_map_input(),
             &old,
             FormatLimits::HARD,
-            &crate::CompileLimits::single_network_1m()
+            crate::CompileProfile::single_network_1m_stable_entities().consumer_policy()
         )
         .is_err()
     );

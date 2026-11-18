@@ -8,14 +8,14 @@ use super::*;
 use crate::{DiagnosticCode, DiagnosticPayload, LaneEdgeReference, SourceModuleHeaderInput};
 
 fn header(namespace: &str, document: &str) -> SourceModuleHeader {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     header_with_limits(namespace, document, &limits)
 }
 
 fn header_with_limits(
     namespace: &str,
     document: &str,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> SourceModuleHeader {
     SourceModuleHeader::new(
         SourceModuleHeaderInput {
@@ -37,7 +37,7 @@ fn module(namespace: &str, imports: &[&str]) -> SyntheticModule {
 }
 
 fn module_with_document(namespace: &str, document: &str, imports: &[&str]) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header(namespace, document), &limits).unwrap();
     for import in imports {
         builder.add_import(import).unwrap();
@@ -46,7 +46,7 @@ fn module_with_document(namespace: &str, document: &str, imports: &[&str]) -> Sy
 }
 
 fn signal_module_with_document(namespace: &str, document: &str) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header(namespace, document), &limits).unwrap();
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -297,10 +297,13 @@ fn empty_module_source_record_has_a_position_independent_known_vector() {
         provenance: Arc::from("repository:laneflow"),
         declaration_span: SourceSpan::point(source_document_key, 7, 11),
     };
-    let module = SyntheticModuleBuilder::new(fixed_header, &CompileLimits::p100())
-        .unwrap()
-        .finish()
-        .unwrap();
+    let module = SyntheticModuleBuilder::new(
+        fixed_header,
+        &CompileProfile::single_network_10k_stable_entities(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
 
     let document = module.source_documents().next().unwrap();
     assert_eq!(document.source_record_byte_len(), 202);
@@ -324,7 +327,7 @@ fn empty_module_source_record_has_a_position_independent_known_vector() {
 
 #[test]
 fn lane_edge_accepts_terminal_and_self_loop_topology() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
     builder
@@ -363,7 +366,7 @@ fn lane_edge_accepts_terminal_and_self_loop_topology() {
 
 #[test]
 fn million_profile_rejects_identity_key_above_53_before_admission() {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let at_bound = "a".repeat(53);
     let over_bound = "a".repeat(54);
     let mut builder = SyntheticModuleBuilder::new(
@@ -409,7 +412,7 @@ fn million_profile_rejects_identity_key_above_53_before_admission() {
 
 #[test]
 fn lane_edge_rejects_non_finite_and_non_positive_scalars_without_mutation() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     for (length, speed, expected_code) in [
         (f64::NAN, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
         (f64::INFINITY, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
@@ -442,7 +445,7 @@ fn lane_edge_rejects_non_finite_and_non_positive_scalars_without_mutation() {
 
 #[test]
 fn lane_edge_admits_length_that_quantizes_to_minimum_millimetres() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
     add_lane_edge_at(
@@ -462,7 +465,7 @@ fn lane_edge_admits_length_that_quantizes_to_minimum_millimetres() {
 
 #[test]
 fn lane_edge_requires_explicit_import_and_valid_reference_tokens() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
     let missing_import = expect_diagnostics(add_lane_edge_at(
@@ -526,7 +529,7 @@ fn lane_edge_requires_explicit_import_and_valid_reference_tokens() {
 
 #[test]
 fn duplicate_lane_edge_and_successor_fail_without_mutating_prior_state() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
     let duplicate_successor = expect_diagnostics(add_lane_edge_at(
@@ -595,7 +598,7 @@ fn duplicate_lane_edge_and_successor_fail_without_mutating_prior_state() {
 
 #[test]
 fn lane_edge_successor_order_is_not_source_identity() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let left_successors = [
         LaneEdgeReference::local("edge-c"),
         LaneEdgeReference::local("edge-b"),
@@ -638,7 +641,7 @@ fn lane_edge_successor_order_is_not_source_identity() {
 
 #[test]
 fn lane_edge_successor_set_and_sources_follow_target_typed_ordinal() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/successor-order", "source-primary"), &limits)
             .unwrap();
@@ -677,7 +680,8 @@ fn lane_edge_successor_set_and_sources_follow_target_typed_ordinal() {
     // Synthetic admission has already normalized the reference spelling order to `aa, z`.
     // Distinct documents prove that the source rows follow the later typed-ordinal permutation.
     module.move_first_lane_edge_successor_spans_to(&["source-aa", "source-z"]);
-    let mut unit = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut unit =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     unit.add_test_official_module(module).unwrap();
     let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
     let edge_key = |edge: crate::CanonicalLaneEdgeView<'_>| {
@@ -726,7 +730,7 @@ fn lane_edge_source_record_has_a_known_vector() {
         provenance: Arc::from("repository:laneflow"),
         declaration_span: SourceSpan::point(Arc::clone(&source_document_key), 7, 11),
     };
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(fixed_header, &limits).unwrap();
     builder
         .add_lane_edge_at(
@@ -758,7 +762,7 @@ fn lane_edge_source_record_has_a_known_vector() {
 
 #[test]
 fn lane_edge_counters_follow_the_calibrated_record_formula() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
     builder.add_import("city/base").unwrap();
@@ -800,7 +804,7 @@ fn lane_edge_counters_follow_the_calibrated_record_formula() {
 
 #[test]
 fn facility_kind_validation_matches_the_accepted_seed_and_extension_prefixes() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
     for (key, kind_id) in [
@@ -836,7 +840,7 @@ fn facility_kind_validation_matches_the_accepted_seed_and_extension_prefixes() {
 
 #[test]
 fn duplicate_and_self_imports_fail_with_source_context() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/a", "source.a"), &limits).unwrap();
     builder.add_import("city/base").unwrap();
     let duplicate = expect_diagnostics(builder.add_import("city/base"));
@@ -856,9 +860,11 @@ fn duplicate_and_self_imports_fail_with_source_context() {
 
 #[test]
 fn import_limit_failure_does_not_mutate_the_module() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/a", "source.a"), &limits).unwrap();
-    let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
+    let import_limit = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::ImportEdgeCount);
     for index in 0..import_limit {
         builder
             .add_import(&format!("city/import/{index:04}"))
@@ -898,7 +904,7 @@ fn source_record_encoder_fails_before_over_limit_allocation() {
 
 #[test]
 fn compilation_unit_rejects_unknown_imports_and_duplicate_namespaces() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = CompilationUnitBuilder::new(limits.clone());
     builder
         .add_synthetic_module(module("city/a", &["city/missing"]))
@@ -921,7 +927,8 @@ fn compilation_unit_rejects_unknown_imports_and_duplicate_namespaces() {
 
 #[test]
 fn compilation_unit_rejects_duplicate_source_document_keys_atomically() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     builder
         .add_synthetic_module(module_with_document("city/a", "shared.document", &[]))
         .unwrap();
@@ -949,7 +956,8 @@ fn compilation_unit_rejects_duplicate_source_document_keys_atomically() {
 
 #[test]
 fn compilation_unit_uses_dependency_first_canonical_order() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     builder
         .add_synthetic_module(module("city/z", &["city/a"]))
         .unwrap();
@@ -966,7 +974,8 @@ fn compilation_unit_uses_dependency_first_canonical_order() {
 
 #[test]
 fn compilation_unit_reports_canonical_cycle() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     builder
         .add_synthetic_module(module("city/c", &["city/a"]))
         .unwrap();
@@ -987,7 +996,8 @@ fn compilation_unit_reports_canonical_cycle() {
 
 #[test]
 fn compilation_unit_reports_every_disjoint_cycle_in_canonical_order() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     for module in [
         module("city/d", &["city/c"]),
         module("city/a", &["city/b"]),
@@ -1020,7 +1030,8 @@ fn compilation_unit_reports_every_disjoint_cycle_in_canonical_order() {
 
 #[test]
 fn common_admission_rejects_duplicate_keys_inside_one_official_module_atomically() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     let duplicate = TestOfficialModule::from_synthetic_with_documents(
         module_with_document("city/a", "source/shared", &[]),
         &[("source/shared", b"duplicate")],
@@ -1040,7 +1051,8 @@ fn common_admission_rejects_duplicate_keys_inside_one_official_module_atomically
 
 #[test]
 fn common_admission_enforces_canonical_document_order_before_index_commit() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         TestOfficialModule::from_synthetic_with_unsorted_documents(
             module_with_document("city/a", "source/a", &[]),
@@ -1087,11 +1099,12 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
     ];
 
     for dimension in dimensions {
-        let limits = CompileLimits::p100().with_test_admission_limit(dimension, 0);
+        let limits = CompileProfile::single_network_10k_stable_entities()
+            .with_test_admission_limit(dimension, 0);
         let mut builder = CompilationUnitBuilder::new(limits);
         let diagnostics = match dimension {
             CompileLimitDimension::ImportEdgeCount => {
-                let frontend_limits = CompileLimits::p100();
+                let frontend_limits = CompileProfile::single_network_10k_stable_entities();
                 let mut module_builder =
                     SyntheticModuleBuilder::new(header("city/a", "source/a"), &frontend_limits)
                         .unwrap();
@@ -1143,7 +1156,7 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
 
 #[test]
 fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = CompilationUnitBuilder::new(limits.clone());
     builder
         .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
@@ -1151,7 +1164,9 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
 
     let sizing = AdmissionSizing::from_totals(
         builder.totals,
-        limits.value(CompileLimitDimension::DiagnosticCount),
+        limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
     let expected_document_index = source_document_index_requested_bytes(1);
     let expected_module_index = requested_hash_table_bytes::<Arc<str>, usize>(1);
@@ -1185,7 +1200,7 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
 #[test]
 fn module_vector_growth_is_explicitly_budgeted_before_commit() {
     let fixture = || {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = CompilationUnitBuilder::new(limits);
         for index in 0..4 {
             builder
@@ -1220,10 +1235,12 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
     assert!(growth_peak > next_builder_live);
     assert!(growth_peak > builder.totals.admission_peak_live_bytes);
     let expected_peak = growth_peak;
-    builder.set_test_limits(CompileLimits::p100().with_test_admission_limit(
-        CompileLimitDimension::CompilerControlledLiveBytes,
-        u32::try_from(expected_peak).unwrap(),
-    ));
+    builder.set_test_limits(
+        CompileProfile::single_network_10k_stable_entities().with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            u32::try_from(expected_peak).unwrap(),
+        ),
+    );
     builder.add_synthetic_module(fifth).unwrap();
 
     assert_eq!(builder.modules.capacity(), 8);
@@ -1235,10 +1252,12 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
 
     let (mut rejected, fifth) = fixture();
     let old_totals = rejected.totals;
-    rejected.set_test_limits(CompileLimits::p100().with_test_admission_limit(
-        CompileLimitDimension::CompilerControlledLiveBytes,
-        u32::try_from(expected_peak - 1).unwrap(),
-    ));
+    rejected.set_test_limits(
+        CompileProfile::single_network_10k_stable_entities().with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            u32::try_from(expected_peak - 1).unwrap(),
+        ),
+    );
     let diagnostics = match rejected.add_synthetic_module(fifth) {
         Ok(_) => panic!("module-vector growth must fail at one byte below its exact peak"),
         Err(diagnostics) => diagnostics,
@@ -1254,7 +1273,7 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
     assert_eq!(rejected.modules.len(), 4);
     assert_eq!(rejected.modules.capacity(), 4);
     assert_eq!(rejected.totals, old_totals);
-    rejected.set_test_limits(CompileLimits::p100());
+    rejected.set_test_limits(CompileProfile::single_network_10k_stable_entities());
     rejected
         .add_synthetic_module(module_with_document("city/4", "source/4", &[]))
         .unwrap();
@@ -1264,7 +1283,8 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
 
 #[test]
 fn geometry_source_range_audit_count_commits_and_rolls_back_with_the_module() {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     let mut first = module_with_document("city/a", "source/a", &[]);
     first.admitted.resource_counts.geometry_source_range_count = 3;
     builder.add_synthetic_module(first).unwrap();
@@ -1288,14 +1308,16 @@ fn geometry_source_range_audit_count_commits_and_rolls_back_with_the_module() {
 #[test]
 fn build_checks_admission_scratch_and_peak_boundaries_before_freezing() {
     fn sizing_for_one_module() -> AdmissionSizing {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = CompilationUnitBuilder::new(limits.clone());
         builder
             .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
             .unwrap();
         AdmissionSizing::from_totals(
             builder.totals,
-            limits.value(CompileLimitDimension::DiagnosticCount),
+            limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
         )
     }
 
@@ -1303,7 +1325,8 @@ fn build_checks_admission_scratch_and_peak_boundaries_before_freezing() {
         dimension: CompileLimitDimension,
         limit: u32,
     ) -> Result<CompilationUnit, DiagnosticBundle> {
-        let limits = CompileLimits::p100().with_test_admission_limit(dimension, limit);
+        let limits = CompileProfile::single_network_10k_stable_entities()
+            .with_test_admission_limit(dimension, limit);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
             .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
@@ -1333,9 +1356,12 @@ fn build_checks_admission_scratch_and_peak_boundaries_before_freezing() {
 
 #[test]
 fn default_profile_can_freeze_its_maximum_module_count() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = CompilationUnitBuilder::new(limits.clone());
-    for index in 0..limits.value(CompileLimitDimension::ModuleCount) {
+    for index in 0..limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::ModuleCount)
+    {
         let namespace = format!("city/{index:03}");
         let document = format!("source/{index:03}");
         builder
@@ -1344,17 +1370,23 @@ fn default_profile_can_freeze_its_maximum_module_count() {
     }
     let sizing = AdmissionSizing::from_totals(
         builder.totals,
-        limits.value(CompileLimitDimension::DiagnosticCount),
+        limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
     assert!(
         sizing.build_peak_live_bytes
-            <= limits.value(CompileLimitDimension::CompilerControlledLiveBytes)
+            <= limits
+                .operation_budget()
+                .get(crate::OperationResourceDimension::CompilerControlledLiveBytes)
     );
 
     let unit = builder.build().unwrap();
     assert_eq!(
         u64::try_from(unit.module_count()).unwrap(),
-        limits.value(CompileLimitDimension::ModuleCount)
+        limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::ModuleCount)
     );
 }
 
@@ -1369,20 +1401,23 @@ fn build_limit_diagnostic_uses_canonical_module_context() {
         }
     }
 
-    let default_limits = CompileLimits::p100();
+    let default_limits = CompileProfile::single_network_10k_stable_entities();
     let mut sizing_builder = CompilationUnitBuilder::new(default_limits.clone());
     add_modules(&mut sizing_builder, ["city/z", "city/a"]);
     let sizing = AdmissionSizing::from_totals(
         sizing_builder.totals,
-        default_limits.value(CompileLimitDimension::DiagnosticCount),
+        default_limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
     let failing_limit = u32::try_from(sizing.build_peak_live_bytes).unwrap() - 1;
 
     for namespaces in [["city/z", "city/a"], ["city/a", "city/z"]] {
-        let limits = CompileLimits::p100().with_test_admission_limit(
-            CompileLimitDimension::CompilerControlledLiveBytes,
-            failing_limit,
-        );
+        let limits = CompileProfile::single_network_10k_stable_entities()
+            .with_test_admission_limit(
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                failing_limit,
+            );
         let mut builder = CompilationUnitBuilder::new(limits);
         add_modules(&mut builder, namespaces);
         let diagnostics = expect_diagnostics(builder.build());
@@ -1391,7 +1426,7 @@ fn build_limit_diagnostic_uses_canonical_module_context() {
 }
 
 #[test]
-fn v2_source_document_count_accepts_boundary_and_rejects_boundary_plus_one_atomically() {
+fn source_document_count_accepts_boundary_and_rejects_boundary_plus_one_atomically() {
     fn document_inputs(count: usize) -> (Vec<String>, Vec<Vec<u8>>) {
         let keys = (0..count)
             .map(|index| format!("extra/{index:04}"))
@@ -1402,13 +1437,14 @@ fn v2_source_document_count_accepts_boundary_and_rejects_boundary_plus_one_atomi
         (keys, records)
     }
 
-    let (boundary_keys, boundary_records) = document_inputs(1_565);
+    let (boundary_keys, boundary_records) = document_inputs(17);
     let boundary_inputs = boundary_keys
         .iter()
         .zip(&boundary_records)
         .map(|(key, record)| (key.as_str(), record.as_slice()))
         .collect::<Vec<_>>();
-    let mut boundary_builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut boundary_builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     boundary_builder
         .add_test_official_module(TestOfficialModule::from_synthetic_with_documents(
             module_with_document("city/boundary", "primary", &[]),
@@ -1416,21 +1452,22 @@ fn v2_source_document_count_accepts_boundary_and_rejects_boundary_plus_one_atomi
         ))
         .unwrap();
     let boundary_unit = boundary_builder.build().unwrap();
-    assert_eq!(boundary_unit.source_document_count(), 1_566);
+    assert_eq!(boundary_unit.source_document_count(), 18);
     let mut compiler = crate::Compiler::new();
     let boundary_output = compiler.compile(boundary_unit).unwrap();
     assert_eq!(
         boundary_output.source_map_input().source_documents().len(),
-        1_566
+        18
     );
 
-    let (over_keys, over_records) = document_inputs(1_566);
+    let (over_keys, over_records) = document_inputs(18);
     let over_inputs = over_keys
         .iter()
         .zip(&over_records)
         .map(|(key, record)| (key.as_str(), record.as_slice()))
         .collect::<Vec<_>>();
-    let mut over_builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut over_builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     let diagnostics = expect_diagnostics(over_builder.add_test_official_module(
         TestOfficialModule::from_synthetic_with_documents(
             module_with_document("city/over", "primary", &[]),
@@ -1441,8 +1478,8 @@ fn v2_source_document_count_accepts_boundary_and_rejects_boundary_plus_one_atomi
         diagnostics.diagnostics()[0].payload(),
         DiagnosticPayload::CompileLimitExceeded {
             dimension: CompileLimitDimension::SourceDocumentCount,
-            limit: 1_566,
-            observed: 1_567,
+            limit: 18,
+            observed: 19,
         }
     ));
     over_builder
@@ -1478,7 +1515,7 @@ fn document_set_digest_and_frozen_document_order_ignore_input_order() {
 #[test]
 fn source_document_index_and_flat_descriptors_are_in_peak_live_accounting() {
     fn compile_with_extra_documents(documents: &[(&str, &[u8])]) -> u64 {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let module = TestOfficialModule::from_synthetic_with_documents(
             module_with_document("city/a", "source/primary", &[]),
             documents,
@@ -1516,7 +1553,7 @@ fn source_document_index_and_flat_descriptors_are_in_peak_live_accounting() {
 
 #[test]
 fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut synthetic =
         SyntheticModuleBuilder::new(header("city/a", "source/primary"), &limits).unwrap();
     synthetic
@@ -1628,8 +1665,10 @@ fn signal_relations_keep_their_own_multi_document_locations() {
     use crate::identity::{IdentityFieldInput, encode_canonical_identity};
     use laneflow_static_contract::{EntityKind, FieldTag};
 
-    let limits = CompileLimits::p100();
-    let max_identity_field_bytes = limits.value(CompileLimitDimension::SingleStringBytes);
+    let limits = CompileProfile::single_network_10k_stable_entities();
+    let max_identity_field_bytes = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::SingleStringBytes);
     let mut module = TestOfficialModule::from_synthetic_with_documents(
         signal_module_with_document("city/signal", "source/primary"),
         &[
@@ -1756,7 +1795,7 @@ fn signal_relations_keep_their_own_multi_document_locations() {
 
 #[test]
 fn every_authored_owner_relation_keeps_its_multi_document_location() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut module = TestOfficialModule::from_synthetic_with_documents(
         signal_module_with_document("city/authored-relations", "source/primary"),
         &[("source/authored-relations", b"authored relations")],
@@ -1826,7 +1865,7 @@ fn every_authored_owner_relation_keeps_its_multi_document_location() {
 
 #[test]
 fn source_map_rejects_a_span_bound_to_another_modules_document() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut synthetic = SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
     synthetic
         .add_lane_edge(LaneEdgeInput {
@@ -1861,7 +1900,7 @@ fn source_map_rejects_a_span_bound_to_another_modules_document() {
 
 #[test]
 fn source_map_rejects_an_unregistered_span_document_without_panicking() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut synthetic = SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
     synthetic
         .add_lane_edge(LaneEdgeInput {
@@ -1904,7 +1943,7 @@ fn hir_rejects_cross_module_source_spans_before_semantic_diagnostics() {
         CorruptedSpan::Declaration,
         CorruptedSpan::Reference,
     ] {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut synthetic =
             SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
         synthetic
@@ -1949,7 +1988,7 @@ fn hir_rejects_cross_module_source_spans_before_semantic_diagnostics() {
 
 #[test]
 fn hir_rejects_unregistered_relation_span_before_semantic_diagnostics() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut synthetic = SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
     synthetic
         .add_lane_edge(LaneEdgeInput {
@@ -1982,7 +2021,7 @@ fn hir_rejects_unregistered_relation_span_before_semantic_diagnostics() {
 
 #[test]
 fn hir_rejects_unregistered_parking_virtual_anchor_span_before_unknown_target() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut synthetic = SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
     synthetic
         .add_lane_edge(LaneEdgeInput {
@@ -2072,8 +2111,10 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
                 total.saturating_add(u64::try_from(origin.len()).unwrap_or(u64::MAX))
             });
         let start = Instant::now();
-        let limits = CompileLimits::p100();
-        let diagnostic_limit = limits.value(CompileLimitDimension::DiagnosticCount);
+        let limits = CompileProfile::single_network_10k_stable_entities();
+        let diagnostic_limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount);
         let mut builder = CompilationUnitBuilder::new(limits);
         for module in modules {
             builder.add_test_official_module(module).unwrap();

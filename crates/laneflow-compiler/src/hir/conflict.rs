@@ -13,8 +13,8 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
 use crate::{
-    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle,
-    RoadEditingInputViolation, RoadEditingSourceViolation, SourceLocation,
+    CompilationUnit, Diagnostic, DiagnosticBundle, RoadEditingInputViolation,
+    RoadEditingSourceViolation, SourceLocation,
 };
 
 use super::{
@@ -271,8 +271,11 @@ pub(crate) fn build_conflict_hir(
         );
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     for (module_order, declaration_index, zone_key) in &zone_sources {
         let source_module = &unit.modules[*module_order as usize];
         let TypedAstDeclaration::ConflictZone(source) =

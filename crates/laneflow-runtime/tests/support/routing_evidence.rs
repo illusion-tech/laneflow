@@ -9,7 +9,7 @@ mod test_policy;
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, LaneEdgeInput, LaneEdgeReference,
+    CompilationUnitBuilder, CompileProfile, Compiler, LaneEdgeInput, LaneEdgeReference,
     PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, derive_canonical_stable_id_v1, emit_portable_candidate,
 };
@@ -271,7 +271,7 @@ pub fn dynamic_cost_snapshot_digest(
 }
 
 fn build_linear_revision() -> (Arc<SharedNetworkRevision>, Vec<StableId128>) {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let workload_manifest_digest = domain_digest(WORKLOAD_MANIFEST.as_bytes());
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {

@@ -12,7 +12,7 @@ use crate::mir::{
     MirConflictPassage, MirLaneEdgeConnection, MirLaneEdgeKey, MirSignalControllerGroup,
     MirSignalPhaseState, MirUnit,
 };
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
     LIR_ACCESS_RULE_LOGICAL_BYTES, LIR_BAND_LOGICAL_BYTES, LIR_CANONICAL_FRAME_LOGICAL_BYTES,
@@ -154,7 +154,7 @@ impl LirFreezePlan {
     /// 把记录计数换算为可分配容量；计数超出目标平台 `usize` 范围时返回序号溢出诊断。
     pub(crate) fn capacity(
         count: u64,
-        limits: &crate::CompileLimits,
+        limits: &crate::CompileProfile,
         primary_span: Option<SourceLocation>,
     ) -> Result<usize, DiagnosticBundle> {
         usize::try_from(count).map_err(|_| super::ordinal_overflow(limits, primary_span))
@@ -821,24 +821,37 @@ impl LirFreezePlan {
             .modules
             .first()
             .map(|module| module.authoring_namespace_id.as_ref().into());
-        let mut diagnostics =
-            DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-        for (dimension, observed) in [
-            (CompileLimitDimension::LirRecordCount, self.lir_record_count),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
+        let mut diagnostics = DiagnosticCollector::new(
+            unit.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
+        for violation in [
+            unit.limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::LirRecordCount,
+                self.lir_record_count,
+            ),
+            unit.limits.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
                 self.controlled_live_bytes,
             ),
-        ] {
-            if observed > unit.limits.value(dimension) {
-                diagnostics.push(Diagnostic::compile_limit_exceeded_at(
-                    dimension,
-                    unit.limits.value(dimension),
-                    observed,
-                    primary_span.clone(),
-                    stable_key.clone(),
-                ));
-            }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let crate::limits::ResourceLimitExceeded {
+                dimension,
+                limit,
+                observed,
+            } = violation;
+
+            diagnostics.push(Diagnostic::compile_limit_exceeded_at(
+                dimension,
+                limit,
+                observed,
+                primary_span.clone(),
+                stable_key.clone(),
+            ));
         }
         if !diagnostics.is_empty() {
             return Err(diagnostics.finish());

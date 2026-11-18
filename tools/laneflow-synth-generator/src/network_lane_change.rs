@@ -21,7 +21,7 @@ pub(crate) const LC_ROUTE: [&str; 5] = ["lc-e0", "lc-t", "lc-e2", "lc-int", "lc-
 pub(crate) const LC_EDIT_NAMESPACE: &str = "lf-synth-road";
 
 pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,
@@ -357,7 +357,7 @@ fn add_lane_change_cluster(
 
 /// 换道簇编辑侧声明（#1218/#1233）：每簇一组 junction/冲突区/两条流/无信号准入门，
 /// 统一策略集覆盖全部门（编译期 MissingRule 校验）；键按簇确定性派生。
-fn lane_change_editing(limits: &CompileLimits, clusters: u32) -> Result<Vec<u8>, Error> {
+fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>, Error> {
     use laneflow_compiler::road_editing as editing;
 
     let header = editing::RoadEditingModuleHeader::try_new(

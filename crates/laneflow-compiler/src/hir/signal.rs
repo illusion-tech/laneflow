@@ -12,7 +12,7 @@ use crate::declaration::{MAX_PORTABLE_SIGNAL_TIME_MS, OwnedSignalControl, TypedA
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
+use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
     CanonicalDeclarationSource, HirManeuverGate, HirManeuverGateKey, HirModuleKey,
@@ -269,8 +269,11 @@ pub(crate) fn build_signal_hir(
         }
     }
 
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
     let mut owners: Vec<Option<(HirSignalControllerKey, SourceLocation)>> =
         vec![None; groups.len()];
     let mut controller_group_rows =

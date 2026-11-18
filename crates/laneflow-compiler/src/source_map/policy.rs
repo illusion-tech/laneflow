@@ -107,14 +107,21 @@ pub(super) fn freeze_policy_sources(
         }
     }
     let observations = [
-        (CompileLimitDimension::RelationOccurrenceCount, occurrences),
-        (
-            CompileLimitDimension::CompilerControlledLiveBytes,
+        unit.limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::RelationOccurrenceCount,
+            occurrences,
+        ),
+        unit.limits.operation_budget().exceeded(
+            crate::OperationResourceDimension::CompilerControlledLiveBytes,
             prior_live.saturating_add(owned),
         ),
     ];
-    for (dimension, actual) in observations {
-        let limit = unit.limits.value(dimension);
+    for violation in observations.into_iter().flatten() {
+        let crate::limits::ResourceLimitExceeded {
+            dimension,
+            limit,
+            observed: actual,
+        } = violation;
         if actual > limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded_at(

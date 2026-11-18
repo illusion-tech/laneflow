@@ -1,7 +1,7 @@
-//! 常规档的候选工作负载回归（#1441）。
+//! 常规档的正式工作负载与操作资格回归（#1441）。
 //!
-//! 借用现有有限百万档走生产前端与发射管线；本测试验证负载与操作覆盖，不能替代新常规档的
-//! 政策准入、逐维边界与预算拒绝资格。受控请求字节不等于进程内存，不采集墙钟性能。
+//! 全程使用一万稳定实体常规档；政策边界、预算拒绝和失败复用由同目录的包内测试补充。
+//! 受控请求字节不等于进程内存，不采集墙钟性能。
 
 use std::{
     collections::BTreeSet,
@@ -12,7 +12,7 @@ use std::{
 use laneflow_compiler as compiler_api;
 
 use laneflow_compiler::{
-    CompilationOutput, CompileLimits, Compiler, PortableDiffBase, PortableEmissionProvenance,
+    CompilationOutput, CompileProfile, Compiler, PortableDiffBase, PortableEmissionProvenance,
     PortablePublicationCandidate, check_portable_candidate, check_portable_policy_diff,
     check_portable_policy_sources, emit_portable_candidate, emit_portable_candidate_to_staging,
 };
@@ -318,7 +318,7 @@ fn emit_and_check(
         output.source_map_input(),
         candidate.source_map().bytes(),
         FormatLimits::HARD,
-        &CompileLimits::single_network_1m(),
+        CompileProfile::single_network_10k_stable_entities().consumer_policy(),
     )
     .unwrap();
     check_portable_policy_diff(
@@ -326,7 +326,7 @@ fn emit_and_check(
         candidate.canonical_artifact().bytes(),
         candidate.semantic_diff().bytes(),
         FormatLimits::HARD,
-        &CompileLimits::single_network_1m(),
+        CompileProfile::single_network_10k_stable_entities().consumer_policy(),
     )
     .unwrap();
     println!(

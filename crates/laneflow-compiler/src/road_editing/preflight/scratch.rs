@@ -3,17 +3,17 @@
 use std::cell::Cell;
 use std::ops::{Deref, DerefMut};
 
-use super::{CompileLimitDimension, CompileLimits, DiagnosticBundle, limit_error};
+use super::{CompileLimitDimension, CompileProfile, DiagnosticBundle, limit_error};
 
 pub(super) struct PreflightScratch<'a> {
-    limits: &'a CompileLimits,
+    limits: &'a CompileProfile,
     admitted_live_bytes: u64,
     live_bytes: Cell<u64>,
     peak_bytes: Cell<u64>,
 }
 
 impl<'a> PreflightScratch<'a> {
-    pub(super) fn new(limits: &'a CompileLimits, admitted_live_bytes: u64) -> Self {
+    pub(super) fn new(limits: &'a CompileProfile, admitted_live_bytes: u64) -> Self {
         Self {
             limits,
             admitted_live_bytes,
@@ -33,7 +33,8 @@ impl<'a> PreflightScratch<'a> {
         let count = values.len();
         let live_limit = self
             .limits
-            .value(CompileLimitDimension::CompilerControlledLiveBytes);
+            .operation_budget()
+            .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
         let overflow = || {
             limit_error(
                 CompileLimitDimension::CompilerControlledLiveBytes,
@@ -82,7 +83,7 @@ impl<'a> PreflightScratch<'a> {
 }
 
 impl Deref for PreflightScratch<'_> {
-    type Target = CompileLimits;
+    type Target = CompileProfile;
 
     fn deref(&self) -> &Self::Target {
         self.limits
@@ -128,7 +129,7 @@ mod tests {
 
     #[test]
     fn budget_rejects_before_reading_or_allocating_entries() {
-        let limits = CompileLimits::p100()
+        let limits = CompileProfile::single_network_10k_stable_entities()
             .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 15);
         let scratch = PreflightScratch::new(&limits, 0);
         let reads = Cell::new(0);
@@ -154,7 +155,7 @@ mod tests {
 
     #[test]
     fn simultaneous_requests_count_until_their_scopes_end() {
-        let limits = CompileLimits::p100()
+        let limits = CompileProfile::single_network_10k_stable_entities()
             .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 48);
         let scratch = PreflightScratch::new(&limits, 0);
         let first = scratch.collect((0_u32..4).map(u64::from)).unwrap();
@@ -172,7 +173,7 @@ mod tests {
 
     #[test]
     fn existing_modules_consume_the_same_live_budget() {
-        let limits = CompileLimits::p100()
+        let limits = CompileProfile::single_network_10k_stable_entities()
             .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 35);
         let scratch = PreflightScratch::new(&limits, 20);
         let error = match scratch.collect((0_u32..2).map(u64::from)) {
@@ -194,7 +195,7 @@ mod tests {
 
     #[test]
     fn unrepresentable_capacity_is_rejected_before_allocation() {
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
         let scratch = PreflightScratch::new(&limits, 0);
         assert!(
             scratch

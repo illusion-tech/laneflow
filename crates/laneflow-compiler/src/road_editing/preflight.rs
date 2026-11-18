@@ -21,7 +21,7 @@ use super::rules::{
 };
 use crate::declaration::{MAX_PORTABLE_SIGNAL_TIME_MS, facility_kind_category};
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, FacilityKindCategory,
+    CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, FacilityKindCategory,
     RoadEditingInputViolation, RoadEditingSourceViolation, SourceTextViolation,
 };
 
@@ -124,10 +124,12 @@ impl RoadEditingPreflightCounts {
         &mut self,
         value: &str,
         field: &'static str,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         expected_key: &str,
     ) -> Result<(), DiagnosticBundle> {
-        let limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
         if let Some(violation) = token_violation(value, limit, true) {
             return Err(semantic_error(field, violation, expected_key));
         }
@@ -142,10 +144,12 @@ impl RoadEditingPreflightCounts {
         &mut self,
         value: &str,
         field: &'static str,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         expected_key: &str,
     ) -> Result<(), DiagnosticBundle> {
-        let limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
         if let Some(violation) = visible_ascii_violation(value, limit) {
             return Err(semantic_error(field, violation, expected_key));
         }
@@ -160,10 +164,12 @@ impl RoadEditingPreflightCounts {
         &mut self,
         value: &str,
         field: &'static str,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         expected_key: &str,
     ) -> Result<(), DiagnosticBundle> {
-        let limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::SingleStringBytes);
         let observed = u64::try_from(value.len()).unwrap_or(u64::MAX);
         let violation = if value.is_empty() {
             Some(RoadEditingInputViolation::InvalidText(
@@ -193,7 +199,7 @@ impl RoadEditingPreflightCounts {
         field: &'static str,
         current_namespace: &str,
         imports: StringVector<'_>,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         expected_key: &str,
     ) -> Result<(), DiagnosticBundle> {
         let parsed = validate_wire_reference(value, component_count, allow_qualified)
@@ -222,7 +228,7 @@ impl RoadEditingPreflightCounts {
     fn charge_canvas(
         &mut self,
         value: Option<&str>,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         expected_key: &str,
     ) -> Result<(), DiagnosticBundle> {
         if let Some(value) = value {
@@ -249,12 +255,14 @@ impl RoadEditingPreflightCounts {
     fn require_relation_capacity(
         &self,
         count: usize,
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> Result<(), DiagnosticBundle> {
         let observed = self
             .relation_occurrence_count
             .saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
-        let limit = limits.value(CompileLimitDimension::RelationOccurrenceCount);
+        let limit = limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::RelationOccurrenceCount);
         if observed > limit {
             return Err(limit_error(
                 CompileLimitDimension::RelationOccurrenceCount,
@@ -265,47 +273,60 @@ impl RoadEditingPreflightCounts {
         Ok(())
     }
 
-    fn validate(self, limits: &CompileLimits) -> Result<Self, DiagnosticBundle> {
-        for (dimension, observed) in [
-            (
-                CompileLimitDimension::DeclarationCount,
+    fn validate(self, limits: &CompileProfile) -> Result<Self, DiagnosticBundle> {
+        if let Some(violation) = [
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::DeclarationCount,
                 self.declaration_count,
             ),
-            (
-                CompileLimitDimension::TypedAstRecordCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TypedAstRecordCount,
                 self.typed_ast_record_count,
             ),
-            (CompileLimitDimension::ReferenceCount, self.reference_count),
-            (
-                CompileLimitDimension::RelationOccurrenceCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::ReferenceCount,
+                self.reference_count,
+            ),
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::RelationOccurrenceCount,
                 self.relation_occurrence_count,
             ),
-            (
-                CompileLimitDimension::IdentityFieldOccurrenceCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
                 self.identity_field_occurrence_count,
             ),
-            (
-                CompileLimitDimension::ManeuverGateCount,
+            limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::ManeuverGateCount,
                 self.maneuver_gate_count,
             ),
-            (
-                CompileLimitDimension::WaitingZoneCount,
+            limits.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::WaitingZoneCount,
                 self.waiting_zone_count,
             ),
-            (CompileLimitDimension::SymbolCount, self.symbol_count),
-            (
-                CompileLimitDimension::StringItemCount,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::SymbolCount,
+                self.symbol_count,
+            ),
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
                 self.string_item_count,
             ),
-            (
-                CompileLimitDimension::TotalStringBytes,
+            limits.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
                 self.total_string_bytes,
             ),
-        ] {
-            let limit = limits.value(dimension);
-            if observed > limit {
-                return Err(limit_error(dimension, limit, observed));
-            }
+        ]
+        .into_iter()
+        .flatten()
+        .next()
+        {
+            let crate::limits::ResourceLimitExceeded {
+                dimension,
+                limit,
+                observed,
+            } = violation;
+
+            return Err(limit_error(dimension, limit, observed));
         }
         Ok(self)
     }
@@ -314,7 +335,7 @@ impl RoadEditingPreflightCounts {
 /// 对已验证根表执行完整语义预检：校验各字段取值并累计用量计数，在任何领域分配前失败关闭。
 pub(crate) fn preflight_source(
     root: wire::RoadEditingSource<'_>,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     expected_key: &str,
     admitted_live_bytes: u64,
 ) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
@@ -341,7 +362,9 @@ pub(crate) fn preflight_source(
         expected_key,
     )?;
     let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
-    let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
+    let import_limit = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::ImportEdgeCount);
     if import_count > import_limit {
         return Err(limit_error(
             CompileLimitDimension::ImportEdgeCount,
@@ -2453,7 +2476,7 @@ mod tests {
 
     #[test]
     fn relation_capacity_is_checked_before_usage_is_mutated() {
-        let limits = CompileLimits::p100()
+        let limits = CompileProfile::single_network_10k_stable_entities()
             .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 2);
         let mut usage = RoadEditingPreflightCounts {
             relation_occurrence_count: 1,
@@ -2471,7 +2494,7 @@ mod tests {
 
     #[test]
     fn generated_build_id_uses_the_token_rule() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut usage = RoadEditingPreflightCounts::default();
 
         assert!(
@@ -2576,7 +2599,7 @@ mod tests {
 
     #[test]
     fn regulation_text_accepts_bounded_unicode_and_rejects_empty_values() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut usage = RoadEditingPreflightCounts::default();
 
         usage

@@ -2360,7 +2360,7 @@ pub(crate) fn assert_committed_logical_state_equal(left: &WorldState, right: &Wo
 pub(crate) mod tests {
     use crate::TrafficWorld;
     use laneflow_compiler::{
-        CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+        CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
         LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
         ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
         PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
@@ -2542,9 +2542,9 @@ pub(crate) mod tests {
         yielding: bool,
     ) -> lfre::RoadEditingSourceModule {
         let limits = if long_approaches {
-            CompileLimits::single_network_1m()
+            CompileProfile::single_network_1m_stable_entities()
         } else {
-            CompileLimits::p100()
+            CompileProfile::single_network_10k_stable_entities()
         };
         let header = lfre::RoadEditingModuleHeader::try_new(
             "city/runtime-live-conflict-cutover",
@@ -2974,7 +2974,7 @@ pub(crate) mod tests {
         multiple_passages: bool,
         long_approaches: bool,
     ) -> Arc<SharedNetworkRevision> {
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
         let source = lfre::RoadEditingSourceWriter::new(&limits)
             .write(conflict_cutover_test_module(
                 multiple_passages,
@@ -3092,7 +3092,7 @@ pub(crate) mod tests {
             .edges()
             .to_vec();
         assert_eq!(cycle.len(), 3);
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
         let mut route_edges = (0..70)
             .map(|index| {
                 let stable = laneflow_compiler::derive_canonical_stable_id_v1(
@@ -3154,7 +3154,7 @@ pub(crate) mod tests {
                         EntityKind::RightOfWayPolicySet,
                         "city/runtime-live-conflict-cutover",
                         "policy",
-                        &CompileLimits::single_network_1m(),
+                        &CompileProfile::single_network_1m_stable_entities(),
                     )
                     .expect("Conflict scale policy identity"),
                 ),
@@ -3221,7 +3221,7 @@ pub(crate) mod tests {
         green_ms: Option<u64>,
         green_first: bool,
     ) -> (TrafficWorld, crate::RouteHandle) {
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
         let header = lfre::RoadEditingModuleHeader::try_new(
             "city/runtime-signal-frontier",
             "runtime-signal-frontier.lfre",
@@ -3645,7 +3645,7 @@ pub(crate) mod tests {
         SemanticDiffOriginBinding,
     ) {
         let compile = |module| {
-            let limits = CompileLimits::p100();
+            let limits = CompileProfile::single_network_10k_stable_entities();
             let source = lfre::RoadEditingSourceWriter::new(&limits)
                 .write(module)
                 .expect("Road Editing source");
@@ -4182,7 +4182,7 @@ pub(crate) mod tests {
     pub(crate) fn compiled_parking_revision(
         shape: ParkingRevisionShape,
     ) -> Arc<SharedNetworkRevision> {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let digest_byte = match shape {
             ParkingRevisionShape::Facility { capacity, .. } => {
                 u8::try_from(capacity.min(250)).expect("clamped")

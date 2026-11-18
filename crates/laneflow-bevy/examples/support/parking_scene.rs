@@ -6,7 +6,7 @@ use bevy_math::Vec3;
 use laneflow_bevy::LaneFlowSession;
 use laneflow_compiler::{
     CanonicalFrameInput, CanonicalPoint3F32Input, CompilationOutput, CompilationUnitBuilder,
-    CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput,
+    CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput,
     LaneEdgeReference, ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
     ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
     PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
@@ -129,7 +129,7 @@ fn anchor(edge: &str, progress: f64) -> ParkingLaneAnchorInput<'_> {
 }
 
 fn compile() -> Result<CompilationOutput, String> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,
@@ -257,7 +257,13 @@ fn revision() -> Result<Arc<SharedNetworkRevision>, Box<dyn Error>> {
 }
 
 fn stable(kind: EntityKind, key: &str) -> Result<laneflow_static_contract::StableId128, String> {
-    derive_canonical_stable_id_v1(kind, NAMESPACE, key, &CompileLimits::p100()).map_err(debug)
+    derive_canonical_stable_id_v1(
+        kind,
+        NAMESPACE,
+        key,
+        &CompileProfile::single_network_10k_stable_entities(),
+    )
+    .map_err(debug)
 }
 
 fn edge(revision: &SharedNetworkRevision, key: &str) -> Result<LaneEdgeOrdinal, String> {

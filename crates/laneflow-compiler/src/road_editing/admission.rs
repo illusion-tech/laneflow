@@ -33,7 +33,7 @@ use crate::module::{
     TypedAstModule, freeze_source_documents, size_bytes, source_document_digest,
 };
 use crate::{
-    CompilationUnitBuilder, CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle,
+    CompilationUnitBuilder, CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle,
     GeometryAccuracyProfile, GeometryDirectionProfile, RoadEditingNumericViolation,
     RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
     RoadEditingSourceViolation, RoadEditingTableKind,
@@ -292,7 +292,7 @@ impl CompilationUnitBuilder {
             &limits,
             self.road_editing_source_bytes_already_admitted(),
             self.road_editing_typed_ast_records_already_admitted(),
-            self.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes),
+            self.admitted_controlled_live_bytes(),
         )?;
         precheck_accumulated_counts(self, &limits, &verified)?;
         let remaining_geometry_points = self.road_editing_remaining_geometry_points();
@@ -309,7 +309,7 @@ impl CompilationUnitBuilder {
 
 fn precheck_accumulated_counts(
     builder: &CompilationUnitBuilder,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     verified: &VerifiedRoadEditingSource<'_>,
 ) -> Result<(), DiagnosticBundle> {
     let counts = verified.preflight_counts();
@@ -317,7 +317,9 @@ fn precheck_accumulated_counts(
     let display_items = u64::from(display_source.is_some());
     let display_bytes =
         display_source.map_or(0, |value| u64::try_from(value.len()).unwrap_or(u64::MAX));
-    let single_string_limit = limits.value(CompileLimitDimension::SingleStringBytes);
+    let single_string_limit = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::SingleStringBytes);
     if display_bytes > single_string_limit {
         return Err(accumulated_limit_error(
             CompileLimitDimension::SingleStringBytes,
@@ -330,62 +332,110 @@ fn precheck_accumulated_counts(
         u64::try_from(verified.root().module_header().imports().len()).unwrap_or(u64::MAX);
     let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), counts);
 
-    for (dimension, delta) in [
-        (CompileLimitDimension::ModuleCount, 1),
-        (CompileLimitDimension::ImportEdgeCount, import_count),
-        (
-            CompileLimitDimension::DeclarationCount,
-            counts.declaration_count(),
+    if let Some(violation) = [
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::ModuleCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::ModuleCount)
+                .saturating_add(1),
         ),
-        (
-            CompileLimitDimension::TypedAstRecordCount,
-            counts.typed_ast_record_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::ImportEdgeCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::ImportEdgeCount)
+                .saturating_add(import_count),
         ),
-        (
-            CompileLimitDimension::ReferenceCount,
-            counts.reference_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::DeclarationCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::DeclarationCount)
+                .saturating_add(counts.declaration_count()),
         ),
-        (
-            CompileLimitDimension::RelationOccurrenceCount,
-            counts.relation_occurrence_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::TypedAstRecordCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::TypedAstRecordCount)
+                .saturating_add(counts.typed_ast_record_count()),
         ),
-        (
-            CompileLimitDimension::IdentityFieldOccurrenceCount,
-            counts.identity_field_occurrence_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::ReferenceCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::ReferenceCount)
+                .saturating_add(counts.reference_count()),
         ),
-        (CompileLimitDimension::SymbolCount, counts.symbol_count()),
-        (
-            CompileLimitDimension::StringItemCount,
-            counts.string_item_count().saturating_add(display_items),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::RelationOccurrenceCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::RelationOccurrenceCount)
+                .saturating_add(counts.relation_occurrence_count()),
         ),
-        (
-            CompileLimitDimension::TotalStringBytes,
-            counts.total_string_bytes().saturating_add(display_bytes),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
+            builder
+                .admitted_source_usage(
+                    crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
+                )
+                .saturating_add(counts.identity_field_occurrence_count()),
         ),
-        (
-            CompileLimitDimension::ManeuverGateCount,
-            counts.maneuver_gate_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::SymbolCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::SymbolCount)
+                .saturating_add(counts.symbol_count()),
         ),
-        (
-            CompileLimitDimension::WaitingZoneCount,
-            counts.waiting_zone_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::StringItemCount,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::StringItemCount)
+                .saturating_add(counts.string_item_count().saturating_add(display_items)),
         ),
-        (
-            CompileLimitDimension::GeometryPointCount,
-            counts.conflict_region_point_count(),
+        limits.source_limits().exceeded(
+            crate::SourceProcessingDimension::TotalStringBytes,
+            builder
+                .admitted_source_usage(crate::SourceProcessingDimension::TotalStringBytes)
+                .saturating_add(counts.total_string_bytes().saturating_add(display_bytes)),
         ),
-    ] {
-        let observed = builder.already_admitted(dimension).saturating_add(delta);
-        let limit = limits.value(dimension);
-        if observed > limit {
-            return Err(accumulated_limit_error(
-                dimension, limit, observed, verified,
-            ));
-        }
+        limits.early_canonical_exceeded(
+            laneflow_static_contract::CanonicalNetworkDimension::ManeuverGateCount,
+            builder
+                .admitted_canonical_lower_bound()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::ManeuverGateCount)
+                .saturating_add(counts.maneuver_gate_count()),
+        ),
+        limits.early_canonical_exceeded(
+            laneflow_static_contract::CanonicalNetworkDimension::WaitingZoneCount,
+            builder
+                .admitted_canonical_lower_bound()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::WaitingZoneCount)
+                .saturating_add(counts.waiting_zone_count()),
+        ),
+        limits.early_canonical_exceeded(
+            laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount,
+            builder
+                .admitted_canonical_lower_bound()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount)
+                .saturating_add(counts.conflict_region_point_count()),
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .next()
+    {
+        let crate::limits::ResourceLimitExceeded {
+            dimension,
+            limit,
+            observed,
+        } = violation;
+
+        return Err(accumulated_limit_error(
+            dimension, limit, observed, verified,
+        ));
     }
-    let source_document_limit = limits.value(CompileLimitDimension::SourceDocumentCount);
+    let source_document_limit = limits
+        .source_limits()
+        .get(crate::SourceProcessingDimension::SourceDocumentCount);
     let observed_documents = builder
-        .already_admitted(CompileLimitDimension::SourceDocumentCount)
+        .admitted_source_usage(crate::SourceProcessingDimension::SourceDocumentCount)
         .saturating_add(1);
     if observed_documents > source_document_limit {
         return Err(accumulated_limit_error(
@@ -401,10 +451,12 @@ fn precheck_accumulated_counts(
     let candidate_live_upper =
         preallocation_live_upper_bound(counts, display_items, display_bytes, &sizing);
     let observed_live = builder
-        .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
+        .admitted_controlled_live_bytes()
         .saturating_add(candidate_live_upper)
         .saturating_add(sizing.frontend_dynamic_live_upper_bound);
-    let live_limit = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
+    let live_limit = limits
+        .operation_budget()
+        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
     if observed_live > live_limit {
         return Err(accumulated_limit_error(
             CompileLimitDimension::CompilerControlledLiveBytes,
@@ -418,7 +470,7 @@ fn precheck_accumulated_counts(
 
 fn geometry_scratch_allowance(
     builder: &CompilationUnitBuilder,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     verified: &VerifiedRoadEditingSource<'_>,
 ) -> GeometryScratchAllowance {
     let display_source = verified.input().display_source();
@@ -434,10 +486,11 @@ fn geometry_scratch_allowance(
         &sizing,
     );
     let live_bytes_before_scratch = builder
-        .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
+        .admitted_controlled_live_bytes()
         .saturating_add(candidate_live_upper);
     let live_headroom = limits
-        .value(CompileLimitDimension::CompilerControlledLiveBytes)
+        .operation_budget()
+        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes)
         .saturating_sub(live_bytes_before_scratch);
     GeometryScratchAllowance {
         stage_base: sizing.alignment_input_scratch_bytes,
@@ -467,7 +520,7 @@ fn accumulated_limit_error(
 
 fn lower_verified_source(
     verified: VerifiedRoadEditingSource<'_>,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     remaining_geometry_points: u64,
     geometry_scratch_allowance: GeometryScratchAllowance,
 ) -> Result<AdmittedOfficialModule, DiagnosticBundle> {
@@ -830,7 +883,7 @@ fn geometry_compilation_diagnostic(
     error: GeometryCompilationError,
     verified: &VerifiedRoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
     scratch_allowance: GeometryScratchAllowance,
 ) -> DiagnosticBundle {
     if let GeometryCompilationError::ScratchLimit {
@@ -846,7 +899,9 @@ fn geometry_compilation_diagnostic(
         );
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
             CompileLimitDimension::CompilerControlledLiveBytes,
-            limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+            limits
+                .operation_budget()
+                .get(crate::OperationResourceDimension::CompilerControlledLiveBytes),
             scratch_allowance
                 .live_bytes_before_scratch
                 .saturating_add(observed.saturating_sub(scratch_allowance.stage_base)),
@@ -868,7 +923,9 @@ fn geometry_compilation_diagnostic(
         debug_assert_eq!(error_limit, scratch_allowance.live_headroom);
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
             CompileLimitDimension::CompilerControlledLiveBytes,
-            limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+            limits
+                .operation_budget()
+                .get(crate::OperationResourceDimension::CompilerControlledLiveBytes),
             scratch_allowance
                 .live_bytes_before_scratch
                 .saturating_add(observed),
@@ -887,7 +944,9 @@ fn geometry_compilation_diagnostic(
     };
     let primary_location = source.unwrap_or_else(|| locations.module_header());
     if error.kind() == NumericFreezeKind::GeometryPointLimit {
-        let limit = limits.value(CompileLimitDimension::GeometryPointCount);
+        let limit = limits
+            .canonical_capacity()
+            .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount);
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
             CompileLimitDimension::GeometryPointCount,
             limit,
@@ -903,7 +962,9 @@ fn geometry_compilation_diagnostic(
         ));
     }
     if error.kind() == NumericFreezeKind::StationRowLimit {
-        let limit = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
+        let limit = limits
+            .operation_budget()
+            .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
         return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
             CompileLimitDimension::CompilerControlledLiveBytes,
             limit,
@@ -991,7 +1052,7 @@ mod tests {
     use laneflow_static_contract::EntityKind;
 
     fn source_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         namespace: &str,
         document_key: &str,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
@@ -1005,7 +1066,7 @@ mod tests {
     }
 
     fn source_buffer_with_profiles(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         namespace: &str,
         document_key: &str,
         accuracy: GeometryAccuracyProfile,
@@ -1030,7 +1091,7 @@ mod tests {
             .unwrap()
     }
 
-    fn nested_sort_buffer(limits: &CompileLimits) -> super::super::OwnedRoadEditingSourceBuffer {
+    fn nested_sort_buffer(limits: &CompileProfile) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "roads/nested-sort",
@@ -1072,7 +1133,7 @@ mod tests {
     }
 
     fn parking_virtual_anchor_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
@@ -1130,7 +1191,7 @@ mod tests {
     }
 
     fn parking_space_anchor_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         entry_progress_meters: f64,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         let edge = LaneEdgeReference::local("edge").unwrap();
@@ -1151,7 +1212,7 @@ mod tests {
     }
 
     fn parking_virtual_anchor_overflow_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         let edge = LaneEdgeReference::local("edge").unwrap();
         let anchor =
@@ -1168,7 +1229,7 @@ mod tests {
         )
     }
 
-    fn signal_sort_buffer(limits: &CompileLimits) -> super::super::OwnedRoadEditingSourceBuffer {
+    fn signal_sort_buffer(limits: &CompileProfile) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "roads/signal-sort",
@@ -1227,7 +1288,7 @@ mod tests {
     }
 
     fn signal_duration_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         document_key: &str,
         offset_milliseconds: u64,
         phase_durations: &[(&str, u64)],
@@ -1295,7 +1356,7 @@ mod tests {
     }
 
     fn degenerate_geometry_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
@@ -1331,20 +1392,20 @@ mod tests {
     }
 
     fn complete_geometry_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         complete_geometry_buffer_with_imports(limits, Vec::new())
     }
 
     fn complete_geometry_buffer_with_imports(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         imports: Vec<String>,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         complete_geometry_buffer_with_alignment_reference(limits, imports, "alignment", Vec::new())
     }
 
     fn complete_geometry_buffer_with_alignment_reference(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
         imports: Vec<String>,
         corridor_alignment_key: &str,
         extra_declarations: Vec<RoadEditingDeclaration>,
@@ -1450,7 +1511,7 @@ mod tests {
     }
 
     fn direct_maneuver_buffer(
-        limits: &CompileLimits,
+        limits: &CompileProfile,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
@@ -1581,7 +1642,7 @@ mod tests {
 
     #[test]
     fn admission_owns_results_without_retaining_wire_bytes() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&limits, "city", "roads/main");
         let expected_digest = source_document_digest(buffer.as_bytes());
         let mut builder = CompilationUnitBuilder::new(limits);
@@ -1634,7 +1695,7 @@ mod tests {
         );
 
         let descriptor_digest = |accuracy, direction| {
-            let limits = CompileLimits::p100();
+            let limits = CompileProfile::single_network_10k_stable_entities();
             let buffer =
                 source_buffer_with_profiles(&limits, "city", "roads/profiles", accuracy, direction);
             let mut builder = CompilationUnitBuilder::new(limits);
@@ -1664,7 +1725,7 @@ mod tests {
 
     #[test]
     fn authoring_control_points_do_not_consume_the_canonical_precheck_budget() {
-        let normal_limits = CompileLimits::p100();
+        let normal_limits = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "roads/curves",
@@ -1720,21 +1781,28 @@ mod tests {
             "an alignment without a corridor must still fail the topology closure"
         );
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::GeometryPointCount),
+            builder
+                .admitted_canonical_lower_bound()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount),
             0
         );
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
 
     #[test]
     fn display_source_obeys_the_single_string_limit_before_retention() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&limits, "city", "roads/display-source");
         let exact = "x".repeat(
-            usize::try_from(limits.value(CompileLimitDimension::SingleStringBytes)).unwrap(),
+            usize::try_from(
+                limits
+                    .source_limits()
+                    .get(crate::SourceProcessingDimension::SingleStringBytes),
+            )
+            .unwrap(),
         );
         CompilationUnitBuilder::new(limits.clone())
             .add_road_editing_module(
@@ -1763,14 +1831,14 @@ mod tests {
             "boundary plus one must fail before display-source retention"
         );
         assert_eq!(
-            rejected.already_admitted(CompileLimitDimension::ModuleCount),
+            rejected.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
 
     #[test]
     fn small_module_does_not_reserve_the_global_remaining_point_capacity() {
-        let normal_limits = CompileLimits::p100();
+        let normal_limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&normal_limits, "city", "roads/main");
         let limits = normal_limits
             .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 150_000);
@@ -1785,7 +1853,7 @@ mod tests {
 
     #[test]
     fn controlled_live_bytes_counts_geometry_source_range_backing_exactly() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer(&limits);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -1811,7 +1879,7 @@ mod tests {
 
     #[test]
     fn complete_geometry_controlled_live_boundary_includes_source_ranges() {
-        let broad_limits = CompileLimits::p100();
+        let broad_limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer(&broad_limits);
         let mut broad_builder = CompilationUnitBuilder::new(broad_limits.clone());
         broad_builder
@@ -1845,14 +1913,15 @@ mod tests {
                 .is_err()
         );
         assert_eq!(
-            rejected_builder.already_admitted(CompileLimitDimension::ModuleCount),
+            rejected_builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
 
     #[test]
     fn geometry_outputs_and_import_sort_share_one_live_boundary() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_1m_stable_entities();
+        // 保持导入排序大于几何临时工作集，验证同一峰值的叠加边界。
         let imports = (0..1_032).map(|index| format!("dependency-{index:04}"));
         let buffer = complete_geometry_buffer_with_imports(&broad, imports.collect());
         let input =
@@ -1873,7 +1942,9 @@ mod tests {
         let admitted = lower_verified_source(
             verified,
             &broad,
-            broad.value(CompileLimitDimension::GeometryPointCount),
+            broad
+                .canonical_capacity()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount),
             GeometryScratchAllowance {
                 stage_base: sizing.alignment_input_scratch_bytes,
                 live_headroom: u64::MAX,
@@ -1926,7 +1997,9 @@ mod tests {
         lower_verified_source(
             verified,
             &broad,
-            broad.value(CompileLimitDimension::GeometryPointCount),
+            broad
+                .canonical_capacity()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount),
             GeometryScratchAllowance {
                 stage_base: sizing.alignment_input_scratch_bytes,
                 live_headroom: exact_headroom,
@@ -1939,7 +2012,9 @@ mod tests {
         let rejected = lower_verified_source(
             verified,
             &broad,
-            broad.value(CompileLimitDimension::GeometryPointCount),
+            broad
+                .canonical_capacity()
+                .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount),
             GeometryScratchAllowance {
                 stage_base: sizing.alignment_input_scratch_bytes,
                 live_headroom: exact_headroom - 1,
@@ -1964,7 +2039,7 @@ mod tests {
         let sizing =
             RoadEditingAdmissionSizing::from_root(verified.root(), verified.preflight_counts());
         let live = builder
-            .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
+            .admitted_controlled_live_bytes()
             .saturating_add(preallocation_live_upper_bound(
                 verified.preflight_counts(),
                 display_items,
@@ -1977,7 +2052,7 @@ mod tests {
 
     #[test]
     fn lowering_scratch_counts_root_and_nested_sort_views_together() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_10k_stable_entities();
         let buffer = nested_sort_buffer(&broad);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("roads/nested-sort", buffer.as_bytes(), None).unwrap(),
@@ -2018,14 +2093,14 @@ mod tests {
             "boundary minus one must fail before candidate commit"
         );
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
 
     #[test]
     fn lowering_scratch_counts_both_signal_orders_and_nested_view() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_10k_stable_entities();
         let buffer = signal_sort_buffer(&broad);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("roads/signal-sort", buffer.as_bytes(), None).unwrap(),
@@ -2070,14 +2145,14 @@ mod tests {
             "boundary minus one must fail before signal lowering"
         );
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
 
     #[test]
     fn lowering_scratch_counts_authoring_lane_and_section_views_together() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer(&limits);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -2104,7 +2179,7 @@ mod tests {
 
     #[test]
     fn alignment_backing_and_later_lowering_views_are_gated_before_lowering() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer(&broad);
         let verified = verify_source(
             RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
@@ -2145,14 +2220,14 @@ mod tests {
             "boundary minus one must fail before the alignment tree is allocated"
         );
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
 
     #[test]
     fn preflight_index_budget_failures_leave_builder_reusable() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "roads/main",
@@ -2221,14 +2296,14 @@ mod tests {
             )
             .expect("the same namespace and document can be retried after failed preflight");
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             1
         );
     }
 
     #[test]
     fn malformed_candidate_does_not_pollute_builder_and_retry_succeeds() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = CompilationUnitBuilder::new(limits.clone());
         let malformed = [0_u8; 12];
         let input = RoadEditingModuleInput::try_new("bad", &malformed, None).unwrap();
@@ -2255,7 +2330,7 @@ mod tests {
 
     #[test]
     fn numeric_freeze_failure_is_structured_and_builder_remains_reusable() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let invalid = degenerate_geometry_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits.clone());
         let Err(error) = builder.add_road_editing_module(
@@ -2324,7 +2399,7 @@ mod tests {
 
     #[test]
     fn accumulated_source_limit_failure_keeps_the_first_module() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_10k_stable_entities();
         let first = source_buffer(&broad, "city/a", "roads/a");
         let second = source_buffer(&broad, "city/b", "roads/b");
         let total_limit = u32::try_from(first.as_bytes().len() + second.as_bytes().len() - 1)
@@ -2358,7 +2433,7 @@ mod tests {
 
     #[test]
     fn common_admission_failure_does_not_commit_candidate_indexes() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let first = source_buffer(&limits, "city", "roads/a");
         let duplicate = source_buffer(&limits, "city", "roads/b");
         let retry = source_buffer(&limits, "city/other", "roads/b");
@@ -2390,7 +2465,7 @@ mod tests {
     #[test]
     fn road_editing_add_order_does_not_change_canonical_module_order() {
         fn order(reverse: bool) -> Vec<String> {
-            let limits = CompileLimits::p100();
+            let limits = CompileProfile::single_network_10k_stable_entities();
             let first = source_buffer(&limits, "city/a", "roads/a");
             let second = source_buffer(&limits, "city/b", "roads/b");
             let inputs = if reverse {
@@ -2426,7 +2501,7 @@ mod tests {
 
     #[test]
     fn parking_facility_virtual_anchors_resolve_locations_through_admission() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = parking_virtual_anchor_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2526,7 +2601,7 @@ mod tests {
 
     #[test]
     fn complete_authoring_fixture_reaches_the_common_compiler_pipeline() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2551,7 +2626,7 @@ mod tests {
 
     #[test]
     fn direct_maneuver_without_internal_edges_reaches_the_common_compiler_pipeline() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = direct_maneuver_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2574,7 +2649,7 @@ mod tests {
 
     #[test]
     fn geometry_scratch_limit_fails_before_candidate_commit() {
-        let broad = CompileLimits::p100();
+        let broad = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer(&broad);
         let limits =
             broad.with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 1);
@@ -2593,7 +2668,7 @@ mod tests {
             } if *observed > 1
         ));
         assert_eq!(
-            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            builder.admitted_source_usage(crate::SourceProcessingDimension::ModuleCount),
             0
         );
     }
@@ -2630,7 +2705,7 @@ mod tests {
 
     #[test]
     fn signal_cycle_duration_overflow_points_at_overflowing_phase_duration_leaf() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = signal_duration_buffer(
             &limits,
             "roads/signal-cycle-overflow",
@@ -2674,7 +2749,7 @@ mod tests {
 
     #[test]
     fn invalid_signal_controller_offset_points_at_offset_leaf() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer =
             signal_duration_buffer(&limits, "roads/signal-offset", 100, &[("phase-a", 100)]);
         let mut builder = CompilationUnitBuilder::new(limits);
@@ -2707,7 +2782,7 @@ mod tests {
 
     #[test]
     fn invalid_parking_anchor_progress_points_at_space_anchor_leaf() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         // 写入端与 preflight 只按全局上限放行 10.0m；10m 边的 HIR 可用闭区间是
         // [1mm, 9999mm]，端点净距拒绝恰好落在远端的 entry 锚点。
         let buffer = parking_space_anchor_buffer(&limits, 10.0);
@@ -2751,7 +2826,7 @@ mod tests {
 
     #[test]
     fn invalid_parking_anchor_progress_points_at_facility_virtual_anchor_leaf() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = parking_virtual_anchor_overflow_buffer(&limits);
         let mut builder = CompilationUnitBuilder::new(limits);
         builder
@@ -2814,7 +2889,7 @@ mod tests {
 
     #[test]
     fn corridor_alignment_mismatch_points_at_alignment_reference_leaf() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = complete_geometry_buffer_with_alignment_reference(
             &limits,
             Vec::new(),

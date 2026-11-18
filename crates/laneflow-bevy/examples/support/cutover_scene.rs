@@ -6,7 +6,7 @@ use bevy_math::Vec3;
 use laneflow_bevy::LaneFlowSession;
 use laneflow_compiler::{
     CanonicalFrameInput, CanonicalPoint3F32Input, CompilationOutput, CompilationUnitBuilder,
-    CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput,
+    CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput,
     LaneEdgeReference, ParticipantClassInput, ParticipantClassReference, PortableDiffBase,
     PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, VehicleProfileInput, derive_canonical_stable_id_v1,
@@ -140,7 +140,7 @@ fn debug(error: impl Debug) -> String {
 }
 
 fn compile(edges: &[EdgeSpec]) -> Result<CompilationOutput, String> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: NAMESPACE,
@@ -289,7 +289,13 @@ fn source_of(
 }
 
 fn stable(kind: EntityKind, key: &str) -> Result<StableId128, String> {
-    derive_canonical_stable_id_v1(kind, NAMESPACE, key, &CompileLimits::p100()).map_err(debug)
+    derive_canonical_stable_id_v1(
+        kind,
+        NAMESPACE,
+        key,
+        &CompileProfile::single_network_10k_stable_entities(),
+    )
+    .map_err(debug)
 }
 
 /// 序号可能随修订变化，边必须按稳定身份逐修订解析。

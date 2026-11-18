@@ -7,7 +7,7 @@ use super::runtime_types::{
     TrafficWorld, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
 };
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     ParticipantClassInput, ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
     SourceModuleHeader, SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
     emit_portable_candidate,
@@ -32,7 +32,7 @@ pub struct Revisions {
 
 pub fn revisions() -> Revisions {
     let compile = |speed_limit| {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: "runtime/cutover-scale",

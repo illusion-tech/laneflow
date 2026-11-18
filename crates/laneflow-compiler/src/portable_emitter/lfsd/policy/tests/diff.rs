@@ -1,5 +1,5 @@
 use super::*;
-use crate::{CompileLimits, check_portable_policy_diff};
+use crate::{CompileProfile, check_portable_policy_diff};
 
 fn root(object: &OwnedObject) -> Box<[u8]> {
     let mut object = object.clone();
@@ -38,7 +38,7 @@ fn verify(base: &[u8], target: &[u8], diff: &OwnedObject) -> Result<(), Portable
         target,
         &raw_bytes(diff),
         FormatLimits::HARD,
-        &CompileLimits::single_network_1m(),
+        CompileProfile::single_network_1m_stable_entities().consumer_policy(),
     )
 }
 
@@ -118,7 +118,7 @@ fn policy_diff_add_remove_modify_and_genesis_include_every_member() {
         &base,
         &raw_bytes(&genesis),
         FormatLimits::HARD,
-        output.compile_limits(),
+        output.compile_limits().consumer_policy(),
     )
     .unwrap();
     assert_eq!(genesis.sections[6].tables[0].rows.len(), 4);
@@ -307,7 +307,7 @@ fn movement_add_remove_and_genesis_check_complete_direction_payloads() {
             target,
             &raw_bytes(diff),
             FormatLimits::HARD,
-            &CompileLimits::single_network_1m(),
+            CompileProfile::single_network_1m_stable_entities().consumer_policy(),
         )
     };
     // 缺失、显式零和另一合法方向的 fullRowV1 都结构合法，但不能彼此替代。
@@ -454,7 +454,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
         FormatLimits::HARD,
     )
     .unwrap();
-    let tiny = CompileLimits::single_network_1m()
+    let tiny = CompileProfile::single_network_1m_stable_entities()
         // 索引本身也必须在首次分配前受同一个预算约束。
         .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 64);
     assert!(matches!(
@@ -463,7 +463,7 @@ fn policy_diff_scratch_and_embedded_budgets_fail_before_output_and_retry() {
             &target,
             &raw_bytes(&diff),
             FormatLimits::HARD,
-            &tiny
+            tiny.consumer_policy()
         ),
         Err(PortableEmissionError::CompileLimitExceeded {
             dimension: CompileLimitDimension::CompilerControlledLiveBytes,
@@ -522,12 +522,16 @@ fn policy_diff_counts_both_artifact_indexes_in_one_scratch_budget() {
         .bytes()
         .unwrap();
     assert!(both_indexes > one_index);
-    let limit = CompileLimits::single_network_1m().with_test_admission_limit(
+    let limit = CompileProfile::single_network_1m_stable_entities().with_test_admission_limit(
         CompileLimitDimension::CompilerControlledLiveBytes,
         one_index.try_into().unwrap(),
     );
     assert!(
-        matches!(check_portable_policy_diff(PortableDiffBase::Artifact(base_view), &target, &raw_bytes(&diff), FormatLimits::HARD, &limit),
+        matches!(check_portable_policy_diff(PortableDiffBase::Artifact(base_view),
+&target,
+&raw_bytes(&diff),
+FormatLimits::HARD,
+limit.consumer_policy()),
         Err(PortableEmissionError::CompileLimitExceeded { dimension: CompileLimitDimension::CompilerControlledLiveBytes, actual, limit }) if actual > limit && limit == one_index)
     );
     // 预算失败不污染下一次同输入检查。

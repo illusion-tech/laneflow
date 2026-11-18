@@ -888,11 +888,11 @@ mod tests {
         RoadEditingModuleInput, RoadEditingProvenance, RoadEditingSourceModuleBuilder,
         RoadEditingSourceWriter,
     };
-    use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile};
+    use crate::{CompileProfile, GeometryAccuracyProfile, GeometryDirectionProfile};
 
     #[test]
     fn factory_resolves_owner_address_property_and_canvas_after_wire_order_changes() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",
@@ -942,7 +942,7 @@ mod tests {
 
     #[test]
     fn factory_represents_module_import_as_module_owned_relation() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = RoadEditingModuleHeader::try_new(
             "city/main",
             "roads/main",

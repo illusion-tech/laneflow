@@ -15,7 +15,7 @@
 use std::{fs, num::NonZeroU32, time::Instant};
 
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, PortableDiffBase, PortableEmissionProvenance,
+    CompilationUnitBuilder, CompileProfile, Compiler, PortableDiffBase, PortableEmissionProvenance,
     emit_portable_candidate, road_editing::RoadEditingModuleInput,
 };
 use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
@@ -49,7 +49,7 @@ fn build_options() -> SharedNetworkBuildOptions<'static> {
 /// 宿主重编译：与生成器同一编译限额、发射 provenance 与创世差异基线。
 fn recompile(state: &RoadEditingState) -> Result<Vec<u8>, RecompileFailure> {
     let content = |error: &dyn std::fmt::Debug| RecompileFailure::Content(format!("{error:?}"));
-    let mut unit = CompilationUnitBuilder::new(CompileLimits::single_network_1m());
+    let mut unit = CompilationUnitBuilder::new(CompileProfile::single_network_1m_stable_entities());
     for module in state.modules() {
         let input = RoadEditingModuleInput::try_new(
             module.source_document_key(),

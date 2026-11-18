@@ -1,7 +1,7 @@
 use std::alloc::System;
 
 use laneflow_compiler::{
-    CanonicalFrameInput, CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler,
+    CanonicalFrameInput, CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler,
     PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, check_portable_policy_diff, check_portable_policy_sources,
     emit_portable_candidate,
@@ -14,7 +14,7 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 fn output(modules: u32, frames_per_module: u32) -> CompilationOutput {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let mut unit = CompilationUnitBuilder::new(limits.clone());
     for module in 0..modules {
         let namespace = format!("review/module-{module:05}");
@@ -52,7 +52,7 @@ fn output(modules: u32, frames_per_module: u32) -> CompilationOutput {
 #[test]
 fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
     let provenance = PortableEmissionProvenance::try_new("review-resource-test").unwrap();
-    let small = CompileLimits::p100();
+    let small = CompileProfile::single_network_10k_stable_entities();
     // #1288：旧 P100 暂存常量只容纳 4,011 个稳定实体；暂存改为计入宿主存续预算后，
     // P100 的单侧与双侧检查索引都应放得下。
     for count in [4_000, 8_000] {
@@ -71,7 +71,7 @@ fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
             artifact,
             candidate.semantic_diff().bytes(),
             FormatLimits::HARD,
-            &small,
+            small.consumer_policy(),
         )
         .unwrap();
         let stats = region.change();
@@ -97,7 +97,7 @@ fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
             artifact,
             no_op.semantic_diff().bytes(),
             FormatLimits::HARD,
-            &small,
+            small.consumer_policy(),
         )
         .unwrap();
         let stats = region.change();
@@ -121,7 +121,7 @@ fn policy_checkers_bound_indexes_and_resolve_many_nonlexicographic_documents() {
         many_modules.source_map_input(),
         candidate.source_map().bytes(),
         FormatLimits::HARD,
-        &CompileLimits::single_network_1m(),
+        CompileProfile::single_network_1m_stable_entities().consumer_policy(),
     )
     .unwrap();
 }

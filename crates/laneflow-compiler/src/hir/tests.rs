@@ -6,7 +6,7 @@ use crate::lir::freeze_lir;
 use crate::mir::lower_to_mir;
 use crate::{
     AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput, CanonicalFrameInput,
-    CompilationUnitBuilder, CompileLimits, CorridorElementReference, DiagnosticCode,
+    CompilationUnitBuilder, CompileProfile, CorridorElementReference, DiagnosticCode,
     DiagnosticPayload, FacilityBandInput, FacilityBandReference, GeometryAccuracyProfile,
     GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput, JunctionReference,
     LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
@@ -34,7 +34,7 @@ fn header(namespace: &str) -> SourceModuleHeader {
             random_seed: Some(42),
             provenance: "repository:laneflow",
         },
-        &CompileLimits::p100(),
+        &CompileProfile::single_network_10k_stable_entities(),
     )
     .unwrap()
 }
@@ -61,7 +61,7 @@ fn module(
     imports: &[&str],
     edges: &[(&str, &[LaneEdgeReference<'_>])],
 ) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header(namespace), &limits).unwrap();
     for import in imports {
         builder.add_import(import).unwrap();
@@ -80,7 +80,8 @@ fn module(
 }
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -190,7 +191,7 @@ fn point(x: f32, y: f32, z: f32) -> CanonicalPoint3F32Input {
 }
 
 fn compiled_junction_unit(conflicting_frames: bool) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/junction"), &limits).unwrap();
     let entry_successors = [LaneEdgeReference::local("internal")];
     let internal_successors = [
@@ -316,7 +317,7 @@ fn compiled_junction_unit(conflicting_frames: bool) -> CompilationUnit {
 
 #[test]
 fn compiled_geometry_resolves_imported_frame_and_freezes_through_shared_kernel() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut base = SyntheticModuleBuilder::new(header("city/base"), &limits).unwrap();
     base.add_canonical_frame(CanonicalFrameInput {
         canonical_frame_key: "world",
@@ -374,7 +375,7 @@ fn compiled_geometry_resolves_imported_frame_and_freezes_through_shared_kernel()
 
 #[test]
 fn facility_band_geometry_freezes_points_without_spatial_segments() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -450,7 +451,7 @@ fn facility_band_geometry_freezes_points_without_spatial_segments() {
 
 #[test]
 fn compiled_geometry_source_ranges_rebase_and_retain_imported_module_sources() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut base = SyntheticModuleBuilder::new(header("city/base"), &limits).unwrap();
     base.add_canonical_frame(CanonicalFrameInput {
         canonical_frame_key: "world",
@@ -544,7 +545,7 @@ fn compiled_geometry_source_ranges_rebase_and_retain_imported_module_sources() {
 
 #[test]
 fn geometry_sources_follow_lir_edge_order_across_dependency_order() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut base = SyntheticModuleBuilder::new(header("city/base"), &limits).unwrap();
     base.add_canonical_frame(CanonicalFrameInput {
         canonical_frame_key: "world",
@@ -620,7 +621,7 @@ fn geometry_sources_follow_lir_edge_order_across_dependency_order() {
 
 #[test]
 fn hir_limits_the_actual_compiled_canonical_point_count() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -654,7 +655,7 @@ fn hir_limits_the_actual_compiled_canonical_point_count() {
             )
         },
     );
-    unit.limits = CompileLimits::p100()
+    unit.limits = CompileProfile::single_network_10k_stable_entities()
         .with_test_admission_limit(CompileLimitDimension::GeometryPointCount, 2);
 
     let diagnostics = match build_hir(&unit) {
@@ -715,7 +716,7 @@ fn shared_internal_edge_rejects_conflicting_path_frames() {
 
 #[test]
 fn compiled_geometry_profiles_must_match_across_the_compilation_unit() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let module_with_frame = |namespace: &str| {
         let mut builder = SyntheticModuleBuilder::new(header(namespace), &limits).unwrap();
         builder
@@ -786,7 +787,7 @@ fn compiled_geometry_profiles_must_match_across_the_compilation_unit() {
 #[test]
 fn geometry_profiles_are_retained_in_hir_and_mir_and_change_the_lir_digest() {
     let compile = |profiles: GeometryCompilationProfiles| {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
         builder
             .add_lane_edge(LaneEdgeInput {
@@ -842,7 +843,7 @@ fn geometry_profiles_are_retained_in_hir_and_mir_and_change_the_lir_digest() {
 }
 
 fn two_edge_compiled_unit(direction: GeometryDirectionProfile) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let successors = [LaneEdgeReference::local("edge-b")];
     let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
     builder
@@ -922,7 +923,7 @@ fn cross_edge_join_checks_direction_without_welding_or_snapping() {
 
 #[test]
 fn unrelated_road_editing_profiles_do_not_restrict_synthetic_connections() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let successors = [LaneEdgeReference::local("edge-b")];
     let edge_a_points = [point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)];
     let edge_b_points = [point(10.004, 0.0, 0.0), point(20.0, 0.0, 0.5)];
@@ -1183,7 +1184,7 @@ fn hir_symbol_and_reference_order_ignore_declaration_insertion_order() {
 /// 几何档与编译几何的安装方式沿用 `compiled_junction_unit`；共享内部边由两条路径
 /// 推导规范代表，停车位与准入规则引用各自独立的边。
 fn full_domain_unit() -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/full"), &limits).unwrap();
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -1569,7 +1570,7 @@ fn hir_lane_edge_identity_uses_namespace_and_key_instead_of_dense_position() {
 fn hir_lane_edge_identity_ignores_non_identity_scalars_and_connections() {
     let baseline = unit([module("city/a", &[], &[("edge-a", &[]), ("edge-b", &[])])]);
 
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut changed = SyntheticModuleBuilder::new(header("city/a"), &limits).unwrap();
     changed
         .add_lane_edge(LaneEdgeInput {
@@ -1601,7 +1602,7 @@ fn hir_lane_edge_identity_ignores_non_identity_scalars_and_connections() {
 
 #[test]
 fn explicit_junction_internal_set_must_equal_the_path_internal_union() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/junction-closure"), &limits).unwrap();
     builder
@@ -1705,7 +1706,7 @@ fn explicit_junction_internal_set_must_equal_the_path_internal_union() {
 
 #[test]
 fn explicit_junction_internal_edge_cannot_be_section_derived() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/junction-role"), &limits).unwrap();
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -1810,7 +1811,7 @@ fn explicit_junction_internal_unit(
     internal_has_successor: bool,
     entry_targets_internal: bool,
 ) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder =
         SyntheticModuleBuilder::new(header("city/junction-successors"), &limits).unwrap();
     let internal_successors = [LaneEdgeReference::local("exit")];
@@ -2069,7 +2070,7 @@ fn junction_path_module(
     entry_successors: &[LaneEdgeReference<'_>],
     internal_successors: &[LaneEdgeReference<'_>],
 ) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header(namespace), &limits).unwrap();
     for import in imports {
         builder.add_import(import).unwrap();
@@ -2229,9 +2230,17 @@ fn junction_live_budget_is_exact_at_the_limit_boundary() {
         "junction fixture must carry scratch budget"
     );
     let exact = u32::try_from(plan.memory.controlled_live_bytes).expect("live bytes fit u32");
-    unit.limits = CompileLimits::p100().with_test_pipeline_limits(u32::MAX, u32::MAX, exact);
+    unit.limits = CompileProfile::single_network_10k_stable_entities().with_test_pipeline_limits(
+        u32::MAX,
+        u32::MAX,
+        exact,
+    );
     build_hir(&unit).expect("exact live budget is just enough");
-    unit.limits = CompileLimits::p100().with_test_pipeline_limits(u32::MAX, u32::MAX, exact - 1);
+    unit.limits = CompileProfile::single_network_10k_stable_entities().with_test_pipeline_limits(
+        u32::MAX,
+        u32::MAX,
+        exact - 1,
+    );
     let failure = match build_hir(&unit) {
         Ok(_) => panic!("one byte short must fail closed"),
         Err(diagnostics) => diagnostics,
@@ -2249,7 +2258,11 @@ fn junction_live_budget_is_exact_at_the_limit_boundary() {
 #[test]
 fn hir_checks_record_and_live_byte_limits_before_stage_allocation() {
     let mut unit = unit([module("city/a", &[], &[("edge-a", &[])])]);
-    unit.limits = CompileLimits::p100().with_test_pipeline_limits(3, u32::MAX, u32::MAX);
+    unit.limits = CompileProfile::single_network_10k_stable_entities().with_test_pipeline_limits(
+        3,
+        u32::MAX,
+        u32::MAX,
+    );
     let record_failure = match build_hir(&unit) {
         Ok(_) => panic!("HIR record limit must fail closed"),
         Err(diagnostics) => diagnostics,
@@ -2264,8 +2277,11 @@ fn hir_checks_record_and_live_byte_limits_before_stage_allocation() {
     ));
 
     let source_live_bytes = u32::try_from(unit.controlled_live_bytes).unwrap();
-    unit.limits =
-        CompileLimits::p100().with_test_pipeline_limits(u32::MAX, u32::MAX, source_live_bytes);
+    unit.limits = CompileProfile::single_network_10k_stable_entities().with_test_pipeline_limits(
+        u32::MAX,
+        u32::MAX,
+        source_live_bytes,
+    );
     let live_failure = match build_hir(&unit) {
         Ok(_) => panic!("HIR live byte limit must fail closed"),
         Err(diagnostics) => diagnostics,
@@ -2285,7 +2301,7 @@ fn parking_unit_with_declared_length_and_polyline(
     polyline_end_x: f32,
     progress_meters: f64,
 ) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/parking-mm"), &limits).unwrap();
     builder
         .add_canonical_frame(CanonicalFrameInput {
@@ -2402,7 +2418,7 @@ fn parking_anchor_accepts_progress_legal_against_longer_arc() {
 /// path：首边 entry、中间全 internal、末边 exit）。Synthetic 路口的显式
 /// approach/internal 集合恒空，ordinary successor 引用侧没有适用显式域。
 fn synthetic_chain_unit(len: usize) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let mut builder = SyntheticModuleBuilder::new(header("city/chain"), &limits).unwrap();
     // 边键集中持有：LaneEdgeReference 借用 &str，引用必须比 builder 用得久。
     let keys: Vec<String> = (0..len).map(|index| format!("edge-{index:04}")).collect();

@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-road-editing-source-and-geometry-frontend"
 kind = "design"
 status = "accepted"
-revised_date = "2026-09-17"
+revised_date = "2026-11-18"
 summary = "定义道路编辑来源与几何编制前端。"
 scope = "道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、 来源持久化编码与 topology/geometry MIR 降阶"
 related = ["adr-0020", "adr-0021", "adr-0023", "adr-0025", "design-compiler-foundation", "design-network-compiler", "design-shared-static-network"]
@@ -539,7 +539,7 @@ LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
 1. 在分配前检查来源模块/累计字节余额、最小长度、size prefix 的 checked exact length
    和 `LFRE` file identifier；
 2. 从受 framing 约束的根表执行有界版本探针，非 `4` 立即拒绝，旧文档无需携带
-   v4 新增的 required vector；再使用下述固定公式从当前 `CompileLimits` 与调用点剩余预算导出 `VerifierOptions`，再
+   v4 新增的 required vector；再使用下述固定公式从当前 `CompileProfile` 与调用点剩余预算导出 `VerifierOptions`，再
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
 3. verifier 成功后检查唯一 exact version `4`；其它值在 LaneFlow 语义读取和规模相关
    分配前拒绝；
@@ -606,7 +606,7 @@ Typed AST、身份索引和诊断的逐 allocation 生命周期及 allocator 证
 
 - `SourceBytesPerModule` / `SourceBytesTotal` 在 verifier 和领域分配前失败关闭；
 - verifier 固定 depth、table 与 apparent-size 上限；
-- 声明、引用、关系、字符串、几何点和主要 IR 记录使用既有 `CompileLimits` 上限；
+- 声明、引用、关系、字符串、几何点和主要 IR 记录使用既有 `CompileProfile` 上限；
 - 整体工作集采用故意保守、可审计的逻辑上界，不要求等于普通 Rust allocator 的实际
   requested bytes；
 - 全部规模乘加使用 checked arithmetic，无法表示或超过上限时在对应大区块分配前拒绝；
@@ -786,7 +786,7 @@ backing 核对。字符串 payload、共享 owner 地址和位置 context 仍分
 来源 Box；编译后的 `f32` 点表与来源范围另计。临时曲线释放后不计入最终 retained，
 但仍计入准入峰值。输入 ring 的 `f64` 点与输出折线的 `f32` 点分别按真实类型计量。
 这属于编译器控制的保守资源预算校准，不是分配器峰值或 OS 工作集测量；不改变
-`CompileLimits` 配置档、失败原子性、来源语义或制品格式。
+`CompileProfile` 配置档、失败原子性、来源语义或制品格式。
 
 `laneflow_compiler::road_editing` 还必须公开以下第一方 Rust **编制模型与
 writer**；它们是程序化生成器/编辑器可使用的 production API，但不是编译器 Typed AST。
@@ -811,7 +811,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         header: RoadEditingModuleHeader,
         accuracy: GeometryAccuracyProfile,
         direction: GeometryDirectionProfile,
-        limits: &'limits CompileLimits,
+        limits: &'limits CompileProfile,
     ) -> Result<Self, DiagnosticBundle>;
     pub fn add_alignment(
         &mut self,
@@ -828,7 +828,7 @@ pub struct RoadEditingSourceWriter<'limits> { /* private */ }
 pub struct OwnedRoadEditingSourceBuffer { /* Vec<u8> storage + checked start */ }
 
 impl<'limits> RoadEditingSourceWriter<'limits> {
-    pub const fn new(limits: &'limits CompileLimits) -> Self;
+    pub const fn new(limits: &'limits CompileProfile) -> Self;
     pub fn write(
         self,
         module: RoadEditingSourceModule,
@@ -844,7 +844,7 @@ impl OwnedRoadEditingSourceBuffer {
 每个 `*Input` 只提供字段完整的 `try_new(...)` 与只读 accessor；可选字段用有类型
 `with_*` 消费式方法，不公开字段、动态 property map、generated table、
 `FlatBufferBuilder` 或未受检构造器。builder 在每次 add 时检查 local key/value、集合
-重复、同模块 owner 和现有 `CompileLimits` 计数；`finish` 检查模块内 owner tree 完整性，
+重复、同模块 owner 和现有 `CompileProfile` 计数；`finish` 检查模块内 owner tree 完整性，
 模块级身份按 kind/local key 唯一，owner-scoped 身份只按直接 owner/local key 唯一。
 writer 消费自身与 module，按第 9.4 节的完整 owner-key tuple/local key 和规范无序引用
 原地排序；该 tuple 顺序是全序，不能依赖稳定排序保留调用者输入次序。writer 禁止主动
@@ -1003,7 +1003,7 @@ production 依赖或实现。
   verifier table/depth/apparent size 与 `CompilerControlledLiveBytes` 的边界/边界加一。
 
 道路编辑入口与其余官方前端共同受
-`LF-COMP-SINGLE-NETWORK-1M` 的来源处理限额、规范路网容量与编译器控制存续内存约束；暂存与 file-backed
+`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 的来源处理限额、规范路网容量与编译器控制存续内存约束；暂存与 file-backed
 制品字节由资源账本报告，不另设配置档上限。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v4` writer 生成输入，并报告
 实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
 的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实来源。

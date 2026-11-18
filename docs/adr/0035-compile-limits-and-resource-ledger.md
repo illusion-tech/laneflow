@@ -34,7 +34,7 @@ related = ["adr-0024", "adr-0025", "design-compiler-foundation", "design-compile
 
 ### #1288 暴露的失配
 
-`CompileLimits` 曾有 `LF-COMP-P100-INITIAL-v1`、逐项继承 v1 的 `LF-COMP-P100-INITIAL-v2`
+旧 `CompileLimits` 曾有 `LF-COMP-P100-INITIAL-v1`、逐项继承 v1 的 `LF-COMP-P100-INITIAL-v2`
 与 `LF-COMP-SINGLE-NETWORK-1M-v2` 三个具名配置档，每个维度都是手写常量。P100 v1 允许
 11,265 个稳定实体，但发射期 `ArtifactIndex` 对每个身份行计入 76 B，与编译管线共用
 304,896 B 的 `StageScratchBytes`：实测 4,011 个稳定实体可以发射，4,012 个失败。来源是
@@ -88,7 +88,7 @@ LFCA/LFSM/LFSD 统计实体行、关系出现记录行、几何点与几何字�
 2. **关系。** 来源侧 `RelationOccurrenceCount` 统计来源声明中的多值关系成员。LFCA 第 4 节
    含编译器派生的路口内部边，最终规范路网的关系出现记录不一定不超过来源关系数。
 
-根因是 `CompileLimits` 让一组维度同时承担来源处理、规范路网规模与操作资源三种职责，
+根因是旧 `CompileLimits` 让一组维度同时承担来源处理、规范路网规模与操作资源三种职责，
 名称接近的量（来源字符串字节与制品 UTF-8 字节、来源关系与规范关系、物理表行与逻辑记录）
 被当作同一合同。只按维度名称把制品统计映射到来源维度，即使个别映射恰好有可证明的上界，
 也不能据此把两个领域视为同一个模型。本次修订按领域重新划分边界。
@@ -119,20 +119,21 @@ LFCA/LFSM/LFSD 统计实体行、关系出现记录行、几何点与几何字�
 不与任何限额维度比较。只有表达独立产品要求的量才成为限额，其余量作为真实成本进入计划，
 避免产品容量随字符串去重、字段布局或辅助索引一类序列化细节变化。
 
-**具名配置档只是组合入口。**`LF-COMP-P100` 与 `LF-COMP-SINGLE-NETWORK-1M` 继续是调用方
-选择的具名配置档，各自组合一份来源处理限额、一份规范路网容量与一份默认操作资源预算；
-字段私有，受控构造，不开放任意拼装的无限配置。编译器持有完整配置档；外部制品的消费
-入口需要规范路网容量、`FormatLimits` 与操作资源预算（或已绑定该预算的操作上下文），不读取
-来源处理限额。账本只依赖操作资源预算的视图，具名配置档负责提供这些政策。
+**具名配置档只是组合入口。**`LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` 与
+`LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 分别由 `CompileProfile` 的两个显式构造器选择。
+配置档持有 `SourceProcessingLimits`、`CanonicalNetworkCapacity` 与
+`OperationResourceBudget`，字段私有，不提供隐式默认或无限操作预算。编译器持有完整
+配置档；外部消费入口的 `CanonicalConsumerPolicy` 仅组合规范容量与操作预算，另行接收
+`FormatLimits`，类型中没有来源处理限额。账本和策略工作量计数器只依赖操作预算。
 
 **跨领域比较在类型上不可构造。**统计、政策与计划分开建模：事实提取只回答“有什么”，
 不读取配置档；容量判定只比较同一领域的事实与政策；计划由制品结构统计与算法求出。跨模块
 边界上不提供“裸计数加通用维度枚举”的任意组合接口，规范路网规模不能传给来源处理限额的
-比较，制品结构统计也不能传给规范路网容量的比较。具体类型名在实现时登记。
+比较，制品结构统计也不能传给规范路网容量的比较。实现使用来源与操作的独立维度类型，以及规范路网规模和容量值类型；通用维度仅出现在拒绝诊断中。
 
 编译器资源策略造成的正常拒绝只来自来源处理限额、规范路网容量与操作资源预算；调用方
 `FormatLimits` 与线格式硬上限造成的拒绝另属格式边界。`StageScratchBytes`、`OutputBytes`、
-`PortableObjectBytes` 与 `PortableBundleBytes` 已从 `CompileLimits` 删除，不拆分、不推导。
+`PortableObjectBytes` 与 `PortableBundleBytes` 已从旧 `CompileLimits` 删除，不拆分、不推导。
 暂存峰值、输出逻辑字节与各阶段存续峰值由账本报告，供证据与回归比较使用，不参与拒绝。
 删除四个字节维度会扩大可接受的输入集合，这是有意作出的行为变化。
 
@@ -281,7 +282,7 @@ C_consumer`，消费者的容量准入必然通过。消费者无需知道来源
 “每个实体一行”。
 
 **类型位置。**规范路网容量的值类型、规范计数定义与关系角色登记放在中立合同层
-`laneflow-static-contract`；P100 与百万档的校准常量、LIR 投影与生产端执行留在
+`laneflow-static-contract`；常规档与百万档的校准常量、LIR 投影与生产端执行留在
 `laneflow-compiler`。共享静态路网构建是否、以何种容量值准入 LFCA 另行决定，其现有
 `SharedNetworkBuildLimits` 不变；ADR 0025 中静态网络层不依赖编译器私有 LIR 与发射器的
 约束保持不变。
@@ -333,32 +334,28 @@ LFCA 的 StableId 排列由发射上下文建立一次，经账本授予，供�
 “规范路网容量全部通过则任意操作组合必然在操作资源预算内”。必须保证的是：编译器成功
 交付的规范路网，与从其最终字节重新取得的规范路网，容量含义一致。
 
-P100 配置档的校验与资格验证在常规 CI 中运行，不得只放在 `#[ignore]` 测试中；百万档在
+常规档的校验与资格验证在常规 CI 中运行，不得只放在 `#[ignore]` 测试中；百万档在
 常规 CI 中执行配置档校验，可成功规模由其端到端证据入口承担。
 
-### 7. 新配置档取代既有三档，1.0 前不并存
+### 7. 具名配置档按稳定实体规模命名，1.0 前不并存旧入口
 
-本节表格记录当前构造入口。常规档的独立用途是较小操作资源预算下的局部完整路网编制；
-保留配置档按 `LF-COMP-SINGLE-NETWORK-<规模>-STABLE-ENTITIES` 表达稳定实体规模政策，
-不再由参考机名称表达容量。具体候选负载、资格边界及命名迁移见[编译器基础 §5.3][compiler-limits]。
-当前历史继承的数值与构造器不能作为重建后的规模承诺；完整政策确定后原子迁移，不保留
-旧入口别名。以下硬件与历史测量基线身份不在迁移范围内。
+常规档的独立用途是较小操作资源预算下的局部完整路网编制；配置档按
+`LF-COMP-SINGLE-NETWORK-<规模>-STABLE-ENTITIES` 表达稳定实体规模，不由参考机名称表达容量。
+完整政策、成功工作负载与资格入口见[编译器基础 §5.3][compiler-limits]。
 
-| 新配置档标识符              | 构造器                               | 来源处理限额与操作资源预算来源                 |
-| --------------------------- | ------------------------------------ | ---------------------------------------------- |
-| `LF-COMP-P100`              | `CompileLimits::p100()`              | 继承 `LF-COMP-P100-INITIAL-v2` 的对应维度      |
-| `LF-COMP-SINGLE-NETWORK-1M` | `CompileLimits::single_network_1m()` | 继承 `LF-COMP-SINGLE-NETWORK-1M-v2` 的对应维度 |
+| 配置档标识符 | 构造器 | 政策依据 |
+| ------------ | ------ | -------- |
+| `LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` | `CompileProfile::single_network_10k_stable_entities()` | 十一组一万实体负载的来源与规范包络；256 MiB 操作内存、16 MiB 保留容量、1000000 策略工作单位 |
+| `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` | `CompileProfile::single_network_1m_stable_entities()` | 已登记百万档来源与规范规模；规范关系 1406986；16000000 策略工作单位 |
 
-规范路网容量中由来源侧改划过来的四个维度沿用现值；新增的 `CanonicalRelationCount` 按
-role 1–32 的口径取值，不得直接复制来源侧 `RelationOccurrenceCount` 的数值，也不得沿用现有
-关系元组数量；初始值由最终规范统计与支持的工作负载求出，经维护者批准后先于两端执行
-登记，资格验证后按需再校准。
+`CanonicalRelationCount` 按 role 1–32 的口径取值，常规档为 71773，百万档为 1406986；
+不复制来源侧 `RelationOccurrenceCount`，也不沿用辅助关系元组数量。最终 LIR 在成功返回前
+准入；公开检查对每份 LFCA 独立准入；差异发射的 base 在构建目标对象和 base 索引之前准入。
+容量失败携带规范维度与实际值，外部输入同时标明 target/base。
 
-按 [1.0 前开发原则][pre-1-0]，标识符与构造器不带世代后缀；被取代的三个配置档及其构造器
-随实现删除，不保留别名，现有调用方一并迁移。配置档标识符只出现在编译诊断与生成器、
-测量入口的工作负载清单文本中，不进入 LFCA、LFSM、LFSD 或 `NetworkRevisionId`；退役旧
-配置档不改变任何制品字节。配置档按第 1 节拆分为三部分组合后，构造器名称是否随之调整在
-实现时决定，不保留并行入口。
+按 [1.0 前开发原则][pre-1-0]，原 `CompileLimits`、`p100()`、`single_network_1m()` 删除，
+调用方一并迁移，不保留兼容别名。硬件与历史测量基线的 P100 身份保留。配置档标识不进入
+LFCA、LFSM、LFSD 或 `NetworkRevisionId`，充足政策之间的迁移不改变制品字节。
 
 ## 后果
 

@@ -993,7 +993,7 @@ mod capacity_tests {
     use std::{num::NonZeroU32, sync::Arc};
 
     use laneflow_compiler::{
-        CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimits,
+        CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileProfile,
         Compiler, IidmVehicleProfileInput, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
         ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
         ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance,
@@ -1027,7 +1027,7 @@ mod capacity_tests {
             EntityKind::LaneEdge,
             NAMESPACE,
             key,
-            &CompileLimits::p100(),
+            &CompileProfile::single_network_10k_stable_entities(),
         )
         .expect("edge stable id");
         root.identity()
@@ -1036,7 +1036,7 @@ mod capacity_tests {
     }
 
     fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: NAMESPACE,

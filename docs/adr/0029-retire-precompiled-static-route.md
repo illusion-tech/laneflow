@@ -275,7 +275,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
   新增策略向量 id 29，`frontendVersion = 4`，file identifier 仍为 `LFRE`。
 - 合成 DSL 不接受静态路线声明；合成 `frontendVersion` 为 4，拒绝
   `StaticRoute` 不另升。
-- 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
+- 生产 `CompileProfile` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
 - 共享 Traffic 不再投影静态路线边序列、出现记录、反向索引或 seal 派生的路线距离/
   下一受控转换表。机动路径、门、等待区、停止线仍在共享静态路网，供注册期匹配。
 - 公开 API 删除 `StaticRouteOrdinal` 消费面（Runtime/Adapter/scenario bind）。身份 crate

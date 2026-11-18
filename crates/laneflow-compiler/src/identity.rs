@@ -15,7 +15,7 @@ use laneflow_static_contract::{
     IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC, STABLE_ID_DOMAIN_PREFIX, StableId128,
 };
 
-use crate::limits::CompileLimits;
+use crate::limits::CompileProfile;
 
 #[cfg(test)]
 use crate::SourceSpan;
@@ -149,7 +149,7 @@ pub fn derive_canonical_stable_id_v1(
     kind: EntityKind,
     authoring_namespace_id: &str,
     local_key: &str,
-    limits: &CompileLimits,
+    limits: &CompileProfile,
 ) -> Result<StableId128, CanonicalIdentityViolation> {
     if !kind.is_constructible() {
         return Err(CanonicalIdentityViolation::UnconstructibleKind { kind: kind.code() });
@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn policy_identity_uses_namespace_and_policy_key() {
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
         let derive = |namespace, key| {
             derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, namespace, key, &limits)
                 .unwrap()
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn public_namespaced_key_derivation_matches_encoder() {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let encoded = encode_canonical_identity(
             EntityKind::LaneEdge,
             &lane_edge_fields(b"city/vector", b"edge-a"),
@@ -560,7 +560,7 @@ mod tests {
     fn larger_profile_string_limit_cannot_widen_identity_ascii_fields() {
         let at_bound = "a".repeat(53);
         let over_bound = "a".repeat(54);
-        let limits = CompileLimits::single_network_1m();
+        let limits = CompileProfile::single_network_1m_stable_entities();
 
         assert!(
             derive_canonical_stable_id_v1(EntityKind::LaneEdge, &at_bound, &at_bound, &limits,)
@@ -755,7 +755,7 @@ mod tests {
                 actual: 0
             }
         );
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         assert_eq!(
             derive_canonical_stable_id_v1(EntityKind::ParticipantStream, "city/x", "k", &limits)
                 .unwrap_err(),

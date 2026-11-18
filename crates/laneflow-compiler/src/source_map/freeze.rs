@@ -34,14 +34,6 @@ impl SourceMapSizing {
                 .saturating_add(scratch_bytes),
         }
     }
-
-    #[inline]
-    const fn limit_observations(self) -> [(CompileLimitDimension, u64); 1] {
-        [(
-            CompileLimitDimension::CompilerControlledLiveBytes,
-            self.controlled_live_bytes,
-        )]
-    }
 }
 
 /// 将受检来源文档键解析为冻结序号，并核对逻辑模块所有权。
@@ -455,18 +447,22 @@ pub(crate) fn freeze_source_map(
         .modules
         .first()
         .map(|module| module.descriptor().authoring_namespace_id().into());
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    for (dimension, observed) in sizing.limit_observations() {
-        if observed > unit.limits.value(dimension) {
-            diagnostics.push(Diagnostic::compile_limit_exceeded_at(
-                dimension,
-                unit.limits.value(dimension),
-                observed,
-                primary_span.clone(),
-                stable_key.clone(),
-            ));
-        }
+    let mut diagnostics = DiagnosticCollector::new(
+        unit.limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount),
+    );
+    if let Some(v) = unit.limits.operation_budget().exceeded(
+        crate::OperationResourceDimension::CompilerControlledLiveBytes,
+        sizing.controlled_live_bytes,
+    ) {
+        diagnostics.push(Diagnostic::compile_limit_exceeded_at(
+            v.dimension,
+            v.limit,
+            v.observed,
+            primary_span.clone(),
+            stable_key,
+        ));
     }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
@@ -1576,7 +1572,10 @@ pub(crate) fn freeze_source_map(
         .saturating_mul(size_of::<policy::PolicySourceInput<'_>>() as u64)
         .saturating_add(key_bytes);
     let live_dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-    let live_limit = unit.limits.value(live_dimension);
+    let live_limit = unit
+        .limits
+        .operation_budget()
+        .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
     let live_actual = sizing.controlled_live_bytes.saturating_add(input_bytes);
     if live_actual > live_limit {
         return Err(DiagnosticBundle::single(
@@ -1695,7 +1694,8 @@ fn output_overflow(
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::CompilerControlledLiveBytes,
         unit.limits
-            .value(CompileLimitDimension::CompilerControlledLiveBytes),
+            .operation_budget()
+            .get(crate::OperationResourceDimension::CompilerControlledLiveBytes),
         u64::MAX,
         primary_span,
         None,

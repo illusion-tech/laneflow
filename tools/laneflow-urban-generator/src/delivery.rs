@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::verified_write;
 
 use laneflow_compiler::{
-    CompilationOutput, CompileLimits, PortableDiffBase, PortableEmissionError,
+    CompilationOutput, CompileProfile, PortableDiffBase, PortableEmissionError,
     PortableEmissionProvenance, PortablePublicationCandidate, check_portable_candidate,
     emit_portable_candidate_to_staging,
 };
@@ -382,7 +382,9 @@ pub fn generate(
         tile_columns: generated.layout.tile_columns,
         nominal_individuals: scale.nominal_individual_count(),
         fixed_step_ms: scale.fixed_step_ms(),
-        compile_limits: CompileLimits::single_network_1m().profile_id().into(),
+        compile_limits: CompileProfile::single_network_1m_stable_entities()
+            .profile_id()
+            .into(),
         format_limits: "FormatLimits::HARD".into(),
         shared_build_limits: BTreeMap::from([
             ("max_retained_bytes".into(), limits.max_retained_bytes()),

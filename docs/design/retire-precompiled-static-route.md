@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-retire-precompiled-static-route"
 kind = "design"
 status = "accepted"
-revised_date = "2026-08-30"
+revised_date = "2026-11-18"
 summary = "定义移除静态路线后的场景目录与运行时接入。"
 scope = "从路网产品删除 StaticRoute 后的制品表、连续身份登记、运行时编译、 场景 catalog 0.4 与每世界路线表形状"
 applicability = "#applicability"
@@ -161,7 +161,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现记录表。
 首批支持矩阵「静态路线」行改为明确拒绝。
 
-生产 `CompileLimits` 不再包含 `RouteOccurrenceCount`。该限额不改挂到运行时。
+生产 `CompileProfile` 不再包含 `RouteOccurrenceCount`。该限额不改挂到运行时。
 现行树不保留 `add_static_route`；也不为已删除路径恢复 1920 限额。
 
 ## 3. 共享静态路网

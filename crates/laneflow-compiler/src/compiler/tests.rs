@@ -5,7 +5,7 @@ use crate::declaration::{
 use crate::{
     AccessCapability, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
     CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder, CompileLimitDimension,
-    CompileLimits, CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
+    CompileProfile, CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
     FacilityBandReference, IidmVehicleProfileInput, JunctionInput, JunctionReference,
     LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
     ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
@@ -27,7 +27,7 @@ fn module(
     imports: &[&str],
     edges: &[(&str, f64, &[LaneEdgeReference<'_>])],
 ) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: namespace,
@@ -59,7 +59,8 @@ fn module(
 }
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
-    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100());
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     for module in modules {
         builder.add_synthetic_module(module).unwrap();
     }
@@ -67,7 +68,7 @@ fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
 }
 
 fn cross_section_module(permuted: bool) -> SyntheticModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/cross-section",
@@ -178,7 +179,7 @@ fn spatial_cross_section_unit_with_frame(
     include_facility_geometry: bool,
     imported_facility_frame: bool,
 ) -> CompilationUnit {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/spatial-cross-section",
@@ -358,7 +359,7 @@ fn spatial_cross_section_unit_with_frame(
 }
 
 fn junction_builder(document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/junction",
@@ -838,7 +839,7 @@ fn compile_diagnostic_codes(builder: SyntheticModuleBuilder) -> Vec<DiagnosticCo
 }
 
 fn parking_builder(document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/parking",
@@ -856,7 +857,7 @@ fn parking_builder(document: &str) -> SyntheticModuleBuilder {
 }
 
 fn access_builder(document: &str) -> SyntheticModuleBuilder {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/access",
@@ -2389,7 +2390,7 @@ fn movement_approach_identity_fields_reject_non_ascii_input_atomically() {
 
 #[test]
 fn compiler_rejects_cross_section_semantic_failures_before_lir() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let make_builder = || {
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
@@ -3271,8 +3272,8 @@ fn parking_virtual_anchors_are_records_in_both_mir_and_lir_limits() {
     assert_eq!(with_virtual_lir.parking_facility_virtual_exits.len(), 2);
 
     let mir_limit = u32::try_from(baseline_mir.mir_record_count).expect("small fixture");
-    with_virtual.limits =
-        CompileLimits::p100().with_test_pipeline_limits(u32::MAX, mir_limit, u32::MAX);
+    with_virtual.limits = CompileProfile::single_network_10k_stable_entities()
+        .with_test_pipeline_limits(u32::MAX, mir_limit, u32::MAX);
     let mir_failure = match lower_to_mir(&with_virtual, &with_virtual_hir) {
         Ok(_) => panic!("virtual anchors must consume the MIR record limit"),
         Err(diagnostics) => diagnostics,
@@ -3288,7 +3289,8 @@ fn parking_virtual_anchors_are_records_in_both_mir_and_lir_limits() {
     )));
 
     let lir_limit = u32::try_from(baseline_lir.lir_record_count).expect("small fixture");
-    with_virtual.limits = CompileLimits::p100().with_test_lir_limits(lir_limit, u32::MAX);
+    with_virtual.limits = CompileProfile::single_network_10k_stable_entities()
+        .with_test_lir_limits(lir_limit, u32::MAX);
     let lir_failure = match freeze_lir(&with_virtual, &with_virtual_mir) {
         Ok(_) => panic!("virtual anchors must consume the LIR record limit"),
         Err(diagnostics) => diagnostics,
@@ -4103,7 +4105,7 @@ fn spatial_geometry_rejects_length_mismatch_without_partial_output() {
 #[test]
 fn spatial_geometry_set_order_does_not_change_lir_semantics() {
     let compile = |reverse: bool| {
-        let limits = CompileLimits::p100();
+        let limits = CompileProfile::single_network_10k_stable_entities();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
                 authoring_namespace_id: "city/spatial-order",
@@ -4186,7 +4188,7 @@ fn spatial_geometry_set_order_does_not_change_lir_semantics() {
 
 #[test]
 fn spatial_geometry_requires_complete_coverage_once_enabled() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/spatial-coverage",

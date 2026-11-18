@@ -495,11 +495,11 @@ fn catalog_rejects_exit_portal_not_owning_final_edge() {
 
 #[test]
 fn identity_ascii_keys_stay_below_compile_string_limit() {
-    use laneflow_compiler::{CanonicalIdentityFieldView, CompileLimits};
+    use laneflow_compiler::{CanonicalIdentityFieldView, CompileProfile};
     use laneflow_static_contract::FieldTag;
 
     let generated = default_generated();
-    let limit = CompileLimits::p100().max_single_string_bytes();
+    let limit = CompileProfile::single_network_10k_stable_entities().max_single_string_bytes();
     let mut longest = 0_u64;
     for edge in generated.lir().lane_edges() {
         let field = edge

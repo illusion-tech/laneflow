@@ -160,7 +160,7 @@ impl Fixtures {
                         EntityKind::RightOfWayPolicySet,
                         "runtime-fixture-policy",
                         "fixture-policy",
-                        &laneflow_compiler::CompileLimits::p100(),
+                        &laneflow_compiler::CompileProfile::single_network_10k_stable_entities(),
                     )
                     .unwrap(),
                 );

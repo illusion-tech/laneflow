@@ -155,7 +155,7 @@ impl CanonicalOrders {
     pub(crate) fn build(
         mir: &MirUnit,
         plan: &LirFreezePlan,
-        limits: &crate::CompileLimits,
+        limits: &crate::CompileProfile,
         primary_span: Option<SourceLocation>,
     ) -> Result<Self, DiagnosticBundle> {
         let mut canonical_order = mir

@@ -1,7 +1,5 @@
 use std::mem::size_of;
 
-use crate::CompileLimitDimension;
-
 /// 由具体官方前端一次性派生、供共同准入复核的模块资源计数。
 pub(crate) struct ModuleResourceCounts {
     pub(crate) source_bytes: u64,
@@ -115,61 +113,74 @@ impl AdmissionTotals {
 
     /// 汇总需对照限额配置档校验的各维度观测值。
     #[inline]
-    pub(super) fn limit_observations(
+    pub(super) fn limit_violations(
         self,
         controlled_live_bytes: u64,
-    ) -> [(CompileLimitDimension, u64); 16] {
+        profile: &crate::CompileProfile,
+    ) -> [Option<crate::limits::ResourceLimitExceeded>; 16] {
         [
-            (CompileLimitDimension::ModuleCount, self.module_count),
-            (
-                CompileLimitDimension::SourceBytesTotal,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::ModuleCount,
+                self.module_count,
+            ),
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::SourceBytesTotal,
                 self.source_bytes_total,
             ),
-            (
-                CompileLimitDimension::ImportEdgeCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::ImportEdgeCount,
                 self.import_edge_count,
             ),
-            (
-                CompileLimitDimension::DeclarationCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::DeclarationCount,
                 self.declaration_count,
             ),
-            (
-                CompileLimitDimension::StableEntityCount,
+            profile.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::StableEntityCount,
                 self.stable_entity_count,
             ),
-            (
-                CompileLimitDimension::TypedAstRecordCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::TypedAstRecordCount,
                 self.typed_ast_record_count,
             ),
-            (CompileLimitDimension::ReferenceCount, self.reference_count),
-            (
-                CompileLimitDimension::RelationOccurrenceCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::ReferenceCount,
+                self.reference_count,
+            ),
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::RelationOccurrenceCount,
                 self.relation_occurrence_count,
             ),
-            (
-                CompileLimitDimension::IdentityFieldOccurrenceCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::IdentityFieldOccurrenceCount,
                 self.identity_field_occurrence_count,
             ),
-            (CompileLimitDimension::SymbolCount, self.symbol_count),
-            (
-                CompileLimitDimension::StringItemCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::SymbolCount,
+                self.symbol_count,
+            ),
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::StringItemCount,
                 self.string_item_count,
             ),
-            (CompileLimitDimension::TotalStringBytes, self.string_bytes),
-            (
-                CompileLimitDimension::ManeuverGateCount,
+            profile.source_limits().exceeded(
+                crate::SourceProcessingDimension::TotalStringBytes,
+                self.string_bytes,
+            ),
+            profile.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::ManeuverGateCount,
                 self.maneuver_gate_count,
             ),
-            (
-                CompileLimitDimension::WaitingZoneCount,
+            profile.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::WaitingZoneCount,
                 self.waiting_zone_count,
             ),
-            (
-                CompileLimitDimension::GeometryPointCount,
+            profile.early_canonical_exceeded(
+                laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount,
                 self.geometry_point_count,
             ),
-            (
-                CompileLimitDimension::CompilerControlledLiveBytes,
+            profile.operation_budget().exceeded(
+                crate::OperationResourceDimension::CompilerControlledLiveBytes,
                 controlled_live_bytes,
             ),
         ]

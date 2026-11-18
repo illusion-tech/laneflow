@@ -1,7 +1,7 @@
 //! #682 正交输入；安装、生命周期命令和摘要均在 step 计时外。
 use super::runtime_types as rt;
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileLimits, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
+    CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
     LaneEdgeReference, ParkingFacilityInput, ParkingLaneAnchorInput, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
@@ -113,7 +113,7 @@ pub const CASES: [Case; 9] = [
 ];
 
 pub fn revision(case: Case) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::single_network_1m();
+    let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "research/sparse-cost",

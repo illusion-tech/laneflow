@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use laneflow_compiler::road_editing as lfre;
 use laneflow_compiler::{
     AccessRuleInput, AccessRuleTargetInput, CompilationOutput, CompilationUnitBuilder,
-    CompileLimits, Compiler, DiagnosticCode, GeometryAccuracyProfile, GeometryDirectionProfile,
+    CompileProfile, Compiler, DiagnosticCode, GeometryAccuracyProfile, GeometryDirectionProfile,
     IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
     ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
     ParkingFacilityInput, ParkingFacilityReference, ParkingLaneAnchorInput,
@@ -131,11 +131,14 @@ fn iidm() -> IidmVehicleProfileInput {
 fn compile_revision(
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
-    compile_revision_with_limits(CompileLimits::p100(), configure)
+    compile_revision_with_limits(
+        CompileProfile::single_network_10k_stable_entities(),
+        configure,
+    )
 }
 
 fn compile_revision_with_limits(
-    limits: CompileLimits,
+    limits: CompileProfile,
     configure: impl FnOnce(&mut SyntheticModuleBuilder),
 ) -> Arc<SharedNetworkRevision> {
     let header = SourceModuleHeader::new(
@@ -196,12 +199,15 @@ fn compile_revision_with_limits(
 }
 
 fn compile_road_editing_output(module: lfre::RoadEditingSourceModule) -> CompilationOutput {
-    compile_road_editing_output_with_limits(module, CompileLimits::p100())
+    compile_road_editing_output_with_limits(
+        module,
+        CompileProfile::single_network_10k_stable_entities(),
+    )
 }
 
 fn compile_road_editing_output_with_limits(
     module: lfre::RoadEditingSourceModule,
-    limits: CompileLimits,
+    limits: CompileProfile,
 ) -> CompilationOutput {
     let source = lfre::RoadEditingSourceWriter::new(&limits)
         .write(module)
@@ -229,12 +235,15 @@ fn compile_road_editing_output_with_limits(
 fn compile_road_editing_revision(
     module: lfre::RoadEditingSourceModule,
 ) -> Arc<SharedNetworkRevision> {
-    compile_road_editing_revision_with_limits(module, CompileLimits::p100())
+    compile_road_editing_revision_with_limits(
+        module,
+        CompileProfile::single_network_10k_stable_entities(),
+    )
 }
 
 fn compile_road_editing_revision_with_limits(
     module: lfre::RoadEditingSourceModule,
-    limits: CompileLimits,
+    limits: CompileProfile,
 ) -> Arc<SharedNetworkRevision> {
     let output = compile_road_editing_output_with_limits(module, limits);
     let provenance = PortableEmissionProvenance::try_new("laneflow-runtime-conflict-v1")
@@ -499,7 +508,7 @@ fn shared_downstream_road_editing_module() -> lfre::RoadEditingSourceModule {
 fn shared_downstream_road_editing_module_with_cross(
     cross_exit: bool,
 ) -> lfre::RoadEditingSourceModule {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = lfre::RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
         "runtime-conflict.lfre",
@@ -1077,7 +1086,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
     };
     assert!(stream_count <= 2);
     assert!(!multiplicity || (include_conflict && stream_count == 2));
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = lfre::RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
         "runtime-conflict.lfre",
@@ -1880,7 +1889,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
 
 fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
     const NS: &str = "city/runtime-coverage";
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {
@@ -3257,7 +3266,7 @@ fn conflict_profile(revision: &SharedNetworkRevision, key: &str) -> VehicleProfi
         EntityKind::VehicleProfile,
         "city/runtime-conflict",
         key,
-        &CompileLimits::p100(),
+        &CompileProfile::single_network_10k_stable_entities(),
     )
     .expect("profile identity");
     revision
@@ -5452,7 +5461,7 @@ fn late_waiting_revision(claim_crosses: bool) -> Arc<SharedNetworkRevision> {
                 ..ConflictPolicyFixture::default()
             },
         ),
-        CompileLimits::single_network_1m(),
+        CompileProfile::single_network_1m_stable_entities(),
     )
 }
 
@@ -6362,7 +6371,7 @@ fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
 fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
     let revision = compile_road_editing_revision_with_limits(
         shared_downstream_road_editing_module_with_cross(true),
-        CompileLimits::single_network_1m(),
+        CompileProfile::single_network_1m_stable_entities(),
     );
     let car = conflict_profile(revision.as_ref(), "car");
     let dot = conflict_profile(revision.as_ref(), "dot");
@@ -6569,7 +6578,7 @@ fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehiclePr
         EntityKind::VehicleProfile,
         "city/runtime-conflict",
         key,
-        &CompileLimits::p100(),
+        &CompileProfile::single_network_10k_stable_entities(),
     )
     .expect("calibration profile identity");
     revision
@@ -7970,7 +7979,7 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
 
 #[test]
 fn road_editing_conflict_zone_requires_two_distinct_streams() {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let source = lfre::RoadEditingSourceWriter::new(&limits)
         .write(conflict_road_editing_module_with_stream_count(1))
         .expect("Road Editing source");

@@ -1,6 +1,8 @@
 //! 策略访问预算独立于来源关系与临时存储；未命中查询仍消费工作量。
 use super::*;
-use crate::CompileLimits;
+#[cfg(test)]
+use crate::CompileProfile;
+use crate::OperationResourceBudget;
 
 /// 一次策略校验的累计访问预算；工作量不随临时存储释放归还。
 pub(super) struct WorkBudget {
@@ -10,10 +12,10 @@ pub(super) struct WorkBudget {
 
 impl WorkBudget {
     /// 以配置档的独立操作工作量预算开始一次校验。
-    pub(super) fn new(limits: &CompileLimits) -> Self {
+    pub(super) fn new(limits: &OperationResourceBudget) -> Self {
         Self {
             used: 0,
-            limit: limits.value(CompileLimitDimension::PolicyValidationWorkUnits),
+            limit: limits.get(crate::OperationResourceDimension::PolicyValidationWorkUnits),
         }
     }
 
@@ -45,8 +47,9 @@ mod tests {
 
     #[test]
     fn charges_accumulate_and_reject_before_crossing_the_budget() {
-        let limits = CompileLimits::p100().with_test_policy_work_limit(5);
-        let mut work = WorkBudget::new(&limits);
+        let limits =
+            CompileProfile::single_network_10k_stable_entities().with_test_policy_work_limit(5);
+        let mut work = WorkBudget::new(limits.operation_budget());
         work.charge(3).unwrap();
         work.charge(2).unwrap();
         assert_eq!(work.used(), 5);
@@ -61,7 +64,7 @@ mod tests {
         ));
         assert_eq!(work.used(), 5);
         assert!(work.charge(u64::MAX).is_err());
-        let mut next_operation = WorkBudget::new(&limits);
+        let mut next_operation = WorkBudget::new(limits.operation_budget());
         next_operation.charge(5).unwrap();
     }
 }

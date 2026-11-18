@@ -4,7 +4,7 @@ mod test_policy;
 use std::sync::Arc;
 
 use laneflow_compiler::{
-    AccessEffect, AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileLimits,
+    AccessEffect, AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileProfile,
     Compiler, IidmVehicleProfileInput, LaneEdgeInput, LaneEdgeReference, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, VehicleProfileInput,
@@ -109,7 +109,7 @@ fn compile_open_and_closed() -> Arc<SharedNetworkRevision> {
 }
 
 fn compile_module(extend: impl FnOnce(&mut SyntheticModuleBuilder)) -> Arc<SharedNetworkRevision> {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: "city/runtime-coverage",
@@ -179,7 +179,7 @@ fn compile_module(extend: impl FnOnce(&mut SyntheticModuleBuilder)) -> Arc<Share
 }
 
 fn route(world: &mut TrafficWorld, keys: &[&str]) -> laneflow_runtime::RouteHandle {
-    let limits = CompileLimits::p100();
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let edges: Vec<_> = keys
         .iter()
         .map(|key| {

@@ -251,10 +251,10 @@ pub fn check_portable_policy_sources(
     source: &ValidatedSourceMapInput,
     map: &[u8],
     limits: FormatLimits,
-    compile_limits: &crate::CompileLimits,
+    policy: crate::CanonicalConsumerPolicy<'_>,
 ) -> Result<(), PortableEmissionError> {
-    with_check_ledger(compile_limits, |accounting| {
-        check_policy_sources(accounting, artifact, source, map, limits)
+    with_check_ledger(policy.operation_budget(), |accounting| {
+        check_policy_sources(accounting, artifact, source, map, limits, policy.capacity())
     })
 }
 
@@ -265,9 +265,16 @@ pub(in crate::portable_emitter) fn check_policy_sources(
     source: &ValidatedSourceMapInput,
     map: &[u8],
     limits: FormatLimits,
+    capacity: &laneflow_static_contract::CanonicalNetworkCapacity,
 ) -> Result<(), PortableEmissionError> {
     let canonical =
         preflight_object_values(artifact, PortableObjectKind::CanonicalArtifact, limits)?;
+    super::super::admission::admit_canonical_view(
+        canonical.registry_view(),
+        capacity,
+        super::super::CanonicalInputSide::Target,
+        MISMATCH,
+    )?;
     let checked =
         laneflow_format::check_canonical_network_input(artifact, limits).map_err(|_| MISMATCH)?;
     let view = preflight_object_values(map, PortableObjectKind::SourceMap, limits)?.registry_view();
@@ -362,7 +369,7 @@ fn check_source_projection(
 ) -> Result<(), PortableEmissionError> {
     let documents = check_documents(source, view, pass)?;
     let location_table = table(view, 1, 2)?;
-    // 空策略路网只做流式位置扫描和引用位图；不为既有 P100 配置建立完整位置键副本。
+    // 空策略路网只做流式位置扫描和引用位图；不为没有策略的常规输入建立完整位置键副本。
     let mut locations = granted::<LocationKey<'_>>(
         if needs_projection {
             location_table.row_count() as usize

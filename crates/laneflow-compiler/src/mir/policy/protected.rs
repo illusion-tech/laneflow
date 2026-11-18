@@ -207,7 +207,7 @@ mod tests {
                                     policy,
                                     &coverage,
                                     &protected,
-                                    &mut WorkBudget::new(&unit.limits)
+                                    &mut WorkBudget::new(unit.limits.operation_budget())
                                 )
                                 .unwrap(),
                             !conflict
@@ -227,7 +227,7 @@ mod tests {
                                 2,
                                 &separate,
                                 &protected,
-                                &mut WorkBudget::new(&unit.limits)
+                                &mut WorkBudget::new(unit.limits.operation_budget())
                             )
                             .unwrap()
                     );
@@ -262,7 +262,7 @@ mod tests {
             })
             .collect();
         let mut index = ProtectedIndex::build(&unit, &mir, 0).unwrap();
-        let mut work = WorkBudget::new(&unit.limits);
+        let mut work = WorkBudget::new(unit.limits.operation_budget());
         assert!(
             index
                 .coherent(&mir, 0, &coverage, &vec![true; count as usize], &mut work)
