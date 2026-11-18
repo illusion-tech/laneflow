@@ -42,7 +42,7 @@ fn assert_capacity(
 }
 
 #[test]
-fn final_lir_capacity_boundaries_reject_and_allow_compiler_reuse() {
+fn compilation_capacity_boundaries_reject_and_allow_compiler_reuse() {
     let mut compiler = Compiler::new();
     let output = compile_fixture(&mut compiler, candidate_limits()).unwrap();
     let usage = output.lir().canonical_network_usage();

@@ -4779,3 +4779,54 @@ fn canonical_network_usage_counts_each_parking_anchor_occurrence() {
         laneflow_static_contract::CanonicalNetworkUsage::new(5, 0, 0, 9, 0)
     );
 }
+
+#[test]
+fn final_lir_admission_checks_all_capacity_dimensions_after_mir() {
+    use super::portable_fixture_tests::full_spatial_portable_fixture_unit;
+    use laneflow_static_contract::CanonicalNetworkDimension;
+
+    let profile = CompileProfile::single_network_10k_stable_entities();
+    let expected = Compiler::new()
+        .compile(full_spatial_portable_fixture_unit())
+        .unwrap()
+        .lir()
+        .canonical_network_usage();
+    for dimension in CanonicalNetworkDimension::ALL {
+        let count = expected.get(dimension);
+        assert!(count > 0, "{dimension:?}");
+        for limit in [count, count - 1] {
+            let mut unit = full_spatial_portable_fixture_unit();
+            let hir = build_hir(&unit).unwrap();
+            let hir_peak = hir.peak_controlled_live_bytes;
+            let mut mir = lower_to_mir(&unit, &hir).unwrap();
+            drop(hir);
+            let work_units = crate::mir::validate_policies(&unit, &mut mir).unwrap();
+
+            // 在 HIR/MIR 成功之后才收紧容量，避免早期几何检查掩盖最终 LIR 准入缺失。
+            // 调用生产收尾路径，容量拒绝必须先于源映射冻结和成功输出的构造。
+            unit.limits = profile.clone().with_test_canonical_limit(dimension, limit);
+            let result = Compiler::finish_compile(unit, mir, hir_peak, work_units);
+            if limit == count {
+                assert_eq!(result.unwrap().lir().canonical_network_usage(), expected);
+            } else {
+                let diagnostics = result
+                    .err()
+                    .unwrap_or_else(|| panic!("{dimension:?}: final LIR capacity must reject"));
+                assert_eq!(diagnostics.diagnostics().len(), 1);
+                assert!(
+                    matches!(
+                        diagnostics.diagnostics()[0].payload(),
+                        DiagnosticPayload::CompileLimitExceeded {
+                            dimension: actual,
+                            limit: actual_limit,
+                            observed,
+                        } if *actual == dimension.into()
+                            && *actual_limit == limit
+                            && *observed == count
+                    ),
+                    "{dimension:?}: {diagnostics}"
+                );
+            }
+        }
+    }
+}
