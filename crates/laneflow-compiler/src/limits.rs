@@ -686,13 +686,6 @@ impl CompileProfile {
         self
     }
 
-    /// 测试辅助：覆盖编译器跨操作保留容量的宿主预算。
-    #[cfg(test)]
-    pub(crate) fn with_test_retained_limit(mut self, retained_bytes: u32) -> Self {
-        self.operation.max_retained_capacity_bytes = retained_bytes.into();
-        self
-    }
-
     /// 测试辅助：仅覆盖策略访问预算，不改来源关系或内存预算。
     #[cfg(test)]
     pub(crate) fn with_test_policy_work_limit(mut self, work_units: u32) -> Self {

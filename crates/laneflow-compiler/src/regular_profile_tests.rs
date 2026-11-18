@@ -186,13 +186,8 @@ fn source_module_bytes_and_single_string_have_distinct_boundaries() {
 fn candidate_stage_record_limits_reject_without_poisoning_compiler() {
     let shape = SHAPES[10].1;
     let mut compiler = Compiler::new();
-    // 单独收紧阶段维度，避免把 MIR 策略遍历的遗留工作预算误记为来源边界失败。
-    let stage_limits = || {
-        CompileProfile::single_network_1m_stable_entities()
-            .with_test_pipeline_limits(HIR_RECORDS, MIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
-            .with_test_lir_limits(LIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
-            .with_test_retained_limit(16 * 1024 * 1024)
-    };
+    // 使用完整常规档，只收紧当前阶段的记录维度。
+    let stage_limits = candidate_limits;
     for (dimension, limits) in [
         (
             D::HirRecordCount,
