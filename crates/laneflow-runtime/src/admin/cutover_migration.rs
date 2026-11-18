@@ -4387,9 +4387,10 @@ pub(crate) mod tests {
         )
         .expect("rebinding");
         let before = world.capture_snapshot().expect("before");
-        // 前两次为 committed/next signal；随后覆盖 Waiting 裁决权、独立队列首尾及 scratch；
+        // 前两次为 committed/next signal；随后覆盖 Waiting 裁决权、独立队列首尾
+        // （含 R6-2 已占存储聚合）、成员行及 scratch；
         // Conflict eligibility、authority 与 fixed-step scratch 继续走同一受检分配轴。
-        for fail_after in 1..=25 {
+        for fail_after in 1..=26 {
             let result = with_staging_allocation_failure_after(fail_after, || {
                 migrate_structural_clone(
                     &world.state,
@@ -4405,7 +4406,7 @@ pub(crate) mod tests {
             );
             assert_eq!(world.capture_snapshot().expect("unchanged"), before);
         }
-        let candidate = with_staging_allocation_failure_after(26, || {
+        let candidate = with_staging_allocation_failure_after(27, || {
             migrate_structural_clone(
                 &world.state,
                 target,
