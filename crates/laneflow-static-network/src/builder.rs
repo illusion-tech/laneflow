@@ -24,8 +24,8 @@ use crate::{
     SegmentGeometry, SharedIdentityIndex, SharedManeuverNetwork, SharedNetworkRevision,
     SharedSpatialNetwork, SharedTrafficNetwork, StaticContractVersions,
     identity::{
-        IdentityReverseEntry, allocate_forward_identity, kind_index, radix_sort_reverse_identity,
-        reverse_entry_bytes, seal_forward_identity,
+        allocate_forward_identity, build_identity_order, identity_sort_entry_bytes, kind_index,
+        seal_forward_identity,
     },
     numeric::hypot_rte_f32,
     spatial::{ConflictZoneRegionEntry, FacilityGeometryEntry},
@@ -266,17 +266,13 @@ where
     check_cancelled(options)?;
 
     let mut forward_identity = allocate_forward_identity(&counts.entity_counts)?;
-    let mut reverse_identity =
-        allocate_vec(counts.identity_count, BuildStructure::CanonicalIdentity)?;
     fill_identity(
         input.value_checked_view(),
         &counts,
         &mut forward_identity,
-        &mut reverse_identity,
         options,
     )?;
-    let reverse_identity =
-        radix_sort_reverse_identity(reverse_identity, || check_cancelled(options))?;
+    let identity_order = build_identity_order(&forward_identity, || check_cancelled(options))?;
 
     check_cancelled(options)?;
     let traffic = build_traffic(
@@ -286,10 +282,8 @@ where
         topology,
         options,
     )?;
-    let identity = SharedIdentityIndex::from_parts(
-        seal_forward_identity(forward_identity),
-        reverse_identity.into_boxed_slice(),
-    );
+    let identity =
+        SharedIdentityIndex::from_parts(seal_forward_identity(forward_identity), identity_order);
     let conflict = crate::conflict::build_conflict(
         input.value_checked_view(),
         &traffic,
@@ -602,19 +596,8 @@ fn check_retained_budget(
         }
     })?;
     retained = add_retained::<StableId128>(retained, counts.entity_count_total)?;
-    retained = add_retained_bytes(
-        retained,
-        counts
-            .identity_count
-            .checked_mul(u32::try_from(reverse_entry_bytes()).map_err(|_| {
-                BuildError::ArithmeticOverflow {
-                    structure: BuildStructure::RetainedOutput,
-                }
-            })?)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::RetainedOutput,
-            })?,
-    )?;
+    // 各种类按 StableId 排列的 typed ordinal，每个稳定实体 4 B。
+    retained = add_retained::<u32>(retained, counts.identity_count)?;
     retained = add_retained::<u32>(
         retained,
         lane_count
@@ -826,10 +809,21 @@ fn check_scratch_budget(
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
-    let identity_scratch = structure_bytes::<IdentityReverseEntry>(
-        counts.identity_count,
-        BuildStructure::BuilderScratch,
-    )?;
+    // 身份排列逐种类排序：源与目标两份暂存按最大种类规模预留；排列本身计入保留内存。
+    // 身份行数与各种类实体数在填充时逐种类核对相等，最大种类规模不超过身份总数。
+    let largest_kind = counts
+        .entity_counts
+        .as_array()
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .min(counts.identity_count);
+    let identity_scratch = u64::from(largest_kind)
+        .checked_mul(2 * identity_sort_entry_bytes() as u64)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
     let predecessor_scratch = structure_bytes::<u32>(lane_count, BuildStructure::BuilderScratch)?;
     let scratch = topology_base
         .checked_add(
@@ -2223,7 +2217,6 @@ fn fill_identity(
     view: ValueCheckedObjectView<'_>,
     counts: &BuildCounts,
     forward: &mut [Vec<StableId128>; ENTITY_KIND_COUNT],
-    reverse: &mut Vec<IdentityReverseEntry>,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
     let table = view
@@ -2276,11 +2269,6 @@ fn fill_identity(
         // StableId 的原像派生由 compiler 拥有；这里闭合声明 ID 与 typed ordinal 的双射。
         let stable_id = checked_stable_id(row, 3, BuildStructure::CanonicalIdentity)?;
         forward[kind_index].push(stable_id);
-        reverse.push(IdentityReverseEntry {
-            entity_kind,
-            stable_id,
-            ordinal: actual,
-        });
     }
 
     for entity_kind in EntityKind::ALL {
@@ -3764,14 +3752,6 @@ fn structure_bytes<T>(count: u32, structure: BuildStructure) -> Result<u64, Buil
 fn add_retained<T>(total: u64, count: u32) -> Result<u64, BuildError> {
     total
         .checked_add(retained_bytes::<T>(count)?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::RetainedOutput,
-        })
-}
-
-fn add_retained_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
-    total
-        .checked_add(u64::from(bytes))
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::RetainedOutput,
         })

@@ -201,26 +201,6 @@ fn cmp_range(expected: &crate::traffic::RangeU32, actual: &crate::traffic::Range
     None
 }
 
-fn cmp_identity_reverse_entry(
-    expected: &crate::identity::IdentityReverseEntry,
-    actual: &crate::identity::IdentityReverseEntry,
-) -> FieldDiff {
-    if expected.entity_kind != actual.entity_kind {
-        return named("entity_kind", &expected.entity_kind, &actual.entity_kind);
-    }
-    if expected.stable_id != actual.stable_id {
-        return named("stable_id", &expected.stable_id, &actual.stable_id);
-    }
-    if expected.ordinal != actual.ordinal {
-        return Some((
-            "ordinal",
-            expected.ordinal.to_string(),
-            actual.ordinal.to_string(),
-        ));
-    }
-    None
-}
-
 fn cmp_conflict_passage(
     expected: &crate::conflict::ConflictPassage,
     actual: &crate::conflict::ConflictPassage,
@@ -1089,41 +1069,62 @@ fn compare_identity(
     let component = RootComponent::Identity;
     // forward 按 EntityKind 展开为多张表；kind 进入证据身份——同一失配移到
     // 另一个 kind 的表是不同证据（复算归类不得判为同一失配）。
+    // 各种类按 StableId 排列的 ordinal 同样按 kind 展开，失配归因到具体种类与排列位置。
     for (kind_index, kind) in EntityKind::ALL.iter().enumerate() {
-        let expected_column = &expected.forward[kind_index];
-        let actual_column = &actual.forward[kind_index];
-        if expected_column.len() != actual_column.len() {
-            return Err(evidence(MismatchSite::TableLength {
+        compare_identity_column(
+            component,
+            "forward",
+            "stable_id",
+            *kind,
+            &expected.forward[kind_index],
+            &actual.forward[kind_index],
+            |value| format!("{value:?}"),
+        )?;
+        compare_identity_column(
+            component,
+            "by_stable_id",
+            "ordinal",
+            *kind,
+            &expected.by_stable_id[kind_index],
+            &actual.by_stable_id[kind_index],
+            u32::to_string,
+        )?;
+    }
+    Ok(())
+}
+
+fn compare_identity_column<T: PartialEq>(
+    component: RootComponent,
+    table: &'static str,
+    field: &'static str,
+    kind: laneflow_static_contract::EntityKind,
+    expected: &[T],
+    actual: &[T],
+    render: impl Fn(&T) -> String,
+) -> Result<(), MismatchEvidence> {
+    if expected.len() != actual.len() {
+        return Err(evidence(MismatchSite::TableLength {
+            component,
+            table,
+            entity_kind: Some(kind),
+            expected_len: u32_len(expected),
+            actual_len: u32_len(actual),
+        }));
+    }
+    for (index, (expected_value, actual_value)) in expected.iter().zip(actual).enumerate() {
+        if expected_value != actual_value {
+            return Err(evidence(MismatchSite::TableValue {
                 component,
-                table: "forward",
-                entity_kind: Some(*kind),
-                expected_len: u32_len(expected_column),
-                actual_len: u32_len(actual_column),
+                table,
+                entity_kind: Some(kind),
+                index: u32::try_from(index).expect("column index fits u32"),
+                field,
+                expected: render(expected_value),
+                actual: render(actual_value),
             }));
         }
-        for (index, (expected_id, actual_id)) in
-            expected_column.iter().zip(actual_column).enumerate()
-        {
-            if expected_id != actual_id {
-                return Err(evidence(MismatchSite::TableValue {
-                    component,
-                    table: "forward",
-                    entity_kind: Some(*kind),
-                    index: u32::try_from(index).expect("column index fits u32"),
-                    field: "stable_id",
-                    expected: format!("{expected_id:?}"),
-                    actual: format!("{actual_id:?}"),
-                }));
-            }
-        }
     }
-    diff_column(
-        component,
-        "reverse",
-        &expected.reverse,
-        &actual.reverse,
-        cmp_identity_reverse_entry,
-    )
+    Ok(())
 }
 
 fn compare_planning_hints(
@@ -1348,5 +1349,58 @@ mod transition_segment_tests {
         assert!(compare_traffic(&expected, &minimal_traffic(false)).is_ok());
         // 负例：位翻转（派生表被清/损）→ 证明不一致，不得静默通过。
         assert!(compare_traffic(&expected, &minimal_traffic(true)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use laneflow_static_contract::{EntityKind, StableId128};
+
+    use super::compare_identity;
+    use crate::attestation::{MismatchSite, RootComponent};
+    use crate::identity::SharedIdentityIndex;
+
+    const KINDS: usize = EntityKind::ALL.len();
+    const LANE: usize = (EntityKind::LaneEdge.code() - 1) as usize;
+
+    fn index(lane_order: &[u32]) -> SharedIdentityIndex {
+        let mut forward: [Box<[StableId128]>; KINDS] = core::array::from_fn(|_| Box::default());
+        forward[LANE] = vec![
+            StableId128::from_bytes([2; 16]),
+            StableId128::from_bytes([1; 16]),
+        ]
+        .into_boxed_slice();
+        let mut order: [Box<[u32]>; KINDS] = core::array::from_fn(|_| Box::default());
+        order[LANE] = lane_order.into();
+        SharedIdentityIndex::from_parts(forward, order)
+    }
+
+    #[test]
+    fn identity_order_mismatch_is_attributed_to_kind_table_and_position() {
+        assert!(compare_identity(&index(&[1, 0]), &index(&[1, 0])).is_ok());
+        let error = compare_identity(&index(&[1, 0]), &index(&[0, 1])).unwrap_err();
+        assert!(matches!(
+            error.site,
+            MismatchSite::TableValue {
+                component: RootComponent::Identity,
+                table: "by_stable_id",
+                entity_kind: Some(EntityKind::LaneEdge),
+                index: 0,
+                field: "ordinal",
+                ref expected,
+                ref actual,
+            } if expected == "1" && actual == "0"
+        ));
+        let error = compare_identity(&index(&[1, 0]), &index(&[1])).unwrap_err();
+        assert!(matches!(
+            error.site,
+            MismatchSite::TableLength {
+                component: RootComponent::Identity,
+                table: "by_stable_id",
+                entity_kind: Some(EntityKind::LaneEdge),
+                expected_len: 2,
+                actual_len: 1,
+            }
+        ));
     }
 }

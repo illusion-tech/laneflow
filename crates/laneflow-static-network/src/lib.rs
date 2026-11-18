@@ -47,7 +47,7 @@ pub use conflict::{
     SharedConflictNetwork,
 };
 pub use error::{BuildError, BuildErrorClass, BuildStructure, PolicyBuildViolation};
-pub use identity::SharedIdentityIndex;
+pub use identity::{SharedIdentityIndex, StableIdOrder};
 // 认证公共签名的参数类型（reader 限额与受检字节来源抽象）随认证 API 重导出，
 // 使只依赖本 crate 的调用方获得一致的类型来源；类型本体与语义仍属
 // `laneflow-format`，此处不建立新的类型边界。
