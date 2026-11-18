@@ -500,6 +500,9 @@ pub(crate) fn freeze_lir_in(
         })?;
     }
 
+    // 各领域冻结复制记录内嵌的键、法规与策略载荷；授予先于首次载荷分配取得。
+    let inner_payloads =
+        crate::ledger::OutputGrant::new(pass.grant_bytes(plan.inner_payload_bytes)?);
     let mut env = FreezeEnv {
         mir,
         orders: &orders,
@@ -651,8 +654,6 @@ pub(crate) fn freeze_lir_in(
         &identity_fields,
         &identity_field_bytes,
     );
-    let inner_payloads =
-        crate::ledger::OutputGrant::new(pass.grant_bytes(plan.inner_payload_bytes)?);
     let output = LirFreezeOutput {
         lir: LirUnit {
             policies: policies.freeze()?,

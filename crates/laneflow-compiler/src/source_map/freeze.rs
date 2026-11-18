@@ -1543,9 +1543,9 @@ pub(crate) fn freeze_source_map_in(
         members!(&source.stream_rules, StreamRule);
         members!(&source.gate_rules, GateRule);
     }
-    let policy_sources = policy::freeze_policy_sources(&unit, &policy_inputs, &pass)?;
-    // 记录的成员键与输入的成员键各有一份；输入随即释放。
+    // 记录的成员键与输入的成员键各有一份；记录的授予先于复制取得，输入随后释放。
     let record_member_keys = pass.grant_bytes(policy_counts.member_key_bytes)?;
+    let policy_sources = policy::freeze_policy_sources(&unit, &policy_inputs, &pass)?;
     drop(policy_inputs);
     drop(input_member_keys);
     let (source_modules, source_documents) = unit.into_source_descriptors(&pass)?;

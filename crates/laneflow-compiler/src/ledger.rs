@@ -434,6 +434,7 @@ impl Ledger {
         Ok(PassBudget {
             ledger: self,
             account,
+            label,
             finished: false,
         })
     }
@@ -497,6 +498,8 @@ pub(crate) fn test_pass() -> PassBudget<'static> {
 pub(crate) struct PassBudget<'l> {
     ledger: &'l Ledger,
     account: PassId,
+    /// 准入时确定的编译遍标识；存储入口据此标注错误，无需再访问账本。
+    label: PassLabel,
     finished: bool,
 }
 
@@ -527,13 +530,14 @@ impl PassBudget<'_> {
         Ok(PassBudget {
             ledger: self.ledger,
             account,
+            label,
             finished: false,
         })
     }
 
     /// 本编译遍的标识。
-    pub(crate) fn label(&self) -> PassLabel {
-        lock(&self.ledger.state).label_of(self.account)
+    pub(crate) const fn label(&self) -> PassLabel {
+        self.label
     }
 
     /// 本编译遍当前在用量 `U`。
@@ -569,19 +573,12 @@ impl PassBudget<'_> {
     /// 以授予创建可用逻辑容量为 `capacity` 的空序列。授予按 `Layout::array::<T>` 的受检
     /// 大小计费；分配器拒绝时回滚授予并返回 [`LedgerError::AllocationFailure`]。
     pub(crate) fn vec<T>(&self, capacity: usize) -> Result<BoundedVec<T>, LedgerError> {
-        let (label, budget) = {
-            let state = lock(&self.ledger.state);
-            (state.label_of(self.account), state.budget)
-        };
+        let label = self.label;
         // 无法表示的请求按宿主预算超限处理（资源账本设计第 3.2 节）。
         let bytes = Layout::array::<T>(capacity)
             .ok()
             .and_then(|layout| u64::try_from(layout.size()).ok())
-            .ok_or(LedgerError::BudgetExceeded {
-                label,
-                requested: u64::MAX,
-                limit: budget,
-            })?;
+            .ok_or_else(|| self.unrepresentable())?;
         let grant = self.grant(bytes)?;
         let mut items = Vec::new();
         if items.try_reserve_exact(capacity).is_err() {
@@ -602,15 +599,8 @@ impl PassBudget<'_> {
         &self,
         capacity: usize,
     ) -> Result<BoundedHashMap<K, V>, LedgerError> {
-        let (label, budget) = {
-            let state = lock(&self.ledger.state);
-            (state.label_of(self.account), state.budget)
-        };
-        let bytes = hash_table_bytes::<K, V>(capacity).ok_or(LedgerError::BudgetExceeded {
-            label,
-            requested: u64::MAX,
-            limit: budget,
-        })?;
+        let label = self.label;
+        let bytes = hash_table_bytes::<K, V>(capacity).ok_or_else(|| self.unrepresentable())?;
         let grant = self.grant(bytes)?;
         let mut items = HashMap::new();
         if items.try_reserve(capacity).is_err() {
@@ -671,7 +661,24 @@ impl PassBudget<'_> {
         self.grant(bytes)
     }
 
+    /// 无法表示的请求：按宿主预算超限报告。
+    fn unrepresentable(&self) -> LedgerError {
+        LedgerError::BudgetExceeded {
+            label: self.label,
+            requested: u64::MAX,
+            limit: lock(&self.ledger.state).budget,
+        }
+    }
+
+    /// 零字节授予不改变 `L`，不访问账本，避免空存储（如空的伴随来源列表）逐个加锁。
     fn grant(&self, bytes: u64) -> Result<Grant, LedgerError> {
+        if bytes == 0 {
+            return Ok(Grant {
+                state: None,
+                account: Some(self.account),
+                bytes: 0,
+            });
+        }
         lock(&self.ledger.state).grant(self.account, bytes)?;
         Ok(Grant {
             state: Some(Arc::clone(&self.ledger.state)),
@@ -838,6 +845,11 @@ impl<T> BoundedVec<T> {
     /// 截断到 `len` 个元素；逻辑容量不变。
     pub(crate) fn truncate(&mut self, len: usize) {
         self.items.truncate(len);
+    }
+
+    /// 按序移出全部元素；逻辑容量与授予不变。
+    pub(crate) fn drain(&mut self) -> std::vec::Drain<'_, T> {
+        self.items.drain(..)
     }
 
     /// 只保留满足条件的元素；逻辑容量不变。

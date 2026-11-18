@@ -643,7 +643,10 @@ pub(crate) fn build_access_hir(
         }
     }
 
-    let mut rule_classes = pass.vec(count_to_usize(counts.rule_class_references, &unit.limits)?)?;
+    // 类别引用允许重复，按集合语义去重后才知道规范成员数；先写入按原始引用数授予的
+    // 暂存，结束后按实际成员数复制为输出表，暂存随即释放。
+    let mut resolved_rule_classes =
+        pass.vec(count_to_usize(counts.rule_class_references, &unit.limits)?)?;
     let mut first_regulation: Option<FirstAccessRegulation> = None;
     for location in &rule_sources {
         let module_index = usize::try_from(location.source_module_index)
@@ -679,7 +682,7 @@ pub(crate) fn build_access_hir(
             diagnostic.set_canonical_module_order(location.source_module_index);
             diagnostics.push(diagnostic);
         }
-        let start = rule_classes.len();
+        let start = resolved_rule_classes.len();
         let mut resolved_classes = pass.vec(source.participant_classes.len())?;
         for reference in &source.participant_classes {
             if let Some(participant_class) = resolve_reference(
@@ -696,16 +699,17 @@ pub(crate) fn build_access_hir(
         }
         resolved_classes.sort_unstable_by_key(|(participant_class, _)| *participant_class);
         resolved_classes.dedup_by_key(|(participant_class, _)| *participant_class);
-        rule_classes.try_extend(resolved_classes.iter().map(
+        resolved_rule_classes.try_extend(resolved_classes.iter().map(
             |(participant_class, source_span)| HirAccessRuleParticipantClass {
                 participant_class: *participant_class,
                 source_span: source_span.clone(),
             },
         ))?;
         rules.get_mut(location.hir_key).participant_classes =
-            TableRange::try_from_usize(start, rule_classes.len().saturating_sub(start)).map_err(
-                |overflow| arena_overflow(overflow, &unit.limits, Some(source.header.span.clone())),
-            )?;
+            TableRange::try_from_usize(start, resolved_rule_classes.len().saturating_sub(start))
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                })?;
 
         if let Some(regulation) = &source.regulation {
             let valid = validate_access_regulation(
@@ -748,6 +752,8 @@ pub(crate) fn build_access_hir(
             }
         }
     }
+    let rule_classes = pass.collect(resolved_rule_classes.drain())?;
+    drop(resolved_rule_classes);
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
