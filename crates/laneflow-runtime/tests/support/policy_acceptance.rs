@@ -451,7 +451,6 @@ fn right_turn_routes(world: &mut TrafficWorld) -> [RouteHandle; 2] {
 }
 
 fn register_conflict_route(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let revision = world.revision();
     let edges: Vec<_> = keys
         .iter()
