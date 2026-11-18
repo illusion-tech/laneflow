@@ -23,7 +23,6 @@ use laneflow_static_contract::{
     CanonicalNetworkUsage, EntityKind, PortableObjectKind, StableId128,
 };
 
-#[path = "support/regular_profile_workload.rs"]
 mod workload;
 use workload::{CANDIDATE_OPERATION_BYTES, SHAPES, WorkloadShape, build_mixed_network};
 

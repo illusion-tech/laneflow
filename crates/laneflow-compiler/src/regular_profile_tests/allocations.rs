@@ -10,7 +10,6 @@ use laneflow_format::{FormatLimits, preflight_object_values};
 use laneflow_static_contract::PortableObjectKind;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
-#[path = "support/regular_profile_workload.rs"]
 mod workload;
 use workload::{CANDIDATE_OPERATION_BYTES, SHAPES, WorkloadShape, build_mixed_network};
 

@@ -1580,9 +1580,9 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 [calibration-workloads]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json
 [retired-baselines-tree]: https://github.com/illusion-tech/laneflow/tree/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference
 [production-baseline]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/reference/v0.10-compiler-production-baseline.md
-[regular-profile-workloads]: ../../crates/laneflow-compiler/tests/regular_profile_workloads.rs
+[regular-profile-workloads]: ../../crates/laneflow-compiler/src/regular_profile_tests/workloads.rs
 [regular-profile-boundaries]: ../../crates/laneflow-compiler/src/regular_profile_tests.rs
-[regular-profile-allocations]: ../../crates/laneflow-compiler/tests/regular_profile_allocations.rs
+[regular-profile-allocations]: ../../crates/laneflow-compiler/src/regular_profile_tests/allocations.rs
 [calibration-report]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md
 [calibration-evidence]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
