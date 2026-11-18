@@ -221,9 +221,11 @@ impl<G: Copy, S: Copy, C: Copy> PolicySet<G, S, C> {
         }
         count
     }
-    /// 估算策略占用的存续堆字节数（饱和算术）。
-    pub(crate) fn owned_bytes(&self) -> u64 {
-        let mut count = size_of::<Self>() as u64;
+    /// 策略本体之外、由各层动态数组持有的堆字节数（饱和算术）。
+    ///
+    /// 不含 `PolicySet` 本体：本体随外层记录表计费；字符串载荷见 [`Self::text_bytes`]。
+    pub(crate) fn inner_bytes(&self) -> u64 {
+        let mut count = 0_u64;
         count = count
             .saturating_add(
                 (self.evidence.len() as u64).saturating_mul(size_of::<Evidence>() as u64),

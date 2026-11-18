@@ -1,7 +1,6 @@
 //! 信号领域 HIR：固定时制信号控制器、信号组与相位的记录与构建。
 
 use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -322,8 +321,8 @@ pub(crate) fn build_signal_hir(
         }
 
         let mut resolved_groups = pass.vec(source.signal_groups.len())?;
-        let mut first_group_spans =
-            HashMap::<HirSignalGroupKey, SourceLocation>::with_capacity(source.signal_groups.len());
+        let mut first_group_spans: BoundedHashMap<HirSignalGroupKey, SourceLocation> =
+            pass.hash_map(source.signal_groups.len())?;
         for reference in &source.signal_groups {
             let Some(group_key) = resolve_reference(
                 module_lookup,
@@ -347,7 +346,7 @@ pub(crate) fn build_signal_hir(
                 diagnostics.push(diagnostic);
                 continue;
             }
-            first_group_spans.insert(group_key, reference.span.clone());
+            first_group_spans.insert(group_key, reference.span.clone())?;
             if let Some((first_controller, first_span)) = &owners[group_key.index()] {
                 let mut diagnostic = Diagnostic::signal_group_multiple_controllers(
                     &groups.get(group_key).stable_key,
@@ -391,8 +390,8 @@ pub(crate) fn build_signal_hir(
             group_positions.insert(key, position)?;
         }
         let phase_start = phases.len();
-        let mut phase_keys =
-            HashMap::<Arc<str>, SourceLocation>::with_capacity(source.phases.len());
+        let mut phase_keys: BoundedHashMap<Arc<str>, SourceLocation> =
+            pass.hash_map(source.phases.len())?;
         let mut cycle_duration_ms = 0_u64;
         let mut cycle_overflow = false;
         let mut cycle_valid = true;
@@ -411,7 +410,7 @@ pub(crate) fn build_signal_hir(
             phase_keys.insert(
                 Arc::clone(&phase_source.header.stable_key),
                 phase_source.header.span.clone(),
-            );
+            )?;
 
             if phase_source.duration_ms == 0
                 || phase_source.duration_ms > MAX_PORTABLE_SIGNAL_TIME_MS

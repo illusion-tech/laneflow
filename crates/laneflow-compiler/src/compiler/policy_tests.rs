@@ -1187,3 +1187,51 @@ fn compiler_retries_cleanly_after_policy_resource_exhaustion() {
         compile(|_, _| {}).unwrap().metrics().semantic_fingerprint()
     );
 }
+
+/// 按各层 `Box` 的实际长度独立求出策略本体之外的拥有存储，不复用计划公式。
+fn policy_inner_allocation<G, S, C>(policy: &crate::policy::model::PolicySet<G, S, C>) -> u64 {
+    use std::mem::size_of_val;
+    let mut bytes = size_of_val(&*policy.evidence)
+        + size_of_val(&*policy.gaps)
+        + size_of_val(&*policy.streams)
+        + size_of_val(&*policy.gates);
+    for rule in &policy.streams {
+        bytes += rule.classes.as_deref().map_or(0, size_of_val)
+            + size_of_val(&*rule.yield_to)
+            + size_of_val(&*rule.evidence);
+    }
+    for rule in &policy.gates {
+        bytes += rule.classes.as_deref().map_or(0, size_of_val) + size_of_val(&*rule.evidence);
+    }
+    bytes as u64
+}
+
+#[test]
+fn policy_payload_grants_match_independent_storage_shape() {
+    // 外层记录由记录表授予计费，内嵌载荷只计各层动态数组；两者之和与实际拥有存储一致，
+    // 策略本体不得重复计入。
+    let unit = unit_with_policy(false, |_, _| {}).unwrap();
+    let hir = crate::hir::build_hir(&unit).unwrap();
+    let mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
+    assert_eq!(mir.policies.len(), 1);
+    let records = std::mem::size_of_val(&*mir.policies) as u64;
+    let inner: u64 = mir
+        .policies
+        .iter()
+        .map(|record| policy_inner_allocation(&record.value))
+        .sum();
+    assert_eq!(mir.policies.granted_bytes(), records);
+    assert_eq!(mir.policy_payloads.bytes(), inner);
+
+    let lir = crate::lir::freeze_lir(&unit, &mir).unwrap().into_lir();
+    for policy in lir.policies.iter() {
+        assert_eq!(
+            policy.value.inner_bytes(),
+            policy_inner_allocation(&policy.value)
+        );
+    }
+    assert_eq!(
+        lir.policies.granted_bytes(),
+        std::mem::size_of_val(&*lir.policies) as u64
+    );
+}

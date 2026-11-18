@@ -993,7 +993,7 @@ pub(crate) fn lower_to_mir_in(
     let policy_payload_bytes = hir
         .policies
         .iter()
-        .fold(0_u64, |n, p| n.saturating_add(p.value.owned_bytes()));
+        .fold(0_u64, |n, p| n.saturating_add(p.value.inner_bytes()));
     let output = tables
         .array::<MirPolicyRecord>(hir.policies.len())
         .plus(Plan::of(policy_payload_bytes));
@@ -1799,6 +1799,9 @@ pub(crate) fn lower_to_mir_in(
         debug_assert_eq!(modules.len(), hir.modules.len());
         debug_assert_eq!(lane_edges.len(), edge_capacity);
         debug_assert_eq!(connections.len(), connection_capacity);
+        // 记录内嵌载荷的授予先于映射复制取得，载荷分配以授予为前提。
+        let policy_payloads =
+            crate::ledger::OutputGrant::new(pass.grant_bytes(policy_payload_bytes)?);
         let policies =
             pass.collect(
                 hir.policies
@@ -1812,8 +1815,6 @@ pub(crate) fn lower_to_mir_in(
                         ),
                     }),
             )?;
-        let policy_payloads =
-            crate::ledger::OutputGrant::new(pass.grant_bytes(policy_payload_bytes)?);
         Ok(MirUnit {
             policies: policies.freeze()?,
             geometry_profiles: hir.geometry_profiles,

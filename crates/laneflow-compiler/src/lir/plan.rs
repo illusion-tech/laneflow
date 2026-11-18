@@ -725,7 +725,7 @@ impl LirFreezePlan {
             .array::<LirCanonicalPoint3F32>(cap(spatial.canonical_points))
             .array::<LirCanonicalPoint2F32>(cap(spatial.conflict_region_points))
             .array::<LirSpatialSegment>(cap(spatial.spatial_segments));
-        let inner_payload_bytes = super::policy::bytes(mir)
+        let inner_payload_bytes = super::policy::inner_bytes(mir)
             .saturating_add(kind_id_byte_count)
             .saturating_add(movement_approach_key_byte_count)
             .saturating_add(access_regulation_byte_count);

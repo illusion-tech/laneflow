@@ -578,7 +578,13 @@ fn parking_budget(
             .array::<CanonicalDeclarationSource<HirParkingSpaceKey>>(cap(counts.spaces))
             .array::<bool>(cap(counts.areas))
             .array::<(HirParkingFacilityKey, HirParkingSpaceKey)>(cap(counts.memberships))
-            .array::<usize>(cap(unit.declaration_count))
+            // 逐模块声明排序视图在登记阶段结束时释放，之后才申请逐设施的成员范围表，
+            // 两者不共存，取峰值。
+            .plus(
+                Plan::ZERO
+                    .array::<usize>(cap(unit.declaration_count))
+                    .max(Plan::ZERO.array::<(usize, usize)>(cap(counts.areas))),
+            )
     };
     DomainBudget {
         persistent_bytes: Plan::ZERO
@@ -741,6 +747,8 @@ fn access_budget(
             .array::<(HirParticipantClassKey, bool)>(cap(counts
                 .participant_classes
                 .saturating_mul(2)))
+            .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references))
+            // 去重前按原始引用数写入的成员暂存；复制为输出表后释放。
             .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references))
             .array::<AccessCandidate>(cap(counts.rule_class_references))
             .array::<usize>(cap(unit.declaration_count))

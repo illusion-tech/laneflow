@@ -895,6 +895,36 @@ fn canonical_iidm_profile() -> IidmVehicleProfileInput {
     }
 }
 
+#[test]
+fn access_rule_repeated_class_references_normalize_to_one_member() {
+    // 类别引用允许重复并按集合语义规范化；输出成员表按去重后的成员数冻结。
+    let mut builder = access_builder("access-repeated-class.document");
+    builder
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "car",
+            extends: None,
+        })
+        .unwrap();
+    builder
+        .add_access_rule(AccessRuleInput {
+            access_rule_key: "deny-cars",
+            target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+            effect: AccessEffect::Deny,
+            participant_classes: &[
+                ParticipantClassReference::local("car"),
+                ParticipantClassReference::local("car"),
+            ],
+            regulation: None,
+            priority: 0,
+        })
+        .unwrap();
+    let input = unit([builder.finish().unwrap()]);
+    let hir = build_hir(&input).unwrap();
+    assert_eq!(hir.access_rule_participant_classes.len(), 1);
+    assert_eq!(hir.access_rules[0].participant_classes.len(), 1);
+    Compiler::new().compile(input).unwrap();
+}
+
 fn access_semantics_module(permuted: bool) -> SyntheticModule {
     let mut builder = access_builder("access-semantic.document");
     let add_root = |builder: &mut SyntheticModuleBuilder| {
@@ -3237,6 +3267,49 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
             SourceRelationRole::ParkingSpaceExit,
         ]
     );
+}
+
+#[test]
+fn hir_plan_covers_virtual_only_parking_facilities() {
+    // 只有虚拟停车设施、没有显式停车位时，其余领域的保守预留无法掩盖停车计划的遗漏；
+    // 成员范围表须由停车计划单独覆盖。
+    const FACILITIES: usize = 128;
+    let mut builder = parking_builder("parking-virtual-only.document");
+    for key in ["parking-entry", "parking-exit"] {
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: key,
+                length_meters: 200.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[],
+            })
+            .unwrap();
+    }
+    let keys: Vec<String> = (0..FACILITIES)
+        .map(|index| format!("area-{index:03}"))
+        .collect();
+    for (index, key) in keys.iter().enumerate() {
+        let progress_meters = 0.5 + index as f64;
+        builder
+            .add_parking_facility(ParkingFacilityInput {
+                parking_facility_key: key,
+                virtual_capacity: 1,
+                virtual_entries: &[ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters,
+                }],
+                virtual_exits: &[ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters,
+                }],
+            })
+            .unwrap();
+    }
+    let input = unit([builder.finish().unwrap()]);
+    let hir = build_hir(&input).unwrap();
+    assert_eq!(hir.parking_facilities.len(), FACILITIES);
+    assert!(hir.parking_spaces.is_empty());
+    Compiler::new().compile(input).unwrap();
 }
 
 #[test]

@@ -63,11 +63,13 @@ pub(super) fn freeze(env: &mut FreezeEnv<'_>) -> Result<BoundedVec<LirPolicy>, D
     Ok(policies)
 }
 
-/// 输出独立存续时连同共享字符串 payload 一并计量；逐项保守计，避免隐含缓存。
-pub(super) fn bytes(mir: &MirUnit) -> u64 {
+/// 记录内嵌的策略载荷：各层动态数组，连同共享字符串载荷一并计量。
+///
+/// 外层 `LirPolicy` 记录由记录表授予计费，这里不再计入；输出独立存续时共享字符串
+/// 也逐项保守计，避免隐含缓存。
+pub(super) fn inner_bytes(mir: &MirUnit) -> u64 {
     mir.policies.iter().fold(0_u64, |n, record| {
-        n.saturating_add(record.value.owned_bytes())
-            .saturating_add(16)
+        n.saturating_add(record.value.inner_bytes())
             .saturating_add(record.value.text_bytes())
     })
 }
