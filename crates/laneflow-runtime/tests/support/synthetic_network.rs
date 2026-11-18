@@ -1,9 +1,9 @@
-//! #987 测量用三档合成路网（与编译器证据测试共用合成链）。
+//! #987 认证与摘要证据使用的合成路网。
 //!
-//! 复制自 `crates/laneflow-compiler/tests/portable_emission_resources.rs` 的
-//! 合成段（WorkloadShape / add_synthetic_tile / build_conflict_module /
-//! build_mixed_network），来源变更时同步本文件；计数语义为稳定静态实体
-//! （#380 账本三档），与 urban-generator 的名义个体数不同。
+//! 基础几何源自编译器资源负载；本负载为安装额外保留一个 pinned 策略集，
+//! 并相应减少填充实体，两者不共享实体计数模型或要求来源同步修改。
+//! 正式来源构造留在本包；证据测试复用下面的编译、发射和受检修订装配。
+//! 规模按稳定静态实体计数，与 urban-generator 的名义个体数不同。
 
 #![allow(dead_code)]
 #![allow(unused_imports)]
@@ -877,4 +877,49 @@ pub(crate) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
         }
     }
     unit.build().unwrap()
+}
+
+/// 编译认证负载；来源声明的位置留在原构造函数，避免改变 LFSM 来源定位。
+pub(crate) fn compile_attestation_network(
+    stable_entities: u32,
+) -> laneflow_compiler::CompilationOutput {
+    Compiler::new()
+        .compile(build_mixed_network(
+            WorkloadShape::for_stable_entities(stable_entities),
+            false,
+        ))
+        .expect("compile attestation network")
+}
+
+/// 调用方保有编译输出、来源声明和候选，按各自计量区间决定释放时刻。
+pub(crate) fn emit_attestation_candidate(
+    output: &laneflow_compiler::CompilationOutput,
+    stable_entities: u32,
+) -> (
+    PortableEmissionProvenance,
+    laneflow_compiler::PortablePublicationCandidate,
+) {
+    let provenance =
+        PortableEmissionProvenance::try_new(format!("laneflow-987-evidence-{stable_entities}"))
+            .unwrap();
+    let candidate = laneflow_compiler::emit_portable_candidate(
+        output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .expect("emit attestation candidate");
+    (provenance, candidate)
+}
+
+/// 函数体含检查与构建，调用方将整个调用放在原计量区间内。
+pub(crate) fn build_attestation_revision(
+    lfca: &[u8],
+    options: SharedNetworkBuildOptions,
+) -> std::sync::Arc<laneflow_static_network::SharedNetworkRevision> {
+    build_shared_network_revision(
+        laneflow_format::check_canonical_network_input(lfca, FormatLimits::HARD).unwrap(),
+        options,
+    )
+    .expect("build attestation root")
 }

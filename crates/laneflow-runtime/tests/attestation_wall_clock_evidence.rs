@@ -14,7 +14,6 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::Instant;
 
-use laneflow_compiler::{Compiler, PortableEmissionProvenance};
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
@@ -22,9 +21,8 @@ use laneflow_runtime::{
 };
 use laneflow_static_network::{
     AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
-    SharedNetworkRevision, SpatialBuildOption, build_shared_network_revision,
+    SharedNetworkRevision, SpatialBuildOption,
 };
-use synthetic_network::{WorkloadShape, build_mixed_network};
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024);
@@ -43,25 +41,14 @@ struct TierFixture {
 
 fn build_tier(stable_entities: u32) -> TierFixture {
     let started = Instant::now();
-    let unit = build_mixed_network(WorkloadShape::for_stable_entities(stable_entities), false);
-    let output = Compiler::new().compile(unit).expect("compile");
-    let provenance =
-        PortableEmissionProvenance::try_new(format!("laneflow-987-evidence-{stable_entities}"))
-            .unwrap();
-    let candidate = laneflow_compiler::emit_portable_candidate(
-        &output,
-        &provenance,
-        FormatLimits::HARD,
-        laneflow_compiler::PortableDiffBase::Genesis,
-    )
-    .expect("emit candidate");
+    let output = synthetic_network::compile_attestation_network(stable_entities);
+    let (_provenance, candidate) =
+        synthetic_network::emit_attestation_candidate(&output, stable_entities);
     let lfca: Vec<u8> = candidate.canonical_artifact().bytes().to_vec();
-    let root = build_shared_network_revision(
-        laneflow_format::check_canonical_network_input(lfca.as_slice(), FormatLimits::HARD)
-            .unwrap(),
+    let root = synthetic_network::build_attestation_revision(
+        &lfca,
         SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS),
-    )
-    .expect("build root");
+    );
     let origin = root.canonical_origin();
     let reference = PublishedLfcaReference::new(
         format!("fixture://#987/{stable_entities}"),
@@ -135,7 +122,8 @@ fn attestation_wall_clock_evidence() {
 fn direct_digest_wall_clock_evidence() {
     for tier in synthetic_network::evidence_tiers() {
         let vehicles = tier / 10;
-        let routes = vehicles.min(WorkloadShape::for_stable_entities(tier).synthetic_tiles);
+        let routes = vehicles
+            .min(synthetic_network::WorkloadShape::for_stable_entities(tier).synthetic_tiles);
         let fixture = build_tier(tier);
         let mut world = TrafficWorld::install(
             Arc::clone(&fixture.root),
@@ -205,7 +193,8 @@ fn concurrent_attest_tick_interference_evidence() {
         100_000
     };
     let vehicles = tier / 10;
-    let routes = vehicles.min(WorkloadShape::for_stable_entities(tier).synthetic_tiles);
+    let routes =
+        vehicles.min(synthetic_network::WorkloadShape::for_stable_entities(tier).synthetic_tiles);
     let fixture = build_tier(tier);
     let make_world = || {
         let mut world = TrafficWorld::install(

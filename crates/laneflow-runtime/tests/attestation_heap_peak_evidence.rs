@@ -7,7 +7,6 @@ mod synthetic_network;
 #[path = "support/policy.rs"]
 mod test_policy;
 
-use laneflow_compiler::{Compiler, PortableEmissionProvenance};
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
@@ -15,7 +14,7 @@ use laneflow_runtime::{
 };
 use laneflow_static_network::{
     AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
-    SpatialBuildOption, build_shared_network_revision,
+    SpatialBuildOption,
 };
 
 #[global_allocator]
@@ -51,31 +50,15 @@ fn attestation_and_digest_heap_peak_evidence() {
         let shape = synthetic_network::WorkloadShape::for_stable_entities(tier);
         let vehicles = tier / 10;
         let routes = vehicles.min(shape.synthetic_tiles);
-        let output = Compiler::new()
-            .compile(synthetic_network::build_mixed_network(shape, false))
-            .unwrap();
-        let provenance =
-            PortableEmissionProvenance::try_new(format!("laneflow-987-evidence-{tier}")).unwrap();
-        let candidate = laneflow_compiler::emit_portable_candidate(
-            &output,
-            &provenance,
-            FormatLimits::HARD,
-            laneflow_compiler::PortableDiffBase::Genesis,
-        )
-        .unwrap();
+        let output = synthetic_network::compile_attestation_network(tier);
+        let (_provenance, candidate) = synthetic_network::emit_attestation_candidate(&output, tier);
         let lfca = candidate.canonical_artifact().bytes().to_vec();
         drop(candidate);
         drop(output);
         let options =
             SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS);
-        let (root, root_stats) = measure_heap(|| {
-            build_shared_network_revision(
-                laneflow_format::check_canonical_network_input(lfca.as_slice(), FormatLimits::HARD)
-                    .unwrap(),
-                options,
-            )
-            .unwrap()
-        });
+        let (root, root_stats) =
+            measure_heap(|| synthetic_network::build_attestation_revision(&lfca, options));
         let origin = root.canonical_origin();
         let reference = PublishedLfcaReference::new(
             format!("fixture://#987/{tier}"),
