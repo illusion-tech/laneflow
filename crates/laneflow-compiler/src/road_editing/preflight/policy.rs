@@ -58,19 +58,7 @@ pub(super) fn validate(
     for movement in root.movements() {
         closed(movement._tab, 6, key)?;
     }
-    // 保留策略集合既有的关系预算门槛；实际去重使用受预算排序索引。
-    let policy_count = root.right_of_way_policy_sets().len() as u64;
-    let comparisons = policy_count.saturating_mul(policy_count.saturating_sub(1)) / 2;
-    let relation_limit = limits
-        .source_limits()
-        .get(crate::SourceProcessingDimension::RelationOccurrenceCount);
-    if comparisons > relation_limit {
-        return Err(limit_error(
-            CompileLimitDimension::RelationOccurrenceCount,
-            relation_limit,
-            comparisons,
-        ));
-    }
+    // 策略集键去重使用受操作内存预算的排序索引，不做两两比较；来源关系只按下方真实字段与成员计数。
     ensure_unique_by(
         root.right_of_way_policy_sets().iter(),
         |value| value.policy_set_key(),
