@@ -511,10 +511,12 @@ fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
 #[test]
 fn admissible_empty_waiting_zone_does_not_brake() {
     let mut outcomes = Vec::new();
-    for waiting in [false, true] {
+    // R6 收紧：对照组不得声明 Waiting（waiting||late_waiting 都会建区），
+    // 用 (false,false) 作真无声明对照，(true,true) 保持原几何。
+    for (waiting, late_waiting) in [(false, false), (true, true)] {
         let revision = revision(ConflictPolicyFixture {
             waiting,
-            late_waiting: true,
+            late_waiting,
             ..Default::default()
         });
         let mut world =
