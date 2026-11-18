@@ -596,7 +596,7 @@ macro_rules! arithmetic {
      $sqrt:ident, $cmp:ident, $and:ident, $select:ident) => {{
         let end = $input.enabled.len() / $width * $width;
         let zero = $set(0.0); let one = $set(1.0); let two = $set(2.0); let half = $set(0.5);
-        let dt = $set($delta); let inf = $set(f32::INFINITY);
+        let dt = $set($delta); let inf = $set(f32::INFINITY); let neg_inf = $set(f32::NEG_INFINITY);
         for start in (0..end).step_by($width) {
             if $phase == Phase::Direct && !$input.enabled[start..start + $width].iter().any(|&v| v) {
                 $output.valid[start..start + $width].fill(false);
@@ -638,7 +638,12 @@ macro_rules! arithmetic {
                 let stop_target = $min($load($input.stop_m.as_ptr().add(start)), $load($input.route_end_m.as_ptr().add(start)));
                 let raw_speed = if !project {
                     let floor = $max($sub(speed, $mul(emergency, dt)), zero);
-                    let lifted = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
+                    // R5 复审修（codex P2）：非有限提案（如缓存里的
+                    // NEG_INFINITY）不得被地板抬成有限值——标量路径对非
+                    // 有限提案保持拒绝，向量行先判有限再应用地板。
+                    let finite = $and($cmp::<_CMP_LE_OQ>(neg_inf, raw_speed), $cmp::<_CMP_LE_OQ>(raw_speed, inf));
+                    let lifted_unchecked = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
+                    let lifted = $select(finite, lifted_unchecked, raw_speed);
                     let has_target = $and($and($cmp::<_CMP_GT_OQ>(stop_target, zero), $cmp::<_CMP_LT_OQ>(stop_target, inf)),
                         $cmp::<_CMP_GT_OQ>(lifted, zero));
                     let solve_stop = |decel: _| {
