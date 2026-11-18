@@ -935,6 +935,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
     let waiting_zones = try_staging_slice(waiting_zone_count)?;
     let waiting_queue_ends = try_staging_slice(waiting_zone_count)?;
     let waiting_links = try_staging_slice(vehicle_capacity)?;
+    let waiting_occupied_storage_mm = try_staging_slice(waiting_zone_count)?;
     let waiting_member_rows = try_staging_vec(vehicle_capacity)?;
     let waiting_claims = try_staging_vec(vehicle_capacity)?;
     let waiting_plans = try_staging_vec(vehicle_capacity)?;
@@ -992,6 +993,7 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             live_order_index: Default::default(),
             waiting_queue_ends,
             waiting_links,
+            waiting_occupied_storage_mm,
             waiting_member_rows,
             occupancy,
             spawn_overlap: Default::default(),

@@ -1315,7 +1315,7 @@ impl crate::kernel::state::WorldState {
     }
 
     pub(crate) fn waiting_snapshot_storage_valid(&self) -> bool {
-        for queue in self.derived.waiting_queue_ends.iter().copied() {
+        for (zone_index, queue) in self.derived.waiting_queue_ends.iter().copied().enumerate() {
             let mut used = 0_u64;
             let mut current = queue.head;
             let mut has_front = false;
@@ -1396,6 +1396,13 @@ impl crate::kernel::state::WorldState {
                 has_front = true;
                 current = self.derived.waiting_links[vehicle.index() as usize].next;
             }
+            // R6-2：同一遍历交叉验证派生已占存储聚合（异常哨兵除外——
+            // 哨兵本身是保守方向，等待重建恢复，不算失效）。
+            match self.derived.waiting_occupied_storage_mm.get(zone_index) {
+                Some(&u64::MAX) | None => {}
+                Some(aggregate) if *aggregate == used => {}
+                Some(_) => return false,
+            }
         }
         true
     }
@@ -1446,6 +1453,8 @@ impl crate::kernel::state::WorldState {
             .waiting_queue_ends
             .fill(WaitingQueueEnds::default());
         self.derived.waiting_links.fill(WaitingQueueLink::default());
+        // R6-2：队列清零重放时聚合同步清零，随 append 恢复同口径累计。
+        self.derived.waiting_occupied_storage_mm.fill(0);
         for index in 0..self.derived.waiting_member_rows.len() {
             let member = self.derived.waiting_member_rows[index];
             let Some(zone) = self.committed.waiting_zones.get(member.zone.index()) else {
@@ -2726,7 +2735,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                             .enumerate()
                         {
                             if !matches!(
-                                waiting_plan_for_preview(view, update_sequence, preview),
+                                waiting_plan_for_preview(view, update_sequence, preview, delta_s),
                                 Ok(None)
                             ) {
                                 hits[*found] =
@@ -2741,7 +2750,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     for &index in &hits[part * span..part * span + found] {
                         let (update_sequence, preview) = self.workspace.next_states[index as usize];
                         if let Some(plan) =
-                            waiting_plan_for_preview(view, update_sequence, preview)?
+                            waiting_plan_for_preview(view, update_sequence, preview, delta_s)?
                         {
                             self.workspace.waiting_plans.push(plan);
                         }
@@ -2753,7 +2762,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         if !screened {
             for preview_index in 0..previews {
                 let (update_sequence, preview) = self.workspace.next_states[preview_index];
-                if let Some(plan) = waiting_plan_for_preview(view, update_sequence, preview)? {
+                if let Some(plan) =
+                    waiting_plan_for_preview(view, update_sequence, preview, delta_s)?
+                {
                     self.workspace.waiting_plans.push(plan);
                 }
             }
@@ -2948,34 +2959,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         #[cfg(test)]
         count_waiting_work(|counts| counts.staged_zones += 1);
         let state = self.committed.waiting_zones[zone.index()];
-        let queue = self.derived.waiting_queue_ends[zone.index()];
+        // R6-2 复审修：拍初已占存储读派生聚合（与队列链同维护，#1272 评审
+        // 要求 P4 staged 从同一拍初聚合初始化再叠加本拍准入）；聚合缺行
+        // 或异常哨兵按拍初不变量违例上抛，不再逐成员重扫。
+        let Some(&used) = self.derived.waiting_occupied_storage_mm.get(zone.index()) else {
+            return Err(crate::StepError::WaitingInvariantViolation);
+        };
+        if used == u64::MAX {
+            return Err(crate::StepError::WaitingInvariantViolation);
+        }
         self.workspace.waiting_next_counters[zone.index()] = state.next_admission_sequence;
         self.workspace.waiting_staged_occupancy[zone.index()] = state.occupancy;
-        let mut used = 0_u64;
-        let mut current = queue.head;
-        let mut has_front = false;
-        while let Some(vehicle) = current {
-            let member = self
-                .vehicle_state(vehicle)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            let profile = self
-                .binding
-                .revision
-                .traffic()
-                .relations()
-                .vehicle_profile(member.profile)
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            if has_front {
-                used = used
-                    .checked_add(u64::from(profile.min_gap_mm()))
-                    .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            }
-            used = used
-                .checked_add(u64::from(member.length_mm))
-                .ok_or(crate::StepError::WaitingInvariantViolation)?;
-            has_front = true;
-            current = self.derived.waiting_links[vehicle.index() as usize].next;
-        }
         self.workspace.waiting_staged_storage_mm[zone.index()] = used;
         Ok(())
     }
@@ -3726,6 +3720,24 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             .sort_unstable_by_key(|member| (member.zone.raw(), member.admission_sequence));
     }
 
+    /// 成员的已占存储份额（(车长, 本车间隙) 毫米）；槽代不符、状态或关系
+    /// 缺失时返回 `None`，调用方把派生聚合落异常哨兵（#1272 R6-2）。
+    fn member_storage_terms(&self, vehicle: VehicleHandle) -> Option<(u64, u64)> {
+        let slot = self.committed.vehicles.get(vehicle.index() as usize)?;
+        if slot.generation != vehicle.generation() {
+            return None;
+        }
+        let state = slot.state?;
+        let gap = self
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)?
+            .min_gap_mm();
+        Some((u64::from(state.length_mm), u64::from(gap)))
+    }
+
     pub(crate) fn unlink_waiting_member(
         &mut self,
         vehicle: VehicleHandle,
@@ -3733,8 +3745,19 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
     ) {
         let index = vehicle.index() as usize;
         let link = self.derived.waiting_links[index];
-        let zone = &mut self.committed.waiting_zones[membership.waiting_zone.index()];
-        let queue = &mut self.derived.waiting_queue_ends[membership.waiting_zone.index()];
+        let zone_index = membership.waiting_zone.index();
+        // R6-2 复审修：已占存储聚合同链维护——移除者扣除车长与非队首的
+        // 本车间隙；移除队首时新队首原计入的前方间隙一并扣除。份额读取
+        // 失败或扣减下溢时落 `u64::MAX` 哨兵（sticky），消费侧按保守方向
+        // 处理，等待重建路径恢复。
+        let removed = self.member_storage_terms(vehicle);
+        let was_head = link.previous.is_none();
+        let successor_gap = link
+            .next
+            .and_then(|next| self.member_storage_terms(next))
+            .map(|(_, gap)| gap);
+        let zone = &mut self.committed.waiting_zones[zone_index];
+        let queue = &mut self.derived.waiting_queue_ends[zone_index];
         match link.previous {
             Some(previous) => {
                 self.derived.waiting_links[previous.index() as usize].next = link.next
@@ -3752,6 +3775,19 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             .checked_sub(1)
             .expect("validated occupancy covers member");
         self.derived.waiting_links[index] = WaitingQueueLink::default();
+        let storage = &mut self.derived.waiting_occupied_storage_mm[zone_index];
+        if *storage == u64::MAX {
+            return;
+        }
+        let Some((length, gap)) = removed else {
+            *storage = u64::MAX;
+            return;
+        };
+        let mut total = length.saturating_add(if was_head { 0 } else { gap });
+        if was_head {
+            total = total.saturating_add(successor_gap.unwrap_or(0));
+        }
+        *storage = storage.checked_sub(total).unwrap_or(u64::MAX);
     }
 
     pub(crate) fn append_waiting_member(
@@ -3760,8 +3796,13 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         membership: WaitingMembership,
     ) {
         let index = vehicle.index() as usize;
-        let zone = &mut self.committed.waiting_zones[membership.waiting_zone.index()];
-        let queue = &mut self.derived.waiting_queue_ends[membership.waiting_zone.index()];
+        let zone_index = membership.waiting_zone.index();
+        // R6-2 复审修：追加成员计入存储——空队只计车长，非空队计（本车
+        // 间隙 + 车长）；与 `waiting_zone_unavailable` / `stage_waiting_zone`
+        // 的原队遍历同口径。
+        let appended = self.member_storage_terms(vehicle);
+        let zone = &mut self.committed.waiting_zones[zone_index];
+        let queue = &mut self.derived.waiting_queue_ends[zone_index];
         let previous = queue.tail;
         self.derived.waiting_links[index] = WaitingQueueLink {
             previous,
@@ -3777,6 +3818,16 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             .occupancy
             .checked_add(1)
             .expect("admission preflight guarantees occupancy room");
+        let storage = &mut self.derived.waiting_occupied_storage_mm[zone_index];
+        if *storage == u64::MAX {
+            return;
+        }
+        let Some((length, gap)) = appended else {
+            *storage = u64::MAX;
+            return;
+        };
+        let total = length.saturating_add(if previous.is_some() { gap } else { 0 });
+        *storage = storage.checked_add(total).unwrap_or(u64::MAX);
     }
 }
 
@@ -3951,6 +4002,7 @@ fn waiting_plan_for_preview(
     view: crate::kernel::phase::StepReadView<'_>,
     update_sequence: usize,
     preview: super::vehicle_store::MotionValue,
+    delta_s: f32,
 ) -> Result<Option<WaitingVehiclePlan>, crate::StepError> {
     let vehicle = view.committed.live_order[update_sequence];
     let state = view
@@ -4005,7 +4057,38 @@ fn waiting_plan_for_preview(
         .copied()
         .flatten()
         .ok_or(crate::StepError::WaitingInvariantViolation)?;
-    let preview_crossed = preview.route_edge_index > occurrence.entry_hop;
+    let mut preview_crossed = preview.route_edge_index > occurrence.entry_hop;
+    if !preview_crossed {
+        // R6-1 复审修：申请预览按合同 §3.1.1 排除本次待申请 Waiting 自身
+        // 的停止目标（获批即解除；其他资源的停止义务仍有效）。基础预览
+        // 纳入拍初停止后未过入口的，用排除版复核「若获批本拍可进入」——
+        // 满载区仍产生可观察的 Capacity/PhysicalStorage 拒绝，而不是落到
+        // 派发处的兜底拒绝理由。
+        let profile = view
+            .binding
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(state.profile)
+            .ok_or(crate::StepError::WaitingInvariantViolation)?;
+        let barrier = super::conflict_tick::application_stop_barrier(
+            view,
+            &state,
+            delta_s,
+            compiled,
+            profile,
+            view.conflict_read(),
+            crate::kernel::tick::ResourceStopOverlay {
+                exclude_stop_hop: Some(occurrence.entry_hop),
+                ..Default::default()
+            },
+        )?;
+        if let Some(application) =
+            view.preview_active_vehicle_with_basis_output(state, delta_s, None, barrier, None, None)
+        {
+            preview_crossed = application.next.route_edge_index > occurrence.entry_hop;
+        }
+    }
     let preview_at_boundary = front_at_hop_boundary(
         compiled,
         &preview,

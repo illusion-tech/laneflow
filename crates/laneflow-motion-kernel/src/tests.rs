@@ -313,6 +313,59 @@ fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary(
 }
 
 #[test]
+fn out_of_window_stop_targets_behave_as_no_target_in_every_backend() {
+    // R6-3 复审修锚：严格处于保守制动窗外的有限目标（远处路终）与无
+    // 目标行输出逐位一致——标量与向量按同一判据跳过两档根式，等价性
+    // 是整组跳过的前提；窗内目标仍参与速度归约（对照组必须减速）。
+    let mut base = Fixture::new(11);
+    let mut far = Fixture::new(11);
+    let mut near = Fixture::new(11);
+    for row in 0..N {
+        for fixture in [&mut base, &mut far, &mut near] {
+            fixture.enabled[row] = true;
+            fixture.speed[row] = 10_000;
+            fixture.desired[row] = 13_000;
+            fixture.has_leader[row] = false;
+            fixture.has_proposal[row] = false;
+            fixture.comfort[row] = 2.0;
+            fixture.emergency[row] = 4.0;
+            fixture.stop[row] = f32::INFINITY;
+            fixture.end[row] = f32::INFINITY;
+            fixture.room[row] = u32::MAX;
+            fixture.limit[row] = u32::MAX;
+            fixture.stop_cap[row] = 0;
+            fixture.cap_dominates[row] = false;
+        }
+        far.end[row] = 10_000.0; // 远处有限路终：窗口 ≈ 54 m，严格窗外。
+        near.stop[row] = 12.0; // 窗内停止目标：求解根式须收紧速度。
+    }
+    // 三后端（含整组跳过路径）与标量基准逐位一致。
+    compare(&far, N, 0.1);
+    compare(&near, N, 0.1);
+    let run = |fixture: &Fixture| {
+        let mut output = Results::new();
+        Kernel::for_backend(Backend::Scalar)
+            .unwrap()
+            .run(&fixture.input(N), &mut output.output(N), 0.1)
+            .unwrap();
+        output
+    };
+    let base = run(&base);
+    let far = run(&far);
+    let near = run(&near);
+    assert_eq!(far.speed, base.speed, "窗外有限路终不得改变速度");
+    assert_eq!(far.travel, base.travel);
+    assert_eq!(far.progress, base.progress);
+    assert_eq!(far.carry, base.carry);
+    assert!(
+        near.speed != base.speed,
+        "窗内停止目标仍须减速：{:?} vs {:?}",
+        &near.speed[..8],
+        &base.speed[..8]
+    );
+}
+
+#[test]
 fn mixed_cached_proposals_are_counted_once_per_enabled_lane() {
     let mut fixture = Fixture::new(814);
     fixture.enabled.fill(true);

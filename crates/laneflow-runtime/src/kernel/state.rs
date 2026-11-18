@@ -256,6 +256,11 @@ pub(crate) struct DerivedIndexes {
     /// 车辆槽位下标对应的 intrusive queue link；长度固定为 `vehicle_capacity`。
     pub(crate) waiting_queue_ends: Box<[WaitingQueueEnds]>,
     pub(crate) waiting_links: Box<[WaitingQueueLink]>,
+    /// Waiting 区已占物理存储（毫米）：队首车长 + 其后各成员（本车间隙 +
+    /// 车长），与 `waiting_links` 同步维护（追加/移除/重建；移除队首时新
+    /// 队首原计入的前方间隙一并扣除）。可重建的派生聚合，不拥有正本；
+    /// `u64::MAX` 为维护异常哨兵，消费侧按保守方向处理（#1272 R6-2）。
+    pub(crate) waiting_occupied_storage_mm: Box<[u64]>,
     /// 只读 member batch，按 `(zone, admission_sequence)` 排列。
     pub(crate) waiting_member_rows: Vec<crate::WaitingZoneMember>,
     pub(crate) occupancy: OccupancyIndex,
@@ -961,6 +966,7 @@ impl DerivedIndexes {
             live_order_index,
             waiting_queue_ends,
             waiting_links,
+            waiting_occupied_storage_mm,
             waiting_member_rows,
             occupancy,
             spawn_overlap,
@@ -971,6 +977,7 @@ impl DerivedIndexes {
             + crate::kernel::state::vec_bytes(waiting_member_rows)
             + crate::kernel::state::slice_bytes(waiting_queue_ends)
             + crate::kernel::state::slice_bytes(waiting_links)
+            + crate::kernel::state::slice_bytes(waiting_occupied_storage_mm)
             + conflict.retained_logical_bytes()
             + occupancy.retained_logical_bytes()
             + spawn_overlap.retained_logical_bytes()

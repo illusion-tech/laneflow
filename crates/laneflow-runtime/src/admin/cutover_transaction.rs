@@ -619,6 +619,10 @@ impl CutoverTransaction {
             &mut candidate.derived.waiting_links,
         );
         std::mem::swap(
+            &mut world.state.derived.waiting_occupied_storage_mm,
+            &mut candidate.derived.waiting_occupied_storage_mm,
+        );
+        std::mem::swap(
             &mut world.state.derived.waiting_member_rows,
             &mut candidate.derived.waiting_member_rows,
         );
