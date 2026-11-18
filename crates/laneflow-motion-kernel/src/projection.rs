@@ -98,6 +98,12 @@ pub(super) fn scalar(
     .unwrap_or(limit);
 }
 
+/// 根代回约束失败时的确定性安全方向微降系数（f32 舍入可让正根越界
+/// ~1 ULP；直接弃根退到 floor 会让停在目标前几十毫米的车永久不动——
+/// 8 mm 卡死回归）。两级覆盖约 1e-6 与 1e-3 相对越界。
+pub(crate) const ROOT_SHRINK_SOFT: f32 = 1.0 - 1.0 / (1 << 20) as f32;
+pub(crate) const ROOT_SHRINK_HARD: f32 = 1.0 - 1.0 / (1 << 10) as f32;
+
 /// 一次制动约束的精确 f32 线性/二次解；无可行解时返回 None。
 ///
 /// 可行域同时约束本拍位移（含拍内停稳分支）与后续制动，以及本拍减速上界
@@ -133,10 +139,26 @@ pub fn max_next_speed_for_decel(
         f32::NEG_INFINITY
     };
     let mut best = linear;
-    if quadratic > limit
-        && speed_down_constraint_holds(current, quadratic, delta, distance, limit, decel)
-    {
-        best = best.max(quadratic);
+    if quadratic > limit {
+        // 根代回失败时按确定性的安全方向微降重试；三级候选与 SIMD 逐位
+        // 同序。全部失败才回落到 linear/floor。
+        let holds = |candidate: f32| {
+            speed_down_constraint_holds(current, candidate, delta, distance, limit, decel)
+        };
+        let soft = quadratic * ROOT_SHRINK_SOFT;
+        let hard = quadratic * ROOT_SHRINK_HARD;
+        let corrected = if holds(quadratic) {
+            quadratic
+        } else if holds(soft) {
+            soft
+        } else if holds(hard) {
+            hard
+        } else {
+            f32::NEG_INFINITY
+        };
+        if corrected > limit {
+            best = best.max(corrected);
+        }
     }
     // floor 已验证可行且约束左侧随 u 单调不减，可行最大值不低于 floor。
     best = best.max(floor);
