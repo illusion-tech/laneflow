@@ -43,7 +43,14 @@ pub(crate) struct PolicySourceInput<'a> {
 pub(super) struct PolicySourceRecord {
     target: PolicySourceTarget,
     primary: SourceLocationRecord,
-    contributing: Box<[SourceLocationRecord]>,
+    contributing: crate::ledger::Frozen<SourceLocationRecord>,
+}
+
+impl PolicySourceRecord {
+    /// 返回点转交宿主：伴随来源表的授予随记录转交。
+    pub(super) fn transfer_to_host(&mut self) {
+        self.contributing.transfer_to_host();
+    }
 }
 
 /// 已经过共同文档所有权检查的只读路权来源。
@@ -78,82 +85,55 @@ impl<'a> PolicySourceView<'a> {
     }
 }
 
-/// 与现有源映射同时计量，全部成功后返回；不修改旧记录。
+/// 冻结策略来源记录，全部成功后返回；不修改旧记录。
+///
+/// 记录表与各记录的伴随来源表由 `pass` 逐项授予；成员键的副本由调用方集中授予。
 pub(super) fn freeze_policy_sources(
     unit: &CompilationUnit,
     inputs: &[PolicySourceInput<'_>],
-    prior_live: u64,
-) -> Result<(Box<[PolicySourceRecord]>, u64, u64), DiagnosticBundle> {
-    let mut owned = (inputs.len() as u64).saturating_mul(size_of::<PolicySourceRecord>() as u64);
-    let mut logical = 0_u64;
-    let mut occurrences = 0_u64;
-    for input in inputs {
-        owned = owned.saturating_add(
-            (input.contributing.len() as u64)
-                .saturating_mul(size_of::<SourceLocationRecord>() as u64),
-        );
-        logical = logical.saturating_add(32);
-        occurrences = occurrences.saturating_add(1 + input.contributing.len() as u64);
-        if let PolicySourceTarget::Member { key, .. } = &input.target {
-            owned = owned.saturating_add(key.len() as u64);
-            logical = logical.saturating_add(key.len() as u64 + 4);
-        }
-        for location in core::iter::once(input.primary).chain(input.contributing) {
-            // 只借用进行解析前计量；共享 context 已归共同准入的 unit 所有。
-            logical = logical.saturating_add(match location {
-                SourceLocation::Text(_) => TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
-                SourceLocation::RoadEditing(_) => ROAD_EDITING_LOCATION_PAYLOAD_LOGICAL_BYTES,
-            });
-        }
-    }
-    let observations = [
-        unit.limits.source_limits().exceeded(
-            crate::SourceProcessingDimension::RelationOccurrenceCount,
-            occurrences,
-        ),
-        unit.limits.operation_budget().exceeded(
-            crate::OperationResourceDimension::CompilerControlledLiveBytes,
-            prior_live.saturating_add(owned),
-        ),
-    ];
-    for violation in observations.into_iter().flatten() {
+    pass: &crate::ledger::PassBudget<'_>,
+) -> Result<crate::ledger::Frozen<PolicySourceRecord>, DiagnosticBundle> {
+    let occurrences = inputs.iter().fold(0_u64, |total, input| {
+        total.saturating_add(1 + input.contributing.len() as u64)
+    });
+    if let Some(violation) = unit.limits.source_limits().exceeded(
+        crate::SourceProcessingDimension::RelationOccurrenceCount,
+        occurrences,
+    ) {
         let crate::limits::ResourceLimitExceeded {
             dimension,
             limit,
-            observed: actual,
+            observed,
         } = violation;
-        if actual > limit {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_limit_exceeded_at(
-                    dimension,
-                    limit,
-                    actual,
-                    inputs.first().map(|i| i.primary.clone()),
-                    None,
-                ),
-            ));
-        }
+        return Err(DiagnosticBundle::single(
+            Diagnostic::compile_limit_exceeded_at(
+                dimension,
+                limit,
+                observed,
+                inputs.first().map(|i| i.primary.clone()),
+                None,
+            ),
+        ));
     }
-    let mut records = Vec::with_capacity(inputs.len());
+    let mut records = pass.vec(inputs.len())?;
     for input in inputs {
         // 输入来自同次受检模块；不得用另一模块的登记文档或未登记文档伪造位置。
         let primary = unit
             .resolve_source_location_for_module(input.owner_module, input.primary)?
             .into();
-        let contributing = input
-            .contributing
-            .iter()
-            .map(|location| {
-                unit.resolve_source_location_for_module(input.owner_module, location)
-                    .map(Into::into)
-            })
-            .collect::<Result<Box<[_]>, _>>()?;
+        let mut contributing = pass.vec(input.contributing.len())?;
+        for location in input.contributing {
+            contributing.push(
+                unit.resolve_source_location_for_module(input.owner_module, location)?
+                    .into(),
+            )?;
+        }
         records.push(PolicySourceRecord {
             target: input.target.clone(),
             primary,
-            contributing,
-        });
+            contributing: contributing.freeze()?,
+        })?;
     }
     records.sort_unstable_by(|a, b| a.target.cmp(&b.target));
-    Ok((records.into_boxed_slice(), owned, logical))
+    Ok(records.freeze()?)
 }

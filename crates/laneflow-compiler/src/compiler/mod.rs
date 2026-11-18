@@ -586,7 +586,7 @@ impl Compiler {
         let lir_record_count = frozen_lir.lir.lir_record_count;
         let output_logical_bytes = frozen_lir.lir.output_bytes;
         let semantic_fingerprint = frozen_lir.lir.semantic_digest;
-        let source_map_input =
+        let mut source_map_input =
             crate::source_map::freeze_source_map_in(unit, &mir, &frozen_lir, &ledger)?;
         drop(mir);
         // 规范排列只服务源映射冻结，在此释放并归还授予。
@@ -594,6 +594,7 @@ impl Compiler {
         // 返回点转交宿主：LIR 随编译输出返回；编译单元按值移入，其存储随源映射输入返回或
         // 已在冻结中释放，剩余授予随输出转交。
         lir.transfer_to_host();
+        source_map_input.transfer_to_host();
         inputs.transfer_to_host();
         let report = ledger.close().map_err(|error| {
             DiagnosticBundle::single(crate::Diagnostic::from_ledger_error(

@@ -885,12 +885,27 @@ impl<T> Deref for Frozen<T> {
     }
 }
 
+impl<T> DerefMut for Frozen<T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.items
+    }
+}
+
 impl<'v, T> IntoIterator for &'v Frozen<T> {
     type Item = &'v T;
     type IntoIter = std::slice::Iter<'v, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.items.iter()
+    }
+}
+
+impl<'v, T> IntoIterator for &'v mut Frozen<T> {
+    type Item = &'v mut T;
+    type IntoIter = std::slice::IterMut<'v, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.iter_mut()
     }
 }
 

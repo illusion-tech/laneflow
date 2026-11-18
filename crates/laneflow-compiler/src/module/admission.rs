@@ -1357,21 +1357,22 @@ impl CompilationUnit {
     /// 消费完整 Typed AST 输入，分别搬移源映射后续需要的模块与文档描述符。
     pub(crate) fn into_source_descriptors(
         self,
-    ) -> (
-        Box<[SourceModuleDescriptor]>,
-        Box<[SourceDocumentDescriptor]>,
-    ) {
-        let mut source_modules = Vec::with_capacity(self.modules.len());
-        let mut source_documents =
-            Vec::with_capacity(usize::try_from(self.source_document_count).unwrap_or(usize::MAX));
-        for module in self.modules.into_vec() {
-            source_modules.push(module.descriptor);
-            source_documents.extend(module.source_documents);
-        }
+        pass: &crate::ledger::PassBudget<'_>,
+    ) -> Result<
         (
-            source_modules.into_boxed_slice(),
-            source_documents.into_boxed_slice(),
-        )
+            crate::ledger::Frozen<SourceModuleDescriptor>,
+            crate::ledger::Frozen<SourceDocumentDescriptor>,
+        ),
+        crate::ledger::LedgerError,
+    > {
+        let mut source_modules = pass.vec(self.modules.len())?;
+        let mut source_documents =
+            pass.vec(usize::try_from(self.source_document_count).unwrap_or(usize::MAX))?;
+        for module in self.modules.into_vec() {
+            source_modules.push(module.descriptor)?;
+            source_documents.try_extend(module.source_documents)?;
+        }
+        Ok((source_modules.freeze()?, source_documents.freeze()?))
     }
 }
 
