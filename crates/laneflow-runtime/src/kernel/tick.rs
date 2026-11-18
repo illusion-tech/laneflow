@@ -380,15 +380,18 @@ struct MotionLimits {
     transition_limited: bool,
 }
 
-/// 资源停止源二分（#1272 合同 §3.1.1，F2' 复审修）：未授权入口对未持有
+/// 资源停止源二分（#1272 合同 §3.1.1，F2'/R4 复审修）：未授权入口对未持有
 /// 者是**位置屏障**——本拍不得越过（hard_room 截断 + 跨门谓词），「尚未
 /// 申请且无已知阻塞的入口不因『没有 grant』自行制造停止目标」；已知阻塞
-/// （Conflict 区被他人占用或持有、等待区满载）才是制动窗内参与速度归约的
-/// **停止目标**。
+/// （Conflict 区被他人占用或持有、等待区容量或物理存储不足、P4 本拍明确
+/// 拒绝）在制动窗内即形成参与速度归约的**停止目标**。两者可以是不同入口
+/// ——近处空闲入口只作屏障，不遮挡窗内更远的已知阻塞（R4-2）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ResourceBarrier {
+    /// 最近未授权入口：位置屏障。
     pub(crate) constraint: crate::kernel::waiting::WaitingStopConstraint,
-    pub(crate) known_blocked: bool,
+    /// 制动窗内最近的已知阻塞停止目标；`None` 表示窗内无已知阻塞。
+    pub(crate) stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
 }
 
 impl MotionLimits {
@@ -461,8 +464,7 @@ impl MotionInputs {
             .filter(|barrier| independent(barrier.constraint))
             .map(|barrier| barrier.constraint);
         let conflict_stop = conflict
-            .filter(|barrier| barrier.known_blocked)
-            .map(|barrier| barrier.constraint)
+            .and_then(|barrier| barrier.stop)
             .filter(|constraint| independent(*constraint));
         for constraint in [waiting, conflict_stop].into_iter().flatten() {
             if stop.is_none_or(|old| stop_is_nearer_or_equal(constraint.distance, old)) {
@@ -650,7 +652,7 @@ impl MotionPreview {
                     // Waiting membership 的停车点是真实停止目标。
                     self.unaffected_by(ResourceBarrier {
                         constraint: stop,
-                        known_blocked: true,
+                        stop: Some(stop),
                     })
                 }))
     }
@@ -666,13 +668,24 @@ impl MotionPreview {
         let Some(barrier) = conflict_stop else {
             return Some(self.next);
         };
-        if Some(barrier.constraint) == waiting_stop {
+        if Some(barrier.constraint) == waiting_stop
+            || barrier.stop.is_some_and(|stop| Some(stop) == waiting_stop)
+        {
             return Some(self.next);
         }
         self.unaffected_by(barrier).then_some(self.next)
     }
 
     fn unaffected_by(&self, stop: ResourceBarrier) -> bool {
+        // 位置屏障与速度停止目标分别判界：屏障只要求本拍提案够不到；
+        // 停止目标额外要求处于制动前视窗外（窗内改变速度与停稳分支）。
+        let position_beyond =
+            |distance: BoundedDistance, proposed_mm: u64, meters: f32| match distance {
+                BoundedDistance::Finite(mm) => {
+                    u64::from(mm) > proposed_mm && si_meters(mm) >= meters
+                }
+                BoundedDistance::BeyondFinite => true,
+            };
         let beyond_motion = match self.bounds {
             // 同距离的新约束可能改变停车原因与提交速度，必须重算。
             MotionBounds::TransitionStopped | MotionBounds::Unknown => false,
@@ -684,20 +697,16 @@ impl MotionPreview {
                 proposed_mm,
                 window_mm,
                 ..
-            } => match stop.constraint.distance {
-                BoundedDistance::Finite(mm) => {
-                    // SI clamp 不变，且新整数硬边界严格在含 carry/舍入的提案外，
-                    // 因而不会改变 exhausted 或余量。#1272 起停止目标参与速度
-                    // 归约：本拍够不到但处于制动前视窗内的目标同样改变速度与
-                    // 停稳分支，窗外才可复用。不能只比较整数位置。F2'：位置
-                    // 屏障（未授权、无已知阻塞）不参与速度归约，本拍提案
-                    // 够不到即不影响结果，制动窗判据只约束已知阻塞的停止目标。
-                    u64::from(mm) > proposed_mm
-                        && si_meters(mm) >= meters
-                        && (!stop.known_blocked || u64::from(mm) > window_mm)
-                }
-                BoundedDistance::BeyondFinite => true,
-            },
+            } => {
+                position_beyond(stop.constraint.distance, proposed_mm, meters)
+                    && stop.stop.is_none_or(|constraint| {
+                        position_beyond(constraint.distance, proposed_mm, meters)
+                            && match constraint.distance {
+                                BoundedDistance::Finite(mm) => u64::from(mm) > window_mm,
+                                BoundedDistance::BeyondFinite => true,
+                            }
+                    })
+            }
         };
         beyond_motion && self.next.route_edge_index <= stop.constraint.hop
     }
@@ -2409,7 +2418,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         // 未授权入口）。
         let admission_barrier = admission_stop.map(|constraint| ResourceBarrier {
             constraint,
-            known_blocked: true,
+            stop: Some(constraint),
         });
         self.calculate_active_vehicle_motion(
             state,
@@ -5144,14 +5153,54 @@ impl<'a> MotionTaskView<'a> {
                 .map(|entry| entry.entry_hop)
         });
         let authorized = |hop| [grant_hop, owned_hop, held_waiting_hop].contains(&Some(hop));
-        // 直接查询有序资源出现记录，不扫描不需要资源的普通 Gate。
-        // 同一 admission Gate 的多个 passage 用 partition_point 整段跳过。
-        let mut minimum = first_hop;
-        let conflict = if skip_conflict {
-            None
-        } else {
+        // R4-4 复审修：P4 本拍已明确拒绝的门（NoGrant——LeadGap/Occupied/
+        // WaitingCycle 等）合入 P5 停止目标（合同：P4 确定的动态停止在 P5
+        // 合并并重新归约）；Deferred/NotEvaluated 不是拒绝事实。
+        let conflict_denied_hop = self
+            .conflict_motion_by_vehicle
+            .get(state.handle().index() as usize)
+            .copied()
+            .flatten()
+            .filter(|plan| matches!(plan.outcome, crate::ConflictDecisionOutcome::NoGrant(_)))
+            .map(|plan| plan.gate_hop);
+        let waiting_denied_hop = self
+            .waiting_plan_by_vehicle
+            .get(state.handle().index() as usize)
+            .copied()
+            .flatten()
+            .and_then(|index| self.waiting_plans.get(index.get() as usize - 1))
+            .filter(|plan| {
+                matches!(
+                    plan.decision,
+                    crate::kernel::waiting::WaitingDecisionOutcome::NoGrant(_)
+                )
+            })
+            .map(|plan| plan.entry_hop);
+        let gate_distance = |hop: u32| -> Result<BoundedDistance, StepError> {
+            crate::kernel::tables::distance_to_occurrence_start(
+                &compiled.occurrence_segments,
+                &compiled.occurrence_offsets,
+                &compiled.segment_totals,
+                position.route_edge_index as usize,
+                position.progress_mm,
+                hop as usize + 1,
+            )
+            .ok_or(StepError::ConflictInvariantViolation)
+        };
+        let within_window = |distance: BoundedDistance| match distance {
+            BoundedDistance::Finite(mm) => reach.is_none_or(|reach| !reach.excludes(mm)),
+            BoundedDistance::BeyondFinite => false,
+        };
+        // Conflict 扫描：最近未授权入口（位置屏障）与制动窗内最近已知阻塞
+        // （停止目标）分别记录——近处空闲入口不遮挡窗内更远的已知阻塞
+        // （R4-2 复审修）。同一 admission Gate 的多个 passage 用
+        // partition_point 整段跳过。
+        let mut conflict_barrier: Option<(u32, BoundedDistance)> = None;
+        let mut conflict_stop: Option<(u32, BoundedDistance)> = None;
+        if !skip_conflict {
             #[cfg(test)]
             note_barrier_query(|counts| counts.conflict_scans += 1);
+            let mut minimum = first_hop;
             loop {
                 let index = compiled.conflicts.partition_point({
                     #[cfg(test)]
@@ -5159,20 +5208,48 @@ impl<'a> MotionTaskView<'a> {
                     |entry| entry.admission_hop < minimum
                 });
                 let Some(entry) = compiled.conflicts.get(index) else {
-                    break None;
+                    break;
                 };
-                if !authorized(entry.admission_hop) {
-                    break Some(index);
+                let hop = entry.admission_hop;
+                let advance = || -> Result<u32, StepError> {
+                    hop.checked_add(1)
+                        .ok_or(StepError::ConflictInvariantViolation)
+                };
+                if authorized(hop) {
+                    minimum = advance()?;
+                    continue;
                 }
-                minimum = entry
-                    .admission_hop
-                    .checked_add(1)
-                    .ok_or(StepError::ConflictInvariantViolation)?;
+                let distance = gate_distance(hop)?;
+                if conflict_barrier.is_none() {
+                    conflict_barrier = Some((hop, distance));
+                }
+                if conflict_stop.is_none() {
+                    // 出现记录按路线距离有序：首个窗外目标之后全部窗外。
+                    if !within_window(distance) {
+                        break;
+                    }
+                    let blocked = compiled.conflicts[index..]
+                        .iter()
+                        .take_while(|entry| entry.admission_hop == hop)
+                        .any(|entry| {
+                            conflict_read.cells_unavailable(state.handle(), &[entry.address()])
+                        })
+                        || conflict_denied_hop == Some(hop);
+                    if blocked {
+                        conflict_stop = Some((hop, distance));
+                    }
+                }
+                if conflict_stop.is_some() {
+                    break;
+                }
+                minimum = advance()?;
             }
-        };
-        let waiting = if skip_waiting {
-            None
-        } else {
+        }
+        // Waiting 扫描：同构二分；已知阻塞 = 容量满载或物理存储不足（R4-3
+        // 复审修，生产 PhysicalStorage 口径）或 P4 本拍明确拒绝。
+        let mut waiting_barrier: Option<(u32, BoundedDistance)> = None;
+        let mut waiting_stop: Option<(u32, BoundedDistance)> = None;
+        if !skip_waiting {
             #[cfg(test)]
             note_barrier_query(|counts| counts.waiting_entry_scans += 1);
             let waiting = compiled.waiting.partition_point({
@@ -5180,60 +5257,51 @@ impl<'a> MotionTaskView<'a> {
                 super::route_query_research::note_search("tick:4273");
                 |entry| entry.entry_hop < first_hop
             });
-            compiled.waiting[waiting..]
-                .iter()
-                .position(|entry| !authorized(entry.entry_hop))
-                .map(|offset| waiting + offset)
-        };
-        // 已知阻塞判定（合同 §3.1.1「真实不可用」）：Conflict 取该准入门
-        // 全部 passage 是否被他人占用或持有；Waiting 取等待区满载（容量面；
-        // 存储长度面的满载仍按屏障处理，屏障本身保证不越过）。
-        let conflict_blocked = conflict.is_some_and(|index| {
-            let admission_hop = compiled.conflicts[index].admission_hop;
-            compiled.conflicts[index..]
-                .iter()
-                .take_while(|entry| entry.admission_hop == admission_hop)
-                .any(|entry| conflict_read.cells_unavailable(state.handle(), &[entry.address()]))
-        });
-        let waiting_blocked = waiting.is_some_and(|index| {
-            let zone = compiled.waiting[index].zone;
-            let committed = self.read.committed.waiting_zones.get(zone.index());
-            let max_occupancy = self
-                .read
-                .binding
-                .revision
-                .traffic()
-                .relations()
-                .waiting_zone(zone)
-                .map(|zone| zone.max_occupancy());
-            // 区号缺行或关系缺失按已知阻塞（保守制动），不让屏障语义吞掉
-            // 满载事实。
-            match (committed, max_occupancy) {
-                (Some(state), Some(max)) => state.occupancy >= max,
-                _ => true,
+            for entry in &compiled.waiting[waiting..] {
+                let hop = entry.entry_hop;
+                if authorized(hop) {
+                    continue;
+                }
+                let distance = gate_distance(hop)?;
+                if waiting_barrier.is_none() {
+                    waiting_barrier = Some((hop, distance));
+                }
+                if waiting_stop.is_none() {
+                    if !within_window(distance) {
+                        break;
+                    }
+                    let blocked = waiting_zone_unavailable(self.read, entry, profile)
+                        || waiting_denied_hop == Some(hop);
+                    if blocked {
+                        waiting_stop = Some((hop, distance));
+                    }
+                }
+                if waiting_stop.is_some() {
+                    break;
+                }
             }
-        });
+        }
         // 申请资格不能决定运动屏障。既有裁决权和本拍 grant 只授权各自的 Gate。
-        let conflict_hop = conflict.map(|index| compiled.conflicts[index].admission_hop);
-        let waiting_hop = waiting.map(|index| compiled.waiting[index].entry_hop);
-        let Some(hop) = [conflict_hop, waiting_hop].into_iter().flatten().min() else {
-            return Ok(None);
+        let barrier = [conflict_barrier, waiting_barrier]
+            .into_iter()
+            .flatten()
+            .min_by_key(|&(hop, _)| hop);
+        let stop = [conflict_stop, waiting_stop]
+            .into_iter()
+            .flatten()
+            .min_by_key(|&(hop, _)| hop);
+        let constraint = barrier
+            .map(|(hop, distance)| crate::kernel::waiting::WaitingStopConstraint { distance, hop });
+        let stop = stop
+            .map(|(hop, distance)| crate::kernel::waiting::WaitingStopConstraint { distance, hop });
+        // 停止目标只出现在未授权门上，屏障必先于或同于它被记录。
+        let Some(constraint) = constraint else {
+            return Ok(stop.map(|stop| ResourceBarrier {
+                constraint: stop,
+                stop: None,
+            }));
         };
-        let known_blocked = (conflict_hop == Some(hop) && conflict_blocked)
-            || (waiting_hop == Some(hop) && waiting_blocked);
-        let distance = crate::kernel::tables::distance_to_occurrence_start(
-            &compiled.occurrence_segments,
-            &compiled.occurrence_offsets,
-            &compiled.segment_totals,
-            position.route_edge_index as usize,
-            position.progress_mm,
-            hop as usize + 1,
-        )
-        .ok_or(StepError::ConflictInvariantViolation)?;
-        Ok(Some(ResourceBarrier {
-            constraint: crate::kernel::waiting::WaitingStopConstraint { distance, hop },
-            known_blocked,
-        }))
+        Ok(Some(ResourceBarrier { constraint, stop }))
     }
 
     /// P5 逐车运动原语：Parking binding 校验 → reservation/arrived_before 判定
@@ -5876,6 +5944,62 @@ pub(crate) fn snapshot_leader_room_mm(gap_mm: i64, min_gap_mm: u32) -> u32 {
 }
 
 /// 本拍硬约束。`BeyondFinite` 路终/停车距离不参与包络；Finite 侧保持 `u32`，不上 `u64`。
+/// Waiting 入口对本车的「真实不可用」（合同 §3.1.1，R4-3 复审修）：容量
+/// 满载，或物理存储不足——生产 PhysicalStorage 口径（已占存储、本车间隙
+/// 与本车长之和超过入口存储长度；已占沿 committed 队列按各成员车长与
+/// 其间隙累计）。区号缺行、关系缺失或队列异常按不可用（保守制动）。
+/// 本车已有 membership 的入口由调用方 authorized 排除。
+fn waiting_zone_unavailable(
+    read: crate::kernel::phase::StepReadView<'_>,
+    occurrence: &crate::kernel::tables::WaitingOccurrence,
+    profile: Option<VehicleProfileView>,
+) -> bool {
+    let Some(zone_state) = read.committed.waiting_zones.get(occurrence.zone.index()) else {
+        return true;
+    };
+    let relations = read.binding.revision.traffic().relations();
+    let Some(zone) = relations.waiting_zone(occurrence.zone) else {
+        return true;
+    };
+    if zone_state.occupancy >= zone.max_occupancy() {
+        return true;
+    }
+    let Some(profile) = profile else {
+        return true;
+    };
+    // 物理存储：沿 committed 队列累计成员（车长 + 间隙）。
+    let mut occupied: u64 = 0;
+    let mut guard = 0_u32;
+    let mut current = read
+        .derived
+        .waiting_queue_ends
+        .get(occurrence.zone.index())
+        .and_then(|ends| ends.head);
+    while let Some(member) = current {
+        let Some(state) = read.committed.vehicles.slot(member.index() as usize).state else {
+            return true;
+        };
+        let gap = relations
+            .vehicle_profile(state.profile)
+            .map_or(0, |profile| profile.min_gap_mm());
+        occupied = occupied.saturating_add(u64::from(state.length_mm) + u64::from(gap));
+        current = read
+            .derived
+            .waiting_links
+            .get(member.index() as usize)
+            .and_then(|link| link.next);
+        guard += 1;
+        if guard > zone_state.occupancy {
+            // 队列长度与计数不符（链异常）：按不可用保守处理。
+            return true;
+        }
+    }
+    let required = occupied
+        .saturating_add(u64::from(profile.min_gap_mm()))
+        .saturating_add(u64::from(profile.length_mm()));
+    required > u64::from(occurrence.storage_length_mm)
+}
+
 fn hard_room_mm(
     leader_gap: Option<i64>,
     min_gap_mm: u32,
@@ -6352,7 +6476,7 @@ mod motion_reuse_tests {
     fn stop_barrier(stop: WaitingStopConstraint) -> ResourceBarrier {
         ResourceBarrier {
             constraint: stop,
-            known_blocked: true,
+            stop: Some(stop),
         }
     }
 

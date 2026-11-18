@@ -94,6 +94,8 @@ fn signal_boundary_publishes_valid_eligibility_and_preserves_continuous_waiting(
             let mut blocked_before_release = false;
             let mut saw_not_evaluated = false;
             let mut saw_clocked = false;
+            let mut last_anchored: Option<u64> = None;
+            let mut restarted_checked: Option<bool> = None;
             let mut saw_cleared = false;
             let mut saw_restarted = false;
             for expected_time in [200, 300, 400, 500, 600, 700, 800, 900, 1_000, 1_100, 1_200] {
@@ -122,11 +124,25 @@ fn signal_boundary_publishes_valid_eligibility_and_preserves_continuous_waiting(
                     );
                 }
                 if clocks.is_empty() {
-                    if saw_clocked {
+                    if saw_clocked && !saw_cleared {
                         saw_cleared = true;
+                        last_anchored = previous_clocks
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .max();
                     }
                 } else {
                     if saw_cleared {
+                        // R4 收紧：重启必须以新锚点——晚于清空前最后锚点，
+                        // 复用旧 first_eligible_tick 不能通过。
+                        if restarted_checked.is_none() {
+                            restarted_checked = Some(
+                                clocks
+                                    .iter()
+                                    .all(|clock| last_anchored.is_some_and(|last| *clock > last)),
+                            );
+                        }
                         saw_restarted = true;
                     }
                     saw_clocked = true;
@@ -148,6 +164,10 @@ fn signal_boundary_publishes_valid_eligibility_and_preserves_continuous_waiting(
             assert!(saw_clocked, "资格钟出现");
             assert!(saw_cleared, "拒绝期间资格钟清空");
             assert!(saw_restarted, "资格回归后以新锚点重启");
+            assert!(
+                restarted_checked.unwrap_or(false),
+                "重启锚点必须晚于清空前最后锚点（不重置复用旧 first_eligible_tick）"
+            );
         }
     }
 }
@@ -425,7 +445,15 @@ fn held_conflict_brakes_in_advance_and_never_becomes_unstoppable() {
             .with_open_entrance(),
         )
         .unwrap();
-    // profile 0 紧急减速度 4.5 m/s²：完整停车距离（毫米）= v² / 9000。
+    // 紧急减速度按 fixture profile 实读（R4 收紧：本 fixture car profile
+    // 为 4.0 m/s²，完整停车距离（毫米）= v² / (2·b_e·1000)）。
+    let emergency = world
+        .traffic()
+        .relations()
+        .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+        .unwrap()
+        .emergency_decel();
+    let twice_emergency_mm = (2.0 * emergency * 1_000.0) as u64;
     let mut slowed_on_first_tick = false;
     let mut ended_waiting_or_granted = false;
     for _ in 0..400 {
@@ -442,8 +470,8 @@ fn held_conflict_brakes_in_advance_and_never_becomes_unstoppable() {
                 // 已知阻塞仍成立期间停止目标持续参与速度归约：拍初速度的
                 // 紧急停车距离必须放进拍初剩余距离（评审反例「一拍内从
                 // 可停变不可停、空间差额 748.7 mm」不得复现）。
-                let stopping_mm =
-                    u64::from(before.speed_mm_s()) * u64::from(before.speed_mm_s()) / 9_000;
+                let stopping_mm = u64::from(before.speed_mm_s()) * u64::from(before.speed_mm_s())
+                    / twice_emergency_mm;
                 assert!(
                     stopping_mm <= u64::from(gate_line - before.progress_mm()),
                     "阻塞期间可停不变量：拍初 v²/(2·b_e)={stopping_mm} mm ≤ 拍初剩余 {} mm",
@@ -1075,4 +1103,61 @@ fn new_conflict_floor_survives_restore_and_enforces_496_500_ms_from_commit() {
             deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
         );
     }
+}
+
+/// R4-4 复审修锚：P4 本拍明确 `NoGrant(LeadGap)` 而 cells 仍空闲时，该门
+/// 合入 P5 停止目标——subject 以舒适解保持在停止线前（评审反例：旧实现
+/// 把明确拒绝当纯位置屏障，到线清零 next_progress=门线、speed=0；按
+/// `L=0` 目标舒适域存在正常解，最大可行终速约 73 mm/s、行程约 13.7 mm）。
+#[test]
+fn explicit_leadgap_denial_brakes_to_a_stop_target_before_the_line() {
+    let revision = right_turn_revision(GateInterpretation::CnCircularRightTurn, false);
+    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+    let [right_turn, priority_route] = right_turn_routes(&mut world);
+    let gate = calibration_gate(&world, right_turn);
+    let subject = world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                right_turn,
+                0,
+                gate - 15,
+                200,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                priority_route,
+                0,
+                calibration_gate(&world, priority_route) - 2_000,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    world.step(TickInput::new(100)).unwrap();
+    assert_eq!(
+        calibration_outcome(&world, subject),
+        ConflictDecisionOutcome::NoGrant(ConflictNoGrantReason::LeadGap)
+    );
+    assert!(
+        world.conflict_reservation(subject).is_none(),
+        "cells 仍空闲（拒绝来自让行判据，非占用）"
+    );
+    let state = world.vehicle(subject).unwrap();
+    assert!(
+        state.progress_mm() < gate,
+        "明确拒绝作为停止目标：不到线清零（progress {} < 门线 {}）",
+        state.progress_mm(),
+        gate
+    );
+    assert!(
+        state.speed_mm_s() > 0,
+        "舒适域解保留线前速度（{} mm/s），不再一拍归零",
+        state.speed_mm_s()
+    );
 }
