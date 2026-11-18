@@ -3,21 +3,44 @@ use super::*;
 use super::{
     access::AccessIndex, passages::PassageIndex, protected::ProtectedIndex, work::WorkBudget,
 };
+use crate::ledger::{BoundedVec, Plan};
 use crate::{
     GateInterpretation as I, GateProhibition as P, ManeuverDirection, PolicyViolation as V,
 };
 
-/// 在编译账本上核对策略临时存储与当前存续的共存字节；行数不借用来源限额。
-pub(super) fn budget(ledger: &crate::ledger::Ledger, scratch: u64) -> Result<(), DiagnosticBundle> {
-    ledger
-        .probe(POLICY_VALIDATION_PASS, scratch)
-        .map_err(|error| {
-            DiagnosticBundle::single(Diagnostic::from_ledger_error(
-                error,
-                None::<crate::SourceLocation>,
-                None,
-            ))
-        })
+/// 以单独准入的授予创建一份策略校验暂存，可容纳 `count` 个元素。
+///
+/// 每份暂存是一次只含该存储的编译遍：准入时与账本中已存续的编译单元、MIR 及先前的
+/// 策略暂存共同核对 `L + R + P ≤ B`，结束后存储继续存续到释放。行数不借用来源限额。
+pub(super) fn scratch<T>(
+    ledger: &crate::ledger::Ledger,
+    count: usize,
+) -> Result<BoundedVec<T>, DiagnosticBundle> {
+    let pass = ledger.admit_pass(POLICY_VALIDATION_PASS, Plan::ZERO.array::<T>(count))?;
+    let values = pass.vec(count)?;
+    pass.finish(values.granted_bytes())?;
+    Ok(values)
+}
+
+/// 同 [`scratch`]，长度为 `count`，每项为 `value`。
+pub(super) fn scratch_filled<T: Clone>(
+    ledger: &crate::ledger::Ledger,
+    count: usize,
+    value: T,
+) -> Result<BoundedVec<T>, DiagnosticBundle> {
+    let mut values = scratch(ledger, count)?;
+    values.resize(count, value)?;
+    Ok(values)
+}
+
+/// 同 [`scratch`]，按迭代器声明的长度授予并逐项写入。
+pub(super) fn scratch_collect<T>(
+    ledger: &crate::ledger::Ledger,
+    items: impl ExactSizeIterator<Item = T>,
+) -> Result<BoundedVec<T>, DiagnosticBundle> {
+    let mut values = scratch(ledger, items.len())?;
+    values.try_extend(items)?;
+    Ok(values)
 }
 
 const POLICY_VALIDATION_PASS: crate::ledger::PassLabel = crate::ledger::PassLabel::new(
@@ -144,9 +167,7 @@ pub(crate) fn validate_in(
     }
     let mut work = WorkBudget::new(unit.limits.operation_budget());
     let passages = PassageIndex::build(ledger, mir)?;
-    let lamp_bytes = mir.maneuver_gates.len() as u64 + passages.bytes();
-    budget(ledger, lamp_bytes)?;
-    let mut lamps = vec![0_u8; mir.maneuver_gates.len()];
+    let mut lamps = scratch_filled(ledger, mir.maneuver_gates.len(), 0_u8)?;
     // HIR 已拒绝不同的 Access jurisdiction/version；只取唯一规范身份。
     let regulation = mir
         .access_rules
@@ -226,14 +247,12 @@ pub(crate) fn validate_in(
         }
     }
     drop(lamps);
-    let access = AccessIndex::build(ledger, mir, passages.bytes(), &mut work)?;
+    let access = AccessIndex::build(ledger, mir, &mut work)?;
     // 只收集实际配置使用的类别；线性标记后按 ordinal 顺序输出，避免重复解析同类配置。
-    let (classes, class_peak) = {
+    let classes = {
         let flags_count = mir.participant_classes.len() as u64;
         work.charge(flags_count.saturating_mul(2) + mir.vehicle_profiles.len() as u64)?;
-        let prior_bytes = passages.bytes().saturating_add(access.bytes());
-        budget(ledger, prior_bytes.saturating_add(flags_count))?;
-        let mut used = vec![false; mir.participant_classes.len()];
+        let mut used = scratch_filled(ledger, mir.participant_classes.len(), false)?;
         let mut count = 0;
         for profile in &mir.vehicle_profiles {
             let flag = &mut used[profile.participant_class.index()];
@@ -242,50 +261,22 @@ pub(crate) fn validate_in(
                 count += 1;
             }
         }
-        let peak = prior_bytes.saturating_add(flags_count).saturating_add(
-            (count as u64).saturating_mul(size_of::<MirParticipantClassKey>() as u64),
-        );
-        budget(ledger, peak)?;
-        let mut classes = Vec::with_capacity(count);
-        for (index, used) in used.into_iter().enumerate() {
-            if used {
-                classes.push(MirParticipantClassKey::from_raw(index as u32));
+        let mut classes = scratch(ledger, count)?;
+        for (index, used) in used.iter().enumerate() {
+            if *used {
+                classes.push(MirParticipantClassKey::from_raw(index as u32))?;
             }
         }
-        (classes, peak)
+        classes
     };
     // 只计实际可进入行；不预分配 policy × gate/stream × class 上界。
     let mut gate_count = 0_u64;
     let mut stream_count = 0_u64;
-    let coverage_bytes = (mir.conflict_passages.len() as u64)
-        .saturating_mul(size_of::<Coverage>() as u64)
-        .saturating_add(mir.maneuver_gates.len() as u64)
-        .saturating_add(
-            (mir.participant_streams.len() as u64).saturating_mul(size_of::<Option<i32>>() as u64),
-        );
-    let fixed_bytes = passages
-        .bytes()
-        .saturating_add(access.bytes())
-        .saturating_add(
-            (classes.len() as u64).saturating_mul(size_of::<MirParticipantClassKey>() as u64),
-        )
-        .saturating_add(coverage_bytes);
-    let mut protected = ProtectedIndex::build(ledger, mir, fixed_bytes)?;
-    let fixed_bytes = fixed_bytes.saturating_add(protected.bytes());
-    let check_rows = |gates: u64, streams: u64| {
-        budget(
-            ledger,
-            fixed_bytes
-                .saturating_add(gates.saturating_mul(size_of::<GateCell>() as u64))
-                .saturating_add(streams.saturating_mul(size_of::<StreamCell>() as u64)),
-        )
-    };
-    check_rows(0, 0)?;
+    let mut protected = ProtectedIndex::build(ledger, mir)?;
     for gate in &mir.maneuver_gates {
         for &class in &classes {
             if access.path_allows(mir, gate.maneuver_path, class, &mut work)? {
                 gate_count = gate_count.saturating_add(1);
-                check_rows(gate_count, stream_count)?;
             }
         }
     }
@@ -293,30 +284,26 @@ pub(crate) fn validate_in(
         for &class in &classes {
             if access.path_allows(mir, stream.maneuver_path, class, &mut work)? {
                 stream_count = stream_count.saturating_add(1);
-                check_rows(gate_count, stream_count)?;
             }
         }
     }
-    let rows_bytes = gate_count
-        .saturating_mul(size_of::<GateCell>() as u64)
-        .saturating_add(stream_count.saturating_mul(size_of::<StreamCell>() as u64));
-    let base_bytes = fixed_bytes.saturating_add(rows_bytes);
-    budget(ledger, base_bytes)?;
-    let mut coverage = Vec::with_capacity(mir.conflict_passages.len());
+    let mut coverage = scratch(ledger, mir.conflict_passages.len())?;
     for stream in &mir.participant_streams {
         for passage in &mir.conflict_passages[stream.passages.as_usize_range()] {
             coverage.push(Coverage {
                 gate: passage.admission_gate,
                 zone: passage.conflict_zone,
-            });
+            })?;
         }
     }
     coverage.sort_unstable_by_key(|v| (v.zone, v.gate));
     coverage.dedup_by_key(|v| (v.zone, v.gate));
-    let mut protected_gates = vec![false; mir.maneuver_gates.len()];
-    let mut minimum_stream_priority = vec![None::<i32>; mir.participant_streams.len()];
-    let mut gates = Vec::with_capacity(gate_count as usize);
-    let mut streams = Vec::with_capacity(stream_count as usize);
+    let mut protected_gates = scratch_filled(ledger, mir.maneuver_gates.len(), false)?;
+    let mut minimum_stream_priority =
+        scratch_filled(ledger, mir.participant_streams.len(), None::<i32>)?;
+    // 每份规范工作量计数已消费 u32 有限工作量预算，行数因此可表示为 `usize`。
+    let mut gates = scratch(ledger, gate_count as usize)?;
+    let mut streams = scratch(ledger, stream_count as usize)?;
     for (g, gate) in mir.maneuver_gates.iter().enumerate() {
         for &class in &classes {
             if access.path_allows(mir, gate.maneuver_path, class, &mut work)? {
@@ -324,7 +311,7 @@ pub(crate) fn validate_in(
                     gate: MirManeuverGateKey::from_raw(g as u32),
                     class,
                     rule: 0,
-                });
+                })?;
             }
         }
     }
@@ -335,41 +322,28 @@ pub(crate) fn validate_in(
                     stream: MirParticipantStreamKey::from_raw(s as u32),
                     class,
                     rule: 0,
-                });
+                })?;
             }
         }
     }
-    let mut peak = base_bytes.max(lamp_bytes).max(class_peak);
     for (policy_index, p) in mir.policies.iter().enumerate() {
         // 无实际准入行时仍需清空逐门/流工作表；这部分也不能绕过工作上限。
         work.charge(1 + mir.maneuver_gates.len() as u64 + mir.participant_streams.len() as u64)?;
-        let index_bytes = (p.value.gates.len() as u64)
-            .saturating_add(p.value.streams.len() as u64)
-            .saturating_mul(size_of::<RuleIndex>() as u64);
-        let bytes = base_bytes.saturating_add(index_bytes);
-        budget(ledger, bytes)?;
-        peak = peak.max(bytes);
-        let mut gate_rules: Vec<_> = p
-            .value
-            .gates
-            .iter()
-            .enumerate()
-            .map(|(i, r)| RuleIndex {
+        let mut gate_rules = scratch_collect(
+            ledger,
+            p.value.gates.iter().enumerate().map(|(i, r)| RuleIndex {
                 owner: r.gate.raw(),
                 rule: i as u32,
-            })
-            .collect();
+            }),
+        )?;
         gate_rules.sort_unstable_by_key(|r| (r.owner, r.rule));
-        let mut stream_rules: Vec<_> = p
-            .value
-            .streams
-            .iter()
-            .enumerate()
-            .map(|(i, r)| RuleIndex {
+        let mut stream_rules = scratch_collect(
+            ledger,
+            p.value.streams.iter().enumerate().map(|(i, r)| RuleIndex {
                 owner: r.stream.raw(),
                 rule: i as u32,
-            })
-            .collect();
+            }),
+        )?;
         stream_rules.sort_unstable_by_key(|r| (r.owner, r.rule));
         for cell in &mut gates {
             let class = cell.class;
@@ -397,8 +371,7 @@ pub(crate) fn validate_in(
             let slot = &mut minimum_stream_priority[cell.stream.index()];
             *slot = Some(slot.map_or(priority, |old| old.min(priority)));
         }
-        let targets = super::targets::build(ledger, mir, p, &passages, bytes, &mut work)?;
-        peak = peak.max(bytes.saturating_add(targets.bytes));
+        let targets = super::targets::build(ledger, mir, p, &passages, &mut work)?;
         for cell in &streams {
             let rule = &p.value.streams[cell.rule as usize];
             let start = targets.ranges.partition_point(|r| r.rule < cell.rule);
@@ -444,7 +417,6 @@ pub(crate) fn validate_in(
             return Err(fail(unit, p, None, V::ProtectedConflict));
         }
     }
-    budget(ledger, peak)?;
     Ok(work.used())
 }
 

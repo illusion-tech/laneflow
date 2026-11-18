@@ -589,6 +589,28 @@ impl PassBudget<'_> {
         })
     }
 
+    /// 以授予创建恰好容纳 `items` 全部元素的序列并逐项写入；授予按迭代器声明的长度计费。
+    pub(crate) fn collect<T>(
+        &self,
+        items: impl ExactSizeIterator<Item = T>,
+    ) -> Result<BoundedVec<T>, LedgerError> {
+        let mut values = self.vec(items.len())?;
+        values.try_extend(items)?;
+        Ok(values)
+    }
+
+    /// 同 [`PassBudget::collect`]，逐项产出可能失败；首个错误原样返回，已授予的存储随之释放。
+    pub(crate) fn try_collect<T, E: From<LedgerError>>(
+        &self,
+        items: impl ExactSizeIterator<Item = Result<T, E>>,
+    ) -> Result<BoundedVec<T>, E> {
+        let mut values = self.vec(items.len())?;
+        for item in items {
+            values.push(item?)?;
+        }
+        Ok(values)
+    }
+
     /// 为随后由调用方发起的一次分配请求取得授予，按 `layout` 的大小计费。
     ///
     /// 只用于账本存储入口无法直接创建的存储（如 `Arc<[u8]>` 的引用计数分配）：调用方
@@ -776,6 +798,11 @@ impl<T> BoundedVec<T> {
         self.items.truncate(len);
     }
 
+    /// 按键去掉相邻重复元素；逻辑容量不变。
+    pub(crate) fn dedup_by_key<K: PartialEq>(&mut self, key: impl FnMut(&mut T) -> K) {
+        self.items.dedup_by_key(key);
+    }
+
     /// 去掉相邻重复元素；逻辑容量不变。
     pub(crate) fn dedup(&mut self)
     where
@@ -819,6 +846,15 @@ impl<'v, T> IntoIterator for &'v BoundedVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.items.iter()
+    }
+}
+
+impl<'v, T> IntoIterator for &'v mut BoundedVec<T> {
+    type Item = &'v mut T;
+    type IntoIter = std::slice::IterMut<'v, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.iter_mut()
     }
 }
 
@@ -906,6 +942,32 @@ impl<'v, T> IntoIterator for &'v mut Frozen<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.items.iter_mut()
+    }
+}
+
+/// 测试装配：不受账本约束的定长切片，用于直接改写阶段表。
+#[cfg(test)]
+impl<T> From<Vec<T>> for Frozen<T> {
+    fn from(items: Vec<T>) -> Self {
+        Self {
+            items: items.into_boxed_slice(),
+            grant: OutputGrant::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<T> FromIterator<T> for Frozen<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(items: I) -> Self {
+        items.into_iter().collect::<Vec<_>>().into()
+    }
+}
+
+#[cfg(test)]
+impl<T> Frozen<T> {
+    /// 测试装配：取出元素并释放授予。
+    pub(crate) fn into_vec(self) -> Vec<T> {
+        self.items.into_vec()
     }
 }
 

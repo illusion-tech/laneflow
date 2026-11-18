@@ -13,7 +13,7 @@ pub(super) struct Entry {
 }
 /// 准入规则索引：按（准入平面, 目标, 规则）排序的展开行集合，支持二分定位。
 pub(super) struct AccessIndex {
-    entries: Vec<Entry>,
+    entries: crate::ledger::BoundedVec<Entry>,
 }
 
 impl AccessIndex {
@@ -21,7 +21,6 @@ impl AccessIndex {
     pub(super) fn build(
         ledger: &crate::ledger::Ledger,
         mir: &MirUnit,
-        prior_scratch: u64,
         work: &mut WorkBudget,
     ) -> Result<Self, DiagnosticBundle> {
         let mut count = 0_u64;
@@ -30,21 +29,18 @@ impl AccessIndex {
             count = count.saturating_add(1);
             Ok(())
         })?;
-        let bytes = count.saturating_mul(size_of::<Entry>() as u64);
-        super::validation::budget(ledger, prior_scratch.saturating_add(bytes))?;
         // 每行先消费工作量；具名预算为 u32，支持的平台 usize 至少为 32 位。
-        let mut entries = Vec::with_capacity(usize::try_from(count).expect("bounded policy work"));
+        let mut entries = super::validation::scratch(
+            ledger,
+            usize::try_from(count).expect("bounded policy work"),
+        )?;
         visit(mir, |entry| {
             work.charge(1)?;
-            entries.push(entry);
+            entries.push(entry)?;
             Ok(())
         })?;
         entries.sort_unstable_by_key(|e| (e.plane, e.target, e.rule));
         Ok(Self { entries })
-    }
-    /// 返回索引占用的字节数。
-    pub(super) fn bytes(&self) -> u64 {
-        (self.entries.len() as u64).saturating_mul(size_of::<Entry>() as u64)
     }
     fn allows(
         &self,

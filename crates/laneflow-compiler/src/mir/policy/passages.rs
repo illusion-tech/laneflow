@@ -12,7 +12,7 @@ pub(super) struct Entry {
 
 /// 冲突通行段索引：按（参与者流, 冲突区, 通行段）排序，支持区间二分查询。
 pub(super) struct PassageIndex {
-    entries: Vec<Entry>,
+    entries: crate::ledger::BoundedVec<Entry>,
 }
 
 impl PassageIndex {
@@ -21,25 +21,18 @@ impl PassageIndex {
         ledger: &crate::ledger::Ledger,
         mir: &MirUnit,
     ) -> Result<Self, DiagnosticBundle> {
-        let count = mir.conflict_passages.len() as u64;
-        super::validation::budget(ledger, count.saturating_mul(size_of::<Entry>() as u64))?;
-        let mut entries = Vec::with_capacity(mir.conflict_passages.len());
+        let mut entries = super::validation::scratch(ledger, mir.conflict_passages.len())?;
         for (stream, value) in mir.participant_streams.iter().enumerate() {
             for passage in value.passages.as_usize_range() {
                 entries.push(Entry {
                     stream: MirParticipantStreamKey::from_raw(stream as u32),
                     zone: mir.conflict_passages[passage].conflict_zone,
                     passage: passage as u32,
-                });
+                })?;
             }
         }
         entries.sort_unstable_by_key(|v| (v.stream, v.zone, v.passage));
         Ok(Self { entries })
-    }
-
-    /// 返回索引占用的字节数。
-    pub(super) fn bytes(&self) -> u64 {
-        (self.entries.capacity() as u64).saturating_mul(size_of::<Entry>() as u64)
     }
 
     /// 返回指定参与者流在指定冲突区内的通行段条目。

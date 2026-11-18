@@ -32,8 +32,8 @@ mod tests {
         assert!(single > 0);
         let (_, second) = fixture();
         let mut policies = std::mem::take(&mut mir.policies).into_vec();
-        policies.extend(second.policies);
-        mir.policies = policies.into_boxed_slice();
+        policies.extend(second.policies.into_vec());
+        mir.policies = policies.into();
         unit.limits = unit
             .limits
             .with_test_policy_work_limit(single.try_into().unwrap());
@@ -45,7 +45,7 @@ mod tests {
                 ..
             }
         ));
-        mir.policies = Box::default();
+        mir.policies = Default::default();
         unit.limits = unit.limits.with_test_policy_work_limit(0);
         assert_eq!(validate(&unit, &mut mir).unwrap(), 0);
     }

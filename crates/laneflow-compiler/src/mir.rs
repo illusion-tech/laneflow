@@ -22,13 +22,14 @@ use laneflow_static_contract::{
     VehicleProfileId, WaitingZoneId,
 };
 
-use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
+use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::hir::{
     HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirPathAnchorReference, HirSignalControl,
     HirUnit,
 };
+use crate::ledger::{BoundedVec, Frozen, PassBudget, Plan};
 use crate::module::ResolvedSourceLocation;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
@@ -564,73 +565,74 @@ pub(crate) struct MirJunctionInternalEdge {
 /// 每个连接区间都落在 `lane_edge_connections` 内，且所有目标键指向本实例的
 /// `lane_edges`。`controlled_live_bytes` 只统计 MIR 成功返回后自身拥有的表；
 /// `peak_controlled_live_bytes` 另保存 CompilationUnit、HIR 与键映射暂存区的共存峰值。
+/// MIR 策略记录：规则引用为 MIR 阶段键的 `PolicySet` 值及其来源声明。
+pub(crate) type MirPolicyRecord = crate::policy::model::PolicyRecord<
+    MirManeuverGateKey,
+    MirParticipantStreamKey,
+    MirParticipantClassKey,
+>;
+
 pub(crate) struct MirUnit {
-    pub(crate) policies: Box<
-        [crate::policy::model::PolicyRecord<
-            MirManeuverGateKey,
-            MirParticipantStreamKey,
-            MirParticipantClassKey,
-        >],
-    >,
+    pub(crate) policies: Frozen<MirPolicyRecord>,
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
-    pub(crate) modules: Box<[MirModule]>,
-    pub(crate) lane_edges: Box<[MirLaneEdge]>,
-    pub(crate) lane_edge_connections: Box<[MirLaneEdgeConnection]>,
-    pub(crate) road_corridors: Box<[MirRoadCorridor]>,
-    pub(crate) corridor_elements: Box<[MirCorridorElement]>,
-    pub(crate) road_sections: Box<[MirRoadSection]>,
-    pub(crate) authoring_lanes: Box<[MirAuthoringLane]>,
-    pub(crate) authoring_lane_edges: Box<[MirAuthoringLaneEdge]>,
-    pub(crate) lane_groups: Box<[MirLaneGroup]>,
-    pub(crate) lane_group_members: Box<[MirLaneGroupMember]>,
-    pub(crate) facility_bands: Box<[MirFacilityBand]>,
-    pub(crate) junctions: Box<[MirJunction]>,
-    pub(crate) movements: Box<[MirMovement]>,
-    pub(crate) junction_movements: Box<[MirJunctionMovement]>,
-    pub(crate) maneuver_paths: Box<[MirManeuverPath]>,
-    pub(crate) movement_maneuver_paths: Box<[MirMovementManeuverPath]>,
-    pub(crate) maneuver_path_edges: Box<[MirManeuverPathEdge]>,
-    pub(crate) junction_internal_edges: Box<[MirJunctionInternalEdge]>,
-    pub(crate) stop_lines: Box<[MirStopLine]>,
-    pub(crate) maneuver_gates: Box<[MirManeuverGate]>,
-    pub(crate) waiting_zones: Box<[MirWaitingZone]>,
-    pub(crate) maneuver_path_gates: Box<[MirManeuverPathGate]>,
-    pub(crate) maneuver_path_waiting_zones: Box<[MirManeuverPathWaitingZone]>,
-    pub(crate) stop_line_maneuver_gates: Box<[MirStopLineManeuverGate]>,
-    pub(crate) signal_groups: Box<[MirSignalGroup]>,
-    pub(crate) signal_controllers: Box<[MirSignalController]>,
-    pub(crate) signal_controller_groups: Box<[MirSignalControllerGroup]>,
-    pub(crate) signal_phases: Box<[MirSignalPhase]>,
-    pub(crate) signal_phase_states: Box<[MirSignalPhaseState]>,
-    pub(crate) signal_group_maneuver_gates: Box<[MirSignalGroupManeuverGate]>,
-    pub(crate) conflict_zones: Box<[MirConflictZone]>,
-    pub(crate) participant_streams: Box<[MirParticipantStream]>,
-    pub(crate) conflict_passages: Box<[MirConflictPassage]>,
-    pub(crate) conflict_zone_streams: Box<[MirConflictZoneStream]>,
-    pub(crate) parking_facilities: Box<[MirParkingFacility]>,
-    pub(crate) parking_spaces: Box<[MirParkingSpace]>,
-    pub(crate) parking_facility_spaces: Box<[MirParkingFacilitySpace]>,
-    pub(crate) parking_facility_virtual_entries: Box<[MirParkingLaneAnchor]>,
-    pub(crate) parking_facility_virtual_exits: Box<[MirParkingLaneAnchor]>,
-    pub(crate) participant_classes: Box<[MirParticipantClass]>,
-    pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
-    pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
-    pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
-    pub(crate) geometry_source_ranges: Box<[MirGeometrySourceRange]>,
-    pub(crate) facility_band_geometries: Box<[MirFacilityBandGeometry]>,
-    pub(crate) conflict_zone_regions: Box<[MirConflictZoneRegion]>,
-    pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
-    pub(crate) conflict_region_points: Box<[MirCanonicalPoint2F32]>,
-    pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
-    pub(crate) access_rules: Box<[MirAccessRule]>,
-    pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
+    pub(crate) modules: Frozen<MirModule>,
+    pub(crate) lane_edges: Frozen<MirLaneEdge>,
+    pub(crate) lane_edge_connections: Frozen<MirLaneEdgeConnection>,
+    pub(crate) road_corridors: Frozen<MirRoadCorridor>,
+    pub(crate) corridor_elements: Frozen<MirCorridorElement>,
+    pub(crate) road_sections: Frozen<MirRoadSection>,
+    pub(crate) authoring_lanes: Frozen<MirAuthoringLane>,
+    pub(crate) authoring_lane_edges: Frozen<MirAuthoringLaneEdge>,
+    pub(crate) lane_groups: Frozen<MirLaneGroup>,
+    pub(crate) lane_group_members: Frozen<MirLaneGroupMember>,
+    pub(crate) facility_bands: Frozen<MirFacilityBand>,
+    pub(crate) junctions: Frozen<MirJunction>,
+    pub(crate) movements: Frozen<MirMovement>,
+    pub(crate) junction_movements: Frozen<MirJunctionMovement>,
+    pub(crate) maneuver_paths: Frozen<MirManeuverPath>,
+    pub(crate) movement_maneuver_paths: Frozen<MirMovementManeuverPath>,
+    pub(crate) maneuver_path_edges: Frozen<MirManeuverPathEdge>,
+    pub(crate) junction_internal_edges: Frozen<MirJunctionInternalEdge>,
+    pub(crate) stop_lines: Frozen<MirStopLine>,
+    pub(crate) maneuver_gates: Frozen<MirManeuverGate>,
+    pub(crate) waiting_zones: Frozen<MirWaitingZone>,
+    pub(crate) maneuver_path_gates: Frozen<MirManeuverPathGate>,
+    pub(crate) maneuver_path_waiting_zones: Frozen<MirManeuverPathWaitingZone>,
+    pub(crate) stop_line_maneuver_gates: Frozen<MirStopLineManeuverGate>,
+    pub(crate) signal_groups: Frozen<MirSignalGroup>,
+    pub(crate) signal_controllers: Frozen<MirSignalController>,
+    pub(crate) signal_controller_groups: Frozen<MirSignalControllerGroup>,
+    pub(crate) signal_phases: Frozen<MirSignalPhase>,
+    pub(crate) signal_phase_states: Frozen<MirSignalPhaseState>,
+    pub(crate) signal_group_maneuver_gates: Frozen<MirSignalGroupManeuverGate>,
+    pub(crate) conflict_zones: Frozen<MirConflictZone>,
+    pub(crate) participant_streams: Frozen<MirParticipantStream>,
+    pub(crate) conflict_passages: Frozen<MirConflictPassage>,
+    pub(crate) conflict_zone_streams: Frozen<MirConflictZoneStream>,
+    pub(crate) parking_facilities: Frozen<MirParkingFacility>,
+    pub(crate) parking_spaces: Frozen<MirParkingSpace>,
+    pub(crate) parking_facility_spaces: Frozen<MirParkingFacilitySpace>,
+    pub(crate) parking_facility_virtual_entries: Frozen<MirParkingLaneAnchor>,
+    pub(crate) parking_facility_virtual_exits: Frozen<MirParkingLaneAnchor>,
+    pub(crate) participant_classes: Frozen<MirParticipantClass>,
+    pub(crate) vehicle_profiles: Frozen<MirVehicleProfile>,
+    pub(crate) canonical_frames: Frozen<MirCanonicalFrame>,
+    pub(crate) lane_edge_geometries: Frozen<MirLaneEdgeGeometry>,
+    pub(crate) geometry_source_ranges: Frozen<MirGeometrySourceRange>,
+    pub(crate) facility_band_geometries: Frozen<MirFacilityBandGeometry>,
+    pub(crate) conflict_zone_regions: Frozen<MirConflictZoneRegion>,
+    pub(crate) canonical_points: Frozen<MirCanonicalPoint3F32>,
+    pub(crate) conflict_region_points: Frozen<MirCanonicalPoint2F32>,
+    pub(crate) spatial_segments: Frozen<MirSpatialSegment>,
+    pub(crate) access_rules: Frozen<MirAccessRule>,
+    pub(crate) access_rule_participant_classes: Frozen<MirAccessRuleParticipantClass>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) mir_record_count: u64,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) controlled_live_bytes: u64,
     /// MIR 输出持有的编译账本授予；只为随 MIR 释放归还额度而持有。
     #[allow(dead_code)]
-    pub(crate) ledger_grant: crate::ledger::OutputGrant,
+    pub(crate) policy_payloads: crate::ledger::OutputGrant,
 }
 
 /// 将已解析 HIR 降级为连续 MIR 表，并显式重映射全部阶段键。
@@ -768,248 +770,236 @@ pub(crate) fn lower_to_mir_in(
         .saturating_add(u64::try_from(hir.conflict_region_points.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.spatial_segments.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count);
-    let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
-        .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
-        .saturating_add(requested_bytes::<u32>(
-            cross_record_count.saturating_add(
-                u64::try_from(hir.junctions.len())
-                    .unwrap_or(u64::MAX)
-                    .saturating_add(u64::try_from(hir.movements.len()).unwrap_or(u64::MAX))
-                    .saturating_add(u64::try_from(hir.maneuver_paths.len()).unwrap_or(u64::MAX)),
-            ),
-        ))
-        .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.stop_lines.len())
+    let scratch = Plan::ZERO
+        .array::<MirModuleKey>(cap(module_count))
+        .array::<MirLaneEdgeKey>(cap(lane_edge_count))
+        .array::<u32>(cap(cross_record_count.saturating_add(
+            u64::try_from(hir.junctions.len())
                 .unwrap_or(u64::MAX)
-                .saturating_add(u64::try_from(hir.maneuver_gates.len()).unwrap_or(u64::MAX))
-                .saturating_add(u64::try_from(hir.waiting_zones.len()).unwrap_or(u64::MAX)),
-        ))
-        .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.signal_groups.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(u64::try_from(hir.signal_controllers.len()).unwrap_or(u64::MAX)),
-        ))
-        .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.parking_facilities.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(u64::try_from(hir.parking_spaces.len()).unwrap_or(u64::MAX)),
-        ))
-        .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.conflict_zones.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(u64::try_from(hir.participant_streams.len()).unwrap_or(u64::MAX)),
-        ))
-        .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.participant_classes.len())
-                .unwrap_or(u64::MAX)
-                .saturating_add(u64::try_from(hir.vehicle_profiles.len()).unwrap_or(u64::MAX))
-                .saturating_add(u64::try_from(hir.access_rules.len()).unwrap_or(u64::MAX)),
-        ))
-        .saturating_add(requested_bytes::<u32>(
-            u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX),
+                .saturating_add(u64::try_from(hir.movements.len()).unwrap_or(u64::MAX))
+                .saturating_add(u64::try_from(hir.maneuver_paths.len()).unwrap_or(u64::MAX)),
+        )))
+        .array::<u32>(cap(u64::try_from(hir.stop_lines.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(hir.maneuver_gates.len()).unwrap_or(u64::MAX))
+            .saturating_add(
+                u64::try_from(hir.waiting_zones.len()).unwrap_or(u64::MAX),
+            )))
+        .array::<u32>(cap(u64::try_from(hir.signal_groups.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(
+                u64::try_from(hir.signal_controllers.len()).unwrap_or(u64::MAX),
+            )))
+        .array::<u32>(cap(u64::try_from(hir.parking_facilities.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(
+                u64::try_from(hir.parking_spaces.len()).unwrap_or(u64::MAX),
+            )))
+        .array::<u32>(cap(u64::try_from(hir.conflict_zones.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(
+                u64::try_from(hir.participant_streams.len()).unwrap_or(u64::MAX),
+            )))
+        .array::<u32>(cap(u64::try_from(hir.participant_classes.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(hir.vehicle_profiles.len()).unwrap_or(u64::MAX))
+            .saturating_add(
+                u64::try_from(hir.access_rules.len()).unwrap_or(u64::MAX),
+            )))
+        .array::<u32>(cap(
+            u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX)
         ));
-    let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
-        .saturating_add(hir.policies.iter().fold(0_u64, |n, p| {
-            n.saturating_add(p.value.owned_bytes())
-                .saturating_add(size_of::<crate::policy::model::PolicyOrigin>() as u64)
-        }))
-        .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
-        .saturating_add(requested_bytes::<MirLaneEdgeConnection>(connection_count))
-        .saturating_add(requested_bytes::<MirRoadCorridor>(
-            hir.road_corridors.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirCorridorElement>(
-            hir.corridor_elements.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirRoadSection>(
-            hir.road_sections.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirAuthoringLane>(
-            hir.authoring_lanes.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirAuthoringLaneEdge>(
-            hir.authoring_lane_edges
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirLaneGroup>(
-            hir.lane_groups.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirLaneGroupMember>(
-            hir.lane_group_members.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirFacilityBand>(
-            hir.facility_bands.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirJunction>(
-            hir.junctions.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirMovement>(
-            hir.movements.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirJunctionMovement>(
-            hir.junction_movements.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirManeuverPath>(
-            hir.maneuver_paths.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirMovementManeuverPath>(
-            hir.movement_maneuver_paths
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirManeuverPathEdge>(
-            hir.maneuver_path_edges.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirJunctionInternalEdge>(
-            hir.junction_internal_edges
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirStopLine>(
-            hir.stop_lines.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirManeuverGate>(
-            hir.maneuver_gates.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirWaitingZone>(
-            hir.waiting_zones.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirManeuverPathGate>(
-            hir.maneuver_path_gates.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirManeuverPathWaitingZone>(
-            hir.maneuver_path_waiting_zones
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirStopLineManeuverGate>(
-            hir.stop_line_maneuver_gates
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSignalGroup>(
-            hir.signal_groups.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSignalController>(
-            hir.signal_controllers.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSignalControllerGroup>(
-            hir.signal_controller_groups
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSignalPhase>(
-            hir.signal_phases.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSignalPhaseState>(
-            hir.signal_phase_states.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSignalGroupManeuverGate>(
-            hir.signal_group_maneuver_gates
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirConflictZone>(
-            hir.conflict_zones.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirParticipantStream>(
-            hir.participant_streams.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirConflictPassage>(
-            hir.conflict_passages.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirConflictZoneStream>(
-            hir.conflict_zone_streams
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirParkingFacility>(
-            hir.parking_facilities.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirParkingSpace>(
-            hir.parking_spaces.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirParkingFacilitySpace>(
-            hir.parking_facility_spaces
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirParkingLaneAnchor>(
-            hir.parking_facility_virtual_entries
-                .len()
-                .saturating_add(hir.parking_facility_virtual_exits.len())
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirCanonicalFrame>(
-            hir.canonical_frames.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirLaneEdgeGeometry>(
-            hir.lane_edge_geometries
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirGeometrySourceRange>(
-            hir.geometry_source_ranges
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirFacilityBandGeometry>(
-            hir.facility_band_geometries
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirConflictZoneRegion>(
-            hir.conflict_zone_regions
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirCanonicalPoint3F32>(
-            hir.canonical_points.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirCanonicalPoint2F32>(
-            hir.conflict_region_points
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirSpatialSegment>(
-            hir.spatial_segments.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirParticipantClass>(
-            hir.participant_classes.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirVehicleProfile>(
-            hir.vehicle_profiles.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirAccessRule>(
-            hir.access_rules.len().try_into().unwrap_or(u64::MAX),
-        ))
-        .saturating_add(requested_bytes::<MirAccessRuleParticipantClass>(
-            hir.access_rule_participant_classes
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ));
+    let tables = Plan::ZERO
+        .array::<MirModule>(cap(module_count))
+        .array::<MirLaneEdge>(cap(lane_edge_count))
+        .array::<MirLaneEdgeConnection>(cap(connection_count))
+        .array::<MirRoadCorridor>(cap(hir.road_corridors.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirCorridorElement>(cap(hir
+            .corridor_elements
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirRoadSection>(cap(hir.road_sections.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirAuthoringLane>(cap(hir
+            .authoring_lanes
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirAuthoringLaneEdge>(cap(hir
+            .authoring_lane_edges
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirLaneGroup>(cap(hir.lane_groups.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirLaneGroupMember>(cap(hir
+            .lane_group_members
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirFacilityBand>(cap(hir.facility_bands.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirJunction>(cap(hir.junctions.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirMovement>(cap(hir.movements.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirJunctionMovement>(cap(hir
+            .junction_movements
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirManeuverPath>(cap(hir.maneuver_paths.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirMovementManeuverPath>(cap(hir
+            .movement_maneuver_paths
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirManeuverPathEdge>(cap(hir
+            .maneuver_path_edges
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirJunctionInternalEdge>(cap(hir
+            .junction_internal_edges
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirStopLine>(cap(hir.stop_lines.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirManeuverGate>(cap(hir.maneuver_gates.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirWaitingZone>(cap(hir.waiting_zones.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirManeuverPathGate>(cap(hir
+            .maneuver_path_gates
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirManeuverPathWaitingZone>(cap(hir
+            .maneuver_path_waiting_zones
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirStopLineManeuverGate>(cap(hir
+            .stop_line_maneuver_gates
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirSignalGroup>(cap(hir.signal_groups.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirSignalController>(cap(hir
+            .signal_controllers
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirSignalControllerGroup>(cap(hir
+            .signal_controller_groups
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirSignalPhase>(cap(hir.signal_phases.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirSignalPhaseState>(cap(hir
+            .signal_phase_states
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirSignalGroupManeuverGate>(cap(hir
+            .signal_group_maneuver_gates
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirConflictZone>(cap(hir.conflict_zones.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirParticipantStream>(cap(hir
+            .participant_streams
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirConflictPassage>(cap(hir
+            .conflict_passages
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirConflictZoneStream>(cap(hir
+            .conflict_zone_streams
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirParkingFacility>(cap(hir
+            .parking_facilities
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirParkingSpace>(cap(hir.parking_spaces.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirParkingFacilitySpace>(cap(hir
+            .parking_facility_spaces
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirParkingLaneAnchor>(cap(hir
+            .parking_facility_virtual_entries
+            .len()
+            .saturating_add(hir.parking_facility_virtual_exits.len())
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirCanonicalFrame>(cap(hir
+            .canonical_frames
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirLaneEdgeGeometry>(cap(hir
+            .lane_edge_geometries
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirGeometrySourceRange>(cap(hir
+            .geometry_source_ranges
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirFacilityBandGeometry>(cap(hir
+            .facility_band_geometries
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirConflictZoneRegion>(cap(hir
+            .conflict_zone_regions
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirCanonicalPoint3F32>(cap(hir
+            .canonical_points
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirCanonicalPoint2F32>(cap(hir
+            .conflict_region_points
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirSpatialSegment>(cap(hir
+            .spatial_segments
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirParticipantClass>(cap(hir
+            .participant_classes
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirVehicleProfile>(cap(hir
+            .vehicle_profiles
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)))
+        .array::<MirAccessRule>(cap(hir.access_rules.len().try_into().unwrap_or(u64::MAX)))
+        .array::<MirAccessRuleParticipantClass>(cap(hir
+            .access_rule_participant_classes
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX)));
+    // 策略记录表逐表授予；记录内嵌的策略值载荷集中取得一笔授予。
+    let policy_payload_bytes = hir
+        .policies
+        .iter()
+        .fold(0_u64, |n, p| n.saturating_add(p.value.owned_bytes()));
+    let output = tables
+        .array::<MirPolicyRecord>(hir.policies.len())
+        .plus(Plan::of(policy_payload_bytes));
+    let mir_owned_bytes = output.bytes().unwrap_or(u64::MAX);
     // 上游存续由账本记录；本遍计划峰值是 MIR 自有表与键映射暂存之和。
-    let admission = ledger.admit_pass(
-        MIR_PASS,
-        crate::ledger::Plan::of(mir_owned_bytes.saturating_add(stage_scratch_bytes)),
-    );
+    let admission = ledger.admit_pass(MIR_PASS, output.plus(scratch));
     let primary_span = hir.modules.first().map(|module| module.source_span.clone());
     let stable_key = hir
         .modules
@@ -1057,29 +1047,34 @@ pub(crate) fn lower_to_mir_in(
         _ => return Err(diagnostics.finish()),
     };
 
-    // 不依赖 HIR/MIR raw key 数值碰巧一致：每次插入都记录显式 stage-to-stage 映射。
-    let mut modules = TypedArena::<MirModuleTag, MirModule>::with_capacity(hir.modules.len());
-    let mut hir_module_to_mir = Vec::with_capacity(hir.modules.len());
-    for module in &hir.modules {
-        let mir_key = modules
-            .push(MirModule {
+    // 表构造在内层作用域中进行：HIR→MIR 键映射等暂存随作用域结束释放，编译遍结束时只剩
+    // MIR 输出各表与策略值载荷。
+    let mir = (|| -> Result<MirUnit, DiagnosticBundle> {
+        // 不依赖 HIR/MIR raw key 数值碰巧一致：每次插入都记录显式 stage-to-stage 映射。
+        let mut modules = pass.vec::<MirModule>(hir.modules.len())?;
+        let mut hir_module_to_mir = pass.vec(hir.modules.len())?;
+        for module in &hir.modules {
+            let mir_key = next_key::<MirModuleTag>(modules.len())
+                .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
+            modules.push(MirModule {
                 authoring_namespace_id: Arc::clone(&module.authoring_namespace_id),
                 source_span: module.source_span.clone(),
-            })
-            .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
-        hir_module_to_mir.push(mir_key);
-    }
+            })?;
+            hir_module_to_mir.push(mir_key)?;
+        }
 
-    let edge_capacity = usize::try_from(lane_edge_count)
-        .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone()))?;
-    let connection_capacity = usize::try_from(connection_count)
-        .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone()))?;
-    let mut lane_edges = TypedArena::<MirLaneEdgeTag, MirLaneEdge>::with_capacity(edge_capacity);
-    let mut hir_to_mir = Vec::with_capacity(edge_capacity);
-    for edge in &hir.lane_edges {
-        let module = hir_module_to_mir[edge.module.index()];
-        let mir_key = lane_edges
-            .push(MirLaneEdge {
+        let edge_capacity = usize::try_from(lane_edge_count)
+            .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone()))?;
+        let connection_capacity = usize::try_from(connection_count)
+            .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone()))?;
+        let mut lane_edges = pass.vec::<MirLaneEdge>(edge_capacity)?;
+        let mut hir_to_mir = pass.vec(edge_capacity)?;
+        for edge in &hir.lane_edges {
+            let module = hir_module_to_mir[edge.module.index()];
+            let mir_key = next_key::<MirLaneEdgeTag>(lane_edges.len()).map_err(|overflow| {
+                arena_overflow(overflow, &unit.limits, Some(edge.source_span.clone()))
+            })?;
+            lane_edges.push(MirLaneEdge {
                 module,
                 stable_key: Arc::clone(&edge.stable_key),
                 stable_id: edge.stable_id,
@@ -1087,839 +1082,799 @@ pub(crate) fn lower_to_mir_in(
                 speed_limit_mm_s: edge.speed_limit_mm_s,
                 connections: TableRange::empty(),
                 source_span: edge.source_span.clone(),
-            })
-            .map_err(|overflow| {
-                arena_overflow(overflow, &unit.limits, Some(edge.source_span.clone()))
             })?;
-        hir_to_mir.push(mir_key);
-    }
-
-    // 按 HIR 的规范边顺序追加连接，并以 TableRange 记录每条边的连续片段；这样后续遍历
-    // 不需要哈希查找或每边独立分配。
-    let mut connections = Vec::with_capacity(connection_capacity);
-    for (hir_index, edge) in hir.lane_edges.iter().enumerate() {
-        let mir_key = hir_to_mir[hir_index];
-        let start = connections.len();
-        for reference in &hir.lane_edge_references[edge.successors.as_usize_range()] {
-            connections.push(MirLaneEdgeConnection {
-                target: mir_key_for_hir(reference.target, &hir_to_mir),
-                source_span: reference.source_span.clone(),
-            });
+            hir_to_mir.push(mir_key)?;
         }
-        lane_edges.get_mut(mir_key).connections =
-            TableRange::try_from_usize(start, connections.len().saturating_sub(start)).map_err(
-                |overflow| arena_overflow(overflow, &unit.limits, Some(edge.source_span.clone())),
-            )?;
-    }
 
-    let corridor_mapping = dense_mapping::<MirRoadCorridorTag>(hir.road_corridors.len())?;
-    let section_mapping = dense_mapping::<MirRoadSectionTag>(hir.road_sections.len())?;
-    let lane_mapping = dense_mapping::<MirAuthoringLaneTag>(hir.authoring_lanes.len())?;
-    let group_mapping = dense_mapping::<MirLaneGroupTag>(hir.lane_groups.len())?;
-    let band_mapping = dense_mapping::<MirFacilityBandTag>(hir.facility_bands.len())?;
+        // 按 HIR 的规范边顺序追加连接，并以 TableRange 记录每条边的连续片段；这样后续遍历
+        // 不需要哈希查找或每边独立分配。
+        let mut connections = pass.vec(connection_capacity)?;
+        for (hir_index, edge) in hir.lane_edges.iter().enumerate() {
+            let mir_key = hir_to_mir[hir_index];
+            let start = connections.len();
+            for reference in &hir.lane_edge_references[edge.successors.as_usize_range()] {
+                connections.push(MirLaneEdgeConnection {
+                    target: mir_key_for_hir(reference.target, &hir_to_mir),
+                    source_span: reference.source_span.clone(),
+                })?;
+            }
+            lane_edges[mir_key.index()].connections =
+                TableRange::try_from_usize(start, connections.len().saturating_sub(start))
+                    .map_err(|overflow| {
+                        arena_overflow(overflow, &unit.limits, Some(edge.source_span.clone()))
+                    })?;
+        }
 
-    let mut road_corridors = Vec::with_capacity(hir.road_corridors.len());
-    for corridor in &hir.road_corridors {
-        road_corridors.push(MirRoadCorridor {
-            module: hir_module_to_mir[corridor.module.index()],
-            stable_key: Arc::clone(&corridor.stable_key),
-            stable_id: corridor.stable_id,
-            reference_section: section_mapping[corridor.reference_section.index()],
-            elements: remap_range(corridor.elements, &unit.limits, &corridor.source_span)?,
-            source_span: corridor.source_span.clone(),
-        });
-    }
-    let corridor_elements: Vec<MirCorridorElement> = hir
-        .corridor_elements
-        .iter()
-        .map(|element| match element {
-            HirCorridorElement::RoadSection {
-                road_section,
-                source_location,
-            } => MirCorridorElement::RoadSection {
-                road_section: section_mapping[road_section.index()],
-                source_location: source_location.clone(),
-            },
-            HirCorridorElement::FacilityBand {
-                facility_band,
-                source_location,
-            } => MirCorridorElement::FacilityBand {
-                facility_band: band_mapping[facility_band.index()],
-                source_location: source_location.clone(),
-            },
-        })
-        .collect();
-    let road_sections = hir
-        .road_sections
-        .iter()
-        .map(|section| {
-            Ok(MirRoadSection {
-                module: hir_module_to_mir[section.module.index()],
-                stable_key: Arc::clone(&section.stable_key),
-                stable_id: section.stable_id,
-                road_corridor: corridor_mapping[section.road_corridor.index()],
-                kind_id: Arc::clone(&section.kind_id),
-                lanes: remap_range(section.lanes, &unit.limits, &section.source_span)?,
-                source_span: section.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let authoring_lanes = hir
-        .authoring_lanes
-        .iter()
-        .map(|lane| {
-            Ok(MirAuthoringLane {
-                module: hir_module_to_mir[lane.module.index()],
-                stable_key: Arc::clone(&lane.stable_key),
-                stable_id: lane.stable_id,
-                road_section: section_mapping[lane.road_section.index()],
-                edge_chain: remap_range(lane.edge_chain, &unit.limits, &lane.source_span)?,
-                lane_group: lane.lane_group.map(|key| group_mapping[key.index()]),
-                lane_group_source_location: lane.lane_group_source_location.clone(),
-                source_span: lane.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let authoring_lane_edges: Vec<MirAuthoringLaneEdge> = hir
-        .authoring_lane_edges
-        .iter()
-        .map(|edge| MirAuthoringLaneEdge {
-            target: hir_to_mir[edge.target.index()],
-            source_span: edge.source_span.clone(),
-        })
-        .collect();
-    let lane_groups = hir
-        .lane_groups
-        .iter()
-        .map(|group| {
-            Ok(MirLaneGroup {
-                module: hir_module_to_mir[group.module.index()],
-                stable_key: Arc::clone(&group.stable_key),
-                stable_id: group.stable_id,
-                road_section: section_mapping[group.road_section.index()],
-                members: remap_range(group.members, &unit.limits, &group.source_span)?,
-                source_span: group.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let lane_group_members: Vec<MirLaneGroupMember> = hir
-        .lane_group_members
-        .iter()
-        .map(|member| MirLaneGroupMember {
-            lane: lane_mapping[member.lane.index()],
-        })
-        .collect();
-    let facility_bands: Vec<MirFacilityBand> = hir
-        .facility_bands
-        .iter()
-        .map(|band| MirFacilityBand {
-            module: hir_module_to_mir[band.module.index()],
-            stable_key: Arc::clone(&band.stable_key),
-            stable_id: band.stable_id,
-            road_corridor: corridor_mapping[band.road_corridor.index()],
-            kind_id: Arc::clone(&band.kind_id),
-            source_span: band.source_span.clone(),
-        })
-        .collect();
+        let corridor_mapping =
+            dense_mapping::<MirRoadCorridorTag>(&pass, hir.road_corridors.len())?;
+        let section_mapping = dense_mapping::<MirRoadSectionTag>(&pass, hir.road_sections.len())?;
+        let lane_mapping = dense_mapping::<MirAuthoringLaneTag>(&pass, hir.authoring_lanes.len())?;
+        let group_mapping = dense_mapping::<MirLaneGroupTag>(&pass, hir.lane_groups.len())?;
+        let band_mapping = dense_mapping::<MirFacilityBandTag>(&pass, hir.facility_bands.len())?;
 
-    let junction_mapping = dense_mapping::<MirJunctionTag>(hir.junctions.len())?;
-    let movement_mapping = dense_mapping::<MirMovementTag>(hir.movements.len())?;
-    let maneuver_path_mapping = dense_mapping::<MirManeuverPathTag>(hir.maneuver_paths.len())?;
-    let junctions = hir
-        .junctions
-        .iter()
-        .map(|junction| {
-            Ok(MirJunction {
-                module: hir_module_to_mir[junction.module.index()],
-                stable_key: Arc::clone(&junction.stable_key),
-                stable_id: junction.stable_id,
-                movements: remap_range(junction.movements, &unit.limits, &junction.source_span)?,
-                source_span: junction.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let movements = hir
-        .movements
-        .iter()
-        .map(|movement| {
-            Ok(MirMovement {
-                module: hir_module_to_mir[movement.module.index()],
-                stable_key: Arc::clone(&movement.stable_key),
-                stable_id: movement.stable_id,
-                junction: junction_mapping[movement.junction.index()],
-                junction_source_location: movement.junction_source_location.clone(),
-                directed_entry_approach_key: Arc::clone(&movement.directed_entry_approach_key),
-                directed_exit_approach_key: Arc::clone(&movement.directed_exit_approach_key),
-                turn_direction: movement.turn_direction,
-                direction_source: movement.direction_source.clone(),
-                maneuver_paths: remap_range(
-                    movement.maneuver_paths,
-                    &unit.limits,
-                    &movement.source_span,
-                )?,
-                source_span: movement.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let junction_movements = hir
-        .junction_movements
-        .iter()
-        .map(|member| MirJunctionMovement {
-            movement: movement_mapping[member.movement.index()],
-        })
-        .collect::<Vec<_>>();
-    let maneuver_paths = hir
-        .maneuver_paths
-        .iter()
-        .map(|path| {
-            Ok(MirManeuverPath {
-                module: hir_module_to_mir[path.module.index()],
-                stable_key: Arc::clone(&path.stable_key),
-                stable_id: path.stable_id,
-                movement: movement_mapping[path.movement.index()],
-                movement_source_location: path.movement_source_location.clone(),
-                edges: remap_range(path.edges, &unit.limits, &path.source_span)?,
-                maneuver_gates: remap_range(path.maneuver_gates, &unit.limits, &path.source_span)?,
-                waiting_zones: remap_range(path.waiting_zones, &unit.limits, &path.source_span)?,
-                source_span: path.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let movement_maneuver_paths = hir
-        .movement_maneuver_paths
-        .iter()
-        .map(|member| MirMovementManeuverPath {
-            maneuver_path: maneuver_path_mapping[member.maneuver_path.index()],
-        })
-        .collect::<Vec<_>>();
-    let maneuver_path_edges = hir
-        .maneuver_path_edges
-        .iter()
-        .map(|edge| MirManeuverPathEdge {
-            target: hir_to_mir[edge.target.index()],
-            source_span: edge.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    let junction_internal_edges = hir
-        .junction_internal_edges
-        .iter()
-        .map(|relation| MirJunctionInternalEdge {
-            edge: hir_to_mir[relation.edge.index()],
-            junction: junction_mapping[relation.junction.index()],
-            module: hir_module_to_mir[hir.maneuver_paths[relation.source_path.index()]
-                .module
-                .index()],
-            source_span: relation.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    let signal_group_mapping = dense_mapping::<MirSignalGroupTag>(hir.signal_groups.len())?;
-    let signal_controller_mapping =
-        dense_mapping::<MirSignalControllerTag>(hir.signal_controllers.len())?;
-    let stop_line_mapping = dense_mapping::<MirStopLineTag>(hir.stop_lines.len())?;
-    let maneuver_gate_mapping = dense_mapping::<MirManeuverGateTag>(hir.maneuver_gates.len())?;
-    let waiting_zone_mapping = dense_mapping::<MirWaitingZoneTag>(hir.waiting_zones.len())?;
-    let stop_lines = hir
-        .stop_lines
-        .iter()
-        .map(|stop_line| {
-            Ok(MirStopLine {
-                module: hir_module_to_mir[stop_line.module.index()],
-                stable_key: Arc::clone(&stop_line.stable_key),
-                stable_id: stop_line.stable_id,
-                lane_edge: hir_to_mir[stop_line.lane_edge.index()],
-                maneuver_gates: remap_range(
-                    stop_line.maneuver_gates,
-                    &unit.limits,
-                    &stop_line.source_span,
-                )?,
-                source_span: stop_line.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let maneuver_gates = hir
-        .maneuver_gates
-        .iter()
-        .map(|gate| MirManeuverGate {
-            module: hir_module_to_mir[gate.module.index()],
-            stable_key: Arc::clone(&gate.stable_key),
-            stable_id: gate.stable_id,
-            maneuver_path: maneuver_path_mapping[gate.maneuver_path.index()],
-            maneuver_path_source_location: gate.maneuver_path_source_location.clone(),
-            transition_index: gate.transition_index,
-            stop_line: stop_line_mapping[gate.stop_line.index()],
-            stop_line_source_location: gate.stop_line_source_location.clone(),
-            signal_control: match &gate.signal_control {
-                HirSignalControl::Group {
-                    signal_group,
+        let mut road_corridors = pass.vec(hir.road_corridors.len())?;
+        for corridor in &hir.road_corridors {
+            road_corridors.push(MirRoadCorridor {
+                module: hir_module_to_mir[corridor.module.index()],
+                stable_key: Arc::clone(&corridor.stable_key),
+                stable_id: corridor.stable_id,
+                reference_section: section_mapping[corridor.reference_section.index()],
+                elements: remap_range(corridor.elements, &unit.limits, &corridor.source_span)?,
+                source_span: corridor.source_span.clone(),
+            })?;
+        }
+        let corridor_elements: BoundedVec<MirCorridorElement> =
+            pass.collect(hir.corridor_elements.iter().map(|element| match element {
+                HirCorridorElement::RoadSection {
+                    road_section,
                     source_location,
-                } => MirSignalControl::Group {
-                    signal_group: signal_group_mapping[signal_group.index()],
+                } => MirCorridorElement::RoadSection {
+                    road_section: section_mapping[road_section.index()],
                     source_location: source_location.clone(),
                 },
-                HirSignalControl::None => MirSignalControl::None,
-            },
-            source_span: gate.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    let waiting_zones = hir
-        .waiting_zones
-        .iter()
-        .map(|waiting| MirWaitingZone {
-            module: hir_module_to_mir[waiting.module.index()],
-            stable_key: Arc::clone(&waiting.stable_key),
-            stable_id: waiting.stable_id,
-            maneuver_path: maneuver_path_mapping[waiting.maneuver_path.index()],
-            maneuver_path_source_location: waiting.maneuver_path_source_location.clone(),
-            entry_gate: maneuver_gate_mapping[waiting.entry_gate.index()],
-            release_gate: maneuver_gate_mapping[waiting.release_gate.index()],
-            max_occupancy: waiting.max_occupancy,
-            source_span: waiting.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    let maneuver_path_gates = hir
-        .maneuver_path_gates
-        .iter()
-        .map(|member| MirManeuverPathGate {
-            maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
-        })
-        .collect::<Vec<_>>();
-    let maneuver_path_waiting_zones = hir
-        .maneuver_path_waiting_zones
-        .iter()
-        .map(|member| MirManeuverPathWaitingZone {
-            waiting_zone: waiting_zone_mapping[member.waiting_zone.index()],
-        })
-        .collect::<Vec<_>>();
-    let stop_line_maneuver_gates = hir
-        .stop_line_maneuver_gates
-        .iter()
-        .map(|member| MirStopLineManeuverGate {
-            maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
-        })
-        .collect::<Vec<_>>();
+                HirCorridorElement::FacilityBand {
+                    facility_band,
+                    source_location,
+                } => MirCorridorElement::FacilityBand {
+                    facility_band: band_mapping[facility_band.index()],
+                    source_location: source_location.clone(),
+                },
+            }))?;
+        let road_sections =
+            pass.try_collect::<_, DiagnosticBundle>(hir.road_sections.iter().map(|section| {
+                Ok(MirRoadSection {
+                    module: hir_module_to_mir[section.module.index()],
+                    stable_key: Arc::clone(&section.stable_key),
+                    stable_id: section.stable_id,
+                    road_corridor: corridor_mapping[section.road_corridor.index()],
+                    kind_id: Arc::clone(&section.kind_id),
+                    lanes: remap_range(section.lanes, &unit.limits, &section.source_span)?,
+                    source_span: section.source_span.clone(),
+                })
+            }))?;
+        let authoring_lanes =
+            pass.try_collect::<_, DiagnosticBundle>(hir.authoring_lanes.iter().map(|lane| {
+                Ok(MirAuthoringLane {
+                    module: hir_module_to_mir[lane.module.index()],
+                    stable_key: Arc::clone(&lane.stable_key),
+                    stable_id: lane.stable_id,
+                    road_section: section_mapping[lane.road_section.index()],
+                    edge_chain: remap_range(lane.edge_chain, &unit.limits, &lane.source_span)?,
+                    lane_group: lane.lane_group.map(|key| group_mapping[key.index()]),
+                    lane_group_source_location: lane.lane_group_source_location.clone(),
+                    source_span: lane.source_span.clone(),
+                })
+            }))?;
+        let authoring_lane_edges: BoundedVec<MirAuthoringLaneEdge> = pass.collect(
+            hir.authoring_lane_edges
+                .iter()
+                .map(|edge| MirAuthoringLaneEdge {
+                    target: hir_to_mir[edge.target.index()],
+                    source_span: edge.source_span.clone(),
+                }),
+        )?;
+        let lane_groups =
+            pass.try_collect::<_, DiagnosticBundle>(hir.lane_groups.iter().map(|group| {
+                Ok(MirLaneGroup {
+                    module: hir_module_to_mir[group.module.index()],
+                    stable_key: Arc::clone(&group.stable_key),
+                    stable_id: group.stable_id,
+                    road_section: section_mapping[group.road_section.index()],
+                    members: remap_range(group.members, &unit.limits, &group.source_span)?,
+                    source_span: group.source_span.clone(),
+                })
+            }))?;
+        let lane_group_members: BoundedVec<MirLaneGroupMember> = pass.collect(
+            hir.lane_group_members
+                .iter()
+                .map(|member| MirLaneGroupMember {
+                    lane: lane_mapping[member.lane.index()],
+                }),
+        )?;
+        let facility_bands: BoundedVec<MirFacilityBand> =
+            pass.collect(hir.facility_bands.iter().map(|band| MirFacilityBand {
+                module: hir_module_to_mir[band.module.index()],
+                stable_key: Arc::clone(&band.stable_key),
+                stable_id: band.stable_id,
+                road_corridor: corridor_mapping[band.road_corridor.index()],
+                kind_id: Arc::clone(&band.kind_id),
+                source_span: band.source_span.clone(),
+            }))?;
 
-    let signal_groups = hir
-        .signal_groups
-        .iter()
-        .map(|group| {
-            Ok(MirSignalGroup {
-                module: hir_module_to_mir[group.module.index()],
-                stable_key: Arc::clone(&group.stable_key),
-                stable_id: group.stable_id,
-                controller: signal_controller_mapping[group.controller.index()],
-                maneuver_gates: remap_range(
-                    group.maneuver_gates,
-                    &unit.limits,
-                    &group.source_span,
-                )?,
-                source_span: group.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let signal_controllers = hir
-        .signal_controllers
-        .iter()
-        .map(|controller| {
-            Ok(MirSignalController {
-                module: hir_module_to_mir[controller.module.index()],
-                stable_key: Arc::clone(&controller.stable_key),
-                stable_id: controller.stable_id,
-                offset_ms: controller.offset_ms,
-                cycle_duration_ms: controller.cycle_duration_ms,
-                signal_groups: remap_range(
-                    controller.signal_groups,
-                    &unit.limits,
-                    &controller.source_span,
-                )?,
-                phases: remap_range(controller.phases, &unit.limits, &controller.source_span)?,
-                source_span: controller.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let signal_controller_groups = hir
-        .signal_controller_groups
-        .iter()
-        .map(|member| MirSignalControllerGroup {
-            signal_group: signal_group_mapping[member.signal_group.index()],
-            source_location: member.source_location.clone(),
-        })
-        .collect::<Vec<_>>();
-    let signal_phases = hir
-        .signal_phases
-        .iter()
-        .map(|phase| {
-            Ok(MirSignalPhase {
-                module: hir_module_to_mir[phase.module.index()],
-                stable_key: Arc::clone(&phase.stable_key),
-                stable_id: phase.stable_id,
-                controller: signal_controller_mapping[phase.controller.index()],
-                duration_ms: phase.duration_ms,
-                states: remap_range(phase.states, &unit.limits, &phase.source_span)?,
-                controller_relation_source_location: phase
-                    .controller_relation_source_location
-                    .clone(),
-                source_span: phase.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let signal_phase_states = hir
-        .signal_phase_states
-        .iter()
-        .map(|state| MirSignalPhaseState {
-            signal_group: signal_group_mapping[state.signal_group.index()],
-            aspect: state.aspect,
-            source_location: state.source_location.clone(),
-        })
-        .collect::<Vec<_>>();
-    let signal_group_maneuver_gates = hir
-        .signal_group_maneuver_gates
-        .iter()
-        .map(|member| MirSignalGroupManeuverGate {
-            maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
-        })
-        .collect::<Vec<_>>();
-
-    let conflict_zone_mapping = dense_mapping::<MirConflictZoneTag>(hir.conflict_zones.len())?;
-    let participant_stream_mapping =
-        dense_mapping::<MirParticipantStreamTag>(hir.participant_streams.len())?;
-    let conflict_zones = hir
-        .conflict_zones
-        .iter()
-        .map(|zone| {
-            Ok(MirConflictZone {
-                module: hir_module_to_mir[zone.module.index()],
-                stable_key: Arc::clone(&zone.stable_key),
-                stable_id: zone.stable_id,
-                junction: junction_mapping[zone.junction.index()],
-                junction_source_location: zone.junction_source_location.clone(),
-                participant_streams: remap_range(
-                    zone.participant_streams,
-                    &unit.limits,
-                    &zone.source_span,
-                )?,
-                source_span: zone.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let remap_conflict_anchor = |anchor: &crate::hir::HirPathAnchor| MirPathAnchor {
-        reference: match anchor.reference {
-            HirPathAnchorReference::Gate(gate) => {
-                MirPathAnchorReference::Gate(maneuver_gate_mapping[gate.index()])
-            }
-            HirPathAnchorReference::EdgeBoundary(boundary_index) => {
-                MirPathAnchorReference::EdgeBoundary(boundary_index)
-            }
-            HirPathAnchorReference::Interior { path_edge_index } => {
-                MirPathAnchorReference::Interior { path_edge_index }
-            }
-        },
-        progress_mm: anchor.progress_mm,
-    };
-    let conflict_passages = hir
-        .conflict_passages
-        .iter()
-        .map(|passage| MirConflictPassage {
-            conflict_zone: conflict_zone_mapping[passage.conflict_zone.index()],
-            entry: remap_conflict_anchor(&passage.entry),
-            exit: remap_conflict_anchor(&passage.exit),
-            admission_gate: maneuver_gate_mapping[passage.admission_gate.index()],
-            source_location: passage.source_location.clone(),
-        })
-        .collect::<Vec<_>>();
-    let participant_streams = hir
-        .participant_streams
-        .iter()
-        .map(|stream| {
-            Ok(MirParticipantStream {
-                module: hir_module_to_mir[stream.module.index()],
-                stable_key: Arc::clone(&stream.stable_key),
-                stable_id: stream.stable_id,
-                junction: junction_mapping[stream.junction.index()],
-                junction_source_location: stream.junction_source_location.clone(),
-                maneuver_path: maneuver_path_mapping[stream.maneuver_path.index()],
-                maneuver_path_source_location: stream.maneuver_path_source_location.clone(),
-                passages: remap_range(stream.passages, &unit.limits, &stream.source_span)?,
-                source_span: stream.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let conflict_zone_streams = hir
-        .conflict_zone_streams
-        .iter()
-        .map(|member| MirConflictZoneStream {
-            participant_stream: participant_stream_mapping[member.participant_stream.index()],
-        })
-        .collect::<Vec<_>>();
-
-    let parking_facility_mapping =
-        dense_mapping::<MirParkingFacilityTag>(hir.parking_facilities.len())?;
-    let parking_space_mapping = dense_mapping::<MirParkingSpaceTag>(hir.parking_spaces.len())?;
-    let parking_facilities = hir
-        .parking_facilities
-        .iter()
-        .map(|area| {
-            Ok(MirParkingFacility {
-                module: hir_module_to_mir[area.module.index()],
-                stable_key: Arc::clone(&area.stable_key),
-                stable_id: area.stable_id,
-                parking_spaces: remap_range(area.parking_spaces, &unit.limits, &area.source_span)?,
-                virtual_capacity: area.virtual_capacity,
-                virtual_entries: remap_range(
-                    area.virtual_entries,
-                    &unit.limits,
-                    &area.source_span,
-                )?,
-                virtual_exits: remap_range(area.virtual_exits, &unit.limits, &area.source_span)?,
-                source_span: area.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let parking_spaces = hir
-        .parking_spaces
-        .iter()
-        .map(|space| MirParkingSpace {
-            module: hir_module_to_mir[space.module.index()],
-            stable_key: Arc::clone(&space.stable_key),
-            stable_id: space.stable_id,
-            parking_facility: space
-                .parking_facility
-                .map(|area| parking_facility_mapping[area.index()]),
-            parking_facility_source_location: space.parking_facility_source_location.clone(),
-            entry: MirParkingLaneAnchor {
-                lane_edge: hir_to_mir[space.entry.lane_edge.index()],
-                progress_mm: space.entry.progress_mm,
-                source_location: space.entry.source_location.clone(),
-            },
-            exit: MirParkingLaneAnchor {
-                lane_edge: hir_to_mir[space.exit.lane_edge.index()],
-                progress_mm: space.exit.progress_mm,
-                source_location: space.exit.source_location.clone(),
-            },
-            geometry: MirParkingSpaceGeometry {
-                lateral_offset_mm: space.geometry.lateral_offset_mm,
-                heading_offset_radians: space.geometry.heading_offset_radians,
-                length_mm: space.geometry.length_mm,
-                width_mm: space.geometry.width_mm,
-            },
-            source_span: space.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    let parking_facility_spaces = hir
-        .parking_facility_spaces
-        .iter()
-        .map(|member| MirParkingFacilitySpace {
-            parking_space: parking_space_mapping[member.parking_space.index()],
-        })
-        .collect::<Vec<_>>();
-    let remap_parking_anchor = |anchor: &crate::hir::HirParkingLaneAnchor| MirParkingLaneAnchor {
-        lane_edge: mir_key_for_hir(anchor.lane_edge, &hir_to_mir),
-        progress_mm: anchor.progress_mm,
-        source_location: anchor.source_location.clone(),
-    };
-    let parking_facility_virtual_entries = hir
-        .parking_facility_virtual_entries
-        .iter()
-        .map(remap_parking_anchor)
-        .collect::<Vec<_>>();
-    let parking_facility_virtual_exits = hir
-        .parking_facility_virtual_exits
-        .iter()
-        .map(remap_parking_anchor)
-        .collect::<Vec<_>>();
-
-    let canonical_frame_mapping =
-        dense_mapping::<MirCanonicalFrameTag>(hir.canonical_frames.len())?;
-    let canonical_frames = hir
-        .canonical_frames
-        .iter()
-        .map(|frame| {
-            Ok(MirCanonicalFrame {
-                module: hir_module_to_mir[frame.module.index()],
-                stable_key: Arc::clone(&frame.stable_key),
-                stable_id: frame.stable_id,
-                lane_edge_geometries: remap_range(
-                    frame.lane_edge_geometries,
-                    &unit.limits,
-                    &frame.source_span,
-                )?,
-                facility_band_geometries: remap_range(
-                    frame.facility_band_geometries,
-                    &unit.limits,
-                    &frame.source_span,
-                )?,
-                source_span: frame.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let facility_band_geometries = hir
-        .facility_band_geometries
-        .iter()
-        .map(|geometry| {
-            Ok(MirFacilityBandGeometry {
-                canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
-                facility_band: band_mapping[geometry.facility_band.index()],
-                points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
-                source_ranges: remap_range(
-                    geometry.source_ranges,
-                    &unit.limits,
-                    &geometry.source_span,
-                )?,
-                source_span: geometry.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let lane_edge_geometries = hir
-        .lane_edge_geometries
-        .iter()
-        .map(|geometry| {
-            Ok(MirLaneEdgeGeometry {
-                source_module: hir_module_to_mir[geometry.source_module.index()],
-                canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
-                lane_edge: hir_to_mir[geometry.lane_edge.index()],
-                points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
-                segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
-                source_ranges: remap_range(
-                    geometry.source_ranges,
-                    &unit.limits,
-                    &geometry.source_span,
-                )?,
-                arc_length_meters: geometry.arc_length_meters,
-                source_span: geometry.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let mut geometry_source_ranges = Vec::with_capacity(hir.geometry_source_ranges.len());
-    for range in &hir.geometry_source_ranges {
-        geometry_source_ranges.push(MirGeometrySourceRange {
-            source_module: hir_module_to_mir[range.source_module.index()],
-            points: remap_range(range.points, &unit.limits, &range.source)?,
-            source_segment_ordinal: range.source_segment_ordinal,
-            source: range.source.clone(),
-        });
-    }
-    let canonical_points = hir
-        .canonical_points
-        .iter()
-        .map(|point| MirCanonicalPoint3F32 {
-            x: point.x,
-            y: point.y,
-            z: point.z,
-        })
-        .collect::<Vec<_>>();
-    let spatial_segments = hir
-        .spatial_segments
-        .iter()
-        .map(|segment| MirSpatialSegment {
-            length_meters: segment.length_meters,
-            cumulative_end_meters: segment.cumulative_end_meters,
-            tangent: segment.tangent,
-            up: segment.up,
-        })
-        .collect::<Vec<_>>();
-    let conflict_zone_regions = hir
-        .conflict_zone_regions
-        .iter()
-        .map(|region| {
-            Ok(MirConflictZoneRegion {
-                conflict_zone: conflict_zone_mapping[region.conflict_zone.index()],
-                canonical_frame: canonical_frame_mapping[region.canonical_frame.index()],
-                min_y: region.min_y,
-                max_y: region.max_y,
-                ring_xz: remap_range(region.ring_xz, &unit.limits, &region.source_span)?,
-                canonical_frame_source_location: region.canonical_frame_source_location.clone(),
-                source_location: region.source_location.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let conflict_region_points = hir
-        .conflict_region_points
-        .iter()
-        .map(|point| MirCanonicalPoint2F32 {
-            x: point.x,
-            z: point.z,
-        })
-        .collect::<Vec<_>>();
-
-    let participant_class_mapping =
-        dense_mapping::<MirParticipantClassTag>(hir.participant_classes.len())?;
-    let participant_classes = hir
-        .participant_classes
-        .iter()
-        .map(|participant_class| MirParticipantClass {
-            module: hir_module_to_mir[participant_class.module.index()],
-            stable_key: Arc::clone(&participant_class.stable_key),
-            stable_id: participant_class.stable_id,
-            parent: participant_class
-                .parent
-                .map(|parent| participant_class_mapping[parent.index()]),
-            parent_source_span: participant_class.parent_source_span.clone(),
-            depth: participant_class.depth,
-            subtree_enter: participant_class.subtree_enter,
-            subtree_exit: participant_class.subtree_exit,
-            source_span: participant_class.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    let vehicle_profile_mapping =
-        dense_mapping::<MirVehicleProfileTag>(hir.vehicle_profiles.len())?;
-    let vehicle_profiles = hir
-        .vehicle_profiles
-        .iter()
-        .map(|profile| MirVehicleProfile {
-            module: hir_module_to_mir[profile.module.index()],
-            stable_key: Arc::clone(&profile.stable_key),
-            stable_id: profile.stable_id,
-            participant_class: participant_class_mapping[profile.participant_class.index()],
-            participant_class_source_span: profile.participant_class_source_span.clone(),
-            length_mm: profile.length_mm,
-            desired_speed_mm_s: profile.desired_speed_mm_s,
-            min_gap_mm: profile.min_gap_mm,
-            time_headway_seconds: profile.time_headway_seconds,
-            max_acceleration_meters_per_second_squared: profile
-                .max_acceleration_meters_per_second_squared,
-            comfortable_deceleration_meters_per_second_squared: profile
-                .comfortable_deceleration_meters_per_second_squared,
-            emergency_deceleration_meters_per_second_squared: profile
-                .emergency_deceleration_meters_per_second_squared,
-            source_span: profile.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    debug_assert_eq!(vehicle_profile_mapping.len(), vehicle_profiles.len());
-    let access_rule_mapping = dense_mapping::<MirAccessRuleTag>(hir.access_rules.len())?;
-    let access_rules = hir
-        .access_rules
-        .iter()
-        .map(|rule| {
-            let target = match rule.target {
-                HirAccessTarget::LaneEdge(target) => {
-                    MirAccessTarget::LaneEdge(hir_to_mir[target.index()])
-                }
-                HirAccessTarget::LaneGroup(target) => {
-                    MirAccessTarget::LaneGroup(group_mapping[target.index()])
-                }
-                HirAccessTarget::RoadSection(target) => {
-                    MirAccessTarget::RoadSection(section_mapping[target.index()])
-                }
-                HirAccessTarget::ManeuverPath(target) => {
-                    MirAccessTarget::ManeuverPath(maneuver_path_mapping[target.index()])
-                }
-            };
-            Ok(MirAccessRule {
-                module: hir_module_to_mir[rule.module.index()],
-                stable_key: Arc::clone(&rule.stable_key),
-                stable_id: rule.stable_id,
-                target,
-                target_source_span: rule.target_source_span.clone(),
-                effect: rule.effect,
-                participant_classes: remap_range(
-                    rule.participant_classes,
-                    &unit.limits,
-                    &rule.source_span,
-                )?,
-                regulation: rule
-                    .regulation
-                    .as_ref()
-                    .map(|regulation| MirAccessRegulation {
-                        jurisdiction: Arc::clone(&regulation.jurisdiction),
-                        version: Arc::clone(&regulation.version),
-                        source: regulation.source.clone(),
+        let junction_mapping = dense_mapping::<MirJunctionTag>(&pass, hir.junctions.len())?;
+        let movement_mapping = dense_mapping::<MirMovementTag>(&pass, hir.movements.len())?;
+        let maneuver_path_mapping =
+            dense_mapping::<MirManeuverPathTag>(&pass, hir.maneuver_paths.len())?;
+        let junctions =
+            pass.try_collect::<_, DiagnosticBundle>(hir.junctions.iter().map(|junction| {
+                Ok(MirJunction {
+                    module: hir_module_to_mir[junction.module.index()],
+                    stable_key: Arc::clone(&junction.stable_key),
+                    stable_id: junction.stable_id,
+                    movements: remap_range(
+                        junction.movements,
+                        &unit.limits,
+                        &junction.source_span,
+                    )?,
+                    source_span: junction.source_span.clone(),
+                })
+            }))?;
+        let movements =
+            pass.try_collect::<_, DiagnosticBundle>(hir.movements.iter().map(|movement| {
+                Ok(MirMovement {
+                    module: hir_module_to_mir[movement.module.index()],
+                    stable_key: Arc::clone(&movement.stable_key),
+                    stable_id: movement.stable_id,
+                    junction: junction_mapping[movement.junction.index()],
+                    junction_source_location: movement.junction_source_location.clone(),
+                    directed_entry_approach_key: Arc::clone(&movement.directed_entry_approach_key),
+                    directed_exit_approach_key: Arc::clone(&movement.directed_exit_approach_key),
+                    turn_direction: movement.turn_direction,
+                    direction_source: movement.direction_source.clone(),
+                    maneuver_paths: remap_range(
+                        movement.maneuver_paths,
+                        &unit.limits,
+                        &movement.source_span,
+                    )?,
+                    source_span: movement.source_span.clone(),
+                })
+            }))?;
+        let junction_movements =
+            pass.collect(
+                hir.junction_movements
+                    .iter()
+                    .map(|member| MirJunctionMovement {
+                        movement: movement_mapping[member.movement.index()],
                     }),
-                priority: rule.priority,
-                source_span: rule.source_span.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let access_rule_participant_classes = hir
-        .access_rule_participant_classes
-        .iter()
-        .map(|selector| MirAccessRuleParticipantClass {
-            participant_class: participant_class_mapping[selector.participant_class.index()],
-            source_span: selector.source_span.clone(),
-        })
-        .collect::<Vec<_>>();
-    debug_assert_eq!(access_rule_mapping.len(), access_rules.len());
+            )?;
+        let maneuver_paths =
+            pass.try_collect::<_, DiagnosticBundle>(hir.maneuver_paths.iter().map(|path| {
+                Ok(MirManeuverPath {
+                    module: hir_module_to_mir[path.module.index()],
+                    stable_key: Arc::clone(&path.stable_key),
+                    stable_id: path.stable_id,
+                    movement: movement_mapping[path.movement.index()],
+                    movement_source_location: path.movement_source_location.clone(),
+                    edges: remap_range(path.edges, &unit.limits, &path.source_span)?,
+                    maneuver_gates: remap_range(
+                        path.maneuver_gates,
+                        &unit.limits,
+                        &path.source_span,
+                    )?,
+                    waiting_zones: remap_range(
+                        path.waiting_zones,
+                        &unit.limits,
+                        &path.source_span,
+                    )?,
+                    source_span: path.source_span.clone(),
+                })
+            }))?;
+        let movement_maneuver_paths =
+            pass.collect(hir.movement_maneuver_paths.iter().map(|member| {
+                MirMovementManeuverPath {
+                    maneuver_path: maneuver_path_mapping[member.maneuver_path.index()],
+                }
+            }))?;
+        let maneuver_path_edges =
+            pass.collect(
+                hir.maneuver_path_edges
+                    .iter()
+                    .map(|edge| MirManeuverPathEdge {
+                        target: hir_to_mir[edge.target.index()],
+                        source_span: edge.source_span.clone(),
+                    }),
+            )?;
+        let junction_internal_edges =
+            pass.collect(hir.junction_internal_edges.iter().map(|relation| {
+                MirJunctionInternalEdge {
+                    edge: hir_to_mir[relation.edge.index()],
+                    junction: junction_mapping[relation.junction.index()],
+                    module: hir_module_to_mir[hir.maneuver_paths[relation.source_path.index()]
+                        .module
+                        .index()],
+                    source_span: relation.source_span.clone(),
+                }
+            }))?;
 
-    debug_assert_eq!(modules.len(), hir.modules.len());
-    debug_assert_eq!(lane_edges.len(), edge_capacity);
-    debug_assert_eq!(connections.len(), connection_capacity);
-    let ledger_error = |error| {
-        DiagnosticBundle::single(Diagnostic::from_ledger_error(
-            error,
-            primary_span.clone(),
-            None,
-        ))
-    };
-    let output = pass.grant_bytes(mir_owned_bytes).map_err(ledger_error)?;
-    pass.finish(mir_owned_bytes).map_err(ledger_error)?;
-    Ok(MirUnit {
-        policies: hir
-            .policies
-            .iter()
-            .map(|p| crate::policy::model::PolicyRecord {
-                origin: p.origin,
-                value: p.value.map(
-                    |g| maneuver_gate_mapping[g.index()],
-                    |s| participant_stream_mapping[s.index()],
-                    |c| participant_class_mapping[c.index()],
-                ),
-            })
-            .collect(),
-        geometry_profiles: hir.geometry_profiles,
-        modules: modules.into_boxed_slice(),
-        lane_edges: lane_edges.into_boxed_slice(),
-        lane_edge_connections: connections.into_boxed_slice(),
-        road_corridors: road_corridors.into_boxed_slice(),
-        corridor_elements: corridor_elements.into_boxed_slice(),
-        road_sections: road_sections.into_boxed_slice(),
-        authoring_lanes: authoring_lanes.into_boxed_slice(),
-        authoring_lane_edges: authoring_lane_edges.into_boxed_slice(),
-        lane_groups: lane_groups.into_boxed_slice(),
-        lane_group_members: lane_group_members.into_boxed_slice(),
-        facility_bands: facility_bands.into_boxed_slice(),
-        junctions: junctions.into_boxed_slice(),
-        movements: movements.into_boxed_slice(),
-        junction_movements: junction_movements.into_boxed_slice(),
-        maneuver_paths: maneuver_paths.into_boxed_slice(),
-        movement_maneuver_paths: movement_maneuver_paths.into_boxed_slice(),
-        maneuver_path_edges: maneuver_path_edges.into_boxed_slice(),
-        junction_internal_edges: junction_internal_edges.into_boxed_slice(),
-        stop_lines: stop_lines.into_boxed_slice(),
-        maneuver_gates: maneuver_gates.into_boxed_slice(),
-        waiting_zones: waiting_zones.into_boxed_slice(),
-        maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
-        maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
-        stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
-        signal_groups: signal_groups.into_boxed_slice(),
-        signal_controllers: signal_controllers.into_boxed_slice(),
-        signal_controller_groups: signal_controller_groups.into_boxed_slice(),
-        signal_phases: signal_phases.into_boxed_slice(),
-        signal_phase_states: signal_phase_states.into_boxed_slice(),
-        signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
-        conflict_zones: conflict_zones.into_boxed_slice(),
-        participant_streams: participant_streams.into_boxed_slice(),
-        conflict_passages: conflict_passages.into_boxed_slice(),
-        conflict_zone_streams: conflict_zone_streams.into_boxed_slice(),
-        parking_facilities: parking_facilities.into_boxed_slice(),
-        parking_spaces: parking_spaces.into_boxed_slice(),
-        parking_facility_spaces: parking_facility_spaces.into_boxed_slice(),
-        parking_facility_virtual_entries: parking_facility_virtual_entries.into_boxed_slice(),
-        parking_facility_virtual_exits: parking_facility_virtual_exits.into_boxed_slice(),
-        canonical_frames: canonical_frames.into_boxed_slice(),
-        lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
-        geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
-        facility_band_geometries: facility_band_geometries.into_boxed_slice(),
-        conflict_zone_regions: conflict_zone_regions.into_boxed_slice(),
-        canonical_points: canonical_points.into_boxed_slice(),
-        conflict_region_points: conflict_region_points.into_boxed_slice(),
-        spatial_segments: spatial_segments.into_boxed_slice(),
-        participant_classes: participant_classes.into_boxed_slice(),
-        vehicle_profiles: vehicle_profiles.into_boxed_slice(),
-        access_rules: access_rules.into_boxed_slice(),
-        access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
-        mir_record_count,
-        controlled_live_bytes: mir_owned_bytes,
-        ledger_grant: crate::ledger::OutputGrant::new(output),
-    })
+        let signal_group_mapping =
+            dense_mapping::<MirSignalGroupTag>(&pass, hir.signal_groups.len())?;
+        let signal_controller_mapping =
+            dense_mapping::<MirSignalControllerTag>(&pass, hir.signal_controllers.len())?;
+        let stop_line_mapping = dense_mapping::<MirStopLineTag>(&pass, hir.stop_lines.len())?;
+        let maneuver_gate_mapping =
+            dense_mapping::<MirManeuverGateTag>(&pass, hir.maneuver_gates.len())?;
+        let waiting_zone_mapping =
+            dense_mapping::<MirWaitingZoneTag>(&pass, hir.waiting_zones.len())?;
+        let stop_lines =
+            pass.try_collect::<_, DiagnosticBundle>(hir.stop_lines.iter().map(|stop_line| {
+                Ok(MirStopLine {
+                    module: hir_module_to_mir[stop_line.module.index()],
+                    stable_key: Arc::clone(&stop_line.stable_key),
+                    stable_id: stop_line.stable_id,
+                    lane_edge: hir_to_mir[stop_line.lane_edge.index()],
+                    maneuver_gates: remap_range(
+                        stop_line.maneuver_gates,
+                        &unit.limits,
+                        &stop_line.source_span,
+                    )?,
+                    source_span: stop_line.source_span.clone(),
+                })
+            }))?;
+        let maneuver_gates =
+            pass.collect(hir.maneuver_gates.iter().map(|gate| MirManeuverGate {
+                module: hir_module_to_mir[gate.module.index()],
+                stable_key: Arc::clone(&gate.stable_key),
+                stable_id: gate.stable_id,
+                maneuver_path: maneuver_path_mapping[gate.maneuver_path.index()],
+                maneuver_path_source_location: gate.maneuver_path_source_location.clone(),
+                transition_index: gate.transition_index,
+                stop_line: stop_line_mapping[gate.stop_line.index()],
+                stop_line_source_location: gate.stop_line_source_location.clone(),
+                signal_control: match &gate.signal_control {
+                    HirSignalControl::Group {
+                        signal_group,
+                        source_location,
+                    } => MirSignalControl::Group {
+                        signal_group: signal_group_mapping[signal_group.index()],
+                        source_location: source_location.clone(),
+                    },
+                    HirSignalControl::None => MirSignalControl::None,
+                },
+                source_span: gate.source_span.clone(),
+            }))?;
+        let waiting_zones =
+            pass.collect(hir.waiting_zones.iter().map(|waiting| MirWaitingZone {
+                module: hir_module_to_mir[waiting.module.index()],
+                stable_key: Arc::clone(&waiting.stable_key),
+                stable_id: waiting.stable_id,
+                maneuver_path: maneuver_path_mapping[waiting.maneuver_path.index()],
+                maneuver_path_source_location: waiting.maneuver_path_source_location.clone(),
+                entry_gate: maneuver_gate_mapping[waiting.entry_gate.index()],
+                release_gate: maneuver_gate_mapping[waiting.release_gate.index()],
+                max_occupancy: waiting.max_occupancy,
+                source_span: waiting.source_span.clone(),
+            }))?;
+        let maneuver_path_gates =
+            pass.collect(
+                hir.maneuver_path_gates
+                    .iter()
+                    .map(|member| MirManeuverPathGate {
+                        maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
+                    }),
+            )?;
+        let maneuver_path_waiting_zones =
+            pass.collect(hir.maneuver_path_waiting_zones.iter().map(|member| {
+                MirManeuverPathWaitingZone {
+                    waiting_zone: waiting_zone_mapping[member.waiting_zone.index()],
+                }
+            }))?;
+        let stop_line_maneuver_gates =
+            pass.collect(hir.stop_line_maneuver_gates.iter().map(|member| {
+                MirStopLineManeuverGate {
+                    maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
+                }
+            }))?;
+
+        let signal_groups =
+            pass.try_collect::<_, DiagnosticBundle>(hir.signal_groups.iter().map(|group| {
+                Ok(MirSignalGroup {
+                    module: hir_module_to_mir[group.module.index()],
+                    stable_key: Arc::clone(&group.stable_key),
+                    stable_id: group.stable_id,
+                    controller: signal_controller_mapping[group.controller.index()],
+                    maneuver_gates: remap_range(
+                        group.maneuver_gates,
+                        &unit.limits,
+                        &group.source_span,
+                    )?,
+                    source_span: group.source_span.clone(),
+                })
+            }))?;
+        let signal_controllers = pass.try_collect::<_, DiagnosticBundle>(
+            hir.signal_controllers.iter().map(|controller| {
+                Ok(MirSignalController {
+                    module: hir_module_to_mir[controller.module.index()],
+                    stable_key: Arc::clone(&controller.stable_key),
+                    stable_id: controller.stable_id,
+                    offset_ms: controller.offset_ms,
+                    cycle_duration_ms: controller.cycle_duration_ms,
+                    signal_groups: remap_range(
+                        controller.signal_groups,
+                        &unit.limits,
+                        &controller.source_span,
+                    )?,
+                    phases: remap_range(controller.phases, &unit.limits, &controller.source_span)?,
+                    source_span: controller.source_span.clone(),
+                })
+            }),
+        )?;
+        let signal_controller_groups =
+            pass.collect(hir.signal_controller_groups.iter().map(|member| {
+                MirSignalControllerGroup {
+                    signal_group: signal_group_mapping[member.signal_group.index()],
+                    source_location: member.source_location.clone(),
+                }
+            }))?;
+        let signal_phases =
+            pass.try_collect::<_, DiagnosticBundle>(hir.signal_phases.iter().map(|phase| {
+                Ok(MirSignalPhase {
+                    module: hir_module_to_mir[phase.module.index()],
+                    stable_key: Arc::clone(&phase.stable_key),
+                    stable_id: phase.stable_id,
+                    controller: signal_controller_mapping[phase.controller.index()],
+                    duration_ms: phase.duration_ms,
+                    states: remap_range(phase.states, &unit.limits, &phase.source_span)?,
+                    controller_relation_source_location: phase
+                        .controller_relation_source_location
+                        .clone(),
+                    source_span: phase.source_span.clone(),
+                })
+            }))?;
+        let signal_phase_states =
+            pass.collect(
+                hir.signal_phase_states
+                    .iter()
+                    .map(|state| MirSignalPhaseState {
+                        signal_group: signal_group_mapping[state.signal_group.index()],
+                        aspect: state.aspect,
+                        source_location: state.source_location.clone(),
+                    }),
+            )?;
+        let signal_group_maneuver_gates =
+            pass.collect(hir.signal_group_maneuver_gates.iter().map(|member| {
+                MirSignalGroupManeuverGate {
+                    maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
+                }
+            }))?;
+
+        let conflict_zone_mapping =
+            dense_mapping::<MirConflictZoneTag>(&pass, hir.conflict_zones.len())?;
+        let participant_stream_mapping =
+            dense_mapping::<MirParticipantStreamTag>(&pass, hir.participant_streams.len())?;
+        let conflict_zones =
+            pass.try_collect::<_, DiagnosticBundle>(hir.conflict_zones.iter().map(|zone| {
+                Ok(MirConflictZone {
+                    module: hir_module_to_mir[zone.module.index()],
+                    stable_key: Arc::clone(&zone.stable_key),
+                    stable_id: zone.stable_id,
+                    junction: junction_mapping[zone.junction.index()],
+                    junction_source_location: zone.junction_source_location.clone(),
+                    participant_streams: remap_range(
+                        zone.participant_streams,
+                        &unit.limits,
+                        &zone.source_span,
+                    )?,
+                    source_span: zone.source_span.clone(),
+                })
+            }))?;
+        let remap_conflict_anchor = |anchor: &crate::hir::HirPathAnchor| MirPathAnchor {
+            reference: match anchor.reference {
+                HirPathAnchorReference::Gate(gate) => {
+                    MirPathAnchorReference::Gate(maneuver_gate_mapping[gate.index()])
+                }
+                HirPathAnchorReference::EdgeBoundary(boundary_index) => {
+                    MirPathAnchorReference::EdgeBoundary(boundary_index)
+                }
+                HirPathAnchorReference::Interior { path_edge_index } => {
+                    MirPathAnchorReference::Interior { path_edge_index }
+                }
+            },
+            progress_mm: anchor.progress_mm,
+        };
+        let conflict_passages =
+            pass.collect(
+                hir.conflict_passages
+                    .iter()
+                    .map(|passage| MirConflictPassage {
+                        conflict_zone: conflict_zone_mapping[passage.conflict_zone.index()],
+                        entry: remap_conflict_anchor(&passage.entry),
+                        exit: remap_conflict_anchor(&passage.exit),
+                        admission_gate: maneuver_gate_mapping[passage.admission_gate.index()],
+                        source_location: passage.source_location.clone(),
+                    }),
+            )?;
+        let participant_streams = pass.try_collect::<_, DiagnosticBundle>(
+            hir.participant_streams.iter().map(|stream| {
+                Ok(MirParticipantStream {
+                    module: hir_module_to_mir[stream.module.index()],
+                    stable_key: Arc::clone(&stream.stable_key),
+                    stable_id: stream.stable_id,
+                    junction: junction_mapping[stream.junction.index()],
+                    junction_source_location: stream.junction_source_location.clone(),
+                    maneuver_path: maneuver_path_mapping[stream.maneuver_path.index()],
+                    maneuver_path_source_location: stream.maneuver_path_source_location.clone(),
+                    passages: remap_range(stream.passages, &unit.limits, &stream.source_span)?,
+                    source_span: stream.source_span.clone(),
+                })
+            }),
+        )?;
+        let conflict_zone_streams = pass.collect(hir.conflict_zone_streams.iter().map(
+            |member| MirConflictZoneStream {
+                participant_stream: participant_stream_mapping[member.participant_stream.index()],
+            },
+        ))?;
+
+        let parking_facility_mapping =
+            dense_mapping::<MirParkingFacilityTag>(&pass, hir.parking_facilities.len())?;
+        let parking_space_mapping =
+            dense_mapping::<MirParkingSpaceTag>(&pass, hir.parking_spaces.len())?;
+        let parking_facilities =
+            pass.try_collect::<_, DiagnosticBundle>(hir.parking_facilities.iter().map(|area| {
+                Ok(MirParkingFacility {
+                    module: hir_module_to_mir[area.module.index()],
+                    stable_key: Arc::clone(&area.stable_key),
+                    stable_id: area.stable_id,
+                    parking_spaces: remap_range(
+                        area.parking_spaces,
+                        &unit.limits,
+                        &area.source_span,
+                    )?,
+                    virtual_capacity: area.virtual_capacity,
+                    virtual_entries: remap_range(
+                        area.virtual_entries,
+                        &unit.limits,
+                        &area.source_span,
+                    )?,
+                    virtual_exits: remap_range(
+                        area.virtual_exits,
+                        &unit.limits,
+                        &area.source_span,
+                    )?,
+                    source_span: area.source_span.clone(),
+                })
+            }))?;
+        let parking_spaces = pass.collect(hir.parking_spaces.iter().map(|space| {
+            MirParkingSpace {
+                module: hir_module_to_mir[space.module.index()],
+                stable_key: Arc::clone(&space.stable_key),
+                stable_id: space.stable_id,
+                parking_facility: space
+                    .parking_facility
+                    .map(|area| parking_facility_mapping[area.index()]),
+                parking_facility_source_location: space.parking_facility_source_location.clone(),
+                entry: MirParkingLaneAnchor {
+                    lane_edge: hir_to_mir[space.entry.lane_edge.index()],
+                    progress_mm: space.entry.progress_mm,
+                    source_location: space.entry.source_location.clone(),
+                },
+                exit: MirParkingLaneAnchor {
+                    lane_edge: hir_to_mir[space.exit.lane_edge.index()],
+                    progress_mm: space.exit.progress_mm,
+                    source_location: space.exit.source_location.clone(),
+                },
+                geometry: MirParkingSpaceGeometry {
+                    lateral_offset_mm: space.geometry.lateral_offset_mm,
+                    heading_offset_radians: space.geometry.heading_offset_radians,
+                    length_mm: space.geometry.length_mm,
+                    width_mm: space.geometry.width_mm,
+                },
+                source_span: space.source_span.clone(),
+            }
+        }))?;
+        let parking_facility_spaces =
+            pass.collect(hir.parking_facility_spaces.iter().map(|member| {
+                MirParkingFacilitySpace {
+                    parking_space: parking_space_mapping[member.parking_space.index()],
+                }
+            }))?;
+        let remap_parking_anchor =
+            |anchor: &crate::hir::HirParkingLaneAnchor| MirParkingLaneAnchor {
+                lane_edge: mir_key_for_hir(anchor.lane_edge, &hir_to_mir),
+                progress_mm: anchor.progress_mm,
+                source_location: anchor.source_location.clone(),
+            };
+        let parking_facility_virtual_entries = pass.collect(
+            hir.parking_facility_virtual_entries
+                .iter()
+                .map(remap_parking_anchor),
+        )?;
+        let parking_facility_virtual_exits = pass.collect(
+            hir.parking_facility_virtual_exits
+                .iter()
+                .map(remap_parking_anchor),
+        )?;
+
+        let canonical_frame_mapping =
+            dense_mapping::<MirCanonicalFrameTag>(&pass, hir.canonical_frames.len())?;
+        let canonical_frames =
+            pass.try_collect::<_, DiagnosticBundle>(hir.canonical_frames.iter().map(|frame| {
+                Ok(MirCanonicalFrame {
+                    module: hir_module_to_mir[frame.module.index()],
+                    stable_key: Arc::clone(&frame.stable_key),
+                    stable_id: frame.stable_id,
+                    lane_edge_geometries: remap_range(
+                        frame.lane_edge_geometries,
+                        &unit.limits,
+                        &frame.source_span,
+                    )?,
+                    facility_band_geometries: remap_range(
+                        frame.facility_band_geometries,
+                        &unit.limits,
+                        &frame.source_span,
+                    )?,
+                    source_span: frame.source_span.clone(),
+                })
+            }))?;
+        let facility_band_geometries = pass.try_collect::<_, DiagnosticBundle>(
+            hir.facility_band_geometries.iter().map(|geometry| {
+                Ok(MirFacilityBandGeometry {
+                    canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
+                    facility_band: band_mapping[geometry.facility_band.index()],
+                    points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
+                    source_ranges: remap_range(
+                        geometry.source_ranges,
+                        &unit.limits,
+                        &geometry.source_span,
+                    )?,
+                    source_span: geometry.source_span.clone(),
+                })
+            }),
+        )?;
+        let lane_edge_geometries = pass.try_collect::<_, DiagnosticBundle>(
+            hir.lane_edge_geometries.iter().map(|geometry| {
+                Ok(MirLaneEdgeGeometry {
+                    source_module: hir_module_to_mir[geometry.source_module.index()],
+                    canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
+                    lane_edge: hir_to_mir[geometry.lane_edge.index()],
+                    points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
+                    segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
+                    source_ranges: remap_range(
+                        geometry.source_ranges,
+                        &unit.limits,
+                        &geometry.source_span,
+                    )?,
+                    arc_length_meters: geometry.arc_length_meters,
+                    source_span: geometry.source_span.clone(),
+                })
+            }),
+        )?;
+        let mut geometry_source_ranges = pass.vec(hir.geometry_source_ranges.len())?;
+        for range in &hir.geometry_source_ranges {
+            geometry_source_ranges.push(MirGeometrySourceRange {
+                source_module: hir_module_to_mir[range.source_module.index()],
+                points: remap_range(range.points, &unit.limits, &range.source)?,
+                source_segment_ordinal: range.source_segment_ordinal,
+                source: range.source.clone(),
+            })?;
+        }
+        let canonical_points =
+            pass.collect(
+                hir.canonical_points
+                    .iter()
+                    .map(|point| MirCanonicalPoint3F32 {
+                        x: point.x,
+                        y: point.y,
+                        z: point.z,
+                    }),
+            )?;
+        let spatial_segments =
+            pass.collect(
+                hir.spatial_segments
+                    .iter()
+                    .map(|segment| MirSpatialSegment {
+                        length_meters: segment.length_meters,
+                        cumulative_end_meters: segment.cumulative_end_meters,
+                        tangent: segment.tangent,
+                        up: segment.up,
+                    }),
+            )?;
+        let conflict_zone_regions = pass.try_collect::<_, DiagnosticBundle>(
+            hir.conflict_zone_regions.iter().map(|region| {
+                Ok(MirConflictZoneRegion {
+                    conflict_zone: conflict_zone_mapping[region.conflict_zone.index()],
+                    canonical_frame: canonical_frame_mapping[region.canonical_frame.index()],
+                    min_y: region.min_y,
+                    max_y: region.max_y,
+                    ring_xz: remap_range(region.ring_xz, &unit.limits, &region.source_span)?,
+                    canonical_frame_source_location: region.canonical_frame_source_location.clone(),
+                    source_location: region.source_location.clone(),
+                })
+            }),
+        )?;
+        let conflict_region_points = pass.collect(hir.conflict_region_points.iter().map(
+            |point| MirCanonicalPoint2F32 {
+                x: point.x,
+                z: point.z,
+            },
+        ))?;
+
+        let participant_class_mapping =
+            dense_mapping::<MirParticipantClassTag>(&pass, hir.participant_classes.len())?;
+        let participant_classes =
+            pass.collect(hir.participant_classes.iter().map(|participant_class| {
+                MirParticipantClass {
+                    module: hir_module_to_mir[participant_class.module.index()],
+                    stable_key: Arc::clone(&participant_class.stable_key),
+                    stable_id: participant_class.stable_id,
+                    parent: participant_class
+                        .parent
+                        .map(|parent| participant_class_mapping[parent.index()]),
+                    parent_source_span: participant_class.parent_source_span.clone(),
+                    depth: participant_class.depth,
+                    subtree_enter: participant_class.subtree_enter,
+                    subtree_exit: participant_class.subtree_exit,
+                    source_span: participant_class.source_span.clone(),
+                }
+            }))?;
+        let vehicle_profile_mapping =
+            dense_mapping::<MirVehicleProfileTag>(&pass, hir.vehicle_profiles.len())?;
+        let vehicle_profiles =
+            pass.collect(
+                hir.vehicle_profiles
+                    .iter()
+                    .map(|profile| MirVehicleProfile {
+                        module: hir_module_to_mir[profile.module.index()],
+                        stable_key: Arc::clone(&profile.stable_key),
+                        stable_id: profile.stable_id,
+                        participant_class: participant_class_mapping
+                            [profile.participant_class.index()],
+                        participant_class_source_span: profile
+                            .participant_class_source_span
+                            .clone(),
+                        length_mm: profile.length_mm,
+                        desired_speed_mm_s: profile.desired_speed_mm_s,
+                        min_gap_mm: profile.min_gap_mm,
+                        time_headway_seconds: profile.time_headway_seconds,
+                        max_acceleration_meters_per_second_squared: profile
+                            .max_acceleration_meters_per_second_squared,
+                        comfortable_deceleration_meters_per_second_squared: profile
+                            .comfortable_deceleration_meters_per_second_squared,
+                        emergency_deceleration_meters_per_second_squared: profile
+                            .emergency_deceleration_meters_per_second_squared,
+                        source_span: profile.source_span.clone(),
+                    }),
+            )?;
+        debug_assert_eq!(vehicle_profile_mapping.len(), vehicle_profiles.len());
+        let access_rule_mapping = dense_mapping::<MirAccessRuleTag>(&pass, hir.access_rules.len())?;
+        let access_rules =
+            pass.try_collect::<_, DiagnosticBundle>(hir.access_rules.iter().map(|rule| {
+                let target = match rule.target {
+                    HirAccessTarget::LaneEdge(target) => {
+                        MirAccessTarget::LaneEdge(hir_to_mir[target.index()])
+                    }
+                    HirAccessTarget::LaneGroup(target) => {
+                        MirAccessTarget::LaneGroup(group_mapping[target.index()])
+                    }
+                    HirAccessTarget::RoadSection(target) => {
+                        MirAccessTarget::RoadSection(section_mapping[target.index()])
+                    }
+                    HirAccessTarget::ManeuverPath(target) => {
+                        MirAccessTarget::ManeuverPath(maneuver_path_mapping[target.index()])
+                    }
+                };
+                Ok(MirAccessRule {
+                    module: hir_module_to_mir[rule.module.index()],
+                    stable_key: Arc::clone(&rule.stable_key),
+                    stable_id: rule.stable_id,
+                    target,
+                    target_source_span: rule.target_source_span.clone(),
+                    effect: rule.effect,
+                    participant_classes: remap_range(
+                        rule.participant_classes,
+                        &unit.limits,
+                        &rule.source_span,
+                    )?,
+                    regulation: rule
+                        .regulation
+                        .as_ref()
+                        .map(|regulation| MirAccessRegulation {
+                            jurisdiction: Arc::clone(&regulation.jurisdiction),
+                            version: Arc::clone(&regulation.version),
+                            source: regulation.source.clone(),
+                        }),
+                    priority: rule.priority,
+                    source_span: rule.source_span.clone(),
+                })
+            }))?;
+        let access_rule_participant_classes =
+            pass.collect(hir.access_rule_participant_classes.iter().map(|selector| {
+                MirAccessRuleParticipantClass {
+                    participant_class: participant_class_mapping
+                        [selector.participant_class.index()],
+                    source_span: selector.source_span.clone(),
+                }
+            }))?;
+        debug_assert_eq!(access_rule_mapping.len(), access_rules.len());
+
+        debug_assert_eq!(modules.len(), hir.modules.len());
+        debug_assert_eq!(lane_edges.len(), edge_capacity);
+        debug_assert_eq!(connections.len(), connection_capacity);
+        let policies =
+            pass.collect(
+                hir.policies
+                    .iter()
+                    .map(|p| crate::policy::model::PolicyRecord {
+                        origin: p.origin,
+                        value: p.value.map(
+                            |g| maneuver_gate_mapping[g.index()],
+                            |s| participant_stream_mapping[s.index()],
+                            |c| participant_class_mapping[c.index()],
+                        ),
+                    }),
+            )?;
+        let policy_payloads =
+            crate::ledger::OutputGrant::new(pass.grant_bytes(policy_payload_bytes)?);
+        Ok(MirUnit {
+            policies: policies.freeze()?,
+            geometry_profiles: hir.geometry_profiles,
+            modules: modules.freeze()?,
+            lane_edges: lane_edges.freeze()?,
+            lane_edge_connections: connections.freeze()?,
+            road_corridors: road_corridors.freeze()?,
+            corridor_elements: corridor_elements.freeze()?,
+            road_sections: road_sections.freeze()?,
+            authoring_lanes: authoring_lanes.freeze()?,
+            authoring_lane_edges: authoring_lane_edges.freeze()?,
+            lane_groups: lane_groups.freeze()?,
+            lane_group_members: lane_group_members.freeze()?,
+            facility_bands: facility_bands.freeze()?,
+            junctions: junctions.freeze()?,
+            movements: movements.freeze()?,
+            junction_movements: junction_movements.freeze()?,
+            maneuver_paths: maneuver_paths.freeze()?,
+            movement_maneuver_paths: movement_maneuver_paths.freeze()?,
+            maneuver_path_edges: maneuver_path_edges.freeze()?,
+            junction_internal_edges: junction_internal_edges.freeze()?,
+            stop_lines: stop_lines.freeze()?,
+            maneuver_gates: maneuver_gates.freeze()?,
+            waiting_zones: waiting_zones.freeze()?,
+            maneuver_path_gates: maneuver_path_gates.freeze()?,
+            maneuver_path_waiting_zones: maneuver_path_waiting_zones.freeze()?,
+            stop_line_maneuver_gates: stop_line_maneuver_gates.freeze()?,
+            signal_groups: signal_groups.freeze()?,
+            signal_controllers: signal_controllers.freeze()?,
+            signal_controller_groups: signal_controller_groups.freeze()?,
+            signal_phases: signal_phases.freeze()?,
+            signal_phase_states: signal_phase_states.freeze()?,
+            signal_group_maneuver_gates: signal_group_maneuver_gates.freeze()?,
+            conflict_zones: conflict_zones.freeze()?,
+            participant_streams: participant_streams.freeze()?,
+            conflict_passages: conflict_passages.freeze()?,
+            conflict_zone_streams: conflict_zone_streams.freeze()?,
+            parking_facilities: parking_facilities.freeze()?,
+            parking_spaces: parking_spaces.freeze()?,
+            parking_facility_spaces: parking_facility_spaces.freeze()?,
+            parking_facility_virtual_entries: parking_facility_virtual_entries.freeze()?,
+            parking_facility_virtual_exits: parking_facility_virtual_exits.freeze()?,
+            canonical_frames: canonical_frames.freeze()?,
+            lane_edge_geometries: lane_edge_geometries.freeze()?,
+            geometry_source_ranges: geometry_source_ranges.freeze()?,
+            facility_band_geometries: facility_band_geometries.freeze()?,
+            conflict_zone_regions: conflict_zone_regions.freeze()?,
+            canonical_points: canonical_points.freeze()?,
+            conflict_region_points: conflict_region_points.freeze()?,
+            spatial_segments: spatial_segments.freeze()?,
+            participant_classes: participant_classes.freeze()?,
+            vehicle_profiles: vehicle_profiles.freeze()?,
+            access_rules: access_rules.freeze()?,
+            access_rule_participant_classes: access_rule_participant_classes.freeze()?,
+            mir_record_count,
+            controlled_live_bytes: mir_owned_bytes,
+            policy_payloads,
+        })
+    })()?;
+    pass.finish(mir_owned_bytes)?;
+    Ok(mir)
 }
 
 const MIR_PASS: crate::ledger::PassLabel =
@@ -1929,20 +1884,35 @@ fn mir_key_for_hir(key: HirLaneEdgeKey, mapping: &[MirLaneEdgeKey]) -> MirLaneEd
     mapping[key.index()]
 }
 
-fn dense_mapping<K>(count: usize) -> Result<Vec<ArenaKey<K>>, DiagnosticBundle> {
-    (0..count)
-        .map(|index| {
-            u32::try_from(index).map(ArenaKey::from_raw).map_err(|_| {
-                DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
-                    CompileLimitDimension::MirRecordCount,
-                    u64::from(u32::MAX),
-                    u64::from(u32::MAX) + 1,
-                    None::<SourceLocation>,
-                    None,
-                ))
-            })
+fn dense_mapping<K>(
+    pass: &PassBudget<'_>,
+    count: usize,
+) -> Result<BoundedVec<ArenaKey<K>>, DiagnosticBundle> {
+    pass.try_collect::<_, DiagnosticBundle>((0..count).map(|index| {
+        u32::try_from(index).map(ArenaKey::from_raw).map_err(|_| {
+            DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
+                CompileLimitDimension::MirRecordCount,
+                u64::from(u32::MAX),
+                u64::from(u32::MAX) + 1,
+                None::<SourceLocation>,
+                None,
+            ))
         })
-        .collect()
+    }))
+}
+
+/// 下一个追加位置的致密键；追加后的长度无法用 `u32` 表示时返回溢出。
+fn next_key<K>(len: usize) -> Result<ArenaKey<K>, ArenaKeyOverflow> {
+    let next_len = len.checked_add(1).ok_or(ArenaKeyOverflow)?;
+    u32::try_from(next_len).map_err(|_| ArenaKeyOverflow)?;
+    Ok(ArenaKey::from_raw(
+        u32::try_from(len).map_err(|_| ArenaKeyOverflow)?,
+    ))
+}
+
+/// 计数换算为授予请求的元素数；超出 `usize` 时取最大值，使计划无法表示。
+fn cap(count: u64) -> usize {
+    usize::try_from(count).unwrap_or(usize::MAX)
 }
 
 fn remap_range<T, U>(
@@ -1952,10 +1922,6 @@ fn remap_range<T, U>(
 ) -> Result<TableRange<U>, DiagnosticBundle> {
     TableRange::try_from_usize(range.start() as usize, range.len() as usize)
         .map_err(|overflow| arena_overflow(overflow, limits, Some(source_span.clone())))
-}
-
-fn requested_bytes<T>(count: u64) -> u64 {
-    count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
 }
 
 fn arena_overflow(

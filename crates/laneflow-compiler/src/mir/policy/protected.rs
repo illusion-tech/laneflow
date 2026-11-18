@@ -10,8 +10,8 @@ struct GreenPhase {
 
 /// 保护冲突判定索引：缓存各信号组的绿灯相位成员，并记录逐相位查重标记。
 pub(super) struct ProtectedIndex {
-    green: Vec<GreenPhase>,
-    seen: Vec<Option<(u32, MirConflictZoneKey)>>,
+    green: crate::ledger::BoundedVec<GreenPhase>,
+    seen: crate::ledger::BoundedVec<Option<(u32, MirConflictZoneKey)>>,
 }
 
 impl ProtectedIndex {
@@ -19,46 +19,28 @@ impl ProtectedIndex {
     pub(super) fn build(
         ledger: &crate::ledger::Ledger,
         mir: &MirUnit,
-        prior_bytes: u64,
     ) -> Result<Self, DiagnosticBundle> {
         let count = mir
             .signal_phase_states
             .iter()
             .filter(|v| v.aspect == SignalAspect::Green)
             .count();
-        let bytes = (count as u64)
-            .saturating_mul(size_of::<GreenPhase>() as u64)
-            .saturating_add(
-                (mir.signal_phases.len() as u64)
-                    .saturating_mul(size_of::<Option<(u32, MirConflictZoneKey)>>() as u64),
-            );
-        super::validation::budget(ledger, prior_bytes.saturating_add(bytes))?;
-        let mut green = Vec::with_capacity(count);
+        let mut green = super::validation::scratch(ledger, count)?;
         for (phase, value) in mir.signal_phases.iter().enumerate() {
             for state in &mir.signal_phase_states[value.states.as_usize_range()] {
                 if state.aspect == SignalAspect::Green {
                     green.push(GreenPhase {
                         group: state.signal_group,
                         phase: phase as u32,
-                    });
+                    })?;
                 }
             }
         }
         green.sort_unstable_by_key(|v| (v.group, v.phase));
         Ok(Self {
             green,
-            seen: vec![None; mir.signal_phases.len()],
+            seen: super::validation::scratch_filled(ledger, mir.signal_phases.len(), None)?,
         })
-    }
-
-    /// 返回索引占用的字节数。
-    pub(super) fn bytes(&self) -> u64 {
-        (self.green.len() as u64)
-            .saturating_mul(size_of::<GreenPhase>() as u64)
-            .saturating_add(
-                (self.seen.len() as u64)
-                    .saturating_mul(size_of::<Option<(u32, MirConflictZoneKey)>>() as u64),
-            )
     }
 
     /// 判定同一冲突区内受保护门的信号是否相容：同区保护门须属同一信号控制器，且任一相位不得同时放行两组。
@@ -198,12 +180,9 @@ mod tests {
                         } else {
                             (0..2).any(|p| green(p, 0) && green(p, 1))
                         };
-                    let mut index = ProtectedIndex::build(
-                        &crate::ledger::Ledger::with_budget(u64::MAX),
-                        &mir,
-                        0,
-                    )
-                    .unwrap();
+                    let mut index =
+                        ProtectedIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir)
+                            .unwrap();
                     for policy in 0..2 {
                         assert_eq!(
                             index
@@ -267,7 +246,7 @@ mod tests {
             })
             .collect();
         let mut index =
-            ProtectedIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir, 0).unwrap();
+            ProtectedIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir).unwrap();
         let mut work = WorkBudget::new(unit.limits.operation_budget());
         assert!(
             index
