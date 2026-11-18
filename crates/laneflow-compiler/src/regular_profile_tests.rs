@@ -5,7 +5,6 @@ use crate::{
     CompileLimitDimension as D, CompileLimits, Compiler, DiagnosticBundle, DiagnosticPayload,
 };
 
-#[path = "../tests/support/regular_profile_workload.rs"]
 mod workload;
 use workload::{
     CANDIDATE_OPERATION_BYTES, SHAPES, WorkloadShape, assemble_mixed_network, build_mixed_network,

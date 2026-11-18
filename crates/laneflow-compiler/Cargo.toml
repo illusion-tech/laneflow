@@ -12,6 +12,14 @@ publish = false
 name = "laneflow_compiler"
 path = "src/lib.rs"
 
+[[test]]
+name = "regular_profile_workloads"
+path = "src/regular_profile_tests/workloads.rs"
+
+[[test]]
+name = "regular_profile_allocations"
+path = "src/regular_profile_tests/allocations.rs"
+
 [dependencies]
 blake3 = "1.8"
 laneflow-format = { version = "0.0.0", path = "../laneflow-format", features = ["std"] }
