@@ -543,7 +543,6 @@ impl Compiler {
         &mut self,
         unit: CompilationUnit,
     ) -> Result<CompilationOutput, DiagnosticBundle> {
-        let selected_limits = unit.limits.clone();
         let hir = build_hir(&unit)?;
         let hir_peak_controlled_live_bytes = hir.peak_controlled_live_bytes;
         let mut mir = lower_to_mir(&unit, &hir)?;
@@ -551,6 +550,21 @@ impl Compiler {
         // 时间延长到 LIR/source-map 冻结并破坏资源峰值模型。
         drop(hir);
         let policy_validation_work_units = crate::mir::validate_policies(&unit, &mut mir)?;
+        Self::finish_compile(
+            unit,
+            mir,
+            hir_peak_controlled_live_bytes,
+            policy_validation_work_units,
+        )
+    }
+
+    fn finish_compile(
+        unit: CompilationUnit,
+        mir: crate::mir::MirUnit,
+        hir_peak_controlled_live_bytes: u64,
+        policy_validation_work_units: u64,
+    ) -> Result<CompilationOutput, DiagnosticBundle> {
+        let selected_limits = unit.limits.clone();
         let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
         let frozen_lir = freeze_lir(&unit, &mir)?;
         let usage = crate::canonical_usage::lir_statistics(&frozen_lir.lir).usage();

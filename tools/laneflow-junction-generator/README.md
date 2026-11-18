@@ -82,8 +82,9 @@ cargo +1.99.1 run --locked -p laneflow-junction-generator -- check --config exam
 - 编制只用 IEEE 精确运算（加减乘除、`sqrt`、硬编码常量），禁止三角函数与
   `hypot`；两次 `generate` 必须产出逐字节相同的 catalog、LFCA 与 portable sidecars。
 - 编译/发射用 `CompileProfile::single_network_1m_stable_entities()`（场景规模按大型配置档选择）；
-  StableId 按内容派生与限制档位无关，catalog policy pin 与 binder 侧身份派生固定用
-  p100（身份键长上限 53 字节即身份上限），两侧结果一致。
+  catalog policy pin 与 binder 都使用不接收编译配置档的 Identity v1 派生入口，
+  执行相同的固定 token 规则和 53 字节身份键长上限，两侧结果一致。
+  来源侧更严格的字符串限额仍由正式前端执行。
 - 环路回连边与道路边一样由 alignment → corridor → section → lane 链派生几何
   （canonical frame 来源）；junction internal 边保持裸 LaneEdge + 内联几何，且按
   编译器规则不携带 LaneEdge 后继——路径内的转移只由 ManeuverPath 边序承载。
