@@ -875,7 +875,8 @@ impl CompilationUnitBuilder {
             | CompileLimitDimension::HirRecordCount
             | CompileLimitDimension::MirRecordCount
             | CompileLimitDimension::LirRecordCount
-            | CompileLimitDimension::RetainedCapacityBytes => 0,
+            | CompileLimitDimension::RetainedCapacityBytes
+            | CompileLimitDimension::PolicyValidationWorkUnits => 0,
         }
     }
 

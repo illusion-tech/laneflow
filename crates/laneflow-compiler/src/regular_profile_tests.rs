@@ -46,6 +46,7 @@ fn candidate_limits() -> CompileLimits {
         .with_test_pipeline_limits(HIR_RECORDS, MIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
         .with_test_lir_limits(LIR_RECORDS, CANDIDATE_OPERATION_BYTES as u32)
         .with_test_retained_limit(16 * 1024 * 1024)
+        .with_test_policy_work_limit(1_000_000)
 }
 
 fn assert_limit(diagnostics: &DiagnosticBundle, dimension: D) {
@@ -82,11 +83,13 @@ fn candidate_source_admission_and_stage_counts_match_workload_envelope() {
             let mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
             let counts = [per_module, hir.hir_record_count, mir.mir_record_count];
             drop((hir, mir));
-            // MIR 的遗留工作预算仍借用来源关系限额，完整编译在有限百万档下独立确认。
-            drop(unit);
             let output = compiler
-                .compile(build_mixed_network(shape, false))
+                .compile(unit)
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
+            println!(
+                "regular-profile work case={name} disjoint={disjoint} units={}",
+                output.metrics().policy_validation_work_units()
+            );
             for (index, count) in counts
                 .into_iter()
                 .chain([output.metrics().lir_record_count()])
@@ -237,27 +240,55 @@ fn candidate_stage_record_limits_reject_without_poisoning_compiler() {
 }
 
 #[test]
-fn source_relation_envelope_does_not_cover_legacy_policy_traversal_budget() {
-    // #1296 分离工作量政策后改为完整候选编译成功，不为此回归保留来源／工作量耦合。
+fn policy_work_boundary_is_independent_of_source_relations_and_allows_reuse() {
     let mut compiler = Compiler::new();
     for shape in [SHAPES[1].1, SHAPES[10].1] {
-        let unit = assemble_mixed_network(shape, false, candidate_limits())
-            .unwrap()
-            .build()
-            .unwrap();
+        let build = |limits| {
+            assemble_mixed_network(shape, false, limits)
+                .unwrap()
+                .build()
+                .unwrap()
+        };
+        let baseline = compiler.compile(build(candidate_limits())).unwrap();
+        let used = baseline.metrics().policy_validation_work_units();
+        assert!(used > candidate_limits().value(D::RelationOccurrenceCount));
+        let exact = candidate_limits().with_test_policy_work_limit(u32::try_from(used).unwrap());
+        let output = compiler.compile(build(exact.clone())).unwrap();
+        assert_eq!(output.metrics(), baseline.metrics());
         let error = compiler
-            .compile(unit)
+            .compile(build(
+                candidate_limits().with_test_policy_work_limit(u32::try_from(used - 1).unwrap()),
+            ))
             .err()
-            .expect("legacy traversal budget remains coupled");
+            .expect("policy work boundary");
         assert!(error.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.payload(),
             DiagnosticPayload::CompileLimitExceeded {
-                dimension: D::RelationOccurrenceCount,
-                limit: 105_919,
-                observed: 105_920
-            }
+                dimension: D::PolicyValidationWorkUnits,
+                limit,
+                observed
+            } if *limit == used - 1 && *observed == used
         )));
-        assert!(compiler.compile(build_mixed_network(shape, false)).is_ok());
+        let retry = compiler.compile(build(exact)).unwrap();
+        assert_eq!(retry.metrics(), baseline.metrics());
+        let provenance = crate::PortableEmissionProvenance::try_new("policy-work-budget").unwrap();
+        let emit = |output: &crate::CompilationOutput| {
+            crate::emit_portable_candidate(
+                output,
+                &provenance,
+                laneflow_format::FormatLimits::HARD,
+                crate::PortableDiffBase::Genesis,
+            )
+            .unwrap()
+        };
+        let a = emit(&baseline);
+        let b = emit(&retry);
+        assert_eq!(
+            a.canonical_artifact().bytes(),
+            b.canonical_artifact().bytes()
+        );
+        assert_eq!(a.source_map().bytes(), b.source_map().bytes());
+        assert_eq!(a.semantic_diff().bytes(), b.semantic_diff().bytes());
     }
 }
 
