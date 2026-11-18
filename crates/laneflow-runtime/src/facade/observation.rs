@@ -438,15 +438,17 @@ impl crate::kernel::state::WorldState {
 
         match selection {
             ObservationSelection::AllLaneEdges => {
+                // 身份索引已按 StableId 升序保存 LaneEdge 排列，直接按序取用，不再排序。
                 try_reserve_observation_exact(&mut selected, lane_edge_capacity)?;
-                for raw in 0..lane_edge_count {
-                    let ordinal = LaneEdgeOrdinal::from_raw(raw);
+                for ordinal in identity
+                    .ordinals_by_stable_id::<laneflow_static_contract::LaneEdgeKind>()
+                    .iter()
+                {
                     let stable_id = identity
                         .stable_id(ordinal)
                         .expect("every LaneEdge ordinal has a stable identity");
                     selected.push(SelectedLaneEdge { stable_id, ordinal });
                 }
-                selected.sort_unstable_by_key(|edge| edge.stable_id);
             }
             ObservationSelection::ExplicitLaneEdges(stable_ids) => {
                 if stable_ids.is_empty() {
