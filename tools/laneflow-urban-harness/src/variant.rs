@@ -64,7 +64,11 @@ pub fn prepare_capacity_variant(base_directory: &Path, output: &Path) -> Result<
         UrbanConfig::parse(&fs::read_to_string(base_directory.join("config.toml"))?),
     )?;
     let scale = checked("urban scale", Scale::parse(&base.catalog().scale))?;
-    let ordinary = checked("regenerate base source", generate_source(&config, scale))?;
+    let profile = laneflow_compiler::CompileProfile::single_network_1m_stable_entities();
+    let ordinary = checked(
+        "regenerate base source",
+        generate_source(&config, scale, profile.clone()),
+    )?;
     if ordinary.common.as_bytes() != fs::read(base_directory.join("common.lfre"))?
         || ordinary.topology.as_bytes() != fs::read(base_directory.join("topology.lfre"))?
     {
@@ -74,7 +78,7 @@ pub fn prepare_capacity_variant(base_directory: &Path, output: &Path) -> Result<
     }
     let variant = checked(
         "capacity increment source",
-        generate_capacity_increment_source(&config, scale, &catalog_target.facility),
+        generate_capacity_increment_source(&config, scale, &catalog_target.facility, profile),
     )?;
     if ordinary.common.as_bytes() != variant.common.as_bytes()
         || serde_json::to_value(&ordinary.edges)? != serde_json::to_value(&variant.edges)?
