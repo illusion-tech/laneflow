@@ -159,3 +159,33 @@ domains = ["spatial"]
 scope = "规范几何采样会话；名称不再携带迁移阶段。"
 replacements = [{ target = "spatial-session", condition = "统一使用空间会话。" }]
 include_compounds = true
+
+[[name_changes]]
+id = "compile-profile-aggregate-name"
+names = ["编译资源上限", "compile limits", "CompileLimits"]
+domains = ["compiler"]
+scope = "指代来源处理限额、规范路网容量与操作资源预算的聚合配置类型时。"
+replacements = [{ target = "compile-limits", condition = "现行聚合配置使用编译配置档及精确类型 CompileProfile。" }]
+include_compounds = false
+issues = [1441, 1296]
+exceptions = ["对某项资源上限的普通描述不在此范围；历史提交、固定证据和旧接口说明保留当时名称。"]
+
+[[name_changes]]
+id = "regular-profile-p100-name"
+names = ["P100 配置档", "LF-COMP-P100", "CompileLimits::p100()"]
+domains = ["compiler"]
+scope = "以 P100 指代现行常规编译配置档的语境。"
+replacements = [{ target = "single-network-10k-compile-profile", condition = "承接局部完整路网编制用途；按新档数值政策和具名入口选择，不表示旧限额或 API 兼容。" }]
+include_compounds = false
+issues = [1441]
+exceptions = ["LF-P100-REF-01、P100 参考硬件、历史测量基线与固定提交证据保留原身份；已退役 P100 编译资源配置档的历史定义不改写。"]
+
+[[name_changes]]
+id = "million-profile-scale-name"
+names = ["LF-COMP-SINGLE-NETWORK-1M", "CompileLimits::single_network_1m()"]
+domains = ["compiler"]
+scope = "百万单路网编译配置档的现行标识符及构造入口。"
+replacements = [{ target = "single-network-million-compile-limits-profile", condition = "名称明确计数对象为稳定实体；此项改名不新增百万档完整资格结论。" }]
+include_compounds = false
+issues = [1441]
+exceptions = ["历史配置档版本、已关闭任务与固定提交证据保留原身份。"]
