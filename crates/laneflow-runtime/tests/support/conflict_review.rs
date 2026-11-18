@@ -415,3 +415,91 @@ fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() 
         "{kinds:?}"
     );
 }
+
+/// R4-2 复审修锚：近处空闲入口只是位置屏障，不遮挡制动窗内更远的已知
+/// 阻塞——owner 持有后门（门 1）预约时，subject 在前门（门 0，空闲未
+/// 授权）之外即开始减速；阻塞期间保持紧急可停（评审反例：旧实现的单一
+/// 最近入口附带布尔，远门持有被近门空闲遮挡，一拍内从可停变不可停）。
+#[test]
+fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
+    let revision = revision(ConflictPolicyFixture {
+        next_gate: true,
+        clearance: Some((1, 8.5)),
+        ..Default::default()
+    });
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let [route, _] = routes(&mut world, &revision);
+    let boundary = calibration_gate(&world, route);
+    // owner 先过门 0 并取得门 1 的预约。
+    let owner = world
+        .spawn_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary,
+                13_000,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    let mut owner_holds_far = false;
+    for _ in 0..80 {
+        world.step(TickInput::new(100)).unwrap();
+        if let Some(reservation) = world.conflict_reservation(owner)
+            && reservation.passage_range().admission_gate_hop() == 1
+        {
+            owner_holds_far = true;
+            break;
+        }
+    }
+    assert!(owner_holds_far, "owner 必须持有门 1 的预约");
+    let far_line = boundary
+        + world.traffic().lane_lengths_millimetres()[world.route_edges(route).unwrap()[1].index()];
+    // subject 距门 0 约 12.3 m、10 m/s（门 1 在更远处被持有）。
+    let subject = world
+        .place_existing_active_vehicle(
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                boundary - 12_300,
+                10_000,
+            )
+            .with_open_entrance(),
+        )
+        .unwrap();
+    let mut slowed_on_first_tick = false;
+    for _ in 0..200 {
+        let before = world.vehicle(subject).unwrap();
+        let owner_holds = world
+            .conflict_reservation(owner)
+            .is_some_and(|reservation| reservation.passage_range().admission_gate_hop() >= 1);
+        world.step(TickInput::new(100)).unwrap();
+        let after = world.vehicle(subject).unwrap();
+        if !slowed_on_first_tick {
+            assert!(
+                after.speed_mm_s() < before.speed_mm_s(),
+                "远门持有不被近门空闲遮挡：首拍即减速（{} → {}）",
+                before.speed_mm_s(),
+                after.speed_mm_s()
+            );
+            slowed_on_first_tick = true;
+        }
+        if owner_holds {
+            // 阻塞期间紧急可停不变量：拍初速度对门 1 线（被持有的远门）的
+            // 拍初剩余距离（评审反例对远门断言；近门空闲不要求可停）。
+            let stopping = u64::from(before.speed_mm_s()) * u64::from(before.speed_mm_s()) / 8_000;
+            let remaining = u64::from(far_line - before.progress_mm());
+            assert!(
+                stopping <= remaining,
+                "阻塞期间对远门保持可停：需 {stopping} mm ≤ 剩余 {remaining} mm"
+            );
+        }
+        if world.conflict_reservation(subject).is_some() {
+            break;
+        }
+    }
+    assert!(slowed_on_first_tick);
+}

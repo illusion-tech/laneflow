@@ -72,7 +72,10 @@ unsafe fn finish4<const TRACK: bool>(
         // F3' 复审修：过渡耗尽通道（exhausted_cap_dominates）速度取
         // min(cap, limit)，不与候选投影再 min；其余耗尽通道维持
         // min(投影, cap, limit)。与标量 finish_values 逐位一致。
-        let dominant = _mm_cvtepu8_epi32(_mm_loadl_epi64(
+        // R4-1 复审修：布尔列每行 1 字节，四行只有 4 字节——只读 4 字节
+        // （_mm_loadu_si32）再零扩展；不能用 8 字节的 loadl_epi64（恰长
+        // 输入的末组会越过分配读 4 字节）。
+        let dominant = _mm_cvtepu8_epi32(_mm_loadu_si32(
             input.exhausted_cap_dominates.as_ptr().add(start).cast(),
         ));
         let dominant_mask = _mm_cmpeq_epi32(dominant, _mm_set1_epi32(1));

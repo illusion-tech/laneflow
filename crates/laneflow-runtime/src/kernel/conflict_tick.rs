@@ -1467,7 +1467,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 行为测试（生产分类走 MotionTaskView::conflict_stop_at）。
         Ok(Some(super::tick::ResourceBarrier {
             constraint: crate::kernel::waiting::WaitingStopConstraint { distance, hop },
-            known_blocked: true,
+            stop: Some(crate::kernel::waiting::WaitingStopConstraint { distance, hop }),
         }))
     }
 
