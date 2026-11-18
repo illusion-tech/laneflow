@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-state-integrity"
 kind = "design"
 status = "accepted"
-revised_date = "2026-10-26"
+revised_date = "2026-11-18"
 summary = "定义状态完整性校验、失真恢复与宿主处置。"
 scope = "运行时状态完整性的检测范围与分期、可信期望值与原像、共享路网修订认证、失真 处置裁决权边界、结论与遥测、认证成本报告口径与 retained-memory 分类"
 applicability = "#applicability"
@@ -697,10 +697,10 @@ E 的软件验证范围及证据见[逐项验收记录][acceptance-evidence]。
     authoring lane / junction / stop line、gate 的 signal group、parking space 的
     facility、class 的 parent）、`Option<Box<str>>`（policy 的 jurisdiction source、
     evidence description）与 `Option<u32>`（stream 规则的 gap 下标）；
-  - 枚举判别值列：`EntityKind`（identity reverse）、`CorridorElement`、
-    `FacilityKind`（含 `bool` 字段 `lane_bearing`）、`AccessTarget`、`AccessEffect`、
-    `AccessCell`、`SignalAspect`、`PolicyLocalMemberKind`、`GateInterpretation`、
-    `GateProhibition`、`ConflictPathAnchor`、`PolicyOwnerIndex`（Dense / Sparse 判别）；
+  - 枚举判别值列：`CorridorElement`、`FacilityKind`（含 `bool` 字段 `lane_bearing`）、
+    `AccessTarget`、`AccessEffect`、`AccessCell`、`SignalAspect`、`PolicyLocalMemberKind`、
+    `GateInterpretation`、`GateProhibition`、`ConflictPathAnchor`、`PolicyOwnerIndex`
+    （Dense / Sparse 判别）；身份索引只保留 `StableId128` 与 `u32` 排列，不含枚举列；
   - `Box<str>`（relations intern、policy 冷数据字符串）与全部 `Box<[T]>` 列的
     fat pointer（指针与长度）；
   - `f32` / `f64` 列任意位模式皆有效（NaN payload 合法），不属本清单。
