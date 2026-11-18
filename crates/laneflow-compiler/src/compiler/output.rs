@@ -115,6 +115,12 @@ impl CompilationOutput {
         }
     }
 
+    /// 返回本次成功编译实际采用的具名配置档身份，供宿主报告实际执行选择。
+    #[must_use]
+    pub const fn compile_profile_id(&self) -> &'static str {
+        self.limits.profile_id()
+    }
+
     /// 返回本次编译实际采用的编译上限配置；仅供编译器内部后端读取。
     pub(crate) const fn compile_limits(&self) -> &CompileProfile {
         &self.limits

@@ -339,7 +339,8 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     let catalog = build_catalog(config, &corridor)?;
     validate_catalog(&catalog, &corridor)?;
     let cross_section = build_cross_section(&corridor);
-    let compilation = compile_corridor(config, &corridor, &cross_section)?;
+    let profile = laneflow_compiler::CompileProfile::single_network_10k_stable_entities();
+    let compilation = compile_corridor(config, &corridor, &cross_section, profile)?;
 
     let mut catalog_text = toml::to_string_pretty(&catalog)?;
     while catalog_text.ends_with(['\r', '\n']) {

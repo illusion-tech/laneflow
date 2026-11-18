@@ -41,8 +41,8 @@ pub(crate) fn compile_corridor(
     config: &CorridorConfig,
     corridor: &CorridorBuild,
     cross_section: &CrossSectionDocs,
+    limits: CompileProfile,
 ) -> Result<CompilationOutput, Error> {
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
             authoring_namespace_id: AUTHORING_NAMESPACE,

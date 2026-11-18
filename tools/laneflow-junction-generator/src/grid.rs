@@ -72,7 +72,8 @@ pub fn generate_grid(config: &JunctionConfig, count: usize) -> Result<GeneratedG
         cells.push(cell);
         catalogs.push(catalog);
     }
-    let compilation = compile_cells(config, &cells)?;
+    let profile = laneflow_compiler::CompileProfile::single_network_1m_stable_entities();
+    let compilation = compile_cells(config, &cells, profile)?;
     Ok(GeneratedGrid {
         catalog: GridCatalog {
             layout: "junction-grid-v1".to_owned(),

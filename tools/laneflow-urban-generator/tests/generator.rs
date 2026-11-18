@@ -10,6 +10,10 @@ fn connected_fixture_delivers_repeatable_installable_artifacts_and_caller_routes
     let a = temp.path().join("a");
     let b = temp.path().join("b");
     let first = generate(&config, Scale::Fixture, &a, None).unwrap();
+    assert_eq!(
+        first.compile_limits,
+        laneflow_compiler::CompileProfile::single_network_1m_stable_entities().profile_id()
+    );
     let frozen: toml::Table =
         toml::from_str(include_str!("../fixtures/v1/fixture/manifest.toml")).unwrap();
     assert_eq!(
@@ -97,4 +101,51 @@ fn both_scales_use_the_accepted_integer_layout_and_reciprocal_ports() {
             }
         }
     }
+}
+
+#[test]
+fn explicit_profile_is_preserved_and_never_upgraded() {
+    use laneflow_compiler::{
+        CompileProfile, PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::FormatLimits;
+    use laneflow_urban_generator::{compile_source, generate_source};
+
+    let config =
+        UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
+    let provenance = PortableEmissionProvenance::try_new("profile-selection-regression").unwrap();
+    let mut artifacts = Vec::new();
+    for profile in [
+        CompileProfile::single_network_10k_stable_entities(),
+        CompileProfile::single_network_1m_stable_entities(),
+    ] {
+        let expected_id = profile.profile_id();
+        let source = generate_source(&config, Scale::Fixture, profile).unwrap();
+        let output = compile_source(&source).unwrap();
+        assert_eq!(output.compile_profile_id(), expected_id);
+        let candidate = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .unwrap();
+        artifacts.push((
+            candidate.canonical_artifact().bytes().to_vec(),
+            candidate.source_map().bytes().to_vec(),
+            candidate.semantic_diff().bytes().to_vec(),
+        ));
+    }
+    assert_eq!(artifacts[0], artifacts[1]);
+    let result = generate_source(
+        &config,
+        Scale::TenThousand,
+        CompileProfile::single_network_10k_stable_entities(),
+    )
+    .and_then(|source| compile_source(&source));
+    let error = result.err().expect("capacity must not silently upgrade");
+    assert!(
+        error.to_string().contains("LF-COMP-RESOURCE-LIMIT"),
+        "{error}"
+    );
 }

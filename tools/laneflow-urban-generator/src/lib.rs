@@ -18,9 +18,7 @@ pub use source::{
 
 pub fn compile_source(source: &GeneratedSource) -> Result<laneflow_compiler::CompilationOutput> {
     use laneflow_compiler::road_editing::RoadEditingModuleInput;
-    let mut unit = laneflow_compiler::CompilationUnitBuilder::new(
-        laneflow_compiler::CompileProfile::single_network_1m_stable_entities(),
-    );
+    let mut unit = laneflow_compiler::CompilationUnitBuilder::new(source.compile_profile().clone());
     for (document, bytes) in [
         (source::COMMON_DOCUMENT_KEY, source.common.as_bytes()),
         (source::DOCUMENT_KEY, source.topology.as_bytes()),

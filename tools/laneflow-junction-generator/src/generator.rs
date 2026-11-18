@@ -99,7 +99,8 @@ pub fn generate(config: &JunctionConfig) -> Result<GeneratedScenario, Error> {
     let topology = build_topology(config)?;
     let catalog = build_catalog(config, &topology)?;
     validate_catalog(&catalog, &topology, config)?;
-    let compilation = compile_junction(config, &topology)?;
+    let profile = laneflow_compiler::CompileProfile::single_network_1m_stable_entities();
+    let compilation = compile_junction(config, &topology, profile)?;
 
     let mut catalog_text = toml::to_string_pretty(&catalog)?;
     while catalog_text.ends_with(['\r', '\n']) {

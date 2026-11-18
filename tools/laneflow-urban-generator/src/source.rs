@@ -99,6 +99,7 @@ pub struct SignalPhase {
 }
 
 pub struct GeneratedSource {
+    compile_profile: CompileProfile,
     pub layout: Layout,
     pub common: re::OwnedRoadEditingSourceBuffer,
     pub topology: re::OwnedRoadEditingSourceBuffer,
@@ -110,16 +111,34 @@ pub struct GeneratedSource {
     pub signals: Vec<SignalProgram>,
 }
 
-pub fn generate_source(config: &UrbanConfig, scale: Scale) -> Result<GeneratedSource> {
-    generate_source_inner(config, scale, None)
+impl GeneratedSource {
+    pub(crate) fn compile_profile(&self) -> &CompileProfile {
+        &self.compile_profile
+    }
+}
+
+/// 使用调用方选择的编译政策构造来源，后续编译沿用同一选择。
+///
+/// # Errors
+/// 配置无效或来源超过所选政策时返回错误，不自动升档。
+pub fn generate_source(
+    config: &UrbanConfig,
+    scale: Scale,
+    profile: CompileProfile,
+) -> Result<GeneratedSource> {
+    generate_source_inner(config, scale, None, profile)
 }
 
 /// #545 verification input: increase one named virtual-only garage by exactly one.
 /// Stable identity anchors, geometry, routes, profiles, and policy remain unchanged.
+///
+/// # Errors
+/// 目标车库不存在、容量溢出或来源超过所选编译政策时返回错误。
 pub fn generate_capacity_increment_source(
     config: &UrbanConfig,
     scale: Scale,
     facility: &str,
+    profile: CompileProfile,
 ) -> Result<GeneratedSource> {
     if !(0..scale.tile_count()).any(|tile| facility == format!("t{tile:03}.underground")) {
         return Err(crate::Error::Config(
@@ -130,16 +149,16 @@ pub fn generate_capacity_increment_source(
         .garage_virtual_capacity
         .checked_add(1)
         .ok_or_else(|| crate::Error::Config("garage capacity cannot increase".into()))?;
-    generate_source_inner(config, scale, Some(facility))
+    generate_source_inner(config, scale, Some(facility), profile)
 }
 
 fn generate_source_inner(
     config: &UrbanConfig,
     scale: Scale,
     increment: Option<&str>,
+    limits: CompileProfile,
 ) -> Result<GeneratedSource> {
     config.validate()?;
-    let limits = CompileProfile::single_network_1m_stable_entities();
     let config_text = toml::to_string(config)?;
     let config_digest: [u8; 32] = Sha256::digest(config_text.as_bytes()).into();
     let mut topology_digest = Sha256::new();
@@ -225,6 +244,7 @@ fn generate_source_inner(
         policy_references,
     )?;
     Ok(GeneratedSource {
+        compile_profile: limits,
         layout,
         common,
         topology,

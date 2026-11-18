@@ -19,19 +19,17 @@ use crate::topology::{
 pub(crate) fn compile_junction(
     config: &JunctionConfig,
     topology: &TopologyBuild,
+    limits: CompileProfile,
 ) -> Result<CompilationOutput, Error> {
-    compile_cells(config, std::slice::from_ref(topology))
+    compile_cells(config, std::slice::from_ref(topology), limits)
 }
 
 /// 一个正式编制模块、一个策略集合和一个共享静态路网内的路口实例。
 pub(crate) fn compile_cells(
     config: &JunctionConfig,
     cells: &[TopologyBuild],
+    limits: CompileProfile,
 ) -> Result<CompilationOutput, Error> {
-    // 编译/发射用 single_network_1m：该场景的规模按大型配置档选择。限制只检查
-    // 不改字节；StableId 按内容派生，与限制档位无关，因此 catalog pin 与 binder
-    // 侧的 p100 身份派生结果与这里完全一致。
-    let limits = CompileProfile::single_network_1m_stable_entities();
     let mut config_text = toml::to_string(config)?;
     if cells.len() != 1 || cells[0].junction_key != JUNCTION_KEY {
         config_text.push_str(&format!(

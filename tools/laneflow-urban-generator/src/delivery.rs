@@ -159,7 +159,8 @@ pub fn generate(
     config.validate()?;
     fs::create_dir(directory)?;
     let mut recorder = Recorder::new(allocator);
-    let generated = generate_source(config, scale)?;
+    let profile = CompileProfile::single_network_1m_stable_entities();
+    let generated = generate_source(config, scale, profile)?;
     recorder.finish("source");
     let mut files = BTreeMap::new();
     write(
@@ -183,6 +184,7 @@ pub fn generate(
     recorder.begin();
     let output = compile_source(&generated)?;
     recorder.finish("compile");
+    let compile_profile_id = output.compile_profile_id();
     let metrics = output.metrics();
     let lir_counts = lir_counts(&output);
     let provenance = PortableEmissionProvenance::try_new(source::BUILD_ID)
@@ -382,9 +384,7 @@ pub fn generate(
         tile_columns: generated.layout.tile_columns,
         nominal_individuals: scale.nominal_individual_count(),
         fixed_step_ms: scale.fixed_step_ms(),
-        compile_limits: CompileProfile::single_network_1m_stable_entities()
-            .profile_id()
-            .into(),
+        compile_limits: compile_profile_id.into(),
         format_limits: "FormatLimits::HARD".into(),
         shared_build_limits: BTreeMap::from([
             ("max_retained_bytes".into(), limits.max_retained_bytes()),
@@ -787,7 +787,15 @@ mod tests {
     fn rewriting_from_the_same_compilation_reproduces_identical_bytes() {
         let config =
             UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();
-        let output = compile_source(&generate_source(&config, Scale::Fixture).unwrap()).unwrap();
+        let output = compile_source(
+            &generate_source(
+                &config,
+                Scale::Fixture,
+                CompileProfile::single_network_1m_stable_entities(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         let provenance = PortableEmissionProvenance::try_new(source::BUILD_ID).unwrap();
         let checked = || {
             let (staging, candidate) =
