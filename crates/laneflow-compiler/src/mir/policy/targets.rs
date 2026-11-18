@@ -17,9 +17,8 @@ pub(super) struct TargetRange {
 }
 /// 让行目标表：全部规则的目标区间、扁平化的目标单元存储及其字节数。
 pub(super) struct TargetTable {
-    pub ranges: Vec<TargetRange>,
-    pub cells: Vec<TargetCell>,
-    pub bytes: u64,
+    pub ranges: crate::ledger::BoundedVec<TargetRange>,
+    pub cells: crate::ledger::BoundedVec<TargetCell>,
 }
 
 /// 为每条通行流路权规则的每个主体通行段展开让行目标，按规范身份排序；全程校验上限并计入工作预算。
@@ -28,7 +27,6 @@ pub(super) fn build(
     mir: &MirUnit,
     policy: &MirPolicy,
     passages: &PassageIndex,
-    prior_bytes: u64,
     work: &mut WorkBudget,
 ) -> Result<TargetTable, DiagnosticBundle> {
     let mut range_count = 0_u64;
@@ -43,19 +41,11 @@ pub(super) fn build(
             visit(mir, passages, rule, source_index, work, |_| {
                 cell_count = cell_count.saturating_add(1);
             })?;
-            super::validation::budget(
-                ledger,
-                prior_bytes
-                    .saturating_add(range_count.saturating_mul(size_of::<TargetRange>() as u64))
-                    .saturating_add(cell_count.saturating_mul(size_of::<TargetCell>() as u64)),
-            )?;
         }
     }
-    let bytes = range_count
-        .saturating_mul(size_of::<TargetRange>() as u64)
-        .saturating_add(cell_count.saturating_mul(size_of::<TargetCell>() as u64));
-    let mut ranges = Vec::with_capacity(range_count as usize);
-    let mut cells = Vec::with_capacity(cell_count as usize);
+    // 两遍计数均已消费 u32 有限工作量预算，计数因此可表示为 `usize`。
+    let mut ranges = super::validation::scratch(ledger, range_count as usize)?;
+    let mut cells = super::validation::scratch(ledger, cell_count as usize)?;
     for (index, rule) in policy.value.streams.iter().enumerate() {
         for source_index in mir.participant_streams[rule.stream.index()]
             .passages
@@ -63,9 +53,16 @@ pub(super) fn build(
         {
             let start = cells.len();
             work.charge(1)?;
+            // 第二遍写入的目标数与第一遍计数相同；超出授予容量属记账缺陷，在遍历后返回。
+            let mut overflow = None;
             visit(mir, passages, rule, source_index, work, |cell| {
-                cells.push(cell)
+                if let Err(error) = cells.push(cell) {
+                    overflow.get_or_insert(error);
+                }
             })?;
+            if let Some(error) = overflow {
+                return Err(error.into());
+            }
             cells[start..].sort_unstable_by(|a, b| {
                 // 同一 range 的 zone 固定；按流的完整 Identity 前像规范顺序比较，
                 // 不能用摘要字节顺序代替 canonical rank。
@@ -89,14 +86,10 @@ pub(super) fn build(
                 rule: index as u32,
                 subject_passage: source_index as u32,
                 targets,
-            });
+            })?;
         }
     }
-    Ok(TargetTable {
-        ranges,
-        cells,
-        bytes,
-    })
+    Ok(TargetTable { ranges, cells })
 }
 fn visit(
     mir: &MirUnit,
@@ -149,7 +142,7 @@ mod tests {
             }
             stream.passages = TableRange::try_from_usize(start, count).unwrap();
         }
-        mir.conflict_passages = passages.into_boxed_slice();
+        mir.conflict_passages = passages.into();
         let index =
             PassageIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir).unwrap();
         let mut work = WorkBudget::new(unit.limits.operation_budget());
@@ -158,7 +151,6 @@ mod tests {
             &mir,
             &mir.policies[0],
             &index,
-            index.bytes(),
             &mut work,
         )
         .unwrap();
@@ -211,7 +203,7 @@ mod tests {
         passages.extend([shared, subject_only]);
         mir.participant_streams[subject_stream.index()].passages =
             TableRange::try_from_usize(start, 2).unwrap();
-        mir.conflict_passages = passages.into_boxed_slice();
+        mir.conflict_passages = passages.into();
         let passages =
             PassageIndex::build(&crate::ledger::Ledger::with_budget(u64::MAX), &mir).unwrap();
         let table = build(
@@ -219,7 +211,6 @@ mod tests {
             &mir,
             &mir.policies[0],
             &passages,
-            passages.bytes(),
             &mut WorkBudget::new(unit.limits.operation_budget()),
         )
         .unwrap();
