@@ -19,7 +19,7 @@ use crate::{
     SourceModuleHeaderInput, StopLineInput, StopLineReference, SyntheticModule,
     SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
 };
-use laneflow_static_contract::{CanonicalFrameKind, EntityKind};
+use laneflow_static_contract::{CanonicalFrameKind, EntityKind, ParticipantStreamOrdinal};
 use std::sync::Arc;
 
 fn unit(modules: impl IntoIterator<Item = SyntheticModule>) -> CompilationUnit {
@@ -999,8 +999,8 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
     let conflict_zones = core::mem::take(&mut mir.conflict_zones);
     let without_conflict_zones = crate::lir::LirFreezePlan::analyze(&mir);
     let expected_zone_scratch_bytes = u64::try_from(
-        core::mem::size_of::<u32>() * 2
-            + core::mem::size_of::<Vec<laneflow_static_contract::ParticipantStreamOrdinal>>(),
+        core::mem::size_of::<crate::ledger::BoundedVec<ParticipantStreamOrdinal>>()
+            + core::mem::size_of::<Option<usize>>(),
     )
     .expect("small fixed test size");
     assert_eq!(
@@ -1022,8 +1022,8 @@ fn conflict_reverse_closure_scratch_is_exact_bounded_and_not_retained() {
         .expect("exact LIR live boundary")
         .lir;
     assert_eq!(frozen.controlled_live_bytes, plan.output_owned_bytes);
-    // 本遍授予只覆盖自有输出；暂存不进入输出存续。
-    assert!(plan.stage_bytes >= plan.output_owned_bytes);
+    let retained_without_scratch = plan.stage_bytes - plan.stage_scratch_bytes;
+    assert_eq!(retained_without_scratch, plan.retained_bytes);
 
     unit.limits = fixture_profile().with_test_lir_limits(u32::MAX, exact_live - 1);
     let failure = match crate::lir::freeze_lir(&unit, &mir) {

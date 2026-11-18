@@ -23,6 +23,7 @@ use laneflow_static_contract::{
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::geometry_profile::GeometryCompilationProfiles;
+use crate::ledger::{BoundedVec, Frozen, PassBudget};
 use crate::mir::{
     MirAccessRuleKey, MirAuthoringLaneKey, MirCanonicalFrameKey, MirConflictPassage,
     MirConflictZoneKey, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeConnection, MirLaneEdgeKey,
@@ -159,7 +160,7 @@ pub(crate) use spatial::{
 /// 对应平面表内。`controlled_live_bytes` 只统计成功返回后由本结果持有的请求字节；
 /// `peak_controlled_live_bytes` 另保存 MIR、冻结暂存区与新输出共存时的阶段峰值。
 pub(crate) struct LirUnit {
-    pub(crate) policies: Box<[LirPolicy]>,
+    pub(crate) policies: Frozen<LirPolicy>,
     /// `None` 使用两个零 code；道路编辑规范几何使用两个闭合的非零档位 code。
     #[cfg_attr(
         not(test),
@@ -169,58 +170,58 @@ pub(crate) struct LirUnit {
         )
     )]
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
-    pub(crate) lane_edges: Box<[LirLaneEdge]>,
-    pub(crate) lane_edge_successors: Box<[LaneEdgeOrdinal]>,
-    pub(crate) road_corridors: Box<[LirRoadCorridor]>,
-    pub(crate) corridor_elements: Box<[LirCorridorElement]>,
-    pub(crate) road_sections: Box<[LirRoadSection]>,
-    pub(crate) road_section_lanes: Box<[AuthoringLaneOrdinal]>,
-    pub(crate) authoring_lanes: Box<[LirAuthoringLane]>,
-    pub(crate) authoring_lane_edges: Box<[LaneEdgeOrdinal]>,
-    pub(crate) lane_groups: Box<[LirLaneGroup]>,
-    pub(crate) lane_group_members: Box<[AuthoringLaneOrdinal]>,
-    pub(crate) facility_bands: Box<[LirFacilityBand]>,
-    pub(crate) junctions: Box<[LirJunction]>,
-    pub(crate) junction_movements: Box<[MovementOrdinal]>,
-    pub(crate) movements: Box<[LirMovement]>,
-    pub(crate) movement_maneuver_paths: Box<[ManeuverPathOrdinal]>,
-    pub(crate) maneuver_paths: Box<[LirManeuverPath]>,
-    pub(crate) maneuver_path_edges: Box<[LaneEdgeOrdinal]>,
-    pub(crate) junction_internal_edges: Box<[LirJunctionInternalEdge]>,
-    pub(crate) stop_lines: Box<[LirStopLine]>,
-    pub(crate) maneuver_gates: Box<[LirManeuverGate]>,
-    pub(crate) waiting_zones: Box<[LirWaitingZone]>,
-    pub(crate) maneuver_path_gates: Box<[ManeuverGateOrdinal]>,
-    pub(crate) maneuver_path_waiting_zones: Box<[WaitingZoneOrdinal]>,
-    pub(crate) stop_line_maneuver_gates: Box<[ManeuverGateOrdinal]>,
-    pub(crate) signal_groups: Box<[LirSignalGroup]>,
-    pub(crate) signal_controllers: Box<[LirSignalController]>,
-    pub(crate) signal_controller_groups: Box<[SignalGroupOrdinal]>,
-    pub(crate) signal_controller_phases: Box<[SignalPhaseOrdinal]>,
-    pub(crate) signal_phases: Box<[LirSignalPhase]>,
-    pub(crate) signal_phase_states: Box<[LirSignalPhaseState]>,
-    pub(crate) signal_group_maneuver_gates: Box<[ManeuverGateOrdinal]>,
-    pub(crate) conflict_zones: Box<[LirConflictZone]>,
-    pub(crate) participant_streams: Box<[LirParticipantStream]>,
-    pub(crate) conflict_passages: Box<[LirConflictPassage]>,
-    pub(crate) parking_facilities: Box<[LirParkingFacility]>,
-    pub(crate) parking_spaces: Box<[LirParkingSpace]>,
-    pub(crate) parking_facility_spaces: Box<[ParkingSpaceOrdinal]>,
-    pub(crate) parking_facility_virtual_entries: Box<[parking::LirParkingLaneAnchor]>,
-    pub(crate) parking_facility_virtual_exits: Box<[parking::LirParkingLaneAnchor]>,
-    pub(crate) participant_classes: Box<[LirParticipantClass]>,
-    pub(crate) vehicle_profiles: Box<[LirVehicleProfile]>,
-    pub(crate) canonical_frames: Box<[LirCanonicalFrame]>,
-    pub(crate) lane_edge_geometries: Box<[LirLaneEdgeGeometry]>,
-    pub(crate) facility_band_geometries: Box<[LirFacilityBandGeometry]>,
-    pub(crate) conflict_zone_regions: Box<[LirConflictZoneRegion]>,
-    pub(crate) canonical_points: Box<[LirCanonicalPoint3F32]>,
-    pub(crate) conflict_region_points: Box<[LirCanonicalPoint2F32]>,
-    pub(crate) spatial_segments: Box<[LirSpatialSegment]>,
-    pub(crate) access_rules: Box<[LirAccessRule]>,
-    pub(crate) access_rule_participant_classes: Box<[ParticipantClassOrdinal]>,
-    pub(crate) identity_fields: Box<[LirIdentityField]>,
-    pub(crate) identity_field_bytes: Box<[u8]>,
+    pub(crate) lane_edges: Frozen<LirLaneEdge>,
+    pub(crate) lane_edge_successors: Frozen<LaneEdgeOrdinal>,
+    pub(crate) road_corridors: Frozen<LirRoadCorridor>,
+    pub(crate) corridor_elements: Frozen<LirCorridorElement>,
+    pub(crate) road_sections: Frozen<LirRoadSection>,
+    pub(crate) road_section_lanes: Frozen<AuthoringLaneOrdinal>,
+    pub(crate) authoring_lanes: Frozen<LirAuthoringLane>,
+    pub(crate) authoring_lane_edges: Frozen<LaneEdgeOrdinal>,
+    pub(crate) lane_groups: Frozen<LirLaneGroup>,
+    pub(crate) lane_group_members: Frozen<AuthoringLaneOrdinal>,
+    pub(crate) facility_bands: Frozen<LirFacilityBand>,
+    pub(crate) junctions: Frozen<LirJunction>,
+    pub(crate) junction_movements: Frozen<MovementOrdinal>,
+    pub(crate) movements: Frozen<LirMovement>,
+    pub(crate) movement_maneuver_paths: Frozen<ManeuverPathOrdinal>,
+    pub(crate) maneuver_paths: Frozen<LirManeuverPath>,
+    pub(crate) maneuver_path_edges: Frozen<LaneEdgeOrdinal>,
+    pub(crate) junction_internal_edges: Frozen<LirJunctionInternalEdge>,
+    pub(crate) stop_lines: Frozen<LirStopLine>,
+    pub(crate) maneuver_gates: Frozen<LirManeuverGate>,
+    pub(crate) waiting_zones: Frozen<LirWaitingZone>,
+    pub(crate) maneuver_path_gates: Frozen<ManeuverGateOrdinal>,
+    pub(crate) maneuver_path_waiting_zones: Frozen<WaitingZoneOrdinal>,
+    pub(crate) stop_line_maneuver_gates: Frozen<ManeuverGateOrdinal>,
+    pub(crate) signal_groups: Frozen<LirSignalGroup>,
+    pub(crate) signal_controllers: Frozen<LirSignalController>,
+    pub(crate) signal_controller_groups: Frozen<SignalGroupOrdinal>,
+    pub(crate) signal_controller_phases: Frozen<SignalPhaseOrdinal>,
+    pub(crate) signal_phases: Frozen<LirSignalPhase>,
+    pub(crate) signal_phase_states: Frozen<LirSignalPhaseState>,
+    pub(crate) signal_group_maneuver_gates: Frozen<ManeuverGateOrdinal>,
+    pub(crate) conflict_zones: Frozen<LirConflictZone>,
+    pub(crate) participant_streams: Frozen<LirParticipantStream>,
+    pub(crate) conflict_passages: Frozen<LirConflictPassage>,
+    pub(crate) parking_facilities: Frozen<LirParkingFacility>,
+    pub(crate) parking_spaces: Frozen<LirParkingSpace>,
+    pub(crate) parking_facility_spaces: Frozen<ParkingSpaceOrdinal>,
+    pub(crate) parking_facility_virtual_entries: Frozen<parking::LirParkingLaneAnchor>,
+    pub(crate) parking_facility_virtual_exits: Frozen<parking::LirParkingLaneAnchor>,
+    pub(crate) participant_classes: Frozen<LirParticipantClass>,
+    pub(crate) vehicle_profiles: Frozen<LirVehicleProfile>,
+    pub(crate) canonical_frames: Frozen<LirCanonicalFrame>,
+    pub(crate) lane_edge_geometries: Frozen<LirLaneEdgeGeometry>,
+    pub(crate) facility_band_geometries: Frozen<LirFacilityBandGeometry>,
+    pub(crate) conflict_zone_regions: Frozen<LirConflictZoneRegion>,
+    pub(crate) canonical_points: Frozen<LirCanonicalPoint3F32>,
+    pub(crate) conflict_region_points: Frozen<LirCanonicalPoint2F32>,
+    pub(crate) spatial_segments: Frozen<LirSpatialSegment>,
+    pub(crate) access_rules: Frozen<LirAccessRule>,
+    pub(crate) access_rule_participant_classes: Frozen<ParticipantClassOrdinal>,
+    pub(crate) identity_fields: Frozen<LirIdentityField>,
+    pub(crate) identity_field_bytes: Frozen<u8>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) semantic_digest: [u8; 32],
     #[cfg_attr(not(test), allow(dead_code))]
@@ -228,8 +229,76 @@ pub(crate) struct LirUnit {
     pub(crate) output_bytes: u64,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) controlled_live_bytes: u64,
-    /// LIR 输出持有的编译账本授予；成功返回时转交宿主。
-    pub(crate) ledger_grant: crate::ledger::OutputGrant,
+    /// 记录内嵌变长载荷（策略值、类别标识、进出口键与法规文本）集中持有的授予；各表的
+    /// 授予随表持有。
+    pub(crate) inner_payloads: crate::ledger::OutputGrant,
+}
+
+impl LirUnit {
+    /// 返回点转交宿主：各表与内嵌载荷的授予逐项转交，之后不再受账本约束。
+    pub(crate) fn transfer_to_host(&mut self) {
+        macro_rules! transfer {
+            ($($table:ident),* $(,)?) => {
+                $(self.$table.transfer_to_host();)*
+            };
+        }
+        transfer!(
+            policies,
+            lane_edges,
+            lane_edge_successors,
+            road_corridors,
+            corridor_elements,
+            road_sections,
+            road_section_lanes,
+            authoring_lanes,
+            authoring_lane_edges,
+            lane_groups,
+            lane_group_members,
+            facility_bands,
+            junctions,
+            junction_movements,
+            movements,
+            movement_maneuver_paths,
+            maneuver_paths,
+            maneuver_path_edges,
+            junction_internal_edges,
+            stop_lines,
+            maneuver_gates,
+            waiting_zones,
+            maneuver_path_gates,
+            maneuver_path_waiting_zones,
+            stop_line_maneuver_gates,
+            signal_groups,
+            signal_controllers,
+            signal_controller_groups,
+            signal_controller_phases,
+            signal_phases,
+            signal_phase_states,
+            signal_group_maneuver_gates,
+            conflict_zones,
+            participant_streams,
+            conflict_passages,
+            parking_facilities,
+            parking_spaces,
+            parking_facility_spaces,
+            parking_facility_virtual_entries,
+            parking_facility_virtual_exits,
+            participant_classes,
+            vehicle_profiles,
+            canonical_frames,
+            lane_edge_geometries,
+            facility_band_geometries,
+            conflict_zone_regions,
+            canonical_points,
+            conflict_region_points,
+            spatial_segments,
+            access_rules,
+            access_rule_participant_classes,
+            identity_fields,
+            identity_field_bytes,
+            inner_payloads,
+        );
+    }
 }
 
 /// LIR 与冻结源映射所需的全部临时阶段排列。
@@ -245,7 +314,7 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) junctions: LirEntityOrder<MirJunctionKey, JunctionOrdinal>,
     pub(crate) movements: LirEntityOrder<MirMovementKey, MovementOrdinal>,
     pub(crate) maneuver_paths: LirEntityOrder<MirManeuverPathKey, ManeuverPathOrdinal>,
-    pub(crate) canonical_mir_internal_edge_order: Box<[u32]>,
+    pub(crate) canonical_mir_internal_edge_order: Frozen<u32>,
     pub(crate) stop_lines: LirEntityOrder<MirStopLineKey, StopLineOrdinal>,
     pub(crate) maneuver_gates: LirEntityOrder<MirManeuverGateKey, ManeuverGateOrdinal>,
     pub(crate) waiting_zones: LirEntityOrder<MirWaitingZoneKey, WaitingZoneOrdinal>,
@@ -267,42 +336,10 @@ pub(crate) struct LirFreezeOutput {
 }
 
 impl LirFreezeOutput {
-    /// 返回临时有类型实体映射与 owner-local 行排列的真实请求容量字节。
-    pub(crate) fn mapping_bytes(&self) -> u64 {
-        self.lane_edges
-            .mapping_bytes()
-            .saturating_add(self.lane_edge_successors.mapping_bytes())
-            .saturating_add(self.road_corridors.mapping_bytes())
-            .saturating_add(self.road_sections.mapping_bytes())
-            .saturating_add(self.authoring_lanes.mapping_bytes())
-            .saturating_add(self.lane_groups.mapping_bytes())
-            .saturating_add(self.facility_bands.mapping_bytes())
-            .saturating_add(self.junctions.mapping_bytes())
-            .saturating_add(self.movements.mapping_bytes())
-            .saturating_add(self.maneuver_paths.mapping_bytes())
-            .saturating_add(requested_bytes::<u32>(
-                self.canonical_mir_internal_edge_order
-                    .len()
-                    .try_into()
-                    .unwrap_or(u64::MAX),
-            ))
-            .saturating_add(self.stop_lines.mapping_bytes())
-            .saturating_add(self.maneuver_gates.mapping_bytes())
-            .saturating_add(self.waiting_zones.mapping_bytes())
-            .saturating_add(self.signal_groups.mapping_bytes())
-            .saturating_add(self.signal_controllers.mapping_bytes())
-            .saturating_add(self.signal_phases.mapping_bytes())
-            .saturating_add(self.signal_controller_groups.mapping_bytes())
-            .saturating_add(self.signal_phase_states.mapping_bytes())
-            .saturating_add(self.conflict_zones.mapping_bytes())
-            .saturating_add(self.participant_streams.mapping_bytes())
-            .saturating_add(self.conflict_passages.mapping_bytes())
-            .saturating_add(self.parking_facilities.mapping_bytes())
-            .saturating_add(self.parking_spaces.mapping_bytes())
-            .saturating_add(self.participant_classes.mapping_bytes())
-            .saturating_add(self.vehicle_profiles.mapping_bytes())
-            .saturating_add(self.canonical_frames.mapping_bytes())
-            .saturating_add(self.access_rules.mapping_bytes())
+    /// 取出 LIR，释放只服务源映射冻结的规范排列并归还其授予。
+    pub(crate) fn into_lir(self) -> LirUnit {
+        let Self { lir, .. } = self;
+        lir
     }
 }
 
@@ -310,16 +347,33 @@ impl LirFreezeOutput {
 pub(super) struct FreezeEnv<'a> {
     pub mir: &'a MirUnit,
     pub orders: &'a CanonicalOrders,
-    pub identity_fields: &'a mut Vec<LirIdentityField>,
-    pub identity_field_bytes: &'a mut Vec<u8>,
+    pub identity_fields: &'a mut BoundedVec<LirIdentityField>,
+    pub identity_field_bytes: &'a mut BoundedVec<u8>,
     pub limits: &'a crate::CompileProfile,
     pub primary_span: Option<SourceLocation>,
+    pub pass: &'a PassBudget<'a>,
 }
 
 impl FreezeEnv<'_> {
     /// 把冻结计划计数换算为可分配容量；计数超出目标平台 `usize` 范围时返回序号溢出诊断。
     pub(super) fn capacity(&self, count: u64) -> Result<usize, DiagnosticBundle> {
         LirFreezePlan::capacity(count, self.limits, self.primary_span.clone())
+    }
+
+    /// 以本编译遍授予创建可容纳 `count` 个元素的空序列。
+    pub(super) fn vec<T>(&self, count: u64) -> Result<BoundedVec<T>, DiagnosticBundle> {
+        Ok(self.pass.vec(self.capacity(count)?)?)
+    }
+
+    /// 以本编译遍授予创建长度为 `len`、每项为 `value` 的暂存序列。
+    pub(super) fn filled<T: Clone>(
+        &self,
+        len: usize,
+        value: T,
+    ) -> Result<BoundedVec<T>, DiagnosticBundle> {
+        let mut items = self.pass.vec(len)?;
+        items.resize(len, value)?;
+        Ok(items)
     }
 }
 
@@ -368,14 +422,14 @@ pub(crate) fn freeze_lir_in(
     let identity_byte_capacity = usize::try_from(plan.identity_field_byte_count)
         .map_err(|_| output_overflow(&unit.limits, primary_span.clone()))?;
 
-    let orders = CanonicalOrders::build(mir, &plan, &unit.limits, primary_span.clone())?;
+    let orders = CanonicalOrders::build(mir, &plan, &unit.limits, primary_span.clone(), &pass)?;
 
-    let mut lane_edges = Vec::with_capacity(edge_capacity);
-    let mut successors = Vec::with_capacity(successor_capacity);
+    let mut lane_edges = pass.vec(edge_capacity)?;
+    let mut successors = pass.vec(successor_capacity)?;
     let mut lane_edge_successor_mir_rows =
-        Vec::<ArenaKey<MirLaneEdgeConnection>>::with_capacity(successor_capacity);
-    let mut identity_fields = Vec::with_capacity(identity_field_capacity);
-    let mut identity_field_bytes = Vec::with_capacity(identity_byte_capacity);
+        pass.vec::<ArenaKey<MirLaneEdgeConnection>>(successor_capacity)?;
+    let mut identity_fields = pass.vec(identity_field_capacity)?;
+    let mut identity_field_bytes = pass.vec(identity_byte_capacity)?;
     for mir_key in orders.lane_edges.stage_keys_in_lir_order().iter().copied() {
         let edge = &mir.lane_edges[mir_key.index()];
         let namespace = &mir.modules[edge.module.index()].authoring_namespace_id;
@@ -399,18 +453,20 @@ pub(crate) fn freeze_lir_in(
 
         let successor_start = successors.len();
         let successor_row_start = lane_edge_successor_mir_rows.len();
-        lane_edge_successor_mir_rows.extend(edge.connections.as_usize_range().map(|index| {
-            ArenaKey::from_raw(
-                u32::try_from(index)
-                    .expect("MIR relation range precheck proved row index fits u32"),
-            )
-        }));
+        lane_edge_successor_mir_rows.try_extend(edge.connections.as_usize_range().map(
+            |index| {
+                ArenaKey::from_raw(
+                    u32::try_from(index)
+                        .expect("MIR relation range precheck proved row index fits u32"),
+                )
+            },
+        ))?;
         lane_edge_successor_mir_rows[successor_row_start..].sort_unstable_by_key(|row| {
             orders
                 .lane_edges
                 .ordinal(mir.lane_edge_connections[row.index()].target)
         });
-        successors.extend(
+        successors.try_extend(
             lane_edge_successor_mir_rows[successor_row_start..]
                 .iter()
                 .map(|row| {
@@ -418,7 +474,7 @@ pub(crate) fn freeze_lir_in(
                         .lane_edges
                         .ordinal(mir.lane_edge_connections[row.index()].target)
                 }),
-        );
+        )?;
         debug_assert!(
             successors[successor_start..]
                 .windows(2)
@@ -441,7 +497,7 @@ pub(crate) fn freeze_lir_in(
                 successors.len().saturating_sub(successor_start),
             )
             .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-        });
+        })?;
     }
 
     let mut env = FreezeEnv {
@@ -451,6 +507,7 @@ pub(crate) fn freeze_lir_in(
         identity_field_bytes: &mut identity_field_bytes,
         limits: &unit.limits,
         primary_span: primary_span.clone(),
+        pass: &pass,
     };
     let cross_section = cross_section::freeze(&mut env, &plan.cross_section)?;
     let junction = junction::freeze(&mut env, &plan.junction)?;
@@ -594,81 +651,72 @@ pub(crate) fn freeze_lir_in(
         &identity_fields,
         &identity_field_bytes,
     );
-    let ledger_error = |error| {
-        DiagnosticBundle::single(Diagnostic::from_ledger_error(
-            error,
-            primary_span.clone(),
-            None,
-        ))
-    };
-    let output = pass
-        .grant_bytes(plan.output_owned_bytes)
-        .map_err(ledger_error)?;
-    pass.finish(plan.output_owned_bytes).map_err(ledger_error)?;
-    Ok(LirFreezeOutput {
+    let inner_payloads =
+        crate::ledger::OutputGrant::new(pass.grant_bytes(plan.inner_payload_bytes)?);
+    let output = LirFreezeOutput {
         lir: LirUnit {
-            policies,
+            policies: policies.freeze()?,
             geometry_profiles,
-            lane_edges: lane_edges.into_boxed_slice(),
-            lane_edge_successors: successors.into_boxed_slice(),
-            road_corridors: road_corridors.into_boxed_slice(),
-            corridor_elements: corridor_elements.into_boxed_slice(),
-            road_sections: road_sections.into_boxed_slice(),
-            road_section_lanes: road_section_lanes.into_boxed_slice(),
-            authoring_lanes: authoring_lanes.into_boxed_slice(),
-            authoring_lane_edges: authoring_lane_edges.into_boxed_slice(),
-            lane_groups: lane_groups.into_boxed_slice(),
-            lane_group_members: lane_group_members.into_boxed_slice(),
-            facility_bands: facility_bands.into_boxed_slice(),
-            junctions: junctions.into_boxed_slice(),
-            junction_movements: junction_movements.into_boxed_slice(),
-            movements: movements.into_boxed_slice(),
-            movement_maneuver_paths: movement_maneuver_paths.into_boxed_slice(),
-            maneuver_paths: maneuver_paths.into_boxed_slice(),
-            maneuver_path_edges: maneuver_path_edges.into_boxed_slice(),
-            junction_internal_edges: junction_internal_edges.into_boxed_slice(),
-            stop_lines: stop_lines.into_boxed_slice(),
-            maneuver_gates: maneuver_gates.into_boxed_slice(),
-            waiting_zones: waiting_zones.into_boxed_slice(),
-            maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
-            maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
-            stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
-            signal_groups: signal_groups.into_boxed_slice(),
-            signal_controllers: signal_controllers.into_boxed_slice(),
-            signal_controller_groups: signal_controller_groups.into_boxed_slice(),
-            signal_controller_phases: signal_controller_phases.into_boxed_slice(),
-            signal_phases: signal_phases.into_boxed_slice(),
-            signal_phase_states: signal_phase_states.into_boxed_slice(),
-            signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
-            conflict_zones: conflict_zones.into_boxed_slice(),
-            participant_streams: participant_streams.into_boxed_slice(),
-            conflict_passages: conflict_passages.into_boxed_slice(),
-            parking_facilities: parking_facilities.into_boxed_slice(),
-            parking_spaces: parking_spaces.into_boxed_slice(),
-            parking_facility_spaces: parking_facility_spaces.into_boxed_slice(),
-            parking_facility_virtual_entries: parking_facility_virtual_entries.into_boxed_slice(),
-            parking_facility_virtual_exits: parking_facility_virtual_exits.into_boxed_slice(),
-            participant_classes: participant_classes.into_boxed_slice(),
-            vehicle_profiles: vehicle_profiles.into_boxed_slice(),
-            canonical_frames: canonical_frames.into_boxed_slice(),
-            lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
-            facility_band_geometries: facility_band_geometries.into_boxed_slice(),
-            conflict_zone_regions: conflict_zone_regions.into_boxed_slice(),
-            canonical_points: canonical_points.into_boxed_slice(),
-            conflict_region_points: conflict_region_points.into_boxed_slice(),
-            spatial_segments: spatial_segments.into_boxed_slice(),
-            access_rules: access_rules.into_boxed_slice(),
-            access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
-            identity_fields: identity_fields.into_boxed_slice(),
-            identity_field_bytes: identity_field_bytes.into_boxed_slice(),
+            lane_edges: lane_edges.freeze()?,
+            lane_edge_successors: successors.freeze()?,
+            road_corridors: road_corridors.freeze()?,
+            corridor_elements: corridor_elements.freeze()?,
+            road_sections: road_sections.freeze()?,
+            road_section_lanes: road_section_lanes.freeze()?,
+            authoring_lanes: authoring_lanes.freeze()?,
+            authoring_lane_edges: authoring_lane_edges.freeze()?,
+            lane_groups: lane_groups.freeze()?,
+            lane_group_members: lane_group_members.freeze()?,
+            facility_bands: facility_bands.freeze()?,
+            junctions: junctions.freeze()?,
+            junction_movements: junction_movements.freeze()?,
+            movements: movements.freeze()?,
+            movement_maneuver_paths: movement_maneuver_paths.freeze()?,
+            maneuver_paths: maneuver_paths.freeze()?,
+            maneuver_path_edges: maneuver_path_edges.freeze()?,
+            junction_internal_edges: junction_internal_edges.freeze()?,
+            stop_lines: stop_lines.freeze()?,
+            maneuver_gates: maneuver_gates.freeze()?,
+            waiting_zones: waiting_zones.freeze()?,
+            maneuver_path_gates: maneuver_path_gates.freeze()?,
+            maneuver_path_waiting_zones: maneuver_path_waiting_zones.freeze()?,
+            stop_line_maneuver_gates: stop_line_maneuver_gates.freeze()?,
+            signal_groups: signal_groups.freeze()?,
+            signal_controllers: signal_controllers.freeze()?,
+            signal_controller_groups: signal_controller_groups.freeze()?,
+            signal_controller_phases: signal_controller_phases.freeze()?,
+            signal_phases: signal_phases.freeze()?,
+            signal_phase_states: signal_phase_states.freeze()?,
+            signal_group_maneuver_gates: signal_group_maneuver_gates.freeze()?,
+            conflict_zones: conflict_zones.freeze()?,
+            participant_streams: participant_streams.freeze()?,
+            conflict_passages: conflict_passages.freeze()?,
+            parking_facilities: parking_facilities.freeze()?,
+            parking_spaces: parking_spaces.freeze()?,
+            parking_facility_spaces: parking_facility_spaces.freeze()?,
+            parking_facility_virtual_entries: parking_facility_virtual_entries.freeze()?,
+            parking_facility_virtual_exits: parking_facility_virtual_exits.freeze()?,
+            participant_classes: participant_classes.freeze()?,
+            vehicle_profiles: vehicle_profiles.freeze()?,
+            canonical_frames: canonical_frames.freeze()?,
+            lane_edge_geometries: lane_edge_geometries.freeze()?,
+            facility_band_geometries: facility_band_geometries.freeze()?,
+            conflict_zone_regions: conflict_zone_regions.freeze()?,
+            canonical_points: canonical_points.freeze()?,
+            conflict_region_points: conflict_region_points.freeze()?,
+            spatial_segments: spatial_segments.freeze()?,
+            access_rules: access_rules.freeze()?,
+            access_rule_participant_classes: access_rule_participant_classes.freeze()?,
+            identity_fields: identity_fields.freeze()?,
+            identity_field_bytes: identity_field_bytes.freeze()?,
             semantic_digest,
             lir_record_count: plan.lir_record_count,
             output_bytes: plan.output_bytes,
             controlled_live_bytes: plan.output_owned_bytes,
-            ledger_grant: crate::ledger::OutputGrant::new(output),
+            inner_payloads,
         },
         lane_edges: orders.lane_edges,
-        lane_edge_successors: OwnerLocalPermutation::from_rows(lane_edge_successor_mir_rows),
+        lane_edge_successors: OwnerLocalPermutation::from_rows(lane_edge_successor_mir_rows)?,
         road_corridors: orders.road_corridors,
         road_sections: orders.road_sections,
         authoring_lanes: orders.authoring_lanes,
@@ -677,7 +725,7 @@ pub(crate) fn freeze_lir_in(
         junctions: orders.junctions,
         movements: orders.movements,
         maneuver_paths: orders.maneuver_paths,
-        canonical_mir_internal_edge_order: canonical_mir_internal_edge_order.into_boxed_slice(),
+        canonical_mir_internal_edge_order: canonical_mir_internal_edge_order.freeze()?,
         stop_lines: orders.stop_lines,
         maneuver_gates: orders.maneuver_gates,
         waiting_zones: orders.waiting_zones,
@@ -686,18 +734,22 @@ pub(crate) fn freeze_lir_in(
         signal_phases: orders.signal_phases,
         signal_controller_groups: OwnerLocalPermutation::from_rows(
             signal_controller_group_mir_rows,
-        ),
-        signal_phase_states: OwnerLocalPermutation::from_rows(signal_phase_state_mir_rows),
+        )?,
+        signal_phase_states: OwnerLocalPermutation::from_rows(signal_phase_state_mir_rows)?,
         conflict_zones: orders.conflict_zones,
         participant_streams: orders.participant_streams,
-        conflict_passages: OwnerLocalPermutation::from_rows(conflict_passage_mir_rows),
+        conflict_passages: OwnerLocalPermutation::from_rows(conflict_passage_mir_rows)?,
         parking_facilities: orders.parking_facilities,
         parking_spaces: orders.parking_spaces,
         participant_classes: orders.participant_classes,
         vehicle_profiles: orders.vehicle_profiles,
         canonical_frames: orders.canonical_frames,
         access_rules: orders.access_rules,
-    })
+    };
+    // 编译遍结束：LIR 各表、内嵌载荷与跨入源映射冻结的规范排列转为输出存续；其余暂存
+    // 已随各领域冻结返回而释放。
+    pass.finish(plan.retained_bytes)?;
+    Ok(output)
 }
 
 /// 比较两个 `LaneEdge` 的完整 Identity v1 原像，而不物化拼接缓冲区。
@@ -756,25 +808,30 @@ fn compare_identity_parts(
         .then_with(|| left_parent.cmp(&right_parent))
 }
 
-fn dense_mir_keys<K>(count: usize) -> Vec<ArenaKey<K>> {
-    (0..count)
-        .map(|index| {
-            ArenaKey::from_raw(
-                u32::try_from(index).expect("LIR precheck proved MIR table length fits u32"),
-            )
-        })
-        .collect()
+fn dense_mir_keys<K>(
+    pass: &PassBudget<'_>,
+    count: usize,
+) -> Result<BoundedVec<ArenaKey<K>>, DiagnosticBundle> {
+    let mut keys = pass.vec(count)?;
+    keys.try_extend((0..count).map(|index| {
+        ArenaKey::from_raw(
+            u32::try_from(index).expect("LIR precheck proved MIR table length fits u32"),
+        )
+    }))?;
+    Ok(keys)
 }
 
 fn ordinal_mapping<K, O: Copy, E>(
+    pass: &PassBudget<'_>,
     count: usize,
     canonical_order: &[ArenaKey<K>],
     make_ordinal: fn(usize) -> Result<O, E>,
     limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
-) -> Result<Vec<O>, DiagnosticBundle> {
+) -> Result<BoundedVec<O>, DiagnosticBundle> {
     let first = make_ordinal(0).map_err(|_| ordinal_overflow(limits, primary_span.clone()))?;
-    let mut mapping = vec![first; count];
+    let mut mapping = pass.vec(count)?;
+    mapping.resize(count, first)?;
     for (index, mir_key) in canonical_order.iter().copied().enumerate() {
         mapping[mir_key.index()] =
             make_ordinal(index).map_err(|_| ordinal_overflow(limits, primary_span.clone()))?;
@@ -794,8 +851,8 @@ fn relation_range<T>(
 
 #[allow(clippy::too_many_arguments)]
 fn push_lir_identity(
-    fields: &mut Vec<LirIdentityField>,
-    bytes: &mut Vec<u8>,
+    fields: &mut BoundedVec<LirIdentityField>,
+    bytes: &mut BoundedVec<u8>,
     key_tag: FieldTag,
     namespace: &str,
     stable_key: &str,
@@ -966,25 +1023,19 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
     total
 }
 
-fn mapping_pair_bytes<K, O>(order_len: usize, mapping_len: usize) -> u64 {
-    requested_bytes::<K>(u64::try_from(order_len).unwrap_or(u64::MAX)).saturating_add(
-        requested_bytes::<O>(u64::try_from(mapping_len).unwrap_or(u64::MAX)),
-    )
-}
-
 fn push_identity_field(
-    fields: &mut Vec<LirIdentityField>,
-    bytes: &mut Vec<u8>,
+    fields: &mut BoundedVec<LirIdentityField>,
+    bytes: &mut BoundedVec<u8>,
     tag: FieldTag,
     value: &[u8],
     limits: &crate::CompileProfile,
     primary_span: Option<SourceLocation>,
 ) -> Result<(), DiagnosticBundle> {
     let start = bytes.len();
-    bytes.extend_from_slice(value);
+    bytes.extend_from_slice(value)?;
     let value_bytes = TableRange::try_from_usize(start, value.len())
         .map_err(|_| output_overflow(limits, primary_span))?;
-    fields.push(LirIdentityField { tag, value_bytes });
+    fields.push(LirIdentityField { tag, value_bytes })?;
     Ok(())
 }
 
@@ -1738,10 +1789,6 @@ fn hash_bytes(hasher: &mut blake3::Hasher, bytes: &[u8]) {
 
 fn hash_u32(hasher: &mut blake3::Hasher, value: u32) {
     hasher.update(&value.to_le_bytes());
-}
-
-fn requested_bytes<T>(count: u64) -> u64 {
-    count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
 }
 
 fn table_overflow(

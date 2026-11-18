@@ -7,6 +7,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::LirIdentityField;
 
@@ -67,14 +68,14 @@ use laneflow_static_contract::FieldTag;
 
 /// 参与者类别与车辆配置两张表的领域冻结产物。
 pub(super) struct AccessClassParts {
-    pub participant_classes: Vec<LirParticipantClass>,
-    pub vehicle_profiles: Vec<LirVehicleProfile>,
+    pub participant_classes: BoundedVec<LirParticipantClass>,
+    pub vehicle_profiles: BoundedVec<LirVehicleProfile>,
 }
 
 /// 准入规则表及其参与者类别引用辅表的领域冻结产物。
 pub(super) struct AccessRuleParts {
-    pub access_rules: Vec<LirAccessRule>,
-    pub access_rule_participant_classes: Vec<ParticipantClassOrdinal>,
+    pub access_rules: BoundedVec<LirAccessRule>,
+    pub access_rule_participant_classes: BoundedVec<ParticipantClassOrdinal>,
 }
 
 /// 按规范排列冻结参与者类别与车辆配置表，并在最终 LIR 序号上重建分类森林的深度与子树区间。
@@ -82,7 +83,7 @@ pub(super) fn freeze_classes(
     env: &mut FreezeEnv<'_>,
     counts: &LirAccessCounts,
 ) -> Result<AccessClassParts, DiagnosticBundle> {
-    let mut participant_classes = Vec::with_capacity(env.capacity(counts.participant_classes)?);
+    let mut participant_classes = env.vec(counts.participant_classes)?;
     for mir_key in env
         .orders
         .participant_classes
@@ -111,11 +112,11 @@ pub(super) fn freeze_classes(
             depth: participant_class.depth,
             subtree_enter: participant_class.subtree_enter,
             subtree_exit: participant_class.subtree_exit,
-        });
+        })?;
     }
-    close_class_intervals_in_lir_order(&mut participant_classes);
+    close_class_intervals_in_lir_order(env, &mut participant_classes)?;
 
-    let mut vehicle_profiles = Vec::with_capacity(env.capacity(counts.vehicle_profiles)?);
+    let mut vehicle_profiles = env.vec(counts.vehicle_profiles)?;
     for mir_key in env
         .orders
         .vehicle_profiles
@@ -152,7 +153,7 @@ pub(super) fn freeze_classes(
                 .comfortable_deceleration_meters_per_second_squared,
             emergency_deceleration_meters_per_second_squared: profile
                 .emergency_deceleration_meters_per_second_squared,
-        });
+        })?;
     }
 
     Ok(AccessClassParts {
@@ -164,11 +165,14 @@ pub(super) fn freeze_classes(
 /// `ParticipantClass` 的 HIR 闭包基于来源遍历顺序；LIR ordinal 则按稳定身份排序。
 /// 父引用完成 ordinal 重映射后必须在最终顺序上重建 DFS 区间，否则合法的多根分类森林
 /// 会携带与 LFCA 行顺序不一致的 `depth/subtree` 派生值。
-fn close_class_intervals_in_lir_order(classes: &mut [LirParticipantClass]) {
+fn close_class_intervals_in_lir_order(
+    env: &FreezeEnv<'_>,
+    classes: &mut [LirParticipantClass],
+) -> Result<(), DiagnosticBundle> {
     const NONE: u32 = u32::MAX;
 
-    let mut first_child = vec![NONE; classes.len()];
-    let mut next_sibling = vec![NONE; classes.len()];
+    let mut first_child = env.filled(classes.len(), NONE)?;
+    let mut next_sibling = env.filled(classes.len(), NONE)?;
     let mut first_root = NONE;
     for (index, class) in classes.iter().enumerate() {
         let raw = u32::try_from(index).expect("participant class LIR ordinal is u32-bounded");
@@ -181,10 +185,10 @@ fn close_class_intervals_in_lir_order(classes: &mut [LirParticipantClass]) {
         }
     }
 
-    let mut stack = Vec::with_capacity(classes.len().saturating_mul(2));
+    let mut stack = env.pass.vec(classes.len().saturating_mul(2))?;
     let mut root = first_root;
     while root != NONE {
-        stack.push((root, false));
+        stack.push((root, false))?;
         root = next_sibling[usize::try_from(root).expect("u32 fits usize")];
     }
     let mut euler = 0_u32;
@@ -201,13 +205,14 @@ fn close_class_intervals_in_lir_order(classes: &mut [LirParticipantClass]) {
         euler = euler
             .checked_add(1)
             .expect("participant class count is u32-bounded");
-        stack.push((raw, true));
+        stack.push((raw, true))?;
         let mut child = first_child[index];
         while child != NONE {
-            stack.push((child, false));
+            stack.push((child, false))?;
             child = next_sibling[usize::try_from(child).expect("u32 fits usize")];
         }
     }
+    Ok(())
 }
 
 /// 按规范排列冻结准入规则表；目标与参与者类别引用重映射为 LIR 序号，每条规则的类别引用按序号排序。
@@ -215,9 +220,8 @@ pub(super) fn freeze_rules(
     env: &mut FreezeEnv<'_>,
     counts: &LirAccessCounts,
 ) -> Result<AccessRuleParts, DiagnosticBundle> {
-    let mut access_rules = Vec::with_capacity(env.capacity(counts.access_rules)?);
-    let mut access_rule_participant_classes =
-        Vec::with_capacity(env.capacity(counts.rule_class_references)?);
+    let mut access_rules = env.vec(counts.access_rules)?;
+    let mut access_rule_participant_classes = env.vec(counts.rule_class_references)?;
     for mir_key in env
         .orders
         .access_rules
@@ -237,7 +241,7 @@ pub(super) fn freeze_rules(
             env.primary_span.clone(),
         )?;
         let class_start = access_rule_participant_classes.len();
-        access_rule_participant_classes.extend(
+        access_rule_participant_classes.try_extend(
             env.mir.access_rule_participant_classes[rule.participant_classes.as_usize_range()]
                 .iter()
                 .map(|selector| {
@@ -245,7 +249,7 @@ pub(super) fn freeze_rules(
                         .participant_classes
                         .ordinal(selector.participant_class)
                 }),
-        );
+        )?;
         access_rule_participant_classes[class_start..].sort_unstable();
         let target = match rule.target {
             MirAccessTarget::LaneEdge(target) => {
@@ -282,7 +286,7 @@ pub(super) fn freeze_rules(
                     source: regulation.source.as_deref().map(Into::into),
                 }),
             priority: rule.priority,
-        });
+        })?;
     }
 
     Ok(AccessRuleParts {

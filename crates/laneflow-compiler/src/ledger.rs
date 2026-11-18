@@ -761,6 +761,16 @@ impl<T> BoundedVec<T> {
         Ok(())
     }
 
+    /// 移除并返回最后一个元素；逻辑容量不变。
+    pub(crate) fn pop(&mut self) -> Option<T> {
+        self.items.pop()
+    }
+
+    /// 清空元素；逻辑容量不变，授予继续持有。
+    pub(crate) fn clear(&mut self) {
+        self.items.clear();
+    }
+
     /// 截断到 `len` 个元素；逻辑容量不变。
     pub(crate) fn truncate(&mut self, len: usize) {
         self.items.truncate(len);
@@ -815,5 +825,85 @@ impl<'v, T> IntoIterator for &'v BoundedVec<T> {
 impl<T> DerefMut for BoundedVec<T> {
     fn deref_mut(&mut self) -> &mut [T] {
         &mut self.items
+    }
+}
+
+impl<T> BoundedVec<T> {
+    /// 冻结为定长切片：须恰好写满授予的逻辑容量，授予随切片持有。
+    ///
+    /// 写入量少于计划容量说明计数计划与构造代码不一致（[`AccountingDefect::ShapeMismatch`]），
+    /// 此时不冻结，避免收缩容量时发起未经授予的分配请求。
+    pub(crate) fn freeze(self) -> Result<Frozen<T>, LedgerError> {
+        let Self {
+            items,
+            capacity,
+            grant,
+            label,
+        } = self;
+        if items.len() != capacity {
+            return Err(LedgerError::Defect {
+                label,
+                defect: AccountingDefect::ShapeMismatch,
+            });
+        }
+        Ok(Frozen {
+            items: items.into_boxed_slice(),
+            grant: OutputGrant::new(grant),
+        })
+    }
+}
+
+/// 持有授予的定长切片：随所有者移动、释放时归还，返回点转交宿主。
+///
+/// 相等比较与调试输出只看元素，不比较授予。
+pub(crate) struct Frozen<T> {
+    items: Box<[T]>,
+    grant: OutputGrant,
+}
+
+impl<T> Frozen<T> {
+    /// 返回点转交宿主；之后不再受账本约束。
+    pub(crate) fn transfer_to_host(&mut self) {
+        self.grant.transfer_to_host();
+    }
+}
+
+impl<T> Default for Frozen<T> {
+    fn default() -> Self {
+        Self {
+            items: Box::default(),
+            grant: OutputGrant::default(),
+        }
+    }
+}
+
+impl<T> Deref for Frozen<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.items
+    }
+}
+
+impl<'v, T> IntoIterator for &'v Frozen<T> {
+    type Item = &'v T;
+    type IntoIter = std::slice::Iter<'v, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.iter()
+    }
+}
+
+impl<T: PartialEq> PartialEq for Frozen<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items
+    }
+}
+
+impl<T: Eq> Eq for Frozen<T> {}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Frozen<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.items.fmt(formatter)
     }
 }

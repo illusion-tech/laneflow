@@ -5,6 +5,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::LirIdentityField;
 
@@ -69,13 +70,13 @@ use laneflow_static_contract::FieldTag;
 
 /// 空间几何领域各表及共享点、线段辅表的领域冻结产物。
 pub(super) struct SpatialParts {
-    pub canonical_frames: Vec<LirCanonicalFrame>,
-    pub lane_edge_geometries: Vec<LirLaneEdgeGeometry>,
-    pub facility_band_geometries: Vec<LirFacilityBandGeometry>,
-    pub conflict_zone_regions: Vec<LirConflictZoneRegion>,
-    pub canonical_points: Vec<LirCanonicalPoint3F32>,
-    pub conflict_region_points: Vec<LirCanonicalPoint2F32>,
-    pub spatial_segments: Vec<LirSpatialSegment>,
+    pub canonical_frames: BoundedVec<LirCanonicalFrame>,
+    pub lane_edge_geometries: BoundedVec<LirLaneEdgeGeometry>,
+    pub facility_band_geometries: BoundedVec<LirFacilityBandGeometry>,
+    pub conflict_zone_regions: BoundedVec<LirConflictZoneRegion>,
+    pub canonical_points: BoundedVec<LirCanonicalPoint3F32>,
+    pub conflict_region_points: BoundedVec<LirCanonicalPoint2F32>,
+    pub spatial_segments: BoundedVec<LirSpatialSegment>,
 }
 
 /// 按规范排列冻结规范坐标框架与车道边、设施带、冲突区几何表，保持每条几何内部的点与线段顺序。
@@ -83,7 +84,7 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirSpatialCounts,
 ) -> Result<SpatialParts, DiagnosticBundle> {
-    let mut canonical_frames = Vec::with_capacity(env.capacity(counts.canonical_frames)?);
+    let mut canonical_frames = env.vec(counts.canonical_frames)?;
     for mir_key in env
         .orders
         .canonical_frames
@@ -106,19 +107,19 @@ pub(super) fn freeze(
             ordinal: env.orders.canonical_frames.ordinal(mir_key),
             stable_id: frame.stable_id,
             identity_fields: identity_range,
-        });
+        })?;
     }
 
     // HIR 已证明“空间存在时每条 LaneEdge 恰好一条几何”。冻结阶段只按最终
     // LaneEdgeOrdinal 重排，并保持每条中心线内部的点/线段顺序。
-    let mut mir_edge_to_geometry = vec![None; env.mir.lane_edges.len()];
+    let mut mir_edge_to_geometry = env.filled(env.mir.lane_edges.len(), None::<usize>)?;
     for (index, geometry) in env.mir.lane_edge_geometries.iter().enumerate() {
         debug_assert!(mir_edge_to_geometry[geometry.lane_edge.index()].is_none());
         mir_edge_to_geometry[geometry.lane_edge.index()] = Some(index);
     }
-    let mut lane_edge_geometries = Vec::with_capacity(env.capacity(counts.lane_edge_geometries)?);
-    let mut canonical_points = Vec::with_capacity(env.capacity(counts.canonical_points)?);
-    let mut spatial_segments = Vec::with_capacity(env.capacity(counts.spatial_segments)?);
+    let mut lane_edge_geometries = env.vec(counts.lane_edge_geometries)?;
+    let mut canonical_points = env.vec(counts.canonical_points)?;
+    let mut spatial_segments = env.vec(counts.spatial_segments)?;
     for mir_edge in env
         .orders
         .lane_edges
@@ -132,7 +133,7 @@ pub(super) fn freeze(
         };
         let geometry = &env.mir.lane_edge_geometries[geometry_index];
         let point_start = canonical_points.len();
-        canonical_points.extend(
+        canonical_points.try_extend(
             env.mir.canonical_points[geometry.points.as_usize_range()]
                 .iter()
                 .map(|point| LirCanonicalPoint3F32 {
@@ -140,9 +141,9 @@ pub(super) fn freeze(
                     y: point.y,
                     z: point.z,
                 }),
-        );
+        )?;
         let segment_start = spatial_segments.len();
-        spatial_segments.extend(
+        spatial_segments.try_extend(
             env.mir.spatial_segments[geometry.segments.as_usize_range()]
                 .iter()
                 .map(|segment| LirSpatialSegment {
@@ -151,7 +152,7 @@ pub(super) fn freeze(
                     tangent: segment.tangent,
                     up: segment.up,
                 }),
-        );
+        )?;
         lane_edge_geometries.push(LirLaneEdgeGeometry {
             canonical_frame: env
                 .orders
@@ -168,18 +169,17 @@ pub(super) fn freeze(
             )
             .map_err(|overflow| table_overflow(overflow, env.limits, env.primary_span.clone()))?,
             arc_length_meters: geometry.arc_length_meters,
-        });
+        })?;
     }
 
     // FacilityBand 不进入可通行图，但其可视几何必须和实体使用同一规范顺序。每个
     // 稀疏几何行携带 band ordinal，view 通过有序表查找，避免复制第二份范围索引。
-    let mut mir_band_to_geometry = vec![None; env.mir.facility_bands.len()];
+    let mut mir_band_to_geometry = env.filled(env.mir.facility_bands.len(), None::<usize>)?;
     for (index, geometry) in env.mir.facility_band_geometries.iter().enumerate() {
         debug_assert!(mir_band_to_geometry[geometry.facility_band.index()].is_none());
         mir_band_to_geometry[geometry.facility_band.index()] = Some(index);
     }
-    let mut facility_band_geometries =
-        Vec::with_capacity(env.capacity(counts.facility_band_geometries)?);
+    let mut facility_band_geometries = env.vec(counts.facility_band_geometries)?;
     for mir_band in env
         .orders
         .facility_bands
@@ -192,7 +192,7 @@ pub(super) fn freeze(
         };
         let geometry = &env.mir.facility_band_geometries[geometry_index];
         let point_start = canonical_points.len();
-        canonical_points.extend(
+        canonical_points.try_extend(
             env.mir.canonical_points[geometry.points.as_usize_range()]
                 .iter()
                 .map(|point| LirCanonicalPoint3F32 {
@@ -200,7 +200,7 @@ pub(super) fn freeze(
                     y: point.y,
                     z: point.z,
                 }),
-        );
+        )?;
         let facility_band = env.orders.facility_bands.ordinal(mir_band);
         facility_band_geometries.push(LirFacilityBandGeometry {
             facility_band,
@@ -213,17 +213,16 @@ pub(super) fn freeze(
                 canonical_points.len().saturating_sub(point_start),
             )
             .map_err(|overflow| table_overflow(overflow, env.limits, env.primary_span.clone()))?,
-        });
+        })?;
     }
 
-    let mut mir_zone_to_region = vec![None; env.mir.conflict_zones.len()];
+    let mut mir_zone_to_region = env.filled(env.mir.conflict_zones.len(), None::<usize>)?;
     for (index, region) in env.mir.conflict_zone_regions.iter().enumerate() {
         debug_assert!(mir_zone_to_region[region.conflict_zone.index()].is_none());
         mir_zone_to_region[region.conflict_zone.index()] = Some(index);
     }
-    let mut conflict_zone_regions = Vec::with_capacity(env.capacity(counts.conflict_zone_regions)?);
-    let mut conflict_region_points =
-        Vec::with_capacity(env.capacity(counts.conflict_region_points)?);
+    let mut conflict_zone_regions = env.vec(counts.conflict_zone_regions)?;
+    let mut conflict_region_points = env.vec(counts.conflict_region_points)?;
     for mir_zone in env
         .orders
         .conflict_zones
@@ -236,14 +235,14 @@ pub(super) fn freeze(
         };
         let region = &env.mir.conflict_zone_regions[region_index];
         let point_start = conflict_region_points.len();
-        conflict_region_points.extend(
+        conflict_region_points.try_extend(
             env.mir.conflict_region_points[region.ring_xz.as_usize_range()]
                 .iter()
                 .map(|point| LirCanonicalPoint2F32 {
                     x: point.x,
                     z: point.z,
                 }),
-        );
+        )?;
         conflict_zone_regions.push(LirConflictZoneRegion {
             conflict_zone: env.orders.conflict_zones.ordinal(mir_zone),
             canonical_frame: env.orders.canonical_frames.ordinal(region.canonical_frame),
@@ -254,7 +253,7 @@ pub(super) fn freeze(
                 conflict_region_points.len().saturating_sub(point_start),
             )
             .map_err(|overflow| table_overflow(overflow, env.limits, env.primary_span.clone()))?,
-        });
+        })?;
     }
 
     Ok(SpatialParts {

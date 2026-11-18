@@ -11,23 +11,16 @@ struct SourceMapSizing {
     // 暂存不再是限额（ADR 0035）；资源账本第二步把它并入报告，此前保留计算。
     #[allow(dead_code)]
     scratch_bytes: u64,
-    /// 本阶段工作集：LIR 冻结排列、源映射新增存储与暂存之和；上游存续由账本记录。
+    /// 本阶段工作集：源映射新增存储与暂存之和；编译单元、MIR、LIR 与跨入本阶段的规范排列由账本记录。
     stage_bytes: u64,
 }
 
 impl SourceMapSizing {
     #[inline]
-    fn from_components(
-        frozen_lir: &LirFreezeOutput,
-        source_map_new_owned_bytes: u64,
-        scratch_bytes: u64,
-    ) -> Self {
+    fn from_components(source_map_new_owned_bytes: u64, scratch_bytes: u64) -> Self {
         Self {
             scratch_bytes,
-            stage_bytes: frozen_lir
-                .mapping_bytes()
-                .saturating_add(source_map_new_owned_bytes)
-                .saturating_add(scratch_bytes),
+            stage_bytes: source_map_new_owned_bytes.saturating_add(scratch_bytes),
         }
     }
 }
@@ -430,11 +423,8 @@ pub(crate) fn freeze_source_map_in(
                 ),
             )
             .max(spatial_order_scratch_bytes);
-    let sizing = SourceMapSizing::from_components(
-        frozen_lir,
-        source_map_new_owned_bytes,
-        source_map_scratch_bytes,
-    );
+    let sizing =
+        SourceMapSizing::from_components(source_map_new_owned_bytes, source_map_scratch_bytes);
     let primary_span = unit
         .modules
         .first()

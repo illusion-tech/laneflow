@@ -3519,7 +3519,6 @@ impl Diagnostic {
         self.canonical_module_order = order;
     }
 
-    /// 构造候选输入或阶段工作集超过显式编译资源配置档的诊断，可附带来源位置与稳定键。
     /// 把资源账本错误映射为编译诊断：预算超限按 `CompilerControlledLiveBytes` 报告，记账
     /// 缺陷与分配失败按资源记账缺陷报告。
     pub(crate) fn from_ledger_error(
@@ -3550,6 +3549,7 @@ impl Diagnostic {
         }
     }
 
+    /// 构造候选输入或阶段工作集超过显式编译资源配置档的诊断，可附带来源位置与稳定键。
     pub(crate) fn compile_limit_exceeded_at(
         dimension: CompileLimitDimension,
         limit: u64,
@@ -4801,6 +4801,17 @@ impl fmt::Display for SourceTextViolationDisplay {
 pub struct DiagnosticBundle {
     diagnostics: Box<[Diagnostic]>,
     diagnostics_truncated: bool,
+}
+
+/// 资源账本错误在编译管线内按单条诊断返回；无主要位置，由调用方按需补入。
+impl From<crate::ledger::LedgerError> for DiagnosticBundle {
+    fn from(error: crate::ledger::LedgerError) -> Self {
+        Self::single(Diagnostic::from_ledger_error(
+            error,
+            None::<SourceLocation>,
+            None,
+        ))
+    }
 }
 
 impl DiagnosticBundle {

@@ -6,6 +6,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::LirIdentityField;
 
@@ -53,16 +54,16 @@ use laneflow_static_contract::FieldTag;
 
 /// 路口领域各表、关系辅表及内部边规范 MIR 行序的领域冻结产物。
 pub(super) struct JunctionParts {
-    pub junctions: Vec<LirJunction>,
-    pub junction_movements: Vec<MovementOrdinal>,
-    pub movements: Vec<LirMovement>,
-    pub movement_maneuver_paths: Vec<ManeuverPathOrdinal>,
-    pub maneuver_paths: Vec<LirManeuverPath>,
-    pub maneuver_path_edges: Vec<LaneEdgeOrdinal>,
-    pub maneuver_path_gates: Vec<ManeuverGateOrdinal>,
-    pub maneuver_path_waiting_zones: Vec<WaitingZoneOrdinal>,
-    pub junction_internal_edges: Vec<LirJunctionInternalEdge>,
-    pub canonical_mir_internal_edge_order: Vec<u32>,
+    pub junctions: BoundedVec<LirJunction>,
+    pub junction_movements: BoundedVec<MovementOrdinal>,
+    pub movements: BoundedVec<LirMovement>,
+    pub movement_maneuver_paths: BoundedVec<ManeuverPathOrdinal>,
+    pub maneuver_paths: BoundedVec<LirManeuverPath>,
+    pub maneuver_path_edges: BoundedVec<LaneEdgeOrdinal>,
+    pub maneuver_path_gates: BoundedVec<ManeuverGateOrdinal>,
+    pub maneuver_path_waiting_zones: BoundedVec<WaitingZoneOrdinal>,
+    pub junction_internal_edges: BoundedVec<LirJunctionInternalEdge>,
+    pub canonical_mir_internal_edge_order: BoundedVec<u32>,
 }
 
 /// 按规范排列冻结路口、通行流向、机动路径与路口内部边表；所有者成员关系按子实体规范序号排序。
@@ -70,8 +71,8 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirJunctionCounts,
 ) -> Result<JunctionParts, DiagnosticBundle> {
-    let mut junctions = Vec::with_capacity(env.capacity(counts.junctions)?);
-    let mut junction_movements = Vec::with_capacity(env.capacity(counts.junction_movements)?);
+    let mut junctions = env.vec(counts.junctions)?;
+    let mut junction_movements = env.vec(counts.junction_movements)?;
     for mir_key in env
         .orders
         .junctions
@@ -91,11 +92,11 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let relation_start = junction_movements.len();
-        junction_movements.extend(
+        junction_movements.try_extend(
             env.mir.junction_movements[junction.movements.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.movements.ordinal(member.movement)),
-        );
+        )?;
         // 所有者成员关系是集合语义；按子实体规范序号冻结，避免声明先后进入语义摘要。
         junction_movements[relation_start..].sort_unstable();
         junctions.push(LirJunction {
@@ -108,11 +109,11 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut movements = Vec::with_capacity(env.capacity(counts.movements)?);
-    let mut movement_maneuver_paths = Vec::with_capacity(env.capacity(counts.movement_paths)?);
+    let mut movements = env.vec(counts.movements)?;
+    let mut movement_maneuver_paths = env.vec(counts.movement_paths)?;
     for mir_key in env
         .orders
         .movements
@@ -156,11 +157,11 @@ pub(super) fn freeze(
             )?;
         }
         let relation_start = movement_maneuver_paths.len();
-        movement_maneuver_paths.extend(
+        movement_maneuver_paths.try_extend(
             env.mir.movement_maneuver_paths[movement.maneuver_paths.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.maneuver_paths.ordinal(member.maneuver_path)),
-        );
+        )?;
         movement_maneuver_paths[relation_start..].sort_unstable();
         movements.push(LirMovement {
             ordinal: env.orders.movements.ordinal(mir_key),
@@ -181,14 +182,13 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut maneuver_paths = Vec::with_capacity(env.capacity(counts.maneuver_paths)?);
-    let mut maneuver_path_edges = Vec::with_capacity(env.capacity(counts.maneuver_path_edges)?);
-    let mut maneuver_path_gates = Vec::with_capacity(env.capacity(counts.maneuver_path_gates)?);
-    let mut maneuver_path_waiting_zones =
-        Vec::with_capacity(env.capacity(counts.maneuver_path_waiting_zones)?);
+    let mut maneuver_paths = env.vec(counts.maneuver_paths)?;
+    let mut maneuver_path_edges = env.vec(counts.maneuver_path_edges)?;
+    let mut maneuver_path_gates = env.vec(counts.maneuver_path_gates)?;
+    let mut maneuver_path_waiting_zones = env.vec(counts.maneuver_path_waiting_zones)?;
     for mir_key in env
         .orders
         .maneuver_paths
@@ -239,23 +239,23 @@ pub(super) fn freeze(
             )?;
         }
         let edge_start = maneuver_path_edges.len();
-        maneuver_path_edges.extend(
+        maneuver_path_edges.try_extend(
             edges
                 .iter()
                 .map(|edge| env.orders.lane_edges.ordinal(edge.target)),
-        );
+        )?;
         let gate_start = maneuver_path_gates.len();
-        maneuver_path_gates.extend(
+        maneuver_path_gates.try_extend(
             env.mir.maneuver_path_gates[path.maneuver_gates.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.maneuver_gates.ordinal(member.maneuver_gate)),
-        );
+        )?;
         let waiting_start = maneuver_path_waiting_zones.len();
-        maneuver_path_waiting_zones.extend(
+        maneuver_path_waiting_zones.try_extend(
             env.mir.maneuver_path_waiting_zones[path.waiting_zones.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.waiting_zones.ordinal(member.waiting_zone)),
-        );
+        )?;
         maneuver_paths.push(LirManeuverPath {
             ordinal: env.orders.maneuver_paths.ordinal(mir_key),
             stable_id: path.stable_id,
@@ -284,28 +284,30 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut canonical_mir_internal_edge_order: Vec<u32> = (0..env
-        .capacity(counts.junction_internal_edges)?)
-        .map(|index| u32::try_from(index).expect("LIR precheck proved relation count fits u32"))
-        .collect();
+    let internal_edge_capacity = env.capacity(counts.junction_internal_edges)?;
+    let mut canonical_mir_internal_edge_order: BoundedVec<u32> =
+        env.pass.vec(internal_edge_capacity)?;
+    canonical_mir_internal_edge_order.try_extend(
+        (0..internal_edge_capacity).map(|index| {
+            u32::try_from(index).expect("LIR precheck proved relation count fits u32")
+        }),
+    )?;
     canonical_mir_internal_edge_order.sort_unstable_by_key(|index| {
         env.orders
             .lane_edges
             .ordinal(env.mir.junction_internal_edges[*index as usize].edge)
     });
-    let junction_internal_edges = canonical_mir_internal_edge_order
-        .iter()
-        .map(|index| {
-            let relation = &env.mir.junction_internal_edges[*index as usize];
-            LirJunctionInternalEdge {
-                edge: env.orders.lane_edges.ordinal(relation.edge),
-                junction: env.orders.junctions.ordinal(relation.junction),
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut junction_internal_edges = env.pass.vec(internal_edge_capacity)?;
+    junction_internal_edges.try_extend(canonical_mir_internal_edge_order.iter().map(|index| {
+        let relation = &env.mir.junction_internal_edges[*index as usize];
+        LirJunctionInternalEdge {
+            edge: env.orders.lane_edges.ordinal(relation.edge),
+            junction: env.orders.junctions.ordinal(relation.junction),
+        }
+    }))?;
 
     Ok(JunctionParts {
         junctions,

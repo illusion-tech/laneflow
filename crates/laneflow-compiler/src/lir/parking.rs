@@ -5,6 +5,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::LirIdentityField;
 
@@ -52,11 +53,11 @@ use laneflow_static_contract::FieldTag;
 
 /// 停车领域各表及设施成员、虚拟入口/出口锚点辅表的领域冻结产物。
 pub(super) struct ParkingParts {
-    pub parking_facilities: Vec<LirParkingFacility>,
-    pub parking_facility_spaces: Vec<ParkingSpaceOrdinal>,
-    pub parking_spaces: Vec<LirParkingSpace>,
-    pub parking_facility_virtual_entries: Vec<LirParkingLaneAnchor>,
-    pub parking_facility_virtual_exits: Vec<LirParkingLaneAnchor>,
+    pub parking_facilities: BoundedVec<LirParkingFacility>,
+    pub parking_facility_spaces: BoundedVec<ParkingSpaceOrdinal>,
+    pub parking_spaces: BoundedVec<LirParkingSpace>,
+    pub parking_facility_virtual_entries: BoundedVec<LirParkingLaneAnchor>,
+    pub parking_facility_virtual_exits: BoundedVec<LirParkingLaneAnchor>,
 }
 
 /// 按规范排列冻结停车设施与停车位表；设施成员按停车位规范序号排序冻结。
@@ -64,12 +65,10 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirParkingCounts,
 ) -> Result<ParkingParts, DiagnosticBundle> {
-    let mut parking_facilities = Vec::with_capacity(env.capacity(counts.areas)?);
-    let mut parking_facility_spaces = Vec::with_capacity(env.capacity(counts.memberships)?);
-    let mut parking_facility_virtual_entries =
-        Vec::with_capacity(env.capacity(counts.virtual_entries)?);
-    let mut parking_facility_virtual_exits =
-        Vec::with_capacity(env.capacity(counts.virtual_exits)?);
+    let mut parking_facilities = env.vec(counts.areas)?;
+    let mut parking_facility_spaces = env.vec(counts.memberships)?;
+    let mut parking_facility_virtual_entries = env.vec(counts.virtual_entries)?;
+    let mut parking_facility_virtual_exits = env.vec(counts.virtual_exits)?;
     for mir_key in env
         .orders
         .parking_facilities
@@ -89,30 +88,30 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let member_start = parking_facility_spaces.len();
-        parking_facility_spaces.extend(
+        parking_facility_spaces.try_extend(
             env.mir.parking_facility_spaces[area.parking_spaces.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.parking_spaces.ordinal(member.parking_space)),
-        );
+        )?;
         parking_facility_spaces[member_start..].sort_unstable();
         let entry_start = parking_facility_virtual_entries.len();
-        parking_facility_virtual_entries.extend(
+        parking_facility_virtual_entries.try_extend(
             env.mir.parking_facility_virtual_entries[area.virtual_entries.as_usize_range()]
                 .iter()
                 .map(|anchor| LirParkingLaneAnchor {
                     lane_edge: env.orders.lane_edges.ordinal(anchor.lane_edge),
                     progress_mm: anchor.progress_mm,
                 }),
-        );
+        )?;
         let exit_start = parking_facility_virtual_exits.len();
-        parking_facility_virtual_exits.extend(
+        parking_facility_virtual_exits.try_extend(
             env.mir.parking_facility_virtual_exits[area.virtual_exits.as_usize_range()]
                 .iter()
                 .map(|anchor| LirParkingLaneAnchor {
                     lane_edge: env.orders.lane_edges.ordinal(anchor.lane_edge),
                     progress_mm: anchor.progress_mm,
                 }),
-        );
+        )?;
         parking_facilities.push(LirParkingFacility {
             ordinal: env.orders.parking_facilities.ordinal(mir_key),
             stable_id: area.stable_id,
@@ -136,10 +135,10 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut parking_spaces = Vec::with_capacity(env.capacity(counts.spaces)?);
+    let mut parking_spaces = env.vec(counts.spaces)?;
     for mir_key in env
         .orders
         .parking_spaces
@@ -179,7 +178,7 @@ pub(super) fn freeze(
                 length_mm: space.geometry.length_mm,
                 width_mm: space.geometry.width_mm,
             },
-        });
+        })?;
     }
 
     Ok(ParkingParts {

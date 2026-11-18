@@ -7,6 +7,7 @@ use laneflow_static_contract::{
 
 use crate::DiagnosticBundle;
 use crate::arena::{ArenaKey, TableRange};
+use crate::ledger::BoundedVec;
 use crate::mir::{MirConflictPassage, MirPathAnchorReference};
 
 use super::{FreezeEnv, LirConflictCounts, LirIdentityField, push_lir_identity, relation_range};
@@ -55,10 +56,10 @@ pub(crate) struct LirParticipantStream {
 
 /// 冲突领域各表及冲突通行段 MIR 行排列的领域冻结产物。
 pub(super) struct ConflictParts {
-    pub conflict_zones: Vec<LirConflictZone>,
-    pub participant_streams: Vec<LirParticipantStream>,
-    pub conflict_passages: Vec<LirConflictPassage>,
-    pub conflict_passage_mir_rows: Vec<ArenaKey<MirConflictPassage>>,
+    pub conflict_zones: BoundedVec<LirConflictZone>,
+    pub participant_streams: BoundedVec<LirParticipantStream>,
+    pub conflict_passages: BoundedVec<LirConflictPassage>,
+    pub conflict_passage_mir_rows: BoundedVec<ArenaKey<MirConflictPassage>>,
 }
 
 /// 按规范排列冻结参与者流、冲突通行段与冲突区表，并校验 MIR 反向闭包与通行段展开一致。
@@ -66,9 +67,9 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirConflictCounts,
 ) -> Result<ConflictParts, DiagnosticBundle> {
-    let mut participant_streams = Vec::with_capacity(env.capacity(counts.streams)?);
-    let mut conflict_passages = Vec::with_capacity(env.capacity(counts.passages)?);
-    let mut conflict_passage_mir_rows = Vec::with_capacity(env.capacity(counts.passages)?);
+    let mut participant_streams = env.vec(counts.streams)?;
+    let mut conflict_passages = env.vec(counts.passages)?;
+    let mut conflict_passage_mir_rows = env.vec(counts.passages)?;
 
     for mir_key in env
         .orders
@@ -97,13 +98,13 @@ pub(super) fn freeze(
             let raw = u32::try_from(row_index)
                 .expect("LIR precheck proved every MIR relation row fits u32");
             let passage = &env.mir.conflict_passages[row_index];
-            conflict_passage_mir_rows.push(ArenaKey::from_raw(raw));
+            conflict_passage_mir_rows.push(ArenaKey::from_raw(raw))?;
             conflict_passages.push(LirConflictPassage {
                 conflict_zone: env.orders.conflict_zones.ordinal(passage.conflict_zone),
                 entry: freeze_anchor(env, &passage.entry.reference, passage.entry.progress_mm),
                 exit: freeze_anchor(env, &passage.exit.reference, passage.exit.progress_mm),
                 admission_gate: env.orders.maneuver_gates.ordinal(passage.admission_gate),
-            });
+            })?;
         }
         participant_streams.push(LirParticipantStream {
             ordinal: env.orders.participant_streams.ordinal(mir_key),
@@ -117,13 +118,13 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
     // 反向表只用于证明 HIR→MIR 降阶未丢失 passage authority。最终
     // Canonical LIR/LFCA 不保存第二份可独立漂移的 zone→stream 表。
     let zone_capacity = env.capacity(counts.zones)?;
-    let mut streams_by_zone = Vec::with_capacity(zone_capacity);
+    let mut streams_by_zone = env.pass.vec(zone_capacity)?;
     for mir_key in env
         .orders
         .conflict_zones
@@ -132,18 +133,17 @@ pub(super) fn freeze(
         .copied()
     {
         let zone = &env.mir.conflict_zones[mir_key.index()];
-        streams_by_zone.push(Vec::<ParticipantStreamOrdinal>::with_capacity(
-            usize::try_from(zone.participant_streams.len())
-                .expect("u32 relation count fits usize on every supported target"),
-        ));
+        streams_by_zone.push(
+            env.vec::<ParticipantStreamOrdinal>(u64::from(zone.participant_streams.len()))?,
+        )?;
     }
     for stream in &participant_streams {
         for passage in &conflict_passages[stream.passages.as_usize_range()] {
-            streams_by_zone[passage.conflict_zone.raw() as usize].push(stream.ordinal);
+            streams_by_zone[passage.conflict_zone.raw() as usize].push(stream.ordinal)?;
         }
     }
-    let mut conflict_zones = Vec::with_capacity(zone_capacity);
-    let mut canonical_mir_streams = Vec::with_capacity(env.capacity(counts.max_zone_streams)?);
+    let mut conflict_zones = env.pass.vec(zone_capacity)?;
+    let mut canonical_mir_streams = env.vec(counts.max_zone_streams)?;
     for mir_key in env
         .orders
         .conflict_zones
@@ -176,7 +176,7 @@ pub(super) fn freeze(
         streams.sort_unstable();
         streams.dedup();
         canonical_mir_streams.clear();
-        canonical_mir_streams.extend(
+        canonical_mir_streams.try_extend(
             env.mir.conflict_zone_streams[zone.participant_streams.as_usize_range()]
                 .iter()
                 .map(|member| {
@@ -184,11 +184,11 @@ pub(super) fn freeze(
                         .participant_streams
                         .ordinal(member.participant_stream)
                 }),
-        );
+        )?;
         canonical_mir_streams.sort_unstable();
         assert_eq!(
-            streams.as_slice(),
-            canonical_mir_streams.as_slice(),
+            &streams[..],
+            &canonical_mir_streams[..],
             "MIR conflict-zone reverse closure diverged from participant-stream passages"
         );
         conflict_zones.push(LirConflictZone {
@@ -196,7 +196,7 @@ pub(super) fn freeze(
             stable_id: zone.stable_id,
             identity_fields,
             junction: env.orders.junctions.ordinal(zone.junction),
-        });
+        })?;
     }
 
     Ok(ConflictParts {

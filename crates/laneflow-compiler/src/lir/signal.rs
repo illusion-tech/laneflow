@@ -6,6 +6,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::LirIdentityField;
 
@@ -60,15 +61,15 @@ use laneflow_static_contract::FieldTag;
 
 /// 信号领域各表、关系辅表及控制器组、相位状态 MIR 行排列的领域冻结产物。
 pub(super) struct SignalParts {
-    pub signal_groups: Vec<LirSignalGroup>,
-    pub signal_group_maneuver_gates: Vec<ManeuverGateOrdinal>,
-    pub signal_controllers: Vec<LirSignalController>,
-    pub signal_controller_groups: Vec<SignalGroupOrdinal>,
-    pub signal_controller_phases: Vec<SignalPhaseOrdinal>,
-    pub signal_phases: Vec<LirSignalPhase>,
-    pub signal_phase_states: Vec<LirSignalPhaseState>,
-    pub signal_controller_group_mir_rows: Vec<ArenaKey<MirSignalControllerGroup>>,
-    pub signal_phase_state_mir_rows: Vec<ArenaKey<MirSignalPhaseState>>,
+    pub signal_groups: BoundedVec<LirSignalGroup>,
+    pub signal_group_maneuver_gates: BoundedVec<ManeuverGateOrdinal>,
+    pub signal_controllers: BoundedVec<LirSignalController>,
+    pub signal_controller_groups: BoundedVec<SignalGroupOrdinal>,
+    pub signal_controller_phases: BoundedVec<SignalPhaseOrdinal>,
+    pub signal_phases: BoundedVec<LirSignalPhase>,
+    pub signal_phase_states: BoundedVec<LirSignalPhaseState>,
+    pub signal_controller_group_mir_rows: BoundedVec<ArenaKey<MirSignalControllerGroup>>,
+    pub signal_phase_state_mir_rows: BoundedVec<ArenaKey<MirSignalPhaseState>>,
 }
 
 /// 按规范排列冻结信号组、信号控制器与信号相位表；控制器的相位保持固定时制程序顺序。
@@ -76,9 +77,8 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirSignalCounts,
 ) -> Result<SignalParts, DiagnosticBundle> {
-    let mut signal_groups = Vec::with_capacity(env.capacity(counts.groups)?);
-    let mut signal_group_maneuver_gates =
-        Vec::with_capacity(env.capacity(counts.controlled_gates)?);
+    let mut signal_groups = env.vec(counts.groups)?;
+    let mut signal_group_maneuver_gates = env.vec(counts.controlled_gates)?;
     for mir_key in env
         .orders
         .signal_groups
@@ -98,11 +98,11 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let gate_start = signal_group_maneuver_gates.len();
-        signal_group_maneuver_gates.extend(
+        signal_group_maneuver_gates.try_extend(
             env.mir.signal_group_maneuver_gates[group.maneuver_gates.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.maneuver_gates.ordinal(member.maneuver_gate)),
-        );
+        )?;
         signal_group_maneuver_gates[gate_start..].sort_unstable();
         signal_groups.push(LirSignalGroup {
             ordinal: env.orders.signal_groups.ordinal(mir_key),
@@ -115,14 +115,14 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut signal_controllers = Vec::with_capacity(env.capacity(counts.controllers)?);
-    let mut signal_controller_groups = Vec::with_capacity(env.capacity(counts.controller_groups)?);
-    let mut signal_controller_group_mir_rows: Vec<ArenaKey<MirSignalControllerGroup>> =
-        Vec::with_capacity(env.capacity(counts.controller_groups)?);
-    let mut signal_controller_phases = Vec::with_capacity(env.capacity(counts.phases)?);
+    let mut signal_controllers = env.vec(counts.controllers)?;
+    let mut signal_controller_groups = env.vec(counts.controller_groups)?;
+    let mut signal_controller_group_mir_rows: BoundedVec<ArenaKey<MirSignalControllerGroup>> =
+        env.vec(counts.controller_groups)?;
+    let mut signal_controller_phases = env.vec(counts.phases)?;
     for mir_key in env
         .orders
         .signal_controllers
@@ -143,13 +143,13 @@ pub(super) fn freeze(
         )?;
         let group_start = signal_controller_groups.len();
         let permutation_start = signal_controller_group_mir_rows.len();
-        signal_controller_group_mir_rows.extend(controller.signal_groups.as_usize_range().map(
-            |index| {
+        signal_controller_group_mir_rows.try_extend(
+            controller.signal_groups.as_usize_range().map(|index| {
                 ArenaKey::from_raw(
                     u32::try_from(index).expect("LIR precheck proved every MIR key fits u32"),
                 )
-            },
-        ));
+            }),
+        )?;
         signal_controller_group_mir_rows[permutation_start..].sort_unstable_by_key(|mir_row| {
             let member = &env.mir.signal_controller_groups[mir_row.index()];
             (
@@ -158,14 +158,14 @@ pub(super) fn freeze(
             )
         });
         // 集合语义只排序这一份 MIR 行地址；语义目标和来源随后都借用此排列。
-        signal_controller_groups.extend(
+        signal_controller_groups.try_extend(
             signal_controller_group_mir_rows[permutation_start..]
                 .iter()
                 .map(|mir_row| {
                     let member = &env.mir.signal_controller_groups[mir_row.index()];
                     env.orders.signal_groups.ordinal(member.signal_group)
                 }),
-        );
+        )?;
         debug_assert_eq!(group_start, permutation_start);
         let phase_start = signal_controller_phases.len();
         for phase_index in controller.phases.as_usize_range() {
@@ -173,7 +173,7 @@ pub(super) fn freeze(
                 MirSignalPhaseKey::from_raw(
                     u32::try_from(phase_index).expect("MIR range prevalidated as u32"),
                 ),
-            ));
+            ))?;
         }
         signal_controllers.push(LirSignalController {
             ordinal: env.orders.signal_controllers.ordinal(mir_key),
@@ -194,13 +194,13 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut signal_phases = Vec::with_capacity(env.capacity(counts.phases)?);
-    let mut signal_phase_states = Vec::with_capacity(env.capacity(counts.phase_states)?);
-    let mut signal_phase_state_mir_rows: Vec<ArenaKey<MirSignalPhaseState>> =
-        Vec::with_capacity(env.capacity(counts.phase_states)?);
+    let mut signal_phases = env.vec(counts.phases)?;
+    let mut signal_phase_states = env.vec(counts.phase_states)?;
+    let mut signal_phase_state_mir_rows: BoundedVec<ArenaKey<MirSignalPhaseState>> =
+        env.vec(counts.phase_states)?;
     for mir_key in env
         .orders
         .signal_phases
@@ -237,11 +237,11 @@ pub(super) fn freeze(
         }
         let state_start = signal_phase_states.len();
         let permutation_start = signal_phase_state_mir_rows.len();
-        signal_phase_state_mir_rows.extend(phase.states.as_usize_range().map(|index| {
+        signal_phase_state_mir_rows.try_extend(phase.states.as_usize_range().map(|index| {
             ArenaKey::from_raw(
                 u32::try_from(index).expect("LIR precheck proved every MIR key fits u32"),
             )
-        }));
+        }))?;
         signal_phase_state_mir_rows[permutation_start..].sort_unstable_by_key(|mir_row| {
             let state = &env.mir.signal_phase_states[mir_row.index()];
             (
@@ -250,15 +250,17 @@ pub(super) fn freeze(
             )
         });
         // 相位状态与控制器组表共享 LIR signal-group ordinal 轴。
-        signal_phase_states.extend(signal_phase_state_mir_rows[permutation_start..].iter().map(
-            |mir_row| {
-                let state = &env.mir.signal_phase_states[mir_row.index()];
-                LirSignalPhaseState {
-                    signal_group: env.orders.signal_groups.ordinal(state.signal_group),
-                    aspect: state.aspect,
-                }
-            },
-        ));
+        signal_phase_states.try_extend(
+            signal_phase_state_mir_rows[permutation_start..]
+                .iter()
+                .map(|mir_row| {
+                    let state = &env.mir.signal_phase_states[mir_row.index()];
+                    LirSignalPhaseState {
+                        signal_group: env.orders.signal_groups.ordinal(state.signal_group),
+                        aspect: state.aspect,
+                    }
+                }),
+        )?;
         debug_assert_eq!(state_start, permutation_start);
         signal_phases.push(LirSignalPhase {
             ordinal: env.orders.signal_phases.ordinal(mir_key),
@@ -277,7 +279,7 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
     Ok(SignalParts {

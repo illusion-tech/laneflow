@@ -589,10 +589,11 @@ impl Compiler {
         let source_map_input =
             crate::source_map::freeze_source_map_in(unit, &mir, &frozen_lir, &ledger)?;
         drop(mir);
-        let crate::lir::LirFreezeOutput { mut lir, .. } = frozen_lir;
+        // 规范排列只服务源映射冻结，在此释放并归还授予。
+        let mut lir = frozen_lir.into_lir();
         // 返回点转交宿主：LIR 随编译输出返回；编译单元按值移入，其存储随源映射输入返回或
         // 已在冻结中释放，剩余授予随输出转交。
-        lir.ledger_grant.transfer_to_host();
+        lir.transfer_to_host();
         inputs.transfer_to_host();
         let report = ledger.close().map_err(|error| {
             DiagnosticBundle::single(crate::Diagnostic::from_ledger_error(
