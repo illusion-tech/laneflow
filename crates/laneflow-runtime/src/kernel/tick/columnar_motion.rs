@@ -107,7 +107,7 @@ batch_columns! {
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
     envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
-    edge_length: u32 = 0, exhausted_speed_cap: u32 = 0,
+    edge_length: u32 = 0, exhausted_speed_cap: u32 = 0, exhausted_cap_dominates: bool = false,
     transition_hop: Option<u32> = None,
     waiting_hop: Option<u32> = None,
     conflict_hop: Option<u32> = None,
@@ -358,6 +358,7 @@ fn numerical(
         carry_um: &source.carry_um[offset..offset + n],
         hard_room_mm: &batch.hard_room[range.clone()],
         exhausted_speed_cap_mm_s: &batch.exhausted_speed_cap[range.clone()],
+        exhausted_cap_dominates: &batch.exhausted_cap_dominates[range.clone()],
         committed_limit_mm_s: &[u32::MAX; BLOCK_ROWS][range.clone()],
         leader_m: &batch.leader[range.clone()],
         has_leader: &batch.has_leader[range.clone()],
@@ -704,7 +705,7 @@ fn compute(
             MOTION_CALCULATIONS.set(MOTION_CALCULATIONS.get() + 1);
             batch.store(row, &basis);
             batch.waiting_hop[row] = waiting.map(|stop| stop.hop);
-            batch.conflict_hop[row] = conflict.map(|stop| stop.hop);
+            batch.conflict_hop[row] = conflict.map(|barrier| barrier.constraint.hop);
             let limits = basis.limits(
                 position.progress_mm,
                 compiled,
@@ -716,6 +717,9 @@ fn compute(
             batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
+            // F3'：过渡绑定的耗尽由舒适衰减上界主导，传给内核完成阶段
+            // （不进候选形成）。
+            batch.exhausted_cap_dominates[row] = limits.transition_limited;
             batch.transition_hop[row] = transition.map(|bound| bound.stop.hop);
             chunk.cursor[row] = position.route_edge_index;
             Ok(())

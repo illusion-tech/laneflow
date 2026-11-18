@@ -118,6 +118,27 @@ impl NonEntryPart {
     }
 }
 
+/// #1272 非入口 Waiting 决定发布的拍初有效门决定（F5 复审修）：黄灯困境区
+/// 豁免的门按实际许可发布 `NotRequired`，与 Conflict 发布
+/// （`conflict_tick::free_gate_decisions`）同一来源；灯色仍取本 tick 起始，
+/// 发布后的信号刷新不改写历史决定。
+pub(crate) fn non_entry_gate_outcome(
+    read: crate::kernel::phase::StepReadView<'_>,
+    gate: laneflow_static_contract::ManeuverGateOrdinal,
+    profile: laneflow_static_contract::VehicleProfileOrdinal,
+    speed_mm_s: u32,
+    distance_to_line: Option<u32>,
+) -> WaitingDecisionOutcome {
+    if read.gate_is_restrictive(gate, profile)
+        && distance_to_line
+            .is_none_or(|mm| !read.gate_yellow_dilemma_exempt(gate, profile, speed_mm_s, mm))
+    {
+        WaitingDecisionOutcome::NotEvaluated
+    } else {
+        WaitingDecisionOutcome::NotRequired
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn count_waiting_work(update: impl FnOnce(&mut WaitingWorkCounts)) {
     WAITING_WORK_COUNTS.with(|counts| {
@@ -3247,12 +3268,17 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .as_ref()
                 .expect("live route");
             let gate = compiled.hop_gate[anchor.hop as usize].expect("indexed Gate");
-            // finalize 使用本 tick 起始灯色；发布后的信号刷新不改写历史决定。
-            let outcome = if self.gate_is_restrictive(gate, old.profile) {
-                WaitingDecisionOutcome::NotEvaluated
-            } else {
-                WaitingDecisionOutcome::NotRequired
-            };
+            // F5 复审修：finalize 消费拍初有效决定（黄灯困境区豁免的门
+            // 发布 NotRequired），与 Conflict 发布同源；灯色仍取本 tick
+            // 起始，发布后的信号刷新不改写历史决定。
+            let position = crate::kernel::vehicle_store::MotionPosition::from(&old);
+            let outcome = non_entry_gate_outcome(
+                self.read_view(),
+                gate,
+                old.profile,
+                old.speed_mm_s,
+                super::conflict_tick::gate_hop_line_distance(compiled, &position, anchor.hop),
+            );
             self.workspace
                 .waiting_staged_decisions
                 .push(WaitingDecision {
@@ -3340,12 +3366,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         .as_ref()
                         .expect("live route");
                     let gate = compiled.hop_gate[hop as usize].expect("indexed Gate");
-                    // finalize 使用本 tick 起始灯色；发布后的信号刷新不改写历史决定。
-                    let outcome = if read.gate_is_restrictive(gate, old.profile) {
-                        WaitingDecisionOutcome::NotEvaluated
-                    } else {
-                        WaitingDecisionOutcome::NotRequired
-                    };
+                    // F5 复审修：同串行路径，消费拍初有效决定（黄灯困境区豁免
+                    // 的门发布 NotRequired）；灯色仍取本 tick 起始。
+                    let position = crate::kernel::vehicle_store::MotionPosition::from(&old);
+                    let outcome = non_entry_gate_outcome(
+                        read,
+                        gate,
+                        old.profile,
+                        old.speed_mm_s,
+                        super::conflict_tick::gate_hop_line_distance(compiled, &position, hop),
+                    );
                     if out.decisions.try_reserve(1).is_err() {
                         out.status = NonEntryStatus::AllocFailed;
                         return;

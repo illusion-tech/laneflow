@@ -109,6 +109,9 @@ pub struct Input<'a> {
     pub hard_room_mm: &'a [u32],
     /// 仅在硬空间耗尽时叠加到投影速度的上限；零表示停稳。
     pub exhausted_speed_cap_mm_s: &'a [u32],
+    /// 耗尽拍速度由耗尽上界直接主导（过渡预约的舒适衰减），不与候选投影
+    /// 取 min。只在完成阶段消费，不参与候选形成（#1272 F3' 复审修）。
+    pub exhausted_cap_dominates: &'a [bool],
     pub committed_limit_mm_s: &'a [u32],
     pub leader_m: &'a [f32],
     pub has_leader: &'a [bool],
@@ -457,6 +460,7 @@ impl Kernel {
             input.carry_um.len(),
             input.hard_room_mm.len(),
             input.exhausted_speed_cap_mm_s.len(),
+            input.exhausted_cap_dominates.len(),
             input.committed_limit_mm_s.len(),
             input.leader_m.len(),
             input.has_leader.len(),
@@ -903,9 +907,17 @@ fn finish_values(
     }
     let room = input.hard_room_mm[row];
     let projected_speed = (rounded_speed as u32).min(input.committed_limit_mm_s[row]);
+    // F3' 复审修：过渡耗尽的「耗尽上界主导」（合同：耗尽拍由该上界主导，
+    // 不与候选紧急投影取 min——r_p5 钉版 550 而非 100）；其余停止源维持
+    // min(投影, 耗尽上界)。本列只在完成阶段消费，不影响候选形成。
+    let exhausted_speed = if input.exhausted_cap_dominates[row] {
+        input.exhausted_speed_cap_mm_s[row].min(input.committed_limit_mm_s[row])
+    } else {
+        projected_speed.min(input.exhausted_speed_cap_mm_s[row])
+    };
     if room == 0 {
         output.travel_mm[row] = 0;
-        output.speed_mm_s[row] = projected_speed.min(input.exhausted_speed_cap_mm_s[row]);
+        output.speed_mm_s[row] = exhausted_speed;
         output.carry_um[row] = 0;
         output.progress_mm[row] = input.progress_mm[row];
         output.exhausted[row] = true;
@@ -924,7 +936,7 @@ fn finish_values(
     output.travel_mm[row] = travel_mm;
     output.progress_mm[row] = input.progress_mm[row].saturating_add(travel_mm);
     output.speed_mm_s[row] = if exhausted {
-        projected_speed.min(input.exhausted_speed_cap_mm_s[row])
+        exhausted_speed
     } else {
         projected_speed
     };

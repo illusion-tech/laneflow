@@ -4076,20 +4076,12 @@ pub(crate) mod compile_route_tests {
                     "reference speed at the reserved entry"
                 );
                 world.step(crate::TickInput::new(100)).unwrap();
-                // 列式内核的耗尽分支做 min(投影速度, 耗尽上界)；过渡
-                // 「舒适衰减主导」语义在标量路径已正确（projected 断言上方
-                // 550 通过），内核路径的候选紧急下界（100）会被 min 选中。
-                // 这是已登记的列式路径已知缺口，跟进任务承接。
+                // F3' 复审修：列式完成阶段与标量同取「耗尽上界主导」——过渡
+                // 舒适衰减 550（direct）/9_550 精确一致，恢复精确对照断言。
                 let committed = motion(world.vehicle(rear).unwrap());
-                let expected_committed = (
-                    committed.0,
-                    committed.1,
-                    committed.2.min(expected.2),
-                    committed.3,
-                );
                 assert_eq!(
-                    committed, expected_committed,
-                    "committed columns at the reserved entry (kernel path min semantics)"
+                    committed, expected,
+                    "committed columns at the reserved entry (transition comfort decay dominates)"
                 );
             }
         }

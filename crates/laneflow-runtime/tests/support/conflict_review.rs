@@ -322,9 +322,11 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
     world.step(TickInput::new(1_000)).unwrap();
     let state = world.vehicle(vehicle).unwrap();
     assert_eq!(state.route_edge_index(), 1);
-    // #1272：紧急域制动到下一门前（13 m 边内行进 11 m、留 2 m 余量），
-    // 不再精确钉在门线上。
-    assert_eq!(state.progress_mm(), 11_000);
+    // #1272 紧急域制动 + F2' 复审修：下一门未授权且无已知阻塞，只是
+    // 位置屏障（合同 §3.1.1），不再作为停止目标提前紧急制动——落点随
+    // 驻留上界后移到 11_824 mm；「未过门、门线前驻留、预约保留」的性质
+    // 断言全部保留（下方）。
+    assert_eq!(state.progress_mm(), 11_824);
     assert!(state.speed_mm_s() > 0 || state.progress_mm() < 13_000);
     // #1272：车辆在下一门前 2 m 处以紧急域上界速度驻留（耗尽衰减），
     // 尚未过门——没有旧尾清空、没有 GateCrossed，预约随裁决生命周期保留。

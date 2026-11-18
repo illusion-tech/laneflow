@@ -373,8 +373,22 @@ impl TransitionStop {
 
 struct MotionLimits {
     stop: Option<BoundedDistance>,
+    /// 位置屏障（未授权、无已知阻塞的最近资源入口）：只截断位移与跨门，
+    /// 不参与速度归约；耗尽拍按屏障源取紧急衰减（F2' 复审修）。
+    barrier: Option<BoundedDistance>,
     hard_room_mm: u32,
     transition_limited: bool,
+}
+
+/// 资源停止源二分（#1272 合同 §3.1.1，F2' 复审修）：未授权入口对未持有
+/// 者是**位置屏障**——本拍不得越过（hard_room 截断 + 跨门谓词），「尚未
+/// 申请且无已知阻塞的入口不因『没有 grant』自行制造停止目标」；已知阻塞
+/// （Conflict 区被他人占用或持有、等待区满载）才是制动窗内参与速度归约的
+/// **停止目标**。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ResourceBarrier {
+    pub(crate) constraint: crate::kernel::waiting::WaitingStopConstraint,
+    pub(crate) known_blocked: bool,
 }
 
 impl MotionLimits {
@@ -404,7 +418,13 @@ impl MotionLimits {
             // 紧急衰减。
             let stop_binds =
                 matches!(self.stop, Some(BoundedDistance::Finite(mm)) if mm == self.hard_room_mm);
-            if !stop_binds {
+            // 位置屏障绑定当前边界（未授权、无已知阻塞）：等待授权期间按
+            // 紧急衰减耗尽，不一拍清零（F2'：#1272 语义同样适用于屏障等待）。
+            let barrier_binds = matches!(
+                self.barrier,
+                Some(BoundedDistance::Finite(mm)) if mm == self.hard_room_mm
+            );
+            if !stop_binds && !barrier_binds {
                 return 0;
             }
             let rate_mm_s2 = (inputs.emergency_decel * 1_000.0) as u64;
@@ -425,19 +445,36 @@ impl MotionInputs {
         progress_mm: u32,
         compiled: &CompiledRoute,
         waiting: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict: Option<ResourceBarrier>,
         transition: Option<TransitionStop>,
         leader_constraint_only: bool,
     ) -> MotionLimits {
         let mut stop = self.movement_stop;
-        let independent_conflict = conflict.filter(|conflict| {
+        // F2' 复审修（合同 §3.1.1）：资源停止源二分——未授权且无已知阻塞
+        // 的入口只是位置屏障（hard_room 截断 + 跨门谓词），不参与速度
+        // 归约；已知阻塞（被他人占用或持有、等待区满载）才并入停止目标。
+        let independent = |constraint: crate::kernel::waiting::WaitingStopConstraint| {
             !transition
-                .is_some_and(|transition| transition.is_only_conflict_at(compiled, *conflict))
-        });
-        for constraint in [waiting, independent_conflict].into_iter().flatten() {
+                .is_some_and(|transition| transition.is_only_conflict_at(compiled, constraint))
+        };
+        let barrier = conflict
+            .filter(|barrier| independent(barrier.constraint))
+            .map(|barrier| barrier.constraint);
+        let conflict_stop = conflict
+            .filter(|barrier| barrier.known_blocked)
+            .map(|barrier| barrier.constraint)
+            .filter(|constraint| independent(*constraint));
+        for constraint in [waiting, conflict_stop].into_iter().flatten() {
             if stop.is_none_or(|old| stop_is_nearer_or_equal(constraint.distance, old)) {
                 stop = Some(constraint.distance);
             }
+        }
+        // 屏障不并入 stop 时单独截断位移（本拍不得越过屏障线）。
+        let mut room_stop = stop;
+        if let Some(constraint) = barrier
+            && room_stop.is_none_or(|old| stop_is_nearer_or_equal(constraint.distance, old))
+        {
+            room_stop = Some(constraint.distance);
         }
         let ordinary_room = if leader_constraint_only {
             self.leader_gap.map_or(u32::MAX, |gap| {
@@ -447,7 +484,7 @@ impl MotionInputs {
             hard_room_mm(
                 self.leader_gap,
                 self.min_gap_mm,
-                stop,
+                room_stop,
                 self.route_end,
                 self.edge_length_mm,
                 progress_mm,
@@ -456,6 +493,7 @@ impl MotionInputs {
         };
         let mut limits = MotionLimits {
             stop,
+            barrier: barrier.map(|constraint| constraint.distance),
             hard_room_mm: ordinary_room,
             transition_limited: false,
         };
@@ -467,7 +505,10 @@ impl MotionInputs {
             }
             if !leader_constraint_only && mm < ordinary_room {
                 limits.hard_room_mm = mm;
-                limits.transition_limited = self.parking.is_none();
+                // F3' 复审修：过渡是实际绑定边界即按过渡分类——远处停车预约
+                // 不再把绑定中的过渡边界挤到紧急衰减（耗尽决策表按绑定
+                // 边界判定，parking.is_none() 是旧分类残留）。
+                limits.transition_limited = true;
             }
         }
         limits
@@ -605,27 +646,33 @@ impl MotionPreview {
         // 只能证明新增约束不改变结果；移除或替换已经参与计算的约束必须重算。
         self.waiting_stop == waiting_stop
             || (self.waiting_stop.is_none()
-                && waiting_stop.is_some_and(|stop| self.unaffected_by(stop)))
+                && waiting_stop.is_some_and(|stop| {
+                    // Waiting membership 的停车点是真实停止目标。
+                    self.unaffected_by(ResourceBarrier {
+                        constraint: stop,
+                        known_blocked: true,
+                    })
+                }))
     }
 
     fn reuse(
         &self,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<ResourceBarrier>,
     ) -> Option<super::vehicle_store::MotionValue> {
         if !self.accepts_waiting_stop(waiting_stop) {
             return None;
         }
-        let Some(stop) = conflict_stop else {
+        let Some(barrier) = conflict_stop else {
             return Some(self.next);
         };
-        if Some(stop) == waiting_stop {
+        if Some(barrier.constraint) == waiting_stop {
             return Some(self.next);
         }
-        self.unaffected_by(stop).then_some(self.next)
+        self.unaffected_by(barrier).then_some(self.next)
     }
 
-    fn unaffected_by(&self, stop: crate::kernel::waiting::WaitingStopConstraint) -> bool {
+    fn unaffected_by(&self, stop: ResourceBarrier) -> bool {
         let beyond_motion = match self.bounds {
             // 同距离的新约束可能改变停车原因与提交速度，必须重算。
             MotionBounds::TransitionStopped | MotionBounds::Unknown => false,
@@ -637,20 +684,22 @@ impl MotionPreview {
                 proposed_mm,
                 window_mm,
                 ..
-            } => match stop.distance {
+            } => match stop.constraint.distance {
                 BoundedDistance::Finite(mm) => {
                     // SI clamp 不变，且新整数硬边界严格在含 carry/舍入的提案外，
                     // 因而不会改变 exhausted 或余量。#1272 起停止目标参与速度
                     // 归约：本拍够不到但处于制动前视窗内的目标同样改变速度与
-                    // 停稳分支，窗外才可复用。不能只比较整数位置。
+                    // 停稳分支，窗外才可复用。不能只比较整数位置。F2'：位置
+                    // 屏障（未授权、无已知阻塞）不参与速度归约，本拍提案
+                    // 够不到即不影响结果，制动窗判据只约束已知阻塞的停止目标。
                     u64::from(mm) > proposed_mm
                         && si_meters(mm) >= meters
-                        && u64::from(mm) > window_mm
+                        && (!stop.known_blocked || u64::from(mm) > window_mm)
                 }
                 BoundedDistance::BeyondFinite => true,
             },
         };
-        beyond_motion && self.next.route_edge_index <= stop.hop
+        beyond_motion && self.next.route_edge_index <= stop.constraint.hop
     }
 }
 
@@ -2073,7 +2122,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<ResourceBarrier>,
     ) -> Option<VehicleState> {
         let parking_binding = self.committed.parking.binding(state.handle);
         self.advance_active_vehicle_with_parking_binding(
@@ -2093,7 +2142,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<ResourceBarrier>,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
     ) -> Option<VehicleState> {
@@ -2116,7 +2165,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<ResourceBarrier>,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
         basis: Option<MotionBasis>,
@@ -2355,11 +2404,18 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             }
         };
         let mut bounds = MotionBounds::Unknown;
+        // 生成预检的停止点全部来自实际事实（让行/排队/候选占位截断），按
+        // 「已知阻塞」参与速度归约（F2' 二分的位置屏障通道只属于运行期
+        // 未授权入口）。
+        let admission_barrier = admission_stop.map(|constraint| ResourceBarrier {
+            constraint,
+            known_blocked: true,
+        });
         self.calculate_active_vehicle_motion(
             state,
             delta_s,
             None,
-            admission_stop,
+            admission_barrier,
             self.committed.parking.binding(state.handle),
             None,
             Some(&mut bounds),
@@ -4366,7 +4422,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         mut state: VehicleState,
         delta_s: f32,
         waiting_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
-        conflict_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
+        conflict_stop: Option<ResourceBarrier>,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
         motion_bounds: Option<&mut MotionBounds>,
@@ -4520,7 +4576,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 state_speed,
                 gate_distance(index),
             ) && waiting_stop.is_none_or(|waiting| waiting.hop as usize != index)
-                && conflict_stop.is_none_or(|conflict| conflict.hop as usize != index)
+                && conflict_stop.is_none_or(|barrier| barrier.constraint.hop as usize != index)
                 && transition.is_none_or(|bound| bound.stop.hop as usize != index)
         })?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
@@ -4799,32 +4855,39 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         profile: VehicleProfileOrdinal,
         signal_aspects: &[laneflow_static_contract::SignalAspect],
     ) -> crate::GatePolicyDecision {
+        let Some((rule, signal_group)) = self.gate_rule_and_group(gate, profile) else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
+        crate::kernel::conflict::interpret_gate_policy(rule, signal_group.is_some(), aspect)
+            .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
+    }
+
+    /// 门规则与本门信号组；未知门、未知配置或无适用规则为 `None`，调用方
+    /// 失败关闭。
+    fn gate_rule_and_group(
+        self,
+        gate: laneflow_static_contract::ManeuverGateOrdinal,
+        profile: VehicleProfileOrdinal,
+    ) -> Option<(
+        laneflow_static_network::ResolvedGatePolicy,
+        Option<laneflow_static_contract::SignalGroupOrdinal>,
+    )> {
         let gate_view = self
             .binding
             .revision
             .traffic()
             .relations()
-            .maneuver_gate(gate);
-        let Some(gate_view) = gate_view else {
-            return crate::GatePolicyDecision::DenyAndStop;
-        };
-        let Some(class) = self
+            .maneuver_gate(gate)?;
+        let class = self
             .binding
             .revision
             .traffic()
             .relations()
             .vehicle_profile(profile)
-            .map(|p| p.class())
-        else {
-            return crate::GatePolicyDecision::DenyAndStop;
-        };
-        let Some(rule) = self.policy().and_then(|policy| policy.gate(gate, class)) else {
-            return crate::GatePolicyDecision::DenyAndStop;
-        };
-        let signal_group = gate_view.signal_group();
-        let aspect = signal_group.and_then(|group| signal_aspects.get(group.index()).copied());
-        crate::kernel::conflict::interpret_gate_policy(*rule, signal_group.is_some(), aspect)
-            .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
+            .map(|p| p.class())?;
+        let rule = self.policy().and_then(|policy| policy.gate(gate, class))?;
+        Some((*rule, gate_view.signal_group()))
     }
 
     /// #1272 黄灯困境区逐拍许可（本拍有效法规决定的能力判据）：该门当前
@@ -4861,9 +4924,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
         // F1 复审修 1：拒绝须来自黄灯本身——绿列解释仍拒绝说明存在独立
         // 禁令（Always / OnRed），不得被困境区豁免解除。
-        if self.gate_decision_with_aspect(gate, profile, group.index())
-            == crate::GatePolicyDecision::DenyAndStop
-        {
+        if self.gate_decision_with_aspect(gate, profile) == crate::GatePolicyDecision::DenyAndStop {
             return false;
         }
         let Some(emergency) = self
@@ -4880,19 +4941,24 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         speed * speed / (2.0 * emergency) > si_meters(distance_mm)
     }
 
-    /// 以指定组的指定灯色求值该门的策略决定；供困境区豁免区分「黄灯
-    /// 造成的拒绝」与「独立禁令造成的拒绝」。
+    /// 以本门组按绿灯灯色求值该门的策略决定；供困境区豁免区分「黄灯
+    /// 造成的拒绝」与「独立禁令造成的拒绝」。只替换本门组的灯色解释，
+    /// 不复制整个世界的灯色数组——逐门 O(1)、零分配（vehicle-following
+    /// §10.3 的逐目标合同）。
     fn gate_decision_with_aspect(
         self,
         gate: laneflow_static_contract::ManeuverGateOrdinal,
         profile: VehicleProfileOrdinal,
-        group_index: usize,
     ) -> crate::GatePolicyDecision {
-        let mut aspects = self.committed.signal_aspects.clone();
-        if let Some(slot) = aspects.get_mut(group_index) {
-            *slot = laneflow_static_contract::SignalAspect::Green;
-        }
-        self.gate_policy_decision_with_signals(gate, profile, &aspects)
+        let Some((rule, signal_group)) = self.gate_rule_and_group(gate, profile) else {
+            return crate::GatePolicyDecision::DenyAndStop;
+        };
+        crate::kernel::conflict::interpret_gate_policy(
+            rule,
+            signal_group.is_some(),
+            Some(laneflow_static_contract::SignalAspect::Green),
+        )
+        .unwrap_or(crate::GatePolicyDecision::DenyAndStop)
     }
 
     /// #1272 跨门判定的黄灯困境区许可：只有拍初按紧急减速度真正停不住的
@@ -5002,7 +5068,7 @@ impl<'a> MotionTaskView<'a> {
         delta_s: f32,
         compiled: &CompiledRoute,
         profile: Option<VehicleProfileView>,
-    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+    ) -> Result<Option<ResourceBarrier>, StepError> {
         self.conflict_stop_at(state, delta_s, compiled, profile, None)
     }
 
@@ -5019,14 +5085,21 @@ impl<'a> MotionTaskView<'a> {
         compiled: &CompiledRoute,
         profile: Option<VehicleProfileView>,
         cursor_row: Option<&MotionCursorRow>,
-    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+    ) -> Result<Option<ResourceBarrier>, StepError> {
         let position = state.position();
-        // F4 复审修 4：「尚未获授权」是位置屏障，不是已知阻塞——把窗口扩展
-        // 到此处会让完全空闲的资源声明也触发提前紧急制动。恢复本拍位移
-        // 上界作为裁剪；已知阻塞的提前制动（cells 被其他车占用 / Waiting
-        // 满载）需要读取实际占用事实，作为后续任务。
+        // F2' 复审修（合同 §3.1.1）：查询窗用制动前视窗——已知阻塞的停止
+        // 目标在窗内即参与速度归约，与本拍位移无关；不可证明时退回本拍
+        // 上界。「尚未授权」本身不再制造停止目标：占用事实决定它只是位置
+        // 屏障还是已知阻塞（F4 只退窗口没有拆语义，本修补上另一半）。
         let reach = profile.and_then(|profile| {
-            MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s)
+            MotionReach::from_braking_window(
+                state.speed_mm_s(),
+                profile.desired_speed_mm_s(),
+                profile.max_accel(),
+                profile.comfort_decel(),
+                delta_s,
+            )
+            .or_else(|| MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s))
         });
         let (skip_conflict, skip_waiting) =
             match cursor_row.filter(|row| row.matches(state.route(), position.route_edge_index)) {
@@ -5036,6 +5109,11 @@ impl<'a> MotionTaskView<'a> {
         if skip_conflict && skip_waiting {
             return Ok(None);
         }
+        let conflict_read = crate::kernel::conflict::ConflictRead::new(
+            &self.read.committed.conflict,
+            &self.read.derived.conflict,
+            self.conflict_staged,
+        );
         let grant_hop = self
             .conflict_motion_by_vehicle
             .get(state.handle().index() as usize)
@@ -5043,13 +5121,9 @@ impl<'a> MotionTaskView<'a> {
             .flatten()
             .filter(|plan| plan.outcome == crate::ConflictDecisionOutcome::Granted)
             .map(|plan| plan.gate_hop);
-        let owned_hop = crate::kernel::conflict::ConflictRead::new(
-            &self.read.committed.conflict,
-            &self.read.derived.conflict,
-            self.conflict_staged,
-        )
-        .reservation(state.handle())
-        .map(|reservation| reservation.passage_range().admission_gate_hop());
+        let owned_hop = conflict_read
+            .reservation(state.handle())
+            .map(|reservation| reservation.passage_range().admission_gate_hop());
         let first_hop = if position.progress_mm == 0 && position.carry_um == 0 {
             position.route_edge_index.saturating_sub(1)
         } else {
@@ -5088,7 +5162,7 @@ impl<'a> MotionTaskView<'a> {
                     break None;
                 };
                 if !authorized(entry.admission_hop) {
-                    break Some(entry.admission_hop);
+                    break Some(index);
                 }
                 minimum = entry
                     .admission_hop
@@ -5108,13 +5182,45 @@ impl<'a> MotionTaskView<'a> {
             });
             compiled.waiting[waiting..]
                 .iter()
-                .find(|entry| !authorized(entry.entry_hop))
-                .map(|entry| entry.entry_hop)
+                .position(|entry| !authorized(entry.entry_hop))
+                .map(|offset| waiting + offset)
         };
+        // 已知阻塞判定（合同 §3.1.1「真实不可用」）：Conflict 取该准入门
+        // 全部 passage 是否被他人占用或持有；Waiting 取等待区满载（容量面；
+        // 存储长度面的满载仍按屏障处理，屏障本身保证不越过）。
+        let conflict_blocked = conflict.is_some_and(|index| {
+            let admission_hop = compiled.conflicts[index].admission_hop;
+            compiled.conflicts[index..]
+                .iter()
+                .take_while(|entry| entry.admission_hop == admission_hop)
+                .any(|entry| conflict_read.cells_unavailable(state.handle(), &[entry.address()]))
+        });
+        let waiting_blocked = waiting.is_some_and(|index| {
+            let zone = compiled.waiting[index].zone;
+            let committed = self.read.committed.waiting_zones.get(zone.index());
+            let max_occupancy = self
+                .read
+                .binding
+                .revision
+                .traffic()
+                .relations()
+                .waiting_zone(zone)
+                .map(|zone| zone.max_occupancy());
+            // 区号缺行或关系缺失按已知阻塞（保守制动），不让屏障语义吞掉
+            // 满载事实。
+            match (committed, max_occupancy) {
+                (Some(state), Some(max)) => state.occupancy >= max,
+                _ => true,
+            }
+        });
         // 申请资格不能决定运动屏障。既有裁决权和本拍 grant 只授权各自的 Gate。
-        let Some(hop) = conflict.into_iter().chain(waiting).min() else {
+        let conflict_hop = conflict.map(|index| compiled.conflicts[index].admission_hop);
+        let waiting_hop = waiting.map(|index| compiled.waiting[index].entry_hop);
+        let Some(hop) = [conflict_hop, waiting_hop].into_iter().flatten().min() else {
             return Ok(None);
         };
+        let known_blocked = (conflict_hop == Some(hop) && conflict_blocked)
+            || (waiting_hop == Some(hop) && waiting_blocked);
         let distance = crate::kernel::tables::distance_to_occurrence_start(
             &compiled.occurrence_segments,
             &compiled.occurrence_offsets,
@@ -5124,9 +5230,9 @@ impl<'a> MotionTaskView<'a> {
             hop as usize + 1,
         )
         .ok_or(StepError::ConflictInvariantViolation)?;
-        Ok(Some(crate::kernel::waiting::WaitingStopConstraint {
-            distance,
-            hop,
+        Ok(Some(ResourceBarrier {
+            constraint: crate::kernel::waiting::WaitingStopConstraint { distance, hop },
+            known_blocked,
         }))
     }
 
@@ -5233,7 +5339,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         &self,
         state: &VehicleState,
         delta_s: f32,
-    ) -> Result<Option<crate::kernel::waiting::WaitingStopConstraint>, StepError> {
+    ) -> Result<Option<ResourceBarrier>, StepError> {
         let compiled = self
             .compiled_route(state.route)
             .ok_or(StepError::ConflictInvariantViolation)?;
@@ -5375,15 +5481,6 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         updates.validate_with(&self.committed.vehicles, execution)?;
         self.committed.prepare_vehicle_storage(updates)?;
         Ok(parking_arrivals)
-    }
-
-    /// 判断该机动门对指定车辆配置是否拒绝并停车。
-    pub(crate) fn gate_is_restrictive(
-        &self,
-        gate: laneflow_static_contract::ManeuverGateOrdinal,
-        profile: VehicleProfileOrdinal,
-    ) -> bool {
-        self.read_view().gate_is_restrictive(gate, profile)
     }
 }
 
@@ -6250,6 +6347,15 @@ mod motion_reuse_tests {
     use super::*;
     use crate::kernel::waiting::WaitingStopConstraint;
 
+    /// 测试里的资源停止点按「已知阻塞」语义参与速度归约（位置屏障通道
+    /// 属于运行期未授权入口，由 conflict_stop_at 的占用事实分类）。
+    fn stop_barrier(stop: WaitingStopConstraint) -> ResourceBarrier {
+        ResourceBarrier {
+            constraint: stop,
+            known_blocked: true,
+        }
+    }
+
     #[test]
     fn near_stop_reuses_hard_stops_and_submillimetre_motion_but_not_crossings() {
         let (mut world, follower, leader) =
@@ -6279,9 +6385,14 @@ mod motion_reuse_tests {
         assert!(horizon.bumper_gap_mm > 2);
         assert_eq!(
             preview
-                .reuse(None, Some(stop))
+                .reuse(None, Some(stop_barrier(stop)))
                 .map(|motion| motion.apply(state)),
-            view.advance_active_vehicle_with_waiting_stop(state, 0.016, None, Some(stop))
+            view.advance_active_vehicle_with_waiting_stop(
+                state,
+                0.016,
+                None,
+                Some(stop_barrier(stop))
+            )
         );
         assert_eq!(
             preview
@@ -6312,23 +6423,28 @@ mod motion_reuse_tests {
         ));
         assert_eq!(
             preview
-                .reuse(None, Some(stop))
+                .reuse(None, Some(stop_barrier(stop)))
                 .map(|motion| motion.apply(state)),
             Some(next)
         );
         assert_eq!(
             Some(next),
-            view.advance_active_vehicle_with_waiting_stop(state, 0.001, None, Some(stop))
+            view.advance_active_vehicle_with_waiting_stop(
+                state,
+                0.001,
+                None,
+                Some(stop_barrier(stop))
+            )
         );
 
         let crossing = view
             .preview_active_vehicle_with_waiting_stop(state, 0.1, None, None)
             .unwrap();
         let stopped = view
-            .advance_active_vehicle_with_waiting_stop(state, 0.1, None, Some(stop))
+            .advance_active_vehicle_with_waiting_stop(state, 0.1, None, Some(stop_barrier(stop)))
             .unwrap();
         assert_ne!(crossing.next.apply(state), stopped);
-        assert!(crossing.reuse(None, Some(stop)).is_none());
+        assert!(crossing.reuse(None, Some(stop_barrier(stop))).is_none());
     }
 
     #[test]
@@ -6371,6 +6487,8 @@ mod motion_reuse_tests {
                                 .unwrap(),
                             })
                             .collect();
+                        let barriers: Vec<_> =
+                            stops.iter().map(|stop| stop_barrier(*stop)).collect();
                         for (delta_s, waiting_stop) in
                             [0.001, 0.016, 0.033, 0.1].into_iter().flat_map(|delta_s| {
                                 [None, stops.first().copied()].map(|stop| (delta_s, stop))
@@ -6386,7 +6504,7 @@ mod motion_reuse_tests {
                                 .unwrap();
                             let next = preview.next.apply(state);
                             for conflict_stop in
-                                std::iter::once(None).chain(stops.iter().copied().map(Some))
+                                std::iter::once(None).chain(barriers.iter().copied().map(Some))
                             {
                                 let expected = view
                                     .advance_active_vehicle_with_waiting_stop(
@@ -6420,7 +6538,7 @@ mod motion_reuse_tests {
                                     continue;
                                 }
                                 for conflict in
-                                    std::iter::once(None).chain(stops.iter().copied().map(Some))
+                                    std::iter::once(None).chain(barriers.iter().copied().map(Some))
                                 {
                                     let actual = preview
                                         .reuse(changed, conflict)
@@ -6474,7 +6592,7 @@ mod motion_reuse_tests {
                 hop: next.route_edge_index + 1,
                 distance: BoundedDistance::Finite(distance),
             };
-            assert!(preview.reuse(None, Some(stop)).is_none());
+            assert!(preview.reuse(None, Some(stop_barrier(stop))).is_none());
             assert!(preview.reuse(Some(stop), None).is_none());
         }
         let preview = MotionPreview {
@@ -6492,7 +6610,10 @@ mod motion_reuse_tests {
             hop: next.route_edge_index,
             distance: BoundedDistance::Finite(1),
         };
-        assert_eq!(preview.reuse(None, Some(stop)), Some(next.into()));
+        assert_eq!(
+            preview.reuse(None, Some(stop_barrier(stop))),
+            Some(next.into())
+        );
         assert!(
             MotionPreview {
                 next: super::super::vehicle_store::MotionValue {
@@ -6501,7 +6622,7 @@ mod motion_reuse_tests {
                 },
                 ..preview
             }
-            .reuse(None, Some(stop))
+            .reuse(None, Some(stop_barrier(stop)))
             .is_none()
         );
         assert!(
@@ -6509,7 +6630,7 @@ mod motion_reuse_tests {
                 bounds: MotionBounds::Unknown,
                 ..preview
             }
-            .reuse(None, Some(stop))
+            .reuse(None, Some(stop_barrier(stop)))
             .is_none()
         );
     }
@@ -7373,8 +7494,12 @@ mod barrier_query_tests {
         }
 
         let (pruned, exact, counts) = production(&mut world, &near, 0.033);
-        assert_eq!(pruned, exact);
-        assert_eq!(pruned.expect("near gate").hop, 0);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
+        assert_eq!(pruned.expect("near gate").constraint.hop, 0);
         assert_eq!(counts.waiting_entry_scans, 1);
         assert_eq!(counts.conflict_scans, 0);
 
@@ -7383,14 +7508,22 @@ mod barrier_query_tests {
         boundary.carry_um = 0;
         boundary.speed_mm_s = 5_000;
         let (pruned, exact, counts) = production(&mut world, &boundary, 0.033);
-        assert_eq!(pruned, exact);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
         assert!(
             counts.waiting_entry_scans >= 1,
             "zero progress and carry keep the query"
         );
 
         let (pruned, exact, counts) = production(&mut world, &far, 0.001);
-        assert_eq!(pruned, exact);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
         assert!(
             counts.waiting_entry_scans >= 1,
             "a step shorter than 4 ms is not proven"
@@ -7404,11 +7537,15 @@ mod barrier_query_tests {
             release_hop: first_release,
         });
         let (pruned, exact, counts) = production(&mut world, &authorized, 1.0);
-        assert_eq!(pruned, exact);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
         let later = pruned.expect("later gate");
-        assert_eq!(later.hop, 1);
+        assert_eq!(later.constraint.hop, 1);
         assert_eq!(counts.waiting_entry_scans, 1);
-        let BoundedDistance::Finite(later_mm) = later.distance else {
+        let BoundedDistance::Finite(later_mm) = later.constraint.distance else {
             panic!("later unauthorized gate still has a finite stop distance");
         };
         let accel = world
@@ -7431,7 +7568,11 @@ mod barrier_query_tests {
         // 编译行也随源表一起缺失，查询回到逐项读取。
         compiled.hops.clear();
         let (pruned, exact, counts) = production(&mut world, &far, 0.033);
-        assert_eq!(pruned, exact);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
         assert!(exact.is_some());
         assert!(
             counts.waiting_entry_scans >= 1,
@@ -7523,8 +7664,8 @@ mod barrier_query_tests {
         state: &VehicleState,
         delta_s: f32,
     ) -> (
-        Option<crate::kernel::waiting::WaitingStopConstraint>,
-        Option<crate::kernel::waiting::WaitingStopConstraint>,
+        Option<ResourceBarrier>,
+        Option<ResourceBarrier>,
         BarrierQueryCounts,
     ) {
         reset_barrier_query_counts();
@@ -7561,8 +7702,12 @@ mod barrier_query_tests {
         world.state.workspace.conflict_motion_by_vehicle.fill(None);
 
         let (pruned, exact, counts) = query_conflict(&mut world, &near, 0.033);
-        assert_eq!(pruned, exact);
-        assert_eq!(pruned.expect("near conflict").hop, 0);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
+        assert_eq!(pruned.expect("near conflict").constraint.hop, 0);
         assert_eq!(counts.conflict_scans, 1);
         assert_eq!(counts.waiting_entry_scans, 0);
 
@@ -7573,8 +7718,12 @@ mod barrier_query_tests {
             vec![waiting_on(template, 0)],
         );
         let (pruned, exact, counts) = query_conflict(&mut world, &near, 0.033);
-        assert_eq!(pruned, exact);
-        assert_eq!(pruned.expect("near waiting entry").hop, 0);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
+        assert_eq!(pruned.expect("near waiting entry").constraint.hop, 0);
         assert_eq!(counts.conflict_scans, 0);
         assert_eq!(counts.waiting_entry_scans, 1);
 
@@ -7594,18 +7743,28 @@ mod barrier_query_tests {
             });
         let (pruned, exact, counts) = query_conflict(&mut world, &far, 0.033);
         assert_eq!(pruned, None);
-        assert_eq!(exact.expect("exact still walks the later admission").hop, 1);
+        assert_eq!(
+            exact
+                .expect("exact still walks the later admission")
+                .constraint
+                .hop,
+            1
+        );
         assert_eq!(counts.conflict_scans, 0);
         assert_eq!(counts.waiting_entry_scans, 0);
 
         let mut authorized_near = near;
         authorized_near.speed_mm_s = 100_000;
         let (pruned, exact, counts) = query_conflict(&mut world, &authorized_near, 1.0);
-        assert_eq!(pruned, exact);
+        assert_eq!(
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
         let later = pruned.expect("later unauthorized admission");
-        assert_eq!(later.hop, 1);
+        assert_eq!(later.constraint.hop, 1);
         assert_eq!(counts.conflict_scans, 1);
-        let BoundedDistance::Finite(later_mm) = later.distance else {
+        let BoundedDistance::Finite(later_mm) = later.constraint.distance else {
             panic!("later admission has a finite stop");
         };
         let accel = world
@@ -7630,9 +7789,13 @@ mod barrier_query_tests {
         lookback.carry_um = 0;
         lookback.speed_mm_s = 5_000;
         let (pruned, exact, counts) = query_conflict(&mut world, &lookback, 0.033);
-        assert_eq!(pruned, exact);
         assert_eq!(
-            pruned.expect("previous admission").hop,
+            pruned.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
+        assert_eq!(
+            pruned.expect("previous admission").constraint.hop,
             0,
             "standing on the next occurrence still checks the admission behind it"
         );
@@ -7703,12 +7866,13 @@ mod barrier_query_tests {
 
         reset_barrier_query_counts();
         world.step(TickInput::new(100)).expect("first tick");
-        // F4 复审修 4：conflict/waiting 屏障查询恢复本拍位移上界裁剪
-        // （「尚未获授权」≠ 已知阻塞），第一拍不查询窗外屏障。
+        // F2' 复审修：停止查询按制动前视窗——窗外屏障的第一拍即扫描
+        // （发现已知阻塞的停止目标）；本拍位移不受影响（下方 mid 断言），
+        // 够不着的屏障仍不产生运动差异。
         assert_eq!(
             barrier_query_counts().conflict_scans,
-            0,
-            "the first tick is still beyond the reach"
+            1,
+            "the first tick scans within the braking window"
         );
         let mid = world.state.vehicle_state(handle).expect("mid");
         assert_eq!(mid.route_edge_index, admission);
@@ -7734,7 +7898,11 @@ mod barrier_query_tests {
             .fill(SignalAspect::Green);
         world.state.workspace.conflict_motion_by_vehicle.fill(None);
         let (stop, exact, _) = query_conflict(&mut world, &mid, delta_s);
-        assert_eq!(stop, exact);
+        assert_eq!(
+            stop.map(|barrier| barrier.constraint),
+            exact.map(|barrier| barrier.constraint),
+            "F2'：占用分类（known_blocked）不属裁剪等价面，只对几何断言"
+        );
         let stop = stop.expect("the committed state restores the admission stop");
         let view = world.state.read_view();
         let held = view

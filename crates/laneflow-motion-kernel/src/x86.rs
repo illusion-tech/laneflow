@@ -68,8 +68,23 @@ unsafe fn finish4<const TRACK: bool>(
         let progress = _mm_or_si128(progress, overflow);
         let limit = _mm_loadu_si128(input.committed_limit_mm_s.as_ptr().add(start).cast());
         let stop_cap = _mm_loadu_si128(input.exhausted_speed_cap_mm_s.as_ptr().add(start).cast());
-        let effective_limit = _mm_blendv_epi8(limit, _mm_min_epu32(limit, stop_cap), exhausted);
-        let speed_value = _mm_min_epu32(unsigned4(speed), effective_limit);
+        let projected = unsigned4(speed);
+        // F3' 复审修：过渡耗尽通道（exhausted_cap_dominates）速度取
+        // min(cap, limit)，不与候选投影再 min；其余耗尽通道维持
+        // min(投影, cap, limit)。与标量 finish_values 逐位一致。
+        let dominant = _mm_cvtepu8_epi32(_mm_loadl_epi64(
+            input.exhausted_cap_dominates.as_ptr().add(start).cast(),
+        ));
+        let dominant_mask = _mm_cmpeq_epi32(dominant, _mm_set1_epi32(1));
+        let exhausted_value = _mm_blendv_epi8(
+            _mm_min_epu32(_mm_min_epu32(projected, stop_cap), limit),
+            _mm_min_epu32(stop_cap, limit),
+            dominant_mask,
+        );
+        // 非耗尽通道才与投影取 min；耗尽通道的投影合并已在 exhausted_value
+        // 内按主导/非主导分别完成。
+        let speed_value =
+            _mm_blendv_epi8(_mm_min_epu32(projected, limit), exhausted_value, exhausted);
         let exhausted_bits = _mm_movemask_ps(_mm_castsi128_ps(exhausted));
         let fast: [i32; 4] = std::array::from_fn(|lane| {
             let row = start + lane;

@@ -10,6 +10,7 @@ struct Fixture {
     carry: [u16; N],
     room: [u32; N],
     stop_cap: [u32; N],
+    cap_dominates: [bool; N],
     limit: [u32; N],
     leader: [f32; N],
     has_leader: [bool; N],
@@ -36,6 +37,7 @@ impl Fixture {
             carry: [0; N],
             room: [u32::MAX; N],
             stop_cap: [0; N],
+            cap_dominates: [false; N],
             limit: [u32::MAX; N],
             leader: [f32::INFINITY; N],
             has_leader: [false; N],
@@ -85,6 +87,9 @@ impl Fixture {
             if row % 2 == 0 {
                 f.stop_cap[row] = 9_550;
             }
+            // F3'：耗尽上界主导通道（过渡舒适衰减）随机穿插，验证三后端
+            // 与标量在同一主导语义下逐位一致。
+            f.cap_dominates[row] = row % 6 == 0;
             f.end[row] = match row % 13 {
                 0 => 1.0,
                 _ => f32::INFINITY,
@@ -106,6 +111,7 @@ impl Fixture {
             carry_um: &self.carry[..n],
             hard_room_mm: &self.room[..n],
             exhausted_speed_cap_mm_s: &self.stop_cap[..n],
+            exhausted_cap_dominates: &self.cap_dominates[..n],
             committed_limit_mm_s: &self.limit[..n],
             leader_m: &self.leader[..n],
             has_leader: &self.has_leader[..n],
@@ -254,18 +260,23 @@ fn assert_proposal_counts(stats: Stats, computed: usize, reused: usize) {
 fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary() {
     // 同一批含 floor 抬升、上界更紧、停稳分支、较低限速及未耗尽行；17 行覆盖向量尾。
     // #1272：候选形成把低于紧急下界 F 的提案抬到 F；耗尽拍 committed = min(归约速度, 上界)。
-    // (speed_mm_s, proposal_m_s, cap, limit, room, expected)
+    // F3' 复审修：dominant 通道（过渡舒适衰减）耗尽拍 = min(cap, limit)——
+    // cap 取代投影与紧急下界（r_p5 钉版 1000 → 550），且只在耗尽拍生效。
+    // (speed_mm_s, proposal_m_s, cap, limit, room, dominant, expected)
     let cases = [
-        (10_000, 10.0, u32::MAX, u32::MAX, 0, 10_000),
-        (10_000, 9.0, u32::MAX, u32::MAX, 0, 9_600),
-        (10_000, 10.0, 9_550, u32::MAX, 0, 9_550),
-        (400, 0.0, u32::MAX, u32::MAX, 100, 0),
-        (10_000, 10.0, 9_550, 6_000, 0, 6_000),
-        (10_000, 10.0, u32::MAX, u32::MAX, u32::MAX, 10_000),
+        (10_000, 10.0, u32::MAX, u32::MAX, 0, false, 10_000),
+        (10_000, 9.0, u32::MAX, u32::MAX, 0, false, 9_600),
+        (10_000, 10.0, 9_550, u32::MAX, 0, false, 9_550),
+        (400, 0.0, u32::MAX, u32::MAX, 100, false, 0),
+        (10_000, 10.0, 9_550, 6_000, 0, false, 6_000),
+        (10_000, 10.0, u32::MAX, u32::MAX, u32::MAX, false, 10_000),
+        (1_000, 1.0, 550, u32::MAX, 0, true, 550),
+        (1_000, 1.0, 550, 400, 0, true, 400),
+        (1_000, 10.0, 550, u32::MAX, u32::MAX, true, 10_000),
     ];
     let mut f = Fixture::new(1_199);
     for row in 0..17 {
-        let (speed, proposal, cap, limit, room, _) = cases[row % cases.len()];
+        let (speed, proposal, cap, limit, room, dominant, _) = cases[row % cases.len()];
         f.enabled[row] = true;
         f.has_proposal[row] = true;
         f.has_leader[row] = false;
@@ -279,6 +290,7 @@ fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary(
         f.proposal_speed[row] = proposal;
         f.room[row] = room;
         f.stop_cap[row] = cap;
+        f.cap_dominates[row] = dominant;
         f.limit[row] = limit;
     }
     for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
@@ -293,7 +305,7 @@ fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary(
             assert!(result.valid[row]);
             assert_eq!(
                 result.speed[row],
-                cases[row % cases.len()].5,
+                cases[row % cases.len()].6,
                 "{backend:?}, row {row}"
             );
         }
