@@ -11,8 +11,8 @@ pub(crate) struct LirPolicy {
 }
 
 /// 按 HIR 已有的 Identity 原像顺序冻结全部路权策略集；规则内类别与让行目标重映射为 LIR 序号并按稳定标识排序。
-pub(super) fn freeze(env: &mut FreezeEnv<'_>) -> Result<Box<[LirPolicy]>, DiagnosticBundle> {
-    let mut policies = Vec::with_capacity(env.mir.policies.len());
+pub(super) fn freeze(env: &mut FreezeEnv<'_>) -> Result<BoundedVec<LirPolicy>, DiagnosticBundle> {
+    let mut policies = env.pass.vec(env.mir.policies.len())?;
     // HIR 已按完整 Identity 原像排序，且没有策略间引用，不再建立第二张排列索引。
     for (index, record) in env.mir.policies.iter().enumerate() {
         let identity_fields = push_lir_identity(
@@ -58,9 +58,9 @@ pub(super) fn freeze(env: &mut FreezeEnv<'_>) -> Result<Box<[LirPolicy]>, Diagno
             ordinal: RightOfWayPolicySetOrdinal::from_raw(index as u32),
             identity_fields,
             value,
-        });
+        })?;
     }
-    Ok(policies.into_boxed_slice())
+    Ok(policies)
 }
 
 /// 输出独立存续时连同共享字符串 payload 一并计量；逐项保守计，避免隐含缓存。

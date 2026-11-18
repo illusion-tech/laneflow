@@ -7,6 +7,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::LirIdentityField;
 
@@ -70,15 +71,15 @@ use laneflow_static_contract::FieldTag;
 
 /// 横断面领域各表及走廊成员、区段车道、车道边链、组成员等关系辅表的领域冻结产物。
 pub(super) struct CrossSectionParts {
-    pub road_corridors: Vec<LirRoadCorridor>,
-    pub corridor_elements: Vec<LirCorridorElement>,
-    pub road_sections: Vec<LirRoadSection>,
-    pub road_section_lanes: Vec<AuthoringLaneOrdinal>,
-    pub authoring_lanes: Vec<LirAuthoringLane>,
-    pub authoring_lane_edges: Vec<LaneEdgeOrdinal>,
-    pub lane_groups: Vec<LirLaneGroup>,
-    pub lane_group_members: Vec<AuthoringLaneOrdinal>,
-    pub facility_bands: Vec<LirFacilityBand>,
+    pub road_corridors: BoundedVec<LirRoadCorridor>,
+    pub corridor_elements: BoundedVec<LirCorridorElement>,
+    pub road_sections: BoundedVec<LirRoadSection>,
+    pub road_section_lanes: BoundedVec<AuthoringLaneOrdinal>,
+    pub authoring_lanes: BoundedVec<LirAuthoringLane>,
+    pub authoring_lane_edges: BoundedVec<LaneEdgeOrdinal>,
+    pub lane_groups: BoundedVec<LirLaneGroup>,
+    pub lane_group_members: BoundedVec<AuthoringLaneOrdinal>,
+    pub facility_bands: BoundedVec<LirFacilityBand>,
 }
 
 /// 按规范排列冻结道路走廊、道路区段、编制车道、车道组与设施带表及各自关系辅表。
@@ -86,8 +87,8 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirCrossSectionCounts,
 ) -> Result<CrossSectionParts, DiagnosticBundle> {
-    let mut road_corridors = Vec::with_capacity(env.capacity(counts.road_corridors)?);
-    let mut corridor_elements = Vec::with_capacity(env.capacity(counts.corridor_elements)?);
+    let mut road_corridors = env.vec(counts.road_corridors)?;
+    let mut corridor_elements = env.vec(counts.corridor_elements)?;
     for mir_key in env
         .orders
         .road_corridors
@@ -107,7 +108,7 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let relation_start = corridor_elements.len();
-        corridor_elements.extend(
+        corridor_elements.try_extend(
             env.mir.corridor_elements[corridor.elements.as_usize_range()]
                 .iter()
                 .map(|element| match element {
@@ -122,7 +123,7 @@ pub(super) fn freeze(
                         )
                     }
                 }),
-        );
+        )?;
         road_corridors.push(LirRoadCorridor {
             ordinal: env.orders.road_corridors.ordinal(mir_key),
             stable_id: corridor.stable_id,
@@ -134,11 +135,11 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut road_sections = Vec::with_capacity(env.capacity(counts.road_sections)?);
-    let mut road_section_lanes = Vec::with_capacity(env.capacity(counts.section_lanes)?);
+    let mut road_sections = env.vec(counts.road_sections)?;
+    let mut road_section_lanes = env.vec(counts.section_lanes)?;
     for mir_key in env
         .orders
         .road_sections
@@ -161,13 +162,13 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let relation_start = road_section_lanes.len();
-        road_section_lanes.extend(section.lanes.as_usize_range().map(|index| {
+        road_section_lanes.try_extend(section.lanes.as_usize_range().map(|index| {
             env.orders
                 .authoring_lanes
                 .ordinal(MirAuthoringLaneKey::from_raw(
                     u32::try_from(index).expect("MIR range prevalidated as u32"),
                 ))
-        }));
+        }))?;
         road_sections.push(LirRoadSection {
             ordinal: env.orders.road_sections.ordinal(mir_key),
             stable_id: section.stable_id,
@@ -180,11 +181,11 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut authoring_lanes = Vec::with_capacity(env.capacity(counts.authoring_lanes)?);
-    let mut authoring_lane_edges = Vec::with_capacity(env.capacity(counts.authoring_lane_edges)?);
+    let mut authoring_lanes = env.vec(counts.authoring_lanes)?;
+    let mut authoring_lane_edges = env.vec(counts.authoring_lane_edges)?;
     for mir_key in env
         .orders
         .authoring_lanes
@@ -207,11 +208,11 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let relation_start = authoring_lane_edges.len();
-        authoring_lane_edges.extend(
+        authoring_lane_edges.try_extend(
             env.mir.authoring_lane_edges[lane.edge_chain.as_usize_range()]
                 .iter()
                 .map(|edge| env.orders.lane_edges.ordinal(edge.target)),
-        );
+        )?;
         authoring_lanes.push(LirAuthoringLane {
             ordinal: env.orders.authoring_lanes.ordinal(mir_key),
             stable_id: lane.stable_id,
@@ -226,11 +227,11 @@ pub(super) fn freeze(
             lane_group: lane
                 .lane_group
                 .map(|key| env.orders.lane_groups.ordinal(key)),
-        });
+        })?;
     }
 
-    let mut lane_groups = Vec::with_capacity(env.capacity(counts.lane_groups)?);
-    let mut lane_group_members = Vec::with_capacity(env.capacity(counts.lane_group_members)?);
+    let mut lane_groups = env.vec(counts.lane_groups)?;
+    let mut lane_group_members = env.vec(counts.lane_group_members)?;
     for mir_key in env
         .orders
         .lane_groups
@@ -253,11 +254,11 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let relation_start = lane_group_members.len();
-        lane_group_members.extend(
+        lane_group_members.try_extend(
             env.mir.lane_group_members[group.members.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.authoring_lanes.ordinal(member.lane)),
-        );
+        )?;
         lane_groups.push(LirLaneGroup {
             ordinal: env.orders.lane_groups.ordinal(mir_key),
             stable_id: group.stable_id,
@@ -269,10 +270,10 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut facility_bands = Vec::with_capacity(env.capacity(counts.facility_bands)?);
+    let mut facility_bands = env.vec(counts.facility_bands)?;
     for mir_key in env
         .orders
         .facility_bands
@@ -300,7 +301,7 @@ pub(super) fn freeze(
             identity_fields: identity_range,
             road_corridor: env.orders.road_corridors.ordinal(band.road_corridor),
             kind_id: band.kind_id.as_ref().into(),
-        });
+        })?;
     }
 
     Ok(CrossSectionParts {

@@ -8,6 +8,7 @@ use laneflow_static_contract::{
 
 use crate::arena::ArenaKey;
 use crate::diagnostic::DiagnosticCollector;
+use crate::ledger::{BoundedVec, Plan};
 use crate::mir::{
     MirConflictPassage, MirLaneEdgeConnection, MirLaneEdgeKey, MirSignalControllerGroup,
     MirSignalPhaseState, MirUnit,
@@ -37,9 +38,9 @@ use super::{
     LirFacilityBand, LirFacilityBandGeometry, LirIdentityField, LirJunction,
     LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry, LirLaneGroup, LirManeuverGate,
     LirManeuverPath, LirMovement, LirParkingFacility, LirParkingSpace, LirParticipantClass,
-    LirParticipantStream, LirRoadCorridor, LirRoadSection, LirSignalController, LirSignalGroup,
-    LirSignalPhase, LirSignalPhaseState, LirSpatialSegment, LirStopLine, LirVehicleProfile,
-    LirWaitingZone, identity_field_byte_count, requested_bytes,
+    LirParticipantStream, LirPolicy, LirRoadCorridor, LirRoadSection, LirSignalController,
+    LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirSpatialSegment, LirStopLine,
+    LirVehicleProfile, LirWaitingZone, identity_field_byte_count,
 };
 
 /// 一次冻结前形成的 LIR 计数、容量与限额观测值。
@@ -61,13 +62,21 @@ pub(crate) struct LirFreezePlan {
     pub(crate) spatial: LirSpatialCounts,
     pub(crate) access: LirAccessCounts,
     pub(crate) lir_record_count: u64,
-    /// 本阶段暂存字节；不再是限额（ADR 0035），已计入存续总量，保留供测试核对。
+    /// 领域冻结内部暂存的授予字节；保留供测试核对。
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) stage_scratch_bytes: u64,
     pub(crate) output_bytes: u64,
+    /// LIR 各表与内嵌载荷的授予字节，即 LIR 输出的受控存续。
     pub(crate) output_owned_bytes: u64,
-    /// 本遍计划峰值：阶段暂存与自有输出之和；上游存续由账本记录。
+    /// 记录内嵌变长载荷集中取得的授予字节。
+    pub(crate) inner_payload_bytes: u64,
+    /// 编译遍结束时转为输出存续的授予字节：LIR 输出与跨入源映射冻结的规范排列。
+    pub(crate) retained_bytes: u64,
+    /// 本遍计划峰值字节：转为输出的存储与暂存之和；上游存续由账本记录。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) stage_bytes: u64,
+    /// 本遍计划峰值。
+    pub(crate) peak: Plan,
 }
 
 /// 横断面领域各 LIR 表与关系辅表的记录计数。
@@ -362,73 +371,60 @@ impl LirFreezePlan {
                 )
         });
 
-        // 排序序列与 MIR→LIR 映射各只保存一个有类型 `u32` 值；完整身份原像通过借用 MIR
-        // 字段作分段比较，避免为排序再复制一份变长编码。
-        let stage_scratch_bytes = requested_bytes::<MirLaneEdgeKey>(lane_edge_count)
-            .saturating_add(requested_bytes::<LaneEdgeOrdinal>(lane_edge_count))
-            .saturating_add(requested_bytes::<u32>(
-                cross_section
-                    .road_corridors
-                    .saturating_add(cross_section.road_sections)
-                    .saturating_add(cross_section.authoring_lanes)
-                    .saturating_add(cross_section.lane_groups)
-                    .saturating_add(cross_section.facility_bands)
-                    .saturating_add(junction.junctions)
-                    .saturating_add(junction.movements)
-                    .saturating_add(junction.maneuver_paths)
-                    .saturating_add(control.stop_lines)
-                    .saturating_add(control.maneuver_gates)
-                    .saturating_add(control.waiting_zones)
-                    .saturating_add(signal.groups)
-                    .saturating_add(signal.controllers)
-                    .saturating_add(signal.phases)
-                    .saturating_add(conflict.zones)
-                    .saturating_add(conflict.streams)
-                    .saturating_add(parking.areas)
-                    .saturating_add(parking.spaces)
-                    .saturating_add(access.participant_classes)
-                    .saturating_add(access.vehicle_profiles)
-                    .saturating_add(spatial.canonical_frames)
-                    .saturating_add(access.access_rules)
-                    .saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<u32>(junction.junction_internal_edges))
-            // owner-local 关系没有稳定身份；保留其 MIR 行地址排列，使来源与 LIR 语义行
-            // 共享同一次规范重排。
-            .saturating_add(requested_bytes::<ArenaKey<MirSignalControllerGroup>>(
-                signal.controller_groups,
-            ))
-            .saturating_add(requested_bytes::<ArenaKey<MirSignalPhaseState>>(
-                signal.phase_states,
-            ))
-            .saturating_add(requested_bytes::<ArenaKey<MirConflictPassage>>(
-                conflict.passages,
-            ))
-            // zone→stream 反向闭包只在冻结时证明 MIR 没有丢失 passage authority：外层
-            // Vec、各 zone 精确容量的成员表，以及复用的单-zone 对照缓冲都属于 scratch。
-            .saturating_add(requested_bytes::<Vec<ParticipantStreamOrdinal>>(
-                conflict.zones,
-            ))
-            .saturating_add(requested_bytes::<ParticipantStreamOrdinal>(
-                conflict
-                    .zone_streams
-                    .saturating_add(conflict.max_zone_streams),
-            ))
-            .saturating_add(requested_bytes::<ArenaKey<MirLaneEdgeConnection>>(
-                successor_count,
-            ))
-            .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
-            .saturating_add(requested_bytes::<Option<usize>>(
-                cross_section.facility_bands,
-            ))
-            // ParticipantClass 的 HIR DFS 区间不能跨 MIR→LIR 身份重排复用；最终 ordinal
-            // 上重建 first-child/next-sibling 与显式 DFS 栈，避免递归和每节点 Vec。
-            .saturating_add(requested_bytes::<u32>(
-                access.participant_classes.saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<(u32, bool)>(
-                access.participant_classes.saturating_mul(2),
-            ));
+        // 暂存只在领域冻结内部存续，随领域冻结返回释放：zone→stream 反向闭包只在冻结时证明
+        // MIR 没有丢失 passage authority（外层序列、各 zone 精确容量的成员表与复用的单-zone
+        // 对照缓冲）；MIR 行到几何行的稀疏映射；ParticipantClass 的 HIR DFS 区间不能跨
+        // MIR→LIR 身份重排复用，最终 ordinal 上重建 first-child/next-sibling 与显式 DFS 栈。
+        let scratch = Plan::ZERO
+            .array::<BoundedVec<ParticipantStreamOrdinal>>(cap(conflict.zones))
+            .array::<ParticipantStreamOrdinal>(cap(conflict.zone_streams))
+            .array::<ParticipantStreamOrdinal>(cap(conflict.max_zone_streams))
+            .array::<Option<usize>>(cap(lane_edge_count))
+            .array::<Option<usize>>(cap(cross_section.facility_bands))
+            .array::<Option<usize>>(cap(conflict.zones))
+            .array::<u32>(cap(access.participant_classes))
+            .array::<u32>(cap(access.participant_classes))
+            .array::<(u32, bool)>(cap(access.participant_classes.saturating_mul(2)));
+        // 规范排列与 owner-local 行排列随冻结输出跨入源映射冻结：排序序列与 MIR→LIR 映射
+        // 各只保存一个有类型 `u32` 值，完整身份原像通过借用 MIR 字段作分段比较。
+        let stable_entity_counts = [
+            cross_section.road_corridors,
+            cross_section.road_sections,
+            cross_section.authoring_lanes,
+            cross_section.lane_groups,
+            cross_section.facility_bands,
+            junction.junctions,
+            junction.movements,
+            junction.maneuver_paths,
+            control.stop_lines,
+            control.maneuver_gates,
+            control.waiting_zones,
+            signal.groups,
+            signal.controllers,
+            signal.phases,
+            conflict.zones,
+            conflict.streams,
+            parking.areas,
+            parking.spaces,
+            access.participant_classes,
+            access.vehicle_profiles,
+            spatial.canonical_frames,
+            access.access_rules,
+        ];
+        let orders = stable_entity_counts
+            .into_iter()
+            .fold(
+                Plan::ZERO
+                    .array::<MirLaneEdgeKey>(cap(lane_edge_count))
+                    .array::<LaneEdgeOrdinal>(cap(lane_edge_count)),
+                // 每类实体一张 MIR 阶段键表与一张 LIR 序号表，两者都是 `u32` 宽。
+                |plan, count| plan.array::<u32>(cap(count)).array::<u32>(cap(count)),
+            )
+            .array::<u32>(cap(junction.junction_internal_edges))
+            .array::<ArenaKey<MirLaneEdgeConnection>>(cap(successor_count))
+            .array::<ArenaKey<MirSignalControllerGroup>>(cap(signal.controller_groups))
+            .array::<ArenaKey<MirSignalPhaseState>>(cap(signal.phase_states))
+            .array::<ArenaKey<MirConflictPassage>>(cap(conflict.passages));
         // 输出逻辑字节使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
         // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
         let output_bytes = lane_edge_count
@@ -674,118 +670,70 @@ impl LirFreezePlan {
             .saturating_add(kind_id_byte_count)
             .saturating_add(LIR_SEMANTIC_DIGEST_BYTES)
             .saturating_add(LIR_GEOMETRY_PROFILE_LOGICAL_BYTES);
-        let output_owned_bytes = requested_bytes::<LirLaneEdge>(lane_edge_count)
-            .saturating_add(super::policy::bytes(mir))
-            .saturating_add(requested_bytes::<LaneEdgeOrdinal>(successor_count))
-            .saturating_add(requested_bytes::<LirIdentityField>(identity_field_count))
-            .saturating_add(identity_field_byte_count)
-            .saturating_add(requested_bytes::<LirRoadCorridor>(
-                cross_section.road_corridors,
-            ))
-            .saturating_add(requested_bytes::<LirCorridorElement>(
-                cross_section.corridor_elements,
-            ))
-            .saturating_add(requested_bytes::<LirRoadSection>(
-                cross_section.road_sections,
-            ))
-            .saturating_add(requested_bytes::<AuthoringLaneOrdinal>(
-                cross_section.section_lanes,
-            ))
-            .saturating_add(requested_bytes::<LirAuthoringLane>(
-                cross_section.authoring_lanes,
-            ))
-            .saturating_add(requested_bytes::<LaneEdgeOrdinal>(
-                cross_section.authoring_lane_edges,
-            ))
-            .saturating_add(requested_bytes::<LirLaneGroup>(cross_section.lane_groups))
-            .saturating_add(requested_bytes::<AuthoringLaneOrdinal>(
-                cross_section.lane_group_members,
-            ))
-            .saturating_add(requested_bytes::<LirFacilityBand>(
-                cross_section.facility_bands,
-            ))
+        // LIR 各表按领域冻结的实际计数逐表授予；记录内嵌的变长载荷集中取得一笔授予。
+        let tables = Plan::ZERO
+            .array::<LirPolicy>(mir.policies.len())
+            .array::<LirLaneEdge>(cap(lane_edge_count))
+            .array::<LaneEdgeOrdinal>(cap(successor_count))
+            .array::<LirIdentityField>(cap(identity_field_count))
+            .array::<u8>(cap(identity_field_byte_count))
+            .array::<LirRoadCorridor>(cap(cross_section.road_corridors))
+            .array::<LirCorridorElement>(cap(cross_section.corridor_elements))
+            .array::<LirRoadSection>(cap(cross_section.road_sections))
+            .array::<AuthoringLaneOrdinal>(cap(cross_section.section_lanes))
+            .array::<LirAuthoringLane>(cap(cross_section.authoring_lanes))
+            .array::<LaneEdgeOrdinal>(cap(cross_section.authoring_lane_edges))
+            .array::<LirLaneGroup>(cap(cross_section.lane_groups))
+            .array::<AuthoringLaneOrdinal>(cap(cross_section.lane_group_members))
+            .array::<LirFacilityBand>(cap(cross_section.facility_bands))
+            .array::<LirJunction>(cap(junction.junctions))
+            .array::<MovementOrdinal>(cap(junction.junction_movements))
+            .array::<LirMovement>(cap(junction.movements))
+            .array::<ManeuverPathOrdinal>(cap(junction.movement_paths))
+            .array::<LirManeuverPath>(cap(junction.maneuver_paths))
+            .array::<LaneEdgeOrdinal>(cap(junction.maneuver_path_edges))
+            .array::<ManeuverGateOrdinal>(cap(junction.maneuver_path_gates))
+            .array::<WaitingZoneOrdinal>(cap(junction.maneuver_path_waiting_zones))
+            .array::<LirJunctionInternalEdge>(cap(junction.junction_internal_edges))
+            .array::<LirStopLine>(cap(control.stop_lines))
+            .array::<ManeuverGateOrdinal>(cap(control.stop_line_maneuver_gates))
+            .array::<LirManeuverGate>(cap(control.maneuver_gates))
+            .array::<LirWaitingZone>(cap(control.waiting_zones))
+            .array::<LirSignalGroup>(cap(signal.groups))
+            .array::<ManeuverGateOrdinal>(cap(signal.controlled_gates))
+            .array::<LirSignalController>(cap(signal.controllers))
+            .array::<SignalGroupOrdinal>(cap(signal.controller_groups))
+            .array::<SignalPhaseOrdinal>(cap(signal.phases))
+            .array::<LirSignalPhase>(cap(signal.phases))
+            .array::<LirSignalPhaseState>(cap(signal.phase_states))
+            .array::<LirConflictZone>(cap(conflict.zones))
+            .array::<LirParticipantStream>(cap(conflict.streams))
+            .array::<LirConflictPassage>(cap(conflict.passages))
+            .array::<LirParkingFacility>(cap(parking.areas))
+            .array::<ParkingSpaceOrdinal>(cap(parking.memberships))
+            .array::<super::parking::LirParkingLaneAnchor>(cap(parking.virtual_entries))
+            .array::<super::parking::LirParkingLaneAnchor>(cap(parking.virtual_exits))
+            .array::<LirParkingSpace>(cap(parking.spaces))
+            .array::<LirParticipantClass>(cap(access.participant_classes))
+            .array::<LirVehicleProfile>(cap(access.vehicle_profiles))
+            .array::<LirAccessRule>(cap(access.access_rules))
+            .array::<ParticipantClassOrdinal>(cap(access.rule_class_references))
+            .array::<LirCanonicalFrame>(cap(spatial.canonical_frames))
+            .array::<LirLaneEdgeGeometry>(cap(spatial.lane_edge_geometries))
+            .array::<LirFacilityBandGeometry>(cap(spatial.facility_band_geometries))
+            .array::<LirConflictZoneRegion>(cap(spatial.conflict_zone_regions))
+            .array::<LirCanonicalPoint3F32>(cap(spatial.canonical_points))
+            .array::<LirCanonicalPoint2F32>(cap(spatial.conflict_region_points))
+            .array::<LirSpatialSegment>(cap(spatial.spatial_segments));
+        let inner_payload_bytes = super::policy::bytes(mir)
             .saturating_add(kind_id_byte_count)
-            .saturating_add(requested_bytes::<LirJunction>(junction.junctions))
-            .saturating_add(requested_bytes::<MovementOrdinal>(
-                junction.junction_movements,
-            ))
-            .saturating_add(requested_bytes::<LirMovement>(junction.movements))
             .saturating_add(movement_approach_key_byte_count)
-            .saturating_add(requested_bytes::<ManeuverPathOrdinal>(
-                junction.movement_paths,
-            ))
-            .saturating_add(requested_bytes::<LirManeuverPath>(junction.maneuver_paths))
-            .saturating_add(requested_bytes::<LaneEdgeOrdinal>(
-                junction.maneuver_path_edges,
-            ))
-            .saturating_add(requested_bytes::<LirJunctionInternalEdge>(
-                junction.junction_internal_edges,
-            ))
-            .saturating_add(requested_bytes::<LirStopLine>(control.stop_lines))
-            .saturating_add(requested_bytes::<LirManeuverGate>(control.maneuver_gates))
-            .saturating_add(requested_bytes::<LirWaitingZone>(control.waiting_zones))
-            .saturating_add(requested_bytes::<ManeuverGateOrdinal>(
-                control.maneuver_gates,
-            ))
-            .saturating_add(requested_bytes::<WaitingZoneOrdinal>(control.waiting_zones))
-            .saturating_add(requested_bytes::<ManeuverGateOrdinal>(
-                control.maneuver_gates,
-            ))
-            .saturating_add(requested_bytes::<LirSignalGroup>(signal.groups))
-            .saturating_add(requested_bytes::<LirSignalController>(signal.controllers))
-            .saturating_add(requested_bytes::<SignalGroupOrdinal>(
-                signal.controller_groups,
-            ))
-            .saturating_add(requested_bytes::<SignalPhaseOrdinal>(signal.phases))
-            .saturating_add(requested_bytes::<LirSignalPhase>(signal.phases))
-            .saturating_add(requested_bytes::<LirSignalPhaseState>(signal.phase_states))
-            .saturating_add(requested_bytes::<ManeuverGateOrdinal>(
-                signal.controlled_gates,
-            ))
-            .saturating_add(requested_bytes::<LirConflictZone>(conflict.zones))
-            .saturating_add(requested_bytes::<LirParticipantStream>(conflict.streams))
-            .saturating_add(requested_bytes::<LirConflictPassage>(conflict.passages))
-            .saturating_add(requested_bytes::<LirParkingFacility>(parking.areas))
-            .saturating_add(requested_bytes::<LirParkingSpace>(parking.spaces))
-            .saturating_add(requested_bytes::<ParkingSpaceOrdinal>(parking.memberships))
-            .saturating_add(requested_bytes::<super::parking::LirParkingLaneAnchor>(
-                parking
-                    .virtual_entries
-                    .saturating_add(parking.virtual_exits),
-            ))
-            .saturating_add(requested_bytes::<LirParticipantClass>(
-                access.participant_classes,
-            ))
-            .saturating_add(requested_bytes::<LirVehicleProfile>(
-                access.vehicle_profiles,
-            ))
-            .saturating_add(requested_bytes::<LirCanonicalFrame>(
-                spatial.canonical_frames,
-            ))
-            .saturating_add(requested_bytes::<LirLaneEdgeGeometry>(
-                spatial.lane_edge_geometries,
-            ))
-            .saturating_add(requested_bytes::<LirFacilityBandGeometry>(
-                spatial.facility_band_geometries,
-            ))
-            .saturating_add(requested_bytes::<LirConflictZoneRegion>(
-                spatial.conflict_zone_regions,
-            ))
-            .saturating_add(requested_bytes::<LirCanonicalPoint3F32>(
-                spatial.canonical_points,
-            ))
-            .saturating_add(requested_bytes::<LirCanonicalPoint2F32>(
-                spatial.conflict_region_points,
-            ))
-            .saturating_add(requested_bytes::<LirSpatialSegment>(
-                spatial.spatial_segments,
-            ))
-            .saturating_add(requested_bytes::<LirAccessRule>(access.access_rules))
-            .saturating_add(requested_bytes::<ParticipantClassOrdinal>(
-                access.rule_class_references,
-            ))
             .saturating_add(access_regulation_byte_count);
-        let stage_bytes = stage_scratch_bytes.saturating_add(output_owned_bytes);
+        let output = tables.plus(Plan::of(inner_payload_bytes));
+        let retained = output.plus(orders);
+        let peak = retained.plus(scratch);
+        // 无法表示的计划由准入按宿主预算拒绝；以下字节量只用于报告与测试核对。
+        let output_owned_bytes = output.bytes().unwrap_or(u64::MAX);
         Self {
             lane_edge_count,
             successor_count,
@@ -800,10 +748,13 @@ impl LirFreezePlan {
             spatial,
             access,
             lir_record_count,
-            stage_scratch_bytes,
+            stage_scratch_bytes: scratch.bytes().unwrap_or(u64::MAX),
             output_bytes,
             output_owned_bytes,
-            stage_bytes,
+            inner_payload_bytes,
+            retained_bytes: retained.bytes().unwrap_or(u64::MAX),
+            stage_bytes: peak.bytes().unwrap_or(u64::MAX),
+            peak,
         }
     }
 
@@ -824,7 +775,7 @@ impl LirFreezePlan {
                 .source_limits()
                 .get(crate::SourceProcessingDimension::DiagnosticCount),
         );
-        let admission = ledger.admit_pass(LIR_PASS, crate::ledger::Plan::of(self.stage_bytes));
+        let admission = ledger.admit_pass(LIR_PASS, self.peak);
         for violation in [unit.limits.source_limits().exceeded(
             crate::SourceProcessingDimension::LirRecordCount,
             self.lir_record_count,
@@ -867,6 +818,11 @@ impl LirFreezePlan {
 /// LIR 冻结编译遍的记账点。
 const LIR_PASS: crate::ledger::PassLabel =
     crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "lir");
+
+/// 计数换算为授予请求的元素数；超出 `usize` 时取最大值，使计划无法表示。
+fn cap(count: u64) -> usize {
+    usize::try_from(count).unwrap_or(usize::MAX)
+}
 
 fn mir_len(len: usize) -> u64 {
     u64::try_from(len).unwrap_or(u64::MAX)

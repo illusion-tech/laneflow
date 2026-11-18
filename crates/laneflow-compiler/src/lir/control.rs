@@ -6,6 +6,7 @@ use laneflow_static_contract::{
 };
 
 use crate::arena::TableRange;
+use crate::ledger::BoundedVec;
 
 use super::{LirIdentityField, LirSignalControl};
 
@@ -47,10 +48,10 @@ use laneflow_static_contract::FieldTag;
 
 /// 停止线、机动门与等待区各表及停止线门成员辅表的领域冻结产物。
 pub(super) struct ControlParts {
-    pub stop_lines: Vec<LirStopLine>,
-    pub stop_line_maneuver_gates: Vec<ManeuverGateOrdinal>,
-    pub maneuver_gates: Vec<LirManeuverGate>,
-    pub waiting_zones: Vec<LirWaitingZone>,
+    pub stop_lines: BoundedVec<LirStopLine>,
+    pub stop_line_maneuver_gates: BoundedVec<ManeuverGateOrdinal>,
+    pub maneuver_gates: BoundedVec<LirManeuverGate>,
+    pub waiting_zones: BoundedVec<LirWaitingZone>,
 }
 
 /// 按规范排列冻结停止线、机动门与等待区表；同一停止线的门成员按 LIR 序号严格递增冻结。
@@ -58,9 +59,8 @@ pub(super) fn freeze(
     env: &mut FreezeEnv<'_>,
     counts: &LirControlCounts,
 ) -> Result<ControlParts, DiagnosticBundle> {
-    let mut stop_lines = Vec::with_capacity(env.capacity(counts.stop_lines)?);
-    let mut stop_line_maneuver_gates =
-        Vec::with_capacity(env.capacity(counts.stop_line_maneuver_gates)?);
+    let mut stop_lines = env.vec(counts.stop_lines)?;
+    let mut stop_line_maneuver_gates = env.vec(counts.stop_line_maneuver_gates)?;
     for mir_key in env
         .orders
         .stop_lines
@@ -80,11 +80,11 @@ pub(super) fn freeze(
             env.primary_span.clone(),
         )?;
         let relation_start = stop_line_maneuver_gates.len();
-        stop_line_maneuver_gates.extend(
+        stop_line_maneuver_gates.try_extend(
             env.mir.stop_line_maneuver_gates[stop_line.maneuver_gates.as_usize_range()]
                 .iter()
                 .map(|member| env.orders.maneuver_gates.ordinal(member.maneuver_gate)),
-        );
+        )?;
         // 共享静态路网要求同一停止线的门成员按 LIR 序号严格递增；MIR 仍按 stable_id
         // 排列，映射后必须再按序号冻结。
         stop_line_maneuver_gates[relation_start..].sort_unstable();
@@ -99,10 +99,10 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-        });
+        })?;
     }
 
-    let mut maneuver_gates = Vec::with_capacity(env.capacity(counts.maneuver_gates)?);
+    let mut maneuver_gates = env.vec(counts.maneuver_gates)?;
     for mir_key in env
         .orders
         .maneuver_gates
@@ -155,10 +155,10 @@ pub(super) fn freeze(
                 }
                 MirSignalControl::None => LirSignalControl::None,
             },
-        });
+        })?;
     }
 
-    let mut waiting_zones = Vec::with_capacity(env.capacity(counts.waiting_zones)?);
+    let mut waiting_zones = env.vec(counts.waiting_zones)?;
     for mir_key in env
         .orders
         .waiting_zones
@@ -206,7 +206,7 @@ pub(super) fn freeze(
             entry_gate: env.orders.maneuver_gates.ordinal(waiting.entry_gate),
             release_gate: env.orders.maneuver_gates.ordinal(waiting.release_gate),
             max_occupancy: waiting.max_occupancy,
-        });
+        })?;
     }
 
     Ok(ControlParts {
