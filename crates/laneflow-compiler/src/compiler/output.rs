@@ -26,6 +26,7 @@ pub struct CompilationMetrics {
     lir_record_count: u64,
     output_logical_bytes: u64,
     compiler_controlled_peak_bytes: u64,
+    policy_validation_work_units: u64,
     semantic_fingerprint: [u8; 32],
 }
 
@@ -35,12 +36,14 @@ impl CompilationMetrics {
         lir_record_count: u64,
         output_logical_bytes: u64,
         compiler_controlled_peak_bytes: u64,
+        policy_validation_work_units: u64,
         semantic_fingerprint: [u8; 32],
     ) -> Self {
         Self {
             lir_record_count,
             output_logical_bytes,
             compiler_controlled_peak_bytes,
+            policy_validation_work_units,
             semantic_fingerprint,
         }
     }
@@ -64,6 +67,14 @@ impl CompilationMetrics {
     #[must_use]
     pub const fn compiler_controlled_peak_bytes(self) -> u64 {
         self.compiler_controlled_peak_bytes
+    }
+
+    /// 返回本次 MIR 策略校验已消费的登记访问单位；无策略时为零。
+    ///
+    /// 不包含排序、二分内部比较或其他编译阶段，不等于 CPU 指令数或墙钟时间。
+    #[must_use]
+    pub const fn policy_validation_work_units(self) -> u64 {
+        self.policy_validation_work_units
     }
 
     /// 返回当前编译器版本对完整 Canonical LIR 语义计算的确定性指纹。

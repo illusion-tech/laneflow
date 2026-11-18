@@ -74,6 +74,8 @@ pub enum CompileLimitDimension {
     CompilerControlledLiveBytes,
     /// 宿主预算：可复用编译器实例在一次编译后允许保留的容量字节数。
     RetainedCapacityBytes,
+    /// 操作预算：一次 MIR 策略校验累计允许的查询、关系访问与扫描单位。
+    PolicyValidationWorkUnits,
 }
 
 impl CompileLimitDimension {
@@ -105,6 +107,7 @@ impl CompileLimitDimension {
             Self::DiagnosticCount => "max_diagnostic_count",
             Self::CompilerControlledLiveBytes => "max_compiler_controlled_live_bytes",
             Self::RetainedCapacityBytes => "max_retained_capacity_bytes",
+            Self::PolicyValidationWorkUnits => "max_policy_validation_work_units",
         }
     }
 }
@@ -141,6 +144,7 @@ pub struct CompileLimits {
     max_diagnostic_count: u32,
     max_compiler_controlled_live_bytes: u64,
     max_retained_capacity_bytes: u64,
+    max_policy_validation_work_units: u32,
 }
 
 impl CompileLimits {
@@ -177,6 +181,7 @@ impl CompileLimits {
             max_diagnostic_count: 16,
             max_compiler_controlled_live_bytes: 43_269_120,
             max_retained_capacity_bytes: 36_925_688,
+            max_policy_validation_work_units: 1_000_000,
         }
     }
 
@@ -212,6 +217,7 @@ impl CompileLimits {
             max_diagnostic_count: 16,
             max_compiler_controlled_live_bytes: 6_442_450_944,
             max_retained_capacity_bytes: 536_870_912,
+            max_policy_validation_work_units: 16_000_000,
         }
     }
 
@@ -272,6 +278,9 @@ impl CompileLimits {
                 self.max_compiler_controlled_live_bytes
             }
             CompileLimitDimension::RetainedCapacityBytes => self.max_retained_capacity_bytes,
+            CompileLimitDimension::PolicyValidationWorkUnits => {
+                self.max_policy_validation_work_units as u64
+            }
         }
     }
 
@@ -335,6 +344,13 @@ impl CompileLimits {
         self
     }
 
+    /// 测试辅助：仅覆盖策略访问预算，不改来源关系或内存预算。
+    #[cfg(test)]
+    pub(crate) fn with_test_policy_work_limit(mut self, work_units: u32) -> Self {
+        self.max_policy_validation_work_units = work_units;
+        self
+    }
+
     /// 测试辅助：按维度覆盖单条接入检查上限。
     #[cfg(test)]
     pub(crate) fn with_test_admission_limit(
@@ -376,7 +392,7 @@ impl CompileLimits {
 mod tests {
     use super::*;
 
-    const P100_EXPECTED: [(CompileLimitDimension, u64); 24] = [
+    const P100_EXPECTED: [(CompileLimitDimension, u64); 25] = [
         (CompileLimitDimension::ModuleCount, 522),
         (CompileLimitDimension::SourceDocumentCount, 1_566),
         (CompileLimitDimension::ImportEdgeCount, 1_032),
@@ -404,9 +420,10 @@ mod tests {
             43_269_120,
         ),
         (CompileLimitDimension::RetainedCapacityBytes, 36_925_688),
+        (CompileLimitDimension::PolicyValidationWorkUnits, 1_000_000),
     ];
 
-    const SINGLE_NETWORK_1M_EXPECTED: [(CompileLimitDimension, u64); 24] = [
+    const SINGLE_NETWORK_1M_EXPECTED: [(CompileLimitDimension, u64); 25] = [
         (CompileLimitDimension::ModuleCount, 65_536),
         (CompileLimitDimension::SourceDocumentCount, 196_608),
         (CompileLimitDimension::ImportEdgeCount, 262_144),
@@ -437,6 +454,7 @@ mod tests {
             6_442_450_944,
         ),
         (CompileLimitDimension::RetainedCapacityBytes, 536_870_912),
+        (CompileLimitDimension::PolicyValidationWorkUnits, 16_000_000),
     ];
 
     #[test]

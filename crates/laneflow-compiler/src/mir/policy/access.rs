@@ -17,12 +17,11 @@ pub(super) struct AccessIndex {
 }
 
 impl AccessIndex {
-    /// 两遍展开全部准入规则的目标行并排序构建索引；分配前校验临时内存与记录数上限。
+    /// 两遍展开准入规则目标行；先计工作量并核对内存，再分配索引。
     pub(super) fn build(
         unit: &CompilationUnit,
         mir: &MirUnit,
         prior_scratch: u64,
-        prior_records: u64,
         work: &mut WorkBudget,
     ) -> Result<Self, DiagnosticBundle> {
         let mut count = 0_u64;
@@ -32,20 +31,11 @@ impl AccessIndex {
             Ok(())
         })?;
         let bytes = count.saturating_mul(size_of::<Entry>() as u64);
-        super::validation::budget(
-            unit,
-            mir,
-            prior_scratch.saturating_add(bytes),
-            prior_records.saturating_add(count),
-        )?;
-        let mut entries = Vec::with_capacity(usize::try_from(count).map_err(|_| {
-            DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
-                CompileLimitDimension::RelationOccurrenceCount,
-                u32::MAX.into(),
-                count,
-            ))
-        })?);
+        super::validation::budget(unit, mir, prior_scratch.saturating_add(bytes))?;
+        // 每行先消费工作量；具名预算为 u32，支持的平台 usize 至少为 32 位。
+        let mut entries = Vec::with_capacity(usize::try_from(count).expect("bounded policy work"));
         visit(mir, |entry| {
+            work.charge(1)?;
             entries.push(entry);
             Ok(())
         })?;
@@ -55,10 +45,6 @@ impl AccessIndex {
     /// 返回索引占用的字节数。
     pub(super) fn bytes(&self) -> u64 {
         (self.entries.len() as u64).saturating_mul(size_of::<Entry>() as u64)
-    }
-    /// 返回索引记录数。
-    pub(super) fn records(&self) -> u64 {
-        self.entries.len() as u64
     }
     fn allows(
         &self,

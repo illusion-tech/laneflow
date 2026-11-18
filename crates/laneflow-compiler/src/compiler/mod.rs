@@ -550,7 +550,7 @@ impl Compiler {
         // MIR 已拥有后继阶段所需的完整语义与来源位置；尽早释放 HIR，避免把阶段共存
         // 时间延长到 LIR/source-map 冻结并破坏资源峰值模型。
         drop(hir);
-        crate::mir::validate_policies(&unit, &mut mir)?;
+        let policy_validation_work_units = crate::mir::validate_policies(&unit, &mut mir)?;
         let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
         let frozen_lir = freeze_lir(&unit, &mir)?;
         let lir_record_count = frozen_lir.lir.lir_record_count;
@@ -565,6 +565,7 @@ impl Compiler {
                 .max(mir_peak_controlled_live_bytes)
                 .max(lir_peak_controlled_live_bytes)
                 .max(source_map_input.peak_controlled_live_bytes()),
+            policy_validation_work_units,
             semantic_fingerprint,
         );
         drop(mir);

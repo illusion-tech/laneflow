@@ -1,19 +1,19 @@
-//! 临时行数不能约束未命中的查询；关系遍历另按同一上限累计实际工作量。
+//! 策略访问预算独立于来源关系与临时存储；未命中查询仍消费工作量。
 use super::*;
 use crate::CompileLimits;
 
-/// 策略校验的关系遍历工作预算，按统一上限累计实际工作量。
+/// 一次策略校验的累计访问预算；工作量不随临时存储释放归还。
 pub(super) struct WorkBudget {
     used: u64,
     limit: u64,
 }
 
 impl WorkBudget {
-    /// 以 CompileLimits 的关系出现数上限新建工作预算。
+    /// 以配置档的独立操作工作量预算开始一次校验。
     pub(super) fn new(limits: &CompileLimits) -> Self {
         Self {
             used: 0,
-            limit: limits.value(CompileLimitDimension::RelationOccurrenceCount),
+            limit: limits.value(CompileLimitDimension::PolicyValidationWorkUnits),
         }
     }
 
@@ -23,7 +23,7 @@ impl WorkBudget {
         if observed > self.limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded(
-                    CompileLimitDimension::RelationOccurrenceCount,
+                    CompileLimitDimension::PolicyValidationWorkUnits,
                     self.limit,
                     observed,
                 ),
@@ -33,9 +33,35 @@ impl WorkBudget {
         Ok(())
     }
 
-    /// 返回已累计的工作量（仅测试用）。
-    #[cfg(test)]
+    /// 返回本次校验已消费的工作量。
     pub(super) fn used(&self) -> u64 {
         self.used
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn charges_accumulate_and_reject_before_crossing_the_budget() {
+        let limits = CompileLimits::p100().with_test_policy_work_limit(5);
+        let mut work = WorkBudget::new(&limits);
+        work.charge(3).unwrap();
+        work.charge(2).unwrap();
+        assert_eq!(work.used(), 5);
+        let error = work.charge(1).unwrap_err();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::PolicyValidationWorkUnits,
+                limit: 5,
+                observed: 6,
+            }
+        ));
+        assert_eq!(work.used(), 5);
+        assert!(work.charge(u64::MAX).is_err());
+        let mut next_operation = WorkBudget::new(&limits);
+        next_operation.charge(5).unwrap();
     }
 }

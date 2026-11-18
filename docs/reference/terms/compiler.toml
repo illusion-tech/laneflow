@@ -566,7 +566,7 @@ id = "operation-resource-budget"
 name = "操作资源预算"
 english_aliases = ["operation resource budget"]
 domains = ["compiler"]
-definition = "宿主为一次编译、发射或公开检查提供的资源，即编译器控制总存续字节与一次编译后允许保留的容量字节，由编译器资源账本在分配前执行；工作量与取消同属操作资源，另行立项。"
+definition = "宿主为一次编译、发射或公开检查提供的受控存续字节、编译后保留容量字节与已登记工作量；内存由资源账本在分配前执行，策略访问工作量累计消耗且不因存储释放退还，取消接入另行立项。"
 references = [{ document = "adr-0035" }]
 
 [[terms]]

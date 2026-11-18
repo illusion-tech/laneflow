@@ -15,12 +15,11 @@ pub(super) struct ProtectedIndex {
 }
 
 impl ProtectedIndex {
-    /// 收集全部绿灯相位状态并按（信号组, 相位）排序构建索引；先校验临时内存与记录数上限。
+    /// 收集绿灯相位状态并排序构建索引；先校验临时内存预算。
     pub(super) fn build(
         unit: &CompilationUnit,
         mir: &MirUnit,
         prior_bytes: u64,
-        prior_records: u64,
     ) -> Result<Self, DiagnosticBundle> {
         let count = mir
             .signal_phase_states
@@ -33,14 +32,7 @@ impl ProtectedIndex {
                 (mir.signal_phases.len() as u64)
                     .saturating_mul(size_of::<Option<(u32, MirConflictZoneKey)>>() as u64),
             );
-        super::validation::budget(
-            unit,
-            mir,
-            prior_bytes.saturating_add(bytes),
-            prior_records
-                .saturating_add(count as u64)
-                .saturating_add(mir.signal_phases.len() as u64),
-        )?;
+        super::validation::budget(unit, mir, prior_bytes.saturating_add(bytes))?;
         let mut green = Vec::with_capacity(count);
         for (phase, value) in mir.signal_phases.iter().enumerate() {
             for state in &mir.signal_phase_states[value.states.as_usize_range()] {
@@ -67,11 +59,6 @@ impl ProtectedIndex {
                 (self.seen.len() as u64)
                     .saturating_mul(size_of::<Option<(u32, MirConflictZoneKey)>>() as u64),
             )
-    }
-
-    /// 返回索引记录数。
-    pub(super) fn records(&self) -> u64 {
-        (self.green.len() as u64).saturating_add(self.seen.len() as u64)
     }
 
     /// 判定同一冲突区内受保护门的信号是否相容：同区保护门须属同一信号控制器，且任一相位不得同时放行两组。
@@ -211,7 +198,7 @@ mod tests {
                         } else {
                             (0..2).any(|p| green(p, 0) && green(p, 1))
                         };
-                    let mut index = ProtectedIndex::build(&unit, &mir, 0, 0).unwrap();
+                    let mut index = ProtectedIndex::build(&unit, &mir, 0).unwrap();
                     for policy in 0..2 {
                         assert_eq!(
                             index
@@ -274,7 +261,7 @@ mod tests {
                 zone: MirConflictZoneKey::from_raw(0),
             })
             .collect();
-        let mut index = ProtectedIndex::build(&unit, &mir, 0, 0).unwrap();
+        let mut index = ProtectedIndex::build(&unit, &mir, 0).unwrap();
         let mut work = WorkBudget::new(&unit.limits);
         assert!(
             index

@@ -822,14 +822,12 @@ fn denied_policy_candidates_exhaust_work_budget_and_can_retry() {
     let hir = crate::hir::build_hir(&unit).unwrap();
     let mut mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
     let original = unit.limits.clone();
-    unit.limits = original
-        .clone()
-        .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 64);
+    unit.limits = original.clone().with_test_policy_work_limit(64);
     let error = crate::mir::validate_policies(&unit, &mut mir).unwrap_err();
     assert!(matches!(
         error.diagnostics()[0].payload(),
         DiagnosticPayload::CompileLimitExceeded {
-            dimension: CompileLimitDimension::RelationOccurrenceCount,
+            dimension: CompileLimitDimension::PolicyValidationWorkUnits,
             ..
         }
     ));

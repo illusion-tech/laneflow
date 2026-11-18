@@ -29,7 +29,6 @@ pub(super) fn build(
     policy: &MirPolicy,
     passages: &PassageIndex,
     prior_bytes: u64,
-    prior_records: u64,
     work: &mut WorkBudget,
 ) -> Result<TargetTable, DiagnosticBundle> {
     let mut range_count = 0_u64;
@@ -50,9 +49,6 @@ pub(super) fn build(
                 prior_bytes
                     .saturating_add(range_count.saturating_mul(size_of::<TargetRange>() as u64))
                     .saturating_add(cell_count.saturating_mul(size_of::<TargetCell>() as u64)),
-                prior_records
-                    .saturating_add(range_count)
-                    .saturating_add(cell_count),
             )?;
         }
     }
@@ -87,13 +83,9 @@ pub(super) fn build(
                         .cmp(&mir.junctions[b.junction.index()].stable_id)
                 })
             });
-            let targets = TableRange::try_from_usize(start, cells.len() - start).map_err(|_| {
-                DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
-                    CompileLimitDimension::RelationOccurrenceCount,
-                    u32::MAX.into(),
-                    cell_count,
-                ))
-            })?;
+            // 两遍追加均先消费 u32 有限工作量预算，目标总数与区间端点因此可表示。
+            let targets = TableRange::try_from_usize(start, cells.len() - start)
+                .expect("bounded policy work");
             ranges.push(TargetRange {
                 rule: index as u32,
                 subject_passage: source_index as u32,
@@ -167,7 +159,6 @@ mod tests {
             &mir.policies[0],
             &index,
             index.bytes(),
-            0,
             &mut work,
         )
         .unwrap();
@@ -228,7 +219,6 @@ mod tests {
             &mir.policies[0],
             &passages,
             passages.bytes(),
-            0,
             &mut WorkBudget::new(&unit.limits),
         )
         .unwrap();
