@@ -746,11 +746,13 @@ fn nonfinite_proposals_and_quantization_overflow_are_rejected() {
     fixture.room.fill(u32::MAX);
     for row in 0..N {
         // #1272 起提案速度是唯一被消费的提案列（位移按一致三元组重算），
-        // 非有限拒绝锚定在速度列上。
+        // 非有限拒绝锚定在速度列上。R7 复审修补 NEG_INFINITY：向量的
+        // 有限判定曾用 `≤` 两端，把 -∞ 抬成紧急地板速度（后端分歧）。
         fixture.proposal_travel[row] = 1.0;
-        fixture.proposal_speed[row] = match row % 3 {
+        fixture.proposal_speed[row] = match row % 4 {
             0 => f32::NAN,
             1 => f32::INFINITY,
+            2 => f32::NEG_INFINITY,
             _ => f32::MAX,
         };
     }
