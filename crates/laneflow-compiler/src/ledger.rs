@@ -10,11 +10,8 @@
 //! 账本内部状态在互斥锁内维护，授予句柄可随存储跨线程移动；同一账本同一时刻只有一个
 //! 活动的顶层编译遍，子编译遍按栈嵌套。账本错误不分配堆内存。
 
-// 子编译遍、存续与预留查询、按值返回存储的转交入口由编译管线迁入账本（第二步）后使用，
-// 届时去掉此项。
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::alloc::Layout;
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -63,6 +60,16 @@ impl Plan {
         Self(self.0.zip(other.0).and_then(|(a, b)| a.checked_add(b)))
     }
 
+    /// 加上一张按 `entry_count` 项上界预留的哈希表请求（资源账本设计第 3.2 节）。
+    ///
+    /// 标准库不公开桶分配布局。计划为每个请求项预留八个桶，并额外计入每桶控制字节与
+    /// 一组尾部控制区，覆盖小表最小桶数和负载因子取整，而不依赖哈希表迭代顺序。账本
+    /// 计量的是这份保守请求，不是分配器实际给出的容量。
+    #[must_use]
+    pub(crate) fn hash_table<K, V>(self, entry_count: usize) -> Self {
+        self.plus(Self(hash_table_bytes::<K, V>(entry_count)))
+    }
+
     /// 两份互斥子阶段计划的峰值。
     #[must_use]
     pub(crate) fn max(self, other: Self) -> Self {
@@ -73,6 +80,18 @@ impl Plan {
     pub(crate) const fn bytes(self) -> Option<u64> {
         self.0
     }
+}
+
+fn hash_table_bytes<K, V>(entry_count: usize) -> Option<u64> {
+    if entry_count == 0 {
+        return Some(0);
+    }
+    let bucket_bytes = u64::try_from(size_of::<(K, V)>()).ok()?.checked_add(1)?;
+    u64::try_from(entry_count)
+        .ok()?
+        .checked_mul(8)?
+        .checked_mul(bucket_bytes)?
+        .checked_add(16)
 }
 
 /// 资源报告中工作集峰值的归属阶段（资源账本设计第 7 节）。
@@ -169,8 +188,7 @@ pub(crate) enum LedgerError {
 pub(crate) struct LedgerReport {
     /// 账本生命周期内存续 `L` 的最大值。
     pub(crate) peak_live: u64,
-    /// 账本生命周期内已承诺字节的最大值：存续与预留之和 `L + R`，以及经
-    /// [`Ledger::probe`] 核对的瞬时工作集 `L + R + n`。
+    /// 账本生命周期内已承诺字节的最大值：存续与预留之和 `L + R`。
     pub(crate) peak_committed: u64,
     /// 各阶段工作集峰值：该阶段顶层编译遍及其子编译遍同时存续的授予字节之和的最大值。
     pub(crate) stage_peaks: [u64; LedgerStage::COUNT],
@@ -423,7 +441,7 @@ impl Ledger {
     /// 计入按值移入本次操作的初始存续（资源账本设计第 3.1 节），返回归属根账户的授予。
     ///
     /// 初始存续是移入时已经存在的存储，不经计划准入；若它已超出宿主预算，此后任何计划
-    /// 准入与 [`Ledger::probe`] 都按 `L + R + P` 拒绝，其间不发生受控分配。
+    /// 准入都按 `L + R + P` 拒绝，其间不发生受控分配。
     pub(crate) fn adopt(&self, bytes: u64) -> Grant {
         let mut state = lock(&self.state);
         state.live = state.live.saturating_add(bytes);
@@ -433,30 +451,6 @@ impl Ledger {
             state: Some(Arc::clone(&self.state)),
             account: None,
             bytes,
-        }
-    }
-
-    /// 核对一段不经授予的瞬时工作集：`L + R + bytes ≤ B` 成立时记入已承诺峰值，否则按
-    /// 宿主预算拒绝。不改变存续与预留。
-    ///
-    /// 只用于尚未迁入账本存储入口的阶段：其工作集由阶段自身的计数计划求出，此处只替换
-    /// 原先手工累加上游存续的比较。
-    pub(crate) fn probe(&self, label: PassLabel, bytes: u64) -> Result<(), LedgerError> {
-        let mut state = lock(&self.state);
-        let requested = state
-            .live
-            .checked_add(state.reserved)
-            .and_then(|committed| committed.checked_add(bytes));
-        match requested {
-            Some(requested) if requested <= state.budget => {
-                state.record_committed(requested);
-                Ok(())
-            }
-            _ => Err(LedgerError::BudgetExceeded {
-                label,
-                requested: requested.unwrap_or(u64::MAX),
-                limit: state.budget,
-            }),
         }
     }
 
@@ -484,6 +478,18 @@ impl Ledger {
         }
         Ok(state.report)
     }
+}
+
+/// 测试用、额度不受限的编译遍；账本泄漏为 `'static`，只在测试中使用。
+#[cfg(test)]
+pub(crate) fn test_pass() -> PassBudget<'static> {
+    let ledger: &'static Ledger = Box::leak(Box::new(Ledger::with_budget(u64::MAX)));
+    ledger
+        .admit_pass(
+            PassLabel::new(LedgerStage::CompilePipeline, "test"),
+            Plan::of(u64::MAX),
+        )
+        .expect("不受限的测试编译遍")
 }
 
 /// 一个已准入编译遍的预算。随作用域结束（未调用 [`PassBudget::finish`]）时按取消处理：
@@ -531,6 +537,7 @@ impl PassBudget<'_> {
     }
 
     /// 本编译遍当前在用量 `U`。
+    #[cfg(test)]
     pub(crate) fn in_use(&self) -> u64 {
         let state = lock(&self.ledger.state);
         state.frame(self.account).map_or(0, |frame| frame.in_use)
@@ -589,6 +596,35 @@ impl PassBudget<'_> {
         })
     }
 
+    /// 以授予创建可容纳 `capacity` 项的哈希表；授予按 [`Plan::hash_table`] 的保守请求计费，
+    /// 存储按 `capacity` 一次预留，不自行扩容。
+    pub(crate) fn hash_map<K: Eq + std::hash::Hash, V>(
+        &self,
+        capacity: usize,
+    ) -> Result<BoundedHashMap<K, V>, LedgerError> {
+        let (label, budget) = {
+            let state = lock(&self.ledger.state);
+            (state.label_of(self.account), state.budget)
+        };
+        let bytes = hash_table_bytes::<K, V>(capacity).ok_or(LedgerError::BudgetExceeded {
+            label,
+            requested: u64::MAX,
+            limit: budget,
+        })?;
+        let grant = self.grant(bytes)?;
+        let mut items = HashMap::new();
+        if items.try_reserve(capacity).is_err() {
+            grant.rollback();
+            return Err(LedgerError::AllocationFailure { label });
+        }
+        Ok(BoundedHashMap {
+            items,
+            capacity,
+            _grant: grant,
+            label,
+        })
+    }
+
     /// 以授予创建恰好容纳 `items` 全部元素的序列并逐项写入；授予按迭代器声明的长度计费。
     pub(crate) fn collect<T>(
         &self,
@@ -627,10 +663,10 @@ impl PassBudget<'_> {
         self.grant(bytes)
     }
 
-    /// 为一段由阶段自身按计数计划分配、尚未经账本存储入口创建的输出存储取得授予。
+    /// 为记录内嵌的变长载荷集中取得一笔授予（资源账本设计第 3.4 节）。
     ///
-    /// 只用于编译管线逐阶段迁入期间：阶段输出整体持有这笔授予，随输出释放或转交宿主；
-    /// 迁入存储入口后由逐项授予取代。
+    /// 只用于随外层记录逐项分配、无法由账本存储入口直接创建的内层载荷（如策略值中的
+    /// 规则表、字符串副本）：载荷字节按计数计划求出，授予与外层表同生命周期持有。
     pub(crate) fn grant_bytes(&self, bytes: u64) -> Result<Grant, LedgerError> {
         self.grant(bytes)
     }
@@ -701,6 +737,11 @@ impl Drop for Grant {
 pub(crate) struct OutputGrant(Option<Grant>);
 
 impl OutputGrant {
+    /// 持有的授予字节；已转交宿主或为空时为零。
+    pub(crate) fn bytes(&self) -> u64 {
+        self.0.as_ref().map_or(0, Grant::bytes)
+    }
+
     /// 持有一笔授予。
     pub(crate) const fn new(grant: Grant) -> Self {
         Self(Some(grant))
@@ -764,6 +805,7 @@ impl<T> BoundedVec<T> {
     }
 
     /// 返回点转交宿主：授予记为转交宿主，返回不再受账本约束的存储。
+    #[cfg(test)]
     pub(crate) fn transfer_to_host(self) -> Vec<T> {
         let Self { items, grant, .. } = self;
         grant.transfer_to_host();
@@ -796,6 +838,11 @@ impl<T> BoundedVec<T> {
     /// 截断到 `len` 个元素；逻辑容量不变。
     pub(crate) fn truncate(&mut self, len: usize) {
         self.items.truncate(len);
+    }
+
+    /// 只保留满足条件的元素；逻辑容量不变。
+    pub(crate) fn retain(&mut self, keep: impl FnMut(&T) -> bool) {
+        self.items.retain(keep);
     }
 
     /// 按键去掉相邻重复元素；逻辑容量不变。
@@ -898,6 +945,11 @@ pub(crate) struct Frozen<T> {
 }
 
 impl<T> Frozen<T> {
+    /// 持有的授予字节；已转交宿主或不受账本约束时为零。
+    pub(crate) fn granted_bytes(&self) -> u64 {
+        self.grant.bytes()
+    }
+
     /// 返回点转交宿主；之后不再受账本约束。
     pub(crate) fn transfer_to_host(&mut self) {
         self.grant.transfer_to_host();
@@ -982,5 +1034,34 @@ impl<T: Eq> Eq for Frozen<T> {}
 impl<T: std::fmt::Debug> std::fmt::Debug for Frozen<T> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.items.fmt(formatter)
+    }
+}
+
+/// 由授予约束项数的哈希表；按容量一次预留，不自行扩容，插入超出容量属记账缺陷。
+pub(crate) struct BoundedHashMap<K, V> {
+    items: HashMap<K, V>,
+    capacity: usize,
+    _grant: Grant,
+    label: PassLabel,
+}
+
+impl<K: Eq + std::hash::Hash, V> BoundedHashMap<K, V> {
+    /// 插入一项并返回同键的旧值；新键超出授予容量时不写入并返回记账缺陷。
+    pub(crate) fn insert(&mut self, key: K, value: V) -> Result<Option<V>, LedgerError> {
+        if self.items.len() == self.capacity && !self.items.contains_key(&key) {
+            return Err(LedgerError::Defect {
+                label: self.label,
+                defect: AccountingDefect::CapacityExceeded,
+            });
+        }
+        Ok(self.items.insert(key, value))
+    }
+}
+
+impl<K, V> Deref for BoundedHashMap<K, V> {
+    type Target = HashMap<K, V>;
+
+    fn deref(&self) -> &HashMap<K, V> {
+        &self.items
     }
 }

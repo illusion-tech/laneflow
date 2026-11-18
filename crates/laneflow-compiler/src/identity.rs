@@ -8,8 +8,6 @@
 //! 后继独立制品验证器不得复用本模块。已知向量测试中的预言机也使用另一套字节组装
 //! 代码，以免编译器编码错误同时污染期望值。
 
-use std::collections::HashMap;
-
 use laneflow_static_contract::{
     EntityKind, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, FieldEncoding, FieldTag,
     IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC, STABLE_ID_DOMAIN_PREFIX, StableId128,
@@ -324,24 +322,37 @@ pub(crate) struct RegisteredCanonicalIdentity {
 ///
 /// `HashMap` 仅用于按摘要查找，不参与规范输出遍历。登记表在身份闭合后释放，不能进入
 /// HIR/MIR 或制品；摘要冲突不得通过盐、后缀或重编号恢复。
-#[derive(Default)]
 pub(crate) struct IdentityRegistry {
-    by_stable_id: HashMap<StableId128, RegisteredCanonicalIdentity>,
+    by_stable_id: crate::ledger::BoundedHashMap<StableId128, RegisteredCanonicalIdentity>,
+    /// 各登记项完整原像副本集中持有的授予。
+    _canonical_bytes: crate::ledger::Grant,
 }
 
 /// 稳定标识登记失败的原因：完整原像相同的重复登记，或摘要相同但原像不同的摘要冲突。
 #[derive(Debug)]
 pub(crate) enum IdentityRegistrationError {
-    Duplicate { existing_span: SourceLocation },
-    DigestCollision { existing_span: SourceLocation },
+    Duplicate {
+        existing_span: SourceLocation,
+    },
+    DigestCollision {
+        existing_span: SourceLocation,
+    },
+    /// 登记超出授予容量（记账缺陷）。
+    Accounting(crate::ledger::LedgerError),
 }
 
 impl IdentityRegistry {
-    /// 构造预分配容量的空登记表。
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            by_stable_id: HashMap::with_capacity(capacity),
-        }
+    /// 以编译遍授予构造可登记 `capacity` 项的空登记表；`canonical_bytes` 是全部登记项
+    /// 完整原像副本的字节数，集中取得一笔授予。
+    pub(crate) fn granted(
+        pass: &crate::ledger::PassBudget<'_>,
+        capacity: usize,
+        canonical_bytes: u64,
+    ) -> Result<Self, crate::ledger::LedgerError> {
+        Ok(Self {
+            by_stable_id: pass.hash_map(capacity)?,
+            _canonical_bytes: pass.grant_bytes(canonical_bytes)?,
+        })
     }
 
     /// 登记完整身份；成功后同一摘要的后续项必须与此处保存的原像比较。
@@ -370,13 +381,15 @@ impl IdentityRegistry {
                 })
             };
         }
-        self.by_stable_id.insert(
-            stable_id,
-            RegisteredCanonicalIdentity {
-                canonical_bytes: canonical_bytes.into(),
-                owning_span: owning_span.clone(),
-            },
-        );
+        self.by_stable_id
+            .insert(
+                stable_id,
+                RegisteredCanonicalIdentity {
+                    canonical_bytes: canonical_bytes.into(),
+                    owning_span: owning_span.clone(),
+                },
+            )
+            .map_err(IdentityRegistrationError::Accounting)?;
         Ok(())
     }
 }
@@ -757,7 +770,14 @@ mod tests {
         let span: SourceLocation = SourceSpan::point("vector".into(), 1, 1).into();
         let other_span: SourceLocation = SourceSpan::point("vector".into(), 2, 1).into();
         let stable_id = StableId128::from_bytes([0x42; 16]);
-        let mut registry = IdentityRegistry::with_capacity(2);
+        let ledger = crate::ledger::Ledger::with_budget(u64::MAX);
+        let pass = ledger
+            .admit_pass(
+                crate::ledger::PassLabel::new(crate::ledger::LedgerStage::CompilePipeline, "test"),
+                crate::ledger::Plan::of(u64::MAX),
+            )
+            .unwrap();
+        let mut registry = IdentityRegistry::granted(&pass, 2, 0).unwrap();
 
         registry
             .register_prederived(stable_id, b"same", &span)

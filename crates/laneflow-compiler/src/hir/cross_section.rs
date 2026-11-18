@@ -1,6 +1,6 @@
 //! 横断面领域 HIR：道路走廊、道路区段、编制车道、车道组与设施带的记录与构建。
 
-use std::collections::HashMap;
+use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -24,6 +24,7 @@ use super::{
     HirRoadCorridorTag, HirRoadSectionKey, HirRoadSectionTag, SymbolTable, arena_overflow,
     count_to_usize, declaration_header, derive_identity, register_owner, resolve_reference,
 };
+use super::{collect_in, filled};
 
 /// 道路走廊有序横断面中的已解析异构成员。
 #[derive(Debug, PartialEq)]
@@ -124,75 +125,90 @@ pub(crate) struct CanonicalAuthoringLaneSource {
 /// 横断面领域 HIR 部件：道路走廊、道路区段、编制车道、车道组与设施带表。
 #[derive(Default)]
 pub(crate) struct CrossSectionHir {
-    pub(crate) road_corridors: Box<[HirRoadCorridor]>,
-    pub(crate) corridor_elements: Box<[HirCorridorElement]>,
-    pub(crate) road_sections: Box<[HirRoadSection]>,
-    pub(crate) authoring_lanes: Box<[HirAuthoringLane]>,
-    pub(crate) authoring_lane_edges: Box<[HirAuthoringLaneEdge]>,
-    pub(crate) lane_groups: Box<[HirLaneGroup]>,
-    pub(crate) lane_group_members: Box<[HirLaneGroupMember]>,
-    pub(crate) facility_bands: Box<[HirFacilityBand]>,
+    pub(crate) road_corridors: crate::ledger::Frozen<HirRoadCorridor>,
+    pub(crate) corridor_elements: crate::ledger::Frozen<HirCorridorElement>,
+    pub(crate) road_sections: crate::ledger::Frozen<HirRoadSection>,
+    pub(crate) authoring_lanes: crate::ledger::Frozen<HirAuthoringLane>,
+    pub(crate) authoring_lane_edges: crate::ledger::Frozen<HirAuthoringLaneEdge>,
+    pub(crate) lane_groups: crate::ledger::Frozen<HirLaneGroup>,
+    pub(crate) lane_group_members: crate::ledger::Frozen<HirLaneGroupMember>,
+    pub(crate) facility_bands: crate::ledger::Frozen<HirFacilityBand>,
 }
 
 /// 构建横断面领域 HIR：登记走廊、区段、编制车道、车道组与设施带，并证明唯一所有者树。
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_cross_section_hir(
     unit: &CompilationUnit,
     counts: &CrossSectionCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<CrossSectionHir, DiagnosticBundle> {
     if counts.entity_count() == 0 {
         return Ok(CrossSectionHir::default());
     }
     // 只为会被引用解析访问的实体建立符号表，并按实体类别精确预留容量。RoadCorridor
     // 与 AuthoringLane 在本部分中没有按键引用消费者；为它们建立查找表只会增加峰值内存。
-    let mut section_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::RoadSection(_)))
-            .count()
-    }));
-    let mut group_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneGroup(_)))
-            .count()
-    }));
-    let mut band_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::FacilityBand(_)))
-            .count()
-    }));
+    let mut section_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::RoadSection(_)))
+                .count()
+        }),
+    )?;
+    let mut group_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneGroup(_)))
+                .count()
+        }),
+    )?;
+    let mut band_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::FacilityBand(_)))
+                .count()
+        }),
+    )?;
 
-    let mut corridors = TypedArena::<HirRoadCorridorTag, HirRoadCorridor>::with_capacity(
+    let mut corridors = TypedArena::<HirRoadCorridorTag, HirRoadCorridor>::granted(
+        pass,
         count_to_usize(counts.road_corridors, &unit.limits)?,
-    );
-    let mut sections = TypedArena::<HirRoadSectionTag, HirRoadSection>::with_capacity(
+    )?;
+    let mut sections = TypedArena::<HirRoadSectionTag, HirRoadSection>::granted(
+        pass,
         count_to_usize(counts.road_sections, &unit.limits)?,
-    );
-    let mut lanes = TypedArena::<HirAuthoringLaneTag, HirAuthoringLane>::with_capacity(
+    )?;
+    let mut lanes = TypedArena::<HirAuthoringLaneTag, HirAuthoringLane>::granted(
+        pass,
         count_to_usize(counts.authoring_lanes, &unit.limits)?,
-    );
-    let mut groups = TypedArena::<HirLaneGroupTag, HirLaneGroup>::with_capacity(count_to_usize(
-        counts.lane_groups,
-        &unit.limits,
-    )?);
-    let mut bands = TypedArena::<HirFacilityBandTag, HirFacilityBand>::with_capacity(
+    )?;
+    let mut groups = TypedArena::<HirLaneGroupTag, HirLaneGroup>::granted(
+        pass,
+        count_to_usize(counts.lane_groups, &unit.limits)?,
+    )?;
+    let mut bands = TypedArena::<HirFacilityBandTag, HirFacilityBand>::granted(
+        pass,
         count_to_usize(counts.facility_bands, &unit.limits)?,
-    );
-    let mut corridor_sources = Vec::with_capacity(corridors_capacity(counts, &unit.limits)?);
-    let mut section_sources = Vec::with_capacity(sections_capacity(counts, &unit.limits)?);
-    let mut lane_sources = Vec::with_capacity(lanes_capacity(counts, &unit.limits)?);
-    let mut group_sources = Vec::with_capacity(groups_capacity(counts, &unit.limits)?);
-    let mut band_sources = Vec::with_capacity(bands_capacity(counts, &unit.limits)?);
+    )?;
+    let mut corridor_sources = pass.vec(corridors_capacity(counts, &unit.limits)?)?;
+    let mut section_sources = pass.vec(sections_capacity(counts, &unit.limits)?)?;
+    let mut lane_sources = pass.vec(lanes_capacity(counts, &unit.limits)?)?;
+    let mut group_sources = pass.vec(groups_capacity(counts, &unit.limits)?)?;
+    let mut band_sources = pass.vec(bands_capacity(counts, &unit.limits)?)?;
 
     // 首遍只登记符号与不依赖父项的 RoadCorridor identity。其余实体先保留零值占位，
     // 但在所有者/引用错误存在时不会逃逸出本函数；父项闭合后才写入真实 ID。
@@ -201,28 +217,30 @@ pub(crate) fn build_cross_section_hir(
             u32::try_from(module_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        let mut declaration_indices: Vec<_> = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, declaration)| {
-                matches!(
-                    declaration,
-                    TypedAstDeclaration::RoadCorridor(_)
-                        | TypedAstDeclaration::RoadSection(_)
-                        | TypedAstDeclaration::LaneGroup(_)
-                        | TypedAstDeclaration::FacilityBand(_)
-                )
-                .then_some(index)
-            })
-            .collect();
+        let mut declaration_indices: BoundedVec<_> = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, declaration)| {
+                    matches!(
+                        declaration,
+                        TypedAstDeclaration::RoadCorridor(_)
+                            | TypedAstDeclaration::RoadSection(_)
+                            | TypedAstDeclaration::LaneGroup(_)
+                            | TypedAstDeclaration::FacilityBand(_)
+                    )
+                    .then_some(index)
+                }),
+        )?;
         declaration_indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
             (left.entity_kind.code(), &left.source_address)
                 .cmp(&(right.entity_kind.code(), &right.source_address))
         });
-        for source_declaration_index in declaration_indices {
+        for source_declaration_index in declaration_indices.iter().copied() {
             let source_module_index = u32::try_from(module_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
             let declaration_index = u32::try_from(source_declaration_index)
@@ -270,7 +288,7 @@ pub(crate) fn build_cross_section_hir(
                         source_module_index,
                         declaration_index,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 TypedAstDeclaration::RoadSection(source) => {
                     let lane_start = lanes.len();
@@ -292,12 +310,12 @@ pub(crate) fn build_cross_section_hir(
                         module_key,
                         source.header.source_address.clone(),
                         section_key,
-                    );
+                    )?;
                     section_sources.push(CanonicalDeclarationSource {
                         source_module_index,
                         declaration_index,
                         hir_key: section_key,
-                    });
+                    })?;
                     for (lane_index, lane) in source.lanes.iter().enumerate() {
                         let lane_key = lanes
                             .push(HirAuthoringLane {
@@ -328,7 +346,7 @@ pub(crate) fn build_cross_section_hir(
                                 )
                             })?,
                             hir_key: lane_key,
-                        });
+                        })?;
                     }
                     sections.get_mut(section_key).lanes = TableRange::try_from_usize(
                         lane_start,
@@ -352,12 +370,12 @@ pub(crate) fn build_cross_section_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    group_symbols.insert(module_key, source.header.source_address.clone(), key);
+                    group_symbols.insert(module_key, source.header.source_address.clone(), key)?;
                     group_sources.push(CanonicalDeclarationSource {
                         source_module_index,
                         declaration_index,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 TypedAstDeclaration::FacilityBand(source) => {
                     let key = bands
@@ -373,12 +391,12 @@ pub(crate) fn build_cross_section_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    band_symbols.insert(module_key, source.header.source_address.clone(), key);
+                    band_symbols.insert(module_key, source.header.source_address.clone(), key)?;
                     band_sources.push(CanonicalDeclarationSource {
                         source_module_index,
                         declaration_index,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 TypedAstDeclaration::RightOfWayPolicySet(_)
                 | TypedAstDeclaration::Junction(_)
@@ -409,11 +427,11 @@ pub(crate) fn build_cross_section_hir(
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
     let mut corridor_elements =
-        Vec::with_capacity(count_to_usize(counts.corridor_elements, &unit.limits)?);
-    let mut section_owners: Vec<Option<(HirRoadCorridorKey, SourceLocation)>> =
-        vec![None; sections.len()];
-    let mut band_owners: Vec<Option<(HirRoadCorridorKey, SourceLocation)>> =
-        vec![None; bands.len()];
+        pass.vec(count_to_usize(counts.corridor_elements, &unit.limits)?)?;
+    let mut section_owners: BoundedVec<Option<(HirRoadCorridorKey, SourceLocation)>> =
+        filled(pass, sections.len(), None)?;
+    let mut band_owners: BoundedVec<Option<(HirRoadCorridorKey, SourceLocation)>> =
+        filled(pass, bands.len(), None)?;
 
     for location in &corridor_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
@@ -463,7 +481,7 @@ pub(crate) fn build_cross_section_hir(
                                 location.source_module_index,
                                 &reference.span,
                             )?,
-                        });
+                        })?;
                     }
                 }
                 OwnedCorridorElementReference::FacilityBand(reference) => {
@@ -493,7 +511,7 @@ pub(crate) fn build_cross_section_hir(
                                 location.source_module_index,
                                 &reference.span,
                             )?,
-                        });
+                        })?;
                     }
                 }
             }
@@ -680,9 +698,10 @@ pub(crate) fn build_cross_section_hir(
     }
 
     let mut lane_edges_flat =
-        Vec::with_capacity(count_to_usize(counts.authoring_lane_edges, &unit.limits)?);
-    let mut edge_owners: Vec<Option<HirAuthoringLaneKey>> = vec![None; lane_edges.len()];
-    let mut group_member_counts = vec![0_usize; groups.len()];
+        pass.vec(count_to_usize(counts.authoring_lane_edges, &unit.limits)?)?;
+    let mut edge_owners: BoundedVec<Option<HirAuthoringLaneKey>> =
+        filled(pass, lane_edges.len(), None)?;
+    let mut group_member_counts = filled(pass, groups.len(), 0_usize)?;
     for location in &lane_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
         let TypedAstDeclaration::RoadSection(section_source) =
@@ -767,7 +786,7 @@ pub(crate) fn build_cross_section_hir(
             lane_edges_flat.push(HirAuthoringLaneEdge {
                 target,
                 source_span: reference.span.clone(),
-            });
+            })?;
         }
 
         let lane_group = lane_source.lane_group.as_ref().and_then(|reference| {
@@ -839,10 +858,10 @@ pub(crate) fn build_cross_section_hir(
 
     // 先按 group key 计算连续范围，再按 lane key 递增顺序填充。这样维持与原车道遍历
     // 一致的成员顺序，同时避免为每个 LaneGroup 单独分配一个临时 Vec。
-    let mut next_group_member = Vec::with_capacity(groups.len());
+    let mut next_group_member = pass.vec(groups.len())?;
     let mut member_count = 0_usize;
     for (group_index, count) in group_member_counts.iter().copied().enumerate() {
-        next_group_member.push(member_count);
+        next_group_member.push(member_count)?;
         let group_key = HirLaneGroupKey::from_raw(
             u32::try_from(group_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
@@ -852,13 +871,17 @@ pub(crate) fn build_cross_section_hir(
         member_count = member_count.saturating_add(count);
     }
     let mut lane_group_members = if member_count == 0 {
-        Vec::new()
+        pass.vec(0)?
     } else {
         let first_member = lanes
             .iter()
             .find_map(|(key, lane)| lane.lane_group.map(|_| key))
             .expect("positive validated group member count must name a lane");
-        vec![HirLaneGroupMember { lane: first_member }; member_count]
+        filled(
+            pass,
+            member_count,
+            HirLaneGroupMember { lane: first_member },
+        )?
     };
     for (lane_key, lane) in lanes.iter() {
         let Some(group_key) = lane.lane_group else {
@@ -873,14 +896,14 @@ pub(crate) fn build_cross_section_hir(
     }));
 
     Ok(CrossSectionHir {
-        road_corridors: corridors.into_boxed_slice(),
-        corridor_elements: corridor_elements.into_boxed_slice(),
-        road_sections: sections.into_boxed_slice(),
-        authoring_lanes: lanes.into_boxed_slice(),
-        authoring_lane_edges: lane_edges_flat.into_boxed_slice(),
-        lane_groups: groups.into_boxed_slice(),
-        lane_group_members: lane_group_members.into_boxed_slice(),
-        facility_bands: bands.into_boxed_slice(),
+        road_corridors: corridors.freeze()?,
+        corridor_elements: corridor_elements.freeze()?,
+        road_sections: sections.freeze()?,
+        authoring_lanes: lanes.freeze()?,
+        authoring_lane_edges: lane_edges_flat.freeze()?,
+        lane_groups: groups.freeze()?,
+        lane_group_members: lane_group_members.freeze()?,
+        facility_bands: bands.freeze()?,
     })
 }
 

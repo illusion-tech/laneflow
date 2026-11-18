@@ -517,45 +517,8 @@ fn adopted_initial_live_beyond_budget_rejects_every_later_admission() {
             ..
         }
     ));
-    assert!(matches!(
-        ledger.probe(PIPELINE, 1).err().unwrap(),
-        LedgerError::BudgetExceeded {
-            requested: 151,
-            limit: 100,
-            ..
-        }
-    ));
     drop(inputs);
     ledger.close().unwrap();
-}
-
-#[test]
-fn probe_checks_live_plus_reserved_without_changing_either() {
-    let ledger = Ledger::with_budget(1000);
-    let _inputs = ledger.adopt(300);
-    let pass = ledger.admit_pass(PIPELINE, Plan::of(500)).unwrap();
-    // 进行中编译遍的计划峰值仍在预留中，瞬时工作集叠加在 L + R 之上。
-    ledger.probe(PIPELINE, 200).unwrap();
-    assert_eq!(
-        ledger.probe(PIPELINE, 201).err().unwrap(),
-        LedgerError::BudgetExceeded {
-            label: PIPELINE,
-            requested: 1001,
-            limit: 1000,
-        }
-    );
-    assert_eq!((ledger.live(), ledger.reserved()), (300, 500));
-    pass.finish(0).unwrap();
-    assert_eq!(
-        ledger.probe(PIPELINE, u64::MAX).err().unwrap(),
-        LedgerError::BudgetExceeded {
-            label: PIPELINE,
-            requested: u64::MAX,
-            limit: 1000,
-        }
-    );
-    drop(_inputs);
-    assert_eq!(ledger.close().unwrap().peak_committed, 1000);
 }
 
 #[test]

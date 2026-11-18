@@ -1,7 +1,7 @@
 //! 路口领域 HIR：路口、通行流向、机动路径与路口内部边的记录与构建。
 
+use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use core::hash::{Hash, Hasher};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -15,6 +15,7 @@ use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
 use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
+use super::filled;
 use super::{
     CanonicalDeclarationSource, HirAuthoringLaneEdge, HirJunctionKey, HirJunctionTag, HirLaneEdge,
     HirLaneEdgeKey, HirLaneEdgeReference, HirLaneEdgeTag, HirManeuverPathGate, HirManeuverPathKey,
@@ -99,13 +100,13 @@ pub(crate) struct HirJunctionInternalEdge {
 /// 路口领域 HIR 部件：路口、通行流向、机动路径、路口内部边及成员关系表。
 #[derive(Default)]
 pub(crate) struct JunctionHir {
-    pub(crate) junctions: Box<[HirJunction]>,
-    pub(crate) movements: Box<[HirMovement]>,
-    pub(crate) junction_movements: Box<[HirJunctionMovement]>,
-    pub(crate) maneuver_paths: Box<[HirManeuverPath]>,
-    pub(crate) movement_maneuver_paths: Box<[HirMovementManeuverPath]>,
-    pub(crate) maneuver_path_edges: Box<[HirManeuverPathEdge]>,
-    pub(crate) junction_internal_edges: Box<[HirJunctionInternalEdge]>,
+    pub(crate) junctions: crate::ledger::Frozen<HirJunction>,
+    pub(crate) movements: crate::ledger::Frozen<HirMovement>,
+    pub(crate) junction_movements: crate::ledger::Frozen<HirJunctionMovement>,
+    pub(crate) maneuver_paths: crate::ledger::Frozen<HirManeuverPath>,
+    pub(crate) movement_maneuver_paths: crate::ledger::Frozen<HirMovementManeuverPath>,
+    pub(crate) maneuver_path_edges: crate::ledger::Frozen<HirManeuverPathEdge>,
+    pub(crate) junction_internal_edges: crate::ledger::Frozen<HirJunctionInternalEdge>,
 }
 
 /// 声明的路口-边归属对，供二分查找核对路口边集合。
@@ -166,12 +167,13 @@ thread_local! {
 pub(crate) fn build_junction_hir(
     unit: &CompilationUnit,
     counts: &JunctionCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
     authoring_lane_edges: &[HirAuthoringLaneEdge],
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<JunctionHir, DiagnosticBundle> {
     if counts.entity_count() == 0 {
         return Ok(JunctionHir::default());
@@ -180,25 +182,34 @@ pub(crate) fn build_junction_hir(
     let junction_capacity = count_to_usize(counts.junctions, &unit.limits)?;
     let movement_capacity = count_to_usize(counts.movements, &unit.limits)?;
     let path_capacity = count_to_usize(counts.maneuver_paths, &unit.limits)?;
-    let mut junctions = TypedArena::<HirJunctionTag, HirJunction>::with_capacity(junction_capacity);
-    let mut movements = TypedArena::<HirMovementTag, HirMovement>::with_capacity(movement_capacity);
-    let mut paths = TypedArena::<HirManeuverPathTag, HirManeuverPath>::with_capacity(path_capacity);
-    let mut junction_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::Junction(_)))
-            .count()
-    }));
-    let mut movement_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::Movement(_)))
-            .count()
-    }));
-    let mut movement_sources = Vec::with_capacity(movement_capacity);
-    let mut path_sources = Vec::with_capacity(path_capacity);
+    let mut junctions =
+        TypedArena::<HirJunctionTag, HirJunction>::granted(pass, junction_capacity)?;
+    let mut movements =
+        TypedArena::<HirMovementTag, HirMovement>::granted(pass, movement_capacity)?;
+    let mut paths =
+        TypedArena::<HirManeuverPathTag, HirManeuverPath>::granted(pass, path_capacity)?;
+    let mut junction_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::Junction(_)))
+                .count()
+        }),
+    )?;
+    let mut movement_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| matches!(declaration, TypedAstDeclaration::Movement(_)))
+                .count()
+        }),
+    )?;
+    let mut movement_sources = pass.vec(movement_capacity)?;
+    let mut path_sources = pass.vec(path_capacity)?;
 
     // 三种声明都先按模块和稳定键分配完整符号。只有 Junction 不依赖父项，可以立即
     // 派生身份；Movement 与 ManeuverPath 先写入占位值，随后按父项顺序闭合。
@@ -208,14 +219,14 @@ pub(crate) fn build_junction_hir(
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
-        let mut declaration_indices: Vec<_> = (0..source_module.declarations.len()).collect();
+        let mut declaration_indices = pass.collect(0..source_module.declarations.len())?;
         declaration_indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
             (left.entity_kind.code(), &left.source_address)
                 .cmp(&(right.entity_kind.code(), &right.source_address))
         });
-        for declaration_index in declaration_indices {
+        for declaration_index in declaration_indices.iter().copied() {
             match &source_module.declarations[declaration_index] {
                 TypedAstDeclaration::Junction(source) => {
                     let fields = [
@@ -251,7 +262,11 @@ pub(crate) fn build_junction_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    junction_symbols.insert(module_key, source.header.source_address.clone(), key);
+                    junction_symbols.insert(
+                        module_key,
+                        source.header.source_address.clone(),
+                        key,
+                    )?;
                 }
                 TypedAstDeclaration::Movement(source) => {
                     let key = movements
@@ -275,7 +290,11 @@ pub(crate) fn build_junction_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    movement_symbols.insert(module_key, source.header.source_address.clone(), key);
+                    movement_symbols.insert(
+                        module_key,
+                        source.header.source_address.clone(),
+                        key,
+                    )?;
                     movement_sources.push(CanonicalDeclarationSource {
                         source_module_index: module_order,
                         declaration_index: u32::try_from(declaration_index).map_err(|_| {
@@ -286,7 +305,7 @@ pub(crate) fn build_junction_hir(
                             )
                         })?,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 TypedAstDeclaration::ManeuverPath(source) => {
                     let key = paths
@@ -315,7 +334,7 @@ pub(crate) fn build_junction_hir(
                             )
                         })?,
                         hir_key: key,
-                    });
+                    })?;
                 }
                 _ => {}
             }
@@ -327,18 +346,18 @@ pub(crate) fn build_junction_hir(
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount),
     );
-    let mut section_derived_edges = vec![0_u8; lane_edges.len()];
+    let mut section_derived_edges = filled(pass, lane_edges.len(), 0_u8)?;
     for edge in authoring_lane_edges {
         section_derived_edges[edge.target.index()] = 1;
     }
-    let mut declared_approaches = Vec::with_capacity(count_to_usize(
+    let mut declared_approaches = pass.vec(count_to_usize(
         counts.declared_approach_edges,
         &unit.limits,
-    )?);
-    let mut declared_internal_edges = Vec::with_capacity(count_to_usize(
+    )?)?;
+    let mut declared_internal_edges = pass.vec(count_to_usize(
         counts.declared_internal_edges,
         &unit.limits,
-    )?);
+    )?)?;
     // RoadEditingSource 的 approach/internal vectors 是完整显式集合。Synthetic Junction
     // 的两个集合为空，继续沿用仅由路径派生角色的历史输入语义。
     for (module_index, source_module) in unit.modules.iter().enumerate() {
@@ -382,7 +401,7 @@ pub(crate) fn build_junction_hir(
                     junction,
                     edge,
                     source_span: approach.span.clone(),
-                });
+                })?;
             }
             for internal in &source.internal_edges {
                 let Some(edge) = resolve_reference(
@@ -414,13 +433,13 @@ pub(crate) fn build_junction_hir(
                     junction,
                     edge,
                     source_span: internal.span.clone(),
-                });
+                })?;
             }
         }
     }
     declared_approaches.sort_unstable_by_key(|value| (value.junction, value.edge));
     declared_internal_edges.sort_unstable_by_key(|value| (value.junction, value.edge));
-    let mut junction_member_counts = vec![0_usize; junctions.len()];
+    let mut junction_member_counts = filled(pass, junctions.len(), 0_usize)?;
     for location in &movement_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
         let source =
@@ -480,9 +499,8 @@ pub(crate) fn build_junction_hir(
         return Err(diagnostics.finish());
     }
 
-    let mut path_edges =
-        Vec::with_capacity(count_to_usize(counts.maneuver_path_edges, &unit.limits)?);
-    let mut movement_member_counts = vec![0_usize; movements.len()];
+    let mut path_edges = pass.vec(count_to_usize(counts.maneuver_path_edges, &unit.limits)?)?;
+    let mut movement_member_counts = filled(pass, movements.len(), 0_usize)?;
     for location in &path_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
         let source = maneuver_path_declaration(
@@ -526,7 +544,7 @@ pub(crate) fn build_junction_hir(
             path_edges.push(HirManeuverPathEdge {
                 target,
                 source_span: reference.span.clone(),
-            });
+            })?;
         }
         let (Some(movement), Some(entry), Some(exit)) = (movement, entry, exit) else {
             continue;
@@ -610,8 +628,8 @@ pub(crate) fn build_junction_hir(
 
     // 完整路径序列的全局唯一性先于内部边角色派生，以保持 zero-internal 与普通路径的
     // 重复错误一致。HashMap 只查找已冻结切片，完整目标键比较封堵哈希碰撞。
-    let mut sequence_index: HashMap<ManeuverPathSequence<'_>, HirManeuverPathKey> =
-        HashMap::with_capacity(paths.len());
+    let mut sequence_index: BoundedHashMap<ManeuverPathSequence<'_>, HirManeuverPathKey> =
+        pass.hash_map(paths.len())?;
     for (path_key, path) in paths.iter() {
         let sequence = ManeuverPathSequence(&path_edges[path.edges.as_usize_range()]);
         if let Some(first_path_key) = sequence_index.get(&sequence).copied() {
@@ -629,7 +647,7 @@ pub(crate) fn build_junction_hir(
             diagnostic.set_canonical_module_order(path.module.raw());
             diagnostics.push(diagnostic);
         } else {
-            sequence_index.insert(sequence, path_key);
+            sequence_index.insert(sequence, path_key)?;
         }
     }
     if !diagnostics.is_empty() {
@@ -637,10 +655,10 @@ pub(crate) fn build_junction_hir(
     }
     drop(sequence_index);
 
-    let mut internal_claims: Vec<Option<HirJunctionInternalEdge>> =
-        (0..lane_edges.len()).map(|_| None).collect();
-    let mut boundary_claims: Vec<Option<(HirManeuverPathKey, SourceLocation)>> =
-        (0..lane_edges.len()).map(|_| None).collect();
+    let mut internal_claims: BoundedVec<Option<HirJunctionInternalEdge>> =
+        pass.collect((0..lane_edges.len()).map(|_| None))?;
+    let mut boundary_claims: BoundedVec<Option<(HirManeuverPathKey, SourceLocation)>> =
+        filled(pass, lane_edges.len(), None)?;
     for (path_key, path) in paths.iter() {
         let edge_range = path.edges.as_usize_range();
         let edges = &path_edges[edge_range];
@@ -756,7 +774,7 @@ pub(crate) fn build_junction_hir(
     // 计入 `junction_budget`（#1219 P2-6），按出现记录精确预留（会计钉：构造期
     // 零重分配）。契约（#1219）：三块均为校验期暂存，不进入 `JunctionHir` 输出；
     // 若未来该索引保留进输出，必须迁入 live 轴重记账。
-    let mut member_starts: Vec<usize> = vec![0; lane_edges.len().saturating_add(1)];
+    let mut member_starts: BoundedVec<usize> = filled(pass, lane_edges.len().saturating_add(1), 0)?;
     for (_, path) in paths.iter() {
         for member in &path_edges[path.edges.as_usize_range()] {
             if member.target.index() >= lane_edges.len() {
@@ -770,14 +788,14 @@ pub(crate) fn build_junction_hir(
         let slot = index.saturating_add(1);
         member_starts[slot] = member_starts[slot].saturating_add(member_starts[index]);
     }
-    let mut member_cursor: Vec<usize> = member_starts[..lane_edges.len()].to_vec();
+    let mut member_cursor = pass.collect(member_starts[..lane_edges.len()].iter().copied())?;
     let first_path = paths
         .iter()
         .next()
         .map(|(key, _)| key)
         .unwrap_or(HirManeuverPathKey::from_raw(0));
-    let mut member_path_keys: Vec<HirManeuverPathKey> =
-        vec![first_path; member_starts[lane_edges.len()]];
+    let mut member_path_keys: BoundedVec<HirManeuverPathKey> =
+        filled(pass, member_starts[lane_edges.len()], first_path)?;
     for (path_key, path) in paths.iter() {
         for member in &path_edges[path.edges.as_usize_range()] {
             if member.target.index() >= lane_edges.len() {
@@ -950,10 +968,10 @@ pub(crate) fn build_junction_hir(
         return Err(diagnostics.finish());
     }
 
-    let mut next_junction_member = Vec::with_capacity(junctions.len());
+    let mut next_junction_member = pass.vec(junctions.len())?;
     let mut junction_member_total = 0_usize;
     for (index, count) in junction_member_counts.iter().copied().enumerate() {
-        next_junction_member.push(junction_member_total);
+        next_junction_member.push(junction_member_total)?;
         let key = HirJunctionKey::from_raw(
             u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
@@ -967,12 +985,13 @@ pub(crate) fn build_junction_hir(
         .next()
         .map(|(key, _)| key)
         .unwrap_or(HirMovementKey::from_raw(0));
-    let mut junction_movements = vec![
+    let mut junction_movements = filled(
+        pass,
+        junction_member_total,
         HirJunctionMovement {
             movement: first_movement,
-        };
-        junction_member_total
-    ];
+        },
+    )?;
     for (movement_key, movement) in movements.iter() {
         let destination = &mut next_junction_member[movement.junction.index()];
         junction_movements[*destination] = HirJunctionMovement {
@@ -981,10 +1000,10 @@ pub(crate) fn build_junction_hir(
         *destination += 1;
     }
 
-    let mut next_movement_member = Vec::with_capacity(movements.len());
+    let mut next_movement_member = pass.vec(movements.len())?;
     let mut movement_member_total = 0_usize;
     for (index, count) in movement_member_counts.iter().copied().enumerate() {
-        next_movement_member.push(movement_member_total);
+        next_movement_member.push(movement_member_total)?;
         let key = HirMovementKey::from_raw(
             u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
@@ -999,12 +1018,13 @@ pub(crate) fn build_junction_hir(
         .next()
         .map(|(key, _)| key)
         .unwrap_or(HirManeuverPathKey::from_raw(0));
-    let mut movement_maneuver_paths = vec![
+    let mut movement_maneuver_paths = filled(
+        pass,
+        movement_member_total,
         HirMovementManeuverPath {
             maneuver_path: first_path,
-        };
-        movement_member_total
-    ];
+        },
+    )?;
     for (path_key, path) in paths.iter() {
         let destination = &mut next_movement_member[path.movement.index()];
         movement_maneuver_paths[*destination] = HirMovementManeuverPath {
@@ -1013,18 +1033,21 @@ pub(crate) fn build_junction_hir(
         *destination += 1;
     }
 
-    let junction_internal_edges = internal_claims
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
+    let mut junction_internal_edges = pass.vec(
+        internal_claims
+            .iter()
+            .filter(|claim| claim.is_some())
+            .count(),
+    )?;
+    junction_internal_edges.try_extend(internal_claims.iter_mut().filter_map(Option::take))?;
+    let junction_internal_edges = junction_internal_edges.freeze()?;
     Ok(JunctionHir {
-        junctions: junctions.into_boxed_slice(),
-        movements: movements.into_boxed_slice(),
-        junction_movements: junction_movements.into_boxed_slice(),
-        maneuver_paths: paths.into_boxed_slice(),
-        movement_maneuver_paths: movement_maneuver_paths.into_boxed_slice(),
-        maneuver_path_edges: path_edges.into_boxed_slice(),
+        junctions: junctions.freeze()?,
+        movements: movements.freeze()?,
+        junction_movements: junction_movements.freeze()?,
+        maneuver_paths: paths.freeze()?,
+        movement_maneuver_paths: movement_maneuver_paths.freeze()?,
+        maneuver_path_edges: path_edges.freeze()?,
         junction_internal_edges,
     })
 }

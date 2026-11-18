@@ -1,6 +1,6 @@
 //! 冲突静态 HIR：冲突区、参与者流、规范路径锚点、passage 与反向成员闭包。
 
-use std::collections::HashMap;
+use crate::ledger::{BoundedHashMap, PassBudget};
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -17,6 +17,7 @@ use crate::{
     RoadEditingSourceViolation, SourceLocation,
 };
 
+use super::collect_in;
 use super::{
     ConflictCounts, HirConflictZoneKey, HirConflictZoneTag, HirJunction, HirJunctionKey,
     HirLaneEdge, HirManeuverGate, HirManeuverGateKey, HirManeuverPath, HirManeuverPathEdge,
@@ -97,10 +98,10 @@ pub(crate) struct HirParticipantStream {
 /// 冲突领域 HIR 部件：冲突区、参与者流、穿越记录与冲突区-流关系表。
 #[derive(Default)]
 pub(crate) struct ConflictHir {
-    pub(crate) conflict_zones: Box<[HirConflictZone]>,
-    pub(crate) participant_streams: Box<[HirParticipantStream]>,
-    pub(crate) conflict_passages: Box<[HirConflictPassage]>,
-    pub(crate) conflict_zone_streams: Box<[HirConflictZoneStream]>,
+    pub(crate) conflict_zones: crate::ledger::Frozen<HirConflictZone>,
+    pub(crate) participant_streams: crate::ledger::Frozen<HirParticipantStream>,
+    pub(crate) conflict_passages: crate::ledger::Frozen<HirConflictPassage>,
+    pub(crate) conflict_zone_streams: crate::ledger::Frozen<HirConflictZoneStream>,
 }
 
 /// 构建冲突领域 HIR：登记冲突区与参与者流，闭合穿越路径锚点并派生准入机动门。
@@ -108,7 +109,7 @@ pub(crate) struct ConflictHir {
 pub(crate) fn build_conflict_hir(
     unit: &CompilationUnit,
     counts: &ConflictCounts,
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     junctions: &[HirJunction],
     movements: &[HirMovement],
     maneuver_paths: &[HirManeuverPath],
@@ -118,6 +119,7 @@ pub(crate) fn build_conflict_hir(
     maneuver_path_gates: &[HirManeuverPathGate],
     waiting_zones: &[HirWaitingZone],
     identities: &mut IdentityRegistry,
+    pass: &PassBudget<'_>,
 ) -> Result<ConflictHir, DiagnosticBundle> {
     if counts.entity_count() == 0 {
         return Ok(ConflictHir::default());
@@ -126,18 +128,24 @@ pub(crate) fn build_conflict_hir(
     let zone_capacity = count_to_usize(counts.zones, &unit.limits)?;
     let stream_capacity = count_to_usize(counts.streams, &unit.limits)?;
     let passage_capacity = count_to_usize(counts.passages, &unit.limits)?;
-    let mut zones = TypedArena::<HirConflictZoneTag, HirConflictZone>::with_capacity(zone_capacity);
-    let mut streams =
-        TypedArena::<HirParticipantStreamTag, HirParticipantStream>::with_capacity(stream_capacity);
-    let mut zone_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|value| matches!(value, TypedAstDeclaration::ConflictZone(_)))
-            .count()
-    }));
-    let mut zone_sources = Vec::with_capacity(zone_capacity);
-    let mut stream_sources = Vec::with_capacity(stream_capacity);
+    let mut zones =
+        TypedArena::<HirConflictZoneTag, HirConflictZone>::granted(pass, zone_capacity)?;
+    let mut streams = TypedArena::<HirParticipantStreamTag, HirParticipantStream>::granted(
+        pass,
+        stream_capacity,
+    )?;
+    let mut zone_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|value| matches!(value, TypedAstDeclaration::ConflictZone(_)))
+                .count()
+        }),
+    )?;
+    let mut zone_sources = pass.vec(zone_capacity)?;
+    let mut stream_sources = pass.vec(stream_capacity)?;
 
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
@@ -145,26 +153,28 @@ pub(crate) fn build_conflict_hir(
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
-        let mut indices = source_module
-            .declarations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, value)| {
-                matches!(
-                    value,
-                    TypedAstDeclaration::ConflictZone(_)
-                        | TypedAstDeclaration::ParticipantStream(_)
-                )
-                .then_some(index)
-            })
-            .collect::<Vec<_>>();
+        let mut indices = collect_in(
+            pass,
+            source_module
+                .declarations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, value)| {
+                    matches!(
+                        value,
+                        TypedAstDeclaration::ConflictZone(_)
+                            | TypedAstDeclaration::ParticipantStream(_)
+                    )
+                    .then_some(index)
+                }),
+        )?;
         indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
             (left.entity_kind.code(), &left.source_address)
                 .cmp(&(right.entity_kind.code(), &right.source_address))
         });
-        for index in indices {
+        for index in indices.iter().copied() {
             let declaration_index = u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
             match &source_module.declarations[index] {
@@ -183,8 +193,8 @@ pub(crate) fn build_conflict_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    zone_symbols.insert(module_key, source.header.source_address.clone(), key);
-                    zone_sources.push((module_order, declaration_index, key));
+                    zone_symbols.insert(module_key, source.header.source_address.clone(), key)?;
+                    zone_sources.push((module_order, declaration_index, key))?;
                 }
                 TypedAstDeclaration::ParticipantStream(source) => {
                     let key = streams
@@ -203,20 +213,23 @@ pub(crate) fn build_conflict_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    stream_sources.push((module_order, declaration_index, key));
+                    stream_sources.push((module_order, declaration_index, key))?;
                 }
                 _ => unreachable!("conflict source filter admitted unrelated declaration"),
             }
         }
     }
 
-    let mut junction_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|value| matches!(value, TypedAstDeclaration::Junction(_)))
-            .count()
-    }));
+    let mut junction_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|value| matches!(value, TypedAstDeclaration::Junction(_)))
+                .count()
+        }),
+    )?;
     for (index, junction) in junctions.iter().enumerate() {
         junction_symbols.insert(
             junction.module,
@@ -228,15 +241,18 @@ pub(crate) fn build_conflict_hir(
                     Some(junction.source_span.clone()),
                 )
             })?),
-        );
+        )?;
     }
-    let mut path_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|value| matches!(value, TypedAstDeclaration::ManeuverPath(_)))
-            .count()
-    }));
+    let mut path_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|value| matches!(value, TypedAstDeclaration::ManeuverPath(_)))
+                .count()
+        }),
+    )?;
     for (index, path) in maneuver_paths.iter().enumerate() {
         path_symbols.insert(
             path.module,
@@ -248,15 +264,18 @@ pub(crate) fn build_conflict_hir(
                     Some(path.source_span.clone()),
                 )
             })?),
-        );
+        )?;
     }
-    let mut gate_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|value| matches!(value, TypedAstDeclaration::ManeuverGate(_)))
-            .count()
-    }));
+    let mut gate_symbols = SymbolTable::new(
+        pass,
+        unit.modules.iter().map(|module| {
+            module
+                .declarations
+                .iter()
+                .filter(|value| matches!(value, TypedAstDeclaration::ManeuverGate(_)))
+                .count()
+        }),
+    )?;
     for (index, gate) in maneuver_gates.iter().enumerate() {
         gate_symbols.insert(
             gate.module,
@@ -268,7 +287,7 @@ pub(crate) fn build_conflict_hir(
                     Some(gate.source_span.clone()),
                 )
             })?),
-        );
+        )?;
     }
 
     let mut diagnostics = DiagnosticCollector::new(
@@ -328,8 +347,8 @@ pub(crate) fn build_conflict_hir(
         return Err(diagnostics.finish());
     }
 
-    let mut passages = Vec::with_capacity(passage_capacity);
-    let mut passage_owners = Vec::with_capacity(passage_capacity);
+    let mut passages = pass.vec(passage_capacity)?;
+    let mut passage_owners = pass.vec(passage_capacity)?;
     for (module_order, declaration_index, stream_key) in &stream_sources {
         let source_module = &unit.modules[*module_order as usize];
         let TypedAstDeclaration::ParticipantStream(source) =
@@ -394,7 +413,7 @@ pub(crate) fn build_conflict_hir(
             &fields,
         )?);
         let start = passages.len();
-        let mut seen_zones = Vec::with_capacity(source.passages.len());
+        let mut seen_zones = pass.vec(source.passages.len())?;
         for source_passage in source.passages.iter() {
             let Some(zone) = resolve_reference(
                 module_lookup,
@@ -417,7 +436,7 @@ pub(crate) fn build_conflict_hir(
                 );
                 continue;
             }
-            seen_zones.push(zone);
+            seen_zones.push(zone)?;
             let entry = lower_anchor(
                 unit,
                 *module_order,
@@ -537,8 +556,8 @@ pub(crate) fn build_conflict_hir(
                 )?,
                 source_location: unit
                     .resolve_source_location_for_module(*module_order, &source_passage.span)?,
-            });
-            passage_owners.push(*stream_key);
+            })?;
+            passage_owners.push(*stream_key)?;
         }
         passages[start..].sort_unstable_by(|left, right| {
             left.entry
@@ -571,21 +590,17 @@ pub(crate) fn build_conflict_hir(
     }
 
     // 同一 zone/path/interval 的不同 stream 是重复行为；不同区间仍保留为显式身份意图。
-    let mut behavior = passages
-        .iter()
-        .enumerate()
-        .map(|(index, passage)| {
-            let owner = passage_owners[index];
-            (
-                passage.conflict_zone,
-                streams.get(owner).maneuver_path,
-                passage.entry.position(),
-                passage.exit.position(),
-                streams.get(owner).stable_id,
-                owner,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut behavior = pass.collect(passages.iter().enumerate().map(|(index, passage)| {
+        let owner = passage_owners[index];
+        (
+            passage.conflict_zone,
+            streams.get(owner).maneuver_path,
+            passage.entry.position(),
+            passage.exit.position(),
+            streams.get(owner).stable_id,
+            owner,
+        )
+    }))?;
     behavior.sort_unstable();
     for pair in behavior.windows(2) {
         if pair[0].0 == pair[1].0
@@ -604,11 +619,13 @@ pub(crate) fn build_conflict_hir(
         }
     }
 
-    let mut memberships = passages
-        .iter()
-        .enumerate()
-        .map(|(index, passage)| (passage.conflict_zone, passage_owners[index]))
-        .collect::<Vec<_>>();
+    let mut memberships = collect_in(
+        pass,
+        passages
+            .iter()
+            .enumerate()
+            .map(|(index, passage)| (passage.conflict_zone, passage_owners[index])),
+    )?;
     memberships.sort_unstable_by(|left, right| {
         left.0.cmp(&right.0).then_with(|| {
             streams
@@ -617,7 +634,7 @@ pub(crate) fn build_conflict_hir(
                 .cmp(&streams.get(right.1).stable_id)
         })
     });
-    let mut zone_streams = Vec::with_capacity(memberships.len());
+    let mut zone_streams = pass.vec(memberships.len())?;
     let mut cursor = 0_usize;
     for zone_index in 0..zones.len() {
         let zone_key = HirConflictZoneKey::from_raw(
@@ -628,7 +645,7 @@ pub(crate) fn build_conflict_hir(
         while cursor < memberships.len() && memberships[cursor].0 == zone_key {
             zone_streams.push(HirConflictZoneStream {
                 participant_stream: memberships[cursor].1,
-            });
+            })?;
             cursor = cursor.saturating_add(1);
         }
         let count = cursor.saturating_sub(start);
@@ -653,10 +670,10 @@ pub(crate) fn build_conflict_hir(
     debug_assert_eq!(streams.len(), stream_capacity);
     debug_assert_eq!(passages.len(), passage_capacity);
     Ok(ConflictHir {
-        conflict_zones: zones.into_boxed_slice(),
-        participant_streams: streams.into_boxed_slice(),
-        conflict_passages: passages.into_boxed_slice(),
-        conflict_zone_streams: zone_streams.into_boxed_slice(),
+        conflict_zones: zones.freeze()?,
+        participant_streams: streams.freeze()?,
+        conflict_passages: passages.freeze()?,
+        conflict_zone_streams: zone_streams.freeze()?,
     })
 }
 
@@ -672,7 +689,7 @@ fn lower_anchor(
     lane_edges: &[HirLaneEdge],
     maneuver_gates: &[HirManeuverGate],
     maneuver_path_gates: &[HirManeuverPathGate],
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    module_lookup: &BoundedHashMap<Arc<str>, HirModuleKey>,
     gate_symbols: &SymbolTable<HirManeuverGateKey>,
     diagnostics: &mut DiagnosticCollector,
 ) -> Result<Option<HirPathAnchor>, DiagnosticBundle> {

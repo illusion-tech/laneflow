@@ -87,50 +87,87 @@ fn declaration_size(v: &RightOfWayPolicySetDeclaration) -> (u64, u64) {
 }
 
 /// 在既有静态语义诊断之后，把全部通行权策略集声明绑定进 `HirUnit` 并闭合其跨模块引用。
+/// 策略绑定的计数与计划：声明数、策略存储字节、记录数与子编译遍计划峰值。
+#[derive(Clone, Copy)]
+pub(super) struct PolicyBindPlan {
+    count: usize,
+    owned: u64,
+    records: u64,
+    pub(super) peak: crate::ledger::Plan,
+}
+
+impl PolicyBindPlan {
+    /// 按策略声明与 HIR 机动门、参与者流、参与者类别的数量求出计划；不分配内存。
+    ///
+    /// 策略存储（记录表与记录内嵌的规则、证据与引用）随 HIR 存续，三张查找表只在绑定
+    /// 期间存续。
+    /// 无策略声明时的空计划。
+    pub(super) const EMPTY: Self = Self {
+        count: 0,
+        owned: 0,
+        records: 0,
+        peak: crate::ledger::Plan::ZERO,
+    };
+
+    pub(super) fn analyze(
+        unit: &CompilationUnit,
+        gates: usize,
+        streams: usize,
+        classes: usize,
+    ) -> Self {
+        let mut count = 0_usize;
+        let mut owned = 0_u64;
+        let mut records = 0_u64;
+        for module in &unit.modules {
+            for declaration in &module.declarations {
+                if let TypedAstDeclaration::RightOfWayPolicySet(v) = declaration {
+                    count = count.saturating_add(1);
+                    let (bytes, rows) = declaration_size(v);
+                    owned = owned.saturating_add(bytes);
+                    records = records.saturating_add(rows);
+                }
+            }
+        }
+        let peak = if count == 0 {
+            crate::ledger::Plan::ZERO
+        } else {
+            crate::ledger::Plan::of(owned)
+                .array::<Lookup<'static, HirManeuverGateKey>>(gates)
+                .array::<Lookup<'static, HirParticipantStreamKey>>(streams)
+                .array::<Lookup<'static, HirParticipantClassKey>>(classes)
+        };
+        Self {
+            count,
+            owned,
+            records,
+            peak,
+        }
+    }
+
+    /// 绑定结束后随 HIR 存续的策略存储字节。
+    pub(super) const fn output_bytes(&self) -> u64 {
+        if self.count == 0 { 0 } else { self.owned }
+    }
+}
+
+/// 在 HIR 编译遍内绑定策略：从 HIR 编译遍划出子编译遍，查找表与策略存储都经其授予创建。
 pub(super) fn bind(
     unit: &CompilationUnit,
-    ledger: &crate::ledger::Ledger,
+    parent: &crate::ledger::PassBudget<'_>,
+    plan: &PolicyBindPlan,
     hir: &mut HirUnit,
     identities: &mut IdentityRegistry,
 ) -> Result<(), DiagnosticBundle> {
-    let mut count = 0_usize;
-    let mut owned = 0_u64;
-    let mut records = 0_u64;
-    for module in &unit.modules {
-        for declaration in &module.declarations {
-            if let TypedAstDeclaration::RightOfWayPolicySet(v) = declaration {
-                count = count
-                    .checked_add(1)
-                    .ok_or_else(|| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
-                let (bytes, rows) = declaration_size(v);
-                owned = owned.saturating_add(bytes);
-                records = records.saturating_add(rows);
-            }
-        }
-    }
+    let PolicyBindPlan {
+        count,
+        owned,
+        records,
+        peak,
+    } = *plan;
     if count == 0 {
         return Ok(());
     }
-    let lookup = (hir.maneuver_gates.len() as u64)
-        .saturating_mul(size_of::<Lookup<'_, HirManeuverGateKey>>() as u64)
-        .saturating_add(
-            (hir.participant_streams.len() as u64)
-                .saturating_mul(size_of::<Lookup<'_, HirParticipantStreamKey>>() as u64),
-        )
-        .saturating_add(
-            (hir.participant_classes.len() as u64)
-                .saturating_mul(size_of::<Lookup<'_, HirParticipantClassKey>>() as u64),
-        );
-    // HIR 主编译遍尚未结束，其计划峰值仍在账本预留中；策略存储与查找表叠加其上。
-    ledger
-        .probe(POLICY_BIND_PASS, owned.saturating_add(lookup))
-        .map_err(|error| {
-            DiagnosticBundle::single(Diagnostic::from_ledger_error(
-                error,
-                None::<crate::SourceLocation>,
-                None,
-            ))
-        })?;
+    let pass = parent.admit_sub(POLICY_BIND_PASS, peak)?;
     let total_records = hir.hir_record_count.saturating_add(records);
     let limit = unit
         .limits
@@ -145,43 +182,43 @@ pub(super) fn bind(
             ),
         ));
     }
-    let mut gates: Vec<_> = hir
-        .maneuver_gates
-        .iter()
-        .enumerate()
-        .map(|(i, v)| Lookup {
-            namespace: &hir.modules[v.module.index()].authoring_namespace_id,
-            owners: v.source_address.owner_local_keys(),
-            key: &v.stable_key,
-            value: HirManeuverGateKey::from_raw(i as u32),
-        })
-        .collect();
-    let mut streams: Vec<_> = hir
-        .participant_streams
-        .iter()
-        .enumerate()
-        .map(|(i, v)| Lookup {
-            namespace: &hir.modules[v.module.index()].authoring_namespace_id,
-            owners: v.source_address.owner_local_keys(),
-            key: &v.stable_key,
-            value: HirParticipantStreamKey::from_raw(i as u32),
-        })
-        .collect();
-    let mut classes: Vec<_> = hir
-        .participant_classes
-        .iter()
-        .enumerate()
-        .map(|(i, v)| Lookup {
-            namespace: &hir.modules[v.module.index()].authoring_namespace_id,
-            owners: &[],
-            key: &v.stable_key,
-            value: HirParticipantClassKey::from_raw(i as u32),
-        })
-        .collect();
+    let mut gates = pass.collect(hir.maneuver_gates.iter().enumerate().map(|(i, v)| Lookup {
+        namespace: &hir.modules[v.module.index()].authoring_namespace_id,
+        owners: v.source_address.owner_local_keys(),
+        key: &v.stable_key,
+        value: HirManeuverGateKey::from_raw(i as u32),
+    }))?;
+    let mut streams =
+        pass.collect(
+            hir.participant_streams
+                .iter()
+                .enumerate()
+                .map(|(i, v)| Lookup {
+                    namespace: &hir.modules[v.module.index()].authoring_namespace_id,
+                    owners: v.source_address.owner_local_keys(),
+                    key: &v.stable_key,
+                    value: HirParticipantStreamKey::from_raw(i as u32),
+                }),
+        )?;
+    let mut classes =
+        pass.collect(
+            hir.participant_classes
+                .iter()
+                .enumerate()
+                .map(|(i, v)| Lookup {
+                    namespace: &hir.modules[v.module.index()].authoring_namespace_id,
+                    owners: &[],
+                    key: &v.stable_key,
+                    value: HirParticipantClassKey::from_raw(i as u32),
+                }),
+        )?;
     order(&mut gates);
     order(&mut streams);
     order(&mut classes);
-    let mut policies = Vec::with_capacity(count);
+    let mut policies = pass.vec(count)?;
+    // 记录内嵌的规则、证据与引用集中取得一笔授予；记录表本身逐表授予。
+    let payload_bytes = owned.saturating_sub(policies.granted_bytes());
+    let payloads = pass.grant_bytes(payload_bytes)?;
     for (module_index, module) in unit.modules.iter().enumerate() {
         for (declaration_index, declaration) in module.declarations.iter().enumerate() {
             let TypedAstDeclaration::RightOfWayPolicySet(source) = declaration else {
@@ -282,18 +319,20 @@ pub(super) fn bind(
                     streams: stream_rules,
                     gates: gate_rules,
                 },
-            });
+            })?;
         }
     }
     policies.sort_unstable_by(|a, b| {
         crate::policy::compare_identity_text(&a.value.namespace, &b.value.namespace)
             .then_with(|| crate::policy::compare_identity_text(&a.value.key, &b.value.key))
     });
-    hir.policies = policies.into_boxed_slice();
+    drop((gates, streams, classes));
+    hir.policies = policies.freeze()?;
+    hir.policy_payloads = crate::ledger::OutputGrant::new(payloads);
     hir.hir_record_count = total_records;
     hir.controlled_live_bytes = hir.controlled_live_bytes.saturating_add(owned);
-    // 上一步已核对 L + R + owned + lookup；查找表随本函数返回释放，策略存储继续存续。
-    hir.ledger_grants[1] = crate::ledger::OutputGrant::new(ledger.adopt(owned));
+    // 查找表已释放；策略存储转为 HIR 编译遍的输出存续。
+    pass.finish(owned)?;
     Ok(())
 }
 

@@ -10,6 +10,8 @@ use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 
+use crate::ledger::{BoundedVec, Frozen, LedgerError, PassBudget};
+
 /// 单次编译阶段内有效的有类型 `u32` 区块分配键。
 ///
 /// `K` 区分逻辑表，但不会证明键来自某个特定 [`TypedArena`]。调用者必须保证键没有
@@ -88,31 +90,54 @@ impl<K> fmt::Debug for ArenaKey<K> {
 /// 仅追加、连续存储的阶段私有有类型区块分配器。
 ///
 /// 成功 `push` 返回的键等于元素的插入下标；本类型没有删除或重排操作，因此该关系在
-/// arena 的整个生命周期内保持成立。`into_boxed_slice` 会保留同一顺序。
+/// arena 的整个生命周期内保持成立。`freeze` 会保留同一顺序。存储由编译遍授予创建，
+/// 逻辑容量受授予约束。
 pub(crate) struct TypedArena<K, T> {
-    values: Vec<T>,
+    values: BoundedVec<T>,
     marker: PhantomData<fn() -> K>,
 }
 
+/// 向 [`TypedArena`] 追加失败：键无法表示，或写入超出授予容量（记账缺陷）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ArenaPushError {
+    /// 追加后的长度无法用 `u32` 表示。
+    KeyOverflow,
+    /// 账本拒绝了写入。
+    Ledger(LedgerError),
+}
+
+impl From<ArenaKeyOverflow> for ArenaPushError {
+    fn from(_: ArenaKeyOverflow) -> Self {
+        Self::KeyOverflow
+    }
+}
+
+impl From<LedgerError> for ArenaPushError {
+    fn from(error: LedgerError) -> Self {
+        Self::Ledger(error)
+    }
+}
+
 impl<K, T> TypedArena<K, T> {
-    /// 以调用者预检过的容量建立空 arena；容量本身不改变可用键范围。
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            values: Vec::with_capacity(capacity),
+    /// 以编译遍授予建立可容纳 `capacity` 个值的空 arena；容量本身不改变可用键范围。
+    pub(crate) fn granted(pass: &PassBudget<'_>, capacity: usize) -> Result<Self, LedgerError> {
+        Ok(Self {
+            values: pass.vec(capacity)?,
             marker: PhantomData,
-        }
+        })
     }
 
     /// 追加一个值并返回其阶段内致密键。
     ///
     /// # Errors
     ///
-    /// 若追加后的长度无法用 `u32` 表示，则返回 [`ArenaKeyOverflow`]，且不会插入值。
-    pub(crate) fn push(&mut self, value: T) -> Result<ArenaKey<K>, ArenaKeyOverflow> {
+    /// 若追加后的长度无法用 `u32` 表示，则返回 [`ArenaPushError::KeyOverflow`]；写入超出
+    /// 授予容量返回 [`ArenaPushError::Ledger`]。两种情况都不会插入值。
+    pub(crate) fn push(&mut self, value: T) -> Result<ArenaKey<K>, ArenaPushError> {
         let next_len = self.values.len().checked_add(1).ok_or(ArenaKeyOverflow)?;
         u32::try_from(next_len).map_err(|_| ArenaKeyOverflow)?;
         let raw = u32::try_from(self.values.len()).map_err(|_| ArenaKeyOverflow)?;
-        self.values.push(value);
+        self.values.push(value)?;
         Ok(ArenaKey::from_raw(raw))
     }
 
@@ -152,9 +177,9 @@ impl<K, T> TypedArena<K, T> {
         })
     }
 
-    /// 冻结连续值表；返回切片中的下标仍与已签发键的原始序号一致。
-    pub(crate) fn into_boxed_slice(self) -> Box<[T]> {
-        self.values.into_boxed_slice()
+    /// 冻结连续值表；返回切片中的下标仍与已签发键的原始序号一致，授予随切片持有。
+    pub(crate) fn freeze(self) -> Result<Frozen<T>, LedgerError> {
+        self.values.freeze()
     }
 }
 
@@ -265,7 +290,8 @@ mod tests {
         assert_eq!(size_of::<ArenaKey<LeftTag>>(), size_of::<u32>());
         assert_eq!(size_of::<ArenaKey<RightTag>>(), size_of::<u32>());
 
-        let mut arena = TypedArena::<LeftTag, _>::with_capacity(2);
+        let pass = crate::ledger::test_pass();
+        let mut arena = TypedArena::<LeftTag, _>::granted(&pass, 2).unwrap();
         let first = arena.push("a").unwrap();
         let second = arena.push("b").unwrap();
         assert_eq!(first.raw(), 0);

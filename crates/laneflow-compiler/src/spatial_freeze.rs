@@ -15,11 +15,74 @@ use core::cmp::Ordering;
 
 use crate::declaration::{AuthoringPoint2F64, CanonicalPoint3F32Input};
 use crate::hir::{HirCanonicalPoint2F32, HirCanonicalPoint3F32, HirSpatialSegment};
+use crate::ledger::{BoundedVec, LedgerError};
 use crate::{
     ConflictZoneRegionViolation, GeometryDirectionProfile, SpatialAxis, SpatialGeometryViolation,
 };
 
 /// 已冻结的规范折线在共享点/segment 表中的范围与弧长。
+/// 几何冻结的追加目标：点表与线段表。
+///
+/// 经编译遍授予的序列写入超出授予容量时返回记账缺陷；普通序列用于单元测试。
+pub(crate) trait FreezeOutput<T> {
+    /// 已写入的元素数。
+    fn len(&self) -> usize;
+    /// 追加一个元素。
+    fn append(&mut self, value: T) -> Result<(), LedgerError>;
+    /// 截断到 `len` 个元素；用于失败时恢复进入前长度。
+    fn truncate_to(&mut self, len: usize);
+}
+
+impl<T> FreezeOutput<T> for Vec<T> {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    fn append(&mut self, value: T) -> Result<(), LedgerError> {
+        self.push(value);
+        Ok(())
+    }
+
+    fn truncate_to(&mut self, len: usize) {
+        self.truncate(len);
+    }
+}
+
+impl<T> FreezeOutput<T> for BoundedVec<T> {
+    fn len(&self) -> usize {
+        <[T]>::len(self)
+    }
+
+    fn append(&mut self, value: T) -> Result<(), LedgerError> {
+        self.push(value)
+    }
+
+    fn truncate_to(&mut self, len: usize) {
+        self.truncate(len);
+    }
+}
+
+/// 几何冻结失败：来源几何违反规范约束，或写入超出授予容量（记账缺陷）。
+#[derive(Debug)]
+pub(crate) enum FreezeFailure {
+    /// 来源几何违反规范约束。
+    Violation(SpatialGeometryViolation),
+    /// 账本拒绝了写入。
+    Ledger(LedgerError),
+}
+
+impl From<SpatialGeometryViolation> for FreezeFailure {
+    fn from(violation: SpatialGeometryViolation) -> Self {
+        Self::Violation(violation)
+    }
+}
+
+impl From<LedgerError> for FreezeFailure {
+    fn from(error: LedgerError) -> Self {
+        Self::Ledger(error)
+    }
+}
+
 pub(crate) struct FrozenSpatialPolyline {
     pub(crate) point_start: usize,
     pub(crate) point_count: usize,
@@ -59,9 +122,9 @@ pub(crate) struct SpatialDirectionCheck {
 pub(crate) fn freeze_spatial_polyline(
     input: &[CanonicalPoint3F32Input],
     expected_length_meters: f64,
-    points: &mut Vec<HirCanonicalPoint3F32>,
-    segments: &mut Vec<HirSpatialSegment>,
-) -> Result<FrozenSpatialPolyline, SpatialGeometryViolation> {
+    points: &mut impl FreezeOutput<HirCanonicalPoint3F32>,
+    segments: &mut impl FreezeOutput<HirSpatialSegment>,
+) -> Result<FrozenSpatialPolyline, FreezeFailure> {
     let point_start = points.len();
     let segment_start = segments.len();
     let result = freeze_polyline(input, expected_length_meters, points, Some(&mut *segments)).map(
@@ -74,8 +137,8 @@ pub(crate) fn freeze_spatial_polyline(
         },
     );
     if result.is_err() {
-        points.truncate(point_start);
-        segments.truncate(segment_start);
+        points.truncate_to(point_start);
+        segments.truncate_to(segment_start);
     }
     result
 }
@@ -84,12 +147,13 @@ pub(crate) fn freeze_spatial_polyline(
 pub(crate) fn freeze_canonical_polyline(
     input: &[CanonicalPoint3F32Input],
     expected_length_meters: f64,
-    points: &mut Vec<HirCanonicalPoint3F32>,
-) -> Result<FrozenCanonicalPolyline, SpatialGeometryViolation> {
+    points: &mut impl FreezeOutput<HirCanonicalPoint3F32>,
+) -> Result<FrozenCanonicalPolyline, FreezeFailure> {
     let point_start = points.len();
-    let result = freeze_polyline(input, expected_length_meters, points, None);
+    let result =
+        freeze_polyline::<_, Vec<HirSpatialSegment>>(input, expected_length_meters, points, None);
     if result.is_err() {
-        points.truncate(point_start);
+        points.truncate_to(point_start);
     }
     result
 }
@@ -103,13 +167,14 @@ pub(crate) fn freeze_conflict_zone_region(
     min_y: f64,
     max_y: f64,
     input: &[AuthoringPoint2F64],
-    output: &mut Vec<HirCanonicalPoint2F32>,
-) -> Result<FrozenConflictZoneRegion, SpatialGeometryViolation> {
+    output: &mut impl FreezeOutput<HirCanonicalPoint2F32>,
+) -> Result<FrozenConflictZoneRegion, FreezeFailure> {
     if input.len() < 3 {
         return Err(SpatialGeometryViolation::InsufficientPoints {
             minimum: 3,
             actual: u32::try_from(input.len()).unwrap_or(u32::MAX),
-        });
+        }
+        .into());
     }
     let point_count = u32::try_from(input.len()).unwrap_or(u32::MAX);
     if point_count > MAX_CONFLICT_ZONE_REGION_RING_POINTS {
@@ -118,7 +183,8 @@ pub(crate) fn freeze_conflict_zone_region(
                 maximum: MAX_CONFLICT_ZONE_REGION_RING_POINTS,
                 actual: point_count,
             },
-        ));
+        )
+        .into());
     }
     let min_y = quantize_region_component(min_y, u32::MAX, SpatialAxis::Y)?;
     let max_y = quantize_region_component(max_y, u32::MAX, SpatialAxis::Y)?;
@@ -128,7 +194,8 @@ pub(crate) fn freeze_conflict_zone_region(
                 min_y_bits: min_y.to_bits(),
                 max_y_bits: max_y.to_bits(),
             },
-        ));
+        )
+        .into());
     }
 
     let mut points = Vec::with_capacity(input.len());
@@ -149,7 +216,8 @@ pub(crate) fn freeze_conflict_zone_region(
                     first_index: u32::try_from(pair[0].0).unwrap_or(u32::MAX),
                     duplicate_index: u32::try_from(pair[1].0).unwrap_or(u32::MAX),
                 },
-            ));
+            )
+            .into());
         }
     }
 
@@ -157,7 +225,8 @@ pub(crate) fn freeze_conflict_zone_region(
         Ordering::Equal => {
             return Err(SpatialGeometryViolation::InvalidConflictZoneRegion(
                 ConflictZoneRegionViolation::NonPositiveArea,
-            ));
+            )
+            .into());
         }
         Ordering::Less => points.reverse(),
         Ordering::Greater => {}
@@ -172,7 +241,12 @@ pub(crate) fn freeze_conflict_zone_region(
     validate_simple_ring(&points)?;
 
     let point_start = output.len();
-    output.extend_from_slice(&points);
+    for point in &points {
+        if let Err(error) = output.append(*point) {
+            output.truncate_to(point_start);
+            return Err(error.into());
+        }
+    }
     Ok(FrozenConflictZoneRegion {
         point_start,
         point_count: points.len(),
@@ -413,17 +487,22 @@ fn point_on_segment(
         && point.z <= start.z.max(end.z)
 }
 
-fn freeze_polyline(
+fn freeze_polyline<P, S>(
     input: &[CanonicalPoint3F32Input],
     expected_length_meters: f64,
-    points: &mut Vec<HirCanonicalPoint3F32>,
-    mut segments: Option<&mut Vec<HirSpatialSegment>>,
-) -> Result<FrozenCanonicalPolyline, SpatialGeometryViolation> {
+    points: &mut P,
+    mut segments: Option<&mut S>,
+) -> Result<FrozenCanonicalPolyline, FreezeFailure>
+where
+    P: FreezeOutput<HirCanonicalPoint3F32>,
+    S: FreezeOutput<HirSpatialSegment>,
+{
     if input.len() < 2 {
         return Err(SpatialGeometryViolation::InsufficientPoints {
             minimum: 2,
             actual: u32::try_from(input.len()).unwrap_or(u32::MAX),
-        });
+        }
+        .into());
     }
     for (point_index, point) in input.iter().enumerate() {
         for (axis, value) in [
@@ -437,7 +516,8 @@ fn freeze_polyline(
                     point_index,
                     axis,
                     value_bits: value.to_bits(),
-                });
+                }
+                .into());
             }
             if !(CANONICAL_POINT_COMPONENT_MIN_METERS..=CANONICAL_POINT_COMPONENT_MAX_METERS)
                 .contains(&value)
@@ -448,17 +528,20 @@ fn freeze_polyline(
                     value_bits: value.to_bits(),
                     minimum_bits: CANONICAL_POINT_COMPONENT_MIN_METERS.to_bits(),
                     maximum_bits: CANONICAL_POINT_COMPONENT_MAX_METERS.to_bits(),
-                });
+                }
+                .into());
             }
         }
     }
 
     let point_start = points.len();
-    points.extend(input.iter().map(|point| HirCanonicalPoint3F32 {
-        x: point.x,
-        y: point.y,
-        z: point.z,
-    }));
+    for point in input {
+        points.append(HirCanonicalPoint3F32 {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        })?;
+    }
     let mut cumulative = 0.0_f32;
     for (segment_index, pair) in input.windows(2).enumerate() {
         let delta = [
@@ -472,7 +555,8 @@ fn freeze_polyline(
                 segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
                 length_bits: length.to_bits(),
                 minimum_bits: SPATIAL_MIN_SEGMENT_LENGTH_METERS.to_bits(),
-            });
+            }
+            .into());
         }
         let next_cumulative = cumulative + length;
         if !next_cumulative.is_finite() || next_cumulative <= cumulative {
@@ -480,7 +564,8 @@ fn freeze_polyline(
                 segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
                 accumulated_bits: cumulative.to_bits(),
                 segment_length_bits: length.to_bits(),
-            });
+            }
+            .into());
         }
         if let Some(segments) = segments.as_deref_mut() {
             let tangent = normalize_spatial_vector(delta);
@@ -490,7 +575,8 @@ fn freeze_polyline(
                     segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
                     projected_up_bits: projected_up.to_bits(),
                     minimum_bits: SPATIAL_MIN_PROJECTED_UP_LENGTH.to_bits(),
-                });
+                }
+                .into());
             }
             let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
             let raw_up = [
@@ -499,12 +585,12 @@ fn freeze_polyline(
                 -tangent[1] * left[0],
             ];
             let up = normalize_spatial_vector(raw_up);
-            segments.push(HirSpatialSegment {
+            segments.append(HirSpatialSegment {
                 length_meters: length,
                 cumulative_end_meters: next_cumulative,
                 tangent,
                 up,
-            });
+            })?;
         }
         cumulative = next_cumulative;
     }
@@ -512,11 +598,13 @@ fn freeze_polyline(
     let tolerance = SPATIAL_LENGTH_ABS_TOLERANCE_METERS
         .max(SPATIAL_LENGTH_REL_TOLERANCE * expected_length_meters.max(f64::from(cumulative)));
     if (expected_length_meters - f64::from(cumulative)).abs() > tolerance {
-        return Err(SpatialGeometryViolation::LengthMismatch {
-            expected_length_bits: expected_length_meters.to_bits(),
-            geometry_length_bits: cumulative.to_bits(),
-            tolerance_bits: tolerance.to_bits(),
-        });
+        return Err(FreezeFailure::Violation(
+            SpatialGeometryViolation::LengthMismatch {
+                expected_length_bits: expected_length_meters.to_bits(),
+                geometry_length_bits: cumulative.to_bits(),
+                tolerance_bits: tolerance.to_bits(),
+            },
+        ));
     }
 
     Ok(FrozenCanonicalPolyline {
@@ -629,12 +717,12 @@ mod tests {
         points.push(AuthoringPoint2F64 { x: -31.5, z: -32.0 });
         assert!(matches!(
             freeze_conflict_zone_region(-1.0, 1.0, &points, &mut Vec::new()),
-            Err(SpatialGeometryViolation::InvalidConflictZoneRegion(
+            Err(FreezeFailure::Violation(SpatialGeometryViolation::InvalidConflictZoneRegion(
                 ConflictZoneRegionViolation::PointCountExceeded {
                     maximum: MAX_CONFLICT_ZONE_REGION_RING_POINTS,
                     actual,
                 }
-            )) if actual == MAX_CONFLICT_ZONE_REGION_RING_POINTS + 1
+            ))) if actual == MAX_CONFLICT_ZONE_REGION_RING_POINTS + 1
         ));
     }
 
@@ -661,7 +749,9 @@ mod tests {
 
         assert!(matches!(
             freeze_canonical_polyline(&input, 11.0, &mut points),
-            Err(SpatialGeometryViolation::LengthMismatch { .. })
+            Err(FreezeFailure::Violation(
+                SpatialGeometryViolation::LengthMismatch { .. }
+            ))
         ));
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].x.to_bits(), sentinel.x.to_bits());

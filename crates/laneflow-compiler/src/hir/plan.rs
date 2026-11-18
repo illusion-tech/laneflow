@@ -1,13 +1,12 @@
 //! HIR 构建计划（build plan）与内存计划（memory plan）。
 //!
 //! [`HirBuildPlan::analyze`] 在任何与记录数成正比的阶段分配前，一次性统计编译单元的
-//! 公共基础计数与七个领域实体计数，并把持久表、lookup 预算与互斥阶段暂存区聚合为
-//! [`HirMemoryPlan`]；[`HirBuildPlan::check_limits`] 在 base 构造前按所选资源配置档
-//! 预检限额维度。persistent 与 lookup 跨领域求和，互斥 scratch 取峰值；所有计量
-//! 均使用饱和算术。冲突阶段的有类型查找表按实际实体类别计数；哈希桶仍保留保守
-//! 上界。本计划不是 #374 所讨论的完整分配器账本，也不报告进程内存峰值。
+//! 公共基础计数与七个领域实体计数，并按授予请求的类型与计数把持久表、查找表与互斥
+//! 阶段暂存聚合为 HIR 编译遍的计划峰值；[`HirBuildPlan::check_limits`] 在 base 构造前
+//! 按所选资源配置档预检限额维度并准入编译遍。persistent 与 lookup 跨领域求和，互斥
+//! scratch 取峰值，策略绑定子编译遍与领域暂存互斥。哈希表按 [`Plan::hash_table`] 的
+//! 保守请求计入。持久表项是计数上界：编译遍结束时以 HIR 各表实际持有的授予核对输出。
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{SignalAspect, StableId128};
@@ -18,7 +17,9 @@ use crate::declaration::{
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::RegisteredCanonicalIdentity;
-use crate::ledger::{Ledger, LedgerError, LedgerStage, PassBudget, PassLabel, Plan};
+use crate::ledger::{
+    BoundedHashMap, Ledger, LedgerError, LedgerStage, PassBudget, PassLabel, Plan,
+};
 use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
@@ -49,9 +50,9 @@ use super::{
 /// `persistent_bytes` 与 `lookup_bytes` 跨领域求和；`scratch_bytes` 是互斥工作集，
 /// 跨领域取峰值。
 pub(super) struct DomainBudget {
-    pub(super) persistent_bytes: u64,
-    pub(super) lookup_bytes: u64,
-    pub(super) scratch_bytes: u64,
+    pub(super) persistent_bytes: Plan,
+    pub(super) lookup_bytes: Plan,
+    pub(super) scratch_bytes: Plan,
 }
 
 /// HIR 阶段的内存计划：记录数上界、互斥暂存峰值与三类存续字节。
@@ -60,8 +61,14 @@ pub(super) struct HirMemoryPlan {
     pub(super) stage_scratch_bytes: u64,
     pub(super) persistent_bytes: u64,
     pub(super) lookup_bytes: u64,
-    /// 本阶段计划峰值：持久表、查找表与互斥暂存峰值之和；上游存续由账本记录。
+    /// 本阶段计划峰值字节：持久表、查找表与互斥暂存峰值之和；上游存续由账本记录。
     pub(super) stage_bytes: u64,
+    /// 编译遍结束时转为输出存续的授予字节：HIR 各表与策略存储。
+    pub(super) output_bytes: u64,
+    /// 本阶段计划峰值。
+    pub(super) peak: Plan,
+    /// 策略绑定子编译遍的计划。
+    pub(super) policy: super::policy::PolicyBindPlan,
 }
 
 /// 一次统计形成的 HIR 构建计划：公共基础计数、七领域计数与聚合内存计划。
@@ -101,6 +108,9 @@ impl HirBuildPlan {
                 persistent_bytes: 0,
                 lookup_bytes: 0,
                 stage_bytes: 0,
+                output_bytes: 0,
+                peak: Plan::ZERO,
+                policy: super::policy::PolicyBindPlan::EMPTY,
             },
         };
         plan.memory.hir_record_count = module_count
@@ -162,8 +172,15 @@ impl HirBuildPlan {
             &plan.spatial,
             &plan.cross_section,
         );
-        let access = access_budget(unit, module_count, &plan.access);
-        plan.memory.stage_scratch_bytes = base
+        let access = access_budget(
+            unit,
+            module_count,
+            &plan.access,
+            plan.lane_edge_count,
+            &plan.cross_section,
+            &plan.junction,
+        );
+        let scratch = base
             .scratch_bytes
             .max(cross_section.scratch_bytes)
             .max(junction.scratch_bytes)
@@ -173,31 +190,46 @@ impl HirBuildPlan {
             .max(parking.scratch_bytes)
             .max(spatial.scratch_bytes)
             .max(access.scratch_bytes);
-        plan.memory.persistent_bytes = base
-            .persistent_bytes
-            .saturating_add(cross_section.persistent_bytes)
-            .saturating_add(junction.persistent_bytes)
-            .saturating_add(control.persistent_bytes)
-            .saturating_add(signal.persistent_bytes)
-            .saturating_add(conflict.persistent_bytes)
-            .saturating_add(parking.persistent_bytes)
-            .saturating_add(spatial.persistent_bytes)
-            .saturating_add(access.persistent_bytes);
-        plan.memory.lookup_bytes = base
-            .lookup_bytes
-            .saturating_add(cross_section.lookup_bytes)
-            .saturating_add(junction.lookup_bytes)
-            .saturating_add(control.lookup_bytes)
-            .saturating_add(signal.lookup_bytes)
-            .saturating_add(conflict.lookup_bytes)
-            .saturating_add(parking.lookup_bytes)
-            .saturating_add(spatial.lookup_bytes)
-            .saturating_add(access.lookup_bytes);
-        plan.memory.stage_bytes = plan
-            .memory
-            .persistent_bytes
-            .saturating_add(plan.memory.lookup_bytes)
-            .saturating_add(plan.memory.stage_scratch_bytes);
+        let persistent = [
+            cross_section.persistent_bytes,
+            junction.persistent_bytes,
+            control.persistent_bytes,
+            signal.persistent_bytes,
+            conflict.persistent_bytes,
+            parking.persistent_bytes,
+            spatial.persistent_bytes,
+            access.persistent_bytes,
+        ]
+        .into_iter()
+        .fold(base.persistent_bytes, Plan::plus);
+        let lookup = [
+            cross_section.lookup_bytes,
+            junction.lookup_bytes,
+            control.lookup_bytes,
+            signal.lookup_bytes,
+            conflict.lookup_bytes,
+            parking.lookup_bytes,
+            spatial.lookup_bytes,
+            access.lookup_bytes,
+        ]
+        .into_iter()
+        .fold(base.lookup_bytes, Plan::plus);
+        // 策略绑定在各领域暂存释放后、身份登记表仍存续时进行，与领域暂存互斥。
+        let policy = super::policy::PolicyBindPlan::analyze(
+            unit,
+            cap(plan.control.maneuver_gates),
+            cap(plan.conflict.streams),
+            cap(plan.access.participant_classes),
+        );
+        let output = persistent.plus(Plan::of(policy.output_bytes()));
+        let peak = persistent.plus(lookup).plus(scratch.max(policy.peak));
+        plan.memory.stage_scratch_bytes = scratch.bytes().unwrap_or(u64::MAX);
+        plan.memory.persistent_bytes = persistent.bytes().unwrap_or(u64::MAX);
+        plan.memory.lookup_bytes = lookup.bytes().unwrap_or(u64::MAX);
+        plan.memory.output_bytes = output.bytes().unwrap_or(u64::MAX);
+        plan.memory.stage_bytes = peak.bytes().unwrap_or(u64::MAX);
+        plan.memory.peak = peak;
+        plan.memory.policy = policy;
         plan
     }
 
@@ -208,11 +240,9 @@ impl HirBuildPlan {
         unit: &CompilationUnit,
         ledger: &'l Ledger,
     ) -> Result<PassBudget<'l>, LedgerError> {
-        let plan = self
-            .memory
-            .stage_bytes
-            .max(unit.admission_peak_live_bytes.saturating_sub(ledger.live()));
-        ledger.admit_pass(HIR_PASS, Plan::of(plan))
+        let admission_floor =
+            Plan::of(unit.admission_peak_live_bytes.saturating_sub(ledger.live()));
+        ledger.admit_pass(HIR_PASS, self.memory.peak.max(admission_floor))
     }
 
     /// 在 base 构造前按所选配置档预检限额维度；任一维度超限即收集诊断并整体早退。
@@ -295,36 +325,30 @@ fn base_budget(
     lane_edge_count: u64,
     lane_edge_reference_count: u64,
 ) -> DomainBudget {
-    let canonical_source_scratch = requested_bytes::<CanonicalLaneEdgeSource>(lane_edge_count)
-        .saturating_add(requested_bytes::<usize>(unit.declaration_count));
+    let canonical_source_scratch = Plan::ZERO
+        .array::<CanonicalLaneEdgeSource>(cap(lane_edge_count))
+        .array::<usize>(cap(unit.declaration_count));
     // 估算按平坦表 (&str, &SourceLocation) × import_edge_count 计入；实际分配是 base 段
     // 逐模块 Vec collect、无 with_capacity。#374 已记录该估算与实际分配不一致，按行为
     // 不变约束原样保留。
-    let import_sort_scratch = requested_bytes::<(&str, &SourceLocation)>(unit.import_edge_count);
+    let import_sort_scratch =
+        Plan::ZERO.array::<(&str, &SourceLocation)>(cap(unit.import_edge_count));
     let (canonical_identity_bytes, largest_canonical_identity_bytes) = identity_byte_counts(unit);
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirModule>(module_count)
-            .saturating_add(requested_bytes::<HirImport>(unit.import_edge_count))
-            .saturating_add(requested_bytes::<HirLaneEdge>(lane_edge_count))
-            .saturating_add(requested_bytes::<HirLaneEdgeReference>(
-                lane_edge_reference_count,
-            )),
-        lookup_bytes: requested_hash_table_bytes::<Arc<str>, HirModuleKey>(module_count)
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirLaneEdgeKey>,
-            >(module_count))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirLaneEdgeKey,
-            >(lane_edge_count))
-            .saturating_add(requested_hash_table_bytes::<
-                StableId128,
-                RegisteredCanonicalIdentity,
-            >(unit.declaration_count))
-            .saturating_add(canonical_identity_bytes),
+        persistent_bytes: Plan::ZERO
+            .array::<HirModule>(cap(module_count))
+            .array::<HirImport>(cap(unit.import_edge_count))
+            .array::<HirLaneEdge>(cap(lane_edge_count))
+            .array::<HirLaneEdgeReference>(cap(lane_edge_reference_count)),
+        lookup_bytes: Plan::ZERO
+            .hash_table::<Arc<str>, HirModuleKey>(cap(module_count))
+            .plus(symbol_table_heads::<HirLaneEdgeKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirLaneEdgeKey>(cap(lane_edge_count))
+            .hash_table::<StableId128, RegisteredCanonicalIdentity>(cap(unit.stable_entity_count))
+            .plus(Plan::of(canonical_identity_bytes)),
         scratch_bytes: canonical_source_scratch
             .max(import_sort_scratch)
-            .max(largest_canonical_identity_bytes),
+            .max(Plan::of(largest_canonical_identity_bytes)),
     }
 }
 
@@ -340,70 +364,40 @@ fn cross_section_budget(
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirRoadCorridorKey>>(counts.road_corridors)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirRoadSectionKey>,
-            >(counts.road_sections))
-            .saturating_add(requested_bytes::<CanonicalAuthoringLaneSource>(
-                counts.authoring_lanes,
-            ))
-            .saturating_add(
-                requested_bytes::<CanonicalDeclarationSource<HirLaneGroupKey>>(counts.lane_groups),
-            )
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirFacilityBandKey>,
-            >(counts.facility_bands))
-            .saturating_add(requested_bytes::<
-                Option<(HirRoadCorridorKey, SourceLocation)>,
-            >(
-                counts.road_sections.saturating_add(counts.facility_bands)
-            ))
-            .saturating_add(requested_bytes::<Option<HirAuthoringLaneKey>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<usize>(
-                counts.lane_groups.saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+        Plan::ZERO
+            .array::<CanonicalDeclarationSource<HirRoadCorridorKey>>(cap(counts.road_corridors))
+            .array::<CanonicalDeclarationSource<HirRoadSectionKey>>(cap(counts.road_sections))
+            .array::<CanonicalAuthoringLaneSource>(cap(counts.authoring_lanes))
+            .array::<CanonicalDeclarationSource<HirLaneGroupKey>>(cap(counts.lane_groups))
+            .array::<CanonicalDeclarationSource<HirFacilityBandKey>>(cap(counts.facility_bands))
+            .array::<Option<(HirRoadCorridorKey, SourceLocation)>>(cap(counts
+                .road_sections
+                .saturating_add(counts.facility_bands)))
+            .array::<Option<HirAuthoringLaneKey>>(cap(lane_edge_count))
+            .array::<usize>(cap(counts.lane_groups.saturating_mul(2)))
+            .array::<usize>(cap(unit.declaration_count))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirRoadCorridor>(counts.road_corridors)
-            .saturating_add(requested_bytes::<HirCorridorElement>(
-                counts.corridor_elements,
+        persistent_bytes: Plan::ZERO
+            .array::<HirRoadCorridor>(cap(counts.road_corridors))
+            .array::<HirCorridorElement>(cap(counts.corridor_elements))
+            .array::<HirRoadSection>(cap(counts.road_sections))
+            .array::<HirAuthoringLane>(cap(counts.authoring_lanes))
+            .array::<HirAuthoringLaneEdge>(cap(counts.authoring_lane_edges))
+            .array::<HirLaneGroup>(cap(counts.lane_groups))
+            .array::<HirLaneGroupMember>(cap(counts.authoring_lanes))
+            .array::<HirFacilityBand>(cap(counts.facility_bands)),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirRoadSectionKey>(lookup_module_count))
+            .plus(symbol_table_heads::<HirLaneGroupKey>(lookup_module_count))
+            .plus(symbol_table_heads::<HirFacilityBandKey>(
+                lookup_module_count,
             ))
-            .saturating_add(requested_bytes::<HirRoadSection>(counts.road_sections))
-            .saturating_add(requested_bytes::<HirAuthoringLane>(counts.authoring_lanes))
-            .saturating_add(requested_bytes::<HirAuthoringLaneEdge>(
-                counts.authoring_lane_edges,
-            ))
-            .saturating_add(requested_bytes::<HirLaneGroup>(counts.lane_groups))
-            .saturating_add(requested_bytes::<HirLaneGroupMember>(
-                counts.authoring_lanes,
-            ))
-            .saturating_add(requested_bytes::<HirFacilityBand>(counts.facility_bands)),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirRoadSectionKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirLaneGroupKey>,
-        >(lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirFacilityBandKey>,
-        >(lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirRoadSectionKey,
-        >(counts.road_sections))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirLaneGroupKey,
-        >(counts.lane_groups))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirFacilityBandKey,
-        >(counts.facility_bands)),
+            .hash_table::<TypedAstEntityAddress, HirRoadSectionKey>(cap(counts.road_sections))
+            .hash_table::<TypedAstEntityAddress, HirLaneGroupKey>(cap(counts.lane_groups))
+            .hash_table::<TypedAstEntityAddress, HirFacilityBandKey>(cap(counts.facility_bands)),
         scratch_bytes,
     }
 }
@@ -420,72 +414,46 @@ fn junction_budget(
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirMovementKey>>(counts.movements)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirManeuverPathKey>,
-            >(counts.maneuver_paths))
-            .saturating_add(requested_bytes::<HirDeclaredJunctionEdge>(
-                counts
-                    .declared_approach_edges
-                    .saturating_add(counts.declared_internal_edges),
+        Plan::ZERO
+            .array::<CanonicalDeclarationSource<HirMovementKey>>(cap(counts.movements))
+            .array::<CanonicalDeclarationSource<HirManeuverPathKey>>(cap(counts.maneuver_paths))
+            .array::<HirDeclaredJunctionEdge>(cap(counts
+                .declared_approach_edges
+                .saturating_add(counts.declared_internal_edges)))
+            .array::<u8>(cap(lane_edge_count))
+            .array::<usize>(cap(counts
+                .junctions
+                .saturating_add(counts.movements)
+                .saturating_mul(2)))
+            .hash_table::<ManeuverPathSequence<'static>, HirManeuverPathKey>(cap(
+                counts.maneuver_paths
             ))
-            .saturating_add(requested_bytes::<u8>(lane_edge_count))
-            .saturating_add(requested_bytes::<usize>(
-                counts
-                    .junctions
-                    .saturating_add(counts.movements)
-                    .saturating_mul(2),
-            ))
-            .saturating_add(requested_hash_table_bytes::<
-                ManeuverPathSequence<'static>,
-                HirManeuverPathKey,
-            >(counts.maneuver_paths))
-            .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<
-                Option<(HirManeuverPathKey, SourceLocation)>,
-            >(lane_edge_count))
+            .array::<Option<HirJunctionInternalEdge>>(cap(lane_edge_count))
+            .array::<Option<(HirManeuverPathKey, SourceLocation)>>(cap(lane_edge_count))
             // 路径成员索引 CSR（#1219 P2-6）：starts(N+1) + 构造游标(N) + 连续
             // 路径键；路径键按成员出现记录上界（maneuver_path_edges）入账，越界
             // 成员跳过时只高估，宁可高估不低估。
-            .saturating_add(requested_bytes::<usize>(lane_edge_count.saturating_add(1)))
-            .saturating_add(requested_bytes::<usize>(lane_edge_count))
-            .saturating_add(requested_bytes::<HirManeuverPathKey>(
-                counts.maneuver_path_edges,
-            ))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+            .array::<usize>(cap(lane_edge_count.saturating_add(1)))
+            .array::<usize>(cap(lane_edge_count))
+            .array::<HirManeuverPathKey>(cap(counts.maneuver_path_edges))
+            .array::<usize>(cap(unit.declaration_count))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirJunction>(counts.junctions)
-            .saturating_add(requested_bytes::<HirMovement>(counts.movements))
-            .saturating_add(requested_bytes::<HirJunctionMovement>(counts.movements))
-            .saturating_add(requested_bytes::<HirManeuverPath>(counts.maneuver_paths))
-            .saturating_add(requested_bytes::<HirMovementManeuverPath>(
-                counts.maneuver_paths,
-            ))
-            .saturating_add(requested_bytes::<HirManeuverPathEdge>(
-                counts.maneuver_path_edges,
-            ))
-            .saturating_add(requested_bytes::<HirJunctionInternalEdge>(
-                lane_edge_count.min(counts.maneuver_path_edges),
-            )),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirJunctionKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirMovementKey>,
-        >(lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirJunctionKey,
-        >(counts.junctions))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirMovementKey,
-        >(counts.movements)),
+        persistent_bytes: Plan::ZERO
+            .array::<HirJunction>(cap(counts.junctions))
+            .array::<HirMovement>(cap(counts.movements))
+            .array::<HirJunctionMovement>(cap(counts.movements))
+            .array::<HirManeuverPath>(cap(counts.maneuver_paths))
+            .array::<HirMovementManeuverPath>(cap(counts.maneuver_paths))
+            .array::<HirManeuverPathEdge>(cap(counts.maneuver_path_edges))
+            .array::<HirJunctionInternalEdge>(cap(lane_edge_count.min(counts.maneuver_path_edges))),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirJunctionKey>(lookup_module_count))
+            .plus(symbol_table_heads::<HirMovementKey>(lookup_module_count))
+            .hash_table::<TypedAstEntityAddress, HirJunctionKey>(cap(counts.junctions))
+            .hash_table::<TypedAstEntityAddress, HirMovementKey>(cap(counts.movements)),
         scratch_bytes,
     }
 }
@@ -503,68 +471,46 @@ fn control_budget(
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirStopLineKey>>(counts.stop_lines)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirManeuverGateKey>,
-            >(counts.maneuver_gates))
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirWaitingZoneKey>,
-            >(counts.waiting_zones))
-            .saturating_add(requested_bytes::<usize>(
-                counts
-                    .stop_lines
-                    .saturating_add(junction_counts.maneuver_paths)
-                    .saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<Option<HirStopLineKey>>(lane_edge_count))
-            .saturating_add(requested_bytes::<u8>(
-                counts
-                    .stop_lines
-                    .saturating_add(junction_counts.maneuver_paths)
-                    .saturating_add(lane_edge_reference_count)
-                    .saturating_add(lane_edge_count),
-            ))
-            .saturating_add(requested_bytes::<HirManeuverGateKey>(
-                counts.maneuver_gates.saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<HirWaitingZoneKey>(counts.waiting_zones))
+        Plan::ZERO
+            .array::<CanonicalDeclarationSource<HirStopLineKey>>(cap(counts.stop_lines))
+            .array::<CanonicalDeclarationSource<HirManeuverGateKey>>(cap(counts.maneuver_gates))
+            .array::<CanonicalDeclarationSource<HirWaitingZoneKey>>(cap(counts.waiting_zones))
+            .array::<usize>(cap(counts
+                .stop_lines
+                .saturating_add(junction_counts.maneuver_paths)
+                .saturating_mul(2)))
+            .array::<Option<HirStopLineKey>>(cap(lane_edge_count))
+            .array::<u8>(cap(counts
+                .stop_lines
+                .saturating_add(junction_counts.maneuver_paths)
+                .saturating_add(lane_edge_reference_count)
+                .saturating_add(lane_edge_count)))
+            .array::<HirManeuverGateKey>(cap(counts.maneuver_gates.saturating_mul(2)))
+            .array::<HirWaitingZoneKey>(cap(counts.waiting_zones))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirStopLine>(counts.stop_lines)
-            .saturating_add(requested_bytes::<HirManeuverGate>(counts.maneuver_gates))
-            .saturating_add(requested_bytes::<HirWaitingZone>(counts.waiting_zones))
-            .saturating_add(requested_bytes::<HirManeuverPathGate>(
-                counts.maneuver_gates,
+        persistent_bytes: Plan::ZERO
+            .array::<HirStopLine>(cap(counts.stop_lines))
+            .array::<HirManeuverGate>(cap(counts.maneuver_gates))
+            .array::<HirWaitingZone>(cap(counts.waiting_zones))
+            .array::<HirManeuverPathGate>(cap(counts.maneuver_gates))
+            .array::<HirManeuverPathWaitingZone>(cap(counts.waiting_zones))
+            .array::<HirStopLineManeuverGate>(cap(counts.maneuver_gates)),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirManeuverPathKey>(
+                lookup_module_count,
             ))
-            .saturating_add(requested_bytes::<HirManeuverPathWaitingZone>(
-                counts.waiting_zones,
+            .plus(symbol_table_heads::<HirStopLineKey>(lookup_module_count))
+            .plus(symbol_table_heads::<HirManeuverGateKey>(
+                lookup_module_count,
             ))
-            .saturating_add(requested_bytes::<HirStopLineManeuverGate>(
-                counts.maneuver_gates,
-            )),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirManeuverPathKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirStopLineKey>,
-        >(lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirManeuverGateKey>,
-        >(lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirManeuverPathKey,
-        >(junction_counts.maneuver_paths))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirStopLineKey,
-        >(counts.stop_lines))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirManeuverGateKey,
-        >(counts.maneuver_gates)),
+            .hash_table::<TypedAstEntityAddress, HirManeuverPathKey>(cap(
+                junction_counts.maneuver_paths
+            ))
+            .hash_table::<TypedAstEntityAddress, HirStopLineKey>(cap(counts.stop_lines))
+            .hash_table::<TypedAstEntityAddress, HirManeuverGateKey>(cap(counts.maneuver_gates)),
         scratch_bytes,
     }
 }
@@ -576,60 +522,37 @@ fn signal_budget(unit: &CompilationUnit, module_count: u64, counts: &SignalCount
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirSignalGroupKey>>(counts.groups)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirSignalControllerKey>,
-            >(counts.controllers))
-            .saturating_add(requested_bytes::<
-                Option<(HirSignalControllerKey, SourceLocation)>,
-            >(counts.groups))
+        Plan::ZERO
+            .array::<CanonicalDeclarationSource<HirSignalGroupKey>>(cap(counts.groups))
+            .array::<CanonicalDeclarationSource<HirSignalControllerKey>>(cap(counts.controllers))
+            .array::<Option<(HirSignalControllerKey, SourceLocation)>>(cap(counts.groups))
             // 相位状态暂存按 Option<(SignalAspect, SourceLocation)> × groups 估算；实际按
             // 单控制器 resolved_groups.len() 逐相位分配。#374 已记录该估算与实际分配不
             // 一致，按行为不变约束原样保留。
-            .saturating_add(requested_bytes::<Option<(SignalAspect, SourceLocation)>>(
-                counts.groups,
-            ))
-            .saturating_add(requested_bytes::<usize>(counts.groups.saturating_mul(3)))
-            .saturating_add(requested_bytes::<HirSignalGroupKey>(
-                counts.controller_groups,
-            ))
-            .saturating_add(requested_bytes::<(HirSignalGroupKey, HirManeuverGateKey)>(
-                counts.controlled_gates,
-            ))
+            .array::<Option<(SignalAspect, SourceLocation)>>(cap(counts.groups))
+            .array::<usize>(cap(counts.groups.saturating_mul(3)))
+            .array::<HirSignalGroupKey>(cap(counts.controller_groups))
+            .array::<(HirSignalGroupKey, HirManeuverGateKey)>(cap(counts.controlled_gates))
             // seen 表按 controller_groups 总量估算；实际容量取单声明的
             // source.signal_groups.len()。#374 已记录该口径偏差，原样保留。
-            .saturating_add(requested_hash_table_bytes::<
-                HirSignalGroupKey,
-                SourceLocation,
-            >(counts.controller_groups))
-            .saturating_add(requested_hash_table_bytes::<HirSignalGroupKey, usize>(
-                counts.controller_groups,
-            ))
-            .saturating_add(requested_hash_table_bytes::<Arc<str>, SourceLocation>(
-                counts.phases,
-            ))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+            .hash_table::<HirSignalGroupKey, SourceLocation>(cap(counts.controller_groups))
+            .hash_table::<HirSignalGroupKey, usize>(cap(counts.controller_groups))
+            .hash_table::<Arc<str>, SourceLocation>(cap(counts.phases))
+            .array::<usize>(cap(unit.declaration_count))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirSignalGroup>(counts.groups)
-            .saturating_add(requested_bytes::<HirSignalController>(counts.controllers))
-            .saturating_add(requested_bytes::<HirSignalControllerGroup>(
-                counts.controller_groups,
-            ))
-            .saturating_add(requested_bytes::<HirSignalPhase>(counts.phases))
-            .saturating_add(requested_bytes::<HirSignalPhaseState>(counts.phase_states))
-            .saturating_add(requested_bytes::<HirSignalGroupManeuverGate>(
-                counts.controlled_gates,
-            )),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirSignalGroupKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirSignalGroupKey,
-        >(counts.groups)),
+        persistent_bytes: Plan::ZERO
+            .array::<HirSignalGroup>(cap(counts.groups))
+            .array::<HirSignalController>(cap(counts.controllers))
+            .array::<HirSignalControllerGroup>(cap(counts.controller_groups))
+            .array::<HirSignalPhase>(cap(counts.phases))
+            .array::<HirSignalPhaseState>(cap(counts.phase_states))
+            .array::<HirSignalGroupManeuverGate>(cap(counts.controlled_gates)),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirSignalGroupKey>(lookup_module_count))
+            .hash_table::<TypedAstEntityAddress, HirSignalGroupKey>(cap(counts.groups)),
         scratch_bytes,
     }
 }
@@ -645,37 +568,31 @@ fn parking_budget(
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirParkingFacilityKey>>(counts.areas)
+        Plan::ZERO
+            .array::<CanonicalDeclarationSource<HirParkingFacilityKey>>(cap(counts.areas))
             // 来源暂存按 12 字节 CanonicalDeclarationSource<HirParkingSpaceKey> 估算；
             // 实际为 8 字节 Vec<(u32, u32)>、键按下标重建，方向为估算偏保守。#374 已
             // 记录该偏差，原样保留。
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirParkingSpaceKey>,
-            >(counts.spaces))
-            .saturating_add(requested_bytes::<bool>(counts.areas))
-            .saturating_add(
-                requested_bytes::<(HirParkingFacilityKey, HirParkingSpaceKey)>(counts.memberships),
-            )
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+            .array::<CanonicalDeclarationSource<HirParkingSpaceKey>>(cap(counts.spaces))
+            .array::<bool>(cap(counts.areas))
+            .array::<(HirParkingFacilityKey, HirParkingSpaceKey)>(cap(counts.memberships))
+            .array::<usize>(cap(unit.declaration_count))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirParkingFacility>(counts.areas)
-            .saturating_add(requested_bytes::<HirParkingSpace>(counts.spaces))
-            .saturating_add(requested_bytes::<HirParkingFacilitySpace>(
-                counts.memberships,
+        persistent_bytes: Plan::ZERO
+            .array::<HirParkingFacility>(cap(counts.areas))
+            .array::<HirParkingSpace>(cap(counts.spaces))
+            .array::<HirParkingFacilitySpace>(cap(counts.memberships))
+            .array::<HirParkingLaneAnchor>(cap(counts
+                .virtual_entries
+                .saturating_add(counts.virtual_exits))),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirParkingFacilityKey>(
+                lookup_module_count,
             ))
-            .saturating_add(requested_bytes::<HirParkingLaneAnchor>(
-                counts.virtual_entries.saturating_add(counts.virtual_exits),
-            )),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirParkingFacilityKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirParkingFacilityKey,
-        >(counts.areas)),
+            .hash_table::<TypedAstEntityAddress, HirParkingFacilityKey>(cap(counts.areas)),
         scratch_bytes,
     }
 }
@@ -693,65 +610,49 @@ fn conflict_budget(
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<(u32, u32, HirConflictZoneKey)>(counts.zones)
-            .saturating_add(requested_bytes::<(u32, u32, HirParticipantStreamKey)>(
-                counts.streams,
-            ))
-            .saturating_add(requested_bytes::<HirParticipantStreamKey>(counts.passages))
-            .saturating_add(requested_bytes::<(
+        Plan::ZERO
+            .array::<(u32, u32, HirConflictZoneKey)>(cap(counts.zones))
+            .array::<(u32, u32, HirParticipantStreamKey)>(cap(counts.streams))
+            .array::<HirParticipantStreamKey>(cap(counts.passages))
+            .array::<(
                 HirConflictZoneKey,
                 super::HirManeuverPathKey,
                 (u32, u32),
                 (u32, u32),
                 laneflow_static_contract::ParticipantStreamId,
                 HirParticipantStreamKey,
-            )>(counts.passages))
-            .saturating_add(requested_bytes::<(
-                HirConflictZoneKey,
-                HirParticipantStreamKey,
-            )>(counts.passages))
-            .saturating_add(requested_bytes::<HirConflictZoneKey>(counts.passages))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirJunctionKey>,
-            >(lookup_module_count))
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, super::HirManeuverPathKey>,
-            >(lookup_module_count))
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirManeuverGateKey>,
-            >(lookup_module_count))
+            )>(cap(counts.passages))
+            .array::<(HirConflictZoneKey, HirParticipantStreamKey)>(cap(counts.passages))
+            .array::<HirConflictZoneKey>(cap(counts.passages))
+            .array::<usize>(cap(unit.declaration_count))
+            .plus(symbol_table_heads::<HirJunctionKey>(lookup_module_count))
+            .plus(symbol_table_heads::<super::HirManeuverPathKey>(
+                lookup_module_count,
+            ))
+            .plus(symbol_table_heads::<HirManeuverGateKey>(
+                lookup_module_count,
+            ))
             // 与 build_conflict_hir 的三张 typed 表一致；其他种类声明只参与上面的
             // 声明排序视图，不占用这些查找表的桶。
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirJunctionKey,
-            >(junction.junctions))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                super::HirManeuverPathKey,
-            >(junction.maneuver_paths))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirManeuverGateKey,
-            >(control.maneuver_gates))
+            .hash_table::<TypedAstEntityAddress, HirJunctionKey>(cap(junction.junctions))
+            .hash_table::<TypedAstEntityAddress, super::HirManeuverPathKey>(cap(
+                junction.maneuver_paths
+            ))
+            .hash_table::<TypedAstEntityAddress, HirManeuverGateKey>(cap(control.maneuver_gates))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirConflictZone>(counts.zones)
-            .saturating_add(requested_bytes::<HirParticipantStream>(counts.streams))
-            .saturating_add(requested_bytes::<HirConflictPassage>(counts.passages))
-            .saturating_add(requested_bytes::<HirConflictZoneStream>(
-                counts.zone_streams,
-            )),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirConflictZoneKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirConflictZoneKey,
-        >(counts.zones)),
+        persistent_bytes: Plan::ZERO
+            .array::<HirConflictZone>(cap(counts.zones))
+            .array::<HirParticipantStream>(cap(counts.streams))
+            .array::<HirConflictPassage>(cap(counts.passages))
+            .array::<HirConflictZoneStream>(cap(counts.zone_streams)),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirConflictZoneKey>(
+                lookup_module_count,
+            ))
+            .hash_table::<TypedAstEntityAddress, HirConflictZoneKey>(cap(counts.zones)),
         scratch_bytes,
     }
 }
@@ -768,135 +669,110 @@ fn spatial_budget(
         && counts.facility_band_geometries == 0
         && counts.conflict_zone_regions == 0
     {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<usize>(unit.declaration_count)
-            .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
-                lane_edge_count,
+        Plan::ZERO
+            .array::<usize>(cap(unit.declaration_count))
+            .array::<Option<PendingSpatialGeometry<'static>>>(cap(lane_edge_count))
+            .array::<Option<PendingSpatialGeometry<'static>>>(cap(
+                cross_section_counts.facility_bands
             ))
-            .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
-                cross_section_counts.facility_bands,
-            ))
-            .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
-                cross_section_counts.facility_bands,
-            ))
-            .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
-            .saturating_add(requested_bytes::<u8>(lane_edge_count))
-            .saturating_add(requested_bytes::<HirLaneEdgeKey>(
-                counts.lane_edge_geometries,
-            ))
-            .saturating_add(requested_bytes::<HirFacilityBandKey>(
-                counts.facility_band_geometries,
-            ))
+            .array::<Option<SpatialFrameAssignment>>(cap(lane_edge_count))
+            .array::<Option<SpatialFrameAssignment>>(cap(cross_section_counts.facility_bands))
+            .array::<Option<usize>>(cap(lane_edge_count))
+            .array::<u8>(cap(lane_edge_count))
+            .array::<HirLaneEdgeKey>(cap(counts.lane_edge_geometries))
+            .array::<HirFacilityBandKey>(cap(counts.facility_band_geometries))
             // spatial 的 per-module HashMap 计入 scratch；本领域不在 lookup 模块清单。
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirCanonicalFrameKey>,
-            >(module_count))
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirFacilityBandKey>,
-            >(module_count))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirCanonicalFrameKey,
-            >(counts.canonical_frames))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirFacilityBandKey,
-            >(cross_section_counts.facility_bands))
-            .saturating_add(requested_bytes::<PendingConflictZoneRegion<'static>>(
-                counts.conflict_zone_regions,
+            .plus(symbol_table_heads::<HirCanonicalFrameKey>(module_count))
+            .plus(symbol_table_heads::<HirFacilityBandKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirCanonicalFrameKey>(cap(counts.canonical_frames))
+            .hash_table::<TypedAstEntityAddress, HirFacilityBandKey>(cap(
+                cross_section_counts.facility_bands
             ))
-            .saturating_add(requested_bytes::<Option<SourceLocation>>(
-                counts.conflict_zone_regions,
-            ))
-            .saturating_add(requested_bytes::<HirCanonicalPoint2F32>(
-                counts.conflict_region_points,
-            ))
-            .saturating_add(requested_bytes::<(usize, HirCanonicalPoint2F32)>(
-                counts.conflict_region_points,
-            ))
+            .array::<PendingConflictZoneRegion<'static>>(cap(counts.conflict_zone_regions))
+            .array::<Option<SourceLocation>>(cap(counts.conflict_zone_regions))
+            .array::<HirCanonicalPoint2F32>(cap(counts.conflict_region_points))
+            .array::<(usize, HirCanonicalPoint2F32)>(cap(counts.conflict_region_points))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirCanonicalFrame>(counts.canonical_frames)
-            .saturating_add(requested_bytes::<HirLaneEdgeGeometry>(
-                counts.lane_edge_geometries,
-            ))
-            .saturating_add(requested_bytes::<HirFacilityBandGeometry>(
-                counts.facility_band_geometries,
-            ))
-            .saturating_add(requested_bytes::<HirGeometrySourceRange>(
-                counts.geometry_source_ranges,
-            ))
-            .saturating_add(requested_bytes::<HirCanonicalPoint3F32>(
-                counts.canonical_points,
-            ))
-            .saturating_add(requested_bytes::<HirSpatialSegment>(
-                counts.spatial_segments,
-            ))
-            .saturating_add(requested_bytes::<HirConflictZoneRegion>(
-                counts.conflict_zone_regions,
-            ))
-            .saturating_add(requested_bytes::<HirCanonicalPoint2F32>(
-                counts.conflict_region_points,
-            )),
+        persistent_bytes: Plan::ZERO
+            .array::<HirCanonicalFrame>(cap(counts.canonical_frames))
+            .array::<HirLaneEdgeGeometry>(cap(counts.lane_edge_geometries))
+            .array::<HirFacilityBandGeometry>(cap(counts.facility_band_geometries))
+            .array::<HirGeometrySourceRange>(cap(counts.geometry_source_ranges))
+            .array::<HirCanonicalPoint3F32>(cap(counts.canonical_points))
+            .array::<HirSpatialSegment>(cap(counts.spatial_segments))
+            .array::<HirConflictZoneRegion>(cap(counts.conflict_zone_regions))
+            .array::<HirCanonicalPoint2F32>(cap(counts.conflict_region_points)),
         // spatial 不在 lookup 模块清单。
-        lookup_bytes: 0,
+        lookup_bytes: Plan::ZERO,
         scratch_bytes,
     }
 }
 
-fn access_budget(unit: &CompilationUnit, module_count: u64, counts: &AccessCounts) -> DomainBudget {
+fn access_budget(
+    unit: &CompilationUnit,
+    module_count: u64,
+    counts: &AccessCounts,
+    lane_edge_count: u64,
+    cross_section: &CrossSectionCounts,
+    junction: &JunctionCounts,
+) -> DomainBudget {
     let lookup_module_count = if counts.entity_count() == 0 {
         0
     } else {
         module_count
     };
     let scratch_bytes = if counts.entity_count() == 0 {
-        0
+        Plan::ZERO
     } else {
-        requested_bytes::<CanonicalDeclarationSource<HirParticipantClassKey>>(
-            counts.participant_classes,
-        )
-        .saturating_add(requested_bytes::<
-            CanonicalDeclarationSource<HirVehicleProfileKey>,
-        >(counts.vehicle_profiles))
-        .saturating_add(requested_bytes::<
-            CanonicalDeclarationSource<HirAccessRuleKey>,
-        >(counts.access_rules))
-        .saturating_add(requested_bytes::<Option<HirParticipantClassKey>>(
-            counts.participant_classes.saturating_mul(2),
-        ))
-        .saturating_add(requested_bytes::<u8>(counts.participant_classes))
-        .saturating_add(requested_bytes::<(HirParticipantClassKey, bool)>(
-            counts.participant_classes.saturating_mul(2),
-        ))
-        .saturating_add(requested_bytes::<HirAccessRuleParticipantClass>(
-            counts.rule_class_references,
-        ))
-        .saturating_add(requested_bytes::<AccessCandidate>(
-            counts.rule_class_references,
-        ))
-        .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+        Plan::ZERO
+            .array::<CanonicalDeclarationSource<HirParticipantClassKey>>(cap(
+                counts.participant_classes
+            ))
+            .array::<CanonicalDeclarationSource<HirVehicleProfileKey>>(cap(counts.vehicle_profiles))
+            .array::<CanonicalDeclarationSource<HirAccessRuleKey>>(cap(counts.access_rules))
+            .array::<Option<HirParticipantClassKey>>(cap(counts
+                .participant_classes
+                .saturating_mul(2)))
+            .array::<u8>(cap(counts.participant_classes))
+            .array::<HirParticipantClassKey>(cap(counts.participant_classes))
+            .array::<(HirParticipantClassKey, bool)>(cap(counts
+                .participant_classes
+                .saturating_mul(2)))
+            .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references))
+            .array::<AccessCandidate>(cap(counts.rule_class_references))
+            .array::<usize>(cap(unit.declaration_count))
+            // 准入目标解析的五类目标符号表只在本领域存续。
+            .plus(symbol_table_heads::<HirLaneEdgeKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirLaneEdgeKey>(cap(lane_edge_count))
+            .plus(symbol_table_heads::<HirLaneGroupKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirLaneGroupKey>(cap(cross_section.lane_groups))
+            .plus(symbol_table_heads::<HirRoadSectionKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirRoadSectionKey>(
+                cap(cross_section.road_sections),
+            )
+            .plus(symbol_table_heads::<HirManeuverPathKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirManeuverPathKey>(cap(junction.maneuver_paths))
+            .plus(symbol_table_heads::<HirFacilityBandKey>(module_count))
+            .hash_table::<TypedAstEntityAddress, HirFacilityBandKey>(cap(
+                cross_section.facility_bands
+            ))
     };
     DomainBudget {
-        persistent_bytes: requested_bytes::<HirParticipantClass>(counts.participant_classes)
-            .saturating_add(requested_bytes::<HirVehicleProfile>(
-                counts.vehicle_profiles,
+        persistent_bytes: Plan::ZERO
+            .array::<HirParticipantClass>(cap(counts.participant_classes))
+            .array::<HirVehicleProfile>(cap(counts.vehicle_profiles))
+            .array::<HirAccessRule>(cap(counts.access_rules))
+            .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references)),
+        lookup_bytes: Plan::ZERO
+            .plus(symbol_table_heads::<HirParticipantClassKey>(
+                lookup_module_count,
             ))
-            .saturating_add(requested_bytes::<HirAccessRule>(counts.access_rules))
-            .saturating_add(requested_bytes::<HirAccessRuleParticipantClass>(
-                counts.rule_class_references,
+            .hash_table::<TypedAstEntityAddress, HirParticipantClassKey>(cap(
+                counts.participant_classes
             )),
-        lookup_bytes: requested_bytes::<HashMap<TypedAstEntityAddress, HirParticipantClassKey>>(
-            lookup_module_count,
-        )
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirParticipantClassKey,
-        >(counts.participant_classes)),
         scratch_bytes,
     }
 }
@@ -1372,6 +1248,11 @@ pub(super) fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
     counts
 }
 
+/// 全部稳定实体完整原像副本的字节数，即身份登记表集中授予的载荷字节。
+pub(super) fn canonical_identity_bytes(unit: &CompilationUnit) -> u64 {
+    identity_byte_counts(unit).0
+}
+
 fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
     let mut total = 0_u64;
     let mut largest = 0_u64;
@@ -1454,24 +1335,17 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
     (total, largest)
 }
 
-fn requested_bytes<T>(count: u64) -> u64 {
-    count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
+/// 逐模块符号表的外层序列与各表固定控制区：每个模块一张按声明计数预留的哈希表，
+/// 每张非空表另计一组尾部控制区（见 [`Plan::hash_table`]）；各表的桶由调用方按总项数计入。
+fn symbol_table_heads<K>(module_count: u64) -> Plan {
+    Plan::ZERO
+        .array::<BoundedHashMap<TypedAstEntityAddress, K>>(cap(module_count))
+        .plus(Plan::of(module_count.saturating_mul(16)))
 }
 
-fn requested_hash_table_bytes<K, V>(entry_count: u64) -> u64 {
-    if entry_count == 0 {
-        return 0;
-    }
-    // 标准库不公开桶分配布局。预检为每个请求项预留八个桶，并额外计入每桶控制字节
-    // 与一组尾部控制区，覆盖小表最小桶数和负载因子取整，而不依赖哈希表迭代顺序。
-    // 真实生产基准仍须另报实际容量和进程内存，不能用本预算冒充测量。
-    let bucket_bytes = u64::try_from(size_of::<(K, V)>())
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    entry_count
-        .saturating_mul(8)
-        .saturating_mul(bucket_bytes)
-        .saturating_add(16)
+/// 计数换算为授予请求的元素数；超出 `usize` 时取最大值，使计划无法表示。
+fn cap(count: u64) -> usize {
+    usize::try_from(count).unwrap_or(usize::MAX)
 }
 
 #[cfg(test)]
@@ -1504,13 +1378,14 @@ mod tests {
         assert_eq!(after.persistent_bytes, before.persistent_bytes);
         assert_eq!(after.lookup_bytes, before.lookup_bytes);
         assert_eq!(
-            after.scratch_bytes - before.scratch_bytes,
-            requested_bytes::<usize>(1_000)
+            after.scratch_bytes,
+            before.scratch_bytes.plus(Plan::ZERO.array::<usize>(1_000))
         );
 
         let empty = conflict_budget(&unit, 1, &ConflictCounts::default(), &junction, &control);
         assert_eq!(
-            empty.scratch_bytes, 0,
+            empty.scratch_bytes,
+            Plan::ZERO,
             "absent conflict domain allocates no lookup tables"
         );
     }
@@ -1541,19 +1416,19 @@ mod tests {
             declared_internal_edges: 1,
         };
         assert_eq!(
-            junction_budget(&unit, 1, 3, &more_members).scratch_bytes - base.scratch_bytes,
-            requested_bytes::<HirManeuverPathKey>(1),
+            junction_budget(&unit, 1, 3, &more_members).scratch_bytes,
+            base.scratch_bytes
+                .plus(Plan::ZERO.array::<HirManeuverPathKey>(1)),
             "path_keys 按成员出现记录入账"
         );
-        let n_terms = requested_bytes::<u8>(1)
-            .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(1))
-            .saturating_add(requested_bytes::<
-                Option<(HirManeuverPathKey, SourceLocation)>,
-            >(1))
-            .saturating_add(requested_bytes::<usize>(2));
+        let n_terms = Plan::ZERO
+            .array::<u8>(1)
+            .array::<Option<HirJunctionInternalEdge>>(1)
+            .array::<Option<(HirManeuverPathKey, SourceLocation)>>(1)
+            .array::<usize>(2);
         assert_eq!(
-            junction_budget(&unit, 1, 4, &counts).scratch_bytes - base.scratch_bytes,
-            n_terms,
+            junction_budget(&unit, 1, 4, &counts).scratch_bytes,
+            base.scratch_bytes.plus(n_terms),
             "starts+游标随车道边数入账"
         );
     }
