@@ -1,4 +1,4 @@
-//! 验证会话：阶段协议、每轮覆盖义务、失败终态与保存恢复。
+//! 验证会话：阶段协议、义务生命周期、失败终态与保存恢复。
 //!
 //! 会话消费事实并产生结果，不执行交通命令、不持有可变世界（设计 §3.1）。
 //! 固定阶段协议（§6）：
@@ -8,28 +8,29 @@
 //!       → AwaitingStepOutcome → （成功）BeforeCommands(下一轮) … → Finished
 //! ```
 //!
-//! 每个边界只能声明一次命令批次；结果只在处理阶段、且未超量时按实际顺序
-//! 消费（成功、Blocked、失败尝试都算消费，后两者不推进成功游标）；消费
-//! 数恰等于声明数才能形成拍前；步进只能从“命令已结束”发起，结果恰消费
-//! 一次且拍号严格接续；预期失败步进仅在原子性规约启用时受检并停留在同
-//! 一“命令已结束”边界。
+//! 覆盖义务按**义务单位**分别建立与核销（§3.3"只检查初态、漏遍历均不能
+//! 通过"）：五种单位的"轮"不是同一种东西——
 //!
-//! 覆盖义务按轮核对（§3.3“只检查初态、漏遍历均不能通过”）：`EveryRound`
-//! 规则在其阶段关闭点（初始边界轮在首个拍前形成时、拍前轮在步进发起时、
-//! 成功步进轮在结果核销时）必须出现在本轮记录中，漏一轮即拒绝推进；
-//! `OnEvent` 规则只在事件实际发生时运行，零触发如实记零，场景必须发生
-//! 的义务由必需见证承担。触发次数与阶段完成记录分开表达。
+//! | 义务 | 履行单位 | 核销点 |
+//! | --- | --- | --- |
+//! | 初态检查 | 会话的初始边界（一次性） | 首个拍前形成时 |
+//! | 命令结果检查 | 每一条实际命令结果 | 该条结果被接受时 |
+//! | 拍前检查 | 每轮拍前边界（失败重试不重开） | 步进发起时 |
+//! | 成功步进检查 | 每一次成功提交（首轮独立于初态） | 结果核销时 |
+//! | 预期失败检查 | 每一次失败尝试 | 失败被接受时 |
 //!
-//! 规则发现违反使会话进入不可通过的失败终态——可继续记录，但 `finish`
-//! 永远拒绝（§6）。通过由执行产生：完整窗口、每轮义务闭合、必需见证
-//! 满足、无违反且无未消费步进结果，四者同时成立才产生回执；回执字段
-//! 私有，只能由成功的 `finish` 构造。
+//! 初态与步进是两个独立义务实例：`RuleDescriptor::initial` 显式声明规则
+//! 也参与初态观测（初态只履行规约明确声明的初态义务）；仅声明拍后规则
+//! 的合法规约可以在第一步之前正常启动。标记存储在绑定期按固定规则索引
+//! 分配并跨轮复用，无逐拍分配；累计触发计数与当前义务状态分别保存。
 //!
-//! 检查点（§7）只在“命令执行前”或“全部命令执行后”两种确定边界创建，
-//! 部分执行的批次既非前者也非后者，拒绝；材料绑定输入身份、规约/语义
-//! 版本与全部必要状态——失败状态以显式枚举保存，缺失即拒绝，不使用
-//! `serde(default)` 清零；恢复按受信规约重新绑定并对账见证全集，缺项
-//! 立即拒绝，恢复不把边界当新成功步进重复累计。
+//! 规则发现违反使会话进入不可通过的失败终态；`finish` 是消费式一次性
+//! 操作——无论通过或拒绝，会话就此进入终态，不得补记后再次终结（§3.3/
+//! §6）。回执字段私有，只能由成功的 `finish` 构造。
+//!
+//! 检查点（§7）保存当前开放义务与累计状态；恢复逐名校验并核对可达性
+//! 不变量（步进/失败/命令标记在可建检查点的边界恒为空、初态标记仅存于
+//! 首步之前、拍前标记仅在拍前阶段），保证连续执行与恢复执行等值。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -39,7 +40,7 @@ use crate::spec::{
 };
 
 /// 检查点结构版本；升级按显式版本规则处理，旧材料不编辑字段转标。
-pub const CHECKPOINT_SCHEMA: u32 = 1;
+pub const CHECKPOINT_SCHEMA: u32 = 2;
 
 /// 边界上的命令阶段：本边界命令执行前还是全部执行后（§7 不允许含义
 /// 不明的“当前 tick”）。
@@ -63,40 +64,47 @@ pub enum CommandResult {
 /// 阶段协议违规。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProtocolError {
-    /// 初始边界重复确立。
     InitialBoundaryTwice,
-    /// 未确立初始边界即进入命令阶段。
     CommandsBeforeInitialBoundary,
     /// 同一边界重复声明命令批次（未完成义务不得被覆盖）。
     CommandsAlreadyDeclared,
     /// 不在命令处理阶段消费结果（含越阶段消费）。
     CommandResultOutsideBatch,
     /// 消费数超过声明数。
-    CommandResultOverBatch { declared: u32, consumed: u32 },
+    CommandResultOverBatch {
+        declared: u32,
+        consumed: u32,
+    },
     /// 边界命令未全部处理即宣称拍前事实。
-    CommandsOutstanding { declared: u32, consumed: u32 },
-    /// 每轮义务未闭合：所属阶段关闭时该规则本轮未运行（§3.3 漏遍历
+    CommandsOutstanding {
+        declared: u32,
+        consumed: u32,
+    },
+    /// 义务未闭合：所属单位关闭时该规则未在该单位内运行（§3.3 漏遍历
     /// 不得通过）。
     RoundCoverageMissing(RuleId),
     /// 规则在当前阶段不得登记（阶段与规则规定阶段不符）。
-    WrongPhase { rule: RuleId, phase: CheckPhase },
-    /// 步进未从“命令已结束”边界发起。
+    WrongPhase {
+        rule: RuleId,
+        phase: CheckPhase,
+    },
     StepFromWrongPhase,
-    /// 没有等待中的步进结果却提交结果。
     StepOutcomeUnexpected,
     /// 步进结果拍号不接续（重复消费、跳跃或陈旧结果）。
-    StaleStepTick { expected: u64, got: u64 },
+    StaleStepTick {
+        expected: u64,
+        got: u64,
+    },
     /// 规约未启用原子性/重试规约，不接受预期失败步进。
     AtomicityDisabled,
-    /// 规则不在本次计划安装集内，覆盖核算不承认。
     UnknownRule(RuleId),
-    /// 见证不在规约必需集内。
     UnknownWitness(WitnessId),
-    /// 会话已终结。
+    /// 会话已终结（终结为消费式一次性操作）。
     Finished,
 }
 
-/// `finish` 拒绝原因，通过条件逐一对应（§3.3）。
+/// `finish` 拒绝原因，通过条件逐一对应（§3.3）；任何 `finish` 调用都会
+/// 使会话进入终态。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FinishRejected {
     /// 窗口未执行完整；缩短窗口不得通过。
@@ -109,14 +117,15 @@ pub enum FinishRejected {
     PendingStepOutcome,
     /// 边界命令未全部处理。
     CommandsOutstanding { declared: u32, consumed: u32 },
-    /// 重复终结。
+    /// 已进入的拍前阶段义务未闭合，不得借终结跳过（§3.3）。
+    RoundCoverageMissing(RuleId),
+    /// 重复终结（或前次终结被拒后的再次尝试——终结是一次性的）。
     DoubleFinish,
 }
 
 /// 检查点创建拒绝：只允许在两种确定边界创建（§7）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckpointRefused {
-    /// 尚未确立任何边界。
     NoBoundary,
     /// 批次部分执行：既非命令执行前，也非全部执行后。
     PartialCommandBatch,
@@ -141,11 +150,12 @@ pub enum RestoreRejected {
     UnknownCheck(String),
     /// 材料中出现规约必需集之外的见证。
     UnknownWitness(String),
-    /// 必需见证在材料中缺项（缺项与“存在且计数为零”含义不同，缺项
-    /// 视为材料被改动，立即拒绝）。
+    /// 必需见证在材料中缺项（缺项与“存在且计数为零”含义不同）。
     WitnessMissingInCheckpoint(String),
-    /// 失败状态与违反次数矛盾（清零失败状态不得经恢复达成）。
+    /// 失败状态与违反次数矛盾。
     ViolationStateInconsistent,
+    /// 开放义务组合不是任何可保存边界的可达状态。
+    ObligationStateInconsistent,
 }
 
 /// 会话内部阶段。
@@ -159,6 +169,48 @@ enum Stage {
     Finished,
 }
 
+/// 各义务单位的完成标记：按绑定期固定的规则索引分配，跨轮复用，
+/// 无逐拍分配。核销即按单位重置对应标记。
+#[derive(Clone, Debug)]
+struct Obligations {
+    /// 初态义务（一次性）：InitialBoundary 规则与 `initial` 规则。
+    initial: Vec<bool>,
+    /// 当前这条命令结果的义务。
+    command: Vec<bool>,
+    /// 本轮拍前义务（失败重试不重开）。
+    pre_tick: Vec<bool>,
+    /// 当前这次成功步进的义务（首轮独立于初态）。
+    step: Vec<bool>,
+    /// 本次失败尝试的义务。
+    failure: Vec<bool>,
+}
+
+impl Obligations {
+    fn new(rule_count: usize) -> Self {
+        Self {
+            initial: vec![false; rule_count],
+            command: vec![false; rule_count],
+            pre_tick: vec![false; rule_count],
+            step: vec![false; rule_count],
+            failure: vec![false; rule_count],
+        }
+    }
+
+    /// 某单位的已标记规则名（检查点序列化用；索引经安装表映射为稳定名）。
+    fn marked_names(
+        &self,
+        pick: fn(&Self) -> &Vec<bool>,
+        rules: &[RuleDescriptor],
+    ) -> BTreeSet<String> {
+        pick(self)
+            .iter()
+            .enumerate()
+            .filter(|&(_, &flag)| flag)
+            .map(|(index, _)| rules[index].id.0.to_owned())
+            .collect()
+    }
+}
+
 /// 验证会话。计数与历史只增不减；所有集合用有序容器，保证给定输入
 /// 序列时回执与检查点字节确定。
 #[derive(Clone, Debug)]
@@ -168,7 +220,6 @@ pub struct Session {
     /// 已确立边界的拍号（成功步进按严格接续核对方为 last_tick+1）。
     last_tick: u64,
     successful_steps: u64,
-    /// 本边界声明与已消费的命令数（成功+Blocked+失败尝试都算消费）。
     declared_commands: u32,
     consumed_commands: u32,
     /// 本边界是否已声明过批次（每边界恰一次）。
@@ -176,16 +227,15 @@ pub struct Session {
     successful_commands: u64,
     blocked_attempts: u64,
     failed_attempts: u64,
-    /// 触发覆盖：每条已安装规则的实际运行次数。
+    /// 触发覆盖：每条已安装规则的实际运行次数（累计，与当前义务分离）。
     trigger_counts: BTreeMap<RuleId, u64>,
-    /// 阶段完成记录：(阶段, 规则) 全会话执行集（回执报告用；每轮义务
-    /// 由 `round_noted` 在阶段关闭点核对，二者分开）。
+    /// (阶段, 规则) 全会话执行集（回执报告用；义务核销见 `obligations`）。
     executed_checks: BTreeSet<(CheckPhase, RuleId)>,
-    /// 本轮已运行的规则（阶段关闭时核对 EveryRound 义务后清空）。
-    round_noted: BTreeSet<RuleId>,
-    /// 场景见证的发生次数；按受信规约的必需集合初始化与核对。
+    obligations: Obligations,
+    /// 本轮拍前义务是否开放（advance 置位、begin_step 核销；失败重试
+    /// 不重开，同一受检输入不重复形成拍前事实）。
+    pre_tick_pending: bool,
     witnesses: BTreeMap<WitnessId, u64>,
-    /// 首个违反的规则；一旦置位，`finish` 永远拒绝。
     violated: Option<RuleId>,
     violations: u64,
 }
@@ -201,6 +251,7 @@ impl Session {
             .copied()
             .map(|id| (id, 0))
             .collect();
+        let obligations = Obligations::new(plan.installed_rules.len());
         Ok(Self {
             plan,
             stage: Stage::Bound,
@@ -214,7 +265,8 @@ impl Session {
             failed_attempts: 0,
             trigger_counts: BTreeMap::new(),
             executed_checks: BTreeSet::new(),
-            round_noted: BTreeSet::new(),
+            obligations,
+            pre_tick_pending: false,
             witnesses,
             violated: None,
             violations: 0,
@@ -225,18 +277,38 @@ impl Session {
         self.plan.installed_rules.iter().find(|r| r.id == rule)
     }
 
-    /// 每轮义务核对：给定关闭点应收拢的阶段集合，`EveryRound` 规则必须
-    /// 出现在本轮记录中。
-    fn close_round_obligations(&self, closing: &[CheckPhase]) -> Result<(), ProtocolError> {
+    fn index_of(&self, rule: RuleId) -> Option<usize> {
+        self.plan.installed_rules.iter().position(|r| r.id == rule)
+    }
+
+    /// 核销指定单位的每轮义务：单位内所有 EveryRound 规则的标记必须
+    /// 已置位，随后按单位重置标记（义务实例随单位关闭而消费）。
+    fn close_obligations(
+        &mut self,
+        unit: fn(&mut Obligations) -> &mut Vec<bool>,
+        belongs: impl Fn(&RuleDescriptor) -> bool,
+    ) -> Result<(), ProtocolError> {
         for required in self.plan.spec.required_rules {
-            if required.coverage != CoverageMode::EveryRound || !closing.contains(&required.phase) {
+            if required.coverage != CoverageMode::EveryRound || !belongs(required) {
                 continue;
             }
-            if !self.round_noted.contains(&required.id) {
+            let Some(index) = self.index_of(required.id) else {
+                continue;
+            };
+            if !unit(&mut self.obligations)[index] {
                 return Err(ProtocolError::RoundCoverageMissing(required.id));
             }
         }
+        for flag in unit(&mut self.obligations).iter_mut() {
+            *flag = false;
+        }
         Ok(())
+    }
+
+    /// 初态义务归属：InitialBoundary 规则，以及显式声明参与初态观测的
+    /// 规则（`initial`）。仅声明拍后规则的合法规约没有初态义务。
+    fn belongs_initial(rule: &RuleDescriptor) -> bool {
+        rule.phase == CheckPhase::InitialBoundary || rule.initial
     }
 
     /// 确立初始边界：核验身份与时钟的入口由 harness 完成，会话只登记
@@ -254,7 +326,7 @@ impl Session {
     }
 
     /// 声明本边界的命令总数并进入处理阶段；每个边界恰一次，未完成的
-    /// 批次不得被重新声明覆盖。
+    /// 批次不得被重新声明覆盖。新批次开启时命令义务标记复位。
     pub fn declare_commands(&mut self, count: u32) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::BeforeCommands => {
@@ -264,6 +336,9 @@ impl Session {
                 self.declared_commands = count;
                 self.consumed_commands = 0;
                 self.batch_declared = true;
+                for flag in self.obligations.command.iter_mut() {
+                    *flag = false;
+                }
                 self.stage = Stage::ProcessingCommands;
                 Ok(())
             }
@@ -273,9 +348,10 @@ impl Session {
         }
     }
 
-    /// 按实际顺序消费一条命令结果。只在处理阶段、且未超量时接受；
-    /// Blocked 与失败尝试增加统计，不推进成功命令计数（§6：Blocked
-    /// 不伪造推进；不得跳过失败尝试）。
+    /// 按实际顺序消费一条命令结果：先核销**这一条**命令的义务
+    /// （CommandResults 每轮规则须已为该条结果运行），再接受结果并
+    /// 为下一条命令重开义务。Blocked 与失败尝试同样携带逐条义务；
+    /// 不在处理阶段或超量时拒绝。
     pub fn note_command_result(&mut self, result: CommandResult) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::ProcessingCommands => {
@@ -285,6 +361,10 @@ impl Session {
                         consumed: self.consumed_commands,
                     });
                 }
+                self.close_obligations(
+                    |o| &mut o.command,
+                    |rule| rule.phase == CheckPhase::CommandResults,
+                )?;
                 match result {
                     CommandResult::Succeeded => self.successful_commands += 1,
                     CommandResult::Blocked => self.blocked_attempts += 1,
@@ -298,8 +378,9 @@ impl Session {
         }
     }
 
-    /// 命令结束 / 拍前：声明过的命令须全部消费；首个边界的关闭同时核对
-    /// 初始边界轮的每轮义务（初始观测与成功步进后检查共用首轮）。
+    /// 命令结束 / 拍前：声明过的命令须全部消费；首个边界的关闭核销
+    /// 一次性初态义务（初态与首轮步进义务是两个实例，初态标记就此
+    /// 消费，不流入首个成功步进）；随后开放本轮拍前义务。
     pub fn advance_to_pre_tick(&mut self) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::ProcessingCommands => {
@@ -310,11 +391,9 @@ impl Session {
                     });
                 }
                 if self.successful_steps == 0 {
-                    self.close_round_obligations(&[
-                        CheckPhase::InitialBoundary,
-                        CheckPhase::PostSuccessfulStep,
-                    ])?;
+                    self.close_obligations(|o| &mut o.initial, Self::belongs_initial)?;
                 }
+                self.pre_tick_pending = true;
                 self.stage = Stage::AfterCommands;
                 Ok(())
             }
@@ -323,9 +402,11 @@ impl Session {
         }
     }
 
-    /// 记录一条已安装规则的实际运行（触发覆盖）。规则须在与其规定阶段
-    /// 匹配的会话阶段登记：初始边界轮允许初始边界检查与首轮成功步进后
-    /// 检查（初始观测在第一个成功步进前发生）；未知规则拒绝。
+    /// 记录一条已安装规则的实际运行（触发覆盖 + 对应单位的义务标记）。
+    /// 登记按规则规定阶段门禁：初态观测轮接受 InitialBoundary 规则与
+    /// 显式声明参与初态的规则；处理阶段接受命令结果规则；拍前阶段接受
+    /// 拍前规则；等待步进结果时接受成功步进与（启用原子性时）失败检查
+    /// 规则。未知规则与阶段不符均拒绝。
     pub fn note_check(&mut self, rule: RuleId) -> Result<(), ProtocolError> {
         if let Stage::Finished = self.stage {
             return Err(ProtocolError::Finished);
@@ -333,26 +414,61 @@ impl Session {
         let Some(descriptor) = self.installed(rule) else {
             return Err(ProtocolError::UnknownRule(rule));
         };
+        let index = self.index_of(rule).expect("installed 描述符必有索引");
         let initial_round = self.stage == Stage::BeforeCommands && self.successful_steps == 0;
-        let phase_ok = match descriptor.phase {
-            CheckPhase::InitialBoundary => initial_round,
-            CheckPhase::PostSuccessfulStep => {
-                self.stage == Stage::AwaitingStepOutcome || initial_round
+        let marked = match descriptor.phase {
+            CheckPhase::InitialBoundary => {
+                if !initial_round {
+                    return Err(ProtocolError::WrongPhase {
+                        rule,
+                        phase: descriptor.phase,
+                    });
+                }
+                &mut self.obligations.initial
             }
-            CheckPhase::PreTick => self.stage == Stage::AfterCommands,
-            CheckPhase::CommandResults => self.stage == Stage::ProcessingCommands,
+            CheckPhase::CommandResults => {
+                if self.stage != Stage::ProcessingCommands {
+                    return Err(ProtocolError::WrongPhase {
+                        rule,
+                        phase: descriptor.phase,
+                    });
+                }
+                &mut self.obligations.command
+            }
+            CheckPhase::PreTick => {
+                if self.stage != Stage::AfterCommands {
+                    return Err(ProtocolError::WrongPhase {
+                        rule,
+                        phase: descriptor.phase,
+                    });
+                }
+                &mut self.obligations.pre_tick
+            }
+            CheckPhase::PostSuccessfulStep => {
+                if self.stage == Stage::AwaitingStepOutcome {
+                    &mut self.obligations.step
+                } else if initial_round && descriptor.initial {
+                    // 显式声明参与初态观测的规则：登记初态义务实例。
+                    &mut self.obligations.initial
+                } else {
+                    return Err(ProtocolError::WrongPhase {
+                        rule,
+                        phase: descriptor.phase,
+                    });
+                }
+            }
             CheckPhase::PostExpectedFailure => {
-                self.stage == Stage::AwaitingStepOutcome && self.plan.spec.atomicity
+                if self.stage != Stage::AwaitingStepOutcome || !self.plan.spec.atomicity {
+                    return Err(ProtocolError::WrongPhase {
+                        rule,
+                        phase: descriptor.phase,
+                    });
+                }
+                &mut self.obligations.failure
             }
         };
-        if !phase_ok {
-            return Err(ProtocolError::WrongPhase {
-                rule,
-                phase: descriptor.phase,
-            });
-        }
+        marked[index] = true;
         *self.trigger_counts.entry(rule).or_insert(0) += 1;
-        self.round_noted.insert(rule);
         self.executed_checks.insert((descriptor.phase, rule));
         Ok(())
     }
@@ -380,13 +496,19 @@ impl Session {
         }
     }
 
-    /// 发起一次步进：只能从“命令已结束”边界发起；发起前核对拍前轮的
-    /// 每轮义务；此后会话处于等待步进结果状态，`finish` 与检查点创建
-    /// 均被拒绝，直至结果消费。
+    /// 发起一次步进：只能从“命令已结束”边界发起；本轮拍前义务尚未
+    /// 核销时先核销（失败重试不重开拍前义务——同一受检输入不重复形成
+    /// 拍前事实）；此后等待步进结果，`finish` 与检查点创建被拒。
     pub fn begin_step(&mut self) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::AfterCommands => {
-                self.close_round_obligations(&[CheckPhase::PreTick])?;
+                if self.pre_tick_pending {
+                    self.close_obligations(
+                        |o| &mut o.pre_tick,
+                        |rule| rule.phase == CheckPhase::PreTick,
+                    )?;
+                    self.pre_tick_pending = false;
+                }
                 self.stage = Stage::AwaitingStepOutcome;
                 Ok(())
             }
@@ -395,9 +517,9 @@ impl Session {
         }
     }
 
-    /// 消费一次成功步进结果：拍号须为 last_tick+1（严格接续，拒绝重复
-    /// 消费与陈旧结果），先核对成功步进轮的每轮义务，再推进成功步数，
-    /// 新边界回到命令执行前并开启新一轮。
+    /// 消费一次成功步进结果：拍号须严格接续；先核销**这一次**步进的
+    /// 义务（首轮的步进标记独立于已消费的初态标记），再推进成功步数
+    /// 并开启新一轮（命令与拍前状态复位）。
     pub fn note_successful_step(&mut self, outcome_tick: u64) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::AwaitingStepOutcome => {
@@ -408,10 +530,12 @@ impl Session {
                         got: outcome_tick,
                     });
                 }
-                self.close_round_obligations(&[CheckPhase::PostSuccessfulStep])?;
+                self.close_obligations(
+                    |o| &mut o.step,
+                    |rule| rule.phase == CheckPhase::PostSuccessfulStep,
+                )?;
                 self.successful_steps += 1;
                 self.last_tick = outcome_tick;
-                self.round_noted.clear();
                 self.declared_commands = 0;
                 self.consumed_commands = 0;
                 self.batch_declared = false;
@@ -423,15 +547,16 @@ impl Session {
         }
     }
 
-    /// 消费一次预期失败步进结果：仅原子性/重试规约启用时合法；不推进
-    /// 成功步数也不核对成功步进义务（该次步进未提交），停留在同一
-    /// “命令已结束”边界以相同受检输入重试（§6）。
+    /// 消费一次预期失败步进结果：仅原子性/重试规约启用时合法；先核销
+    /// **本次尝试**的失败检查义务（第一次尝试的证明不能代替第二次），
+    /// 不推进成功步数，停留在同一“命令已结束”边界重试（§6）。
     pub fn note_expected_failure(&mut self) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::AwaitingStepOutcome if self.plan.spec.atomicity => {
-                // 接受预期失败前，核对本次失败轮的失败检查义务
-                // （PostExpectedFailure 每轮规则须已运行）。
-                self.close_round_obligations(&[CheckPhase::PostExpectedFailure])?;
+                self.close_obligations(
+                    |o| &mut o.failure,
+                    |rule| rule.phase == CheckPhase::PostExpectedFailure,
+                )?;
                 self.stage = Stage::AfterCommands;
                 Ok(())
             }
@@ -440,8 +565,16 @@ impl Session {
         }
     }
 
-    /// 终结：满足全部通过条件才产生回执并进入终态（§3.3）。
+    /// 终结：消费式一次性操作——无论通过或拒绝，会话就此进入终态，
+    /// 不得补记后再次终结（§3.3/§6）。已进入的拍前阶段义务必须闭合；
+    /// 必需见证按受信规约的必需集合核对。
     pub fn finish(&mut self) -> Result<PassReceipt, FinishRejected> {
+        let outcome = self.finish_inner();
+        self.stage = Stage::Finished;
+        outcome
+    }
+
+    fn finish_inner(&mut self) -> Result<PassReceipt, FinishRejected> {
         if let Stage::Finished = self.stage {
             return Err(FinishRejected::DoubleFinish);
         }
@@ -457,14 +590,26 @@ impl Session {
                 consumed: self.consumed_commands,
             });
         }
+        // 已进入拍前阶段的义务必须闭合：终结不是跳过已开启义务的出口。
+        if self.stage == Stage::AfterCommands && self.pre_tick_pending {
+            let closed = self.close_obligations(
+                |o| &mut o.pre_tick,
+                |rule| rule.phase == CheckPhase::PreTick,
+            );
+            self.pre_tick_pending = false;
+            closed.map_err(|e| match e {
+                ProtocolError::RoundCoverageMissing(rule) => {
+                    FinishRejected::RoundCoverageMissing(rule)
+                }
+                other => unreachable!("拍前核销只会产生覆盖缺失：{other:?}"),
+            })?;
+        }
         if self.successful_steps != self.plan.spec.window.successful_steps {
             return Err(FinishRejected::WindowIncomplete {
                 done: self.successful_steps,
                 required: self.plan.spec.window.successful_steps,
             });
         }
-        // 必需见证按受信规约的必需集合核对，不由会话内 map 的键决定
-        // （恢复路径不因材料缺项悄悄免除义务）。
         for witness in self.plan.spec.required_witnesses {
             if self.witnesses.get(witness).copied().unwrap_or(0) == 0 {
                 return Err(FinishRejected::WitnessMissing(*witness));
@@ -482,12 +627,11 @@ impl Session {
             blocked_attempts: self.blocked_attempts,
             failed_attempts: self.failed_attempts,
         };
-        self.stage = Stage::Finished;
         Ok(receipt)
     }
 
     /// 在确定边界创建检查点：命令执行前（新轮开启）或全部执行后；
-    /// 批次部分执行与等待步进结果中拒绝（§7）。
+    /// 保存当前开放义务与累计状态，保证连续执行与恢复执行等值。
     pub fn checkpoint(&self, input_identity: &str) -> Result<SessionCheckpoint, CheckpointRefused> {
         let command_phase = match self.stage {
             Stage::BeforeCommands => CommandPhase::BeforeCommands,
@@ -497,6 +641,7 @@ impl Session {
             Stage::Finished => return Err(CheckpointRefused::Finished),
             Stage::Bound => return Err(CheckpointRefused::NoBoundary),
         };
+        let rules = self.plan.installed_rules;
         Ok(SessionCheckpoint {
             schema: CHECKPOINT_SCHEMA,
             spec_name: self.plan.spec.name.to_owned(),
@@ -534,14 +679,22 @@ impl Session {
                 },
             },
             violations: self.violations,
+            pre_tick_pending: self.pre_tick_pending,
+            open_initial: self.obligations.marked_names(|o| &o.initial, rules),
+            open_command: self.obligations.marked_names(|o| &o.command, rules),
+            open_pre_tick: self.obligations.marked_names(|o| &o.pre_tick, rules),
+            open_step: self.obligations.marked_names(|o| &o.step, rules),
+            open_failure: self.obligations.marked_names(|o| &o.failure, rules),
         })
     }
 
     /// 从检查点恢复：重新绑定规约与本次安装模块，逐项对账身份与结构，
-    /// 逐名映射检查与见证并按受信规约核对见证全集；失败状态以显式
-    /// 枚举对账且须与违反次数一致；任何缺失、未知或错配均拒绝（§7
-    /// 不清零、不转标）。恢复后的计数即材料中的计数，成功步数不因
-    /// 恢复而增加。
+    /// 逐名映射检查/见证与开放义务，并核对开放义务的可达性不变量——
+    /// 步进/失败/命令标记在可保存的边界恒为空（它们只在等待步进结果
+    /// 或处理命令期间非空，而该处不可建检查点）；初态标记仅存于首步
+    /// 之前；拍前标记与待核销标志仅存于拍前阶段。任何缺失、未知、
+    /// 错配或不可达组合均拒绝（§7 不清零、不转标）。恢复后的计数即
+    /// 材料中的计数，成功步数不因恢复而增加。
     #[allow(clippy::too_many_lines)]
     pub fn restore(
         checkpoint: &SessionCheckpoint,
@@ -589,28 +742,23 @@ impl Session {
             }
         };
         let plan = CheckedPlan::bind(spec, provided).map_err(RestoreRejected::Plan)?;
+        let name_index = |name: &str| -> Result<usize, RestoreRejected> {
+            plan.installed_rules
+                .iter()
+                .position(|rule| rule.id.0 == name)
+                .ok_or_else(|| RestoreRejected::UnknownCheck(name.to_owned()))
+        };
         let mut trigger_counts = BTreeMap::new();
         let mut executed_checks = BTreeSet::new();
         for (phase, name) in &checkpoint.executed_checks {
-            let rule = plan
-                .installed_rules
-                .iter()
-                .map(|rule| rule.id)
-                .find(|id| id.0 == name.as_str())
-                .ok_or_else(|| RestoreRejected::UnknownCheck(name.clone()))?;
+            let rule = plan.installed_rules[name_index(name)?].id;
             executed_checks.insert((*phase, rule));
         }
         for (name, count) in &checkpoint.trigger_counts {
-            let rule = plan
-                .installed_rules
-                .iter()
-                .map(|rule| rule.id)
-                .find(|id| id.0 == name.as_str())
-                .ok_or_else(|| RestoreRejected::UnknownCheck(name.clone()))?;
+            let rule = plan.installed_rules[name_index(name)?].id;
             trigger_counts.insert(rule, *count);
         }
-        // 见证按受信规约的必需集合对账：缺项视为材料被改动，立即拒绝；
-        // 多余名称同样拒绝。计数为零合法（义务仍未满足）。
+        // 见证按受信规约的必需集合对账：缺项视为材料被改动，立即拒绝。
         let mut witnesses = BTreeMap::new();
         for required in spec.required_witnesses {
             let count = checkpoint
@@ -630,6 +778,31 @@ impl Session {
                 .expect("长度差必有多余项");
             return Err(RestoreRejected::UnknownWitness(extra.clone()));
         }
+        // 开放义务可达性不变量。
+        if !checkpoint.open_step.is_empty()
+            || !checkpoint.open_failure.is_empty()
+            || !checkpoint.open_command.is_empty()
+        {
+            return Err(RestoreRejected::ObligationStateInconsistent);
+        }
+        if !checkpoint.open_initial.is_empty() && checkpoint.successful_steps != 0 {
+            return Err(RestoreRejected::ObligationStateInconsistent);
+        }
+        let after_commands = checkpoint.command_phase == CommandPhase::AfterCommands;
+        if checkpoint.pre_tick_pending && !after_commands {
+            return Err(RestoreRejected::ObligationStateInconsistent);
+        }
+        if !checkpoint.open_pre_tick.is_empty() && (!after_commands || !checkpoint.pre_tick_pending)
+        {
+            return Err(RestoreRejected::ObligationStateInconsistent);
+        }
+        let mut obligations = Obligations::new(plan.installed_rules.len());
+        for name in &checkpoint.open_initial {
+            obligations.initial[name_index(name)?] = true;
+        }
+        for name in &checkpoint.open_pre_tick {
+            obligations.pre_tick[name_index(name)?] = true;
+        }
         Ok(Self {
             plan,
             stage: match checkpoint.command_phase {
@@ -646,7 +819,8 @@ impl Session {
             failed_attempts: checkpoint.failed_attempts,
             trigger_counts,
             executed_checks,
-            round_noted: BTreeSet::new(),
+            obligations,
+            pre_tick_pending: checkpoint.pre_tick_pending,
             witnesses,
             violated,
             violations: checkpoint.violations,
@@ -732,7 +906,8 @@ pub enum ViolationRecord {
 }
 
 /// 会话检查点的持久化材料（宿主恢复材料的组成部分，不进 Runtime LFRS）。
-/// 名称以拥有字符串保存；恢复时逐名映射回计划并拒绝未知名称。
+/// 名称以拥有字符串保存；恢复时逐名映射回计划并拒绝未知名称。开放义务
+/// 与累计计数分开保存，保证连续执行与恢复执行等值。
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionCheckpoint {
@@ -755,6 +930,14 @@ pub struct SessionCheckpoint {
     witnesses: BTreeMap<String, u64>,
     violated: ViolationRecord,
     violations: u64,
+    /// 本轮拍前义务是否开放（失败重试不重开）。
+    pre_tick_pending: bool,
+    /// 各义务单位的当前开放标记（按稳定规则名编码）。
+    open_initial: BTreeSet<String>,
+    open_command: BTreeSet<String>,
+    open_pre_tick: BTreeSet<String>,
+    open_step: BTreeSet<String>,
+    open_failure: BTreeSet<String>,
 }
 
 #[cfg(test)]
@@ -768,18 +951,42 @@ mod tests {
         domains: &[DOMAIN],
         phase: CheckPhase::PostSuccessfulStep,
         coverage: CoverageMode::EveryRound,
+        initial: true,
     };
     const RULE_BODY: RuleDescriptor = RuleDescriptor {
         id: RuleId("body-separation"),
         domains: &[DOMAIN],
         phase: CheckPhase::PostSuccessfulStep,
         coverage: CoverageMode::EveryRound,
+        initial: true,
     };
     const RULE_SIGNAL: RuleDescriptor = RuleDescriptor {
         id: RuleId("signal-permit"),
         domains: &[DOMAIN],
         phase: CheckPhase::PostSuccessfulStep,
         coverage: CoverageMode::OnEvent,
+        initial: false,
+    };
+    const RULE_PRE: RuleDescriptor = RuleDescriptor {
+        id: RuleId("pre-tick-facts"),
+        domains: &[DOMAIN],
+        phase: CheckPhase::PreTick,
+        coverage: CoverageMode::EveryRound,
+        initial: false,
+    };
+    const RULE_CMD: RuleDescriptor = RuleDescriptor {
+        id: RuleId("command-result-check"),
+        domains: &[DOMAIN],
+        phase: CheckPhase::CommandResults,
+        coverage: CoverageMode::EveryRound,
+        initial: false,
+    };
+    const RULE_ATOMICITY: RuleDescriptor = RuleDescriptor {
+        id: RuleId("retry-atomicity"),
+        domains: &[DOMAIN],
+        phase: CheckPhase::PostExpectedFailure,
+        coverage: CoverageMode::EveryRound,
+        initial: false,
     };
     const RULES: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_SIGNAL];
     const FACTS: &[FactId] = &[FactId("motion"), FactId("identity")];
@@ -805,7 +1012,6 @@ mod tests {
         }
     }
 
-    /// 每轮义务规则的登记（成功步进轮）。
     fn note_round_rules(session: &mut Session) {
         session.note_check(RULE_MOTION.id).unwrap();
         session.note_check(RULE_BODY.id).unwrap();
@@ -820,7 +1026,7 @@ mod tests {
         session.note_successful_step(tick).unwrap();
     }
 
-    /// 初始观测轮的登记（首个成功步进前，于 BeforeCommands 阶段完成）。
+    /// 初始观测轮的登记（首个成功步进前；M/B 声明参与初态）。
     fn observe_initial(session: &mut Session) {
         note_round_rules(session);
     }
@@ -833,7 +1039,7 @@ mod tests {
     }
 
     #[test]
-    fn finish_requires_full_window_and_produces_private_receipt() {
+    fn happy_path_produces_private_receipt_and_finish_is_one_shot() {
         let mut session = started(3);
         session
             .note_witness(WitnessId("per-active-crossing"))
@@ -841,12 +1047,11 @@ mod tests {
         for tick in 101..=103 {
             run_step(&mut session, tick);
         }
-        let receipt = session.finish().expect("完整窗口+每轮义务+见证必须通过");
+        let receipt = session.finish().expect("完整窗口+义务闭合+见证必须通过");
         assert_eq!(receipt.spec_name(), "lf-synth-w1");
         assert_eq!(receipt.successful_steps(), 3);
         assert_eq!(receipt.last_tick(), 103);
-        assert_eq!(receipt.semantic_version(), "lf-synth-execution-2");
-        // 触发覆盖与执行集分开表达：OnEvent 零触发如实为 0。
+        // 初态轮 + 3 个成功步进轮各一次；OnEvent 零触发如实为 0。
         assert_eq!(receipt.trigger_counts()[&RULE_MOTION.id], 4);
         assert_eq!(receipt.trigger_counts()[&RULE_BODY.id], 4);
         assert_eq!(
@@ -858,6 +1063,7 @@ mod tests {
             0
         );
         assert_eq!(receipt.witnesses()[&WitnessId("per-active-crossing")], 1);
+        // 终结是一次性的：任何后续操作拒绝。
         assert_eq!(session.finish(), Err(FinishRejected::DoubleFinish));
         assert_eq!(
             session.note_check(RULE_BODY.id),
@@ -866,52 +1072,100 @@ mod tests {
     }
 
     #[test]
-    fn coverage_is_bound_to_rounds_not_to_membership() {
-        // 审阅复现一：未确立初始边界就登记成功步进后检查——阶段不符拒绝。
-        let mut session = Session::start(spec(1, false), PROVIDED).unwrap();
-        assert_eq!(
-            session.note_check(RULE_BODY.id),
-            Err(ProtocolError::WrongPhase {
-                rule: RULE_BODY.id,
-                phase: CheckPhase::PostSuccessfulStep,
-            })
-        );
-        // 审阅复现二：三拍窗口只在第一拍登记，第二拍漏检在轮关闭时暴露。
-        let mut session = started(3);
+    fn initial_and_step_obligations_are_separate_instances() {
+        // 探针一：仅声明拍后规则（不参与初态）的合法规约，第一步之前
+        // 没有初态义务，可正常启动。
+        const POST_ONLY: &[RuleDescriptor] = &[RuleDescriptor {
+            id: RuleId("successful-outcome-only"),
+            domains: &[DOMAIN],
+            phase: CheckPhase::PostSuccessfulStep,
+            coverage: CoverageMode::EveryRound,
+            initial: false,
+        }];
+        let post_spec = VerificationSpec {
+            required_rules: POST_ONLY,
+            ..spec(1, false)
+        };
+        let post_provided = ProvidedModules {
+            rules: POST_ONLY,
+            ..PROVIDED
+        };
+        let mut session = Session::start(post_spec, post_provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
         session
-            .note_witness(WitnessId("per-active-crossing"))
+            .note_check(RuleId("successful-outcome-only"))
             .unwrap();
+        session.note_successful_step(1).unwrap();
+        assert_eq!(session.successful_steps(), 1);
+
+        // 探针二：初态标记不得抵充首个成功步进的义务。
+        let mut session = started(1);
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        // 首个步进：不登记任何每轮规则。
+        assert_eq!(
+            session.note_successful_step(101),
+            Err(ProtocolError::RoundCoverageMissing(RULE_MOTION.id))
+        );
+        // 补登记后可推进（义务在关闭点核对）。
+        note_round_rules(&mut session);
+        session.note_successful_step(101).unwrap();
+
+        // 探针三：初态义务缺失在首个拍前形成时拒绝（M 声明参与初态）。
+        let mut skipped = Session::start(spec(1, false), PROVIDED).unwrap();
+        skipped.confirm_initial_boundary(0).unwrap();
+        skipped.note_check(RULE_BODY.id).unwrap();
+        skipped.declare_commands(0).unwrap();
+        assert_eq!(
+            skipped.advance_to_pre_tick(),
+            Err(ProtocolError::RoundCoverageMissing(RULE_MOTION.id))
+        );
+
+        // 探针四：窗口中途漏检在当轮关闭点暴露。
+        let mut session = started(3);
         run_step(&mut session, 101);
         session.declare_commands(0).unwrap();
         session.advance_to_pre_tick().unwrap();
         session.begin_step().unwrap();
-        // 第二拍：漏掉 body。
         session.note_check(RULE_MOTION.id).unwrap();
         assert_eq!(
             session.note_successful_step(102),
             Err(ProtocolError::RoundCoverageMissing(RULE_BODY.id))
         );
-        // 补登记后仍可推进并通过（义务在关闭点核对，不在关闭点之外惩罚）。
         session.note_check(RULE_BODY.id).unwrap();
         session.note_successful_step(102).unwrap();
         run_step(&mut session, 103);
-        session.finish().expect("补齐每轮义务后必须通过");
-        // 初始观测轮漏检：首个拍前形成时拒绝。
-        let mut skipped_initial = Session::start(spec(1, false), PROVIDED).unwrap();
-        skipped_initial.confirm_initial_boundary(0).unwrap();
-        skipped_initial.declare_commands(0).unwrap();
-        assert_eq!(
-            skipped_initial.advance_to_pre_tick(),
-            Err(ProtocolError::RoundCoverageMissing(RULE_MOTION.id))
-        );
     }
 
     #[test]
     fn out_of_phase_checks_are_rejected() {
         let mut session = started(1);
+        // 未确立边界。
+        let mut fresh = Session::start(spec(1, false), PROVIDED).unwrap();
+        assert_eq!(
+            fresh.note_check(RULE_BODY.id),
+            Err(ProtocolError::WrongPhase {
+                rule: RULE_BODY.id,
+                phase: CheckPhase::PostSuccessfulStep,
+            })
+        );
+        // 初态轮不接受不参与初态的规则。
+        let mut initial = Session::start(spec(1, false), PROVIDED).unwrap();
+        initial.confirm_initial_boundary(0).unwrap();
+        assert_eq!(
+            initial.note_check(RULE_SIGNAL.id),
+            Err(ProtocolError::WrongPhase {
+                rule: RULE_SIGNAL.id,
+                phase: CheckPhase::PostSuccessfulStep,
+            })
+        );
+        // 拍前阶段不接受成功步进后检查。
         session.declare_commands(0).unwrap();
         session.advance_to_pre_tick().unwrap();
-        // 成功步进后检查不得在拍前阶段登记。
         assert_eq!(
             session.note_check(RULE_BODY.id),
             Err(ProtocolError::WrongPhase {
@@ -922,7 +1176,7 @@ mod tests {
         session.begin_step().unwrap();
         note_round_rules(&mut session);
         session.note_successful_step(101).unwrap();
-        // 新一轮的 BeforeCommands 上（非初始轮）也不得登记成功步进后检查。
+        // 非初态的命令前阶段同样不接受。
         assert_eq!(
             session.note_check(RULE_BODY.id),
             Err(ProtocolError::WrongPhase {
@@ -933,18 +1187,49 @@ mod tests {
     }
 
     #[test]
+    fn command_results_are_checked_per_result() {
+        const RULES_CMD: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_CMD];
+        let cmd_spec = VerificationSpec {
+            required_rules: RULES_CMD,
+            ..spec(1, false)
+        };
+        let cmd_provided = ProvidedModules {
+            rules: RULES_CMD,
+            ..PROVIDED
+        };
+        let mut session = Session::start(cmd_spec, cmd_provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session.declare_commands(2).unwrap();
+        // 第一条：检查运行，结果被接受并核销该条义务。
+        session.note_check(RULE_CMD.id).unwrap();
+        session
+            .note_command_result(CommandResult::Succeeded)
+            .unwrap();
+        // 第二条：不检查——该条义务未闭合，拒绝接受结果。
+        assert_eq!(
+            session.note_command_result(CommandResult::Blocked),
+            Err(ProtocolError::RoundCoverageMissing(RULE_CMD.id))
+        );
+        session.note_check(RULE_CMD.id).unwrap();
+        session.note_command_result(CommandResult::Blocked).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(1).unwrap();
+    }
+
+    #[test]
     fn command_batch_is_closed_against_redeclare_overuse_and_phase_escape() {
         let mut session = started(1);
         session.declare_commands(2).unwrap();
         session
             .note_command_result(CommandResult::Succeeded)
             .unwrap();
-        // 未完成批次不得被重新声明覆盖。
         assert_eq!(
             session.declare_commands(0),
             Err(ProtocolError::CommandsAlreadyDeclared)
         );
-        // 超额消费拒绝。
         session.note_command_result(CommandResult::Blocked).unwrap();
         assert_eq!(
             session.note_command_result(CommandResult::Succeeded),
@@ -955,7 +1240,6 @@ mod tests {
         );
         session.advance_to_pre_tick().unwrap();
         session.begin_step().unwrap();
-        // 越阶段消费（步进等待中报命令结果）拒绝。
         assert_eq!(
             session.note_command_result(CommandResult::Succeeded),
             Err(ProtocolError::CommandResultOutsideBatch)
@@ -975,7 +1259,6 @@ mod tests {
             .note_command_result(CommandResult::Succeeded)
             .unwrap();
         session.advance_to_pre_tick().unwrap();
-        // 全部执行后可以建检查点（BeforeCommands 亦然，见往返测试）。
         assert!(session.checkpoint("input-a").is_ok());
     }
 
@@ -1024,8 +1307,11 @@ mod tests {
                 consumed: 1
             })
         );
-        session.note_command_result(CommandResult::Blocked).unwrap();
-        session.advance_to_pre_tick().unwrap();
+        // 终结已被消费：会话进入终态，补命令也只能得到终态错误。
+        assert_eq!(
+            session.note_command_result(CommandResult::Blocked),
+            Err(ProtocolError::Finished)
+        );
     }
 
     #[test]
@@ -1044,9 +1330,9 @@ mod tests {
     }
 
     #[test]
-    fn scenario_witness_required_once_and_zero_trigger_is_not_a_failure() {
-        // OnEvent 规则零触发合法（触发计数如实为 0），场景必须发生的
-        // 义务由必需见证承担：见证未发生拒绝，发生即通过。
+    fn witness_shortfall_freezes_the_session() {
+        // 正式终结因缺见证被拒后，不得补记见证再次终结（§3.3/§6
+        // 消费式一次性）。
         let mut session = started(1);
         run_step(&mut session, 101);
         assert_eq!(
@@ -1055,19 +1341,11 @@ mod tests {
                 "per-active-crossing"
             )))
         );
-        session
-            .note_witness(WitnessId("per-active-crossing"))
-            .unwrap();
-        let receipt = session.finish().expect("见证补齐后必须通过");
         assert_eq!(
-            receipt
-                .trigger_counts()
-                .get(&RULE_SIGNAL.id)
-                .copied()
-                .unwrap_or(0),
-            0,
-            "零触发如实记零"
+            session.note_witness(WitnessId("per-active-crossing")),
+            Err(ProtocolError::Finished)
         );
+        assert_eq!(session.finish(), Err(FinishRejected::DoubleFinish));
     }
 
     #[test]
@@ -1090,6 +1368,8 @@ mod tests {
                 got: 102
             })
         );
+        session.note_check(RULE_MOTION.id).unwrap();
+        session.note_check(RULE_BODY.id).unwrap();
         session.note_successful_step(101).unwrap();
         assert_eq!(
             session.note_successful_step(102),
@@ -1099,25 +1379,18 @@ mod tests {
     }
 
     #[test]
-    fn expected_failure_closes_failure_check_obligations() {
-        // 原子性规约的失败检查（PostExpectedFailure 每轮规则）须在预期
-        // 失败被接受前运行；漏跑在关闭点拒绝。
-        const RULE_ATOMICITY: RuleDescriptor = RuleDescriptor {
-            id: RuleId("retry-atomicity"),
-            domains: &[DOMAIN],
-            phase: CheckPhase::PostExpectedFailure,
-            coverage: CoverageMode::EveryRound,
-        };
-        const RULES_RETRY: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_ATOMICITY];
-        let retry_spec = |window: u64, atomicity: bool| VerificationSpec {
+    fn failure_check_obligations_are_per_attempt() {
+        const RULES_RETRY: &[RuleDescriptor] =
+            &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_ATOMICITY];
+        let retry_spec = VerificationSpec {
             required_rules: RULES_RETRY,
-            ..spec(window, atomicity)
+            ..spec(1, true)
         };
-        let provided = ProvidedModules {
+        let retry_provided = ProvidedModules {
             rules: RULES_RETRY,
             ..PROVIDED
         };
-        let mut session = Session::start(retry_spec(1, true), provided).unwrap();
+        let mut session = Session::start(retry_spec, retry_provided).unwrap();
         session.confirm_initial_boundary(50).unwrap();
         observe_initial(&mut session);
         session
@@ -1125,6 +1398,11 @@ mod tests {
             .unwrap();
         session.declare_commands(0).unwrap();
         session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        // 第一次尝试：失败检查运行后被接受。
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_expected_failure().unwrap();
+        // 第二次尝试：不检查——本次尝试义务未闭合，拒绝接受。
         session.begin_step().unwrap();
         assert_eq!(
             session.note_expected_failure(),
@@ -1138,11 +1416,8 @@ mod tests {
         session.note_successful_step(51).unwrap();
         session
             .finish()
-            .expect("失败检查补齐后的重试路径必须可终结");
-    }
-
-    #[test]
-    fn expected_failure_needs_atomicity_and_stays_at_same_boundary() {
+            .expect("失败检查逐次闭合后的重试路径必须可终结");
+        // 未启用原子性规约：预期失败步进直接拒绝。
         let mut plain = started(1);
         plain.declare_commands(0).unwrap();
         plain.advance_to_pre_tick().unwrap();
@@ -1151,21 +1426,6 @@ mod tests {
             plain.note_expected_failure(),
             Err(ProtocolError::AtomicityDisabled)
         );
-        let mut atomic = Session::start(spec(1, true), PROVIDED).unwrap();
-        atomic.confirm_initial_boundary(50).unwrap();
-        observe_initial(&mut atomic);
-        atomic
-            .note_witness(WitnessId("per-active-crossing"))
-            .unwrap();
-        atomic.declare_commands(0).unwrap();
-        atomic.advance_to_pre_tick().unwrap();
-        atomic.begin_step().unwrap();
-        atomic.note_expected_failure().unwrap();
-        assert_eq!(atomic.successful_steps(), 0);
-        atomic.begin_step().unwrap();
-        note_round_rules(&mut atomic);
-        atomic.note_successful_step(51).unwrap();
-        atomic.finish().expect("重试后成功路径必须可终结");
     }
 
     #[test]
@@ -1195,18 +1455,67 @@ mod tests {
         );
     }
 
-    #[test]
-    fn checkpoint_round_trip_resumes_without_double_counting() {
-        let input = "lfca-sha256:fixed-input";
-        let mut session = started(5);
+    /// 带拍前规则的三步场景：连续执行与中途恢复执行最终回执等值。
+    /// 恢复发生在某轮拍前阶段（拍前检查已登记、步进未发起），恢复后
+    /// 不得重复登记，也不得丢义务。
+    fn pre_tick_scenario(restore_at: Option<u64>, input: &str) -> PassReceipt {
+        const RULES_PRE: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_PRE];
+        let pre_spec = VerificationSpec {
+            required_rules: RULES_PRE,
+            ..spec(3, false)
+        };
+        let pre_provided = ProvidedModules {
+            rules: RULES_PRE,
+            ..PROVIDED
+        };
+        let mut session = Session::start(pre_spec, pre_provided).unwrap();
+        session.confirm_initial_boundary(100).unwrap();
+        observe_initial(&mut session);
         session
             .note_witness(WitnessId("per-active-crossing"))
             .unwrap();
+        let mut resumed: Option<Session> = None;
         for tick in 101..=103 {
-            run_step(&mut session, tick);
+            {
+                let active = resumed.as_mut().unwrap_or(&mut session);
+                active.declare_commands(0).unwrap();
+                active.advance_to_pre_tick().unwrap();
+                active.note_check(RULE_PRE.id).unwrap();
+            }
+            if resumed.is_none() && restore_at == Some(tick) {
+                let checkpoint = session.checkpoint(input).unwrap();
+                resumed =
+                    Some(Session::restore(&checkpoint, pre_spec, pre_provided, input).unwrap());
+            }
+            let active = resumed.as_mut().unwrap_or(&mut session);
+            active.begin_step().unwrap();
+            note_round_rules(active);
+            active.note_successful_step(tick).unwrap();
         }
-        // 步进后处于新轮 BeforeCommands：属“命令执行前”确定边界。
-        let checkpoint = session.checkpoint(input).unwrap();
+        let mut finished = resumed.unwrap_or(session);
+        finished.finish().expect("两种执行路径都必须可终结")
+    }
+
+    #[test]
+    fn checkpoint_round_trip_is_equivalent_to_continuous() {
+        let continuous = pre_tick_scenario(None, "lfca-sha256:fixed-input");
+        let resumed = pre_tick_scenario(Some(102), "lfca-sha256:fixed-input");
+        // 回执逐字段等值：初态 + 每轮触发计数一致（恢复不重复累计、
+        // 不丢义务）。
+        assert_eq!(continuous, resumed);
+        assert_eq!(continuous.trigger_counts()[&RULE_PRE.id], 3);
+        assert_eq!(continuous.trigger_counts()[&RULE_MOTION.id], 4);
+        // 序列化往返：缺字段、未知字段拒绝。
+        let checkpoint = {
+            let mut session = started(5);
+            session
+                .note_witness(WitnessId("per-active-crossing"))
+                .unwrap();
+            for tick in 101..=103 {
+                run_step(&mut session, tick);
+            }
+            session.checkpoint("input-a").unwrap()
+        };
         let bytes = serde_json::to_vec(&checkpoint).unwrap();
         let reloaded: SessionCheckpoint = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(reloaded, checkpoint);
@@ -1220,7 +1529,7 @@ mod tests {
             .unwrap()
             .insert("extra".into(), serde_json::Value::Null);
         assert!(serde_json::from_value::<SessionCheckpoint>(unknown_field).is_err());
-        let mut resumed = Session::restore(&reloaded, spec(5, false), PROVIDED, input).unwrap();
+        let mut resumed = Session::restore(&reloaded, spec(5, false), PROVIDED, "input-a").unwrap();
         assert_eq!(resumed.successful_steps(), 3);
         for tick in 104..=105 {
             run_step(&mut resumed, tick);
@@ -1292,16 +1601,13 @@ mod tests {
         let checkpoint = session.checkpoint(input).unwrap();
         let bytes = serde_json::to_vec(&checkpoint).unwrap();
         let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        // 删除 violated 字段：反序列化直接失败（不存在“缺失即未失败”）。
         value.as_object_mut().unwrap().remove("violated");
         assert!(serde_json::from_value::<SessionCheckpoint>(value.clone()).is_err());
-        // 显式 null 同样失败。
         value
             .as_object_mut()
             .unwrap()
             .insert("violated".into(), serde_json::Value::Null);
         assert!(serde_json::from_value::<SessionCheckpoint>(value).is_err());
-        // Clean 配非零违反次数：矛盾拒绝（以未违反的干净检查点为底）。
         let mut clean_session = started(1);
         clean_session
             .note_witness(WitnessId("per-active-crossing"))
@@ -1313,7 +1619,6 @@ mod tests {
             Session::restore(&inconsistent, spec(1, false), PROVIDED, input).unwrap_err(),
             RestoreRejected::ViolationStateInconsistent
         );
-        // 正常失败检查点往返：违反保持。
         let mut resumed = Session::restore(&checkpoint, spec(1, false), PROVIDED, input).unwrap();
         assert_eq!(resumed.violated(), Some(RULE_SIGNAL.id));
         assert_eq!(
@@ -1331,7 +1636,6 @@ mod tests {
             .unwrap();
         run_step(&mut session, 101);
         let checkpoint = session.checkpoint(input).unwrap();
-        // 材料中删除必需见证项：立即拒绝（缺项≠计数为零）。
         let mut stripped = serde_json::to_value(&checkpoint).unwrap();
         stripped
             .as_object_mut()
@@ -1346,15 +1650,112 @@ mod tests {
             Session::restore(&stripped, spec(1, false), PROVIDED, input).unwrap_err(),
             RestoreRejected::WitnessMissingInCheckpoint("per-active-crossing".into())
         );
-        // 材料中多出未知见证：拒绝。
         let mut extra = checkpoint.clone();
         extra.witnesses.insert("ghost-witness".to_owned(), 1);
         assert_eq!(
             Session::restore(&extra, spec(1, false), PROVIDED, input).unwrap_err(),
             RestoreRejected::UnknownWitness("ghost-witness".into())
         );
-        // 完整材料恢复后原会话通过；材料计数为零时义务仍未满足。
         let mut resumed = Session::restore(&checkpoint, spec(1, false), PROVIDED, input).unwrap();
         resumed.finish().expect("完整材料恢复后窗口已满且见证在档");
+    }
+
+    #[test]
+    fn restore_rejects_unreachable_obligation_states() {
+        let input = "lfca-sha256:fixed-input";
+        let mut session = started(2);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        run_step(&mut session, 101);
+        let checkpoint = session.checkpoint(input).unwrap();
+        // 步进标记在可保存边界恒为空——材料中出现即不可达。
+        let mut bogus_step = checkpoint.clone();
+        bogus_step.open_step.insert(RULE_BODY.id.0.to_owned());
+        assert_eq!(
+            Session::restore(&bogus_step, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 命令与失败标记同理。
+        let mut bogus_command = checkpoint.clone();
+        bogus_command.open_command.insert(RULE_BODY.id.0.to_owned());
+        assert_eq!(
+            Session::restore(&bogus_command, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 拍前标记/待核销标志只可能出现在拍前（AfterCommands）阶段。
+        let mut bogus_pre = checkpoint.clone();
+        bogus_pre.open_pre_tick.insert(RULE_BODY.id.0.to_owned());
+        assert_eq!(
+            Session::restore(&bogus_pre, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 初态标记在首步之后不应存在。
+        let mut bogus_initial = checkpoint.clone();
+        bogus_initial
+            .open_initial
+            .insert(RULE_MOTION.id.0.to_owned());
+        assert_eq!(
+            Session::restore(&bogus_initial, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+    }
+
+    #[test]
+    fn finish_closes_open_pre_tick_obligations() {
+        const RULES_PRE: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_PRE];
+        let pre_spec = VerificationSpec {
+            required_rules: RULES_PRE,
+            ..spec(1, false)
+        };
+        let pre_provided = ProvidedModules {
+            rules: RULES_PRE,
+            ..PROVIDED
+        };
+        // 完整窗口后进入最终边界拍前阶段：不履行拍前义务不得借终结跳过。
+        let mut session = Session::start(pre_spec, pre_provided).unwrap();
+        session.confirm_initial_boundary(100).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(101).unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        assert_eq!(
+            session.finish(),
+            Err(FinishRejected::RoundCoverageMissing(RULE_PRE.id))
+        );
+        // 终结已消费：补记也只能得到终态错误。
+        assert_eq!(session.finish(), Err(FinishRejected::DoubleFinish));
+        // 对照：履行拍前义务后终结通过。
+        let mut session = Session::start(
+            pre_spec,
+            ProvidedModules {
+                rules: RULES_PRE,
+                ..PROVIDED
+            },
+        )
+        .unwrap();
+        session.confirm_initial_boundary(100).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(101).unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        session.finish().expect("拍前义务闭合后的终结必须通过");
     }
 }

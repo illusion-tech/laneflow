@@ -82,7 +82,8 @@ pub enum CoverageMode {
     OnEvent,
 }
 
-/// 单条规则的静态描述：标识、支持域、规定执行阶段与覆盖语义。
+/// 单条规则的静态描述：标识、支持域、规定执行阶段、覆盖语义与初态
+/// 参与声明。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuleDescriptor {
     pub id: RuleId,
@@ -92,6 +93,10 @@ pub struct RuleDescriptor {
     pub phase: CheckPhase,
     /// 覆盖语义：每轮义务在阶段关闭时核对；事件触发只记实际次数。
     pub coverage: CoverageMode,
+    /// 是否也参与初态观测：初态与每个成功步进是两个独立义务实例，
+    /// 初态只履行显式声明的规则；仅声明拍后规则的合法规约在第一步
+    /// 之前没有初态义务，可正常启动。
+    pub initial: bool,
 }
 
 /// 本次实际安装的模块清单：与规约声明的必需项分别保存，绑定检查前者
@@ -225,6 +230,7 @@ mod tests {
             domains,
             phase,
             coverage: CoverageMode::EveryRound,
+            initial: false,
         }
     }
 
@@ -343,6 +349,7 @@ mod tests {
             domains: &[DOMAIN_W],
             phase: CheckPhase::PreTick,
             coverage: CoverageMode::EveryRound,
+            initial: false,
         }];
         assert_eq!(
             CheckedPlan::bind(
