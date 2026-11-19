@@ -318,9 +318,7 @@ fn validate_message_with_footer_policy(
         }
 
         if description.contains('—') {
-            errors.push(
-                "标题不用破折号做主副题分段；单段结果陈述，细节写提交正文".to_string(),
-            );
+            errors.push("标题不用破折号做主副题分段；单段结果陈述，细节写提交正文".to_string());
         }
     }
 
