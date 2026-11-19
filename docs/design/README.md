@@ -38,6 +38,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [适配器应用程序接口（API）][doc-design-adapter-api] — 已接受；无生效取代。定义引擎适配器与运行时、空间层的接口边界。
 - [Bevy Reference Adapter][doc-design-bevy-reference-adapter] — 已接受；无生效取代。定义 Bevy 参考适配器的接入与生命周期。
 - [中国特色城市工作负载 v1][doc-design-chinese-style-city-workload] — 已接受；无生效取代。定义城市工作负载、需求计划与有限验证范围。
+- [CI 受影响验证计划][doc-design-ci-affected-verification-plan] — 待审阅；无生效取代。定义按变更影响生成 CI 验证计划的合同：影响模型、变更三态归类、可靠性规则、全量时机与过渡策略。
 - [已提交位姿缓冲与按需提取][doc-design-committed-pose-extraction] — 已接受；无生效取代。定义已提交位姿来源借用、缓冲交换与按需提取。
 - [已提交道路编辑状态与编辑来源][doc-design-committed-road-editing-state] — 已接受；无生效取代。定义已提交道路编辑状态和来源绑定。
 - [编译器基础设施与合成领域专用语言前端][doc-design-compiler-foundation] — 已接受；无生效取代。定义编译器中间表示、前端接入与编译基础合同。
@@ -98,6 +99,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 [doc-design-adapter-api]: adapter-api.md
 [doc-design-bevy-reference-adapter]: bevy-reference-adapter.md
 [doc-design-chinese-style-city-workload]: chinese-style-city-workload.md
+[doc-design-ci-affected-verification-plan]: ci-affected-verification-plan.md
 [doc-design-committed-pose-extraction]: committed-pose-extraction.md
 [doc-design-committed-road-editing-state]: committed-road-editing-state.md
 [doc-design-compiler-foundation]: compiler-foundation.md
