@@ -68,13 +68,17 @@ impl LaneScan {
             require(!intervals_overlap(leader, interval), || {
                 format!(
                     "车身重叠 corridor={} leader={:?} follower={:?}",
-                    interval.space(), leader, interval
+                    interval.space(),
+                    leader,
+                    interval
                 )
             })?;
             require(interval.front_um() >= leader.front_um(), || {
                 format!(
                     "顺序反转/超车 corridor={} leader={:?} follower={:?}",
-                    interval.space(), leader, interval
+                    interval.space(),
+                    leader,
+                    interval
                 )
             })?;
         }
