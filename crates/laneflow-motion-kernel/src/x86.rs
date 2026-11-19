@@ -652,20 +652,33 @@ macro_rules! arithmetic {
                     // 低于已抬升提案，逐行 min 不改变结果；判据与 scalar_row
                     // 同式（stop_solve_participates）。紧急下界归一化与后续
                     // 投影义务保持不变；混合组继续用精确求解器。
-                    let group_solve = (start..start + $width).any(|row| {
-                        stop_solve_participates(
+                    // R8 复审修：参与位按行保留——组内其他行进入求解时，
+                    // 窗外/无效行也按行跳过归约（与标量逐行判据逐位一致；
+                    // 异常巨大的有限提案不因同组求解被窗外根压低）。
+                    let mut lane_participates = [false; 16];
+                    let mut group_solve = false;
+                    for offset in 0..$width {
+                        let row = start + offset;
+                        let participates = stop_solve_participates(
                             $input.speed_mm_s[row],
                             $input.desired_mm_s[row],
                             $input.max_accel[row],
                             $input.comfort_decel[row],
                             $delta,
                             $input.stop_m[row].min($input.route_end_m[row]),
-                        )
-                    });
+                        );
+                        lane_participates[offset] = participates;
+                        group_solve |= participates;
+                    }
                     if !group_solve {
                         lifted
                     } else {
-                    let has_target = $and($and($cmp::<_CMP_GT_OQ>(stop_target, zero), $cmp::<_CMP_LT_OQ>(stop_target, inf)),
+                    let lane_mask = $mask(&lane_participates, 0);
+                    // R8 复审修：原始提案有效性贯穿归约——has_target 纳入
+                    // finite 掩码，非有限提案（如 +∞ 缓存）不得被有限停止
+                    // 根替换成合法速度；组内其他行进入求解也不得带入同组
+                    // 的非法行（select 保持非有限原值，最终 valid 拒绝）。
+                    let has_target = $and($and($and($and(finite, lane_mask), $cmp::<_CMP_GT_OQ>(stop_target, zero)), $cmp::<_CMP_LT_OQ>(stop_target, inf)),
                         $cmp::<_CMP_GT_OQ>(lifted, zero));
                     let solve_stop = |decel: _| {
                         // 与 max_next_speed_for_decel（L=0）逐式同序：线性根恒 0；二次根

@@ -740,7 +740,6 @@ fn nonfinite_proposals_and_quantization_overflow_are_rejected() {
     fixture.enabled.fill(true);
     fixture.has_proposal.fill(true);
     fixture.has_leader.fill(false);
-    fixture.stop.fill(f32::INFINITY);
     fixture.end.fill(f32::INFINITY);
     fixture.envelope.fill(f32::INFINITY);
     fixture.room.fill(u32::MAX);
@@ -748,12 +747,26 @@ fn nonfinite_proposals_and_quantization_overflow_are_rejected() {
         // #1272 起提案速度是唯一被消费的提案列（位移按一致三元组重算），
         // 非有限拒绝锚定在速度列上。R7 复审修补 NEG_INFINITY：向量的
         // 有限判定曾用 `≤` 两端，把 -∞ 抬成紧急地板速度（后端分歧）。
+        // R8 复审修补 +∞：停止目标 min 曾把无穷提案替换成有限根——
+        // 非法提案不得因归约产生有限结果被重新接受；停止距离按近/远/
+        // 无混合，覆盖实际执行求解、整组跳过与「非法行被同组带入求解」。
         fixture.proposal_travel[row] = 1.0;
+        fixture.speed[row] = 10_000;
+        fixture.desired[row] = 13_000;
+        fixture.comfort[row] = 2.0;
+        fixture.emergency[row] = 4.0;
         fixture.proposal_speed[row] = match row % 4 {
             0 => f32::NAN,
             1 => f32::INFINITY,
             2 => f32::NEG_INFINITY,
             _ => f32::MAX,
+        };
+        // 10 m/s 的保守制动窗 ≈ 54 m：5 m 窗内（求解执行）、500 m 严格
+        // 窗外（整组跳过路径）、∞ 无目标。
+        fixture.stop[row] = match row % 3 {
+            0 => 5.0,
+            1 => 500.0,
+            _ => f32::INFINITY,
         };
     }
     for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
@@ -764,7 +777,17 @@ fn nonfinite_proposals_and_quantization_overflow_are_rejected() {
         kernel
             .run(&fixture.input(N), &mut result.output(N), 0.016)
             .unwrap();
-        assert!(result.valid.iter().all(|&x| !x));
+        for row in 0..N {
+            // 非有限提案（NaN/±∞）在任何停止目标下都必须拒绝；有限但
+            // 巨大的 f32::MAX 只在未被归约时量化溢出拒绝（近目标合法
+            // 归约成有限速度，远/无目标保持原值溢出）。
+            let expected = row % 4 == 3 && row % 3 == 0;
+            assert_eq!(
+                result.valid[row], expected,
+                "{backend:?} row {row}（提案 {} 停止 {}）",
+                fixture.proposal_speed[row], fixture.stop[row]
+            );
+        }
         let mut direct = Results::new();
         direct.valid.fill(true);
         kernel

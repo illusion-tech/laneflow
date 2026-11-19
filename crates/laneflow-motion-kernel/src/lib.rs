@@ -825,7 +825,12 @@ fn scalar_row<const TRACK: bool>(
         if raw_speed.is_finite() {
             raw_speed = raw_speed.max(floor);
         }
-        if stop_target > 0.0
+        // R8 复审修：原始提案有效性贯穿归约——非有限提案（如 +∞ 缓存）
+        // 不得进入停止目标 min：有限根会替换无穷值，把非法提案洗成合法
+        // 速度（标量与向量后端一致拒绝；向量组内一行进求解也不得带入
+        // 同组的非法行）。
+        if raw_speed.is_finite()
+            && stop_target > 0.0
             && stop_target.is_finite()
             && raw_speed > 0.0
             // R6-3 复审修：有限路终等远目标严格处于保守制动窗外时不进求解
