@@ -22,6 +22,7 @@ members = [
     "tools/laneflow-os-probe",
     "tools/laneflow-synth-generator",
     "tools/laneflow-synth-harness",
+    "tools/laneflow-traffic-verification",
     "tools/laneflow-urban-generator",
     "tools/laneflow-urban-harness",
     "xtask",

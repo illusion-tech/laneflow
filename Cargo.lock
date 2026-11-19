@@ -3370,6 +3370,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-traffic-verification"
+version = "0.0.0"
+dependencies = [
+ "laneflow-static-contract",
+]
+
+[[package]]
 name = "laneflow-urban-generator"
 version = "0.0.0"
 dependencies = [
