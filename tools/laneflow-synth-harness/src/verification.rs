@@ -17,12 +17,14 @@ use crate::SEMANTIC_CONTRACT;
 
 pub(crate) const DOMAIN: &str = "w-frozen-six-phase";
 
-/// 逐拍运动与身份不变量（进度/速度/加减速/身份/绑定）。
+/// 逐拍运动与身份不变量（进度/速度/加减速/身份/绑定）。初态观测与
+/// 每个成功步进是两个独立义务实例，本规则显式声明两处都运行。
 pub(crate) const RULE_MOTION: RuleDescriptor = RuleDescriptor {
     id: RuleId("w-motion-identity"),
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
     coverage: CoverageMode::EveryRound,
+    initial: true,
 };
 
 /// 含微米余数的提交车身区间严格分离（共享判据，有序相邻路径）。
@@ -31,6 +33,7 @@ pub(crate) const RULE_BODY: RuleDescriptor = RuleDescriptor {
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
     coverage: CoverageMode::EveryRound,
+    initial: true,
 };
 
 /// W 走廊顺序不反转/不超车（专项，独立于共享分离判据核验）。
@@ -39,6 +42,7 @@ pub(crate) const RULE_ORDER: RuleDescriptor = RuleDescriptor {
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
     coverage: CoverageMode::EveryRound,
+    initial: true,
 };
 
 /// 拍初独立信号许可（D1 严格不等式，共享判据）。
@@ -47,6 +51,7 @@ pub(crate) const RULE_SIGNAL: RuleDescriptor = RuleDescriptor {
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
     coverage: CoverageMode::OnEvent,
+    initial: false,
 };
 
 /// entry→exit 与 live-order 中恰好一对 GateCrossed/ManeuverTraversal 事件。
@@ -55,6 +60,7 @@ pub(crate) const RULE_GATES: RuleDescriptor = RuleDescriptor {
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
     coverage: CoverageMode::OnEvent,
+    initial: false,
 };
 
 const RULES: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_ORDER, RULE_SIGNAL, RULE_GATES];
