@@ -298,10 +298,13 @@ jobs:
           --exclude laneflow-urban-harness --exclude laneflow-urban-generator
           -E 'not (binary(corridor_traffic_smoke))'
 
+      # #1462：三项目标测试均为 lib 单元测试，--lib 把构建集合收窄到 lib，
+      # 不再为 3 项测试构建全部 [[test]] 集成目标（917 skipped 的来源）；-E
+      # 过滤保留显式意图。
       - name: Run execution evidence tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 nextest run -p laneflow-runtime --locked --features execution-evidence -E 'test(execution_evidence)'
+        run: cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features execution-evidence -E 'test(execution_evidence)'
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests
@@ -441,10 +444,12 @@ jobs:
         shell: bash
         run: cargo +1.99.1 nextest run --locked -p laneflow-urban-harness -p laneflow-urban-generator
 
+      # #1462：--test 直接选择构建目标（Cargo.toml [[test]]，路径在
+      # examples/support/），不再先构建包内其他测试目标再按 binary 名过滤。
       - name: Run corridor fixture smoke tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.99.1 nextest run --locked -p laneflow-bevy -E 'binary(corridor_traffic_smoke)'
+        run: cargo +1.99.1 nextest run --locked -p laneflow-bevy --test corridor_traffic_smoke
 
       - name: Show sccache statistics
         if: ${{ !cancelled() && needs.changes.outputs.rust == 'true' }}
