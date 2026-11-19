@@ -29,6 +29,13 @@ on:
           - "1800"
         default: "300"
 
+# #1463：同一 PR 推送新 head 时取消未完成的旧运行。分组限定同一 workflow、
+# 同一 PR；merge_group / 手工以 run_id 兜底（唯一分组），永不互相取消——
+# merge queue 的 checks_requested 依赖每个候选的检查完整执行。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

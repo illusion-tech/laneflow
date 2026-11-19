@@ -364,6 +364,12 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   纯文档合并组不拉起 Windows runner 与 crosslang 构建；检测失败时失败关闭——
   照常全跑（#1363）。非必查。
 
+除 `Evidence`（无 `pull_request` 触发）外，各 workflow 均设 `concurrency` 分组：
+`pull_request` 事件按「workflow 名 + PR 号」分组，推送新 head 即取消同 PR 未完成的
+旧运行；merge_group、push、调度与手工事件以 `run_id` 兜底分组（唯一），永不互相
+取消——merge queue 的每个候选必须完整执行检查，安全基线运行不受 PR 推送影响
+（#1463）。
+
 证据类测试（测量窗口 / 多进程独占测量）以 `#[ignore]` 移出常规检查，由
 `Evidence` workflow（`schedule` + `workflow_dispatch`，钉版 nextest
 `--run-ignored ignored-only --no-capture`）每日运行并可手动触发；不参与合并检查（#748）。
