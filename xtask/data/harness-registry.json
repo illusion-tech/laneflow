@@ -161,6 +161,16 @@
       ]
     },
     {
+      "id": "openai/chatgpt/web",
+      "display_name": "ChatGPT Web",
+      "sources": [
+        {
+          "url": "https://help.openai.com/en/articles/12677804-what-is-chatgpt-faq",
+          "checked_at": "2026-11-19"
+        }
+      ]
+    },
+    {
       "id": "openai/codex/cli",
       "display_name": "Codex CLI",
       "sources": [
@@ -222,6 +232,12 @@
     }
   ],
   "hints": [
+    {
+      "input": "ChatGPT Web",
+      "candidates": [
+        "openai/chatgpt/web"
+      ]
+    },
     {
       "input": "Claude Code",
       "candidates": [

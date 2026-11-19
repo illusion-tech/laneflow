@@ -3,7 +3,7 @@ schema_version = 1
 id = "reference-glossary"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-18"
+revised_date = "2026-11-19"
 summary = "按概念统一中文术语、英文辅助名、符号与旧称查询。"
 scope = "LaneFlow 跨文档规范术语与概念关系"
 related = ["governance-terminology-policy", "reference-terminology-catalog", "reference-wording-guide"]
@@ -5294,6 +5294,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 | --------------------------------------------------- | ------------------------------ | ---------- |
 | [补充检查][term-additional-check]                   | additional check               | —          |
 | [备用测试方式][term-alternative-test-execution]     | alternative test execution     | —          |
+| [受检验证计划][term-checked-verification-plan]      | checked verification plan      | —          |
 | [编译失败测试][term-compile-fail-test]              | compile-fail test              | —          |
 | [默认规则][term-default-rule]                       | default rule                   | —          |
 | [差分测试][term-differential-testing]               | differential testing           | —          |
@@ -5314,6 +5315,9 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 | [语义验证][term-semantic-validation]                | semantic validation            | —          |
 | [结构验证][term-structural-verification]            | structural verification        | —          |
 | [测试支持接缝][term-test-support-seam]              | test-support seam              | —          |
+| [验证事实][term-verification-facts]                 | verification facts             | —          |
+| [验证会话][term-verification-session]               | verification session           | —          |
+| [验证规约][term-verification-specification]         | verification specification     | —          |
 
 <a id="term-additional-check"></a>
 ### 补充检查
@@ -5328,6 +5332,17 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 英文辅助名：alternative test execution。
 
 可选用的另一种测试执行方式；libtest 与 nextest 的线程模型和计时结果不可混同。
+
+<a id="term-checked-verification-plan"></a>
+### 受检验证计划
+
+英文辅助名：checked verification plan。
+
+验证规约与具体输入、事实能力、规则实现及执行阶段完成检查后形成的不可变执行计划。
+
+用于交通验证组合设计；不表示共享验证实现已交付。
+
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-555]。
 
 <a id="term-compile-fail-test"></a>
 ### 编译失败测试
@@ -5366,7 +5381,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 在受检点强制返回受控失败以验证失败原子性等硬不变量的测试机制；注入检查点不得进入默认发布构建。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
 
 <a id="term-final-sort-key"></a>
 ### 最终排序键
@@ -5396,7 +5411,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 生产路径持有空操作默认探针、研究态注入测量实现的显式接缝；默认发布构建必须与无仪器构建等价。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
 
 <a id="term-known-vector"></a>
 ### 已知向量
@@ -5419,7 +5434,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 在生产步进路径的具名阶段边界采集、只用于机制归因的耗时测量；不构成产品延迟取证。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
 
 <a id="term-placeholder-output"></a>
 ### 占位输出
@@ -5442,7 +5457,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 为研究取证或测试检查目的嵌入或接入运行时执行路径的测量、观察与注入机制的总称；不是生产语义的一部分。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
 
 <a id="term-retained-memory-ledger"></a>
 ### 保留内存账本
@@ -5451,7 +5466,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 按所有权穷尽枚举组件的保留内存核算结构；新增字段必须触发编译失败以强制分类。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
 
 <a id="term-semantic-research-prototype"></a>
 ### 语义研究原型
@@ -5460,7 +5475,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 以单线程生产执行为精确预言机、验证候选架构精确等价或在显式保真度预算内有界等价的非生产研究执行器；结论可登记为研究证据，不自动成为生产架构。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
 
 <a id="term-semantic-validation"></a>
 ### 语义验证
@@ -5483,7 +5498,40 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-551]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-556]。
+
+<a id="term-verification-facts"></a>
+### 验证事实
+
+英文辅助名：verification facts。
+
+供验证规则消费的只读输入，明确其身份、单位、适用域及所在的命令或步进边界。
+
+用于交通验证组合设计；事实不包含作为自身合法性依据的生产许可结论。
+
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-557]。
+
+<a id="term-verification-session"></a>
+### 验证会话
+
+英文辅助名：verification session。
+
+依受检验证计划消费事实、维护实际检查覆盖与跨拍义务，并据完整窗口及必需见证产生验证结果的有状态执行对象。
+
+用于交通验证组合设计；不拥有交通世界或宿主命令调度。
+
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-558]。
+
+<a id="term-verification-specification"></a>
+### 验证规约
+
+英文辅助名：verification specification。
+
+规定一次验证须证明的性质、适用域、必需事实、完整窗口及完成见证的要求集合。
+
+用于交通验证组合设计；正式配置档是具名规约组合，诊断性组合不自动具有相同证明范围。
+
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-555]。
 
 <a id="retired-concepts"></a>
 ## 停止采用的概念
@@ -5499,7 +5547,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-552]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-559]。
 
 <a id="term-core-world"></a>
 ### 核心世界
@@ -5547,7 +5595,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-552]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-559]。
 
 <a id="term-full-audit"></a>
 ### 完整审计
@@ -5558,7 +5606,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-552]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-559]。
 
 <a id="term-geometry-document-frontend"></a>
 ### 几何文档前端
@@ -5597,7 +5645,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-552]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-559]。
 
 <a id="term-laneflow-core"></a>
 ### LaneFlow 核心
@@ -5623,7 +5671,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-552]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-559]。
 
 <a id="term-p100-compile-limits-profile"></a>
 ### P100 编译资源配置档
@@ -5666,7 +5714,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [路线][term-route]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[0029 退役预编译静态路线，路线入口只留 register\_route][source-adr-0029-553]。
+依据：[0029 退役预编译静态路线，路线入口只留 register\_route][source-adr-0029-560]。
 
 <a id="term-structurally-verified-image"></a>
 ### 已结构验证镜像
@@ -5692,7 +5740,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-552]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-559]。
 
 <a id="term-unverified-image-bytes"></a>
 ### 未验证镜像字节
@@ -5733,7 +5781,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：后发射检查与最小发布合同已取消独立验证收据，不保留同义现行制品。
 
-依据：[ADR 0024：编译器后发射检查与最小发布闭合][source-adr-0024-554]。
+依据：[ADR 0024：编译器后发射检查与最小发布闭合][source-adr-0024-561]。
 
 <a id="former-names"></a>
 ## 旧称查询
@@ -6000,10 +6048,10 @@ provenance 关系语境。
 [issue-985]: https://github.com/illusion-tech/laneflow/issues/985
 [retired-concepts]: #retired-concepts
 [source-adr-0021-417]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
-[source-adr-0024-554]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[source-adr-0024-561]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
 [source-adr-0025-281]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
-[source-adr-0025-552]: ../adr/0025-checked-canonical-network-and-shared-static-network.md#1-不交付独立静态镜像制品或-abi
-[source-adr-0029-553]: ../adr/0029-retire-precompiled-static-route.md
+[source-adr-0025-559]: ../adr/0025-checked-canonical-network-and-shared-static-network.md#1-不交付独立静态镜像制品或-abi
+[source-adr-0029-560]: ../adr/0029-retire-precompiled-static-route.md
 [source-adr-0033-189]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [source-adr-0035-149]: ../adr/0035-compile-limits-and-resource-ledger.md
 [source-design-adapter-api-491]: ../design/adapter-api.md
@@ -6031,7 +6079,7 @@ provenance 关系语境。
 [source-design-traffic-runtime-columnar-execution-412]: ../design/traffic-runtime-columnar-execution.md
 [source-design-traffic-runtime-execution-config-418]: ../design/traffic-runtime-execution-config.md
 [source-design-traffic-runtime-integer-geometry-415]: ../design/traffic-runtime-integer-geometry.md
-[source-design-traffic-runtime-module-boundary-551]: ../design/traffic-runtime-module-boundary.md
+[source-design-traffic-runtime-module-boundary-556]: ../design/traffic-runtime-module-boundary.md
 [source-design-traffic-runtime-parallel-execution-411]: ../design/traffic-runtime-parallel-execution.md
 [source-design-traffic-runtime-phase-protocol-413]: ../design/traffic-runtime-phase-protocol.md
 [source-design-traffic-runtime-revision-cutover-474]: ../design/traffic-runtime-revision-cutover.md
@@ -6040,6 +6088,9 @@ provenance 关系语境。
 [source-design-traffic-runtime-snapshot-424]: ../design/traffic-runtime-snapshot.md
 [source-design-traffic-runtime-state-integrity-414]: ../design/traffic-runtime-state-integrity.md
 [source-design-traffic-runtime-vehicle-placement-419]: ../design/traffic-runtime-vehicle-placement.md
+[source-design-traffic-verification-555]: ../design/traffic-verification.md#composition
+[source-design-traffic-verification-557]: ../design/traffic-verification.md#facts
+[source-design-traffic-verification-558]: ../design/traffic-verification.md#lifecycle
 [source-design-vehicle-following-237]: ../design/vehicle-following.md
 [source-design-waiting-zone-conflict-right-of-way-233]: ../design/waiting-zone-conflict-right-of-way.md
 [source-governance-code-language-policy-38]: ../governance/code-language-policy.md
@@ -6109,6 +6160,7 @@ provenance 关系语境。
 [term-cardinality]: glossary.md#term-cardinality
 [term-center-to-outer-end-distance]: glossary.md#term-center-to-outer-end-distance
 [term-checked-canonical-network-input]: glossary.md#term-checked-canonical-network-input
+[term-checked-verification-plan]: glossary.md#term-checked-verification-plan
 [term-checkpoint]: glossary.md#term-checkpoint
 [term-chinese-style-city-workload]: glossary.md#term-chinese-style-city-workload
 [term-clean-break]: glossary.md#term-clean-break
@@ -6524,6 +6576,9 @@ provenance 关系语境。
 [term-vehicle-profile]: glossary.md#term-vehicle-profile
 [term-vehicle-runtime-unit]: glossary.md#term-vehicle-runtime-unit
 [term-vehicle-state]: glossary.md#term-vehicle-state
+[term-verification-facts]: glossary.md#term-verification-facts
+[term-verification-session]: glossary.md#term-verification-session
+[term-verification-specification]: glossary.md#term-verification-specification
 [term-version-axis]: glossary.md#term-version-axis
 [term-view]: glossary.md#term-view
 [term-virtual-parked-state]: glossary.md#term-virtual-parked-state
