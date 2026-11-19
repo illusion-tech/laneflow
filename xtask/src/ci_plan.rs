@@ -668,7 +668,10 @@ fn direct_include_argument(tokens: &proc_macro2::TokenStream) -> String {
 }
 
 /// token 层递归：捕获嵌在其他宏实参里的 `include_str!(…)` / `include_bytes!(…)`
-/// 调用（标识符后随可选 `!` 与一个括号组），并继续深入所有组。
+/// 调用。精确识别「标识符 → 可选 `!` → 恰好一个实参组」，实参组复用
+/// `direct_include_argument` 解析，处理完在外层紧随该组之后继续——不越过
+/// 自身实参边界吞掉外层的运算符、比较字面量或后续 include；并继续深入
+/// 其余组。
 fn scan_nested_includes(tokens: &proc_macro2::TokenStream, targets: &mut Vec<String>) {
     let tokens: Vec<proc_macro2::TokenTree> = tokens.clone().into_iter().collect();
     let mut index = 0;
@@ -684,43 +687,23 @@ fn scan_nested_includes(tokens: &proc_macro2::TokenStream, targets: &mut Vec<Str
                     index += 1;
                     continue;
                 }
-                // 标识符 → 可选 `!` → 实参（括号组或裸字面量序列）。
+                // 标识符 → 可选 `!` → 恰好一个实参组；嵌套位置总是完整调用
+                // 形态（syn 只对外层宏剥离定界符）。形态不符记哨兵（失败关闭）。
                 let mut cursor = index + 1;
                 if matches!(tokens.get(cursor), Some(proc_macro2::TokenTree::Punct(p)) if p.as_char() == '!')
                 {
                     cursor += 1;
                 }
-                let mut literal = String::new();
-                let mut non_literal = false;
-                while let Some(token) = tokens.get(cursor) {
-                    match token {
-                        proc_macro2::TokenTree::Literal(lit) => {
-                            push_literal_text(lit, &mut literal);
-                        }
-                        proc_macro2::TokenTree::Group(group) => {
-                            let inner: Vec<_> = group.stream().into_iter().collect();
-                            for token in inner {
-                                match token {
-                                    proc_macro2::TokenTree::Literal(lit) => {
-                                        push_literal_text(&lit, &mut literal)
-                                    }
-                                    proc_macro2::TokenTree::Ident(_) => non_literal = true,
-                                    _ => {}
-                                }
-                            }
-                        }
-                        proc_macro2::TokenTree::Ident(_) => non_literal = true,
-                        proc_macro2::TokenTree::Punct(punct) if punct.as_char() != ',' => {}
-                        _ => break,
+                match tokens.get(cursor) {
+                    Some(proc_macro2::TokenTree::Group(group)) => {
+                        targets.push(direct_include_argument(&group.stream()));
+                        index = cursor + 1;
                     }
-                    cursor += 1;
+                    _ => {
+                        targets.push(UNPARSED_INCLUDE.to_owned());
+                        index = cursor;
+                    }
                 }
-                targets.push(if literal.is_empty() || non_literal {
-                    UNPARSED_INCLUDE.to_owned()
-                } else {
-                    literal
-                });
-                index = cursor;
             }
             _ => index += 1,
         }
@@ -1032,7 +1015,8 @@ mod tests {
             {"name": "laneflow-mid-lib", "manifest_path": "/repo/crates/mid/Cargo.toml", "dependencies": [{"name": "laneflow-core-lib"}]},
             {"name": "laneflow-leaf-tool", "manifest_path": "/repo/tools/leaf/Cargo.toml", "dependencies": [{"name": "laneflow-core-lib"}]},
             {"name": "laneflow-runtime", "manifest_path": "/repo/crates/runtime/Cargo.toml", "dependencies": [{"name": "laneflow-core-lib"}]},
-            {"name": "laneflow-consumer", "manifest_path": "/repo/crates/consumer/Cargo.toml", "dependencies": [{"name": "laneflow-mid-lib"}]}
+            {"name": "laneflow-consumer", "manifest_path": "/repo/crates/consumer/Cargo.toml", "dependencies": [{"name": "laneflow-mid-lib"}]},
+            {"name": "xtask", "manifest_path": "/repo/xtask/Cargo.toml", "dependencies": []}
         ],
         "workspace_root": "/repo"
     }"##;
@@ -1182,17 +1166,42 @@ mod tests {
     }
 
     /// 嵌在其他宏实参里的 include 必须被捕获（syn 访问器只到达外层宏，
-    /// 嵌套形态在 token 层递归收集）。
+    /// 嵌套形态在 token 层递归收集），且解析不得越过自身实参边界——
+    /// 外层逗号、比较运算、方法调用与同表达式的第二个 include 都不能
+    /// 混进 include 的路径。
     #[test]
     fn nested_include_inside_other_macro_is_collected() {
-        let file = syn::parse_file(
-            r##"fn f() { assert_eq!(include_str!("../b/input.txt"), "expected"); }"##,
-        )
-        .expect("嵌套形态须可解析");
-        assert_eq!(
-            collect_include_literals(&file),
-            vec!["../b/input.txt".to_owned()]
-        );
+        let cases: &[(&str, Vec<&str>)] = &[
+            // 实参后接外层逗号。
+            (
+                r##"fn f() { assert_eq!(include_str!("../b/input.txt"), "expected"); }"##,
+                vec!["../b/input.txt"],
+            ),
+            // 实参组后是比较运算与外层字面量：旧实现会把 "expected" 拼进路径。
+            (
+                r##"fn f() { assert!(include_str!("../b/input.txt") == "expected"); }"##,
+                vec!["../b/input.txt"],
+            ),
+            // 实参组后是方法调用：旧实现会把方法名误认作非字面量实参。
+            (
+                r##"fn f() { assert!(include_str!("../b/input.txt").is_empty()); }"##,
+                vec!["../b/input.txt"],
+            ),
+            // 同一表达式两个 include：旧实现会把第二个吞进第一次的路径。
+            (
+                r##"fn f() { assert!(include_str!("../b/a.txt") == include_str!("../c/b.txt")); }"##,
+                vec!["../b/a.txt", "../c/b.txt"],
+            ),
+        ];
+        for (source, expected) in cases {
+            let file = syn::parse_file(source).expect("嵌套形态须可解析");
+            let collected: Vec<String> = expected.iter().map(|path| (*path).to_owned()).collect();
+            assert_eq!(
+                &collect_include_literals(&file),
+                &collected,
+                "源码：{source}"
+            );
+        }
     }
 
     /// 直接形态照常收集；concat!/env! 组合形态记哨兵（非字面量实参）。
@@ -1252,8 +1261,9 @@ mod tests {
     }
 
     /// #1459 回归护栏：xtask 数据文件由常驻 Commit message job 校验，通用包
-    /// 目录归属不得让它们复活重活（xtask 是 workspace 成员，package_of 会
-    /// 先截获 xtask/data/**——归类顺序把不适用规则放在包归属之前）。
+    /// 目录归属不得让它们复活重活。fixture 必须含 xtask 成员并先断言包归属
+    /// 前提成立——否则恢复旧的判断顺序（包归属先于不适用）时本测试照样
+    /// 通过，起不到回归作用。
     #[test]
     fn xtask_data_files_are_not_applicable_and_yield_empty_tasks() {
         let workspace = fixture_workspace();
@@ -1262,6 +1272,11 @@ mod tests {
             "xtask/data/harness-registry.json",
             "xtask/data/doc-checks.toml",
         ] {
+            assert_eq!(
+                workspace.package_of(path),
+                Some("xtask"),
+                "前提：{path} 在无序规则时会落入包归属（fixture 须含 xtask 成员）"
+            );
             let plan = build_plan(&files(&[path]), &workspace, &registry());
             assert!(!plan.full, "{path} 应判不适用");
             assert!(plan.seeds.is_empty(), "{path} 不产生种子");
@@ -1355,7 +1370,8 @@ mod tests {
     fn registry_consumers_exist_in_workspace() {
         let metadata = cargo_metadata().expect("cargo metadata 须可运行");
         let workspace = Workspace::parse(&metadata).expect("真实 metadata 须可解析");
-        for consumers in registry().embed.values() {
+        // 用合并后的 inputs（嵌入 ∪ 运行时读取声明）校验，两类消费者都被覆盖。
+        for consumers in registry().inputs.values() {
             for consumer in consumers {
                 assert!(
                     workspace.roots.contains_key(consumer),
