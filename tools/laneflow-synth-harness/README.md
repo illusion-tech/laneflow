@@ -41,6 +41,12 @@ laneflow-synth-harness burst-matrix <generator-matrix-root> <implementation-comm
 
 - `report.json`：完整输入 manifest、实现提交、窗口、实际计数、逐拍轨迹摘要、初始/
   预热结束/H/2H/4H/最终检查点；成功才有 `complete=true`。
+- `semantic_contract`：每份语义回执（含初始 `complete=false`）携带当前验收语义
+  协议 `lf-synth-execution-2`——entry→exit 以拍初状态独立证明信号侧许可
+  （绿灯允许、红灯拒绝、黄灯按 D1 困境区严格不等式 `v_before² > 2·b_e·d_before`，
+  等号拒；W4 指定过门必须 Green）。矩阵子进程、worker、oracle 预检与
+  retry/restore 引用严格校验该字段；缺失、旧值或未知值一律拒绝，旧报告不得
+  转标复用。
 - `ticks.bin`：包含初始边界的全部逐拍公开观测摘要，矩阵逐字节比较两份轨迹。
 - `summary.json`：矩阵已通过行、完整回执、独立进程一致性；中断/失败保持
   `complete=false`，已写材料保留，不覆盖或跳过失败行。

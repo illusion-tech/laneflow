@@ -1,12 +1,17 @@
 use std::num::NonZeroU32;
 
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{ExecutionConfig, TickInput};
 use laneflow_static_contract::SignalAspect;
-use laneflow_synth_generator::{Case, Identity, Provenance, generate};
+use laneflow_static_network::{
+    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+    build_shared_network_revision,
+};
+use laneflow_synth_generator::{Case, Identity, InitialState, Provenance, generate};
 
 use crate::{
     Plan, cycle_ms,
-    install::Sample,
+    install::{Sample, route_position_offsets, validate_w_signal_reference_domain},
     observe::motion_valid,
     signal_reference::{SignalSchedule, aspect},
 };
@@ -107,6 +112,36 @@ fn frozen_signal_boundaries_and_offsets() {
                 dt
             ),
             SignalAspect::Yellow
+        );
+    }
+}
+
+#[test]
+fn w_reference_domain_rejects_drifted_reference_facts() {
+    // 参考判定的适用条件必须显式核对：冻结事实通过；受检 profile 的派生
+    // 紧急减速度漂移（不再是 6000）时拒绝——四舍五入凑巧相等不等于原始
+    // 值精确，生成器演进后不得静默套用旧假设。
+    let bundle = bundle(Case::W1, 16);
+    let input = check_canonical_network_input(
+        bundle.files()["network.lfca"].as_slice(),
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(2 * 1_024 * 1_024 * 1_024, 2 * 1_024 * 1_024 * 1_024),
+        ),
+    )
+    .unwrap();
+    let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+    let route_offsets = route_position_offsets(&state, &revision).unwrap();
+    assert!(validate_w_signal_reference_domain(&revision, &state, &route_offsets, 6_000).is_ok());
+    for drifted in [0_u64, 6_001, 9_000] {
+        assert!(
+            validate_w_signal_reference_domain(&revision, &state, &route_offsets, drifted).is_err(),
+            "drifted emergency decel {drifted} must reject"
         );
     }
 }
