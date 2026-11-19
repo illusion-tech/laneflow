@@ -2,17 +2,85 @@ use laneflow_runtime::{
     ManeuverTraversalPhase, ParkingBinding, ParkingTarget, TrafficTransitionKind, VehicleState,
     VehicleStatus,
 };
+use laneflow_traffic_verification::body::{BodyInterval, BodyOwner, intervals_overlap};
+use laneflow_traffic_verification::signal::signal_crossing_permission;
 
 use crate::install::Sample;
 use crate::signal_reference::SignalSchedule;
-use crate::signal_reference::{aspect, signal_crossing_permission};
+use crate::signal_reference::aspect;
 use crate::{Error, require};
 
 const EDGE_MM: u64 = 5_130_000;
 
+/// W 族受检车长：冻结输入恒为 4 500 mm（observe 时逐车核验）。
+const BODY_MM: u64 = 4_500;
+
 pub(crate) fn position(state: VehicleState) -> u64 {
     (u64::from(state.route_edge_index()) * EDGE_MM + u64::from(state.progress_mm())) * 1_000
         + u64::from(state.carry_um())
+}
+
+/// 由 W 车辆的一维提交位置构造共享判据的受检区间：前保险杠为
+/// `position`（含微米余数），车尾向前展开 `BODY_MM`；`rank / 25` 是经
+/// 安装/恢复域绑定证明的静态隔离走廊（不同走廊不共享需互检的物理车身
+/// 空间），owner 携带逻辑 rank 与代次（普通 W 固定人口代次恒为 0，burst
+/// 传入宿主代次）。车尾越出走廊起点（位置不足一个车长）对冻结 W 输入
+/// 不可达，按事实错误拒绝而非截断后弱化检查。
+pub(crate) fn w_body_interval(
+    rank: usize,
+    position_um: u64,
+    incarnation: u32,
+) -> Result<BodyInterval, Error> {
+    let back_um = position_um
+        .checked_sub(BODY_MM * 1_000)
+        .ok_or_else(|| Error::Invalid(format!("车尾越出走廊起点 rank={rank}")))?;
+    Ok(BodyInterval {
+        space: u32::try_from(rank / 25).expect("rank 档在 u32 域内"),
+        back_um,
+        front_um: position_um,
+        owner: BodyOwner {
+            logical: rank as u64,
+            incarnation,
+        },
+    })
+}
+
+/// W 域车身分离的有序相邻扫描：普通与 burst 两条观测路径共用的共享事实
+/// 适配器。区间构造由 [`w_body_interval`] 完成（含微米余数的一维提交位置、
+/// `rank / 25` 静态隔离走廊、owner 携带代次）；分离判定调用共享包的
+/// `intervals_overlap`（半开区间、相接合法），W 专项的顺序不反转/不超车
+/// 约束独立核验，不为接口统一升级成全车排序（设计 §5.2/§5.3）。
+pub(crate) struct LaneScan {
+    front: Option<BodyInterval>,
+}
+
+impl LaneScan {
+    pub(crate) fn new() -> Self {
+        Self { front: None }
+    }
+
+    /// 按提交序推入一辆 Active 车辆的受检区间；同走廊时核验与前车的
+    /// 分离与顺序，跨走廊（`space` 变化）只重置游标。
+    pub(crate) fn push(&mut self, interval: BodyInterval) -> Result<(), Error> {
+        if let Some(leader) = self.front
+            && leader.space == interval.space
+        {
+            require(!intervals_overlap(leader, interval), || {
+                format!(
+                    "车身重叠 corridor={} leader={:?} follower={:?}",
+                    interval.space, leader, interval
+                )
+            })?;
+            require(interval.front_um >= leader.front_um, || {
+                format!(
+                    "顺序反转/超车 corridor={} leader={:?} follower={:?}",
+                    interval.space, leader, interval
+                )
+            })?;
+        }
+        self.front = Some(interval);
+        Ok(())
+    }
 }
 
 /// 跨拍生命周期序（#1227）：`last_kind` 跨观测持续，接受并推进返回 true；
@@ -101,7 +169,7 @@ impl Sample {
         bytes.extend_from_slice(&(self.handles.len() as u32).to_le_bytes());
         let mut event_index = 0;
         let events = self.world.latest_transition_events();
-        let mut follower_front = None;
+        let mut lane_scan = LaneScan::new();
         for (rank, &handle) in self.handles.iter().enumerate() {
             let state = self
                 .world
@@ -110,9 +178,6 @@ impl Sample {
             let initial = self.initial[rank];
             let old = self.previous[rank];
             let route_rank = self.state.vehicles[rank].route_rank as usize;
-            if rank % 25 == 0 {
-                follower_front = None;
-            }
             require(
                 state.handle() == initial.handle()
                     && state.profile() == initial.profile()
@@ -160,13 +225,9 @@ impl Sample {
                     ),
                     || format!("进度/速度/加减速 tick={tick} rank={rank}: {old:?} -> {state:?}"),
                 )?;
-                if let Some(front) = follower_front {
-                    require(
-                        next_position >= front + u64::from(state.length_mm()) * 1_000,
-                        || format!("车身重叠或超车 tick={tick} rank={rank}"),
-                    )?;
-                }
-                follower_front = Some(next_position);
+                lane_scan
+                    .push(w_body_interval(rank, next_position, 0)?)
+                    .map_err(|e| Error::Invalid(format!("{e} tick={tick} rank={rank}")))?;
             }
             let changed = state.route_edge_index() != old.route_edge_index();
             if changed {
@@ -575,7 +636,8 @@ mod lifecycle_order_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::motion_valid;
+    use super::{LaneScan, motion_valid, w_body_interval};
+    use laneflow_traffic_verification::body::intervals_overlap;
 
     #[test]
     fn motion_valid_uses_profile_max_acceleration_bound() {
@@ -591,5 +653,64 @@ mod tests {
         // 位置与速度硬上界不随车型变化。
         assert!(!motion_valid(0, 13_900 * 33 + 2, 0, 0, 1_500, 33));
         assert!(!motion_valid(0, 1, 0, 13_901, 1_500, 33));
+    }
+
+    #[test]
+    fn w_body_interval_maps_corridor_owner_and_um_length() {
+        let interval = w_body_interval(26, 30_000_000, 2).unwrap();
+        assert_eq!(interval.space, 1, "rank 26 属走廊 1");
+        assert_eq!(interval.back_um, 25_500_000);
+        assert_eq!(interval.front_um, 30_000_000);
+        assert_eq!(interval.owner.logical, 26);
+        assert_eq!(interval.owner.incarnation, 2, "burst 宿主代次透传");
+        // 车尾越出走廊起点（位置不足一个车长）按事实错误拒绝，不截断。
+        assert!(w_body_interval(0, 4_499_999, 0).is_err());
+        assert!(w_body_interval(0, 4_500_000, 0).is_ok());
+    }
+
+    #[test]
+    fn lane_scan_uses_shared_criterion_and_keeps_w_ordering() {
+        // 相接合法：前车 [25.5M, 30M)、后车 [30M, 34.5M)。
+        let leader = w_body_interval(0, 30_000_000, 0).unwrap();
+        let follower = w_body_interval(1, 34_500_000, 0).unwrap();
+        let mut scan = LaneScan::new();
+        assert!(scan.push(leader).is_ok());
+        assert!(scan.push(follower).is_ok(), "恰好相接不构成重叠");
+        // 注入重叠事实（接线负例）：压入 1 µm 即被共享判据报出。
+        let mut scan = LaneScan::new();
+        scan.push(leader).unwrap();
+        assert!(
+            scan.push(w_body_interval(1, 34_499_999, 0).unwrap())
+                .is_err()
+        );
+        // 同位置的不同 owner 必报。
+        let mut scan = LaneScan::new();
+        scan.push(leader).unwrap();
+        assert!(
+            scan.push(w_body_interval(1, 30_000_000, 0).unwrap())
+                .is_err()
+        );
+        // 纯顺序违例（整体在前车之后方）：共享判据不报，W 顺序专项拦截。
+        let behind = w_body_interval(1, 20_000_000, 0).unwrap();
+        assert!(!intervals_overlap(leader, behind));
+        let mut scan = LaneScan::new();
+        scan.push(leader).unwrap();
+        assert!(scan.push(behind).is_err(), "顺序反转/超车独立核验");
+        // 跨走廊（rank/25 不同）不互检：同位置不报。
+        let mut scan = LaneScan::new();
+        scan.push(leader).unwrap();
+        assert!(
+            scan.push(w_body_interval(25, 30_000_000, 0).unwrap())
+                .is_ok()
+        );
+        // 走廊切换后恢复同走廊比较。
+        let mut scan = LaneScan::new();
+        scan.push(leader).unwrap();
+        scan.push(w_body_interval(25, 30_000_000, 0).unwrap())
+            .unwrap();
+        assert!(
+            scan.push(w_body_interval(26, 30_000_000, 0).unwrap())
+                .is_err()
+        );
     }
 }

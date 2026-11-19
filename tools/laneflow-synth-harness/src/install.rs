@@ -148,6 +148,39 @@ pub(crate) fn validate_w_signal_reference_domain(
     Ok(())
 }
 
+/// W 车身分离快路径的域绑定（设计 §5.2）：受检一维走廊要求每条路线的
+/// 两条边恰为 `EDGE_MM` 网格（`position` 的“边序 × 网格 + 进度”坐标
+/// 忠实反映物理空间）、路线内两边不别名、不同路线不共享物理边（不同
+/// `rank / 25` 走廊不共享需互检的物理车身空间）。任一前提不成立即拒绝
+/// 快路径，不仅凭 `rank / 25` 推断空间隔离；安装与恢复均执行。
+pub(crate) fn validate_w_corridor_binding(
+    state: &InitialState,
+    route_offsets: &[Vec<u64>],
+) -> Result<(), Error> {
+    if state.identity.lane_change().is_some() {
+        return Ok(());
+    }
+    let mut seen_edges = std::collections::HashSet::new();
+    for (route_rank, route) in state.routes.iter().enumerate() {
+        crate::require(
+            route.edge_ids.len() == 2
+                && route_offsets[route_rank].len() == 3
+                && route_offsets[route_rank][1] == 5_130_000
+                && route_offsets[route_rank][2] == 2 * 5_130_000,
+            || format!("W 走廊须为两条 5 130 m 边的一维网格：route={route_rank}"),
+        )?;
+        crate::require(route.edge_ids[0] != route.edge_ids[1], || {
+            format!("W 走廊两条边不得别名：route={route_rank}")
+        })?;
+        for id in &route.edge_ids {
+            crate::require(seen_edges.insert(id.as_str()), || {
+                format!("W 走廊不得与其他路线共享物理边：route={route_rank} edge={id}")
+            })?;
+        }
+    }
+    Ok(())
+}
+
 impl Sample {
     pub fn new(bundle: &Bundle, execution: ExecutionConfig) -> Result<Self, Error> {
         let input = check_canonical_network_input(
@@ -319,6 +352,7 @@ impl Sample {
             &route_offsets,
             emergency_decel_mm_s2,
         )?;
+        validate_w_corridor_binding(&state, &route_offsets)?;
         let lane_change_slots = state
             .identity
             .lane_change()

@@ -1,12 +1,13 @@
 use laneflow_runtime::*;
 use laneflow_synth_generator::Case;
+use laneflow_traffic_verification::signal::{CrossingPermit, signal_crossing_permission};
 
 use super::{Burst, Command, Operation};
 use crate::signal_reference::SignalSchedule;
-use crate::signal_reference::{CrossingPermit, aspect, signal_crossing_permission};
+use crate::signal_reference::aspect;
 use crate::{
     Error, Plan, failure,
-    observe::{motion_valid, position},
+    observe::{LaneScan, motion_valid, position, w_body_interval},
     require,
 };
 
@@ -264,20 +265,19 @@ impl Burst {
             }
             self.sample.previous[rank] = state;
         }
-        let mut front = None;
+        let mut lane_scan = LaneScan::new();
         for &rank in &self.lane_order {
             let state = self.sample.previous[rank];
             if state.status() != VehicleStatus::Active {
                 continue;
             }
-            let current = position(state);
-            if let Some((route, previous)) = front {
-                require(
-                    route != rank / 25 || current >= previous + 4_500_000,
-                    || format!("overlap/overtake tick={tick} rank={rank}"),
-                )?;
-            }
-            front = Some((rank / 25, current));
+            lane_scan
+                .push(w_body_interval(
+                    rank,
+                    position(state),
+                    self.incarnations[rank],
+                )?)
+                .map_err(|e| Error::Invalid(format!("{e} tick={tick} rank={rank}")))?;
         }
         let events = self.sample.world.latest_transition_events();
         let mut event_index = 0;
