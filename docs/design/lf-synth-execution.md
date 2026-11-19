@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-lf-synth-execution"
 kind = "design"
 status = "active"
-revised_date = "2026-11-16"
+revised_date = "2026-11-19"
 summary = "定义合成工作负载执行窗口与逐拍语义核验。"
 scope = "定义合成工作负载执行窗口与逐拍语义核验。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455"]
 +++
 
 # LF-SYNTH 执行核验
@@ -47,8 +47,20 @@ W1/W2 每拍检查：
   单独记录观察到的最大减速度（mm/s²，向上取整）和超出 profile 紧急减速度的
   拍/车计数并逐项对齐例外清单，不隐藏超界。
 - 同一 route 的 Active 按初始 slot 顺序不超车，车身区间不重叠；Parked 不占车道。
-- 每个信号组与冻结六阶段及 `(cell*997)%cycle` 独立计算的灯态完全一致。
-  entry→exit 必须在调用 step 前的已提交绿灯下发生；成功 step 后验证新时刻灯态。
+- 每个信号组与冻结六阶段及 `(cell*997)%cycle`（W4 为 `cycle-dt` offset）独立
+  计算的灯态完全一致。每次 entry→exit 以拍初状态独立证明信号侧许可：导致该次
+  step 使用的是前一拍边界的已提交状态。判据逐拍无状态求值，不保存
+  「曾经被许可」承诺：绿灯允许；红灯拒绝；黄灯按 D1 困境区严格不等式
+  `v_before² > 2·b_e·d_before` 判定——`v_before` 为拍初已提交速度（mm/s），
+  `d_before` 为拍初整数进度到停止线的距离 `5_130_000 − progress_before`（mm），
+  `b_e` 为受检 profile 紧急减速度（6 000 mm/s²）；等号属于可停车，拒绝过门。
+  独立参考判定采用整数交叉乘积精确比较，不调用 Runtime 的门决策、困境区
+  豁免或停止求解器，不消费 IIDM 提案或归约后候选速度，不添加 epsilon；
+  与 Runtime f32 数值实现的分歧保留为失败并按实现问题归因。该规则适用于
+  当前 W1–W4 冻结输入域（entry 边 5 130 m、每路线唯一信号 Gate、
+  `ProtectedGroup` 且无独立禁止、不含 Waiting/Conflict）；安装与恢复路径一次
+  校验适用条件，生成器演进后参考判定不得静默套用旧假设。黄灯许可只解除
+  黄灯本身的拒绝；成功 step 后仍验证新时刻灯态。
 - 每次 entry→exit 对应 live-order 中恰好一对 `GateCrossed`、
   `ManeuverTraversalCompleted`。事件 tick、车辆、更新序号、kind、Gate、route、
   occurrence、hop、位置全部精确核对，不接受缺失、多余或乱序事件。
@@ -62,7 +74,12 @@ W1/W2 每拍检查：
 ## 2. W1/W2 证据与摘要编码
 
 `report.json` 的域为 `lf-synth-semantic-run-1`；矩阵为
-`lf-synth-semantic-matrix-1`。结果保留完整输入 manifest（含其来源提交）、调用者
+`lf-synth-semantic-matrix-1`。回执另携带 `semantic_contract:
+"lf-synth-execution-2"` 标识当前验收语义（第 1 节的拍初独立信号许可）；
+初始 `complete=false` 回执同样携带。消费入口（矩阵子进程、worker、oracle
+预检、retry/restore 引用）严格校验该字段，缺失、旧值或未知值一律拒绝；
+旧报告不得通过编辑字段转标，新语义的证据必须由新实现的干净运行重建。
+结果保留完整输入 manifest（含其来源提交）、调用者
 声明的实际实现提交、窗口、计数和检查点。无 wall-clock percentile 或产品 Pass。
 回执的 `workers` 来自已安装世界的执行配置，不进入交通输入身份或状态摘要。
 创建新目录先写 `complete=false`，只有全窗口及末态检查通过后才标记完成；失败或
@@ -111,7 +128,8 @@ W3 的事件屏障和生命周期替换输入遵循性能基线 §4.2，W4 遵�
   Completed，结束前必须全部恢复，持续 pending 或额外人口耗尽均使运行失败。
 - W4 严格执行 B-1 的完成探针、B0 的 replace/leave 与 A-green 提交、B1 的新鲜
   转换探针。信号使用独立周期公式及 `cycle-delta` offset 核验；B0 不得过门，
-  B1 恰好每 cell 一个指定探针过门，随后结束。任意命令失败均使该行失败。
+  B1 恰好每 cell 一个指定探针过门（许可原因必须为 Green——同步释放专项
+  强于通用许可），随后结束。任意命令失败均使该行失败。
 - 逻辑序号跨替换不变；每次新句柄必须不同、旧句柄失效且不与其他 live 身份重合。
   工具维护预期 live 顺序和逻辑代次：despawn/spawn 追加到末尾，atomic replace
   保持 live 序号。逻辑代次只统计宿主重建次数，不冒充 Runtime 私有 generation。
@@ -127,7 +145,8 @@ W3 入位单拍和离位后的边界。最大减速度与超 profile 次数继�
 
 ## 4. W3/W4 证据编码
 
-W3/W4 回执域为 `lf-synth-burst-run-1`。逐拍摘要、命令批次摘要及命令收据摘要均为
+W3/W4 回执域为 `lf-synth-burst-run-1`，与普通回执同样携带第 2 节的
+`semantic_contract` 语义版本并受同一消费准入约束。逐拍摘要、命令批次摘要及命令收据摘要均为
 ADR 0033 内部完整性摘要：LaneFlow 进程产生和复核，持久化在运行材料，使用
 BLAKE3-256、固定域和小端整数；不进入 Runtime 热路径或正式计时。
 

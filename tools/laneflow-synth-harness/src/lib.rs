@@ -5,6 +5,7 @@ pub mod host;
 mod install;
 pub mod measurement;
 mod observe;
+mod signal_reference;
 pub use burst::restore;
 
 use std::fs::{self, File};

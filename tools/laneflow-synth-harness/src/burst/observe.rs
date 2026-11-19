@@ -3,37 +3,13 @@ use laneflow_static_contract::SignalAspect;
 use laneflow_synth_generator::Case;
 
 use super::{Burst, Command, Operation};
+use crate::signal_reference::SignalSchedule;
+use crate::signal_reference::aspect;
 use crate::{
-    Error, Plan, cycle_ms, durations, failure,
+    Error, Plan, failure,
     observe::{motion_valid, position},
     require,
 };
-
-fn aspect(case: Case, cell: usize, route: usize, tick: u64, dt: u32) -> SignalAspect {
-    let cycle = cycle_ms(dt);
-    let offset = if case == Case::W4 {
-        cycle - u64::from(dt)
-    } else {
-        cell as u64 * 997 % cycle
-    };
-    let mut position = (tick * u64::from(dt) + offset) % cycle;
-    let phase = durations(dt)
-        .into_iter()
-        .position(|duration| {
-            if position < duration {
-                true
-            } else {
-                position -= duration;
-                false
-            }
-        })
-        .expect("positive cycle");
-    match (phase, route % 2) {
-        (0, 0) | (3, 1) => SignalAspect::Green,
-        (1, 0) | (4, 1) => SignalAspect::Yellow,
-        _ => SignalAspect::Red,
-    }
-}
 
 fn status_code(status: VehicleStatus) -> u32 {
     match status {
@@ -52,6 +28,11 @@ impl Burst {
     ) -> Result<blake3::Hash, Error> {
         let dt = self.sample.state.identity.fixed_delta_ms;
         let case = self.sample.state.identity.case.clone();
+        let schedule = if case == Case::W4 {
+            SignalSchedule::Synchronized
+        } else {
+            SignalSchedule::CellOffset
+        };
         let cells = self.arrivals.len();
         require(
             self.sample.world.tick_index() == tick
@@ -93,7 +74,8 @@ impl Burst {
                 .binary_search_by_key(&group.raw(), |(g, _)| g.raw())
                 .map_err(|_| failure("signal group", rank))?;
             require(
-                signals.as_slice()[index].1 == aspect(case.clone(), rank / 4, rank % 4, tick, dt),
+                signals.as_slice()[index].1
+                    == aspect(schedule, rank as u32 / 4, rank as u32 % 4, tick, dt),
                 || format!("signal aspect tick={tick} route={rank}"),
             )?;
         }
@@ -216,8 +198,13 @@ impl Burst {
                     previous.route_edge_index() == 0
                         && state.route_edge_index() == 1
                         && tick > 0
-                        && aspect(case.clone(), rank / 100, route_rank % 4, tick - 1, dt)
-                            == SignalAspect::Green,
+                        && aspect(
+                            schedule,
+                            rank as u32 / 100,
+                            route_rank as u32 % 4,
+                            tick - 1,
+                            dt,
+                        ) == SignalAspect::Green,
                     || format!("transition/signal causality tick={tick} rank={rank}"),
                 )?;
                 self.total_crossings[rank] += 1;
@@ -433,6 +420,7 @@ pub(super) fn record_arrival(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cycle_ms;
 
     #[test]
     fn synchronized_signal_uses_pre_step_snapshot() {
@@ -440,9 +428,24 @@ mod tests {
             let warm = 4 * cycle_ms(dt) / u64::from(dt);
             for cell in [0, 99, 999] {
                 for route in 0..4 {
-                    assert_eq!(aspect(Case::W4, cell, route, warm, dt), SignalAspect::Red);
                     assert_eq!(
-                        aspect(Case::W4, cell, route, warm + 1, dt),
+                        aspect(
+                            SignalSchedule::Synchronized,
+                            cell as u32,
+                            route as u32,
+                            warm,
+                            dt
+                        ),
+                        SignalAspect::Red
+                    );
+                    assert_eq!(
+                        aspect(
+                            SignalSchedule::Synchronized,
+                            cell as u32,
+                            route as u32,
+                            warm + 1,
+                            dt
+                        ),
                         if route % 2 == 0 {
                             SignalAspect::Green
                         } else {
