@@ -14,6 +14,14 @@ on:
     - cron: "17 3 * * 1"
   workflow_dispatch:
 
+# #1463：同一 PR 推送新 head 时取消未完成的旧运行。分组限定同一 workflow、
+# 同一 PR；merge_group / push / 调度 / 手工以 run_id 兜底（唯一分组），永不
+# 互相取消——merge queue 的 checks_requested 依赖每个候选的检查完整执行，
+# 安全基线（调度与手工全量分析）不受 PR 推送影响。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
