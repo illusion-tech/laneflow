@@ -91,26 +91,42 @@ impl Candidate {
     }
 }
 
-/// 在任意片段集合中找出首个相交对：先按 `(space, back, front, owner)` 稳定
-/// 排序，再逐空间线性扫描。
+/// 在任意片段集合中找出首个相交对：先按 `(space, back, front, owner)` 排序，
+/// 再委托 [`first_overlap_sorted`] 逐空间线性扫描。
+///
+/// 排序采用不稳定排序且键覆盖全部字段：键并列的元素是完全相同的片段，
+/// 其次序不可区分，结果按片段值确定且零分配；稳定排序的临时缓冲在本
+/// 入口的任意集合规模下都是可避免的逐次分配。已有有序集合的调用方
+/// （如块内排序、块间归并后的复用路径）应直接使用 [`first_overlap_sorted`]，
+/// 不经本入口重复排序。集合收集与排序成本由调用方承担，不隐藏在判据
+/// 的 O(1) 后面。
+pub fn first_overlap(bodies: &mut [BodyInterval]) -> Result<Option<BodyOverlap>, EmptyInterval> {
+    validate_non_empty(bodies)?;
+    bodies.sort_unstable_by_key(|&interval| interval.sort_key());
+    first_overlap_sorted(bodies)
+}
+
+/// [`first_overlap`] 的已排序入口：输入须已按 `(space, lo, hi, owner)`
+/// 有序（debug 断言），只做线性扫描与常数候选状态，不排序、不分配。
 ///
 /// 扫描维护每个空间的两个候选——终点最远的片段 `best`，以及 owner 与
 /// `best` 不同者中终点最远的片段 `second`。处理当前片段 `x` 时，owner 与
 /// `x` 不同的最远终点必然是二者之一：若 `best.owner != x.owner` 则为
 /// `best`（全局最远），否则为 `second`（其 owner 与 `best` 即 `x` 的 owner
-/// 相异）。因排序保证候选起点不晚于 `x` 起点，相交判定为
-/// `candidate.front_um > x.back_um`（严格比较，相接合法）。该结构使同
-/// owner 的较短嵌套片段不会遮蔽更长片段与其他 owner 的重叠。
+/// 相异）。选出的候选交给 [`intervals_overlap`] 判定——扫描只负责枚举
+/// 需要比较的片段，规则判定共享同一实现（设计 §5.3）；排序保证候选起点
+/// 不晚于 `x` 起点，且区间均非空，故谓词在此前提下与
+/// `candidate.front_um > x.back_um` 等价（相接合法）。该结构使同 owner
+/// 的较短嵌套片段不会遮蔽更长片段与其他 owner 的重叠。
 ///
-/// 返回排序后切片中的首个相交对；空（`back >= front`）片段属事实错误，
-/// 立即拒绝。集合收集与排序成本由调用方承担，不隐藏在判据的 O(1) 后面。
-pub fn first_overlap(bodies: &mut [BodyInterval]) -> Result<Option<BodyOverlap>, EmptyInterval> {
-    for (index, interval) in bodies.iter().enumerate() {
-        if interval.back_um >= interval.front_um {
-            return Err(EmptyInterval { index });
-        }
-    }
-    bodies.sort_by_key(|&interval| interval.sort_key());
+/// 返回切片中的首个相交对；空（`back >= front`）片段属事实错误，立即拒绝。
+pub fn first_overlap_sorted(bodies: &[BodyInterval]) -> Result<Option<BodyOverlap>, EmptyInterval> {
+    validate_non_empty(bodies)?;
+    debug_assert!(
+        bodies
+            .windows(2)
+            .all(|pair| pair[0].sort_key() <= pair[1].sort_key())
+    );
     let mut best: Option<Candidate> = None;
     let mut second: Option<Candidate> = None;
     for (index, &interval) in bodies.iter().enumerate() {
@@ -118,7 +134,7 @@ pub fn first_overlap(bodies: &mut [BodyInterval]) -> Result<Option<BodyOverlap>,
             best = None;
             second = None;
         }
-        // 选出 owner 不同的最远终点并作严格相交比较。
+        // 选出 owner 不同的最远终点，交共享判据判定。
         let candidate = if best.is_some_and(|b| b.interval.owner == interval.owner) {
             second
         } else {
@@ -126,7 +142,7 @@ pub fn first_overlap(bodies: &mut [BodyInterval]) -> Result<Option<BodyOverlap>,
         };
         if let Some(candidate) = candidate {
             debug_assert!(candidate.interval.back_um <= interval.back_um);
-            if candidate.end() > interval.back_um {
+            if intervals_overlap(candidate.interval, interval) {
                 return Ok(Some(BodyOverlap {
                     earlier: candidate.index,
                     later: index,
@@ -150,6 +166,15 @@ pub fn first_overlap(bodies: &mut [BodyInterval]) -> Result<Option<BodyOverlap>,
         }
     }
     Ok(None)
+}
+
+fn validate_non_empty(bodies: &[BodyInterval]) -> Result<(), EmptyInterval> {
+    for (index, interval) in bodies.iter().enumerate() {
+        if interval.back_um >= interval.front_um {
+            return Err(EmptyInterval { index });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -326,6 +351,36 @@ mod tests {
                     )
                 }
             }
+        }
+    }
+
+    #[test]
+    fn sorted_entry_agrees_with_sorting_entry() {
+        // 已排序入口复用调用方的排序成果：与排序入口在同一集合上按片段值
+        // 结果一致（键并列的片段完全相同，索引不参与比较）。
+        let mut rng = Lcg(0x1457_0000_0000_0003);
+        for _case in 0..500 {
+            let len = 1 + rng.below(8) as usize;
+            let mut bodies = Vec::with_capacity(len);
+            for _ in 0..len {
+                let space = rng.below(3) as u32;
+                let owner = owner(rng.below(4), rng.below(2) as u32);
+                let lo = rng.below(200);
+                let hi = lo + 1 + rng.below(60);
+                bodies.push(interval(space, lo, hi, owner));
+            }
+            let mut sorting = bodies.clone();
+            let by_sorting = first_overlap(&mut sorting)
+                .unwrap()
+                .map(|o| (sorting[o.earlier], sorting[o.later]));
+            let ordered = sorting.clone();
+            let by_sorted = first_overlap_sorted(&ordered)
+                .unwrap()
+                .map(|o| (ordered[o.earlier], ordered[o.later]));
+            assert_eq!(
+                by_sorting, by_sorted,
+                "两个入口必须给出同一首错：{bodies:?}"
+            );
         }
     }
 
