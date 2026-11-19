@@ -163,6 +163,102 @@ jobs:
 
   # #1464 影子批次：受影响验证计划器在真实 CI 上运行并输出「若按计划机制
   # 本次会跑什么」，不改变任何门禁行为——required check 的执行语义与未接线
+  # 前完全一致。编排逻辑（事件载荷取基线提交、git fetch、summary 写入与
+  # 失败语义）全部在 xtask ci-plan --shadow 内（Rust，含单测）；本 job 只
+  # 保留一步命令调用。计划器失败不阻断合并，只在 summary 显性记录（可见
+  # 不设卡；阻断属切换后的 fail-closed）。非必查；对照数据经 Actions
+  # summary 与 run 日志留存，不入仓（设计合同 §5/§6 影子阶段；结束条件=
+  # 九类案例覆盖+漏选反例零发现后裁决 PR 切换）。
+  shadow-plan:
+    name: Shadow plan
+    runs-on: ubuntu-latest
+    # PR 与 merge_group 的差异才有对照意义；main push 与 merge_group 验证
+    # 同一棵树，跳过。
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # PR 事件默认检出合并快照（refs/pull/N/merge）；merge_group 检出组头。
+          fetch-depth: 1
+
+      - name: Install Rust MSRV toolchain
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: laneflow-msrv-1.99.1-shadow-plan
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
+      - name: Run shadow plan
+        shell: bash
+        run: cargo +1.99.1 run --quiet --locked -p xtask -- ci-plan --shadow
+  rust: ${{ steps.filter.outputs.rust }}
+      bevy: ${{ steps.filter.outputs.bevy }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Detect Rust and Bevy path changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              # xtask 精确到 Rust 文件与 Cargo 清单（#1459）：xtask/data 的注册表
+              # 与文档检查数据由常驻 Commit message job 校验（命令检查 + 模块级
+              # 测试），数据变更不再需要全量重活。crates/examples 维持目录级：
+              # crate README 被 lib.rs 嵌入进 doctest，examples config/data 被
+              # 工具测试嵌入。
+              - 'xtask/**/*.rs'
+              - 'xtask/Cargo.toml'
+              # tools 精确到实际输入（#1298，100 目标嵌入清点背书）：嵌入与测试
+              # 数据只在 .rs、Cargo 清单/锁文件、tests/、fixtures/、evidence/、
+              # licenses/；README 等文档零嵌入。
+              - 'tools/**/*.rs'
+              - 'tools/**/Cargo.toml'
+              - 'tools/**/Cargo.lock'
+              - 'tools/**/tests/**'
+              - 'tools/**/fixtures/**'
+              - 'tools/**/evidence/**'
+              - 'tools/**/licenses/**'
+              - 'examples/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain*'
+              - 'deny.toml'
+              - '.config/nextest.toml'
+              # 未列入清单的路径不会自动回退全量（检测成功而无匹配即跳过重活）；
+              # tests/fixtures 测试数据类新位置由全局条目兜底，其余新增编译期
+              # 嵌入位置须在引入时同步补过滤器条目（#1299 评审更正）。
+              - '**/tests/**'
+              - '**/fixtures/**'
+              - '.github/actions/**'
+              - '.github/workflows/**'
+            bevy:
+              - 'crates/laneflow-bevy/**'
+              - 'crates/laneflow-runtime/**'
+              - 'crates/laneflow-spatial/**'
+              - 'crates/laneflow-scenario/**'
+              - 'crates/laneflow-format/**'
+              - 'crates/laneflow-format-mmap/**'
+              - 'crates/laneflow-static-contract/**'
+              - 'crates/laneflow-static-network/**'
+              - 'crates/laneflow-compiler/**'
+              - 'examples/data/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+
+  # #1464 影子批次：受影响验证计划器在真实 CI 上运行并输出「若按计划机制
+  # 本次会跑什么」，不改变任何门禁行为——required check 的执行语义与未接线
   # 前完全一致。非必查 job；计划器失败不阻断合并，但必须在 summary 显性记
   # 录（可见不设卡）。对照数据经 Actions summary 与 run 日志留存，不入仓
   # （设计合同 §5/§6 影子阶段；结束条件=九类案例覆盖+漏选反例零发现后裁决

@@ -758,6 +758,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let mut files_path: Option<&str> = None;
     let mut metadata_path: Option<&str> = None;
     let mut dump_embed_map = false;
+    let mut shadow = false;
     let mut format = "json";
     let mut index = 0;
     while index < args.len() {
@@ -775,6 +776,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
                 metadata_path = Some(args.get(index).ok_or("ci-plan: --metadata 缺少值")?);
             }
             "--dump-embed-map" => dump_embed_map = true,
+            "--shadow" => shadow = true,
             "--format" => {
                 index += 1;
                 format = args.get(index).ok_or("ci-plan: --format 缺少值")?;
@@ -782,6 +784,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             other => return Err(format!("ci-plan: 未知参数 {other}")),
         }
         index += 1;
+    }
+
+    if shadow {
+        if rev_range.is_some() || files_path.is_some() || metadata_path.is_some() || dump_embed_map
+        {
+            return Err("ci-plan: --shadow 不与其他输入参数并用".to_owned());
+        }
+        return run_shadow();
     }
 
     let metadata = match metadata_path {
@@ -920,7 +930,7 @@ fn state_json(state: &FileState) -> serde_json::Value {
     }
 }
 
-fn print_json(plan: &Plan) {
+fn plan_json_text(plan: &Plan) -> String {
     let classification: Vec<serde_json::Value> = plan
         .classification
         .iter()
@@ -951,29 +961,33 @@ fn print_json(plan: &Plan) {
         "tasks": tasks,
         "classification": classification,
     });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&value).expect("计划序列化不可失败")
-    );
+    serde_json::to_string_pretty(&value).expect("计划序列化不可失败")
 }
 
-fn print_summary(plan: &Plan) {
+fn print_json(plan: &Plan) {
+    println!("{}", plan_json_text(plan));
+}
+
+fn plan_summary_text(plan: &Plan) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
     if plan.full {
-        println!("模式：全量（完整适用套件）");
+        let _ = writeln!(out, "模式：全量（完整适用套件）");
     } else {
-        println!("模式：受影响");
+        let _ = writeln!(out, "模式：受影响");
     }
     for reason in &plan.reasons {
-        println!("  {reason}");
+        let _ = writeln!(out, "  {reason}");
     }
-    println!("种子包：{}", join(&plan.seeds));
-    println!("受影响包：{}", join(&plan.affected));
-    println!("任务：");
+    let _ = writeln!(out, "种子包：{}", join(&plan.seeds));
+    let _ = writeln!(out, "受影响包：{}", join(&plan.affected));
+    let _ = writeln!(out, "任务：");
     for task in &plan.tasks {
         if task.packages.is_empty() {
-            println!("  [跳过] {}（{}）", task.name, task.note);
+            let _ = writeln!(out, "  [跳过] {}（{}）", task.name, task.note);
         } else {
-            println!(
+            let _ = writeln!(
+                out,
                 "  [执行] {} → {}（{}）",
                 task.name,
                 task.packages.join(","),
@@ -981,7 +995,7 @@ fn print_summary(plan: &Plan) {
             );
         }
     }
-    println!("归类：");
+    let _ = writeln!(out, "归类：");
     for (path, state) in &plan.classification {
         let kind = match state {
             FileState::Package(name) => format!("包 {name}"),
@@ -997,8 +1011,109 @@ fn print_summary(plan: &Plan) {
             FileState::NotApplicable(_) => "不适用".to_owned(),
             FileState::Unknown => "未知→全量".to_owned(),
         };
-        println!("  {path} → {kind}");
+        let _ = writeln!(out, "  {path} → {kind}");
     }
+    out
+}
+
+fn print_summary(plan: &Plan) {
+    print!("{}", plan_summary_text(plan));
+}
+
+// ---------------------------------------------------------------------------
+// 影子模式（#1464 影子批次）：编排逻辑（事件载荷取基线、git fetch、summary
+// 写入、失败语义）全部在本模块（Rust，含单测），workflow 只保留一步命令
+// 调用。失败语义：内部任何失败写入 summary 失败块后成功退出——可见不设
+// 卡（阻断属切换后的 fail-closed，设计合同 §6）。
+// ---------------------------------------------------------------------------
+
+fn run_shadow() -> Result<(), String> {
+    let markdown = match shadow_report() {
+        Ok(markdown) => markdown,
+        Err(error) => shadow_failure_markdown(&error),
+    };
+    append_step_summary(&markdown)
+}
+
+fn append_step_summary(markdown: &str) -> Result<(), String> {
+    match std::env::var("GITHUB_STEP_SUMMARY") {
+        Ok(path) if !path.is_empty() => {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|error| {
+                    format!("影子模式：无法写入 GITHUB_STEP_SUMMARY `{path}`：{error}")
+                })?;
+            file.write_all(markdown.as_bytes())
+                .and_then(|()| file.write_all(b"\n"))
+                .map_err(|error| {
+                    format!("影子模式：写入 GITHUB_STEP_SUMMARY `{path}` 失败：{error}")
+                })?;
+            Ok(())
+        }
+        // 本地干跑：无 runner 环境，直接输出到 stdout。
+        _ => {
+            println!("{markdown}");
+            Ok(())
+        }
+    }
+}
+
+fn shadow_report() -> Result<String, String> {
+    let event_name = std::env::var("GITHUB_EVENT_NAME").map_err(|_| {
+        "影子模式：GITHUB_EVENT_NAME 未设置（仅在 Actions runner 上运行）".to_owned()
+    })?;
+    let event_path = std::env::var("GITHUB_EVENT_PATH")
+        .map_err(|_| "影子模式：GITHUB_EVENT_PATH 未设置".to_owned())?;
+    let payload_text = std::fs::read_to_string(&event_path)
+        .map_err(|error| format!("影子模式：无法读取事件载荷 `{event_path}`：{error}"))?;
+    let payload: serde_json::Value = serde_json::from_str(&payload_text)
+        .map_err(|error| format!("影子模式：事件载荷不是合法 JSON：{error}"))?;
+    let base = shadow_base(&payload, &event_name)?;
+    // 完整差异语义（合同 §5）：合并快照 / 组头对该 base 提交对象的差异。
+    let output = std::process::Command::new("git")
+        .args(["fetch", "--no-tags", "origin", &base])
+        .output()
+        .map_err(|error| format!("影子模式：无法启动 git fetch：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "影子模式：git fetch {base} 失败：{}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let files = changed_files(&format!("{base}..HEAD"))?;
+    let workspace = Workspace::parse(&cargo_metadata()?)?;
+    let registry = Registry::parse(REGISTRY_TOML)?;
+    let plan = build_plan(&files, &workspace, &registry);
+    Ok(format!(
+        "## 影子验证计划（#1464，不改变门禁行为）\n\n```text\n{}```\n\n<details><summary>计划 JSON</summary>\n\n```json\n{}```\n\n</details>\n",
+        plan_summary_text(&plan),
+        plan_json_text(&plan)
+    ))
+}
+
+/// 从事件载荷提取差异基线提交（纯函数）。
+fn shadow_base(payload: &serde_json::Value, event_name: &str) -> Result<String, String> {
+    let sha = match event_name {
+        "pull_request" => payload.pointer("/pull_request/base/sha"),
+        "merge_group" => payload.pointer("/merge_group/base_sha"),
+        other => {
+            return Err(format!(
+                "影子模式：事件 `{other}` 无对照意义（只在 PR 与 merge_group 上运行）"
+            ));
+        }
+    };
+    sha.and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("影子模式：事件载荷缺少基线提交字段（{event_name}）"))
+}
+
+fn shadow_failure_markdown(error: &str) -> String {
+    format!(
+        "## 影子验证计划（#1464，不改变门禁行为）\n\n⚠️ 影子计划失败：本次按现行门禁全量执行，计划器修复并积累影子数据前不推进切换。\n\n```text\n{error}\n```\n"
+    )
 }
 
 fn join(set: &BTreeSet<String>) -> String {
@@ -1379,5 +1494,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 影子模式的事件基线提取：PR / merge_group 各自的载荷字段，其余事件
+    /// 与缺字段载荷失败关闭。
+    #[test]
+    fn shadow_base_extracts_per_event_and_rejects_others() {
+        let pr = serde_json::json!({"pull_request": {"base": {"sha": "a1b2c3d4"}}});
+        assert_eq!(shadow_base(&pr, "pull_request").unwrap(), "a1b2c3d4");
+        let merge_group = serde_json::json!({"merge_group": {"base_sha": "e4f5a6b7"}});
+        assert_eq!(
+            shadow_base(&merge_group, "merge_group").unwrap(),
+            "e4f5a6b7"
+        );
+        assert!(shadow_base(&pr, "push").is_err(), "无对照意义的事件须拒绝");
+        assert!(
+            shadow_base(&serde_json::json!({}), "pull_request").is_err(),
+            "缺基线字段须失败关闭"
+        );
+    }
+
+    /// 影子失败块：显性、说明不阻断、携带错误原文。
+    #[test]
+    fn shadow_failure_markdown_is_explicit_and_nonblocking() {
+        let markdown = shadow_failure_markdown("演示失败");
+        assert!(markdown.contains("影子计划失败"));
+        assert!(markdown.contains("按现行门禁全量执行"));
+        assert!(markdown.contains("演示失败"));
+    }
+
+    /// summary 渲染为纯函数后保持既有内容面（模式、任务行）。
+    #[test]
+    fn summary_text_lists_mode_and_tasks() {
+        let workspace = fixture_workspace();
+        let plan = build_plan(&files(&["tools/leaf/src/main.rs"]), &workspace, &registry());
+        let text = plan_summary_text(&plan);
+        assert!(text.contains("模式：受影响"));
+        assert!(text.contains("[执行] clippy-default"));
+        assert!(text.contains("tools/leaf/src/main.rs → 包 laneflow-leaf-tool"));
     }
 }
