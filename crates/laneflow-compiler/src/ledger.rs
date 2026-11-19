@@ -105,10 +105,12 @@ pub(crate) enum LedgerStage {
     DiffEmission,
     /// 宿主直接调用的公开检查。
     PublicCheck,
+    /// 编译单元准入：builder 从创建到冻结编译单元。
+    Admission,
 }
 
 impl LedgerStage {
-    const COUNT: usize = 4;
+    const COUNT: usize = 5;
 
     const fn index(self) -> usize {
         match self {
@@ -116,6 +118,7 @@ impl LedgerStage {
             Self::SingleEmission => 1,
             Self::DiffEmission => 2,
             Self::PublicCheck => 3,
+            Self::Admission => 4,
         }
     }
 }
@@ -453,6 +456,12 @@ impl Ledger {
             account: None,
             bytes,
         }
+    }
+
+    /// 测试中替换宿主预算；已有存续与预留不变。
+    #[cfg(test)]
+    pub(crate) fn set_test_budget(&self, budget: u64) {
+        lock(&self.state).budget = budget;
     }
 
     /// 当前存续 `L`。
@@ -966,6 +975,12 @@ impl<T> Frozen<T> {
     pub(crate) fn transfer_to_host(&mut self) {
         self.grant.transfer_to_host();
     }
+
+    /// 返回点转交宿主，交出不再受账本约束的定长切片。
+    pub(crate) fn into_host(mut self) -> Box<[T]> {
+        self.grant.transfer_to_host();
+        self.items
+    }
 }
 
 impl<T> Default for Frozen<T> {
@@ -1067,6 +1082,31 @@ impl<K: Eq + std::hash::Hash, V> BoundedHashMap<K, V> {
             });
         }
         Ok(self.items.insert(key, value))
+    }
+
+    /// 可变访问已有项；不改变项数。
+    pub(crate) fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: Eq + std::hash::Hash + ?Sized,
+    {
+        self.items.get_mut(key)
+    }
+
+    /// 移出全部项；容量与授予不变。
+    pub(crate) fn drain(&mut self) -> std::collections::hash_map::Drain<'_, K, V> {
+        self.items.drain()
+    }
+
+    /// 持有的授予字节。
+    pub(crate) fn granted_bytes(&self) -> u64 {
+        self._grant.bytes()
+    }
+
+    /// 返回点转交宿主，交出不再受账本约束的哈希表。
+    pub(crate) fn into_host(self) -> HashMap<K, V> {
+        self._grant.transfer_to_host();
+        self.items
     }
 }
 

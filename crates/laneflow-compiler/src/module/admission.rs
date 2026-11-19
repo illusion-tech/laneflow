@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -17,9 +17,14 @@ use crate::{
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
 #[cfg(test)]
 use super::descriptor::{SourceDocumentOrigin, freeze_source_documents, source_document_digest};
+#[cfg(test)]
 use super::resources::size_bytes;
-use super::resources::{AdmissionTotals, ModuleResourceCounts, requested_hash_table_bytes};
+use super::resources::{AdmissionTotals, ModuleResourceCounts};
 use super::synthetic::SyntheticModule;
+use crate::ledger::{
+    BoundedHashMap, BoundedVec, Ledger, LedgerError, LedgerStage, OutputGrant, PassBudget,
+    PassLabel, Plan,
+};
 
 /// 区分编译单元来源文档登记序号的零尺寸标记。
 pub(crate) enum SourceDocumentTag {}
@@ -69,6 +74,8 @@ impl TypedAstModule {
 pub(crate) struct AdmittedOfficialModule {
     typed_ast: TypedAstModule,
     pub(super) resource_counts: ModuleResourceCounts,
+    /// 准入时取得、随模块持有的载荷授予；准入前为空。
+    payload: OutputGrant,
 }
 
 impl AdmittedOfficialModule {
@@ -83,6 +90,7 @@ impl AdmittedOfficialModule {
         Self {
             typed_ast,
             resource_counts,
+            payload: OutputGrant::default(),
         }
     }
 
@@ -200,6 +208,7 @@ impl TestOfficialModule {
         let AdmittedOfficialModule {
             typed_ast,
             resource_counts,
+            ..
         } = admitted;
         Self {
             admitted: AdmittedOfficialModule::new(typed_ast, resource_counts),
@@ -232,6 +241,7 @@ impl TestOfficialModule {
         let AdmittedOfficialModule {
             typed_ast,
             resource_counts,
+            ..
         } = module.admitted;
         Self {
             admitted: AdmittedOfficialModule::new(typed_ast, resource_counts),
@@ -459,7 +469,7 @@ impl TestOfficialModule {
 const UNBOUND_SOURCE_DOCUMENT_ORDINAL: u32 = u32::MAX;
 
 #[derive(Clone, Copy)]
-struct SourceDocumentBinding {
+pub(super) struct SourceDocumentBinding {
     owner_module_ordinal: u32,
     source_document_ordinal: u32,
 }
@@ -486,16 +496,10 @@ impl SourceDocumentBinding {
 
 /// 构建期文档索引；值中保存加入顺序的模块下标，不能用于源映射解析。
 struct PendingSourceDocumentIndex {
-    bindings: HashMap<Arc<str>, SourceDocumentBinding>,
+    bindings: BoundedHashMap<Arc<str>, SourceDocumentBinding>,
 }
 
 impl PendingSourceDocumentIndex {
-    fn new() -> Self {
-        Self {
-            bindings: HashMap::new(),
-        }
-    }
-
     #[inline]
     fn get(&self, source_document_key: &str) -> Option<SourceDocumentBinding> {
         self.bindings.get(source_document_key).copied()
@@ -506,7 +510,7 @@ impl PendingSourceDocumentIndex {
         &mut self,
         source_document_key: Arc<str>,
         binding: SourceDocumentBinding,
-    ) -> Option<SourceDocumentBinding> {
+    ) -> Result<Option<SourceDocumentBinding>, LedgerError> {
         self.bindings.insert(source_document_key, binding)
     }
 
@@ -516,10 +520,10 @@ impl PendingSourceDocumentIndex {
     }
 
     fn freeze(
-        mut self,
+        &mut self,
         modules: &[(usize, AdmittedOfficialModule)],
         expected_document_count: u64,
-    ) -> FrozenSourceDocumentIndex {
+    ) {
         let mut source_document_ordinal = 0_u32;
         for (module_ordinal, (_, module)) in modules.iter().enumerate() {
             let module_ordinal = u32::try_from(module_ordinal)
@@ -535,9 +539,6 @@ impl PendingSourceDocumentIndex {
             }
         }
         debug_assert_eq!(u64::from(source_document_ordinal), expected_document_count);
-        FrozenSourceDocumentIndex {
-            bindings: self.bindings,
-        }
     }
 }
 
@@ -598,142 +599,106 @@ pub(crate) enum ResolvedSourceLocation {
     },
 }
 
-/// 估算来源文档索引对给定文档数的请求字节预算。
-#[inline]
-pub(super) fn source_document_index_requested_bytes(source_document_count: u64) -> u64 {
-    requested_hash_table_bytes::<Arc<str>, SourceDocumentBinding>(source_document_count)
+/// 创建空 builder 的编译遍：只建立零容量的模块表与索引。
+const BUILDER_INIT_PASS: PassLabel = PassLabel::new(LedgerStage::Admission, "builder");
+/// 一次模块准入调用：候选载荷与 builder 模块表、索引的扩容。
+const ADMIT_MODULE_PASS: PassLabel = PassLabel::new(LedgerStage::Admission, "admit-module");
+/// 冻结编译单元：导入闭包、规范拓扑序与重排。
+const BUILD_PASS: PassLabel = PassLabel::new(LedgerStage::Admission, "build");
+
+fn count(value: u64) -> usize {
+    usize::try_from(value).unwrap_or(usize::MAX)
 }
 
-#[inline]
-fn module_index_requested_bytes(module_count: u64) -> u64 {
-    requested_hash_table_bytes::<Arc<str>, usize>(module_count)
-}
-
-#[inline]
-fn ordered_ready_set_requested_bytes(module_count: u64) -> u64 {
-    // `BTreeSet` 没有稳定公开的节点布局。这里沿用共同哈希索引的八桶保守预算，
-    // 只把它当作有界有序就绪集的保守请求字节预算，不依赖标准库私有实现。
-    requested_hash_table_bytes::<(Arc<str>, usize), ()>(module_count)
-}
-
-/// 汇总构建器存续期的受控内存请求字节预算。
-#[inline]
-pub(super) fn builder_live_requested_bytes(totals: AdmissionTotals) -> u64 {
-    totals
-        .module_payload_live_bytes
-        .saturating_add(source_document_index_requested_bytes(
-            totals.source_document_count,
-        ))
-        .saturating_add(module_index_requested_bytes(totals.module_count))
-        .saturating_add(size_bytes::<AdmittedOfficialModule>(
-            totals.module_slot_capacity,
-        ))
-}
-
-/// 共同准入的三层内存账本：构建器存续量、冻结阶段暂存峰值与成功结果存续量。
+/// 准入调用的计划：候选载荷、本次扩容后的模块表与两份索引。
 ///
-/// 所有固定工作集项都只采用输入计数、可审计类型布局和显式保守索引模型计算，因而可以
-/// 在相应分配发生前完成限额检查。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct AdmissionSizing {
-    pub(super) builder_live_bytes: u64,
-    pub(super) result_live_bytes: u64,
-    pub(super) build_scratch_bytes: u64,
-    pub(super) build_peak_live_bytes: u64,
+/// 具体官方前端构造候选期间的峰值不含既有 builder；它与本次准入互斥，取峰值。
+pub(super) fn admission_plan(
+    current: AdmissionTotals,
+    next: AdmissionTotals,
+    candidate_retained_live: u64,
+    candidate_frontend_peak: u64,
+) -> Plan {
+    let mut retained = Plan::of(candidate_retained_live);
+    if next.module_slot_capacity > current.module_slot_capacity {
+        let slots = count(next.module_slot_capacity);
+        retained = retained
+            .array::<AdmittedOfficialModule>(slots)
+            .hash_table::<Arc<str>, usize>(slots);
+    }
+    if next.source_document_slot_capacity > current.source_document_slot_capacity {
+        retained = retained.hash_table::<Arc<str>, SourceDocumentBinding>(count(
+            next.source_document_slot_capacity,
+        ));
+    }
+    retained.max(Plan::of(candidate_frontend_peak))
 }
 
-impl AdmissionSizing {
-    /// 由准入计数与诊断上限推导构建器存续、结果存续与构建峰值三层账本。
-    pub(super) fn from_totals(totals: AdmissionTotals, diagnostic_limit: u64) -> Self {
-        let module_count = totals.module_count;
-        let import_edge_count = totals.import_edge_count;
-        let module_payload_live_bytes = totals.module_payload_live_bytes;
-        let source_document_index_bytes =
-            source_document_index_requested_bytes(totals.source_document_count);
-        let module_index_bytes = module_index_requested_bytes(module_count);
-        let typed_ast_module_bytes = size_bytes::<TypedAstModule>(module_count);
-        let reordered_module_bytes = size_bytes::<(usize, AdmittedOfficialModule)>(module_count);
+/// 冻结编译单元的计划峰值。
+///
+/// 规范下标与诊断缓冲贯穿全程；拓扑排序、环路诊断与重排三段互斥，取峰值。重排期间
+/// 拓扑序、规范名次、重排元组表与最终 Typed AST 表共存。
+pub(super) fn build_plan(totals: AdmissionTotals, diagnostic_limit: u64) -> Plan {
+    let modules = count(totals.module_count);
+    let imports = count(totals.import_edge_count);
+    let topology = Plan::ZERO
+        .array::<usize>(modules)
+        .array::<usize>(modules.saturating_add(1))
+        .array::<usize>(modules)
+        .array::<usize>(imports)
+        .array::<usize>(modules)
+        .array::<usize>(modules);
+    let reorder = Plan::ZERO
+        .array::<usize>(modules)
+        .array::<usize>(modules)
+        .array::<(usize, AdmittedOfficialModule)>(modules)
+        .array::<TypedAstModule>(modules);
+    Plan::ZERO
+        .array::<usize>(modules)
+        .array::<Diagnostic>(count(diagnostic_limit))
+        .plus(topology.max(cycle_plan(modules, imports)).max(reorder))
+}
 
-        let canonical_index_bytes = size_bytes::<usize>(module_count);
-        // `DiagnosticCollector` 一开始就按配置档上限申请缓冲区，并存续到 `build` 返回。
-        let diagnostic_buffer_bytes = size_bytes::<Diagnostic>(diagnostic_limit);
-        let topology_scratch_bytes = size_bytes::<usize>(module_count)
-            .saturating_add(size_bytes::<Vec<usize>>(module_count))
-            .saturating_add(size_bytes::<usize>(import_edge_count))
-            .saturating_add(ordered_ready_set_requested_bytes(module_count))
-            .saturating_add(size_bytes::<usize>(module_count));
-        // 环路路径递归期间，每层的规范依赖向量可能同时存续；所有依赖项总数提供上界。
-        // 返回路径搬移期间至多有完整路径及其后缀两份 `usize` 缓冲区共存。
-        let tarjan_scratch_bytes = size_bytes::<usize>(module_count)
-            .saturating_add(size_bytes::<Option<usize>>(module_count))
-            .saturating_add(size_bytes::<usize>(module_count))
-            .saturating_add(size_bytes::<usize>(module_count))
-            .saturating_add(size_bytes::<bool>(module_count))
-            .saturating_add(size_bytes::<Vec<usize>>(module_count))
-            .saturating_add(size_bytes::<usize>(module_count))
-            .saturating_add(size_bytes::<usize>(import_edge_count.saturating_mul(2)))
-            .saturating_add(size_bytes::<bool>(module_count.saturating_mul(2)))
-            .saturating_add(size_bytes::<usize>(module_count.saturating_mul(2)))
-            .saturating_add(size_bytes::<Vec<usize>>(module_count))
-            .saturating_add(size_bytes::<usize>(module_count));
-        let graph_scratch_bytes = diagnostic_buffer_bytes
-            .saturating_add(canonical_index_bytes)
-            .saturating_add(topology_scratch_bytes)
-            .saturating_add(tarjan_scratch_bytes);
+/// 环路诊断的工作集上界：Tarjan 状态、强连通分量、递归路径上的依赖列表、逐分量
+/// 见证路径与环路列表同时存续的保守和；诊断载荷按模块数计入。
+fn cycle_plan(modules: usize, imports: usize) -> Plan {
+    Plan::ZERO
+        .array::<usize>(modules)
+        .array::<Option<usize>>(modules)
+        .array::<usize>(modules)
+        .array::<usize>(modules)
+        .array::<bool>(modules)
+        .array::<usize>(modules)
+        .array::<(usize, usize)>(modules)
+        .array::<usize>(imports)
+        .array::<bool>(modules)
+        .array::<bool>(modules)
+        .array::<usize>(modules)
+        .array::<usize>(imports)
+        .array::<usize>(modules)
+        .array::<(usize, usize)>(modules)
+        .array::<u32>(modules)
+        .array::<&str>(modules)
+        .array::<SourceLocation>(modules)
+}
 
-        let cycle_diagnostic_scratch_bytes = diagnostic_buffer_bytes
-            .saturating_add(canonical_index_bytes)
-            .saturating_add(size_bytes::<Vec<usize>>(module_count))
-            .saturating_add(size_bytes::<usize>(module_count))
-            .saturating_add(size_bytes::<u32>(module_count))
-            .saturating_add(size_bytes::<&str>(module_count))
-            .saturating_add(size_bytes::<SourceLocation>(module_count));
-
-        let rank_bytes = size_bytes::<usize>(module_count);
-        let rank_scratch_bytes = diagnostic_buffer_bytes
-            .saturating_add(canonical_index_bytes)
-            .saturating_add(size_bytes::<usize>(module_count))
-            .saturating_add(rank_bytes);
-        let reorder_scratch_bytes = diagnostic_buffer_bytes
-            .saturating_add(canonical_index_bytes)
-            .saturating_add(rank_bytes)
-            .saturating_add(reordered_module_bytes);
-        let build_scratch_bytes = graph_scratch_bytes
-            .max(cycle_diagnostic_scratch_bytes)
-            .max(rank_scratch_bytes)
-            .max(reorder_scratch_bytes);
-
-        let builder_live_bytes = builder_live_requested_bytes(totals);
-        let result_live_bytes = module_payload_live_bytes
-            .saturating_add(source_document_index_bytes)
-            .saturating_add(typed_ast_module_bytes);
-        let graph_peak_live_bytes = builder_live_bytes.saturating_add(graph_scratch_bytes);
-        // `collect` 期间旧模块向量和重排元组向量会短暂共存。
-        let reorder_peak_live_bytes = builder_live_bytes
-            .saturating_add(diagnostic_buffer_bytes)
-            .saturating_add(canonical_index_bytes)
-            .saturating_add(rank_bytes)
-            .saturating_add(reordered_module_bytes);
-        // 元组向量被消费为最终 Typed AST 向量时，模块索引直到 `build` 返回才释放。
-        let conversion_peak_live_bytes = module_payload_live_bytes
-            .saturating_add(source_document_index_bytes)
-            .saturating_add(module_index_bytes)
-            .saturating_add(reordered_module_bytes)
-            .saturating_add(typed_ast_module_bytes)
-            .saturating_add(diagnostic_buffer_bytes)
-            .saturating_add(canonical_index_bytes)
-            .saturating_add(rank_bytes);
-        let build_peak_live_bytes = graph_peak_live_bytes
-            .max(reorder_peak_live_bytes)
-            .max(conversion_peak_live_bytes)
-            .max(result_live_bytes);
-
-        Self {
-            builder_live_bytes,
-            result_live_bytes,
-            build_scratch_bytes,
-            build_peak_live_bytes,
-        }
+/// 准入账本拒绝计划时的诊断：维度为 `CompilerControlledLiveBytes`，观测值为 `L + R + P`。
+fn live_budget_error(
+    error: LedgerError,
+    primary_span: Option<SourceLocation>,
+    namespace: Option<&str>,
+) -> DiagnosticBundle {
+    match error {
+        LedgerError::BudgetExceeded {
+            requested, limit, ..
+        } => DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            limit,
+            requested,
+            primary_span,
+            namespace.map(Into::into),
+        )),
+        other => other.into(),
     }
 }
 
@@ -751,27 +716,49 @@ impl AdmissionSizing {
 /// ```
 pub struct CompilationUnitBuilder {
     limits: CompileProfile,
-    pub(super) modules: Vec<AdmittedOfficialModule>,
-    pub(super) module_index: HashMap<Arc<str>, usize>,
+    /// 准入账本：跨越 builder 生命周期，持有已准入模块、模块表与索引的存续。
+    ledger: Ledger,
+    pub(super) modules: BoundedVec<AdmittedOfficialModule>,
+    pub(super) module_index: BoundedHashMap<Arc<str>, usize>,
     source_document_index: PendingSourceDocumentIndex,
     pub(super) totals: AdmissionTotals,
 }
 
-/// 已完整校验、尚未写入构建器的单模块准入事务。
+/// 扩容后的模块表与模块索引。
+type GrownModuleStorage = (
+    BoundedVec<AdmittedOfficialModule>,
+    BoundedHashMap<Arc<str>, usize>,
+);
+
+/// 已完整校验、尚未写入构建器的单模块准入事务；扩容后的存储已经取得授予。
 struct AdmissionPlan {
     module: AdmittedOfficialModule,
     next_totals: AdmissionTotals,
+    grown_modules: Option<GrownModuleStorage>,
+    grown_documents: Option<BoundedHashMap<Arc<str>, SourceDocumentBinding>>,
 }
 
 impl CompilationUnitBuilder {
     /// 用同一份显式资源配置档建立空编译单元构建器。
     #[must_use]
     pub fn new(limits: CompileProfile) -> Self {
+        const EMPTY: &str = "zero-capacity builder storage needs no budget";
+        let ledger = Ledger::new(limits.operation_budget());
+        let pass = ledger
+            .admit_pass(BUILDER_INIT_PASS, Plan::ZERO)
+            .expect(EMPTY);
+        let modules = pass.vec(0).expect(EMPTY);
+        let module_index = pass.hash_map(0).expect(EMPTY);
+        let source_document_index = PendingSourceDocumentIndex {
+            bindings: pass.hash_map(0).expect(EMPTY),
+        };
+        pass.finish(0).expect(EMPTY);
         Self {
             limits,
-            modules: Vec::new(),
-            module_index: HashMap::new(),
-            source_document_index: PendingSourceDocumentIndex::new(),
+            ledger,
+            modules,
+            module_index,
+            source_document_index,
             totals: AdmissionTotals::default(),
         }
     }
@@ -785,7 +772,26 @@ impl CompilationUnitBuilder {
     /// 替换构建器使用的限额配置档。
     #[cfg(test)]
     pub(super) fn set_test_limits(&mut self, limits: CompileProfile) {
+        self.ledger.set_test_budget(
+            limits
+                .operation_budget()
+                .get(crate::OperationResourceDimension::CompilerControlledLiveBytes),
+        );
         self.limits = limits;
+    }
+
+    /// 冻结编译单元时准入计划所核对的 `L + P`。
+    #[cfg(test)]
+    pub(super) fn build_peak_live_bytes(&self) -> u64 {
+        let plan = build_plan(
+            self.totals,
+            self.limits
+                .source_limits()
+                .get(crate::SourceProcessingDimension::DiagnosticCount),
+        );
+        self.ledger
+            .live()
+            .saturating_add(plan.bytes().unwrap_or(u64::MAX))
     }
 
     /// 原子加入一个已经由官方前端完成受检构造的模块。
@@ -892,7 +898,7 @@ impl CompilationUnitBuilder {
     }
     /// 构建器当前控制的存续字节。
     pub(crate) fn admitted_controlled_live_bytes(&self) -> u64 {
-        builder_live_requested_bytes(self.totals)
+        self.ledger.live()
     }
 
     #[cfg(test)]
@@ -916,9 +922,7 @@ impl CompilationUnitBuilder {
             CompileLimitDimension::ManeuverGateCount => self.totals.maneuver_gate_count,
             CompileLimitDimension::WaitingZoneCount => self.totals.waiting_zone_count,
             CompileLimitDimension::GeometryPointCount => self.totals.geometry_point_count,
-            CompileLimitDimension::CompilerControlledLiveBytes => {
-                builder_live_requested_bytes(self.totals)
-            }
+            CompileLimitDimension::CompilerControlledLiveBytes => self.ledger.live(),
             CompileLimitDimension::SourceBytesPerModule
             | CompileLimitDimension::SingleStringBytes
             | CompileLimitDimension::DiagnosticCount
@@ -934,7 +938,7 @@ impl CompilationUnitBuilder {
     #[inline]
     fn prepare_admission(
         &self,
-        module: AdmittedOfficialModule,
+        mut module: AdmittedOfficialModule,
     ) -> Result<AdmissionPlan, DiagnosticBundle> {
         let namespace = module.descriptor.authoring_namespace_id.as_ref();
         if let Some(existing_index) = self.module_index.get(namespace).copied() {
@@ -978,7 +982,6 @@ impl CompilationUnitBuilder {
             }
         }
 
-        let previous_builder_live_bytes = builder_live_requested_bytes(self.totals);
         let candidate_frontend_peak = module.resource_counts.admission_peak_live_bytes;
         let candidate_retained_live = module.resource_counts.controlled_live_bytes;
         let mut next_totals = self.totals.candidate_after(
@@ -992,45 +995,50 @@ impl CompilationUnitBuilder {
                 .unwrap_or(u64::MAX)
                 .saturating_add(1)
         );
-        let next_builder_live_bytes = builder_live_requested_bytes(next_totals);
-        let module_growth_bytes =
-            if next_totals.module_slot_capacity > self.totals.module_slot_capacity {
-                size_bytes::<AdmittedOfficialModule>(next_totals.module_slot_capacity)
-            } else {
-                0
-            };
-        let admission_observed_live_bytes = next_builder_live_bytes
-            .max(previous_builder_live_bytes.saturating_add(candidate_frontend_peak))
-            .max(
-                previous_builder_live_bytes
-                    .saturating_add(candidate_retained_live)
-                    .saturating_add(module_growth_bytes),
-            );
-        next_totals.admission_peak_live_bytes = next_totals
-            .admission_peak_live_bytes
-            .max(admission_observed_live_bytes);
-        for violation in next_totals
-            .limit_violations(admission_observed_live_bytes, &self.limits)
+        if let Some(violation) = next_totals
+            .limit_violations(&self.limits)
             .into_iter()
             .flatten()
+            .next()
         {
             let crate::limits::ResourceLimitExceeded {
                 dimension,
                 limit,
                 observed,
             } = violation;
-            if observed > limit {
-                return Err(DiagnosticBundle::single(
-                    Diagnostic::compile_limit_exceeded_at(
-                        dimension,
-                        limit,
-                        observed,
-                        Some(module.declaration_span.clone()),
-                        Some(namespace.into()),
-                    ),
-                ));
-            }
+            return Err(DiagnosticBundle::single(
+                Diagnostic::compile_limit_exceeded_at(
+                    dimension,
+                    limit,
+                    observed,
+                    Some(module.declaration_span.clone()),
+                    Some(namespace.into()),
+                ),
+            ));
         }
+
+        // 候选载荷、扩容后的模块表与索引都在本次准入调用内取得授予；提交阶段只移动
+        // 已授予的存储，不再发生可能失败的分配。
+        let plan = admission_plan(
+            self.totals,
+            next_totals,
+            candidate_retained_live,
+            candidate_frontend_peak,
+        );
+        let observed_live = self
+            .ledger
+            .live()
+            .saturating_add(plan.bytes().unwrap_or(u64::MAX));
+        let pass = self
+            .ledger
+            .admit_pass(ADMIT_MODULE_PASS, plan)
+            .map_err(|error| {
+                live_budget_error(
+                    error,
+                    Some(module.declaration_span.clone()),
+                    Some(namespace),
+                )
+            })?;
         let source_document_limit = self
             .limits
             .source_limits()
@@ -1047,42 +1055,86 @@ impl CompilationUnitBuilder {
                 ),
             ));
         }
+        next_totals.admission_peak_live_bytes =
+            next_totals.admission_peak_live_bytes.max(observed_live);
+
+        // 候选载荷尚未逐项授予：具体前端的计量值作为一笔授予随模块持有（资源账本设计
+        // 第 5 节道路编辑候选模块存储另行迁移）。
+        module.payload = OutputGrant::new(pass.grant_bytes(candidate_retained_live)?);
+        let mut output_bytes = module.payload.bytes();
+        let grown_modules = if next_totals.module_slot_capacity > self.totals.module_slot_capacity {
+            let slots = count(next_totals.module_slot_capacity);
+            let modules = pass.vec(slots)?;
+            let index = pass.hash_map(slots)?;
+            output_bytes = output_bytes
+                .saturating_add(modules.granted_bytes())
+                .saturating_add(index.granted_bytes());
+            Some((modules, index))
+        } else {
+            None
+        };
+        let grown_documents = if next_totals.source_document_slot_capacity
+            > self.totals.source_document_slot_capacity
+        {
+            let documents = pass.hash_map(count(next_totals.source_document_slot_capacity))?;
+            output_bytes = output_bytes.saturating_add(documents.granted_bytes());
+            Some(documents)
+        } else {
+            None
+        };
+        pass.finish(output_bytes)?;
 
         Ok(AdmissionPlan {
             module,
             next_totals,
+            grown_modules,
+            grown_documents,
         })
     }
 
     #[inline]
     fn commit_admission(&mut self, plan: AdmissionPlan) {
-        if plan.next_totals.module_slot_capacity > self.totals.module_slot_capacity {
-            let target = usize::try_from(plan.next_totals.module_slot_capacity)
-                .expect("ModuleCount is represented by usize");
-            let mut grown = Vec::with_capacity(target);
-            assert_eq!(
-                grown.capacity(),
-                target,
-                "pinned Rust Vec must retain the explicitly budgeted exact capacity"
-            );
-            grown.append(&mut self.modules);
-            self.modules = grown;
+        const RESERVED: &str = "admission reserved builder capacity before commit";
+        let AdmissionPlan {
+            module,
+            next_totals,
+            grown_modules,
+            grown_documents,
+        } = plan;
+        if let Some((mut modules, mut index)) = grown_modules {
+            modules.try_extend(self.modules.drain()).expect(RESERVED);
+            for (namespace, position) in self.module_index.drain() {
+                index.insert(namespace, position).expect(RESERVED);
+            }
+            self.modules = modules;
+            self.module_index = index;
         }
-        let namespace = Arc::clone(&plan.module.descriptor.authoring_namespace_id);
+        if let Some(mut documents) = grown_documents {
+            for (key, binding) in self.source_document_index.bindings.drain() {
+                documents.insert(key, binding).expect(RESERVED);
+            }
+            self.source_document_index.bindings = documents;
+        }
+        let namespace = Arc::clone(&module.descriptor.authoring_namespace_id);
         let module_index = self.modules.len();
-        self.modules.push(plan.module);
-        self.module_index.insert(namespace, module_index);
+        self.modules.push(module).expect(RESERVED);
+        self.module_index
+            .insert(namespace, module_index)
+            .expect(RESERVED);
         for document in &self.modules[module_index].source_documents {
-            let previous = self.source_document_index.insert(
-                document.source_document_key_arc(),
-                SourceDocumentBinding::pending(module_index),
-            );
+            let previous = self
+                .source_document_index
+                .insert(
+                    document.source_document_key_arc(),
+                    SourceDocumentBinding::pending(module_index),
+                )
+                .expect(RESERVED);
             debug_assert!(
                 previous.is_none(),
                 "admission plan guaranteed unique document keys"
             );
         }
-        self.totals = plan.next_totals;
+        self.totals = next_totals;
         debug_assert_eq!(
             u64::try_from(self.modules.capacity()).unwrap_or(u64::MAX),
             self.totals.module_slot_capacity
@@ -1098,42 +1150,30 @@ impl CompilationUnitBuilder {
     ///
     /// 任一显式导入没有对应模块，或导入图包含一个或多个循环时，返回有界、规范有序
     /// 诊断且不返回部分 [`CompilationUnit`]。该方法无论成功或失败都会消费构建器。
-    pub fn build(self) -> Result<CompilationUnit, DiagnosticBundle> {
-        let sizing = AdmissionSizing::from_totals(
-            self.totals,
-            self.limits
-                .source_limits()
-                .get(crate::SourceProcessingDimension::DiagnosticCount),
-        );
+    pub fn build(mut self) -> Result<CompilationUnit, DiagnosticBundle> {
+        let diagnostic_limit = self
+            .limits
+            .source_limits()
+            .get(crate::SourceProcessingDimension::DiagnosticCount);
         let primary_module = self.modules.iter().min_by(|left, right| {
             left.descriptor
                 .authoring_namespace_id
                 .cmp(&right.descriptor.authoring_namespace_id)
         });
-        let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-        let limit = self
-            .limits
-            .operation_budget()
-            .get(crate::OperationResourceDimension::CompilerControlledLiveBytes);
-        if sizing.build_peak_live_bytes > limit {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_limit_exceeded_at(
-                    dimension,
-                    limit,
-                    sizing.build_peak_live_bytes,
-                    primary_module.map(|module| module.declaration_span.clone()),
-                    primary_module
-                        .map(|module| module.descriptor.authoring_namespace_id.as_ref().into()),
-                ),
-            ));
-        }
+        let primary_span = primary_module.map(|module| module.declaration_span.clone());
+        let primary_namespace: Option<Arc<str>> =
+            primary_module.map(|module| Arc::clone(&module.descriptor.authoring_namespace_id));
+        let plan = build_plan(self.totals, diagnostic_limit);
+        let build_peak_live_bytes = self
+            .ledger
+            .live()
+            .saturating_add(plan.bytes().unwrap_or(u64::MAX));
+        let pass = self.ledger.admit_pass(BUILD_PASS, plan).map_err(|error| {
+            live_budget_error(error, primary_span, primary_namespace.as_deref())
+        })?;
 
-        let mut diagnostics = DiagnosticCollector::new(
-            self.limits
-                .source_limits()
-                .get(crate::SourceProcessingDimension::DiagnosticCount),
-        );
-        let mut canonical_indices: Vec<_> = (0..self.modules.len()).collect();
+        let mut diagnostics = DiagnosticCollector::new(diagnostic_limit);
+        let mut canonical_indices = pass.collect(0..self.modules.len())?;
         canonical_indices.sort_unstable_by(|left, right| {
             self.modules[*left]
                 .descriptor
@@ -1155,15 +1195,16 @@ impl CompilationUnitBuilder {
             return Err(diagnostics.finish());
         }
 
-        let order = match canonical_topological_order(&self.modules, &self.module_index) {
+        let order = match canonical_topological_order(&pass, &self.modules, &self.module_index)? {
             Ok(order) => order,
             Err(cycles) => {
-                let mut canonical_order_by_index = vec![0_u32; self.modules.len()];
+                let mut canonical_order_by_index =
+                    pass.collect(std::iter::repeat_n(0_u32, self.modules.len()))?;
                 for (order, module_index) in canonical_indices.iter().copied().enumerate() {
                     canonical_order_by_index[module_index] =
                         u32::try_from(order).unwrap_or(u32::MAX);
                 }
-                for cycle in cycles {
+                for cycle in cycles.iter() {
                     let namespaces: Vec<_> = cycle
                         .iter()
                         .map(|index| {
@@ -1200,40 +1241,71 @@ impl CompilationUnitBuilder {
                 return Err(diagnostics.finish());
             }
         };
+        drop(canonical_indices);
 
-        let mut canonical_rank = vec![0_usize; order.len()];
-        for (rank, index) in order.into_iter().enumerate() {
+        let mut canonical_rank = pass.collect(std::iter::repeat_n(0_usize, order.len()))?;
+        for (rank, index) in order.iter().copied().enumerate() {
             canonical_rank[index] = rank;
         }
-        let mut modules: Vec<_> = self.modules.into_iter().enumerate().collect();
+        drop(order);
+        let mut modules = pass.collect(self.modules.drain().enumerate())?;
         modules.sort_unstable_by_key(|(original_index, _)| canonical_rank[*original_index]);
-        let source_document_index = self
-            .source_document_index
+        drop(canonical_rank);
+        self.source_document_index
             .freeze(&modules, self.totals.source_document_count);
-        let modules = modules
-            .into_iter()
-            .map(|(_, module)| module.typed_ast)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+        // 模块载荷授予属于 builder 的准入存续，在返回点逐项转交宿主。
+        let mut payload_bytes = 0_u64;
+        let typed_ast = pass.collect(modules.drain().map(|(_, module)| {
+            let AdmittedOfficialModule {
+                typed_ast,
+                mut payload,
+                ..
+            } = module;
+            payload_bytes = payload_bytes.saturating_add(payload.bytes());
+            payload.transfer_to_host();
+            typed_ast
+        }))?;
+        drop(modules);
+        let typed_ast = typed_ast.freeze()?;
+        let module_table_bytes = typed_ast.granted_bytes();
+        pass.finish(module_table_bytes)?;
+        let CompilationUnitBuilder {
+            limits,
+            ledger,
+            modules: admitted_modules,
+            module_index,
+            source_document_index,
+            totals,
+        } = self;
+        drop(admitted_modules);
+        drop(module_index);
+        let source_document_index_bytes = source_document_index.bindings.granted_bytes();
+        let source_document_index = FrozenSourceDocumentIndex {
+            bindings: source_document_index.bindings.into_host(),
+        };
+        let modules = typed_ast.into_host();
+        let report = ledger.close()?;
         Ok(CompilationUnit {
-            limits: self.limits,
+            limits,
             modules,
             source_document_index,
-            source_document_count: self.totals.source_document_count,
-            import_edge_count: self.totals.import_edge_count,
-            declaration_count: self.totals.declaration_count,
-            stable_entity_count: self.totals.stable_entity_count,
-            reference_count: self.totals.reference_count,
-            relation_occurrence_count: self.totals.relation_occurrence_count,
-            identity_field_occurrence_count: self.totals.identity_field_occurrence_count,
-            symbol_count: self.totals.symbol_count,
-            maneuver_gate_count: self.totals.maneuver_gate_count,
-            waiting_zone_count: self.totals.waiting_zone_count,
-            controlled_live_bytes: sizing.result_live_bytes,
-            admission_peak_live_bytes: self
-                .totals
+            source_document_count: totals.source_document_count,
+            import_edge_count: totals.import_edge_count,
+            declaration_count: totals.declaration_count,
+            stable_entity_count: totals.stable_entity_count,
+            reference_count: totals.reference_count,
+            relation_occurrence_count: totals.relation_occurrence_count,
+            identity_field_occurrence_count: totals.identity_field_occurrence_count,
+            symbol_count: totals.symbol_count,
+            maneuver_gate_count: totals.maneuver_gate_count,
+            waiting_zone_count: totals.waiting_zone_count,
+            controlled_live_bytes: payload_bytes
+                .saturating_add(source_document_index_bytes)
+                .saturating_add(module_table_bytes),
+            admission_peak_live_bytes: totals
                 .admission_peak_live_bytes
-                .max(sizing.build_peak_live_bytes),
+                .max(build_peak_live_bytes)
+                .max(report.peak_committed),
         })
     }
 }
@@ -1376,108 +1448,185 @@ impl CompilationUnit {
     }
 }
 
+/// 按模块下标分段的环路列表：`ranges` 中每项是 `members` 内一条环路的起点与长度。
+struct ModuleCycles {
+    members: BoundedVec<usize>,
+    ranges: BoundedVec<(usize, usize)>,
+}
+
+impl ModuleCycles {
+    fn iter(&self) -> impl Iterator<Item = &[usize]> {
+        self.ranges
+            .iter()
+            .map(|(start, len)| &self.members[*start..*start + *len])
+    }
+}
+
+fn namespace_of(modules: &[AdmittedOfficialModule], index: usize) -> &Arc<str> {
+    &modules[index].descriptor.authoring_namespace_id
+}
+
+/// 以 `less` 为序的最小堆；容量已由授予预留，压入不会扩容。
+fn heap_push(
+    heap: &mut BoundedVec<usize>,
+    value: usize,
+    less: impl Fn(usize, usize) -> bool,
+) -> Result<(), LedgerError> {
+    heap.push(value)?;
+    let mut child = heap.len() - 1;
+    while child > 0 {
+        let parent = (child - 1) / 2;
+        if !less(heap[child], heap[parent]) {
+            break;
+        }
+        heap.swap(child, parent);
+        child = parent;
+    }
+    Ok(())
+}
+
+fn heap_pop(heap: &mut BoundedVec<usize>, less: impl Fn(usize, usize) -> bool) -> Option<usize> {
+    let last = heap.len().checked_sub(1)?;
+    heap.swap(0, last);
+    let top = heap.pop();
+    let mut parent = 0;
+    loop {
+        let left = parent * 2 + 1;
+        if left >= heap.len() {
+            break;
+        }
+        let right = left + 1;
+        let smaller = if right < heap.len() && less(heap[right], heap[left]) {
+            right
+        } else {
+            left
+        };
+        if !less(heap[smaller], heap[parent]) {
+            break;
+        }
+        heap.swap(parent, smaller);
+        parent = smaller;
+    }
+    top
+}
+
 fn canonical_topological_order(
+    pass: &PassBudget<'_>,
     modules: &[AdmittedOfficialModule],
     module_index: &HashMap<Arc<str>, usize>,
-) -> Result<Vec<usize>, Vec<Vec<usize>>> {
-    let mut indegree = vec![0_usize; modules.len()];
-    let mut dependents = vec![Vec::new(); modules.len()];
-    for (index, module) in modules.iter().enumerate() {
-        indegree[index] = module.imports.len();
+) -> Result<Result<BoundedVec<usize>, ModuleCycles>, LedgerError> {
+    let module_count = modules.len();
+    let mut indegree = pass.collect(modules.iter().map(|module| module.imports.len()))?;
+    // 依赖方按依赖模块分段的连续表：`offsets[d]..offsets[d + 1]` 是依赖 `d` 的模块。
+    let mut offsets = pass.collect(std::iter::repeat_n(0_usize, module_count + 1))?;
+    for module in modules {
         for import in &module.imports {
-            let dependency_index = module_index[import.namespace.as_ref()];
-            dependents[dependency_index].push(index);
+            offsets[module_index[import.namespace.as_ref()] + 1] += 1;
         }
     }
-    for entries in &mut dependents {
-        entries.sort_unstable_by(|left, right| {
-            modules[*left]
-                .descriptor
-                .authoring_namespace_id
-                .cmp(&modules[*right].descriptor.authoring_namespace_id)
+    for index in 0..module_count {
+        offsets[index + 1] += offsets[index];
+    }
+    let mut cursor = pass.collect(offsets[..module_count].iter().copied())?;
+    let mut dependents = pass.collect(std::iter::repeat_n(0_usize, offsets[module_count]))?;
+    for (index, module) in modules.iter().enumerate() {
+        for import in &module.imports {
+            let dependency = module_index[import.namespace.as_ref()];
+            dependents[cursor[dependency]] = index;
+            cursor[dependency] += 1;
+        }
+    }
+    drop(cursor);
+    for dependency in 0..module_count {
+        dependents[offsets[dependency]..offsets[dependency + 1]].sort_unstable_by(|left, right| {
+            namespace_of(modules, *left).cmp(namespace_of(modules, *right))
         });
     }
 
-    // Kahn 就绪集同时携带命名空间与原索引：拓扑约束只规定依赖在前，BTreeSet 为所有
-    // 合法平局给出唯一字节序，避免模块加入顺序泄漏到规范输出。
-    let mut ready = BTreeSet::new();
+    // Kahn 就绪集按命名空间字节序出队：拓扑约束只规定依赖在前，命名空间唯一，为所有
+    // 合法平局给出唯一顺序，避免模块加入顺序泄漏到规范输出。
+    let less =
+        |left: usize, right: usize| namespace_of(modules, left) < namespace_of(modules, right);
+    let mut ready = pass.vec(module_count)?;
     for (index, degree) in indegree.iter().copied().enumerate() {
         if degree == 0 {
-            ready.insert((
-                Arc::clone(&modules[index].descriptor.authoring_namespace_id),
-                index,
-            ));
+            heap_push(&mut ready, index, less)?;
         }
     }
-    let mut order = Vec::with_capacity(modules.len());
-    while let Some((_, index)) = ready.pop_first() {
-        order.push(index);
-        for dependent in dependents[index].iter().copied() {
+    let mut order = pass.vec(module_count)?;
+    while let Some(index) = heap_pop(&mut ready, less) {
+        order.push(index)?;
+        for dependent in dependents[offsets[index]..offsets[index + 1]]
+            .iter()
+            .copied()
+        {
             indegree[dependent] -= 1;
             if indegree[dependent] == 0 {
-                ready.insert((
-                    Arc::clone(&modules[dependent].descriptor.authoring_namespace_id),
-                    dependent,
-                ));
+                heap_push(&mut ready, dependent, less)?;
             }
         }
     }
 
-    if order.len() == modules.len() {
-        Ok(order)
+    if order.len() == module_count {
+        Ok(Ok(order))
     } else {
-        Err(find_canonical_cycles(modules, module_index))
+        drop((indegree, offsets, dependents, ready, order));
+        Ok(Err(find_canonical_cycles(pass, modules, module_index)?))
     }
 }
 
 fn sorted_dependencies(
+    pass: &PassBudget<'_>,
     index: usize,
     modules: &[AdmittedOfficialModule],
     module_index: &HashMap<Arc<str>, usize>,
-) -> Vec<usize> {
-    let mut dependencies: Vec<_> = modules[index]
-        .imports
-        .iter()
-        .map(|import| module_index[import.namespace.as_ref()])
-        .collect();
+) -> Result<BoundedVec<usize>, LedgerError> {
+    let mut dependencies = pass.collect(
+        modules[index]
+            .imports
+            .iter()
+            .map(|import| module_index[import.namespace.as_ref()]),
+    )?;
     dependencies.sort_unstable_by(|left, right| {
-        modules[*left]
-            .descriptor
-            .authoring_namespace_id
-            .cmp(&modules[*right].descriptor.authoring_namespace_id)
+        namespace_of(modules, *left).cmp(namespace_of(modules, *right))
     });
-    dependencies
+    Ok(dependencies)
 }
 
 fn find_canonical_cycles(
+    pass: &PassBudget<'_>,
     modules: &[AdmittedOfficialModule],
     module_index: &HashMap<Arc<str>, usize>,
-) -> Vec<Vec<usize>> {
+) -> Result<ModuleCycles, LedgerError> {
     // Tarjan 只负责找出强连通分量；遍历依赖、分量成员和最终分量列表都再按命名空间
     // 规范化，使诊断不依赖 HashMap 或来源导入顺序。
-    struct Tarjan<'a> {
+    struct Tarjan<'a, 'p> {
+        pass: &'a PassBudget<'p>,
         modules: &'a [AdmittedOfficialModule],
         module_index: &'a HashMap<Arc<str>, usize>,
         next_index: usize,
-        indices: Vec<Option<usize>>,
-        low_links: Vec<usize>,
-        stack: Vec<usize>,
-        on_stack: Vec<bool>,
-        components: Vec<Vec<usize>>,
+        indices: BoundedVec<Option<usize>>,
+        low_links: BoundedVec<usize>,
+        stack: BoundedVec<usize>,
+        on_stack: BoundedVec<bool>,
+        members: BoundedVec<usize>,
+        components: BoundedVec<(usize, usize)>,
     }
 
-    impl Tarjan<'_> {
-        fn visit(&mut self, index: usize) {
+    impl Tarjan<'_, '_> {
+        fn visit(&mut self, index: usize) -> Result<(), LedgerError> {
             let discovery_index = self.next_index;
             self.next_index += 1;
             self.indices[index] = Some(discovery_index);
             self.low_links[index] = discovery_index;
-            self.stack.push(index);
+            self.stack.push(index)?;
             self.on_stack[index] = true;
 
-            for dependency in sorted_dependencies(index, self.modules, self.module_index) {
+            let dependencies =
+                sorted_dependencies(self.pass, index, self.modules, self.module_index)?;
+            for dependency in dependencies.iter().copied() {
                 if self.indices[dependency].is_none() {
-                    self.visit(dependency);
+                    self.visit(dependency)?;
                     self.low_links[index] = self.low_links[index].min(self.low_links[dependency]);
                 } else if self.on_stack[dependency]
                     && let Some(dependency_index) = self.indices[dependency]
@@ -1485,143 +1634,177 @@ fn find_canonical_cycles(
                     self.low_links[index] = self.low_links[index].min(dependency_index);
                 }
             }
+            drop(dependencies);
 
             if self.low_links[index] != discovery_index {
-                return;
+                return Ok(());
             }
 
-            let mut component = Vec::new();
+            let start = self.members.len();
             while let Some(member) = self.stack.pop() {
                 self.on_stack[member] = false;
-                component.push(member);
+                self.members.push(member)?;
                 if member == index {
                     break;
                 }
             }
-            component.sort_unstable_by(|left, right| {
-                self.modules[*left]
-                    .descriptor
-                    .authoring_namespace_id
-                    .cmp(&self.modules[*right].descriptor.authoring_namespace_id)
+            let modules = self.modules;
+            self.members[start..].sort_unstable_by(|left, right| {
+                namespace_of(modules, *left).cmp(namespace_of(modules, *right))
             });
-            self.components.push(component);
+            self.components.push((start, self.members.len() - start))?;
+            Ok(())
         }
     }
 
-    let mut canonical_indices: Vec<_> = (0..modules.len()).collect();
+    let module_count = modules.len();
+    let mut canonical_indices = pass.collect(0..module_count)?;
     canonical_indices.sort_unstable_by(|left, right| {
-        modules[*left]
-            .descriptor
-            .authoring_namespace_id
-            .cmp(&modules[*right].descriptor.authoring_namespace_id)
+        namespace_of(modules, *left).cmp(namespace_of(modules, *right))
     });
     let mut tarjan = Tarjan {
+        pass,
         modules,
         module_index,
         next_index: 0,
-        indices: vec![None; modules.len()],
-        low_links: vec![0; modules.len()],
-        stack: Vec::new(),
-        on_stack: vec![false; modules.len()],
-        components: Vec::new(),
+        indices: pass.collect(std::iter::repeat_n(None, module_count))?,
+        low_links: pass.collect(std::iter::repeat_n(0, module_count))?,
+        stack: pass.vec(module_count)?,
+        on_stack: pass.collect(std::iter::repeat_n(false, module_count))?,
+        members: pass.vec(module_count)?,
+        components: pass.vec(module_count)?,
     };
-    for index in canonical_indices {
+    for index in canonical_indices.iter().copied() {
         if tarjan.indices[index].is_none() {
-            tarjan.visit(index);
+            tarjan.visit(index)?;
         }
     }
+    let Tarjan {
+        members: component_members,
+        components,
+        ..
+    } = tarjan;
 
-    let mut cycles: Vec<_> = tarjan
-        .components
-        .into_iter()
-        .filter(|component| {
-            component.len() > 1
-                || component.first().is_some_and(|index| {
-                    modules[*index]
-                        .imports
-                        .iter()
-                        .any(|import| module_index[import.namespace.as_ref()] == *index)
-                })
-        })
-        .map(|component| canonical_cycle_for_component(&component, modules, module_index))
-        .collect();
-    cycles.sort_unstable_by(|left, right| {
-        let left_namespace = left
-            .first()
-            .map(|index| &modules[*index].descriptor.authoring_namespace_id);
-        let right_namespace = right
-            .first()
-            .map(|index| &modules[*index].descriptor.authoring_namespace_id);
+    let mut cycles = ModuleCycles {
+        members: pass.vec(module_count)?,
+        ranges: pass.vec(module_count)?,
+    };
+    for (start, len) in components.iter().copied() {
+        let component = &component_members[start..start + len];
+        let cyclic = component.len() > 1
+            || component.first().is_some_and(|index| {
+                modules[*index]
+                    .imports
+                    .iter()
+                    .any(|import| module_index[import.namespace.as_ref()] == *index)
+            });
+        if cyclic {
+            let cycle_start = cycles.members.len();
+            canonical_cycle_for_component(
+                pass,
+                component,
+                modules,
+                module_index,
+                &mut cycles.members,
+            )?;
+            cycles
+                .ranges
+                .push((cycle_start, cycles.members.len() - cycle_start))?;
+        }
+    }
+    let members = &cycles.members;
+    cycles.ranges.sort_unstable_by(|left, right| {
+        let left_namespace = (left.1 > 0).then(|| namespace_of(modules, members[left.0]));
+        let right_namespace = (right.1 > 0).then(|| namespace_of(modules, members[right.0]));
         left_namespace.cmp(&right_namespace)
     });
-    cycles
+    Ok(cycles)
 }
 
+/// 把一个强连通分量的规范环路见证追加到 `cycle`。
 fn canonical_cycle_for_component(
+    pass: &PassBudget<'_>,
     component: &[usize],
     modules: &[AdmittedOfficialModule],
     module_index: &HashMap<Arc<str>, usize>,
-) -> Vec<usize> {
+    cycle: &mut BoundedVec<usize>,
+) -> Result<(), LedgerError> {
     // 一个 SCC 可能包含多条环。固定从字节序最小成员出发，并按规范依赖顺序寻找首条
-    // 回路，为同一非法图选择稳定且可复现的诊断见证。
+    // 回路，为同一非法图选择稳定且可复现的诊断见证。`path` 是当前深度优先路径。
+    #[allow(clippy::too_many_arguments)]
     fn find_path(
+        pass: &PassBudget<'_>,
         index: usize,
         target: usize,
         allowed: &[bool],
         modules: &[AdmittedOfficialModule],
         module_index: &HashMap<Arc<str>, usize>,
         visited: &mut [bool],
-    ) -> Option<Vec<usize>> {
+        path: &mut BoundedVec<usize>,
+    ) -> Result<bool, LedgerError> {
         if index == target {
-            return Some(vec![target]);
+            return Ok(true);
         }
         if visited[index] {
-            return None;
+            return Ok(false);
         }
         visited[index] = true;
-        for dependency in sorted_dependencies(index, modules, module_index) {
+        path.push(index)?;
+        for dependency in sorted_dependencies(pass, index, modules, module_index)?
+            .iter()
+            .copied()
+        {
             if allowed[dependency]
-                && let Some(mut suffix) =
-                    find_path(dependency, target, allowed, modules, module_index, visited)
+                && find_path(
+                    pass,
+                    dependency,
+                    target,
+                    allowed,
+                    modules,
+                    module_index,
+                    visited,
+                    path,
+                )?
             {
-                let mut path = Vec::with_capacity(suffix.len() + 1);
-                path.push(index);
-                path.append(&mut suffix);
-                return Some(path);
+                return Ok(true);
             }
         }
-        None
+        path.pop();
+        Ok(false)
     }
 
     let Some(start) = component.first().copied() else {
-        return Vec::new();
+        return Ok(());
     };
-    let mut allowed = vec![false; modules.len()];
+    let mut allowed = pass.collect(std::iter::repeat_n(false, modules.len()))?;
     for index in component.iter().copied() {
         allowed[index] = true;
     }
-    for dependency in sorted_dependencies(start, modules, module_index) {
+    for dependency in sorted_dependencies(pass, start, modules, module_index)?
+        .iter()
+        .copied()
+    {
         if !allowed[dependency] {
             continue;
         }
         if dependency == start {
-            return vec![start];
+            return cycle.push(start);
         }
-        let mut visited = vec![false; modules.len()];
-        if let Some(mut path) = find_path(
+        let mut visited = pass.collect(std::iter::repeat_n(false, modules.len()))?;
+        let mut path = pass.vec(modules.len())?;
+        if find_path(
+            pass,
             dependency,
             start,
             &allowed,
             modules,
             module_index,
             &mut visited,
-        ) {
-            path.pop();
-            let mut cycle = Vec::with_capacity(path.len() + 1);
-            cycle.push(start);
-            cycle.append(&mut path);
-            return cycle;
+            &mut path,
+        )? {
+            cycle.push(start)?;
+            return cycle.extend_from_slice(&path);
         }
     }
-    component.to_vec()
+    cycle.extend_from_slice(component)
 }

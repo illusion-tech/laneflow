@@ -1162,39 +1162,36 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
         .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
         .unwrap();
 
-    let sizing = AdmissionSizing::from_totals(
-        builder.totals,
-        limits
-            .source_limits()
-            .get(crate::SourceProcessingDimension::DiagnosticCount),
-    );
-    let expected_document_index = source_document_index_requested_bytes(1);
-    let expected_module_index = requested_hash_table_bytes::<Arc<str>, usize>(1);
+    // builder 的存续由准入账本记录：模块载荷、按倍增预留的模块表与两份索引。
+    let slots = usize::try_from(builder.totals.module_slot_capacity).unwrap();
+    let document_slots = usize::try_from(builder.totals.source_document_slot_capacity).unwrap();
+    assert_eq!(slots, 4);
+    assert_eq!(document_slots, 4);
+    let document_index = Plan::ZERO
+        .hash_table::<Arc<str>, SourceDocumentBindingForTest>(document_slots)
+        .bytes()
+        .unwrap();
+    let builder_live = Plan::of(builder.totals.module_payload_live_bytes)
+        .array::<AdmittedOfficialModule>(slots)
+        .hash_table::<Arc<str>, usize>(slots)
+        .bytes()
+        .unwrap()
+        .saturating_add(document_index);
     assert_eq!(
-        sizing.builder_live_bytes,
-        builder
-            .totals
-            .module_payload_live_bytes
-            .saturating_add(expected_document_index)
-            .saturating_add(expected_module_index)
-            .saturating_add(size_bytes::<AdmittedOfficialModule>(
-                builder.totals.module_slot_capacity,
-            ))
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes),
+        builder_live
     );
     assert_eq!(builder.modules.capacity(), 4);
+    assert!(builder.build_peak_live_bytes() > builder_live);
+
+    let payload = builder.totals.module_payload_live_bytes;
+    let unit = builder.build().unwrap();
     assert_eq!(
-        sizing.result_live_bytes,
-        builder
-            .totals
-            .module_payload_live_bytes
-            .saturating_add(expected_document_index)
+        unit.controlled_live_bytes,
+        payload
+            .saturating_add(document_index)
             .saturating_add(size_bytes::<TypedAstModule>(1))
     );
-    assert!(sizing.build_scratch_bytes > 0);
-    assert!(sizing.build_peak_live_bytes > sizing.builder_live_bytes);
-
-    let unit = builder.build().unwrap();
-    assert_eq!(unit.controlled_live_bytes, sizing.result_live_bytes);
 }
 
 #[test]
@@ -1222,19 +1219,27 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
     let candidate_retained = fifth.admitted.resource_counts.controlled_live_bytes;
     let candidate_peak = fifth.admitted.resource_counts.admission_peak_live_bytes;
     assert_eq!(candidate_peak, candidate_retained);
-    let expected_growth_allocation = size_bytes::<AdmittedOfficialModule>(8);
     let next_totals = builder
         .totals
         .candidate_after(1, 0, &fifth.admitted.resource_counts);
-    let frontend_peak = live_before_growth.saturating_add(candidate_peak);
-    let next_builder_live = admission::builder_live_requested_bytes(next_totals);
-    let growth_peak = live_before_growth
-        .saturating_add(candidate_retained)
-        .saturating_add(expected_growth_allocation);
-    assert!(growth_peak > frontend_peak);
-    assert!(growth_peak > next_builder_live);
-    assert!(growth_peak > builder.totals.admission_peak_live_bytes);
-    let expected_peak = growth_peak;
+    assert_eq!(next_totals.module_slot_capacity, 8);
+    // 扩容后的模块表与两份索引在本次准入调用内与候选载荷一起授予，旧存储在提交后释放。
+    let growth = admission_plan(
+        builder.totals,
+        next_totals,
+        candidate_retained,
+        candidate_peak,
+    );
+    let expected_peak = live_before_growth.saturating_add(growth.bytes().unwrap());
+    assert_eq!(
+        growth,
+        Plan::of(candidate_retained)
+            .array::<AdmittedOfficialModule>(8)
+            .hash_table::<Arc<str>, usize>(8)
+            .hash_table::<Arc<str>, SourceDocumentBindingForTest>(8)
+    );
+    assert!(expected_peak > live_before_growth.saturating_add(candidate_peak));
+    assert!(expected_peak > builder.totals.admission_peak_live_bytes);
     builder.set_test_limits(
         CompileProfile::single_network_10k_stable_entities().with_test_admission_limit(
             CompileLimitDimension::CompilerControlledLiveBytes,
@@ -1248,6 +1253,11 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
     assert_eq!(
         builder.totals.admission_peak_live_bytes, expected_peak,
         "frontend scratch and later module-vector growth are distinct lifetimes"
+    );
+    // 旧模块表与索引在提交后释放：存续只剩扩容后的存储与全部载荷。
+    assert!(
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
+            < expected_peak
     );
 
     let (mut rejected, fifth) = fixture();
@@ -1307,18 +1317,13 @@ fn geometry_source_range_audit_count_commits_and_rolls_back_with_the_module() {
 
 #[test]
 fn build_checks_admission_scratch_and_peak_boundaries_before_freezing() {
-    fn sizing_for_one_module() -> AdmissionSizing {
+    fn build_peak_for_one_module() -> u64 {
         let limits = CompileProfile::single_network_10k_stable_entities();
-        let mut builder = CompilationUnitBuilder::new(limits.clone());
+        let mut builder = CompilationUnitBuilder::new(limits);
         builder
             .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
             .unwrap();
-        AdmissionSizing::from_totals(
-            builder.totals,
-            limits
-                .source_limits()
-                .get(crate::SourceProcessingDimension::DiagnosticCount),
-        )
+        builder.build_peak_live_bytes()
     }
 
     fn build_with_limit(
@@ -1334,9 +1339,8 @@ fn build_checks_admission_scratch_and_peak_boundaries_before_freezing() {
         builder.build()
     }
 
-    let sizing = sizing_for_one_module();
     let dimension = CompileLimitDimension::CompilerControlledLiveBytes;
-    let observed = sizing.build_peak_live_bytes;
+    let observed = build_peak_for_one_module();
     let boundary = u32::try_from(observed).unwrap();
     let diagnostics = expect_diagnostics(build_with_limit(dimension, boundary - 1));
     assert!(matches!(
@@ -1368,14 +1372,8 @@ fn default_profile_can_freeze_its_maximum_module_count() {
             .add_synthetic_module(module_with_document(&namespace, &document, &[]))
             .unwrap();
     }
-    let sizing = AdmissionSizing::from_totals(
-        builder.totals,
-        limits
-            .source_limits()
-            .get(crate::SourceProcessingDimension::DiagnosticCount),
-    );
     assert!(
-        sizing.build_peak_live_bytes
+        builder.build_peak_live_bytes()
             <= limits
                 .operation_budget()
                 .get(crate::OperationResourceDimension::CompilerControlledLiveBytes)
@@ -1404,13 +1402,7 @@ fn build_limit_diagnostic_uses_canonical_module_context() {
     let default_limits = CompileProfile::single_network_10k_stable_entities();
     let mut sizing_builder = CompilationUnitBuilder::new(default_limits.clone());
     add_modules(&mut sizing_builder, ["city/z", "city/a"]);
-    let sizing = AdmissionSizing::from_totals(
-        sizing_builder.totals,
-        default_limits
-            .source_limits()
-            .get(crate::SourceProcessingDimension::DiagnosticCount),
-    );
-    let failing_limit = u32::try_from(sizing.build_peak_live_bytes).unwrap() - 1;
+    let failing_limit = u32::try_from(sizing_builder.build_peak_live_bytes()).unwrap() - 1;
 
     for namespaces in [["city/z", "city/a"], ["city/a", "city/z"]] {
         let limits = CompileProfile::single_network_10k_stable_entities()
@@ -1539,11 +1531,9 @@ fn source_document_index_and_flat_descriptors_are_in_peak_live_accounting() {
         total.saturating_add(u64::try_from(key.len()).unwrap_or(u64::MAX))
     });
     let descriptor_bytes = size_bytes::<SourceDocumentDescriptor>(2);
-    let index_growth = source_document_index_requested_bytes(3)
-        .saturating_sub(source_document_index_requested_bytes(1));
+    // 来源文档索引按倍增预留：一份与三份文档都占四个槽位，索引本身不增长。
     let expected_growth = extra_key_bytes
         .saturating_add(descriptor_bytes)
-        .saturating_add(index_growth)
         .saturating_add(descriptor_bytes);
     assert_eq!(
         three_document_peak.saturating_sub(one_document_peak),
@@ -2102,7 +2092,7 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
             .collect()
     }
 
-    fn run_once(modules: Vec<TestOfficialModule>) -> (u128, AdmissionSizing, u64) {
+    fn run_once(modules: Vec<TestOfficialModule>) -> (u128, u64, u64, u64) {
         let origin_bytes = modules
             .iter()
             .flat_map(|module| module.admitted.source_documents.iter())
@@ -2115,34 +2105,28 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
         let diagnostic_limit = limits
             .source_limits()
             .get(crate::SourceProcessingDimension::DiagnosticCount);
+        let _ = (diagnostic_limit, origin_bytes);
         let mut builder = CompilationUnitBuilder::new(limits);
         for module in modules {
             builder.add_test_official_module(module).unwrap();
         }
-        let totals = builder.totals;
+        let builder_live =
+            builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes);
         let unit = builder.build().unwrap();
         let elapsed = start.elapsed().as_nanos();
-        let sizing = AdmissionSizing::from_totals(totals, diagnostic_limit);
         let result_live_bytes = black_box(unit.controlled_live_bytes);
-        assert_eq!(result_live_bytes, sizing.result_live_bytes);
+        let peak = unit.admission_peak_live_bytes;
         black_box(unit);
-        (elapsed, sizing, origin_bytes)
+        (elapsed, builder_live, result_live_bytes, peak)
     }
 
     let _warmup = run_once(fixture());
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    let mut sizing = AdmissionSizing {
-        builder_live_bytes: 0,
-        result_live_bytes: 0,
-        build_scratch_bytes: 0,
-        build_peak_live_bytes: 0,
-    };
-    let mut origin_bytes = 0_u64;
+    let mut measured = (0_u64, 0_u64, 0_u64);
     for _ in 0..SAMPLE_COUNT {
-        let (elapsed, measured_sizing, measured_origin_bytes) = run_once(fixture());
+        let (elapsed, builder_live, result_live, peak) = run_once(fixture());
         samples.push(elapsed);
-        sizing = measured_sizing;
-        origin_bytes = measured_origin_bytes;
+        measured = (builder_live, result_live, peak);
     }
     samples.sort_unstable();
     let median_ns = samples[SAMPLE_COUNT / 2];
@@ -2153,11 +2137,48 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
     deviations.sort_unstable();
     let mad_ns = deviations[SAMPLE_COUNT / 2];
     println!(
-        "admission-only modules={MODULE_COUNT} documents={} warmups=1 samples={SAMPLE_COUNT} median_ns={median_ns} mad_ns={mad_ns} origin_bytes={origin_bytes} builder_live_bytes={} result_live_bytes={} build_scratch_bytes={} admission_peak_live_bytes={}",
+        "admission-only modules={MODULE_COUNT} documents={} warmups=1 samples={SAMPLE_COUNT} median_ns={median_ns} mad_ns={mad_ns} builder_live_bytes={} result_live_bytes={} admission_peak_live_bytes={}",
         MODULE_COUNT * 3,
-        sizing.builder_live_bytes,
-        sizing.result_live_bytes,
-        sizing.build_scratch_bytes,
-        sizing.build_peak_live_bytes,
+        measured.0,
+        measured.1,
+        measured.2,
     );
+}
+
+#[test]
+fn failed_admission_keeps_ledger_state_and_builder_can_continue() {
+    let mut builder =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+    builder
+        .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+        .unwrap();
+    let live_after_first =
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes);
+    let totals_after_first = builder.totals;
+
+    // 失败的准入调用不改变准入账本：候选授予随候选释放，已准入模块的授予不提前归还。
+    let retained_failure = expect_diagnostics(builder.add_synthetic_module(module_with_document(
+        "city/a",
+        "source/b",
+        &[],
+    )));
+    assert_eq!(
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes),
+        live_after_first
+    );
+    assert_eq!(builder.totals, totals_after_first);
+
+    builder
+        .add_synthetic_module(module_with_document("city/b", "source/b", &[]))
+        .unwrap();
+    assert!(
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
+            > live_after_first
+    );
+    let unit = builder.build().unwrap();
+    assert_eq!(unit.module_count(), 2);
+    assert!(matches!(
+        retained_failure.diagnostics()[0].payload(),
+        DiagnosticPayload::DuplicateModuleNamespace { .. }
+    ));
 }

@@ -21,11 +21,11 @@ pub(crate) struct ModuleResourceCounts {
     pub(crate) admission_peak_live_bytes: u64,
 }
 
-/// 编译单元准入过程中唯一的累计资源状态。
+/// 编译单元准入过程中唯一的累计计数状态。
 ///
 /// 候选值按值计算并完整通过限额校验后才替换构建器中的当前值，避免并行字段在新增
-/// 维度时漏更新。`module_payload_live_bytes` 只累计模块载荷，不含共同模块/文档索引或
-/// 构建器/结果容器；这些结构由准入层在候选基数确定后按阶段一次组装进存续与峰值账本。
+/// 维度时漏更新。受控存续由准入账本按授予记录；`module_payload_live_bytes` 只累计
+/// 模块载荷的计划字节，`*_slot_capacity` 是 builder 模块表与索引按倍增预留的容量。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct AdmissionTotals {
     pub(super) module_count: u64,
@@ -47,6 +47,7 @@ pub(super) struct AdmissionTotals {
     pub(super) geometry_source_range_count: u64,
     pub(super) module_payload_live_bytes: u64,
     pub(super) module_slot_capacity: u64,
+    pub(super) source_document_slot_capacity: u64,
     pub(super) admission_peak_live_bytes: u64,
 }
 
@@ -107,17 +108,21 @@ impl AdmissionTotals {
                 self.module_slot_capacity,
                 module_count,
             ),
+            source_document_slot_capacity: planned_module_slot_capacity(
+                self.source_document_slot_capacity,
+                self.source_document_count
+                    .saturating_add(source_document_count),
+            ),
             admission_peak_live_bytes: self.admission_peak_live_bytes,
         }
     }
 
-    /// 汇总需对照限额配置档校验的各维度观测值。
+    /// 汇总需对照限额配置档校验的计数维度观测值；受控存续由准入账本在计划准入时核对。
     #[inline]
     pub(super) fn limit_violations(
         self,
-        controlled_live_bytes: u64,
         profile: &crate::CompileProfile,
-    ) -> [Option<crate::limits::ResourceLimitExceeded>; 16] {
+    ) -> [Option<crate::limits::ResourceLimitExceeded>; 15] {
         [
             profile.source_limits().exceeded(
                 crate::SourceProcessingDimension::ModuleCount,
@@ -179,10 +184,6 @@ impl AdmissionTotals {
                 laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount,
                 self.geometry_point_count,
             ),
-            profile.operation_budget().exceeded(
-                crate::OperationResourceDimension::CompilerControlledLiveBytes,
-                controlled_live_bytes,
-            ),
         ]
     }
 }
@@ -197,20 +198,4 @@ fn planned_module_slot_capacity(current: u64, required: u64) -> u64 {
 /// 按类型布局估算 `count` 个元素占用的字节数（饱和计算）。
 pub(crate) fn size_bytes<T>(count: u64) -> u64 {
     count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
-}
-
-/// 按保守桶模型估算给定项数的哈希表请求字节预算。
-pub(super) fn requested_hash_table_bytes<K, V>(entry_count: u64) -> u64 {
-    if entry_count == 0 {
-        return 0;
-    }
-    // 与阶段工作集预算采用同一保守模型：为每项预留八个桶、每桶一个控制字节，
-    // 再计入尾部控制区；不依赖标准库私有布局或实际哈希表迭代顺序。
-    let bucket_bytes = u64::try_from(size_of::<(K, V)>())
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    entry_count
-        .saturating_mul(8)
-        .saturating_mul(bucket_bytes)
-        .saturating_add(16)
 }
