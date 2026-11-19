@@ -10,4 +10,6 @@
 //! 正本；信号许可参考沿用 `lf-synth-execution-2` 的独立判据（#1456）。
 
 pub mod body;
+pub mod session;
 pub mod signal;
+pub mod spec;
