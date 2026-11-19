@@ -2,8 +2,9 @@
 schema_version = 1
 id = "design-ci-affected-verification-plan"
 kind = "design"
-status = "review"
+status = "accepted"
 revised_date = "2026-11-19"
+decision_date = "2026-11-19"
 summary = "定义按变更影响生成 CI 验证计划的合同：影响模型、变更三态归类、可靠性规则、全量时机与过渡策略。"
 scope = "CI 各项检查的执行范围选择机制；不改变检查自身的验证语义与 required check 接口。"
 applicability = "#applicability"
