@@ -56,9 +56,6 @@ pub(crate) fn aspect(
 
 /// 信号侧过门许可的独立证明；许可原因保留供 W4 专项（B1 必须为 Green）
 /// 与失败诊断。
-// 提交 A 只交付参考模块与边界测试；两 observer 的许可接线在提交 B 落地，
-// 届时移除本属性。
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CrossingPermit {
     Green,
@@ -67,7 +64,6 @@ pub(crate) enum CrossingPermit {
 
 /// 信号侧过门拒绝原因；黄灯可停携带整数比较双方（`v²` 与 `2·b·d`），
 /// 供失败信息直接核对。
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CrossingDenial {
     Red,
@@ -81,7 +77,6 @@ pub(crate) enum CrossingDenial {
 /// 拍初信号许可的纯参考判定。输入全部是事实：拍初已提交灯色与速度、
 /// 拍初整数进度到停止线的毫米距离、受检 profile 的紧急减速度（mm/s²）。
 /// `SignalAspect` 是 `#[non_exhaustive]`，未知灯色明确拒绝。
-#[allow(dead_code)]
 pub(crate) fn signal_crossing_permission(
     aspect_before: SignalAspect,
     speed_before_mm_s: u32,
