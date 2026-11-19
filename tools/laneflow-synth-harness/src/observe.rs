@@ -34,15 +34,15 @@ pub(crate) fn w_body_interval(
     let back_um = position_um
         .checked_sub(BODY_MM * 1_000)
         .ok_or_else(|| Error::Invalid(format!("车尾越出走廊起点 rank={rank}")))?;
-    Ok(BodyInterval {
-        space: u32::try_from(rank / 25).expect("rank 档在 u32 域内"),
+    Ok(BodyInterval::new(
+        u32::try_from(rank / 25).expect("rank 档在 u32 域内"),
         back_um,
-        front_um: position_um,
-        owner: BodyOwner {
+        position_um,
+        BodyOwner {
             logical: rank as u64,
             incarnation,
         },
-    })
+    ))
 }
 
 /// W 域车身分离的有序相邻扫描：普通与 burst 两条观测路径共用的共享事实
@@ -63,18 +63,18 @@ impl LaneScan {
     /// 分离与顺序，跨走廊（`space` 变化）只重置游标。
     pub(crate) fn push(&mut self, interval: BodyInterval) -> Result<(), Error> {
         if let Some(leader) = self.front
-            && leader.space == interval.space
+            && leader.space() == interval.space()
         {
             require(!intervals_overlap(leader, interval), || {
                 format!(
                     "车身重叠 corridor={} leader={:?} follower={:?}",
-                    interval.space, leader, interval
+                    interval.space(), leader, interval
                 )
             })?;
-            require(interval.front_um >= leader.front_um, || {
+            require(interval.front_um() >= leader.front_um(), || {
                 format!(
                     "顺序反转/超车 corridor={} leader={:?} follower={:?}",
-                    interval.space, leader, interval
+                    interval.space(), leader, interval
                 )
             })?;
         }
@@ -658,11 +658,11 @@ mod tests {
     #[test]
     fn w_body_interval_maps_corridor_owner_and_um_length() {
         let interval = w_body_interval(26, 30_000_000, 2).unwrap();
-        assert_eq!(interval.space, 1, "rank 26 属走廊 1");
-        assert_eq!(interval.back_um, 25_500_000);
-        assert_eq!(interval.front_um, 30_000_000);
-        assert_eq!(interval.owner.logical, 26);
-        assert_eq!(interval.owner.incarnation, 2, "burst 宿主代次透传");
+        assert_eq!(interval.space(), 1, "rank 26 属走廊 1");
+        assert_eq!(interval.back_um(), 25_500_000);
+        assert_eq!(interval.front_um(), 30_000_000);
+        assert_eq!(interval.owner().logical, 26);
+        assert_eq!(interval.owner().incarnation, 2, "burst 宿主代次透传");
         // 车尾越出走廊起点（位置不足一个车长）按事实错误拒绝，不截断。
         assert!(w_body_interval(0, 4_499_999, 0).is_err());
         assert!(w_body_interval(0, 4_500_000, 0).is_ok());
