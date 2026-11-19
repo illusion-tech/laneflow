@@ -22,6 +22,11 @@ pub(super) const SEGMENT: Duration = Duration::from_secs(1);
 pub(super) const EXTERNAL_LOAD_THRESHOLD: f64 = 2.5;
 /// `run_queue_wait` 标记阈值初值（§7.4，仅 Linux），单位为线程当量。
 pub(super) const RUN_QUEUE_WAIT_THRESHOLD: f64 = 0.05;
+/// round 判为受扰的受标记观测段占比下限（§7.4，参考机校准值）。
+pub(super) const FLAGGED_FRACTION_THRESHOLD: f64 = 0.05;
+/// 任一观测段达到即判 round 受扰的严重外部负载（§7.4，参考机校准值），单位为
+/// 逻辑 CPU 当量。
+pub(super) const SEVERE_EXTERNAL_LOAD_THRESHOLD: f64 = 5.0;
 
 /// 段边界处的一次读数；累计量取不到时为 `None`。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -253,8 +258,11 @@ impl Sampler {
 
 fn thresholds() -> Value {
     json!({"external_load":EXTERNAL_LOAD_THRESHOLD,"run_queue_wait":RUN_QUEUE_WAIT_THRESHOLD,
+        "round_flagged_fraction":FLAGGED_FRACTION_THRESHOLD,
+        "round_severe_external_load":SEVERE_EXTERNAL_LOAD_THRESHOLD,
         "status":{"external_load":"calibrated_on_reference_machine",
-            "run_queue_wait":"initial_value_pending_linux_calibration"}})
+            "run_queue_wait":"initial_value_pending_linux_calibration",
+            "round_rule":"calibrated_on_reference_machine"}})
 }
 
 fn sources() -> Value {
@@ -375,8 +383,14 @@ pub(super) fn judge(enabled: bool, segments: &[Segment]) -> (Judgment, Option<&'
             Some("observation_segment_shorter_than_target"),
         );
     }
-    if observed.iter().any(|s| !s.flags.is_empty()) {
-        return (Judgment::Disturbed, None);
+    if observed.iter().any(|s| {
+        s.external_load
+            .is_some_and(|l| l >= SEVERE_EXTERNAL_LOAD_THRESHOLD)
+    }) {
+        return (Judgment::Disturbed, Some("severe_external_load"));
+    }
+    if flagged_fraction(segments).is_some_and(|f| f >= FLAGGED_FRACTION_THRESHOLD) {
+        return (Judgment::Disturbed, Some("flagged_fraction"));
     }
     if observed
         .iter()
@@ -385,6 +399,15 @@ pub(super) fn judge(enabled: bool, segments: &[Segment]) -> (Judgment, Option<&'
         return (Judgment::Undeterminable, Some("no_judging_signal"));
     }
     (Judgment::Undisturbed, None)
+}
+
+/// 受标记观测段数 / 观测段数；没有观测段时为 `None`。
+fn flagged_fraction(segments: &[Segment]) -> Option<f64> {
+    let observed = segments.iter().filter(|s| s.observation);
+    let (flagged, total) = observed.fold((0usize, 0usize), |(f, t), s| {
+        (f + usize::from(!s.flags.is_empty()), t + 1)
+    });
+    (total > 0).then(|| flagged as f64 / total as f64)
 }
 
 fn summary(segments: &[Segment], judgment: Judgment, reason: Option<&str>) -> Value {
@@ -398,7 +421,8 @@ fn summary(segments: &[Segment], judgment: Judgment, reason: Option<&str>) -> Va
         "segments":segments.len(),"observation_segments":observed().count(),
         "max_observation_external_load":max(observed().filter_map(|s| s.external_load).collect()),
         "max_observation_run_queue_wait":max(observed().filter_map(|s| s.run_queue_wait).collect()),
-        "flagged_segments":flagged,"judgment":judgment,"judgment_reason":reason,
+        "flagged_segments":flagged,"flagged_fraction":flagged_fraction(segments),
+        "judgment":judgment,"judgment_reason":reason,
     })
 }
 
@@ -419,6 +443,51 @@ mod tests {
                 page_faults: Some(first * 3),
             },
         }
+    }
+
+    /// 每段 1 s、全部为观测段的 round；`loads` 为各段外部负载（逻辑 CPU 当量 × 10）。
+    fn round_with_loads(loads: &[u64]) -> Vec<Segment> {
+        let mut boundaries = vec![at(0, 0, 0, 0, None)];
+        let mut busy = 0;
+        for (i, load) in loads.iter().enumerate() {
+            busy += load * S / 10;
+            boundaries.push(at(i as u64 + 1, (i as u64 + 1) * S, busy, 0, None));
+        }
+        segments(&boundaries, &vec![true; loads.len()], true)
+    }
+
+    /// §7.4：受标记段占比低于 5% 不判受扰，达到 5% 判受扰；任一段达到严重外部
+    /// 负载即判受扰；只有一个观测段且被标记时占比为 100%。
+    #[test]
+    fn round_judgment_uses_flagged_fraction_and_severe_load() {
+        let mut loads = vec![10; 40];
+        loads[7] = 30;
+        let (judgment, reason) = judge(true, &round_with_loads(&loads));
+        assert_eq!((judgment, reason), (Judgment::Undisturbed, None));
+
+        loads[20] = 26;
+        let result = round_with_loads(&loads);
+        assert_eq!(flagged_fraction(&result), Some(0.05));
+        assert_eq!(
+            judge(true, &result),
+            (Judgment::Disturbed, Some("flagged_fraction"))
+        );
+
+        let mut severe = vec![10; 40];
+        severe[3] = 50;
+        assert_eq!(
+            judge(true, &round_with_loads(&severe)),
+            (Judgment::Disturbed, Some("severe_external_load"))
+        );
+
+        assert_eq!(
+            judge(true, &round_with_loads(&[25])),
+            (Judgment::Disturbed, Some("flagged_fraction"))
+        );
+        assert_eq!(
+            judge(true, &round_with_loads(&[24])),
+            (Judgment::Undisturbed, None)
+        );
     }
 
     fn spans(segments: &[Segment]) -> Vec<(u64, u64, bool)> {
