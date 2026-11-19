@@ -52,6 +52,12 @@ jobs:
         shell: bash
         run: cargo +1.99.1 test --locked -p xtask doc_checks
 
+      # 注册表数据的模块级校验测试（与 doc 域同模式：命令检查与它的测试同 job）。
+      # 测试二进制已由上一步编译，边际成本秒级；数据变更不再触发全量重活（#1459）。
+      - name: Test commit harness and model registries
+        shell: bash
+        run: cargo +1.99.1 test --locked -p xtask -- commit_harnesses commit_models
+
   markdown-tables:
     name: Markdown tables
     runs-on: ubuntu-latest
@@ -102,12 +108,16 @@ jobs:
           filters: |
             rust:
               - 'crates/**'
-              - 'xtask/**'
+              # xtask 精确到 Rust 文件与 Cargo 清单（#1459）：xtask/data 的注册表
+              # 与文档检查数据由常驻 Commit message job 校验（命令检查 + 模块级
+              # 测试），数据变更不再需要全量重活。crates/examples 维持目录级：
+              # crate README 被 lib.rs 嵌入进 doctest，examples config/data 被
+              # 工具测试嵌入。
+              - 'xtask/**/*.rs'
+              - 'xtask/Cargo.toml'
               # tools 精确到实际输入（#1298，100 目标嵌入清点背书）：嵌入与测试
               # 数据只在 .rs、Cargo 清单/锁文件、tests/、fixtures/、evidence/、
-              # licenses/；README 等文档零嵌入。crates/examples/xtask 维持目录级：
-              # crate README 被 lib.rs 嵌入进 doctest，examples config/data 与
-              # xtask/data 注册表均被嵌入。
+              # licenses/；README 等文档零嵌入。
               - 'tools/**/*.rs'
               - 'tools/**/Cargo.toml'
               - 'tools/**/Cargo.lock'
