@@ -427,7 +427,10 @@ impl Session {
                 &mut self.obligations.initial
             }
             CheckPhase::CommandResults => {
-                if self.stage != Stage::ProcessingCommands {
+                // 登记必须对应仍开放的义务实例：本条命令已有结果待消费。
+                if self.stage != Stage::ProcessingCommands
+                    || self.consumed_commands >= self.declared_commands
+                {
                     return Err(ProtocolError::WrongPhase {
                         rule,
                         phase: descriptor.phase,
@@ -436,7 +439,9 @@ impl Session {
                 &mut self.obligations.command
             }
             CheckPhase::PreTick => {
-                if self.stage != Stage::AfterCommands {
+                // 登记必须对应仍开放的义务实例：拍前义务尚未核销
+                // （失败重试边界不重开，已消费实例不得再登记）。
+                if self.stage != Stage::AfterCommands || !self.pre_tick_pending {
                     return Err(ProtocolError::WrongPhase {
                         rule,
                         phase: descriptor.phase,
@@ -534,6 +539,11 @@ impl Session {
                     |o| &mut o.step,
                     |rule| rule.phase == CheckPhase::PostSuccessfulStep,
                 )?;
+                // 尝试结束是完整关闭：本次尝试中误登记的失败检查标记
+                // 随尝试失效，不得供后续失败尝试复用。
+                for flag in self.obligations.failure.iter_mut() {
+                    *flag = false;
+                }
                 self.successful_steps += 1;
                 self.last_tick = outcome_tick;
                 self.declared_commands = 0;
@@ -557,6 +567,11 @@ impl Session {
                     |o| &mut o.failure,
                     |rule| rule.phase == CheckPhase::PostExpectedFailure,
                 )?;
+                // 尝试结束是完整关闭：本次尝试中误登记的成功检查标记
+                // 随尝试失效（该次步进未提交），不得供重试复用。
+                for flag in self.obligations.step.iter_mut() {
+                    *flag = false;
+                }
                 self.stage = Stage::AfterCommands;
                 Ok(())
             }
@@ -1757,5 +1772,281 @@ mod tests {
         session.advance_to_pre_tick().unwrap();
         session.note_check(RULE_PRE.id).unwrap();
         session.finish().expect("拍前义务闭合后的终结必须通过");
+    }
+
+    /// 拍前标记只属于仍开放的义务实例：失败重试边界不重开拍前义务，
+    /// 已消费实例不得再登记，旧标记不得流入下一边界。
+    #[test]
+    fn pre_tick_marks_require_open_obligations() {
+        const RULES_RETRY: &[RuleDescriptor] = &[
+            RULE_MOTION,
+            RULE_BODY,
+            RULE_SIGNAL,
+            RULE_PRE,
+            RULE_ATOMICITY,
+        ];
+        let spec = VerificationSpec {
+            required_rules: RULES_RETRY,
+            ..spec(2, true)
+        };
+        let provided = ProvidedModules {
+            rules: RULES_RETRY,
+            ..PROVIDED
+        };
+        let mut session = Session::start(spec, provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        // 边界 k=0：拍前检查、失败检查、接受预期失败。
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        session.begin_step().unwrap();
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_expected_failure().unwrap();
+        // 重试边界（同一受检输入）：拍前义务已核销，再登记被拒。
+        assert_eq!(
+            session.note_check(RULE_PRE.id),
+            Err(ProtocolError::WrongPhase {
+                rule: RULE_PRE.id,
+                phase: CheckPhase::PreTick,
+            })
+        );
+        // 重试成功。
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(1).unwrap();
+        // 边界 k=1：不执行本边界拍前检查——旧标记不存在，核销拒绝。
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        assert_eq!(
+            session.begin_step(),
+            Err(ProtocolError::RoundCoverageMissing(RULE_PRE.id))
+        );
+        // 补齐后继续并通过（含终局拍前闭合）。
+        session.note_check(RULE_PRE.id).unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(2).unwrap();
+        session.finish().expect("各边界义务各自闭合后必须通过");
+    }
+
+    /// 命令标记只属于仍待消费的那条结果：批次耗尽后不得再登记，
+    /// 自产检查点因此保持可恢复。
+    #[test]
+    fn command_marks_require_pending_result() {
+        const RULES_CMD: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_CMD];
+        let spec = VerificationSpec {
+            required_rules: RULES_CMD,
+            ..spec(1, false)
+        };
+        let provided = ProvidedModules {
+            rules: RULES_CMD,
+            ..PROVIDED
+        };
+        let mut session = Session::start(spec, provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(1).unwrap();
+        session.note_check(RULE_CMD.id).unwrap();
+        session
+            .note_command_result(CommandResult::Succeeded)
+            .unwrap();
+        // 批次已耗尽：命令义务实例已关闭，再登记被拒。
+        assert_eq!(
+            session.note_check(RULE_CMD.id),
+            Err(ProtocolError::WrongPhase {
+                rule: RULE_CMD.id,
+                phase: CheckPhase::CommandResults,
+            })
+        );
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(1).unwrap();
+        session.finish().expect("逐条命令义务闭合后必须通过");
+    }
+
+    /// 一次尝试的结束是完整关闭：误登记到不相容尝试的标记随尝试失效，
+    /// 不得供后续同类尝试复用（双向）。
+    #[test]
+    fn attempt_close_invalidates_cross_result_marks() {
+        const RULES_RETRY: &[RuleDescriptor] =
+            &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_ATOMICITY];
+        let spec = VerificationSpec {
+            required_rules: RULES_RETRY,
+            ..spec(2, true)
+        };
+        let provided = ProvidedModules {
+            rules: RULES_RETRY,
+            ..PROVIDED
+        };
+        // 方向一：失败尝试中误登记成功检查——接受失败后标记失效，
+        // 重试成功必须重新执行本次成功检查。
+        let mut session = Session::start(spec, provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        session.note_check(RULE_MOTION.id).unwrap();
+        session.note_check(RULE_BODY.id).unwrap();
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_expected_failure().unwrap();
+        session.begin_step().unwrap();
+        // 重试不执行成功检查（误标记已随上次尝试失效）。
+        assert_eq!(
+            session.note_successful_step(1),
+            Err(ProtocolError::RoundCoverageMissing(RULE_MOTION.id))
+        );
+        note_round_rules(&mut session);
+        session.note_successful_step(1).unwrap();
+        // 第二轮补满窗口。
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(2).unwrap();
+        session.finish().expect("双向关闭后的路径必须可终结");
+
+        // 方向二：成功尝试中误登记失败检查——成功核销后标记失效，
+        // 下一次失败尝试必须重新执行失败检查。
+        let mut session = Session::start(spec, provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_successful_step(1).unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        // 不执行失败检查（上次尝试的误标记已失效）。
+        assert_eq!(
+            session.note_expected_failure(),
+            Err(ProtocolError::RoundCoverageMissing(RULE_ATOMICITY.id))
+        );
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_expected_failure().unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(2).unwrap();
+        session.finish().expect("双向关闭后的重试路径必须可终结");
+    }
+
+    /// `initial` 只对成功步进后阶段有意义；声明的组合不一致在绑定期
+    /// 拒绝，不产出无法启动的计划。
+    #[test]
+    fn bind_rejects_inconsistent_initial_declarations() {
+        use crate::spec::{CheckedPlan, PlanRejected};
+        // PreTick + initial:true：阶段不兼容，规约侧与安装侧同样拒绝。
+        const PRE_INITIAL: RuleDescriptor = RuleDescriptor {
+            initial: true,
+            ..RULE_PRE
+        };
+        const WITH_PRE_INITIAL: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, PRE_INITIAL];
+        const BASE: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY];
+        assert_eq!(
+            CheckedPlan::bind(
+                VerificationSpec {
+                    required_rules: WITH_PRE_INITIAL,
+                    ..spec(1, false)
+                },
+                ProvidedModules {
+                    rules: WITH_PRE_INITIAL,
+                    ..PROVIDED
+                },
+            ),
+            Err(PlanRejected::InitialPhaseUnsupported {
+                rule: RULE_PRE.id,
+                phase: CheckPhase::PreTick,
+            })
+        );
+        // 规约要求参与初态、安装实现不支持：能力错配拒绝。
+        const BODY_NO_INITIAL: RuleDescriptor = RuleDescriptor {
+            initial: false,
+            ..RULE_BODY
+        };
+        const NO_INITIAL: &[RuleDescriptor] = &[RULE_MOTION, BODY_NO_INITIAL];
+        assert_eq!(
+            CheckedPlan::bind(
+                VerificationSpec {
+                    required_rules: BASE,
+                    ..spec(1, false)
+                },
+                ProvidedModules {
+                    rules: NO_INITIAL,
+                    ..PROVIDED
+                },
+            ),
+            Err(PlanRejected::InitialCapabilityMismatch { rule: RULE_BODY.id })
+        );
+    }
+
+    /// 自产检查点在每个受支持的边界都必须原样可恢复。
+    #[test]
+    fn self_produced_checkpoints_restore_at_supported_boundaries() {
+        const RULES_RETRY: &[RuleDescriptor] = &[
+            RULE_MOTION,
+            RULE_BODY,
+            RULE_SIGNAL,
+            RULE_PRE,
+            RULE_ATOMICITY,
+        ];
+        let spec = VerificationSpec {
+            required_rules: RULES_RETRY,
+            ..spec(2, true)
+        };
+        let provided = ProvidedModules {
+            rules: RULES_RETRY,
+            ..PROVIDED
+        };
+        let input = "lfca-sha256:fixed-input";
+        let mut session = Session::start(spec, provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        // 边界一：新轮开启（BeforeCommands）。
+        let before = session.checkpoint(input).unwrap();
+        Session::restore(&before, spec, provided, input).expect("命令执行前的自产检查点必须可恢复");
+        // 边界二：拍前阶段（义务开放、已登记）。
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        let after_pending = session.checkpoint(input).unwrap();
+        let mut resumed = Session::restore(&after_pending, spec, provided, input)
+            .expect("拍前阶段（待核销）的自产检查点必须可恢复");
+        resumed.begin_step().unwrap();
+        note_round_rules(&mut resumed);
+        resumed.note_successful_step(1).unwrap();
+        // 边界三：失败重试后的拍前阶段（义务已核销、不重开）。
+        resumed.declare_commands(0).unwrap();
+        resumed.advance_to_pre_tick().unwrap();
+        resumed.note_check(RULE_PRE.id).unwrap();
+        resumed.begin_step().unwrap();
+        resumed.note_check(RULE_ATOMICITY.id).unwrap();
+        resumed.note_expected_failure().unwrap();
+        let after_retry = resumed.checkpoint(input).unwrap();
+        let mut final_run = Session::restore(&after_retry, spec, provided, input)
+            .expect("失败重试边界的自产检查点必须可恢复");
+        final_run.begin_step().unwrap();
+        note_round_rules(&mut final_run);
+        final_run.note_successful_step(2).unwrap();
+        final_run.finish().expect("恢复续跑完整窗口必须可终结");
     }
 }

@@ -127,6 +127,17 @@ pub enum PlanRejected {
     },
     /// 安装清单内同一规则出现多个描述符，绑定不得静默选择其一。
     DuplicateRule(RuleId),
+    /// `initial` 只对成功步进后阶段有意义；其他组合在绑定期拒绝，
+    /// 不产出无法启动的计划。
+    InitialPhaseUnsupported {
+        rule: RuleId,
+        phase: CheckPhase,
+    },
+    /// 规约要求参与初态观测而安装实现不支持（或相反），登记按安装、
+    /// 核销按规约会产生无法启动的计划，绑定期对账拒绝。
+    InitialCapabilityMismatch {
+        rule: RuleId,
+    },
     EmptyWindow,
 }
 
@@ -148,6 +159,12 @@ impl core::fmt::Display for PlanRejected {
                 "规则 {rule:?} 的阶段错配：要求 {required:?}，安装 {installed:?}"
             ),
             Self::DuplicateRule(rule) => write!(f, "安装清单内规则 {} 重复", rule.0),
+            Self::InitialPhaseUnsupported { rule, phase } => {
+                write!(f, "规则 {rule:?} 的 initial 声明与阶段 {phase:?} 不兼容")
+            }
+            Self::InitialCapabilityMismatch { rule } => {
+                write!(f, "规则 {:?} 的初态参与声明与安装实现不一致", rule.0)
+            }
             Self::EmptyWindow => write!(f, "完整窗口不得为零步"),
         }
     }
@@ -185,8 +202,20 @@ impl CheckedPlan {
             if !seen.insert(installed.id) {
                 return Err(PlanRejected::DuplicateRule(installed.id));
             }
+            if installed.initial && installed.phase != CheckPhase::PostSuccessfulStep {
+                return Err(PlanRejected::InitialPhaseUnsupported {
+                    rule: installed.id,
+                    phase: installed.phase,
+                });
+            }
         }
         for required in spec.required_rules {
+            if required.initial && required.phase != CheckPhase::PostSuccessfulStep {
+                return Err(PlanRejected::InitialPhaseUnsupported {
+                    rule: required.id,
+                    phase: required.phase,
+                });
+            }
             let installed = provided
                 .rules
                 .iter()
@@ -204,6 +233,9 @@ impl CheckedPlan {
                     required: required.phase,
                     installed: installed.phase,
                 });
+            }
+            if installed.initial != required.initial {
+                return Err(PlanRejected::InitialCapabilityMismatch { rule: required.id });
             }
         }
         Ok(Self {
