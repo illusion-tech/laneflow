@@ -3361,6 +3361,7 @@ dependencies = [
  "laneflow-static-contract",
  "laneflow-static-network",
  "laneflow-synth-generator",
+ "laneflow-traffic-verification",
  "serde",
  "serde_json",
  "sha2",

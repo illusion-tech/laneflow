@@ -413,6 +413,7 @@ pub(super) fn restore(
         &route_offsets,
         emergency_decel_mm_s2,
     )?;
+    crate::install::validate_w_corridor_binding(&state, &route_offsets)?;
     // 跨拍生命周期序在恢复端续接（#1227）：取宿主史中各槽位最后一次生命周期种类。
     let lane_change_slots = state
         .identity

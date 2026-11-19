@@ -11,7 +11,10 @@ use laneflow_synth_generator::{Case, Identity, InitialState, Provenance, generat
 
 use crate::{
     Plan, cycle_ms,
-    install::{Sample, route_position_offsets, validate_w_signal_reference_domain},
+    install::{
+        Sample, route_position_offsets, validate_w_corridor_binding,
+        validate_w_signal_reference_domain,
+    },
     observe::motion_valid,
     signal_reference::{SignalSchedule, aspect},
 };
@@ -144,6 +147,51 @@ fn w_reference_domain_rejects_drifted_reference_facts() {
             "drifted emergency decel {drifted} must reject"
         );
     }
+}
+
+#[test]
+fn w_corridor_binding_rejects_non_grid_or_shared_edges() {
+    // 快路径绑定前提（设计 §5.2）须显式证明，不得仅凭 rank/25 推断空间
+    // 隔离：冻结 W 输入通过；网格边长破坏、路线内别名、跨路线共享物理边
+    // 均拒绝。
+    let bundle = bundle(Case::W1, 16);
+    let input = check_canonical_network_input(
+        bundle.files()["network.lfca"].as_slice(),
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    let revision = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(2 * 1_024 * 1_024 * 1_024, 2 * 1_024 * 1_024 * 1_024),
+        ),
+    )
+    .unwrap();
+    let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+    let route_offsets = route_position_offsets(&state, &revision).unwrap();
+    assert!(validate_w_corridor_binding(&state, &route_offsets).is_ok());
+
+    let mut grid = route_offsets.clone();
+    grid[0][2] = 2 * 5_130_000 - 1;
+    assert!(
+        validate_w_corridor_binding(&state, &grid).is_err(),
+        "非 5 130 m 网格的出口边必须拒绝快路径"
+    );
+
+    let mut aliased: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+    aliased.routes[0].edge_ids[1] = aliased.routes[0].edge_ids[0].clone();
+    assert!(
+        validate_w_corridor_binding(&aliased, &route_offsets).is_err(),
+        "路线内两条边别名必须拒绝快路径"
+    );
+
+    let mut shared: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+    shared.routes[1].edge_ids[0] = shared.routes[0].edge_ids[0].clone();
+    assert!(
+        validate_w_corridor_binding(&shared, &route_offsets).is_err(),
+        "跨路线共享物理边必须拒绝快路径"
+    );
 }
 
 #[test]
