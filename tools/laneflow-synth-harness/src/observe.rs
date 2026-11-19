@@ -237,6 +237,10 @@ impl Sample {
         let mut event_index = 0;
         let events = self.world.latest_transition_events();
         let mut lane_scan = LaneScan::new();
+        // 三条每轮规则在观测入口登记实际执行：运动/身份逐车核对本拍开始，
+        // 车身分离与走廊顺序随后在同一次车辆遍历里运行（设计 §3.3 每轮
+        // 义务；OnEvent 的信号/门事件仅在实际过门时登记）。
+        session_note(&mut self.session, RULE_MOTION)?;
         session_note(&mut self.session, RULE_BODY)?;
         session_note(&mut self.session, RULE_ORDER)?;
         for (rank, &handle) in self.handles.iter().enumerate() {
