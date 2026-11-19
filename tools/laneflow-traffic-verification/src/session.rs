@@ -839,38 +839,41 @@ impl Session {
             || checkpoint.command_phase == CommandPhase::AfterCommands;
         let pre_tick_closed_current =
             checkpoint.command_phase == CommandPhase::AfterCommands && !checkpoint.pre_tick_pending;
+        // 已接受预期失败的重试边界：只能经 note_expected_failure 到达。
+        let at_retry_boundary = pre_tick_closed_current;
         for required in spec.required_rules {
             if required.coverage != CoverageMode::EveryRound {
                 continue;
             }
-            let Some(count) = checkpoint.trigger_counts.get(required.id.0).copied() else {
-                // 尚无任何触发：只有进度推不出下界的规则允许（如未开始的
-                // 初态轮或 OnEvent）。
-                let min = minimum_triggers(
-                    required,
-                    checkpoint.successful_steps,
-                    initial_round_closed,
-                    pre_tick_closed_current,
-                    checkpoint.successful_commands
-                        + checkpoint.blocked_attempts
-                        + checkpoint.failed_attempts,
-                );
-                if min > 0 {
-                    return Err(RestoreRejected::MinTriggerUnmet(required.id.0.to_owned()));
+            // 当前义务中已登记的完成标记与累计历史来自同一次登记——
+            // 标记本身证明对应历史至少一条。
+            let has_current_mark = match required.phase {
+                CheckPhase::PreTick => checkpoint.open_pre_tick.contains(required.id.0),
+                CheckPhase::InitialBoundary => checkpoint.open_initial.contains(required.id.0),
+                CheckPhase::PostSuccessfulStep if required.initial => {
+                    checkpoint.open_initial.contains(required.id.0)
                 }
-                continue;
+                _ => false,
             };
             let min = minimum_triggers(
                 required,
                 checkpoint.successful_steps,
                 initial_round_closed,
                 pre_tick_closed_current,
+                at_retry_boundary,
+                has_current_mark,
                 checkpoint.successful_commands
                     + checkpoint.blocked_attempts
                     + checkpoint.failed_attempts,
             );
-            if count < min {
-                return Err(RestoreRejected::MinTriggerUnmet(required.id.0.to_owned()));
+            match checkpoint.trigger_counts.get(required.id.0).copied() {
+                Some(count) if count < min => {
+                    return Err(RestoreRejected::MinTriggerUnmet(required.id.0.to_owned()));
+                }
+                None if min > 0 => {
+                    return Err(RestoreRejected::MinTriggerUnmet(required.id.0.to_owned()));
+                }
+                _ => {}
             }
         }
         // 边界状态不变量：命令阶段与游标一致、拍前标志与阶段一致、
@@ -1086,16 +1089,22 @@ fn minimum_triggers(
     successful_steps: u64,
     initial_round_closed: bool,
     pre_tick_closed_current: bool,
+    at_retry_boundary: bool,
+    has_current_mark: bool,
     consumed_results: u64,
 ) -> u64 {
     match rule.phase {
         CheckPhase::PostSuccessfulStep => {
-            successful_steps + u64::from(rule.initial && initial_round_closed)
+            successful_steps + u64::from(rule.initial && (initial_round_closed || has_current_mark))
         }
-        CheckPhase::PreTick => successful_steps + u64::from(pre_tick_closed_current),
+        CheckPhase::PreTick => {
+            successful_steps + u64::from(pre_tick_closed_current || has_current_mark)
+        }
         CheckPhase::CommandResults => consumed_results,
-        CheckPhase::InitialBoundary => u64::from(initial_round_closed),
-        CheckPhase::PostExpectedFailure => 0,
+        CheckPhase::InitialBoundary => u64::from(initial_round_closed || has_current_mark),
+        // 重试边界只能经已接受的预期失败到达，每次接受都核销过一次
+        // 失败检查义务——该状态本身证明失败检查至少运行过一次。
+        CheckPhase::PostExpectedFailure => u64::from(at_retry_boundary),
     }
 }
 
@@ -2348,5 +2357,154 @@ mod tests {
         atomic.note_expected_failure().unwrap();
         let retry_boundary = atomic.checkpoint(input).unwrap();
         assert!(Session::restore(&retry_boundary, retry_spec, retry_provided, input).is_ok());
+    }
+    #[test]
+    fn restore_rejects_history_missing_behind_current_marks() {
+        let input = "lfca-sha256:fixed-input";
+        // 探针一：当前拍前已登记 P、删除累计历史——标记本身证明历史
+        // 至少一条，恢复拒绝；未损坏对照恢复后正常完成并保留 P=1。
+        const RULES_PRE_ONLY: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_PRE];
+        let pre_spec = VerificationSpec {
+            required_rules: RULES_PRE_ONLY,
+            ..spec(1, false)
+        };
+        let pre_provided = ProvidedModules {
+            rules: RULES_PRE_ONLY,
+            ..PROVIDED
+        };
+        let mut session = Session::start(pre_spec, pre_provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        let checkpoint = session.checkpoint(input).unwrap();
+        // 只删除 P 的累计历史（保留其他规则的已完成历史）：当前拍前
+        // 标记 {P} 证明 P 至少登记过一次。
+        let mut stripped = checkpoint.clone();
+        stripped
+            .executed_checks
+            .retain(|(_, name)| name != RULE_PRE.id.0);
+        stripped.trigger_counts.remove(RULE_PRE.id.0);
+        assert_eq!(
+            Session::restore(&stripped, pre_spec, pre_provided, input).unwrap_err(),
+            RestoreRejected::MinTriggerUnmet(RULE_PRE.id.0.to_owned())
+        );
+        // 未损坏对照：恢复、完成、回执保留 P=1。
+        let mut resumed = Session::restore(&checkpoint, pre_spec, pre_provided, input).unwrap();
+        resumed.begin_step().unwrap();
+        note_round_rules(&mut resumed);
+        resumed.note_successful_step(1).unwrap();
+        let receipt = resumed.finish().unwrap();
+        assert_eq!(receipt.trigger_counts()[&RULE_PRE.id], 1);
+
+        // 探针二：初态已登记 initial 规则、删除累计历史——下界由标记
+        // 推出为 1，恢复拒绝。
+        let mut fresh = started(1);
+        fresh
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        let initial_marked = fresh.checkpoint(input).unwrap();
+        assert!(initial_marked.open_initial.contains(RULE_MOTION.id.0));
+        let mut stripped_initial = initial_marked.clone();
+        stripped_initial.executed_checks.clear();
+        stripped_initial.trigger_counts.clear();
+        assert_eq!(
+            Session::restore(&stripped_initial, spec(1, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::MinTriggerUnmet(RULE_MOTION.id.0.to_owned())
+        );
+
+        // 探针三：已完成一步、第二轮拍前已登记（P 计 2），改 1——
+        // 下界 = 已完成步进 1 + 当前标记 1 = 2，恢复拒绝。
+        let mut session = Session::start(pre_spec, pre_provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(1).unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE.id).unwrap();
+        let undercounted = session.checkpoint(input).unwrap();
+        let mut short_by_one = undercounted.clone();
+        short_by_one
+            .trigger_counts
+            .insert(RULE_PRE.id.0.to_owned(), 1);
+        assert_eq!(
+            Session::restore(&short_by_one, pre_spec, pre_provided, input).unwrap_err(),
+            RestoreRejected::MinTriggerUnmet(RULE_PRE.id.0.to_owned())
+        );
+        // 未损坏对照（P=2）可恢复并完成。
+        assert!(Session::restore(&undercounted, pre_spec, pre_provided, input).is_ok());
+    }
+
+    #[test]
+    fn restore_rejects_missing_failure_history_at_retry_boundary() {
+        let input = "lfca-sha256:fixed-input";
+        const RULES_RETRY: &[RuleDescriptor] =
+            &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_ATOMICITY];
+        let retry_spec = VerificationSpec {
+            required_rules: RULES_RETRY,
+            ..spec(1, true)
+        };
+        let retry_provided = ProvidedModules {
+            rules: RULES_RETRY,
+            ..PROVIDED
+        };
+        // 重试边界（已接受一次预期失败）：删除失败检查历史——重试
+        // 边界本身证明失败检查至少运行过一次，恢复拒绝。
+        let mut session = Session::start(retry_spec, retry_provided).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_expected_failure().unwrap();
+        let checkpoint = session.checkpoint(input).unwrap();
+        let mut stripped = checkpoint.clone();
+        stripped
+            .executed_checks
+            .retain(|(_, name)| name != RULE_ATOMICITY.id.0);
+        stripped.trigger_counts.remove(RULE_ATOMICITY.id.0);
+        assert_eq!(
+            Session::restore(&stripped, retry_spec, retry_provided, input).unwrap_err(),
+            RestoreRejected::MinTriggerUnmet(RULE_ATOMICITY.id.0.to_owned())
+        );
+        // 未损坏对照：恢复、重试成功、回执保留失败检查 1 次。
+        let mut resumed = Session::restore(&checkpoint, retry_spec, retry_provided, input).unwrap();
+        resumed.begin_step().unwrap();
+        note_round_rules(&mut resumed);
+        resumed.note_successful_step(1).unwrap();
+        let receipt = resumed.finish().unwrap();
+        assert_eq!(receipt.trigger_counts()[&RULE_ATOMICITY.id], 1);
+        // 正向对照：未发生失败的合法材料，失败规则零触发仍可恢复。
+        let mut clean = Session::start(retry_spec, retry_provided).unwrap();
+        clean.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut clean);
+        clean.declare_commands(0).unwrap();
+        clean.advance_to_pre_tick().unwrap();
+        clean.begin_step().unwrap();
+        note_round_rules(&mut clean);
+        clean.note_successful_step(1).unwrap();
+        let clean_checkpoint = clean.checkpoint(input).unwrap();
+        assert!(
+            !clean_checkpoint
+                .trigger_counts
+                .contains_key(RULE_ATOMICITY.id.0)
+        );
+        assert!(Session::restore(&clean_checkpoint, retry_spec, retry_provided, input).is_ok());
     }
 }
