@@ -429,6 +429,9 @@ impl Session {
     pub fn note_expected_failure(&mut self) -> Result<(), ProtocolError> {
         match self.stage {
             Stage::AwaitingStepOutcome if self.plan.spec.atomicity => {
+                // 接受预期失败前，核对本次失败轮的失败检查义务
+                // （PostExpectedFailure 每轮规则须已运行）。
+                self.close_round_obligations(&[CheckPhase::PostExpectedFailure])?;
                 self.stage = Stage::AfterCommands;
                 Ok(())
             }
@@ -1093,6 +1096,49 @@ mod tests {
             Err(ProtocolError::StepOutcomeUnexpected)
         );
         assert_eq!(session.begin_step(), Err(ProtocolError::StepFromWrongPhase));
+    }
+
+    #[test]
+    fn expected_failure_closes_failure_check_obligations() {
+        // 原子性规约的失败检查（PostExpectedFailure 每轮规则）须在预期
+        // 失败被接受前运行；漏跑在关闭点拒绝。
+        const RULE_ATOMICITY: RuleDescriptor = RuleDescriptor {
+            id: RuleId("retry-atomicity"),
+            domains: &[DOMAIN],
+            phase: CheckPhase::PostExpectedFailure,
+            coverage: CoverageMode::EveryRound,
+        };
+        const RULES_RETRY: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_ATOMICITY];
+        let retry_spec = |window: u64, atomicity: bool| VerificationSpec {
+            required_rules: RULES_RETRY,
+            ..spec(window, atomicity)
+        };
+        let provided = ProvidedModules {
+            rules: RULES_RETRY,
+            ..PROVIDED
+        };
+        let mut session = Session::start(retry_spec(1, true), provided).unwrap();
+        session.confirm_initial_boundary(50).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        assert_eq!(
+            session.note_expected_failure(),
+            Err(ProtocolError::RoundCoverageMissing(RULE_ATOMICITY.id))
+        );
+        session.note_check(RULE_ATOMICITY.id).unwrap();
+        session.note_expected_failure().unwrap();
+        // 重试成功路径照常可终结。
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(51).unwrap();
+        session
+            .finish()
+            .expect("失败检查补齐后的重试路径必须可终结");
     }
 
     #[test]
