@@ -90,6 +90,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [运行时状态完整性校验与失真恢复][doc-design-traffic-runtime-state-integrity] — 已接受；无生效取代。定义状态完整性校验、失真恢复与宿主处置。
 - [新生成的运动安全准入][doc-design-traffic-runtime-vehicle-placement] — 已接受；无生效取代。定义车辆新生成与替换的运动安全准入。
 - [Traffic Runtime WaitingZone 运行时][doc-design-traffic-runtime-waiting-zone] — 已接受；无生效取代。定义等待区准入、存储、队列与持久化。
+- [交通验证的显式组合与共享判据][doc-design-traffic-verification] — 待审阅；无生效取代。提出多个交通验证执行器共享独立判据、显式组合验证规约和管理验证会话的合同。
 - [LF-CN-URBAN 需求计划与无界面验证][doc-design-urban-demand-harness] — 已接受；无生效取代。定义城市需求计划、无界面执行与结果核验。
 - [Vehicle Following 设计][doc-design-vehicle-following] — 已接受；无生效取代。定义跟车、纵向控制、安全距离与投影。
 - [WaitingZone、ConflictZone 与通行权分层][doc-design-waiting-zone-conflict-right-of-way] — 已接受；无生效取代。定义等待区、冲突区与通行权联合分层。
@@ -149,6 +150,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 [doc-design-traffic-runtime-state-integrity]: traffic-runtime-state-integrity.md
 [doc-design-traffic-runtime-vehicle-placement]: traffic-runtime-vehicle-placement.md
 [doc-design-traffic-runtime-waiting-zone]: traffic-runtime-waiting-zone.md
+[doc-design-traffic-verification]: traffic-verification.md
 [doc-design-urban-demand-harness]: urban-demand-harness.md
 [doc-design-vehicle-following]: vehicle-following.md
 [doc-design-waiting-zone-conflict-right-of-way]: waiting-zone-conflict-right-of-way.md

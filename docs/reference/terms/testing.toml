@@ -22,6 +22,15 @@ domains = ["testing"]
 definition = "以预期无法通过类型检查的调用证明非法公共接口组合在编译期不可表达的测试。"
 
 [[terms]]
+id = "checked-verification-plan"
+name = "受检验证计划"
+english_aliases = ["checked verification plan"]
+domains = ["testing"]
+definition = "验证规约与具体输入、事实能力、规则实现及执行阶段完成检查后形成的不可变执行计划。"
+scope_notes = ["用于交通验证组合设计；不表示共享验证实现已交付。"]
+references = [{ document = "design-traffic-verification", anchor = "composition" }]
+
+[[terms]]
 id = "default-rule"
 name = "默认规则"
 english_aliases = ["default rule"]
@@ -161,3 +170,30 @@ english_aliases = ["test-support seam"]
 domains = ["testing"]
 definition = "以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。"
 references = [{ document = "design-traffic-runtime-module-boundary" }]
+
+[[terms]]
+id = "verification-facts"
+name = "验证事实"
+english_aliases = ["verification facts"]
+domains = ["testing"]
+definition = "供验证规则消费的只读输入，明确其身份、单位、适用域及所在的命令或步进边界。"
+scope_notes = ["用于交通验证组合设计；事实不包含作为自身合法性依据的生产许可结论。"]
+references = [{ document = "design-traffic-verification", anchor = "facts" }]
+
+[[terms]]
+id = "verification-session"
+name = "验证会话"
+english_aliases = ["verification session"]
+domains = ["testing"]
+definition = "依受检验证计划消费事实、维护实际检查覆盖与跨拍义务，并据完整窗口及必需见证产生验证结果的有状态执行对象。"
+scope_notes = ["用于交通验证组合设计；不拥有交通世界或宿主命令调度。"]
+references = [{ document = "design-traffic-verification", anchor = "lifecycle" }]
+
+[[terms]]
+id = "verification-specification"
+name = "验证规约"
+english_aliases = ["verification specification"]
+domains = ["testing"]
+definition = "规定一次验证须证明的性质、适用域、必需事实、完整窗口及完成见证的要求集合。"
+scope_notes = ["用于交通验证组合设计；正式配置档是具名规约组合，诊断性组合不自动具有相同证明范围。"]
+references = [{ document = "design-traffic-verification", anchor = "composition" }]
