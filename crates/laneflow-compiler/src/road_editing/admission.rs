@@ -20,7 +20,9 @@ use super::lowering::{
     lower_topology_authoring_declarations,
 };
 use super::preflight::RoadEditingPreflightCounts;
-use super::reader::{VerifiedRoadEditingSource, verify_source};
+#[cfg(test)]
+use super::reader::verify_source;
+use super::reader::{VerifiedRoadEditingSource, verify_source_in};
 use crate::declaration::{
     AuthoringCurveCubicPointSpans, AuthoringCurveSegmentDeclaration,
     AuthoringCurveSegmentPointSpans, CanonicalPoint3F32Input, CompiledGeometrySourceRange,
@@ -287,12 +289,12 @@ impl CompilationUnitBuilder {
         input: RoadEditingModuleInput<'_>,
     ) -> Result<&mut Self, DiagnosticBundle> {
         let limits = self.road_editing_limits().clone();
-        let verified = verify_source(
+        let verified = verify_source_in(
             input,
             &limits,
             self.road_editing_source_bytes_already_admitted(),
             self.road_editing_typed_ast_records_already_admitted(),
-            self.admitted_controlled_live_bytes(),
+            self.admission_ledger(),
         )?;
         precheck_accumulated_counts(self, &limits, &verified)?;
         let remaining_geometry_points = self.road_editing_remaining_geometry_points();

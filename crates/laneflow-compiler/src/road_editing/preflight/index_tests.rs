@@ -15,7 +15,7 @@ fn wire_strings(values: &[&str]) -> Vec<u8> {
 #[test]
 fn sorted_duplicates_match_pairwise_spelling_and_namespace_rules() {
     let limits = CompileProfile::single_network_10k_stable_entities();
-    let scratch = PreflightScratch::new(&limits, 0);
+    let scratch = scratch::unlimited(&limits);
     let alphabet = ["a", "city::a", "other::a", "b", "", "::a", "a::b::c"];
     for size in 0..=4_u32 {
         for mut seed in 0..alphabet.len().pow(size) {
@@ -58,7 +58,7 @@ fn sorted_duplicates_match_pairwise_spelling_and_namespace_rules() {
 #[test]
 fn duplicate_witness_keeps_the_first_source_index() {
     let limits = CompileProfile::single_network_10k_stable_entities();
-    let scratch = PreflightScratch::new(&limits, 0);
+    let scratch = scratch::unlimited(&limits);
     for mut seed in 0..1_024 {
         let values: Vec<_> = (0..5)
             .map(|_| {
@@ -80,12 +80,16 @@ fn duplicate_witness_keeps_the_first_source_index() {
 
 #[test]
 fn live_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
-    let limits = CompileProfile::single_network_10k_stable_entities()
-        .with_test_admission_limit(CompileLimitDimension::CompilerControlledLiveBytes, 0);
-    let scratch = PreflightScratch::new(&limits, 0);
+    let limits = CompileProfile::single_network_10k_stable_entities();
     let bytes = wire_strings(&["a", "a"]);
     let wire = runtime::root::<StringVector<'_>>(&bytes).unwrap();
-    let error = ensure_unique_strings(wire, "keys", "source", &scratch).unwrap_err();
+    let plan = Plan::ZERO.array::<&str>(2);
+    // 计划容纳不下索引时，预算诊断先于任何字段检查。
+    let short = Ledger::with_budget(plan.bytes().unwrap() - 1);
+    let error = match admit_preflight_pass(&short, plan) {
+        Ok(_) => panic!("index plan exceeds the live budget"),
+        Err(error) => error,
+    };
     assert!(matches!(
         error.diagnostics()[0].payload(),
         crate::DiagnosticPayload::CompileLimitExceeded {
@@ -93,11 +97,9 @@ fn live_budget_precedes_duplicate_only_when_the_index_cannot_fit() {
             ..
         }
     ));
-    let exact = limits.with_test_admission_limit(
-        CompileLimitDimension::CompilerControlledLiveBytes,
-        (2 * size_of::<&str>()) as u32,
-    );
-    let scratch = PreflightScratch::new(&exact, 0);
+    let exact = Ledger::with_budget(plan.bytes().unwrap());
+    let pass = admit_preflight_pass(&exact, plan).unwrap();
+    let scratch = PreflightScratch::new(&limits, &pass);
     let error = ensure_unique_strings(wire, "keys", "source", &scratch).unwrap_err();
     assert!(matches!(
         error.diagnostics()[0].payload(),

@@ -1,18 +1,19 @@
 //! 语义预检后的本地所有权闭合；排序只影响查询，不改变诊断遍历顺序。
 
-use super::scratch::{PreflightScratch, ScratchVec};
+use super::scratch::PreflightScratch;
 use super::{DiagnosticBundle, invalid_combination, wire};
+use crate::ledger::BoundedVec;
 
 type ChildKey<'a> = (&'a str, &'a str);
 
-struct OwnerIndex<'scratch, 'limits, 'source> {
-    entries: ScratchVec<'scratch, 'limits, (ChildKey<'source>, u8)>,
+struct OwnerIndex<'source> {
+    entries: BoundedVec<(ChildKey<'source>, u8)>,
 }
 
-impl<'scratch, 'limits, 'source> OwnerIndex<'scratch, 'limits, 'source> {
+impl<'source> OwnerIndex<'source> {
     fn new(
         keys: impl ExactSizeIterator<Item = ChildKey<'source>>,
-        scratch: &'scratch PreflightScratch<'limits>,
+        scratch: &PreflightScratch<'_>,
     ) -> Result<Self, DiagnosticBundle> {
         let mut entries = scratch.collect(keys.map(|key| (key, 0)))?;
         entries.sort_unstable_by_key(|entry| entry.0);
@@ -301,7 +302,7 @@ mod tests {
     #[test]
     fn owner_index_distinguishes_full_addresses_and_counts_claims() {
         let limits = CompileProfile::single_network_10k_stable_entities();
-        let scratch = PreflightScratch::new(&limits, 0);
+        let scratch = super::super::scratch::unlimited(&limits);
         let mut index = OwnerIndex::new(
             [("a>section", "lane"), ("b>section", "lane")].into_iter(),
             &scratch,
