@@ -211,7 +211,7 @@ fn preflight_scaling() {
             .map(|index| format!("key-{:08}", index * 4_051 % size))
             .collect();
         let comparisons = Cell::new(0);
-        let comparison_scratch = PreflightScratch::new(&limits, 0);
+        let comparison_scratch = super::scratch::unlimited(&limits);
         ensure_unique_by(
             keys.iter(),
             |value| CountedKey {
@@ -223,7 +223,7 @@ fn preflight_scaling() {
             &comparison_scratch,
         )
         .unwrap();
-        let scratch = PreflightScratch::new(&limits, 0);
+        let scratch = super::scratch::unlimited(&limits);
         for round in 0..4 {
             let start = Instant::now();
             ensure_unique_by(
@@ -239,7 +239,7 @@ fn preflight_scaling() {
                 println!(
                     "PREFLIGHT,unique,{size},{round},{elapsed},{},{},0",
                     comparisons.get(),
-                    scratch.peak_bytes()
+                    size * core::mem::size_of::<&str>()
                 );
             }
         }

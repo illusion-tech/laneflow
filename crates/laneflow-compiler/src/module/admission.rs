@@ -896,6 +896,11 @@ impl CompilationUnitBuilder {
             self.totals.geometry_point_count,
         )
     }
+    /// 准入账本；道路编辑预检等准入调用内的编译遍在其上准入。
+    pub(crate) const fn admission_ledger(&self) -> &Ledger {
+        &self.ledger
+    }
+
     /// 构建器当前控制的存续字节。
     pub(crate) fn admitted_controlled_live_bytes(&self) -> u64 {
         self.ledger.live()

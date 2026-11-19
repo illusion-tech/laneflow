@@ -3,7 +3,8 @@ use laneflow_road_editing_wire::runtime::{ErrorTraceDetail, InvalidFlatbuffer, V
 
 use super::RoadEditingModuleInput;
 use super::location::RoadEditingLocationFactory;
-use super::preflight::{RoadEditingPreflightCounts, preflight_source};
+use super::preflight::{RoadEditingPreflightCounts, preflight_source_in};
+use crate::ledger::Ledger;
 use crate::{
     CompileLimitDimension, CompileProfile, Diagnostic, DiagnosticBundle, RoadEditingByteRange,
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
@@ -52,13 +53,33 @@ impl<'a> VerifiedRoadEditingSource<'a> {
     }
 }
 
-/// 在任何领域对象分配前验证一份完整 size-prefixed `LFRE` buffer。
+/// 测试入口：在只持有 `admitted_live_bytes` 既有存续的临时准入账本上验证。
+#[cfg(test)]
 pub(crate) fn verify_source<'a>(
     input: RoadEditingModuleInput<'a>,
     limits: &CompileProfile,
     source_bytes_already_admitted: u64,
     typed_ast_records_already_admitted: u64,
     admitted_live_bytes: u64,
+) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
+    let ledger = Ledger::new(limits.operation_budget());
+    let _admitted = ledger.adopt(admitted_live_bytes);
+    verify_source_in(
+        input,
+        limits,
+        source_bytes_already_admitted,
+        typed_ast_records_already_admitted,
+        &ledger,
+    )
+}
+
+/// 在任何领域对象分配前验证一份完整 size-prefixed `LFRE` buffer；预检在准入账本上进行。
+pub(crate) fn verify_source_in<'a>(
+    input: RoadEditingModuleInput<'a>,
+    limits: &CompileProfile,
+    source_bytes_already_admitted: u64,
+    typed_ast_records_already_admitted: u64,
+    ledger: &Ledger,
 ) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
     let expected_key = input.expected_source_document_key();
     let bytes = input.source_bytes();
@@ -216,7 +237,7 @@ pub(crate) fn verify_source<'a>(
             expected_key,
         )
     };
-    let preflight_counts = preflight_source(root, limits, expected_key, admitted_live_bytes)
+    let preflight_counts = preflight_source_in(root, limits, expected_key, ledger)
         .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
         return Err(semantic_error(

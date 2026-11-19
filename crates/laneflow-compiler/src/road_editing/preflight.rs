@@ -29,6 +29,7 @@ type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
 mod owner;
 mod policy;
 mod scratch;
+use crate::ledger::{Ledger, LedgerError, LedgerStage, PassBudget, PassLabel, Plan};
 use scratch::PreflightScratch;
 #[cfg(test)]
 mod benchmark;
@@ -333,14 +334,64 @@ impl RoadEditingPreflightCounts {
 }
 
 /// 对已验证根表执行完整语义预检：校验各字段取值并累计用量计数，在任何领域分配前失败关闭。
+/// 预检编译遍标识。
+const PREFLIGHT_PASS: PassLabel = PassLabel::new(LedgerStage::Admission, "road-editing-preflight");
+
+/// 测试入口：在只持有 `admitted_live_bytes` 既有存续的临时准入账本上预检。
+#[cfg(test)]
 pub(crate) fn preflight_source(
     root: wire::RoadEditingSource<'_>,
     limits: &CompileProfile,
     expected_key: &str,
     admitted_live_bytes: u64,
 ) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
-    let scratch = PreflightScratch::new(limits, admitted_live_bytes);
-    let limits = &scratch;
+    let ledger = Ledger::new(limits.operation_budget());
+    let _admitted = ledger.adopt(admitted_live_bytes);
+    preflight_source_in(root, limits, expected_key, &ledger)
+}
+
+/// 在准入账本上预检：先按 wire 计数准入预检计划，索引都在计划内取得授予。
+///
+/// 计划超出操作资源预算时，在读取任何字段之前按 `CompilerControlledLiveBytes` 拒绝；计划
+/// 准入后，字段首错顺序与原先一致。
+pub(crate) fn preflight_source_in(
+    root: wire::RoadEditingSource<'_>,
+    limits: &CompileProfile,
+    expected_key: &str,
+    ledger: &Ledger,
+) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
+    let plan = preflight_plan(root);
+    let planned_bytes = plan.bytes().unwrap_or(u64::MAX);
+    let pass = admit_preflight_pass(ledger, plan)?;
+    let counts = preflight_with(root, &PreflightScratch::new(limits, &pass), expected_key)?;
+    pass.finish(0)?;
+    Ok(RoadEditingPreflightCounts {
+        preflight_peak_scratch_bytes: planned_bytes,
+        ..counts
+    })
+}
+
+/// 准入预检计划；超出操作资源预算时报告 `CompilerControlledLiveBytes` 的 `L + R + P`。
+fn admit_preflight_pass(ledger: &Ledger, plan: Plan) -> Result<PassBudget<'_>, DiagnosticBundle> {
+    ledger
+        .admit_pass(PREFLIGHT_PASS, plan)
+        .map_err(|error| match error {
+            LedgerError::BudgetExceeded {
+                requested, limit, ..
+            } => limit_error(
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                limit,
+                requested,
+            ),
+            other => other.into(),
+        })
+}
+
+fn preflight_with(
+    root: wire::RoadEditingSource<'_>,
+    limits: &PreflightScratch<'_>,
+    expected_key: &str,
+) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
     let header = root.module_header();
     let namespace = header.authoring_namespace_id();
     let imports = header.imports();
@@ -448,10 +499,113 @@ pub(crate) fn preflight_source(
     validate_conflicts_and_regions(&mut usage, root, namespace, imports, limits, expected_key)?;
     policy::validate(&mut usage, root, namespace, imports, limits, expected_key)?;
 
-    let mut usage = usage.validate(limits)?;
+    let usage = usage.validate(limits)?;
     owner::validate(root, limits, expected_key)?;
-    usage.preflight_peak_scratch_bytes = scratch.peak_bytes();
     Ok(usage)
+}
+
+/// 预检编译遍的计划峰值：按已通过 verifier 的 wire 向量长度求出各索引的上界。
+///
+/// 预检索引除以下三处外都只在一次唯一性检查内存续：路段校验期间走廊键索引与每个
+/// 路段的车道引用索引共存；信号所有权检查期间组排序与组归属计数共存，控制器排序与
+/// 每个相位的期望组索引共存。计划取全部单独存续与上述共存组合的峰值，不读取配置档。
+pub(super) fn preflight_plan(root: wire::RoadEditingSource<'_>) -> Plan {
+    fn keys(count: usize) -> Plan {
+        Plan::ZERO.array::<&str>(count)
+    }
+    fn addresses(count: usize) -> Plan {
+        Plan::ZERO.array::<(&str, &str)>(count)
+    }
+    fn longest<T>(values: impl Iterator<Item = T>, len: impl Fn(T) -> usize) -> usize {
+        values.map(len).max().unwrap_or(0)
+    }
+    type CorridorElementKey<'a> = ((u64, (&'a str, &'a str)), usize);
+    type OwnerEntry<'a> = ((&'a str, &'a str), u8);
+
+    let corridors = root.road_corridors();
+    let sections = root.road_sections();
+    let controllers = root.signal_controllers();
+    let phases = root.signal_phases();
+    let groups = root.signal_groups();
+
+    let reference_vectors = [
+        longest(sections.iter(), |value| value.authoring_lanes().len()),
+        longest(root.lane_edges().iter(), |value| value.successors().len()),
+        longest(root.junctions().iter(), |value| {
+            value.approach_edges().len()
+        }),
+        longest(root.junctions().iter(), |value| {
+            value.internal_edges().len()
+        }),
+        longest(root.maneuver_paths().iter(), |value| {
+            value.internal_edges().len()
+        }),
+        longest(controllers.iter(), |value| value.signal_groups().len()),
+        longest(controllers.iter(), |value| value.signal_phases().len()),
+        longest(root.access_rules().iter(), |value| {
+            value.participant_classes().len()
+        }),
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or(0);
+    let section_lanes = longest(sections.iter(), |value| value.authoring_lanes().len());
+    let controller_groups = longest(controllers.iter(), |value| value.signal_groups().len());
+
+    let single_indexes = [
+        keys(root.module_header().imports().len()),
+        keys(root.road_alignments().len()),
+        keys(corridors.len()),
+        addresses(sections.len()),
+        addresses(root.authoring_lanes().len()),
+        keys(root.lane_edges().len()),
+        keys(root.junctions().len()),
+        addresses(root.movements().len()),
+        addresses(root.maneuver_paths().len()),
+        addresses(root.maneuver_gates().len()),
+        addresses(root.waiting_zones().len()),
+        keys(root.stop_lines().len()),
+        keys(groups.len()),
+        keys(controllers.len()),
+        addresses(phases.len()),
+        keys(root.parking_facilities().len()),
+        keys(root.parking_spaces().len()),
+        addresses(root.lane_groups().len()),
+        addresses(root.facility_bands().len()),
+        keys(root.participant_classes().len()),
+        keys(root.access_rules().len()),
+        keys(root.vehicle_profiles().len()),
+        keys(root.canonical_frames().len()),
+        addresses(root.conflict_zones().len()),
+        addresses(root.participant_streams().len()),
+        keys(root.right_of_way_policy_sets().len()),
+        addresses(reference_vectors),
+        Plan::ZERO.array::<CorridorElementKey<'_>>(longest(corridors.iter(), |value| {
+            value.elements().len()
+        })),
+        Plan::ZERO
+            .array::<((&str, &str), usize)>(longest(phases.iter(), |value| value.states().len())),
+        // 所有权检查：各所有者索引依次建立、依次释放。
+        Plan::ZERO.array::<OwnerEntry<'_>>(root.movements().len()),
+        Plan::ZERO.array::<OwnerEntry<'_>>(root.maneuver_paths().len()),
+        Plan::ZERO.array::<OwnerEntry<'_>>(sections.len()),
+        Plan::ZERO.array::<OwnerEntry<'_>>(root.facility_bands().len()),
+        Plan::ZERO.array::<OwnerEntry<'_>>(root.authoring_lanes().len()),
+        Plan::ZERO.array::<usize>(phases.len()),
+    ];
+    let coexisting = [
+        keys(corridors.len()).plus(addresses(section_lanes)),
+        Plan::ZERO
+            .array::<usize>(groups.len())
+            .array::<u8>(groups.len()),
+        Plan::ZERO
+            .array::<usize>(controllers.len())
+            .plus(keys(controller_groups)),
+    ];
+    single_indexes
+        .into_iter()
+        .chain(coexisting)
+        .fold(Plan::ZERO, Plan::max)
 }
 
 fn validate_provenance(
