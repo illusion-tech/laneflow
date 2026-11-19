@@ -28,6 +28,10 @@ struct RegistryFile {
     triggers: TriggerSection,
     #[serde(default)]
     embed: Vec<EmbedEntry>,
+    /// 运行时读取声明（`std::fs::read` 等非编译期嵌入的仓库文件依赖）：
+    /// 无法自动对账，新增运行时读取仓库文件的测试时人工登记。
+    #[serde(default)]
+    input: Vec<EmbedEntry>,
 }
 
 #[derive(Deserialize, Default)]
@@ -53,8 +57,11 @@ type EmbedMap = BTreeMap<String, BTreeSet<String>>;
 struct Registry {
     full: Vec<String>,
     not_applicable: Vec<String>,
-    /// 跨包嵌入图。
+    /// 跨包嵌入图原始表（仅一致性测试对账用；归类走合并后的 `inputs`）。
+    #[allow(dead_code)]
     embed: EmbedMap,
+    /// 归类用合并输入图：嵌入边 ∪ 运行时读取声明边。
+    inputs: EmbedMap,
 }
 
 impl Registry {
@@ -83,10 +90,26 @@ impl Registry {
                 return Err(format!("{REGISTRY_PATH} embed 条目 `{}` 重复", entry.path));
             }
         }
+        let mut inputs = embed.clone();
+        for entry in &file.input {
+            if entry.path.is_empty() || entry.consumers.is_empty() {
+                return Err(format!(
+                    "{REGISTRY_PATH} input 条目 `{}` 缺少路径或消费者",
+                    entry.path
+                ));
+            }
+            for consumer in &entry.consumers {
+                inputs
+                    .entry(entry.path.clone())
+                    .or_default()
+                    .insert(consumer.clone());
+            }
+        }
         Ok(Self {
             full: file.triggers.full,
             not_applicable: file.triggers.not_applicable,
             embed,
+            inputs,
         })
     }
 }
@@ -273,8 +296,9 @@ fn normal_components(path: &Path) -> Vec<String> {
 enum FileState {
     /// 属于某包：种子。
     Package(String),
-    /// 跨包嵌入：种子 = 所有者包（若属于某包）∪ 注册表声明的消费者。
-    Embed {
+    /// 注册表输入边（编译期嵌入或运行时读取）：种子 = 所有者包（若属于某
+    /// 包）∪ 注册表声明的消费者。
+    Input {
         owner: Option<String>,
         consumers: Vec<String>,
     },
@@ -287,7 +311,7 @@ enum FileState {
 }
 
 fn classify(path: &str, workspace: &Workspace, registry: &Registry) -> FileState {
-    // 顺序即优先级：全量触发与成员清单规则先于嵌入边——成员 manifest 的
+    // 顺序即优先级：全量触发与成员清单规则先于输入边——成员 manifest 的
     // 跨包读取（如 wire 审计 fixture）不得吞掉 feature 合并前提守护。
     if let Some(pattern) = registry
         .full
@@ -299,9 +323,9 @@ fn classify(path: &str, workspace: &Workspace, registry: &Registry) -> FileState
     if workspace.is_member_manifest(path) {
         return FileState::FullTrigger("成员 Cargo.toml（feature 合并前提守护）".to_owned());
     }
-    if let Some(consumers) = registry.embed.get(path) {
+    if let Some(consumers) = registry.inputs.get(path) {
         let owner = workspace.package_of(path).map(str::to_owned);
-        return FileState::Embed {
+        return FileState::Input {
             owner,
             consumers: consumers.iter().cloned().collect(),
         };
@@ -455,7 +479,7 @@ fn build_plan(files: &BTreeSet<String>, workspace: &Workspace, registry: &Regist
             FileState::Package(name) => {
                 seeds.insert(name.clone());
             }
-            FileState::Embed { owner, consumers } => {
+            FileState::Input { owner, consumers } => {
                 if let Some(owner) = owner {
                     seeds.insert(owner.clone());
                 }
@@ -542,7 +566,6 @@ fn build_plan(files: &BTreeSet<String>, workspace: &Workspace, registry: &Regist
 /// 人工核对项；已知实例是 lust-converter 嵌入根 `Cargo.lock`——该路径已是
 /// 全量触发器，归类正确性不受影响。扫描失败即失败关闭。
 fn scan_embeds(workspace: &Workspace, repo_root: &Path) -> Result<(EmbedMap, Vec<String>), String> {
-    const UNPARSED: &str = "\u{0}unparsed-include";
     let mut map: EmbedMap = BTreeMap::new();
     let mut unparsed: Vec<String> = Vec::new();
     for dir in ["crates", "tools", "xtask"] {
@@ -557,7 +580,7 @@ fn scan_embeds(workspace: &Workspace, repo_root: &Path) -> Result<(EmbedMap, Vec
                 .ok_or_else(|| format!("源文件 {relative} 不属于任何 workspace 成员"))?
                 .to_owned();
             for target in collect_include_literals(&parsed) {
-                if target == UNPARSED {
+                if target == UNPARSED_INCLUDE {
                     unparsed.push(relative.clone());
                     continue;
                 }
@@ -595,8 +618,10 @@ fn walk_sources(
     Ok(())
 }
 
-/// 收集一个文件里全部 `include_str!` / `include_bytes!` 的字符串实参
-/// （含 `std::` 前缀形态；相邻字面量拼接取拼接结果）。
+/// 收集一个文件里全部 `include_str!` / `include_bytes!` 的字符串实参：直接
+/// 形态、`std::` 前缀形态、嵌在其他宏实参里的形态（如
+/// `assert_eq!(include_str!(…), …)`）与相邻字面量拼接。syn 的访问器只到达
+/// 宏调用本身，嵌套形态须在 token 层递归。
 fn collect_include_literals(file: &syn::File) -> Vec<String> {
     struct Visitor {
         targets: Vec<String>,
@@ -606,23 +631,9 @@ fn collect_include_literals(file: &syn::File) -> Vec<String> {
             let ident = mac.path.segments.last().map(|s| s.ident.to_string());
             if ident.as_deref() == Some("include_str") || ident.as_deref() == Some("include_bytes")
             {
-                let mut literal = String::new();
-                for token in mac.tokens.clone() {
-                    if let proc_macro2::TokenTree::Literal(lit) = token {
-                        let text = lit.to_string();
-                        if let Some(stripped) =
-                            text.strip_prefix('"').and_then(|it| it.strip_suffix('"'))
-                        {
-                            literal.push_str(stripped);
-                        }
-                    }
-                }
-                if literal.is_empty() {
-                    // 形态异常（非字面量实参）：塞入哨兵路径让一致性测试抓红。
-                    literal = "\u{0}unparsed-include".to_owned();
-                }
-                self.targets.push(literal);
+                self.targets.push(direct_include_argument(&mac.tokens));
             }
+            scan_nested_includes(&mac.tokens, &mut self.targets);
         }
     }
     let mut visitor = Visitor {
@@ -630,6 +641,95 @@ fn collect_include_literals(file: &syn::File) -> Vec<String> {
     };
     syn::visit::visit_file(&mut visitor, file);
     visitor.targets
+}
+
+const UNPARSED_INCLUDE: &str = "\u{0}unparsed-include";
+
+/// include 宏自身实参的提取：只接受纯字面量序列（含相邻拼接）；出现任何
+/// 标识符或组（如 `concat!(env!(…), …)`）即非字面量形态，记哨兵。
+fn direct_include_argument(tokens: &proc_macro2::TokenStream) -> String {
+    let mut literal = String::new();
+    for token in tokens.clone() {
+        match token {
+            proc_macro2::TokenTree::Literal(lit) => push_literal_text(&lit, &mut literal),
+            proc_macro2::TokenTree::Group(_) | proc_macro2::TokenTree::Ident(_) => {
+                return UNPARSED_INCLUDE.to_owned();
+            }
+            proc_macro2::TokenTree::Punct(_) => {}
+        }
+    }
+    if literal.is_empty() {
+        UNPARSED_INCLUDE.to_owned()
+    } else {
+        literal
+    }
+}
+
+/// token 层递归：捕获嵌在其他宏实参里的 `include_str!(…)` / `include_bytes!(…)`
+/// 调用（标识符后随可选 `!` 与一个括号组），并继续深入所有组。
+fn scan_nested_includes(tokens: &proc_macro2::TokenStream, targets: &mut Vec<String>) {
+    let tokens: Vec<proc_macro2::TokenTree> = tokens.clone().into_iter().collect();
+    let mut index = 0;
+    while index < tokens.len() {
+        match &tokens[index] {
+            proc_macro2::TokenTree::Group(group) => {
+                scan_nested_includes(&group.stream(), targets);
+                index += 1;
+            }
+            proc_macro2::TokenTree::Ident(ident) => {
+                let name = ident.to_string();
+                if name != "include_str" && name != "include_bytes" {
+                    index += 1;
+                    continue;
+                }
+                // 标识符 → 可选 `!` → 实参（括号组或裸字面量序列）。
+                let mut cursor = index + 1;
+                if matches!(tokens.get(cursor), Some(proc_macro2::TokenTree::Punct(p)) if p.as_char() == '!')
+                {
+                    cursor += 1;
+                }
+                let mut literal = String::new();
+                let mut non_literal = false;
+                while let Some(token) = tokens.get(cursor) {
+                    match token {
+                        proc_macro2::TokenTree::Literal(lit) => {
+                            push_literal_text(lit, &mut literal);
+                        }
+                        proc_macro2::TokenTree::Group(group) => {
+                            let inner: Vec<_> = group.stream().into_iter().collect();
+                            for token in inner {
+                                match token {
+                                    proc_macro2::TokenTree::Literal(lit) => {
+                                        push_literal_text(&lit, &mut literal)
+                                    }
+                                    proc_macro2::TokenTree::Ident(_) => non_literal = true,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        proc_macro2::TokenTree::Ident(_) => non_literal = true,
+                        proc_macro2::TokenTree::Punct(punct) if punct.as_char() != ',' => {}
+                        _ => break,
+                    }
+                    cursor += 1;
+                }
+                targets.push(if literal.is_empty() || non_literal {
+                    UNPARSED_INCLUDE.to_owned()
+                } else {
+                    literal
+                });
+                index = cursor;
+            }
+            _ => index += 1,
+        }
+    }
+}
+
+fn push_literal_text(literal: &proc_macro2::Literal, out: &mut String) {
+    let text = literal.to_string();
+    if let Some(stripped) = text.strip_prefix('"').and_then(|it| it.strip_suffix('"')) {
+        out.push_str(stripped);
+    }
 }
 
 /// 字面量相对源文件目录解析为仓库相对路径（纯词法归一，不触文件系统）。
@@ -819,8 +919,8 @@ fn read_files_list(path: &str) -> Result<BTreeSet<String>, String> {
 fn state_json(state: &FileState) -> serde_json::Value {
     match state {
         FileState::Package(name) => serde_json::json!({"state": "package", "package": name}),
-        FileState::Embed { owner, consumers } => serde_json::json!({
-            "state": "embed",
+        FileState::Input { owner, consumers } => serde_json::json!({
+            "state": "input",
             "owner": owner,
             "consumers": consumers,
         }),
@@ -899,8 +999,8 @@ fn print_summary(plan: &Plan) {
     for (path, state) in &plan.classification {
         let kind = match state {
             FileState::Package(name) => format!("包 {name}"),
-            FileState::Embed { owner, consumers } => format!(
-                "跨包嵌入（消费者 {}{}）",
+            FileState::Input { owner, consumers } => format!(
+                "注册表输入（消费者 {}{}）",
                 consumers.join(","),
                 owner
                     .clone()
@@ -1076,6 +1176,58 @@ mod tests {
             .find(|t| t.name == "placement-fixtures")
             .unwrap();
         assert!(placement.packages.is_empty());
+    }
+
+    /// 嵌在其他宏实参里的 include 必须被捕获（syn 访问器只到达外层宏，
+    /// 嵌套形态在 token 层递归收集）。
+    #[test]
+    fn nested_include_inside_other_macro_is_collected() {
+        let file = syn::parse_file(
+            r##"fn f() { assert_eq!(include_str!("../b/input.txt"), "expected"); }"##,
+        )
+        .expect("嵌套形态须可解析");
+        assert_eq!(
+            collect_include_literals(&file),
+            vec!["../b/input.txt".to_owned()]
+        );
+    }
+
+    /// 直接形态照常收集；concat!/env! 组合形态记哨兵（非字面量实参）。
+    #[test]
+    fn direct_include_collected_and_concat_form_is_sentinel() {
+        let direct = syn::parse_file(r##"const A: &str = include_str!("../a.txt");"##)
+            .expect("直接形态须可解析");
+        assert_eq!(
+            collect_include_literals(&direct),
+            vec!["../a.txt".to_owned()]
+        );
+
+        let concat = syn::parse_file(
+            r##"const B: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock"));"##,
+        )
+        .expect("concat 形态须可解析");
+        assert_eq!(
+            collect_include_literals(&concat),
+            vec![UNPARSED_INCLUDE.to_owned()]
+        );
+    }
+
+    /// 运行时读取声明与嵌入边合并成种子：v0.1 lfca 的消费者 = 嵌入方 bevy
+    /// ∪ 运行时读取方 junction-generator（注册表 input 表先例）。
+    #[test]
+    fn declared_runtime_read_merges_with_embed_consumers() {
+        let workspace = fixture_workspace();
+        let plan = build_plan(
+            &files(&["examples/data/v0.1-complex-junction.lfca"]),
+            &workspace,
+            &registry(),
+        );
+        assert!(!plan.full);
+        assert!(plan.seeds.contains("laneflow-bevy"), "嵌入边消费者须保留");
+        assert!(
+            plan.seeds.contains("laneflow-junction-generator"),
+            "运行时读取声明消费者须并入"
+        );
     }
 
     #[test]
