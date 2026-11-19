@@ -42,6 +42,11 @@ pub(crate) struct Sample {
     pub emergency_decel_mm_s2: u64,
     pub cursor: u64,
     pub trace_bytes: Vec<u8>,
+    /// 共享验证会话（W1/W2 正式 run 接线；`None` 为 L 族专项或测试直装，
+    /// 观测在有会话时记录规则触发、违反与见证，无会话时行为不变）。
+    pub session: Option<laneflow_traffic_verification::session::Session>,
+    /// 冻结输入身份（检查点/恢复对账用；空串表示未接线）。
+    pub input_identity: String,
 }
 
 /// 由共享路网 profile 视图派生运动学判据上界（#1243 T5）：车型 ordinal、
@@ -381,6 +386,8 @@ impl Sample {
             max_accel_mm_s2,
             emergency_decel_mm_s2,
             cursor,
+            session: None,
+            input_identity: String::new(),
         })
     }
 

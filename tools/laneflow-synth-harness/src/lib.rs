@@ -6,6 +6,7 @@ mod install;
 pub mod measurement;
 mod observe;
 mod signal_reference;
+mod verification;
 pub use burst::restore;
 
 use std::fs::{self, File};
@@ -131,9 +132,23 @@ struct Checkpoint {
     t_state: Option<Value>,
     /// 公开观测面状态摘要（#1233 F2）：快照拒绝时仍可比对。
     public_state_digest: String,
+    /// 共享验证会话的检查点材料（W1/W2 接线路径；L 族为 `None`）。只随
+    /// 边界证据写入报告，恢复消费由 burst 侧接入后启用（设计 §7）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verification: Option<Value>,
 }
 
 fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Checkpoint, Error> {
+    // 会话检查点只在已确立边界创建（运行循环此刻处于边界，不等待步进结果）。
+    let verification = match sample.session.as_ref() {
+        Some(session) => {
+            let material = session
+                .checkpoint(&sample.input_identity)
+                .map_err(|e| failure("验证会话检查点", e))?;
+            Some(serde_json::to_value(material).map_err(|e| failure("验证检查点编码", e))?)
+        }
+        None => None,
+    };
     let tick = sample.world.tick_index();
     let time_ms = sample.world.time_ms();
     let public_trace_digest = digest.clone().finalize().to_hex().to_string();
@@ -157,6 +172,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 persistence_refused: None,
                 t_state: None,
                 public_state_digest: public_state_digest(&sample.world)?,
+                verification: verification.clone(),
             })
         }
         Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
@@ -185,6 +201,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 persistence_refused: Some(variant),
                 t_state: Some(lane_change_t_state(sample)),
                 public_state_digest: public_state_digest(&sample.world)?,
+                verification: verification.clone(),
             })
         }
         Err(other) => Err(failure("snapshot", other)),
@@ -358,11 +375,22 @@ fn run_inner(
         return burst::run(&bundle, &plan, implementation_commit, execution, output);
     }
     let mut sample = install::Sample::new(&bundle, execution)?;
+    let total = plan.warm_up_ticks + plan.observation_ticks;
+    if plan.identity.lane_change().is_none() {
+        // W1/W2 正式 run 接线共享验证会话；L 族专项组合独立（设计 §10）。
+        sample.session = Some(verification::start_session(total)?);
+        sample.input_identity = verification::input_identity(&bundle);
+        sample
+            .session
+            .as_mut()
+            .expect("刚装入会话")
+            .confirm_initial_boundary(0)
+            .map_err(|e| failure("验证会话初始边界", e))?;
+    }
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
     trace.write_all(b"lf-synth-public-ticks-1\0")?;
     let mut stream = blake3::Hasher::new();
     stream.update(b"lf-synth-public-stream-1\0");
-    let total = plan.warm_up_ticks + plan.observation_ticks;
     let boundaries: Vec<u64> = if plan.identity.lane_change().is_some() {
         vec![0, plan.warm_up_ticks, 2 * plan.warm_up_ticks, total]
     } else {
@@ -392,6 +420,13 @@ fn run_inner(
         let outcome = if tick == 0 {
             None
         } else {
+            if let Some(session) = sample.session.as_mut() {
+                session
+                    .declare_commands(0)
+                    .and_then(|()| session.advance_to_pre_tick())
+                    .and_then(|()| session.begin_step())
+                    .map_err(|e| failure("验证会话命令阶段", e))?;
+            }
             let result = sample
                 .world
                 .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
@@ -409,6 +444,14 @@ fn run_inner(
                 .as_ref()
                 .is_none_or(|o| o.parking_arrivals().is_empty()),
         )?;
+        if tick > 0 {
+            // 步进结果在观测消费完本拍检查后恰核销一次（设计 §6）。
+            if let Some(session) = sample.session.as_mut() {
+                session
+                    .note_successful_step(tick)
+                    .map_err(|e| failure("验证会话步进协议", e))?;
+            }
+        }
         events.record(&sample.world, &ranks, &sample.routes, outcome.as_ref())?;
         trace.write_all(&tick.to_le_bytes())?;
         trace.write_all(digest.as_bytes())?;
@@ -450,6 +493,35 @@ fn run_inner(
             || "窗口内每辆 Active 必须恰好完成 entry→exit；Parked 不发生转换".into(),
         )?;
     }
+    // 会话终结：完整窗口、覆盖、必需见证与无违反四条件成立才产生回执；
+    // 任一不满足如实失败，不以未测量推断通过（设计 §3.3）。
+    let verification_receipt = match sample.session.as_mut() {
+        Some(session) => {
+            let receipt = session
+                .finish()
+                .map_err(|e| crate::Error::Invalid(format!("验证会话终结被拒：{e:?}")))?;
+            let mut triggers = serde_json::Map::new();
+            for (rule, count) in &receipt.trigger_counts {
+                triggers.insert(rule.0.to_string(), json!(count));
+            }
+            let mut witnesses = serde_json::Map::new();
+            for (witness, count) in &receipt.witnesses {
+                witnesses.insert(witness.0.to_string(), json!(count));
+            }
+            Some(json!({
+                "spec": receipt.spec_name,
+                "domain": receipt.domain,
+                "semantic_version": receipt.semantic_version,
+                "successful_steps": receipt.successful_steps,
+                "last_tick": receipt.last_tick,
+                "trigger_counts": triggers,
+                "witnesses": witnesses,
+                "blocked_attempts": receipt.blocked_attempts,
+                "failed_attempts": receipt.failed_attempts,
+            }))
+        }
+        None => None,
+    };
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
         "semantic_contract":SEMANTIC_CONTRACT,
         "scope":if plan.identity.lane_change().is_some() {
@@ -466,6 +538,7 @@ fn run_inner(
         "max_observed_deceleration_mm_s2":sample.max_deceleration_mm_s2,
         "deceleration_above_profile_count":sample.deceleration_above_profile_count,
         "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints,
+        "verification_receipt":verification_receipt,
         "ordered_events_digest":events.digest()}))
 }
 

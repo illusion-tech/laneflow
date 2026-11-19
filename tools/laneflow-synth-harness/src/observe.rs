@@ -3,7 +3,41 @@ use laneflow_runtime::{
     VehicleStatus,
 };
 use laneflow_traffic_verification::body::{BodyInterval, BodyOwner, intervals_overlap};
+use laneflow_traffic_verification::session::Session;
 use laneflow_traffic_verification::signal::signal_crossing_permission;
+use laneflow_traffic_verification::spec::{RuleDescriptor, RuleId, WitnessId};
+
+use crate::verification::{
+    RULE_BODY, RULE_GATES, RULE_MOTION, RULE_ORDER, RULE_SIGNAL, WITNESS_CROSSING,
+};
+
+/// 会话接线助手：有会话时记录规则实际运行，协议错误如实上抛；无会话
+/// （L 族专项或直装测试）为空操作，观测行为不变。
+fn session_note(session: &mut Option<Session>, rule: RuleDescriptor) -> Result<(), Error> {
+    match session {
+        Some(session) => session
+            .note_check(rule.id)
+            .map_err(|e| Error::Invalid(format!("验证会话协议：{e:?}"))),
+        None => Ok(()),
+    }
+}
+
+/// 会话接线助手：把违反记到对应规则（消息闭包内调用，只在失败时执行）。
+fn session_violation(session: &mut Option<Session>, rule: RuleId) {
+    if let Some(session) = session {
+        session.note_violation(rule);
+    }
+}
+
+/// 会话接线助手：记录场景见证发生。
+fn session_witness(session: &mut Option<Session>, witness: WitnessId) -> Result<(), Error> {
+    match session {
+        Some(session) => session
+            .note_witness(witness)
+            .map_err(|e| Error::Invalid(format!("验证会话协议：{e:?}"))),
+        None => Ok(()),
+    }
+}
 
 use crate::install::Sample;
 use crate::signal_reference::SignalSchedule;
@@ -54,6 +88,39 @@ pub(crate) struct LaneScan {
     front: Option<BodyInterval>,
 }
 
+/// 扫描发现的违反种类：共享分离判据与 W 顺序专项分别报告，供会话把
+/// 违反记到对应规则。
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum LaneScanViolation {
+    /// 同走廊不同 owner 区间相交（body-separation）。
+    Overlap {
+        leader: BodyInterval,
+        follower: BodyInterval,
+    },
+    /// 顺序反转/超车（w-lane-order）。
+    Order {
+        leader: BodyInterval,
+        follower: BodyInterval,
+    },
+}
+
+impl core::fmt::Display for LaneScanViolation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Overlap { leader, follower } => write!(
+                f,
+                "车身重叠 corridor={} leader={leader:?} follower={follower:?}",
+                follower.space()
+            ),
+            Self::Order { leader, follower } => write!(
+                f,
+                "顺序反转/超车 corridor={} leader={leader:?} follower={follower:?}",
+                follower.space()
+            ),
+        }
+    }
+}
+
 impl LaneScan {
     pub(crate) fn new() -> Self {
         Self { front: None }
@@ -61,26 +128,22 @@ impl LaneScan {
 
     /// 按提交序推入一辆 Active 车辆的受检区间；同走廊时核验与前车的
     /// 分离与顺序，跨走廊（`space` 变化）只重置游标。
-    pub(crate) fn push(&mut self, interval: BodyInterval) -> Result<(), Error> {
+    pub(crate) fn push(&mut self, interval: BodyInterval) -> Result<(), LaneScanViolation> {
         if let Some(leader) = self.front
             && leader.space() == interval.space()
         {
-            require(!intervals_overlap(leader, interval), || {
-                format!(
-                    "车身重叠 corridor={} leader={:?} follower={:?}",
-                    interval.space(),
+            if intervals_overlap(leader, interval) {
+                return Err(LaneScanViolation::Overlap {
                     leader,
-                    interval
-                )
-            })?;
-            require(interval.front_um() >= leader.front_um(), || {
-                format!(
-                    "顺序反转/超车 corridor={} leader={:?} follower={:?}",
-                    interval.space(),
+                    follower: interval,
+                });
+            }
+            if interval.front_um() < leader.front_um() {
+                return Err(LaneScanViolation::Order {
                     leader,
-                    interval
-                )
-            })?;
+                    follower: interval,
+                });
+            }
         }
         self.front = Some(interval);
         Ok(())
@@ -174,6 +237,8 @@ impl Sample {
         let mut event_index = 0;
         let events = self.world.latest_transition_events();
         let mut lane_scan = LaneScan::new();
+        session_note(&mut self.session, RULE_BODY)?;
+        session_note(&mut self.session, RULE_ORDER)?;
         for (rank, &handle) in self.handles.iter().enumerate() {
             let state = self
                 .world
@@ -195,7 +260,10 @@ impl Sample {
                     && state.waiting_membership().is_none()
                     && state.maneuver_traversal().is_none()
                     && self.world.parking_binding(handle) == self.bindings[rank],
-                || format!("身份/路线/状态/停车绑定 tick={tick} rank={rank}"),
+                || {
+                    session_violation(&mut self.session, RULE_MOTION.id);
+                    format!("身份/路线/状态/停车绑定 tick={tick} rank={rank}")
+                },
             )?;
             if state.status() == VehicleStatus::Parked {
                 require(state == initial, || {
@@ -227,11 +295,21 @@ impl Sample {
                         self.max_accel_mm_s2,
                         dt,
                     ),
-                    || format!("进度/速度/加减速 tick={tick} rank={rank}: {old:?} -> {state:?}"),
+                    || {
+                        session_violation(&mut self.session, RULE_MOTION.id);
+                        format!("进度/速度/加减速 tick={tick} rank={rank}: {old:?} -> {state:?}")
+                    },
                 )?;
                 lane_scan
                     .push(w_body_interval(rank, next_position, 0)?)
-                    .map_err(|e| Error::Invalid(format!("{e} tick={tick} rank={rank}")))?;
+                    .map_err(|violation| {
+                        let rule = match violation {
+                            LaneScanViolation::Overlap { .. } => RULE_BODY.id,
+                            LaneScanViolation::Order { .. } => RULE_ORDER.id,
+                        };
+                        session_violation(&mut self.session, rule);
+                        Error::Invalid(format!("{violation} tick={tick} rank={rank}"))
+                    })?;
             }
             let changed = state.route_edge_index() != old.route_edge_index();
             if changed {
@@ -264,12 +342,14 @@ impl Sample {
                         })?,
                 )
                 .expect("entry 长度在 u32 域内");
+                session_note(&mut self.session, RULE_SIGNAL)?;
                 if let Err(denial) = signal_crossing_permission(
                     aspect_before,
                     old.speed_mm_s(),
                     distance_before_mm,
                     self.emergency_decel_mm_s2,
                 ) {
+                    session_violation(&mut self.session, RULE_SIGNAL.id);
                     return Err(Error::Invalid(format!(
                         "信号许可拒绝 tick={tick} tick_before={tick_before} rank={rank} \
                          route={route_rank} aspect_before={aspect_before:?} \
@@ -289,12 +369,20 @@ impl Sample {
                         self.emergency_decel_mm_s2,
                     )));
                 }
+                session_witness(&mut self.session, WITNESS_CROSSING)?;
                 self.crossed[rank] = true;
                 self.transitions += 1;
+                session_note(&mut self.session, RULE_GATES)?;
                 for kind_index in 0..2 {
-                    let event = events.get(event_index).ok_or_else(|| {
-                        Error::Invalid(format!("缺少转换事件 tick={tick} rank={rank}"))
-                    })?;
+                    let event = match events.get(event_index) {
+                        Some(event) => event,
+                        None => {
+                            session_violation(&mut self.session, RULE_GATES.id);
+                            return Err(Error::Invalid(format!(
+                                "缺少转换事件 tick={tick} rank={rank}"
+                            )));
+                        }
+                    };
                     event_index += 1;
                     let anchor = event.anchor();
                     let expected_kind = if kind_index == 0 {
@@ -317,7 +405,10 @@ impl Sample {
                             && anchor.position().route_edge_index() == 1
                             && anchor.position().progress_mm() == 0
                             && anchor.position().carry_um() == 0,
-                        || format!("事件顺序/载荷/因果 tick={tick} rank={rank}: {event:?}"),
+                        || {
+                            session_violation(&mut self.session, RULE_GATES.id);
+                            format!("事件顺序/载荷/因果 tick={tick} rank={rank}: {event:?}")
+                        },
                     )?;
                 }
             }
@@ -417,7 +508,10 @@ impl Sample {
                     && state.route_edge_index() <= if on_cluster { 4 } else { 1 }
                     && state.carry_um() < 1_000
                     && self.world.parking_binding(handle) == self.bindings[rank],
-                || format!("身份/路线/状态/停车绑定 tick={tick} rank={rank}"),
+                || {
+                    session_violation(&mut self.session, RULE_MOTION.id);
+                    format!("身份/路线/状态/停车绑定 tick={tick} rank={rank}")
+                },
             )?;
             if state.status() == VehicleStatus::Parked {
                 require(state == initial, || {
