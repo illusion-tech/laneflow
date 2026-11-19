@@ -71,6 +71,83 @@ pub(crate) fn profile_limits(
     Ok((profile, max_accel_mm_s2, emergency_decel_mm_s2))
 }
 
+/// W 参考域校验（lf-synth-execution-2 §1）：独立信号许可参考判定的适用
+/// 条件一次性核对，安装与恢复两侧共用——W 路线为 entry→exit 两边且 entry
+/// 边长 5 130 m、每条信号路线唯一 Gate（安装循环已钉住）、门政策在全部
+/// 参与者类别下解析为 `ProtectedGroup` 且无独立禁止、受检 profile 的紧急
+/// 减速度原始值恰为 6.0 m/s²（派生整数 6 000）。四舍五入结果等于 6000
+/// 不等于原始值精确——两者同时核对。换道族无信号门，不适用本判定。
+/// 生成器演进后条件不再成立时在此失败，参考判定不得静默套用旧假设。
+pub(crate) fn validate_w_signal_reference_domain(
+    revision: &SharedNetworkRevision,
+    state: &InitialState,
+    route_offsets: &[Vec<u64>],
+    emergency_decel_mm_s2: u64,
+) -> Result<(), Error> {
+    if state.identity.lane_change().is_some() {
+        return Ok(());
+    }
+    let identity = revision.identity();
+    let relations = revision.traffic().relations();
+    let profile = identity
+        .ordinal(
+            state
+                .vehicle_profile_id
+                .parse::<VehicleProfileId>()
+                .map_err(|e| failure("profile id", e))?,
+        )
+        .ok_or_else(|| failure("profile", "missing"))?;
+    let profile_view = relations
+        .vehicle_profile(profile)
+        .ok_or_else(|| failure("profile view", "missing"))?;
+    crate::require(
+        profile_view.emergency_decel() == 6.0 && emergency_decel_mm_s2 == 6_000,
+        || "参考许可要求受检 profile 紧急减速度恰为 6.0 m/s²（6000）".into(),
+    )?;
+    let policy = identity
+        .ordinal(
+            state
+                .policy_id
+                .parse::<RightOfWayPolicySetId>()
+                .map_err(|e| failure("policy id", e))?,
+        )
+        .ok_or_else(|| failure("policy", "missing"))?;
+    let policy_view = revision
+        .policy()
+        .policy(policy)
+        .ok_or_else(|| failure("policy view", "missing"))?;
+    for (route_rank, route) in state.routes.iter().enumerate() {
+        let Some(group_id) = &route.signal_group_id else {
+            continue;
+        };
+        crate::require(
+            route.edge_ids.len() == 2 && route_offsets[route_rank][1] == 5_130_000,
+            || format!("W 信号路线须为 entry→exit 且 entry 边长 5 130 m：route={route_rank}"),
+        )?;
+        let group = identity
+            .ordinal(
+                group_id
+                    .parse::<SignalGroupId>()
+                    .map_err(|e| failure("group id", e))?,
+            )
+            .ok_or_else(|| failure("group", "missing"))?;
+        let gate = relations
+            .signal_group(group)
+            .ok_or_else(|| failure("group relations", "missing"))?
+            .gates()[0];
+        let classes = policy_view.gate_classes(gate);
+        crate::require(
+            !classes.is_empty()
+                && classes.iter().all(|class| {
+                    class.interpretation() == GateInterpretation::ProtectedGroup
+                        && class.prohibition() == GateProhibition::None
+                }),
+            || format!("W 信号门政策须为 ProtectedGroup 且无独立禁止：route={route_rank}"),
+        )?;
+    }
+    Ok(())
+}
+
 impl Sample {
     pub fn new(bundle: &Bundle, execution: ExecutionConfig) -> Result<Self, Error> {
         let input = check_canonical_network_input(
@@ -236,6 +313,12 @@ impl Sample {
         let bindings = handles.iter().map(|&h| world.parking_binding(h)).collect();
         let cursor = world.command_cursor();
         let route_offsets = route_position_offsets(&state, &revision)?;
+        validate_w_signal_reference_domain(
+            &revision,
+            &state,
+            &route_offsets,
+            emergency_decel_mm_s2,
+        )?;
         let lane_change_slots = state
             .identity
             .lane_change()

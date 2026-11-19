@@ -1,10 +1,9 @@
 use laneflow_runtime::*;
-use laneflow_static_contract::SignalAspect;
 use laneflow_synth_generator::Case;
 
 use super::{Burst, Command, Operation};
 use crate::signal_reference::SignalSchedule;
-use crate::signal_reference::aspect;
+use crate::signal_reference::{CrossingPermit, aspect, signal_crossing_permission};
 use crate::{
     Error, Plan, failure,
     observe::{motion_valid, position},
@@ -194,19 +193,56 @@ impl Burst {
             }
             let changed = state.route_edge_index() != previous.route_edge_index();
             if changed {
+                // 结构与信号许可分开：命令后的 `previous` 是本次运动的真实
+                // 起点（Burst::command 成功后写入；Blocked 不推进）。
                 require(
-                    previous.route_edge_index() == 0
-                        && state.route_edge_index() == 1
-                        && tick > 0
-                        && aspect(
-                            schedule,
-                            rank as u32 / 100,
-                            route_rank as u32 % 4,
-                            tick - 1,
-                            dt,
-                        ) == SignalAspect::Green,
-                    || format!("transition/signal causality tick={tick} rank={rank}"),
+                    previous.route_edge_index() == 0 && state.route_edge_index() == 1 && tick > 0,
+                    || format!("transition structure tick={tick} rank={rank}"),
                 )?;
+                let aspect_before = aspect(
+                    schedule,
+                    rank as u32 / 100,
+                    route_rank as u32 % 4,
+                    tick - 1,
+                    dt,
+                );
+                let distance_before_mm = u32::try_from(
+                    5_130_000_u64
+                        .checked_sub(u64::from(previous.progress_mm()))
+                        .ok_or_else(|| {
+                            failure("pre-crossing progress past stop line", (tick, rank))
+                        })?,
+                )
+                .expect("entry 长度在 u32 域内");
+                let permit = signal_crossing_permission(
+                    aspect_before,
+                    previous.speed_mm_s(),
+                    distance_before_mm,
+                    self.sample.emergency_decel_mm_s2,
+                )
+                .map_err(|denial| {
+                    Error::Invalid(format!(
+                        "signal permit denied tick={tick} tick_before={} rank={rank} \
+                         route={route_rank} aspect_before={aspect_before:?} aspect_after={:?} \
+                         speed_before_mm_s={} progress_before_mm={} carry_before_um={} \
+                         distance_mm={distance_before_mm} emergency_decel_mm_s2={} \
+                         denial={denial:?}",
+                        tick - 1,
+                        aspect(schedule, rank as u32 / 100, route_rank as u32 % 4, tick, dt),
+                        previous.speed_mm_s(),
+                        previous.progress_mm(),
+                        previous.carry_um(),
+                        self.sample.emergency_decel_mm_s2,
+                    ))
+                })?;
+                if case == Case::W4 {
+                    // W4 同步释放专项：B1 指定过门的许可原因必须为 Green，
+                    // 强于通用信号许可（构造状态即使符合 YellowDilemma 也不满足
+                    // green-release 验收）。
+                    require(permit == CrossingPermit::Green, || {
+                        format!("W4 crossing permit tick={tick} rank={rank} permit={permit:?}")
+                    })?;
+                }
                 self.total_crossings[rank] += 1;
                 self.sample.transitions += 1;
             }
@@ -421,6 +457,7 @@ pub(super) fn record_arrival(
 mod tests {
     use super::*;
     use crate::cycle_ms;
+    use laneflow_static_contract::SignalAspect;
 
     #[test]
     fn synchronized_signal_uses_pre_step_snapshot() {

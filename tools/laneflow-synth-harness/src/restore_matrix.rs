@@ -201,6 +201,7 @@ fn check_report(
             task.key()
         )));
     }
+    laneflow_synth_harness::ensure_semantic_contract(report)?;
     Ok(())
 }
 
@@ -422,7 +423,9 @@ mod tests {
             },
             checkpoint: Some(1),
         };
-        let report = json!({"format":"lf-synth-restore-run-1","complete":true,"probe":false,"implementation_commit":"a".repeat(40),"input_manifest":{"identity":{"scale":10_000,"case":"W3","fixed_delta_ms":16}},"workers":16,"checkpoint":1,"start_tick":14_509,"after_commands":true,"end_tick":43_524,"trace_records":29_015,"attestation":"Pass","new_observation_stream":true,"initial_state_and_mapping_equal":true,"full_suffix_equal":true,"final_state_equal":true});
+        let report = json!({"format":"lf-synth-restore-run-1","complete":true,"probe":false,
+            "semantic_contract":laneflow_synth_harness::SEMANTIC_CONTRACT,
+            "implementation_commit":"a".repeat(40),"input_manifest":{"identity":{"scale":10_000,"case":"W3","fixed_delta_ms":16}},"workers":16,"checkpoint":1,"start_tick":14_509,"after_commands":true,"end_tick":43_524,"trace_records":29_015,"attestation":"Pass","new_observation_stream":true,"initial_state_and_mapping_equal":true,"full_suffix_equal":true,"final_state_equal":true});
         check_report(&report, task, &"a".repeat(40), false).unwrap();
         for (field, value) in [
             ("workers", json!(1)),
@@ -434,6 +437,8 @@ mod tests {
             ("full_suffix_equal", json!(false)),
             ("complete", json!(false)),
             ("probe", json!(true)),
+            ("semantic_contract", serde_json::Value::Null),
+            ("semantic_contract", json!("lf-synth-execution-1")),
         ] {
             let mut bad = report.clone();
             bad[field] = value;

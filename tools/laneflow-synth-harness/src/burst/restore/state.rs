@@ -406,6 +406,13 @@ pub(super) fn restore(
     let bindings = handles.iter().map(|&h| world.parking_binding(h)).collect();
     let (_profile, max_accel_mm_s2, emergency_decel_mm_s2) =
         crate::install::profile_limits(&revision, &state)?;
+    // 恢复侧同样校验参考判定适用条件（与安装同式），不得静默套用旧假设。
+    crate::install::validate_w_signal_reference_domain(
+        &revision,
+        &state,
+        &route_offsets,
+        emergency_decel_mm_s2,
+    )?;
     // 跨拍生命周期序在恢复端续接（#1227）：取宿主史中各槽位最后一次生命周期种类。
     let lane_change_slots = state
         .identity

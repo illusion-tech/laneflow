@@ -50,7 +50,9 @@ impl Job {
 
     pub(super) fn windows(self) -> (u64, u64) {
         if self.case == "L1" {
-            return (16, if self.dt == 16 { 304 } else { 144 });
+            // 期望窗口从生成器钉版正本统一派生，不自持第二套字面量；期望值
+            // 不从待验报告自身取得（#1455 工具入口修正）。
+            return laneflow_synth_generator::lane_change_pinned_window(self.dt);
         }
         let warm = if self.dt == 16 { 14_508 } else { 7_044 };
         (warm, if self.case == "W4" { 2 } else { warm * 2 })
@@ -116,6 +118,7 @@ pub(super) fn check_report(
             job.key()
         )));
     }
+    laneflow_synth_harness::ensure_semantic_contract(report)?;
     let checkpoints = report["checkpoints"]
         .as_array()
         .ok_or_else(|| invalid(format!("缺少状态检查点：{}", job.key())))?;

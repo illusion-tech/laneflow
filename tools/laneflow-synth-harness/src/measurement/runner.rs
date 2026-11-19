@@ -336,7 +336,9 @@ fn check_oracle(oracle: &Value, input_manifest: &Value, implementation: &str) ->
             && oracle["ordered_events_digest"].is_string()
             && oracle["implementation_commit"] == implementation,
         || "oracle 未完成、缺少事件、实现提交或输入身份不符".into(),
-    )
+    )?;
+    // 正式测量只消费当前验收语义下产生的 oracle；旧语义证据不转标复用。
+    crate::ensure_semantic_contract(oracle)
 }
 
 fn run_inner(
@@ -1057,6 +1059,7 @@ mod tests {
         let input_manifest = json!({"identity":{"scale":10_000,"case":"W1","fixed_delta_ms":16}});
         let implementation = "c".repeat(40);
         let oracle = json!({"complete":true,"implementation_commit":implementation,
+            "semantic_contract":crate::SEMANTIC_CONTRACT,
             "input_manifest":input_manifest,"ordered_events_digest":"a".repeat(64)});
         check_oracle(&oracle, &input_manifest, &implementation).unwrap();
         // 负测试（#1219）：只改 oracle SHA，其余字段不动，必须拒绝。
@@ -1069,6 +1072,7 @@ mod tests {
         for (field, value) in [
             ("complete", json!(false)),
             ("ordered_events_digest", Value::Null),
+            ("semantic_contract", Value::Null),
             (
                 "input_manifest",
                 json!({"identity":{"scale":100_000,"case":"W1","fixed_delta_ms":16}}),

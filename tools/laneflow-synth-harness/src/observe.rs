@@ -2,11 +2,10 @@ use laneflow_runtime::{
     ManeuverTraversalPhase, ParkingBinding, ParkingTarget, TrafficTransitionKind, VehicleState,
     VehicleStatus,
 };
-use laneflow_static_contract::SignalAspect;
 
 use crate::install::Sample;
 use crate::signal_reference::SignalSchedule;
-use crate::signal_reference::aspect;
+use crate::signal_reference::{aspect, signal_crossing_permission};
 use crate::{Error, require};
 
 const EDGE_MM: u64 = 5_130_000;
@@ -171,19 +170,60 @@ impl Sample {
             }
             let changed = state.route_edge_index() != old.route_edge_index();
             if changed {
+                // 结构错误与信号许可分开钉住：先证明 0→1、首过与拍前边界，
+                // 再以拍初事实独立核验信号侧许可（lf-synth-execution-2 §1）。
+                // 旧状态用已持有的 `old`——observe 时 world 已提交，重新读取
+                // 只能得到新状态。
                 require(
                     old.route_edge_index() == 0
                         && state.route_edge_index() == 1
                         && !self.crossed[rank]
-                        && aspect(
+                        && tick > 0,
+                    || format!("路线转换结构 tick={tick} rank={rank}"),
+                )?;
+                let tick_before = tick - 1;
+                let aspect_before = aspect(
+                    SignalSchedule::CellOffset,
+                    route_rank as u32 / 4,
+                    route_rank as u32 % 4,
+                    tick_before,
+                    dt,
+                );
+                // 停止线参考距离用拍初整数进度（mm）；carry_um 只进失败诊断，
+                // 不经含微米余数的 position() 改变门距离定义。
+                let distance_before_mm = u32::try_from(
+                    EDGE_MM
+                        .checked_sub(u64::from(old.progress_mm()))
+                        .ok_or_else(|| {
+                            Error::Invalid(format!("拍初进度越过停止线 tick={tick} rank={rank}"))
+                        })?,
+                )
+                .expect("entry 长度在 u32 域内");
+                if let Err(denial) = signal_crossing_permission(
+                    aspect_before,
+                    old.speed_mm_s(),
+                    distance_before_mm,
+                    self.emergency_decel_mm_s2,
+                ) {
+                    return Err(Error::Invalid(format!(
+                        "信号许可拒绝 tick={tick} tick_before={tick_before} rank={rank} \
+                         route={route_rank} aspect_before={aspect_before:?} \
+                         aspect_after={:?} speed_before_mm_s={} progress_before_mm={} \
+                         carry_before_um={} distance_mm={distance_before_mm} \
+                         emergency_decel_mm_s2={} denial={denial:?}",
+                        aspect(
                             SignalSchedule::CellOffset,
                             route_rank as u32 / 4,
                             route_rank as u32 % 4,
-                            tick - 1,
+                            tick,
                             dt,
-                        ) == SignalAspect::Green,
-                    || format!("路线转换或闯灯 tick={tick} rank={rank}"),
-                )?;
+                        ),
+                        old.speed_mm_s(),
+                        old.progress_mm(),
+                        old.carry_um(),
+                        self.emergency_decel_mm_s2,
+                    )));
+                }
                 self.crossed[rank] = true;
                 self.transitions += 1;
                 for kind_index in 0..2 {
