@@ -311,8 +311,9 @@ enum FileState {
 }
 
 fn classify(path: &str, workspace: &Workspace, registry: &Registry) -> FileState {
-    // 顺序即优先级：全量触发与成员清单规则先于输入边——成员 manifest 的
-    // 跨包读取（如 wire 审计 fixture）不得吞掉 feature 合并前提守护。
+    // 顺序即优先级：全量触发与成员清单规则先于输入边（成员 manifest 的跨包
+    // 读取不得吞掉 feature 合并前提守护）；显式不适用规则先于通用包目录归属
+    // ——xtask/data 等包内数据由常驻校验承载（#1459），包归属不得复活重活。
     if let Some(pattern) = registry
         .full
         .iter()
@@ -330,15 +331,15 @@ fn classify(path: &str, workspace: &Workspace, registry: &Registry) -> FileState
             consumers: consumers.iter().cloned().collect(),
         };
     }
-    if let Some(name) = workspace.package_of(path) {
-        return FileState::Package(name.to_owned());
-    }
     if let Some(pattern) = registry
         .not_applicable
         .iter()
         .find(|pattern| glob_match(pattern, path))
     {
         return FileState::NotApplicable(pattern.clone());
+    }
+    if let Some(name) = workspace.package_of(path) {
+        return FileState::Package(name.to_owned());
     }
     FileState::Unknown
 }
@@ -590,8 +591,9 @@ fn scan_embeds(workspace: &Workspace, repo_root: &Path) -> Result<(EmbedMap, Vec
             Ok(())
         })?;
     }
+    // 逐出现记录（不去重）：同一已允许文件新增另一处非字面量实参时，
+    // 清单长度变化使一致性断言抓红。
     unparsed.sort();
-    unparsed.dedup();
     Ok((map, unparsed))
 }
 
@@ -726,9 +728,10 @@ fn scan_nested_includes(tokens: &proc_macro2::TokenStream, targets: &mut Vec<Str
 }
 
 fn push_literal_text(literal: &proc_macro2::Literal, out: &mut String) {
-    let text = literal.to_string();
-    if let Some(stripped) = text.strip_prefix('"').and_then(|it| it.strip_suffix('"')) {
-        out.push_str(stripped);
+    // 经 syn 的字面量模型解码（转义序列与 raw string 均正确处理）；
+    // 非字符串字面量不贡献路径。
+    if let syn::Lit::Str(text) = syn::Lit::new(literal.clone()) {
+        out.push_str(&text.value());
     }
 }
 
@@ -1212,11 +1215,14 @@ mod tests {
         );
     }
 
-    /// 运行时读取声明与嵌入边合并成种子：v0.1 lfca 的消费者 = 嵌入方 bevy
-    /// ∪ 运行时读取方 junction-generator（注册表 input 表先例）。
+    /// 运行时读取声明与嵌入边合并：v0.1 lfca 的消费者 = 嵌入方 bevy ∪
+    /// 运行时读取方 junction-generator（注册表 input 表先例）。用真实
+    /// workspace 断言到任务层——默认配置的 test-default 须包含该 generator
+    /// （另一配置的 placement 任务不能代替默认配置覆盖，合同 §2）。
     #[test]
-    fn declared_runtime_read_merges_with_embed_consumers() {
-        let workspace = fixture_workspace();
+    fn declared_runtime_read_reaches_affected_and_default_task() {
+        let metadata = cargo_metadata().expect("cargo metadata 须可运行");
+        let workspace = Workspace::parse(&metadata).expect("真实 metadata 须可解析");
         let plan = build_plan(
             &files(&["examples/data/v0.1-complex-junction.lfca"]),
             &workspace,
@@ -1228,6 +1234,56 @@ mod tests {
             plan.seeds.contains("laneflow-junction-generator"),
             "运行时读取声明消费者须并入"
         );
+        assert!(
+            plan.affected.contains("laneflow-junction-generator"),
+            "受影响集须包含运行时读取方"
+        );
+        let test_default = plan
+            .tasks
+            .iter()
+            .find(|task| task.name == "test-default")
+            .expect("test-default 任务存在");
+        assert!(
+            test_default
+                .packages
+                .contains(&"laneflow-junction-generator".to_owned()),
+            "默认配置任务须覆盖运行时读取方"
+        );
+    }
+
+    /// #1459 回归护栏：xtask 数据文件由常驻 Commit message job 校验，通用包
+    /// 目录归属不得让它们复活重活（xtask 是 workspace 成员，package_of 会
+    /// 先截获 xtask/data/**——归类顺序把不适用规则放在包归属之前）。
+    #[test]
+    fn xtask_data_files_are_not_applicable_and_yield_empty_tasks() {
+        let workspace = fixture_workspace();
+        for path in [
+            "xtask/data/model-registry.json",
+            "xtask/data/harness-registry.json",
+            "xtask/data/doc-checks.toml",
+        ] {
+            let plan = build_plan(&files(&[path]), &workspace, &registry());
+            assert!(!plan.full, "{path} 应判不适用");
+            assert!(plan.seeds.is_empty(), "{path} 不产生种子");
+            assert!(
+                plan.tasks.iter().all(|task| task.packages.is_empty()),
+                "{path} 下所有任务须为空（验证由常驻 job 承载）"
+            );
+        }
+    }
+
+    /// 计划器自身路径的保护边界不受上一条顺序调整影响。
+    #[test]
+    fn planner_own_paths_still_force_full() {
+        let workspace = fixture_workspace();
+        for path in [
+            "xtask/data/ci-extra-inputs.toml",
+            "xtask/Cargo.toml",
+            "xtask/src/ci_plan.rs",
+        ] {
+            let plan = build_plan(&files(&[path]), &workspace, &registry());
+            assert!(plan.full, "{path} 须保持全量");
+        }
     }
 
     #[test]
@@ -1268,8 +1324,11 @@ mod tests {
         let (scanned, unparsed) = scan_embeds(&workspace, &repo_root).expect("全仓嵌入扫描须成功");
         assert_eq!(
             unparsed,
-            vec!["tools/laneflow-lust-converter/src/output/pipeline.rs"],
-            "非字面量 include 实参清单变化须同步本断言与注册表说明"
+            vec![
+                "tools/laneflow-lust-converter/src/output/pipeline.rs",
+                "tools/laneflow-lust-converter/src/output/pipeline.rs",
+            ],
+            "逐出现记录（不去重）：同一文件新增另一处非字面量实参时清单长度变化须抓红"
         );
 
         // 只保留跨包嵌入：目标不属于任何成员，或所有者 ≠ 嵌入方。
