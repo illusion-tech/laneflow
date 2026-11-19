@@ -46,7 +46,9 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
     } else {
         "lf-synth-semantic-run-1"
     };
-    let report = json!({"format":format,"complete":true,"implementation_commit":"c".repeat(40),
+    let report = json!({"format":format,"complete":true,
+        "semantic_contract":laneflow_synth_harness::SEMANTIC_CONTRACT,
+        "implementation_commit":"c".repeat(40),
         "workers":job.workers,"input_manifest":input,"warm_up_ticks":warm,"observation_ticks":observation,
         "validated_boundaries":warm+observation+1,"checkpoints":points});
     (job, input, report)
@@ -101,6 +103,8 @@ fn receipts_reject_wrong_source_identity_workers_and_incomplete_windows() {
             ("workers", json!(1)),
             ("workers", Value::Null),
             ("format", json!("other")),
+            ("semantic_contract", Value::Null),
+            ("semantic_contract", json!("lf-synth-execution-1")),
             ("warm_up_ticks", json!(512)),
             ("observation_ticks", json!(1)),
             ("validated_boundaries", json!(1)),
@@ -121,6 +125,42 @@ fn receipts_reject_wrong_source_identity_workers_and_incomplete_windows() {
         let mut changed = report.clone();
         changed["checkpoints"][0]["state_digest"] = json!("invalid");
         assert!(check_report(job, &changed, &input, &implementation).is_err());
+    }
+}
+
+#[test]
+fn lane_change_window_expectation_derives_from_generator_canonical_pinning() {
+    // #1455 工具入口修正：期望窗口从生成器钉版正本派生（16 ms 档 384、
+    // 33 ms 档 184——#1272 收束边界放宽后的规范值）；生成器不再同步时会在此
+    // 失败而不是静默拒绝规范报告。
+    for (dt, expected) in [(16, (16_u64, 384_u64)), (33, (16, 184))] {
+        let job = Job {
+            scale: 10_000,
+            case: "L1",
+            dt,
+            workers: 1,
+            round: 1,
+        };
+        assert_eq!(job.windows(), expected);
+        assert_eq!(
+            job.windows(),
+            laneflow_synth_generator::lane_change_pinned_window(dt)
+        );
+    }
+    // 旧窗口字面量（304/144）不再是可接受期望。
+    for dt in [16, 33] {
+        let stale = (16_u64, if dt == 16 { 304 } else { 144 });
+        assert_ne!(
+            Job {
+                scale: 10_000,
+                case: "L1",
+                dt,
+                workers: 1,
+                round: 1,
+            }
+            .windows(),
+            stale
+        );
     }
 }
 

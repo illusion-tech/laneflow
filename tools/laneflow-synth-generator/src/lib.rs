@@ -162,12 +162,21 @@ impl Identity {
     ///（探针 `lane_change_lifecycle_probe_freezes_window_pinning` 冻结拍号）：
     /// 终点晚于败者清空后进入拍、早于任一换道者路线完成拍。
     pub fn lane_change_window(&self) -> (u64, u64) {
-        // K=2 钉版窗口（调度可行域推导见 LaneChangeParams::validate）。
-        // #1272：换道生命周期含提前制动（停让方在制动前视窗内减速），
-        // 观察窗按钉版实测收束边界放宽（16 ms 档 304→384、33 ms 档 144→184）。
-        let observation = if self.fixed_delta_ms == 16 { 384 } else { 184 };
-        (16, observation)
+        lane_change_pinned_window(self.fixed_delta_ms)
     }
+}
+
+/// L1 换道族钉版窗口的唯一正本：harness 的 worker/restore 矩阵从本函数统一
+/// 派生期望窗口，不自持第二套字面量（曾因 #1272 收束边界放宽后未同步而
+/// 静默拒绝规范报告）。
+///
+/// K=2 钉版窗口（调度可行域推导见 LaneChangeParams::validate）。
+/// #1272：换道生命周期含提前制动（停让方在制动前视窗内减速），
+/// 观察窗按钉版实测收束边界放宽（16 ms 档 304→384、33 ms 档 144→184）。
+#[must_use]
+pub fn lane_change_pinned_window(fixed_delta_ms: u32) -> (u64, u64) {
+    let observation = if fixed_delta_ms == 16 { 384_u64 } else { 184 };
+    (16, observation)
 }
 
 /// 生成、受检编译或文件验证失败。

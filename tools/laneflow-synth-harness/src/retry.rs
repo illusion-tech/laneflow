@@ -167,6 +167,9 @@ pub(super) fn verify_reports(
             && retry["step_input_digest"] == normal["step_input_digest"],
         "重试/正常输入身份或实现不符",
     )?;
+    // 被引用的正常语义参考必须使用当前验收语义；Runtime 的失败重试报告
+    // 证明的是另一项性质，不要求携带该字段（不让 failpoint 测试依赖 harness）。
+    laneflow_synth_harness::ensure_semantic_contract(normal)?;
     for flag in [
         "failed_snapshot_values_equal",
         "failed_events_equal",
@@ -251,7 +254,9 @@ mod tests {
         ] {
             retry[flag] = true.into();
         }
-        let normal = json!({"format":"lf-synth-burst-run-1","complete":true,"workers":1,"input_manifest":retry["input_manifest"],"implementation_commit":implementation,"step_input_digest":"step","warm_up_ticks":10,
+        let normal = json!({"format":"lf-synth-burst-run-1","complete":true,
+            "semantic_contract":laneflow_synth_harness::SEMANTIC_CONTRACT,
+            "workers":1,"input_manifest":retry["input_manifest"],"implementation_commit":implementation,"step_input_digest":"step","warm_up_ticks":10,
             "command_batches":[{"boundary":10,"input_digest":"batch","pre_command_state_digest":"pre","post_command_state_digest":"post","cursor_before":1,"cursor_after":3}],
             "checkpoints":[{"tick":11,"state_digest":"retry"},{"tick":12,"state_digest":"final"}]});
         verify_reports(&retry, &normal, &implementation, "10000-W4-33", 1).unwrap();
@@ -268,6 +273,16 @@ mod tests {
             let mut changed = retry.clone();
             changed[field] = replacement;
             assert!(verify_reports(&changed, &normal, &implementation, "10000-W4-33", 1).is_err());
+        }
+        // 正常语义参考缺省、旧值或未知语义版本都必须拒绝（重试报告自身
+        // 不携带该字段——它证明的是另一项性质）。
+        for value in [Value::Null, json!("lf-synth-execution-1"), json!("unknown")] {
+            let mut stale = normal.clone();
+            stale["semantic_contract"] = value;
+            assert!(
+                verify_reports(&retry, &stale, &implementation, "10000-W4-33", 1).is_err(),
+                "stale semantic contract on normal reference must reject"
+            );
         }
     }
 }

@@ -317,7 +317,10 @@ fn with_output(
     operation: impl FnOnce() -> Result<Value, Error>,
 ) -> Result<Value, Error> {
     fs::create_dir(output)?;
-    crate::write_json(&output.join("report.json"), &json!({"complete":false}))?;
+    crate::write_json(
+        &output.join("report.json"),
+        &json!({"complete":false,"semantic_contract":crate::SEMANTIC_CONTRACT}),
+    )?;
     match operation() {
         Ok(report) => {
             crate::write_json(&output.join("report.json"), &report)?;
@@ -406,7 +409,7 @@ pub fn reference(
             &final_record(&plan, &driver, &records)?,
         )?;
         Ok(
-            json!({"format":"lf-synth-restore-reference-1","complete":true,"probe":probe,"implementation_commit":implementation,"input_manifest":bundle.manifest(),"workers":1,"warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,"end_tick":end,"trace_records":records.trace_count,"archives":archives,"checkpoints":records.checkpoints,"files":report_files(output)?,"timing":{"preparation_seconds":preparation,"run_seconds":run.elapsed().as_secs_f64(),"total_seconds":start.elapsed().as_secs_f64()}}),
+            json!({"format":"lf-synth-restore-reference-1","complete":true,"semantic_contract":crate::SEMANTIC_CONTRACT,"probe":probe,"implementation_commit":implementation,"input_manifest":bundle.manifest(),"workers":1,"warm_up_ticks":plan.warm_up_ticks,"observation_ticks":plan.observation_ticks,"end_tick":end,"trace_records":records.trace_count,"archives":archives,"checkpoints":records.checkpoints,"files":report_files(output)?,"timing":{"preparation_seconds":preparation,"run_seconds":run.elapsed().as_secs_f64(),"total_seconds":start.elapsed().as_secs_f64()}}),
         )
     })
 }
@@ -435,6 +438,8 @@ fn checked_reference(
             && report["trace_records"] == total(plan, probe) + 1,
         || "参考来源、配置或完整窗口不符".into(),
     )?;
+    // 在读取和使用 Host 检查点之前拒绝旧语义参考报告。
+    crate::ensure_semantic_contract(&report)?;
     require(report["files"] == report_files(reference)?, || {
         "参考文件身份不符".into()
     })?;
@@ -594,7 +599,7 @@ pub fn resume(
         })?;
         times["total_seconds"] = json!(start.elapsed().as_secs_f64());
         Ok(
-            json!({"format":"lf-synth-restore-run-1","complete":true,"probe":reference_report["probe"],"implementation_commit":implementation,"input_manifest":bundle.manifest(),"workers":driver.sample().world.execution_config().worker_count().get(),"checkpoint":index,"start_tick":host.tick,"after_commands":host.after_commands,"end_tick":end,"trace_records":records.trace_count,"command_count":records.journal.count,"blocked":records.journal.blocked,"attestation":"Pass","new_observation_stream":true,"initial_state_and_mapping_equal":true,"full_suffix_equal":true,"final_state_equal":true,"checkpoints":records.checkpoints,"files":report_files(output)?,"timing":times}),
+            json!({"format":"lf-synth-restore-run-1","complete":true,"semantic_contract":crate::SEMANTIC_CONTRACT,"probe":reference_report["probe"],"implementation_commit":implementation,"input_manifest":bundle.manifest(),"workers":driver.sample().world.execution_config().worker_count().get(),"checkpoint":index,"start_tick":host.tick,"after_commands":host.after_commands,"end_tick":end,"trace_records":records.trace_count,"command_count":records.journal.count,"blocked":records.journal.blocked,"attestation":"Pass","new_observation_stream":true,"initial_state_and_mapping_equal":true,"full_suffix_equal":true,"final_state_equal":true,"checkpoints":records.checkpoints,"files":report_files(output)?,"timing":times}),
         )
     })
 }

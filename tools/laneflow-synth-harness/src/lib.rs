@@ -34,6 +34,24 @@ fn failure(stage: &str, detail: impl std::fmt::Debug) -> Error {
     Error::Invalid(format!("{stage}: {detail:?}"))
 }
 
+/// 当前验收语义协议（`lf-synth-execution.md` 第 1 节的拍初独立信号许可）。
+/// 每份语义回执显式携带；消费入口严格校验，缺失、旧值或未知值一律拒绝，
+/// 旧报告不得通过缺省值或改标签混入。
+pub const SEMANTIC_CONTRACT: &str = "lf-synth-execution-2";
+
+/// 校验回执携带当前语义验收协议。
+///
+/// # Errors
+/// 回执缺少 `semantic_contract` 字段或其值不是 [`SEMANTIC_CONTRACT`] 时失败。
+pub fn ensure_semantic_contract(report: &Value) -> Result<(), Error> {
+    require(report["semantic_contract"] == SEMANTIC_CONTRACT, || {
+        format!(
+            "回执语义协议不符：期望 {SEMANTIC_CONTRACT}，实际 {:?}",
+            report["semantic_contract"]
+        )
+    })
+}
+
 fn require(valid: bool, context: impl FnOnce() -> String) -> Result<(), Error> {
     if valid {
         Ok(())
@@ -311,6 +329,7 @@ pub fn run(
     )?;
     fs::create_dir(output)?;
     let mut status = json!({"format":"lf-synth-semantic-run-1","complete":false,
+        "semantic_contract":SEMANTIC_CONTRACT,
         "implementation_commit":implementation_commit,"workers":execution.worker_count().get()});
     write_json(&output.join("report.json"), &status)?;
     let result = run_inner(input, implementation_commit, execution, output);
@@ -432,6 +451,7 @@ fn run_inner(
         )?;
     }
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
+        "semantic_contract":SEMANTIC_CONTRACT,
         "scope":if plan.identity.lane_change().is_some() {
             "L1_lane_change_competition_success_path_not_performance_or_product_certification"
         } else {
