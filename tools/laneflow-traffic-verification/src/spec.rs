@@ -70,14 +70,28 @@ pub struct VerificationSpec {
     pub atomicity: bool,
 }
 
-/// 单条规则的静态描述：标识、支持域与规定执行阶段。
+/// 覆盖语义：阶段完成义务与事件触发分开（设计 §3.3——某拍没有过门
+/// 事件可以是合法的零触发，但每轮应检查的工作集仍须证明已处理）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoverageMode {
+    /// 每轮义务：所属阶段的每一轮（初始边界轮 / 每个成功步进轮 / 每轮
+    /// 拍前 / 每条命令）都必须实际运行；阶段关闭时核对，漏一轮即拒绝。
+    EveryRound,
+    /// 事件触发：仅在实际事件发生时运行；零触发合法并如实记录为 0，
+    /// 场景必须发生的义务由必需见证承担，不以触发计数冒充覆盖。
+    OnEvent,
+}
+
+/// 单条规则的静态描述：标识、支持域、规定执行阶段与覆盖语义。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuleDescriptor {
     pub id: RuleId,
     /// 本实现支持的适用域；须包含规约域才允许绑定。
     pub domains: &'static [&'static str],
-    /// 规定执行阶段；覆盖按此核对。
+    /// 规定执行阶段；安装项与规约要求的阶段须一致才允许绑定。
     pub phase: CheckPhase,
+    /// 覆盖语义：每轮义务在阶段关闭时核对；事件触发只记实际次数。
+    pub coverage: CoverageMode,
 }
 
 /// 本次实际安装的模块清单：与规约声明的必需项分别保存，绑定检查前者
@@ -96,7 +110,18 @@ pub enum PlanRejected {
     MissingRule(RuleId),
     MissingFact(FactId),
     MissingWitness(WitnessId),
-    DomainUnsupported { rule: RuleId, domain: &'static str },
+    DomainUnsupported {
+        rule: RuleId,
+        domain: &'static str,
+    },
+    /// 规约要求的阶段与安装实现的阶段不一致。
+    PhaseMismatch {
+        rule: RuleId,
+        required: CheckPhase,
+        installed: CheckPhase,
+    },
+    /// 安装清单内同一规则出现多个描述符，绑定不得静默选择其一。
+    DuplicateRule(RuleId),
     EmptyWindow,
 }
 
@@ -109,6 +134,15 @@ impl core::fmt::Display for PlanRejected {
             Self::DomainUnsupported { rule, domain } => {
                 write!(f, "规则 {} 不支持适用域 {}", rule.0, domain)
             }
+            Self::PhaseMismatch {
+                rule,
+                required,
+                installed,
+            } => write!(
+                f,
+                "规则 {rule:?} 的阶段错配：要求 {required:?}，安装 {installed:?}"
+            ),
+            Self::DuplicateRule(rule) => write!(f, "安装清单内规则 {} 重复", rule.0),
             Self::EmptyWindow => write!(f, "完整窗口不得为零步"),
         }
     }
@@ -141,6 +175,12 @@ impl CheckedPlan {
                 return Err(PlanRejected::MissingWitness(*witness));
             }
         }
+        let mut seen: BTreeSet<RuleId> = BTreeSet::new();
+        for installed in provided.rules {
+            if !seen.insert(installed.id) {
+                return Err(PlanRejected::DuplicateRule(installed.id));
+            }
+        }
         for required in spec.required_rules {
             let installed = provided
                 .rules
@@ -151,6 +191,13 @@ impl CheckedPlan {
                 return Err(PlanRejected::DomainUnsupported {
                     rule: required.id,
                     domain: spec.domain,
+                });
+            }
+            if installed.phase != required.phase {
+                return Err(PlanRejected::PhaseMismatch {
+                    rule: required.id,
+                    required: required.phase,
+                    installed: installed.phase,
                 });
             }
         }
@@ -177,6 +224,7 @@ mod tests {
             id: RuleId(id),
             domains,
             phase,
+            coverage: CoverageMode::EveryRound,
         }
     }
 
@@ -284,6 +332,55 @@ mod tests {
         assert_eq!(
             CheckedPlan::bind(zero, full_modules()),
             Err(PlanRejected::EmptyWindow)
+        );
+    }
+
+    #[test]
+    fn bind_rejects_phase_mismatch_and_duplicate_rules() {
+        // 规约要求 PostSuccessfulStep，安装实现声明 PreTick：阶段错配拒绝。
+        let phase_wrong: &[RuleDescriptor] = &[RuleDescriptor {
+            id: RuleId("body-separation"),
+            domains: &[DOMAIN_W],
+            phase: CheckPhase::PreTick,
+            coverage: CoverageMode::EveryRound,
+        }];
+        assert_eq!(
+            CheckedPlan::bind(
+                spec(FULL_RULES, FULL_WITNESSES),
+                ProvidedModules {
+                    rules: phase_wrong,
+                    ..full_modules()
+                }
+            ),
+            Err(PlanRejected::PhaseMismatch {
+                rule: RuleId("body-separation"),
+                required: CheckPhase::PostSuccessfulStep,
+                installed: CheckPhase::PreTick,
+            })
+        );
+        // 同一规则两个描述符：拒绝，不静默取第一个。
+        const DUPLICATED: &[RuleDescriptor] = &[
+            rule(
+                "body-separation",
+                &[DOMAIN_W],
+                CheckPhase::PostSuccessfulStep,
+            ),
+            rule(
+                "body-separation",
+                &[DOMAIN_W],
+                CheckPhase::PostSuccessfulStep,
+            ),
+        ];
+        let duplicated = DUPLICATED;
+        assert_eq!(
+            CheckedPlan::bind(
+                spec(duplicated, FULL_WITNESSES),
+                ProvidedModules {
+                    rules: duplicated,
+                    ..full_modules()
+                }
+            ),
+            Err(PlanRejected::DuplicateRule(RuleId("body-separation")))
         );
     }
 }
