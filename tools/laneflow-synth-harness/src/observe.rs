@@ -5,30 +5,11 @@ use laneflow_runtime::{
 use laneflow_static_contract::SignalAspect;
 
 use crate::install::Sample;
-use crate::{Error, cycle_ms, durations, require};
+use crate::signal_reference::SignalSchedule;
+use crate::signal_reference::aspect;
+use crate::{Error, require};
 
 const EDGE_MM: u64 = 5_130_000;
-
-pub(crate) fn aspect(cell: u32, route: u32, tick: u64, dt: u32) -> SignalAspect {
-    let cycle = cycle_ms(dt);
-    let mut position = (tick * u64::from(dt) + u64::from(cell) * 997 % cycle) % cycle;
-    let phase = durations(dt)
-        .into_iter()
-        .position(|duration| {
-            if position < duration {
-                true
-            } else {
-                position -= duration;
-                false
-            }
-        })
-        .expect("positive cycle");
-    match (phase, route % 2) {
-        (0, 0) | (3, 1) => SignalAspect::Green,
-        (1, 0) | (4, 1) => SignalAspect::Yellow,
-        _ => SignalAspect::Red,
-    }
-}
 
 pub(crate) fn position(state: VehicleState) -> u64 {
     (u64::from(state.route_edge_index()) * EDGE_MM + u64::from(state.progress_mm())) * 1_000
@@ -101,7 +82,14 @@ impl Sample {
                 .binary_search_by_key(&group.raw(), |(g, _)| g.raw())
                 .map_err(|_| Error::Invalid(format!("缺少信号组 {rank}")))?;
             require(
-                signals[index].1 == aspect(rank as u32 / 4, rank as u32 % 4, tick, dt),
+                signals[index].1
+                    == aspect(
+                        SignalSchedule::CellOffset,
+                        rank as u32 / 4,
+                        rank as u32 % 4,
+                        tick,
+                        dt,
+                    ),
                 || format!("信号灯态 tick={tick} route={rank}"),
             )?;
         }
@@ -187,8 +175,13 @@ impl Sample {
                     old.route_edge_index() == 0
                         && state.route_edge_index() == 1
                         && !self.crossed[rank]
-                        && aspect(route_rank as u32 / 4, route_rank as u32 % 4, tick - 1, dt)
-                            == SignalAspect::Green,
+                        && aspect(
+                            SignalSchedule::CellOffset,
+                            route_rank as u32 / 4,
+                            route_rank as u32 % 4,
+                            tick - 1,
+                            dt,
+                        ) == SignalAspect::Green,
                     || format!("路线转换或闯灯 tick={tick} rank={rank}"),
                 )?;
                 self.crossed[rank] = true;

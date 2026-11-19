@@ -7,7 +7,8 @@ use laneflow_synth_generator::{Case, Identity, Provenance, generate};
 use crate::{
     Plan, cycle_ms,
     install::Sample,
-    observe::{aspect, motion_valid},
+    observe::motion_valid,
+    signal_reference::{SignalSchedule, aspect},
 };
 
 fn bundle(case: Case, dt: u32) -> laneflow_synth_generator::Bundle {
@@ -76,14 +77,30 @@ fn frozen_signal_boundaries_and_offsets() {
         let mut tick = 0;
         for (count, states) in ticks.into_iter().zip(expected) {
             for (route, expected) in states.into_iter().enumerate() {
-                assert_eq!(aspect(0, route as u32, tick, dt), expected);
-                assert_eq!(aspect(0, route as u32, tick + count - 1, dt), expected);
+                assert_eq!(
+                    aspect(SignalSchedule::CellOffset, 0, route as u32, tick, dt),
+                    expected
+                );
+                assert_eq!(
+                    aspect(
+                        SignalSchedule::CellOffset,
+                        0,
+                        route as u32,
+                        tick + count - 1,
+                        dt
+                    ),
+                    expected
+                );
             }
             tick += count;
         }
-        assert_eq!(aspect(0, 0, tick, dt), SignalAspect::Green);
+        assert_eq!(
+            aspect(SignalSchedule::CellOffset, 0, 0, tick, dt),
+            SignalAspect::Green
+        );
         assert_eq!(
             aspect(
+                SignalSchedule::CellOffset,
                 1,
                 0,
                 (30_000_u64.div_ceil(u64::from(dt)) * u64::from(dt) - 997).div_ceil(u64::from(dt)),
