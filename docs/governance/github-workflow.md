@@ -359,7 +359,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Schema Codegen`：钉版 flatc 的 Ubuntu / Windows 精确代码生成与 unsafe 边界
   检查、生成 Rust 绑定编译，以及 Cross-language LFRE writer fixtures 字节对拍。
   PR 与 main push 是否触发由 workflow 级 `paths` 决定（schemas、两个 wire crate、
-  Cargo 清单 / 锁、xtask、工具链、`.github/**` 与 crosslang 工具 / fixture）；
+  Cargo 清单 / 锁、xtask 源码、工具链、`.github/**` 与 crosslang 工具 / fixture）；
   merge_group 由 `Detect codegen path changes` job 按累计 diff 判定同口径路径，
   纯文档合并组不拉起 Windows runner 与 crosslang 构建；检测失败时失败关闭——
   照常全跑（#1363）。非必查。

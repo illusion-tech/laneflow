@@ -8,7 +8,9 @@ on:
       - "crates/laneflow-road-editing-wire/**"
       - "crates/laneflow-runtime-snapshot-wire/**"
       - "**/Cargo.toml"
-      - "xtask/**"
+      # #1459：xtask 数据注册表不进代码生成输入，收窄到源码（校验由常驻
+      # Commit message job 承载）；Cargo 清单由上方 **/Cargo.toml 覆盖。
+      - "xtask/**/*.rs"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
@@ -30,7 +32,9 @@ on:
       - "crates/laneflow-road-editing-wire/**"
       - "crates/laneflow-runtime-snapshot-wire/**"
       - "**/Cargo.toml"
-      - "xtask/**"
+      # #1459：xtask 数据注册表不进代码生成输入，收窄到源码（校验由常驻
+      # Commit message job 承载）；Cargo 清单由上方 **/Cargo.toml 覆盖。
+      - "xtask/**/*.rs"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
@@ -72,7 +76,8 @@ jobs:
               - 'crates/laneflow-road-editing-wire/**'
               - 'crates/laneflow-runtime-snapshot-wire/**'
               - '**/Cargo.toml'
-              - 'xtask/**'
+              # 同上方 pull_request.paths 的 #1459 收窄。
+              - 'xtask/**/*.rs'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
