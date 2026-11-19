@@ -36,6 +36,7 @@ laneflow-host-observe = { version = "0.0.0", path = "../laneflow-host-observe" }
 laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
 laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
+laneflow-traffic-verification = { version = "0.0.0", path = "../laneflow-traffic-verification" }
 laneflow-urban-generator = { version = "0.0.0", path = "../laneflow-urban-generator" }
 rayon-core = "1.13"
 serde = { version = "1.0", features = ["derive"] }

@@ -288,7 +288,10 @@ command、step、observation 计时数组还须与 diagnostics 副本一致，�
 1. 每次提交后，`live = Active + Parked + Completed`；初始 live 加成功出生减成功移除
    等于当前 live，原子替换同时计一次移除和一次出生。稳定编号、句柄映射一一对应。
 2. Active 车身在实际 route occurrence 上投影到一维物理边区间，同边区间不得重叠；
-   这是几何区间核对，不实现跟车、信号、Waiting 或冲突求解器。
+   这是几何区间核对，不实现跟车、信号、Waiting 或冲突求解器。区间分离由共享判据
+   `laneflow-traffic-verification` 的完整集合扫描裁决（半开区间、owner 含代次），
+   与 Synth 调用同一判据；不采用相邻对比较——它会漏检同 owner 嵌套片段遮蔽下的
+   跨 owner 重叠。
 3. 显式停车排他，虚拟池 Reserved + Occupied 不超容量，Parked 与 Occupied 对应；
    按静态设施归属汇总显式/虚拟绑定，与设施分池 reserved/occupied 和 total 对账；
    Waiting membership/容量/FIFO 和 grant/no-grant 的实际后果符合所选角色合同。

@@ -73,8 +73,25 @@ const OBSERVATION_BLOCK: usize = 4096;
 /// 逐拍状态摘要的编码版本；存档清单记录它，续跑要求相同。
 pub(crate) const OBSERVATION_VERSION: &str = "urban-observation-v4";
 
-/// 车身区间：(边 raw, 车尾 µm, 车头 µm, 个体)。
-type Body = (u32, u64, u64, IndividualId);
+/// 车身区间：共享判据包的 `BodyInterval`——`space` 为物理边 raw，
+/// 区间为微米半开 `[back, front)`，owner 由 [`urban_body`] 映射。
+type Body = laneflow_traffic_verification::body::BodyInterval;
+
+/// Urban 事实适配器：把个体的稳定身份映射为共享判据的 owner。逻辑身份
+/// 采用与宿主索引一致的 `tile * 1_000 + slot` 打包（slot < 1000，与
+/// `IndividualId` 的 (tile, slot) 字典序同序），代次原样透传——完整值
+/// 参与 owner 判等，同逻辑身份的不同代次视为不同 owner。
+fn urban_body(id: IndividualId, edge_raw: u32, back_um: u64, front_um: u64) -> Body {
+    laneflow_traffic_verification::body::BodyInterval {
+        space: edge_raw,
+        back_um,
+        front_um,
+        owner: laneflow_traffic_verification::body::BodyOwner {
+            logical: u64::from(id.tile) * 1_000 + u64::from(id.slot),
+            incarnation: id.incarnation,
+        },
+    }
+}
 
 /// 逐拍观测的跨拍缓冲区：每个固定块一份，各阶段依次复用；只保留容量，
 /// 内容逐拍清空，不参与摘要与检查语义。
@@ -1258,11 +1275,11 @@ fn state_block(
             loop {
                 let back = front.saturating_sub(remaining);
                 if front > back {
-                    buffers.bodies.push((
+                    buffers.bodies.push(urban_body(
+                        individual.id,
                         view.route_table.edge_raw(route, cursor),
                         back,
                         front,
-                        individual.id,
                     ));
                 }
                 remaining = remaining.saturating_sub(front);
@@ -1469,16 +1486,25 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     // 总序与全量 sort_unstable 相同（元组全序，稳定性无关）。
     let mut merge = std::mem::take(&mut h.observation.merge);
     merge_sorted_runs(&mut bodies, &mut runs, &mut merge);
-    for pair in bodies.windows(2) {
-        if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
-            return Err(invalid(format!(
-                "body overlap at tick {} on edge {}: {:?} and {:?}",
+    // 车身分离调用共享判据的已排序入口：完整集合扫描（每空间保留终点
+    // 最远的两个不同 owner 候选），相邻对比较会漏检同 owner 嵌套片段
+    // 遮蔽下的跨 owner 重叠（traffic-verification §5.3）。
+    let overlap =
+        laneflow_traffic_verification::body::first_overlap_sorted(&bodies).map_err(|empty| {
+            invalid(format!(
+                "empty body interval at tick {} index {}",
                 h.world.tick_index(),
-                pair[0].0,
-                pair[0].3,
-                pair[1].3
-            )));
-        }
+                empty.index
+            ))
+        })?;
+    if let Some(overlap) = overlap {
+        return Err(invalid(format!(
+            "body overlap at tick {} on edge {}: {:?} and {:?}",
+            h.world.tick_index(),
+            bodies[overlap.earlier].space,
+            bodies[overlap.earlier],
+            bodies[overlap.later]
+        )));
     }
     h.observation.bodies = bodies;
     h.observation.merge = merge;
@@ -1616,7 +1642,13 @@ mod tests {
                 let start = data.len();
                 for _ in 0..len {
                     let r = next();
-                    data.push(((r % 3) as u32, r % 5, r % 11, id((r % 4) as u32)));
+                    let lo = r % 5;
+                    data.push(urban_body(
+                        id((r % 4) as u32),
+                        (r % 3) as u32,
+                        lo,
+                        lo + 1 + r % 11,
+                    ));
                 }
                 data[start..].sort_unstable();
                 runs.push(data.len());
@@ -1626,6 +1658,98 @@ mod tests {
             merge_sorted_runs(&mut data, &mut runs, &mut merge);
             assert_eq!(data, expected);
         }
+    }
+
+    #[test]
+    fn urban_body_maps_owner_with_incarnation_and_stable_packing() {
+        // 适配器映射：owner 打包与宿主索引一致（tile*1000+slot），代次透传，
+        // 完整值参与判等。
+        let body = urban_body(
+            IndividualId {
+                tile: 2,
+                slot: 7,
+                incarnation: 3,
+            },
+            11,
+            100,
+            200,
+        );
+        assert_eq!(body.space, 11);
+        assert_eq!(body.back_um, 100);
+        assert_eq!(body.front_um, 200);
+        assert_eq!(body.owner.logical, 2_007);
+        assert_eq!(body.owner.incarnation, 3);
+        // 同槽不同代次是不同 owner；同代次同槽才同 owner。
+        let reborn = urban_body(
+            IndividualId {
+                tile: 2,
+                slot: 7,
+                incarnation: 4,
+            },
+            11,
+            300,
+            400,
+        );
+        assert_ne!(body.owner, reborn.owner);
+    }
+
+    #[test]
+    fn merged_scan_catches_nested_overlap_that_adjacent_pairs_miss() {
+        // 设计 §5.3 的嵌套反例走 Urban 的真实归并路径：A 的车身跨在
+        // 长、短两个片段上（同一物理边、同 owner），B 落在 A 的长片段内。
+        // 旧相邻对比较会跳过同 owner 对而漏检；共享扫描必须报出。
+        let a = IndividualId {
+            tile: 0,
+            slot: 1,
+            incarnation: 0,
+        };
+        let b = IndividualId {
+            tile: 0,
+            slot: 2,
+            incarnation: 0,
+        };
+        let mut data = vec![
+            urban_body(a, 7, 0, 100),
+            urban_body(a, 7, 50, 70),
+            urban_body(b, 7, 80, 90),
+        ];
+        data.sort_unstable();
+        let overlap = laneflow_traffic_verification::body::first_overlap_sorted(&data).unwrap();
+        let overlap = overlap.expect("嵌套遮蔽下的跨 owner 重叠必须报出");
+        assert_eq!(
+            data[overlap.earlier].owner.logical, 1,
+            "报出对的长片段属于 A"
+        );
+        assert_eq!(data[overlap.later].owner.logical, 2);
+    }
+
+    #[test]
+    fn merged_scan_allows_touching_and_flags_single_um_intrusion() {
+        let a = IndividualId {
+            tile: 0,
+            slot: 1,
+            incarnation: 0,
+        };
+        let b = IndividualId {
+            tile: 0,
+            slot: 2,
+            incarnation: 0,
+        };
+        let mut data = vec![urban_body(a, 7, 0, 100), urban_body(b, 7, 100, 200)];
+        data.sort_unstable();
+        assert_eq!(
+            laneflow_traffic_verification::body::first_overlap_sorted(&data).unwrap(),
+            None,
+            "恰好相接合法"
+        );
+        let mut data = vec![urban_body(a, 7, 0, 101), urban_body(b, 7, 100, 200)];
+        data.sort_unstable();
+        assert!(
+            laneflow_traffic_verification::body::first_overlap_sorted(&data)
+                .unwrap()
+                .is_some(),
+            "压入 1 µm 即违反"
+        );
     }
 
     #[test]
