@@ -7,9 +7,9 @@
 //! owner，同 owner 的重复片段自排除，但不能遮蔽它与别的 owner 的重叠。
 //!
 //! 两条执行路径共用同一相交判据：任意片段集合用按 `(space, lo, hi, owner)`
-//! 稳定排序后的线性扫描（每空间保留终点最远的两个不同 owner 候选），受检
-//! 一维走廊内的有序相邻检查也调用同一半开判据；两条路径只在候选枚举和域
-//! 证明上不同，不分别内联另一套重叠判断。
+//! 排序后的线性扫描（每空间保留终点最远的两个不同 owner 候选；已有序集合
+//! 可走不重复排序的入口），受检一维走廊内的有序相邻检查也调用同一半开
+//! 判据；两条路径只在候选枚举和域证明上不同，不分别内联另一套重叠判断。
 
 /// 事实错误：车身区间不得为空（新鲜摆放的 `[0,0]` 退化入口点不属于本性质
 /// 的检查对象，由适配器在采集侧排除）。
@@ -34,23 +34,77 @@ pub struct BodyOwner {
 /// 一个受检车身片段：`space` 内的半开区间 `[back_um, front_um)`。
 ///
 /// `space` 是需互检的物理空间身份（Urban 为物理边原始号；Synth W 为受检
-/// 一维走廊分组），单位为微米。
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+/// 一维走廊分组），单位为微米。owner 以两个标量字段打平存放：嵌套
+/// `BodyOwner` 的对齐会把每条记录从 32 字节撑到 40 字节（+25%），而宿主
+/// 的块缓冲、汇总缓冲与归并缓冲按容量承担该增量；声明序
+/// `back/front/logical/space/incarnation` 保持 32 字节，由
+/// `body_interval_layout_stays_compact` 测试锁定。相等按全字段判等，全序按
+/// [`BodyInterval::sort_key`] 手写（不依赖声明序）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BodyInterval {
-    /// 物理空间身份；不同空间不互检。
-    pub space: u32,
-    /// 区间起点（微米，含）。
-    pub back_um: u64,
-    /// 区间终点（微米，不含）；须大于 `back_um`。
-    pub front_um: u64,
-    /// 片段 owner 的完整身份。
-    pub owner: BodyOwner,
+    back_um: u64,
+    front_um: u64,
+    logical: u64,
+    space: u32,
+    incarnation: u32,
 }
 
 impl BodyInterval {
-    /// 半开区间的中点无关排序键：`(space, back, front, owner)`。
-    fn sort_key(self) -> (u32, u64, u64, BodyOwner) {
-        (self.space, self.back_um, self.front_um, self.owner)
+    /// 由空间、区间与完整 owner 构造受检片段。
+    pub fn new(space: u32, back_um: u64, front_um: u64, owner: BodyOwner) -> Self {
+        Self {
+            back_um,
+            front_um,
+            logical: owner.logical,
+            space,
+            incarnation: owner.incarnation,
+        }
+    }
+
+    /// 物理空间身份；不同空间不互检。
+    pub fn space(&self) -> u32 {
+        self.space
+    }
+
+    /// 区间起点（微米，含）。
+    pub fn back_um(&self) -> u64 {
+        self.back_um
+    }
+
+    /// 区间终点（微米，不含）；须大于 `back_um`。
+    pub fn front_um(&self) -> u64 {
+        self.front_um
+    }
+
+    /// 片段 owner 的完整身份。
+    pub fn owner(&self) -> BodyOwner {
+        BodyOwner {
+            logical: self.logical,
+            incarnation: self.incarnation,
+        }
+    }
+
+    /// 半开区间的中点无关排序键：`(space, back, front, logical, incarnation)`。
+    fn sort_key(&self) -> (u32, u64, u64, u64, u32) {
+        (
+            self.space,
+            self.back_um(),
+            self.front_um(),
+            self.logical,
+            self.incarnation,
+        )
+    }
+}
+
+impl Ord for BodyInterval {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.sort_key().cmp(&other.sort_key())
+    }
+}
+
+impl PartialOrd for BodyInterval {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -65,8 +119,8 @@ pub fn half_open_overlap(a_back: u64, a_front: u64, b_back: u64, b_front: u64) -
 /// 空（或退化）区间不参与：调用方只应提交非空片段。
 pub fn intervals_overlap(a: BodyInterval, b: BodyInterval) -> bool {
     a.space == b.space
-        && a.owner != b.owner
-        && half_open_overlap(a.back_um, a.front_um, b.back_um, b.front_um)
+        && a.owner() != b.owner()
+        && half_open_overlap(a.back_um(), a.front_um(), b.back_um(), b.front_um())
 }
 
 /// 集合扫描发现的首个相交片段对，`earlier` / `later` 是排序后切片中的
@@ -87,7 +141,7 @@ struct Candidate {
 
 impl Candidate {
     fn end(self) -> u64 {
-        self.interval.front_um
+        self.interval.front_um()
     }
 }
 
@@ -111,12 +165,12 @@ pub fn first_overlap(bodies: &mut [BodyInterval]) -> Result<Option<BodyOverlap>,
 ///
 /// 扫描维护每个空间的两个候选——终点最远的片段 `best`，以及 owner 与
 /// `best` 不同者中终点最远的片段 `second`。处理当前片段 `x` 时，owner 与
-/// `x` 不同的最远终点必然是二者之一：若 `best.owner != x.owner` 则为
+/// `x` 不同的最远终点必然是二者之一：若 `best.owner() != x.owner()` 则为
 /// `best`（全局最远），否则为 `second`（其 owner 与 `best` 即 `x` 的 owner
 /// 相异）。选出的候选交给 [`intervals_overlap`] 判定——扫描只负责枚举
 /// 需要比较的片段，规则判定共享同一实现（设计 §5.3）；排序保证候选起点
 /// 不晚于 `x` 起点，且区间均非空，故谓词在此前提下与
-/// `candidate.front_um > x.back_um` 等价（相接合法）。该结构使同 owner
+/// `candidate.front_um() > x.back_um()` 等价（相接合法）。该结构使同 owner
 /// 的较短嵌套片段不会遮蔽更长片段与其他 owner 的重叠。
 ///
 /// 返回切片中的首个相交对；空（`back >= front`）片段属事实错误，立即拒绝。
@@ -135,13 +189,13 @@ pub fn first_overlap_sorted(bodies: &[BodyInterval]) -> Result<Option<BodyOverla
             second = None;
         }
         // 选出 owner 不同的最远终点，交共享判据判定。
-        let candidate = if best.is_some_and(|b| b.interval.owner == interval.owner) {
+        let candidate = if best.is_some_and(|b| b.interval.owner() == interval.owner()) {
             second
         } else {
             best
         };
         if let Some(candidate) = candidate {
-            debug_assert!(candidate.interval.back_um <= interval.back_um);
+            debug_assert!(candidate.interval.back_um() <= interval.back_um());
             if intervals_overlap(candidate.interval, interval) {
                 return Ok(Some(BodyOverlap {
                     earlier: candidate.index,
@@ -150,17 +204,17 @@ pub fn first_overlap_sorted(bodies: &[BodyInterval]) -> Result<Option<BodyOverla
             }
         }
         // 更新两个候选：终点严格更远才替换（并列保留先到者）。
-        if best.is_none_or(|b| interval.front_um > b.end()) {
+        if best.is_none_or(|b| interval.front_um() > b.end()) {
             // 新 best 到来时，旧 best 是与它相异 owner 中的最远者；
             // 若 owner 相同，则旧 second 仍是相异 owner 的最远者。
             second = match best {
-                Some(old) if old.interval.owner != interval.owner => best,
+                Some(old) if old.interval.owner() != interval.owner() => best,
                 _ => second,
             };
             best = Some(Candidate { interval, index });
         } else if let Some(best) = best
-            && interval.owner != best.interval.owner
-            && second.is_none_or(|s| interval.front_um > s.end())
+            && interval.owner() != best.interval.owner()
+            && second.is_none_or(|s| interval.front_um() > s.end())
         {
             second = Some(Candidate { interval, index });
         }
@@ -170,7 +224,7 @@ pub fn first_overlap_sorted(bodies: &[BodyInterval]) -> Result<Option<BodyOverla
 
 fn validate_non_empty(bodies: &[BodyInterval]) -> Result<(), EmptyInterval> {
     for (index, interval) in bodies.iter().enumerate() {
-        if interval.back_um >= interval.front_um {
+        if interval.back_um() >= interval.front_um() {
             return Err(EmptyInterval { index });
         }
     }
@@ -189,12 +243,7 @@ mod tests {
     }
 
     fn interval(space: u32, back: u64, front: u64, owner: BodyOwner) -> BodyInterval {
-        BodyInterval {
-            space,
-            back_um: back,
-            front_um: front,
-            owner,
-        }
+        BodyInterval::new(space, back, front, owner)
     }
 
     /// 独立两两枚举参考：小规模集合的预期答案，不以生产 occupancy 查询
@@ -228,14 +277,17 @@ mod tests {
         ];
         let overlap = first_overlap(&mut bodies).unwrap().expect("必须发现重叠");
         assert_eq!(
-            (bodies[overlap.earlier].owner, bodies[overlap.later].owner),
+            (
+                bodies[overlap.earlier].owner(),
+                bodies[overlap.later].owner()
+            ),
             (a, b),
             "报错对必须是 A 的长片段与 B"
         );
         assert_eq!(
             (
-                bodies[overlap.earlier].back_um,
-                bodies[overlap.later].back_um
+                bodies[overlap.earlier].back_um(),
+                bodies[overlap.later].back_um()
             ),
             (0, 80)
         );
@@ -355,6 +407,38 @@ mod tests {
     }
 
     #[test]
+    fn body_interval_layout_stays_compact() {
+        // 记录宽度按 32 字节锁定：与宿主旧元组 `(u32, u64, u64, IndividualId)`
+        // 相同。嵌套 owner 的对齐布局会把每条记录撑到 40 字节（+25%），由
+        // 块缓冲、汇总缓冲与归并缓冲按容量承担；打平后消除该增量。任何
+        // 令此断言失败的布局变化都须重新登记三组缓冲的驻留成本。
+        assert_eq!(std::mem::size_of::<BodyInterval>(), 32);
+        assert_eq!(std::mem::size_of::<BodyOwner>(), 16);
+        assert_eq!(std::mem::align_of::<BodyInterval>(), 8);
+    }
+
+    #[test]
+    fn constructor_and_accessors_round_trip_owner() {
+        let interval = BodyInterval::new(7, 100, 200, owner(3, 1));
+        assert_eq!(interval.space(), 7);
+        assert_eq!(interval.back_um(), 100);
+        assert_eq!(interval.front_um(), 200);
+        assert_eq!(interval.owner(), owner(3, 1));
+        // 全序不依赖声明序：手写 Ord 经 sort_key，空间优先、owner 最后。
+        let mut v = [
+            BodyInterval::new(2, 0, 10, owner(9, 9)),
+            BodyInterval::new(1, 50, 60, owner(1, 0)),
+            BodyInterval::new(1, 0, 10, owner(9, 0)),
+        ];
+        v.sort_unstable();
+        assert_eq!(
+            v.iter().map(BodyInterval::space).collect::<Vec<_>>(),
+            vec![1, 1, 2]
+        );
+        assert_eq!(v[0].owner(), owner(9, 0));
+    }
+
+    #[test]
     fn sorted_entry_agrees_with_sorting_entry() {
         // 已排序入口复用调用方的排序成果：与排序入口在同一集合上按片段值
         // 结果一致（键并列的片段完全相同，索引不参与比较）。
@@ -428,8 +512,8 @@ mod tests {
             interval(7, 99, 120, b),
         ];
         let overlap = first_overlap(&mut bodies).unwrap().expect("必须发现重叠");
-        assert_eq!(bodies[overlap.earlier].back_um, 0, "并列终点保留先到者");
-        assert_eq!(bodies[overlap.later].owner, b);
+        assert_eq!(bodies[overlap.earlier].back_um(), 0, "并列终点保留先到者");
+        assert_eq!(bodies[overlap.later].owner(), b);
     }
 
     #[test]
