@@ -296,6 +296,13 @@ fn validate_message_with_footer_policy(
         errors.push("标题不符合 Conventional Commits".to_string());
     }
 
+    if title_has_issue_reference(title) {
+        errors.push(
+            "标题不得出现 `#<数字>` 形式的 Issue 引用；任务关联写 `Refs:` / `Closes:` footer，提及其他 Issue 写正文"
+                .to_string(),
+        );
+    }
+
     if has_breaking_bang && !has_breaking_change_footer {
         errors.push("标题包含 `!` 时必须提供 `BREAKING CHANGE: ` footer".to_string());
     }
@@ -361,6 +368,20 @@ fn title_has_breaking_bang(title: &str) -> bool {
     title
         .split_once(": ")
         .is_some_and(|(prefix, _description)| prefix.ends_with('!'))
+}
+
+fn title_has_issue_reference(title: &str) -> bool {
+    let Some((_prefix, description)) = title.split_once(": ") else {
+        return false;
+    };
+
+    let mut chars = description.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '#' && chars.peek().is_some_and(|next| next.is_ascii_digit()) {
+            return true;
+        }
+    }
+    false
 }
 
 fn valid_scope(scope: &str) -> bool {
@@ -910,6 +931,43 @@ Refs: #12
     #[test]
     fn accepts_conventional_title_and_refs_footer() {
         assert!(validate_message("0123456789abcdef", VALID_MESSAGE).is_empty());
+    }
+
+    #[test]
+    fn rejects_issue_reference_in_title() {
+        let message = "\
+feat(runtime): #1272 停止目标速度归约第一批
+
+Refs: #1272
+";
+
+        let errors = validate_message("0123456789abcdef", message);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("标题不得出现"));
+    }
+
+    #[test]
+    fn rejects_parenthesized_issue_reference_in_title() {
+        let message = "\
+feat(synth): F2/F3/F4 评审修复（#1233）
+
+Refs: #1233
+";
+
+        let errors = validate_message("0123456789abcdef", message);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("标题不得出现"));
+    }
+
+    #[test]
+    fn accepts_title_hash_without_digits() {
+        let message = "\
+docs(governance): 井号 # 后无数字的标题不受影响
+
+Refs: #23
+";
+
+        assert!(validate_message("0123456789abcdef", message).is_empty());
     }
 
     #[test]

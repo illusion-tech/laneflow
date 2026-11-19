@@ -94,7 +94,8 @@ feat(runtime): 校验 route segment 连续性
 Refs: #12
 ```
 
-提交标题遵循 Conventional Commits。footer 使用 `Refs: #<id>`；标题带 `!` 时必须有
+提交标题遵循 Conventional Commits，description 不写 `#<数字>` 形式的 Issue 引用，
+关联由 footer 与正文承载。footer 使用 `Refs: #<id>`；标题带 `!` 时必须有
 `BREAKING CHANGE:`。标题中的 scope 可省略；使用时表示主要受影响的组件或职责域，
 具体规则以 `docs/reference/commit-convention.md` 为准。不要再写 `Gate` / `Slice` /
 `Impact` 等 G3 正文字段。
@@ -137,7 +138,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 当前 CI 包含：
 
-- Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
+- Commit message：Conventional Commits 标题（description 不含 `#<数字>` Issue 引用）、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
 - Markdown tables：表格格式检查只警告，不阻断合并。
 - 文档结构：`cargo +1.99.1 run --locked -p xtask -- check-docs` 离线检查默认范围内的本地路径、标题锚点与关键索引入口。它目前不是合并门禁，也不判断文档语义。规则见 `docs/reference/documentation-checks.md`。
 - Rust checks：job 始终运行以保持 required check 稳定；检查内容由 `docs/governance/github-workflow.md` §8 规范定义（`fmt`、`clippy`、workspace 测试与 doctest）。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
