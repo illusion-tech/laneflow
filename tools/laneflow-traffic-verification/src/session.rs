@@ -799,12 +799,13 @@ impl Session {
                 .expect("长度差必有多余项");
             return Err(RestoreRejected::UnknownWitness(extra.clone()));
         }
-        // 历史完整性：执行集合与触发计数互相一致（计数只会随登记递增，
-        // 零计数不得带历史；两侧规则集必须相同），历史条目的阶段与已
-        // 绑规则一致，且必需 EveryRound 规则满足已完成进度可推导的
-        // 最低触发次数（初态参与与失败尝试会额外增加累计次数，故用
-        // 下界而非相等；OnEvent 合法零触发不设下界；预期失败尝试次数
-        // 不在材料中，PostExpectedFailure 只做一致性核对）。
+        // 历史完整性分两层：材料自洽——执行集合与触发计数互相一致
+        // （计数只会随登记递增，零计数不得带历史；两侧规则集必须相同）、
+        // 历史条目阶段与已绑定规则一致、开放标记中的规则必须有对应
+        // 历史（见下方标记对账，与覆盖模式无关）；规约完整——必需
+        // EveryRound 规则满足已完成进度与当前状态可推导的最低触发
+        // 次数（初态参与与失败尝试会额外增加累计次数，故用下界而非
+        // 相等；OnEvent 无标记且无历史时合法零触发）。
         let executed_names: BTreeSet<&str> = checkpoint
             .executed_checks
             .iter()
@@ -917,6 +918,18 @@ impl Session {
             let rule = &plan.installed_rules[name_index(name)?];
             if rule.phase != CheckPhase::PreTick {
                 return Err(RestoreRejected::ObligationStateInconsistent);
+            }
+        }
+        // 材料自洽（与覆盖模式无关）：当前义务的完成标记与累计历史来自
+        // 同一次登记——凡保存在开放标记中的规则（含 OnEvent），必须
+        // 存在对应的正计数与执行历史；零触发合法仅指没有完成标记。
+        for name in checkpoint
+            .open_initial
+            .iter()
+            .chain(&checkpoint.open_pre_tick)
+        {
+            if !checkpoint.trigger_counts.contains_key(name.as_str()) {
+                return Err(RestoreRejected::HistoryCountMismatch(name.clone()));
             }
         }
         // 开放义务可达性不变量。
@@ -1081,9 +1094,11 @@ pub struct SessionCheckpoint {
     open_failure: BTreeSet<String>,
 }
 
-/// 由已完成进度推导某每轮义务规则的最低触发次数：初态轮（如已关闭）
-/// 一次、每个已完成成功步进一次、当前已核销的拍前轮一次、每条已消费
-/// 命令结果一次。预期失败尝试次数不在材料中，该阶段不推导下界。
+/// 由已完成进度与当前状态推导某每轮义务规则的最低触发次数：初态轮
+/// （如已关闭或已有当前标记）一次、每个已完成成功步进一次、当前已
+/// 核销或已登记的拍前轮一次、每条已消费命令结果一次、已接受预期
+/// 失败的重试边界给失败检查一次。失败尝试的完整总次数不在材料中，
+/// 只推导此条下界，不核对全部尝试次数。
 fn minimum_triggers(
     rule: &RuleDescriptor,
     successful_steps: u64,
@@ -1147,6 +1162,13 @@ mod tests {
         domains: &[DOMAIN],
         phase: CheckPhase::CommandResults,
         coverage: CoverageMode::EveryRound,
+        initial: false,
+    };
+    const RULE_PRE_ON_EVENT: RuleDescriptor = RuleDescriptor {
+        id: RuleId("pre-tick-event"),
+        domains: &[DOMAIN],
+        phase: CheckPhase::PreTick,
+        coverage: CoverageMode::OnEvent,
         initial: false,
     };
     const RULE_ATOMICITY: RuleDescriptor = RuleDescriptor {
@@ -2506,5 +2528,76 @@ mod tests {
                 .contains_key(RULE_ATOMICITY.id.0)
         );
         assert!(Session::restore(&clean_checkpoint, retry_spec, retry_provided, input).is_ok());
+    }
+    #[test]
+    fn restore_reconciles_open_marks_with_history_across_coverage_modes() {
+        let input = "lfca-sha256:fixed-input";
+        // 材料自洽与覆盖模式无关：OnEvent 规则已保存在开放标记中，
+        // 却删除其累计历史——标记本身证明至少登记过一次，恢复拒绝。
+        const RULES_ON_EVENT_PRE: &[RuleDescriptor] =
+            &[RULE_MOTION, RULE_BODY, RULE_SIGNAL, RULE_PRE_ON_EVENT];
+        let spec_on_event = VerificationSpec {
+            required_rules: RULES_ON_EVENT_PRE,
+            ..spec(1, false)
+        };
+        let provided_on_event = ProvidedModules {
+            rules: RULES_ON_EVENT_PRE,
+            ..PROVIDED
+        };
+        let mut session = Session::start(spec_on_event, provided_on_event).unwrap();
+        session.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut session);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(0).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.note_check(RULE_PRE_ON_EVENT.id).unwrap();
+        let checkpoint = session.checkpoint(input).unwrap();
+        assert!(checkpoint.open_pre_tick.contains(RULE_PRE_ON_EVENT.id.0));
+        // 只删除该事件规则的累计历史：标记与历史来自同一次登记，
+        // 缺失即内部矛盾。
+        let mut stripped = checkpoint.clone();
+        stripped
+            .executed_checks
+            .retain(|(_, name)| name != RULE_PRE_ON_EVENT.id.0);
+        stripped.trigger_counts.remove(RULE_PRE_ON_EVENT.id.0);
+        assert_eq!(
+            Session::restore(&stripped, spec_on_event, provided_on_event, input).unwrap_err(),
+            RestoreRejected::HistoryCountMismatch(RULE_PRE_ON_EVENT.id.0.to_owned())
+        );
+        // 对照一：合法已触发材料恢复后回执与连续执行等值（计数 1）。
+        let mut resumed =
+            Session::restore(&checkpoint, spec_on_event, provided_on_event, input).unwrap();
+        resumed.begin_step().unwrap();
+        note_round_rules(&mut resumed);
+        resumed.note_successful_step(1).unwrap();
+        let receipt = resumed.finish().unwrap();
+        assert_eq!(
+            receipt
+                .trigger_counts()
+                .get(&RULE_PRE_ON_EVENT.id)
+                .copied()
+                .unwrap_or(0),
+            1
+        );
+        // 对照二：合法零触发（无标记、无历史）仍可恢复。
+        let mut clean = Session::start(spec_on_event, provided_on_event).unwrap();
+        clean.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut clean);
+        clean
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        clean.declare_commands(0).unwrap();
+        clean.advance_to_pre_tick().unwrap();
+        let clean_checkpoint = clean.checkpoint(input).unwrap();
+        assert!(
+            !clean_checkpoint
+                .trigger_counts
+                .contains_key(RULE_PRE_ON_EVENT.id.0)
+        );
+        assert!(
+            Session::restore(&clean_checkpoint, spec_on_event, provided_on_event, input).is_ok()
+        );
     }
 }
