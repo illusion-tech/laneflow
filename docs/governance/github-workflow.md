@@ -363,6 +363,12 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   merge_group 由 `Detect codegen path changes` job 按累计 diff 判定同口径路径，
   纯文档合并组不拉起 Windows runner 与 crosslang 构建；检测失败时失败关闭——
   照常全跑（#1363）。非必查。
+- `Shadow plan`：受影响验证计划器的影子运行（#1464 影子批次）：在 PR 与
+  merge_group 上按完整差异计算「若按计划机制本次会跑什么」（种子 / 受影响
+  包、任务执行范围、逐文件归类与回退原因），写入 Actions summary（JSON 折叠
+  展示）。不改变任何 required check 的执行语义；计划器失败不阻断合并，只在
+  summary 显性记录。影子对照数据留在 Actions（run 日志与 summary），不入仓。
+  非必查。
 
 除 `Evidence`（无 `pull_request` 触发）外，各 workflow 均设 `concurrency` 分组：
 `pull_request` 事件按「workflow 名 + PR 号」分组，推送新 head 即取消同 PR 未完成的

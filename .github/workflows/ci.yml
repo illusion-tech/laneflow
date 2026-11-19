@@ -161,6 +161,96 @@ jobs:
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
 
+  # #1464 影子批次：受影响验证计划器在真实 CI 上运行并输出「若按计划机制
+  # 本次会跑什么」，不改变任何门禁行为——required check 的执行语义与未接线
+  # 前完全一致。非必查 job；计划器失败不阻断合并，但必须在 summary 显性记
+  # 录（可见不设卡）。对照数据经 Actions summary 与 run 日志留存，不入仓
+  # （设计合同 §5/§6 影子阶段；结束条件=九类案例覆盖+漏选反例零发现后裁决
+  # PR 切换）。
+  shadow-plan:
+    name: Shadow plan
+    runs-on: ubuntu-latest
+    # PR 与 merge_group 的差异才有对照意义；main push 与 merge_group 验证
+    # 同一棵树，跳过。
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # PR 事件默认检出合并快照（refs/pull/N/merge）；merge_group 检出组头。
+          fetch-depth: 1
+
+      - name: Fetch diff base
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.merge_group.base_sha }}"
+          fi
+          # 完整差异语义（合同 §5）：合并快照对该 base 提交对象的差异，
+          # 新增/删除/重命名两侧都进归类。
+          git fetch --no-tags origin "$base"
+          echo "SHADOW_BASE=$base" >> "$GITHUB_ENV"
+
+      - name: Install Rust MSRV toolchain
+        shell: bash
+        run: rustup toolchain install 1.99.1 --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: laneflow-msrv-1.99.1-shadow-plan
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
+      - name: Run shadow plan
+        shell: bash
+        run: |
+          set -uo pipefail
+          summary="$GITHUB_STEP_SUMMARY"
+          range="${SHADOW_BASE}..HEAD"
+          echo "## 影子验证计划（#1464，不改变门禁行为）" >> "$summary"
+          stderr_file="$RUNNER_TEMP/shadow-plan-stderr.txt"
+          json_file="$RUNNER_TEMP/shadow-plan.json"
+          summary_file="$RUNNER_TEMP/shadow-plan-summary.txt"
+          # 影子失败语义：不阻断合并（阻断是切换后的 fail-closed），但显性
+          # 记录并退出 0。
+          set +e
+          cargo +1.99.1 run --quiet --locked -p xtask -- ci-plan \
+            --rev-range "$range" --format json \
+            > "$json_file" 2> "$stderr_file"
+          plan_status=$?
+          set -e
+          if [[ "$plan_status" -ne 0 ]]; then
+            {
+              echo "⚠️ 影子计划失败（exit $plan_status）：本次按现行门禁全量执行，"
+              echo "计划器修复并积累影子数据前不推进切换。"
+              echo '```text'
+              cat "$stderr_file"
+              echo '```'
+            } >> "$summary"
+            exit 0
+          fi
+          cargo +1.99.1 run --quiet --locked -p xtask -- ci-plan \
+            --rev-range "$range" --format summary \
+            > "$summary_file" 2>> "$stderr_file"
+          {
+            echo '```text'
+            cat "$summary_file"
+            echo '```'
+            echo "<details><summary>计划 JSON</summary>"
+            echo ""
+            echo '```json'
+            cat "$json_file"
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$summary"
+
   rust:
     name: Rust checks
     runs-on: ubuntu-latest
