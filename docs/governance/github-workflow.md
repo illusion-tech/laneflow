@@ -304,9 +304,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 当前检查：
 
-- `Commit message`：Conventional Commits 标题、`Refs` / `Closes`、必要时
-  `BREAKING CHANGE:`，以及 AI 署名（禁止工具 `Co-authored-by`，`Harness:` /
-  `Model:` 成对出现）。规则见 `../reference/commit-convention.md`。
+- `Commit message`：Conventional Commits 标题（description 不含 `#<数字>` Issue
+  引用）、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`，以及 AI 署名（禁止工具
+  `Co-authored-by`，`Harness:` / `Model:` 成对出现）。规则见
+  `../reference/commit-convention.md`。
 - `Markdown tables`：表格格式，只警告。
 - `Rust checks`：`cargo fmt` 与
   `cargo clippy --workspace --all-targets --locked -D warnings`；

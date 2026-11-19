@@ -3,7 +3,7 @@ schema_version = 1
 id = "reference-commit-convention"
 kind = "reference"
 status = "active"
-revised_date = "2026-10-28"
+revised_date = "2026-11-19"
 summary = "规定提交标题、关联议题和工具归属格式。"
 scope = "LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查"
 +++
@@ -75,6 +75,11 @@ scope 出现时必须是小写短标识：首字符为小写字母或数字，�
 Traffic Runtime；对应范围使用 `runtime`。历史提交保持原样，不追溯改写。
 
 标题应简短描述结果，而不是过程。
+
+标题 description 不写 `#<数字>` 形式的 Issue 引用。任务关联一律由 `Refs:` /
+`Closes:` footer 承载（第 5 节）；需要提及其他 Issue 时写提交正文，GitHub 会自动
+生成链接。推荐 `feat(runtime): 停止目标速度归约第一批`，不推荐
+`feat(runtime): #1272 停止目标速度归约第一批`。历史提交保持原样，不追溯改写。
 
 推荐：
 
@@ -300,6 +305,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 `Commit message` job 检查：
 
 - 标题符合 Conventional Commits。
+- 标题 description 不含 `#<数字>` 形式的 Issue 引用；关联只出现在 `Refs` /
+  `Closes` footer 与正文。
 - scope 省略或符合小写短标识语法；不检查封闭枚举。
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
