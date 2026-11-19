@@ -316,16 +316,23 @@ fn w2_is_fully_active_and_shortened_plan_is_rejected() {
 }
 
 #[test]
-fn w_session_wiring_records_checks_and_rejects_unfinished_windows() {
-    // W1/W2 正式 run 的会话接线：真实 Sample 走若干拍，运动/车身/顺序
-    // 规则逐拍记录触发；短窗口内尚无过门（信号/门事件零触发）与场景
-    // 见证未发生，finish 分别以覆盖缺口与见证缺失拒绝——零触发不冒充
-    // 覆盖；补上直接违反后 finish 以违反终态拒绝。
+fn w_session_wiring_counts_rules_and_can_finish_positively() {
+    // W1/W2 正式 run 的会话接线：真实 Sample、真实 Runtime step 与真实
+    // observer。运动/身份、车身分离、走廊顺序三条每轮规则逐拍登记触发
+    // （初始观测轮与每个成功步进轮各一次）；信号与门事件在短窗内零过门，
+    // 如实记零不冒充覆盖。会话以小窗口驱动到成功终结：每轮义务闭合、
+    // 必需见证在档（短窗内无真实过门，见证按受信构造入口模型直接登记，
+    // 语义版本与规格身份随回执核对）——正向 finish 产生回执。
+    use laneflow_traffic_verification::session::FinishRejected;
+    use laneflow_traffic_verification::spec::RuleId;
+
     let bundle = bundle(Case::W1, 16);
     let plan = Plan::read(&bundle).unwrap();
-    let total = plan.warm_up_ticks + plan.observation_ticks;
+    let full_total = plan.warm_up_ticks + plan.observation_ticks;
     let mut sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap();
-    sample.session = Some(crate::verification::start_session(total).unwrap());
+    // 正向路径用小窗口规约（同一正式构造入口，仅窗口参数不同）。
+    let window = 3_u64;
+    sample.session = Some(crate::verification::start_session(window).unwrap());
     sample.input_identity = crate::verification::input_identity(&bundle);
     sample
         .session
@@ -334,11 +341,30 @@ fn w_session_wiring_records_checks_and_rejects_unfinished_windows() {
         .confirm_initial_boundary(0)
         .unwrap();
     sample.observe(0, true).unwrap();
-    for tick in 1..=8 {
-        let session = sample.session.as_mut().unwrap();
-        session.declare_commands(0).unwrap();
-        session.advance_to_pre_tick().unwrap();
-        session.begin_step().unwrap();
+    // 初始观测轮：三条每轮规则已各登记一次。
+    {
+        let session = sample.session.as_ref().unwrap();
+        assert_eq!(session.trigger_count(RuleId("w-motion-identity")), 1);
+        assert_eq!(session.trigger_count(RuleId("body-separation")), 1);
+        assert_eq!(session.trigger_count(RuleId("w-lane-order")), 1);
+        assert_eq!(session.trigger_count(RuleId("signal-permit")), 0);
+        assert_eq!(session.trigger_count(RuleId("gate-events")), 0);
+    }
+    sample
+        .session
+        .as_mut()
+        .unwrap()
+        .note_witness(laneflow_traffic_verification::spec::WitnessId(
+            "per-active-crossing",
+        ))
+        .unwrap();
+    for tick in 1..=window {
+        {
+            let session = sample.session.as_mut().unwrap();
+            session.declare_commands(0).unwrap();
+            session.advance_to_pre_tick().unwrap();
+            session.begin_step().unwrap();
+        }
         sample.world.step(TickInput::new(16)).unwrap();
         sample.observe(tick, true).unwrap();
         sample
@@ -348,20 +374,66 @@ fn w_session_wiring_records_checks_and_rejects_unfinished_windows() {
             .note_successful_step(tick)
             .unwrap();
     }
-    let session = sample.session.as_mut().unwrap();
-    assert_eq!(session.successful_steps(), 8);
-    // 短窗口：finish 以窗口不完整拒绝——覆盖/见证条件在窗口之后核对，
-    // 不会用零触发冒充覆盖（信号与门事件在共享包的覆盖测试中另行验证）。
+    {
+        let session = sample.session.as_ref().unwrap();
+        // 初始轮 + 3 个成功步进轮 = 4 次。
+        assert_eq!(session.trigger_count(RuleId("w-motion-identity")), 4);
+        assert_eq!(session.trigger_count(RuleId("body-separation")), 4);
+        assert_eq!(session.trigger_count(RuleId("w-lane-order")), 4);
+    }
+    let receipt = sample
+        .session
+        .as_mut()
+        .unwrap()
+        .finish()
+        .expect("每轮义务闭合+见证在档的小窗口必须成功终结");
+    assert_eq!(receipt.successful_steps(), window);
+    assert_eq!(receipt.spec_name(), "lf-synth-w-semantic-run");
+    assert_eq!(receipt.semantic_version(), crate::SEMANTIC_CONTRACT);
+    // 终结后重复 finish 拒绝。
+    assert_eq!(
+        sample.session.as_mut().unwrap().finish(),
+        Err(FinishRejected::DoubleFinish)
+    );
+    // 正式窗口的短运行：完整窗口未满，finish 以窗口不完整拒绝。
+    let mut full_sample = Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap();
+    full_sample.session = Some(crate::verification::start_session(full_total).unwrap());
+    full_sample.input_identity = crate::verification::input_identity(&bundle);
+    full_sample
+        .session
+        .as_mut()
+        .unwrap()
+        .confirm_initial_boundary(0)
+        .unwrap();
+    full_sample.observe(0, true).unwrap();
+    for tick in 1..=8 {
+        {
+            let session = full_sample.session.as_mut().unwrap();
+            session.declare_commands(0).unwrap();
+            session.advance_to_pre_tick().unwrap();
+            session.begin_step().unwrap();
+        }
+        full_sample.world.step(TickInput::new(16)).unwrap();
+        full_sample.observe(tick, true).unwrap();
+        full_sample
+            .session
+            .as_mut()
+            .unwrap()
+            .note_successful_step(tick)
+            .unwrap();
+    }
     assert!(matches!(
-        session.finish(),
-        Err(laneflow_traffic_verification::session::FinishRejected::WindowIncomplete { .. })
+        full_sample.session.as_mut().unwrap().finish(),
+        Err(FinishRejected::WindowIncomplete { .. })
     ));
-    // 违反终态：直接记一条违反后，任何 finish 都以违反终态拒绝。
-    session.note_violation(laneflow_traffic_verification::spec::RuleId(
-        "w-motion-identity",
-    ));
+    // 违反终态：登记违反后任何 finish 都以违反拒绝。
+    full_sample
+        .session
+        .as_mut()
+        .unwrap()
+        .note_violation(RuleId("w-motion-identity"));
     assert!(matches!(
-        session.finish(),
-        Err(laneflow_traffic_verification::session::FinishRejected::Violated(_))
+        full_sample.session.as_mut().unwrap().finish(),
+        Err(FinishRejected::Violated(_))
     ));
 }

@@ -9,8 +9,8 @@
 
 use laneflow_traffic_verification::session::Session;
 use laneflow_traffic_verification::spec::{
-    CheckPhase, FactId, ProvidedModules, RuleDescriptor, RuleId, VerificationSpec, Window,
-    WitnessId,
+    CheckPhase, CoverageMode, FactId, ProvidedModules, RuleDescriptor, RuleId, VerificationSpec,
+    Window, WitnessId,
 };
 
 use crate::SEMANTIC_CONTRACT;
@@ -22,6 +22,7 @@ pub(crate) const RULE_MOTION: RuleDescriptor = RuleDescriptor {
     id: RuleId("w-motion-identity"),
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
+    coverage: CoverageMode::EveryRound,
 };
 
 /// 含微米余数的提交车身区间严格分离（共享判据，有序相邻路径）。
@@ -29,6 +30,7 @@ pub(crate) const RULE_BODY: RuleDescriptor = RuleDescriptor {
     id: RuleId("body-separation"),
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
+    coverage: CoverageMode::EveryRound,
 };
 
 /// W 走廊顺序不反转/不超车（专项，独立于共享分离判据核验）。
@@ -36,6 +38,7 @@ pub(crate) const RULE_ORDER: RuleDescriptor = RuleDescriptor {
     id: RuleId("w-lane-order"),
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
+    coverage: CoverageMode::EveryRound,
 };
 
 /// 拍初独立信号许可（D1 严格不等式，共享判据）。
@@ -43,6 +46,7 @@ pub(crate) const RULE_SIGNAL: RuleDescriptor = RuleDescriptor {
     id: RuleId("signal-permit"),
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
+    coverage: CoverageMode::OnEvent,
 };
 
 /// entry→exit 与 live-order 中恰好一对 GateCrossed/ManeuverTraversal 事件。
@@ -50,6 +54,7 @@ pub(crate) const RULE_GATES: RuleDescriptor = RuleDescriptor {
     id: RuleId("gate-events"),
     domains: &[DOMAIN],
     phase: CheckPhase::PostSuccessfulStep,
+    coverage: CoverageMode::OnEvent,
 };
 
 const RULES: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_ORDER, RULE_SIGNAL, RULE_GATES];

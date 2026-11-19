@@ -139,16 +139,21 @@ struct Checkpoint {
 }
 
 fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Checkpoint, Error> {
-    // 会话检查点只在已确立边界创建（运行循环此刻处于边界，不等待步进结果）。
-    let verification = match sample.session.as_ref() {
-        Some(session) => {
-            let material = session
-                .checkpoint(&sample.input_identity)
-                .map_err(|e| failure("验证会话检查点", e))?;
-            Some(serde_json::to_value(material).map_err(|e| failure("验证检查点编码", e))?)
+    // 会话检查点只在已确立边界创建（运行循环此刻处于边界，不等待步进结果）；
+    // 两个互斥分支各取一次所有权，不做深拷贝。
+    fn verification_material(sample: &install::Sample) -> Result<Option<Value>, Error> {
+        match sample.session.as_ref() {
+            Some(session) => {
+                let material = session
+                    .checkpoint(&sample.input_identity)
+                    .map_err(|e| failure("验证会话检查点", e))?;
+                serde_json::to_value(material)
+                    .map(Some)
+                    .map_err(|e| failure("验证检查点编码", e))
+            }
+            None => Ok(None),
         }
-        None => None,
-    };
+    }
     let tick = sample.world.tick_index();
     let time_ms = sample.world.time_ms();
     let public_trace_digest = digest.clone().finalize().to_hex().to_string();
@@ -172,7 +177,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 persistence_refused: None,
                 t_state: None,
                 public_state_digest: public_state_digest(&sample.world)?,
-                verification: verification.clone(),
+                verification: verification_material(sample)?,
             })
         }
         Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
@@ -201,7 +206,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 persistence_refused: Some(variant),
                 t_state: Some(lane_change_t_state(sample)),
                 public_state_digest: public_state_digest(&sample.world)?,
-                verification: verification.clone(),
+                verification: verification_material(sample)?,
             })
         }
         Err(other) => Err(failure("snapshot", other)),
@@ -501,23 +506,23 @@ fn run_inner(
                 .finish()
                 .map_err(|e| crate::Error::Invalid(format!("验证会话终结被拒：{e:?}")))?;
             let mut triggers = serde_json::Map::new();
-            for (rule, count) in &receipt.trigger_counts {
+            for (rule, count) in receipt.trigger_counts() {
                 triggers.insert(rule.0.to_string(), json!(count));
             }
             let mut witnesses = serde_json::Map::new();
-            for (witness, count) in &receipt.witnesses {
+            for (witness, count) in receipt.witnesses() {
                 witnesses.insert(witness.0.to_string(), json!(count));
             }
             Some(json!({
-                "spec": receipt.spec_name,
-                "domain": receipt.domain,
-                "semantic_version": receipt.semantic_version,
-                "successful_steps": receipt.successful_steps,
-                "last_tick": receipt.last_tick,
+                "spec": receipt.spec_name(),
+                "domain": receipt.domain(),
+                "semantic_version": receipt.semantic_version(),
+                "successful_steps": receipt.successful_steps(),
+                "last_tick": receipt.last_tick(),
                 "trigger_counts": triggers,
                 "witnesses": witnesses,
-                "blocked_attempts": receipt.blocked_attempts,
-                "failed_attempts": receipt.failed_attempts,
+                "blocked_attempts": receipt.blocked_attempts(),
+                "failed_attempts": receipt.failed_attempts(),
             }))
         }
         None => None,
