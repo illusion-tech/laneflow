@@ -1,3 +1,4 @@
+mod ci_plan;
 mod commit_harnesses;
 mod commit_messages;
 mod commit_models;
@@ -24,6 +25,7 @@ fn main() -> ExitCode {
 
 fn run(args: Vec<String>) -> Result<(), String> {
     match args.first().map(String::as_str) {
+        Some("ci-plan") => ci_plan::run(&args[1..]),
         Some("check-commit-messages") => commit_messages::check_commit_messages(args.get(1).map(String::as_str)),
         Some("check-commit-message-file") => {
             let path = args.get(1).ok_or(
@@ -47,7 +49,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("classify-digest-probe") => digest_probe::run(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-docs, generate-doc-indexes, generate-glossary, export-docs, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
+            "缺少 xtask 命令。可用命令: ci-plan, check-commit-messages, check-commit-message-file, check-docs, generate-doc-indexes, generate-glossary, export-docs, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
                 .to_string(),
         ),
     }

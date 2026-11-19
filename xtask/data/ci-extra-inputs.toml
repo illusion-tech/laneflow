@@ -1,0 +1,184 @@
+# CI 受影响验证计划的额外输入注册表（#1464，设计合同 §3.2）。
+#
+# 三个职责：
+# - triggers.full：命中即扩大到完整适用套件的路径模式（全局构建配置、工具链、
+#   workflow、计划器自身等；workspace 成员的 Cargo.toml 由算法规则内置，不在此列）。
+# - triggers.not_applicable：有明确依据不适用重活检查的路径模式（治理文档、
+#   编辑器配置、由其他 workflow 承载的 schema 与 fuzz 等）。白名单制：未落入
+#   任何规则的路径走「未知」态扩大为全量，不静默跳过。
+# - embed：跨包编译期嵌入图（被嵌入文件 → 嵌入方包名全集；同包嵌入不需要
+#   条目，嵌入文件所属包经所有者规则自动成为种子）。由 ci-plan 模块的一致性
+#   测试对全仓 include_str! / include_bytes! 清点对账，新增跨包嵌入时测试抓
+#   红、在此补条目；清单由 `xtask ci-plan --dump-embed-map` 再生成。
+#
+# 已知非字面量实参（无法静态解析，人工核对项）：laneflow-lust-converter 的
+# pipeline.rs 以 concat!(env!("CARGO_MANIFEST_DIR"), …) 嵌入根 Cargo.lock——
+# 该路径已是全量触发器，归类正确性不受影响。
+#
+# 本文件自身是计划器输入：任何变更即全量（triggers.full 中的显式条目）。
+
+schema_version = 1
+
+[triggers]
+full = [
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo/**",
+    "rust-toolchain*",
+    "deny.toml",
+    ".config/nextest.toml",
+    ".github/workflows/**",
+    ".github/actions/**",
+    "xtask/**/*.rs",
+    "xtask/Cargo.toml",
+    "xtask/data/ci-extra-inputs.toml",
+]
+not_applicable = [
+    "docs/**",
+    "README.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "LICENSE",
+    ".agents/**",
+    ".cursor/**",
+    ".codex/**",
+    ".vscode/**",
+    ".github/**",
+    ".editorconfig",
+    ".gitattributes",
+    ".gitignore",
+    ".githooks/**",
+    "assets/**",
+    "mcpls.toml",
+    "schemas/**",
+    "fuzz/**",
+    "xtask/data/**",
+]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+consumers = ["laneflow-compiler", "laneflow-format", "laneflow-runtime", "laneflow-spatial", "laneflow-static-network"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsd"
+consumers = ["laneflow-compiler", "laneflow-format"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsm"
+consumers = ["laneflow-compiler", "laneflow-format"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-variants/claim-mismatch.lfca"
+consumers = ["laneflow-compiler", "laneflow-format"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
+consumers = ["laneflow-compiler", "laneflow-format", "laneflow-runtime", "laneflow-static-network"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime", "laneflow-static-network"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime", "laneflow-static-network"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-variants/reorder-equivalent.lfca"
+consumers = ["laneflow-compiler", "laneflow-static-network"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-world-policies/expected.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfca"
+consumers = ["laneflow-bevy", "laneflow-compiler", "laneflow-runtime", "laneflow-scenario", "laneflow-static-network"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfsd"
+consumers = ["laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-world-policies/full-spatial.lfsm"
+consumers = ["laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-world-policies/overflow.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/base.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/expected.lfsd"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-expected.lfsd"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-base.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-target.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-compiler/tests/fixtures/portable/lfsd-migration/target.lfca"
+consumers = ["laneflow-compiler", "laneflow-runtime"]
+
+[[embed]]
+path = "crates/laneflow-motion-kernel/Cargo.toml"
+consumers = ["xtask"]
+
+[[embed]]
+path = "examples/config/cn-urban.toml"
+consumers = ["laneflow-urban-generator", "laneflow-urban-harness"]
+
+[[embed]]
+path = "examples/config/v0.1-complex-junction.toml"
+consumers = ["laneflow-bevy", "laneflow-junction-generator"]
+
+[[embed]]
+path = "examples/config/v0.10-signalized-corridor.toml"
+consumers = ["laneflow-bevy", "laneflow-corridor-generator", "laneflow-runtime"]
+
+[[embed]]
+path = "examples/data/v0.1-complex-junction.catalog.toml"
+consumers = ["laneflow-bevy", "laneflow-junction-generator"]
+
+[[embed]]
+path = "examples/data/v0.1-complex-junction.lfca"
+consumers = ["laneflow-bevy"]
+
+[[embed]]
+path = "examples/data/v0.2-signalized-corridor.catalog.toml"
+consumers = ["laneflow-bevy", "laneflow-corridor-generator", "laneflow-runtime", "laneflow-scenario"]
+
+[[embed]]
+path = "examples/data/v0.2-signalized-corridor.lfca"
+consumers = ["laneflow-bevy", "laneflow-runtime", "laneflow-scenario"]
+
+[[embed]]
+path = "tools/laneflow-os-probe/Cargo.toml"
+consumers = ["xtask"]
+
+[[embed]]
+path = "tools/laneflow-os-probe/src/lib.rs"
+consumers = ["xtask"]
+
+[[embed]]
+path = "tools/laneflow-os-probe/src/windows.rs"
+consumers = ["xtask"]
