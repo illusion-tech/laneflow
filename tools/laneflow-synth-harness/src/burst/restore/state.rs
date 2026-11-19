@@ -428,6 +428,8 @@ pub(super) fn restore(
     }
     let sample = Sample {
         cursor: world.command_cursor(),
+        session: None,
+        input_identity: String::new(),
         world,
         state,
         handles,

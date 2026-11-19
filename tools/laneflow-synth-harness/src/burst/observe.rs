@@ -277,7 +277,9 @@ impl Burst {
                     position(state),
                     self.incarnations[rank],
                 )?)
-                .map_err(|e| Error::Invalid(format!("{e} tick={tick} rank={rank}")))?;
+                .map_err(|violation| {
+                    Error::Invalid(format!("{violation:?} tick={tick} rank={rank}"))
+                })?;
         }
         let events = self.sample.world.latest_transition_events();
         let mut event_index = 0;
