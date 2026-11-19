@@ -13,3 +13,7 @@ workspace = true
 
 [dependencies]
 laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { version = "1.0", features = ["float_roundtrip"] }

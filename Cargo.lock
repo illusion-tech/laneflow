@@ -3375,6 +3375,8 @@ name = "laneflow-traffic-verification"
 version = "0.0.0"
 dependencies = [
  "laneflow-static-contract",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
