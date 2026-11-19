@@ -3414,6 +3414,7 @@ dependencies = [
  "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
+ "laneflow-traffic-verification",
  "laneflow-urban-generator",
  "rayon-core",
  "serde",
