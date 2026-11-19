@@ -3,7 +3,7 @@ schema_version = 1
 id = "reference-commit-convention"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-19"
+revised_date = "2026-11-20"
 summary = "规定提交标题、关联议题和工具归属格式。"
 scope = "LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查"
 +++
@@ -80,6 +80,10 @@ Traffic Runtime；对应范围使用 `runtime`。历史提交保持原样，不�
 `Closes:` footer 承载（第 5 节）；需要提及其他 Issue 时写提交正文，GitHub 会自动
 生成链接。推荐 `feat(runtime): 停止目标速度归约第一批`，不推荐
 `feat(runtime): #1272 停止目标速度归约第一批`。历史提交保持原样，不追溯改写。
+
+标题 description 是单段结果陈述：不超过 40 个字符（按 Unicode 字符计），不用
+破折号 `—` 做「主题——详述」分段。细节枚举、原因与范围写提交正文；40 个字符
+装不下的内容说明属于正文。历史提交保持原样，不追溯改写。
 
 推荐：
 
@@ -307,6 +311,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - 标题符合 Conventional Commits。
 - 标题 description 不含 `#<数字>` 形式的 Issue 引用；关联只出现在 `Refs` /
   `Closes` footer 与正文。
+- 标题 description 不超过 40 个字符，且不含破折号 `—`。
 - scope 省略或符合小写短标识语法；不检查封闭枚举。
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
@@ -320,7 +325,10 @@ Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下�
 - Git author email 精确为 `49699333+dependabot[bot]@users.noreply.github.com`。
 - 标题为非 breaking 的 `build(deps): <description>`。
 
-该例外只豁免单个 bot commit 缺少的 `Refs:` / `Closes:` footer。footer 格式错误，或它不是最后一个非空行，仍然拒绝。例外也不豁免 AI 署名、标题、`BREAKING CHANGE:`、PR 审阅、cargo-deny 或 CodeQL。
+该例外只豁免单个 bot commit 缺少的 `Refs:` / `Closes:` footer，以及标题 description
+的 40 字符长度上限（Dependabot 的 bump 标题天然超长，内容不由本仓库控制）。footer
+格式错误，或它不是最后一个非空行，仍然拒绝。例外也不豁免 AI 署名、Conventional
+标题格式、破折号分段、`BREAKING CHANGE:`、PR 审阅、cargo-deny 或 CodeQL。
 本地 `commit-msg` hook 不应用 Dependabot 例外。
 
 本地可运行：

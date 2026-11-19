@@ -305,9 +305,9 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 当前检查：
 
 - `Commit message`：Conventional Commits 标题（description 不含 `#<数字>` Issue
-  引用）、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`，以及 AI 署名（禁止工具
-  `Co-authored-by`，`Harness:` / `Model:` 成对出现）。规则见
-  `../reference/commit-convention.md`。该 job 常驻执行不受路径门控制，同时承载
+  引用、无破折号分段、不超过 40 个字符）、`Refs` / `Closes`、必要时
+  `BREAKING CHANGE:`，以及 AI 署名（禁止工具 `Co-authored-by`，`Harness:` /
+  `Model:` 成对出现）。规则见 `../reference/commit-convention.md`。该 job 常驻执行不受路径门控制，同时承载
   文档模型检查（`check-docs` 与 `doc_checks` 模块测试）与执行器/模型注册表校验
   （`commit_harnesses` / `commit_models` 模块测试），因此 `xtask/data/**` 变更
   不再触发重活（#1459）。

@@ -12,6 +12,9 @@ const ALLOWED_TYPES: &[&str] = &[
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "revert",
 ];
 
+// 标题 description 按 Unicode 字符计的上限；不引入东亚宽度表，按字符计数已达意。
+const MAX_TITLE_DESCRIPTION_CHARS: usize = 40;
+
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
 
@@ -271,8 +274,8 @@ fn commit_message_errors(
     author_email: &str,
     message: &str,
 ) -> Vec<String> {
-    let exempt_issue_footer = is_allowed_dependabot_commit(author_name, author_email, message);
-    validate_message_with_footer_policy(commit_hash, message, exempt_issue_footer)
+    let dependabot_exempt = is_allowed_dependabot_commit(author_name, author_email, message);
+    validate_message_with_footer_policy(commit_hash, message, dependabot_exempt)
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
@@ -282,7 +285,7 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
 fn validate_message_with_footer_policy(
     commit_hash: &str,
     message: &str,
-    exempt_issue_footer: bool,
+    dependabot_exempt: bool,
 ) -> Vec<String> {
     let message = normalize_commit_message_line_endings(message);
     let message = message.as_ref();
@@ -301,6 +304,24 @@ fn validate_message_with_footer_policy(
             "标题不得出现 `#<数字>` 形式的 Issue 引用；任务关联写 `Refs:` / `Closes:` footer，提及其他 Issue 写正文"
                 .to_string(),
         );
+    }
+
+    if let Some(description) = title_description(title) {
+        // Dependabot 的 bump 标题天然超长，窄豁免只免长度；破折号与其余规则照常适用。
+        if !dependabot_exempt {
+            let char_count = description.chars().count();
+            if char_count > MAX_TITLE_DESCRIPTION_CHARS {
+                errors.push(format!(
+                    "标题 description 超过 {MAX_TITLE_DESCRIPTION_CHARS} 个字符（当前 {char_count}），细节写提交正文"
+                ));
+            }
+        }
+
+        if description.contains('—') {
+            errors.push(
+                "标题不用破折号做主副题分段；单段结果陈述，细节写提交正文".to_string(),
+            );
+        }
     }
 
     if has_breaking_bang && !has_breaking_change_footer {
@@ -326,7 +347,7 @@ fn validate_message_with_footer_policy(
         );
     }
 
-    errors.extend(issue_footer_errors(message, &trailers, exempt_issue_footer));
+    errors.extend(issue_footer_errors(message, &trailers, dependabot_exempt));
     errors.extend(canonical_trailer_errors(message, &trailers));
     errors.extend(unrecognized_controlled_trailers(message, &trailers));
     errors.extend(ai_attribution_errors_from_git(&trailers));
@@ -370,8 +391,14 @@ fn title_has_breaking_bang(title: &str) -> bool {
         .is_some_and(|(prefix, _description)| prefix.ends_with('!'))
 }
 
+fn title_description(title: &str) -> Option<&str> {
+    title
+        .split_once(": ")
+        .map(|(_prefix, description)| description)
+}
+
 fn title_has_issue_reference(title: &str) -> bool {
-    let Some((_prefix, description)) = title.split_once(": ") else {
+    let Some(description) = title_description(title) else {
         return false;
     };
 
@@ -957,6 +984,62 @@ Refs: #1233
         let errors = validate_message("0123456789abcdef", message);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("标题不得出现"));
+    }
+
+    #[test]
+    fn rejects_title_description_over_forty_chars() {
+        let message = format!("feat(runtime): {}\n\nRefs: #23\n", "一".repeat(41));
+
+        let errors = validate_message("0123456789abcdef", &message);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("超过 40 个字符"), "{errors:?}");
+    }
+
+    #[test]
+    fn accepts_title_description_at_forty_chars() {
+        let message = format!("feat(runtime): {}\n\nRefs: #23\n", "一".repeat(40));
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn rejects_title_dash_segmentation() {
+        let message = "\
+ci: 影子批次接线——计划器在真实 CI 运行并输出对照计划
+
+Refs: #23
+";
+
+        let errors = validate_message("0123456789abcdef", message);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("破折号"), "{errors:?}");
+    }
+
+    #[test]
+    fn accepts_long_dependabot_title_under_length_exemption() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump github/codeql-action/analyze from 4.37.8 to 4.37.9\n",
+        );
+
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn rejects_dependabot_style_dash_title() {
+        let errors = commit_message_errors(
+            "0123456789abcdef",
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump serde——从 1.0 到 2.0\n",
+        );
+
+        assert!(
+            errors.iter().any(|error| error.contains("破折号")),
+            "{errors:?}"
+        );
     }
 
     #[test]
