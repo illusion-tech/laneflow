@@ -426,14 +426,17 @@ fn w_session_wiring_counts_rules_and_can_finish_positively() {
         full_sample.session.as_mut().unwrap().finish(),
         Err(FinishRejected::WindowIncomplete { .. })
     ));
-    // 违反终态：登记违反后任何 finish 都以违反拒绝。
-    full_sample
-        .session
-        .as_mut()
-        .unwrap()
-        .note_violation(RuleId("w-motion-identity"));
-    assert!(matches!(
+    // 终结是消费式一次性：被拒后不得补记重试（§3.3/§6）。
+    assert_eq!(
         full_sample.session.as_mut().unwrap().finish(),
-        Err(FinishRejected::Violated(_))
+        Err(FinishRejected::DoubleFinish)
+    );
+    assert!(matches!(
+        full_sample
+            .session
+            .as_mut()
+            .unwrap()
+            .note_check(RuleId("body-separation")),
+        Err(laneflow_traffic_verification::session::ProtocolError::Finished)
     ));
 }
