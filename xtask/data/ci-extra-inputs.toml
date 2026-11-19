@@ -1,6 +1,6 @@
 # CI 受影响验证计划的额外输入注册表（#1464，设计合同 §3.2）。
 #
-# 三个职责：
+# 四个职责：
 # - triggers.full：命中即扩大到完整适用套件的路径模式（全局构建配置、工具链、
 #   workflow、计划器自身等；workspace 成员的 Cargo.toml 由算法规则内置，不在此列）。
 # - triggers.not_applicable：有明确依据不适用重活检查的路径模式（治理文档、
@@ -8,8 +8,10 @@
 #   任何规则的路径走「未知」态扩大为全量，不静默跳过。
 # - embed：跨包编译期嵌入图（被嵌入文件 → 嵌入方包名全集；同包嵌入不需要
 #   条目，嵌入文件所属包经所有者规则自动成为种子）。由 ci-plan 模块的一致性
-#   测试对全仓 include_str! / include_bytes! 清点对账，新增跨包嵌入时测试抓
-#   红、在此补条目；清单由 `xtask ci-plan --dump-embed-map` 再生成。
+#   测试对全仓 include_str! / include_bytes! 清点对账（含嵌在其他宏实参里的
+#   形态），新增跨包嵌入时测试抓红、在此补条目；清单由
+#   `xtask ci-plan --dump-embed-map` 再生成。
+# - input：运行时读取声明（见文件末尾说明）。
 #
 # 已知非字面量实参（无法静态解析，人工核对项）：laneflow-lust-converter 的
 # pipeline.rs 以 concat!(env!("CARGO_MANIFEST_DIR"), …) 嵌入根 Cargo.lock——
@@ -182,3 +184,16 @@ consumers = ["xtask"]
 [[embed]]
 path = "tools/laneflow-os-probe/src/windows.rs"
 consumers = ["xtask"]
+
+# 运行时读取声明（std::fs::read 等非编译期嵌入的仓库文件依赖）。无法自动
+# 对账——新增测试以运行时读取仓库文件时人工登记：先例是两个 generator 的
+# checked-in 产物精确性测试（tests/junction.rs / tests/corridor.rs 的
+# checked_in_artifacts_are_exact_generator_outputs），catalog.toml 侧已被
+# 嵌入边覆盖，lfca 侧只被运行时读取。
+[[input]]
+path = "examples/data/v0.1-complex-junction.lfca"
+consumers = ["laneflow-junction-generator"]
+
+[[input]]
+path = "examples/data/v0.2-signalized-corridor.lfca"
+consumers = ["laneflow-corridor-generator"]
