@@ -156,6 +156,12 @@ pub enum RestoreRejected {
     ViolationStateInconsistent,
     /// 开放义务组合不是任何可保存边界的可达状态。
     ObligationStateInconsistent,
+    /// 执行集合与触发计数不一致（计数为零却带历史、或两侧规则集不齐）。
+    HistoryCountMismatch(String),
+    /// 历史条目的阶段与已绑定规则的规定阶段不符。
+    HistoryPhaseMismatch(String),
+    /// 已完成进度可推导的最低触发次数未被材料满足（缺必需执行历史）。
+    MinTriggerUnmet(String),
 }
 
 /// 会话内部阶段。
@@ -793,6 +799,123 @@ impl Session {
                 .expect("长度差必有多余项");
             return Err(RestoreRejected::UnknownWitness(extra.clone()));
         }
+        // 历史完整性：执行集合与触发计数互相一致（计数只会随登记递增，
+        // 零计数不得带历史；两侧规则集必须相同），历史条目的阶段与已
+        // 绑规则一致，且必需 EveryRound 规则满足已完成进度可推导的
+        // 最低触发次数（初态参与与失败尝试会额外增加累计次数，故用
+        // 下界而非相等；OnEvent 合法零触发不设下界；预期失败尝试次数
+        // 不在材料中，PostExpectedFailure 只做一致性核对）。
+        let executed_names: BTreeSet<&str> = checkpoint
+            .executed_checks
+            .iter()
+            .map(|(_, name)| name.as_str())
+            .collect();
+        let trigger_names: BTreeSet<&str> = checkpoint
+            .trigger_counts
+            .keys()
+            .map(String::as_str)
+            .collect();
+        if executed_names != trigger_names {
+            return Err(RestoreRejected::HistoryCountMismatch(
+                "执行集合与触发计数的规则集不一致".into(),
+            ));
+        }
+        for (count, name) in checkpoint
+            .trigger_counts
+            .values()
+            .zip(executed_names.iter())
+        {
+            if *count == 0 {
+                return Err(RestoreRejected::HistoryCountMismatch((*name).to_owned()));
+            }
+        }
+        for (phase, name) in &checkpoint.executed_checks {
+            let index = name_index(name)?;
+            if plan.installed_rules[index].phase != *phase {
+                return Err(RestoreRejected::HistoryPhaseMismatch(name.clone()));
+            }
+        }
+        let initial_round_closed = checkpoint.successful_steps > 0
+            || checkpoint.command_phase == CommandPhase::AfterCommands;
+        let pre_tick_closed_current =
+            checkpoint.command_phase == CommandPhase::AfterCommands && !checkpoint.pre_tick_pending;
+        for required in spec.required_rules {
+            if required.coverage != CoverageMode::EveryRound {
+                continue;
+            }
+            let Some(count) = checkpoint.trigger_counts.get(required.id.0).copied() else {
+                // 尚无任何触发：只有进度推不出下界的规则允许（如未开始的
+                // 初态轮或 OnEvent）。
+                let min = minimum_triggers(
+                    required,
+                    checkpoint.successful_steps,
+                    initial_round_closed,
+                    pre_tick_closed_current,
+                    checkpoint.successful_commands
+                        + checkpoint.blocked_attempts
+                        + checkpoint.failed_attempts,
+                );
+                if min > 0 {
+                    return Err(RestoreRejected::MinTriggerUnmet(required.id.0.to_owned()));
+                }
+                continue;
+            };
+            let min = minimum_triggers(
+                required,
+                checkpoint.successful_steps,
+                initial_round_closed,
+                pre_tick_closed_current,
+                checkpoint.successful_commands
+                    + checkpoint.blocked_attempts
+                    + checkpoint.failed_attempts,
+            );
+            if count < min {
+                return Err(RestoreRejected::MinTriggerUnmet(required.id.0.to_owned()));
+            }
+        }
+        // 边界状态不变量：命令阶段与游标一致、拍前标志与阶段一致、
+        // 开放标记属于对应义务单位且位置可达。
+        match checkpoint.command_phase {
+            CommandPhase::BeforeCommands => {
+                if checkpoint.declared_commands != 0 || checkpoint.consumed_commands != 0 {
+                    return Err(RestoreRejected::ObligationStateInconsistent);
+                }
+            }
+            CommandPhase::AfterCommands => {
+                if checkpoint.declared_commands != checkpoint.consumed_commands {
+                    return Err(RestoreRejected::ObligationStateInconsistent);
+                }
+                let cumulative = checkpoint.successful_commands
+                    + checkpoint.blocked_attempts
+                    + checkpoint.failed_attempts;
+                if u64::from(checkpoint.consumed_commands) > cumulative {
+                    return Err(RestoreRejected::ObligationStateInconsistent);
+                }
+                // 拍前义务已核销的拍前阶段只能经预期失败重试到达，
+                // 未启用原子性规约的会话不可达。
+                if !checkpoint.pre_tick_pending && !spec.atomicity {
+                    return Err(RestoreRejected::ObligationStateInconsistent);
+                }
+            }
+        }
+        if !checkpoint.open_initial.is_empty()
+            && (checkpoint.successful_steps != 0
+                || checkpoint.command_phase != CommandPhase::BeforeCommands)
+        {
+            return Err(RestoreRejected::ObligationStateInconsistent);
+        }
+        for name in &checkpoint.open_initial {
+            let rule = &plan.installed_rules[name_index(name)?];
+            if rule.phase != CheckPhase::InitialBoundary && !rule.initial {
+                return Err(RestoreRejected::ObligationStateInconsistent);
+            }
+        }
+        for name in &checkpoint.open_pre_tick {
+            let rule = &plan.installed_rules[name_index(name)?];
+            if rule.phase != CheckPhase::PreTick {
+                return Err(RestoreRejected::ObligationStateInconsistent);
+            }
+        }
         // 开放义务可达性不变量。
         if !checkpoint.open_step.is_empty()
             || !checkpoint.open_failure.is_empty()
@@ -953,6 +1076,27 @@ pub struct SessionCheckpoint {
     open_pre_tick: BTreeSet<String>,
     open_step: BTreeSet<String>,
     open_failure: BTreeSet<String>,
+}
+
+/// 由已完成进度推导某每轮义务规则的最低触发次数：初态轮（如已关闭）
+/// 一次、每个已完成成功步进一次、当前已核销的拍前轮一次、每条已消费
+/// 命令结果一次。预期失败尝试次数不在材料中，该阶段不推导下界。
+fn minimum_triggers(
+    rule: &RuleDescriptor,
+    successful_steps: u64,
+    initial_round_closed: bool,
+    pre_tick_closed_current: bool,
+    consumed_results: u64,
+) -> u64 {
+    match rule.phase {
+        CheckPhase::PostSuccessfulStep => {
+            successful_steps + u64::from(rule.initial && initial_round_closed)
+        }
+        CheckPhase::PreTick => successful_steps + u64::from(pre_tick_closed_current),
+        CheckPhase::CommandResults => consumed_results,
+        CheckPhase::InitialBoundary => u64::from(initial_round_closed),
+        CheckPhase::PostExpectedFailure => 0,
+    }
 }
 
 #[cfg(test)]
@@ -2048,5 +2192,161 @@ mod tests {
         note_round_rules(&mut final_run);
         final_run.note_successful_step(2).unwrap();
         final_run.finish().expect("恢复续跑完整窗口必须可终结");
+    }
+    #[test]
+    fn restore_rejects_missing_required_history() {
+        let input = "lfca-sha256:fixed-input";
+        // 一步窗口正常完成（初态 + 1 次成功步进）：M/B 各 2 次。
+        let mut session = started(1);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        run_step(&mut session, 101);
+        let checkpoint = session.checkpoint(input).unwrap();
+        // 探针一：清空执行集合与触发计数——进度推得的最低次数不再满足。
+        let mut emptied = checkpoint.clone();
+        emptied.executed_checks.clear();
+        emptied.trigger_counts.clear();
+        assert_eq!(
+            Session::restore(&emptied, spec(1, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::MinTriggerUnmet(RULE_MOTION.id.0.to_owned())
+        );
+        // 探针二：保留条目、次数改零——计数为零却声称有历史本身矛盾。
+        let mut zeroed = checkpoint.clone();
+        zeroed.trigger_counts.insert(RULE_MOTION.id.0.to_owned(), 0);
+        assert_eq!(
+            Session::restore(&zeroed, spec(1, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::HistoryCountMismatch(RULE_MOTION.id.0.to_owned())
+        );
+        // 探针三：历史条目阶段与规则规定阶段不符。
+        let mut phase_swapped = checkpoint.clone();
+        let name = RULE_MOTION.id.0.to_owned();
+        phase_swapped
+            .executed_checks
+            .remove(&(CheckPhase::PostSuccessfulStep, name.clone()));
+        phase_swapped
+            .executed_checks
+            .insert((CheckPhase::PreTick, name.clone()));
+        assert_eq!(
+            Session::restore(&phase_swapped, spec(1, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::HistoryPhaseMismatch(name)
+        );
+        // 正向对照一：未开始步进的检查点可以没有拍后历史。
+        let mut fresh = started(2);
+        fresh
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        let initial_only = fresh.checkpoint(input).unwrap();
+        assert!(Session::restore(&initial_only, spec(2, false), PROVIDED, input).is_ok());
+        // 正向对照二：OnEvent 合法零触发允许无历史条目（本夹具初始即零触发）。
+        assert!(initial_only.trigger_counts.get(RULE_SIGNAL.id.0).is_none());
+    }
+
+    #[test]
+    fn restore_rejects_inconsistent_boundary_state() {
+        let input = "lfca-sha256:fixed-input";
+        let mut session = started(2);
+        session
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        session.declare_commands(2).unwrap();
+        session
+            .note_command_result(CommandResult::Succeeded)
+            .unwrap();
+        session.note_command_result(CommandResult::Blocked).unwrap();
+        session.advance_to_pre_tick().unwrap();
+        session.begin_step().unwrap();
+        note_round_rules(&mut session);
+        session.note_successful_step(101).unwrap();
+        let checkpoint = session.checkpoint(input).unwrap();
+        // 探针一：AfterCommands 却有未消费完的命令游标（从新轮检查点
+        // 显式构造该矛盾组合）。
+        let mut under_consumed = checkpoint.clone();
+        under_consumed.command_phase = CommandPhase::AfterCommands;
+        under_consumed.declared_commands = 2;
+        under_consumed.consumed_commands = 1;
+        assert_eq!(
+            Session::restore(&under_consumed, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 探针二：BeforeCommands 携带非零游标。
+        let mut before_dirty = checkpoint.clone();
+        before_dirty.command_phase = CommandPhase::BeforeCommands;
+        before_dirty.declared_commands = 1;
+        before_dirty.consumed_commands = 0;
+        assert_eq!(
+            Session::restore(&before_dirty, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 探针三：本批消费数超过累计命令尝试数。
+        let mut over_cumulative = checkpoint.clone();
+        over_cumulative.declared_commands += 3;
+        over_cumulative.consumed_commands += 3;
+        assert_eq!(
+            Session::restore(&over_cumulative, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 探针四：非原子性会话不可能出现“拍前已核销”的拍前阶段
+        // （BeforeCommands 上 pending=false 属正常新轮，故构造 After 形态）。
+        let mut no_pending = checkpoint.clone();
+        no_pending.command_phase = CommandPhase::AfterCommands;
+        no_pending.pre_tick_pending = false;
+        assert_eq!(
+            Session::restore(&no_pending, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 探针五：AfterCommands（首边界拍前）携带已核销前的初态标记。
+        let mut initial_at_after = {
+            let mut s = started(2);
+            s.note_witness(WitnessId("per-active-crossing")).unwrap();
+            s.declare_commands(0).unwrap();
+            s.advance_to_pre_tick().unwrap();
+            s.checkpoint(input).unwrap()
+        };
+        // 正常路径此处 open_initial 已核销清空；伪造携带则不可达。
+        initial_at_after
+            .open_initial
+            .insert(RULE_MOTION.id.0.to_owned());
+        assert_eq!(
+            Session::restore(&initial_at_after, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 探针六：开放标记归属错单位（拍前标记挂在非拍前规则上）。
+        let mut wrong_unit = checkpoint.clone();
+        wrong_unit.open_pre_tick.insert(RULE_MOTION.id.0.to_owned());
+        assert_eq!(
+            Session::restore(&wrong_unit, spec(2, false), PROVIDED, input).unwrap_err(),
+            RestoreRejected::ObligationStateInconsistent
+        );
+        // 对照：原子性会话的“拍前已核销”拍前阶段（失败重试边界）可达。
+        const RULES_RETRY: &[RuleDescriptor] = &[
+            RULE_MOTION,
+            RULE_BODY,
+            RULE_SIGNAL,
+            RULE_PRE,
+            RULE_ATOMICITY,
+        ];
+        let retry_spec = VerificationSpec {
+            required_rules: RULES_RETRY,
+            ..spec(1, true)
+        };
+        let retry_provided = ProvidedModules {
+            rules: RULES_RETRY,
+            ..PROVIDED
+        };
+        let mut atomic = Session::start(retry_spec, retry_provided).unwrap();
+        atomic.confirm_initial_boundary(0).unwrap();
+        observe_initial(&mut atomic);
+        atomic
+            .note_witness(WitnessId("per-active-crossing"))
+            .unwrap();
+        atomic.declare_commands(0).unwrap();
+        atomic.advance_to_pre_tick().unwrap();
+        atomic.note_check(RULE_PRE.id).unwrap();
+        atomic.begin_step().unwrap();
+        atomic.note_check(RULE_ATOMICITY.id).unwrap();
+        atomic.note_expected_failure().unwrap();
+        let retry_boundary = atomic.checkpoint(input).unwrap();
+        assert!(Session::restore(&retry_boundary, retry_spec, retry_provided, input).is_ok());
     }
 }
