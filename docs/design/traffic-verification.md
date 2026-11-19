@@ -2,9 +2,9 @@
 schema_version = 1
 id = "design-traffic-verification"
 kind = "design"
-status = "review"
+status = "accepted"
 revised_date = "2026-11-19"
-summary = "提出多个交通验证执行器共享独立判据、显式组合验证规约和管理验证会话的合同。"
+summary = "定义多个交通验证执行器共享独立判据、显式组合验证规约和管理验证会话的合同。"
 scope = "tools 层交通验证的事实、组合、生命周期、证据准入及 Synth 与 Urban 的首批接入；不改变生产交通运行时职责。"
 applicability = "#applicability"
 issues = ["https://github.com/illusion-tech/laneflow/issues/1457", "https://github.com/illusion-tech/laneflow/issues/1455"]
@@ -16,9 +16,12 @@ related = ["adr-0021", "design-lf-synth-execution", "design-lf-synth-measurement
 <a id="applicability"></a>
 ## 1. 适用边界
 
-本文是待接受的设计，不授予实现开工或产品通过结论。正文中的“须”“不得”是建议
-冻结的目标合同；现行行为继续由各执行核验合同约束。设计接受也不表示共享包、
-迁移、恢复协议或性能验收已经交付。
+本文已于 2026-11-19 经维护者接受，依据为 [PR #1458][design-review] 合入
+`e4881aed` 时勾选“G1 整体设计审阅得到维护者接受”；正文中的“须”“不得”自此
+成为后续实现的目标合同。接受范围包含职责分层、共同判据及受检域、阶段与状态
+所有权、恢复/证据边界、首批迁移及验收责任；不表示共享包、迁移、恢复协议或
+性能验收已经交付，也不构成产品通过结论。已交付部分与未交付部分的边界由
+[任务 #1457][verification-issue] 的交付范围与实施顺序承载。
 
 本设计服务道路机动车验证。生产交通运行时负责执行交通规则，验证执行器
 （harness）负责驱动受检工作负载、观察结果并证明指定性质。两者的职责不因共享
@@ -419,6 +422,7 @@ G1 冻结结构预算、计量分组与验收责任，不以尚无基线支持�
 维护。仅建立共享 crate、trait 或报告 DTO 不构成本设计的实施完成。
 
 [adr-0021]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[design-review]: https://github.com/illusion-tech/laneflow/pull/1458
 [baseline]: https://github.com/illusion-tech/laneflow/tree/200c27aa7492461b55637d94068299021f6d45a7
 [signal-reference-change]: https://github.com/illusion-tech/laneflow/pull/1456
 [lf-synth-execution]: lf-synth-execution.md
