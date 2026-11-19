@@ -2239,7 +2239,7 @@ mod tests {
         let initial_only = fresh.checkpoint(input).unwrap();
         assert!(Session::restore(&initial_only, spec(2, false), PROVIDED, input).is_ok());
         // 正向对照二：OnEvent 合法零触发允许无历史条目（本夹具初始即零触发）。
-        assert!(initial_only.trigger_counts.get(RULE_SIGNAL.id.0).is_none());
+        assert!(!initial_only.trigger_counts.contains_key(RULE_SIGNAL.id.0));
     }
 
     #[test]
