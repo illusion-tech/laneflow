@@ -1087,11 +1087,19 @@ fn shadow_report() -> Result<String, String> {
     let workspace = Workspace::parse(&cargo_metadata()?)?;
     let registry = Registry::parse(REGISTRY_TOML)?;
     let plan = build_plan(&files, &workspace, &registry);
-    Ok(format!(
-        "## 影子验证计划（#1464，不改变门禁行为）\n\n```text\n{}```\n\n<details><summary>计划 JSON</summary>\n\n```json\n{}```\n\n</details>\n",
-        plan_summary_text(&plan),
-        plan_json_text(&plan)
+    Ok(shadow_markdown(
+        &plan_summary_text(&plan),
+        &plan_json_text(&plan),
     ))
+}
+
+/// 组装影子 summary 的 markdown（纯函数）。代码围栏必须独立成行：
+/// `plan_json_text` 不带尾换行，闭合围栏前显式补换行——否则围栏失效，
+/// `</details>` 被吞进代码块，折叠报告不成立。
+fn shadow_markdown(summary_text: &str, json_text: &str) -> String {
+    format!(
+        "## 影子验证计划（#1464，不改变门禁行为）\n\n```text\n{summary_text}```\n\n<details><summary>计划 JSON</summary>\n\n```json\n{json_text}\n```\n\n</details>\n"
+    )
 }
 
 /// 从事件载荷提取差异基线提交（纯函数）。
@@ -1532,5 +1540,22 @@ mod tests {
         assert!(text.contains("模式：受影响"));
         assert!(text.contains("[执行] clippy-default"));
         assert!(text.contains("tools/leaf/src/main.rs → 包 laneflow-leaf-tool"));
+    }
+
+    /// 影子 markdown 的代码围栏必须独立成行：JSON 文本无尾换行，闭合围栏
+    /// 前须显式补换行，否则围栏失效、`</details>` 被吞进代码块。
+    #[test]
+    fn shadow_markdown_fences_stay_on_their_own_lines() {
+        let markdown = shadow_markdown("模式：受影响\n", "{\n  \"mode\": \"affected\"\n}");
+        for line in markdown.lines() {
+            if line.contains("```") {
+                assert!(
+                    line.trim_start().starts_with("```"),
+                    "围栏必须独立成行：{line}"
+                );
+            }
+        }
+        assert!(markdown.contains("</details>"));
+        assert!(markdown.contains("```json"));
     }
 }
