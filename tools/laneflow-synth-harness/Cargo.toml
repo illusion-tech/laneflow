@@ -9,6 +9,7 @@ publish = false
 
 [features]
 allocation = ["dep:stats_alloc", "laneflow-runtime/execution-evidence", "laneflow-bevy/pose-profiling", "laneflow-bevy/execution-evidence"]
+verification-cost-counts = ["dep:stats_alloc"]
 
 [dependencies]
 bevy_app = { version = "0.20", default-features = false, features = ["std"] }

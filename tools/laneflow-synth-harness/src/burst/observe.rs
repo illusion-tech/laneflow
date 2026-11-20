@@ -4,6 +4,7 @@ use laneflow_synth_generator::Case;
 use super::{Burst, Command, Operation};
 use crate::signal_reference::SignalSchedule;
 use crate::signal_reference::{CrossingPermit, aspect, signal_crossing_permission};
+use crate::verification_cost::{Noop, Probe, Scan};
 use crate::{
     Error, Plan, failure,
     observe::{motion_valid, position},
@@ -25,6 +26,16 @@ impl Burst {
         warm: u64,
         outcome: Option<&StepOutcome>,
     ) -> Result<blake3::Hash, Error> {
+        self.observe_with_probe(tick, warm, outcome, &mut Noop)
+    }
+
+    pub(super) fn observe_with_probe<P: Probe>(
+        &mut self,
+        tick: u64,
+        warm: u64,
+        outcome: Option<&StepOutcome>,
+        probe: &mut P,
+    ) -> Result<blake3::Hash, Error> {
         let dt = self.sample.state.identity.fixed_delta_ms;
         let case = self.sample.state.identity.case.clone();
         let schedule = if case == Case::W4 {
@@ -33,14 +44,22 @@ impl Burst {
             SignalSchedule::CellOffset
         };
         let cells = self.arrivals.len();
+        probe.scan(Scan::LiveOrder);
         require(
             self.sample.world.tick_index() == tick
                 && self.sample.world.time_ms() == tick * u64::from(dt)
                 && self.sample.world.command_cursor() == self.sample.cursor
-                && self.sample.world.live_vehicles().iter().copied().eq(self
-                    .live_ranks
+                && self
+                    .sample
+                    .world
+                    .live_vehicles()
                     .iter()
-                    .map(|&rank| self.sample.handles[rank])),
+                    .copied()
+                    .inspect(|_| probe.visit(Scan::LiveOrder, 1))
+                    .eq(self
+                        .live_ranks
+                        .iter()
+                        .map(|&rank| self.sample.handles[rank])),
             || format!("population/order/cursor/time tick={tick}"),
         )?;
         require(
@@ -55,16 +74,20 @@ impl Burst {
             || format!("step outcome tick={tick}"),
         )?;
         let signals = self.sample.world.committed_signal_groups();
+        probe.scan(Scan::SignalCount);
         let signalized = self
             .sample
             .groups
             .iter()
+            .inspect(|_| probe.visit(Scan::SignalCount, 1))
             .filter(|group| group.is_some())
             .count();
         require(signals.as_slice().len() == signalized, || {
             format!("signal count tick={tick}")
         })?;
+        probe.scan(Scan::Signals);
         for (rank, group) in self.sample.groups.iter().enumerate() {
+            probe.visit(Scan::Signals, 1);
             let Some(group) = group else {
                 continue;
             };
@@ -78,6 +101,8 @@ impl Burst {
                 || format!("signal aspect tick={tick} route={rank}"),
             )?;
         }
+        probe.scan(Scan::ChangedReset);
+        probe.visit(Scan::ChangedReset, self.changed.len());
         self.counts = [0; 3];
         self.changed.fill(false);
         let bytes = &mut self.sample.trace_bytes;
@@ -87,7 +112,9 @@ impl Burst {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
         bytes.extend_from_slice(&(self.sample.handles.len() as u32).to_le_bytes());
+        probe.scan(Scan::Vehicles);
         for (rank, &handle) in self.sample.handles.iter().enumerate() {
+            probe.visit(Scan::Vehicles, 1);
             let state = self
                 .sample
                 .world
@@ -265,11 +292,16 @@ impl Burst {
             self.sample.previous[rank] = state;
         }
         let mut front = None;
+        probe.scan(Scan::BodyOrder);
         for &rank in &self.lane_order {
+            probe.visit(Scan::BodyOrder, 1);
             let state = self.sample.previous[rank];
             if state.status() != VehicleStatus::Active {
                 continue;
             }
+            // 本变体的车身分离是内联邻接判定（迁移前正本）；片段计数与
+            // 共享判据侧挂在同一逻辑行位置，比较口径一致。
+            probe.body_fragment();
             let current = position(state);
             if let Some((route, previous)) = front {
                 require(
@@ -281,7 +313,10 @@ impl Burst {
         }
         let events = self.sample.world.latest_transition_events();
         let mut event_index = 0;
+        probe.scan(Scan::EventCandidates);
+        probe.scan(Scan::TransitionEvents);
         for &rank in &self.live_ranks {
+            probe.visit(Scan::EventCandidates, 1);
             if !self.changed[rank] {
                 continue;
             }
@@ -296,6 +331,7 @@ impl Burst {
                 let event = events
                     .get(event_index)
                     .ok_or_else(|| failure("missing transition", (tick, rank)))?;
+                probe.visit(Scan::TransitionEvents, 1);
                 event_index += 1;
                 let anchor = event.anchor();
                 require(
@@ -320,7 +356,9 @@ impl Burst {
         let arrivals = outcome.map_or(&[][..], StepOutcome::parking_arrivals);
         bytes.extend_from_slice(&(arrivals.len() as u32).to_le_bytes());
         let mut previous_sequence = None;
+        probe.scan(Scan::ParkingArrivals);
         for arrival in arrivals {
+            probe.visit(Scan::ParkingArrivals, 1);
             let rank = *self
                 .handle_ranks
                 .get(&arrival.vehicle)
@@ -369,14 +407,21 @@ impl Burst {
             format!("population tick={tick}: {:?} != {expected:?}", self.counts)
         })?;
         if case == Case::W4 {
+            probe.scan(Scan::W4Changed);
             require(
                 (tick == warm + 2
                     && self
                         .changed
                         .iter()
                         .enumerate()
+                        .inspect(|_| probe.visit(Scan::W4Changed, 1))
                         .all(|(rank, &changed)| changed == (rank % 100 == 61)))
-                    || (tick != warm + 2 && self.changed.iter().all(|&changed| !changed)),
+                    || (tick != warm + 2
+                        && self
+                            .changed
+                            .iter()
+                            .inspect(|_| probe.visit(Scan::W4Changed, 1))
+                            .all(|&changed| !changed)),
                 || format!("W4 B0/B1 transition tick={tick}"),
             )?;
         }
