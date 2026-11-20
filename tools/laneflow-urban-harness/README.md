@@ -354,7 +354,7 @@ JSON 缓冲以字节表示，其他 Vec 为元素数，哈希表为可容纳条�
 产物、成本样本容器和进程 RSS 不计入这些常驻 scratch 字段；临时块产物在观察
 区间内产生的分配已被 allocator 记录。
 
-计数构建每块额外持有一个 `WorkloadCounts`，当前为 40 个 `u64`、320 字节。
+计数构建每块额外持有一个 `WorkloadCounts`，当前为 41 个 `u64`、328 字节。
 `scratch_high_water.instrumentation_storage` 输出实际每块账本大小、计数构建的
 `Mutex<BlockBuffers>` 元素大小（含对齐），以及按 blocks Vec 初始/最高 capacity
 计算的账本保留字节数。已有 blocks Vec 在观察区间内首次创建或增长时，allocator
