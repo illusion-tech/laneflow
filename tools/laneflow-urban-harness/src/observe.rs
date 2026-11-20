@@ -1304,6 +1304,66 @@ fn claims_block(
 
 /// 把相邻的已排序段（界为 `runs`，首元 0、末元总长）两两归并到 `aux`
 /// 并交换，直到只剩一段；与全量排序得到同一总序（元组全序）。
+/// 嵌套修正（结构迁移组同性质配对）：相邻对比较会漏检同 owner 嵌套
+/// 片段遮蔽下的跨 owner 重叠（traffic-verification §5.3 反例
+/// A[0,100)/A[50,70)/B[80,90)）。按共享判据语义内联修正——保留本
+/// 变体的元组数据形状与错误报告，只改判定算法：每空间维护终点最远
+/// 的两个不同 owner 候选（先见者优先作确定性并列键），与当前片段作
+/// 严格半开相交判定，同 owner 片段自排除；空区间按事实错误拒绝。
+/// 输入须按 `(edge, back, front, owner)` 全序排序。
+fn reject_body_overlap(bodies: &[Body], tick: u64) -> Result<()> {
+    let mut furthest: Option<(u64, IndividualId)> = None;
+    let mut other_owner: Option<(u64, IndividualId)> = None;
+    let mut current_edge = None;
+    for &(edge, back, front, owner) in bodies.iter() {
+        if back >= front {
+            return Err(invalid(format!(
+                "empty body interval at tick {} on edge {}: {:?}",
+                tick, edge, owner
+            )));
+        }
+        if current_edge != Some(edge) {
+            current_edge = Some(edge);
+            furthest = None;
+            other_owner = None;
+        }
+        // 与 owner 不同的最远端候选比较（当前片段起点不小于任何已见
+        // 起点，相交当且仅当起点严格小于该候选终点）。
+        let candidate = match furthest {
+            Some((_, owner_far)) if owner_far != owner => furthest,
+            _ => other_owner,
+        };
+        if let Some((front_far, owner_far)) = candidate
+            && back < front_far
+        {
+            return Err(invalid(format!(
+                "body overlap at tick {} on edge {}: {:?} and {:?}",
+                tick, edge, owner_far, owner
+            )));
+        }
+        match furthest {
+            None => furthest = Some((front, owner)),
+            Some((front_far, owner_far)) if front > front_far => {
+                // 新的全局最远：原最远（端点不小于旧 other_owner）在不同
+                // owner 时降位为 other_owner；同 owner 时 other_owner 不变。
+                if owner != owner_far {
+                    other_owner = furthest;
+                }
+                furthest = Some((front, owner));
+            }
+            Some((front_far, owner_far)) => {
+                // 非全局最远：只有 owner 与全局最远不同且更远时取代
+                // other_owner；同 owner 的片段不进候选（不遮蔽它与别的
+                // owner 的重叠）。
+                if owner != owner_far && other_owner.is_none_or(|(f, _)| front > f) {
+                    other_owner = Some((front, owner));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn merge_sorted_runs(data: &mut Vec<Body>, runs: &mut Vec<usize>, aux: &mut Vec<Body>) {
     while runs.len() > 2 {
         aux.clear();
@@ -1469,17 +1529,7 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     // 总序与全量 sort_unstable 相同（元组全序，稳定性无关）。
     let mut merge = std::mem::take(&mut h.observation.merge);
     merge_sorted_runs(&mut bodies, &mut runs, &mut merge);
-    for pair in bodies.windows(2) {
-        if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 && pair[0].3 != pair[1].3 {
-            return Err(invalid(format!(
-                "body overlap at tick {} on edge {}: {:?} and {:?}",
-                h.world.tick_index(),
-                pair[0].0,
-                pair[0].3,
-                pair[1].3
-            )));
-        }
-    }
+    reject_body_overlap(&bodies, h.world.tick_index())?;
     h.observation.bodies = bodies;
     h.observation.merge = merge;
     h.observation.runs = runs;
@@ -1571,6 +1621,97 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_same_owner_overlap_is_rejected_like_the_shared_criterion() {
+        // traffic-verification §5.3 反例：相邻对比较会漏检 A[0,100)、
+        // A[50,70)、B[80,90) 中外层 A 与 B 的重叠；修正后必须拒绝。
+        let id = |slot| IndividualId {
+            tile: 0,
+            slot,
+            incarnation: 0,
+        };
+        let bodies = vec![
+            (0_u32, 0_u64, 100_000_u64, id(0)),
+            (0, 50_000, 70_000, id(0)),
+            (0, 80_000, 90_000, id(1)),
+        ];
+        assert!(reject_body_overlap(&bodies, 1).is_err());
+        // 恰好相接（半开区间）合法；同 owner 嵌套自排除。
+        let touching = vec![
+            (0, 0, 100_000, id(0)),
+            (0, 100_000, 200_000, id(1)),
+            (1, 0, 100_000, id(0)),
+            (1, 50_000, 70_000, id(0)),
+        ];
+        assert!(reject_body_overlap(&touching, 1).is_ok());
+        // 空区间按事实错误拒绝（与共享判据入口一致）。
+        let empty = vec![(0, 5_000, 5_000, id(0))];
+        assert!(reject_body_overlap(&empty, 1).is_err());
+    }
+
+    #[test]
+    fn corrected_scan_matches_pairwise_reference_on_random_sets() {
+        // 随机集合对拍：修正扫描与独立两两枚举参考在 400 组随机输入上
+        // 拒绝/接受一致（参考按同空间、不同 owner、严格半开相交枚举）。
+        let mut seed = 0x1234_5678_u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for case in 0..400_u32 {
+            let count = (next() % 24 + 1) as usize;
+            let mut bodies = Vec::with_capacity(count);
+            for _ in 0..count {
+                let edge = (next() % 2) as u32;
+                let back = next() % 400_000;
+                let front = back + 1 + next() % 200_000;
+                let slot = (next() % 5) as u32;
+                bodies.push((
+                    edge,
+                    back,
+                    front,
+                    IndividualId {
+                        tile: 0,
+                        slot,
+                        incarnation: 0,
+                    },
+                ));
+            }
+            bodies.sort_unstable();
+            // 两两参考（空区间同样视为事实错误）。
+            let mut expected = Ok(());
+            'reference: for (i, &(e0, b0, f0, o0)) in bodies.iter().enumerate() {
+                if b0 >= f0 {
+                    expected = Err(());
+                    break 'reference;
+                }
+                for &(e1, b1, f1, o1) in bodies.iter().skip(i + 1) {
+                    if e0 != e1 {
+                        break;
+                    }
+                    if b1 >= f1 {
+                        expected = Err(());
+                        break 'reference;
+                    }
+                    if o0 != o1 && b1 < f0 && b0 < f1 {
+                        expected = Err(());
+                        break 'reference;
+                    }
+                }
+            }
+            let actual = reject_body_overlap(&bodies, u64::from(case));
+            assert_eq!(
+                actual.is_err(),
+                expected.is_err(),
+                "case {case} 分歧：{:?} vs 参考 {:?}，集合 {bodies:?}",
+                actual,
+                expected
+            );
+        }
+    }
 
     #[test]
     fn tuple_fields_encode_like_the_json_array() {
