@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-scale-decision-baseline"
 kind = "design"
 status = "active"
-revised_date = "2026-11-09"
+revised_date = "2026-11-21"
 summary = "记录城市规模扩展的现行决策与证据边界。"
 scope = "现行 TrafficWorld 道路机动车路径的城市规模扩展决策与接口可扩展性复核"
 applicability = "#applicability"
@@ -57,7 +57,7 @@ audit，原文见基线提交 3f80b65f 的 `docs/design/` 副本），记录现�
 | 事件与决策读取 | 需要补证据           | `latest_transition_events`、`latest_waiting_decisions`、`latest_conflict_decisions`、`waiting_zone_members`、`live_vehicles` 返回连续切片（`&[T]`），要求提交后存在单一规范序列；分区时的归并成本须计入 | 分区研究           |
 | 句柄与物理位置 | 已满足               | 句柄只含槽位下标与代次，经目录解析物理位置；不编码 worker、分区或物理行；恢复重新签发并提供映射                                                                                                         | —                  |
 | 位姿读取       | 已满足（接口）       | `committed_pose_source` 按句柄读取，`extract_selected_committed_pose_batch` 按选择集合提取；成本随世界规模增长的原因未归因                                                                              | #1274              |
-| 边观测导出     | 需要补证据           | `ExplicitLaneEdges` 与 `Delta` 的接口合同已存在，但每次导出遍历两遍全部存活车辆，选择集合与增量模式都不减少该扫描                                                                                       | #1337              |
+| 边观测导出     | 保留按需两遍扫描     | 选择外车辆仍增加扫描成本。十万背景车时，双缓冲索引使无导出两拍 p50 增加 5.5%，按路线筛车多驻留 1.50 MiB。小范围单遍仅在 18 种工况中的 5 种同时降低两拍 p50 与 p95。                                     | [观测合同 §7.4]    |
 | 生命周期命令   | 需要补证据           | 只有单车命令，没有批量入口；是否需要批量合同取决于 #1275 的分段结果                                                                                                                                     | #1275              |
 | 快照与恢复     | **存在实际阻碍**     | 执行配置不进入快照，符合可重建边界；但含活动过渡或预约的世界不能保存（#1217 结构化拒绝）                                                                                                                | #1200              |
 | 修订切换       | 需要补证据           | 已准备并晋升目标执行计划；含过渡资源的跨修订迁移结构化拒绝；候选计划与切换共存峰值未测                                                                                                                  | #1200；资源认证    |
@@ -96,6 +96,7 @@ audit，原文见基线提交 3f80b65f 的 `docs/design/` 副本），记录现�
 - 保存恢复与修订切换的共存峰值。
 
 [performance-baseline]: core-runtime-performance-baseline.md
+[观测合同 §7.4]: traffic-observation-and-routing-integration.md#74-局部选边导出的索引取舍
 [parallel-execution]: traffic-runtime-parallel-execution.md
 [runtime-snapshot]: traffic-runtime-snapshot.md
 [revision-cutover]: traffic-runtime-revision-cutover.md

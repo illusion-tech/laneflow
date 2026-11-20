@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-observation-and-routing-integration"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-21"
 summary = "定义交通观测、动态成本与宿主候选路线接入。"
 scope = "已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
 applicability = "#applicability"
@@ -105,8 +105,8 @@ Routing 用边长与这些整数自行派生密度、平均速度或成本，不
 
 三项聚合必须从同一个 `observationStateSequence` 的已提交 `VehicleState`、路线和
 占用区间求值。当前步进求解用的私有 `OccupancyIndex` 在 snapshot(T) 上重建后才提交
-T+D 状态，不能直接当作 T+D 观测来源；G2 可以重算，或重构成带精确状态序号且经
-oracle 证明一致的共享聚合，但不能混用当前车辆状态与前一提交边界的占用缓存。
+T+D 状态。导出 T+D 的观测时，从 T+D 已提交的车辆和路线重新计算占用区间。
+现行两遍扫描的取舍见 §7.4。
 
 完整基线对所选边**逐边出行，包含全零行**，按 `laneEdgeStableId` 升序规范排列。
 增量也按同序排列；值从非零变零时必须显式发全零行，不使用删除或 tombstone 语义。
@@ -636,6 +636,37 @@ worker 数字，不能与多 worker 整帧结果比较，也不构成产品预�
 运行日志与逐 round 原始输出登记在
 [#1279 正式记录][issue-1279-record]。
 
+### 7.4 局部选边导出的索引取舍
+
+**裁定：保留按需两遍扫描。** Full 和 Delta 都先遍历已提交的存活车辆，计算所选边上的
+占用区间数并预留空间，再遍历一次，累计车头数与速度和、收集区间并按边求并集。
+选择外的 Active 车辆仍增加扫描成本。#1337 以 `e1e164f7` 为基线，将一次步进、
+可选的 Delta 导出和下一次步进合计为“两拍总耗时”，分别比较 p50 与 p95。
+
+**双缓冲占用索引。** 原型每拍准备备用索引，提交时交换，导出时只查所选边。
+在 256 条边、十万背景 Active 车辆、单 worker、两拍之间导出一次的合成负载中，
+有车单边的步进后 Delta p50 从 1.078 ms 降至 0.0045 ms，两拍总耗时 p50 却从
+32.001 ms 升至 32.192 ms。空单边和无导出的两拍总耗时分别增加 3.3% 和 5.5%。
+有车单边的预热后堆驻留与堆峰值均增加 14.17 MiB。全边和等价显式全选的两拍总耗时 p50 分别下降
+6.0% 和 4.8%，这项收益限于本次全边负载。原型还触发了预热后的额外分配，
+并改变了损坏路线的首错。逐项数据与一致性验证见 [#1337 原型对照][issue-1337-ab]。
+
+**单遍扫描与按路线筛车。** 两张路网各测三轮。十万背景车辆时，单遍扫描在独立
+路网有车单边的两拍 p50 下降 1.0%，三轮均更快。共享路网的 253 条背景路线汇入同一主干道，
+采样时背景车在各自支路上。
+单遍扫描在主干道的两拍 p50 下降 0.1%，p95 从 32.056 ms 升至 36.339 ms，
+有车支路的 p50 增加 0.7%。按路线筛车在支路节约 1.3%，主干道增加 1.7%，
+无导出时增加 4.8% 并多驻留 1.50 MiB。
+单遍扫描的预热后堆驻留与现行实现相同，全边峰值增加约 0.47 MiB。
+[两种路网的对照][issue-1337-routes]
+
+**小范围显式选边。** 原型仅对 1–8 条边且不超过全网 1/16 的显式选择启用单遍收集。两张路网
+在一万、十万背景车辆下各完成四轮对照。18 种实际走单遍的工况均缩短了步进后
+Delta 自身的 p50 和 p95，只有 5 种同时缩短了两拍总耗时的 p50 和 p95。
+十万车的 8 边订阅在两张路网的两拍 p95 均下降约 4%，一万车独立路网的空单边
+两拍 p95 则从 3.100 升至 3.512 ms，四轮均更慢。这一阈值未能在所测负载下稳定降低端到端耗时。
+[小范围显式选择对照][issue-1337-small]
+
 ## 8. G2 边界与必测义务
 
 G2 已按 §2 落定完整/增量/分区观测实现：
@@ -651,9 +682,9 @@ G2 已按 §2 落定完整/增量/分区观测实现：
   前一拍 `OccupancyIndex`；所有输出预留可失败，任一失败不推进 session；
 - batch/session 的 logical/retained bytes 按 §2.1 的实现内布局函数精确报告。
 
-**#1296 实现时调整（目标设计，尚未实现）：**`AllLaneEdges` 改为按共享身份索引已有的
-LaneEdge StableId 顺序（[共享静态路网 §6.1][shared-identity-order]）遍历，去掉 open 时
-的排序；输出行序与选择摘要不变。open 仍需线性构建选择表、ordinal 映射与摘要。
+`AllLaneEdges` 打开会话时直接按共享身份索引已有的 LaneEdge StableId 升序遍历，
+再构建选择表、ordinal 映射与选择摘要。显式选择也为全网边序号建立映射。
+见[共享静态路网 §6.1][shared-identity-order]。
 
 G2 也已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写，
 并复用 #302 的字段私有 `WorldGeneration(u64)`：安装初值 `0`，成功切换 checked
@@ -707,5 +738,8 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [performance-baseline]: core-runtime-performance-baseline.md
 [pull-521-comment]: https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930
 [issue-1279-record]: https://github.com/illusion-tech/laneflow/issues/1279#issuecomment-6676712976
+[issue-1337-ab]: https://github.com/illusion-tech/laneflow/issues/1337#issuecomment-7048846420
+[issue-1337-routes]: https://github.com/illusion-tech/laneflow/issues/1337#issuecomment-7049534712
+[issue-1337-small]: https://github.com/illusion-tech/laneflow/issues/1337#issuecomment-7050422385
 [routing-candidate-admission]: https://github.com/illusion-tech/laneflow/tree/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1267-routing-candidate-admission
 [shared-identity-order]: shared-static-network.md#61-sharedidentityindex
