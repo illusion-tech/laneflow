@@ -33,6 +33,10 @@ pub(super) struct Host {
     /// 使参考/恢复末态投影同跨度可比。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lane_change_journal: Vec<(u64, u16, u32, u32)>,
+    /// 共享验证会话的检查点材料（设计 §7：验证状态只进宿主材料，不扩展
+    /// Runtime LFRS）。burst 检查点必须在场（缺材料拒绝，不清零续跑）；
+    /// W1/W2/L 的恢复参考未接会话，为 `null`。
+    pub verification: Option<Value>,
     pub burst: Option<BurstHost>,
 }
 
@@ -238,6 +242,7 @@ pub(super) fn capture(
             max_deceleration: sample.max_deceleration_mm_s2,
             excessive_decelerations: sample.deceleration_above_profile_count,
             lane_change_journal: sample.lane_change_journal.clone(),
+            verification: crate::verification_material(sample)?,
             burst,
         },
         encode_lfrs(&snapshot),
@@ -274,6 +279,7 @@ pub(super) fn authenticate(
 pub(super) fn restore(
     bundle: &Bundle,
     plan: &Plan,
+    end: u64,
     host: &Host,
     bytes: &[u8],
     execution: ExecutionConfig,
@@ -426,10 +432,40 @@ pub(super) fn restore(
             lane_change_last_kind[*slot as usize] = *kind;
         }
     }
+    // 场景族与宿主材料一致性先于会话重建核对（burst 规约入口只接受
+    // W3/W4）；burst 检查点必须携带验证材料并逐项对账恢复——缺材料
+    // 拒绝，不清零续跑宣布原规约通过（设计 §7）。W1/W2/L 的参考未接
+    // 会话，不得携带材料。
+    require(
+        host.burst.is_some() == matches!(&plan.identity.case, Case::W3 | Case::W4),
+        || "宿主场景种类不符".into(),
+    )?;
+    let session = if host.burst.is_some() {
+        let material = host
+            .verification
+            .as_ref()
+            .ok_or_else(|| Error::Invalid("burst 检查点缺少验证会话材料".into()))?;
+        Some(crate::verification::restore_burst_session(
+            material,
+            bundle,
+            &plan.identity.case,
+            end,
+        )?)
+    } else {
+        require(host.verification.is_none(), || {
+            "非 burst 检查点不得携带验证会话材料".into()
+        })?;
+        None
+    };
+    let input_identity = if session.is_some() {
+        crate::verification::input_identity(bundle)
+    } else {
+        String::new()
+    };
     let sample = Sample {
         cursor: world.command_cursor(),
-        session: None,
-        input_identity: String::new(),
+        session,
+        input_identity,
         world,
         state,
         handles,
@@ -523,10 +559,6 @@ pub(super) fn restore(
     } else {
         Driver::Simple(Box::new(sample))
     };
-    require(
-        matches!(driver, Driver::Burst(_)) == matches!(plan.identity.case, Case::W3 | Case::W4),
-        || "宿主场景种类不符".into(),
-    )?;
     times["restore_and_mapping_seconds"] = json!(start.elapsed().as_secs_f64());
     Ok(driver)
 }
