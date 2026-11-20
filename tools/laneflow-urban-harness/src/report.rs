@@ -541,6 +541,27 @@ pub fn run_with_options(
     diagnostics: Diagnostics,
     options: &RunOptions,
 ) -> Result<RunResult> {
+    run_with_options_and_cost(
+        artifacts,
+        plan,
+        output,
+        execution,
+        diagnostics,
+        options,
+        None,
+    )
+}
+
+/// 成本入口仍经过原完整运行、角色见证校验和报告写出；记录器只旁观成功拍。
+pub(crate) fn run_with_options_and_cost(
+    artifacts: &Artifacts,
+    plan: &ResolvedPlan,
+    output: &Path,
+    execution: laneflow_runtime::ExecutionConfig,
+    diagnostics: Diagnostics,
+    options: &RunOptions,
+    mut cost: Option<&mut crate::verification_cost::Recorder>,
+) -> Result<RunResult> {
     plan.validate(artifacts)?;
     if !diagnostics.is_enabled() && plan.window.purpose != "probe" {
         return Err(invalid(
@@ -604,6 +625,9 @@ pub fn run_with_options(
         None => None,
     };
     fs::create_dir(output)?;
+    if let Some(cost) = cost.as_deref_mut() {
+        cost.write_initial(output, plan, execution)?;
+    }
     let execution_id = new_execution_id()?;
     let plan_file = plan.write_recorded(&output.join("resolved-plan.toml"))?;
     let plan_digest = plan_file.digest.clone();
@@ -612,6 +636,9 @@ pub fn run_with_options(
         Some((harness, resumed)) => (harness, Some(resumed)),
         None => (Harness::install(artifacts, plan, execution)?, None),
     };
+    if let Some(cost) = cost.as_deref_mut() {
+        cost.installed(&harness);
+    }
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
         version: "urban-result-v9".into(),
@@ -737,6 +764,11 @@ pub fn run_with_options(
                         as u64,
                 });
             }
+            // 成本采样容器已预分配；旁路记录放在原整拍计时之后、两个
+            // observe 分配区间之外，不混入既有 observation_ns。
+            if let Some(cost) = cost.as_deref_mut() {
+                cost.record(&harness, record.tick);
+            }
             // 存档写出在整拍计时之后，不进入四项计时。
             if options.save_at.binary_search(&record.tick).is_ok() {
                 let (saved, timing) = save::write_save(
@@ -766,7 +798,13 @@ pub fn run_with_options(
         if !formal {
             result.status = "segment-complete".into();
         } else if plan.window.purpose == "correctness" {
+            if let Some(cost) = cost.as_deref_mut() {
+                cost.case_validation_started = true;
+            }
             validate_case(&harness)?;
+            if let Some(cost) = cost.as_deref_mut() {
+                cost.case_validation_passed = true;
+            }
             result.status = "case-pass-replay-required".into();
         } else if plan.window.purpose == "performance" {
             result.status = "performance-round-complete".into();

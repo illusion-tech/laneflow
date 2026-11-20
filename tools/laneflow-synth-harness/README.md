@@ -118,6 +118,94 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 已启动材料，不补跑拼接。此入口不采集性能，不证明其他 failpoint、多错误首错、
 强制调度置换或快照解码恢复；详见[执行设计 §8][lf-synth-execution-retry]。
 
+## 验证成本计量
+
+验证器成本使用独立的 `synth-verification-cost` 二进制，依据
+[交通验证设计 §9][traffic-verification-cost] 消费 W1–W4 的完整正式输入。它复用
+普通与 burst 的同一运行驱动、检查集合和会话协议；`run`/`worker-run` 默认通过
+单态化 `Noop` 接入，不增加逐车共享原子或额外世界扫描。此入口不接受短窗口或
+规则开关，W4 仍只观察 B0/B1 两拍；原 `measure` 的产品计时口径保持原义。
+
+时间与计数分别构建，放入不同目标目录，并以独立进程运行：
+
+```text
+cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin synth-verification-cost --target-dir <timing-target>
+cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin synth-verification-cost --features verification-cost-counts --target-dir <counts-target>
+<timing-binary> run <input-directory> <implementation-commit> <workers> <new-timing-output> --mode timing
+<counts-binary> run <input-directory> <implementation-commit> <workers> <new-counts-output> --mode counts
+```
+
+`workers` 显式传入真实 Runtime；支持范围与普通语义运行相同。timing 拒绝含
+`allocation` 或 `verification-cost-counts` 的构建；counts 必须有
+`verification-cost-counts`，并拒绝混入原产品 `allocation` 插桩。新 feature 只启用
+已有 `stats_alloc` 依赖。二进制装配对应全局 allocator；直接调用库 API 的计数
+调用方也必须装配它，入口用计量区间外的实分配探针验证，不把未装配报告成零分配。
+
+每次输出保留原 `report.json`、`ticks.bin`、`events.bin`，burst 另有原
+`commands.bin` 与 `batches.json`，可与同输入、同实现、同 worker 的普通运行逐字节
+或原有摘要比较。成本材料仅写入 `verification-cost.json`，格式
+`lf-synth-verification-cost-1`，包含 `mode`、输入 manifest 与 `input_identity`、
+实现提交、worker、完整窗口及已完成边界数。输出目录必须全新；入口先写
+`complete=false`，语义执行或 I/O 失败时保留已有材料及错误，不生成通过结论。
+`complete=true` 表示该次完整语义运行与成本采集完成，不表示成本预算通过。
+
+时间构建输出 `timing_by_phase_ns`、`boundary_samples` 和 `observation_ns`。
+各阶段边界如下；阶段互不嵌套，不能把其和当作整轮墙钟：
+
+| 阶段                    | 计量内容                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `setup`                 | Runtime/Sample/burst 安装、共享会话绑定，以及轨迹/事件记录器初始化；不含输入目录验证、Plan 解码与成本元数据绑定 |
+| `observation`           | 实际 observer 的事实读取、语义断言、融合的会话登记、边界编码与摘要；包括既有车辆/信号/事件遍历                  |
+| `session`               | 驱动器外层的命令数量声明、阶段推进、步进发起与成功结果核销；observer 内的登记仍计入 `observation`               |
+| `commands_and_receipts` | burst 边界命令形成、真实 Runtime 命令、结果检查/会话核销、重排、命令收据与批次证据写入                          |
+| `runtime_step`          | 真实 `TrafficWorld::step` 调用                                                                                  |
+| `evidence`              | 逐边界事件记录、轨迹/流摘要、检查点与循环内刷新输出                                                             |
+| `finish`                | 原宿主终结检查、会话 finish 和验证回执编码                                                                      |
+
+`whole_run_wall_ns` 从初始成本文件成功写入后起算，到原语义报告最终写入并返回为止。
+它包含输入验证、Plan 解码、成本元数据绑定、样本预分配/维护，以及原语义证据
+写入；不含参数准入、目录创建、初始成本文件写入及最终成本摘要转换/文件写入。
+这是一条明确包含计量维护成本的宿主墙钟，不宣称已消除仪器开销。终结后的事件
+文件/报告写入等不在上述阶段数组中，仍包含在该墙钟内。
+
+每行 `tick` 与 `observation_scope` 标识本行 observer 所见状态；`runtime_step_tick`
+标识该行 step 要产生的结果拍，`command_boundary` 标识命令执行边界，未发生则为
+`null`。普通 W1/W2 先 step(tick) 再 observe(tick)，burst 先 observe(tick)，再执行
+边界 tick 的命令和 step(tick+1)。因此 W4 预热末行含 B0 命令/step，最后观察行没有
+新的 step，不能按观察行的 scope 对命令或 Runtime 成本直接分组。`observation_ns`
+仅汇总 observer 时间，分 `initial`、`warm_up`、`observation`；初始单点及 W4 的
+两点正式观察窗保留原值与最大值，p50/p95/p99 为 `null`。不得以较长预热样本替代
+W4 观察尾延迟。
+
+计数构建的时间字段为 `null`。`workload_counts` 按初始/预热/观察分别记录实际
+车身区间数 K、单边界 K 最大值及各既有 observer 遍历的入口数和逻辑访问行数。
+W 族采用连续走廊坐标，每辆 Active 投影一个区间，Parked/Completed 不产生区间；
+K 不等于总人口。普通 W 的车身检查融合在车辆循环中，不虚报第二次 body 遍历。
+这些行数不代表 CPU load 次数，也不包括 Runtime 内部、快照和事件记录器内部扫描。
+失败回执可能累计末个未完成边界已经发生的访问，`completed_boundaries` 仅计完整
+边界；该诊断数据不能作为完整窗口的成本证据。
+
+`allocation.phases` 使用进程全局 `stats_alloc` 的互不重叠区间差值，分别记录各
+命名阶段的 alloc/dealloc/realloc 次数及字节数。这是上述受计阶段的分配，排除了
+输入验证、Plan 解码、成本绑定、终结后的事件/报告文件写入和成本 JSON 转换；
+不得作为整轮总分配。计数器自身只更新预先持有的标量数组，成本样本转换和写出
+都在这些区间之外。Runtime 的相关 worker 分配计入；同进程无关并发活动会污染
+精确归因，因此正式计数使用专用进程，不能引用并行测试进程的分配数作为预算。
+
+`scratch_high_water` 仅采样宿主拥有的六类 Vec：`sample.previous`、
+`sample.crossed`、`sample.trace_bytes`、`burst.lane_order`、`burst.changed` 与
+`burst.pending`，记录初始容量、最大长度/容量及按元素大小计算的保留字节高水位。
+`capacity_high_water_increases` 是采样时容量创新高的次数，既不是 allocator 的
+realloc 次数，也不覆盖采样间发生后又释放的峰值；它不代表总堆或 Runtime 内存。
+
+正式对照前须单独登记基线/受检提交、隔离补丁、实际二进制 SHA-256、构建日志和
+feature、工具链、输入身份、workers、完整窗口、运行顺序、安静窗口、各组预算及
+受扰/失败拒绝规则。可复用[宿主观测工具][host-observe]的环境与子进程观测能力；
+此单轮入口不会自动启动正式矩阵或据性能阈值判断通过。三组比较遵循设计 §9.3，
+旧检查器或关闭新增能力的诊断基线仅在独立检出以受审隔离补丁准备，生产入口不提供
+降级开关。内部短 fixture 测试只证明插桩不改变语义、真实计数与拍号映射，不替代
+完整窗口或安静条件下的正式性能证据。
+
 ## 表现与测量
 
 完整矩阵、独立原始数据复核、数值预算缺口与资源口径见
@@ -345,6 +433,7 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 [lf-synth-execution]: ../../docs/design/lf-synth-execution.md
 [lf-synth-execution-matrix]: ../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照
 [lf-synth-execution-retry]: ../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试
+[traffic-verification-cost]: ../../docs/design/traffic-verification.md#9-执行成本与确定性
 [lf-synth-measurement-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1166-lf-synth-measurement/README.md
 [lf-synth-measurement]: ../../docs/design/lf-synth-measurement.md
 [load-section]: ../../docs/design/lf-synth-measurement.md#7-逐段负载记录与受扰轮次

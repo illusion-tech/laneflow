@@ -1,6 +1,6 @@
 //! Caller-owned, finite LF-CN-URBAN demand and replay. Road authority stays in TrafficWorld.
 
-#[cfg(feature = "allocation")]
+#[cfg(any(feature = "allocation", feature = "verification-cost-counts"))]
 mod allocation;
 mod artifacts;
 #[cfg(test)]
@@ -44,6 +44,7 @@ pub use gate::run_gate_evidence;
 pub use seams::run_seam_evidence;
 #[cfg(feature = "adapter")]
 mod variant;
+mod verification_cost;
 mod written;
 
 pub use artifacts::Artifacts;
@@ -68,6 +69,7 @@ pub use runner::{Harness, IndividualId, TickRecord};
 pub use save::{ResumedFrom, SaveManifest, SaveRecord, SaveSource};
 #[cfg(feature = "adapter")]
 pub use variant::prepare_capacity_variant;
+pub use verification_cost::{VerificationCostMode, run_verification_cost};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
