@@ -134,6 +134,10 @@ fn complete_cost_probe_keeps_original_replay_and_separates_builds() {
         assert_eq!(counts["pre_step_blocks"], counts["state_blocks"]);
         assert_eq!(counts["body_nonempty_scans"], 8);
         assert_eq!(counts["body_overlap_scans"], 8);
+        // S0 融合扫描：两项判据共享一次遍历（8 拍各 1 次），无 debug
+        // 排序断言——与 S1 的两次遍历（应为 16）区分。
+        assert_eq!(counts["body_check_traversals"], 8);
+        assert_eq!(counts["body_sorted_debug_pairs"], 0);
         assert!(counts["body_fragments"].as_u64().unwrap() > 0);
         assert_eq!(counts["body_fragments"], counts["body_nonempty_scan_rows"]);
         assert_eq!(counts["body_fragments"], counts["body_overlap_scan_rows"]);

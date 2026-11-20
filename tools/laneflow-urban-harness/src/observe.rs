@@ -1708,14 +1708,16 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     {
         work.body_merge_output_rows = body_work.output_rows;
         work.body_merge_passes = body_work.passes;
-        // 共享已排序入口成功返回，保证非空校验和候选扫描都完整访问此切片。
+        // S0 融合扫描：非空校验与重叠候选在**同一次遍历**里逐行完成
+        //（两项判据各检查全部片段行），没有独立的非空预遍历，也没有
+        // debug 排序断言。判据检查行数各记 K；实际遍历次数记 1——
+        // 与 S1（判据包两次遍历）区分正是结构组要识别的成本。
         work.body_nonempty_scan_rows = bodies.len() as u64;
         work.body_nonempty_scans = 1;
         work.body_overlap_scan_rows = bodies.len() as u64;
         work.body_overlap_scans = 1;
-        if cfg!(debug_assertions) {
-            work.body_sorted_debug_pairs = bodies.len().saturating_sub(1) as u64;
-        }
+        work.body_check_traversals = 1;
+        work.body_sorted_debug_pairs = 0;
         h.observation.work.add(work);
     }
     #[cfg(not(feature = "verification-cost-counts"))]
@@ -1863,6 +1865,86 @@ mod tests {
         let work = merge_sorted_runs(&mut data, &mut vec![0, 3], &mut Vec::new());
         assert_eq!(work.passes, 0);
         assert_eq!(work.output_rows, 0);
+    }
+
+    #[test]
+    fn merged_scan_catches_nested_overlap_that_adjacent_pairs_miss() {
+        // 设计 §5.3 的嵌套反例走 S0 的生产接缝（块内有序 + 归并 +
+        // 内联修正扫描 + Urban 错误返回）：A 的车身跨长、短两个片段
+        //（同一物理边、同 owner，分属不同块），B 落在 A 的长片段内。
+        // 旧相邻对比较会跳过同 owner 对而漏检；修正后的融合扫描必须
+        // 经归并后报出——也钉住 merge_and_check_bodies 确实调用检查。
+        let a = IndividualId {
+            tile: 0,
+            slot: 1,
+            incarnation: 0,
+        };
+        let b = IndividualId {
+            tile: 0,
+            slot: 2,
+            incarnation: 0,
+        };
+        let c = IndividualId {
+            tile: 0,
+            slot: 3,
+            incarnation: 0,
+        };
+        // 三个块各带一段有序片段：run1={A 长、B}、run2={A 短}、
+        // run3={无关 C}——归并前同 owner 的长短片段不相邻。
+        let mut bodies = vec![
+            (7_u32, 0_u64, 100_u64, a),
+            (7, 80, 90, b),
+            (7, 50, 70, a),
+            (8, 0, 10, c),
+        ];
+        let mut runs = vec![0, 2, 3, 4];
+        let mut merge = Vec::new();
+        let error = merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, 42)
+            .expect_err("嵌套遮蔽下的跨 owner 重叠必须经生产接缝报出");
+        let message = match &error {
+            crate::Error::Validation(message) => message,
+            other => panic!("须以 Validation 错误返回：{other}"),
+        };
+        assert!(
+            message.contains("body overlap at tick 42 on edge 7"),
+            "须以 Urban 车身重叠错误返回：{message}"
+        );
+        // 归并已完成：排序总序下 A 长片段先于 A 短片段与 B。
+        assert_eq!(
+            bodies.iter().map(|body| body.3).collect::<Vec<_>>(),
+            vec![a, a, b, c]
+        );
+    }
+
+    #[test]
+    fn merged_scan_allows_touching_and_flags_single_um_intrusion() {
+        // 同一生产接缝上的正反例：恰好相接合法；压入 1 µm 即以 Urban
+        // 错误返回拒绝。两段各占一个块，验证跨 run 归并后的判定。
+        let a = IndividualId {
+            tile: 0,
+            slot: 1,
+            incarnation: 0,
+        };
+        let b = IndividualId {
+            tile: 0,
+            slot: 2,
+            incarnation: 0,
+        };
+        let mut bodies = vec![(7_u32, 0_u64, 100_u64, a), (7, 100, 200, b)];
+        let (mut runs, mut merge) = (vec![0, 1, 2], Vec::new());
+        merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, 7).expect("恰好相接合法");
+        let mut bodies = vec![(7, 0, 101, a), (7, 100, 200, b)];
+        let (mut runs, mut merge) = (vec![0, 1, 2], Vec::new());
+        let error = merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, 8)
+            .expect_err("压入 1 µm 即违反");
+        let message = match &error {
+            crate::Error::Validation(message) => message,
+            other => panic!("须以 Validation 错误返回：{other}"),
+        };
+        assert!(
+            message.contains("body overlap at tick 8"),
+            "须以 Urban 车身重叠错误返回：{message}"
+        );
     }
 
     #[test]
