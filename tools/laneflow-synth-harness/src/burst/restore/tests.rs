@@ -43,15 +43,26 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
             }
         }
         let execution = ExecutionConfig::new(NonZeroU32::MIN);
-        let mut driver = if matches!(case, Case::W3 | Case::W4) {
+        let end = plan.warm_up_ticks + plan.observation_ticks;
+        let mut driver = if matches!(plan.identity.case, Case::W3 | Case::W4) {
             Driver::Burst(Box::new(Burst::new(&bundle, &plan, execution).unwrap()))
         } else {
             Driver::Simple(Box::new(Sample::new(&bundle, execution).unwrap()))
         };
+        // burst 参考与生产 reference() 同式接线会话（设计 §8：恢复参考与
+        // 正常参考共用准入）；恢复等值比较覆盖验证状态（不重复计数）。
+        if let Driver::Burst(burst) = &mut driver {
+            crate::verification::bind_burst_session(
+                &mut burst.sample,
+                &bundle,
+                &plan.identity.case,
+                end,
+            )
+            .unwrap();
+        }
         let directory = tempfile::tempdir().unwrap();
         let baseline = directory.path().join("reference");
         fs::create_dir(&baseline).unwrap();
-        let end = plan.warm_up_ticks + plan.observation_ticks;
         let mut records = Records::new(&baseline, end, 10_000, 0, false).unwrap();
         let mut outcome = None;
         for tick in 0..=end {
@@ -72,11 +83,12 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                     save(&driver, &records, &baseline, index, true).unwrap();
                 }
             }
-            outcome = Some(driver.sample_mut().world.step(TickInput::new(16)).unwrap());
+            outcome = Some(driver.step(&plan).unwrap());
         }
         records.finish(&baseline).unwrap();
         let expected = state::projection(driver.sample()).unwrap();
         let expected_host = driver.final_host();
+        let expected_verification = driver.verification_final().unwrap();
         drop(driver);
         for index in 0..2 {
             let host: state::Host = serde_json::from_slice(
@@ -86,9 +98,16 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
             let bytes = fs::read(baseline.join(format!("checkpoint-{index}.lfrs"))).unwrap();
             for workers in [1, 16] {
                 let execution = ExecutionConfig::new(NonZeroU32::new(workers).unwrap());
-                let mut restored =
-                    state::restore(&bundle, &plan, &host, &bytes, execution, &mut json!({}))
-                        .unwrap();
+                let mut restored = state::restore(
+                    &bundle,
+                    &plan,
+                    end,
+                    &host,
+                    &bytes,
+                    execution,
+                    &mut json!({}),
+                )
+                .unwrap();
                 let out = directory.path().join(format!("{index}-{workers}"));
                 fs::create_dir(&out).unwrap();
                 let mut suffix = Records::new(&out, end, 10_000, host.tick + 1, false).unwrap();
@@ -98,11 +117,7 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                     if boundary != host.tick || !host.after_commands {
                         restored.commands(&plan, &scheduled, &mut suffix).unwrap();
                     }
-                    let outcome = restored
-                        .sample_mut()
-                        .world
-                        .step(TickInput::new(16))
-                        .unwrap();
+                    let outcome = restored.step(&plan).unwrap();
                     suffix
                         .observe(&mut restored, &plan, Some(&outcome), end)
                         .unwrap();
@@ -110,6 +125,11 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                 suffix.finish(&out).unwrap();
                 assert_eq!(state::projection(restored.sample()).unwrap(), expected);
                 assert_eq!(restored.final_host(), expected_host);
+                assert_eq!(
+                    restored.verification_final().unwrap(),
+                    expected_verification,
+                    "恢复续跑的验证会话末态须与参考逐字节等值（不重复计数、不丢覆盖）"
+                );
                 suffix_equal(
                     &baseline.join("ticks.bin"),
                     &out.join("ticks.bin"),
@@ -137,27 +157,65 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                 let mut bad: state::Host =
                     serde_json::from_slice(&fs::read(baseline.join("checkpoint-0.json")).unwrap())
                         .unwrap();
+                if matches!(case, Case::W3 | Case::W4) {
+                    // 验证材料缺失或身份篡改：恢复拒绝（设计 §7：缺必需
+                    // 检查状态/错身份不清零续跑宣布原规约通过）。
+                    let original = bad.verification.clone();
+                    bad.verification = None;
+                    assert!(
+                        state::restore(
+                            &bundle,
+                            &plan,
+                            end,
+                            &bad,
+                            &bytes,
+                            execution,
+                            &mut json!({})
+                        )
+                        .is_err(),
+                        "burst 检查点缺验证材料必须拒绝恢复"
+                    );
+                    bad.verification = bad.verification.take().map(|mut material| {
+                        material["input_identity"] = json!("tampered@identity");
+                        material
+                    });
+                    assert!(
+                        state::restore(
+                            &bundle,
+                            &plan,
+                            end,
+                            &bad,
+                            &bytes,
+                            execution,
+                            &mut json!({})
+                        )
+                        .is_err(),
+                        "验证材料输入身份错配必须拒绝恢复"
+                    );
+                    bad.verification = original;
+                }
                 bad.source_digest[0] ^= 1;
                 assert!(
-                    state::restore(&bundle, &plan, &bad, &bytes, execution, &mut json!({}))
+                    state::restore(&bundle, &plan, end, &bad, &bytes, execution, &mut json!({}))
                         .is_err()
                 );
                 bad.source_digest = host.source_digest;
                 bad.revision[0] ^= 1;
                 assert!(
-                    state::restore(&bundle, &plan, &bad, &bytes, execution, &mut json!({}))
+                    state::restore(&bundle, &plan, end, &bad, &bytes, execution, &mut json!({}))
                         .is_err()
                 );
                 bad.revision = host.revision;
                 bad.vehicle_ids.swap(0, 26);
                 assert!(
-                    state::restore(&bundle, &plan, &bad, &bytes, execution, &mut json!({}))
+                    state::restore(&bundle, &plan, end, &bad, &bytes, execution, &mut json!({}))
                         .is_err()
                 );
                 assert!(
                     state::restore(
                         &bundle,
                         &plan,
+                        end,
                         &host,
                         &bytes[..bytes.len() - 1],
                         execution,
@@ -169,6 +227,7 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                     state::restore(
                         &bundle,
                         &plan,
+                        end,
                         &host,
                         &bytes,
                         ExecutionConfig::new(NonZeroU32::new(17).unwrap()),

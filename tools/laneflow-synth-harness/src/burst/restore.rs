@@ -40,13 +40,37 @@ impl Driver {
         outcome: Option<&StepOutcome>,
     ) -> Result<blake3::Hash, Error> {
         let tick = self.sample().world.tick_index();
-        match self {
+        let digest = match self {
             Self::Simple(s) => s.observe(
                 tick,
                 outcome.is_none_or(|o| o.parking_arrivals().is_empty()),
             ),
             Self::Burst(b) => b.observe(tick, plan.warm_up_ticks, outcome),
+        }?;
+        // 步进结果在观测消费完本拍检查后恰核销一次（设计 §6）；先于检查
+        // 点保存，恢复材料停在确定边界。
+        if let (Some(outcome_tick), Some(session)) = (
+            outcome.map(StepOutcome::tick_index),
+            self.sample_mut().session.as_mut(),
+        ) {
+            session
+                .note_successful_step(outcome_tick)
+                .map_err(|e| failure("验证会话步进协议", e))?;
         }
+        Ok(digest)
+    }
+    /// 发起一次步进：先经会话拍前核销（命令结束已在 `commands` 或恢复
+    /// 材料中完成），再驱动 Runtime。
+    fn step(&mut self, plan: &Plan) -> Result<StepOutcome, Error> {
+        if let Some(session) = self.sample_mut().session.as_mut() {
+            session
+                .begin_step()
+                .map_err(|e| failure("验证会话步进发起", e))?;
+        }
+        self.sample_mut()
+            .world
+            .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
+            .map_err(|e| failure("step", e))
     }
     fn commands(
         &mut self,
@@ -60,34 +84,47 @@ impl Driver {
         let tick = b.sample.world.tick_index();
         let commands =
             b.boundary_commands(tick, plan.warm_up_ticks + plan.observation_ticks, scheduled)?;
-        if commands.is_empty() {
-            return Ok(());
+        // 会话命令阶段：声明本边界命令总数（可为零）后逐条执行；每条
+        // 命令的义务在结果消费时核销（设计 §6 命令结果阶段）。
+        if let Some(session) = b.sample.session.as_mut() {
+            session
+                .declare_commands(commands.len() as u32)
+                .map_err(|e| failure("验证会话命令阶段", e))?;
         }
-        let before = state_digest(&b.sample.world)?;
-        let cursor = b.sample.cursor;
-        let first = records.journal.count;
-        for command in &commands {
-            let rank = command.logical_rank as usize;
-            let incarnation = *b
-                .incarnations
-                .get(rank)
-                .ok_or_else(|| failure("command rank", rank))?;
-            let before_cursor = b.sample.cursor;
-            let committed = b.command(command)?;
-            records.journal.append(
-                command,
-                tick,
-                [before_cursor, b.sample.cursor],
-                [incarnation, b.incarnations[rank]],
-                committed,
-            )?;
-            if !committed {
-                b.pending.push(command.clone());
+        if !commands.is_empty() {
+            let before = state_digest(&b.sample.world)?;
+            let cursor = b.sample.cursor;
+            let first = records.journal.count;
+            for command in &commands {
+                let rank = command.logical_rank as usize;
+                let incarnation = *b
+                    .incarnations
+                    .get(rank)
+                    .ok_or_else(|| failure("command rank", rank))?;
+                let before_cursor = b.sample.cursor;
+                let committed = b.execute_command(command)?;
+                records.journal.append(
+                    command,
+                    tick,
+                    [before_cursor, b.sample.cursor],
+                    [incarnation, b.incarnations[rank]],
+                    committed,
+                )?;
+                if !committed {
+                    b.pending.push(command.clone());
+                }
             }
+            b.refresh_order();
+            records.batches.push(json!({"boundary":tick,"command_count":commands.len(),"first_receipt":first,"input_digest":input_digest(&commands),"pre_command_state_digest":before,"post_command_state_digest":state_digest(&b.sample.world)?,"cursor_before":cursor,"cursor_after":b.sample.cursor}));
+            records.journal.output.flush()?;
         }
-        b.refresh_order();
-        records.batches.push(json!({"boundary":tick,"command_count":commands.len(),"first_receipt":first,"input_digest":input_digest(&commands),"pre_command_state_digest":before,"post_command_state_digest":state_digest(&b.sample.world)?,"cursor_before":cursor,"cursor_after":b.sample.cursor}));
-        records.journal.output.flush()?;
+        // 命令结束即形成拍前事实（设计 §6/§7：AfterCommands 是可保存的
+        // 确定边界；步进由 `step` 发起时再核销拍前义务）。
+        if let Some(session) = b.sample.session.as_mut() {
+            session
+                .advance_to_pre_tick()
+                .map_err(|e| failure("验证会话拍前阶段", e))?;
+        }
         Ok(())
     }
     fn finish(&self, plan: &Plan) -> Result<(), Error> {
@@ -122,6 +159,20 @@ impl Driver {
             }
         };
         json!({"crossed":s.crossed,"transitions":s.transitions,"max_deceleration":s.max_deceleration_mm_s2,"excessive_decelerations":s.deceleration_above_profile_count,"burst":burst})
+    }
+    /// 末态验证检查点（参考/恢复等值比较面）：会话在终点边界的完整状态
+    /// （窗口、触发覆盖、见证与累计尝试），两侧逐字节相等即证明恢复未
+    /// 重复计数也未丢失覆盖（设计 §7/§10 恢复行）。无会话为 `null`。
+    fn verification_final(&self) -> Result<Value, Error> {
+        match self.sample().session.as_ref() {
+            Some(session) => {
+                let material = session
+                    .checkpoint(&self.sample().input_identity)
+                    .map_err(|e| failure("验证会话检查点", e))?;
+                serde_json::to_value(material).map_err(|e| failure("验证检查点编码", e))
+            }
+            None => Ok(Value::Null),
+        }
     }
 }
 
@@ -241,12 +292,14 @@ fn final_record(plan: &Plan, driver: &Driver, records: &Records) -> Result<Value
         Ok(
             json!({"face_b":{"persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,
             "t_state":crate::lane_change_t_state(driver.sample())},
-            "host":driver.final_host(),"command_count":records.journal.count,"blocked":records.journal.blocked}),
+            "host":driver.final_host(),"command_count":records.journal.count,"blocked":records.journal.blocked,
+            "verification":driver.verification_final()?}),
         )
     } else {
         Ok(
             json!({"state":state::projection(driver.sample())?,"host":driver.final_host(),
-            "command_count":records.journal.count,"blocked":records.journal.blocked}),
+            "command_count":records.journal.count,"blocked":records.journal.blocked,
+            "verification":driver.verification_final()?}),
         )
     }
 }
@@ -357,8 +410,19 @@ pub fn reference(
         } else {
             Driver::Simple(Box::new(Sample::new(&bundle, execution)?))
         };
-        let preparation = start.elapsed().as_secs_f64();
         let end = total(&plan, probe);
+        // burst 参考与正式 run 共用同一验证构造入口（设计 §8：普通、
+        // restore 的正常参考共用对应准入）；探针参考的会话窗口与参考
+        // 终点一致，其回执只证明探针范围。
+        if let Driver::Burst(burst) = &mut driver {
+            crate::verification::bind_burst_session(
+                &mut burst.sample,
+                &bundle,
+                &plan.identity.case,
+                end,
+            )?;
+        }
+        let preparation = start.elapsed().as_secs_f64();
         let scheduled = plan
             .scheduled
             .iter()
@@ -391,13 +455,7 @@ pub fn reference(
                     archives.push(save(&driver, &records, output, index, true)?);
                 }
             }
-            outcome = Some(
-                driver
-                    .sample_mut()
-                    .world
-                    .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                    .map_err(|e| failure("reference step", e))?,
-            );
+            outcome = Some(driver.step(&plan)?);
         }
         if !probe {
             driver.finish(&plan)?;
@@ -512,6 +570,7 @@ pub fn resume(
         let mut driver = state::restore(
             &bundle,
             &plan,
+            end,
             &host,
             &fs::read(reference.join(format!("checkpoint-{index}.lfrs")))?,
             execution,
@@ -537,11 +596,7 @@ pub fn resume(
             if boundary != host.tick || !host.after_commands {
                 driver.commands(&plan, &scheduled, &mut records)?;
             }
-            let outcome = driver
-                .sample_mut()
-                .world
-                .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                .map_err(|e| failure("restored step", e))?;
+            let outcome = driver.step(&plan)?;
             require(outcome.tick_index() == boundary + 1, || {
                 "恢复继续运行跳拍".into()
             })?;
