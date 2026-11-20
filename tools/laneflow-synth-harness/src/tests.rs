@@ -315,6 +315,50 @@ fn w2_is_fully_active_and_shortened_plan_is_rejected() {
     assert!(!output.join("ticks.bin").exists());
 }
 
+/// W4 正式 run 入口（`burst::run`）的会话接线端到端：压缩时序计划
+///（与恢复 E2E 同法，冻结输入字节不动）走完整生产路径，回执携带验证
+/// 回执——规格身份、真实见证计数（过门与 Green 探针各 100）、逐命令
+/// 触发计数与零 Blocked；报告级检查点携带验证材料。
+#[test]
+fn w4_full_run_report_carries_verification_receipt() {
+    let bundle = bundle(Case::W4, 16);
+    let mut plan = Plan::read(&bundle).unwrap();
+    let old_warm = plan.warm_up_ticks;
+    plan.warm_up_ticks = 1;
+    for batch in &mut plan.scheduled {
+        let boundary = batch["boundary"].as_u64().unwrap();
+        if boundary > 0 {
+            batch["boundary"] = serde_json::json!(boundary + 1 - old_warm);
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("output");
+    std::fs::create_dir(&output).unwrap();
+    let report = crate::burst::run(
+        &bundle,
+        &plan,
+        &"c".repeat(40),
+        ExecutionConfig::new(NonZeroU32::MIN),
+        &output,
+    )
+    .unwrap();
+    assert_eq!(report["complete"], true);
+    let receipt = &report["verification_receipt"];
+    assert_eq!(receipt["spec"], "lf-synth-w4-burst-semantic-run");
+    assert_eq!(receipt["successful_steps"], 3);
+    assert_eq!(receipt["blocked_attempts"], 0);
+    assert_eq!(receipt["witnesses"]["per-active-crossing"], 100);
+    assert_eq!(receipt["witnesses"]["w4-green-probe"], 100);
+    assert_eq!(receipt["trigger_counts"]["w-command-authority"], 600);
+    let checkpoints = report["checkpoints"].as_array().unwrap();
+    assert!(
+        checkpoints
+            .iter()
+            .all(|point| point["verification"]["spec_name"] == "lf-synth-w4-burst-semantic-run"),
+        "报告级检查点必须携带验证材料"
+    );
+}
+
 #[test]
 fn w_session_wiring_counts_rules_and_can_finish_positively() {
     // W1/W2 正式 run 的会话接线：真实 Sample、真实 Runtime step 与真实

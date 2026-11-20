@@ -3,7 +3,7 @@ use laneflow_runtime::{
     VehicleStatus,
 };
 use laneflow_traffic_verification::body::{BodyInterval, BodyOwner, intervals_overlap};
-use laneflow_traffic_verification::session::Session;
+use laneflow_traffic_verification::session::{CommandResult, Session};
 use laneflow_traffic_verification::signal::signal_crossing_permission;
 use laneflow_traffic_verification::spec::{RuleDescriptor, RuleId, WitnessId};
 
@@ -13,7 +13,10 @@ use crate::verification::{
 
 /// 会话接线助手：有会话时记录规则实际运行，协议错误如实上抛；无会话
 /// （L 族专项或直装测试）为空操作，观测行为不变。
-fn session_note(session: &mut Option<Session>, rule: RuleDescriptor) -> Result<(), Error> {
+pub(crate) fn session_note(
+    session: &mut Option<Session>,
+    rule: RuleDescriptor,
+) -> Result<(), Error> {
     match session {
         Some(session) => session
             .note_check(rule.id)
@@ -23,18 +26,35 @@ fn session_note(session: &mut Option<Session>, rule: RuleDescriptor) -> Result<(
 }
 
 /// 会话接线助手：把违反记到对应规则（消息闭包内调用，只在失败时执行）。
-fn session_violation(session: &mut Option<Session>, rule: RuleId) {
+pub(crate) fn session_violation(session: &mut Option<Session>, rule: RuleId) {
     if let Some(session) = session {
         session.note_violation(rule);
     }
 }
 
 /// 会话接线助手：记录场景见证发生。
-fn session_witness(session: &mut Option<Session>, witness: WitnessId) -> Result<(), Error> {
+pub(crate) fn session_witness(
+    session: &mut Option<Session>,
+    witness: WitnessId,
+) -> Result<(), Error> {
     match session {
         Some(session) => session
             .note_witness(witness)
             .map_err(|e| Error::Invalid(format!("验证会话协议：{e:?}"))),
+        None => Ok(()),
+    }
+}
+
+/// 会话接线助手：按实际结果消费一条命令回执（成功推进游标、Blocked 只
+/// 计尝试，设计 §6 命令结果阶段）。
+pub(crate) fn session_result(
+    session: &mut Option<Session>,
+    result: CommandResult,
+) -> Result<(), Error> {
+    match session {
+        Some(session) => session
+            .note_command_result(result)
+            .map_err(|e| Error::Invalid(format!("验证会话命令结果：{e:?}"))),
         None => Ok(()),
     }
 }
