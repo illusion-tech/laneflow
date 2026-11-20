@@ -175,22 +175,23 @@ fn file_restore_preserves_all_case_suffixes_and_rejects_corruption() {
                         .is_err(),
                         "burst 检查点缺验证材料必须拒绝恢复"
                     );
-                    bad.verification = bad.verification.take().map(|mut material| {
+                    bad.verification = original.clone().map(|mut material| {
                         material["input_identity"] = json!("tampered@identity");
                         material
                     });
+                    let rejected = state::restore(
+                        &bundle,
+                        &plan,
+                        end,
+                        &bad,
+                        &bytes,
+                        execution,
+                        &mut json!({}),
+                    );
                     assert!(
-                        state::restore(
-                            &bundle,
-                            &plan,
-                            end,
-                            &bad,
-                            &bytes,
-                            execution,
-                            &mut json!({})
-                        )
-                        .is_err(),
-                        "验证材料输入身份错配必须拒绝恢复"
+                        matches!(&rejected, Err(crate::Error::Invalid(message))
+                            if message.contains("IdentityMismatch")),
+                        "验证材料输入身份错配必须以身份错配拒绝恢复"
                     );
                     bad.verification = original;
                 }
