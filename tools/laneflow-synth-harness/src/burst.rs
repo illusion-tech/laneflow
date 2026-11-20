@@ -9,9 +9,11 @@ use std::path::Path;
 use laneflow_runtime::*;
 use laneflow_static_contract::{ParkingSpaceId, ParkingSpaceOrdinal};
 use laneflow_synth_generator::{Bundle, Case};
+use laneflow_traffic_verification::session::CommandResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::verification::{RULE_COMMANDS, WITNESS_LEAVE, WITNESS_PARK};
 use crate::{Error, Plan, failure, install::Sample, require};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -233,7 +235,8 @@ impl Burst {
             "public_trace_digest":stream.clone().finalize().to_hex().to_string(),
             "public_state_digest":crate::public_state_digest(&self.sample.world)?,
             "population":{"active":self.counts[0],"parked":self.counts[1],"completed":self.counts[2]},
-            "command_cursor":self.sample.cursor,"gate_crossings":self.sample.transitions}),
+            "command_cursor":self.sample.cursor,"gate_crossings":self.sample.transitions,
+            "verification":crate::verification_material(&self.sample)?}),
         )
     }
 
@@ -450,6 +453,42 @@ impl Burst {
         Ok(true)
     }
 
+    /// 会话协议包裹的单条边界命令执行（设计 §6 命令结果阶段）：命令权限
+    /// 规则在本条命令的开放义务内登记实际运行，宿主核验失败把违反记到
+    /// 该规则后如实上抛；随后按实际结果消费——成功推进成功命令游标，
+    /// Blocked 只计尝试与拒绝统计，不推进游标、代次或位置。W3 场景见证
+    /// 在提交点记录屏障停车/离位。
+    fn execute_command(&mut self, command: &Command) -> Result<bool, Error> {
+        let committed = match self.command(command) {
+            Ok(committed) => committed,
+            Err(error) => {
+                crate::observe::session_violation(&mut self.sample.session, RULE_COMMANDS.id);
+                return Err(error);
+            }
+        };
+        crate::observe::session_note(&mut self.sample.session, RULE_COMMANDS)?;
+        crate::observe::session_result(
+            &mut self.sample.session,
+            if committed {
+                CommandResult::Succeeded
+            } else {
+                CommandResult::Blocked
+            },
+        )?;
+        if committed && self.sample.state.identity.case == Case::W3 {
+            match command.operation {
+                Operation::ParkVehicle => {
+                    crate::observe::session_witness(&mut self.sample.session, WITNESS_PARK)?;
+                }
+                Operation::LeaveParking => {
+                    crate::observe::session_witness(&mut self.sample.session, WITNESS_LEAVE)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(committed)
+    }
+
     fn accept_handle(
         &mut self,
         rank: usize,
@@ -555,13 +594,16 @@ pub(super) fn run(
         .map(serde_json::from_value)
         .collect::<Result<_, _>>()?;
     let mut burst = Burst::new(bundle, plan, execution)?;
+    let total = plan.warm_up_ticks + plan.observation_ticks;
+    // W3/W4 burst 正式 run 接线共享验证会话（设计 §10 burst 行）：绑定
+    // 规约、登记输入身份并确立初始边界。
+    crate::verification::bind_burst_session(&mut burst.sample, bundle, &plan.identity.case, total)?;
     let initial_cursor = burst.sample.cursor;
     let mut journal = Journal::new(&output.join("commands.bin"))?;
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
     trace.write_all(b"lf-synth-burst-ticks-1\0")?;
     let mut stream = blake3::Hasher::new();
     stream.update(b"lf-synth-burst-stream-1\0");
-    let total = plan.warm_up_ticks + plan.observation_ticks;
     let checkpoints_at = [
         0,
         plan.warm_up_ticks,
@@ -578,6 +620,15 @@ pub(super) fn run(
     let mut events = crate::measurement::events::Recorder::new(total + 1, plan.identity.scale);
     for tick in 0..=total {
         let boundary_digest = burst.observe(tick, plan.warm_up_ticks, outcome.as_ref())?;
+        if tick > 0 {
+            // 步进结果在观测消费完本拍检查后恰核销一次（设计 §6）；先于
+            // 检查点与命令执行，本拍验证材料停在“命令执行前”边界。
+            if let Some(session) = burst.sample.session.as_mut() {
+                session
+                    .note_successful_step(tick)
+                    .map_err(|e| failure("验证会话步进协议", e))?;
+            }
+        }
         events.record(
             &burst.sample.world,
             &burst.handle_ranks,
@@ -607,6 +658,13 @@ pub(super) fn run(
             break;
         }
         let commands = burst.boundary_commands(tick, total, &scheduled)?;
+        // 会话命令阶段：声明本边界命令总数（可为零）后逐条执行；每条
+        // 命令的义务在结果消费时核销（设计 §6 命令结果阶段）。
+        if let Some(session) = burst.sample.session.as_mut() {
+            session
+                .declare_commands(commands.len() as u32)
+                .map_err(|e| failure("验证会话命令阶段", e))?;
+        }
         if !commands.is_empty() {
             let before = state_digest(&burst.sample.world)?;
             let cursor = burst.sample.cursor;
@@ -619,7 +677,7 @@ pub(super) fn run(
                     .copied()
                     .ok_or_else(|| failure("rank", rank))?;
                 let before_cursor = burst.sample.cursor;
-                let committed = burst.command(command)?;
+                let committed = burst.execute_command(command)?;
                 journal.append(
                     command,
                     tick,
@@ -642,6 +700,16 @@ pub(super) fn run(
             )?;
             journal.output.flush()?;
         }
+        // 命令结束：全部消费后形成拍前事实并立即发起步进；零命令边界
+        // 同样经过完整的阶段协议。
+        if let Some(session) = burst.sample.session.as_mut() {
+            session
+                .advance_to_pre_tick()
+                .map_err(|e| failure("验证会话拍前阶段", e))?;
+            session
+                .begin_step()
+                .map_err(|e| failure("验证会话步进发起", e))?;
+        }
         outcome = Some(
             burst
                 .sample
@@ -656,6 +724,17 @@ pub(super) fn run(
             && journal.count == burst.sample.cursor - initial_cursor + journal.blocked,
         || "固定命令总数不符".into(),
     )?;
+    // 会话终结：完整窗口、逐轮覆盖、必需场景见证（到达/停车/离位/Blocked
+    // 重试/Green 探针）与无违反同时成立才产生回执（设计 §3.3/§10）。
+    let verification_receipt = match burst.sample.session.as_mut() {
+        Some(session) => {
+            let receipt = session
+                .finish()
+                .map_err(|e| Error::Invalid(format!("验证会话终结被拒：{e:?}")))?;
+            Some(crate::receipt_json(&receipt))
+        }
+        None => None,
+    };
     trace.flush()?;
     journal.output.flush()?;
     events.write(&output.join("events.bin"))?;
@@ -682,6 +761,7 @@ pub(super) fn run(
         "max_observed_deceleration_mm_s2":burst.sample.max_deceleration_mm_s2,
         "deceleration_above_profile_count":burst.sample.deceleration_above_profile_count,
         "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints,
+        "verification_receipt":verification_receipt,
         "ordered_events_digest":events.digest()}))
 }
 
@@ -759,6 +839,460 @@ mod tests {
             burst
                 .observe(1, plan.warm_up_ticks, Some(&outcome))
                 .is_err()
+        );
+    }
+
+    /// 压缩时序的 W3 会话接线（与恢复 E2E 同法：只压缩宿主时间安排、
+    /// 平移计划边界，不改冻结输入字节）：真实 Runtime、真实命令。冻结
+    /// W3 输入的完成替换在替换位恒为空走廊、不被拒（走廊 3 的 75–80
+    /// 已前行、81 刚被替换掉、82–99 停驶）；钉住：每条命令恰一次义务
+    /// 核销、提交数即成功命令游标增量、压缩窗口缺必需见证不得冒充完整
+    /// 通过（§3.3/§10）。Blocked 容错语义见注入探针测试。
+    #[test]
+    fn w3_burst_session_consumes_command_results() {
+        use laneflow_traffic_verification::session::FinishRejected;
+        use laneflow_traffic_verification::spec::RuleId;
+
+        let bundle = generate(
+            Identity::new(10_000, Case::W3, 16).unwrap(),
+            Provenance {
+                source_commit: "a".repeat(40),
+                generator_commit: "b".repeat(40),
+            },
+        )
+        .unwrap();
+        let mut plan = Plan::read(&bundle).unwrap();
+        let old_warm = plan.warm_up_ticks;
+        plan.warm_up_ticks = 1;
+        plan.observation_ticks = 5;
+        let mut scheduled: Vec<Scheduled> = plan
+            .scheduled
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        for batch in &mut scheduled {
+            if batch.boundary > 0 {
+                batch.boundary = batch.boundary + 1 - old_warm;
+            }
+        }
+        let end = plan.warm_up_ticks + plan.observation_ticks;
+        let mut burst = Burst::new(
+            &bundle,
+            &plan,
+            ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap();
+        let case = plan.identity.case.clone();
+        crate::verification::bind_burst_session(&mut burst.sample, &bundle, &case, end).unwrap();
+        let initial_cursor = burst.sample.cursor;
+        let mut consumed = 0_u64;
+        let mut outcome = None;
+        for tick in 0..=end {
+            burst
+                .observe(tick, plan.warm_up_ticks, outcome.as_ref())
+                .unwrap();
+            if tick > 0 {
+                burst
+                    .sample
+                    .session
+                    .as_mut()
+                    .unwrap()
+                    .note_successful_step(tick)
+                    .unwrap();
+            }
+            if tick == end {
+                break;
+            }
+            let commands = burst.boundary_commands(tick, end, &scheduled).unwrap();
+            burst
+                .sample
+                .session
+                .as_mut()
+                .unwrap()
+                .declare_commands(commands.len() as u32)
+                .unwrap();
+            for command in &commands {
+                assert!(burst.execute_command(command).unwrap());
+                consumed += 1;
+            }
+            burst.refresh_order();
+            let session = burst.sample.session.as_mut().unwrap();
+            session.advance_to_pre_tick().unwrap();
+            session.begin_step().unwrap();
+            outcome = Some(burst.sample.world.step(TickInput::new(16)).unwrap());
+        }
+        // 冻结输入全程无 Blocked：提交数恰为成功命令游标增量。
+        assert_eq!(
+            burst.sample.cursor - initial_cursor,
+            consumed,
+            "无 Blocked 时提交数即游标增量"
+        );
+        // 每条命令恰一次义务核销：命令权限规则触发数 == 实际回执数。
+        let session = burst.sample.session.as_ref().unwrap();
+        assert_eq!(
+            session.trigger_count(RuleId("w-command-authority")),
+            consumed
+        );
+        let material =
+            serde_json::to_value(session.checkpoint(&burst.sample.input_identity).unwrap())
+                .unwrap();
+        assert_eq!(material["blocked_attempts"].as_u64().unwrap(), 0);
+        assert_eq!(
+            material["successful_commands"].as_u64().unwrap(),
+            burst.sample.cursor - initial_cursor
+        );
+        assert_eq!(
+            material["trigger_counts"]["w-motion-identity"]
+                .as_u64()
+                .unwrap(),
+            end + 1,
+            "初态轮 + 每个成功步进各一次"
+        );
+        // 压缩窗口内到达/停车/离位见证未发生：不得凭缺失见证通过（§3.3）。
+        let session = burst.sample.session.as_mut().unwrap();
+        assert!(matches!(
+            session.finish(),
+            Err(FinishRejected::WitnessMissing(_))
+        ));
+        assert_eq!(session.finish(), Err(FinishRejected::DoubleFinish));
+    }
+
+    /// Blocked 容错语义注入探针（§10 命令行“Blocked 不推进成功游标及
+    /// 位置”）：压缩 W3 上，在替换位（走廊 3 的 183.5–188 m）先经
+    /// despawn/spawn 放置一辆 Active 阻挡车，完成替换被 Runtime 真实
+    /// 拒绝（`ReplaceError::Blocked`）——只计尝试、不推进成功命令游标
+    /// 与代次、宿主世界保持不变；同输入在后一边界（阻挡清除后）重试
+    /// 提交。冻结输入自身不触发 Blocked，语义由此探针钉住。
+    #[test]
+    fn w3_burst_session_blocked_command_neither_advances_cursor_nor_incarnation() {
+        let bundle = generate(
+            Identity::new(10_000, Case::W3, 16).unwrap(),
+            Provenance {
+                source_commit: "a".repeat(40),
+                generator_commit: "b".repeat(40),
+            },
+        )
+        .unwrap();
+        let mut plan = Plan::read(&bundle).unwrap();
+        let old_warm = plan.warm_up_ticks;
+        plan.warm_up_ticks = 1;
+        plan.observation_ticks = 3;
+        let mut scheduled: Vec<Scheduled> = plan
+            .scheduled
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        for batch in &mut scheduled {
+            if batch.boundary > 0 {
+                batch.boundary = batch.boundary + 1 - old_warm;
+            }
+        }
+        let end = plan.warm_up_ticks + plan.observation_ticks;
+        let mut burst = Burst::new(
+            &bundle,
+            &plan,
+            ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap();
+        let case = plan.identity.case.clone();
+        crate::verification::bind_burst_session(&mut burst.sample, &bundle, &case, end).unwrap();
+        let initial_cursor = burst.sample.cursor;
+        let mut outcome = None;
+        // 边界 0/1 按冻结计划执行（预约批次、rank 81 终态重建）。
+        for tick in 0..=1 {
+            burst
+                .observe(tick, plan.warm_up_ticks, outcome.as_ref())
+                .unwrap();
+            if tick > 0 {
+                burst
+                    .sample
+                    .session
+                    .as_mut()
+                    .unwrap()
+                    .note_successful_step(tick)
+                    .unwrap();
+            }
+            let commands = burst.boundary_commands(tick, end, &scheduled).unwrap();
+            burst
+                .sample
+                .session
+                .as_mut()
+                .unwrap()
+                .declare_commands(commands.len() as u32)
+                .unwrap();
+            for command in &commands {
+                assert!(burst.execute_command(command).unwrap());
+            }
+            burst.refresh_order();
+            let session = burst.sample.session.as_mut().unwrap();
+            session.advance_to_pre_tick().unwrap();
+            session.begin_step().unwrap();
+            outcome = Some(burst.sample.world.step(TickInput::new(16)).unwrap());
+        }
+        // 边界 2：observe 看到全部 rank 81 完成，完成替换入队。执行前把
+        // 阻挡车命令插到队首（不经 pending——observe 以 pending.len() 对
+        // 账完成数，注入队列会破坏该不变量）：despawn(75) 后 spawn 到
+        // 186 000 mm，车身 [181.5, 186] m 与 cell 0 替换目标 [183.5, 188] m
+        // 相交；其余 99 个 cell 的替换在各自走廊，不受影响。
+        burst
+            .observe(2, plan.warm_up_ticks, outcome.as_ref())
+            .unwrap();
+        burst
+            .sample
+            .session
+            .as_mut()
+            .unwrap()
+            .note_successful_step(2)
+            .unwrap();
+        let cursor_before = burst.sample.cursor;
+        let incarnation_before = burst.incarnations[81];
+        let mut commands = burst.boundary_commands(2, end, &scheduled).unwrap();
+        assert_eq!(commands.len(), 100, "全部 cell 的完成替换");
+        commands.splice(
+            0..0,
+            [
+                Command {
+                    operation: Operation::Despawn,
+                    logical_rank: 75,
+                    route_rank: 3,
+                    edge_occurrence: 0,
+                    progress_mm: 0,
+                    speed_mm_per_s: 0,
+                },
+                Command {
+                    operation: Operation::Spawn,
+                    logical_rank: 75,
+                    route_rank: 3,
+                    edge_occurrence: 0,
+                    progress_mm: 186_000,
+                    speed_mm_per_s: 0,
+                },
+            ],
+        );
+        burst
+            .sample
+            .session
+            .as_mut()
+            .unwrap()
+            .declare_commands(commands.len() as u32)
+            .unwrap();
+        let mut blocked_at_two = 0_u64;
+        for command in &commands {
+            let committed = burst.execute_command(command).unwrap();
+            if command.logical_rank == 81 && command.route_rank == 3 {
+                assert!(!committed, "cell 0 替换目标位被阻挡车占据必须真实 Blocked");
+                blocked_at_two += 1;
+                burst.pending.push(command.clone());
+            } else {
+                assert!(committed);
+            }
+        }
+        assert_eq!(blocked_at_two, 1);
+        assert_eq!(burst.pending.len(), 1);
+        // Blocked 不推进成功命令游标、代次或位置：本边界游标增量只来自
+        // 提交的命令（despawn+spawn+99 个替换），rank 81 代次保持不变。
+        assert_eq!(burst.sample.cursor - cursor_before, 101);
+        assert_eq!(burst.incarnations[81], incarnation_before);
+        burst.refresh_order();
+        let session = burst.sample.session.as_mut().unwrap();
+        session.advance_to_pre_tick().unwrap();
+        // 命令结束边界（AfterCommands）的会话材料：尝试计数如实分离。
+        let material = serde_json::to_value(
+            burst
+                .sample
+                .session
+                .as_ref()
+                .unwrap()
+                .checkpoint(&burst.sample.input_identity)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(material["blocked_attempts"].as_u64().unwrap(), 1);
+        assert_eq!(
+            material["successful_commands"].as_u64().unwrap(),
+            burst.sample.cursor - initial_cursor
+        );
+        let session = burst.sample.session.as_mut().unwrap();
+        session.begin_step().unwrap();
+        outcome = Some(burst.sample.world.step(TickInput::new(16)).unwrap());
+        // 边界 3：observe 以 pending（仅剩被拒替换）对账完成数；执行前
+        // 插入清阻挡命令，同输入重试完成替换并提交，代次随提交前进一次。
+        burst
+            .observe(3, plan.warm_up_ticks, outcome.as_ref())
+            .unwrap();
+        burst
+            .sample
+            .session
+            .as_mut()
+            .unwrap()
+            .note_successful_step(3)
+            .unwrap();
+        let cursor_before = burst.sample.cursor;
+        let mut commands = burst.boundary_commands(3, end, &scheduled).unwrap();
+        assert_eq!(commands.len(), 1, "仅剩被拒替换在队");
+        commands.insert(
+            0,
+            Command {
+                operation: Operation::Despawn,
+                logical_rank: 75,
+                route_rank: 3,
+                edge_occurrence: 0,
+                progress_mm: 0,
+                speed_mm_per_s: 0,
+            },
+        );
+        assert_eq!(commands.len(), 2, "清阻挡 + 重试替换");
+        burst
+            .sample
+            .session
+            .as_mut()
+            .unwrap()
+            .declare_commands(commands.len() as u32)
+            .unwrap();
+        let mut replaced = false;
+        for command in &commands {
+            let committed = burst.execute_command(command).unwrap();
+            if command.operation == Operation::AtomicReplace {
+                assert!(committed, "阻挡清除后同输入重试必须提交");
+                replaced = true;
+            } else {
+                assert!(committed);
+            }
+        }
+        assert!(replaced);
+        assert_eq!(burst.sample.cursor - cursor_before, 2);
+        assert_eq!(burst.incarnations[81], incarnation_before + 1);
+        assert!(burst.pending.is_empty());
+        burst
+            .sample
+            .session
+            .as_mut()
+            .unwrap()
+            .advance_to_pre_tick()
+            .unwrap();
+        let material = serde_json::to_value(
+            burst
+                .sample
+                .session
+                .as_ref()
+                .unwrap()
+                .checkpoint(&burst.sample.input_identity)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(material["blocked_attempts"].as_u64().unwrap(), 1);
+        assert_eq!(
+            material["successful_commands"].as_u64().unwrap(),
+            burst.sample.cursor - initial_cursor
+        );
+    }
+
+    /// 压缩时序的 W4 会话以真实见证正向终结：B1 指定过门（rank 61）的
+    /// 许可原因恰为 Green，过门与 Green 探针见证全部来自真实执行，不经
+    /// 注入；Blocked 为零（W4 计划 blocked 即失败）。窗口等于压缩终点，
+    /// 回执只证明该范围（§8 探针消费口径）。
+    #[test]
+    fn w4_burst_session_finishes_with_real_green_probe() {
+        let bundle = generate(
+            Identity::new(10_000, Case::W4, 16).unwrap(),
+            Provenance {
+                source_commit: "a".repeat(40),
+                generator_commit: "b".repeat(40),
+            },
+        )
+        .unwrap();
+        let mut plan = Plan::read(&bundle).unwrap();
+        let old_warm = plan.warm_up_ticks;
+        plan.warm_up_ticks = 1;
+        plan.observation_ticks = 2;
+        let mut scheduled: Vec<Scheduled> = plan
+            .scheduled
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        for batch in &mut scheduled {
+            if batch.boundary > 0 {
+                batch.boundary = batch.boundary + 1 - old_warm;
+            }
+        }
+        let end = plan.warm_up_ticks + plan.observation_ticks;
+        let mut burst = Burst::new(
+            &bundle,
+            &plan,
+            ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        )
+        .unwrap();
+        let case = plan.identity.case.clone();
+        crate::verification::bind_burst_session(&mut burst.sample, &bundle, &case, end).unwrap();
+        let initial_cursor = burst.sample.cursor;
+        let mut consumed = 0_u64;
+        let mut outcome = None;
+        for tick in 0..=end {
+            burst
+                .observe(tick, plan.warm_up_ticks, outcome.as_ref())
+                .unwrap();
+            if tick > 0 {
+                burst
+                    .sample
+                    .session
+                    .as_mut()
+                    .unwrap()
+                    .note_successful_step(tick)
+                    .unwrap();
+            }
+            if tick == end {
+                break;
+            }
+            let commands = burst.boundary_commands(tick, end, &scheduled).unwrap();
+            burst
+                .sample
+                .session
+                .as_mut()
+                .unwrap()
+                .declare_commands(commands.len() as u32)
+                .unwrap();
+            for command in &commands {
+                assert!(burst.execute_command(command).unwrap());
+                consumed += 1;
+            }
+            burst.refresh_order();
+            let session = burst.sample.session.as_mut().unwrap();
+            session.advance_to_pre_tick().unwrap();
+            session.begin_step().unwrap();
+            outcome = Some(burst.sample.world.step(TickInput::new(16)).unwrap());
+        }
+        // 宿主侧完成断言（W4 必须在 B1 后结束）通过后，会话以真实见证终结。
+        burst.finish(&plan).unwrap();
+        assert_eq!(
+            burst.sample.cursor - initial_cursor,
+            consumed,
+            "W4 无 Blocked，提交数即游标增量"
+        );
+        let receipt = burst
+            .sample
+            .session
+            .as_mut()
+            .unwrap()
+            .finish()
+            .expect("真实过门 + Green 探针见证在档的完整窗口必须成功终结");
+        assert_eq!(receipt.spec_name(), "lf-synth-w4-burst-semantic-run");
+        assert_eq!(receipt.successful_steps(), end);
+        assert_eq!(receipt.blocked_attempts(), 0);
+        let witnesses = receipt.witnesses();
+        let cells = u64::from(plan.identity.scale / 100);
+        assert_eq!(
+            witnesses[&laneflow_traffic_verification::spec::WitnessId("per-active-crossing")],
+            cells
+        );
+        assert_eq!(
+            witnesses[&laneflow_traffic_verification::spec::WitnessId("w4-green-probe")],
+            cells
         );
     }
 

@@ -3,13 +3,15 @@ use laneflow_synth_generator::Case;
 use laneflow_traffic_verification::signal::{CrossingPermit, signal_crossing_permission};
 
 use super::{Burst, Command, Operation};
+use crate::observe::{LaneScan, LaneScanViolation, motion_valid, position, w_body_interval};
+use crate::observe::{session_note, session_violation, session_witness};
 use crate::signal_reference::SignalSchedule;
 use crate::signal_reference::aspect;
-use crate::{
-    Error, Plan, failure,
-    observe::{LaneScan, motion_valid, position, w_body_interval},
-    require,
+use crate::verification::{
+    RULE_BODY, RULE_GATES, RULE_MOTION, RULE_ORDER, RULE_SIGNAL, WITNESS_ARRIVAL, WITNESS_CROSSING,
+    WITNESS_GREEN_PROBE,
 };
+use crate::{Error, Plan, failure, require};
 
 fn status_code(status: VehicleStatus) -> u32 {
     match status {
@@ -79,6 +81,12 @@ impl Burst {
                 || format!("signal aspect tick={tick} route={rank}"),
             )?;
         }
+        // 三条每轮规则在观测入口登记实际执行（与普通 W 路径同构，设计
+        // §3.3）：运动/身份逐车核对本拍开始，车身分离与走廊顺序随后在
+        // 同一次车辆遍历里运行；信号/门事件仅在实际过门时登记。
+        session_note(&mut self.sample.session, RULE_MOTION)?;
+        session_note(&mut self.sample.session, RULE_BODY)?;
+        session_note(&mut self.sample.session, RULE_ORDER)?;
         self.counts = [0; 3];
         self.changed.fill(false);
         let bytes = &mut self.sample.trace_bytes;
@@ -140,7 +148,10 @@ impl Burst {
                     && state.waiting_membership().is_none()
                     && state.maneuver_traversal().is_none()
                     && self.sample.world.parking_binding(handle) == self.sample.bindings[rank],
-                || format!("identity/authority tick={tick} rank={rank}"),
+                || {
+                    session_violation(&mut self.sample.session, RULE_MOTION.id);
+                    format!("identity/authority tick={tick} rank={rank}")
+                },
             )?;
             let expected_space = match self.sample.bindings[rank] {
                 None => ParkingSpaceState::Vacant,
@@ -183,7 +194,10 @@ impl Burst {
                         self.sample.max_accel_mm_s2,
                         dt,
                     ),
-                    || format!("motion tick={tick} rank={rank}: {previous:?} -> {state:?}"),
+                    || {
+                        session_violation(&mut self.sample.session, RULE_MOTION.id);
+                        format!("motion tick={tick} rank={rank}: {previous:?} -> {state:?}")
+                    },
                 )?;
                 let drop = previous.speed_mm_s().saturating_sub(state.speed_mm_s());
                 self.sample.max_deceleration_mm_s2 = self
@@ -215,6 +229,7 @@ impl Burst {
                         })?,
                 )
                 .expect("entry 长度在 u32 域内");
+                session_note(&mut self.sample.session, RULE_SIGNAL)?;
                 let permit = signal_crossing_permission(
                     aspect_before,
                     previous.speed_mm_s(),
@@ -222,6 +237,7 @@ impl Burst {
                     self.sample.emergency_decel_mm_s2,
                 )
                 .map_err(|denial| {
+                    session_violation(&mut self.sample.session, RULE_SIGNAL.id);
                     Error::Invalid(format!(
                         "signal permit denied tick={tick} tick_before={} rank={rank} \
                          route={route_rank} aspect_before={aspect_before:?} aspect_after={:?} \
@@ -241,9 +257,12 @@ impl Burst {
                     // 强于通用信号许可（构造状态即使符合 YellowDilemma 也不满足
                     // green-release 验收）。
                     require(permit == CrossingPermit::Green, || {
+                        session_violation(&mut self.sample.session, RULE_SIGNAL.id);
                         format!("W4 crossing permit tick={tick} rank={rank} permit={permit:?}")
                     })?;
+                    session_witness(&mut self.sample.session, WITNESS_GREEN_PROBE)?;
                 }
+                session_witness(&mut self.sample.session, WITNESS_CROSSING)?;
                 self.total_crossings[rank] += 1;
                 self.sample.transitions += 1;
             }
@@ -278,6 +297,11 @@ impl Burst {
                     self.incarnations[rank],
                 )?)
                 .map_err(|violation| {
+                    let rule = match violation {
+                        LaneScanViolation::Overlap { .. } => RULE_BODY.id,
+                        LaneScanViolation::Order { .. } => RULE_ORDER.id,
+                    };
+                    session_violation(&mut self.sample.session, rule);
                     Error::Invalid(format!("{violation:?} tick={tick} rank={rank}"))
                 })?;
         }
@@ -287,6 +311,9 @@ impl Burst {
             if !self.changed[rank] {
                 continue;
             }
+            // 门事件配对规则按事件触发登记（OnEvent：零过门拍不登记、
+            // 如实记零，设计 §3.3）。
+            session_note(&mut self.sample.session, RULE_GATES)?;
             for kind in [
                 TrafficTransitionKind::GateCrossed {
                     gate: self.sample.gates[rank / 25].expect("W 族唯一信号 Gate"),
@@ -295,9 +322,10 @@ impl Burst {
                     maneuver_occurrence_index: 0,
                 },
             ] {
-                let event = events
-                    .get(event_index)
-                    .ok_or_else(|| failure("missing transition", (tick, rank)))?;
+                let event = events.get(event_index).ok_or_else(|| {
+                    session_violation(&mut self.sample.session, RULE_GATES.id);
+                    failure("missing transition", (tick, rank))
+                })?;
                 event_index += 1;
                 let anchor = event.anchor();
                 require(
@@ -311,11 +339,15 @@ impl Burst {
                         && anchor.position().route_edge_index() == 1
                         && anchor.position().progress_mm() == 0
                         && anchor.position().carry_um() == 0,
-                    || format!("ordered transition tick={tick} rank={rank}"),
+                    || {
+                        session_violation(&mut self.sample.session, RULE_GATES.id);
+                        format!("ordered transition tick={tick} rank={rank}")
+                    },
                 )?;
             }
         }
         require(event_index == events.len(), || {
+            session_violation(&mut self.sample.session, RULE_GATES.id);
             format!("extra transition tick={tick}")
         })?;
         bytes.extend_from_slice(&(events.len() as u32).to_le_bytes());
@@ -347,6 +379,7 @@ impl Burst {
             )?;
             record_arrival(&mut self.arrivals, rank / 100, tick)?;
             self.arrival_records.push((tick, rank as u32));
+            session_witness(&mut self.sample.session, WITNESS_ARRIVAL)?;
             previous_sequence = Some(self.live_sequences[rank]);
             bytes.extend_from_slice(&(rank as u32).to_le_bytes());
         }

@@ -141,19 +141,7 @@ struct Checkpoint {
 fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Checkpoint, Error> {
     // 会话检查点只在已确立边界创建（运行循环此刻处于边界，不等待步进结果）；
     // 两个互斥分支各取一次所有权，不做深拷贝。
-    fn verification_material(sample: &install::Sample) -> Result<Option<Value>, Error> {
-        match sample.session.as_ref() {
-            Some(session) => {
-                let material = session
-                    .checkpoint(&sample.input_identity)
-                    .map_err(|e| failure("验证会话检查点", e))?;
-                serde_json::to_value(material)
-                    .map(Some)
-                    .map_err(|e| failure("验证检查点编码", e))
-            }
-            None => Ok(None),
-        }
-    }
+    let verification = verification_material(sample)?;
     let tick = sample.world.tick_index();
     let time_ms = sample.world.time_ms();
     let public_trace_digest = digest.clone().finalize().to_hex().to_string();
@@ -177,7 +165,7 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 persistence_refused: None,
                 t_state: None,
                 public_state_digest: public_state_digest(&sample.world)?,
-                verification: verification_material(sample)?,
+                verification,
             })
         }
         Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
@@ -206,11 +194,51 @@ fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Check
                 persistence_refused: Some(variant),
                 t_state: Some(lane_change_t_state(sample)),
                 public_state_digest: public_state_digest(&sample.world)?,
-                verification: verification_material(sample)?,
+                verification,
             })
         }
         Err(other) => Err(failure("snapshot", other)),
     }
+}
+
+/// 会话检查点材料（W1/W2 与 burst 两条接线路径共用）：有会话时取当前
+/// 边界的验证检查点并编码为 JSON，无会话（L 族专项或直装测试）为 `None`。
+pub(crate) fn verification_material(sample: &install::Sample) -> Result<Option<Value>, Error> {
+    match sample.session.as_ref() {
+        Some(session) => {
+            let material = session
+                .checkpoint(&sample.input_identity)
+                .map_err(|e| failure("验证会话检查点", e))?;
+            serde_json::to_value(material)
+                .map(Some)
+                .map_err(|e| failure("验证检查点编码", e))
+        }
+        None => Ok(None),
+    }
+}
+
+/// 通过回执的报告编码（W1/W2 与 burst 两条接线路径共用）：规格身份、
+/// 窗口、触发覆盖、见证与命令尝试统计分开表达（设计 §3.3）。
+pub(crate) fn receipt_json(receipt: &laneflow_traffic_verification::session::PassReceipt) -> Value {
+    let mut triggers = serde_json::Map::new();
+    for (rule, count) in receipt.trigger_counts() {
+        triggers.insert(rule.0.to_string(), json!(count));
+    }
+    let mut witnesses = serde_json::Map::new();
+    for (witness, count) in receipt.witnesses() {
+        witnesses.insert(witness.0.to_string(), json!(count));
+    }
+    json!({
+        "spec": receipt.spec_name(),
+        "domain": receipt.domain(),
+        "semantic_version": receipt.semantic_version(),
+        "successful_steps": receipt.successful_steps(),
+        "last_tick": receipt.last_tick(),
+        "trigger_counts": triggers,
+        "witnesses": witnesses,
+        "blocked_attempts": receipt.blocked_attempts(),
+        "failed_attempts": receipt.failed_attempts(),
+    })
 }
 
 /// 公开观测面状态摘要（#1233 F2）：逐 live 车辆公开状态确定性哈希；
@@ -505,25 +533,7 @@ fn run_inner(
             let receipt = session
                 .finish()
                 .map_err(|e| crate::Error::Invalid(format!("验证会话终结被拒：{e:?}")))?;
-            let mut triggers = serde_json::Map::new();
-            for (rule, count) in receipt.trigger_counts() {
-                triggers.insert(rule.0.to_string(), json!(count));
-            }
-            let mut witnesses = serde_json::Map::new();
-            for (witness, count) in receipt.witnesses() {
-                witnesses.insert(witness.0.to_string(), json!(count));
-            }
-            Some(json!({
-                "spec": receipt.spec_name(),
-                "domain": receipt.domain(),
-                "semantic_version": receipt.semantic_version(),
-                "successful_steps": receipt.successful_steps(),
-                "last_tick": receipt.last_tick(),
-                "trigger_counts": triggers,
-                "witnesses": witnesses,
-                "blocked_attempts": receipt.blocked_attempts(),
-                "failed_attempts": receipt.failed_attempts(),
-            }))
+            Some(receipt_json(&receipt))
         }
         None => None,
     };
