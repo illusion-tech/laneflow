@@ -86,6 +86,10 @@ pub(crate) struct ObservationScratch {
     runs: Vec<usize>,
     claims: Vec<(IndividualId, u32)>,
     zone_owners: FastMap<u32, IndividualId>,
+    #[cfg(feature = "verification-cost-counts")]
+    pub(crate) work: crate::verification_cost::counts::WorkloadCounts,
+    #[cfg(feature = "verification-cost-counts")]
+    pub(crate) allocation: crate::verification_cost::counts::ObservationAllocation,
 }
 
 #[derive(Default)]
@@ -94,9 +98,18 @@ struct BlockBuffers {
     json: Vec<u8>,
     bodies: Vec<Body>,
     states: Vec<Option<VehicleState>>,
+    // 计数账本随已有块缓冲复用；不扩大每拍分配的 PreBlock/BlockOutcome。
+    #[cfg(feature = "verification-cost-counts")]
+    work: crate::verification_cost::counts::WorkloadCounts,
 }
 
 impl ObservationScratch {
+    /// 当前计数构建的实际 blocks Vec 元素大小，包含 Mutex 与对齐。
+    #[cfg(feature = "verification-cost-counts")]
+    pub(crate) const fn counted_block_bytes() -> usize {
+        size_of::<std::sync::Mutex<BlockBuffers>>()
+    }
+
     /// 保证至少 `len` 个块缓冲区（只增不减）。
     fn blocks(&mut self, len: usize, block_size: usize) -> &[std::sync::Mutex<BlockBuffers>] {
         let count = len.div_ceil(block_size);
@@ -104,6 +117,32 @@ impl ObservationScratch {
             self.blocks.resize_with(count, Default::default);
         }
         &self.blocks
+    }
+
+    /// 只读取已有缓冲区的容量元数据，不为计量另扫车辆或车身片段。
+    #[cfg(feature = "verification-cost-counts")]
+    pub(crate) fn capacities(&self) -> crate::verification_cost::counts::ScratchHighWater {
+        let mut sample = crate::verification_cost::counts::ScratchHighWater {
+            blocks_len: self.blocks.len(),
+            blocks_capacity: self.blocks.capacity(),
+            body_capacity: self.bodies.capacity(),
+            merge_capacity: self.merge.capacity(),
+            body_and_merge_capacity_sum: self.bodies.capacity() + self.merge.capacity(),
+            runs_capacity: self.runs.capacity(),
+            claims_capacity: self.claims.capacity(),
+            zone_owners_capacity: self.zone_owners.capacity(),
+            ..Default::default()
+        };
+        for block in &self.blocks {
+            let block = block
+                .lock()
+                .expect("observation block buffers mutex poisoned");
+            sample.block_encoding_bytes_capacity_sum += block.bytes.capacity();
+            sample.block_json_bytes_capacity_sum += block.json.capacity();
+            sample.block_body_capacity_sum += block.bodies.capacity();
+            sample.block_state_capacity_sum += block.states.capacity();
+        }
+        sample
     }
 }
 
@@ -448,10 +487,16 @@ pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
         scratch_red: &h.scratch_red,
     };
     let n = h.individuals.len();
+    #[cfg(feature = "verification-cost-counts")]
+    let mut work = crate::verification_cost::counts::WorkloadCounts {
+        pre_step_scans: 1,
+        pre_step_slot_visits: n as u64,
+        ..Default::default()
+    };
     let buffers = h.observation.blocks(n, OBSERVATION_BLOCK);
     let blocks = run_blocks(h.pool.as_ref(), n, OBSERVATION_BLOCK, |from, to| {
         let mut buffers = block_buffers(buffers, from, OBSERVATION_BLOCK);
-        Ok(pre_step_block(&view, from, to, warm, &mut buffers.states))
+        Ok(pre_step_block(&view, from, to, warm, &mut buffers))
     });
     h.step_before.clear();
     h.step_before.reserve(n);
@@ -459,16 +504,23 @@ pub(crate) fn pre_step(h: &mut Harness<'_>) -> usize {
     for (index, block) in blocks.into_iter().enumerate() {
         let block = block.expect("pre_step block encoding is infallible");
         intent += block.intent;
-        h.step_before.extend_from_slice(
-            &buffers[index]
+        {
+            let buffers = buffers[index]
                 .lock()
-                .expect("observation block buffers mutex poisoned")
-                .states,
-        );
+                .expect("observation block buffers mutex poisoned");
+            h.step_before.extend_from_slice(&buffers.states);
+            #[cfg(feature = "verification-cost-counts")]
+            {
+                work.pre_step_vehicle_lookups += buffers.work.pre_step_vehicle_lookups;
+                work.pre_step_blocks += 1;
+            }
+        }
         for red in block.red {
             h.red_waiters.insert(red);
         }
     }
+    #[cfg(feature = "verification-cost-counts")]
+    h.observation.work.add(work);
     intent
 }
 
@@ -484,15 +536,25 @@ fn pre_step_block(
     from: usize,
     to: usize,
     warm: bool,
-    states: &mut Vec<Option<VehicleState>>,
+    buffers: &mut BlockBuffers,
 ) -> PreBlock {
     let mut out = PreBlock {
         intent: 0,
         red: Vec::new(),
     };
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        buffers.work = Default::default();
+    }
+    let states = &mut buffers.states;
     states.clear();
     states.reserve(to - from);
     for i in from..to {
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            buffers.work.pre_step_vehicle_lookups +=
+                u64::from(view.individuals[i].handle.is_some());
+        }
         let state = view.individuals[i]
             .handle
             .and_then(|handle| view.world.vehicle(handle));
@@ -741,6 +803,19 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
     // 按块序把叶摘要送入根哈希；证据（`evidence`）的 right_of_way 状态机有跨决策顺序
     // 依赖，保持串行第二遍。两遍遍历同一 latest_*_decisions() 快照，顺序相同。
     let tick = h.world.tick_index();
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        let waiting = h.world.latest_waiting_decisions().len() as u64;
+        let conflict = h.world.latest_conflict_decisions().len() as u64;
+        h.observation.work.waiting_decision_encode_rows += waiting;
+        h.observation.work.waiting_decision_evidence_rows += waiting;
+        h.observation.work.waiting_decision_evidence_scans += 1;
+        h.observation.work.conflict_decision_encode_rows += conflict;
+        h.observation.work.conflict_decision_evidence_rows += conflict;
+        h.observation.work.conflict_decision_evidence_scans += 1;
+    }
+    #[cfg(feature = "verification-cost-counts")]
+    let (mut waiting_blocks, mut conflict_blocks) = (0, 0);
     let mut decisions = Hash::default();
     decisions.text("waiting");
     {
@@ -772,6 +847,10 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             },
         ) {
             decisions.bytes(&leaf?);
+            #[cfg(feature = "verification-cost-counts")]
+            {
+                waiting_blocks += 1;
+            }
         }
         decisions.text("conflict");
         let conflict_len = view.world.latest_conflict_decisions().len();
@@ -791,7 +870,16 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
             },
         ) {
             decisions.bytes(&leaf?);
+            #[cfg(feature = "verification-cost-counts")]
+            {
+                conflict_blocks += 1;
+            }
         }
+    }
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        h.observation.work.waiting_decision_encode_blocks += waiting_blocks;
+        h.observation.work.conflict_decision_encode_blocks += conflict_blocks;
     }
     for d in h.world.latest_waiting_decisions() {
         let id = h
@@ -1097,6 +1185,14 @@ fn state_block(
 ) -> Result<BlockOutcome> {
     let mut hash = BlockHash::reuse(buffers, (to - from) * 192);
     buffers.bodies.clear();
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        buffers.work = crate::verification_cost::counts::WorkloadCounts {
+            state_slot_visits: (to - from) as u64,
+            state_blocks: 1,
+            ..Default::default()
+        };
+    }
     let mut out = BlockOutcome {
         digest: [0; 32],
         live: 0,
@@ -1111,6 +1207,10 @@ fn state_block(
         // 生命周期比对：与串行版同槽位序；crossed_tile 置位延后到主线程
         // 合并（事件取 旧值 || 本拍跨 tile，与串行置位后再读一致）。
         if let Some(before) = view.step_before[i] {
+            #[cfg(feature = "verification-cost-counts")]
+            {
+                buffers.work.state_vehicle_lookups += 1;
+            }
             let after = view
                 .world
                 .vehicle(
@@ -1125,6 +1225,10 @@ fn state_block(
             let mut crossed_now = false;
             if before.status() == VehicleStatus::Active && first < last {
                 for hop in first..last {
+                    #[cfg(feature = "verification-cost-counts")]
+                    {
+                        buffers.work.crossed_route_hop_visits += 1;
+                    }
                     if view.route_table.crosses_tile(route, hop) {
                         crossed_now = true;
                     }
@@ -1153,6 +1257,10 @@ fn state_block(
             continue;
         };
         out.live += 1;
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            buffers.work.state_vehicle_lookups += 1;
+        }
         hash.n(1_u32);
         let v = view
             .world
@@ -1256,6 +1364,10 @@ fn state_block(
                 )));
             }
             loop {
+                #[cfg(feature = "verification-cost-counts")]
+                {
+                    buffers.work.body_route_occurrence_visits += 1;
+                }
                 let back = front.saturating_sub(remaining);
                 if front > back {
                     buffers.bodies.push((
@@ -1273,6 +1385,12 @@ fn state_block(
                 front = u64::from(view.route_table.edge_len_mm(route, cursor)) * 1_000;
             }
         }
+    }
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        buffers.work.body_fragments = buffers.bodies.len() as u64;
+        buffers.work.body_sort_input_rows = buffers.bodies.len() as u64;
+        buffers.work.body_sort_calls = 1;
     }
     buffers.bodies.sort_unstable();
     out.digest = hash.finish_into(buffers);
@@ -1302,8 +1420,6 @@ fn claims_block(
     })
 }
 
-/// 把相邻的已排序段（界为 `runs`，首元 0、末元总长）两两归并到 `aux`
-/// 并交换，直到只剩一段；与全量排序得到同一总序（元组全序）。
 /// 嵌套修正（结构迁移组同性质配对）：相邻对比较会漏检同 owner 嵌套
 /// 片段遮蔽下的跨 owner 重叠（traffic-verification §5.3 反例
 /// A[0,100)/A[50,70)/B[80,90)）。按共享判据语义内联修正——保留本
@@ -1351,7 +1467,7 @@ fn reject_body_overlap(bodies: &[Body], tick: u64) -> Result<()> {
                 }
                 furthest = Some((front, owner));
             }
-            Some((front_far, owner_far)) => {
+            Some((_front_far, owner_far)) => {
                 // 非全局最远：只有 owner 与全局最远不同且更远时取代
                 // other_owner；同 owner 的片段不进候选（不遮蔽它与别的
                 // owner 的重叠）。
@@ -1364,7 +1480,39 @@ fn reject_body_overlap(bodies: &[Body], tick: u64) -> Result<()> {
     Ok(())
 }
 
-fn merge_sorted_runs(data: &mut Vec<Body>, runs: &mut Vec<usize>, aux: &mut Vec<Body>) {
+/// 归并各块有序 bodies 并执行修正后的完整集合扫描（`state_impl` 的
+/// 生产接缝）。S0 侧由内联嵌套修正承担共享已排序入口的位置：一次
+/// 遍历同时完成空区间拒绝与重叠扫描，返回值语义与 S1 侧一致。
+fn merge_and_check_bodies(
+    bodies: &mut Vec<Body>,
+    runs: &mut Vec<usize>,
+    merge: &mut Vec<Body>,
+    tick: u64,
+) -> crate::Result<MergeWork> {
+    let work = merge_sorted_runs(bodies, runs, merge);
+    reject_body_overlap(bodies, tick)?;
+    Ok(work)
+}
+
+/// 默认构建为空类型；计数构建直接在原归并循环收集实际输出。
+#[derive(Debug, Default)]
+struct MergeWork {
+    #[cfg(feature = "verification-cost-counts")]
+    passes: u64,
+    #[cfg(feature = "verification-cost-counts")]
+    output_rows: u64,
+}
+
+/// 把相邻的已排序段（界为 `runs`，首元 0、末元总长）两两归并到 `aux`
+/// 并交换，直到只剩一段；与全量排序得到同一总序（元组全序）。
+fn merge_sorted_runs(
+    data: &mut Vec<Body>,
+    runs: &mut Vec<usize>,
+    aux: &mut Vec<Body>,
+) -> MergeWork {
+    let work = MergeWork::default();
+    #[cfg(feature = "verification-cost-counts")]
+    let mut work = work;
     while runs.len() > 2 {
         aux.clear();
         let mut write = 1;
@@ -1392,9 +1540,15 @@ fn merge_sorted_runs(data: &mut Vec<Body>, runs: &mut Vec<usize>, aux: &mut Vec<
             runs[write] = runs[i + 1];
             write += 1;
         }
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            work.passes += 1;
+            work.output_rows += aux.len() as u64;
+        }
         runs.truncate(write);
         std::mem::swap(data, aux);
     }
+    work
 }
 
 /// 树形摘要（v3 起）：根 = 标识 ‖ 游标 ‖ 块数 ‖ 依块序的叶摘要 ‖ 尾部（等待区、
@@ -1420,23 +1574,36 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
             .claims
             .extend(h.claims.iter().map(|((id, _, _), zone)| (*id, *zone)));
         let claims = &scratch.claims;
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            // 成本只收录成功拍；成功时两个原有检查均访问全部 claims。
+            scratch.work.claim_owner_check_rows += claims.len() as u64;
+            scratch.work.claim_exclusivity_rows += claims.len() as u64;
+            scratch.work.claim_copy_rows += claims.len() as u64;
+            scratch.work.claim_exclusivity_scans += 1;
+        }
         // adapter feature 下 Host 含 bevy App（非 Sync）：闭包只捕获解引用后的
         // &TrafficWorld 与 &individuals，与 StateView 的共享方式一致。
         let world: &TrafficWorld = &h.world;
         let individuals: &[crate::runner::Individual] = &h.individuals;
-        let missing_owner = run_blocks(
+        let owner_checks = run_blocks(
             h.pool.as_ref(),
             claims.len(),
             OBSERVATION_BLOCK,
             |from, to| Ok(claims_block(world, individuals, &claims[from..to])),
-        )
-        .into_iter()
-        .enumerate()
-        .find_map(|(block, check)| {
-            check
-                .expect("claims block check is infallible")
-                .map(|index| block * OBSERVATION_BLOCK + index)
-        });
+        );
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            scratch.work.claim_owner_check_blocks += owner_checks.len() as u64;
+        }
+        let missing_owner = owner_checks
+            .into_iter()
+            .enumerate()
+            .find_map(|(block, check)| {
+                check
+                    .expect("claims block check is infallible")
+                    .map(|index| block * OBSERVATION_BLOCK + index)
+            });
         scratch.zone_owners.clear();
         for (index, (id, zone)) in claims.iter().enumerate() {
             if scratch
@@ -1487,6 +1654,11 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     let mut status_counts = (0_usize, 0_usize, 0_usize);
     let mut live = 0_usize;
     let mut bindings: FastMap<ParkingTarget, (u64, u64)> = FastMap::default();
+    #[cfg(feature = "verification-cost-counts")]
+    let mut work = crate::verification_cost::counts::WorkloadCounts {
+        state_scans: 1,
+        ..Default::default()
+    };
     for (index, outcome) in outcomes.into_iter().enumerate() {
         let outcome = outcome?;
         hash.bytes(&outcome.digest);
@@ -1499,12 +1671,14 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
             entry.0 += count.0;
             entry.1 += count.1;
         }
-        bodies.extend_from_slice(
-            &buffers[index]
+        {
+            let buffers = buffers[index]
                 .lock()
-                .expect("observation block buffers mutex poisoned")
-                .bodies,
-        );
+                .expect("observation block buffers mutex poisoned");
+            bodies.extend_from_slice(&buffers.bodies);
+            #[cfg(feature = "verification-cost-counts")]
+            work.add(buffers.work);
+        }
         runs.push(bodies.len());
         for (zone, count) in outcome.waiting {
             *waiting.entry(zone).or_default() += count;
@@ -1528,11 +1702,45 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     // 各块 bodies 已在块线程内有序；主线程按块界两两归并（复用跨拍缓冲区），
     // 总序与全量 sort_unstable 相同（元组全序，稳定性无关）。
     let mut merge = std::mem::take(&mut h.observation.merge);
-    merge_sorted_runs(&mut bodies, &mut runs, &mut merge);
-    reject_body_overlap(&bodies, h.world.tick_index())?;
+    let body_work =
+        merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, h.world.tick_index())?;
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        work.body_merge_output_rows = body_work.output_rows;
+        work.body_merge_passes = body_work.passes;
+        // 共享已排序入口成功返回，保证非空校验和候选扫描都完整访问此切片。
+        work.body_nonempty_scan_rows = bodies.len() as u64;
+        work.body_nonempty_scans = 1;
+        work.body_overlap_scan_rows = bodies.len() as u64;
+        work.body_overlap_scans = 1;
+        if cfg!(debug_assertions) {
+            work.body_sorted_debug_pairs = bodies.len().saturating_sub(1) as u64;
+        }
+        h.observation.work.add(work);
+    }
+    #[cfg(not(feature = "verification-cost-counts"))]
+    let _ = body_work;
     h.observation.bodies = bodies;
     h.observation.merge = merge;
     h.observation.runs = runs;
+    #[cfg(feature = "verification-cost-counts")]
+    {
+        h.observation.work.waiting_zone_rows += u64::from(
+            h.artifacts
+                .revision
+                .identity()
+                .entity_count(EntityKind::WaitingZone),
+        );
+        h.observation.work.claim_encode_rows += h.claims.len() as u64;
+        h.observation.work.claim_encode_scans += 1;
+        h.observation.work.parking_target_rows += h.target_keys.len() as u64;
+        h.observation.work.parking_facility_rows += u64::from(
+            h.artifacts
+                .revision
+                .identity()
+                .entity_count(EntityKind::ParkingFacility),
+        );
+    }
     for raw in 0..h
         .artifacts
         .revision
@@ -1553,6 +1761,10 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
         hash.n(zone.next_admission_sequence());
     }
     for (group, aspect) in h.world.committed_signal_groups().as_slice() {
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            h.observation.work.signal_group_rows += 1;
+        }
         hash.n(group.raw());
         hash.n(match aspect {
             SignalAspect::Red => 0_u32,
@@ -1595,6 +1807,10 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
             .relations()
             .parking_facility(facility)
             .ok_or_else(|| invalid("missing facility definition"))?;
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            h.observation.work.parking_space_binding_rows += definition.spaces().len() as u64;
+        }
         let explicit = definition
             .spaces()
             .iter()
@@ -1621,6 +1837,33 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "verification-cost-counts")]
+    #[test]
+    fn merge_counts_include_empty_blocks_and_unpaired_tail() {
+        let id = IndividualId {
+            tile: 0,
+            slot: 0,
+            incarnation: 0,
+        };
+        let mut data = vec![
+            (1_u32, 0_u64, 1_u64, id),
+            (3_u32, 0_u64, 1_u64, id),
+            (2_u32, 0_u64, 1_u64, id),
+        ];
+        // 三块的中块为空；第一层还复制未配对尾块，第二层再归并。
+        let mut runs = vec![0, 2, 2, 3];
+        let work = merge_sorted_runs(&mut data, &mut runs, &mut Vec::new());
+        assert_eq!(work.passes, 2);
+        assert_eq!(work.output_rows, 6);
+        assert!(data.is_sorted());
+        let work = merge_sorted_runs(&mut Vec::new(), &mut vec![0, 0, 0, 0], &mut Vec::new());
+        assert_eq!(work.passes, 2);
+        assert_eq!(work.output_rows, 0);
+        let work = merge_sorted_runs(&mut data, &mut vec![0, 3], &mut Vec::new());
+        assert_eq!(work.passes, 0);
+        assert_eq!(work.output_rows, 0);
+    }
 
     #[test]
     fn nested_same_owner_overlap_is_rejected_like_the_shared_criterion() {
