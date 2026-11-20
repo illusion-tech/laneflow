@@ -25,6 +25,10 @@ pub(crate) struct WorkloadCounts {
     pub body_overlap_scan_rows: u64,
     pub body_overlap_scans: u64,
     pub body_sorted_debug_pairs: u64,
+    /// 车身检查的实际遍历次数（区别于逐判据的检查行数）：S1 判据包
+    /// 先完整非空校验再候选扫描（两次遍历）；S0 融合扫描一次遍历同
+    /// 时完成两项判据。结构组用它区分一次与两次遍历的真实工作量。
+    pub body_check_traversals: u64,
     pub waiting_decision_encode_rows: u64,
     pub waiting_decision_encode_blocks: u64,
     pub waiting_decision_evidence_rows: u64,
@@ -61,6 +65,7 @@ impl WorkloadCounts {
             body_merge_passes,
             body_nonempty_scans,
             body_overlap_scans,
+            body_check_traversals,
             waiting_decision_encode_blocks,
             waiting_decision_evidence_scans,
             conflict_decision_encode_blocks,

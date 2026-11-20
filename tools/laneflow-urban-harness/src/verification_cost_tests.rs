@@ -134,6 +134,8 @@ fn complete_cost_probe_keeps_original_replay_and_separates_builds() {
         assert_eq!(counts["pre_step_blocks"], counts["state_blocks"]);
         assert_eq!(counts["body_nonempty_scans"], 8);
         assert_eq!(counts["body_overlap_scans"], 8);
+        // S1 判据包两次遍历（非空校验 + 候选扫描），8 拍共 16 次。
+        assert_eq!(counts["body_check_traversals"], 16);
         assert!(counts["body_fragments"].as_u64().unwrap() > 0);
         assert_eq!(counts["body_fragments"], counts["body_nonempty_scan_rows"]);
         assert_eq!(counts["body_fragments"], counts["body_overlap_scan_rows"]);

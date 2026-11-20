@@ -1684,10 +1684,13 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
         work.body_merge_output_rows = body_work.output_rows;
         work.body_merge_passes = body_work.passes;
         // 共享已排序入口成功返回，保证非空校验和候选扫描都完整访问此切片。
+        // 实际遍历次数：判据包先非空校验再候选扫描，共两次（S0 融合
+        // 扫描为一次）——结构组以 body_check_traversals 区分。
         work.body_nonempty_scan_rows = bodies.len() as u64;
         work.body_nonempty_scans = 1;
         work.body_overlap_scan_rows = bodies.len() as u64;
         work.body_overlap_scans = 1;
+        work.body_check_traversals = 2;
         if cfg!(debug_assertions) {
             work.body_sorted_debug_pairs = bodies.len().saturating_sub(1) as u64;
         }
