@@ -13,12 +13,18 @@ build = false
 name = "harness"
 path = "src/harness_tests.rs"
 
+[[test]]
+name = "verification_cost"
+path = "src/verification_cost_tests.rs"
+
 [features]
 motion-kernel-evidence = ["laneflow-runtime/motion-kernel-evidence"]
 # 诊断输出附带观察窗口的调度统计与资源账（#972）；计时含插桩，不作为认证。
 execution-evidence = ["laneflow-runtime/execution-evidence"]
 adapter = ["dep:bevy_app", "dep:bevy_ecs", "dep:bevy_math", "dep:bevy_time", "dep:bevy_transform", "dep:laneflow-bevy", "dep:laneflow-spatial"]
 allocation = ["adapter", "dep:stats_alloc"]
+# 验证成本独立计数构建：只装计数 allocator，不引入 Adapter。
+verification-cost-counts = ["dep:stats_alloc"]
 pose-profiling = ["adapter", "laneflow-bevy/pose-profiling"]
 
 [dependencies]

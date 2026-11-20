@@ -205,6 +205,52 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 return Err(error.into());
             }
         }
+        Some("verification-cost") if args.len() >= 6 && (args.len() - 4).is_multiple_of(2) => {
+            let mut mode = None;
+            let mut workers = None;
+            for option in args[4..].as_chunks::<2>().0 {
+                match option[0].as_str() {
+                    "--mode" if mode.is_none() => mode = Some(option[1].parse()?),
+                    "--workers" if workers.is_none() => {
+                        let value = option[1]
+                            .parse::<u32>()
+                            .map_err(|_| "verification-cost --workers 必须是整数")?;
+                        if !(1..=laneflow_urban_harness::MAX_WORKERS).contains(&value) {
+                            return Err("--workers 必须在 1..=16 范围内".into());
+                        }
+                        workers = Some(value);
+                    }
+                    _ => return Err(usage().into()),
+                }
+            }
+            let mode = mode.ok_or("verification-cost 需要 --mode timing|counts")?;
+            let artifacts = Artifacts::load(Path::new(&args[1]))?;
+            let plan = ResolvedPlan::read(Path::new(&args[2]))?;
+            let execution = laneflow_runtime::ExecutionConfig::new(
+                std::num::NonZeroU32::new(workers.unwrap_or(1)).expect("validated nonzero workers"),
+            );
+            let result = laneflow_urban_harness::run_verification_cost(
+                &artifacts,
+                &plan,
+                Path::new(&args[3]),
+                execution,
+                mode,
+            )?;
+            println!(
+                "verification-cost {}: complete={}; {}/{} ticks",
+                result["mode"],
+                result["complete"],
+                result["window"]["completed_ticks"],
+                result["window"]["expected_ticks"]
+            );
+            if result["complete"] != true {
+                return Err(format!(
+                    "verification-cost 未完成：{}",
+                    result["semantic_run"]["error"]
+                )
+                .into());
+            }
+        }
         Some("compare") if args.len() == 4 => {
             let report = compare_runs(Path::new(&args[1]), Path::new(&args[2]))?;
             report.write(Path::new(&args[3]))?;
@@ -231,5 +277,5 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 fn usage() -> &'static str {
-    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] [--save-at T]... [--until-tick E] [--resume <save-dir>] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | gate <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | seams <artifacts> <plan.toml> <new-output>"
+    "usage: laneflow-urban-harness plan <artifacts> <plan.toml> [--case CASE] [--probe-warm-up N --probe-ticks N | --performance] | run <artifacts> <plan.toml> <new-output> [--workers N] [--diagnostics] [--save-at T]... [--until-tick E] [--resume <save-dir>] | verification-cost <artifacts> <plan.toml> <new-output> --mode timing|counts [--workers N] | compare <run-a> <run-b> <new-comparison.json> | compare <performance-a> <performance-b> <performance-c> <new-performance-comparison.toml> | (feature adapter) evidence <artifacts> <plan.toml> <new-output> headless|adapter [--presentation-config config.json] [--wall-ms N [--ticks N]] | variant <artifacts> <new-output> | transitions <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | gate <artifacts> <variant> MIXED-PEAK|GARAGE-EGRESS <new-output> | seams <artifacts> <plan.toml> <new-output>"
 }
