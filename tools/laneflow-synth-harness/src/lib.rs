@@ -6,6 +6,7 @@ mod install;
 pub mod measurement;
 mod observe;
 mod signal_reference;
+pub mod verification_cost;
 pub use burst::restore;
 
 use std::fs::{self, File};
@@ -16,6 +17,7 @@ use laneflow_runtime::{ExecutionConfig, TickInput, deterministic_state_digest};
 use laneflow_synth_generator::{Bundle, Case, Identity, verify_directory};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use verification_cost::{Noop, Phase, Probe, measured};
 
 /// 读取、消费或语义核验失败；失败不产生 complete=true 回执。
 #[derive(Debug, thiserror::Error)]
@@ -320,6 +322,16 @@ pub fn run(
     execution: ExecutionConfig,
     output: &Path,
 ) -> Result<Value, Error> {
+    run_with_probe(input, implementation_commit, execution, output, &mut Noop)
+}
+
+fn run_with_probe<P: Probe>(
+    input: &Path,
+    implementation_commit: &str,
+    execution: ExecutionConfig,
+    output: &Path,
+    probe: &mut P,
+) -> Result<Value, Error> {
     require(
         implementation_commit.len() == 40
             && implementation_commit
@@ -328,11 +340,12 @@ pub fn run(
         || "实现提交须为完整小写 Git SHA".into(),
     )?;
     fs::create_dir(output)?;
+    probe.output_created(output)?;
     let mut status = json!({"format":"lf-synth-semantic-run-1","complete":false,
         "semantic_contract":SEMANTIC_CONTRACT,
         "implementation_commit":implementation_commit,"workers":execution.worker_count().get()});
     write_json(&output.join("report.json"), &status)?;
-    let result = run_inner(input, implementation_commit, execution, output);
+    let result = run_inner(input, implementation_commit, execution, output, probe);
     match result {
         Ok(report) => {
             write_json(&output.join("report.json"), &report)?;
@@ -346,18 +359,49 @@ pub fn run(
     }
 }
 
-fn run_inner(
+fn run_inner<P: Probe>(
     input: &Path,
     implementation_commit: &str,
     execution: ExecutionConfig,
     output: &Path,
+    probe: &mut P,
 ) -> Result<Value, Error> {
     let bundle = verify_directory(input)?;
     let plan = Plan::read(&bundle)?;
+    run_plan(
+        &bundle,
+        &plan,
+        implementation_commit,
+        execution,
+        output,
+        probe,
+    )
+}
+
+fn run_plan<P: Probe>(
+    bundle: &Bundle,
+    plan: &Plan,
+    implementation_commit: &str,
+    execution: ExecutionConfig,
+    output: &Path,
+    probe: &mut P,
+) -> Result<Value, Error> {
+    probe.bind(bundle, plan)?;
     if matches!(&plan.identity.case, Case::W3 | Case::W4) {
-        return burst::run(&bundle, &plan, implementation_commit, execution, output);
+        return burst::run_with_probe(
+            bundle,
+            plan,
+            implementation_commit,
+            execution,
+            output,
+            probe,
+        );
     }
-    let mut sample = install::Sample::new(&bundle, execution)?;
+    let mut sample = measured(probe, Phase::Setup, |_| {
+        install::Sample::new(bundle, execution)
+    })?;
+    verification_cost::sample_buffers(probe, &sample);
+    let setup = probe.start();
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
     trace.write_all(b"lf-synth-public-ticks-1\0")?;
     let mut stream = blake3::Hasher::new();
@@ -388,14 +432,19 @@ fn run_inner(
     } else {
         measurement::events::Recorder::new(total + 1, plan.identity.scale)
     };
+    probe.end(Phase::Setup, setup);
     for tick in 0..=total {
+        probe.boundary(tick);
         let outcome = if tick == 0 {
             None
         } else {
-            let result = sample
-                .world
-                .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                .map_err(|e| failure(&format!("step {tick}"), e))?;
+            probe.runtime_step_tick(tick);
+            let result = measured(probe, Phase::RuntimeStep, |_| {
+                sample
+                    .world
+                    .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
+                    .map_err(|e| failure(&format!("step {tick}"), e))
+            })?;
             require(
                 result.tick_index() == tick
                     && result.time_ms() == tick * u64::from(plan.identity.fixed_delta_ms),
@@ -403,30 +452,39 @@ fn run_inner(
             )?;
             Some(result)
         };
-        let digest = sample.observe(
-            tick,
-            outcome
-                .as_ref()
-                .is_none_or(|o| o.parking_arrivals().is_empty()),
-        )?;
-        events.record(&sample.world, &ranks, &sample.routes, outcome.as_ref())?;
-        trace.write_all(&tick.to_le_bytes())?;
-        trace.write_all(digest.as_bytes())?;
-        stream.update(&tick.to_le_bytes());
-        stream.update(digest.as_bytes());
-        if boundaries.contains(&tick) {
-            checkpoints.push(checkpoint(&sample, &stream)?);
-        }
-        if tick % 1_024 == 0 {
-            trace.flush()?;
-            eprintln!(
-                "{:?} scale={} dt={} tick={tick}/{total}",
-                plan.identity.case, plan.identity.scale, plan.identity.fixed_delta_ms
-            );
-        }
+        let digest = measured(probe, Phase::Observation, |probe| {
+            sample.observe_with_probe(
+                tick,
+                outcome
+                    .as_ref()
+                    .is_none_or(|o| o.parking_arrivals().is_empty()),
+                probe,
+            )
+        })?;
+        verification_cost::sample_buffers(probe, &sample);
+        measured(probe, Phase::Evidence, |_| {
+            events.record(&sample.world, &ranks, &sample.routes, outcome.as_ref())?;
+            trace.write_all(&tick.to_le_bytes())?;
+            trace.write_all(digest.as_bytes())?;
+            stream.update(&tick.to_le_bytes());
+            stream.update(digest.as_bytes());
+            if boundaries.contains(&tick) {
+                checkpoints.push(checkpoint(&sample, &stream)?);
+            }
+            if tick % 1_024 == 0 {
+                trace.flush()?;
+                eprintln!(
+                    "{:?} scale={} dt={} tick={tick}/{total}",
+                    plan.identity.case, plan.identity.scale, plan.identity.fixed_delta_ms
+                );
+            }
+            Ok(())
+        })?;
+        probe.boundary_complete();
     }
     trace.flush()?;
     events.write(&output.join("events.bin"))?;
+    let finish = probe.start();
     if plan.identity.lane_change().is_some() {
         // L 族：全体换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
         require(
@@ -450,6 +508,7 @@ fn run_inner(
             || "窗口内每辆 Active 必须恰好完成 entry→exit；Parked 不发生转换".into(),
         )?;
     }
+    probe.end(Phase::Finish, finish);
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
         "semantic_contract":SEMANTIC_CONTRACT,
         "scope":if plan.identity.lane_change().is_some() {

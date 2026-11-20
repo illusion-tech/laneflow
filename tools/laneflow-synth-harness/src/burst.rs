@@ -12,6 +12,7 @@ use laneflow_synth_generator::{Bundle, Case};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::verification_cost::{Buffer, Phase, Probe, measured};
 use crate::{Error, Plan, failure, install::Sample, require};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -151,6 +152,32 @@ struct Burst {
 }
 
 impl Burst {
+    fn cost_buffers(&self, probe: &mut impl Probe) {
+        crate::verification_cost::sample_buffers(probe, &self.sample);
+        for (buffer, length, capacity, item_bytes) in [
+            (
+                Buffer::LaneOrder,
+                self.lane_order.len(),
+                self.lane_order.capacity(),
+                size_of::<usize>(),
+            ),
+            (
+                Buffer::Changed,
+                self.changed.len(),
+                self.changed.capacity(),
+                size_of::<bool>(),
+            ),
+            (
+                Buffer::Pending,
+                self.pending.len(),
+                self.pending.capacity(),
+                size_of::<Command>(),
+            ),
+        ] {
+            probe.buffer(buffer, length, capacity, item_bytes);
+        }
+    }
+
     fn new(bundle: &Bundle, plan: &Plan, execution: ExecutionConfig) -> Result<Self, Error> {
         let sample = Sample::new(bundle, execution)?;
         let spaces = sample
@@ -548,13 +575,33 @@ pub(super) fn run(
     execution: ExecutionConfig,
     output: &Path,
 ) -> Result<Value, Error> {
+    run_with_probe(
+        bundle,
+        plan,
+        implementation,
+        execution,
+        output,
+        &mut crate::verification_cost::Noop,
+    )
+}
+
+pub(super) fn run_with_probe<P: Probe>(
+    bundle: &Bundle,
+    plan: &Plan,
+    implementation: &str,
+    execution: ExecutionConfig,
+    output: &Path,
+    probe: &mut P,
+) -> Result<Value, Error> {
     let scheduled: Vec<Scheduled> = plan
         .scheduled
         .iter()
         .cloned()
         .map(serde_json::from_value)
         .collect::<Result<_, _>>()?;
-    let mut burst = Burst::new(bundle, plan, execution)?;
+    let mut burst = measured(probe, Phase::Setup, |_| Burst::new(bundle, plan, execution))?;
+    burst.cost_buffers(probe);
+    let setup = probe.start();
     let initial_cursor = burst.sample.cursor;
     let mut journal = Journal::new(&output.join("commands.bin"))?;
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
@@ -576,86 +623,106 @@ pub(super) fn run(
     let mut batches = Vec::new();
     let mut outcome = None;
     let mut events = crate::measurement::events::Recorder::new(total + 1, plan.identity.scale);
+    probe.end(Phase::Setup, setup);
     for tick in 0..=total {
-        let boundary_digest = burst.observe(tick, plan.warm_up_ticks, outcome.as_ref())?;
-        events.record(
-            &burst.sample.world,
-            &burst.handle_ranks,
-            &burst.sample.routes,
-            outcome.as_ref(),
-        )?;
-        trace.write_all(&tick.to_le_bytes())?;
-        trace.write_all(boundary_digest.as_bytes())?;
-        stream.update(&tick.to_le_bytes());
-        stream.update(boundary_digest.as_bytes());
-        if checkpoints_at.contains(&tick)
-            || burst
-                .parked_boundary
-                .is_some_and(|b| tick == b + 1 || tick == b + 2)
-        {
-            checkpoints.push(burst.checkpoint(&stream)?);
-        }
-        if tick % 1_024 == 0 || tick == total {
-            trace.flush()?;
-            journal.output.flush()?;
-            eprintln!(
-                "{:?} scale={} dt={} tick={tick}/{total}",
-                plan.identity.case, plan.identity.scale, plan.identity.fixed_delta_ms
-            );
-        }
+        probe.boundary(tick);
+        let boundary_digest = measured(probe, Phase::Observation, |probe| {
+            burst.observe_with_probe(tick, plan.warm_up_ticks, outcome.as_ref(), probe)
+        })?;
+        burst.cost_buffers(probe);
+        measured(probe, Phase::Evidence, |_| {
+            events.record(
+                &burst.sample.world,
+                &burst.handle_ranks,
+                &burst.sample.routes,
+                outcome.as_ref(),
+            )?;
+            trace.write_all(&tick.to_le_bytes())?;
+            trace.write_all(boundary_digest.as_bytes())?;
+            stream.update(&tick.to_le_bytes());
+            stream.update(boundary_digest.as_bytes());
+            if checkpoints_at.contains(&tick)
+                || burst
+                    .parked_boundary
+                    .is_some_and(|b| tick == b + 1 || tick == b + 2)
+            {
+                checkpoints.push(burst.checkpoint(&stream)?);
+            }
+            if tick % 1_024 == 0 || tick == total {
+                trace.flush()?;
+                journal.output.flush()?;
+                eprintln!(
+                    "{:?} scale={} dt={} tick={tick}/{total}",
+                    plan.identity.case, plan.identity.scale, plan.identity.fixed_delta_ms
+                );
+            }
+            Ok(())
+        })?;
         if tick == total {
+            probe.boundary_complete();
             break;
         }
-        let commands = burst.boundary_commands(tick, total, &scheduled)?;
-        if !commands.is_empty() {
-            let before = state_digest(&burst.sample.world)?;
-            let cursor = burst.sample.cursor;
-            let first_receipt = journal.count;
-            for command in &commands {
-                let rank = command.logical_rank as usize;
-                let old_incarnation = burst
-                    .incarnations
-                    .get(rank)
-                    .copied()
-                    .ok_or_else(|| failure("rank", rank))?;
-                let before_cursor = burst.sample.cursor;
-                let committed = burst.command(command)?;
-                journal.append(
-                    command,
-                    tick,
-                    [before_cursor, burst.sample.cursor],
-                    [old_incarnation, burst.incarnations[rank]],
-                    committed,
-                )?;
-                if !committed {
-                    burst.pending.push(command.clone());
+        probe.command_boundary(tick);
+        let commands = measured(probe, Phase::Commands, |_| {
+            burst.boundary_commands(tick, total, &scheduled)
+        })?;
+        measured(probe, Phase::Commands, |_| {
+            if !commands.is_empty() {
+                let before = state_digest(&burst.sample.world)?;
+                let cursor = burst.sample.cursor;
+                let first_receipt = journal.count;
+                for command in &commands {
+                    let rank = command.logical_rank as usize;
+                    let old_incarnation = burst
+                        .incarnations
+                        .get(rank)
+                        .copied()
+                        .ok_or_else(|| failure("rank", rank))?;
+                    let before_cursor = burst.sample.cursor;
+                    let committed = burst.command(command)?;
+                    journal.append(
+                        command,
+                        tick,
+                        [before_cursor, burst.sample.cursor],
+                        [old_incarnation, burst.incarnations[rank]],
+                        committed,
+                    )?;
+                    if !committed {
+                        burst.pending.push(command.clone());
+                    }
                 }
-            }
-            burst.refresh_order();
-            let batch = json!({"boundary":tick,"command_count":commands.len(),"first_receipt":first_receipt,
+                burst.refresh_order();
+                let batch = json!({"boundary":tick,"command_count":commands.len(),"first_receipt":first_receipt,
                 "input_digest":input_digest(&commands),"pre_command_state_digest":before,
                 "post_command_state_digest":state_digest(&burst.sample.world)?,"cursor_before":cursor,"cursor_after":burst.sample.cursor});
-            batches.push(batch);
-            crate::write_json(
-                &output.join("batches.json"),
-                &json!({"complete":false,"batches":batches}),
-            )?;
-            journal.output.flush()?;
-        }
-        outcome = Some(
+                batches.push(batch);
+                crate::write_json(
+                    &output.join("batches.json"),
+                    &json!({"complete":false,"batches":batches}),
+                )?;
+                journal.output.flush()?;
+            }
+            Ok(())
+        })?;
+        burst.cost_buffers(probe);
+        probe.runtime_step_tick(tick + 1);
+        outcome = Some(measured(probe, Phase::RuntimeStep, |_| {
             burst
                 .sample
                 .world
                 .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                .map_err(|e| failure(&format!("step {}", tick + 1), e))?,
-        );
+                .map_err(|e| failure(&format!("step {}", tick + 1), e))
+        })?);
+        probe.boundary_complete();
     }
+    let finish = probe.start();
     burst.finish(plan)?;
     require(
         burst.sample.cursor - initial_cursor == u64::from(plan.identity.scale / 100) * 6
             && journal.count == burst.sample.cursor - initial_cursor + journal.blocked,
         || "固定命令总数不符".into(),
     )?;
+    probe.end(Phase::Finish, finish);
     trace.flush()?;
     journal.output.flush()?;
     events.write(&output.join("events.bin"))?;
