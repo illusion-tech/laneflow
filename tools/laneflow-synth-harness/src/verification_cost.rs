@@ -295,7 +295,7 @@ impl Common {
                 "observation":"fused_fact_reads_checks_encoding_and_boundary_hash_no_session_notes_on_this_variant",
                 "session":"not_present_on_this_variant_pre_dates_session_wiring_always_zero",
                 "commands_and_receipts":"boundary_planning_runtime_commands_checks_receipts_reordering_and_batch_evidence",
-                "finish":"host_checks_and_report_encoding_no_session_finish_on_this_variant",
+                "finish":"host_final_checks",
                 "whole_run_wall":"after_initial_cost_file_through_semantic_report_write_includes_meter_binding_and_sample_maintenance_excludes_final_cost_serialization",
                 "scans":"observer_logical_visits_not_cpu_loads_excludes_runtime_snapshot_and_evidence_recorder_internals",
                 "incomplete_counts":"failed_runs_may_include_visits_from_the_unfinished_last_boundary; completed_boundaries_counts_only_finished_boundaries",
