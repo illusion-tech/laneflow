@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::verification::{RULE_COMMANDS, WITNESS_LEAVE, WITNESS_PARK};
+use crate::verification_cost::{Buffer, Phase, Probe, measured};
 use crate::{Error, Plan, failure, install::Sample, require};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -153,6 +154,32 @@ struct Burst {
 }
 
 impl Burst {
+    fn cost_buffers(&self, probe: &mut impl Probe) {
+        crate::verification_cost::sample_buffers(probe, &self.sample);
+        for (buffer, length, capacity, item_bytes) in [
+            (
+                Buffer::LaneOrder,
+                self.lane_order.len(),
+                self.lane_order.capacity(),
+                size_of::<usize>(),
+            ),
+            (
+                Buffer::Changed,
+                self.changed.len(),
+                self.changed.capacity(),
+                size_of::<bool>(),
+            ),
+            (
+                Buffer::Pending,
+                self.pending.len(),
+                self.pending.capacity(),
+                size_of::<Command>(),
+            ),
+        ] {
+            probe.buffer(buffer, length, capacity, item_bytes);
+        }
+    }
+
     fn new(bundle: &Bundle, plan: &Plan, execution: ExecutionConfig) -> Result<Self, Error> {
         let sample = Sample::new(bundle, execution)?;
         let spaces = sample
@@ -580,6 +607,7 @@ pub(crate) fn input_digest(commands: &[Command]) -> String {
     blake3::hash(&bytes).to_hex().to_string()
 }
 
+#[cfg(test)]
 pub(super) fn run(
     bundle: &Bundle,
     plan: &Plan,
@@ -587,17 +615,44 @@ pub(super) fn run(
     execution: ExecutionConfig,
     output: &Path,
 ) -> Result<Value, Error> {
+    run_with_probe(
+        bundle,
+        plan,
+        implementation,
+        execution,
+        output,
+        &mut crate::verification_cost::Noop,
+    )
+}
+
+pub(super) fn run_with_probe<P: Probe>(
+    bundle: &Bundle,
+    plan: &Plan,
+    implementation: &str,
+    execution: ExecutionConfig,
+    output: &Path,
+    probe: &mut P,
+) -> Result<Value, Error> {
     let scheduled: Vec<Scheduled> = plan
         .scheduled
         .iter()
         .cloned()
         .map(serde_json::from_value)
         .collect::<Result<_, _>>()?;
-    let mut burst = Burst::new(bundle, plan, execution)?;
     let total = plan.warm_up_ticks + plan.observation_ticks;
-    // W3/W4 burst 正式 run 接线共享验证会话（设计 §10 burst 行）：绑定
-    // 规约、登记输入身份并确立初始边界。
-    crate::verification::bind_burst_session(&mut burst.sample, bundle, &plan.identity.case, total)?;
+    let mut burst = measured(probe, Phase::Setup, |_| {
+        let mut burst = Burst::new(bundle, plan, execution)?;
+        // W3/W4 burst 正式 run 接线共享验证会话（设计 §10 burst 行）。
+        crate::verification::bind_burst_session(
+            &mut burst.sample,
+            bundle,
+            &plan.identity.case,
+            total,
+        )?;
+        Ok(burst)
+    })?;
+    burst.cost_buffers(probe);
+    let setup = probe.start();
     let initial_cursor = burst.sample.cursor;
     let mut journal = Journal::new(&output.join("commands.bin"))?;
     let mut trace = BufWriter::new(File::create(output.join("ticks.bin"))?);
@@ -618,106 +673,133 @@ pub(super) fn run(
     let mut batches = Vec::new();
     let mut outcome = None;
     let mut events = crate::measurement::events::Recorder::new(total + 1, plan.identity.scale);
+    probe.end(Phase::Setup, setup);
     for tick in 0..=total {
-        let boundary_digest = burst.observe(tick, plan.warm_up_ticks, outcome.as_ref())?;
-        if tick > 0 {
-            // 步进结果在观测消费完本拍检查后恰核销一次（设计 §6）；先于
-            // 检查点与命令执行，本拍验证材料停在“命令执行前”边界。
-            if let Some(session) = burst.sample.session.as_mut() {
-                session
-                    .note_successful_step(tick)
-                    .map_err(|e| failure("验证会话步进协议", e))?;
-            }
-        }
-        events.record(
-            &burst.sample.world,
-            &burst.handle_ranks,
-            &burst.sample.routes,
-            outcome.as_ref(),
-        )?;
-        trace.write_all(&tick.to_le_bytes())?;
-        trace.write_all(boundary_digest.as_bytes())?;
-        stream.update(&tick.to_le_bytes());
-        stream.update(boundary_digest.as_bytes());
-        if checkpoints_at.contains(&tick)
-            || burst
-                .parked_boundary
-                .is_some_and(|b| tick == b + 1 || tick == b + 2)
-        {
-            checkpoints.push(burst.checkpoint(&stream)?);
-        }
-        if tick % 1_024 == 0 || tick == total {
-            trace.flush()?;
-            journal.output.flush()?;
-            eprintln!(
-                "{:?} scale={} dt={} tick={tick}/{total}",
-                plan.identity.case, plan.identity.scale, plan.identity.fixed_delta_ms
-            );
-        }
-        if tick == total {
-            break;
-        }
-        let commands = burst.boundary_commands(tick, total, &scheduled)?;
-        // 会话命令阶段：声明本边界命令总数（可为零）后逐条执行；每条
-        // 命令的义务在结果消费时核销（设计 §6 命令结果阶段）。
-        if let Some(session) = burst.sample.session.as_mut() {
-            session
-                .declare_commands(commands.len() as u32)
-                .map_err(|e| failure("验证会话命令阶段", e))?;
-        }
-        if !commands.is_empty() {
-            let before = state_digest(&burst.sample.world)?;
-            let cursor = burst.sample.cursor;
-            let first_receipt = journal.count;
-            for command in &commands {
-                let rank = command.logical_rank as usize;
-                let old_incarnation = burst
-                    .incarnations
-                    .get(rank)
-                    .copied()
-                    .ok_or_else(|| failure("rank", rank))?;
-                let before_cursor = burst.sample.cursor;
-                let committed = burst.execute_command(command)?;
-                journal.append(
-                    command,
-                    tick,
-                    [before_cursor, burst.sample.cursor],
-                    [old_incarnation, burst.incarnations[rank]],
-                    committed,
-                )?;
-                if !committed {
-                    burst.pending.push(command.clone());
+        probe.boundary(tick);
+        let boundary_digest = measured(probe, Phase::Observation, |probe| {
+            burst.observe_with_probe(tick, plan.warm_up_ticks, outcome.as_ref(), probe)
+        })?;
+        measured(probe, Phase::Session, |_| {
+            if tick > 0 {
+                // 步进结果先于检查点与命令恰核销一次（设计 §6）。
+                if let Some(session) = burst.sample.session.as_mut() {
+                    session
+                        .note_successful_step(tick)
+                        .map_err(|e| failure("验证会话步进协议", e))?;
                 }
             }
-            burst.refresh_order();
-            let batch = json!({"boundary":tick,"command_count":commands.len(),"first_receipt":first_receipt,
+            Ok(())
+        })?;
+        burst.cost_buffers(probe);
+        measured(probe, Phase::Evidence, |_| {
+            events.record(
+                &burst.sample.world,
+                &burst.handle_ranks,
+                &burst.sample.routes,
+                outcome.as_ref(),
+            )?;
+            trace.write_all(&tick.to_le_bytes())?;
+            trace.write_all(boundary_digest.as_bytes())?;
+            stream.update(&tick.to_le_bytes());
+            stream.update(boundary_digest.as_bytes());
+            if checkpoints_at.contains(&tick)
+                || burst
+                    .parked_boundary
+                    .is_some_and(|b| tick == b + 1 || tick == b + 2)
+            {
+                checkpoints.push(burst.checkpoint(&stream)?);
+            }
+            if tick % 1_024 == 0 || tick == total {
+                trace.flush()?;
+                journal.output.flush()?;
+                eprintln!(
+                    "{:?} scale={} dt={} tick={tick}/{total}",
+                    plan.identity.case, plan.identity.scale, plan.identity.fixed_delta_ms
+                );
+            }
+            Ok(())
+        })?;
+        if tick == total {
+            probe.boundary_complete();
+            break;
+        }
+        probe.command_boundary(tick);
+        let commands = measured(probe, Phase::Commands, |_| {
+            burst.boundary_commands(tick, total, &scheduled)
+        })?;
+        // 会话命令阶段：声明本边界命令总数（可为零）后逐条执行；每条
+        // 命令的义务在结果消费时核销（设计 §6 命令结果阶段）。
+        measured(probe, Phase::Session, |_| {
+            if let Some(session) = burst.sample.session.as_mut() {
+                session
+                    .declare_commands(commands.len() as u32)
+                    .map_err(|e| failure("验证会话命令阶段", e))?;
+            }
+            Ok(())
+        })?;
+        measured(probe, Phase::Commands, |_| {
+            if !commands.is_empty() {
+                let before = state_digest(&burst.sample.world)?;
+                let cursor = burst.sample.cursor;
+                let first_receipt = journal.count;
+                for command in &commands {
+                    let rank = command.logical_rank as usize;
+                    let old_incarnation = burst
+                        .incarnations
+                        .get(rank)
+                        .copied()
+                        .ok_or_else(|| failure("rank", rank))?;
+                    let before_cursor = burst.sample.cursor;
+                    let committed = burst.execute_command(command)?;
+                    journal.append(
+                        command,
+                        tick,
+                        [before_cursor, burst.sample.cursor],
+                        [old_incarnation, burst.incarnations[rank]],
+                        committed,
+                    )?;
+                    if !committed {
+                        burst.pending.push(command.clone());
+                    }
+                }
+                burst.refresh_order();
+                let batch = json!({"boundary":tick,"command_count":commands.len(),"first_receipt":first_receipt,
                 "input_digest":input_digest(&commands),"pre_command_state_digest":before,
                 "post_command_state_digest":state_digest(&burst.sample.world)?,"cursor_before":cursor,"cursor_after":burst.sample.cursor});
-            batches.push(batch);
-            crate::write_json(
-                &output.join("batches.json"),
-                &json!({"complete":false,"batches":batches}),
-            )?;
-            journal.output.flush()?;
-        }
+                batches.push(batch);
+                crate::write_json(
+                    &output.join("batches.json"),
+                    &json!({"complete":false,"batches":batches}),
+                )?;
+                journal.output.flush()?;
+            }
+            Ok(())
+        })?;
+        burst.cost_buffers(probe);
         // 命令结束：全部消费后形成拍前事实并立即发起步进；零命令边界
         // 同样经过完整的阶段协议。
-        if let Some(session) = burst.sample.session.as_mut() {
-            session
-                .advance_to_pre_tick()
-                .map_err(|e| failure("验证会话拍前阶段", e))?;
-            session
-                .begin_step()
-                .map_err(|e| failure("验证会话步进发起", e))?;
-        }
-        outcome = Some(
+        measured(probe, Phase::Session, |_| {
+            if let Some(session) = burst.sample.session.as_mut() {
+                session
+                    .advance_to_pre_tick()
+                    .map_err(|e| failure("验证会话拍前阶段", e))?;
+                session
+                    .begin_step()
+                    .map_err(|e| failure("验证会话步进发起", e))?;
+            }
+            Ok(())
+        })?;
+        probe.runtime_step_tick(tick + 1);
+        outcome = Some(measured(probe, Phase::RuntimeStep, |_| {
             burst
                 .sample
                 .world
                 .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                .map_err(|e| failure(&format!("step {}", tick + 1), e))?,
-        );
+                .map_err(|e| failure(&format!("step {}", tick + 1), e))
+        })?);
+        probe.boundary_complete();
     }
+    let finish = probe.start();
     burst.finish(plan)?;
     require(
         burst.sample.cursor - initial_cursor == u64::from(plan.identity.scale / 100) * 6
@@ -735,6 +817,7 @@ pub(super) fn run(
         }
         None => None,
     };
+    probe.end(Phase::Finish, finish);
     trace.flush()?;
     journal.output.flush()?;
     events.write(&output.join("events.bin"))?;

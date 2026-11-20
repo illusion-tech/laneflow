@@ -243,6 +243,136 @@ measurements↔diagnostics 交叉核对）；各包重新计算了自身摘要�
 不减少逐拍安全检查。v3 起采用该树形方案，v4 起叶摘要与根摘要改用 BLAKE3-256（#1042），
 摘要值不能与更早摘要版本的运行对拍。编码专项对照仅供诊断，不替代真实城市前缀或正式性能取证。
 
+## 验证成本计量
+
+`verification-cost` 是验证层成本入口，复用 `Harness::advance`、原完整运行流程、
+规范日志和 case 校验，不改变交通规则、共享车身判据、观察频率或原结果格式。
+本入口只消费完整 `correctness` 或 `probe` 计划；没有截断、续跑、存档或减频选项。
+正式成本比较从已登记的完整 correctness 窗口选取；probe 只用于入口诊断，完整跑完
+probe 不表示角色见证已经完成。单轮 correctness 仍须按原协议独立回放对拍。
+本入口不扩大 Urban 的产品 performance case，也不迁移完整共享 `Session` 或
+为 Urban 新建规则语义身份。
+
+时间与计数使用不同二进制。下面先保留两份构建，再对同一已展开的计划分别运行；
+每次输出目录必须不存在，`--mode` 必填，`--workers` 缺省 1、合法域 1..=16。
+
+```text
+cargo +1.99.1 build -p laneflow-urban-harness --release --locked --target-dir target/verification-cost/urban-timing
+cargo +1.99.1 build -p laneflow-urban-harness --release --locked --features verification-cost-counts --target-dir target/verification-cost/urban-counts
+target/verification-cost/urban-timing/release/laneflow-urban-harness plan <artifact-directory> <correctness-plan.toml> --case MIXED-PEAK
+target/verification-cost/urban-timing/release/laneflow-urban-harness verification-cost <artifact-directory> <correctness-plan.toml> <timing-output> --mode timing --workers 1
+target/verification-cost/urban-counts/release/laneflow-urban-harness verification-cost <artifact-directory> <correctness-plan.toml> <counts-output> --mode counts --workers 1
+target/verification-cost/urban-timing/release/laneflow-urban-harness compare <timing-output> <counts-output> <semantic-comparison.json>
+```
+
+短入口诊断可用原 `plan --probe-warm-up N --probe-ticks N` 生成 probe，再传给同一
+成本命令；成本命令仍完整消费该输入。库入口是 `run_verification_cost` 与
+`VerificationCostMode`。`verification-cost-counts` 只启用本入口的局部计数和
+现有 `stats_alloc` allocator，不隐式引入 Adapter。时间模式拒绝计数/分析构建；
+计数模式必须启用此 feature，并拒绝混入 `allocation`、`execution-evidence`、
+`motion-kernel-evidence` 或 `pose-profiling`。仅编译 `adapter` 支持不会把本入口
+改成 Adapter 运行，实际仍走原 headless 安装路径。
+
+### 输出与完成条件
+
+独立输出为 `verification-cost.json`，`format = urban-verification-cost-1`、
+`purpose = verification-cost`；原 `result.json`、`resolved-plan.toml`、逐拍/命令/
+事件日志、检查点与 `diagnostics.json` 照常输出，可用原 `compare` 检验完整语义。
+成本文件不插入原 `result.files`，不改变旧消费者的语义比对对象。
+
+输出目录创建后先写 `complete=false, phase=initializing`。初始化或后续文件写出
+失败时保留此不完整标记；受控运行失败写出最终失败成本回执。只有期望拍数、逐拍
+采样连续性、最终 endpoint 和原运行成功状态全部满足，且 correctness 的
+`validate_case` 已成功，才写 `phase=finished, complete=true`。CLI 对未完成运行
+返回失败退出码。这个字段表示受检计划和采样完成，不产生 `performance_accepted`
+或产品性能 Pass。
+
+| 字段                                | 内容与边界                                                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `input_identity` / `input_manifest` | 实际计划摘要、制品清单摘要与已核对文件清单，网络/策略/世界、case、规模、固定步长和既有观察编码版本；不自称完整共享规则集身份。        |
+| `window` / `workers`                | 输入 purpose、预热/观察/期望/完成拍数与实际执行 worker 数。                                                                           |
+| `semantic_run`                      | 原结果文件摘要、状态、错误与 endpoint；`validate_case.requested/executed/passed` 精确记录角色校验，probe 三项均为 false。             |
+| `observation_ns` / `samples`        | timing 的既有逐拍观察计时，以及全程、预热和观察窗口的总和与分位数；无样本的阶段为 null。counts 的逐拍样本只有工作量和分配数据。       |
+| `whole_run_wall_ns`                 | timing 的完整运行墙钟；counts 为 null。                                                                                               |
+| `workload_counts` / `allocation`    | counts 的全程、预热和观察窗口累计；timing 为 null。                                                                                   |
+| `scratch_high_water`                | counts 的安装后初始容量、首拍后容量、跨拍逐字段高水位、首拍及后续拍采样创新高次数；timing 为 null。                                   |
+| `source` / `environment`            | 实际二进制摘要、调用参数、运行时提交/工作树状态、可用的构建提交标记、feature/debug 配置；可选的现有 host-observe 前后环境记录及摘要。 |
+
+### 时间与分配区间
+
+`observation_ns` 直接复用既有计时：拍前的槽位快照、intent 与 red waiter 收集；
+拍后的信号签名/停车到达处理、`observe::events` 与 `observe::state` 事实检查和
+编码均在其中。边界命令、Runtime `step`、最后构造 `TickRecord` 时再次编码的
+event/command 摘要、日志/检查点写出及成本记录器不在其中。成本计时与既有
+`diagnostics.json.window_observation_samples_ns` 可逐样本核对。
+
+整轮墙钟从进入原运行函数开始，到原报告写出返回为止，包含计划校验、创建输出
+目录和初始成本标记、世界安装、完整预热与观察、原日志和检查点及最终报告。
+输入制品/计划加载、成本样本容器预分配、allocator 装配探针、环境前后采集和最终
+成本 JSON 序列化不在墙钟区间。这里不单独声称 setup/finalization 的净成本；
+预热与观察只分别汇总观察计时。采样记录在原整拍计时结束后追加，完整墙钟包含
+这些旁路记录开销。
+
+counts 在上述拍前、拍后观察段分别读取进程级 `System` allocator 的差量，记录
+分配/释放/重分配次数以及相应原始字节流量字段；这不是存活内存或 RSS，不把
+不同流量字段自行相加。区间覆盖主线程与已 join 的观察 worker，Runtime `step`
+分配和输出容器的追加/序列化在区间之外。计数入口先执行区间外的真实分配探针，
+确认最终可执行文件确实安装了计数 allocator。请以独立进程运行；同进程其他
+无关线程的分配会污染差量，其他操作系统进程的分配不会进入本 allocator。
+集成测试也用 CLI 子进程隔离，不在并行库测试线程上断言分配总数。
+
+counts 继续保留原消费者需要的 timing 日志，但成本文件中
+`existing_timing_artifacts_usable=false`，这些插桩构建的 ns/墙钟均不得作为时间
+证据；计数文件自身不提供 ns 结论。
+
+### 工作量与容量含义
+
+工作量只在 counts 构建写入局部账本。逐车计数随现有固定块执行，主线程按既有
+块序归并；账本放在已有可复用 `BlockBuffers`，每阶段重新清零，拍前和状态的
+临时结果 `PreBlock` / `BlockOutcome` 不携带计数载荷。不为计数添加第二遍车辆
+扫描或逐车共享原子。显式记录拍前/状态扫描和
+块数、槽位访问与 `world.vehicle` 查询、跨路线 hop、车身回溯 occurrence、决策
+编码块与证据遍历、资源声明复制/持有者/独占/编码，以及状态检查中的等待区、
+信号、停车目标、设施与车位访问量。它们是列明的原有循环访问，不声称覆盖所有
+API 内部操作、容器比较、角色见证中的嵌套匹配或 CPU 指令。
+
+每拍 `body_fragments` 是真实收集的车身片段 K，不能用活跃车辆数 N 代替；
+`body_sort_input_rows` 是块内排序输入量，不是比较次数。
+`body_merge_passes/body_merge_output_rows` 在原归并循环按每层实际输出累计，包含
+未配对尾块复制，空块也保留真实层数。共享已排序判据成功返回保证非空校验和
+重叠候选两次扫描完整访问该切片，因此分别记录各自扫描次数与 K 行；debug
+构建的排序断言相邻对另记 `body_sorted_debug_pairs`。失败拍未产生完整样本，
+最终不完整报告只汇总成功拍前缀，不能当作完整窗口。
+
+容量只读取已存在 Vec/哈希表及 O(blocks) 缓冲元数据，不访问车辆世界；编码和
+JSON 缓冲以字节表示，其他 Vec 为元素数，哈希表为可容纳条目数。安装后的容量
+与首拍增长分开，`sampled_high_water_increases` 表示后续采样出现新最大容量的
+次数，既不等于实际 realloc 次数，也不保证所有字段最大值同时发生。临时块
+产物、成本样本容器和进程 RSS 不计入这些常驻 scratch 字段；临时块产物在观察
+区间内产生的分配已被 allocator 记录。
+
+计数构建每块额外持有一个 `WorkloadCounts`，当前为 40 个 `u64`、320 字节。
+`scratch_high_water.instrumentation_storage` 输出实际每块账本大小、计数构建的
+`Mutex<BlockBuffers>` 元素大小（含对齐），以及按 blocks Vec 初始/最高 capacity
+计算的账本保留字节数。已有 blocks Vec 在观察区间内首次创建或增长时，allocator
+差量包含这个计数专属载荷；报告如实保留，不自动扣除，也不声称计数成本已经完全
+剥离。块容量稳定后账本随块复用，不再扩大发生在每拍的临时结果 Vec 分配。
+
+### 计量登记与环境
+
+正式成本结论按 [验证设计][traffic-verification] 的三组登记执行：相同规则集的
+结构迁移、增强能力的增量、完整配置。先固定制品/计划、源码和实际二进制、
+工具链与构建参数、worker、轮次顺序、样本区间及预算，再在获批的 quiet 窗口
+运行。此入口没有自行批准静默窗口或性能准入的开关，诊断运行完成也不替代登记。
+
+设置现有 `LANEFLOW_ENVIRONMENT_INPUT` 时，入口复用 `laneflow-host-observe`
+采集 `environment-before.json` / `environment-after.json`，在成本文件中登记
+文件摘要；未设置则 `environment=null`。本入口不因记录存在而宣称环境已通过
+正式准入。登记仍需核实实际机器、电源状态、工作树、构建提交/二进制和静默审批，
+并按原环境协议检查前后变化。负载敏感正式结果若绑定后续冻结提交，可交由真实
+链接的独立测量 follow-up；本入口负责提供可重复执行的采样和完成证据，登记及
+正式比较结论由相应测量任务承载。
+
 ## Mixed 的具体输入
 
 每 tile 1000 个体、750 Active 和 250 个实际占位的 Parked；稳定身份为
@@ -441,3 +571,4 @@ target/release/laneflow-urban-harness evidence <artifacts> <frozen-plan.toml> <n
 [plans-json]: fixtures/v3/plans.json
 [laneflow-urban-generator-readme]: ../laneflow-urban-generator/README.md
 [host-observe-readme]: ../laneflow-host-observe/README.md
+[traffic-verification]: ../../docs/design/traffic-verification.md

@@ -1526,11 +1526,24 @@ impl<'a> Harness<'a> {
                 self.execute(request, boundary)?;
             }
         }
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            self.observation.work = Default::default();
+            self.observation.allocation = Default::default();
+        }
+        #[cfg(feature = "verification-cost-counts")]
+        let pre_allocation = stats_alloc::Region::new(crate::allocation::ALLOCATOR);
         let pre_observation_started = std::time::Instant::now();
         let intent = observe::pre_step(self);
         let pre_observation_elapsed = pre_observation_started.elapsed();
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            self.observation.allocation.pre_step = pre_allocation.change().into();
+        }
         let (outcome, step_ns) = self.world.step(TickInput::new(self.plan.dt))?;
         self.last_step_ns = step_ns;
+        #[cfg(feature = "verification-cost-counts")]
+        let post_allocation = stats_alloc::Region::new(crate::allocation::ALLOCATOR);
         let observation_started = std::time::Instant::now();
         let signals = signal_signature(&self.world)?;
         if signals != self.last_signals {
@@ -1578,6 +1591,10 @@ impl<'a> Harness<'a> {
             .saturating_add(observation_started.elapsed())
             .as_nanos()
             .min(u128::from(u64::MAX)) as u64;
+        #[cfg(feature = "verification-cost-counts")]
+        {
+            self.observation.allocation.post_step = post_allocation.change().into();
+        }
         Ok(TickRecord {
             tick: outcome.tick_index(),
             time_ms: outcome.time_ms(),

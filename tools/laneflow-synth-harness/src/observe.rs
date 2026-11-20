@@ -10,6 +10,7 @@ use laneflow_traffic_verification::spec::{RuleDescriptor, RuleId, WitnessId};
 use crate::verification::{
     RULE_BODY, RULE_GATES, RULE_MOTION, RULE_ORDER, RULE_SIGNAL, WITNESS_CROSSING,
 };
+use crate::verification_cost::{Noop, Probe, Scan};
 
 /// 会话接线助手：有会话时记录规则实际运行，协议错误如实上抛；无会话
 /// （L 族专项或直装测试）为空操作，观测行为不变。
@@ -207,6 +208,15 @@ pub(crate) fn motion_valid(
 
 impl Sample {
     pub fn observe(&mut self, tick: u64, arrivals_empty: bool) -> Result<blake3::Hash, Error> {
+        self.observe_with_probe(tick, arrivals_empty, &mut Noop)
+    }
+
+    pub(crate) fn observe_with_probe<P: Probe>(
+        &mut self,
+        tick: u64,
+        arrivals_empty: bool,
+        probe: &mut P,
+    ) -> Result<blake3::Hash, Error> {
         if self.lane_change_route.is_some() {
             return self.observe_lane_change(tick, arrivals_empty);
         }
@@ -222,13 +232,24 @@ impl Sample {
                 && arrivals_empty,
             || format!("人口/命令游标/时间/停车事件不符 tick={tick}"),
         )?;
+        // 成功的 slice 相等比较覆盖全部逻辑行；不声称是机器访存次数。
+        probe.scan(Scan::LiveOrder);
+        probe.visit(Scan::LiveOrder, self.handles.len());
         let signals = self.world.committed_signal_groups();
         let signals = signals.as_slice();
-        let signalized = self.groups.iter().filter(|group| group.is_some()).count();
+        probe.scan(Scan::SignalCount);
+        let signalized = self
+            .groups
+            .iter()
+            .inspect(|_| probe.visit(Scan::SignalCount, 1))
+            .filter(|group| group.is_some())
+            .count();
         require(signals.len() == signalized, || {
             format!("信号数量 tick={tick}")
         })?;
+        probe.scan(Scan::Signals);
         for (rank, group) in self.groups.iter().enumerate() {
+            probe.visit(Scan::Signals, 1);
             let Some(group) = group else {
                 continue;
             };
@@ -263,7 +284,10 @@ impl Sample {
         session_note(&mut self.session, RULE_MOTION)?;
         session_note(&mut self.session, RULE_BODY)?;
         session_note(&mut self.session, RULE_ORDER)?;
+        probe.scan(Scan::Vehicles);
+        probe.scan(Scan::TransitionEvents);
         for (rank, &handle) in self.handles.iter().enumerate() {
+            probe.visit(Scan::Vehicles, 1);
             let state = self
                 .world
                 .vehicle(handle)
@@ -324,16 +348,16 @@ impl Sample {
                         format!("进度/速度/加减速 tick={tick} rank={rank}: {old:?} -> {state:?}")
                     },
                 )?;
-                lane_scan
-                    .push(w_body_interval(rank, next_position, 0)?)
-                    .map_err(|violation| {
-                        let rule = match violation {
-                            LaneScanViolation::Overlap { .. } => RULE_BODY.id,
-                            LaneScanViolation::Order { .. } => RULE_ORDER.id,
-                        };
-                        session_violation(&mut self.session, rule);
-                        Error::Invalid(format!("{violation} tick={tick} rank={rank}"))
-                    })?;
+                let body = w_body_interval(rank, next_position, 0)?;
+                probe.body_fragment();
+                lane_scan.push(body).map_err(|violation| {
+                    let rule = match violation {
+                        LaneScanViolation::Overlap { .. } => RULE_BODY.id,
+                        LaneScanViolation::Order { .. } => RULE_ORDER.id,
+                    };
+                    session_violation(&mut self.session, rule);
+                    Error::Invalid(format!("{violation} tick={tick} rank={rank}"))
+                })?;
             }
             let changed = state.route_edge_index() != old.route_edge_index();
             if changed {
@@ -407,6 +431,7 @@ impl Sample {
                             )));
                         }
                     };
+                    probe.visit(Scan::TransitionEvents, 1);
                     event_index += 1;
                     let anchor = event.anchor();
                     let expected_kind = if kind_index == 0 {
