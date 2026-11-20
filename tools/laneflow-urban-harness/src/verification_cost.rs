@@ -187,10 +187,10 @@ impl Recorder {
             if self.first_tick_capacity.is_none() {
                 self.first_tick_capacity = Some(capacities);
                 self.high_water
-                    .include(capacities, &mut self.first_tick_increases);
+                    .update_high_water(capacities, &mut self.first_tick_increases);
             } else {
                 self.high_water
-                    .include(capacities, &mut self.later_increases);
+                    .update_high_water(capacities, &mut self.later_increases);
             }
         }
     }

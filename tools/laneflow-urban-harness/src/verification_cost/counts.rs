@@ -167,7 +167,7 @@ pub(crate) struct ScratchHighWater {
 
 impl ScratchHighWater {
     /// 逐字段记录新高出现次数；采样之间的真实 realloc 次数由 allocator 另记。
-    pub(crate) fn include(&mut self, other: Self, increases: &mut Self) {
+    pub(crate) fn update_high_water(&mut self, other: Self, increases: &mut Self) {
         macro_rules! maximum {
             ($($field:ident),+ $(,)?) => { $(
                 if other.$field > self.$field {
