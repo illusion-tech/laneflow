@@ -101,8 +101,17 @@ fn complete_cost_probe_keeps_original_replay_and_separates_builds() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    assert_eq!(compare_runs(&one, &regular).unwrap().status, "probe-match");
-    assert_eq!(compare_runs(&one, &four).unwrap().status, "probe-match");
+    // 诊断对照 D 分支：普通 run 与成本入口都携带专用诊断结果版本，正式
+    // compare 在身份门拒绝（probe-match 接受语义属 main 正式版本）；
+    // 计量入口与普通 run 的语义等值由下方逐字节比较证明。
+    for pair in [&regular, &four] {
+        assert!(
+            compare_runs(&one, pair)
+                .unwrap_err()
+                .to_string()
+                .contains("cannot accept")
+        );
+    }
     for name in ["ticks.jsonl", "commands.jsonl", "events.jsonl"] {
         assert_eq!(
             fs::read(one.join(name)).unwrap(),
@@ -212,6 +221,42 @@ fn complete_cost_probe_keeps_original_replay_and_separates_builds() {
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("完整的 correctness 或 probe 计划"));
     assert!(!rejected.exists());
+}
+
+/// 诊断对照 D 的准入隔离负例：两份完整 D 输出（进程级真实运行）交给
+/// 正式 compare 仍被拒绝——专用诊断结果版本不进正常 evidence 准入，
+/// 不能再靠“两份 D 结果一致”得到 case-pass。
+#[cfg(not(any(
+    feature = "allocation",
+    feature = "execution-evidence",
+    feature = "motion-kernel-evidence",
+    feature = "pose-profiling"
+)))]
+#[test]
+fn diagnostic_outputs_are_rejected_by_formal_compare() {
+    let temp = tempfile::tempdir().unwrap();
+    let (source, plan, _) = fixture(&temp);
+    let mode = if cfg!(feature = "verification-cost-counts") {
+        "counts"
+    } else {
+        "timing"
+    };
+    let one = temp.path().join("one");
+    let two = temp.path().join("two");
+    for dir in [&one, &two] {
+        let output = cost(&source, &plan, dir, mode, 1);
+        assert!(output.status.success());
+        let result = read(&dir.join("result.json"));
+        assert_eq!(
+            result["version"], "urban-result-v9-d-adjacent-diagnostic",
+            "D 运行必须携带诊断结果版本"
+        );
+    }
+    let error = compare_runs(&one, &two).unwrap_err();
+    assert!(
+        error.to_string().contains("cannot accept"),
+        "正式 compare 必须拒绝诊断 D 输出：{error}"
+    );
 }
 
 #[cfg(any(

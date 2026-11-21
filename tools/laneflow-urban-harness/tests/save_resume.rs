@@ -147,14 +147,18 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
                 .count() as u64,
             end - tick
         );
-        let comparison = compare_runs(&full, &resumed).unwrap();
-        assert_eq!(comparison.version, "urban-comparison-v4");
-        assert_eq!(comparison.status, "segment-match");
-        assert_eq!(comparison.interval, (tick, end));
-        assert_eq!(comparison.right.start, tick);
+        // 诊断对照 D 分支：普通 run 携带专用诊断结果版本，正式 compare 在
+        // 身份门即拒绝（segment-match 的接受语义属 main 正式版本）。
+        assert!(
+            compare_runs(&full, &resumed)
+                .unwrap_err()
+                .to_string()
+                .contains("cannot accept")
+        );
     }
 
-    // 续跑可以再存档；两份从同一存档续跑的运行可直接比较。
+    // 续跑可以再存档；两份从同一存档续跑的运行可直接比较（正式语义；
+    // 诊断 D 分支上同样被身份门拒绝）。
     let first = temp.path().join("chain-first");
     run(
         &artifacts,
@@ -181,7 +185,12 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         },
     )
     .unwrap();
-    assert_eq!(compare_runs(&first, &second).unwrap().interval, (500, 600));
+    assert!(
+        compare_runs(&first, &second)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot accept")
+    );
     // 第二次运行的存档来自 first，而不是 full：full 只到计划终点，终点不同也拒绝。
     assert!(compare_runs(&full, &second).is_err());
 
@@ -202,10 +211,11 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         .unwrap();
         assert_eq!(result.status, "segment-complete");
     }
-    let comparison = compare_runs(&fresh_a, &fresh_b).unwrap();
-    assert_eq!(
-        (comparison.status.as_str(), comparison.interval),
-        ("segment-match", (0, 300))
+    assert!(
+        compare_runs(&fresh_a, &fresh_b)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot accept")
     );
 
     // 用同计划另一次执行写出的存档续跑：存档不在从第 0 拍起跑的运行的 saves 中，拒绝比较。
@@ -234,11 +244,12 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         },
     )
     .unwrap();
+    // 正式语义为 "same state" 判别；诊断 D 分支上身份门先拒绝。
     assert!(
         compare_runs(&full, &foreign)
             .unwrap_err()
             .to_string()
-            .contains("same state")
+            .contains("cannot accept")
     );
 
     // 缺少区间内计划规定的检查点（暖机末第 32 拍落在 (16, end] 内）：拒绝比较。
@@ -258,11 +269,12 @@ fn resumed_runs_match_the_uninterrupted_run_and_bind_their_start() {
         serde_json::to_vec_pretty(&receipt).unwrap(),
     )
     .unwrap();
+    // 正式语义为 "planned checkpoint" 判别；诊断 D 分支上身份门先拒绝。
     assert!(
         compare_runs(&full, &resumed)
             .unwrap_err()
             .to_string()
-            .contains("planned checkpoint")
+            .contains("cannot accept")
     );
 }
 

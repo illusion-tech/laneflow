@@ -99,8 +99,10 @@ fn run_workers_parameter_reaches_execution_and_provenance() {
     assert_eq!(diagnostics["workers"], 1);
 }
 
-/// 跨运行 A/B：仅 worker 不同（1 vs 4）、语义逐拍一致 → compare_runs
-/// 通过；报告体现两次运行各自 worker 数；plan 不同的输入混用仍拒绝。
+/// 跨运行 A/B：仅 worker 不同（1 vs 4）、语义逐拍一致的正式 probe 比较
+/// 属于 main 的正式准入语义。诊断对照 D 分支上，普通 run 一律携带专用
+/// 诊断结果版本，正式 compare 在身份门即拒绝——即使两份输出完整一致；
+/// plan 不同的输入混用仍拒绝。
 #[test]
 fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     let temp = tempfile::tempdir().unwrap();
@@ -117,11 +119,11 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     assert_eq!(one_result.status, "probe-complete");
     assert_eq!(four_result.status, "probe-complete");
 
-    let comparison = compare_runs(&one, &four).unwrap();
-    assert_eq!(comparison.status, "probe-match");
-    assert_eq!(comparison.plan_digest, one_result.plan_digest);
-    assert_eq!(comparison.left.workers, 1);
-    assert_eq!(comparison.right.workers, 4);
+    let error = compare_runs(&one, &four).unwrap_err();
+    assert!(
+        error.to_string().contains("cannot accept"),
+        "拒绝须来自诊断身份门：{error}"
+    );
 
     // 输入混用：合法但不同的 plan（不同观测窗 → 不同 plan_digest）仍拒绝。
     let other_plan = ResolvedPlan::mixed(
@@ -146,9 +148,10 @@ fn compare_runs_accepts_worker_only_difference_and_rejects_mixed_plans() {
     assert!(compare_runs(&one, &mixed).is_err());
 }
 
-/// 线程 1 回归：diagnostics.json 纳入 result.files 文件摘要清单后，篡改
-/// 其 workers 字段（不重算摘要）必须被 compare 拒绝；合法 1w/4w probe
-/// 跨运行比较不受影响。
+/// 线程 1 回归的 D 分支口径：摘要失配判别（篡改 diagnostics.json 的
+/// workers 须因 "run file changed" 被拒）属 main 正式版本的准入语义；
+/// 诊断对照 D 上普通 run 携带专用诊断结果版本，未篡改与已篡改的输出
+/// 一律在身份门被拒，不再到达摘要判别。
 #[test]
 fn compare_runs_rejects_tampered_diagnostics_workers() {
     let temp = tempfile::tempdir().unwrap();
@@ -159,7 +162,12 @@ fn compare_runs_rejects_tampered_diagnostics_workers() {
     let four = temp.path().join("four");
     run_to_directory(&artifacts, &plan, &one, execution(1), Diagnostics::Enabled).unwrap();
     run_to_directory(&artifacts, &plan, &four, execution(4), Diagnostics::Enabled).unwrap();
-    assert_eq!(compare_runs(&one, &four).unwrap().status, "probe-match");
+    assert!(
+        compare_runs(&one, &four)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot accept")
+    );
 
     let tampered = temp.path().join("tampered");
     run_to_directory(
@@ -179,8 +187,8 @@ fn compare_runs_rejects_tampered_diagnostics_workers() {
         compare_runs(&one, &tampered)
             .unwrap_err()
             .to_string()
-            .contains("run file changed"),
-        "篡改 diagnostics.json 必须因摘要失配被拒绝"
+            .contains("cannot accept"),
+        "诊断 D 分支上拒绝来自身份门；摘要判别由 main 正式版本覆盖"
     );
 }
 

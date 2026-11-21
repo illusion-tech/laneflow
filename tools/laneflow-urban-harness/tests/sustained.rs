@@ -255,5 +255,12 @@ fn sustained_replays_across_workers_and_reports_actual_observation_load() {
     };
     let one = run(1, "one");
     let four = run(4, "four");
-    assert_eq!(compare_runs(&one, &four).unwrap().status, "probe-match");
+    // 诊断对照 D 分支：普通 run 携带专用诊断结果版本，正式 compare 在
+    // 身份门拒绝（probe-match 接受语义属 main 正式版本）。
+    assert!(
+        compare_runs(&one, &four)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot accept")
+    );
 }

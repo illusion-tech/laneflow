@@ -344,8 +344,14 @@ API 内部操作、容器比较、角色见证中的嵌套匹配或 CPU 指令�
 遮蔽下的跨 owner 重叠不报、无非空校验），判定谓词仍为共享 `intervals_overlap`；
 计数如实记 D 的实际工作——`body_overlap_scans` 每拍 1 次、`body_overlap_scan_rows`
 为相邻对数 K-1，`body_nonempty_scans/body_nonempty_scan_rows` 为 0，
-`body_sorted_debug_pairs` 为 0。** 本分支任何输出都是诊断对照，不构成当前车身
-性质的通过证据。失败拍未产生完整样本，最终不完整报告只汇总成功拍前缀，不能
+`body_sorted_debug_pairs` 为 0。F−D 的差值同时包含非空预校验与完整集合
+候选扫描两项差异，不能缩称为单一比较条件的耗时；F 的片段行数与 D 的
+相邻对数也不是同单位的机器访问量。普通 run 与成本入口一律写出专用诊断
+结果版本 `urban-result-v9-d-adjacent-diagnostic`（correctness 完成态为
+`case-diagnostic-complete`）；正式 read_run/compare 期望 `urban-result-v9`
+与 `case-pass-replay-required`，据此拒绝 D 产物——两份 D 结果一致也得不到
+case-pass。** 本分支任何输出都是诊断对照，不构成当前车身性质的通过证据。
+失败拍未产生完整样本，最终不完整报告只汇总成功拍前缀，不能
 当作完整窗口。
 
 容量只读取已存在 Vec/哈希表及 O(blocks) 缓冲元数据，不访问车辆世界；编码和

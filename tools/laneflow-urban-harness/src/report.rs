@@ -31,6 +31,12 @@ mod timing;
 // 文件摘要清单，读取时核对其与测量来源一致。
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v6";
 const BUILD_PARAMETERS: &str = "cargo +1.99.1 run --locked -p xtask -- build-measurement";
+/// 诊断对照 D（experiment/1457-cD-urban-adjacency）的专用结果版本与完成
+/// 状态：普通 run 与成本入口一律写出本身份；正式 read_run/compare 期望
+/// `urban-result-v9` 与 `case-pass-replay-required`，据此拒绝 D 产物——
+/// 产物即使完整、输入匹配、来源真实也不得进入正常 evidence/oracle 准入。
+const DIAGNOSTIC_RESULT_VERSION: &str = "urban-result-v9-d-adjacent-diagnostic";
+const DIAGNOSTIC_CORRECTNESS_STATUS: &str = "case-diagnostic-complete";
 /// 正式运行逐次独立校验、不参与跨运行语义比较的记录文件。
 const PERFORMANCE_RECORD_FILES: [&str; 3] = [
     "measurements.toml",
@@ -641,7 +647,7 @@ pub(crate) fn run_with_options_and_cost(
     }
     let initial_counts = observe::counts(&harness)?;
     let mut result = RunResult {
-        version: "urban-result-v9".into(),
+        version: DIAGNOSTIC_RESULT_VERSION.into(),
         status: "failed".into(),
         purpose: plan.window.purpose.clone(),
         diagnostics_enabled: diagnostics.is_enabled(),
@@ -805,7 +811,7 @@ pub(crate) fn run_with_options_and_cost(
             if let Some(cost) = cost.as_deref_mut() {
                 cost.case_validation_passed = true;
             }
-            result.status = "case-pass-replay-required".into();
+            result.status = DIAGNOSTIC_CORRECTNESS_STATUS.into();
         } else if plan.window.purpose == "performance" {
             result.status = "performance-round-complete".into();
         } else {
@@ -2485,6 +2491,64 @@ mod tests {
                 caller_digest: String::new(),
             }),
         }
+    }
+
+    /// 诊断对照 D 的准入隔离负例：D 产物即使完整（全窗口、endpoint、
+    /// 无错误、诊断启用、样本齐全的字段形状全部正确），专用结果版本与
+    /// 完成状态仍被正式 read_run 拒绝；正式版本+正式状态的对照件能过
+    /// 版本门（随后按缺失文件拒绝，错误不同，证明拒绝来自身份门）。
+    #[test]
+    fn read_run_rejects_diagnostic_result_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let write = |name: &str, version: &str, status: &str| {
+            let dir = temp.path().join(name);
+            fs::create_dir_all(&dir).unwrap();
+            let mut result = round_result(BTreeMap::new());
+            result.purpose = "correctness".into();
+            result.version = version.into();
+            result.status = status.into();
+            crate::written::write_json_verified(
+                &dir.join("result.json"),
+                &serde_json::to_value(&result).unwrap(),
+            )
+            .unwrap();
+            dir
+        };
+        let diagnostic = write(
+            "diagnostic",
+            DIAGNOSTIC_RESULT_VERSION,
+            DIAGNOSTIC_CORRECTNESS_STATUS,
+        );
+        assert!(
+            read_run(&diagnostic)
+                .err()
+                .expect("诊断版本+诊断状态必须被拒绝")
+                .to_string()
+                .contains("cannot accept"),
+            "诊断版本+诊断状态必须被正式 read_run 拒绝"
+        );
+        let formal_status_only = write(
+            "formal-status",
+            DIAGNOSTIC_RESULT_VERSION,
+            "case-pass-replay-required",
+        );
+        assert!(
+            read_run(&formal_status_only)
+                .err()
+                .expect("仅版本为诊断身份也必须拒绝")
+                .to_string()
+                .contains("cannot accept"),
+            "仅版本为诊断身份也必须拒绝（状态冒充正式不放行）"
+        );
+        let formal = write("formal", "urban-result-v9", "case-pass-replay-required");
+        assert!(
+            !read_run(&formal)
+                .err()
+                .expect("正式身份对照件在此处按缺失文件拒绝")
+                .to_string()
+                .contains("cannot accept"),
+            "正式身份对照件须通过身份门（随后按缺失文件拒绝）"
+        );
     }
 
     #[test]
