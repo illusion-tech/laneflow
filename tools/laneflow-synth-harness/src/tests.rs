@@ -512,10 +512,11 @@ impl crate::verification_cost::Probe for PhaseRecorder {
 /// 真实 Runtime 步进错误与会话组合的 fail-closed 负例（W1/W2 驱动）：
 /// 冻结的 16 ms bundle 输入不改，仅在内存把计划步长改为 33；安装仍按
 /// InitialState 构建 16 ms 世界（install.rs world_config），驱动提交
-/// 33 ms TickInput，会话已进入步进阶段（declare/advance/begin 完成），
+/// 33 ms TickInput，会话已绑定并执行 begin_step（由实际生产调用路径与
 /// 真实 `TrafficWorld::step` 在步进预检返回 DeltaMismatch。断言：错误
 /// 来自目标步进并携带期望/实际步长；初始边界后没有成功拍轨迹（轨迹只
-/// 有 tick 0 记录）；失败拍步进区间未完成、其后无观察与终结相位。
+/// 既有接线测试共同确认）。步进返回错误，计量区间正常关闭，驱动随后
+/// 退出，不继续观察或终结。
 /// 证明边界：这是步进前置拒绝，不证明事务中途失败回滚，也不证明
 /// note_expected_failure 后的同输入重试与命令不重放（原子性 retry 的
 /// 证明范围另列）；外层 incomplete 报告行为由错误包装器既有测试核验。
@@ -558,12 +559,12 @@ fn w1_real_step_delta_mismatch_fails_closed() {
         0,
         "唯一记录须是初始边界"
     );
-    // 会话已进入步进阶段（Session 相位完成）；步进区间发起但未完成；
-    // 失败拍之后无观察、无终结。
+    // Phase 记录证明目标步进出错后的驱动退出：失败步进是最后一个
+    // 相位（计量区间在错误路径也正常关闭），其后无观察、无终结。
     use crate::verification_cost::Phase;
     assert!(
         probe.ended.contains(&Phase::Session),
-        "会话须已进入步进阶段：{:?}",
+        "Session 相位在驱动中出现（begin_step 的执行由生产调用路径与既有接线测试确认）：{:?}",
         probe.ended
     );
     // 失败步进的计量区间本身完整结束（measured 在错误路径也收区间），
@@ -616,7 +617,7 @@ fn w4_burst_real_step_delta_mismatch_fails_closed() {
     use crate::verification_cost::Phase;
     assert!(
         probe.ended.contains(&Phase::Session),
-        "burst 会话须已完成拍前阶段：{:?}",
+        "burst 的 Session 相位在驱动中出现（bind 与 begin_step 由生产调用路径与既有接线测试确认）：{:?}",
         probe.ended
     );
     assert_eq!(
