@@ -449,19 +449,10 @@ fn run_plan<P: Probe>(
     }
     let total = plan.warm_up_ticks + plan.observation_ticks;
     let mut sample = measured(probe, Phase::Setup, |_| {
-        let mut sample = install::Sample::new(bundle, execution)?;
-        if plan.identity.lane_change().is_none() {
-            // W1/W2 正式 run 接线共享验证会话；L 族专项组合独立（设计 §10）。
-            sample.session = Some(verification::start_session(total)?);
-            sample.input_identity = verification::input_identity(bundle);
-            sample
-                .session
-                .as_mut()
-                .expect("刚装入会话")
-                .confirm_initial_boundary(0)
-                .map_err(|e| failure("验证会话初始边界", e))?;
-        }
-        Ok(sample)
+        // 诊断对照 D（experiment/1457-cD-synth-session）：摘除 W1/W2 会话
+        // 接线——不 start、不记输入身份、不确认初始边界；下游协议调用点
+        // 全部对 None 容忍，检查点/回执的会话字段为 null。
+        install::Sample::new(bundle, execution)
     })?;
     verification_cost::sample_buffers(probe, &sample);
     let setup = probe.start();

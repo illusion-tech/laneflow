@@ -286,6 +286,7 @@ impl Common {
             "whole_run_wall_ns":null,"observation_ns":null,"workload_counts":null,
             "allocation":null,"scratch_high_water":null,
             "scope":{
+                "diagnostic":"D_session_wiring_removed (experiment/1457-cD-synth-session): sessions never bound in run paths; session phase is structural zero; checkpoints carry no verification material; verification_receipt is null; results are diagnostic-only and NOT a full-spec reference",
                 "observation":"fused_fact_reads_checks_session_notes_encoding_and_boundary_hash",
                 "session":"outer_declare_advance_begin_and_successful_step_consumption",
                 "commands_and_receipts":"boundary_planning_runtime_commands_checks_receipts_reordering_and_batch_evidence",

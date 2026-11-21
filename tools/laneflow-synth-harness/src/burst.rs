@@ -641,15 +641,11 @@ pub(super) fn run_with_probe<P: Probe>(
         .collect::<Result<_, _>>()?;
     let total = plan.warm_up_ticks + plan.observation_ticks;
     let mut burst = measured(probe, Phase::Setup, |_| {
-        let mut burst = Burst::new(bundle, plan, execution)?;
-        // W3/W4 burst 正式 run 接线共享验证会话（设计 §10 burst 行）。
-        crate::verification::bind_burst_session(
-            &mut burst.sample,
-            bundle,
-            &plan.identity.case,
-            total,
-        )?;
-        Ok(burst)
+        // 诊断对照 D（experiment/1457-cD-synth-session）：摘除 W3/W4 burst
+        // 会话接线——不绑定共享验证会话；execute_command 的记检/见证、
+        // 步进/命令协议与收据产出点全部对 None 容忍，final 报告的
+        // verification_receipt 与检查点验证材料为 null。
+        Burst::new(bundle, plan, execution)
     })?;
     burst.cost_buffers(probe);
     let setup = probe.start();

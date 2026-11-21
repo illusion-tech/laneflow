@@ -77,15 +77,21 @@ pub(crate) const RULE_COMMANDS: RuleDescriptor = RuleDescriptor {
     initial: false,
 };
 
+// 诊断对照 D：以下 W 会话规格链（start_session 及其规则/事实/见证/供给
+// 常量）在 run 路径摘除接线后仅测试与对照引用，保留实现不删。
+#[allow(dead_code)]
 const RULES: &[RuleDescriptor] = &[RULE_MOTION, RULE_BODY, RULE_ORDER, RULE_SIGNAL, RULE_GATES];
+#[allow(dead_code)]
 const FACTS: &[FactId] = &[
     FactId("motion"),
     FactId("identity"),
     FactId("signal-plan"),
     FactId("gate-events"),
 ];
+#[allow(dead_code)]
 const WITNESSES: &[WitnessId] = &[WitnessId("per-active-crossing")];
 
+#[allow(dead_code)]
 const PROVIDED: ProvidedModules = ProvidedModules {
     rules: RULES,
     facts: FACTS,
@@ -136,6 +142,8 @@ pub(crate) const WITNESS_GREEN_PROBE: WitnessId = WitnessId("w4-green-probe");
 pub(crate) const WITNESS_CROSSING: WitnessId = WitnessId("per-active-crossing");
 
 /// W1/W2 正式规约：`total` 为受检计划的完整窗口长度（预热+观察）。
+/// 诊断对照 D 保留实现（见上方说明），run 路径不再接线。
+#[allow(dead_code)]
 pub(crate) fn w_spec(total: u64) -> VerificationSpec {
     VerificationSpec {
         name: "lf-synth-w-semantic-run",
@@ -152,6 +160,8 @@ pub(crate) fn w_spec(total: u64) -> VerificationSpec {
 }
 
 /// 由受检窗口构造 W1/W2 会话（绑定失败即错误，不产出降级计划）。
+/// 诊断对照 D 保留实现（测试仍直接构造会话），run 路径不再接线。
+#[allow(dead_code)]
 pub(crate) fn start_session(total: u64) -> Result<Session, crate::Error> {
     Session::start(w_spec(total), PROVIDED)
         .map_err(|rejected| crate::Error::Invalid(format!("验证规约绑定失败：{rejected}")))

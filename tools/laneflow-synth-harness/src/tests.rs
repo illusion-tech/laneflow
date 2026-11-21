@@ -317,10 +317,12 @@ fn w2_is_fully_active_and_shortened_plan_is_rejected() {
 
 /// W4 正式 run 入口（`burst::run`）的会话接线端到端：压缩时序计划
 ///（与恢复 E2E 同法，冻结输入字节不动）走完整生产路径，回执携带验证
-/// 回执——规格身份、真实见证计数（过门与 Green 探针各 100）、逐命令
-/// 触发计数与零 Blocked；报告级检查点携带验证材料。
+/// 诊断对照 D 的证明范围钉子：W4 全窗口 run 在摘除会话接线后仍按原
+/// 独立检查完成（complete=true），但收据为 null、报告级检查点不携带
+/// 验证材料——被关闭的会话工作（初始边界确认、逐轮覆盖、命令结果
+/// 消耗、见证记数、终结回执）不得再出现。
 #[test]
-fn w4_full_run_report_carries_verification_receipt() {
+fn w4_full_run_without_session_wiring_is_diagnostic() {
     let bundle = bundle(Case::W4, 16);
     let mut plan = Plan::read(&bundle).unwrap();
     let old_warm = plan.warm_up_ticks;
@@ -343,19 +345,17 @@ fn w4_full_run_report_carries_verification_receipt() {
     )
     .unwrap();
     assert_eq!(report["complete"], true);
-    let receipt = &report["verification_receipt"];
-    assert_eq!(receipt["spec"], "lf-synth-w4-burst-semantic-run");
-    assert_eq!(receipt["successful_steps"], 3);
-    assert_eq!(receipt["blocked_attempts"], 0);
-    assert_eq!(receipt["witnesses"]["per-active-crossing"], 100);
-    assert_eq!(receipt["witnesses"]["w4-green-probe"], 100);
-    assert_eq!(receipt["trigger_counts"]["w-command-authority"], 600);
+    assert!(
+        report["verification_receipt"].is_null(),
+        "摘除会话接线后不得产出验证回执：{}",
+        report["verification_receipt"]
+    );
     let checkpoints = report["checkpoints"].as_array().unwrap();
     assert!(
         checkpoints
             .iter()
-            .all(|point| point["verification"]["spec_name"] == "lf-synth-w4-burst-semantic-run"),
-        "报告级检查点必须携带验证材料"
+            .all(|point| point["verification"].is_null()),
+        "诊断 D 的检查点不得携带验证材料"
     );
 }
 

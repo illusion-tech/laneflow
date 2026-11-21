@@ -150,7 +150,11 @@ cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin synth-ver
 `complete=true` 表示该次完整语义运行与成本采集完成，不表示成本预算通过。
 
 时间构建输出 `timing_by_phase_ns`、`boundary_samples` 和 `observation_ns`。
-各阶段边界如下；阶段互不嵌套，不能把其和当作整轮墙钟：
+**本分支为诊断对照 D（experiment/1457-cD-synth-session）：run 路径摘除了共享
+验证会话接线（W1/W2 不 start、burst 不绑定），`session` 阶段为结构零，
+检查点与 final 报告不携带验证材料、`verification_receipt` 为 null；成本文件
+`scope.diagnostic` 携带诊断标识。本分支任何输出都是诊断对照，不构成完整规约
+通过证据。** 各阶段边界如下；阶段互不嵌套，不能把其和当作整轮墙钟：
 
 | 阶段                    | 计量内容                                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
