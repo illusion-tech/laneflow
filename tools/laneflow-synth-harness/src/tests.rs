@@ -484,3 +484,150 @@ fn w_session_wiring_counts_rules_and_can_finish_positively() {
         Err(laneflow_traffic_verification::session::ProtocolError::Finished)
     ));
 }
+
+/// a′ 取证（#1457 关单裁决点）的记录探针：按完成序记录相位结束与步进
+/// 发起拍，用于断言真实步进失败后无终结相位、失败拍步进未完成。
+#[derive(Default)]
+struct PhaseRecorder {
+    ended: Vec<crate::verification_cost::Phase>,
+    steps: Vec<u64>,
+}
+
+impl crate::verification_cost::Probe for PhaseRecorder {
+    type Mark = std::time::Instant;
+
+    fn start(&mut self) -> Self::Mark {
+        std::time::Instant::now()
+    }
+
+    fn end(&mut self, phase: crate::verification_cost::Phase, _mark: Self::Mark) {
+        self.ended.push(phase);
+    }
+
+    fn runtime_step_tick(&mut self, tick: u64) {
+        self.steps.push(tick);
+    }
+}
+
+/// 真实 Runtime 步进错误与会话组合的 fail-closed 负例（W1/W2 驱动）：
+/// 冻结的 16 ms bundle 输入不改，仅在内存把计划步长改为 33；安装仍按
+/// InitialState 构建 16 ms 世界（install.rs world_config），驱动提交
+/// 33 ms TickInput，会话已进入步进阶段（declare/advance/begin 完成），
+/// 真实 `TrafficWorld::step` 在步进预检返回 DeltaMismatch。断言：错误
+/// 来自目标步进并携带期望/实际步长；初始边界后没有成功拍轨迹（轨迹只
+/// 有 tick 0 记录）；失败拍步进区间未完成、其后无观察与终结相位。
+/// 证明边界：这是步进前置拒绝，不证明事务中途失败回滚，也不证明
+/// note_expected_failure 后的同输入重试与命令不重放（原子性 retry 的
+/// 证明范围另列）；外层 incomplete 报告行为由错误包装器既有测试核验。
+#[test]
+fn w1_real_step_delta_mismatch_fails_closed() {
+    let bundle = bundle(Case::W1, 16);
+    let mut plan = Plan::read(&bundle).unwrap();
+    plan.identity.fixed_delta_ms = 33;
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("output");
+    std::fs::create_dir(&output).unwrap();
+    let mut probe = PhaseRecorder::default();
+    let error = crate::run_plan(
+        &bundle,
+        &plan,
+        &"c".repeat(40),
+        ExecutionConfig::new(NonZeroU32::MIN),
+        &output,
+        &mut probe,
+    )
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("step 1"), "错误须来自目标步进：{message}");
+    assert!(message.contains("DeltaMismatch"), "{message}");
+    assert!(
+        message.contains("expected_delta_time_ms: 16"),
+        "须携带世界配置步长：{message}"
+    );
+    assert!(
+        message.contains("actual_delta_time_ms: 33"),
+        "须携带本次输入步长：{message}"
+    );
+    // 轨迹只有格式头与初始边界（tick 0）记录；失败拍与其后拍不写入。
+    // 每条记录 = 8 字节拍号 + 32 字节 blake3 摘要。
+    let trace = std::fs::read(output.join("ticks.bin")).unwrap();
+    let header = b"lf-synth-public-ticks-1\0";
+    assert_eq!(trace.len(), header.len() + 8 + 32, "只有 tick 0 记录");
+    assert_eq!(
+        u64::from_le_bytes(trace[header.len()..header.len() + 8].try_into().unwrap()),
+        0,
+        "唯一记录须是初始边界"
+    );
+    // 会话已进入步进阶段（Session 相位完成）；步进区间发起但未完成；
+    // 失败拍之后无观察、无终结。
+    use crate::verification_cost::Phase;
+    assert!(
+        probe.ended.contains(&Phase::Session),
+        "会话须已进入步进阶段：{:?}",
+        probe.ended
+    );
+    // 失败步进的计量区间本身完整结束（measured 在错误路径也收区间），
+    // 但其后不得再有任何相位：无失败拍的观察、无终结。
+    assert_eq!(
+        probe.ended.last(),
+        Some(&Phase::RuntimeStep),
+        "失败步进须是最后一个相位：{:?}",
+        probe.ended
+    );
+    assert!(
+        !probe.ended.contains(&Phase::Finish),
+        "真实步进失败后不得执行终结相位"
+    );
+    assert_eq!(probe.steps, vec![1], "只发起过一次步进");
+}
+
+/// 同款 fail-closed 负例（W3/W4 burst 驱动）：会话在安装期绑定并完成
+/// 拍前阶段（advance/begin）后，真实 step 以 DeltaMismatch 拒绝；错误
+/// 传播中止运行，无终结相位、失败拍不写入轨迹。
+#[test]
+fn w4_burst_real_step_delta_mismatch_fails_closed() {
+    let bundle = bundle(Case::W4, 16);
+    let mut plan = Plan::read(&bundle).unwrap();
+    plan.identity.fixed_delta_ms = 33;
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("output");
+    std::fs::create_dir(&output).unwrap();
+    let mut probe = PhaseRecorder::default();
+    let error = crate::burst::run_with_probe(
+        &bundle,
+        &plan,
+        &"c".repeat(40),
+        ExecutionConfig::new(NonZeroU32::MIN),
+        &output,
+        &mut probe,
+    )
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("step 1"), "错误须来自目标步进：{message}");
+    assert!(message.contains("DeltaMismatch"), "{message}");
+    assert!(
+        message.contains("expected_delta_time_ms: 16")
+            && message.contains("actual_delta_time_ms: 33"),
+        "{message}"
+    );
+    let trace = std::fs::read(output.join("ticks.bin")).unwrap();
+    let header = b"lf-synth-burst-ticks-1\0";
+    assert_eq!(trace.len(), header.len() + 8 + 32, "只有 tick 0 记录");
+    use crate::verification_cost::Phase;
+    assert!(
+        probe.ended.contains(&Phase::Session),
+        "burst 会话须已完成拍前阶段：{:?}",
+        probe.ended
+    );
+    assert_eq!(
+        probe.ended.last(),
+        Some(&Phase::RuntimeStep),
+        "失败步进须是最后一个相位：{:?}",
+        probe.ended
+    );
+    assert!(
+        !probe.ended.contains(&Phase::Finish),
+        "真实步进失败后不得执行终结相位"
+    );
+    assert_eq!(probe.steps, vec![1], "只发起过一次步进");
+}
