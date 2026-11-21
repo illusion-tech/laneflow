@@ -262,8 +262,9 @@ cargo +1.99.1 build -p laneflow-urban-harness --release --locked --features veri
 target/verification-cost/urban-timing/release/laneflow-urban-harness plan <artifact-directory> <correctness-plan.toml> --case MIXED-PEAK
 target/verification-cost/urban-timing/release/laneflow-urban-harness verification-cost <artifact-directory> <correctness-plan.toml> <timing-output> --mode timing --workers 1
 target/verification-cost/urban-counts/release/laneflow-urban-harness verification-cost <artifact-directory> <correctness-plan.toml> <counts-output> --mode counts --workers 1
-target/verification-cost/urban-timing/release/laneflow-urban-harness compare <timing-output> <counts-output> <semantic-comparison.json>
 ```
+
+诊断对照 D 分支不提供 `compare` 核对命令：本分支输出携带专用诊断结果版本，正式 `compare`（CLI 与库入口）一律在身份门拒绝、不生成比较报告；两次运行的语义核对按登记的诊断对照方法执行（限定字段投影等值与逐文件对照），不得把 D 输出转标为正式结果。
 
 短入口诊断可用原 `plan --probe-warm-up N --probe-ticks N` 生成 probe，再传给同一
 成本命令；成本命令仍完整消费该输入。库入口是 `run_verification_cost` 与
@@ -276,9 +277,11 @@ target/verification-cost/urban-timing/release/laneflow-urban-harness compare <ti
 ### 输出与完成条件
 
 独立输出为 `verification-cost.json`，`format = urban-verification-cost-1`、
-`purpose = verification-cost`；原 `result.json`、`resolved-plan.toml`、逐拍/命令/
-事件日志、检查点与 `diagnostics.json` 照常输出，可用原 `compare` 检验完整语义。
-成本文件不插入原 `result.files`，不改变旧消费者的语义比对对象。
+`purpose = verification-cost`；原 `result.json`（携带专用诊断结果版本与
+`case-diagnostic-complete` 完成态）、`resolved-plan.toml`、逐拍/命令/
+事件日志、检查点与 `diagnostics.json` 照常输出；正式 `compare` 拒绝本分支
+产物，语义核对按登记的诊断对照方法执行。成本文件不插入原 `result.files`，
+不改变旧消费者的语义比对对象。
 
 输出目录创建后先写 `complete=false, phase=initializing`。初始化或后续文件写出
 失败时保留此不完整标记；受控运行失败写出最终失败成本回执。只有期望拍数、逐拍

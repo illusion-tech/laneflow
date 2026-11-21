@@ -5,8 +5,8 @@ mod child_diagnostics;
 use laneflow_runtime::VehicleStatus;
 use laneflow_urban_generator::{Scale, UrbanConfig, generate};
 use laneflow_urban_harness::{
-    Artifacts, ComparisonReport, Diagnostics, Harness, ResolvedPlan, UrbanCase, Window,
-    compare_runs, run_to_directory,
+    Artifacts, Diagnostics, Harness, ResolvedPlan, UrbanCase, Window, compare_runs,
+    run_to_directory,
 };
 use sha2::{Digest, Sha256};
 
@@ -15,13 +15,6 @@ fn sha256(bytes: &[u8]) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
-}
-
-/// 与 harness 文件字节摘要相同的独立计算（BLAKE3-256，域分隔前缀见设计 §6）。
-fn file_digest(bytes: &[u8]) -> String {
-    let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();
-    preimage.extend_from_slice(bytes);
-    blake3::hash(&preimage).to_hex().to_string()
 }
 
 fn execution(workers: u32) -> laneflow_runtime::ExecutionConfig {
@@ -789,15 +782,16 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             > 0
     );
     assert!(first.atomic_rejections.contains_key("leave"));
-    let comparison = compare_runs(&a, &b).unwrap();
-    assert_eq!(comparison.status, "probe-match");
-    assert_eq!(comparison.version, "urban-comparison-v4");
-    assert_eq!(comparison.plan_digest, first.plan_digest);
-    for (dir, receipt) in [(&a, &comparison.left), (&b, &comparison.right)] {
-        let bytes = fs::read(dir.join("result.json")).unwrap();
-        assert_eq!(receipt.result.digest, file_digest(&bytes));
-        assert_eq!(receipt.result.bytes, bytes.len() as u64);
-    }
+    // 诊断对照 D：两份完整 D 输出交正式比较，一律在身份门被拒（专用
+    // 诊断结果版本）；正式比较报告不生成。两次运行的语义一致性由上方
+    // 语义投影断言与逐文件对照覆盖，不再经正式 compare 转标。
+    assert!(
+        compare_runs(&a, &b)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot accept"),
+        "D 输出必须被正式比较在身份门拒绝"
+    );
     let comparison_file = temp.path().join("comparison.json");
     let compared = child_diagnostics::output(
         Command::new(env!("CARGO_BIN_EXE_laneflow-urban-harness"))
@@ -807,24 +801,17 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
             .arg(&comparison_file),
     )
     .unwrap();
-    assert!(compared.status.success(), "{:?}", compared.stderr);
-    let retained: ComparisonReport =
-        serde_json::from_slice(&fs::read(&comparison_file).unwrap()).unwrap();
-    assert_eq!(retained, comparison);
-    assert!(comparison.write(&comparison_file).is_err());
+    assert!(
+        !compared.status.success(),
+        "compare CLI 必须拒绝诊断 D 输出：{:?}",
+        compared.stderr
+    );
+    assert!(!comparison_file.exists(), "诊断 D 不得产出正式比较报告");
     let diagnostics = |dir: &std::path::Path| -> serde_json::Value {
         serde_json::from_slice(&fs::read(dir.join("diagnostics.json")).unwrap()).unwrap()
     };
     assert_ne!(
         diagnostics(&a)["execution_id"],
-        diagnostics(&b)["execution_id"]
-    );
-    assert_eq!(
-        comparison.left.execution_id,
-        diagnostics(&a)["execution_id"]
-    );
-    assert_eq!(
-        comparison.right.execution_id,
         diagnostics(&b)["execution_id"]
     );
     let copied = temp.path().join("copied-a");
@@ -833,6 +820,8 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         let entry = entry.unwrap();
         fs::copy(entry.path(), copied.join(entry.file_name())).unwrap();
     }
+    // copied 与 a 同执行身份：执行身份判别先于正式 read_run 的版本门，
+    // 该行为在 D 分支上不变（两份不同身份的 D 输出才会在身份门被拒）。
     assert!(
         compare_runs(&a, &copied)
             .unwrap_err()
@@ -878,7 +867,8 @@ fn real_fixture_runs_independently_and_detects_changed_inputs_and_logs() {
         compare_runs(&a, &b)
             .unwrap_err()
             .to_string()
-            .contains("run file changed")
+            .contains("cannot accept"),
+        "D 分支上篡改文件的摘要判别先被身份门拦截（run file changed 属 main 正式版本）"
     );
     fs::write(source.join("routes.toml"), "\n").unwrap();
     assert!(

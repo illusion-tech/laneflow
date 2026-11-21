@@ -401,7 +401,7 @@ pub fn run_verification_cost(
         "semantic_run":{"result_file":"result.json","result_digest":report::digest_file(&output.join("result.json"))?,
             "status":result.status,"error":result.error,"endpoint":result.endpoint,
             "validate_case":{"requested":plan.window.purpose == "correctness","executed":recorder.case_validation_started,"passed":recorder.case_validation_passed},
-            "comparison":"use the original compare command against an independent full run; this cost receipt does not replace replay"},
+            "comparison":"DIAGNOSTIC D: the formal compare command rejects this branch's outputs at the result-version gate; use the registered diagnostic comparison method (bounded-field projection equality plus per-file comparison) against an independent full run; this cost receipt does not replace replay"},
         "whole_run_wall_ns":if mode == VerificationCostMode::Timing { Some(elapsed) } else { None },
         "whole_run_wall_scope":WALL_SCOPE,
         "source":{"git_commit":diagnostics["git_commit_at_run"],"git_status":diagnostics["git_status_at_run"],
