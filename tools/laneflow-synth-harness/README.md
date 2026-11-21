@@ -151,10 +151,15 @@ cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin synth-ver
 
 时间构建输出 `timing_by_phase_ns`、`boundary_samples` 和 `observation_ns`。
 **本分支为诊断对照 D（experiment/1457-cD-synth-session）：run 路径摘除了共享
-验证会话接线（W1/W2 不 start、burst 不绑定），`session` 阶段为结构零，
-检查点与 final 报告不携带验证材料、`verification_receipt` 为 null；成本文件
-`scope.diagnostic` 携带诊断标识。本分支任何输出都是诊断对照，不构成完整规约
-通过证据。** 各阶段边界如下；阶段互不嵌套，不能把其和当作整轮墙钟：
+验证会话接线（W1/W2 不 start、burst 不绑定）；Session 的实际协议工作关闭，
+`session` 相位仍保留空操作、None 分支判断及计量外壳耗时（与 F 对称，W1/W2
+每轮 2T+1、W3/W4 每轮 3T+1 个计量区间，读数不是结构零）。检查点与 final
+报告不携带验证材料、`verification_receipt` 为 null；报告与初始 incomplete
+报告一律携带诊断语义身份 `lf-synth-execution-2-d-session-removed-diagnostic`，
+正式消费入口期望 `lf-synth-execution-2`，据此拒绝 D 产物；成本文件
+`scope.diagnostic` 同步携带说明。本分支任何输出都是诊断对照，不构成完整规约
+通过证据，也不进入正常 evidence/oracle 准入。** 各阶段边界如下；阶段互不
+嵌套，不能把其和当作整轮墙钟：
 
 | 阶段                    | 计量内容                                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------- |

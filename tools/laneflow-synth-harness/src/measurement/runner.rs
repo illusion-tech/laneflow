@@ -329,7 +329,12 @@ fn checkpoint(
 // oracle 预检（#1170 测量入口，#1219）：完成标记、有序事件、输入身份与实现提交
 // 必须同时相符；实现提交不等值（含只改 oracle 的 `implementation_commit`）必须
 // 拒绝，防止换实现静默复用旧 oracle。
-fn check_oracle(oracle: &Value, input_manifest: &Value, implementation: &str) -> Result<(), Error> {
+// 诊断对照 D 分支提为 crate 可见：负例测试直接证明正式 oracle 预检拒绝 D 产物。
+pub(crate) fn check_oracle(
+    oracle: &Value,
+    input_manifest: &Value,
+    implementation: &str,
+) -> Result<(), Error> {
     require(
         oracle["complete"] == true
             && oracle["input_manifest"] == *input_manifest

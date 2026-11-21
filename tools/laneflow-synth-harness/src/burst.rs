@@ -824,7 +824,7 @@ pub(super) fn run_with_probe<P: Probe>(
     let mut step_bytes = b"lf-synth-step-input-1\0".to_vec();
     step_bytes.extend_from_slice(&u64::from(plan.identity.fixed_delta_ms).to_le_bytes());
     Ok(json!({"format":"lf-synth-burst-run-1","complete":true,
-        "semantic_contract":crate::SEMANTIC_CONTRACT,
+        "semantic_contract":crate::DIAGNOSTIC_SEMANTIC_CONTRACT,
         "scope":"W3_W4_semantics_only_not_retry_or_performance_or_product_certification",
         "implementation_commit":implementation,"input_manifest":bundle.manifest(),
         "workers":burst.sample.world.execution_config().worker_count().get(),

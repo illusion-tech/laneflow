@@ -42,6 +42,14 @@ fn failure(stage: &str, detail: impl std::fmt::Debug) -> Error {
 /// 旧报告不得通过缺省值或改标签混入。
 pub const SEMANTIC_CONTRACT: &str = "lf-synth-execution-2";
 
+/// 诊断对照 D（experiment/1457-cD-synth-session）的专用语义身份：run 路径
+/// 摘除会话接线后，初始 incomplete 报告与最终报告一律携带本身份。正式
+/// 消费入口（[`ensure_semantic_contract`] 与 oracle 预检）期望的仍是
+/// [`SEMANTIC_CONTRACT`]，因此 D 产物即使 complete、输入匹配、来源真实
+/// 也被拒绝，不得进入正常 evidence/oracle 准入。
+pub(crate) const DIAGNOSTIC_SEMANTIC_CONTRACT: &str =
+    "lf-synth-execution-2-d-session-removed-diagnostic";
+
 /// 校验回执携带当前语义验收协议。
 ///
 /// # Errors
@@ -392,7 +400,7 @@ fn run_with_probe<P: Probe>(
     fs::create_dir(output)?;
     probe.output_created(output)?;
     let mut status = json!({"format":"lf-synth-semantic-run-1","complete":false,
-        "semantic_contract":SEMANTIC_CONTRACT,
+        "semantic_contract":DIAGNOSTIC_SEMANTIC_CONTRACT,
         "implementation_commit":implementation_commit,"workers":execution.worker_count().get()});
     write_json(&output.join("report.json"), &status)?;
     let result = run_inner(input, implementation_commit, execution, output, probe);
@@ -595,7 +603,7 @@ fn run_plan<P: Probe>(
     };
     probe.end(Phase::Finish, finish);
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
-        "semantic_contract":SEMANTIC_CONTRACT,
+        "semantic_contract":DIAGNOSTIC_SEMANTIC_CONTRACT,
         "scope":if plan.identity.lane_change().is_some() {
             "L1_lane_change_competition_success_path_not_performance_or_product_certification"
         } else {

@@ -7,7 +7,9 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
-use laneflow_synth_generator::{Case, Identity, InitialState, Provenance, generate};
+use laneflow_synth_generator::{
+    Case, Identity, InitialState, LaneChangeParams, Provenance, generate,
+};
 
 use crate::{
     Plan, cycle_ms,
@@ -356,6 +358,90 @@ fn w4_full_run_without_session_wiring_is_diagnostic() {
             .iter()
             .all(|point| point["verification"].is_null()),
         "诊断 D 的检查点不得携带验证材料"
+    );
+    // 准入隔离：D 产物即使 complete、输入 manifest 与实现提交全部正确，
+    // 正式消费者仍以语义身份拒绝（oracle 预检与合同校验都不放行）。
+    assert_eq!(
+        report["semantic_contract"], "lf-synth-execution-2-d-session-removed-diagnostic",
+        "D 的最终报告必须携带诊断语义身份"
+    );
+    let implementation = "c".repeat(40);
+    let contract_error = crate::ensure_semantic_contract(&report).unwrap_err();
+    assert!(
+        contract_error
+            .to_string()
+            .contains("lf-synth-execution-2-d-session-removed-diagnostic"),
+        "合同校验错误须点名诊断身份：{contract_error}"
+    );
+    assert!(
+        crate::measurement::runner::check_oracle(
+            &report,
+            &report["input_manifest"],
+            &implementation
+        )
+        .is_err(),
+        "oracle 预检必须拒绝诊断 D 产物（其余字段全部正确也不放行）"
+    );
+}
+
+/// W 路径（普通驱动）同款准入隔离。用 L1 换道族承载：其窗口为钉版
+/// 16+384（#1218 D3），全 run 快速可完成，报告产出点与 W1/W2 共用
+/// （lib.rs 最终 json）。L 族本就不绑会话，此处验证的是该产出点的
+/// 诊断语义身份与正式消费者拒绝，不声称 L1 的会话成本差。
+#[test]
+fn w_path_report_without_session_wiring_is_diagnostic() {
+    let bundle = generate(
+        Identity::new(
+            10_000,
+            Case::LaneChange(LaneChangeParams {
+                clusters: 1,
+                changers_per_cluster: 2,
+            }),
+            16,
+        )
+        .unwrap(),
+        Provenance {
+            source_commit: "a".repeat(40),
+            generator_commit: "b".repeat(40),
+        },
+    )
+    .unwrap();
+    let plan = Plan::read(&bundle).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("output");
+    std::fs::create_dir(&output).unwrap();
+    let implementation = "c".repeat(40);
+    let mut probe = crate::verification_cost::Noop;
+    let report = crate::run_plan(
+        &bundle,
+        &plan,
+        &implementation,
+        ExecutionConfig::new(NonZeroU32::MIN),
+        &output,
+        &mut probe,
+    )
+    .unwrap();
+    assert_eq!(report["complete"], true);
+    assert!(
+        report["verification_receipt"].is_null(),
+        "摘除会话接线后不得产出验证回执"
+    );
+    assert_eq!(
+        report["semantic_contract"], "lf-synth-execution-2-d-session-removed-diagnostic",
+        "D 的 W 路径最终报告必须携带诊断语义身份"
+    );
+    // 准入隔离同 W4：正式合同校验与 oracle 预检都拒绝 D 产物。初始
+    // incomplete 报告与最终报告共用同一诊断身份常量（同一产出点定义）。
+    let contract_error = crate::ensure_semantic_contract(&report).unwrap_err();
+    assert!(contract_error.to_string().contains("diagnostic"));
+    assert!(
+        crate::measurement::runner::check_oracle(
+            &report,
+            &report["input_manifest"],
+            &implementation
+        )
+        .is_err(),
+        "oracle 预检必须拒绝诊断 D 的 W 路径产物"
     );
 }
 
