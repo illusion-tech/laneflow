@@ -132,11 +132,16 @@ fn complete_cost_probe_keeps_original_replay_and_separates_builds() {
         assert!(pre_lookups > 0);
         assert_eq!(counts["state_vehicle_lookups"], pre_lookups * 2);
         assert_eq!(counts["pre_step_blocks"], counts["state_blocks"]);
-        assert_eq!(counts["body_nonempty_scans"], 8);
+        // 诊断对照 D 的计数口径：不做非空校验（0 次扫描 0 行）；相邻对
+        // 枚举每拍一次、访问 K-1 对（8 拍合计 fragments-8 行）。
+        assert_eq!(counts["body_nonempty_scans"], 0);
+        assert_eq!(counts["body_nonempty_scan_rows"], 0);
         assert_eq!(counts["body_overlap_scans"], 8);
-        assert!(counts["body_fragments"].as_u64().unwrap() > 0);
-        assert_eq!(counts["body_fragments"], counts["body_nonempty_scan_rows"]);
-        assert_eq!(counts["body_fragments"], counts["body_overlap_scan_rows"]);
+        assert!(counts["body_fragments"].as_u64().unwrap() > 8);
+        assert_eq!(
+            counts["body_overlap_scan_rows"],
+            counts["body_fragments"].as_u64().unwrap() - 8
+        );
         assert_eq!(counts["body_fragments"], counts["body_sort_input_rows"]);
         let other = read(&four.join("verification-cost.json"));
         assert_eq!(receipt["workload_counts"], other["workload_counts"]);

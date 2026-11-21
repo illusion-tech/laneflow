@@ -339,10 +339,14 @@ API 内部操作、容器比较、角色见证中的嵌套匹配或 CPU 指令�
 每拍 `body_fragments` 是真实收集的车身片段 K，不能用活跃车辆数 N 代替；
 `body_sort_input_rows` 是块内排序输入量，不是比较次数。
 `body_merge_passes/body_merge_output_rows` 在原归并循环按每层实际输出累计，包含
-未配对尾块复制，空块也保留真实层数。共享已排序判据成功返回保证非空校验和
-重叠候选两次扫描完整访问该切片，因此分别记录各自扫描次数与 K 行；debug
-构建的排序断言相邻对另记 `body_sorted_debug_pairs`。失败拍未产生完整样本，
-最终不完整报告只汇总成功拍前缀，不能当作完整窗口。
+未配对尾块复制，空块也保留真实层数。**本分支为诊断对照 D（experiment/
+1457-cD-urban-adjacency）：车身判定只枚举相邻对（旧证明范围，同 owner 嵌套
+遮蔽下的跨 owner 重叠不报、无非空校验），判定谓词仍为共享 `intervals_overlap`；
+计数如实记 D 的实际工作——`body_overlap_scans` 每拍 1 次、`body_overlap_scan_rows`
+为相邻对数 K-1，`body_nonempty_scans/body_nonempty_scan_rows` 为 0，
+`body_sorted_debug_pairs` 为 0。** 本分支任何输出都是诊断对照，不构成当前车身
+性质的通过证据。失败拍未产生完整样本，最终不完整报告只汇总成功拍前缀，不能
+当作完整窗口。
 
 容量只读取已存在 Vec/哈希表及 O(blocks) 缓冲元数据，不访问车辆世界；编码和
 JSON 缓冲以字节表示，其他 Vec 为元素数，哈希表为可容纳条目数。安装后的容量

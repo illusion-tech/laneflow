@@ -391,7 +391,7 @@ pub fn run_verification_cost(
             "network_revision":result.network_revision,"policy_id":result.policy_id,"world_id":result.world_id,
             "case":plan.case,"scale":plan.scale,"fixed_step_ms":plan.dt,
             "observation_version":crate::observe::OBSERVATION_VERSION,
-            "verification_scope":"existing Urban checks and case witnesses; shared body predicate; no full shared Session migration"},
+            "verification_scope":"DIAGNOSTIC D (experiment/1457-cD-urban-adjacency): adjacent-pairs-only body enumeration with the old proof scope (misses same-owner nested shielding; no non-empty validation); NOT a full-spec reference and not a body-property pass"},
         "input_manifest":artifacts.files,
         "window":{"purpose":plan.window.purpose,"warm_up_ticks":plan.window.warm_up_ticks,
             "observation_ticks":plan.window.observation_ticks,"expected_ticks":plan.window.end(),"completed_ticks":result.completed_ticks},

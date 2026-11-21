@@ -1437,12 +1437,14 @@ fn claims_block(
     })
 }
 
-/// 归并各块有序 bodies 并执行共享判据的完整集合扫描（`state_impl` 的
-/// 生产接缝；接线负例测试直接调用本函数，不经共享库直连）。
+/// 诊断对照 D（experiment/1457-cD-urban-adjacency）：归并各块有序 bodies 后
+/// 只枚举相邻对判定（`state_impl` 的生产接缝；对照测试直接调用本函数）。
 ///
-/// 车身分离调用共享判据的已排序入口：完整集合扫描（每空间保留终点
-/// 最远的两个不同 owner 候选），相邻对比较会漏检同 owner 嵌套片段
-/// 遮蔽下的跨 owner 重叠（traffic-verification §5.3）。
+/// 这是旧实现（3e3a3470 的 `windows(2)`）的证明范围：同空间、相异 owner 的
+/// 相邻片段才判定；同 owner 嵌套片段会遮蔽其后的跨 owner 重叠
+/// （traffic-verification §5.3 反例，由对照测试钉住漏检）。判定谓词与共享
+/// 判据同一实现（`intervals_overlap`），仅枚举范围不同；不做非空校验。
+/// 本分支的任何结果都是诊断对照，不构成当前车身性质的通过证据。
 fn merge_and_check_bodies(
     bodies: &mut Vec<Body>,
     runs: &mut Vec<usize>,
@@ -1450,21 +1452,20 @@ fn merge_and_check_bodies(
     tick: u64,
 ) -> crate::Result<MergeWork> {
     let work = merge_sorted_runs(bodies, runs, merge);
-    let overlap =
-        laneflow_traffic_verification::body::first_overlap_sorted(bodies).map_err(|empty| {
-            invalid(format!(
-                "empty body interval at tick {} index {}",
-                tick, empty.index
-            ))
-        })?;
-    if let Some(overlap) = overlap {
-        return Err(invalid(format!(
-            "body overlap at tick {} on edge {}: {:?} and {:?}",
-            tick,
-            bodies[overlap.earlier].space(),
-            bodies[overlap.earlier],
-            bodies[overlap.later]
-        )));
+    for pair in bodies.windows(2) {
+        let (earlier, later) = (pair[0], pair[1]);
+        if earlier.space() == later.space()
+            && earlier.owner() != later.owner()
+            && laneflow_traffic_verification::body::intervals_overlap(earlier, later)
+        {
+            return Err(invalid(format!(
+                "body overlap at tick {} on edge {}: {:?} and {:?}",
+                tick,
+                earlier.space(),
+                earlier,
+                later
+            )));
+        }
     }
     Ok(work)
 }
@@ -1683,13 +1684,14 @@ fn state_impl(h: &mut Harness<'_>, block_size: usize) -> Result<(String, (usize,
     {
         work.body_merge_output_rows = body_work.output_rows;
         work.body_merge_passes = body_work.passes;
-        // 共享已排序入口成功返回，保证非空校验和候选扫描都完整访问此切片。
-        work.body_nonempty_scan_rows = bodies.len() as u64;
-        work.body_nonempty_scans = 1;
-        work.body_overlap_scan_rows = bodies.len() as u64;
+        // 诊断对照 D 的实际工作量：相邻对枚举一次访问 K-1 对；不做非空
+        // 校验（不产生非空扫描行）；无共享入口的排序调试断言。
+        work.body_nonempty_scan_rows = 0;
+        work.body_nonempty_scans = 0;
+        work.body_overlap_scan_rows = bodies.len().saturating_sub(1) as u64;
         work.body_overlap_scans = 1;
         if cfg!(debug_assertions) {
-            work.body_sorted_debug_pairs = bodies.len().saturating_sub(1) as u64;
+            work.body_sorted_debug_pairs = 0;
         }
         h.observation.work.add(work);
     }
@@ -1936,11 +1938,12 @@ mod tests {
     }
 
     #[test]
-    fn merged_scan_catches_nested_overlap_that_adjacent_pairs_miss() {
-        // 设计 §5.3 的嵌套反例走 Urban 的生产接缝（块内有序 + 归并 +
-        // 共享扫描 + Urban 错误返回）：A 的车身跨在长、短两个片段上
-        // （同一物理边、同 owner，分属不同块），B 落在 A 的长片段内。
-        // 旧相邻对比较会跳过同 owner 对而漏检；新扫描必须经归并后报出。
+    fn adjacent_diagnostic_misses_nested_shielding_criterion_catches() {
+        // 诊断对照 D 的证明范围钉子：设计 §5.3 的嵌套反例（A 的车身跨在
+        // 长、短两个片段上，同 owner 分属不同块；B 落在 A 的长片段内）。
+        // 本分支的生产接缝只查相邻对——同 owner 嵌套遮蔽下的跨 owner
+        // 重叠不报（旧实现的漏检即 D 的定义）；同一输入直连共享判据的
+        // 已排序入口仍报出，证明差异只来自枚举范围而非输入或排序。
         let a = IndividualId {
             tile: 0,
             slot: 1,
@@ -1966,16 +1969,8 @@ mod tests {
         ];
         let mut runs = vec![0, 2, 3, 4];
         let mut merge = Vec::new();
-        let error = merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, 42)
-            .expect_err("嵌套遮蔽下的跨 owner 重叠必须经生产接缝报出");
-        let message = match &error {
-            crate::Error::Validation(message) => message,
-            other => panic!("须以 Validation 错误返回：{other}"),
-        };
-        assert!(
-            message.contains("body overlap at tick 42 on edge 7"),
-            "须以 Urban 车身重叠错误返回：{message}"
-        );
+        merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, 42)
+            .expect("相邻对枚举对嵌套遮蔽重叠保持沉默（诊断 D 的证明范围）");
         // 归并已完成：排序总序下 A 长片段先于 A 短片段与 B。
         assert_eq!(
             bodies.iter().map(Body::owner).collect::<Vec<_>>(),
@@ -1986,6 +1981,10 @@ mod tests {
                 urban_body(c, 0, 0, 1).owner(),
             ]
         );
+        let overlap = laneflow_traffic_verification::body::first_overlap_sorted(&bodies)
+            .expect("输入不含空片段")
+            .expect("共享判据必须在同一归并结果上报出嵌套遮蔽重叠");
+        assert_eq!(overlap.later, 2, "后段应是 B（A 长片段遮蔽的重叠对象）");
     }
 
     #[test]
@@ -2017,6 +2016,49 @@ mod tests {
             message.contains("body overlap at tick 8"),
             "须以 Urban 车身重叠错误返回：{message}"
         );
+    }
+
+    #[test]
+    fn adjacent_diagnostic_enumeration_matches_old_inline_condition() {
+        // 400 例随机有序输入：本分支的相邻对枚举与旧实现（3e3a3470
+        // windows(2) 内联条件：同空间 && front0 > back1 && owner 相异）
+        // 逐例等价——判定谓词换成共享 intervals_overlap 不改相邻对语义
+        //（按 back 排序的相邻非空对上，front0 > back1 与双向相交等价）。
+        let mut seed = 0x5eed_1457_u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..400 {
+            let count = (next() % 24) as usize;
+            let mut bodies = Vec::with_capacity(count);
+            for _ in 0..count {
+                let space = (next() % 3) as u32;
+                let back = next() % 200;
+                let len = 1 + next() % 40;
+                let owner = IndividualId {
+                    tile: 0,
+                    slot: 1 + (next() % 3) as u32,
+                    incarnation: 0,
+                };
+                bodies.push(urban_body(owner, space, back, back + len));
+            }
+            bodies.sort_unstable();
+            let old_condition = bodies.windows(2).any(|pair| {
+                pair[0].space() == pair[1].space()
+                    && pair[0].owner() != pair[1].owner()
+                    && pair[0].front_um() > pair[1].back_um()
+            });
+            let (mut runs, mut merge) = (vec![0, bodies.len()], Vec::new());
+            let outcome = merge_and_check_bodies(&mut bodies, &mut runs, &mut merge, 0);
+            assert_eq!(
+                outcome.is_err(),
+                old_condition,
+                "相邻对枚举与旧内联条件须逐例等价"
+            );
+        }
     }
 
     #[test]
