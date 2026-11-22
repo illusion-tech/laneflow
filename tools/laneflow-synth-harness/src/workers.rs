@@ -118,7 +118,7 @@ pub(super) fn check_report(
             job.key()
         )));
     }
-    laneflow_synth_harness::ensure_semantic_contract(report)?;
+    laneflow_synth_harness::ensure_semantic_receipt(report)?;
     let checkpoints = report["checkpoints"]
         .as_array()
         .ok_or_else(|| invalid(format!("缺少状态检查点：{}", job.key())))?;

@@ -141,7 +141,7 @@ fn run_process(
             "不完整或身份不符的子进程回执 {label}-{round}: {actual}"
         )));
     }
-    laneflow_synth_harness::ensure_semantic_contract(&report)?;
+    laneflow_synth_harness::ensure_semantic_receipt(&report)?;
     Ok(report)
 }
 

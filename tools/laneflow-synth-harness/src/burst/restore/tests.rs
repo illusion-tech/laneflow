@@ -266,3 +266,31 @@ fn output_directory_is_never_overwritten_and_failure_is_preserved() {
     assert!(with_output(&out, || Ok(json!({"complete":true}))).is_err());
     assert_eq!(read(&out.join("report.json")).unwrap()["complete"], false);
 }
+
+/// #1487 复审：参考、续跑与探针共同经过 `final_record`；超 profile 减速存在
+/// 未归因样本时不产生末态记录，恢复路径不能以"两侧计数相等"接受未归因超界。
+#[test]
+fn final_record_rejects_unattributed_deceleration() {
+    let bundle = generate(
+        Identity::new(10_000, Case::W1, 16).unwrap(),
+        Provenance {
+            source_commit: "a".repeat(40),
+            generator_commit: "b".repeat(40),
+        },
+    )
+    .unwrap();
+    let plan = Plan::read(&bundle).unwrap();
+    let mut driver = Driver::Simple(Box::new(
+        Sample::new(&bundle, ExecutionConfig::new(NonZeroU32::MIN)).unwrap(),
+    ));
+    let directory = tempfile::tempdir().unwrap();
+    let records = Records::new(directory.path(), 1, 10_000, 0, false).unwrap();
+    final_record(&plan, &driver, &records).unwrap();
+    let counters = &mut driver.sample_mut().deceleration;
+    counters.above_profile = 1;
+    counters
+        .attribution
+        .record(crate::decel::Exception::Unattributed, 400_313);
+    let error = final_record(&plan, &driver, &records).unwrap_err();
+    assert!(error.to_string().contains("未归因"), "{error}");
+}
