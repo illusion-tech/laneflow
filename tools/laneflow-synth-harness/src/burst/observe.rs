@@ -48,7 +48,10 @@ impl Burst {
         };
         let cells = self.arrivals.len();
         // 判超阈值取安装 profile（与 W1/W2 同一来源，#1487）。
-        let emergency_limit = self.sample.emergency_drop_limit_mm_s(dt);
+        let motion = crate::decel::Motion {
+            emergency_mm_s2: self.sample.emergency_decel_mm_s2,
+            dt_ms: dt,
+        };
         probe.scan(Scan::LiveOrder);
         require(
             self.sample.world.tick_index() == tick
@@ -241,7 +244,7 @@ impl Burst {
                 };
                 self.sample
                     .deceleration
-                    .record(previous, state, dt, emergency_limit, exits);
+                    .record(previous, state, motion, exits);
             }
             let changed = state.route_edge_index() != previous.route_edge_index();
             if changed {

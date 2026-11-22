@@ -56,14 +56,51 @@ impl From<VehicleState> for Observed {
     }
 }
 
-pub(crate) fn classify(before: VehicleStatus, after: Observed, exits: Exits) -> Exception {
+/// 判超所需的运动边界：安装 profile 的紧急减速度与固定步长。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Motion {
+    pub emergency_mm_s2: u64,
+    pub dt_ms: u32,
+}
+
+impl Motion {
+    /// 判超阈值 `⌈b_e·Δt⌉ + 1` mm/s（`ε_v = 1 mm/s`，#1243 T5）。`b_e` 取安装
+    /// profile：W 族 6 m/s²，L 族 9 m/s²。
+    pub(crate) fn drop_limit_mm_s(self) -> u64 {
+        (self.emergency_mm_s2 * u64::from(self.dt_ms)).div_ceil(1_000) + 1
+    }
+
+    /// 终态清零只吸收至多一拍的整数落地越程：拍初速度扣除 `ε_v` 后，紧急制动
+    /// 距离不超过拍初到该位置的剩余距离加一拍行程，即
+    /// `(v−ε_v)² ≤ 2·b_e·(d + v·Δt)`。拍初须与该位置同一 route occurrence 且不越过
+    /// 它（整数几何 §5：carry 并入后的整数落地可以先于 SI 预判耗尽一拍）。
+    fn overrun_within_one_tick(self, before: Observed, point: RoutePoint) -> bool {
+        let before_um = u64::from(before.progress_mm) * 1_000 + u64::from(before.carry_um);
+        let point_um = u64::from(point.progress_mm) * 1_000;
+        if before.edge_index != point.edge_index || before_um > point_um {
+            return false;
+        }
+        let speed = u128::from(before.speed_mm_s.saturating_sub(1));
+        let room_um = u128::from(point_um - before_um)
+            + u128::from(before.speed_mm_s) * u128::from(self.dt_ms);
+        speed * speed * 1_000 <= 2 * u128::from(self.emergency_mm_s2) * room_um
+    }
+}
+
+pub(crate) fn classify(
+    before: Observed,
+    after: Observed,
+    exits: Exits,
+    motion: Motion,
+) -> Exception {
     let at = |point: RoutePoint| {
         after.edge_index == point.edge_index
             && after.progress_mm == point.progress_mm
             && after.carry_um == 0
             && after.speed_mm_s == 0
+            && motion.overrun_within_one_tick(before, point)
     };
-    let active_before = before == VehicleStatus::Active;
+    let active_before = before.status == VehicleStatus::Active;
     match after.status {
         VehicleStatus::Active if active_before && exits.parking_entrance.is_some_and(at) => {
             Exception::ParkingArrivalZero
@@ -156,23 +193,24 @@ pub(crate) struct Counters {
 }
 
 impl Counters {
-    /// 单车单拍：累计最大观测减速度（mm/s²，向上取整）；降幅超出 `limit_mm_s`
-    /// （安装 profile 紧急减速上限 × 步长 + 1）的样本计数并归因。
+    /// 单车单拍：累计最大观测减速度（mm/s²，向上取整）；降幅超出判超阈值的样本
+    /// 计数并归因。
     pub(crate) fn record(
         &mut self,
         before: VehicleState,
         after: VehicleState,
-        dt: u32,
-        limit_mm_s: u64,
+        motion: Motion,
         exits: Exits,
     ) {
         let drop = u64::from(before.speed_mm_s().saturating_sub(after.speed_mm_s()));
-        let decel_mm_s2 = (drop * 1_000).div_ceil(u64::from(dt));
+        let decel_mm_s2 = (drop * 1_000).div_ceil(u64::from(motion.dt_ms));
         self.max_mm_s2 = self.max_mm_s2.max(decel_mm_s2);
-        if drop > limit_mm_s {
+        if drop > motion.drop_limit_mm_s() {
             self.above_profile += 1;
-            self.attribution
-                .record(classify(before.status(), after.into(), exits), decel_mm_s2);
+            self.attribution.record(
+                classify(before.into(), after.into(), exits, motion),
+                decel_mm_s2,
+            );
         }
     }
 
@@ -313,6 +351,23 @@ mod tests {
         assert!(rejected.receipt().is_err());
     }
 
+    const W16: Motion = Motion {
+        emergency_mm_s2: 6_000,
+        dt_ms: 16,
+    };
+
+    /// 拍初：Active，位于 `point` 前 `behind_um`，速度 `speed_mm_s`。
+    fn approaching(point: RoutePoint, behind_um: u64, speed_mm_s: u32) -> Observed {
+        let at_um = u64::from(point.progress_mm) * 1_000 - behind_um;
+        Observed {
+            status: VehicleStatus::Active,
+            edge_index: point.edge_index,
+            progress_mm: (at_um / 1_000) as u32,
+            carry_um: (at_um % 1_000) as u16,
+            speed_mm_s,
+        }
+    }
+
     fn observed(status: VehicleStatus, point: RoutePoint, speed_mm_s: u32) -> Observed {
         Observed {
             status,
@@ -330,12 +385,15 @@ mod tests {
             route_end: Some(END),
             parking_entrance: Some(ENTRANCE),
         };
+        let to_entrance = approaching(ENTRANCE, 2_318, 217);
+        let to_end = approaching(END, 2_318, 217);
+        let classify = |before, after, exits| classify(before, after, exits, W16);
         assert_eq!(
-            classify(Active, observed(Active, ENTRANCE, 0), both),
+            classify(to_entrance, observed(Active, ENTRANCE, 0), both),
             Exception::ParkingArrivalZero
         );
         assert_eq!(
-            classify(Active, observed(Completed, END, 0), both),
+            classify(to_end, observed(Completed, END, 0), both),
             Exception::RouteEndCompleted
         );
         // 无预约、未静止、带微米余数、位置不符或拍初非 Active 均不归入例外。
@@ -344,27 +402,82 @@ mod tests {
             ..both
         };
         assert_eq!(
-            classify(Active, observed(Active, ENTRANCE, 0), no_parking),
+            classify(to_entrance, observed(Active, ENTRANCE, 0), no_parking),
             Exception::Unattributed
         );
         assert_eq!(
-            classify(Active, observed(Active, ENTRANCE, 1), both),
+            classify(to_entrance, observed(Active, ENTRANCE, 1), both),
             Exception::Unattributed
         );
         let mut carried = observed(Active, ENTRANCE, 0);
         carried.carry_um = 1;
-        assert_eq!(classify(Active, carried, both), Exception::Unattributed);
         assert_eq!(
-            classify(Active, observed(Active, END, 0), both),
+            classify(to_entrance, carried, both),
             Exception::Unattributed
         );
         assert_eq!(
-            classify(Completed, observed(Completed, END, 0), both),
+            classify(to_end, observed(Active, END, 0), both),
+            Exception::Unattributed
+        );
+        let completed_before = Observed {
+            status: Completed,
+            ..to_end
+        };
+        assert_eq!(
+            classify(completed_before, observed(Completed, END, 0), both),
             Exception::Unattributed
         );
         assert_eq!(
-            classify(Active, observed(Active, ENTRANCE, 0), Exits::default()),
+            classify(to_entrance, observed(Active, ENTRANCE, 0), Exits::default()),
             Exception::Unattributed
         );
+    }
+
+    #[test]
+    fn terminal_zero_absorbs_at_most_one_tick_of_overrun() {
+        let both = Exits {
+            route_end: Some(END),
+            parking_entrance: Some(ENTRANCE),
+        };
+        let arrived = observed(VehicleStatus::Active, ENTRANCE, 0);
+        let at_entrance = |before| classify(before, arrived, both, W16);
+        // W3 实测的到位拍形态（3b4d9f47）：16 ms 下拍初在入口前 0.016–2.318 mm、
+        // 速度 108–217 mm/s；33 ms 下 3.077–6.934 mm、222–311 mm/s。
+        for (behind_um, speed) in [(16, 108), (2_318, 217), (3_000, 240)] {
+            assert_eq!(
+                at_entrance(approaching(ENTRANCE, behind_um, speed)),
+                Exception::ParkingArrivalZero,
+                "{behind_um} µm / {speed} mm/s"
+            );
+        }
+        let w33 = Motion { dt_ms: 33, ..W16 };
+        for (behind_um, speed) in [(3_077, 222), (6_934, 311)] {
+            assert_eq!(
+                classify(approaching(ENTRANCE, behind_um, speed), arrived, both, w33),
+                Exception::ParkingArrivalZero,
+                "33 ms: {behind_um} µm / {speed} mm/s"
+            );
+        }
+        // 边界：d = 0 时 (v−1)²·1000 ≤ 2·6000·16·v，193 满足、194 不满足。
+        assert_eq!(
+            at_entrance(approaching(ENTRANCE, 0, 193)),
+            Exception::ParkingArrivalZero
+        );
+        assert_eq!(
+            at_entrance(approaching(ENTRANCE, 0, 194)),
+            Exception::Unattributed
+        );
+        // 以 13.9 m/s 冲到入口后一拍清零：越程远超一拍，不归入具名例外。
+        assert_eq!(
+            at_entrance(approaching(ENTRANCE, 222_400, 13_900)),
+            Exception::Unattributed
+        );
+        // 拍初在另一 route occurrence 或已越过入口，均不可归因。
+        let mut other_edge = approaching(ENTRANCE, 2_318, 217);
+        other_edge.edge_index = 0;
+        assert_eq!(at_entrance(other_edge), Exception::Unattributed);
+        let mut beyond = approaching(ENTRANCE, 0, 100);
+        beyond.carry_um = 1;
+        assert_eq!(at_entrance(beyond), Exception::Unattributed);
     }
 }

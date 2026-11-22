@@ -389,13 +389,6 @@ impl Sample {
             input_identity: String::new(),
         })
     }
-
-    /// 单步减速判超阈值（毫米/秒）：安装 profile 紧急减速上限 × 步长 + 1
-    /// 容差（#1243 T5）。W 族 6 m/s² 与旧硬编码口径逐字一致；L 族按
-    /// profile 的 9 m/s² 判超，合法紧急制动不再误计。
-    pub(crate) fn emergency_drop_limit_mm_s(&self, dt: u32) -> u64 {
-        (self.emergency_decel_mm_s2 * u64::from(dt)).div_ceil(1_000) + 1
-    }
 }
 
 /// 世界容量（#1218 L 族适配）：L 族车辆容量含两换道者、边出现记录按路线实长累计、

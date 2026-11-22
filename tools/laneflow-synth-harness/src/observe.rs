@@ -223,7 +223,10 @@ impl Sample {
         let dt = self.state.identity.fixed_delta_ms;
         // 提前取判超阈值（#1243 T5）：下方 `trace_bytes` 可变借用期间不再
         // 调用 `&self` 方法。
-        let emergency_limit = self.emergency_drop_limit_mm_s(dt);
+        let motion = crate::decel::Motion {
+            emergency_mm_s2: self.emergency_decel_mm_s2,
+            dt_ms: dt,
+        };
         require(
             self.world.tick_index() == tick
                 && self.world.time_ms() == tick * u64::from(dt)
@@ -329,13 +332,8 @@ impl Sample {
             } else {
                 let next_position = position(state);
                 // W1/W2 无停车预约与路终完成：超界样本没有可归入的具名例外。
-                self.deceleration.record(
-                    old,
-                    state,
-                    dt,
-                    emergency_limit,
-                    crate::decel::Exits::default(),
-                );
+                self.deceleration
+                    .record(old, state, motion, crate::decel::Exits::default());
                 require(
                     motion_valid(
                         position(old),
@@ -504,7 +502,10 @@ impl Sample {
         let dt = self.state.identity.fixed_delta_ms;
         // 提前取判超阈值（#1243 T5）：下方 `trace_bytes` 可变借用期间不再
         // 调用 `&self` 方法。
-        let emergency_limit = self.emergency_drop_limit_mm_s(dt);
+        let motion = crate::decel::Motion {
+            emergency_mm_s2: self.emergency_decel_mm_s2,
+            dt_ms: dt,
+        };
         require(
             self.world.tick_index() == tick
                 && self.world.time_ms() == tick * u64::from(dt)
@@ -597,13 +598,8 @@ impl Sample {
                 )?;
                 // 减速诊断（#1228）：L1 分支同样累加实测值；判超阈值与 W 族
                 // 同一来源——安装 profile 的紧急减速上限（#1243 T5，L 族 9）。
-                self.deceleration.record(
-                    old,
-                    state,
-                    dt,
-                    emergency_limit,
-                    crate::decel::Exits::default(),
-                );
+                self.deceleration
+                    .record(old, state, motion, crate::decel::Exits::default());
             }
             let edge_changed = state.route_edge_index() != old.route_edge_index();
             if on_cluster {
