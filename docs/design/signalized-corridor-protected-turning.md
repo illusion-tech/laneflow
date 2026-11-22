@@ -7,7 +7,7 @@ revised_date = "2026-11-23"
 summary = "定义信号化走廊受保护转向与清空判据。"
 scope = "v0.9 双路口走廊的受保护左转、直行、右转、lane-level ManeuverPath、完整 Route catalog、固定时制与验证边界"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496", "https://github.com/illusion-tech/laneflow/issues/1498"]
 related = ["adr-0017", "design-example-scenarios", "design-road-junction-model", "design-signal-system", "design-signalized-corridor-population", "design-spatial-geometry"]
 +++
 
@@ -447,6 +447,12 @@ t_entry + T_clear ≤ Y + R
 ```text
 cargo +1.99.1 test --release --locked -p laneflow-scenario --test signalized_corridor_clearance -- --ignored --nocapture
 ```
+
+同一次运行另为每个黄灯期跨越样本输出诊断（#1498），未闭合样本同样输出并标注
+`t_c` 未知：黄灯起点时的速度、到停止线距离与紧急停车距离，跨越前后两个提交边界的
+位置与速度，以及到车尾清空或窗口结束为止的逐拍事实。候选原因由这些事实推断，
+可以多项同时成立，也可以暂无法确定；诊断只附加输出，不参与上述判定，逐样本结果
+不入仓。
 
 ### 8.2 Phase handoff 的阻断条件
 
