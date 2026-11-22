@@ -137,7 +137,9 @@ G2 决定访问器名字。
    一维不倒车：负 SI travel 当 0，不扣 `carry_um`。`BeyondFinite` 降速目标本拍不参与
    包络。
 3. **共同候选形成与停止目标速度归约（#1272）**。候选
-   `U₀ = max(min(u_raw, V_legal), F)`，其中 `u_raw` 为 IIDM 提案速度，`V_legal`
+   `U₀ = max(min(u_raw, V_legal, V_safe), F)`，其中 `u_raw` 为 IIDM 提案速度，
+   `V_safe` 为 `vehicle-following.md` §10.2 的跟车安全速度（无 leader 时不施加；
+   跟车可行时 `V_safe ≥ F`，不可行时由第 4 步硬空间与跟车几何投影处理），`V_legal`
    为当前边合法速度上限（非 `desiredSpeed`；后续边降限速由空间目标与 crossing
    guard 处理，crossing guard 不是当前边通用超速处置），`F = max(0, v − b_e·Δt)`。
    **紧急减速下界在候选形成时施加**：`u_raw` 低于 `F` 而真实安全条件允许 `F`
@@ -177,7 +179,8 @@ G2 决定访问器名字。
 5. `hard_room_mm == 0`：`travel_mm = 0`，`carry_um = 0`，不 `apply_travel`，速度按
    第 7 步耗尽决策表。若此时路线剩余为 `Finite(0)`：`VehicleStatus::Completed`。
    `BeyondFinite` 不是路终。否则
-   `um = u64(carry_um) + round-ties-to-even(f64(非负 travel_m) × 1e6)`；
+   `um = u64(carry_um) + round-ties-to-even(f64(非负 travel_m) × 1e6)`（跟车安全
+   量化路径改为向零取整，见下文舍入规则）；
    `travel_mm = min(um / 1000, hard_room_mm)`；
    若 `travel_mm < hard_room_mm`：`carry_um = (um % 1000) as u16`；
    若 `travel_mm == hard_room_mm`：到位后 `carry_um = 0`。
@@ -202,7 +205,8 @@ G2 决定访问器名字。
    规则决定。若走完的是**路线剩余 `Finite(0)`**（没有下一 hop）：
    `VehicleStatus::Completed`，离开占用与 `committed_pose_sources`。Gate 拒绝或
    剩余 `BeyondFinite` 都不是 `Completed`。否则
-   `speed_mm_s = round-ties-to-even(f64(next_speed_m) × 1000)`，不由 travel 反推。
+   `speed_mm_s = round-ties-to-even(f64(next_speed_m) × 1000)`（跟车安全量化路径
+   改为向零取整），不由 travel 反推。
    整数行程落地后，已提交速度不得超过**所在边**限速（`carry_um` 可能比 SI 包络
    多送 1 mm 跨边）。如何夹紧属 G2。
 
@@ -214,7 +218,8 @@ G2 决定访问器名字。
 v_n − v_{n+1} ≤ b_e·Δt + ε_v
 ```
 
-`ε_v` 为显式登记的速度量化容差（覆盖整数 `mm/s` 与 round-ties-to-even）。
+`ε_v` 为显式登记的速度量化容差（覆盖整数 `mm/s`、round-ties-to-even 与跟车安全
+量化的向零取整，不小于 1 mm/s）。
 具名例外只允许：运行期约束骤现的具名投影（cut-in / 前车急停 / 红转边界不可
 停 / 本拍新竞争落选 / 阻塞突然出现，逐项归因）、本拍开始时跟车不可行导致的
 跟车几何投影（原因须归入新前车进入视野或既有异常初态，见 `vehicle-following.md`
@@ -230,8 +235,12 @@ v_n − v_{n+1} ≤ b_e·Δt + ε_v
 共同进入同一车身区间（`vehicle-following.md` §7.4）。跨 hop
 间隙用 checked `i64`。生产路径删除米制 `1e-9` / `1e-12` 比较。
 
-舍入一律 IEEE 754 **round-ties-to-even**，缩放在 `f64` 中做（`f32 × 1e6` 在
-100 m 行程上会丢微米）。
+舍入默认 IEEE 754 **round-ties-to-even**，缩放在 `f64` 中做（`f32 × 1e6` 在
+100 m 行程上会丢微米）。唯一例外是**跟车安全量化**：本拍开始时有 leader 且跟车
+可行（`vehicle-following.md` §10.2）的车辆，第 5 步行程微米增量与第 7 步已提交
+速度都向零取整。适用条件只在本拍开始时判定一次，本拍各步不再改判。量化只降低
+数值，不改变第 3 步确定的制动分支；量化后速度为零时位移仍取 SI 三元组的行程，
+不重新解释为拍内停稳。
 
 4 ms 量化死区（**接受**，不为它加状态或改量化）：
 
