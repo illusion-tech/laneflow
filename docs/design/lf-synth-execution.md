@@ -7,7 +7,7 @@ revised_date = "2026-11-22"
 summary = "定义合成工作负载执行窗口与逐拍语义核验。"
 scope = "定义合成工作负载执行窗口与逐拍语义核验。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455", "https://github.com/illusion-tech/laneflow/issues/1487"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455", "https://github.com/illusion-tech/laneflow/issues/1487", "https://github.com/illusion-tech/laneflow/issues/1446"]
 +++
 
 # LF-SYNTH 执行核验
@@ -56,6 +56,12 @@ W1/W2 每拍检查：
   - `route_end_completed`（路终 Completed 拍）：拍初 Active，拍末 Completed、
     静止、无微米余数且位于路线终点；
   - `unattributed`：不满足以上任一判据。
+
+  两个具名类别另加越程上界：终态清零只吸收至多一拍的整数落地越程。拍初须与
+  该位置同一 route occurrence 且不越过它，拍初速度 `v`（mm/s）、到该位置的剩余
+  距离 `d` 满足 `(v − ε_v)² ≤ 2·b_e·(d + v·Δt)`，`ε_v = 1 mm/s`，按整数精确比较
+  （整数几何 §5：carry 并入后的整数落地可以先于 SI 预判耗尽一拍）。不满足的样本
+  即使拍末位置与状态相符也记为未归因，例如以巡航速度冲到停车入口后一拍清零。
 
   判据只读拍初/拍末公开状态、冻结计划的位置与宿主期望的停车绑定，不调用 Runtime
   的停止求解器或例外判定，也不读 arrival 自报。清单中其余例外（运行期约束骤现的
