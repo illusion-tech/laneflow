@@ -353,6 +353,62 @@ fn analysis_reports_approach_ticks_that_could_stop_but_did_not_brake() {
     );
 }
 
+// ---------- 前车：按车身占用片段查询 ----------
+
+/// 共同进口边 0 长 100，之后分流：右转 `0 → 1 → 3`，直行 `0 → 2 → 4`。
+const SPLIT_LENGTHS: [u32; 5] = [100, 10, 10, 20, 20];
+const RIGHT: [usize; 3] = [0, 1, 3];
+const THROUGH: [usize; 3] = [0, 2, 4];
+
+fn split_occupancy(right_progress_mm: u32) -> Occupancy<char> {
+    let mut occupancy = Occupancy::new();
+    // 前车已右转进入边 1；后方直行车与更后面的车仍在共同进口边上。
+    add_body(
+        &mut occupancy,
+        &SPLIT_LENGTHS,
+        &RIGHT,
+        1,
+        right_progress_mm,
+        5,
+        700,
+        'r',
+    );
+    add_body(&mut occupancy, &SPLIT_LENGTHS, &THROUGH, 0, 90, 5, 900, 't');
+    add_body(&mut occupancy, &SPLIT_LENGTHS, &THROUGH, 0, 50, 5, 900, 'b');
+    occupancy
+}
+
+#[test]
+fn leader_sees_a_diverging_tail_still_on_the_shared_approach() {
+    // 右转车前杠在边 1 的 2 mm 处，车长 5：边 0 上仍有 [97, 100] 的车尾。
+    let occupancy = split_occupancy(2);
+    assert_eq!(
+        leader(&occupancy, &SPLIT_LENGTHS, &THROUGH, 0, 90, 't'),
+        Some(Leader {
+            gap_mm: 7,
+            speed_mm_s: 700,
+        })
+    );
+    // 后方车辆看到的是直行车，自身与身后车辆不计入。
+    assert_eq!(
+        leader(&occupancy, &SPLIT_LENGTHS, &THROUGH, 0, 50, 'b'),
+        Some(Leader {
+            gap_mm: 35,
+            speed_mm_s: 900,
+        })
+    );
+}
+
+#[test]
+fn leader_no_longer_sees_a_diverging_tail_once_it_has_cleared() {
+    // 右转车前杠到边 1 的 6 mm 处：车尾 1 mm，已完全离开共同进口边。
+    let occupancy = split_occupancy(6);
+    assert_eq!(
+        leader(&occupancy, &SPLIT_LENGTHS, &THROUGH, 0, 90, 't'),
+        None
+    );
+}
+
 // ---------- 真实走廊世界 ----------
 
 fn install(revision: Arc<SharedNetworkRevision>, target: usize) -> TrafficWorld {
@@ -542,28 +598,30 @@ fn frame_vehicles(
     out: &mut Vec<VehicleSample<VehicleHandle, RouteHandle>>,
 ) {
     out.clear();
-    // 车道边 → 其上 Active 车辆的（前杠进度, 车长, 速度）。
-    let mut on_edge: HashMap<u32, Vec<(u32, u32, u32)>> = HashMap::new();
+    let mut occupancy = Occupancy::new();
     let mut active = Vec::new();
     for &handle in world.live_vehicles() {
         let state = world.vehicle(handle).expect("live");
         if state.status() != VehicleStatus::Active {
             continue;
         }
-        let edges = world.route_edges(state.route()).expect("route edges");
-        let edge = edges[state.route_edge_index() as usize].raw();
-        on_edge.entry(edge).or_default().push((
+        let edges = edge_indices(world, state.route());
+        add_body(
+            &mut occupancy,
+            &topology.lane_lengths,
+            &edges,
+            state.route_edge_index() as usize,
             state.progress_mm(),
             state.length_mm(),
             state.speed_mm_s(),
-        ));
-        active.push((handle, state));
+            handle,
+        );
+        active.push((handle, state, edges));
     }
-    for (handle, state) in active {
+    for (handle, state, edges) in active {
         if !check.has_layout(state.route()) {
             check.add_layout(state.route(), layout(world, topology, state.route()));
         }
-        let edges = world.route_edges(state.route()).expect("route edges");
         let index = state.route_edge_index() as usize;
         out.push(VehicleSample {
             key: handle,
@@ -572,39 +630,101 @@ fn frame_vehicles(
             progress_mm: state.progress_mm(),
             length_mm: state.length_mm(),
             speed_mm_s: state.speed_mm_s(),
-            limit_mm_s: topology.speed_limits[edges[index].index()],
-            leader: leader(topology, &on_edge, edges, index, state.progress_mm()),
+            limit_mm_s: topology.speed_limits[edges[index]],
+            leader: leader(
+                &occupancy,
+                &topology.lane_lengths,
+                &edges,
+                index,
+                state.progress_mm(),
+                handle,
+            ),
         });
     }
 }
 
-/// 沿本车路线在当前边与其后两条边上找最近的前车（任何路线的车辆都计入）。
-fn leader(
-    topology: &Topology,
-    on_edge: &HashMap<u32, Vec<(u32, u32, u32)>>,
-    edges: &[laneflow_static_contract::LaneEdgeOrdinal],
+fn edge_indices(world: &TrafficWorld, route: RouteHandle) -> Vec<usize> {
+    world
+        .route_edges(route)
+        .expect("route edges")
+        .iter()
+        .map(|edge| edge.index())
+        .collect()
+}
+
+/// 一段车身占用：车道边内的区间 `[start_mm, end_mm]`。
+#[derive(Clone, Copy, Debug)]
+struct Segment<K> {
+    start_mm: u32,
+    end_mm: u32,
+    speed_mm_s: u32,
+    key: K,
+}
+
+/// 车道边序号 → 其上的车身占用片段。
+type Occupancy<K> = HashMap<usize, Vec<Segment<K>>>;
+
+/// 按车辆自己的路线从前杠向后回溯，把整段车身分到各条车道边上；
+/// 分流或汇入处车尾仍压在上一条边时，那条边上也有一段占用。
+#[expect(clippy::too_many_arguments, reason = "一辆车的公开状态逐项传入")]
+fn add_body<K: Copy>(
+    occupancy: &mut Occupancy<K>,
+    lane_lengths: &[u32],
+    route_edges: &[usize],
     index: usize,
     progress_mm: u32,
+    length_mm: u32,
+    speed_mm_s: u32,
+    key: K,
+) {
+    let mut remaining = length_mm;
+    let mut end = progress_mm;
+    let mut at = index;
+    loop {
+        let start = end.saturating_sub(remaining);
+        occupancy.entry(route_edges[at]).or_default().push(Segment {
+            start_mm: start,
+            end_mm: end,
+            speed_mm_s,
+            key,
+        });
+        remaining -= end - start;
+        if remaining == 0 || at == 0 {
+            break;
+        }
+        at -= 1;
+        end = lane_lengths[route_edges[at]];
+    }
+}
+
+/// 沿本车路线在当前边与其后两条边上找最近的车身占用（排除本车，任何路线的车辆都计入）。
+fn leader<K: Copy + Eq>(
+    occupancy: &Occupancy<K>,
+    lane_lengths: &[u32],
+    route_edges: &[usize],
+    index: usize,
+    progress_mm: u32,
+    own: K,
 ) -> Option<Leader> {
-    // 坐标以本车当前边起点为原点；前车车尾可能仍压在前一条边上。
+    // 坐标以本车当前边起点为原点。
     let mut offset = 0_i64;
-    for (step, edge) in edges.iter().enumerate().skip(index).take(3) {
-        let own = (step == index).then_some(progress_mm);
-        let nearest = on_edge
-            .get(&edge.raw())
+    for (step, &edge) in route_edges.iter().enumerate().skip(index).take(3) {
+        let nearest = occupancy
+            .get(&edge)
             .into_iter()
             .flatten()
-            .filter(|(front, ..)| own.is_none_or(|own| *front > own))
-            .min_by_key(|(front, ..)| *front);
-        if let Some(&(front, length, speed)) = nearest {
-            let rear = offset + i64::from(front) - i64::from(length);
+            .filter(|segment| segment.key != own)
+            .filter(|segment| step != index || segment.end_mm > progress_mm)
+            .min_by_key(|segment| segment.start_mm);
+        if let Some(segment) = nearest {
+            let rear = offset + i64::from(segment.start_mm);
             let gap = (rear - i64::from(progress_mm)).max(0);
             return Some(Leader {
                 gap_mm: u64::try_from(gap).expect("non-negative"),
-                speed_mm_s: speed,
+                speed_mm_s: segment.speed_mm_s,
             });
         }
-        offset += i64::from(topology.lane_lengths[edge.index()]);
+        offset += i64::from(lane_lengths[edge]);
     }
     None
 }
