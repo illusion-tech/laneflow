@@ -7,7 +7,7 @@ summary = "规定交通一维几何整数毫米与固定步进合同。"
 scope = "交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维 存储、跟车占用/投影离散判定；以及 #302 快照字段的数值输入"
 date = "2026-08-24"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/496", "https://github.com/illusion-tech/laneflow/issues/500"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/496", "https://github.com/illusion-tech/laneflow/issues/500", "https://github.com/illusion-tech/laneflow/issues/1490"]
 
 related = ["adr-0003", "adr-0014", "adr-0015", "adr-0022", "adr-0025", "design-numeric-representation", "design-portable-canonical-artifact", "design-route-system", "design-shared-static-network", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-shared-consumption", "design-vehicle-following"]
 [[supersedes]]
@@ -144,8 +144,9 @@ LFCA 交通边只存 `U32` 毫米，**不**另存编制 `F64` 米，也不从已
 ### 3. 已提交速度为 `u32` 毫米每秒
 
 边限速、profile 期望车速、已提交 `VehicleState` 速度使用 `u32` mm/s：
-`round-ties-to-even(f64(m/s) × 1000)`。限速与期望车速必须 `> 0`；静止车速度
-可为 `0`。沿用 ADR 0014 的产品上界 `100 m/s` = `100_000` mm/s。
+`round-ties-to-even(f64(m/s) × 1000)`。跟车安全量化路径（本拍开始时有 leader 且
+跟车可行）的已提交速度改为向零取整，见整数几何 §5。限速与期望车速必须 `> 0`；
+静止车速度可为 `0`。沿用 ADR 0014 的产品上界 `100 m/s` = `100_000` mm/s。
 
 IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转为米只作
 **瞬时**；出来后再量化。**禁止**用 `2 × travel / Δt − v0` 作为已提交速度正本
@@ -188,7 +189,8 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
    不 `apply_travel`。若此时路线剩余为 **`Finite(0)`**：`VehicleStatus::Completed`，
    离开占用与 `committed_pose_sources`。`BeyondFinite` 不是路终。
 4. 否则（`hard_room_mm > 0`）
-   `um = u64(carry_um) + round-ties-to-even(f64(非负 travel_m) × 1_000_000)`，
+   `um = u64(carry_um) + round-ties-to-even(f64(非负 travel_m) × 1_000_000)`（跟车
+   安全量化路径向零取整），
    `travel_mm = min(um / 1000, hard_room_mm)`（`u64` 运算，避免 `f32` 在大行程
    上丢失微米）；
 5. `apply_travel`。
@@ -206,8 +208,9 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 无条件跨边，也 **不得** 把这种 Active 硬停写成 `Completed`。`Completed`、
 `Parked`、车辆替换：`carry_um = 0`。
 
-禁止把未截断的 `v × Δt` 送进累加器。舍入模式全合同统一为
-**IEEE 754 round-ties-to-even**，中间乘法在 `f64` 完成。
+禁止把未截断的 `v × Δt` 送进累加器。舍入模式默认为
+**IEEE 754 round-ties-to-even**，中间乘法在 `f64` 完成。唯一例外是跟车安全量化
+路径的行程微米增量与已提交速度向零取整，适用条件与落地顺序以整数几何 §5 为准。
 
 硬停与爬行：
 
