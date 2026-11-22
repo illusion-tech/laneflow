@@ -6198,11 +6198,17 @@ fn si_comfort_travel(
             basis.emergency_decel,
         ));
     }
+    // vehicle-following §10.2：拍内停稳档位还须停进跟车停车界（与运动内核同式）。
+    let stop_room = if basis.leader_gap.is_some() {
+        stop_target.min(basis.safe_room_m())
+    } else {
+        stop_target
+    };
     let mut travel = motion_stop_aware_travel(
         speed,
         next_speed,
         delta_s,
-        stop_target,
+        stop_room,
         basis.comfort_decel,
         basis.emergency_decel,
     );
@@ -6232,7 +6238,7 @@ fn si_comfort_travel(
         speed,
         next_speed,
         delta_s,
-        stop_target,
+        stop_room,
         basis.comfort_decel,
         basis.emergency_decel,
     );
