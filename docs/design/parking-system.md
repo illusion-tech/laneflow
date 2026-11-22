@@ -461,45 +461,21 @@ ObservationStateSequence)`；重建开始先清除来源标记，失败不能留
 观测或 Adapter，也不保存离场决定。
 
 第 2 项的 admission predicate 不是实现自行解释的“看起来够远”。对每个 direct follower，
-先按 `vehicle-following.md` §11.2 的相同整数规则计算：
+把 candidate 视为静止前车，要求 follower 对 candidate **跟车可行**
+（`vehicle-following.md` §10.2）：按 §10.2 的同一整数规则，由 route-aware 后杠间隙
+`g0_mm`、follower `min_gap_mm`、`minimum_gap_tolerance` 与 follower `carry_um` 求整数
+停车界 `s_a_um`，令 `v` 为 follower 已提交速度、`b_f` 为其 emergency deceleration：
 
 ```text
-g0_mm = max(0, route_aware_bumper_gap_mm)
-preserved_gap_mm = min(g0_mm, follower.min_gap_mm)
-raw_available_gap_mm = g0_mm - preserved_gap_mm
-available_gap_mm = 0                 if raw_available_gap_mm <= 1
-                   raw_available_gap_mm otherwise
+v^2 / (2 * b_f) <= s_a_um / 1_000_000
 ```
 
-这里的 `1` 是现行 `minimum_gap_tolerance = 1 mm`，不是新的 Parking tolerance。令 `v` 为
-当前速度、`b_f` 为 emergency deceleration、`dt` 为 world fixed step；candidate 作为
-静止前车，有效速度与制动可达距离都为零。先取 emergency
-braking 在下一 tick 可达到的最低非负速度：
-
-```text
-u_min = max(0, v - b_f * dt)
-```
-
-再按 `vehicle-following.md` §11.3 求下一 tick 的 emergency minimum travel：
-
-```text
-emergency_min_travel = v^2 / (2 * b_f)                 if v <= b_f * dt
-                       v * dt - 0.5 * b_f * dt^2       otherwise
-```
-
-只有以下两项都按 Following 相同量化/比较规则成立，且全部中间值 finite 时才允许 leave：
-
-```text
-0.5 * (v + u_min) * dt + u_min^2 / (2 * b_f) <= available_gap_mm / 1000
-emergency_min_travel <= available_gap_mm / 1000
-```
-
-第一项是 `vehicle-following.md` §10.2 在静止前车下的 safe-speed envelope（停车界为
-§11.2 的 available gap），保证 emergency floor 不高于 safe-speed 上界；第二项保证下一
-tick 的 geometry cap 不会把 emergency minimum travel 再压小。任一项不成立都返回 leave-unsafe-follower，而不是
-允许下一 tick 用 geometry hard projection 补救。`v == 0` 时两项左侧都为零，因此静止
-follower 只剩物理几何要求；`g0_mm <= min_gap_mm` 且 `v > 0` 时 available gap 为零，必须
-拒绝。
+左侧是 follower 以 `b_f` 制动的实际停车距离，未拍内停稳与拍内停稳两个分支都等于该值
+（`emergency_min_travel + u_min^2/(2*b_f)`），不以整拍梯形行程替代拍内停稳。判据成立时，
+下一 tick 起 follower 无需 geometry hard projection 即可停在保留最小间隙处；不成立返回
+leave-unsafe-follower，而不是允许下一 tick 用 geometry hard projection 补救。`v == 0`
+时左侧为零，静止 follower 只剩物理几何要求；`v > 0` 且 `s_a_um` 为零时必须拒绝。
+全部中间值必须 finite，比较按 §10.2 的安全方向舍入。
 
 生产查询可以用 edge-local/route-aware index 缩小候选，但必须保留 full-scan reference
 oracle 对拍。多个物理 overlap blocker 按 `vehicle-following.md` §7.4 的几何规则
@@ -809,7 +785,8 @@ Active 插入/删除仍有 `O(A_i)` 查找或连续内存移动。位置表保�
 - park 前未到达、重复 park、错误 target、stale handle；
 - 多出口 leave、same-edge/相邻边/车身跨边/repeated occurrence overlap、移动 direct
   follower unsafe 与静止 follower、错误出口；direct follower 覆盖 gap 小于/等于/略高于
-  `min_gap`、1 mm tolerance 两侧、safe-speed 通过但 preserved-gap geometry 不通过的反例；
+  `min_gap`、1 mm tolerance 两侧、`carry_um` 使停车界不足的反例，以及 follower 可拍内停稳
+  而整拍梯形行程超出停车界时应接受的离场；
   失败后仍 Parked/Occupied/无 pose；
 - cancel、跨 route rebind 的 current occurrence 映射、车尾跨 predecessor 时不同 physical
   footprint 拒绝/相同 footprint 放行/车身完全进入当前边放行、三种 `VehicleStatus` 加可选
