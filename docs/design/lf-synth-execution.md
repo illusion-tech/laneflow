@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-lf-synth-execution"
 kind = "design"
 status = "active"
-revised_date = "2026-11-22"
+revised_date = "2026-11-23"
 summary = "定义合成工作负载执行窗口与逐拍语义核验。"
 scope = "定义合成工作负载执行窗口与逐拍语义核验。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455", "https://github.com/illusion-tech/laneflow/issues/1487", "https://github.com/illusion-tech/laneflow/issues/1446"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455", "https://github.com/illusion-tech/laneflow/issues/1487", "https://github.com/illusion-tech/laneflow/issues/1446", "https://github.com/illusion-tech/laneflow/issues/1218"]
 +++
 
 # LF-SYNTH 执行核验
@@ -19,7 +19,8 @@ issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://gith
 
 ## 1. 语义消费边界
 
-`laneflow-synth-harness` 接受 [规范输入包][lf-synth-input-bundle] 的 W1–W4。
+`laneflow-synth-harness` 接受 [规范输入包][lf-synth-input-bundle] 的 W1–W4 与
+换道竞争探针 L1。本节逐拍核验适用于 W1–W4；L1 的核验见第 10 节。
 先执行生成器 `verify_directory` 的文件/摘要/规范编码及完整重建校验，再通过 LFCA
 受检读取、保留 Spatial 的共享路网、显式政策安装、路线注册及车辆生成消费输入。
 稳定标识解析到本修订 ordinal，logical rank 不冒充 ordinal 或 Runtime handle。
@@ -250,18 +251,18 @@ B1。W3/W4 均在前两条观察拍结束后停止本 guardrail，完整 W3 窗�
 
 ## 7. 标称矩阵的跨 worker 对照
 
-`worker-run` 显式接收非零 worker 数，将 `ExecutionConfig` 传给同一安装与 W1–W4
-核验路径。支持范围由 [执行配置合同][execution-config]规定；
+`worker-run` 显式接收非零 worker 数，将 `ExecutionConfig` 传给同一安装与核验
+路径（W1–W4 按第 1–3 节，L1 按第 10 节）。支持范围由 [执行配置合同][execution-config]规定；
 不按 CPU 数推断、不静默降级，不改变正式输入、交通配置、命令计划或窗口。
 成功回执记录世界实际使用的 worker 数；失败回执保留请求值与错误。
 
-`worker-matrix` 只覆盖一万/16 ms、十万/33 ms 的 W1–W4 八个标称身份。
-每个身份使用 1/2/4/8/16 worker，各运行三个全新进程，共 120 次。配置按规模、
-场景、worker 排序，每轮将四十项配置顺序左移 `7 * (round - 1)` 项。最多四个
+`worker-matrix` 覆盖一万/16 ms、十万/33 ms 的 W1–W4 与 L1，共十个标称身份。
+每个身份使用 1/2/4/8/16 worker，各运行三个全新进程，共 150 次。配置按规模、
+场景、worker 排序，每轮将五十项配置顺序左移 `7 * (round - 1)` 项。最多四个
 子进程并发，运行中的配置 worker 数之和最多 32；这只是宿主进程调度限制，
 不表示总 OS 线程数、CPU 使用率或多世界吞吐预算。
 
-每个身份以第一轮单 worker 运行作为参考；其余十四次运行均须匹配，共 112 对。
+每个身份以第一轮单 worker 运行作为参考；其余十四次运行均须匹配，共 140 对。
 比较前核对实际 worker、实现提交、完整输入 manifest、正式窗口长度和必需状态
 检查点。完整 JSON 回执只排除 `workers`，其余字段全部精确比较；`ticks.bin` 与
 完整有序 `events.bin` 逐字节相等，W3/W4 另比较 `commands.bin` 和 `batches.json`。
@@ -277,35 +278,38 @@ binary 的关联，执行者仍须提供干净检出、构建日志和冻结二�
 
 输出目录必须全新，开始即写 `complete=false`。首个运行或比较失败后不再启动新
 进程，收集已启动运行并保留所有材料；父进程因 I/O 错误或展开退出时回收其仍持有
-的子进程。不自动补跑、跳过或拼接失败矩阵。只有 120 次运行和 112 对比较全部成功
+的子进程。不自动补跑、跳过或拼接失败矩阵。只有 150 次运行和 140 对比较全部成功
 才标记完成；成功后也不产生性能或产品通过声明。
 
 非标称交叉组合、强制调度/完成置换、跨 worker failpoint 的首错与 retry/fresh、
 快照解码恢复、Routing、Spatial/Adapter 的跨 worker 接线和完整五轴均不由本入口
 证明。两轮单 worker 旧证据与本次三轮矩阵分别保留各自源码身份，不能拼成同一验收。
 
-## 8. 标称 W3/W4 的跨 worker 失败与重试
+## 8. 标称 W3/W4 与 L1 的跨 worker 失败与重试
 
 `worker-retry-matrix` 先使用当前普通工具二进制，为一万/16 ms、十万/33 ms 的
-W3/W4 四个身份分别生成一个完整单 worker 正常窗口。四个参考全部通过第 7 节的
+W3/W4 四个身份与 L1 两个身份分别生成一个完整单 worker 正常窗口。六个参考全部通过第 7 节的
 来源、正式输入、窗口与检查点校验后，才启动 optimized Runtime 测试二进制。
 正常参考和测试构建绑定同一干净实现提交，不能读取旧提交的矩阵拼接验收。
 
-失败矩阵为四身份 × 1/2/4/8/16 worker × 三个全新进程，共 60 次。每轮二十项配置
+失败矩阵为 W3/W4 四身份 × 1/2/4/8/16 worker × 三个全新进程（60 次），加上 L1
+两身份 × 两个失败点 × 1/2/4/8/16 worker × 三个全新进程（60 次），共 120 次。每轮四十项配置
 按规模、场景、worker 排序，再左移 `7 * (round - 1)` 项；已启动运行可跨轮交叠。
 每个进程独立安装失败/fresh 两世界，推进完整预热和第 5 节的前两拍 guardrail。
 W3 的完整观察窗口由正常参考证明，不把失败 guardrail 写成完整 W3 窗口重试。
 
 最多四个子进程并发，所有已启动世界（含 fresh 世界）的配置 worker 总和不超过
 32。两世界交替同步步进；上述限制不是 OS 总线程、CPU 使用率或多世界吞吐预算。
-失败点仍限定在 `AfterTransitions`，预期错误为 `ParkingObservationAllocFailed`。
-失败后不重放生命周期命令，只重试原 `TickInput`；W4 成功后才进入 B1。
+W3/W4 的失败点限定在 `AfterTransitions`；L1 在首车建立预约的那一拍分别注入
+`AfterGrants` 与 `AfterTransitions`，失败须丢弃未提交授权。预期错误均为
+`ParkingObservationAllocFailed`。失败后不重放生命周期命令，只重试原 `TickInput`；
+W4 成功后才进入 B1。L1 回执域为 `lf-synth-lane-change-retry-1`。
 
 每次回执先与同源正常参考核对命令批次、step 输入、失败边界、游标、重试检查点和
 最终检查点，并核验实际 worker、失败零发布、信号保持、注入点消耗及 retry/fresh
-等价标记。随后核对本次三对规范快照字节与实际边界观测。每身份以第一轮单 worker
-为参考，其余十四次只排除回执 `workers` 字段后精确比较所有其他字段，再逐字节
-比较七个 LFRS 文件和 `observations.json`；共 56 对。
+等价标记。随后核对本次三对规范快照字节与实际边界观测。每个身份（L1 按身份与
+失败点）以第一轮单 worker 为参考，其余十四次只排除回执 `workers` 字段后精确比较
+所有其他字段，再逐字节比较七个 LFRS 文件和 `observations.json`；共 8 组 112 对。
 
 边界观测域为 `lf-synth-retry-observations-1`。事件数组按原顺序保存十一项：tick、
 车辆逻辑 rank、更新序号、路线逻辑 rank、maneuver occurrence、hop、edge occurrence、
@@ -322,8 +326,8 @@ ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence�
 独立复算，属 ADR 0033 的互操作摘要，原有 BLAKE3 状态及命令编码不变。
 
 输出目录必须全新。首个启动、运行或比较错误后停止新启动并收集已启动材料；父进程
-因 I/O 错误或展开退出时回收持有的子进程。只有四个完整正常参考、60 次失败重试和
-56 对比较均通过才设置 `complete=true`，不以补跑、跳过或拼接替换失败矩阵。
+因 I/O 错误或展开退出时回收持有的子进程。只有六个完整正常参考、120 次失败重试和
+112 对比较均通过才设置 `complete=true`，不以补跑、跳过或拼接替换失败矩阵。
 大体量原件留仓库外，仓库只保存结论、复现说明和小型结果摘要。
 
 本入口不证明多错误逻辑首错裁决、所有失败点、强制调度/完成置换、非标称组合、
@@ -332,15 +336,16 @@ ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence�
 
 ## 9. 标称矩阵的快照恢复与继续运行
 
-`restore-matrix` 先以单 worker 为一万/16 ms、十万/33 ms 的 W1–W4 八个身份
+`restore-matrix` 先以单 worker 为一万/16 ms、十万/33 ms 的 W1–W4 与 L1 十个身份
 生成完整正常参考及每身份两个检查点，再以 1/2/4/8/16 worker、三个全新进程
-恢复每个检查点，共 240 次恢复运行。每轮八十项按规模、场景、worker、检查点排序，
+恢复每个检查点，共 300 次恢复运行。每轮一百项按规模、场景、worker、检查点排序，
 再左移 `7 * (round - 1)`；最大四个并发进程、配置 worker 合计 32。
 
 令 `W` 为预热拍数（16 ms 为 14508，33 ms 为 7044）。W1/W2 在 `W` 与 `2W`
 已观察后保存，终点 `3W`。W3 在 `W+1` 第一批 atomic replacement 命令前后、
 下一次 step 前保存；两个检查点 tick 相同，宿主阶段与命令游标不同。W4 在 `W`
-B0 命令前及 `W+1` B0 成功并消费观测后保存，终点仍为 B1 后的 `W+2`。
+B0 命令前及 `W+1` B0 成功并消费观测后保存，终点仍为 B1 后的 `W+2`。L1 的 `W`
+为 16 拍，在 `W` 与 `2W` 保存（均早于首个 T 裁决），终点为预热加观察窗口。
 
 检查点包含实际 LFRS 文件和单独的宿主记录。宿主保存逻辑序号到快照局部 ID 的
 完整映射、路线身份、live 顺序、逻辑代次、累计观测、pending 原命令、停车屏障与
@@ -370,7 +375,7 @@ F3 还在宿主资产准入中要求 exact LFCA 与原输入一致；这不改�
 提前终止均失败，不按共同前缀判相等。规范摘要只证明相应检查点的内部状态，
 逐拍公开轨迹不扩展为每拍全部内部状态证明。
 
-`restore-probe` 明确标记 `probe=true`：保留八身份的正式输入与完整预热，W1/W2
+`restore-probe` 明确标记 `probe=true`，不含 L1：保留 W1–W4 八身份的正式输入与完整预热，W1/W2
 改在 `W`、`W+128` 保存并于 `W+256` 停止；W3 保留命令前后检查点，继续 256 拍；
 W4 保留 B0/B1 原窗口。每检查点以 1/16 worker 运行一次，共 32 次恢复。回执记录
 输入验证、修订构建、认证、恢复映射、继续运行与总耗时，用于预算校准；不计作
@@ -387,7 +392,38 @@ ADR 0033 互操作摘要，由 PowerShell 通用工具独立重算；内部 BLAK
 旧格式兼容、worker 两两组合、Spatial/Adapter 接线、全部故障点、性能或完整五轴。
 `Product TBD / Uncertified` 和已有性能/分配负面结果保持。
 
+## 10. 换道竞争探针 L1 的执行核验
+
+L1 的输入定义见 [规范输入包 §7][lf-synth-input-l1]。它验证双车换道竞争在完整
+Runtime 世界中的公开行为与确定性，不承担性能、吞吐或换道负载结论，也不运行
+第 1 节的信号许可判据（L1 不含信号）。`laneflow-traffic-verification` 会话不接入
+L1，因此 L1 回执的 `verification_receipt` 为空。
+
+每个观察拍检查：
+
+- 人口、命令游标、时间不变，停车 arrival 为空；每簇换道者数等于参数 `k`。
+- 每车 handle、profile、class、route、车长 4.5 m、status 与初始一致；route
+  occurrence 不超出所在路线；carry 小于 1000 µm；停车绑定不变；Parked 车辆整个
+  状态不变。
+- Active 车辆按真实边长前缀和计算绝对位置，进度、速度与正加速度满足第 1 节同一
+  运动约束。减速度按第 1 节“超界归因”计数，判超阈值取 L1 profile 的 9 m/s²；
+  L1 不构造任何具名例外，超界即未归因，运行失败。
+- 每簇每拍至多一名换道者位于 T；跟随者进入 T 时，同簇更早槽位不得持有 T 预约。
+- 本拍转换事件只能属于换道者，种类限于 GateCrossed、ReservationAcquired、
+  ConflictEntered、ConflictCleared、ReservationReleased 与
+  ManeuverTraversalCompleted；预约事件跨拍保持 acquire → enter → clear → release
+  顺序，其他种类拒绝。
+
+窗口结束时，全体换道者都完成入口边到 T 的 crossing，背景车辆不发生入口边到出口边
+的转换。公开边界轨迹头为 ASCII `lf-synth-public-boundary-lc-1` 加 NUL，逐车记录
+位置、速度、状态、traversal 阶段与 T 预约身份；首个 T 裁决之后的检查点按 #1217
+记录结构化保存拒绝变体及真实资源身份与历史投影，不只比较错误编码摘要。
+
+L1 进入第 7 节 `worker-matrix`、第 8 节 `worker-retry-matrix` 与第 9 节
+`restore-matrix`；不进入第 6 节普通矩阵与 `restore-probe`。
+
 [lf-synth-input-bundle]: lf-synth-input-bundle.md
+[lf-synth-input-l1]: lf-synth-input-bundle.md#7-换道竞争探针-l1
 [performance-baseline]: core-runtime-performance-baseline.md
 [traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
 [lf-synth-measurement]: lf-synth-measurement.md
