@@ -7,7 +7,7 @@ revised_date = "2026-11-23"
 summary = "定义信号化走廊受保护转向与清空判据。"
 scope = "v0.9 双路口走廊的受保护左转、直行、右转、lane-level ManeuverPath、完整 Route catalog、固定时制与验证边界"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496", "https://github.com/illusion-tech/laneflow/issues/1498"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496", "https://github.com/illusion-tech/laneflow/issues/1498", "https://github.com/illusion-tech/laneflow/issues/1500"]
 related = ["adr-0017", "design-example-scenarios", "design-road-junction-model", "design-signal-system", "design-signalized-corridor-population", "design-spatial-geometry"]
 +++
 
@@ -453,6 +453,15 @@ cargo +1.99.1 test --release --locked -p laneflow-scenario --test signalized_cor
 位置与速度，以及到车尾清空或窗口结束为止的逐拍事实。候选原因由这些事实推断，
 可以多项同时成立，也可以暂无法确定；诊断只附加输出，不参与上述判定，逐样本结果
 不入仓。
+
+接近阶段的停止决策另由 Runtime 的 `motion-trace` 诊断构建重放选定样本（#1500）：
+逐拍记录停止目标查询、门决策与困境区豁免、P5 的实际求值路径（列式重新求值或复用
+P2 预览）、舒适与紧急两档可行域、前方限速下降约束，以及已提交的速度、进度与余数。
+记录只读，开启与关闭时的已提交状态与事件一致；该 feature 默认关闭，宿主构建不开启。
+
+```text
+cargo +1.99.1 test --locked -p laneflow-scenario --features motion-trace --test signalized_corridor_yellow_trace -- --nocapture
+```
 
 ### 8.2 Phase handoff 的阻断条件
 

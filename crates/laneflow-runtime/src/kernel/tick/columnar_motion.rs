@@ -568,6 +568,8 @@ fn compute(
     // 只在本块计算的借用期保留已验证路线，两个约束扫描共用；不跨拍保存引用。
     let mut routes = [None; BLOCK_ROWS];
     let mut profiles = [None; BLOCK_ROWS];
+    #[cfg(feature = "motion-trace")]
+    let mut traced = [None; BLOCK_ROWS];
     #[cfg(test)]
     note_columnar_work(14, n);
     for (row, route) in routes.iter_mut().enumerate().take(n) {
@@ -577,6 +579,10 @@ fn compute(
         };
         let handle = state.handle();
         let position = state.position_in(source);
+        #[cfg(feature = "motion-trace")]
+        {
+            traced[row] = Some(handle);
+        }
         let Some(active_index) = rank[handle.index() as usize]
             .checked_sub(1)
             .map(|index| index as usize)
@@ -647,6 +653,15 @@ fn compute(
             {
                 let old = state.state();
                 let next = next.apply(old);
+                #[cfg(feature = "motion-trace")]
+                crate::kernel::motion_trace::record(handle, |tick| {
+                    crate::kernel::motion_trace::TraceEvent::Motion {
+                        tick,
+                        vehicle: handle,
+                        path: crate::kernel::motion_trace::MotionPath::PreviewReused,
+                        motion: None,
+                    }
+                });
                 #[cfg(test)]
                 note_motion_cache_use(true);
                 #[cfg(test)]
@@ -721,6 +736,21 @@ fn compute(
                 transition,
                 false,
             );
+            #[cfg(feature = "motion-trace")]
+            super::trace_motion(
+                handle,
+                crate::kernel::motion_trace::MotionPath::Columnar,
+                crate::kernel::motion_trace::TraceStart {
+                    route_edge_index: position.route_edge_index,
+                    progress_mm: position.progress_mm,
+                    speed_mm_s: state.speed_mm_s(),
+                    carry_um: position.carry_um,
+                },
+                &basis,
+                limits.stop,
+                limits.hard_room_mm,
+                delta_s,
+            );
             batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
@@ -771,6 +801,20 @@ fn compute(
                 false,
                 range.clone(),
             );
+            #[cfg(feature = "motion-trace")]
+            for row in range.clone() {
+                if let Some(vehicle) = traced[row].filter(|_| batch.enabled[row]) {
+                    let speed_m_s = batch.out_proposal_speed[row];
+                    crate::kernel::motion_trace::record(vehicle, |tick| {
+                        crate::kernel::motion_trace::TraceEvent::SpeedDrop {
+                            tick,
+                            vehicle,
+                            path: crate::kernel::motion_trace::MotionPath::Columnar,
+                            speed_m_s,
+                        }
+                    });
+                }
+            }
             numerical(
                 &mut batch,
                 &mut chunk,

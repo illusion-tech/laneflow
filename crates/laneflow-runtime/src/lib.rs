@@ -84,6 +84,9 @@ pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,
     VehicleSpawnInput,
 };
+#[cfg(feature = "motion-trace")]
+#[doc(hidden)]
+pub use kernel::motion_trace;
 pub use kernel::parking::{
     LeaveParkingTarget, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord,
     ParkingArrivalObservation, ParkingBinding, ParkingCancelRecord, ParkingCommandOutcome,

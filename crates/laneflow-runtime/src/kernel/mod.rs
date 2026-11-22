@@ -95,6 +95,10 @@ pub(crate) mod transition_cost;
 #[cfg(feature = "execution-evidence")]
 pub(crate) mod execution_evidence;
 
+/// #1500 只读运动诊断；只在 `motion-trace` feature 下编译。
+#[cfg(feature = "motion-trace")]
+pub mod motion_trace;
+
 /// 测试构建中的批次阶段墙钟剖析；无生产 feature、API 或状态字段。
 #[cfg(test)]
 pub(crate) mod performance_profile;
