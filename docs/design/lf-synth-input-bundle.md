@@ -3,9 +3,10 @@ schema_version = 1
 id = "design-lf-synth-input-bundle"
 kind = "design"
 status = "active"
-revised_date = "2026-10-29"
+revised_date = "2026-11-23"
 summary = "定义正式合成规模、规范输入和受检交付。"
 scope = "定义正式合成规模、规范输入和受检交付。"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1218", "https://github.com/illusion-tech/laneflow/issues/1446"]
 +++
 
 # LF-SYNTH 规范输入交付
@@ -18,7 +19,8 @@ scope = "定义正式合成规模、规范输入和受检交付。"
 计时和五轴认证由后续 harness 承担，不从生成成功推出 Product Pass。
 
 正式身份为 `(LF-SYNTH-v2, scale, case, fixed_delta_ms, seed=0)`；`scale` 仅为
-`10000` 或 `100000`，`case` 为 `W1`–`W4`，步长为 `16` 或 `33` 毫秒。
+`10000` 或 `100000`，`case` 为 `W1`–`W4` 或第 7 节的换道竞争探针（标签 L1），
+步长为 `16` 或 `33` 毫秒。
 所有组合均可生成；十万 16 ms 是 observation 输入。表现比例不进入交通输入身份。
 不读取环境随机源、时钟、路径或主机信息，不保留旧工作负载的兼容入口。
 
@@ -123,7 +125,7 @@ facilities、spaces、geometry_points、active、parked。文件记录按名称�
 验证会完整重新编译，是离线输入认证，不能放进计时窗口。重新生成与文件 SHA 的
 双重验证能发现重新计算摘要后伪造的人口顺序或计划；不能替代对生成器实现的审阅。
 
-测试必须覆盖固定编码向量、几何边界/长度/分割点、W1–W4 计数与顺序、两种步长、
+测试必须覆盖固定编码向量、几何边界/长度/分割点、W1–W4 与 L1 计数与顺序、两种步长、
 两个独立进程的逐文件字节比较、篡改拒绝、LFCA 受检加载与 TrafficWorld 安装消费。
 正式规模完整矩阵的证据应保存输入身份、三个摘要与文件长度；不把生成耗时作为
 Runtime 性能结果。
@@ -135,6 +137,39 @@ Runtime 性能结果。
 `{"a":1,"b":2}` 加一个 LF，SHA-256 为
 `e8d38819d39f705646bfb643368eca78f7db476c16471dbc33b941b27326410d`，已用
 独立的 .NET SHA256.HashData 核对。
+
+## 7. 换道竞争探针 L1
+
+L1 是双车换道竞争的功能探针，来源于 #1218（R1b s12 钉版场景）。它不属于
+[性能基线 §4][performance-baseline-workload] 的四类 canonical workload：换道部分
+不随规模增长，规模只由背景人口提供，不得用于性能、吞吐或换道负载结论。
+
+`case` 序列化为 `{"LaneChange":{"clusters":c,"changers_per_cluster":k}}`。生成器
+接受 `1 ≤ c ≤ 64`、`k = 2`；其他 `k` 拒绝，因为当前下游几何与加速曲线下不存在
+同时满足“首车完成路线前末车完成 crossing”的观察窗口。正式身份取 `c = 1`，即
+`10000` 或 `100000` 背景加恰一个换道簇、两名换道者；多簇只供生成器测试。
+
+- **车辆参数**：全网共用一个 `car` 参数，车长 4.5 m、期望速度 15 m/s、
+  最小间隙 2.5 m、时距 1.5 s、最大加速度 1.5 m/s²、舒适减速度 4.5 m/s²、
+  紧急减速度 9 m/s²（W 族为 6 m/s²）。参数承接 R1b s12 前提：10 m/s 时两名换道者
+  都能在 15.61 m 内停下让行。
+- **背景**：每 cell 四条路线，各为 5130 m 入口边与 5130 m 出口边、25 个停车位，
+  不含信号、Gate 与 junction。初始人口与 W1 相同（75 Active / 25 Parked，同一
+  slot、间距与速度），信号组为 `null`。
+- **换道簇**：边链为 30 m 入口边、5 m 横向过渡段 T、30 m 目标车道边、8 m junction
+  内部边、10 m 出口边，并有一条汇入同一冲突区的竞争流。两条流各有无信号准入 Gate，
+  由编辑侧唯一政策集覆盖；编辑命名空间为 `lf-synth-road`。
+- **换道者**：logical rank 为 `scale + cluster·k + slot`，位于入口边，slot 0（首车）
+  进度 11 m、slot 1（跟随者）进度 3 m，速度均为 10 m/s，不绑定停车位。
+- **窗口**：预热 16 拍；观察 16 ms 为 384 拍、33 ms 为 184 拍。终点晚于跟随者在
+  首车清空 T 后进入，早于任一换道者完成路线。窗口由生成器单一函数给出，harness
+  从同一函数派生期望值。
+- **计划**：`scheduled` 为空。`rules` 声明 `lane_change_competition`（tick 0 稳定
+  live 顺序优先、首车恰好 crossing 一次、跟随者在首车车尾清空 T 后进入、每拍 T
+  内至多一车、落选者在 T 入口前无授权等待、预约生命周期按 requested → staged →
+  committed → released、首个 T 裁决后保存按 #1217 结构化拒绝），以及失败重试规则
+  （触发点为首车建立预约的那一拍，失败点 `AfterGrants` 与 `AfterTransitions`，失败
+  丢弃未提交授权）。
 
 [performance-baseline-workload]: core-runtime-performance-baseline.md#4-canonical-workload
 [probe-vectors-json]: ../../tools/laneflow-synth-generator/fixtures/probe-vectors.json

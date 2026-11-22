@@ -75,11 +75,11 @@ laneflow-synth-harness worker-retry-matrix <runtime-test-binary> <generator-matr
 `worker-run` 走同一完整语义窗口，将显式配置传给真实 `TrafficWorld`，成功回执的
 `workers` 从安装后的世界读取。当前支持 1–16，不自动降级；普通 `run` 仍固定为 1。
 
-`worker-matrix` 固定一万/16 ms 与十万/33 ms，各 W1–W4，使用 1/2/4/8/16 worker
-各三个全新进程，共 120 次。每轮配置顺序左移七项，最多四个进程且运行中的配置
+`worker-matrix` 固定一万/16 ms 与十万/33 ms，各 W1–W4 与换道竞争探针 L1，使用
+1/2/4/8/16 worker 各三个全新进程，共 150 次。每轮配置顺序左移七项，最多四个进程且运行中的配置
 worker 之和不超过 32。它只核验语义，不采集延迟或加速比。
 
-每个身份与第一轮单 worker 参考作十四次对照，共 112 对。回执核对实际 worker、
+每个身份与第一轮单 worker 参考作十四次对照，共 140 对。回执核对实际 worker、
 源码、完整输入 manifest、窗口和检查点，再只排除 `workers` 比较全部其他字段。
 轨迹、有序事件逐字节比较；W3/W4 另比较命令收据与批次。任一失败停止启动新进程，
 收集已经启动的运行；不覆盖旧目录，不自动补跑。`summary.json` 保留每次完整回执、
@@ -95,13 +95,15 @@ worker 之和不超过 32。它只核验语义，不采集延迟或加速比。
 失败/重试、快照恢复、Routing、表现接线与完整五轴仍需各自证据，不能把相等结果
 写成产品认证。具体比较与证据边界见[执行设计 §7][lf-synth-execution-matrix]。
 
-`worker-retry-matrix` 覆盖一万/16 ms、十万/33 ms 的 W3/W4 四个标称身份。
-它先由普通工具二进制生成四个完整单 worker 正常参考，再调用同一实现的 optimized
-Runtime 测试二进制，执行 1/2/4/8/16 worker、三轮独立进程，共 60 次失败重试。
-每次保留完整预热与前两拍 guardrail，注入点固定为 `AfterTransitions`。
+`worker-retry-matrix` 覆盖一万/16 ms、十万/33 ms 的 W3/W4 四个标称身份与 L1 两个
+身份。它先由普通工具二进制生成六个完整单 worker 正常参考，再调用同一实现的 optimized
+Runtime 测试二进制，执行 1/2/4/8/16 worker、三轮独立进程，共 120 次失败重试
+（W3/W4 60 次；L1 两个失败点各 30 次）。W3/W4 保留完整预热与前两拍 guardrail，
+注入点固定为 `AfterTransitions`；L1 在首车建立预约的那一拍注入 `AfterGrants` 或
+`AfterTransitions`。
 失败/fresh 两世界均显式安装请求的 worker，确认失败零发布，只重试原 step 输入。
 
-每身份与第一轮单 worker 比较，共 56 对；比较完整语义回执（仅排除 `workers`）、
+每个身份（L1 按身份与失败点）与第一轮单 worker 比较，共 112 对；比较完整语义回执（仅排除 `workers`）、
 七个规范快照及失败/重试边界的实际事件、信号与结果。跨 worker 结果也须与同源
 正常参考的命令、游标和状态检查点匹配。正常参考全部完成后才启动失败重试；
 最多四个进程，全部活动世界（含 fresh）的配置 worker 总和不超过 32。
@@ -400,13 +402,13 @@ laneflow-synth-harness restore-reference <input-directory> <implementation-commi
 laneflow-synth-harness restore-run <input-directory> <implementation-commit> <workers> <reference-directory> <checkpoint-0-or-1> <new-output-directory>
 ```
 
-先执行非正式 `restore-probe`：八个单 worker 短程参考，每个两个检查点分别以
+先执行非正式 `restore-probe`（不含 L1）：八个单 worker 短程参考，每个两个检查点分别以
 1/16 worker 恢复，共 32 个新进程。输入与预热不缩短，W1/W2 检查点为预热结束和
 随后第 128 拍，继续运行段最多 256 拍；W3 保留真实替换批次前后，W4 保留 B0 前后
 并到 B1 结束。分阶段耗时只用于正式运行预算，不产生恢复性能认证。
 
-正式 `restore-matrix` 生成八个完整单 worker 参考与十六个检查点，随后执行
-1/2/4/8/16 worker × 三轮，共 240 次新进程恢复。每次重新读取、验证和构建输入，
+正式 `restore-matrix` 生成 W1–W4 与 L1 十个完整单 worker 参考与二十个检查点，随后执行
+1/2/4/8/16 worker × 三轮，共 300 次新进程恢复。每次重新读取、验证和构建输入，
 认证共享路网修订后从 LFRS 恢复，重建宿主身份映射，精确比较下一拍起至原终点的
 全部轨迹、事件、命令收据、检查点与末态。最大四个并发进程、配置 worker 合计 32。
 
@@ -432,7 +434,7 @@ cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warn
 [performance-baseline]: ../../docs/design/core-runtime-performance-baseline.md
 [lf-synth-execution]: ../../docs/design/lf-synth-execution.md
 [lf-synth-execution-matrix]: ../../docs/design/lf-synth-execution.md#7-标称矩阵的跨-worker-对照
-[lf-synth-execution-retry]: ../../docs/design/lf-synth-execution.md#8-标称-w3w4-的跨-worker-失败与重试
+[lf-synth-execution-retry]: ../../docs/design/lf-synth-execution.md#8-标称-w3w4-与-l1-的跨-worker-失败与重试
 [traffic-verification-cost]: ../../docs/design/traffic-verification.md#9-执行成本与确定性
 [lf-synth-measurement-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1166-lf-synth-measurement/README.md
 [lf-synth-measurement]: ../../docs/design/lf-synth-measurement.md
