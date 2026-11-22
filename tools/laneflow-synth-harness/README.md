@@ -108,8 +108,9 @@ Runtime 测试二进制，执行 1/2/4/8/16 worker、三轮独立进程，共 12
 LFRS 加 `observations.json`；L1 的重试、fresh 与末态发生在首个 T 裁决之后，快照按
 #1217 结构化拒绝，改为 `retry.json`、`fresh.json`、`final.json`（拒绝变体与真实资源
 身份/历史投影），其余四份 LFRS 不变。L1 重试后续跑到完整窗口终点，观测域为
-`lf-synth-retry-observations-lc-1`，另含预约生命周期事件种类 4–7。跨 worker 结果也须与同源
-正常参考的命令、游标和状态检查点匹配。正常参考全部完成后才启动失败重试；
+`lf-synth-retry-observations-lc-1`，另含预约生命周期事件种类 4–7。W3/W4 的跨 worker 结果也须与同源
+正常参考的命令、游标和状态检查点匹配；L1 只与正常参考核对来源、输入、窗口和最终
+检查点的结构化拒绝及 `t_state`（`journal`、`states`），正常参考没有重试时刻检查点。正常参考全部完成后才启动失败重试；
 最多四个进程，全部活动世界（含 fresh）的配置 worker 总和不超过 32。
 
 环境 JSON 除前述字段外还必须含 `test_build_command`。构建测试二进制的命令为：
