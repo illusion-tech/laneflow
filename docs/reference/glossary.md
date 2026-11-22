@@ -4122,7 +4122,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 英文辅助名：vehicle-following feasibility。
 
-本拍开始时，follower 以 emergency deceleration 制动可在保留最小间隙处停住的状态：停车所需距离不超过保留最小间隙后的可用间隙与前车制动可达距离之和。跟车可行时跟车几何投影不触发，单拍速度降幅受紧急减速度约束；不可行导致的投影须归入运行期约束骤现或既有异常初态。
+本拍开始时，follower 以 emergency deceleration 制动可停在保留最小间隙处的状态：停车所需距离不超过扣除最小间隙容差与微米余数后的整数停车界，前车按可原地立即停住计（砖墙包络）。跟车可行逐拍保持，跟车几何投影不触发；不可行导致的投影须归入新前车进入视野或既有异常初态。
 
 依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
 
