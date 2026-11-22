@@ -78,6 +78,8 @@ placement-fixtures = []
 motion-kernel-evidence = []
 # 证据构建登记调度统计并开放资源账（#707 验收 4/5）；普通构建不插桩。
 execution-evidence = []
+# 默认关闭。#1500 只读运动诊断，记录选定车辆的停止查询与运动求值；宿主构建不要打开。
+motion-trace = []
 
 [dependencies]
 blake3 = "1.8"

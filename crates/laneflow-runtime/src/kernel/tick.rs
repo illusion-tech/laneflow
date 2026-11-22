@@ -4538,7 +4538,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         // reach（apply_travel 的真实跨门检查不变）。
         let gate_unreachable =
             cursor_row.is_some_and(|row| row.gate_stop_unreachable(position.progress_mm, window));
-        if let Some(gate_stop) = (!gate_unreachable)
+        let gate_stop = (!gate_unreachable)
             .then(|| {
                 self.restrictive_gate_stop_from(
                     compiled,
@@ -4548,13 +4548,30 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     hop.gate_first as usize,
                 )
             })
-            .flatten()
-        {
+            .flatten();
+        if let Some(gate_stop) = gate_stop {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
                 Some(_) | None => Some(gate_stop),
             };
         }
+        #[cfg(feature = "motion-trace")]
+        crate::kernel::motion_trace::record(state.handle(), |tick| {
+            crate::kernel::motion_trace::TraceEvent::Stops {
+                tick,
+                vehicle: state.handle(),
+                window_mm: window.map(|window| window.millimeters),
+                signal_skipped: signal_stop.is_none()
+                    && window.is_some_and(|window| {
+                        hop.signal_from_start.is_none_or(|distance| {
+                            window.class_is_unreachable(Some(distance), position.progress_mm)
+                        })
+                    }),
+                signal: signal_stop.map(Into::into),
+                gate: gate_stop.map(Into::into),
+                movement: movement_stop.map(Into::into),
+            }
+        });
         let edge_length_mm = hop.length_mm?;
         let envelope_m = speed_limit_path_envelope_from(
             (edge_length_mm, current_limit),
@@ -4735,6 +4752,21 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let parking = inputs.parking;
         let proposal = inputs.raw_proposal(delta_s)?;
         inputs.proposal = Some(proposal);
+        #[cfg(feature = "motion-trace")]
+        trace_motion(
+            state.handle,
+            crate::kernel::motion_trace::MotionPath::Scalar,
+            crate::kernel::motion_trace::TraceStart {
+                route_edge_index: state.route_edge_index,
+                progress_mm: state.progress_mm,
+                speed_mm_s: state.speed_mm_s,
+                carry_um: state.carry_um,
+            },
+            &inputs,
+            limits.stop,
+            limits.hard_room_mm,
+            delta_s,
+        );
         if let Some(output) = basis_output {
             *output = Some(MotionBasis {
                 vehicle: state.handle,
@@ -4757,6 +4789,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             state.progress_mm,
             delta_s,
         )?;
+        #[cfg(feature = "motion-trace")]
+        crate::kernel::motion_trace::record(state.handle, |tick| {
+            crate::kernel::motion_trace::TraceEvent::SpeedDrop {
+                tick,
+                vehicle: state.handle,
+                path: crate::kernel::motion_trace::MotionPath::Scalar,
+                speed_m_s: next_speed_m,
+            }
+        });
         if travel_m < 0.0 {
             travel_m = 0.0;
         }
@@ -5016,6 +5057,14 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             if reach.is_some_and(|reach| {
                 reach.class_is_unreachable(Some(from_cursor_start), position.progress_mm)
             }) {
+                #[cfg(feature = "motion-trace")]
+                crate::kernel::motion_trace::record(state.handle(), |tick| {
+                    crate::kernel::motion_trace::TraceEvent::GateBeyondWindow {
+                        tick,
+                        vehicle: state.handle(),
+                        hop: next.hop,
+                    }
+                });
                 return None;
             }
             #[cfg(test)]
@@ -5028,7 +5077,19 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 state.speed_mm_s(),
                 mm,
             ));
-            if self.gate_is_restrictive(next.gate, state.profile()) && !dilemma_exempt {
+            let restrictive = self.gate_is_restrictive(next.gate, state.profile());
+            #[cfg(feature = "motion-trace")]
+            crate::kernel::motion_trace::record(state.handle(), |tick| {
+                crate::kernel::motion_trace::TraceEvent::Gate {
+                    tick,
+                    vehicle: state.handle(),
+                    hop: next.hop,
+                    distance: stop_distance.into(),
+                    restrictive,
+                    dilemma_exempt,
+                }
+            });
+            if restrictive && !dilemma_exempt {
                 return Some(stop_distance);
             }
             let next_hop = usize::try_from(next.hop).ok()?.checked_add(1)?;
@@ -6151,6 +6212,102 @@ fn quantize_mm(toward_zero: bool, speed_m_s: f32) -> Option<u32> {
 
 fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
     gap.map(|gap| if gap <= 0 { 0.0 } else { gap as f32 / 1_000.0 })
+}
+
+/// #1500：按 [`si_comfort_travel`] 与运动内核同式的步骤，重算停止归约中的
+/// 各项数值并记录；只读，不参与求值。
+#[cfg(feature = "motion-trace")]
+#[allow(clippy::too_many_arguments)]
+fn trace_motion(
+    vehicle: crate::VehicleHandle,
+    path: crate::kernel::motion_trace::MotionPath,
+    start: crate::kernel::motion_trace::TraceStart,
+    basis: &MotionInputs,
+    stop: Option<BoundedDistance>,
+    hard_room_mm: u32,
+    delta_s: f32,
+) {
+    crate::kernel::motion_trace::record(vehicle, |tick| {
+        let speed = si_speed(basis.speed_mm_s);
+        let proposal_speed = basis
+            .proposal
+            .or_else(|| basis.raw_proposal(delta_s))
+            .map_or(f32::NAN, |(_, speed)| speed);
+        let floor = (speed - basis.emergency_decel * delta_s).max(0.0);
+        let safe_cap = basis.leader_gap.map(|_| {
+            laneflow_motion_kernel::safe_speed(
+                speed,
+                basis.emergency_decel,
+                delta_s,
+                basis.safe_room_m(),
+            )
+        });
+        let mut candidate = proposal_speed;
+        if candidate.is_finite()
+            && let Some(cap) = safe_cap
+        {
+            candidate = candidate.min(cap);
+        }
+        candidate = candidate.max(floor);
+        let stop_m = stop
+            .and_then(finite_meters)
+            .unwrap_or(f32::INFINITY)
+            .min(finite_meters(basis.route_end).unwrap_or(f32::INFINITY));
+        let stop_solved = stop_m > 0.0 && stop_m.is_finite() && candidate > 0.0;
+        let (comfort, emergency, reduced) = if stop_solved {
+            let comfort = max_next_speed_for_decel(
+                speed,
+                candidate,
+                delta_s,
+                stop_m,
+                0.0,
+                basis.comfort_decel,
+            );
+            let emergency = max_next_speed_for_decel(
+                speed,
+                candidate,
+                delta_s,
+                stop_m,
+                0.0,
+                basis.emergency_decel,
+            );
+            let cap = motion_stop_target_cap(
+                speed,
+                candidate,
+                delta_s,
+                stop_m,
+                basis.comfort_decel,
+                basis.emergency_decel,
+            );
+            (comfort, emergency, candidate.min(cap))
+        } else {
+            (None, None, candidate)
+        };
+        crate::kernel::motion_trace::TraceEvent::Motion {
+            tick,
+            vehicle,
+            path,
+            motion: Some(crate::kernel::motion_trace::TraceMotion {
+                start,
+                desired_mm_s: basis.desired_mm_s,
+                current_limit_mm_s: basis.current_limit_mm_s,
+                comfort_decel: basis.comfort_decel,
+                emergency_decel: basis.emergency_decel,
+                leader_gap_mm: basis.leader_gap,
+                leader_speed_mm_s: basis.leader_speed_mm_s,
+                stop_m,
+                hard_room_mm,
+                proposal_speed,
+                floor,
+                safe_cap,
+                candidate,
+                stop_solved,
+                comfort,
+                emergency,
+                reduced,
+            }),
+        }
+    });
 }
 
 #[allow(clippy::too_many_arguments)]

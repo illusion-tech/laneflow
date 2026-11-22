@@ -428,3 +428,111 @@ fn waiting_non_entry_outcome_consumes_effective_yellow_decision() {
         );
     }
 }
+
+/// #1500 对照：开启运动诊断重放上一用例，逐拍输出门决策、两档可行域与已提交
+/// 状态，供与走廊样本对照。诊断只读，跨越行为与上一用例相同。
+#[cfg(feature = "motion-trace")]
+#[test]
+fn yellow_boundary_ride_trace_explains_each_tick() {
+    use crate::kernel::motion_trace::{self, MotionPath, TraceDistance, TraceEvent};
+    let mut world = aspect_world(SignalAspect::Yellow, 100);
+    let route = route_of(&mut world);
+    let vehicle = spawn(&mut world, route, 0, 0, 6_000).expect("spawn");
+    motion_trace::start(&[vehicle]);
+    let mut rows = Vec::new();
+    let mut previous = world.vehicle(vehicle).expect("vehicle");
+    for _ in 0..100 {
+        let tick = world.time_ms();
+        motion_trace::set_tick(tick);
+        world
+            .step(crate::TickInput::new(100))
+            .expect("yellow boundary ride step");
+        let next = world.vehicle(vehicle).expect("vehicle");
+        rows.push((tick, previous, next));
+        previous = next;
+        if next.route_edge_index > 0 {
+            break;
+        }
+    }
+    let events = motion_trace::finish();
+    assert!(previous.route_edge_index > 0, "困境区半径内逐拍许可跨越");
+    for (tick, start, next) in &rows {
+        let of_tick = |wanted: &dyn Fn(&TraceEvent) -> bool| {
+            events
+                .iter()
+                .rev()
+                .find(|event| {
+                    wanted(event)
+                        && matches!(event,
+                            TraceEvent::Gate { tick: t, .. }
+                            | TraceEvent::Motion { tick: t, .. } if t == tick)
+                })
+                .cloned()
+        };
+        let gate = of_tick(&|event| matches!(event, TraceEvent::Gate { .. }));
+        let reused = of_tick(&|event| {
+            matches!(
+                event,
+                TraceEvent::Motion {
+                    path: MotionPath::PreviewReused,
+                    ..
+                }
+            )
+        })
+        .is_some();
+        let wanted = if reused {
+            MotionPath::Scalar
+        } else {
+            MotionPath::Columnar
+        };
+        let motion =
+            of_tick(&|event| matches!(event, TraceEvent::Motion { path, .. } if *path == wanted));
+        let Some(TraceEvent::Motion {
+            motion: Some(motion),
+            ..
+        }) = motion
+        else {
+            panic!("拍 {tick} 缺少 {wanted:?} 求值记录");
+        };
+        let (decision, distance) = match gate {
+            Some(TraceEvent::Gate {
+                distance: TraceDistance::Finite(mm),
+                restrictive,
+                dilemma_exempt,
+                ..
+            }) => (
+                format!(
+                    "{}{}",
+                    if restrictive { "deny" } else { "allow" },
+                    if dilemma_exempt { "+exempt" } else { "" }
+                ),
+                Some(mm),
+            ),
+            _ => ("none".to_owned(), None),
+        };
+        let margin = |decel: f32| {
+            distance.map(|d| {
+                let v = f64::from(start.speed_mm_s) / 1_000.0;
+                f64::from(d) - v * v / (2.0 * f64::from(decel)) * 1_000.0
+            })
+        };
+        println!(
+            "tick {tick} progress {} speed {} carry {} d {distance:?} h_c {:?} h_e {:?} \
+             gate {decision} p5 {} candidate {:.4} comfort {:?} emergency {:?} reduced {:.4} \
+             -> speed {} progress {} edge {}",
+            start.progress_mm,
+            start.speed_mm_s,
+            start.carry_um,
+            margin(motion.comfort_decel).map(f64::round),
+            margin(motion.emergency_decel).map(f64::round),
+            if reused { "reused" } else { "columnar" },
+            motion.candidate,
+            motion.comfort,
+            motion.emergency,
+            motion.reduced,
+            next.speed_mm_s,
+            next.progress_mm,
+            next.route_edge_index,
+        );
+    }
+}
