@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-signalized-corridor-protected-turning"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-23"
 summary = "定义信号化走廊受保护转向与清空判据。"
 scope = "v0.9 双路口走廊的受保护左转、直行、右转、lane-level ManeuverPath、完整 Route catalog、固定时制与验证边界"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496"]
 related = ["adr-0017", "design-example-scenarios", "design-road-junction-model", "design-signal-system", "design-signalized-corridor-population", "design-spatial-geometry"]
 +++
 
@@ -418,15 +418,35 @@ t_entry + T_clear ≤ Y + R
 - 现行可运行制品是受检 LFCA `v0.2-signalized-corridor.lfca` 与 catalog 0.4
   `v0.2-signalized-corridor.catalog.toml`。文件名是场景制品名，不是格式版本。
   见[示例场景 §9.1][example-scenarios-artifacts]；
-- 50/100/200 vehicles、seed 0 和规范 stress seeds；
+- 50/100/200 vehicles、seed 0 和规范 stress seeds；规范 stress seed 集为
+  `0/7/42/101`（含默认 seed 0），沿用 #191 v0.9 cross-layer 证据所用集合；
 - 所有 left/straight/right path 的 headless traversal、SignalStop/release、
   Following/no-overlap；
-- 每次不兼容 green 开始时，前一 active set 的 internal edges 已清空；
+- 每次不兼容 green 开始时，前一 active set 的 internal edges 已清空；黄灯期
+  入场车辆另满足 §7.3 的 `t_entry + T_clear ≤ Y + R`（见下文清空核验）；
 - native pose、lamp、Route observation 与 Traffic Runtime handles 一致；
 - weighted draw order、blocked retry、初始 permutation 和不同 outer-frame
   chunking 的 replay；
 - steady tick 不做 external-ID lookup、ManeuverPath matching、catalog scan 或
   per-vehicle allocation。
+
+清空核验（#1496）由 `laneflow-scenario` 的 `signalized_corridor_clearance` 测试
+承载，使用检入 LFCA 与 catalog，在 50/100/200 × 规范 stress seed 集上各运行 4 个
+完整周期。判据只读每个提交边界的公开车辆状态与已提交灯态，不调用 Runtime 的门
+决策、困境区豁免或停止求解器：
+
+- 车辆以拍初为黄灯的组提交 `fromEdge → internal edge` 跨越时，`t_y` 为该组本轮
+  黄灯起点，`t_e` 为跨越边界，`t_c` 为车尾首次不早于 internal edge 终点的边界；
+  `Y + R` 取该组本轮黄灯起点到同一控制器下一个组转绿的时长，要求
+  `t_c − t_y ≤ Y + R`；
+- 同一控制器下一个组转绿的边界，此前最后一个非红组的 internal edges 上没有车身；
+- 以拍初红灯提交的跨越一律拒绝。
+
+失败输出车辆、路线、路径、组、三个边界与占用区间。完整矩阵以 release 显式运行：
+
+```text
+cargo +1.99.1 test --release --locked -p laneflow-scenario --test signalized_corridor_clearance -- --ignored --nocapture
+```
 
 ### 8.2 Phase handoff 的阻断条件
 
