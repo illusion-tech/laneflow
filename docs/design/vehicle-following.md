@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-vehicle-following"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-22"
 summary = "定义跟车、纵向控制、安全距离与投影。"
 scope = "Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1490"]
 related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architecture", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-route-system", "design-traffic-runtime-integer-geometry", "roadmap"]
 +++
 
@@ -16,7 +16,7 @@ related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architec
 <a id="applicability"></a>
 ## 适用边界与依据
 
-纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。
+纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。§10.2 的停车界、前车有效速度与跟车可行条件按 #1490 修订，实现由 #1489 交付。
 
 关联文档：
 
@@ -385,7 +385,7 @@ follower，并复用本设计的 follower-owned minimum-gap tolerance；candidat
 ```text
 v       follower current speed
 v0      profile desired speed
-v_l     leader current speed
+v_l     leader effective speed (§10.2)
 delta_v v - v_l; positive means follower is faster
 s       bumper gap
 s0      profile min gap
@@ -400,6 +400,9 @@ delta   4
 ```text
 s_star = s0 + max(0, v*T + v*delta_v/(2*sqrt(a*b)))
 ```
+
+IIDM 必须读取前车有效速度，不得省略 `v*delta_v/(2*sqrt(a*b))` 项；该项使 follower
+按接近速度提前制动。
 
 ### 9.2 Free-road acceleration
 
@@ -437,14 +440,15 @@ IIDM evaluator 是 Traffic Runtime 私有纯计算单元：输入 profile 与 ob
 dt = fixed_delta_time_ms / 1000
 v_upper = v + a*dt
 travel_upper = 0.5*(v + v_upper)*dt
-hard_horizon = travel_upper + v_upper^2/(2*b_emergency)
+hard_horizon = s0 + travel_upper + v_upper^2/(2*b_emergency)
 comfort_horizon = s0 + v*T
 minimum_gap_horizon = s0 + travel_upper + minimum_gap_tolerance
 bumper_gap_horizon = max(hard_horizon, comfort_horizon, minimum_gap_horizon)
 front_query_horizon = bumper_gap_horizon + max_vehicle_length
 ```
 
-`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的车辆；专用 tolerance 覆盖 `s0` 边界附近的舍入。整数毫米合同下 `minimum_gap_tolerance` 取 1 mm。后杠间隙大于 `bumper_gap_horizon` 的车辆即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`，本拍不接纳为 leader。
+`hard_horizon` 含 `s0`：§10.2 以保留最小间隙处为停车界，静止前车必须在 follower
+仍能以 emergency deceleration 停在该处的距离内被接纳。`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的车辆；专用 tolerance 覆盖 `s0` 边界附近的舍入。整数毫米合同下 `minimum_gap_tolerance` 取 1 mm。后杠间隙大于 `bumper_gap_horizon` 的车辆即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`，本拍不接纳为 leader。
 
 当前 `TrafficWorld` 每车每拍先在 SI 中求有限的 `bumper_gap_horizon`，再**向上取整**到毫米，并令 `front_query_horizon = bumper_gap_horizon + MAX_VEHICLE_LENGTH_MM`（溢出饱和，禁止缩短行走窗）。占用查询在跟车前视内行走；接纳以 `bumper_gap_horizon` 为准。占用索引仍按全部 `Active` 重建。ADR 0006 的搜索下界是 `minimum_gap_horizon`，不是跟车前视本身。
 
@@ -470,17 +474,28 @@ carry 的绝对上界。本拍位移上界（`MotionReach`）仍用于硬空间�
 
 ### 10.2 Emergency safe-speed
 
-令 `b_f`、`b_l` 为 follower/leader emergency deceleration，`u` 为待求 next speed：
+令 `b_f`、`b_l` 为 follower/leader 的 profile emergency deceleration，`u` 为待求
+next speed。
+
+- **停车界** `s_a`：§11.2 的 `available_gap`（SI），即后杠间隙扣除保留的 `min_gap`
+  并按 `minimum_gap_tolerance` 规范化后的空间。follower 以保留最小间隙处为停车界，
+  不以后杠间隙为零处为界。
+- **前车有效速度** `v_l`：前车在本拍开始时已处于停止目标耗尽（到其最严停止目标的
+  剩余距离为零，整数几何 §5）时取 0，否则取前车已提交速度。耗尽中的前车位移为零，
+  已提交速度只按耗尽规则衰减，不代表可用的前方空间。
+- **前车制动可达距离** `r_l = min(v_l^2/(2*b_l), d_l)`：`d_l` 为前车本拍开始时到其
+  最严停止目标的距离，前车没有停止目标时为无穷。
+
+停车不等式：
 
 ```text
-0.5*(v + u)*dt + u^2/(2*b_f)
-  <= s + v_l^2/(2*b_l)
+0.5*(v + u)*dt + u^2/(2*b_f) <= s_a + r_l
 ```
 
 整理：
 
 ```text
-rhs = 2*b_f*s + (b_f/b_l)*v_l^2
+rhs = 2*b_f*(s_a + r_l)
 B = b_f*dt
 C = b_f*v*dt - rhs
 ```
@@ -492,7 +507,7 @@ discriminant = B^2 - 4*C
 v_safe = (-2*C)/(B + sqrt(discriminant))
 ```
 
-当 `C > 0` 时，next speed 为零仍不满足停车不等式，`v_safe = 0` 并进入 emergency/projection 路径，不返回 validation error。所有中间结果必须 finite；最终上界可以向安全方向 clamp，但不得因舍入得到比数学正根更大的速度。
+当 `C > 0` 时，next speed 为零仍不满足以梯形行程计的停车不等式，`v_safe = 0`。所有中间结果必须 finite；最终上界可以向安全方向 clamp，但不得因舍入得到比数学正根更大的速度。
 
 Safe-speed 只产生上界：
 
@@ -503,6 +518,21 @@ v_candidate = max(v_target, v_emergency_floor)
 ```
 
 无 leader 时不应用 leader safe-speed 上界。
+
+**跟车可行**：本拍开始时 `v^2/(2*b_f) <= s_a + r_l`。跟车可行时：
+
+- `v > b_f*dt`：emergency floor `u = v - b_f*dt` 使停车不等式左侧恰为 `v^2/(2*b_f)`，
+  因此 `v_safe >= v_emergency_floor`，下界不会把候选抬过安全上界；
+- `v <= b_f*dt` 且 `v_candidate = 0`：本拍按 §11.1 拍内停稳，行程取产出终速零的
+  实际减速度档位的 `v^2/(2*b)`（舒适档可停进停车界时优先，否则取 `b_f`），不超过
+  `s_a + r_l`。
+
+因此跟车可行且 `r_l = 0`（前车静止或处于耗尽）时，§11.3 的几何投影不会触发，单拍
+速度降幅不超过 `b_f*dt`。前车运动时，前车本拍实际减速度不超过 `b_l` 且 `d_l` 不缩短，
+可行性在下一拍保持；`b_l > b_f` 时拍内相对位置仍可能使几何投影生效，实现须以测试
+说明该情形的归因。量化落地后单拍降幅
+不超过 `b_e*dt + ε_v`（整数几何 §5）须由实现给出证明或性质测试，不得为此放宽
+`ε_v`。
 
 ## 11. Ballistic integration 与 no-overlap
 
@@ -595,6 +625,10 @@ final_travel = min(candidate_travel, geometry_cap)
 
 - Geometry cap 仍不小于 emergency minimum travel 时，属于普通 emergency clamp。
 - Geometry cap 更小时，final travel clamp 到 cap，final speed 相应降低、必要时归零，允许 effective applied acceleration 超过 profile emergency deceleration。
+- 本拍开始时跟车可行且前车静止或处于耗尽（§10.2）时不会触发几何投影。其余几何
+  投影的原因须归入运行期约束骤现（前车超过 `b_l` 急停、前车最严停止目标骤然缩短、
+  新前车进入视野如 cut-in 或合流）或合同允许的既有异常初态；不得用于掩盖 follower
+  在可行阶段制动不足。
 
 当 `final_travel < candidate_travel` 时，final speed 使用唯一映射：
 
@@ -649,6 +683,9 @@ Private：
 - Active/Parked/Completed occupancy。
 - IIDM free/interaction 各分支和 desired speed 上下边界。
 - Safe-speed discriminant、emergency floor 和 projection threshold。
+- §10.2 跟车可行：静止前车、匀速前车、以 `b_l` 制动的前车和耗尽中的前车下，起始可行
+  的 follower 停在保留最小间隙处，单拍降幅不超过 `b_e·Δt + ε_v`，不触发几何投影；
+  IIDM 的 `delta_v` 项与 `hard_horizon` 的 `s0` 项各有反例覆盖。
 - 当前 edge ceiling、60→40 advance braking、40→60 不提前加速、连续多个降限、repeated edge、hard projection attribution 与 over-limit spawn 原子失败。
 - 停止目标级联三域、实际加速度选择与三元组一致（含 raw 提案低于紧急下界而
   安全域非空、拍内停稳实际减速度越界两类反例）；制动前视窗毫米外取整；六源
