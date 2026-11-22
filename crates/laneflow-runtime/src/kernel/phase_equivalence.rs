@@ -459,7 +459,8 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // 值取自 worker 1 融合路径（与安装合同同一计划/资源准备）；#915 降档时随
     // 矩阵形状变化重生成一次——digest 管线与场景构造器仍由 pre-refactor fixture
     // phase-protocol-e011745e.txt 锚定（exact_baseline 拍数不变），此后不得用
-    // 被测实现重生成。
+    // 被测实现重生成。#1489 改变跟车行为（IDM 接近速度项、舒适加速度下限与 §10.2
+    // 砖墙安全速度），conflict-parallel 一行按维护者裁定重生成一次，其余三行不变。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-parallel-matrix-c009d2dc.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }

@@ -1,8 +1,8 @@
 use super::projection::{ROOT_SHRINK_HARD, ROOT_SHRINK_SOFT};
 use super::{
     BoundaryInput, BoundaryOutput, Columns, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
-    LimitOutput, Phase, Stats, finish_values, motion_values_valid, raw_valid,
-    stop_solve_participates,
+    LimitOutput, Phase, SAFE_SPEED_SHRINK, Stats, finish_values, motion_values_valid, quantize_row,
+    raw_valid, stop_solve_participates,
 };
 use std::arch::x86_64::*;
 
@@ -622,9 +622,17 @@ macro_rules! arithmetic {
                     let square = $mul(ratio, ratio);
                     let speed_term = $select($cmp::<_CMP_LE_OQ>(desired, zero), one, $mul(square, square));
                     let headway = $load($input.time_headway.as_ptr().add(start));
-                    let gap_ratio = $max($div($add(min_gap, $mul(speed, headway)), leader), zero);
+                    // vehicle-following §9 IDM 期望间距（与 desired_gap 逐式同序）：
+                    // s0 + max(0, v·T + v·(v − v_l)/(2·√(a·b)))。
+                    let leader_speed = $load($input.leader_speed_m_s.as_ptr().add(start));
+                    let accel_max = $load($input.max_accel.as_ptr().add(start));
+                    let comfort_decel = $load($input.comfort_decel.as_ptr().add(start));
+                    let approach = $div($mul(speed, $sub(speed, leader_speed)), $mul(two, $sqrt($mul(accel_max, comfort_decel))));
+                    let s_star = $add(min_gap, $max($add($mul(speed, headway), approach), zero));
+                    let gap_ratio = $max($div(s_star, leader), zero);
                     let gap_term = $select(present, $mul(gap_ratio, gap_ratio), zero);
-                    let accel = $mul($load($input.max_accel.as_ptr().add(start)), $sub($sub(one, speed_term), gap_term));
+                    // 舒适加速度夹到 [-b, a]（与 raw_proposal 同式）。
+                    let accel = $max($mul(accel_max, $sub($sub(one, speed_term), gap_term)), $sub(zero, comfort_decel));
                     let raw_speed = $min($max($add(speed, $mul(accel, dt)), zero), $max(desired, zero));
                     // F6 复审修 6：reused 是最外层选择——有 leader 的行也必须
                     // 优先消费调用方缓存提案（与标量 scalar_row 同序）。
@@ -645,7 +653,17 @@ macro_rules! arithmetic {
                     // 与 is_finite 同域——`≤` 会把 NEG_INFINITY 判为有限并
                     // 抬成 5600 一类的合法速度（后端分歧）。
                     let finite = $and($cmp::<_CMP_LT_OQ>(neg_inf, raw_speed), $cmp::<_CMP_LT_OQ>(raw_speed, inf));
-                    let lifted_unchecked = $select($cmp::<_CMP_LT_OQ>(raw_speed, floor), floor, raw_speed);
+                    // 整数几何 §5 第 3 步：max(min(u_raw, V_safe), F)，V_safe 与
+                    // safe_speed 逐式同序；无前车或停车界非有限时不施加。
+                    let room = $load($input.safe_room_m.as_ptr().add(start));
+                    let safe_b_dt = $mul(emergency, dt);
+                    let safe_c = $sub($mul($mul(emergency, speed), dt), $mul($mul(two, emergency), room));
+                    let safe_disc = $sub($mul(safe_b_dt, safe_b_dt), $mul($set(4.0), safe_c));
+                    let safe_root = $mul($div($mul($set(-2.0), safe_c), $add(safe_b_dt, $sqrt(safe_disc))), $set(SAFE_SPEED_SHRINK));
+                    let v_safe = $select($cmp::<_CMP_LT_OQ>(room, inf),
+                        $select($cmp::<_CMP_LT_OQ>(safe_c, zero), safe_root, zero), inf);
+                    let capped = $select(present, $min(raw_speed, v_safe), raw_speed);
+                    let lifted_unchecked = $select($cmp::<_CMP_LT_OQ>(capped, floor), floor, capped);
                     let lifted = $select(finite, lifted_unchecked, raw_speed);
                     // R6-3 复审修：整组不存在可能参与速度归约的目标（无效或
                     // 严格处于保守制动窗外）时跳过两档根式——窗外求解根不
@@ -800,18 +818,37 @@ unsafe fn quantize_direct2<const TRACK: bool>(
         for group in 0..2 {
             let mut um = [0.0; 4];
             let mut speed = [0.0; 4];
+            let mut um_floor = [0.0; 4];
+            let mut speed_floor = [0.0; 4];
+            let um_scaled =
+                _mm256_mul_pd(_mm256_cvtps_pd(travels[group]), _mm256_set1_pd(1_000_000.0));
+            let speed_scaled = _mm256_mul_pd(
+                _mm256_cvtps_pd(_mm_max_ps(speeds[group], _mm_setzero_ps())),
+                _mm256_set1_pd(1_000.0),
+            );
             _mm256_storeu_pd(
                 um.as_mut_ptr(),
-                _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
-                    _mm256_mul_pd(_mm256_cvtps_pd(travels[group]), _mm256_set1_pd(1_000_000.0)),
-                ),
+                _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(um_scaled),
             );
             _mm256_storeu_pd(
                 speed.as_mut_ptr(),
-                _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
-                    _mm256_mul_pd(_mm256_cvtps_pd(speeds[group]), _mm256_set1_pd(1_000.0)),
-                ),
+                _mm256_round_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(speed_scaled),
             );
+            _mm256_storeu_pd(
+                um_floor.as_mut_ptr(),
+                _mm256_round_pd::<{ _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC }>(um_scaled),
+            );
+            _mm256_storeu_pd(
+                speed_floor.as_mut_ptr(),
+                _mm256_round_pd::<{ _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC }>(speed_scaled),
+            );
+            // 跟车安全量化路径向零取整（与标量 quantize_row 同式）。
+            for lane in 0..4 {
+                if input.safe_quantize[start + group * 4 + lane] {
+                    um[lane] = um_floor[lane];
+                    speed[lane] = speed_floor[lane];
+                }
+            }
             finish4::<TRACK>(
                 input,
                 output,
@@ -852,18 +889,41 @@ unsafe fn quantize_direct512<const TRACK: bool>(
         for group in 0..2 {
             let mut um = [0.0; 8];
             let mut speed = [0.0; 8];
+            let mut um_floor = [0.0; 8];
+            let mut speed_floor = [0.0; 8];
+            let um_scaled =
+                _mm512_mul_pd(_mm512_cvtps_pd(travels[group]), _mm512_set1_pd(1_000_000.0));
+            let speed_scaled = _mm512_mul_pd(
+                _mm512_cvtps_pd(_mm256_max_ps(speeds[group], _mm256_setzero_ps())),
+                _mm512_set1_pd(1_000.0),
+            );
             _mm512_storeu_pd(
                 um.as_mut_ptr(),
                 _mm512_roundscale_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
-                    _mm512_mul_pd(_mm512_cvtps_pd(travels[group]), _mm512_set1_pd(1_000_000.0)),
+                    um_scaled,
                 ),
             );
             _mm512_storeu_pd(
                 speed.as_mut_ptr(),
                 _mm512_roundscale_pd::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(
-                    _mm512_mul_pd(_mm512_cvtps_pd(speeds[group]), _mm512_set1_pd(1_000.0)),
+                    speed_scaled,
                 ),
             );
+            _mm512_storeu_pd(
+                um_floor.as_mut_ptr(),
+                _mm512_roundscale_pd::<{ _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC }>(um_scaled),
+            );
+            _mm512_storeu_pd(
+                speed_floor.as_mut_ptr(),
+                _mm512_roundscale_pd::<{ _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC }>(speed_scaled),
+            );
+            // 跟车安全量化路径向零取整（与标量 quantize_row 同式）。
+            for lane in 0..8 {
+                if input.safe_quantize[start + group * 8 + lane] {
+                    um[lane] = um_floor[lane];
+                    speed[lane] = speed_floor[lane];
+                }
+            }
             for half in 0..2 {
                 let lane = half * 4;
                 finish4::<TRACK>(
@@ -970,6 +1030,14 @@ pub(super) unsafe fn avx2<const TRACK: bool>(
                 ),
             );
         }
+        // 跟车安全量化路径向零取整：逐行用标量同一定义（quantize_row）。
+        for lane in 0..4 {
+            let row = start + lane;
+            if input.safe_quantize[row] {
+                (um[lane], speed[lane]) =
+                    quantize_row(true, floats.travel_m[row], floats.proposal_speed_m_s[row]);
+            }
+        }
         // SAFETY: 上面的量化块和 finish4 都使用同一完整四行范围。
         unsafe {
             finish4::<TRACK>(input, output, start, delta_s, &um, &speed, &valid, stats);
@@ -1066,6 +1134,14 @@ pub(super) unsafe fn avx512<const TRACK: bool>(
                     _mm512_mul_pd(raw_speed, _mm512_set1_pd(1_000.0)),
                 ),
             );
+        }
+        // 跟车安全量化路径向零取整：逐行用标量同一定义（quantize_row）。
+        for lane in 0..8 {
+            let row = start + lane;
+            if input.safe_quantize[row] {
+                (um[lane], speed[lane]) =
+                    quantize_row(true, floats.travel_m[row], floats.proposal_speed_m_s[row]);
+            }
         }
         // SAFETY: 八行量化拆为两个完整四行整数发布范围，没有跨切片写入。
         unsafe {

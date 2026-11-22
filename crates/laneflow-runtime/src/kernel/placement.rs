@@ -485,70 +485,6 @@ pub(crate) fn can_slow_to_before(
     needed_mm.is_finite() && needed_mm <= f64::from(distance_mm)
 }
 
-/// 驶离停车使用的静止前车算式。前车速度不为 0 时仍按调用方传入的速度计算，
-/// 新生成不再走这里。
-pub(crate) fn moving_follower_can_admit(
-    follower_speed_mm_s: u32,
-    follower_emergency_m_s2: f32,
-    follower_min_gap_mm: u32,
-    gap_mm: u32,
-    leader_speed_mm_s: u32,
-    leader_emergency_m_s2: f32,
-    delta_s: f32,
-) -> bool {
-    let v = follower_speed_mm_s as f32 / 1_000.0;
-    let emergency = follower_emergency_m_s2;
-    let gap_m = gap_mm as f32 / 1_000.0;
-    let preserved_gap_mm = gap_mm.min(follower_min_gap_mm);
-    let raw_available_gap_mm = gap_mm.saturating_sub(preserved_gap_mm);
-    let available_gap_mm = if raw_available_gap_mm <= 1 {
-        0
-    } else {
-        raw_available_gap_mm
-    };
-    if ![v, emergency, delta_s, gap_m]
-        .into_iter()
-        .all(f32::is_finite)
-        || emergency <= 0.0
-        || delta_s <= 0.0
-    {
-        return false;
-    }
-    let u_min = (v - emergency * delta_s).max(0.0);
-    let safe_envelope = 0.5 * (v + u_min) * delta_s + u_min * u_min / (2.0 * emergency);
-    let emergency_min_travel = if v <= emergency * delta_s {
-        v * v / (2.0 * emergency)
-    } else {
-        v * delta_s - 0.5 * emergency * delta_s * delta_s
-    };
-    let (leader_stop_m, leader_min_travel_m) = if leader_speed_mm_s == 0 {
-        (0.0, 0.0)
-    } else {
-        let leader_v = leader_speed_mm_s as f32 / 1_000.0;
-        if !leader_v.is_finite()
-            || !leader_emergency_m_s2.is_finite()
-            || leader_emergency_m_s2 <= 0.0
-        {
-            return false;
-        }
-        let leader_stop = leader_v * leader_v / (2.0 * leader_emergency_m_s2);
-        let leader_min_travel = if leader_v <= leader_emergency_m_s2 * delta_s {
-            leader_v * leader_v / (2.0 * leader_emergency_m_s2)
-        } else {
-            leader_v * delta_s - 0.5 * leader_emergency_m_s2 * delta_s * delta_s
-        };
-        if !leader_stop.is_finite() || !leader_min_travel.is_finite() {
-            return false;
-        }
-        (leader_stop, leader_min_travel)
-    };
-    let available_m = available_gap_mm as f32 / 1_000.0;
-    safe_envelope.is_finite()
-        && emergency_min_travel.is_finite()
-        && safe_envelope <= gap_m + leader_stop_m
-        && emergency_min_travel <= available_m + leader_min_travel_m
-}
-
 fn room_to_edge_end(
     compiled: &super::tables::CompiledRoute,
     lengths: &[u32],
@@ -2799,10 +2735,13 @@ impl crate::kernel::state::WorldState {
         let Some(notes) = notes else {
             return Err(FreshAdmissionFailure::UnsafeLeader(contact.vehicle));
         };
+        let leader_speed_mm_s = self
+            .vehicle_state(contact.vehicle)
+            .map_or(0, |leader| leader.speed_mm_s);
         let motion = match self.read_complete(|world| {
             world.read_view().placement_motion(
                 state,
-                Some(contact.gap_mm),
+                Some((contact.gap_mm, leader_speed_mm_s)),
                 false,
                 update_sequence,
                 None,
@@ -2913,7 +2852,7 @@ impl crate::kernel::state::WorldState {
             let after = match self.read_complete(|world| {
                 world.read_view().placement_motion(
                     follower,
-                    Some(candidate_gap),
+                    Some((candidate_gap, input.initial_speed_mm_s())),
                     false,
                     sequence,
                     None,

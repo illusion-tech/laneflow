@@ -43,7 +43,7 @@ use crate::kernel::tables::{
     CompiledRoute, body_interval_slots, distance_to_occurrence_progress,
     distance_to_occurrence_start, for_each_occupancy_interval, remaining_to_route_end,
 };
-use crate::kernel::units::{ceil_mm, round_mm, round_um};
+use crate::kernel::units::{ceil_mm, floor_mm, floor_um, round_mm, round_um};
 use crate::{
     ParkingArrivalObservation, ParkingBinding, ParkingReservation, StepError, StepOutcome,
     TickInput, VehicleState, VehicleStatus,
@@ -311,6 +311,10 @@ struct MotionInputs {
     comfort_decel: f32,
     emergency_decel: f32,
     leader_gap: Option<i64>,
+    /// 前车拍初已提交速度；只供 IDM 接近速度项（vehicle-following §9）。
+    leader_speed_mm_s: u32,
+    /// 本车拍初微米余数；进入 §10.2 整数停车界。
+    carry_um: u16,
     route_end: BoundedDistance,
     movement_stop: Option<BoundedDistance>,
     parking: Option<(ParkingReservation, BoundedDistance)>,
@@ -334,6 +338,7 @@ impl MotionBasis {
             && self.cursor == position.route_edge_index
             && self.progress_mm == position.progress_mm
             && self.inputs.speed_mm_s == state.speed_mm_s()
+            && self.inputs.carry_um == position.carry_um
             && self.delta_bits == delta_s.to_bits()
             && self.parking_binding == parking_binding
     }
@@ -537,6 +542,23 @@ impl MotionInputs {
         limits
     }
 
+    /// vehicle-following §10.2 整数停车界（µm）；无前车为 `None`。
+    fn safe_room_um(&self) -> Option<u64> {
+        self.leader_gap
+            .map(|gap| follower_safe_room_um(gap, self.min_gap_mm, self.carry_um))
+    }
+
+    /// 运动内核读取的停车界（米，安全方向收缩）；无前车为 `+∞`。
+    fn safe_room_m(&self) -> f32 {
+        self.safe_room_um().map_or(f32::INFINITY, safe_room_meters)
+    }
+
+    /// 整数几何 §5 跟车安全量化：本拍开始时有前车且跟车可行。
+    fn safe_quantize(&self) -> bool {
+        self.safe_room_um()
+            .is_some_and(|room| follower_feasible(self.speed_mm_s, self.emergency_decel, room))
+    }
+
     fn raw_proposal(&self, delta_s: f32) -> Option<(f32, f32)> {
         self.proposal.or_else(|| {
             #[cfg(test)]
@@ -545,6 +567,7 @@ impl MotionInputs {
                 si_speed(self.speed_mm_s),
                 si_speed(self.desired_mm_s),
                 leader_gap_m(self.leader_gap),
+                si_speed(self.leader_speed_mm_s),
                 si_meters(self.min_gap_mm),
                 self.time_headway,
                 self.max_accel,
@@ -1810,7 +1833,9 @@ pub(crate) fn leader_query_horizon(
     }
     let v_upper = speed + accel * delta_s;
     let travel_upper = 0.5 * (speed + v_upper) * delta_s;
-    let hard_horizon = travel_upper + v_upper * v_upper / (2.0 * emergency);
+    // §10.1：停车界为保留最小间隙处，再加 2 mm 覆盖归零容差与微米余数。
+    let hard_horizon =
+        min_gap + travel_upper + v_upper * v_upper / (2.0 * emergency) + si_meters(2);
     let comfort_horizon = min_gap + speed * headway;
     let minimum_gap_horizon = min_gap + travel_upper + si_meters(MINIMUM_GAP_TOLERANCE_MM);
     let bumper = hard_horizon.max(comfort_horizon).max(minimum_gap_horizon);
@@ -2651,7 +2676,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     pub(crate) fn placement_motion(
         self,
         state: VehicleState,
-        leader_gap: Option<i64>,
+        leader: Option<(i64, u32)>,
         leader_constraint_only: bool,
         update_sequence: u32,
         extra_stop: Option<crate::kernel::waiting::WaitingStopConstraint>,
@@ -2684,7 +2709,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             self.committed.parking.binding(state.handle),
             None,
             Some(&mut bounds),
-            Some(leader_gap),
+            Some(leader),
             leader_constraint_only,
             None,
             None,
@@ -4418,7 +4443,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         delta_s: f32,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
-        leader_gap_override: Option<Option<i64>>,
+        leader_gap_override: Option<Option<(i64, u32)>>,
     ) -> Option<MotionInputs> {
         self.prepare_motion_inputs_at(
             state,
@@ -4443,7 +4468,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         delta_s: f32,
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
-        leader_gap_override: Option<Option<i64>>,
+        leader_gap_override: Option<Option<(i64, u32)>>,
         cursor_row: Option<&MotionCursorRow>,
     ) -> Option<MotionInputs> {
         let position = state.position();
@@ -4469,9 +4494,9 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             Some(horizon) => horizon,
             None => leader_query_horizon(state.speed_mm_s(), profile, delta_s)?,
         };
-        let leader_gap = match leader_gap_override {
-            Some(gap) => gap,
-            None => self.derived.occupancy.leader_gap(
+        let leader = match leader_gap_override {
+            Some(leader) => leader,
+            None => self.derived.occupancy.leader_observation(
                 state.handle(),
                 edges,
                 cursor,
@@ -4480,6 +4505,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 horizon,
             ),
         };
+        let leader_gap = leader.map(|(gap, _)| gap);
+        let leader_speed_mm_s = leader.map_or(0, |(_, speed)| speed);
         let route_end = remaining_to_route_end(hop.remaining_to_end?, position.progress_mm);
         let reach = MotionReach::from_tick(state.speed_mm_s(), profile.max_accel(), delta_s);
         // #1272：停止目标速度归约的查询范围是制动前视窗（距离比较前毫米向上
@@ -4566,6 +4593,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             comfort_decel: profile.comfort_decel(),
             emergency_decel: profile.emergency_decel(),
             leader_gap,
+            leader_speed_mm_s,
+            carry_um: position.carry_um,
             route_end,
             movement_stop,
             parking,
@@ -4660,7 +4689,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         parking_binding: Option<ParkingBinding>,
         horizon: Option<LeaderQueryHorizon>,
         motion_bounds: Option<&mut MotionBounds>,
-        leader_gap_override: Option<Option<i64>>,
+        leader_gap_override: Option<Option<(i64, u32)>>,
         leader_constraint_only: bool,
         basis_override: Option<MotionBasis>,
         basis_output: Option<&mut Option<MotionBasis>>,
@@ -4736,6 +4765,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         }
 
         let hard_room = limits.hard_room_mm;
+        let safe_quantize = inputs.safe_quantize();
         let exhausted_speed = || {
             let cap = limits.exhausted_speed_cap(&inputs, delta_s);
             if limits.transition_limited {
@@ -4744,7 +4774,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 // 550 而非 100）。候选的紧急下界只在接近相生效。
                 cap
             } else {
-                cap.min(round_mm(f64::from(next_speed_m)).unwrap_or(u32::MAX))
+                cap.min(quantize_mm(safe_quantize, next_speed_m).unwrap_or(u32::MAX))
             }
         };
         if hard_room == 0 {
@@ -4765,7 +4795,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Some(state);
         }
 
-        let um = u64::from(state.carry_um).saturating_add(round_um(f64::from(travel_m))?);
+        let um = u64::from(state.carry_um).saturating_add(quantize_um(safe_quantize, travel_m)?);
         let travel_mm_for_bounds = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
         let exhausted_for_bounds = travel_mm_for_bounds == hard_room;
         if let Some(bounds) = motion_bounds {
@@ -4835,7 +4865,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             }
             return Some(state);
         }
-        let speed_mm_s = round_mm(f64::from(next_speed_m))?.min(committed_limit);
+        let speed_mm_s = quantize_mm(safe_quantize, next_speed_m)?.min(committed_limit);
         state.speed_mm_s = speed_mm_s;
         Some(state)
     }
@@ -6079,6 +6109,46 @@ fn hard_room_mm(
     room
 }
 
+/// vehicle-following §10.2 整数停车界（µm）：拍初后杠间隙扣除保留的最小间隙、
+/// 1 mm 归零容差与本车微米余数，下限 0。
+pub(crate) fn follower_safe_room_um(gap_mm: i64, min_gap_mm: u32, carry_um: u16) -> u64 {
+    let g0 = u64::try_from(gap_mm.max(0)).unwrap_or(0);
+    let raw_um = g0
+        .saturating_sub(g0.min(u64::from(min_gap_mm)))
+        .saturating_mul(1_000);
+    raw_um.saturating_sub(u64::from(MINIMUM_GAP_TOLERANCE_MM) * 1_000 + u64::from(carry_um))
+}
+
+/// vehicle-following §10.2 跟车可行：`v²/(2·b_f) ≤ s_a`，`f64` 比较。
+pub(crate) fn follower_feasible(speed_mm_s: u32, emergency: f32, room_um: u64) -> bool {
+    let v = f64::from(speed_mm_s) / 1_000.0;
+    let b = f64::from(emergency);
+    b.is_finite() && b > 0.0 && v * v / (2.0 * b) <= room_um as f64 / 1_000_000.0
+}
+
+/// 整数停车界转为运动内核读取的米值，按 `SAFE_SPEED_SHRINK` 向安全方向收缩。
+fn safe_room_meters(room_um: u64) -> f32 {
+    (room_um as f64 / 1_000_000.0 * f64::from(laneflow_motion_kernel::SAFE_SPEED_SHRINK)) as f32
+}
+
+/// 行程 SI 米到微米：默认 ties-even，跟车安全量化路径向零取整（整数几何 §5）。
+fn quantize_um(toward_zero: bool, meters: f32) -> Option<u64> {
+    if toward_zero {
+        floor_um(f64::from(meters))
+    } else {
+        round_um(f64::from(meters))
+    }
+}
+
+/// 速度 SI 到 mm/s：默认 ties-even，跟车安全量化路径向零取整（整数几何 §5）。
+fn quantize_mm(toward_zero: bool, speed_m_s: f32) -> Option<u32> {
+    if toward_zero {
+        floor_mm(f64::from(speed_m_s))
+    } else {
+        round_mm(f64::from(speed_m_s))
+    }
+}
+
 fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
     gap.map(|gap| if gap <= 0 { 0.0 } else { gap as f32 / 1_000.0 })
 }
@@ -6104,6 +6174,15 @@ fn si_comfort_travel(
     // 空间目标（过渡预约用服务/舒适档）；目标距离 0 归耗尽语义，不在此归零。
     let floor_tier = basis.emergency_decel;
     let floor = (speed - floor_tier * delta_s).max(0.0);
+    // 整数几何 §5 第 3 步：`max(min(u_raw, V_safe), F)`（与运动内核同式）。
+    if next_speed.is_finite() && basis.leader_gap.is_some() {
+        next_speed = next_speed.min(laneflow_motion_kernel::safe_speed(
+            speed,
+            floor_tier,
+            delta_s,
+            basis.safe_room_m(),
+        ));
+    }
     next_speed = next_speed.max(floor);
     let stop_target = signal_stop
         .and_then(finite_meters)
@@ -6246,6 +6325,7 @@ fn iidm_step(
     speed: f32,
     desired: f32,
     leader_gap: Option<f32>,
+    leader_speed: f32,
     min_gap_m: f32,
     time_headway: f32,
     accel_max: f32,
@@ -6257,6 +6337,7 @@ fn iidm_step(
         speed_m_s: speed,
         desired_m_s: desired,
         leader_m: leader_gap,
+        leader_speed_m_s: leader_speed,
         min_gap_m,
         time_headway,
         max_accel: accel_max,
@@ -6903,6 +6984,7 @@ mod preview {
                                         speed_m_s: speed,
                                         desired_m_s: desired,
                                         leader_m,
+                                        leader_speed_m_s: 0.0,
                                         min_gap_m: 2.0,
                                         time_headway: 1.6,
                                         max_accel,
@@ -6974,6 +7056,8 @@ mod preview {
             comfort_decel: 18.758,
             emergency_decel: 20.0,
             leader_gap: None,
+            leader_speed_mm_s: 0,
+            carry_um: 0,
             route_end: BoundedDistance::Finite(75_266),
             movement_stop: None,
             parking: None,
@@ -7404,12 +7488,45 @@ mod preview {
         );
     }
 
+    /// vehicle-following §10.2 整数停车界：扣除保留的 min_gap、1 mm 归零容差与微米
+    /// 余数；间隙不超过 min_gap + 1 mm 时为零。
+    #[test]
+    fn follower_safe_room_deducts_min_gap_tolerance_and_carry() {
+        assert_eq!(follower_safe_room_um(2_002, 2_000, 0), 1_000);
+        assert_eq!(follower_safe_room_um(2_002, 2_000, 640), 360);
+        assert_eq!(follower_safe_room_um(2_001, 2_000, 0), 0);
+        assert_eq!(follower_safe_room_um(1_500, 2_000, 0), 0);
+        assert_eq!(follower_safe_room_um(-5, 2_000, 0), 0);
+        assert_eq!(follower_safe_room_um(12_000, 2_000, 999), 9_998_001);
+    }
+
+    /// 跟车可行按实际停车距离 `v²/(2b)` 判定（拍内停稳不按整拍梯形）；复审例：
+    /// 0.5 m/s、6 m/s²、间隙 2023 mm 时停车距离 20.833 mm ≤ 22 mm，可行；
+    /// 44 mm/s、0.5 m/s²、间隙 2002 mm 时 1.936 mm > 1 mm，不可行。
+    #[test]
+    fn follower_feasibility_uses_actual_stopping_distance() {
+        assert!(follower_feasible(
+            500,
+            6.0,
+            follower_safe_room_um(2_023, 2_000, 0)
+        ));
+        assert!(!follower_feasible(
+            44,
+            0.5,
+            follower_safe_room_um(2_002, 2_000, 0)
+        ));
+        assert!(follower_feasible(0, 6.0, 0));
+        assert!(!follower_feasible(1, 6.0, 0));
+        assert!(!follower_feasible(1_000, 0.0, u64::MAX));
+    }
+
     #[test]
     fn iidm_committed_speed_rounds_f32_si() {
         let (_, next) = iidm_step(
             si_speed(9_639),
             si_speed(12_516),
             Some(5_560.0_f32 / 1_000.0),
+            si_speed(9_639),
             2.0,
             1.4,
             1.8,
@@ -7418,7 +7535,8 @@ mod preview {
             8.0_f32 / 1_000.0,
         )
         .unwrap();
-        assert_eq!(round_mm(f64::from(next)), Some(9_536));
+        // IDM 加速度约 -13.3 m/s²，按 §9 夹到 -b = -2.0：9.639 - 2.0 × 0.008。
+        assert_eq!(round_mm(f64::from(next)), Some(9_623));
     }
 
     #[test]

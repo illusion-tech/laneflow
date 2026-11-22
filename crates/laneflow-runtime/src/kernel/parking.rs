@@ -1474,7 +1474,6 @@ impl crate::kernel::state::WorldState {
             .ok_or(ParkingError::UnknownRoute)?;
         let candidate_index = usize::try_from(candidate.route_edge_index)
             .map_err(|_| ParkingError::RouteOccurrenceOutOfRange)?;
-        let delta_s = self.binding.config.fixed_delta_time_ms() as f32 / 1_000.0;
         for handle in self.derived.active_order.iter().copied() {
             #[cfg(test)]
             super::parking_command_research::note(|counts| counts.followers += 1);
@@ -1525,15 +1524,16 @@ impl crate::kernel::state::WorldState {
                 .relations()
                 .vehicle_profile(follower.profile)
                 .ok_or(ParkingError::InvariantViolation)?;
-            let gap_mm = u32::try_from(candidate_gap.max(0)).unwrap_or(u32::MAX);
-            if !super::placement::moving_follower_can_admit(
+            // 停车 §5.5 / Following §10.2：follower 对作为静止前车的 candidate 跟车可行。
+            let room_um = super::tick::follower_safe_room_um(
+                candidate_gap,
+                profile.min_gap_mm(),
+                follower.carry_um,
+            );
+            if !super::tick::follower_feasible(
                 follower.speed_mm_s,
                 profile.emergency_decel(),
-                profile.min_gap_mm(),
-                gap_mm,
-                0,
-                0.0,
-                delta_s,
+                room_um,
             ) {
                 return Err(ParkingError::LeaveUnsafeFollower { follower: handle });
             }

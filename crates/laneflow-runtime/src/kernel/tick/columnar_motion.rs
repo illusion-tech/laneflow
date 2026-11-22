@@ -104,6 +104,7 @@ batch_columns! {
     desired: u32 = 0, min_gap: f32 = 0.0,
     headway: f32 = 0.0, accel: f32 = 1.0, comfort: f32 = 1.0, emergency: f32 = 1.0,
     leader: f32 = f32::INFINITY, has_leader: bool = false,
+    leader_speed: f32 = 0.0, safe_room: f32 = f32::INFINITY, safe_quantize: bool = false,
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
     envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
@@ -130,6 +131,9 @@ impl Batch {
         self.emergency[row] = basis.emergency_decel;
         self.has_leader[row] = basis.leader_gap.is_some();
         self.leader[row] = leader_gap_m(basis.leader_gap).unwrap_or(f32::INFINITY);
+        self.leader_speed[row] = si_speed(basis.leader_speed_mm_s);
+        self.safe_room[row] = basis.safe_room_m();
+        self.safe_quantize[row] = basis.safe_quantize();
         self.route_end[row] = finite_meters(basis.route_end).unwrap_or(f32::INFINITY);
         self.envelope[row] = basis.envelope_m;
         self.edge_length[row] = basis.edge_length_mm;
@@ -362,6 +366,9 @@ fn numerical(
         committed_limit_mm_s: &[u32::MAX; BLOCK_ROWS][range.clone()],
         leader_m: &batch.leader[range.clone()],
         has_leader: &batch.has_leader[range.clone()],
+        leader_speed_m_s: &batch.leader_speed[range.clone()],
+        safe_room_m: &batch.safe_room[range.clone()],
+        safe_quantize: &batch.safe_quantize[range.clone()],
         min_gap_m: &batch.min_gap[range.clone()],
         time_headway: &batch.headway[range.clone()],
         max_accel: &batch.accel[range.clone()],

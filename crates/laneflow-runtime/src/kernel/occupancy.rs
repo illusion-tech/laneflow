@@ -98,6 +98,8 @@ pub(crate) struct OccupancyRecord {
     lo_mm: u32,
     hi_mm: u32,
     update_sequence: u32,
+    /// 拍初已提交速度；只供跟车 IDM 的接近速度项读取前车速度。
+    speed_mm_s: u32,
 }
 
 impl OccupancyRecord {
@@ -107,6 +109,7 @@ impl OccupancyRecord {
         lo_mm: 0,
         hi_mm: 0,
         update_sequence: 0,
+        speed_mm_s: 0,
     };
 }
 
@@ -453,6 +456,9 @@ struct AheadEntry {
 }
 
 const AHEAD_PRESENT: u64 = 1 << 32;
+/// 批量前车表在后杠与存在位之上存前车速度（`u32` mm/s 只用低 31 位以内：
+/// 产品上界 100 m/s）。
+const AHEAD_SPEED_SHIFT: u32 = 33;
 
 const fn ahead_pair(high: u32, low: u32) -> u64 {
     ((high as u64) << 32) | low as u64
@@ -462,8 +468,8 @@ const fn ahead_pair(high: u32, low: u32) -> u64 {
 /// 相同：最小后杠记录与车辆不同的次小后杠记录。随前车表在重建后整表写入。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct EdgeFront {
-    min: Option<(u32, VehicleHandle)>,
-    second: Option<(u32, VehicleHandle)>,
+    min: Option<(u32, VehicleHandle, u32)>,
+    second: Option<(u32, VehicleHandle, u32)>,
 }
 
 impl EdgeFront {
@@ -472,7 +478,7 @@ impl EdgeFront {
         let at = |index: usize| {
             records
                 .get(index)
-                .map(|record| (record.lo_mm, record.vehicle))
+                .map(|record| (record.lo_mm, record.vehicle, record.speed_mm_s))
         };
         if records.is_empty() {
             return Self::default();
@@ -492,7 +498,7 @@ impl EdgeFront {
         }
     }
 
-    fn excluding(self, skip: VehicleHandle) -> Option<(u32, VehicleHandle)> {
+    fn excluding(self, skip: VehicleHandle) -> Option<(u32, VehicleHandle, u32)> {
         match self.min {
             Some(min) if min.1 != skip => Some(min),
             Some(_) => self.second,
@@ -1073,7 +1079,7 @@ impl OccupancyIndex {
         &self,
         edge: LaneEdgeOrdinal,
         self_vehicle: VehicleHandle,
-    ) -> Option<(u32, VehicleHandle)> {
+    ) -> Option<(u32, VehicleHandle, u32)> {
         if self.ahead_epoch != 0
             && let Some(front) = self.fronts.get(edge.index())
         {
@@ -1081,14 +1087,17 @@ impl OccupancyIndex {
             #[cfg(test)]
             assert_eq!(
                 front,
-                self.front_most(edge, self_vehicle)
-                    .map(|record| (record.lo_mm, record.vehicle)),
+                self.front_most(edge, self_vehicle).map(|record| (
+                    record.lo_mm,
+                    record.vehicle,
+                    record.speed_mm_s
+                )),
                 "edge front table differs from the bucket query"
             );
             return front;
         }
         self.front_most(edge, self_vehicle)
-            .map(|record| (record.lo_mm, record.vehicle))
+            .map(|record| (record.lo_mm, record.vehicle, record.speed_mm_s))
     }
 
     /// 前保险杠到后杠间隙窗内最近前车后保险杠的 `i64` 毫米间隙；可负。
@@ -1104,6 +1113,27 @@ impl OccupancyIndex {
         lengths: &[u32],
         horizon: LeaderQueryHorizon,
     ) -> Option<i64> {
+        self.leader_observation(
+            self_vehicle,
+            follower_edges,
+            follower_index,
+            follower_progress,
+            lengths,
+            horizon,
+        )
+        .map(|(gap, _)| gap)
+    }
+
+    /// 与 [`Self::leader_gap`] 同一行走，并带出最近前车的拍初已提交速度（mm/s）。
+    pub(crate) fn leader_observation(
+        &self,
+        self_vehicle: VehicleHandle,
+        follower_edges: &[LaneEdgeOrdinal],
+        follower_index: usize,
+        follower_progress: u32,
+        lengths: &[u32],
+        horizon: LeaderQueryHorizon,
+    ) -> Option<(i64, u32)> {
         let current = *follower_edges.get(follower_index)?;
         // 当前边先查批量表；未命中再逐车二分。表只存后杠位置，不存前车身份。
         let ahead = match self.ahead_lo(current, self_vehicle, follower_progress) {
@@ -1113,17 +1143,17 @@ impl OccupancyIndex {
                 assert_eq!(
                     lo,
                     self.nearest_ahead(current, self_vehicle, follower_progress)
-                        .map(|record| record.lo_mm),
+                        .map(|record| (record.lo_mm, record.speed_mm_s)),
                     "batched leader differs from per-vehicle query"
                 );
                 lo
             }
             None => self
                 .nearest_ahead(current, self_vehicle, follower_progress)
-                .map(|record| record.lo_mm),
+                .map(|record| (record.lo_mm, record.speed_mm_s)),
         };
         self.walk_leader(
-            ahead.map(|lo| (lo, ())),
+            ahead,
             self_vehicle,
             follower_edges,
             follower_index,
@@ -1131,9 +1161,8 @@ impl OccupancyIndex {
             lengths,
             horizon,
             false,
-            |_| (),
+            |_, speed| speed,
         )
-        .map(|(gap, ())| gap)
     }
 
     /// 与 [`Self::leader_gap`] 同一行走，并保留最近前车的身份。
@@ -1163,7 +1192,7 @@ impl OccupancyIndex {
             lengths,
             horizon,
             non_negative,
-            |vehicle| vehicle,
+            |vehicle, _| vehicle,
         )
         .map(|(gap_mm, vehicle)| LeaderContact { vehicle, gap_mm })
     }
@@ -1180,7 +1209,7 @@ impl OccupancyIndex {
         lengths: &[u32],
         horizon: LeaderQueryHorizon,
         non_negative: bool,
-        identity: impl Fn(VehicleHandle) -> T,
+        identity: impl Fn(VehicleHandle, u32) -> T,
     ) -> Option<(i64, T)> {
         let walk = i64::from(horizon.front_query_mm);
         let accept = i64::from(horizon.bumper_gap_mm);
@@ -1204,13 +1233,13 @@ impl OccupancyIndex {
                 break;
             }
             self.note_occurrence_walk();
-            if let Some((lo_mm, vehicle)) = self.edge_front(edge, self_vehicle)
+            if let Some((lo_mm, vehicle, speed)) = self.edge_front(edge, self_vehicle)
                 && let Some(gap) = base_mm
                     .checked_add(i64::from(lo_mm))
                     .filter(|gap| *gap <= accept && (!non_negative || *gap >= 0))
                 && best.is_none_or(|(current, _)| gap < current)
             {
-                best = Some((gap, identity(vehicle)));
+                best = Some((gap, identity(vehicle, speed)));
             }
             let Some(edge_length) = lengths.get(edge.index()).copied() else {
                 return best;
@@ -1230,7 +1259,7 @@ impl OccupancyIndex {
         edge: LaneEdgeOrdinal,
         vehicle: VehicleHandle,
         front_mm: u32,
-    ) -> Option<Option<u32>> {
+    ) -> Option<Option<(u32, u32)>> {
         use std::sync::atomic::Ordering;
         if self.ahead_epoch == 0 {
             return None;
@@ -1242,7 +1271,10 @@ impl OccupancyIndex {
             return None;
         }
         let ahead = entry.ahead.load(Ordering::Relaxed);
-        Some((ahead & AHEAD_PRESENT != 0).then_some(ahead as u32))
+        Some(
+            (ahead & AHEAD_PRESENT != 0)
+                .then_some((ahead as u32, (ahead >> AHEAD_SPEED_SHIFT) as u32)),
+        )
     }
 
     /// 倒扫一组已排序的桶，为每辆前杠落在本边内的车写入当前边前车。
@@ -1275,8 +1307,11 @@ impl OccupancyIndex {
                 else {
                     continue;
                 };
-                let ahead = Self::pick_from(bucket, upper, record.vehicle)
-                    .map_or(0, |pick| AHEAD_PRESENT | u64::from(records[pick].lo_mm));
+                let ahead = Self::pick_from(bucket, upper, record.vehicle).map_or(0, |pick| {
+                    AHEAD_PRESENT
+                        | u64::from(records[pick].lo_mm)
+                        | (u64::from(records[pick].speed_mm_s) << AHEAD_SPEED_SHIFT)
+                });
                 entry.ahead.store(ahead, Ordering::Relaxed);
                 entry
                     .place
@@ -1538,6 +1573,7 @@ fn visit_occupancy_records_with(
                     lo_mm,
                     hi_mm,
                     update_sequence,
+                    speed_mm_s: state.speed_mm_s,
                 });
             },
         )
@@ -1596,6 +1632,7 @@ fn visit_occupancy_range(
                     lo_mm,
                     hi_mm,
                     update_sequence,
+                    speed_mm_s: state.speed_mm_s,
                 });
             },
         )
@@ -2186,6 +2223,7 @@ impl crate::kernel::state::WorldState {
                     lo_mm,
                     hi_mm,
                     update_sequence,
+                    speed_mm_s: input.initial_speed_mm_s(),
                 });
             },
         )
@@ -2766,6 +2804,7 @@ pub(crate) mod tests {
                 lo_mm,
                 hi_mm,
                 update_sequence,
+                speed_mm_s: 0,
             }
         }
 
@@ -2833,6 +2872,7 @@ pub(crate) mod tests {
                 lo_mm,
                 hi_mm,
                 update_sequence: vehicle,
+                speed_mm_s: 0,
             }
         }
 
@@ -2887,6 +2927,7 @@ pub(crate) mod tests {
                 lo_mm: vehicle * 10,
                 hi_mm: vehicle * 10 + 5,
                 update_sequence: vehicle,
+                speed_mm_s: 0,
             }
         }
 
@@ -2932,6 +2973,7 @@ pub(crate) mod tests {
                 lo_mm,
                 hi_mm,
                 update_sequence: vehicle,
+                speed_mm_s: 0,
             }
         }
 
@@ -2975,6 +3017,7 @@ pub(crate) mod tests {
             lo_mm: 0,
             hi_mm: 1_000,
             update_sequence: 0,
+            speed_mm_s: 0,
         }];
         for index in 1..=32_u32 {
             pending.push(OccupancyRecord {
@@ -2983,6 +3026,7 @@ pub(crate) mod tests {
                 lo_mm: 1_000 * index,
                 hi_mm: 1_000 * index + 500,
                 update_sequence: index,
+                speed_mm_s: 0,
             });
         }
         let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, 40);
@@ -3019,6 +3063,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -3026,6 +3071,7 @@ pub(crate) mod tests {
                 lo_mm: 6_000,
                 hi_mm: 8_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 1);
@@ -3055,6 +3101,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: short,
@@ -3062,6 +3109,7 @@ pub(crate) mod tests {
                 lo_mm: 5_000,
                 hi_mm: 7_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: mid,
@@ -3069,6 +3117,7 @@ pub(crate) mod tests {
                 lo_mm: 6_000,
                 hi_mm: 7_500,
                 update_sequence: 2,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: long,
@@ -3076,6 +3125,7 @@ pub(crate) mod tests {
                 lo_mm: 2_000,
                 hi_mm: 8_000,
                 update_sequence: 3,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 1);
@@ -3105,6 +3155,7 @@ pub(crate) mod tests {
                 lo_mm: 8_000,
                 hi_mm: 9_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: short,
@@ -3112,6 +3163,7 @@ pub(crate) mod tests {
                 lo_mm: 5_000,
                 hi_mm: 7_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: long,
@@ -3119,6 +3171,7 @@ pub(crate) mod tests {
                 lo_mm: 2_000,
                 hi_mm: 8_000,
                 update_sequence: 2,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 2);
@@ -3152,6 +3205,7 @@ pub(crate) mod tests {
                 lo_mm: 8_000,
                 hi_mm: 9_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -3159,6 +3213,7 @@ pub(crate) mod tests {
                 lo_mm: 500,
                 hi_mm: 1_500,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 2);
@@ -4053,8 +4108,9 @@ pub(crate) mod tests {
     ) -> f32 {
         let v_upper = speed + profile.max_accel() * delta_s;
         let travel_upper = 0.5 * (speed + v_upper) * delta_s;
-        let hard = travel_upper + v_upper * v_upper / (2.0 * profile.emergency_decel());
         let min_gap = profile.min_gap_mm() as f32 / 1_000.0;
+        let hard =
+            min_gap + travel_upper + v_upper * v_upper / (2.0 * profile.emergency_decel()) + 0.002;
         let comfort = min_gap + speed * profile.time_headway();
         let minimum_gap = min_gap + travel_upper + 0.001;
         hard.max(comfort).max(minimum_gap)
@@ -4117,6 +4173,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -4124,6 +4181,7 @@ pub(crate) mod tests {
                 lo_mm: 1_000 + bumper,
                 hi_mm: 1_000 + bumper + 2_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 1);
@@ -4176,6 +4234,7 @@ pub(crate) mod tests {
                 lo_mm: pending[0].lo_mm,
                 hi_mm: pending[0].hi_mm,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -4183,6 +4242,7 @@ pub(crate) mod tests {
                 lo_mm: 1_000 + leader_lo,
                 hi_mm: 1_000 + leader_lo + 2_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 1);
@@ -4204,6 +4264,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -4211,6 +4272,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, pending.len());
@@ -4275,6 +4337,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -4282,6 +4345,7 @@ pub(crate) mod tests {
                 lo_mm: 1,
                 hi_mm: 1_001,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, pending.len());
@@ -4319,6 +4383,7 @@ pub(crate) mod tests {
                 lo_mm: 8_000,
                 hi_mm: 9_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: behind,
@@ -4326,6 +4391,7 @@ pub(crate) mod tests {
                 lo_mm: 1_000,
                 hi_mm: 2_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(2, pending.len());
@@ -4375,6 +4441,7 @@ pub(crate) mod tests {
                 lo_mm: 0,
                 hi_mm: 5_000,
                 update_sequence: 0,
+                speed_mm_s: 0,
             },
             OccupancyRecord {
                 vehicle: leader,
@@ -4382,6 +4449,7 @@ pub(crate) mod tests {
                 lo_mm: 4_000,
                 hi_mm: 8_000,
                 update_sequence: 1,
+                speed_mm_s: 0,
             },
         ];
         index.rebuild_from_pending(&mut scratch, &pending, 1);
@@ -4407,6 +4475,7 @@ pub(crate) mod tests {
             lo_mm: 0,
             hi_mm: 1_000,
             update_sequence: 0,
+            speed_mm_s: 0,
         }];
         pending.push(OccupancyRecord {
             vehicle: VehicleHandle::new(1, 0),
@@ -4414,6 +4483,7 @@ pub(crate) mod tests {
             lo_mm: 1_000,
             hi_mm: 2_000,
             update_sequence: 1,
+            speed_mm_s: 0,
         });
         for index in 2..16_u32 {
             pending.push(OccupancyRecord {
@@ -4422,6 +4492,7 @@ pub(crate) mod tests {
                 lo_mm: 100,
                 hi_mm: 1_000,
                 update_sequence: index,
+                speed_mm_s: 0,
             });
         }
         let (mut occupancy, mut scratch) = OccupancyIndex::with_capacity(16, pending.len());
@@ -4602,6 +4673,7 @@ pub(crate) mod tests {
                     lo_mm: 0,
                     hi_mm: 1_000,
                     update_sequence: 0,
+                    speed_mm_s: 0,
                 },
                 OccupancyRecord {
                     vehicle: VehicleHandle::new(last, 0),
@@ -4609,6 +4681,7 @@ pub(crate) mod tests {
                     lo_mm: 100,
                     hi_mm: 1_000,
                     update_sequence: last,
+                    speed_mm_s: 0,
                 },
             ];
             let (mut occupancy, mut scratch) =
@@ -4645,6 +4718,7 @@ pub(crate) mod tests {
                     lo_mm: 0,
                     hi_mm: 1_000,
                     update_sequence: 0,
+                    speed_mm_s: 0,
                 },
                 OccupancyRecord {
                     vehicle: VehicleHandle::new(last, 0),
@@ -4652,6 +4726,7 @@ pub(crate) mod tests {
                     lo_mm: 100,
                     hi_mm: 1_000,
                     update_sequence: last,
+                    speed_mm_s: 0,
                 },
             ];
             let (mut occupancy, mut scratch) =

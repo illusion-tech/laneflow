@@ -14,6 +14,9 @@ struct Fixture {
     limit: [u32; N],
     leader: [f32; N],
     has_leader: [bool; N],
+    leader_speed: [f32; N],
+    safe_room: [f32; N],
+    safe_quantize: [bool; N],
     min_gap: [f32; N],
     headway: [f32; N],
     accel: [f32; N],
@@ -41,6 +44,9 @@ impl Fixture {
             limit: [u32::MAX; N],
             leader: [f32::INFINITY; N],
             has_leader: [false; N],
+            leader_speed: [0.0; N],
+            safe_room: [f32::INFINITY; N],
+            safe_quantize: [false; N],
             min_gap: [2.0; N],
             headway: [1.5; N],
             accel: [2.0; N],
@@ -74,6 +80,15 @@ impl Fixture {
                 2 => 0.001,
                 _ => (random % 1_000_000) as f32 / 1_000.0,
             };
+            // 前车速度、整数停车界与跟车安全量化随机穿插，验证三后端逐位一致。
+            f.leader_speed[row] = (random % 30_000) as f32 / 1_000.0;
+            f.safe_room[row] = match row % 4 {
+                0 => f32::INFINITY,
+                1 => 0.0,
+                2 => 0.000_9,
+                _ => (random % 40_000_000) as f32 / 1_000_000.0,
+            };
+            f.safe_quantize[row] = row % 2 == 1;
             f.stop[row] = match row % 7 {
                 0 => 0.0,
                 1 => 0.001,
@@ -115,6 +130,9 @@ impl Fixture {
             committed_limit_mm_s: &self.limit[..n],
             leader_m: &self.leader[..n],
             has_leader: &self.has_leader[..n],
+            leader_speed_m_s: &self.leader_speed[..n],
+            safe_room_m: &self.safe_room[..n],
+            safe_quantize: &self.safe_quantize[..n],
             min_gap_m: &self.min_gap[..n],
             time_headway: &self.headway[..n],
             max_accel: &self.accel[..n],
@@ -128,6 +146,76 @@ impl Fixture {
             proposal_travel_m: &self.proposal_travel[..n],
         }
     }
+}
+
+/// vehicle-following §10.2：跟车可行（`v²/(2b) ≤ s_a`）时砖墙安全速度不低于紧急下界，
+/// 且本拍梯形行程与终速停车距离之和不超过停车界；不可行时 `C ≥ 0` 给零。
+#[test]
+fn safe_speed_keeps_feasible_followers_inside_the_room() {
+    let mut random = 0x1489_u64;
+    let mut checked = 0;
+    for _ in 0..200_000 {
+        random = random
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let speed = ((random >> 40) % 30_000) as f32 / 1_000.0;
+        let emergency = [0.5_f32, 4.0, 6.0, 9.0][(random % 4) as usize];
+        let delta_s = [0.004_f32, 0.016, 0.033, 0.1][((random >> 8) % 4) as usize];
+        let room = ((random >> 16) % 60_000_000) as f32 / 1_000_000.0;
+        let u = safe_speed(speed, emergency, delta_s, room);
+        assert!(u.is_finite() && u >= 0.0);
+        let envelope = 0.5 * (speed + u) * delta_s + u * u / (2.0 * emergency);
+        if u > 0.0 {
+            assert!(
+                f64::from(envelope) <= f64::from(room) * (1.0 + 1e-6),
+                "v={speed} b={emergency} dt={delta_s} room={room} u={u}"
+            );
+        }
+        let need = f64::from(speed) * f64::from(speed) / (2.0 * f64::from(emergency));
+        if need <= f64::from(room) * (1.0 - 1e-5) && speed > emergency * delta_s {
+            checked += 1;
+            let floor = speed - emergency * delta_s;
+            assert!(
+                u >= floor * (1.0 - 1e-5),
+                "v={speed} b={emergency} dt={delta_s} room={room} u={u} floor={floor}"
+            );
+        }
+    }
+    assert!(checked > 10_000);
+    assert_eq!(safe_speed(10.0, 6.0, 0.1, f32::INFINITY), f32::INFINITY);
+    assert_eq!(safe_speed(10.0, 6.0, 0.1, 0.0), 0.0);
+}
+
+/// vehicle-following §9：同一间隙下，follower 比前车快时 IDM 接近速度项使提案更低；
+/// 舒适加速度下限为 `-b`。
+#[test]
+fn idm_approach_term_and_comfort_floor() {
+    let base = ProposalInput {
+        speed_m_s: 10.0,
+        desired_m_s: 13.9,
+        leader_m: Some(40.0),
+        leader_speed_m_s: 10.0,
+        min_gap_m: 2.0,
+        time_headway: 1.5,
+        max_accel: 1.5,
+        comfort_decel: 2.0,
+        emergency_decel: 6.0,
+        delta_s: 0.1,
+    };
+    let (_, same) = raw_proposal(&base).unwrap();
+    let (_, closing) = raw_proposal(&ProposalInput {
+        leader_speed_m_s: 0.0,
+        ..base
+    })
+    .unwrap();
+    assert!(closing < same, "closing {closing} < same {same}");
+    let (_, tight) = raw_proposal(&ProposalInput {
+        leader_m: Some(3.0),
+        leader_speed_m_s: 0.0,
+        ..base
+    })
+    .unwrap();
+    assert_eq!(tight, 10.0 - 2.0 * 0.1);
 }
 
 #[derive(Debug, PartialEq)]

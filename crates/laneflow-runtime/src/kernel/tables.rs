@@ -4041,10 +4041,17 @@ pub(crate) mod compile_route_tests {
                     let stopped = view
                         .advance_active_vehicle_with_waiting_stop(before, 0.1, Some(ordinary), None)
                         .unwrap();
+                    // 有前车且跟车可行时走跟车安全量化（整数几何 §5）：紧急衰减的
+                    // f32 值向零取整，可比 ties-even 低 1 mm/s，由 ε_v 覆盖。
                     assert_eq!(
-                        (stopped.progress_mm, stopped.speed_mm_s),
-                        (before.progress_mm + mm, stop_speed),
+                        stopped.progress_mm,
+                        before.progress_mm + mm,
                         "a nearer or equally restrictive waiting stop keeps its stop semantics"
+                    );
+                    assert!(
+                        stopped.speed_mm_s == stop_speed || stopped.speed_mm_s + 1 == stop_speed,
+                        "exhausted speed keeps the emergency decay: {} vs {stop_speed}",
+                        stopped.speed_mm_s
                     );
                 }
                 let projected = view
