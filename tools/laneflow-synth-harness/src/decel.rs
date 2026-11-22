@@ -187,6 +187,52 @@ impl Counters {
     }
 }
 
+/// 消费侧准入（#1487）：运行回执必须携带逐类别归因，三个类别齐全且为非负整数，
+/// 各类别之和等于 `deceleration_above_profile_count`，未归因为零。缺少归因证据的
+/// 旧报告即使携带当前语义协议也拒绝。
+pub(crate) fn check_receipt(report: &Value) -> Result<(), Error> {
+    let invalid = |detail: String| Error::Invalid(format!("回执减速归因不符：{detail}"));
+    let total = report["deceleration_above_profile_count"]
+        .as_u64()
+        .ok_or_else(|| invalid("缺少 deceleration_above_profile_count".into()))?;
+    let attribution = report["deceleration_above_profile_attribution"]
+        .as_object()
+        .ok_or_else(|| invalid("缺少 deceleration_above_profile_attribution".into()))?;
+    const CATEGORIES: [&str; 3] = [
+        "parking_arrival_zero",
+        "route_end_completed",
+        "unattributed",
+    ];
+    if attribution.len() != CATEGORIES.len() {
+        return Err(invalid(format!("类别集合不符：{attribution:?}")));
+    }
+    let mut sum = 0_u64;
+    for category in CATEGORIES {
+        let tally = &attribution
+            .get(category)
+            .ok_or_else(|| invalid(format!("缺少类别 {category}")))?;
+        let count = tally["count"]
+            .as_u64()
+            .ok_or_else(|| invalid(format!("{category} 缺少 count")))?;
+        tally["max_observed_deceleration_mm_s2"]
+            .as_u64()
+            .ok_or_else(|| invalid(format!("{category} 缺少最大减速度")))?;
+        if tally.as_object().is_none_or(|fields| fields.len() != 2) {
+            return Err(invalid(format!("{category} 字段集合不符")));
+        }
+        if category == "unattributed" && count > 0 {
+            return Err(invalid(format!("存在未归因样本 {count}")));
+        }
+        sum = sum
+            .checked_add(count)
+            .ok_or_else(|| invalid("计数溢出".into()))?;
+    }
+    if sum != total {
+        return Err(invalid(format!("类别之和 {sum} 与总计数 {total} 不符")));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +262,55 @@ mod tests {
             attribution.json()["unattributed"]["max_observed_deceleration_mm_s2"],
             400_313
         );
+    }
+
+    #[test]
+    fn receipt_check_rejects_missing_mismatched_and_unattributed_evidence() {
+        let mut counters = Counters {
+            above_profile: 2,
+            ..Counters::default()
+        };
+        counters
+            .attribution
+            .record(Exception::ParkingArrivalZero, 13_563);
+        counters
+            .attribution
+            .record(Exception::RouteEndCompleted, 7_000);
+        let good = counters.receipt().unwrap();
+        check_receipt(&good).unwrap();
+        // 旧报告：只有总数，没有归因字段（如 4d672eea 的 lf-synth-execution-2 回执）。
+        let mut legacy = good.clone();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("deceleration_above_profile_attribution");
+        assert!(check_receipt(&legacy).is_err());
+        let mut mismatched = good.clone();
+        mismatched["deceleration_above_profile_count"] = json!(3);
+        assert!(check_receipt(&mismatched).is_err());
+        let mut unattributed = good.clone();
+        unattributed["deceleration_above_profile_count"] = json!(3);
+        unattributed["deceleration_above_profile_attribution"]["unattributed"]["count"] = json!(1);
+        assert!(check_receipt(&unattributed).is_err());
+        let mut missing = good.clone();
+        missing["deceleration_above_profile_attribution"]
+            .as_object_mut()
+            .unwrap()
+            .remove("route_end_completed");
+        assert!(check_receipt(&missing).is_err());
+        let mut extra = good;
+        extra["deceleration_above_profile_attribution"]["leader_projection"] =
+            json!({"count":0,"max_observed_deceleration_mm_s2":0});
+        assert!(check_receipt(&extra).is_err());
+        // 生产侧同一前置条件：未归因非零时不产生回执。
+        let mut rejected = Counters {
+            above_profile: 1,
+            ..Counters::default()
+        };
+        rejected
+            .attribution
+            .record(Exception::Unattributed, 400_313);
+        assert!(rejected.receipt().is_err());
     }
 
     fn observed(status: VehicleStatus, point: RoutePoint, speed_mm_s: u32) -> Observed {

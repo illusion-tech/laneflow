@@ -169,7 +169,7 @@ pub(super) fn verify_reports(
     )?;
     // 被引用的正常语义参考必须使用当前验收语义；Runtime 的失败重试报告
     // 证明的是另一项性质，不要求携带该字段（不让 failpoint 测试依赖 harness）。
-    laneflow_synth_harness::ensure_semantic_contract(normal)?;
+    laneflow_synth_harness::ensure_semantic_receipt(normal)?;
     for flag in [
         "failed_snapshot_values_equal",
         "failed_events_equal",
@@ -256,6 +256,11 @@ mod tests {
         }
         let normal = json!({"format":"lf-synth-burst-run-1","complete":true,
             "semantic_contract":laneflow_synth_harness::SEMANTIC_CONTRACT,
+            "deceleration_above_profile_count":0,
+            "deceleration_above_profile_attribution":{
+                "parking_arrival_zero":{"count":0,"max_observed_deceleration_mm_s2":0},
+                "route_end_completed":{"count":0,"max_observed_deceleration_mm_s2":0},
+                "unattributed":{"count":0,"max_observed_deceleration_mm_s2":0}},
             "workers":1,"input_manifest":retry["input_manifest"],"implementation_commit":implementation,"step_input_digest":"step","warm_up_ticks":10,
             "command_batches":[{"boundary":10,"input_digest":"batch","pre_command_state_digest":"pre","post_command_state_digest":"post","cursor_before":1,"cursor_after":3}],
             "checkpoints":[{"tick":11,"state_digest":"retry"},{"tick":12,"state_digest":"final"}]});

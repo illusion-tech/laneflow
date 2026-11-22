@@ -150,7 +150,7 @@ pub fn prepare_oracles(
                         require(report["complete"] == true, || {
                             format!("oracle 未完成 {label}")
                         })?;
-                        crate::ensure_semantic_contract(&report)?;
+                        crate::ensure_semantic_receipt(&report)?;
                         Ok(json!({"identity":label,"report":report}))
                     })();
                     if sender.send((label.clone(), result)).is_err() {

@@ -288,6 +288,9 @@ fn read(path: &Path) -> Result<Value, Error> {
 /// 末态记录（#1218）：W 族 = 规范状态投影 + 宿主累计；L 族 = 面 B 记录
 ///（结构化拒绝变体 + 真实资源身份/历史投影）+ 宿主累计。
 fn final_record(plan: &Plan, driver: &Driver, records: &Records) -> Result<Value, Error> {
+    // 参考、续跑与探针共同经过此处：超 profile 减速未归因时不产生末态记录，
+    // 与普通运行回执同一前置条件（#1487）。
+    driver.sample().deceleration.receipt()?;
     if plan.identity.lane_change().is_some() {
         Ok(
             json!({"face_b":{"persistence_refused":crate::lane_change_refusal_variant(driver.sample())?,

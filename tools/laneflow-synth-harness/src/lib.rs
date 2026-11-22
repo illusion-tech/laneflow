@@ -56,6 +56,17 @@ pub fn ensure_semantic_contract(report: &Value) -> Result<(), Error> {
     })
 }
 
+/// 运行回执（`lf-synth-semantic-run-1` / `lf-synth-burst-run-1`）的统一准入：
+/// 当前语义协议，且超 profile 减速样本已全部归因到具名例外（#1487）。
+///
+/// # Errors
+/// 语义协议不符，或归因字段缺失、类别集合不符、类别之和不等于总计数、存在
+/// 未归因样本时失败。
+pub fn ensure_semantic_receipt(report: &Value) -> Result<(), Error> {
+    ensure_semantic_contract(report)?;
+    decel::check_receipt(report)
+}
+
 fn require(valid: bool, context: impl FnOnce() -> String) -> Result<(), Error> {
     if valid {
         Ok(())

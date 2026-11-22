@@ -48,6 +48,11 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
     };
     let report = json!({"format":format,"complete":true,
         "semantic_contract":laneflow_synth_harness::SEMANTIC_CONTRACT,
+        "deceleration_above_profile_count":0,
+        "deceleration_above_profile_attribution":{
+            "parking_arrival_zero":{"count":0,"max_observed_deceleration_mm_s2":0},
+            "route_end_completed":{"count":0,"max_observed_deceleration_mm_s2":0},
+            "unattributed":{"count":0,"max_observed_deceleration_mm_s2":0}},
         "implementation_commit":"c".repeat(40),
         "workers":job.workers,"input_manifest":input,"warm_up_ticks":warm,"observation_ticks":observation,
         "validated_boundaries":warm+observation+1,"checkpoints":points});
@@ -105,6 +110,9 @@ fn receipts_reject_wrong_source_identity_workers_and_incomplete_windows() {
             ("format", json!("other")),
             ("semantic_contract", Value::Null),
             ("semantic_contract", json!("lf-synth-execution-1")),
+            // #1487 复审：缺少归因证据或存在未归因样本的回执不得接纳。
+            ("deceleration_above_profile_attribution", Value::Null),
+            ("deceleration_above_profile_count", json!(1)),
             ("warm_up_ticks", json!(512)),
             ("observation_ticks", json!(1)),
             ("validated_boundaries", json!(1)),
