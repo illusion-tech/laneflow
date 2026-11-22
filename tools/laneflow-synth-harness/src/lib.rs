@@ -1,6 +1,7 @@
 //! LF-SYNTH-v2 语义验证与表现测量；结果不直接构成产品认证。
 
 mod burst;
+mod decel;
 pub mod host;
 mod install;
 pub mod measurement;
@@ -603,6 +604,7 @@ fn run_plan<P: Probe>(
         None => None,
     };
     probe.end(Phase::Finish, finish);
+    let deceleration = sample.deceleration.receipt()?;
     Ok(json!({"format":"lf-synth-semantic-run-1","complete":true,
         "semantic_contract":SEMANTIC_CONTRACT,
         "scope":if plan.identity.lane_change().is_some() {
@@ -616,8 +618,9 @@ fn run_plan<P: Probe>(
         "validated_boundaries":total+1,"caller_commands_after_initialization":0,
         "active":bundle.manifest().counts["active"],"parked":bundle.manifest().counts["parked"],
         "gate_crossings":sample.transitions,"completion_count":0,"parking_arrival_count":0,
-        "max_observed_deceleration_mm_s2":sample.max_deceleration_mm_s2,
-        "deceleration_above_profile_count":sample.deceleration_above_profile_count,
+        "max_observed_deceleration_mm_s2":deceleration["max_observed_deceleration_mm_s2"],
+        "deceleration_above_profile_count":deceleration["deceleration_above_profile_count"],
+        "deceleration_above_profile_attribution":deceleration["deceleration_above_profile_attribution"],
         "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints,
         "verification_receipt":verification_receipt,
         "ordered_events_digest":events.digest()}))

@@ -27,8 +27,7 @@ pub(super) struct Host {
     pub revision: [u8; 32],
     pub crossed: Vec<bool>,
     pub transitions: u64,
-    pub max_deceleration: u64,
-    pub excessive_decelerations: u64,
+    pub deceleration: crate::decel::Counters,
     /// L 族换道预约生命周期史（#1218 面 B）：恢复端由宿主记录续接，
     /// 使参考/恢复末态投影同跨度可比。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -239,8 +238,7 @@ pub(super) fn capture(
             revision: *origin.network_revision().as_digest().as_bytes(),
             crossed: sample.crossed.clone(),
             transitions: sample.transitions,
-            max_deceleration: sample.max_deceleration_mm_s2,
-            excessive_decelerations: sample.deceleration_above_profile_count,
+            deceleration: sample.deceleration,
             lane_change_journal: sample.lane_change_journal.clone(),
             verification: crate::verification_material(sample)?,
             burst,
@@ -482,8 +480,7 @@ pub(super) fn restore(
         bindings,
         crossed: host.crossed.clone(),
         transitions: host.transitions,
-        max_deceleration_mm_s2: host.max_deceleration,
-        deceleration_above_profile_count: host.excessive_decelerations,
+        deceleration: host.deceleration,
         max_accel_mm_s2,
         emergency_decel_mm_s2,
         trace_bytes: Vec::new(),

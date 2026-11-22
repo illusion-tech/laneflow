@@ -328,12 +328,14 @@ impl Sample {
                 )?;
             } else {
                 let next_position = position(state);
-                let drop = old.speed_mm_s().saturating_sub(state.speed_mm_s());
-                self.max_deceleration_mm_s2 = self
-                    .max_deceleration_mm_s2
-                    .max((u64::from(drop) * 1_000).div_ceil(u64::from(dt)));
-                self.deceleration_above_profile_count +=
-                    u64::from(u64::from(drop) > emergency_limit);
+                // W1/W2 无停车预约与路终完成：超界样本没有可归入的具名例外。
+                self.deceleration.record(
+                    old,
+                    state,
+                    dt,
+                    emergency_limit,
+                    crate::decel::Exits::default(),
+                );
                 require(
                     motion_valid(
                         position(old),
@@ -595,12 +597,13 @@ impl Sample {
                 )?;
                 // 减速诊断（#1228）：L1 分支同样累加实测值；判超阈值与 W 族
                 // 同一来源——安装 profile 的紧急减速上限（#1243 T5，L 族 9）。
-                let drop = old.speed_mm_s().saturating_sub(state.speed_mm_s());
-                self.max_deceleration_mm_s2 = self
-                    .max_deceleration_mm_s2
-                    .max((u64::from(drop) * 1_000).div_ceil(u64::from(dt)));
-                self.deceleration_above_profile_count +=
-                    u64::from(u64::from(drop) > emergency_limit);
+                self.deceleration.record(
+                    old,
+                    state,
+                    dt,
+                    emergency_limit,
+                    crate::decel::Exits::default(),
+                );
             }
             let edge_changed = state.route_edge_index() != old.route_edge_index();
             if on_cluster {

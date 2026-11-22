@@ -574,14 +574,26 @@ impl Burst {
     }
 }
 
+/// W3/W4 路线终点（exit 边末端，host completion 位置）。
+pub(super) const ROUTE_END: crate::decel::RoutePoint = crate::decel::RoutePoint {
+    edge_index: 1,
+    progress_mm: 5_130_000,
+};
+
+/// W3 停车入口位置（exit 边 5 m 处，冻结停车命令与 arrival 位置）。
+pub(super) const PARKING_ENTRANCE: crate::decel::RoutePoint = crate::decel::RoutePoint {
+    edge_index: 1,
+    progress_mm: 5_000,
+};
+
 pub(crate) fn parking_command(operation: Operation, cell: usize) -> Command {
     let rank = cell as u32 * 100;
     Command {
         operation,
         logical_rank: rank,
         route_rank: rank / 25,
-        edge_occurrence: 1,
-        progress_mm: 5_000,
+        edge_occurrence: PARKING_ENTRANCE.edge_index,
+        progress_mm: PARKING_ENTRANCE.progress_mm,
         speed_mm_per_s: 0,
     }
 }
@@ -827,6 +839,7 @@ pub(super) fn run_with_probe<P: Probe>(
     )?;
     let mut step_bytes = b"lf-synth-step-input-1\0".to_vec();
     step_bytes.extend_from_slice(&u64::from(plan.identity.fixed_delta_ms).to_le_bytes());
+    let deceleration = burst.sample.deceleration.receipt()?;
     Ok(json!({"format":"lf-synth-burst-run-1","complete":true,
         "semantic_contract":crate::SEMANTIC_CONTRACT,
         "scope":"W3_W4_semantics_only_not_retry_or_performance_or_product_certification",
@@ -841,8 +854,9 @@ pub(super) fn run_with_probe<P: Probe>(
         "parking_commit_boundary":burst.parked_boundary,"parking_left":burst.left,
         "active":burst.counts[0],"parked":burst.counts[1],"completed":burst.counts[2],
         "gate_crossings":burst.sample.transitions,
-        "max_observed_deceleration_mm_s2":burst.sample.max_deceleration_mm_s2,
-        "deceleration_above_profile_count":burst.sample.deceleration_above_profile_count,
+        "max_observed_deceleration_mm_s2":deceleration["max_observed_deceleration_mm_s2"],
+        "deceleration_above_profile_count":deceleration["deceleration_above_profile_count"],
+        "deceleration_above_profile_attribution":deceleration["deceleration_above_profile_attribution"],
         "public_trace_digest":stream.finalize().to_hex().to_string(),"checkpoints":checkpoints,
         "verification_receipt":verification_receipt,
         "ordered_events_digest":events.digest()}))

@@ -31,8 +31,8 @@ pub(crate) struct Sample {
     pub bindings: Vec<Option<ParkingBinding>>,
     pub crossed: Vec<bool>,
     pub transitions: u64,
-    pub max_deceleration_mm_s2: u64,
-    pub deceleration_above_profile_count: u64,
+    /// 减速诊断：最大观测减速度、超 profile 计数及其具名例外归因（#1487）。
+    pub deceleration: crate::decel::Counters,
     /// 车型最大加速度（毫米/秒²）：由共享路网 profile 视图派生，运动学语义
     /// 检查按车型上界判定（W 族 1.4、L 族 1.5，#1218）。
     pub max_accel_mm_s2: u32,
@@ -381,8 +381,7 @@ impl Sample {
             initial,
             bindings,
             transitions: 0,
-            max_deceleration_mm_s2: 0,
-            deceleration_above_profile_count: 0,
+            deceleration: crate::decel::Counters::default(),
             max_accel_mm_s2,
             emergency_decel_mm_s2,
             cursor,
