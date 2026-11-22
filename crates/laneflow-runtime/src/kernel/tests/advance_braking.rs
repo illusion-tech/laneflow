@@ -141,55 +141,72 @@ fn yellow_boundary_ride_stays_within_emergency_bounds_and_crosses() {
     );
 }
 
-/// 有前车红灯（静止 leader，30 m 入口边）：跟车轴由 IIDM 平滑减速；主体
-/// 减速不超过紧急界、末端清零拍属裁定保留的 leader 几何投影例外。
+/// #1489 / vehicle-following §10.2：静止前车后、起始跟车可行的 follower 逐拍保持
+/// 可行并停在保留最小间隙处；包括最后停稳拍在内，单拍降幅不超过
+/// `b_e·Δt + ε_v`（ε_v = 1 mm/s），不依赖几何投影清零。覆盖多种步长、初速与
+/// 前车位置（profile 0：emergency 4.0 m/s²，min_gap 2 m，车长 4.5 m）。
 #[test]
-fn red_light_with_stopped_leader_brakes_smoothly() {
-    let revision = revision("runtime-fixture-policy", |module| {
-        // 与 add_signal_corridor 同构的 30 m 入口边走廊（停车线在入口边末）。
-        super::placement_admission_tests::add_edge(module, "entry", 30.0, 10.0, Some("middle"));
-        super::placement_admission_tests::add_edge(module, "middle", 8.0, 10.0, Some("exit"));
-        super::placement_admission_tests::add_edge(module, "exit", 12.0, 10.0, None);
-        add_signal_corridor_gates(module, SignalAspect::Red);
-    });
-    let mut world = install_dt(revision, 100);
-    let route = route_of(&mut world);
-    // 前车停在停止线前 5 m（进度 25_000）；后车 8 m/s 从边起点接近，
-    // 初始间隙 20.5 m 足够 IIDM 平滑减速。
-    let leader = spawn(&mut world, route, 0, 25_000, 0).expect("leader spawn");
-    let follower = spawn(&mut world, route, 0, 0, 8_000).expect("follower spawn");
-    let mut previous = 8_000_u32;
-    let mut max_drop = 0_u32;
-    let mut stopped = false;
-    for _ in 0..400 {
-        world
-            .step(crate::TickInput::new(100))
-            .expect("follower step");
-        let state = world.vehicle(follower).expect("follower");
-        let leader_front = world.vehicle(leader).expect("leader").progress_mm;
-        // 前车在低速窗内可向停止线蠕行（裁定窗口语义），以实际车位比对。
-        assert!(
-            state.progress_mm + 4_500 + 2_000 <= leader_front,
-            "不侵入前车 min_gap：{} + 6500 <= {leader_front}",
-            state.progress_mm
-        );
-        // 末端清零拍（该拍速度归零）属裁定保留的 leader 几何投影例外，
-        // 不计入主体减速界。
-        if state.speed_mm_s > 0 {
-            max_drop = max_drop.max(previous.saturating_sub(state.speed_mm_s));
-        }
-        previous = state.speed_mm_s;
-        if state.speed_mm_s == 0 {
-            stopped = true;
-            break;
+fn stopped_leader_follower_stops_within_emergency_bound() {
+    for delta_ms in [20_u64, 50, 100] {
+        for (leader_progress, follower_speed) in [
+            (25_000_u32, 8_000_u32),
+            (15_000, 8_000),
+            (25_000, 4_000),
+            (12_000, 5_000),
+        ] {
+            let revision = revision("runtime-fixture-policy", |module| {
+                // 与 add_signal_corridor 同构的 30 m 入口边走廊（停车线在入口边末）。
+                super::placement_admission_tests::add_edge(
+                    module,
+                    "entry",
+                    30.0,
+                    10.0,
+                    Some("middle"),
+                );
+                super::placement_admission_tests::add_edge(
+                    module,
+                    "middle",
+                    8.0,
+                    10.0,
+                    Some("exit"),
+                );
+                super::placement_admission_tests::add_edge(module, "exit", 12.0, 10.0, None);
+                add_signal_corridor_gates(module, SignalAspect::Red);
+            });
+            let mut world = install_dt(revision, delta_ms);
+            let route = route_of(&mut world);
+            let leader = spawn(&mut world, route, 0, leader_progress, 0).expect("leader spawn");
+            let follower = spawn(&mut world, route, 0, 0, follower_speed).expect("follower spawn");
+            let case = format!("dt={delta_ms} leader={leader_progress} v={follower_speed}");
+            let mut previous = follower_speed;
+            let mut max_drop = 0_u32;
+            let mut stopped = false;
+            for _ in 0..2_000 {
+                world
+                    .step(crate::TickInput::new(delta_ms))
+                    .expect("follower step");
+                let state = world.vehicle(follower).expect("follower");
+                let leader_front = world.vehicle(leader).expect("leader").progress_mm;
+                assert!(
+                    state.progress_mm + 4_500 + 2_000 <= leader_front,
+                    "不侵入前车 min_gap（{case}）：{} + 6500 <= {leader_front}",
+                    state.progress_mm
+                );
+                max_drop = max_drop.max(previous.saturating_sub(state.speed_mm_s));
+                previous = state.speed_mm_s;
+                if state.speed_mm_s == 0 {
+                    stopped = true;
+                    break;
+                }
+            }
+            assert!(stopped, "follower 停稳在前车后方（{case}）");
+            let bound = (4.0 * delta_ms as f64).ceil() as u32 + 1;
+            assert!(
+                max_drop <= bound,
+                "单拍降幅 {max_drop} ≤ b_e·Δt + ε_v = {bound}（{case}）"
+            );
         }
     }
-    assert!(stopped, "follower 停稳在前车后方");
-    let bound = (4.0 * 100.0) as u32 + 2;
-    assert!(max_drop <= bound, "主体减速 {max_drop} ≤ 紧急界 {bound}");
-    let leader_state = world.vehicle(leader).expect("leader");
-    assert_eq!(leader_state.route_edge_index, 0, "前车不越过停止线");
-    assert!(leader_state.progress_mm <= 30_000, "前车停在入口边内");
 }
 
 /// `add_signal_corridor` 的门/信号部分（边由调用方先建）。

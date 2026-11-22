@@ -12,6 +12,30 @@ pub(crate) fn round_mm(meters: f64) -> Option<u32> {
     Some(mm as u32)
 }
 
+/// SI 向下取整到毫（跟车安全量化路径；非负值即向零取整）。
+pub(crate) fn floor_mm(meters: f64) -> Option<u32> {
+    if !meters.is_finite() {
+        return None;
+    }
+    let mm = (meters.max(0.0) * 1_000.0).floor();
+    if mm > f64::from(u32::MAX) {
+        return None;
+    }
+    Some(mm as u32)
+}
+
+/// SI 米向下取整到微米（跟车安全量化路径）；非有限或超出 `u64` 范围返回 `None`。
+pub(crate) fn floor_um(meters: f64) -> Option<u64> {
+    if !meters.is_finite() {
+        return None;
+    }
+    let um = (meters.max(0.0) * 1_000_000.0).floor();
+    if um > u64::MAX as f64 {
+        return None;
+    }
+    Some(um as u64)
+}
+
 /// 跟车前视：SI 有限且非负后向上取整到毫米。溢出饱和到 `u32::MAX`，禁止缩短视距。
 pub(crate) fn ceil_mm(meters: f64) -> Option<u32> {
     if !meters.is_finite() || meters < 0.0 {

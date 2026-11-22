@@ -56,6 +56,8 @@ v0.3 只实现 longitudinal Vehicle Following，不实现 lane changing、inters
 
 v0.3 使用 Improved Intelligent Driver Model（IIDM）作为正常驾驶的 comfort controller。它根据不可变 Vehicle Profile、当前状态和 leader observation 计算期望加速度。
 
+现行舒适层收敛为带接近速度项的 IDM（#1489）：IIDM 的自由路段与交互分支含任意实数指数幂，而运动内核要求标量与向量后端逐位一致且禁止近似函数。公式与前车速度口径以 `vehicle-following.md` §9 为准；下文的 IIDM 均指该舒适层。
+
 IIDM 输出限制在 comfortable deceleration 与 max acceleration 之间。它不直接修改 world，不负责最终 no-overlap，也不拥有 signals、merge 或 parking 语义。
 
 ### 3. Core 拥有不可绕过的安全层

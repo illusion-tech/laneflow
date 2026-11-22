@@ -14,6 +14,8 @@ pub struct ProposalInput {
     pub speed_m_s: f32,
     pub desired_m_s: f32,
     pub leader_m: Option<f32>,
+    /// 前车已提交速度（m/s），只用于 IDM 期望间距的接近速度项；无前车时不读。
+    pub leader_speed_m_s: f32,
     pub min_gap_m: f32,
     pub time_headway: f32,
     pub max_accel: f32,
@@ -43,14 +45,54 @@ pub fn raw_proposal(input: &ProposalInput) -> Option<(f32, f32)> {
         squared * squared
     };
     let gap_term = input.leader_m.map_or(0.0, |gap| {
-        ((input.min_gap_m + speed * input.time_headway) / gap)
-            .max(0.0)
-            .powi(2)
+        let s_star = desired_gap(
+            input.min_gap_m,
+            speed,
+            input.time_headway,
+            input.leader_speed_m_s,
+            input.max_accel,
+            input.comfort_decel,
+        );
+        (s_star / gap).max(0.0).powi(2)
     });
-    let accel = input.max_accel * (1.0 - speed_term - gap_term);
+    // vehicle-following §9：舒适加速度夹到 `[-b, a]`（上界由 `1 - 项 ≤ 1` 自然成立）。
+    let accel = (input.max_accel * (1.0 - speed_term - gap_term)).max(-input.comfort_decel);
     let next_speed = (speed + accel * delta_s).max(0.0).min(desired.max(0.0));
     let travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
     (travel.is_finite() && next_speed.is_finite()).then_some((travel, next_speed))
+}
+
+/// vehicle-following §9 的 IDM 期望动态间距
+/// `s* = s0 + max(0, v·T + v·Δv/(2√(ab)))`；向量后端逐式同序。
+fn desired_gap(
+    min_gap: f32,
+    speed: f32,
+    headway: f32,
+    leader_speed: f32,
+    max_accel: f32,
+    comfort: f32,
+) -> f32 {
+    let approach = speed * (speed - leader_speed) / (2.0 * (max_accel * comfort).sqrt());
+    min_gap + (speed * headway + approach).max(0.0)
+}
+
+/// 砖墙安全速度上界的安全方向收缩：抵消 f32 求根舍入，使上界不高于数学正根。
+pub const SAFE_SPEED_SHRINK: f32 = 1.0 - 1.0 / 1_048_576.0;
+
+/// vehicle-following §10.2 砖墙包络：`0.5(v+u)Δt + u²/(2b) ≤ s_a` 的最大非负 `u`，
+/// 稳定求根形式；`C ≥ 0` 时为零。`room` 非有限（无前车）时不施加上界。
+pub fn safe_speed(speed: f32, emergency: f32, delta_s: f32, room: f32) -> f32 {
+    if !room.is_finite() {
+        return f32::INFINITY;
+    }
+    let b_dt = emergency * delta_s;
+    let rhs = 2.0 * emergency * room;
+    let c = emergency * speed * delta_s - rhs;
+    if c.is_nan() || c >= 0.0 {
+        return 0.0;
+    }
+    let discriminant = b_dt * b_dt - 4.0 * c;
+    ((-2.0 * c) / (b_dt + discriminant.sqrt())) * SAFE_SPEED_SHRINK
 }
 
 /// 受支持的数值执行后端；选择不进入交通身份或快照。
@@ -115,6 +157,12 @@ pub struct Input<'a> {
     pub committed_limit_mm_s: &'a [u32],
     pub leader_m: &'a [f32],
     pub has_leader: &'a [bool],
+    /// 前车已提交速度（m/s）；无前车行任意有限值。
+    pub leader_speed_m_s: &'a [f32],
+    /// vehicle-following §10.2 整数停车界（米，已含安全方向收缩）；无前车为 `+∞`。
+    pub safe_room_m: &'a [f32],
+    /// 本拍开始时有前车且跟车可行：行程微米与已提交速度向零取整（整数几何 §5）。
+    pub safe_quantize: &'a [bool],
     pub min_gap_m: &'a [f32],
     pub time_headway: &'a [f32],
     pub max_accel: &'a [f32],
@@ -464,6 +512,9 @@ impl Kernel {
             input.committed_limit_mm_s.len(),
             input.leader_m.len(),
             input.has_leader.len(),
+            input.leader_speed_m_s.len(),
+            input.safe_room_m.len(),
+            input.safe_quantize.len(),
             input.min_gap_m.len(),
             input.time_headway.len(),
             input.max_accel.len(),
@@ -776,9 +827,11 @@ fn scalar_row<const TRACK: bool>(
             .floats
             .as_ref()
             .expect("quantization follows a float barrier");
-        let rounded_um = (f64::from(floats.travel_m[row]) * 1_000_000.0).round_ties_even();
-        let rounded_speed =
-            (f64::from(floats.proposal_speed_m_s[row].max(0.0)) * 1_000.0).round_ties_even();
+        let (rounded_um, rounded_speed) = quantize_row(
+            input.safe_quantize[row],
+            floats.travel_m[row],
+            floats.proposal_speed_m_s[row],
+        );
         let valid = motion_values_valid(
             input,
             row,
@@ -804,6 +857,7 @@ fn scalar_row<const TRACK: bool>(
             speed_m_s: speed,
             desired_m_s: desired,
             leader_m: input.has_leader[row].then_some(input.leader_m[row]),
+            leader_speed_m_s: input.leader_speed_m_s[row],
             min_gap_m: input.min_gap_m[row],
             time_headway: input.time_headway[row],
             max_accel: input.max_accel[row],
@@ -823,6 +877,15 @@ fn scalar_row<const TRACK: bool>(
         let floor_tier = input.emergency_decel[row];
         let floor = (speed - floor_tier * delta_s).max(0.0);
         if raw_speed.is_finite() {
+            // 整数几何 §5 第 3 步：`max(min(u_raw, V_safe), F)`；无前车时安全上界为 +∞。
+            if input.has_leader[row] {
+                raw_speed = raw_speed.min(safe_speed(
+                    speed,
+                    floor_tier,
+                    delta_s,
+                    input.safe_room_m[row],
+                ));
+            }
             raw_speed = raw_speed.max(floor);
         }
         // R8 复审修：原始提案有效性贯穿归约——非有限提案（如 +∞ 缓存）
@@ -903,10 +966,21 @@ fn scalar_row<const TRACK: bool>(
             raw_valid(input, row, delta_s, raw_travel, raw_speed) && travel.is_finite();
         return;
     }
-    let rounded_um = (f64::from(travel) * 1_000_000.0).round_ties_even();
-    let rounded_speed = (f64::from(raw_speed.max(0.0)) * 1_000.0).round_ties_even();
+    let (rounded_um, rounded_speed) = quantize_row(input.safe_quantize[row], travel, raw_speed);
     let valid = motion_values_valid(input, row, delta_s, raw_travel, raw_speed, travel);
     finish_values(input, output, row, valid, rounded_um, rounded_speed);
+}
+
+/// 行程微米与速度 mm/s 的量化：默认 round-ties-to-even；跟车安全量化路径向零
+/// 取整（非负值即向下取整），向量后端逐通道同式。
+fn quantize_row(toward_zero: bool, travel: f32, speed: f32) -> (f64, f64) {
+    let um = f64::from(travel) * 1_000_000.0;
+    let mm = f64::from(speed.max(0.0)) * 1_000.0;
+    if toward_zero {
+        (um.floor(), mm.floor())
+    } else {
+        (um.round_ties_even(), mm.round_ties_even())
+    }
 }
 
 fn raw_valid(input: &Input<'_>, row: usize, delta_s: f32, travel: f32, speed: f32) -> bool {

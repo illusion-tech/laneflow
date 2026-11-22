@@ -16,7 +16,7 @@ related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architec
 <a id="applicability"></a>
 ## 适用边界与依据
 
-纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。§9 的前车有效速度、§10.2 的整数停车界、砖墙包络与跟车可行条件按 #1490 修订，实现由 #1489 交付。
+纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。§9 的 IDM 接近速度项、§10.2 的整数停车界、砖墙包络与跟车可行条件按 #1490 修订，§9 的舒适层形式与前车速度口径在 #1489 实现时按维护者裁定收敛，实现由 #1489 交付。
 
 关联文档：
 
@@ -378,21 +378,22 @@ follower，并复用本设计的 follower-owned minimum-gap tolerance；candidat
 
 未来驾驶风格、边界后延迟合规、超车/换道和最高 20% 的短时超车授权不属于当前实现。未来必须由 Runtime-owned compliance/maneuver policy 单独设计，保持 base limit immutable，并优先用加载期归一化的 fixed-size preset/offset 复用同一 solver；不得引入每 tick PRNG、callback/trait object、external-ID lookup、完整 route 扫描或临时集合。
 
-## 9. IIDM comfort controller
+## 9. IDM comfort controller
+
+舒适层采用带接近速度项的 IDM。文中其他处所说的 IIDM 舒适层即指本节。
 
 ### 9.1 变量
 
 ```text
 v       follower current speed
-v0      profile desired speed
-v_l     leader effective speed
+v0      profile desired speed（已取当前边合法上限）
+v_l     leader committed speed
 delta_v v - v_l; positive means follower is faster
 s       bumper gap
 s0      profile min gap
 T       profile time headway
 a       profile max acceleration
 b       profile comfortable deceleration
-delta   4
 ```
 
 期望动态间距：
@@ -401,36 +402,27 @@ delta   4
 s_star = s0 + max(0, v*T + v*delta_v/(2*sqrt(a*b)))
 ```
 
-IIDM 必须读取前车有效速度，不得省略 `v*delta_v/(2*sqrt(a*b))` 项；该项使 follower
-按接近速度提前制动。前车有效速度：前车在本拍开始时已处于停止目标耗尽（到其最严
-停止目标的剩余距离为零，整数几何 §5）时取 0，否则取前车已提交速度；耗尽中的前车
-位移为零，已提交速度只按耗尽规则衰减，不代表前车在前进。
+IDM 必须读取前车拍初已提交速度，不得省略 `v*delta_v/(2*sqrt(a*b))` 项；该项使
+follower 按接近速度提前制动。处于停止目标耗尽的前车位移为零，已提交速度仍按耗尽
+规则衰减，可能高于前车的实际运动；舒适层不作修正，由 §10.2 的砖墙包络保证安全。
 
-### 9.2 Free-road acceleration
-
-```text
-if v <= v0:
-  a_free = a * (1 - (v/v0)^delta)
-else:
-  a_free = -b * (1 - (v0/v)^(a*delta/b))
-```
-
-### 9.3 Leader interaction
-
-无 leader 时使用 `a_free`。后杠间隙超出 `bumper_gap_horizon` 时本拍即无 leader。有 leader 且 `s` 严格大于物理 gap/overlap 阈值时令 `z = s_star / s`：
+### 9.2 舒适加速度
 
 ```text
-if z >= 1:
-  a_iidm = a * (1 - z^2)
-else if a_free > 0:
-  a_iidm = a_free * (1 - z^(2*a/a_free))
-else:
-  a_iidm = a_free
+speed_term = (v/v0)^4                     # v0 <= 0 时取 1
+gap_term   = (s_star/s)^2                 # 无 leader 时取 0
+a_idm      = clamp(a*(1 - speed_term - gap_term), -b, a)
+v_comfort  = min(max(0, v + a_idm*dt), max(0, v0))
 ```
 
-`s` 小于或等于物理 gap/overlap 阈值时不做除法，comfort 输出直接取 `-b`。最终 comfort acceleration clamp 到 `[-b, a]`。
+后杠间隙超出 `bumper_gap_horizon` 时本拍即无 leader。有 leader 且 `s <= 0`（接触或
+重叠）时不做除法，舒适候选直接取零速，由紧急下界与几何投影处理。
 
-IIDM evaluator 是 Traffic Runtime 私有纯计算单元：输入 profile 与 observation，输出 desired acceleration，不读取 wall clock、随机数或 world mutation。
+不采用 IIDM 的自由路段与交互分支：分支含任意实数指数幂，运动内核要求标量与向量
+后端逐位一致且禁止近似函数，向量指令没有满足该要求的幂运算。只含平方与开方的 IDM
+在三个后端可以同式实现。
+
+IDM evaluator 是 Traffic Runtime 私有纯计算单元：输入 profile 与 observation，输出 desired acceleration，不读取 wall clock、随机数或 world mutation。
 
 ## 10. Lookahead 与 safe-speed
 
@@ -691,7 +683,7 @@ Private：
 - Same-edge、cross-edge、branch、merge-after-shared-edge、repeated edge 和 self exclusion。
 - Same progress/overlap rejection、min-gap-only 输入合法状态与 pre-existing sub-min-gap 非恶化。
 - Active/Parked/Completed occupancy。
-- IIDM free/interaction 各分支和 desired speed 上下边界。
+- IDM 舒适加速度的 `[-b, a]` 夹取、`delta_v` 项和 desired speed 上下边界。
 - Safe-speed discriminant、emergency floor 和 projection threshold。
 - §10.2 跟车可行：静止、匀速、制动与耗尽中的前车下，起始可行的 follower 逐拍保持
   可行、停在保留最小间隙处，单拍降幅不超过 `b_e·Δt + ε_v`，不触发几何投影；整数
