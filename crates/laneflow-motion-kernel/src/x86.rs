@@ -739,12 +739,15 @@ macro_rules! arithmetic {
                     raw_speed
                 };
                 // 归约后位移按一致三元组重算；未触及行与原梯形逐位相同。
+                // 拍内停稳档位还须停进跟车停车界（与 scalar_row 同式）。
+                let stop_room = $select(present,
+                    $min(stop_target, $load($input.safe_room_m.as_ptr().add(start))), stop_target);
                 let comfort_stop = $div($mul(speed, speed), $mul(two, comfort));
                 let emergency_stop = $div($mul(speed, speed), $mul(two, emergency));
                 let use_comfort = $and($cmp::<_CMP_LE_OQ>(raw_speed, zero),
-                    $and($cmp::<_CMP_LE_OQ>(speed, $mul(comfort, dt)), $cmp::<_CMP_LE_OQ>(comfort_stop, stop_target)));
+                    $and($cmp::<_CMP_LE_OQ>(speed, $mul(comfort, dt)), $cmp::<_CMP_LE_OQ>(comfort_stop, stop_room)));
                 let use_emergency = $and($cmp::<_CMP_LE_OQ>(raw_speed, zero),
-                    $and($cmp::<_CMP_LE_OQ>(speed, $mul(emergency, dt)), $cmp::<_CMP_LE_OQ>(emergency_stop, stop_target)));
+                    $and($cmp::<_CMP_LE_OQ>(speed, $mul(emergency, dt)), $cmp::<_CMP_LE_OQ>(emergency_stop, stop_room)));
                 let raw_travel = $select($and(use_comfort, $cmp::<_CMP_GT_OQ>(speed, zero)), comfort_stop,
                     $select(use_emergency, emergency_stop,
                         $max($mul($mul($add(speed, raw_speed), half), dt), zero)));

@@ -918,11 +918,18 @@ fn scalar_row<const TRACK: bool>(
             ));
         }
     }
+    // vehicle-following §10.2：拍内停稳的档位还须停进跟车停车界，起始跟车可行时
+    // 选中的停车行程不超过 `s_a`，不依赖后续几何裁剪。
+    let stop_room = if input.has_leader[row] {
+        stop_target.min(input.safe_room_m[row])
+    } else {
+        stop_target
+    };
     let raw_travel = stop_aware_travel(
         speed,
         raw_speed,
         delta_s,
-        stop_target,
+        stop_room,
         input.comfort_decel[row],
         input.emergency_decel[row],
     );

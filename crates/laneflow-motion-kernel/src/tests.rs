@@ -218,6 +218,59 @@ fn idm_approach_term_and_comfort_floor() {
     assert_eq!(tight, 10.0 - 2.0 * 0.1);
 }
 
+/// vehicle-following §10.2（#1492 复审）：安全速度归零后的拍内停稳档位也须停进
+/// 跟车停车界。W profile（舒适 2、紧急 6 m/s²、min_gap 2 m）、100 ms 步长、
+/// 100 mm/s、间隙 2002 mm、余数 156 µm：`s_a` = 844 µm，舒适档停车 2500 µm
+/// 停不进，须选紧急档约 833 µm，不依赖后续几何裁剪。
+#[test]
+fn zero_safe_speed_stop_branch_stays_inside_the_follower_room() {
+    let mut f = Fixture::new(1_492);
+    let room = 844e-6_f32 * SAFE_SPEED_SHRINK;
+    for row in 0..17 {
+        f.enabled[row] = true;
+        f.has_proposal[row] = false;
+        f.speed[row] = 100;
+        f.desired[row] = 13_900;
+        f.carry[row] = 156;
+        f.room[row] = u32::MAX;
+        f.stop_cap[row] = 0;
+        f.cap_dominates[row] = false;
+        f.limit[row] = u32::MAX;
+        f.has_leader[row] = true;
+        f.leader[row] = 2.002;
+        f.leader_speed[row] = 0.0;
+        f.safe_room[row] = room;
+        f.safe_quantize[row] = true;
+        f.min_gap[row] = 2.0;
+        f.headway[row] = 1.5;
+        f.accel[row] = 1.5;
+        f.comfort[row] = 2.0;
+        f.emergency[row] = 6.0;
+        f.stop[row] = f32::INFINITY;
+        f.end[row] = f32::INFINITY;
+        f.envelope[row] = f32::INFINITY;
+    }
+    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        let Some(kernel) = Kernel::for_backend(backend) else {
+            continue;
+        };
+        let mut result = Results::new();
+        kernel
+            .run(&f.input(17), &mut result.output(17), 0.1)
+            .unwrap();
+        for row in 0..17 {
+            assert!(result.valid[row], "{backend:?}, row {row}");
+            assert_eq!(result.speed[row], 0, "{backend:?}, row {row}");
+            let travel = result.proposal_travel[row];
+            assert!(
+                travel <= room && travel > 0.0,
+                "{backend:?}, row {row}: stop travel {travel} within {room}"
+            );
+            assert_eq!(result.meters[row], travel, "geometry clip not needed");
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct Results {
     speed: [u32; N],
