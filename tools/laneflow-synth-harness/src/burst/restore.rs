@@ -158,7 +158,7 @@ impl Driver {
                 json!({"incarnations":b.incarnations,"total_crossings":b.total_crossings,"arrivals":b.arrivals,"completions":b.completions,"arrival_records":b.arrival_records,"pending":b.pending,"parked_boundary":b.parked_boundary,"left":b.left,"live_ranks":b.live_ranks})
             }
         };
-        json!({"crossed":s.crossed,"transitions":s.transitions,"max_deceleration":s.max_deceleration_mm_s2,"excessive_decelerations":s.deceleration_above_profile_count,"burst":burst})
+        json!({"crossed":s.crossed,"transitions":s.transitions,"deceleration":s.deceleration,"burst":burst})
     }
     /// 末态验证检查点（参考/恢复等值比较面）：会话在终点边界的完整状态
     /// （窗口、触发覆盖、见证与累计尝试），两侧逐字节相等即证明恢复未

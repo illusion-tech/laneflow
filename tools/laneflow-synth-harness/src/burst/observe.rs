@@ -47,6 +47,8 @@ impl Burst {
             SignalSchedule::CellOffset
         };
         let cells = self.arrivals.len();
+        // 判超阈值取安装 profile（与 W1/W2 同一来源，#1487）。
+        let emergency_limit = self.sample.emergency_drop_limit_mm_s(dt);
         probe.scan(Scan::LiveOrder);
         require(
             self.sample.world.tick_index() == tick
@@ -226,12 +228,20 @@ impl Burst {
                         format!("motion tick={tick} rank={rank}: {previous:?} -> {state:?}")
                     },
                 )?;
-                let drop = previous.speed_mm_s().saturating_sub(state.speed_mm_s());
-                self.sample.max_deceleration_mm_s2 = self
-                    .sample
-                    .max_deceleration_mm_s2
-                    .max((u64::from(drop) * 1_000).div_ceil(u64::from(dt)));
-                self.sample.deceleration_above_profile_count += u64::from(drop > 6 * dt + 1);
+                // 独立归因判据只用冻结计划的路终与停车入口位置及宿主期望的
+                // 停车预约，不读 Runtime 的 arrival 自报。
+                let parking_entrance = matches!(
+                    self.sample.bindings[rank],
+                    Some(ParkingBinding::Reserved(_))
+                )
+                .then_some(super::PARKING_ENTRANCE);
+                let exits = crate::decel::Exits {
+                    route_end: Some(super::ROUTE_END),
+                    parking_entrance,
+                };
+                self.sample
+                    .deceleration
+                    .record(previous, state, dt, emergency_limit, exits);
             }
             let changed = state.route_edge_index() != previous.route_edge_index();
             if changed {

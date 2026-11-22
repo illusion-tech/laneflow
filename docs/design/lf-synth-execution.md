@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-lf-synth-execution"
 kind = "design"
 status = "active"
-revised_date = "2026-11-19"
+revised_date = "2026-11-22"
 summary = "定义合成工作负载执行窗口与逐拍语义核验。"
 scope = "定义合成工作负载执行窗口与逐拍语义核验。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1455", "https://github.com/illusion-tech/laneflow/issues/1487"]
 +++
 
 # LF-SYNTH 执行核验
@@ -46,7 +46,22 @@ W1/W2 每拍检查：
   跟车几何投影、路终 Completed 拍与停车到位拍清零、既有异常初态入口）按该合同
   清单归因。回执继续
   单独记录观察到的最大减速度（mm/s²，向上取整）和超出 profile 紧急减速度的
-  拍/车计数并逐项对齐例外清单，不隐藏超界。
+  拍/车计数并逐项对齐例外清单，不隐藏超界（见下文「超界归因」）。
+- **超界归因**（#1487）：判超阈值为 `⌈b_e·Δt⌉ + 1` mm/s，`b_e` 取安装 profile
+  的紧急减速度，W1/W2、L1 与 W3/W4 两套观测路径同一来源。每个超界样本按观测侧
+  独立判据归入唯一类别，回执 `deceleration_above_profile_attribution` 按类别给出
+  样本数与最大减速度，各类别之和等于总计数：
+  - `parking_arrival_zero`（停车到位拍清零）：宿主按冻结计划持有该车的停车预约，
+    拍初 Active，拍末 Active、静止、无微米余数且位于冻结的停车入口位置；
+  - `route_end_completed`（路终 Completed 拍）：拍初 Active，拍末 Completed、
+    静止、无微米余数且位于路线终点；
+  - `unattributed`：不满足以上任一判据。
+
+  判据只读拍初/拍末公开状态、冻结计划的位置与宿主期望的停车绑定，不调用 Runtime
+  的停止求解器或例外判定，也不读 arrival 自报。清单中其余例外（运行期约束骤现的
+  具名投影、跟车不可行导致的几何投影、既有异常初态入口）在冻结输入中不构造，
+  出现即记为未归因。未归因非零时运行失败、不产生完整回执，失败信息携带逐类别
+  计数。
 - 同一 route 的 Active 按初始 slot 顺序不超车，车身区间不重叠；Parked 不占车道。
 - 每个信号组与冻结六阶段及 `(cell*997)%cycle`（W4 为 `cycle-dt` offset）独立
   计算的灯态完全一致。每次 entry→exit 以拍初状态独立证明信号侧许可：导致该次
@@ -144,7 +159,8 @@ W3 的事件屏障和生命周期替换输入遵循性能基线 §4.2，W4 遵�
 W3 完整窗口结束时，每个初始 Active 逻辑身份恰好过门一次；W4 只允许 B1 的指定
 探针过门。全部行各执行每 cell 六次成功命令；Blocked 尝试不推进 command cursor。
 检查点包含初始、预热结束、前两条观察拍、H/2H/4H（若在窗口内）、最终边界，以及
-W3 入位单拍和离位后的边界。最大减速度与超 profile 次数继续单独报告。
+W3 入位单拍和离位后的边界。最大减速度、超 profile 次数及其逐类别归因按第 1 节
+「超界归因」报告；检查点宿主材料携带这三项，恢复续跑不重复也不丢失计数。
 
 ## 4. W3/W4 证据编码
 
