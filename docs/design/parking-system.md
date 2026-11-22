@@ -472,8 +472,8 @@ available_gap_mm = 0                 if raw_available_gap_mm <= 1
 ```
 
 这里的 `1` 是现行 `minimum_gap_tolerance = 1 mm`，不是新的 Parking tolerance。令 `v` 为
-当前速度、`b_f` 为 emergency deceleration、`dt` 为 world fixed step、`s` 为 `g0_mm`
-按 Following 同一规则转换的 SI bumper gap；candidate 的 leader speed 为零。先取 emergency
+当前速度、`b_f` 为 emergency deceleration、`dt` 为 world fixed step；candidate 作为
+静止前车，有效速度与制动可达距离都为零。先取 emergency
 braking 在下一 tick 可达到的最低非负速度：
 
 ```text
@@ -490,13 +490,13 @@ emergency_min_travel = v^2 / (2 * b_f)                 if v <= b_f * dt
 只有以下两项都按 Following 相同量化/比较规则成立，且全部中间值 finite 时才允许 leave：
 
 ```text
-0.5 * (v + u_min) * dt + u_min^2 / (2 * b_f) <= s
+0.5 * (v + u_min) * dt + u_min^2 / (2 * b_f) <= available_gap_mm / 1000
 emergency_min_travel <= available_gap_mm / 1000
 ```
 
-第一项是 §10.2 在 stationary leader 下的 safe-speed envelope，保证 emergency floor 不高于
-safe-speed 上界；第二项显式扣除 §11.2 承诺保留的 gap，保证下一 tick 的 geometry cap 不会
-把 emergency minimum travel 再压小。任一项不成立都返回 leave-unsafe-follower，而不是
+第一项是 `vehicle-following.md` §10.2 在静止前车下的 safe-speed envelope（停车界为
+§11.2 的 available gap），保证 emergency floor 不高于 safe-speed 上界；第二项保证下一
+tick 的 geometry cap 不会把 emergency minimum travel 再压小。任一项不成立都返回 leave-unsafe-follower，而不是
 允许下一 tick 用 geometry hard projection 补救。`v == 0` 时两项左侧都为零，因此静止
 follower 只剩物理几何要求；`g0_mm <= min_gap_mm` 且 `v > 0` 时 available gap 为零，必须
 拒绝。

@@ -1041,6 +1041,14 @@ definition = "根据同一路径上的前车状态施加安全间距和速度约
 references = [{ document = "design-vehicle-following" }]
 
 [[terms]]
+id = "vehicle-following-feasibility"
+name = "跟车可行"
+english_aliases = ["vehicle-following feasibility"]
+domains = ["runtime"]
+definition = "本拍开始时，follower 以 emergency deceleration 制动可在保留最小间隙处停住的状态：停车所需距离不超过保留最小间隙后的可用间隙与前车制动可达距离之和。跟车可行时跟车几何投影不触发，单拍速度降幅受紧急减速度约束；不可行导致的投影须归入运行期约束骤现或既有异常初态。"
+references = [{ document = "design-vehicle-following" }]
+
+[[terms]]
 id = "vehicle-following-front-lookahead"
 name = "跟车前视"
 english_aliases = ["vehicle-following front lookahead"]
