@@ -160,7 +160,12 @@ L1 是双车换道竞争的功能探针，来源于 #1218（R1b s12 钉版场景
   内部边、10 m 出口边，并有一条汇入同一冲突区的竞争流。两条流各有无信号准入 Gate，
   由编辑侧唯一政策集覆盖；编辑命名空间为 `lf-synth-road`。
 - **换道者**：logical rank 为 `scale + cluster·k + slot`，位于入口边，slot 0（首车）
-  进度 11 m、slot 1（跟随者）进度 3 m，速度均为 10 m/s，不绑定停车位。
+  进度 11 m、slot 1（跟随者）进度 3 m，速度均为 10 m/s，不绑定停车位。跟随者有
+  1.5 m 车尾位于路线起点之外，因此每簇入口边 `lc-e0` 的路线起点出现记录（occurrence
+  0）是沿车道进入（`AlongLane`）的开放入口，换道者的初始装载须绑定该入口，不能由
+  “路线首边”或“没有前驱”推断（[车辆摆放 §6][vehicle-placement-entrance]）；
+  未绑定时跟随者装载以 `EntranceBody::Unbound` 拒绝。背景车辆车身都在路线内，
+  不绑定入口。
 - **窗口**：预热 16 拍；观察 16 ms 为 384 拍、33 ms 为 184 拍。终点晚于跟随者在
   首车清空 T 后进入，早于任一换道者完成路线。窗口由生成器单一函数给出，harness
   从同一函数派生期望值。
@@ -168,8 +173,9 @@ L1 是双车换道竞争的功能探针，来源于 #1218（R1b s12 钉版场景
   live 顺序优先、首车恰好 crossing 一次、跟随者在首车车尾清空 T 后进入、每拍 T
   内至多一车、落选者在 T 入口前无授权等待、预约生命周期按 requested → staged →
   committed → released、首个 T 裁决后保存按 #1217 结构化拒绝），以及失败重试规则
-  （触发点为首车建立预约的那一拍，失败点 `AfterGrants` 与 `AfterTransitions`，失败
-  丢弃未提交授权）。
+  （触发点 `leader_reservation_establishing_step`，执行侧取首车首次进入 T 的那一拍，
+  见执行 §8；失败点 `AfterGrants` 与 `AfterTransitions`，失败丢弃未提交授权）。
 
 [performance-baseline-workload]: core-runtime-performance-baseline.md#4-canonical-workload
+[vehicle-placement-entrance]: traffic-runtime-vehicle-placement.md#6-真实入口与范围内车身
 [probe-vectors-json]: ../../tools/laneflow-synth-generator/fixtures/probe-vectors.json

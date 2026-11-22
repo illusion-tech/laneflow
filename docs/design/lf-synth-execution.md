@@ -295,27 +295,46 @@ W3/W4 四个身份与 L1 两个身份分别生成一个完整单 worker 正常�
 失败矩阵为 W3/W4 四身份 × 1/2/4/8/16 worker × 三个全新进程（60 次），加上 L1
 两身份 × 两个失败点 × 1/2/4/8/16 worker × 三个全新进程（60 次），共 120 次。每轮四十项配置
 按规模、场景、worker 排序，再左移 `7 * (round - 1)` 项；已启动运行可跨轮交叠。
-每个进程独立安装失败/fresh 两世界，推进完整预热和第 5 节的前两拍 guardrail。
-W3 的完整观察窗口由正常参考证明，不把失败 guardrail 写成完整 W3 窗口重试。
+每个进程独立安装失败/fresh 两世界。W3/W4 推进完整预热和第 5 节的前两拍
+guardrail；W3 的完整观察窗口由正常参考证明，不把失败 guardrail 写成完整 W3 窗口
+重试。L1 先以探针世界确定首车首次进入 T 的那一拍，在该拍注入失败；重试成功后
+两世界逐拍同步续跑到完整窗口终点（16 ms 为 tick 400，33 ms 为 tick 200），逐拍
+步进结果与转换事件须相等。
 
 最多四个子进程并发，所有已启动世界（含 fresh 世界）的配置 worker 总和不超过
 32。两世界交替同步步进；上述限制不是 OS 总线程、CPU 使用率或多世界吞吐预算。
-W3/W4 的失败点限定在 `AfterTransitions`；L1 在首车建立预约的那一拍分别注入
-`AfterGrants` 与 `AfterTransitions`，失败须丢弃未提交授权。预期错误均为
+W3/W4 的失败点限定在 `AfterTransitions`；L1 在上述一拍分别注入 `AfterGrants`
+与 `AfterTransitions`，失败须丢弃未提交授权。预期错误均为
 `ParkingObservationAllocFailed`。失败后不重放生命周期命令，只重试原 `TickInput`；
 W4 成功后才进入 B1。L1 回执域为 `lf-synth-lane-change-retry-1`。
 
 每次回执先与同源正常参考核对命令批次、step 输入、失败边界、游标、重试检查点和
 最终检查点，并核验实际 worker、失败零发布、信号保持、注入点消耗及 retry/fresh
-等价标记。随后核对本次三对规范快照字节与实际边界观测。每个身份（L1 按身份与
-失败点）以第一轮单 worker 为参考，其余十四次只排除回执 `workers` 字段后精确比较
-所有其他字段，再逐字节比较七个 LFRS 文件和 `observations.json`；共 8 组 112 对。
+等价标记，再核对本次运行内的同次记录与实际边界观测。
 
-边界观测域为 `lf-synth-retry-observations-1`。事件数组按原顺序保存十一项：tick、
+每次运行写出八个文件，按族不同：
+
+| | W3/W4 | L1 |
+| --- | --- | --- |
+| T 无关边界 | `pre-command`、`post-command`、`fresh-post-command`、`failed` 四份 LFRS | 同左 |
+| 重试、fresh 与末态 | `retry`、`fresh`、`final` 三份 LFRS | `retry.json`、`fresh.json`、`final.json` |
+| 边界观测 | `observations.json` | 同左 |
+| 本次运行内须相等 | `post-command`=`failed`、`post-command`=`fresh-post-command`、`retry`=`fresh` 三对 LFRS | 前两对 LFRS 加 `retry.json`=`fresh.json` |
+
+L1 的重试、fresh 与末态发生在首个 T 裁决之后，快照捕获按 #1217 结构化拒绝；
+三份 JSON 记录拒绝变体、预约事件日志与车辆投影（真实资源身份与历史），缺任一项
+即拒绝，不以规范快照或错误编码摘要代替。
+
+每个身份（L1 按身份与失败点）以第一轮单 worker 为参考，其余十四次只排除回执
+`workers` 字段后精确比较所有其他字段，再逐字节比较上表八个文件；共 8 组 112 对。
+
+边界观测域 W3/W4 为 `lf-synth-retry-observations-1`，L1 为
+`lf-synth-retry-observations-lc-1`。事件数组按原顺序保存十一项：tick、
 车辆逻辑 rank、更新序号、路线逻辑 rank、maneuver occurrence、hop、edge occurrence、
 进度毫米、carry 微米、事件种类、payload。种类 1 是 GateCrossed（payload 为 gate
-ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence）；其他
-种类拒绝。信号数组保存原序 group ordinal 与灯态（Red=0、Yellow=1、Green=2）。
+ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence）；L1
+另含预约生命周期种类 4 ReservationAcquired、5 ConflictEntered、6 ConflictCleared、
+7 ReservationReleased（payload 为通行区间或通行点的资源身份）。其他种类拒绝。信号数组保存原序 group ordinal 与灯态（Red=0、Yellow=1、Green=2）。
 成功 outcome 保存 tick、时间和有序 parking arrivals（车辆逻辑 rank、space ordinal）；
 无成功 step 的边界为 null。这些字段用于本次有限边界的公开观测比较，不是每拍完整
 内部状态、所有并发错误或调度置换的证明。
@@ -363,9 +382,11 @@ F3 还在宿主资产准入中要求 exact LFCA 与原输入一致；这不改�
 恢复建立初始观测状态序号和无旧基线的新 session。检查点时刻的最新事件批次不
 属于快照，不能再次消费。从下一成功拍起核对公开轨迹、有序事件及 parking arrivals；
 完整 `StepOutcome` 的 tick/time 也逐拍检查。命令前检查点重放该批次，命令后检查点
-跳过该批次；比较所有剩余命令收据和批次，不能重复或遗漏。最终规范状态及宿主
-累计观测全部相等；每 1024 拍与最终边界的完整状态摘要也比较。恢复重分配局部 ID，
-所以不要求重新编码的 LFRS 字节等于旧文件。
+跳过该批次；比较所有剩余命令收据和批次，不能重复或遗漏。W1–W4 的最终规范状态
+及宿主累计观测全部相等，每 1024 拍与最终边界的完整状态摘要也比较。L1 的检查点
+都早于首个 T 裁决，恢复本身照常比较规范状态；终点在 T 裁决之后，末态比较结构化
+保存拒绝变体与 `t_state`（真实资源身份与历史投影）及宿主累计观测，不包含完整快照
+的状态摘要。恢复重分配局部 ID，所以不要求重新编码的 LFRS 字节等于旧文件。
 
 轨迹头为 ASCII `lf-synth-restore-ticks-1` 加 NUL，随后为连续 `u64` 小端 tick 和
 现有公开边界 BLAKE3 摘要；原有 W1/W2 与 W3/W4 边界原像不变。有序事件文件沿用
@@ -401,7 +422,8 @@ L1，因此 L1 回执的 `verification_receipt` 为空。
 
 每个观察拍检查：
 
-- 人口、命令游标、时间不变，停车 arrival 为空；每簇换道者数等于参数 `k`。
+- 人口与命令游标不变，tick/time 与固定步长一致，停车 arrival 为空；每簇换道者数
+  等于参数 `k`。
 - 每车 handle、profile、class、route、车长 4.5 m、status 与初始一致；route
   occurrence 不超出所在路线；carry 小于 1000 µm；停车绑定不变；Parked 车辆整个
   状态不变。
@@ -415,9 +437,12 @@ L1，因此 L1 回执的 `verification_receipt` 为空。
   顺序，其他种类拒绝。
 
 窗口结束时，全体换道者都完成入口边到 T 的 crossing，背景车辆不发生入口边到出口边
-的转换。公开边界轨迹头为 ASCII `lf-synth-public-boundary-lc-1` 加 NUL，逐车记录
-位置、速度、状态、traversal 阶段与 T 预约身份；首个 T 裁决之后的检查点按 #1217
-记录结构化保存拒绝变体及真实资源身份与历史投影，不只比较错误编码摘要。
+的转换。每拍公开边界摘要是 BLAKE3，原像域为 ASCII `lf-synth-public-boundary-lc-1`
+加 NUL，逐车编码位置、速度、状态、traversal 阶段与 T 预约身份；原像只在内存中
+构造，不落盘。`ticks.bin` 沿用第 2 节的文件头 `lf-synth-public-ticks-1` 加 NUL
+和“`u64` 小端 tick + 32 字节边界摘要”记录布局，不保存逐拍逐车原始观测。首个 T
+裁决之后的检查点按 #1217 记录结构化保存拒绝变体及真实资源身份与历史投影，不只
+比较错误编码摘要。
 
 L1 进入第 7 节 `worker-matrix`、第 8 节 `worker-retry-matrix` 与第 9 节
 `restore-matrix`；不进入第 6 节普通矩阵与 `restore-probe`。
