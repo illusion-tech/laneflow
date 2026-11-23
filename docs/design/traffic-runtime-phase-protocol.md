@@ -6,7 +6,7 @@ status = "active"
 summary = "定义串行阶段协议、状态分区与借用边界。"
 scope = "laneflow-runtime 的道路机动车固定步进、内部状态所有权与后续等价重构"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/580", "https://github.com/illusion-tech/laneflow/issues/581"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/580", "https://github.com/illusion-tech/laneflow/issues/581", "https://github.com/illusion-tech/laneflow/issues/1509"]
 related = ["adr-0003", "adr-0020", "adr-0021", "adr-0025"]
 +++
 
@@ -313,7 +313,8 @@ membership 均保持完整预览。省略的运动仍由 P5 在 C(T) 与最终�
   距离比较前向上取整到整数毫米）。已确定必须停止的目标——denied 信号/
   策略门（黄灯困境区许可的除外）、已知持续阻塞（Waiting/Conflict 资源被
   占用或持有、满载，且是对本车、精确 route occurrence 的真实不可用；本车
-  已有 ownership 或 membership 不计）、过渡预约、停车入口、有限路终——在
+  已有 ownership 或 membership 不计；本车可按 `waiting-zone-conflict-right-of-way.md`
+  §6.11 跟入的同链持有不计，跟入截断计入）、过渡预约、停车入口、有限路终——在
   窗内即参与归约，与本拍位移无关。尚未申请且无已知阻塞的入口不因「没有
   grant」自行制造停止目标；前视停止目标随其源事实失效（资源释放、授权
   变化后不得作为承诺保留）。
