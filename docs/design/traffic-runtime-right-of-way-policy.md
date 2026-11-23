@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-right-of-way-policy"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-18"
+revised_date = "2026-11-23"
 summary = "定义路权策略编译与正式冲突仲裁合同。"
 scope = "官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、 运行时快照与修订切换"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/284"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/284", "https://github.com/illusion-tech/laneflow/issues/1509"]
 related = ["design-waiting-zone-conflict-right-of-way"]
 +++
 
@@ -670,7 +670,11 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 排序并拒绝重复；单根热表仍按静态 cell 保存一个基准，不另存稳定标识副本或历史轨迹。
 
 冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数；
-downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。wire 按 edge
+downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。同一 cell
+可以有同一跟入链的多个持有者，跟入候选的物理并集延伸到链的叠放需求，并可与同链
+成员重叠（联合设计 §6.11）。这类并集的终点取决于跟入时的链组成，不能只从本车
+reservation 逐项重建；restore 与 cutover 对其改按该节校验跟入键、物理顺序、连续性、
+叠放需求下界与硬边界上界，持久形状不变。wire 按 edge
 StableId/start/end 排序，lowering 后再按当前修订 ordinal 规范化；两种顺序不能混作同一判据。
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
