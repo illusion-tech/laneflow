@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-vehicle-following"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-22"
+revised_date = "2026-11-23"
 summary = "定义跟车、纵向控制、安全距离与投影。"
 scope = "Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1490"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1490"]
 related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architecture", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-route-system", "design-traffic-runtime-integer-geometry", "roadmap"]
 +++
 
@@ -16,7 +16,7 @@ related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architec
 <a id="applicability"></a>
 ## 适用边界与依据
 
-纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。§9 的 IDM 接近速度项、§10.2 的整数停车界、砖墙包络与跟车可行条件按 #1490 修订，§9 的舒适层形式与前车速度口径在 #1489 实现时按维护者裁定收敛，实现由 #1489 交付。
+纵向分层与 IIDM／安全投影继续有效。已提交一维几何为整数毫米，IIDM 使用瞬时 SI 值。停止目标速度归约与制动前视窗已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。§9 的 IDM 接近速度项、§10.2 的整数停车界、砖墙包络与跟车可行条件按 #1490 修订，§9 的舒适层形式与前车速度口径在 #1489 实现时按维护者裁定收敛，实现由 #1489 交付。§8 的停车可行性保持由 #196 G1 冻结，实现由后续实现 Issue 交付。
 
 关联文档：
 
@@ -343,6 +343,13 @@ Waiting/Conflict 停止、已知持续阻塞、过渡预约、停车入口与有
 目标；提前发现阻塞不等于提前申请或持有资源。求解器可行域（含本拍减速上界
 与拍内停稳实际减速度定义域）与求根稳定性的行为要求由 integer-geometry 合同
 规定，修正波及 §8.1 降限速与摆放预览共用的求解函数。
+
+#196 起，上述停止目标在最终整数提交上另受停车可行性保持约束
+（`traffic-runtime-integer-geometry.md` §5.1）：拍初可停的车辆保持所在档位的
+停车可行性，差带入口清除本拍有效余数，常规候选未通过提交判据时改用不高于常规
+候选速度的向零取整退路。保证由共同运动归约与数值提交层承担，与跟车安全速度、
+限速和其余停止目标按同一归约组合；标量与列式路径、P2 预览、P5 重算与预览复用
+消费同一规则。各来源只提供许可与停止目标，不另算速度。
 
 Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`][parking-system]。
 

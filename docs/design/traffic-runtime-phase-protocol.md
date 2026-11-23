@@ -6,7 +6,7 @@ status = "active"
 summary = "定义串行阶段协议、状态分区与借用边界。"
 scope = "laneflow-runtime 的道路机动车固定步进、内部状态所有权与后续等价重构"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/580", "https://github.com/illusion-tech/laneflow/issues/581"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/580", "https://github.com/illusion-tech/laneflow/issues/581"]
 related = ["adr-0003", "adr-0020", "adr-0021", "adr-0025"]
 +++
 
@@ -273,7 +273,10 @@ exhausted、余量与位移。#1272 起停止目标参与速度归约（integer-
 前视窗内，或可证明不改变速度归约、制动分支、位移、量化、耗尽结果与归因时
 才可复用——「本拍位移够不到、但处于制动前视窗内」的目标不再被位移比较
 忽略，速度侧须同样证明（新目标的最严速度上界不低于已归约速度，且不改变
-停稳分支选择）。raw IIDM 提案可继续复用。`BeyondFinite` 不缩短本拍
+停稳分支选择）。#196 起，速度侧证明还须覆盖停车可行性保持（integer-geometry
+§5.1）：新停止目标不得触发差带余数清除，也不得改变保持档位、提交判据结论或退路
+选择；不能证明时完整重算。预览按拍初余数计算时，P5 交付前须核对其有效余数与
+完整求值一致。raw IIDM 提案可继续复用。`BeyondFinite` 不缩短本拍
 有限位移。缓存结果还不能已经越过该屏障 hop。SI 比较覆盖大距离的浮点舍入，
 整数提案保持 `u64`，不因缩窄或饱和而错误证明有限屏障可忽略。
 任何条件不满足均调用原完整运动内核，未改变运动公式或引入新的运动容差。

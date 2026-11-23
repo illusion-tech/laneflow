@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-signal-system"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-23"
 summary = "定义固定时制信号、门控与车辆合规。"
 scope = "Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272"]
 related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0009", "adr-0017", "adr-0028", "architecture", "design-parking-system", "design-road-junction-model", "design-route-system", "design-signalized-corridor-protected-turning", "design-traffic-runtime-integer-geometry", "design-vehicle-following", "roadmap"]
 +++
 
@@ -16,7 +16,7 @@ related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0009", "adr-0017
 <a id="applicability"></a>
 ## 适用边界与依据
 
-固定时制与 Gate 合规继续有效；相位时长必须是世界步长的正整数倍。停止目标速度归约、制动前视窗与黄灯困境区逐拍许可已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。
+固定时制与 Gate 合规继续有效；相位时长必须是世界步长的正整数倍。停止目标速度归约、制动前视窗与黄灯困境区逐拍许可已随 #1272 实现交付；性能与清空重验按 #1272 验收面跟踪。§6 的停车可行性保持与困境区判据的精确表达式由 #196 G1 冻结，实现由后续实现 Issue 交付；交付前现行代码按 #1272 语义运行。
 
 关联文档：
 
@@ -222,7 +222,9 @@ Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入�
 **黄灯困境区逐拍许可（#1272）**：限制性黄灯下，对每辆 PreGate 车辆按
 （车辆, route gate occurrence）逐拍求值「本拍有效法规决定」——若按紧急
 减速度的完整停车可行性不成立（能力判据 `v²/(2b_e) >` 到停止线的路线距离，
-含拍内停稳分支；独立于 raw proposal 是否合适），则该门对该车当拍为许可：
+含拍内停稳分支；独立于 raw proposal 是否合适；#196 起按已提交整数状态精确求值为
+`Φ_e(V) > 1000·D`，与 `traffic-runtime-integer-geometry.md` §5.1 的连续判据共用
+同一表达式，不读 `carry_um`），则该门对该车当拍为许可：
 移除该黄灯产生的停止约束，继续接受其余纵向与资源约束。许可不提升候选
 保护等级（Protected/Permissive 维持原判级与让行义务）；只解除该黄灯造成的
 拒绝，独立禁止规则、资源授权、下游空间与 no-overlap 继续独立生效。**豁免
@@ -235,6 +237,19 @@ Red/restrictive-yellow denial 是 hard entry denial。极端不可停车输入�
 本决定在停止目标查询、冲突候选生成、实际 traversal、事件与校验三处消费
 点一致消费；纯 aspect→decision 表保留为输入件。新鲜摆放（spawn/replace）
 不得依赖困境区豁免通过停止安全准入，见 `traffic-runtime-vehicle-placement.md`。
+
+**停车可行性保持（#196）**：`DenyAndStop` 停止目标持续有效期间，拍初按上款判据
+可停的 PreGate 车辆，按 `traffic-runtime-integer-geometry.md` §5.1 保持所在档位
+的停车可行性：舒适可停时保持舒适可停，仅紧急可停时保持紧急可停；含余数的整数
+判据在差带入口不成立时，先清除本拍有效余数再进入保持。车辆因此不会因自身的求解、
+量化与余数处理失去停车能力并满足困境区能力判据；困境区许可只发给按已提交状态
+确实不可紧急停车的车辆，整数判据未通过不构成许可理由。义务逐拍从已提交状态判定，
+不保存黄灯起点的决定：黄灯起点不可停、其后因正常减速恢复可停的 PreGate 车辆，
+自恢复之拍起重新受停止约束与保持义务约束。黄转红且停止位置不变时义务延续；转绿
+解除 SignalStop 后义务随之释放，其余纵向与资源约束照常生效；已合法完成跨门的车辆
+不追溯。保持可停不要求黄灯一亮即固定减速；产品若要求更早、更平顺地进入制动，属
+驾驶策略的另行要求。保持义务不改变上款 authoring 的清空配时责任：确实不可停而获
+许可的车辆仍须满足 `t_entry + T_clear ≤ Y + R`。
 
 Denied Gate 允许车辆 front bumper 精确到达 StopLine，但禁止 transition。信号停车不改变 vehicle status；车辆保持 Active，速度可以为零。green 后只移除 signal constraint，车辆通过既有 controller/leader pipeline 自然恢复，不增加 startup delay。
 
@@ -258,7 +273,7 @@ tick-start snapshot
 ```
 
 - 每辆 Active vehicle 沿确定 route occurrences，在制动前视窗（`vehicle-following.md` §10.3，距离比较前向上取整到整数毫米）内查找最近 denied Gate（黄灯困境区许可的门除外）；允许跳过 permitted Gate。本拍位移上界不再作为信号停止查询的判据。
-- SignalStop 使用 route distance、target speed 0、front-bumper desired/hard clearance 0；#1272 起 SignalStop 以目标速度 0 参与停止目标速度归约（`traffic-runtime-integer-geometry.md` §5），不再只是行程截断。
+- SignalStop 使用 route distance、target speed 0、front-bumper desired/hard clearance 0；#1272 起 SignalStop 以目标速度 0 参与停止目标速度归约（`traffic-runtime-integer-geometry.md` §5），不再只是行程截断；#196 起最终整数提交另受该文 §5.1 停车可行性保持约束。保证由共同运动归约与数值提交层承担，Signal 只提供许可与停止目标，不另算速度。
 - SignalStop 的 clearance 只约束首车与 StopLine，不替代车辆间 minimum gap；后车 final geometry cap 使用 follower `min_gap`。
 - 多约束按共同允许的最严格 motion 归约；numeric priority 不表达业务优先级，tie-break 只影响 attribution。
 - signal hard projection 先确定 leader final travel，随后 minimum-gap-preserving geometry projection 沿 functional leader graph 从前向后传播；两者只在实际进一步收紧 final motion 时生效。
