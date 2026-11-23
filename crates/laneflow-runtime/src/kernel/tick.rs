@@ -6253,8 +6253,8 @@ fn trace_motion(
             .and_then(finite_meters)
             .unwrap_or(f32::INFINITY)
             .min(finite_meters(basis.route_end).unwrap_or(f32::INFINITY));
-        let stop_solved = stop_m > 0.0 && stop_m.is_finite() && candidate > 0.0;
-        let (comfort, emergency, reduced) = if stop_solved {
+        let stop_recomputed = stop_m > 0.0 && stop_m.is_finite() && candidate > 0.0;
+        let (comfort, emergency, reduced) = if stop_recomputed {
             let comfort = max_next_speed_for_decel(
                 speed,
                 candidate,
@@ -6301,7 +6301,7 @@ fn trace_motion(
                 floor,
                 safe_cap,
                 candidate,
-                stop_solved,
+                stop_recomputed,
                 comfort,
                 emergency,
                 reduced,

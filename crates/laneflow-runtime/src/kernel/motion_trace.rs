@@ -83,8 +83,10 @@ pub struct TraceMotion {
     pub safe_cap: Option<f32>,
     /// 停止目标前的候选速度 `max(min(提案, 安全上界), 下界)`。
     pub candidate: f32,
-    /// 是否进入停止目标求解（目标有限、为正且候选为正）。
-    pub stop_solved: bool,
+    /// 诊断是否重算了停止目标的两档可行域（目标有限、为正且候选为正）。这是重算
+    /// 的条件，不是实际分支日志：列式内核另以 `stop_solve_participates` 跳过制动
+    /// 窗外的求解（窗外求解不改变归约结果），因此本字段为真不代表内核执行了求根。
+    pub stop_recomputed: bool,
     /// 舒适档的最大可行终速；`None` 表示无解。
     pub comfort: Option<f32>,
     /// 紧急档的最大可行终速；`None` 表示无解。
