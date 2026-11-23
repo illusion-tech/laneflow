@@ -107,6 +107,8 @@ batch_columns! {
     leader_speed: f32 = 0.0, safe_room: f32 = f32::INFINITY, safe_quantize: bool = false,
     stop: f32 = f32::INFINITY,
     route_end: f32 = f32::INFINITY,
+    stop_mm: u32 = laneflow_motion_kernel::NO_HOLD_TARGET,
+    route_end_mm: u32 = laneflow_motion_kernel::NO_HOLD_TARGET,
     envelope: f32 = 0.0, hard_room: u32 = 0, limit: u32 = 0,
     edge_length: u32 = 0, exhausted_speed_cap: u32 = 0, exhausted_cap_dominates: bool = false,
     transition_hop: Option<u32> = None,
@@ -135,6 +137,7 @@ impl Batch {
         self.safe_room[row] = basis.safe_room_m();
         self.safe_quantize[row] = basis.safe_quantize();
         self.route_end[row] = finite_meters(basis.route_end).unwrap_or(f32::INFINITY);
+        self.route_end_mm[row] = super::hold_target_mm(Some(basis.route_end));
         self.envelope[row] = basis.envelope_m;
         self.edge_length[row] = basis.edge_length_mm;
         self.drop_first[row] = basis.speed_drop_first;
@@ -327,6 +330,28 @@ mod span_tests {
     }
 }
 
+/// 诊断构建收集整数几何 §5.1 的改写（#1505）；常规构建不分配、不传入。
+#[cfg(feature = "motion-trace")]
+type HoldColumn = [Option<laneflow_motion_kernel::HoldCommit>; BLOCK_ROWS];
+#[cfg(not(feature = "motion-trace"))]
+type HoldColumn = ();
+
+#[cfg(feature = "motion-trace")]
+fn hold_slice(
+    column: &mut HoldColumn,
+    range: std::ops::Range<usize>,
+) -> Option<&mut [Option<laneflow_motion_kernel::HoldCommit>]> {
+    Some(&mut column[range])
+}
+
+#[cfg(not(feature = "motion-trace"))]
+fn hold_slice(
+    _: &mut HoldColumn,
+    _: std::ops::Range<usize>,
+) -> Option<&mut [Option<laneflow_motion_kernel::HoldCommit>]> {
+    None
+}
+
 #[allow(clippy::too_many_arguments)]
 fn numerical(
     batch: &mut Batch,
@@ -337,6 +362,7 @@ fn numerical(
     delta_s: f32,
     phase: NumericPhase,
     range: std::ops::Range<usize>,
+    held: &mut HoldColumn,
 ) -> laneflow_motion_kernel::Stats {
     let n = range.len();
     let offset = offset + range.start;
@@ -376,6 +402,8 @@ fn numerical(
         emergency_decel: &batch.emergency[range.clone()],
         stop_m: &batch.stop[range.clone()],
         route_end_m: &batch.route_end[range.clone()],
+        stop_mm: &batch.stop_mm[range.clone()],
+        route_end_mm: &batch.route_end_mm[range.clone()],
         envelope_m: &batch.envelope[range.clone()],
         has_proposal: &batch.has_proposal[range.clone()],
         proposal_speed_m_s: proposal_speed,
@@ -389,6 +417,7 @@ fn numerical(
             travel_mm: &mut batch.travel_mm[range.clone()],
             exhausted: &mut batch.exhausted[range.clone()],
             valid: &mut batch.valid[range.clone()],
+            hold: hold_slice(held, range.clone()),
         };
         #[cfg(test)]
         let stats = kernel
@@ -415,6 +444,7 @@ fn numerical(
             valid: &mut batch.valid[range.clone()],
             window_m: matches!(phase, NumericPhase::Proposal)
                 .then_some(&mut batch.window[range.clone()]),
+            hold: hold_slice(held, range.clone()),
         };
         match phase {
             NumericPhase::Fused => unreachable!("direct output handled above"),
@@ -554,6 +584,10 @@ fn compute(
     delta_s: f32,
 ) {
     let mut batch = Batch::new();
+    #[cfg(feature = "motion-trace")]
+    let mut held: HoldColumn = [None; BLOCK_ROWS];
+    #[cfg(not(feature = "motion-trace"))]
+    let mut held: HoldColumn = ();
     // 游标缓存与输出列分开借用；读取整行不需搬入临时值。
     let mut cursor_rows = chunk.cursor_rows.take();
     let n = chunk.cursor.len();
@@ -752,6 +786,7 @@ fn compute(
                 delta_s,
             );
             batch.stop[row] = limits.stop.and_then(finite_meters).unwrap_or(f32::INFINITY);
+            batch.stop_mm[row] = super::hold_target_mm(limits.stop);
             batch.hard_room[row] = limits.hard_room_mm;
             batch.exhausted_speed_cap[row] = limits.exhausted_speed_cap(&basis, delta_s);
             // F3'：过渡绑定的耗尽由舒适衰减上界主导，传给内核完成阶段
@@ -783,6 +818,7 @@ fn compute(
                 delta_s,
                 NumericPhase::Proposal,
                 range.clone(),
+                &mut held,
             );
             for row in range.clone() {
                 if batch.enabled[row] && !batch.valid[row] {
@@ -824,6 +860,7 @@ fn compute(
                 delta_s,
                 NumericPhase::Project,
                 range.clone(),
+                &mut held,
             );
             apply_speed_limits(
                 &routes[..n],
@@ -845,6 +882,7 @@ fn compute(
                 delta_s,
                 NumericPhase::Quantize,
                 range.clone(),
+                &mut held,
             );
         } else {
             numerical(
@@ -856,7 +894,21 @@ fn compute(
                 delta_s,
                 NumericPhase::Fused,
                 range.clone(),
+                &mut held,
             );
+        }
+    }
+    #[cfg(feature = "motion-trace")]
+    for row in 0..n {
+        if let (Some(vehicle), Some(commit)) = (traced[row], held[row]) {
+            crate::kernel::motion_trace::record(vehicle, |tick| {
+                crate::kernel::motion_trace::TraceEvent::Hold {
+                    tick,
+                    vehicle,
+                    path: crate::kernel::motion_trace::MotionPath::Columnar,
+                    commit,
+                }
+            });
         }
     }
     // 工作掩码驱动真实多跳行走；静态 occurrence/过门读取仅发生在仍行走的行。

@@ -16,7 +16,7 @@ related = ["adr-0017", "design-example-scenarios", "design-road-junction-model",
 <a id="applicability"></a>
 ## 适用边界与依据
 
-§7.3 清空判据包含停止约束设计的黄灯入场项；默认相位时长对齐检入配置的 16 ms Tick。§7.3 记录的车辆行为假设按 #196 G1 的停车可行性保持更新，实现交付前现行轨迹仍按 #1272 语义。
+§7.3 清空判据包含停止约束设计的黄灯入场项；默认相位时长对齐检入配置的 16 ms Tick。§7.3 记录的车辆行为假设按 #196 G1 的停车可行性保持更新，已随 #1505 实现交付；清空重验按 #1505 验收面跟踪。
 
 实现状态： #229 已交付通用 Traffic 0.8 static domains 与一等
 `ManeuverGate`；#190-#192 已交付 production profile artifacts、当时 catalog 0.2、
@@ -477,7 +477,7 @@ cargo +1.99.1 test --release --locked -p laneflow-scenario --test signalized_cor
 
 接近阶段的停止决策另由 Runtime 的 `motion-trace` 诊断构建重放选定样本（#1500）：
 逐拍记录停止目标查询、门决策与困境区豁免、P5 的实际求值路径（列式重新求值或复用
-P2 预览）、舒适与紧急两档可行域、前方限速下降约束，以及已提交的速度、进度与余数。
+P2 预览）、舒适与紧急两档可行域、前方限速下降约束、停车可行性保持对常规候选的改写（#1505），以及已提交的速度、进度与余数。
 记录只读，开启与关闭时的已提交状态与事件一致；该 feature 默认关闭，宿主构建不开启。
 
 ```text

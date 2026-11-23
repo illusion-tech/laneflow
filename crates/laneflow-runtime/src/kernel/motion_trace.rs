@@ -6,11 +6,15 @@
 //!
 //! 运动求值中的两档可行域由与 Runtime 相同的公开数值原语重算
 //! （`raw_proposal`、`safe_speed`、`max_next_speed_for_decel`），列式路径不在
-//! 运动内核的标量或向量通道内打点。
+//! 运动内核的标量或向量通道内打点。整数几何 §5.1 的改写（#1505）由完成原语
+//! 写入调用方提供的诊断列，不另行重算。
 
 use std::cell::RefCell;
 
 use crate::VehicleHandle;
+
+/// 整数几何 §5.1 改写后的提交与候选类别（运动内核同一定义）。
+pub use laneflow_motion_kernel::{HoldCommit, HoldKind};
 
 /// 到停止位置的距离；`Beyond` 表示超出可表示的有限范围。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +165,17 @@ pub enum TraceEvent {
         path: MotionPath,
         /// 停止归约数值；`PreviewReused` 为 `None`。
         motion: Option<TraceMotion>,
+    },
+    /// 整数几何 §5.1 改写了常规候选（清除差带余数或选取收紧候选）。
+    Hold {
+        /// 拍号。
+        tick: u64,
+        /// 车辆。
+        vehicle: VehicleHandle,
+        /// 求值路径。
+        path: MotionPath,
+        /// 改写后的有效余数、终速、行程、是否到位与候选类别。
+        commit: HoldCommit,
     },
 }
 
