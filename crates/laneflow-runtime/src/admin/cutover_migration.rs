@@ -1636,6 +1636,9 @@ pub(crate) fn migrate_conflict_state(
         let source_downstream_plan = source
             .reservation_downstream_claim_plan(source_range, source_state.length_mm)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        if source_reservation.downstream_target() != source_downstream_plan.target() {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
         let mut expected_source = try_staging_vec(source_downstream_plan.raw_interval_capacity())?;
         source
             .derive_reservation_downstream_claims_from_plan(
@@ -1672,6 +1675,10 @@ pub(crate) fn migrate_conflict_state(
         let target_downstream_plan = target
             .reservation_downstream_claim_plan(target_range, target_state.length_mm)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        // 直移逐边映射完整路线，入口出现已核验。物理并集相等仍可能落在另一次经过。
+        if target_downstream_plan.target() != source_reservation.downstream_target() {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
         let mut downstream = try_staging_vec(target_downstream_plan.raw_interval_capacity())?;
         target
             .derive_reservation_downstream_claims_from_plan(target_downstream_plan, &mut downstream)
@@ -1695,6 +1702,7 @@ pub(crate) fn migrate_conflict_state(
                 crate::kernel::conflict::RestoredConflictReservation {
                     follower_min_gap_mm,
                     acquired_tick: source_reservation.acquired_tick(),
+                    downstream_target: target_downstream_plan.target(),
                     passage_range: target_range,
                     cells: &cells,
                     downstream: &downstream,
@@ -2057,6 +2065,9 @@ pub(crate) fn project_expected_conflict(
         let downstream_plan = target
             .reservation_downstream_claim_plan(target_range, target_state.length_mm)
             .map_err(|_| CutoverError::ConflictRevalidationFailed)?;
+        if downstream_plan.target() != source_reservation.downstream_target() {
+            return Err(CutoverError::ConflictRevalidationFailed);
+        }
         let mut physical = try_staging_vec(downstream_plan.raw_interval_capacity())?;
         target
             .derive_reservation_downstream_claims_from_plan(downstream_plan, &mut physical)
@@ -3905,6 +3916,10 @@ pub(crate) mod tests {
         assert_eq!(
             target_reservation.acquired_tick(),
             source_reservation.acquired_tick()
+        );
+        assert_eq!(
+            target_reservation.downstream_target(),
+            source_reservation.downstream_target()
         );
         assert!(world.state.conflict_state_valid());
         assert!(world.state.migration_journal().is_none());

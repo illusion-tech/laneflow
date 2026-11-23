@@ -1177,6 +1177,9 @@ impl crate::kernel::state::WorldState {
                 let downstream_plan = self
                     .reservation_downstream_claim_plan(range, state.length_mm)
                     .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
+                if downstream_plan.target() != reservation.downstream_target() {
+                    return Err(SnapshotCaptureError::ConflictInvariantViolation);
+                }
                 budget
                     .charge_bytes_for_reserve(
                         core::mem::size_of::<crate::DownstreamInterval>(),

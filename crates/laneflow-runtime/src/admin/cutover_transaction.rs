@@ -1325,6 +1325,7 @@ fn apply_conflict_tick_deltas(
             crate::kernel::conflict::RestoredConflictReservation {
                 follower_min_gap_mm,
                 acquired_tick,
+                downstream_target: plan.target(),
                 passage_range: range,
                 cells: &cells,
                 downstream: &downstream,
@@ -2668,6 +2669,14 @@ mod tests {
             .expect("candidate replays production Conflict delta");
             assert_same_committed(&source, &candidate);
             assert!(candidate.conflict_state_valid());
+            assert_eq!(
+                candidate
+                    .conflict_reservation(vehicle)
+                    .map(|r| r.downstream_target()),
+                source
+                    .conflict_reservation(vehicle)
+                    .map(|r| r.downstream_target())
+            );
             saw_reservation |= source.conflict_reservation(vehicle).is_some();
             saw_actual_clear |=
                 source
