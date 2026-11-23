@@ -641,6 +641,7 @@ live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 
 occurrence 合并，因此单个合并区间没有唯一可保存的 route hop。reservation 级
 route/Gate/passages、车辆全长和当前修订边长才是可复现证明：capture、restore 和
 cutover 均从该证明重新推导整个物理并集并精确比较，不能按 edge 搜索猜测 occurrence。
+跟入取得的并集长于单车重建值，四个入口统一改按联合设计 §6.11 的预约区间有效性校验。
 wire owner 由所属车辆记录给出；恢复后 reservation 只由 `ConflictArbiter` 持有，车辆
 `Clearing` 只保存 Gate route anchor。跟车最小间隙由该车 profile 派生，不在每个区间重复持久化。
 grant 未发生 crossing 时不提交任何成员或 reservation；whole-vehicle lifecycle 释放
@@ -673,8 +674,8 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。同一 cell
 可以有同一跟入链的多个持有者，跟入候选的物理并集延伸到链的叠放需求，并可与同链
 成员重叠（联合设计 §6.11）。这类并集的终点取决于跟入时的链组成，不能只从本车
-reservation 逐项重建；restore 与 cutover 对其改按该节校验跟入键、物理顺序、连续性、
-叠放需求下界与硬边界上界，持久形状不变。wire 按 edge
+reservation 逐项重建；capture、restore、same/cross-revision cutover 统一按该节的预约
+区间有效性校验，下界只计入该车及其前方的链成员，持久形状不变。wire 按 edge
 StableId/start/end 排序，lowering 后再按当前修订 ordinal 规范化；两种顺序不能混作同一判据。
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
