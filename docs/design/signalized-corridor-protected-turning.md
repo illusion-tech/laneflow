@@ -7,7 +7,7 @@ revised_date = "2026-11-23"
 summary = "定义信号化走廊受保护转向、跨组冲突区与清空判据。"
 scope = "v0.9 双路口走廊的受保护左转、直行、右转、lane-level ManeuverPath、完整 Route catalog、固定时制、跨组冲突区与验证边界"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496", "https://github.com/illusion-tech/laneflow/issues/1498", "https://github.com/illusion-tech/laneflow/issues/1500", "https://github.com/illusion-tech/laneflow/issues/1507"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1496", "https://github.com/illusion-tech/laneflow/issues/1498", "https://github.com/illusion-tech/laneflow/issues/1500", "https://github.com/illusion-tech/laneflow/issues/1507", "https://github.com/illusion-tech/laneflow/issues/1509"]
 related = ["adr-0017", "design-example-scenarios", "design-road-junction-model", "design-signal-system", "design-signalized-corridor-population", "design-spatial-geometry", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-right-of-way-policy", "design-waiting-zone-conflict-right-of-way"]
 +++
 
@@ -18,7 +18,7 @@ related = ["adr-0017", "design-example-scenarios", "design-road-junction-model",
 
 默认相位时长对齐检入配置的 16 ms Tick。§7.3 记录的车辆行为假设按 #196 G1 的停车可行性保持更新，已随 #1505 实现交付。
 
-#1507 G1 将相位交接的空间安全从“下一组转绿前内部边全空”改为跨组冲突区约束（§7.4），清空核验相应改为 §8.1 的冲突安全与活性判据。该合同尚待实现：在实现交付前，检入制品不含冲突区，清空核验仍按旧判据运行，#1446 工作包 2 维持旧合同下的失败登记。
+#1507 G1 将相位交接的空间安全从“下一组转绿前内部边全空”改为跨组冲突区约束（§7.4），清空核验相应改为 §8.1 的冲突安全、连续通行、物理一致与活性判据。§7.4 的同路径连续通行依赖 Traffic Runtime 的通用修订（#1509），现行冲突仲裁不提供该能力。该合同尚待实现：在通用修订与走廊实现交付、并在合入提交上取得矩阵结果之前，检入制品不含冲突区，清空核验仍按旧判据运行，#1446 工作包 2 维持旧合同下的失败登记。
 
 实现状态： #229 已交付通用 Traffic 0.8 static domains 与一等
 `ManeuverGate`；#190-#192 已交付 production profile artifacts、当时 catalog 0.2、
@@ -50,8 +50,9 @@ registration 时编译；`laneflow-scenario` 继续拥有示例的人口、回�
   Junction 内，下一组车辆按 Traffic Runtime 的冲突占用、预约与下游净空在 Gate 前
   等待，不以“下一组转绿前内部边全空”作为安全条件。
 
-本 profile 只消费 Traffic Runtime 已有的冲突仲裁，不提供 gap acceptance、
-permissive turn、跨组 priority 或 adaptive solver。SignalController 只执行完整、
+本 profile 消费 Traffic Runtime 的冲突仲裁，其中同路径车队连续通过冲突区依赖
+通用修订 #1509（§7.4）；profile 不提供 gap acceptance、permissive turn、跨组
+priority 或 adaptive solver。SignalController 只执行完整、
 已校验的 phase program，不根据 turn、国家或设施类型写 private heuristic。
 
 本文是现有 ADR 0017 的具体场景 profile，不改变其 owner、identity、Route
@@ -453,19 +454,36 @@ internal edge 全空为安全条件，只能在排除 internal edge 上静止排
   非红，共享冲突区的两组不会在同一 phase 同时得到 `Protected` 候选；检查失败即
   authoring 错误。
 
-**相位交接**（Traffic Runtime 现行合同的推论，本 profile 不新增 Runtime 行为）：
+**现行 Runtime 合同已提供的交接行为**：
 
 - 车辆在 Gate crossing 时取得预约，车头进入 passage 建立占用，车尾越过 clearance
   后释放（`waiting-zone-conflict-right-of-way.md` §6.8）；前一组已合法入场的车辆
   在下一组转绿后继续持有占用；
 - 下一组车辆在冲突区仍被占用或预约时得不到授权，在 Gate 前等待。占用属于已知持续
   阻塞，在制动前视窗内参与停止归约（`traffic-runtime-phase-protocol.md` §3.1.1），
-  车辆不在 internal edge 上停车等待冲突；
-- 取得授权还要求下游净空（`waiting-zone-conflict-right-of-way.md` §6.6）。出口车道
-  容不下整车时，车辆同样在 Gate 前等待，不驶入 Junction 排队；
+  车辆不因冲突在 Gate 之后停车等待；
+- 取得授权要求下游净空（`waiting-zone-conflict-right-of-way.md` §6.6）：不依赖前车
+  继续移动，车尾也能驶过本 Gate 覆盖的全部 passage。该保证只覆盖 passage，不保证
+  整车驶出 Junction；passage 之外的 internal edge 区段可能出现跟车停驻，由
+  Following 与 no-overlap 约束；
 - 黄灯困境区许可只解除黄灯造成的拒绝，资源授权、下游净空与 no-overlap 继续生效
   （`traffic-runtime-right-of-way-policy.md` §3.3）。黄灯期确实不可停、又得不到
   授权的车辆只能由具名投影处理，§8.1 要求规范矩阵中不出现这种投影。
+
+**依赖通用修订的连续通行（#1509）**：
+
+现行合同按车辆独占冲突资源，按车辆预约从 Gate 到 clearance 的下游空间，并要求
+授权前不依赖前车继续移动就能清空全部 passage。同一路径的后车因此在前车驶过全部
+passage 之前得不到授权，车队只能逐辆通过冲突区。这不是本 profile 接受的通行效率
+损失：
+
+- 同一路径持续放行、车距满足跟车安全、下游空间满足 #1509 的条件时，后车应能在
+  前车尚未驶过全部相关 passage 时通过 Gate；
+- 空间不足的车辆不得强行进入；
+- 不同路径共享冲突资源须按几何与通行关系另行证明，同属一个 SignalGroup 不构成
+  兼容理由；
+- 准入条件、跟车停驻位置、所需下游空间与逐车资源释放由 #1509 的通用 G1 定义，
+  本 profile 只消费，不在 generator 或 scenario 中加同 stream 放行例外。
 
 `Y + R` 保持 §7.2 现值。是否调整配时属于通行效率问题，由 §8.1 的交接等待诊断提供
 依据，不再是清空安全的前提。
@@ -486,7 +504,7 @@ internal edge 全空为安全条件，只能在排除 internal edge 上静止排
   Following/no-overlap；
 - §7.4 的 ConflictZone、passage 与 ParticipantStream 按编制规则生成，策略安装的
   protected coherence 检查通过；
-- 跨组冲突安全、交接活性与资源停止不依赖具名投影（见下文清空核验）；
+- 跨组冲突安全、同路径连续通行、资源停止的物理一致与交接活性（见下文清空核验）；
 - native pose、lamp、Route observation 与 Traffic Runtime handles 一致；
 - weighted draw order、blocked retry、初始 permutation 和不同 outer-frame
   chunking 的 replay；
@@ -501,14 +519,25 @@ internal edge 全空为安全条件，只能在排除 internal edge 上静止排
 - **冲突安全**：任一提交边界，同一 ConflictZone 内至多一条 ParticipantStream 的
   车身与其 passage 区间相交；车身区间取 `[front − length, front]`；
 - **红灯跨越**：以拍初红灯提交的 `fromEdge → internal edge` 跨越一律拒绝；
-- **资源停止不依赖具名投影**：所在组未拒绝通行时在 Gate 前减速的车辆，相邻提交
-  边界的减速度不超过其车型的 `b_e`；
+- **连续通行**：§8.1 的定向用例中，同一路径持续绿灯、车距满足跟车安全、下游空间
+  满足 #1509 条件时，至少一辆后车在前车尚未驶过全部相关 passage 时通过 Gate。
+  道路长度、速度与车距按允许该状态发生构造；“每辆车最终都通过”不能代替本项；
+- **物理一致**：所在组未拒绝通行时因冲突区或下游空间在 Gate 前减速、停车的车辆，
+  相邻提交边界的速度、位移与制动能力一致核验：速度降幅满足
+  `traffic-runtime-integer-geometry.md` §5 的 `v_n − v_{n+1} ≤ b_e·Δt + ε_v`，位移
+  不小于以 `b_e` 从 `v_n` 制动所能达到的最小行程，并按同节的整数落地量化登记容差，
+  不另设宽限；只看速度降幅不能排除位移被强行截断；
 - **活性**：任一车辆连续零位移的时长不超过一个完整周期（§7.2，84,064 ms）。红灯
   等待短于一个周期，超过即视为冲突或下游净空造成的停滞；窗口结束时尚未达到该时长
   的等待不计为违例。
 
+连续通行另由定向用例承载：同一 entry lane 的车队在停止线前排队，绿灯放行时出口
+车道有足够空间，断言后车在前车驶过全部相关 passage 之前通过 Gate。规范矩阵不以随机
+人口偶然出现该状态作为证明。
+
 同一次运行另输出诊断，不参与上述判定：黄灯期入场车辆的 `t_e − t_y` 与
-`t_c − t_y`，以及下一组转绿后车辆因冲突区占用或下游净空在 Gate 前等待的时长分布。
+`t_c − t_y`，下一组转绿后车辆因冲突区占用或下游净空在 Gate 前等待的时长分布，以及
+各路径同 stream 车辆同时处于同一 passage 的次数。
 
 失败输出车辆、路线、路径、组、冲突区与占用区间。实现交付前，检入制品不含冲突区，
 本测试仍按 internal edge 全空的旧判据运行，现行结果为未通过（#1446 工作包 2）；
@@ -565,15 +594,15 @@ loader、generator 和 scenario normalization 必须保留所属 artifact 的 fi
 以及可用的 Junction/Movement/Path/Gate/Route/Portal external ID，不以 panic、静默
 丢弃或 ID substring fallback 处理 profile 错误。至少区分：
 
-| 错误类别             | 必须覆盖的事实                                                       |
-| -------------------- | -------------------------------------------------------------------- |
-| topology/owner       | parent 不匹配、owner 不唯一、非法 lane assignment、path 非三 edge    |
-| geometry/binding     | 非有限/量化后退化、长度超差、join 超差、pose 失败                    |
-| route/coverage       | route 不连续、occurrence 歧义、28/44/32 exact invariant 不成立       |
-| catalog/selection    | 版本、顺序、重复 cross-reference、非正 weight、slot/entry 不匹配     |
-| signal/permission    | missing/duplicate Gate、错误 StopLine/group、phase aspect 不完整     |
-| conflict authoring   | 冲突区编制与 §7.4 规则不一致、同组路径相交、protected coherence 失败 |
-| clearance validation | 冲突区同时占用、红灯跨越、资源停止超出 `b_e`、零位移超过一个周期     |
+| 错误类别             | 必须覆盖的事实                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| topology/owner       | parent 不匹配、owner 不唯一、非法 lane assignment、path 非三 edge                    |
+| geometry/binding     | 非有限/量化后退化、长度超差、join 超差、pose 失败                                    |
+| route/coverage       | route 不连续、occurrence 歧义、28/44/32 exact invariant 不成立                       |
+| catalog/selection    | 版本、顺序、重复 cross-reference、非正 weight、slot/entry 不匹配                     |
+| signal/permission    | missing/duplicate Gate、错误 StopLine/group、phase aspect 不完整                     |
+| conflict authoring   | 冲突区编制与 §7.4 规则不一致、同组路径相交、protected coherence 失败                 |
+| clearance validation | 冲突区跨流同时占用、红灯跨越、连续通行不成立、资源停止物理不一致、零位移超过一个周期 |
 
 exact Rust enum 由拥有该 boundary 的 #229/#190–#192 crate 定义，但不能把不同类别
 压缩成无上下文的字符串错误。
@@ -606,6 +635,7 @@ RoadSection/LaneGroup/JunctionGroup runtime。ConflictZone 与预约只用于 §
 | protected profile artifacts、catalog 0.2、scenario/native 最小集成          |          #190 |
 | 50/100/200、stress seeds、clearance/replay/proxy/performance 完整证据       |          #191 |
 | 独立 closure review、文档/关系/Gate 汇总，不新增 runtime 行为               |          #192 |
+| 同路径车队连续通过冲突区的 Traffic Runtime 通用 G1 与实现                   |         #1509 |
 | 跨组冲突区与冲突安全/活性清空判据的 G1（§7.4、§8）                          |         #1507 |
 | 冲突区生成、制品重新生成与清空核验改写                                      | G1 接受后另开 |
 
