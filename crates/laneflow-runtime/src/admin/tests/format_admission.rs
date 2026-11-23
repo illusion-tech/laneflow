@@ -395,7 +395,7 @@ pub(crate) fn install_conflict_reservation(
     )
     .expect("passage range");
     let mut downstream = Vec::new();
-    world
+    let downstream_target = world
         .state
         .derive_reservation_downstream_claims(passage_range, length_mm, &mut downstream)
         .expect("derive downstream physical union");
@@ -419,6 +419,7 @@ pub(crate) fn install_conflict_reservation(
         crate::kernel::conflict::RestoredConflictReservation {
             follower_min_gap_mm,
             acquired_tick: 0,
+            downstream_target,
             passage_range,
             cells: &cells,
             downstream: &downstream,
@@ -545,7 +546,7 @@ fn conflict_eligibility_blocks_route_rebind_without_partial_commit() {
 
 #[test]
 fn conflict_reservation_and_tick_zero_history_round_trip() {
-    let (world, _) = world_with_conflict_reservation();
+    let (world, owner) = world_with_conflict_reservation();
     let captured = world.capture_snapshot().expect("capture Conflict state");
     assert!(
         captured
@@ -576,11 +577,16 @@ fn conflict_reservation_and_tick_zero_history_round_trip() {
     let restored_handle = restored
         .vehicle_handle(reservation_vehicle_id)
         .expect("restored vehicle map");
-    assert!(
+    assert_eq!(
         restored
             .world()
             .conflict_reservation(restored_handle)
-            .is_some()
+            .unwrap()
+            .downstream_target(),
+        world
+            .conflict_reservation(owner)
+            .unwrap()
+            .downstream_target(),
     );
     let recaptured = restored.world().capture_snapshot().expect("recapture");
     assert_eq!(captured, recaptured);

@@ -636,11 +636,11 @@ migration 与独立 expected projection 复用同一完整谓词。
 live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
 的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
 结合重编译路线核验该次 occurrence、entry/clearance 和车辆位置。只按 stream/zone
-不能区分循环路线中的重复出现。当前单车实现的下游账本和 LFRS 7 只保存规范化的
-`(LaneEdge StableId, startMm, endMm)` 物理区间并集；同一物理边的重叠 route
-occurrence 合并，因此单个合并区间没有唯一可保存的 route hop。reservation 级
-route/Gate/passages、车辆全长和当前修订边长才是可复现证明：capture、restore 和
-cutover 均从该证明重新推导整个物理并集并精确比较，不能按 edge 搜索猜测 occurrence。
+不能区分循环路线中的重复出现。当前单车实现把仲裁求出的路线终点随过门提交到本车
+reservation，并在各 passage 持有行记录占用阶段。下游账本仍按物理边合并重叠区间。
+LFRS 7 写入 `(LaneEdge StableId, startMm, endMm)` 并集；恢复与迁移日志重放根据
+预约的路线、Gate、passages、车长和边长重新推导单车终点。捕获和直算摘要同时核对
+热状态终点和物理并集，跨修订直移还核对稳定边映射后的路线出现与物理区间。
 跟入合同要求每车预约记录授权终点，目标格式以快照合同 §2.1 为准。物理并集服务于
 空间互斥；单车、两车和更多车辆可能得到同一并集。仲裁提交、生命周期和恢复均从
 预约读取路线终点，按联合设计 §6.11 与单车终点比较，再验证逐车义务。

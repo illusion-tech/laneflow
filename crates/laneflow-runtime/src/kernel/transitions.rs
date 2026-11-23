@@ -318,11 +318,13 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 .and_then(|plan| plan.grant_index)
                 .and_then(|index| self.workspace.conflict_grants.get(index.get() as usize - 1))
                 .filter(|grant| row.position().route_edge_index > grant.gate_hop);
-            let range = prepared.and_then(|grant| grant.passage_range).or_else(|| {
-                self.conflict_read()
-                    .reservation(vehicle)
-                    .map(|value| value.passage_range())
-            });
+            let range = prepared
+                .and_then(|grant| grant.passage_range())
+                .or_else(|| {
+                    self.conflict_read()
+                        .reservation(vehicle)
+                        .map(|value| value.passage_range())
+                });
             let control = row.source.control();
             let waiting_plan = self
                 .workspace
@@ -403,7 +405,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     maneuver_occurrence_index: range.maneuver_occurrence_index(),
                     hop: range.admission_gate_hop(),
                 });
-                if prepared.and_then(|grant| grant.passage_range).is_some() {
+                if prepared.is_some_and(|grant| grant.reservation.is_some()) {
                     push(
                         anchor,
                         TrafficTransitionKind::ReservationAcquired {

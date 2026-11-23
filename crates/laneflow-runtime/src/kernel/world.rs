@@ -889,13 +889,14 @@ impl crate::kernel::state::WorldState {
         range: crate::ConflictPassageRange,
         vehicle_length_mm: u32,
         output: &mut Vec<crate::DownstreamInterval>,
-    ) -> Result<(), ConflictAcquireError> {
+    ) -> Result<crate::DownstreamRoutePoint, ConflictAcquireError> {
         let plan = self.reservation_downstream_claim_plan(range, vehicle_length_mm)?;
         output.clear();
         output
             .try_reserve_exact(plan.raw_interval_capacity())
             .map_err(|_| ConflictAcquireError::ScratchAllocFailed)?;
-        self.derive_reservation_downstream_claims_from_plan(plan, output)
+        self.derive_reservation_downstream_claims_from_plan(plan, output)?;
+        Ok(plan.target())
     }
 
     /// 策略派生的求值前沿证明时长（毫秒）；无间隙接受参数时为 `None`。

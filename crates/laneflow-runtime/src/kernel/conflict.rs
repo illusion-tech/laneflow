@@ -1464,6 +1464,7 @@ pub(crate) struct RestoredConflictCell {
 pub(crate) struct RestoredConflictReservation<'a> {
     pub(crate) follower_min_gap_mm: u32,
     pub(crate) acquired_tick: u64,
+    pub(crate) downstream_target: DownstreamRoutePoint,
     pub(crate) passage_range: ConflictPassageRange,
     pub(crate) cells: &'a [RestoredConflictCell],
     pub(crate) downstream: &'a [DownstreamInterval],
@@ -1641,6 +1642,7 @@ pub struct ConflictReservation {
     owner: VehicleHandle,
     passage_range: ConflictPassageRange,
     downstream_owner: VehicleHandle,
+    downstream_target: DownstreamRoutePoint,
     downstream_claim_count: u32,
     acquired_tick: u64,
     claim_serial: u64,
@@ -1676,6 +1678,11 @@ impl ConflictReservation {
     #[must_use]
     pub const fn downstream_owner(self) -> VehicleHandle {
         self.downstream_owner
+    }
+    /// 返回实际授权的路线终点；重复经过同一物理边时保留精确出现下标。
+    #[must_use]
+    pub(crate) const fn downstream_target(self) -> DownstreamRoutePoint {
+        self.downstream_target
     }
     /// 返回 downstream claim 数量。
     #[must_use]
@@ -2566,9 +2573,10 @@ impl ConflictArbiter {
         grant: ConflictGrant,
         passage_range: ConflictPassageRange,
         entered_passage: ConflictPassageAddress,
+        downstream_target: DownstreamRoutePoint,
     ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
         self.write()
-            .commit_crossing(grant, passage_range, entered_passage)
+            .commit_crossing(grant, passage_range, entered_passage, downstream_target)
     }
 
     /// Gate crossing 建立 reservation，occupancy 由后续已验证 passage 转移建立。
@@ -2578,8 +2586,10 @@ impl ConflictArbiter {
         &mut self,
         grant: ConflictGrant,
         range: ConflictPassageRange,
+        downstream_target: DownstreamRoutePoint,
     ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
-        self.write().commit_gate_crossing_deferred(grant, range)
+        self.write()
+            .commit_gate_crossing_deferred(grant, range, downstream_target)
     }
 
     /// 测试专用：消费纯等待 grant，返回其等待区。
@@ -3264,8 +3274,9 @@ impl<'a> ConflictRead<'a> {
         self,
         grant: &ConflictGrant,
         passage_range: ConflictPassageRange,
+        downstream_target: DownstreamRoutePoint,
     ) -> Result<(), ConflictAcquireError> {
-        self.crossing_commit_preflight(grant, passage_range, None)
+        self.crossing_commit_preflight(grant, passage_range, downstream_target, None)
             .map(|_| ())
     }
 
@@ -3273,6 +3284,7 @@ impl<'a> ConflictRead<'a> {
         self,
         grant: &ConflictGrant,
         passage_range: ConflictPassageRange,
+        downstream_target: DownstreamRoutePoint,
         entered_passage: Option<ConflictPassageAddress>,
     ) -> Result<ConflictCrossingPreflight, ConflictAcquireError> {
         let authority_index = self
@@ -3302,7 +3314,9 @@ impl<'a> ConflictRead<'a> {
         let entered_index = entered_passage
             .map(|address| self.cell_index(address))
             .transpose()?;
-        if cells == 0
+        if downstream_target.carry_um() != 0
+            || downstream_target.route_edge_index() < passage_range.admission_gate_hop()
+            || cells == 0
             || downstream_claims == 0
             || passage_range.passage_count != cell_count
             || staged.owner != grant.owner
@@ -3661,10 +3675,15 @@ impl<'world> ConflictWrite<'world> {
         &self,
         grant: &ConflictGrant,
         passage_range: ConflictPassageRange,
+        downstream_target: DownstreamRoutePoint,
         entered_passage: Option<ConflictPassageAddress>,
     ) -> Result<ConflictCrossingPreflight, ConflictAcquireError> {
-        self.read()
-            .crossing_commit_preflight(grant, passage_range, entered_passage)
+        self.read().crossing_commit_preflight(
+            grant,
+            passage_range,
+            downstream_target,
+            entered_passage,
+        )
     }
 
     fn pure_waiting_grant_preflight(
@@ -3735,11 +3754,14 @@ impl<'world> ConflictWrite<'world> {
         let RestoredConflictReservation {
             follower_min_gap_mm,
             acquired_tick,
+            downstream_target,
             passage_range,
             cells,
             downstream,
         } = restored;
-        if cells.is_empty()
+        if downstream_target.carry_um() != 0
+            || downstream_target.route_edge_index() < passage_range.admission_gate_hop()
+            || cells.is_empty()
             || downstream.is_empty()
             || cells.iter().all(|cell| cell.cleared)
             || cells
@@ -3763,7 +3785,7 @@ impl<'world> ConflictWrite<'world> {
             },
         )?;
         let reservation = self
-            .commit_gate_crossing_deferred(grant, passage_range)?
+            .commit_gate_crossing_deferred(grant, passage_range, downstream_target)?
             .reservation;
         self.expire_unconsumed_grants();
         let location = self.owner_authority(owner).expect("restored reservation");
@@ -4074,9 +4096,15 @@ impl<'world> ConflictWrite<'world> {
         grant: ConflictGrant,
         passage_range: ConflictPassageRange,
         entered_passage: ConflictPassageAddress,
+        downstream_target: DownstreamRoutePoint,
     ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
         let owner = grant.owner;
-        let result = self.commit_crossing_inner(grant, passage_range, Some(entered_passage))?;
+        let result = self.commit_crossing_inner(
+            grant,
+            passage_range,
+            downstream_target,
+            Some(entered_passage),
+        )?;
         self.flush_crossings();
         assert!(
             self.enter_passage(owner, entered_passage),
@@ -4091,17 +4119,24 @@ impl<'world> ConflictWrite<'world> {
         &mut self,
         grant: ConflictGrant,
         range: ConflictPassageRange,
+        downstream_target: DownstreamRoutePoint,
     ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
-        self.commit_crossing_inner(grant, range, None)
+        self.commit_crossing_inner(grant, range, downstream_target, None)
     }
 
     fn commit_crossing_inner(
         &mut self,
         grant: ConflictGrant,
         passage_range: ConflictPassageRange,
+        downstream_target: DownstreamRoutePoint,
         entered_passage: Option<ConflictPassageAddress>,
     ) -> Result<ConflictCrossingCommit, ConflictAcquireError> {
-        let preflight = self.crossing_commit_preflight(&grant, passage_range, entered_passage)?;
+        let preflight = self.crossing_commit_preflight(
+            &grant,
+            passage_range,
+            downstream_target,
+            entered_passage,
+        )?;
         let previous = self
             .owner_at(preflight.authority_index)
             .expect("owner authority");
@@ -4115,6 +4150,7 @@ impl<'world> ConflictWrite<'world> {
             owner: grant.owner,
             passage_range,
             downstream_owner: grant.owner,
+            downstream_target,
             downstream_claim_count: preflight.downstream_claim_count,
             acquired_tick: grant.tick,
             claim_serial: grant.serial,
@@ -5293,6 +5329,7 @@ mod tests {
                 RestoredConflictReservation {
                     follower_min_gap_mm: 5,
                     acquired_tick: 10,
+                    downstream_target: DownstreamRoutePoint::new(0, 10, 0).unwrap(),
                     passage_range: passage_range(0, 0, 0, 0, 2),
                     cells: &[
                         RestoredConflictCell {
@@ -5361,6 +5398,7 @@ mod tests {
                 RestoredConflictReservation {
                     follower_min_gap_mm: 5,
                     acquired_tick: 1,
+                    downstream_target: DownstreamRoutePoint::new(1, 10, 0).unwrap(),
                     passage_range: passage_range(0, 0, 0, 0, 1),
                     cells: &[RestoredConflictCell {
                         address: first_cell,
@@ -5377,6 +5415,7 @@ mod tests {
                 RestoredConflictReservation {
                     follower_min_gap_mm: 7,
                     acquired_tick: 2,
+                    downstream_target: DownstreamRoutePoint::new(1, 10, 0).unwrap(),
                     passage_range: passage_range(1, 0, 0, 0, 1),
                     cells: &[RestoredConflictCell {
                         address: second_cell,
@@ -5799,7 +5838,12 @@ mod tests {
             Some(ConflictYieldOutcome::Occupied)
         );
         let _commit = arbiter
-            .commit_crossing(grant, passage_range(0, 0, 0, 0, 1), target)
+            .commit_crossing(
+                grant,
+                passage_range(0, 0, 0, 0, 1),
+                target,
+                DownstreamRoutePoint::new(0, 1, 0).unwrap(),
+            )
             .unwrap();
         assert_eq!(
             arbiter.clear_passage(vehicle(2), target, 100),
@@ -5879,7 +5923,12 @@ mod tests {
             "failed bundle leaves no partial zone claim"
         );
         let commit = arbiter
-            .commit_crossing(grant, passage_range(0, 3, 4, 0, 2), a)
+            .commit_crossing(
+                grant,
+                passage_range(0, 3, 4, 0, 2),
+                a,
+                DownstreamRoutePoint::new(5, 10, 0).unwrap(),
+            )
             .unwrap();
         let reservation = commit.reservation;
         assert_eq!(
@@ -6041,6 +6090,97 @@ mod tests {
     }
 
     #[test]
+    fn crossing_retains_the_granted_occurrence_when_physical_claims_are_identical() {
+        let a = LaneEdgeOrdinal::from_raw(0);
+        let b = LaneEdgeOrdinal::from_raw(1);
+        let edges = [a, b, a, b, a];
+        let lengths = [100_000, 50_000];
+        let gate = DownstreamRoutePoint::new(0, 0, 0).unwrap();
+        let clearance = DownstreamRoutePoint::new(1, 48_000, 0).unwrap();
+        let cell = address(0, 0, 0);
+        let owner = vehicle(0);
+        let union = [
+            DownstreamInterval::new(a, 0, 100_000).unwrap(),
+            DownstreamInterval::new(b, 0, 50_000).unwrap(),
+        ];
+        for (extension, hop, progress_mm) in [
+            (2_000, 2, 0),
+            (4_500, 2, 2_500),
+            (11_000, 2, 9_000),
+            (17_500, 2, 15_500),
+            (152_000, 4, 0),
+            (252_000, 4, 100_000),
+        ] {
+            let target = downstream_claim_target(&edges, &lengths, clearance, extension).unwrap();
+            let mut claims = Vec::new();
+            derive_downstream_claims(&edges, &lengths, gate, target, &mut claims).unwrap();
+            assert_eq!(claims, union);
+            let mut arbiter = ConflictArbiter::new(vec![cell], 1).unwrap();
+            let grant = arbiter
+                .try_acquire(
+                    1,
+                    GrantResourceBundle {
+                        owner,
+                        follower_min_gap_mm: 2_000,
+                        cells: &[cell],
+                        downstream: &claims,
+                        waiting_entitlement: None,
+                    },
+                )
+                .unwrap();
+            arbiter
+                .commit_crossing(grant, passage_range(0, 0, 0, 0, 1), cell, target)
+                .unwrap();
+            let stored = arbiter
+                .read()
+                .reservation(owner)
+                .unwrap()
+                .downstream_target();
+            assert_eq!(
+                stored,
+                DownstreamRoutePoint::new(hop, progress_mm, 0).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn capture_and_direct_digest_reject_an_endpoint_that_v7_cannot_represent() {
+        let (mut world, owner) =
+            crate::admin::format_admission::tests::world_with_conflict_reservation();
+        let captured = world.capture_snapshot().unwrap();
+        let reservation = world
+            .state
+            .committed
+            .conflict
+            .committed_owners
+            .iter_mut()
+            .find(|record| record.owner() == owner)
+            .unwrap();
+        let original = reservation.downstream_target();
+        reservation.downstream_target.progress_mm += 1;
+        assert_eq!(
+            world.capture_snapshot(),
+            Err(crate::SnapshotCaptureError::ConflictInvariantViolation)
+        );
+        assert!(matches!(
+            world.direct_state_digest(crate::SnapshotDigestLimits::new(u64::MAX)),
+            Err(crate::SnapshotDigestError::InvariantViolation(
+                crate::StateInvariantViolation::ConflictAuthorityMismatch
+            ))
+        ));
+        world
+            .state
+            .committed
+            .conflict
+            .committed_owners
+            .iter_mut()
+            .find(|record| record.owner() == owner)
+            .unwrap()
+            .downstream_target = original;
+        assert_eq!(world.capture_snapshot().unwrap(), captured);
+    }
+
+    #[test]
     fn downstream_claim_plan_exposes_raw_loop_capacity_before_union_merge() {
         let shared = LaneEdgeOrdinal::from_raw(0);
         let middle = LaneEdgeOrdinal::from_raw(1);
@@ -6128,7 +6268,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             arbiter
-                .commit_crossing(grant, passage_range(0, 0, 0, 0, 2), cell)
+                .commit_crossing(
+                    grant,
+                    passage_range(0, 0, 0, 0, 2),
+                    cell,
+                    DownstreamRoutePoint::new(0, 10, 0).unwrap()
+                )
                 .err(),
             Some(ConflictAcquireError::InvalidBundle)
         );
@@ -6195,10 +6340,20 @@ mod tests {
         assert!(arbiter.committed.committed_downstream.capacity() >= 2);
         assert!(arbiter.committed.committed_owners.capacity() >= 2);
         arbiter
-            .commit_crossing(grant_a, passage_range(0, 0, 0, 0, 1), a)
+            .commit_crossing(
+                grant_a,
+                passage_range(0, 0, 0, 0, 1),
+                a,
+                DownstreamRoutePoint::new(0, 10, 0).unwrap(),
+            )
             .unwrap();
         arbiter
-            .commit_crossing(grant_b, passage_range(0, 1, 1, 1, 1), b)
+            .commit_crossing(
+                grant_b,
+                passage_range(0, 1, 1, 1, 1),
+                b,
+                DownstreamRoutePoint::new(1, 10, 0).unwrap(),
+            )
             .unwrap();
         assert_eq!(
             arbiter
@@ -6231,7 +6386,12 @@ mod tests {
             )
             .unwrap();
         let reservation = arbiter
-            .commit_crossing(grant, passage_range(0, 0, 0, 0, 1), a)
+            .commit_crossing(
+                grant,
+                passage_range(0, 0, 0, 0, 1),
+                a,
+                DownstreamRoutePoint::new(0, 10, 0).unwrap(),
+            )
             .unwrap()
             .reservation;
         arbiter.expire_unconsumed_grants();
@@ -6254,7 +6414,12 @@ mod tests {
             assert!(
                 arbiter
                     .read()
-                    .crossing_commit_preflight(&grant, range, Some(b))
+                    .crossing_commit_preflight(
+                        &grant,
+                        range,
+                        DownstreamRoutePoint::new(1, 10, 0).unwrap(),
+                        Some(b)
+                    )
                     .is_ok()
             );
             arbiter.write().discard_staged();
@@ -6266,7 +6431,12 @@ mod tests {
             assert_eq!(
                 arbiter
                     .read()
-                    .crossing_commit_preflight(&grant, range, Some(b))
+                    .crossing_commit_preflight(
+                        &grant,
+                        range,
+                        DownstreamRoutePoint::new(1, 10, 0).unwrap(),
+                        Some(b)
+                    )
                     .err(),
                 Some(ConflictAcquireError::InvalidBundle)
             );
@@ -6286,7 +6456,14 @@ mod tests {
                 },
             )
             .unwrap();
-        arbiter.commit_crossing(retry, range, b).unwrap();
+        arbiter
+            .commit_crossing(
+                retry,
+                range,
+                b,
+                DownstreamRoutePoint::new(1, 10, 0).unwrap(),
+            )
+            .unwrap();
         arbiter.expire_unconsumed_grants();
         assert_eq!(arbiter.workspace.next_serial, u64::MAX);
         assert_eq!(arbiter.read().reservation(vehicle(1)), Some(reservation));
@@ -6370,6 +6547,7 @@ mod tests {
                 .commit_gate_crossing_deferred(
                     grant,
                     passage_range(0, index as u32, 0, index as u32, 1),
+                    DownstreamRoutePoint::new(0, 10, 0).unwrap(),
                 )
                 .unwrap();
         }

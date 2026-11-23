@@ -1234,6 +1234,7 @@ fn restore_conflict_aggregate(
                 follower_min_gap_mm,
                 acquired_tick: binding.acquired_tick(),
                 passage_range,
+                downstream_target: downstream_plan.target(),
                 cells: &restored_cells,
                 downstream: &downstream,
             },

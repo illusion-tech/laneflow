@@ -16,9 +16,9 @@ use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
     ApproachEstimate, ConflictEligibilityState, ConflictPassageAddress,
     ConflictPassageOccurrenceLocator, ConflictPassageRange, ConflictResourceNoGrant,
-    ConflictYieldOutcome, GateCandidateKind, GatePolicyDecision, ManeuverTraversalPhase,
-    ManeuverTraversalState, ParkingBinding, RouteHandle, StepError, TrafficWorld, VehicleHandle,
-    VehicleState, VehicleStatus,
+    ConflictYieldOutcome, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
+    ManeuverTraversalPhase, ManeuverTraversalState, ParkingBinding, RouteHandle, StepError,
+    TrafficWorld, VehicleHandle, VehicleState, VehicleStatus,
 };
 
 struct GateMotion {
@@ -287,6 +287,7 @@ pub(crate) struct ConflictCandidate {
     pub(crate) cells_end: usize,
     pub(crate) downstream_start: usize,
     pub(crate) downstream_end: usize,
+    pub(crate) downstream_target: Option<DownstreamRoutePoint>,
     pub(crate) follower_min_gap_mm: u32,
     pub(crate) waiting_zone: Option<WaitingZoneOrdinal>,
     pub(crate) preflight_no_grant: Option<ConflictNoGrantReason>,
@@ -753,8 +754,14 @@ impl ConflictSchedule {
 pub(crate) struct PreparedConflictGrant {
     pub(crate) vehicle: VehicleHandle,
     pub(crate) gate_hop: u32,
-    pub(crate) passage_range: Option<ConflictPassageRange>,
+    pub(crate) reservation: Option<(ConflictPassageRange, DownstreamRoutePoint)>,
     pub(crate) grant: ConflictGrant,
+}
+
+impl PreparedConflictGrant {
+    pub(crate) fn passage_range(&self) -> Option<ConflictPassageRange> {
+        self.reservation.map(|(range, _)| range)
+    }
 }
 
 /// 可能为 Some 的车位清单。清单完整时清空表只需清这些位置；容量不足或下标放不进
@@ -981,7 +988,7 @@ fn plan_resource_row(
             .is_some_and(|index| position.route_edge_index > view.grants[index].gate_hop);
         let range = grant_index
             .filter(|_| crossed)
-            .and_then(|index| view.grants[index].passage_range)
+            .and_then(|index| view.grants[index].passage_range())
             .or_else(|| {
                 view.read
                     .conflict_reservation(handle)
@@ -2628,6 +2635,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         cells_end: cells_len,
                         downstream_start: downstream_len,
                         downstream_end: downstream_len,
+                        downstream_target: None,
                         follower_min_gap_mm: 0,
                         waiting_zone,
                         preflight_no_grant: None,
@@ -2736,10 +2744,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 跳过路径），与融合 prepare_resource_candidate 在进入 downstream
         // 前 clear 对齐——缓冲内容只属当前候选。
         self.workspace.conflict_downstream_work.clear();
-        let (downstream_start, downstream_end) = match downstream {
+        let (downstream_start, downstream_end, downstream_target) = match downstream {
             DownstreamSegment::SkippedPreflight => {
                 let len = self.workspace.conflict_candidate_downstream.len();
-                (len, len)
+                (len, len, None)
             }
             DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant) => {
                 // A4/A5：折入 preflight，不公开错误；空 downstream 区间。
@@ -2748,7 +2756,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     ConflictResourceNoGrant::DownstreamStorageBoundary,
                 ))?);
                 let len = self.workspace.conflict_candidate_downstream.len();
-                (len, len)
+                (len, len, None)
             }
             DownstreamSegment::PreFailed(DownstreamEvalError::Invariant) => {
                 return Err(StepError::ConflictInvariantViolation);
@@ -2758,7 +2766,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 // 先于 F4 后填充检查错误公开；随后消费填充结果。
                 self.reserve_conflict_downstream_work(raw_capacity)?;
                 match fill {
-                    Ok(()) => {
+                    Ok(target) => {
                         self.workspace
                             .conflict_downstream_work
                             .extend_from_slice(&scratch.claims);
@@ -2770,6 +2778,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         (
                             downstream_start,
                             self.workspace.conflict_candidate_downstream.len(),
+                            Some(target),
                         )
                     }
                     Err(DownstreamFillError::Invariant) => {
@@ -2781,7 +2790,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 // 任务局部 claims 暂存不足：协调器同原语补算（F4 在内部；
                 // 工作区已在分支前清空），随后原位 F3b 预留与接纳。
                 match self.prepare_candidate_downstream(state, passage_range, gate_hop) {
-                    Ok(()) => {
+                    Ok(target) => {
                         let downstream_start = self.workspace.conflict_candidate_downstream.len();
                         reserve(
                             &mut self.workspace.conflict_candidate_downstream,
@@ -2793,13 +2802,14 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         (
                             downstream_start,
                             self.workspace.conflict_candidate_downstream.len(),
+                            Some(target),
                         )
                     }
                     Err(ConflictAcquireError::NoGrant(reason)) => {
                         preflight_no_grant =
                             Some(map_acquire_error(ConflictAcquireError::NoGrant(reason))?);
                         let len = self.workspace.conflict_candidate_downstream.len();
-                        (len, len)
+                        (len, len, None)
                     }
                     Err(ConflictAcquireError::InvalidBundle | ConflictAcquireError::Capacity) => {
                         return Err(StepError::ConflictInvariantViolation);
@@ -2843,6 +2853,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             cells_end,
             downstream_start,
             downstream_end,
+            downstream_target,
             follower_min_gap_mm,
             waiting_zone,
             preflight_no_grant,
@@ -3285,6 +3296,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 cells_end: self.workspace.conflict_candidate_cells.len(),
                 downstream_start: self.workspace.conflict_candidate_downstream.len(),
                 downstream_end: self.workspace.conflict_candidate_downstream.len(),
+                downstream_target: None,
                 follower_min_gap_mm: 0,
                 waiting_zone,
                 preflight_no_grant: None,
@@ -3423,9 +3435,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .extend_from_slice(&self.workspace.conflict_cell_work);
 
         self.workspace.conflict_downstream_work.clear();
+        let mut downstream_target = None;
         if preflight_no_grant.is_none() {
             match self.prepare_candidate_downstream(state, passage_range, gate_hop) {
-                Ok(()) => {}
+                Ok(target) => downstream_target = Some(target),
                 Err(ConflictAcquireError::NoGrant(reason)) => {
                     preflight_no_grant =
                         Some(map_acquire_error(ConflictAcquireError::NoGrant(reason))?);
@@ -3477,6 +3490,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             cells_end: self.workspace.conflict_candidate_cells.len(),
             downstream_start,
             downstream_end: self.workspace.conflict_candidate_downstream.len(),
+            downstream_target,
             follower_min_gap_mm: self
                 .binding
                 .revision
@@ -3497,7 +3511,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         state: VehicleState,
         range: ConflictPassageRange,
         gate_hop: u32,
-    ) -> Result<(), ConflictAcquireError> {
+    ) -> Result<DownstreamRoutePoint, ConflictAcquireError> {
         // 共用领域段：F4 之前的前置计划检查与分发任务同一实现。
         let view = ConflictTaskView {
             read: crate::kernel::phase::StepReadView {
@@ -3546,7 +3560,8 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut self.workspace.conflict_downstream_work,
             plan.raw_interval_capacity(),
         )
-        .map_err(|_| ConflictAcquireError::InvalidBundle)
+        .map_err(|_| ConflictAcquireError::InvalidBundle)?;
+        Ok(plan.target())
     }
 
     /// 按稳定顺序仲裁候选：授予组合资源并暂存本拍决定。
@@ -3622,6 +3637,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 self.workspace.waiting_dependencies.rollback();
                 ConflictDecisionOutcome::NoGrant(reason)
             } else {
+                let reservation = match (candidate.passage_range, candidate.downstream_target) {
+                    (Some(range), Some(target)) => Some((range, target)),
+                    (None, None) => None,
+                    _ => return Err(StepError::ConflictInvariantViolation),
+                };
                 let result = self
                     .committed
                     .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
@@ -3660,7 +3680,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         self.workspace.conflict_grants.push(PreparedConflictGrant {
                             vehicle: candidate.vehicle,
                             gate_hop: candidate.anchor.hop,
-                            passage_range: candidate.passage_range,
+                            reservation,
                             grant,
                         });
                         ConflictDecisionOutcome::Granted
@@ -3750,7 +3770,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .workspace
             .conflict_grants
             .iter()
-            .filter_map(|grant| grant.passage_range)
+            .filter_map(PreparedConflictGrant::passage_range)
             .map(|range| range.passage_count() as usize)
             .sum();
         let parallel = execution.filter(|resources| {
@@ -3818,7 +3838,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                     }
                     let range = grant_index
                         .filter(|_| crossed)
-                        .and_then(|index| self.workspace.conflict_grants[index].passage_range)
+                        .and_then(|index| self.workspace.conflict_grants[index].passage_range())
                         .or_else(|| {
                             self.conflict_reservation(handle)
                                 .map(|reservation| reservation.passage_range())
@@ -3891,10 +3911,10 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             if next.route_edge_index <= prepared.gate_hop {
                 continue;
             }
-            match prepared.passage_range {
-                Some(range) => self
+            match prepared.reservation {
+                Some((range, target)) => self
                     .conflict_read()
-                    .validate_gate_crossing(&prepared.grant, range)
+                    .validate_gate_crossing(&prepared.grant, range, target)
                     .map_err(|_| StepError::ConflictInvariantViolation)?,
                 None => self
                     .conflict_read()
@@ -4156,19 +4176,19 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             if next.route_edge_index <= prepared.gate_hop {
                 continue;
             }
-            if journal_armed && prepared.passage_range.is_some() {
+            if journal_armed && prepared.reservation.is_some() {
                 self.workspace
                     .conflict_changed_owners
                     .push(prepared.vehicle);
             }
-            match prepared.passage_range {
-                Some(range) => {
+            match prepared.reservation {
+                Some((range, target)) => {
                     crate::kernel::conflict::ConflictWrite::new(
                         &mut self.committed.conflict,
                         &mut self.derived.conflict,
                         &mut self.workspace.conflict,
                     )
-                    .commit_gate_crossing_deferred(prepared.grant, range)
+                    .commit_gate_crossing_deferred(prepared.grant, range, target)
                     .expect("prevalidated Conflict crossing commit");
                 }
                 None => {
@@ -5488,7 +5508,6 @@ mod tests {
         fn build(
             revision: &Arc<laneflow_static_network::SharedNetworkRevision>,
             raw_capacity: usize,
-            fill: Result<(), DownstreamFillError>,
         ) -> (
             TrafficWorld,
             VehicleHandle,
@@ -5532,14 +5551,16 @@ mod tests {
             let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
                 panic!("fixture 必须产出 Computed 段");
             };
-            *downstream = DownstreamSegment::Obligated { raw_capacity, fill };
+            *downstream = DownstreamSegment::Obligated {
+                raw_capacity,
+                fill: Err(DownstreamFillError::Invariant),
+            };
             (world, vehicle, state, resource, scratch)
         }
 
         // ① F4 需真实增长 + 注入失败 + fill 失败 ⇒ CSAF。
         {
-            let (mut world, vehicle, state, resource, scratch) =
-                build(&revision, 1, Err(DownstreamFillError::Invariant));
+            let (mut world, vehicle, state, resource, scratch) = build(&revision, 1);
             let world_id = world.state.binding.world_id;
             let mut step = world.state.step_workspace();
             reset_conflict_reserve_probe_log();
@@ -5555,8 +5576,7 @@ mod tests {
 
         // ② F4 余量足够 + fill 失败 ⇒ CIV，注入未触发。
         {
-            let (mut world, vehicle, state, resource, scratch) =
-                build(&revision, 1, Err(DownstreamFillError::Invariant));
+            let (mut world, vehicle, state, resource, scratch) = build(&revision, 1);
             let world_id = world.state.binding.world_id;
             let mut step = world.state.step_workspace();
             step.workspace
@@ -5581,7 +5601,7 @@ mod tests {
 
         // ③ PreFailed(Invariant) + F4 已武装 ⇒ CIV，F4 未被访问。
         {
-            let (mut world, vehicle, state, mut resource, scratch) = build(&revision, 1, Ok(()));
+            let (mut world, vehicle, state, mut resource, scratch) = build(&revision, 1);
             let world_id = world.state.binding.world_id;
             let ResourceStage::Computed { downstream, .. } = &mut resource.stage else {
                 panic!("fixture 必须产出 Computed 段");
@@ -6843,7 +6863,7 @@ enum DownstreamSegment {
     /// （失败位置保真：F4 增长失败先于 F4 后填充检查失败公开）。
     Obligated {
         raw_capacity: usize,
-        fill: Result<(), DownstreamFillError>,
+        fill: Result<DownstreamRoutePoint, DownstreamFillError>,
     },
     /// 任务局部暂存不足 → 协调器同原语补算（不冒充领域分配失败）。
     Unmaterialized,
@@ -7017,6 +7037,7 @@ fn resource_shape(
                 cells_end: 0,
                 downstream_start: 0,
                 downstream_end: 0,
+                downstream_target: None,
                 follower_min_gap_mm: 0,
                 waiting_zone: *waiting_zone,
                 preflight_no_grant: None,
@@ -7043,8 +7064,9 @@ fn resource_shape(
             if !matches!(cells, CellsSegment::Materialized) {
                 return None;
             }
-            let (preflight_no_grant, claims, downstream_work) = match downstream {
-                DownstreamSegment::SkippedPreflight => (*preflight_no_grant, 0, 0),
+            let (preflight_no_grant, claims, downstream_work, downstream_target) = match downstream
+            {
+                DownstreamSegment::SkippedPreflight => (*preflight_no_grant, 0, 0, None),
                 DownstreamSegment::PreFailed(DownstreamEvalError::NoGrant) => (
                     Some(
                         map_acquire_error(ConflictAcquireError::NoGrant(
@@ -7054,14 +7076,16 @@ fn resource_shape(
                     ),
                     0,
                     0,
+                    None,
                 ),
                 DownstreamSegment::Obligated {
                     raw_capacity,
-                    fill: Ok(()),
+                    fill: Ok(target),
                 } => (
                     *preflight_no_grant,
                     scratch.claims.len(),
                     (*raw_capacity).max(scratch.claims.len()),
+                    Some(*target),
                 ),
                 DownstreamSegment::PreFailed(DownstreamEvalError::Invariant)
                 | DownstreamSegment::Obligated { fill: Err(_), .. }
@@ -7098,6 +7122,7 @@ fn resource_shape(
                     cells_end: cells,
                     downstream_start: 0,
                     downstream_end: claims,
+                    downstream_target,
                     follower_min_gap_mm,
                     waiting_zone: *waiting_zone,
                     preflight_no_grant,
@@ -8277,11 +8302,9 @@ impl ConflictTaskView<'_> {
         if claims.try_reserve(raw_capacity).is_err() {
             return DownstreamSegment::Unmaterialized;
         }
-        let fill = match self.fill_downstream_claims(plan.route(), plan.plan, claims, raw_capacity)
-        {
-            Ok(()) => Ok(()),
-            Err(error) => Err(error),
-        };
+        let fill = self
+            .fill_downstream_claims(plan.route(), plan.plan, claims, raw_capacity)
+            .map(|()| plan.target());
         DownstreamSegment::Obligated { raw_capacity, fill }
     }
 }
