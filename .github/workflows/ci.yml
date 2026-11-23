@@ -332,6 +332,12 @@ jobs:
         shell: bash
         run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
 
+      # #1500 只读运动诊断 feature 默认关闭；打点紧邻运动求值热路径，单独检查。
+      - name: Check motion trace lints
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-scenario --all-targets --locked --features laneflow-runtime/motion-trace,laneflow-scenario/motion-trace -- -D warnings
+
       - name: Run workspace tests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
@@ -350,6 +356,15 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features execution-evidence -E 'test(execution_evidence)'
+
+      # #1500：Runtime 对照回归只构建 lib；走廊样本重放（含开关记录一致性与
+      # 预览复用记录）只构建该集成目标。记录器线程局部，nextest 逐测试进程执行。
+      - name: Run motion trace tests
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: |
+          cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features motion-trace -E 'test(yellow_boundary_ride_trace)'
+          cargo +1.99.1 nextest run -p laneflow-scenario --test signalized_corridor_yellow_trace --locked --features motion-trace
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests
