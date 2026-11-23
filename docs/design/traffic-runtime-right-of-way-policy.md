@@ -757,8 +757,13 @@ digest 复核后才一次发布。快照/恢复保留该基准，失败丢弃候
 
 在线事务在 Prepare 只全量迁移一次 Conflict，并把新增/不连续 cell 的目标 address
 保存为有界最终化计划。追赶期的生产 tick 将 grant、crossing、tail-clear 与 lag history
-变化写入增量日志；只改变 binding 的 reserve/cancel 增量保留候选既有 authority，带
-authority 的 park/rebind 转换失败关闭，despawn 增量在候选以该记录时刻同步释放
+变化写入增量日志。只改变 binding 的 reserve/cancel 增量保留候选既有 authority。
+车辆仍持有冲突预约时，park 转换在源命令与候选重放均拒绝。联合升版后的路线重绑
+增量按[联合设计][waiting-zone] §6.11 与源命令使用相同的判据：在目标路线上验证
+原机动入口与 Gate、passages、车身、到 `E_f` 的有序路径与派生并集，以及未兑现的
+逐车义务。通过后候选原子更新车辆路线、停车绑定与预约出现锚点，保留既有 owner、
+获得刻度与授权范围。重放验证失败则放弃候选，源世界已提交的重绑仍然有效。
+despawn 增量在候选以该记录时刻同步释放
 reservation、清 eligibility 并写真实 clear history。静默提交只排空日志尾并把计划中
 的 floor 更新时间改为 `T_commit`，工作量与本次新增/不连续 cell 数成正比；禁止再次按
 全部车辆和全部 Conflict cell 调用全量迁移。
