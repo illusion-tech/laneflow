@@ -1098,6 +1098,32 @@ fn finish_values(
     rounded_um: f64,
     rounded_speed: f64,
 ) {
+    let hold = if input.enabled[row] && numeric_valid {
+        hold_for_row(input, row, delta_s, rounded_um, rounded_speed)
+    } else {
+        None
+    };
+    finish_held(
+        input,
+        output,
+        row,
+        numeric_valid,
+        rounded_um,
+        rounded_speed,
+        hold,
+    );
+}
+
+/// 完成原语本体；`hold` 是同一行 [`hold_for_row`] 的结果（向量路径复用已求值结果）。
+fn finish_held(
+    input: &Input<'_>,
+    output: &mut Columns<'_>,
+    row: usize,
+    numeric_valid: bool,
+    rounded_um: f64,
+    rounded_speed: f64,
+    hold: Option<HoldCommit>,
+) {
     output.valid[row] = false;
     if !input.enabled[row] {
         return;
@@ -1106,7 +1132,6 @@ fn finish_values(
         return;
     }
     let room = input.hard_room_mm[row];
-    let hold = hold_for_row(input, row, delta_s, rounded_um, rounded_speed);
     let (carry_um, rounded_um, rounded_speed) = match hold {
         Some(commit) => (
             commit.carry_um,

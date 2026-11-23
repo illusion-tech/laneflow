@@ -1,7 +1,7 @@
 use super::projection::{ROOT_SHRINK_HARD, ROOT_SHRINK_SOFT};
 use super::{
     BoundaryInput, BoundaryOutput, Columns, EdgeInput, EdgeOutput, EdgeStats, Input, LimitInput,
-    LimitOutput, Phase, SAFE_SPEED_SHRINK, Stats, finish_values, hold_for_row, motion_values_valid,
+    LimitOutput, Phase, SAFE_SPEED_SHRINK, Stats, finish_held, hold_for_row, motion_values_valid,
     quantize_row, raw_valid, stop_solve_participates,
 };
 use std::arch::x86_64::*;
@@ -90,6 +90,10 @@ unsafe fn finish4<const TRACK: bool>(
         let speed_value =
             _mm_blendv_epi8(_mm_min_epu32(projected, limit), exhausted_value, exhausted);
         let exhausted_bits = _mm_movemask_ps(_mm_castsi128_ps(exhausted));
+        // 整数几何 §5.1 会改写的通道走标量完成原语（同一定义），复用此处的求值结果。
+        let held: [_; 4] = std::array::from_fn(|lane| {
+            hold_for_row(input, start + lane, delta_s, um[lane], speed[lane])
+        });
         let fast: [i32; 4] = std::array::from_fn(|lane| {
             let row = start + lane;
             let numeric_valid = delta_s > 0.0
@@ -105,9 +109,7 @@ unsafe fn finish4<const TRACK: bool>(
                 exhausted_bits & (1 << lane) != 0 && input.exhausted_speed_cap_mm_s[row] == 0;
             let convertible = travel_convertible
                 && (forced_zero || (speed[lane] >= 0.0 && speed[lane] <= f64::from(u32::MAX)));
-            // 整数几何 §5.1 会改写的通道走标量完成原语（同一定义）。
-            let held = hold_for_row(input, row, delta_s, um[lane], speed[lane]).is_some();
-            if input.enabled[row] && numeric_valid && convertible && !held {
+            if input.enabled[row] && numeric_valid && convertible && held[lane].is_none() {
                 -1
             } else {
                 0
@@ -145,14 +147,14 @@ unsafe fn finish4<const TRACK: bool>(
                     stats.integer_vector_lanes += 1;
                 }
             } else {
-                finish_values(
+                finish_held(
                     input,
                     output,
                     row,
-                    delta_s,
                     valid[lane],
                     um[lane],
                     speed[lane],
+                    held[lane],
                 );
             }
         }

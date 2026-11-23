@@ -1605,3 +1605,85 @@ fn relay_shared_edge_with_bypass_branches_is_rejected() {
     ];
     assert_rejected(&revision, &[&through], &straight);
 }
+
+/// #1506 评审（整数几何 §5.1）：常规候选已零速恰好到达过渡预约边界、过渡
+/// 实际限定 `hard_room`，舒适耗尽速度仍为正时，到位零速必须优先。档案
+/// `b_c = 4.5`、`b_e = 9.0`；`V = 900 mm/s`、`D = 45 mm`、`Δt = 100 ms`：
+/// `Φ_e(V) = 45000 µm = 1000·D`，紧急档拍内恰好停稳；舒适耗尽速度为 450。
+#[test]
+fn transition_bound_arrival_commits_zero_speed() {
+    let mut topology = cross_topology();
+    for spec in &mut topology.edges {
+        if spec.key == "e2a" {
+            spec.successors = &["s2"];
+        }
+    }
+    topology.edges.retain(|spec| spec.key != "t2");
+    let revision = build(&topology);
+    let lengths = revision.traffic().lane_lengths_millimetres().to_vec();
+    let get = |length| by_length(&revision, length);
+    let (e0a, e2a) = (get(26_000), get(27_000));
+    let t = transition_after(&revision, e0a);
+    let s2 = straight_after(&revision, e2a);
+    let (e2b, int1, exit1) = (get(31_000), get(8_000), get(10_000));
+    for carry in [0_u16, 400] {
+        let mut world = install(revision.clone(), 1);
+        let mut spawn = |edges: Vec<LaneEdgeOrdinal>, progress_mm: u32| {
+            let handle = world
+                .register_route(crate::RouteRegisterInput::new(edges))
+                .expect("route registers");
+            world
+                .spawn_vehicle(
+                    crate::VehicleSpawnInput::new(
+                        laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                        handle,
+                        0,
+                        progress_mm,
+                        SPEED_MM_S,
+                    )
+                    .with_open_entrance(),
+                )
+                .expect("spawn")
+        };
+        let changer = spawn(vec![e0a, t, e2b, int1, exit1], 15_000);
+        let straight = spawn(vec![e2a, s2, e2b, int1, exit1], 16_000);
+        world.state.rebuild_occupancy_index().unwrap();
+        let mut entered = false;
+        for _ in 0..100 {
+            world.state.prepare_waiting_step(0.1).unwrap();
+            world.step(crate::TickInput::new(100)).unwrap();
+            let changer = world.state.committed.vehicles.state(changer).unwrap();
+            if changer.route_edge_index == 1 {
+                entered = true;
+                break;
+            }
+        }
+        assert!(entered, "换道车进入过渡段并持有过渡资源");
+        {
+            let mut slot = world
+                .state
+                .committed
+                .vehicles
+                .slot_mut(straight.index() as usize);
+            let state = slot.state.as_mut().unwrap();
+            state.route_edge_index = 1;
+            state.progress_mm = lengths[s2.index()] - 45;
+            state.speed_mm_s = 900;
+            state.carry_um = carry;
+        }
+        world.state.rebuild_occupancy_index().unwrap();
+        world.state.prepare_waiting_step(0.1).unwrap();
+        world.step(crate::TickInput::new(100)).unwrap();
+        let state = world.state.committed.vehicles.state(straight).unwrap();
+        assert_eq!(
+            (
+                state.route_edge_index,
+                state.progress_mm,
+                state.speed_mm_s,
+                state.carry_um
+            ),
+            (1, lengths[s2.index()], 0, 0),
+            "C {carry}：恰好到达过渡边界并零速"
+        );
+    }
+}
