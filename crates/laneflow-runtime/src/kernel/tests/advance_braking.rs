@@ -108,36 +108,37 @@ fn yellow_dilemma_crosses_when_unstoppable() {
     assert!(crossed, "困境区内的黄灯门当拍许可跨越");
 }
 
-/// 按裁定的逐拍困境区语义：舒适域带宽按构造只有一拍舒适减速
-/// （`[v−b_c·Δt, v)`），巡航中的黄灯车随 IIDM 加速骑到紧急界、沿紧急
-/// 减速度下行，进入困境区半径（`v²/(2·b_e) > d`）后逐拍经许可过门。
-/// 该用例固化此可观测后果：全程单拍已提交速度差不超过紧急界、世界合法
-/// 步进、门被跨越。真正的「停车」由红灯锚（停止目标 + 到位衰减）覆盖。
+/// 整数几何 §5.1（#196 G1、#1505）：黄灯起点舒适可停的车辆保持舒适可停。
+/// 此前按逐拍困境区语义，巡航中的黄灯车随 IIDM 加速骑到舒适界，整数提交把
+/// 状态挤出舒适域，转入紧急域后再加速，最终以困境区许可过门；停车可行性
+/// 保持取代了这一后果。6 m/s、距线 10 m 时舒适停车距离 9 m：车辆全程不越线，
+/// 单拍降幅不超过舒适界（含收紧候选的量化偏差），最终恰好到线零速、余数为零。
 #[test]
-fn yellow_boundary_ride_stays_within_emergency_bounds_and_crosses() {
+fn yellow_boundary_ride_holds_comfort_stop_and_does_not_cross() {
     let mut world = aspect_world(SignalAspect::Yellow, 100);
     let route = route_of(&mut world);
     let vehicle = spawn(&mut world, route, 0, 0, 6_000).expect("spawn");
     let mut previous = 6_000_u32;
     let mut max_drop = 0_u32;
-    let mut crossed = false;
-    for _ in 0..100 {
+    for _ in 0..200 {
         world
             .step(crate::TickInput::new(100))
-            .expect("yellow boundary ride step");
+            .expect("yellow boundary step");
         let state = world.vehicle(vehicle).expect("vehicle");
+        assert_eq!(state.route_edge_index, 0, "舒适可停的黄灯车不越过停止线");
         max_drop = max_drop.max(previous.saturating_sub(state.speed_mm_s));
         previous = state.speed_mm_s;
-        if state.route_edge_index > 0 {
-            crossed = true;
-            break;
-        }
     }
-    assert!(crossed, "困境区半径内逐拍许可跨越");
-    let bound = (4.0 * 100.0) as u32 + 2;
+    let state = world.vehicle(vehicle).expect("vehicle");
+    assert_eq!(
+        (state.progress_mm, state.speed_mm_s, state.carry_um),
+        (10_000, 0, 0),
+        "持续目标下恰好到线零速"
+    );
+    let bound = (2.0 * 100.0) as u32 + 2;
     assert!(
         max_drop <= bound,
-        "骑紧急界全程单拍速度差 {max_drop} ≤ 紧急界 {bound}"
+        "保持舒适可停的单拍速度差 {max_drop} ≤ 舒适界 {bound}"
     );
 }
 
@@ -429,8 +430,9 @@ fn waiting_non_entry_outcome_consumes_effective_yellow_decision() {
     }
 }
 
-/// #1500 对照：开启运动诊断重放上一用例，逐拍输出门决策、两档可行域与已提交
-/// 状态，供与走廊样本对照。诊断只读，跨越行为与上一用例相同。
+/// #1500 对照：开启运动诊断重放上一用例，逐拍输出门决策、两档可行域、整数
+/// 几何 §5.1 的改写与已提交状态，供与走廊样本对照。诊断只读，行为与上一用例
+/// 相同：不越线、恰好到线零速，且至少一拍出现保持改写。
 #[cfg(feature = "motion-trace")]
 #[test]
 fn yellow_boundary_ride_trace_explains_each_tick() {
@@ -441,21 +443,32 @@ fn yellow_boundary_ride_trace_explains_each_tick() {
     motion_trace::start(&[vehicle]);
     let mut rows = Vec::new();
     let mut previous = world.vehicle(vehicle).expect("vehicle");
-    for _ in 0..100 {
+    for _ in 0..200 {
         let tick = world.time_ms();
         motion_trace::set_tick(tick);
         world
             .step(crate::TickInput::new(100))
-            .expect("yellow boundary ride step");
+            .expect("yellow boundary step");
         let next = world.vehicle(vehicle).expect("vehicle");
         rows.push((tick, previous, next));
         previous = next;
-        if next.route_edge_index > 0 {
+        if next.speed_mm_s == 0 && next.progress_mm == 10_000 {
             break;
         }
     }
     let events = motion_trace::finish();
-    assert!(previous.route_edge_index > 0, "困境区半径内逐拍许可跨越");
+    assert_eq!(previous.route_edge_index, 0, "舒适可停的黄灯车不越过停止线");
+    assert_eq!(
+        (previous.progress_mm, previous.speed_mm_s, previous.carry_um),
+        (10_000, 0, 0),
+        "持续目标下恰好到线零速"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, TraceEvent::Hold { .. })),
+        "边界骑行至少一拍由停车可行性保持改写"
+    );
     for (tick, start, next) in &rows {
         let of_tick = |wanted: &dyn Fn(&TraceEvent) -> bool| {
             events
@@ -470,6 +483,12 @@ fn yellow_boundary_ride_trace_explains_each_tick() {
                 .cloned()
         };
         let gate = of_tick(&|event| matches!(event, TraceEvent::Gate { .. }));
+        let hold = events.iter().rev().find_map(|event| match event {
+            TraceEvent::Hold {
+                tick: t, commit, ..
+            } if t == tick => Some(*commit),
+            _ => None,
+        });
         let reused = of_tick(&|event| {
             matches!(
                 event,
@@ -519,7 +538,7 @@ fn yellow_boundary_ride_trace_explains_each_tick() {
         println!(
             "tick {tick} progress {} speed {} carry {} d {distance:?} h_c {:?} h_e {:?} \
              gate {decision} p5 {} candidate {:.4} comfort {:?} emergency {:?} reduced {:.4} \
-             -> speed {} progress {} edge {}",
+             hold {:?} -> speed {} progress {} edge {}",
             start.progress_mm,
             start.speed_mm_s,
             start.carry_um,
@@ -530,9 +549,66 @@ fn yellow_boundary_ride_trace_explains_each_tick() {
             motion.comfort,
             motion.emergency,
             motion.reduced,
+            hold.map(|commit| (
+                commit.kind,
+                commit.carry_um,
+                commit.speed_mm_s,
+                commit.travel_um
+            )),
             next.speed_mm_s,
             next.progress_mm,
             next.route_edge_index,
+        );
+    }
+}
+
+/// #196 / signal-system §6：困境区能力判据按已提交整数状态精确求值
+/// `Φ_e(V) > 1000·D`。fixture 紧急减速度 4 m/s²：`V = 2000 mm/s`、`D = 500 mm` 时
+/// `Φ_e = 500 000 µm` 恰等于 `1000·D`，可停、不豁免；`V = 2001 mm/s` 时
+/// `Φ_e = 500 501 µm`，豁免。等号附近不受 `f32` 舍入影响。
+#[test]
+fn yellow_dilemma_capability_uses_exact_integer_stop_distance() {
+    let mut world = aspect_world(SignalAspect::Yellow, 100);
+    let route = route_of(&mut world);
+    let vehicle = spawn(&mut world, route, 0, 0, 0).expect("spawn");
+    let state = world.vehicle(vehicle).expect("vehicle");
+    let view = world.state.read_view();
+    let gate = view.compiled_route(state.route).expect("compiled").hop_gate[0].expect("gate");
+    assert!(!view.gate_yellow_dilemma_exempt(gate, state.profile, 2_000, 500));
+    assert!(view.gate_yellow_dilemma_exempt(gate, state.profile, 2_001, 500));
+    assert!(!view.gate_yellow_dilemma_exempt(gate, state.profile, 0, 0));
+}
+
+/// 整数几何 §5.1：从黄灯起点舒适档不可停、紧急档可停的状态出发，车辆保持紧急
+/// 可停（不获困境区许可、不越线），单拍降幅不超过 `b_e·Δt + ε_v`，并恰好到线
+/// 零速。fixture：8 m/s、距线 10 m，紧急刹停 8 m 可停，舒适刹停 16 m 不可停。
+#[test]
+fn yellow_emergency_stoppable_vehicle_keeps_emergency_stop() {
+    for delta_ms in [16_u64, 20, 50, 100] {
+        let mut world = aspect_world(SignalAspect::Yellow, delta_ms);
+        let route = route_of(&mut world);
+        let vehicle = spawn(&mut world, route, 0, 0, 8_000).expect("spawn");
+        let mut previous = 8_000_u32;
+        let mut max_drop = 0_u32;
+        for _ in 0..(20_000 / delta_ms) {
+            world
+                .step(crate::TickInput::new(delta_ms))
+                .expect("yellow emergency step");
+            let state = world.vehicle(vehicle).expect("vehicle");
+            assert_eq!(state.route_edge_index, 0, "dt {delta_ms}：紧急可停不越线");
+            max_drop = max_drop.max(previous.saturating_sub(state.speed_mm_s));
+            previous = state.speed_mm_s;
+        }
+        let state = world.vehicle(vehicle).expect("vehicle");
+        assert_eq!(
+            (state.progress_mm, state.speed_mm_s, state.carry_um),
+            (10_000, 0, 0),
+            "dt {delta_ms}：恰好到线零速"
+        );
+        let bound = (4.0 * delta_ms as f32) as u32 + 1;
+        assert!(
+            max_drop <= bound,
+            "dt {delta_ms}：单拍降幅 {max_drop} ≤ {bound}"
         );
     }
 }

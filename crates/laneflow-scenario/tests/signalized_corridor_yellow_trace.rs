@@ -19,7 +19,9 @@ mod corridor;
 use std::fmt::Write as _;
 
 use corridor::{TICK_MS, corridor};
-use laneflow_runtime::motion_trace::{self, MotionPath, TraceDistance, TraceEvent, TraceMotion};
+use laneflow_runtime::motion_trace::{
+    self, HoldCommit, MotionPath, TraceDistance, TraceEvent, TraceMotion,
+};
 use laneflow_runtime::{
     StepOutcome, TickInput, TrafficTransitionEvent, TrafficWorld, VehicleHandle, VehicleState,
     WaitingDecision,
@@ -40,6 +42,8 @@ struct Sample {
     t_y: u64,
     /// fromEdge 在路线中的下标；跨越即前杠离开该边。
     from_index: u32,
+    /// 黄灯起点那一拍是否获困境区许可。
+    exempt_at_onset: bool,
 }
 
 const SAMPLES: [Sample; 3] = [
@@ -51,6 +55,7 @@ const SAMPLES: [Sample; 3] = [
         vehicle: "VehicleHandle { index: 4, generation: 0 }",
         t_y: 52_064,
         from_index: 0,
+        exempt_at_onset: false,
     },
     // 黄灯起点距线 3.0 m、5.86 m/s：紧急停车距离 2.86 m，刚好可停。
     Sample {
@@ -60,8 +65,11 @@ const SAMPLES: [Sample; 3] = [
         vehicle: "VehicleHandle { index: 81, generation: 0 }",
         t_y: 38_048,
         from_index: 0,
+        exempt_at_onset: false,
     },
     // 黄灯起点距线 11.6 m、12.5 m/s：紧急停车距离 13.1 m，起点即不可停（对照）。
+    // 起点获困境区许可；随后前方限速下降投影把速度压到约 4.2 m/s，车辆重新
+    // 舒适可停，自该拍起负保持义务（整数几何 §5.1）。
     Sample {
         name: "S3",
         target: 100,
@@ -69,6 +77,7 @@ const SAMPLES: [Sample; 3] = [
         vehicle: "VehicleHandle { index: 54, generation: 0 }",
         t_y: 2_016,
         from_index: 0,
+        exempt_at_onset: true,
     },
 ];
 
@@ -187,7 +196,8 @@ fn tick_of(event: &TraceEvent) -> u64 {
         | TraceEvent::Gate { tick, .. }
         | TraceEvent::GateBeyondWindow { tick, .. }
         | TraceEvent::SpeedDrop { tick, .. }
-        | TraceEvent::Motion { tick, .. } => *tick,
+        | TraceEvent::Motion { tick, .. }
+        | TraceEvent::Hold { tick, .. } => *tick,
     }
 }
 
@@ -198,6 +208,8 @@ struct Explained<'a> {
     gate: Option<&'a TraceEvent>,
     beyond_window: bool,
     speed_drop: Option<f32>,
+    /// 整数几何 §5.1 对该路径常规候选的改写。
+    hold: Option<HoldCommit>,
 }
 
 fn explain(events: &[TraceEvent], tick: u64) -> Explained<'_> {
@@ -246,12 +258,17 @@ fn explain(events: &[TraceEvent], tick: u64) -> Explained<'_> {
         } if *path == numeric => Some(*speed_m_s),
         _ => None,
     });
+    let hold = of_tick.iter().rev().find_map(|event| match event {
+        TraceEvent::Hold { path, commit, .. } if *path == numeric => Some(*commit),
+        _ => None,
+    });
     Explained {
         path,
         motion,
         gate,
         beyond_window,
         speed_drop,
+        hold,
     }
 }
 
@@ -278,7 +295,7 @@ fn table(sample: &Sample, replay: &Replay) -> String {
         "tick\tedge\tprogress\tspeed\tcarry\td_mm\th_c_mm\th_e_mm\tgate\tp5\tstop_m\t\
          limit\thard_room\tleader_gap\tleader_speed\t\
          proposal\tfloor\tsafe_cap\tcandidate\tcomfort\temergency\treduced\tspeed_drop\t\
-         next_speed\tnext_progress\tnext_carry\tnext_edge"
+         hold\tnext_speed\tnext_progress\tnext_carry\tnext_edge"
     )
     .expect("write");
     let mut previous = replay.initial;
@@ -340,7 +357,7 @@ fn table(sample: &Sample, replay: &Replay) -> String {
         );
         writeln!(
             out,
-            "{tick}\t{}\t{}\t{}\t{}\t{}\t{h_c}\t{h_e}\t{gate}\t{:?}\t{numbers}\t{}\t{}\t{}\t{}\t{}",
+            "{tick}\t{}\t{}\t{}\t{}\t{}\t{h_c}\t{h_e}\t{gate}\t{:?}\t{numbers}\t{}\t{}\t{}\t{}\t{}\t{}",
             previous.route_edge_index(),
             previous.progress_mm(),
             previous.speed_mm_s(),
@@ -348,6 +365,17 @@ fn table(sample: &Sample, replay: &Replay) -> String {
             distance.map_or_else(|| "-".to_owned(), |d| d.to_string()),
             explained.path,
             opt(explained.speed_drop),
+            explained.hold.map_or_else(
+                || "-".to_owned(),
+                |commit| format!(
+                    "{:?}/c{}/q{}/z{}{}",
+                    commit.kind,
+                    commit.carry_um,
+                    commit.speed_mm_s,
+                    commit.travel_um,
+                    if commit.arrives { "/arrive" } else { "" }
+                )
+            ),
             next.speed_mm_s(),
             next.progress_mm(),
             next.carry_um(),
@@ -365,12 +393,37 @@ fn yellow_approach_samples_are_explained_tick_by_tick() {
     std::fs::create_dir_all(&dir).expect("trace dir");
     for sample in &SAMPLES {
         let replay = replay(sample, true);
+        // 先写出逐拍表，断言失败时也留下诊断。
+        let table = table(sample, &replay);
+        println!("{table}");
+        std::fs::write(dir.join(format!("{}.tsv", sample.name)), table).expect("write trace");
+        // #1505：黄灯起点可停的样本保持停车可行性；起点不可停的对照样本获
+        // 困境区许可，此后恢复可停即重新负保持义务。三个样本都不越线。
+        let onset = explain(&replay.events, sample.t_y);
+        assert!(
+            matches!(
+                onset.gate,
+                Some(TraceEvent::Gate { restrictive: true, dilemma_exempt, .. })
+                    if *dilemma_exempt == sample.exempt_at_onset
+            ),
+            "{} 黄灯起点的困境区许可应为 {}",
+            sample.name,
+            sample.exempt_at_onset
+        );
         assert!(
             replay
                 .states
                 .iter()
-                .any(|(_, state)| state.route_edge_index() > sample.from_index),
-            "{} 在记录窗口内跨越",
+                .all(|(_, state)| state.route_edge_index() == sample.from_index),
+            "{} 记录窗口内不越过停止线",
+            sample.name
+        );
+        assert!(
+            replay
+                .events
+                .iter()
+                .any(|event| matches!(event, TraceEvent::Hold { .. })),
+            "{} 至少一拍由停车可行性保持改写",
             sample.name
         );
         for &(tick, _) in &replay.states {
@@ -394,13 +447,11 @@ fn yellow_approach_samples_are_explained_tick_by_tick() {
                 | TraceEvent::Gate { vehicle, .. }
                 | TraceEvent::GateBeyondWindow { vehicle, .. }
                 | TraceEvent::SpeedDrop { vehicle, .. }
-                | TraceEvent::Motion { vehicle, .. } => *vehicle == replay.vehicle,
+                | TraceEvent::Motion { vehicle, .. }
+                | TraceEvent::Hold { vehicle, .. } => *vehicle == replay.vehicle,
             }),
             "只记录被追踪车辆"
         );
-        let table = table(sample, &replay);
-        println!("{table}");
-        std::fs::write(dir.join(format!("{}.tsv", sample.name)), table).expect("write trace");
     }
 }
 

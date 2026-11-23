@@ -318,6 +318,8 @@ fn exact_baseline_trace_and_retry_match() {
     let actual = actual.join("\n");
     eprintln!("PHASE_BASELINE_BEGIN\n{actual}\nPHASE_BASELINE_END");
     // Filled from the fixed pre-refactor commit, never regenerated from the implementation under test.
+    // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
+    // waiting、waiting-journal、conflict、conflict-journal 四行重生成一次，其余两行不变。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-protocol-e011745e.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
@@ -461,6 +463,8 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // phase-protocol-e011745e.txt 锚定（exact_baseline 拍数不变），此后不得用
     // 被测实现重生成。#1489 改变跟车行为（IDM 接近速度项、舒适加速度下限与 §10.2
     // 砖墙安全速度），conflict-parallel 一行按维护者裁定重生成一次，其余三行不变。
+    // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
+    // waiting-parallel 与 conflict-parallel 两行重生成一次，其余两行不变。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-parallel-matrix-c009d2dc.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }

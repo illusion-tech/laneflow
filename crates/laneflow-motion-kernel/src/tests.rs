@@ -24,6 +24,8 @@ struct Fixture {
     emergency: [f32; N],
     stop: [f32; N],
     end: [f32; N],
+    stop_mm: [u32; N],
+    end_mm: [u32; N],
     envelope: [f32; N],
     has_proposal: [bool; N],
     proposal_speed: [f32; N],
@@ -54,6 +56,8 @@ impl Fixture {
             emergency: [8.0; N],
             stop: [f32::INFINITY; N],
             end: [f32::INFINITY; N],
+            stop_mm: [NO_HOLD_TARGET; N],
+            end_mm: [NO_HOLD_TARGET; N],
             envelope: [f32::INFINITY; N],
             has_proposal: [false; N],
             proposal_speed: [0.0; N],
@@ -89,10 +93,18 @@ impl Fixture {
                 _ => (random % 40_000_000) as f32 / 1_000_000.0,
             };
             f.safe_quantize[row] = row % 2 == 1;
-            f.stop[row] = match row % 7 {
-                0 => 0.0,
-                1 => 0.001,
-                _ => f32::INFINITY,
+            // 整数几何 §5.1：整数目标距离与米值同源；近处目标随机穿插，
+            // 让保持改写在三后端经同一标量完成原语。
+            f.stop_mm[row] = match row % 7 {
+                0 => 0,
+                1 => 1,
+                2 => (random % 20_000) as u32 + 1,
+                _ => NO_HOLD_TARGET,
+            };
+            f.stop[row] = if f.stop_mm[row] == NO_HOLD_TARGET {
+                f32::INFINITY
+            } else {
+                f.stop_mm[row] as f32 / 1_000.0
             };
             f.room[row] = match row % 9 {
                 0 => 0,
@@ -105,9 +117,14 @@ impl Fixture {
             // F3'：耗尽上界主导通道（过渡舒适衰减）随机穿插，验证三后端
             // 与标量在同一主导语义下逐位一致。
             f.cap_dominates[row] = row % 6 == 0;
-            f.end[row] = match row % 13 {
-                0 => 1.0,
-                _ => f32::INFINITY,
+            f.end_mm[row] = match row % 13 {
+                0 => 1_000,
+                _ => NO_HOLD_TARGET,
+            };
+            f.end[row] = if f.end_mm[row] == NO_HOLD_TARGET {
+                f32::INFINITY
+            } else {
+                f.end_mm[row] as f32 / 1_000.0
             };
             f.envelope[row] = (random % 9_000_000) as f32 / 1_000.0;
             f.has_proposal[row] = row % 4 == 0;
@@ -140,6 +157,8 @@ impl Fixture {
             emergency_decel: &self.emergency[..n],
             stop_m: &self.stop[..n],
             route_end_m: &self.end[..n],
+            stop_mm: &self.stop_mm[..n],
+            route_end_mm: &self.end_mm[..n],
             envelope_m: &self.envelope[..n],
             has_proposal: &self.has_proposal[..n],
             proposal_speed_m_s: &self.proposal_speed[..n],
@@ -309,6 +328,7 @@ impl Results {
             exhausted: &mut self.exhausted[..n],
             valid: &mut self.valid[..n],
             window_m: None,
+            hold: None,
         }
     }
 
@@ -320,6 +340,7 @@ impl Results {
             travel_mm: &mut self.travel[..n],
             exhausted: &mut self.exhausted[..n],
             valid: &mut self.valid[..n],
+            hold: None,
         }
     }
 
@@ -1024,4 +1045,171 @@ fn root_rounding_regression_keeps_feasible_positive_root() {
         "shrunk root {u} must stay near the mathematical root 0.1049"
     );
     assert!(speed_down_constraint_holds(0.0, u, 0.1, 0.008, 0.0, 2.0));
+}
+
+/// 整数几何 §5.1 到位与进展：单车经完整运动内核逐拍推进到持续停止目标。
+struct Approach {
+    delta_ms: u32,
+    speed: u32,
+    distance: u32,
+    carry: u16,
+    accel: f32,
+    comfort: f32,
+    emergency: f32,
+    desired: u32,
+    route_end: bool,
+}
+
+/// 16 行同一车辆（覆盖向量通道与标量尾部），返回到位拍数与最大单拍降幅；
+/// 逐拍断言舒适档整数判据 `Φ_c(V) ≤ 1000·D − C` 保持、各行结果一致。
+fn approach(backend: Backend, case: &Approach) -> (u32, u32) {
+    const ROWS: usize = 16;
+    let kernel = Kernel::for_backend(backend).expect("backend");
+    let delta_s = case.delta_ms as f32 / 1_000.0;
+    let (mut speed, mut distance, mut carry) = (case.speed, case.distance, case.carry);
+    let mut max_drop = 0;
+    for tick in 1..=200_000_u32 {
+        let mut f = Fixture::new(0);
+        for row in 0..ROWS {
+            f.enabled[row] = true;
+            f.speed[row] = speed;
+            f.desired[row] = case.desired;
+            f.progress[row] = 0;
+            f.carry[row] = carry;
+            f.room[row] = distance;
+            f.stop_cap[row] = 0;
+            f.cap_dominates[row] = false;
+            f.limit[row] = u32::MAX;
+            f.leader[row] = f32::INFINITY;
+            f.has_leader[row] = false;
+            f.safe_room[row] = f32::INFINITY;
+            f.safe_quantize[row] = false;
+            f.accel[row] = case.accel;
+            f.comfort[row] = case.comfort;
+            f.emergency[row] = case.emergency;
+            let (stop_mm, end_mm) = if case.route_end {
+                (NO_HOLD_TARGET, distance)
+            } else {
+                (distance, NO_HOLD_TARGET)
+            };
+            f.stop_mm[row] = stop_mm;
+            f.end_mm[row] = end_mm;
+            f.stop[row] = if stop_mm == NO_HOLD_TARGET {
+                f32::INFINITY
+            } else {
+                stop_mm as f32 / 1_000.0
+            };
+            f.end[row] = if end_mm == NO_HOLD_TARGET {
+                f32::INFINITY
+            } else {
+                end_mm as f32 / 1_000.0
+            };
+            f.envelope[row] = f32::INFINITY;
+            f.has_proposal[row] = false;
+        }
+        let input = f.input(ROWS);
+        let mut out = Results::new();
+        kernel
+            .run_direct(&input, &mut out.direct_output(ROWS), delta_s)
+            .expect("lengths");
+        for row in 1..ROWS {
+            assert_eq!(
+                (out.speed[row], out.travel[row], out.carry[row]),
+                (out.speed[0], out.travel[0], out.carry[0]),
+                "{backend:?} 行 {row} 与行 0 一致"
+            );
+        }
+        assert!(out.valid[0], "{backend:?} 拍 {tick} 有效");
+        max_drop = max_drop.max(speed.saturating_sub(out.speed[0]));
+        distance -= out.travel[0];
+        speed = out.speed[0];
+        carry = out.carry[0];
+        assert!(
+            stop_distance_um(speed, case.comfort) + u64::from(carry) <= u64::from(distance) * 1_000,
+            "{backend:?} 拍 {tick}：舒适档整数判据保持（V {speed}、D {distance}、C {carry}）"
+        );
+        if distance == 0 && speed == 0 && carry == 0 {
+            return (tick, max_drop);
+        }
+    }
+    panic!("{backend:?} 未在上限内到位（V {speed}、D {distance}、C {carry}）");
+}
+
+#[test]
+fn hold_reaches_persistent_targets_from_normal_states() {
+    let cases = [
+        // #1504 首轮：16 ms，初速 1 m/s、距目标 1.149 m。
+        Approach {
+            delta_ms: 16,
+            speed: 1_000,
+            distance: 1_149,
+            carry: 0,
+            accel: 2.0,
+            comfort: 2.0,
+            emergency: 6.0,
+            desired: 16_667,
+            route_end: false,
+        },
+        // 同一初态，目标为有限路终。
+        Approach {
+            delta_ms: 16,
+            speed: 1_000,
+            distance: 1_149,
+            carry: 0,
+            accel: 2.0,
+            comfort: 2.0,
+            emergency: 6.0,
+            desired: 16_667,
+            route_end: true,
+        },
+        // #1504 复审：5 ms，静止起步、距目标 1.002 m（经过 V = 5、R = 13/14 的拍内停稳）。
+        Approach {
+            delta_ms: 5,
+            speed: 0,
+            distance: 1_002,
+            carry: 0,
+            accel: 1.5,
+            comfort: 1.0,
+            emergency: 6.0,
+            desired: 16_667,
+            route_end: false,
+        },
+        // 静止末端到位：4 ms 与 1000 ms。
+        Approach {
+            delta_ms: 4,
+            speed: 0,
+            distance: 1,
+            carry: 999,
+            accel: 0.5,
+            comfort: 0.5,
+            emergency: 0.5,
+            desired: 16_667,
+            route_end: false,
+        },
+        Approach {
+            delta_ms: 1_000,
+            speed: 0,
+            distance: 1,
+            carry: 500,
+            accel: 0.5,
+            comfort: 0.5,
+            emergency: 0.5,
+            desired: 16_667,
+            route_end: true,
+        },
+    ];
+    for case in &cases {
+        let reference = approach(Backend::Scalar, case);
+        let bound = (case.comfort * case.delta_ms as f32) as u32 + 1;
+        assert!(
+            reference.1 <= bound,
+            "单拍降幅 {} ≤ b_c·Δt + ε_v = {bound}",
+            reference.1
+        );
+        for backend in [Backend::Avx2, Backend::Avx512] {
+            if Kernel::for_backend(backend).is_some() {
+                assert_eq!(approach(backend, case), reference, "{backend:?}");
+            }
+        }
+    }
 }

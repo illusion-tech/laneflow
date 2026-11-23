@@ -726,6 +726,10 @@ impl MotionPreview {
     fn unaffected_by(&self, stop: ResourceBarrier) -> bool {
         // 位置屏障与速度停止目标分别判界：屏障只要求本拍提案够不到；
         // 停止目标额外要求处于制动前视窗外（窗内改变速度与停稳分支）。
+        // 整数几何 §5.1（#1505）：窗口 `Δt·(v+u) + u²/b_c` 不小于本拍行程与舒适
+        // 停车距离之和的两倍，窗外目标的 `1000·D − C` 仍大于常规候选的
+        // `z + Φ_c(q)` 与 `Φ_c(V)`，舒适档成立、不在差带、常规候选通过，不触发
+        // 余数清除或候选改写，与预览的保持结论一致。
         let position_beyond =
             |distance: BoundedDistance, proposed_mm: u64, meters: f32| match distance {
                 BoundedDistance::Finite(mm) => {
@@ -4807,7 +4811,11 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
         let hard_room = limits.hard_room_mm;
         let safe_quantize = inputs.safe_quantize();
-        let exhausted_speed = || {
+        let exhausted_speed = |regular: Option<u32>, arrives: bool| {
+            // 整数几何 §5.1：保持义务下的到线零速，优先于其余正常行。
+            if arrives {
+                return 0;
+            }
             let cap = limits.exhausted_speed_cap(&inputs, delta_s);
             if limits.transition_limited {
                 // F3：过渡预约的实际耗尽由舒适衰减主导（合同「耗尽拍由
@@ -4815,7 +4823,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 // 550 而非 100）。候选的紧急下界只在接近相生效。
                 cap
             } else {
-                cap.min(quantize_mm(safe_quantize, next_speed_m).unwrap_or(u32::MAX))
+                cap.min(regular.unwrap_or(u32::MAX))
             }
         };
         if hard_room == 0 {
@@ -4826,7 +4834,8 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     MotionBounds::HardStopped
                 };
             }
-            state.speed_mm_s = exhausted_speed().min(inputs.current_limit_mm_s);
+            state.speed_mm_s = exhausted_speed(quantize_mm(safe_quantize, next_speed_m), false)
+                .min(inputs.current_limit_mm_s);
             state.carry_um = 0;
             let arrived = parking
                 .is_some_and(|(reservation, _)| self.parking_arrived_for(state, reservation));
@@ -4836,7 +4845,32 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             return Some(state);
         }
 
-        let um = u64::from(state.carry_um).saturating_add(quantize_um(safe_quantize, travel_m)?);
+        let regular_um = quantize_um(safe_quantize, travel_m)?;
+        let regular_speed = quantize_mm(safe_quantize, next_speed_m);
+        // 整数几何 §5.1：候选终速取耗尽与终态清零之前的量化值。
+        let held = regular_speed
+            .and_then(|speed| scalar_hold(&inputs, limits.stop, delta_s, speed, regular_um));
+        let (carry_um, travel_um, commit_speed, arrives) = match held {
+            Some(commit) => (
+                commit.carry_um,
+                commit.travel_um,
+                Some(commit.speed_mm_s),
+                commit.arrives,
+            ),
+            None => (state.carry_um, regular_um, regular_speed, false),
+        };
+        #[cfg(feature = "motion-trace")]
+        if let Some(commit) = held {
+            crate::kernel::motion_trace::record(state.handle, |tick| {
+                crate::kernel::motion_trace::TraceEvent::Hold {
+                    tick,
+                    vehicle: state.handle,
+                    path: crate::kernel::motion_trace::MotionPath::Scalar,
+                    commit,
+                }
+            });
+        }
+        let um = u64::from(carry_um).saturating_add(travel_um);
         let travel_mm_for_bounds = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
         let exhausted_for_bounds = travel_mm_for_bounds == hard_room;
         if let Some(bounds) = motion_bounds {
@@ -4896,7 +4930,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             state.speed_mm_s = if at_route_end {
                 0
             } else {
-                exhausted_speed().min(committed_limit)
+                exhausted_speed(commit_speed, arrives).min(committed_limit)
             };
             state.carry_um = 0;
             let arrived = parking
@@ -4906,7 +4940,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
             }
             return Some(state);
         }
-        let speed_mm_s = quantize_mm(safe_quantize, next_speed_m)?.min(committed_limit);
+        let speed_mm_s = commit_speed?.min(committed_limit);
         state.speed_mm_s = speed_mm_s;
         Some(state)
     }
@@ -5262,8 +5296,10 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         else {
             return false;
         };
-        let speed = si_speed(speed_mm_s);
-        speed * speed / (2.0 * emergency) > si_meters(distance_mm)
+        // #196：按已提交整数状态精确求值 `Φ_e(V) > 1000·D`，与整数几何 §5.1 的
+        // 连续判据共用同一表达式，不读 `carry_um`。
+        laneflow_motion_kernel::stop_distance_um(speed_mm_s, emergency)
+            > u64::from(distance_mm) * 1_000
     }
 
     /// 以本门组按绿灯灯色求值该门的策略决定；供困境区豁免区分「黄灯
@@ -6030,6 +6066,38 @@ fn finite_meters(distance: BoundedDistance) -> Option<f32> {
         BoundedDistance::Finite(mm) => Some(si_meters(mm)),
         BoundedDistance::BeyondFinite => None,
     }
+}
+
+/// 整数几何 §5.1 停车可行性保持的目标距离（mm）。没有目标或不可有限表示时为
+/// [`laneflow_motion_kernel::NO_HOLD_TARGET`]；`u32::MAX` mm 的有限距离远在任何
+/// 停车距离之外，按无目标处理不改变判定。
+fn hold_target_mm(distance: Option<BoundedDistance>) -> u32 {
+    match distance {
+        Some(BoundedDistance::Finite(mm)) => mm,
+        Some(BoundedDistance::BeyondFinite) | None => laneflow_motion_kernel::NO_HOLD_TARGET,
+    }
+}
+
+/// 标量路径的整数几何 §5.1 停车可行性保持（与运动内核完成原语同一定义）。
+fn scalar_hold(
+    inputs: &MotionInputs,
+    stop: Option<BoundedDistance>,
+    delta_s: f32,
+    regular_speed_mm_s: u32,
+    regular_travel_um: u64,
+) -> Option<laneflow_motion_kernel::HoldCommit> {
+    laneflow_motion_kernel::hold_stop_feasibility(
+        &laneflow_motion_kernel::HoldState {
+            speed_mm_s: inputs.speed_mm_s,
+            carry_um: inputs.carry_um,
+            comfort_decel: inputs.comfort_decel,
+            emergency_decel: inputs.emergency_decel,
+            delta_ms: laneflow_motion_kernel::delta_ms(delta_s),
+        },
+        [hold_target_mm(stop), hold_target_mm(Some(inputs.route_end))],
+        regular_speed_mm_s,
+        regular_travel_um,
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

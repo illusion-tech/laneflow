@@ -1,9 +1,14 @@
 //! 纯数值列内核。CPU/OS 检测和切片范围证明限定在本 crate（ADR 0031）。
 //! 不拥有车辆、路线或资源；无近似倒数、FMA 或 fast-math。
 
+mod hold;
 mod projection;
 #[cfg(target_arch = "x86_64")]
 mod x86;
+pub use hold::{
+    HOLD_TARGETS, HoldCommit, HoldKind, HoldState, NO_HOLD_TARGET, delta_ms, hold_stop_feasibility,
+    stop_distance_um,
+};
 pub use projection::{
     BoundaryInput, BoundaryOutput, LimitInput, LimitOutput, max_next_speed_for_decel,
     speed_down_constraint_holds,
@@ -173,6 +178,10 @@ pub struct Input<'a> {
     /// 与正时间步导出这三列，满足该约定。
     pub stop_m: &'a [f32],
     pub route_end_m: &'a [f32],
+    /// 整数几何 §5.1 停车可行性保持的目标距离（mm，与 `stop_m` / `route_end_m`
+    /// 同源的整数值）；[`NO_HOLD_TARGET`] 表示没有该类目标。
+    pub stop_mm: &'a [u32],
+    pub route_end_mm: &'a [u32],
     pub envelope_m: &'a [f32],
     pub has_proposal: &'a [bool],
     pub proposal_speed_m_s: &'a [f32],
@@ -192,6 +201,9 @@ pub struct Output<'a> {
     pub valid: &'a mut [bool],
     /// 只在实际有降速消费者的提案屏障物化制动查询窗。
     pub window_m: Option<&'a mut [f32]>,
+    /// 诊断：整数几何 §5.1 改写后的提交。只写入经标量完成原语且有改写的行，
+    /// 其余行保持调用方预置值；不参与求值。
+    pub hold: Option<&'a mut [Option<HoldCommit>]>,
 }
 
 /// 无后续浮点屏障的常规路径只发布这些列，不要求分配或写入中间提案列。
@@ -202,6 +214,8 @@ pub struct DirectOutput<'a> {
     pub travel_mm: &'a mut [u32],
     pub exhausted: &'a mut [bool],
     pub valid: &'a mut [bool],
+    /// 诊断：同 [`Output::hold`]。
+    pub hold: Option<&'a mut [Option<HoldCommit>]>,
 }
 
 struct Floats<'a> {
@@ -220,6 +234,7 @@ struct Columns<'a> {
     exhausted: &'a mut [bool],
     valid: &'a mut [bool],
     floats: Option<Floats<'a>>,
+    hold: Option<&'a mut [Option<HoldCommit>]>,
 }
 
 impl Output<'_> {
@@ -237,6 +252,7 @@ impl Output<'_> {
                 proposal_travel_m: self.proposal_travel_m,
                 window_m: self.window_m.as_deref_mut(),
             }),
+            hold: self.hold.as_deref_mut(),
         }
     }
 }
@@ -251,6 +267,7 @@ impl DirectOutput<'_> {
             exhausted: self.exhausted,
             valid: self.valid,
             floats: None,
+            hold: self.hold.as_deref_mut(),
         }
     }
 }
@@ -522,6 +539,8 @@ impl Kernel {
             input.emergency_decel.len(),
             input.stop_m.len(),
             input.route_end_m.len(),
+            input.stop_mm.len(),
+            input.route_end_mm.len(),
             input.envelope_m.len(),
             input.has_proposal.len(),
             input.proposal_speed_m_s.len(),
@@ -534,6 +553,7 @@ impl Kernel {
             output.valid.len(),
         ];
         if lengths.iter().any(|&len| len != n)
+            || output.hold.as_ref().is_some_and(|column| column.len() != n)
             || output.floats.as_ref().is_some_and(|floats| {
                 floats.travel_m.len() != n
                     || floats.proposal_speed_m_s.len() != n
@@ -840,7 +860,15 @@ fn scalar_row<const TRACK: bool>(
             floats.proposal_speed_m_s[row],
             floats.travel_m[row],
         );
-        finish_values(input, output, row, valid, rounded_um, rounded_speed);
+        finish_values(
+            input,
+            output,
+            row,
+            delta_s,
+            valid,
+            rounded_um,
+            rounded_speed,
+        );
         return;
     }
     let speed = input.speed_mm_s[row] as f32 / 1_000.0;
@@ -975,7 +1003,15 @@ fn scalar_row<const TRACK: bool>(
     }
     let (rounded_um, rounded_speed) = quantize_row(input.safe_quantize[row], travel, raw_speed);
     let valid = motion_values_valid(input, row, delta_s, raw_travel, raw_speed, travel);
-    finish_values(input, output, row, valid, rounded_um, rounded_speed);
+    finish_values(
+        input,
+        output,
+        row,
+        delta_s,
+        valid,
+        rounded_um,
+        rounded_speed,
+    );
 }
 
 /// 行程微米与速度 mm/s 的量化：默认 round-ties-to-even；跟车安全量化路径向零
@@ -1020,10 +1056,44 @@ fn motion_values_valid(
         || !travel.is_finite())
 }
 
+/// 整数几何 §5.1：常规候选（量化后、耗尽清零之前）经停车可行性保持改写；
+/// 量化值越界或非有限时不改写，由完成原语原有的失败关闭处理。
+fn hold_for_row(
+    input: &Input<'_>,
+    row: usize,
+    delta_s: f32,
+    rounded_um: f64,
+    rounded_speed: f64,
+) -> Option<HoldCommit> {
+    let targets = [input.stop_mm[row], input.route_end_mm[row]];
+    if targets.iter().all(|&target| target == NO_HOLD_TARGET)
+        || input.hard_room_mm[row] == 0
+        || !(rounded_um.is_finite() && rounded_um >= 0.0 && rounded_um <= u64::MAX as f64)
+        || !(rounded_speed.is_finite()
+            && rounded_speed >= 0.0
+            && rounded_speed <= f64::from(u32::MAX))
+    {
+        return None;
+    }
+    hold_stop_feasibility(
+        &HoldState {
+            speed_mm_s: input.speed_mm_s[row],
+            carry_um: input.carry_um[row],
+            comfort_decel: input.comfort_decel[row],
+            emergency_decel: input.emergency_decel[row],
+            delta_ms: delta_ms(delta_s),
+        },
+        targets,
+        rounded_speed as u32,
+        rounded_um as u64,
+    )
+}
+
 fn finish_values(
     input: &Input<'_>,
     output: &mut Columns<'_>,
     row: usize,
+    delta_s: f32,
     numeric_valid: bool,
     rounded_um: f64,
     rounded_speed: f64,
@@ -1036,11 +1106,26 @@ fn finish_values(
         return;
     }
     let room = input.hard_room_mm[row];
+    let hold = hold_for_row(input, row, delta_s, rounded_um, rounded_speed);
+    let (carry_um, rounded_um, rounded_speed) = match hold {
+        Some(commit) => (
+            commit.carry_um,
+            commit.travel_um as f64,
+            f64::from(commit.speed_mm_s),
+        ),
+        None => (input.carry_um[row], rounded_um, rounded_speed),
+    };
+    if let Some(column) = output.hold.as_deref_mut() {
+        column[row] = hold;
+    }
     let projected_speed = (rounded_speed as u32).min(input.committed_limit_mm_s[row]);
     // F3' 复审修：过渡耗尽的「耗尽上界主导」（合同：耗尽拍由该上界主导，
     // 不与候选紧急投影取 min——r_p5 钉版 550 而非 100）；其余停止源维持
     // min(投影, 耗尽上界)。本列只在完成阶段消费，不影响候选形成。
-    let exhausted_speed = if input.exhausted_cap_dominates[row] {
+    // 保持义务下的到线优先于其余正常行：零速（整数几何 §5.1）。
+    let exhausted_speed = if hold.is_some_and(|commit| commit.arrives) {
+        0
+    } else if input.exhausted_cap_dominates[row] {
         input.exhausted_speed_cap_mm_s[row].min(input.committed_limit_mm_s[row])
     } else {
         projected_speed.min(input.exhausted_speed_cap_mm_s[row])
@@ -1057,7 +1142,7 @@ fn finish_values(
     if rounded_um < 0.0 || rounded_um > u64::MAX as f64 || !rounded_um.is_finite() {
         return;
     }
-    let um = u64::from(input.carry_um[row]).saturating_add(rounded_um as u64);
+    let um = u64::from(carry_um).saturating_add(rounded_um as u64);
     let travel_mm = (um / 1_000).min(u64::from(room)) as u32;
     let exhausted = travel_mm == room;
     if !exhausted && (!rounded_speed.is_finite() || rounded_speed > f64::from(u32::MAX)) {
