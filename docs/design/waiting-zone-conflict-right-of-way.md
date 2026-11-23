@@ -892,9 +892,30 @@ stackFront(m_i) = advance(F, Σ_{j=i..k+1} length(m_j) + Σ_{j=i+1..k+1} minimum
 全部 passage；车辆只依赖链中前车继续移动，依赖关系按物理顺序无环。链外车辆不会因
 claim 被挤入，链首前方的链外车辆只会前进或离开，不会使已证明的空间缩小。
 
-**叠放义务**：链成员 `m_i` 的叠放义务是按当前链中 `m_i` 及其后成员计算的
-`stackFront(m_i)`。停车预约、路线重绑、路线替换等生命周期命令若会在链成员的叠放义务
-位置之前引入新的硬边界，按该命令的既有失败分类拒绝，世界不变。
+**腾让义务**：本车冲突占用的结束与为后车腾出空间的义务结束是两个条件。车尾越过
+clearance 只结束本车的冲突占用；已退出跟入链的车辆，只要后车仍依赖它前进，就继续负
+腾让义务。义务从 live reservation 与已提交位置派生，不新增持久状态：
+
+- 对跟入取得的 reservation `f`（claim 终点 `E_f`、coverage 最远 clearance `F_f`），
+  从 `f` 向前，取当前位于 `[Gate, E_f]` 内的车辆，按物理顺序记为 `w_1 … w_r`，令
+  `w_0 = f`，定义所需车头位置：
+
+  ```text
+  requiredFront_f(w_0) = advance(F_f, length(f))
+  requiredFront_f(w_j) = advance(requiredFront_f(w_{j-1}), minimumGap(w_{j-1}) + length(w_j))
+  ```
+
+  这里 `w_j` 可以是链成员，也可以是已 tail-clear、退出链的前车；
+- 车辆 `w` 的腾让义务位置是全部依赖它的 live reservation `f` 中
+  `requiredFront_f(w)` 的最大值。`f` 车尾越过全部 passage 并释放 reservation 后，它
+  对前车的依赖结束；`w` 车头已越过 `requiredFront_f(w)` 时，该项义务已经兑现；
+- 停车预约、路线重绑、路线替换等生命周期命令若会在车辆的腾让义务位置之前引入新的
+  硬边界，按该命令的既有失败分类拒绝，世界不变。命令的检查读取上述派生值，不依赖
+  该车是否仍持有 reservation。
+
+例：A、B 同路径，车长 4.5 m、最小间距 2 m，B 跟入后 `E_B = F + 11 m`。A 车头到达
+`F + 5 m` 时车尾越过 `F`，释放 reservation 并退出链；B 仍在 passage 内，
+`requiredFront_B(A) = F + 11 m`。此时为 A 预约 `F + 8 m` 的停车入口会被拒绝。
 
 **排队与停驻位置**：链中车辆只可能因跟随链中前车而在 passage 内减速或停驻，不会因链外
 障碍或自身硬边界停在 passage 内；链外车辆仍按 §6.6 不在 passage 内停驻。passage 之外
@@ -914,18 +935,26 @@ claim 被挤入，链首前方的链外车辆只会前进或离开，不会使�
 
 **预约区间有效性**：跟入取得的 claim 终点取决于跟入时的链组成，链首释放后无法只从
 本车 reservation 逐项重建。capture、restore、same-revision cutover 与 cross-revision
-cutover 统一使用下列谓词，持久形状不变：
+cutover 统一使用下列谓词，持久形状不变。谓词分两部分，共同终点 `E_f` 只约束区间本身，
+不作为每辆车必须驶达的位置：
 
 - 入档物理并集等于单车重建值的 reservation，按现行规则逐项相等；
-- 入档物理并集长于单车重建值的 reservation 视为跟入取得，必须同时满足：
-  - 并集从 Gate crossed side 连续延伸到终点 `E`；
-  - 同一 cell 的多个持有者属于同一跟入键，并与车辆物理顺序一致；
-  - `E` 不小于按当前链中**该车及其前方**仍存活成员计算的叠放需求，即把该车视为
-    `m_{k+1}`、只计入链中位于它之前的成员；后加入成员的需求不追溯施加给前车；
-  - `E` 不越过该车与其前方成员的硬边界，且位于共同前缀内；
-  - 只与同链成员的 claim 重叠；
+- 入档物理并集长于单车重建值的 reservation 视为跟入取得，并检查：
+  - **区间合法**：并集从 Gate crossed side 连续延伸到 `E_f`，位于 `f` 与
+    `w_1 … w_r` 路线的共同前缀内，不越过 `f` 的 next 未获准 Gate；同一 cell 的多个
+    持有者属于同一跟入键，并与车辆物理顺序一致；只与同链成员的 claim 重叠；
+  - **覆盖所需空间**：对车头尚未越过 `requiredFront_f(w_j)` 的每个 `w_j`，
+    `E_f ≥ requiredFront_f(w_j)`。所需空间只按 `f` 及其前方的车辆计算，后加入成员的
+    需求不追溯施加给前车；前方车辆被移除后需求缩小，较长的历史终点仍然合法；
+  - **逐车可达**：每个 `w_j`（含 `f` 自身）的硬边界都不早于 `requiredFront_f(w_j)`，
+    即腾让义务成立；`E_f` 不与任何单车的硬边界比较；
 - cross-revision cutover 另要求源并集按稳定 edge identity 映射后逐项保持，目标边长、
   车长与最小跟车间隙不变；不满足即拒绝直移。
+
+例：A、B 车长 4.5 m、间距 2 m，下游无其他车辆，B 预约了 `F + 6 m` 的停车入口。跟入时
+`stackFront(A) = F + 11 m`、`stackFront(B) = F + 4.5 m`，`E_B = F + 11 m`；B 的停车
+入口晚于 `F + 4.5 m`，跟入合法。保存时 `E_B` 不与 B 的停车入口比较，只检查
+`requiredFront_B(B) = F + 4.5 m ≤ F + 6 m` 与 A 的硬边界，状态可以保存。
 
 任一失败即失败关闭：capture 不写入，restore 与 cutover 零发布。
 
@@ -943,8 +972,10 @@ cutover 统一使用下列谓词，持久形状不变：
    `b_e·Δt + ε_v`；
 6. **空间证明**：不同 `minimumGap` 的车队遇到下游静止的链外车辆；链首或中间成员有
    独立停车目标或路线分叉；叠放需求等值通过、少 1 `carry_um` 失败；链外 merge 被
-   叠放 claim 阻挡；在叠放义务之前引入硬边界的生命周期命令被拒绝；
-7. **状态恢复一致**：两车、三车先后跟入，以及链首驶离、中间成员移除后，capture、
+   叠放 claim 阻挡；在腾让义务位置之前引入硬边界的生命周期命令被拒绝，包括已驶过
+   冲突区、退出链但尚未为后车腾出空间的前车；
+7. **状态恢复一致**：两车、三车先后跟入，成员自身停车入口晚于其所需位置但早于
+   `E_f`，以及链首驶离、中间成员移除后，capture、
    restore、same/cross-revision cutover 均成功，reservation、occupancy、claim 与链关系
    正确反映实际车辆；
 8. proposal/worker/容器顺序置换下 winner、状态、决定、事件与摘要一致。
@@ -1137,7 +1168,7 @@ prevention；这些由 #284 的完整合同覆盖。
 ### #1509
 
 在 #284 已交付路径上实现 §6.11：跟入关系派生、跟入条件、拍初派生的截断事实、叠放
-需求与成员硬边界、叠放义务对生命周期命令的约束、同链 claim 重叠、多持有者 occupancy
+需求与成员硬边界、腾让义务对生命周期命令的约束、同链 claim 重叠、多持有者 occupancy
 与逐车释放、capture/restore/cutover 共用的预约区间有效性，以及 §6.11 验收项。
 持久形状不变；不新增 feature flag、旧规则开关或兼容路径。
 
