@@ -396,6 +396,16 @@ const TASKS: &[TaskDef] = &[
         note: "--lib 精确目标（#1462）",
     },
     TaskDef {
+        name: "clippy-motion-trace",
+        packages: TaskPackages::Fixed(&["laneflow-runtime", "laneflow-scenario"]),
+        note: "motion-trace 只读运动诊断 feature 的 clippy 护栏（#1500），配置身份固定",
+    },
+    TaskDef {
+        name: "test-motion-trace",
+        packages: TaskPackages::Fixed(&["laneflow-runtime", "laneflow-scenario"]),
+        note: "Runtime --lib 对照回归与 signalized_corridor_yellow_trace 精确目标（#1500）",
+    },
+    TaskDef {
         name: "test-doctest",
         packages: TaskPackages::Affected,
         note: "doctest 独立入口，nextest 不执行 doctest",

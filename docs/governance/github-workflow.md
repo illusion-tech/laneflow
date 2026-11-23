@@ -317,6 +317,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   workspace 测试由 `cargo nextest run --workspace --locked` 执行
   （nextest 钉版本并校验 SHA256 安装，测试二进制并行执行）。
   默认 workspace 测试不打开 `placement-fixtures`。
+  只读运动诊断 feature `motion-trace`（#1500）默认关闭，同一 job 另跑
+  `laneflow-runtime` 与 `laneflow-scenario` 开启该 feature 的 clippy，并运行
+  Runtime lib 中的黄灯骑界对照回归与 `signalized_corridor_yellow_trace` 集成目标
+  （含开关记录一致性与预览复用记录）。
   doctest 由 `cargo test --workspace --doc --locked`
   单独覆盖（nextest 不执行 doctest）。走廊 catalog 与
   LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。
