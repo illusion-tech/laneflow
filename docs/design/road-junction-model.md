@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-road-junction-model"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-09"
+revised_date = "2026-11-23"
 summary = "定义道路、路口、通行流向与机动路径模型。"
 scope = "长期 Road/Junction/Maneuver 分层、最小静态产品 profile、ManeuverGate、Route occurrence、确定性与性能边界"
 related = ["adr-0003", "adr-0005", "adr-0008", "adr-0009", "adr-0013", "adr-0017", "adr-0018", "architecture", "design-cross-section-access", "design-example-scenarios", "design-lane-graph", "design-route-system", "design-signal-system", "design-signalized-corridor-protected-turning", "design-spatial-geometry", "design-vehicle-following", "roadmap"]
@@ -682,10 +682,10 @@ SSOT。具体 profile 已冻结以下输入：
 - 50/100/200 三档和所有转向 coverage。
 
 已接受 profile 的 32 条 path 在四个 group 内通过 authoring compatibility 检查，
-默认 yellow + all-red 为 4 秒。但 production 仍必须以规范人口和 seeds 证明 phase
-handoff 时前一 active set 的 internal edges 已清空。若该测试失败，必须重新打开
-#196 G1 并拆分 Junction entry capacity/clearance；不能让 #229 通过 private
-heuristic、放宽测试或隐式 ConflictZone 补洞。
+默认 yellow + all-red 约为 4 秒。#1507 起，相位交接的空间安全由显式跨组
+ConflictZone 承担（受保护转向走廊 §7.4），production 以规范人口和 seeds 证明冲突
+安全与交接活性，不再要求下一组转绿前前一组的 internal edges 已清空。该核验失败时
+必须回到 G1；不能通过 private heuristic、放宽测试或未声明的隐式 ConflictZone 补洞。
 
 ## 14. 测试矩阵
 
