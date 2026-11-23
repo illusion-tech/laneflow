@@ -764,8 +764,8 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
   重建 ledger/occupancy/Waiting dependency graph，并验证 owner 闭合且不存在 committed
   wait-for SCC；reservation passage range 必须精确等于该 Gate 的完整编译区间，车辆 front
   必须已在 Gate crossed side，已 clear cell 的 `ActualClear` 不得早于
-  `acquiredTick × fixedDeltaTimeMs`；同一 cell 的多个持有者与重叠 claim 按 §6.11
-  校验跟入键、物理顺序与叠放需求；任一失败零发布；
+  `acquiredTick × fixedDeltaTimeMs`；同一 cell 的多个持有者与跟入取得的 claim 按
+  §6.11 预约区间有效性校验（capture 同样适用）；任一失败零发布；
 - 不保留旧 reader、双写、迁移 shim 或 feature flag；可恢复、可切换能力与生产接线、
   journal 增量和临时保护移除共同实现。
 
@@ -829,12 +829,8 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
 1. **冲突占用**：coverage 的每个 cell 要么无 occupant、reservation 与 earlier staged
    grant，要么只被同一跟入链持有。其他 stream 的任何 occupant、reservation 或 staged
    grant 仍拒绝；
-2. **截断**：candidate set 中存在与其 coverage 任一 cell 冲突的其他 stream 候选，且其
-   §6.3 排序键先于跟入候选时，拒绝跟入，原因为 `NoGrant(PlatoonTruncated)`。截断只对
-   拍初按紧急减速度可在该 Gate 前停车的跟入候选生效；不可停的候选按未截断求值，不制造
-   具名投影。截断是对本车、精确 route occurrence 的真实不可用，按
-   `traffic-runtime-phase-protocol.md` §3.1.1 作为已知持续阻塞参与停止归约，并负
-   `traffic-runtime-integer-geometry.md` §5.1 的保持义务；
+2. **截断**：本拍存在截断事实（见下文）时拒绝跟入，原因为
+   `NoGrant(PlatoonTruncated)`；
 3. **gap acceptance**：§6.5 第 1 步按上面第 1 项判定；cell 只被同一跟入链持有时不求
    第 2 步滞后间隙，第 3 步提前间隙照常求值。Protected 候选仍跳过 yield/gap；
 4. **下游空间**：以链的叠放需求代替单车的“不依赖前车继续移动”证明，见下文。
@@ -842,67 +838,116 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
 法规决定、黄灯困境区许可、Waiting entitlement 与 cycle prevention 均不变：跟入不产生
 新的红灯跨越，也不绕过黄灯规则；后车本拍的法规决定拒绝时不能因前车在链中而跟入。
 
+**截断事实**：
+
+资源授权仍只在车辆到达 Gate 时申请，但截断必须在后车仍停得住时就进入制动归约，不能
+等后车成为到达候选才判定。截断事实因此从拍初已提交状态派生，不依赖本拍的到达预览：
+
+- 截断源是另一 stream 的车辆：它在与该跟入链任一 cell 冲突的 Gate occurrence 上已有
+  `firstEligibleTick`，拍初本拍有效法规决定为 `Candidate`；
+- 对跟入键相同、位于链尾之后同一路径上的车辆 `v`，若某个截断源的
+  `(protectedRank, policyPriorityPresentRank, candidateRightOfWayPriority, firstEligibleTick)`
+  按 §6.3 先于 `v`，则 `v` 本拍被截断。`v` 尚无 `firstEligibleTick` 时按缺省排在任何
+  已建立的值之后；
+- 截断事实是对 `v`、精确 route occurrence 的真实不可用，按
+  `traffic-runtime-phase-protocol.md` §3.1.1 作为已知持续阻塞，在制动前视窗
+  （`vehicle-following.md` §10.3）内参与停止归约，并负
+  `traffic-runtime-integer-geometry.md` §5.1 的保持义务；截断源取得授权、离开或法规
+  决定变为拒绝后，事实随之失效；
+- 拍初按紧急减速度已不可在该 Gate 前停车的车辆不受截断，按未截断求值，不制造具名
+  投影。制动前视窗约为舒适全停距离的两倍，截断事实存在期间进入窗口的车辆在进入时
+  舒适可停，此后由保持义务维持可停，不会转为不可停；因此豁免只落在事实出现之拍已处于
+  紧急停车距离内的有限车辆上，后续车辆不会逐辆重新取得豁免。该判定逐拍从已提交状态
+  求值，不保存事实出现的时刻。
+
+例：两条同优先级、无信号的相交来向，B 来向已有车辆在 Gate 前等待并建立了
+`firstEligibleTick`，A 来向车队以 8 m/s 连续行驶。A 来向的后续车辆在进入制动前视窗时
+就看到截断事实并减速停车；A 链清空后 B 按现行规则取得授权。
+
 **下游空间**：
 
-- 设链按物理顺序为 `m_1 … m_k`，跟入候选为 `m_{k+1}`，`F` 为 coverage 最远
-  passage clearance。叠放需求为：
+设链按物理顺序为 `m_1 … m_k`，跟入候选为 `m_{k+1}`，`F` 为 coverage 最远 passage
+clearance，`minimumGap(m_i)` 取 `m_i` 作为跟随车的实际 profile 值。成员 `m_i` 在叠放中
+需要前进到的车头位置为：
 
-  ```text
-  stackFrontTarget = advance(F, Σ_{i=1..k+1} length(m_i) + Σ_{i=2..k+1} minimumGap(m_i))
-  ```
+```text
+stackFront(m_i) = advance(F, Σ_{j=i..k+1} length(m_j) + Σ_{j=i+1..k+1} minimumGap(m_j))
+```
 
-  `minimumGap(m_i)` 取 `m_i` 作为跟随车的实际 profile 值；
-- `storageUpperBound` 按 §6.6 求值，其中前车改为链首 `m_1` 的路线前车，即不属于该链
-  的第一辆车。要求 `storageUpperBound ≥ stackFrontTarget`，比较规则与 §6.6 相同；
-- 跟入候选的 `clearanceSpan` 从 Gate crossed side 贯穿 coverage 到 `stackFrontTarget`。
-  `tryClaim` 时，与同一跟入链成员的 claim 重叠不构成冲突；与其他 owner 的规则不变；
-- 叠放需求保证：链中每辆车都能在已 claim 的空间内前进到车尾驶过全部 passage；车辆
-  只依赖链中前车继续移动，依赖关系按物理顺序无环。链外车辆不会因 claim 被挤入，
-  链首前方的链外车辆只会前进，不会使已证明的空间缩小。
+`stackFrontTarget = stackFront(m_1)`。跟入须同时满足：
+
+- **共同前缀**：`[Gate, stackFrontTarget]` 位于全部链成员与候选路线的共同前缀内；超出
+  任一成员路线分叉点时拒绝，不推断分叉后的空间关系；
+- **链外前车**：链首 `m_1` 路线上第一辆不属于该链的前车，其车尾减去
+  `minimumGap(m_1)` 不小于 `stackFrontTarget`；不得改用候选的 `minimumGap`；
+- **成员自身硬边界**：对每个 `i = 1 … k+1`，`m_i` 的 next 未获准 ManeuverGate、
+  RouteEnd、ParkingStop、Waiting 与其他已提交硬边界都不早于 `stackFront(m_i)`。成员已
+  到达预约停车入口而保持 `Active + Reserved + Arrived` 时，其停车位置就是硬边界；
+- 比较规则、等值通过与少 1 `carry_um` 失败均与 §6.6 相同。
+
+跟入候选的 `clearanceSpan` 从 Gate crossed side 贯穿 coverage 到 `stackFrontTarget`；
+`tryClaim` 时与同一跟入链成员的 claim 重叠不构成冲突，与其他 owner 的规则不变。
+
+满足上述条件时，链中每辆车都能在已 claim 的空间内、在自身硬边界之前前进到车尾驶过
+全部 passage；车辆只依赖链中前车继续移动，依赖关系按物理顺序无环。链外车辆不会因
+claim 被挤入，链首前方的链外车辆只会前进或离开，不会使已证明的空间缩小。
+
+**叠放义务**：链成员 `m_i` 的叠放义务是按当前链中 `m_i` 及其后成员计算的
+`stackFront(m_i)`。停车预约、路线重绑、路线替换等生命周期命令若会在链成员的叠放义务
+位置之前引入新的硬边界，按该命令的既有失败分类拒绝，世界不变。
 
 **排队与停驻位置**：链中车辆只可能因跟随链中前车而在 passage 内减速或停驻，不会因链外
-障碍停在 passage 内；链外车辆仍按 §6.6 不在 passage 内停驻。passage 之外的
-internal edge 区段按 Following 与 no-overlap 正常排队。
+障碍或自身硬边界停在 passage 内；链外车辆仍按 §6.6 不在 passage 内停驻。passage 之外
+的 internal edge 区段按 Following 与 no-overlap 正常排队。
 
 **资源生命周期**：
 
-- reservation 仍按车辆保存，跟入不合并、不转移 reservation 或 downstream claim；
+- reservation 仍按车辆保存，跟入不合并、不转移 reservation 或 downstream claim；后车
+  跟入不修改前车已有的 claim；
 - cell 的 occupant 集合可以含同一跟入链的多辆车，且始终只含一个跟入键；不同跟入键
   的 reservation 仍不得同时持有同一 cell；
 - 每辆车车尾越过 clearance 时只释放自己的 reservation 与 claim。cell 在最后一个持有者
   释放后才清空；`ActualClear` 按每次 tail-clear 写入，最终值即最后一个持有者的清空
   时刻，供其他 stream 的滞后间隙使用；
 - despawn、lifecycle 释放或修订切换移除链中任一车辆时，只释放该车资源；其余成员的
-  reservation、claim 与 cell 持有不受影响。链首前移离开后，后续成员的叠放 claim 继续
-  覆盖其所需空间。
+  reservation、claim 与 cell 持有不受影响。
 
-**快照与切换**：持久形状不变。occupancy 仍从 reservation、位置与 passages 重建。
-跟入车辆的 claim 终点取决于跟入时的链组成，链首释放后无法只从本车 reservation 重建，
-因此 restore、same/cross-revision cutover 的校验扩展为：
+**预约区间有效性**：跟入取得的 claim 终点取决于跟入时的链组成，链首释放后无法只从
+本车 reservation 逐项重建。capture、restore、same-revision cutover 与 cross-revision
+cutover 统一使用下列谓词，持久形状不变：
 
-- 同一 cell 的多个持有者必须属于同一跟入键，并与车辆物理顺序一致；
-- 入档物理并集等于单车重建值的 reservation 按现行规则逐项相等校验；
-- 入档物理并集长于单车重建值的 reservation 视为跟入取得：并集必须从 Gate crossed side
-  连续延伸，终点不小于按恢复时链状态重算的叠放需求，不越过 §6.6 `storageUpperBound`
-  中的 next Gate、RouteEnd、ParkingStop 与其他硬边界，且只与同链成员的 claim 重叠。
+- 入档物理并集等于单车重建值的 reservation，按现行规则逐项相等；
+- 入档物理并集长于单车重建值的 reservation 视为跟入取得，必须同时满足：
+  - 并集从 Gate crossed side 连续延伸到终点 `E`；
+  - 同一 cell 的多个持有者属于同一跟入键，并与车辆物理顺序一致；
+  - `E` 不小于按当前链中**该车及其前方**仍存活成员计算的叠放需求，即把该车视为
+    `m_{k+1}`、只计入链中位于它之前的成员；后加入成员的需求不追溯施加给前车；
+  - `E` 不越过该车与其前方成员的硬边界，且位于共同前缀内；
+  - 只与同链成员的 claim 重叠；
+- cross-revision cutover 另要求源并集按稳定 edge identity 映射后逐项保持，目标边长、
+  车长与最小跟车间隙不变；不满足即拒绝直移。
 
-不满足即失败关闭。
+任一失败即失败关闭：capture 不写入，restore 与 cutover 零发布。
 
 **验收**：在 §6.10 的矩阵之外至少覆盖：
 
 1. **连续通行成立**：在合理的道路长度、车距与速度下，后车在前车仍位于相关 passage
    时通过 Gate；仅“每辆车最终都通过”不能代替本项；
-2. **交叉来向仍受约束**：链持有期间其他 stream 不能进入；截断按 §6.3 排序生效；
-   链中任一车辆驶离、despawn 或被移除，不误释放其他成员的占用；
-3. **信号规则保持明确**：跟入不产生新的红灯跨越，不绕过黄灯规则；截断对可停车辆
-   生效、对不可停车辆不制造投影；
-4. **停车符合物理约束**：下游减速、停车或空间不足时，链中车辆的位置、速度与制动
+2. **交叉来向仍受约束**：链持有期间其他 stream 不能进入；链中任一车辆驶离、despawn
+   或被移除，不误释放其他成员的占用；
+3. **提前截断**：等优先级相交来向已有车辆等待时，持续来车在制动前视窗内被截断并
+   正常停车，不逐辆取得不可停豁免；Protected 车队不被 Permissive 候选截断；
+4. **信号规则保持明确**：跟入不产生新的红灯跨越，不绕过黄灯规则；
+5. **停车符合物理约束**：下游减速、停车或空间不足时，链中车辆的位置、速度与制动
    过程一致，单拍速度降幅满足 `traffic-runtime-integer-geometry.md` §5 的
    `b_e·Δt + ε_v`；
-5. **状态恢复一致**：车辆移除、snapshot restore 与 same/cross-revision cutover 后，
-   reservation、occupancy、claim 与链关系仍正确反映实际车辆；
-6. 叠放需求的等值通过、少 1 `carry_um` 失败，链外 merge 被叠放 claim 阻挡，以及
-   proposal/worker/容器顺序置换下结果一致。
+6. **空间证明**：不同 `minimumGap` 的车队遇到下游静止的链外车辆；链首或中间成员有
+   独立停车目标或路线分叉；叠放需求等值通过、少 1 `carry_um` 失败；链外 merge 被
+   叠放 claim 阻挡；在叠放义务之前引入硬边界的生命周期命令被拒绝；
+7. **状态恢复一致**：两车、三车先后跟入，以及链首驶离、中间成员移除后，capture、
+   restore、same/cross-revision cutover 均成功，reservation、occupancy、claim 与链关系
+   正确反映实际车辆；
+8. proposal/worker/容器顺序置换下 winner、状态、决定、事件与摘要一致。
 
 不预先承诺吞吐提升比例，先证明行为可表达，再按既有性能矩阵测量。
 
@@ -1091,8 +1136,9 @@ prevention；这些由 #284 的完整合同覆盖。
 
 ### #1509
 
-在 #284 已交付路径上实现 §6.11：跟入关系派生、跟入条件与截断、叠放需求与同链 claim
-重叠、多持有者 occupancy 与逐车释放、restore/cutover 校验扩展，以及 §6.11 验收项。
+在 #284 已交付路径上实现 §6.11：跟入关系派生、跟入条件、拍初派生的截断事实、叠放
+需求与成员硬边界、叠放义务对生命周期命令的约束、同链 claim 重叠、多持有者 occupancy
+与逐车释放、capture/restore/cutover 共用的预约区间有效性，以及 §6.11 验收项。
 持久形状不变；不新增 feature flag、旧规则开关或兼容路径。
 
 ### 共同不变量

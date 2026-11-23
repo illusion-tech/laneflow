@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-snapshot"
 kind = "design"
 status = "accepted"
-revised_date = "2026-10-25"
+revised_date = "2026-11-23"
 summary = "定义运行时快照、恢复、摘要与跨修订迁移。"
 scope = "版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/540"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/540", "https://github.com/illusion-tech/laneflow/issues/1509"]
 related = ["adr-0020", "adr-0021", "adr-0028", "adr-0029", "design-parking-system", "design-retire-precompiled-static-route", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-revision-cutover"]
 +++
 
@@ -468,6 +468,8 @@ Conflict downstream 区间不是 route occurrence 的第二份持久索引。wri
 reservation 的 exact route/Gate/passages、车辆全长与当前边长重建物理区间并集，要求与
 committed 热状态相等，再按 `(edge StableId, startMm, endMm)` 写入。reader 先检查这一
 wire 规范序，解析到当前修订后按 ordinal 排序，再从 reservation 证明独立重建并逐项比较。
+同路径跟入取得的并集长于单车重建值，writer 与 reader 统一改按
+`waiting-zone-conflict-right-of-way.md` §6.11 的预约区间有效性校验，wire 形状不变。
 循环路线中同一物理边的重叠 occurrence 可以合并；合并区间没有唯一 route hop，禁止用
 “Gate 后第一个同边 occurrence”补造来源。wire owner 由所属车辆记录给出；恢复后完整
 reservation 只由 `ConflictArbiter` 持有，车辆 `Clearing` 只保存 Gate route anchor。
