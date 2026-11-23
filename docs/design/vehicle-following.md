@@ -346,9 +346,9 @@ Waiting/Conflict 停止、已知持续阻塞、过渡预约、停车入口与有
 
 #196 起，上述停止目标在最终整数提交上另受停车可行性保持约束
 （`traffic-runtime-integer-geometry.md` §5.1）：拍初可停的车辆保持所在档位的
-停车可行性，差带入口清除本拍有效余数，常规候选未通过提交判据时改用不高于常规
-候选速度的向零取整退路。保证由共同运动归约与数值提交层承担，与跟车安全速度、
-限速和其余停止目标按同一归约组合；标量与列式路径、P2 预览、P5 重算与预览复用
+停车可行性，差带入口清除本拍有效余数，常规候选未通过提交判据时在不高于常规
+候选速度的收紧候选中取最高可行速度，并保证持续目标在有限拍内精确到位。保证由
+共同运动归约与数值提交层承担，与跟车安全速度、限速和其余停止目标按同一归约组合；标量与列式路径、P2 预览、P5 重算与预览复用
 消费同一规则。各来源只提供许可与停止目标，不另算速度。
 
 Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`][parking-system]。
