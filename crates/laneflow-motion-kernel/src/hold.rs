@@ -34,7 +34,7 @@ pub enum HoldKind {
     Static,
 }
 
-/// §5.1 改写后的提交；`None` 表示不负保持义务，或常规候选原样通过且未清除余数。
+/// §5.1 改写后的提交；`None` 表示不负保持义务，或常规候选原样通过、未清除余数且未到位。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HoldCommit {
     /// 本拍有效余数 `C_eff`。
@@ -203,8 +203,8 @@ pub fn hold_stop_feasibility(
         return None;
     }
     let speed = state.speed_mm_s;
-    let comfort_stop = stop_distance_um(speed, state.comfort_decel);
-    let emergency_stop = stop_distance_um(speed, state.emergency_decel);
+    // 精确停车距离延迟到出现未被快速放行的目标时才求值。
+    let mut stops: Option<(u64, u64)> = None;
     let mut obligations = [None; HOLD_TARGETS];
     let mut carry = state.carry_um;
     let mut strict = state.comfort_decel;
@@ -216,6 +216,12 @@ pub fn hold_stop_feasibility(
             continue;
         }
         let distance_um = u64::from(distance_mm) * 1_000;
+        let (comfort_stop, emergency_stop) = *stops.get_or_insert_with(|| {
+            (
+                stop_distance_um(speed, state.comfort_decel),
+                stop_distance_um(speed, state.emergency_decel),
+            )
+        });
         let (decel, stop) = if comfort_stop <= distance_um {
             (state.comfort_decel, comfort_stop)
         } else if emergency_stop <= distance_um {
@@ -244,11 +250,18 @@ pub fn hold_stop_feasibility(
         })
     };
     if feasible(regular_speed_mm_s, regular_travel_um) {
-        return (carry != state.carry_um).then_some(HoldCommit {
+        // 常规候选本身零速恰好到达负保持义务的目标时，数值无需改写，
+        // 但到位必须交给完成阶段，使到位零速优先于过渡耗尽速度。
+        let arrives = regular_speed_mm_s == 0
+            && obligations
+                .iter()
+                .flatten()
+                .any(|obligation| regular_travel_um == budget(obligation));
+        return (arrives || carry != state.carry_um).then_some(HoldCommit {
             carry_um: carry,
             speed_mm_s: regular_speed_mm_s,
             travel_um: regular_travel_um,
-            arrives: false,
+            arrives,
             kind: HoldKind::Regular,
         });
     }
@@ -416,6 +429,48 @@ mod tests {
                 .unwrap();
         assert_eq!(held.kind, HoldKind::InTickStop);
         assert_eq!((held.travel_um, held.arrives), (216, true));
+    }
+
+    #[test]
+    fn regular_arrival_is_reported_without_rewrite() {
+        // #1506 评审：V = 1000、D = 125、b_c = 2、b_e = 4、Δt = 250，常规候选
+        // (0, 125000) 恰好到位；余数不变也必须报告到位。
+        let held = hold_stop_feasibility(
+            &state(1_000, 0, 2.0, 4.0, 250),
+            [125, NO_HOLD_TARGET],
+            0,
+            125_000,
+        )
+        .unwrap();
+        assert_eq!(
+            held,
+            HoldCommit {
+                carry_um: 0,
+                speed_mm_s: 0,
+                travel_um: 125_000,
+                arrives: true,
+                kind: HoldKind::Regular,
+            }
+        );
+        // 清除余数后常规候选恰好到位：同样报告到位。
+        let held = hold_stop_feasibility(
+            &state(1_000, 400, 2.0, 4.0, 250),
+            [125, NO_HOLD_TARGET],
+            0,
+            125_000,
+        )
+        .unwrap();
+        assert_eq!((held.carry_um, held.arrives), (0, true));
+        // 零速未到位：不改写。
+        assert_eq!(
+            hold_stop_feasibility(
+                &state(1_000, 0, 2.0, 4.0, 250),
+                [126, NO_HOLD_TARGET],
+                0,
+                125_000
+            ),
+            None
+        );
     }
 
     #[test]

@@ -81,7 +81,7 @@
 //!    `#[path]` 模块属性、`include!` 宏、`cfg_attr`（cfg_attr 可包裹 path
 //!    属性逃逸直接形态检测）与 `macro_rules!` 宏定义（元变量间接可把
 //!    include! 藏出文本扫描）——禁绝后 .rs 全集即编译器可达源码全集。
-//!    ADR 0031 数值例外仅包含四个登记文件，unsafe 限 lib.rs/x86.rs；禁止
+//!    ADR 0031 数值例外仅包含五个登记文件，unsafe 限 lib.rs/x86.rs；禁止
 //!    外部依赖、额外编译入口、build.rs、源码加载、汇编和文件级 lint 放宽，
 //!    保持 unsafe_op_in_unsafe_fn forbid，源码中的单项或组级 lint 属性不得降低
 //!    该约束。数值与 ISA 正确性由差异测试/CodeQL 复核。

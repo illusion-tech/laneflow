@@ -1213,3 +1213,55 @@ fn hold_reaches_persistent_targets_from_normal_states() {
         }
     }
 }
+
+#[test]
+fn hold_arrival_overrides_dominant_transition_cap() {
+    // #1506 评审：常规候选 (0, 125000) 已恰好到达过渡停止目标，耗尽上界由
+    // 舒适衰减主导（V − b_c·Δt = 500）。到位零速必须优先，余数不变与被清除两种情况。
+    const ROWS: usize = 16;
+    for carry in [0_u16, 400] {
+        for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+            let Some(kernel) = Kernel::for_backend(backend) else {
+                continue;
+            };
+            let mut f = Fixture::new(0);
+            for row in 0..ROWS {
+                f.enabled[row] = true;
+                f.speed[row] = 1_000;
+                f.desired[row] = 1_000;
+                f.progress[row] = 0;
+                f.carry[row] = carry;
+                f.room[row] = 125;
+                f.stop_cap[row] = 500;
+                f.cap_dominates[row] = true;
+                f.limit[row] = u32::MAX;
+                f.leader[row] = f32::INFINITY;
+                f.has_leader[row] = false;
+                f.safe_room[row] = f32::INFINITY;
+                f.safe_quantize[row] = false;
+                f.accel[row] = 2.0;
+                f.comfort[row] = 2.0;
+                f.emergency[row] = 4.0;
+                f.stop_mm[row] = 125;
+                f.end_mm[row] = NO_HOLD_TARGET;
+                f.stop[row] = 0.125;
+                f.end[row] = f32::INFINITY;
+                f.envelope[row] = f32::INFINITY;
+                f.has_proposal[row] = false;
+            }
+            let input = f.input(ROWS);
+            let mut out = Results::new();
+            kernel
+                .run_direct(&input, &mut out.direct_output(ROWS), 0.25)
+                .expect("lengths");
+            for row in 0..ROWS {
+                assert!(out.valid[row], "{backend:?} C {carry} 行 {row} 有效");
+                assert_eq!(
+                    (out.travel[row], out.speed[row], out.carry[row]),
+                    (125, 0, 0),
+                    "{backend:?} C {carry} 行 {row}：到位零速"
+                );
+            }
+        }
+    }
+}

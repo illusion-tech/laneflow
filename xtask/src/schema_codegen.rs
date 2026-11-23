@@ -526,6 +526,7 @@ fn check_audited_motion_source(relative: &str, text: &str) -> Result<(), String>
         "src/lib.rs",
         "src/x86.rs",
         "src/projection.rs",
+        "src/hold.rs",
         "src/tests.rs",
     ]
     .contains(&relative)
