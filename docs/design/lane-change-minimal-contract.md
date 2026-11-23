@@ -3,12 +3,12 @@ schema_version = 1
 id = "design-lane-change-minimal-contract"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-05"
+revised_date = "2026-11-24"
 decision_date = "2026-10-31"
 summary = "定义固定预制过渡的最小换道合同与验收边界。"
 scope = "固定预制过渡（Fixed Pre-made Transition）首版的承载形式、占用 分类与投影、同拍联合求解、预约约束与能力检查；必验反例 R1–R3 的可执行验收形态"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/237"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/237", "https://github.com/illusion-tech/laneflow/issues/1512"]
 related = ["design-cross-section-access", "design-road-junction-model", "design-route-system", "design-traffic-runtime-phase-protocol", "design-traffic-runtime-snapshot", "design-vehicle-following"]
 +++
 
@@ -262,8 +262,9 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
   route occurrence 证明）；完整预约只装运行时正本，出现记录不入档（恢复重编译）。
 - **三轴版本分别升级并核对编号**：LFRS **7→8**（容器：过渡状态/预约行槽位）、
   runtime state **5→6**（状态形状扩展）、digest **8→9**（规范原像扩展过渡
-  记录段）；容器与事实版本不混用单号（snapshot §2）。
-- **首版限制**：活动过渡或持预约世界**拒绝跨修订切换**（保留旧世界、零部分
+  记录段）。这次升版与冲突预约路线终点共同交付，完整组合以快照合同 §2.1 为准。
+  换道过渡预约仍保留本节规定的物理区间，冲突预约从自身终点派生下游区间。
+- **首版限制**：存在活动换道过渡或换道过渡预约的世界**拒绝跨修订切换**（保留旧世界、零部分
   提交）；迁移为后续设计并登记能力限制（G-E 更新）。
 
 ## 10. 排除、能力限制与缺口

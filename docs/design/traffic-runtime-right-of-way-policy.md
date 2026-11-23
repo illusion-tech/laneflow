@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-right-of-way-policy"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-24"
 summary = "定义路权策略编译与正式冲突仲裁合同。"
 scope = "官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、 运行时快照与修订切换"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/284", "https://github.com/illusion-tech/laneflow/issues/1509"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/284", "https://github.com/illusion-tech/laneflow/issues/1509", "https://github.com/illusion-tech/laneflow/issues/1512"]
 related = ["design-waiting-zone-conflict-right-of-way"]
 +++
 
@@ -636,12 +636,14 @@ migration 与独立 expected projection 复用同一完整谓词。
 live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
 的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
 结合重编译路线核验该次 occurrence、entry/clearance 和车辆位置。只按 stream/zone
-不能区分循环路线中的重复出现。downstream 热状态和 wire 只保存规范化的
+不能区分循环路线中的重复出现。当前单车实现的下游账本和 LFRS 7 只保存规范化的
 `(LaneEdge StableId, startMm, endMm)` 物理区间并集；同一物理边的重叠 route
 occurrence 合并，因此单个合并区间没有唯一可保存的 route hop。reservation 级
 route/Gate/passages、车辆全长和当前修订边长才是可复现证明：capture、restore 和
 cutover 均从该证明重新推导整个物理并集并精确比较，不能按 edge 搜索猜测 occurrence。
-跟入取得的并集长于单车重建值，四个入口统一改按联合设计 §6.11 的预约区间有效性校验。
+跟入合同要求每车预约记录授权终点，目标格式以快照合同 §2.1 为准。物理并集服务于
+空间互斥；单车、两车和更多车辆可能得到同一并集。仲裁提交、生命周期和恢复均从
+预约读取路线终点，按联合设计 §6.11 与单车终点比较，再验证逐车义务。
 wire owner 由所属车辆记录给出；恢复后 reservation 只由 `ConflictArbiter` 持有，车辆
 `Clearing` 只保存 Gate route anchor。跟车最小间隙由该车 profile 派生，不在每个区间重复持久化。
 grant 未发生 crossing 时不提交任何成员或 reservation；whole-vehicle lifecycle 释放
@@ -670,14 +672,12 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 快照只写非 NoHistory 行，按 locator 的 stream StableId、zone StableId 字节序严格
 排序并拒绝重复；单根热表仍按静态 cell 保存一个基准，不另存稳定标识副本或历史轨迹。
 
-冲突 occupancy 从 reservation、车辆位置和 passages 重建，不能同时信任一份独立计数；
-downstream 物理并集也必须从同一 reservation 证明重建并与入档值逐项相等。同一 cell
-可以有同一跟入链的多个持有者，跟入候选的物理并集延伸到链的叠放需求，并可与同链
-成员重叠（联合设计 §6.11）。这类并集的终点取决于跟入时的链组成，不能只从本车
-reservation 逐项重建；capture、restore、same/cross-revision cutover 统一按该节的预约
-区间有效性校验：区间本身合法、覆盖该车及其前方车辆所需空间，且每辆车的硬边界不早
-于各自所需位置；共同终点不与单车硬边界比较，持久形状不变。wire 按 edge
-StableId/start/end 排序，lowering 后再按当前修订 ordinal 规范化；两种顺序不能混作同一判据。
+冲突 occupancy 从 reservation、车辆位置和 passages 重建。上表所述 v7 把重建的
+下游并集与入档区间逐项比对；wire 按 edge StableId/start/end 排序，lowering 后按
+当前修订 ordinal 规范化。联合升版后，持久字段改为精确路线终点。capture 核验当前
+热账本，restore 自终点前向生成物理区间；同一 cell 的多个持有者须属于同一跟入键。
+成员陆续清空或移除后，每个存活预约仍保有各自的授权终点。逐车可达性、同链重叠
+和未兑现腾让义务的校验均采用联合设计 §6.11。
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
 `acquiredTick × fixedDeltaTimeMs`；缺行、过早时间或 `CutoverFloor` 都不能证明真实 tail-clear。
@@ -721,7 +721,11 @@ edge occurrence 序列，不能只比较仍可能相同的 boundaryIndex/pathEdg
 entry/exit anchor 改变则原子拒绝，失败的 Prepare 必须保持旧 world、reservation 与日志
 武装状态不变且可重试。
 
-已有 reservation 保留其既有 owner 和 acquired tick，不能按新规则重新授予。必须将
+已有 reservation 保留其既有 owner 和 acquired tick，不能按新规则重新授予。联合升版
+后还须保留授权终点的精确经过次数。以目标机动入口定位相对 hop，核验源与目标对应
+边序列的稳定身份及边长，按目标重编译的 Gate、最远 clearance 与车长推导
+`E_single`，核对 `E_single ≤ E_f ≤ 下一未获准 Gate 或路线终点` 后应用 §6.11
+逐车谓词。源、目标各自从终点派生并集，再按稳定物理边逐项对照。现行直移还须将
 原 physical claims、passages/clearance、车辆全长和 Waiting 依赖精确映射到目标，验证
 源端 committed physical union 等于源 reservation 重建值，再将该 union 按稳定 edge
 identity 映射，并要求它逐项等于目标 reservation 重建值；目标 profile 派生的最小跟车
@@ -866,6 +870,12 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 本表记录路权部分的版本选择。后继 ADR 0030 的执行配置分离仅将 LFRS 容器推进至 6，
 runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒绝面以
 [`traffic-runtime-snapshot.md`][runtime-snapshot] 为准。
+
+跟入预约与换道 S5 共享一次新的动态状态切换，版本从 7/5/8 共同推进到 8/6/9
+（LFRS / runtime state / deterministic digest）。§6 的冲突预约终点和换道过渡状态、
+过渡预约必须在同一组合内可写、可读、可做同修订回放。格式、原像和两类跨修订
+边界见快照合同 §2.1 与换道合同 §9。两项分别验收，并在同一实现交付中核对
+联用状态、旧版本拒绝及失败零发布。
 
 几何计算和浮点量化算法未变，其独立 geometry semantics 版本保持不变。
 

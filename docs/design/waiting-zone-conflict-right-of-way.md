@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-waiting-zone-conflict-right-of-way"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-24"
 summary = "定义等待区、冲突区与通行权联合分层。"
 scope = "WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/235", "https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/284", "https://github.com/illusion-tech/laneflow/issues/1509"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/235", "https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/284", "https://github.com/illusion-tech/laneflow/issues/1509", "https://github.com/illusion-tech/laneflow/issues/1512"]
 related = ["adr-0019", "design-parking-system", "design-signal-system", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-right-of-way-policy", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-traffic-runtime-waiting-zone", "design-vehicle-following"]
 +++
 
@@ -52,7 +52,8 @@ related = ["adr-0019", "design-parking-system", "design-signal-system", "design-
 - `ParkingBinding`、reserve/park/leave/rebind/despawn 生命周期已存在；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
   Gate ranges、正式组合仲裁及 lifecycle/restore/cutover authority 检查已存在；
-- 当前持久化轴是 LFRS 7、runtime state 5、deterministic digest 8。
+- 当前实现使用 LFRS 7、runtime state 5、deterministic digest 8。§6.11 的预约终点
+  与换道 S5 共用下一次格式切换，目标版本与字段见 `traffic-runtime-snapshot.md` §2.1。
 
 #282 只新增 WaitingZone 本地动态能力。#284 已将 Conflict/right-of-way 组合资源、
 持久状态和生产固定步进接入同一 `TrafficWorld`。
@@ -753,10 +754,11 @@ phase、stable vehicle/route/entity key 选择首错，不能依赖 scan/worker 
 
 ### 6.10 snapshot、cutover、容量与验证矩阵
 
-当前 snapshot/runtime/digest 唯一版本组合为 5/5/7，完整矩阵见实施合同 §8：
+#284 交付时的 snapshot/runtime/digest 版本组合为 5/5/7，历史矩阵见实施合同 §8。
+以下是此后版本继续履行的验证义务，跟入预约的目标持久形状见 §6.11。
 
-- 持久化 pinned policy identity、`firstEligibleTick`、Clearing/reservation、committed
-  downstream claims、Conflict 滞后基准与必要 semantic owner；occupancy 从 reservation
+- 持久化 pinned policy identity、`firstEligibleTick`、Clearing/reservation、下游空间的
+  授权范围、Conflict 滞后基准与必要 semantic owner；occupancy 从 reservation
   和实际位置重建，基准类别及保守切换起点见实施合同 §6.1，不伪造实际 clear 事件；
 - tick-local grants、approach frontier、target ranges、dense handles 与 scratch 是派生状态，
   restore 从 stable policy/route/vehicle identity 重建；
@@ -819,7 +821,7 @@ frontier cells。warm-up 后 steady tick 零 heap allocation。
   跟入关系；同属一个 SignalGroup 或同一 policy 规则不构成兼容理由。不同路径共享冲突
   资源须另立 G1，按实际几何与通行关系证明；
 - 跟入链是跟入键相同、尚未完成 tail-clear 的 committed 与 earlier staged reservation，
-  按车辆在该路径上的物理先后排序。链不是新实体，也不新增持久状态，每次从 reservation
+  按车辆在该路径上的物理先后排序。链和成员顺序每次从 reservation
   与已提交车辆位置派生；
 - 链尾是链中最后一辆车。候选只有在其路线上的直接前车就是链尾、二者之间没有其他车辆
   时，才能作为跟入候选。
@@ -894,7 +896,7 @@ claim 被挤入，链首前方的链外车辆只会前进或离开，不会使�
 
 **腾让义务**：本车冲突占用的结束与为后车腾出空间的义务结束是两个条件。车尾越过
 clearance 只结束本车的冲突占用；已退出跟入链的车辆，只要后车仍依赖它前进，就继续负
-腾让义务。义务从 live reservation 与已提交位置派生，不新增持久状态：
+腾让义务。每项义务从存活预约的授权终点与已提交位置派生：
 
 - 对跟入取得的 reservation `f`（claim 终点 `E_f`、coverage 最远 clearance `F_f`），
   从 `f` 向前，取当前位于 `[Gate, E_f]` 内的车辆，按物理顺序记为 `w_1 … w_r`，令
@@ -936,25 +938,36 @@ clearance 只结束本车的冲突占用；已退出跟入链的车辆，只要�
 - despawn、lifecycle 释放或修订切换移除链中任一车辆时，只释放该车资源；其余成员的
   reservation、claim 与 cell 持有不受影响。
 
-**预约区间有效性**：跟入取得的 claim 终点取决于跟入时的链组成，链首释放后无法只从
-本车 reservation 逐项重建。capture、restore、same-revision cutover 与 cross-revision
-cutover 统一使用下列谓词，持久形状不变。谓词分两部分，共同终点 `E_f` 只约束区间本身，
-不作为每辆车必须驶达的位置：
+**预约终点与有效性**：每份非空预约在实际过门时提交其授权终点 `E_f`。单车取
+`E_single = advance(F, length(f))`，跟入取授权时的 `stackFrontTarget`。前车清空或被
+移除以后，本车仍持有原终点，直至自身预约释放。判定比较同一路线的规范出现下标与
+边内位置。直接读取、比较已求出的终点为常数成本；从 Gate 到终点构建空间占用仍须遍历
+经过的路线段。重复经过同一物理边时，不同终点可以得到相同的物理并集。
 
-- 入档物理并集等于单车重建值的 reservation，按现行规则逐项相等；
-- 入档物理并集长于单车重建值的 reservation 视为跟入取得，并检查：
-  - **区间合法**：并集从 Gate crossed side 沿 `f` 的路线连续延伸到 `E_f`，不越过 `f` 的
-    next 未获准 Gate；同一 cell 的多个持有者属于同一跟入键，并与车辆物理顺序一致；只与
-    同链成员的 claim 重叠。路线一致只按下文“逐车可达”对未兑现义务的车辆检查，不要求
-    已兑现义务的前车与 `f` 共同到 `E_f`；
+预约持有者、Gate、passages 与获得刻度沿用现有身份。快照只为下游空间写入终点；
+区间投影与动态账本的验证见路权实施合同 §6，具体编码见
+`traffic-runtime-snapshot.md` §2.1。capture、restore、同修订及跨修订切换共用下列谓词：
+
+- 将终点解析到本次机动的精确路线出现，验证坐标规范、`E_single ≤ E_f`，且
+  `E_f` 在路线内并且不越过下一未获准 Gate。授权时同样检查此上界；等于边界允许。
+  由 Gate crossed side 沿本车路线前向生成到 `E_f` 的物理并集。同一 cell 的多个持有者
+  属于同一跟入键且与物理先后顺序一致，只有同链 claim 可以重叠；
+- `E_f == E_single` 按单车净空校验；`E_f > E_single` 按跟入校验：
   - **覆盖所需空间**：对车头尚未越过 `requiredFront_f(w_j)` 的每个 `w_j`，
     `E_f ≥ requiredFront_f(w_j)`。所需空间只按 `f` 及其前方的车辆计算，后加入成员的
     需求不追溯施加给前车；前方车辆被移除后需求缩小，较长的历史终点仍然合法；
   - **逐车可达**：对 `f` 自身以及车头尚未越过 `requiredFront_f(w_j)` 的每个 `w_j`，
     硬边界不早于 `requiredFront_f(w_j)`，且从当前位置到该位置的路线区段与 `f` 的路线
-    重合，即腾让义务成立；`E_f` 不与任何单车的硬边界或路线分叉点比较；
+    重合，即腾让义务成立。停车入口等逐车硬边界以本车所需位置为准；
 - cross-revision cutover 另要求源并集按稳定 edge identity 映射后逐项保持，目标边长、
   车长与最小跟车间隙不变；不满足即拒绝直移。
+
+路线重绑时分别处理预约持有者和为它腾让的前车。持有者 `f` 仍有预约时，新路线必须
+能定位原 Gate 与机动出现，并保持完整预约经过的有序物理边、passages、车身足迹和
+区间并集；只裁剪 Gate 锚点以前的路线前缀时，按已验证的新锚点重建出现下标。若裁掉
+了证明所需的锚点，命令失败且世界不变。前车 `w` 只需保留其当前位置到各项未兑现
+`requiredFront_f(w)` 的路段。兑现后可在下游分叉；仍有自身预约的车辆同时满足自身
+预约的重绑条件。其他车辆重绑不会改写 `f` 的终点。
 
 例：A、B 车长 4.5 m、间距 2 m，下游无其他车辆，B 预约了 `F + 6 m` 的停车入口。跟入时
 `stackFront(A) = F + 11 m`、`stackFront(B) = F + 4.5 m`，`E_B = F + 11 m`；B 的停车
@@ -993,6 +1006,13 @@ cutover 统一使用下列谓词，持久形状不变。谓词分两部分，共
    restore、same/cross-revision cutover 均成功，reservation、occupancy、claim 与链关系
    正确反映实际车辆；
 8. proposal/worker/容器顺序置换下 winner、状态、决定、事件与摘要一致。
+
+持久化定向用例还须覆盖：边接缝与路线末端的唯一坐标；`A → B → A` 上单车与两车、
+两车与三车得到相同物理并集但不同终点；`A → B → A → B → A` 上的第三次出现；
+合法前缀裁剪使下标平移与未兑现义务处提前分叉的原子拒绝。前车清空或移除后，在仅有
+后车预约时做 capture → restore → capture，核对终点、重建账本与摘要，再验证后续命令。
+少一微米的空间边界、非规范终点、早于单车终点、越过 Gate、投影与热账本不符，以及
+跨修订边序错配分别注入对应入口验证失败原子性。
 
 不预先承诺吞吐提升比例，先证明行为可表达，再按既有性能矩阵测量。
 
@@ -1184,7 +1204,7 @@ prevention；这些由 #284 的完整合同覆盖。
 在 #284 已交付路径上实现 §6.11：跟入关系派生、跟入条件、拍初派生的截断事实、叠放
 需求与成员硬边界、腾让义务对生命周期命令的约束、同链 claim 重叠、多持有者 occupancy
 与逐车释放、capture/restore/cutover 共用的预约区间有效性，以及 §6.11 验收项。
-持久形状不变；不新增 feature flag、旧规则开关或兼容路径。
+实现同时接入预约终点、迁移日志和联合版本切换；交付矩阵见路权实施合同 §8。
 
 ### 共同不变量
 

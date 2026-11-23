@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-snapshot"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-24"
 summary = "定义运行时快照、恢复、摘要与跨修订迁移。"
 scope = "版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/540", "https://github.com/illusion-tech/laneflow/issues/1509"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/540", "https://github.com/illusion-tech/laneflow/issues/1509", "https://github.com/illusion-tech/laneflow/issues/1512"]
 related = ["adr-0020", "adr-0021", "adr-0028", "adr-0029", "design-parking-system", "design-retire-precompiled-static-route", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-revision-cutover"]
 +++
 
@@ -110,7 +110,39 @@ worker 1–16，超出后端能力的请求在完整交通恢复后返回执行�
 密集序号、共享静态数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
 capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime 无自有随机流）。
 
+### 2.1 跟入预约与换道过渡的联合升版（目标合同）
+
+LFRS 8、runtime state 6、deterministic digest 9 在一次实现交付中同时覆盖冲突预约
+终点（联合设计 §6.11）和换道 S5（换道合同 §9）。容器 8 定义两类记录的线格式，
+状态 6 同时表达两类语义，摘要 9 编入两类记录。发布时 writer、reader、直接摘要、
+捕获摘要、恢复、迁移日志及回放一起切换；7/5/8 仍是实施前唯一生产组合。验收包括
+两类状态分别存在，以及同一世界不同车辆分别持有两类预约时的同修订往返与回放。
+联合版本的 reader 拒绝旧组合和混用版本。首版 S5 对活动换道过渡或其预约的跨修订限制见 §3。
+
+**冲突预约的下游终点**。每份非空冲突预约必带一个规范终点。以预约已有的
+`maneuver_entry_route_edge_index` 为锚，按顺序编码
+`relative_hop_offset:u32`、`progress_mm:u32`、`carry_um:u16`。
+以受检加法还原路线边出现下标；同一边的第二次、第三次经过各有独立位置。
+非末边接缝唯一编码为下一边的零进度，只有路线末端可用末边全长。
+当前清空锚点、车长及叠放间距均为整毫米，本版本合法授权终点的 `carry_um`
+精确等于零。非零输入拒绝；车辆位置和空间上界仍按完整微米坐标与终点比较。
+writer 生成规范坐标，reader 拒绝越界、非规范接缝、相对下标溢出和缺失终点。
+
+快照保留预约既有的车、路线、Gate、passages 与获得刻度。原下游物理区间向量
+从该预约的 wire 与摘要原像移除。摘要 9 在原车辆记录的 reservation passages 段
+后按上述字段顺序和宽度写入小端整数；捕获与直接摘要使用同一原像，保留现行域
+分隔与算法。两份终点不同而投影相同的预约须有可区分的原像。
+换道 S5 的过渡状态及其预约记录保留换道合同规定的字段，包括其自身的物理区间。
+
+capture 自 Gate 正向重建至终点的规范并集，与该车在当前冲突账本中的区间逐项比对
+后写出终点。restore 先解析路线并验证终点和逐车义务，在候选世界正向构建账本，
+再检验同链共享、链外互斥与车身阶段。仅更换为另一份满足全部谓词、且投影相同的
+合法终点会改变状态语义和摘要；识别与既有检查点的偏离依靠可信的检查点摘要。
+字段非法、capture 的热账本不符或 restore 的组合状态非法时，分别不写出、零发布。
+
 ## 3. 每世界可变状态
+
+下表列出 LFRS 7 的生产字段。LFRS 8 的冲突预约与换道过渡字段见 §2.1。
 
 | 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -131,10 +163,8 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 固定预制过渡的车辆 tagged 过渡状态（`PreEntry | InTransition | Clearing`）与
 过渡预约 wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间
 并集、route occurrence 证明）按上表同一原则持久化；完整预约只装运行时正本、
-出现记录不入档照旧。**版本轴三轴分别升级并核对编号**：LFRS 7→8（容器：过渡
-状态/预约行槽位）、runtime state 5→6（状态形状扩展）、digest 8→9（规范原像
-扩展过渡记录段）；容器与被绑定事实的版本不混用单号（§2）。**首版限制**：
-活动过渡或持预约世界拒绝跨修订切换（保留旧世界、零部分提交），迁移为后续
+出现记录不入档照旧。三轴在 §2.1 的联合交付中分别升级为 8/6/9。**首版限制**：
+存在活动换道过渡或换道过渡预约的世界拒绝跨修订切换（保留旧世界、零部分提交），迁移为后续
 设计并登记能力限制（缺口 G-E）。
 
 arrival 不保存独立布尔值。恢复后只从同一 Reserved binding 与已保存车辆状态派生：
@@ -468,8 +498,8 @@ Conflict downstream 区间不是 route occurrence 的第二份持久索引。wri
 reservation 的 exact route/Gate/passages、车辆全长与当前边长重建物理区间并集，要求与
 committed 热状态相等，再按 `(edge StableId, startMm, endMm)` 写入。reader 先检查这一
 wire 规范序，解析到当前修订后按 ordinal 排序，再从 reservation 证明独立重建并逐项比较。
-同路径跟入取得的并集长于单车重建值，writer 与 reader 统一改按
-`waiting-zone-conflict-right-of-way.md` §6.11 的预约区间有效性校验，wire 形状不变。
+以上为 v7 的单车记录。v8 的预约终点、正向重建及负向验收以 §2.1 和
+`waiting-zone-conflict-right-of-way.md` §6.11 为准。
 循环路线中同一物理边的重叠 occurrence 可以合并；合并区间没有唯一 route hop，禁止用
 “Gate 后第一个同边 occurrence”补造来源。wire owner 由所属车辆记录给出；恢复后完整
 reservation 只由 `ConflictArbiter` 持有，车辆 `Clearing` 只保存 Gate route anchor。
