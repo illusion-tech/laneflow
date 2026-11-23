@@ -3,11 +3,12 @@ schema_version = 1
 id = "adr-0028"
 kind = "adr"
 status = "accepted"
+revised_date = "2026-11-23"
 summary = "规定交通一维几何整数毫米与固定步进合同。"
 scope = "交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维 存储、跟车占用/投影离散判定；以及 #302 快照字段的数值输入"
 date = "2026-08-24"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/496", "https://github.com/illusion-tech/laneflow/issues/500", "https://github.com/illusion-tech/laneflow/issues/1490"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/496", "https://github.com/illusion-tech/laneflow/issues/500", "https://github.com/illusion-tech/laneflow/issues/1490"]
 
 related = ["adr-0003", "adr-0014", "adr-0015", "adr-0022", "adr-0025", "design-numeric-representation", "design-portable-canonical-artifact", "design-route-system", "design-shared-static-network", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-shared-consumption", "design-vehicle-following"]
 [[supersedes]]
@@ -206,11 +207,15 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 （若有）许可。`progress_mm = 0`，**保留** `carry_um`（除非跨边后立即命中硬停）。
 `progress_mm == length_mm` 是合法的「停在边终点 / 拒绝 Gate 前」状态，**不得**
 无条件跨边，也 **不得** 把这种 Active 硬停写成 `Completed`。`Completed`、
-`Parked`、车辆替换：`carry_um = 0`。
+`Parked`、车辆替换：`carry_um = 0`。停车可行性保持的差带入口（#196，整数几何
+§5.1）把本拍有效余数置 0：只作用于本拍候选，成功提交时随速度、进度一起写入；
+每次舍弃不超过 999 µm，不增加公开状态字段，后续整数进度与轨迹可以随之变化。
 
 禁止把未截断的 `v × Δt` 送进累加器。舍入模式默认为
-**IEEE 754 round-ties-to-even**，中间乘法在 `f64` 完成。唯一例外是跟车安全量化
-路径的行程微米增量与已提交速度向零取整，适用条件与落地顺序以整数几何 §5 为准。
+**IEEE 754 round-ties-to-even**，中间乘法在 `f64` 完成。例外有两类：跟车安全量化
+路径的行程微米增量与已提交速度向零取整；停车可行性保持退路（#196）在常规候选
+未通过提交判据时，速度与行程微米增量按精确值计算后向零取整。适用条件与落地顺序
+以整数几何 §5、§5.1 为准。
 
 硬停与爬行：
 
@@ -381,6 +386,9 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   10 cm；空路巡航在有效加速度小于 `0.5 mm/s / Δt` 时可以稳定低于期望车速（最钝
   合法画像约 7%）。二者都是接受面，不是再加一层余数的理由。
 - `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
+- 余数也参与停车可行性：连续可停而含余数的整数判据不成立的差带宽度可接近 1 mm。
+  #196 以差带入口一次性清除余数与向零取整退路闭合该差带（整数几何 §5.1），不另加
+  容差或持久状态。
 - compiler 发射、唯一登记表、admission、共享列和 Runtime 热状态必须保持同一套合同。
   Genesis 发当前合同；禁止为旧格式做 Artifact 迁移 diff。
 - #500：准入后编译器交通一维与制品 / Runtime 同一套整数正本。有折线在空间冻结提交

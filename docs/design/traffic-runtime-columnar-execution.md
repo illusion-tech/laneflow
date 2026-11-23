@@ -6,7 +6,7 @@ status = "accepted"
 summary = "定义列式批量执行、共享输入和稀疏资源控制。"
 scope = "定义列式批量执行、共享输入和稀疏资源控制。"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/814"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/814"]
 related = ["adr-0031", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-phase-protocol"]
 +++
 
@@ -55,7 +55,7 @@ Active 进入/退出、销毁和替换由准备完毕的生命周期转移更新
 
 共同缓存项与 P2 结果槽只保存身份、规范位置、可达性、horizon、轻量完整预览和基础载荷索引；基础数值及其完整来源证明单独存入稀疏载荷，不嵌入所有 Active 行的共同结果类型。P2 分发块独占自己的载荷缓冲，完整 join 后协调器按既有规范消费顺序合并并改写索引；融合入口直接写同一稀疏载荷。可选载荷分配失败、索引缺失或来源证明不成立时，保留完整预览、horizon 与可达性，P5 按既有原语重算所缺基础数据。每次 attempt 开始、失败和消费完成时清除有效长度，保留缓冲容量不表示保留旧索引。当前仍只保存实际完整预览生产者的基础输入；提前返回路径的部分事实共享另行实施，不能据此宣布 B 全部完成。
 
-现有 `iidm_step` 只依赖速度、期望速度、leader gap、profile 和步长；停止目标不进入提案输入，在 `si_comfort_travel` 的速度归约与后续投影生效（#1272：级联含速度上界与紧急下界，见整数几何 §5）。P4 新增 Waiting/Conflict stop 时，相同提案输入可以复用未量化 IIDM 结果，但必须重新执行停止目标速度归约、安全限制、积分、量化、carry、路线行走与到达。其它提案输入改变时重算 IIDM；不能只截短旧位置。现有完整预览 `reuse` 证明成立时可直接交付其结果；证明条件以 `traffic-runtime-phase-protocol.md` §3.1 现行为准（速度侧同样须证明）。
+现有 `iidm_step` 只依赖速度、期望速度、leader gap、profile 和步长；停止目标不进入提案输入，在 `si_comfort_travel` 的速度归约与后续投影生效（#1272：级联含速度上界与紧急下界，见整数几何 §5）。P4 新增 Waiting/Conflict stop 时，相同提案输入可以复用未量化 IIDM 结果，但必须重新执行停止目标速度归约、安全限制、积分、量化、carry（含 #196 停车可行性保持的差带余数清除、提交判据与退路，见整数几何 §5.1）、路线行走与到达。其它提案输入改变时重算 IIDM；不能只截短旧位置。现有完整预览 `reuse` 证明成立时可直接交付其结果；证明条件以 `traffic-runtime-phase-protocol.md` §3.1 现行为准（速度侧同样须证明）。
 
 跨屏障仅物化必要列；同块、同消费者、无外部依赖的步骤尽量融合。工作掩码区分 needs_preview、has_base_proposal、full_preview_reusable、needs_final_projection、needs_route_walk、has_resource_obligation 和 has_error。
 
