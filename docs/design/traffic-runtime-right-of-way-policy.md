@@ -675,7 +675,8 @@ downstream 物理并集也必须从同一 reservation 证明重建并与入档�
 可以有同一跟入链的多个持有者，跟入候选的物理并集延伸到链的叠放需求，并可与同链
 成员重叠（联合设计 §6.11）。这类并集的终点取决于跟入时的链组成，不能只从本车
 reservation 逐项重建；capture、restore、same/cross-revision cutover 统一按该节的预约
-区间有效性校验，下界只计入该车及其前方的链成员，持久形状不变。wire 按 edge
+区间有效性校验：区间本身合法、覆盖该车及其前方车辆所需空间，且每辆车的硬边界不早
+于各自所需位置；共同终点不与单车硬边界比较，持久形状不变。wire 按 edge
 StableId/start/end 排序，lowering 后再按当前修订 ordinal 规范化；两种顺序不能混作同一判据。
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
