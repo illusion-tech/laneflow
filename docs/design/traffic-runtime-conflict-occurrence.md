@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-conflict-occurrence"
 kind = "design"
 status = "accepted"
-revised_date = "2026-09-05"
+revised_date = "2026-11-24"
 summary = "定义路线冲突出现记录与正式仲裁能力边界。"
 scope = "TrafficWorld 路线冲突出现记录、路线坐标规范化、资源容量，以及 正式 Conflict authority 的活动车辆边界"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/284"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/283", "https://github.com/illusion-tech/laneflow/issues/284", "https://github.com/illusion-tech/laneflow/issues/1512"]
 related = ["adr-0019", "design-portable-canonical-artifact", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-near-gate-frontier", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-waiting-zone-conflict-right-of-way"]
 +++
 
@@ -273,15 +273,20 @@ Gate range 检查；没有 conflict coverage 时无需此 authority。这个判�
 | `spawn_vehicle`                    | 候选 `Active` 车辆执行保护                                 |
 | `replace_completed_vehicle`        | 新 `Active` 车辆执行保护，失败保留旧 Completed             |
 | `leave_parking`                    | `Parked -> Active` 的候选 exit cursor 执行保护             |
-| `rebind_parking_route`             | 拒绝已有 Conflict authority；检查候选路线与完整车身        |
+| `rebind_parking_route`             | 无冲突预约按 §6.1 保护；已有冲突预约按下文校验             |
 | `spawn_parked_vehicle`             | 允许；不创建 Active，离场时再检查                          |
 | snapshot restore                   | 路线重编译后重建并验证完整 authority；任一失败零发布       |
 | same/cross-revision cutover        | target 路线重编译后验证迁移 authority；任一失败保留旧聚合  |
 | fixed tick                         | 在 Gate lookahead 内正式求值并取得组合 grant 后才 crossing |
 
-`park_vehicle`、despawn 与 Completed 转换只减少 Active 集，不需要把已经安全的路线重新
-判为不安全。Parked / Completed 可以保留含冲突路线；再次变为 Active 时必须经过上表
-入口。
+当前单车实现拒绝持有冲突预约的停车路线重绑。联合升版后，命令按[联合设计][waiting-zone]
+§6.11 验证原机动入口、Gate、passages、完整车身、到授权终点的有序路径与物理并集，
+并核验未兑现的逐车义务。验证通过才在新路线上重锚原预约。每个未获授权的 Gate
+仍须满足 §6.1，重绑不能补发授权。
+
+`park_vehicle` 拒绝将仍持有冲突预约的车辆转为 Parked。成功的停车、despawn 与
+Completed 转换只减少 Active 集。Parked / Completed 可以保留含冲突路线；再次变为
+Active 时必须经过上表入口。
 
 生命周期检查位于既有 handle/profile/route/cursor、静态 access 与物理 footprint
 验证之后，任何 world mutation、occupancy 发布或命令游标推进之前。无法凭普通命令创建

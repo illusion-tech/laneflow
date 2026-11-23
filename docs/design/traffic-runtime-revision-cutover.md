@@ -178,19 +178,22 @@ Prepare 对 committed downstream ledger 只做一次线性分组与闭合校验�
 slot 直接读取各 reservation 的 claim slice，不能在逐车迁移中反复扫描全 ledger；
 只改变 binding 的 parking 更新以 `ManeuverPath + entry route edge occurrence + Gate`
 重建 exact maneuver 锚点；`Clearing` 不从可能已越过 maneuver exit 的当前车头 cursor
-反推 occurrence，并保留候选已有 authority。当前单车实现对带 authority 的 park/rebind 生命周期
-转换失败关闭；despawn 记录在候选同步释放 authority、清 eligibility，并以候选当前模拟时间
+反推 occurrence，并保留候选已有 authority。持有冲突预约的车辆转为 Parked 时，候选拒绝
+该转换。当前单车实现也拒绝这类车辆的路线重绑；联合升版后的重放采用下文的终点证明。
+despawn 记录在候选同步释放 authority、清 eligibility，并以候选当前模拟时间
 写 `ActualClear`。静默提交只排空这些增量并最终化 address 列表，
 禁止再次调用全量 Conflict 迁移。grant/tail-clear/eligibility 的 tick 变化已纳入同一
 migration journal，不能退回静默点全量重算。
 
 跟入预约与换道 S5 联合升版后，冲突预约的新增或替换增量随同一完整帧携带授权
 终点，移除增量只指定已释放的预约。日志编码、长度预留、重放、候选和独立期望
-投影在同次切换中更新。同修订重放在旧锚点相同的路线重建区间。跨修订时先验证源
+投影在同次切换中更新。同修订重放按日志顺序在预约当时绑定的路线与锚点上重建区间。
+跨修订时先验证源
 热账本，再以目标机动入口或等价的已验证重绑锚点解析相对 hop，对照所经边的
 StableId 序列、边长和终点坐标。随后依次验证目标单车净空下界与 Gate 上界、
 两侧派生物理并集、各车尚未兑现的腾让义务。仅凭相同物理并集不能替代精确出现
-的映射。路线重绑及其日志重放还须满足联合设计 §6.11 的逐车义务与锚点校验。
+的映射。路线重绑增量按路权实施合同 §6.2 在候选中原子迁移原预约，使用与源命令
+相同的逐车义务与锚点校验。
 任一步失败保留旧世界、游标与已发布事件。普通冲突预约按此证明直移；
 存在 S5 活动换道过渡或其预约时，适用换道首版的跨修订拒绝规则。
 

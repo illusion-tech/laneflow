@@ -3,10 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-waiting-zone"
 kind = "design"
 status = "accepted"
+revised_date = "2026-11-24"
 summary = "定义等待区准入、存储、队列与持久化。"
 scope = "laneflow-runtime / TrafficWorld 的 WaitingZone 准入、物理存储、 成员关系、队列、固定步进、只读观察、快照与路网修订切换"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/282"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/282", "https://github.com/illusion-tech/laneflow/issues/1512"]
 related = ["adr-0019", "design-parking-system", "design-signal-system", "design-traffic-runtime-conflict-occurrence", "design-traffic-runtime-integer-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot", "design-vehicle-following", "design-waiting-zone-conflict-right-of-way"]
 +++
 
@@ -165,18 +166,20 @@ vehicle.length_mm <= occurrence.storage_length_mm
 Conflict interior authority 检查；Waiting 检查成功不构成凭空创建 reservation 的授权。
 
 `rebind_parking_route` 不属于上述无 authority bootstrap。它只接受已有
-`Active + Reserved`，拒绝已有 Conflict authority，并执行 #541 已冻结的 current occurrence、
-完整物理 footprint、前向可达与 route/access 检查。若车辆已有 `ManeuverTraversalState` 或 Waiting
-membership，目标路线还必须按稳定 ManeuverPath、Gate、WaitingZone identity 与 crossing
-side 对当前状态建立一一对应：
+`Active + Reserved`，并执行 #541 已冻结的 current occurrence、完整物理 footprint、
+前向可达与 route/access 检查。联合升版后，持有冲突预约的车辆还须满足联合设计 §6.11
+的重绑条件，精确迁移 `Clearing` 的 Gate 锚点与原预约。对于 `PreGate / Committed / Waiting`
+阶段及其已有的 Waiting membership，目标路线须按稳定 ManeuverPath、Gate、WaitingZone
+identity 与 crossing side 对当前状态建立一一对应：
 
 - `PreGate / Committed / Waiting` phase 原样保留，只重绑 route-local occurrence/hop；
 - membership 的 WaitingZone、admission sequence、queue position 与 release Gate identity
   原样保留；occupancy、counter 和 intrusive link 不增减、不重排；
 - 当前 physical cursor/footprint 必须同时满足旧/新 route occurrence，不能从目标 cursor
-  猜测一次历史 crossing，也不能创建或删除 membership；
-- 当前 state 映射成功后，才对目标路线中尚未持有的 future Waiting occurrences 执行车型
-  可行性检查，并执行正式 Conflict interior authority 检查。
+  猜测一次历史 crossing，也不能创建或删除 membership。
+
+既有状态映射成功后，对目标路线中尚未持有的 future Waiting occurrences 执行车型
+可行性检查。每个未获冲突授权的 Gate 仍须通过 Conflict interior authority 检查。
 
 任一映射或后续检查失败都保留旧 route/cursor、Parking binding、traversal、membership、
 queue/occupancy/counter 与 command cursor。若车辆没有既有 traversal/membership，rebind
