@@ -1,13 +1,16 @@
 //! 提交消息正文：必需正文、篇幅上限与按显示宽度 72 列折行（#1536）。
 //!
-//! 断点取 UAX #14（`unicode-linebreak`），再排除两类断点：ASCII 非空白字符之间的断点
-//! （连字符、斜杠、URL、路径与标识符），以及反引号代码内的断点。显示宽度按 `textwrap`
+//! 断点取 UAX #14（`unicode-linebreak`），再排除四类断点：ASCII 非空白字符之间的断点
+//! （连字符、斜杠与标识符）、反引号代码内的断点、含 `/` 的路径与 URL 内的断点，以及会让
+//! 续行变成注释、trailer、受控字段、列表项或围栏的断点。显示宽度按 `textwrap`
 //! 的 `display_width` 计算，中日韩字符计 2 列。hook 先折行再校验，CI 只校验；两者共用
 //! 同一断点规则，所以通过宽度校验的正文就是折行的不动点。
 
 use textwrap::core::{Word, display_width};
 use textwrap::{Options, WordSeparator, WordSplitter};
 use unicode_linebreak::linebreaks;
+
+use crate::markdown_tables::{is_closing_fence, opening_fence};
 
 /// 正文行的显示宽度上限。
 pub(crate) const BODY_MAX_WIDTH: usize = 72;
@@ -131,14 +134,17 @@ fn body_required(title: &str) -> bool {
 
 fn line_roles(lines: &[&str]) -> Vec<LineRole> {
     let mut roles = Vec::with_capacity(lines.len());
-    let mut in_fence = false;
+    let mut open_fence = None;
     for (index, line) in lines.iter().enumerate() {
         let role = if index == 0 {
             LineRole::Title
-        } else if line.trim_start().starts_with("```") {
-            in_fence = !in_fence;
+        } else if let Some(fence) = open_fence {
+            if is_closing_fence(line, fence) {
+                open_fence = None;
+            }
             LineRole::Code
-        } else if in_fence {
+        } else if let Some(fence) = opening_fence(line) {
+            open_fence = Some(fence);
             LineRole::Code
         } else if line.trim().is_empty() {
             LineRole::Blank
@@ -231,11 +237,12 @@ fn list_content_start(line: &str) -> usize {
 }
 
 fn protected_words(line: &str) -> Box<dyn Iterator<Item = Word<'_>> + '_> {
-    let code_spans = code_span_ranges(line);
+    let mut protected = code_span_ranges(line);
+    protected.extend(path_ranges(line, &protected));
     let mut words = Vec::new();
     let mut start = 0;
     for (offset, _opportunity) in linebreaks(line) {
-        if offset >= line.len() || !break_permitted(line, offset, &code_spans) {
+        if offset >= line.len() || !break_permitted(line, offset, &protected) {
             continue;
         }
         if offset > start {
@@ -249,8 +256,8 @@ fn protected_words(line: &str) -> Box<dyn Iterator<Item = Word<'_>> + '_> {
     Box::new(words.into_iter())
 }
 
-fn break_permitted(line: &str, offset: usize, code_spans: &[(usize, usize)]) -> bool {
-    if code_spans
+fn break_permitted(line: &str, offset: usize, protected: &[(usize, usize)]) -> bool {
+    if protected
         .iter()
         .any(|&(start, end)| start < offset && offset < end)
     {
@@ -259,7 +266,94 @@ fn break_permitted(line: &str, offset: usize, code_spans: &[(usize, usize)]) -> 
     let previous = line[..offset].chars().next_back();
     let next = line[offset..].chars().next();
     let ascii_token_char = |ch: Option<char>| ch.is_some_and(|ch| ch.is_ascii_graphic());
-    !(ascii_token_char(previous) && ascii_token_char(next))
+    !(ascii_token_char(previous) && ascii_token_char(next)) && !changes_line_role(&line[offset..])
+}
+
+/// 以该文本开头的续行会被 Git 或校验器识别为另一种行：注释、trailer 或受控字段、
+/// `BREAKING CHANGE:`、列表项或代码围栏。这样的断点一律不用，避免折行改变消息内容或语义。
+fn changes_line_role(rest: &str) -> bool {
+    let rest = rest.trim_start();
+    if rest.starts_with('#')
+        || rest.starts_with("BREAKING CHANGE")
+        || rest.starts_with("```")
+        || rest.starts_with("~~~")
+        || list_content_start(rest) > 0
+    {
+        return true;
+    }
+    let token_len = rest
+        .bytes()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+        .count();
+    let after_token = rest[token_len..].trim_start_matches(' ');
+    token_len > 0
+        && after_token
+            .strip_prefix(':')
+            .is_some_and(|value| value.is_empty() || value.starts_with(' '))
+}
+
+/// 含 `/` 的路径与 URL 的字节区间，区间内不断行。区间向两侧延伸到空白、中日韩标点、
+/// 反引号或已保护区间为止；ASCII 字母数字与相邻的非 ASCII 字符之间视为路径边界，
+/// 所以“移至docs/a.md调用”只保护 `docs/a.md`。不含 ASCII 字母数字、也没有扩展名的
+/// “读取/写入”不按路径处理。
+fn path_ranges(line: &str, protected: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let in_protected = |at: usize| {
+        protected
+            .iter()
+            .any(|&(start, end)| start <= at && at < end)
+    };
+    let is_path_char = |index: usize| {
+        let (at, ch) = chars[index];
+        !(ch.is_whitespace() || ch == '`' || is_cjk_punctuation(ch) || in_protected(at))
+    };
+    let boundary = |left: char, right: char| {
+        (left.is_ascii_alphanumeric() && !right.is_ascii())
+            || (!left.is_ascii() && right.is_ascii_alphanumeric())
+    };
+
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for (index, &(at, ch)) in chars.iter().enumerate() {
+        if ch != '/'
+            || in_protected(at)
+            || ranges.iter().any(|&(start, end)| start <= at && at < end)
+        {
+            continue;
+        }
+        let mut first = index;
+        while first > 0 && is_path_char(first - 1) && !boundary(chars[first - 1].1, chars[first].1)
+        {
+            first -= 1;
+        }
+        let mut last = index;
+        while last + 1 < chars.len()
+            && is_path_char(last + 1)
+            && !boundary(chars[last].1, chars[last + 1].1)
+        {
+            last += 1;
+        }
+        let start = chars[first].0;
+        let end = chars.get(last + 1).map_or(line.len(), |&(at, _ch)| at);
+        let span = &line[start..end];
+        let has_extension = span.rsplit_once('.').is_some_and(|(_stem, ext)| {
+            !ext.is_empty() && ext.bytes().all(|b| b.is_ascii_alphanumeric())
+        });
+        if span.contains("://") || span.bytes().any(|b| b.is_ascii_alphanumeric()) || has_extension
+        {
+            ranges.push((start, end));
+        }
+    }
+    ranges
+}
+
+fn is_cjk_punctuation(ch: char) -> bool {
+    matches!(ch,
+        '\u{3000}'..='\u{303F}'
+            | '\u{FF01}'..='\u{FF0F}'
+            | '\u{FF1A}'..='\u{FF20}'
+            | '\u{FF3B}'..='\u{FF40}'
+            | '\u{FF5B}'..='\u{FF65}'
+            | '\u{2014}'..='\u{2027}')
 }
 
 /// 反引号代码的字节区间（含两端反引号）；未闭合的反引号不形成区间。
@@ -483,6 +577,84 @@ mod tests {
         let errors = body_errors(&over);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("正文超过 800"));
+    }
+
+    #[test]
+    fn never_starts_a_continuation_with_role_changing_text() {
+        for trigger in [
+            "#1536 记录了原始失败。",
+            "Harness: anthropic/claude-code/cli 只是示例。",
+            "harness : 大小写与空格变体。",
+            "BREAKING CHANGE: 只是引用。",
+            "Refs: #1 也只是引用。",
+            "- 不是列表项。",
+            "12. 不是列表项。",
+            "```text 不是围栏。",
+            "~~~ 不是围栏。",
+        ] {
+            let prefix = trigger.split(' ').next().unwrap();
+            for shift in 0..72 {
+                let line = format!("{}前文说明 {trigger}{LONG_CJK}", "字".repeat(shift));
+                let wrapped = wrap_prose_line(&line);
+                assert!(
+                    wrapped[1..]
+                        .iter()
+                        .all(|wrapped| !wrapped.trim_start().starts_with(prefix)),
+                    "{trigger}: {wrapped:?}"
+                );
+                let rejoined: String = wrapped.concat().split_whitespace().collect();
+                assert_eq!(rejoined, line.split_whitespace().collect::<String>());
+            }
+        }
+    }
+
+    #[test]
+    fn keeps_tilde_and_longer_backtick_fences_verbatim() {
+        let long_command = format!("cargo run -- {}", "argument ".repeat(12));
+        let message = format!(
+            "fix(compiler): 补齐停车计划\n\n原因说明。\n\n~~~text\n{long_command}\n{LONG_CJK}\n~~~\n\n````text\n```\n{LONG_CJK}\n````\n\nRefs: #1536\n"
+        );
+
+        assert_eq!(wrap_commit_message_text(&message), message);
+        assert!(
+            body_errors(&message).is_empty(),
+            "{:?}",
+            body_errors(&message)
+        );
+    }
+
+    #[test]
+    fn closes_fences_only_with_matching_marker_and_length() {
+        let message =
+            format!("docs: 说明\n\n````\n```\n{LONG_CJK}\n````\n{LONG_CJK}\n\nRefs: #1\n");
+        let roles = line_roles(&message.lines().collect::<Vec<_>>());
+
+        assert_eq!(&roles[2..6], &[LineRole::Code; 4]);
+        assert_eq!(roles[6], LineRole::Prose);
+    }
+
+    #[test]
+    fn keeps_non_ascii_paths_and_urls_whole() {
+        let path = "docs/道路编辑预检构建器准入账本编译字段向量长度峰值说明.md";
+        let url = "https://example.com/文档/道路编辑说明";
+        for shift in 0..72 {
+            for token in [path, url] {
+                let line = format!(
+                    "{}文档移至 {token}，调用方按新路径读取。{LONG_CJK}",
+                    "字".repeat(shift)
+                );
+                let wrapped = wrap_prose_line(&line);
+                assert!(
+                    wrapped.iter().any(|wrapped| wrapped.contains(token)),
+                    "`{token}` 被拆开: {wrapped:?}"
+                );
+            }
+        }
+
+        let attached = "说明已移至docs/a.md调用方按新路径读取";
+        assert_eq!(path_ranges(attached, &[]), vec![(15, 24)]);
+        assert_eq!(&attached[15..24], "docs/a.md");
+        assert!(path_ranges("支持读取/写入两种模式", &[]).is_empty());
     }
 
     #[test]

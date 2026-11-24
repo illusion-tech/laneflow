@@ -11,7 +11,7 @@ enum Alignment {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Fence {
+pub(crate) struct Fence {
     marker: char,
     length: usize,
 }
@@ -166,7 +166,8 @@ pub(crate) fn format_markdown(content: &str) -> String {
     output.join(line_ending)
 }
 
-fn opening_fence(line: &str) -> Option<Fence> {
+/// CommonMark 围栏开头：`  ` 或 `~` 至少连续 3 个。
+pub(crate) fn opening_fence(line: &str) -> Option<Fence> {
     let trimmed = line.trim_start();
     let marker = match trimmed.chars().next()? {
         marker @ ('`' | '~') => marker,
@@ -176,7 +177,8 @@ fn opening_fence(line: &str) -> Option<Fence> {
     (length >= 3).then_some(Fence { marker, length })
 }
 
-fn is_closing_fence(line: &str, fence: Fence) -> bool {
+/// 与开围栏同一字符、长度不短于开围栏且其后只有空白的行。
+pub(crate) fn is_closing_fence(line: &str, fence: Fence) -> bool {
     let trimmed = line.trim_start();
     let marker_length = trimmed.chars().take_while(|ch| *ch == fence.marker).count();
     marker_length >= fence.length && trimmed[marker_length..].trim().is_empty()
