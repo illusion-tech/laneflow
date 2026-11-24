@@ -394,10 +394,10 @@ fn policy_reference_fixture_matches_frozen_bytes() {
         expected,
         "lfca-policy-references/expected.lfca（DUMP_PORTABLE 重生成）"
     );
-    assert_eq!(bytes.len(), 32_066);
+    assert_eq!(bytes.len(), 32_106);
     assert_eq!(
         object_key(sha256(&bytes)).as_ref(),
-        "sha256/d16ea3b726a64b0ccc480470564998b9548562f554cd3173530395a53e77f3b6"
+        "sha256/5695a251d9947360d5c22470ca13e6402c042fae059e372b3214a951eb0e223e"
     );
     laneflow_format::check_canonical_network_input(bytes.as_ref(), FormatLimits::HARD).unwrap();
     check(&object, u64::MAX).unwrap();

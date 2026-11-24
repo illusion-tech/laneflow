@@ -3,9 +3,11 @@ use super::tree::{ObjectTree, SectionRef, TableRef, TreeBuilder, Value, build_tr
 use super::*;
 use crate::ledger::{BoundedVec, Plan};
 mod policy;
+mod station;
 
 /// LFCA 构造前一次求出、两遍构造共用的派生输入，全部由发射账本授予。
 struct LfcaInputs {
+    station: station::Inputs,
     /// 每条交通边是否为路口内部边。
     internal_edges: BoundedVec<bool>,
     /// 每份交通边几何是否有空间来源区间。
@@ -16,7 +18,8 @@ struct LfcaInputs {
 
 impl LfcaInputs {
     const fn granted_bytes(&self) -> u64 {
-        self.internal_edges.granted_bytes()
+        self.station.bytes()
+            + self.internal_edges.granted_bytes()
             + self.lane_geometry_applies.granted_bytes()
             + self.facility_geometry_applies.granted_bytes()
     }
@@ -43,7 +46,8 @@ fn prepare_inputs(
     let spatial = output.source_map_input().spatial_relation_sources();
     let frames = lir.canonical_frames.len();
     // 输出三组标志；来源键表与逐坐标系计数器只在本遍内存续。
-    let plan = Plan::ZERO
+    let (station_sizes, station_plan) = station::sizes(lir)?;
+    let plan = station_plan
         .array::<bool>(lir.lane_edges.len())
         .array::<bool>(lir.lane_edge_geometries.len())
         .array::<bool>(lir.facility_band_geometries.len())
@@ -110,6 +114,7 @@ fn prepare_inputs(
     }
     drop((flags, counters));
     let inputs = LfcaInputs {
+        station: station::prepare(lir, station_sizes, &pass)?,
         internal_edges,
         lane_geometry_applies,
         facility_geometry_applies,
@@ -165,7 +170,7 @@ fn emit_lfca(
     inputs: &LfcaInputs,
     source_collection_digest: [u8; 32],
     declared_network_revision: NetworkRevisionId,
-) -> Result<[SectionRef; 8], PortableEmissionError> {
+) -> Result<[SectionRef; 9], PortableEmissionError> {
     let lir = output.lir().unit();
     let direction_profile = lir.geometry_profiles.map_or(0, |profiles| {
         geometry_direction_profile_code(profiles.direction)
@@ -248,6 +253,7 @@ fn emit_lfca(
                 )])],
             )],
         ),
+        inputs.station.section(t),
     ])
 }
 

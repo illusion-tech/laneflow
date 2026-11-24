@@ -7,7 +7,7 @@ fn refresh_diff_base_revision(bytes: &mut [u8]) {
     let view = registry(bytes, PortableObjectKind::CanonicalArtifact);
     let mut hash = Sha256::new();
     hash.update(laneflow_static_contract::NETWORK_REVISION_DOMAIN_PREFIX);
-    for ordinal in 0..6 {
+    for ordinal in [0, 1, 2, 3, 4, 5, 8] {
         let section = view.section(ordinal).unwrap();
         hash.update((ordinal as u16 + 1).to_le_bytes());
         hash.update(2_u16.to_le_bytes());

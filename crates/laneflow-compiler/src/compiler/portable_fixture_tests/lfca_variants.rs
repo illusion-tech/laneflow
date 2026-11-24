@@ -7,8 +7,8 @@ const MIN_HEADLESS_BUILD_ID: &str = "laneflow-fixture-298-min-headless-v1";
 const VARIANT_BUILD_ID: &str = "laneflow-fixture-298-variants-v1";
 const VARIANT_ALTERNATE_BUILD_ID: &str = "laneflow-fixture-298-variants-v2";
 const MIN_HEADLESS_REVISION: [u8; 32] = [
-    0xf1, 0xa1, 0x51, 0x0b, 0x31, 0xc9, 0x06, 0x8b, 0x72, 0xd2, 0xe8, 0x7b, 0xf5, 0xd1, 0x92, 0x24,
-    0xa3, 0xeb, 0x49, 0xf7, 0x14, 0x85, 0xb5, 0x0a, 0xc9, 0xbd, 0xfa, 0x30, 0x2c, 0x18, 0xa8, 0x6b,
+    0xe9, 0x30, 0x24, 0x43, 0xae, 0x5d, 0x3a, 0x49, 0xd4, 0x68, 0x13, 0xb6, 0x62, 0x65, 0x95, 0x20,
+    0x34, 0x7b, 0xd9, 0xff, 0x67, 0x88, 0x2a, 0x1e, 0x8e, 0xe3, 0x12, 0x87, 0xe3, 0xfc, 0xf4, 0x6b,
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
@@ -26,27 +26,27 @@ const SIGNED_ZERO_EXPECTED: &[u8] =
 const CLAIM_MISMATCH_EXPECTED: &[u8] =
     include_bytes!("../../../tests/fixtures/portable/lfca-variants/claim-mismatch.lfca");
 
-const MIN_HEADLESS_LENGTH: u64 = 1_231;
+const MIN_HEADLESS_LENGTH: u64 = 1_271;
 const MIN_HEADLESS_KEY: &str =
-    "sha256/385739f2485c5265df5da990610ff0b90b1ad9150adeaf336a3e4220b400b19a";
-const PROVENANCE_BASE_LENGTH: u64 = 1_227;
+    "sha256/6399e93ee7afa73d1ed02bd8b07754b8bfb2a3e48bd989fd248495546ce6fe1c";
+const PROVENANCE_BASE_LENGTH: u64 = 1_267;
 const PROVENANCE_BASE_KEY: &str =
-    "sha256/02bb502e32a6353de29122c5ce0bf175e8d961336be30d780feb3407732d9093";
-const PROVENANCE_SOURCE_LENGTH: u64 = 1_227;
+    "sha256/8edc87119ef03c2e8491ce19e319d167200a17548564694eaec372f562693f73";
+const PROVENANCE_SOURCE_LENGTH: u64 = 1_267;
 const PROVENANCE_SOURCE_KEY: &str =
-    "sha256/08369370c553a1e03c44c3b5a1e488b201846395984a81fc1db4221600a40621";
-const PROVENANCE_BUILD_LENGTH: u64 = 1_227;
+    "sha256/1abe7ad69c57827a48e2a47a78a14f4b5a7b4b0cb646031a904a3e15fbd1d63b";
+const PROVENANCE_BUILD_LENGTH: u64 = 1_267;
 const PROVENANCE_BUILD_KEY: &str =
-    "sha256/d40e7399fbe3d94a38d7667421f2cecb5ed4b10ad6f2bc6f2460cc55dc4f8ac1";
-const REORDER_EQUIVALENT_LENGTH: u64 = 3_289;
+    "sha256/e3be997f5b71d7a141a2879f49715879034ab50c435c6db965f0c355c49a835d";
+const REORDER_EQUIVALENT_LENGTH: u64 = 3_329;
 const REORDER_EQUIVALENT_KEY: &str =
-    "sha256/800266551dff4747031de82e8c146179494e2244ab7c7c717ba356dab393266e";
-const SIGNED_ZERO_LENGTH: u64 = 2_559;
+    "sha256/4ea1be19b2784c208aa6da2164765417d9614571c2308b540e60e77e1e561eff";
+const SIGNED_ZERO_LENGTH: u64 = 2_599;
 const SIGNED_ZERO_KEY: &str =
-    "sha256/a6ab39b7cde78577fc0092c9e9b3926ae390469630ef095ca0967b74e4cb82c7";
-const CLAIM_MISMATCH_LENGTH: u64 = 1_231;
+    "sha256/dd186936104d88c3ae2e73cd1be28ab9b19f0adac77b7b4104b5f82f3252fb50";
+const CLAIM_MISMATCH_LENGTH: u64 = 1_271;
 const CLAIM_MISMATCH_KEY: &str =
-    "sha256/d2105be82fc931d5dc7ef734068057f1b6ba46c580b2420e956c53be5de400c8";
+    "sha256/0777b43835874df26cae1ed2bd2da0a6d044883c0347f1b1b42b5fe8fd98d092";
 
 fn emit(output: &CompilationOutput, build_id: &str) -> crate::PortablePublicationCandidate {
     let provenance = crate::PortableEmissionProvenance::try_new(build_id).unwrap();
@@ -276,10 +276,10 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
     let view = artifact_view(MIN_HEADLESS_EXPECTED);
     let first_section_offset =
         field_offset(MIN_HEADLESS_EXPECTED, view.section(0).unwrap().bytes());
-    assert_eq!(first_section_offset, 0x00e0);
+    assert_eq!(first_section_offset, 0x00f8);
     let expected_lengths = [204, 16, 16, 16, 146, 148];
     let expected_digests = [
-        "2e2641659783ab14916b82d42634323206ae0ab9b47f6c64c053b1066a0ed301",
+        "392aa7812effff8457bb652d34acee9ebdefefcf949822d49d86c30cefae6a30",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
@@ -353,7 +353,7 @@ fn portable_provenance_only_variants_preserve_revision_and_fix_distinct_bytes() 
     let base_view = artifact_view(PROVENANCE_BASE_EXPECTED);
     let source_view = artifact_view(PROVENANCE_SOURCE_EXPECTED);
     let build_view = artifact_view(PROVENANCE_BUILD_EXPECTED);
-    for ordinal in 0..6 {
+    for ordinal in [0, 1, 2, 3, 4, 5, 8] {
         assert_eq!(
             base_view.section(ordinal).unwrap().bytes(),
             source_view.section(ordinal).unwrap().bytes()
@@ -526,7 +526,7 @@ fn dump_portable_variants_when_requested() {
     }
     report.push('\n');
     let view = artifact_view(min.canonical_artifact().bytes());
-    for ordinal in 0..6 {
+    for ordinal in [0, 1, 2, 3, 4, 5, 8] {
         let section = view.section(ordinal).unwrap();
         report.push_str(&format!(
             "min-headless section{ordinal} len={} digest={}\n",

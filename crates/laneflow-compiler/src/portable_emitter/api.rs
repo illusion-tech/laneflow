@@ -260,6 +260,19 @@ pub enum CanonicalInputSide {
 /// 可移植候选发射失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortableEmissionError {
+    /// 站位差异与两端制品的稳定成员投影不符。
+    StationDiffMismatch,
+    /// 一张站位逻辑表超过消费配置档的独立上限。
+    StationCapacityExceeded {
+        /// 被检一侧。
+        side: CanonicalInputSide,
+        /// 站位表名称。
+        table: &'static str,
+        /// 实际行数。
+        required: u64,
+        /// 配置档上限。
+        limit: u64,
+    },
     /// 输入规范规模超出消费政策，借用扫描后、建立索引前拒绝。
     CanonicalCapacityExceeded {
         /// 被拒绝的输入一侧。

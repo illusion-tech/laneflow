@@ -19,6 +19,7 @@ mod lowering;
 mod model;
 mod native_bounds;
 mod native_input;
+mod station_proof;
 pub use native_bounds::{NativeChord, NativeChordBounds, NativeClearance, NativeUnprovenReason};
 pub(crate) mod native_curve;
 mod preflight;

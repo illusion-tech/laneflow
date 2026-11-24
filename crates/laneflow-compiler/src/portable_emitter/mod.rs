@@ -405,7 +405,7 @@ fn network_revision_from_checked(
     let view = view.registry_view();
     let mut hasher = Sha256::new();
     hasher.update(NETWORK_REVISION_DOMAIN_PREFIX);
-    for ordinal in 0..6 {
+    for ordinal in [0, 1, 2, 3, 4, 5, 8] {
         let section = view
             .section(ordinal)
             .ok_or(PortableEmissionError::InternalBindingMismatch)?;

@@ -544,12 +544,7 @@ where
     }
     let mut cumulative = 0.0_f32;
     for (segment_index, pair) in input.windows(2).enumerate() {
-        let delta = [
-            canonicalize_spatial_zero(pair[1].x - pair[0].x),
-            canonicalize_spatial_zero(pair[1].y - pair[0].y),
-            canonicalize_spatial_zero(pair[1].z - pair[0].z),
-        ];
-        let length = delta[0].hypot(delta[1]).hypot(delta[2]);
+        let (delta, length) = canonical_spatial_chord(pair[0], pair[1]);
         if length <= SPATIAL_MIN_SEGMENT_LENGTH_METERS {
             return Err(SpatialGeometryViolation::DegenerateSegment {
                 segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
@@ -674,6 +669,20 @@ fn normalize_spatial_vector(vector: [f32; 3]) -> [f32; 3] {
 
 const fn canonicalize_spatial_zero(value: f32) -> f32 {
     if value == 0.0 { 0.0 } else { value }
+}
+
+/// 规范折线冻结与共享里程证明使用相同的 binary32 差、长度及运算顺序。
+pub(crate) fn canonical_spatial_chord(
+    a: crate::declaration::CanonicalPoint3F32Input,
+    b: crate::declaration::CanonicalPoint3F32Input,
+) -> ([f32; 3], f32) {
+    let delta = [
+        canonicalize_spatial_zero(b.x - a.x),
+        canonicalize_spatial_zero(b.y - a.y),
+        canonicalize_spatial_zero(b.z - a.z),
+    ];
+    let length = delta[0].hypot(delta[1]).hypot(delta[2]);
+    (delta, length)
 }
 
 #[cfg(test)]

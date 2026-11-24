@@ -89,6 +89,7 @@ pub(super) struct DiffChanges<'a> {
     pub(super) static_rule: BoundedVec<FieldChange<'a>>,
     pub(super) spatial: Option<SpatialChange<'a>>,
     pub(super) policy: BoundedVec<PolicyChange<'a>>,
+    pub(super) station: BoundedVec<station::Change>,
     pub(super) staged: BoundedVec<u8>,
 }
 
@@ -100,6 +101,7 @@ impl DiffChanges<'_> {
             + self.geometry.granted_bytes()
             + self.static_rule.granted_bytes()
             + self.policy.granted_bytes()
+            + self.station.granted_bytes()
             + self.staged.granted_bytes()
     }
 }
@@ -112,6 +114,7 @@ pub(super) struct ChangeBounds {
     pub(super) geometry: usize,
     pub(super) static_rule: usize,
     pub(super) policy: usize,
+    pub(super) station: usize,
     pub(super) staged: usize,
 }
 
@@ -124,6 +127,7 @@ impl ChangeBounds {
             .array::<FieldChange<'_>>(self.geometry)
             .array::<FieldChange<'_>>(self.static_rule)
             .array::<PolicyChange<'_>>(self.policy)
+            .array::<station::Change>(self.station)
             .array::<u8>(self.staged)
     }
 
@@ -139,6 +143,7 @@ impl ChangeBounds {
             static_rule: pass.vec(self.static_rule)?,
             spatial: None,
             policy: pass.vec(self.policy)?,
+            station: pass.vec(self.station)?,
             staged: pass.vec(self.staged)?,
         })
     }
@@ -210,12 +215,12 @@ fn field_change_table(
     )
 }
 
-/// 由变化表写出 LFSD 对象的七节。
+/// 由变化表写出 LFSD 对象的八节。
 pub(super) fn emit_lfsd(
     t: &TreeBuilder,
     header: &DiffHeader,
     changes: &DiffChanges<'_>,
-) -> [SectionRef; 7] {
+) -> [SectionRef; 8] {
     let staged = &changes.staged[..];
     let binding = match *header {
         DiffHeader::Genesis {
@@ -329,6 +334,21 @@ pub(super) fn emit_lfsd(
                         change
                             .after
                             .map(|after| field(6, t.bytes(after.of(staged)))),
+                    ])
+                }),
+            )],
+        ),
+        t.section(
+            8,
+            [t.table(
+                1,
+                changes.station.iter().map(|c| {
+                    t.row([
+                        Some(field(1, Value::U8(c.op))),
+                        Some(field(2, Value::U8(c.kind))),
+                        Some(field(3, t.bytes(c.key.of(staged)))),
+                        c.before.map(|b| field(4, t.bytes(b.of(staged)))),
+                        c.after.map(|a| field(5, t.bytes(a.of(staged)))),
                     ])
                 }),
             )],

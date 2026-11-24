@@ -10,6 +10,25 @@ pub(super) fn admit_canonical_view(
     side: CanonicalInputSide,
     mismatch: PortableEmissionError,
 ) -> Result<(), PortableEmissionError> {
+    let section = view.section(8).ok_or(mismatch)?;
+    let limit = capacity
+        .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount)
+        .min(16_000_000);
+    for (ordinal, table) in [
+        (1, "StationAnchor"),
+        (4, "StationSpan"),
+        (6, "BoundaryExtent"),
+    ] {
+        let required = u64::from(section.table(ordinal).ok_or(mismatch)?.row_count());
+        if required > limit {
+            return Err(PortableEmissionError::StationCapacityExceeded {
+                side,
+                table,
+                required,
+                limit,
+            });
+        }
+    }
     let usage = super::canonical_usage::lfca_statistics(view, mismatch)?.usage();
     capacity
         .admit(&usage)

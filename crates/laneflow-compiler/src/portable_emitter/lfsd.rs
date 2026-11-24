@@ -10,6 +10,7 @@ mod policy_check;
 pub(super) use policy_check::check_policy_diff;
 pub use policy_check::check_portable_policy_diff;
 mod relation;
+mod station;
 
 use base::{ArtifactIndex, verify_artifact_diff_compatibility};
 use changes::{ChangeBounds, DiffHeader, SpatialChange, emit_lfsd};
@@ -52,11 +53,12 @@ fn build_genesis_lfsd(
     // Genesis 不建立几何值表，只取目标一侧的变化与暂存上界。
     geometry_change_bounds(None, target, &mut bounds)?;
     let members = policy_change::policy_change_bounds(None, target_index, &mut bounds)?;
+    let station_plan = station::plan(None, target, &mut bounds)?;
     let pass = accounting.admit(
         "genesis-diff-changes",
         bounds
             .plan()
-            .plus(members)
+            .plus(members.max(station_plan))
             .array::<u32>(canonical_relation_scratch_len(lir)),
     )?;
     let mut changes = bounds.grant(&pass)?;
@@ -65,6 +67,13 @@ fn build_genesis_lfsd(
         target_index,
         &pass,
         &mut changes.policy,
+        &mut changes.staged,
+    )?;
+    station::changes(
+        None,
+        target_index,
+        &pass,
+        &mut changes.station,
         &mut changes.staged,
     )?;
     genesis_entity_changes(target, &mut changes.entity)?;
@@ -237,9 +246,12 @@ fn build_artifact_lfsd(
     let geometries = geometry_change_bounds(Some(base_view), target_view, &mut bounds)?;
     let members =
         policy_change::policy_change_bounds(Some(&base_index), target_index, &mut bounds)?;
+    let station_plan = station::plan(Some(base_view), target_view, &mut bounds)?;
     let pass = accounting.admit(
         "artifact-diff-changes",
-        bounds.plan().plus(tuples.max(geometries).max(members)),
+        bounds
+            .plan()
+            .plus(tuples.max(geometries).max(members).max(station_plan)),
     )?;
     let mut changes = bounds.grant(&pass)?;
     artifact_entity_changes(
@@ -280,6 +292,13 @@ fn build_artifact_lfsd(
         target_index,
         &pass,
         &mut changes.policy,
+        &mut changes.staged,
+    )?;
+    station::changes(
+        Some(&base_index),
+        target_index,
+        &pass,
+        &mut changes.station,
         &mut changes.staged,
     )?;
     pass.finish(changes.granted_bytes())?;

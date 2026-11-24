@@ -1002,8 +1002,34 @@ pub(crate) struct CompiledGeometrySourceRange {
     pub(crate) source: SourceLocation,
 }
 
+/// 经连续误差证明的边内映射，按实际行驶方向保存每条规范弦的终点。
+#[derive(Debug, PartialEq)]
+pub(crate) struct StationEdgeProof {
+    pub origin: u64,
+    pub corridor_length: u64,
+    pub start: u64,
+    pub start_error: u32,
+    pub spans: Box<[StationChordProof]>,
+}
+#[derive(Debug, PartialEq)]
+pub(crate) struct StationChordProof {
+    pub station: u64,
+    pub station_error: u32,
+    pub progress: u64,
+    pub cumulative: f32,
+    pub canonical_error: u32,
+    pub travel_error: u32,
+    pub rate: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StationBandProof {
+    pub offsets_um: [i32; 4],
+    pub lateral_error: u32,
+}
+
 /// RoadEditingSource authoring 几何已冻结为共同规范点表后的 LaneEdge 正本。
 pub(crate) struct CompiledLaneEdgeGeometry {
+    pub(crate) station: Option<std::sync::Arc<crate::declaration::StationEdgeProof>>,
     pub(crate) length: EdgeLength,
     /// section-derived edge 继承 alignment frame；junction-internal edge 在 HIR 从 path 推导。
     pub(crate) canonical_frame: Option<OwnedEntityReference<CanonicalFrameKind>>,
@@ -1017,6 +1043,7 @@ pub(crate) struct CompiledLaneEdgeGeometry {
 
 /// 不可遍历 FacilityBand 的规范中心线；后续 LIR 以独立稀疏范围表保存。
 pub(crate) struct CompiledFacilityBandGeometry {
+    pub(crate) station: Option<crate::declaration::StationBandProof>,
     pub(crate) length: EdgeLength,
     pub(crate) canonical_frame: OwnedEntityReference<CanonicalFrameKind>,
     pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,

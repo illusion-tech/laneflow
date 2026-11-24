@@ -567,10 +567,10 @@ fn policy_diff_fixed_bytes_cover_all_four_complete_member_values() {
         include_bytes!("../../../../../tests/fixtures/portable/lfsd-policy-members/expected.lfsd"),
         "lfsd-policy-members/expected.lfsd（DUMP_PORTABLE 重生成）"
     );
-    assert_eq!(bytes.len(), 2_266);
+    assert_eq!(bytes.len(), 2_306);
     assert_eq!(
         object_key(sha256(&bytes)).as_ref(),
-        "sha256/ff5534936250c4bd5dad8eb5e8b028a16ce61b4643dde2be201fa615e8c02937"
+        "sha256/11736e883c7d3404eec5124cedd3b4866b6bedf4f881fcb878d41af64554c0b6"
     );
     verify(&base, &target, &diff).unwrap();
 }

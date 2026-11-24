@@ -307,7 +307,7 @@ fn root_contract_version_distortion_is_indeterminate() {
             field: OriginField::NetworkRevisionDerivationVersion,
             ref expected,
             ref actual,
-        } if expected == "1" && actual == "2"
+        } if expected == "2" && actual == "3"
     ));
 }
 

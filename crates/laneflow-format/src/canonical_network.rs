@@ -194,7 +194,7 @@ fn recompute_network_revision(
     let registry = view.registry_view();
     let mut hasher = Sha256::new();
     hasher.update(NETWORK_REVISION_DOMAIN_PREFIX);
-    for ordinal in 0..6_u32 {
+    for ordinal in [0, 1, 2, 3, 4, 5, 8] {
         let section = registry.section(ordinal).ok_or_else(binding_format_error)?;
         let section_length = u64::try_from(section.bytes().len())
             .map_err(|_| CanonicalNetworkInputError::ArithmeticOverflow)?;

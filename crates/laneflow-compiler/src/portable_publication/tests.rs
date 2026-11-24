@@ -533,7 +533,7 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
     assert_eq!(first.byte_length(), ExactByteLength::new(800));
     assert_eq!(
         first.object_key(),
-        "sha256/7e60d3d488ffb63d53f51ff1875bef84683b6d5fa1d05d26f75b3373ba0de5b3"
+        "sha256/9cb3f2d019f99151d84b54296bb39c21acb7e151b23276465fd8a3fce6ba72b7"
     );
     assert_eq!(first.bytes(), second.bytes());
     assert_eq!(first.digest(), second.digest());

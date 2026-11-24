@@ -324,17 +324,25 @@ fn csharp_writer_fixture_is_accepted_by_production_reader() {
 }
 
 // 模拟编辑器读回本样例中的走向与编制车道，再把它们写回同一个模块。
-fn move_outer_cut(bytes: &[u8], reverse: bool, publish: bool) -> OwnedRoadEditingSourceBuffer {
+fn graded_alignment<'a>(
+    bytes: &[u8],
+    limits: &'a CompileProfile,
+    include_exit_spiral: bool,
+) -> RoadEditingSourceModuleBuilder<'a> {
     use laneflow_compiler::{GeometryAccuracyProfile, GeometryDirectionProfile};
-    let limits = CompileProfile::single_network_10k_stable_entities();
     let input = RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, bytes, None).unwrap();
     let curve = RoadEditingCurveProgram::read_from(
         input,
         RoadEditingCurveOwner::Alignment("alignment"),
-        &limits,
+        limits,
     )
     .unwrap()
     .unwrap();
+    let curve = if include_exit_spiral {
+        curve
+    } else {
+        RoadEditingCurveProgram::try_new(curve.start(), curve.segments()[..2].to_vec()).unwrap()
+    };
     let header = RoadEditingModuleHeader::try_new(
         "city",
         EXPECTED_SOURCE_DOCUMENT_KEY,
@@ -346,7 +354,7 @@ fn move_outer_cut(bytes: &[u8], reverse: bool, publish: bool) -> OwnedRoadEditin
         header,
         GeometryAccuracyProfile::Fine2Cm,
         GeometryDirectionProfile::Smooth1Deg,
-        &limits,
+        limits,
     )
     .unwrap();
     module
@@ -359,6 +367,18 @@ fn move_outer_cut(bytes: &[u8], reverse: bool, publish: bool) -> OwnedRoadEditin
             .unwrap(),
         )
         .unwrap();
+    module
+}
+
+fn edit_for_mapping(
+    bytes: &[u8],
+    reverse: bool,
+    publish: bool,
+    moved: bool,
+) -> OwnedRoadEditingSourceBuffer {
+    let limits = CompileProfile::single_network_10k_stable_entities();
+    let mut module = graded_alignment(bytes, &limits, true);
+    let input = RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, bytes, None).unwrap();
     let section = RoadSectionReference::owner_scoped(vec!["road".into()], "section").unwrap();
     let opposite = RoadSectionReference::owner_scoped(vec!["road".into()], "opposite").unwrap();
     let lane_ref = |section: &str, lane| {
@@ -419,7 +439,7 @@ fn move_outer_cut(bytes: &[u8], reverse: bool, publish: bool) -> OwnedRoadEditin
         let mut lane = AuthoringLaneInput::read_from(input, owner, key, &limits)
             .unwrap()
             .unwrap();
-        if key == "B" {
+        if key == "B" && moved {
             let before = lane.clone();
             assert!(lane.move_cut(1, 90.0).is_err());
             assert!(lane.replace_edge_chain(vec![], vec![]).is_err());
@@ -465,7 +485,7 @@ fn moved_cut_uses_the_outer_edges_own_canonical_progress() {
         let baseline = laneflow_compiler::Compiler::new()
             .compile(original_unit.build().unwrap())
             .unwrap();
-        let bytes = move_outer_cut(&original, reverse, false);
+        let bytes = edit_for_mapping(&original, reverse, false, true);
         let limits = CompileProfile::single_network_10k_stable_entities();
         let mut unit = CompilationUnitBuilder::new(limits);
         let mut matches = Vec::new();
@@ -562,26 +582,124 @@ fn moved_cut_uses_the_outer_edges_own_canonical_progress() {
 }
 
 #[test]
-fn mapping_request_requires_certified_output() {
-    let bytes = move_outer_cut(&read_fixture("cpp_writer.lfre"), false, true);
-    let mut unit =
-        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
-    let diagnostics = unit
-        .add_road_editing_module(
-            RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, bytes.as_bytes(), None)
+fn published_mapping_projects_the_graded_bend_from_lfca_alone() {
+    use laneflow_compiler::{
+        Compiler, PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::{FormatLimits, check_canonical_network_input, preflight_object_values};
+    use laneflow_static_contract::PortableObjectKind;
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption, StationQuery,
+        build_shared_network_revision,
+    };
+    for (fixture, reverse) in [
+        ("cpp_writer.lfre", false),
+        ("csharp_writer_reverse.lfre", true),
+    ] {
+        let mut base = None;
+        let source = read_fixture(fixture);
+        for moved in [false, true] {
+            let bytes = edit_for_mapping(&source, reverse, true, moved);
+            let mut unit =
+                CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+            unit.add_road_editing_module(
+                RoadEditingModuleInput::try_new(
+                    EXPECTED_SOURCE_DOCUMENT_KEY,
+                    bytes.as_bytes(),
+                    None,
+                )
                 .unwrap(),
-        )
-        .err()
-        .expect("mapping must be certified before accepting this corridor");
-    assert!(matches!(
-        diagnostics.diagnostics()[0].payload(),
-        laneflow_compiler::DiagnosticPayload::InvalidRoadEditingSource {
-            violation: laneflow_compiler::RoadEditingSourceViolation::NumericFreeze(
-                laneflow_compiler::RoadEditingNumericViolation::StationMappingNotProven
-            ),
-            ..
+            )
+            .unwrap();
+            let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+            let edge = |name: &[u8]| {
+                output
+                    .lir()
+                    .lane_edges()
+                    .find(|e| e.identity_fields().any(|id| id.value_bytes() == name))
+                    .unwrap()
+                    .ordinal()
+            };
+            let (a2, b1, b2) = (edge(b"A-2"), edge(b"B-1"), edge(b"B-2"));
+            let limits = FormatLimits::HARD;
+            let diff_base = base.as_deref().map_or(PortableDiffBase::Genesis, |b| {
+                PortableDiffBase::Artifact(
+                    preflight_object_values(b, PortableObjectKind::CanonicalArtifact, limits)
+                        .unwrap(),
+                )
+            });
+            let candidate = emit_portable_candidate(
+                &output,
+                &PortableEmissionProvenance::try_new("graded-station-test").unwrap(),
+                limits,
+                diff_base,
+            )
+            .unwrap();
+            let artifact = candidate.canonical_artifact().bytes();
+            if !reverse && !moved {
+                check_error_only_revision(&output, &candidate);
+            }
+            let diff = preflight_object_values(
+                candidate.semantic_diff().bytes(),
+                PortableObjectKind::SemanticDiff,
+                limits,
+            )
+            .unwrap()
+            .registry_view();
+            assert!(diff.section(7).unwrap().table(0).unwrap().row_count() > 0);
+            for spatial in [
+                SpatialBuildOption::Omit,
+                SpatialBuildOption::RetainAvailable,
+            ] {
+                let root = build_shared_network_revision(
+                    check_canonical_network_input(artifact, limits).unwrap(),
+                    SharedNetworkBuildOptions::new(
+                        spatial,
+                        SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+                    ),
+                )
+                .unwrap();
+                let relations = root.traffic().relations();
+                let target = relations.lane_edge_authoring_lane(b1).unwrap();
+                let corridor = relations
+                    .section_corridor(relations.authoring_section(target).unwrap())
+                    .unwrap();
+                let StationQuery::Complete(exact) =
+                    root.station_mapping()
+                        .at_station(corridor, 60_300_751_880, target)
+                else {
+                    panic!("exact station unresolved")
+                };
+                let addresses = exact.addresses().collect::<Vec<_>>();
+                assert_eq!(addresses.len(), 1);
+                let expected = if moved {
+                    if reverse { 4418 } else { 7732 }
+                } else {
+                    0
+                };
+                assert_eq!(
+                    (addresses[0].edge, addresses[0].progress_mm),
+                    (if moved || reverse { b1 } else { b2 }, [expected, expected])
+                );
+                let StationQuery::Complete(ordinary) =
+                    root.station_mapping().from_progress(a2, 1005, target)
+                else {
+                    panic!("ordinary station unresolved")
+                };
+                assert_eq!(
+                    ordinary.addresses().map(|a| a.edge).collect::<Vec<_>>(),
+                    if moved {
+                        vec![b1]
+                    } else if reverse {
+                        vec![b2, b1]
+                    } else {
+                        vec![b1, b2]
+                    }
+                );
+            }
+            base = Some(artifact.to_vec());
         }
-    ));
+    }
 }
 
 #[test]
@@ -669,4 +787,379 @@ fn required_cross_sections_share_an_anchor_only_at_the_same_station() {
             .count(),
         8
     );
+}
+
+#[test]
+fn partial_coextension_uses_each_corridors_local_domain() {
+    use laneflow_compiler::{
+        Compiler, PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        StationObservation, StationQuery, build_shared_network_revision,
+    };
+    let limits = CompileProfile::single_network_10k_stable_entities();
+    let mut module = graded_alignment(&read_fixture("cpp_writer.lfre"), &limits, false);
+    let mut add = |decl| {
+        module.add_declaration(decl).unwrap();
+    };
+    add(RoadEditingDeclaration::CanonicalFrame(
+        CanonicalFrameInput::try_new("frame").unwrap(),
+    ));
+    let station = |u: f64| u * 401.0 / 399.0;
+    let edge_ref = |key: &str| LaneEdgeReference::local(key).unwrap();
+    for (corridor, start, end) in [("first", 0., 53.), ("middle", 53., 74.), ("last", 74., 85.)] {
+        let section = RoadSectionReference::owner_scoped(vec![corridor.into()], "section").unwrap();
+        let lane = |key| {
+            AuthoringLaneReference::owner_scoped(vec![corridor.into(), "section".into()], key)
+                .unwrap()
+        };
+        let mut members = vec![lane("A")];
+        if corridor == "middle" {
+            members.push(lane("B"));
+        }
+        add(RoadEditingDeclaration::RoadCorridor(
+            RoadCorridorInput::try_new(
+                corridor,
+                RoadAlignmentReference::try_new("alignment").unwrap(),
+                station(start),
+                if corridor == "last" {
+                    RoadEditingStationEnd::AlignmentEnd
+                } else {
+                    RoadEditingStationEnd::Finite(station(end))
+                },
+                section.clone(),
+                lane("A"),
+                vec![RoadEditingCorridorElement::RoadSection(section.clone())],
+            )
+            .unwrap()
+            .with_station_mapping(true),
+        ));
+        add(RoadEditingDeclaration::RoadSection(
+            RoadSectionInput::try_new(
+                "section",
+                "motorLane",
+                members,
+                RoadCorridorReference::local(corridor).unwrap(),
+            )
+            .unwrap(),
+        ));
+        type LaneChain = (
+            &'static str,
+            &'static [&'static str],
+            &'static [f64],
+            Option<&'static str>,
+        );
+        let chains: &[LaneChain] = match corridor {
+            "first" => &[("A", &["first-A"], &[], Some("middle-A1"))],
+            "middle" => &[
+                (
+                    "A",
+                    &["middle-A1", "middle-A2", "middle-A3"],
+                    &[59., 68.],
+                    Some("last-A"),
+                ),
+                ("B", &["middle-B1", "middle-B2"], &[60.], None),
+            ],
+            _ => &[("A", &["last-A"], &[], None)],
+        };
+        for &(key, edges, cuts, successor) in chains {
+            let mut source_lane = AuthoringLaneInput::try_new(
+                key,
+                edge_ref(edges[0]),
+                RoadEditingLaneDirection::Forward,
+                LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                None,
+                section.clone(),
+            )
+            .unwrap();
+            let references = edges.iter().map(|key| edge_ref(key)).collect();
+            source_lane
+                .replace_edge_chain(references, cuts.iter().copied().map(station).collect())
+                .unwrap();
+            for (i, &name) in edges.iter().enumerate() {
+                let next = edges
+                    .get(i + 1)
+                    .copied()
+                    .or(successor)
+                    .map(edge_ref)
+                    .into_iter()
+                    .collect();
+                add(RoadEditingDeclaration::LaneEdge(
+                    LaneEdgeInput::try_new(name, 10., next, None).unwrap(),
+                ));
+            }
+            add(RoadEditingDeclaration::AuthoringLane(source_lane));
+        }
+    }
+    let source = RoadEditingSourceWriter::new(&limits)
+        .write(module.finish().unwrap())
+        .unwrap();
+    let mut unit = CompilationUnitBuilder::new(limits);
+    unit.add_road_editing_module(
+        RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, source.as_bytes(), None)
+            .unwrap(),
+    )
+    .unwrap();
+    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+    let artifact = emit_portable_candidate(
+        &output,
+        &PortableEmissionProvenance::try_new("partial-bend").unwrap(),
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let edge = |key: &str| {
+        output
+            .lir()
+            .lane_edges()
+            .find(|e| {
+                e.identity_fields()
+                    .any(|id| id.value_bytes() == key.as_bytes())
+            })
+            .unwrap()
+            .ordinal()
+    };
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let root = build_shared_network_revision(
+            check_canonical_network_input(
+                artifact.canonical_artifact().bytes(),
+                FormatLimits::HARD,
+            )
+            .unwrap(),
+            SharedNetworkBuildOptions::new(
+                spatial,
+                SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+            ),
+        )
+        .unwrap();
+        let relations = root.traffic().relations();
+        let b = relations
+            .lane_edge_authoring_lane(edge("middle-B1"))
+            .unwrap();
+        let mapped = root.station_mapping();
+        for (key, origin, end) in [
+            ("first-A", 0., 53.),
+            ("middle-B1", 53., 74.),
+            ("last-A", 74., 85.),
+        ] {
+            let StationObservation::Complete {
+                corridor,
+                stations_nm,
+            } = mapped.stations_for_progress(edge(key), 0)
+            else {
+                panic!("missing source domain")
+            };
+            let domain = mapped.corridor_domain(corridor).unwrap();
+            assert_eq!(stations_nm[0], 0);
+            assert_eq!(domain.origin_nm, (station(origin) * 1e9).round() as u64);
+            assert_eq!(
+                domain.length_nm,
+                ((station(end) - station(origin)) * 1e9).round() as u64
+            );
+            if origin != 53. {
+                assert_eq!(mapped.at_station(corridor, 0, b), StationQuery::Unavailable);
+                assert_eq!(
+                    mapped.from_progress(edge(key), 0, b),
+                    StationQuery::Unavailable
+                );
+                continue;
+            }
+            let last = edge("middle-B2");
+            for (s, id, mm) in [
+                (0, edge(key), 0),
+                (
+                    domain.length_nm,
+                    last,
+                    root.traffic().lane_lengths_millimetres()[last.index()],
+                ),
+            ] {
+                let StationQuery::Complete(found) = mapped.at_station(corridor, s, b) else {
+                    panic!("boundary missing")
+                };
+                let out = found.addresses().collect::<Vec<_>>();
+                assert_eq!(out.len(), 1);
+                assert_eq!((out[0].edge, out[0].progress_mm), (id, [mm, mm]));
+            }
+            assert_eq!(
+                mapped.at_station(corridor, domain.length_nm + 1, b),
+                StationQuery::Outside
+            );
+        }
+    }
+}
+
+// 在已通过生产预检的首个物理块上改一个字段，同时重算该块的摘要。
+// 调用方可分别验证旧修订声明、重新绑定后的制品和语义差异。
+fn edit_first_station_row(
+    bytes: &mut [u8],
+    section: u32,
+    table: u32,
+    tag: u16,
+    edit: impl FnOnce(&mut [u8]),
+) {
+    use laneflow_format::{FormatLimits, preflight_object_values};
+    use laneflow_static_contract::{
+        CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH, PortableObjectKind,
+        TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH,
+    };
+    use sha2::{Digest, Sha256};
+    let view = preflight_object_values(
+        bytes,
+        PortableObjectKind::CanonicalArtifact,
+        FormatLimits::HARD,
+    )
+    .unwrap()
+    .registry_view();
+    let sec = view.section(section).unwrap();
+    let t = sec.table(table).unwrap();
+    let field = t.rows().next().unwrap().field_by_tag(tag).unwrap();
+    let field_range = bytes.subslice_range(field.value_bytes()).unwrap();
+    let start = bytes.subslice_range(sec.bytes()).unwrap().start;
+    let chunk = start + t.chunk_byte_offset(0).unwrap() as usize;
+    let length = t.chunk_exact_byte_length(0).unwrap() as usize;
+    let ordinal: u32 = sec
+        .tables()
+        .take(table as usize)
+        .map(|t| t.chunk_count())
+        .sum();
+    let hash = start
+        + CHUNKED_SECTION_PREAMBLE_BYTE_LENGTH as usize
+        + ordinal as usize * TABLE_CHUNK_DIRECTORY_ENTRY_BYTE_LENGTH as usize
+        + 40;
+    edit(&mut bytes[field_range]);
+    let digest = Sha256::digest(&bytes[chunk..chunk + length]);
+    bytes[hash..hash + 32].copy_from_slice(&digest);
+}
+
+fn rebind_mapping_revision(bytes: &mut [u8]) {
+    use laneflow_format::{FormatLimits, preflight_object_values};
+    use laneflow_static_contract::{NETWORK_REVISION_DOMAIN_PREFIX, PortableObjectKind};
+    use sha2::{Digest, Sha256};
+    let kind = PortableObjectKind::CanonicalArtifact;
+    let view = preflight_object_values(bytes, kind, FormatLimits::HARD)
+        .unwrap()
+        .registry_view();
+    let mut h = Sha256::new();
+    h.update(NETWORK_REVISION_DOMAIN_PREFIX);
+    for i in [0, 1, 2, 3, 4, 5, 8] {
+        let sec = view.section(i).unwrap();
+        h.update(sec.kind().to_le_bytes());
+        h.update(kind.section_format_version().to_le_bytes());
+        h.update((sec.bytes().len() as u64).to_le_bytes());
+        h.update(sec.bytes());
+    }
+    edit_first_station_row(bytes, 7, 0, 1, |claim| claim.copy_from_slice(&h.finalize()));
+}
+
+fn check_error_only_revision(
+    output: &laneflow_compiler::CompilationOutput,
+    candidate: &laneflow_compiler::PortablePublicationCandidate,
+) {
+    use laneflow_compiler::{
+        PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::{
+        CanonicalNetworkInputError, FormatLimits, check_canonical_network_input,
+        check_post_emission_bundle, preflight_object_values,
+    };
+    use laneflow_static_contract::PortableObjectKind;
+    use laneflow_static_network::{
+        BuildError, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+    let original = candidate.canonical_artifact().bytes();
+    let limits = FormatLimits::HARD;
+    let mut edited = original.to_vec();
+    edit_first_station_row(&mut edited, 8, 4, 3, |f| {
+        let old = u32::from_le_bytes((&*f).try_into().unwrap());
+        f.copy_from_slice(&(old + 1).to_le_bytes());
+    });
+    assert!(matches!(
+        check_canonical_network_input(&edited[..], limits),
+        Err(CanonicalNetworkInputError::NetworkRevisionMismatch)
+    ));
+    rebind_mapping_revision(&mut edited);
+    let build = |b: &[u8]| {
+        build_shared_network_revision(
+            check_canonical_network_input(b, limits).unwrap(),
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+            ),
+        )
+    };
+    assert_ne!(
+        build(original)
+            .unwrap()
+            .canonical_origin()
+            .network_revision(),
+        build(&edited)
+            .unwrap()
+            .canonical_origin()
+            .network_revision()
+    );
+    assert!(
+        check_post_emission_bundle(
+            &edited[..],
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            limits
+        )
+        .is_err()
+    );
+    let base =
+        preflight_object_values(&edited, PortableObjectKind::CanonicalArtifact, limits).unwrap();
+    let updated = emit_portable_candidate(
+        output,
+        &PortableEmissionProvenance::try_new("graded-station-test").unwrap(),
+        limits,
+        PortableDiffBase::Artifact(base),
+    )
+    .unwrap();
+    let view = preflight_object_values(
+        updated.semantic_diff().bytes(),
+        PortableObjectKind::SemanticDiff,
+        limits,
+    )
+    .unwrap()
+    .registry_view();
+    let table = view.section(7).unwrap().table(0).unwrap();
+    assert_eq!(table.row_count(), 1);
+    let row = table.rows().next().unwrap();
+    assert_eq!(row.field_by_tag(1).unwrap().value_bytes(), [2]);
+    assert_eq!(row.field_by_tag(2).unwrap().value_bytes(), [5]);
+    assert_ne!(
+        row.field_by_tag(4).unwrap().value_bytes(),
+        row.field_by_tag(5).unwrap().value_bytes()
+    );
+    let mut gap = original.to_vec();
+    edit_first_station_row(&mut gap, 8, 3, 3, |f| {
+        f.copy_from_slice(&1u32.to_le_bytes())
+    });
+    rebind_mapping_revision(&mut gap);
+    assert!(matches!(
+        build(&gap),
+        Err(BuildError::StationMappingRow {
+            table_kind: 4,
+            row: 0
+        })
+    ));
+    let mut nonmonotone = original.to_vec();
+    edit_first_station_row(&mut nonmonotone, 8, 4, 1, |f| {
+        f.copy_from_slice(&0u32.to_le_bytes())
+    });
+    rebind_mapping_revision(&mut nonmonotone);
+    assert!(matches!(
+        build(&nonmonotone),
+        Err(BuildError::StationMappingRow {
+            table_kind: 5,
+            row: 0
+        })
+    ));
 }

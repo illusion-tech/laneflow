@@ -14,8 +14,9 @@ use laneflow_static_contract::{
     MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
     MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED,
     MIN_LANE_EDGE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
-    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind,
-    PortableTableSchema, SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
+    MIN_VEHICLE_LENGTH_MM, NETWORK_REVISION_DERIVATION_VERSION,
+    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind, PortableTableSchema,
+    SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
 };
 
 use crate::{
@@ -509,7 +510,7 @@ fn validate_lfca_row(
             require_exact_u16(row.required(1)?, CANONICAL_ARTIFACT_FORMAT_VERSION)?;
             require_exact_u16(row.required(2)?, 1)?;
             require_exact_u16(row.required(3)?, IDENTITY_REGISTRY_REVISION)?;
-            require_exact_u16(row.required(4)?, 1)?;
+            require_exact_u16(row.required(4)?, NETWORK_REVISION_DERIVATION_VERSION)?;
             require_exact_u16(row.required(5)?, CONSTRAINT_CONTRACT_VERSION)?;
             require_exact_u16(row.required(6)?, STATIC_EXECUTION_CONTRACT_VERSION)?;
         }
@@ -616,6 +617,7 @@ fn validate_lfca_row(
             require_exact_u16(row.required(1)?, STATIC_EXECUTION_CONTRACT_VERSION)?;
             require_exact_u16(row.required(2)?, CONSTRAINT_CONTRACT_VERSION)?;
         }
+        (9, table) => validate_station_mapping_row(table, row)?,
         (7, 1) => {
             validate_compiler_build_id(row.required(1)?)?;
             require_exact_u16(row.required(2)?, 1)?;
@@ -632,6 +634,66 @@ fn validate_lfca_row(
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), FormatError> {
+    match table {
+        1 => {
+            let length = row.required(3)?;
+            require_u64_greater(length, 0)?;
+            if row.required(2)?.u64()?.checked_add(length.u64()?).is_none() {
+                return Err(noncanonical(length));
+            }
+            require_u32_inclusive(row.required(4)?, 0, 1_000)?;
+            require_u32_inclusive(row.required(6)?, 2, u32::MAX)?;
+        }
+        2 => {
+            require_u32_inclusive(row.required(2)?, 0, 1_000)?;
+        }
+        3 => {
+            require_u8_range(row.required(2)?, 1, 2)?;
+            require_u32_inclusive(row.required(4)?, 1, 65_536)?;
+        }
+        4 => {
+            require_u32_inclusive(row.required(4)?, 1, 4_096)?;
+        }
+        5 => {
+            require_u64_greater(row.required(2)?, 0)?;
+            require_u32_inclusive(
+                row.required(3)?,
+                0,
+                laneflow_static_contract::StationSpan::MAX_CANONICAL_ERROR_NM,
+            )?;
+            require_u32_inclusive(row.required(4)?, 0, 1_000_000)?;
+            require_u32_inclusive(row.required(5)?, 1, u32::MAX)?;
+        }
+        6 => {
+            let left_start = row.required(4)?.i32()?;
+            let right_start = row.required(5)?.i32()?;
+            let left_end = row.required(6)?.i32()?;
+            let right_end = row.required(7)?.i32()?;
+            if left_start < right_start
+                || left_end < right_end
+                || (left_start == right_start && left_end == right_end)
+            {
+                return Err(row_binding_mismatch());
+            }
+            require_u32_inclusive(row.required(8)?, 0, 1_000)?;
+        }
+        7 => {
+            let owner = row.required(1)?;
+            if !matches!(owner.u16()?, 1 | 2) {
+                return Err(noncanonical(owner));
+            }
+            require_u8_range(row.required(4)?, 1, 2)?;
+            validate_identity_ascii_token(row.required(5)?, 53)?;
+            if row.required(6)?.u32()? >= row.required(7)?.u32()? {
+                return Err(row_binding_mismatch());
+            }
+        }
+        _ => unreachable!("registry checked station table"),
     }
     Ok(())
 }
@@ -1024,7 +1086,7 @@ fn validate_lfsm_row(
 ) -> Result<(), FormatError> {
     match (section, table) {
         (1, 1) => {
-            require_exact_u16(row.required(1)?, 1)?;
+            require_exact_u16(row.required(1)?, NETWORK_REVISION_DERIVATION_VERSION)?;
             require_exact_u16(row.required(3)?, CANONICAL_ARTIFACT_FORMAT_VERSION)?;
             require_exact_u16(row.required(7)?, 1)?;
             require_u64_greater(row.required(5)?, 0)?;
@@ -1574,7 +1636,103 @@ fn validate_lfsd_row(
                 }
             }
         }
+        8 => validate_station_change(
+            row,
+            bindings.lfsd_base_kind.ok_or_else(row_binding_mismatch)?,
+        )?,
         _ => {}
+    }
+    Ok(())
+}
+
+// LFSD 第八节使用稳定引用与解引用后的局部站位，数值均为紧密小端。
+fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Result<(), FormatError> {
+    let op = require_u8_range(row.required(1)?, 0, 2)?;
+    let kind = require_u8_range(row.required(2)?, 1, 7)?;
+    let key = row.required(3)?;
+    if (base == SemanticDiffBaseKind::Genesis && op != 0)
+        || (op == 2 && row.required(4)?.value == row.required(5)?.value)
+    {
+        return Err(row_binding_mismatch());
+    }
+    let stable = |b: &[u8], at: usize| {
+        b.get(at..at + 18)
+            .and_then(|r| EntityKind::from_code(u16::from_le_bytes([r[0], r[1]])))
+    };
+    use EntityKind::{AuthoringLane, FacilityBand, LaneEdge, RoadCorridor, RoadSection};
+    if kind == 7 {
+        let v = key.value;
+        if v.len() < 57 || v.len() != 56 + usize::from(v[55]) || !matches!(v[54], 1 | 2) {
+            return Err(noncanonical(key));
+        }
+        let valid = match stable(v, 0) {
+            Some(RoadCorridor) => [18, 36]
+                .into_iter()
+                .all(|i| matches!(stable(v, i), Some(RoadSection | FacilityBand))),
+            Some(RoadSection) => [18, 36]
+                .into_iter()
+                .all(|i| stable(v, i) == Some(AuthoringLane)),
+            _ => false,
+        };
+        if !valid || v[18..36] == v[36..54] {
+            return Err(noncanonical(key));
+        }
+        validate_identity_ascii_token(
+            FieldRef {
+                value: &v[56..],
+                ..key
+            },
+            53,
+        )?;
+    } else {
+        let owner = match kind {
+            1 | 2 => RoadCorridor,
+            3 => AuthoringLane,
+            4 | 5 => LaneEdge,
+            6 => FacilityBand,
+            _ => unreachable!(),
+        };
+        let len = if matches!(kind, 2 | 5) { 26 } else { 18 };
+        if key.value.len() != len || stable(key.value, 0) != Some(owner) {
+            return Err(noncanonical(key));
+        }
+    }
+    for tag in [4, 5] {
+        let Some(side) = row.field(tag) else { continue };
+        let v = side.value;
+        if v.len() != [20, 4, 19, 26, 20, 36, 16][usize::from(kind) - 1] {
+            return Err(noncanonical(side));
+        }
+        let u64_at =
+            |i: usize| u64::from_le_bytes(v[i..i + 8].try_into().expect("checked packed shape"));
+        let u32_at =
+            |i: usize| u32::from_le_bytes(v[i..i + 4].try_into().expect("checked packed shape"));
+        let i32_at =
+            |i: usize| i32::from_le_bytes(v[i..i + 4].try_into().expect("checked packed shape"));
+        let ok = match kind {
+            1 => u64_at(8) > 0 && u64_at(0).checked_add(u64_at(8)).is_some() && u32_at(16) <= 1000,
+            2 => u32_at(0) <= 1000,
+            3 => stable(v, 0) == Some(RoadCorridor) && matches!(v[18], 1 | 2),
+            4 => stable(v, 0) == Some(AuthoringLane),
+            5 => {
+                u64_at(0) > 0
+                    && u32_at(8) <= laneflow_static_contract::StationSpan::MAX_CANONICAL_ERROR_NM
+                    && u32_at(12) <= 1_000_000
+                    && u32_at(16) > 0
+            }
+            6 => {
+                u64_at(0) < u64_at(8)
+                    && i32_at(16) >= i32_at(20)
+                    && i32_at(24) >= i32_at(28)
+                    && (i32_at(16) > i32_at(20) || i32_at(24) > i32_at(28))
+                    && u32_at(32) <= 1000
+            }
+            7 => u64_at(0) < u64_at(8),
+            _ => unreachable!(),
+        };
+        if !ok {
+            return Err(noncanonical(side));
+        }
     }
     Ok(())
 }
@@ -1588,12 +1746,12 @@ fn validate_diff_bindings(row: RowRef<'_>) -> Result<SemanticDiffBaseKind, Forma
         require_all_zero(row.required(4)?)?;
         require_exact_u64(row.required(5)?, 0)?;
     } else {
-        require_exact_u16(row.required(2)?, 1)?;
+        require_exact_u16(row.required(2)?, NETWORK_REVISION_DERIVATION_VERSION)?;
         require_not_all_zero(row.required(3)?)?;
         require_not_all_zero(row.required(4)?)?;
         require_u64_greater(row.required(5)?, 0)?;
     }
-    require_exact_u16(row.required(6)?, 1)?;
+    require_exact_u16(row.required(6)?, NETWORK_REVISION_DERIVATION_VERSION)?;
     require_not_all_zero(row.required(7)?)?;
     require_not_all_zero(row.required(8)?)?;
     require_u64_greater(row.required(9)?, 0)?;
@@ -1702,7 +1860,7 @@ fn validate_lfcp_row(
     match section {
         1 => {
             require_exact_u16(row.required(1)?, CANONICAL_ARTIFACT_FORMAT_VERSION)?;
-            require_exact_u16(row.required(2)?, 1)?;
+            require_exact_u16(row.required(2)?, NETWORK_REVISION_DERIVATION_VERSION)?;
             require_u64_greater(row.required(5)?, 0)?;
             bindings.lfcp_artifact_digest = Some(copy_digest(row.required(4)?)?);
         }
@@ -2096,7 +2254,6 @@ mod tests {
             PortableFieldType::U16 => {
                 let value: u16 = match (kind, section, table, field.tag) {
                     (PortableObjectKind::CanonicalArtifact, 1, 1, 1)
-                    | (PortableObjectKind::CanonicalArtifact, 6, 1, 1)
                     | (PortableObjectKind::SourceMap, 1, 1, 3)
                     | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 1) => {
                         CANONICAL_ARTIFACT_FORMAT_VERSION
@@ -2108,16 +2265,21 @@ mod tests {
                     | (PortableObjectKind::CanonicalArtifact, 6, 1, 2) => {
                         CONSTRAINT_CONTRACT_VERSION
                     }
-                    (PortableObjectKind::CanonicalArtifact, 1, 1, 6) => {
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 6)
+                    | (PortableObjectKind::CanonicalArtifact, 6, 1, 1) => {
                         STATIC_EXECUTION_CONTRACT_VERSION
                     }
                     (PortableObjectKind::CanonicalArtifact, 1, 1, 3) => IDENTITY_REGISTRY_REVISION,
                     (PortableObjectKind::CanonicalArtifact, 7, 1, 5) => 2,
-                    (PortableObjectKind::CanonicalArtifact, 1, 1, 2 | 4)
-                    | (PortableObjectKind::CanonicalArtifact, 7, 1, 2)
-                    | (PortableObjectKind::SourceMap, 1, 1, 1 | 7)
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 4)
+                    | (PortableObjectKind::SourceMap, 1, 1, 1)
                     | (PortableObjectKind::SemanticDiff, 1, 1, 6)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 2)
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 2) => {
+                        NETWORK_REVISION_DERIVATION_VERSION
+                    }
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 2)
+                    | (PortableObjectKind::CanonicalArtifact, 7, 1, 2)
+                    | (PortableObjectKind::SourceMap, 1, 1, 7)
                     | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 5) => 1,
                     _ => 0,
                 };
@@ -3717,7 +3879,7 @@ mod tests {
             field_bytes(3, PortableFieldType::Sha256, &[0; 32]),
             field_bytes(4, PortableFieldType::Sha256, &[0; 32]),
             field_bytes(5, PortableFieldType::U64, &0_u64.to_le_bytes()),
-            field_bytes(6, PortableFieldType::U16, &1_u16.to_le_bytes()),
+            field_bytes(6, PortableFieldType::U16, &2_u16.to_le_bytes()),
             field_bytes(7, PortableFieldType::Sha256, &[1; 32]),
             field_bytes(8, PortableFieldType::Sha256, &[2; 32]),
             field_bytes(9, PortableFieldType::U64, &1_u64.to_le_bytes()),
@@ -3733,7 +3895,7 @@ mod tests {
             field_bytes(3, PortableFieldType::Sha256, &[0; 32]),
             field_bytes(4, PortableFieldType::Sha256, &[0; 32]),
             field_bytes(5, PortableFieldType::U64, &0_u64.to_le_bytes()),
-            field_bytes(6, PortableFieldType::U16, &1_u16.to_le_bytes()),
+            field_bytes(6, PortableFieldType::U16, &2_u16.to_le_bytes()),
             field_bytes(7, PortableFieldType::Sha256, &[0; 32]),
             field_bytes(8, PortableFieldType::Sha256, &[2; 32]),
             field_bytes(9, PortableFieldType::U64, &1_u64.to_le_bytes()),

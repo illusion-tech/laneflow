@@ -17,6 +17,27 @@ fn artifacts(temp: &tempfile::TempDir) -> Artifacts {
 fn formal_case_expansions_preserve_pr815_frozen_inputs() {
     let temp = tempfile::tempdir().unwrap();
     let artifacts = artifacts(&temp);
+    // 路线目录只替换文件头的修订身份，随后逐字节核对 PR #815 的所有路线。
+    use sha2::{Digest, Sha256};
+    let routes = fs::read_to_string(temp.path().join("source/routes.toml")).unwrap();
+    let current = format!(
+        "network_revision = \"{}\"",
+        artifacts.catalog().network_revision
+    );
+    assert_eq!(routes.matches(&current).count(), 1);
+    let historical = routes.replacen(
+        &current,
+        "network_revision = \"1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd8819\"",
+        1,
+    );
+    let historical_routes = "e9e6a6b260d633bcbb04923cb3922c673dfc214cd77bd6e32d4a1ec279ef70de";
+    assert_eq!(
+        Sha256::digest(historical.as_bytes())
+            .iter()
+            .map(|x| format!("{x:02x}"))
+            .collect::<String>(),
+        historical_routes
+    );
     let cycle = artifacts
         .catalog()
         .signals
@@ -69,11 +90,12 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         .unwrap();
         plan.validate(&artifacts).unwrap();
         // 生产路径已按当前制品校验。比较 PR #815 的角色、路线和请求时，在副本中恢复
-        // 当时的清单绑定（#819）及 LFRE 升版影响的三个制品摘要（#1516）。除拓扑来源长度外，
+        // 当时的清单绑定及来源、制品、路线目录的历史文件摘要。除拓扑来源和 LFCA 长度外，
         // 其他文件长度、路线目录、配置和计划内容仍逐字节比较；生成器测试另行核对当前制品的完整摘要。
         plan.manifest_digest =
             "4ec17200ec09c682124ec08d85e59e3fcaeccbd4611899998021fdbf0211b3ee".into();
         for (name, pr815_sha256) in [
+            ("routes.toml", historical_routes),
             (
                 "common.lfre",
                 "82b8167c2a8bfb3b06f940d8e73c975d0935fb0841b9373387e8f9a422456109",
@@ -91,6 +113,8 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         }
         // LFRE 6 把每条编制车道的边引用写成向量；PR #815 的固定计划绑定了当时的来源长度。
         plan.files.get_mut("topology.lfre").unwrap().bytes = 1_669_184;
+        // LFCA 6 增加第九节，历史输入对照使用旧版文件长度。
+        plan.files.get_mut("network.lfca").unwrap().bytes = 8_868_299;
         assert!(plan.validate(&artifacts).is_err());
         let bytes = toml::to_string_pretty(&plan).unwrap();
         let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();

@@ -688,6 +688,7 @@ fn full_spatial_portable_fixture_unit_with_policy(with_policy: bool) -> Compilat
             continue;
         };
         band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+            station: None,
             length: EdgeLength::try_new(10.0).unwrap(),
             canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
                 Arc::clone(&namespace),
@@ -762,8 +763,8 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0xdb, 0xad, 0x94, 0x3c, 0x1a, 0x9f, 0x9d, 0xd6, 0x27, 0x90, 0x01, 0x1d, 0xad, 0x06, 0x18, 0xb6,
-    0x3f, 0x71, 0xd7, 0xd3, 0xaf, 0x59, 0x98, 0xda, 0x1d, 0x65, 0xbf, 0x28, 0x35, 0xe5, 0xac, 0x4d,
+    0xfd, 0x76, 0x46, 0x9c, 0xbd, 0xfc, 0x03, 0x02, 0xbc, 0xcb, 0x6a, 0x58, 0xef, 0x11, 0xb8, 0x82,
+    0xd7, 0xec, 0x72, 0x05, 0x61, 0xc9, 0xef, 0x66, 0xdf, 0x14, 0x7e, 0x7d, 0xfb, 0xe6, 0x41, 0xe5,
 ];
 
 #[test]
@@ -813,15 +814,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/7fda48d5ab2e2effc46df745b11aab413e04e39ba8e76d3bf3f5219524ff199e"
+        "sha256/b22f9edcea5c7e297c3677b637a81c2c9523a54bdbb2b2b03b95cba6f76e611e"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/fb94c7552e58d550939d24d7827eb51585cbcdd89586279d06bb1f3dfbb2dbd4"
+        "sha256/a81a1ea23fd1dca86733e3019b325d234463be557124e161b6f456b8ce3e5614"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/623d6f47225f64483800ba783f7345fe0594719b3774356b4bed578366a76bdc"
+        "sha256/12a36736ce224bb62ac01e1279411247e277ff6470c459596dea1679e0fa5ceb"
     );
     assert_eq!(
         candidate.network_revision(),

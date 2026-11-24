@@ -749,18 +749,18 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 layout，不承诺与 Rust struct ABI 相同，也不因某次 headless 构建缺少 Spatial
 component 而丢失 canonical semantics。
 
-`NetworkRevisionId` v1 是版本化、目标无关且只支持相等性比较的不透明值：
+`NetworkRevisionId` 的派生版本 2 是版本化、目标无关且只支持相等性比较的不透明值：
 
 ```text
 networkRevision =
   SHA-256(
-    "laneflow.network-revision.v1\0"
+    "laneflow.network-revision.v2\0"
     || canonicalNetworkSemanticPayload
   )
 ```
 
 规范路网语义载荷（Canonical Network Semantic Payload）
-`canonicalNetworkSemanticPayload` 是冻结编码的目标无关规范字节，包含 identity
+`canonicalNetworkSemanticPayload` 依次覆盖 LFCA 第 1～6、9 节的节类型、节格式版本、长度和规范字节，共享里程及其误差界参与修订派生。载荷包含 identity
 encoding/registry、完整 `CanonicalIdentityTable`、constraint/execution-constraint
 versions，以及全部目标无关的拓扑、几何、静态规则、规范 relation 和静态执行约束；
 不包含该摘要自身、artifact envelope、compiler provenance、source
@@ -821,7 +821,7 @@ backing；runtime-only 调用方可释放 LFCA，可编辑 session 所需 exact 
 
 ### 8.5 语义差异（Semantic Diff）
 
-语义差异线格式是 [LFSD 4][portable-lfsd]。
+语义差异线格式是 [LFSD 5][portable-lfsd]。
 
 语义差异不能脱离旧/新规范制品解释。Stable entity 按 `StableId128` 报告；owner-local derived record 在 owning `StableId128` 与 typed role 内按 canonical relation value 做确定性 sequence diff，报告 before/after `localIndex`，但不把位置当成跨编译标识：
 
@@ -1242,7 +1242,7 @@ compiler/format 反向依赖动态运行时。
 
 [portable-lfcp]: portable-canonical-artifact.md#6-lfcp-2-与发布闭合
 [portable-lfsm]: portable-canonical-artifact.md#4-lfsm-6
-[portable-lfsd]: portable-canonical-artifact.md#5-lfsd-4
+[portable-lfsd]: portable-canonical-artifact.md#5-lfsd-5
 [post-emission-lfcp]: compiler-post-emission-check-and-minimal-publication-closure.md#8-lfcp-v2
 [post-emission-matrix]: compiler-post-emission-check-and-minimal-publication-closure.md#11-验证矩阵
 [revision-cutover]: traffic-runtime-revision-cutover.md

@@ -359,7 +359,7 @@ schema 遵守以下闭合规则：
 
 根表使用 `LFRE` 与 size-prefixed `RoadEditingSource` envelope，绑定
 `format_version = 6`、Road Editing `frontendVersion = 6`、Identity registry revision 4、
-LFCA 5、LFSM 6 与 LFSD 4。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
+LFCA 6、LFSM 6 与 LFSD 5。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
 五张新增表的字段和来源路径见路权策略实施合同 §4.4。
 field id `0..=17` 的含义及其余字段如下：
 
@@ -593,8 +593,8 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 
 ### 9.5 版本、未知字段与摘要
 
-当前组合是 `format_version = 6`、Road Editing `frontendVersion = 6`、LFCA 5、LFSM 6 与
-LFSD 4；来源前端版本和 LFRE wire 版本分别精确校验。
+当前组合是 `format_version = 6`、Road Editing `frontendVersion = 6`、LFCA 6、LFSM 6 与
+LFSD 5；来源前端版本和 LFRE wire 版本分别精确校验。
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
   `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 6`；

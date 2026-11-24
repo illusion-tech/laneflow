@@ -1718,6 +1718,46 @@ fn semantic_digest(
         }
         hasher.update(&rule.priority.to_le_bytes());
     }
+    for (ordinal, geometry) in lane_edge_geometries.iter().enumerate() {
+        if let Some(edge) = &geometry.station {
+            hasher.update(b"station-edge\0");
+            hash_u32(
+                &mut hasher,
+                u32::try_from(ordinal).expect("admitted edge ordinal"),
+            );
+            for v in [edge.origin, edge.corridor_length, edge.start] {
+                hasher.update(&v.to_le_bytes());
+            }
+            hash_u32(&mut hasher, edge.start_error);
+            hash_u32(
+                &mut hasher,
+                edge.spans.len().try_into().expect("admitted station spans"),
+            );
+            for span in &edge.spans {
+                hasher.update(&span.station.to_le_bytes());
+                hasher.update(&span.progress.to_le_bytes());
+                for v in [
+                    span.station_error,
+                    span.canonical_error,
+                    span.travel_error,
+                    span.rate,
+                    span.cumulative.to_bits(),
+                ] {
+                    hash_u32(&mut hasher, v);
+                }
+            }
+        }
+    }
+    for geometry in facility_band_geometries {
+        if let Some(band) = geometry.station {
+            hasher.update(b"station-band\0");
+            hash_u32(&mut hasher, geometry.facility_band.raw());
+            for offset in band.offsets_um {
+                hasher.update(&offset.to_le_bytes());
+            }
+            hash_u32(&mut hasher, band.lateral_error);
+        }
+    }
     *hasher.finalize().as_bytes()
 }
 

@@ -50,6 +50,7 @@ pub(crate) struct HirCanonicalFrame {
 /// 规范坐标框架内的一条中心线；点与线段区间均按行驶方向排列。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirLaneEdgeGeometry {
+    pub(crate) station: Option<std::sync::Arc<crate::declaration::StationEdgeProof>>,
     pub(crate) source_module: HirModuleKey,
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) lane_edge: HirLaneEdgeKey,
@@ -63,6 +64,7 @@ pub(crate) struct HirLaneEdgeGeometry {
 /// 不可遍历 FacilityBand 的规范中心线；与 LaneEdge 几何共享规范点表。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirFacilityBandGeometry {
+    pub(crate) station: Option<crate::declaration::StationBandProof>,
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) facility_band: HirFacilityBandKey,
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
@@ -134,6 +136,8 @@ pub(crate) struct SpatialHir {
 
 /// 待冻结的车道边中心线几何输入及其来源区间。
 pub(crate) struct PendingSpatialGeometry<'a> {
+    station: Option<&'a std::sync::Arc<crate::declaration::StationEdgeProof>>,
+    band: Option<crate::declaration::StationBandProof>,
     source_module: HirModuleKey,
     centerline_points: &'a [CanonicalPoint3F32Input],
     expected_length_meters: f64,
@@ -348,6 +352,8 @@ pub(crate) fn build_spatial_hir(
                     continue;
                 }
                 pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
+                    station: None,
+                    band: None,
                     source_module: module_key,
                     centerline_points: &geometry.centerline_points,
                     expected_length_meters: f64::from(lane_edges.get(lane_edge).length_mm)
@@ -462,6 +468,8 @@ pub(crate) fn build_spatial_hir(
                 continue;
             }
             pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
+                station: compiled.station.as_ref(),
+                band: None,
                 source_module: module_key,
                 centerline_points: &compiled.centerline_points,
                 expected_length_meters: compiled.length.observation_metres(),
@@ -518,6 +526,8 @@ pub(crate) fn build_spatial_hir(
                 .get(module_key, &source.header.source_address)
                 .expect("cross-section HIR registered every FacilityBand symbol");
             pending_facility_geometries[band.index()] = Some(PendingSpatialGeometry {
+                station: None,
+                band: compiled.station,
                 source_module: module_key,
                 centerline_points: &compiled.centerline_points,
                 expected_length_meters: compiled.length.observation_metres(),
@@ -792,6 +802,7 @@ pub(crate) fn build_spatial_hir(
                 &unit.limits,
             )?;
             geometries.push(HirLaneEdgeGeometry {
+                station: pending.station.cloned(),
                 source_module: pending.source_module,
                 canonical_frame: frame_key,
                 lane_edge: edge,
@@ -865,6 +876,7 @@ pub(crate) fn build_spatial_hir(
                 &unit.limits,
             )?;
             facility_geometries.push(HirFacilityBandGeometry {
+                station: pending.band,
                 canonical_frame: frame_key,
                 facility_band: band,
                 points: TableRange::try_from_usize(frozen.point_start, frozen.point_count)

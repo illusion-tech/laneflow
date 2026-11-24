@@ -452,6 +452,7 @@ pub(crate) struct MirCanonicalFrame {
 }
 
 pub(crate) struct MirLaneEdgeGeometry {
+    pub(crate) station: Option<std::sync::Arc<crate::declaration::StationEdgeProof>>,
     pub(crate) source_module: MirModuleKey,
     pub(crate) canonical_frame: MirCanonicalFrameKey,
     pub(crate) lane_edge: MirLaneEdgeKey,
@@ -474,6 +475,7 @@ pub(crate) struct MirGeometrySourceRange {
 }
 
 pub(crate) struct MirFacilityBandGeometry {
+    pub(crate) station: Option<crate::declaration::StationBandProof>,
     pub(crate) canonical_frame: MirCanonicalFrameKey,
     pub(crate) facility_band: MirFacilityBandKey,
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
@@ -1618,6 +1620,7 @@ pub(crate) fn lower_to_mir_in(
         let facility_band_geometries = pass.try_collect::<_, DiagnosticBundle>(
             hir.facility_band_geometries.iter().map(|geometry| {
                 Ok(MirFacilityBandGeometry {
+                    station: geometry.station,
                     canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
                     facility_band: band_mapping[geometry.facility_band.index()],
                     points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
@@ -1633,6 +1636,7 @@ pub(crate) fn lower_to_mir_in(
         let lane_edge_geometries = pass.try_collect::<_, DiagnosticBundle>(
             hir.lane_edge_geometries.iter().map(|geometry| {
                 Ok(MirLaneEdgeGeometry {
+                    station: geometry.station.clone(),
                     source_module: hir_module_to_mir[geometry.source_module.index()],
                     canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
                     lane_edge: hir_to_mir[geometry.lane_edge.index()],

@@ -131,7 +131,7 @@ fn hull(a: Scalar, b: Scalar) -> Scalar {
 fn difference(a: Vector, b: Vector) -> Vector {
     std::array::from_fn(|i| a[i] - b[i])
 }
-fn offset_at(curve: &NativeCurve, offset: Offset, t: f64) -> (Scalar, Scalar) {
+pub(super) fn offset_at(curve: &NativeCurve, offset: Offset, t: f64) -> (Scalar, Scalar) {
     let Some((row, width)) = offset else {
         return (Scalar::exact(0.0), Scalar::exact(0.0));
     };

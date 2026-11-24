@@ -427,8 +427,25 @@ impl LirFreezePlan {
             .array::<ArenaKey<MirConflictPassage>>(cap(conflict.passages));
         // 输出逻辑字节使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
         // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
+        // 站位证明从来源到 LIR 共享同一份已入账的后备存储，输出逻辑量按定宽字段计数。
+        let station_bytes = mir
+            .lane_edge_geometries
+            .iter()
+            .filter_map(|g| g.station.as_ref())
+            .fold(0_u64, |n, e| {
+                n.saturating_add(36)
+                    .saturating_add((e.spans.len() as u64).saturating_mul(36))
+            })
+            .saturating_add(
+                (mir.facility_band_geometries
+                    .iter()
+                    .filter(|g| g.station.is_some())
+                    .count() as u64)
+                    .saturating_mul(24),
+            );
         let output_bytes = lane_edge_count
             .saturating_mul(LIR_LANE_EDGE_LOGICAL_BYTES)
+            .saturating_add(station_bytes)
             .saturating_add(
                 mir.policies
                     .iter()

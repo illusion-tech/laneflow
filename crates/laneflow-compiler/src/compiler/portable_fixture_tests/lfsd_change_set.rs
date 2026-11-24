@@ -154,27 +154,27 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         target.semantic_diff().byte_length(),
-        exact_byte_length(2_999)
+        exact_byte_length(3_039)
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/6bbedcedc877a31521407c40ad9364304f2c4a7f7a78ab8d298580c9d07b58c5"
+        "sha256/b85f913e984820bc69db0aab24b8a0f17ccb21e88196896b3fda5240d547c0dc"
     );
     assert_eq!(
         base.canonical_artifact().object_key(),
-        "sha256/970d54e1195623a90688a707bd5ebf16e95a9c5dbcc0c1ed4575b2be35314833"
+        "sha256/3c620ef6afcc7b0ee305bb47018db79a391a774ac8312705708232569cf0591c"
     );
     assert_eq!(
         base.canonical_artifact().byte_length(),
-        exact_byte_length(3_532)
+        exact_byte_length(3_572)
     );
     assert_eq!(
         target.canonical_artifact().object_key(),
-        "sha256/7b77bce6fa8c22209e260d4b4abdd545c79f4101c6406d0b3db1c4dd5519b024"
+        "sha256/a10a4d23520d0b5aa322a7de9f1efe091f91f46cb117f334ef64c1be7c72dd76"
     );
     assert_eq!(
         target.canonical_artifact().byte_length(),
-        exact_byte_length(4_738)
+        exact_byte_length(4_778)
     );
 
     let diff = laneflow_format::preflight_object_values(
@@ -200,7 +200,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert!(matches!(
         binding.field_by_tag(5).unwrap().value().unwrap(),
-        laneflow_format::RegistryCheckedFieldValue::U64(3_532)
+        laneflow_format::RegistryCheckedFieldValue::U64(3_572)
     ));
     assert_eq!(
         binding.field_by_tag(7).unwrap().value_bytes(),
@@ -212,7 +212,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert!(matches!(
         binding.field_by_tag(9).unwrap().value().unwrap(),
-        laneflow_format::RegistryCheckedFieldValue::U64(4_738)
+        laneflow_format::RegistryCheckedFieldValue::U64(4_778)
     ));
 
     let entity_changes = diff.section(1).unwrap().table(0).unwrap();

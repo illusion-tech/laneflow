@@ -301,7 +301,7 @@ fn reader_accepted_unclosed_identity() -> Vec<u8> {
     .unwrap();
     let mut hasher = Sha256::new();
     hasher.update(NETWORK_REVISION_DOMAIN_PREFIX);
-    for ordinal in 0..6 {
+    for ordinal in [0, 1, 2, 3, 4, 5, 8] {
         let section = view.registry_view().section(ordinal).unwrap();
         hasher.update(section.kind().to_le_bytes());
         hasher.update(

@@ -70,6 +70,7 @@ pub(super) fn locate_reference_station(
 
 /// 已编译完成的曲线：长度、规范点列与逐段来源范围。
 pub(super) struct CompiledCurve {
+    station: Option<std::sync::Arc<crate::declaration::StationEdgeProof>>,
     pub(super) length: EdgeLength,
     pub(super) points: Box<[CanonicalPoint3F32Input]>,
     pub(super) source_ranges: Box<[CompiledGeometrySourceRange]>,
@@ -201,6 +202,7 @@ struct GeometryDeclarationIndex<'a> {
 struct GeometryScratchBudget {
     limit: u64,
     live_headroom: u64,
+    station_bytes: u64,
     /// 已由候选 retained base 预收费、但仍属于本阶段私有暂存区的输入 backing。
     stage_base: u64,
     live: u64,
@@ -223,6 +225,7 @@ impl GeometryScratchBudget {
             limit,
             live_headroom,
             stage_base,
+            station_bytes: 0,
             live: stage_base,
             peak: stage_base,
         })
@@ -278,6 +281,7 @@ impl GeometryScratchBudget {
         self.live
             .checked_sub(self.stage_base)
             .expect("stage base remains live for the whole geometry compilation")
+            .saturating_add(self.station_bytes)
     }
 
     fn dynamic_peak(&self) -> u64 {
@@ -329,6 +333,7 @@ fn alignment_input_scratch_bytes(alignments: &[RoadAlignmentDeclaration]) -> Opt
 /// 几何编译的资源用量：输出点数、来源范围数与 scratch/live 峰值。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct GeometryCompilationUsage {
+    pub(super) station_bytes: u64,
     pub(super) output_point_count: u64,
     pub(super) output_source_range_count: u64,
     pub(super) peak_scratch_bytes: u64,
@@ -771,6 +776,7 @@ pub(super) fn compile_authoring_geometry(
         )?);
         let compiled_result = compile_explicit_curve_exact(
             ChordTarget {
+                publish: false,
                 kind: laneflow_static_contract::EntityKind::LaneEdge,
                 key: edge.header.source_address.local_key(),
                 owners: edge.header.source_address.owner_local_keys(),
@@ -796,6 +802,7 @@ pub(super) fn compile_authoring_geometry(
         lane_outputs.push(PendingLaneGeometry {
             target: edge.header.source_address.clone(),
             value: Some(CompiledLaneEdgeGeometry {
+                station: None,
                 length: closed_traffic_lane_edge_length(compiled.length)
                     .map_err(GeometryCompilationError::from)
                     .map_err(|error| error.with_numeric_source(edge.header.span.clone()))?,
@@ -812,12 +819,6 @@ pub(super) fn compile_authoring_geometry(
             .authoring_geometry
             .as_ref()
             .expect("resolved corridor plans retain authoring geometry");
-        if let Some(source) = &authoring.station_mapping_request {
-            return Err(GeometryCompilationError::Constraint(Box::new((
-                crate::RoadEditingNumericViolation::StationMappingNotProven,
-                source.clone(),
-            ))));
-        }
         let alignment = compiled_alignments
             .binary_search_by(|entry| {
                 entry
@@ -868,6 +869,11 @@ pub(super) fn compile_authoring_geometry(
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(cut_check_peak);
         let mut width_profiles = Vec::with_capacity(plan.member_count);
         width_profiles.extend(members.iter().map(|member| member.width_profile));
+        let width_rounding_error = if authoring.station_mapping_request.is_some() {
+            super::station_proof::width_rounding_error(&width_profiles)
+        } else {
+            0.0
+        };
         let offsets = derive_member_offset_endpoints(&width_profiles, plan.reference_ordinal)?;
 
         for (member, offset) in members.iter().zip(offsets.iter()) {
@@ -917,6 +923,8 @@ pub(super) fn compile_authoring_geometry(
                         used_source_ranges,
                     )?);
                 let sizing_result = measure_offset_curve(
+                    authoring.station_mapping_request.is_some()
+                        && kind == laneflow_static_contract::EntityKind::LaneEdge,
                     &alignment.declaration.reference_line,
                     &alignment.reference,
                     edge_domain[0],
@@ -952,8 +960,38 @@ pub(super) fn compile_authoring_geometry(
                         next_used_points,
                         next_used_source_ranges,
                     )?);
+                let mapped = authoring.station_mapping_request.is_some()
+                    && kind == laneflow_static_contract::EntityKind::LaneEdge;
+                let count = sizing.point_count.saturating_sub(1);
+                let work_bytes = if mapped {
+                    if count > 4096 {
+                        return Err(GeometryCompilationError::Constraint(Box::new((
+                            crate::RoadEditingNumericViolation::StationMappingNotProven,
+                            source.clone(),
+                        ))));
+                    }
+                    let output_bytes = (count as u64)
+                        .saturating_mul(size_of::<crate::declaration::StationChordProof>() as u64)
+                        .saturating_add(
+                            (size_of::<crate::declaration::StationEdgeProof>()
+                                + 2 * size_of::<usize>()) as u64,
+                        );
+                    scratch.station_bytes = scratch.station_bytes.saturating_add(output_bytes);
+                    (count as u64).saturating_mul(size_of::<super::station_proof::Chord>() as u64)
+                } else {
+                    0
+                };
+                scratch.reserve_bytes(work_bytes)?;
+                peak_output_and_scratch_bytes =
+                    peak_output_and_scratch_bytes.max(check_live_limit(
+                        live_headroom,
+                        scratch.dynamic_live(),
+                        next_used_points,
+                        next_used_source_ranges,
+                    )?);
                 let compiled_result = compile_offset_curve_exact(
                     ChordTarget {
+                        publish: mapped,
                         kind,
                         key: target.local_key(),
                         owners: target.owner_local_keys(),
@@ -972,6 +1010,7 @@ pub(super) fn compile_authoring_geometry(
                     direction,
                     sizing,
                 );
+                scratch.release_bytes(work_bytes);
                 scratch.release_bytes(numeric_scratch_bytes);
                 let compiled = compiled_result
                     .map_err(GeometryCompilationError::from)
@@ -994,6 +1033,7 @@ pub(super) fn compile_authoring_geometry(
                         lane_outputs.push(PendingLaneGeometry {
                             target: (*target).clone(),
                             value: Some(CompiledLaneEdgeGeometry {
+                                station: compiled.station,
                                 length: closed_traffic_lane_edge_length(compiled.length)
                                     .map_err(GeometryCompilationError::from)
                                     .map_err(|error| error.with_numeric_source(source.clone()))?,
@@ -1015,6 +1055,22 @@ pub(super) fn compile_authoring_geometry(
                         facility_outputs.push(PendingFacilityGeometry {
                             target: (*target).clone(),
                             value: Some(CompiledFacilityBandGeometry {
+                                station: if authoring.station_mapping_request.is_some() {
+                                    Some(super::station_proof::band(
+                                        *offset,
+                                        member.width_profile,
+                                        corridor_domain,
+                                        width_rounding_error,
+                                        alignment
+                                            .reference
+                                            .station_rows
+                                            .last()
+                                            .unwrap()
+                                            .station_error_meters,
+                                    )?)
+                                } else {
+                                    None
+                                },
                                 length: compiled.length,
                                 canonical_frame: alignment.declaration.canonical_frame.clone(),
                                 centerline_points: compiled.points,
@@ -1136,6 +1192,7 @@ pub(super) fn compile_authoring_geometry(
     scratch.release_bytes(native_cache_bytes);
     debug_assert_eq!(scratch.live, alignment_input_scratch_bytes);
     Ok(GeometryCompilationUsage {
+        station_bytes: scratch.station_bytes,
         output_point_count: used_points,
         output_source_range_count: used_source_ranges,
         peak_scratch_bytes: scratch.peak,
@@ -1688,6 +1745,7 @@ fn measure_explicit_curve(
     remaining_point_limit: u64,
 ) -> Result<CurveSizing, NumericFreezeError> {
     let mut output_counter = CountingSink {
+        mapping_length: None,
         count: 0,
         limit: remaining_point_limit,
         limit_error: NumericFreezeError::from(NumericFreezeKind::GeometryPointLimit),
@@ -1712,6 +1770,8 @@ fn compile_explicit_curve_exact(
     sizing: CurveSizing,
 ) -> Result<CompiledCurve, NumericFreezeError> {
     let mut point_collector = ExactPointSink {
+        mapping_length: None,
+        chords: None,
         target,
         points: Vec::with_capacity(sizing.point_count),
         expected_points: sizing.point_count,
@@ -1734,6 +1794,7 @@ fn compile_explicit_curve_exact(
         .map_err(|_| NumericFreezeError::from(NumericFreezeKind::DegenerateCanonicalSegment))?;
     Ok(CompiledCurve {
         length,
+        station: None,
         points: point_collector.points.into_boxed_slice(),
         source_ranges,
     })
@@ -1806,6 +1867,7 @@ fn measure_alignment_reference(
         start = end;
     }
     let mut station_counter = CountingSink {
+        mapping_length: None,
         count: 0,
         limit: transient_vertex_limit,
         limit_error,
@@ -1876,6 +1938,7 @@ pub(super) fn compile_offset_curve(
     remaining_point_limit: u64,
 ) -> Result<CompiledCurve, NumericFreezeError> {
     let sizing = measure_offset_curve(
+        false,
         program,
         reference,
         corridor_start_meters,
@@ -1905,6 +1968,7 @@ pub(super) fn compile_offset_curve(
 
 #[allow(clippy::too_many_arguments)]
 fn measure_offset_curve(
+    publish: bool,
     program: &AuthoringCurveProgramDeclaration,
     reference: &CompiledAlignmentReference,
     corridor_start_meters: f64,
@@ -1923,6 +1987,7 @@ fn measure_offset_curve(
         corridor_end_meters,
     )?;
     let mut counter = CountingSink {
+        mapping_length: publish.then_some(corridor_end_meters - corridor_start_meters),
         count: 0,
         limit: remaining_point_limit,
         limit_error: NumericFreezeError::from(NumericFreezeKind::GeometryPointLimit),
@@ -1966,6 +2031,12 @@ fn compile_offset_curve_exact(
     sizing: CurveSizing,
 ) -> Result<CompiledCurve, NumericFreezeError> {
     let mut collector = ExactPointSink {
+        mapping_length: target
+            .publish
+            .then_some(corridor_end_meters - corridor_start_meters),
+        chords: target
+            .publish
+            .then(|| Vec::with_capacity(sizing.point_count - 1)),
         target,
         points: Vec::with_capacity(sizing.point_count),
         expected_points: sizing.point_count,
@@ -2000,7 +2071,21 @@ fn compile_offset_curve_exact(
     })?;
     let length = EdgeLength::try_from_authoring_metres(length)
         .map_err(|_| NumericFreezeError::from(NumericFreezeKind::DegenerateCanonicalSegment))?;
+    let station = collector
+        .chords
+        .map(|chords| {
+            super::station_proof::finish(
+                chords,
+                &collector.points,
+                width_domain,
+                [corridor_start_meters, corridor_end_meters],
+                lane_direction == AuthoringLaneDirection::Backward,
+                length,
+            )
+        })
+        .transpose()?;
     Ok(CompiledCurve {
+        station,
         length,
         points: collector.points.into_boxed_slice(),
         source_ranges,
@@ -2466,6 +2551,7 @@ fn point3(value: AuthoringPoint3F64, role: CurvePointRole) -> Result<Point3, Num
 }
 
 struct CountingSink {
+    mapping_length: Option<f64>,
     count: u64,
     limit: u64,
     limit_error: NumericFreezeError,
@@ -2514,6 +2600,9 @@ impl CountingSink {
 }
 
 impl ApproximationPointSink for CountingSink {
+    fn mapping_length(&self) -> Option<f64> {
+        self.mapping_length
+    }
     fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError> {
         if self.count == self.limit {
             return Err(self.limit_error);
@@ -2667,6 +2756,7 @@ impl<'a> ReferenceProgramSink<'a> for StationRowSink<'a> {
 }
 
 struct ChordTarget<'a> {
+    publish: bool,
     kind: laneflow_static_contract::EntityKind,
     key: &'a str,
     owners: &'a [std::sync::Arc<str>],
@@ -2678,6 +2768,7 @@ impl<'a> ChordTarget<'a> {
     fn silent(observe: &'a mut super::native_bounds::Observer<'a>) -> Self {
         Self {
             kind: laneflow_static_contract::EntityKind::LaneEdge,
+            publish: false,
             key: "",
             owners: &[],
             backward: false,
@@ -2686,6 +2777,8 @@ impl<'a> ChordTarget<'a> {
     }
 }
 struct ExactPointSink<'a> {
+    mapping_length: Option<f64>,
+    chords: Option<Vec<super::station_proof::Chord>>,
     target: ChordTarget<'a>,
     points: Vec<CanonicalPoint3F32Input>,
     expected_points: usize,
@@ -2782,6 +2875,20 @@ impl ExactPointSink<'_> {
 }
 
 impl ApproximationPointSink for ExactPointSink<'_> {
+    fn mapping_length(&self) -> Option<f64> {
+        self.mapping_length
+    }
+    fn mapping_chord(
+        &mut self,
+        chord: super::station_proof::Chord,
+    ) -> Result<(), NumericFreezeError> {
+        let chords = self.chords.as_mut().expect("only collecting mapped edges");
+        if chords.len() >= self.expected_points - 1 {
+            return Err(NumericFreezeKind::StationMappingNotProven.into());
+        }
+        chords.push(chord);
+        Ok(())
+    }
     fn native_chord(
         &mut self,
         parameters: [f64; 2],
@@ -3928,6 +4035,7 @@ mod tests {
         };
         let reference = compile_alignment_reference(&program, station_row_bytes(3)).unwrap();
         let sizing = measure_offset_curve(
+            false,
             &program,
             &reference,
             0.0,

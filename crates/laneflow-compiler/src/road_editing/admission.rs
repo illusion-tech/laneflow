@@ -614,9 +614,11 @@ fn lower_verified_source(
         .saturating_add(counts.conflict_region_point_count());
     let geometry_source_range_count = geometry_usage.output_source_range_count;
     let geometry_output_bytes =
-        size_bytes::<CanonicalPoint3F32Input>(geometry_usage.output_point_count).saturating_add(
-            size_bytes::<CompiledGeometrySourceRange>(geometry_source_range_count),
-        );
+        size_bytes::<CanonicalPoint3F32Input>(geometry_usage.output_point_count)
+            .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
+                geometry_source_range_count,
+            ))
+            .saturating_add(geometry_usage.station_bytes);
     let post_geometry_import_peak =
         geometry_output_bytes.saturating_add(admission_sizing.import_sort_bytes);
     if post_geometry_import_peak > geometry_scratch_allowance.live_headroom {
@@ -702,7 +704,8 @@ fn lower_verified_source(
         display_string_items,
         display_string_bytes,
         &admission_sizing,
-    );
+    )
+    .saturating_add(geometry_usage.station_bytes);
     let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
     debug_assert_eq!(
         import_count,
@@ -1038,6 +1041,9 @@ fn geometry_compilation_diagnostic(
             RoadEditingNumericViolation::ApproximationNotConverged
         }
         NumericFreezeKind::StationOutOfRange => RoadEditingNumericViolation::StationOutOfRange,
+        NumericFreezeKind::StationMappingNotProven => {
+            RoadEditingNumericViolation::StationMappingNotProven
+        }
         NumericFreezeKind::GeometryTopologyMismatch => {
             RoadEditingNumericViolation::GeometryTopologyMismatch
         }

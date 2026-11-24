@@ -69,6 +69,14 @@ pub enum BuildStructure {
     ManeuverCandidates,
     /// Conflict component 构建。
     Conflict,
+    /// 走廊共享里程映射及其边链归属。
+    StationMapping,
+    /// 全修订的站位锚点数。
+    StationAnchors,
+    /// 全修订的映射分段数。
+    StationSpans,
+    /// 全修订的命名边界区间数。
+    BoundaryExtents,
     /// 路权策略闭合。
     Policy,
     /// 策略解析的工作预算。
@@ -134,6 +142,13 @@ pub enum BuildError {
         policy: u32,
         /// 具体的策略违反类型。
         violation: PolicyBuildViolation,
+    },
+    /// 第九节映射的所有者、范围或单调性不闭合。
+    StationMappingRow {
+        /// 第九节的表种类（1 至 7）。
+        table_kind: u16,
+        /// 全表零基逻辑行。缺行时表示期望的下一行。
+        row: u32,
     },
     /// 受检 LFCA 违反结构不变量：段/表缺失、字段值类型不符、成员记录缺失或实体
     /// 归属不闭合等（`build_shared_network_revision`；structure 标明所属组件）。
@@ -309,7 +324,9 @@ impl BuildError {
     pub const fn class(self) -> BuildErrorClass {
         match self {
             Self::Policy { .. } => BuildErrorClass::Reference,
-            Self::InputInvariant { .. } => BuildErrorClass::InputInvariant,
+            Self::InputInvariant { .. } | Self::StationMappingRow { .. } => {
+                BuildErrorClass::InputInvariant
+            }
             Self::UnexpectedOrdinal { .. }
             | Self::EntityKindOrder { .. }
             | Self::NonCanonicalOrder { .. } => BuildErrorClass::Order,

@@ -320,6 +320,8 @@ fn exact_baseline_trace_and_retry_match() {
     // Filled from the fixed pre-refactor commit, never regenerated from the implementation under test.
     // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
     // waiting、waiting-journal、conflict、conflict-journal 四行重生成一次，其余两行不变。
+    // #1523：按 LFCA 5 的六节派生规则还原测试路网身份和两个版本字段后，
+    // 两组历史轨迹逐项相同。本向量使用 LFCA 6 的实际绑定。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-protocol-e011745e.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
