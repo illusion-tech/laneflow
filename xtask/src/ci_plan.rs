@@ -7,6 +7,11 @@
 //! 失败关闭语义（合同 §4）：读取或解析失败由命令以非零退出承载，调用方按
 //! 全量处理；文件归类落入「未知」态时直接扩大为完整适用套件；「成功计算后
 //! 某任务确实不适用」与「计算失败」严格区分。
+//!
+//! 注册表是归类的事实依据，其可靠性在每次生成计划前自检（合同 §3.2）：对
+//! 全仓 `include_str!` / `include_bytes!` 清点并与注册表逐位对账。对账完成
+//! 但不一致时，受影响计划不成立——退回全量并列出差异；对账本身失败属计算
+//! 失败，按上述非零退出承载。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -24,6 +29,10 @@ const REGISTRY_TOML: &str = include_str!("../data/ci-extra-inputs.toml");
 #[serde(deny_unknown_fields)]
 struct RegistryFile {
     schema_version: u32,
+    /// 已人工核对的非字面量 include 实参（源文件的仓库相对路径，逐出现
+    /// 登记且不去重）：对账时与全仓清点逐出现比对。
+    #[serde(default)]
+    reviewed_unparsed_includes: Vec<String>,
     #[serde(default)]
     triggers: TriggerSection,
     #[serde(default)]
@@ -57,9 +66,11 @@ type EmbedMap = BTreeMap<String, BTreeSet<String>>;
 struct Registry {
     full: Vec<String>,
     not_applicable: Vec<String>,
-    /// 跨包嵌入图原始表（仅一致性测试对账用；归类走合并后的 `inputs`）。
-    #[allow(dead_code)]
+    /// 跨包嵌入图原始表：计划生成前与全仓清点对账（归类走合并后的
+    /// `inputs`）。
     embed: EmbedMap,
+    /// 已核对的非字面量 include 实参清单（排序后逐出现保留）。
+    reviewed_unparsed: Vec<String>,
     /// 归类用合并输入图：嵌入边 ∪ 运行时读取声明边。
     inputs: EmbedMap,
 }
@@ -71,6 +82,13 @@ impl Registry {
         if file.schema_version != 1 {
             return Err(format!("{REGISTRY_PATH} schema_version 须为 1"));
         }
+        let mut reviewed_unparsed = file.reviewed_unparsed_includes;
+        if reviewed_unparsed.iter().any(String::is_empty) {
+            return Err(format!(
+                "{REGISTRY_PATH} reviewed_unparsed_includes 含空路径"
+            ));
+        }
+        reviewed_unparsed.sort();
         let mut embed = BTreeMap::new();
         for entry in &file.embed {
             if entry.path.is_empty() || entry.consumers.is_empty() {
@@ -109,6 +127,7 @@ impl Registry {
             full: file.triggers.full,
             not_applicable: file.triggers.not_applicable,
             embed,
+            reviewed_unparsed,
             inputs,
         })
     }
@@ -471,6 +490,8 @@ struct Plan {
     affected: BTreeSet<String>,
     tasks: Vec<TaskPlan>,
     classification: Vec<(String, FileState)>,
+    /// 生成该计划时的注册表对账结论。
+    registry_check: RegistryCheck,
 }
 
 struct TaskPlan {
@@ -479,8 +500,21 @@ struct TaskPlan {
     note: &'static str,
 }
 
-fn build_plan(files: &BTreeSet<String>, workspace: &Workspace, registry: &Registry) -> Plan {
+fn build_plan(
+    files: &BTreeSet<String>,
+    workspace: &Workspace,
+    registry: &Registry,
+    registry_check: RegistryCheck,
+) -> Plan {
     let mut reasons = Vec::new();
+    // 对账不一致：受影响计划的前提不成立，差异逐条入原因并因此全量。
+    let drift: &[String] = match &registry_check {
+        RegistryCheck::Drift(items) => items,
+        RegistryCheck::Consistent { .. } => &[],
+    };
+    for item in drift {
+        reasons.push(format!("注册表对账不一致，计划退回全量：{item}"));
+    }
     let mut seeds = BTreeSet::new();
     let mut classification = Vec::with_capacity(files.len());
 
@@ -563,6 +597,7 @@ fn build_plan(files: &BTreeSet<String>, workspace: &Workspace, registry: &Regist
         affected,
         tasks,
         classification,
+        registry_check,
     }
 }
 
@@ -573,9 +608,9 @@ fn build_plan(files: &BTreeSet<String>, workspace: &Workspace, registry: &Regist
 /// 对 workspace 成员源码全量清点 `include_str!` / `include_bytes!`，返回
 /// （仓库相对路径 → 嵌入方包名 集合，含同包与跨包由调用方过滤；
 /// 非字面量实参的源文件清单）。非字面量实参（如
-/// `concat!(env!("CARGO_MANIFEST_DIR"), …)`）无法静态解析，不入图、列为
-/// 人工核对项；已知实例是 lust-converter 嵌入根 `Cargo.lock`——该路径已是
-/// 全量触发器，归类正确性不受影响。扫描失败即失败关闭。
+/// `concat!(env!("CARGO_MANIFEST_DIR"), …)`）无法静态解析，不入图、逐出现
+/// 记入清单；清单与注册表已核对条目的对账见 [`check_registry`]。扫描失败
+/// 即失败关闭。
 fn scan_embeds(workspace: &Workspace, repo_root: &Path) -> Result<(EmbedMap, Vec<String>), String> {
     let mut map: EmbedMap = BTreeMap::new();
     let mut unparsed: Vec<String> = Vec::new();
@@ -605,6 +640,83 @@ fn scan_embeds(workspace: &Workspace, repo_root: &Path) -> Result<(EmbedMap, Vec
     // 清单长度变化使一致性断言抓红。
     unparsed.sort();
     Ok((map, unparsed))
+}
+
+/// 注册表对账结论（合同 §3.2）：嵌入图与已核对清单是归类的依据，计划
+/// 只能在它们与全仓清点一致时成立。
+#[derive(Debug, PartialEq, Eq)]
+enum RegistryCheck {
+    /// 逐位一致；`cross_package_edges` 为跨包嵌入边数。
+    Consistent { cross_package_edges: usize },
+    /// 不一致：每条差异一项。带差异的受影响计划不成立，退回全量。
+    Drift(Vec<String>),
+}
+
+/// 计划生成前的注册表自检。三类差异各自成项：清点到而未登记的跨包嵌入
+/// （对应文件变更时会漏选嵌入方）、登记了却已不存在或嵌入方不符的条目
+/// （登记失效）、未核对的非字面量实参出现位置（目标无法静态解析）。对账
+/// 本身做不完（读不了、解析不了）按计算失败返回错误，不产出计划。
+fn check_registry(
+    workspace: &Workspace,
+    repo_root: &Path,
+    registry: &Registry,
+) -> Result<RegistryCheck, String> {
+    let (scanned, unparsed) = scan_embeds(workspace, repo_root)?;
+    let cross = cross_package_embeds(&scanned, workspace);
+    let mut drift = Vec::new();
+    for (target, embedders) in &cross {
+        match registry.embed.get(target) {
+            None => drift.push(format!(
+                "未登记的跨包嵌入：{target}（嵌入方 {}）",
+                join(embedders)
+            )),
+            Some(registered) if registered != embedders => drift.push(format!(
+                "跨包嵌入的嵌入方与登记不符：{target}（登记 {}；实测 {}）",
+                join(registered),
+                join(embedders)
+            )),
+            Some(_) => {}
+        }
+    }
+    for (target, consumers) in &registry.embed {
+        if !cross.contains_key(target) {
+            drift.push(format!(
+                "登记的跨包嵌入已不存在：{target}（登记 {}）",
+                join(consumers)
+            ));
+        }
+    }
+    if unparsed != registry.reviewed_unparsed {
+        drift.push(format!(
+            "非字面量 include 实参与已核对清单不一致（逐出现）：登记 [{}]；实测 [{}]",
+            registry.reviewed_unparsed.join(", "),
+            unparsed.join(", ")
+        ));
+    }
+    if drift.is_empty() {
+        Ok(RegistryCheck::Consistent {
+            cross_package_edges: cross.len(),
+        })
+    } else {
+        Ok(RegistryCheck::Drift(drift))
+    }
+}
+
+/// 只保留跨包嵌入：目标不属于任何成员，或所有者 ≠ 某个嵌入方；值保留该
+/// 目标的全部嵌入方（含所有者自身的同包嵌入）。
+fn cross_package_embeds(scanned: &EmbedMap, workspace: &Workspace) -> EmbedMap {
+    scanned
+        .iter()
+        .filter(|(target, embedders)| {
+            embedders.iter().any(|embedder| {
+                workspace
+                    .package_of(target)
+                    .map(|owner| owner != embedder)
+                    .unwrap_or(true)
+            })
+        })
+        .map(|(target, embedders)| (target.clone(), embedders.clone()))
+        .collect()
 }
 
 fn walk_sources(
@@ -811,10 +923,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     };
     let workspace = Workspace::parse(&metadata)?;
     let registry = Registry::parse(REGISTRY_TOML)?;
-    let repo_root = std::env::current_dir()
-        .map_err(|error| format!("ci-plan: 无法确定工作目录：{error}"))?
-        .canonicalize()
-        .map_err(|error| format!("ci-plan: 无法规范化工作目录：{error}"))?;
+    let repo_root = repo_root()?;
 
     if dump_embed_map {
         let (map, unparsed) = scan_embeds(&workspace, &repo_root)?;
@@ -840,7 +949,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         }
     };
 
-    let plan = build_plan(&files, &workspace, &registry);
+    let registry_check = check_registry(&workspace, &repo_root, &registry)?;
+    let plan = build_plan(&files, &workspace, &registry, registry_check);
     match format {
         "json" => print_json(&plan),
         "summary" => print_summary(&plan),
@@ -851,6 +961,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// 仓库根 = 当前工作目录的规范化形式（计划器须在仓库根运行）。
+fn repo_root() -> Result<PathBuf, String> {
+    std::env::current_dir()
+        .map_err(|error| format!("ci-plan: 无法确定工作目录：{error}"))?
+        .canonicalize()
+        .map_err(|error| format!("ci-plan: 无法规范化工作目录：{error}"))
 }
 
 fn cargo_metadata() -> Result<String, String> {
@@ -965,6 +1083,13 @@ fn plan_json_text(plan: &Plan) -> String {
         .collect();
     let value = serde_json::json!({
         "mode": if plan.full { "full" } else { "affected" },
+        "registry_check": match &plan.registry_check {
+            RegistryCheck::Consistent { cross_package_edges } => serde_json::json!({
+                "status": "consistent",
+                "cross_package_edges": cross_package_edges,
+            }),
+            RegistryCheck::Drift(_) => serde_json::json!({"status": "drift"}),
+        },
         "reasons": plan.reasons,
         "seed_packages": plan.seeds,
         "affected_packages": plan.affected,
@@ -988,6 +1113,12 @@ fn plan_summary_text(plan: &Plan) -> String {
     }
     for reason in &plan.reasons {
         let _ = writeln!(out, "  {reason}");
+    }
+    if let RegistryCheck::Consistent {
+        cross_package_edges,
+    } = &plan.registry_check
+    {
+        let _ = writeln!(out, "注册表对账：一致（跨包嵌入 {cross_package_edges} 条）");
     }
     let _ = writeln!(out, "种子包：{}", join(&plan.seeds));
     let _ = writeln!(out, "受影响包：{}", join(&plan.affected));
@@ -1031,10 +1162,11 @@ fn print_summary(plan: &Plan) {
 }
 
 // ---------------------------------------------------------------------------
-// 影子模式（#1464 影子批次）：编排逻辑（事件载荷取基线、git fetch、summary
-// 写入、失败语义）全部在本模块（Rust，含单测），workflow 只保留一步命令
-// 调用。失败语义：内部任何失败写入 summary 失败块后成功退出——可见不设
-// 卡（阻断属切换后的 fail-closed，设计合同 §6）。
+// 影子模式（#1464 影子批次）：编排逻辑（事件载荷取基线、git fetch、计划
+// 生成前的注册表对账、summary 写入、失败语义）全部在本模块（Rust，含
+// 单测），workflow 只保留一步命令调用。失败语义：内部任何失败写入 summary
+// 失败块后成功退出——可见不设卡（阻断属切换后的 fail-closed，设计合同
+// §6）。对账不一致不是失败：计划照常产出，只是退回全量并写明差异。
 // ---------------------------------------------------------------------------
 
 fn run_shadow() -> Result<(), String> {
@@ -1096,7 +1228,8 @@ fn shadow_report() -> Result<String, String> {
     let files = changed_files(&format!("{base}..HEAD"))?;
     let workspace = Workspace::parse(&cargo_metadata()?)?;
     let registry = Registry::parse(REGISTRY_TOML)?;
-    let plan = build_plan(&files, &workspace, &registry);
+    let registry_check = check_registry(&workspace, &repo_root()?, &registry)?;
+    let plan = build_plan(&files, &workspace, &registry, registry_check);
     Ok(shadow_markdown(
         &plan_summary_text(&plan),
         &plan_json_text(&plan),
@@ -1170,6 +1303,13 @@ mod tests {
         list.iter().map(|name| (*name).to_owned()).collect()
     }
 
+    /// 对账一致的占位结论：只考察归类与任务的测试不关心对账。
+    fn consistent() -> RegistryCheck {
+        RegistryCheck::Consistent {
+            cross_package_edges: 0,
+        }
+    }
+
     #[test]
     fn glob_matches_directory_star_star_and_plain_star() {
         assert!(glob_match("docs/**", "docs/a/b.md"));
@@ -1221,7 +1361,12 @@ mod tests {
     #[test]
     fn member_manifest_change_forces_full_plan() {
         let workspace = fixture_workspace();
-        let plan = build_plan(&files(&["tools/leaf/Cargo.toml"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["tools/leaf/Cargo.toml"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         assert!(plan.full, "叶子成员 Cargo.toml 变更必须扩大为全量");
         assert!(
             plan.reasons
@@ -1233,12 +1378,17 @@ mod tests {
     #[test]
     fn unknown_path_forces_full_and_known_docs_do_not() {
         let workspace = fixture_workspace();
-        let plan = build_plan(&files(&["docs/design/x.md"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["docs/design/x.md"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         assert!(!plan.full);
         assert!(plan.affected.is_empty(), "纯不适用路径不产生任何种子");
         assert!(plan.tasks.iter().all(|task| task.packages.is_empty()));
 
-        let plan = build_plan(&files(&["VERSION"]), &workspace, &registry());
+        let plan = build_plan(&files(&["VERSION"]), &workspace, &registry(), consistent());
         assert!(plan.full, "未登记路径必须落入未知态扩大为全量");
     }
 
@@ -1251,6 +1401,7 @@ mod tests {
             &files(&["examples/config/cn-urban.toml"]),
             &workspace,
             &registry(),
+            consistent(),
         );
         assert!(!plan.full);
         assert!(plan.seeds.contains("laneflow-urban-generator"));
@@ -1260,7 +1411,12 @@ mod tests {
     #[test]
     fn unlisted_example_file_is_unknown() {
         let workspace = fixture_workspace();
-        let plan = build_plan(&files(&["examples/README.md"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["examples/README.md"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         assert!(plan.full, "examples 下未登记嵌入的文件按未知处理");
     }
 
@@ -1271,6 +1427,7 @@ mod tests {
             &files(&["xtask/data/ci-extra-inputs.toml"]),
             &workspace,
             &registry(),
+            consistent(),
         );
         assert!(plan.full, "计划器注册表自身变更必须全量");
     }
@@ -1279,7 +1436,12 @@ mod tests {
     fn fixed_tasks_run_on_any_rust_seed_but_not_on_docs_only() {
         let workspace = fixture_workspace();
         // 叶子工具种子：固定配置任务保持执行（与现行 rust 布尔门同语义）。
-        let plan = build_plan(&files(&["tools/leaf/src/main.rs"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["tools/leaf/src/main.rs"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         assert!(!plan.full);
         let placement = plan
             .tasks
@@ -1289,7 +1451,12 @@ mod tests {
         assert!(!placement.packages.is_empty());
 
         // 纯不适用路径：所有任务（含固定配置）跳过。
-        let plan = build_plan(&files(&["README.md"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["README.md"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         let placement = plan
             .tasks
             .iter()
@@ -1369,6 +1536,7 @@ mod tests {
             &files(&["examples/data/v0.1-complex-junction.lfca"]),
             &workspace,
             &registry(),
+            consistent(),
         );
         assert!(!plan.full);
         assert!(plan.seeds.contains("laneflow-bevy"), "嵌入边消费者须保留");
@@ -1410,7 +1578,7 @@ mod tests {
                 Some("xtask"),
                 "前提：{path} 在无序规则时会落入包归属（fixture 须含 xtask 成员）"
             );
-            let plan = build_plan(&files(&[path]), &workspace, &registry());
+            let plan = build_plan(&files(&[path]), &workspace, &registry(), consistent());
             assert!(!plan.full, "{path} 应判不适用");
             assert!(plan.seeds.is_empty(), "{path} 不产生种子");
             assert!(
@@ -1429,7 +1597,7 @@ mod tests {
             "xtask/Cargo.toml",
             "xtask/src/ci_plan.rs",
         ] {
-            let plan = build_plan(&files(&[path]), &workspace, &registry());
+            let plan = build_plan(&files(&[path]), &workspace, &registry(), consistent());
             assert!(plan.full, "{path} 须保持全量");
         }
     }
@@ -1438,7 +1606,12 @@ mod tests {
     fn bevy_example_gate_follows_gate_set() {
         let workspace = fixture_workspace();
         // 叶子工具不在门集合内：native-example 编译跳过。
-        let plan = build_plan(&files(&["tools/leaf/src/main.rs"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["tools/leaf/src/main.rs"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         let gate = plan
             .tasks
             .iter()
@@ -1452,6 +1625,7 @@ mod tests {
             &files(&["crates/runtime/src/lib.rs"]),
             &workspace,
             &registry(),
+            consistent(),
         );
         let gate = plan
             .tasks
@@ -1461,41 +1635,242 @@ mod tests {
         assert_eq!(gate.packages, vec!["laneflow-bevy".to_owned()]);
     }
 
-    /// 一致性对账：注册表 embed 图必须与全仓 include_str!/include_bytes!
-    /// 清点出的跨包嵌入逐位相等——新增跨包嵌入时本测试抓红，先补注册表。
+    /// 一致性对账走计划生成的同一入口：真实仓库的注册表须与全仓
+    /// include_str!/include_bytes! 清点逐位相等。本测试是开发期护栏；计划
+    /// 的正确性不依赖它是否被执行——计划生成前另有同一对账（合同 §3.2）。
     #[test]
     fn registry_embed_map_matches_live_scan() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
         let repo_root = repo_root.canonicalize().expect("仓库根可规范化");
         let metadata = cargo_metadata().expect("cargo metadata 须可运行");
         let workspace = Workspace::parse(&metadata).expect("真实 metadata 须可解析");
-        let (scanned, unparsed) = scan_embeds(&workspace, &repo_root).expect("全仓嵌入扫描须成功");
-        assert_eq!(
-            unparsed,
-            vec![
-                "tools/laneflow-lust-converter/src/output/pipeline.rs",
-                "tools/laneflow-lust-converter/src/output/pipeline.rs",
-            ],
-            "逐出现记录（不去重）：同一文件新增另一处非字面量实参时清单长度变化须抓红"
-        );
+        let registry = registry();
+        match check_registry(&workspace, &repo_root, &registry).expect("全仓嵌入扫描须成功")
+        {
+            RegistryCheck::Consistent {
+                cross_package_edges,
+            } => {
+                assert_eq!(cross_package_edges, registry.embed.len());
+            }
+            RegistryCheck::Drift(items) => panic!(
+                "注册表与全仓清点不一致：运行 `cargo run --locked -p xtask -- ci-plan --dump-embed-map` 比对并更新 {REGISTRY_PATH}\n{}",
+                items.join("\n")
+            ),
+        }
+    }
 
-        // 只保留跨包嵌入：目标不属于任何成员，或所有者 ≠ 嵌入方。
-        let cross: BTreeMap<String, BTreeSet<String>> = scanned
-            .into_iter()
-            .filter(|(target, embedders)| {
-                embedders.iter().any(|embedder| {
-                    workspace
-                        .package_of(target)
-                        .map(|owner| owner != embedder)
-                        .unwrap_or(true)
+    /// 可扫描的小仓库（系统临时目录）：三个成员各带一个源文件，`extra`
+    /// 按（仓库相对路径，内容）写入源文件，同路径覆盖默认内容；metadata
+    /// 与目录一致。
+    struct ScanFixture {
+        root: PathBuf,
+    }
+
+    impl ScanFixture {
+        fn new(extra: &[(&str, &str)]) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("系统时钟不早于 Unix 纪元")
+                .as_nanos();
+            let root = std::env::temp_dir()
+                .join(format!("laneflow-ci-plan-{}-{nanos}", std::process::id()));
+            let sources = [
+                ("crates/core/src/lib.rs", "pub fn core() {}"),
+                ("crates/mid/src/lib.rs", "pub fn mid() {}"),
+                ("tools/leaf/src/main.rs", "fn main() {}"),
+            ];
+            for (path, text) in sources.iter().chain(extra) {
+                let file = root.join(path);
+                std::fs::create_dir_all(file.parent().expect("源文件有父目录"))
+                    .expect("建得出行目录");
+                std::fs::write(&file, text).expect("写得出源文件");
+            }
+            // 扫描固定遍历 crates / tools / xtask 三个目录。
+            std::fs::create_dir_all(root.join("xtask")).expect("建得出 xtask 目录");
+            Self { root }
+        }
+
+        fn workspace(&self) -> Workspace {
+            let package = |name: &str, dir: &str, dependencies: serde_json::Value| {
+                serde_json::json!({
+                    "name": name,
+                    "manifest_path": self.root.join(dir),
+                    "dependencies": dependencies,
                 })
-            })
-            .collect();
+            };
+            let metadata = serde_json::json!({
+                "workspace_root": self.root,
+                "packages": [
+                    package("laneflow-core-lib", "crates/core/Cargo.toml", serde_json::json!([])),
+                    package("laneflow-mid-lib", "crates/mid/Cargo.toml", serde_json::json!([{"name": "laneflow-core-lib"}])),
+                    package("laneflow-leaf-tool", "tools/leaf/Cargo.toml", serde_json::json!([{"name": "laneflow-core-lib"}])),
+                ]
+            });
+            Workspace::parse(&metadata.to_string()).expect("fixture metadata 须可解析")
+        }
+
+        fn check(&self, registry_toml: &str) -> Result<RegistryCheck, String> {
+            let registry = Registry::parse(registry_toml).expect("fixture 注册表须可解析");
+            check_registry(&self.workspace(), &self.root, &registry)
+        }
+    }
+
+    impl Drop for ScanFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    /// core 嵌入自己的文件，mid 跨包嵌入同一文件。
+    const CROSS_EMBED_SOURCES: &[(&str, &str)] = &[
+        (
+            "crates/core/src/lib.rs",
+            r#"pub const OWN: &str = include_str!("own.txt");"#,
+        ),
+        (
+            "crates/mid/src/lib.rs",
+            r#"pub const CORE: &str = include_str!("../../core/src/own.txt");"#,
+        ),
+    ];
+
+    const CROSS_EMBED_ENTRY: &str = "[[embed]]\npath = \"crates/core/src/own.txt\"\nconsumers = [\"laneflow-core-lib\", \"laneflow-mid-lib\"]\n";
+
+    fn registry_toml(embed: &str, reviewed: &str) -> String {
+        format!("schema_version = 1\nreviewed_unparsed_includes = [{reviewed}]\n{embed}")
+    }
+
+    /// 登记与清点一致时对账通过；跨包边一条，值含所有者自身的同包嵌入。
+    #[test]
+    fn registry_check_passes_when_cross_embed_is_registered() {
+        let fixture = ScanFixture::new(CROSS_EMBED_SOURCES);
         assert_eq!(
-            cross,
-            registry().embed,
-            "跨包嵌入图与注册表不一致：运行 `cargo run --locked -p xtask -- ci-plan --dump-embed-map` 比对并更新 {REGISTRY_PATH}"
+            fixture.check(&registry_toml(CROSS_EMBED_ENTRY, "")),
+            Ok(RegistryCheck::Consistent {
+                cross_package_edges: 1
+            })
         );
+    }
+
+    /// 漏登记的跨包嵌入：对账报差异，带差异的计划不成立——变更文件本身
+    /// 只会选出叶子工具的受影响集，也退回全量。先断言「登记后不全量」的
+    /// 前提：否则全量可能另有来源，本测试抓不住对账失效。
+    #[test]
+    fn unregistered_cross_embed_is_drift_and_forces_full_plan() {
+        let fixture = ScanFixture::new(CROSS_EMBED_SOURCES);
+        let workspace = fixture.workspace();
+        let files = files(&["tools/leaf/src/main.rs"]);
+
+        let registered = Registry::parse(&registry_toml(CROSS_EMBED_ENTRY, "")).unwrap();
+        let consistent = check_registry(&workspace, &fixture.root, &registered).unwrap();
+        let plan = build_plan(&files, &workspace, &registered, consistent);
+        assert!(!plan.full, "前提：对账一致时叶子工具变更只是受影响计划");
+        assert_eq!(plan.affected, names(&["laneflow-leaf-tool"]));
+
+        let unregistered = Registry::parse(&registry_toml("", "")).unwrap();
+        let check = check_registry(&workspace, &fixture.root, &unregistered).unwrap();
+        let RegistryCheck::Drift(items) = &check else {
+            panic!("漏登记须报差异：{check:?}");
+        };
+        assert!(
+            items.iter().any(
+                |item| item.contains("未登记的跨包嵌入：crates/core/src/own.txt")
+                    && item.contains("laneflow-mid-lib")
+            ),
+            "{items:?}"
+        );
+        let plan = build_plan(&files, &workspace, &unregistered, check);
+        assert!(plan.full, "对账不一致时计划须退回全量");
+        assert_eq!(
+            plan.affected,
+            names(&[
+                "laneflow-core-lib",
+                "laneflow-leaf-tool",
+                "laneflow-mid-lib"
+            ]),
+            "全量 = 全部成员"
+        );
+    }
+
+    /// 登记失效的两种形态各自成项：登记的嵌入已不存在；嵌入方与登记不符。
+    #[test]
+    fn stale_entry_and_embedder_mismatch_are_drift() {
+        let fixture = ScanFixture::new(CROSS_EMBED_SOURCES);
+
+        let gone =
+            "[[embed]]\npath = \"crates/core/src/gone.txt\"\nconsumers = [\"laneflow-mid-lib\"]\n";
+        assert!(matches!(
+            fixture.check(&registry_toml(gone, "")),
+            Ok(RegistryCheck::Drift(ref items)) if items.iter().any(|item| item.contains("登记的跨包嵌入已不存在：crates/core/src/gone.txt"))
+        ));
+
+        let partial =
+            "[[embed]]\npath = \"crates/core/src/own.txt\"\nconsumers = [\"laneflow-core-lib\"]\n";
+        assert!(matches!(
+            fixture.check(&registry_toml(partial, "")),
+            Ok(RegistryCheck::Drift(ref items)) if items.iter().any(|item| item.contains("嵌入方与登记不符：crates/core/src/own.txt"))
+        ));
+    }
+
+    /// 非字面量实参的目标无法静态解析：出现位置须逐处在注册表登记为已
+    /// 核对，未登记即对账差异；登记后对账通过且不计入跨包边。
+    #[test]
+    fn unparsed_include_occurrence_must_be_reviewed_in_registry() {
+        let fixture = ScanFixture::new(&[(
+            "tools/leaf/src/main.rs",
+            r#"const LOCK: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock"));"#,
+        )]);
+        assert!(matches!(
+            fixture.check(&registry_toml("", "")),
+            Ok(RegistryCheck::Drift(ref items)) if items.iter().any(|item| item.contains("非字面量 include") && item.contains("tools/leaf/src/main.rs"))
+        ));
+        assert_eq!(
+            fixture.check(&registry_toml("", "\"tools/leaf/src/main.rs\"")),
+            Ok(RegistryCheck::Consistent {
+                cross_package_edges: 0
+            })
+        );
+    }
+
+    /// 对账做不完（源文件不属于任何成员）是计算失败，不是一份计划。
+    #[test]
+    fn scan_failure_is_an_error_not_a_plan() {
+        let fixture = ScanFixture::new(&[("crates/ghost/src/lib.rs", "pub fn ghost() {}")]);
+        let error = fixture
+            .check(&registry_toml("", ""))
+            .expect_err("不属于成员的源文件须使对账失败");
+        assert!(error.contains("不属于任何 workspace 成员"), "{error}");
+    }
+
+    /// 对账结论进 summary 与 JSON：一致时写明跨包边数；不一致时模式为
+    /// 全量、原因逐条可见，且不再出现「一致」。
+    #[test]
+    fn registry_check_is_visible_in_summary_and_json() {
+        let workspace = fixture_workspace();
+        let registry = registry();
+        let files = files(&["tools/leaf/src/main.rs"]);
+
+        let plan = build_plan(
+            &files,
+            &workspace,
+            &registry,
+            RegistryCheck::Consistent {
+                cross_package_edges: 7,
+            },
+        );
+        assert!(plan_summary_text(&plan).contains("注册表对账：一致（跨包嵌入 7 条）"));
+        assert!(plan_json_text(&plan).contains("\"status\": \"consistent\""));
+
+        let plan = build_plan(
+            &files,
+            &workspace,
+            &registry,
+            RegistryCheck::Drift(vec!["未登记的跨包嵌入：a.txt".to_owned()]),
+        );
+        let text = plan_summary_text(&plan);
+        assert!(text.contains("模式：全量"));
+        assert!(text.contains("注册表对账不一致，计划退回全量：未登记的跨包嵌入：a.txt"));
+        assert!(!text.contains("注册表对账：一致"));
+        assert!(plan_json_text(&plan).contains("\"status\": \"drift\""));
     }
 
     /// 注册表声明的消费者必须是真实存在的 workspace 成员。
@@ -1545,7 +1920,12 @@ mod tests {
     #[test]
     fn summary_text_lists_mode_and_tasks() {
         let workspace = fixture_workspace();
-        let plan = build_plan(&files(&["tools/leaf/src/main.rs"]), &workspace, &registry());
+        let plan = build_plan(
+            &files(&["tools/leaf/src/main.rs"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
         let text = plan_summary_text(&plan);
         assert!(text.contains("模式：受影响"));
         assert!(text.contains("[执行] clippy-default"));

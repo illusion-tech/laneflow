@@ -7,19 +7,26 @@
 #   编辑器配置、由其他 workflow 承载的 schema 与 fuzz 等）。白名单制：未落入
 #   任何规则的路径走「未知」态扩大为全量，不静默跳过。
 # - embed：跨包编译期嵌入图（被嵌入文件 → 嵌入方包名全集；同包嵌入不需要
-#   条目，嵌入文件所属包经所有者规则自动成为种子）。由 ci-plan 模块的一致性
-#   测试对全仓 include_str! / include_bytes! 清点对账（含嵌在其他宏实参里的
-#   形态），新增跨包嵌入时测试抓红、在此补条目；清单由
-#   `xtask ci-plan --dump-embed-map` 再生成。
+#   条目，嵌入文件所属包经所有者规则自动成为种子）。每次生成计划前，ci-plan
+#   对全仓 include_str! / include_bytes! 清点（含嵌在其他宏实参里的形态）并与
+#   本表对账：不一致时受影响计划不成立，退回全量并列出差异。新增跨包嵌入须
+#   在同一变更里补条目；清单由 `xtask ci-plan --dump-embed-map` 再生成。
 # - input：运行时读取声明（见文件末尾说明）。
-#
-# 已知非字面量实参（无法静态解析，人工核对项）：laneflow-lust-converter 的
-# pipeline.rs 以 concat!(env!("CARGO_MANIFEST_DIR"), …) 嵌入根 Cargo.lock——
-# 该路径已是全量触发器，归类正确性不受影响。
 #
 # 本文件自身是计划器输入：任何变更即全量（triggers.full 中的显式条目）。
 
 schema_version = 1
+
+# 已人工核对的非字面量 include 实参：源文件的仓库相对路径，逐出现登记，
+# 不去重。这类实参（如 concat!(env!("CARGO_MANIFEST_DIR"), …)）无法静态解析
+# 出目标，对账时按出现位置与本清单比对，出现未登记的一处即退回全量——先
+# 人工核对目标是否跨包（跨包则补 embed 条目），再在此登记。现有两处都在
+# lust-converter 的 pipeline.rs，分别嵌入仓库根的 Cargo.lock 与
+# rust-toolchain.toml，两者都已是全量触发器。
+reviewed_unparsed_includes = [
+    "tools/laneflow-lust-converter/src/output/pipeline.rs",
+    "tools/laneflow-lust-converter/src/output/pipeline.rs",
+]
 
 [triggers]
 full = [
