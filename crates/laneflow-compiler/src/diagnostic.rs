@@ -503,7 +503,7 @@ pub enum RoadEditingSourceViolation {
     VerifierApparentSizeExceeded,
     /// wire table 数超过调用点剩余 Typed AST record 预算。
     VerifierTableBudgetExceeded,
-    /// reader 只接受 exact `format_version = 5`。
+    /// 来源格式版本与读取器要求的版本不一致。
     UnsupportedFormatVersion {
         /// reader 接受的唯一格式版本。
         expected: u32,
