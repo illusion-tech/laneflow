@@ -9,7 +9,7 @@ pub enum StationSpanError {
     EmptyStationInterval,
     /// 边内进度没有沿行驶方向严格增加。
     NonIncreasingProgress,
-    /// 规范进度误差超过 0.05 毫米。
+    /// 规范进度误差超过 1 厘米。
     CanonicalError,
     /// 边首累计的原线行程偏差超过 1 毫米。
     SourceTravelError,
@@ -31,7 +31,7 @@ pub struct StationSpan {
 
 impl StationSpan {
     /// 所有可发布分段的规范进度误差上限，用于二分定位最早可能命中的段。
-    pub const MAX_CANONICAL_ERROR_NM: u32 = 50_000;
+    pub const MAX_CANONICAL_ERROR_NM: u32 = 10_000_000;
 
     /// 从按行驶方向排列的两端值和发布证据构造分段。
     ///
@@ -193,6 +193,28 @@ mod tests {
             span.stations_for_progress_mm(1_005),
             Some([60_300_248_962, 60_301_248_978])
         );
+
+        let wide = StationSpan::try_new(
+            span.stations_nm(),
+            span.progress_nm(),
+            10_000_000,
+            span.source_travel_error_nm(),
+            span.min_rate_ppm(),
+        )
+        .unwrap();
+        assert_eq!(
+            wide.stations_for_progress_mm(1_005),
+            Some([60_290_248_856, 60_311_249_085])
+        );
+        for observed_mm in 994..=1_016 {
+            for (mapping, overlaps_cut) in [
+                (span, observed_mm == 1_005),
+                (wide, (995..=1_015).contains(&observed_mm)),
+            ] {
+                let [lo, hi] = mapping.stations_for_progress_mm(observed_mm).unwrap();
+                assert_eq!(lo < cut && hi >= cut, overlaps_cut);
+            }
+        }
     }
 
     #[test]
@@ -240,7 +262,7 @@ mod tests {
             Err(StationSpanError::NonIncreasingProgress)
         );
         for (error, source, rate, expected) in [
-            (50_001, 0, 1, StationSpanError::CanonicalError),
+            (10_000_001, 0, 1, StationSpanError::CanonicalError),
             (0, 1_000_001, 1, StationSpanError::SourceTravelError),
             (0, 0, 0, StationSpanError::MinimumRate),
             (0, 0, 500_001, StationSpanError::MinimumRate),
@@ -250,13 +272,22 @@ mod tests {
                 Err(expected)
             );
         }
-        let full = StationSpan::try_new([u64::MAX, 0], [0, u64::MAX], 50_000, 1_000_000, 1_000_000)
-            .unwrap();
+        let full = StationSpan::try_new(
+            [u64::MAX, 0],
+            [0, u64::MAX],
+            10_000_000,
+            1_000_000,
+            1_000_000,
+        )
+        .unwrap();
         assert_eq!(full.progress_mm_at(0), Some(18_446_744_073_710));
         assert_eq!(
             full.stations_for_progress_mm(0),
-            Some([u64::MAX - 550_000, u64::MAX])
+            Some([u64::MAX - 10_500_000, u64::MAX])
         );
-        assert_eq!(full.progress_mm_bounds_at(0), Some([18_446_744_073_710; 2]));
+        assert_eq!(
+            full.progress_mm_bounds_at(0),
+            Some([18_446_744_073_700, 18_446_744_073_720])
+        );
     }
 }
