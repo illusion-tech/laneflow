@@ -2171,7 +2171,9 @@ fn prepare_program(
     program: &mut AuthoringCurveProgramDeclaration,
     scratch: &mut GeometryScratchBudget,
 ) -> Result<(), GeometryCompilationError> {
-    use super::native_curve::{Block, Law, NativeCurve, Scalar, Vector, exact_point, norm, unit};
+    use super::native_curve::{
+        Block, HorizontalHeading, Law, NativeCurve, Scalar, Vector, exact_point, norm, unit,
+    };
     if !program.segments.iter().any(|s| {
         s.smooth_entry || matches!(s.geometry, AuthoringCurveSegmentGeometry::Native { .. })
     }) {
@@ -2192,31 +2194,42 @@ fn prepare_program(
     let mut previous = program
         .initial_tangent_xz
         .map(|[x, z]| ([Scalar::exact(x), zero, Scalar::exact(z)], zero));
+    let mut previous_heading = None;
     for segment in &mut program.segments {
         let located =
             |e| GeometryCompilationError::from(e).with_numeric_source(segment.span.clone());
-        let (entry, exit, end) = match &mut segment.geometry {
+        let (entry, exit, end, exit_heading) = match &mut segment.geometry {
             AuthoringCurveSegmentGeometry::Native { input, prepared } => {
                 let law = Law::from_input(*input);
                 let count = law.walk(|_, _| Ok(())).map_err(located)?;
                 scratch.reserve::<Block>(count)?;
                 scratch.reserve::<NativeCurve>(1)?;
-                let tangent = previous
-                    .ok_or_else(|| located(NumericFreezeKind::HorizontalDerivativeZero.into()))?
-                    .0;
+                let heading = match previous_heading {
+                    Some(heading) => heading,
+                    None => {
+                        let (d, _) = previous.ok_or_else(|| {
+                            located(NumericFreezeKind::HorizontalDerivativeZero.into())
+                        })?;
+                        HorizontalHeading::from_derivative(d).map_err(located)?
+                    }
+                };
                 let work_bytes = super::native_curve::preparation_stack_bytes();
                 scratch.reserve_bytes(work_bytes)?;
-                let curve = NativeCurve::new(law, start, tangent, count).map_err(located)?;
+                let curve = NativeCurve::new(law, start, heading, count).map_err(located)?;
                 scratch.release_bytes(work_bytes);
-                let (_, d0) = curve.vectors(0.0).map_err(located)?;
-                let (end, d1) = curve.vectors(1.0).map_err(located)?;
+                let (end, next_heading) = curve.frame_at(1.0).map_err(located)?;
                 *prepared = Some(Box::new(curve));
-                ((d0, law.k0), (d1, law.k1), end)
+                (
+                    (heading.with_grade(law.grade), law.k0),
+                    (next_heading.with_grade(law.grade), law.k1),
+                    end,
+                    Some(next_heading),
+                )
             }
             AuthoringCurveSegmentGeometry::Line { end } => {
                 let end = vector(*end);
                 let d = minus(end, start);
-                ((d, zero), (d, zero), end)
+                ((d, zero), (d, zero), end, None)
             }
             AuthoringCurveSegmentGeometry::CubicBezier {
                 control_1,
@@ -2235,6 +2248,7 @@ fn prepare_program(
                     (d0, curvature(d0, second(minus(b, a)))),
                     (d1, curvature(d1, second(minus(c, b)))),
                     end,
+                    None,
                 )
             }
         };
@@ -2255,14 +2269,22 @@ fn prepare_program(
         if segment.smooth_entry {
             let (d, k) = previous
                 .ok_or_else(|| located(NumericFreezeKind::GeometryTopologyMismatch.into()))?;
-            let dirs = [unit(d).ok(), unit(entry.0).ok()];
-            let tangent_ok = dirs[0]
-                .zip(dirs[1])
+            // Native neighbors share the exact horizontal unit vector T. In the
+            // orthonormal (T, up) basis their derivatives have components (1, grade).
+            let [left, right] = if previous_heading.is_some() && exit_heading.is_some() {
+                [d, entry.0].map(|v| [Scalar::exact(1.0), v[1], zero])
+            } else {
+                [d, entry.0]
+            };
+            let tangent_ok = unit(left)
+                .ok()
+                .zip(unit(right).ok())
                 .is_some_and(|(a, b)| norm(minus(a, b)).hi <= 1e-9);
             if !tangent_ok || (k - entry.1).abs_max() > 1e-12 {
                 return Err(GeometryCompilationError::Constraint(Box::new((
                     crate::RoadEditingNumericViolation::SmoothEntryConflict {
-                        directions: dirs.map(|d| d.map(|v| v.map(|x| x.value.to_bits()))),
+                        directions: [d, entry.0]
+                            .map(|d| unit(d).ok().map(|v| v.map(|x| x.value.to_bits()))),
                         curvatures: [k, entry.1]
                             .map(|x| x.finite().ok().map(|v| v.value.to_bits())),
                     },
@@ -2271,6 +2293,7 @@ fn prepare_program(
             }
         }
         previous = Some(exit);
+        previous_heading = exit_heading;
         start = end;
     }
     Ok(())

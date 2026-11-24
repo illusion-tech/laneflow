@@ -270,17 +270,64 @@ impl Pair {
     }
 }
 
+/// Exact horizontal unit tangent enclosed by a Euclidean disk about the binary64 center.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct HorizontalHeading {
+    x: f64,
+    z: f64,
+    radius: f64,
+}
+impl HorizontalHeading {
+    pub(super) fn from_derivative(d: Vector) -> Result<Self, NumericFreezeError> {
+        let [x, _, z] = unit([d[0], Scalar::exact(0.0), d[2]])?;
+        let heading = Self::enclose(Pair(x.finite()?, z.finite()?), 0.0);
+        Scalar::exact(heading.radius).finite()?;
+        Ok(heading)
+    }
+
+    fn enclose(Pair(x, z): Pair, inherited_radius: f64) -> Self {
+        let dx = (x - Scalar::exact(x.value)).abs_max();
+        let dz = (z - Scalar::exact(z.value)).abs_max();
+        // The sum of component bounds also bounds their Euclidean norm.
+        let local_radius = (dx + dz).next_up();
+        Self {
+            x: x.value,
+            z: z.value,
+            radius: (inherited_radius + local_radius).next_up(),
+        }
+    }
+
+    fn rotated(self, rotation: Pair) -> Self {
+        // The true rotation is an isometry: it transports the inherited disk unchanged.
+        // Bound Taylor truncation and rounding of the rotation at the center separately.
+        let center = Pair(Scalar::exact(self.x), Scalar::exact(self.z));
+        Self::enclose(rotation.in_frame(center), self.radius)
+    }
+
+    fn components(self) -> Pair {
+        Pair(
+            Scalar::exact(self.x).widen(self.radius),
+            Scalar::exact(self.z).widen(self.radius),
+        )
+    }
+
+    pub(super) fn with_grade(self, grade: Scalar) -> Vector {
+        let Pair(x, z) = self.components();
+        [x, grade, z]
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub(super) struct Block {
     a: f64,
     b: f64,
     h: Scalar,
     position: Pair,
-    tangent: Pair,
+    tangent: HorizontalHeading,
     coefficients: [Pair; TERMS],
 }
 impl Block {
-    fn new(law: Law, a: f64, b: f64, position: Pair, tangent: Pair) -> Self {
+    fn new(law: Law, a: f64, b: f64, position: Pair, tangent: HorizontalHeading) -> Self {
         let h = law.length * Scalar::exact(b - a);
         let linear = h * law.curvature(a);
         let quadratic = h * (law.curvature(b) - law.curvature(a)) / Scalar::exact(2.0);
@@ -312,7 +359,7 @@ impl Block {
             coefficients,
         }
     }
-    fn sample(&self, t: f64) -> (Pair, Pair) {
+    fn sample(&self, t: f64) -> (Pair, HorizontalHeading) {
         if t == self.a {
             return (self.position, self.tangent);
         }
@@ -331,9 +378,9 @@ impl Block {
                     .mul(v)
                     .widen()
                     .mul(self.h)
-                    .in_frame(self.tangent),
+                    .in_frame(self.tangent.components()),
             ),
-            direction.widen().in_frame(self.tangent),
+            self.tangent.rotated(direction.widen()),
         )
     }
 }
@@ -354,11 +401,9 @@ impl NativeCurve {
     pub(super) fn new(
         law: Law,
         start: Vector,
-        entry: Vector,
+        mut tangent: HorizontalHeading,
         count: usize,
     ) -> Result<Self, NumericFreezeError> {
-        let entry = unit([entry[0], Scalar::exact(0.0), entry[2]])?;
-        let mut tangent = Pair(entry[0], entry[2]);
         let mut position = Pair(start[0], start[2]);
         let mut blocks = Vec::with_capacity(count);
         law.walk(|a, b| {
@@ -366,8 +411,9 @@ impl NativeCurve {
             (position, tangent) = block.sample(b);
             position.0.finite()?;
             position.1.finite()?;
-            tangent.0.finite()?;
-            tangent.1.finite()?;
+            let Pair(x, z) = tangent.components();
+            x.finite()?;
+            z.finite()?;
             blocks.push(block);
             Ok(())
         })?;
@@ -377,7 +423,10 @@ impl NativeCurve {
             blocks: blocks.into_boxed_slice(),
         })
     }
-    pub(super) fn vectors(&self, t: f64) -> Result<(Vector, Vector), NumericFreezeError> {
+    pub(super) fn frame_at(
+        &self,
+        t: f64,
+    ) -> Result<(Vector, HorizontalHeading), NumericFreezeError> {
         if !(0.0..=1.0).contains(&t) {
             return Err(NumericFreezeKind::StationOutOfRange.into());
         }
@@ -389,8 +438,12 @@ impl NativeCurve {
                 self.start[1] + self.law.grade * (self.law.length * Scalar::exact(t)),
                 p.1,
             ],
-            [tangent.0, self.law.grade, tangent.1],
+            tangent,
         ))
+    }
+    pub(super) fn vectors(&self, t: f64) -> Result<(Vector, Vector), NumericFreezeError> {
+        let (position, heading) = self.frame_at(t)?;
+        Ok((position, heading.with_grade(self.law.grade)))
     }
     pub(super) fn sample(&self, t: f64) -> Result<CurveSample, NumericFreezeError> {
         let (p, derivative) = self.vectors(t)?;
@@ -398,5 +451,35 @@ impl NativeCurve {
             point: point(p)?,
             first: point(derivative.map(|c| c * self.law.length))?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotations_transport_the_whole_inherited_error_disk() {
+        let s = Scalar::exact;
+        let mut heading =
+            HorizontalHeading::from_derivative([s(0.0).widen(1e-5), s(0.0), s(1.0)]).unwrap();
+        let initial = heading.radius;
+        let cosine = s(3.0) / s(5.0);
+        let sine = s(4.0) / s(5.0);
+        for turn in 0..512 {
+            let sign = if turn % 2 == 0 { sine } else { -sine };
+            let next = heading.rotated(Pair(cosine, sign));
+            assert!(next.radius >= heading.radius);
+            // The two inverse rotations bring the nominal exact input back to +Z.
+            let (x, z) = if turn % 2 == 0 {
+                (0.8, 0.6)
+            } else {
+                (0.0, 1.0)
+            };
+            assert!((next.x - x).hypot(next.z - z) <= next.radius);
+            heading = next;
+        }
+        assert!(initial >= 1e-5);
+        assert!(heading.radius < initial + 1e-11);
     }
 }
