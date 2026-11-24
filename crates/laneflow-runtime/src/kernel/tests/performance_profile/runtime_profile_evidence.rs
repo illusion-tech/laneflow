@@ -47,9 +47,10 @@ fn state_digest_matches_frozen_baseline() {
         harness.step();
     }
     harness.validate();
+    // 将当前原像中的路网修订、LFCA 格式和派生版本还原为 LFCA 5 值，可复得历史摘要。
     assert_eq!(
         harness.digest(),
-        "9ac1adbc1a1743cde5f8034a026adf77f8589f09dd9ccb75ceb2958760baf7de"
+        "56f0cae7172ca52b7d48697b525eb1d23568239bcfe0b2520b533ed7fadd1cfb"
     );
 }
 
