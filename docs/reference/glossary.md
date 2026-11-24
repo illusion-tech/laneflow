@@ -3,7 +3,7 @@ schema_version = 1
 id = "reference-glossary"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-19"
+revised_date = "2026-11-24"
 summary = "按概念统一中文术语、英文辅助名、符号与旧称查询。"
 scope = "LaneFlow 跨文档规范术语与概念关系"
 related = ["governance-terminology-policy", "reference-terminology-catalog", "reference-wording-guide"]
@@ -335,9 +335,11 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 | [规范路网规模][term-canonical-network-usage]                                             | canonical network usage                                   | —                                                           |
 | [规范排列][term-canonical-orders]                                                        | canonical orders                                          | ` CanonicalOrders `                                         |
 | [规范关系出现记录][term-canonical-relation-occurrence]                                   | canonical relation occurrence                             | ` CanonicalRelationCount `                                  |
+| [圆弧][term-circular-arc]                                                                | circular arc                                              | —                                                           |
 | [干净编译][term-clean-compile]                                                           | clean compile                                             | —                                                           |
 | [干净单工作线程编译][term-clean-single-thread-compile]                                   | clean single-thread compile                               | —                                                           |
 | [封闭契约][term-closed-contract]                                                         | closed contract                                           | —                                                           |
+| [回旋线][term-clothoid]                                                                  | clothoid；Euler spiral                                    | —                                                           |
 | [冷实例编译][term-cold-instance-compile]                                                 | cold-instance compile                                     | —                                                           |
 | [编译观测值][term-compilation-metrics]                                                   | compilation metrics                                       | ` CompilationMetrics `                                      |
 | [编译单元][term-compilation-unit]                                                        | compilation unit                                          | —                                                           |
@@ -436,7 +438,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 一份物理制品实际包含的行、字段、UTF-8 字节、向量元素、来源位置、路径步、变化行与载荷大小；只作为资源计划的输入，不与任何限额维度比较。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-authoring"></a>
 ### 数据编制
@@ -445,7 +447,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 创建、导入、编辑或生成静态路网来源的活动。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-authoring-namespace-id"></a>
 ### 编制命名空间标识
@@ -456,7 +458,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` authoringNamespaceId `（字段）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-authoritative-source-module-graph"></a>
 ### 正本来源模块图
@@ -465,7 +467,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 一个编译单元内唯一可重放的编制事实来源；节点是来源模块，边是显式导入关系。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-backend"></a>
 ### 后端
@@ -474,7 +476,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 从已验证编译结果生成特定制品的编译器末端；静态语义只能来自 LIR，源映射可另读已验证来源伴随数据。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-base-construction"></a>
 ### 基础构造
@@ -485,7 +487,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` HirBase `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-behavior-equivalence"></a>
 ### 行为等价
@@ -503,7 +505,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` HirBuildPlan `（类型）。
 
-依据：[编译器资源账本][source-design-compiler-resource-ledger-151]。
+依据：[编译器资源账本][source-design-compiler-resource-ledger-153]。
 
 <a id="term-builder"></a>
 ### 构建器
@@ -526,7 +528,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 尚未提交、必须先完成编译和验证，失败或取消时不得改变当前路网修订的道路编辑候选。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-canonical-consumer-policy"></a>
 ### 规范制品消费政策
@@ -537,7 +539,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` CanonicalConsumerPolicy `（类型）。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-canonical-network-capacity"></a>
 ### 规范路网容量
@@ -546,7 +548,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 编译端与消费端共同约束的最终规范路网规模上限，维度为稳定实体、机动门、等待区、规范关系出现记录与规范几何点；编译端按最终 LIR、消费端按最终 LFCA 字节以同一计数定义各自统计，差异 base 与公开检查入口的 LFCA 在建立索引前准入。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-canonical-network-usage"></a>
 ### 规范路网规模
@@ -555,7 +557,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 一份最终规范路网实际包含的规范路网容量各维度数量，只与规范路网容量比较。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-canonical-orders"></a>
 ### 规范排列
@@ -566,7 +568,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` CanonicalOrders `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-canonical-relation-occurrence"></a>
 ### 规范关系出现记录
@@ -579,7 +581,18 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 参与角色集合由规范路网容量合同统一登记；与来源侧关系出现记录分别定义、分别执行。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
+
+<a id="term-circular-arc"></a>
+### 圆弧
+
+英文辅助名：circular arc。
+
+沿水平弧长具有恒定非零有符号曲率的平面线形。
+
+道路编辑原生段提案以有符号半径保存圆弧，纵坡另行绑定。
+
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-155]。
 
 <a id="term-clean-compile"></a>
 ### 干净编译
@@ -595,7 +608,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 不使用增量缓存、只由一个工作线程从完整来源执行全部生产编译遍的确定性参考路径；内存 LIR 保持规范语义一致，后继制品存在时保持精确字节一致。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-closed-contract"></a>
 ### 封闭契约
@@ -604,7 +617,18 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 以登记的闭合集合冻结允许的类型、字段、配置和组合；未知或未登记输入必须失败关闭，调用方不得任意扩展。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
+
+<a id="term-clothoid"></a>
+### 回旋线
+
+英文辅助名：clothoid；Euler spiral。
+
+有符号曲率沿水平弧长线性变化的平面线形。
+
+道路编辑原生段提案用水平弧长和首末曲率编制缓和段及跨零反弯。
+
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-155]。
 
 <a id="term-cold-instance-compile"></a>
 ### 冷实例编译
@@ -613,7 +637,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 以新建编译器实例和空暂存容量执行的干净编译；规模相关来源物化是否计时由具名基准协议冻结，进程启动与磁盘读取不计时。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compilation-metrics"></a>
 ### 编译观测值
@@ -624,7 +648,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` CompilationMetrics `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compilation-unit"></a>
 ### 编译单元
@@ -633,7 +657,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 由一个正本来源模块图及其显式选项共同构成的原子编译输入。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compile-limits"></a>
 ### 编译配置档
@@ -644,7 +668,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` CompileProfile `（类型）。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-compile-limits-profile-qualification"></a>
 ### 配置档资格验证
@@ -653,7 +677,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 验证具名配置档兑现其公开能力，包括可成功规模、规范统计一致性、诊断与账本完整性，以及各类边界的拒绝行为。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-compile-limits-profile-validation"></a>
 ### 配置档校验
@@ -662,7 +686,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 核对配置档的维度归属、单位、值域、相关整数与平台可表示性，以及失败出口最低资源要求；不包含具体对象格式检查或可选静态生成上界证明。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-compiler-calibration-scale"></a>
 ### 编译器校准规模
@@ -671,7 +695,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 用于观察固定成本、复杂度及缓存/内存拐点的合成编制/中间表示规模；不表示真实城市或产品容量。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compiler-controlled-total-live-memory"></a>
 ### 编译器控制总存续内存
@@ -680,7 +704,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 编译请求同时拥有的来源、各阶段记录、字符串、诊断、暂存区和输出构造的存续请求字节总量；不等于进程工作集。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compiler-emitter"></a>
 ### 编译发射器
@@ -698,7 +722,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compiler-intermediate-representation"></a>
 ### 编译器中间表示
@@ -709,7 +733,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` compiler IR `（缩写）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compiler-owned-static-network"></a>
 ### 编译器拥有的静态路网
@@ -727,7 +751,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 精确标识符：` pass `（记号）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-compiler-resource-ledger"></a>
 ### 编译器资源账本
@@ -738,7 +762,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 计划准入、同时存续的授予守恒、转交与峰值报告以资源账本设计为准。
 
-依据：[编译器资源账本][source-design-compiler-resource-ledger-151]、[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[编译器资源账本][source-design-compiler-resource-ledger-153]、[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-compiler-stress-scale"></a>
 ### 编译器压力规模
@@ -747,7 +771,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 
 放大编制/中间表示对象、用于暴露资源增长和失败边界的合成规模；不构成产品 SLA。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-crate-dependency-graph"></a>
 ### 包依赖图
@@ -772,7 +796,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 并行或分片结果按固定规则合并，使输出不依赖线程调度。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-deterministic-oracle"></a>
 ### 确定性预言机
@@ -781,7 +805,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 其他执行模式必须在冻结的语义或精确字节边界上匹配的参考执行路径。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-diagnostic"></a>
 ### 诊断
@@ -799,7 +823,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` DomainBudget `（类型）。
 
-依据：[编译器资源账本][source-design-compiler-resource-ledger-151]。
+依据：[编译器资源账本][source-design-compiler-resource-ledger-153]。
 
 <a id="term-editor-authoring-surface"></a>
 ### 编辑器编制界面
@@ -808,7 +832,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-feature-bits"></a>
 ### 特性位
@@ -833,7 +857,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` LirFreezePlan `（类型）。
 
-依据：[编译器资源账本][source-design-compiler-resource-ledger-151]。
+依据：[编译器资源账本][source-design-compiler-resource-ledger-153]。
 
 <a id="term-frontend"></a>
 ### 前端
@@ -842,7 +866,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-generated-binding-boundary"></a>
 ### 生成绑定边界
@@ -853,7 +877,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` laneflow-road-editing-wire `（包）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-geometry-accuracy-profile"></a>
 ### 几何精度配置档
@@ -864,7 +888,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` GeometryAccuracyProfile `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-geometry-direction-profile"></a>
 ### 几何方向配置档
@@ -875,7 +899,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` GeometryDirectionProfile `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-geometry-direction-profile-applicability-flag"></a>
 ### 几何方向配置档适用标记
@@ -886,7 +910,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` directionProfileApplies `（字段）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-handle"></a>
 ### 句柄
@@ -904,7 +928,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` HIR `（缩写）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-import-frontend"></a>
 ### 导入前端
@@ -913,7 +937,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 把外部来源及其工具、选项和来源链显式转换为来源模块的前端。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-incremental-compile"></a>
 ### 增量编译
@@ -929,7 +953,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 可由独立工具跨进程或跨语言读写、具有显式版本与兼容规则的序列化数据契约。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-join"></a>
 ### 联结
@@ -968,7 +992,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-memory-plan"></a>
 ### 内存计划
@@ -979,7 +1003,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` HirMemoryPlan `（类型）。
 
-依据：[编译器资源账本][source-design-compiler-resource-ledger-151]。
+依据：[编译器资源账本][source-design-compiler-resource-ledger-153]。
 
 <a id="term-metadata"></a>
 ### 元数据
@@ -999,7 +1023,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` MIR `（缩写）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-module-resource-counts"></a>
 ### 模块资源计数
@@ -1008,7 +1032,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 由官方前端在受检构造期间一次性派生、供共同接入累计检查来源字节、声明、引用、关系、字符串、几何点和存续内存等上限的字段私有计数集合。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-normalization"></a>
 ### 规范化
@@ -1031,7 +1055,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 对 LaneFlow 官方前端完成受检构造、以具体字段私有类型绑定来源记录身份、描述符、导入、声明和模块资源计数的模块所作的共同分类；它不是第三方扩展协议。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-operation-resource-budget"></a>
 ### 操作资源预算
@@ -1042,7 +1066,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` OperationResourceBudget `（类型）、` OperationResourceDimension `（类型）。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-parallel-compile"></a>
 ### 并行编译
@@ -1060,7 +1084,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` HirParts `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-per-document-source-origin-record"></a>
 ### 逐文档来源记录
@@ -1071,7 +1095,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SourceDocumentOrigin `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-provenance"></a>
 ### 来源链
@@ -1080,7 +1104,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 关联输入、工具、参数、构建、转换与发布过程的可审计来源关系。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-rebind"></a>
 ### 重绑定
@@ -1110,7 +1134,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 重建当前道路所需的编制描述；来源 v1 只保存 line/cubic Bézier，其他曲线按 B1 工程目标转换并记录观测误差；不属于运行时规范几何。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-frontend"></a>
 ### 道路编辑前端
@@ -1119,7 +1143,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 把版本化道路编辑状态有界解码为共同有类型道路编辑模型，并产生结构化来源位置的 production 前端。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-location-context"></a>
 ### 道路编辑位置上下文
@@ -1130,7 +1154,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` RoadEditingLocationContext `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-property-path"></a>
 ### 道路编辑属性路径
@@ -1141,7 +1165,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` RoadEditingPropertyPath `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-source-address"></a>
 ### 道路编辑来源地址
@@ -1152,7 +1176,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` RoadEditingSourceAddress `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-source-buffer"></a>
 ### 道路编辑来源缓冲区
@@ -1163,7 +1187,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` LF-ROAD-EDITING-SOURCE-v4 `（常量）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-source-diff"></a>
 ### 道路编辑来源差异
@@ -1174,7 +1198,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` RoadEditingSourceDiff `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-road-editing-source-input"></a>
 ### 道路编辑来源输入
@@ -1185,7 +1209,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` RoadEditingModuleInput `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-source-root"></a>
 ### 道路编辑来源根表
@@ -1196,7 +1220,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` RoadEditingSource `（类型）。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-road-editing-state"></a>
 ### 道路编辑状态
@@ -1207,7 +1231,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 存档只接受已经进入活动交通运行时的已提交编辑状态；工作中和候选状态由宿主另行管理。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-shared-checked-module-admission"></a>
 ### 共同受检模块接入
@@ -1216,7 +1240,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 把不同官方前端模块原子移入同一编译单元，并统一执行唯一性、资源上限、导入图和规范顺序检查的编译器私有接入路径。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-single-network-10k-compile-profile"></a>
 ### 一万实体单路网配置档
@@ -1227,7 +1251,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES `（常量）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-single-network-million-compile-limits-profile"></a>
 ### 百万单路网配置档
@@ -1238,7 +1262,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES `（常量）。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-source-collection-digest"></a>
 ### 来源集合摘要
@@ -1249,7 +1273,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` sourceCollectionDigest `（字段）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-document-count"></a>
 ### 来源文档计数
@@ -1260,7 +1284,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SourceDocumentCount `（类型）。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-source-document-descriptor"></a>
 ### 来源文档描述符
@@ -1271,7 +1295,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SourceDocumentDescriptor `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-document-digest"></a>
 ### 来源文档摘要
@@ -1284,7 +1308,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 相关概念：[来源文档集摘要][term-source-document-set-digest]、[来源集合摘要][term-source-collection-digest]。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-document-set-digest"></a>
 ### 来源文档集摘要
@@ -1295,7 +1319,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` sourceDocumentSetDigest `（字段）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-language"></a>
 ### 来源语言
@@ -1304,7 +1328,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 定义来源模块语法和来源保真的输入语言。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-location"></a>
 ### 来源位置
@@ -1315,7 +1339,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SourceLocation `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-module"></a>
 ### 来源模块
@@ -1324,7 +1348,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 绑定命名空间、来源语言、工具/选项与来源链的逻辑编译节点；合成前端恰有一份文档，后继官方前端可拥有多份文档并绑定文档集摘要。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-module-header"></a>
 ### 来源模块头
@@ -1335,7 +1359,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SourceModuleHeader `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-source-processing-limits"></a>
 ### 来源处理限额
@@ -1346,7 +1370,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SourceProcessingLimits `（类型）、` SourceProcessingDimension `（类型）。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-stable-capacity-reuse-compile"></a>
 ### 稳定容量复用编译
@@ -1355,7 +1379,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 复用编译器的无语义暂存容量、但不复用语义结果的干净编译；它不是增量编译，结果和诊断必须与冷实例编译一致。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-static-contract"></a>
 ### 静态契约
@@ -1373,7 +1397,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 从道路参考线起点沿配置档无关的编译期 reference station 基表单调累计的距离坐标，用于区段、横断面和连接几何的纵向定位；不属于持久身份，也不由最终输出档位反向改变。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-synthetic-dsl-frontend"></a>
 ### 合成领域专用语言前端
@@ -1382,7 +1406,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 面向测试、基准、示例和程序化场景的可重放来源前端。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-synthetic-source-module"></a>
 ### 合成来源模块
@@ -1393,7 +1417,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` SyntheticModule `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-table-row"></a>
 ### 表行
@@ -1411,7 +1435,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` typed AST `（缩写）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-typed-road-editing-model"></a>
 ### 有类型道路编辑模型
@@ -1420,7 +1444,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 由可视化编辑器、可发布程序化生成器、SDK 与 importer 共享的字段、单位、稳定身份、引用和不变量契约；物理编码不拥有第二套语义。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-validated-canonical-low-level-intermediate-representation"></a>
 ### 已验证规范低层中间表示
@@ -1431,7 +1455,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` canonical LIR `（缩写）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-validated-compilation-output"></a>
 ### 已验证编译结果
@@ -1442,7 +1466,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` CompilationOutput `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-validated-source-map-input"></a>
 ### 已验证源映射输入
@@ -1453,7 +1477,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` ValidatedSourceMapInput `（类型）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-view"></a>
 ### 视图
@@ -1544,7 +1568,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 精确标识符：` cold `（记号）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-complete-owner-tree"></a>
 ### 完备所有者树
@@ -1591,7 +1615,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排序键、采样值或派生参数；可决定持久结果，但不作为唯一身份或内容相等证明。满足输入信任、碰撞处理与分布要求后默认采用 XXH3-64，算法及字节规则须版本化。
 
-依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-189]。
+依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-192]。
 
 <a id="term-digest"></a>
 ### 摘要
@@ -1600,7 +1624,7 @@ ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排�
 
 对完整字节或规范原像计算的固定长度值；用途由 ADR 0033 的角色定义，不天然构成身份或完整性证明。
 
-依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-189]。
+依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-192]。
 
 <a id="term-entity-kind"></a>
 ### 实体种类
@@ -1640,7 +1664,7 @@ ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排�
 
 按字段分列保存、供热路径高频读取的热数据列，例如共享静态路网的边长与边限速列；描述访问与布局，不另立数据正本、单位或持久格式。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-hot-data"></a>
 ### 热数据
@@ -1651,7 +1675,7 @@ ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排�
 
 精确标识符：` hot `（记号）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-hot-path"></a>
 ### 热路径
@@ -1660,7 +1684,7 @@ ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排�
 
 高频固定步进/位姿执行路径；禁止字符串、哈希查找和持久标识计算。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-identity-encoding-envelope"></a>
 ### 标识编码封装
@@ -1678,7 +1702,7 @@ ADR 0033 摘要角色之一：用哈希将规范原像映射为可重建的排�
 
 ADR 0033 摘要角色之一：认证字节或规范值未被改变、只由 LaneFlow 实现产生和重算的摘要；默认 BLAKE3-256。
 
-依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-189]。
+依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-192]。
 
 <a id="term-interoperable-digest"></a>
 ### 互操作摘要
@@ -1687,7 +1711,7 @@ ADR 0033 摘要角色之一：认证字节或规范值未被改变、只由 Lane
 
 ADR 0033 摘要角色之一：须允许 LaneFlow 之外的实现、通用工具或人工流程独立重算的摘要；默认 SHA-256，须写明外部重算方。
 
-依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-189]。
+依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-192]。
 
 <a id="term-key"></a>
 ### 键
@@ -1732,7 +1756,7 @@ ADR 0033 摘要角色之一：须允许 LaneFlow 之外的实现、通用工具�
 
 ADR 0033 摘要角色之一：从规范原像派生、作为实体或对象稳定标识持久保存的摘要；默认 BLAKE3，现行 `StableId128` 为 BLAKE3-128。
 
-依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-189]。
+依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-192]。
 
 <a id="term-reverse-index"></a>
 ### 反向索引
@@ -1790,7 +1814,7 @@ ADR 0033 摘要角色之一：从规范原像派生、作为实体或对象稳�
 
 ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与候选匹配的指纹；命中后须比较完整正本值，不得持久化或影响确定性输出。
 
-依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-189]。
+依据：[0033 摘要角色与摘要算法选型裁决权][source-adr-0033-192]。
 
 <a id="term-typed-logical-ordinal"></a>
 ### 有类型逻辑序号
@@ -1819,7 +1843,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` warm `（记号）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-zero-copy"></a>
 ### 零拷贝
@@ -1828,7 +1852,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 验证后直接借用不可变底层字节建立视图、不复制所指数据的访问方式；不表示整个构建或运行过程无分配。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="domain-static-network"></a>
 ## 静态路网
@@ -1888,7 +1912,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` AccessRule `（类型）。
 
-依据：[多模式横断面与准入分层][source-design-cross-section-access-231]。
+依据：[多模式横断面与准入分层][source-design-cross-section-access-234]。
 
 <a id="term-approach"></a>
 ### 进口道
@@ -1897,7 +1921,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 路口中指向入口方向的有向接近关系；中文交通工程标准词，与出口道成对。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-authoring-lane"></a>
 ### 编制车道
@@ -1908,7 +1932,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` AuthoringLane `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-canonical-network-origin"></a>
 ### 规范路网来源绑定
@@ -1919,7 +1943,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` CanonicalNetworkOrigin `（类型）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-canonical-network-semantic-payload"></a>
 ### 规范路网语义载荷
@@ -1930,7 +1954,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` canonicalNetworkSemanticPayload `（字段）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-conflict-passage"></a>
 ### 冲突通行段
@@ -1941,7 +1965,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ConflictPassage `（类型）。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-conflict-passage-occurrence"></a>
 ### 路线冲突出现记录
@@ -1952,7 +1976,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ConflictPassageOccurrence `（类型）。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-conflict-zone"></a>
 ### 冲突区
@@ -1963,7 +1987,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ConflictZone `（类型）。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-coverage"></a>
 ### 覆盖关系
@@ -1972,7 +1996,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 门、等待区、冲突区或规则对路径/出现记录的适用范围。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-exit-approach"></a>
 ### 出口道
@@ -1981,7 +2005,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 路口中指向出口方向的有向接近关系；与进口道成对。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-facility-band"></a>
 ### 设施带
@@ -1992,7 +2016,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` FacilityBand `（类型）。
 
-依据：[多模式横断面与准入分层][source-design-cross-section-access-231]。
+依据：[多模式横断面与准入分层][source-design-cross-section-access-234]。
 
 <a id="term-junction"></a>
 ### 路口
@@ -2003,7 +2027,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` Junction `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-junction-group"></a>
 ### 路口组
@@ -2016,7 +2040,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 属于候选扩展，不因术语登记进入现行静态标识或制品格式。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-lane-edge"></a>
 ### 车道图边
@@ -2027,7 +2051,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` LaneEdge `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-lane-group"></a>
 ### 车道组
@@ -2038,7 +2062,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` LaneGroup `（类型）。
 
-依据：[多模式横断面与准入分层][source-design-cross-section-access-231]。
+依据：[多模式横断面与准入分层][source-design-cross-section-access-234]。
 
 <a id="term-maneuver-gate"></a>
 ### 机动门
@@ -2049,7 +2073,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ManeuverGate `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-maneuver-path"></a>
 ### 机动路径
@@ -2060,7 +2084,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ManeuverPath `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-movement"></a>
 ### 通行流向
@@ -2071,7 +2095,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` Movement `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-network-revision"></a>
 ### 路网修订
@@ -2080,7 +2104,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 在其生命周期内不可变、经编译和检查，并由重算路网修订标识绑定的一个静态路网版本。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-network-revision-id"></a>
 ### 路网修订标识
@@ -2091,7 +2115,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` NetworkRevisionId `（类型）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-parking-facility"></a>
 ### 停车设施
@@ -2104,7 +2128,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 相关概念：[停车位][term-parking-space]、[虚拟停车容量][term-virtual-parking-capacity]。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-parking-space"></a>
 ### 停车位
@@ -2115,7 +2139,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ParkingSpace `（类型）。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-participant-class"></a>
 ### 参与者类别
@@ -2126,7 +2150,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ParticipantClass `（类型）。
 
-依据：[多模式横断面与准入分层][source-design-cross-section-access-231]。
+依据：[多模式横断面与准入分层][source-design-cross-section-access-234]。
 
 <a id="term-participant-stream"></a>
 ### 参与者流
@@ -2137,7 +2161,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ParticipantStream `（类型）。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-path-anchor"></a>
 ### 路径锚点
@@ -2148,7 +2172,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` PathAnchor `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-road-corridor"></a>
 ### 道路走廊
@@ -2159,7 +2183,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` RoadCorridor `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-road-section"></a>
 ### 道路区段
@@ -2170,7 +2194,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` RoadSection `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-shared-identity-index"></a>
 ### 稳定身份索引
@@ -2181,7 +2205,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SharedIdentityIndex `（类型）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-shared-network-revision"></a>
 ### 共享路网修订
@@ -2196,7 +2220,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 相关概念：[共享静态路网][term-shared-static-network]、[共享交通路网][term-shared-traffic-network]、[共享空间路网][term-shared-spatial-network]。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-shared-spatial-network"></a>
 ### 共享空间路网
@@ -2207,7 +2231,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SharedSpatialNetwork `（类型）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-shared-static-network"></a>
 ### 共享静态路网
@@ -2218,7 +2242,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` laneflow-static-network `（包）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-shared-traffic-network"></a>
 ### 共享交通路网
@@ -2229,7 +2253,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SharedTrafficNetwork `（类型）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-signal-controller"></a>
 ### 信号控制器
@@ -2240,7 +2264,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SignalController `（类型）。
 
-依据：[Signal System 设计][source-design-signal-system-236]。
+依据：[Signal System 设计][source-design-signal-system-239]。
 
 <a id="term-signal-group"></a>
 ### 信号组
@@ -2251,7 +2275,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SignalGroup `（类型）。
 
-依据：[Signal System 设计][source-design-signal-system-236]。
+依据：[Signal System 设计][source-design-signal-system-239]。
 
 <a id="term-signal-phase"></a>
 ### 信号相位
@@ -2262,7 +2286,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SignalPhase `（类型）。
 
-依据：[Signal System 设计][source-design-signal-system-236]。
+依据：[Signal System 设计][source-design-signal-system-239]。
 
 <a id="term-spatial-retention-build-option"></a>
 ### 空间保留构建选项
@@ -2273,7 +2297,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SpatialBuildOption `（类型）。
 
-依据：[共享静态路网][source-design-shared-static-network-188]。
+依据：[共享静态路网][source-design-shared-static-network-191]。
 
 <a id="term-static-network"></a>
 ### 静态路网
@@ -2282,7 +2306,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 不随世界固定步进改变的道路、关系、规则、几何和预计算索引集合。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-stop-line"></a>
 ### 停止线
@@ -2293,7 +2317,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` StopLine `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-topology"></a>
 ### 拓扑
@@ -2302,7 +2326,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 边、节点、连接、所有权和可遍历关系。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="term-vehicle-profile"></a>
 ### 车辆配置
@@ -2313,7 +2337,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` VehicleProfile `（类型）。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-waiting-zone"></a>
 ### 等待区
@@ -2324,7 +2348,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` WaitingZone `（类型）。
 
-依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-232]。
+依据：[Road / Junction / Maneuver 静态模型][source-design-road-junction-model-235]。
 
 <a id="domain-artifacts"></a>
 ## 制品与验证
@@ -2384,7 +2408,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 数据地址或偏移量必须满足的倍数约束。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-application-binary-interface"></a>
 ### 应用二进制接口
@@ -2397,7 +2421,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 共享静态路网只提供进程内对象，不交付稳定镜像 ABI。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-281]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-284]。
 
 <a id="term-bounded-structural-verifier"></a>
 ### 有界结构校验器
@@ -2406,7 +2430,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 对不可信制品字节执行偏移量、区间、数值、基数和资源上限检查的校验器。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-build-and-target-selector"></a>
 ### 构建与目标选择器
@@ -2415,7 +2439,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 选择构建工具、目标平台或封闭配置档的字段；不是协议版本。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-byte-for-byte-equality"></a>
 ### 字节完全一致
@@ -2426,7 +2450,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` exact bytes `（记号）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-byte-order"></a>
 ### 字节序
@@ -2435,7 +2459,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 多字节整数在制品中的排列规则。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-caller-runtime-limit"></a>
 ### 调用方运行上限
@@ -2444,7 +2468,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 调用方针对一次读取或发射显式提供、可以低于但不得高于格式硬上限的资源预算；改变它不改变 wire version，也不授权扩大格式安全边界。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-canonical-publication-candidate"></a>
 ### 规范发布候选
@@ -2455,7 +2479,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` PortablePublicationCandidate `（类型）。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-canonical-publication-descriptor"></a>
 ### 规范发布描述符
@@ -2466,7 +2490,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` CanonicalPublicationDescriptor `（类型）、` LFCP `（缩写）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-cardinality"></a>
 ### 基数
@@ -2475,7 +2499,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 表、节、实体、点或关系集合的记录数量。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-checked-canonical-network-input"></a>
 ### 受检规范路网输入
@@ -2486,7 +2510,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` CheckedCanonicalNetworkInput `（类型）。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-closed-kind-selector"></a>
 ### 封闭种类选择器
@@ -2495,7 +2519,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 选择版本化封套的封闭种类及必需字段集合；不是协议版本。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-closed-staged-object-source"></a>
 ### 已关闭暂存对象来源
@@ -2506,7 +2530,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ClosedStagedObjectSource `（类型）。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-compiler-semantic-validation"></a>
 ### 编译器语义验证
@@ -2515,7 +2539,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 编译器对来源和 IR 执行的主语义检查。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-content-identity-and-length-binding"></a>
 ### 内容身份与长度绑定
@@ -2524,7 +2548,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 以摘要和精确字节长度共同认证目标对象、或以语义修订标识认证规范内容的外部绑定字段。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-exact-bytes-digest"></a>
 ### 精确字节摘要
@@ -2533,7 +2557,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 对目标对象完整字节序列计算的 SHA-256；目标对象不得嵌入自身摘要。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-exact-current"></a>
 ### 精确当前版本
@@ -2542,7 +2566,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 只接受当前冻结版本，不在生产路径隐式兼容历史或未来版本。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-fail-closed"></a>
 ### 失败关闭
@@ -2551,7 +2575,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 发生歧义、缺失、越界、验证失败或外部状态不可确认时拒绝继续。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-format-hard-limit"></a>
 ### 格式硬上限
@@ -2560,7 +2584,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 由格式版本冻结、任何读取器都不得提高或禁用的安全天花板；用于在 hash、分配和建立受检视图前限制对象、计数、字符串、向量和累计暂存规模，不是性能目标。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-immutable"></a>
 ### 不可变
@@ -2569,7 +2593,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 构造后不再改变，可由多个世界/会话安全共享。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-immutable-byte-backing"></a>
 ### 不可变字节后备存储
@@ -2578,7 +2602,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 从分块验证完成到有类型视图释放期间保持同一精确字节、且不存在可写别名的资产或拥有存储。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-magic"></a>
 ### 魔数
@@ -2589,7 +2613,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` "LFID" `（常量）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-memory-mapping"></a>
 ### 内存映射
@@ -2598,7 +2622,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 把文件字节映射到地址空间的访问方式；当前私有制品暂存用途不定义共享静态路网文件 ABI 或跨进程页共享。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-minimal-publication-closure"></a>
 ### 最小发布闭合
@@ -2607,7 +2631,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 从受检能力构造发布描述符绑定、由宿主负责持久化、真实性认证与文件事务的发布职责边界。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-mutable"></a>
 ### 可变
@@ -2616,7 +2640,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 随运行时命令、固定步进或生命周期改变，必须由明确最终裁决职责拥有。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-offset"></a>
 ### 偏移量
@@ -2625,7 +2649,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 从容器或节起点到目标数据的字节距离。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-outer-encoding-structure"></a>
 ### 外层编码结构
@@ -2643,7 +2667,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` LFCA `（缩写）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-post-emission-check"></a>
 ### 后发射检查
@@ -2654,7 +2678,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` check_post_emission_bundle `（函数）。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-post-emission-checked-bundle"></a>
 ### 后发射受检制品组
@@ -2665,7 +2689,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` PostEmissionCheckedBundle `（类型）。
 
-依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-282]。
+依据：[编译器后发射检查与最小发布闭合][source-design-compiler-post-emission-check-and-minimal-publication-closure-285]。
 
 <a id="term-publication-manifest"></a>
 ### 发布清单
@@ -2674,7 +2698,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 对制品集合、外部描述符、摘要和真实性进行发布级绑定的清单。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-revision-artifact-binding"></a>
 ### 修订—制品绑定
@@ -2685,7 +2709,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` RevisionArtifactBindingV1 `（类型）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-runtime-precondition"></a>
 ### 运行时前置条件
@@ -2694,7 +2718,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 建立视图或世界前必须由结构校验器证明成立的不变量。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-section-directory"></a>
 ### 节目录
@@ -2703,7 +2727,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 记录制品各数据节种类、位置和长度等结构信息的目录；精确字段由所属格式规定。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-semantic-diff"></a>
 ### 语义差异
@@ -2712,7 +2736,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；它不能自行决定修订激活，跨修订状态迁移必须由对象外可信切换描述符绑定。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-semantic-diff-envelope"></a>
 ### 语义差异封套
@@ -2723,7 +2747,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SemanticDiffEnvelope `（类型）、` LFSD `（缩写）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-source-map"></a>
 ### 源映射
@@ -2732,7 +2756,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 把规范实体、关系或诊断反向关联到来源模块和来源位置的派生制品。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-source-map-envelope"></a>
 ### 源映射封套
@@ -2743,7 +2767,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` SourceMapEnvelope `（类型）、` LFSM `（缩写）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-target-triple"></a>
 ### 目标三元组
@@ -2754,7 +2778,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` targetTriple `（字段）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-trust-anchor"></a>
 ### 信任锚
@@ -2763,7 +2787,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 位于待验证对象之外、由签名、认证资产链或固定摘要提供的可信依据。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-value-checked-canonical-artifact"></a>
 ### 已值域检查规范制品
@@ -2774,7 +2798,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 精确标识符：` ValueCheckedObjectView `（类型）。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-version-axis"></a>
 ### 版本轴
@@ -2783,7 +2807,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 只描述一个独立兼容维度、不能与其他维度混用的版本字段。
 
-依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-153]。
+依据：[可移植规范制品与辅助制品格式][source-design-portable-canonical-artifact-156]。
 
 <a id="term-wrapper-type"></a>
 ### 包装类型
@@ -2938,7 +2962,7 @@ ADR 0033 摘要角色之一：只在同一进程内用于哈希表、缓存与�
 
 Active 工作集中的连续定位下标，必须映射到完整车辆句柄和逻辑更新位置。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-active-motion-pool"></a>
 ### 活动运动池
@@ -2947,7 +2971,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 只保存 Active 车辆正本热运动列的存储池；非活动记录不参与常规热扫描。
 
-依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-413]。
+依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-416]。
 
 <a id="term-administrative-state"></a>
 ### 管理状态
@@ -2958,7 +2982,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 精确标识符：` AdministrativeState `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-amdahl-bottleneck"></a>
 ### 阿姆达尔瓶颈
@@ -2967,7 +2991,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 不可并行的临界路径限制整体加速比、使增加工作线程不再获得相称收益的扩展性瓶颈。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-attempt-epoch"></a>
 ### 尝试世代
@@ -2976,7 +3000,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 区分同一已提交 tick 的不同执行尝试，防止旧回报或 capability 污染重试；不持久化。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-authentication-operational-failure"></a>
 ### 认证操作失败
@@ -2985,7 +3009,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 共享路网修订认证因资源、限额、取消或来源不可得等操作条件而未产生比较结论的结果；不判因、不停用，也不宣称认证通过。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-authoring-admission-quantization"></a>
 ### 编制准入量化
@@ -2994,7 +3018,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 编制 `f64` SI 在官方前端 / 共同接入边界 round-ties-to-even 一次进入整数毫米或受检 `f32` SI；之后 IR 不得再把交通一维存成编制米列。
 
-依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-416]。
+依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-419]。
 
 <a id="term-barrier"></a>
 ### 屏障
@@ -3003,7 +3027,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 一个逻辑阶段等待全部必需分区输入就绪后才允许进入规范归约或提交的同步边界。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-block-soa"></a>
 ### 分块列式布局
@@ -3012,7 +3036,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 固定行数块内同字段连续存储；块大小属于执行布局，不属于交通身份或持久格式。
 
-依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-413]。
+依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-416]。
 
 <a id="term-body-spill-occupancy"></a>
 ### 车身溢出占用
@@ -3021,7 +3045,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 车身仍覆盖、但前保险杠已离开的更早物理边上的占用记录；不是变道双占用。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-boundary-exchange"></a>
 ### 边界交换
@@ -3030,7 +3054,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 同一 tick 内分区间传递规范输入、提案或资源声明的私有运行时过程。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-candidate"></a>
 ### 候选
@@ -3046,7 +3070,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 以不可交换候选操作为节点并按规范先后定向的执行约束图。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-canonical-logical-position"></a>
 ### 规范逻辑位置
@@ -3055,7 +3079,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 独立计算的规范消费位置；车辆级顺序来自逻辑更新位置，车内顺序来自逻辑检查地址。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-canonical-reduction-authority"></a>
 ### 规范归约裁决方
@@ -3064,7 +3088,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 对一个连接资源组件按稳定键形成唯一提交结果的逻辑裁决方；不要求由单一物理线程串行执行。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-committed-world-state"></a>
 ### 已提交世界状态
@@ -3075,7 +3099,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 精确标识符：` CommittedWorldState `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-completion-frontier"></a>
 ### 完成前沿
@@ -3084,7 +3108,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 证明某错误之前的必要逻辑检查已解析的记录；缺失回报不能当作成功或跳过。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-condensation-directed-acyclic-graph"></a>
 ### 凝聚有向无环图
@@ -3095,7 +3119,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 精确标识符：` condensation DAG `（记号）。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-conflict-lag-reference"></a>
 ### 冲突滞后基准
@@ -3106,7 +3130,7 @@ Active 工作集中的连续定位下标，必须映射到完整车辆句柄和�
 
 精确标识符：` ConflictLagReference `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-conflict-passage-locator"></a>
 ### 冲突通行段持久定位值
@@ -3117,7 +3141,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` ConflictPassageLocator `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-constraint"></a>
 ### 约束
@@ -3135,7 +3159,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` DerivedIndexes `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-deterministic-commit-plan"></a>
 ### 确定性提交计划
@@ -3146,7 +3170,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` CommitPlan `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-deterministic-radix-bucket-sorting"></a>
 ### 确定性基数/桶排序
@@ -3155,7 +3179,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 对固定宽度规范键采用与输入规模线性相关、且不依赖线程完成顺序的排序策略族。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-distortion"></a>
 ### 失真
@@ -3164,7 +3188,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 运行时状态完整性语境中，数据内容偏离应有内容的现象；该用词本身不确定原因、判因结论或检测覆盖。具体对象与检测、处置边界以完整性设计为准。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-distortion-attribution"></a>
 ### 判因
@@ -3173,7 +3197,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 对完整性失配原因作出的归属判断；允许无法判因，不承诺唯一根因。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-distortion-fingerprint"></a>
 ### 失真指纹
@@ -3182,7 +3206,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 失配现场的页级形态分类（页边界偏移、整页替换、页整数倍位移、零页、非页对齐），用于环境对照与判因；非页对齐提示转代码嫌疑。共享路网修订认证只报告逻辑位置，不输出页级指纹。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-durable-revision-content-baseline"></a>
 ### 耐久修订内容基线
@@ -3191,7 +3215,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 由构建方建立、宿主随来源持久保存或重建的修订内容依据，是共享路网修订认证的期望值来源之一；发布来源与编辑来源的保存方式不同。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-durable-revision-content-preimage"></a>
 ### 耐久修订内容原像
@@ -3200,7 +3224,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 与路网修订标识共用的规范路网语义载荷原像；不包含布局与派生表，也不另设第二套编码。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-dynamic-traversal-definition"></a>
 ### 动态通行定义
@@ -3211,7 +3235,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-entry-frontier"></a>
 ### 入口 frontier
@@ -3220,7 +3244,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 为让行查询维护的冲突接近记录。只为近门车辆打开路线，失效车辆整段重走，其余按反向索引复用冲突距离。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-exact-execution-path"></a>
 ### 精确执行路径
@@ -3229,7 +3253,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 不降低交通保真度、且结果不依赖工作线程数或分区计划的执行路径。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-exact-reference-oracle"></a>
 ### 精确参考预言机
@@ -3238,7 +3262,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 以直观集中式算法产生规范结果、用于证明优化执行路径语义等价而不要求成为生产热路径的实现。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-execution-block"></a>
 ### 执行块
@@ -3247,7 +3271,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 独占任务输出范围的物理调度分块；不创建新的交通身份或公开子世界。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-execution-configuration"></a>
 ### 执行配置
@@ -3258,7 +3282,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` ExecutionConfig `（类型）。
 
-依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-419]。
+依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-422]。
 
 <a id="term-execution-resources"></a>
 ### 执行资源
@@ -3267,7 +3291,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 活动世界拥有的线程与调度资源，和可重建的目标执行计划分开管理。
 
-依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-419]。
+依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-422]。
 
 <a id="term-fidelity-contract"></a>
 ### 保真度契约
@@ -3276,7 +3300,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 明确允许的个体、时间、空间与行为语义损失及其验证边界的版本化契约。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-fidelity-degradation"></a>
 ### 保真度降级
@@ -3285,7 +3309,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 显式减少个体、时间、空间或行为语义的目标能力变化；必须由独立保真度契约和 G1/ADR 授权，不能伪装成调度或表现优化。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-fixed-tick"></a>
 ### 固定步进
@@ -3296,7 +3320,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` tick `（函数）。
 
-依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-416]。
+依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-419]。
 
 <a id="term-fresh-placement"></a>
 ### 新生成
@@ -3309,7 +3333,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 运动安全、开放入口与显式历史起点的可达性检查各有适用条件，以车辆放置设计为准。
 
-依据：[新生成的运动安全准入][source-design-traffic-runtime-vehicle-placement-420]。
+依据：[新生成的运动安全准入][source-design-traffic-runtime-vehicle-placement-423]。
 
 <a id="term-fused-single-worker-executor"></a>
 ### 融合单工作线程执行器
@@ -3318,7 +3342,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 保留精确路径可观察语义、但不物化无并发价值的队列、任务图或真实屏障的单工作线程实现。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-gap-acceptance-profile"></a>
 ### 间隙接受参数
@@ -3329,7 +3353,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` GapAcceptanceProfile `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-gate-compliance-rule"></a>
 ### 门合规规则
@@ -3340,7 +3364,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` GateComplianceRule `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-graceful-overload-degradation"></a>
 ### 过载优雅降级
@@ -3349,7 +3373,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 宿主在过载时通过暂停、慢放或统一调整时间推进保持全部逻辑步进、事件和交通语义的显式处置；不等同于保真度降级。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-grant"></a>
 ### 授权
@@ -3365,7 +3389,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 分区为同一 tick 依赖读取的相邻状态范围；不能通过过期一 tick 数据改变精确语义。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-host-audit-replay"></a>
 ### 宿主审计重放
@@ -3376,7 +3400,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 被审计世界仍运行时，独立世界须位于独立进程或另一台机器；结果区分完整匹配、分歧与未完成，管理边界限制见完整性设计。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-integer-millimetre"></a>
 ### 整数毫米
@@ -3387,7 +3411,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` mm `（单位）。
 
-依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-416]。
+依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-419]。
 
 <a id="term-integrity-disablement"></a>
 ### 停用
@@ -3398,7 +3422,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 交通运行时不持有失效状态；停止使用的触发条件和边界由完整性设计规定。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-intersection-rules"></a>
 ### 路口规则
@@ -3407,7 +3431,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-lane-flow-junction-observation"></a>
 ### 路口观测视图
@@ -3418,7 +3442,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` LaneFlowJunctionObservation `（类型）。
 
-依据：[复杂路口只读观测与跨层验证][source-design-junction-observation-and-validation-421]。
+依据：[复杂路口只读观测与跨层验证][source-design-junction-observation-and-validation-424]。
 
 <a id="term-lane-graph"></a>
 ### 车道图
@@ -3427,7 +3451,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 供运行时遍历和路线跟随使用的有向车道拓扑。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-laneflow-traffic-runtime"></a>
 ### LaneFlow 交通运行时
@@ -3448,7 +3472,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 当前交付为 TrafficWorld 道路机动车特化；长期职责不表示其他执行域已经实现。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-lifecycle"></a>
 ### 生命周期
@@ -3466,7 +3490,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 精确标识符：` LocalIntentBatch `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-logical-check-address"></a>
 ### 逻辑检查地址
@@ -3475,7 +3499,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 由串行调用路径、规范循环位置与分支构成的检查位置，用于保持首错及故障注入对应。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-logical-digest-preimage"></a>
 ### 逻辑摘要原像
@@ -3484,7 +3508,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 对已提交运行时逻辑状态规范化所得、与物理布局无关的摘要输入。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-logical-update-position"></a>
 ### 逻辑更新位置
@@ -3493,7 +3517,7 @@ stream 与 zone 的稳定引用对，用于存档和迁移时定位已有唯一�
 
 当前拍 live 序列中的规范位置，用于保留业务次序；不等于槽位或线程编号。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-maneuver-direction"></a>
 ### 机动方向
@@ -3504,7 +3528,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` ManeuverDirection `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-micrometre-accumulator"></a>
 ### 微米累加器
@@ -3515,7 +3539,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` carry_um `（字段）。
 
-依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-416]。
+依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-419]。
 
 <a id="term-millimetres-per-second"></a>
 ### 毫米每秒
@@ -3526,7 +3550,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` mm/s `（单位）。
 
-依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-416]。
+依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-419]。
 
 <a id="term-missed-detection-surface"></a>
 ### 漏检面
@@ -3535,7 +3559,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 校验方法明确不能覆盖的对象或条件集合；须以对应完整性设计的穷尽边界为准。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-mutually-invisible-co-lateral-transition-segments"></a>
 ### 互不可见的共横向过渡段
@@ -3546,7 +3570,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 现行固定预制过渡对这种组合存在能力限制；允许或拒绝条件以最小换道合同的覆盖证明为准。
 
-依据：[最小换道合同（Lane Change Minimal Contract）][source-design-lane-change-minimal-contract-423]。
+依据：[最小换道合同（Lane Change Minimal Contract）][source-design-lane-change-minimal-contract-426]。
 
 <a id="term-near-gate-vehicle"></a>
 ### 近门车辆
@@ -3555,7 +3579,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 下一拍 frontier 将读到的状态下，换边时记下的门距仍落在一拍最大加速度可达上界内的活动车辆。不是全部 Active，也不包含没有下一道 Gate 的车。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-occupancy"></a>
 ### 占用
@@ -3573,7 +3597,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` OccupancyBucketOrdinal `（类型）。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-occupancy-index"></a>
 ### 占用索引
@@ -3584,7 +3608,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` OccupancyIndex `（类型）。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-occupancy-record"></a>
 ### 占用记录
@@ -3595,7 +3619,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` OccupancyRecord `（类型）。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-open-entrance"></a>
 ### 开放入口
@@ -3606,7 +3630,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` VehicleEntrance `（类型）。
 
-依据：[新生成的运动安全准入][source-design-traffic-runtime-vehicle-placement-420]。
+依据：[新生成的运动安全准入][source-design-traffic-runtime-vehicle-placement-423]。
 
 <a id="term-page-level-memory-distortion"></a>
 ### 页级内存失真
@@ -3615,7 +3639,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 以整页替换、置零或按页整数倍位移等形态出现的内存内容异常；适用环境、证据和检测边界由完整性设计规定。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-parking"></a>
 ### 停车
@@ -3624,7 +3648,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 对停车设施、显式停车位、虚拟容量、预约、进入、占用和离开进行管理的领域行为。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-parking-arrival"></a>
 ### 停车到达
@@ -3635,7 +3659,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` ParkingArrivalObservation `（类型）。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-parking-binding"></a>
 ### 停车绑定
@@ -3646,7 +3670,7 @@ Movement 的显式直行、左转、右转或掉头声明；是非身份属性�
 
 精确标识符：` ParkingBinding `（类型）。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-parking-target"></a>
 ### 停车目标
@@ -3657,7 +3681,7 @@ caller 精确选择的 tagged 资源：具体 `ExplicitSpace` 或设施 `Virtual
 
 精确标识符：` ParkingTarget `（类型）。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-partition"></a>
 ### 分区
@@ -3666,7 +3690,7 @@ caller 精确选择的 tagged 资源：具体 `ExplicitSpace` 或设施 `Virtual
 
 运行时执行计划中的私有物理所有权/调度单元；不构成公共身份或静态语义。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-partition-planning-hints"></a>
 ### 分区规划提示
@@ -3677,7 +3701,7 @@ LFCA 不保存的非语义性能提示；由 `laneflow-static-network` 按显式
 
 精确标识符：` PartitionPlanningHints `（类型）。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-per-world-mutable-state"></a>
 ### 每世界可变状态
@@ -3686,7 +3710,7 @@ LFCA 不保存的非语义性能提示；由 `laneflow-static-network` 按显式
 
 交通参与单元、通行定义、控制器时钟、预约、占用和缓冲区等不能进入共享静态路网的状态；当前投影包括车辆、路线和停车。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-physical-row"></a>
 ### 物理行
@@ -3695,7 +3719,7 @@ LFCA 不保存的非语义性能提示；由 `laneflow-static-network` 按显式
 
 车辆在活动列块中的存储/独占计算位置，必须映射回完整句柄与逻辑更新位置。
 
-依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-413]。
+依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-416]。
 
 <a id="term-policy"></a>
 ### 策略
@@ -3713,7 +3737,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` PolicyLocalChange `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-policy-pin"></a>
 ### 策略绑定
@@ -3724,7 +3748,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` PolicyPin `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-potential-resource-support-graph"></a>
 ### 潜在资源支持图
@@ -3733,7 +3757,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 包含当前和可能激活的资源关联、休眠依赖及 watcher 的图，用于识别条件交互。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-proposal"></a>
 ### 提案
@@ -3742,7 +3766,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 并行求值阶段生成、尚未取得提交裁决的候选状态变化。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-reduction-span"></a>
 ### 归约跨度
@@ -3751,7 +3775,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 在无限并行资源下仍不可消除的规范依赖临界路径成本。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-reduction-work"></a>
 ### 归约工作量
@@ -3760,7 +3784,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 完成一次规范归约需要执行的总操作量，用于区别总成本与临界路径。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-regulation-identity"></a>
 ### 法规身份
@@ -3771,7 +3795,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` RegulationIdentity `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-reservation"></a>
 ### 预约
@@ -3789,7 +3813,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` ResolutionBatch `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-resolved-gate-policy-cell"></a>
 ### 已解析门策略单元
@@ -3800,7 +3824,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` ResolvedGatePolicyCell `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-resolved-stream-rule"></a>
 ### 已解析通行流规则
@@ -3811,7 +3835,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` ResolvedStreamRule `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-resource-claim"></a>
 ### 资源声明
@@ -3820,7 +3844,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 对共享交通资源提出的确定性占用请求；必须经规范归约后才能提交。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-resource-dependency-component"></a>
 ### 资源依赖组件
@@ -3829,7 +3853,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 本拍候选及潜在资源交互形成的逻辑闭包；不等同于地理块或单一物理线程。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-right-of-way-policy-set"></a>
 ### 路权策略集
@@ -3840,7 +3864,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` RightOfWayPolicySet `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-road-motor-vehicle-execution-domain"></a>
 ### 道路机动车执行域
@@ -3851,7 +3875,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` road_motor_vehicle `（记号）。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-route"></a>
 ### 路线
@@ -3862,7 +3886,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` Route `（类型）。
 
-依据：[Route System 设计][source-design-route-system-424]。
+依据：[Route System 设计][source-design-route-system-427]。
 
 <a id="term-route-gate-observation"></a>
 ### 路线机动门观测
@@ -3873,7 +3897,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` RouteGateObservation `（类型）。
 
-依据：[复杂路口只读观测与跨层验证][source-design-junction-observation-and-validation-421]。
+依据：[复杂路口只读观测与跨层验证][source-design-junction-observation-and-validation-424]。
 
 <a id="term-runtime-overlay"></a>
 ### 运行时覆盖层
@@ -3882,7 +3906,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 不改变静态身份或拓扑、按显式命令暂时修改运行时约束的版本化动态状态。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-serial-phase-protocol"></a>
 ### 串行阶段协议
@@ -3891,7 +3915,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 一次固定步进的逻辑阶段、数据依赖、读写权限、确定性顺序与失败边界；允许单工作线程融合执行，不要求通用任务图或物理屏障。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-session"></a>
 ### 会话
@@ -3911,7 +3935,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 来源准备、修订比较、确认与处置的阶段边界，以及比较算子、操作失败和判因规则，均由完整性设计维护。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-signal"></a>
 ### 信号
@@ -3920,7 +3944,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 由信号控制器和信号组产生、供车辆解释通行约束的运行时指示。
 
-依据：[Signal System 设计][source-design-signal-system-236]。
+依据：[Signal System 设计][source-design-signal-system-239]。
 
 <a id="term-snapshot"></a>
 ### 快照
@@ -3929,7 +3953,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 在明确时点冻结、供只读消费的运行时状态视图。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-static-execution-constraint-graph"></a>
 ### 静态执行约束图
@@ -3938,7 +3962,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 编译器从静态资源依赖派生的工作线程数无关约束、可切分边界与规范合并顺序。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-stationary-state"></a>
 ### 停驻状态
@@ -3949,7 +3973,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-steady-state-tick"></a>
 ### 稳态步进
@@ -3958,7 +3982,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 初始化和容量稳定后的高频固定步进路径。
 
-依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-416]。
+依据：[交通运行时整数毫米几何][source-design-traffic-runtime-integer-geometry-419]。
 
 <a id="term-step-read-view"></a>
 ### 步进只读视图
@@ -3969,7 +3993,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` StepReadView `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-stream-right-of-way-rule"></a>
 ### 通行流路权规则
@@ -3980,7 +4004,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` StreamRightOfWayRule `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-strongly-connected-component"></a>
 ### 强连通分量
@@ -3991,7 +4015,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` SCC `（缩写）。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-tick-workspace"></a>
 ### 步进工作区
@@ -4002,7 +4026,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` TickWorkspace `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-traffic-configuration"></a>
 ### 交通配置
@@ -4013,7 +4037,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` WorldConfig `（类型）。
 
-依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-419]。
+依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-422]。
 
 <a id="term-traffic-execution-domain"></a>
 ### 交通执行域
@@ -4024,7 +4048,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 当前交付为道路机动车特化；长期通用概念不表示其他执行域已经实现，也不改写历史车辆证据。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-traffic-fidelity"></a>
 ### 交通保真度
@@ -4033,7 +4057,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 交通个体、时间、空间、规则与事件语义相对精确路径的保留程度。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-traffic-participant"></a>
 ### 交通参与者
@@ -4042,7 +4066,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 直接使用交通网络或占用交通空间的动态参与者；不等同于城市居民、乘客、出行需求或 AI Agent。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-traffic-participant-unit"></a>
 ### 交通参与单元
@@ -4055,7 +4079,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 相关概念：[交通执行域][term-traffic-execution-domain]、[车辆运行单元][term-vehicle-runtime-unit]。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-traffic-transition-event"></a>
 ### 交通转移事件
@@ -4066,7 +4090,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` TrafficTransitionEvent `（类型）。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-traffic-world"></a>
 ### 交通世界
@@ -4077,7 +4101,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` TrafficWorld `（类型）。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-transition-anchor"></a>
 ### 转移锚点
@@ -4088,7 +4112,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` TrafficTransitionAnchor `（类型）。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-trusted-baseline"></a>
 ### 可信基准
@@ -4097,7 +4121,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 经独立核验成立的期望值集合及其绑定闭合；期望值不得取自被校验对象自身；无法建立时不得宣称检测或恢复成功。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-vehicle-directory"></a>
 ### 车辆目录
@@ -4106,7 +4130,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 按完整句柄的索引与代次定位存储类别和物理行的登记表；不拥有第二份运动状态。
 
-依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-413]。
+依据：[交通运行时列式批量执行][source-design-traffic-runtime-columnar-execution-416]。
 
 <a id="term-vehicle-following"></a>
 ### 跟车
@@ -4115,7 +4139,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 根据同一路径上的前车状态施加安全间距和速度约束的运行时行为。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-vehicle-following-feasibility"></a>
 ### 跟车可行
@@ -4124,7 +4148,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 本拍开始时，follower 以 emergency deceleration 制动可停在保留最小间隙处的状态：停车所需距离不超过扣除最小间隙容差与微米余数后的整数停车界，前车按可原地立即停住计（砖墙包络）。跟车可行逐拍保持，跟车几何投影不触发；不可行导致的投影须归入新前车进入视野或既有异常初态。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-vehicle-following-front-lookahead"></a>
 ### 跟车前视
@@ -4135,7 +4159,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` front_query_horizon `（字段）。
 
-依据：[Vehicle Following 设计][source-design-vehicle-following-237]。
+依据：[Vehicle Following 设计][source-design-vehicle-following-240]。
 
 <a id="term-vehicle-runtime-unit"></a>
 ### 车辆运行单元
@@ -4146,7 +4170,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` VehicleState `（类型）。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-vehicle-state"></a>
 ### 车辆状态
@@ -4155,7 +4179,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 当前车辆运行单元在某一固定步进边界上的运动、路线与行为状态。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-virtual-parked-state"></a>
 ### 虚拟停驻
@@ -4164,7 +4188,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 车辆仍保留 live identity、route 和设施 binding，但不进入道路运动/占用，也不产生 committed pose 的 Parked 状态；不等于 despawn、聚合车辆或隐藏路网。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-virtual-parking-capacity"></a>
 ### 虚拟停车容量
@@ -4175,7 +4199,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` virtual_capacity `（字段）。
 
-依据：[停车系统设计][source-design-parking-system-235]。
+依据：[停车系统设计][source-design-parking-system-238]。
 
 <a id="term-waiting-dependency-view"></a>
 ### 等待依赖视图
@@ -4184,7 +4208,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 表达资源持有及容量不足导致的等待关系的可重建执行数据；不是持久化正本。
 
-依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-233]。
+依据：[WaitingZone、ConflictZone 与通行权分层][source-design-waiting-zone-conflict-right-of-way-236]。
 
 <a id="term-worker"></a>
 ### 工作线程
@@ -4193,7 +4217,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 执行一个或多个运行时任务的计算资源；数量和完成顺序不得改变精确结果。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-world-binding-state"></a>
 ### 世界绑定状态
@@ -4204,7 +4228,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` WorldBindingState `（类型）。
 
-依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-414]。
+依据：[TrafficWorld 串行阶段协议与内部状态分区][source-design-traffic-runtime-phase-protocol-417]。
 
 <a id="term-world-policy-selection"></a>
 ### 世界策略选择
@@ -4215,7 +4239,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` WorldPolicySelection `（类型）。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="domain-host"></a>
 ## 宿主与世界管理
@@ -4282,7 +4306,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 
 精确标识符：` AdmittedRouteRegisterInput `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-candidate-route"></a>
 ### 候选路线
@@ -4293,7 +4317,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 精确标识符：` CandidateRouteInput `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-checkpoint"></a>
 ### 检查点
@@ -4302,7 +4326,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 在回放序列中周期保存、用于缩短恢复和失同步定位区间的版本化状态锚点。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-committed-mutation-stream"></a>
 ### 已提交变更流
@@ -4311,7 +4335,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 旧世界在原子提交后产生、供候选迁移状态重解释且不会重复执行输入或发布重复旧世界事件的规范动态状态变化序列。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-committed-network-source"></a>
 ### 已提交路网来源
@@ -4322,7 +4346,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 精确标识符：` CommittedNetworkSource `（类型）。
 
-依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-476]。
+依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-479]。
 
 <a id="term-committed-road-network"></a>
 ### 已提交道路路网
@@ -4333,7 +4357,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 精确标识符：` CommittedRoadNetwork `（类型）。
 
-依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-476]。
+依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-479]。
 
 <a id="term-committed-traffic-observation-snapshot"></a>
 ### 已提交交通观测快照
@@ -4342,7 +4366,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 从同一已提交交通状态提取的只读观测集合；具体计数、单位与覆盖范围由观测合同规定。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-cost-model-identifier"></a>
 ### 成本模型标识
@@ -4353,7 +4377,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 精确标识符：` CostModelId `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-cutover-event-batch"></a>
 ### 切换事件批次
@@ -4362,7 +4386,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 迁移函数生成、在准备期保持不可见，并只与新共享修订/状态绑定原子提交一次的规范排序事件集合；切换放弃时零发布。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-delta-catch-up"></a>
 ### 增量追赶
@@ -4371,7 +4395,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 候选世界在后台按规范顺序应用基准状态之后的迁移增量，逐步追近运行中旧世界提交点的阶段。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-desynchronization-diagnostic-artifact"></a>
 ### 失同步诊断制品
@@ -4380,7 +4404,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 结合冷标识与源映射记录首个分歧 tick、phase、实体和资源组件的调试制品。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-deterministic-state-digest"></a>
 ### 确定性状态摘要
@@ -4393,7 +4417,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 算法与原像版本由运行时快照和摘要角色合同维护，不能从词条登记推断摘要字节兼容。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-dynamic-cost-snapshot"></a>
 ### 动态成本快照
@@ -4402,7 +4426,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 对象由宿主 Routing 拥有，Runtime 不解释成本 payload。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-dynamic-cost-snapshot-binding"></a>
 ### 动态成本快照绑定
@@ -4413,7 +4437,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 精确标识符：` DynamicCostSnapshotBinding `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-editable-diff-base"></a>
 ### 可编辑差异基线
@@ -4424,7 +4448,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 精确标识符：` EditableDiffBase `（类型）。
 
-依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-476]。
+依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-479]。
 
 <a id="term-equivalence-proof"></a>
 ### 等价证明
@@ -4433,7 +4457,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 切换提交前证明候选状态与切换事件批次等价于确定性迁移函数作用于旧世界提交状态的证据义务；证明失败即放弃候选。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-full-delta-export"></a>
 ### 完整/增量导出
@@ -4442,7 +4466,7 @@ Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验�
 
 v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观测。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-host-application-layer"></a>
 ### 宿主应用层
@@ -4451,7 +4475,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 拥有应用业务、需求与规则的宿主上层；人口、经济、土地利用、建筑、工作/居住、物流任务与游戏规则是可能的业务内容，不归交通运行时裁决。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-input-command-cursor"></a>
 ### 输入命令游标
@@ -4460,7 +4484,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 已成功应用的生命周期命令计数，是快照与切换基线比对的命令侧锚点；计入范围、耗尽与失败行为由生命周期合同规定。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-input-command-sequence"></a>
 ### 输入命令序列
@@ -4469,7 +4493,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 按规范顺序驱动世界、可与检查点共同重放的显式外部命令流。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-migration-delta-journal"></a>
 ### 迁移增量日志
@@ -4478,7 +4502,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 在线迁移准备期间有界记录已提交动态状态/生命周期变化及命令/事件游标、供候选世界迁移追赶的版本化日志。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-mobility-and-traffic-orchestration-layer"></a>
 ### 出行与交通编排层
@@ -4487,7 +4511,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 拥有出行需求、出发时刻、交通参与单元生成、目的地、人口生命周期与路线选择策略的上层。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-network-revision-cutover-descriptor"></a>
 ### 路网修订切换描述符
@@ -4498,7 +4522,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 精确标识符：` NetworkRevisionCutoverDescriptor `（类型）。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-network-revision-cutover-transaction"></a>
 ### 路网修订切换事务
@@ -4507,7 +4531,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 在固定步进安全边界原子切换共享修订、动态状态和 committed 道路状态的失败关闭事务；“镜像切换”仅为历史名。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-observation-export-cadence"></a>
 ### 观测导出节奏
@@ -4516,7 +4540,7 @@ v1 用含全零行的 full 和严格引用上一成功批次的 delta 表达观�
 
 上层或宿主明确选择的观测完整基线/增量导出频率；不等同于每个固定步进全网复制。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-observation-export-session"></a>
 ### 观测导出会话
@@ -4527,7 +4551,7 @@ Runtime 签发、字段私有且无公共构造器，绑定世界/世代、修�
 
 精确标识符：` ObservationExportSession `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-observation-selection"></a>
 ### 观测选择
@@ -4536,7 +4560,7 @@ Runtime 签发、字段私有且无公共构造器，绑定世界/世代、修�
 
 `AllLaneEdges` 或按 `StableId128` 规范排序的 LaneEdge 集合；不是执行计划分区。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-observation-selection-digest"></a>
 ### 观测选择摘要
@@ -4547,7 +4571,7 @@ Runtime 签发、字段私有且无公共构造器，绑定世界/世代、修�
 
 精确标识符：` ObservationSelectionDigest `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-observation-set-digest"></a>
 ### 观测输入集合摘要
@@ -4558,7 +4582,7 @@ Runtime 签发、字段私有且无公共构造器，绑定世界/世代、修�
 
 精确标识符：` ObservationSetDigest `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-observation-state-sequence"></a>
 ### 观测状态序号
@@ -4569,7 +4593,7 @@ Runtime 签发、字段私有且无公共构造器，绑定世界/世代、修�
 
 精确标识符：` ObservationStateSequence `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-observation-stream-binding"></a>
 ### 观测 stream 绑定
@@ -4580,7 +4604,7 @@ Runtime 签发的 `(world_id, WorldGeneration)` 进程内能力；每个活动�
 
 精确标识符：` ObservationStreamBinding `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-paused-maintenance-mode"></a>
 ### 维护暂停模式
@@ -4589,7 +4613,7 @@ Runtime 签发的 `(world_id, WorldGeneration)` 进程内能力；每个活动�
 
 由宿主显式声明世界已暂停、允许一次性完成迁移且单独预算完整停顿的切换模式。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-published-lfca-reference"></a>
 ### 已发布 LFCA 引用
@@ -4600,7 +4624,7 @@ runtime-only 存档中的不透明宿主持久 asset key 与 LFCA digest/length/
 
 精确标识符：` PublishedLfcaReference `（类型）。
 
-依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-476]。
+依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-479]。
 
 <a id="term-quiescent-commit-window"></a>
 ### 静默提交窗口
@@ -4609,7 +4633,7 @@ runtime-only 存档中的不透明宿主持久 asset key 与 LFCA digest/length/
 
 固定步进安全边界上短暂冻结旧世界输入、排空日志尾并原子切换绑定的有界时间窗口。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-road-editing-state-digest"></a>
 ### 道路编辑状态摘要
@@ -4618,7 +4642,7 @@ runtime-only 存档中的不透明宿主持久 asset key 与 LFCA digest/length/
 
 对已提交道路编辑状态的规范来源字节计算的内部完整性摘要；不替代来源集合摘要，也不参与路网修订标识。
 
-依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-476]。
+依据：[已提交道路编辑状态与编辑来源][source-design-committed-road-editing-state-479]。
 
 <a id="term-route-edge-occurrence-capacity"></a>
 ### 路线边出现记录容量
@@ -4629,7 +4653,7 @@ runtime-only 存档中的不透明宿主持久 asset key 与 LFCA digest/length/
 
 精确标识符：` route_edge_occurrence_capacity `（字段）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-routing-admission-session"></a>
 ### Routing 准入会话
@@ -4640,7 +4664,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 精确标识符：` RoutingAdmissionSession `（类型）。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-routing-service"></a>
 ### 路径规划服务
@@ -4649,7 +4673,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 从静态路网和已提交动态成本快照生成候选路径、但不拥有交通参与单元固定步进的服务。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-runtime-execution-plan"></a>
 ### 运行时执行计划
@@ -4658,7 +4682,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 每世界依据静态约束、硬件与动态负载建立的分区、工作线程、边界交换和迁移计划。
 
-依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-412]。
+依据：[TrafficWorld 单世界精确并行执行][source-design-traffic-runtime-parallel-execution-415]。
 
 <a id="term-runtime-snapshot"></a>
 ### 运行时快照
@@ -4669,7 +4693,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 相关概念：[快照局部标识][term-snapshot-local-identity]、[存档清单][term-save-manifest]。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-save-manifest"></a>
 ### 存档清单
@@ -4678,7 +4702,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 原子绑定宿主应用、出行编排和 LaneFlow 各版本化存档制品及摘要的上层清单。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-snapshot-local-identity"></a>
 ### 快照局部标识
@@ -4687,7 +4711,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 只在一个运行时快照内稳定、用于重建动态实体引用且不复用原进程句柄的持久键。
 
-依据：[运行时快照][source-design-traffic-runtime-snapshot-425]。
+依据：[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="term-traffic-infrastructure"></a>
 ### 交通基础设施
@@ -4696,7 +4720,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 可嵌入、引擎无关、确定性的道路交通运行时与工具链；当前提供道路机动车能力，并为规模与执行域演进保留明确边界。人口经济、出行需求与路线选择策略由宿主拥有。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-travel-demand"></a>
 ### 出行需求
@@ -4705,7 +4729,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 描述谁在何时为何出发的上层输入；不由交通运行时隐藏生成。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-trip-orchestration-layer"></a>
 ### 出行编排层
@@ -4714,7 +4738,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 拥有出行需求、候选路线选择、收费/政策偏好和调用方随机流，并以显式边界驱动 LaneFlow 的上层系统。
 
-依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-474]。
+依据：[交通观测与 Routing 接入][source-design-traffic-observation-and-routing-integration-477]。
 
 <a id="term-world"></a>
 ### 世界
@@ -4723,7 +4747,7 @@ Runtime 无分配签发、字段私有的调用方能力，精确绑定当前世
 
 共享静态数据并持有一份独立可变运行时状态的实例。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-world-generation"></a>
 ### 世界世代
@@ -4734,7 +4758,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` WorldGeneration `（类型）。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="term-world-identity"></a>
 ### 世界身份
@@ -4745,7 +4769,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` world_id `（字段）。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-475]。
+依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
 
 <a id="domain-spatial"></a>
 ## 空间与几何
@@ -4774,7 +4798,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` CanonicalFrame `（类型）。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="term-center-to-outer-end-distance"></a>
 ### 路口中心至道路外端距离
@@ -4783,7 +4807,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 路口生成器的 `arm_length_meters` 参数；其值从路口中心计量，不能当作扣除路口半径后的外部道路长度。代码与配置键保持原文。
 
-依据：[示例场景设计][source-design-example-scenarios-488]。
+依据：[示例场景设计][source-design-example-scenarios-491]。
 
 <a id="term-conflict-zone-region"></a>
 ### 冲突区空间区域
@@ -4794,7 +4818,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` ConflictZoneRegion `（类型）。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="term-external-road-segment"></a>
 ### 路口外部道路
@@ -4805,7 +4829,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 允许简称“外部道路”：生成场景道路几何语境已明确。
 
-依据：[示例场景设计][source-design-example-scenarios-488]。
+依据：[示例场景设计][source-design-example-scenarios-491]。
 
 <a id="term-geometry"></a>
 ### 几何
@@ -4814,7 +4838,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 坐标框架、曲线、折线、弧长和采样数据。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="term-phase-state-position"></a>
 ### 相位状态位置
@@ -4823,7 +4847,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 信号相位状态向量中按 `linkIndex` 关联受控连接的位置；“未认领位置”不是一条道路或一条进口道。转换器是否接受及如何报告，以现有信号源健康检查合同为准。
 
-依据：[示例场景设计][source-design-example-scenarios-488]。
+依据：[示例场景设计][source-design-example-scenarios-491]。
 
 <a id="term-placement-token"></a>
 ### 放置令牌
@@ -4832,7 +4856,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 绑定规范坐标框架与宿主放置状态、防止过期位姿写入的令牌。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="term-pose-batch"></a>
 ### 位姿批次
@@ -4841,7 +4865,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 空间层按稳定顺序批量产生的位置和朝向结果。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="term-spatial-layer"></a>
 ### 空间层
@@ -4852,7 +4876,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` laneflow-spatial `（包）。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="term-spatial-session"></a>
 ### 空间会话
@@ -4863,7 +4887,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` SpatialSession `（类型）。
 
-依据：[空间几何设计][source-design-spatial-geometry-487]。
+依据：[空间几何设计][source-design-spatial-geometry-490]。
 
 <a id="domain-adapter"></a>
 ## 引擎适配
@@ -4883,7 +4907,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 把运行时快照和空间位姿映射到宿主引擎生命周期与表现对象的组件。
 
-依据：[适配器应用程序接口（API）][source-design-adapter-api-492]。
+依据：[适配器应用程序接口（API）][source-design-adapter-api-495]。
 
 <a id="term-host-transform"></a>
 ### 宿主变换
@@ -4894,7 +4918,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` Transform `（类型）。
 
-依据：[适配器应用程序接口（API）][source-design-adapter-api-492]。
+依据：[适配器应用程序接口（API）][source-design-adapter-api-495]。
 
 <a id="term-level-of-detail"></a>
 ### 细节层次
@@ -4905,7 +4929,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` LOD `（缩写）。
 
-依据：[适配器应用程序接口（API）][source-design-adapter-api-492]。
+依据：[适配器应用程序接口（API）][source-design-adapter-api-495]。
 
 <a id="domain-measurement"></a>
 ## 测量与记录
@@ -4959,7 +4983,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-aggregate-equivalent-participant-count"></a>
 ### 聚合等价参与单元数
@@ -4972,7 +4996,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-aggregate-traffic-population"></a>
 ### 聚合交通量
@@ -4985,7 +5009,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-aggregate-traffic-record-count"></a>
 ### 聚合交通记录数
@@ -4998,7 +5022,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-chinese-style-city-workload"></a>
 ### 中国特色城市工作负载
@@ -5007,7 +5031,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用版本化拓扑、需求与运行时指标表达中国特色交通压力的代表性工作负载族。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-diagnostic-record"></a>
 ### 诊断记录
@@ -5016,7 +5040,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、计时等运行信息；其文件摘要独立核对，和测量记录的交叉检查按现有合同执行。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-527]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-530]。
 
 <a id="term-environment-record"></a>
 ### 环境记录
@@ -5025,7 +5049,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 测量前后采集的本机环境、工具链、源码状态、执行者信息、机器指纹与进程快照；不替代测量记录的构建协议字段。
 
-依据：[测量环境与进程观测][source-design-host-observe-528]。
+依据：[测量环境与进程观测][source-design-host-observe-531]。
 
 <a id="term-execution-path"></a>
 ### 执行路径
@@ -5048,7 +5072,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 `result.files` 中文件名到摘要的映射，用于核对同一次运行的文件完整性；摘要和文件在同一可写目录，不提供执行或来源真实性证明。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-527]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-530]。
 
 <a id="term-individual-run"></a>
 ### 单次运行
@@ -5072,7 +5096,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-individual-vehicle-count"></a>
 ### 个体车辆数
@@ -5085,7 +5109,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-intent-update-participant-count"></a>
 ### 意图更新参与单元数
@@ -5098,7 +5122,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-intent-update-vehicle-count"></a>
 ### 意图更新车辆数
@@ -5111,7 +5135,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-measurement-record"></a>
 ### 测量记录
@@ -5120,7 +5144,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、来源、运行配置与样本；不因记录存在就证明达到产品预算。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-527]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-530]。
 
 <a id="term-multi-world-ensemble"></a>
 ### 多世界集合
@@ -5129,7 +5153,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 共享静态数据、但各自持有独立可变状态的一组世界，用于回放、探索或吞吐测量。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="term-p100-initial-attestation-production-baseline"></a>
 ### P100 首轮认证实测基线
@@ -5140,7 +5164,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 精确标识符：` LF-ATTEST-P100-PRODUCTION-R0-v1 `（常量）。
 
-依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-415]。
+依据：[运行时状态完整性校验与失真恢复][source-design-traffic-runtime-state-integrity-418]。
 
 <a id="term-p100-initial-production-compiler-baseline"></a>
 ### P100 首轮生产编译基线
@@ -5151,7 +5175,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 精确标识符：` LF-COMP-P100-PRODUCTION-R0-v1 `（常量）。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-peak-allocation"></a>
 ### 峰值分配
@@ -5160,7 +5184,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 某操作期间同时存在的最大动态分配量。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-per-tick-timing-log"></a>
 ### 逐拍计时日志
@@ -5169,7 +5193,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在性、摘要和计时一致性仍须校验，非确定性耗时不参与跨运行语义相等比较。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-527]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-530]。
 
 <a id="term-presented-traffic-participant-count"></a>
 ### 表现交通参与单元数
@@ -5182,7 +5206,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-presented-vehicle-count"></a>
 ### 表现车辆数
@@ -5195,7 +5219,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-quiet-measurement-window"></a>
 ### 安静测量窗口
@@ -5204,7 +5228,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 维护者批准的一段独占机器的时间，用于运行结果随同机负载变化的正式测量；共享 CI runner 不构成此窗口。
 
-依据：[开发阶段评审][source-governance-development-gates-529]。
+依据：[开发阶段评审][source-governance-development-gates-532]。
 
 <a id="term-reference-machine-asset-identifier"></a>
 ### 参考机资产标识
@@ -5215,7 +5239,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 精确标识符：` referenceMachineId `（字段）。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-reference-machine-hardware-identity-fingerprint"></a>
 ### 参考机硬件身份指纹
@@ -5226,7 +5250,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 精确标识符：` hardwareIdentitySha256 `（字段）。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-retained-memory"></a>
 ### 保留内存
@@ -5235,7 +5259,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 初始化完成后仍由组件持有的内存。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-road-traffic-active-vehicle-count"></a>
 ### 道路交通活动车辆数
@@ -5248,7 +5272,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-run-configuration"></a>
 ### 运行配置
@@ -5266,7 +5290,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 单次运行产生的回执、测量记录、诊断记录、日志等信息的统称；具体校验和比较须说明文件及字段，不默认所有记录均参与语义相等比较。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-527]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-530]。
 
 <a id="term-target-product-recommended-reference-machine"></a>
 ### 目标产品推荐参考机型
@@ -5277,7 +5301,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 精确标识符：` P100 `（记号）。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-526]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-529]。
 
 <a id="term-test-case-group"></a>
 ### 测试分组
@@ -5293,7 +5317,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 冻结输入、规模、拓扑、行为组合和测量协议的可复现实验场景。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-418]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]。
 
 <a id="domain-testing"></a>
 ## 测试与检查
@@ -5352,7 +5376,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；不表示共享验证实现已交付。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-556]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-559]。
 
 <a id="term-compile-fail-test"></a>
 ### 编译失败测试
@@ -5368,7 +5392,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 未指定可选过滤条件时采用的规则；策略声明中的 rank 0 低于显式命中的类别选择器，不等于“全部类别”过滤器。
 
-依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-417]。
+依据：[路权策略编译与 ConflictArbiter 实施合同][source-design-traffic-runtime-right-of-way-policy-420]。
 
 <a id="term-differential-testing"></a>
 ### 差分测试
@@ -5391,7 +5415,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 在受检点强制返回受控失败以验证失败原子性等硬不变量的测试机制；注入检查点不得进入默认发布构建。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-final-sort-key"></a>
 ### 最终排序键
@@ -5421,7 +5445,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 生产路径持有空操作默认探针、研究态注入测量实现的显式接缝；默认发布构建必须与无仪器构建等价。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-known-vector"></a>
 ### 已知向量
@@ -5444,7 +5468,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 在生产步进路径的具名阶段边界采集、只用于机制归因的耗时测量；不构成产品延迟取证。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-placeholder-output"></a>
 ### 占位输出
@@ -5467,7 +5491,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 为研究取证或测试检查目的嵌入或接入运行时执行路径的测量、观察与注入机制的总称；不是生产语义的一部分。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-retained-memory-ledger"></a>
 ### 保留内存账本
@@ -5476,7 +5500,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 按所有权穷尽枚举组件的保留内存核算结构；新增字段必须触发编译失败以强制分类。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-semantic-research-prototype"></a>
 ### 语义研究原型
@@ -5485,7 +5509,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 以单线程生产执行为精确预言机、验证候选架构精确等价或在显式保真度预算内有界等价的非生产研究执行器；结论可登记为研究证据，不自动成为生产架构。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-semantic-validation"></a>
 ### 语义验证
@@ -5508,7 +5532,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-557]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-560]。
 
 <a id="term-verification-facts"></a>
 ### 验证事实
@@ -5519,7 +5543,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；事实不包含作为自身合法性依据的生产许可结论。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-558]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-561]。
 
 <a id="term-verification-session"></a>
 ### 验证会话
@@ -5530,7 +5554,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；不拥有交通世界或宿主命令调度。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-559]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-562]。
 
 <a id="term-verification-specification"></a>
 ### 验证规约
@@ -5541,7 +5565,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；正式配置档是具名规约组合，诊断性组合不自动具有相同证明范围。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-556]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-559]。
 
 <a id="retired-concepts"></a>
 ## 停止采用的概念
@@ -5557,7 +5581,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-560]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-563]。
 
 <a id="term-core-world"></a>
 ### 核心世界
@@ -5572,7 +5596,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [交通世界][term-traffic-world]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-current-core-object-graph"></a>
 ### 当前核心对象图
@@ -5583,7 +5607,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：旧核心运行时已拆除，不作为可运行世界或编译器中间表示。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-current-json"></a>
 ### 当前 JSON
@@ -5594,7 +5618,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：生产编制与消费已转为编译器、可移植规范制品与共享静态路网。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-eager-verification"></a>
 ### 预先验证
@@ -5605,7 +5629,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-560]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-563]。
 
 <a id="term-full-audit"></a>
 ### 完整审计
@@ -5616,7 +5640,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-560]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-563]。
 
 <a id="term-geometry-document-frontend"></a>
 ### 几何文档前端
@@ -5629,7 +5653,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [道路编辑前端][term-road-editing-frontend]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-152]。
+依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 
 <a id="term-geometry-source-module"></a>
 ### 几何来源模块
@@ -5644,7 +5668,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [道路编辑来源输入][term-road-editing-source-input]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-image-header"></a>
 ### 镜像头
@@ -5655,7 +5679,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-560]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-563]。
 
 <a id="term-laneflow-core"></a>
 ### LaneFlow 核心
@@ -5670,7 +5694,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [LaneFlow 交通运行时][term-laneflow-traffic-runtime]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-lazy-verification"></a>
 ### 延迟验证
@@ -5681,7 +5705,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-560]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-563]。
 
 <a id="term-p100-compile-limits-profile"></a>
 ### P100 编译资源配置档
@@ -5696,7 +5720,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [一万实体单路网配置档][term-single-network-10k-compile-profile]：常规编制用途的后继；不表示限额数值或 API 兼容。
 
-依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-149]。
+依据：[0035 编译资源合同分四类边界，规范路网容量由生产端与消费端共同约束，受控分配统一经资源账本][source-adr-0035-151]。
 
 <a id="term-p100-initial-compiler-performance-gate"></a>
 ### P100 首轮编译性能门槛
@@ -5709,7 +5733,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：抽象工作负载不能无损映射生产语义，已降为容量估算与实现选型输入，不构成产品验收。
 
-依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-150]。
+依据：[编译器基础设施与合成领域专用语言前端][source-design-compiler-foundation-152]。
 
 <a id="term-static-route"></a>
 ### 静态路线
@@ -5724,7 +5748,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [路线][term-route]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[0029 退役预编译静态路线，路线入口只留 register\_route][source-adr-0029-561]。
+依据：[0029 退役预编译静态路线，路线入口只留 register\_route][source-adr-0029-564]。
 
 <a id="term-structurally-verified-image"></a>
 ### 已结构验证镜像
@@ -5739,7 +5763,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [已值域检查规范制品][term-value-checked-canonical-artifact]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-281]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-284]。
 
 <a id="term-trusted-descriptor"></a>
 ### 可信描述符
@@ -5750,7 +5774,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-560]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-563]。
 
 <a id="term-unverified-image-bytes"></a>
 ### 未验证镜像字节
@@ -5763,7 +5787,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：现行制品检查与共享构建采用受检规范路网输入，该镜像类型名不表示现行 API。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-281]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-284]。
 
 <a id="term-validated-current-source-bundle"></a>
 ### 已验证当前态来源包
@@ -5776,7 +5800,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：所属加载组件已拆除，不是现行编译器输入。
 
-依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-422]。
+依据：[交通运行时共享静态路网消费][source-design-traffic-runtime-shared-consumption-425]。
 
 <a id="term-validation-receipt-envelope"></a>
 ### 验证收据封套
@@ -5791,7 +5815,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：后发射检查与最小发布合同已取消独立验证收据，不保留同义现行制品。
 
-依据：[ADR 0024：编译器后发射检查与最小发布闭合][source-adr-0024-562]。
+依据：[ADR 0024：编译器后发射检查与最小发布闭合][source-adr-0024-565]。
 
 <a id="former-names"></a>
 ## 旧称查询
@@ -6057,54 +6081,55 @@ provenance 关系语境。
 [issue-1441]: https://github.com/illusion-tech/laneflow/issues/1441
 [issue-985]: https://github.com/illusion-tech/laneflow/issues/985
 [retired-concepts]: #retired-concepts
-[source-adr-0021-418]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
-[source-adr-0024-562]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
-[source-adr-0025-281]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
-[source-adr-0025-560]: ../adr/0025-checked-canonical-network-and-shared-static-network.md#1-不交付独立静态镜像制品或-abi
-[source-adr-0029-561]: ../adr/0029-retire-precompiled-static-route.md
-[source-adr-0033-189]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
-[source-adr-0035-149]: ../adr/0035-compile-limits-and-resource-ledger.md
-[source-design-adapter-api-492]: ../design/adapter-api.md
-[source-design-committed-road-editing-state-476]: ../design/committed-road-editing-state.md
-[source-design-compiler-foundation-150]: ../design/compiler-foundation.md
-[source-design-compiler-post-emission-check-and-minimal-publication-closure-282]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md
-[source-design-compiler-resource-ledger-151]: ../design/compiler-resource-ledger.md
-[source-design-core-runtime-performance-baseline-526]: ../design/core-runtime-performance-baseline.md
-[source-design-cross-section-access-231]: ../design/cross-section-access.md
-[source-design-example-scenarios-488]: ../design/example-scenarios.md
-[source-design-host-observe-528]: ../design/host-observe.md
-[source-design-junction-observation-and-validation-421]: ../design/junction-observation-and-validation.md
-[source-design-lane-change-minimal-contract-423]: ../design/lane-change-minimal-contract.md
-[source-design-lf-synth-measurement-527]: ../design/lf-synth-measurement.md
+[source-adr-0021-421]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
+[source-adr-0024-565]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[source-adr-0025-284]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
+[source-adr-0025-563]: ../adr/0025-checked-canonical-network-and-shared-static-network.md#1-不交付独立静态镜像制品或-abi
+[source-adr-0029-564]: ../adr/0029-retire-precompiled-static-route.md
+[source-adr-0033-192]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
+[source-adr-0035-151]: ../adr/0035-compile-limits-and-resource-ledger.md
+[source-design-adapter-api-495]: ../design/adapter-api.md
+[source-design-committed-road-editing-state-479]: ../design/committed-road-editing-state.md
+[source-design-compiler-foundation-152]: ../design/compiler-foundation.md
+[source-design-compiler-post-emission-check-and-minimal-publication-closure-285]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md
+[source-design-compiler-resource-ledger-153]: ../design/compiler-resource-ledger.md
+[source-design-core-runtime-performance-baseline-529]: ../design/core-runtime-performance-baseline.md
+[source-design-cross-section-access-234]: ../design/cross-section-access.md
+[source-design-example-scenarios-491]: ../design/example-scenarios.md
+[source-design-host-observe-531]: ../design/host-observe.md
+[source-design-junction-observation-and-validation-424]: ../design/junction-observation-and-validation.md
+[source-design-lane-change-minimal-contract-426]: ../design/lane-change-minimal-contract.md
+[source-design-lf-synth-measurement-530]: ../design/lf-synth-measurement.md
 [source-design-network-compiler-37]: ../design/network-compiler.md
-[source-design-parking-system-235]: ../design/parking-system.md
-[source-design-portable-canonical-artifact-153]: ../design/portable-canonical-artifact.md
-[source-design-road-editing-source-and-geometry-frontend-152]: ../design/road-editing-source-and-geometry-frontend.md
-[source-design-road-junction-model-232]: ../design/road-junction-model.md
-[source-design-route-system-424]: ../design/route-system.md
-[source-design-shared-static-network-188]: ../design/shared-static-network.md
-[source-design-signal-system-236]: ../design/signal-system.md
-[source-design-spatial-geometry-487]: ../design/spatial-geometry.md
-[source-design-traffic-observation-and-routing-integration-474]: ../design/traffic-observation-and-routing-integration.md
-[source-design-traffic-runtime-columnar-execution-413]: ../design/traffic-runtime-columnar-execution.md
-[source-design-traffic-runtime-execution-config-419]: ../design/traffic-runtime-execution-config.md
-[source-design-traffic-runtime-integer-geometry-416]: ../design/traffic-runtime-integer-geometry.md
-[source-design-traffic-runtime-module-boundary-557]: ../design/traffic-runtime-module-boundary.md
-[source-design-traffic-runtime-parallel-execution-412]: ../design/traffic-runtime-parallel-execution.md
-[source-design-traffic-runtime-phase-protocol-414]: ../design/traffic-runtime-phase-protocol.md
-[source-design-traffic-runtime-revision-cutover-475]: ../design/traffic-runtime-revision-cutover.md
-[source-design-traffic-runtime-right-of-way-policy-417]: ../design/traffic-runtime-right-of-way-policy.md
-[source-design-traffic-runtime-shared-consumption-422]: ../design/traffic-runtime-shared-consumption.md
-[source-design-traffic-runtime-snapshot-425]: ../design/traffic-runtime-snapshot.md
-[source-design-traffic-runtime-state-integrity-415]: ../design/traffic-runtime-state-integrity.md
-[source-design-traffic-runtime-vehicle-placement-420]: ../design/traffic-runtime-vehicle-placement.md
-[source-design-traffic-verification-556]: ../design/traffic-verification.md#composition
-[source-design-traffic-verification-558]: ../design/traffic-verification.md#facts
-[source-design-traffic-verification-559]: ../design/traffic-verification.md#lifecycle
-[source-design-vehicle-following-237]: ../design/vehicle-following.md
-[source-design-waiting-zone-conflict-right-of-way-233]: ../design/waiting-zone-conflict-right-of-way.md
+[source-design-parking-system-238]: ../design/parking-system.md
+[source-design-portable-canonical-artifact-156]: ../design/portable-canonical-artifact.md
+[source-design-road-editing-source-and-geometry-frontend-154]: ../design/road-editing-source-and-geometry-frontend.md
+[source-design-road-editing-source-and-geometry-frontend-155]: ../design/road-editing-source-and-geometry-frontend.md#native-plan-curves
+[source-design-road-junction-model-235]: ../design/road-junction-model.md
+[source-design-route-system-427]: ../design/route-system.md
+[source-design-shared-static-network-191]: ../design/shared-static-network.md
+[source-design-signal-system-239]: ../design/signal-system.md
+[source-design-spatial-geometry-490]: ../design/spatial-geometry.md
+[source-design-traffic-observation-and-routing-integration-477]: ../design/traffic-observation-and-routing-integration.md
+[source-design-traffic-runtime-columnar-execution-416]: ../design/traffic-runtime-columnar-execution.md
+[source-design-traffic-runtime-execution-config-422]: ../design/traffic-runtime-execution-config.md
+[source-design-traffic-runtime-integer-geometry-419]: ../design/traffic-runtime-integer-geometry.md
+[source-design-traffic-runtime-module-boundary-560]: ../design/traffic-runtime-module-boundary.md
+[source-design-traffic-runtime-parallel-execution-415]: ../design/traffic-runtime-parallel-execution.md
+[source-design-traffic-runtime-phase-protocol-417]: ../design/traffic-runtime-phase-protocol.md
+[source-design-traffic-runtime-revision-cutover-478]: ../design/traffic-runtime-revision-cutover.md
+[source-design-traffic-runtime-right-of-way-policy-420]: ../design/traffic-runtime-right-of-way-policy.md
+[source-design-traffic-runtime-shared-consumption-425]: ../design/traffic-runtime-shared-consumption.md
+[source-design-traffic-runtime-snapshot-428]: ../design/traffic-runtime-snapshot.md
+[source-design-traffic-runtime-state-integrity-418]: ../design/traffic-runtime-state-integrity.md
+[source-design-traffic-runtime-vehicle-placement-423]: ../design/traffic-runtime-vehicle-placement.md
+[source-design-traffic-verification-559]: ../design/traffic-verification.md#composition
+[source-design-traffic-verification-561]: ../design/traffic-verification.md#facts
+[source-design-traffic-verification-562]: ../design/traffic-verification.md#lifecycle
+[source-design-vehicle-following-240]: ../design/vehicle-following.md
+[source-design-waiting-zone-conflict-right-of-way-236]: ../design/waiting-zone-conflict-right-of-way.md
 [source-governance-code-language-policy-38]: ../governance/code-language-policy.md
-[source-governance-development-gates-529]: ../governance/development-gates.md#51-负载敏感计量
+[source-governance-development-gates-532]: ../governance/development-gates.md#51-负载敏感计量
 [source-governance-github-workflow-36]: ../governance/github-workflow.md
 [source-reference-commit-convention-39]: ../reference/commit-convention.md#62-执行框架目录与入口登记
 [term-access-rule]: glossary.md#term-access-rule
@@ -6173,12 +6198,14 @@ provenance 关系语境。
 [term-checked-verification-plan]: glossary.md#term-checked-verification-plan
 [term-checkpoint]: glossary.md#term-checkpoint
 [term-chinese-style-city-workload]: glossary.md#term-chinese-style-city-workload
+[term-circular-arc]: glossary.md#term-circular-arc
 [term-clean-break]: glossary.md#term-clean-break
 [term-clean-compile]: glossary.md#term-clean-compile
 [term-clean-single-thread-compile]: glossary.md#term-clean-single-thread-compile
 [term-closed-contract]: glossary.md#term-closed-contract
 [term-closed-kind-selector]: glossary.md#term-closed-kind-selector
 [term-closed-staged-object-source]: glossary.md#term-closed-staged-object-source
+[term-clothoid]: glossary.md#term-clothoid
 [term-code-language-proposal-review]: glossary.md#term-code-language-proposal-review
 [term-cold-data]: glossary.md#term-cold-data
 [term-cold-instance-compile]: glossary.md#term-cold-instance-compile

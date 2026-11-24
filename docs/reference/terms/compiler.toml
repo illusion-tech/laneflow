@@ -124,6 +124,15 @@ references = [{ document = "adr-0035" }]
 scope_notes = ["参与角色集合由规范路网容量合同统一登记；与来源侧关系出现记录分别定义、分别执行。"]
 
 [[terms]]
+id = "circular-arc"
+name = "圆弧"
+english_aliases = ["circular arc"]
+domains = ["compiler"]
+definition = "沿水平弧长具有恒定非零有符号曲率的平面线形。"
+scope_notes = ["道路编辑原生段提案以有符号半径保存圆弧，纵坡另行绑定。"]
+references = [{ document = "design-road-editing-source-and-geometry-frontend", anchor = "native-plan-curves" }]
+
+[[terms]]
 id = "clean-compile"
 name = "干净编译"
 english_aliases = ["clean compile"]
@@ -145,6 +154,15 @@ english_aliases = ["closed contract"]
 domains = ["compiler"]
 definition = "以登记的闭合集合冻结允许的类型、字段、配置和组合；未知或未登记输入必须失败关闭，调用方不得任意扩展。"
 references = [{ document = "design-compiler-foundation" }]
+
+[[terms]]
+id = "clothoid"
+name = "回旋线"
+english_aliases = ["clothoid", "Euler spiral"]
+domains = ["compiler"]
+definition = "有符号曲率沿水平弧长线性变化的平面线形。"
+scope_notes = ["道路编辑原生段提案用水平弧长和首末曲率编制缓和段及跨零反弯。"]
+references = [{ document = "design-road-editing-source-and-geometry-frontend", anchor = "native-plan-curves" }]
 
 [[terms]]
 id = "cold-instance-compile"
