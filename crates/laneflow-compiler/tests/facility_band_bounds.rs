@@ -1,4 +1,4 @@
-//! 同中心线的变宽分隔带从 LFRE 到规范制品与语义差异的验收。
+//! 同中心线的变宽分隔带从 LFRE 到共享路网边界与语义差异的验收。
 use laneflow_compiler::road_editing::*;
 use laneflow_compiler::{
     CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler, DiagnosticBundle,
@@ -7,6 +7,10 @@ use laneflow_compiler::{
 };
 use laneflow_format::{FormatLimits, check_canonical_network_input, preflight_object_values};
 use laneflow_static_contract::PortableObjectKind;
+use laneflow_static_network::{
+    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+    build_shared_network_revision,
+};
 
 const DOCUMENT: &str = "median-bend";
 const LEG: f64 = 10.5 * 401.0 / 399.0;
@@ -180,6 +184,97 @@ fn compile(bytes: &[u8]) -> Result<CompilationOutput, DiagnosticBundle> {
     Compiler::new().compile(unit.build()?)
 }
 
+fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_nm: i64) {
+    let mut previous = None;
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let checked = check_canonical_network_input(bytes, FormatLimits::HARD).unwrap();
+        let build = |retained| {
+            build_shared_network_revision(
+                checked.clone(),
+                SharedNetworkBuildOptions::new(
+                    spatial,
+                    SharedNetworkBuildLimits::new(retained, 16 << 20),
+                ),
+            )
+        };
+        let root = build(64 << 20).unwrap();
+        let retained = root.retained_logical_bytes();
+        assert!(build(retained).is_ok());
+        assert!(matches!(
+            build(retained - 1),
+            Err(laneflow_static_network::BuildError::BudgetExceeded {
+                structure: laneflow_static_network::BuildStructure::RetainedOutput,
+                ..
+            })
+        ));
+        let map = root.station_mapping();
+        let band_table = checked
+            .value_checked_view()
+            .registry_view()
+            .section(8)
+            .unwrap()
+            .table(5)
+            .unwrap();
+        let number = |row: laneflow_format::RegistryCheckedRowView<'_>, tag| {
+            u32::from_le_bytes(
+                row.field_by_tag(tag)
+                    .unwrap()
+                    .value_bytes()
+                    .try_into()
+                    .unwrap(),
+            )
+        };
+        let mut actual = Vec::new();
+        assert_eq!(output.lir().facility_bands().count(), 2);
+        for band in output.lir().facility_bands() {
+            let row = band_table
+                .rows()
+                .find(|row| number(*row, 1) as usize == band.ordinal().index())
+                .unwrap();
+            let error = i64::from(number(row, 8));
+            assert!(error <= 1000);
+            let corridor = band.road_corridor();
+            let domain = map.corridor_domain(corridor).unwrap();
+            let length = domain.length_nm;
+            let rising = domain.origin_nm == 0;
+            assert_eq!(length, (LEG * 1e9).round() as u64);
+            let widths = |station_nm: u64| {
+                let from_tip = if rising {
+                    station_nm
+                } else {
+                    length - station_nm
+                };
+                let half_width = peak_nm as f64 * (from_tip as f64 / length as f64) * 0.5;
+                [-1_750_000_000.0 + half_width, -1_750_000_000.0 - half_width]
+            };
+            for stations in [[0, 0], [length / 2; 2], [length; 2], [length / 2, length]] {
+                let bounds = map
+                    .facility_band_bounds(corridor, band.ordinal(), stations)
+                    .unwrap();
+                let [a, b] = stations.map(widths);
+                for (observed, x, y) in
+                    [(bounds.left_nm, a[0], b[0]), (bounds.right_nm, a[1], b[1])]
+                {
+                    let min = x.min(y);
+                    let max = x.max(y);
+                    assert_eq!(
+                        observed,
+                        [min.floor() as i64 - error, max.ceil() as i64 + error]
+                    );
+                }
+                actual.push(bounds);
+            }
+        }
+        if let Some(headless) = &previous {
+            assert_eq!(&actual, headless);
+        }
+        previous = Some(actual);
+    }
+}
+
 #[test]
 fn median_width_changes_revision_and_two_band_rows_with_identical_centerlines() {
     let wide = source(None);
@@ -244,6 +339,8 @@ fn median_width_changes_revision_and_two_band_rows_with_identical_centerlines() 
             .unwrap()
             .network_revision()
     );
+    check_bounds(wide_bytes, &wide_output, 500_000_000);
+    check_bounds(narrow_bytes, &narrow_output, 250_000_000);
     let diff = preflight_object_values(
         narrow.semantic_diff().bytes(),
         PortableObjectKind::SemanticDiff,
