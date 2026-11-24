@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-dependency-security"
 kind = "governance"
 status = "active"
-revised_date = "2026-07-17"
+revised_date = "2026-11-24"
 summary = "规定许可证、依赖安全与漏洞治理。"
 scope = "LaneFlow 公开仓库的源代码许可、Rust/Cargo 依赖许可证、漏洞、来源与持续更新治理"
 applicability = "#applicability"
@@ -89,10 +89,13 @@ license = "Apache-2.0"
 
 - `Apache-2.0`
 - `MIT`
+- `MIT-0`
 - `Unicode-3.0`
 - `Zlib`
 
-SPDX `OR` expression 只要至少一个分支位于允许列表即可通过；`AND` expression 的每个组成许可证都必须被允许。即使某个依赖表达式还列出 BSD、MIT-0、Unlicense 或 LLVM exception，只要 cargo-deny 当前通过的是已允许分支，也不代表这些许可证已经被全局预先批准。允许列表的新增不是普通依赖升级，必须说明分发影响并更新 ADR 0002 或记录其无需 ADR 的依据。
+MIT-0 允许商业使用、修改和再分发，分发者可自行决定是否随副本附上版权与许可声明。见 [SPDX 许可证原文][spdx-mit-0]。
+
+SPDX `OR` 表达式中至少一个分支获准即可通过。`AND` 表达式要求每个组成许可证都获准。`OR` 表达式按获准分支通过后，如需全局允许同一表达式中的 BSD、Unlicense 或 LLVM exception，仍须单独评审。新增全局允许的许可证时，必须说明分发影响，并更新 ADR 0002 或记录无需更新的依据。
 
 ### 4.2 默认阻断
 
@@ -223,3 +226,5 @@ check 中逐目录执行 `cargo deny check`（或等价方案），并由 Depend
 `docs/design/compiler-budget-calibration.md` 副本），不是项目级通则。不得把它扩写成
 「研究代码不得进入生产 crate 或 workspace 成员」一类的全局规则；引用历史禁令时必须
 保留其原本的适用范围。
+
+[spdx-mit-0]: https://spdx.org/licenses/MIT-0.html
