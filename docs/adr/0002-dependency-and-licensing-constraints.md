@@ -3,7 +3,7 @@ schema_version = 1
 id = "adr-0002"
 kind = "adr"
 status = "accepted"
-revised_date = "2026-07-14"
+revised_date = "2026-11-24"
 summary = "规定依赖和许可证的选择边界。"
 scope = "LaneFlow 公开仓库、Core、Data、Adapter、Authoring 工具的源代码许可、运行时依赖与第三方许可证边界"
 date = "2026-06-18"
@@ -62,7 +62,7 @@ LaneFlow Core 和随产品分发的 Adapter **不得**把以下内容作为运�
 
 引入任何第三方依赖前，必须确认其许可证可商用分发。
 
-- 默认候选：宽松许可证；实际可接受集合必须显式进入 `dependency-security.md` 与 `deny.toml`。当前全局允许 Apache-2.0、MIT、Unicode-3.0 和 Zlib，其他宽松许可证也需要先评审分发影响。
+- 宽松许可证须经分发影响评审，并在 `dependency-security.md` 与 `deny.toml` 中显式列出。当前全局允许 Apache-2.0、MIT、MIT-0、Unicode-3.0 和 Zlib。
 - 需要显式评审：弱 copyleft（LGPL、MPL 等），仅在动态链接且不污染 Core 时按例外流程接受。
 - 默认禁止进入随产品分发的 Core / Adapter：强 copyleft（GPL、AGPL 等）。
 - 任何例外必须按 `dependency-security.md` 和 `development-gates.md` 记录原因、范围、复核条件、Cleanup owner 与后续 Issue。

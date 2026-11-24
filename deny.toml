@@ -17,18 +17,14 @@ ignore = []
 allow = [
     "Apache-2.0",
     "MIT",
+    "MIT-0",
     "Unicode-3.0",
     "Zlib",
 ]
 confidence-threshold = 0.93
 # 例外只接受下列精确 crate/version，不扩展全局 allow-list；版本漂移时必须重新审查。
 exceptions = [
-    # #912 Bevy 0.20 `native-example` 的显式 render/window 路径需要以下传递依赖；
-    # 在不替换 Bevy 渲染实现路径的前提下，没有只使用全局 allow-list 的等价依赖图。
-    # 这些许可证均为宽松许可证，不引入 copyleft；第三方归属义务仍按上游许可证保留。
-    { allow = ["MIT-0"], crate = "encase@0.12.0" },
-    { allow = ["MIT-0"], crate = "encase_derive@0.12.0" },
-    { allow = ["MIT-0"], crate = "encase_derive_impl@0.12.0" },
+    # #912：Bevy 0.20 原生示例的渲染与窗口依赖链需要 libloading，分发时须保留 ISC 声明。
     { allow = ["ISC"], crate = "libloading@0.8.9" },
     # #376 LFRE fuzz harness：libfuzzer-sys 以 (MIT OR Apache-2.0) AND NCSA 发布；
     # NCSA 是宽松许可证（OSI 认证），仅对该精确版本放行，版本漂移时重新审查。
