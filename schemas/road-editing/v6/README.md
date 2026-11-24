@@ -1,8 +1,8 @@
-# 道路编辑来源缓冲区 v5 Schema
+# 道路编辑来源缓冲区 v6 Schema
 
-**状态**: 生产。`format_version = 5`；根表 field id 连续至 id 29。
+**状态**: 生产。`format_version = 6`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
-**格式标识**: `LF-ROAD-EDITING-SOURCE-v5`<br>
+**格式标识**: `LF-ROAD-EDITING-SOURCE-v6`<br>
 **机器事实来源**: [`road-editing.fbs`][road-editing-fbs]<br>
 **设计依据**:
 [`road-editing-source-and-geometry-frontend.md`][road-editing]、
@@ -22,7 +22,7 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 
 - 一个逻辑来源模块恰好对应一个标准 size-prefixed FlatBuffer；根表是
   `RoadEditingSource`，file identifier 是 ASCII `LFRE`，默认扩展名是 `.lfre`。
-- `format_version` 必须精确为 `5`。其它值都在任何 LaneFlow 语义
+- `format_version` 必须精确为 `6`。其它值都在任何 LaneFlow 语义
   lowering 或按规模分配前拒绝。
 - `module_header`、`road_alignments`、24 个可构造 Identity 声明向量和 owner-local
   `conflict_zone_regions` 都必须在 wire 中存在；向量可以为空。根表无
@@ -66,7 +66,7 @@ namespace::owner-key>...>local-key
 ```
 
 `>` 不属于 token 字符；链中每段分别按 token 和 53-byte 上限验证。限定引用必须恰好
-包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v5 最深
+包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v6 最深
 目标是 `Junction > Movement > ManeuverPath > ManeuverGate/WaitingZone`，所以完整引用
 最多 4 个 key token；连同可选 53-byte namespace 和分隔符，wire string 的派生硬上限
 固定为 `270 bytes`。该例外只适用于已解析为有类型实体引用的 string，普通 string 和
@@ -141,7 +141,7 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 |   24 | `RightOfWayPolicySet` | `policy_set_key`         | 当前 module namespace                           |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
-且全部身份 owner 必须在同一 buffer。来源 v5 要求 `RoadAlignment` 和模块级身份种类在
+且全部身份 owner 必须在同一 buffer。来源 v6 要求 `RoadAlignment` 和模块级身份种类在
 各自根向量内 local key 唯一；owner-scoped 种类只要求同一直接 owner 下 sibling local
 key 唯一，不同 owner 可以合法复用同名 local key。每个 child 的显式 parent 字段必须与
 owner 向量精确互证，缺失、重复或冲突 owner 均失败关闭。
@@ -168,7 +168,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   `Generated` 必须保存真实生成器 build ID、参数/输入摘要、来源前端选项摘要和可选
   seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。来源链不认证内容，
   也不能替代实际保存的道路编辑状态。
-- v5 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
+- v6 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
   每文档单位切换，也不能把宿主单位隐式带入来源。
 - `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；这些名称
@@ -179,7 +179,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 
   ```text
   ASCII "laneflow.road-editing.frontend-options.v1\0"
-  || geometry approximation semantics fixed code 原生曲线与规范折线 = 2: u8
+  || geometry approximation semantics fixed code 原生曲线与独立切边 = 3: u8
   || geometry_accuracy_profile: u8
   || geometry_direction_profile: u8
   || provenance.frontend_options_digest: [u8; 32]
@@ -201,8 +201,11 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 - `reference_section` 必须出现在 `elements`；`reference_lane` 必须出现在该 section 的
   `authoring_lanes`，方向为 `Forward`，其中心线精确绑定 reference line。
 - `RoadSection.authoring_lanes` 是从左到右的语义顺序；每个 child 的显式
-  `road_section` 必须与该向量互证。每个 `AuthoringLane` v1 恰好
-  覆盖一个 `lane_edge`，携带线性宽度档、显式方向和可选 lane group。宽度两端都必须
+  `road_section` 必须与该向量互证。每个 `AuthoringLane` 的 `edge_chain` 含 1 至 65,536 个本模块边引用，按行驶方向排列；
+  `interior_cut_stations_meters` 保存相邻边之间的参考线路面站位，长度等于边数减一。
+  每一项严格位于走廊内部，顺向递增，反向递减。相邻边须显式连接。
+  `RoadCorridor.publish_station_mapping` 缺省为假。声明为真时，发布需要该走廊所有车道的连续误差证明。
+  车道携带线性宽度档、显式方向和可选 lane group。宽度两端都必须
   有限且非负，不能同时为零；在 corridor station 上按端点线性插值。零端点只表达该
   member 在该 corridor 边界开始或结束，不允许用同一 lane 身份穿过零宽边界；与另一
   edge 的拓扑连接仍须显式声明。需要把同一逻辑车道跨多个 corridor span 延续时，使用

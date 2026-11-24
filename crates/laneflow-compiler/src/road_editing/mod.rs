@@ -7,6 +7,7 @@
 mod admission;
 mod builder;
 mod compile_geometry;
+mod cut_stations;
 #[allow(
     dead_code,
     reason = "consumed by the staged RoadEditingSource geometry lowering"

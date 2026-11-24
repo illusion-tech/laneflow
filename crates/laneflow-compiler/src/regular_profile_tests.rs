@@ -17,11 +17,11 @@ const ADMISSION_BOUNDARIES: [(D, u32, usize); 16] = [
     (D::ModuleCount, 18, 4),
     (D::SourceDocumentCount, 18, 4),
     (D::ImportEdgeCount, 17, 4),
-    (D::SourceBytesTotal, 8_728_106, 10),
+    (D::SourceBytesTotal, 8_729_042, 10),
     (D::DeclarationCount, 10_000, 0),
     (D::TypedAstRecordCount, 381_284, 10),
     (D::ReferenceCount, 77_602, 10),
-    (D::RelationOccurrenceCount, 105_919, 10),
+    (D::RelationOccurrenceCount, 105_967, 10),
     (D::IdentityFieldOccurrenceCount, 26_333, 0),
     (D::SymbolCount, 10_000, 0),
     (D::StringItemCount, 164_951, 10),
@@ -32,7 +32,7 @@ const ADMISSION_BOUNDARIES: [(D, u32, usize); 16] = [
     (D::GeometryPointCount, 128_511, 6),
 ];
 const SOURCE_BYTES_PER_MODULE: u32 = 6_802_717;
-const HIR_RECORDS: u32 = 535_364;
+const HIR_RECORDS: u32 = 535_412;
 const MIR_RECORDS: u32 = 395_015;
 const LIR_RECORDS: u32 = 396_669;
 
@@ -148,7 +148,7 @@ fn source_module_bytes_and_single_string_have_distinct_boundaries() {
         SOURCE_BYTES_PER_MODULE
     );
     let narrow =
-        candidate_limits().with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE - 1, 8_728_106);
+        candidate_limits().with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE - 1, 8_729_042);
     let error = build_synthetic_module(&narrow, shape, 0, false)
         .err()
         .expect("source byte boundary");

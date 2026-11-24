@@ -54,7 +54,7 @@ const USAGE: &str = "\
 或资源限制错误）。报告正文在 stdout，执行错误在 stderr。诊断文本不是数据契约。";
 
 const VERSION_NOTE: &str =
-    "laneflow-artifact-inspect 0.0.0（对象格式：LFCA 5 / LFSM 5 / LFSD 4 / LFCP 2）";
+    "laneflow-artifact-inspect 0.0.0（对象格式：LFCA 5 / LFSM 6 / LFSD 4 / LFCP 2）";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

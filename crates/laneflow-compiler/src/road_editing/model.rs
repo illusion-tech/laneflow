@@ -953,6 +953,7 @@ pub enum RoadEditingLaneDirection {
 /// 道路走廊声明。
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoadCorridorInput {
+    publish_station_mapping: bool,
     road_corridor_key: Box<str>,
     road_alignment: RoadAlignmentReference,
     start_station_meters: f64,
@@ -1010,6 +1011,7 @@ impl RoadCorridorInput {
         require_unique(&elements, "roadCorridor.elements")?;
         Ok(Self {
             road_corridor_key: road_corridor_key.into_boxed_str(),
+            publish_station_mapping: false,
             road_alignment,
             start_station_meters,
             end_station,
@@ -1024,6 +1026,19 @@ impl RoadCorridorInput {
     #[must_use]
     pub fn road_corridor_key(&self) -> &str {
         &self.road_corridor_key
+    }
+
+    /// 指定编译器是否必须证明并发布该走廊的共享里程映射。
+    #[must_use]
+    pub const fn with_station_mapping(mut self, publish: bool) -> Self {
+        self.publish_station_mapping = publish;
+        self
+    }
+
+    /// 返回共享里程映射的发布声明。
+    #[must_use]
+    pub const fn publish_station_mapping(&self) -> bool {
+        self.publish_station_mapping
     }
 
     /// 返回走廊所沿的道路走向引用。
@@ -1151,7 +1166,8 @@ impl_canvas!(RoadSectionInput);
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuthoringLaneInput {
     authoring_lane_key: Box<str>,
-    lane_edge: LaneEdgeReference,
+    edge_chain: Box<[LaneEdgeReference]>,
+    interior_cut_stations_meters: Box<[f64]>,
     direction: RoadEditingLaneDirection,
     width_profile: LinearWidthProfile,
     lane_group: Option<LaneGroupReference>,
@@ -1175,9 +1191,16 @@ impl AuthoringLaneInput {
     ) -> Result<Self, DiagnosticBundle> {
         let authoring_lane_key = authoring_lane_key.into();
         validate_token(&authoring_lane_key, "authoringLane.authoringLaneKey")?;
+        if lane_edge.module_namespace().is_some() {
+            return Err(input_error(
+                "authoringLane.edgeChain",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
         Ok(Self {
             authoring_lane_key: authoring_lane_key.into_boxed_str(),
-            lane_edge,
+            edge_chain: Box::new([lane_edge]),
+            interior_cut_stations_meters: Box::new([]),
             direction,
             width_profile,
             lane_group,
@@ -1192,10 +1215,185 @@ impl AuthoringLaneInput {
         &self.authoring_lane_key
     }
 
-    /// 返回车道展开到的车道图边引用。
+    /// 将本车道展开为按行驶方向排列的边链。内部切点以走向起点的路面米数计。
+    ///
+    /// # Errors
+    ///
+    /// 链为空、超限、边重复或切点数量、方向和值有误时返回诊断。
+    pub fn with_edge_chain(
+        mut self,
+        edges: Vec<LaneEdgeReference>,
+        cuts: Vec<f64>,
+    ) -> Result<Self, DiagnosticBundle> {
+        self.replace_edge_chain(edges, cuts)?;
+        Ok(self)
+    }
+
+    /// 原子替换边链和内部站位。
+    ///
+    /// # Errors
+    ///
+    /// 引用、数量或站位顺序无效时返回字段诊断，原车道仍可编辑。
+    pub fn replace_edge_chain(
+        &mut self,
+        edges: Vec<LaneEdgeReference>,
+        cuts: Vec<f64>,
+    ) -> Result<(), DiagnosticBundle> {
+        validate_lane_edge_count(edges.len())
+            .map_err(|v| input_error("authoringLane.edgeChain", v))?;
+        if cuts.len() != edges.len() - 1 {
+            return Err(input_error(
+                "authoringLane.interiorCutStationsMeters",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
+        if let Some((index, violation)) = first_invalid_cut(self.direction, cuts.iter().copied()) {
+            return Err(input_error(
+                &format!("authoringLane.interiorCutStationsMeters[{index}]"),
+                violation,
+            ));
+        }
+        if edges.iter().any(|edge| edge.module_namespace().is_some()) {
+            return Err(input_error(
+                "authoringLane.edgeChain",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
+        require_unique(&edges, "authoringLane.edgeChain")?;
+        self.edge_chain = edges.into_boxed_slice();
+        self.interior_cut_stations_meters = cuts.into_boxed_slice();
+        Ok(())
+    }
+
+    /// 返回按行驶顺序保存的边。
     #[must_use]
-    pub const fn lane_edge(&self) -> &LaneEdgeReference {
-        &self.lane_edge
+    pub fn edge_chain(&self) -> &[LaneEdgeReference] {
+        &self.edge_chain
+    }
+
+    /// 返回相邻边之间的参考线路面站位。
+    #[must_use]
+    pub fn interior_cut_stations_meters(&self) -> &[f64] {
+        &self.interior_cut_stations_meters
+    }
+
+    /// 移动一处内部切点。站位以参考线路面米数计，失败时保留原边链。
+    ///
+    /// # Errors
+    ///
+    /// 序号无效、站位非正或不满足行驶方向的严格顺序时返回输入诊断。
+    pub fn move_cut(&mut self, index: usize, station_meters: f64) -> Result<(), DiagnosticBundle> {
+        let cuts = &self.interior_cut_stations_meters;
+        let ordered = |a, b| match self.direction {
+            RoadEditingLaneDirection::Forward => a < b,
+            RoadEditingLaneDirection::Backward => a > b,
+        };
+        if index >= cuts.len()
+            || !station_meters.is_finite()
+            || station_meters <= 0.0
+            || index > 0 && !ordered(cuts[index - 1], station_meters)
+            || cuts
+                .get(index + 1)
+                .is_some_and(|&next| !ordered(station_meters, next))
+        {
+            return Err(input_error(
+                "authoringLane.interiorCutStationsMeters",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
+        self.interior_cut_stations_meters[index] = station_meters;
+        Ok(())
+    }
+
+    /// 从受检来源模块读回完整编制车道，用所属区段和车道局部键定位。
+    ///
+    /// # Errors
+    ///
+    /// 模块无效、资源超限或引用无法解析时返回读取诊断。
+    pub fn read_from(
+        input: super::RoadEditingModuleInput<'_>,
+        section: &RoadSectionReference,
+        key: &str,
+        limits: &crate::CompileProfile,
+    ) -> Result<Option<Self>, DiagnosticBundle> {
+        use crate::ledger::{Ledger, LedgerStage, PassLabel, Plan};
+        let ledger = Ledger::new(limits.operation_budget());
+        let verified = super::reader::verify_source_in(input, limits, 0, 0, &ledger)?;
+        if section.module_namespace().is_some() {
+            return Ok(None);
+        }
+        let Some(lane) = verified.root().authoring_lanes().iter().find(|lane| {
+            lane.authoring_lane_key() == key
+                && section.components().eq(lane.road_section().split('>'))
+        }) else {
+            return Ok(None);
+        };
+        let edges = lane.edge_chain();
+        let cuts = lane.interior_cut_stations_meters();
+        let mut plan = Plan::ZERO
+            .array::<LaneEdgeReference>(edges.len())
+            .array::<f64>(cuts.len())
+            .array::<u8>(
+                key.len()
+                    + section.wire_len()
+                    + lane.lane_group().map_or(0, str::len)
+                    + lane.canvas_selection().map_or(0, str::len),
+            )
+            .array::<Box<str>>(section.owner_keys.len() + 2);
+        for edge in edges {
+            plan = plan.array::<u8>(edge.len());
+        }
+        let pass = ledger.admit_pass(
+            PassLabel::new(LedgerStage::Admission, "road-editing-read-lane"),
+            plan,
+        )?;
+        let grant = pass.grant_bytes(plan.bytes().unwrap_or(u64::MAX))?;
+        let lane_group = lane
+            .lane_group()
+            .map(|spelling| {
+                let parsed = super::rules::validate_wire_reference(spelling, 3, true)
+                    .map_err(|v| input_error("authoringLane.laneGroup", v))?;
+                let mut keys = parsed.key_components();
+                let owners = [keys.next().unwrap().into(), keys.next().unwrap().into()];
+                Ok::<_, DiagnosticBundle>(LaneGroupReference {
+                    module_namespace: parsed.namespace().map(Box::from),
+                    owner_keys: Box::new(owners),
+                    local_key: keys.next().unwrap().into(),
+                    marker: PhantomData,
+                })
+            })
+            .transpose()?;
+        use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
+        let direction = match lane.direction() {
+            wire::LaneDirection::Forward => RoadEditingLaneDirection::Forward,
+            wire::LaneDirection::Backward => RoadEditingLaneDirection::Backward,
+            _ => unreachable!("reader verified lane direction"),
+        };
+        let width = lane.width_profile();
+        let result = Self {
+            authoring_lane_key: key.into(),
+            edge_chain: edges
+                .iter()
+                .map(|edge| LaneEdgeReference {
+                    module_namespace: None,
+                    owner_keys: Box::default(),
+                    local_key: edge.into(),
+                    marker: PhantomData,
+                })
+                .collect(),
+            interior_cut_stations_meters: cuts.iter().collect(),
+            direction,
+            width_profile: LinearWidthProfile::try_new(
+                width.start_width_meters(),
+                width.end_width_meters(),
+            )?,
+            road_section: section.clone(),
+            lane_group,
+            canvas_selection: lane.canvas_selection().map(Box::from),
+        };
+        drop(grant);
+        pass.finish(0)?;
+        Ok(Some(result))
     }
 
     /// 返回相对 alignment 参考方向的行驶方向。
@@ -1221,6 +1419,44 @@ impl AuthoringLaneInput {
     pub const fn road_section(&self) -> &RoadSectionReference {
         &self.road_section
     }
+}
+
+pub(super) fn validate_lane_edge_count(count: usize) -> Result<(), RoadEditingInputViolation> {
+    match count {
+        0 => Err(RoadEditingInputViolation::EmptyCollection),
+        1..=65_536 => Ok(()),
+        _ => Err(RoadEditingInputViolation::CollectionTooLarge {
+            maximum: 65_536,
+            actual: count as u64,
+        }),
+    }
+}
+
+pub(super) fn first_invalid_cut(
+    direction: RoadEditingLaneDirection,
+    cuts: impl Iterator<Item = f64>,
+) -> Option<(usize, RoadEditingInputViolation)> {
+    let mut previous = None;
+    for (index, cut) in cuts.enumerate() {
+        let value_bits = cut.to_bits();
+        if !cut.is_finite() {
+            return Some((index, RoadEditingInputViolation::NonFinite { value_bits }));
+        }
+        if cut <= 0.0 {
+            return Some((
+                index,
+                RoadEditingInputViolation::NotGreaterThanZero { value_bits },
+            ));
+        }
+        if previous.is_some_and(|p| match direction {
+            RoadEditingLaneDirection::Forward => cut <= p,
+            RoadEditingLaneDirection::Backward => cut >= p,
+        }) {
+            return Some((index, RoadEditingInputViolation::InvalidCombination));
+        }
+        previous = Some(cut);
+    }
+    None
 }
 impl_canvas!(AuthoringLaneInput);
 

@@ -10,7 +10,7 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 mod policy;
 
 /// 直接拥有 FlatBuffers storage 与有效尾部起点的 size-prefixed 来源缓冲区。
@@ -595,6 +595,7 @@ fn encode_road_corridor<'fbb>(
             reference_section: Some(reference_section),
             reference_lane: Some(reference_lane),
             elements: Some(elements),
+            publish_station_mapping: value.publish_station_mapping(),
             canvas_selection: canvas,
         },
     )
@@ -626,7 +627,8 @@ fn encode_authoring_lane<'fbb>(
     value: &AuthoringLaneInput,
 ) -> runtime::WIPOffset<wire::AuthoringLane<'fbb>> {
     let key = fbb.create_string(value.authoring_lane_key());
-    let lane_edge = create_reference(fbb, value.lane_edge());
+    let edges = create_reference_vector(fbb, value.edge_chain());
+    let cuts = fbb.create_vector(value.interior_cut_stations_meters());
     let lane_group = value
         .lane_group()
         .map(|reference| create_reference(fbb, reference));
@@ -637,7 +639,8 @@ fn encode_authoring_lane<'fbb>(
         fbb,
         &wire::AuthoringLaneArgs {
             authoring_lane_key: Some(key),
-            lane_edge: Some(lane_edge),
+            edge_chain: Some(edges),
+            interior_cut_stations_meters: Some(cuts),
             direction: match value.direction() {
                 RoadEditingLaneDirection::Forward => wire::LaneDirection::Forward,
                 RoadEditingLaneDirection::Backward => wire::LaneDirection::Backward,

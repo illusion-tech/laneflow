@@ -1039,7 +1039,7 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            require_exact_u32(frontend, 5)?;
+            require_exact_u32(frontend, if language == 2 { 6 } else { 5 })?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
             })?;
@@ -1214,7 +1214,7 @@ fn validate_owner_local_location(
     let owner_kind_field = row.required(16)?;
     let owner_kind = require_u8_range(owner_kind_field, 0, 1)?;
     let relation_field = row.required(17)?;
-    let relation = require_u8_range(relation_field, 0, 19)?;
+    let relation = require_u8_range(relation_field, 0, 21)?;
     let occurrence = require_u8_range(row.required(18)?, 0, 1)?;
     let (expected_owner, expected_occurrence, root) = road_relation_shape(relation);
 
@@ -1251,7 +1251,19 @@ fn validate_owner_local_location(
     }
     let property = property.ok_or_else(row_binding_mismatch)?;
     validate_property_path(property, root)?;
-    if relation >= 16 {
+    if relation == 20 || relation == 21 {
+        let member = if relation == 20 { 1 } else { 7 };
+        visit_record_rows(property, |step| {
+            if step.required(1)?.u8()? == 0
+                && step.required(2)?.u16()? == 11
+                && step.required(3)?.u16()? == member
+            {
+                Ok(())
+            } else {
+                Err(row_binding_mismatch())
+            }
+        })?;
+    } else if relation >= 16 {
         let mut index = 0;
         visit_record_rows(property, |step| {
             let container = step.required(2)?.u16()?;
@@ -1287,6 +1299,7 @@ fn road_relation_shape(relation: u8) -> (Option<EntityKind>, u8, u16) {
         14 => (Some(EntityKind::ParticipantStream), 0, 39),
         15 => (None, 1, 0),
         16..=19 => (Some(EntityKind::RightOfWayPolicySet), 1, 40),
+        20..=21 => (Some(EntityKind::AuthoringLane), 0, 11),
         _ => (None, 0, 0),
     }
 }
@@ -1501,7 +1514,7 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
 
 fn table_field_max(container: u16) -> Option<u16> {
     const MAX: [u16; 47] = [
-        29, 3, 5, 0, 2, 4, 2, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
+        29, 3, 5, 0, 2, 4, 2, 3, 1, 9, 4, 7, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
         2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
     ];
     MAX.get(usize::from(container)).copied()
@@ -3387,7 +3400,7 @@ mod tests {
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
         const TABLE_FIELD_MAX: [u16; 47] = [
-            29, 3, 5, 0, 2, 4, 2, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
+            29, 3, 5, 0, 2, 4, 2, 3, 1, 9, 4, 7, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
             2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
         ];
         const STRUCT_MEMBER_MAX: [u16; 5] = [0, 0, 2, 1, 1];

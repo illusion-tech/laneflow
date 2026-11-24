@@ -79,7 +79,7 @@ flowchart TD
 
 后发射检查失败时不返回 `PostEmissionCheckedBundle`，也不构建共享修订。发布加载
 先核对 LFCP v2 绑定，再消费受检 LFCA；本地确认建造直接消费该 bundle。两条路
-建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 5、LFSM 5、
+建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 5、LFSM 6、
 LFSD 4、LFCP 2。道路编辑来源 `format_version = 5` 是另一条版本轴。见
 [可移植规范制品][portable-artifact]、
 [后发射检查][post-emission]

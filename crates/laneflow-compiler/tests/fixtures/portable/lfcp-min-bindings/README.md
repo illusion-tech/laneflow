@@ -14,9 +14,9 @@ receipt，也不绑定 LFSD；它只绑定发布所需的 LFCA、LFSM 与显式�
 固定结果：
 
 - exact length：`800` bytes；
-- SHA-256：`c07913b822a5b4d84b9f5a33289ee63133ca68e34ad653277c7e40bc87266cc4`；
+- SHA-256：`7e60d3d488ffb63d53f51ff1875bef84683b6d5fa1d05d26f75b3373ba0de5b3`；
 - object key：
-  `sha256/c07913b822a5b4d84b9f5a33289ee63133ca68e34ad653277c7e40bc87266cc4`；
+  `sha256/7e60d3d488ffb63d53f51ff1875bef84683b6d5fa1d05d26f75b3373ba0de5b3`；
 - 第一节 offset：`0x0068`。
 
 `expected.lfcp.hex` 是完整 LFCP exact bytes 的 lowercase hex 表示；换行只供人工复核，不属于

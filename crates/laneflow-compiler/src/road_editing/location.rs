@@ -153,18 +153,7 @@ impl RoadEditingLocationFactory {
         let key = match owner {
             Alignment(key) | ExplicitEdge(key) => key,
         };
-        let ns: Arc<str> = Arc::from(namespace);
-        let mut strings = vec![ns.clone(), Arc::from(key)];
-        strings.sort_unstable();
-        strings.dedup();
-        let factory = Self {
-            context: Arc::new(RoadEditingLocationContext::new(
-                strings.into_boxed_slice(),
-                Box::new([RoadEditingPropertyPath::new(path.into())]),
-                Box::default(),
-            )),
-            document_identity: RoadEditingDocumentIdentity::verified(ns, Arc::from(document)),
-        };
+        let factory = Self::for_invalid_field(namespace, document, &[key], path);
         let kind = match owner {
             Alignment(_) => RoadEditingAddressKind::RoadAlignment,
             ExplicitEdge(_) => RoadEditingAddressKind::Declaration(EntityKind::LaneEdge),
@@ -186,6 +175,77 @@ impl RoadEditingLocationFactory {
                 ExplicitEdge(_) => RoadEditingSubject::Declaration { address },
             };
             factory.location(subject, Some(path), None)
+        }
+    }
+
+    fn for_invalid_field(
+        namespace: &str,
+        document: &str,
+        keys: &[&str],
+        path: &[RoadEditingPropertyStep],
+    ) -> Self {
+        let ns: Arc<str> = Arc::from(namespace);
+        let mut strings: Vec<_> = keys
+            .iter()
+            .copied()
+            .map(Arc::from)
+            .chain(std::iter::once(ns.clone()))
+            .collect();
+        strings.sort_unstable();
+        strings.dedup();
+        Self {
+            context: Arc::new(RoadEditingLocationContext::new(
+                strings.into_boxed_slice(),
+                Box::new([RoadEditingPropertyPath::new(path.into())]),
+                Box::default(),
+            )),
+            document_identity: RoadEditingDocumentIdentity::verified(ns, Arc::from(document)),
+        }
+    }
+
+    /// 形成首个无效链项或切点的来源位置。调用前已校验车道键与所属区段的键。
+    pub(super) fn invalid_lane_field(
+        namespace: &str,
+        document: &str,
+        lane: wire::AuthoringLane<'_>,
+        field_id: u16,
+        ordinal: Option<usize>,
+    ) -> SourceLocation {
+        let (road, section) = lane
+            .road_section()
+            .split_once('>')
+            .expect("verified section reference");
+        let key = lane.authoring_lane_key();
+        let steps = [RoadEditingPropertyStep::TableField {
+            table: RoadEditingTableKind::AuthoringLane,
+            field_id,
+        }];
+        let factory = Self::for_invalid_field(namespace, document, &[road, section, key], &steps);
+        if let Some(index) = ordinal {
+            let relation = if field_id == 1 {
+                RoadEditingRelationKind::AuthoringLaneEdge
+            } else {
+                RoadEditingRelationKind::InteriorCut
+            };
+            factory.owner_local(
+                EntityKind::AuthoringLane,
+                &[road, section],
+                key,
+                relation,
+                RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                    u32::try_from(index).expect("verified vector length"),
+                ),
+                &steps,
+                None,
+            )
+        } else {
+            factory.property(
+                EntityKind::AuthoringLane,
+                &[road, section],
+                key,
+                &steps,
+                None,
+            )
         }
     }
 
@@ -539,9 +599,9 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::CurveProgram, 2),
         (RoadEditingTableKind::RoadAlignment, 3),
         (RoadEditingTableKind::CorridorElement, 1),
-        (RoadEditingTableKind::RoadCorridor, 8),
+        (RoadEditingTableKind::RoadCorridor, 9),
         (RoadEditingTableKind::RoadSection, 4),
-        (RoadEditingTableKind::AuthoringLane, 6),
+        (RoadEditingTableKind::AuthoringLane, 7),
         (RoadEditingTableKind::LaneEdge, 4),
         (RoadEditingTableKind::Junction, 3),
         (RoadEditingTableKind::Movement, 5),

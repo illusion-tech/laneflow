@@ -179,13 +179,8 @@ struct CompiledAlignmentEntry<'a> {
 }
 
 enum CorridorMemberTarget<'a> {
-    LaneEdge {
-        target: &'a TypedAstEntityAddress,
-        direction: AuthoringLaneDirection,
-    },
-    FacilityBand {
-        target: &'a TypedAstEntityAddress,
-    },
+    Lane(&'a crate::declaration::AuthoringLaneDeclaration),
+    FacilityBand { target: &'a TypedAstEntityAddress },
 }
 
 struct CorridorMember<'a> {
@@ -360,6 +355,7 @@ struct CurveSizing {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum GeometryCompilationError {
     Constraint(Box<(crate::RoadEditingNumericViolation, SourceLocation)>),
+    StationCollision(Box<(SourceLocation, SourceLocation)>),
     Numeric {
         error: NumericFreezeError,
         source: Option<SourceLocation>,
@@ -816,6 +812,12 @@ pub(super) fn compile_authoring_geometry(
             .authoring_geometry
             .as_ref()
             .expect("resolved corridor plans retain authoring geometry");
+        if let Some(source) = &authoring.station_mapping_request {
+            return Err(GeometryCompilationError::Constraint(Box::new((
+                crate::RoadEditingNumericViolation::StationMappingNotProven,
+                source.clone(),
+            ))));
+        }
         let alignment = compiled_alignments
             .binary_search_by(|entry| {
                 entry
@@ -855,129 +857,171 @@ pub(super) fn compile_authoring_geometry(
         let mut members = Vec::with_capacity(plan.member_count);
         expand_corridor_members(&mut members, &plan.elements);
         debug_assert_eq!(members.len(), plan.member_count);
+        let cut_check_peak = validate_cut_stations(
+            &members,
+            [authoring.start_station_meters, station_end],
+            &plan.corridor.header.span,
+            &mut scratch,
+            used_points,
+            used_source_ranges,
+        )?;
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(cut_check_peak);
         let mut width_profiles = Vec::with_capacity(plan.member_count);
         width_profiles.extend(members.iter().map(|member| member.width_profile));
         let offsets = derive_member_offset_endpoints(&width_profiles, plan.reference_ordinal)?;
 
         for (member, offset) in members.iter().zip(offsets.iter()) {
-            let lane_direction = match &member.target {
-                CorridorMemberTarget::LaneEdge { direction, .. } => *direction,
-                CorridorMemberTarget::FacilityBand { .. } => AuthoringLaneDirection::Forward,
+            let corridor_domain = [authoring.start_station_meters, station_end];
+            let count = match member.target {
+                CorridorMemberTarget::Lane(lane) => lane.edge_chain.len(),
+                CorridorMemberTarget::FacilityBand { .. } => 1,
             };
-            scratch.reserve_bytes(numeric_scratch_bytes)?;
-            peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
-                live_headroom,
-                scratch.dynamic_live(),
-                used_points,
-                used_source_ranges,
-            )?);
-            let sizing_result = measure_offset_curve(
-                &alignment.declaration.reference_line,
-                &alignment.reference,
-                authoring.start_station_meters,
-                station_end,
-                offset.start_meters,
-                offset.end_meters,
-                accuracy,
-                direction,
-                remaining_points(geometry_point_limit, used_points)?,
-            );
-            scratch.release_bytes(numeric_scratch_bytes);
-            let sizing = sizing_result
-                .map_err(GeometryCompilationError::from)
-                .map_err(|error| {
-                    error.with_curve_numeric_source(
-                        &alignment.declaration.reference_line,
-                        plan.corridor.header.span.clone(),
-                    )
-                })?;
-            let next_used_points =
-                charge_points(geometry_point_limit, used_points, sizing.point_count)?;
-            let next_used_source_ranges =
-                charge_source_ranges(live_headroom, used_source_ranges, sizing.source_range_count)?;
-            scratch.reserve_bytes(numeric_scratch_bytes)?;
-            peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
-                live_headroom,
-                scratch.dynamic_live(),
-                next_used_points,
-                next_used_source_ranges,
-            )?);
-            let (kind, target) = match member.target {
-                CorridorMemberTarget::LaneEdge { target, .. } => {
-                    (laneflow_static_contract::EntityKind::LaneEdge, target)
-                }
-                CorridorMemberTarget::FacilityBand { target } => {
-                    (laneflow_static_contract::EntityKind::FacilityBand, target)
-                }
-            };
-            let compiled_result = compile_offset_curve_exact(
-                ChordTarget {
-                    kind,
-                    key: target.local_key(),
-                    owners: target.owner_local_keys(),
-                    backward: lane_direction == AuthoringLaneDirection::Backward,
-                    observe,
-                },
-                &alignment.declaration.reference_line,
-                &alignment.reference,
-                authoring.start_station_meters,
-                station_end,
-                offset.start_meters,
-                offset.end_meters,
-                lane_direction,
-                accuracy,
-                direction,
-                sizing,
-            );
-            scratch.release_bytes(numeric_scratch_bytes);
-            let compiled = compiled_result
-                .map_err(GeometryCompilationError::from)
-                .map_err(|error| {
-                    error.with_curve_numeric_source(
-                        &alignment.declaration.reference_line,
-                        plan.corridor.header.span.clone(),
-                    )
-                })?;
-            used_points = next_used_points;
-            used_source_ranges = next_used_source_ranges;
-            match &member.target {
-                CorridorMemberTarget::LaneEdge { target, .. } => {
-                    if lane_outputs.len() == expected_lane_outputs {
-                        return Err(NumericFreezeError::from(
-                            NumericFreezeKind::GeometryTopologyMismatch,
+            for index in 0..count {
+                let (kind, target, lane_direction, edge_domain, source) = match member.target {
+                    CorridorMemberTarget::FacilityBand { target } => (
+                        laneflow_static_contract::EntityKind::FacilityBand,
+                        target,
+                        AuthoringLaneDirection::Forward,
+                        corridor_domain,
+                        &plan.corridor.header.span,
+                    ),
+                    CorridorMemberTarget::Lane(lane) => {
+                        let geometry = lane
+                            .authoring_geometry
+                            .as_ref()
+                            .expect("resolved lane geometry");
+                        let forward = geometry.direction == AuthoringLaneDirection::Forward;
+                        let [entry, exit] = if forward {
+                            corridor_domain
+                        } else {
+                            [station_end, authoring.start_station_meters]
+                        };
+                        let cuts = &geometry.interior_cuts;
+                        let start = index.checked_sub(1).map_or(entry, |i| cuts[i].0);
+                        let end = cuts.get(index).map_or(exit, |cut| cut.0);
+                        (
+                            laneflow_static_contract::EntityKind::LaneEdge,
+                            &lane.edge_chain[index].target_address,
+                            geometry.direction,
+                            if forward { [start, end] } else { [end, start] },
+                            &lane.edge_chain[index].span,
                         )
-                        .into());
                     }
-                    lane_outputs.push(PendingLaneGeometry {
-                        target: (*target).clone(),
-                        value: Some(CompiledLaneEdgeGeometry {
-                            length: closed_traffic_lane_edge_length(compiled.length)
-                                .map_err(GeometryCompilationError::from)
-                                .map_err(|error| {
-                                    error.with_numeric_source(plan.corridor.header.span.clone())
-                                })?,
-                            canonical_frame: Some(alignment.declaration.canonical_frame.clone()),
-                            centerline_points: compiled.points,
-                            source_ranges: compiled.source_ranges,
-                        }),
-                    });
-                }
-                CorridorMemberTarget::FacilityBand { target } => {
-                    if facility_outputs.len() == expected_facility_outputs {
-                        return Err(NumericFreezeError::from(
-                            NumericFreezeKind::GeometryTopologyMismatch,
+                };
+                scratch.reserve_bytes(numeric_scratch_bytes)?;
+                peak_output_and_scratch_bytes =
+                    peak_output_and_scratch_bytes.max(check_live_limit(
+                        live_headroom,
+                        scratch.dynamic_live(),
+                        used_points,
+                        used_source_ranges,
+                    )?);
+                let sizing_result = measure_offset_curve(
+                    &alignment.declaration.reference_line,
+                    &alignment.reference,
+                    edge_domain[0],
+                    edge_domain[1],
+                    corridor_domain,
+                    offset.start_meters,
+                    offset.end_meters,
+                    accuracy,
+                    direction,
+                    remaining_points(geometry_point_limit, used_points)?,
+                );
+                scratch.release_bytes(numeric_scratch_bytes);
+                let sizing = sizing_result
+                    .map_err(GeometryCompilationError::from)
+                    .map_err(|error| {
+                        error.with_curve_numeric_source(
+                            &alignment.declaration.reference_line,
+                            source.clone(),
                         )
-                        .into());
+                    })?;
+                let next_used_points =
+                    charge_points(geometry_point_limit, used_points, sizing.point_count)?;
+                let next_used_source_ranges = charge_source_ranges(
+                    live_headroom,
+                    used_source_ranges,
+                    sizing.source_range_count,
+                )?;
+                scratch.reserve_bytes(numeric_scratch_bytes)?;
+                peak_output_and_scratch_bytes =
+                    peak_output_and_scratch_bytes.max(check_live_limit(
+                        live_headroom,
+                        scratch.dynamic_live(),
+                        next_used_points,
+                        next_used_source_ranges,
+                    )?);
+                let compiled_result = compile_offset_curve_exact(
+                    ChordTarget {
+                        kind,
+                        key: target.local_key(),
+                        owners: target.owner_local_keys(),
+                        backward: lane_direction == AuthoringLaneDirection::Backward,
+                        observe,
+                    },
+                    &alignment.declaration.reference_line,
+                    &alignment.reference,
+                    edge_domain[0],
+                    edge_domain[1],
+                    corridor_domain,
+                    offset.start_meters,
+                    offset.end_meters,
+                    lane_direction,
+                    accuracy,
+                    direction,
+                    sizing,
+                );
+                scratch.release_bytes(numeric_scratch_bytes);
+                let compiled = compiled_result
+                    .map_err(GeometryCompilationError::from)
+                    .map_err(|error| {
+                        error.with_curve_numeric_source(
+                            &alignment.declaration.reference_line,
+                            source.clone(),
+                        )
+                    })?;
+                used_points = next_used_points;
+                used_source_ranges = next_used_source_ranges;
+                match &member.target {
+                    CorridorMemberTarget::Lane(_) => {
+                        if lane_outputs.len() == expected_lane_outputs {
+                            return Err(NumericFreezeError::from(
+                                NumericFreezeKind::GeometryTopologyMismatch,
+                            )
+                            .into());
+                        }
+                        lane_outputs.push(PendingLaneGeometry {
+                            target: (*target).clone(),
+                            value: Some(CompiledLaneEdgeGeometry {
+                                length: closed_traffic_lane_edge_length(compiled.length)
+                                    .map_err(GeometryCompilationError::from)
+                                    .map_err(|error| error.with_numeric_source(source.clone()))?,
+                                canonical_frame: Some(
+                                    alignment.declaration.canonical_frame.clone(),
+                                ),
+                                centerline_points: compiled.points,
+                                source_ranges: compiled.source_ranges,
+                            }),
+                        });
                     }
-                    facility_outputs.push(PendingFacilityGeometry {
-                        target: (*target).clone(),
-                        value: Some(CompiledFacilityBandGeometry {
-                            length: compiled.length,
-                            canonical_frame: alignment.declaration.canonical_frame.clone(),
-                            centerline_points: compiled.points,
-                            source_ranges: compiled.source_ranges,
-                        }),
-                    });
+                    CorridorMemberTarget::FacilityBand { target } => {
+                        if facility_outputs.len() == expected_facility_outputs {
+                            return Err(NumericFreezeError::from(
+                                NumericFreezeKind::GeometryTopologyMismatch,
+                            )
+                            .into());
+                        }
+                        facility_outputs.push(PendingFacilityGeometry {
+                            target: (*target).clone(),
+                            value: Some(CompiledFacilityBandGeometry {
+                                length: compiled.length,
+                                canonical_frame: alignment.declaration.canonical_frame.clone(),
+                                centerline_points: compiled.points,
+                                source_ranges: compiled.source_ranges,
+                            }),
+                        });
+                    }
                 }
             }
         }
@@ -1097,6 +1141,79 @@ pub(super) fn compile_authoring_geometry(
         peak_scratch_bytes: scratch.peak,
         peak_output_and_scratch_bytes,
     })
+}
+
+fn validate_cut_stations(
+    members: &[CorridorMember<'_>],
+    domain: [f64; 2],
+    corridor: &SourceLocation,
+    scratch: &mut GeometryScratchBudget,
+    used_points: u64,
+    source_ranges: u64,
+) -> Result<u64, GeometryCompilationError> {
+    let cuts = || {
+        members
+            .iter()
+            .filter_map(|member| match member.target {
+                CorridorMemberTarget::Lane(lane) => lane.authoring_geometry.as_ref(),
+                CorridorMemberTarget::FacilityBand { .. } => None,
+            })
+            .flat_map(|geometry| geometry.interior_cuts.iter())
+    };
+    let count = cuts().count();
+    if count == 0 {
+        return Ok(0);
+    }
+    let capacity = count
+        .checked_add(2)
+        .ok_or(GeometryCompilationError::ScratchLimit {
+            limit: scratch.limit,
+            observed: u64::MAX,
+        })?;
+    type Witness<'a> = (u64, f64, &'a SourceLocation);
+    scratch.reserve::<Witness<'_>>(capacity)?;
+    let peak = check_live_limit(
+        scratch.live_headroom,
+        scratch.dynamic_live(),
+        used_points,
+        source_ranges,
+    )?;
+    let mut witnesses = Vec::with_capacity(capacity);
+    let encode = |station, source: &SourceLocation| {
+        super::cut_stations::local_nanometres(domain[0], station).ok_or_else(|| {
+            GeometryCompilationError::from(NumericFreezeError::from(
+                NumericFreezeKind::StationOutOfRange,
+            ))
+            .with_numeric_source(source.clone())
+        })
+    };
+    witnesses.push((0, domain[0], corridor));
+    witnesses.push((encode(domain[1], corridor)?, domain[1], corridor));
+    for (station, source) in cuts() {
+        if !(domain[0] < *station && *station < domain[1]) {
+            return Err(GeometryCompilationError::from(NumericFreezeError::from(
+                NumericFreezeKind::StationOutOfRange,
+            ))
+            .with_numeric_source(source.clone()));
+        }
+        witnesses.push((encode(*station, source)?, *station, source));
+    }
+    witnesses.sort_unstable_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.total_cmp(&b.1))
+            .then_with(|| a.2.cmp(b.2))
+    });
+    for pair in witnesses.windows(2) {
+        if pair[0].0 == pair[1].0 && pair[0].1 != pair[1].1 {
+            return Err(GeometryCompilationError::StationCollision(Box::new((
+                pair[0].2.clone(),
+                pair[1].2.clone(),
+            ))));
+        }
+    }
+    drop(witnesses);
+    scratch.release::<Witness<'_>>(capacity);
+    Ok(peak)
 }
 
 fn resolve_corridor_plans<'a>(
@@ -1228,13 +1345,12 @@ fn resolve_corridor_plans<'a>(
                                 .ok_or(NumericFreezeError::from(
                                     NumericFreezeKind::GeometryTopologyMismatch,
                                 ))?;
-                        let [edge] = lane.edge_chain.as_ref() else {
-                            return Err(NumericFreezeError::from(
-                                NumericFreezeKind::GeometryTopologyMismatch,
-                            )
-                            .into());
-                        };
-                        if edge.module_namespace.as_ref() != authoring_namespace_id {
+                        if lane.edge_chain.is_empty()
+                            || geometry.interior_cuts.len() != lane.edge_chain.len() - 1
+                            || lane.edge_chain.iter().any(|edge| {
+                                edge.module_namespace.as_ref() != authoring_namespace_id
+                            })
+                        {
                             return Err(NumericFreezeError::from(
                                 NumericFreezeKind::GeometryTopologyMismatch,
                             )
@@ -1478,15 +1594,9 @@ fn append_resolved_section_members<'a>(
             .authoring_geometry
             .as_ref()
             .expect("resolved lane retains its authoring geometry");
-        let [edge] = lane.edge_chain.as_ref() else {
-            unreachable!("resolved lane has exactly one edge target");
-        };
         members.push(CorridorMember {
             width_profile: geometry.width_profile,
-            target: CorridorMemberTarget::LaneEdge {
-                target: &edge.target_address,
-                direction: geometry.direction,
-            },
+            target: CorridorMemberTarget::Lane(lane),
         });
     }
 }
@@ -1770,6 +1880,7 @@ pub(super) fn compile_offset_curve(
         reference,
         corridor_start_meters,
         corridor_end_meters,
+        [corridor_start_meters, corridor_end_meters],
         offset_start_meters,
         offset_end_meters,
         accuracy,
@@ -1782,6 +1893,7 @@ pub(super) fn compile_offset_curve(
         reference,
         corridor_start_meters,
         corridor_end_meters,
+        [corridor_start_meters, corridor_end_meters],
         offset_start_meters,
         offset_end_meters,
         lane_direction,
@@ -1797,6 +1909,7 @@ fn measure_offset_curve(
     reference: &CompiledAlignmentReference,
     corridor_start_meters: f64,
     corridor_end_meters: f64,
+    width_domain: [f64; 2],
     offset_start_meters: f64,
     offset_end_meters: f64,
     accuracy: GeometryAccuracyProfile,
@@ -1822,6 +1935,7 @@ fn measure_offset_curve(
         &reference.station_rows,
         corridor_start_meters,
         corridor_end_meters,
+        width_domain,
         offset_start_meters,
         offset_end_meters,
         accuracy,
@@ -1843,6 +1957,7 @@ fn compile_offset_curve_exact(
     reference: &CompiledAlignmentReference,
     corridor_start_meters: f64,
     corridor_end_meters: f64,
+    width_domain: [f64; 2],
     offset_start_meters: f64,
     offset_end_meters: f64,
     lane_direction: AuthoringLaneDirection,
@@ -1863,6 +1978,7 @@ fn compile_offset_curve_exact(
         &reference.station_rows,
         corridor_start_meters,
         corridor_end_meters,
+        width_domain,
         offset_start_meters,
         offset_end_meters,
         accuracy,
@@ -1951,6 +2067,7 @@ fn walk_offset_program<'a>(
     station_rows: &[ReferenceStationRow],
     corridor_start_meters: f64,
     corridor_end_meters: f64,
+    width_domain: [f64; 2],
     offset_start_meters: f64,
     offset_end_meters: f64,
     accuracy: GeometryAccuracyProfile,
@@ -1987,10 +2104,10 @@ fn walk_offset_program<'a>(
                     offset: OffsetInterval {
                         end_station_error_meters: station_rows
                             .last()
-                            .filter(|last| last.cumulative_end_meters == corridor_end_meters)
+                            .filter(|last| last.cumulative_end_meters == width_domain[1])
                             .map_or(0.0, |last| last.station_error_meters),
-                        station_start_meters: corridor_start_meters,
-                        station_end_meters: corridor_end_meters,
+                        station_start_meters: width_domain[0],
+                        station_end_meters: width_domain[1],
                         offset_start_meters,
                         offset_end_meters,
                     },
@@ -3815,6 +3932,7 @@ mod tests {
             &reference,
             0.0,
             1.5,
+            [0.0, 1.5],
             0.0,
             0.0,
             GeometryAccuracyProfile::Fine2Cm,
@@ -4647,6 +4765,7 @@ mod tests {
                         })
                         .collect(),
                     authoring_geometry: Some(crate::declaration::RoadCorridorAuthoringGeometry {
+                        station_mapping_request: None,
                         road_alignment_key: Arc::clone(&geometry.road_alignment_key),
                         road_alignment_key_span: geometry.road_alignment_key_span.clone(),
                         start_station_meters: second_start,

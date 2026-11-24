@@ -24,9 +24,10 @@ internal static class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length != 1)
+        bool reverse = args.Length == 2 && args[1] == "--reverse";
+        if (args.Length != 1 && !reverse)
         {
-            Console.Error.WriteLine("usage: CrosslangWriter <output.lfre>");
+            Console.Error.WriteLine("usage: CrosslangWriter <output.lfre> [--reverse]");
             return 1;
         }
 
@@ -57,41 +58,32 @@ internal static class Program
         CanonicalFrame.AddCanonicalFrameKey(builder, frameKey);
         var frame = CanonicalFrame.EndCanonicalFrame(builder);
 
+        const double grade = 40.0 / 399.0;
         LineSegment.StartLineSegment(builder);
-        LineSegment.AddEnd(builder, Vec3F64.CreateVec3F64(builder, 10.0, 0.0, 0.0));
+        LineSegment.AddEnd(builder, Vec3F64.CreateVec3F64(builder, 0.0, 40.0 * grade, 40.0));
         var line = LineSegment.EndLineSegment(builder);
         CurveSegment.StartCurveSegment(builder);
         CurveSegment.AddGeometryType(builder, CurveSegmentGeometry.LineSegment);
         CurveSegment.AddGeometry(builder, line.Value);
         var segment = CurveSegment.EndCurveSegment(builder);
-        var spiral = ClothoidSegment.CreateClothoidSegment(builder, 48.0, 0.0, 1.0 / 48.0, 0.0);
+        var spiral = ClothoidSegment.CreateClothoidSegment(builder, 16.0, 1.0 / 35.0, 0.0, grade);
         CurveSegment.StartCurveSegment(builder);
         CurveSegment.AddGeometryType(builder, CurveSegmentGeometry.ClothoidSegment);
         CurveSegment.AddGeometry(builder, spiral.Value);
         CurveSegment.AddSmoothEntry(builder, true);
         var transition = CurveSegment.EndCurveSegment(builder);
 
-        var arc = CircularArcSegment.CreateCircularArcSegment(builder, 24.0, 48.0, 0.0);
+        var arc = CircularArcSegment.CreateCircularArcSegment(builder, 45.0, 35.0, grade);
         CurveSegment.StartCurveSegment(builder);
         CurveSegment.AddGeometryType(builder, CurveSegmentGeometry.CircularArcSegment);
         CurveSegment.AddGeometry(builder, arc.Value);
-        CurveSegment.AddSmoothEntry(builder, true);
         var bend = CurveSegment.EndCurveSegment(builder);
-        var segments = CurveProgram.CreateSegmentsVector(builder, new[] { segment, transition, bend });
+        var segments = CurveProgram.CreateSegmentsVector(builder, new[] { segment, bend, transition });
         CurveProgram.StartCurveProgram(builder);
         CurveProgram.AddStart(builder, Vec3F64.CreateVec3F64(builder, 0.0, 0.0, 0.0));
         CurveProgram.AddSegments(builder, segments);
         var geometry = CurveProgram.EndCurveProgram(builder);
 
-        var edgeKey = builder.CreateString("edge-a");
-        var successors = LaneEdge.CreateSuccessorsVector(builder, new StringOffset[0]);
-        LaneEdge.StartLaneEdge(builder);
-        LaneEdge.AddLaneEdgeKey(builder, edgeKey);
-        LaneEdge.AddSpeedLimitMetersPerSecond(builder, 10.0);
-        LaneEdge.AddSuccessors(builder, successors);
-        var edge = LaneEdge.EndLaneEdge(builder);
-
-        var laneEdges = RoadEditingSource.CreateLaneEdgesVector(builder, new[] { edge });
         var canonicalFrames = RoadEditingSource.CreateCanonicalFramesVector(builder, new[] { frame });
 
         // 向量必须在表构造开始前建好。
@@ -99,27 +91,58 @@ internal static class Program
         var alignment = RoadAlignment.CreateRoadAlignment(builder, alignmentKey, frameKey, geometry);
         var roadKey = builder.CreateString("road");
         var sectionRef = builder.CreateString("road>section");
-        var laneRef = builder.CreateString("road>section>lane");
+        var outerSection = reverse ? builder.CreateString("road>opposite") : sectionRef;
+        var edges = new System.Collections.Generic.List<Offset<LaneEdge>>();
+        Offset<AuthoringLane> AddLane(string key, double[] cuts, bool backward)
+        {
+            if (backward) Array.Reverse(cuts);
+            var chain = new StringOffset[cuts.Length + 1];
+            for (int i = 0; i < chain.Length; ++i)
+            {
+                int edgeIndex = backward ? cuts.Length - i : i;
+                chain[i] = builder.CreateString($"{key}-{edgeIndex}");
+                var next = i < cuts.Length
+                    ? new[] { builder.CreateString($"{key}-{(backward ? edgeIndex - 1 : edgeIndex + 1)}") }
+                    : Array.Empty<StringOffset>();
+                var successors = LaneEdge.CreateSuccessorsVector(builder, next);
+                edges.Add(LaneEdge.CreateLaneEdge(builder, chain[i], 10.0, successors));
+            }
+            var edgeChain = AuthoringLane.CreateEdgeChainVector(builder, chain);
+            var stations = AuthoringLane.CreateInteriorCutStationsMetersVector(builder,
+                Array.ConvertAll(cuts, station => station * 401.0 / 399.0));
+            var laneKey = builder.CreateString(key);
+            AuthoringLane.StartAuthoringLane(builder);
+            AuthoringLane.AddAuthoringLaneKey(builder, laneKey);
+            AuthoringLane.AddEdgeChain(builder, edgeChain);
+            AuthoringLane.AddInteriorCutStationsMeters(builder, stations);
+            AuthoringLane.AddDirection(builder, backward ? LaneDirection.Backward : LaneDirection.Forward);
+            AuthoringLane.AddRoadSection(builder, backward ? outerSection : sectionRef);
+            AuthoringLane.AddWidthProfile(builder, LinearWidthProfile.CreateLinearWidthProfile(builder, 3.5, 3.5));
+            return AuthoringLane.EndAuthoringLane(builder);
+        }
+        var lanes = new[] { AddLane("A", new double[] {47, 59, 68}, false), AddLane("B", new double[] {53, 60, 74}, reverse) };
+        var laneEdges = RoadEditingSource.CreateLaneEdgesVector(builder, edges.ToArray());
+        var laneRef = builder.CreateString("road>section>A");
         var element = CorridorElement.CreateCorridorElement(builder, CorridorElementKind.RoadSection, sectionRef);
-        var elements = RoadCorridor.CreateElementsVector(builder, new[] { element });
+        var members = reverse ? new[] { element, CorridorElement.CreateCorridorElement(builder, CorridorElementKind.RoadSection, outerSection) } : new[] { element };
+        var elements = RoadCorridor.CreateElementsVector(builder, members);
         var corridor = RoadCorridor.CreateRoadCorridor(builder, roadKey, alignmentKey, 0.0,
             StationEndKind.AlignmentEnd, 0.0, sectionRef, laneRef, elements);
-        var laneRefs = RoadSection.CreateAuthoringLanesVector(builder, new[] { laneRef });
+        var laneRefs = RoadSection.CreateAuthoringLanesVector(builder, reverse ? new[] { laneRef } : new[] { laneRef, builder.CreateString("road>section>B") });
         var section = RoadSection.CreateRoadSection(builder, builder.CreateString("section"),
             builder.CreateString("motorLane"), laneRefs, default, roadKey);
-        var laneKey = builder.CreateString("lane");
-        AuthoringLane.StartAuthoringLane(builder);
-        AuthoringLane.AddAuthoringLaneKey(builder, laneKey);
-        AuthoringLane.AddLaneEdge(builder, edgeKey);
-        AuthoringLane.AddDirection(builder, LaneDirection.Forward);
-        AuthoringLane.AddRoadSection(builder, sectionRef);
-        AuthoringLane.AddWidthProfile(builder, LinearWidthProfile.CreateLinearWidthProfile(builder, 3.5, 3.5));
-        var lane = AuthoringLane.EndAuthoringLane(builder);
+
+        var sections = new System.Collections.Generic.List<Offset<RoadSection>> { section };
+        if (reverse) {
+            var outerLane = RoadSection.CreateAuthoringLanesVector(builder, new[] { builder.CreateString("road>opposite>B") });
+            sections.Add(RoadSection.CreateRoadSection(builder, builder.CreateString("opposite"),
+                builder.CreateString("motorLane"), outerLane, default, roadKey));
+        }
 
         var roadAlignments = RoadEditingSource.CreateRoadAlignmentsVector(builder, new[] { alignment });
         var roadCorridors = RoadEditingSource.CreateRoadCorridorsVector(builder, new[] { corridor });
-        var roadSections = RoadEditingSource.CreateRoadSectionsVector(builder, new[] { section });
-        var authoringLanes = RoadEditingSource.CreateAuthoringLanesVector(builder, new[] { lane });
+        var roadSections = RoadEditingSource.CreateRoadSectionsVector(builder, sections.ToArray());
+        var authoringLanes = RoadEditingSource.CreateAuthoringLanesVector(builder, lanes);
         var junctions = EmptyVector<Junction>(builder);
         var movements = EmptyVector<Movement>(builder);
         var maneuverPaths = EmptyVector<ManeuverPath>(builder);
@@ -142,10 +165,10 @@ internal static class Program
         var rightOfWayPolicySets = EmptyVector<RightOfWayPolicySet>(builder);
 
         RoadEditingSource.StartRoadEditingSource(builder);
-        RoadEditingSource.AddFormatVersion(builder, 5u);
+        RoadEditingSource.AddFormatVersion(builder, 6u);
         RoadEditingSource.AddModuleHeader(builder, header);
-        RoadEditingSource.AddGeometryAccuracyProfile(builder, GeometryAccuracyProfile.Balanced5Cm);
-        RoadEditingSource.AddGeometryDirectionProfile(builder, GeometryDirectionProfile.Balanced2Deg);
+        RoadEditingSource.AddGeometryAccuracyProfile(builder, GeometryAccuracyProfile.Fine2Cm);
+        RoadEditingSource.AddGeometryDirectionProfile(builder, GeometryDirectionProfile.Smooth1Deg);
         RoadEditingSource.AddRoadAlignments(builder, roadAlignments);
         RoadEditingSource.AddRoadCorridors(builder, roadCorridors);
         RoadEditingSource.AddRoadSections(builder, roadSections);

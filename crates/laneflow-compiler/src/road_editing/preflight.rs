@@ -529,6 +529,9 @@ pub(super) fn preflight_plan(root: wire::RoadEditingSource<'_>) -> Plan {
     let groups = root.signal_groups();
 
     let reference_vectors = [
+        longest(root.authoring_lanes().iter(), |value| {
+            value.edge_chain().len()
+        }),
         longest(sections.iter(), |value| value.authoring_lanes().len()),
         longest(root.lane_edges().iter(), |value| value.successors().len()),
         longest(root.junctions().iter(), |value| {
@@ -1252,21 +1255,76 @@ fn validate_authoring_lanes(
             limits,
             expected_key,
         )?;
+        let direction = match value.direction() {
+            wire::LaneDirection::Forward => super::RoadEditingLaneDirection::Forward,
+            wire::LaneDirection::Backward => super::RoadEditingLaneDirection::Backward,
+            _ => return Err(invalid_combination("authoringLane.direction", expected_key)),
+        };
         usage.charge_reference(
-            value.lane_edge(),
-            1,
-            true,
-            "authoringLane.laneEdge",
+            value.road_section(),
+            2,
+            false,
+            "authoringLane.roadSection",
             namespace,
             imports,
             limits,
             expected_key,
         )?;
-        if !matches!(
-            value.direction(),
-            wire::LaneDirection::Forward | wire::LaneDirection::Backward
-        ) {
-            return Err(invalid_combination("authoringLane.direction", expected_key));
+        let edges = value.edge_chain();
+        let cuts = value.interior_cut_stations_meters();
+        let at = |bundle: DiagnosticBundle, field, index| {
+            bundle.with_fallback_primary_location(
+                super::location::RoadEditingLocationFactory::invalid_lane_field(
+                    namespace,
+                    expected_key,
+                    value,
+                    field,
+                    index,
+                ),
+            )
+        };
+        let edge_field = "authoringLane.edgeChain";
+        let cut_field = "authoringLane.interiorCutStationsMeters";
+        super::model::validate_lane_edge_count(edges.len())
+            .map_err(|v| at(semantic_error(edge_field, v, expected_key), 1, None))?;
+        if cuts.len() != edges.len() - 1 {
+            return Err(at(invalid_combination(cut_field, expected_key), 7, None));
+        }
+        let occurrence_count = edges.len() + cuts.len();
+        usage.require_relation_capacity(occurrence_count, limits)?;
+        usage.charge_relation(occurrence_count);
+        if let Some((index, violation)) = super::model::first_invalid_cut(direction, cuts.iter()) {
+            return Err(at(
+                semantic_error(cut_field, violation, expected_key),
+                7,
+                Some(index),
+            ));
+        }
+        let duplicate = first_duplicate_index(edges.iter(), |key| key, limits)?;
+        for (index, edge) in edges.iter().enumerate() {
+            usage
+                .charge_reference(
+                    edge,
+                    1,
+                    false,
+                    edge_field,
+                    namespace,
+                    imports,
+                    limits,
+                    expected_key,
+                )
+                .map_err(|e| at(e, 1, Some(index)))?;
+            if duplicate == Some(index) {
+                return Err(at(
+                    semantic_error(
+                        edge_field,
+                        RoadEditingInputViolation::DuplicateValue,
+                        expected_key,
+                    ),
+                    1,
+                    Some(index),
+                ));
+            }
         }
         validate_width(
             value.width_profile(),
@@ -1285,16 +1343,6 @@ fn validate_authoring_lanes(
                 expected_key,
             )?;
         }
-        usage.charge_reference(
-            value.road_section(),
-            2,
-            false,
-            "authoringLane.roadSection",
-            namespace,
-            imports,
-            limits,
-            expected_key,
-        )?;
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())

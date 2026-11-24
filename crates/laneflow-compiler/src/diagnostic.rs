@@ -463,6 +463,10 @@ pub enum RoadEditingNumericViolation {
     CoordinateOutOfRange,
     /// 深度、方向或误差门槛内无法形成接受的规范折线。
     ApproximationNotConverged,
+    /// 两个不同的必需截面量化到同一走廊局部纳米站位。
+    IndistinguishableStations,
+    /// 开放共享里程的走廊缺少可发布的连续误差证明。
+    StationMappingNotProven,
     /// corridor station 不在所选 alignment 区间内。
     StationOutOfRange,
     /// corridor、section、lane、edge 或 facility 的几何所有权不能闭合。
@@ -1853,6 +1857,12 @@ impl Diagnostic {
             stable_key: Some(expected_source_document_key.into()),
             related_spans: Box::default(),
         }
+    }
+
+    pub(crate) fn with_related_location(mut self, location: SourceLocation) -> Self {
+        debug_assert!(self.related_spans.is_empty());
+        self.related_spans = Box::new([location]);
+        self
     }
 
     /// 构造来源模块头字段违反文本或资源约束的诊断。
