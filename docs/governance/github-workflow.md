@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-github-workflow"
 kind = "governance"
 status = "active"
-revised_date = "2026-11-24"
+revised_date = "2026-11-25"
 summary = "规定 GitHub 议题、PR、项目与合并队列工作流。"
 scope = "LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理"
 +++
@@ -314,9 +314,11 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Markdown tables`：表格格式，只警告。
 - `Rust checks`：`cargo fmt` 与
   `cargo clippy --workspace --all-targets --locked -D warnings`；
-  workspace 测试由 `cargo nextest run --workspace --locked` 执行
-  （nextest 钉版本并校验 SHA256 安装，测试二进制并行执行）。
-  默认 workspace 测试不打开 `placement-fixtures`。
+  workspace 默认测试保留原 Cargo 工作区、两个 Urban 排除包和默认 feature。
+  PR 上按计划用 nextest 精确选择受影响包，并排除 Evidence 负责的走廊 smoke。
+  空计划跳过本步。选中包却没有可运行测试时，补跑完整默认套件。
+  runtime 或 urban-harness 受影响时运行两包的 `execution-evidence` clippy，
+  runtime 受影响时运行其 `execution-evidence` 测试。
   只读运动诊断 feature `motion-trace`（#1500）默认关闭，同一 job 另跑
   `laneflow-runtime` 与 `laneflow-scenario` 开启该 feature 的 clippy，并运行
   Runtime lib 中的黄灯骑界对照回归与 `signalized_corridor_yellow_trace` 集成目标
@@ -369,14 +371,14 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   纯文档合并组不拉起 Windows runner 与 crosslang 构建；检测失败时失败关闭——
   照常全跑（#1363）。非必查。
 - `PR verification plan` 按 PR 合并快照与 base 的完整差异生成计划（#1464），
-  在 Actions summary 记录逐文件归类、受影响包、任务与回退原因。Evidence、
-  Placement 与 Urban 三个 required job 直接消费计划，各自核对预期与实际工作
-  步骤的结果。计算失败时选中全部四项；计划发布失败、任务漏跑或结果不符时，
-  专项检查失败。其余任务继续在 summary 中做影子对照。
+  在 Actions summary 记录逐文件归类、受影响包、任务与回退原因。`Rust checks`、
+  Evidence、Placement 与 Urban 四个 required job 核对计划与实际工作步骤的结果，
+  workspace 默认测试还核对成功覆盖的包。计划计算失败时选中全部七项，
+  发布失败、任务漏跑或结果不符会使对应检查失败。其余任务继续做影子对照。
 - `Shadow plan` 在 merge_group 上独立计算计划并报告差异。PR 和合并组生成
   计划前均核对注册表与全仓 `include_str!` / `include_bytes!` 输入，发现
-  差异则回退全量。合并组的影子 job 非必查，三个专项在 merge_group 和
-  main push 上继续使用 `Detect path changes` 的 Rust 路径门。
+  差异则回退全量。合并组的影子 job 非必查。merge_group 和 main push
+  按原 Rust 路径门决定是否运行完整默认套件和各专项。
 
 除 `Evidence`（无 `pull_request` 触发）外，各 workflow 均设 `concurrency` 分组：
 `pull_request` 事件按「workflow 名 + PR 号」分组，推送新 head 即取消同 PR 未完成的
@@ -398,7 +400,7 @@ GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 `cargo-nextest 0.9.145`（官方 release asset，URL 与 SHA-256 见 `ci.yml`）：
 
 ```powershell
-cargo +1.99.1 nextest run --workspace --locked
+cargo +1.99.1 run --quiet --locked -p xtask -- run-workspace-tests '*'
 cargo +1.99.1 nextest run -p laneflow-runtime --locked --features placement-fixtures
 cargo +1.99.1 nextest run -p laneflow-scenario --locked --features placement-fixtures
 cargo +1.99.1 nextest run -p laneflow-junction-generator --locked --features placement-fixtures

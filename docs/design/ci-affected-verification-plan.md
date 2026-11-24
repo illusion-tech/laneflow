@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-ci-affected-verification-plan"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-25"
 decision_date = "2026-11-19"
 summary = "定义按变更影响生成 CI 验证计划的合同：影响模型、变更三态归类、可靠性规则、全量时机与过渡策略。"
 scope = "CI 各项检查的执行范围选择机制；不改变检查自身的验证语义与 required check 接口。"
@@ -65,12 +65,18 @@ PR 全量跑了 2,712 项 workspace 测试与全部专项 job；一次合并至�
 | Placement              | runtime、scenario、junction-generator | 三包在 `placement-fixtures` 下的 clippy 与测试 |
 | Urban 的 Adapter 测试  | urban-harness                         | `adapter` 配置的 harness 测试                  |
 
-PR 的三个专项 job 按上表执行。Evidence 的两行可独立选中。每个 job 在结束时
-比较计划器给出的预期结果与工作步骤的实际结果，包括预期跳过的步骤。
+PR 的三个专项 job 按上表执行。Evidence 的两行可独立选中。
 
-`Rust checks` 内的 `execution-evidence` 配置先做影子对照。runtime 或
-urban-harness 受影响时，计划选中两包的完整 clippy 命令；runtime 受影响时，
-另选中该包的专项测试。`motion-trace` 继续按既有配置执行。Wire 审计扫描仓库
+PR 上的 `Rust checks` 另按计划执行三步。runtime 或 urban-harness 受影响时，
+运行两包开启 `execution-evidence` 的完整 clippy 命令。runtime 受影响时，
+另运行该包的 `execution-evidence` 测试。workspace 默认测试取受影响闭包中
+由本步负责的包，用 nextest 按包名精确选测。Cargo 仍解析和构建原 workspace
+及其 feature 组合。两个 Urban 包和走廊 smoke 目标由 Evidence 负责。
+
+计划明确给出空集时跳过默认测试。若选中了包，nextest 却报告零项可运行测试，
+则改跑完整默认套件。构建错误或测试失败会使 job 失败。四个 required job 都
+比较计划预期与步骤的实际结果，包括预期跳过的步骤。默认测试还核对成功覆盖的包。
+`motion-trace` 继续按既有配置执行。Wire 审计扫描仓库
 源码，影子计划在有 Rust 种子时选择完整审计。
 
 ## 3. 影响模型
@@ -191,11 +197,11 @@ Cargo 图之外的输入关系集中在一个机器可校验的注册表中，�
    feature 配置、删除 / 移动 / 重命名、新增包、计划器自身变更，并加入
    针对漏选边界的反例验证。几次全量通过只说明那几个版本通过，不构成
    选择器正确的证明。
-2. **PR 切换**：按专项分批接线。第一批为 Evidence、Placement 与 Urban 三个
-   required job。PR 直接消费计划；即使旧 Rust 路径门未命中，全量或计算失败
-   回退仍会选中四项任务。若计划器未成功发布输出，专项结果核对失败。其余
-   job 继续按原门执行。merge_group 对自己的快照生成影子计划，专项沿用队列原有
-   的 Rust 路径门，命中时运行完整专项。main push 沿用原门。
+2. **PR 切换**。第一批接入 Evidence、Placement 与 Urban 的四项验证。
+   第二批接入 `Rust checks` 的 workspace 默认测试及两项 `execution-evidence`
+   验证。全量或计算失败时，即使旧 Rust 路径门未命中，也执行全部七项。
+   计划发布失败会使消费计划的 required job 失败。其余步骤按原门执行。
+   merge_group 对自己的快照生成影子计划，merge_group 与 main push 都按原门运行完整验证。
 3. **merge_group 切换**：队列对实际集成候选重算并执行受影响计划。退出
    条件为连续 N 周周期全量与影子审计零漏选（N 在影子期数据具备后定，
    不预先承诺）；达成并留档后才切换。

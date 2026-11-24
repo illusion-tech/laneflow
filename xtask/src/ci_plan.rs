@@ -2,7 +2,7 @@
 //!
 //! 纯计算：读变更文件清单、`cargo metadata` 的 workspace 依赖图与额外输入
 //! 注册表（`xtask/data/ci-extra-inputs.toml`），产出受影响包集与各验证任务的
-//! 执行范围。PR 的 Evidence、Placement、Urban 专项消费该计划并核对步骤结果。
+//! 执行范围。PR 的 Rust checks、Evidence、Placement、Urban 消费对应任务并核对步骤结果。
 //!
 //! 失败关闭语义（合同 §4）：读取或解析失败由命令以非零退出承载，调用方按
 //! 全量处理；文件归类落入「未知」态时直接扩大为完整适用套件；「成功计算后
@@ -19,6 +19,9 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 mod specialists;
+mod workspace_tests;
+
+pub(crate) use workspace_tests::run as run_workspace_tests;
 
 const REGISTRY_PATH: &str = "xtask/data/ci-extra-inputs.toml";
 const REGISTRY_TOML: &str = include_str!("../data/ci-extra-inputs.toml");
@@ -415,10 +418,7 @@ const TASKS: &[TaskDef] = &[
     },
     TaskDef {
         name: "test-default",
-        packages: TaskPackages::AffectedExclude(&[
-            "laneflow-urban-harness",
-            "laneflow-urban-generator",
-        ]),
+        packages: TaskPackages::AffectedExclude(workspace_tests::EXCLUDED_PACKAGES),
         note: "workspace nextest 补集步；corridor_traffic_smoke 目标由专项承载",
     },
     TaskDef {
@@ -1235,6 +1235,16 @@ fn append_step_summary(markdown: &str) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+fn append_step_outputs(outputs: &str) -> Result<(), String> {
+    use std::io::Write as _;
+    let path = std::env::var_os("GITHUB_OUTPUT").ok_or("缺少 GITHUB_OUTPUT")?;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(outputs.as_bytes()))
+        .map_err(|error| format!("无法写入 GITHUB_OUTPUT：{error}"))
 }
 
 fn event_plan(event_name: &str) -> Result<Plan, String> {
