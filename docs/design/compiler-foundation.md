@@ -965,9 +965,9 @@ LIR 与 LFCA 的完整规范统计。
 联合压力组仅增长文档键或增加贡献来源时，规范规模与修订身份保持，来源绑定改变；只将发射 provenance
 增长至 128 B 时，修订身份与来源绑定保持，制品结构字节随之增加。
 
-本轮全部操作中，编译受控峰值最大为 **74604208 B**，内存发射为 **205581467 B**，文件
+LFRE 5 的资格验证中，编译受控峰值最大为 **74604208 B**，内存发射为 **205581467 B**，文件
 发射为 **151218133 B**；三项峰值均出现在全组合压力的身份不相交操作的编译或发射阶段。
-来源记录累计最大为 **8728106 B**。编译峰值采用现有编译资源模型，发射采用资源账本受控
+LFRE 6 在同样的十一组负载及身份不相交变体上重测，来源记录累计最大为 **8729042 B**。单边车道也写入边链向量和空切点向量，来源关系与 HIR 各增加最多 48 项。编译峰值采用现有编译资源模型，发射采用资源账本受控
 请求字节，两种口径分别记录，不互相替代；这些数字不是墙钟或实际进程堆峰值。
 
 内存发射直接在唯一持有的最终共享字节中编码，省去完整中间缓冲及其复制，账本授予仍
@@ -992,14 +992,14 @@ LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字
 | `SourceDocumentCount`          |      18 | 来源文档描述符                                           |
 | `ImportEdgeCount`              |      17 | 导入边                                                   |
 | `SourceBytesPerModule`         | 6802717 | 单模块来源记录字节                                       |
-| `SourceBytesTotal`             | 8728106 | 编译单元来源记录字节                                     |
+| `SourceBytesTotal`             | 8729042 | 编译单元来源记录字节                                     |
 | `DeclarationCount`             |   10000 | 来源声明                                                 |
 | `TypedAstRecordCount`          |  381284 | 有类型抽象语法树逻辑记录                                 |
-| `HirRecordCount`               |  535364 | HIR 逻辑记录                                             |
+| `HirRecordCount`               |  535412 | HIR 逻辑记录                                             |
 | `MirRecordCount`               |  395015 | MIR 逻辑记录                                             |
 | `LirRecordCount`               |  396669 | LIR 逻辑记录                                             |
 | `ReferenceCount`               |   77602 | 有类型来源引用                                           |
-| `RelationOccurrenceCount`      |  105919 | 来源多值关系成员出现记录                                 |
+| `RelationOccurrenceCount`      |  105967 | 来源多值关系成员出现记录                                 |
 | `IdentityFieldOccurrenceCount` |   26333 | 来源标识字段出现记录                                     |
 | `SymbolCount`                  |   10000 | 来源符号                                                 |
 | `StringItemCount`              |  164951 | 来源字符串项                                             |
@@ -1039,7 +1039,7 @@ provenance 1–128 B 不归并为通用来源字符串限额。文件暂存与�
 恢复 256 MiB 后 Genesis 发射也成功。文件释放后目录为空。该回归现使用完整常规档，并验证充足容量与工作量政策下的输出字节一致。
 
 MIR 策略检查现使用独立的 `PolicyValidationWorkUnits`，临时表只按实际存储进入内存
-预算。来源关系限额保持 105919，十一组输入及身份不相交变体均在完整常规档来源政策下
+预算。来源关系限额保持 105967，十一组输入及身份不相交变体均在完整常规档来源政策下
 编译成功。稠密信号及全组合输入按实际工作量达界成功、少一单位拒绝，拒绝后可复用，
 两种充足工作量政策生成的三对象字节一致。取消接入仍另行立项。
 本组成功输入的最大策略访问工作量为 134783 单位；常规档预算保留 1000000 单位，
@@ -1089,15 +1089,15 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_source_document_count`           |                                           18 |                                      196608 | 来源 | 来源文档描述符                                                |
 | `max_import_edge_count`               |                                           17 |                                      262144 | 来源 | 模块导入边                                                    |
 | `max_source_bytes_per_module`         |                                      6802717 |                                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                          |
-| `max_source_bytes_total`              |                                      8728106 |                                   536870912 | 来源 | 编译单元来源字节                                              |
+| `max_source_bytes_total`              |                                      8729042 |                                   536870912 | 来源 | 编译单元来源字节                                              |
 | `max_declaration_count`               |                                        10000 |                                     1500000 | 来源 | 来源声明                                                      |
 | `max_stable_entity_count`             |                                        10000 |                                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
 | `max_typed_ast_record_count`          |                                       381284 |                                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
-| `max_hir_record_count`                |                                       535364 |                                     8000000 | 来源 | HIR 逻辑记录                                                  |
+| `max_hir_record_count`                |                                       535412 |                                     8000000 | 来源 | HIR 逻辑记录                                                  |
 | `max_mir_record_count`                |                                       395015 |                                     8000000 | 来源 | MIR 逻辑记录                                                  |
 | `max_lir_record_count`                |                                       396669 |                                     8000000 | 来源 | LIR 逻辑记录                                                  |
 | `max_reference_count`                 |                                        77602 |                                    16000000 | 来源 | 有类型引用                                                    |
-| `max_relation_occurrence_count`       |                                       105919 |                                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
+| `max_relation_occurrence_count`       |                                       105967 |                                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
 | `max_canonical_relation_count`        |                                        71773 |                                     1406986 | 规范 | 规范关系出现记录（role 1–32）；不复制来源侧值，取数见下文     |
 | `max_identity_field_occurrence_count` |                                        26333 |                                     8000000 | 来源 | 标识字段出现记录                                              |
 | `max_maneuver_gate_count`             |                                         1784 |                                     1000000 | 规范 | 最终规范路网的机动门                                          |
@@ -1143,7 +1143,7 @@ framing/reference spelling。Identity v1 `Ascii` 字段及其来源侧 namespace
 components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
 `TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
 
-单模块来源上限与总来源上限独立登记，常规档分别为 6802717 B 与 8728106 B；
+单模块来源上限与总来源上限独立登记，常规档分别为 6802717 B 与 8729042 B；
 必须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
 绕过总存续字节上限。上述逐维最大值不是已经测过的“所有维度同时取最大”组合；任意
@@ -1217,7 +1217,7 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
 形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
-合成前端固定为 `frontendVersion = 5`：绑定 Identity revision 4 / LFCA 5 的路权策略登记；
+合成前端固定为 `frontendVersion = 6`：绑定 Identity revision 4 / LFCA 5 的路权策略登记；
 准入后交通一维以整数毫米 / 受检 `f32` SI
 写入来源记录，不再写编制 `f64`。它使用 `ParkingFacility`，并把
 `virtualCapacity`、有序 virtual entry/exit、`ConflictZone`、`ParticipantStream`、
@@ -1629,7 +1629,7 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [portable-artifact]: portable-canonical-artifact.md
-[road-editing-schema]: ../../schemas/road-editing/v5/README.md
+[road-editing-schema]: ../../schemas/road-editing/v6/README.md
 [road-editing-entry]: road-editing-source-and-geometry-frontend.md#97-来源位置与公共入口
 [road-editing-memory]: road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界
 [adr-0035]: ../adr/0035-compile-limits-and-resource-ledger.md

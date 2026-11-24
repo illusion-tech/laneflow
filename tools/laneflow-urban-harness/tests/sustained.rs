@@ -69,8 +69,8 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         .unwrap();
         plan.validate(&artifacts).unwrap();
         // 生产路径已按当前制品校验。比较 PR #815 的角色、路线和请求时，在副本中恢复
-        // 当时的清单绑定（#819）及 LFRE 升版影响的三个制品摘要（#1516）。文件长度、
-        // 路线目录、配置和计划内容仍逐字节比较；生成器测试另行核对当前制品的完整摘要。
+        // 当时的清单绑定（#819）及 LFRE 升版影响的三个制品摘要（#1516）。除拓扑来源长度外，
+        // 其他文件长度、路线目录、配置和计划内容仍逐字节比较；生成器测试另行核对当前制品的完整摘要。
         plan.manifest_digest =
             "4ec17200ec09c682124ec08d85e59e3fcaeccbd4611899998021fdbf0211b3ee".into();
         for (name, pr815_sha256) in [
@@ -89,6 +89,8 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         ] {
             plan.files.get_mut(name).unwrap().sha256 = pr815_sha256.into();
         }
+        // LFRE 6 把每条编制车道的边引用写成向量；PR #815 的固定计划绑定了当时的来源长度。
+        plan.files.get_mut("topology.lfre").unwrap().bytes = 1_669_184;
         assert!(plan.validate(&artifacts).is_err());
         let bytes = toml::to_string_pretty(&plan).unwrap();
         let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();

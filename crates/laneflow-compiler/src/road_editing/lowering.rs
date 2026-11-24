@@ -1527,6 +1527,16 @@ pub(super) fn lower_topology_authoring_declarations(
             ),
             elements,
             authoring_geometry: Some(RoadCorridorAuthoringGeometry {
+                station_mapping_request: value.publish_station_mapping().then(|| {
+                    property_location(
+                        locations,
+                        EntityKind::RoadCorridor,
+                        key,
+                        RoadEditingTableKind::RoadCorridor,
+                        9,
+                        value.canvas_selection(),
+                    )
+                }),
                 road_alignment_key: Arc::from(value.road_alignment_key()),
                 road_alignment_key_span: property_location(
                     locations,
@@ -1615,6 +1625,22 @@ pub(super) fn lower_topology_authoring_declarations(
                     })?;
                 let lane = authoring_lanes[lane_index];
                 let lane_key = lane.authoring_lane_key();
+                let lane_location = |relation, i: usize, field_id| {
+                    locations.owner_local(
+                        EntityKind::AuthoringLane,
+                        &[corridor_key, key],
+                        lane_key,
+                        relation,
+                        RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                            u32::try_from(i).expect("bounded edge chain"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::AuthoringLane,
+                            field_id,
+                        }],
+                        lane.canvas_selection(),
+                    )
+                };
                 Ok(AuthoringLaneDeclaration {
                     header: owner_scoped_header(
                         locations,
@@ -1639,22 +1665,19 @@ pub(super) fn lower_topology_authoring_declarations(
                         }],
                         value.canvas_selection(),
                     ),
-                    edge_chain: Box::new([lower_reference::<LaneEdgeKind>(
-                        lane.lane_edge(),
-                        1,
-                        shared_namespace,
-                        owner_property_location(
-                            locations,
-                            EntityKind::AuthoringLane,
-                            lane.road_section(),
-                            2,
-                            lane_key,
-                            RoadEditingTableKind::AuthoringLane,
-                            1,
-                            lane.canvas_selection(),
-                            namespace,
-                        ),
-                    )]),
+                    edge_chain: lane
+                        .edge_chain()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, edge)| {
+                            lower_reference::<LaneEdgeKind>(
+                                edge,
+                                1,
+                                shared_namespace,
+                                lane_location(RoadEditingRelationKind::AuthoringLaneEdge, i, 1),
+                            )
+                        })
+                        .collect(),
                     lane_group: lane.lane_group().map(|group| {
                         lower_reference::<LaneGroupKind>(
                             group,
@@ -1674,6 +1697,14 @@ pub(super) fn lower_topology_authoring_declarations(
                         )
                     }),
                     authoring_geometry: Some(AuthoringLaneGeometry {
+                        interior_cuts: lane
+                            .interior_cut_stations_meters()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                (s, lane_location(RoadEditingRelationKind::InteriorCut, i, 7))
+                            })
+                            .collect(),
                         direction: match lane.direction() {
                             wire::LaneDirection::Forward => AuthoringLaneDirection::Forward,
                             wire::LaneDirection::Backward => AuthoringLaneDirection::Backward,

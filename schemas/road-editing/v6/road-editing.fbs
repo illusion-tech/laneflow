@@ -1,7 +1,7 @@
-// LaneFlow 道路编辑来源缓冲区 v4。
+// LaneFlow 道路编辑来源缓冲区 v6。
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
-// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 5`：
+// 唯一性、曲线误差与资源上限由 LaneFlow 语义验证器执行。`format_version = 6`：
 // 根表 field id 连续；`canonical_frames`、`conflict_zones`、`participant_streams` 与
 // `conflict_zone_regions` 分别为 id 25、26、27、28。无 `static_routes` 字段。
 // file identifier 仍 `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
@@ -203,6 +203,7 @@ table RoadCorridor {
   reference_lane:string (required, id: 6);
   elements:[CorridorElement] (required, id: 7);
   canvas_selection:string (id: 8);
+  publish_station_mapping:bool = false (id: 9);
 }
 
 table RoadSection {
@@ -215,12 +216,13 @@ table RoadSection {
 
 table AuthoringLane {
   authoring_lane_key:string (required, id: 0);
-  lane_edge:string (required, id: 1);
+  edge_chain:[string] (required, id: 1);
   direction:LaneDirection = Unspecified (id: 2);
   width_profile:LinearWidthProfile (required, id: 3);
   lane_group:string (id: 4);
   canvas_selection:string (id: 5);
   road_section:string (required, id: 6);
+  interior_cut_stations_meters:[double] (required, id: 7);
 }
 
 /// explicit_geometry 只用于路口内部边；道路区段车道的中心线由走向与横断面派生。

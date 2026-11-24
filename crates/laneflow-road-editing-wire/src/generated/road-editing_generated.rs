@@ -3507,6 +3507,7 @@ impl<'a> RoadCorridor<'a> {
   pub const VT_REFERENCE_LANE: ::flatbuffers::VOffsetT = 16;
   pub const VT_ELEMENTS: ::flatbuffers::VOffsetT = 18;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 20;
+  pub const VT_PUBLISH_STATION_MAPPING: ::flatbuffers::VOffsetT = 22;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3526,6 +3527,7 @@ impl<'a> RoadCorridor<'a> {
     if let Some(x) = args.reference_section { builder.add_reference_section(x); }
     if let Some(x) = args.road_alignment_key { builder.add_road_alignment_key(x); }
     if let Some(x) = args.road_corridor_key { builder.add_road_corridor_key(x); }
+    builder.add_publish_station_mapping(args.publish_station_mapping);
     builder.add_end_station_kind(args.end_station_kind);
     builder.finish()
   }
@@ -3594,6 +3596,13 @@ impl<'a> RoadCorridor<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(RoadCorridor::VT_CANVAS_SELECTION, None)}
   }
+  #[inline]
+  pub fn publish_station_mapping(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(RoadCorridor::VT_PUBLISH_STATION_MAPPING, Some(false)).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RoadCorridor<'_> {
@@ -3611,6 +3620,7 @@ impl ::flatbuffers::Verifiable for RoadCorridor<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("reference_lane", Self::VT_REFERENCE_LANE, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CorridorElement>>>>("elements", Self::VT_ELEMENTS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .visit_field::<bool>("publish_station_mapping", Self::VT_PUBLISH_STATION_MAPPING, false)?
      .finish();
     Ok(())
   }
@@ -3625,6 +3635,7 @@ pub struct RoadCorridorArgs<'a> {
     pub reference_lane: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub elements: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CorridorElement<'a>>>>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub publish_station_mapping: bool,
 }
 impl<'a> Default for RoadCorridorArgs<'a> {
   #[inline]
@@ -3639,6 +3650,7 @@ impl<'a> Default for RoadCorridorArgs<'a> {
       reference_lane: None, // required field
       elements: None, // required field
       canvas_selection: None,
+      publish_station_mapping: false,
     }
   }
 }
@@ -3685,6 +3697,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadCorridorBuilder<'a, 'b, A
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadCorridor::VT_CANVAS_SELECTION, canvas_selection);
   }
   #[inline]
+  pub fn add_publish_station_mapping(&mut self, publish_station_mapping: bool) {
+    self.fbb_.push_slot::<bool>(RoadCorridor::VT_PUBLISH_STATION_MAPPING, publish_station_mapping, false);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RoadCorridorBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RoadCorridorBuilder {
@@ -3716,6 +3732,7 @@ impl ::core::fmt::Debug for RoadCorridor<'_> {
       ds.field("reference_lane", &self.reference_lane());
       ds.field("elements", &self.elements());
       ds.field("canvas_selection", &self.canvas_selection());
+      ds.field("publish_station_mapping", &self.publish_station_mapping());
       ds.finish()
   }
 }
@@ -3904,12 +3921,13 @@ impl<'a> ::flatbuffers::Follow<'a> for AuthoringLane<'a> {
 
 impl<'a> AuthoringLane<'a> {
   pub const VT_AUTHORING_LANE_KEY: ::flatbuffers::VOffsetT = 4;
-  pub const VT_LANE_EDGE: ::flatbuffers::VOffsetT = 6;
+  pub const VT_EDGE_CHAIN: ::flatbuffers::VOffsetT = 6;
   pub const VT_DIRECTION: ::flatbuffers::VOffsetT = 8;
   pub const VT_WIDTH_PROFILE: ::flatbuffers::VOffsetT = 10;
   pub const VT_LANE_GROUP: ::flatbuffers::VOffsetT = 12;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 14;
   pub const VT_ROAD_SECTION: ::flatbuffers::VOffsetT = 16;
+  pub const VT_INTERIOR_CUT_STATIONS_METERS: ::flatbuffers::VOffsetT = 18;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3921,11 +3939,12 @@ impl<'a> AuthoringLane<'a> {
     args: &'args AuthoringLaneArgs<'args>
   ) -> ::flatbuffers::WIPOffset<AuthoringLane<'bldr>> {
     let mut builder = AuthoringLaneBuilder::new(_fbb);
+    if let Some(x) = args.interior_cut_stations_meters { builder.add_interior_cut_stations_meters(x); }
     if let Some(x) = args.road_section { builder.add_road_section(x); }
     if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
     if let Some(x) = args.lane_group { builder.add_lane_group(x); }
     if let Some(x) = args.width_profile { builder.add_width_profile(x); }
-    if let Some(x) = args.lane_edge { builder.add_lane_edge(x); }
+    if let Some(x) = args.edge_chain { builder.add_edge_chain(x); }
     if let Some(x) = args.authoring_lane_key { builder.add_authoring_lane_key(x); }
     builder.add_direction(args.direction);
     builder.finish()
@@ -3940,11 +3959,11 @@ impl<'a> AuthoringLane<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(AuthoringLane::VT_AUTHORING_LANE_KEY, None).unwrap()}
   }
   #[inline]
-  pub fn lane_edge(&self) -> &'a str {
+  pub fn edge_chain(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(AuthoringLane::VT_LANE_EDGE, None).unwrap()}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(AuthoringLane::VT_EDGE_CHAIN, None).unwrap()}
   }
   #[inline]
   pub fn direction(&self) -> LaneDirection {
@@ -3981,6 +4000,13 @@ impl<'a> AuthoringLane<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(AuthoringLane::VT_ROAD_SECTION, None).unwrap()}
   }
+  #[inline]
+  pub fn interior_cut_stations_meters(&self) -> ::flatbuffers::Vector<'a, f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, f64>>>(AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for AuthoringLane<'_> {
@@ -3990,36 +4016,39 @@ impl ::flatbuffers::Verifiable for AuthoringLane<'_> {
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("authoring_lane_key", Self::VT_AUTHORING_LANE_KEY, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("lane_edge", Self::VT_LANE_EDGE, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("edge_chain", Self::VT_EDGE_CHAIN, true)?
      .visit_field::<LaneDirection>("direction", Self::VT_DIRECTION, false)?
      .visit_field::<LinearWidthProfile>("width_profile", Self::VT_WIDTH_PROFILE, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("lane_group", Self::VT_LANE_GROUP, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("road_section", Self::VT_ROAD_SECTION, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, f64>>>("interior_cut_stations_meters", Self::VT_INTERIOR_CUT_STATIONS_METERS, true)?
      .finish();
     Ok(())
   }
 }
 pub struct AuthoringLaneArgs<'a> {
     pub authoring_lane_key: Option<::flatbuffers::WIPOffset<&'a str>>,
-    pub lane_edge: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub edge_chain: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
     pub direction: LaneDirection,
     pub width_profile: Option<&'a LinearWidthProfile>,
     pub lane_group: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub road_section: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub interior_cut_stations_meters: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, f64>>>,
 }
 impl<'a> Default for AuthoringLaneArgs<'a> {
   #[inline]
   fn default() -> Self {
     AuthoringLaneArgs {
       authoring_lane_key: None, // required field
-      lane_edge: None, // required field
+      edge_chain: None, // required field
       direction: LaneDirection::Unspecified,
       width_profile: None, // required field
       lane_group: None,
       canvas_selection: None,
       road_section: None, // required field
+      interior_cut_stations_meters: None, // required field
     }
   }
 }
@@ -4034,8 +4063,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AuthoringLaneBuilder<'a, 'b, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AuthoringLane::VT_AUTHORING_LANE_KEY, authoring_lane_key);
   }
   #[inline]
-  pub fn add_lane_edge(&mut self, lane_edge: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AuthoringLane::VT_LANE_EDGE, lane_edge);
+  pub fn add_edge_chain(&mut self, edge_chain: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AuthoringLane::VT_EDGE_CHAIN, edge_chain);
   }
   #[inline]
   pub fn add_direction(&mut self, direction: LaneDirection) {
@@ -4058,6 +4087,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AuthoringLaneBuilder<'a, 'b, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AuthoringLane::VT_ROAD_SECTION, road_section);
   }
   #[inline]
+  pub fn add_interior_cut_stations_meters(&mut self, interior_cut_stations_meters: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , f64>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS, interior_cut_stations_meters);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> AuthoringLaneBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     AuthoringLaneBuilder {
@@ -4069,9 +4102,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AuthoringLaneBuilder<'a, 'b, 
   pub fn finish(self) -> ::flatbuffers::WIPOffset<AuthoringLane<'a>> {
     let o = self.fbb_.end_table(self.start_);
     self.fbb_.required(o, AuthoringLane::VT_AUTHORING_LANE_KEY,"authoring_lane_key");
-    self.fbb_.required(o, AuthoringLane::VT_LANE_EDGE,"lane_edge");
+    self.fbb_.required(o, AuthoringLane::VT_EDGE_CHAIN,"edge_chain");
     self.fbb_.required(o, AuthoringLane::VT_WIDTH_PROFILE,"width_profile");
     self.fbb_.required(o, AuthoringLane::VT_ROAD_SECTION,"road_section");
+    self.fbb_.required(o, AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS,"interior_cut_stations_meters");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -4080,12 +4114,13 @@ impl ::core::fmt::Debug for AuthoringLane<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("AuthoringLane");
       ds.field("authoring_lane_key", &self.authoring_lane_key());
-      ds.field("lane_edge", &self.lane_edge());
+      ds.field("edge_chain", &self.edge_chain());
       ds.field("direction", &self.direction());
       ds.field("width_profile", &self.width_profile());
       ds.field("lane_group", &self.lane_group());
       ds.field("canvas_selection", &self.canvas_selection());
       ds.field("road_section", &self.road_section());
+      ds.field("interior_cut_stations_meters", &self.interior_cut_stations_meters());
       ds.finish()
   }
 }

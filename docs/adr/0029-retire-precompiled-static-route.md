@@ -44,7 +44,7 @@ explanation = "#supersedes-adr-0025"
 部分取代： ADR 0017 中「目标态由编译器预编译初始路线出现记录」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
 共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。道路编辑根表按后继路权策略与原生曲线合同使用
-`format_version = 5`，包含 24 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
+`format_version = 6`，包含 24 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
 route external ID resolver、`remove_route` 必须返回 external route ID」对
 `TrafficWorld` 不再适用：catalog / 调用方自己持有 `route_id`，Runtime 热表只有
 `RouteHandle`。`network-compiler.md` §9.7
@@ -268,11 +268,11 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 
 - 路线退役时 LFCA 4 的 23 张实体逻辑表按 `0x0001..=0x0017` 连续登记；`0x0015` 为
   `ConflictZone`、`0x0016` 为 `CanonicalFrame`、`0x0017` 为 `ParticipantStream`。
-- 道路编辑来源 `format_version = 5`：没有 `StaticRoute` table 与根上的
+- 道路编辑来源 `format_version = 6`：没有 `StaticRoute` table 与根上的
   `static_routes`；声明向量与 Identity 可构造种类一一对应（24 个，包含后继策略声明）。
   `canonical_frames`、`conflict_zones` 与 `participant_streams` 分别为根表 field id
   25、26、27。路线退役时为 wire 3；路权策略在 wire 4 新增向量 id 29，原生曲线在 wire 5 扩充曲线段。
-  现行 schema 为 `schemas/road-editing/v5/`，道路编辑 `frontendVersion = 5`，file identifier 仍为 `LFRE`。
+  现行 schema 为 `schemas/road-editing/v6/`，道路编辑 `frontendVersion = 6`，file identifier 仍为 `LFRE`。
 - 合成 DSL 不接受静态路线声明；合成 `frontendVersion` 为 4，拒绝
   `StaticRoute` 不另升。
 - 生产 `CompileProfile` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。

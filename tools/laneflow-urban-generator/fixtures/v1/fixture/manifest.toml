@@ -12,7 +12,7 @@ network_revision = "1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd
 source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
 lir_logical_records = 82014
 compiler_output_logical_bytes = 2220654
-compiler_controlled_peak_bytes = 33438464
+compiler_controlled_peak_bytes = 33826448
 shared_headless_retained_bytes = 671636
 shared_spatial_retained_bytes = 1881732
 resolved_policy_gate_rows = 528
@@ -41,7 +41,7 @@ max_scratch_bytes = 2147483648
 
 [files."common.lfre"]
 bytes = 1024
-sha256 = "4c92cc4389196953139c26cebd6377c6a2451dd7fb799a74110b28441ac2100b"
+sha256 = "150c7391d0d73c69b29d4075c4e6a410d5168bac7132f6f230c6534b3f9b4007"
 
 [files."config.toml"]
 bytes = 1300
@@ -49,23 +49,23 @@ sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
 
 [files."genesis.lfsd"]
 bytes = 9638850
-sha256 = "b6f177366f55adda0c532e23d810e1d916eb9d2a5bdc5d0c3dd15d83da35aaf9"
+sha256 = "0ac6c33d44be5cd8561c7cf65223eb8b550d671e2a54a968ac4aa71b3cea6db7"
 
 [files."network.lfca"]
 bytes = 8868299
-sha256 = "e5563b5ee135f2a226b046ce20c3fd05bd8d0dec1f2a692f121632c4b8de5ce9"
+sha256 = "847da92ab3de889cc0a9e1c81fded968592a2d1607361896230ec431b73706bb"
 
 [files."routes.toml"]
 bytes = 377136
 sha256 = "e9e6a6b260d633bcbb04923cb3922c673dfc214cd77bd6e32d4a1ec279ef70de"
 
 [files."source-map.lfsm"]
-bytes = 12489179
-sha256 = "a8fbe4584a22a0a72420412fd2f52407f9eb494f3044da44d0d355bed7fbbf35"
+bytes = 12510079
+sha256 = "8a813e92ff951f00fbc71617360df720daef2afd6cce4787749d76d8ecd41fd7"
 
 [files."topology.lfre"]
-bytes = 1669184
-sha256 = "c1caeff375378e72a00495d050d2f0a9e1fd31068efd9b1d0cdec70816c1a3d3"
+bytes = 1675280
+sha256 = "791b236b74269c977fbe6163f2728f15dfbefd83bf03e318bde59e98a6362676"
 
 [source_declarations]
 canonical-frame = 1
@@ -573,7 +573,7 @@ table = "SourceLocation"
 rows = 32622
 chunks = 1
 max_chunk_rows = 32622
-max_chunk_bytes = 8948153
+max_chunk_bytes = 8969053
 
 [lfsm_tables.nested_rows]
 propertySteps = 37136

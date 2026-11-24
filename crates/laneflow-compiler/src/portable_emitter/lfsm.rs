@@ -31,6 +31,8 @@ fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {
         crate::RoadEditingRelationKind::PolicyGapProfile => 17,
         crate::RoadEditingRelationKind::PolicyStreamRule => 18,
         crate::RoadEditingRelationKind::PolicyGateRule => 19,
+        crate::RoadEditingRelationKind::AuthoringLaneEdge => 20,
+        crate::RoadEditingRelationKind::InteriorCut => 21,
     }
 }
 

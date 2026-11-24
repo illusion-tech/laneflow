@@ -10,7 +10,7 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -285,10 +285,20 @@ fn verifier_error(
         ),
         data_error => {
             let (trace, range) = verifier_data_site(&data_error, source_len);
-            let field = trace.iter().find_map(|detail| match detail {
-                ErrorTraceDetail::TableField { field_name, .. } => Some(field_name.as_ref()),
-                _ => None,
-            });
+            let field = match &data_error {
+                InvalidFlatbuffer::MissingRequiredField { required, .. }
+                    if matches!(
+                        required.as_ref(),
+                        "edge_chain" | "interior_cut_stations_meters"
+                    ) =>
+                {
+                    Some(required.as_ref())
+                }
+                _ => trace.iter().find_map(|detail| match detail {
+                    ErrorTraceDetail::TableField { field_name, .. } => Some(field_name.as_ref()),
+                    _ => None,
+                }),
+            };
             let location = wire_location_from_trace(trace, expected_key, range);
             source_error_at(
                 RoadEditingSourceViolation::MalformedWire,
@@ -1509,7 +1519,7 @@ mod tests {
         let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
-        for old in [1, 4, 6] {
+        for old in [1, 4, 5, 7] {
             overwrite_format_version(&mut bytes, old);
             let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
@@ -1519,7 +1529,7 @@ mod tests {
                 first_diagnostic(&error).payload(),
                 DiagnosticPayload::InvalidRoadEditingSource {
                     violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                        expected: 5,
+                        expected: 6,
                         actual
                     },
                     ..

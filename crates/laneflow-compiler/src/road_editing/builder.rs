@@ -642,7 +642,7 @@ fn charge_declaration(
             policy::charge(usage, value, current_namespace, import_namespaces, limits)?
         }
         RoadEditingDeclaration::RoadCorridor(value) => {
-            usage.charge_table(9, 41);
+            usage.charge_table(10, 42);
             usage.charge_vector(value.elements().len(), 4);
             usage.charge_token(value.road_alignment().key(), limits)?;
             usage.charge_reference(
@@ -698,9 +698,13 @@ fn charge_declaration(
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::AuthoringLane(value) => {
-            usage.charge_table(7, 37);
-            usage.charge_reference(
-                value.lane_edge(),
+            usage.charge_table(8, 41);
+            usage.charge_vector(value.edge_chain().len(), 4);
+            usage.charge_vector(value.interior_cut_stations_meters().len(), 8);
+            charge_relation(usage, value.interior_cut_stations_meters().len());
+            charge_references(
+                usage,
+                value.edge_chain(),
                 current_namespace,
                 import_namespaces,
                 limits,

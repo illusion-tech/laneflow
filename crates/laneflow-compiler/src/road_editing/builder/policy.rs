@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn many_unique_empty_policy_sets_are_admitted_by_real_relation_count() {
-        // 461 个策略集的两两比较数为 106030，超过常规档来源关系上限 105919；预检只按
+        // 461 个策略集的两两比较数为 106030，超过常规档来源关系上限 105967；预检只按
         // 真实字段关系计数（每个无法规来源的空策略集 3 条），去重使用受预算排序。
         const POLICY_SETS: usize = 461;
         const RELATIONS: u64 = 3 * POLICY_SETS as u64;

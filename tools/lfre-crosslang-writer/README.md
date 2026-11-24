@@ -5,14 +5,13 @@
 等价**，不是跨语言 byte 相等——两个 golden fixture 的 vtable 布局允许不同。
 
 - writer 源码：`cpp/writer.cpp`、`csharp/Program.cs`（+ `csharp/CrosslangWriter.csproj`）
-- golden fixture：`crates/laneflow-compiler/tests/fixtures/lfre-crosslang/{cpp,csharp}_writer.lfre`
+- golden fixture：`crates/laneflow-compiler/tests/fixtures/lfre-crosslang/{cpp,csharp}_writer{,_reverse}.lfre`
 - 验收测试：`crates/laneflow-compiler/tests/crosslang_lfre_fixtures.rs`
 
 固定模块内容（两个 writer 逐字段一致）：namespace `city`、文档键 `roads/crosslang-writer`、
 Direct provenance（冻结 digest 见 `crates/laneflow-compiler/src/road_editing/model.rs`）、
-Balanced5Cm / Balanced2Deg、一个 CanonicalFrame `frame`、一个走廊、区段和编制车道。走向 `alignment` 的参考线依次为 10 米直线、48 米回旋线（曲率 0 至 1/48）和 24 米圆弧（半径 48 米）。两个接点声明平顺，纵坡为零。
-参考车道派生限速 10 m/s 的 `edge-a`，其余声明向量为空。
-`format_version = 5`。
+Fine2Cm / Smooth1Deg、一个规范坐标框架、一个走廊和两条车道。走向依次为水平长 40 米的直线、半径 35 米且水平长 45 米的圆弧，以及曲率从 1/35 降至零的 16 米回旋线。全程纵坡 40/399。
+两条车道各宽 3.5 米，各有四条显式连接的边。A 在水平 47、59、68 米处切边，B 在 53、60、74 米处切边，均乘 401/399 后写为 LFRE 6 的路面站位。每种语言分别写顺向 B，以及位于独立反向区段、按 74／60／53 米保存的反向 B。Rust 读回测试将 B 的 60 米切点移到 64 米，重编并按实际规范折线核对原截面的有向边内进度。
 
 ## 钉版来源
 
@@ -42,11 +41,11 @@ C# 运行时不使用 NuGet `Google.FlatBuffers`（其上最新版落后于钉�
 3. 用钉版 argv 生成绑定：
 
    ```text
-   flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v5/road-editing.fbs
-   flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v5/road-editing.fbs
+   flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v6/road-editing.fbs
+   flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v6/road-editing.fbs
    ```
 
-4. 运行两个 writer，覆盖 golden fixture：
+4. 运行两个 writer。每个命令再以 `*_writer_reverse.lfre --reverse` 为输出参数执行一次，生成反向 B 的样例。
 
    ```bash
    mkdir -p target/tmp
@@ -62,4 +61,4 @@ C# 运行时不使用 NuGet `Google.FlatBuffers`（其上最新版落后于钉�
    `cargo +1.99.1 test --locked -p laneflow-compiler --test crosslang_lfre_fixtures` 必须通过。
 
 CI（`.github/workflows/schema-codegen.yml` 的 `crosslang-fixture` job）按同一钉版流程重新生成
-两份 bytes 并与 golden fixture 逐字节比对；writer 源码、fixture 或 schema 变更都会触发。
+四份 bytes 并与 golden fixture 逐字节比对；writer 源码、fixture 或 schema 变更都会触发。

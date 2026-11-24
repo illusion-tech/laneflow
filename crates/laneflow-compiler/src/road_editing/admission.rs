@@ -41,8 +41,8 @@ use crate::{
     RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
-const ROAD_EDITING_FRONTEND_VERSION: u32 = 5;
-const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 2;
+const ROAD_EDITING_FRONTEND_VERSION: u32 = 6;
+const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 3;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 const ARC_ALLOCATION_HEADER_BYTES: u64 = (core::mem::size_of::<usize>() as u64).saturating_mul(2);
 // v1 闭合属性路径表小于 512 项、每项最多四步。固定部分和输入相关的唯一
@@ -950,6 +950,22 @@ fn geometry_compilation_diagnostic(
                     .into(),
             ),
         ));
+    }
+    if let GeometryCompilationError::StationCollision(sources) = error {
+        let (first, second) = *sources;
+        let key = verified.input().expected_source_document_key();
+        return DiagnosticBundle::single(
+            Diagnostic::invalid_road_editing_source_at(
+                RoadEditingSourceViolation::NumericFreeze(
+                    RoadEditingNumericViolation::IndistinguishableStations,
+                ),
+                Some("authoringLane.interiorCutStationsMeters"),
+                key,
+                Some(key),
+                Some(second),
+            )
+            .with_related_location(first),
+        );
     }
     if let GeometryCompilationError::Constraint(detail) = error {
         let (violation, location) = *detail;

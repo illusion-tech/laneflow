@@ -457,7 +457,7 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 `identityEncodingVersion` 保持 `1`，`identityRegistryRevision = 4`。
 当前对象版本见[可移植规范制品格式 §1][portable-format-versions]。
 公开 API 不带世代后缀。读取器拒绝 `formatVersion != 5`。
-旧米制表与旧读取器不进当前树。LFSM `sourceMapFormatVersion = 5`，
+旧米制表与旧读取器不进当前树。LFSM `sourceMapFormatVersion = 6`，
 `canonicalArtifactFormatVersion` 等于所绑 LFCA。LFSD `semanticDiffFormatVersion = 4`。
 Genesis 的 target 合同行必须与所绑 LFCA 一致；Artifact 两端合同行仍须相等。走廊按
 Genesis 重生，不做格式迁移 diff。

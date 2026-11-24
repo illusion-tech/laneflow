@@ -946,9 +946,9 @@ fn policy_source_fixture_matches_frozen_wire() {
         include_bytes!("../../../tests/fixtures/portable/lfsm-policy-sources/expected.lfca"),
         "lfsm-policy-sources/expected.lfca（DUMP_PORTABLE 重生成）"
     );
-    assert_eq!(map.len(), 54_823);
+    assert_eq!(map.len(), 55_043);
     assert_eq!(
         object_key(sha256(&map)).as_ref(),
-        "sha256/3c330baf085928eecb245f05924534fe37ed58c01a17a410f5b4904134e4cd7a"
+        "sha256/4c5c93f5eaf2014ad9b4badc150dfd0dc5c485b05994f0ce98c19ecdfb4cebdf"
     );
 }

@@ -70,7 +70,7 @@ fn help_and_version_go_to_stdout_with_zero_exit() {
 
     let version = run(&["--version"]);
     assert!(version.status.success());
-    assert!(stdout(&version).contains("LFCA 5 / LFSM 5 / LFSD 4 / LFCP 2"));
+    assert!(stdout(&version).contains("LFCA 5 / LFSM 6 / LFSD 4 / LFCP 2"));
 }
 
 #[test]

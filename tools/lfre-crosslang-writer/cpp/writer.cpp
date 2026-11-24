@@ -1,10 +1,12 @@
 // 最小跨语言 LFRE writer（C++）。构造固定最小模块并写出 size-prefixed bytes。
 // 用途：证明非 Rust writer 产出的 bytes 能被生产 reader 接受（golden fixture）。
 // 再生成步骤与钉版来源见 tools/lfre-crosslang-writer/README.md。
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include "flatbuffers/flatbuffers.h"
@@ -35,8 +37,9 @@ template <typename T>
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::cerr << "usage: writer <output.lfre>\n";
+  const bool reverse = argc == 3 && std::string(argv[2]) == "--reverse";
+  if (argc != 2 && !reverse) {
+    std::cerr << "usage: writer <output.lfre> [--reverse]\n";
     return EXIT_FAILURE;
   }
 
@@ -56,38 +59,66 @@ int main(int argc, char **argv) {
   const auto frame = v1::CreateCanonicalFrameDirect(fbb, "frame");
 
   const v1::Vec3F64 curve_start(0.0, 0.0, 0.0);
-  const v1::Vec3F64 curve_end(10.0, 0.0, 0.0);
+  constexpr double grade = 40.0 / 399.0;
+  const v1::Vec3F64 curve_end(0.0, 40.0 * grade, 40.0);
   const auto line = v1::CreateLineSegment(fbb, &curve_end);
   const auto segment = v1::CreateCurveSegment(
       fbb, v1::CurveSegmentGeometry_LineSegment, line.Union());
-  const auto spiral = v1::CreateClothoidSegment(fbb, 48.0, 0.0, 1.0 / 48.0, 0.0);
+  const auto spiral = v1::CreateClothoidSegment(fbb, 16.0, 1.0 / 35.0, 0.0, grade);
   const auto transition = v1::CreateCurveSegment(
       fbb, v1::CurveSegmentGeometry_ClothoidSegment, spiral.Union(), 0, true);
-  const auto arc = v1::CreateCircularArcSegment(fbb, 24.0, 48.0, 0.0);
+  const auto arc = v1::CreateCircularArcSegment(fbb, 45.0, 35.0, grade);
   const auto bend = v1::CreateCurveSegment(
-      fbb, v1::CurveSegmentGeometry_CircularArcSegment, arc.Union(), 0, true);
+      fbb, v1::CurveSegmentGeometry_CircularArcSegment, arc.Union());
   const auto segments =
-      fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CurveSegment>>{segment, transition, bend});
+      fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CurveSegment>>{segment, bend, transition});
   const auto geometry = v1::CreateCurveProgram(fbb, &curve_start, segments);
-  const auto edge = v1::CreateLaneEdgeDirect(fbb, "edge-a", 10.0, &no_imports);
   const auto alignment = v1::CreateRoadAlignmentDirect(fbb, "alignment", "frame", geometry);
   const char *section_ref = "road>section";
-  const char *lane_ref = "road>section>lane";
+  const char *lane_ref = "road>section>A";
   const auto element = v1::CreateCorridorElementDirect(fbb, v1::CorridorElementKind_RoadSection, section_ref);
-  const std::vector<::flatbuffers::Offset<v1::CorridorElement>> elements{element};
+  std::vector<::flatbuffers::Offset<v1::CorridorElement>> elements{element};
+  if (reverse) {
+    elements.push_back(v1::CreateCorridorElementDirect(fbb, v1::CorridorElementKind_RoadSection, "road>opposite"));
+  }
   const auto corridor = v1::CreateRoadCorridorDirect(fbb, "road", "alignment", 0.0,
       v1::StationEndKind_AlignmentEnd, 0.0, section_ref, lane_ref, &elements);
-  const std::vector<::flatbuffers::Offset<::flatbuffers::String>> lane_refs{fbb.CreateString(lane_ref)};
-  const auto section = v1::CreateRoadSectionDirect(fbb, "section", "motorLane", &lane_refs, nullptr, "road");
+  std::vector<::flatbuffers::Offset<v1::LaneEdge>> edges;
+  std::vector<::flatbuffers::Offset<v1::AuthoringLane>> lanes;
+  std::vector<::flatbuffers::Offset<::flatbuffers::String>> lane_refs;
+  std::vector<::flatbuffers::Offset<::flatbuffers::String>> opposite_refs;
   const v1::LinearWidthProfile width(3.5, 3.5);
-  const auto lane = v1::CreateAuthoringLaneDirect(fbb, "lane", "edge-a", v1::LaneDirection_Forward,
-      &width, nullptr, nullptr, section_ref);
+  auto add_lane = [&](const std::string &key, std::vector<double> cuts, bool backward) {
+    if (backward) std::reverse(cuts.begin(), cuts.end());
+    for (double &station : cuts) station = station * 401.0 / 399.0;
+    std::vector<::flatbuffers::Offset<::flatbuffers::String>> chain;
+    for (size_t i = 0; i <= cuts.size(); ++i) {
+      const size_t edge_index = backward ? cuts.size() - i : i;
+      const std::string edge = key + "-" + std::to_string(edge_index);
+      chain.push_back(fbb.CreateString(edge));
+      std::vector<::flatbuffers::Offset<::flatbuffers::String>> successors;
+      if (i < cuts.size()) successors.push_back(fbb.CreateString(key + "-" + std::to_string(backward ? edge_index - 1 : edge_index + 1)));
+      edges.push_back(v1::CreateLaneEdgeDirect(fbb, edge.c_str(), 10.0, &successors));
+    }
+    const char *owner = backward ? "road>opposite" : section_ref;
+    (backward ? opposite_refs : lane_refs).push_back(fbb.CreateString(std::string(owner) + ">" + key));
+    lanes.push_back(v1::CreateAuthoringLaneDirect(fbb, key.c_str(), &chain,
+        backward ? v1::LaneDirection_Backward : v1::LaneDirection_Forward, &width, nullptr, nullptr, owner, &cuts));
+  };
+  add_lane("A", {47, 59, 68}, false);
+  add_lane("B", {53, 60, 74}, reverse);
+  const auto section = v1::CreateRoadSectionDirect(fbb, "section", "motorLane", &lane_refs, nullptr, "road");
+
+  std::vector<::flatbuffers::Offset<v1::RoadSection>> sections{section};
+  if (reverse) {
+    sections.push_back(v1::CreateRoadSectionDirect(fbb, "opposite", "motorLane", &opposite_refs, nullptr, "road"));
+  }
 
   const auto road_alignment_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadAlignment>>{alignment});
   const auto road_corridor_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadCorridor>>{corridor});
-  const auto road_section_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadSection>>{section});
-  const auto authoring_lane_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::AuthoringLane>>{lane});
-  const auto lane_edge_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::LaneEdge>>{edge});
+  const auto road_section_rows = fbb.CreateVector(sections);
+  const auto authoring_lane_rows = fbb.CreateVector(lanes);
+  const auto lane_edge_rows = fbb.CreateVector(edges);
   const auto junction_rows = EmptyVectorOf<v1::Junction>(fbb);
   const auto movement_rows = EmptyVectorOf<v1::Movement>(fbb);
   const auto maneuver_path_rows = EmptyVectorOf<v1::ManeuverPath>(fbb);
@@ -111,10 +142,10 @@ int main(int argc, char **argv) {
   const auto right_of_way_policy_set_rows = EmptyVectorOf<v1::RightOfWayPolicySet>(fbb);
   const auto root = v1::CreateRoadEditingSource(
       fbb,
-      /*format_version=*/5,
+      /*format_version=*/6,
       header,
-      v1::GeometryAccuracyProfile_Balanced5Cm,
-      v1::GeometryDirectionProfile_Balanced2Deg,
+      v1::GeometryAccuracyProfile_Fine2Cm,
+      v1::GeometryDirectionProfile_Smooth1Deg,
       road_alignment_rows,
       road_corridor_rows,
       road_section_rows,

@@ -970,6 +970,7 @@ pub(crate) enum AuthoringLaneDirection {
     reason = "consumed by the following topology/geometry compiler slice"
 )]
 pub(crate) struct RoadCorridorAuthoringGeometry {
+    pub(crate) station_mapping_request: Option<SourceLocation>,
     pub(crate) road_alignment_key: Arc<str>,
     /// `road_alignment_key` 字段自身的叶来源位置。
     pub(crate) road_alignment_key_span: SourceLocation,
@@ -984,6 +985,7 @@ pub(crate) struct RoadCorridorAuthoringGeometry {
     reason = "consumed by the following topology/geometry compiler slice"
 )]
 pub(crate) struct AuthoringLaneGeometry {
+    pub(crate) interior_cuts: Box<[(f64, SourceLocation)]>,
     pub(crate) direction: AuthoringLaneDirection,
     pub(crate) width_profile: AuthoringWidthProfile,
 }

@@ -397,7 +397,7 @@ fn policy_reference_fixture_matches_frozen_bytes() {
     assert_eq!(bytes.len(), 32_066);
     assert_eq!(
         object_key(sha256(&bytes)).as_ref(),
-        "sha256/d4cfb3eb11b14c5e27b2068f3d25c7fbb5785b40a86baae61f9aa847b77de64e"
+        "sha256/d16ea3b726a64b0ccc480470564998b9548562f554cd3173530395a53e77f3b6"
     );
     laneflow_format::check_canonical_network_input(bytes.as_ref(), FormatLimits::HARD).unwrap();
     check(&object, u64::MAX).unwrap();

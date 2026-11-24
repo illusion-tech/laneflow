@@ -40,10 +40,6 @@ impl StructureSizing {
             .saturating_add(bytes::<AuthoringLaneDeclaration>(
                 root.authoring_lanes().len(),
             ))
-            // 每条 authoring lane 恰有一条派生 edge；lane 的 inline header 已计入上项。
-            .saturating_add(bytes::<OwnedEntityReference<LaneEdgeKind>>(
-                root.authoring_lanes().len(),
-            ))
             .saturating_add(bytes::<SignalPhaseDeclaration>(root.signal_phases().len()))
             .saturating_add(bytes::<ConflictZoneRegionDeclaration>(
                 root.conflict_zone_regions().len(),
@@ -51,6 +47,15 @@ impl StructureSizing {
             .saturating_add(size_bytes::<AuthoringPoint2F64>(
                 counts.conflict_region_point_count(),
             ));
+        for lane in root.authoring_lanes() {
+            retained = retained
+                .saturating_add(bytes::<OwnedEntityReference<LaneEdgeKind>>(
+                    lane.edge_chain().len(),
+                ))
+                .saturating_add(bytes::<(f64, SourceLocation)>(
+                    lane.interior_cut_stations_meters().len(),
+                ));
+        }
         for corridor in root.road_corridors() {
             retained = retained.saturating_add(bytes::<OwnedCorridorElementReference>(
                 corridor.elements().len(),
@@ -233,12 +238,20 @@ pub(super) fn assert_matches_lowered(
                 storage(&edge.successors)
             }
             TypedAstDeclaration::RoadCorridor(corridor) => storage(&corridor.elements),
-            TypedAstDeclaration::RoadSection(section) => section
-                .lanes
-                .iter()
-                .fold(storage(&section.lanes), |total, lane| {
-                    total.saturating_add(storage(&lane.edge_chain))
-                }),
+            TypedAstDeclaration::RoadSection(section) => {
+                section
+                    .lanes
+                    .iter()
+                    .fold(storage(&section.lanes), |total, lane| {
+                        total
+                            .saturating_add(storage(&lane.edge_chain))
+                            .saturating_add(
+                                lane.authoring_geometry
+                                    .as_ref()
+                                    .map_or(0, |geometry| storage(&geometry.interior_cuts)),
+                            )
+                    })
+            }
             TypedAstDeclaration::Junction(junction) => {
                 storage(&junction.approach_edges).saturating_add(storage(&junction.internal_edges))
             }

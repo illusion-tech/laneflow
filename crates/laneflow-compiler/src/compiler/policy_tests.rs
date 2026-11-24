@@ -597,7 +597,7 @@ fn malformed_lfre_policy_is_rejected_and_admission_can_retry() {
         error.diagnostics()[0].payload(),
         DiagnosticPayload::InvalidRoadEditingSource {
             violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                expected: 5,
+                expected: 6,
                 actual: 3
             },
             ..

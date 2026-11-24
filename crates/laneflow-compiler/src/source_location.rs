@@ -411,6 +411,10 @@ pub enum RoadEditingRelationKind {
     PolicyStreamRule,
     /// 路权策略集对门合规规则的关系。
     PolicyGateRule,
+    /// 编制车道行驶方向上的有序边引用。
+    AuthoringLaneEdge,
+    /// 行驶方向上两个相邻边之间的切点。
+    InteriorCut,
 }
 
 /// 有序产品关系或规范集合关系中的稳定 occurrence。
