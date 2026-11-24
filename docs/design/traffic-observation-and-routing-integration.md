@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-observation-and-routing-integration"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-21"
+revised_date = "2026-11-24"
 summary = "定义交通观测、动态成本与宿主候选路线接入。"
 scope = "已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/303"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/303", "https://github.com/illusion-tech/laneflow/issues/1532"]
 related = ["adr-0020", "adr-0021", "adr-0029", "adr-0033", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
 +++
 
@@ -64,6 +64,31 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 `register_route` 仍是唯一出现记录编译器：场景 catalog 可继续把同修订共享静态路网边序号
 直接交给它；Routing 候选入口只是在它之前增加稳定标识解析和来源绑定校验，不得
 复制第二套连通、机动、门、等待区或准入编译器。
+
+<a id="host-static-routing"></a>
+### 1.1 宿主按起终车道和车型静态选路
+
+发车前，宿主可在固定步进之外使用同一份共享静态路网修订选路。起点和终点取路口内部以外的
+有向车道图边，终点边不能带停止线，行程到该边出口结束。宿主从车辆配置取得参与者类别，
+在当前修订内搜索，将得到的边序列交给同一修订上的 `register_route`。这个场景沿用现有
+公开查询和注册入口，选路逻辑放在宿主示例。使用交通观测或动态成本快照的候选则须通过
+`register_candidate_route` 核对 §4 的来源绑定和有效期。
+
+宿主可以从 `successors` 取得后继边。路口机动的各跳也在后继表中，逐边连通无法判定一次
+转向是否准许该车型通过。在入口边查询 `transition_candidates`，其中 `transition_index() == 0`
+标识机动的首跳。宿主按 `maneuver_path(...).edges()` 展开完整序列，并查询该机动的
+`path_access` 以及所经各边的 `edge_access`。若机动对该车型禁行，仍把它的首跳当作普通后继
+会绕过搜索中的转向限制。
+两种准入查询都返回当前修订已解析的裁决，宿主可直接使用，无需重算规则优先级或类别继承。
+
+成本与同成本路线的选择由宿主定义。一个独立 Rust 宿主在含两条完整机动的分岔路网上，以路线总长
+（整数毫米）选路，同长时按有序边稳定标识序列比较。乘用车走较短路线，货车绕过禁行机动，
+两者注册并生成后都到达目标边出口。货车唯一可用的绕行边也被禁止时，在同一拓扑上忽略车型仍能
+找到路，由此可区分车型禁行与拓扑不连通。Runtime 在注册时校验路线内容，车辆绑定时检查车型，
+随后按固定步进执行。注册或绑定失败时，宿主应保留该命令的错误原因。
+这次验证使用源码依赖，覆盖一个无信号路口。Alpha 分发包的接口支持面由 #1329 审查，
+外部宿主消费分发包的验证由 #1331 承接。
+复杂路口、等待区车辆长度约束和城市规模搜索需要各自的证据。[产品设计任务][issue-1532]
 
 ## 2. 已提交交通观测
 
@@ -743,3 +768,4 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [issue-1337-small]: https://github.com/illusion-tech/laneflow/issues/1337#issuecomment-7050422385
 [routing-candidate-admission]: https://github.com/illusion-tech/laneflow/tree/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1267-routing-candidate-admission
 [shared-identity-order]: shared-static-network.md#61-sharedidentityindex
+[issue-1532]: https://github.com/illusion-tech/laneflow/issues/1532
