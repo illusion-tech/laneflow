@@ -104,7 +104,7 @@ rename、no-replace、目录耐久或 winner 竞争。
 
 #### LFCA admission
 
-只承认 LFCA/LFSM/LFSD `5/4/4`：受检输入字段私有，digest / exact length /
+只承认 LFCA/LFSM/LFSD `6/6/5`：受检输入字段私有，digest / exact length /
 `NetworkRevisionId` 闭合；
 object kind 精确为 LFCA，chunk directory、chunk digest、连续逻辑范围与当前 registry
 全部预检。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的
@@ -166,7 +166,7 @@ RoadEditingState
 可编辑 session 为后续 `PortableDiffBase::Artifact` 保留的 exact LFCA 由 editor/#302 作为
 `EditableDiffBase` 单独拥有，不进入 `SharedNetworkRevision`，也不改变 builder 的借用边界。
 
-两条路径都只接受 `formatVersion = 5` 的受检输入。
+两条路径都只接受本节规定版本的受检 LFCA。
 
 ## 4. 根修订与 component
 
@@ -178,6 +178,7 @@ pub struct SharedNetworkRevision {
     traffic: SharedTrafficNetwork,
     identity: SharedIdentityIndex,
     planning_hints: PartitionPlanningHints,
+    station: SharedStationMapping,
     spatial: Option<SharedSpatialNetwork>,
 }
 ```
@@ -193,6 +194,7 @@ pub struct SharedNetworkRevision {
 - `network_revision()`；
 - `canonical_origin()` 的只读 fixed metadata；
 - `traffic()`、`identity()`、`planning_hints()`；
+- `station_mapping()` 返回开放走廊的共享里程查询。`Omit` 与 `RetainAvailable` 构建时均保留第九节的设施带边界列，查询值与单位见[变宽设施带][station-bands]；
 - `spatial() -> Option<&SharedSpatialNetwork>`；
 - component 的计数、typed handle/range 和批量 slice accessor。
 
@@ -329,7 +331,7 @@ LFCA、`NetworkRevisionId` 或存档兼容性，也不得改变精确执行结�
 
 - direction profile、canonical frame 与实际存在的 geometry capability；
 - 可选 lane-pose 子视图：edge-aligned geometry handle、flat canonical `f32` points、
-  cumulative arc/segment/sampling ranges，以及按 LFCA（`formatVersion = 5`）
+  cumulative arc/segment/sampling ranges，以及按 LFCA
   冻结容差谓词闭合的 Traffic 边长；
 - 独立的 FacilityBand geometry 子集与连续 points/ranges。
 
@@ -360,7 +362,7 @@ CheckedCanonicalNetworkInput
   -> SharedNetworkRevision
 ```
 
-算法起点是 `formatVersion = 5` 的受检输入。不得靠 `formatVersion` 隐式把米列当成毫米。
+算法从 §3.1 的受检 LFCA 开始，按字段登记的单位读入几何值。
 
 pass A/B 都按 LFCA wire order 线性遍历，不使用保留的 O(n) ordinal random-access API 形成
 O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pass，但不得增加第二个 projection。
@@ -778,5 +780,6 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 [host-static-routing]: traffic-observation-and-routing-integration.md#host-static-routing
 [portable-artifact-geometry]: portable-canonical-artifact.md#371-规范几何数值闭合
 [state-integrity]: traffic-runtime-state-integrity.md
+[station-bands]: cross-section-stationing-and-lateral-geometry.md#31-用变宽分隔带核对覆盖与邻接
 [committed-editing]: committed-road-editing-state.md
 [revision-cutover-promotion]: traffic-runtime-revision-cutover.md#7-原子晋升与共存

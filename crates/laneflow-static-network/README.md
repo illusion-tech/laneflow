@@ -19,6 +19,7 @@ check_canonical_network_input → build_shared_network_revision → Arc<SharedNe
 ## 主要约束与限制
 
 - `SpatialBuildOption::Omit` 仍检查几何连通，但不保留 Spatial 载荷。`RetainAvailable` 在 LFCA 带有空间载荷时把它留在修订里。没有 Spatial component 时，`SpatialSession::bind` 返回 `Ok(None)`。
+- 对已开放映射的走廊，两种 Spatial 选项均可通过 `station_mapping().facility_band_bounds(...)` 查询设施带。输入走廊局部站位闭区间，单截面使用相同的两个站位。结果给出左右边界各自的有符号纳米范围，已向外计入发布的横向误差。
 - 保留字节、暂存字节和策略工作预算都是调用方上限。超限失败，不产出修订。
 - `attestation-fixtures` 默认关闭。`laneflow-runtime` 的 dev-dependencies 为其他测试打开它；普通宿主构建不要启用。该 feature 不改写在用修订。无窗口示例不调用这些测试入口。
 - 构建成功不表示宿主已经信任这份发布，也不代替运行时安装时的来源修订核对。

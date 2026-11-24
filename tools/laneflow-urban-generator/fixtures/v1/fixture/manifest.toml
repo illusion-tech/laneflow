@@ -13,8 +13,8 @@ source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v
 lir_logical_records = 82014
 compiler_output_logical_bytes = 2220654
 compiler_controlled_peak_bytes = 33862608
-shared_headless_retained_bytes = 671700
-shared_spatial_retained_bytes = 1881796
+shared_headless_retained_bytes = 671716
+shared_spatial_retained_bytes = 1881812
 resolved_policy_gate_rows = 528
 resolved_policy_stream_rows = 516
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
@@ -533,6 +533,76 @@ rows = 1
 chunks = 1
 max_chunk_rows = 1
 max_chunk_bytes = 76
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationCorridor"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationAnchor"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationLane"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationEdge"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationSpan"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationBand"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "BoundaryExtent"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
 
 [lfca_tables.nested_rows]
 

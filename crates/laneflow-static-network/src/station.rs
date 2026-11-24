@@ -1,6 +1,6 @@
 //! 同一修订内，走廊截面与有向边局部进度之间的有界查询。
 use laneflow_static_contract::{
-    AuthoringLaneOrdinal, LaneEdgeOrdinal, RoadCorridorOrdinal, StationSpan,
+    AuthoringLaneOrdinal, FacilityBandOrdinal, LaneEdgeOrdinal, RoadCorridorOrdinal, StationSpan,
 };
 
 use crate::RangeU32;
@@ -17,6 +17,15 @@ pub struct StationDomain {
     pub length_nm: u64,
     /// 来源起点相对于规范起点的误差上界。
     pub origin_error_nm: u32,
+}
+
+/// 所查站位范围内，设施带两条边界各自的横向偏移闭区间，沿参考方向左正。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FacilityBandBounds {
+    /// 左边界偏移的下、上界，单位纳米，已计入横向误差。
+    pub left_nm: [i64; 2],
+    /// 右边界偏移的下、上界，单位纳米，已计入横向误差。
+    pub right_nm: [i64; 2],
 }
 
 /// 一次边进度反查的结果。
@@ -106,6 +115,14 @@ struct Segment {
     map: StationSpan,
 }
 
+struct Band {
+    ordinal: FacilityBandOrdinal,
+    corridor: RoadCorridorOrdinal,
+    left_um: [i32; 2],
+    right_um: [i32; 2],
+    error_nm: u32,
+}
+
 /// 从受检 LFCA 构建，只保存交通裁决所需的站位列。
 #[derive(Default)]
 pub struct SharedStationMapping {
@@ -113,6 +130,7 @@ pub struct SharedStationMapping {
     lanes: Box<[Option<Lane>]>,
     edges: Box<[Option<Edge>]>,
     segments: Box<[Segment]>,
+    bands: Box<[Band]>,
 }
 
 // 每次比较后直接排除一个中点。4096 段至多比较 13 次，1600 万段至多 24 次。
@@ -134,13 +152,53 @@ impl SharedStationMapping {
         (size_of_val(&*self.domains)
             + size_of_val(&*self.lanes)
             + size_of_val(&*self.edges)
-            + size_of_val(&*self.segments)) as u64
+            + size_of_val(&*self.segments)
+            + size_of_val(&*self.bands)) as u64
     }
 
     /// 返回已开放走廊的参考线起点与局部长度。
     #[must_use]
     pub fn corridor_domain(&self, corridor: RoadCorridorOrdinal) -> Option<StationDomain> {
         self.domains.get(corridor.index()).copied().flatten()
+    }
+
+    /// 查询走廊局部站位闭区间内的设施带边界。单截面以两个相同的纳米站位表示。
+    /// 对已发布设施带按序号二分定位，沿走廊递增方向插值，返回向外取整的误差包络。
+    /// 走廊或设施带未开放映射、归属不符、站位倒序或越界时返回空。
+    #[must_use]
+    pub fn facility_band_bounds(
+        &self,
+        corridor: RoadCorridorOrdinal,
+        band: FacilityBandOrdinal,
+        stations_nm: [u64; 2],
+    ) -> Option<FacilityBandBounds> {
+        let length = self.corridor_domain(corridor)?.length_nm;
+        if stations_nm[0] > stations_nm[1] || stations_nm[1] > length {
+            return None;
+        }
+        let index = self.bands.binary_search_by_key(&band, |b| b.ordinal).ok()?;
+        let band = &self.bands[index];
+        if band.corridor != corridor {
+            return None;
+        }
+        let bounds = |[start, end]: [i32; 2]| {
+            // 长度为 u64、横向端点为 i32 微米，分子的带符号纳米积可由 i128 完整容纳。
+            let values = stations_nm.map(|s| {
+                (i128::from(start) * i128::from(length - s) + i128::from(end) * i128::from(s))
+                    * 1_000
+            });
+            let denominator = i128::from(length);
+            let low = values[0].min(values[1]).div_euclid(denominator);
+            let upper = values[0].max(values[1]);
+            let high =
+                upper.div_euclid(denominator) + i128::from(upper.rem_euclid(denominator) != 0);
+            let error = i64::from(band.error_nm);
+            [low as i64 - error, high as i64 + error]
+        };
+        Some(FacilityBandBounds {
+            left_nm: bounds(band.left_um),
+            right_nm: bounds(band.right_um),
+        })
     }
 
     /// 仅反查普通整数毫米读数；结果以源边所属走廊的局部站位表示。
@@ -373,6 +431,7 @@ mod tests {
                 lanes: vec![Some(row)].into(),
                 edges: owners.into(),
                 segments: segments.into(),
+                bands: Box::default(),
             },
             row,
         )
@@ -395,6 +454,87 @@ mod tests {
                     other => panic!("unexpected {other:?}"),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn facility_band_query_encloses_both_slopes_and_rejects_wrong_domains() {
+        let (mut map, lane) = mapping(1, 1, false);
+        let corridor = lane.corridor;
+        let other = RoadCorridorOrdinal::from_raw(1);
+        let band = FacilityBandOrdinal::from_raw(8);
+        let retained = map.retained_logical_bytes();
+        map.domains = vec![
+            Some(StationDomain {
+                origin_nm: 50,
+                length_nm: 3,
+                origin_error_nm: 1,
+            });
+            2
+        ]
+        .into();
+        map.bands = vec![Band {
+            ordinal: band,
+            corridor,
+            left_um: [2, 0],
+            right_um: [-2, 0],
+            error_nm: 7,
+        }]
+        .into();
+        assert_eq!(
+            map.retained_logical_bytes() - retained,
+            (size_of::<Option<StationDomain>>() + size_of::<Band>()) as u64
+        );
+        assert_eq!(
+            map.facility_band_bounds(corridor, band, [1, 1]),
+            Some(FacilityBandBounds {
+                left_nm: [1_326, 1_341],
+                right_nm: [-1_341, -1_326],
+            })
+        );
+        assert_eq!(
+            map.facility_band_bounds(corridor, band, [1, 2]),
+            Some(FacilityBandBounds {
+                left_nm: [659, 1_341],
+                right_nm: [-1_341, -659],
+            })
+        );
+        assert_eq!(
+            map.facility_band_bounds(corridor, band, [3, 3]),
+            Some(FacilityBandBounds {
+                left_nm: [-7, 7],
+                right_nm: [-7, 7],
+            })
+        );
+        for (owner, id, stations) in [
+            (other, band, [0, 0]),
+            (corridor, FacilityBandOrdinal::from_raw(9), [0, 0]),
+            (corridor, band, [2, 1]),
+            (corridor, band, [3, 4]),
+        ] {
+            assert_eq!(map.facility_band_bounds(owner, id, stations), None);
+        }
+    }
+
+    #[test]
+    fn facility_band_interpolation_preserves_sub_nanometre_extrema_on_the_full_integer_domain() {
+        let (mut map, lane) = mapping(1, 1, false);
+        let corridor = lane.corridor;
+        let band = FacilityBandOrdinal::from_raw(0);
+        map.domains[0].as_mut().unwrap().length_nm = u64::MAX;
+        map.bands = vec![Band {
+            ordinal: band,
+            corridor,
+            left_um: [i32::MAX, i32::MIN],
+            right_um: [i32::MIN; 2],
+            error_nm: 0,
+        }]
+        .into();
+        let mid = u64::MAX / 2;
+        for (s, expected) in [(mid, [-500, -499]), (mid + 1, [-501, -500])] {
+            let bounds = map.facility_band_bounds(corridor, band, [s, s]).unwrap();
+            assert_eq!(bounds.left_nm, expected);
+            assert_eq!(bounds.right_nm, [i64::from(i32::MIN) * 1_000; 2]);
         }
     }
 

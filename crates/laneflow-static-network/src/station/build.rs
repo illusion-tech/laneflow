@@ -1,10 +1,12 @@
 use super::*;
-use crate::builder::{allocate_vec, checked_field, checked_u8, checked_u32, poll_cancelled};
+use crate::builder::{
+    allocate_vec, checked_field, checked_i32, checked_u8, checked_u32, poll_cancelled,
+};
 use crate::{
     BuildError, BuildStructure, CorridorElement, SharedNetworkBuildOptions, SharedTrafficNetwork,
 };
 use laneflow_format::{RegistryCheckedFieldValue, RegistryCheckedRowView, ValueCheckedObjectView};
-use laneflow_static_contract::{EntityKind, FacilityBandOrdinal, RoadSectionOrdinal};
+use laneflow_static_contract::{EntityKind, RoadSectionOrdinal};
 
 const STRUCTURE: BuildStructure = BuildStructure::StationMapping;
 const INVALID: BuildError = BuildError::InputInvariant {
@@ -90,7 +92,8 @@ pub(crate) fn build(
             bytes(nc, size_of::<Option<StationDomain>>())
                 + bytes(nl, size_of::<Option<Lane>>())
                 + bytes(ne, size_of::<Option<Edge>>())
-                + bytes(spans.row_count(), size_of::<Segment>()),
+                + bytes(spans.row_count(), size_of::<Segment>())
+                + bytes(bands.row_count(), size_of::<Band>()),
         )
         .ok_or(INVALID)?;
     let scratch =
@@ -291,6 +294,7 @@ pub(crate) fn build(
             }
         }
     }
+    let mut band_index = allocate_vec(bands.row_count(), STRUCTURE)?;
     last = None;
     for (i, row) in bands.rows().enumerate() {
         let at = mapping_row(6, i as u32);
@@ -305,6 +309,19 @@ pub(crate) fn build(
             at,
             index(row, 2)? == range.start() && index(row, 3)? == range.start() + range.len() - 1,
         )?;
+        band_index.push(Band {
+            ordinal: ord,
+            corridor: c,
+            left_um: [
+                checked_i32(row, 4, STRUCTURE)?,
+                checked_i32(row, 6, STRUCTURE)?,
+            ],
+            right_um: [
+                checked_i32(row, 5, STRUCTURE)?,
+                checked_i32(row, 7, STRUCTURE)?,
+            ],
+            error_nm: index(row, 8)?,
+        });
     }
     let mut prev = None;
     for (i, row) in extents.rows().enumerate() {
@@ -351,5 +368,6 @@ pub(crate) fn build(
         lanes: lane_index.into_boxed_slice(),
         edges: edge_index.into_boxed_slice(),
         segments: segments.into_boxed_slice(),
+        bands: band_index.into_boxed_slice(),
     })
 }
