@@ -2,7 +2,7 @@
 //!
 //! 纯计算：读变更文件清单、`cargo metadata` 的 workspace 依赖图与额外输入
 //! 注册表（`xtask/data/ci-extra-inputs.toml`），产出受影响包集与各验证任务的
-//! 执行范围。不执行任何构建；本模块自身不接线 CI 门禁（影子阶段另行交付）。
+//! 执行范围。PR 的 Evidence、Placement、Urban 专项消费该计划并核对步骤结果。
 //!
 //! 失败关闭语义（合同 §4）：读取或解析失败由命令以非零退出承载，调用方按
 //! 全量处理；文件归类落入「未知」态时直接扩大为完整适用套件；「成功计算后
@@ -17,6 +17,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+mod specialists;
 
 const REGISTRY_PATH: &str = "xtask/data/ci-extra-inputs.toml";
 const REGISTRY_TOML: &str = include_str!("../data/ci-extra-inputs.toml");
@@ -376,11 +378,21 @@ enum TaskPackages {
     /// 固定配置任务：只要存在任何 Rust 种子即执行（与现行 rust 布尔门同语义；
     /// 配置身份固定，不随闭包收窄——收窄评估留给影子期数据）。
     Fixed(&'static [&'static str]),
-    /// 受影响集与门集合相交非空（或存在任何种子）才执行，执行范围为固定集合。
+    /// 全量或受影响集与门集合相交时执行，执行范围为固定集合。
     Gate {
         gate: &'static [&'static str],
         packages: &'static [&'static str],
     },
+}
+
+impl TaskPackages {
+    /// 任一目标包受影响即运行整组，保持专项原有的 feature 与目标覆盖。
+    const fn when_affected(packages: &'static [&'static str]) -> Self {
+        Self::Gate {
+            gate: packages,
+            packages,
+        }
+    }
 }
 
 struct TaskDef {
@@ -398,7 +410,7 @@ const TASKS: &[TaskDef] = &[
     },
     TaskDef {
         name: "clippy-execution-evidence",
-        packages: TaskPackages::Fixed(&["laneflow-runtime", "laneflow-urban-harness"]),
+        packages: TaskPackages::when_affected(&["laneflow-runtime", "laneflow-urban-harness"]),
         note: "execution-evidence feature 的 clippy 护栏，配置身份固定",
     },
     TaskDef {
@@ -411,7 +423,7 @@ const TASKS: &[TaskDef] = &[
     },
     TaskDef {
         name: "test-execution-evidence",
-        packages: TaskPackages::Fixed(&["laneflow-runtime"]),
+        packages: TaskPackages::when_affected(&["laneflow-runtime"]),
         note: "--lib 精确目标（#1462）",
     },
     TaskDef {
@@ -449,27 +461,30 @@ const TASKS: &[TaskDef] = &[
     },
     TaskDef {
         name: "test-urban-evidence",
-        packages: TaskPackages::Fixed(&["laneflow-urban-harness", "laneflow-urban-generator"]),
-        note: "证据仪器与生成器整包重测（#1108 分层）",
+        packages: TaskPackages::when_affected(&[
+            "laneflow-urban-harness",
+            "laneflow-urban-generator",
+        ]),
+        note: "Urban harness 或 generator 受影响时重测两包的默认配置（#1108）",
     },
     TaskDef {
         name: "test-corridor-smoke",
-        packages: TaskPackages::Fixed(&["laneflow-bevy"]),
-        note: "--test corridor_traffic_smoke 精确目标（#1462）",
+        packages: TaskPackages::when_affected(&["laneflow-bevy"]),
+        note: "Bevy 受影响时运行 --test corridor_traffic_smoke（#1462）",
     },
     TaskDef {
         name: "placement-fixtures",
-        packages: TaskPackages::Fixed(&[
+        packages: TaskPackages::when_affected(&[
             "laneflow-runtime",
             "laneflow-scenario",
             "laneflow-junction-generator",
         ]),
-        note: "空 feature 副作用护栏：clippy + nextest 全量重跑（#748 P3）",
+        note: "Runtime、Scenario 或 junction-generator 受影响时运行三包的 placement-fixtures clippy 与测试",
     },
     TaskDef {
         name: "test-urban-adapter",
-        packages: TaskPackages::Fixed(&["laneflow-urban-harness"]),
-        note: "adapter feature 的 harness 测试",
+        packages: TaskPackages::when_affected(&["laneflow-urban-harness"]),
+        note: "Urban harness 受影响时运行其 adapter 配置测试",
     },
     TaskDef {
         name: "wire-audit",
@@ -652,9 +667,9 @@ enum RegistryCheck {
     Drift(Vec<String>),
 }
 
-/// 计划生成前的注册表自检。三类差异各自成项：清点到而未登记的跨包嵌入
+/// 计划生成前的注册表自检。差异各自成项：清点到而未登记的跨包嵌入
 /// （对应文件变更时会漏选嵌入方）、登记了却已不存在或嵌入方不符的条目
-/// （登记失效）、未核对的非字面量实参出现位置（目标无法静态解析）。对账
+/// （登记失效）、嵌入了却仍判不适用的 README、未核对的非字面量实参出现位置。对账
 /// 本身做不完（读不了、解析不了）按计算失败返回错误，不产出计划。
 fn check_registry(
     workspace: &Workspace,
@@ -664,6 +679,16 @@ fn check_registry(
     let (scanned, unparsed) = scan_embeds(workspace, repo_root)?;
     let cross = cross_package_embeds(&scanned, workspace);
     let mut drift = Vec::new();
+    for (path, embedders) in &scanned {
+        if path.rsplit('/').next() == Some("README.md")
+            && let FileState::NotApplicable(pattern) = classify(path, workspace, registry)
+        {
+            drift.push(format!(
+                "README 已被嵌入却命中不适用规则 {pattern}：{path}（嵌入方 {}）",
+                join(embedders)
+            ));
+        }
+    }
     for (target, embedders) in &cross {
         match registry.embed.get(target) {
             None => drift.push(format!(
@@ -751,6 +776,11 @@ fn collect_include_literals(file: &syn::File) -> Vec<String> {
         targets: Vec<String>,
     }
     impl syn::visit::Visit<'_> for Visitor {
+        fn visit_meta_list(&mut self, meta: &syn::MetaList) {
+            // cfg_attr 等属性列表保留为 token，syn 不会将其中的 doc 嵌入解析为表达式。
+            scan_nested_includes(&meta.tokens, &mut self.targets);
+        }
+
         fn visit_macro(&mut self, mac: &syn::Macro) {
             let ident = mac.path.segments.last().map(|s| s.ident.to_string());
             if ident.as_deref() == Some("include_str") || ident.as_deref() == Some("include_bytes")
@@ -876,6 +906,9 @@ fn resolve_embed_target(repo_root: &Path, source: &Path, literal: &str) -> Resul
 // ---------------------------------------------------------------------------
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
+    if matches!(args, [flag] if flag == "--pr-specialists") {
+        return specialists::produce();
+    }
     let mut rev_range: Option<&str> = None;
     let mut files_path: Option<&str> = None;
     let mut metadata_path: Option<&str> = None;
@@ -998,7 +1031,8 @@ fn changed_files(rev_range: &str) -> Result<BTreeSet<String>, String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let text = std::str::from_utf8(&output.stdout)
+        .map_err(|error| format!("ci-plan: git diff 路径不是 UTF-8：{error}"))?;
     let tokens: Vec<&str> = text.split('\0').filter(|token| !token.is_empty()).collect();
     let mut files = BTreeSet::new();
     let mut index = 0;
@@ -1162,16 +1196,20 @@ fn print_summary(plan: &Plan) {
 }
 
 // ---------------------------------------------------------------------------
-// 影子模式（#1464 影子批次）：编排逻辑（事件载荷取基线、git fetch、计划
-// 生成前的注册表对账、summary 写入、失败语义）全部在本模块（Rust，含
-// 单测），workflow 只保留一步命令调用。失败语义：内部任何失败写入 summary
-// 失败块后成功退出——可见不设卡（阻断属切换后的 fail-closed，设计合同
-// §6）。对账不一致不是失败：计划照常产出，只是退回全量并写明差异。
+// Actions 事件计划使用合并快照的完整差异。影子模式把计算错误写入 summary，
+// PR 专项的全量回退与正式执行选择由 specialists 模块处理。
 // ---------------------------------------------------------------------------
 
 fn run_shadow() -> Result<(), String> {
-    let markdown = match shadow_report() {
-        Ok(markdown) => markdown,
+    let markdown = match std::env::var("GITHUB_EVENT_NAME")
+        .map_err(|_| "缺少 GITHUB_EVENT_NAME".to_owned())
+        .and_then(|event| event_plan(&event))
+    {
+        Ok(plan) => plan_markdown(
+            "影子验证计划（#1464，不改变门禁行为）",
+            &plan_summary_text(&plan),
+            &plan_json_text(&plan),
+        ),
         Err(error) => shadow_failure_markdown(&error),
     };
     append_step_summary(&markdown)
@@ -1185,14 +1223,10 @@ fn append_step_summary(markdown: &str) -> Result<(), String> {
                 .create(true)
                 .append(true)
                 .open(&path)
-                .map_err(|error| {
-                    format!("影子模式：无法写入 GITHUB_STEP_SUMMARY `{path}`：{error}")
-                })?;
+                .map_err(|error| format!("无法写入 GITHUB_STEP_SUMMARY `{path}`：{error}"))?;
             file.write_all(markdown.as_bytes())
                 .and_then(|()| file.write_all(b"\n"))
-                .map_err(|error| {
-                    format!("影子模式：写入 GITHUB_STEP_SUMMARY `{path}` 失败：{error}")
-                })?;
+                .map_err(|error| format!("写入 GITHUB_STEP_SUMMARY `{path}` 失败：{error}"))?;
             Ok(())
         }
         // 本地干跑：无 runner 环境，直接输出到 stdout。
@@ -1203,25 +1237,22 @@ fn append_step_summary(markdown: &str) -> Result<(), String> {
     }
 }
 
-fn shadow_report() -> Result<String, String> {
-    let event_name = std::env::var("GITHUB_EVENT_NAME").map_err(|_| {
-        "影子模式：GITHUB_EVENT_NAME 未设置（仅在 Actions runner 上运行）".to_owned()
-    })?;
-    let event_path = std::env::var("GITHUB_EVENT_PATH")
-        .map_err(|_| "影子模式：GITHUB_EVENT_PATH 未设置".to_owned())?;
+fn event_plan(event_name: &str) -> Result<Plan, String> {
+    let event_path =
+        std::env::var("GITHUB_EVENT_PATH").map_err(|_| "GITHUB_EVENT_PATH 未设置".to_owned())?;
     let payload_text = std::fs::read_to_string(&event_path)
-        .map_err(|error| format!("影子模式：无法读取事件载荷 `{event_path}`：{error}"))?;
+        .map_err(|error| format!("无法读取事件载荷 `{event_path}`：{error}"))?;
     let payload: serde_json::Value = serde_json::from_str(&payload_text)
-        .map_err(|error| format!("影子模式：事件载荷不是合法 JSON：{error}"))?;
-    let base = shadow_base(&payload, &event_name)?;
+        .map_err(|error| format!("事件载荷不是合法 JSON：{error}"))?;
+    let base = event_base(&payload, event_name)?;
     // 完整差异语义（合同 §5）：合并快照 / 组头对该 base 提交对象的差异。
     let output = std::process::Command::new("git")
         .args(["fetch", "--no-tags", "origin", &base])
         .output()
-        .map_err(|error| format!("影子模式：无法启动 git fetch：{error}"))?;
+        .map_err(|error| format!("无法启动 git fetch：{error}"))?;
     if !output.status.success() {
         return Err(format!(
-            "影子模式：git fetch {base} 失败：{}",
+            "git fetch {base} 失败：{}",
             String::from_utf8_lossy(&output.stderr)
         ));
     }
@@ -1229,41 +1260,40 @@ fn shadow_report() -> Result<String, String> {
     let workspace = Workspace::parse(&cargo_metadata()?)?;
     let registry = Registry::parse(REGISTRY_TOML)?;
     let registry_check = check_registry(&workspace, &repo_root()?, &registry)?;
-    let plan = build_plan(&files, &workspace, &registry, registry_check);
-    Ok(shadow_markdown(
-        &plan_summary_text(&plan),
-        &plan_json_text(&plan),
-    ))
+    Ok(build_plan(&files, &workspace, &registry, registry_check))
 }
 
 /// 组装影子 summary 的 markdown（纯函数）。代码围栏必须独立成行：
 /// `plan_json_text` 不带尾换行，闭合围栏前显式补换行——否则围栏失效，
 /// `</details>` 被吞进代码块，折叠报告不成立。
-fn shadow_markdown(summary_text: &str, json_text: &str) -> String {
+fn plan_markdown(title: &str, summary_text: &str, json_text: &str) -> String {
     format!(
-        "## 影子验证计划（#1464，不改变门禁行为）\n\n```text\n{summary_text}```\n\n<details><summary>计划 JSON</summary>\n\n```json\n{json_text}\n```\n\n</details>\n"
+        "## {title}\n\n```text\n{summary_text}```\n\n<details><summary>计划 JSON</summary>\n\n```json\n{json_text}\n```\n\n</details>\n"
     )
 }
 
 /// 从事件载荷提取差异基线提交（纯函数）。
-fn shadow_base(payload: &serde_json::Value, event_name: &str) -> Result<String, String> {
+fn event_base(payload: &serde_json::Value, event_name: &str) -> Result<String, String> {
     let sha = match event_name {
         "pull_request" => payload.pointer("/pull_request/base/sha"),
         "merge_group" => payload.pointer("/merge_group/base_sha"),
         other => {
             return Err(format!(
-                "影子模式：事件 `{other}` 无对照意义（只在 PR 与 merge_group 上运行）"
+                "事件计划不支持 `{other}`（仅支持 pull_request 与 merge_group）"
             ));
         }
     };
     sha.and_then(serde_json::Value::as_str)
+        .filter(|sha| {
+            matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
         .map(str::to_owned)
-        .ok_or_else(|| format!("影子模式：事件载荷缺少基线提交字段（{event_name}）"))
+        .ok_or_else(|| format!("事件载荷缺少完整有效的基线提交 SHA（{event_name}）"))
 }
 
 fn shadow_failure_markdown(error: &str) -> String {
     format!(
-        "## 影子验证计划（#1464，不改变门禁行为）\n\n⚠️ 影子计划失败：本次按现行门禁全量执行，计划器修复并积累影子数据前不推进切换。\n\n```text\n{error}\n```\n"
+        "## 影子验证计划（#1464，不改变门禁行为）\n\n⚠️ 影子计划失败：各项检查仍按现行路径门执行。\n\n```text\n{error}\n```\n"
     )
 }
 
@@ -1433,7 +1463,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_tasks_run_on_any_rust_seed_but_not_on_docs_only() {
+    fn motion_trace_tasks_run_on_any_rust_seed_but_not_on_docs_only() {
         let workspace = fixture_workspace();
         // 叶子工具种子：固定配置任务保持执行（与现行 rust 布尔门同语义）。
         let plan = build_plan(
@@ -1443,12 +1473,10 @@ mod tests {
             consistent(),
         );
         assert!(!plan.full);
-        let placement = plan
-            .tasks
-            .iter()
-            .find(|t| t.name == "placement-fixtures")
-            .unwrap();
-        assert!(!placement.packages.is_empty());
+        for name in ["clippy-motion-trace", "test-motion-trace"] {
+            let task = plan.tasks.iter().find(|task| task.name == name).unwrap();
+            assert_eq!(task.packages, ["laneflow-runtime", "laneflow-scenario"]);
+        }
 
         // 纯不适用路径：所有任务（含固定配置）跳过。
         let plan = build_plan(
@@ -1457,12 +1485,80 @@ mod tests {
             &registry(),
             consistent(),
         );
-        let placement = plan
-            .tasks
-            .iter()
-            .find(|t| t.name == "placement-fixtures")
-            .unwrap();
-        assert!(placement.packages.is_empty());
+        assert!(plan.tasks.iter().all(|task| task.packages.is_empty()));
+    }
+
+    #[test]
+    fn execution_evidence_tasks_follow_their_respective_consumers() {
+        let workspace = Workspace::parse(&cargo_metadata().unwrap()).unwrap();
+        let registry = registry();
+        let clippy = &["laneflow-runtime", "laneflow-urban-harness"][..];
+        let test = &["laneflow-runtime"][..];
+        for (path, expected_clippy, expected_test) in [
+            ("tools/laneflow-synth-harness/src/main.rs", &[][..], &[][..]),
+            ("tools/laneflow-urban-harness/src/main.rs", clippy, &[]),
+            ("crates/laneflow-motion-kernel/src/hold.rs", clippy, test),
+            ("unknown-ci-input", clippy, test),
+        ] {
+            let plan = build_plan(&files(&[path]), &workspace, &registry, consistent());
+            assert_eq!(plan.full, path == "unknown-ci-input");
+            for (name, expected) in [
+                ("clippy-execution-evidence", expected_clippy),
+                ("test-execution-evidence", expected_test),
+            ] {
+                let task = plan.tasks.iter().find(|task| task.name == name).unwrap();
+                assert_eq!(task.packages, expected, "{path} → {name}");
+            }
+        }
+    }
+
+    #[test]
+    fn affected_specialist_tasks_keep_their_complete_package_groups() {
+        let workspace = Workspace::parse(&cargo_metadata().unwrap()).unwrap();
+        let registry = registry();
+        let groups: &[(&str, &[&str])] = &[
+            (
+                "test-urban-evidence",
+                &["laneflow-urban-harness", "laneflow-urban-generator"],
+            ),
+            ("test-corridor-smoke", &["laneflow-bevy"]),
+            (
+                "placement-fixtures",
+                &[
+                    "laneflow-runtime",
+                    "laneflow-scenario",
+                    "laneflow-junction-generator",
+                ],
+            ),
+            ("test-urban-adapter", &["laneflow-urban-harness"]),
+        ];
+        for (path, selected) in [
+            ("tools/laneflow-synth-harness/src/main.rs", [false; 4]),
+            // 只命中证据组的 harness 成员，整组仍须执行。
+            (
+                "tools/laneflow-urban-harness/src/main.rs",
+                [true, false, false, true],
+            ),
+            // Urban 的 adapter 配置含 Bevy 可选依赖，两项 Evidence 步骤此时均选中。
+            ("crates/laneflow-bevy/src/lib.rs", [true, true, false, true]),
+            // junction-generator 命中 placement 组，经消费者传播也会命中 Bevy 与 Urban。
+            ("tools/laneflow-junction-generator/src/lib.rs", [true; 4]),
+            // 包外 fixture 经运行时读取登记同样命中 junction-generator。
+            ("examples/data/v0.1-complex-junction.lfca", [true; 4]),
+            // #1506 的新数值源同时需要业务专项与仓库范围的 Wire 审计。
+            ("crates/laneflow-motion-kernel/src/hold.rs", [true; 4]),
+            ("unknown-ci-input", [true; 4]),
+        ] {
+            let plan = build_plan(&files(&[path]), &workspace, &registry, consistent());
+            assert_eq!(plan.full, path == "unknown-ci-input");
+            let wire = plan.tasks.iter().find(|t| t.name == "wire-audit").unwrap();
+            assert!(!wire.packages.is_empty(), "{path} must keep the wire audit");
+            for ((name, packages), run) in groups.iter().zip(selected) {
+                let task = plan.tasks.iter().find(|task| task.name == *name).unwrap();
+                let expected: &[&str] = if run { packages } else { &[] };
+                assert_eq!(task.packages, expected, "{path} → {name}");
+            }
+        }
     }
 
     /// 嵌在其他宏实参里的 include 必须被捕获（syn 访问器只到达外层宏，
@@ -1739,6 +1835,57 @@ mod tests {
         format!("schema_version = 1\nreviewed_unparsed_includes = [{reviewed}]\n{embed}")
     }
 
+    #[test]
+    fn only_the_reviewed_synth_readme_skips_heavy_tasks() {
+        let workspace = Workspace::parse(&cargo_metadata().unwrap()).unwrap();
+        let plan = build_plan(
+            &files(&["tools/laneflow-synth-harness/README.md"]),
+            &workspace,
+            &registry(),
+            consistent(),
+        );
+        assert!(!plan.full);
+        assert!(plan.tasks.iter().all(|task| task.packages.is_empty()));
+
+        for (path, owner) in [
+            ("crates/laneflow-runtime/README.md", "laneflow-runtime"),
+            (
+                "tools/laneflow-urban-harness/README.md",
+                "laneflow-urban-harness",
+            ),
+        ] {
+            assert_eq!(
+                classify(path, &workspace, &registry()),
+                FileState::Package(owner.to_owned())
+            );
+        }
+    }
+
+    #[test]
+    fn same_package_embed_of_exempt_readme_forces_full_plan() {
+        let readme = "tools/leaf/README.md";
+        let registry = Registry::parse(&registry_toml(
+            &format!("[triggers]\nnot_applicable = [\"{readme}\"]"),
+            "",
+        ))
+        .unwrap();
+        for attribute in [
+            r#"#![doc = include_str!("../README.md")]"#,
+            r#"#![cfg_attr(doc, doc = include_str!("../README.md"))]"#,
+        ] {
+            let fixture = ScanFixture::new(&[("tools/leaf/src/main.rs", attribute)]);
+            let workspace = fixture.workspace();
+            let check = check_registry(&workspace, &fixture.root, &registry).unwrap();
+            assert!(
+                matches!(&check, RegistryCheck::Drift(items) if items.iter().any(|item|
+                    item.contains(readme) && item.contains("laneflow-leaf-tool")
+                )),
+                "{check:?}"
+            );
+            assert!(build_plan(&files(&[readme]), &workspace, &registry, check).full);
+        }
+    }
+
     /// 登记与清点一致时对账通过；跨包边一条，值含所有者自身的同包嵌入。
     #[test]
     fn registry_check_passes_when_cross_embed_is_registered() {
@@ -1892,19 +2039,22 @@ mod tests {
     /// 影子模式的事件基线提取：PR / merge_group 各自的载荷字段，其余事件
     /// 与缺字段载荷失败关闭。
     #[test]
-    fn shadow_base_extracts_per_event_and_rejects_others() {
-        let pr = serde_json::json!({"pull_request": {"base": {"sha": "a1b2c3d4"}}});
-        assert_eq!(shadow_base(&pr, "pull_request").unwrap(), "a1b2c3d4");
-        let merge_group = serde_json::json!({"merge_group": {"base_sha": "e4f5a6b7"}});
-        assert_eq!(
-            shadow_base(&merge_group, "merge_group").unwrap(),
-            "e4f5a6b7"
-        );
-        assert!(shadow_base(&pr, "push").is_err(), "无对照意义的事件须拒绝");
+    fn event_base_requires_the_event_specific_full_commit_sha() {
+        let pr_sha = "a1b2c3d4".repeat(5);
+        let pr = serde_json::json!({"pull_request": {"base": {"sha": pr_sha}}});
+        assert_eq!(event_base(&pr, "pull_request").unwrap(), pr_sha);
+        let merge_sha = "e4f5a6b7".repeat(8);
+        let merge_group = serde_json::json!({"merge_group": {"base_sha": merge_sha}});
+        assert_eq!(event_base(&merge_group, "merge_group").unwrap(), merge_sha);
+        assert!(event_base(&pr, "push").is_err());
         assert!(
-            shadow_base(&serde_json::json!({}), "pull_request").is_err(),
+            event_base(&serde_json::json!({}), "pull_request").is_err(),
             "缺基线字段须失败关闭"
         );
+        for invalid in ["", "HEAD", "a1b2c3d4"] {
+            let pr = serde_json::json!({"pull_request": {"base": {"sha": invalid}}});
+            assert!(event_base(&pr, "pull_request").is_err());
+        }
     }
 
     /// 影子失败块：显性、说明不阻断、携带错误原文。
@@ -1912,7 +2062,7 @@ mod tests {
     fn shadow_failure_markdown_is_explicit_and_nonblocking() {
         let markdown = shadow_failure_markdown("演示失败");
         assert!(markdown.contains("影子计划失败"));
-        assert!(markdown.contains("按现行门禁全量执行"));
+        assert!(markdown.contains("按现行路径门执行"));
         assert!(markdown.contains("演示失败"));
     }
 
@@ -1936,7 +2086,11 @@ mod tests {
     /// 前须显式补换行，否则围栏失效、`</details>` 被吞进代码块。
     #[test]
     fn shadow_markdown_fences_stay_on_their_own_lines() {
-        let markdown = shadow_markdown("模式：受影响\n", "{\n  \"mode\": \"affected\"\n}");
+        let markdown = plan_markdown(
+            "影子验证计划",
+            "模式：受影响\n",
+            "{\n  \"mode\": \"affected\"\n}",
+        );
         for line in markdown.lines() {
             if line.contains("```") {
                 assert!(

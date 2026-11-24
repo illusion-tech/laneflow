@@ -53,6 +53,8 @@ full = [
 not_applicable = [
     "docs/**",
     "README.md",
+    # 工具说明由 check-docs 检查。计划前对账会拦住新增的同包或跨包 README 嵌入。
+    "tools/laneflow-synth-harness/README.md",
     "CONTRIBUTING.md",
     "AGENTS.md",
     "LICENSE",

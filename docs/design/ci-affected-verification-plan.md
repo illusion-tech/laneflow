@@ -16,8 +16,8 @@ related = ["governance-github-workflow", "governance-development-gates", "adr-00
 
 ## 1. 问题与原则
 
-现行 CI 的 Rust 侧由单布尔门驱动：`Detect path changes` 输出 `rust` /
-`bevy`，命中任何 Rust 相关路径即整组执行全部重活——`Rust checks`、
+引入受影响计划前，CI 的 `Detect path changes` 输出 `rust` /
+`bevy`，命中 Rust 路径后整组执行重检查，包括 `Rust checks`、
 `Evidence fixture tests`、`Placement fixture tests`、`Urban harness tests`
 与 `Wire toolchain audit`，测试步一律 `--workspace`。动机观察值
 （2026-11-19 运行抽样，非稳定基线）：一条 xtask 注册表 JSON 加四个文档的
@@ -55,6 +55,24 @@ PR 全量跑了 2,712 项 workspace 测试与全部专项 job；一次合并至�
 - doctest 与 clippy 各有独立入口与受影响包集合，不随测试命令的收窄
   而消失。
 
+计划按受影响包闭包选择以下专项。闭包包含表内任一包时，就选中该行的
+完整任务。闭包计算纳入包依赖及注册表声明的额外输入，全量回退时选中所有行。
+
+| 专项任务               | LaneFlow 包（省略 `laneflow-` 前缀）  | 选中后执行的范围                               |
+| ---------------------- | ------------------------------------- | ---------------------------------------------- |
+| Evidence 的 Urban 测试 | urban-harness、urban-generator        | 两包的默认配置测试                             |
+| Evidence 的走廊 smoke  | bevy                                  | `corridor_traffic_smoke` 测试目标              |
+| Placement              | runtime、scenario、junction-generator | 三包在 `placement-fixtures` 下的 clippy 与测试 |
+| Urban 的 Adapter 测试  | urban-harness                         | `adapter` 配置的 harness 测试                  |
+
+PR 的三个专项 job 按上表执行。Evidence 的两行可独立选中。每个 job 在结束时
+比较计划器给出的预期结果与工作步骤的实际结果，包括预期跳过的步骤。
+
+`Rust checks` 内的 `execution-evidence` 配置先做影子对照。runtime 或
+urban-harness 受影响时，计划选中两包的完整 clippy 命令；runtime 受影响时，
+另选中该包的专项测试。`motion-trace` 继续按既有配置执行。Wire 审计扫描仓库
+源码，影子计划在有 Rust 种子时选择完整审计。
+
 ## 3. 影响模型
 
 影响模型由两部分组成：Cargo 能表达的依赖关系自动读取，Cargo 不能表达
@@ -78,6 +96,9 @@ PR 全量跑了 2,712 项 workspace 测试与全部专项 job；一次合并至�
   全量**（见第 6 节）；此后如需收窄，须以「解析后有效配置发生变化的
   依赖包及其受影响任务」扩充种子，且从 `--workspace` 收窄为 `-p` 时
   保持所选验证任务原有的有效 feature 语义。具体解析算法归 G2。
+- 核对单个集成测试目标时，可保留原命令的 workspace 包选择及排除项，再用
+  `--test` 限定目标。核对对象是该目标及其传递构建单元的 feature、平台、
+  profile 与依赖边。将这种选择用于 CI 前，还须确认变更文件的所有消费目标。
 - **边类型化分两阶段**。第一阶段普通、构建与开发依赖同权传播——保守
   多选，但机制先成立、影子数据先积累。第二阶段将 dev 边类型化：dev
   依赖只使消费者的测试目标受影响，不再沿其生产链向更下游传播（Cargo
@@ -89,13 +110,13 @@ Cargo 图之外的输入关系集中在一个机器可校验的注册表中，�
 `xtask/data` 数据注册表 + 校验测试的既有模式（#1459 先例）。已知类别
 与实例：
 
-| 类别 | 已知实例 | 影响指向 |
-| ---- | -------- | -------- |
-| 跨包 fixture 嵌入 | `runtime/tests/snapshot_replay.rs` 嵌入 `compiler/tests/fixtures/portable/**` | fixture 所属包的消费者测试 |
-| 文档进可执行验证 | crate README 经 `include_str!` 进 doctest 与 clippy（`docs/` 零嵌入；tools 嵌入面按 #1298 清点） | 所属包 |
-| 数据注册表 | `xtask/data/**` | 常驻 `Commit message` job 的校验测试 |
-| schema 与生成源码 | `schemas/**` | Schema Codegen 任务 |
-| 审计与全局输入 | wire 审计扫描面、cargo-deny 配置、nextest 配置 | 对应检查任务 |
+| 类别              | 已知实例                                                                                         | 影响指向                             |
+| ----------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| 跨包 fixture 嵌入 | `runtime/tests/snapshot_replay.rs` 嵌入 `compiler/tests/fixtures/portable/**`                    | fixture 所属包的消费者测试           |
+| 文档进可执行验证  | crate README 经 `include_str!` 进 doctest 与 clippy（`docs/` 零嵌入；tools 嵌入面按 #1298 清点） | 所属包                               |
+| 数据注册表        | `xtask/data/**`                                                                                  | 常驻 `Commit message` job 的校验测试 |
+| schema 与生成源码 | `schemas/**`                                                                                     | Schema Codegen 任务                  |
+| 审计与全局输入    | wire 审计扫描面、cargo-deny 配置、nextest 配置                                                   | 对应检查任务                         |
 
 - 注册表条目 = 路径模式 → 受影响任务或包；未落入任何条目的路径进入
   第 4 节的「未知」态。
@@ -106,6 +127,9 @@ Cargo 图之外的输入关系集中在一个机器可校验的注册表中，�
   变更的反向闭包内，按计划执行后它的测试不会随任意 Rust 变更运行。校验
   测试保留为开发期护栏；新增编译期嵌入位置仍在引入时同步登记，延续
   #1298 白名单制的维护责任，嵌入清单不靠人记。
+- 单份工具 README 经核对后可以登记为重检查不适用。对账也检查同包嵌入。
+  若源码已嵌入仍被归为不适用的 README（含条件文档属性中的嵌入），
+  影子计划报告文件和嵌入方并回退全量。运行时读取仍由注册表显式声明。
 
 ## 4. 变更归类与失败关闭
 
@@ -167,8 +191,11 @@ Cargo 图之外的输入关系集中在一个机器可校验的注册表中，�
    feature 配置、删除 / 移动 / 重命名、新增包、计划器自身变更，并加入
    针对漏选边界的反例验证。几次全量通过只说明那几个版本通过，不构成
    选择器正确的证明。
-2. **PR 切换**：PR 运行按计划执行；merge_group 保持全量兜底。此阶段
-   选择逻辑的 bug 只会推迟发现，不会产生假绿 main。
+2. **PR 切换**：按专项分批接线。第一批为 Evidence、Placement 与 Urban 三个
+   required job。PR 直接消费计划；即使旧 Rust 路径门未命中，全量或计算失败
+   回退仍会选中四项任务。若计划器未成功发布输出，专项结果核对失败。其余
+   job 继续按原门执行。merge_group 对自己的快照生成影子计划，专项沿用队列原有
+   的 Rust 路径门，命中时运行完整专项。main push 沿用原门。
 3. **merge_group 切换**：队列对实际集成候选重算并执行受影响计划。退出
    条件为连续 N 周周期全量与影子审计零漏选（N 在影子期数据具备后定，
    不预先承诺）；达成并留档后才切换。
@@ -185,14 +212,14 @@ merge_group。CodeQL 的独立政策不受本节影响：main push、定时与�
 
 六项指标及其回答的问题：
 
-| 指标 | 回答的问题 |
-| ---- | ---------- |
-| PR 完成时间 p50 / p95 | 开发者是否更快拿到结果 |
-| 累计 runner 时间 | 总计算资源是否真的减少 |
-| 构建时间与测试执行时间分解 | 改善发生在哪一部分 |
-| 选中包、目标与任务数 | 是否有效排除了无关工作 |
-| 全量回退率与原因分布 | 规则是否仍然过粗或不完整 |
-| 周期全量与漏选审计发现 | 选择机制是否可靠 |
+| 指标                       | 回答的问题               |
+| -------------------------- | ------------------------ |
+| PR 完成时间 p50 / p95      | 开发者是否更快拿到结果   |
+| 累计 runner 时间           | 总计算资源是否真的减少   |
+| 构建时间与测试执行时间分解 | 改善发生在哪一部分       |
+| 选中包、目标与任务数       | 是否有效排除了无关工作   |
+| 全量回退率与原因分布       | 规则是否仍然过粗或不完整 |
+| 周期全量与漏选审计发现     | 选择机制是否可靠         |
 
 记录载体为 Actions summary 与 gh api 查询；过程数据不入仓。验收标准以
 issue #1464 为准，其中 merge_group 切换以第 6 节退出条件达成为前提。

@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-github-workflow"
 kind = "governance"
 status = "active"
-revised_date = "2026-11-06"
+revised_date = "2026-11-24"
 summary = "规定 GitHub 议题、PR、项目与合并队列工作流。"
 scope = "LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理"
 +++
@@ -333,17 +333,18 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   双特性编译与注入金丝雀，以及运行时模块
   架构检查（自 `Rust checks` 拆出，#1061）。与 `Rust checks` 并行执行，压缩合并
   路径关键路径；非 Rust 路径变更时以 skip 模式成功完成。
-- `Evidence fixture tests`：证据仪器与 fixture 重测（urban-harness 浸泡/存档/报告仪器、urban-generator 生成器、bevy `corridor_traffic_smoke` 走廊 fixture），自 `Rust checks` 的 workspace 步拆出、与之并行（#1108）；workspace 步跑补集，两处合计覆盖不变。非 Rust 路径跳过并显式记录 skip。`RUSTC_WRAPPER` 与 sccache 接线同 `Rust checks`。
+- `Evidence fixture tests` 与 `Rust checks` 的 workspace 步分别负责专项和其余测试
+  （#1108）。在 PR 上，计划分别选择 urban-harness 与 urban-generator 两包的完整
+  测试，以及 bevy 的 `corridor_traffic_smoke` 目标。`RUSTC_WRAPPER` 与 sccache
+  接线同 `Rust checks`。
 - `Placement fixture tests`：`placement-fixtures` 是空 feature，开启时全量重跑
   运行时、情景包与 junction-generator 以护栏 feature 副作用，用来编译并执行
   “已经在路上”的回归：
   `cargo clippy -p <crate> --all-targets --locked --features placement-fixtures -D warnings`
   与 `cargo nextest run -p <crate> --locked --features placement-fixtures`
-  各跑三个包。与 `Rust checks` 并行执行，压缩合并路径墙钟（#748 P3）。
+  各跑三个包。PR 计划选中三包之一时，完整运行这两步（#748 P3）。
 - `Urban harness tests`：`cargo nextest run -p laneflow-urban-harness
-  --features adapter`，与 `Rust checks` 并行执行；Rust 路径检测由独立
-  `Detect path changes` job 统一输出（`rust` / `bevy`），两个测试 job 消费同一结果。
-  非 Rust 路径变更时以 skip 模式成功完成。
+  --features adapter`。PR 计划选中 urban-harness 时运行。
 - `Dependency policy`：cargo-deny。
 - `Analyze (actions)` / `Analyze (rust)`：advanced CodeQL。PR 与 merge_group 上由
   `Detect CodeQL paths` job 判定适用源代码路径（与 Rust 路径过滤器同口径，
@@ -367,14 +368,15 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   merge_group 由 `Detect codegen path changes` job 按累计 diff 判定同口径路径，
   纯文档合并组不拉起 Windows runner 与 crosslang 构建；检测失败时失败关闭——
   照常全跑（#1363）。非必查。
-- `Shadow plan`：受影响验证计划器的影子运行（#1464 影子批次）：在 PR 与
-  merge_group 上按完整差异计算「若按计划机制本次会跑什么」（种子 / 受影响
-  包、任务执行范围、逐文件归类与回退原因），写入 Actions summary（JSON 折叠
-  展示）。生成计划前先对额外输入注册表做全仓 `include_str!` /
-  `include_bytes!` 清点对账，结论一并写入 summary；不一致时影子计划退回
-  全量并列出差异。不改变任何 required check 的执行语义；计划器失败不阻断
-  合并，只在 summary 显性记录。影子对照数据留在 Actions（run 日志与
-  summary），不入仓。非必查。
+- `PR verification plan` 按 PR 合并快照与 base 的完整差异生成计划（#1464），
+  在 Actions summary 记录逐文件归类、受影响包、任务与回退原因。Evidence、
+  Placement 与 Urban 三个 required job 直接消费计划，各自核对预期与实际工作
+  步骤的结果。计算失败时选中全部四项；计划发布失败、任务漏跑或结果不符时，
+  专项检查失败。其余任务继续在 summary 中做影子对照。
+- `Shadow plan` 在 merge_group 上独立计算计划并报告差异。PR 和合并组生成
+  计划前均核对注册表与全仓 `include_str!` / `include_bytes!` 输入，发现
+  差异则回退全量。合并组的影子 job 非必查，三个专项在 merge_group 和
+  main push 上继续使用 `Detect path changes` 的 Rust 路径门。
 
 除 `Evidence`（无 `pull_request` 触发）外，各 workflow 均设 `concurrency` 分组：
 `pull_request` 事件按「workflow 名 + PR 号」分组，推送新 head 即取消同 PR 未完成的
