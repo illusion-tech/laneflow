@@ -67,6 +67,27 @@ fn installed_worker_counts_preserve_initial_and_stepped_public_state() {
 }
 
 #[test]
+fn synchronized_signal_repeats_after_one_cycle() {
+    for dt in [16, 33] {
+        let cycle_ticks = cycle_ms(dt) / u64::from(dt);
+        for route in [0, 1] {
+            for tick in [0, 1, cycle_ticks - 1] {
+                assert_eq!(
+                    aspect(SignalSchedule::Synchronized, 0, route, tick, dt),
+                    aspect(
+                        SignalSchedule::Synchronized,
+                        0,
+                        route,
+                        tick + cycle_ticks,
+                        dt
+                    )
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn frozen_signal_boundaries_and_offsets() {
     assert_eq!(cycle_ms(16), 58_032);
     assert_eq!(cycle_ms(33), 58_113);
