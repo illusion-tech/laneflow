@@ -79,12 +79,12 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
         .unwrap()
         .row(0)
         .unwrap();
-    assert_eq!(field_u16(source_binding, 1), 1);
+    assert_eq!(field_u16(source_binding, 1), 2);
     assert_eq!(
         field_sha256(source_binding, 2),
         candidate.network_revision().into_digest().into_bytes()
     );
-    assert_eq!(field_u16(source_binding, 3), 5);
+    assert_eq!(field_u16(source_binding, 3), 6);
     assert_eq!(
         field_sha256(source_binding, 4),
         candidate.canonical_artifact().digest().into_bytes()
@@ -96,7 +96,7 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
 
     let diff_binding = diff.section(0).unwrap().table(0).unwrap().row(0).unwrap();
     assert_eq!(field_u8(diff_binding, 1), 0);
-    assert_eq!(field_u16(diff_binding, 6), 1);
+    assert_eq!(field_u16(diff_binding, 6), 2);
     assert_eq!(
         field_sha256(diff_binding, 7),
         candidate.network_revision().into_digest().into_bytes()

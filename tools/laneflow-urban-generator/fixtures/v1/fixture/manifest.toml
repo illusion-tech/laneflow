@@ -8,13 +8,13 @@ nominal_individuals = 2000
 fixed_step_ms = 16
 compile_limits = "LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES"
 format_limits = "FormatLimits::HARD"
-network_revision = "1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd8819"
+network_revision = "d3665ae93f644bad9df76981a2f8d1959185eae11664f6c4201ccc728cffc14a"
 source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
 lir_logical_records = 82014
 compiler_output_logical_bytes = 2220654
-compiler_controlled_peak_bytes = 33826448
-shared_headless_retained_bytes = 671636
-shared_spatial_retained_bytes = 1881732
+compiler_controlled_peak_bytes = 33862608
+shared_headless_retained_bytes = 671700
+shared_spatial_retained_bytes = 1881796
 resolved_policy_gate_rows = 528
 resolved_policy_stream_rows = 516
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
@@ -48,20 +48,20 @@ bytes = 1300
 sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
 
 [files."genesis.lfsd"]
-bytes = 9638850
-sha256 = "0ac6c33d44be5cd8561c7cf65223eb8b550d671e2a54a968ac4aa71b3cea6db7"
+bytes = 9638890
+sha256 = "4dfb4ad52dc605145e068d7e70a96b691d53d9b6e45225070abaa953d210c2e3"
 
 [files."network.lfca"]
-bytes = 8868299
-sha256 = "847da92ab3de889cc0a9e1c81fded968592a2d1607361896230ec431b73706bb"
+bytes = 8868339
+sha256 = "47a8587ee19d10cfa1138cfce88cf339e369d471973e93f3d62b1608b1e2d23e"
 
 [files."routes.toml"]
 bytes = 377136
-sha256 = "e9e6a6b260d633bcbb04923cb3922c673dfc214cd77bd6e32d4a1ec279ef70de"
+sha256 = "a2185b2c7523adae446e431b8cf549e5c0b15746ea835dfd57ea7df8ce68542c"
 
 [files."source-map.lfsm"]
 bytes = 12510079
-sha256 = "8a813e92ff951f00fbc71617360df720daef2afd6cce4787749d76d8ecd41fd7"
+sha256 = "f614001be238ef36670173228eb0798fa8f533a473040ced19b561c868c6a73b"
 
 [files."topology.lfre"]
 bytes = 1675280

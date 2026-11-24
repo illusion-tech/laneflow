@@ -7,7 +7,7 @@
 use core::fmt;
 
 /// 当前 LFCA 对象格式版本。读取器只承认该值。
-pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 5;
+pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 6;
 
 /// 当前约束契约版本。
 pub const CONSTRAINT_CONTRACT_VERSION: u16 = 3;
@@ -19,16 +19,16 @@ pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 5;
 pub const SOURCE_MAP_FORMAT_VERSION: u16 = 6;
 
 /// 当前 LFSD 对象格式版本。
-pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 4;
+pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 5;
 
 /// LFCP 的对象格式版本；生产代码只接受无 receipt 的 v2。
 pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 2;
 
-/// 六个 LFCA 语义节派生 [`NetworkRevisionId`] 的算法版本。
-pub const NETWORK_REVISION_DERIVATION_VERSION: u16 = 1;
+/// 七个 LFCA 语义节派生 [`NetworkRevisionId`] 的算法版本。
+pub const NETWORK_REVISION_DERIVATION_VERSION: u16 = 2;
 
 /// `NetworkRevisionId` SHA-256 输入的域分离前缀；末尾 NUL 是输入的一部分。
-pub const NETWORK_REVISION_DOMAIN_PREFIX: &[u8] = b"laneflow.network-revision.v1\0";
+pub const NETWORK_REVISION_DOMAIN_PREFIX: &[u8] = b"laneflow.network-revision.v2\0";
 
 /// 对象前导的固定字节长度。
 pub const OBJECT_PREAMBLE_BYTE_LENGTH: u16 = 32;
@@ -129,9 +129,9 @@ impl PortableObjectKind {
     #[must_use]
     pub const fn section_count(self) -> u32 {
         match self {
-            Self::CanonicalArtifact => 8,
+            Self::CanonicalArtifact => 9,
             Self::SourceMap => 5,
-            Self::SemanticDiff => 7,
+            Self::SemanticDiff => 8,
             Self::CanonicalPublicationDescriptor => 3,
         }
     }
@@ -140,9 +140,9 @@ impl PortableObjectKind {
     #[must_use]
     pub const fn table_count(self) -> u32 {
         match self {
-            Self::CanonicalArtifact => 38,
+            Self::CanonicalArtifact => 45,
             Self::SourceMap => 8,
-            Self::SemanticDiff => 7,
+            Self::SemanticDiff => 8,
             Self::CanonicalPublicationDescriptor => 3,
         }
     }
@@ -311,7 +311,7 @@ impl fmt::Debug for Sha256Digest {
     }
 }
 
-/// 由六个 LFCA 语义节独立派生的 32-byte 路网修订标识。
+/// 由七个 LFCA 语义节独立派生的 32-byte 路网修订标识。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct NetworkRevisionId(Sha256Digest);
@@ -363,13 +363,13 @@ mod tests {
 
     #[test]
     fn lfca_contract_versions_match_current() {
-        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 5);
+        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 6);
         assert_eq!(CONSTRAINT_CONTRACT_VERSION, 3);
         assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 5);
         assert_eq!(SOURCE_MAP_FORMAT_VERSION, 6);
-        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 4);
-        assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 1);
-        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 5);
+        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 5);
+        assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 2);
+        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 6);
     }
 
     #[test]
@@ -378,12 +378,12 @@ mod tests {
             (
                 PortableObjectKind::CanonicalArtifact,
                 *b"LFCA",
-                8,
-                38,
-                0x00e0,
+                9,
+                45,
+                0x00f8,
             ),
             (PortableObjectKind::SourceMap, *b"LFSM", 5, 8, 0x0098),
-            (PortableObjectKind::SemanticDiff, *b"LFSD", 7, 7, 0x00c8),
+            (PortableObjectKind::SemanticDiff, *b"LFSD", 8, 8, 0x00e0),
             (
                 PortableObjectKind::CanonicalPublicationDescriptor,
                 *b"LFCP",
@@ -403,9 +403,9 @@ mod tests {
             assert_eq!(
                 kind.format_version(),
                 match kind {
-                    PortableObjectKind::CanonicalArtifact => 5,
+                    PortableObjectKind::CanonicalArtifact => 6,
                     PortableObjectKind::SourceMap => 6,
-                    PortableObjectKind::SemanticDiff => 4,
+                    PortableObjectKind::SemanticDiff => 5,
                     PortableObjectKind::CanonicalPublicationDescriptor => 2,
                 }
             );

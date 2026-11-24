@@ -332,6 +332,7 @@ fn spatial_cross_section_unit_with_frame(
                 4.0
             };
             band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+                station: None,
                 length: EdgeLength::try_new(10.0).unwrap(),
                 canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
                     if imported_facility_frame {
@@ -4095,6 +4096,7 @@ fn facility_geometry_without_any_canonical_frame_reports_the_reference_failure()
         })
         .unwrap();
     band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+        station: None,
         length: EdgeLength::try_new(10.0).unwrap(),
         canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
             namespace,

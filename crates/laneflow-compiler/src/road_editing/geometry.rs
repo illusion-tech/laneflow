@@ -42,6 +42,7 @@ pub(super) enum NumericFreezeKind {
     StationRowLimit,
     StationOutOfRange,
     GeometryTopologyMismatch,
+    StationMappingNotProven,
     SourceJoinGapExceeded,
     DegenerateCanonicalSegment,
     DirectionDiscontinuity,
@@ -180,6 +181,15 @@ pub(super) struct ApproximationVertex {
 
 /// 近似点输出汇：接收细分产生的顶点，内核不拥有点表容器。
 pub(super) trait ApproximationPointSink {
+    fn mapping_length(&self) -> Option<f64> {
+        None
+    }
+    fn mapping_chord(
+        &mut self,
+        _chord: super::station_proof::Chord,
+    ) -> Result<(), NumericFreezeError> {
+        Ok(())
+    }
     fn native_chord(
         &mut self,
         _parameters: [f64; 2],
@@ -312,6 +322,7 @@ pub(super) fn approximate_interval(
             } => Some((curve, Some((station, offset)))),
             _ => None,
         };
+        let mut native_evidence = None;
         let accepted = if let Some((curve, offset)) = native {
             let bounds = super::native_bounds::measure(
                 curve,
@@ -330,18 +341,31 @@ pub(super) fn approximate_interval(
                 let accepts = bounds.position_error <= position_target(accuracy)
                     && bounds.direction_error <= threshold.lo;
                 if accepts {
-                    sink.native_chord(
-                        [node.parameter_start, node.parameter_end],
-                        [node.start.point, node.end.point],
-                        bounds,
-                    );
+                    native_evidence = Some(bounds);
                 }
                 accepts
             })
         } else {
             candidate_accepts(evaluator, node, accuracy, direction)?
         };
-        if accepted {
+        let edge_length = sink.mapping_length();
+        let needs_mapping = edge_length.is_some();
+        let parameters = [node.parameter_start, node.parameter_end];
+        // 某个粗区间的导数尚未证为正时，两个测量遍采用同一次细分机会。
+        let proof = if let Some(length) = edge_length.filter(|_| accepted) {
+            super::station_proof::chord(evaluator, parameters, native_evidence)
+                .ok()
+                .filter(|c| c.fits_chord(length, [node.start.point, node.end.point]))
+        } else {
+            None
+        };
+        if accepted && (!needs_mapping || proof.is_some()) {
+            if let Some(evidence) = proof {
+                sink.mapping_chord(evidence)?
+            }
+            if let Some(bounds) = native_evidence {
+                sink.native_chord(parameters, [node.start.point, node.end.point], bounds);
+            }
             sink.push(ApproximationVertex {
                 parameter: node.parameter_end,
                 point: node.end.point,
@@ -349,7 +373,12 @@ pub(super) fn approximate_interval(
             continue;
         }
         if node.depth == MAX_SUBDIVISION_DEPTH {
-            return Err(NumericFreezeKind::ApproximationNotConverged.into());
+            return Err(if needs_mapping && accepted {
+                NumericFreezeKind::StationMappingNotProven
+            } else {
+                NumericFreezeKind::ApproximationNotConverged
+            }
+            .into());
         }
         let parameter_mid =
             finite(node.parameter_start + (node.parameter_end - node.parameter_start) / 2.0)?;

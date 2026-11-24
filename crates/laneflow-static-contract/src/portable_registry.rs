@@ -1,8 +1,10 @@
 //! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录当前 LFCA 5、LFSM 6、LFSD 4 与 LFCP 的线格式形状。它是可供 emitter 与
+//! 本模块逐项转录当前 LFCA 6、LFSM 6、LFSD 5 与 LFCP 的线格式形状。它是可供 emitter 与
 //! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
+
+mod station;
 
 use crate::{PortableFieldType, PortableObjectKind};
 
@@ -894,6 +896,11 @@ const LFCA_SECTIONS: &[PortableSectionSchema] = &[
         name: "ArtifactClaims",
         tables: LFCA_SECTION_8_TABLES,
     },
+    PortableSectionSchema {
+        kind: 9,
+        name: "CorridorStationMapping",
+        tables: station::MAPPING_TABLES,
+    },
 ];
 
 // LFSM.
@@ -1642,6 +1649,11 @@ const LFSD_SECTIONS: &[PortableSectionSchema] = &[
         name: "PolicyLocalChanges",
         tables: LFSD_SECTION_7_TABLES,
     },
+    PortableSectionSchema {
+        kind: 8,
+        name: "StationChanges",
+        tables: station::CHANGE_TABLES,
+    },
 ];
 
 // LFCP.
@@ -1793,7 +1805,7 @@ mod tests {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
         // LFCA 5 / LFSD 4 的新增行另按路权实施合同 §4.1/§4.3 逐 tag/type/presence 复核。
-        assert_eq!(appendix_registry_fingerprint(), 0x2215_5f7a_8773_7277);
+        assert_eq!(appendix_registry_fingerprint(), 0xc41a_0b54_cbc4_cd33);
     }
 
     #[test]

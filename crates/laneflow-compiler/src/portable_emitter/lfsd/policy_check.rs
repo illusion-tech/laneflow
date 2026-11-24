@@ -135,13 +135,21 @@ pub(in crate::portable_emitter) fn check_policy_diff(
     } else if checked_u8_with(bindings, 1, MISMATCH)? != 0 {
         return Err(MISMATCH);
     }
+    let mut bounds = ChangeBounds::default();
+    let station_plan = station::plan(
+        base_view.map(|v| v.registry_view()),
+        target_view.registry_view(),
+        &mut bounds,
+    )?
+    .plus(bounds.plan());
     let pass = accounting.admit(
         "policy-diff-check",
         policy_diff_plan(
             base_view.map(|v| v.registry_view()),
             target_view.registry_view(),
             diff_view,
-        ),
+        )
+        .plus(station_plan),
     )?;
     let target_index = ArtifactIndex::build(target_view.registry_view(), MISMATCH, &pass)?;
     let base_index = base_view
@@ -150,6 +158,7 @@ pub(in crate::portable_emitter) fn check_policy_diff(
     if let Some(base) = &base_index {
         verify_artifact_diff_compatibility(base.view, target_index.view, base, &target_index)?;
     }
+    station::check(base_index.as_ref(), &target_index, diff_view, &pass)?;
     for index in base_index.iter().chain(core::iter::once(&target_index)) {
         validate_policy_references(index, &pass, MISMATCH)?;
     }

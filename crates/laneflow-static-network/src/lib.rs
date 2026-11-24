@@ -17,6 +17,11 @@ mod policy_build;
 mod relations;
 mod relations_build;
 mod spatial;
+mod station;
+pub use station::{
+    SharedStationMapping, StationAddress, StationCandidates, StationDomain, StationObservation,
+    StationQuery,
+};
 mod traffic;
 
 #[cfg(test)]
@@ -84,6 +89,7 @@ pub struct SharedNetworkRevision {
     planning_hints: PartitionPlanningHints,
     conflict: SharedConflictNetwork,
     policy: SharedPolicyNetwork,
+    station: SharedStationMapping,
     spatial: Option<SharedSpatialNetwork>,
 }
 
@@ -130,6 +136,12 @@ impl SharedNetworkRevision {
         &self.policy
     }
 
+    /// 返回本修订的共享里程查询，与表现几何的保留选项无关。
+    #[must_use]
+    pub const fn station_mapping(&self) -> &SharedStationMapping {
+        &self.station
+    }
+
     /// 返回可选的 Spatial component。
     #[must_use]
     pub const fn spatial(&self) -> Option<&SharedSpatialNetwork> {
@@ -140,6 +152,7 @@ impl SharedNetworkRevision {
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         u64::try_from(core::mem::size_of::<Self>()).expect("root type size fits u64")
+            + self.station.retained_logical_bytes()
             + self.traffic.retained_logical_bytes()
             + self.identity.retained_logical_bytes()
             + self.planning_hints.retained_logical_bytes()

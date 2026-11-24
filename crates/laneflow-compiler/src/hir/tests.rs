@@ -116,6 +116,7 @@ fn install_compiled_lane_geometries(
             .sum::<f64>();
         edge.geometry_authority =
             LaneEdgeGeometryAuthority::Compiled(crate::declaration::CompiledLaneEdgeGeometry {
+                station: None,
                 length: crate::declaration::EdgeLength::try_new(length).unwrap(),
                 canonical_frame: frame.map(|(namespace, key)| {
                     OwnedEntityReference::<CanonicalFrameKind>::new(
@@ -170,6 +171,7 @@ fn install_compiled_facility_geometry(
         })
         .expect("test FacilityBand must exist");
     band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+        station: None,
         length: EdgeLength::try_new(length).unwrap(),
         canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
             Arc::from(frame_namespace),

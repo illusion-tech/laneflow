@@ -18,6 +18,7 @@ pub(crate) struct LirCanonicalFrame {
 
 /// 与 `LaneEdgeOrdinal` 同下标对齐的规范空间几何。
 pub(crate) struct LirLaneEdgeGeometry {
+    pub(crate) station: Option<std::sync::Arc<crate::declaration::StationEdgeProof>>,
     pub(crate) canonical_frame: CanonicalFrameOrdinal,
     pub(crate) points: TableRange<LirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<LirSpatialSegment>,
@@ -26,6 +27,7 @@ pub(crate) struct LirLaneEdgeGeometry {
 
 /// 按 FacilityBand 规范身份排序的稀疏不可遍历中心线表。
 pub(crate) struct LirFacilityBandGeometry {
+    pub(crate) station: Option<crate::declaration::StationBandProof>,
     pub(crate) facility_band: FacilityBandOrdinal,
     pub(crate) canonical_frame: CanonicalFrameOrdinal,
     pub(crate) points: TableRange<LirCanonicalPoint3F32>,
@@ -154,6 +156,7 @@ pub(super) fn freeze(
                 }),
         )?;
         lane_edge_geometries.push(LirLaneEdgeGeometry {
+            station: geometry.station.clone(),
             canonical_frame: env
                 .orders
                 .canonical_frames
@@ -203,6 +206,7 @@ pub(super) fn freeze(
         )?;
         let facility_band = env.orders.facility_bands.ordinal(mir_band);
         facility_band_geometries.push(LirFacilityBandGeometry {
+            station: geometry.station,
             facility_band,
             canonical_frame: env
                 .orders

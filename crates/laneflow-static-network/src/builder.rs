@@ -54,6 +54,7 @@ pub struct SharedNetworkBuildLimits {
     max_retained_bytes: u64,
     max_scratch_bytes: u64,
     max_policy_work: u64,
+    max_station_rows: u32,
 }
 
 impl SharedNetworkBuildLimits {
@@ -64,7 +65,24 @@ impl SharedNetworkBuildLimits {
             max_retained_bytes,
             max_scratch_bytes,
             max_policy_work: 16_777_216,
+            max_station_rows: 128_511,
         }
+    }
+
+    /// 设置锚点、分段、命名区间各表的独立行数上限。默认采用常规档。
+    #[must_use]
+    pub const fn with_max_station_rows(mut self, count: u32) -> Self {
+        self.max_station_rows = if count > 16_000_000 {
+            16_000_000
+        } else {
+            count
+        };
+        self
+    }
+    /// 返回三张站位表各自的行数上限。
+    #[must_use]
+    pub const fn max_station_rows(self) -> u32 {
+        self.max_station_rows
     }
 
     /// 返回构建完成后允许持有的保留内存字节上限。
@@ -303,6 +321,13 @@ where
         + spatial
             .as_ref()
             .map_or(0, SharedSpatialNetwork::retained_logical_bytes);
+    let station = crate::station::build(
+        input.value_checked_view(),
+        &traffic,
+        prior_retained,
+        options,
+    )?;
+    let prior_retained = prior_retained + station.retained_logical_bytes();
     let policy = crate::policy_build::build(
         input.value_checked_view(),
         &traffic,
@@ -326,6 +351,7 @@ where
         planning_hints,
         conflict,
         policy,
+        station,
         spatial,
     };
     let retained = revision.retained_logical_bytes();
@@ -3887,7 +3913,7 @@ mod tests {
                 CANONICAL_ARTIFACT_FORMAT_VERSION,
                 IDENTITY_ENCODING_VERSION,
                 IDENTITY_REGISTRY_REVISION,
-                2,
+                1,
                 CONSTRAINT_CONTRACT_VERSION,
                 STATIC_EXECUTION_CONTRACT_VERSION,
             ),

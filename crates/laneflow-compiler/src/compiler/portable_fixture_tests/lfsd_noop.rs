@@ -41,11 +41,11 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.semantic_diff().byte_length(),
-        exact_byte_length(673)
+        exact_byte_length(713)
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/6fc6ac9b4f52b7c43db9d704d6c152b222657d0b3ea51f486da6746481396490"
+        "sha256/1b4f365e4532290bf45754d6804cdc2b12a42915e6472397b34a8d9ef4804665"
     );
     assert_eq!(
         candidate.network_revision(),
@@ -67,7 +67,7 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     for tag in [2, 6] {
         assert!(matches!(
             binding.field_by_tag(tag).unwrap().value().unwrap(),
-            laneflow_format::RegistryCheckedFieldValue::U16(1)
+            laneflow_format::RegistryCheckedFieldValue::U16(2)
         ));
     }
     for tag in [3, 7] {
@@ -86,10 +86,10 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     for tag in [5, 9] {
         assert!(matches!(
             binding.field_by_tag(tag).unwrap().value().unwrap(),
-            laneflow_format::RegistryCheckedFieldValue::U64(30_400)
+            laneflow_format::RegistryCheckedFieldValue::U64(30_440)
         ));
     }
-    for section_ordinal in 1..6 {
+    for section_ordinal in 1..8 {
         assert_eq!(
             diff.section(section_ordinal)
                 .unwrap()
