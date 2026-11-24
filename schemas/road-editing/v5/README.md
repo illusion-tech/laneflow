@@ -1,4 +1,4 @@
-# 道路编辑来源缓冲区 v4 Schema
+# 道路编辑来源缓冲区 v5 Schema
 
 **状态**: 生产。`format_version = 5`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
@@ -66,7 +66,7 @@ namespace::owner-key>...>local-key
 ```
 
 `>` 不属于 token 字符；链中每段分别按 token 和 53-byte 上限验证。限定引用必须恰好
-包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v4 最深
+包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v5 最深
 目标是 `Junction > Movement > ManeuverPath > ManeuverGate/WaitingZone`，所以完整引用
 最多 4 个 key token；连同可选 53-byte namespace 和分隔符，wire string 的派生硬上限
 固定为 `270 bytes`。该例外只适用于已解析为有类型实体引用的 string，普通 string 和
@@ -141,7 +141,7 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 |   24 | `RightOfWayPolicySet` | `policy_set_key`         | 当前 module namespace                           |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
-且全部身份 owner 必须在同一 buffer。来源 v4 要求 `RoadAlignment` 和模块级身份种类在
+且全部身份 owner 必须在同一 buffer。来源 v5 要求 `RoadAlignment` 和模块级身份种类在
 各自根向量内 local key 唯一；owner-scoped 种类只要求同一直接 owner 下 sibling local
 key 唯一，不同 owner 可以合法复用同名 local key。每个 child 的显式 parent 字段必须与
 owner 向量精确互证，缺失、重复或冲突 owner 均失败关闭。
@@ -168,7 +168,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   `Generated` 必须保存真实生成器 build ID、参数/输入摘要、来源前端选项摘要和可选
   seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。来源链不认证内容，
   也不能替代实际保存的道路编辑状态。
-- v4 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
+- v5 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
   每文档单位切换，也不能把宿主单位隐式带入来源。
 - `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；这些名称
@@ -340,7 +340,7 @@ StreamRule、GateRule 四种局部具名成员。成员不能跨模块追加，�
 [parking-system]: ../../../docs/design/parking-system.md
 [vehicle-following]: ../../../docs/design/vehicle-following.md
 [corridor-population-catalog]: ../../../docs/design/signalized-corridor-population.md#3-catalog-契约
-[right-of-way-lfsm]: ../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
+[right-of-way-lfsm]: ../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [right-of-way]: ../../../docs/design/traffic-runtime-right-of-way-policy.md
 
 [native-plan-curves]: ../../../docs/design/road-editing-source-and-geometry-frontend.md#native-plan-curves

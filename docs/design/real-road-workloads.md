@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-real-road-workloads"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-08"
+revised_date = "2026-11-24"
 summary = "定义 LuST 真实路网工作负载与验收范围。"
 scope = "LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万 真实路网性能补充 workload 与需求代表性 observation"
 applicability = "#applicability"
@@ -340,7 +340,7 @@ converter 分别生成（G1 修订，2026-09-27：产物轴从旧 JSON 三件套
 compiler/LFCA，原因见 #253 的 G1 修订评论——#301 拆除旧 JSON schema 与 Core 装载
 入口后，旧产物轴在仓库内已无可装载的生产路径）：
 
-- `network.lfca`（Road Editing v4，经 `laneflow-compiler` 受检编译发射）：junctions、
+- `network.lfca`（道路编辑来源经 `laneflow-compiler` 受检编译发射）：junctions、
   movements、maneuverPaths、signals（stopLines / maneuverGates / groups /
   controllers / phases）、上述 ParticipantClass/profile binding、CanonicalFrame 与
   全部车道几何；`facilityBands`、`laneGroups`、`accessRules` 等以空表承载（路口

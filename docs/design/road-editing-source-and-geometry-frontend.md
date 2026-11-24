@@ -293,7 +293,7 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 
 ### 9.3 schema 形状
 
-#284 的 Road Editing v4 来源字段及 LFSM 4 属性路径增量，统一登记于
+#284 引入的路权策略来源字段及其 LFSM 属性路径登记于
 [`traffic-runtime-right-of-way-policy.md` §4.4][right-of-way-lfsm]，
 包含具名策略局部成员的 CanonicalSetOrdinal 规则。W2 将两个正式前端、共同
 AST/HIR/MIR/LIR 和来源投影接入该合同；当前 LFRE wire 为 5。
@@ -1096,7 +1096,7 @@ production 依赖或实现。
 [`road-editing-source-semantic-seed-v1.json`][semantic-seed-json]
 和 [`road-editing-source-reference-machine-v1.json`][reference-machine-json]
 只保留为历史研究证据，不进入现行 schema、fixture、配置档或生产读取路径。任何新的道路编辑
-专项 workload 必须基于 v4 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
+专项 workload 必须基于 v5 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
 
 ## 11. 兼容和清理边界
 
@@ -1123,7 +1123,7 @@ production 依赖或实现。
 [#374]: https://github.com/illusion-tech/laneflow/issues/374
 
 [committed-editing]: committed-road-editing-state.md
-[right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
+[right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [portable-artifact-bindings]: portable-canonical-artifact.md#41-bindings-与来源池登记
 [portable-artifact]: portable-canonical-artifact.md
 [native-curve-error]: ../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md#native-curve-bounds
