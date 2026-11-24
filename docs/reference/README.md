@@ -36,7 +36,6 @@ summary = "提供术语、能力、开发约定与文档规范的索引。"
 - [文档元数据与发布模型][doc-reference-document-metadata] — 持续维护；无生效取代。定义正式文档的 TOML 元数据、有效性关系和发布数据模型。
 - [离线文档结构检查][doc-reference-documentation-checks] — 持续维护；无生效取代。定义文档结构、元数据、关系与索引的离线检查。
 - [LaneFlow 双语术语表][doc-reference-glossary] — 持续维护；无生效取代。按概念统一中文术语、英文辅助名、符号与旧称查询。
-- [mcpls 可选开发工具][doc-reference-mcpls] — 持续维护；无生效取代。说明可选 Rust 语义开发工具及其信任边界。
 - [Rust 代码风格][doc-reference-rust-code-style] — 持续维护；无生效取代。规定 Rust 可读性、注释与契约文档约定。
 - [术语目录格式与维护][doc-reference-terminology-catalog] — 持续维护；无生效取代。定义术语 TOML 正本、概念身份、生成与网站导出。
 - [验证矩阵][doc-reference-validation-matrix] — 持续维护；无生效取代。规定各任务类别的最低验证要求。
@@ -47,7 +46,6 @@ summary = "提供术语、能力、开发约定与文档规范的索引。"
 [doc-reference-document-metadata]: document-metadata.md
 [doc-reference-documentation-checks]: documentation-checks.md
 [doc-reference-glossary]: glossary.md
-[doc-reference-mcpls]: mcpls.md
 [doc-reference-rust-code-style]: rust-code-style.md
 [doc-reference-terminology-catalog]: terminology-catalog.md
 [doc-reference-validation-matrix]: validation-matrix.md
