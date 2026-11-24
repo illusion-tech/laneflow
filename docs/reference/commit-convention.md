@@ -3,8 +3,8 @@ schema_version = 1
 id = "reference-commit-convention"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-20"
-summary = "规定提交标题、关联议题和工具归属格式。"
+revised_date = "2026-11-24"
+summary = "规定提交标题、正文、关联议题和工具归属格式。"
 scope = "LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查"
 +++
 
@@ -13,14 +13,16 @@ scope = "LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查"
 ## 1. 目标
 
 LaneFlow 的提交信息以 [Conventional Commits 1.0.0][conventional-commits]
-为标题基础。机器检查标题、`Refs` / `Closes` footer、破坏性变更的
-`BREAKING CHANGE:`，以及第 6 节的 AI 署名。任务类别、影响和验证写在 PR 模板里，
-不进 commit 检查。
+为标题基础。机器检查标题、正文的存在性、篇幅与行宽、`Refs` / `Closes` footer、
+破坏性变更的 `BREAKING CHANGE:`，以及第 6 节的 AI 署名。提交正文写原因与影响的
+摘要；任务类别、完整验证记录与细节写在 PR 模板里。
 
 ## 2. 推荐格式
 
 ```text
 <type>[optional scope][optional !]: <description>
+
+<正文：原因、契约变化与影响>
 
 Refs: #<id>
 ```
@@ -28,10 +30,88 @@ Refs: #<id>
 示例：
 
 ```text
-feat(runtime): 校验 route segment 连续性
+fix(runtime): 拒绝非有限 edge length
+
+edge length 为 NaN 或无穷大时，路段累计长度失效，后续站位映射会静默落在
+路段之外。编译时改为报告来源诊断，合法输入的结果不变。
 
 Refs: #12
 ```
+
+### 2.1 正文内容
+
+正文写给以后阅读 `git log` 与 `git blame` 的人，回答为什么这样改、改完有什么不同。
+正文从标题后空一行开始，与末尾 trailer 段之间也空一行。
+
+必写：
+
+- 原因：要解决的问题或动机。修复类写清原先在什么输入下出错、错误如何表现。
+- 契约变化：对外的行为、接口、格式、诊断或资源记账有什么变化。外部行为不变时
+  写明行为不变，并说明依据。
+- 影响：兼容性、迁移以及调用方需要做什么；删除或改名的公开标识符逐个写出。
+  破坏性变更的单行说明仍写在 `BREAKING CHANGE:`（第 4 节）。
+
+可写：
+
+- 一句话说明新增或调整的回归测试覆盖什么。
+- 相关设计文档、ADR 或 Issue 的位置。
+
+不写：
+
+- 实现过程的流水账（先改 A 再改 B）与逐文件的改动列表。
+- 逐区间测量、全量计数、探针轨迹等过程数据；结论性数字至多一处，过程留在 PR
+  或 `target/`。
+- 重复标题的内容、对审阅意见的回应，以及“本次提交……”之类的套话。
+
+`feat`、`fix`、`refactor`、`perf` 与标题带 `!` 的提交必须有正文，`BREAKING CHANGE:`
+行不计为正文。`docs`、`test`、`build`、`ci`、`chore`、`revert` 的改动从标题即可
+看明白时可以省略正文。
+
+正文一般 1–3 段，每段只讲一件事，建议不超过 600 个字符。机器上限为 800 个非空白
+字符，不含 `BREAKING CHANGE:` 行与末尾 trailer 段；超出时说明应拆分提交，或把
+细节写入 PR、设计文档或 ADR。
+
+正例保留原因、契约变化与回归测试三部分：
+
+```text
+fix(compiler): 补齐停车与准入计划
+
+停车计划补入逐设施的成员范围表，它与逐模块声明排序视图不共存，两者取峰
+值。只有虚拟停车设施、没有显式停车位时，原计划缺这一项，合法输入会报告资
+源记账缺陷。
+
+准入规则的类别引用按集合语义去重后才知道规范成员数，输出表改为按去重后的
+成员数授予，重复引用不再触发计数计划不一致。
+
+新增两项回归：只有虚拟容量的停车设施，以及重复类别引用规范化为单个成员。
+
+Refs: #1296
+```
+
+反例：`refactor(compiler): 统一索引` 只有标题、没有正文；或正文逐条列出修复前后
+三档长度的比较次数与探针读数，而不说明结论适用的范围。
+
+### 2.2 换行
+
+正文每行的显示宽度不超过 72 列，中日韩字符计 2 列，其余字符计 1 列；纯中文一行
+约 36 个字。这样 `git log` 给正文加 4 格缩进后仍能放进 80 列终端，邮件补丁也
+保持可读。
+
+提交者与 Agent 书写正文时不必自行计数，一段写成一行即可。启用仓库 hook 后，
+`commit-msg` 在校验前就地折行超宽的正文行：
+
+- 断点取 Unicode 换行算法 UAX #14：中日韩字符之间可以断行，逗号、句号、右括号
+  等不放在行首，左括号不留在行尾。
+- ASCII 非空白字符之间不断行，所以英文单词、标识符、路径、URL 与带连字符的名称
+  保持完整；反引号代码内不断行。
+- 列表项（`- `、`1. ` 等）的续行缩进到标记之后的正文起点。
+- 标题、`BREAKING CHANGE:` 行、末尾 trailer 段、缩进代码与围栏代码原样保留。
+- 宽度未超限的行不改动，也不合并提交者自行断开的短行；重复折行结果不变。
+
+CI 只检查、不改写：可以折行却仍超过 72 列的正文行会被拒绝，诊断给出行号与显示
+宽度。单个无法再拆的长单元（如长 URL）独占一行时允许超出。已推送的提交可在启用
+hook 后用 `git rebase <base> --exec "git commit --amend --no-edit"` 逐个重新触发
+折行；缺正文与正文超长只能人工改写。
 
 PR body 使用 `Closes #<id>` 在合并后关闭 Issue。commit footer 默认仍用
 `Refs: #<id>`，避免每个 commit 关单。若确需让单个 commit 关闭 Issue，可以使用
@@ -103,6 +183,8 @@ Traffic Runtime；对应范围使用 `runtime`。历史提交保持原样，不�
 ```text
 feat(runtime)!: 调整 tick API
 
+tick 间隔改由调用方显式传入，避免默认值掩盖宿主帧率。
+
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
 
 Refs: #12
@@ -112,7 +194,7 @@ Refs: #12
 - `BREAKING CHANGE:` 必须提供单行非空说明，放在 trailer 段之前，并与该段空一行。它不是 Git trailer 键，贴着 `Refs` / `Closes` 写会让 Git 认不出 footer。
 - 若同时写 AI 署名，`BREAKING CHANGE:` 留在 trailer 段之前，并空一行。`BREAKING CHANGE:` 的键名含空格，写进 trailer 段会让 Git 整段都解析不到。见第 6 节。
 - `Refs` / `Closes` 必须是最后一个非空 footer 行。
-- 复杂迁移说明应写入 PR、design 或 ADR。
+- 标题带 `!` 的提交必须有正文（第 2.1 节），在正文写迁移摘要；复杂迁移说明写入 PR、design 或 ADR。
 
 ## 5. Refs / Closes
 
@@ -168,6 +250,9 @@ Model: <实际使用模型的已登记规范 ID>
 ```text
 feat(runtime): 校验 route segment 连续性
 
+相邻 route segment 首尾不相接时，车辆会在接缝处跳变。编译时改为报告来源
+诊断，连续的路线不受影响。
+
 Harness: anthropic/claude-code/cli
 Model: anthropic/claude-opus-5-5
 Refs: #12
@@ -177,6 +262,8 @@ Refs: #12
 
 ```text
 feat(runtime)!: 调整 tick API
+
+tick 间隔改由调用方显式传入，避免默认值掩盖宿主帧率。
 
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
 
@@ -313,6 +400,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   `Closes` footer 与正文。
 - 标题 description 不超过 40 个字符，且不含破折号 `—`。
 - scope 省略或符合小写短标识语法；不检查封闭枚举。
+- `feat`、`fix`、`refactor`、`perf` 与标题带 `!` 的提交有正文；正文不超过 800 个
+  非空白字符；可以折行的正文行显示宽度不超过 72 列（第 2.1、2.2 节）。
 - 底部包含 `Refs` 或 `Closes`，且它是最后一个非空行。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
 - 不以 `Co-authored-by` 标注 AI 工具或模型；人类合作者除外。
@@ -326,7 +415,8 @@ Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下�
 - 标题为非 breaking 的 `build(deps): <description>`。
 
 该例外只豁免单个 bot commit 缺少的 `Refs:` / `Closes:` footer，以及标题 description
-的 40 字符长度上限（Dependabot 的 bump 标题天然超长，内容不由本仓库控制）。footer
+的 40 字符长度上限与第 2.1、2.2 节的正文规则（Dependabot 的 bump 标题与正文由上游
+生成，内容不由本仓库控制）。footer
 格式错误，或它不是最后一个非空行，仍然拒绝。例外也不豁免 AI 署名、Conventional
 标题格式、破折号分段、`BREAKING CHANGE:`、PR 审阅、cargo-deny 或 CodeQL。
 本地 `commit-msg` hook 不应用 Dependabot 例外。

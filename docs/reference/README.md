@@ -32,7 +32,7 @@ summary = "提供术语、能力、开发约定与文档规范的索引。"
 <!-- generated-doc-index:start -->
 
 - [当前能力与限制][doc-reference-capabilities] — 持续维护；无生效取代。提供当前实现能力、条件与限制的阅读入口。
-- [提交规范][doc-reference-commit-convention] — 持续维护；无生效取代。规定提交标题、关联议题和工具归属格式。
+- [提交规范][doc-reference-commit-convention] — 持续维护；无生效取代。规定提交标题、正文、关联议题和工具归属格式。
 - [文档元数据与发布模型][doc-reference-document-metadata] — 持续维护；无生效取代。定义正式文档的 TOML 元数据、有效性关系和发布数据模型。
 - [离线文档结构检查][doc-reference-documentation-checks] — 持续维护；无生效取代。定义文档结构、元数据、关系与索引的离线检查。
 - [LaneFlow 双语术语表][doc-reference-glossary] — 持续维护；无生效取代。按概念统一中文术语、英文辅助名、符号与旧称查询。
