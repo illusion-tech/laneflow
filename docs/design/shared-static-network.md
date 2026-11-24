@@ -3,10 +3,11 @@ schema_version = 1
 id = "design-shared-static-network"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-16"
+revised_date = "2026-11-24"
 summary = "定义从受检制品构建共享静态路网修订。"
-scope = "laneflow-static-network、受检 LFCA admission、共享静态路网构建、 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收"
-related = ["adr-0025", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-network-compiler", "design-portable-canonical-artifact", "design-road-editing-source-and-geometry-frontend"]
+scope = "laneflow-static-network、受检 LFCA admission、共享静态路网构建、Traffic/Identity/Spatial 内存数据、Runtime 访问、宿主静态选路的合法转移查询与资源/性能验收"
+issues = ["https://github.com/illusion-tech/laneflow/issues/1539", "https://github.com/illusion-tech/laneflow/issues/1540"]
+related = ["adr-0025", "design-compiler-post-emission-check-and-minimal-publication-closure", "design-network-compiler", "design-portable-canonical-artifact", "design-road-editing-source-and-geometry-frontend", "design-traffic-observation-and-routing-integration"]
 +++
 
 # 共享静态路网
@@ -235,6 +236,37 @@ Traffic retained data。字段与关系的逐项归属由 [§13][shared-static-n
 AoS、SoA 和 AoSoA 的精确组合不形成 ABI。实现以 SoA/热冷分离为基线；若选择
 AoS/AoSoA，须用相同 production access kernel 说明 cache/SIMD 收益和 retained
 memory 代价。
+
+<a id="static-route-steps"></a>
+### 5.3 从一条边枚举合法转移
+
+宿主在一个修订内静态选路时，`SharedTrafficNetwork` 提供一个只读查询。
+本节定义 #1540 待实现的 Rust 接口。建议形状为
+`route_steps(from: LaneEdgeOrdinal, class: Option<ParticipantClassOrdinal>)`，
+返回 `Result`，成功值是借用该修订的迭代器。输入序号由调用方从同一修订解析。
+每项给出从当前边出口可以追加到路线的内容。
+
+- `Ordinary(next)` 给出一条普通后继边。当前边与后继边均在路口内部以外，
+  且这次转移不属于任何机动。识别机动占用的跳先于车型过滤，禁行的首跳不会成为普通后继。
+- `Maneuver { path, append_edges }` 给出一个 `ManeuverPathOrdinal` 和借用的车道图边序列。
+  序列从入口的下一条边到出口，含全部内部边和出口边。宿主可直接追加，下一次从出口继续查询。
+  每条从当前边开始的完整机动独立成项。即使两条机动的首跳和出口都相同，也按各自的路径判断。
+  零内部边的机动仍返回机动项，此时序列只含出口边。
+
+`Some(class)` 先检查当前边的通行资格。普通步还检查后继边，机动步还检查机动路径和
+追加序列中的每一条边。读取已解析的 `edge_access`、`path_access` 裁决，
+仅 `AccessCell::Unconstrained` 或明确放行才可通行。禁行的候选从结果中省去。
+`None` 只略过这些车型裁决，普通后继与完整机动的划分在两种模式下相同。
+
+边或类别序号越界、从路口内部边请求独立起步，各自返回可识别的输入错误。
+底层查询越界返回的 `None` 不能解释为无约束。有效类别在当前边禁行时，查询返回起边禁行，
+使宿主也能检查起终同边的行程。当前边可用且没有合法下一步时，查询成功并返回空迭代器。
+停止线可以位于途经的边上，能否把该边选作行程终点由[宿主接入约定][host-static-routing]处理。
+
+查询按需读取当前边的后继、转移候选及相关路径，复用共享切片和准入单元，每次调用无需堆分配。
+迭代顺序不表达成本或优先级。路线注册仍按调用方提交的完整边序列匹配机动出现记录，
+车辆绑定仍按实际车型和当前路线下标检查可达后缀。实现须用相同路网对照查询与 Runtime
+对边和机动的静态准入裁决。
 
 ## 6. Identity、planning hints 与 Spatial
 
@@ -743,6 +775,7 @@ partition/worker 写入共享对象。提示算法升级不是本合同的隐含
 - 必须把路线边序列或出现记录写回共享静态路网才能完成 tick 或 #302 快照。
 
 [shared-static-network-runtime]: #13-runtime-关系闭包
+[host-static-routing]: traffic-observation-and-routing-integration.md#host-static-routing
 [portable-artifact-geometry]: portable-canonical-artifact.md#371-规范几何数值闭合
 [state-integrity]: traffic-runtime-state-integrity.md
 [committed-editing]: committed-road-editing-state.md
