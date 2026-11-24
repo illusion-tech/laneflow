@@ -1971,6 +1971,47 @@ Refs: #23
         );
     }
 
+    /// 经 hook 入口折行、再经 Git 的注释剥离 cleanup 后，正文内容一字不少（#1536 评审）。
+    #[test]
+    fn hook_wrapping_survives_git_comment_cleanup() {
+        let path = temp_message_path("wrap-cleanup");
+        let tail = "#1536 记录了原始失败，Harness: anthropic/claude-code/cli 与 BREAKING CHANGE: 只是正文里的引用。";
+        for shift in 0..72 {
+            let body = format!("{}折行前的说明 {tail}{tail}", "字".repeat(shift));
+            let message = format!("fix(governance): 保留折行后的正文\n\n{body}\n\nRefs: #1536\n");
+            std::fs::write(&path, &message).expect("test commit message should be written");
+
+            let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+            let wrapped = std::fs::read_to_string(&path).expect("wrapped message should be read");
+            assert!(result.is_ok(), "shift {shift}: {result:?}\n{wrapped}");
+
+            let mut child = Command::new("git")
+                .args(["stripspace", "--strip-comments"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("git stripspace should start");
+            child
+                .stdin
+                .take()
+                .expect("stdin should be piped")
+                .write_all(wrapped.as_bytes())
+                .expect("message should be written to git stripspace");
+            let output = child
+                .wait_with_output()
+                .expect("git stripspace should finish");
+            let cleaned = String::from_utf8(output.stdout).expect("cleanup output should be UTF-8");
+
+            let squash = |text: &str| text.split_whitespace().collect::<String>();
+            assert_eq!(
+                squash(&cleaned),
+                squash(&message),
+                "shift {shift}:\n{wrapped}"
+            );
+        }
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+    }
+
     #[test]
     fn rejects_ai_tool_coauthor_in_commit_message_file() {
         let path = temp_message_path("ai-coauthor");
