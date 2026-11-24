@@ -2076,7 +2076,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 | `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败                 |
 | `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                    |
 
-这些向量必须原子保持 LFCA/LFSM/LFSD/LFCP `5/6/4/2`；不得把旧版本 bytes 当作当前成功向量，
+这些向量必须原子保持 LFCA/LFSM/LFSD/LFCP `6/6/5/2`；不得把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。
 
 确定性矩阵至少覆盖 Windows x86-64 与 Ubuntu x86-64、single-thread 与 compiler 支持的全部

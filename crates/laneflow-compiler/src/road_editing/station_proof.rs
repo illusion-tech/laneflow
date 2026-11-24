@@ -1,4 +1,6 @@
 //! 在实际规范弦上证明来源站位、规范进度与原线累计行程的连续误差。
+mod bezier;
+
 use super::NativeChordBounds;
 use super::compile_geometry::MemberOffsetEndpoints;
 use super::cut_stations::local_nanometres;
@@ -13,6 +15,7 @@ use laneflow_static_contract::StationSpan;
 use std::sync::Arc;
 const UNPROVEN: NumericFreezeKind = NumericFreezeKind::StationMappingNotProven;
 const BILLION: f64 = 1_000_000_000.0;
+const MAX_PREFIX_ERROR_METERS: f64 = 0.0005;
 type Result<T> = std::result::Result<T, NumericFreezeError>;
 
 pub(super) struct Chord {
@@ -38,16 +41,13 @@ impl Chord {
             .map(|x| f64::from(x.abs().next_up() - x.abs()))
             .sum::<f64>();
         let share = (s(0.00045) * self.station_length / s(edge_length)).lo;
-        self.prefix_interpolation_error() <= 0.0005
+        prefix_interpolation_error(self.duration, self.prefix_speed) <= MAX_PREFIX_ERROR_METERS
             && self.travel.lo - norm(delta).hi <= share + quantization
     }
+}
 
-    fn prefix_interpolation_error(&self) -> f64 {
-        (self.duration
-            * (Scalar::exact(self.prefix_speed.hi) - Scalar::exact(self.prefix_speed.lo))
-            * Scalar::exact(0.25))
-        .hi
-    }
+fn prefix_interpolation_error(duration: Scalar, speed: Scalar) -> f64 {
+    (duration * (Scalar::exact(speed.hi) - Scalar::exact(speed.lo)) * Scalar::exact(0.25)).hi
 }
 fn interval(lo: f64, hi: f64) -> Scalar {
     Scalar {
@@ -61,6 +61,7 @@ pub(super) fn chord(
     evaluator: SegmentEvaluator<'_>,
     parameters: [f64; 2],
     native: Option<NativeChordBounds>,
+    edge_length: f64,
 ) -> Result<Chord> {
     let s = Scalar::exact;
     let SegmentEvaluator::Offset {
@@ -147,33 +148,15 @@ pub(super) fn chord(
             },
             _,
         ) => {
-            // 水平左法向随切向转动。对整段参数区间包围一阶、二阶导数。
-            let [a, b, c, d] = [start, control_1, control_2, end].map(exact_point);
-            let t = interval(parameters[0], parameters[1]);
-            let derivatives: [(Scalar, Scalar); 3] = std::array::from_fn(|i| {
-                let u = (b[i] - a[i]) * s(3.0);
-                let v = (c[i] - b[i]) * s(3.0);
-                let w = (d[i] - c[i]) * s(3.0);
-                let linear = (v - u) * s(2.0);
-                let quadratic = w - v - (v - u);
-                (
-                    u + t * (linear + t * quadratic),
-                    linear + s(2.0) * t * quadratic,
-                )
-            });
-            let [(x, xx), (y, _), (z, zz)] = derivatives;
-            let h = (x.square() + z.square()).sqrt();
-            if h.lo <= 0.0 {
-                return Err(UNPROVEN.into());
-            }
-            let dw = (s(offset.offset_end_meters) - s(offset.offset_start_meters))
-                / (s(offset.station_end_meters).widen(offset.end_station_error_meters)
-                    - s(offset.station_start_meters));
-            let width = s(offset.offset_start_meters)
-                + dw * (interval(stations[0].lo, stations[1].hi) - s(offset.station_start_meters));
-            let yaw = (z * xx - x * zz) / h.square();
-            let speed = norm([h - width * yaw, y, dw * station_rate]);
-            (speed, speed * dt)
+            let curve = bezier::OffsetSpeed::new(
+                [start, control_1, control_2, end],
+                station,
+                offset,
+                station_rate,
+            );
+            // 整边留出 0.05 毫米给积分区间宽度，与弦亏损和弦内前缀的预算合计 1 毫米。
+            let share = (s(0.00005) * station_rate * dt / s(edge_length)).lo;
+            curve.measure(parameters, share)?
         }
         _ => return Err(UNPROVEN.into()),
     };
@@ -295,7 +278,10 @@ pub(super) fn finish(
         let prior = drift;
         drift = drift + chord.travel - dp;
         // 与连接两端的行程插值比较，前缀最大偏差为 D × (vmax−vmin) × f(1−f)。
-        let bow = s(chord.prefix_interpolation_error());
+        let bow = s(prefix_interpolation_error(
+            chord.duration,
+            chord.prefix_speed,
+        ));
         let travel_error = upper((s(prior.abs_max().max(drift.abs_max())) + bow).hi)?;
         let encode = upper(
             (meters(q) - s(f64::from(next)))

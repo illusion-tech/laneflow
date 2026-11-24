@@ -16,6 +16,7 @@ fn save(
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     backward: bool,
+    publish_station_mapping: bool,
 ) -> OwnedRoadEditingSourceBuffer {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -65,7 +66,8 @@ fn save(
                     lanes[0].clone(),
                     vec![RoadEditingCorridorElement::RoadSection(section.clone())],
                 )
-                .unwrap(),
+                .unwrap()
+                .with_station_mapping(publish_station_mapping),
             ))
             .unwrap();
         module
@@ -171,7 +173,187 @@ fn balanced(curve: Program) -> OwnedRoadEditingSourceBuffer {
         GeometryAccuracyProfile::Balanced5Cm,
         GeometryDirectionProfile::Balanced2Deg,
         false,
+        false,
     )
+}
+
+fn publish_bezier(
+    [control1, control2, end]: [RoadEditingPoint3; 3],
+    source_lengths_m: [f64; 2],
+) -> (
+    std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    [laneflow_static_contract::LaneEdgeOrdinal; 2],
+) {
+    use laneflow_compiler::{
+        PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::{
+        FormatLimits, RegistryCheckedFieldValue, RegistryCheckedRowView,
+        check_canonical_network_input,
+    };
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+    let curve = Program::try_new(
+        p(0.0, 0.0, 0.0),
+        vec![Segment::cubic_bezier(control1, control2, end)],
+    )
+    .unwrap();
+    let source = save(
+        curve,
+        &[],
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        false,
+        true,
+    );
+    let mut unit =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+    unit.add_road_editing_module(
+        RoadEditingModuleInput::try_new("native", source.as_bytes(), None).unwrap(),
+    )
+    .unwrap();
+    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+    let candidate = emit_portable_candidate(
+        &output,
+        &PortableEmissionProvenance::try_new("nonuniform-bezier").unwrap(),
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let checked =
+        check_canonical_network_input(candidate.canonical_artifact().bytes(), FormatLimits::HARD)
+            .unwrap();
+    let mapping = checked
+        .value_checked_view()
+        .registry_view()
+        .section(8)
+        .unwrap();
+    let mapped_edges = mapping.table(3).unwrap();
+    let spans = mapping.table(4).unwrap();
+    let u32_field = |row: RegistryCheckedRowView<'_>, tag| {
+        let RegistryCheckedFieldValue::U32(value) = row.field_by_tag(tag).unwrap().value().unwrap()
+        else {
+            panic!("expected u32")
+        };
+        value
+    };
+    let edges = [
+        ("inner-0", source_lengths_m[0]),
+        ("outer-0", source_lengths_m[1]),
+    ]
+    .map(|(name, length)| {
+        let edge = output
+            .lir()
+            .lane_edges()
+            .find(|e| {
+                e.identity_fields()
+                    .any(|f| f.value_bytes() == name.as_bytes())
+            })
+            .unwrap();
+        let canonical_length = edge
+            .spatial_geometry()
+            .unwrap()
+            .segments()
+            .last()
+            .unwrap()
+            .cumulative_end_meters;
+        let owner = mapped_edges
+            .rows()
+            .find(|row| u32_field(*row, 1) as usize == edge.ordinal().index())
+            .unwrap();
+        let terminal = spans
+            .row(u32_field(owner, 3) + u32_field(owner, 4) - 1)
+            .unwrap();
+        let source_error_nm = u32_field(terminal, 4);
+        assert!(source_error_nm <= 1_000_000);
+        assert!(
+            (length - f64::from(canonical_length)).abs() * 1e9 <= f64::from(source_error_nm),
+            "{name}: {length} m, {canonical_length} m, {source_error_nm} nm"
+        );
+        edge.ordinal()
+    });
+    let root = build_shared_network_revision(
+        checked,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+        ),
+    )
+    .unwrap();
+    (root, edges)
+}
+
+#[test]
+fn nonuniform_straight_bezier_publishes_station_mapping() {
+    use laneflow_static_network::StationQuery;
+    let z = |meters| p(0.0, 0.0, meters);
+    let (root, [reference, target]) = publish_bezier([z(10.0), z(30.0), z(60.0)], [60.0; 2]);
+    let relations = root.traffic().relations();
+    let target_lane = relations.lane_edge_authoring_lane(target).unwrap();
+    let corridor = relations
+        .section_corridor(relations.authoring_section(target_lane).unwrap())
+        .unwrap();
+    let map = root.station_mapping();
+    assert_eq!(
+        map.corridor_domain(corridor).unwrap().length_nm,
+        60_000_000_000
+    );
+    for (station_nm, expected_mm) in [(0, 0), (60_000_000_000, 60_000)] {
+        let StationQuery::Complete(found) = map.at_station(corridor, station_nm, target_lane)
+        else {
+            panic!("endpoint unresolved")
+        };
+        let addresses = found.addresses().collect::<Vec<_>>();
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(
+            (addresses[0].edge, addresses[0].progress_mm),
+            (target, [expected_mm; 2])
+        );
+    }
+    // 两条恒宽车道平行且同向，原线在同一截面的行程相等。
+    let StationQuery::Complete(found) = map.from_progress(reference, 22_500, target_lane) else {
+        panic!("interior progress unresolved")
+    };
+    let addresses = found.addresses().collect::<Vec<_>>();
+    assert_eq!(addresses.len(), 1);
+    assert_eq!(addresses[0].edge, target);
+    let [lo, hi] = addresses[0].progress_mm;
+    assert!((lo..=hi).contains(&22_500));
+}
+
+#[test]
+fn curved_bezier_offset_travel_matches_analytic_length() {
+    use laneflow_static_network::{StationObservation, StationQuery};
+    // (x', z') = (12t, 48 − 0.75t²)，速率为 48 + 0.75t²，转角为 2 atan(t/8)。
+    // 右偏车道的全长为参考线长加上偏移距离乘以总转角。
+    let source_lengths = [48.25, 48.25 + 7.0 * 0.125_f64.atan()];
+    let (root, [reference, outer]) = publish_bezier(
+        [p(0.0, 0.0, 16.0), p(2.0, 0.0, 32.0), p(6.0, 0.0, 47.75)],
+        source_lengths,
+    );
+    let map = root.station_mapping();
+    let StationObservation::Complete { corridor, .. } = map.stations_for_progress(reference, 0)
+    else {
+        panic!("start unresolved");
+    };
+    let target = root
+        .traffic()
+        .relations()
+        .lane_edge_authoring_lane(outer)
+        .unwrap();
+    let end = map.corridor_domain(corridor).unwrap().length_nm;
+    let StationQuery::Complete(found) = map.at_station(corridor, end, target) else {
+        panic!("offset endpoint unresolved");
+    };
+    let addresses = found.addresses().collect::<Vec<_>>();
+    assert_eq!(addresses.len(), 1);
+    let expected = root.traffic().lane_lengths_millimetres()[outer.index()];
+    assert_eq!(
+        (addresses[0].edge, addresses[0].progress_mm),
+        (outer, [expected; 2])
+    );
 }
 
 // 精确转角单独积分，复合 Simpson 的误差使用 ADR 0022 §6.1 的四阶导数界。
@@ -470,8 +652,15 @@ fn graded_station_cuts_use_each_lanes_own_surface_distance() {
                     GeometryDirectionProfile::Balanced2Deg,
                     GeometryDirectionProfile::Compact5Deg,
                 ] {
-                    let out = compile(&save(curve.clone(), &stations, accuracy, direction, false))
-                        .unwrap();
+                    let out = compile(&save(
+                        curve.clone(),
+                        &stations,
+                        accuracy,
+                        direction,
+                        false,
+                        false,
+                    ))
+                    .unwrap();
                     let key = format!("{lane}-{idx}");
                     let chords: Vec<_> = out.iter().filter(|c| c.key == key).collect();
                     let first = chords.first().unwrap();
@@ -528,6 +717,7 @@ fn continuous_clearance_and_compile_hard_limits_are_distinct() {
         GeometryAccuracyProfile::Compact10Cm,
         GeometryDirectionProfile::Compact5Deg,
         true,
+        false,
     ))
     .unwrap();
     let chord = out.iter().find(|c| c.key == "inner-0").unwrap();

@@ -353,7 +353,7 @@ pub(super) fn approximate_interval(
         let parameters = [node.parameter_start, node.parameter_end];
         // 某个粗区间的导数尚未证为正时，两个测量遍采用同一次细分机会。
         let proof = if let Some(length) = edge_length.filter(|_| accepted) {
-            super::station_proof::chord(evaluator, parameters, native_evidence)
+            super::station_proof::chord(evaluator, parameters, native_evidence, length)
                 .ok()
                 .filter(|c| c.fits_chord(length, [node.start.point, node.end.point]))
         } else {
