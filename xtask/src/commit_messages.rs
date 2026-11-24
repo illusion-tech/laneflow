@@ -8,6 +8,8 @@ use std::io::Write;
 use std::process::Command;
 use std::process::Stdio;
 
+use crate::commit_body;
+
 const ALLOWED_TYPES: &[&str] = &[
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "revert",
 ];
@@ -28,12 +30,22 @@ const AI_TOOL_COAUTHOR_EMAILS: &[&str] = &[
 const AI_COAUTHOR_REWRITE_HINT: &str = "`Co-authored-by` 不得标注 AI 工具或模型。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架的已登记规范 ID>` 和 `Model: <实际模型>`";
 const AI_MADE_WITH_REWRITE_HINT: &str = "`Made-with:` 不得标注 AI 工具。请删除该行，并在空行后的 trailer 段成对写入 `Harness: <执行框架的已登记规范 ID>` 和 `Model: <实际模型>`";
 
-/// 读取并校验单个 commit message 文件（commit-msg 钩子入口）：归一化换行、剥离 Git 注释行后按合同校验。
+/// 读取并校验单个 commit message 文件（commit-msg 钩子入口）：归一化换行，就地把超宽正文行折到
+/// 72 列，再剥离 Git 注释行与剪刀线之后的内容，按合同校验。
 pub(crate) fn check_commit_message_file(path: &str) -> Result<(), String> {
     let message = std::fs::read_to_string(path)
         .map_err(|err| format!("无法读取 commit message 文件 `{path}`: {err}"))?;
     let message = normalize_commit_message_line_endings(&message);
-    let message = strip_commit_message_comments(message.as_ref());
+    let wrapped = commit_body::wrap_commit_message_text(message.as_ref());
+    if wrapped != message.as_ref() {
+        std::fs::write(path, &wrapped)
+            .map_err(|err| format!("无法写回折行后的 commit message 文件 `{path}`: {err}"))?;
+        println!(
+            "已把正文超宽行折到 {} 列: {path}",
+            commit_body::BODY_MAX_WIDTH
+        );
+    }
+    let message = strip_commit_message_comments(&wrapped);
     let errors = validate_message("commit-msg", &message);
 
     if errors.is_empty() {
@@ -53,9 +65,9 @@ fn normalize_commit_message_line_endings(message: &str) -> Cow<'_, str> {
 }
 
 fn strip_commit_message_comments(message: &str) -> String {
-    message
+    commit_body::before_scissors(message)
         .lines()
-        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| !commit_body::is_comment_line(line))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -349,6 +361,10 @@ fn validate_message_with_footer_policy(
     errors.extend(canonical_trailer_errors(message, &trailers));
     errors.extend(unrecognized_controlled_trailers(message, &trailers));
     errors.extend(ai_attribution_errors_from_git(&trailers));
+    // Dependabot 的正文由上游生成，窄豁免同样免除正文规则。
+    if !dependabot_exempt {
+        errors.extend(commit_body::body_errors(message));
+    }
 
     prefix_commit_errors(commit_hash, title, errors)
 }
@@ -948,6 +964,8 @@ Refs: #23
     const BREAKING_MESSAGE: &str = "\
 feat(runtime)!: 调整 tick API
 
+tick 间隔改由调用方显式传入，避免默认值掩盖宿主帧率。
+
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。
 
 Refs: #12
@@ -961,7 +979,7 @@ Refs: #12
     #[test]
     fn rejects_issue_reference_in_title() {
         let message = "\
-feat(runtime): #1272 停止目标速度归约第一批
+docs(runtime): #1272 停止目标速度归约第一批
 
 Refs: #1272
 ";
@@ -974,7 +992,7 @@ Refs: #1272
     #[test]
     fn rejects_parenthesized_issue_reference_in_title() {
         let message = "\
-feat(synth): F2/F3/F4 评审修复（#1233）
+docs(synth): F2/F3/F4 评审修复（#1233）
 
 Refs: #1233
 ";
@@ -986,7 +1004,7 @@ Refs: #1233
 
     #[test]
     fn rejects_title_description_over_forty_chars() {
-        let message = format!("feat(runtime): {}\n\nRefs: #23\n", "一".repeat(41));
+        let message = format!("docs(runtime): {}\n\nRefs: #23\n", "一".repeat(41));
 
         let errors = validate_message("0123456789abcdef", &message);
         assert_eq!(errors.len(), 1);
@@ -995,7 +1013,7 @@ Refs: #1233
 
     #[test]
     fn accepts_title_description_at_forty_chars() {
-        let message = format!("feat(runtime): {}\n\nRefs: #23\n", "一".repeat(40));
+        let message = format!("docs(runtime): {}\n\nRefs: #23\n", "一".repeat(40));
 
         assert!(validate_message("0123456789abcdef", &message).is_empty());
     }
@@ -1510,7 +1528,7 @@ Refs: #23
             message_with_body(
                 "Co-authored-by: Ada Lovelace <ada@example.com>\nHarness: anthropic/claude-code/cli\nModel: anthropic/claude-opus-5-5",
             ),
-            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: anthropic/claude-code/cli\nModel: anthropic/claude-opus-5-5\nRefs: #12\n".to_string(),
+            "feat(runtime)!: 调整 tick API\n\ntick 间隔改由调用方显式传入。\n\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\n\nHarness: anthropic/claude-code/cli\nModel: anthropic/claude-opus-5-5\nRefs: #12\n".to_string(),
             VALID_MESSAGE.to_string(),
         ] {
             assert_accepted(&message);
@@ -1676,7 +1694,7 @@ Refs: #23
     #[test]
     fn accepts_human_coauthor_after_breaking_change_without_ai_attribution() {
         assert_accepted(
-            "feat(runtime)!: 调整 tick API\n\nBREAKING CHANGE: 调用方必须显式传入 tick 间隔。\n\nCo-authored-by: Ada Lovelace <ada@example.com>\nRefs: #12\n",
+            "feat(runtime)!: 调整 tick API\n\ntick 间隔改由调用方显式传入。\n\nBREAKING CHANGE: 调用方必须显式传入 tick 间隔。\n\nCo-authored-by: Ada Lovelace <ada@example.com>\nRefs: #12\n",
         );
     }
 

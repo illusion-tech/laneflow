@@ -84,15 +84,21 @@ LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebas
 
 ## 6. Commit Message
 
-提交信息必须遵守 `docs/reference/commit-convention.md`。运行 `git config core.hooksPath .githooks` 后，仓库内置 `commit-msg` hook 可在本地提交前复用同一校验；CI 会再次检查 PR 和推送到 `main` 的 commit message。
+提交信息必须遵守 `docs/reference/commit-convention.md`。运行 `git config core.hooksPath .githooks` 后，仓库内置 `commit-msg` hook 可在本地提交前复用同一校验，并把超宽的正文行自动折到 72 列；CI 会再次检查 PR 和推送到 `main` 的 commit message。
 
 推荐格式：
 
 ```text
 feat(runtime): 校验 route segment 连续性
 
+相邻 route segment 首尾不相接时，车辆会在接缝处跳变。编译时改为报告来源
+诊断，连续的路线不受影响。
+
 Refs: #12
 ```
+
+正文写原因、契约变化与影响，`feat`、`fix`、`refactor`、`perf` 与带 `!` 的提交
+必须有正文；内容、篇幅与换行见 `docs/reference/commit-convention.md` 第 2.1、2.2 节。
 
 提交标题遵循 Conventional Commits，description 是不超过 40 个字符的单段结果陈述，
 不写 `#<数字>` 形式的 Issue 引用、不用破折号 `—` 分段，关联由 footer 与正文承载。

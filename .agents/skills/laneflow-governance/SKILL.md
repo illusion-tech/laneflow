@@ -86,6 +86,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。不要再写
 `Gate` / `Slice` / `Impact` / `Scope` / `Validation` / `Docs`。
 
+正文写原因、契约变化与影响，`feat`、`fix`、`refactor`、`perf` 与带 `!` 的提交必须
+有正文。内容、篇幅与 72 列换行以 `docs/reference/commit-convention.md` 第 2.1、2.2 节
+为准；一段写成一行即可，启用仓库 hook 后提交时自动折行。
+
 禁止用 `Co-authored-by` 或 `Made-with:` 标注 AI 工具或模型。人类合作者的 `Co-authored-by` 仍然允许，
 且必须放在 `Refs:` / `Closes:` 之前。AI 参与的提交在末尾 trailer 段成对写入下面两行，段前空一行；
 `BREAKING CHANGE:` 留在这段之前。纯人工提交可以不写。两行各出现一次，键名大小写必须精确，
@@ -96,6 +100,8 @@ footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。�
 
 ```text
 <type>[optional scope][optional !]: <description>
+
+<正文：原因、契约变化与影响>
 
 Harness: <已登记的执行框架 ID，如 openai/codex/desktop>
 Model: <提交时实际模型的已登记规范 ID>
