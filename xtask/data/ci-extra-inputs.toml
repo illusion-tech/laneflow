@@ -19,10 +19,18 @@ schema_version = 1
 
 # 已人工核对的非字面量 include 实参：源文件的仓库相对路径，逐出现登记，
 # 不去重。这类实参（如 concat!(env!("CARGO_MANIFEST_DIR"), …)）无法静态解析
-# 出目标，对账时按出现位置与本清单比对，出现未登记的一处即退回全量——先
-# 人工核对目标是否跨包（跨包则补 embed 条目），再在此登记。现有两处都在
-# lust-converter 的 pipeline.rs，分别嵌入仓库根的 Cargo.lock 与
-# rust-toolchain.toml，两者都已是全量触发器。
+# 出目标：扫描只记出现位置，不产出目标路径，也不进 embed 图。对账时按出现
+# 位置与本清单比对，出现未登记的一处即退回全量。
+#
+# 登记即声明已人工读出目标，且目标不构成未登记的跨包输入：它属于嵌入方
+# 自己的包，或已是全量触发器（改它即全量）。embed 表登记不了这类目标——
+# 扫描清点不到，补了条目会被判「登记的跨包嵌入已不存在」，计划持续退回
+# 全量。现有两处都在 lust-converter 的 pipeline.rs，分别嵌入仓库根的
+# Cargo.lock 与 rust-toolchain.toml，两者都已是全量触发器。
+#
+# 目标跨包且不在全量触发器内的非字面量实参，本清单与 embed 表都覆盖不了，
+# 不得径行登记。要让 embed 表管起来，须把实参改成字面量相对路径，扫描
+# 清点得到后再登记；否则先另行确定人工声明与扫描结果的对账方式。
 reviewed_unparsed_includes = [
     "tools/laneflow-lust-converter/src/output/pipeline.rs",
     "tools/laneflow-lust-converter/src/output/pipeline.rs",
