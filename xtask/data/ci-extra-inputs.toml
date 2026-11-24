@@ -51,7 +51,6 @@ not_applicable = [
     ".gitignore",
     ".githooks/**",
     "assets/**",
-    "mcpls.toml",
     "schemas/**",
     "fuzz/**",
     "xtask/data/**",

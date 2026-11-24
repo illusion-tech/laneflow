@@ -13,9 +13,6 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
-# Generated per worktree by .codex/setup-mcpls-worktree.ps1
-.codex/config.toml
-
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -27,5 +24,6 @@ target
 .tools/
 
 # 本地 agent 工作目录（codex 环境配置与会话记忆），不进入仓库
+.codex/config.toml
 .codex/environments/
 .workbuddy/

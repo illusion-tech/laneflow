@@ -73,17 +73,9 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 
 ### Rust 语义导航
 
-修改 Rust 前，按需使用下列方式缩小源码阅读范围：
-
-- 可用时，先使用基于 `rust-analyzer` 的只读语义工具定位定义、活动配置引用、类型、
-  符号与诊断；使用 mcpls 时读取 `docs/reference/mcpls.md`。
-- 使用 mcpls 处理当前工作区前，先通过工作区自有的已知符号确认 server 指向当前
-  worktree；标准库、工具链或依赖的合法定义路径可以位于 worktree 外。
-- 冷启动、空结果或错误不得解释为“没有定义/引用”；等待已知工作区符号可返回，
-  否则回退到 `rg` 与源码阅读。
-- 继续使用 `rg` 覆盖字面量、配置、注释、未启用 feature 和其他文本搜索。
-- 分别使用 `cargo check` 与 `cargo test` 判断最终的编译与测试正确性；语义诊断只作
-  快速反馈。
+使用 `rg` 搜索源码、配置、注释和未启用 feature 中的代码。需要定位 Rust 类型、
+定义或引用时，可使用编辑器的 `rust-analyzer`。使用 `cargo check` 验证编译，
+使用 `cargo test` 验证行为。
 
 ## 规则
 
