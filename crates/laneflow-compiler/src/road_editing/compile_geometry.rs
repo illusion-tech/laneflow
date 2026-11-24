@@ -181,7 +181,7 @@ struct CompiledAlignmentEntry<'a> {
 
 enum CorridorMemberTarget<'a> {
     Lane(&'a crate::declaration::AuthoringLaneDeclaration),
-    FacilityBand { target: &'a TypedAstEntityAddress },
+    FacilityBand(&'a FacilityBandDeclaration),
 }
 
 struct CorridorMember<'a> {
@@ -880,16 +880,16 @@ pub(super) fn compile_authoring_geometry(
             let corridor_domain = [authoring.start_station_meters, station_end];
             let count = match member.target {
                 CorridorMemberTarget::Lane(lane) => lane.edge_chain.len(),
-                CorridorMemberTarget::FacilityBand { .. } => 1,
+                CorridorMemberTarget::FacilityBand(_) => 1,
             };
             for index in 0..count {
                 let (kind, target, lane_direction, edge_domain, source) = match member.target {
-                    CorridorMemberTarget::FacilityBand { target } => (
+                    CorridorMemberTarget::FacilityBand(band) => (
                         laneflow_static_contract::EntityKind::FacilityBand,
-                        target,
+                        &band.header.source_address,
                         AuthoringLaneDirection::Forward,
                         corridor_domain,
-                        &plan.corridor.header.span,
+                        &band.header.span,
                     ),
                     CorridorMemberTarget::Lane(lane) => {
                         let geometry = lane
@@ -1045,7 +1045,7 @@ pub(super) fn compile_authoring_geometry(
                             }),
                         });
                     }
-                    CorridorMemberTarget::FacilityBand { target } => {
+                    CorridorMemberTarget::FacilityBand(_) => {
                         if facility_outputs.len() == expected_facility_outputs {
                             return Err(NumericFreezeError::from(
                                 NumericFreezeKind::GeometryTopologyMismatch,
@@ -1053,7 +1053,7 @@ pub(super) fn compile_authoring_geometry(
                             .into());
                         }
                         facility_outputs.push(PendingFacilityGeometry {
-                            target: (*target).clone(),
+                            target: target.clone(),
                             value: Some(CompiledFacilityBandGeometry {
                                 station: if authoring.station_mapping_request.is_some() {
                                     Some(super::station_proof::band(
@@ -1067,6 +1067,7 @@ pub(super) fn compile_authoring_geometry(
                                             .last()
                                             .unwrap()
                                             .station_error_meters,
+                                        source,
                                     )?)
                                 } else {
                                     None
@@ -1213,7 +1214,7 @@ fn validate_cut_stations(
             .iter()
             .filter_map(|member| match member.target {
                 CorridorMemberTarget::Lane(lane) => lane.authoring_geometry.as_ref(),
-                CorridorMemberTarget::FacilityBand { .. } => None,
+                CorridorMemberTarget::FacilityBand(_) => None,
             })
             .flat_map(|geometry| geometry.interior_cuts.iter())
     };
@@ -1633,9 +1634,7 @@ fn expand_corridor_members<'a>(
                     width_profile: facility
                         .authoring_width_profile
                         .expect("resolved facility retains its authoring width"),
-                    target: CorridorMemberTarget::FacilityBand {
-                        target: &facility.header.source_address,
-                    },
+                    target: CorridorMemberTarget::FacilityBand(facility),
                 });
             }
         }

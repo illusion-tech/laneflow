@@ -23,13 +23,29 @@ pub enum SourceLocation {
 
 impl SourceLocation {
     pub(crate) fn curve_segment_field(&self, field_id: u16) -> Self {
+        self.with_property([RoadEditingPropertyStep::TableField {
+            table: RoadEditingTableKind::CurveSegment,
+            field_id,
+        }])
+    }
+
+    pub(crate) fn facility_width_endpoint(&self, member_id: u8) -> Self {
+        self.with_property([
+            RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::FacilityBand,
+                field_id: 2,
+            },
+            RoadEditingPropertyStep::StructMember {
+                structure: RoadEditingStructKind::LinearWidthProfile,
+                member_id,
+            },
+        ])
+    }
+
+    fn with_property<const N: usize>(&self, steps: [RoadEditingPropertyStep; N]) -> Self {
         let mut source = self.clone();
         if let Self::RoadEditing(loc) = &mut source {
-            let path =
-                RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
-                    table: RoadEditingTableKind::CurveSegment,
-                    field_id,
-                }]));
+            let path = RoadEditingPropertyPath::new(Box::new(steps));
             loc.property_path = Some(loc.context.property_path_ordinal_for(&path));
         }
         source

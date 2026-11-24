@@ -2,7 +2,7 @@
 mod bezier;
 
 use super::NativeChordBounds;
-use super::compile_geometry::MemberOffsetEndpoints;
+use super::compile_geometry::{GeometryCompilationError, MemberOffsetEndpoints};
 use super::cut_stations::local_nanometres;
 use super::geometry::{
     ApproximationPoint, CurveSegment, NumericFreezeError, NumericFreezeKind, SegmentEvaluator,
@@ -339,8 +339,15 @@ pub(super) fn band(
     domain: [f64; 2],
     round: f64,
     station_error: f64,
-) -> Result<StationBandProof> {
+    source: &crate::SourceLocation,
+) -> std::result::Result<StationBandProof, GeometryCompilationError> {
     let s = Scalar::exact;
+    let unproven = |location| {
+        GeometryCompilationError::Constraint(Box::new((
+            crate::RoadEditingNumericViolation::StationMappingNotProven,
+            location,
+        )))
+    };
     let values = [
         s(offset.start_meters).widen(round) + s(width.start_width_meters) * s(0.5),
         s(offset.start_meters).widen(round) - s(width.start_width_meters) * s(0.5),
@@ -352,22 +359,28 @@ pub(super) fn band(
     for (j, v) in values.iter().enumerate() {
         let um = (v.value * 1_000_000.0).round_ties_even();
         if !(f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&um) {
-            return Err(UNPROVEN.into());
+            return Err(unproven(source.facility_width_endpoint((j / 2) as u8)));
         }
         offsets_um[j] = um as i32;
         err = err.max((*v - s(um) / s(1_000_000.0)).abs_max());
+    }
+    for (end, source_width) in [width.start_width_meters, width.end_width_meters]
+        .into_iter()
+        .enumerate()
+    {
+        let (left, right) = (offsets_um[2 * end], offsets_um[2 * end + 1]);
+        if left < right || (left == right) != (source_width == 0.0) {
+            return Err(unproven(source.facility_width_endpoint(end as u8)));
+        }
     }
     let length = s(domain[1]) - s(domain[0]);
     let slope = ((values[0] - values[2]) / length)
         .abs_max()
         .max(((values[1] - values[3]) / length).abs_max());
-    let lateral_error = upper((s(err) + s(slope) * (s(station_error) + s(1e-6))).hi)?;
-    if lateral_error > 1000
-        || offsets_um[0] < offsets_um[1]
-        || offsets_um[2] < offsets_um[3]
-        || (offsets_um[0] == offsets_um[1] && offsets_um[2] == offsets_um[3])
-    {
-        return Err(UNPROVEN.into());
+    let lateral_error = upper((s(err) + s(slope) * (s(station_error) + s(1e-6))).hi)
+        .map_err(|_| unproven(source.clone()))?;
+    if lateral_error > 1000 {
+        return Err(unproven(source.clone()));
     }
     Ok(StationBandProof {
         offsets_um,
