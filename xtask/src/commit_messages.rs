@@ -739,6 +739,12 @@ struct RawKeyedLine {
     value: String,
 }
 
+/// 该行会被校验器当作受控字段候选（`Harness`、`Model`、`Refs` 等，大小写不敏感，冒号两侧
+/// 可有空白）。折行用它排除会制造字段行的断点，与校验共用同一识别规则。
+pub(crate) fn is_controlled_field_line(line: &str) -> bool {
+    raw_keyed_line(line).is_some()
+}
+
 fn raw_keyed_lines(message: &str) -> Vec<RawKeyedLine> {
     message.lines().filter_map(raw_keyed_line).collect()
 }
@@ -2010,6 +2016,27 @@ Refs: #23
             );
         }
         std::fs::remove_file(&path).expect("test commit message should be removed");
+    }
+
+    /// 句中的 `Model:openai/...` 恰好落在折行边界时，折行不得制造受控字段行（#1536 复审）。
+    #[test]
+    fn hook_wrapping_does_not_create_controlled_field_lines() {
+        let path = temp_message_path("wrap-controlled-field");
+        let message = "fix: Preserve attribution examples\n\nThis change preserves the existing contract for all supported callers. Model:openai/gpt-6-astra is only an example.\n\nRefs: #1536\n";
+        std::fs::write(&path, message).expect("test commit message should be written");
+
+        let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+        let wrapped = std::fs::read_to_string(&path).expect("wrapped message should be read");
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+
+        assert!(result.is_ok(), "{result:?}\n{wrapped}");
+        assert_ne!(wrapped, message, "正文应被折行");
+        assert!(
+            wrapped
+                .lines()
+                .all(|line| !is_controlled_field_line(line) || line == "Refs: #1536"),
+            "{wrapped}"
+        );
     }
 
     #[test]
