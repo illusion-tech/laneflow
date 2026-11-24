@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-cross-section-stationing-and-lateral-geometry"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-25"
 decision_date = "2026-11-24"
 summary = "定义走廊共享里程、段级边界与整车扫过空间的几何合同。"
 scope = "#273 的共享里程、横断面、路线交接、刚性车辆支承与整车净空的 G1 设计"
-issues = ["https://github.com/illusion-tech/laneflow/issues/273", "https://github.com/illusion-tech/laneflow/issues/1523"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/273", "https://github.com/illusion-tech/laneflow/issues/1523", "https://github.com/illusion-tech/laneflow/issues/1524"]
 applicability = "#applicability"
 related = ["adr-0013", "adr-0015", "adr-0017", "adr-0018", "adr-0022", "design-core-runtime-performance-baseline", "design-cross-section-access", "design-lane-change-minimal-contract", "design-portable-canonical-artifact", "design-road-editing-source-and-geometry-frontend", "design-route-system", "design-shared-static-network", "design-spatial-geometry", "design-vehicle-following"]
 +++
@@ -301,6 +301,11 @@ G1 的中心线对照使用 LFRE 5 和 LFCA 5。`Omit` 与 `RetainAvailable` 读
 本例第九节为 **35,618 字节**，含 4 个走廊、133 个锚点、8 条车道、8 条边、258 个分段、2 条设施带和 2 个命名区间。实验读方拒绝缺失设施带、起点未覆盖、边界左右颠倒、接缝索引越界、重复区间键及零长度区间。这里核对了局部登记和差异。规则冲突优先级、完整障碍形状和车身扫过须按各自合同验收。
 
 ### 3.3 可行驶路面、分段规则与实体的编译合同
+<a id="cross-section-publication"></a>
+
+编辑器通过走廊的开放范围、每条车道的支承声明和两级命名区间给出源数据。LFRE 7
+字段、所有者检查及编辑往返见[道路编辑来源 §6.2][cross-section-authoring]。
+LFSM 7 将下列表行绑定到具体宽度、曲线段和规则或实体参数，见[来源登记][cross-section-sources]。
 
 只开放共享里程时使用 §2.7 的表 1 至 7。要开放动态横移，编制端还须为整个走廊声明可用路面、边界的默认许可及实际存在的阻挡物，编译器检查完整性后发射下列行。**没有声明**与**明确声明没有障碍**必须可区分。表 9 的完整域表示经过这项封闭清单检查，只有站位映射的走廊不能据空障碍表获得净空。省略表现用 Spatial 时，共享路网仍须持有同一套交通裁决数据。所有标量按 §2.7 的分块节编码，字段按下列顺序从 tag 1 编号，除明确写出的变体外均必需。
 
@@ -634,6 +639,8 @@ LFRE 与道路编辑前端已升至 5，来源映射 LFSM 已升至 5。编译�
 [graded-test]: https://github.com/illusion-tech/laneflow/blob/a51a77c607abf3d91e0a2078973297f30324da03/crates/laneflow-compiler/tests/native_road_curves.rs#L444
 [road-editing-native]: road-editing-source-and-geometry-frontend.md#native-plan-curves
 [road-editing]: road-editing-source-and-geometry-frontend.md
+[cross-section-authoring]: road-editing-source-and-geometry-frontend.md#cross-section-authoring
+[cross-section-sources]: portable-canonical-artifact.md#cross-section-sources
 [station-adr18]: ../adr/0018-multimodal-cross-section-and-access-overlay.md
 [shared-network]: shared-static-network.md
 [spatial]: spatial-geometry.md

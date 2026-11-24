@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-road-editing-source-and-geometry-frontend"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-25"
 summary = "定义道路编辑来源与几何编制前端。"
 scope = "道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、 来源持久化编码与 topology/geometry MIR 降阶"
 related = ["adr-0020", "adr-0021", "adr-0023", "adr-0025", "design-compiler-foundation", "design-network-compiler", "design-shared-static-network"]
@@ -219,6 +219,130 @@ LIR 保存规范 `f32` 折线及派生静态语义。
 编制端通过 `RoadEditingCurveProgram::read_from` 按走向或显式边键恢复可编辑参数。
 `add_road_editing_module_with_native_chords` 在编译候选中逐弦给出原段归属、目标、走行方向、
 实际端点、原线中点及连续界。消费方在模块准入成功后采用该批证据。
+
+### 6.2 LFRE 7 的横断面编制入口
+<a id="cross-section-authoring"></a>
+
+#1524 在 LFRE 6 的走廊、区段和车道声明上补齐可编辑输入。写方选择走廊的开放范围，
+并在结构边界的所属对象上登记局部区间。下列字段号按 LFRE **7** 解读。当前生产
+组合见 §9.5，切换时一并采用 Road Editing 前端 7、几何语义 4 及 LFSM 7。
+制品字段、误差和比较规则沿用[走廊共享里程与横断面几何 §3.2–3.3][lateral-geometry]。
+
+- `RoadCorridor.9 cross_section_coverage:CrossSectionCoverage = None` 取代 LFRE 6
+  的布尔开放标志。枚举的底层类型为 `ubyte`。值 0 `None` 为普通走廊，值 1
+  `StationMapping` 开放共享里程，值 2 `Complete` 声明走廊全域的路面、静态跨越规则和实体清单完整。
+- `RoadCorridor.10 boundary_extents:[BoundaryExtent]` 登记走廊相邻元素的接缝，
+  `RoadSection.5 boundary_extents:[BoundaryExtent]` 登记区段内相邻车道的边界。
+  两个向量均 required，允许空向量。区间归属由所在向量确定。
+- `AuthoringLane.8 supports_wheel:bool = null` 由作者显式给出车道是否可支承车轮。
+  `Complete` 要求所属每条车道都有值，包括 `false`。宽度仍取自 `AuthoringLane.3`
+  和 `FacilityBand.2`。路面框架来自走廊引用的走向及其 `RoadAlignment.1`。
+  编译器用同一横断面顺序推导表 8 的左右界，从参考线证明表 9 的端点值、导数及误差。
+- LFRE 7 把 `AuthoringLane.7 interior_cut_stations_meters:[double]` 设为可缺省。
+  链长为 1 时必须省略。链长为 `n > 1` 时必须提供恰好 `n−1` 个切点，沿行驶
+  次序执行既有的域、单调与毫米覆盖检查。两种链长均拒绝显式空向量。
+  LFRE 6 要求单边车道也写空向量。在同一份带坡弯道上，现行 LFRE 6 编译器接受
+  Rust 写出的来源。固定版本的 C++ 对象写方原样重打包后，Rust 读方在切点字段报错。空向量的
+  元素起址可能只按四字节对齐，Rust 验证器对零个 `double` 也检查八字节对齐。
+  链长唯一确定切点字段的存在性。C# 对象解包会将缺省向量恢复为空列表，
+  单边车道重写时应将该属性设为 `null`。Rust、C++、C# 均按此规则写出同一含义。
+
+`None` 要求两级向量都为空。`StationMapping` 允许只登记名字、种类与范围。
+这两档均要求车道支承位缺省、区间无载荷。`Complete` 要求每个区间恰有一个同种载荷，
+包括仅用于禁止跨越的显式规则。两级向量均空、车道支承位齐全且整段路面可证时，
+可以发布完整的无障碍走廊。未授予的跨越方向默认禁止，全域许可用覆盖首末端面的规则表达。
+任一违反所选声明的输入都报错。表 9 全域覆盖表示完整能力，部分覆盖视为制品错误。
+
+以下是新增类型的 FlatBuffers 登记。成员、种类和站位均拒绝 `Unspecified` 与未知值。
+普通 union 占用判别字段 6 和值字段 7，拒绝未知变体和判别值与实际载荷不符的组合。
+
+```fbs
+enum CrossSectionCoverage:ubyte { None = 0, StationMapping = 1, Complete = 2 }
+enum BoundaryMemberKind:ubyte { Unspecified = 0, RoadSection = 1, FacilityBand = 2, AuthoringLane = 3 }
+enum BoundaryExtentKind:ubyte { Unspecified = 0, Rule = 1, Obstacle = 2 }
+enum BoundaryStationKind:ubyte { Unspecified = 0, Fixed = 1, CorridorEndpoint = 2 }
+
+struct BoundaryStation {
+  kind:BoundaryStationKind;
+  station_meters:double;
+}
+struct CurbEnd {
+  left_offset_meters:double;
+  right_offset_meters:double;
+  bottom_height_meters:double;
+  top_height_meters:double;
+}
+table BoundaryMember {
+  kind:BoundaryMemberKind = Unspecified (id: 0);
+  entity_reference:string (required, id: 1);
+}
+table CrossingRule {
+  directions:ubyte = null (id: 0);
+  effect:ubyte = null (id: 1);
+}
+table Guardrail {
+  anchor_role:ubyte = null (id: 0);
+  lateral_offset_meters:double = null (id: 1);
+  horizontal_length_meters:double = null (id: 2);
+  radius_meters:double = null (id: 3);
+  bottom_height_meters:double = null (id: 4);
+  top_height_meters:double = null (id: 5);
+  parameter_error_meters:double = null (id: 6);
+}
+table Curb {
+  low:CurbEnd (required, id: 0);
+  high:CurbEnd (required, id: 1);
+  parameter_error_meters:double = null (id: 2);
+}
+union BoundaryPayload { CrossingRule = 1, Guardrail = 2, Curb = 3 }
+table BoundaryExtent {
+  left:BoundaryMember (required, id: 0);
+  right:BoundaryMember (required, id: 1);
+  extent_kind:BoundaryExtentKind = Unspecified (id: 2);
+  local_key:string (required, id: 3);
+  low:BoundaryStation (required, id: 4);
+  high:BoundaryStation (required, id: 5);
+  payload:BoundaryPayload (id: 7);
+  canvas_selection:string (id: 8);
+}
+```
+
+**身份与范围。** 按 §9.3 的完整本地所有者键链解析左右有类型引用。两者须按参考方向在
+走廊的 `elements` 或区段的 `authoring_lanes` 中紧邻。同名车道必须解析到声明所在区段。
+反向行驶不交换左右。沿用制品的 1 至 53 字节局部名及字符集。所属对象、有序成员对、
+种类和名字唯一确定区间。该键在声明重排、修改画布选择或移动端点后保持稳定。
+`Fixed` 保存自走向原点起算的参考线路面米数，与独立车道切点同一尺度。
+`CorridorEndpoint` 的数值取零，按 low、high 的字段角色分别绑定所属走廊首、末端面。
+只接受有限数、域内严格递增的两个端点。编译器将端点并入共同锚点，扣除走廊起点后
+发布局部站位。共截面的端点可共用锚点。对于不同截面的必需端点，先收紧求值界，
+仍量化到同一站位则拒绝。
+内部边界锚点可位于既有车道边内。规则在高端点切换，实体保留闭端面。
+
+**载荷与量化。** 完整声明中，种类 1 对应 `CrossingRule`，方向掩码 1 左到右、2 右到左、3 双向，
+效果为 1 允许、2 禁止。种类 2 对应 `Guardrail` 或 `Curb`。所有可空标量在相应
+载荷存在时均须显式给出，包括零偏移、零编制误差。护栏锚定角色 1 为低端、2 为高端，
+水平轴线朝区间内侧，长和半径为正。路缘低、高端各自要求左偏 ≥ 右偏。两种实体均要求
+顶高 > 底高，位置沿水平左法向取正，高度相对相应路面。各数值必须有限。
+编制误差为覆盖各长度参数的统一非负米数。对每一参数取最近微米、恰中取偶，
+把其实际量化误差的向外上界与编制误差相加，对各参数取最大值、向上取整到纳米。
+二进制输入被精确视为其 binary64 值。超出表 11 的整数字段、正长折叠或量化后违反
+形状约束时定位原字段并拒绝。站位、路面及横向边界的不确定度随后按各自来源传播。
+
+**编制与验收。** Rust 编制器须能从受检 LFRE 按所属对象、有序成员对、种类与名字
+读回完整参数，编辑后保留同走廊的其余区间和作用域。重编译分别核对只改护栏高度、
+移动同侧端点、改名、换侧和只移除护栏的 LFCA 修订及 LFSD 行。保留设施带时两侧区段
+仍不相邻。用两条同名但分属不同区段的车道检验错属引用，用区段内相邻车道另验合法
+区间。覆盖仅映射、完整空清单、明确不支承和遗漏支承、错载荷、边界越界及原子拒绝。
+省略或保留表现用空间几何均须读到相同结果。更新现有 C++、C# 写入样例和受检 Rust
+读方的精确版本，覆盖含规则、护栏、路缘的输入及显式 `false`。
+
+**G1 往返对照。** 按横断面设计 §3.1 的四段带坡弯道，在加宽段左侧登记标线规则和
+护栏，右侧登记路缘。八条车道中一条在水平第 59 米切边，其余各有一条边。护栏高端
+取水平第 60 米，即走向路面站位 60.300751880 米、所属走廊局部站位 7.035087719 米。
+固定版本 `flatc 25.12.19` 生成的 C++、C# 绑定分别从同一份候选 LFRE 7 读回，
+把护栏顶高从 0.85 改至 1.05 米并重新写出。Rust 受检 FlatBuffers 读回后逐字段与
+预期相等，包括路缘低、高端、支承位 `false` 和其余车道切点。单改路缘高端时，
+另一端保留原高。该对照验证了源格式与编辑。生产编译、制品定位和差异仍须在实现中验收。
 
 ## 7. 来源位置与诊断
 
@@ -594,7 +718,7 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 ### 9.5 版本、未知字段与摘要
 
 当前组合是 `format_version = 6`、Road Editing `frontendVersion = 6`、LFCA 6、LFSM 6 与
-LFSD 5；来源前端版本和 LFRE wire 版本分别精确校验。
+LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。横断面编制入口实施时统一切换到 §6.2 的组合。
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
   `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 6`；
@@ -626,8 +750,8 @@ LFSD 5；来源前端版本和 LFRE wire 版本分别精确校验。
 
 1. 在分配前检查来源模块/累计字节余额、最小长度、size prefix 的 checked exact length
    和 `LFRE` file identifier；
-2. 从受 framing 约束的根表执行有界版本探针，非 `5` 立即拒绝，旧文档无需携带
-   v4 新增的 required vector；再使用下述固定公式从当前 `CompileProfile` 与调用点剩余预算导出 `VerifierOptions`，再
+2. 从受 framing 约束的根表执行有界版本探针，版本与当前读取器要求不符即拒绝。
+   命中后使用下述固定公式从当前 `CompileProfile` 与调用点剩余预算导出 `VerifierOptions`，再
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
 3. verifier 成功后检查唯一 exact version `6`；其它值在 LaneFlow 语义读取和规模相关
    分配前拒绝；
@@ -1129,6 +1253,7 @@ production 依赖或实现。
 [right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [portable-artifact-bindings]: portable-canonical-artifact.md#41-bindings-与来源池登记
 [portable-artifact]: portable-canonical-artifact.md
+[lateral-geometry]: cross-section-stationing-and-lateral-geometry.md#cross-section-publication
 [native-curve-error]: ../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md#native-curve-bounds
 [asam-arc]: https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/v1.8.1/specification/09_geometries/09_05_arc.html
 [asam-spiral]: https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/v1.8.1/specification/09_geometries/09_04_spiral.html

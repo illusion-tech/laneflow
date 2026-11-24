@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-portable-canonical-artifact"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-25"
 summary = "定义可移植规范制品、分块和容量合同。"
 scope = "LFCA、LFSM、LFSD、LFCP 的规范格式、规范排序、跨对象绑定、 失败关闭与格式安全天花板"
 applicability = "#applicability"
@@ -1037,6 +1037,8 @@ NetworkRevisionIdV2 := SHA-256(
 
 ## 4. LFSM 6
 
+本节登记当前生产版本。#1524 的 LFSM 7 字段路径、来源角色及配对条件见[横断面来源登记][cross-section-sources]。
+
 #284 引入的路权策略来源登记见
 [`traffic-runtime-right-of-way-policy.md` §4.4][right-of-way-lfsm]：
 包含策略的 container/member、来源关系代码、policy 与局部成员的主来源和
@@ -1261,6 +1263,65 @@ Declaration root 是其 entity kind 同名 table，RoadAlignment root 是 RoadAl
 OwnerLocal root 由 relation kind/owner 决定。因每一步单独合法而接受不可达组合仍是格式错误。
 
 LFRE 6 的有序链项和内部切点分别采用关系 20 与 21，地址所有者均为编制车道。出现序号按行驶顺序从零起，属性路径分别止于 `AuthoringLane.1` 与 `AuthoringLane.7`。走廊开放声明定位到 `RoadCorridor.9`。LFCP 2 来源映射绑定精确核对 LFSM 6、长度及整件摘要。
+
+#### LFSM 7 的横断面来源登记
+<a id="cross-section-sources"></a>
+
+#1524 的输入形状及字段号见[道路编辑来源 §6.2][cross-section-authoring]。生产切换
+采用 LFRE 7、Road Editing 前端 7、几何语义 4、LFCA 6、LFSM 7、LFSD 5、LFCP 2。
+LFCA 的修订派生版本为 2。Synthetic 前端仍为 5。LFSM 第 1 至 5 节沿用其表结构。
+下列登记为版本 7 的增量。LFCP 的来源映射绑定须同时核对版本 7、整件字节长度和摘要。
+读方拒绝旧 LFRE、旧 LFSM，也须检出以同长度或同修订的另一份 LFSM 替换原件。
+来源声明重排或只改画布选择可以改变来源摘要。LFCA 的语义修订由其规范投影决定。
+
+- 扩展 table 容器 `9 RoadCorridor[0..10]`、`10 RoadSection[0..5]`、
+  `11 AuthoringLane[0..8]`。新增 `47 BoundaryExtent[0..8]`、`48 BoundaryMember[0..1]`、
+  `49 CrossingRule[0..1]`、`50 Guardrail[0..6]`、`51 Curb[0..2]`。
+  新增 struct 容器 `5 BoundaryStation[0..1]`、`6 CurbEnd[0..3]`，成员按声明序编号。
+  新增 union 容器 `1 BoundaryPayload`，判别 1、2、3 分别进入 table 49、50、51。
+- 新增源关系 `22 BoundaryExtent`。Address owner 为走廊或区段。有效区间按所属
+  对象过滤表 7，再按其规范行序取 `CanonicalSetOrdinal`，其属性路径从 table 47
+  起算。所属实体声明可定位到向量字段 `9.10` 或 `10.5`，成员内诊断使用关系 22。
+  尚无唯一成员身份的缺失引用或重复键在所属向量报告，附造成冲突的来源项或字节位置。
+- 多步路径新增 `47.{0,1} → 48`、`47.{4,5} → struct 5`、
+  `47.7 → union 1(1|2|3) → 对应载荷 table 的字段` 和 `51.{0,1} → struct 6`。
+  例如路缘高端顶高的四步为 `47.7 → union 1(3) → 51.1 → struct 6.3`。
+  单步 `47.6` 定位判别字段。每步须与该地址、实际种类和所选载荷一致。
+  缺省 union 只可指认外层声明或字段。画布选择留在来源位置的可选选择值中。
+
+LFSM 的 `OwnerLocalSource` 另登记下列六个 `sourceRelationRole`。每条已发布的
+LFCA 第九节表 6 至 11 行恰好对应一条同角色来源行。表 6、8 的 owner 各为被引设施带、
+编制车道，`localIndex=0`。其余各表取所列 owner 在**该表**中过滤后的零基规范行号，
+跨块连续。表 10、11 的来源关系 22 仍按目标**表 7**取出现序号。
+
+1. **37 设施带范围，表 6。** 主要位置为设施带声明的宽度 `28.2`。
+2. **38 命名区间，表 7。** owner 为结构边界所在走廊或区段，主要位置为关系 22 的
+   局部名 `47.3`。贡献位置包括该成员的左右有类型引用、种类和两个端点的有效字段。
+3. **39 车道路幅，表 8。** 主要位置为车道声明的支承位 `11.8`。表 6、8 的贡献
+   取确定该边界的横断面顺序、参考车道和实际参与累加的车道或设施带宽度字段，
+   以及所属走廊的开放声明 `9.9`。
+4. **40 路面区间，表 9。** owner 为走廊，主要位置为该区间所属走向的曲线段
+   （源关系 1、原段序号、曲线段几何字段）。在原段接缝分行，两侧各指向本段。
+   贡献包括走廊的走向引用、开放声明、走向的框架引用与决定区间端点的来源。
+   证明细分产生的端点沿用原段位置。
+5. **41 跨越规则（表 10）和 42 边界实体（表 11）。** owner 与被引命名区间相同。
+   主要位置为同一关系 22 的 `47.7`。贡献逐一定位到所选载荷的语义叶字段，
+   包括显式零值、锚定角色与编制误差。路缘两端分开定位。
+
+按 §4.2 的位置语义排序、去重，受检读方从 LFCA 行和已解析的来源双向核对所属
+对象、主要位置及贡献集合。错用同名区间、错侧或不同 union 的合法路径均拒绝。
+角色 37 至 42 单独按站位表计数，`CanonicalRelationCount` 的参与集合仍为角色 1 至 32。差异通道为
+LFSD 第八节对应成员 6 至 11。同侧移动保留成员键。改名或换侧时，区间及其载荷各自
+删除旧键、添加新键。单改护栏高度只修改成员 11。移动到先前没有的锚点时还须比较
+实际改变的锚点、分段及路面区间。[成员值与容量登记][shared-station]
+
+两级来源向量在分配前按全修订累计，计入命名区间独立限额及来源、路径、投影和
+临时排序的字节预算。完整走廊满足表 10、11 行数之和等于其表 7 行数。来源检查
+覆盖少一行、多一行、超过限额一项、跨块序号和更换声明顺序。候选整件校验成功后发布。
+
+LFRE 预检中，一个命名区间的区间表和两个成员表共计三次表出现，有载荷时再计一次。
+两个站位及路缘端点为内联 struct，随所在表计入字节。继续使用五层 table 深度上限。
+源关系 21 只为多边车道的实际切点分配出现序号，单边车道缺省字段时没有关系 21 行。
 
 **LFRE 5 的路径增量（#1516）。** 原生曲线的字段和值域见
 [道路编辑来源 §6.1][road-editing-native]。原生段沿用五节、八类逻辑表和最多四步的属性路径。
@@ -2105,6 +2166,8 @@ ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择�
 [numeric-representation]: numeric-representation.md
 [right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [road-editing]: road-editing-source-and-geometry-frontend.md
+[cross-section-authoring]: road-editing-source-and-geometry-frontend.md#cross-section-authoring
+[cross-section-sources]: #cross-section-sources
 [road-editing-native]: road-editing-source-and-geometry-frontend.md#native-plan-curves
 [right-of-way-lfsd]: traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更
 [post-emission-host-boundary]: compiler-post-emission-check-and-minimal-publication-closure.md#9-宿主持久化与原子边界
