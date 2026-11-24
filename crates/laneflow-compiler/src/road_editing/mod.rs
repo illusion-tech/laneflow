@@ -16,9 +16,15 @@ mod input;
 mod location;
 mod lowering;
 mod model;
+mod native_bounds;
+mod native_input;
+pub use native_bounds::{NativeChord, NativeChordBounds, NativeClearance, NativeUnprovenReason};
+pub(crate) mod native_curve;
 mod preflight;
+mod read_curve;
 /// 受检 RoadEditingSource 的原子 reader 与 admission 入口。
 pub(crate) mod reader;
+pub use read_curve::RoadEditingCurveOwner;
 mod rules;
 mod writer;
 

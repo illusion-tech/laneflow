@@ -185,7 +185,10 @@ fn checker_rejects_truncated_appended_wrong_kind_and_wrong_version_objects() {
                     changed.pop();
                 }
                 1 => changed.push(0),
-                2 => changed[4..6].copy_from_slice(&9_u16.to_le_bytes()),
+                2 => {
+                    let wrong_version = if object_index == 1 { 4_u16 } else { 9 };
+                    changed[4..6].copy_from_slice(&wrong_version.to_le_bytes());
+                }
                 _ => unreachable!(),
             }
             let mut objects = originals;
@@ -530,7 +533,7 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
     assert_eq!(first.byte_length(), ExactByteLength::new(800));
     assert_eq!(
         first.object_key(),
-        "sha256/4e5a1be12f627ae5040bce32caddbbb47b0a942775611f4131ed22673002dd59"
+        "sha256/82a33a5de4ec3c7954434eba96bd313d429524ec7ba3fe6077adbc23c80e66f0"
     );
     assert_eq!(first.bytes(), second.bytes());
     assert_eq!(first.digest(), second.digest());

@@ -1,8 +1,8 @@
 # 道路编辑来源缓冲区 v4 Schema
 
-**状态**: 生产。`format_version = 4`；根表 field id 连续至 id 29。
+**状态**: 生产。`format_version = 5`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
-**格式标识**: `LF-ROAD-EDITING-SOURCE-v4`<br>
+**格式标识**: `LF-ROAD-EDITING-SOURCE-v5`<br>
 **机器事实来源**: [`road-editing.fbs`][road-editing-fbs]<br>
 **设计依据**:
 [`road-editing-source-and-geometry-frontend.md`][road-editing]、
@@ -22,7 +22,7 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 
 - 一个逻辑来源模块恰好对应一个标准 size-prefixed FlatBuffer；根表是
   `RoadEditingSource`，file identifier 是 ASCII `LFRE`，默认扩展名是 `.lfre`。
-- `format_version` 必须精确为 `4`。其它值都在任何 LaneFlow 语义
+- `format_version` 必须精确为 `5`。其它值都在任何 LaneFlow 语义
   lowering 或按规模分配前拒绝。
 - `module_header`、`road_alignments`、24 个可构造 Identity 声明向量和 owner-local
   `conflict_zone_regions` 都必须在 wire 中存在；向量可以为空。根表无
@@ -179,7 +179,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 
   ```text
   ASCII "laneflow.road-editing.frontend-options.v1\0"
-  || geometry approximation semantics fixed code DeterministicTargetV1 = 1: u8
+  || geometry approximation semantics fixed code 原生曲线与规范折线 = 2: u8
   || geometry_accuracy_profile: u8
   || geometry_direction_profile: u8
   || provenance.frontend_options_digest: [u8; 32]
@@ -189,12 +189,8 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 
 ## 5. 道路走向、横断面和车道
 
-- `RoadAlignment.reference_line` 至少包含一个 `CurveSegment`。v1 union 只接受
-  `LineSegment` 和 `CubicBezierSegment`；段起点是前一段终点，第一段起点是
-  `CurveProgram.start`。所有点必须有限并位于规范 frame 可证明的范围内。圆弧、螺旋线
-  和其他外部曲线必须由 importer/generator 在写入前转换为这两种 segment，并在所选
-  2/5/10 cm B1 目标下记录固定网格观测误差；该观测不是连续硬保证。v1 不保存原始
-  曲线原语语义。
+- `RoadAlignment.reference_line` 至少包含一个 `CurveSegment`。union 接受直线（1）、三次贝塞尔（2）、圆弧（3）和回旋线（4）。起点、初始切向、
+  固定出口和平顺声明遵循[道路编辑来源 §6.1][native-plan-curves]。
 - 每个 `RoadCorridor` 绑定一个当前模块 alignment 和半开 station 区间。第一段从
   `0 m` 开始；同一 alignment 的 corridor 按 station 无重叠、无间隙完整覆盖。
   `end_station_kind = Finite` 时读取严格更大的 `end_station_meters`；末段必须使用
@@ -346,3 +342,5 @@ StreamRule、GateRule 四种局部具名成员。成员不能跨模块追加，�
 [corridor-population-catalog]: ../../../docs/design/signalized-corridor-population.md#3-catalog-契约
 [right-of-way-lfsm]: ../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
 [right-of-way]: ../../../docs/design/traffic-runtime-right-of-way-policy.md
+
+[native-plan-curves]: ../../../docs/design/road-editing-source-and-geometry-frontend.md#native-plan-curves

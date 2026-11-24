@@ -575,6 +575,26 @@ impl LinearWidthProfile {
 /// 一条编制曲线段的闭合几何 variant。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RoadEditingCurveSegmentGeometry {
+    /// 保存工程半径的恒曲率圆弧。
+    CircularArc {
+        /// 水平弧长（米）。
+        length_meters: f64,
+        /// 向左为正的有符号半径（米）。
+        signed_radius_meters: f64,
+        /// 每水平米的高程增量。
+        grade: f64,
+    },
+    /// 曲率随水平弧长线性变化的回旋线。
+    Clothoid {
+        /// 水平弧长（米）。
+        length_meters: f64,
+        /// 入口曲率（每米）。
+        start_curvature_per_meter: f64,
+        /// 出口曲率（每米）。
+        end_curvature_per_meter: f64,
+        /// 每水平米的高程增量。
+        grade: f64,
+    },
     /// 从段起点到终点的直线段。
     Line {
         /// 段终点（编制坐标）。
@@ -595,6 +615,8 @@ pub enum RoadEditingCurveSegmentGeometry {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoadEditingCurveSegment {
     geometry: RoadEditingCurveSegmentGeometry,
+    smooth_entry: bool,
+    fixed_end: Option<RoadEditingPoint3>,
     canvas_selection: Option<Box<str>>,
 }
 
@@ -604,6 +626,8 @@ impl RoadEditingCurveSegment {
     pub const fn line(end: RoadEditingPoint3) -> Self {
         Self {
             geometry: RoadEditingCurveSegmentGeometry::Line { end },
+            smooth_entry: false,
+            fixed_end: None,
             canvas_selection: None,
         }
     }
@@ -621,8 +645,94 @@ impl RoadEditingCurveSegment {
                 control_2,
                 end,
             },
+            smooth_entry: false,
+            fixed_end: None,
             canvas_selection: None,
         }
+    }
+
+    /// 按水平弧长、有符号半径和恒纵坡构造圆弧。
+    ///
+    /// # Errors
+    ///
+    /// 长度不为正、半径或倒数退化、参数非有限时返回字段诊断。
+    pub fn circular_arc(
+        length_meters: f64,
+        signed_radius_meters: f64,
+        grade: f64,
+    ) -> Result<Self, DiagnosticBundle> {
+        Self::native(RoadEditingCurveSegmentGeometry::CircularArc {
+            length_meters,
+            signed_radius_meters,
+            grade,
+        })
+    }
+
+    /// 按水平弧长、首末有符号曲率和恒纵坡构造回旋线。
+    ///
+    /// # Errors
+    ///
+    /// 长度不为正、曲率相等或参数非有限时返回字段诊断。
+    pub fn clothoid(
+        length_meters: f64,
+        start_curvature_per_meter: f64,
+        end_curvature_per_meter: f64,
+        grade: f64,
+    ) -> Result<Self, DiagnosticBundle> {
+        Self::native(RoadEditingCurveSegmentGeometry::Clothoid {
+            length_meters,
+            start_curvature_per_meter,
+            end_curvature_per_meter,
+            grade,
+        })
+    }
+
+    pub(super) fn native(
+        geometry: RoadEditingCurveSegmentGeometry,
+    ) -> Result<Self, DiagnosticBundle> {
+        super::native_input::validate(geometry)
+            .map_err(|(field, cause)| input_error(field, cause))?;
+        Ok(Self {
+            geometry,
+            smooth_entry: false,
+            fixed_end: None,
+            canvas_selection: None,
+        })
+    }
+
+    /// 声明入口与前段的位置、三维切向和水平曲率平顺相接。
+    #[must_use]
+    pub fn with_smooth_entry(mut self, smooth: bool) -> Self {
+        self.smooth_entry = smooth;
+        self
+    }
+
+    /// 设置原生段的固定出口核对点。
+    ///
+    /// # Errors
+    ///
+    /// 直线与贝塞尔已经保存显式终点，拒绝另设锁点。
+    pub fn with_fixed_end(mut self, end: RoadEditingPoint3) -> Result<Self, DiagnosticBundle> {
+        if !self.geometry.is_native() {
+            return Err(input_error(
+                "curveSegment.fixed_end",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
+        self.fixed_end = Some(end);
+        Ok(self)
+    }
+
+    /// 返回入口平顺声明。
+    #[must_use]
+    pub const fn smooth_entry(&self) -> bool {
+        self.smooth_entry
+    }
+
+    /// 返回作者给出的固定出口约束。
+    #[must_use]
+    pub const fn fixed_end(&self) -> Option<RoadEditingPoint3> {
+        self.fixed_end
     }
 
     /// 设置画布选择键。
@@ -655,6 +765,7 @@ impl RoadEditingCurveSegment {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoadEditingCurveProgram {
     start: RoadEditingPoint3,
+    initial_tangent_xz: Option<[f64; 2]>,
     segments: Box<[RoadEditingCurveSegment]>,
 }
 
@@ -668,9 +779,29 @@ impl RoadEditingCurveProgram {
         start: RoadEditingPoint3,
         segments: Vec<RoadEditingCurveSegment>,
     ) -> Result<Self, DiagnosticBundle> {
+        Self::try_new_with_tangent(start, segments, None)
+    }
+
+    /// 构造按来源顺序接续的曲线，原生首段显式指定初始水平切向。
+    ///
+    /// # Errors
+    ///
+    /// 空段列、首段要求平顺、切向缺失、多余或退化时返回来源字段诊断。
+    pub fn try_new_with_tangent(
+        start: RoadEditingPoint3,
+        segments: Vec<RoadEditingCurveSegment>,
+        initial_tangent_xz: Option<[f64; 2]>,
+    ) -> Result<Self, DiagnosticBundle> {
         require_non_empty(&segments, "curveProgram.segments")?;
+        super::native_input::validate_entry(
+            segments[0].geometry.is_native(),
+            segments[0].smooth_entry(),
+            initial_tangent_xz,
+        )
+        .map_err(|(field, cause)| input_error(field, cause))?;
         Ok(Self {
             start,
+            initial_tangent_xz,
             segments: segments.into_boxed_slice(),
         })
     }
@@ -679,6 +810,12 @@ impl RoadEditingCurveProgram {
     #[must_use]
     pub const fn start(&self) -> RoadEditingPoint3 {
         self.start
+    }
+
+    /// 返回原生首段的编制切向（按输入分量回读）。
+    #[must_use]
+    pub const fn initial_tangent_xz(&self) -> Option<[f64; 2]> {
+        self.initial_tangent_xz
     }
 
     /// 返回有序曲线段序列。

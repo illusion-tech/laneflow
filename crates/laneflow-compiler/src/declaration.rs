@@ -850,8 +850,11 @@ pub(crate) enum CurvePointRole {
 }
 
 /// 一条编制曲线段的闭合几何载荷。
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum AuthoringCurveSegmentGeometry {
+    Native {
+        input: crate::road_editing::RoadEditingCurveSegmentGeometry,
+        prepared: Option<Box<crate::road_editing::native_curve::NativeCurve>>,
+    },
     Line {
         end: AuthoringPoint3F64,
     },
@@ -877,6 +880,7 @@ pub(crate) struct AuthoringCurveCubicPointSpans {
 /// （x）是点位置的规范叶锚点，点角色由路径倒数第二步承载；诊断如需区分具体分量，
 /// 必须另行证明，不得从该锚点反推。
 pub(crate) enum AuthoringCurveSegmentPointSpans {
+    Native,
     Line { end: SourceLocation },
     CubicBezier(Box<AuthoringCurveCubicPointSpans>),
 }
@@ -896,6 +900,8 @@ impl AuthoringCurveSegmentPointSpans {
 
 /// 共同 Typed AST 中一条带来源位置的 owner-local 曲线段。
 pub(crate) struct AuthoringCurveSegmentDeclaration {
+    pub(crate) smooth_entry: bool,
+    pub(crate) fixed_end: Option<AuthoringPoint3F64>,
     pub(crate) geometry: AuthoringCurveSegmentGeometry,
     /// segment 级来源位置（`CurveSegment.geometry`）；segment source map 合同只消费它。
     pub(crate) span: SourceLocation,
@@ -905,6 +911,7 @@ pub(crate) struct AuthoringCurveSegmentDeclaration {
 
 /// 共同 Typed AST 中一条从显式起点开始的非空编制曲线。
 pub(crate) struct AuthoringCurveProgramDeclaration {
+    pub(crate) initial_tangent_xz: Option<[f64; 2]>,
     pub(crate) start: AuthoringPoint3F64,
     /// `CurveProgram.start` 起点的闭合 member 级来源位置
     /// （`… → CurveProgram.0 → Vec3F64.x`）。
@@ -1739,6 +1746,7 @@ fn try_visit_authoring_curve<E>(
     for segment in &curve.segments {
         visit(&segment.span)?;
         match &segment.point_spans {
+            AuthoringCurveSegmentPointSpans::Native => {}
             AuthoringCurveSegmentPointSpans::Line { end } => visit(end)?,
             AuthoringCurveSegmentPointSpans::CubicBezier(spans) => {
                 visit(&spans.control_1)?;

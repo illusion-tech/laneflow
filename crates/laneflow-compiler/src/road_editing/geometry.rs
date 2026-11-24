@@ -122,7 +122,8 @@ impl Point3 {
 
 /// 曲线 segment：直线段或三次 Bézier 段。
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum CurveSegment {
+pub(super) enum CurveSegment<'a> {
+    Native(&'a super::native_curve::NativeCurve),
     Line {
         start: Point3,
         end: Point3,
@@ -179,21 +180,28 @@ pub(super) struct ApproximationVertex {
 
 /// 近似点输出汇：接收细分产生的顶点，内核不拥有点表容器。
 pub(super) trait ApproximationPointSink {
+    fn native_chord(
+        &mut self,
+        _parameters: [f64; 2],
+        _points: [ApproximationPoint; 2],
+        _bounds: super::NativeChordBounds,
+    ) {
+    }
     fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError>;
 }
 
 /// segment 求值器：直接求参考线，或按站区间与偏移区间求横向偏移曲线。
 #[derive(Clone, Copy)]
-pub(super) enum SegmentEvaluator {
-    Reference(CurveSegment),
+pub(super) enum SegmentEvaluator<'a> {
+    Reference(CurveSegment<'a>),
     Offset {
-        segment: CurveSegment,
+        segment: CurveSegment<'a>,
         station: StationInterval,
         offset: OffsetInterval,
     },
 }
 
-impl SegmentEvaluator {
+impl SegmentEvaluator<'_> {
     /// 在给定参数处求值，返回位置与一阶导数。
     pub(super) fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
         match self {
@@ -214,7 +222,10 @@ struct CandidateEndpoint {
 }
 
 impl CandidateEndpoint {
-    fn evaluate(evaluator: SegmentEvaluator, parameter: f64) -> Result<Self, NumericFreezeError> {
+    fn evaluate(
+        evaluator: SegmentEvaluator<'_>,
+        parameter: f64,
+    ) -> Result<Self, NumericFreezeError> {
         let sample = evaluator.evaluate(parameter)?;
         Ok(Self {
             point: quantize_point(sample.point)?,
@@ -243,7 +254,7 @@ pub(super) struct ApproximationInterval {
 
 /// 对参数区间做自适应细分近似，满足精度与方向档位后把顶点推入输出汇，返回末点。
 pub(super) fn approximate_interval(
-    evaluator: SegmentEvaluator,
+    evaluator: SegmentEvaluator<'_>,
     interval: ApproximationInterval,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
@@ -292,7 +303,45 @@ pub(super) fn approximate_interval(
         let node = stack[stack_len]
             .take()
             .expect("fixed approximation stack contains every live node");
-        if candidate_accepts(evaluator, node, accuracy, direction)? {
+        let native = match evaluator {
+            SegmentEvaluator::Reference(CurveSegment::Native(curve)) => Some((curve, None)),
+            SegmentEvaluator::Offset {
+                segment: CurveSegment::Native(curve),
+                station,
+                offset,
+            } => Some((curve, Some((station, offset)))),
+            _ => None,
+        };
+        let accepted = if let Some((curve, offset)) = native {
+            let bounds = super::native_bounds::measure(
+                curve,
+                offset,
+                node.parameter_start,
+                node.parameter_end,
+                [
+                    promote_point(node.start.point),
+                    promote_point(node.end.point),
+                ],
+            )?;
+            bounds.is_some_and(|bounds| {
+                let s = super::native_curve::Scalar::exact;
+                let threshold =
+                    (s(2.0) * (s(1.0) - s(half_angle_cosine_squared(direction)).sqrt())).sqrt();
+                let accepts = bounds.position_error <= position_target(accuracy)
+                    && bounds.direction_error <= threshold.lo;
+                if accepts {
+                    sink.native_chord(
+                        [node.parameter_start, node.parameter_end],
+                        [node.start.point, node.end.point],
+                        bounds,
+                    );
+                }
+                accepts
+            })
+        } else {
+            candidate_accepts(evaluator, node, accuracy, direction)?
+        };
+        if accepted {
             sink.push(ApproximationVertex {
                 parameter: node.parameter_end,
                 point: node.end.point,
@@ -330,7 +379,7 @@ pub(super) fn approximate_interval(
 }
 
 fn candidate_accepts(
-    evaluator: SegmentEvaluator,
+    evaluator: SegmentEvaluator<'_>,
     node: ApproximationNode,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
@@ -647,7 +696,7 @@ impl DualPoint3 {
     }
 }
 
-impl CurveSegment {
+impl CurveSegment<'_> {
     /// 在给定参数处求曲线位置与一阶导数。
     pub(super) fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
         self.evaluate_dual(Dual::parameter(parameter)?)?.sample()
@@ -655,6 +704,22 @@ impl CurveSegment {
 
     fn horizontal_derivative(self, parameter: Dual) -> Result<(Dual, Dual), NumericFreezeError> {
         match self {
+            Self::Native(curve) => {
+                let (_, d) = curve.vectors(parameter.value)?;
+                let l = curve.law.length.value;
+                let rate =
+                    finite(curve.law.curvature(parameter.value).value * l * l * parameter.first)?;
+                Ok((
+                    Dual {
+                        value: finite(l * d[0].value)?,
+                        first: finite(rate * d[2].value)?,
+                    },
+                    Dual {
+                        value: finite(l * d[2].value)?,
+                        first: finite(-rate * d[0].value)?,
+                    },
+                ))
+            }
             Self::Line { start, end } => Ok((
                 Dual::constant(finite(end.x - start.x)?)?,
                 Dual::constant(finite(end.z - start.z)?)?,
@@ -723,6 +788,20 @@ impl CurveSegment {
 
     fn evaluate_dual(self, parameter: Dual) -> Result<DualPoint3, NumericFreezeError> {
         match self {
+            Self::Native(curve) => {
+                let sample = curve.sample(parameter.value)?;
+                let dual = |value, first| {
+                    Ok::<_, NumericFreezeError>(Dual {
+                        value,
+                        first: finite(first * parameter.first)?,
+                    })
+                };
+                Ok(DualPoint3 {
+                    x: dual(sample.point.x, sample.first.x)?,
+                    y: dual(sample.point.y, sample.first.y)?,
+                    z: dual(sample.point.z, sample.first.z)?,
+                })
+            }
             Self::Line { start, end } => {
                 DualPoint3::constant(start)?.lerp(DualPoint3::constant(end)?, parameter)
             }
@@ -749,6 +828,7 @@ impl CurveSegment {
     /// 证明 segment 水平导数处处非零（水平正则性），返回证明过程的节点访问数。
     pub(super) fn prove_horizontal_regularity(self) -> Result<u32, NumericFreezeError> {
         match self {
+            Self::Native(_) => Ok(0),
             Self::Line { start, end } => {
                 let x = finite(end.x - start.x)?;
                 let z = finite(end.z - start.z)?;
@@ -780,6 +860,7 @@ impl CurveSegment {
 /// 站区间：segment 参数范围及其对应的累计里程范围。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct StationInterval {
+    pub(super) station_error_meters: f64,
     pub(super) parameter_start: f64,
     pub(super) parameter_end: f64,
     pub(super) cumulative_start_meters: f64,
@@ -789,6 +870,7 @@ pub(super) struct StationInterval {
 /// 偏移区间：里程范围及其对应的横向偏移范围（米）。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OffsetInterval {
+    pub(super) end_station_error_meters: f64,
     pub(super) station_start_meters: f64,
     pub(super) station_end_meters: f64,
     pub(super) offset_start_meters: f64,
@@ -1050,12 +1132,14 @@ mod tests {
             .evaluate_offset(
                 0.5,
                 StationInterval {
+                    station_error_meters: 0.0,
                     parameter_start: 0.0,
                     parameter_end: 1.0,
                     cumulative_start_meters: 0.0,
                     cumulative_end_meters: 8.0,
                 },
                 OffsetInterval {
+                    end_station_error_meters: 0.0,
                     station_start_meters: 0.0,
                     station_end_meters: 8.0,
                     offset_start_meters: 2.0,

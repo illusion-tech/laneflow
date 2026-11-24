@@ -690,7 +690,14 @@ fn validate_alignments(
             limits,
             expected_key,
         )?;
-        validate_curve(usage, value.reference_line(), limits, expected_key)?;
+        validate_curve(
+            usage,
+            value.reference_line(),
+            limits,
+            expected_key,
+            namespace,
+            super::RoadEditingCurveOwner::Alignment(value.road_alignment_key()),
+        )?;
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())
@@ -701,6 +708,8 @@ fn validate_curve(
     value: wire::CurveProgram<'_>,
     limits: &PreflightScratch<'_>,
     expected_key: &str,
+    namespace: &str,
+    owner: super::RoadEditingCurveOwner<'_>,
 ) -> Result<(), DiagnosticBundle> {
     usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
     usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
@@ -712,9 +721,122 @@ fn validate_curve(
             expected_key,
         ));
     }
-    for segment in value.segments() {
+    let at_field = |ordinal: u32,
+                    segment: wire::CurveSegment<'_>,
+                    field: &'static str,
+                    error: DiagnosticBundle| {
+        use crate::{RoadEditingPropertyStep::*, RoadEditingTableKind as T};
+        let tf = |table, field_id| TableField { table, field_id };
+        let source = |index, steps: &[_]| {
+            super::location::RoadEditingLocationFactory::invalid_curve_field(
+                namespace,
+                expected_key,
+                owner,
+                index,
+                steps,
+            )
+        };
+        let location = match field {
+            "curveProgram.initial_tangent_xz" => {
+                let root = match owner {
+                    super::RoadEditingCurveOwner::Alignment(_) => tf(T::RoadAlignment, 2),
+                    super::RoadEditingCurveOwner::ExplicitEdge(_) => tf(T::LaneEdge, 3),
+                };
+                source(
+                    None,
+                    &[
+                        root,
+                        tf(T::CurveProgram, 2),
+                        StructMember {
+                            structure: crate::RoadEditingStructKind::Vec2F64,
+                            member_id: 0,
+                        },
+                    ],
+                )
+            }
+            "curveSegment.smooth_entry" => source(Some(ordinal), &[tf(T::CurveSegment, 3)]),
+            "curveSegment.fixed_end" => source(Some(ordinal), &[tf(T::CurveSegment, 4)]),
+            _ => {
+                let arc = segment.geometry_type() == wire::CurveSegmentGeometry::CircularArcSegment;
+                let table = if arc {
+                    T::CircularArcSegment
+                } else {
+                    T::ClothoidSegment
+                };
+                let id = match field {
+                    "curveSegment.geometry.length_meters" => 0,
+                    "curveSegment.geometry.start_curvature_per_meter"
+                    | "curveSegment.geometry.signed_radius_meters" => 1,
+                    "curveSegment.geometry.end_curvature_per_meter" => 2,
+                    "curveSegment.geometry.grade" => {
+                        if arc {
+                            2
+                        } else {
+                            3
+                        }
+                    }
+                    _ => return error,
+                };
+                source(
+                    Some(ordinal),
+                    &[
+                        tf(T::CurveSegment, 1),
+                        UnionVariant {
+                            union: crate::RoadEditingUnionKind::CurveSegmentGeometry,
+                            discriminant: if arc { 3 } else { 4 },
+                        },
+                        tf(table, id),
+                    ],
+                )
+            }
+        };
+        error.with_fallback_primary_location(location)
+    };
+    let first = value.segments().get(0);
+    super::native_input::validate_entry(
+        matches!(
+            first.geometry_type(),
+            wire::CurveSegmentGeometry::CircularArcSegment
+                | wire::CurveSegmentGeometry::ClothoidSegment
+        ),
+        first.smooth_entry(),
+        value.initial_tangent_xz().map(|d| [d.x(), d.z()]),
+    )
+    .map_err(|(field, cause)| {
+        at_field(0, first, field, semantic_error(field, cause, expected_key))
+    })?;
+    for (i, segment) in value.segments().iter().enumerate() {
+        let ordinal = u32::try_from(i).expect("FlatBuffers vector length fits u32");
         usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(2);
+        if let Some(end) = segment.fixed_end() {
+            if !matches!(
+                segment.geometry_type(),
+                wire::CurveSegmentGeometry::CircularArcSegment
+                    | wire::CurveSegmentGeometry::ClothoidSegment
+            ) {
+                return Err(at_field(
+                    ordinal,
+                    segment,
+                    "curveSegment.fixed_end",
+                    invalid_combination("curveSegment.fixed_end", expected_key),
+                ));
+            }
+            validate_point(end, "curveSegment.fixed_end", expected_key)
+                .map_err(|e| at_field(ordinal, segment, "curveSegment.fixed_end", e))?;
+            usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
+        }
         match segment.geometry_type() {
+            wire::CurveSegmentGeometry::CircularArcSegment
+            | wire::CurveSegmentGeometry::ClothoidSegment => {
+                super::native_input::decode(segment).map_err(|(field, cause)| {
+                    at_field(
+                        ordinal,
+                        segment,
+                        field,
+                        semantic_error(field, cause, expected_key),
+                    )
+                })?;
+            }
             wire::CurveSegmentGeometry::LineSegment => {
                 let geometry = segment
                     .geometry_as_line_segment()
@@ -1226,7 +1348,14 @@ fn validate_lane_edges(
             expected_key,
         )?;
         if let Some(curve) = value.explicit_geometry() {
-            validate_curve(usage, curve, limits, expected_key)?;
+            validate_curve(
+                usage,
+                curve,
+                limits,
+                expected_key,
+                namespace,
+                super::RoadEditingCurveOwner::ExplicitEdge(value.lane_edge_key()),
+            )?;
         }
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }

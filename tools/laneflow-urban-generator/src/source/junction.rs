@@ -680,6 +680,10 @@ fn sample_curve(curve: &re::RoadEditingCurveProgram, points: &mut Vec<Point>) {
     points.push(a);
     for segment in curve.segments() {
         match segment.geometry() {
+            re::RoadEditingCurveSegmentGeometry::CircularArc { .. }
+            | re::RoadEditingCurveSegmentGeometry::Clothoid { .. } => {
+                unreachable!("junction templates construct only line and cubic segments")
+            }
             re::RoadEditingCurveSegmentGeometry::Line { end } => points.push([end.x(), end.z()]),
             re::RoadEditingCurveSegmentGeometry::CubicBezier {
                 control_1,

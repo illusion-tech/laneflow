@@ -1039,8 +1039,7 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            let expected_frontend = if language == 1 { 5 } else { 4 };
-            require_exact_u32(frontend, expected_frontend)?;
+            require_exact_u32(frontend, 5)?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
             })?;
@@ -1382,7 +1381,7 @@ fn validate_property_step(row: RowRef<'_>, step: PropertyStep) -> Result<(), For
             step.container <= u16::from(u8::MAX)
                 && step.member <= u16::from(u8::MAX)
                 && step.container == 0
-                && matches!(step.member, 1 | 2)
+                && matches!(step.member, 1..=4)
         }
         _ => return Err(unknown(row.required(1)?, u64::from(step.kind))),
     };
@@ -1412,9 +1411,19 @@ fn property_shape_is_complete(steps: &[Option<PropertyStep>]) -> bool {
             let (Some(second), Some(third)) = (steps[1], steps[2]) else {
                 return false;
             };
-            table_edge_target(first).is_some_and(|target| {
-                second.kind == 0 && second.container == target && direct_struct_edge(second, third)
-            })
+            let native_scalar = first.kind == 0
+                && first.container == 5
+                && first.member == 1
+                && second.kind == 2
+                && second.container == 0
+                && third.kind == 0
+                && matches!((second.member, third.container), (3, 45) | (4, 46));
+            native_scalar
+                || table_edge_target(first).is_some_and(|target| {
+                    second.kind == 0
+                        && second.container == target
+                        && direct_struct_edge(second, third)
+                })
         }
         4 => {
             let (Some(second), Some(third), Some(fourth)) = (steps[1], steps[2], steps[3]) else {
@@ -1463,9 +1472,9 @@ fn struct_edge_target(step: PropertyStep) -> Option<u16> {
     match (step.container, step.member) {
         (2, 2 | 3) => Some(0),
         (2, 4) => Some(1),
-        (6, 0) | (3, 0) | (4, 0..=2) => Some(2),
+        (6, 0) | (3, 0) | (4, 0..=2) | (5, 4) => Some(2),
         (11, 3) | (28, 2) => Some(3),
-        (34, 4) => Some(4),
+        (34, 4) | (6, 2) => Some(4),
         _ => None,
     }
 }
@@ -1491,9 +1500,9 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
 }
 
 fn table_field_max(container: u16) -> Option<u16> {
-    const MAX: [u16; 45] = [
-        29, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
-        2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5,
+    const MAX: [u16; 47] = [
+        29, 3, 5, 0, 2, 4, 2, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
+        2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
     ];
     MAX.get(usize::from(container)).copied()
 }
@@ -3377,9 +3386,9 @@ mod tests {
 
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
-        const TABLE_FIELD_MAX: [u16; 45] = [
-            29, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
-            2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5,
+        const TABLE_FIELD_MAX: [u16; 47] = [
+            29, 3, 5, 0, 2, 4, 2, 3, 1, 8, 4, 6, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
+            2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
         ];
         const STRUCT_MEMBER_MAX: [u16; 5] = [0, 0, 2, 1, 1];
         const STRUCT_EDGES: &[(u16, u16, u16)] = &[
@@ -3391,6 +3400,8 @@ mod tests {
             (4, 1, 2),
             (4, 2, 2),
             (6, 0, 2),
+            (5, 4, 2),
+            (6, 2, 4),
             (11, 3, 3),
             (28, 2, 3),
             (34, 4, 4),
@@ -3469,6 +3480,13 @@ mod tests {
             }
         }
 
+        for (variant, table, max_field) in [(3, 45, 2), (4, 46, 3)] {
+            for field in 0..=max_field {
+                let path = [(0, 5, 1), (2, 0, variant), (0, table, field)];
+                validate_property_path(property_field(&path), 5).unwrap();
+                assert!(validate_property_path(property_field(&path), 7).is_err());
+            }
+        }
         for (variant, table, max_field) in [(1, 3, 0), (2, 4, 2)] {
             for field in 0..=max_field {
                 for member in 0..=STRUCT_MEMBER_MAX[2] {
@@ -3490,6 +3508,8 @@ mod tests {
             Vec::new(),
             vec![(0, 12, 3), (0, 31, 5)],
             vec![(0, 5, 1), (2, 0, 1)],
+            vec![(0, 5, 1), (2, 0, 3), (0, 46, 1)],
+            vec![(0, 5, 1), (2, 0, 4), (0, 46, 2), (1, 2, 0)],
             vec![(0, 5, 1), (2, 0, 1), (0, 3, 0), (1, 2, 0), (1, 2, 1)],
         ] {
             assert_eq!(

@@ -204,7 +204,8 @@ pub(super) fn assert_matches_lowered(
             .iter()
             .fold(storage(&curve.segments), |total, segment| {
                 total.saturating_add(match &segment.point_spans {
-                    AuthoringCurveSegmentPointSpans::Line { .. } => 0,
+                    AuthoringCurveSegmentPointSpans::Native
+                    | AuthoringCurveSegmentPointSpans::Line { .. } => 0,
                     AuthoringCurveSegmentPointSpans::CubicBezier(spans) => {
                         u64::try_from(core::mem::size_of_val(spans.as_ref())).unwrap_or(u64::MAX)
                     }

@@ -400,7 +400,7 @@ PR 按工作性质归入的验证维度：`docs-only`、`governance`、`core-run
 | [道路编辑位置上下文][term-road-editing-location-context]                                 | road editing location context                             | ` RoadEditingLocationContext `                              |
 | [道路编辑属性路径][term-road-editing-property-path]                                      | road editing property path                                | ` RoadEditingPropertyPath `                                 |
 | [道路编辑来源地址][term-road-editing-source-address]                                     | road editing source address                               | ` RoadEditingSourceAddress `                                |
-| [道路编辑来源缓冲区][term-road-editing-source-buffer]                                    | road editing source buffer                                | ` LF-ROAD-EDITING-SOURCE-v4 `                               |
+| [道路编辑来源缓冲区][term-road-editing-source-buffer]                                    | road editing source buffer                                | ` LF-ROAD-EDITING-SOURCE-v5 `                               |
 | [道路编辑来源差异][term-road-editing-source-diff]                                        | road-editing source diff                                  | ` RoadEditingSourceDiff `                                   |
 | [道路编辑来源输入][term-road-editing-source-input]                                       | road editing source input                                 | ` RoadEditingModuleInput `                                  |
 | [道路编辑来源根表][term-road-editing-source-root]                                        | road editing source root                                  | ` RoadEditingSource `                                       |
@@ -1185,7 +1185,7 @@ Rust 包之间必须保持无环、且不得让静态组件反向依赖动态运
 
 以 FlatBuffers 编码一个道路编辑模块的版本化来源文档；精确版本、根表与字节要求由道路编辑来源合同规定。
 
-精确标识符：` LF-ROAD-EDITING-SOURCE-v4 `（常量）。
+精确标识符：` LF-ROAD-EDITING-SOURCE-v5 `（常量）。
 
 依据：[道路编辑来源与几何编制前端][source-design-road-editing-source-and-geometry-frontend-154]。
 

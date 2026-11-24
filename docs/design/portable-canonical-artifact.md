@@ -147,7 +147,7 @@ FieldV1 :=
   valueBytes[valueByteLength]
 ```
 
-LFCA 5、LFSM 4 与 LFSD 4 的每个 section 使用 `sectionFormatVersion = 2`，section
+LFCA 5、LFSM 5 与 LFSD 4 的每个 section 使用 `sectionFormatVersion = 2`，section
 exact bytes 为一个 `ChunkedSectionPreambleV1`、紧随其后的 chunk directory 和所有
 `TableV1` chunk。LFCP 2 继续使用 `sectionFormatVersion = 1`，每节直接保存一张
 singleton `TableV1`，不增加空洞或兼容分支。
@@ -1028,7 +1028,7 @@ NetworkRevisionIdV1 := SHA-256(
 重算并逐字节比较。完整 LFCA exact bytes 另做 SHA-256 得到
 `canonicalArtifactDigest`，摘要和 exact `u64` length 由外部对象绑定。
 
-## 4. LFSM 4
+## 4. LFSM 5
 
 #284 的 LFSM 4 完整登记见
 [`traffic-runtime-right-of-way-policy.md` §4.4][right-of-way-lfsm]：
@@ -1036,7 +1036,7 @@ NetworkRevisionIdV1 := SHA-256(
 贡献来源投影。格式层提供 `ValidatedSourceMapInput::policy_sources()` 和独立
 `check_portable_policy_sources`；两个正式前端的非空策略生产由 W2 接续。
 
-`magic = "LFSM"`，`sourceMapFormatVersion = 4`。LFSM 4 精确包含：
+`magic = "LFSM"`，`sourceMapFormatVersion = 5`。LFSM 5 精确包含：
 
 | sectionKind | 名称                     | tables                                             |
 | ----------- | ------------------------ | -------------------------------------------------- |
@@ -1181,7 +1181,7 @@ Address owner=ParticipantStream 与 OrderedProduct occurrence；15 要求 Module
 规范化的 CanonicalSet occurrence。未知代码、错误 owner/occurrence 或把这些代码按数值强转
 为 `sourceRelationRole` 都失败关闭。
 
-`propertySteps.containerCode` 同样是 LFSM 4 的封闭登记，不读取 Rust enum 判别值。table
+`propertySteps.containerCode` 同样是 LFSM 5 的封闭登记，不读取 Rust enum 判别值。table
 container code 与可用 field id 为：
 
 ```text
@@ -1248,8 +1248,8 @@ struct container code 为 `0 Digest256[0] / 1 OptionalU64[0] / 2 Vec3F64[0..2] /
 Declaration root 是其 entity kind 同名 table，RoadAlignment root 是 RoadAlignment，
 OwnerLocal root 由 relation kind/owner 决定。因每一步单独合法而接受不可达组合仍是格式错误。
 
-**LFRE 5 的路径增量（#1516 G1 提案）。** 原生曲线的字段和值域见
-[道路编辑来源 §6.1][road-editing-native]。上述登记是当前 LFSM 4 的闭合集；
+**LFRE 5 的路径增量（#1516）。** 原生曲线的字段和值域见
+[道路编辑来源 §6.1][road-editing-native]。上述登记覆盖 LFSM 4 的字段；
 新增路径随 LFSM 5 一次切换，仍用五节、八类逻辑表和最多四步的属性路径。
 
 - table container 45 表示 `CircularArcSegment[0..2]`，46 表示
@@ -1284,7 +1284,7 @@ RoadEditing 变体的 optional 字段还受以下闭合矩阵约束：
 
 `propertySteps` 必须有 `1..=4` 行并构成 Road Editing v4 登记的一条完整可达路径，不能只因
 各 step 单独合法就拼接。`sourceLanguage` 只允许 `1=SyntheticDsl` 与
-`2=RoadEditingSource`；LFSM 4 分别要求 `frontendVersion=5` 与 `frontendVersion=4`。
+`2=RoadEditingSource`；LFSM 5 对两者均要求 `frontendVersion=5`。
 前者只允许 Text 且 `SourceDocument.displaySource` 必须缺失，后者只允许 RoadEditing 且
 display source 可选。optional `canvasSelection` 缺失与存在但为空是不同语义值，writer
 不得互换。

@@ -22,6 +22,19 @@ pub enum SourceLocation {
 }
 
 impl SourceLocation {
+    pub(crate) fn curve_segment_field(&self, field_id: u16) -> Self {
+        let mut source = self.clone();
+        if let Self::RoadEditing(loc) = &mut source {
+            let path =
+                RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::CurveSegment,
+                    field_id,
+                }]));
+            loc.property_path = Some(loc.context.property_path_ordinal_for(&path));
+        }
+        source
+    }
+
     /// 返回位置所属的稳定来源文档键。
     #[must_use]
     pub fn source_document_key(&self) -> &str {
@@ -323,6 +336,10 @@ pub enum RoadEditingTableKind {
     PolicyStreamRule,
     /// 门合规规则 `PolicyGateRule`：把适用灯态与禁令解释为停止或候选。
     PolicyGateRule,
+    /// 原生圆弧标量。
+    CircularArcSegment,
+    /// 原生回旋线标量。
+    ClothoidSegment,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 inline struct 种类。

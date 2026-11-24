@@ -36,7 +36,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     let root = wire::size_prefixed_root_as_road_editing_source(bytes)
         .unwrap_or_else(|_| panic!("{fixture_name}: size-prefixed root 解码失败"));
 
-    assert_eq!(root.format_version(), 4, "{fixture_name}: format_version");
+    assert_eq!(root.format_version(), 5, "{fixture_name}: format_version");
     assert_eq!(
         root.geometry_accuracy_profile(),
         wire::GeometryAccuracyProfile::Balanced5Cm,
@@ -107,7 +107,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
         "{fixture_name}: frame 键"
     );
 
-    // 唯一 LaneEdge `edge-a`：限速 10 m/s，显式直线几何 (0,0,0)→(10,0,0)。
+    // 唯一 LaneEdge `edge-a`：限速 10 m/s，从走廊参考线派生。
     assert_eq!(root.lane_edges().len(), 1, "{fixture_name}: edge 数");
     let edge = root.lane_edges().get(0);
     assert_eq!(edge.lane_edge_key(), "edge-a", "{fixture_name}: edge 键");
@@ -121,12 +121,17 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
         0,
         "{fixture_name}: successors 为空"
     );
-    let geometry = edge
-        .explicit_geometry()
-        .expect("fixture 的 edge-a 带显式几何");
+    assert!(edge.explicit_geometry().is_none());
+    assert_eq!(root.road_alignments().len(), 1);
+    assert_eq!(root.road_corridors().len(), 1);
+    assert_eq!(root.road_sections().len(), 1);
+    assert_eq!(root.authoring_lanes().len(), 1);
+    let alignment = root.road_alignments().get(0);
+    assert_eq!(alignment.road_alignment_key(), "alignment");
+    let geometry = alignment.reference_line();
     let start = geometry.start();
     assert_eq!((start.x(), start.y(), start.z()), (0.0, 0.0, 0.0));
-    assert_eq!(geometry.segments().len(), 1, "{fixture_name}: 曲线段数");
+    assert_eq!(geometry.segments().len(), 3, "{fixture_name}: 曲线段数");
     let segment = geometry.segments().get(0);
     assert_eq!(
         segment.geometry_type(),
@@ -139,12 +144,28 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     let end = line.end();
     assert_eq!((end.x(), end.y(), end.z()), (10.0, 0.0, 0.0));
 
+    let transition = geometry.segments().get(1);
+    assert!(transition.smooth_entry());
+    let spiral = transition.geometry_as_clothoid_segment().unwrap();
+    assert_eq!(
+        (
+            spiral.length_meters(),
+            spiral.start_curvature_per_meter(),
+            spiral.end_curvature_per_meter(),
+            spiral.grade()
+        ),
+        (Some(48.0), Some(0.0), Some(1.0 / 48.0), Some(0.0))
+    );
+    let bend = geometry.segments().get(2);
+    assert!(bend.smooth_entry());
+    let arc = bend.geometry_as_circular_arc_segment().unwrap();
+    assert_eq!(
+        (arc.length_meters(), arc.signed_radius_meters(), arc.grade()),
+        (Some(24.0), Some(48.0), Some(0.0))
+    );
+
     // 其余声明向量全部为空。
-    let empty_vectors: [(&str, usize); 21] = [
-        ("road_alignments", root.road_alignments().len()),
-        ("road_corridors", root.road_corridors().len()),
-        ("road_sections", root.road_sections().len()),
-        ("authoring_lanes", root.authoring_lanes().len()),
+    let empty_vectors: [(&str, usize); 17] = [
         ("junctions", root.junctions().len()),
         ("movements", root.movements().len()),
         ("maneuver_paths", root.maneuver_paths().len()),
@@ -195,6 +216,10 @@ fn assert_reader_accepts(fixture_name: &str) {
         .unwrap_or_else(|bundle| {
             panic!("{fixture_name}: 生产 reader 必须接受跨语言 writer bytes，诊断: {bundle:?}")
         });
+    let output = laneflow_compiler::Compiler::new()
+        .compile(builder.build().unwrap())
+        .unwrap();
+    assert_eq!(output.lir().lane_edges().count(), 1);
 }
 
 #[test]

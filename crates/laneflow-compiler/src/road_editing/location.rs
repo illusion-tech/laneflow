@@ -141,6 +141,54 @@ impl RoadEditingLocationFactory {
         }
     }
 
+    /// 预检发现原生曲线字段错误时，仅驻留已校验的归属键与这一条逻辑路径。
+    pub(super) fn invalid_curve_field(
+        namespace: &str,
+        document: &str,
+        owner: super::RoadEditingCurveOwner<'_>,
+        ordinal: Option<u32>,
+        path: &[RoadEditingPropertyStep],
+    ) -> SourceLocation {
+        use super::RoadEditingCurveOwner::*;
+        let key = match owner {
+            Alignment(key) | ExplicitEdge(key) => key,
+        };
+        let ns: Arc<str> = Arc::from(namespace);
+        let mut strings = vec![ns.clone(), Arc::from(key)];
+        strings.sort_unstable();
+        strings.dedup();
+        let factory = Self {
+            context: Arc::new(RoadEditingLocationContext::new(
+                strings.into_boxed_slice(),
+                Box::new([RoadEditingPropertyPath::new(path.into())]),
+                Box::default(),
+            )),
+            document_identity: RoadEditingDocumentIdentity::verified(ns, Arc::from(document)),
+        };
+        let kind = match owner {
+            Alignment(_) => RoadEditingAddressKind::RoadAlignment,
+            ExplicitEdge(_) => RoadEditingAddressKind::Declaration(EntityKind::LaneEdge),
+        };
+        if let Some(i) = ordinal {
+            factory.owner_local_address(
+                kind,
+                &[],
+                key,
+                RoadEditingRelationKind::CurveSegment,
+                RoadEditingRelationOccurrence::OrderedProductOrdinal(i),
+                path,
+                None,
+            )
+        } else {
+            let address = factory.address(kind, &[], key);
+            let subject = match owner {
+                Alignment(_) => RoadEditingSubject::RoadAlignment { address },
+                ExplicitEdge(_) => RoadEditingSubject::Declaration { address },
+            };
+            factory.location(subject, Some(path), None)
+        }
+    }
+
     /// 构造某条声明整体的来源位置。
     pub(crate) fn declaration(
         &self,
@@ -487,8 +535,8 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::Provenance, 5),
         (RoadEditingTableKind::LineSegment, 0),
         (RoadEditingTableKind::CubicBezierSegment, 2),
-        (RoadEditingTableKind::CurveSegment, 2),
-        (RoadEditingTableKind::CurveProgram, 1),
+        (RoadEditingTableKind::CurveSegment, 4),
+        (RoadEditingTableKind::CurveProgram, 2),
         (RoadEditingTableKind::RoadAlignment, 3),
         (RoadEditingTableKind::CorridorElement, 1),
         (RoadEditingTableKind::RoadCorridor, 8),
@@ -527,6 +575,8 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::PolicyGapProfile, 4),
         (RoadEditingTableKind::PolicyStreamRule, 6),
         (RoadEditingTableKind::PolicyGateRule, 5),
+        (RoadEditingTableKind::CircularArcSegment, 2),
+        (RoadEditingTableKind::ClothoidSegment, 3),
     ];
     let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
@@ -852,6 +902,60 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
                 member_id,
             },
         ])));
+    }
+    use RoadEditingPropertyStep::{StructMember, TableField, UnionVariant};
+    for member_id in 0..3 {
+        paths.push(RoadEditingPropertyPath::new(Box::new([
+            TableField {
+                table: RoadEditingTableKind::CurveSegment,
+                field_id: 4,
+            },
+            StructMember {
+                structure: RoadEditingStructKind::Vec3F64,
+                member_id,
+            },
+        ])));
+    }
+    for member_id in 0..2 {
+        let direction = TableField {
+            table: RoadEditingTableKind::CurveProgram,
+            field_id: 2,
+        };
+        let component = StructMember {
+            structure: RoadEditingStructKind::Vec2F64,
+            member_id,
+        };
+        paths.push(RoadEditingPropertyPath::new(Box::new([
+            direction, component,
+        ])));
+        for (table, field_id) in [
+            (RoadEditingTableKind::RoadAlignment, 2),
+            (RoadEditingTableKind::LaneEdge, 3),
+        ] {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                TableField { table, field_id },
+                direction,
+                component,
+            ])));
+        }
+    }
+    for (variant, table, fields) in [
+        (3, RoadEditingTableKind::CircularArcSegment, 3),
+        (4, RoadEditingTableKind::ClothoidSegment, 4),
+    ] {
+        for field_id in 0..fields {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                TableField {
+                    table: RoadEditingTableKind::CurveSegment,
+                    field_id: 1,
+                },
+                UnionVariant {
+                    union: RoadEditingUnionKind::CurveSegmentGeometry,
+                    discriminant: variant,
+                },
+                TableField { table, field_id },
+            ])));
+        }
     }
     for (variant, table, field_count) in [
         (1_u8, RoadEditingTableKind::LineSegment, 1_u16),

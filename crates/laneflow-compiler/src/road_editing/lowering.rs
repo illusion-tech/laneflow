@@ -283,9 +283,20 @@ fn lower_curve_program(
                         )),
                     )
                 }
+                wire::CurveSegmentGeometry::CircularArcSegment
+                | wire::CurveSegmentGeometry::ClothoidSegment => (
+                    AuthoringCurveSegmentGeometry::Native {
+                        input: super::native_input::decode(segment)
+                            .expect("preflight validated native geometry"),
+                        prepared: None,
+                    },
+                    AuthoringCurveSegmentPointSpans::Native,
+                ),
                 _ => unreachable!("semantic preflight validated curve union discriminants"),
             };
             AuthoringCurveSegmentDeclaration {
+                smooth_entry: segment.smooth_entry(),
+                fixed_end: segment.fixed_end().map(lower_point),
                 geometry,
                 span: segment_location(
                     index,
@@ -300,6 +311,7 @@ fn lower_curve_program(
         })
         .collect();
     AuthoringCurveProgramDeclaration {
+        initial_tangent_xz: value.initial_tangent_xz().map(|v| [v.x(), v.z()]),
         start,
         start_span,
         segments,

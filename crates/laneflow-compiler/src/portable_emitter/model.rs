@@ -189,6 +189,8 @@ pub(super) fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16
         K::PolicyGapProfile => 42,
         K::PolicyStreamRule => 43,
         K::PolicyGateRule => 44,
+        K::CircularArcSegment => 45,
+        K::ClothoidSegment => 46,
     }
 }
 
