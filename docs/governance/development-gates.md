@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-development-gates"
 kind = "governance"
 status = "active"
-revised_date = "2026-11-17"
+revised_date = "2026-11-24"
 summary = "规定 G0–G2 人流程及合并检查。"
 scope = "LaneFlow 的需求、设计、实现、评审与合并"
 +++
@@ -81,6 +81,8 @@ blocker 时，Project 才能进入 `Ready`。
 时，在 Issue 里写一句不适用原因即可。公开组件定位或宿主应用/交通职责边界发生实质
 变化时，必须回写 ADR、architecture、roadmap、glossary 和相关 Skills，并对当前
 exact head 重新取得审阅；不得沿用旧 head 的设计结论。
+
+提交 G1 决策 PR 时，应让审阅者直接核对接受后将进入主线的设计、适用范围与生成索引，见[提审时的文档状态][doc-state-at-merge]。
 
 **1.0 正式发布前**：G1 冻的是当前规范，不是对外兼容承诺。若设计字面会逼出并行实现
 或兼容层，改写 ADR/design 并只留一套。态度见
@@ -220,3 +222,4 @@ bypass。确认的检查缺陷另开 Issue 修复，不在评论里发明第二�
 [adr-0027]: ../adr/0027-retire-external-review-check.md
 [code-language-policy]: code-language-policy.md
 [performance-baseline]: ../design/core-runtime-performance-baseline.md
+[doc-state-at-merge]: documentation-policy.md#doc-state-at-merge

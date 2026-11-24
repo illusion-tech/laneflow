@@ -39,6 +39,7 @@
 
 - 相关文档 / ADR：
 - 是否需要新增 ADR 或更新 design？`否` / `是`，说明：
+- 涉及正式文档时，核对页头、正文与生成索引是否表达本 PR 合入后的状态。见[提审时的文档状态][doc-state-at-merge]。
 
 ## 验证
 
@@ -55,3 +56,4 @@
 - [ ] 合入走 Merge Queue，不使用 `--admin`
 
 [code-language-policy]: https://github.com/illusion-tech/laneflow/blob/main/docs/governance/code-language-policy.md
+[doc-state-at-merge]: https://github.com/illusion-tech/laneflow/blob/main/docs/governance/documentation-policy.md#doc-state-at-merge

@@ -47,7 +47,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [Traffic Runtime 标识与句柄模型][doc-design-core-id-handles] — 已接受；无生效取代。定义稳定标识、修订内序号和代际句柄。
 - [Traffic Runtime 产品性能基线][doc-design-core-runtime-performance-baseline] — 已接受；无生效取代。定义运行时产品规模目标、研究包络与测量边界。
 - [多模式横断面与准入分层][doc-design-cross-section-access] — 已接受；无生效取代。定义横断面、所有者与准入覆盖规则。
-- [走廊共享里程与横断面几何][doc-design-cross-section-stationing-and-lateral-geometry] — 待审阅；无生效取代。提出走廊共享里程、段级边界与整车扫过空间的几何合同。
+- [走廊共享里程与横断面几何][doc-design-cross-section-stationing-and-lateral-geometry] — 已接受；无生效取代。定义走廊共享里程、段级边界与整车扫过空间的几何合同。
 - [示例场景设计][doc-design-example-scenarios] — 已接受；无生效取代。定义参考场景的几何、路线与验证用途。
 - [测量环境与进程观测][doc-design-host-observe] — 已接受；无生效取代。定义测量环境记录、进程快照与子进程观测。
 - [复杂路口只读观测与跨层验证][doc-design-junction-observation-and-validation] — 已接受；无生效取代。定义复杂路口只读观测、参考场景与有限验证。
