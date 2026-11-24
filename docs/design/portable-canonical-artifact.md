@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-portable-canonical-artifact"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-18"
+revised_date = "2026-11-24"
 summary = "定义可移植规范制品、分块和容量合同。"
 scope = "LFCA、LFSM、LFSD、LFCP 的规范格式、规范排序、跨对象绑定、 失败关闭与格式安全天花板"
 applicability = "#applicability"
@@ -1248,6 +1248,31 @@ struct container code 为 `0 Digest256[0] / 1 OptionalU64[0] / 2 Vec3F64[0..2] /
 Declaration root 是其 entity kind 同名 table，RoadAlignment root 是 RoadAlignment，
 OwnerLocal root 由 relation kind/owner 决定。因每一步单独合法而接受不可达组合仍是格式错误。
 
+**LFRE 5 的路径增量（#1516 G1 提案）。** 原生曲线的字段和值域见
+[道路编辑来源 §6.1][road-editing-native]。上述登记是当前 LFSM 4 的闭合集；
+新增路径随 LFSM 5 一次切换，仍用五节、八类逻辑表和最多四步的属性路径。
+
+- table container 45 表示 `CircularArcSegment[0..2]`，46 表示
+  `ClothoidSegment[0..3]`。段的 OwnerLocal subject 继续使用 relation 1 和有序段序号。
+  从 `CurveSegment.1` 依次走 `CurveSegmentGeometry(3)`、表 45 的标量叶，或走
+  `CurveSegmentGeometry(4)`、表 46 的标量叶。例如回旋线的出口曲率路径止于
+  `CurveSegment.1 → CurveSegmentGeometry(4) → ClothoidSegment.2`。
+- 表 5 扩至字段 4。平顺声明止于 `CurveSegment.3`，锁点分量路径为
+  `CurveSegment.4 → Vec3F64.{0,1,2}`。表 6 扩至字段 2。首段初始方向的分量从
+  `RoadAlignment.2` 或 `LaneEdge.3` 走到 `CurveProgram.2 → Vec2F64.{0,1}`。
+  保留单步表字段的原有规则。来源位置的写入、读取、排序和后发射检查使用同一登记；
+  测试拒绝错 owner、错 union 分支、越界字段和以标量为中间步的路径。
+- 每条 `SpatialGeometrySourceRange` 仍指向原来源段的 `CurveSegment.geometry`。
+  前端给出的求值区间、折线细分数和误差界不分配稳定实体身份。参数诊断定位到叶字段；
+  新字段本身不要求在 LFSM 的位置池中生成无人引用的行。
+- 目标配对为 LFCA 5、LFSM 5、LFSD 4、LFCP 2。LFSM 的 Road Editing 模块登记
+  `frontendVersion=5`，Synthetic 仍为 5，二者由来源语言区分。LFCA 继续保存规范
+  折线与已有来源链，LFSD 继续比较规范语义。LFCP 的来源映射绑定须精确指定版本 5、
+  新 LFSM 的长度与摘要，发布及检查端同步更新既有绑定和配对样例。新版读取器拒绝
+  LFSM 4；把 LFSM 5 与绑定旧来源映射的 LFCP 混配时，即使只修改版本字段，也应在
+  长度或摘要核对处失败。
+  来源参数变化会改变来源摘要；是否改变路网修订标识仍由产出的规范语义决定。
+
 RoadEditing 变体的 optional 字段还受以下闭合矩阵约束：
 
 | subject            | 必需                                                                                          | 禁止/条件                                                                                                                                                                    |
@@ -2062,6 +2087,7 @@ ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择�
 [numeric-representation]: numeric-representation.md
 [right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
 [road-editing]: road-editing-source-and-geometry-frontend.md
+[road-editing-native]: road-editing-source-and-geometry-frontend.md#native-plan-curves
 [right-of-way-lfsd]: traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更
 [post-emission-host-boundary]: compiler-post-emission-check-and-minimal-publication-closure.md#9-宿主持久化与原子边界
 [compiler-foundation-budget]: compiler-foundation.md#53-编译资源上限

@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-road-editing-source-and-geometry-frontend"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-18"
+revised_date = "2026-11-24"
 summary = "定义道路编辑来源与几何编制前端。"
 scope = "道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、 来源持久化编码与 topology/geometry MIR 降阶"
 related = ["adr-0020", "adr-0021", "adr-0023", "adr-0025", "design-compiler-foundation", "design-network-compiler", "design-shared-static-network"]
@@ -118,7 +118,7 @@ FlatBuffers writer 与编译器 reader 必须共享验证规则，不得形成�
 
 ## 6. 几何正本
 
-道路编辑状态 v1 只保存直线和三次 Bé塞尔曲线。圆弧、螺旋线及其他 importer/generator
+现行 LFRE 4 只保存直线和三次贝塞尔曲线。圆弧、回旋线及其他 importer/generator
 原语必须在写入 v1 前转换为这两种 segment；第一方转换器必须按所选 2/5/10 cm B1 档
 执行固定网格观测并在超限时拒绝转换。转换报告由调用者持有，不进入 `.lfre`、内容摘要或
 #296 编译器输入；该观测不构成原始 primitive 到 cubic 的连续硬保证。
@@ -131,6 +131,93 @@ v1 不保存其原始 primitive 语义。后继若增加 curve union，未发布
 保存走向定义不意味着 UI 必须提供控制柄，也不意味着 Runtime、Spatial 或 Adapter
 获得曲线正本。表现层可以细分 mesh 或平滑显示，但不能改变规范长度、station、拓扑或
 静态身份。
+
+<a id="native-plan-curves"></a>
+### 6.1 原生圆弧与回旋线（G1 提案）
+
+以下是 #1516 的设计增量，适用于 LFRE 5 的道路走向和路口内部边的显式几何。
+现有生产读写器仍执行 §9 的 LFRE 4 合同。工程线形采用水平弧长和有符号曲率，
+其定义与 ASAM 对[圆弧][asam-arc]和[回旋线][asam-spiral]的定义一致。
+
+**作者保存什么。** 在同一 `CurveProgram` 中，位置从 `start` 逐段传递。
+圆弧保存水平弧长 `L`（米）、有符号半径 `R`（米）和恒定纵坡 `g = dy/du`。
+回旋线保存 `L`、入口和出口水平曲率 `k0, k1`（每米）及 `g`。正曲率向左，
+左向按现行规范坐标取 `N = +Y × T`，其中 `T` 是入口水平单位切向。
+有类型构造器、跨语言写入器和读回的可编辑模型保留这些 binary64 标量，包括段型和半径本身。
+固定字节的受检读回须能重建有类型曲线，供作者修改后重写同一来源。
+
+- 两段都要求 `L > 0`，所有输入有限。圆弧要求 `R ≠ 0` 且其倒数有限、非零。
+  回旋线要求 `k0 ≠ k1`，允许一个端点为零、跨零和任意可表示的非零差值。
+  判断相等前统一有符号零。等曲率使用圆弧，全零使用直线，非法输入在原字段报错。
+- 每段入口取前段出口。原生段排在首位时，作者在程序上给出有限、非零的水平
+  `initial_tangent_xz`，前端先按最大绝对分量缩放再归一化。其余情况下该字段缺省。
+  接在直线或贝塞尔后面时取其出口一阶导数的水平投影，导数退化时定位到接续段。
+- 以 `0 ≤ u ≤ L` 表示本段水平弧长。圆弧取 `k0 = k1 = 1/R`。
+  回旋线取 `k(u) = k0 + (k1 − k0)u/L`。相对入口转角为
+  `θ(u) = k0 u + (k1 − k0)u²/(2L)`。将 `T cos θ + N sin θ` 从 0 积分到
+  `u` 得到水平位移，高程为 `y0 + gu`。出口位置和方向由这组参数唯一确定。
+- 原生段可带固定出口 `fixed_end`。编译器用原线出口与该三维点核对，距离上界
+  至多 5 毫米才接受，几何继续使用派生出口。修改前段使锁点冲突时，主诊断指向该段
+  的 `fixed_end`，并给出派生出口、锁点与距离区间。无锁点的后续原生段从新出口继续。
+  已编制的直线终点与贝塞尔控制点是绝对位置，修改前段后仍以这些位置重算。
+- 作者可在后一段声明平顺入口 `smooth_entry`（首段禁止）。除共享位置外，比较两侧
+  三维单位切向之差的范数（上限 `1e-9`）和水平有符号曲率之差（上限 `1e-12 m⁻¹`）。
+  直线曲率为零，贝塞尔按端点一、二阶导数在水平面计算有符号曲率。无法取得正规切向
+  或无法证实两项界时，在后一段的声明处报告两侧值及相关段。单独修改半径可能打破
+  平顺连接，作者可同时修改相邻缓和段的端点曲率。普通接缝继续执行 ADR 0022 的规范折线检查。
+
+**从工程参数定位同一截面。** 原生段在水平弧长 `u` 处的参考线路面长度是
+`u√(1+g²)`。该值加上段首累计的道路里程站位即为来源站位，局部反算使用同一比例。
+直线和三次贝塞尔仍以原有配置档无关的三维参考弦累计，混合程序按来源段顺序相接。
+原生段可直接用一行覆盖其参数域；横断面和边端强制插点复用同一反算，切换输出档位时
+这些截面的来源参数相同。最终车道折线长度和整数毫米进度分别遵循各自的量化合同。
+
+在水平左向偏移 `d(u)` 处，平面车道切向导数为 `(1−dk)T(u) + d′N(u)`，
+高程导数为 `g`。因而该车道在两个截面之间的原线路面长度为
+`∫√((1−dk)² + d′² + g²) du`。同向映射须能证明 `1−dk > 0`。
+每条有向边按其自己的起点累计，反向边从高站位端累计。按行驶顺序，内部切点归到
+下一条边的零进度，终点归到末边。此归属用于车道地址；来源段末的属性归属仍按 ADR 0022 §5。
+
+**共同验算。** 与 #273 共用一条 40 米直道接半径 35 米的左圆弯，外车道向右偏
+3.5 米；沿参考线取恒定纵坡 `g = 40/399`。以下切分位置均为从道路起点量起的
+**水平**米数。在第 60 米截面，高差为 `60g`，参考线路面里程为
+`60 × 401/399 ≈ 60.300752 m`。参考车道在第 50 米切边，该截面位于第二条边内
+`10 × 401/399 ≈ 10.050125 m`。外车道在第 70 米切边，仍在第一条边内，
+其进度为 `40 × 401/399 + 20√(1.1² + g²) ≈ 62.291678 m`。
+独立对照以圆心角 `20/35` 乘 38.5 米得到 22 米水平外弧，再与本段高差合成路面长度。
+改在内车道第 47、59、68 米及外车道第 53、60、74 米切边，同一截面应落到内车道
+第三条边内 `401/399 m`、外车道第三条边起点。将纵坡置零，第一种切法恢复
+10 米和 62 米。现行来源中每个 `AuthoringLane` 引用一条边，同一走廊的车道共享起止
+站位。验收可用相同来源线形、纵坡与横断面分别编译两套走廊分段，从一份取内车道边链、
+另一份取外车道边链，在切点及其两侧核对同一截面。单修订内发布跨车道映射、车身支承
+及通行裁决由 #273 定义。
+
+第二个用例检查平顺接续。取直线、长 48 米且曲率从零增到 `1/48 m⁻¹` 的回旋线、
+半径 48 米且长 24 米的圆弧、长 48 米且曲率回到零的回旋线、出口切向上的直线。
+三段各转过 0.5 弧度。只把入弯长度改为 60 米，该段转角变为 0.625 弧度。
+另将圆弧半径改为 60 米，同步两侧接缝曲率，圆弧转角变为 0.4 弧度。
+两次编辑分别从生产读回参数重编，沿新出口切向设置末直线终点以维持平顺声明，
+核对出口和接缝，再把改动段原来的出口设为锁点验证冲突诊断。
+镜像用例反转曲率、半径和横向偏移；另测首末曲率相反而净转角为零、相邻可表示曲率
+及退化拒绝。独立数值依据、资源耗尽和临界余量的判定见 [ADR 0022][native-curve-error]。
+
+**编码与诊断。** LFRE 的 `format_version` 与道路编辑 `frontendVersion` 拟由 4
+升至 5，进入 `frontendOptionsDigest` 的几何语义从 1 升至 2。保留 size prefix
+和 `LFRE` 标识符，在字段解释和规模相关分配前做精确版本检查。
+
+- `CurveSegmentGeometry` 增加 `3 CircularArcSegment` 和 `4 ClothoidSegment`。
+  圆弧的字段 0、1、2 分别是 `length_meters`、`signed_radius_meters`、`grade`。
+  回旋线的字段 0、1、2、3 分别是 `length_meters`、`start_curvature_per_meter`、
+  `end_curvature_per_meter`、`grade`。均采用可识别缺失的 double（schema 默认 null），
+  语义读取要求每项显式存在，含零纵坡和零曲率端点。
+- `CurveProgram` 字段 2 为可选 `Vec2F64 initial_tangent_xz`。
+  `CurveSegment` 字段 3 为默认 false 的 `smooth_entry`，字段 4 为可选
+  `Vec3F64 fixed_end`，后者仅适用于原生段。构造、写入及受检读回共用上述值域和组合规则。
+  来源位置以原段序号与叶字段定位，字段缺失时报告其逻辑路径；确定的首错按 §9.7 排序。
+  来源路径与跨制品绑定见[可移植规范制品][portable-artifact] §4。
+- 实施验收须覆盖 C++、C# 两个写入样例，各自实际写出两种段型和可辨识的参数，
+  Rust 生产读回并编译；复用现有绑定生成、来源版本拒绝、已知向量和原直线／贝塞尔几何回归。
+  结构计量记录求值子区间数、各车道折线点数和预算耗尽位置。
 
 ## 7. 来源位置与诊断
 
@@ -1041,6 +1128,9 @@ production 依赖或实现。
 [right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
 [portable-artifact-bindings]: portable-canonical-artifact.md#41-bindings-与来源池登记
 [portable-artifact]: portable-canonical-artifact.md
+[native-curve-error]: ../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md#native-curve-bounds
+[asam-arc]: https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/v1.8.1/specification/09_geometries/09_05_arc.html
+[asam-spiral]: https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/v1.8.1/specification/09_geometries/09_04_spiral.html
 [preflight-index-g1]: https://github.com/illusion-tech/laneflow/issues/680#issuecomment-5703330314
 [flatbuffers-rust]: https://flatbuffers.dev/languages/rust/
 [flatbuffers-schema]: https://flatbuffers.dev/schema/
