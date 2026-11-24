@@ -80,6 +80,28 @@ fn program_record(program: &re::RoadEditingCurveProgram) -> Value {
                 re::RoadEditingCurveSegmentGeometry::Line { end } => {
                     json!({"kind": "Line", "end_f64_bits": point_bits(end)})
                 }
+                re::RoadEditingCurveSegmentGeometry::CircularArc {
+                    length_meters,
+                    signed_radius_meters,
+                    grade,
+                } => json!({
+                    "kind": "CircularArc",
+                    "length_f64_bits": length_meters.to_bits(),
+                    "radius_f64_bits": signed_radius_meters.to_bits(),
+                    "grade_f64_bits": grade.to_bits(),
+                }),
+                re::RoadEditingCurveSegmentGeometry::Clothoid {
+                    length_meters,
+                    start_curvature_per_meter,
+                    end_curvature_per_meter,
+                    grade,
+                } => json!({
+                    "kind": "Clothoid",
+                    "length_f64_bits": length_meters.to_bits(),
+                    "start_curvature_f64_bits": start_curvature_per_meter.to_bits(),
+                    "end_curvature_f64_bits": end_curvature_per_meter.to_bits(),
+                    "grade_f64_bits": grade.to_bits(),
+                }),
                 re::RoadEditingCurveSegmentGeometry::CubicBezier {
                     control_1,
                     control_2,
@@ -89,15 +111,27 @@ fn program_record(program: &re::RoadEditingCurveProgram) -> Value {
                     "control_2_f64_bits": point_bits(control_2), "end_f64_bits": point_bits(end)})
                 }
             };
-            json!({"geometry": geometry, "canvas_selection": segment.canvas_selection()})
+            let mut record =
+                json!({"geometry": geometry, "canvas_selection": segment.canvas_selection()});
+            if segment.smooth_entry() {
+                record["smooth_entry"] = json!(true);
+            }
+            if let Some(fixed) = segment.fixed_end() {
+                record["fixed_end_f64_bits"] = json!(point_bits(fixed));
+            }
+            record
         })
         .collect::<Vec<_>>();
-    json!({
+    let mut record = json!({
         "start_f64_bits": point_bits(program.start()), "segments": segments,
         "line_points_f32_bits": edge_geometry(program).map(|geometry| {
             geometry.points.into_iter().map(bits).collect::<Vec<_>>()
         }),
-    })
+    });
+    if let Some(tangent) = program.initial_tangent_xz() {
+        record["initial_tangent_xz_f64_bits"] = json!(tangent.map(f64::to_bits));
+    }
+    record
 }
 
 fn sampling_samples(observation: &EmissionObservation) -> String {

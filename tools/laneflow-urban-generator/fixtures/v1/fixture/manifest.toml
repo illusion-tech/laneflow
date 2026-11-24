@@ -6,15 +6,15 @@ tiles = 2
 tile_columns = 2
 nominal_individuals = 2000
 fixed_step_ms = 16
-compile_limits = "LF-COMP-SINGLE-NETWORK-1M-v2"
+compile_limits = "LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES"
 format_limits = "FormatLimits::HARD"
 network_revision = "1d427488a89af7f0b2601b200a867a413529cdc358a7f7e2bfbabe4a27bd8819"
 source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
 lir_logical_records = 82014
 compiler_output_logical_bytes = 2220654
-compiler_controlled_peak_bytes = 33589200
-shared_headless_retained_bytes = 801412
-shared_spatial_retained_bytes = 2011508
+compiler_controlled_peak_bytes = 33438464
+shared_headless_retained_bytes = 671636
+shared_spatial_retained_bytes = 1881732
 resolved_policy_gate_rows = 528
 resolved_policy_stream_rows = 516
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
@@ -41,7 +41,7 @@ max_scratch_bytes = 2147483648
 
 [files."common.lfre"]
 bytes = 1024
-sha256 = "82b8167c2a8bfb3b06f940d8e73c975d0935fb0841b9373387e8f9a422456109"
+sha256 = "4c92cc4389196953139c26cebd6377c6a2451dd7fb799a74110b28441ac2100b"
 
 [files."config.toml"]
 bytes = 1300
@@ -49,11 +49,11 @@ sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
 
 [files."genesis.lfsd"]
 bytes = 9638850
-sha256 = "83be58da7dad4e4fdc3478a1edc17bfadf4566fe8d76d52109a28fcc750bffb6"
+sha256 = "b6f177366f55adda0c532e23d810e1d916eb9d2a5bdc5d0c3dd15d83da35aaf9"
 
 [files."network.lfca"]
 bytes = 8868299
-sha256 = "910d0ce5598f213d652f37b786615530981b99fcc482f9712ce49afad12edb4c"
+sha256 = "e5563b5ee135f2a226b046ce20c3fd05bd8d0dec1f2a692f121632c4b8de5ce9"
 
 [files."routes.toml"]
 bytes = 377136
@@ -61,11 +61,11 @@ sha256 = "e9e6a6b260d633bcbb04923cb3922c673dfc214cd77bd6e32d4a1ec279ef70de"
 
 [files."source-map.lfsm"]
 bytes = 12489179
-sha256 = "0cc1d92a739e4c4a71d4b588f73c43d8eab766d394b04dcc7d74222f4aedde06"
+sha256 = "a8fbe4584a22a0a72420412fd2f52407f9eb494f3044da44d0d355bed7fbbf35"
 
 [files."topology.lfre"]
 bytes = 1669184
-sha256 = "e64fe0958b6d558abc04af993e7ffd98e5ed97012c936370dcc8bb9e8873f2eb"
+sha256 = "c1caeff375378e72a00495d050d2f0a9e1fd31068efd9b1d0cdec70816c1a3d3"
 
 [source_declarations]
 canonical-frame = 1
