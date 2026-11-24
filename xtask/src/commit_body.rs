@@ -10,6 +10,7 @@ use textwrap::core::{Word, display_width};
 use textwrap::{Options, WordSeparator, WordSplitter};
 use unicode_linebreak::linebreaks;
 
+use crate::commit_messages;
 use crate::markdown_tables::{is_closing_fence, opening_fence};
 
 /// 正文行的显示宽度上限。
@@ -139,11 +140,14 @@ fn line_roles(lines: &[&str]) -> Vec<LineRole> {
         let role = if index == 0 {
             LineRole::Title
         } else if let Some(fence) = open_fence {
-            if is_closing_fence(line, fence) {
+            if fence_indent_allowed(line) && is_closing_fence(line, fence) {
                 open_fence = None;
             }
             LineRole::Code
-        } else if let Some(fence) = opening_fence(line) {
+        } else if let Some(fence) = fence_indent_allowed(line)
+            .then(|| opening_fence(line))
+            .flatten()
+        {
             open_fence = Some(fence);
             LineRole::Code
         } else if line.trim().is_empty() {
@@ -164,6 +168,24 @@ fn line_roles(lines: &[&str]) -> Vec<LineRole> {
         }
     }
     roles
+}
+
+/// CommonMark 规定开、关围栏最多缩进 3 列（Tab 按 4 列制表位计）；缩进更深的围栏符号
+/// 属于代码内容。`markdown_tables` 的围栏判定不区分列表等容器，所以缩进门槛放在这里，
+/// 字符与长度规则仍共用该判定。
+fn fence_indent_allowed(line: &str) -> bool {
+    let mut column = 0;
+    for ch in line.chars() {
+        match ch {
+            ' ' => column += 1,
+            '\t' => column = (column / 4 + 1) * 4,
+            _ => break,
+        }
+        if column > 3 {
+            return false;
+        }
+    }
+    true
 }
 
 /// 末尾段落若每行都是 `Key: value` 形式，即为 trailer 段。
@@ -269,11 +291,13 @@ fn break_permitted(line: &str, offset: usize, protected: &[(usize, usize)]) -> b
     !(ascii_token_char(previous) && ascii_token_char(next)) && !changes_line_role(&line[offset..])
 }
 
-/// 以该文本开头的续行会被 Git 或校验器识别为另一种行：注释、trailer 或受控字段、
-/// `BREAKING CHANGE:`、列表项或代码围栏。这样的断点一律不用，避免折行改变消息内容或语义。
+/// 以该文本开头的续行会被 Git 或校验器识别为另一种行：注释、受控字段（与校验器共用
+/// [`commit_messages::is_controlled_field_line`]）、其他 `Key:` 形式的 trailer、
+/// `BREAKING CHANGE`、列表项或代码围栏。这样的断点一律不用，避免折行改变消息内容或语义。
 fn changes_line_role(rest: &str) -> bool {
     let rest = rest.trim_start();
-    if rest.starts_with('#')
+    if is_comment_line(rest)
+        || commit_messages::is_controlled_field_line(rest)
         || rest.starts_with("BREAKING CHANGE")
         || rest.starts_with("```")
         || rest.starts_with("~~~")
@@ -285,17 +309,17 @@ fn changes_line_role(rest: &str) -> bool {
         .bytes()
         .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
         .count();
-    let after_token = rest[token_len..].trim_start_matches(' ');
+    let after_token = rest[token_len..].trim_start_matches([' ', '\t']);
     token_len > 0
         && after_token
             .strip_prefix(':')
-            .is_some_and(|value| value.is_empty() || value.starts_with(' '))
+            .is_some_and(|value| value.is_empty() || value.starts_with([' ', '\t']))
 }
 
 /// 含 `/` 的路径与 URL 的字节区间，区间内不断行。区间向两侧延伸到空白、中日韩标点、
-/// 反引号或已保护区间为止；ASCII 字母数字与相邻的非 ASCII 字符之间视为路径边界，
-/// 所以“移至docs/a.md调用”只保护 `docs/a.md`。不含 ASCII 字母数字、也没有扩展名的
-/// “读取/写入”不按路径处理。
+/// 反引号或已保护区间为止，区间内部的中英文切换不视为边界，所以 `docs/v2道路说明.md`
+/// 整段受保护。紧贴中文正文、没有空白或标点分隔的路径会连同相邻中文一起受保护；
+/// 不含 ASCII 字母数字、也没有扩展名的“读取/写入”不按路径处理。
 fn path_ranges(line: &str, protected: &[(usize, usize)]) -> Vec<(usize, usize)> {
     let chars: Vec<(usize, char)> = line.char_indices().collect();
     let in_protected = |at: usize| {
@@ -307,11 +331,6 @@ fn path_ranges(line: &str, protected: &[(usize, usize)]) -> Vec<(usize, usize)> 
         let (at, ch) = chars[index];
         !(ch.is_whitespace() || ch == '`' || is_cjk_punctuation(ch) || in_protected(at))
     };
-    let boundary = |left: char, right: char| {
-        (left.is_ascii_alphanumeric() && !right.is_ascii())
-            || (!left.is_ascii() && right.is_ascii_alphanumeric())
-    };
-
     let mut ranges: Vec<(usize, usize)> = Vec::new();
     for (index, &(at, ch)) in chars.iter().enumerate() {
         if ch != '/'
@@ -321,15 +340,11 @@ fn path_ranges(line: &str, protected: &[(usize, usize)]) -> Vec<(usize, usize)> 
             continue;
         }
         let mut first = index;
-        while first > 0 && is_path_char(first - 1) && !boundary(chars[first - 1].1, chars[first].1)
-        {
+        while first > 0 && is_path_char(first - 1) {
             first -= 1;
         }
         let mut last = index;
-        while last + 1 < chars.len()
-            && is_path_char(last + 1)
-            && !boundary(chars[last].1, chars[last + 1].1)
-        {
+        while last + 1 < chars.len() && is_path_char(last + 1) {
             last += 1;
         }
         let start = chars[first].0;
@@ -585,6 +600,9 @@ mod tests {
             "#1536 记录了原始失败。",
             "Harness: anthropic/claude-code/cli 只是示例。",
             "harness : 大小写与空格变体。",
+            "Model:openai/gpt-6-astra 冒号后没有空格。",
+            "MODEL\t:\topenai/gpt-6-astra 是 Tab 变体。",
+            "Co-authored-by:Ada 也只是示例。",
             "BREAKING CHANGE: 只是引用。",
             "Refs: #1 也只是引用。",
             "- 不是列表项。",
@@ -651,10 +669,79 @@ mod tests {
             }
         }
 
-        let attached = "说明已移至docs/a.md调用方按新路径读取";
-        assert_eq!(path_ranges(attached, &[]), vec![(15, 24)]);
-        assert_eq!(&attached[15..24], "docs/a.md");
+        let attached = "说明已移至docs/a.md调用方按新路径读取，其余不变";
+        let ranges = path_ranges(attached, &[]);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(
+            &attached[ranges[0].0..ranges[0].1],
+            "说明已移至docs/a.md调用方按新路径读取"
+        );
         assert!(path_ranges("支持读取/写入两种模式", &[]).is_empty());
+    }
+
+    #[test]
+    fn keeps_mixed_script_file_names_whole() {
+        for token in [
+            "docs/道路编辑说明.md",
+            "docs/v2道路编辑说明.md",
+            "docs/道路v2编辑说明.md",
+            "https://example.com/v2道路编辑说明",
+        ] {
+            let line = format!("文档移至 {token}，调用方按新路径读取。");
+            let ranges = path_ranges(&line, &[]);
+            assert_eq!(ranges.len(), 1, "{token}");
+            assert_eq!(&line[ranges[0].0..ranges[0].1], token);
+
+            for shift in 0..72 {
+                let line = format!("{}{line}{LONG_CJK}", "字".repeat(shift));
+                let wrapped = wrap_prose_line(&line);
+                assert!(
+                    wrapped.iter().any(|wrapped| wrapped.contains(token)),
+                    "`{token}` 被拆开: {wrapped:?}"
+                );
+            }
+        }
+
+        let url = format!("https://example.com/v2{}", "道路".repeat(30));
+        assert_eq!(display_width(&url), 142);
+        assert_eq!(wrap_prose_line(&url), vec![url.clone()]);
+        let message = format!("docs: 记录来源\n\n{url}\n\nRefs: #1\n");
+        assert_eq!(wrap_commit_message_text(&message), message);
+        assert!(
+            body_errors(&message).is_empty(),
+            "{:?}",
+            body_errors(&message)
+        );
+    }
+
+    #[test]
+    fn deeply_indented_fence_markers_are_code_content() {
+        let long_command = format!("cargo run -- {}", "argument ".repeat(10));
+        for pseudo_close in ["    ```", "\t```", "  \t```", "    ~~~~"] {
+            let fence = if pseudo_close.ends_with('~') {
+                "~~~"
+            } else {
+                "```"
+            };
+            let message = format!(
+                "docs: 说明\n\n{fence}text\n{pseudo_close}\n{long_command}\n{fence}\n\nRefs: #1\n"
+            );
+            let roles = line_roles(&message.lines().collect::<Vec<_>>());
+
+            assert_eq!(&roles[2..6], &[LineRole::Code; 4], "{pseudo_close:?}");
+            assert_eq!(roles[6], LineRole::Blank, "{pseudo_close:?}");
+            assert_eq!(wrap_commit_message_text(&message), message);
+        }
+
+        for close in ["```", " ```", "   ```"] {
+            let message = format!("docs: 说明\n\n```\ncode\n{close}\n{LONG_CJK}\n\nRefs: #1\n");
+            let roles = line_roles(&message.lines().collect::<Vec<_>>());
+            assert_eq!(roles[5], LineRole::Prose, "{close:?}");
+        }
+
+        let roles = line_roles(&["docs: 说明", "", "    ```", "x"]);
+        assert_eq!(roles[2], LineRole::Code);
+        assert_eq!(roles[3], LineRole::Prose);
     }
 
     #[test]
