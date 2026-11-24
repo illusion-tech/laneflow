@@ -138,20 +138,18 @@ fn compile(bytes: &OwnedRoadEditingSourceBuffer) -> Result<Vec<Chord>, Diagnosti
     for edge in output.lir().lane_edges() {
         let geometry = edge.spatial_geometry().unwrap();
         let pts: Vec<_> = geometry.points().collect();
+        // LIR accumulates each canonical chord in f32 before rounding the total to millimetres.
         let length = pts
             .windows(2)
             .map(|p| {
                 let a = p[0];
                 let b = p[1];
-                let dx = f64::from(b.x) - f64::from(a.x);
-                let dy = f64::from(b.y) - f64::from(a.y);
-                let dz = f64::from(b.z) - f64::from(a.z);
-                (dx * dx + dy * dy + dz * dz).sqrt()
+                (b.x - a.x).hypot(b.y - a.y).hypot(b.z - a.z)
             })
-            .sum::<f64>();
+            .sum::<f32>();
         assert_eq!(
             Some(edge.length_mm()),
-            laneflow_static_contract::millimetres_from_si(length)
+            laneflow_static_contract::millimetres_from_si(f64::from(length))
         );
         let mut trace = out.iter().filter(|c| {
             edge.identity_fields()
@@ -304,6 +302,81 @@ fn edit_saved_parameters_and_recompile_the_complete_smooth_chain() {
         .contains("SmoothEntryConflict")
     );
 }
+#[test]
+fn alternating_smooth_bends_preserve_the_inherited_direction() {
+    let mut segments = Vec::new();
+    let mut reference = Vec::new();
+    let mut start = [0.0; 2];
+    let mut heading = 0.0;
+    let mut oracle_error = 0.0;
+    for bend in 0..16 {
+        let radius = if bend % 2 == 0 { 80.0 } else { -80.0 };
+        let k = 1.0 / radius;
+        for (segment, length, k0, k1) in [
+            (Segment::clothoid(32.0, 0.0, k, 0.0), 32.0, 0.0, k),
+            (Segment::circular_arc(16.0, radius, 0.0), 16.0, k, k),
+            (Segment::clothoid(32.0, k, 0.0, 0.0), 32.0, k, 0.0),
+        ] {
+            segments.push(segment.unwrap().with_smooth_entry(!segments.is_empty()));
+            reference.push((start, heading, oracle_error, length, k0, k1));
+            let (delta, error) = integrate(length, k0, k1, heading, length);
+            start = [start[0] + delta[0], start[1] + delta[1]];
+            oracle_error += error;
+            heading += 0.5 * (k0 + k1) * length;
+        }
+    }
+    let program =
+        Program::try_new_with_tangent(p(0.0, 0.0, 0.0), segments, Some([0.0, 1.0])).unwrap();
+    let chords = compile(&balanced(program)).unwrap();
+    let mut endpoints = 0;
+    for c in chords.iter().filter(|c| c.key == "inner-0") {
+        let (start, heading, oracle_error, length, k0, k1) = reference[c.segment as usize];
+        let u = length * (c.t[0] + c.t[1]) * 0.5;
+        let (delta, error) = integrate(length, k0, k1, heading, u);
+        let dx = start[0] + delta[0] - c.bounds.midpoint[0];
+        let dz = start[1] + delta[1] - c.bounds.midpoint[2];
+        assert!(dx.hypot(dz) <= oracle_error + error + c.bounds.midpoint_error);
+        let chord_x = f64::from(c.points[1][0]) - f64::from(c.points[0][0]);
+        let chord_z = f64::from(c.points[1][2]) - f64::from(c.points[0][2]);
+        let chord_length = chord_x.hypot(chord_z);
+        for t in c.t {
+            let u = length * t;
+            let theta = heading + k0 * u + 0.5 * (k1 - k0) * u * u / length;
+            let (x, z) = theta.sin_cos();
+            assert!(
+                (x - chord_x / chord_length).hypot(z - chord_z / chord_length)
+                    <= c.bounds.heading_error + 1e-12
+            );
+        }
+        endpoints += usize::from(c.t[1] == 1.0);
+    }
+    assert_eq!(endpoints, reference.len());
+}
+
+#[test]
+fn inherited_heading_still_checks_grade_and_curvature_at_the_seam() {
+    let k = 1.0 / 80.0;
+    for (grade, k0, smooth) in [(0.5e-9, k, true), (2e-9, k, false), (0.0, k + 2e-12, false)] {
+        let program = Program::try_new_with_tangent(
+            p(0.0, 0.0, 0.0),
+            vec![
+                Segment::circular_arc(16.0, 80.0, 0.0).unwrap(),
+                Segment::clothoid(32.0, k0, 0.0, grade)
+                    .unwrap()
+                    .with_smooth_entry(true),
+            ],
+            Some([0.0, 1.0]),
+        )
+        .unwrap();
+        let result = compile(&balanced(program));
+        if smooth {
+            result.unwrap();
+        } else {
+            assert!(format!("{:?}", result.unwrap_err()).contains("SmoothEntryConflict"));
+        }
+    }
+}
+
 #[test]
 fn continuous_bounds_cover_reverse_bends_mirror_and_adjacent_curvatures() {
     for (k0, k1) in [(-0.03, 0.03), (0.03, -0.03), (0.01, 0.01_f64.next_up())] {
