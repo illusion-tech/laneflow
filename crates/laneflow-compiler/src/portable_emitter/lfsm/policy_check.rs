@@ -234,7 +234,7 @@ struct Member<'a> {
     row: Row<'a>,
 }
 
-/// 独立检查 LFSM 4 的完整策略来源和 Movement 方向来源。
+/// 独立检查 LFSM 5 的完整策略来源和 Movement 方向来源。
 ///
 /// source 必须来自同次 CompilationOutput。以实际 LFCA/文档描述符重建全集，不接受
 /// LFSM 自报地址作为来源正本；既有角色的来源语义仍由原有编译流水线拥有。

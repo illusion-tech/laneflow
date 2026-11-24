@@ -169,12 +169,21 @@ impl ModuleUsage {
         limits: &CompileProfile,
     ) -> Result<(), DiagnosticBundle> {
         self.typed_ast_record_count = self.typed_ast_record_count.saturating_add(1);
-        self.charge_table(2, 28);
+        self.charge_table(
+            3,
+            28 + if value.initial_tangent_xz().is_some() {
+                16
+            } else {
+                0
+            },
+        );
         self.charge_vector(value.segments().len(), 4);
         for segment in value.segments() {
             self.typed_ast_record_count = self.typed_ast_record_count.saturating_add(2);
-            self.charge_table(3, 9);
+            self.charge_table(5, 10 + if segment.fixed_end().is_some() { 24 } else { 0 });
             match segment.geometry() {
+                RoadEditingCurveSegmentGeometry::CircularArc { .. } => self.charge_table(3, 24),
+                RoadEditingCurveSegmentGeometry::Clothoid { .. } => self.charge_table(4, 32),
                 RoadEditingCurveSegmentGeometry::Line { .. } => {
                     self.charge_table(1, 24);
                 }

@@ -366,7 +366,7 @@ pub struct CompilationUnit {
 | 道路编辑来源的 `Provenance.frontend_options_digest` | 原值保存于 LFRE；与几何近似语义版本、精度和方向档位一起派生模块描述符的 `frontendOptionsDigest`，再写入 LFSM                      | 保持 SHA-256；原值与派生值不混同 |
 
 字段与原像以[可移植规范制品][portable-artifact] §3.7、§4.1、§6 和
-[道路编辑来源登记][v4-readme] §4 为准。逐文档摘要与文档集
+[道路编辑来源登记][road-editing-schema] §4 为准。逐文档摘要与文档集
 摘要直接写入 LFSM；LFCA 通过来源集合摘要绑定它们，不直接保存这两个字段。
 `compileOptionsDigest` 不由来源文档聚合产生，也不是生成器编制选项摘要。
 
@@ -685,7 +685,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 | 来源处理限额 | 模块、来源文档、导入边、单模块/总来源字节、声明、Typed AST/HIR/MIR/LIR 记录、有类型引用、来源关系出现记录、标识字段出现记录、符号、字符串项、单字符串字节、总字符串字节、诊断 | 编译单元准入与编译管线       |
 | 规范路网容量 | 稳定实体、机动门、等待区、规范关系出现记录（`CanonicalRelationCount`）、规范几何点                                                                                            | 编译端与外部 LFCA 的消费入口 |
 | 制品格式边界 | 调用方 `FormatLimits` 与线格式原语硬上限                                                                                                                                      | 格式预检                     |
-| 操作资源预算 | 编译器控制总存续字节（`CompilerControlledLiveBytes`）、保留容量字节（`RetainedCapacityBytes`）、策略访问工作量（`PolicyValidationWorkUnits`）                                                                                | 编译器资源账本               |
+| 操作资源预算 | 编译器控制总存续字节（`CompilerControlledLiveBytes`）、保留容量字节（`RetainedCapacityBytes`）、策略访问工作量（`PolicyValidationWorkUnits`）                                 | 编译器资源账本               |
 
 具名配置档组合一份来源处理限额、一份规范路网容量与一份默认操作资源预算，每个配置档都
 包含全部维度，不存在“该配置档未定义此维度”的状态。来源处理限额只在编译单元准入与编译
@@ -918,19 +918,19 @@ Identity 原像顺序与 StableId 顺序不同的固定向量，核对查找、�
 每个道路编辑冲突单元含 4 条设施带及其真实前端生成的几何、1 个四点冲突区域和 2 条参与者流。
 这些是确定性的结构压力负载，不是城市交通质量或典型路口形态的认证。
 
-| 工作负载 | `S` | `P` | 合成单元 | 补齐实体 | 稳定实体 | 机动门 | 等待区 | 规范关系出现记录 | 规范几何点 | LIR 逻辑记录 |
-| -------- | --: | --: | -------: | -------: | -------: | -----: | -----: | ---------------: | ---------: | -----------: |
-| 混合语义 | 2 | 2 | 399 | 0 | 10000 | 822 | 399 | 14169 | 2682 | 28904 |
-| 稠密信号状态 | 32 | 2 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 3918 | 90974 |
-| 高几何点密度 | 2 | 65 | 399 | 0 | 10000 | 822 | 399 | 14169 | 78093 | 179726 |
-| 联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 118263 | 319664 |
-| 多模块联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 118263 | 319664 |
-| 长文档键联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 118263 | 319664 |
-| 曲线联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 128511 | 335600 |
-| 来源与曲线联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 128511 | 335600 |
-| 策略成员联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 118263 | 380733 |
-| 贡献来源联合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 118263 | 319664 |
-| 全组合压力 | 32 | 65 | 55 | 6 | 10000 | 1784 | 55 | 71773 | 128511 | 396669 |
+| 工作负载           | `S` | `P` | 合成单元 | 补齐实体 | 稳定实体 | 机动门 | 等待区 | 规范关系出现记录 | 规范几何点 | LIR 逻辑记录 |
+| ------------------ | --: | --: | -------: | -------: | -------: | -----: | -----: | ---------------: | ---------: | -----------: |
+| 混合语义           |   2 |   2 |      399 |        0 |    10000 |    822 |    399 |            14169 |       2682 |        28904 |
+| 稠密信号状态       |  32 |   2 |       55 |        6 |    10000 |   1784 |     55 |            71773 |       3918 |        90974 |
+| 高几何点密度       |   2 |  65 |      399 |        0 |    10000 |    822 |    399 |            14169 |      78093 |       179726 |
+| 联合压力           |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     118263 |       319664 |
+| 多模块联合压力     |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     118263 |       319664 |
+| 长文档键联合压力   |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     118263 |       319664 |
+| 曲线联合压力       |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     128511 |       335600 |
+| 来源与曲线联合压力 |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     128511 |       335600 |
+| 策略成员联合压力   |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     118263 |       380733 |
+| 贡献来源联合压力   |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     118263 |       319664 |
+| 全组合压力         |  32 |  65 |       55 |        6 |    10000 |   1784 |     55 |            71773 |     128511 |       396669 |
 
 基础组织使用三个模块、三个来源文档、两条导入边：合成交通模块、道路编辑冲突模块，以及
 导入前两者的合成策略模块。多模块组将完整合成单元按编号分配到 16 个不同命名空间，合计
@@ -986,40 +986,40 @@ LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字
 **完整常规档政策表。**以下来源值为这十一组及其身份不相交变体的逐维上包络，不加额外余量，
 不是任意一万个实体输入的普遍上界。新增形态后须重新取数；下文具名配置档完整登记这些值。
 
-| 来源处理维度 | 登记值 | 计数对象或单位 |
-| ------------ | -----: | ---------------- |
-| `ModuleCount` | 18 | 模块 |
-| `SourceDocumentCount` | 18 | 来源文档描述符 |
-| `ImportEdgeCount` | 17 | 导入边 |
-| `SourceBytesPerModule` | 6802717 | 单模块来源记录字节 |
-| `SourceBytesTotal` | 8728106 | 编译单元来源记录字节 |
-| `DeclarationCount` | 10000 | 来源声明 |
-| `TypedAstRecordCount` | 381284 | 有类型抽象语法树逻辑记录 |
-| `HirRecordCount` | 535364 | HIR 逻辑记录 |
-| `MirRecordCount` | 395015 | MIR 逻辑记录 |
-| `LirRecordCount` | 396669 | LIR 逻辑记录 |
-| `ReferenceCount` | 77602 | 有类型来源引用 |
-| `RelationOccurrenceCount` | 105919 | 来源多值关系成员出现记录 |
-| `IdentityFieldOccurrenceCount` | 26333 | 来源标识字段出现记录 |
-| `SymbolCount` | 10000 | 来源符号 |
-| `StringItemCount` | 164951 | 来源字符串项 |
-| `SingleStringBytes` | 1024 | 单个通用来源字符串字节 |
-| `TotalStringBytes` | 4815555 | 来源字符串总字节 |
-| `DiagnosticCount` | 16 | 规范排序后保留的诊断；沿用有界保留策略，不是成功负载包络 |
+| 来源处理维度                   |  登记值 | 计数对象或单位                                           |
+| ------------------------------ | ------: | -------------------------------------------------------- |
+| `ModuleCount`                  |      18 | 模块                                                     |
+| `SourceDocumentCount`          |      18 | 来源文档描述符                                           |
+| `ImportEdgeCount`              |      17 | 导入边                                                   |
+| `SourceBytesPerModule`         | 6802717 | 单模块来源记录字节                                       |
+| `SourceBytesTotal`             | 8728106 | 编译单元来源记录字节                                     |
+| `DeclarationCount`             |   10000 | 来源声明                                                 |
+| `TypedAstRecordCount`          |  381284 | 有类型抽象语法树逻辑记录                                 |
+| `HirRecordCount`               |  535364 | HIR 逻辑记录                                             |
+| `MirRecordCount`               |  395015 | MIR 逻辑记录                                             |
+| `LirRecordCount`               |  396669 | LIR 逻辑记录                                             |
+| `ReferenceCount`               |   77602 | 有类型来源引用                                           |
+| `RelationOccurrenceCount`      |  105919 | 来源多值关系成员出现记录                                 |
+| `IdentityFieldOccurrenceCount` |   26333 | 来源标识字段出现记录                                     |
+| `SymbolCount`                  |   10000 | 来源符号                                                 |
+| `StringItemCount`              |  164951 | 来源字符串项                                             |
+| `SingleStringBytes`            |    1024 | 单个通用来源字符串字节                                   |
+| `TotalStringBytes`             | 4815555 | 来源字符串总字节                                         |
+| `DiagnosticCount`              |      16 | 规范排序后保留的诊断；沿用有界保留策略，不是成功负载包络 |
 
-| 规范路网容量维度 | 登记值 | 计数对象 |
-| ---------------- | -----: | -------- |
-| `StableEntityCount` | 10000 | 稳定实体完整逻辑行 |
-| `ManeuverGateCount` | 1784 | 机动门 |
-| `WaitingZoneCount` | 399 | 等待区 |
-| `CanonicalRelationCount` | 71773 | role 1–32 的规范关系出现记录 |
-| `GeometryPointCount` | 128511 | 规范几何点 |
+| 规范路网容量维度         | 登记值 | 计数对象                     |
+| ------------------------ | -----: | ---------------------------- |
+| `StableEntityCount`      |  10000 | 稳定实体完整逻辑行           |
+| `ManeuverGateCount`      |   1784 | 机动门                       |
+| `WaitingZoneCount`       |    399 | 等待区                       |
+| `CanonicalRelationCount` |  71773 | role 1–32 的规范关系出现记录 |
+| `GeometryPointCount`     | 128511 | 规范几何点                   |
 
-| 操作资源维度 | 登记值 | 政策依据 |
-| ------------ | -----: | -------- |
+| 操作资源维度                  |      登记值 | 政策依据                                                     |
+| ----------------------------- | ----------: | ------------------------------------------------------------ |
 | `CompilerControlledLiveBytes` | 268435456 B | 保留较小宿主预算；直接共享字节编码后，已测全组合内存差异通过 |
-| `RetainedCapacityBytes` | 16777216 B | 独立宿主复用预算；当前零保留实现不能证明该边界的可达性 |
-| `PolicyValidationWorkUnits` | 1000000 | 独立策略访问工作量；按本节登记单位累计，不借用来源关系数 |
+| `RetainedCapacityBytes`       |  16777216 B | 独立宿主复用预算；当前零保留实现不能证明该边界的可达性       |
+| `PolicyValidationWorkUnits`   |     1000000 | 独立策略访问工作量；按本节登记单位累计，不借用来源关系数     |
 
 来源格式硬限制独立执行：身份 ASCII 组件 53 B、道路编辑外部文档身份 53 B、发射
 provenance 1–128 B 不归并为通用来源字符串限额。文件暂存与只读映射不计入受控请求字节，
@@ -1084,33 +1084,33 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 原始表见[固定提交][retired-compile-limits]。
 
 | 私有配置字段                          | `LF-COMP-SINGLE-NETWORK-10K-STABLE-ENTITIES` | `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` | 边界 | 计数对象 / 单位                                               |
-| ------------------------------------- | -------------: | --------------------------: | ---- | ------------------------------------------------------------- |
-| `max_module_count`                    | 18 |                       65536 | 来源 | 来源模块                                                      |
-| `max_source_document_count`           | 18 |                      196608 | 来源 | 来源文档描述符                                                |
-| `max_import_edge_count`               | 17 |                      262144 | 来源 | 模块导入边                                                    |
-| `max_source_bytes_per_module`         | 6802717 |                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                  |
-| `max_source_bytes_total`              | 8728106 |                   536870912 | 来源 | 编译单元来源字节                                              |
-| `max_declaration_count`               | 10000 |                     1500000 | 来源 | 来源声明                                                      |
-| `max_stable_entity_count`             | 10000 |                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
-| `max_typed_ast_record_count`          | 381284 |                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
-| `max_hir_record_count`                | 535364 |                     8000000 | 来源 | HIR 逻辑记录                                                  |
-| `max_mir_record_count`                | 395015 |                     8000000 | 来源 | MIR 逻辑记录                                                  |
-| `max_lir_record_count`                | 396669 |                     8000000 | 来源 | LIR 逻辑记录                                                  |
-| `max_reference_count`                 | 77602 |                    16000000 | 来源 | 有类型引用                                                    |
-| `max_relation_occurrence_count`       | 105919 |                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
-| `max_canonical_relation_count`        | 71773 |                     1406986 | 规范 | 规范关系出现记录（role 1–32）；不复制来源侧值，取数见下文     |
-| `max_identity_field_occurrence_count` | 26333 |                     8000000 | 来源 | 标识字段出现记录                                              |
-| `max_maneuver_gate_count`             | 1784 |                     1000000 | 规范 | 最终规范路网的机动门                                          |
-| `max_waiting_zone_count`              | 399 |                     1000000 | 规范 | 最终规范路网的等待区                                          |
-| `max_geometry_point_count`            | 128511 |                    16000000 | 规范 | 规范几何点记录                                                |
-| `max_symbol_count`                    | 10000 |                     2000000 | 来源 | 符号                                                          |
-| `max_string_item_count`               | 164951 |                     8000000 | 来源 | 驻留字符串项                                                  |
-| `max_single_string_bytes`             | 1024 |                        4096 | 来源 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限 |
-| `max_total_string_bytes`              | 4815555 |                   536870912 | 来源 | 驻留字符串总字节                                              |
-| `max_diagnostic_count`                | 16 |                          16 | 来源 | 规范排序后保留的诊断                                          |
-| `max_compiler_controlled_live_bytes`  | 268435456 |                  6442450944 | 操作 | 编译器控制总存续请求字节；不含 file-backed 暂存字节           |
-| `max_retained_capacity_bytes`         | 16777216 |                   536870912 | 操作 | 一次编译返回后编译器允许保留的无语义容量字节                  |
-| `max_policy_validation_work_units` | 1000000 | 16000000 | 操作 | 已登记策略查询、关系访问与扫描单位 |
+| ------------------------------------- | -------------------------------------------: | ------------------------------------------: | ---- | ------------------------------------------------------------- |
+| `max_module_count`                    |                                           18 |                                       65536 | 来源 | 来源模块                                                      |
+| `max_source_document_count`           |                                           18 |                                      196608 | 来源 | 来源文档描述符                                                |
+| `max_import_edge_count`               |                                           17 |                                      262144 | 来源 | 模块导入边                                                    |
+| `max_source_bytes_per_module`         |                                      6802717 |                                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                          |
+| `max_source_bytes_total`              |                                      8728106 |                                   536870912 | 来源 | 编译单元来源字节                                              |
+| `max_declaration_count`               |                                        10000 |                                     1500000 | 来源 | 来源声明                                                      |
+| `max_stable_entity_count`             |                                        10000 |                                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
+| `max_typed_ast_record_count`          |                                       381284 |                                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
+| `max_hir_record_count`                |                                       535364 |                                     8000000 | 来源 | HIR 逻辑记录                                                  |
+| `max_mir_record_count`                |                                       395015 |                                     8000000 | 来源 | MIR 逻辑记录                                                  |
+| `max_lir_record_count`                |                                       396669 |                                     8000000 | 来源 | LIR 逻辑记录                                                  |
+| `max_reference_count`                 |                                        77602 |                                    16000000 | 来源 | 有类型引用                                                    |
+| `max_relation_occurrence_count`       |                                       105919 |                                    16000000 | 来源 | 来源声明中的多值关系成员出现记录                              |
+| `max_canonical_relation_count`        |                                        71773 |                                     1406986 | 规范 | 规范关系出现记录（role 1–32）；不复制来源侧值，取数见下文     |
+| `max_identity_field_occurrence_count` |                                        26333 |                                     8000000 | 来源 | 标识字段出现记录                                              |
+| `max_maneuver_gate_count`             |                                         1784 |                                     1000000 | 规范 | 最终规范路网的机动门                                          |
+| `max_waiting_zone_count`              |                                          399 |                                     1000000 | 规范 | 最终规范路网的等待区                                          |
+| `max_geometry_point_count`            |                                       128511 |                                    16000000 | 规范 | 规范几何点记录                                                |
+| `max_symbol_count`                    |                                        10000 |                                     2000000 | 来源 | 符号                                                          |
+| `max_string_item_count`               |                                       164951 |                                     8000000 | 来源 | 驻留字符串项                                                  |
+| `max_single_string_bytes`             |                                         1024 |                                        4096 | 来源 | 单个通用驻留语义字符串字节；Identity ASCII 另受 53 字节硬上限 |
+| `max_total_string_bytes`              |                                      4815555 |                                   536870912 | 来源 | 驻留字符串总字节                                              |
+| `max_diagnostic_count`                |                                           16 |                                          16 | 来源 | 规范排序后保留的诊断                                          |
+| `max_compiler_controlled_live_bytes`  |                                    268435456 |                                  6442450944 | 操作 | 编译器控制总存续请求字节；不含 file-backed 暂存字节           |
+| `max_retained_capacity_bytes`         |                                     16777216 |                                   536870912 | 操作 | 一次编译返回后编译器允许保留的无语义容量字节                  |
+| `max_policy_validation_work_units`    |                                      1000000 |                                    16000000 | 操作 | 已登记策略查询、关系访问与扫描单位                            |
 
 常规档 `max_source_document_count = 18` 与登记工作负载的十八个模块一一对应；百万档的
 196608 个文档上限独立保留。共同接入在写入文档索引前检查文档总数；`SourceDocumentCount`
@@ -1629,7 +1629,7 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [portable-artifact]: portable-canonical-artifact.md
-[v4-readme]: ../../schemas/road-editing/v4/README.md
+[road-editing-schema]: ../../schemas/road-editing/v5/README.md
 [road-editing-entry]: road-editing-source-and-geometry-frontend.md#97-来源位置与公共入口
 [road-editing-memory]: road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界
 [adr-0035]: ../adr/0035-compile-limits-and-resource-ledger.md

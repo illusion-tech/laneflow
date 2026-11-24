@@ -10,7 +10,7 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -1064,6 +1064,8 @@ mod tests {
             &wire::CurveSegmentArgs {
                 geometry_type: wire::CurveSegmentGeometry::CubicBezierSegment,
                 geometry: Some(geometry.as_union_value()),
+                smooth_entry: false,
+                fixed_end: None,
                 canvas_selection: None,
             },
         );
@@ -1075,6 +1077,7 @@ mod tests {
             &wire::CurveProgramArgs {
                 start: Some(&start),
                 segments: Some(segments),
+                initial_tangent_xz: None,
             },
         );
         let alignment_key = fbb.create_string("alignment");
@@ -1506,21 +1509,23 @@ mod tests {
         let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
-        overwrite_format_version(&mut bytes, 1);
-        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+        for old in [1, 4, 6] {
+            overwrite_format_version(&mut bytes, old);
+            let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0, 0).expect_err("unknown format version");
+            let error = verify_source(input, &limits, 0, 0, 0).expect_err("unknown format version");
 
-        assert!(matches!(
-            first_diagnostic(&error).payload(),
-            DiagnosticPayload::InvalidRoadEditingSource {
-                violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                    expected: 4,
-                    actual: 1
-                },
-                ..
-            }
-        ));
+            assert!(matches!(
+                first_diagnostic(&error).payload(),
+                DiagnosticPayload::InvalidRoadEditingSource {
+                    violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
+                        expected: 5,
+                        actual
+                    },
+                    ..
+                } if *actual==old
+            ));
+        }
     }
 
     #[test]

@@ -31,10 +31,6 @@ template <typename T>
   return fbb.CreateVector(std::vector<::flatbuffers::Offset<T>>{});
 }
 
-::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<::flatbuffers::String>>>
-EmptyStringVector(::flatbuffers::FlatBufferBuilder &fbb) {
-  return fbb.CreateVector(std::vector<::flatbuffers::Offset<::flatbuffers::String>>{});
-}
 
 }  // namespace
 
@@ -64,44 +60,87 @@ int main(int argc, char **argv) {
   const auto line = v1::CreateLineSegment(fbb, &curve_end);
   const auto segment = v1::CreateCurveSegment(
       fbb, v1::CurveSegmentGeometry_LineSegment, line.Union());
+  const auto spiral = v1::CreateClothoidSegment(fbb, 48.0, 0.0, 1.0 / 48.0, 0.0);
+  const auto transition = v1::CreateCurveSegment(
+      fbb, v1::CurveSegmentGeometry_ClothoidSegment, spiral.Union(), 0, true);
+  const auto arc = v1::CreateCircularArcSegment(fbb, 24.0, 48.0, 0.0);
+  const auto bend = v1::CreateCurveSegment(
+      fbb, v1::CurveSegmentGeometry_CircularArcSegment, arc.Union(), 0, true);
   const auto segments =
-      fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CurveSegment>>{segment});
+      fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CurveSegment>>{segment, transition, bend});
   const auto geometry = v1::CreateCurveProgram(fbb, &curve_start, segments);
-  const auto edge = v1::CreateLaneEdge(
-      fbb, fbb.CreateString("edge-a"), 10.0, EmptyStringVector(fbb), geometry);
+  const auto edge = v1::CreateLaneEdgeDirect(fbb, "edge-a", 10.0, &no_imports);
+  const auto alignment = v1::CreateRoadAlignmentDirect(fbb, "alignment", "frame", geometry);
+  const char *section_ref = "road>section";
+  const char *lane_ref = "road>section>lane";
+  const auto element = v1::CreateCorridorElementDirect(fbb, v1::CorridorElementKind_RoadSection, section_ref);
+  const std::vector<::flatbuffers::Offset<v1::CorridorElement>> elements{element};
+  const auto corridor = v1::CreateRoadCorridorDirect(fbb, "road", "alignment", 0.0,
+      v1::StationEndKind_AlignmentEnd, 0.0, section_ref, lane_ref, &elements);
+  const std::vector<::flatbuffers::Offset<::flatbuffers::String>> lane_refs{fbb.CreateString(lane_ref)};
+  const auto section = v1::CreateRoadSectionDirect(fbb, "section", "motorLane", &lane_refs, nullptr, "road");
+  const v1::LinearWidthProfile width(3.5, 3.5);
+  const auto lane = v1::CreateAuthoringLaneDirect(fbb, "lane", "edge-a", v1::LaneDirection_Forward,
+      &width, nullptr, nullptr, section_ref);
 
+  const auto road_alignment_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadAlignment>>{alignment});
+  const auto road_corridor_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadCorridor>>{corridor});
+  const auto road_section_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadSection>>{section});
+  const auto authoring_lane_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::AuthoringLane>>{lane});
+  const auto lane_edge_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::LaneEdge>>{edge});
+  const auto junction_rows = EmptyVectorOf<v1::Junction>(fbb);
+  const auto movement_rows = EmptyVectorOf<v1::Movement>(fbb);
+  const auto maneuver_path_rows = EmptyVectorOf<v1::ManeuverPath>(fbb);
+  const auto maneuver_gate_rows = EmptyVectorOf<v1::ManeuverGate>(fbb);
+  const auto waiting_zone_rows = EmptyVectorOf<v1::WaitingZone>(fbb);
+  const auto stop_line_rows = EmptyVectorOf<v1::StopLine>(fbb);
+  const auto signal_group_rows = EmptyVectorOf<v1::SignalGroup>(fbb);
+  const auto signal_controller_rows = EmptyVectorOf<v1::SignalController>(fbb);
+  const auto signal_phase_rows = EmptyVectorOf<v1::SignalPhase>(fbb);
+  const auto parking_facility_rows = EmptyVectorOf<v1::ParkingFacility>(fbb);
+  const auto parking_space_rows = EmptyVectorOf<v1::ParkingSpace>(fbb);
+  const auto lane_group_rows = EmptyVectorOf<v1::LaneGroup>(fbb);
+  const auto facility_band_rows = EmptyVectorOf<v1::FacilityBand>(fbb);
+  const auto participant_class_rows = EmptyVectorOf<v1::ParticipantClass>(fbb);
+  const auto access_rule_rows = EmptyVectorOf<v1::AccessRule>(fbb);
+  const auto vehicle_profile_rows = EmptyVectorOf<v1::VehicleProfile>(fbb);
+  const auto canonical_frame_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CanonicalFrame>>{frame});
+  const auto conflict_zone_rows = EmptyVectorOf<v1::ConflictZone>(fbb);
+  const auto participant_stream_rows = EmptyVectorOf<v1::ParticipantStream>(fbb);
+  const auto conflict_zone_region_rows = EmptyVectorOf<v1::ConflictZoneRegion>(fbb);
+  const auto right_of_way_policy_set_rows = EmptyVectorOf<v1::RightOfWayPolicySet>(fbb);
   const auto root = v1::CreateRoadEditingSource(
       fbb,
-      /*format_version=*/4,
+      /*format_version=*/5,
       header,
       v1::GeometryAccuracyProfile_Balanced5Cm,
       v1::GeometryDirectionProfile_Balanced2Deg,
-      EmptyVectorOf<v1::RoadAlignment>(fbb),
-      EmptyVectorOf<v1::RoadCorridor>(fbb),
-      EmptyVectorOf<v1::RoadSection>(fbb),
-      EmptyVectorOf<v1::AuthoringLane>(fbb),
-      fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::LaneEdge>>{edge}),
-      EmptyVectorOf<v1::Junction>(fbb),
-      EmptyVectorOf<v1::Movement>(fbb),
-      EmptyVectorOf<v1::ManeuverPath>(fbb),
-      EmptyVectorOf<v1::ManeuverGate>(fbb),
-      EmptyVectorOf<v1::WaitingZone>(fbb),
-      EmptyVectorOf<v1::StopLine>(fbb),
-      EmptyVectorOf<v1::SignalGroup>(fbb),
-      EmptyVectorOf<v1::SignalController>(fbb),
-      EmptyVectorOf<v1::SignalPhase>(fbb),
-      EmptyVectorOf<v1::ParkingFacility>(fbb),
-      EmptyVectorOf<v1::ParkingSpace>(fbb),
-      EmptyVectorOf<v1::LaneGroup>(fbb),
-      EmptyVectorOf<v1::FacilityBand>(fbb),
-      EmptyVectorOf<v1::ParticipantClass>(fbb),
-      EmptyVectorOf<v1::AccessRule>(fbb),
-      EmptyVectorOf<v1::VehicleProfile>(fbb),
-      fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CanonicalFrame>>{frame}),
-      EmptyVectorOf<v1::ConflictZone>(fbb),
-      EmptyVectorOf<v1::ParticipantStream>(fbb),
-      EmptyVectorOf<v1::ConflictZoneRegion>(fbb),
-      EmptyVectorOf<v1::RightOfWayPolicySet>(fbb));
+      road_alignment_rows,
+      road_corridor_rows,
+      road_section_rows,
+      authoring_lane_rows,
+      lane_edge_rows,
+      junction_rows,
+      movement_rows,
+      maneuver_path_rows,
+      maneuver_gate_rows,
+      waiting_zone_rows,
+      stop_line_rows,
+      signal_group_rows,
+      signal_controller_rows,
+      signal_phase_rows,
+      parking_facility_rows,
+      parking_space_rows,
+      lane_group_rows,
+      facility_band_rows,
+      participant_class_rows,
+      access_rule_rows,
+      vehicle_profile_rows,
+      canonical_frame_rows,
+      conflict_zone_rows,
+      participant_stream_rows,
+      conflict_zone_region_rows,
+      right_of_way_policy_set_rows);
 
   v1::FinishSizePrefixedRoadEditingSourceBuffer(fbb, root);
 

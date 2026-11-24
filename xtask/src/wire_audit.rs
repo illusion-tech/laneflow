@@ -212,7 +212,7 @@ const RUNTIME_SNAPSHOT_WIRE_LIB_RS_PIN: &str =
 /// 内闭合；schema+flatc → bytes 的语义对应另由 clean-regeneration 证明。
 /// 合法再生成（schema 或 flatc 钉版升级）需在同一 PR 更新本常量，diff 随评审可见。
 const ROAD_EDITING_GENERATED_RS_SHA256: &str =
-    "b5937d7d8c7d2e17d88cd7d1c0800cdb7e8f9ba309d417c75a7c85c78580ddd7";
+    "ab7a6da2bb25d8e25e2d30be3fcc5905c95358d84928d3eb5d96f8cc4d6e5744";
 const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
     "9d990c9bfb67e47495647ebe72f79af74541fde0e85d30364a7f2a2ef2bd8428";
 

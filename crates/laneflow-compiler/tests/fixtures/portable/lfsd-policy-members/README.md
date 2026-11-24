@@ -5,7 +5,7 @@ gap 数值、stream priority 和 gate prohibition；四个保留 K 各产生一�
 `expected.lfsd` 冻结全部四种成员值、StableRefV1 和稳定引用集合。
 
 固定长度为 2,266 bytes，SHA-256 为
-`648eeee21dac67ce40f761152615627bba715e86075fde33813dd2089caa0454`。
+`96e0d7bff5b4d69ae52c2d938881b4522ab26859eb3c4c56fc81a181444dec1c`。
 base/target 是 writer 工程 fixture，未经过正式策略前端或共享静态路网规则覆盖验证，不代表
 法规语义，也未配套 LFSM，不能作为发布候选。
 

@@ -1,13 +1,13 @@
 # 路权来源固定字节样例
 
-LFCA 5 与 LFSM 4 的工程格式样例，来源模块从受检 full-spatial 编译输入取得。
+LFCA 5 与 LFSM 5 的工程格式样例，来源模块从受检 full-spatial 编译输入取得。
 测试在包内来源冻结接缝提供两个策略（第二个没有局部成员）、四类成员、两个同类
 evidence、嵌套法规字段和一个 Movement 方向；同名 key 跨成员种类合法。
 RoadEditing canvas 使用显式空字符串，Text、canvas 缺失/非空及 65,537 成员的
 跨 chunk 情形由相邻测试覆盖。
 
 LFSM 为 54,823 bytes、133 个完整语义位置，SHA-256 为
-`42cec62db752f9e51bc3e2ee489789f7731dc93e503c021da19f7ac86a616c01`。
+`3c330baf085928eecb245f05924534fe37ed58c01a17a410f5b4904134e4cd7a`。
 LFCA 为 32,204 bytes，具体摘要见 `bindings.txt`。固定断言同时核对两个对象的
 完整 bytes。独立字节解析按 LFCA 成员字段、owner 和局部 key 重建 primary、贡献
 路径及全局 location 引用集合，并验证每个 chunk 摘要和两对象绑定。

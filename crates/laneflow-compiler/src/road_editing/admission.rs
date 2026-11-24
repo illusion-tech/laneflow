@@ -41,8 +41,8 @@ use crate::{
     RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
-const ROAD_EDITING_FRONTEND_VERSION: u32 = 4;
-const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 1;
+const ROAD_EDITING_FRONTEND_VERSION: u32 = 5;
+const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 2;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 const ARC_ALLOCATION_HEADER_BYTES: u64 = (core::mem::size_of::<usize>() as u64).saturating_mul(2);
 // v1 闭合属性路径表小于 512 项、每项最多四步。固定部分和输入相关的唯一
@@ -288,6 +288,19 @@ impl CompilationUnitBuilder {
         &mut self,
         input: RoadEditingModuleInput<'_>,
     ) -> Result<&mut Self, DiagnosticBundle> {
+        self.add_road_editing_module_with_native_chords(input, |_| {})
+    }
+
+    /// 加入来源模块并逐弦提供编译候选的原生曲线证明。消费方在整个调用成功后采用证据。
+    ///
+    /// # Errors
+    ///
+    /// 与普通来源准入共享校验、数值及资源诊断。
+    pub fn add_road_editing_module_with_native_chords(
+        &mut self,
+        input: RoadEditingModuleInput<'_>,
+        mut observe: impl FnMut(super::NativeChord<'_>),
+    ) -> Result<&mut Self, DiagnosticBundle> {
         let limits = self.road_editing_limits().clone();
         let verified = verify_source_in(
             input,
@@ -300,6 +313,7 @@ impl CompilationUnitBuilder {
         let remaining_geometry_points = self.road_editing_remaining_geometry_points();
         let scratch_allowance = geometry_scratch_allowance(self, &limits, &verified);
         let admitted = lower_verified_source(
+            &mut observe,
             verified,
             &limits,
             remaining_geometry_points,
@@ -521,6 +535,7 @@ fn accumulated_limit_error(
 }
 
 fn lower_verified_source(
+    observe: &mut super::native_bounds::Observer<'_>,
     verified: VerifiedRoadEditingSource<'_>,
     limits: &CompileProfile,
     remaining_geometry_points: u64,
@@ -562,6 +577,7 @@ fn lower_verified_source(
 
     let namespace = root.module_header().authoring_namespace_id();
     let geometry_usage = compile_authoring_geometry(
+        observe,
         namespace,
         alignments,
         &mut declarations,
@@ -933,6 +949,17 @@ fn geometry_compilation_diagnostic(
                     .authoring_namespace_id()
                     .into(),
             ),
+        ));
+    }
+    if let GeometryCompilationError::Constraint(detail) = error {
+        let (violation, location) = *detail;
+        let key = verified.input().expected_source_document_key();
+        return DiagnosticBundle::single(Diagnostic::invalid_road_editing_source_at(
+            RoadEditingSourceViolation::NumericFreeze(violation),
+            Some("roadEditingSource.authoringGeometry"),
+            key,
+            Some(key),
+            Some(location),
         ));
     }
     let GeometryCompilationError::Numeric { error, source } = error else {
@@ -1936,6 +1963,7 @@ mod tests {
         assert!(sizing.import_sort_bytes > 0);
 
         let admitted = lower_verified_source(
+            &mut |_| {},
             verified,
             &broad,
             broad
@@ -1991,6 +2019,7 @@ mod tests {
 
         let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
         lower_verified_source(
+            &mut |_| {},
             verified,
             &broad,
             broad
@@ -2006,6 +2035,7 @@ mod tests {
 
         let verified = verify_source(input(), &broad, 0, 0, 0).unwrap();
         let rejected = lower_verified_source(
+            &mut |_| {},
             verified,
             &broad,
             broad

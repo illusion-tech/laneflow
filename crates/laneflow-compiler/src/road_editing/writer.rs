@@ -10,7 +10,7 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 mod policy;
 
 /// 直接拥有 FlatBuffers storage 与有效尾部起点的 size-prefixed 来源缓冲区。
@@ -433,6 +433,44 @@ fn encode_curve_program<'fbb>(
     for segment in value.segments() {
         let canvas = create_canvas(fbb, segment.canvas_selection());
         let (geometry_type, geometry) = match segment.geometry() {
+            RoadEditingCurveSegmentGeometry::CircularArc {
+                length_meters,
+                signed_radius_meters,
+                grade,
+            } => {
+                let value = wire::CircularArcSegment::create(
+                    fbb,
+                    &wire::CircularArcSegmentArgs {
+                        length_meters: Some(length_meters),
+                        signed_radius_meters: Some(signed_radius_meters),
+                        grade: Some(grade),
+                    },
+                );
+                (
+                    wire::CurveSegmentGeometry::CircularArcSegment,
+                    value.as_union_value(),
+                )
+            }
+            RoadEditingCurveSegmentGeometry::Clothoid {
+                length_meters,
+                start_curvature_per_meter,
+                end_curvature_per_meter,
+                grade,
+            } => {
+                let value = wire::ClothoidSegment::create(
+                    fbb,
+                    &wire::ClothoidSegmentArgs {
+                        length_meters: Some(length_meters),
+                        start_curvature_per_meter: Some(start_curvature_per_meter),
+                        end_curvature_per_meter: Some(end_curvature_per_meter),
+                        grade: Some(grade),
+                    },
+                );
+                (
+                    wire::CurveSegmentGeometry::ClothoidSegment,
+                    value.as_union_value(),
+                )
+            }
             RoadEditingCurveSegmentGeometry::Line { end } => {
                 let end = encode_point(end);
                 let value =
@@ -469,6 +507,8 @@ fn encode_curve_program<'fbb>(
             &wire::CurveSegmentArgs {
                 geometry_type,
                 geometry: Some(geometry),
+                smooth_entry: segment.smooth_entry(),
+                fixed_end: segment.fixed_end().map(encode_point).as_ref(),
                 canvas_selection: canvas,
             },
         ));
@@ -479,6 +519,10 @@ fn encode_curve_program<'fbb>(
         fbb,
         &wire::CurveProgramArgs {
             start: Some(&start),
+            initial_tangent_xz: value
+                .initial_tangent_xz()
+                .map(|[x, z]| wire::Vec2F64::new(x, z))
+                .as_ref(),
             segments: Some(segments),
         },
     )

@@ -73,7 +73,7 @@ ADR 0023 / 0025 已经确定：可编辑世界的已提交路网来源是 commit
 
 - **来源文档键**：与编译器 `LFRE` 模块准入时宿主声明的 expected source document key
   为同一值；
-- **来源字节**：该模块完整的 size-prefixed `LFRE` buffer（`LF-ROAD-EDITING-SOURCE-v4`）。
+- **来源字节**：该模块完整的 size-prefixed `LFRE` buffer（`LF-ROAD-EDITING-SOURCE-v5`）。
 
 不进入该对象的内容：显示用来源文本、编译限额、发射 provenance、LFCA / LFSM / LFSD、
 HIR / MIR / LIR、共享静态数组、运行时句柄以及任何 working / candidate 状态

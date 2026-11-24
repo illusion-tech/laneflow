@@ -433,6 +433,22 @@ pub enum RoadEditingInputViolation {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum RoadEditingNumericViolation {
+    /// 派生出口与固定出口的三维距离未能证实在五毫米内；字段为 binary64 位模式。
+    FixedEndConflict {
+        /// 原线派生出口的三维坐标。
+        derived: [u64; 3],
+        /// 作者固定的出口坐标。
+        fixed: [u64; 3],
+        /// 距离的向外舍入下、上界。
+        distance: [u64; 2],
+    },
+    /// 平顺入口的三维单位切向或水平曲率未能通过接缝门槛。
+    SmoothEntryConflict {
+        /// 两侧三维单位切向的 binary64 分量，退化时该侧为空。
+        directions: [Option<[u64; 3]>; 2],
+        /// 两侧水平曲率的 binary64 位模式，退化时该侧为空。
+        curvatures: [Option<u64>; 2],
+    },
     /// 中间标量或向量结果不是有限值。
     NonFinite,
     /// 冻结运算图命中零除数。
@@ -483,7 +499,7 @@ pub enum RoadEditingSourceViolation {
     VerifierApparentSizeExceeded,
     /// wire table 数超过调用点剩余 Typed AST record 预算。
     VerifierTableBudgetExceeded,
-    /// reader 只接受 exact `format_version = 4`。
+    /// reader 只接受 exact `format_version = 5`。
     UnsupportedFormatVersion {
         /// reader 接受的唯一格式版本。
         expected: u32,

@@ -25,6 +25,7 @@ const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
 /// 参考线一站区间行：记录某源 segment 参数区间及其累计里程范围。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ReferenceStationRow {
+    pub(super) station_error_meters: f64,
     pub(super) segment_ordinal: u32,
     pub(super) parameter_start: f64,
     pub(super) parameter_end: f64,
@@ -358,6 +359,7 @@ struct CurveSizing {
 /// 几何编译失败原因：数值冻结错误、scratch 超限或 live 字节超限。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum GeometryCompilationError {
+    Constraint(Box<(crate::RoadEditingNumericViolation, SourceLocation)>),
     Numeric {
         error: NumericFreezeError,
         source: Option<SourceLocation>,
@@ -530,8 +532,9 @@ struct PendingFacilityGeometry {
     reason = "the closed geometry budgets remain distinct resource dimensions at this boundary"
 )]
 pub(super) fn compile_authoring_geometry(
+    observe: &mut super::native_bounds::Observer<'_>,
     authoring_namespace_id: &str,
-    alignments: Box<[RoadAlignmentDeclaration]>,
+    mut alignments: Box<[RoadAlignmentDeclaration]>,
     declarations: &mut [TypedAstDeclaration],
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
@@ -557,6 +560,19 @@ pub(super) fn compile_authoring_geometry(
         alignment_input_scratch_bytes,
         live_headroom,
     )?;
+    for alignment in &mut alignments {
+        prepare_program(&mut alignment.reference_line, &mut scratch)?;
+    }
+    for declaration in declarations.iter_mut() {
+        if let TypedAstDeclaration::LaneEdge(edge) = declaration
+            && let LaneEdgeGeometryAuthority::Authoring {
+                explicit_curve: Some(program),
+            } = &mut edge.geometry_authority
+        {
+            prepare_program(program, &mut scratch)?;
+        }
+    }
+    let native_cache_bytes = scratch.dynamic_live();
     let plans = resolve_corridor_plans(
         authoring_namespace_id,
         &alignments,
@@ -757,7 +773,19 @@ pub(super) fn compile_authoring_geometry(
             next_used_points,
             next_used_source_ranges,
         )?);
-        let compiled_result = compile_explicit_curve_exact(curve, accuracy, direction, sizing);
+        let compiled_result = compile_explicit_curve_exact(
+            ChordTarget {
+                kind: laneflow_static_contract::EntityKind::LaneEdge,
+                key: edge.header.source_address.local_key(),
+                owners: edge.header.source_address.owner_local_keys(),
+                backward: false,
+                observe,
+            },
+            curve,
+            accuracy,
+            direction,
+            sizing,
+        );
         scratch.release_bytes(numeric_scratch_bytes);
         let compiled = compiled_result
             .map_err(GeometryCompilationError::from)
@@ -874,7 +902,22 @@ pub(super) fn compile_authoring_geometry(
                 next_used_points,
                 next_used_source_ranges,
             )?);
+            let (kind, target) = match member.target {
+                CorridorMemberTarget::LaneEdge { target, .. } => {
+                    (laneflow_static_contract::EntityKind::LaneEdge, target)
+                }
+                CorridorMemberTarget::FacilityBand { target } => {
+                    (laneflow_static_contract::EntityKind::FacilityBand, target)
+                }
+            };
             let compiled_result = compile_offset_curve_exact(
+                ChordTarget {
+                    kind,
+                    key: target.local_key(),
+                    owners: target.owner_local_keys(),
+                    backward: lane_direction == AuthoringLaneDirection::Backward,
+                    observe,
+                },
                 &alignment.declaration.reference_line,
                 &alignment.reference,
                 authoring.start_station_meters,
@@ -1045,6 +1088,8 @@ pub(super) fn compile_authoring_geometry(
     drop(facility_outputs);
     scratch.release::<PendingLaneGeometry>(expected_lane_outputs);
     scratch.release::<PendingFacilityGeometry>(expected_facility_outputs);
+    drop(alignments);
+    scratch.release_bytes(native_cache_bytes);
     debug_assert_eq!(scratch.live, alignment_input_scratch_bytes);
     Ok(GeometryCompilationUsage {
         output_point_count: used_points,
@@ -1517,7 +1562,13 @@ pub(super) fn compile_explicit_curve(
     remaining_point_limit: u64,
 ) -> Result<CompiledCurve, NumericFreezeError> {
     let sizing = measure_explicit_curve(program, accuracy, direction, remaining_point_limit)?;
-    compile_explicit_curve_exact(program, accuracy, direction, sizing)
+    compile_explicit_curve_exact(
+        ChordTarget::silent(&mut |_| {}),
+        program,
+        accuracy,
+        direction,
+        sizing,
+    )
 }
 
 fn measure_explicit_curve(
@@ -1534,7 +1585,7 @@ fn measure_explicit_curve(
         active_source: None,
         source_range_count: 0,
     };
-    walk_reference_program(program, accuracy, direction, &mut output_counter)?;
+    walk_reference_program(program, accuracy, direction, false, &mut output_counter)?;
     let source_range_count = output_counter.finish_source_range_count()?;
     Ok(CurveSizing {
         point_count: usize::try_from(output_counter.count)
@@ -1544,19 +1595,21 @@ fn measure_explicit_curve(
 }
 
 fn compile_explicit_curve_exact(
+    target: ChordTarget<'_>,
     program: &AuthoringCurveProgramDeclaration,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     sizing: CurveSizing,
 ) -> Result<CompiledCurve, NumericFreezeError> {
     let mut point_collector = ExactPointSink {
+        target,
         points: Vec::with_capacity(sizing.point_count),
         expected_points: sizing.point_count,
         active_source: None,
         source_ranges: Vec::with_capacity(sizing.source_range_count),
         expected_source_ranges: sizing.source_range_count,
     };
-    walk_reference_program(program, accuracy, direction, &mut point_collector)?;
+    walk_reference_program(program, accuracy, direction, false, &mut point_collector)?;
     if point_collector.points.len() != point_collector.expected_points {
         return Err(NumericFreezeError::from(
             NumericFreezeKind::ApproximationNotConverged,
@@ -1654,6 +1707,7 @@ fn measure_alignment_reference(
         program,
         GeometryAccuracyProfile::Fine2Cm,
         GeometryDirectionProfile::Smooth1Deg,
+        true,
         &mut station_counter,
     )?;
     let expected_station_rows =
@@ -1672,6 +1726,7 @@ fn compile_measured_alignment_reference(
         rows: Vec::with_capacity(sizing.station_rows),
         active_segment: None,
         cumulative_meters: 0.0,
+        station_error_meters: 0.0,
         seen_first_point: false,
         expected_rows: sizing.station_rows,
     };
@@ -1679,6 +1734,7 @@ fn compile_measured_alignment_reference(
         program,
         GeometryAccuracyProfile::Fine2Cm,
         GeometryDirectionProfile::Smooth1Deg,
+        true,
         &mut station_collector,
     )?;
     if station_collector.rows.len() != station_collector.expected_rows
@@ -1721,6 +1777,7 @@ pub(super) fn compile_offset_curve(
         remaining_point_limit,
     )?;
     compile_offset_curve_exact(
+        ChordTarget::silent(&mut |_| {}),
         program,
         reference,
         corridor_start_meters,
@@ -1781,6 +1838,7 @@ fn measure_offset_curve(
 
 #[allow(clippy::too_many_arguments)]
 fn compile_offset_curve_exact(
+    target: ChordTarget<'_>,
     program: &AuthoringCurveProgramDeclaration,
     reference: &CompiledAlignmentReference,
     corridor_start_meters: f64,
@@ -1793,6 +1851,7 @@ fn compile_offset_curve_exact(
     sizing: CurveSizing,
 ) -> Result<CompiledCurve, NumericFreezeError> {
     let mut collector = ExactPointSink {
+        target,
         points: Vec::with_capacity(sizing.point_count),
         expected_points: sizing.point_count,
         active_source: None,
@@ -1887,8 +1946,8 @@ fn validate_offset_domain(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn walk_offset_program(
-    program: &AuthoringCurveProgramDeclaration,
+fn walk_offset_program<'a>(
+    program: &'a AuthoringCurveProgramDeclaration,
     station_rows: &[ReferenceStationRow],
     corridor_start_meters: f64,
     corridor_end_meters: f64,
@@ -1906,7 +1965,7 @@ fn walk_offset_program(
             .map_err(|_| NumericFreezeError::from(NumericFreezeKind::GeometryPointLimit))?;
         let mut walk_segment = |start: Point3,
                                 row_index: &mut usize,
-                                emitted_endpoint: &mut Option<(u32, SegmentEvaluator, f64)>|
+                                emitted_endpoint: &mut Option<(u32, SegmentEvaluator<'a>, f64)>|
          -> Result<Point3, NumericFreezeError> {
             let (segment, end) = source_segment(start, source)?;
             let mut began_source_segment = false;
@@ -1919,12 +1978,17 @@ fn walk_offset_program(
                 let evaluator = SegmentEvaluator::Offset {
                     segment,
                     station: StationInterval {
+                        station_error_meters: row.station_error_meters,
                         parameter_start: row.parameter_start,
                         parameter_end: row.parameter_end,
                         cumulative_start_meters: row.cumulative_start_meters,
                         cumulative_end_meters: row.cumulative_end_meters,
                     },
                     offset: OffsetInterval {
+                        end_station_error_meters: station_rows
+                            .last()
+                            .filter(|last| last.cumulative_end_meters == corridor_end_meters)
+                            .map_or(0.0, |last| last.station_error_meters),
                         station_start_meters: corridor_start_meters,
                         station_end_meters: corridor_end_meters,
                         offset_start_meters,
@@ -2025,11 +2089,12 @@ fn walk_offset_program(
     Ok(())
 }
 
-fn walk_reference_program(
-    program: &AuthoringCurveProgramDeclaration,
+fn walk_reference_program<'a>(
+    program: &'a AuthoringCurveProgramDeclaration,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
-    sink: &mut impl ReferenceProgramSink,
+    station_only: bool,
+    sink: &mut impl ReferenceProgramSink<'a>,
 ) -> Result<(), NumericFreezeError> {
     let mut start = point3(program.start, CurvePointRole::Start)?;
     let mut welded_start = None;
@@ -2040,6 +2105,20 @@ fn walk_reference_program(
             |start: Point3| -> Result<(Point3, ApproximationPoint), NumericFreezeError> {
                 let (segment, end) = source_segment(start, source)?;
                 sink.begin_segment(segment_ordinal, segment, &source.span)?;
+                if station_only && matches!(segment, CurveSegment::Native(_)) {
+                    if segment_index == 0 {
+                        sink.push(ApproximationVertex {
+                            parameter: 0.0,
+                            point: quantize_point(start)?,
+                        })?;
+                    }
+                    let point = quantize_point(end)?;
+                    sink.push(ApproximationVertex {
+                        parameter: 1.0,
+                        point,
+                    })?;
+                    return Ok((end, point));
+                }
                 let welded = approximate_interval(
                     SegmentEvaluator::Reference(segment),
                     ApproximationInterval {
@@ -2088,11 +2167,126 @@ fn parameter_in_station_row(
     Ok(parameter)
 }
 
+fn prepare_program(
+    program: &mut AuthoringCurveProgramDeclaration,
+    scratch: &mut GeometryScratchBudget,
+) -> Result<(), GeometryCompilationError> {
+    use super::native_curve::{Block, Law, NativeCurve, Scalar, Vector, exact_point, norm, unit};
+    if !program.segments.iter().any(|s| {
+        s.smooth_entry || matches!(s.geometry, AuthoringCurveSegmentGeometry::Native { .. })
+    }) {
+        return Ok(());
+    }
+    fn vector(p: AuthoringPoint3F64) -> Vector {
+        [p.x, p.y, p.z].map(Scalar::exact)
+    }
+    fn minus(a: Vector, b: Vector) -> Vector {
+        std::array::from_fn(|i| a[i] - b[i])
+    }
+    fn curvature(d: Vector, second: Vector) -> Scalar {
+        let h = (d[0].square() + d[2].square()).sqrt();
+        (d[2] * second[0] - d[0] * second[2]) / (h * h * h)
+    }
+    let zero = Scalar::exact(0.0);
+    let mut start = exact_point(point3(program.start, CurvePointRole::Start)?);
+    let mut previous = program
+        .initial_tangent_xz
+        .map(|[x, z]| ([Scalar::exact(x), zero, Scalar::exact(z)], zero));
+    for segment in &mut program.segments {
+        let located =
+            |e| GeometryCompilationError::from(e).with_numeric_source(segment.span.clone());
+        let (entry, exit, end) = match &mut segment.geometry {
+            AuthoringCurveSegmentGeometry::Native { input, prepared } => {
+                let law = Law::from_input(*input);
+                let count = law.walk(|_, _| Ok(())).map_err(located)?;
+                scratch.reserve::<Block>(count)?;
+                scratch.reserve::<NativeCurve>(1)?;
+                let tangent = previous
+                    .ok_or_else(|| located(NumericFreezeKind::HorizontalDerivativeZero.into()))?
+                    .0;
+                let work_bytes = super::native_curve::preparation_stack_bytes();
+                scratch.reserve_bytes(work_bytes)?;
+                let curve = NativeCurve::new(law, start, tangent, count).map_err(located)?;
+                scratch.release_bytes(work_bytes);
+                let (_, d0) = curve.vectors(0.0).map_err(located)?;
+                let (end, d1) = curve.vectors(1.0).map_err(located)?;
+                *prepared = Some(Box::new(curve));
+                ((d0, law.k0), (d1, law.k1), end)
+            }
+            AuthoringCurveSegmentGeometry::Line { end } => {
+                let end = vector(*end);
+                let d = minus(end, start);
+                ((d, zero), (d, zero), end)
+            }
+            AuthoringCurveSegmentGeometry::CubicBezier {
+                control_1,
+                control_2,
+                end,
+            } => {
+                let a = minus(vector(*control_1), start);
+                let b = minus(vector(*control_2), vector(*control_1));
+                let end = vector(*end);
+                let c = minus(end, vector(*control_2));
+                let derivative = |v: Vector| v.map(|x| x * Scalar::exact(3.0));
+                let second = |v: Vector| v.map(|x| x * Scalar::exact(6.0));
+                let d0 = derivative(a);
+                let d1 = derivative(c);
+                (
+                    (d0, curvature(d0, second(minus(b, a)))),
+                    (d1, curvature(d1, second(minus(c, b)))),
+                    end,
+                )
+            }
+        };
+        if let Some(fixed) = segment.fixed_end {
+            let fixed = vector(fixed);
+            let distance = norm(minus(end, fixed));
+            if !distance.hi.is_finite() || distance.hi > 0.005 {
+                return Err(GeometryCompilationError::Constraint(Box::new((
+                    crate::RoadEditingNumericViolation::FixedEndConflict {
+                        derived: end.map(|x| x.value.to_bits()),
+                        fixed: fixed.map(|x| x.value.to_bits()),
+                        distance: [distance.lo.to_bits(), distance.hi.to_bits()],
+                    },
+                    segment.span.curve_segment_field(4),
+                ))));
+            }
+        }
+        if segment.smooth_entry {
+            let (d, k) = previous
+                .ok_or_else(|| located(NumericFreezeKind::GeometryTopologyMismatch.into()))?;
+            let dirs = [unit(d).ok(), unit(entry.0).ok()];
+            let tangent_ok = dirs[0]
+                .zip(dirs[1])
+                .is_some_and(|(a, b)| norm(minus(a, b)).hi <= 1e-9);
+            if !tangent_ok || (k - entry.1).abs_max() > 1e-12 {
+                return Err(GeometryCompilationError::Constraint(Box::new((
+                    crate::RoadEditingNumericViolation::SmoothEntryConflict {
+                        directions: dirs.map(|d| d.map(|v| v.map(|x| x.value.to_bits()))),
+                        curvatures: [k, entry.1]
+                            .map(|x| x.finite().ok().map(|v| v.value.to_bits())),
+                    },
+                    segment.span.curve_segment_field(3),
+                ))));
+            }
+        }
+        previous = Some(exit);
+        start = end;
+    }
+    Ok(())
+}
+
 fn source_segment(
     start: Point3,
     source: &AuthoringCurveSegmentDeclaration,
-) -> Result<(CurveSegment, Point3), NumericFreezeError> {
+) -> Result<(CurveSegment<'_>, Point3), NumericFreezeError> {
     match source.geometry {
+        AuthoringCurveSegmentGeometry::Native { ref prepared, .. } => {
+            let curve = prepared
+                .as_deref()
+                .ok_or(NumericFreezeKind::GeometryTopologyMismatch)?;
+            Ok((CurveSegment::Native(curve), curve.sample(1.0)?.point))
+        }
         AuthoringCurveSegmentGeometry::Line { end } => {
             let end = point3(end, CurvePointRole::End)?;
             Ok((CurveSegment::Line { start, end }, end))
@@ -2118,11 +2312,11 @@ fn source_segment(
     }
 }
 
-trait ReferenceProgramSink: ApproximationPointSink {
+trait ReferenceProgramSink<'a>: ApproximationPointSink {
     fn begin_segment(
         &mut self,
         segment_ordinal: u32,
-        segment: CurveSegment,
+        segment: CurveSegment<'a>,
         source: &crate::SourceLocation,
     ) -> Result<(), NumericFreezeError>;
 }
@@ -2214,11 +2408,11 @@ impl CanonicalPointSink for CountingSink {
     }
 }
 
-impl ReferenceProgramSink for CountingSink {
+impl<'a> ReferenceProgramSink<'a> for CountingSink {
     fn begin_segment(
         &mut self,
         segment_ordinal: u32,
-        _segment: CurveSegment,
+        _segment: CurveSegment<'a>,
         _source: &crate::SourceLocation,
     ) -> Result<(), NumericFreezeError> {
         self.begin_source(segment_ordinal)
@@ -2226,22 +2420,23 @@ impl ReferenceProgramSink for CountingSink {
 }
 
 #[derive(Clone, Copy)]
-struct ActiveStationSegment {
+struct ActiveStationSegment<'a> {
     ordinal: u32,
-    evaluator: CurveSegment,
+    evaluator: CurveSegment<'a>,
     previous_parameter: f64,
     previous_point: Point3,
 }
 
-struct StationRowSink {
+struct StationRowSink<'a> {
     rows: Vec<ReferenceStationRow>,
-    active_segment: Option<ActiveStationSegment>,
+    active_segment: Option<ActiveStationSegment<'a>>,
     cumulative_meters: f64,
+    station_error_meters: f64,
     seen_first_point: bool,
     expected_rows: usize,
 }
 
-impl ApproximationPointSink for StationRowSink {
+impl ApproximationPointSink for StationRowSink<'_> {
     fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError> {
         let active = self
             .active_segment
@@ -2254,7 +2449,13 @@ impl ApproximationPointSink for StationRowSink {
                 ));
             }
             let current_point = active.evaluator.evaluate(vertex.parameter)?.point;
-            let chord_length = point_distance(active.previous_point, current_point)?;
+            let chord_length = match active.evaluator {
+                CurveSegment::Native(curve) => {
+                    curve.law.road_length().finite()?.value
+                        * (vertex.parameter - active.previous_parameter)
+                }
+                _ => point_distance(active.previous_point, current_point)?,
+            };
             if chord_length == 0.0 {
                 return Err(NumericFreezeError::from(
                     NumericFreezeKind::DegenerateCanonicalSegment,
@@ -2269,7 +2470,26 @@ impl ApproximationPointSink for StationRowSink {
                     NumericFreezeKind::DegenerateCanonicalSegment,
                 ));
             }
+            use super::native_curve::Scalar;
+            let s = Scalar::exact;
+            // 旧段的来源站位按原有 binary64 弦累计定义；有原生段后继续传递累计不确定量。
+            if self.station_error_meters != 0.0
+                || matches!(active.evaluator, CurveSegment::Native(_))
+            {
+                let distance = match active.evaluator {
+                    CurveSegment::Native(curve) => {
+                        curve.law.road_length()
+                            * (s(vertex.parameter) - s(active.previous_parameter))
+                    }
+                    _ => s(chord_length),
+                };
+                let bounded = s(self.cumulative_meters).widen(self.station_error_meters) + distance;
+                self.station_error_meters = self
+                    .station_error_meters
+                    .max((bounded - s(cumulative_end)).finite()?.abs_max());
+            }
             self.rows.push(ReferenceStationRow {
+                station_error_meters: self.station_error_meters,
                 segment_ordinal: active.ordinal,
                 parameter_start: active.previous_parameter,
                 parameter_end: vertex.parameter,
@@ -2289,11 +2509,11 @@ impl ApproximationPointSink for StationRowSink {
     }
 }
 
-impl ReferenceProgramSink for StationRowSink {
+impl<'a> ReferenceProgramSink<'a> for StationRowSink<'a> {
     fn begin_segment(
         &mut self,
         segment_ordinal: u32,
-        segment: CurveSegment,
+        segment: CurveSegment<'a>,
         _source: &crate::SourceLocation,
     ) -> Result<(), NumericFreezeError> {
         self.active_segment = Some(ActiveStationSegment {
@@ -2306,7 +2526,27 @@ impl ReferenceProgramSink for StationRowSink {
     }
 }
 
-struct ExactPointSink {
+struct ChordTarget<'a> {
+    kind: laneflow_static_contract::EntityKind,
+    key: &'a str,
+    owners: &'a [std::sync::Arc<str>],
+    backward: bool,
+    observe: &'a mut super::native_bounds::Observer<'a>,
+}
+#[cfg(test)]
+impl<'a> ChordTarget<'a> {
+    fn silent(observe: &'a mut super::native_bounds::Observer<'a>) -> Self {
+        Self {
+            kind: laneflow_static_contract::EntityKind::LaneEdge,
+            key: "",
+            owners: &[],
+            backward: false,
+            observe,
+        }
+    }
+}
+struct ExactPointSink<'a> {
+    target: ChordTarget<'a>,
     points: Vec<CanonicalPoint3F32Input>,
     expected_points: usize,
     active_source: Option<ActivePointSource>,
@@ -2320,7 +2560,7 @@ struct ActivePointSource {
     source: crate::SourceLocation,
 }
 
-impl ExactPointSink {
+impl ExactPointSink<'_> {
     fn begin_source(
         &mut self,
         segment_ordinal: u32,
@@ -2401,7 +2641,29 @@ impl ExactPointSink {
     }
 }
 
-impl ApproximationPointSink for ExactPointSink {
+impl ApproximationPointSink for ExactPointSink<'_> {
+    fn native_chord(
+        &mut self,
+        parameters: [f64; 2],
+        points: [ApproximationPoint; 2],
+        bounds: super::NativeChordBounds,
+    ) {
+        let active = self
+            .active_source
+            .as_ref()
+            .expect("source begins before its first chord");
+        (self.target.observe)(super::NativeChord {
+            target_kind: self.target.kind,
+            target_key: self.target.key,
+            target_owners: self.target.owners,
+            backward: self.target.backward,
+            source: &active.source,
+            segment_ordinal: active.segment_ordinal,
+            parameters,
+            endpoints: points.map(|p| [p.x, p.y, p.z]),
+            bounds,
+        });
+    }
     fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError> {
         if self.points.len() == self.expected_points {
             return Err(NumericFreezeError::from(
@@ -2413,7 +2675,7 @@ impl ApproximationPointSink for ExactPointSink {
     }
 }
 
-impl CanonicalPointSink for ExactPointSink {
+impl CanonicalPointSink for ExactPointSink<'_> {
     fn last_point(&self) -> Option<ApproximationPoint> {
         self.points.last().copied()
     }
@@ -2427,11 +2689,11 @@ impl CanonicalPointSink for ExactPointSink {
     }
 }
 
-impl ReferenceProgramSink for ExactPointSink {
+impl<'a> ReferenceProgramSink<'a> for ExactPointSink<'_> {
     fn begin_segment(
         &mut self,
         segment_ordinal: u32,
-        _segment: CurveSegment,
+        _segment: CurveSegment<'a>,
         source: &crate::SourceLocation,
     ) -> Result<(), NumericFreezeError> {
         self.begin_source(segment_ordinal, source)
@@ -2875,6 +3137,7 @@ mod tests {
         for segment in program.segments.iter() {
             expected.push(&segment.span);
             match &segment.point_spans {
+                AuthoringCurveSegmentPointSpans::Native => {}
                 AuthoringCurveSegmentPointSpans::Line { end } => expected.push(end),
                 AuthoringCurveSegmentPointSpans::CubicBezier(spans) => {
                     expected.push(&spans.control_1);
@@ -2912,6 +3175,7 @@ mod tests {
         let expected_span = alignments[0].reference_line.segments[1].span.clone();
 
         let Err(GeometryCompilationError::Numeric { error, source }) = compile_authoring_geometry(
+            &mut |_| {},
             "city",
             alignments,
             &mut declarations,
@@ -2975,6 +3239,7 @@ mod tests {
             .expect("internal edge curve");
 
         let Err(GeometryCompilationError::Numeric { error, source }) = compile_authoring_geometry(
+            &mut |_| {},
             "city",
             alignments,
             &mut declarations,
@@ -3023,6 +3288,7 @@ mod tests {
             .clone();
 
         let Err(GeometryCompilationError::Numeric { error, source }) = compile_authoring_geometry(
+            &mut |_| {},
             "city",
             alignments,
             &mut declarations,
@@ -3049,9 +3315,12 @@ mod tests {
     #[test]
     fn explicit_line_uses_two_pass_exact_allocation_and_frozen_length() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![AuthoringCurveSegmentDeclaration {
+                smooth_entry: false,
+                fixed_end: None,
                 geometry: AuthoringCurveSegmentGeometry::Line {
                     end: point(3.0, 4.0),
                 },
@@ -3089,6 +3358,7 @@ mod tests {
         assert_eq!(
             reference.station_rows[0],
             ReferenceStationRow {
+                station_error_meters: 0.0,
                 segment_ordinal: 0,
                 parameter_start: 0.0,
                 parameter_end: 1.0,
@@ -3112,6 +3382,7 @@ mod tests {
                 previous_point: start,
             }),
             cumulative_meters: 1.0e20,
+            station_error_meters: 0.0,
             seen_first_point: true,
             expected_rows: 1,
         };
@@ -3135,9 +3406,12 @@ mod tests {
     #[test]
     fn companion_cubic_freezes_exact_point_count_before_allocation() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![AuthoringCurveSegmentDeclaration {
+                smooth_entry: false,
+                fixed_end: None,
                 geometry: AuthoringCurveSegmentGeometry::CubicBezier {
                     control_1: point(20.0, 20.0),
                     control_2: point(20.0, 0.0),
@@ -3194,10 +3468,13 @@ mod tests {
     #[test]
     fn adjacent_segments_reuse_the_retained_canonical_endpoint() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(3.0, 0.0),
                     },
@@ -3205,6 +3482,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(6.0, 0.0),
                     },
@@ -3234,10 +3513,13 @@ mod tests {
     fn adjacent_segments_reuse_the_endpoint_bits_emitted_by_the_evaluator() {
         let source_endpoint = 1.000_000_048_045_901_5e-10;
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(16_384.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(source_endpoint, 0.0),
                     },
@@ -3245,6 +3527,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(-1.0, 0.0),
                     },
@@ -3274,9 +3558,12 @@ mod tests {
     #[test]
     fn horizontal_regularity_fails_before_station_subdivision_limits() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![AuthoringCurveSegmentDeclaration {
+                smooth_entry: false,
+                fixed_end: None,
                 geometry: AuthoringCurveSegmentGeometry::CubicBezier {
                     control_1: point(0.0, 0.0),
                     control_2: point(0.0, 0.0),
@@ -3305,10 +3592,13 @@ mod tests {
     #[test]
     fn source_segment_boundary_belongs_to_the_preceding_station_interval() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(1.0, 0.0),
                     },
@@ -3316,6 +3606,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(2.0, 0.0),
                     },
@@ -3360,10 +3652,13 @@ mod tests {
     #[test]
     fn generated_point_ranges_assign_shared_boundaries_to_the_following_segment() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(1.0, 0.0),
                     },
@@ -3371,6 +3666,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(2.0, 0.0),
                     },
@@ -3395,6 +3692,7 @@ mod tests {
             }
         );
         let compiled = compile_explicit_curve_exact(
+            ChordTarget::silent(&mut |_| {}),
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
@@ -3454,10 +3752,13 @@ mod tests {
     #[test]
     fn clipped_offset_does_not_assign_the_final_point_to_an_unvisited_source_segment() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(1.0, 0.0),
                     },
@@ -3465,6 +3766,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(2.0, 0.0),
                     },
@@ -3472,6 +3775,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1003) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(3.0, 0.0),
                     },
@@ -3533,10 +3838,13 @@ mod tests {
     #[test]
     fn corridor_start_at_source_boundary_keeps_the_first_point_in_a_source_range() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(1.0, 0.0),
                     },
@@ -3544,6 +3852,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(2.0, 0.0),
                     },
@@ -3579,9 +3889,12 @@ mod tests {
     #[test]
     fn offset_curve_clips_station_interval_and_reverses_backward_lane() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![AuthoringCurveSegmentDeclaration {
+                smooth_entry: false,
+                fixed_end: None,
                 geometry: AuthoringCurveSegmentGeometry::Line {
                     end: point(10.0, 0.0),
                 },
@@ -3638,10 +3951,13 @@ mod tests {
     fn offset_source_join_welds_only_within_the_five_millimeter_gate() {
         fn joined_program(second_end_z: f64) -> AuthoringCurveProgramDeclaration {
             AuthoringCurveProgramDeclaration {
+                initial_tangent_xz: None,
                 start: point(0.0, 0.0),
                 start_span: span(1),
                 segments: vec![
                     AuthoringCurveSegmentDeclaration {
+                        smooth_entry: false,
+                        fixed_end: None,
                         geometry: AuthoringCurveSegmentGeometry::Line {
                             end: point(10.0, 0.0),
                         },
@@ -3649,6 +3965,8 @@ mod tests {
                         point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                     },
                     AuthoringCurveSegmentDeclaration {
+                        smooth_entry: false,
+                        fixed_end: None,
                         geometry: AuthoringCurveSegmentGeometry::Line {
                             end: point(20.0, second_end_z),
                         },
@@ -3708,10 +4026,13 @@ mod tests {
     #[test]
     fn corridor_start_at_source_boundary_keeps_the_preceding_offset_owner() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(10.0, 0.0),
                     },
@@ -3719,6 +4040,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(10.0, 10.0),
                     },
@@ -3755,10 +4078,13 @@ mod tests {
     #[test]
     fn corridor_start_at_source_boundary_checks_the_preceding_tangent() {
         let program = AuthoringCurveProgramDeclaration {
+            initial_tangent_xz: None,
             start: point(0.0, 0.0),
             start_span: span(1),
             segments: vec![
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(10.0, 0.0),
                     },
@@ -3766,6 +4092,8 @@ mod tests {
                     point_spans: AuthoringCurveSegmentPointSpans::Line { end: span(1002) },
                 },
                 AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::Line {
                         end: point(10.0, 10.0),
                     },
@@ -3905,6 +4233,7 @@ mod tests {
     fn module_geometry_compilation_replaces_authoring_authorities_atomically() {
         let (alignments, mut declarations) = lowered_geometry_fixture();
         let usage = compile_authoring_geometry(
+            &mut |_| {},
             "city",
             alignments,
             &mut declarations,
@@ -4036,6 +4365,7 @@ mod tests {
         let (alignments, mut rejected) = lowered_geometry_fixture();
         assert!(matches!(
             compile_authoring_geometry(
+            &mut |_|{},
                 "city",
                 alignments,
                 &mut rejected,
@@ -4071,6 +4401,7 @@ mod tests {
 
         assert!(matches!(
             compile_authoring_geometry(
+            &mut |_|{},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4117,6 +4448,7 @@ mod tests {
 
         assert!(matches!(
             compile_authoring_geometry(
+            &mut |_|{},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4134,6 +4466,7 @@ mod tests {
         let (alignments, mut declarations) = lowered_geometry_fixture();
         declarations.reverse();
         let usage = compile_authoring_geometry(
+            &mut |_| {},
             "city",
             alignments,
             &mut declarations,
@@ -4193,6 +4526,7 @@ mod tests {
         facility.header.source_address = section_address;
 
         let usage = compile_authoring_geometry(
+            &mut |_| {},
             "city",
             alignments,
             &mut declarations,
@@ -4221,6 +4555,7 @@ mod tests {
             .start_station_meters = 1.0;
         assert!(matches!(
             compile_authoring_geometry(
+            &mut |_|{},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4244,6 +4579,7 @@ mod tests {
             AuthoringStationEnd::Finite(10.0);
         assert!(matches!(
             compile_authoring_geometry(
+            &mut |_|{},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4334,9 +4670,12 @@ mod tests {
             road_alignment_key: Arc::from("unused"),
             canonical_frame: alignments[0].canonical_frame.clone(),
             reference_line: AuthoringCurveProgramDeclaration {
+                initial_tangent_xz: None,
                 start: point(0.0, 0.0),
                 start_span: span(10),
                 segments: vec![AuthoringCurveSegmentDeclaration {
+                    smooth_entry: false,
+                    fixed_end: None,
                     geometry: AuthoringCurveSegmentGeometry::CubicBezier {
                         control_1: point(0.0, 0.0),
                         control_2: point(0.0, 0.0),
@@ -4358,6 +4697,7 @@ mod tests {
 
         assert!(matches!(
             compile_authoring_geometry(
+            &mut |_|{},
                 "city",
                 alignments.into_boxed_slice(),
                 &mut declarations,
@@ -4380,6 +4720,7 @@ mod tests {
         let attempt = |scratch_limit| {
             let (alignments, mut declarations) = lowered_geometry_fixture();
             compile_authoring_geometry(
+                &mut |_| {},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4401,6 +4742,7 @@ mod tests {
         let (alignments, mut declarations) = lowered_geometry_fixture();
         assert!(matches!(
             compile_authoring_geometry(
+                &mut |_| {},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4424,6 +4766,7 @@ mod tests {
         assert!(input_scratch > 0);
         assert_eq!(
             compile_authoring_geometry(
+                &mut |_| {},
                 "city",
                 alignments,
                 &mut declarations,
@@ -4461,6 +4804,7 @@ mod tests {
         let (alignments, mut rejected) = lowered_geometry_fixture();
         assert_eq!(
             compile_authoring_geometry(
+                &mut |_| {},
                 "city",
                 alignments,
                 &mut rejected,
@@ -4528,6 +4872,7 @@ mod tests {
         let attempt = |live_headroom| {
             let (alignments, mut declarations) = lowered_geometry_fixture();
             let result = compile_authoring_geometry(
+                &mut |_| {},
                 "city",
                 alignments,
                 &mut declarations,

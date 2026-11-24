@@ -1288,13 +1288,15 @@ impl ::flatbuffers::SimpleToVerifyInSlice for PathAnchorKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_CURVE_SEGMENT_GEOMETRY: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_CURVE_SEGMENT_GEOMETRY: u8 = 2;
+pub const ENUM_MAX_CURVE_SEGMENT_GEOMETRY: u8 = 4;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_CURVE_SEGMENT_GEOMETRY: [CurveSegmentGeometry; 3] = [
+pub const ENUM_VALUES_CURVE_SEGMENT_GEOMETRY: [CurveSegmentGeometry; 5] = [
   CurveSegmentGeometry::NONE,
   CurveSegmentGeometry::LineSegment,
   CurveSegmentGeometry::CubicBezierSegment,
+  CurveSegmentGeometry::CircularArcSegment,
+  CurveSegmentGeometry::ClothoidSegment,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1305,13 +1307,17 @@ impl CurveSegmentGeometry {
   pub const NONE: Self = Self(0);
   pub const LineSegment: Self = Self(1);
   pub const CubicBezierSegment: Self = Self(2);
+  pub const CircularArcSegment: Self = Self(3);
+  pub const ClothoidSegment: Self = Self(4);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_MAX: u8 = 4;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::LineSegment,
     Self::CubicBezierSegment,
+    Self::CircularArcSegment,
+    Self::ClothoidSegment,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1319,6 +1325,8 @@ impl CurveSegmentGeometry {
       Self::NONE => Some("NONE"),
       Self::LineSegment => Some("LineSegment"),
       Self::CubicBezierSegment => Some("CubicBezierSegment"),
+      Self::CircularArcSegment => Some("CircularArcSegment"),
+      Self::ClothoidSegment => Some("ClothoidSegment"),
       _ => None,
     }
   }
@@ -2537,6 +2545,283 @@ impl ::core::fmt::Debug for CubicBezierSegment<'_> {
       ds.finish()
   }
 }
+pub enum CircularArcSegmentOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CircularArcSegment<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for CircularArcSegment<'a> {
+  type Inner = CircularArcSegment<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> CircularArcSegment<'a> {
+  pub const VT_LENGTH_METERS: ::flatbuffers::VOffsetT = 4;
+  pub const VT_SIGNED_RADIUS_METERS: ::flatbuffers::VOffsetT = 6;
+  pub const VT_GRADE: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    CircularArcSegment { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args CircularArcSegmentArgs
+  ) -> ::flatbuffers::WIPOffset<CircularArcSegment<'bldr>> {
+    let mut builder = CircularArcSegmentBuilder::new(_fbb);
+    if let Some(x) = args.grade { builder.add_grade(x); }
+    if let Some(x) = args.signed_radius_meters { builder.add_signed_radius_meters(x); }
+    if let Some(x) = args.length_meters { builder.add_length_meters(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn length_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(CircularArcSegment::VT_LENGTH_METERS, None)}
+  }
+  #[inline]
+  pub fn signed_radius_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(CircularArcSegment::VT_SIGNED_RADIUS_METERS, None)}
+  }
+  #[inline]
+  pub fn grade(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(CircularArcSegment::VT_GRADE, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for CircularArcSegment<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<f64>("length_meters", Self::VT_LENGTH_METERS, false)?
+     .visit_field::<f64>("signed_radius_meters", Self::VT_SIGNED_RADIUS_METERS, false)?
+     .visit_field::<f64>("grade", Self::VT_GRADE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct CircularArcSegmentArgs {
+    pub length_meters: Option<f64>,
+    pub signed_radius_meters: Option<f64>,
+    pub grade: Option<f64>,
+}
+impl<'a> Default for CircularArcSegmentArgs {
+  #[inline]
+  fn default() -> Self {
+    CircularArcSegmentArgs {
+      length_meters: None,
+      signed_radius_meters: None,
+      grade: None,
+    }
+  }
+}
+
+pub struct CircularArcSegmentBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CircularArcSegmentBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_length_meters(&mut self, length_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(CircularArcSegment::VT_LENGTH_METERS, length_meters);
+  }
+  #[inline]
+  pub fn add_signed_radius_meters(&mut self, signed_radius_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(CircularArcSegment::VT_SIGNED_RADIUS_METERS, signed_radius_meters);
+  }
+  #[inline]
+  pub fn add_grade(&mut self, grade: f64) {
+    self.fbb_.push_slot_always::<f64>(CircularArcSegment::VT_GRADE, grade);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CircularArcSegmentBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    CircularArcSegmentBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<CircularArcSegment<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for CircularArcSegment<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("CircularArcSegment");
+      ds.field("length_meters", &self.length_meters());
+      ds.field("signed_radius_meters", &self.signed_radius_meters());
+      ds.field("grade", &self.grade());
+      ds.finish()
+  }
+}
+pub enum ClothoidSegmentOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ClothoidSegment<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for ClothoidSegment<'a> {
+  type Inner = ClothoidSegment<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ClothoidSegment<'a> {
+  pub const VT_LENGTH_METERS: ::flatbuffers::VOffsetT = 4;
+  pub const VT_START_CURVATURE_PER_METER: ::flatbuffers::VOffsetT = 6;
+  pub const VT_END_CURVATURE_PER_METER: ::flatbuffers::VOffsetT = 8;
+  pub const VT_GRADE: ::flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    ClothoidSegment { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ClothoidSegmentArgs
+  ) -> ::flatbuffers::WIPOffset<ClothoidSegment<'bldr>> {
+    let mut builder = ClothoidSegmentBuilder::new(_fbb);
+    if let Some(x) = args.grade { builder.add_grade(x); }
+    if let Some(x) = args.end_curvature_per_meter { builder.add_end_curvature_per_meter(x); }
+    if let Some(x) = args.start_curvature_per_meter { builder.add_start_curvature_per_meter(x); }
+    if let Some(x) = args.length_meters { builder.add_length_meters(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn length_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ClothoidSegment::VT_LENGTH_METERS, None)}
+  }
+  #[inline]
+  pub fn start_curvature_per_meter(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ClothoidSegment::VT_START_CURVATURE_PER_METER, None)}
+  }
+  #[inline]
+  pub fn end_curvature_per_meter(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ClothoidSegment::VT_END_CURVATURE_PER_METER, None)}
+  }
+  #[inline]
+  pub fn grade(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(ClothoidSegment::VT_GRADE, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for ClothoidSegment<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<f64>("length_meters", Self::VT_LENGTH_METERS, false)?
+     .visit_field::<f64>("start_curvature_per_meter", Self::VT_START_CURVATURE_PER_METER, false)?
+     .visit_field::<f64>("end_curvature_per_meter", Self::VT_END_CURVATURE_PER_METER, false)?
+     .visit_field::<f64>("grade", Self::VT_GRADE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ClothoidSegmentArgs {
+    pub length_meters: Option<f64>,
+    pub start_curvature_per_meter: Option<f64>,
+    pub end_curvature_per_meter: Option<f64>,
+    pub grade: Option<f64>,
+}
+impl<'a> Default for ClothoidSegmentArgs {
+  #[inline]
+  fn default() -> Self {
+    ClothoidSegmentArgs {
+      length_meters: None,
+      start_curvature_per_meter: None,
+      end_curvature_per_meter: None,
+      grade: None,
+    }
+  }
+}
+
+pub struct ClothoidSegmentBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ClothoidSegmentBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_length_meters(&mut self, length_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(ClothoidSegment::VT_LENGTH_METERS, length_meters);
+  }
+  #[inline]
+  pub fn add_start_curvature_per_meter(&mut self, start_curvature_per_meter: f64) {
+    self.fbb_.push_slot_always::<f64>(ClothoidSegment::VT_START_CURVATURE_PER_METER, start_curvature_per_meter);
+  }
+  #[inline]
+  pub fn add_end_curvature_per_meter(&mut self, end_curvature_per_meter: f64) {
+    self.fbb_.push_slot_always::<f64>(ClothoidSegment::VT_END_CURVATURE_PER_METER, end_curvature_per_meter);
+  }
+  #[inline]
+  pub fn add_grade(&mut self, grade: f64) {
+    self.fbb_.push_slot_always::<f64>(ClothoidSegment::VT_GRADE, grade);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ClothoidSegmentBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ClothoidSegmentBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<ClothoidSegment<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for ClothoidSegment<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("ClothoidSegment");
+      ds.field("length_meters", &self.length_meters());
+      ds.field("start_curvature_per_meter", &self.start_curvature_per_meter());
+      ds.field("end_curvature_per_meter", &self.end_curvature_per_meter());
+      ds.field("grade", &self.grade());
+      ds.finish()
+  }
+}
 pub enum CurveSegmentOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2557,6 +2842,8 @@ impl<'a> CurveSegment<'a> {
   pub const VT_GEOMETRY_TYPE: ::flatbuffers::VOffsetT = 4;
   pub const VT_GEOMETRY: ::flatbuffers::VOffsetT = 6;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 8;
+  pub const VT_SMOOTH_ENTRY: ::flatbuffers::VOffsetT = 10;
+  pub const VT_FIXED_END: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2568,8 +2855,10 @@ impl<'a> CurveSegment<'a> {
     args: &'args CurveSegmentArgs<'args>
   ) -> ::flatbuffers::WIPOffset<CurveSegment<'bldr>> {
     let mut builder = CurveSegmentBuilder::new(_fbb);
+    if let Some(x) = args.fixed_end { builder.add_fixed_end(x); }
     if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
     if let Some(x) = args.geometry { builder.add_geometry(x); }
+    builder.add_smooth_entry(args.smooth_entry);
     builder.add_geometry_type(args.geometry_type);
     builder.finish()
   }
@@ -2595,6 +2884,20 @@ impl<'a> CurveSegment<'a> {
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(CurveSegment::VT_CANVAS_SELECTION, None)}
+  }
+  #[inline]
+  pub fn smooth_entry(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(CurveSegment::VT_SMOOTH_ENTRY, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn fixed_end(&self) -> Option<&'a Vec3F64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<Vec3F64>(CurveSegment::VT_FIXED_END, None)}
   }
   #[inline]
   #[allow(non_snake_case)]
@@ -2624,6 +2927,34 @@ impl<'a> CurveSegment<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn geometry_as_circular_arc_segment(&self) -> Option<CircularArcSegment<'a>> {
+    if self.geometry_type() == CurveSegmentGeometry::CircularArcSegment {
+      let u = self.geometry();
+      // Safety:
+      // Created from a valid Table for this object
+      // Which contains a valid union in this slot
+      Some(unsafe { CircularArcSegment::init_from_table(u) })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn geometry_as_clothoid_segment(&self) -> Option<ClothoidSegment<'a>> {
+    if self.geometry_type() == CurveSegmentGeometry::ClothoidSegment {
+      let u = self.geometry();
+      // Safety:
+      // Created from a valid Table for this object
+      // Which contains a valid union in this slot
+      Some(unsafe { ClothoidSegment::init_from_table(u) })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl ::flatbuffers::Verifiable for CurveSegment<'_> {
@@ -2636,10 +2967,14 @@ impl ::flatbuffers::Verifiable for CurveSegment<'_> {
         match key {
           CurveSegmentGeometry::LineSegment => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<LineSegment>>("CurveSegmentGeometry::LineSegment", pos),
           CurveSegmentGeometry::CubicBezierSegment => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CubicBezierSegment>>("CurveSegmentGeometry::CubicBezierSegment", pos),
+          CurveSegmentGeometry::CircularArcSegment => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CircularArcSegment>>("CurveSegmentGeometry::CircularArcSegment", pos),
+          CurveSegmentGeometry::ClothoidSegment => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<ClothoidSegment>>("CurveSegmentGeometry::ClothoidSegment", pos),
           _ => Ok(()),
         }
      })?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .visit_field::<bool>("smooth_entry", Self::VT_SMOOTH_ENTRY, false)?
+     .visit_field::<Vec3F64>("fixed_end", Self::VT_FIXED_END, false)?
      .finish();
     Ok(())
   }
@@ -2648,6 +2983,8 @@ pub struct CurveSegmentArgs<'a> {
     pub geometry_type: CurveSegmentGeometry,
     pub geometry: Option<::flatbuffers::WIPOffset<::flatbuffers::UnionWIPOffset>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub smooth_entry: bool,
+    pub fixed_end: Option<&'a Vec3F64>,
 }
 impl<'a> Default for CurveSegmentArgs<'a> {
   #[inline]
@@ -2656,6 +2993,8 @@ impl<'a> Default for CurveSegmentArgs<'a> {
       geometry_type: CurveSegmentGeometry::NONE,
       geometry: None, // required field
       canvas_selection: None,
+      smooth_entry: false,
+      fixed_end: None,
     }
   }
 }
@@ -2676,6 +3015,14 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CurveSegmentBuilder<'a, 'b, A
   #[inline]
   pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(CurveSegment::VT_CANVAS_SELECTION, canvas_selection);
+  }
+  #[inline]
+  pub fn add_smooth_entry(&mut self, smooth_entry: bool) {
+    self.fbb_.push_slot::<bool>(CurveSegment::VT_SMOOTH_ENTRY, smooth_entry, false);
+  }
+  #[inline]
+  pub fn add_fixed_end(&mut self, fixed_end: &Vec3F64) {
+    self.fbb_.push_slot_always::<&Vec3F64>(CurveSegment::VT_FIXED_END, fixed_end);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CurveSegmentBuilder<'a, 'b, A> {
@@ -2712,12 +3059,28 @@ impl ::core::fmt::Debug for CurveSegment<'_> {
             ds.field("geometry", &"InvalidFlatbuffer: Union discriminant does not match value.")
           }
         },
+        CurveSegmentGeometry::CircularArcSegment => {
+          if let Some(x) = self.geometry_as_circular_arc_segment() {
+            ds.field("geometry", &x)
+          } else {
+            ds.field("geometry", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        CurveSegmentGeometry::ClothoidSegment => {
+          if let Some(x) = self.geometry_as_clothoid_segment() {
+            ds.field("geometry", &x)
+          } else {
+            ds.field("geometry", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
         _ => {
           let x: Option<()> = None;
           ds.field("geometry", &x)
         },
       };
       ds.field("canvas_selection", &self.canvas_selection());
+      ds.field("smooth_entry", &self.smooth_entry());
+      ds.field("fixed_end", &self.fixed_end());
       ds.finish()
   }
 }
@@ -2739,6 +3102,7 @@ impl<'a> ::flatbuffers::Follow<'a> for CurveProgram<'a> {
 impl<'a> CurveProgram<'a> {
   pub const VT_START: ::flatbuffers::VOffsetT = 4;
   pub const VT_SEGMENTS: ::flatbuffers::VOffsetT = 6;
+  pub const VT_INITIAL_TANGENT_XZ: ::flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -2750,6 +3114,7 @@ impl<'a> CurveProgram<'a> {
     args: &'args CurveProgramArgs<'args>
   ) -> ::flatbuffers::WIPOffset<CurveProgram<'bldr>> {
     let mut builder = CurveProgramBuilder::new(_fbb);
+    if let Some(x) = args.initial_tangent_xz { builder.add_initial_tangent_xz(x); }
     if let Some(x) = args.segments { builder.add_segments(x); }
     if let Some(x) = args.start { builder.add_start(x); }
     builder.finish()
@@ -2770,6 +3135,13 @@ impl<'a> CurveProgram<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CurveSegment>>>>(CurveProgram::VT_SEGMENTS, None).unwrap()}
   }
+  #[inline]
+  pub fn initial_tangent_xz(&self) -> Option<&'a Vec2F64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<Vec2F64>(CurveProgram::VT_INITIAL_TANGENT_XZ, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for CurveProgram<'_> {
@@ -2780,6 +3152,7 @@ impl ::flatbuffers::Verifiable for CurveProgram<'_> {
     v.visit_table(pos)?
      .visit_field::<Vec3F64>("start", Self::VT_START, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CurveSegment>>>>("segments", Self::VT_SEGMENTS, true)?
+     .visit_field::<Vec2F64>("initial_tangent_xz", Self::VT_INITIAL_TANGENT_XZ, false)?
      .finish();
     Ok(())
   }
@@ -2787,6 +3160,7 @@ impl ::flatbuffers::Verifiable for CurveProgram<'_> {
 pub struct CurveProgramArgs<'a> {
     pub start: Option<&'a Vec3F64>,
     pub segments: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CurveSegment<'a>>>>>,
+    pub initial_tangent_xz: Option<&'a Vec2F64>,
 }
 impl<'a> Default for CurveProgramArgs<'a> {
   #[inline]
@@ -2794,6 +3168,7 @@ impl<'a> Default for CurveProgramArgs<'a> {
     CurveProgramArgs {
       start: None, // required field
       segments: None, // required field
+      initial_tangent_xz: None,
     }
   }
 }
@@ -2810,6 +3185,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CurveProgramBuilder<'a, 'b, A
   #[inline]
   pub fn add_segments(&mut self, segments: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<CurveSegment<'b >>>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(CurveProgram::VT_SEGMENTS, segments);
+  }
+  #[inline]
+  pub fn add_initial_tangent_xz(&mut self, initial_tangent_xz: &Vec2F64) {
+    self.fbb_.push_slot_always::<&Vec2F64>(CurveProgram::VT_INITIAL_TANGENT_XZ, initial_tangent_xz);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CurveProgramBuilder<'a, 'b, A> {
@@ -2833,6 +3212,7 @@ impl ::core::fmt::Debug for CurveProgram<'_> {
     let mut ds = f.debug_struct("CurveProgram");
       ds.field("start", &self.start());
       ds.field("segments", &self.segments());
+      ds.field("initial_tangent_xz", &self.initial_tangent_xz());
       ds.finish()
   }
 }

@@ -1,7 +1,7 @@
 // LaneFlow 道路编辑来源缓冲区 v4。
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
-// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 4`：
+// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 5`：
 // 根表 field id 连续；`canonical_frames`、`conflict_zones`、`participant_streams` 与
 // `conflict_zone_regions` 分别为 id 25、26、27、28。无 `static_routes` 字段。
 // file identifier 仍 `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
@@ -145,20 +145,38 @@ table CubicBezierSegment {
   end:Vec3F64 (required, id: 2);
 }
 
+table CircularArcSegment {
+  length_meters:double = null (id: 0);
+  signed_radius_meters:double = null (id: 1);
+  grade:double = null (id: 2);
+}
+
+table ClothoidSegment {
+  length_meters:double = null (id: 0);
+  start_curvature_per_meter:double = null (id: 1);
+  end_curvature_per_meter:double = null (id: 2);
+  grade:double = null (id: 3);
+}
+
 union CurveSegmentGeometry {
   LineSegment = 1,
-  CubicBezierSegment = 2
+  CubicBezierSegment = 2,
+  CircularArcSegment = 3,
+  ClothoidSegment = 4
 }
 
 /// 曲线段是道路走向内的 owner-local 值；vector index 只用于来源属性定位。
 table CurveSegment {
   geometry:CurveSegmentGeometry (required, id: 1);
   canvas_selection:string (id: 2);
+  smooth_entry:bool = false (id: 3);
+  fixed_end:Vec3F64 (id: 4);
 }
 
 table CurveProgram {
   start:Vec3F64 (required, id: 0);
   segments:[CurveSegment] (required, id: 1);
+  initial_tangent_xz:Vec2F64 (id: 2);
 }
 
 /// 当前道路走向定义；它有稳定编辑键，但不属于 Identity v1，不分配 StableId128。
