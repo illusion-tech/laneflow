@@ -446,6 +446,18 @@ mod required_memory_tests {
     }
 
     #[test]
+    fn live_resident_with_zero_reported_bytes_is_unmeasured() {
+        let members = [
+            member(SUPERVISOR, Some(4_096), false),
+            member(RESIDENT, Some(0), false),
+        ];
+        assert_eq!(
+            required_memory(&members, SUPERVISOR, RESIDENT, false),
+            (true, ResidentMemory::Unmeasured)
+        );
+    }
+
+    #[test]
     fn measured_members_and_missing_supervisor() {
         let members = [member(RESIDENT, Some(8192), false)];
         assert_eq!(
