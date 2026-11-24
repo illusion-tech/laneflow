@@ -426,21 +426,21 @@ Movement 的方向 Modify。方向缺失、显式零和其他合法值不能彼�
    未完成本节闭合的差异制品不得用于发布候选或跨修订认证；目标修订仍由完整 LFCA
    重建，差异表本身不授予迁移权限。
 
-### 4.4 LFSM 4 来源编码与闭合
+### 4.4 LFSM 来源编码与闭合
 
-本节与 §4.3 一同构成格式增量；复用[规范制品格式][portable-artifact]
-§4 的完整 LFSM 表形状，仅替换本节明确列出的版本、代码登记和投影。
-`magic="LFSM"`、`sourceMapFormatVersion=4`，仍为五节、八张逻辑表，首节偏移
+本节登记路权策略的来源代码和投影。完整的现行对象版本与属性路径由
+[规范制品格式][portable-artifact] §1、§4 统一登记。
+`magic="LFSM"`、`sourceMapFormatVersion=5`，仍为五节、八张逻辑表，首节偏移
 `0x0098`；section format 2、table schema 1、SourceLocation tag 1–21 不变。
 SourceMapBindings tag 3 固定为 LFCA 5，先验证其 exact length、digest、revision 及
-§8 合同组合，再暴露来源行。SourceModule 的 Synthetic/RoadEditing frontendVersion
-分别为 5/4，sourceLanguage 仍为 1/2；文档集合与来源集合摘要算法均保持版本 1。
-不接受用 LFSM 3、Road Editing v3 路径登记或旧 frontend version 描述新登记。
+现行格式组合，再暴露来源行。SourceModule 的 Synthetic/RoadEditing frontendVersion
+均为 5，sourceLanguage 分别为 1/2；文档集合与来源集合摘要算法均保持版本 1。
+读取时按现行登记核对 LFSM、道路编辑来源与前端版本。
 
-#### 4.4.1 Road Editing v4 的 container/member 登记
+#### 4.4.1 道路编辑来源的策略 container/member 登记
 
-LFRE `format_version=4`，现行 schema 的字段及 LFSM table container code 0–39
-保持含义；新增和扩展如下。`id` 为 FlatBuffers field id，同时是 TableField 的
+LFRE `format_version=5`。路权策略占用 LFSM table container code 40–44，
+其字段及关联表扩展如下。`id` 为 FlatBuffers field id，同时是 TableField 的
 `memberCode`，不是 LFCA field tag。字符串、引用、集合与数值语义服从 §2–§3。
 
 | containerCode | table               | 新增 field id、名称及来源类型                                                                                                                                                                                          |
@@ -848,8 +848,9 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 
 ## 8. 原子版本矩阵
 
-下表记录实施前基线与完整 #284 的唯一切换组合。现行 writer/reader 共同实现右列
-版本；共享静态路网完整校验和解析策略实体、局部成员表与 Movement 方向属性，正式世界
+下表记录 #284 实施前后的版本。后续 #1516 将 LFSM 和道路编辑来源／前端升至 5；
+现行对象组合见[规范制品格式 §1][portable-artifact]。
+共享静态路网完整校验和解析策略实体、局部成员表与 Movement 方向属性，正式世界
 安装、固定步进、快照和切换共同消费这些输入。不得拆分版本组合或恢复分阶段能力
 保护；普通生命周期命令仍须证明 interior authority，不能凭位置伪造 reservation。
 
@@ -882,7 +883,7 @@ runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒�
 边界见快照合同 §2.1 与换道合同 §9。两项分别验收，并在同一实现交付中核对
 联用状态、旧版本拒绝及失败零发布。
 
-几何计算和浮点量化算法未变，其独立 geometry semantics 版本保持不变。
+#284 沿用了当时的几何语义。#1516 的原生曲线求值使用几何语义版本 2。
 
 旧 LFRS、LFCA、LFSM、LFSD、Road Editing 与 catalog reader 同批次删除或替换；
 不写转换器、不双写、不用 feature flag 选择旧路径。重新生成参考制品与 codegen，
@@ -926,7 +927,7 @@ runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒�
 - 独立 checker 拒绝漏掉成员/整节、错 owner/kind、错侧/同值载荷、重复 K（包括跨
   chunk）、错误稳定引用与格式轴；覆盖 Bytes 内层计数超限和失败后重试。验证声明
   顺序置换产生同一 canonical LFSD；不把两端摘要匹配当成变化清单完整的证明。
-- LFSM 4 为 policy Declaration、四类 OwnerLocal 主位置及每类字段路径建立固定
+- LFSM 5 为 policy Declaration、四类 OwnerLocal 主位置及每类字段路径建立固定
   wire 向量；包含法规嵌套属性、Movement 方向和 optional canvas。覆盖两个正式
   前端、相同 key 跨种类、来源成员重排、空集合、多 policy 和跨 chunk 定位。
 - LFSM 独立 checker 拒绝角色与来源关系代码混用、错误 container/member/路径边、

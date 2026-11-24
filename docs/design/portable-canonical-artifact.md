@@ -31,7 +31,7 @@ related = ["adr-0010", "adr-0024", "adr-0025", "adr-0028", "adr-0029", "design-c
 
 LFCA 5 的策略表和机动方向按
 [`traffic-runtime-right-of-way-policy.md`][right-of-way] §4.1 登记。
-该实施合同 §4.3、§4.4、§8 还约束 LFSD 4、LFSM 4 与运行时的整体升级；单个格式
+该实施合同 §4.3、§4.4、§8 还约束策略的差异语义、来源映射与运行时的整体升级；单个格式
 登记不代表策略编制、共享静态路网或冲突裁决已经交付，完整组合必须按该合同原子发布。
 
 对象集合只有四种。LFCA、LFSM 与 LFSD 使用同一套分块节格式；LFCP 继续使用
@@ -40,7 +40,7 @@ LFCA 5 的策略表和机动方向按
 | 对象           | magic  | 对象版本 | 节数 | 逻辑表种类 | 作用                                               |
 | -------------- | ------ | -------: | ---: | ---------: | -------------------------------------------------- |
 | 可移植规范制品 | `LFCA` |        5 |    8 |         38 | 目标无关的规范静态路网语义与编译 provenance        |
-| 来源映射       | `LFSM` |        4 |    5 |          8 | LFCA 实体、owner-local occurrence 与来源位置的映射 |
+| 来源映射       | `LFSM` |        5 |    5 |          8 | LFCA 实体、owner-local occurrence 与来源位置的映射 |
 | 语义差异       | `LFSD` |        4 |    7 |          7 | 两个受绑定 LFCA 修订之间的可重算语义差异           |
 | 规范发布描述符 | `LFCP` |        2 |    3 |          3 | LFCA/LFSM exact bytes 与发布 provenance 的最小闭合 |
 
@@ -53,7 +53,7 @@ identityRegistryRevision              = 4
 networkRevisionDerivationVersion      = 1
 constraintContractVersion             = 3
 staticExecutionContractVersion        = 5
-sourceMapFormatVersion                = 4
+sourceMapFormatVersion                = 5
 semanticDiffFormatVersion             = 4
 canonicalPublicationDescriptorVersion = 2
 ```
@@ -326,7 +326,7 @@ An ObjectPreambleV1 is formatted as follows:
 | 结构                         | offset |   宽度 | 字段                       | 约束                                   |
 | ---------------------------- | -----: | -----: | -------------------------- | -------------------------------------- |
 | `ObjectPreambleV1`           | `0x00` |      4 | `magic`                    | 对象专用 ASCII magic                   |
-|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM=4，LFSD=4，LFCP=2         |
+|                              | `0x04` |      2 | `formatVersion`            | LFCA=5，LFSM=5，LFSD=4，LFCP=2         |
 |                              | `0x06` |      2 | `headerByteLength`         | `32`                                   |
 |                              | `0x08` |      4 | `flags`                    | `0`                                    |
 |                              | `0x0c` |      4 | `sectionCount`             | 对象登记节数                           |
@@ -1030,9 +1030,9 @@ NetworkRevisionIdV1 := SHA-256(
 
 ## 4. LFSM 5
 
-#284 的 LFSM 4 完整登记见
+#284 引入的路权策略来源登记见
 [`traffic-runtime-right-of-way-policy.md` §4.4][right-of-way-lfsm]：
-包含 Road Editing v4 container/member、来源关系代码、policy 与局部成员的主来源和
+包含策略的 container/member、来源关系代码、policy 与局部成员的主来源和
 贡献来源投影。格式层提供 `ValidatedSourceMapInput::policy_sources()` 和独立
 `check_portable_policy_sources`；两个正式前端的非空策略生产由 W2 接续。
 
@@ -1155,7 +1155,7 @@ SHA-256(
 `roadEditingSubjectKind` 固定为 `0=ModuleHeader, 1=RoadAlignment, 2=Declaration,
 3=OwnerLocal`；`occurrenceKind` 固定为 `0=OrderedProductOrdinal,
 1=CanonicalSetOrdinal`；`stepKind` 固定为 `0=TableField, 1=StructMember,
-2=UnionVariant`。Road Editing 的 container/member 闭合集以 Road Editing v4 schema 和
+2=UnionVariant`。Road Editing 的 container/member 闭合集以 Road Editing v5 schema 和
 [`road-editing-source-and-geometry-frontend.md`][road-editing]
 冻结的 property-path 登记为准，LFSM 不接受未登记的自由组合。
 
@@ -1187,8 +1187,8 @@ container code 与可用 field id 为：
 ```text
  0 RoadEditingSource[0..29]       1 ModuleHeader[0..3]
  2 Provenance[0..5]               3 LineSegment[0]
- 4 CubicBezierSegment[0..2]       5 CurveSegment[0..2]
- 6 CurveProgram[0..1]             7 RoadAlignment[0..3]
+ 4 CubicBezierSegment[0..2]       5 CurveSegment[0..4]
+ 6 CurveProgram[0..2]             7 RoadAlignment[0..3]
  8 CorridorElement[0..1]          9 RoadCorridor[0..8]
 10 RoadSection[0..4]             11 AuthoringLane[0..6]
 12 LaneEdge[0..4]                13 Junction[0..3]
@@ -1207,7 +1207,8 @@ container code 与可用 field id 为：
 38 ConflictPassage[0..2]         39 ParticipantStream[0..4]
 40 RightOfWayPolicySet[0..6]     41 PolicyEvidence[0..2]
 42 PolicyGapProfile[0..4]        43 PolicyStreamRule[0..6]
-44 PolicyGateRule[0..5]
+44 PolicyGateRule[0..5]          45 CircularArcSegment[0..2]
+46 ClothoidSegment[0..3]
 ```
 
 code 23 是 `ParkingFacility`，不接受 `ParkingArea` 名称；新增 source table 的 field id
@@ -1224,13 +1225,15 @@ ConflictZoneRegion: 0 conflict_zone, 1 canonical_frame, 2 min_y, 3 max_y,
 
 struct container code 为 `0 Digest256[0] / 1 OptionalU64[0] / 2 Vec3F64[0..2] /
 3 LinearWidthProfile[0..1] / 4 Vec2F64[0..1]`；union container 只有
-`0 CurveSegmentGeometry`，合法 discriminant 为 `1 LineSegment / 2 CubicBezierSegment`。
+`0 CurveSegmentGeometry`，合法 discriminant 为 `1 LineSegment / 2 CubicBezierSegment /
+3 CircularArcSegment / 4 ClothoidSegment`。
 
-单步 `TableField` 只要命中上表已登记 field 就是完整 path。多步 path 只能沿下列 v4 schema
+单步 `TableField` 只要命中上表已登记 field 就是完整 path。多步 path 只能沿下列 v5 schema
 边继续，任何前缀、跨表拼接或未列边失败关闭：
 
 - table→struct：`Provenance.{2,3}->Digest256`、`Provenance.4->OptionalU64`、
   `CurveProgram.0/LineSegment.0/CubicBezierSegment.{0,1,2}->Vec3F64`、
+  `CurveSegment.4->Vec3F64`、`CurveProgram.2->Vec2F64`、
   `AuthoringLane.3/FacilityBand.2->LinearWidthProfile`、
   `ConflictZoneRegion.4->Vec2F64`；
 - table→table：`ModuleHeader.3->Provenance`、`RoadAlignment.2/LaneEdge.3->CurveProgram`、
@@ -1242,15 +1245,15 @@ struct container code 为 `0 Digest256[0] / 1 OptionalU64[0] / 2 Vec3F64[0..2] /
   以及 `RightOfWayPolicySet.1->AccessRegulation`、`RightOfWayPolicySet.{2,3,4,5}`
   分别到 `PolicyEvidence/PolicyGapProfile/PolicyStreamRule/PolicyGateRule`；
 - union：`CurveSegment.1 -> CurveSegmentGeometry(1) -> LineSegment.0 -> Vec3F64 member`，
-  或 discriminant 2 后接 `CubicBezierSegment.{0,1,2} -> Vec3F64 member`。
+  discriminant 2 后接 `CubicBezierSegment.{0,1,2} -> Vec3F64 member`；
+  discriminant 3 或 4 分别接 `CircularArcSegment.{0,1,2}` 或 `ClothoidSegment.{0,1,2,3}` 标量字段。
 
 多步总长仍为 `1..=4`。第一步必须从 SourceLocation subject 的 root container 可达；
 Declaration root 是其 entity kind 同名 table，RoadAlignment root 是 RoadAlignment，
 OwnerLocal root 由 relation kind/owner 决定。因每一步单独合法而接受不可达组合仍是格式错误。
 
 **LFRE 5 的路径增量（#1516）。** 原生曲线的字段和值域见
-[道路编辑来源 §6.1][road-editing-native]。上述登记覆盖 LFSM 4 的字段；
-新增路径随 LFSM 5 一次切换，仍用五节、八类逻辑表和最多四步的属性路径。
+[道路编辑来源 §6.1][road-editing-native]。原生段沿用五节、八类逻辑表和最多四步的属性路径。
 
 - table container 45 表示 `CircularArcSegment[0..2]`，46 表示
   `ClothoidSegment[0..3]`。段的 OwnerLocal subject 继续使用 relation 1 和有序段序号。
@@ -1282,7 +1285,7 @@ RoadEditing 变体的 optional 字段还受以下闭合矩阵约束：
 | `Declaration(2)`   | tag 10 `moduleNamespace`、tag 11 `entityKind`、tag 15 `localKey`                              | owner-local tag 16..19 禁止；tag 12..14 按实体 owner 深度连续出现；tag 20/21 可选                                                                                            |
 | `OwnerLocal(3)`    | tag 16 `ownerKind`、17 `roadEditingRelationKind`、18 `occurrenceKind`、19 `occurrenceOrdinal` | `ownerKind=0(ModuleHeader)` 禁止 tag 10..15；`ownerKind=1(Address)` 要求 tag 10/15，tag 11 仅 Declaration owner 存在；tag 12..14 按 owner 深度连续；tag 20 必需，tag 21 可选 |
 
-`propertySteps` 必须有 `1..=4` 行并构成 Road Editing v4 登记的一条完整可达路径，不能只因
+`propertySteps` 必须有 `1..=4` 行并构成 Road Editing v5 登记的一条完整可达路径，不能只因
 各 step 单独合法就拼接。`sourceLanguage` 只允许 `1=SyntheticDsl` 与
 `2=RoadEditingSource`；LFSM 5 对两者均要求 `frontendVersion=5`。
 前者只允许 Text 且 `SourceDocument.displaySource` 必须缺失，后者只允许 RoadEditing 且
@@ -1458,7 +1461,7 @@ subject occurrence rank 保留重复基数；`domain` 的位置属于语义顺�
 Geometry，不生成 RelationChange（第 5 节）。
 
 role 21 的名称固定为 `ParkingSpaceFacility`。设施声明、`virtualCapacity` 和每个 anchor
-都必须回指 exact Road Editing v4 property path。anchor 先按
+都必须回指 exact Road Editing v5 property path。anchor 先按
 `(LaneEdge StableId128, progressMillimetres)` 规范排序，因此来源 vector 顺序不能改变
 canonical localIndex。同一 role 内该完整二元组必须唯一；两个来源进度量化到同一毫米也
 视为重复。同一边上的不同毫米位置以及 entry/exit 两个不同 role 不冲突。
@@ -1467,7 +1470,7 @@ RoadEditing primary-source projection 不是“任一合法 property path”。�
 的唯一来源语义；`Declaration` 表示目标 declaration 的位置，`OwnerLocal` 表示相应 owner
 关系 occurrence 的位置，set/domain 的 occurrence kind 必须与本节 role 表一致：
 
-| role | Road Editing v4 primary source projection                                                                |
+| role | Road Editing v5 primary source projection                                                                |
 | ---: | -------------------------------------------------------------------------------------------------------- |
 |    1 | LaneEdge owner 的 `successors[canonical localIndex]` OwnerLocal                                          |
 |    2 | RoadCorridor owner 的 `elements[localIndex]` OwnerLocal                                                  |
@@ -1507,7 +1510,7 @@ StableId 最小、且 internal-edge occurrence 序列包含该 subject edge 的 
 替代或改变 filtered-row `localIndex`；不存在候选或无法得到唯一投影时失败关闭。选择只从
 绑定 LFCA 稳定身份和关系重算，不能使用 LFSM 自报路径打破平局。
 
-role 30–32 的 Road Editing v4 primary-source projection 固定为：
+role 30–32 的 Road Editing v5 primary-source projection 固定为：
 
 | role | primary declaration / owner-local path                                                                      |
 | ---: | ----------------------------------------------------------------------------------------------------------- |
@@ -1913,7 +1916,7 @@ CanonicalArtifactBinding(0x0001):
   5:canonicalArtifactByteLength:u64:R
 
 SourceMapBinding(0x0001):
-  1:sourceMapFormatVersion:u16:R (=4)
+  1:sourceMapFormatVersion:u16:R (=5)
   2:sourceMapDigest:Sha256:R
   3:sourceMapByteLength:u64:R
   4:compilerBuildId:Utf8:R
@@ -2024,8 +2027,8 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 
 公共格式实现必须原子满足：
 
-1. 当前 Road Editing wire v4、Road Editing frontend 4、Synthetic frontend 5、Identity registry
-   revision 4、LFCA 5、LFSM 4 与 LFSD 4；
+1. 当前 Road Editing wire v5、Road Editing frontend 5、Synthetic frontend 5、Identity registry
+   revision 4、LFCA 5、LFSM 5、LFSD 4 与 LFCP 2；
 2. schema clean regeneration，删除 `ParkingArea` reader/writer/public symbol，加入冲突
    静态声明，不保留 alias、双读、双写或迁移 façade；
 3. `laneflow-static-contract` 机器登记表、chunk directory 与本文逐项一致；
@@ -2058,7 +2061,7 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 | `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败                 |
 | `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                    |
 
-这些向量必须原子保持 LFCA/LFSM/LFSD/LFCP `5/4/4/2`；不得把旧版本 bytes 当作当前成功向量，
+这些向量必须原子保持 LFCA/LFSM/LFSD/LFCP `5/5/4/2`；不得把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。
 
 确定性矩阵至少覆盖 Windows x86-64 与 Ubuntu x86-64、single-thread 与 compiler 支持的全部
@@ -2085,7 +2088,7 @@ ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择�
 [right-of-way]: traffic-runtime-right-of-way-policy.md
 [traffic-runtime-integer-geometry]: traffic-runtime-integer-geometry.md
 [numeric-representation]: numeric-representation.md
-[right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-4-来源编码与闭合
+[right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [road-editing]: road-editing-source-and-geometry-frontend.md
 [road-editing-native]: road-editing-source-and-geometry-frontend.md#native-plan-curves
 [right-of-way-lfsd]: traffic-runtime-right-of-way-policy.md#43-lfsd-4-策略局部成员变更

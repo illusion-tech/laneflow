@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-integer-geometry"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-24"
 summary = "定义整数毫米运动、速度与停止约束。"
 scope = "TrafficWorld 已提交一维几何与速度、WorldConfig 步长、 laneflow-static-network 热列、LFCA 长度/速度字段、compiler Typed AST / HIR / MIR / LIR 交通一维存储、公开 Canonical*View、compiler 边长派生、 Spatial 采样钉死端点"
 applicability = "#applicability"
@@ -455,9 +455,9 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 `networkRevisionDerivationVersion` **保持 `1`**（§4.2 组帧与
 `"laneflow.network-revision.v1\0"` 未改；毫米载荷与路线表删除会改变 ID，不必新算法）；
 `identityEncodingVersion` 保持 `1`，`identityRegistryRevision = 4`。
-版本已随 #284 格式登记更新，完整版本矩阵见路权策略实施合同 §8。
+当前对象版本见[可移植规范制品格式 §1][portable-format-versions]。
 公开 API 不带世代后缀。读取器拒绝 `formatVersion != 5`。
-旧米制表与旧读取器不进当前树。LFSM `sourceMapFormatVersion = 4`，
+旧米制表与旧读取器不进当前树。LFSM `sourceMapFormatVersion = 5`，
 `canonicalArtifactFormatVersion` 等于所绑 LFCA。LFSD `semanticDiffFormatVersion = 4`。
 Genesis 的 target 合同行必须与所绑 LFCA 一致；Artifact 两端合同行仍须相等。走廊按
 Genesis 重生，不做格式迁移 diff。
@@ -604,3 +604,5 @@ Genesis 重生，不做格式迁移 diff。
 - 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`。
 - 把规范折线点、段长、弧长或时间/字节长度改成毫米正本。
 - #500 G1 改生产代码或重生 fixture。
+
+[portable-format-versions]: portable-canonical-artifact.md#1-规范结论

@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-numeric-representation"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-09"
+revised_date = "2026-11-24"
 summary = "定义编制、交通与空间数值表示的分层。"
 scope = "数值分层、误差预算、compiler 前端几何正本，以及已提交整数毫米合同"
 applicability = "#applicability"
@@ -74,7 +74,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | LFRE 解析几何输入硬范围                     | `f64`                                                | compiler / 静态契约（static contract）   | 编制解析曲线控制点各分量在 `[-16_384, 16_384] m`；corridor start 有限且 `>= 0`，Finite end 有限、`> 0` 且严格大于 start，AlignmentEnd end 必须是 bit-exact `+0.0`；宽度两端有限且 `>= 0`，并且不能同时为零                                                                                                                  |
 | LFRE 非几何交通/静态标量                    | wire `f64`；准入后为 mm / 受检 `f32`                 | 私有 wire / schema；准入后为 compiler IR | LFRE wire 的限速、Parking、`VehicleProfile` 等为编制 `f64`（限速有限且严格 `> 0`）。准入先量化再闭包。之后 Typed AST / HIR / MIR / LIR 存整数毫米或受检 `f32` SI，发射只写已提交值。几何路径的「禁用后端窄化」不适用于交通一维准入量化。                                                                                    |
 | Parking / VehicleProfile 硬范围             | 编制 `f64` → 量化毫米 / `f32`                        | compiler / 静态契约（static contract）   | 先量化再闭包：停车锚点相对 **提交后** 边长 `L` 为 `1 <= p <= L-1` mm，横向绝对值 `1..=128_000` mm，长/宽与车长 `100..=128_000` mm，朝向量化并折叠后 `-π <= x < π`；期望车速 `1..=100_000` mm/s，时距 `(0, 60]` s，三项加减速 `0.5..=50` m/s²，min gap `0..=128_000` mm，emergency ≥ comfort                                 |
-| LFRE enum / union 判别值                    | `u8`（wire `ubyte`）                                 | 私有 wire / schema                       | Road Editing v4 合法代码由 exact schema 冻结；unknown 均无效，零值按枚举定义判断。Straight、Uncontrolled、GateProhibition::None 的显式零值合法并保留字段存在性；Unspecified 与 union NONE 仍无效，新增或改义判别值必须提升来源格式版本                                                                                      |
+| LFRE enum / union 判别值                    | `u8`（wire `ubyte`）                                 | 私有 wire / schema                       | Road Editing v5 合法代码由 exact schema 冻结；unknown 均无效，零值按枚举定义判断。Straight、Uncontrolled、GateProhibition::None 的显式零值合法并保留字段存在性；Unspecified 与 union NONE 仍无效，新增或改义判别值必须提升来源格式版本                                                                                      |
 | 来源链（provenance）`Digest256`             | `[u8; 32]`（wire `[ubyte:32]`）                      | 私有 wire / schema                       | `parameters_and_inputs_digest` / `frontend_options_digest` 固定为原始 32 bytes；Direct 来源链还要求 generator build ID 为 `laneflow-road-editing-direct-v1`，两个 digest 分别精确为 `6b27d0f76693bcd386ac13df724e30f5fb5ad3b9a152a5e1f88de1a624cea8aa` / `b1621e4a2db8d717b6506b0afb6fef5bd4d5156ecfe887c5abf36d08869c7892` |
 | compiler 来源前端选择器                     | `u16`（`SourceLanguage`）                            | compiler 来源描述符                      | `SourceLanguage` 连续登记为 `1=SyntheticDsl, 2=RoadEditingSource`，不得与 LFRE wire format version 混同                                                                                                                                                                                                                     |
 | compiler 来源描述符版本                     | `u32`                                                | compiler 来源描述符                      | SyntheticDsl `frontendVersion = 5`；RoadEditingSource `frontendVersion = 5`（原生曲线）；`SOURCE_DOCUMENT_SET_DIGEST_VERSION = 1`。前端版本与文档集摘要版本是不同版本轴，均精确匹配，不并存旧读法                                                                                                                           |

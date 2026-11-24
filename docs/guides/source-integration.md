@@ -3,7 +3,7 @@ schema_version = 1
 id = "guides-source-integration"
 kind = "guide"
 status = "active"
-revised_date = "2026-11-15"
+revised_date = "2026-11-24"
 summary = "指导从源码接入无窗口交通运行时。"
 scope = "指导从源码接入无窗口交通运行时。"
 applicability = "#applicability"
@@ -29,7 +29,7 @@ registry 安装，也不把仓库相对路径写成安装后仍然有效。外�
 [当前能力与限制][capabilities]。首次 Alpha 的范围、稳定性、平台和
 公开支持矩阵不在这里写。
 
-可移植对象的现行版本是 LFCA 5 / LFSM 4 / LFSD 4 / LFCP 2。下面用到的文件名
+可移植对象的现行版本是 LFCA 5 / LFSM 5 / LFSD 4 / LFCP 2。下面用到的文件名
 `v0.2-signalized-corridor` 是检入场景制品名，不是格式版本。
 
 ## 先运行
