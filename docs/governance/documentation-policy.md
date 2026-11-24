@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-documentation-policy"
 kind = "governance"
 status = "active"
-revised_date = "2026-11-17"
+revised_date = "2026-11-24"
 summary = "规定仓库文档、协作平台与研究资料的职责边界。"
 scope = "LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文"
 +++
@@ -66,6 +66,14 @@ PR 是合并把关环节，不是设计文档替代品。
 
 PR 默认通过合并队列（Merge Queue）进入 `main`，队列最终使用 **Rebase** 保持线性历史；
 入队、失效与例外边界详见 `github-workflow.md` 第 7 节。
+
+<a id="doc-state-at-merge"></a>
+#### 提审时的文档状态
+
+正式文档送审时，按本 PR 通过并合入后主线应表达的事实填写页头和正文，并在同一 PR 重新生成受影响的索引。
+以接受 ADR 或冻结设计为合入条件的 PR，提审版本就写 `status = "accepted"`，并在正文保留尚待实施或验收的范围。
+审阅进度在 GitHub 查看。若主线本次交付的就是一份仍待讨论或另行裁决的草案，则按实际用途保留 `draft` 或 `review`。
+审阅改变结论时，先更新同一 PR 的文档与索引，再合入。可选的 `decision_date` 只填写有依据的实际裁决日期。
 
 ### Projects
 
