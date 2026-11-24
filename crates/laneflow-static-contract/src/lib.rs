@@ -10,6 +10,7 @@ mod policy;
 mod portable;
 mod portable_registry;
 mod registry;
+mod station;
 mod typed;
 mod values;
 
@@ -46,6 +47,7 @@ pub use registry::{
     EntityCategory, EntityKind, FieldEncoding, FieldTag, IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC,
     IDENTITY_REGISTRY_REVISION, STABLE_ID_DOMAIN_PREFIX,
 };
+pub use station::{StationSpan, StationSpanError};
 pub use typed::{
     AccessRuleId, AccessRuleKind, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneKind,
     AuthoringLaneOrdinal, CanonicalFrameId, CanonicalFrameKind, CanonicalFrameOrdinal,
