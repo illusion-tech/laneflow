@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
+use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_static_contract::{
     AccessEffect, AccessRuleKind, AuthoringLaneKind, CANONICAL_POINT_COMPONENT_MAX_METERS,
     CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameKind, ConflictZoneKind, EntityKind,
@@ -534,6 +535,10 @@ pub struct LinearWidthProfile {
 }
 
 impl LinearWidthProfile {
+    fn from_wire(width: &wire::LinearWidthProfile) -> Result<Self, DiagnosticBundle> {
+        Self::try_new(width.start_width_meters(), width.end_width_meters())
+    }
+
     /// 构造线性宽度配置；起止宽度必须非负且不同时为零。
     ///
     /// # Errors
@@ -1363,13 +1368,11 @@ impl AuthoringLaneInput {
                 })
             })
             .transpose()?;
-        use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
         let direction = match lane.direction() {
             wire::LaneDirection::Forward => RoadEditingLaneDirection::Forward,
             wire::LaneDirection::Backward => RoadEditingLaneDirection::Backward,
             _ => unreachable!("reader verified lane direction"),
         };
-        let width = lane.width_profile();
         let result = Self {
             authoring_lane_key: key.into(),
             edge_chain: edges
@@ -1383,10 +1386,7 @@ impl AuthoringLaneInput {
                 .collect(),
             interior_cut_stations_meters: cuts.iter().collect(),
             direction,
-            width_profile: LinearWidthProfile::try_new(
-                width.start_width_meters(),
-                width.end_width_meters(),
-            )?,
+            width_profile: LinearWidthProfile::from_wire(lane.width_profile())?,
             road_section: section.clone(),
             lane_group,
             canvas_selection: lane.canvas_selection().map(Box::from),
@@ -1406,6 +1406,11 @@ impl AuthoringLaneInput {
     #[must_use]
     pub const fn width_profile(&self) -> LinearWidthProfile {
         self.width_profile
+    }
+
+    /// 替换该车道的线性宽度配置。
+    pub fn set_width_profile(&mut self, width_profile: LinearWidthProfile) {
+        self.width_profile = width_profile;
     }
 
     /// 返回可选车道组成员引用。
@@ -2466,6 +2471,51 @@ pub struct FacilityBandInput {
 }
 
 impl FacilityBandInput {
+    /// 从受检来源模块按所属走廊与局部键读回设施带。未找到时返回空。
+    ///
+    /// # Errors
+    ///
+    /// 来源验证失败或读取所需资源超限时返回诊断。
+    pub fn read_from(
+        input: super::RoadEditingModuleInput<'_>,
+        corridor: &RoadCorridorReference,
+        key: &str,
+        limits: &crate::CompileProfile,
+    ) -> Result<Option<Self>, DiagnosticBundle> {
+        use crate::ledger::{Ledger, LedgerStage, PassLabel, Plan};
+        let ledger = Ledger::new(limits.operation_budget());
+        let verified = super::reader::verify_source_in(input, limits, 0, 0, &ledger)?;
+        if corridor.module_namespace().is_some() {
+            return Ok(None);
+        }
+        let Some(band) = verified.root().facility_bands().iter().find(|band| {
+            band.facility_band_key() == key && band.road_corridor() == corridor.local_key()
+        }) else {
+            return Ok(None);
+        };
+        let plan = Plan::ZERO.array::<u8>(
+            key.len()
+                + corridor.local_key().len()
+                + band.kind_id().len()
+                + band.canvas_selection().map_or(0, str::len),
+        );
+        let pass = ledger.admit_pass(
+            PassLabel::new(LedgerStage::Admission, "road-editing-read-facility-band"),
+            plan,
+        )?;
+        let grant = pass.grant_bytes(plan.bytes().unwrap_or(u64::MAX))?;
+        let result = Self {
+            facility_band_key: key.into(),
+            kind_id: band.kind_id().into(),
+            width_profile: LinearWidthProfile::from_wire(band.width_profile())?,
+            road_corridor: corridor.clone(),
+            canvas_selection: band.canvas_selection().map(Box::from),
+        };
+        drop(grant);
+        pass.finish(0)?;
+        Ok(Some(result))
+    }
+
     /// 构造设施带声明并校验键与设施类别。
     ///
     /// # Errors
@@ -2511,6 +2561,11 @@ impl FacilityBandInput {
     #[must_use]
     pub const fn width_profile(&self) -> LinearWidthProfile {
         self.width_profile
+    }
+
+    /// 替换该设施带的线性宽度配置。
+    pub fn set_width_profile(&mut self, width_profile: LinearWidthProfile) {
+        self.width_profile = width_profile;
     }
 
     /// 返回所属道路走廊引用。
