@@ -28,8 +28,8 @@ related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-c
 
 本文定义 `TrafficWorld` 的路线定义、校验、生命周期与 traversal 合同。车辆运动状态见
 [`vehicle-following.md`][vehicle-following]；路线不得终止在声明 StopLine 的 edge 上；
-路线注册期编译 ManeuverPath/Gate/WaitingZone occurrence。车辆绑定路线时按实际车型和
-当前路线下标检查可达后缀的静态准入与可行性。直接注册与带来源绑定的候选注册共用
+路线注册期编译 ManeuverPath/Gate/WaitingZone occurrence。车辆绑定时，以当前路线下标为起点，
+按实际车型检查可达后缀的静态准入与可行性。直接注册与带来源绑定的候选注册共用
 同一个出现记录编译器（ADR 0029）。
 
 ### 与停车的关系
@@ -213,7 +213,7 @@ resolver，查调用方自己的表（ADR 0029）。
 route system 只消费调用方提供的 explicit route。它不计算最短路、最快路、随机路径或交通感知路径。
 
 给定起终车道和车辆配置时，宿主可以在同一修订内选路，再向世界提交显式边序列。
-车型禁行、图上不可达和 Runtime 拒绝绑定对应不同的失败原因。
+宿主区分搜索时的车型禁行与拓扑不连通。Runtime 拒绝注册或绑定时，宿主保留对应命令的错误。
 参见[宿主按起终车道和车型静态选路][host-static-routing]。
 
 后续若由 LaneFlow 提供可复用的规划器，应单独设计：
