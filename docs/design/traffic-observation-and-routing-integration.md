@@ -5,10 +5,10 @@ kind = "design"
 status = "accepted"
 revised_date = "2026-11-24"
 summary = "定义交通观测、动态成本与宿主候选路线接入。"
-scope = "已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
+scope = "宿主按车型静态选路、已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/303", "https://github.com/illusion-tech/laneflow/issues/1532"]
-related = ["adr-0020", "adr-0021", "adr-0029", "adr-0033", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/303", "https://github.com/illusion-tech/laneflow/issues/1532", "https://github.com/illusion-tech/laneflow/issues/1539", "https://github.com/illusion-tech/laneflow/issues/1540"]
+related = ["adr-0020", "adr-0021", "adr-0029", "adr-0033", "design-shared-static-network", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
 +++
 
 # 交通观测与 Routing 接入
@@ -68,40 +68,35 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 <a id="host-static-routing"></a>
 ### 1.1 宿主按起终车道和车型静态选路
 
-发车前、同一修订内的静态选路采用方案 1，沿用现有公开查询，由宿主选路，以示例说明接入方法。
-LaneFlow 负责共享静态路网的公开查询、Runtime 的路线与车辆准入，以及项目示例中的接入代码。
-宿主在固定步进之外维护自己的搜索、成本模型、同成本取舍和诊断。[产品设计任务][issue-1532]
+发车前、同一修订内的静态选路采用方案 2。LaneFlow 在共享静态路网中维护
+[单边合法转移查询][static-route-steps]，宿主在固定步进之外决定目的地、搜索算法、成本与
+同成本路线的取舍。该查询由 [#1540][issue-1540] 实现，交付前公开 API 仍提供底层后继、
+机动和准入查询。已有规划器可以继续提交自己的显式边序列。
 
-已有规划器继续使用原入口。同一修订内算出的静态边序列交给 `register_route`，使用已提交
-观测或动态成本快照的候选走 §4 的 `register_candidate_route`。现有调用方无需迁移。
-自行搜索的宿主负责组合四项规则。
+选择这一边界的原因是 `successors` 同时包含普通后继和机动的各跳。两条机动可以共用
+首跳和出口，而只有其中一条允许货车通过。按首跳合并候选会漏掉合法机动，只逐边检查
+通行资格又会把禁行机动放行。零内部边机动同样受路径准入限制。[原有宿主验证][issue-1532]
+表明外部 Rust 调用方能用底层接口实现这些规则，每个宿主都要重做相同的判定。把判定放回
+共享静态路网后，宿主按返回的普通后继或完整机动扩展路线即可。
 
-1. **验证端点和车型。** 在同一修订解析起终车道和车辆配置，从配置取参与者类别。
-   起点和终点均须是路口内部以外的有向车道图边，终点边不得带停止线，行程到该边出口结束。
-   未知标识或不支持的端点应在搜索前单独报告。
-2. **区分普通后继与完整机动。** `successors` 也包含机动的各跳。对当前边查询
-   `transition_candidates`，将其中的跳从普通后继分支排除。对 `transition_index() == 0`
-   的每个入口候选分别读取 `maneuver_path(...).edges()`，从当前边接上该机动余下的完整序列。
-   机动禁行时，不能把同一首跳当普通后继重新放回搜索。共用首跳的其他机动仍应各自判断。
-3. **检查整条路线的通行资格。** 对起点边、普通后继边、机动的入口边、内部边、出口边以及
-   终点边都检查 `edge_access`。每个完整机动还须检查 `path_access`。两种查询都返回已解析的
-   裁决，只有无约束或明确放行的单元可用于该车型。越界返回的 `None` 不能当作无约束。
-   类别继承和规则优先级由 LaneFlow 解析。
-4. **区分车型禁行与图上不可达。** 若要区分这两种结果，需知道同一拓扑在忽略车型限制时
-   是否可达。验证宿主只在带车型的搜索无解后再查一次，保留端点和完整机动规则，
-   只去掉边和机动的车型过滤。此时找到路说明车型禁行，穷尽可达范围仍无路说明拓扑不连通。
+1. **解析起终点与车型。** 从同一修订解析两端的车道图边和车辆配置，从配置取得参与者类别。
+   起终边均须在路口内部以外，终点边不得带停止线，行程在终点边出口结束。未知标识和
+   不支持的端点单独报告。起终同边时也须确认该边允许这类车辆通行。
+2. **选择路线。** 带参与者类别的查询核对当前边、普通后继、完整机动及其所经各边，
+   包括用于抵达终点的那条边。宿主把每一步返回的边追加一次，按自己的成本和同成本规则
+   选择路线。验证宿主采用整数毫米总长，同长时比较有序边稳定标识的字典序。
+3. **解释无解。** 若要区分车型禁行与拓扑不连通，宿主可在带车型搜索无解后，以相同端点
+   和完整机动规则做一次忽略车型的搜索。此时找到路才说明车型禁行，穷尽可达范围仍无路才说明拓扑不连通。
+   单个起边的空迭代器只说明该处没有合法下一步。
+4. **注册和绑定。** 同一修订内的静态边序列交给 `register_route`。使用已提交观测或动态
+   成本快照的候选走 §4 的 `register_candidate_route`。Runtime 在注册时校验完整机动及其
+   出现记录，绑定时检查实际车型、可达后缀、车身摆放及等待区存储跨度。宿主保留命令的具体错误。
+   例如，已注册路线在生成时可能因车尾落在路线未包含的上游边而返回 `EntranceBody(InDomainTail)`。
+   车辆长于等待区可用跨度时，绑定还可能返回 `WaitingVehicleTooLong`。
 
-这些静态过滤仅是车辆通行的必要条件。Runtime 在注册时校验完整机动及其出现记录，在车辆绑定时
-还检查当前路线下标起的可达后缀、车型和摆放条件。验证中，一条路线已注册，但生成位置的车尾
-落在路线未包含的上游车道，Runtime 返回 `EntranceBody(InDomainTail)`。等待区还受车长与存储
-跨度约束，可能返回 `WaitingVehicleTooLong`。宿主须保留注册或绑定命令的具体错误。
-
-独立 Rust 宿主以源码依赖验证了一个无信号分岔路口。它按整数毫米总长选路，同长时按有序边
-稳定标识的字典序取舍。乘用车和货车分别沿捷径与绕行路线到达。现有查询足以表达这个用例，
-代价是每个自行搜索的宿主都要组合上述规则。若外部接入出现可复现的漏判或重复实现发生分歧，
-可据此重新评估方案 2，把区分普通后继与完整机动的车型过滤收进共享静态路网查询。
-v0.12 的公开支持面由 #1327、#1329 裁定，#1331 是建议复用的宿主示例入口。官方规划器的
-立项与排期留待后续产品决策。公开分发包、复杂路口、等待区车型约束和城市规模搜索均需独立验证。
+LaneFlow 维护查询与官方接入示例，宿主维护选路策略。#1329 清点公开 API，#1327 裁定 v0.12
+Alpha 的支持范围。若 #1331 展示按起终点选路，应在薄查询交付后直接使用它。只演示注册
+既有路线的宿主示例可以独立交付。公开分发包、等待区车长与城市规模搜索仍需各自的验证。
 
 ## 2. 已提交交通观测
 
@@ -782,3 +777,5 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [routing-candidate-admission]: https://github.com/illusion-tech/laneflow/tree/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1267-routing-candidate-admission
 [shared-identity-order]: shared-static-network.md#61-sharedidentityindex
 [issue-1532]: https://github.com/illusion-tech/laneflow/issues/1532
+[issue-1540]: https://github.com/illusion-tech/laneflow/issues/1540
+[static-route-steps]: shared-static-network.md#static-route-steps
