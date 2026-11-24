@@ -68,15 +68,28 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         )
         .unwrap();
         plan.validate(&artifacts).unwrap();
-        // #819 只校准 compiler_controlled_peak_bytes，但完整 manifest 摘要随之改变。
-        // 保持 PR #815 的旧计划摘要不动：比较角色/路线/请求时仅恢复当时的报告绑定。
-        // 生产校验仍要求新计划绑定当前 manifest；归一化后的比较副本不可用于执行。
-        let current_manifest_digest = plan.manifest_digest.clone();
+        // 生产路径已按当前制品校验。比较 PR #815 的角色、路线和请求时，在副本中恢复
+        // 当时的清单绑定（#819）及 LFRE 升版影响的三个制品摘要（#1516）。文件长度、
+        // 路线目录、配置和计划内容仍逐字节比较；生成器测试另行核对当前制品的完整摘要。
         plan.manifest_digest =
             "4ec17200ec09c682124ec08d85e59e3fcaeccbd4611899998021fdbf0211b3ee".into();
-        if current_manifest_digest != plan.manifest_digest {
-            assert!(plan.validate(&artifacts).is_err());
+        for (name, pr815_sha256) in [
+            (
+                "common.lfre",
+                "82b8167c2a8bfb3b06f940d8e73c975d0935fb0841b9373387e8f9a422456109",
+            ),
+            (
+                "topology.lfre",
+                "e64fe0958b6d558abc04af993e7ffd98e5ed97012c936370dcc8bb9e8873f2eb",
+            ),
+            (
+                "network.lfca",
+                "910d0ce5598f213d652f37b786615530981b99fcc482f9712ce49afad12edb4c",
+            ),
+        ] {
+            plan.files.get_mut(name).unwrap().sha256 = pr815_sha256.into();
         }
+        assert!(plan.validate(&artifacts).is_err());
         let bytes = toml::to_string_pretty(&plan).unwrap();
         let mut preimage = b"laneflow:urban-harness-file:v1\0".to_vec();
         preimage.extend_from_slice(bytes.as_bytes());
