@@ -3,10 +3,10 @@ schema_version = 1
 id = "design-route-system"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-09"
+revised_date = "2026-11-24"
 summary = "定义每世界路线、注册与车辆跟随。"
 scope = "route definition、route validation、route lifecycle 和 simple route following 边界"
-related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-road-junction-model", "roadmap"]
+related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-road-junction-model", "design-traffic-observation-and-routing-integration", "roadmap"]
 +++
 
 # Route System 设计
@@ -28,9 +28,9 @@ related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-c
 
 本文定义 `TrafficWorld` 的路线定义、校验、生命周期与 traversal 合同。车辆运动状态见
 [`vehicle-following.md`][vehicle-following]；路线不得终止在声明 StopLine 的 edge 上；
-路线注册期编译 ManeuverPath/Gate/WaitingZone occurrence，并做 (class, Route) 静态准入与
-profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；
-出现记录编译器只服务该入口。
+路线注册期编译 ManeuverPath/Gate/WaitingZone occurrence。车辆绑定路线时按实际车型和
+当前路线下标检查可达后缀的静态准入与可行性。直接注册与带来源绑定的候选注册共用
+同一个出现记录编译器（ADR 0029）。
 
 ### 与停车的关系
 
@@ -212,7 +212,11 @@ resolver，查调用方自己的表（ADR 0029）。
 
 route system 只消费调用方提供的 explicit route。它不计算最短路、最快路、随机路径或交通感知路径。
 
-后续若引入 route planner，应单独设计：
+给定起终车道和车辆配置时，宿主可以在同一修订内选路，再向世界提交显式边序列。
+车型禁行、图上不可达和 Runtime 拒绝绑定对应不同的失败原因。
+参见[宿主按起终车道和车型静态选路][host-static-routing]。
+
+后续若由 LaneFlow 提供可复用的规划器，应单独设计：
 
 - planner 输入和输出是否进入 Traffic Runtime。
 - cost model。
@@ -328,3 +332,4 @@ definition 与 metadata。失败不得留下部分 occurrence 或可观察 alloc
 [parking-system]: parking-system.md
 [lane-change-contract]: lane-change-minimal-contract.md
 [road-junction-model]: road-junction-model.md
+[host-static-routing]: traffic-observation-and-routing-integration.md#host-static-routing
