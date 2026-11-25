@@ -3,7 +3,7 @@ schema_version = 1
 id = "architecture"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-24"
+revised_date = "2026-11-25"
 summary = "说明现行组件分层、数据流与宿主集成边界。"
 scope = "当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界"
 applicability = "#applicability"
@@ -219,6 +219,10 @@ Adapter 不拥有最终通行权。这一静态身份和出现记录已实现。
 [横断面与准入][cross-section-access] 与
 [ADR 0018][adr-0018]。
 
+任意位置换道的设计使用同层路面、可行驶路幅与车型来判断轮迹、转向和整车净空。
+无头交通以车体参考姿态确定占用和扫过范围。宿主从同拍姿态与道路几何派生最终轮位，负责轮胎接触和悬架。
+见[车体参考姿态][traffic-reference-pose]。
+
 ### Waiting 与 Conflict
 
 Waiting 资格、Conflict 出现记录、显式路权策略和预约由 `TrafficWorld` 在固定
@@ -312,6 +316,7 @@ resource 为未认证，城市 Routing 为授权豁免，LuST 不在该基线内
 [road-junction-model]: design/road-junction-model.md
 [adr-0017]: adr/0017-static-road-junction-maneuver-and-gate-identity.md
 [cross-section-access]: design/cross-section-access.md
+[traffic-reference-pose]: design/cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
 [adr-0018]: adr/0018-multimodal-cross-section-and-access-overlay.md
 [waiting-zone]: design/waiting-zone-conflict-right-of-way.md
 [right-of-way]: design/traffic-runtime-right-of-way-policy.md

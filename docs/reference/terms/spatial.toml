@@ -1,6 +1,14 @@
 schema_version = 1
 
 [[terms]]
+id = "vehicle-reference-pose"
+name = "车体参考姿态"
+english_aliases = ["vehicle reference pose"]
+domains = ["spatial"]
+definition = "由同一修订的道路几何、候选轨迹及车型确定的车体参考点和三轴，供交通查询计算轮迹与整车扫过范围，并供宿主派生车辆表现。"
+references = [{ document = "design-cross-section-stationing-and-lateral-geometry", anchor = "traffic-reference-pose" }]
+
+[[terms]]
 id = "canonical-frame"
 name = "规范坐标框架"
 english_aliases = ["canonical frame"]

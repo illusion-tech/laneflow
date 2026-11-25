@@ -62,6 +62,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 沿用历史名称，仅作�
 - 停车行为
 - 引擎无关的固定步进（Fixed Tick）行为
 
+任意位置换道验收参考姿态、轮迹路幅与转向。宿主轮胎接触、悬架和动画只影响表现。见[横断面几何合同][traffic-reference-pose]。
+
 长期方向上，Traffic Runtime 以交通参与单元（Traffic Participant Unit）作为通用
 抽象，并按交通执行域（Traffic Execution Domain）分离网络、运动/安全求解和生命
 周期。它负责已实现执行域的参与单元、动态通行定义、每世界可变状态、运行时执行
@@ -113,3 +115,5 @@ Traffic Runtime 相关工作应汇报：
 - 已运行的测试或验证
 - 文档或 ADR 是否更新
 - 尚未解决的设计问题
+
+[traffic-reference-pose]: ../../../docs/design/cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
