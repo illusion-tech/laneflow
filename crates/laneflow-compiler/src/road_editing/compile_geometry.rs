@@ -19,7 +19,9 @@ use super::geometry::{
     StationInterval, approximate_interval, canonical_point_distance, direction_accepts,
     numeric_stack_scratch_bytes, point_distance, quantize_point, validate_canonical_polyline,
 };
+use super::station_proof::WidthBoundary;
 
+mod cross_section;
 const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
 
 /// 参考线一站区间行：记录某源 segment 参数区间及其累计里程范围。
@@ -103,6 +105,7 @@ fn canonicalize_zero(value: f64) -> f64 {
 pub(super) fn derive_member_offset_endpoints(
     width_profiles: &[AuthoringWidthProfile],
     reference_ordinal: usize,
+    mut record_boundary: impl FnMut(usize, [f64; 2]),
 ) -> Result<Box<[MemberOffsetEndpoints]>, NumericFreezeError> {
     if width_profiles.is_empty() || reference_ordinal >= width_profiles.len() {
         return Err(NumericFreezeError::from(
@@ -131,6 +134,7 @@ pub(super) fn derive_member_offset_endpoints(
     if !left_start.is_finite() || !left_end.is_finite() {
         return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
     }
+    record_boundary(reference_ordinal, [left_start, left_end]);
     for ordinal in (0..reference_ordinal).rev() {
         let width = width_profiles[ordinal];
         let target_start = canonicalize_zero(left_start + 0.5 * width.start_width_meters);
@@ -147,6 +151,7 @@ pub(super) fn derive_member_offset_endpoints(
         if !left_start.is_finite() || !left_end.is_finite() {
             return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
         }
+        record_boundary(ordinal, [left_start, left_end]);
     }
 
     let mut right_start = canonicalize_zero(-(0.5 * reference.start_width_meters));
@@ -154,6 +159,7 @@ pub(super) fn derive_member_offset_endpoints(
     if !right_start.is_finite() || !right_end.is_finite() {
         return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
     }
+    record_boundary(reference_ordinal + 1, [right_start, right_end]);
     for ordinal in (reference_ordinal + 1)..width_profiles.len() {
         let width = width_profiles[ordinal];
         let target_start = canonicalize_zero(right_start - 0.5 * width.start_width_meters);
@@ -170,6 +176,7 @@ pub(super) fn derive_member_offset_endpoints(
         if !right_start.is_finite() || !right_end.is_finite() {
             return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
         }
+        record_boundary(ordinal + 1, [right_start, right_end]);
     }
     Ok(offsets.into_boxed_slice())
 }
@@ -247,7 +254,9 @@ impl GeometryScratchBudget {
                 observed,
             });
         }
-        let observed_live = observed.saturating_sub(self.stage_base);
+        let observed_live = observed
+            .saturating_sub(self.stage_base)
+            .saturating_add(self.station_bytes);
         if observed_live > self.live_headroom {
             return Err(GeometryCompilationError::LiveLimit {
                 limit: self.live_headroom,
@@ -639,6 +648,13 @@ pub(super) fn compile_authoring_geometry(
     let mut compiled_alignments = Vec::with_capacity(referenced_alignment_count);
     let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
     let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
+    let cross_count = plans.iter().filter(|p| cross_section::needed(p)).count();
+    type PendingSection = (
+        TypedAstEntityAddress,
+        std::sync::Arc<super::boundary::PublishedCrossSection>,
+    );
+    scratch.reserve::<PendingSection>(cross_count)?;
+    let mut cross_outputs = Vec::with_capacity(cross_count);
     let mut station_row_count = 0_usize;
     let numeric_scratch_bytes = numeric_stack_scratch_bytes();
     let station_vertex_limit = station_vertex_limit_from_bytes(station_row_byte_limit)?;
@@ -849,6 +865,12 @@ pub(super) fn compile_authoring_geometry(
         scratch.reserve::<CorridorMember<'_>>(plan.member_count)?;
         scratch.reserve::<AuthoringWidthProfile>(plan.member_count)?;
         scratch.reserve::<MemberOffsetEndpoints>(plan.member_count)?;
+        let boundary_count = if cross_section::needed(plan) {
+            plan.member_count + 1
+        } else {
+            0
+        };
+        scratch.reserve::<WidthBoundary>(boundary_count)?;
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
             live_headroom,
             scratch.dynamic_live(),
@@ -861,7 +883,7 @@ pub(super) fn compile_authoring_geometry(
         let cut_check_peak = validate_cut_stations(
             &members,
             [authoring.start_station_meters, station_end],
-            &plan.corridor.header.span,
+            plan,
             &mut scratch,
             used_points,
             used_source_ranges,
@@ -874,9 +896,38 @@ pub(super) fn compile_authoring_geometry(
         } else {
             0.0
         };
-        let offsets = derive_member_offset_endpoints(&width_profiles, plan.reference_ordinal)?;
+        let mut boundaries = vec![WidthBoundary::default(); boundary_count];
+        let offsets = derive_member_offset_endpoints(
+            &width_profiles,
+            plan.reference_ordinal,
+            |i, meters| {
+                if let Some(boundary) = boundaries.get_mut(i) {
+                    *boundary = WidthBoundary::new(meters);
+                }
+            },
+        )?;
 
-        for (member, offset) in members.iter().zip(offsets.iter()) {
+        if !boundaries.is_empty() {
+            let proof = cross_section::compile(
+                plan,
+                alignment,
+                &boundaries,
+                [authoring.start_station_meters, station_end],
+                width_rounding_error,
+                &mut scratch,
+            )?;
+            cross_outputs.push((
+                plan.corridor.header.source_address.clone(),
+                std::sync::Arc::new(proof),
+            ));
+            peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+                live_headroom,
+                scratch.dynamic_live(),
+                used_points,
+                used_source_ranges,
+            )?);
+        }
+        for (ordinal, (member, offset)) in members.iter().zip(offsets.iter()).enumerate() {
             let corridor_domain = [authoring.start_station_meters, station_end];
             let count = match member.target {
                 CorridorMemberTarget::Lane(lane) => lane.edge_chain.len(),
@@ -1057,7 +1108,8 @@ pub(super) fn compile_authoring_geometry(
                             value: Some(CompiledFacilityBandGeometry {
                                 station: if authoring.station_mapping_request.is_some() {
                                     Some(super::station_proof::band(
-                                        *offset,
+                                        crate::RoadEditingTableKind::FacilityBand,
+                                        [boundaries[ordinal], boundaries[ordinal + 1]],
                                         member.width_profile,
                                         corridor_domain,
                                         width_rounding_error,
@@ -1083,6 +1135,8 @@ pub(super) fn compile_authoring_geometry(
             }
         }
         drop(offsets);
+        drop(boundaries);
+        scratch.release::<WidthBoundary>(boundary_count);
         drop(width_profiles);
         drop(members);
         scratch.release::<MemberOffsetEndpoints>(plan.member_count);
@@ -1138,6 +1192,7 @@ pub(super) fn compile_authoring_geometry(
             limit: geometry_scratch_byte_limit,
             observed: u64::MAX,
         })?;
+    cross_outputs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     drop(plans);
     scratch.release::<ResolvedCorridorElement<'_>>(resolved_element_count);
     scratch.release::<ResolvedCorridorPlan<'_>>(plan_count);
@@ -1164,9 +1219,14 @@ pub(super) fn compile_authoring_geometry(
                 }
             }
             TypedAstDeclaration::RoadCorridor(corridor) => {
+                corridor.cross_section = cross_outputs
+                    .binary_search_by(|(address, _)| address.cmp(&corridor.header.source_address))
+                    .ok()
+                    .map(|i| cross_outputs[i].1.clone());
                 corridor.authoring_geometry = None;
             }
             TypedAstDeclaration::RoadSection(section) => {
+                section.extents = Box::new([]);
                 for lane in &mut section.lanes {
                     lane.authoring_geometry = None;
                 }
@@ -1185,6 +1245,8 @@ pub(super) fn compile_authoring_geometry(
     }
     debug_assert!(lane_outputs.iter().all(|output| output.value.is_none()));
     debug_assert!(facility_outputs.iter().all(|output| output.value.is_none()));
+    drop(cross_outputs);
+    scratch.release::<PendingSection>(cross_count);
     drop(lane_outputs);
     drop(facility_outputs);
     scratch.release::<PendingLaneGeometry>(expected_lane_outputs);
@@ -1204,7 +1266,7 @@ pub(super) fn compile_authoring_geometry(
 fn validate_cut_stations(
     members: &[CorridorMember<'_>],
     domain: [f64; 2],
-    corridor: &SourceLocation,
+    plan: &ResolvedCorridorPlan<'_>,
     scratch: &mut GeometryScratchBudget,
     used_points: u64,
     source_ranges: u64,
@@ -1218,7 +1280,23 @@ fn validate_cut_stations(
             })
             .flat_map(|geometry| geometry.interior_cuts.iter())
     };
-    let count = cuts().count();
+    let corridor = &plan.corridor.header.span;
+    let g = plan.corridor.authoring_geometry.as_ref().expect("resolved");
+    let ends = || {
+        g.extents
+            .iter()
+            .chain(plan.elements.iter().flat_map(|e| match e {
+                ResolvedCorridorElement::RoadSection(s) => s.extents.iter(),
+                _ => [].iter(),
+            }))
+            .flat_map(|e| {
+                e.ends.iter().enumerate().filter_map(move |(i, s)| match s {
+                    super::BoundaryStation::Fixed(s) => Some((*s, e, i)),
+                    _ => None,
+                })
+            })
+    };
+    let count = cuts().count() + ends().count();
     if count == 0 {
         return Ok(0);
     }
@@ -1228,8 +1306,8 @@ fn validate_cut_stations(
             limit: scratch.limit,
             observed: u64::MAX,
         })?;
-    type Witness<'a> = (u64, f64, &'a SourceLocation);
-    scratch.reserve::<Witness<'_>>(capacity)?;
+    type Witness = (u64, f64, SourceLocation);
+    scratch.reserve::<Witness>(capacity)?;
     let peak = check_live_limit(
         scratch.live_headroom,
         scratch.dynamic_live(),
@@ -1245,8 +1323,8 @@ fn validate_cut_stations(
             .with_numeric_source(source.clone())
         })
     };
-    witnesses.push((0, domain[0], corridor));
-    witnesses.push((encode(domain[1], corridor)?, domain[1], corridor));
+    witnesses.push((0, domain[0], corridor.clone()));
+    witnesses.push((encode(domain[1], corridor)?, domain[1], corridor.clone()));
     for (station, source) in cuts() {
         if !(domain[0] < *station && *station < domain[1]) {
             return Err(GeometryCompilationError::from(NumericFreezeError::from(
@@ -1254,12 +1332,19 @@ fn validate_cut_stations(
             ))
             .with_numeric_source(source.clone()));
         }
-        witnesses.push((encode(*station, source)?, *station, source));
+        witnesses.push((encode(*station, source)?, *station, source.clone()));
+    }
+    for (station, extent, index) in ends() {
+        let source = extent.station_source(index);
+        if !(domain[0]..=domain[1]).contains(&station) {
+            return Err(cross_section::not_proven(&source));
+        }
+        witnesses.push((encode(station, &source)?, station, source));
     }
     witnesses.sort_unstable_by(|a, b| {
         a.0.cmp(&b.0)
             .then_with(|| a.1.total_cmp(&b.1))
-            .then_with(|| a.2.cmp(b.2))
+            .then_with(|| a.2.cmp(&b.2))
     });
     for pair in witnesses.windows(2) {
         if pair[0].0 == pair[1].0 && pair[0].1 != pair[1].1 {
@@ -1270,7 +1355,7 @@ fn validate_cut_stations(
         }
     }
     drop(witnesses);
-    scratch.release::<Witness<'_>>(capacity);
+    scratch.release::<Witness>(capacity);
     Ok(peak)
 }
 
@@ -2079,7 +2164,6 @@ fn compile_offset_curve_exact(
                 width_domain,
                 [corridor_start_meters, corridor_end_meters],
                 lane_direction == AuthoringLaneDirection::Backward,
-                length,
             )
         })
         .transpose()?;
@@ -4396,7 +4480,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            derive_member_offset_endpoints(&profiles, 1)
+            derive_member_offset_endpoints(&profiles, 1, |_, _| {})
                 .unwrap()
                 .as_ref(),
             [
@@ -4419,7 +4503,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            derive_member_offset_endpoints(&profiles, profiles.len()),
+            derive_member_offset_endpoints(&profiles, profiles.len(), |_, _| {}),
             Err(NumericFreezeError::from(
                 NumericFreezeKind::StationOutOfRange
             ))
@@ -4441,6 +4525,7 @@ mod tests {
         let left = derive_member_offset_endpoints(
             &profiles([outer, intermediate, 2.0 * reference_half]),
             2,
+            |_, _| {},
         )
         .unwrap();
         let expected_left = (reference_half + intermediate) + 0.5 * outer;
@@ -4451,6 +4536,7 @@ mod tests {
         let right = derive_member_offset_endpoints(
             &profiles([2.0 * reference_half, intermediate, outer]),
             0,
+            |_, _| {},
         )
         .unwrap();
         let expected_right = (-reference_half - intermediate) - 0.5 * outer;
@@ -4473,7 +4559,7 @@ mod tests {
             },
         ];
 
-        let offsets = derive_member_offset_endpoints(&profiles, 0).unwrap();
+        let offsets = derive_member_offset_endpoints(&profiles, 0, |_, _| {}).unwrap();
         assert_eq!(offsets[1].start_meters.to_bits(), 0.0_f64.to_bits());
     }
 
@@ -4852,6 +4938,7 @@ mod tests {
                 };
                 let geometry = template.authoring_geometry.as_ref().unwrap();
                 crate::declaration::RoadCorridorDeclaration {
+                    cross_section: None,
                     header: crate::declaration::DeclarationHeader {
                         entity_kind: template.header.entity_kind,
                         source_address: template.header.source_address.clone(),
@@ -4873,6 +4960,8 @@ mod tests {
                         .collect(),
                     authoring_geometry: Some(crate::declaration::RoadCorridorAuthoringGeometry {
                         station_mapping_request: None,
+                        complete: false,
+                        extents: Box::default(),
                         road_alignment_key: Arc::clone(&geometry.road_alignment_key),
                         road_alignment_key_span: geometry.road_alignment_key_span.clone(),
                         start_station_meters: second_start,

@@ -42,6 +42,8 @@ pub(crate) enum HirCorridorElement {
 /// 已证明参考区段成员性与成员唯一所有权的道路走廊。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirRoadCorridor {
+    pub(crate) cross_section:
+        Option<std::sync::Arc<crate::road_editing::boundary::PublishedCrossSection>>,
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: RoadCorridorId,
@@ -274,6 +276,7 @@ pub(crate) fn build_cross_section_hir(
                     )?);
                     let key = corridors
                         .push(HirRoadCorridor {
+                            cross_section: source.cross_section.clone(),
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
                             stable_id,

@@ -2,7 +2,7 @@
 mod bezier;
 
 use super::NativeChordBounds;
-use super::compile_geometry::{GeometryCompilationError, MemberOffsetEndpoints};
+use super::compile_geometry::GeometryCompilationError;
 use super::cut_stations::local_nanometres;
 use super::geometry::{
     ApproximationPoint, CurveSegment, NumericFreezeError, NumericFreezeKind, SegmentEvaluator,
@@ -190,7 +190,7 @@ fn upper(m: f64) -> Result<u32> {
     }
     Ok(nm as u32)
 }
-fn node(origin: f64, position: Scalar, forced: Option<f64>) -> Result<(u64, u32)> {
+pub(super) fn node(origin: f64, position: Scalar, forced: Option<f64>) -> Result<(u64, u32)> {
     let n = local_nanometres(origin, forced.unwrap_or(position.value)).ok_or(UNPROVEN)?;
     let err = upper((position - Scalar::exact(origin) - meters(n)).abs_max())?;
     if err > 1000 {
@@ -205,7 +205,6 @@ pub(super) fn finish(
     domain: [f64; 2],
     edge: [f64; 2],
     backward: bool,
-    length: EdgeLength,
 ) -> Result<Arc<StationEdgeProof>> {
     let s = Scalar::exact;
     let count = chords.len();
@@ -246,13 +245,9 @@ pub(super) fn finish(
         let dp = s(f64::from(next)) - s(f64::from(cumulative));
         let mut q = local_nanometres(0.0, f64::from(next)).ok_or(UNPROVEN)?;
         if k + 1 == count {
-            if EdgeLength::try_from_authoring_metres(f64::from(next))
-                .ok()
-                .map(EdgeLength::millimetres)
-                != Some(length.millimetres())
-            {
-                return Err(UNPROVEN.into());
-            }
+            // HIR 从实际 binary32 累计表冻结交通长度；编制侧独立的 binary64 长度仍用于空间误差核对。
+            let length =
+                EdgeLength::try_from_authoring_metres(f64::from(next)).map_err(|_| UNPROVEN)?;
             let mm = u64::from(length.millimetres());
             q = q.clamp(
                 mm * 1_000_000 - 500_000 + mm % 2,
@@ -326,15 +321,37 @@ pub(super) fn finish(
 
 pub(super) fn width_rounding_error(profiles: &[AuthoringWidthProfile]) -> f64 {
     let s = Scalar::exact;
-    // 求中心偏移时，各侧分别按同一符号累加宽度。以全部宽度和运算次数包住逐次舍入。
+    // 从参考车道向每一侧按同一符号累加宽度。以全部宽度和运算次数包住边界与中心的逐次舍入。
     let total = profiles.iter().fold(s(0.0), |v, p| {
         v + s(p.start_width_meters.max(p.end_width_meters))
     });
     (total * s((profiles.len() + 3) as f64) * s(4.0 * f64::EPSILON) + s(f64::MIN_POSITIVE)).hi
 }
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct WidthBoundary {
+    pub(super) meters: [f64; 2],
+    // 只在发布引用本边界的成员时报告越界，诊断可以指向实际的宽度端点。
+    micrometers: [Option<i32>; 2],
+}
+
+impl WidthBoundary {
+    pub(super) fn new(meters: [f64; 2]) -> Self {
+        let micrometers = meters.map(|m| {
+            super::boundary_payload::rounded_micrometers(m)?
+                .try_into()
+                .ok()
+        });
+        Self {
+            meters,
+            micrometers,
+        }
+    }
+}
+
 pub(super) fn band(
-    offset: MemberOffsetEndpoints,
+    width_table: crate::RoadEditingTableKind,
+    [left, right]: [WidthBoundary; 2],
     width: AuthoringWidthProfile,
     domain: [f64; 2],
     round: f64,
@@ -349,20 +366,25 @@ pub(super) fn band(
         )))
     };
     let values = [
-        s(offset.start_meters).widen(round) + s(width.start_width_meters) * s(0.5),
-        s(offset.start_meters).widen(round) - s(width.start_width_meters) * s(0.5),
-        s(offset.end_meters).widen(round) + s(width.end_width_meters) * s(0.5),
-        s(offset.end_meters).widen(round) - s(width.end_width_meters) * s(0.5),
+        left.meters[0],
+        right.meters[0],
+        left.meters[1],
+        right.meters[1],
+    ]
+    .map(|meters| s(meters).widen(round));
+    let quantized = [
+        left.micrometers[0],
+        right.micrometers[0],
+        left.micrometers[1],
+        right.micrometers[1],
     ];
     let mut offsets_um = [0; 4];
     let mut err = 0.0_f64;
     for (j, v) in values.iter().enumerate() {
-        let um = (v.value * 1_000_000.0).round_ties_even();
-        if !(f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&um) {
-            return Err(unproven(source.facility_width_endpoint((j / 2) as u8)));
-        }
-        offsets_um[j] = um as i32;
-        err = err.max((*v - s(um) / s(1_000_000.0)).abs_max());
+        let um = quantized[j]
+            .ok_or_else(|| unproven(source.width_endpoint(width_table, (j / 2) as u8)))?;
+        offsets_um[j] = um;
+        err = err.max((*v - s(f64::from(um)) / s(1_000_000.0)).abs_max());
     }
     for (end, source_width) in [width.start_width_meters, width.end_width_meters]
         .into_iter()
@@ -370,7 +392,7 @@ pub(super) fn band(
     {
         let (left, right) = (offsets_um[2 * end], offsets_um[2 * end + 1]);
         if left < right || (left == right) != (source_width == 0.0) {
-            return Err(unproven(source.facility_width_endpoint(end as u8)));
+            return Err(unproven(source.width_endpoint(width_table, end as u8)));
         }
     }
     let length = s(domain[1]) - s(domain[0]);

@@ -13,7 +13,17 @@ type Edge = (u32, u32, u32, u32);
 type Span = (u32, u64, u32, u32, u32);
 type Band = (u32, u32, u32, [i32; 4], u32);
 
-pub(super) struct Inputs {
+use crate::road_editing::boundary::{NamedExtent, SurfaceRow};
+use crate::road_editing::boundary_payload::QuantizedBoundaryPayload as Payload;
+
+type Extent<'a> = (u16, u32, &'a NamedExtent, u32, u32);
+type Footprint = (u32, [i32; 4], u32, bool);
+type Surface<'a> = (u32, u32, u32, u32, &'a SurfaceRow);
+
+pub(super) struct Inputs<'a> {
+    extents: BoundedVec<Extent<'a>>,
+    footprints: BoundedVec<Footprint>,
+    surface: BoundedVec<Surface<'a>>,
     corridors: BoundedVec<Corridor>,
     anchors: BoundedVec<Anchor>,
     lanes: BoundedVec<Lane>,
@@ -26,6 +36,9 @@ pub(super) struct Sizes {
     edges: usize,
     spans: usize,
     bands: usize,
+    extents: usize,
+    footprints: usize,
+    surface: usize,
 }
 
 pub(super) fn sizes(lir: &LirUnit) -> Result<(Sizes, Plan)> {
@@ -44,12 +57,22 @@ pub(super) fn sizes(lir: &LirUnit) -> Result<(Sizes, Plan)> {
         .iter()
         .filter(|g| g.station.is_some())
         .count();
+    for c in &lir.road_corridors {
+        if let Some(p) = &c.cross_section {
+            n.extents += p.extents.len();
+            n.footprints += p.widths.iter().filter(|w| w.lane.is_some()).count();
+            n.surface += p.surface.len();
+        }
+    }
     let count = n
         .edges
         .checked_add(n.spans)
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
     let plan = Plan::ZERO
-        .array::<Anchor>(count)
+        .array::<Anchor>(count + 2 * (n.extents + n.surface))
+        .array::<Extent>(n.extents)
+        .array::<Footprint>(n.footprints)
+        .array::<Surface>(n.surface)
         .array::<Corridor>(n.edges.min(lir.road_corridors.len()))
         .array::<Lane>(n.edges.min(lir.authoring_lanes.len()))
         .array::<Edge>(n.edges)
@@ -58,9 +81,12 @@ pub(super) fn sizes(lir: &LirUnit) -> Result<(Sizes, Plan)> {
     Ok((n, plan))
 }
 
-pub(super) fn prepare(lir: &LirUnit, n: Sizes, pass: &PassBudget<'_>) -> Result<Inputs> {
+pub(super) fn prepare<'a>(lir: &'a LirUnit, n: Sizes, pass: &PassBudget<'_>) -> Result<Inputs<'a>> {
     let mut m = Inputs {
-        anchors: pass.vec(n.edges + n.spans)?,
+        anchors: pass.vec(n.edges + n.spans + 2 * (n.extents + n.surface))?,
+        extents: pass.vec(n.extents)?,
+        footprints: pass.vec(n.footprints)?,
+        surface: pass.vec(n.surface)?,
         corridors: pass.vec(n.edges.min(lir.road_corridors.len()))?,
         lanes: pass.vec(n.edges.min(lir.authoring_lanes.len()))?,
         edges: pass.vec(n.edges)?,
@@ -95,6 +121,19 @@ pub(super) fn prepare(lir: &LirUnit, n: Sizes, pass: &PassBudget<'_>) -> Result<
             }
         }
     }
+    for c in &lir.road_corridors {
+        if let Some(p) = &c.cross_section {
+            for stations in p
+                .extents
+                .iter()
+                .map(|e| e.stations)
+                .chain(p.surface.iter().map(|s| s.stations))
+            {
+                m.anchors
+                    .try_extend(stations.map(|(s, e)| (c.ordinal.raw(), s, Reverse(e))))?;
+            }
+        }
+    }
     m.anchors.sort_unstable();
     m.anchors.dedup_by_key(|a| (a.0, a.1));
     let anchor = |c, s| {
@@ -124,7 +163,11 @@ pub(super) fn prepare(lir: &LirUnit, n: Sizes, pass: &PassBudget<'_>) -> Result<
                 return Err(INVALID);
             }
             let actual = &lir.spatial_segments[g.segments.as_usize_range()];
-            if actual.len() != p.spans.len() {
+            let terminal = actual.last().ok_or(INVALID)?.cumulative_end_meters;
+            if actual.len() != p.spans.len()
+                || laneflow_static_contract::millimetres_from_si(f64::from(terminal))
+                    != Some(lir.lane_edges[e.index()].length_mm)
+            {
                 return Err(INVALID);
             }
             m.edges.push((
@@ -203,12 +246,56 @@ pub(super) fn prepare(lir: &LirUnit, n: Sizes, pass: &PassBudget<'_>) -> Result<
             ))?;
         }
     }
+    for c in &lir.road_corridors {
+        let Some(p) = &c.cross_section else { continue };
+        let corridor = c.ordinal.raw();
+        for w in &p.widths {
+            if let Some((proof, supports)) = w.lane {
+                let (_, l) = c.width_owner(lir, w.member).ok_or(INVALID)?;
+                m.footprints
+                    .push((l, proof.offsets_um, proof.lateral_error, supports))?;
+            }
+        }
+        for e in &p.extents {
+            let (kind, ord) = c.extent_owner(lir, e.section_element).ok_or(INVALID)?;
+            m.extents.push((
+                kind.code(),
+                ord,
+                &e.declaration,
+                anchor(corridor, e.stations[0].0)?,
+                anchor(corridor, e.stations[1].0)?,
+            ))?;
+        }
+        if !p.surface.is_empty() {
+            let s = &lir.road_sections[c.reference_section.index()];
+            let l = lir.road_section_lanes[s.lanes.as_usize_range()]
+                .first()
+                .ok_or(INVALID)?;
+            let e = chain(&lir.authoring_lanes[l.index()])
+                .first()
+                .ok_or(INVALID)?;
+            let frame = lir.lane_edge_geometries[e.index()].canonical_frame.raw();
+            for row in &p.surface {
+                m.surface.push((
+                    corridor,
+                    frame,
+                    anchor(corridor, row.stations[0].0)?,
+                    anchor(corridor, row.stations[1].0)?,
+                    row,
+                ))?;
+            }
+        }
+    }
+    m.footprints.sort_unstable_by_key(|r| r.0);
+    m.extents.sort_unstable_by(|a, b| {
+        (a.0, a.1, a.2.left, a.2.kind, &a.2.key).cmp(&(b.0, b.1, b.2.left, b.2.kind, &b.2.key))
+    });
     if m.spans.len() != n.spans || m.edges.len() != n.edges {
         return Err(INVALID);
     }
     Ok(m)
 }
-impl Inputs {
+impl Inputs<'_> {
     pub(super) const fn bytes(&self) -> u64 {
         self.anchors.granted_bytes()
             + self.corridors.granted_bytes()
@@ -216,6 +303,9 @@ impl Inputs {
             + self.edges.granted_bytes()
             + self.spans.granted_bytes()
             + self.bands.granted_bytes()
+            + self.extents.granted_bytes()
+            + self.footprints.granted_bytes()
+            + self.surface.granted_bytes()
     }
     pub(super) fn section(&self, t: &TreeBuilder) -> SectionRef {
         use Value::{I32, U8, U32, U64};
@@ -290,7 +380,74 @@ impl Inputs {
                         ])
                     }),
                 ),
-                t.table(7, []),
+                t.table(
+                    7,
+                    self.extents.iter().map(|&(kind, owner, e, low, high)| {
+                        t.row([
+                            field(1, Value::U16(kind)),
+                            field(2, U32(owner)),
+                            field(3, U32(e.left)),
+                            field(4, U8(e.kind)),
+                            field(5, t.utf8(&e.key)),
+                            field(6, U32(low)),
+                            field(7, U32(high)),
+                        ])
+                    }),
+                ),
+                t.table(
+                    8,
+                    self.footprints.iter().map(|&(lane, d, error, supports)| {
+                        t.row([
+                            field(1, U32(lane)),
+                            field(2, I32(d[0])),
+                            field(3, I32(d[1])),
+                            field(4, I32(d[2])),
+                            field(5, I32(d[3])),
+                            field(6, U32(error)),
+                            field(7, U8(u8::from(supports))),
+                        ])
+                    }),
+                ),
+                t.table(
+                    9,
+                    self.surface.iter().map(|&(corridor, frame, low, high, s)| {
+                        t.row([
+                            field(1, U32(corridor)),
+                            field(2, U32(frame)),
+                            field(3, U32(low)),
+                            field(4, U32(high)),
+                            field(5, t.bytes(s.jets[0].map(f32::to_le_bytes).as_flattened())),
+                            field(6, t.bytes(s.jets[1].map(f32::to_le_bytes).as_flattened())),
+                            field(7, t.bytes(s.errors.map(f32::to_le_bytes).as_flattened())),
+                        ])
+                    }),
+                ),
+                t.table(
+                    10,
+                    self.extents
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, e)| match e.2.payload? {
+                            Payload::Rule { directions, effect } => Some(t.row([
+                                field(1, U32(i as u32)),
+                                field(2, U8(directions)),
+                                field(3, U8(effect)),
+                            ])),
+                            _ => None,
+                        }),
+                ),
+                t.table(
+                    11,
+                    self.extents.iter().enumerate().filter_map(|(i, e)| {
+                        let mut bytes = [0; 36];
+                        let (shape, len) = e.2.payload?.obstacle_bytes(&mut bytes)?;
+                        Some(t.row([
+                            field(1, U32(i as u32)),
+                            field(2, U8(shape)),
+                            field(3, t.bytes(&bytes[..len])),
+                        ]))
+                    }),
+                ),
             ],
         )
     }

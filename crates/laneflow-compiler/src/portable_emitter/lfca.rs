@@ -6,8 +6,8 @@ mod policy;
 mod station;
 
 /// LFCA 构造前一次求出、两遍构造共用的派生输入，全部由发射账本授予。
-struct LfcaInputs {
-    station: station::Inputs,
+struct LfcaInputs<'a> {
+    station: station::Inputs<'a>,
     /// 每条交通边是否为路口内部边。
     internal_edges: BoundedVec<bool>,
     /// 每份交通边几何是否有空间来源区间。
@@ -16,7 +16,7 @@ struct LfcaInputs {
     facility_geometry_applies: BoundedVec<bool>,
 }
 
-impl LfcaInputs {
+impl LfcaInputs<'_> {
     const fn granted_bytes(&self) -> u64 {
         self.station.bytes()
             + self.internal_edges.granted_bytes()
@@ -38,10 +38,10 @@ fn geometry_applies(flags: &[GeometryFlag], frame: u32, role: u8, local_index: u
         .is_some_and(|flag| flag.4)
 }
 
-fn prepare_inputs(
-    output: &CompilationOutput,
+fn prepare_inputs<'a>(
+    output: &'a CompilationOutput,
     accounting: Accounting<'_>,
-) -> Result<LfcaInputs, PortableEmissionError> {
+) -> Result<LfcaInputs<'a>, PortableEmissionError> {
     let lir = output.lir().unit();
     let spatial = output.source_map_input().spatial_relation_sources();
     let frames = lir.canonical_frames.len();
@@ -167,7 +167,7 @@ fn emit_lfca(
     t: &TreeBuilder,
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenance,
-    inputs: &LfcaInputs,
+    inputs: &LfcaInputs<'_>,
     source_collection_digest: [u8; 32],
     declared_network_revision: NetworkRevisionId,
 ) -> Result<[SectionRef; 9], PortableEmissionError> {
@@ -326,7 +326,7 @@ fn canonical_identity_table(t: &TreeBuilder, lir: &crate::lir::LirUnit) -> Table
 fn canonical_entity_tables(
     t: &TreeBuilder,
     lir: &crate::lir::LirUnit,
-    inputs: &LfcaInputs,
+    inputs: &LfcaInputs<'_>,
 ) -> Result<(), PortableEmissionError> {
     let internal_edges = &inputs.internal_edges;
 
@@ -907,7 +907,7 @@ fn point_records(t: &TreeBuilder, points: &[crate::lir::LirCanonicalPoint3F32]) 
 fn lane_edge_geometry_table(
     t: &TreeBuilder,
     lir: &crate::lir::LirUnit,
-    inputs: &LfcaInputs,
+    inputs: &LfcaInputs<'_>,
 ) -> TableRef {
     t.table(
         2,
@@ -955,7 +955,7 @@ fn lane_edge_geometry_table(
 fn facility_band_geometry_table(
     t: &TreeBuilder,
     lir: &crate::lir::LirUnit,
-    inputs: &LfcaInputs,
+    inputs: &LfcaInputs<'_>,
 ) -> TableRef {
     t.table(
         3,

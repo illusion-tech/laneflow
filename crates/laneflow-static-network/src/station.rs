@@ -6,7 +6,11 @@ use laneflow_static_contract::{
 use crate::RangeU32;
 
 mod build;
+mod cross_section;
 pub(crate) use build::build;
+pub use cross_section::{
+    BoundaryExtent, BoundaryOwner, BoundaryPayload, LaneFootprint, RoadSurfaceSpan,
+};
 
 /// 走廊相对于道路参考线的起点和可查询长度。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +135,9 @@ pub struct SharedStationMapping {
     edges: Box<[Option<Edge>]>,
     segments: Box<[Segment]>,
     bands: Box<[Band]>,
+    extents: Box<[BoundaryExtent]>,
+    footprints: Box<[LaneFootprint]>,
+    surface: Box<[RoadSurfaceSpan]>,
 }
 
 // 每次比较后直接排除一个中点。4096 段至多比较 13 次，1600 万段至多 24 次。
@@ -153,7 +160,31 @@ impl SharedStationMapping {
             + size_of_val(&*self.lanes)
             + size_of_val(&*self.edges)
             + size_of_val(&*self.segments)
-            + size_of_val(&*self.bands)) as u64
+            + size_of_val(&*self.bands)
+            + size_of_val(&*self.extents)
+            + size_of_val(&*self.footprints)
+            + size_of_val(&*self.surface)) as u64
+    }
+
+    /// 完整开放走廊的路面区间按站位排列。空切片表示没有完整的横断面声明。
+    #[must_use]
+    pub fn surface_spans(&self, corridor: RoadCorridorOrdinal) -> &[RoadSurfaceSpan] {
+        let first = self.surface.partition_point(|s| s.corridor < corridor);
+        let end = self.surface.partition_point(|s| s.corridor <= corridor);
+        &self.surface[first..end]
+    }
+    /// 返回该车道声明的路幅与支承位。
+    #[must_use]
+    pub fn lane_footprint(&self, lane: AuthoringLaneOrdinal) -> Option<&LaneFootprint> {
+        self.footprints
+            .binary_search_by_key(&lane, |f| f.lane)
+            .ok()
+            .map(|i| &self.footprints[i])
+    }
+    /// 在本修订内按所有者、左成员、种类及局部名排列的命名区间。
+    #[must_use]
+    pub fn boundary_extents(&self) -> &[BoundaryExtent] {
+        &self.extents
     }
 
     /// 返回已开放走廊的参考线起点与局部长度。
@@ -431,7 +462,7 @@ mod tests {
                 lanes: vec![Some(row)].into(),
                 edges: owners.into(),
                 segments: segments.into(),
-                bands: Box::default(),
+                ..SharedStationMapping::default()
             },
             row,
         )

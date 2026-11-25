@@ -133,6 +133,8 @@ pub(crate) enum MirCorridorElement {
 }
 
 pub(crate) struct MirRoadCorridor {
+    pub(crate) cross_section:
+        Option<std::sync::Arc<crate::road_editing::boundary::PublishedCrossSection>>,
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: RoadCorridorId,
@@ -1117,6 +1119,7 @@ pub(crate) fn lower_to_mir_in(
         let mut road_corridors = pass.vec(hir.road_corridors.len())?;
         for corridor in &hir.road_corridors {
             road_corridors.push(MirRoadCorridor {
+                cross_section: corridor.cross_section.clone(),
                 module: hir_module_to_mir[corridor.module.index()],
                 stable_key: Arc::clone(&corridor.stable_key),
                 stable_id: corridor.stable_id,

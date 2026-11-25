@@ -38,8 +38,9 @@ template <typename T>
 
 int main(int argc, char **argv) {
   const bool reverse = argc == 3 && std::string(argv[2]) == "--reverse";
-  if (argc != 2 && !reverse) {
-    std::cerr << "usage: writer <output.lfre> [--reverse]\n";
+  const bool complete = argc == 3 && std::string(argv[2]) == "--complete";
+  if (argc != 2 && !reverse && !complete) {
+    std::cerr << "usage: writer <output.lfre> [--reverse|--complete]\n";
     return EXIT_FAILURE;
   }
 
@@ -81,8 +82,11 @@ int main(int argc, char **argv) {
   if (reverse) {
     elements.push_back(v1::CreateCorridorElementDirect(fbb, v1::CorridorElementKind_RoadSection, "road>opposite"));
   }
-  const auto corridor = v1::CreateRoadCorridorDirect(fbb, "road", "alignment", 0.0,
-      v1::StationEndKind_AlignmentEnd, 0.0, section_ref, lane_ref, &elements);
+  const std::vector<::flatbuffers::Offset<v1::BoundaryExtent>> empty_extents;
+  const auto corridor = v1::CreateRoadCorridorDirect(fbb, "road", "alignment", complete ? 53.0 * 401 / 399 : 0.0,
+      complete ? v1::StationEndKind_Finite : v1::StationEndKind_AlignmentEnd, complete ? 63.5 * 401 / 399 : 0.0,
+      section_ref, lane_ref, &elements, nullptr,
+      complete ? v1::CrossSectionCoverage_Complete : v1::CrossSectionCoverage_None, &empty_extents);
   std::vector<::flatbuffers::Offset<v1::LaneEdge>> edges;
   std::vector<::flatbuffers::Offset<v1::AuthoringLane>> lanes;
   std::vector<::flatbuffers::Offset<::flatbuffers::String>> lane_refs;
@@ -103,19 +107,61 @@ int main(int argc, char **argv) {
     const char *owner = backward ? "road>opposite" : section_ref;
     (backward ? opposite_refs : lane_refs).push_back(fbb.CreateString(std::string(owner) + ">" + key));
     lanes.push_back(v1::CreateAuthoringLaneDirect(fbb, key.c_str(), &chain,
-        backward ? v1::LaneDirection_Backward : v1::LaneDirection_Forward, &width, nullptr, nullptr, owner, &cuts));
+        backward ? v1::LaneDirection_Backward : v1::LaneDirection_Forward, &width, nullptr, nullptr, owner,
+        cuts.empty() ? nullptr : &cuts, complete ? flatbuffers::Optional<bool>(key == "A") : flatbuffers::nullopt));
   };
-  add_lane("A", {47, 59, 68}, false);
-  add_lane("B", {53, 60, 74}, reverse);
-  const auto section = v1::CreateRoadSectionDirect(fbb, "section", "motorLane", &lane_refs, nullptr, "road");
+  if (complete) {
+    add_lane("A", {59}, false);
+    add_lane("B", {}, false);
+  } else {
+    add_lane("A", {47, 59, 68}, false);
+    add_lane("B", {53, 60, 74}, reverse);
+  }
+  std::vector<::flatbuffers::Offset<v1::BoundaryExtent>> extents;
+  if (complete) {
+    const auto left = v1::CreateBoundaryMemberDirect(fbb, v1::BoundaryMemberKind_AuthoringLane, lane_ref);
+    const auto right = v1::CreateBoundaryMemberDirect(fbb, v1::BoundaryMemberKind_AuthoringLane, "road>section>B");
+    const v1::BoundaryStation low(v1::BoundaryStationKind_CorridorEndpoint, 0.0), high(v1::BoundaryStationKind_Fixed, 60.0 * 401 / 399);
+    const auto add = [&](const char *key, v1::BoundaryExtentKind kind, v1::BoundaryPayload type, flatbuffers::Offset<void> payload) {
+      extents.push_back(v1::CreateBoundaryExtentDirect(fbb, left, right, kind, key, &low, &high, type, payload));
+    };
+    add("mark", v1::BoundaryExtentKind_Rule, v1::BoundaryPayload_CrossingRule, v1::CreateCrossingRule(fbb, 3, 2).Union());
+    add("rail", v1::BoundaryExtentKind_Obstacle, v1::BoundaryPayload_Guardrail, v1::CreateGuardrail(fbb, 2, 0., 2., 0.15, 0., 0.85, 0.).Union());
+    const v1::CurbEnd a(0.1, 0., 0., 0.1), b(0.1, 0., 0., 0.18);
+    add("curb", v1::BoundaryExtentKind_Obstacle, v1::BoundaryPayload_Curb, v1::CreateCurb(fbb, &a, &b, 0.).Union());
+  }
+  const auto section = v1::CreateRoadSectionDirect(fbb, "section", "motorLane", &lane_refs, nullptr, "road", &extents);
 
   std::vector<::flatbuffers::Offset<v1::RoadSection>> sections{section};
   if (reverse) {
-    sections.push_back(v1::CreateRoadSectionDirect(fbb, "opposite", "motorLane", &opposite_refs, nullptr, "road"));
+    sections.push_back(v1::CreateRoadSectionDirect(fbb, "opposite", "motorLane", &opposite_refs, nullptr, "road", &empty_extents));
+  }
+
+  std::vector<::flatbuffers::Offset<v1::RoadCorridor>> corridors{corridor};
+  if (complete) {
+    // The complete middle corridor shares one alignment with its two approach sections.
+    auto add_approach = [&](const std::string &key, double start, v1::StationEndKind end_kind, double end) {
+      const std::string section_key = key + ">section";
+      const std::string lane_key = section_key + ">through";
+      const std::string edge_key = key + "-edge";
+      edges.push_back(v1::CreateLaneEdgeDirect(fbb, edge_key.c_str(), 10.0, &no_imports));
+      const std::vector<::flatbuffers::Offset<::flatbuffers::String>> chain{fbb.CreateString(edge_key)};
+      lanes.push_back(v1::CreateAuthoringLaneDirect(fbb, "through", &chain, v1::LaneDirection_Forward,
+          &width, nullptr, nullptr, section_key.c_str()));
+      const std::vector<::flatbuffers::Offset<::flatbuffers::String>> members{fbb.CreateString(lane_key)};
+      sections.push_back(v1::CreateRoadSectionDirect(fbb, "section", "motorLane", &members, nullptr,
+          key.c_str(), &empty_extents));
+      const std::vector<::flatbuffers::Offset<v1::CorridorElement>> elements{
+          v1::CreateCorridorElementDirect(fbb, v1::CorridorElementKind_RoadSection, section_key.c_str())};
+      corridors.push_back(v1::CreateRoadCorridorDirect(fbb, key.c_str(), "alignment", start, end_kind, end,
+          section_key.c_str(), lane_key.c_str(), &elements, nullptr, v1::CrossSectionCoverage_None, &empty_extents));
+    };
+    add_approach("before", 0.0, v1::StationEndKind_Finite, 53.0 * 401 / 399);
+    add_approach("after", 63.5 * 401 / 399, v1::StationEndKind_AlignmentEnd, 0.0);
   }
 
   const auto road_alignment_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadAlignment>>{alignment});
-  const auto road_corridor_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::RoadCorridor>>{corridor});
+  const auto road_corridor_rows = fbb.CreateVector(corridors);
   const auto road_section_rows = fbb.CreateVector(sections);
   const auto authoring_lane_rows = fbb.CreateVector(lanes);
   const auto lane_edge_rows = fbb.CreateVector(edges);
@@ -142,7 +188,7 @@ int main(int argc, char **argv) {
   const auto right_of_way_policy_set_rows = EmptyVectorOf<v1::RightOfWayPolicySet>(fbb);
   const auto root = v1::CreateRoadEditingSource(
       fbb,
-      /*format_version=*/6,
+      /*format_version=*/7,
       header,
       v1::GeometryAccuracyProfile_Fine2Cm,
       v1::GeometryDirectionProfile_Smooth1Deg,

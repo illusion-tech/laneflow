@@ -949,6 +949,6 @@ fn policy_source_fixture_matches_frozen_wire() {
     assert_eq!(map.len(), 55_043);
     assert_eq!(
         object_key(sha256(&map)).as_ref(),
-        "sha256/ec444117b9096b13af06a9c578661b0799cf7d83174ded197b9d7e6d87c77f1b"
+        "sha256/32e3e3bdf6a56976275e18c6e83cfc954954d7eac468e0b8664f23baef288458"
     );
 }

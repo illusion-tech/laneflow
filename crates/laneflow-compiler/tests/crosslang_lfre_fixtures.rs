@@ -36,7 +36,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     let root = wire::size_prefixed_root_as_road_editing_source(bytes)
         .unwrap_or_else(|_| panic!("{fixture_name}: size-prefixed root 解码失败"));
 
-    assert_eq!(root.format_version(), 6, "{fixture_name}: format_version");
+    assert_eq!(root.format_version(), 7, "{fixture_name}: format_version");
     assert_eq!(
         root.geometry_accuracy_profile(),
         wire::GeometryAccuracyProfile::Fine2Cm,
@@ -143,6 +143,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
         );
         assert_eq!(
             lane.interior_cut_stations_meters()
+                .unwrap()
                 .iter()
                 .collect::<Vec<_>>(),
             cuts.map(|v| v * 401.0 / 399.0)
@@ -284,7 +285,7 @@ fn assert_source_edge_ordinals(output: &laneflow_compiler::CompilationOutput) {
     )
     .unwrap();
     let bytes = candidate.source_map().bytes();
-    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 6);
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 7);
     let map = preflight_object_values(bytes, PortableObjectKind::SourceMap, FormatLimits::HARD)
         .unwrap()
         .registry_view();
@@ -321,6 +322,288 @@ fn cpp_writer_fixture_is_accepted_by_production_reader() {
 fn csharp_writer_fixture_is_accepted_by_production_reader() {
     assert_reader_accepts("csharp_writer.lfre");
     assert_reader_accepts("csharp_writer_reverse.lfre");
+}
+
+#[test]
+fn cross_language_complete_bend_preserves_station_support_and_named_payloads() {
+    use laneflow_compiler::{
+        Compiler, PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_network::{
+        BoundaryPayload, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+    let mut expected = None;
+    for filename in ["cpp_writer_complete.lfre", "csharp_writer_complete.lfre"] {
+        let bytes = read_fixture(filename);
+        let input =
+            RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, &bytes, None).unwrap();
+        let profile = CompileProfile::single_network_10k_stable_entities();
+        let owner = RoadSectionReference::owner_scoped(vec!["road".into()], "section").unwrap();
+        let decl = BoundaryExtentInput::read_from(input, BoundaryOwner::Section(&owner), &profile)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decl.len(), 3);
+        let b = AuthoringLaneInput::read_from(input, &owner, "B", &profile)
+            .unwrap()
+            .unwrap();
+        assert_eq!(b.supports_wheel(), Some(false));
+        let wire = wire::size_prefixed_root_as_road_editing_source(&bytes).unwrap();
+        assert!(
+            wire.authoring_lanes()
+                .get(1)
+                .interior_cut_stations_meters()
+                .is_none()
+        );
+        let mut builder = CompilationUnitBuilder::new(profile);
+        builder.add_road_editing_module(input).unwrap();
+        let output = Compiler::new().compile(builder.build().unwrap()).unwrap();
+        let result = emit_portable_candidate(
+            &output,
+            &PortableEmissionProvenance::try_new("crosslang-complete").unwrap(),
+            FormatLimits::HARD,
+            PortableDiffBase::Genesis,
+        )
+        .unwrap();
+        let checked =
+            check_canonical_network_input(result.canonical_artifact().bytes(), FormatLimits::HARD)
+                .unwrap();
+        for spatial in [
+            SpatialBuildOption::Omit,
+            SpatialBuildOption::RetainAvailable,
+        ] {
+            let shared = build_shared_network_revision(
+                checked.clone(),
+                SharedNetworkBuildOptions::new(
+                    spatial,
+                    SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+                ),
+            )
+            .unwrap();
+            let map = shared.station_mapping();
+            let rail = map
+                .boundary_extents()
+                .iter()
+                .find(|e| e.local_key() == "rail")
+                .unwrap();
+            assert_eq!(rail.stations_nm, [0, 7_035_087_719]);
+            assert!(matches!(
+                rail.payload,
+                Some(BoundaryPayload::Guardrail {
+                    anchor_role: 2,
+                    heights_um: [0, 850_000],
+                    ..
+                })
+            ));
+            let curb = map
+                .boundary_extents()
+                .iter()
+                .find(|e| e.local_key() == "curb")
+                .unwrap();
+            assert!(matches!(
+                curb.payload,
+                Some(BoundaryPayload::Curb {
+                    ends_um: [[_, _, 0, 100_000], [_, _, 0, 180_000]],
+                    ..
+                })
+            ));
+            let s = map.surface_spans(rail.corridor);
+            assert_eq!(s.first().unwrap().stations[0].0, 0);
+            assert!(s.windows(2).all(|w| w[0].stations[1] == w[1].stations[0]));
+            assert_eq!(
+                output
+                    .lir()
+                    .authoring_lanes()
+                    .filter(|l| map
+                        .lane_footprint(l.ordinal())
+                        .is_some_and(|footprint| footprint.supports_wheel))
+                    .count(),
+                1
+            );
+        }
+        if filename == "cpp_writer_complete.lfre" {
+            // 重算修订后，结构读方仍须独立检出错属锚点、缺失路面覆盖、错绑载荷。
+            let original = result.canonical_artifact().bytes();
+            let table = laneflow_format::preflight_object_values(
+                original,
+                laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+                FormatLimits::HARD,
+            )
+            .unwrap();
+            let obstacle = table
+                .registry_view()
+                .section(8)
+                .unwrap()
+                .table(6)
+                .unwrap()
+                .rows()
+                .position(|r| r.field_by_tag(4).unwrap().value_bytes() == [2])
+                .unwrap() as u32;
+            for (table, tag, value) in [(6, 7, u32::MAX), (8, 3, 1), (9, 1, obstacle)] {
+                let mut corrupt = original.to_vec();
+                edit_first_station_row(&mut corrupt, 8, table, tag, |field| {
+                    field.copy_from_slice(&value.to_le_bytes())
+                });
+                rebind_mapping_revision(&mut corrupt);
+                for spatial in [
+                    SpatialBuildOption::Omit,
+                    SpatialBuildOption::RetainAvailable,
+                ] {
+                    let checked =
+                        check_canonical_network_input(&corrupt[..], FormatLimits::HARD).unwrap();
+                    assert!(
+                        build_shared_network_revision(
+                            checked,
+                            SharedNetworkBuildOptions::new(
+                                spatial,
+                                SharedNetworkBuildLimits::new(64 << 20, 16 << 20)
+                            )
+                        )
+                        .is_err()
+                    );
+                }
+            }
+        }
+        if let Some(revision) = expected {
+            assert_eq!(result.network_revision(), revision);
+        }
+        expected = Some(result.network_revision());
+    }
+}
+
+#[test]
+fn invalid_cross_section_fields_are_located_before_admitting_the_module() {
+    use laneflow_compiler::{
+        RoadEditingPropertyStep as Step, RoadEditingStructKind as Struct,
+        RoadEditingTableKind as Table, RoadEditingUnionKind as Union,
+    };
+    let valid = read_fixture("cpp_writer_complete.lfre");
+    let root = wire::size_prefixed_root_as_road_editing_source(&valid).unwrap();
+    let section = root
+        .road_sections()
+        .iter()
+        .find(|s| s.road_corridor() == "road")
+        .unwrap();
+    let rail = section
+        .boundary_extents()
+        .iter()
+        .find(|e| e.local_key() == "rail")
+        .unwrap();
+    let curb = section
+        .boundary_extents()
+        .iter()
+        .find(|e| e.local_key() == "curb")
+        .unwrap();
+    let lane = root
+        .authoring_lanes()
+        .iter()
+        .find(|l| l.authoring_lane_key() == "B")
+        .unwrap();
+    let mut unit =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+    let field = |table, field_id| Step::TableField { table, field_id };
+    let variant = |discriminant| Step::UnionVariant {
+        union: Union::BoundaryPayload,
+        discriminant,
+    };
+    // 直接改有界 wire 字段，覆盖非 Rust 写方可能交付的输入。
+    let slot = |table: usize, id: usize| {
+        let displacement = i32::from_le_bytes(valid[table..table + 4].try_into().unwrap());
+        let entry = usize::try_from(table as i64 - i64::from(displacement)).unwrap() + 4 + 2 * id;
+        let offset = u16::from_le_bytes(valid[entry..entry + 2].try_into().unwrap());
+        assert_ne!(offset, 0);
+        (entry, table + usize::from(offset))
+    };
+    let high = slot(curb.payload_as_curb().unwrap()._tab.loc(), 1).1;
+    let right = slot(rail._tab.loc(), 1).1;
+    let left_member = rail.left()._tab.loc();
+    let invalid = [
+        (
+            slot(lane._tab.loc(), 8).0,
+            vec![0, 0],
+            vec![field(Table::AuthoringLane, 8)],
+            false,
+        ),
+        (
+            slot(rail._tab.loc(), 2).1,
+            vec![1],
+            vec![field(Table::BoundaryExtent, 6)],
+            false,
+        ),
+        (
+            slot(rail.payload_as_guardrail().unwrap()._tab.loc(), 3).0,
+            vec![0, 0],
+            vec![
+                field(Table::BoundaryExtent, 7),
+                variant(2),
+                field(Table::Guardrail, 3),
+            ],
+            false,
+        ),
+        (
+            high + 24,
+            (-0.1_f64).to_le_bytes().to_vec(),
+            vec![
+                field(Table::BoundaryExtent, 7),
+                variant(3),
+                field(Table::Curb, 1),
+                Step::StructMember {
+                    structure: Struct::CurbEnd,
+                    member_id: 3,
+                },
+            ],
+            false,
+        ),
+        (
+            right,
+            u32::try_from(left_member - right)
+                .unwrap()
+                .to_le_bytes()
+                .to_vec(),
+            vec![field(Table::RoadSection, 5)],
+            true,
+        ),
+        (
+            slot(rail._tab.loc(), 5).1 + 8,
+            (500.0_f64).to_le_bytes().to_vec(),
+            vec![
+                field(Table::BoundaryExtent, 5),
+                Step::StructMember {
+                    structure: Struct::BoundaryStation,
+                    member_id: 1,
+                },
+            ],
+            false,
+        ),
+    ];
+    for (at, replacement, expected_path, ambiguous) in invalid {
+        let mut corrupt = valid.clone();
+        corrupt[at..at + replacement.len()].copy_from_slice(&replacement);
+        let input =
+            RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, &corrupt, None).unwrap();
+        let Err(error) = unit.add_road_editing_module(input) else {
+            panic!("invalid boundary accepted")
+        };
+        let location = error.diagnostics()[0]
+            .primary_location()
+            .unwrap()
+            .road_editing()
+            .unwrap();
+        assert_eq!(location.property_path().unwrap().steps(), expected_path);
+        if ambiguous {
+            let range = location.byte_range().unwrap();
+            assert_eq!(range.start() as usize, rail._tab.loc());
+            assert_eq!(range.length(), 4);
+        }
+    }
+    unit.add_road_editing_module(
+        RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, &valid, None).unwrap(),
+    )
+    .unwrap();
+    laneflow_compiler::Compiler::new()
+        .compile(unit.build().unwrap())
+        .unwrap();
 }
 
 // 模拟编辑器读回本样例中的走向与编制车道，再把它们写回同一个模块。
@@ -721,9 +1004,9 @@ fn required_cross_sections_share_an_anchor_only_at_the_same_station() {
         .iter()
         .find(|lane| lane.authoring_lane_key() == "B")
         .unwrap();
-    let station = a.interior_cut_stations_meters().get(1);
+    let station = a.interior_cut_stations_meters().unwrap().get(1);
     let start = original
-        .subslice_range(b.interior_cut_stations_meters().bytes())
+        .subslice_range(b.interior_cut_stations_meters().unwrap().bytes())
         .unwrap()
         .start
         + 8;

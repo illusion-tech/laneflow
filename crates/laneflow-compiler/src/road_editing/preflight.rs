@@ -26,6 +26,7 @@ use crate::{
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
+mod boundary;
 mod owner;
 mod policy;
 mod scratch;
@@ -41,6 +42,7 @@ mod index_tests;
 pub(crate) struct RoadEditingPreflightCounts {
     declaration_count: u64,
     typed_ast_record_count: u64,
+    boundary_extent_count: u64,
     reference_count: u64,
     external_namespace_reference_count: u64,
     relation_occurrence_count: u64,
@@ -67,6 +69,10 @@ impl RoadEditingPreflightCounts {
     }
 
     /// 返回 Typed AST 来源记录计数。
+    pub(crate) const fn boundary_extent_count(self) -> u64 {
+        self.boundary_extent_count
+    }
+
     pub(crate) const fn typed_ast_record_count(self) -> u64 {
         self.typed_ast_record_count
     }
@@ -347,7 +353,7 @@ pub(crate) fn preflight_source(
 ) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
     let ledger = Ledger::new(limits.operation_budget());
     let _admitted = ledger.adopt(admitted_live_bytes);
-    preflight_source_in(root, limits, expected_key, &ledger)
+    preflight_source_in(root, limits, expected_key, 0, &ledger)
 }
 
 /// 在准入账本上预检：先按 wire 计数准入预检计划，索引都在计划内取得授予。
@@ -358,8 +364,19 @@ pub(crate) fn preflight_source_in(
     root: wire::RoadEditingSource<'_>,
     limits: &CompileProfile,
     expected_key: &str,
+    prior_extents: u64,
     ledger: &Ledger,
 ) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
+    let extents = boundary::count(root) as u64;
+    let needed = prior_extents.saturating_add(extents);
+    let limit = limits.max_boundary_extent_count();
+    if needed > limit {
+        return Err(limit_error(
+            CompileLimitDimension::BoundaryExtentCount,
+            limit,
+            needed,
+        ));
+    }
     let plan = preflight_plan(root);
     let planned_bytes = plan.bytes().unwrap_or(u64::MAX);
     let pass = admit_preflight_pass(ledger, plan)?;
@@ -367,6 +384,7 @@ pub(crate) fn preflight_source_in(
     pass.finish(0)?;
     Ok(RoadEditingPreflightCounts {
         preflight_peak_scratch_bytes: planned_bytes,
+        boundary_extent_count: extents,
         ..counts
     })
 }
@@ -463,6 +481,7 @@ fn preflight_with(
     validate_corridors(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_sections(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_authoring_lanes(&mut usage, root, namespace, imports, limits, expected_key)?;
+    boundary::validate(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_lane_edges(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_junctions(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_movements(&mut usage, root, namespace, imports, limits, expected_key)?;
@@ -556,6 +575,7 @@ pub(super) fn preflight_plan(root: wire::RoadEditingSource<'_>) -> Plan {
     let controller_groups = longest(controllers.iter(), |value| value.signal_groups().len());
 
     let single_indexes = [
+        boundary::plan(root),
         keys(root.module_header().imports().len()),
         keys(root.road_alignments().len()),
         keys(corridors.len()),
@@ -1271,7 +1291,8 @@ fn validate_authoring_lanes(
             expected_key,
         )?;
         let edges = value.edge_chain();
-        let cuts = value.interior_cut_stations_meters();
+        let raw_cuts = value.interior_cut_stations_meters();
+        let cuts = raw_cuts.unwrap_or_default();
         let at = |bundle: DiagnosticBundle, field, index| {
             bundle.with_fallback_primary_location(
                 super::location::RoadEditingLocationFactory::invalid_lane_field(
@@ -1287,7 +1308,7 @@ fn validate_authoring_lanes(
         let cut_field = "authoringLane.interiorCutStationsMeters";
         super::model::validate_lane_edge_count(edges.len())
             .map_err(|v| at(semantic_error(edge_field, v, expected_key), 1, None))?;
-        if cuts.len() != edges.len() - 1 {
+        if raw_cuts.is_some() != (edges.len() > 1) || cuts.len() != edges.len() - 1 {
             return Err(at(invalid_combination(cut_field, expected_key), 7, None));
         }
         let occurrence_count = edges.len() + cuts.len();

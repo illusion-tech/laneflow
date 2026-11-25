@@ -17,8 +17,55 @@ pub(crate) enum LirCorridorElement {
     FacilityBand(FacilityBandOrdinal),
 }
 
+impl LirRoadCorridor {
+    pub(crate) fn section_at(
+        &self,
+        lir: &super::LirUnit,
+        index: u32,
+    ) -> Option<RoadSectionOrdinal> {
+        match lir.corridor_elements[self.elements.as_usize_range()].get(index as usize)? {
+            LirCorridorElement::RoadSection(s) => Some(*s),
+            _ => None,
+        }
+    }
+    pub(crate) fn width_owner(
+        &self,
+        lir: &super::LirUnit,
+        member: crate::road_editing::boundary::WidthMember,
+    ) -> Option<(laneflow_static_contract::EntityKind, u32)> {
+        use crate::road_editing::boundary::WidthMember;
+        use laneflow_static_contract::EntityKind;
+        match member {
+            WidthMember::Band(i) => match lir.corridor_elements[self.elements.as_usize_range()]
+                .get(i as usize)?
+            {
+                LirCorridorElement::FacilityBand(b) => Some((EntityKind::FacilityBand, b.raw())),
+                _ => None,
+            },
+            WidthMember::Lane { element, lane } => {
+                let s = &lir.road_sections[self.section_at(lir, element)?.index()];
+                let l = lir.road_section_lanes[s.lanes.as_usize_range()].get(lane as usize)?;
+                Some((EntityKind::AuthoringLane, l.raw()))
+            }
+        }
+    }
+    pub(crate) fn extent_owner(
+        &self,
+        lir: &super::LirUnit,
+        element: Option<u32>,
+    ) -> Option<(laneflow_static_contract::EntityKind, u32)> {
+        use laneflow_static_contract::EntityKind;
+        Some(match element {
+            Some(i) => (EntityKind::RoadSection, self.section_at(lir, i)?.raw()),
+            None => (EntityKind::RoadCorridor, self.ordinal.raw()),
+        })
+    }
+}
+
 /// 道路走廊的 Canonical LIR 记录：组织方向性道路区段与非遍历设施带的横断面所有者。
 pub(crate) struct LirRoadCorridor {
+    pub(crate) cross_section:
+        Option<std::sync::Arc<crate::road_editing::boundary::PublishedCrossSection>>,
     pub(crate) ordinal: RoadCorridorOrdinal,
     pub(crate) stable_id: RoadCorridorId,
     pub(crate) identity_fields: TableRange<LirIdentityField>,
@@ -125,6 +172,7 @@ pub(super) fn freeze(
                 }),
         )?;
         road_corridors.push(LirRoadCorridor {
+            cross_section: corridor.cross_section.clone(),
             ordinal: env.orders.road_corridors.ordinal(mir_key),
             stable_id: corridor.stable_id,
             identity_fields: identity_range,

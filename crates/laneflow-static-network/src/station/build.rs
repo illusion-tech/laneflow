@@ -8,6 +8,7 @@ use crate::{
 use laneflow_format::{RegistryCheckedFieldValue, RegistryCheckedRowView, ValueCheckedObjectView};
 use laneflow_static_contract::{EntityKind, RoadSectionOrdinal};
 
+mod cross_section;
 const STRUCTURE: BuildStructure = BuildStructure::StationMapping;
 const INVALID: BuildError = BuildError::InputInvariant {
     structure: STRUCTURE,
@@ -53,6 +54,10 @@ pub(crate) fn build(
     let spans = table(4)?;
     let bands = table(5)?;
     let extents = table(6)?;
+    let footprints = table(7)?;
+    let surface = table(8)?;
+    let rules = table(9)?;
+    let obstacles = table(10)?;
     let limit = u64::from(options.limits().max_station_rows());
     for (t, structure) in [
         (anchors, BuildStructure::StationAnchors),
@@ -70,9 +75,11 @@ pub(crate) fn build(
     }
     if corridors.row_count() == 0 {
         check(
-            [anchors, lanes, edges, spans, bands, extents]
-                .iter()
-                .all(|t| t.row_count() == 0),
+            [
+                anchors, lanes, edges, spans, bands, extents, footprints, surface, rules, obstacles,
+            ]
+            .iter()
+            .all(|t| t.row_count() == 0),
         )?;
         return Ok(SharedStationMapping::default());
     }
@@ -84,7 +91,11 @@ pub(crate) fn build(
         corridors.row_count() <= nc
             && lanes.row_count() <= nl
             && edges.row_count() <= ne
-            && bands.row_count() <= counts.count(EntityKind::FacilityBand),
+            && bands.row_count() <= counts.count(EntityKind::FacilityBand)
+            && footprints.row_count() <= lanes.row_count()
+            && surface.row_count() <= anchors.row_count()
+            && u64::from(rules.row_count()) + u64::from(obstacles.row_count())
+                <= u64::from(extents.row_count()),
     )?;
     let bytes = |n: u32, size: usize| u64::from(n) * size as u64;
     let retained = prior
@@ -93,11 +104,25 @@ pub(crate) fn build(
                 + bytes(nl, size_of::<Option<Lane>>())
                 + bytes(ne, size_of::<Option<Edge>>())
                 + bytes(spans.row_count(), size_of::<Segment>())
-                + bytes(bands.row_count(), size_of::<Band>()),
+                + bytes(bands.row_count(), size_of::<Band>())
+                + bytes(extents.row_count(), size_of::<BoundaryExtent>())
+                + bytes(footprints.row_count(), size_of::<LaneFootprint>())
+                + bytes(surface.row_count(), size_of::<RoadSurfaceSpan>()),
         )
         .ok_or(INVALID)?;
-    let scratch =
-        bytes(nc, size_of::<Option<RangeU32>>()) + bytes(anchors.row_count(), size_of::<u64>());
+    let anchor_errors = if extents.row_count() != 0 || surface.row_count() != 0 {
+        anchors.row_count()
+    } else {
+        0
+    };
+    let scratch = bytes(nc, size_of::<Option<RangeU32>>())
+        + bytes(anchors.row_count(), size_of::<u64>())
+        + bytes(anchor_errors, size_of::<u32>())
+        + if surface.row_count() > 0 {
+            bytes(nc, size_of::<Option<u32>>())
+        } else {
+            0
+        };
     for (required, limit, structure) in [
         (
             retained,
@@ -121,6 +146,7 @@ pub(crate) fn build(
     let mut domains = slots(nc, None)?;
     let mut ranges = slots(nc, None)?;
     let mut stations = allocate_vec(anchors.row_count(), STRUCTURE)?;
+    let mut errors = allocate_vec(anchor_errors, STRUCTURE)?;
     let mut anchor_rows = anchors.rows();
     let mut last = None;
     let mut expected_lanes = 0usize;
@@ -157,6 +183,9 @@ pub(crate) fn build(
                 },
             )?;
             stations.push(s);
+            if anchor_errors > 0 {
+                errors.push(index(anchor, 2)?);
+            }
         }
         validate(at, stations.last() == Some(&length))?;
         domains[c as usize] = Some(StationDomain {
@@ -323,6 +352,7 @@ pub(crate) fn build(
             error_nm: index(row, 8)?,
         });
     }
+    let mut named = allocate_vec(extents.row_count(), STRUCTURE)?;
     let mut prev = None;
     for (i, row) in extents.rows().enumerate() {
         let at = mapping_row(7, i as u32);
@@ -362,12 +392,48 @@ pub(crate) fn build(
         let lo = index(row, 6)?;
         let hi = index(row, 7)?;
         validate(at, r.start() <= lo && lo < hi && hi < r.start() + r.len())?;
+        let mut key_bytes = [0; 53];
+        key_bytes
+            .get_mut(..name.len())
+            .ok_or(at)?
+            .copy_from_slice(name.as_bytes());
+        let owner = if kind == 1 {
+            BoundaryOwner::Corridor(c)
+        } else {
+            BoundaryOwner::Section(RoadSectionOrdinal::try_from_usize(owner).map_err(|_| at)?)
+        };
+        named.push(BoundaryExtent {
+            owner,
+            corridor: c,
+            left_index: left,
+            kind: shape,
+            stations_nm: [stations[lo as usize], stations[hi as usize]],
+            errors_nm: [errors[lo as usize], errors[hi as usize]],
+            name: key_bytes,
+            name_len: name.len() as u8,
+            payload: None,
+        });
     }
+    let (footprints, surface) = cross_section::build(
+        view,
+        traffic,
+        &ranges,
+        &stations,
+        &errors,
+        &lane_index,
+        &edge_index,
+        &band_index,
+        &mut named,
+        options,
+    )?;
     Ok(SharedStationMapping {
         domains: domains.into_boxed_slice(),
         lanes: lane_index.into_boxed_slice(),
         edges: edge_index.into_boxed_slice(),
         segments: segments.into_boxed_slice(),
         bands: band_index.into_boxed_slice(),
+        extents: named.into_boxed_slice(),
+        footprints,
+        surface,
     })
 }

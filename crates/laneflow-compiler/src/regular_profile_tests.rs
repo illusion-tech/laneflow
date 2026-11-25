@@ -17,7 +17,7 @@ const ADMISSION_BOUNDARIES: [(D, u32, usize); 16] = [
     (D::ModuleCount, 18, 4),
     (D::SourceDocumentCount, 18, 4),
     (D::ImportEdgeCount, 17, 4),
-    (D::SourceBytesTotal, 8_729_042, 10),
+    (D::SourceBytesTotal, 8_729_266, 10),
     (D::DeclarationCount, 10_000, 0),
     (D::TypedAstRecordCount, 381_284, 10),
     (D::ReferenceCount, 77_602, 10),
@@ -148,7 +148,7 @@ fn source_module_bytes_and_single_string_have_distinct_boundaries() {
         SOURCE_BYTES_PER_MODULE
     );
     let narrow =
-        candidate_limits().with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE - 1, 8_729_042);
+        candidate_limits().with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE - 1, 8_729_266);
     let error = build_synthetic_module(&narrow, shape, 0, false)
         .err()
         .expect("source byte boundary");

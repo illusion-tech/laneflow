@@ -5,6 +5,8 @@
 //! table 或 verifier 后的借用 view。
 
 mod admission;
+pub(crate) mod boundary;
+pub(crate) mod boundary_payload;
 mod builder;
 mod compile_geometry;
 mod cut_stations;

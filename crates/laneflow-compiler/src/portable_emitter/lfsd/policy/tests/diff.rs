@@ -570,7 +570,7 @@ fn policy_diff_fixed_bytes_cover_all_four_complete_member_values() {
     assert_eq!(bytes.len(), 2_306);
     assert_eq!(
         object_key(sha256(&bytes)).as_ref(),
-        "sha256/11736e883c7d3404eec5124cedd3b4866b6bedf4f881fcb878d41af64554c0b6"
+        "sha256/29b860c842ffec09399a9a982cc41e7428ba220986d70073a030c7b806732340"
     );
     verify(&base, &target, &diff).unwrap();
 }

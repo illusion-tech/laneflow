@@ -20,9 +20,9 @@ use super::lowering::{
     lower_topology_authoring_declarations,
 };
 use super::preflight::RoadEditingPreflightCounts;
+use super::reader::VerifiedRoadEditingSource;
 #[cfg(test)]
 use super::reader::verify_source;
-use super::reader::{VerifiedRoadEditingSource, verify_source_in};
 use crate::declaration::{
     AuthoringCurveCubicPointSpans, AuthoringCurveSegmentDeclaration,
     AuthoringCurveSegmentPointSpans, CanonicalPoint3F32Input, CompiledGeometrySourceRange,
@@ -41,8 +41,8 @@ use crate::{
     RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
-const ROAD_EDITING_FRONTEND_VERSION: u32 = 6;
-const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 3;
+const ROAD_EDITING_FRONTEND_VERSION: u32 = 7;
+const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 4;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 const ARC_ALLOCATION_HEADER_BYTES: u64 = (core::mem::size_of::<usize>() as u64).saturating_mul(2);
 // v1 闭合属性路径表小于 512 项、每项最多四步。固定部分和输入相关的唯一
@@ -302,11 +302,12 @@ impl CompilationUnitBuilder {
         mut observe: impl FnMut(super::NativeChord<'_>),
     ) -> Result<&mut Self, DiagnosticBundle> {
         let limits = self.road_editing_limits().clone();
-        let verified = verify_source_in(
+        let verified = super::reader::verify_with_prior_extents(
             input,
             &limits,
             self.road_editing_source_bytes_already_admitted(),
             self.road_editing_typed_ast_records_already_admitted(),
+            self.admitted_boundary_extents(),
             self.admission_ledger(),
         )?;
         precheck_accumulated_counts(self, &limits, &verified)?;
@@ -765,6 +766,7 @@ fn lower_verified_source(
             maneuver_gate_count: counts.maneuver_gate_count(),
             waiting_zone_count: counts.waiting_zone_count(),
             geometry_point_count,
+            boundary_extent_count: counts.boundary_extent_count(),
             geometry_source_range_count,
             controlled_live_bytes,
             admission_peak_live_bytes,

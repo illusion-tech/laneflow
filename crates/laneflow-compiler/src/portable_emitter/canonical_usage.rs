@@ -118,7 +118,16 @@ const fn lfca_projection(role: SourceRelationRole) -> Option<LfcaProjection> {
         R::ParticipantStreamManeuverPath => P::RequiredScalar(K::ParticipantStream, 4),
         R::ParticipantStreamConflictPassage => P::RecordVector(K::ParticipantStream, 5),
         R::CanonicalFrameConflictZoneRegion => P::GeometryRows(3),
-        R::PolicyEvidence | R::PolicyGapProfile | R::PolicyStreamRule | R::PolicyGateRule => {
+        R::PolicyEvidence
+        | R::PolicyGapProfile
+        | R::PolicyStreamRule
+        | R::PolicyGateRule
+        | R::FacilityBandBounds
+        | R::BoundaryExtent
+        | R::LaneFootprint
+        | R::SurfaceSpan
+        | R::BoundaryRule
+        | R::BoundaryObstacle => {
             return None;
         }
     })

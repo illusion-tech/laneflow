@@ -384,7 +384,19 @@ pub(crate) fn freeze_source_map_in(
         .array::<policy::PolicySourceRecord>(policy_counts.inputs)
         .array::<SourceLocationRecord>(policy_counts.contributing)
         .plus(Plan::of(policy_counts.member_key_bytes));
-    let output = tables.plus(policy_records);
+    let mut rows = 0;
+    let mut contributors = 0;
+    for c in &frozen_lir.lir.road_corridors {
+        let Ok(()) = station::visit(&frozen_lir.lir, c, |_, _, _, _, _, _, s| {
+            rows += 1;
+            contributors += s.contributing.len();
+            Ok::<_, core::convert::Infallible>(())
+        });
+    }
+    let output = tables
+        .plus(policy_records)
+        .array::<station::StationSource>(rows)
+        .array::<SourceLocationRecord>(contributors);
     let peak = output.plus(
         junction_scratch
             .max(spatial_scratch)
@@ -1548,8 +1560,10 @@ pub(crate) fn freeze_source_map_in(
     let policy_sources = policy::freeze_policy_sources(&unit, &policy_inputs, &pass)?;
     drop(policy_inputs);
     drop(input_member_keys);
+    let station_sources = station::freeze(frozen_lir, mir, &unit, rows, &pass)?;
     let (source_modules, source_documents) = unit.into_source_descriptors(&pass)?;
     let input = ValidatedSourceMapInput {
+        station_sources,
         policy_sources,
         inner_payloads: crate::ledger::OutputGrant::new(record_member_keys),
         source_modules,
