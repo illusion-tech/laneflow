@@ -19,6 +19,7 @@ const LEG: f64 = 10.5 * 401.0 / 399.0;
 enum Edit {
     NarrowPeak,
     CollapseTip(&'static str),
+    FractionalLaneWidths,
 }
 
 fn source(previous: Option<(&[u8], Edit)>) -> Vec<u8> {
@@ -230,7 +231,7 @@ fn bend(previous: Option<(&[u8], Edit)>, boundary: Option<(Option<&[u8]>, RailEd
                 Edit::CollapseTip(owner) if owner == key => {
                     [w0.max(0.000_000_4), w1.max(0.000_000_4)]
                 }
-                Edit::CollapseTip(_) => [w0, w1],
+                Edit::CollapseTip(_) | Edit::FractionalLaneWidths => [w0, w1],
             };
             band.set_width_profile(LinearWidthProfile::try_new(a, b).unwrap());
             band
@@ -259,6 +260,14 @@ fn bend(previous: Option<(&[u8], Edit)>, boundary: Option<(Option<&[u8]>, RailEd
                     source_lane.set_width_profile(
                         LinearWidthProfile::try_new(3.5 - w0 * 0.5, 3.5 - w1 * 0.5).unwrap(),
                     );
+                } else if matches!(edit, Edit::FractionalLaneWidths) {
+                    let [low, high] = if side == "A" {
+                        [3.000_003; 2]
+                    } else {
+                        // 分隔带增宽时右侧车道等量移回中心，两个走廊的后继方向保持连续。
+                        [3.0 - 2.0 * w0, 3.0 - 2.0 * w1]
+                    };
+                    source_lane.set_width_profile(LinearWidthProfile::try_new(low, high).unwrap());
                 }
                 source_lane
             } else {
@@ -701,6 +710,68 @@ fn median_width_changes_revision_and_two_band_rows_with_identical_centerlines() 
     }
     ends_changed.sort_unstable();
     assert_eq!(ends_changed, [0, 2]);
+}
+
+#[test]
+fn tapered_median_reuses_both_lane_interfaces_including_its_zero_width_tips() {
+    use laneflow_static_network::CorridorElement::{FacilityBand, RoadSection};
+    let original = source(None);
+    let bytes = bend(
+        Some((&original, Edit::FractionalLaneWidths)),
+        Some((None, RailEdit::Baseline)),
+    );
+    let output = compile(&bytes).unwrap();
+    let candidate = emit_portable_candidate(
+        &output,
+        &PortableEmissionProvenance::try_new(DOCUMENT).unwrap(),
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let checked =
+        check_canonical_network_input(candidate.canonical_artifact().bytes(), FormatLimits::HARD)
+            .unwrap();
+    let network = build_shared_network_revision(
+        checked,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+        ),
+    )
+    .unwrap();
+    let map = network.station_mapping();
+    let relations = network.traffic().relations();
+    for corridor in output.lir().road_corridors().map(|c| c.ordinal()) {
+        let [RoadSection(a), FacilityBand(band), RoadSection(b)] =
+            relations.corridor_elements(corridor).unwrap()
+        else {
+            panic!("expected median")
+        };
+        let footprint = |s| {
+            map.lane_footprint(relations.section_lanes(s).unwrap()[0])
+                .unwrap()
+        };
+        let domain = map.corridor_domain(corridor).unwrap();
+        for (i, station) in [0, domain.length_nm].into_iter().enumerate() {
+            let bounds = map
+                .facility_band_bounds(corridor, *band, [station; 2])
+                .unwrap();
+            let mid_um = |[lo, hi]: [i64; 2]| lo.midpoint(hi) / 1000;
+            assert_eq!(
+                mid_um(bounds.left_nm),
+                i64::from(footprint(*a).ends_um[i][1])
+            );
+            assert_eq!(
+                mid_um(bounds.right_nm),
+                i64::from(footprint(*b).ends_um[i][0])
+            );
+            assert_eq!(mid_um(bounds.left_nm), -1_500_001);
+            assert_eq!(
+                bounds.left_nm == bounds.right_nm,
+                (domain.origin_nm == 0) == (i == 0)
+            );
+        }
+    }
 }
 
 #[test]

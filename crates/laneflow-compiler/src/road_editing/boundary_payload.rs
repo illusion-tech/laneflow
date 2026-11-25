@@ -69,25 +69,30 @@ impl QuantizedBoundaryPayload {
     }
 }
 
+pub(super) fn rounded_micrometers(meters: f64) -> Option<i64> {
+    let scaled = meters * 1_000_000.0;
+    if !scaled.is_finite() || scaled.abs() > f64::from(u32::MAX) + 1.0 {
+        return None;
+    }
+    let residual = meters.mul_add(1_000_000.0, -scaled);
+    let rounded = if scaled.fract().abs() == 0.5 && residual != 0.0 {
+        if residual < 0.0 {
+            scaled.floor()
+        } else {
+            scaled.ceil()
+        }
+    } else {
+        scaled.round_ties_even()
+    };
+    Some(rounded as i64)
+}
+
 impl Quantizer {
     fn micrometers(&mut self, meters: f64, field: &'static str) -> Result<i64, &'static str> {
-        let scaled = meters * 1_000_000.0;
-        if !scaled.is_finite() || scaled.abs() > f64::from(u32::MAX) + 1.0 {
-            return Err(field);
-        }
-        let residual = meters.mul_add(1_000_000.0, -scaled);
-        let rounded = if scaled.fract().abs() == 0.5 && residual != 0.0 {
-            if residual < 0.0 {
-                scaled.floor()
-            } else {
-                scaled.ceil()
-            }
-        } else {
-            scaled.round_ties_even()
-        };
-        let error = meters.mul_add(1_000_000.0, -rounded).abs();
+        let rounded = rounded_micrometers(meters).ok_or(field)?;
+        let error = meters.mul_add(1_000_000.0, -(rounded as f64)).abs();
         self.max_error_um = self.max_error_um.max(error);
-        Ok(rounded as i64)
+        Ok(rounded)
     }
 
     fn signed(&mut self, v: f64, field: &'static str) -> Result<i32, &'static str> {

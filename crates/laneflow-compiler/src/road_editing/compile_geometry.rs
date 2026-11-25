@@ -19,6 +19,7 @@ use super::geometry::{
     StationInterval, approximate_interval, canonical_point_distance, direction_accepts,
     numeric_stack_scratch_bytes, point_distance, quantize_point, validate_canonical_polyline,
 };
+use super::station_proof::WidthBoundary;
 
 mod cross_section;
 const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
@@ -104,6 +105,7 @@ fn canonicalize_zero(value: f64) -> f64 {
 pub(super) fn derive_member_offset_endpoints(
     width_profiles: &[AuthoringWidthProfile],
     reference_ordinal: usize,
+    mut record_boundary: impl FnMut(usize, [f64; 2]),
 ) -> Result<Box<[MemberOffsetEndpoints]>, NumericFreezeError> {
     if width_profiles.is_empty() || reference_ordinal >= width_profiles.len() {
         return Err(NumericFreezeError::from(
@@ -132,6 +134,7 @@ pub(super) fn derive_member_offset_endpoints(
     if !left_start.is_finite() || !left_end.is_finite() {
         return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
     }
+    record_boundary(reference_ordinal, [left_start, left_end]);
     for ordinal in (0..reference_ordinal).rev() {
         let width = width_profiles[ordinal];
         let target_start = canonicalize_zero(left_start + 0.5 * width.start_width_meters);
@@ -148,6 +151,7 @@ pub(super) fn derive_member_offset_endpoints(
         if !left_start.is_finite() || !left_end.is_finite() {
             return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
         }
+        record_boundary(ordinal, [left_start, left_end]);
     }
 
     let mut right_start = canonicalize_zero(-(0.5 * reference.start_width_meters));
@@ -155,6 +159,7 @@ pub(super) fn derive_member_offset_endpoints(
     if !right_start.is_finite() || !right_end.is_finite() {
         return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
     }
+    record_boundary(reference_ordinal + 1, [right_start, right_end]);
     for ordinal in (reference_ordinal + 1)..width_profiles.len() {
         let width = width_profiles[ordinal];
         let target_start = canonicalize_zero(right_start - 0.5 * width.start_width_meters);
@@ -171,6 +176,7 @@ pub(super) fn derive_member_offset_endpoints(
         if !right_start.is_finite() || !right_end.is_finite() {
             return Err(NumericFreezeError::from(NumericFreezeKind::NonFinite));
         }
+        record_boundary(ordinal + 1, [right_start, right_end]);
     }
     Ok(offsets.into_boxed_slice())
 }
@@ -859,6 +865,12 @@ pub(super) fn compile_authoring_geometry(
         scratch.reserve::<CorridorMember<'_>>(plan.member_count)?;
         scratch.reserve::<AuthoringWidthProfile>(plan.member_count)?;
         scratch.reserve::<MemberOffsetEndpoints>(plan.member_count)?;
+        let boundary_count = if cross_section::needed(plan) {
+            plan.member_count + 1
+        } else {
+            0
+        };
+        scratch.reserve::<WidthBoundary>(boundary_count)?;
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
             live_headroom,
             scratch.dynamic_live(),
@@ -884,13 +896,22 @@ pub(super) fn compile_authoring_geometry(
         } else {
             0.0
         };
-        let offsets = derive_member_offset_endpoints(&width_profiles, plan.reference_ordinal)?;
+        let mut boundaries = vec![WidthBoundary::default(); boundary_count];
+        let offsets = derive_member_offset_endpoints(
+            &width_profiles,
+            plan.reference_ordinal,
+            |i, meters| {
+                if let Some(boundary) = boundaries.get_mut(i) {
+                    *boundary = WidthBoundary::new(meters);
+                }
+            },
+        )?;
 
-        if cross_section::needed(plan) {
+        if !boundaries.is_empty() {
             let proof = cross_section::compile(
                 plan,
                 alignment,
-                &offsets,
+                &boundaries,
                 [authoring.start_station_meters, station_end],
                 width_rounding_error,
                 &mut scratch,
@@ -906,7 +927,7 @@ pub(super) fn compile_authoring_geometry(
                 used_source_ranges,
             )?);
         }
-        for (member, offset) in members.iter().zip(offsets.iter()) {
+        for (ordinal, (member, offset)) in members.iter().zip(offsets.iter()).enumerate() {
             let corridor_domain = [authoring.start_station_meters, station_end];
             let count = match member.target {
                 CorridorMemberTarget::Lane(lane) => lane.edge_chain.len(),
@@ -1088,7 +1109,7 @@ pub(super) fn compile_authoring_geometry(
                                 station: if authoring.station_mapping_request.is_some() {
                                     Some(super::station_proof::band(
                                         crate::RoadEditingTableKind::FacilityBand,
-                                        *offset,
+                                        [boundaries[ordinal], boundaries[ordinal + 1]],
                                         member.width_profile,
                                         corridor_domain,
                                         width_rounding_error,
@@ -1114,6 +1135,8 @@ pub(super) fn compile_authoring_geometry(
             }
         }
         drop(offsets);
+        drop(boundaries);
+        scratch.release::<WidthBoundary>(boundary_count);
         drop(width_profiles);
         drop(members);
         scratch.release::<MemberOffsetEndpoints>(plan.member_count);
@@ -4457,7 +4480,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            derive_member_offset_endpoints(&profiles, 1)
+            derive_member_offset_endpoints(&profiles, 1, |_, _| {})
                 .unwrap()
                 .as_ref(),
             [
@@ -4480,7 +4503,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            derive_member_offset_endpoints(&profiles, profiles.len()),
+            derive_member_offset_endpoints(&profiles, profiles.len(), |_, _| {}),
             Err(NumericFreezeError::from(
                 NumericFreezeKind::StationOutOfRange
             ))
@@ -4502,6 +4525,7 @@ mod tests {
         let left = derive_member_offset_endpoints(
             &profiles([outer, intermediate, 2.0 * reference_half]),
             2,
+            |_, _| {},
         )
         .unwrap();
         let expected_left = (reference_half + intermediate) + 0.5 * outer;
@@ -4512,6 +4536,7 @@ mod tests {
         let right = derive_member_offset_endpoints(
             &profiles([2.0 * reference_half, intermediate, outer]),
             0,
+            |_, _| {},
         )
         .unwrap();
         let expected_right = (-reference_half - intermediate) - 0.5 * outer;
@@ -4534,7 +4559,7 @@ mod tests {
             },
         ];
 
-        let offsets = derive_member_offset_endpoints(&profiles, 0).unwrap();
+        let offsets = derive_member_offset_endpoints(&profiles, 0, |_, _| {}).unwrap();
         assert_eq!(offsets[1].start_meters.to_bits(), 0.0_f64.to_bits());
     }
 
