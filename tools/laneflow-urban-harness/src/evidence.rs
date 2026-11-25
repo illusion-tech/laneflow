@@ -74,12 +74,12 @@ pub(crate) fn source() -> Result<Value> {
         "harness_manifest":digest_file(Path::new("tools/laneflow-urban-harness/Cargo.toml"))?,
         "adapter_manifest":digest_file(Path::new("crates/laneflow-bevy/Cargo.toml"))?,
         "spatial_manifest":digest_file(Path::new("crates/laneflow-spatial/Cargo.toml"))?,
-        "rustc":read("rustc", &["+1.99.1","-Vv"] )?,
-        "cargo":read("cargo", &["+1.99.1","-V"] )?,
+        "rustc":read("rustc", &["+1.100.0","-Vv"] )?,
+        "cargo":read("cargo", &["+1.100.0","-V"] )?,
         "binary":digest_file(&std::env::current_exe()?)?,
         "allocation":cfg!(feature = "allocation"),
         "pose_profiling":cfg!(feature = "pose-profiling"),
-        "build_parameters":if cfg!(feature = "allocation") {"cargo +1.99.1 build -p laneflow-urban-harness --features allocation --release --locked"} else if cfg!(feature = "pose-profiling") {"cargo +1.99.1 build -p laneflow-urban-harness --features pose-profiling --release --locked"} else {"cargo +1.99.1 build -p laneflow-urban-harness --features adapter --release --locked"},
+        "build_parameters":if cfg!(feature = "allocation") {"cargo +1.100.0 build -p laneflow-urban-harness --features allocation --release --locked"} else if cfg!(feature = "pose-profiling") {"cargo +1.100.0 build -p laneflow-urban-harness --features pose-profiling --release --locked"} else {"cargo +1.100.0 build -p laneflow-urban-harness --features adapter --release --locked"},
         "environment":environment_summary()?,
         "os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"workers":1}))
 }

@@ -7,7 +7,7 @@
 //! 以及已提交的速度、进度与余数。只在 `motion-trace` feature 下编译：
 //!
 //! ```text
-//! cargo +1.99.1 test --locked -p laneflow-scenario --features motion-trace \
+//! cargo +1.100.0 test --locked -p laneflow-scenario --features motion-trace \
 //!     --test signalized_corridor_yellow_trace -- --nocapture
 //! ```
 //!

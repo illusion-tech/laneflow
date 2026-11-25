@@ -1053,7 +1053,7 @@ mod evidence {
         let target =
             std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "<worktree-target>".to_owned());
         format!(
-            "CARGO_TARGET_DIR='{target}' LANEFLOW_806_A0_RESULTS='{}' cargo +1.99.1 test --locked -p laneflow-lust-converter --lib convert::routes::test_support::evidence::a0_route_evidence -- --exact --nocapture",
+            "CARGO_TARGET_DIR='{target}' LANEFLOW_806_A0_RESULTS='{}' cargo +1.100.0 test --locked -p laneflow-lust-converter --lib convert::routes::test_support::evidence::a0_route_evidence -- --exact --nocapture",
             output.display()
         )
     }

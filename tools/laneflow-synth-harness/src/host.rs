@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 use crate::Error;
 
 /// 环境记录采集的工具链选择，与正式构建使用的工具链一致。
-pub const TOOLCHAIN: &str = "1.99.1";
+pub const TOOLCHAIN: &str = "1.100.0";
 /// 子进程采样间隔（host-observe.md §5.5）。
 pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 /// 测量前环境记录文件名。

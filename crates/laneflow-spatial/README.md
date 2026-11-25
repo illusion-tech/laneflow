@@ -38,8 +38,8 @@ laneflow-spatial -X-> laneflow-runtime
 Bevy 示例在需要画面时绑定 Spatial。无窗口示例故意省略它，用来确认交通推进本身不依赖空间采样。
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-spatial
-cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+cargo +1.100.0 test --locked -p laneflow-spatial
+cargo +1.100.0 run --locked -p laneflow-runtime --example headless
 ```
 
 ## 深入阅读

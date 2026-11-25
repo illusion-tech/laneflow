@@ -23,7 +23,7 @@ pub(crate) const BEFORE: &str = "environment-before.json";
 /// 测量后环境记录文件名。
 pub(crate) const AFTER: &str = "environment-after.json";
 /// 环境记录采集的工具链选择，与正式测量构建一致。
-const TOOLCHAIN: &str = "1.99.1";
+const TOOLCHAIN: &str = "1.100.0";
 
 /// 读取 [`INPUT_VARIABLE`] 指定的执行者输入文件。
 pub(crate) fn manual() -> Result<ManualFields> {

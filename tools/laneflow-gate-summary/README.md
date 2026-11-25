@@ -13,7 +13,7 @@
 ## 命令
 
 ```powershell
-cargo +1.99.1 build --release --locked -p laneflow-gate-summary
+cargo +1.100.0 build --release --locked -p laneflow-gate-summary
 
 # 汇总（自包含示例，试跑模式允许未完成项）
 target/release/laneflow-gate-summary summarize `
@@ -107,8 +107,8 @@ v0.10 统一验收线已收尾：#1282 冻结验收提交，#1279 完成冻结�
 ## 测试
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-gate-summary
-cargo +1.99.1 clippy --locked -p laneflow-gate-summary --all-targets -- -D warnings
+cargo +1.100.0 test --locked -p laneflow-gate-summary
+cargo +1.100.0 clippy --locked -p laneflow-gate-summary --all-targets -- -D warnings
 ```
 
 `tests/summary.rs` 以示例 manifest 覆盖汇总与全部失败关闭路径（性能判定词、锚点未命中、

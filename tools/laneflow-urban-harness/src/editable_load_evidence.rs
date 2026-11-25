@@ -6,7 +6,7 @@
 //! 描述本机，不作产品阈值，不与发布来源初值作回归比较。
 //!
 //! ```text
-//! cargo +1.99.1 test --release --locked -p laneflow-urban-harness --lib editable_load_evidence -- --ignored --nocapture
+//! cargo +1.100.0 test --release --locked -p laneflow-urban-harness --lib editable_load_evidence -- --ignored --nocapture
 //! ```
 //!
 //! `LF_EDITABLE_LOAD_SCALE`（`fixture` / `10k` / `100k`，缺省 `fixture`）选择规模，

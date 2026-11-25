@@ -13,7 +13,7 @@ LaneFlow 交通运行时。`TrafficWorld` 是当前唯一的可运行交通世�
 从源码检出仓库后，直接运行无窗口示例：
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+cargo +1.100.0 run --locked -p laneflow-runtime --example headless
 ```
 
 该程序检查检入走廊 LFCA、省略 Spatial 保留数据、在安装前认证共享修订（只有 `Pass` 才安装）、按 catalog 的 portal 入口注册一条路线并生成一辆车，再以 16 毫秒固定步进，最后导出 Full 观测。它不启动持续人口控制器。步骤、实跑输出和失败分类见[从源码接入无窗口交通运行时][source-integration]。
@@ -36,8 +36,8 @@ cargo +1.99.1 run --locked -p laneflow-runtime --example headless
 ## 示例与验证
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-runtime --example headless
-cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
+cargo +1.100.0 run --locked -p laneflow-runtime --example headless
+cargo +1.100.0 test --locked -p laneflow-runtime --test headless_smoke
 ```
 
 `headless_smoke` 与上面的示例是同一个 `examples/headless.rs`，由集成测试目标执行其中的断言。它检查受检构建、安装前修订认证通过且认证失败时不安装、Pinned 策略、来源修订、一条路线与一辆车、64 步后的精确时间、车辆位移，以及错误步长和首次 Delta 都不提交。

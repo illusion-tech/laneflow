@@ -67,9 +67,9 @@ fn sample_record() -> EnvironmentRecord {
             bios_date: Field::Value("01/01/2025".into()),
         },
         toolchain: Field::Value(Toolchain {
-            selector: Some("1.99.1".into()),
-            rustc_vv: "rustc 1.99.1\nhost: x86_64-pc-windows-msvc".into(),
-            cargo_version: "cargo 1.99.1".into(),
+            selector: Some("1.100.0".into()),
+            rustc_vv: "rustc 1.100.0\nhost: x86_64-pc-windows-msvc".into(),
+            cargo_version: "cargo 1.100.0".into(),
             host_target: "x86_64-pc-windows-msvc".into(),
         }),
         source: Field::Value(Source {

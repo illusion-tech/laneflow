@@ -30,7 +30,7 @@
 P100 参考机上的人工验证：
 
 ```text
-cargo +1.99.1 test -p laneflow-host-observe --lib -- --ignored reference_machine
+cargo +1.100.0 test -p laneflow-host-observe --lib -- --ignored reference_machine
 ```
 
 ## 进程快照

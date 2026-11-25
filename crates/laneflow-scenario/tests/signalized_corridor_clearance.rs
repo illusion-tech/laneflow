@@ -5,7 +5,7 @@
 //! 正式验收用 release 显式运行：
 //!
 //! ```text
-//! cargo +1.99.1 test --release --locked -p laneflow-scenario \
+//! cargo +1.100.0 test --release --locked -p laneflow-scenario \
 //!     --test signalized_corridor_clearance -- --ignored --nocapture
 //! ```
 //!

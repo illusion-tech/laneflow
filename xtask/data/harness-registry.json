@@ -221,6 +221,16 @@
       ]
     },
     {
+      "id": "xai/grok-build/cli",
+      "display_name": "Grok Build CLI",
+      "sources": [
+        {
+          "url": "https://x.ai/docs/build/overview",
+          "checked_at": "2026-11-25"
+        }
+      ]
+    },
+    {
       "id": "z-ai/zcode/desktop",
       "display_name": "ZCode Desktop",
       "sources": [
@@ -340,6 +350,18 @@
       "input": "DeepSeek Harness Web",
       "candidates": [
         "deepseek/harness/web"
+      ]
+    },
+    {
+      "input": "Grok Build",
+      "candidates": [
+        "xai/grok-build/cli"
+      ]
+    },
+    {
+      "input": "Grok Build CLI",
+      "candidates": [
+        "xai/grok-build/cli"
       ]
     },
     {

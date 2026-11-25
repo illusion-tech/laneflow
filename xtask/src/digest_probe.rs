@@ -31,7 +31,7 @@ const NEAR_ZERO_MIN_CLEARED: usize = PAGE as usize / 16;
 /// 报告逐页明细的上限，其余只计入汇总。
 const MAX_PAGE_LINES: usize = 32;
 
-const USAGE: &str = "用法: cargo +1.99.1 run --locked -p xtask -- classify-digest-probe --dump <转储.bin> --golden <健康产物文件或目录> [--golden ...]";
+const USAGE: &str = "用法: cargo +1.100.0 run --locked -p xtask -- classify-digest-probe --dump <转储.bin> --golden <健康产物文件或目录> [--golden ...]";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut dump = None;

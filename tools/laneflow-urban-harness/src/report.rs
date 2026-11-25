@@ -30,7 +30,7 @@ mod timing;
 // 执行者输入文件提供，电源状态、指纹与 OS build 自动采集；两份环境记录列入
 // 文件摘要清单，读取时核对其与测量来源一致。
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v6";
-const BUILD_PARAMETERS: &str = "cargo +1.99.1 run --locked -p xtask -- build-measurement";
+const BUILD_PARAMETERS: &str = "cargo +1.100.0 run --locked -p xtask -- build-measurement";
 /// 正式运行逐次独立校验、不参与跨运行语义比较的记录文件。
 const PERFORMANCE_RECORD_FILES: [&str; 3] = [
     "measurements.toml",
@@ -350,8 +350,8 @@ impl MeasurementProvenance {
         }
         if self.git_commit.len() != 40
             || !self.git_commit.bytes().all(|b| b.is_ascii_hexdigit())
-            || !self.rustc.starts_with("rustc 1.99.1 ")
-            || !self.cargo.starts_with("cargo 1.99.1 ")
+            || !self.rustc.starts_with("rustc 1.100.0 ")
+            || !self.cargo.starts_with("cargo 1.100.0 ")
             || self
                 .rustc
                 .lines()
@@ -2001,8 +2001,8 @@ mod tests {
         json!({
             "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
             "git_commit":"a".repeat(40),
-            "rustc":"rustc 1.99.1 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 23.1.1",
-            "cargo":"cargo 1.99.1 (fixture)", "target":"x86_64-pc-windows-msvc",
+            "rustc":"rustc 1.100.0 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 23.1.1",
+            "cargo":"cargo 1.100.0 (fixture)", "target":"x86_64-pc-windows-msvc",
             "build_parameters":BUILD_PARAMETERS, "os":"Windows 11 Pro", "os_build":"29704",
             "architecture":"x86_64",
             "build_rustflags":EXPECTED_BUILD_RUSTFLAGS, "build_profile":EXPECTED_BUILD_PROFILE,
@@ -2405,7 +2405,7 @@ mod tests {
                 bios_date: Field::Value("01/01/2025".into()),
             },
             toolchain: Field::Value(Toolchain {
-                selector: Some("1.99.1".into()),
+                selector: Some("1.100.0".into()),
                 rustc_vv: text("rustc"),
                 cargo_version: text("cargo"),
                 host_target: text("target"),
@@ -2782,9 +2782,9 @@ mod tests {
             ("git_commit", json!("b".repeat(40))),
             (
                 "rustc",
-                json!("rustc 1.99.1 (different)\nhost: x86_64-pc-windows-msvc"),
+                json!("rustc 1.100.0 (different)\nhost: x86_64-pc-windows-msvc"),
             ),
-            ("cargo", json!("cargo 1.99.1 (different)")),
+            ("cargo", json!("cargo 1.100.0 (different)")),
             ("target", json!("aarch64-unknown-linux-gnu")),
             ("build_parameters", json!("debug build")),
             (
