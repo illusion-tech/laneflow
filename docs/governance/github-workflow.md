@@ -332,8 +332,9 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Wire toolchain audit`：`xtask check-wire-audit` 与
   `xtask check-runtime-architecture`，覆盖仓库 cargo config 卫生、依赖与生成物
   钉版、workspace unsafe 边界（含 `laneflow-os-probe` 受审计例外）的 hermetic
-  双特性编译与注入金丝雀，以及运行时模块
-  架构检查（自 `Rust checks` 拆出，#1061）。与 `Rust checks` 并行执行，压缩合并
+  双特性编译与注入金丝雀，以及运行时模块架构检查（#1061）。Wire 审计与
+  Schema Codegen 共用手写源码检查，扫描两个 wire 包中除各自钉版生成物外的所有
+  `.rs` 文件，包括未接入模块树的文件。与 `Rust checks` 并行执行，压缩合并
   路径关键路径；非 Rust 路径变更时以 skip 模式成功完成。
 - `Evidence fixture tests` 与 `Rust checks` 的 workspace 步分别负责专项和其余测试
   （#1108）。在 PR 上，计划分别选择 urban-harness 与 urban-generator 两包的完整

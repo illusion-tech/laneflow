@@ -16,7 +16,8 @@
 //!    `flatbuffers = { version = "=<钉版>", default-features = false,
 //!    features = ["std"] }` 且无 dev/build 依赖段、package 根目录不得存在
 //!    build.rs 与 src/bin/、tests/、benches/、examples/ 目录）；包装器 lib.rs
-//!    与 `xtask/src/wire_pins/` 下钉版副本字节相等；
+//!    与 `xtask/src/wire_pins/` 下钉版副本字节相等。两个包中除指定生成物外的
+//!    每个 `.rs` 均由与 Schema Codegen 共用的手写源码检查覆盖，包括未接入模块树的文件。
 //!    生成 .rs 的 sha256 与钉版常量一致（字节正确性在本审计闭合；
 //!    schema+flatc → bytes 的语义对应另由 schema-codegen.yml 的
 //!    clean-regeneration 证明）。这些钉版叠加后，wire crate 内不存在任何
@@ -248,19 +249,24 @@ fn is_hermetic_scrubbed_env_key(key: &str) -> bool {
 pub(crate) fn run() -> Result<(), String> {
     let repository_root =
         std::env::current_dir().map_err(|error| format!("无法解析仓库根目录: {error}"))?;
-    require_repository_root(&repository_root)?;
-    check_repo_cargo_config_hygiene(&repository_root)?;
-    check_lockfile_pins(&repository_root)?;
-    check_wire_manifest_hygiene(&repository_root)?;
-    check_mmap_manifest_hygiene(&repository_root)?;
-    check_probe_manifest_hygiene(&repository_root)?;
-    check_wire_lib_rs_pins(&repository_root)?;
-    check_generated_rs_pins(&repository_root)?;
-    schema_codegen::check_audited_mmap_sources(&repository_root)?;
-    schema_codegen::check_audited_motion_sources(&repository_root)?;
-    schema_codegen::check_audited_probe_sources(&repository_root)?;
-    check_tool_only_consumers(&repository_root)?;
-    check_workspace_unsafe_boundary(&repository_root)?;
+    audit_repository(&repository_root)
+}
+
+fn audit_repository(repository_root: &Path) -> Result<(), String> {
+    require_repository_root(repository_root)?;
+    check_repo_cargo_config_hygiene(repository_root)?;
+    check_lockfile_pins(repository_root)?;
+    schema_codegen::check_handwritten_wire_sources(repository_root)?;
+    check_wire_manifest_hygiene(repository_root)?;
+    check_mmap_manifest_hygiene(repository_root)?;
+    check_probe_manifest_hygiene(repository_root)?;
+    check_wire_lib_rs_pins(repository_root)?;
+    check_generated_rs_pins(repository_root)?;
+    schema_codegen::check_audited_mmap_sources(repository_root)?;
+    schema_codegen::check_audited_motion_sources(repository_root)?;
+    schema_codegen::check_audited_probe_sources(repository_root)?;
+    check_tool_only_consumers(repository_root)?;
+    check_workspace_unsafe_boundary(repository_root)?;
     println!(
         "wire 工具链审计已通过：仓库 cargo config 卫生闭合（禁 `[env]` 段、`runner` 键与 `[build]` 编译器替换/包装键，env 继承链与执行语义替换无从投毒检查），flatbuffers/memmap2/tempfile resolved 钉版闭合（version+source+checksum），wire crate 与 mmap 例外 crate manifest 卫生闭合（auto* 自动 target 发现关闭、[target] 段与自动发现目录禁绝、依赖表钉版），wire 包装器/生成物钉版闭合，mmap 例外源码复核闭合（含 #[path]/include!/cfg_attr/macro_rules 加载与间接禁令、path 属性 walker 补充检查），os-probe 例外闭合（manifest 形状与依赖钉版、源文件清单、5 处登记 unsafe 表达式），os-probe 与 host-observe 不得被生产 crate 引用，workspace unsafe 分类断言闭合（forbid/allow 两级，proc-macro target 一律 fail closed），forbid 成员禁 build 脚本且 target 源一律 .rs 且位于包根内，全 .rs 文本扫描零 unsafe token（strip 注释与字面量，覆盖全部 cfg 分支）且源码加载指令受限（裸 include 标识符禁绝、path 目标限包内相对 .rs）且裸 global_asm 标识符禁绝，forbid 成员与根 manifest [workspace.dependencies] 的 path 依赖限 workspace 成员，forbid 成员全部 target（默认+全特性双配置，含 example）通过 hermetic `-F` 编译（含三路注入金丝雀复核）"
     );
@@ -1838,6 +1844,53 @@ fn tail_truncate(trimmed: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audit_rejects_unreferenced_handwritten_sources_in_both_wire_packages() {
+        let root = std::env::temp_dir().join(format!(
+            "laneflow-wire-audit-unreferenced-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for name in ["Cargo.toml", "Cargo.lock"] {
+            fs::copy(repository.join(name), root.join(name)).unwrap();
+        }
+        for family in wire_families() {
+            let package = root.join(family.wire_package_root);
+            fs::create_dir_all(package.join("src/generated")).unwrap();
+            fs::write(package.join("src/lib.rs"), "").unwrap();
+            fs::write(
+                root.join(family.checked_rust_path),
+                "unsafe fn generated() {}",
+            )
+            .unwrap();
+        }
+        let errors = wire_families()
+            .into_iter()
+            .zip(["pub unsafe fn unchecked() {}", "#![allow(unsafe_code)]"])
+            .map(|(family, source)| {
+                let extra = root
+                    .join(family.wire_package_root)
+                    .join("src")
+                    .join("extra.rs");
+                fs::write(&extra, source).unwrap();
+                let result = audit_repository(&root);
+                fs::remove_file(&extra).unwrap();
+                (extra, result)
+            })
+            .collect::<Vec<_>>();
+        fs::remove_dir_all(root).unwrap();
+        for (extra, result) in errors {
+            assert_eq!(
+                result.unwrap_err(),
+                format!(
+                    "wire package 的手写 Rust 路径不得包含 unsafe：`{}`",
+                    extra.display()
+                )
+            );
+        }
+    }
 
     #[test]
     fn motion_manifest_forbid_rejects_direct_and_group_lint_overrides() {
