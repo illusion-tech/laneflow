@@ -1,8 +1,8 @@
 //! #1516 的作者编辑、独立线形及带坡横断面对照。
 use laneflow_compiler::road_editing::*;
 use laneflow_compiler::{
-    CompilationUnitBuilder, CompileProfile, Compiler, DiagnosticBundle, GeometryAccuracyProfile,
-    GeometryDirectionProfile,
+    CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler, DiagnosticBundle,
+    GeometryAccuracyProfile, GeometryDirectionProfile,
 };
 type Segment = RoadEditingCurveSegment;
 type Program = RoadEditingCurveProgram;
@@ -180,6 +180,178 @@ fn balanced(curve: Program) -> OwnedRoadEditingSourceBuffer {
     )
 }
 
+fn compile_complete(curve: Program) -> Result<CompilationOutput, DiagnosticBundle> {
+    let source = save(
+        curve,
+        &[],
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        false,
+        CrossSectionCoverage::Complete,
+    );
+    let mut unit =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+    unit.add_road_editing_module(
+        RoadEditingModuleInput::try_new("native", source.as_bytes(), None).unwrap(),
+    )?;
+    Compiler::new().compile(unit.build()?)
+}
+
+#[test]
+fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
+    use laneflow_compiler::{
+        PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
+    };
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+    let curve = Program::try_new(
+        p(0.0, 0.0, 0.0),
+        vec![
+            Segment::line(p(30.0, 0.0, 40.0)),
+            Segment::line(p(60.0, 0.5, 80.0)),
+        ],
+    )
+    .unwrap();
+    let output = compile_complete(curve).unwrap();
+    let corridor = output.lir().road_corridors().next().unwrap().ordinal();
+    let reference = output
+        .lir()
+        .lane_edges()
+        .find(|edge| {
+            edge.identity_fields()
+                .any(|field| field.value_bytes() == b"inner-0")
+        })
+        .unwrap();
+    // 两段的解析和略小于 100.0025 米；实际规范弦的 binary32 累计值略大于它。
+    assert_eq!(reference.length_mm(), 100_003);
+    let candidate = emit_portable_candidate(
+        &output,
+        &PortableEmissionProvenance::try_new("grade-seam").unwrap(),
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let checked = check_canonical_network_input(
+            candidate.canonical_artifact().bytes(),
+            FormatLimits::HARD,
+        )
+        .unwrap();
+        let network = build_shared_network_revision(
+            checked,
+            SharedNetworkBuildOptions::new(
+                spatial,
+                SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+            ),
+        )
+        .unwrap();
+        let mapping = network.station_mapping();
+        let lane = network
+            .traffic()
+            .relations()
+            .lane_edge_authoring_lane(reference.ordinal())
+            .unwrap();
+        let end = mapping.corridor_domain(corridor).unwrap().length_nm;
+        let laneflow_static_network::StationQuery::Complete(found) =
+            mapping.at_station(corridor, end, lane)
+        else {
+            panic!("terminal station unresolved");
+        };
+        let terminal = found.addresses().next().unwrap();
+        assert_eq!(
+            (terminal.edge, terminal.progress_mm),
+            (reference.ordinal(), [100_003; 2])
+        );
+        let spans = mapping.surface_spans(corridor);
+        let seam = spans
+            .windows(2)
+            .find(|pair| pair[0].stations[1].0 == 50_000_000_000)
+            .unwrap();
+        let left = seam[0].jets[1];
+        let right = seam[1].jets[0];
+        assert_eq!(seam[0].stations[1], seam[1].stations[0]);
+        assert_eq!(left[..3], [30.0, 0.0, 40.0]);
+        assert_eq!(left[..3], right[..3]);
+        let [x, z, u, v] = [left[3], left[5], right[3], right[5]].map(f64::from);
+        assert_eq!(x * v, z * u);
+        assert!(x * u + z * v > 0.0);
+        assert_eq!(left[4], 0.0);
+        assert_eq!(right[4], (0.5 / 50.0_f64.hypot(0.5)) as f32);
+        for ((row, jet), rise) in seam.iter().zip([left, right]).zip([0.0, 0.5]) {
+            let length = 50.0_f64.hypot(rise);
+            let expected = [30.0, rise, 40.0].map(|v| v / length);
+            let error = expected
+                .into_iter()
+                .zip(&jet[3..6])
+                .map(|(source, &stored)| (source - f64::from(stored)).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            assert!(error <= f64::from(row.derivative_errors[1]));
+        }
+    }
+}
+
+#[test]
+fn oblique_grade_seam_rejects_a_source_turn_hidden_by_quantization() {
+    use laneflow_compiler::{
+        DiagnosticPayload, RoadEditingNumericViolation, RoadEditingRelationKind,
+        RoadEditingRelationOccurrence, RoadEditingSourceViolation, RoadEditingSubject,
+    };
+    let curve = Program::try_new(
+        p(0.0, 0.0, 0.0),
+        vec![
+            Segment::line(p(30.0, 0.0, 40.0)),
+            Segment::line(p(60.0, 0.0, 80.0_f64.next_up())),
+        ],
+    )
+    .unwrap();
+    let err = compile_complete(curve).err().expect("horizontal turn");
+    let diagnostic = &err.diagnostics()[0];
+    assert!(matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::InvalidRoadEditingSource {
+            violation: RoadEditingSourceViolation::NumericFreeze(
+                RoadEditingNumericViolation::StationMappingNotProven
+            ),
+            ..
+        }
+    ));
+    let source = diagnostic
+        .primary_location()
+        .unwrap()
+        .road_editing()
+        .unwrap();
+    assert!(matches!(
+        source.subject(),
+        RoadEditingSubject::OwnerLocal {
+            relation: RoadEditingRelationKind::CurveSegment,
+            occurrence: RoadEditingRelationOccurrence::OrderedProductOrdinal(1),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn grade_seams_accept_bezier_endpoint_handles_and_inherited_native_headings() {
+    let approach = Segment::line(p(30.0, 0.0, 40.0));
+    let bezier = Segment::cubic_bezier(p(42.0, 0.2, 56.0), p(54.0, 0.4, 72.0), p(66.0, 0.6, 88.0));
+    let spiral = Segment::clothoid(20.0, 0.0, 1.0 / 100.0, 0.01).unwrap();
+    let arc = Segment::circular_arc(20.0, 100.0, 0.0).unwrap();
+    for segments in [
+        vec![approach.clone(), bezier, Segment::line(p(81.0, 0.6, 108.0))],
+        vec![approach, spiral, arc],
+    ] {
+        let curve = Program::try_new(p(0.0, 0.0, 0.0), segments).unwrap();
+        compile_complete(curve).unwrap();
+    }
+}
+
 fn publish_bezier(
     [control1, control2, end]: [RoadEditingPoint3; 3],
     source_lengths_m: [f64; 2],
@@ -203,21 +375,7 @@ fn publish_bezier(
         vec![Segment::cubic_bezier(control1, control2, end)],
     )
     .unwrap();
-    let source = save(
-        curve,
-        &[],
-        GeometryAccuracyProfile::Balanced5Cm,
-        GeometryDirectionProfile::Balanced2Deg,
-        false,
-        CrossSectionCoverage::Complete,
-    );
-    let mut unit =
-        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
-    unit.add_road_editing_module(
-        RoadEditingModuleInput::try_new("native", source.as_bytes(), None).unwrap(),
-    )
-    .unwrap();
-    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+    let output = compile_complete(curve).unwrap();
     let candidate = emit_portable_candidate(
         &output,
         &PortableEmissionProvenance::try_new("nonuniform-bezier").unwrap(),

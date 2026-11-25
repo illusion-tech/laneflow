@@ -205,7 +205,6 @@ pub(super) fn finish(
     domain: [f64; 2],
     edge: [f64; 2],
     backward: bool,
-    length: EdgeLength,
 ) -> Result<Arc<StationEdgeProof>> {
     let s = Scalar::exact;
     let count = chords.len();
@@ -246,13 +245,9 @@ pub(super) fn finish(
         let dp = s(f64::from(next)) - s(f64::from(cumulative));
         let mut q = local_nanometres(0.0, f64::from(next)).ok_or(UNPROVEN)?;
         if k + 1 == count {
-            if EdgeLength::try_from_authoring_metres(f64::from(next))
-                .ok()
-                .map(EdgeLength::millimetres)
-                != Some(length.millimetres())
-            {
-                return Err(UNPROVEN.into());
-            }
+            // HIR 从实际 binary32 累计表冻结交通长度；编制侧独立的 binary64 长度仍用于空间误差核对。
+            let length =
+                EdgeLength::try_from_authoring_metres(f64::from(next)).map_err(|_| UNPROVEN)?;
             let mm = u64::from(length.millimetres());
             q = q.clamp(
                 mm * 1_000_000 - 500_000 + mm % 2,

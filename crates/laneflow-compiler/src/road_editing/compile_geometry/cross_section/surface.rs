@@ -3,6 +3,8 @@ use super::*;
 use crate::road_editing::boundary::SurfaceRow;
 use crate::road_editing::native_curve::{Scalar, Vector, exact_point, norm};
 
+mod seam;
+
 type Result<T> = std::result::Result<T, GeometryCompilationError>;
 const S: fn(f64) -> Scalar = Scalar::exact;
 const ZERO: Scalar = Scalar {
@@ -354,9 +356,11 @@ pub(super) fn build(
     let mut start_error = [ZERO; 3];
     let mut row_index = 0;
     let mut cone = None;
+    let mut previous_segment = None;
     for (si, seg) in program.segments.iter().enumerate() {
         let fail = || not_proven(&seg.span);
         let (curve, end) = source_segment(pos, seg).map_err(|_| fail())?;
+        let mut incoming = previous_segment.replace((curve, start_error));
         while let Some(row) = rows
             .get(row_index)
             .filter(|r| r.segment_ordinal as usize == si)
@@ -378,6 +382,16 @@ pub(super) fn build(
                     origin: domain[0],
                     nodes,
                 };
+                // 同一原段内的分行共享源切向。跨原段时先在真实的段端点核对水平朝向。
+                let source_seam = incoming
+                    .take()
+                    .filter(|_| !result.is_empty() && !seg.smooth_entry);
+                if let Some((previous, previous_error)) = source_seam
+                    && !seam::same_source_heading(previous, previous_error, curve, start_error)
+                        .map_err(|_| fail())?
+                {
+                    return Err(fail());
+                }
                 let mut jets = [
                     jet(cell.derivatives(S(0.)).map_err(|_| fail())?).map_err(|_| fail())?,
                     jet(cell.derivatives(S(1.)).map_err(|_| fail())?).map_err(|_| fail())?,
@@ -388,17 +402,11 @@ pub(super) fn build(
                         return Err(fail());
                     }
                     jets[0][..3].copy_from_slice(&last_jet[..3]);
-                    // 仅相同原段或已证水平相切的接缝可共用法向。真实坡缝保留两个纵向导数。
-                    let (x, z) = (f64::from(jets[0][3]), f64::from(jets[0][5]));
-                    let (u, v) = (f64::from(last_jet[3]), f64::from(last_jet[5]));
-                    if last.source.primary != seg.span
-                        && !seg.smooth_entry
-                        && (x * v != z * u || x * u + z * v <= 0.)
-                    {
-                        return Err(fail());
+                    // 真实坡缝若已有共同规范法向，两侧可保留各自水平速率。proof 用最终 jets 包住调整量。
+                    if source_seam.is_none() || !seam::same_stored_heading(last_jet, jets[0]) {
+                        jets[0][3] = last_jet[3];
+                        jets[0][5] = last_jet[5];
                     }
-                    jets[0][3] = last_jet[3];
-                    jets[0][5] = last_jet[5];
                 }
                 let cone = cone.get_or_insert_with(|| {
                     let [x, z] = [jets[0][3], jets[0][5]].map(|v| S(f64::from(v)));
