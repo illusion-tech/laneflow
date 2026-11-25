@@ -2,6 +2,7 @@
 //! 逐拍许可的临界两侧。fixture 复用 placement_admission 的信号走廊（profile 0：
 //! comfort 2.0 / emergency 4.0 m/s²，入口边 10 m，停止线在入口边末）。
 
+// #1464 临时 Actions 对照，以现有用例核对 workspace 默认测试构建。
 use super::placement_admission_tests::{add_signal_corridor, install_dt, revision, spawn};
 use laneflow_static_contract::SignalAspect;
 
