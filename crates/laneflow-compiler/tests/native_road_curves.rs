@@ -2,7 +2,13 @@
 use laneflow_compiler::road_editing::*;
 use laneflow_compiler::{
     CompilationOutput, CompilationUnitBuilder, CompileProfile, Compiler, DiagnosticBundle,
-    GeometryAccuracyProfile, GeometryDirectionProfile,
+    GeometryAccuracyProfile, GeometryDirectionProfile, PortableDiffBase,
+    PortableEmissionProvenance, PortablePublicationCandidate, emit_portable_candidate,
+};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
+use laneflow_static_network::{
+    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
+    build_shared_network_revision,
 };
 type Segment = RoadEditingCurveSegment;
 type Program = RoadEditingCurveProgram;
@@ -17,6 +23,26 @@ fn save(
     direction: GeometryDirectionProfile,
     backward: bool,
     coverage: CrossSectionCoverage,
+) -> OwnedRoadEditingSourceBuffer {
+    save_lanes(
+        program,
+        cuts,
+        (accuracy, direction),
+        backward,
+        coverage,
+        0,
+        [[3.5; 2]; 2],
+    )
+}
+
+fn save_lanes(
+    program: Program,
+    cuts: &[f64],
+    (accuracy, direction): (GeometryAccuracyProfile, GeometryDirectionProfile),
+    backward: bool,
+    coverage: CrossSectionCoverage,
+    reference: usize,
+    widths: [[f64; 2]; 2],
 ) -> OwnedRoadEditingSourceBuffer {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -63,7 +89,7 @@ fn save(
                     start,
                     end,
                     section.clone(),
-                    lanes[0].clone(),
+                    lanes[reference].clone(),
                     vec![RoadEditingCorridorElement::RoadSection(section.clone())],
                 )
                 .unwrap()
@@ -76,7 +102,7 @@ fn save(
                     .unwrap(),
             ))
             .unwrap();
-        for lane in ["inner", "outer"] {
+        for (lane, [low, high]) in ["inner", "outer"].into_iter().zip(widths) {
             let edge = format!("{lane}-{i}");
             let direction = if backward && lane == "outer" {
                 RoadEditingLaneDirection::Backward
@@ -89,7 +115,7 @@ fn save(
                         lane,
                         LaneEdgeReference::local(&edge).unwrap(),
                         direction,
-                        LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                        LinearWidthProfile::try_new(low, high).unwrap(),
                         None,
                         section.clone(),
                     )
@@ -189,6 +215,12 @@ fn compile_complete(curve: Program) -> Result<CompilationOutput, DiagnosticBundl
         false,
         CrossSectionCoverage::Complete,
     );
+    compile_saved(&source)
+}
+
+fn compile_saved(
+    source: &OwnedRoadEditingSourceBuffer,
+) -> Result<CompilationOutput, DiagnosticBundle> {
     let mut unit =
         CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     unit.add_road_editing_module(
@@ -197,16 +229,87 @@ fn compile_complete(curve: Program) -> Result<CompilationOutput, DiagnosticBundl
     Compiler::new().compile(unit.build()?)
 }
 
+fn publish(output: &CompilationOutput, name: &str) -> PortablePublicationCandidate {
+    emit_portable_candidate(
+        output,
+        &PortableEmissionProvenance::try_new(name).unwrap(),
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap()
+}
+
+fn load_network(
+    candidate: &PortablePublicationCandidate,
+    spatial: SpatialBuildOption,
+) -> std::sync::Arc<SharedNetworkRevision> {
+    let checked =
+        check_canonical_network_input(candidate.canonical_artifact().bytes(), FormatLimits::HARD)
+            .unwrap();
+    build_shared_network_revision(
+        checked,
+        SharedNetworkBuildOptions::new(spatial, SharedNetworkBuildLimits::new(64 << 20, 16 << 20)),
+    )
+    .unwrap()
+}
+
+#[test]
+fn neighboring_footprints_share_the_same_quantized_interface() {
+    for (reference, widths, expected_um) in [
+        (0, [[3.000_003; 2], [3.0; 2]], [-1_500_001; 2]),
+        (
+            1,
+            [[3.0; 2], [3.000_003, 3.000_005]],
+            [1_500_001, 1_500_002],
+        ),
+    ] {
+        let curve =
+            Program::try_new(p(0.0, 0.0, 0.0), vec![Segment::line(p(0.0, 0.0, 50.0))]).unwrap();
+        let source = save_lanes(
+            curve,
+            &[],
+            (
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+            ),
+            false,
+            CrossSectionCoverage::Complete,
+            reference,
+            widths,
+        );
+        let output = compile_saved(&source).unwrap();
+        let candidate = publish(&output, "lane-interface");
+        for spatial in [
+            SpatialBuildOption::Omit,
+            SpatialBuildOption::RetainAvailable,
+        ] {
+            let network = load_network(&candidate, spatial);
+            let section = output.lir().road_sections().next().unwrap().ordinal();
+            let lanes = network
+                .traffic()
+                .relations()
+                .section_lanes(section)
+                .unwrap();
+            let mapping = network.station_mapping();
+            let left = mapping.lane_footprint(lanes[0]).unwrap();
+            let right = mapping.lane_footprint(lanes[1]).unwrap();
+            for (i, expected) in expected_um.into_iter().enumerate() {
+                let shared = left.ends_um[i][1];
+                assert_eq!(shared, expected);
+                assert_eq!(shared, right.ends_um[i][0]);
+                let exact = widths[reference][i] * if reference == 0 { -0.5 } else { 0.5 };
+                let error_nm = exact.mul_add(1_000_000.0, -f64::from(shared)).abs() * 1000.0;
+                for footprint in [left, right] {
+                    assert!(error_nm <= f64::from(footprint.error_nm));
+                    assert!(footprint.error_nm <= 1000);
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
-    use laneflow_compiler::{
-        PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
-    };
-    use laneflow_format::{FormatLimits, check_canonical_network_input};
-    use laneflow_static_network::{
-        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-        build_shared_network_revision,
-    };
     let curve = Program::try_new(
         p(0.0, 0.0, 0.0),
         vec![
@@ -227,30 +330,12 @@ fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
         .unwrap();
     // 两段的解析和略小于 100.0025 米；实际规范弦的 binary32 累计值略大于它。
     assert_eq!(reference.length_mm(), 100_003);
-    let candidate = emit_portable_candidate(
-        &output,
-        &PortableEmissionProvenance::try_new("grade-seam").unwrap(),
-        FormatLimits::HARD,
-        PortableDiffBase::Genesis,
-    )
-    .unwrap();
+    let candidate = publish(&output, "grade-seam");
     for spatial in [
         SpatialBuildOption::Omit,
         SpatialBuildOption::RetainAvailable,
     ] {
-        let checked = check_canonical_network_input(
-            candidate.canonical_artifact().bytes(),
-            FormatLimits::HARD,
-        )
-        .unwrap();
-        let network = build_shared_network_revision(
-            checked,
-            SharedNetworkBuildOptions::new(
-                spatial,
-                SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
-            ),
-        )
-        .unwrap();
+        let network = load_network(&candidate, spatial);
         let mapping = network.station_mapping();
         let lane = network
             .traffic()
@@ -359,30 +444,14 @@ fn publish_bezier(
     std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     [laneflow_static_contract::LaneEdgeOrdinal; 2],
 ) {
-    use laneflow_compiler::{
-        PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate,
-    };
-    use laneflow_format::{
-        FormatLimits, RegistryCheckedFieldValue, RegistryCheckedRowView,
-        check_canonical_network_input,
-    };
-    use laneflow_static_network::{
-        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
-        build_shared_network_revision,
-    };
+    use laneflow_format::{RegistryCheckedFieldValue, RegistryCheckedRowView};
     let curve = Program::try_new(
         p(0.0, 0.0, 0.0),
         vec![Segment::cubic_bezier(control1, control2, end)],
     )
     .unwrap();
     let output = compile_complete(curve).unwrap();
-    let candidate = emit_portable_candidate(
-        &output,
-        &PortableEmissionProvenance::try_new("nonuniform-bezier").unwrap(),
-        FormatLimits::HARD,
-        PortableDiffBase::Genesis,
-    )
-    .unwrap();
+    let candidate = publish(&output, "nonuniform-bezier");
     let checked =
         check_canonical_network_input(candidate.canonical_artifact().bytes(), FormatLimits::HARD)
             .unwrap();

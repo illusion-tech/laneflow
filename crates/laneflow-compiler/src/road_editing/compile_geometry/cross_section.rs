@@ -46,7 +46,7 @@ pub(super) fn not_proven(source: &SourceLocation) -> GeometryCompilationError {
 pub(super) fn compile(
     plan: &ResolvedCorridorPlan<'_>,
     alignment: &CompiledAlignmentEntry<'_>,
-    offsets: &[MemberOffsetEndpoints],
+    boundaries: &[WidthBoundary],
     domain: [f64; 2],
     width_error: f64,
     scratch: &mut GeometryScratchBudget,
@@ -170,14 +170,7 @@ pub(super) fn compile(
         .header
         .span
         .with_property([field(Table::RoadCorridor, 7)]);
-    let mut width_abs = 0.0_f64;
     for (i, (member, loc, _, width, supports)) in inputs.iter().enumerate() {
-        for (center, width) in [
-            (offsets[i].start_meters, width.start_width_meters),
-            (offsets[i].end_meters, width.end_width_meters),
-        ] {
-            width_abs = width_abs.max((center.abs() + 0.5 * width).next_up());
-        }
         if !g.complete && matches!(member, WidthMember::Lane { .. }) {
             continue;
         }
@@ -202,7 +195,7 @@ pub(super) fn compile(
             Some((
                 crate::road_editing::station_proof::band(
                     Table::AuthoringLane,
-                    offsets[i],
+                    [boundaries[i], boundaries[i + 1]],
                     *width,
                     domain,
                     width_error,
@@ -232,6 +225,11 @@ pub(super) fn compile(
     drop(inputs);
     scratch.release::<WidthInput>(plan.member_count);
     let surface = if g.complete {
+        let width_abs = boundaries
+            .iter()
+            .flat_map(|b| b.meters)
+            .map(f64::abs)
+            .fold(0.0, f64::max);
         surface::build(
             plan,
             alignment,
