@@ -2141,7 +2141,6 @@ fn compile_offset_curve_exact(
                 width_domain,
                 [corridor_start_meters, corridor_end_meters],
                 lane_direction == AuthoringLaneDirection::Backward,
-                length,
             )
         })
         .transpose()?;

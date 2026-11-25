@@ -163,7 +163,11 @@ pub(super) fn prepare<'a>(lir: &'a LirUnit, n: Sizes, pass: &PassBudget<'_>) -> 
                 return Err(INVALID);
             }
             let actual = &lir.spatial_segments[g.segments.as_usize_range()];
-            if actual.len() != p.spans.len() {
+            let terminal = actual.last().ok_or(INVALID)?.cumulative_end_meters;
+            if actual.len() != p.spans.len()
+                || laneflow_static_contract::millimetres_from_si(f64::from(terminal))
+                    != Some(lir.lane_edges[e.index()].length_mm)
+            {
                 return Err(INVALID);
             }
             m.edges.push((
