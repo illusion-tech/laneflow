@@ -16,7 +16,7 @@ fn save(
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     backward: bool,
-    publish_station_mapping: bool,
+    coverage: CrossSectionCoverage,
 ) -> OwnedRoadEditingSourceBuffer {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -67,7 +67,7 @@ fn save(
                     vec![RoadEditingCorridorElement::RoadSection(section.clone())],
                 )
                 .unwrap()
-                .with_station_mapping(publish_station_mapping),
+                .with_cross_section(coverage, vec![]),
             ))
             .unwrap();
         module
@@ -93,7 +93,10 @@ fn save(
                         None,
                         section.clone(),
                     )
-                    .unwrap(),
+                    .unwrap()
+                    .with_wheel_support(
+                        (coverage == CrossSectionCoverage::Complete).then_some(true),
+                    ),
                 ))
                 .unwrap();
             module
@@ -173,7 +176,7 @@ fn balanced(curve: Program) -> OwnedRoadEditingSourceBuffer {
         GeometryAccuracyProfile::Balanced5Cm,
         GeometryDirectionProfile::Balanced2Deg,
         false,
-        false,
+        CrossSectionCoverage::None,
     )
 }
 
@@ -206,7 +209,7 @@ fn publish_bezier(
         GeometryAccuracyProfile::Balanced5Cm,
         GeometryDirectionProfile::Balanced2Deg,
         false,
-        true,
+        CrossSectionCoverage::Complete,
     );
     let mut unit =
         CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
@@ -282,6 +285,9 @@ fn publish_bezier(
         ),
     )
     .unwrap();
+    let corridor = output.lir().road_corridors().next().unwrap().ordinal();
+    assert!(!root.station_mapping().surface_spans(corridor).is_empty());
+    assert!(root.station_mapping().boundary_extents().is_empty());
     (root, edges)
 }
 
@@ -658,7 +664,7 @@ fn graded_station_cuts_use_each_lanes_own_surface_distance() {
                         accuracy,
                         direction,
                         false,
-                        false,
+                        CrossSectionCoverage::None,
                     ))
                     .unwrap();
                     let key = format!("{lane}-{idx}");
@@ -717,7 +723,7 @@ fn continuous_clearance_and_compile_hard_limits_are_distinct() {
         GeometryAccuracyProfile::Compact10Cm,
         GeometryDirectionProfile::Compact5Deg,
         true,
-        false,
+        CrossSectionCoverage::None,
     ))
     .unwrap();
     let chord = out.iter().find(|c| c.key == "inner-0").unwrap();

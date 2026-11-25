@@ -241,7 +241,7 @@ LIR 保存规范 `f32` 折线及派生静态语义。
 - LFRE 7 把 `AuthoringLane.7 interior_cut_stations_meters:[double]` 设为可缺省。
   链长为 1 时必须省略。链长为 `n > 1` 时必须提供恰好 `n−1` 个切点，沿行驶
   次序执行既有的域、单调与毫米覆盖检查。两种链长均拒绝显式空向量。
-  LFRE 6 要求单边车道也写空向量。在同一份带坡弯道上，现行 LFRE 6 编译器接受
+  LFRE 6 要求单边车道也写空向量。在同一份带坡弯道上，当时的 LFRE 6 编译器接受
   Rust 写出的来源。固定版本的 C++ 对象写方原样重打包后，Rust 读方在切点字段报错。空向量的
   元素起址可能只按四字节对齐，Rust 验证器对零个 `double` 也检查八字节对齐。
   链长唯一确定切点字段的存在性。C# 对象解包会将缺省向量恢复为空列表，
@@ -342,7 +342,7 @@ table BoundaryExtent {
 固定版本 `flatc 25.12.19` 生成的 C++、C# 绑定分别从同一份候选 LFRE 7 读回，
 把护栏顶高从 0.85 改至 1.05 米并重新写出。Rust 受检 FlatBuffers 读回后逐字段与
 预期相等，包括路缘低、高端、支承位 `false` 和其余车道切点。单改路缘高端时，
-另一端保留原高。该对照验证了源格式与编辑。生产编译、制品定位和差异仍须在实现中验收。
+另一端保留原高。该对照验证了源格式与编辑。生产读回覆盖区段内相邻车道和走廊设施带两侧的区间。LFCA、LFSM 与 LFSD 分别验算实体参数、所属对象及端点来源和逐成员修改。
 
 ## 7. 来源位置与诊断
 
@@ -375,7 +375,7 @@ table BoundaryExtent {
 ### 9.1 已选择的 production 编码：按模块保存的 FlatBuffers 来源缓冲区
 
 生产来源编码使用 LaneFlow 自有的**道路编辑来源缓冲区**
-（Road Editing Source Buffer）`LF-ROAD-EDITING-SOURCE-v6`：
+（Road Editing Source Buffer）`LF-ROAD-EDITING-SOURCE-v7`：
 
 - 一个逻辑来源模块恰好对应一个 size-prefixed FlatBuffer；
 - FlatBuffers 根表固定为 `RoadEditingSource`，文件标识符固定为 ASCII `LFRE`；
@@ -425,7 +425,7 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 包含具名策略局部成员的 CanonicalSetOrdinal 规则。W2 将两个正式前端、共同
 AST/HIR/MIR/LIR 和来源投影接入该合同；当前 LFRE wire 为 5。
 
-schema 路径为 `schemas/road-editing/v6/road-editing.fbs`。
+schema 路径为 `schemas/road-editing/v7/road-editing.fbs`。
 字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
 wire shape 的机器事实来源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
 边界，不进入 LaneFlow 公共 API、HIR/MIR/LIR 或 Adapter API。编译器在 verifier 成功后
@@ -482,8 +482,8 @@ schema 遵守以下闭合规则：
 和几何都不能替代稳定身份。
 
 根表使用 `LFRE` 与 size-prefixed `RoadEditingSource` envelope，绑定
-`format_version = 6`、Road Editing `frontendVersion = 6`、Identity registry revision 4、
-LFCA 6、LFSM 6 与 LFSD 5。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
+`format_version = 7`、Road Editing `frontendVersion = 7`、Identity registry revision 4、
+LFCA 6、LFSM 7 与 LFSD 5。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
 五张新增表的字段和来源路径见路权策略实施合同 §4.4。
 field id `0..=17` 的含义及其余字段如下：
 
@@ -568,7 +568,7 @@ entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列�
 几何只能辅助验证与表现，不能生成或改写行为 passage。
 
 声明、owner-local 地址与 property path 必须逐项投影到
-[`portable-canonical-artifact.md`][portable-artifact] 的 LFSM 6 role
+[`portable-canonical-artifact.md`][portable-artifact] 的 LFSM 7 role
 13–16 / 30–32
 登记。生成的 Rust/C++/C# binding 与 known vectors 必须由同一 exact schema 和固定命令
 clean-regenerate。
@@ -717,12 +717,12 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 
 ### 9.5 版本、未知字段与摘要
 
-当前组合是 `format_version = 6`、Road Editing `frontendVersion = 6`、LFCA 6、LFSM 6 与
-LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。横断面编制入口实施时统一切换到 §6.2 的组合。
+当前组合是 `format_version = 7`、Road Editing `frontendVersion = 7`、LFCA 6、LFSM 7 与
+LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。几何语义为 4，横断面能力与来源登记见 §6.2。
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
-  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 6`；
-- `format_version = 6` 是本 exact schema 的精确版本，不是“最低兼容版本”。
+  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 7`；
+- `format_version = 7` 是本 exact schema 的精确版本，不是“最低兼容版本”。
   其它版本在语义读取前失败关闭，不提供迁移。
   该 exact schema 未作为稳定 public format 发布。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须
   再提升 `format_version` 及对应 frontend/geometry semantics code。internal family
@@ -734,7 +734,7 @@ LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。横断面编
   只要求 exact schema/codegen 再现、版本拒绝与同版本 known vectors；
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
   规模相关分配前拒绝；不能依靠未知字段忽略完成跨版本 round trip；
-- 攻击性输入或错误 writer 在 `format_version = 6` 下附带的未知 vtable slot 语义上无效
+- 攻击性输入或错误 writer 在 `format_version = 7` 下附带的未知 vtable slot 语义上无效
   并被忽略，但仍计入来源字节、verifier apparent size 与精确来源摘要。根表无
   `static_routes` 字段。其它未冻结空位不在本合同另设拒绝表；
 - FlatBuffers bytes 不是 LaneFlow 规范语义编码。`sourceDocumentDigest` 绑定收到的精确
@@ -753,7 +753,7 @@ LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。横断面编
 2. 从受 framing 约束的根表执行有界版本探针，版本与当前读取器要求不符即拒绝。
    命中后使用下述固定公式从当前 `CompileProfile` 与调用点剩余预算导出 `VerifierOptions`，再
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
-3. verifier 成功后检查唯一 exact version `6`；其它值在 LaneFlow 语义读取和规模相关
+3. verifier 成功后检查唯一 exact version `7`；其它值在 LaneFlow 语义读取和规模相关
    分配前拒绝；
 4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、24 类可构造声明与
    owner-local 集合基数、有限数值、引用键字节和 checked 总量；
@@ -1162,9 +1162,9 @@ Rust runtime 固定为 crates.io `flatbuffers = 25.12.19`：Apache-2.0、MSRV 1.
 `flatc version 25.12.19`。仓库根目录的精确生成 argv 固定为：
 
 ```text
-flatc --rust -o crates/laneflow-road-editing-wire/src/generated schemas/road-editing/v6/road-editing.fbs
-flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v6/road-editing.fbs
-flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v6/road-editing.fbs
+flatc --rust -o crates/laneflow-road-editing-wire/src/generated schemas/road-editing/v7/road-editing.fbs
+flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v7/road-editing.fbs
+flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v7/road-editing.fbs
 ```
 
 只有 Rust 的 `road-editing_generated.rs` 提交仓库；C++/C# 输出只用于跨语言 fixture 与
@@ -1185,7 +1185,7 @@ production 依赖或实现。
 以下矩阵是已选择 size-prefixed FlatBuffers 编码的实现与验证要求：
 
 - size prefix、`LFRE`、版本、checked exact length、截断、trailing bytes、错位 offset、
-  非法 vtable/vector/string/union 的 known vectors；唯一接受 `format_version = 6`，
+  非法 vtable/vector/string/union 的 known vectors；唯一接受 `format_version = 7`，
   其余未知槽仍忽略；
 - verifier 的 `max_depth`、`max_tables`、`max_apparent_size` 以及 required presence、未知
   enum/union、非法数字、字符串/集合边界和 owner-local 关系的正负测试；
@@ -1216,14 +1216,14 @@ production 依赖或实现。
 
 道路编辑入口与其余官方前端共同受
 `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 的来源处理限额、规范路网容量与编译器控制存续内存约束；暂存与 file-backed
-制品字节由资源账本报告，不另设配置档上限。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v6` writer 生成输入，并报告
+制品字节由资源账本报告，不另设配置档上限。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v7` writer 生成输入，并报告
 实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
 的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实来源。
 
 [`road-editing-source-semantic-seed-v1.json`][semantic-seed-json]
 和 [`road-editing-source-reference-machine-v1.json`][reference-machine-json]
 只保留为历史研究证据，不进入现行 schema、fixture、配置档或生产读取路径。任何新的道路编辑
-专项 workload 必须基于 v6 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
+专项 workload 必须基于 v7 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
 
 ## 11. 兼容和清理边界
 

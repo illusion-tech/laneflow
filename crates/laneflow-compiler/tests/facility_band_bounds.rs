@@ -22,6 +22,21 @@ enum Edit {
 }
 
 fn source(previous: Option<(&[u8], Edit)>) -> Vec<u8> {
+    bend(previous, None)
+}
+
+#[derive(Clone, Copy)]
+enum RailEdit {
+    Baseline,
+    Raise,
+    MoveEnd,
+    Rename,
+    ChangeSide,
+    Remove,
+    MappingOnly,
+}
+
+fn bend(previous: Option<(&[u8], Edit)>, boundary: Option<(Option<&[u8]>, RailEdit)>) -> Vec<u8> {
     let profile = CompileProfile::single_network_10k_stable_entities();
     let previous = previous.map(|(bytes, edit)| {
         (
@@ -80,6 +95,103 @@ fn source(previous: Option<(&[u8], Edit)>) -> Vec<u8> {
             AuthoringLaneReference::owner_scoped(vec![key.into(), side.into()], side).unwrap()
         };
         let band = FacilityBandReference::owner_scoped(vec![key.into()], "median").unwrap();
+        let coverage = boundary.map_or(CrossSectionCoverage::StationMapping, |(_, edit)| {
+            if matches!(edit, RailEdit::MappingOnly) {
+                CrossSectionCoverage::StationMapping
+            } else {
+                CrossSectionCoverage::Complete
+            }
+        });
+        let mut extents = Vec::new();
+        if let Some((old, edit)) = boundary
+            && key == "widen"
+        {
+            let rail = BoundaryExtentInput {
+                left: BoundaryMemberInput::RoadSection(section("A")),
+                right: BoundaryMemberInput::FacilityBand(band.clone()),
+                kind: BoundaryExtentKind::Obstacle,
+                local_key: "rail".into(),
+                low: BoundaryStation::CorridorEndpoint,
+                high: BoundaryStation::Fixed(7. * 401. / 399.),
+                payload: Some(BoundaryPayloadInput::Guardrail {
+                    anchor_role: 2,
+                    lateral_offset_meters: 0.,
+                    horizontal_length_meters: 2.,
+                    radius_meters: 0.15,
+                    bottom_height_meters: 0.,
+                    top_height_meters: 0.85,
+                    parameter_error_meters: 0.,
+                }),
+                canvas_selection: Some("rail-selection".into()),
+            };
+            let mut rule = rail.clone();
+            rule.kind = BoundaryExtentKind::Rule;
+            rule.local_key = "mark".into();
+            rule.payload = Some(BoundaryPayloadInput::CrossingRule {
+                directions: 1,
+                effect: 2,
+            });
+            let mut curb = rail.clone();
+            curb.local_key = "curb".into();
+            curb.left = BoundaryMemberInput::FacilityBand(band.clone());
+            curb.right = BoundaryMemberInput::RoadSection(section("B"));
+            let low = CurbEndInput {
+                left_offset_meters: 0.15,
+                right_offset_meters: -0.05,
+                bottom_height_meters: 0.,
+                top_height_meters: 0.1,
+            };
+            curb.payload = Some(BoundaryPayloadInput::Curb {
+                low,
+                high: CurbEndInput {
+                    top_height_meters: 0.2,
+                    ..low
+                },
+                parameter_error_meters: 0.000_001,
+            });
+            extents = vec![rule, rail, curb];
+            if let Some(old) = old {
+                let input = RoadEditingModuleInput::try_new(DOCUMENT, old, None).unwrap();
+                let saved = BoundaryExtentInput::read_from(
+                    input,
+                    BoundaryOwner::Corridor(&corridor),
+                    &profile,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(&*saved, extents);
+                extents = saved.into_vec();
+            }
+            let rail = &mut extents[1];
+            match edit {
+                RailEdit::Baseline => {}
+                RailEdit::Raise => {
+                    let Some(BoundaryPayloadInput::Guardrail {
+                        top_height_meters, ..
+                    }) = &mut rail.payload
+                    else {
+                        panic!()
+                    };
+                    *top_height_meters = 1.05;
+                }
+                RailEdit::MoveEnd => {
+                    rail.high = BoundaryStation::Fixed(6.5 * 401. / 399.);
+                }
+                RailEdit::Rename => rail.local_key = "newRail".into(),
+                RailEdit::ChangeSide => {
+                    rail.left = BoundaryMemberInput::FacilityBand(band.clone());
+                    rail.right = BoundaryMemberInput::RoadSection(section("B"));
+                }
+                RailEdit::Remove => {
+                    extents.remove(1);
+                }
+                RailEdit::MappingOnly => {
+                    for e in &mut extents {
+                        e.payload = None
+                    }
+                }
+            }
+        }
         add(RoadEditingDeclaration::RoadCorridor(
             RoadCorridorInput::try_new(
                 key,
@@ -95,7 +207,7 @@ fn source(previous: Option<(&[u8], Edit)>) -> Vec<u8> {
                 ],
             )
             .unwrap()
-            .with_station_mapping(true),
+            .with_cross_section(coverage, extents),
         ));
         let initial_band = FacilityBandInput::try_new(
             "median",
@@ -160,7 +272,11 @@ fn source(previous: Option<(&[u8], Edit)>) -> Vec<u8> {
                 )
                 .unwrap()
             };
-            add(RoadEditingDeclaration::AuthoringLane(authoring_lane));
+            add(RoadEditingDeclaration::AuthoringLane(
+                authoring_lane.with_wheel_support(
+                    (coverage == CrossSectionCoverage::Complete).then_some(side == "A"),
+                ),
+            ));
             let next = (key == "widen")
                 .then(|| LaneEdgeReference::local(format!("narrow-{side}")).unwrap())
                 .into_iter()
@@ -182,6 +298,214 @@ fn compile(bytes: &[u8]) -> Result<CompilationOutput, DiagnosticBundle> {
         CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
     unit.add_road_editing_module(RoadEditingModuleInput::try_new(DOCUMENT, bytes, None).unwrap())?;
     Compiler::new().compile(unit.build()?)
+}
+
+// 从两端公开的值与导数重建 Hermite 多项式，对照解析带坡圆弧及其各阶导数。
+fn check_graded_arc_surface(row: &laneflow_static_network::RoadSurfaceSpan, origin: f64) {
+    let [lo, hi] = row.stations.map(|s| s.0 as f64 * 1e-9);
+    let h = hi - lo;
+    let rate = 399.0 / (401.0 * 35.0);
+    for t in [0.0_f64, 0.25, 0.5, 0.75, 1.0] {
+        let s = origin + lo + h * t;
+        for order in 0..=4 {
+            let angle = s * rate + order as f64 * std::f64::consts::FRAC_PI_2;
+            let scale = 35.0 * rate.powi(order as i32);
+            let source = [
+                if order == 0 { 35.0 } else { 0.0 } - scale * angle.cos(),
+                match order {
+                    0 => s * 40.0 / 401.0,
+                    1 => 40.0 / 401.0,
+                    _ => 0.0,
+                },
+                scale * angle.sin(),
+            ];
+            let mut squared = 0.0;
+            for (axis, actual) in source.into_iter().enumerate() {
+                let [a, b] = row.jets.map(|jet| {
+                    [
+                        f64::from(jet[axis]),
+                        f64::from(jet[3 + axis]) * h,
+                        f64::from(jet[6 + axis]) * h * h,
+                    ]
+                });
+                let delta = b[0] - a[0];
+                let coeff = [
+                    a[0],
+                    a[1],
+                    a[2] / 2.0,
+                    10.0 * delta - 6.0 * a[1] - 4.0 * b[1] - 1.5 * a[2] + b[2] / 2.0,
+                    -15.0 * delta + 8.0 * a[1] + 7.0 * b[1] + 1.5 * a[2] - b[2],
+                    6.0 * delta - 3.0 * (a[1] + b[1]) + (b[2] - a[2]) / 2.0,
+                ];
+                let derived: f64 = (order..6)
+                    .map(|i| {
+                        let factor = (0..order).fold(1, |p, k| p * (i - k));
+                        coeff[i] * factor as f64 * t.powi((i - order) as i32)
+                    })
+                    .sum();
+                squared += (actual - derived / h.powi(order as i32)).powi(2);
+            }
+            let oracle_roundoff = 5e-12 * (1.0 + h.powi(-(order as i32)));
+            assert!(
+                squared.sqrt() <= f64::from(row.derivative_errors[order]) + oracle_roundoff,
+                "s={s} order={order} observed={} bound={}",
+                squared.sqrt(),
+                row.derivative_errors[order]
+            );
+        }
+    }
+}
+
+#[test]
+fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
+    let bytes = bend(None, Some((None, RailEdit::Baseline)));
+    let output = compile(&bytes).unwrap();
+    let provenance = PortableEmissionProvenance::try_new(DOCUMENT).unwrap();
+    let base = emit_portable_candidate(
+        &output,
+        &provenance,
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let checked = preflight_object_values(
+        base.canonical_artifact().bytes(),
+        PortableObjectKind::CanonicalArtifact,
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    for spatial in [
+        SpatialBuildOption::Omit,
+        SpatialBuildOption::RetainAvailable,
+    ] {
+        let shared = build_shared_network_revision(
+            check_canonical_network_input(base.canonical_artifact().bytes(), FormatLimits::HARD)
+                .unwrap(),
+            SharedNetworkBuildOptions::new(
+                spatial,
+                SharedNetworkBuildLimits::new(64 << 20, 16 << 20),
+            ),
+        )
+        .unwrap();
+        let map = shared.station_mapping();
+        for corridor in output.lir().road_corridors() {
+            let c = corridor.ordinal();
+            let origin = if map.corridor_domain(c).unwrap().origin_nm == 0 {
+                0.0
+            } else {
+                LEG
+            };
+            let rows = map.surface_spans(c);
+            assert!(!rows.is_empty());
+            let names = map
+                .boundary_extents()
+                .iter()
+                .filter(|e| e.corridor == c)
+                .count();
+            assert_eq!(names, if origin == 0.0 { 3 } else { 0 });
+            for row in rows {
+                check_graded_arc_surface(row, origin);
+            }
+        }
+    }
+    let section = checked.registry_view().section(8).unwrap();
+    for (table, count) in [(6, 2), (7, 3), (8, 4), (10, 1), (11, 2)] {
+        assert_eq!(section.table(table - 1).unwrap().row_count(), count);
+    }
+    assert!(section.table(8).unwrap().row_count() >= 3);
+    let source = preflight_object_values(
+        base.source_map().bytes(),
+        PortableObjectKind::SourceMap,
+        FormatLimits::HARD,
+    )
+    .unwrap();
+    let mut counts = [0; 6];
+    for row in source
+        .registry_view()
+        .section(3)
+        .unwrap()
+        .table(0)
+        .unwrap()
+        .rows()
+    {
+        let role = row.field_by_tag(3).unwrap().value_bytes()[0];
+        if role >= 37 {
+            counts[usize::from(role - 37)] += 1;
+        }
+    }
+    for (i, count) in counts.into_iter().enumerate() {
+        assert_eq!(count, section.table(i as u32 + 5).unwrap().row_count());
+    }
+    for edit in [
+        RailEdit::Raise,
+        RailEdit::MoveEnd,
+        RailEdit::Rename,
+        RailEdit::ChangeSide,
+        RailEdit::Remove,
+        RailEdit::MappingOnly,
+    ] {
+        let edited = bend(None, Some((Some(&bytes), edit)));
+        let output = compile(&edited).unwrap();
+        let result = emit_portable_candidate(
+            &output,
+            &provenance,
+            FormatLimits::HARD,
+            PortableDiffBase::Artifact(checked),
+        )
+        .unwrap();
+        assert_ne!(result.network_revision(), base.network_revision());
+        let delta = preflight_object_values(
+            result.semantic_diff().bytes(),
+            PortableObjectKind::SemanticDiff,
+            FormatLimits::HARD,
+        )
+        .unwrap();
+        let changes: Vec<_> = delta
+            .registry_view()
+            .section(7)
+            .unwrap()
+            .table(0)
+            .unwrap()
+            .rows()
+            .map(|r| {
+                (
+                    r.field_by_tag(2).unwrap().value_bytes()[0],
+                    r.field_by_tag(1).unwrap().value_bytes()[0],
+                )
+            })
+            .collect();
+        match edit {
+            RailEdit::Raise => assert_eq!(changes, [(11, 2)]),
+            RailEdit::Rename | RailEdit::ChangeSide => {
+                assert_eq!(changes.len(), 4);
+                for v in [(7, 0), (7, 1), (11, 0), (11, 1)] {
+                    assert!(changes.contains(&v));
+                }
+            }
+            RailEdit::MoveEnd => {
+                assert!(changes.contains(&(7, 2)));
+                assert!(changes.iter().any(|c| c.0 == 9));
+            }
+            RailEdit::Remove => {
+                assert!(changes.contains(&(7, 1)));
+                assert!(changes.contains(&(11, 1)));
+            }
+            RailEdit::MappingOnly => {
+                let v = preflight_object_values(
+                    result.canonical_artifact().bytes(),
+                    PortableObjectKind::CanonicalArtifact,
+                    FormatLimits::HARD,
+                )
+                .unwrap();
+                let s = v.registry_view().section(8).unwrap();
+                assert_eq!(s.table(6).unwrap().row_count(), 3);
+                for t in 7..11 {
+                    assert_eq!(s.table(t).unwrap().row_count(), 0);
+                }
+            }
+            RailEdit::Baseline => unreachable!(),
+        }
+    }
 }
 
 fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_nm: i64) {

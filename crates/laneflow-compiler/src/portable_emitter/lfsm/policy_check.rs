@@ -7,6 +7,7 @@ use crate::ledger::{BoundedVec, PassBudget, Plan};
 use crate::{PolicySourceTarget, SourceLocationView, ValidatedSourceMapInput};
 use laneflow_format::RegistryCheckedTableView;
 
+mod station;
 #[cfg(test)]
 mod tests;
 
@@ -234,7 +235,7 @@ struct Member<'a> {
     row: Row<'a>,
 }
 
-/// 独立检查 LFSM 6 的完整策略来源和 Movement 方向来源。
+/// 独立检查 LFSM 7 的完整策略来源和 Movement 方向来源。
 ///
 /// source 必须来自同次 CompilationOutput。以实际 LFCA/文档描述符重建全集，不接受
 /// LFSM 自报地址作为来源正本；既有角色的来源语义仍由原有编译流水线拥有。
@@ -304,7 +305,8 @@ pub(in crate::portable_emitter) fn check_policy_sources(
         n.checked_add(table(root, 3, t)?.row_count() as usize)
             .ok_or(PortableEmissionError::ArithmeticOverflow)
     })?;
-    let needs_projection = source.policy_sources().len() != 0
+    let needs_projection = !source.station_sources.is_empty()
+        || source.policy_sources().len() != 0
         || table(root, 2, 23)?.row_count() != 0
         || member_count != 0
         || table(root, 2, 5)?
@@ -338,7 +340,7 @@ fn policy_source_plan(
         .array::<u8>(modules);
     let primaries = Plan::ZERO.array::<(u32, crate::SourceModuleSourceView<'_>)>(modules);
     let used = Plan::ZERO.array::<bool>(location_rows);
-    let mut phases = primaries.max(used);
+    let mut phases = primaries.max(used).max(station::plan(source, root)?);
     if needs_projection {
         let contributing = source
             .policy_sources()
@@ -434,6 +436,7 @@ fn check_source_projection(
     {
         return Err(MISMATCH);
     }
+    station::check(source, root, view, &locations, &documents, pass)?;
     if !needs_projection {
         if projection_rows.movement_contributions {
             return Err(MISMATCH);

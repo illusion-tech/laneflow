@@ -191,6 +191,11 @@ pub(super) fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16
         K::PolicyGateRule => 44,
         K::CircularArcSegment => 45,
         K::ClothoidSegment => 46,
+        K::BoundaryExtent => 47,
+        K::BoundaryMember => 48,
+        K::CrossingRule => 49,
+        K::Guardrail => 50,
+        K::Curb => 51,
     }
 }
 
@@ -201,12 +206,15 @@ pub(super) fn road_editing_struct_code(value: crate::RoadEditingStructKind) -> u
         crate::RoadEditingStructKind::Vec3F64 => 2,
         crate::RoadEditingStructKind::LinearWidthProfile => 3,
         crate::RoadEditingStructKind::Vec2F64 => 4,
+        crate::RoadEditingStructKind::BoundaryStation => 5,
+        crate::RoadEditingStructKind::CurbEnd => 6,
     }
 }
 
 pub(super) fn road_editing_union_code(value: crate::RoadEditingUnionKind) -> u16 {
     match value {
         crate::RoadEditingUnionKind::CurveSegmentGeometry => 0,
+        crate::RoadEditingUnionKind::BoundaryPayload => 1,
     }
 }
 

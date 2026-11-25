@@ -121,6 +121,11 @@ impl RoadEditingLocationFactory {
             collect_canvas(&mut canvas_selections, region.canvas_selection());
         }
 
+        for owner in super::boundary::Owner::all(root) {
+            for e in owner.extents() {
+                collect_canvas(&mut canvas_selections, e.canvas_selection());
+            }
+        }
         strings.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
         strings.dedup_by(|left, right| left.as_bytes() == right.as_bytes());
         canvas_selections.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
@@ -175,6 +180,36 @@ impl RoadEditingLocationFactory {
                 ExplicitEdge(_) => RoadEditingSubject::Declaration { address },
             };
             factory.location(subject, Some(path), None)
+        }
+    }
+
+    pub(super) fn invalid_boundary(
+        namespace: &str,
+        document: &str,
+        owner: super::boundary::Owner<'_>,
+        ordinal: Option<u32>,
+        path: &[RoadEditingPropertyStep],
+    ) -> SourceLocation {
+        let (road, section) = owner.address();
+        let keys = [road, section.unwrap_or(road)];
+        let factory = Self::for_invalid_field(namespace, document, &keys, path);
+        let (kind, parents, key) = if let Some(section) = section {
+            (EntityKind::RoadSection, &keys[..1], section)
+        } else {
+            (EntityKind::RoadCorridor, &keys[..0], road)
+        };
+        if let Some(ordinal) = ordinal {
+            factory.owner_local(
+                kind,
+                parents,
+                key,
+                RoadEditingRelationKind::BoundaryExtent,
+                RoadEditingRelationOccurrence::CanonicalSetOrdinal(ordinal),
+                path,
+                None,
+            )
+        } else {
+            factory.property(kind, parents, key, path, None)
         }
     }
 
@@ -527,7 +562,14 @@ fn location_string_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize 
 }
 
 fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
-    let mut count = 0_usize;
+    let mut count = super::boundary::Owner::all(root).fold(0usize, |n, o| {
+        n.saturating_add(
+            o.extents()
+                .iter()
+                .filter(|e| e.canvas_selection().is_some())
+                .count(),
+        )
+    });
     macro_rules! charge_root {
         ($values:expr) => {
             count = count.saturating_add(
@@ -599,9 +641,9 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::CurveProgram, 2),
         (RoadEditingTableKind::RoadAlignment, 3),
         (RoadEditingTableKind::CorridorElement, 1),
-        (RoadEditingTableKind::RoadCorridor, 9),
-        (RoadEditingTableKind::RoadSection, 4),
-        (RoadEditingTableKind::AuthoringLane, 7),
+        (RoadEditingTableKind::RoadCorridor, 10),
+        (RoadEditingTableKind::RoadSection, 5),
+        (RoadEditingTableKind::AuthoringLane, 8),
         (RoadEditingTableKind::LaneEdge, 4),
         (RoadEditingTableKind::Junction, 3),
         (RoadEditingTableKind::Movement, 5),
@@ -637,6 +679,11 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::PolicyGateRule, 5),
         (RoadEditingTableKind::CircularArcSegment, 2),
         (RoadEditingTableKind::ClothoidSegment, 3),
+        (RoadEditingTableKind::BoundaryExtent, 8),
+        (RoadEditingTableKind::BoundaryMember, 1),
+        (RoadEditingTableKind::CrossingRule, 1),
+        (RoadEditingTableKind::Guardrail, 6),
+        (RoadEditingTableKind::Curb, 2),
     ];
     let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
@@ -1038,6 +1085,48 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
                         member_id,
                     },
                 ])));
+            }
+        }
+    }
+    use RoadEditingTableKind as T;
+    let field = |table, field_id| TableField { table, field_id };
+    let member = |structure, member_id| StructMember {
+        structure,
+        member_id,
+    };
+    for side in 0..2 {
+        for leaf in 0..2 {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                field(T::BoundaryExtent, side),
+                field(T::BoundaryMember, leaf),
+            ])));
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                field(T::BoundaryExtent, 4 + side),
+                member(RoadEditingStructKind::BoundaryStation, leaf as u8),
+            ])));
+        }
+    }
+    for (variant, table, count) in [
+        (1, T::CrossingRule, 2),
+        (2, T::Guardrail, 7),
+        (3, T::Curb, 3),
+    ] {
+        let payload = UnionVariant {
+            union: RoadEditingUnionKind::BoundaryPayload,
+            discriminant: variant,
+        };
+        for leaf in 0..count {
+            let path = [field(T::BoundaryExtent, 7), payload, field(table, leaf)];
+            paths.push(RoadEditingPropertyPath::new(Box::new(path)));
+            if table == T::Curb && leaf < 2 {
+                for i in 0..4 {
+                    paths.push(RoadEditingPropertyPath::new(Box::new([
+                        path[0],
+                        path[1],
+                        path[2],
+                        member(RoadEditingStructKind::CurbEnd, i),
+                    ])));
+                }
             }
         }
     }

@@ -176,7 +176,13 @@ fn lir_role_count(lir: &crate::lir::LirUnit, role: SourceRelationRole) -> Option
         SourceRelationRole::PolicyEvidence
         | SourceRelationRole::PolicyGapProfile
         | SourceRelationRole::PolicyStreamRule
-        | SourceRelationRole::PolicyGateRule => return None,
+        | SourceRelationRole::PolicyGateRule
+        | SourceRelationRole::FacilityBandBounds
+        | SourceRelationRole::BoundaryExtent
+        | SourceRelationRole::LaneFootprint
+        | SourceRelationRole::SurfaceSpan
+        | SourceRelationRole::BoundaryRule
+        | SourceRelationRole::BoundaryObstacle => return None,
     };
     Some(value)
 }

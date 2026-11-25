@@ -10,7 +10,8 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 7;
+mod boundary;
 mod policy;
 
 /// 直接拥有 FlatBuffers storage 与有效尾部起点的 size-prefixed 来源缓冲区。
@@ -305,6 +306,26 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 RoadEditingInputViolation::InvalidCombination,
             ));
         }
+        if declarations.iter().any(|row| match row {
+            RoadEditingDeclaration::RoadCorridor(c) => {
+                c.coverage() == CrossSectionCoverage::Complete || !c.boundary_extents().is_empty()
+            }
+            RoadEditingDeclaration::RoadSection(s) => !s.boundary_extents().is_empty(),
+            RoadEditingDeclaration::AuthoringLane(lane) => lane.supports_wheel().is_some(),
+            _ => false,
+        }) {
+            let input =
+                super::RoadEditingModuleInput::try_new(header.source_document_key(), bytes, None)
+                    .map_err(|_| {
+                    input_error(
+                        "roadEditingWriter.sourceDocumentKey",
+                        RoadEditingInputViolation::InvalidCombination,
+                    )
+                })?;
+            let ledger = crate::ledger::Ledger::new(self.limits.operation_budget());
+            let _buffer = ledger.adopt(storage.capacity() as u64);
+            super::reader::verify_source_in(input, self.limits, 0, 0, &ledger)?;
+        }
         Ok(OwnedRoadEditingSourceBuffer { storage, start })
     }
 }
@@ -552,6 +573,7 @@ fn encode_road_corridor<'fbb>(
     value: &RoadCorridorInput,
 ) -> runtime::WIPOffset<wire::RoadCorridor<'fbb>> {
     let key = fbb.create_string(value.road_corridor_key());
+    let extents = boundary::encode_extents(fbb, value.boundary_extents());
     let alignment = fbb.create_string(value.road_alignment().key());
     let reference_section = create_reference(fbb, value.reference_section());
     let reference_lane = create_reference(fbb, value.reference_lane());
@@ -595,7 +617,12 @@ fn encode_road_corridor<'fbb>(
             reference_section: Some(reference_section),
             reference_lane: Some(reference_lane),
             elements: Some(elements),
-            publish_station_mapping: value.publish_station_mapping(),
+            cross_section_coverage: match value.coverage() {
+                CrossSectionCoverage::None => wire::CrossSectionCoverage::None,
+                CrossSectionCoverage::StationMapping => wire::CrossSectionCoverage::StationMapping,
+                CrossSectionCoverage::Complete => wire::CrossSectionCoverage::Complete,
+            },
+            boundary_extents: Some(extents),
             canvas_selection: canvas,
         },
     )
@@ -605,6 +632,7 @@ fn encode_road_section<'fbb>(
     fbb: &mut runtime::FlatBufferBuilder<'fbb>,
     value: &RoadSectionInput,
 ) -> runtime::WIPOffset<wire::RoadSection<'fbb>> {
+    let extents = boundary::encode_extents(fbb, value.boundary_extents());
     let key = fbb.create_string(value.road_section_key());
     let kind_id = fbb.create_string(value.kind_id());
     let lanes = create_reference_vector(fbb, value.authoring_lanes());
@@ -614,6 +642,7 @@ fn encode_road_section<'fbb>(
         fbb,
         &wire::RoadSectionArgs {
             road_section_key: Some(key),
+            boundary_extents: Some(extents),
             kind_id: Some(kind_id),
             authoring_lanes: Some(lanes),
             canvas_selection: canvas,
@@ -628,7 +657,8 @@ fn encode_authoring_lane<'fbb>(
 ) -> runtime::WIPOffset<wire::AuthoringLane<'fbb>> {
     let key = fbb.create_string(value.authoring_lane_key());
     let edges = create_reference_vector(fbb, value.edge_chain());
-    let cuts = fbb.create_vector(value.interior_cut_stations_meters());
+    let cuts = (!value.interior_cut_stations_meters().is_empty())
+        .then(|| fbb.create_vector(value.interior_cut_stations_meters()));
     let lane_group = value
         .lane_group()
         .map(|reference| create_reference(fbb, reference));
@@ -640,7 +670,8 @@ fn encode_authoring_lane<'fbb>(
         &wire::AuthoringLaneArgs {
             authoring_lane_key: Some(key),
             edge_chain: Some(edges),
-            interior_cut_stations_meters: Some(cuts),
+            interior_cut_stations_meters: cuts,
+            supports_wheel: value.supports_wheel(),
             direction: match value.direction() {
                 RoadEditingLaneDirection::Forward => wire::LaneDirection::Forward,
                 RoadEditingLaneDirection::Backward => wire::LaneDirection::Backward,

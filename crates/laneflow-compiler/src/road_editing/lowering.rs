@@ -1506,6 +1506,7 @@ pub(super) fn lower_topology_authoring_declarations(
             _ => unreachable!("semantic preflight validated station end kind"),
         };
         TypedAstDeclaration::RoadCorridor(RoadCorridorDeclaration {
+            cross_section: None,
             header: module_scoped_header(
                 locations,
                 EntityKind::RoadCorridor,
@@ -1527,16 +1528,20 @@ pub(super) fn lower_topology_authoring_declarations(
             ),
             elements,
             authoring_geometry: Some(RoadCorridorAuthoringGeometry {
-                station_mapping_request: value.publish_station_mapping().then(|| {
-                    property_location(
-                        locations,
-                        EntityKind::RoadCorridor,
-                        key,
-                        RoadEditingTableKind::RoadCorridor,
-                        9,
-                        value.canvas_selection(),
-                    )
-                }),
+                complete: value.cross_section_coverage() == wire::CrossSectionCoverage::Complete,
+                extents: super::boundary::lower(super::boundary::Owner::Corridor(value), locations),
+                station_mapping_request: (value.cross_section_coverage()
+                    != wire::CrossSectionCoverage::None)
+                    .then(|| {
+                        property_location(
+                            locations,
+                            EntityKind::RoadCorridor,
+                            key,
+                            RoadEditingTableKind::RoadCorridor,
+                            9,
+                            value.canvas_selection(),
+                        )
+                    }),
                 road_alignment_key: Arc::from(value.road_alignment_key()),
                 road_alignment_key_span: property_location(
                     locations,
@@ -1697,8 +1702,10 @@ pub(super) fn lower_topology_authoring_declarations(
                         )
                     }),
                     authoring_geometry: Some(AuthoringLaneGeometry {
+                        supports_wheel: lane.supports_wheel(),
                         interior_cuts: lane
                             .interior_cut_stations_meters()
+                            .unwrap_or_default()
                             .iter()
                             .enumerate()
                             .map(|(i, s)| {
@@ -1724,6 +1731,7 @@ pub(super) fn lower_topology_authoring_declarations(
             .collect::<Result<Box<[_]>, crate::DiagnosticBundle>>()?;
         lowered_lane_count = lowered_lane_count.saturating_add(lanes.len());
         declarations.push(TypedAstDeclaration::RoadSection(RoadSectionDeclaration {
+            extents: super::boundary::lower(super::boundary::Owner::Section(value), locations),
             header: owner_scoped_header(
                 locations,
                 EntityKind::RoadSection,

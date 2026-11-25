@@ -693,9 +693,77 @@ fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), Forma
                 return Err(row_binding_mismatch());
             }
         }
+        8 => {
+            let d = [
+                row.required(2)?.i32()?,
+                row.required(3)?.i32()?,
+                row.required(4)?.i32()?,
+                row.required(5)?.i32()?,
+            ];
+            if !valid_width(d) {
+                return Err(row_binding_mismatch());
+            }
+            require_u32_inclusive(row.required(6)?, 0, 1000)?;
+            require_u8_range(row.required(7)?, 0, 1)?;
+        }
+        9 => {
+            if row.required(3)?.u32()? >= row.required(4)?.u32()? {
+                return Err(row_binding_mismatch());
+            }
+            for (tag, n) in [(5, 9), (6, 9), (7, 5)] {
+                let v = row.required(tag)?;
+                if !surface_values(v.value, n) {
+                    return Err(noncanonical(v));
+                }
+            }
+        }
+        10 => {
+            require_u8_range(row.required(2)?, 1, 3)?;
+            require_u8_range(row.required(3)?, 1, 2)?;
+        }
+        11 => {
+            let shape = require_u8_range(row.required(2)?, 1, 2)?;
+            let v = row.required(3)?;
+            if !obstacle_parameters(shape, v.value) {
+                return Err(noncanonical(v));
+            }
+        }
         _ => unreachable!("registry checked station table"),
     }
     Ok(())
+}
+
+fn valid_width([ls, rs, le, re]: [i32; 4]) -> bool {
+    ls >= rs && le >= re && (ls > rs || le > re)
+}
+fn surface_values(bytes: &[u8], count: usize) -> bool {
+    bytes.len() == count * 4
+        && bytes.as_chunks::<4>().0.iter().enumerate().all(|(i, b)| {
+            let v = f32::from_le_bytes(*b);
+            v.is_finite()
+                && v.to_bits() != (-0_f32).to_bits()
+                && if count == 5 {
+                    v >= 0.
+                } else {
+                    i >= 3
+                        || (laneflow_static_contract::CANONICAL_POINT_COMPONENT_MIN_METERS
+                            ..=laneflow_static_contract::CANONICAL_POINT_COMPONENT_MAX_METERS)
+                            .contains(&v)
+                }
+        })
+}
+fn obstacle_parameters(shape: u8, b: &[u8]) -> bool {
+    let i = |n: usize| i32::from_le_bytes(b[n..n + 4].try_into().expect("checked parameter size"));
+    match shape {
+        1 => b.len() == 25 && matches!(b[0], 1 | 2) && i(5) != 0 && i(9) != 0 && i(13) < i(17),
+        2 => {
+            b.len() == 36
+                && [0, 16]
+                    .into_iter()
+                    .all(|j| i(j) >= i(j + 4) && i(j + 8) < i(j + 12))
+        }
+        _ => false,
+    }
 }
 
 fn validate_policy_member(table: u16, row: RowRef<'_>) -> Result<(), FormatError> {
@@ -1101,7 +1169,7 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            require_exact_u32(frontend, if language == 2 { 6 } else { 5 })?;
+            require_exact_u32(frontend, if language == 2 { 7 } else { 5 })?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
             })?;
@@ -1138,7 +1206,9 @@ fn validate_lfsm_row(
                 9 => EntityKind::Junction,
                 _ => return Err(unknown(role_field, u64::from(role))),
             };
-            if owner != expected_owner {
+            if owner != expected_owner
+                && !(matches!(role, 38 | 41 | 42) && owner == EntityKind::RoadSection)
+            {
                 return Err(row_binding_mismatch());
             }
             require_exact_u16(row.required(5)?, 1)?;
@@ -1155,7 +1225,9 @@ fn validate_owner_local_source(row: RowRef<'_>) -> Result<(), FormatError> {
     let role = role_field.u8()?;
     let expected_owner =
         owner_kind_for_source_role(role).ok_or_else(|| unknown(role_field, u64::from(role)))?;
-    if owner != expected_owner {
+    if owner != expected_owner
+        && !(matches!(role, 38 | 41 | 42) && owner == EntityKind::RoadSection)
+    {
         return Err(row_binding_mismatch());
     }
     Ok(())
@@ -1185,6 +1257,9 @@ fn owner_kind_for_source_role(role: u8) -> Option<EntityKind> {
         30 | 31 => Some(EntityKind::ParticipantStream),
         32 => Some(EntityKind::CanonicalFrame),
         33..=36 => Some(EntityKind::RightOfWayPolicySet),
+        37 => Some(EntityKind::FacilityBand),
+        38 | 40..=42 => Some(EntityKind::RoadCorridor),
+        39 => Some(EntityKind::AuthoringLane),
         _ => None,
     }
 }
@@ -1276,7 +1351,7 @@ fn validate_owner_local_location(
     let owner_kind_field = row.required(16)?;
     let owner_kind = require_u8_range(owner_kind_field, 0, 1)?;
     let relation_field = row.required(17)?;
-    let relation = require_u8_range(relation_field, 0, 21)?;
+    let relation = require_u8_range(relation_field, 0, 22)?;
     let occurrence = require_u8_range(row.required(18)?, 0, 1)?;
     let (expected_owner, expected_occurrence, root) = road_relation_shape(relation);
 
@@ -1299,6 +1374,11 @@ fn validate_owner_local_location(
             };
             let owner_matches = if relation == 1 {
                 matches!(actual_owner, None | Some(EntityKind::LaneEdge))
+            } else if relation == 22 {
+                matches!(
+                    actual_owner,
+                    Some(EntityKind::RoadCorridor | EntityKind::RoadSection)
+                )
             } else {
                 relation != 0 && actual_owner == expected_owner
             };
@@ -1325,7 +1405,7 @@ fn validate_owner_local_location(
                 Err(row_binding_mismatch())
             }
         })?;
-    } else if relation >= 16 {
+    } else if (16..=19).contains(&relation) {
         let mut index = 0;
         visit_record_rows(property, |step| {
             let container = step.required(2)?.u16()?;
@@ -1362,6 +1442,7 @@ fn road_relation_shape(relation: u8) -> (Option<EntityKind>, u8, u16) {
         15 => (None, 1, 0),
         16..=19 => (Some(EntityKind::RightOfWayPolicySet), 1, 40),
         20..=21 => (Some(EntityKind::AuthoringLane), 0, 11),
+        22 => (None, 1, 47),
         _ => (None, 0, 0),
     }
 }
@@ -1455,8 +1536,7 @@ fn validate_property_step(row: RowRef<'_>, step: PropertyStep) -> Result<(), For
         2 => {
             step.container <= u16::from(u8::MAX)
                 && step.member <= u16::from(u8::MAX)
-                && step.container == 0
-                && matches!(step.member, 1..=4)
+                && matches!((step.container, step.member), (0, 1..=4) | (1, 1..=3))
         }
         _ => return Err(unknown(row.required(1)?, u64::from(step.kind))),
     };
@@ -1494,6 +1574,7 @@ fn property_shape_is_complete(steps: &[Option<PropertyStep>]) -> bool {
                 && third.kind == 0
                 && matches!((second.member, third.container), (3, 45) | (4, 46));
             native_scalar
+                || boundary_payload_edge(first, second, third)
                 || table_edge_target(first).is_some_and(|target| {
                     second.kind == 0
                         && second.container == target
@@ -1504,6 +1585,9 @@ fn property_shape_is_complete(steps: &[Option<PropertyStep>]) -> bool {
             let (Some(second), Some(third), Some(fourth)) = (steps[1], steps[2], steps[3]) else {
                 return false;
             };
+            if boundary_payload_edge(first, second, third) {
+                return direct_struct_edge(third, fourth);
+            }
             if first
                 != (PropertyStep {
                     kind: 0,
@@ -1531,6 +1615,19 @@ fn property_shape_is_complete(steps: &[Option<PropertyStep>]) -> bool {
     }
 }
 
+fn boundary_payload_edge(root: PropertyStep, variant: PropertyStep, field: PropertyStep) -> bool {
+    root.kind == 0
+        && root.container == 47
+        && root.member == 7
+        && variant.kind == 2
+        && variant.container == 1
+        && field.kind == 0
+        && matches!(
+            (variant.member, field.container),
+            (1, 49) | (2, 50) | (3, 51)
+        )
+}
+
 fn direct_struct_edge(table: PropertyStep, member: PropertyStep) -> bool {
     table.kind == 0
         && member.kind == 1
@@ -1550,6 +1647,8 @@ fn struct_edge_target(step: PropertyStep) -> Option<u16> {
         (6, 0) | (3, 0) | (4, 0..=2) | (5, 4) => Some(2),
         (11, 3) | (28, 2) => Some(3),
         (34, 4) | (6, 2) => Some(4),
+        (47, 4 | 5) => Some(5),
+        (51, 0 | 1) => Some(6),
         _ => None,
     }
 }
@@ -1570,14 +1669,15 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
         (0, 28) => Some(34),
         (40, 1) => Some(30),
         (40, 2..=5) => Some(41 + step.member - 2),
+        (47, 0 | 1) => Some(48),
         _ => None,
     }
 }
 
 fn table_field_max(container: u16) -> Option<u16> {
-    const MAX: [u16; 47] = [
-        29, 3, 5, 0, 2, 4, 2, 3, 1, 9, 4, 7, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
-        2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
+    const MAX: [u16; 52] = [
+        29, 3, 5, 0, 2, 4, 2, 3, 1, 10, 5, 8, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
+        2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3, 8, 1, 1, 6, 2,
     ];
     MAX.get(usize::from(container)).copied()
 }
@@ -1587,7 +1687,7 @@ fn table_field_member_allowed(container: u16, member: u16) -> bool {
 }
 
 fn struct_member_max(container: u16) -> Option<u16> {
-    [0, 0, 2, 1, 1].get(usize::from(container)).copied()
+    [0, 0, 2, 1, 1, 1, 3].get(usize::from(container)).copied()
 }
 
 fn validate_lfsd_row(
@@ -1648,7 +1748,7 @@ fn validate_lfsd_row(
 // LFSD 第八节使用稳定引用与解引用后的局部站位，数值均为紧密小端。
 fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Result<(), FormatError> {
     let op = require_u8_range(row.required(1)?, 0, 2)?;
-    let kind = require_u8_range(row.required(2)?, 1, 7)?;
+    let kind = require_u8_range(row.required(2)?, 1, 11)?;
     let key = row.required(3)?;
     if (base == SemanticDiffBaseKind::Genesis && op != 0)
         || (op == 2 && row.required(4)?.value == row.required(5)?.value)
@@ -1660,9 +1760,14 @@ fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Resul
             .and_then(|r| EntityKind::from_code(u16::from_le_bytes([r[0], r[1]])))
     };
     use EntityKind::{AuthoringLane, FacilityBand, LaneEdge, RoadCorridor, RoadSection};
-    if kind == 7 {
+    if matches!(kind, 7 | 10 | 11) {
         let v = key.value;
-        if v.len() < 57 || v.len() != 56 + usize::from(v[55]) || !matches!(v[54], 1 | 2) {
+        if v.len() < 57
+            || v.len() != 56 + usize::from(v[55])
+            || !matches!(v[54], 1 | 2)
+            || (kind == 10 && v[54] != 1)
+            || (kind == 11 && v[54] != 2)
+        {
             return Err(noncanonical(key));
         }
         let valid = match stable(v, 0) {
@@ -1686,13 +1791,13 @@ fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Resul
         )?;
     } else {
         let owner = match kind {
-            1 | 2 => RoadCorridor,
-            3 => AuthoringLane,
+            1 | 2 | 9 => RoadCorridor,
+            3 | 8 => AuthoringLane,
             4 | 5 => LaneEdge,
             6 => FacilityBand,
             _ => unreachable!(),
         };
-        let len = if matches!(kind, 2 | 5) { 26 } else { 18 };
+        let len = if matches!(kind, 2 | 5 | 9) { 26 } else { 18 };
         if key.value.len() != len || stable(key.value, 0) != Some(owner) {
             return Err(noncanonical(key));
         }
@@ -1700,7 +1805,11 @@ fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Resul
     for tag in [4, 5] {
         let Some(side) = row.field(tag) else { continue };
         let v = side.value;
-        if v.len() != [20, 4, 19, 26, 20, 36, 16][usize::from(kind) - 1] {
+        if !(if kind == 11 {
+            matches!(v.len(), 26 | 37)
+        } else {
+            v.len() == [20, 4, 19, 26, 20, 36, 16, 21, 118, 2][usize::from(kind) - 1]
+        }) {
             return Err(noncanonical(side));
         }
         let u64_at =
@@ -1728,6 +1837,23 @@ fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Resul
                     && u32_at(32) <= 1000
             }
             7 => u64_at(0) < u64_at(8),
+            8 => {
+                valid_width([i32_at(0), i32_at(4), i32_at(8), i32_at(12)])
+                    && u32_at(16) <= 1000
+                    && v[20] <= 1
+            }
+            9 => {
+                stable(v, 0) == Some(EntityKind::CanonicalFrame)
+                    && key.value[18..]
+                        .try_into()
+                        .map(u64::from_le_bytes)
+                        .is_ok_and(|s| s < u64_at(18))
+                    && surface_values(&v[26..62], 9)
+                    && surface_values(&v[62..98], 9)
+                    && surface_values(&v[98..], 5)
+            }
+            10 => (1..=3).contains(&v[0]) && (1..=2).contains(&v[1]),
+            11 => obstacle_parameters(v[0], &v[1..]),
             _ => unreachable!(),
         };
         if !ok {
@@ -3562,8 +3688,8 @@ mod tests {
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
         const TABLE_FIELD_MAX: [u16; 47] = [
-            29, 3, 5, 0, 2, 4, 2, 3, 1, 9, 4, 7, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4,
-            2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
+            29, 3, 5, 0, 2, 4, 2, 3, 1, 10, 5, 8, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2,
+            4, 2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
         ];
         const STRUCT_MEMBER_MAX: [u16; 5] = [0, 0, 2, 1, 1];
         const STRUCT_EDGES: &[(u16, u16, u16)] = &[
@@ -3773,7 +3899,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(owner_kind_for_source_role(37), None);
+        assert_eq!(owner_kind_for_source_role(43), None);
     }
 
     #[test]
@@ -3817,8 +3943,8 @@ mod tests {
             (36, EntityKind::RightOfWayPolicySet),
         ];
         assert_eq!(owner_kind_for_source_role(0), None);
-        assert_eq!(owner_kind_for_source_role(37), None);
-        for role in [0_u8, 37] {
+        assert_eq!(owner_kind_for_source_role(43), None);
+        for role in [0_u8, 43] {
             let reserved = row_bytes(&[
                 field_bytes(
                     1,

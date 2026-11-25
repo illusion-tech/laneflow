@@ -955,10 +955,14 @@ pub enum RoadEditingLaneDirection {
     Backward,
 }
 
+mod boundary;
+pub use boundary::*;
+
 /// 道路走廊声明。
 #[derive(Clone, Debug, PartialEq)]
 pub struct RoadCorridorInput {
-    publish_station_mapping: bool,
+    coverage: CrossSectionCoverage,
+    boundary_extents: Box<[BoundaryExtentInput]>,
     road_corridor_key: Box<str>,
     road_alignment: RoadAlignmentReference,
     start_station_meters: f64,
@@ -1016,7 +1020,8 @@ impl RoadCorridorInput {
         require_unique(&elements, "roadCorridor.elements")?;
         Ok(Self {
             road_corridor_key: road_corridor_key.into_boxed_str(),
-            publish_station_mapping: false,
+            coverage: CrossSectionCoverage::None,
+            boundary_extents: Box::new([]),
             road_alignment,
             start_station_meters,
             end_station,
@@ -1036,14 +1041,40 @@ impl RoadCorridorInput {
     /// 指定编译器是否必须证明并发布该走廊的共享里程映射。
     #[must_use]
     pub const fn with_station_mapping(mut self, publish: bool) -> Self {
-        self.publish_station_mapping = publish;
+        self.coverage = if publish {
+            CrossSectionCoverage::StationMapping
+        } else {
+            CrossSectionCoverage::None
+        };
         self
     }
 
     /// 返回共享里程映射的发布声明。
     #[must_use]
     pub const fn publish_station_mapping(&self) -> bool {
-        self.publish_station_mapping
+        !matches!(self.coverage, CrossSectionCoverage::None)
+    }
+
+    /// 设置走廊开放范围和按参考方向排列的结构边界声明。
+    #[must_use]
+    pub fn with_cross_section(
+        mut self,
+        coverage: CrossSectionCoverage,
+        extents: Vec<BoundaryExtentInput>,
+    ) -> Self {
+        self.coverage = coverage;
+        self.boundary_extents = extents.into_boxed_slice();
+        self
+    }
+
+    /// 返回源文件声明的走廊能力。
+    pub const fn coverage(&self) -> CrossSectionCoverage {
+        self.coverage
+    }
+
+    /// 返回走廊结构接缝上的全部命名区间。
+    pub fn boundary_extents(&self) -> &[BoundaryExtentInput] {
+        &self.boundary_extents
     }
 
     /// 返回走廊所沿的道路走向引用。
@@ -1100,8 +1131,9 @@ fn require_corridor_owned_reference<K: EntityKindMarker>(
 }
 
 /// 道路区段声明。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RoadSectionInput {
+    boundary_extents: Box<[BoundaryExtentInput]>,
     road_section_key: Box<str>,
     kind_id: Box<str>,
     authoring_lanes: Box<[AuthoringLaneReference]>,
@@ -1134,6 +1166,7 @@ impl RoadSectionInput {
         require_unique(&authoring_lanes, "roadSection.authoringLanes")?;
         Ok(Self {
             road_section_key: road_section_key.into_boxed_str(),
+            boundary_extents: Box::new([]),
             kind_id: kind_id.into_boxed_str(),
             authoring_lanes: authoring_lanes.into_boxed_slice(),
             road_corridor,
@@ -1159,6 +1192,18 @@ impl RoadSectionInput {
         &self.authoring_lanes
     }
 
+    /// 设置区段内相邻车道的命名区间。
+    #[must_use]
+    pub fn with_boundary_extents(mut self, extents: Vec<BoundaryExtentInput>) -> Self {
+        self.boundary_extents = extents.into_boxed_slice();
+        self
+    }
+
+    /// 返回区段内的全部命名区间。
+    pub fn boundary_extents(&self) -> &[BoundaryExtentInput] {
+        &self.boundary_extents
+    }
+
     /// 返回所属道路走廊引用。
     #[must_use]
     pub const fn road_corridor(&self) -> &RoadCorridorReference {
@@ -1170,6 +1215,7 @@ impl_canvas!(RoadSectionInput);
 /// 编制车道声明。
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuthoringLaneInput {
+    supports_wheel: Option<bool>,
     authoring_lane_key: Box<str>,
     edge_chain: Box<[LaneEdgeReference]>,
     interior_cut_stations_meters: Box<[f64]>,
@@ -1204,6 +1250,7 @@ impl AuthoringLaneInput {
         }
         Ok(Self {
             authoring_lane_key: authoring_lane_key.into_boxed_str(),
+            supports_wheel: None,
             edge_chain: Box::new([lane_edge]),
             interior_cut_stations_meters: Box::new([]),
             direction,
@@ -1218,6 +1265,18 @@ impl AuthoringLaneInput {
     #[must_use]
     pub fn authoring_lane_key(&self) -> &str {
         &self.authoring_lane_key
+    }
+
+    /// 设置车道的车轮支承声明。完整横断面须逐车道给出此值。
+    #[must_use]
+    pub const fn with_wheel_support(mut self, supports_wheel: Option<bool>) -> Self {
+        self.supports_wheel = supports_wheel;
+        self
+    }
+
+    /// 返回车轮支承声明，保留显式的否定值。
+    pub const fn supports_wheel(&self) -> Option<bool> {
+        self.supports_wheel
     }
 
     /// 将本车道展开为按行驶方向排列的边链。内部切点以走向起点的路面米数计。
@@ -1334,7 +1393,7 @@ impl AuthoringLaneInput {
             return Ok(None);
         };
         let edges = lane.edge_chain();
-        let cuts = lane.interior_cut_stations_meters();
+        let cuts = lane.interior_cut_stations_meters().unwrap_or_default();
         let mut plan = Plan::ZERO
             .array::<LaneEdgeReference>(edges.len())
             .array::<f64>(cuts.len())
@@ -1375,6 +1434,7 @@ impl AuthoringLaneInput {
         };
         let result = Self {
             authoring_lane_key: key.into(),
+            supports_wheel: lane.supports_wheel(),
             edge_chain: edges
                 .iter()
                 .map(|edge| LaneEdgeReference {

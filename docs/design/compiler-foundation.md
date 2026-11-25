@@ -967,7 +967,7 @@ LIR 与 LFCA 的完整规范统计。
 
 LFRE 5 的资格验证中，编译受控峰值最大为 **74604208 B**，内存发射为 **205581467 B**，文件
 发射为 **151218133 B**；三项峰值均出现在全组合压力的身份不相交操作的编译或发射阶段。
-LFRE 6 在同样的十一组负载及身份不相交变体上重测，来源记录累计最大为 **8729042 B**。单边车道也写入边链向量和空切点向量，来源关系与 HIR 各增加最多 48 项。编译峰值采用现有编译资源模型，发射采用资源账本受控
+LFRE 7 在同样的十一组负载及身份不相交变体上重测，来源记录累计最大为 **8729266 B**。走廊和区段写入命名区间向量，单边车道省略切点向量。命名区间在全修订独立计数，常规档上限为 128,511 行，百万实体档为 16,000,000 行。编译峰值采用现有编译资源模型，发射采用资源账本受控
 请求字节，两种口径分别记录，不互相替代；这些数字不是墙钟或实际进程堆峰值。
 
 内存发射直接在唯一持有的最终共享字节中编码，省去完整中间缓冲及其复制，账本授予仍
@@ -992,7 +992,7 @@ LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字
 | `SourceDocumentCount`          |      18 | 来源文档描述符                                           |
 | `ImportEdgeCount`              |      17 | 导入边                                                   |
 | `SourceBytesPerModule`         | 6802717 | 单模块来源记录字节                                       |
-| `SourceBytesTotal`             | 8729042 | 编译单元来源记录字节                                     |
+| `SourceBytesTotal`             | 8729266 | 编译单元来源记录字节                                     |
 | `DeclarationCount`             |   10000 | 来源声明                                                 |
 | `TypedAstRecordCount`          |  381284 | 有类型抽象语法树逻辑记录                                 |
 | `HirRecordCount`               |  535412 | HIR 逻辑记录                                             |
@@ -1089,7 +1089,7 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_source_document_count`           |                                           18 |                                      196608 | 来源 | 来源文档描述符                                                |
 | `max_import_edge_count`               |                                           17 |                                      262144 | 来源 | 模块导入边                                                    |
 | `max_source_bytes_per_module`         |                                      6802717 |                                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                          |
-| `max_source_bytes_total`              |                                      8729042 |                                   536870912 | 来源 | 编译单元来源字节                                              |
+| `max_source_bytes_total`              |                                      8729266 |                                   536870912 | 来源 | 编译单元来源字节                                              |
 | `max_declaration_count`               |                                        10000 |                                     1500000 | 来源 | 来源声明                                                      |
 | `max_stable_entity_count`             |                                        10000 |                                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
 | `max_typed_ast_record_count`          |                                       381284 |                                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
@@ -1143,7 +1143,7 @@ framing/reference spelling。Identity v1 `Ascii` 字段及其来源侧 namespace
 components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
 `TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
 
-单模块来源上限与总来源上限独立登记，常规档分别为 6802717 B 与 8729042 B；
+单模块来源上限与总来源上限独立登记，常规档分别为 6802717 B 与 8729266 B；
 必须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
 绕过总存续字节上限。上述逐维最大值不是已经测过的“所有维度同时取最大”组合；任意
@@ -1629,7 +1629,7 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [portable-artifact]: portable-canonical-artifact.md
-[road-editing-schema]: ../../schemas/road-editing/v6/README.md
+[road-editing-schema]: ../../schemas/road-editing/v7/README.md
 [road-editing-entry]: road-editing-source-and-geometry-frontend.md#97-来源位置与公共入口
 [road-editing-memory]: road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界
 [adr-0035]: ../adr/0035-compile-limits-and-resource-ledger.md

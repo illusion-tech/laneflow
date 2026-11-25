@@ -190,7 +190,7 @@ fn upper(m: f64) -> Result<u32> {
     }
     Ok(nm as u32)
 }
-fn node(origin: f64, position: Scalar, forced: Option<f64>) -> Result<(u64, u32)> {
+pub(super) fn node(origin: f64, position: Scalar, forced: Option<f64>) -> Result<(u64, u32)> {
     let n = local_nanometres(origin, forced.unwrap_or(position.value)).ok_or(UNPROVEN)?;
     let err = upper((position - Scalar::exact(origin) - meters(n)).abs_max())?;
     if err > 1000 {
@@ -334,6 +334,7 @@ pub(super) fn width_rounding_error(profiles: &[AuthoringWidthProfile]) -> f64 {
 }
 
 pub(super) fn band(
+    width_table: crate::RoadEditingTableKind,
     offset: MemberOffsetEndpoints,
     width: AuthoringWidthProfile,
     domain: [f64; 2],
@@ -359,7 +360,7 @@ pub(super) fn band(
     for (j, v) in values.iter().enumerate() {
         let um = (v.value * 1_000_000.0).round_ties_even();
         if !(f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&um) {
-            return Err(unproven(source.facility_width_endpoint((j / 2) as u8)));
+            return Err(unproven(source.width_endpoint(width_table, (j / 2) as u8)));
         }
         offsets_um[j] = um as i32;
         err = err.max((*v - s(um) / s(1_000_000.0)).abs_max());
@@ -370,7 +371,7 @@ pub(super) fn band(
     {
         let (left, right) = (offsets_um[2 * end], offsets_um[2 * end + 1]);
         if left < right || (left == right) != (source_width == 0.0) {
-            return Err(unproven(source.facility_width_endpoint(end as u8)));
+            return Err(unproven(source.width_endpoint(width_table, end as u8)));
         }
     }
     let length = s(domain[1]) - s(domain[0]);
