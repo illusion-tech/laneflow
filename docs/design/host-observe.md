@@ -92,7 +92,7 @@ related = ["design-core-runtime-performance-baseline", "design-lf-synth-measurem
 | 电源   | 电源计划（GUID 与名称）                                    | `powercfg /getactivescheme`                | 不可用                                                             |
 | 电源   | CPU 调频策略、平台性能配置                                 | 不可用                                     | `scaling_governor` 取值集合、`/sys/firmware/acpi/platform_profile` |
 | 固件   | BIOS 厂商、版本与日期                                      | 固件信息接口                               | `/sys/class/dmi/id` 的 `bios_*`                                    |
-| 工具链 | `rustc -Vv` 全文、`cargo -V`、主机 target                  | 调用方指定工具链选择（如 `+1.99.1`）后执行 | 同左                                                               |
+| 工具链 | `rustc -Vv` 全文、`cargo -V`、主机 target                  | 调用方指定工具链选择（如 `+1.100.0`）后执行 | 同左                                                               |
 | 源码   | 提交（40 位十六进制）、树对象、工作树是否干净              | git                                        | git                                                                |
 
 - 字段取不到时记为不可用并附原因，不得填空串、零或省略。

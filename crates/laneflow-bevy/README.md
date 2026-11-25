@@ -81,22 +81,22 @@ fn install(app: &mut App, world: TrafficWorld, spatial: Option<SpatialSession>) 
 `revision_cutover` 在 `LaneFlowOuterFrameSet::Administration` 中切换。成功时复核旧批次、交付事件、交还旧 Spatial 并重建路面。路线还引用支路时回切会被拒绝，宿主先移除车辆再删除路线，下一帧重试。有车越过目标边长时，等它驶离后重试。
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
-cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
-cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
-cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
-cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --example corridor_traffic --features native-example
-cargo +1.99.1 run --locked -p laneflow-bevy --example junction_debug --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test junction_debug_smoke
-cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
-cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
-cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
-cargo +1.99.1 run --locked -p laneflow-bevy --example revision_cutover --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test revision_cutover_smoke
-cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example revision_cutover
+cargo +1.100.0 run --locked -p laneflow-bevy --example quickstart --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test quickstart_smoke
+cargo +1.100.0 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
+cargo +1.100.0 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
+cargo +1.100.0 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
+cargo +1.100.0 check --locked -p laneflow-bevy --example quickstart --example corridor_traffic --features native-example
+cargo +1.100.0 run --locked -p laneflow-bevy --example junction_debug --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test junction_debug_smoke
+cargo +1.100.0 run --locked -p laneflow-bevy --example culling_extraction --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test culling_extraction_smoke
+cargo +1.100.0 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
+cargo +1.100.0 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
+cargo +1.100.0 run --locked -p laneflow-bevy --example revision_cutover --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test revision_cutover_smoke
+cargo +1.100.0 test --locked -p laneflow-bevy --features native-example --example revision_cutover
 ```
 
 完整 C01–C13 验收、确定性出图与独立无窗口摘要对照见

@@ -57,13 +57,13 @@ Rust 测试。本地仍应按本矩阵主动运行与任务类别相关的命令
 凡新增或修改含 GFM 表格的 Markdown，使用仓库内同一实现格式化：
 
 ```powershell
-cargo +1.99.1 run --locked -p xtask -- format-md-tables <path...>
+cargo +1.100.0 run --locked -p xtask -- format-md-tables <path...>
 ```
 
 只读检查：
 
 ```powershell
-cargo +1.99.1 run --locked -p xtask -- format-md-tables --check <path...>
+cargo +1.100.0 run --locked -p xtask -- format-md-tables --check <path...>
 ```
 
 CI 的 `Markdown tables` job 对协作范围内的 Markdown 执行相同检查，但只警告，不阻断合并。
@@ -184,7 +184,7 @@ CLI 捕获输出仍原样交给原测试断言。总日志中的 `[child-diagnos
 2. **金样本**：用失败测试所用的配置与规模重新生成健康产物，例如 urban-harness fixture：
 
    ```powershell
-   cargo +1.99.1 run --locked -p laneflow-urban-generator -- --config examples/config/cn-urban.toml --scale fixture --output <新目录>
+   cargo +1.100.0 run --locked -p laneflow-urban-generator -- --config examples/config/cn-urban.toml --scale fixture --output <新目录>
    ```
 
    产物逐字节确定。命令按目录项中的期望摘要定位 chunk 并以摘要自校验，找不到即说明
@@ -192,7 +192,7 @@ CLI 捕获输出仍原样交给原测试断言。总日志中的 `[child-diagnos
 3. **判读**：
 
    ```powershell
-   cargo +1.99.1 run --locked -p xtask -- classify-digest-probe --dump <target 目录>/digest-probe/<转储>.bin --golden <金样本目录>
+   cargo +1.100.0 run --locked -p xtask -- classify-digest-probe --dump <target 目录>/digest-probe/<转储>.bin --golden <金样本目录>
    ```
 
    命令先以旁文件的 `actual` 核对转储摘要；不一致输出 `verdict=evidence-mismatch` 并以
@@ -220,7 +220,7 @@ CLI 捕获输出仍原样交给原测试断言。总日志中的 `[child-diagnos
 本地结构检查的命令是：
 
 ```powershell
-cargo +1.99.1 run --locked -p xtask -- check-docs [<path...>]
+cargo +1.100.0 run --locked -p xtask -- check-docs [<path...>]
 ```
 
 无参数时扫描 `docs/reference/documentation-checks.md` 列出的默认来源。传入路径只收窄或扩展来源扫描，不关闭关键索引入口检查。成功退出 0，规则或执行失败退出 1。没有修复模式。

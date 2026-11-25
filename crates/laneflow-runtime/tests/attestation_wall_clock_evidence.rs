@@ -1,7 +1,7 @@
 //! #987 计时段证据：共享路网修订认证墙钟、直算摘要耗时与并发 step 干扰。
 //!
 //! 全部 `#[ignore]`——正式测量在安静窗口内以
-//! `cargo +1.99.1 test --release --locked -p laneflow-runtime --test attestation_wall_clock_evidence -- --ignored --nocapture --test-threads=1`
+//! `cargo +1.100.0 test --release --locked -p laneflow-runtime --test attestation_wall_clock_evidence -- --ignored --nocapture --test-threads=1`
 //! 运行；输出为 `#987-evidence wall-clock ...` 行，供回填设计 §8 与
 //! `docs/reference/` 基线对。无窗口时只用万档以下做功能验证。
 

@@ -174,10 +174,10 @@ ADR 目录中的正式记录必须是 adr。状态不再使用 Superseded 或“
 及引用定义全部生成。人工导读放在区域之前；不得手改生成列表或复制版本号与进度。
 
 ```powershell
-cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes
-cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes --check
-cargo +1.99.1 run --locked -p xtask -- check-docs
-cargo +1.99.1 run --locked -p xtask -- export-docs
+cargo +1.100.0 run --locked -p xtask -- generate-doc-indexes
+cargo +1.100.0 run --locked -p xtask -- generate-doc-indexes --check
+cargo +1.100.0 run --locked -p xtask -- check-docs
+cargo +1.100.0 run --locked -p xtask -- export-docs
 ```
 
 `export-docs` 先执行完整检查，然后写入忽略目录 `target/docs/catalog.json`。它包含

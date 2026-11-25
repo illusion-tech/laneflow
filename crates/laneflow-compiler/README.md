@@ -32,7 +32,7 @@ LaneFlow 的生产编译器。它把受检官方来源编译成只读的已验�
 检入走廊和复杂路口的 LFCA 由对应生成器产出，运行时示例直接消费制品。编译器自身的确定性与诊断由本 crate 的测试覆盖。
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-compiler
+cargo +1.100.0 test --locked -p laneflow-compiler
 ```
 
 ## 深入阅读

@@ -34,7 +34,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 repository = "https://github.com/illusion-tech/laneflow"
 license = "Apache-2.0"
 

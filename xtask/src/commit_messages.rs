@@ -205,10 +205,10 @@ fn commit_range_from_event(
             }
         }
         Some(event_name) => Err(format!(
-            "不支持从 GitHub event `{event_name}` 自动推导 commit range，请显式传入 rev-range，例如: cargo +1.99.1 run --locked -p xtask -- check-commit-messages origin/main..HEAD"
+            "不支持从 GitHub event `{event_name}` 自动推导 commit range，请显式传入 rev-range，例如: cargo +1.100.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD"
         )),
         None => Err(
-            "非 CI 场景必须显式传入 commit rev-range，例如: cargo +1.99.1 run --locked -p xtask -- check-commit-messages origin/main..HEAD"
+            "非 CI 场景必须显式传入 commit rev-range，例如: cargo +1.100.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD"
                 .to_string(),
         ),
     }
@@ -961,7 +961,7 @@ Gate: G3 Candidate
 Slice: governance
 Impact: core-api=none; data-format=none; adapter-api=none
 Scope: 以 Conventional Commits 标题格式重写提交规范
-Validation: cargo +1.99.1 test --workspace --locked
+Validation: cargo +1.100.0 test --workspace --locked
 Docs: updated
 
 Refs: #23

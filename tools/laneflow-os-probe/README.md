@@ -11,7 +11,7 @@
 - `unsafe` 只在 `src/windows.rs` 的 5 处固定调用，由 `check-wire-audit` 逐处比对。
 
 ```bash
-cargo +1.99.1 test -p laneflow-os-probe --locked
+cargo +1.100.0 test -p laneflow-os-probe --locked
 ```
 
 [os-probe]: ../../docs/design/os-probe.md

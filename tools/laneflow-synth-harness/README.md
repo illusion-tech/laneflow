@@ -7,7 +7,7 @@
 ## 运行
 
 ```powershell
-cargo +1.99.1 build --release --locked -p laneflow-synth-harness
+cargo +1.100.0 build --release --locked -p laneflow-synth-harness
 ```
 
 单个输入的完整窗口：
@@ -116,7 +116,7 @@ LFRS 加 `observations.json`；L1 的重试、fresh 与末态发生在首个 T �
 环境 JSON 除前述字段外还必须含 `test_build_command`。构建测试二进制的命令为：
 
 ```text
-cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --message-format=json
+cargo +1.100.0 test --release --locked -p laneflow-runtime --lib --no-run --message-format=json
 ```
 
 从 Cargo 的 compiler-artifact 记录提取实际测试 executable，与普通工具二进制一起
@@ -136,8 +136,8 @@ cargo +1.99.1 test --release --locked -p laneflow-runtime --lib --no-run --messa
 时间与计数分别构建，放入不同目标目录，并以独立进程运行：
 
 ```text
-cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin synth-verification-cost --target-dir <timing-target>
-cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin synth-verification-cost --features verification-cost-counts --target-dir <counts-target>
+cargo +1.100.0 build --release --locked -p laneflow-synth-harness --bin synth-verification-cost --target-dir <timing-target>
+cargo +1.100.0 build --release --locked -p laneflow-synth-harness --bin synth-verification-cost --features verification-cost-counts --target-dir <counts-target>
 <timing-binary> run <input-directory> <implementation-commit> <workers> <new-timing-output> --mode timing
 <counts-binary> run <input-directory> <implementation-commit> <workers> <new-counts-output> --mode counts
 ```
@@ -282,8 +282,8 @@ backlog 与恢复，并与单拍重放的状态及完整事件字节比较。
 已有 execution-evidence 与 pose-profiling；诊断矩阵每行一个完整窗口，其耗时明确排除：
 
 ```powershell
-cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bins
-cargo +1.99.1 build --release --locked -p laneflow-synth-harness --bin measure --features allocation --target-dir target/synth-allocation
+cargo +1.100.0 build --release --locked -p laneflow-synth-harness --bins
+cargo +1.100.0 build --release --locked -p laneflow-synth-harness --bin measure --features allocation --target-dir target/synth-allocation
 ```
 
 诊断 binary 也运行相同 `matrix` 命令。普通 binary 与诊断 binary 必须分别归档，
@@ -335,7 +335,7 @@ allocation/reallocation 次数及字节；W3 lifecycle 分配单列。Traffic Ru
 先从同一提交构建 optimized Runtime test binary；普通生产二进制没有 failpoint：
 
 ```powershell
-cargo +1.99.1 test --release --locked -p laneflow-runtime --lib lf_synth_contract --no-run
+cargo +1.100.0 test --release --locked -p laneflow-runtime --lib lf_synth_contract --no-run
 ```
 
 从 Cargo 输出取得 `laneflow_runtime-<hash>` 测试程序的真实路径，再用**已完成的**
@@ -367,7 +367,7 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
   ```json
   {
     "environment": { "vendor_performance_mode": "无厂商性能模式", "hardware_role": "uncertified" },
-    "build_command": "cargo +1.99.1 build -p laneflow-synth-harness --release --locked",
+    "build_command": "cargo +1.100.0 build -p laneflow-synth-harness --release --locked",
     "test_build_command": "仅 worker-retry-matrix 要求"
   }
   ```
@@ -375,7 +375,7 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
   `hardware_role` 取 `R0`、`P10`、`P100`、`O1` 或 `uncertified`；`vendor_performance_mode`
   不得为空或占位值，没有厂商性能模式时写明“无厂商性能模式”。
 - 启动任何子进程前，工具在当前 git 检出内生成 `environment-before.json`
-  （`laneflow-environment-record` 第 1 版，工具链为 `+1.99.1`），核对工作树干净、HEAD
+  （`laneflow-environment-record` 第 1 版，工具链为 `+1.100.0`），核对工作树干净、HEAD
   与实现提交参数相同、工具链可用，`P100` 角色另须匹配参考机指纹；任一不满足即
   停止，不启动子进程。全部运行完成后生成 `environment-after.json` 并比较，前后不一致
   时矩阵不标记完整。两份记录的文件名、SHA-256 与字节数写入 `summary.json` 的
@@ -426,8 +426,8 @@ laneflow-synth-harness restore-run <input-directory> <implementation-commit> <wo
 ## 回归命令
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-synth-harness
-cargo +1.99.1 clippy --locked -p laneflow-synth-harness --all-targets -- -D warnings
+cargo +1.100.0 test --locked -p laneflow-synth-harness
+cargo +1.100.0 clippy --locked -p laneflow-synth-harness --all-targets -- -D warnings
 ```
 
 默认测试覆盖两步长相位边界、正式一万人口初始化与短序列、错误状态拒绝、重复

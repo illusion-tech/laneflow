@@ -407,10 +407,10 @@ GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 `cargo-nextest 0.9.145`（官方 release asset，URL 与 SHA-256 见 `ci.yml`）：
 
 ```powershell
-cargo +1.99.1 run --quiet --locked -p xtask -- run-workspace-tests '*'
-cargo +1.99.1 nextest run -p laneflow-runtime --locked --features placement-fixtures
-cargo +1.99.1 nextest run -p laneflow-scenario --locked --features placement-fixtures
-cargo +1.99.1 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
+cargo +1.100.0 run --quiet --locked -p xtask -- run-workspace-tests '*'
+cargo +1.100.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
+cargo +1.100.0 nextest run -p laneflow-scenario --locked --features placement-fixtures
+cargo +1.100.0 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
 ```
 
 `cargo test --workspace --locked`（libtest）可作备用测试方式，但行为不同：同进程线程模型下

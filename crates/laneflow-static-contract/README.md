@@ -21,7 +21,7 @@
 ## 示例与验证
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-static-contract
+cargo +1.100.0 test --locked -p laneflow-static-contract
 ```
 
 ## 深入阅读

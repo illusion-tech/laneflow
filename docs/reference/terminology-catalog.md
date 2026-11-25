@@ -132,10 +132,10 @@ references = [{ document = "design-shared-static-network" }]
 ## 7. 生成、校验与导出
 
 ```powershell
-cargo +1.99.1 run --locked -p xtask -- generate-glossary
-cargo +1.99.1 run --locked -p xtask -- generate-doc-indexes
-cargo +1.99.1 run --locked -p xtask -- check-docs
-cargo +1.99.1 run --locked -p xtask -- export-docs
+cargo +1.100.0 run --locked -p xtask -- generate-glossary
+cargo +1.100.0 run --locked -p xtask -- generate-doc-indexes
+cargo +1.100.0 run --locked -p xtask -- check-docs
+cargo +1.100.0 run --locked -p xtask -- export-docs
 ```
 
 `generate-glossary --check` 只检查漂移。生成区由唯一一对

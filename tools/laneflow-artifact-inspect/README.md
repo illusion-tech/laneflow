@@ -13,9 +13,9 @@ LFCA / LFSM / LFSD / LFCP 可移植规范制品的只读检视与结构化差异
 ## 命令
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-artifact-inspect -- inspect tests\fixtures\example.lfca
-cargo +1.99.1 run --locked -p laneflow-artifact-inspect -- diff expected.lfsm actual.lfsm
-cargo +1.99.1 run --locked -p laneflow-artifact-inspect -- inspect --hex expected.lfcp.hex
+cargo +1.100.0 run --locked -p laneflow-artifact-inspect -- inspect tests\fixtures\example.lfca
+cargo +1.100.0 run --locked -p laneflow-artifact-inspect -- diff expected.lfsm actual.lfsm
+cargo +1.100.0 run --locked -p laneflow-artifact-inspect -- inspect --hex expected.lfcp.hex
 ```
 
 子命令与选项（完整说明见 `--help`）：
@@ -65,7 +65,7 @@ laneflow_artifact_inspect::assert_portable_object_matches!(actual_bytes, expecte
 ## 测试
 
 ```powershell
-cargo +1.99.1 test -p laneflow-artifact-inspect --locked
+cargo +1.100.0 test -p laneflow-artifact-inspect --locked
 ```
 
 [issue-1424]: https://github.com/illusion-tech/laneflow/issues/1424

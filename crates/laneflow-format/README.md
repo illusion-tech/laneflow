@@ -30,8 +30,8 @@ LaneFlow 可移植对象的线格式 crate。它检查并编码 `LFCA`、`LFSM`�
 无窗口示例用 `FormatLimits::HARD` 检查检入的走廊 LFCA。线格式自身的向量和拒绝面在本 crate 的测试里。
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-format
-cargo +1.99.1 run --locked -p laneflow-runtime --example headless
+cargo +1.100.0 test --locked -p laneflow-format
+cargo +1.100.0 run --locked -p laneflow-runtime --example headless
 ```
 
 ## 深入阅读

@@ -227,7 +227,7 @@ pub struct Firmware {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Toolchain {
-    /// 调用方指定的工具链选择（如 `1.99.1`，执行时加 `+`）；`None` 为默认工具链。
+    /// 调用方指定的工具链选择（如 `1.100.0`，执行时加 `+`）；`None` 为默认工具链。
     pub selector: Option<String>,
     /// `rustc -Vv` 全文。
     pub rustc_vv: String,
@@ -299,7 +299,7 @@ pub struct CollectOptions {
     pub phase: Phase,
     /// 源码 checkout 内的任一目录；git 命令锚定到其顶层目录执行。
     pub repository: PathBuf,
-    /// 工具链选择（如 `1.99.1`）；`None` 为默认工具链。
+    /// 工具链选择（如 `1.100.0`）；`None` 为默认工具链。
     pub toolchain: Option<String>,
     /// 执行者填写的必填字段。
     pub manual: ManualFields,

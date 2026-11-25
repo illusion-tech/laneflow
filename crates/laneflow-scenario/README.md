@@ -27,8 +27,8 @@
 一辆车、一条路线的无窗口路径：
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-runtime --example headless
-cargo +1.99.1 test --locked -p laneflow-runtime --test headless_smoke
+cargo +1.100.0 run --locked -p laneflow-runtime --example headless
+cargo +1.100.0 test --locked -p laneflow-runtime --test headless_smoke
 ```
 
 人口控制器的短容量测试随 `cargo test -p laneflow-scenario` 运行。完整一万次成功替换是忽略测试，命令见[人口与回流设计][corridor-population]。

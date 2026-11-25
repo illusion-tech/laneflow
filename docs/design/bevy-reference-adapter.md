@@ -49,7 +49,7 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
   路面、标线、灯具自发光、大气与阴影无回归。项目未使用屏幕空间透射，0.20 改为
   opt-in 不改变画面。生产 modular feature graph 与 `native-example` 的十个伞形
   feature 名均未变化。
-- LaneFlow workspace MSRV 为 Rust `1.99.1`（#495 提升到 1.98，#994 更新到 1.98.1，#1003 更新到 1.99.1；不跟随开发机静默变化）。Bevy 0.20.0 的 MSRV 为 Rust 1.97.1，不构成 LaneFlow 的工具链下限约束。
+- LaneFlow workspace MSRV 为 Rust `1.100.0`（#495 提升到 1.98，#994 更新到 1.98.1，#1003 更新到 1.99.1，#1488 更新到 1.100.0；不跟随开发机静默变化）。Bevy 0.20.0 的 MSRV 为 Rust 1.97.1，不构成 LaneFlow 的工具链下限约束。
 - Bevy 0.20.0 使用 `MIT OR Apache-2.0`；#912 以实际 lock graph 运行 cargo-deny
   `--all-features`，advisories、bans、licenses、sources 全部通过，并删除迁移后不再
   出现的 render 路径许可证例外。
@@ -202,9 +202,9 @@ GUI 与 `quickstart_smoke` 共用 `quickstart_scene.rs` 初始化和
 本例不扩展 Runtime 或 Adapter API，也不承担持续人口回流或性能认证。
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example quickstart --features native-example
-cargo +1.99.1 check --locked -p laneflow-bevy --example quickstart --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
+cargo +1.100.0 run --locked -p laneflow-bevy --example quickstart --features native-example
+cargo +1.100.0 check --locked -p laneflow-bevy --example quickstart --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test quickstart_smoke
 ```
 
 `native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.4 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475][issue-475]。
@@ -214,8 +214,8 @@ cargo +1.99.1 test --locked -p laneflow-bevy --test quickstart_smoke
 重复过门），F2 调试 overlay 见 §8；无窗口 smoke 是 `junction_debug_smoke`。
 
 ```powershell
-cargo +1.99.1 check --locked -p laneflow-bevy --example junction_debug --features native-example
-cargo +1.99.1 test --locked -p laneflow-bevy --test junction_debug_smoke
+cargo +1.100.0 check --locked -p laneflow-bevy --example junction_debug --features native-example
+cargo +1.100.0 test --locked -p laneflow-bevy --test junction_debug_smoke
 ```
 
 道路表面由 `examples/support/junction_road.rs` 消费同修订车道几何生成：路口为连续
@@ -257,11 +257,11 @@ entry→release 储车区间。连接、储车与驶出由同一条左转圆弧�
 （§8 调试 overlay）。
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-close.png --camera close --at-tick 3500
-cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-overlay.png --camera close --at-tick 3500 --overlay
-cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-merge.png --camera merge --at-tick 0
-cargo +1.99.1 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-waiting.png --camera waiting --at-tick 1600
-cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example junction_debug
+cargo +1.100.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-close.png --camera close --at-tick 3500
+cargo +1.100.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-overlay.png --camera close --at-tick 3500 --overlay
+cargo +1.100.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-merge.png --camera merge --at-tick 0
+cargo +1.100.0 run --locked -p laneflow-bevy --features native-example --example junction_debug -- --screenshot junction-waiting.png --camera waiting --at-tick 1600
+cargo +1.100.0 test --locked -p laneflow-bevy --features native-example --example junction_debug
 ```
 
 ## 10. 验证与性能 Gate
@@ -421,7 +421,7 @@ old。失败快照标记失败阶段，不作为满足人口不变量的成功 H
 运行命令：
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
+cargo +1.100.0 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
 ```
 
 沿用 checked-in LFCA、catalog 0.4 与 authoring config 0.2；不重生成场景或改变 PRNG、
@@ -534,8 +534,8 @@ C09 是有界性验收，不是吞吐、堆峰值或长期稳定性认证。
 后者还验证真实 `Text`、灯具材质和相机输入系统。两者不创建窗口或 renderer：
 
 ```powershell
-cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
-cargo +1.99.1 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
+cargo +1.100.0 test --locked -p laneflow-bevy --test corridor_traffic_smoke --jobs 2 -- --test-threads=2
+cargo +1.100.0 test --locked -p laneflow-bevy --example corridor_traffic --features native-example --jobs 2 -- --test-threads=2
 ```
 
 C13 的自动出图使用 example-local `corridor_replay.rs`：先输入 120 个零 delta 帧，
@@ -547,9 +547,9 @@ C13 的自动出图使用 example-local `corridor_replay.rs`：先输入 120 个
 ```powershell
 $env:CORRIDOR_TRAFFIC_CAPTURE = 'C:\evidence\corridor.png'
 $env:CORRIDOR_TRAFFIC_CAPTURE_TICK = '12000'
-cargo +1.99.1 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
+cargo +1.100.0 run --locked -p laneflow-bevy --example corridor_traffic --features native-example -- --vehicles 100 --seed 0
 $env:CORRIDOR_TRAFFIC_REFERENCE = 'C:\evidence\headless.toml'
-cargo +1.99.1 test --locked -p laneflow-bevy --test corridor_traffic_smoke c13_independent_headless_capture_reference -- --test-threads=2
+cargo +1.100.0 test --locked -p laneflow-bevy --test corridor_traffic_smoke c13_independent_headless_capture_reference -- --test-threads=2
 ```
 
 默认 `100 / seed 0` 下，GUI 生成的 `corridor.toml` 应与独立测试的 `headless.toml`
@@ -704,10 +704,10 @@ E07 的上下文失效用另一世界的消费上下文制造，走现有公开�
 非有限位姿无法经公开路径从 Spatial 产生，因此在 Transform 转换层单独验证。
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example
-cargo +1.99.1 run --locked --release -p laneflow-bevy --example culling_extraction --features native-example -- --cells 32
-cargo +1.99.1 run --locked -p laneflow-bevy --example culling_extraction --features native-example -- --camera frozen --screenshot culling-frozen.png
-cargo +1.99.1 test --locked -p laneflow-bevy --test culling_extraction_smoke
+cargo +1.100.0 run --locked -p laneflow-bevy --example culling_extraction --features native-example
+cargo +1.100.0 run --locked --release -p laneflow-bevy --example culling_extraction --features native-example -- --cells 32
+cargo +1.100.0 run --locked -p laneflow-bevy --example culling_extraction --features native-example -- --camera frozen --screenshot culling-frozen.png
+cargo +1.100.0 test --locked -p laneflow-bevy --test culling_extraction_smoke
 ```
 
 本矩阵不构成性能证据，也不验证修订切换（#929）、回流（#928）或停车表现（#931）。
@@ -846,10 +846,10 @@ P14 依赖 `native-example`，测试放在示例目标内。CI 只编译示例�
 本地运行并在 PR 中记录结果；其余 headless 用例在无该特性的 smoke 目标中运行。
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
-cargo +1.99.1 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example -- --screenshot parking-lifecycle.png --at-tick 1500
-cargo +1.99.1 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
-cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
+cargo +1.100.0 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example
+cargo +1.100.0 run --locked -p laneflow-bevy --example parking_lifecycle --features native-example -- --screenshot parking-lifecycle.png --at-tick 1500
+cargo +1.100.0 test --locked -p laneflow-bevy --test parking_lifecycle_smoke
+cargo +1.100.0 test --locked -p laneflow-bevy --features native-example --example parking_lifecycle
 ```
 
 本矩阵不构成性能证据，也不验证修订切换（#929）、回流（#928）或选择提取（#930）。
@@ -980,10 +980,10 @@ R14 依赖 `native-example`，测试放在示例目标内。CI 只编译示例�
 运行并在 PR 中记录结果；其余 headless 用例在无该特性的 smoke 目标中运行。
 
 ```powershell
-cargo +1.99.1 run --locked -p laneflow-bevy --example revision_cutover --features native-example
-cargo +1.99.1 run --locked -p laneflow-bevy --example revision_cutover --features native-example -- --cutover-at-tick 300 --screenshot revision-cutover.png --at-tick 600
-cargo +1.99.1 test --locked -p laneflow-bevy --test revision_cutover_smoke
-cargo +1.99.1 test --locked -p laneflow-bevy --features native-example --example revision_cutover
+cargo +1.100.0 run --locked -p laneflow-bevy --example revision_cutover --features native-example
+cargo +1.100.0 run --locked -p laneflow-bevy --example revision_cutover --features native-example -- --cutover-at-tick 300 --screenshot revision-cutover.png --at-tick 600
+cargo +1.100.0 test --locked -p laneflow-bevy --test revision_cutover_smoke
+cargo +1.100.0 test --locked -p laneflow-bevy --features native-example --example revision_cutover
 ```
 
 本矩阵不构成性能证据，单次切换耗时不作为低停顿结论；切换规模证据由切换合同第 9 节和 #539 负责。
