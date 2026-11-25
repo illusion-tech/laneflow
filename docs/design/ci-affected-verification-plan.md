@@ -70,14 +70,18 @@ PR 的三个专项 job 按上表执行。Evidence 的两行可独立选中。
 PR 上的 `Rust checks` 另按计划执行三步。runtime 或 urban-harness 受影响时，
 运行两包开启 `execution-evidence` 的完整 clippy 命令。runtime 受影响时，
 另运行该包的 `execution-evidence` 测试。workspace 默认测试取受影响闭包中
-由本步负责的包，用 nextest 按包名精确选测。Cargo 按原工作区成员与排除项
-解析 feature。两个 Urban 包和走廊 smoke 目标由 Evidence 负责。
+由本步负责的包，用 nextest 按包名精确选测。两个 Urban 包和走廊 smoke
+目标由 Evidence 负责。
 
-仅选中 Synth harness 时，从该快照的 `cargo metadata` 读取其默认测试目标，
-以 `--lib` 和具名的 `--bin`、`--test` 限制 Cargo 构建。工作区内的库及
-其他包的同名目标也可能被构建，nextest 只执行 Synth 用例。元数据不可读、
-Synth 出现未支持或有条件的目标，或同一选择会点名其他包的非默认测试时，
-沿用完整工作区构建。零项回退也使用完整工作区构建。
+部分执行时，Cargo 在同一快照上离线导出原工作区和候选命令的构建单元图。
+先尝试选包并保留各包的默认目标。若 feature 随选包减少，可以通过所选包
+声明的依赖名尝试补回。也可保留工作区包选择，以 `--lib` 和具名的
+`--bin`、`--test` 限制测试目标。仅当所选包的全部默认目标（含只编译的
+示例）与传递构建单元的目标属性、feature、平台、profile 和依赖边逐项
+一致，而且整个候选图是原图的真子集时，才用候选参数运行 nextest。
+构建图导出使用隔离的诊断子进程，实际构建使用稳定版 Cargo 参数。
+导图不可用或候选无法证明等价时，按原工作区编译，再由 nextest 选测。
+Actions summary 记录收窄结果或回退原因。
 
 计划明确给出空集时跳过默认测试。若选中了包，nextest 却报告零项可运行测试，
 则改跑完整默认套件。构建错误或测试失败会使 job 失败。四个 required job 都

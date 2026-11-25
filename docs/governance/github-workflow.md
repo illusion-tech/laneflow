@@ -378,6 +378,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   Evidence、Placement 与 Urban 四个 required job 核对计划与实际工作步骤的结果，
   workspace 默认测试还核对成功覆盖的包。计划计算失败时选中全部七项，
   发布失败、任务漏跑或结果不符会使对应检查失败。其余任务继续做影子对照。
+  部分执行时，只有候选 Cargo 构建图保留了所选包的默认目标及其传递配置才收窄构建。
+  核对未通过时仍用完整工作区编译，由 nextest 执行所选包的测试。
 - `Shadow plan` 在 merge_group 上独立计算计划并报告差异。PR 和合并组生成
   计划前均核对注册表与全仓 `include_str!` / `include_bytes!` 输入，发现
   差异则回退全量。合并组的影子 job 非必查。merge_group 和 main push
