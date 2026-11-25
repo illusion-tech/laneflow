@@ -374,8 +374,19 @@ jobs:
       - name: Run workspace tests
         id: workspace_tests
         if: env.WORKSPACE_PACKAGES != '' && env.WORKSPACE_PACKAGES != '[]'
+        env:
+          NEXTEST_STATUS_LEVEL: skip
         shell: bash
         run: cargo +1.99.1 run --quiet --locked -p xtask -- run-workspace-tests "$WORKSPACE_PACKAGES"
+
+      - name: Record default example binaries
+        if: steps.workspace_tests.outcome == 'success'
+        shell: bash
+        run: >-
+          ls -l --full-time --
+          target/debug/examples/generate_grid
+          target/debug/examples/headless
+          target/debug/examples/preview_parallel_wall_clock
 
       # #1462：三项目标测试均为 lib 单元测试，--lib 把构建集合收窄到 lib，
       # 不再为 3 项测试构建全部 [[test]] 集成目标（917 skipped 的来源）；-E
