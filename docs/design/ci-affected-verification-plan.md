@@ -70,8 +70,14 @@ PR 的三个专项 job 按上表执行。Evidence 的两行可独立选中。
 PR 上的 `Rust checks` 另按计划执行三步。runtime 或 urban-harness 受影响时，
 运行两包开启 `execution-evidence` 的完整 clippy 命令。runtime 受影响时，
 另运行该包的 `execution-evidence` 测试。workspace 默认测试取受影响闭包中
-由本步负责的包，用 nextest 按包名精确选测。Cargo 仍解析和构建原 workspace
-及其 feature 组合。两个 Urban 包和走廊 smoke 目标由 Evidence 负责。
+由本步负责的包，用 nextest 按包名精确选测。Cargo 按原工作区成员与排除项
+解析 feature。两个 Urban 包和走廊 smoke 目标由 Evidence 负责。
+
+仅选中 Synth harness 时，从该快照的 `cargo metadata` 读取其默认测试目标，
+以 `--lib` 和具名的 `--bin`、`--test` 限制 Cargo 构建。工作区内的库及
+其他包的同名目标也可能被构建，nextest 只执行 Synth 用例。元数据不可读、
+Synth 出现未支持或有条件的目标，或同一选择会点名其他包的非默认测试时，
+沿用完整工作区构建。零项回退也使用完整工作区构建。
 
 计划明确给出空集时跳过默认测试。若选中了包，nextest 却报告零项可运行测试，
 则改跑完整默认套件。构建错误或测试失败会使 job 失败。四个 required job 都

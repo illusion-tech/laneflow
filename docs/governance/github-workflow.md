@@ -316,6 +316,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   `cargo clippy --workspace --all-targets --locked -D warnings`；
   workspace 默认测试保留原 Cargo 工作区、两个 Urban 排除包和默认 feature。
   PR 上按计划用 nextest 精确选择受影响包，并排除 Evidence 负责的走廊 smoke。
+  只选中 Synth harness 时，Cargo 构建工作区的库测试及 Synth 具名的二进制和
+  集成测试目标。目标从当前 Cargo 元数据发现，无法确认默认目标时使用完整构建。
   空计划跳过本步。选中包却没有可运行测试时，补跑完整默认套件。
   runtime 或 urban-harness 受影响时运行两包的 `execution-evidence` clippy，
   runtime 受影响时运行其 `execution-evidence` 测试。
