@@ -3,7 +3,7 @@ schema_version = 1
 id = "roadmap"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-15"
+revised_date = "2026-11-25"
 summary = "说明版本能力边界与已裁定的长期方向。"
 scope = "LaneFlow 已完成版本的能力边界、v0.10 验收证据范围，以及已裁定的后续版本目标"
 applicability = "#applicability"
@@ -105,6 +105,9 @@ v0.6 的完成不包含交通一维几何整数化。现行的整数毫米表示
 固定预制过渡是已实现的首版换道，不是这项变道目标。v0.10 在 `c0045f8f` 上的
 未认证项和 LuST 缺证也不因版本号前进而变成认证。
 
+任意位置换道的几何验收覆盖轮迹路幅、转向、跨越许可和整车净空。宿主可以按渲染或物理需要确定最终轮位。
+无头与有表现的运行在同一提交拍应给出相同的车体参考姿态和交通结果。见[横断面通行设计][traffic-wheel-tracks]。
+
 实施状态见里程碑
 [v0.11 任意位置变道与 LuST 真实路网验收][milestone-14]。
 
@@ -167,6 +170,7 @@ v1.0，也不表示 v1.0 的范围已经进入 v0.11。范围须经后续治理�
 [road-junction-model]: design/road-junction-model.md
 [protected-turning]: design/signalized-corridor-protected-turning.md
 [cross-section-access]: design/cross-section-access.md
+[traffic-wheel-tracks]: design/cross-section-stationing-and-lateral-geometry.md#traffic-wheel-tracks
 [waiting-zone]: design/waiting-zone-conflict-right-of-way.md
 [right-of-way]: design/traffic-runtime-right-of-way-policy.md
 [adr-0020]: adr/0020-compiler-owned-static-network-and-static-image.md

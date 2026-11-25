@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-adapter-api"
 kind = "design"
 status = "accepted"
-revised_date = "2026-08-31"
+revised_date = "2026-11-25"
 summary = "定义引擎适配器与运行时、空间层的接口边界。"
 scope = "交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.20 specialization 见 bevy-reference-adapter.md"
 applicability = "#applicability"
@@ -71,6 +71,12 @@ related = ["adr-0001", "adr-0012", "adr-0013", "adr-0015", "adr-0016", "adr-0020
 | 实体、预制体、变换、动画和细节层次   | Adapter/Presentation  | 作为唯一的宿主表现事实来源                        |
 
 适配器不得把宿主变换（Transform）反写为 Runtime 进度，也不得用引擎样条曲线长度覆盖共享静态路网 / Spatial 的长度绑定。
+
+对任意位置换道，设计要求适配器按修订、规范框架和提交拍读取车体参考点、三轴、路线出现和横移阶段，
+从同一修订读取路面、路幅和边界。宿主自行计算轮胎接触、悬架和最终车轮变换，可使用物理、动画或省略车轮表现。
+交通回放比较参考姿态、占用、事件与裁决。此项观测接口由 #1527 实施。[车体参考姿态][traffic-reference-pose]
+
+[traffic-reference-pose]: cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
 
 宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整

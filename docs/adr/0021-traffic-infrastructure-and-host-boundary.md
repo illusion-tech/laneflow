@@ -3,7 +3,7 @@ schema_version = 1
 id = "adr-0021"
 kind = "adr"
 status = "accepted"
-revised_date = "2026-09-06"
+revised_date = "2026-11-25"
 summary = "规定公开组件定位、宿主边界与规模演进原则。"
 scope = "LaneFlow 公开组件定位、宿主应用边界、交通编排、路径规划、 路网修订、存档/回放、过载优雅降级（Graceful Overload Degradation）与中国特色 城市工作负载（Chinese-style City Workload）"
 date = "2026-07-29"
@@ -112,6 +112,12 @@ LaneFlow 的公开组件定位为：
 出行需求（Travel Demand）决定“谁在何时为何出发”；路径规划（Routing）决定“采用
 哪条路径”；交通运行时决定“交通参与单元如何在所属执行域的静态规则和当前交通状态下
 安全推进”。三者不得形成隐藏的双重正本。
+
+道路机动车的通行裁决使用同一修订的可行驶路幅、车型转向约束和车体扫过范围。
+引擎适配器将同一提交拍的车体参考姿态与道路几何交给宿主。轮胎接触、悬架及最终轮位由宿主的物理或动画决定。
+交通裁决、占用和回放均可在无头环境独立重现。见[走廊横断面与车体参考姿态][traffic-reference-pose]。
+
+[traffic-reference-pose]: ../design/cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
 
 交通运行时只导出已提交交通观测快照（Committed Traffic Observation Snapshot），
 不拥有全局路径成本政策。路径规划/出行编排层结合静态路网、已提交交通观测、收费、

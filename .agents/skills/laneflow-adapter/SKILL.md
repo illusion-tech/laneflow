@@ -70,6 +70,8 @@ Adapter 负责：
 - LOD 与渲染集成
 - 示例场景集成
 
+任意位置换道按同一修订、框架和提交拍读取车体参考姿态与道路几何。宿主计算最终轮位，交通回放对照参考姿态与交通结果。见[适配器职责][wheel-presentation]。
+
 Adapter 不得：
 
 - 把 Traffic Runtime 交通规则搬进引擎专用代码。
@@ -104,3 +106,5 @@ Adapter 相关工作应汇报：
 - Traffic Runtime API 或 Adapter API 影响
 - 已运行的验证
 - 文档是否更新或后续待办
+
+[wheel-presentation]: ../../../docs/design/adapter-api.md#2-最终裁决职责
