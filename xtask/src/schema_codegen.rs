@@ -485,13 +485,7 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         }
     }
 
-    for family in WIRE_FAMILIES {
-        let generated_path = repository_root.join(family.checked_rust_path);
-        check_wire_rust_sources(
-            &repository_root.join(family.wire_package_root),
-            &generated_path,
-        )?;
-    }
+    check_handwritten_wire_sources(repository_root)?;
     check_audited_mmap_sources(repository_root)?;
     check_audited_motion_sources(repository_root)?;
     check_audited_probe_sources(repository_root)?;
@@ -922,6 +916,17 @@ fn parse_workspace_manifest_paths(metadata: &[u8]) -> Result<Vec<PathBuf>, Strin
     }
     manifests.sort_unstable();
     Ok(manifests)
+}
+
+/// 每个 wire 包只豁免已登记的生成物，其余 `.rs` 包括未接入模块树的文件。
+pub(crate) fn check_handwritten_wire_sources(repository_root: &Path) -> Result<(), String> {
+    for family in WIRE_FAMILIES {
+        check_wire_rust_sources(
+            &repository_root.join(family.wire_package_root),
+            &repository_root.join(family.checked_rust_path),
+        )?;
+    }
+    Ok(())
 }
 
 fn check_wire_rust_sources(package_root: &Path, generated_path: &Path) -> Result<(), String> {
