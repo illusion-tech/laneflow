@@ -187,8 +187,8 @@ fn chars_match(pattern: &[char], text: &[char]) -> bool {
 
 /// `cargo metadata` 的最小子集（仅 workspace 成员；容忍未来新增字段）。
 #[derive(Deserialize)]
-struct MetadataDoc {
-    packages: Vec<PackageDoc>,
+struct MetadataDoc<P = PackageDoc> {
+    packages: Vec<P>,
     #[allow(dead_code)]
     workspace_root: PathBuf,
 }

@@ -1,8 +1,10 @@
-//! 默认测试保留 Cargo workspace 的 feature 合并，仅在 nextest 执行时选择包。
+//! 默认测试保留 Cargo workspace 的 feature 合并，由 nextest 选择实际运行的包。
 
 use std::process::Command;
 
 use super::{append_step_outputs, append_step_summary};
+
+mod synth;
 
 pub(super) const EXCLUDED_PACKAGES: &[&str] =
     &["laneflow-urban-harness", "laneflow-urban-generator"];
@@ -45,19 +47,25 @@ fn filterset(scope: &str) -> Result<String, String> {
     Ok(format!("({}) & {DEFAULT_FILTER}", terms.join(" | ")))
 }
 
-fn nextest_args(filter: &str) -> Vec<&str> {
+fn nextest_args<'a>(filter: &'a str, targets: &'a [String]) -> Vec<&'a str> {
     let mut args = vec!["nextest", "run", "--workspace", "--locked"];
     for name in EXCLUDED_PACKAGES {
         args.extend(["--exclude", name]);
     }
+    args.extend(targets.iter().map(String::as_str));
     args.extend(["-E", filter, "--no-tests", "fail"]);
     args
 }
 
-fn nextest(filter: &str) -> Result<i32, String> {
+fn nextest(scope: &str) -> Result<i32, String> {
+    let filter = filterset(scope)?;
+    let targets = synth::cargo_targets(scope);
+    if !targets.is_empty() {
+        eprintln!("Synth 默认测试的 Cargo 构建目标：{}", targets.join(" "));
+    }
     eprintln!("workspace 默认测试的 nextest 过滤条件：{filter}");
     Command::new("cargo")
-        .args(nextest_args(filter))
+        .args(nextest_args(&filter, &targets))
         .status()
         .map_err(|error| format!("无法运行 cargo nextest：{error}"))?
         .code()
@@ -65,13 +73,13 @@ fn nextest(filter: &str) -> Result<i32, String> {
 }
 
 fn execute(scope: &str, mut run: impl FnMut(&str) -> Result<i32, String>) -> Result<&str, String> {
-    let status = run(&filterset(scope)?)?;
+    let status = run(scope)?;
     if status == 0 {
         return Ok(scope);
     }
     if status == NO_TESTS_RUN && scope != ALL {
         eprintln!("选中的包没有可执行的默认测试，回退到完整 workspace 默认测试");
-        let status = run(DEFAULT_FILTER)?;
+        let status = run(ALL)?;
         if status == 0 {
             return Ok(ALL);
         }
@@ -104,7 +112,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn package_selection_only_changes_the_nextest_filter() {
+    fn cargo_target_selection_preserves_workspace_exclusions_and_test_filters() {
         let selected = filterset("laneflow-synth-harness xtask").unwrap();
         assert_eq!(
             selected,
@@ -119,16 +127,30 @@ mod tests {
             "laneflow-urban-harness",
             "--exclude",
             "laneflow-urban-generator",
-            "-E",
         ];
         for filter in [DEFAULT_FILTER, selected.as_str()] {
-            let args = nextest_args(filter);
+            let args = nextest_args(filter, &[]);
             assert_eq!(args[..expected_prefix.len()], expected_prefix);
             assert_eq!(
                 args[expected_prefix.len()..],
-                [filter, "--no-tests", "fail"]
+                ["-E", filter, "--no-tests", "fail"]
             );
         }
+        let targets = ["--lib", "--test", "cli"].map(str::to_owned);
+        let args = nextest_args(&selected, &targets);
+        assert_eq!(&args[..expected_prefix.len()], expected_prefix);
+        assert_eq!(
+            &args[expected_prefix.len()..],
+            [
+                "--lib",
+                "--test",
+                "cli",
+                "-E",
+                &selected,
+                "--no-tests",
+                "fail"
+            ]
+        );
         for invalid in ["", EMPTY, "a) | all()", "x\nb", "laneflow-urban-harness"] {
             assert!(filterset(invalid).is_err(), "{invalid:?}");
         }
@@ -137,16 +159,14 @@ mod tests {
     #[test]
     fn only_a_filtered_no_tests_exit_retries_the_full_complement() {
         let mut calls = Vec::new();
-        let executed = execute("leaf", |filter| {
-            calls.push(filter.to_owned());
+        let executed = execute(synth::PACKAGE, |scope| {
+            calls.push(scope.to_owned());
             Ok(if calls.len() == 1 { NO_TESTS_RUN } else { 0 })
         })
         .unwrap();
         assert_eq!(executed, ALL);
-        assert_eq!(
-            calls,
-            [filterset("leaf").unwrap(), DEFAULT_FILTER.to_owned()]
-        );
+        assert_eq!(calls, [synth::PACKAGE, ALL]);
+        assert!(synth::cargo_targets(ALL).is_empty());
         let mut failed_calls = 0;
         assert!(
             execute("leaf", |_| {
