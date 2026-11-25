@@ -1,7 +1,7 @@
-// LaneFlow 道路编辑来源缓冲区 v6。
+// LaneFlow 道路编辑来源缓冲区 v7。
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
-// 唯一性、曲线误差与资源上限由 LaneFlow 语义验证器执行。`format_version = 6`：
+// 唯一性、曲线误差与资源上限由 LaneFlow 语义验证器执行。`format_version = 7`：
 // 根表 field id 连续；`canonical_frames`、`conflict_zones`、`participant_streams` 与
 // `conflict_zone_regions` 分别为 id 25、26、27、28。无 `static_routes` 字段。
 // file identifier 仍 `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
@@ -193,6 +193,54 @@ table CorridorElement {
   entity_reference:string (required, id: 1);
 }
 
+enum CrossSectionCoverage:ubyte { None = 0, StationMapping = 1, Complete = 2 }
+enum BoundaryMemberKind:ubyte { Unspecified = 0, RoadSection = 1, FacilityBand = 2, AuthoringLane = 3 }
+enum BoundaryExtentKind:ubyte { Unspecified = 0, Rule = 1, Obstacle = 2 }
+enum BoundaryStationKind:ubyte { Unspecified = 0, Fixed = 1, CorridorEndpoint = 2 }
+
+struct BoundaryStation {
+  kind:BoundaryStationKind;
+  station_meters:double;
+}
+struct CurbEnd {
+  left_offset_meters:double;
+  right_offset_meters:double;
+  bottom_height_meters:double;
+  top_height_meters:double;
+}
+table BoundaryMember {
+  kind:BoundaryMemberKind = Unspecified (id: 0);
+  entity_reference:string (required, id: 1);
+}
+table CrossingRule {
+  directions:ubyte = null (id: 0);
+  effect:ubyte = null (id: 1);
+}
+table Guardrail {
+  anchor_role:ubyte = null (id: 0);
+  lateral_offset_meters:double = null (id: 1);
+  horizontal_length_meters:double = null (id: 2);
+  radius_meters:double = null (id: 3);
+  bottom_height_meters:double = null (id: 4);
+  top_height_meters:double = null (id: 5);
+  parameter_error_meters:double = null (id: 6);
+}
+table Curb {
+  low:CurbEnd (required, id: 0);
+  high:CurbEnd (required, id: 1);
+  parameter_error_meters:double = null (id: 2);
+}
+union BoundaryPayload { CrossingRule = 1, Guardrail = 2, Curb = 3 }
+table BoundaryExtent {
+  left:BoundaryMember (required, id: 0);
+  right:BoundaryMember (required, id: 1);
+  extent_kind:BoundaryExtentKind = Unspecified (id: 2);
+  local_key:string (required, id: 3);
+  low:BoundaryStation (required, id: 4);
+  high:BoundaryStation (required, id: 5);
+  payload:BoundaryPayload (id: 7);
+  canvas_selection:string (id: 8);
+}
 table RoadCorridor {
   road_corridor_key:string (required, id: 0);
   road_alignment_key:string (required, id: 1);
@@ -203,7 +251,8 @@ table RoadCorridor {
   reference_lane:string (required, id: 6);
   elements:[CorridorElement] (required, id: 7);
   canvas_selection:string (id: 8);
-  publish_station_mapping:bool = false (id: 9);
+  cross_section_coverage:CrossSectionCoverage = None (id: 9);
+  boundary_extents:[BoundaryExtent] (required, id: 10);
 }
 
 table RoadSection {
@@ -212,6 +261,7 @@ table RoadSection {
   authoring_lanes:[string] (required, id: 2);
   canvas_selection:string (id: 3);
   road_corridor:string (required, id: 4);
+  boundary_extents:[BoundaryExtent] (required, id: 5);
 }
 
 table AuthoringLane {
@@ -222,7 +272,8 @@ table AuthoringLane {
   lane_group:string (id: 4);
   canvas_selection:string (id: 5);
   road_section:string (required, id: 6);
-  interior_cut_stations_meters:[double] (required, id: 7);
+  interior_cut_stations_meters:[double] (id: 7);
+  supports_wheel:bool = null (id: 8);
 }
 
 /// explicit_geometry 只用于路口内部边；道路区段车道的中心线由走向与横断面派生。

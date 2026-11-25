@@ -970,6 +970,8 @@ pub(crate) enum AuthoringLaneDirection {
     reason = "consumed by the following topology/geometry compiler slice"
 )]
 pub(crate) struct RoadCorridorAuthoringGeometry {
+    pub complete: bool,
+    pub extents: Box<[std::sync::Arc<crate::road_editing::boundary::NamedExtent>]>,
     pub(crate) station_mapping_request: Option<SourceLocation>,
     pub(crate) road_alignment_key: Arc<str>,
     /// `road_alignment_key` 字段自身的叶来源位置。
@@ -985,6 +987,7 @@ pub(crate) struct RoadCorridorAuthoringGeometry {
     reason = "consumed by the following topology/geometry compiler slice"
 )]
 pub(crate) struct AuthoringLaneGeometry {
+    pub supports_wheel: Option<bool>,
     pub(crate) interior_cuts: Box<[(f64, SourceLocation)]>,
     pub(crate) direction: AuthoringLaneDirection,
     pub(crate) width_profile: AuthoringWidthProfile,
@@ -1088,6 +1091,7 @@ pub(crate) enum OwnedCorridorElementReference {
 
 /// 已通过字段级检查、等待全编译单元解析成员的道路走廊 Typed AST 记录。
 pub(crate) struct RoadCorridorDeclaration {
+    pub cross_section: Option<std::sync::Arc<crate::road_editing::boundary::PublishedCrossSection>>,
     pub(crate) header: DeclarationHeader,
     pub(crate) reference_section: OwnedEntityReference<RoadSectionKind>,
     pub(crate) elements: Box<[OwnedCorridorElementReference]>,
@@ -1109,6 +1113,7 @@ pub(crate) struct AuthoringLaneDeclaration {
 
 /// 已通过字段级检查、拥有有序编制车道的道路区段 Typed AST 记录。
 pub(crate) struct RoadSectionDeclaration {
+    pub extents: Box<[std::sync::Arc<crate::road_editing::boundary::NamedExtent>]>,
     pub(crate) header: DeclarationHeader,
     pub(crate) kind_id: Arc<str>,
     pub(crate) lanes: Box<[AuthoringLaneDeclaration]>,
@@ -1469,7 +1474,11 @@ impl TypedAstDeclaration {
                 reference_section,
                 elements,
                 authoring_geometry,
+                cross_section,
             }) => {
+                if let Some(proof) = cross_section {
+                    proof.visit_sources(&mut visit)?;
+                }
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_reference(reference_section, &mut visit)?;
                 if let Some(authoring_geometry) = authoring_geometry {
@@ -1491,7 +1500,11 @@ impl TypedAstDeclaration {
                 header,
                 kind_id: _,
                 lanes,
+                extents,
             }) => {
+                for e in extents {
+                    e.visit_sources(&mut visit)?;
+                }
                 try_visit_declaration_header(header, &mut visit)?;
                 for lane in lanes {
                     let AuthoringLaneDeclaration {

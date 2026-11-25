@@ -107,6 +107,66 @@ pub(super) const MAPPING_TABLES: &[PortableTableSchema] = &[
         },
         ANY,
     ),
+    table(
+        8,
+        "LaneRoadway",
+        &PortableRowSchema {
+            fields: &[
+                field(1, "lane", PortableFieldType::U32, R),
+                field(2, "leftStartUm", PortableFieldType::I32, R),
+                field(3, "rightStartUm", PortableFieldType::I32, R),
+                field(4, "leftEndUm", PortableFieldType::I32, R),
+                field(5, "rightEndUm", PortableFieldType::I32, R),
+                field(6, "lateralErrorNm", PortableFieldType::U32, R),
+                field(7, "supportsWheel", PortableFieldType::U8, R),
+            ],
+            shape: PortableRowShape::Uniform,
+        },
+        ANY,
+    ),
+    table(
+        9,
+        "SurfaceSpan",
+        &PortableRowSchema {
+            fields: &[
+                field(1, "corridor", PortableFieldType::U32, R),
+                field(2, "frame", PortableFieldType::U32, R),
+                field(3, "lowAnchor", PortableFieldType::U32, R),
+                field(4, "highAnchor", PortableFieldType::U32, R),
+                field(5, "startJet", PortableFieldType::Bytes, R),
+                field(6, "endJet", PortableFieldType::Bytes, R),
+                field(7, "derivativeErrors", PortableFieldType::Bytes, R),
+            ],
+            shape: PortableRowShape::Uniform,
+        },
+        ANY,
+    ),
+    table(
+        10,
+        "BoundaryRule",
+        &PortableRowSchema {
+            fields: &[
+                field(1, "extent", PortableFieldType::U32, R),
+                field(2, "directions", PortableFieldType::U8, R),
+                field(3, "effect", PortableFieldType::U8, R),
+            ],
+            shape: PortableRowShape::Uniform,
+        },
+        ANY,
+    ),
+    table(
+        11,
+        "BoundaryObstacle",
+        &PortableRowSchema {
+            fields: &[
+                field(1, "extent", PortableFieldType::U32, R),
+                field(2, "shape", PortableFieldType::U8, R),
+                field(3, "parameters", PortableFieldType::Bytes, R),
+            ],
+            shape: PortableRowShape::Uniform,
+        },
+        ANY,
+    ),
 ];
 
 pub(super) const CHANGE_TABLES: &[PortableTableSchema] = &[table(

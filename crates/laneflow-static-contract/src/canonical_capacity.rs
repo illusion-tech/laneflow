@@ -87,11 +87,23 @@ pub enum SourceRelationRole {
     PolicyStreamRule = 35,
     /// 策略内按 key 排序的一项门规则。
     PolicyGateRule = 36,
+    /// 设施带的端点边界。
+    FacilityBandBounds = 37,
+    /// 有向结构边界上的命名区间。
+    BoundaryExtent = 38,
+    /// 编制车道的可支承路幅。
+    LaneFootprint = 39,
+    /// 走廊上的有界路面区间。
+    SurfaceSpan = 40,
+    /// 命名区间的跨越规则。
+    BoundaryRule = 41,
+    /// 命名区间上的实体。
+    BoundaryObstacle = 42,
 }
 
 impl SourceRelationRole {
     /// 按代码升序排列的全部登记角色。
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 42] = [
         Self::LaneEdgeSuccessor,
         Self::RoadCorridorElement,
         Self::RoadSectionLane,
@@ -128,6 +140,12 @@ impl SourceRelationRole {
         Self::PolicyGapProfile,
         Self::PolicyStreamRule,
         Self::PolicyGateRule,
+        Self::FacilityBandBounds,
+        Self::BoundaryExtent,
+        Self::LaneFootprint,
+        Self::SurfaceSpan,
+        Self::BoundaryRule,
+        Self::BoundaryObstacle,
     ];
 
     /// 登记的 `sourceRelationRole` 代码。
@@ -176,6 +194,12 @@ impl SourceRelationRole {
             34 => Some(Self::PolicyGapProfile),
             35 => Some(Self::PolicyStreamRule),
             36 => Some(Self::PolicyGateRule),
+            37 => Some(Self::FacilityBandBounds),
+            38 => Some(Self::BoundaryExtent),
+            39 => Some(Self::LaneFootprint),
+            40 => Some(Self::SurfaceSpan),
+            41 => Some(Self::BoundaryRule),
+            42 => Some(Self::BoundaryObstacle),
             _ => None,
         }
     }
@@ -222,7 +246,13 @@ impl SourceRelationRole {
             Self::PolicyEvidence => CanonicalRelationCapacity::Excluded,
             Self::PolicyGapProfile => CanonicalRelationCapacity::Excluded,
             Self::PolicyStreamRule => CanonicalRelationCapacity::Excluded,
-            Self::PolicyGateRule => CanonicalRelationCapacity::Excluded,
+            Self::PolicyGateRule
+            | Self::FacilityBandBounds
+            | Self::BoundaryExtent
+            | Self::LaneFootprint
+            | Self::SurfaceSpan
+            | Self::BoundaryRule
+            | Self::BoundaryObstacle => CanonicalRelationCapacity::Excluded,
         }
     }
 }
@@ -406,7 +436,7 @@ mod tests {
             assert_eq!(SourceRelationRole::from_code(role.code()), Some(role));
         }
         assert_eq!(SourceRelationRole::from_code(0), None);
-        assert_eq!(SourceRelationRole::from_code(37), None);
+        assert_eq!(SourceRelationRole::from_code(43), None);
     }
 
     #[test]

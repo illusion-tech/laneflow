@@ -34,7 +34,10 @@ pub(super) fn plan(
     let mut anchors = 0;
     for view in base.into_iter().chain([target]) {
         let section = view.section(8).ok_or(INVALID)?;
-        for (i, size) in [38usize, 30, 37, 44, 46, 54, 125].into_iter().enumerate() {
+        for (i, size) in [38usize, 30, 37, 44, 46, 54, 125, 39, 144, 111, 146]
+            .into_iter()
+            .enumerate()
+        {
             let n = section.table(i as u32).ok_or(INVALID)?.row_count() as usize;
             add(&mut bounds.station, n)?;
             add(
@@ -102,8 +105,11 @@ fn project(
             .ok_or(PortableEmissionError::ArithmeticOverflow)
     })?;
     let mut members = pass.vec(count)?;
-    let mut emit =
-        |kind, key: &[&[u8]], value: &[&[u8]]| push_member(bytes, &mut members, kind, key, value);
+    macro_rules! emit {
+        ($kind:expr, $key:expr, $value:expr $(,)?) => {
+            push_member(bytes, &mut members, $kind, $key, $value)
+        };
+    }
     let num = |r, t| checked_u32_with(r, t, INVALID);
     let anchor_table = table(1)?;
     let mut anchors = pass.vec(anchor_table.row_count() as usize)?;
@@ -111,7 +117,7 @@ fn project(
     for row in table(0)?.rows() {
         let c = num(row, 1)?;
         let id = reference(index, RoadCorridor, c)?;
-        emit(1, &[&id], &[field(row, 2)?, field(row, 3)?, field(row, 4)?])?;
+        emit!(1, &[&id], &[field(row, 2)?, field(row, 3)?, field(row, 4)?])?;
         if num(row, 5)? as usize != anchors.len() {
             return Err(INVALID);
         }
@@ -119,7 +125,7 @@ fn project(
             let a = anchor_rows.next().ok_or(INVALID)?;
             let s = field(a, 1)?;
             anchors.push((c, <[u8; 8]>::try_from(s).map_err(|_| INVALID)?))?;
-            emit(2, &[&id, s], &[field(a, 2)?])?;
+            emit!(2, &[&id, s], &[field(a, 2)?])?;
         }
     }
     if anchor_rows.next().is_some() {
@@ -140,7 +146,7 @@ fn project(
         let sr = index.entity_row(RoadSection, num(lr, 3)?, INVALID)?;
         let c = num(sr, 3)?;
         let lid = reference(index, AuthoringLane, l)?;
-        emit(
+        emit!(
             3,
             &[&lid],
             &[&reference(index, RoadCorridor, c)?, field(lane, 2)?],
@@ -156,13 +162,13 @@ fn project(
                 return Err(INVALID);
             }
             let eid = reference(index, LaneEdge, ordinal)?;
-            emit(4, &[&eid], &[&lid, anchor(num(e, 2)?, c)?])?;
+            emit!(4, &[&eid], &[&lid, anchor(num(e, 2)?, c)?])?;
             for k in 0..num(e, 4)? {
                 let (j, s) = spans.next().ok_or(INVALID)?;
                 if j != num(e, 3)? as usize + k as usize {
                     return Err(INVALID);
                 }
-                emit(
+                emit!(
                     5,
                     &[&eid, anchor(num(s, 1)?, c)?],
                     &[field(s, 2)?, field(s, 3)?, field(s, 4)?, field(s, 5)?],
@@ -176,7 +182,7 @@ fn project(
     for row in table(5)?.rows() {
         let b = num(row, 1)?;
         let c = num(index.entity_row(FacilityBand, b, INVALID)?, 3)?;
-        emit(
+        emit!(
             6,
             &[&reference(index, FacilityBand, b)?],
             &[
@@ -190,6 +196,7 @@ fn project(
             ],
         )?;
     }
+    let first_extent = members.len();
     for row in table(6)?.rows() {
         let owner = EntityKind::from_code(checked_u16_with(row, 1, INVALID)?).ok_or(INVALID)?;
         let ordinal = num(row, 2)?;
@@ -221,7 +228,7 @@ fn project(
             _ => return Err(INVALID),
         };
         let name = field(row, 5)?;
-        emit(
+        emit!(
             7,
             &[
                 &reference(index, owner, ordinal)?,
@@ -233,6 +240,50 @@ fn project(
             ],
             &[anchor(num(row, 6)?, c)?, anchor(num(row, 7)?, c)?],
         )?;
+    }
+    for r in table(7)?.rows() {
+        emit!(
+            8,
+            &[&reference(index, AuthoringLane, num(r, 1)?)?],
+            &[
+                field(r, 2)?,
+                field(r, 3)?,
+                field(r, 4)?,
+                field(r, 5)?,
+                field(r, 6)?,
+                field(r, 7)?
+            ]
+        )?;
+    }
+    for r in table(8)?.rows() {
+        let c = num(r, 1)?;
+        emit!(
+            9,
+            &[&reference(index, RoadCorridor, c)?, anchor(num(r, 3)?, c)?],
+            &[
+                &reference(index, EntityKind::CanonicalFrame, num(r, 2)?)?,
+                anchor(num(r, 4)?, c)?,
+                field(r, 5)?,
+                field(r, 6)?,
+                field(r, 7)?
+            ]
+        )?;
+    }
+    for kind in [10u8, 11] {
+        for r in table(u32::from(kind) - 1)?.rows() {
+            let extent = members
+                .get(first_extent + num(r, 1)? as usize)
+                .filter(|m| m.kind == 7)
+                .ok_or(INVALID)?;
+            let key = extent.key.of(bytes);
+            let mut stable_key = [0u8; 109];
+            let n = key.len();
+            if n > stable_key.len() || key.get(54) != Some(&(kind - 9)) {
+                return Err(INVALID);
+            }
+            stable_key[..n].copy_from_slice(key);
+            emit!(kind, &[&stable_key[..n]], &[field(r, 2)?, field(r, 3)?])?;
+        }
     }
     let key = |m: &Member| (m.kind, m.key.of(bytes));
     members.sort_unstable_by(|a, b| key(a).cmp(&key(b)));

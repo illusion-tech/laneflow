@@ -845,6 +845,10 @@ impl CompilationUnitBuilder {
     }
 
     /// 返回几何点维度剩余可用的限额额度。
+    pub(crate) fn admitted_boundary_extents(&self) -> u64 {
+        self.totals.boundary_extent_count
+    }
+
     pub(crate) fn road_editing_remaining_geometry_points(&self) -> u64 {
         self.limits
             .canonical_capacity()
@@ -927,6 +931,7 @@ impl CompilationUnitBuilder {
             CompileLimitDimension::ManeuverGateCount => self.totals.maneuver_gate_count,
             CompileLimitDimension::WaitingZoneCount => self.totals.waiting_zone_count,
             CompileLimitDimension::GeometryPointCount => self.totals.geometry_point_count,
+            CompileLimitDimension::BoundaryExtentCount => self.totals.boundary_extent_count,
             CompileLimitDimension::CompilerControlledLiveBytes => self.ledger.live(),
             CompileLimitDimension::SourceBytesPerModule
             | CompileLimitDimension::SingleStringBytes

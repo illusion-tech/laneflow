@@ -16,7 +16,7 @@ pub const CONSTRAINT_CONTRACT_VERSION: u16 = 3;
 pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 5;
 
 /// 当前 LFSM 对象格式版本。
-pub const SOURCE_MAP_FORMAT_VERSION: u16 = 6;
+pub const SOURCE_MAP_FORMAT_VERSION: u16 = 7;
 
 /// 当前 LFSD 对象格式版本。
 pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 5;
@@ -140,7 +140,7 @@ impl PortableObjectKind {
     #[must_use]
     pub const fn table_count(self) -> u32 {
         match self {
-            Self::CanonicalArtifact => 45,
+            Self::CanonicalArtifact => 49,
             Self::SourceMap => 8,
             Self::SemanticDiff => 8,
             Self::CanonicalPublicationDescriptor => 3,
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 6);
         assert_eq!(CONSTRAINT_CONTRACT_VERSION, 3);
         assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 5);
-        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 6);
+        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 7);
         assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 5);
         assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 2);
         assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 6);
@@ -379,7 +379,7 @@ mod tests {
                 PortableObjectKind::CanonicalArtifact,
                 *b"LFCA",
                 9,
-                45,
+                49,
                 0x00f8,
             ),
             (PortableObjectKind::SourceMap, *b"LFSM", 5, 8, 0x0098),
@@ -404,7 +404,7 @@ mod tests {
                 kind.format_version(),
                 match kind {
                     PortableObjectKind::CanonicalArtifact => 6,
-                    PortableObjectKind::SourceMap => 6,
+                    PortableObjectKind::SourceMap => 7,
                     PortableObjectKind::SemanticDiff => 5,
                     PortableObjectKind::CanonicalPublicationDescriptor => 2,
                 }

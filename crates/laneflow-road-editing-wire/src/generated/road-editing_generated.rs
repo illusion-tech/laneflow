@@ -1383,6 +1383,456 @@ impl<'a> ::flatbuffers::Verifiable for CurveSegmentGeometry {
 impl ::flatbuffers::SimpleToVerifyInSlice for CurveSegmentGeometry {}
 pub struct CurveSegmentGeometryUnionTableOffset {}
 
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_CROSS_SECTION_COVERAGE: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_CROSS_SECTION_COVERAGE: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_CROSS_SECTION_COVERAGE: [CrossSectionCoverage; 3] = [
+  CrossSectionCoverage::None,
+  CrossSectionCoverage::StationMapping,
+  CrossSectionCoverage::Complete,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct CrossSectionCoverage(pub u8);
+#[allow(non_upper_case_globals)]
+impl CrossSectionCoverage {
+  pub const None: Self = Self(0);
+  pub const StationMapping: Self = Self(1);
+  pub const Complete: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::None,
+    Self::StationMapping,
+    Self::Complete,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::None => Some("None"),
+      Self::StationMapping => Some("StationMapping"),
+      Self::Complete => Some("Complete"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for CrossSectionCoverage {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for CrossSectionCoverage {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for CrossSectionCoverage {
+    type Output = CrossSectionCoverage;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for CrossSectionCoverage {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for CrossSectionCoverage {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for CrossSectionCoverage {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_BOUNDARY_MEMBER_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_BOUNDARY_MEMBER_KIND: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_BOUNDARY_MEMBER_KIND: [BoundaryMemberKind; 4] = [
+  BoundaryMemberKind::Unspecified,
+  BoundaryMemberKind::RoadSection,
+  BoundaryMemberKind::FacilityBand,
+  BoundaryMemberKind::AuthoringLane,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct BoundaryMemberKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl BoundaryMemberKind {
+  pub const Unspecified: Self = Self(0);
+  pub const RoadSection: Self = Self(1);
+  pub const FacilityBand: Self = Self(2);
+  pub const AuthoringLane: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::RoadSection,
+    Self::FacilityBand,
+    Self::AuthoringLane,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::RoadSection => Some("RoadSection"),
+      Self::FacilityBand => Some("FacilityBand"),
+      Self::AuthoringLane => Some("AuthoringLane"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for BoundaryMemberKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryMemberKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for BoundaryMemberKind {
+    type Output = BoundaryMemberKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for BoundaryMemberKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for BoundaryMemberKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for BoundaryMemberKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_BOUNDARY_EXTENT_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_BOUNDARY_EXTENT_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_BOUNDARY_EXTENT_KIND: [BoundaryExtentKind; 3] = [
+  BoundaryExtentKind::Unspecified,
+  BoundaryExtentKind::Rule,
+  BoundaryExtentKind::Obstacle,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct BoundaryExtentKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl BoundaryExtentKind {
+  pub const Unspecified: Self = Self(0);
+  pub const Rule: Self = Self(1);
+  pub const Obstacle: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::Rule,
+    Self::Obstacle,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::Rule => Some("Rule"),
+      Self::Obstacle => Some("Obstacle"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for BoundaryExtentKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryExtentKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for BoundaryExtentKind {
+    type Output = BoundaryExtentKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for BoundaryExtentKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for BoundaryExtentKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for BoundaryExtentKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_BOUNDARY_STATION_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_BOUNDARY_STATION_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_BOUNDARY_STATION_KIND: [BoundaryStationKind; 3] = [
+  BoundaryStationKind::Unspecified,
+  BoundaryStationKind::Fixed,
+  BoundaryStationKind::CorridorEndpoint,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct BoundaryStationKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl BoundaryStationKind {
+  pub const Unspecified: Self = Self(0);
+  pub const Fixed: Self = Self(1);
+  pub const CorridorEndpoint: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Unspecified,
+    Self::Fixed,
+    Self::CorridorEndpoint,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Unspecified => Some("Unspecified"),
+      Self::Fixed => Some("Fixed"),
+      Self::CorridorEndpoint => Some("CorridorEndpoint"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for BoundaryStationKind {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryStationKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for BoundaryStationKind {
+    type Output = BoundaryStationKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for BoundaryStationKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for BoundaryStationKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for BoundaryStationKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_BOUNDARY_PAYLOAD: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_BOUNDARY_PAYLOAD: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_BOUNDARY_PAYLOAD: [BoundaryPayload; 4] = [
+  BoundaryPayload::NONE,
+  BoundaryPayload::CrossingRule,
+  BoundaryPayload::Guardrail,
+  BoundaryPayload::Curb,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct BoundaryPayload(pub u8);
+#[allow(non_upper_case_globals)]
+impl BoundaryPayload {
+  pub const NONE: Self = Self(0);
+  pub const CrossingRule: Self = Self(1);
+  pub const Guardrail: Self = Self(2);
+  pub const Curb: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::NONE,
+    Self::CrossingRule,
+    Self::Guardrail,
+    Self::Curb,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::NONE => Some("NONE"),
+      Self::CrossingRule => Some("CrossingRule"),
+      Self::Guardrail => Some("Guardrail"),
+      Self::Curb => Some("Curb"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for BoundaryPayload {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryPayload {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for BoundaryPayload {
+    type Output = BoundaryPayload;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for BoundaryPayload {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for BoundaryPayload {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for BoundaryPayload {}
+pub struct BoundaryPayloadUnionTableOffset {}
+
 /// 32-byte SHA-256 摘要。
 // struct Digest256, aligned to 1
 #[repr(transparent)]
@@ -1970,6 +2420,324 @@ impl<'a> LinearWidthProfile {
       ::core::ptr::copy_nonoverlapping(
         &x_le as *const _ as *const u8,
         self.0[8..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct BoundaryStation, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct BoundaryStation(pub [u8; 16]);
+impl Default for BoundaryStation { 
+  fn default() -> Self { 
+    Self([0; 16])
+  }
+}
+impl ::core::fmt::Debug for BoundaryStation {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("BoundaryStation")
+      .field("kind", &self.kind())
+      .field("station_meters", &self.station_meters())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for BoundaryStation {}
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryStation {
+  type Inner = &'a BoundaryStation;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a BoundaryStation>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a BoundaryStation {
+  type Inner = &'a BoundaryStation;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<BoundaryStation>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for BoundaryStation {
+    type Output = BoundaryStation;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const BoundaryStation as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for BoundaryStation {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> BoundaryStation {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    kind: BoundaryStationKind,
+    station_meters: f64,
+  ) -> Self {
+    let mut s = Self([0; 16]);
+    s.set_kind(kind);
+    s.set_station_meters(station_meters);
+    s
+  }
+
+  pub fn kind(&self) -> BoundaryStationKind {
+    let mut mem = ::core::mem::MaybeUninit::<<BoundaryStationKind as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<BoundaryStationKind as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_kind(&mut self, x: BoundaryStationKind) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<BoundaryStationKind as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn station_meters(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[8..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_station_meters(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[8..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+}
+
+// struct CurbEnd, aligned to 8
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq)]
+pub struct CurbEnd(pub [u8; 32]);
+impl Default for CurbEnd { 
+  fn default() -> Self { 
+    Self([0; 32])
+  }
+}
+impl ::core::fmt::Debug for CurbEnd {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    f.debug_struct("CurbEnd")
+      .field("left_offset_meters", &self.left_offset_meters())
+      .field("right_offset_meters", &self.right_offset_meters())
+      .field("bottom_height_meters", &self.bottom_height_meters())
+      .field("top_height_meters", &self.top_height_meters())
+      .finish()
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for CurbEnd {}
+impl<'a> ::flatbuffers::Follow<'a> for CurbEnd {
+  type Inner = &'a CurbEnd;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { <&'a CurbEnd>::follow(buf, loc) }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for &'a CurbEnd {
+  type Inner = &'a CurbEnd;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe { ::flatbuffers::follow_cast_ref::<CurbEnd>(buf, loc) }
+  }
+}
+impl<'b> ::flatbuffers::Push for CurbEnd {
+    type Output = CurbEnd;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        let src = unsafe { ::core::slice::from_raw_parts(self as *const CurbEnd as *const u8, <Self as ::flatbuffers::Push>::size()) };
+        dst.copy_from_slice(src);
+    }
+    #[inline]
+    fn alignment() -> ::flatbuffers::PushAlignment {
+        ::flatbuffers::PushAlignment::new(8)
+    }
+}
+
+impl<'a> ::flatbuffers::Verifiable for CurbEnd {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.in_buffer::<Self>(pos)
+  }
+}
+
+impl<'a> CurbEnd {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    left_offset_meters: f64,
+    right_offset_meters: f64,
+    bottom_height_meters: f64,
+    top_height_meters: f64,
+  ) -> Self {
+    let mut s = Self([0; 32]);
+    s.set_left_offset_meters(left_offset_meters);
+    s.set_right_offset_meters(right_offset_meters);
+    s.set_bottom_height_meters(bottom_height_meters);
+    s.set_top_height_meters(top_height_meters);
+    s
+  }
+
+  pub fn left_offset_meters(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[0..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_left_offset_meters(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[0..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn right_offset_meters(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[8..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_right_offset_meters(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[8..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn bottom_height_meters(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[16..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_bottom_height_meters(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[16..].as_mut_ptr(),
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+    }
+  }
+
+  pub fn top_height_meters(&self) -> f64 {
+    let mut mem = ::core::mem::MaybeUninit::<<f64 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        self.0[24..].as_ptr(),
+        mem.as_mut_ptr() as *mut u8,
+        ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
+      );
+      mem.assume_init()
+    })
+  }
+
+  pub fn set_top_height_meters(&mut self, x: f64) {
+    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
+    // Safety:
+    // Created from a valid Table for this object
+    // Which contains a valid value in this slot
+    unsafe {
+      ::core::ptr::copy_nonoverlapping(
+        &x_le as *const _ as *const u8,
+        self.0[24..].as_mut_ptr(),
         ::core::mem::size_of::<<f64 as ::flatbuffers::EndianScalar>::Scalar>(),
       );
     }
@@ -3482,6 +4250,877 @@ impl ::core::fmt::Debug for CorridorElement<'_> {
       ds.finish()
   }
 }
+pub enum BoundaryMemberOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct BoundaryMember<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryMember<'a> {
+  type Inner = BoundaryMember<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> BoundaryMember<'a> {
+  pub const VT_KIND: ::flatbuffers::VOffsetT = 4;
+  pub const VT_ENTITY_REFERENCE: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    BoundaryMember { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args BoundaryMemberArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<BoundaryMember<'bldr>> {
+    let mut builder = BoundaryMemberBuilder::new(_fbb);
+    if let Some(x) = args.entity_reference { builder.add_entity_reference(x); }
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> BoundaryMemberKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<BoundaryMemberKind>(BoundaryMember::VT_KIND, Some(BoundaryMemberKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn entity_reference(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(BoundaryMember::VT_ENTITY_REFERENCE, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for BoundaryMember<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<BoundaryMemberKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("entity_reference", Self::VT_ENTITY_REFERENCE, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct BoundaryMemberArgs<'a> {
+    pub kind: BoundaryMemberKind,
+    pub entity_reference: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for BoundaryMemberArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    BoundaryMemberArgs {
+      kind: BoundaryMemberKind::Unspecified,
+      entity_reference: None, // required field
+    }
+  }
+}
+
+pub struct BoundaryMemberBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> BoundaryMemberBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: BoundaryMemberKind) {
+    self.fbb_.push_slot::<BoundaryMemberKind>(BoundaryMember::VT_KIND, kind, BoundaryMemberKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_entity_reference(&mut self, entity_reference: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(BoundaryMember::VT_ENTITY_REFERENCE, entity_reference);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> BoundaryMemberBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    BoundaryMemberBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<BoundaryMember<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, BoundaryMember::VT_ENTITY_REFERENCE,"entity_reference");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for BoundaryMember<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("BoundaryMember");
+      ds.field("kind", &self.kind());
+      ds.field("entity_reference", &self.entity_reference());
+      ds.finish()
+  }
+}
+pub enum CrossingRuleOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CrossingRule<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for CrossingRule<'a> {
+  type Inner = CrossingRule<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> CrossingRule<'a> {
+  pub const VT_DIRECTIONS: ::flatbuffers::VOffsetT = 4;
+  pub const VT_EFFECT: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    CrossingRule { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args CrossingRuleArgs
+  ) -> ::flatbuffers::WIPOffset<CrossingRule<'bldr>> {
+    let mut builder = CrossingRuleBuilder::new(_fbb);
+    if let Some(x) = args.effect { builder.add_effect(x); }
+    if let Some(x) = args.directions { builder.add_directions(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn directions(&self) -> Option<u8> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(CrossingRule::VT_DIRECTIONS, None)}
+  }
+  #[inline]
+  pub fn effect(&self) -> Option<u8> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(CrossingRule::VT_EFFECT, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for CrossingRule<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u8>("directions", Self::VT_DIRECTIONS, false)?
+     .visit_field::<u8>("effect", Self::VT_EFFECT, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct CrossingRuleArgs {
+    pub directions: Option<u8>,
+    pub effect: Option<u8>,
+}
+impl<'a> Default for CrossingRuleArgs {
+  #[inline]
+  fn default() -> Self {
+    CrossingRuleArgs {
+      directions: None,
+      effect: None,
+    }
+  }
+}
+
+pub struct CrossingRuleBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CrossingRuleBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_directions(&mut self, directions: u8) {
+    self.fbb_.push_slot_always::<u8>(CrossingRule::VT_DIRECTIONS, directions);
+  }
+  #[inline]
+  pub fn add_effect(&mut self, effect: u8) {
+    self.fbb_.push_slot_always::<u8>(CrossingRule::VT_EFFECT, effect);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CrossingRuleBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    CrossingRuleBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<CrossingRule<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for CrossingRule<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("CrossingRule");
+      ds.field("directions", &self.directions());
+      ds.field("effect", &self.effect());
+      ds.finish()
+  }
+}
+pub enum GuardrailOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Guardrail<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for Guardrail<'a> {
+  type Inner = Guardrail<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> Guardrail<'a> {
+  pub const VT_ANCHOR_ROLE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_LATERAL_OFFSET_METERS: ::flatbuffers::VOffsetT = 6;
+  pub const VT_HORIZONTAL_LENGTH_METERS: ::flatbuffers::VOffsetT = 8;
+  pub const VT_RADIUS_METERS: ::flatbuffers::VOffsetT = 10;
+  pub const VT_BOTTOM_HEIGHT_METERS: ::flatbuffers::VOffsetT = 12;
+  pub const VT_TOP_HEIGHT_METERS: ::flatbuffers::VOffsetT = 14;
+  pub const VT_PARAMETER_ERROR_METERS: ::flatbuffers::VOffsetT = 16;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    Guardrail { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args GuardrailArgs
+  ) -> ::flatbuffers::WIPOffset<Guardrail<'bldr>> {
+    let mut builder = GuardrailBuilder::new(_fbb);
+    if let Some(x) = args.parameter_error_meters { builder.add_parameter_error_meters(x); }
+    if let Some(x) = args.top_height_meters { builder.add_top_height_meters(x); }
+    if let Some(x) = args.bottom_height_meters { builder.add_bottom_height_meters(x); }
+    if let Some(x) = args.radius_meters { builder.add_radius_meters(x); }
+    if let Some(x) = args.horizontal_length_meters { builder.add_horizontal_length_meters(x); }
+    if let Some(x) = args.lateral_offset_meters { builder.add_lateral_offset_meters(x); }
+    if let Some(x) = args.anchor_role { builder.add_anchor_role(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn anchor_role(&self) -> Option<u8> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(Guardrail::VT_ANCHOR_ROLE, None)}
+  }
+  #[inline]
+  pub fn lateral_offset_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Guardrail::VT_LATERAL_OFFSET_METERS, None)}
+  }
+  #[inline]
+  pub fn horizontal_length_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Guardrail::VT_HORIZONTAL_LENGTH_METERS, None)}
+  }
+  #[inline]
+  pub fn radius_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Guardrail::VT_RADIUS_METERS, None)}
+  }
+  #[inline]
+  pub fn bottom_height_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Guardrail::VT_BOTTOM_HEIGHT_METERS, None)}
+  }
+  #[inline]
+  pub fn top_height_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Guardrail::VT_TOP_HEIGHT_METERS, None)}
+  }
+  #[inline]
+  pub fn parameter_error_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Guardrail::VT_PARAMETER_ERROR_METERS, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for Guardrail<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u8>("anchor_role", Self::VT_ANCHOR_ROLE, false)?
+     .visit_field::<f64>("lateral_offset_meters", Self::VT_LATERAL_OFFSET_METERS, false)?
+     .visit_field::<f64>("horizontal_length_meters", Self::VT_HORIZONTAL_LENGTH_METERS, false)?
+     .visit_field::<f64>("radius_meters", Self::VT_RADIUS_METERS, false)?
+     .visit_field::<f64>("bottom_height_meters", Self::VT_BOTTOM_HEIGHT_METERS, false)?
+     .visit_field::<f64>("top_height_meters", Self::VT_TOP_HEIGHT_METERS, false)?
+     .visit_field::<f64>("parameter_error_meters", Self::VT_PARAMETER_ERROR_METERS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct GuardrailArgs {
+    pub anchor_role: Option<u8>,
+    pub lateral_offset_meters: Option<f64>,
+    pub horizontal_length_meters: Option<f64>,
+    pub radius_meters: Option<f64>,
+    pub bottom_height_meters: Option<f64>,
+    pub top_height_meters: Option<f64>,
+    pub parameter_error_meters: Option<f64>,
+}
+impl<'a> Default for GuardrailArgs {
+  #[inline]
+  fn default() -> Self {
+    GuardrailArgs {
+      anchor_role: None,
+      lateral_offset_meters: None,
+      horizontal_length_meters: None,
+      radius_meters: None,
+      bottom_height_meters: None,
+      top_height_meters: None,
+      parameter_error_meters: None,
+    }
+  }
+}
+
+pub struct GuardrailBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> GuardrailBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_anchor_role(&mut self, anchor_role: u8) {
+    self.fbb_.push_slot_always::<u8>(Guardrail::VT_ANCHOR_ROLE, anchor_role);
+  }
+  #[inline]
+  pub fn add_lateral_offset_meters(&mut self, lateral_offset_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Guardrail::VT_LATERAL_OFFSET_METERS, lateral_offset_meters);
+  }
+  #[inline]
+  pub fn add_horizontal_length_meters(&mut self, horizontal_length_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Guardrail::VT_HORIZONTAL_LENGTH_METERS, horizontal_length_meters);
+  }
+  #[inline]
+  pub fn add_radius_meters(&mut self, radius_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Guardrail::VT_RADIUS_METERS, radius_meters);
+  }
+  #[inline]
+  pub fn add_bottom_height_meters(&mut self, bottom_height_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Guardrail::VT_BOTTOM_HEIGHT_METERS, bottom_height_meters);
+  }
+  #[inline]
+  pub fn add_top_height_meters(&mut self, top_height_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Guardrail::VT_TOP_HEIGHT_METERS, top_height_meters);
+  }
+  #[inline]
+  pub fn add_parameter_error_meters(&mut self, parameter_error_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Guardrail::VT_PARAMETER_ERROR_METERS, parameter_error_meters);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> GuardrailBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    GuardrailBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<Guardrail<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for Guardrail<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("Guardrail");
+      ds.field("anchor_role", &self.anchor_role());
+      ds.field("lateral_offset_meters", &self.lateral_offset_meters());
+      ds.field("horizontal_length_meters", &self.horizontal_length_meters());
+      ds.field("radius_meters", &self.radius_meters());
+      ds.field("bottom_height_meters", &self.bottom_height_meters());
+      ds.field("top_height_meters", &self.top_height_meters());
+      ds.field("parameter_error_meters", &self.parameter_error_meters());
+      ds.finish()
+  }
+}
+pub enum CurbOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Curb<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for Curb<'a> {
+  type Inner = Curb<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> Curb<'a> {
+  pub const VT_LOW: ::flatbuffers::VOffsetT = 4;
+  pub const VT_HIGH: ::flatbuffers::VOffsetT = 6;
+  pub const VT_PARAMETER_ERROR_METERS: ::flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    Curb { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args CurbArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<Curb<'bldr>> {
+    let mut builder = CurbBuilder::new(_fbb);
+    if let Some(x) = args.parameter_error_meters { builder.add_parameter_error_meters(x); }
+    if let Some(x) = args.high { builder.add_high(x); }
+    if let Some(x) = args.low { builder.add_low(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn low(&self) -> &'a CurbEnd {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<CurbEnd>(Curb::VT_LOW, None).unwrap()}
+  }
+  #[inline]
+  pub fn high(&self) -> &'a CurbEnd {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<CurbEnd>(Curb::VT_HIGH, None).unwrap()}
+  }
+  #[inline]
+  pub fn parameter_error_meters(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(Curb::VT_PARAMETER_ERROR_METERS, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for Curb<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<CurbEnd>("low", Self::VT_LOW, true)?
+     .visit_field::<CurbEnd>("high", Self::VT_HIGH, true)?
+     .visit_field::<f64>("parameter_error_meters", Self::VT_PARAMETER_ERROR_METERS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct CurbArgs<'a> {
+    pub low: Option<&'a CurbEnd>,
+    pub high: Option<&'a CurbEnd>,
+    pub parameter_error_meters: Option<f64>,
+}
+impl<'a> Default for CurbArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    CurbArgs {
+      low: None, // required field
+      high: None, // required field
+      parameter_error_meters: None,
+    }
+  }
+}
+
+pub struct CurbBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CurbBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_low(&mut self, low: &CurbEnd) {
+    self.fbb_.push_slot_always::<&CurbEnd>(Curb::VT_LOW, low);
+  }
+  #[inline]
+  pub fn add_high(&mut self, high: &CurbEnd) {
+    self.fbb_.push_slot_always::<&CurbEnd>(Curb::VT_HIGH, high);
+  }
+  #[inline]
+  pub fn add_parameter_error_meters(&mut self, parameter_error_meters: f64) {
+    self.fbb_.push_slot_always::<f64>(Curb::VT_PARAMETER_ERROR_METERS, parameter_error_meters);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CurbBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    CurbBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<Curb<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, Curb::VT_LOW,"low");
+    self.fbb_.required(o, Curb::VT_HIGH,"high");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for Curb<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("Curb");
+      ds.field("low", &self.low());
+      ds.field("high", &self.high());
+      ds.field("parameter_error_meters", &self.parameter_error_meters());
+      ds.finish()
+  }
+}
+pub enum BoundaryExtentOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct BoundaryExtent<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for BoundaryExtent<'a> {
+  type Inner = BoundaryExtent<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> BoundaryExtent<'a> {
+  pub const VT_LEFT: ::flatbuffers::VOffsetT = 4;
+  pub const VT_RIGHT: ::flatbuffers::VOffsetT = 6;
+  pub const VT_EXTENT_KIND: ::flatbuffers::VOffsetT = 8;
+  pub const VT_LOCAL_KEY: ::flatbuffers::VOffsetT = 10;
+  pub const VT_LOW: ::flatbuffers::VOffsetT = 12;
+  pub const VT_HIGH: ::flatbuffers::VOffsetT = 14;
+  pub const VT_PAYLOAD_TYPE: ::flatbuffers::VOffsetT = 16;
+  pub const VT_PAYLOAD: ::flatbuffers::VOffsetT = 18;
+  pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 20;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    BoundaryExtent { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args BoundaryExtentArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<BoundaryExtent<'bldr>> {
+    let mut builder = BoundaryExtentBuilder::new(_fbb);
+    if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
+    if let Some(x) = args.payload { builder.add_payload(x); }
+    if let Some(x) = args.high { builder.add_high(x); }
+    if let Some(x) = args.low { builder.add_low(x); }
+    if let Some(x) = args.local_key { builder.add_local_key(x); }
+    if let Some(x) = args.right { builder.add_right(x); }
+    if let Some(x) = args.left { builder.add_left(x); }
+    builder.add_payload_type(args.payload_type);
+    builder.add_extent_kind(args.extent_kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn left(&self) -> BoundaryMember<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<BoundaryMember>>(BoundaryExtent::VT_LEFT, None).unwrap()}
+  }
+  #[inline]
+  pub fn right(&self) -> BoundaryMember<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<BoundaryMember>>(BoundaryExtent::VT_RIGHT, None).unwrap()}
+  }
+  #[inline]
+  pub fn extent_kind(&self) -> BoundaryExtentKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<BoundaryExtentKind>(BoundaryExtent::VT_EXTENT_KIND, Some(BoundaryExtentKind::Unspecified)).unwrap()}
+  }
+  #[inline]
+  pub fn local_key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(BoundaryExtent::VT_LOCAL_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn low(&self) -> &'a BoundaryStation {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<BoundaryStation>(BoundaryExtent::VT_LOW, None).unwrap()}
+  }
+  #[inline]
+  pub fn high(&self) -> &'a BoundaryStation {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<BoundaryStation>(BoundaryExtent::VT_HIGH, None).unwrap()}
+  }
+  #[inline]
+  pub fn payload_type(&self) -> BoundaryPayload {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<BoundaryPayload>(BoundaryExtent::VT_PAYLOAD_TYPE, Some(BoundaryPayload::NONE)).unwrap()}
+  }
+  #[inline]
+  pub fn payload(&self) -> Option<::flatbuffers::Table<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Table<'a>>>(BoundaryExtent::VT_PAYLOAD, None)}
+  }
+  #[inline]
+  pub fn canvas_selection(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(BoundaryExtent::VT_CANVAS_SELECTION, None)}
+  }
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_crossing_rule(&self) -> Option<CrossingRule<'a>> {
+    if self.payload_type() == BoundaryPayload::CrossingRule {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { CrossingRule::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_guardrail(&self) -> Option<Guardrail<'a>> {
+    if self.payload_type() == BoundaryPayload::Guardrail {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Guardrail::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_curb(&self) -> Option<Curb<'a>> {
+    if self.payload_type() == BoundaryPayload::Curb {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Curb::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+}
+
+impl ::flatbuffers::Verifiable for BoundaryExtent<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<BoundaryMember>>("left", Self::VT_LEFT, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<BoundaryMember>>("right", Self::VT_RIGHT, true)?
+     .visit_field::<BoundaryExtentKind>("extent_kind", Self::VT_EXTENT_KIND, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("local_key", Self::VT_LOCAL_KEY, true)?
+     .visit_field::<BoundaryStation>("low", Self::VT_LOW, true)?
+     .visit_field::<BoundaryStation>("high", Self::VT_HIGH, true)?
+     .visit_union::<BoundaryPayload, _>("payload_type", Self::VT_PAYLOAD_TYPE, "payload", Self::VT_PAYLOAD, false, |key, v, pos| {
+        match key {
+          BoundaryPayload::CrossingRule => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<CrossingRule>>("BoundaryPayload::CrossingRule", pos),
+          BoundaryPayload::Guardrail => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Guardrail>>("BoundaryPayload::Guardrail", pos),
+          BoundaryPayload::Curb => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Curb>>("BoundaryPayload::Curb", pos),
+          _ => Ok(()),
+        }
+     })?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct BoundaryExtentArgs<'a> {
+    pub left: Option<::flatbuffers::WIPOffset<BoundaryMember<'a>>>,
+    pub right: Option<::flatbuffers::WIPOffset<BoundaryMember<'a>>>,
+    pub extent_kind: BoundaryExtentKind,
+    pub local_key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub low: Option<&'a BoundaryStation>,
+    pub high: Option<&'a BoundaryStation>,
+    pub payload_type: BoundaryPayload,
+    pub payload: Option<::flatbuffers::WIPOffset<::flatbuffers::UnionWIPOffset>>,
+    pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for BoundaryExtentArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    BoundaryExtentArgs {
+      left: None, // required field
+      right: None, // required field
+      extent_kind: BoundaryExtentKind::Unspecified,
+      local_key: None, // required field
+      low: None, // required field
+      high: None, // required field
+      payload_type: BoundaryPayload::NONE,
+      payload: None,
+      canvas_selection: None,
+    }
+  }
+}
+
+pub struct BoundaryExtentBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> BoundaryExtentBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_left(&mut self, left: ::flatbuffers::WIPOffset<BoundaryMember<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<BoundaryMember>>(BoundaryExtent::VT_LEFT, left);
+  }
+  #[inline]
+  pub fn add_right(&mut self, right: ::flatbuffers::WIPOffset<BoundaryMember<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<BoundaryMember>>(BoundaryExtent::VT_RIGHT, right);
+  }
+  #[inline]
+  pub fn add_extent_kind(&mut self, extent_kind: BoundaryExtentKind) {
+    self.fbb_.push_slot::<BoundaryExtentKind>(BoundaryExtent::VT_EXTENT_KIND, extent_kind, BoundaryExtentKind::Unspecified);
+  }
+  #[inline]
+  pub fn add_local_key(&mut self, local_key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(BoundaryExtent::VT_LOCAL_KEY, local_key);
+  }
+  #[inline]
+  pub fn add_low(&mut self, low: &BoundaryStation) {
+    self.fbb_.push_slot_always::<&BoundaryStation>(BoundaryExtent::VT_LOW, low);
+  }
+  #[inline]
+  pub fn add_high(&mut self, high: &BoundaryStation) {
+    self.fbb_.push_slot_always::<&BoundaryStation>(BoundaryExtent::VT_HIGH, high);
+  }
+  #[inline]
+  pub fn add_payload_type(&mut self, payload_type: BoundaryPayload) {
+    self.fbb_.push_slot::<BoundaryPayload>(BoundaryExtent::VT_PAYLOAD_TYPE, payload_type, BoundaryPayload::NONE);
+  }
+  #[inline]
+  pub fn add_payload(&mut self, payload: ::flatbuffers::WIPOffset<::flatbuffers::UnionWIPOffset>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(BoundaryExtent::VT_PAYLOAD, payload);
+  }
+  #[inline]
+  pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(BoundaryExtent::VT_CANVAS_SELECTION, canvas_selection);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> BoundaryExtentBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    BoundaryExtentBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<BoundaryExtent<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, BoundaryExtent::VT_LEFT,"left");
+    self.fbb_.required(o, BoundaryExtent::VT_RIGHT,"right");
+    self.fbb_.required(o, BoundaryExtent::VT_LOCAL_KEY,"local_key");
+    self.fbb_.required(o, BoundaryExtent::VT_LOW,"low");
+    self.fbb_.required(o, BoundaryExtent::VT_HIGH,"high");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for BoundaryExtent<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("BoundaryExtent");
+      ds.field("left", &self.left());
+      ds.field("right", &self.right());
+      ds.field("extent_kind", &self.extent_kind());
+      ds.field("local_key", &self.local_key());
+      ds.field("low", &self.low());
+      ds.field("high", &self.high());
+      ds.field("payload_type", &self.payload_type());
+      match self.payload_type() {
+        BoundaryPayload::CrossingRule => {
+          if let Some(x) = self.payload_as_crossing_rule() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        BoundaryPayload::Guardrail => {
+          if let Some(x) = self.payload_as_guardrail() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        BoundaryPayload::Curb => {
+          if let Some(x) = self.payload_as_curb() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        _ => {
+          let x: Option<()> = None;
+          ds.field("payload", &x)
+        },
+      };
+      ds.field("canvas_selection", &self.canvas_selection());
+      ds.finish()
+  }
+}
 pub enum RoadCorridorOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -3507,7 +5146,8 @@ impl<'a> RoadCorridor<'a> {
   pub const VT_REFERENCE_LANE: ::flatbuffers::VOffsetT = 16;
   pub const VT_ELEMENTS: ::flatbuffers::VOffsetT = 18;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 20;
-  pub const VT_PUBLISH_STATION_MAPPING: ::flatbuffers::VOffsetT = 22;
+  pub const VT_CROSS_SECTION_COVERAGE: ::flatbuffers::VOffsetT = 22;
+  pub const VT_BOUNDARY_EXTENTS: ::flatbuffers::VOffsetT = 24;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3521,13 +5161,14 @@ impl<'a> RoadCorridor<'a> {
     let mut builder = RoadCorridorBuilder::new(_fbb);
     builder.add_end_station_meters(args.end_station_meters);
     builder.add_start_station_meters(args.start_station_meters);
+    if let Some(x) = args.boundary_extents { builder.add_boundary_extents(x); }
     if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
     if let Some(x) = args.elements { builder.add_elements(x); }
     if let Some(x) = args.reference_lane { builder.add_reference_lane(x); }
     if let Some(x) = args.reference_section { builder.add_reference_section(x); }
     if let Some(x) = args.road_alignment_key { builder.add_road_alignment_key(x); }
     if let Some(x) = args.road_corridor_key { builder.add_road_corridor_key(x); }
-    builder.add_publish_station_mapping(args.publish_station_mapping);
+    builder.add_cross_section_coverage(args.cross_section_coverage);
     builder.add_end_station_kind(args.end_station_kind);
     builder.finish()
   }
@@ -3597,11 +5238,18 @@ impl<'a> RoadCorridor<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(RoadCorridor::VT_CANVAS_SELECTION, None)}
   }
   #[inline]
-  pub fn publish_station_mapping(&self) -> bool {
+  pub fn cross_section_coverage(&self) -> CrossSectionCoverage {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<bool>(RoadCorridor::VT_PUBLISH_STATION_MAPPING, Some(false)).unwrap()}
+    unsafe { self._tab.get::<CrossSectionCoverage>(RoadCorridor::VT_CROSS_SECTION_COVERAGE, Some(CrossSectionCoverage::None)).unwrap()}
+  }
+  #[inline]
+  pub fn boundary_extents(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<BoundaryExtent<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<BoundaryExtent>>>>(RoadCorridor::VT_BOUNDARY_EXTENTS, None).unwrap()}
   }
 }
 
@@ -3620,7 +5268,8 @@ impl ::flatbuffers::Verifiable for RoadCorridor<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("reference_lane", Self::VT_REFERENCE_LANE, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CorridorElement>>>>("elements", Self::VT_ELEMENTS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
-     .visit_field::<bool>("publish_station_mapping", Self::VT_PUBLISH_STATION_MAPPING, false)?
+     .visit_field::<CrossSectionCoverage>("cross_section_coverage", Self::VT_CROSS_SECTION_COVERAGE, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<BoundaryExtent>>>>("boundary_extents", Self::VT_BOUNDARY_EXTENTS, true)?
      .finish();
     Ok(())
   }
@@ -3635,7 +5284,8 @@ pub struct RoadCorridorArgs<'a> {
     pub reference_lane: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub elements: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CorridorElement<'a>>>>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
-    pub publish_station_mapping: bool,
+    pub cross_section_coverage: CrossSectionCoverage,
+    pub boundary_extents: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<BoundaryExtent<'a>>>>>,
 }
 impl<'a> Default for RoadCorridorArgs<'a> {
   #[inline]
@@ -3650,7 +5300,8 @@ impl<'a> Default for RoadCorridorArgs<'a> {
       reference_lane: None, // required field
       elements: None, // required field
       canvas_selection: None,
-      publish_station_mapping: false,
+      cross_section_coverage: CrossSectionCoverage::None,
+      boundary_extents: None, // required field
     }
   }
 }
@@ -3697,8 +5348,12 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadCorridorBuilder<'a, 'b, A
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadCorridor::VT_CANVAS_SELECTION, canvas_selection);
   }
   #[inline]
-  pub fn add_publish_station_mapping(&mut self, publish_station_mapping: bool) {
-    self.fbb_.push_slot::<bool>(RoadCorridor::VT_PUBLISH_STATION_MAPPING, publish_station_mapping, false);
+  pub fn add_cross_section_coverage(&mut self, cross_section_coverage: CrossSectionCoverage) {
+    self.fbb_.push_slot::<CrossSectionCoverage>(RoadCorridor::VT_CROSS_SECTION_COVERAGE, cross_section_coverage, CrossSectionCoverage::None);
+  }
+  #[inline]
+  pub fn add_boundary_extents(&mut self, boundary_extents: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<BoundaryExtent<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadCorridor::VT_BOUNDARY_EXTENTS, boundary_extents);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RoadCorridorBuilder<'a, 'b, A> {
@@ -3716,6 +5371,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadCorridorBuilder<'a, 'b, A
     self.fbb_.required(o, RoadCorridor::VT_REFERENCE_SECTION,"reference_section");
     self.fbb_.required(o, RoadCorridor::VT_REFERENCE_LANE,"reference_lane");
     self.fbb_.required(o, RoadCorridor::VT_ELEMENTS,"elements");
+    self.fbb_.required(o, RoadCorridor::VT_BOUNDARY_EXTENTS,"boundary_extents");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -3732,7 +5388,8 @@ impl ::core::fmt::Debug for RoadCorridor<'_> {
       ds.field("reference_lane", &self.reference_lane());
       ds.field("elements", &self.elements());
       ds.field("canvas_selection", &self.canvas_selection());
-      ds.field("publish_station_mapping", &self.publish_station_mapping());
+      ds.field("cross_section_coverage", &self.cross_section_coverage());
+      ds.field("boundary_extents", &self.boundary_extents());
       ds.finish()
   }
 }
@@ -3757,6 +5414,7 @@ impl<'a> RoadSection<'a> {
   pub const VT_AUTHORING_LANES: ::flatbuffers::VOffsetT = 8;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 10;
   pub const VT_ROAD_CORRIDOR: ::flatbuffers::VOffsetT = 12;
+  pub const VT_BOUNDARY_EXTENTS: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3768,6 +5426,7 @@ impl<'a> RoadSection<'a> {
     args: &'args RoadSectionArgs<'args>
   ) -> ::flatbuffers::WIPOffset<RoadSection<'bldr>> {
     let mut builder = RoadSectionBuilder::new(_fbb);
+    if let Some(x) = args.boundary_extents { builder.add_boundary_extents(x); }
     if let Some(x) = args.road_corridor { builder.add_road_corridor(x); }
     if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
     if let Some(x) = args.authoring_lanes { builder.add_authoring_lanes(x); }
@@ -3812,6 +5471,13 @@ impl<'a> RoadSection<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(RoadSection::VT_ROAD_CORRIDOR, None).unwrap()}
   }
+  #[inline]
+  pub fn boundary_extents(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<BoundaryExtent<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<BoundaryExtent>>>>(RoadSection::VT_BOUNDARY_EXTENTS, None).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for RoadSection<'_> {
@@ -3825,6 +5491,7 @@ impl ::flatbuffers::Verifiable for RoadSection<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("authoring_lanes", Self::VT_AUTHORING_LANES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("road_corridor", Self::VT_ROAD_CORRIDOR, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<BoundaryExtent>>>>("boundary_extents", Self::VT_BOUNDARY_EXTENTS, true)?
      .finish();
     Ok(())
   }
@@ -3835,6 +5502,7 @@ pub struct RoadSectionArgs<'a> {
     pub authoring_lanes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub road_corridor: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub boundary_extents: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<BoundaryExtent<'a>>>>>,
 }
 impl<'a> Default for RoadSectionArgs<'a> {
   #[inline]
@@ -3845,6 +5513,7 @@ impl<'a> Default for RoadSectionArgs<'a> {
       authoring_lanes: None, // required field
       canvas_selection: None,
       road_corridor: None, // required field
+      boundary_extents: None, // required field
     }
   }
 }
@@ -3875,6 +5544,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadSectionBuilder<'a, 'b, A>
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadSection::VT_ROAD_CORRIDOR, road_corridor);
   }
   #[inline]
+  pub fn add_boundary_extents(&mut self, boundary_extents: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<BoundaryExtent<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadSection::VT_BOUNDARY_EXTENTS, boundary_extents);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RoadSectionBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RoadSectionBuilder {
@@ -3889,6 +5562,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadSectionBuilder<'a, 'b, A>
     self.fbb_.required(o, RoadSection::VT_KIND_ID,"kind_id");
     self.fbb_.required(o, RoadSection::VT_AUTHORING_LANES,"authoring_lanes");
     self.fbb_.required(o, RoadSection::VT_ROAD_CORRIDOR,"road_corridor");
+    self.fbb_.required(o, RoadSection::VT_BOUNDARY_EXTENTS,"boundary_extents");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -3901,6 +5575,7 @@ impl ::core::fmt::Debug for RoadSection<'_> {
       ds.field("authoring_lanes", &self.authoring_lanes());
       ds.field("canvas_selection", &self.canvas_selection());
       ds.field("road_corridor", &self.road_corridor());
+      ds.field("boundary_extents", &self.boundary_extents());
       ds.finish()
   }
 }
@@ -3928,6 +5603,7 @@ impl<'a> AuthoringLane<'a> {
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 14;
   pub const VT_ROAD_SECTION: ::flatbuffers::VOffsetT = 16;
   pub const VT_INTERIOR_CUT_STATIONS_METERS: ::flatbuffers::VOffsetT = 18;
+  pub const VT_SUPPORTS_WHEEL: ::flatbuffers::VOffsetT = 20;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -3946,6 +5622,7 @@ impl<'a> AuthoringLane<'a> {
     if let Some(x) = args.width_profile { builder.add_width_profile(x); }
     if let Some(x) = args.edge_chain { builder.add_edge_chain(x); }
     if let Some(x) = args.authoring_lane_key { builder.add_authoring_lane_key(x); }
+    if let Some(x) = args.supports_wheel { builder.add_supports_wheel(x); }
     builder.add_direction(args.direction);
     builder.finish()
   }
@@ -4001,11 +5678,18 @@ impl<'a> AuthoringLane<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(AuthoringLane::VT_ROAD_SECTION, None).unwrap()}
   }
   #[inline]
-  pub fn interior_cut_stations_meters(&self) -> ::flatbuffers::Vector<'a, f64> {
+  pub fn interior_cut_stations_meters(&self) -> Option<::flatbuffers::Vector<'a, f64>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, f64>>>(AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS, None).unwrap()}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, f64>>>(AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS, None)}
+  }
+  #[inline]
+  pub fn supports_wheel(&self) -> Option<bool> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(AuthoringLane::VT_SUPPORTS_WHEEL, None)}
   }
 }
 
@@ -4022,7 +5706,8 @@ impl ::flatbuffers::Verifiable for AuthoringLane<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("lane_group", Self::VT_LANE_GROUP, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("road_section", Self::VT_ROAD_SECTION, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, f64>>>("interior_cut_stations_meters", Self::VT_INTERIOR_CUT_STATIONS_METERS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, f64>>>("interior_cut_stations_meters", Self::VT_INTERIOR_CUT_STATIONS_METERS, false)?
+     .visit_field::<bool>("supports_wheel", Self::VT_SUPPORTS_WHEEL, false)?
      .finish();
     Ok(())
   }
@@ -4036,6 +5721,7 @@ pub struct AuthoringLaneArgs<'a> {
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub road_section: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub interior_cut_stations_meters: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, f64>>>,
+    pub supports_wheel: Option<bool>,
 }
 impl<'a> Default for AuthoringLaneArgs<'a> {
   #[inline]
@@ -4048,7 +5734,8 @@ impl<'a> Default for AuthoringLaneArgs<'a> {
       lane_group: None,
       canvas_selection: None,
       road_section: None, // required field
-      interior_cut_stations_meters: None, // required field
+      interior_cut_stations_meters: None,
+      supports_wheel: None,
     }
   }
 }
@@ -4091,6 +5778,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AuthoringLaneBuilder<'a, 'b, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS, interior_cut_stations_meters);
   }
   #[inline]
+  pub fn add_supports_wheel(&mut self, supports_wheel: bool) {
+    self.fbb_.push_slot_always::<bool>(AuthoringLane::VT_SUPPORTS_WHEEL, supports_wheel);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> AuthoringLaneBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     AuthoringLaneBuilder {
@@ -4105,7 +5796,6 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AuthoringLaneBuilder<'a, 'b, 
     self.fbb_.required(o, AuthoringLane::VT_EDGE_CHAIN,"edge_chain");
     self.fbb_.required(o, AuthoringLane::VT_WIDTH_PROFILE,"width_profile");
     self.fbb_.required(o, AuthoringLane::VT_ROAD_SECTION,"road_section");
-    self.fbb_.required(o, AuthoringLane::VT_INTERIOR_CUT_STATIONS_METERS,"interior_cut_stations_meters");
     ::flatbuffers::WIPOffset::new(o.value())
   }
 }
@@ -4121,6 +5811,7 @@ impl ::core::fmt::Debug for AuthoringLane<'_> {
       ds.field("canvas_selection", &self.canvas_selection());
       ds.field("road_section", &self.road_section());
       ds.field("interior_cut_stations_meters", &self.interior_cut_stations_meters());
+      ds.field("supports_wheel", &self.supports_wheel());
       ds.finish()
   }
 }

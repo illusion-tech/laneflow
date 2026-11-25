@@ -33,6 +33,7 @@ fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {
         crate::RoadEditingRelationKind::PolicyGateRule => 19,
         crate::RoadEditingRelationKind::AuthoringLaneEdge => 20,
         crate::RoadEditingRelationKind::InteriorCut => 21,
+        crate::RoadEditingRelationKind::BoundaryExtent => 22,
     }
 }
 
@@ -450,6 +451,10 @@ fn source_counts(output: &CompilationOutput) -> SourceCounts {
     let source_map = output.source_map_input();
     let lir = output.lir().unit();
     let mut counts = SourceCounts::default();
+    for s in &source_map.station_sources {
+        counts.owner += 1;
+        counts.contributing += s.contributors(source_map).len();
+    }
     macro_rules! stable_family {
         ($kind:expr, $iterator:expr) => {
             for source in $iterator {
@@ -769,6 +774,26 @@ fn prepare_sources<'a>(
     });
     verify_owner_local_keys(lir, &pass, counts.expected_owner, &owner_local)?;
 
+    for s in &source_map.station_sources {
+        let primary = location_value(s.primary(source_map), &document_ordinals)?;
+        let start = contributing.len();
+        for l in s.contributors(source_map) {
+            contributing.push(location_value(l, &document_ordinals)?)?;
+        }
+        owner_local.push(OwnerLocalProjection {
+            owner_entity_kind: s.kind,
+            owner_stable_id: s.id,
+            role: s.role,
+            local_index: s.local,
+            primary,
+            contributing: Slots {
+                start,
+                end: contributing.len(),
+            },
+            set: Slots::default(),
+            derived_set: Slots::default(),
+        })?;
+    }
     {
         let mut policy_sources = pass.vec(counts.policy)?;
         policy_projection::append_policy_sources(

@@ -51,6 +51,8 @@ pub enum CompileLimitDimension {
     WaitingZoneCount,
     /// 几何点记录数。
     GeometryPointCount,
+    /// 全修订命名边界区间的独立行数。
+    BoundaryExtentCount,
     /// 最终规范路网登记的关系出现记录数。
     CanonicalRelationCount,
     /// 需要进入符号表的声明数。
@@ -93,6 +95,7 @@ impl CompileLimitDimension {
             Self::ManeuverGateCount => "max_maneuver_gate_count",
             Self::WaitingZoneCount => "max_waiting_zone_count",
             Self::GeometryPointCount => "max_geometry_point_count",
+            Self::BoundaryExtentCount => "max_boundary_extent_count",
             Self::CanonicalRelationCount => "max_canonical_relation_count",
             Self::SymbolCount => "max_symbol_count",
             Self::StringItemCount => "max_string_item_count",
@@ -454,7 +457,7 @@ impl CompileProfile {
                 max_source_document_count: 18,
                 max_import_edge_count: 17,
                 max_source_bytes_per_module: 6_802_717,
-                max_source_bytes_total: 8_729_042,
+                max_source_bytes_total: 8_729_266,
                 max_declaration_count: 10_000,
                 max_typed_ast_record_count: 381_284,
                 max_hir_record_count: 535_412,
@@ -529,6 +532,14 @@ impl CompileProfile {
     pub const fn operation_budget(&self) -> &OperationResourceBudget {
         &self.operation
     }
+    /// 单个修订的命名边界区间行数上限，独立于几何点用量。
+    #[must_use]
+    pub const fn max_boundary_extent_count(&self) -> u64 {
+        match self.profile {
+            ProfileId::SingleNetwork10k => 128_511,
+            ProfileId::SingleNetwork1m => 16_000_000,
+        }
+    }
     /// 单个受检编制字符串的字节上限。
     #[must_use]
     pub const fn max_single_string_bytes(&self) -> u64 {
@@ -601,6 +612,7 @@ impl CompileProfile {
             CompileLimitDimension::WaitingZoneCount => self
                 .canonical
                 .get(CanonicalNetworkDimension::WaitingZoneCount),
+            CompileLimitDimension::BoundaryExtentCount => self.max_boundary_extent_count(),
             CompileLimitDimension::GeometryPointCount => self
                 .canonical
                 .get(CanonicalNetworkDimension::GeometryPointCount),
@@ -795,7 +807,7 @@ mod tests {
                     (CompileLimitDimension::SourceDocumentCount, 18),
                     (CompileLimitDimension::ImportEdgeCount, 17),
                     (CompileLimitDimension::SourceBytesPerModule, 6_802_717),
-                    (CompileLimitDimension::SourceBytesTotal, 8_729_042),
+                    (CompileLimitDimension::SourceBytesTotal, 8_729_266),
                     (CompileLimitDimension::DeclarationCount, 10_000),
                     (CompileLimitDimension::StableEntityCount, 10_000),
                     (CompileLimitDimension::TypedAstRecordCount, 381_284),

@@ -19,7 +19,8 @@ mod relations_build;
 mod spatial;
 mod station;
 pub use station::{
-    FacilityBandBounds, SharedStationMapping, StationAddress, StationCandidates, StationDomain,
+    BoundaryExtent, BoundaryOwner, BoundaryPayload, FacilityBandBounds, LaneFootprint,
+    RoadSurfaceSpan, SharedStationMapping, StationAddress, StationCandidates, StationDomain,
     StationObservation, StationQuery,
 };
 mod traffic;

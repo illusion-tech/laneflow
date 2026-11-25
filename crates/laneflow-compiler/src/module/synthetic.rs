@@ -2750,6 +2750,7 @@ impl SyntheticModuleBuilder {
                 );
         }
         let declaration = TypedAstDeclaration::RoadSection(RoadSectionDeclaration {
+            extents: Box::new([]),
             header: DeclarationHeader::module_scoped(
                 EntityKind::RoadSection,
                 Arc::clone(&stable_key),
@@ -2882,6 +2883,7 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.road_corridor_key.into();
         let declaration = TypedAstDeclaration::RoadCorridor(RoadCorridorDeclaration {
+            cross_section: None,
             header: DeclarationHeader::module_scoped(
                 EntityKind::RoadCorridor,
                 Arc::clone(&stable_key),
@@ -3020,6 +3022,7 @@ impl SyntheticModuleBuilder {
                     maneuver_gate_count: self.maneuver_gate_count,
                     waiting_zone_count: self.waiting_zone_count,
                     geometry_point_count: self.geometry_point_count,
+                    boundary_extent_count: 0,
                     geometry_source_range_count: 0,
                     controlled_live_bytes: self
                         .controlled_string_bytes

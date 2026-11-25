@@ -10,7 +10,7 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 7;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -79,6 +79,24 @@ pub(crate) fn verify_source_in<'a>(
     limits: &CompileProfile,
     source_bytes_already_admitted: u64,
     typed_ast_records_already_admitted: u64,
+    ledger: &Ledger,
+) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
+    verify_with_prior_extents(
+        input,
+        limits,
+        source_bytes_already_admitted,
+        typed_ast_records_already_admitted,
+        0,
+        ledger,
+    )
+}
+
+pub(super) fn verify_with_prior_extents<'a>(
+    input: RoadEditingModuleInput<'a>,
+    limits: &CompileProfile,
+    source_bytes_already_admitted: u64,
+    typed_ast_records_already_admitted: u64,
+    prior_extents: u64,
     ledger: &Ledger,
 ) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
     let expected_key = input.expected_source_document_key();
@@ -237,8 +255,9 @@ pub(crate) fn verify_source_in<'a>(
             expected_key,
         )
     };
-    let preflight_counts = preflight_source_in(root, limits, expected_key, ledger)
-        .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
+    let preflight_counts =
+        preflight_source_in(root, limits, expected_key, prior_extents, ledger)
+            .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
         return Err(semantic_error(
             "roadEditingSource.recordAccounting",
@@ -554,6 +573,11 @@ fn limit_error(
 
 fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
     let mut count = 3_u64; // root + ModuleHeader + Provenance
+    for owner in super::boundary::Owner::all(root) {
+        for e in owner.extents() {
+            count = count.saturating_add(3 + u64::from(e.payload().is_some()));
+        }
+    }
     for policy in root.right_of_way_policy_sets() {
         count = count
             .saturating_add(2)
@@ -1515,11 +1539,34 @@ mod tests {
     }
 
     #[test]
+    fn boundary_extent_capacity_accumulates_across_modules_before_preflight_allocation() {
+        let limits = CompileProfile::single_network_10k_stable_entities();
+        let ledger = Ledger::new(limits.operation_budget());
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/lfre-crosslang/cpp_writer_complete.lfre"),
+        )
+        .unwrap();
+        let input =
+            RoadEditingModuleInput::try_new("roads/crosslang-writer", &bytes, None).unwrap();
+        let limit = limits.max_boundary_extent_count();
+        let verify = |prior| verify_with_prior_extents(input, &limits, 0, 0, prior, &ledger);
+        let verified = verify(limit - 3).unwrap();
+        assert_eq!(verified.preflight_counts().boundary_extent_count(), 3);
+        let Err(error) = verify(limit - 2) else {
+            panic!("excess named extents admitted")
+        };
+        assert!(matches!(first_diagnostic(&error).payload(),
+            DiagnosticPayload::CompileLimitExceeded { dimension: CompileLimitDimension::BoundaryExtentCount,
+                limit: maximum, observed } if *maximum == limit && *observed == limit + 1));
+    }
+
+    #[test]
     fn rejects_unknown_format_version_before_current_schema_verification() {
         let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
-        for old in [1, 4, 5, 7] {
+        for old in [1, 4, 5, 6, 8] {
             overwrite_format_version(&mut bytes, old);
             let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
@@ -1529,7 +1576,7 @@ mod tests {
                 first_diagnostic(&error).payload(),
                 DiagnosticPayload::InvalidRoadEditingSource {
                     violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                        expected: 6,
+                        expected: 7,
                         actual
                     },
                     ..

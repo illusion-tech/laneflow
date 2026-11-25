@@ -208,7 +208,7 @@ SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档�
 
 - 道路编辑状态是 production 编辑器和程序化生成场景的主要 source language；可视化编辑器、
   第一方 Rust 构造面与 importer 共享有类型道路编辑模型，使用按模块的
-  `LF-ROAD-EDITING-SOURCE-v6` FlatBuffers 来源缓冲区持久化；
+  `LF-ROAD-EDITING-SOURCE-v7` FlatBuffers 来源缓冲区持久化；
 - Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的正本输入；
 - import module 必须记录原始 source bytes/digest、importer build、选项和 provenance；
   选择 materialize 为道路编辑来源模块时，必须显式记录 authority 切换；
@@ -313,7 +313,7 @@ source buffer/document”应用同一规则。
 
 这不是第三方前端插件协议。公开面只使用 LaneFlow 拥有的具体入口以及它们进入共同
 私有接入的规则，不冻结 Geometry 公共签名。Road Editing 接口借用完整
-`LF-ROAD-EDITING-SOURCE-v6` bytes 的字段私有 `RoadEditingModuleInput` 和唯一原子
+`LF-ROAD-EDITING-SOURCE-v7` bytes 的字段私有 `RoadEditingModuleInput` 和唯一原子
 `add_road_editing_module`；wire DTO、typed module 和 descriptor 均保持私有。
 当前树不存在 JSON 迁移入口、相应特性、输入类型或导入器。
 通用 `add_module`、公共前端
@@ -322,7 +322,7 @@ source buffer/document”应用同一规则。
 ### 5.3 道路编辑与几何编制前端（Road Editing and Geometry Frontend）
 
 长期 production authoring frontend 使用
-`LF-ROAD-EDITING-SOURCE-v6`（按模块的 size-prefixed FlatBuffers 来源缓冲区）；道路编辑
+`LF-ROAD-EDITING-SOURCE-v7`（按模块的 size-prefixed FlatBuffers 来源缓冲区）；道路编辑
 状态、有类型道路编辑模型、公开 Rust 构造面、generated `unsafe` 审计边界、阶段
 生命周期、曲线细分、stationing、资源/诊断顺序、验证矩阵和性能门槛统一由
 `road-editing-source-and-geometry-frontend.md` 管理。本节只保留综合架构边界。目标模型包含：
@@ -815,7 +815,7 @@ backing；runtime-only 调用方可释放 LFCA，可编辑 session 所需 exact 
 
 ### 8.4 源映射与诊断（Source Map and Diagnostics）
 
-源映射线格式是 [LFSM 6][portable-lfsm]。发布 binding 的检查行为见 [后发射检查 §8][post-emission-lfcp]。
+源映射线格式是 [LFSM 7][portable-lfsm]。发布 binding 的检查行为见 [后发射检查 §8][post-emission-lfcp]。
 
 源映射不是一组可以脱离编译批次复用的裸记录。即使实体 `StableId128` 与 typed ordinal 都未变化，来源位置、来源模块或编译输入变化也必须生成新的 LFSM exact bytes。诊断使用稳定 code、severity、primary/secondary source location、原因和可执行建议；文本来源可把 location 渲染为 span。authoring error 指向 source 或画布；artifact corruption 或 version mismatch 面向运维，不返回 generated JSON 行号。
 
@@ -1241,7 +1241,7 @@ compiler/format 反向依赖动态运行时。
 [post-emission]: compiler-post-emission-check-and-minimal-publication-closure.md
 
 [portable-lfcp]: portable-canonical-artifact.md#6-lfcp-2-与发布闭合
-[portable-lfsm]: portable-canonical-artifact.md#4-lfsm-6
+[portable-lfsm]: portable-canonical-artifact.md#4-lfsm-7
 [portable-lfsd]: portable-canonical-artifact.md#5-lfsd-5
 [post-emission-lfcp]: compiler-post-emission-check-and-minimal-publication-closure.md#8-lfcp-v2
 [post-emission-matrix]: compiler-post-emission-check-and-minimal-publication-closure.md#11-验证矩阵

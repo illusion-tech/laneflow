@@ -8,6 +8,7 @@
 mod freeze;
 /// 路权来源绑定的受检投影接缝。
 pub(crate) mod policy;
+pub(crate) mod station;
 pub use laneflow_static_contract::SourceRelationRole;
 pub use policy::{PolicySourceTarget, PolicySourceView};
 
@@ -259,6 +260,7 @@ enum SignalRelationOwnerRecord {
 /// 一份或多份来源文档再按文档键字节序保存；`sourceDocumentKey` 已在共同准入时证明
 /// 全局唯一，并与所属逻辑模块不可分绑定。
 pub struct ValidatedSourceMapInput {
+    pub(crate) station_sources: crate::ledger::Frozen<station::StationSource>,
     policy_sources: crate::ledger::Frozen<policy::PolicySourceRecord>,
     source_modules: crate::ledger::Frozen<SourceModuleDescriptor>,
     source_module_declaration_sources: crate::ledger::Frozen<SourceLocationRecord>,
@@ -373,6 +375,10 @@ impl ValidatedSourceMapInput {
             record.transfer_to_host();
         }
         self.policy_sources.transfer_to_host();
+        for s in self.station_sources.iter_mut() {
+            s.transfer();
+        }
+        self.station_sources.transfer_to_host();
         for record in self.spatial_relation_sources.iter_mut() {
             record.source_ranges.transfer_to_host();
         }

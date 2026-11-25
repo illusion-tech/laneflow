@@ -15,6 +15,7 @@ pub(crate) struct ModuleResourceCounts {
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
     pub(crate) geometry_point_count: u64,
+    pub(crate) boundary_extent_count: u64,
     pub(crate) geometry_source_range_count: u64,
     pub(crate) controlled_live_bytes: u64,
     /// 具体官方前端构造本候选模块期间的受控存续峰值，不含既有 builder。
@@ -44,6 +45,7 @@ pub(super) struct AdmissionTotals {
     pub(super) maneuver_gate_count: u64,
     pub(super) waiting_zone_count: u64,
     pub(super) geometry_point_count: u64,
+    pub(super) boundary_extent_count: u64,
     pub(super) geometry_source_range_count: u64,
     pub(super) module_payload_live_bytes: u64,
     pub(super) module_slot_capacity: u64,
@@ -95,6 +97,9 @@ impl AdmissionTotals {
             waiting_zone_count: self
                 .waiting_zone_count
                 .saturating_add(counts.waiting_zone_count),
+            boundary_extent_count: self
+                .boundary_extent_count
+                .saturating_add(counts.boundary_extent_count),
             geometry_point_count: self
                 .geometry_point_count
                 .saturating_add(counts.geometry_point_count),

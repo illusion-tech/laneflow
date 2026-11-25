@@ -701,7 +701,7 @@ name = "道路编辑来源缓冲区"
 english_aliases = ["road editing source buffer"]
 domains = ["compiler"]
 definition = "以 FlatBuffers 编码一个道路编辑模块的版本化来源文档；精确版本、根表与字节要求由道路编辑来源合同规定。"
-symbols = [{ value = "LF-ROAD-EDITING-SOURCE-v6", kind = "constant" }]
+symbols = [{ value = "LF-ROAD-EDITING-SOURCE-v7", kind = "constant" }]
 references = [{ document = "design-road-editing-source-and-geometry-frontend" }]
 
 [[terms]]

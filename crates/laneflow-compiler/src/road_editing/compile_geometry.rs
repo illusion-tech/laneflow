@@ -20,6 +20,7 @@ use super::geometry::{
     numeric_stack_scratch_bytes, point_distance, quantize_point, validate_canonical_polyline,
 };
 
+mod cross_section;
 const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
 
 /// 参考线一站区间行：记录某源 segment 参数区间及其累计里程范围。
@@ -247,7 +248,9 @@ impl GeometryScratchBudget {
                 observed,
             });
         }
-        let observed_live = observed.saturating_sub(self.stage_base);
+        let observed_live = observed
+            .saturating_sub(self.stage_base)
+            .saturating_add(self.station_bytes);
         if observed_live > self.live_headroom {
             return Err(GeometryCompilationError::LiveLimit {
                 limit: self.live_headroom,
@@ -639,6 +642,13 @@ pub(super) fn compile_authoring_geometry(
     let mut compiled_alignments = Vec::with_capacity(referenced_alignment_count);
     let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
     let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
+    let cross_count = plans.iter().filter(|p| cross_section::needed(p)).count();
+    type PendingSection = (
+        TypedAstEntityAddress,
+        std::sync::Arc<super::boundary::PublishedCrossSection>,
+    );
+    scratch.reserve::<PendingSection>(cross_count)?;
+    let mut cross_outputs = Vec::with_capacity(cross_count);
     let mut station_row_count = 0_usize;
     let numeric_scratch_bytes = numeric_stack_scratch_bytes();
     let station_vertex_limit = station_vertex_limit_from_bytes(station_row_byte_limit)?;
@@ -861,7 +871,7 @@ pub(super) fn compile_authoring_geometry(
         let cut_check_peak = validate_cut_stations(
             &members,
             [authoring.start_station_meters, station_end],
-            &plan.corridor.header.span,
+            plan,
             &mut scratch,
             used_points,
             used_source_ranges,
@@ -876,6 +886,26 @@ pub(super) fn compile_authoring_geometry(
         };
         let offsets = derive_member_offset_endpoints(&width_profiles, plan.reference_ordinal)?;
 
+        if cross_section::needed(plan) {
+            let proof = cross_section::compile(
+                plan,
+                alignment,
+                &offsets,
+                [authoring.start_station_meters, station_end],
+                width_rounding_error,
+                &mut scratch,
+            )?;
+            cross_outputs.push((
+                plan.corridor.header.source_address.clone(),
+                std::sync::Arc::new(proof),
+            ));
+            peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+                live_headroom,
+                scratch.dynamic_live(),
+                used_points,
+                used_source_ranges,
+            )?);
+        }
         for (member, offset) in members.iter().zip(offsets.iter()) {
             let corridor_domain = [authoring.start_station_meters, station_end];
             let count = match member.target {
@@ -1057,6 +1087,7 @@ pub(super) fn compile_authoring_geometry(
                             value: Some(CompiledFacilityBandGeometry {
                                 station: if authoring.station_mapping_request.is_some() {
                                     Some(super::station_proof::band(
+                                        crate::RoadEditingTableKind::FacilityBand,
                                         *offset,
                                         member.width_profile,
                                         corridor_domain,
@@ -1138,6 +1169,7 @@ pub(super) fn compile_authoring_geometry(
             limit: geometry_scratch_byte_limit,
             observed: u64::MAX,
         })?;
+    cross_outputs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     drop(plans);
     scratch.release::<ResolvedCorridorElement<'_>>(resolved_element_count);
     scratch.release::<ResolvedCorridorPlan<'_>>(plan_count);
@@ -1164,9 +1196,14 @@ pub(super) fn compile_authoring_geometry(
                 }
             }
             TypedAstDeclaration::RoadCorridor(corridor) => {
+                corridor.cross_section = cross_outputs
+                    .binary_search_by(|(address, _)| address.cmp(&corridor.header.source_address))
+                    .ok()
+                    .map(|i| cross_outputs[i].1.clone());
                 corridor.authoring_geometry = None;
             }
             TypedAstDeclaration::RoadSection(section) => {
+                section.extents = Box::new([]);
                 for lane in &mut section.lanes {
                     lane.authoring_geometry = None;
                 }
@@ -1185,6 +1222,8 @@ pub(super) fn compile_authoring_geometry(
     }
     debug_assert!(lane_outputs.iter().all(|output| output.value.is_none()));
     debug_assert!(facility_outputs.iter().all(|output| output.value.is_none()));
+    drop(cross_outputs);
+    scratch.release::<PendingSection>(cross_count);
     drop(lane_outputs);
     drop(facility_outputs);
     scratch.release::<PendingLaneGeometry>(expected_lane_outputs);
@@ -1204,7 +1243,7 @@ pub(super) fn compile_authoring_geometry(
 fn validate_cut_stations(
     members: &[CorridorMember<'_>],
     domain: [f64; 2],
-    corridor: &SourceLocation,
+    plan: &ResolvedCorridorPlan<'_>,
     scratch: &mut GeometryScratchBudget,
     used_points: u64,
     source_ranges: u64,
@@ -1218,7 +1257,23 @@ fn validate_cut_stations(
             })
             .flat_map(|geometry| geometry.interior_cuts.iter())
     };
-    let count = cuts().count();
+    let corridor = &plan.corridor.header.span;
+    let g = plan.corridor.authoring_geometry.as_ref().expect("resolved");
+    let ends = || {
+        g.extents
+            .iter()
+            .chain(plan.elements.iter().flat_map(|e| match e {
+                ResolvedCorridorElement::RoadSection(s) => s.extents.iter(),
+                _ => [].iter(),
+            }))
+            .flat_map(|e| {
+                e.ends.iter().enumerate().filter_map(move |(i, s)| match s {
+                    super::BoundaryStation::Fixed(s) => Some((*s, e, i)),
+                    _ => None,
+                })
+            })
+    };
+    let count = cuts().count() + ends().count();
     if count == 0 {
         return Ok(0);
     }
@@ -1228,8 +1283,8 @@ fn validate_cut_stations(
             limit: scratch.limit,
             observed: u64::MAX,
         })?;
-    type Witness<'a> = (u64, f64, &'a SourceLocation);
-    scratch.reserve::<Witness<'_>>(capacity)?;
+    type Witness = (u64, f64, SourceLocation);
+    scratch.reserve::<Witness>(capacity)?;
     let peak = check_live_limit(
         scratch.live_headroom,
         scratch.dynamic_live(),
@@ -1245,8 +1300,8 @@ fn validate_cut_stations(
             .with_numeric_source(source.clone())
         })
     };
-    witnesses.push((0, domain[0], corridor));
-    witnesses.push((encode(domain[1], corridor)?, domain[1], corridor));
+    witnesses.push((0, domain[0], corridor.clone()));
+    witnesses.push((encode(domain[1], corridor)?, domain[1], corridor.clone()));
     for (station, source) in cuts() {
         if !(domain[0] < *station && *station < domain[1]) {
             return Err(GeometryCompilationError::from(NumericFreezeError::from(
@@ -1254,12 +1309,19 @@ fn validate_cut_stations(
             ))
             .with_numeric_source(source.clone()));
         }
-        witnesses.push((encode(*station, source)?, *station, source));
+        witnesses.push((encode(*station, source)?, *station, source.clone()));
+    }
+    for (station, extent, index) in ends() {
+        let source = extent.station_source(index);
+        if !(domain[0]..=domain[1]).contains(&station) {
+            return Err(cross_section::not_proven(&source));
+        }
+        witnesses.push((encode(station, &source)?, station, source));
     }
     witnesses.sort_unstable_by(|a, b| {
         a.0.cmp(&b.0)
             .then_with(|| a.1.total_cmp(&b.1))
-            .then_with(|| a.2.cmp(b.2))
+            .then_with(|| a.2.cmp(&b.2))
     });
     for pair in witnesses.windows(2) {
         if pair[0].0 == pair[1].0 && pair[0].1 != pair[1].1 {
@@ -1270,7 +1332,7 @@ fn validate_cut_stations(
         }
     }
     drop(witnesses);
-    scratch.release::<Witness<'_>>(capacity);
+    scratch.release::<Witness>(capacity);
     Ok(peak)
 }
 
@@ -4852,6 +4914,7 @@ mod tests {
                 };
                 let geometry = template.authoring_geometry.as_ref().unwrap();
                 crate::declaration::RoadCorridorDeclaration {
+                    cross_section: None,
                     header: crate::declaration::DeclarationHeader {
                         entity_kind: template.header.entity_kind,
                         source_address: template.header.source_address.clone(),
@@ -4873,6 +4936,8 @@ mod tests {
                         .collect(),
                     authoring_geometry: Some(crate::declaration::RoadCorridorAuthoringGeometry {
                         station_mapping_request: None,
+                        complete: false,
+                        extents: Box::default(),
                         road_alignment_key: Arc::clone(&geometry.road_alignment_key),
                         road_alignment_key_span: geometry.road_alignment_key_span.clone(),
                         start_station_meters: second_start,

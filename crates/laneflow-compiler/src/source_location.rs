@@ -22,6 +22,15 @@ pub enum SourceLocation {
 }
 
 impl SourceLocation {
+    pub(crate) fn with_wire_table(mut self, table_start: usize, source_len: usize) -> Self {
+        if let Self::RoadEditing(location) = &mut self {
+            location.byte_range = u32::try_from(table_start)
+                .ok()
+                .and_then(|start| RoadEditingByteRange::checked(start, 4, source_len));
+        }
+        self
+    }
+
     pub(crate) fn curve_segment_field(&self, field_id: u16) -> Self {
         self.with_property([RoadEditingPropertyStep::TableField {
             table: RoadEditingTableKind::CurveSegment,
@@ -29,11 +38,15 @@ impl SourceLocation {
         }])
     }
 
-    pub(crate) fn facility_width_endpoint(&self, member_id: u8) -> Self {
+    pub(crate) fn width_endpoint(&self, table: RoadEditingTableKind, member_id: u8) -> Self {
         self.with_property([
             RoadEditingPropertyStep::TableField {
-                table: RoadEditingTableKind::FacilityBand,
-                field_id: 2,
+                table,
+                field_id: if table == RoadEditingTableKind::AuthoringLane {
+                    3
+                } else {
+                    2
+                },
             },
             RoadEditingPropertyStep::StructMember {
                 structure: RoadEditingStructKind::LinearWidthProfile,
@@ -42,7 +55,10 @@ impl SourceLocation {
         ])
     }
 
-    fn with_property<const N: usize>(&self, steps: [RoadEditingPropertyStep; N]) -> Self {
+    pub(crate) fn with_property<const N: usize>(
+        &self,
+        steps: [RoadEditingPropertyStep; N],
+    ) -> Self {
         let mut source = self.clone();
         if let Self::RoadEditing(loc) = &mut source {
             let path = RoadEditingPropertyPath::new(Box::new(steps));
@@ -356,6 +372,16 @@ pub enum RoadEditingTableKind {
     CircularArcSegment,
     /// 原生回旋线标量。
     ClothoidSegment,
+    /// 有向边界上的命名区间。
+    BoundaryExtent,
+    /// 结构边界的一侧成员。
+    BoundaryMember,
+    /// 有向跨越规则。
+    CrossingRule,
+    /// 护栏尺寸与锚定参数。
+    Guardrail,
+    /// 路缘端面和误差。
+    Curb,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 inline struct 种类。
@@ -372,6 +398,10 @@ pub enum RoadEditingStructKind {
     LinearWidthProfile,
     /// 编制坐标中的 f64 二维点 inline struct；用于 XZ 平面。
     Vec2F64,
+    /// 命名区间的端点种类与站位。
+    BoundaryStation,
+    /// 路缘单侧端面的几何参数。
+    CurbEnd,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 union 种类。
@@ -380,6 +410,8 @@ pub enum RoadEditingStructKind {
 pub enum RoadEditingUnionKind {
     /// 曲线段几何 union：直线段或三次 Bézier 段。
     CurveSegmentGeometry,
+    /// 命名区间的跨越规则或实体。
+    BoundaryPayload,
 }
 
 /// owner-local 关系的闭合集合。
@@ -431,6 +463,8 @@ pub enum RoadEditingRelationKind {
     AuthoringLaneEdge,
     /// 行驶方向上两个相邻边之间的切点。
     InteriorCut,
+    /// 所属走廊或道路区段上的命名区间。
+    BoundaryExtent,
 }
 
 /// 有序产品关系或规范集合关系中的稳定 occurrence。

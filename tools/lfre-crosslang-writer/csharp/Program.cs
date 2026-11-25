@@ -25,9 +25,10 @@ internal static class Program
     private static int Main(string[] args)
     {
         bool reverse = args.Length == 2 && args[1] == "--reverse";
-        if (args.Length != 1 && !reverse)
+        bool complete = args.Length == 2 && args[1] == "--complete";
+        if (args.Length != 1 && !reverse && !complete)
         {
-            Console.Error.WriteLine("usage: CrosslangWriter <output.lfre> [--reverse]");
+            Console.Error.WriteLine("usage: CrosslangWriter <output.lfre> [--reverse|--complete]");
             return 1;
         }
 
@@ -108,39 +109,104 @@ internal static class Program
                 edges.Add(LaneEdge.CreateLaneEdge(builder, chain[i], 10.0, successors));
             }
             var edgeChain = AuthoringLane.CreateEdgeChainVector(builder, chain);
-            var stations = AuthoringLane.CreateInteriorCutStationsMetersVector(builder,
+            var stations = cuts.Length == 0 ? default : AuthoringLane.CreateInteriorCutStationsMetersVector(builder,
                 Array.ConvertAll(cuts, station => station * 401.0 / 399.0));
             var laneKey = builder.CreateString(key);
             AuthoringLane.StartAuthoringLane(builder);
             AuthoringLane.AddAuthoringLaneKey(builder, laneKey);
             AuthoringLane.AddEdgeChain(builder, edgeChain);
-            AuthoringLane.AddInteriorCutStationsMeters(builder, stations);
+            if (cuts.Length != 0) AuthoringLane.AddInteriorCutStationsMeters(builder, stations);
+            if (complete) AuthoringLane.AddSupportsWheel(builder, key == "A");
             AuthoringLane.AddDirection(builder, backward ? LaneDirection.Backward : LaneDirection.Forward);
             AuthoringLane.AddRoadSection(builder, backward ? outerSection : sectionRef);
             AuthoringLane.AddWidthProfile(builder, LinearWidthProfile.CreateLinearWidthProfile(builder, 3.5, 3.5));
             return AuthoringLane.EndAuthoringLane(builder);
         }
-        var lanes = new[] { AddLane("A", new double[] {47, 59, 68}, false), AddLane("B", new double[] {53, 60, 74}, reverse) };
-        var laneEdges = RoadEditingSource.CreateLaneEdgesVector(builder, edges.ToArray());
+        var lanes = new[] { AddLane("A", complete ? new double[] {59} : new double[] {47, 59, 68}, false), AddLane("B", complete ? Array.Empty<double>() : new double[] {53, 60, 74}, reverse) };
+        var laneEdges = complete ? default : RoadEditingSource.CreateLaneEdgesVector(builder, edges.ToArray());
         var laneRef = builder.CreateString("road>section>A");
         var element = CorridorElement.CreateCorridorElement(builder, CorridorElementKind.RoadSection, sectionRef);
         var members = reverse ? new[] { element, CorridorElement.CreateCorridorElement(builder, CorridorElementKind.RoadSection, outerSection) } : new[] { element };
         var elements = RoadCorridor.CreateElementsVector(builder, members);
-        var corridor = RoadCorridor.CreateRoadCorridor(builder, roadKey, alignmentKey, 0.0,
-            StationEndKind.AlignmentEnd, 0.0, sectionRef, laneRef, elements);
+        var emptyExtents = EmptyVector<BoundaryExtent>(builder);
+        var corridor = RoadCorridor.CreateRoadCorridor(builder, roadKey, alignmentKey, complete ? 53.0 * 401 / 399 : 0.0,
+            complete ? StationEndKind.Finite : StationEndKind.AlignmentEnd, complete ? 63.5 * 401 / 399 : 0.0, sectionRef, laneRef, elements,
+            default, complete ? CrossSectionCoverage.Complete : CrossSectionCoverage.None, emptyExtents);
+        var extents = emptyExtents;
+        if (complete)
+        {
+            var left = BoundaryMember.CreateBoundaryMember(builder, BoundaryMemberKind.AuthoringLane, laneRef);
+            var right = BoundaryMember.CreateBoundaryMember(builder, BoundaryMemberKind.AuthoringLane, builder.CreateString("road>section>B"));
+            Offset<BoundaryExtent> Extent(string key, BoundaryExtentKind kind, BoundaryPayload type, int payload)
+            {
+                var name = builder.CreateString(key);
+                BoundaryExtent.StartBoundaryExtent(builder);
+                BoundaryExtent.AddLeft(builder, left);
+                BoundaryExtent.AddRight(builder, right);
+                BoundaryExtent.AddExtentKind(builder, kind);
+                BoundaryExtent.AddLocalKey(builder, name);
+                BoundaryExtent.AddLow(builder, BoundaryStation.CreateBoundaryStation(builder, BoundaryStationKind.CorridorEndpoint, 0));
+                BoundaryExtent.AddHigh(builder, BoundaryStation.CreateBoundaryStation(builder, BoundaryStationKind.Fixed, 60.0 * 401 / 399));
+                BoundaryExtent.AddPayloadType(builder, type);
+                BoundaryExtent.AddPayload(builder, payload);
+                return BoundaryExtent.EndBoundaryExtent(builder);
+            }
+            var mark = Extent("mark", BoundaryExtentKind.Rule, BoundaryPayload.CrossingRule, CrossingRule.CreateCrossingRule(builder, 3, 2).Value);
+            var rail = Extent("rail", BoundaryExtentKind.Obstacle, BoundaryPayload.Guardrail, Guardrail.CreateGuardrail(builder, 2, 0, 2, 0.15, 0, 0.85, 0).Value);
+            Curb.StartCurb(builder);
+            Curb.AddLow(builder, CurbEnd.CreateCurbEnd(builder, 0.1, 0, 0, 0.1));
+            Curb.AddHigh(builder, CurbEnd.CreateCurbEnd(builder, 0.1, 0, 0, 0.18));
+            Curb.AddParameterErrorMeters(builder, 0);
+            var curb = Extent("curb", BoundaryExtentKind.Obstacle, BoundaryPayload.Curb, Curb.EndCurb(builder).Value);
+            extents = RoadSection.CreateBoundaryExtentsVector(builder, new[] {mark, rail, curb});
+        }
         var laneRefs = RoadSection.CreateAuthoringLanesVector(builder, reverse ? new[] { laneRef } : new[] { laneRef, builder.CreateString("road>section>B") });
         var section = RoadSection.CreateRoadSection(builder, builder.CreateString("section"),
-            builder.CreateString("motorLane"), laneRefs, default, roadKey);
+            builder.CreateString("motorLane"), laneRefs, default, roadKey, extents);
 
         var sections = new System.Collections.Generic.List<Offset<RoadSection>> { section };
         if (reverse) {
             var outerLane = RoadSection.CreateAuthoringLanesVector(builder, new[] { builder.CreateString("road>opposite>B") });
             sections.Add(RoadSection.CreateRoadSection(builder, builder.CreateString("opposite"),
-                builder.CreateString("motorLane"), outerLane, default, roadKey));
+                builder.CreateString("motorLane"), outerLane, default, roadKey, emptyExtents));
+        }
+
+        var corridors = new System.Collections.Generic.List<Offset<RoadCorridor>> { corridor };
+        if (complete) {
+            var allLanes = new System.Collections.Generic.List<Offset<AuthoringLane>>(lanes);
+            void AddApproach(string key, double start, StationEndKind endKind, double end)
+            {
+                var road = builder.CreateString(key);
+                var sectionKey = builder.CreateString(key + ">section");
+                var laneKey = builder.CreateString(key + ">section>through");
+                var edgeKey = builder.CreateString(key + "-edge");
+                var noSuccessors = LaneEdge.CreateSuccessorsVector(builder, Array.Empty<StringOffset>());
+                edges.Add(LaneEdge.CreateLaneEdge(builder, edgeKey, 10.0, noSuccessors));
+                var edgeChain = AuthoringLane.CreateEdgeChainVector(builder, new[] { edgeKey });
+                var name = builder.CreateString("through");
+                AuthoringLane.StartAuthoringLane(builder);
+                AuthoringLane.AddAuthoringLaneKey(builder, name);
+                AuthoringLane.AddEdgeChain(builder, edgeChain);
+                AuthoringLane.AddRoadSection(builder, sectionKey);
+                AuthoringLane.AddWidthProfile(builder, LinearWidthProfile.CreateLinearWidthProfile(builder, 3.5, 3.5));
+                AuthoringLane.AddDirection(builder, LaneDirection.Forward);
+                allLanes.Add(AuthoringLane.EndAuthoringLane(builder));
+                var members = RoadSection.CreateAuthoringLanesVector(builder, new[] { laneKey });
+                sections.Add(RoadSection.CreateRoadSection(builder, builder.CreateString("section"),
+                    builder.CreateString("motorLane"), members, default, road, emptyExtents));
+                var sectionElement = CorridorElement.CreateCorridorElement(builder, CorridorElementKind.RoadSection, sectionKey);
+                var corridorElements = RoadCorridor.CreateElementsVector(builder, new[] { sectionElement });
+                corridors.Add(RoadCorridor.CreateRoadCorridor(builder, road, alignmentKey, start, endKind, end,
+                    sectionKey, laneKey, corridorElements, default, CrossSectionCoverage.None, emptyExtents));
+            }
+            AddApproach("before", 0, StationEndKind.Finite, 53.0 * 401 / 399);
+            AddApproach("after", 63.5 * 401 / 399, StationEndKind.AlignmentEnd, 0);
+            lanes = allLanes.ToArray();
+            laneEdges = RoadEditingSource.CreateLaneEdgesVector(builder, edges.ToArray());
         }
 
         var roadAlignments = RoadEditingSource.CreateRoadAlignmentsVector(builder, new[] { alignment });
-        var roadCorridors = RoadEditingSource.CreateRoadCorridorsVector(builder, new[] { corridor });
+        var roadCorridors = RoadEditingSource.CreateRoadCorridorsVector(builder, corridors.ToArray());
         var roadSections = RoadEditingSource.CreateRoadSectionsVector(builder, sections.ToArray());
         var authoringLanes = RoadEditingSource.CreateAuthoringLanesVector(builder, lanes);
         var junctions = EmptyVector<Junction>(builder);
@@ -165,7 +231,7 @@ internal static class Program
         var rightOfWayPolicySets = EmptyVector<RightOfWayPolicySet>(builder);
 
         RoadEditingSource.StartRoadEditingSource(builder);
-        RoadEditingSource.AddFormatVersion(builder, 6u);
+        RoadEditingSource.AddFormatVersion(builder, 7u);
         RoadEditingSource.AddModuleHeader(builder, header);
         RoadEditingSource.AddGeometryAccuracyProfile(builder, GeometryAccuracyProfile.Fine2Cm);
         RoadEditingSource.AddGeometryDirectionProfile(builder, GeometryDirectionProfile.Smooth1Deg);

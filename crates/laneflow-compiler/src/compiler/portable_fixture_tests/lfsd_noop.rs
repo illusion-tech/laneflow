@@ -45,7 +45,7 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/1b4f365e4532290bf45754d6804cdc2b12a42915e6472397b34a8d9ef4804665"
+        "sha256/2f3b7fd1e6566a0ba8d232862b0b3ad17b6788c76e74c1a2e3de593eec36bdc3"
     );
     assert_eq!(
         candidate.network_revision(),

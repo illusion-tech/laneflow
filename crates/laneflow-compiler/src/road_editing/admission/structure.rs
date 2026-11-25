@@ -27,6 +27,29 @@ fn bytes<T>(count: usize) -> u64 {
     size_bytes::<T>(u64::try_from(count).unwrap_or(u64::MAX))
 }
 
+fn extent_bytes(name: usize, leaves: usize) -> u64 {
+    use crate::road_editing::boundary::NamedExtent;
+    bytes::<Arc<NamedExtent>>(1)
+        + bytes::<NamedExtent>(1)
+        + bytes::<usize>(4)
+        + name as u64
+        + bytes::<SourceLocation>(leaves)
+}
+#[cfg(debug_assertions)]
+fn extents_size(rows: &[Arc<crate::road_editing::boundary::NamedExtent>]) -> u64 {
+    rows.iter()
+        .map(|r| {
+            extent_bytes(
+                r.key.len(),
+                r.name_source.contributing.len()
+                    + r.payload_source
+                        .as_ref()
+                        .map_or(0, |s| s.contributing.len()),
+            )
+        })
+        .sum()
+}
+
 impl StructureSizing {
     pub(super) fn from_root(
         root: wire::RoadEditingSource<'_>,
@@ -47,13 +70,32 @@ impl StructureSizing {
             .saturating_add(size_bytes::<AuthoringPoint2F64>(
                 counts.conflict_region_point_count(),
             ));
+        for owner in crate::road_editing::boundary::Owner::all(root) {
+            for e in owner.extents() {
+                let name_leaves = 7
+                    + usize::from(e.low().kind() == wire::BoundaryStationKind::Fixed)
+                    + usize::from(e.high().kind() == wire::BoundaryStationKind::Fixed);
+                let payload_leaves = match e.payload_type().0 {
+                    1 => 2,
+                    2 => 7,
+                    3 => 9,
+                    _ => 0,
+                };
+                retained = retained.saturating_add(extent_bytes(
+                    e.local_key().len(),
+                    name_leaves + payload_leaves,
+                ));
+            }
+        }
         for lane in root.authoring_lanes() {
             retained = retained
                 .saturating_add(bytes::<OwnedEntityReference<LaneEdgeKind>>(
                     lane.edge_chain().len(),
                 ))
                 .saturating_add(bytes::<(f64, SourceLocation)>(
-                    lane.interior_cut_stations_meters().len(),
+                    lane.interior_cut_stations_meters()
+                        .unwrap_or_default()
+                        .len(),
                 ));
         }
         for corridor in root.road_corridors() {
@@ -237,21 +279,25 @@ pub(super) fn assert_matches_lowered(
                 }
                 storage(&edge.successors)
             }
-            TypedAstDeclaration::RoadCorridor(corridor) => storage(&corridor.elements),
-            TypedAstDeclaration::RoadSection(section) => {
-                section
-                    .lanes
-                    .iter()
-                    .fold(storage(&section.lanes), |total, lane| {
-                        total
-                            .saturating_add(storage(&lane.edge_chain))
-                            .saturating_add(
-                                lane.authoring_geometry
-                                    .as_ref()
-                                    .map_or(0, |geometry| storage(&geometry.interior_cuts)),
-                            )
-                    })
+            TypedAstDeclaration::RoadCorridor(corridor) => {
+                storage(&corridor.elements)
+                    + corridor
+                        .authoring_geometry
+                        .as_ref()
+                        .map_or(0, |g| extents_size(&g.extents))
             }
+            TypedAstDeclaration::RoadSection(section) => section.lanes.iter().fold(
+                storage(&section.lanes) + extents_size(&section.extents),
+                |total, lane| {
+                    total
+                        .saturating_add(storage(&lane.edge_chain))
+                        .saturating_add(
+                            lane.authoring_geometry
+                                .as_ref()
+                                .map_or(0, |geometry| storage(&geometry.interior_cuts)),
+                        )
+                },
+            ),
             TypedAstDeclaration::Junction(junction) => {
                 storage(&junction.approach_edges).saturating_add(storage(&junction.internal_edges))
             }

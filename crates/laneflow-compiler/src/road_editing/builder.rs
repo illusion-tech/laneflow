@@ -55,6 +55,56 @@ struct ModuleUsage {
 }
 
 impl ModuleUsage {
+    fn charge_extents(
+        &mut self,
+        values: &[BoundaryExtentInput],
+        namespace: &str,
+        imports: &BTreeSet<Box<str>>,
+        limits: &CompileProfile,
+    ) -> Result<(), DiagnosticBundle> {
+        self.charge_vector(values.len(), 4);
+        charge_relation(self, values.len());
+        for e in values {
+            self.charge_table(9, 55);
+            self.charge_token(&e.local_key, limits)?;
+            self.charge_canvas(e.canvas_selection.as_deref(), limits)?;
+            if !super::model::local_key_valid(&e.local_key) {
+                return Err(input_error(
+                    "boundaryExtent.localKey",
+                    RoadEditingInputViolation::InvalidCombination,
+                ));
+            }
+            self.typed_ast_record_count = self
+                .typed_ast_record_count
+                .saturating_add(3 + u64::from(e.payload.is_some()));
+            for member in [&e.left, &e.right] {
+                self.charge_table(2, 5);
+                match member {
+                    BoundaryMemberInput::RoadSection(r) => {
+                        self.charge_reference(r, namespace, imports, limits)?
+                    }
+                    BoundaryMemberInput::FacilityBand(r) => {
+                        self.charge_reference(r, namespace, imports, limits)?
+                    }
+                    BoundaryMemberInput::AuthoringLane(r) => {
+                        self.charge_reference(r, namespace, imports, limits)?
+                    }
+                }
+            }
+            if let Some(payload) = e.payload {
+                payload.quantize().map_err(|field| {
+                    input_error(field, RoadEditingInputViolation::InvalidCombination)
+                })?;
+                match payload {
+                    BoundaryPayloadInput::CrossingRule { .. } => self.charge_table(2, 2),
+                    BoundaryPayloadInput::Guardrail { .. } => self.charge_table(7, 49),
+                    BoundaryPayloadInput::Curb { .. } => self.charge_table(3, 72),
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn charge_table(&mut self, field_count: u64, slot_bytes: u64) {
         self.wire_upper_bound = self
             .wire_upper_bound
@@ -642,7 +692,13 @@ fn charge_declaration(
             policy::charge(usage, value, current_namespace, import_namespaces, limits)?
         }
         RoadEditingDeclaration::RoadCorridor(value) => {
-            usage.charge_table(10, 42);
+            usage.charge_table(11, 46);
+            usage.charge_extents(
+                value.boundary_extents(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_vector(value.elements().len(), 4);
             usage.charge_token(value.road_alignment().key(), limits)?;
             usage.charge_reference(
@@ -679,7 +735,13 @@ fn charge_declaration(
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::RoadSection(value) => {
-            usage.charge_table(5, 20);
+            usage.charge_table(6, 24);
+            usage.charge_extents(
+                value.boundary_extents(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_vector(value.authoring_lanes().len(), 4);
             usage.charge_token(value.kind_id(), limits)?;
             charge_references(
@@ -698,9 +760,11 @@ fn charge_declaration(
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::AuthoringLane(value) => {
-            usage.charge_table(8, 41);
+            usage.charge_table(9, 42);
             usage.charge_vector(value.edge_chain().len(), 4);
-            usage.charge_vector(value.interior_cut_stations_meters().len(), 8);
+            if !value.interior_cut_stations_meters().is_empty() {
+                usage.charge_vector(value.interior_cut_stations_meters().len(), 8);
+            }
             charge_relation(usage, value.interior_cut_stations_meters().len());
             charge_references(
                 usage,
