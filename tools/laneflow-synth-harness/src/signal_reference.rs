@@ -73,6 +73,16 @@ mod tests {
                 aspect(SignalSchedule::CellOffset, 0, 0, yellow_first, dt),
                 SignalAspect::Yellow
             );
+            assert_eq!(
+                aspect(
+                    SignalSchedule::CellOffset,
+                    0,
+                    0,
+                    yellow_first + cycle / u64::from(dt),
+                    dt
+                ),
+                SignalAspect::Yellow
+            );
             for cell in [0_u32, 99, 999] {
                 for route in 0..4_u32 {
                     assert_eq!(
