@@ -1405,7 +1405,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 现行预算，或新候选会改变公共接口、确定性语义、拒绝服务边界或依赖方向时，才携带精确
 分层证据重新进入设计。纯私有、依赖中立且不改变预算的等价优化可在常规审阅中处理。
 新增依赖仍须记录最低支持 Rust 版本（Minimum Supported Rust
-Version，MSRV）1.100.0、许可证、维护状态、安全记录和依赖树。
+Version，MSRV）与 workspace MSRV 的关系、许可证、维护状态、安全记录和依赖树。
 
 ### 10.3 并行与增量
 

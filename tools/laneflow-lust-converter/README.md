@@ -34,9 +34,9 @@ UTF-8 ID 次键。转换报告为 `formatVersion=0.3`，明确携带 `population
 
 ```text
 # 本地需先 checkout 精确 commit c4bd5bd3751d426d42a9a1749c815e47ea188549
-cargo +1.100.0 run -p laneflow-lust-converter -- verify-source --source-dir <LuSTScenario根目录>
+cargo run -p laneflow-lust-converter -- verify-source --source-dir <LuSTScenario根目录>
 
-cargo +1.100.0 run -p laneflow-lust-converter -- convert --config <toml>
+cargo run -p laneflow-lust-converter -- convert --config <toml>
 ```
 
 可选全量集成（默认 `cargo test` 跳过；均需 pinned `c4bd5bd3` 的
@@ -50,19 +50,19 @@ cargo +1.100.0 run -p laneflow-lust-converter -- convert --config <toml>
 
 ```text
 set LUST_SOURCE_DIR=<LuSTScenario根目录>
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_net_topology_matches_external_lane_anchor
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_convert_cli_end_to_end
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_source_verification_precedes_diagnostic_convert
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored verified_record_with_tampered_bytes_fails_closed
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored lust_stub_weld_candidates_match_manifest
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored pinned_lust_population_source_regression
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_net_topology_matches_external_lane_anchor
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_convert_cli_end_to_end
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored full_lust_source_verification_precedes_diagnostic_convert
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored verified_record_with_tampered_bytes_fails_closed
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored lust_stub_weld_candidates_match_manifest
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored pinned_lust_population_source_regression
 ```
 
 S0F 邻接普查（另需**不存在**的 `S0F_OUTPUT_DIR`）：
 
 ```text
 set S0F_OUTPUT_DIR=<尚不存在的目录>
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored pinned_lust_path_adjacency_survey
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored pinned_lust_path_adjacency_survey
 ```
 
 局部诊断（各自需**不存在**的 `GRID_CALIBRATION_OUTPUT_DIR` 或
@@ -70,11 +70,11 @@ cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ign
 
 ```text
 set GRID_CALIBRATION_OUTPUT_DIR=<尚不存在的目录>
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored fixed_signal_seam_feasibility
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored fixed_signal_seam_feasibility
 :: 其余同组入口：fixed_signal_guided_recovery / fixed_signal_endpoint_feasibility /
 :: fixed_grid_calibration / fixed_signal_span_probe —— 每个换一个新目录
 set CURVE_DESIGN_OUTPUT_DIR=<尚不存在的目录>
-cargo +1.100.0 test -p laneflow-lust-converter --locked --lib --release -- --ignored fixed_stream_a_curve_design
+cargo test -p laneflow-lust-converter --locked --lib --release -- --ignored fixed_stream_a_curve_design
 :: 其余同组入口：fixed_c12_curve_design / fixed_c17_bilateral_design /
 :: fixed_single_edge_design_reuse / fixed_failed_curve_design —— 每个换一个新目录
 ```
@@ -104,7 +104,7 @@ pinned 源重扫比对身份集合——批准域变更须先回 #253 走 G1 裁
 此基础上再设置 `LUST_DECIMAL_BENCH=1`：
 
 ```text
-cargo +1.100.0 test --release --locked -p laneflow-lust-converter --lib sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference -- --exact --ignored --nocapture
+cargo test --release --locked -p laneflow-lust-converter --lib sumo::decimal::tests::pinned_lust_decimal_rendering_matches_reference -- --exact --ignored --nocapture
 ```
 
 测量先验证等价性、预热两条路径，再交替先后顺序各取 10 个样本；每个样本遍历

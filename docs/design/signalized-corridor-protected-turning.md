@@ -466,7 +466,7 @@ t_entry + T_clear ≤ Y + R
 显式运行：
 
 ```text
-cargo +1.100.0 test --release --locked -p laneflow-scenario --test signalized_corridor_clearance -- --ignored --nocapture
+cargo test --release --locked -p laneflow-scenario --test signalized_corridor_clearance -- --ignored --nocapture
 ```
 
 同一次运行另为每个黄灯期跨越样本输出诊断（#1498），未闭合样本同样输出并标注
@@ -481,7 +481,7 @@ P2 预览）、舒适与紧急两档可行域、前方限速下降约束、停�
 记录只读，开启与关闭时的已提交状态与事件一致；该 feature 默认关闭，宿主构建不开启。
 
 ```text
-cargo +1.100.0 test --locked -p laneflow-scenario --features motion-trace --test signalized_corridor_yellow_trace -- --nocapture
+cargo test --locked -p laneflow-scenario --features motion-trace --test signalized_corridor_yellow_trace -- --nocapture
 ```
 
 ### 8.2 Phase handoff 的阻断条件

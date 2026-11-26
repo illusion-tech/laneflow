@@ -24,12 +24,12 @@ LaneFlow 把受检静态路网转换为可共享修订，并在宿主控制下�
 
 ## 快速开始
 
-需要 Git、[rustup][rustup] 和 Rust 1.100.0：
+需要 Git 与 [rustup][rustup]。Rust 工具链版本由仓库根的 `rust-toolchain.toml` 钉住，进入仓库后 rustup 自动选用：
 
 ```powershell
 git clone https://github.com/illusion-tech/laneflow.git
 cd laneflow
-cargo +1.100.0 run --locked -p laneflow-bevy --example quickstart --features native-example
+cargo run --locked -p laneflow-bevy --example quickstart --features native-example
 ```
 
 窗口中可以看到两辆车沿车道移动，浅色车头标记显示行驶朝向；关闭窗口结束。
@@ -56,14 +56,14 @@ cargo +1.100.0 run --locked -p laneflow-bevy --example quickstart --features nat
 [从源码接入无窗口交通运行时][source-integration]。
 
 ```powershell
-cargo +1.100.0 run --locked -p laneflow-runtime --example headless
-cargo +1.100.0 test --locked -p laneflow-runtime --test headless_smoke
+cargo run --locked -p laneflow-runtime --example headless
+cargo test --locked -p laneflow-runtime --test headless_smoke
 ```
 
 不打开窗口，确认最小 Bevy 示例的装配、绑定与位姿同步链路：
 
 ```powershell
-cargo +1.100.0 test --locked -p laneflow-bevy --test quickstart_smoke
+cargo test --locked -p laneflow-bevy --test quickstart_smoke
 ```
 
 参与开发时的完整工作区检查见[贡献指南 · 测试与验证][contributing-tests]。

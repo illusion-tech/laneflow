@@ -319,7 +319,7 @@ Refs: #12
    别名目标必须已经登记。
 3. 若上游移除模型，核对原因；仍有使用依据的模型可转为带来源的本地登记，不能
    直接把它映射到另一型号。别名目标消失时同步审阅对应别名。
-4. 运行 `cargo +1.100.0 test --locked -p xtask`。登记变更可与首次使用该规范 ID 的
+4. 运行 `cargo test --locked -p xtask`。登记变更可与首次使用该规范 ID 的
    提交放在同一 PR；hook / CI 校验的是当前检出版本所携带的目录。
 
 目录格式错误、重复 ID、缺少本地登记来源或别名冲突会使含 `Model` 的提交校验失败。
@@ -377,7 +377,7 @@ LaneFlow 的登记约定，不宣称是外部目录或厂商的官方 ID。发�
    允许同产品的 Web、Desktop 或 IDE 扩展；先核实再逐项登记。
 3. 在 `hints` 增加需要的展示名/历史写法提示，按输入排序；新增入口时复核对应模糊
    产品名的候选列表。不得为同一入口登记另一种规范拼写，也不得凭旧提交名称猜入口。
-4. 运行 `cargo +1.100.0 test --locked -p xtask`。登记变更可与首次使用该规范 ID 的提交
+4. 运行 `cargo test --locked -p xtask`。登记变更可与首次使用该规范 ID 的提交
    放在同一 PR，hook / CI 使用当前检出版本携带的目录。
 5. 产品改名或来源失效时通过 PR 核实并更新来源；保留稳定 ID。确需删除某组合时，
    同时处理提示引用并说明对尚未合入提交的影响，不把它静默映射成其他产品或入口。
@@ -435,7 +435,7 @@ Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下�
 本地可运行：
 
 ```powershell
-cargo +1.100.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD
+cargo run --locked -p xtask -- check-commit-messages origin/main..HEAD
 ```
 
 启用仓库内置 hook：

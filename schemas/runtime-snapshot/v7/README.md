@@ -35,7 +35,7 @@ reservation 的 exact Gate/passages、route、车辆全长和绑定修订边长�
 clean regeneration 使用固定 flatc 25.12.19：
 
 ```text
-cargo +1.100.0 run --locked -p xtask -- check-runtime-snapshot-codegen --flatc <flatc>
+cargo run --locked -p xtask -- check-runtime-snapshot-codegen --flatc <flatc>
 ```
 
 配置仅包含四类语义容量与固定步长，不包含 worker；宿主为安装/恢复另行传入执行配置。

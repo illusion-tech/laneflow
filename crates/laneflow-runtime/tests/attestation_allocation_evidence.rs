@@ -3,7 +3,7 @@
 //!
 //! Region 是进程级计数器；本文件只有一个测试，避免 libtest 跨测试报告污染。正式测量在
 //! 安静窗口以
-//! `cargo +1.100.0 test --release --locked -p laneflow-runtime --test attestation_allocation_evidence -- --ignored --nocapture --test-threads=1`
+//! `cargo test --release --locked -p laneflow-runtime --test attestation_allocation_evidence -- --ignored --nocapture --test-threads=1`
 //! 运行。
 
 #[path = "support/synthetic_network.rs"]
