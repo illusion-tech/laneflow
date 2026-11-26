@@ -412,6 +412,48 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
                 .filter(|e| e.corridor == c)
                 .count();
             assert_eq!(names, if origin == 0.0 { 3 } else { 0 });
+            if origin == 0. {
+                use laneflow_static_network::vehicle::*;
+                let relations = shared.traffic().relations();
+                let section = relations.corridor_reference_section(c).unwrap();
+                let input = TrackQuery {
+                    revision: shared.network_revision(),
+                    corridor: c,
+                    frame: rows[0].frame,
+                    station_window_nm: [0, map.corridor_domain(c).unwrap().length_nm],
+                    traversable_lanes: relations.section_lanes(section).unwrap(),
+                    axles: AxleDimensions {
+                        wheelbase_m: 2.60,
+                        half_track_m: 0.80,
+                        reference_height_m: 0.55,
+                    },
+                    trace: RearAxleTrace::Corridor(CorridorTrace {
+                        stations_nm: [2_000_000_000, 4_000_000_000],
+                        from_m: [0.3; 2],
+                        to_m: [0.3; 2],
+                    }),
+                };
+                let report = shared.vehicle_geometry(
+                    &input,
+                    SteeringLimits {
+                        max_angle_rad: 0.6,
+                        max_rate_rad_s: 1.,
+                        speed_m_s: 5.,
+                    },
+                    BodyEnvelope {
+                        front_from_rear_m: 3.40,
+                        rear_overhang_m: 0.75,
+                        half_width_m: 0.95,
+                        heights_m: [0., 1.5],
+                    },
+                    GeometryWorkLimits::STANDARD,
+                );
+                assert!(
+                    matches!(report.tracks.outcome, TrackOutcome::Covered(_))
+                        && matches!(report.sweep.outcome,SweepOutcome::Clear(Some(clear)) if clear.lower_m>0.),
+                    "{report:?}"
+                );
+            }
             for row in rows {
                 check_graded_arc_surface(row, origin);
             }

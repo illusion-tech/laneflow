@@ -180,6 +180,7 @@ fn jet(d: [Vector; 5]) -> std::result::Result<[f32; 9], NumericFreezeError> {
     Ok(out)
 }
 
+#[derive(Clone, Copy)]
 struct Cone {
     axis: [Scalar; 2],
     min_parallel: f64,
@@ -337,11 +338,22 @@ pub(super) fn build(
             .then(a.source.cmp(&b.source))
     });
     let rows = &alignment.reference.station_rows;
-    let row_count = rows
-        .iter()
-        .filter(|r| r.cumulative_end_meters > domain[0] && r.cumulative_start_meters < domain[1])
-        .count();
-    let capacity = row_count.saturating_add(knots.len());
+    let mut capacity = knots.len();
+    for row in rows {
+        let a = row.cumulative_start_meters.max(domain[0]);
+        let b = row.cumulative_end_meters.min(domain[1]);
+        if a >= b {
+            continue;
+        }
+        capacity = capacity.saturating_add(1);
+        if matches!(&program.segments[row.segment_ordinal as usize].geometry,
+            AuthoringCurveSegmentGeometry::Native{prepared:Some(n),..} if n.law.k0.value != n.law.k1.value)
+        {
+            let first = knots.partition_point(|k| k.station <= a);
+            let last = knots.partition_point(|k| k.station < b);
+            capacity = capacity.saturating_add(1 + last - first);
+        }
+    }
     retain::<SurfaceRow>(scratch, capacity)?;
     let mut result: Vec<SurfaceRow> = Vec::with_capacity(capacity);
     let station_node = |s: f64, r: &ReferenceStationRow| {
@@ -368,9 +380,11 @@ pub(super) fn build(
             row_index += 1;
             let mut a = row.cumulative_start_meters.max(domain[0]);
             let end = row.cumulative_end_meters.min(domain[1]);
+            let mut refinement = None;
             while a < end {
                 let k = knots.partition_point(|k| k.station <= a);
-                let b = knots.get(k).map_or(end, |k| end.min(k.station));
+                let mandatory_end = knots.get(k).map_or(end, |k| end.min(k.station));
+                let b = refinement.filter(|mid| *mid > a).unwrap_or(mandatory_end);
                 let nodes = [station_node(a, row)?, station_node(b, row)?];
                 if nodes[0].0 >= nodes[1].0 {
                     return Err(fail());
@@ -383,9 +397,7 @@ pub(super) fn build(
                     nodes,
                 };
                 // 同一原段内的分行共享源切向。跨原段时先在真实的段端点核对水平朝向。
-                let source_seam = incoming
-                    .take()
-                    .filter(|_| !result.is_empty() && !seg.smooth_entry);
+                let source_seam = incoming.filter(|_| !result.is_empty() && !seg.smooth_entry);
                 if let Some((previous, previous_error)) = source_seam
                     && !seam::same_source_heading(previous, previous_error, curve, start_error)
                         .map_err(|_| fail())?
@@ -421,7 +433,27 @@ pub(super) fn build(
                         }
                     })
                 });
-                let errors = proof(&cell, jets, cone).ok_or_else(fail)?;
+                let mut trial = *cone;
+                let errors = proof(&cell, jets, &mut trial).ok_or_else(fail)?;
+                // 转向验算中 1e-6 m⁻² 对应 19 m/s、2.6 m 轴距下约 0.00005 rad/s。
+                // 曲率变化段的三阶证据太宽时补一个共同路面锚点。每个必选区间最多补一个；
+                // 最终仍发布真实误差，查询使用车型自己的限值。
+                if refinement.is_none()
+                    && errors[3] > 1e-6
+                    && matches!(curve, CurveSegment::Native(n) if n.law.k0.value!=n.law.k1.value)
+                {
+                    let mid = a + (b - a) * 0.5;
+                    let node = station_node(mid, row)?;
+                    if nodes[0].0 < node.0 && node.0 < nodes[1].0 {
+                        refinement = Some(mid);
+                        continue;
+                    }
+                }
+                *cone = trial;
+                incoming = None;
+                if b == mandatory_end {
+                    refinement = None;
+                }
                 let mut endpoint_sources = [a, b].map(|n| {
                     let first = knots.partition_point(|k| k.station < n);
                     &knots[first..knots.partition_point(|k| k.station <= n)]

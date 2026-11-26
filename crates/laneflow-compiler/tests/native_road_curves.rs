@@ -10,6 +10,9 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
+#[path = "native_road_curves/vehicle.rs"]
+mod vehicle;
+
 type Segment = RoadEditingCurveSegment;
 type Program = RoadEditingCurveProgram;
 fn p(x: f64, y: f64, z: f64) -> RoadEditingPoint3 {
@@ -38,11 +41,31 @@ fn save(
 fn save_lanes(
     program: Program,
     cuts: &[f64],
-    (accuracy, direction): (GeometryAccuracyProfile, GeometryDirectionProfile),
+    profiles: (GeometryAccuracyProfile, GeometryDirectionProfile),
     backward: bool,
     coverage: CrossSectionCoverage,
     reference: usize,
     widths: [[f64; 2]; 2],
+) -> OwnedRoadEditingSourceBuffer {
+    save_lane_declarations(
+        program,
+        cuts,
+        profiles,
+        backward,
+        coverage,
+        reference,
+        (widths.map(|w| (w, true)), Vec::new()),
+    )
+}
+
+fn save_lane_declarations(
+    program: Program,
+    cuts: &[f64],
+    (accuracy, direction): (GeometryAccuracyProfile, GeometryDirectionProfile),
+    backward: bool,
+    coverage: CrossSectionCoverage,
+    reference: usize,
+    (lane_declarations, extents): ([([f64; 2], bool); 2], Vec<BoundaryExtentInput>),
 ) -> OwnedRoadEditingSourceBuffer {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -99,10 +122,13 @@ fn save_lanes(
         module
             .add_declaration(RoadEditingDeclaration::RoadSection(
                 RoadSectionInput::try_new("section", "motorLane", lanes.to_vec(), corridor)
-                    .unwrap(),
+                    .unwrap()
+                    .with_boundary_extents(extents.clone()),
             ))
             .unwrap();
-        for (lane, [low, high]) in ["inner", "outer"].into_iter().zip(widths) {
+        for (lane, ([low, high], supports_wheel)) in
+            ["inner", "outer"].into_iter().zip(lane_declarations)
+        {
             let edge = format!("{lane}-{i}");
             let direction = if backward && lane == "outer" {
                 RoadEditingLaneDirection::Backward
@@ -121,7 +147,7 @@ fn save_lanes(
                     )
                     .unwrap()
                     .with_wheel_support(
-                        (coverage == CrossSectionCoverage::Complete).then_some(true),
+                        (coverage == CrossSectionCoverage::Complete).then_some(supports_wheel),
                     ),
                 ))
                 .unwrap();
