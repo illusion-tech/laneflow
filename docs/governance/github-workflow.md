@@ -372,6 +372,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   base 的累计 diff 判定同口径路径，纯文档合并组 job 级跳过、不分配 runner；
   检测失败或输出缺失时失败关闭——照常全跑，不静默跳过；`workflow_dispatch`
   恒全量（#1363）。非必查。
+  PR 与合并组的 CI 计划 job 同时发布 Fuzz 选测对照。首批核对注册表中登记的
+  Cargo 测试目标和私有模块，Fuzz 的字面量嵌入及已登记的跨包输入优先计入范围。
+  报告逐文件记录候选范围和原因，读取失败或缺少输入依据时记录全量回退。
+  六路任务由现行 Fuzz 路径门调度。
 - `Schema Codegen`：钉版 flatc 的 Ubuntu / Windows 精确代码生成与 unsafe 边界
   检查、生成 Rust 绑定编译，以及 Cross-language LFRE writer fixtures 字节对拍。
   PR 与 main push 是否触发由 workflow 级 `paths` 决定（schemas、两个 wire crate、

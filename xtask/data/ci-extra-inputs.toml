@@ -73,6 +73,12 @@ not_applicable = [
     "xtask/data/**",
 ]
 
+# 只用于 Fuzz 选测对照。来源为 Cargo 测试入口及核对过的私有模块。
+[[fuzz_comparison_test]]
+package = "laneflow-runtime"
+name = "runtime_profile_evidence"
+modules = ["runtime_cpu_sampling.rs", "runtime_journal_ab.rs"]
+
 [[embed]]
 path = "crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 consumers = ["laneflow-compiler", "laneflow-format", "laneflow-runtime", "laneflow-spatial", "laneflow-static-network"]

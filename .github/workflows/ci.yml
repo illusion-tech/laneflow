@@ -204,6 +204,12 @@ jobs:
         id: plan
         run: cargo +1.100.0 run --quiet --locked -p xtask -- ci-plan --pr-specialists
 
+      - &fuzz-selection-comparison
+        name: Compare Fuzz selection
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: cargo +1.99.1 run --quiet --locked -p xtask -- ci-plan --compare-fuzz
+
   shadow-plan:
     name: Shadow plan
     runs-on: ubuntu-latest
@@ -216,6 +222,8 @@ jobs:
       - *plan-cache
       - name: Run shadow plan
         run: cargo +1.100.0 run --quiet --locked -p xtask -- ci-plan --shadow
+
+      - *fuzz-selection-comparison
 
   rust-defaults:
     name: Rust default checks
