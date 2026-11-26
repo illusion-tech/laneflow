@@ -6,6 +6,7 @@ status = "accepted"
 summary = "定义测量环境记录、进程快照与子进程观测。"
 scope = "定义测量环境记录、进程快照与子进程观测。"
 date = "2026-11-16"
+revised_date = "2026-11-26"
 applicability = "#applicability"
 issues = ["https://github.com/illusion-tech/laneflow/issues/1392"]
 related = ["design-core-runtime-performance-baseline", "design-lf-synth-measurement", "governance-development-gates"]
@@ -92,13 +93,15 @@ related = ["design-core-runtime-performance-baseline", "design-lf-synth-measurem
 | 电源   | 电源计划（GUID 与名称）                                    | `powercfg /getactivescheme`                | 不可用                                                             |
 | 电源   | CPU 调频策略、平台性能配置                                 | 不可用                                     | `scaling_governor` 取值集合、`/sys/firmware/acpi/platform_profile` |
 | 固件   | BIOS 厂商、版本与日期                                      | 固件信息接口                               | `/sys/class/dmi/id` 的 `bios_*`                                    |
-| 工具链 | `rustc -Vv` 全文、`cargo -V`、主机 target                  | 调用方指定工具链选择（如 `+1.100.0`）后执行 | 同左                                                               |
+| 工具链 | `rustc -Vv` 全文、`cargo -V`、主机 target                  | 传入仓库钉版的 channel，执行时加 `+`        | 同左                                                               |
 | 源码   | 提交（40 位十六进制）、树对象、工作树是否干净              | git                                        | git                                                                |
 
 - 字段取不到时记为不可用并附原因，不得填空串、零或省略。
 - “工作树干净”沿用 urban-harness 现行判定：`git status --porcelain
   --untracked-files=all` 为空，且索引中没有 skip-worktree 或 assume-unchanged 条目；
   git 命令锚定到 checkout 目录执行。
+- 工具链 channel 取自当前 checkout 的 `rust-toolchain.toml`。测量开始前核对该选择
+  仍等于钉版，否则拒绝开始；源码、构建命令与文档都不写版本号（#1564）。
 - 构建命令、构建参数、rustflags 与 profile 属于各 harness 的构建协议，不进入
   环境记录，仍由 harness 自己的测量记录保存与核对。
 

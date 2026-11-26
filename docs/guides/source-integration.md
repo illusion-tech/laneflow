@@ -21,7 +21,7 @@ related = ["architecture", "reference-capabilities"]
 
 ## 适用范围
 
-这份教程面向已经检出本仓库源码、使用 Rust 1.100.0、只跑道路机动车、并且不需要窗口的宿主。
+这份教程面向已经检出本仓库源码、使用 `rust-toolchain.toml` 钉住的 Rust 工具链、只跑道路机动车、并且不需要窗口的宿主。
 当前工作区 crate 都是 `0.0.0` 且 `publish = false`，只支持从源码集成。这里不承诺可以从
 registry 安装，也不把仓库相对路径写成安装后仍然有效。外部 registry 消费示例不在本教程范围内。
 
@@ -39,7 +39,7 @@ registry 安装，也不把仓库相对路径写成安装后仍然有效。外�
 在仓库根目录执行：
 
 ```powershell
-cargo +1.100.0 run --locked -p laneflow-runtime --example headless
+cargo run --locked -p laneflow-runtime --example headless
 ```
 
 程序通过 `include_bytes!` / `include_str!` 读取这两份检入资产，不接受命令行路径：
@@ -50,7 +50,7 @@ cargo +1.100.0 run --locked -p laneflow-runtime --example headless
 行为测试和这份程序是同一个文件。Cargo 把它登记成集成测试 `headless_smoke`，nextest 会执行其中的断言，不另写一套装配：
 
 ```powershell
-cargo +1.100.0 test --locked -p laneflow-runtime --test headless_smoke
+cargo test --locked -p laneflow-runtime --test headless_smoke
 ```
 
 下面是上述 `run` 在本仓库当前资产上的标准输出。数字来自这次实跑，不是估算。

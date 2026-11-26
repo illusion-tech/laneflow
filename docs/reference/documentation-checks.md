@@ -22,13 +22,13 @@ related = ["governance-documentation-policy", "reference-validation-matrix"]
 在仓库根目录运行：
 
 ```powershell
-cargo +1.100.0 run --locked -p xtask -- check-docs [<path...>]
+cargo run --locked -p xtask -- check-docs [<path...>]
 ```
 
 - 无参数时扫描第 2 节的默认链接来源。传入路径只收窄或扩展链接扫描，不关闭关键索引入口及全量正式文档模型检查。
 - 只读，没有修复模式。成功退出 0；规则失败或无法读取、越界、显式符号链接等执行失败退出 1。
 - 仓库根是进程当前工作目录，不是编译期源码路径。
-- 依赖已在本地缓存后，可以用 `cargo +1.100.0 run --offline --locked -p xtask -- check-docs`。已构建的检查器本身不访问网络。`--locked` 不表示首次构建不会下载依赖。
+- 依赖已在本地缓存后，可以用 `cargo run --offline --locked -p xtask -- check-docs`。已构建的检查器本身不访问网络。`--locked` 不表示首次构建不会下载依赖。
 
 失败行的形式是：
 
@@ -147,11 +147,11 @@ CI 的既有 `Commit message` job 在 PR 和 merge_group 同时运行该检查�
 不受正文“只用页脚引用”的语法规则约束，但仍按字段定义验证。
 
 ```powershell
-cargo +1.100.0 run --locked -p xtask -- generate-doc-indexes
-cargo +1.100.0 run --locked -p xtask -- generate-doc-indexes --check
-cargo +1.100.0 run --locked -p xtask -- generate-glossary
-cargo +1.100.0 run --locked -p xtask -- generate-glossary --check
-cargo +1.100.0 run --locked -p xtask -- export-docs
+cargo run --locked -p xtask -- generate-doc-indexes
+cargo run --locked -p xtask -- generate-doc-indexes --check
+cargo run --locked -p xtask -- generate-glossary
+cargo run --locked -p xtask -- generate-glossary --check
+cargo run --locked -p xtask -- export-docs
 ```
 
 生成器仅更新 index 页的受控区域；检查模式只读。目录导出先复用完整检查，写入

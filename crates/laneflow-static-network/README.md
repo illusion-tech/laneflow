@@ -31,8 +31,8 @@ check_canonical_network_input → build_shared_network_revision → Arc<SharedNe
 走廊无窗口示例会构建这份检入 LFCA 并确认省略 Spatial 后没有 Spatial component。
 
 ```powershell
-cargo +1.100.0 run --locked -p laneflow-runtime --example headless
-cargo +1.100.0 test --locked -p laneflow-static-network
+cargo run --locked -p laneflow-runtime --example headless
+cargo test --locked -p laneflow-static-network
 ```
 
 ## 深入阅读

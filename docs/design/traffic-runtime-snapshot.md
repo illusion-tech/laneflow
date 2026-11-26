@@ -410,9 +410,9 @@ published 认证分别度量）、恢复峰值内存、保存期间对稳态 tic
 编码竞争）。复现命令：
 
 ```text
-cargo +1.100.0 test --release --locked -p laneflow-runtime --test snapshot_budget_evidence -- --nocapture
-cargo +1.100.0 test --release --locked -p laneflow-runtime --test snapshot_peak_evidence -- --nocapture
-cargo +1.100.0 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
+cargo test --release --locked -p laneflow-runtime --test snapshot_budget_evidence -- --nocapture
+cargo test --release --locked -p laneflow-runtime --test snapshot_peak_evidence -- --nocapture
+cargo test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
 ```
 
 ### 历史 B 部分初值（v1 published fresh restore）
@@ -469,7 +469,7 @@ editable load 停顿 = 宿主重编译 + 修订构建 + `restore_lfrs`，由重�
 取 `fixture` / `10k` / `100k`，`LF_EDITABLE_LOAD_SAMPLES` 取样本数）：
 
 ```text
-cargo +1.100.0 test --release --locked -p laneflow-urban-harness --lib editable_load_evidence -- --ignored --nocapture
+cargo test --release --locked -p laneflow-urban-harness --lib editable_load_evidence -- --ignored --nocapture
 ```
 
 ## 9. Runtime Snapshot v7 的 G2 边界与必测义务

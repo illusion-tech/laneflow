@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-core-runtime-performance-baseline"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-09"
+revised_date = "2026-11-26"
 summary = "定义运行时产品规模目标、研究包络与测量边界。"
 scope = "当前 Traffic Runtime 车辆特化、目标多执行域、 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、 硬件和证据协议"
 related = ["adr-0001", "adr-0003", "adr-0021", "design-adapter-api", "design-bevy-reference-adapter", "design-real-road-workloads", "design-traffic-runtime-scale-decision-baseline", "reference-validation-matrix"]
@@ -757,8 +757,8 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
   Signal cycles 而增加的 ticks 同样进入正式 latency/tail 统计，不能在报告时丢弃。
 - 每个 case 运行 3 个独立 fresh-process rounds；candidate 顺序跨 round 轮换。
 - 固定 commit、release binary、seed、workload configuration 与 deterministic
-  outer-frame input sequence。Rust 工具链采用受检提交 `.github/workflows/ci.yml` 中
-  `Rust checks` 固定的完整版本（当前 `1.100.0`），并满足 workspace MSRV；结果记录
+  outer-frame input sequence。Rust 工具链采用受检提交 `rust-toolchain.toml` 钉住的
+  完整版本（与 workspace MSRV 相等，CI 经 `.github/actions/setup-rust` 取同一 channel）；结果记录
   `rustc -Vv`、`cargo -V` 与 target triple。
 - 同一次性能比较的 baseline/candidate 使用相同工具链与构建参数。工具链变更后，
   用于该次比较或产品判定的行须在新工具链上重跑全部三个轮次；旧测量保留实际版本，

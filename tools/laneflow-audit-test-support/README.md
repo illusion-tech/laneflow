@@ -10,8 +10,8 @@
 完成性、序数、分歧与独立进程回归仍在原 Runtime 集成测试中执行：
 
 ```text
-cargo +1.100.0 test --locked -p laneflow-runtime --test audit_replay
-cargo +1.100.0 test --locked -p laneflow-urban-harness --lib integrity_soak::short_chain_replays_in_an_independent_process
-cargo +1.100.0 run --locked -p xtask -- check-wire-audit
+cargo test --locked -p laneflow-runtime --test audit_replay
+cargo test --locked -p laneflow-urban-harness --lib integrity_soak::short_chain_replays_in_an_independent_process
+cargo run --locked -p xtask -- check-wire-audit
 cargo deny --locked --all-features check advisories bans licenses sources
 ```

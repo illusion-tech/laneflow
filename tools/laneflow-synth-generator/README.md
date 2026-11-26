@@ -5,7 +5,7 @@
 文件合同见 [规范输入交付设计][lf-synth-input-bundle]，交通语义见
 [性能基线 §4][performance-baseline-workload]。
 
-编译：`cargo +1.100.0 build --release --locked -p laneflow-synth-generator`。
+编译：`cargo build --release --locked -p laneflow-synth-generator`。
 
 命令行的位置参数为：
 
@@ -30,8 +30,8 @@ logical rank 只管理宿主逻辑身份，不能作为 Runtime handle 或静态
 普通验证：
 
 ```text
-cargo +1.100.0 test --locked -p laneflow-synth-generator
-cargo +1.100.0 clippy --locked -p laneflow-synth-generator --all-targets -- -D warnings
+cargo test --locked -p laneflow-synth-generator
+cargo clippy --locked -p laneflow-synth-generator --all-targets -- -D warnings
 ```
 
 `fixtures/probe-vectors.json` 冻结 2 cell × W1–W4 × 16/33 ms 的三个文件摘要和长度，
@@ -48,7 +48,7 @@ Spatial 的共享路网构建、显式政策安装、路线注册、初始人口
 随后执行：
 
 ```text
-cargo +1.100.0 test --release --locked -p laneflow-synth-generator --lib full_scale_independent_process_matrix -- --ignored --nocapture
+cargo test --release --locked -p laneflow-synth-generator --lib full_scale_independent_process_matrix -- --ignored --nocapture
 ```
 
 测试依次处理 16 个正式身份，每个身份运行两个全新生成进程并比较四文件全部字节，

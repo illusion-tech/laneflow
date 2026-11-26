@@ -268,8 +268,8 @@ issue #1464 为准，其中 merge_group 切换以第 6 节退出条件达成为�
 metadata` 取图的具体 feature 组合、影子阶段的对照执行方式、N 值。
 
 依赖约束：默认路线不新增第三方解析依赖——`cargo metadata` 的 JSON
-输出由既有 serde 解析面处理（MSRV 1.100.0 无忧）；如评估引入
-cargo_metadata、guppy 或 determinator，须先通过 MSRV 1.100.0 试构建与
+输出由既有 serde 解析面处理（workspace MSRV 无忧）；如评估引入
+cargo_metadata、guppy 或 determinator，须先通过 workspace MSRV 试构建与
 依赖策略（cargo-deny）审查，determinator 的非包文件规则模型仅作设计
 参考，不直接套用其默认忽略规则。
 
