@@ -54,8 +54,27 @@ fn save_lanes(
         backward,
         coverage,
         reference,
-        (widths.map(|w| (w, true)), Vec::new()),
+        SectionFixture {
+            lanes: widths.map(|w| (w, true)),
+            ..SectionFixture::default()
+        },
     )
+}
+
+struct SectionFixture<'a> {
+    lanes: [([f64; 2], bool); 2],
+    lane_cuts_m: [&'a [f64]; 2],
+    extents: Vec<BoundaryExtentInput>,
+}
+
+impl Default for SectionFixture<'_> {
+    fn default() -> Self {
+        Self {
+            lanes: [([3.5; 2], true); 2],
+            lane_cuts_m: [&[]; 2],
+            extents: Vec::new(),
+        }
+    }
 }
 
 fn save_lane_declarations(
@@ -65,7 +84,7 @@ fn save_lane_declarations(
     backward: bool,
     coverage: CrossSectionCoverage,
     reference: usize,
-    (lane_declarations, extents): ([([f64; 2], bool); 2], Vec<BoundaryExtentInput>),
+    fixture: SectionFixture<'_>,
 ) -> OwnedRoadEditingSourceBuffer {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -123,13 +142,27 @@ fn save_lane_declarations(
             .add_declaration(RoadEditingDeclaration::RoadSection(
                 RoadSectionInput::try_new("section", "motorLane", lanes.to_vec(), corridor)
                     .unwrap()
-                    .with_boundary_extents(extents.clone()),
+                    .with_boundary_extents(fixture.extents.clone()),
             ))
             .unwrap();
-        for (lane, ([low, high], supports_wheel)) in
-            ["inner", "outer"].into_iter().zip(lane_declarations)
-        {
-            let edge = format!("{lane}-{i}");
+        for (n, lane) in ["inner", "outer"].into_iter().enumerate() {
+            let ([low, high], supports_wheel) = fixture.lanes[n];
+            let cuts = fixture.lane_cuts_m[n];
+            let keys: Vec<_> = std::iter::once(format!("{lane}-{i}"))
+                .chain((1..=cuts.len()).map(|part| format!("{lane}-{i}-{part}")))
+                .collect();
+            let edges: Vec<_> = keys
+                .iter()
+                .map(|k| LaneEdgeReference::local(k).unwrap())
+                .collect();
+            for (index, key) in keys.into_iter().enumerate() {
+                let next = edges.get(index + 1).cloned().into_iter().collect();
+                module
+                    .add_declaration(RoadEditingDeclaration::LaneEdge(
+                        LaneEdgeInput::try_new(key, 10.0, next, None).unwrap(),
+                    ))
+                    .unwrap();
+            }
             let direction = if backward && lane == "outer" {
                 RoadEditingLaneDirection::Backward
             } else {
@@ -139,21 +172,18 @@ fn save_lane_declarations(
                 .add_declaration(RoadEditingDeclaration::AuthoringLane(
                     AuthoringLaneInput::try_new(
                         lane,
-                        LaneEdgeReference::local(&edge).unwrap(),
+                        edges[0].clone(),
                         direction,
                         LinearWidthProfile::try_new(low, high).unwrap(),
                         None,
                         section.clone(),
                     )
                     .unwrap()
+                    .with_edge_chain(edges, cuts.to_vec())
+                    .unwrap()
                     .with_wheel_support(
                         (coverage == CrossSectionCoverage::Complete).then_some(supports_wheel),
                     ),
-                ))
-                .unwrap();
-            module
-                .add_declaration(RoadEditingDeclaration::LaneEdge(
-                    LaneEdgeInput::try_new(edge, 10.0, vec![], None).unwrap(),
                 ))
                 .unwrap();
         }

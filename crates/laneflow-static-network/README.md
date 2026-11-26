@@ -19,6 +19,7 @@ check_canonical_network_input → build_shared_network_revision → Arc<SharedNe
 ## 主要约束与限制
 
 - `SpatialBuildOption::Omit` 仍检查几何连通，但不保留 Spatial 载荷。`RetainAvailable` 在 LFCA 带有空间载荷时把它留在修订里。没有 Spatial component 时，`SpatialSession::bind` 返回 `Ok(None)`。
+- `station_mapping().in_station_range(...)` 接受走廊、从小到大排列的局部站位闭区间（纳米）和目标车道，按行驶方向给出每条候选边的进度范围（毫米）。精确内切点归下游边，末端归末边。超出 64 个分段或八条候选边的预算时，结果标出尚未检查的范围。
 - 对已开放映射的走廊，两种 Spatial 选项均可通过 `station_mapping().facility_band_bounds(...)` 查询设施带。输入走廊局部站位闭区间，单截面使用相同的两个站位。结果给出左右边界各自的有符号纳米范围，已向外计入发布的横向误差。
 - 完整横断面上的 `SharedNetworkRevision::vehicle_geometry` 接受修订、走廊和规范框架、站位窗口、可遍历车道、车型与候选车速。后轴可沿世界水平直线行驶，也可沿走廊站位从一条线性偏移曲线五次过渡到另一条。起止站位递减时按反向行驶检查。
 - `GeometryReport::feasible()` 要求四轮路幅、前轮转向、静态跨越规则和全车净空同时通过。`tracks` 给出姿态包络、越界车轮或转向超限的位置。`sweep` 给出带区间的正净空下界、与实体接触的车体点、实际触线的禁跨区间或未证原因。两项分别保留已证前缀、逻辑工作数和预算耗尽时的未检后缀。`GeometryWorkLimits::STANDARD` 的上限分别为 4,096 和 16,384。调用方只查路幅和转向时可以使用 `wheel_tracks`。
