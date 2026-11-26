@@ -84,7 +84,7 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
         field_sha256(source_binding, 2),
         candidate.network_revision().into_digest().into_bytes()
     );
-    assert_eq!(field_u16(source_binding, 3), 6);
+    assert_eq!(field_u16(source_binding, 3), 7);
     assert_eq!(
         field_sha256(source_binding, 4),
         candidate.canonical_artifact().digest().into_bytes()

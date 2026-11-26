@@ -1,8 +1,8 @@
-# 道路编辑来源缓冲区 v7 Schema
+# 道路编辑来源缓冲区 v8 Schema
 
-**状态**: 生产。`format_version = 7`；根表 field id 连续至 id 29。
+**状态**: 生产。`format_version = 8`；根表 field id 连续至 id 29。
 其它版本的 `LFRE` 在语义读取前失败关闭。<br>
-**格式标识**: `LF-ROAD-EDITING-SOURCE-v7`<br>
+**格式标识**: `LF-ROAD-EDITING-SOURCE-v8`<br>
 **机器事实来源**: [`road-editing.fbs`][road-editing-fbs]<br>
 **设计依据**:
 [`road-editing-source-and-geometry-frontend.md`][road-editing]、
@@ -22,7 +22,7 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 
 - 一个逻辑来源模块恰好对应一个标准 size-prefixed FlatBuffer；根表是
   `RoadEditingSource`，file identifier 是 ASCII `LFRE`，默认扩展名是 `.lfre`。
-- `format_version` 必须精确为 `7`。其它值都在任何 LaneFlow 语义
+- `format_version` 必须精确为 `8`。其它值都在任何 LaneFlow 语义
   lowering 或按规模分配前拒绝。
 - `module_header`、`road_alignments`、24 个可构造 Identity 声明向量和 owner-local
   `conflict_zone_regions` 都必须在 wire 中存在；向量可以为空。根表无
@@ -66,7 +66,7 @@ namespace::owner-key>...>local-key
 ```
 
 `>` 不属于 token 字符；链中每段分别按 token 和 53-byte 上限验证。限定引用必须恰好
-包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v7 最深
+包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v8 最深
 目标是 `Junction > Movement > ManeuverPath > ManeuverGate/WaitingZone`，所以完整引用
 最多 4 个 key token；连同可选 53-byte namespace 和分隔符，wire string 的派生硬上限
 固定为 `270 bytes`。该例外只适用于已解析为有类型实体引用的 string，普通 string 和
@@ -141,7 +141,7 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 |   24 | `RightOfWayPolicySet` | `policy_set_key`         | 当前 module namespace                           |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
-且全部身份 owner 必须在同一 buffer。来源 v7 要求 `RoadAlignment` 和模块级身份种类在
+且全部身份 owner 必须在同一 buffer。来源 v8 要求 `RoadAlignment` 和模块级身份种类在
 各自根向量内 local key 唯一；owner-scoped 种类只要求同一直接 owner 下 sibling local
 key 唯一，不同 owner 可以合法复用同名 local key。每个 child 的显式 parent 字段必须与
 owner 向量精确互证，缺失、重复或冲突 owner 均失败关闭。
@@ -168,7 +168,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   `Generated` 必须保存真实生成器 build ID、参数/输入摘要、来源前端选项摘要和可选
   seed。两类 `description` 都必须是非空、受长度上限约束的可见 ASCII。来源链不认证内容，
   也不能替代实际保存的道路编辑状态。
-- v7 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
+- v8 不保存一张永远固定、却会与字段后缀竞争正本的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
   每文档单位切换，也不能把宿主单位隐式带入来源。
 - `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；这些名称
@@ -179,13 +179,15 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 
   ```text
   ASCII "laneflow.road-editing.frontend-options.v1\0"
-  || geometry approximation semantics fixed code 原生曲线与独立切边 = 3: u8
+  || ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION = 4: u8
   || geometry_accuracy_profile: u8
   || geometry_direction_profile: u8
   || provenance.frontend_options_digest: [u8; 32]
   ```
 
-  它绑定 B1 算法语义和实际选择的两个几何档位；不进入来源文档摘要或实体稳定身份。
+  LFRE 8 对应道路编辑前端版本 8。几何语义版本 4 包含原生曲线、独立切边、
+  横断面路幅与命名边界。摘要绑定该语义版本、两个几何档位及来源前端选项摘要。
+  来源文档摘要取完整 LFRE 字节，实体稳定身份按 Identity v1 计算。
 
 ## 5. 道路走向、横断面和车道
 
@@ -264,6 +266,10 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   空间区域，不获得行为 authority。
 - `ParticipantClass.extends` 形成可选无环单继承。`VehicleProfile.iidm` 只描述当前道路
   机动车执行域，全部数值继续遵守当前 IIDM 范围。
+- 每个车型都须提供 `VehicleProfile.geometry`（字段 4）。其中 `configuration`
+  （字段 9）先区分刚性双轴前轮转向（1）、半挂（2）、全挂（3）与铰接公交（4）。
+  首版接纳构型 1，要求显式填写字段 0 至 8。缺项与显式零分别处理。尺寸单位为米，
+  转角为弧度，转向角速率为弧度每秒。规范化及数值边界见[车型几何格式][vehicle-geometry]。
 - `AccessRule.target_kind + target_reference` 构成一个封闭有类型目标；参与者类别集合
   非空。v1 只允许 `LaneEdge / LaneGroup / RoadSection / ManeuverPath`；数值 5 保留且
   无效，第一方 writer/UI 不提供 `FacilityBand` target。后继若支持该能力，必须提升来源
@@ -342,6 +348,7 @@ StreamRule、GateRule 四种局部具名成员。成员不能跨模块追加，�
 [signal-system]: ../../../docs/design/signal-system.md
 [parking-system]: ../../../docs/design/parking-system.md
 [vehicle-following]: ../../../docs/design/vehicle-following.md
+[vehicle-geometry]: ../../../docs/design/portable-canonical-artifact.md#vehicle-profile-geometry-format
 [corridor-population-catalog]: ../../../docs/design/signalized-corridor-population.md#3-catalog-契约
 [right-of-way-lfsm]: ../../../docs/design/traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [right-of-way]: ../../../docs/design/traffic-runtime-right-of-way-policy.md

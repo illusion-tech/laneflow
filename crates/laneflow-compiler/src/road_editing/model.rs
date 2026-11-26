@@ -2917,6 +2917,7 @@ pub struct VehicleProfileInput {
     vehicle_profile_key: Box<str>,
     participant_class: ParticipantClassReference,
     iidm: IidmVehicleProfileInput,
+    geometry: crate::RigidTwoAxleGeometryInput,
     canvas_selection: Option<Box<str>>,
 }
 
@@ -2930,13 +2931,30 @@ impl VehicleProfileInput {
         vehicle_profile_key: impl Into<String>,
         participant_class: ParticipantClassReference,
         iidm: IidmVehicleProfileInput,
+        geometry: crate::RoadVehicleGeometryInput,
     ) -> Result<Self, DiagnosticBundle> {
         let vehicle_profile_key = vehicle_profile_key.into();
         validate_token(&vehicle_profile_key, "vehicleProfile.vehicleProfileKey")?;
+        let length_mm = laneflow_static_contract::millimetres_from_si(iidm.length_meters())
+            .expect("validated vehicle length");
+        let geometry = geometry
+            .rigid()
+            .and_then(|g| {
+                g.canonical(length_mm)?;
+                Ok(g)
+            })
+            .map_err(|error| {
+                DiagnosticBundle::single(crate::Diagnostic::invalid_named_road_editing_input(
+                    &vehicle_profile_key,
+                    super::vehicle_geometry::field_name(Some(error.field_index())),
+                    super::vehicle_geometry::violation(error),
+                ))
+            })?;
         Ok(Self {
             vehicle_profile_key: vehicle_profile_key.into_boxed_str(),
             participant_class,
             iidm,
+            geometry,
             canvas_selection: None,
         })
     }
@@ -2955,6 +2973,11 @@ impl VehicleProfileInput {
     #[must_use]
     pub const fn iidm(&self) -> IidmVehicleProfileInput {
         self.iidm
+    }
+    /// 返回已校验的刚性双轴几何，保留 SI 输入精度。
+    #[must_use]
+    pub const fn geometry(&self) -> crate::RigidTwoAxleGeometryInput {
+        self.geometry
     }
 }
 impl_canvas!(VehicleProfileInput);

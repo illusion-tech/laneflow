@@ -258,6 +258,54 @@ fn config_rejects_slot_pitch_below_two_vehicle_lengths() {
 }
 
 #[test]
+fn pocket_and_stagger_fit_the_published_vehicle_length() {
+    let mut config = JunctionConfig::parse(CONFIG).unwrap();
+    config.profile.length_meters = 4.500_51;
+    config.geometry.pocket_length_meters = 4.500_75;
+    assert!(
+        config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("pocket_length_meters")
+    );
+    config.geometry.pocket_length_meters = 4.501;
+    config.geometry.spawn_slot_pitch_meters = 9.001_5;
+    assert!(config.validate().unwrap_err().to_string().contains("twice"));
+    config.geometry.spawn_slot_pitch_meters = 9.002;
+    config.validate().unwrap();
+
+    config.profile.length_meters = 4.500_49;
+    config.geometry.pocket_length_meters = 4.500;
+    config.geometry.spawn_slot_pitch_meters = 9.000;
+    config.validate().unwrap();
+}
+
+#[test]
+fn slot_catalog_uses_the_published_length_and_minimum_gap() {
+    let mut config = JunctionConfig::parse(CONFIG).unwrap();
+    config.profile.length_meters = 4.500_51;
+    config.profile.min_gap_meters = 2.000_51;
+    config.geometry.spawn_slot_pitch_meters = 10.000_51;
+    let generated = generate(&config).unwrap();
+    let catalog: JunctionCatalog =
+        toml::from_str(std::str::from_utf8(generated.catalog_bytes()).unwrap()).unwrap();
+    assert_eq!(catalog.spawn_slots[0].progress, 6.502);
+    assert_eq!(catalog.spawn_slots[1].progress, 16.503);
+    for slot in &catalog.spawn_slots {
+        let mm = laneflow_static_contract::millimetres_from_si(slot.progress).unwrap();
+        assert_eq!(slot.progress, f64::from(mm) / 1_000.0);
+    }
+
+    config.profile.length_meters = 4.501;
+    config.profile.min_gap_meters = 2.001;
+    assert_eq!(
+        generated.catalog_bytes(),
+        generate(&config).unwrap().catalog_bytes()
+    );
+}
+
+#[test]
 fn config_rejects_shallow_pocket_offset() {
     let bad = CONFIG.replace("pocket_offset_meters = 4.0", "pocket_offset_meters = 0.5");
     assert_ne!(bad, CONFIG, "config must contain the replaced field");
@@ -461,6 +509,8 @@ fn generate_rejects_output_alias_differing_only_by_case() {
 fn generate_rejects_excessive_slot_count() {
     let bad = CONFIG
         .replace("length_meters = 4.5", "length_meters = 0.1")
+        .replace("wheelbase_m = 2.6", "wheelbase_m = 0.06")
+        .replace("rear_overhang_m = 0.75", "rear_overhang_m = 0.015")
         .replace("min_gap_meters = 2.0", "min_gap_meters = 0.1")
         .replace(
             "spawn_slot_pitch_meters = 10.0",

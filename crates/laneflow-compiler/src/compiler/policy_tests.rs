@@ -59,6 +59,7 @@ fn synthetic_policy(
         extends: None,
     })?;
     builder.add_vehicle_profile(VehicleProfileInput {
+        geometry: crate::regular_profile_tests::CAR_GEOMETRY,
         vehicle_profile_key: "car",
         participant_class: ParticipantClassReference::local("vehicle"),
         iidm: profile(),
@@ -179,6 +180,7 @@ pub(crate) fn editing_policy_custom(
                 "car",
                 re::ParticipantClassReference::local("vehicle").unwrap(),
                 re::IidmVehicleProfileInput::try_new(4.5, 12., 2., 1.4, 1.8, 2., 4.5).unwrap(),
+                crate::regular_profile_tests::CAR_GEOMETRY,
             )
             .unwrap(),
         ))
@@ -597,7 +599,7 @@ fn malformed_lfre_policy_is_rejected_and_admission_can_retry() {
         error.diagnostics()[0].payload(),
         DiagnosticPayload::InvalidRoadEditingSource {
             violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                expected: 7,
+                expected: 8,
                 actual: 3
             },
             ..
@@ -791,6 +793,7 @@ fn denied_policy_candidates_exhaust_work_budget_and_can_retry() {
                         re::ParticipantClassReference::local("vehicle").unwrap(),
                         re::IidmVehicleProfileInput::try_new(4.5, 12., 2., 1.4, 1.8, 2., 4.5)
                             .unwrap(),
+                        crate::regular_profile_tests::CAR_GEOMETRY,
                     )
                     .unwrap(),
                 ))
@@ -1058,6 +1061,7 @@ fn every_enterable_target_profile_must_have_strictly_higher_priority() {
                     "bus-profile",
                     re::ParticipantClassReference::local("bus").unwrap(),
                     re::IidmVehicleProfileInput::try_new(8., 12., 2., 1.4, 1.8, 2., 4.5).unwrap(),
+                    crate::regular_profile_tests::CAR_GEOMETRY,
                 )
                 .unwrap(),
             ))

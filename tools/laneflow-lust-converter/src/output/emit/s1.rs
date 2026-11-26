@@ -319,7 +319,7 @@ fn compile_part(
     )
     .unwrap();
     let declared = (|| -> Result<()> {
-        add_profiles(&mut builder, part)?;
+        add_profiles(&mut builder, part, false)?;
         builder.add_declaration(re::RoadEditingDeclaration::CanonicalFrame(
             re::CanonicalFrameInput::try_new(LUST_FRAME_ID)?,
         ))?;

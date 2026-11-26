@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-retire-precompiled-static-route"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-18"
+revised_date = "2026-11-26"
 summary = "定义移除静态路线后的场景目录与运行时接入。"
 scope = "从路网产品删除 StaticRoute 后的制品表、连续身份登记、运行时编译、 场景 catalog 0.4 与每世界路线表形状"
 applicability = "#applicability"
@@ -154,7 +154,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 `RoadEditingSource.static_routes`；顶层稳定声明向量 24 个（可构造 Identity 种类）。
 `canonical_frames` 为根表 field id 25，`conflict_zones` 与 `participant_streams`
 分别为 26、27；stock `flatc` 要求 field id 连续，不保留空号。schema 为
-`schemas/road-editing/v7/road-editing.fbs`。其它版本失败关闭。
+`schemas/road-editing/v8/road-editing.fbs`。其它版本失败关闭。
 路权登记在 wire 4 增加策略，原生曲线在 wire 5 扩充曲线段。现行 `frontendVersion = 6`，
 `SourceLanguage::RoadEditingSource = 2`，file identifier 仍 `LFRE`；field 29 是路权策略声明向量。
 

@@ -85,6 +85,8 @@ pub(crate) struct VehicleProfile {
     pub id: String,
     pub length: f64,
     pub model: &'static str,
+    #[serde(skip)]
+    pub geometry: Option<laneflow_compiler::RoadVehicleGeometryInput>,
     pub desired_speed: f64,
     pub min_gap: f64,
     pub time_headway: f64,

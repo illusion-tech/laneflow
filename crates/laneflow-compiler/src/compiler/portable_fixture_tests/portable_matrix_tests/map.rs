@@ -310,7 +310,7 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
     };
     for bytes in [
         mutate_u16(0, 0, 0, 1, 4),
-        mutate_u16(0, 0, 0, 3, 1),
+        mutate_u16(0, 0, 0, 3, 6), // 旧版 LFCA 不能绑定到本次来源图。
         mutate_u16(0, 0, 0, 7, 2),
     ] {
         assert_eq!(
@@ -330,7 +330,11 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
         .class(),
         FormatErrorClass::UnknownKind
     );
-    for bytes in [mutate_u32(1, 1, 0, 5, 0), mutate_u32(1, 2, 0, 5, 0)] {
+    for bytes in [
+        mutate_u32(1, 0, 0, 6, 5), // 合成前端旧版。
+        mutate_u32(1, 1, 0, 5, 0),
+        mutate_u32(1, 2, 0, 5, 0),
+    ] {
         assert_eq!(
             preflight_object_values(&bytes, PortableObjectKind::SourceMap, FormatLimits::HARD,)
                 .unwrap_err()

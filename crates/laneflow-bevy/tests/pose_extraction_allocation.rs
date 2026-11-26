@@ -53,6 +53,19 @@ fn compile_single_frame() -> laneflow_compiler::CompilationOutput {
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                laneflow_compiler::RigidTwoAxleGeometryInput {
+                    wheelbase_m: 2.6,
+                    track_width_m: 1.6,
+                    reference_height_m: 0.35,
+                    rear_overhang_m: 0.75,
+                    width_m: 1.9,
+                    bottom_height_m: -0.15,
+                    top_height_m: 1.15,
+                    max_steering_angle_rad: 0.6,
+                    max_steering_rate_rad_s: 0.7,
+                },
+            ),
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {

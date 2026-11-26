@@ -1,7 +1,3 @@
 # LFCA full-spatial fixture
 
-当前合成编制发射结果。对象前导 `formatVersion = 5`，交通长度/速度为毫米。
-`networkRevisionDerivationVersion` 仍为 1。既有 23 个实体种类均有非空样本；
-策略表由格式登记提供空逻辑表，策略来源编制及其非空样本由 #564 补齐。
-
-读取器拒绝 `formatVersion != 5`。这组样本不证明完整路权策略能力已交付。
+当前合成编制发射 LFCA 7，修订派生版本为 2。样例的 23 个非空实体种类包含带完整刚性双轴几何的车型，策略逻辑表为空。读取器检查精确格式版本；有显式策略的样例见相邻的 lfca-world-policies。

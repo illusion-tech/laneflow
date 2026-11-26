@@ -3,7 +3,7 @@ schema_version = 1
 id = "architecture"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-25"
+revised_date = "2026-11-26"
 summary = "说明现行组件分层、数据流与宿主集成边界。"
 scope = "当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界"
 applicability = "#applicability"
@@ -79,8 +79,8 @@ flowchart TD
 
 后发射检查失败时不返回 `PostEmissionCheckedBundle`，也不构建共享修订。发布加载
 先核对 LFCP v2 绑定，再消费受检 LFCA；本地确认建造直接消费该 bundle。两条路
-建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 6、LFSM 7、
-LFSD 5、LFCP 2。道路编辑来源 `format_version = 5` 是另一条版本轴。见
+建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 7、LFSM 8、
+LFSD 6、LFCP 2。道路编辑来源 `format_version = 8` 是另一条版本轴。见
 [可移植规范制品][portable-artifact]、
 [后发射检查][post-emission]
 与 [ADR 0023][adr-0023]。

@@ -222,16 +222,21 @@ internal static class Program
         var parkingSpaces = EmptyVector<ParkingSpace>(builder);
         var laneGroups = EmptyVector<LaneGroup>(builder);
         var facilityBands = EmptyVector<FacilityBand>(builder);
-        var participantClasses = EmptyVector<ParticipantClass>(builder);
+        var motorKey = builder.CreateString("motor");
+        var carClass = ParticipantClass.CreateParticipantClass(builder, motorKey);
+        var participantClasses = RoadEditingSource.CreateParticipantClassesVector(builder, new[] { carClass });
         var accessRules = EmptyVector<AccessRule>(builder);
-        var vehicleProfiles = EmptyVector<VehicleProfile>(builder);
+        var iidm = IidmVehicleProfile.CreateIidmVehicleProfile(builder, 4.15, 13, 2, 1.5, 2, 3, 6);
+        var carGeometry = RoadVehicleGeometry.CreateRoadVehicleGeometry(builder, 2.60, 1.501, 0, 0, 1.901, -0.2, 1.4, 0.6, 0.8, 1);
+        var car = VehicleProfile.CreateVehicleProfile(builder, builder.CreateString("car"), motorKey, iidm, default, carGeometry);
+        var vehicleProfiles = RoadEditingSource.CreateVehicleProfilesVector(builder, new[] { car });
         var conflictZones = EmptyVector<ConflictZone>(builder);
         var participantStreams = EmptyVector<ParticipantStream>(builder);
         var conflictZoneRegions = EmptyVector<ConflictZoneRegion>(builder);
         var rightOfWayPolicySets = EmptyVector<RightOfWayPolicySet>(builder);
 
         RoadEditingSource.StartRoadEditingSource(builder);
-        RoadEditingSource.AddFormatVersion(builder, 7u);
+        RoadEditingSource.AddFormatVersion(builder, 8u);
         RoadEditingSource.AddModuleHeader(builder, header);
         RoadEditingSource.AddGeometryAccuracyProfile(builder, GeometryAccuracyProfile.Fine2Cm);
         RoadEditingSource.AddGeometryDirectionProfile(builder, GeometryDirectionProfile.Smooth1Deg);

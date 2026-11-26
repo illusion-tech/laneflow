@@ -48,6 +48,7 @@ fn road_revision(edge_count: u32, length_meters: f64, cyclic: bool) -> Arc<Share
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {

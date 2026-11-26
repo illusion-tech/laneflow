@@ -97,6 +97,15 @@ pub enum FormatErrorClass {
 /// 结构预检错误。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FormatError {
+    /// 车型 tag 11 的形状或单刚体量值无效。保留原有的错误分类。
+    VehicleGeometry {
+        /// 已解码的车型序号。独立 LFSD 几何值没有 LFCA 车型序号。
+        profile: Option<u32>,
+        /// 内嵌字段标签；整组缺少或行数不符时为空。
+        field: Option<u16>,
+        /// 对应的结构或数值错误分类。
+        class: FormatErrorClass,
+    },
     /// 调用方配置的资源维度为 0（仅对象字节、每段 chunk、每 chunk 行与来源位置
     /// 行四个维度禁止为 0）或高于 v1 格式天花板而不做静默 clamp
     /// （`FormatLimits::try_new`）。
@@ -239,6 +248,7 @@ impl FormatError {
     #[must_use]
     pub const fn class(self) -> FormatErrorClass {
         match self {
+            Self::VehicleGeometry { class, .. } => class,
             Self::InvalidLimitConfiguration { .. } => FormatErrorClass::InvalidLimitConfiguration,
             Self::UnsupportedVersion { .. } => FormatErrorClass::UnsupportedVersion,
             Self::LimitExceeded { .. } => FormatErrorClass::LimitExceeded,

@@ -10,7 +10,7 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 7;
+const FORMAT_VERSION: u32 = 8;
 mod boundary;
 mod policy;
 
@@ -1147,6 +1147,22 @@ fn encode_vehicle_profile<'fbb>(
                 .emergency_deceleration_meters_per_second_squared(),
         },
     );
+    let g = value.geometry();
+    let geometry = wire::RoadVehicleGeometry::create(
+        fbb,
+        &wire::RoadVehicleGeometryArgs {
+            wheelbase_m: Some(g.wheelbase_m),
+            track_width_m: Some(g.track_width_m),
+            reference_height_m: Some(g.reference_height_m),
+            rear_overhang_m: Some(g.rear_overhang_m),
+            width_m: Some(g.width_m),
+            bottom_height_m: Some(g.bottom_height_m),
+            top_height_m: Some(g.top_height_m),
+            max_steering_angle_rad: Some(g.max_steering_angle_rad),
+            max_steering_rate_rad_s: Some(g.max_steering_rate_rad_s),
+            configuration: Some(crate::RoadVehicleConfiguration::RigidTwoAxle as u8),
+        },
+    );
     let canvas = create_canvas(fbb, value.canvas_selection());
     wire::VehicleProfile::create(
         fbb,
@@ -1155,6 +1171,7 @@ fn encode_vehicle_profile<'fbb>(
             participant_class: Some(participant),
             iidm: Some(iidm),
             canvas_selection: canvas,
+            geometry: Some(geometry),
         },
     )
 }
@@ -1596,6 +1613,7 @@ pub(super) mod tests {
                     participant,
                     IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
                         .expect("iidm"),
+                    crate::regular_profile_tests::CAR_GEOMETRY,
                 )
                 .expect("vehicle"),
             ),

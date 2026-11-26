@@ -237,7 +237,7 @@ fn diff_every_registered_entity_and_static_rule_field_uses_its_frozen_change_cla
         (EntityKind::ParkingSpace, &[5, 7, 8, 9, 10, 11][..]),
         (EntityKind::FacilityBand, &[4][..]),
         (EntityKind::ParticipantClass, &[4][..]),
-        (EntityKind::VehicleProfile, &[4, 5, 6, 7, 8, 9, 10][..]),
+        (EntityKind::VehicleProfile, &[4, 5, 6, 7, 8, 9, 10, 11][..]),
     ] {
         for tag in tags {
             prove_field_change(&output, FULL_SPATIAL_EXPECTED_LFCA, kind, *tag, 1, 2);

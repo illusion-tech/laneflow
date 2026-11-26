@@ -7,7 +7,7 @@ use laneflow_scenario::complex_junction::{
 };
 
 use crate::Error;
-use crate::config::{JunctionConfig, VEHICLE_WIDTH_ENVELOPE_METERS};
+use crate::config::JunctionConfig;
 use crate::topology::{Point, TopologyBuild, envelopes_overlap};
 
 /// catalog 槽位总量上限：超出即配置错误，防止畸形配置（路口中心至道路外端距离过大 × 过小
@@ -18,14 +18,15 @@ pub(crate) fn build_catalog(
     config: &JunctionConfig,
     topology: &TopologyBuild,
 ) -> Result<JunctionCatalog, Error> {
-    let clearance = config.endpoint_clearance_meters();
-    let vehicle_length = config.profile.length_meters;
+    let dimensions = config.profile.dimensions()?;
+    let clearance = dimensions.endpoint_clearance_meters();
+    let vehicle_length = dimensions.length_meters();
     let mut slots = Vec::new();
     // 已放置槽位的折线采样位置与单位切向；跨边候选槽位逐一与之做有向矩形
-    // （前保险杠原点、车长 × 2 m 包络）重叠检查，同角环路在分叉/汇合段几何
+    // （前保险杠原点、车长 × 配置车宽的包络）重叠检查，同角环路在分叉/汇合段几何
     // 收敛处靠该贪心过滤保证不重叠，而非依赖恒定进度相位。
     let mut placed: Vec<(Point, Point)> = Vec::new();
-    let half_width = VEHICLE_WIDTH_ENVELOPE_METERS / 2.0;
+    let half_width = dimensions.width_meters() / 2.0;
     let mut portals = Vec::new();
     for portal in &topology.portals {
         let mut lanes = Vec::new();
@@ -62,8 +63,20 @@ pub(crate) fn build_catalog(
             }
             let mut entry_spawn_slot_id = None;
             let mut local_index = 0_u32;
-            let mut progress = first_progress;
-            while progress <= length - clearance {
+            let mut candidate_progress = first_progress;
+            while candidate_progress <= length - clearance {
+                let progress_mm = laneflow_static_contract::millimetres_from_si(candidate_progress)
+                    .ok_or_else(|| {
+                        Error::Config(format!(
+                            "portal {:?} lane {lane_index} spawn progress exceeds the millimetre range",
+                            portal.id
+                        ))
+                    })?;
+                // bind 以毫米放置前保险杠，包络采样与目录写出取同一个位置。
+                let progress = f64::from(progress_mm) / 1_000.0;
+                if progress > length - clearance {
+                    break;
+                }
                 let sample = curve
                     .point_at_chord(progress)
                     .expect("slot progress within chord length");
@@ -89,7 +102,7 @@ pub(crate) fn build_catalog(
                     }
                 }
                 local_index += 1;
-                progress += config.geometry.spawn_slot_pitch_meters;
+                candidate_progress += config.geometry.spawn_slot_pitch_meters;
             }
             let Some(entry_spawn_slot_id) = entry_spawn_slot_id else {
                 return Err(Error::Config(format!(
@@ -176,7 +189,7 @@ pub(crate) fn validate_catalog(
                 .map(move |lane| ((portal.id.as_str(), lane.lane_index), lane))
         })
         .collect::<std::collections::HashMap<_, _>>();
-    let clearance = config.endpoint_clearance_meters();
+    let clearance = config.endpoint_clearance_meters()?;
     for slot in &catalog.spawn_slots {
         let lane = lane_by_key
             .get(&(slot.portal_id.as_str(), slot.lane_index))

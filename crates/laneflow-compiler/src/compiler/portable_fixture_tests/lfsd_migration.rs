@@ -104,6 +104,7 @@ fn migration_module(target: bool) -> SyntheticModule {
     }
     builder
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -203,6 +204,7 @@ fn oracle_module(target: bool) -> SyntheticModule {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -259,6 +261,7 @@ fn profile_drift_module(target: bool) -> SyntheticModule {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm,
@@ -320,6 +323,9 @@ fn oracle_pair() -> (
     pair(oracle_module)
 }
 
+#[path = "vehicle_geometry_diff.rs"]
+mod vehicle_geometry_diff;
+
 const MIGRATION_BASE: &[u8] =
     include_bytes!("../../../tests/fixtures/portable/lfsd-migration/base.lfca");
 const MIGRATION_TARGET: &[u8] =
@@ -379,7 +385,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/133f69a36a2a4f4d407685b5870ec8b26f03b24442144f5d8b1afa3ffd40e135"
+        "sha256/9fbdbf9bc802f2f63b7554ac09706db8b391a57baec43be6b78a8e096427fd3b"
     );
     assert_ne!(base.network_revision(), target.network_revision());
 
@@ -401,7 +407,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         otarget.semantic_diff().object_key(),
-        "sha256/354a1fd88986fd2a3355e090010735b6babd098f7de2e6871d3679711f196685"
+        "sha256/3215584f6697d03c7a3f6eeaf780fbce046e7c3e9a6b5e9296c03ba99ff762ea"
     );
     assert_ne!(obase.network_revision(), otarget.network_revision());
 
@@ -425,7 +431,7 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         ptarget.semantic_diff().object_key(),
-        "sha256/5f9bbcdd8ed6e2dac6b18d127386c627f44fdd1065bf7cf248a9c04d1002422f"
+        "sha256/b0bc304a02024fc040033a844b96ecdb4652a2e31c22aed6aefb49550f9c2ba3"
     );
     assert_ne!(pbase.network_revision(), ptarget.network_revision());
 }

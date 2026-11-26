@@ -64,6 +64,7 @@ pub(crate) fn revision(
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: profile(),
@@ -833,6 +834,7 @@ fn leader_emergency_does_not_donate_solver_room() {
     let revision = revision("runtime/placement-plain", |module| {
         module
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 vehicle_profile_key: "soft",
                 participant_class: ParticipantClassReference::local("road-user"),
                 iidm: IidmVehicleProfileInput {
@@ -888,6 +890,7 @@ fn follower_emergency_uses_its_own_brakes() {
     let revision = revision("runtime/placement-plain", |module| {
         module
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 vehicle_profile_key: "firm",
                 participant_class: ParticipantClassReference::local("road-user"),
                 iidm: IidmVehicleProfileInput {
@@ -938,6 +941,19 @@ fn repeated_edge_keeps_the_farther_rear_window() {
     let revision = revision("runtime/placement-plain", |module| {
         module
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                    laneflow_compiler::RigidTwoAxleGeometryInput {
+                        wheelbase_m: 0.06,
+                        track_width_m: 0.04,
+                        reference_height_m: 0.02,
+                        rear_overhang_m: 0.015,
+                        width_m: 0.05,
+                        bottom_height_m: -0.01,
+                        top_height_m: 0.027,
+                        max_steering_angle_rad: 0.6,
+                        max_steering_rate_rad_s: 0.7,
+                    },
+                ),
                 vehicle_profile_key: "short",
                 participant_class: ParticipantClassReference::local("road-user"),
                 iidm: IidmVehicleProfileInput {
@@ -969,6 +985,19 @@ fn cyclic_revisit_still_sees_the_follower_on_the_earlier_pass() {
     let revision = revision("runtime/placement-plain", |module| {
         module
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                    laneflow_compiler::RigidTwoAxleGeometryInput {
+                        wheelbase_m: 0.06,
+                        track_width_m: 0.04,
+                        reference_height_m: 0.02,
+                        rear_overhang_m: 0.015,
+                        width_m: 0.05,
+                        bottom_height_m: -0.01,
+                        top_height_m: 0.027,
+                        max_steering_angle_rad: 0.6,
+                        max_steering_rate_rad_s: 0.7,
+                    },
+                ),
                 vehicle_profile_key: "short",
                 participant_class: ParticipantClassReference::local("road-user"),
                 iidm: IidmVehicleProfileInput {
@@ -1000,6 +1029,7 @@ fn follower_behind_a_spanning_rear_is_not_hidden_by_the_front_edge() {
     let revision = revision("runtime/placement-plain", |module| {
         module
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 vehicle_profile_key: "long",
                 participant_class: ParticipantClassReference::local("road-user"),
                 iidm: IidmVehicleProfileInput {

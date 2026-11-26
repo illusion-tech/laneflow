@@ -87,6 +87,16 @@ pub struct SignalConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileConfig {
+    pub configuration: u8,
+    pub wheelbase_m: Option<f64>,
+    pub track_width_m: Option<f64>,
+    pub reference_height_m: Option<f64>,
+    pub rear_overhang_m: Option<f64>,
+    pub width_m: Option<f64>,
+    pub bottom_height_m: Option<f64>,
+    pub top_height_m: Option<f64>,
+    pub max_steering_angle_rad: Option<f64>,
+    pub max_steering_rate_rad_s: Option<f64>,
     pub key: String,
     pub length_meters: f64,
     pub desired_speed_mps: f64,
@@ -138,6 +148,7 @@ impl UrbanConfig {
                 &profile.key,
                 laneflow_compiler::road_editing::ParticipantClassReference::local("road-vehicle")?,
                 profile.iidm()?,
+                profile.geometry()?,
             )?;
             if profile.length_meters > self.parking_space_length_meters {
                 return Err(Error::Config(format!(
@@ -205,5 +216,48 @@ impl ProfileConfig {
                 self.emergency_deceleration_mps2,
             )?,
         )
+    }
+}
+
+impl ProfileConfig {
+    pub(crate) fn geometry(&self) -> Result<laneflow_compiler::RoadVehicleGeometryInput> {
+        use laneflow_compiler::{
+            RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryInput,
+        };
+        let key = &self.key;
+        let configuration =
+            RoadVehicleConfiguration::from_code(self.configuration).ok_or_else(|| {
+                Error::Config(format!(
+                    "profile {key}: unknown configuration {}",
+                    self.configuration
+                ))
+            })?;
+        let required = |value: Option<f64>, field| {
+            value.ok_or_else(|| Error::Config(format!("profile {key}: missing {field}")))
+        };
+        Ok(match configuration {
+            RoadVehicleConfiguration::SemiTrailer => RoadVehicleGeometryInput::SemiTrailer,
+            RoadVehicleConfiguration::FullTrailer => RoadVehicleGeometryInput::FullTrailer,
+            RoadVehicleConfiguration::ArticulatedBus => RoadVehicleGeometryInput::ArticulatedBus,
+            RoadVehicleConfiguration::RigidTwoAxle => {
+                RoadVehicleGeometryInput::RigidTwoAxle(RigidTwoAxleGeometryInput {
+                    wheelbase_m: required(self.wheelbase_m, "wheelbase_m")?,
+                    track_width_m: required(self.track_width_m, "track_width_m")?,
+                    reference_height_m: required(self.reference_height_m, "reference_height_m")?,
+                    rear_overhang_m: required(self.rear_overhang_m, "rear_overhang_m")?,
+                    width_m: required(self.width_m, "width_m")?,
+                    bottom_height_m: required(self.bottom_height_m, "bottom_height_m")?,
+                    top_height_m: required(self.top_height_m, "top_height_m")?,
+                    max_steering_angle_rad: required(
+                        self.max_steering_angle_rad,
+                        "max_steering_angle_rad",
+                    )?,
+                    max_steering_rate_rad_s: required(
+                        self.max_steering_rate_rad_s,
+                        "max_steering_rate_rad_s",
+                    )?,
+                })
+            }
+        })
     }
 }

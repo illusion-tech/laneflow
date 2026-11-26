@@ -73,6 +73,37 @@ fn fixture_topology_with_signals_and_profiles_round_trips() {
 }
 
 #[test]
+fn missing_vehicle_geometry_blocks_publication_and_allows_the_road_survey() {
+    let vtypes = fixture_vtypes_xml()
+        .lines()
+        .filter(|line| !line.contains("laneflow.geometry."))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let convert = |options| {
+        convert_topology_from_xml_with_tll_and_vtypes(
+            &fixture_net_xml(),
+            &fixture_tll_xml(),
+            &vtypes,
+            &options,
+        )
+    };
+    let error =
+        convert(TopologyConvertOptions::default()).expect_err("missing geometry must reject LFCA");
+    assert!(
+        error
+            .to_string()
+            .contains("passenger1: missing laneflow.geometry.configuration")
+    );
+    let survey = convert(TopologyConvertOptions {
+        emit_infeasibility_report: true,
+        ..TopologyConvertOptions::default()
+    })
+    .expect("the road survey does not compile an LFCA");
+    assert!(survey.network_lfca.is_empty());
+    assert!(survey.infeasibility_report.is_some());
+}
+
+#[test]
 fn fixture_topology_is_byte_deterministic() {
     let options = TopologyConvertOptions::default();
     let first = convert_topology_from_xml_with_tll_and_vtypes(

@@ -44,6 +44,7 @@ pub(crate) struct HirParticipantClass {
 /// 已解析唯一参与者类别的车辆配置；交通一维为毫米，时距与加减速为受检 `f32`。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirVehicleProfile {
+    pub(crate) geometry: laneflow_static_contract::RoadVehicleGeometry,
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: VehicleProfileId,
@@ -514,6 +515,7 @@ pub(crate) fn build_access_hir(
             let iidm = source.iidm;
             let key = profiles
                 .push(HirVehicleProfile {
+                    geometry: source.geometry,
                     module: module_key,
                     stable_key: Arc::clone(&source.header.stable_key),
                     stable_id,

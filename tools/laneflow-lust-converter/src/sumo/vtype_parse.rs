@@ -42,8 +42,29 @@ fn collect_vtypes(node: Node<'_, '_>, vtypes: &mut Vec<SumoVType>) -> Result<()>
 }
 
 fn parse_vtype(node: Node<'_, '_>) -> Result<SumoVType> {
+    let id = required_attr(node, "id")?;
+    let mut geometry_parameters = std::collections::BTreeMap::new();
+    for param in node.children().filter(|child| child.has_tag_name("param")) {
+        if let Some(key) = param
+            .attribute("key")
+            .and_then(|k| k.strip_prefix("laneflow.geometry."))
+        {
+            let value = param
+                .attribute("value")
+                .ok_or_else(|| Error::SumoModel(format!("vType {id}: missing value for {key}")))?;
+            if geometry_parameters
+                .insert(key.to_owned(), value.to_owned())
+                .is_some()
+            {
+                return Err(Error::SumoModel(format!(
+                    "vType {id}: duplicate geometry field {key}"
+                )));
+            }
+        }
+    }
     Ok(SumoVType {
-        id: required_attr(node, "id")?,
+        geometry_parameters,
+        id,
         v_class: required_attr(node, "vClass")?,
         accel: ExactDecimal::from_str(&required_attr(node, "accel")?)?,
         decel: ExactDecimal::from_str(&required_attr(node, "decel")?)?,

@@ -2336,7 +2336,7 @@ fn validate_access_and_profiles(
     )?;
     for value in root.vehicle_profiles() {
         usage.charge_declaration(EntityKind::VehicleProfile);
-        usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+        usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(2);
         usage.charge_token(
             value.vehicle_profile_key(),
             "vehicleProfile.vehicleProfileKey",
@@ -2354,6 +2354,26 @@ fn validate_access_and_profiles(
             expected_key,
         )?;
         validate_iidm(value.iidm(), expected_key)?;
+        let length_mm = laneflow_static_contract::millimetres_from_si(value.iidm().length_meters())
+            .expect("validated vehicle length");
+        super::vehicle_geometry::admit(value.geometry(), length_mm).map_err(
+            |(index, reason)| {
+                DiagnosticBundle::single(Diagnostic::invalid_road_editing_source_at(
+                    RoadEditingSourceViolation::InvalidSemanticValue(reason),
+                    Some(super::vehicle_geometry::field_name(index)),
+                    expected_key,
+                    Some(expected_key),
+                    Some(
+                        super::location::RoadEditingLocationFactory::invalid_vehicle_geometry(
+                            namespace,
+                            expected_key,
+                            value.vehicle_profile_key(),
+                            index,
+                        ),
+                    ),
+                ))
+            },
+        )?;
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())

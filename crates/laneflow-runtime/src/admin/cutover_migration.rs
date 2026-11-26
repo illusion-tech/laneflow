@@ -2904,6 +2904,7 @@ pub(crate) mod tests {
                     participant,
                     lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
                         .expect("vehicle profile"),
+                    laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 )
                 .expect("vehicle profile"),
             ))
@@ -3481,6 +3482,7 @@ pub(crate) mod tests {
                     participant,
                     lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
                         .expect("profile"),
+                    laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 )
                 .expect("profile"),
             ))
@@ -4223,6 +4225,7 @@ pub(crate) mod tests {
             })
             .expect("class")
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 vehicle_profile_key: "car",
                 participant_class: ParticipantClassReference::local("road-user"),
                 iidm: IidmVehicleProfileInput {

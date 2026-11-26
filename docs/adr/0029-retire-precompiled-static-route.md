@@ -272,7 +272,7 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
   `static_routes`；声明向量与 Identity 可构造种类一一对应（24 个，包含后继策略声明）。
   `canonical_frames`、`conflict_zones` 与 `participant_streams` 分别为根表 field id
   25、26、27。路线退役时为 wire 3；路权策略在 wire 4 新增向量 id 29，原生曲线在 wire 5 扩充曲线段。
-  现行 schema 为 `schemas/road-editing/v7/`，道路编辑 `frontendVersion = 6`，file identifier 仍为 `LFRE`。
+  现行 schema 为 `schemas/road-editing/v8/`，道路编辑 `frontendVersion = 8`，file identifier 仍为 `LFRE`。
 - 合成 DSL 不接受静态路线声明；合成 `frontendVersion` 为 4，拒绝
   `StaticRoute` 不另升。
 - 生产 `CompileProfile` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。

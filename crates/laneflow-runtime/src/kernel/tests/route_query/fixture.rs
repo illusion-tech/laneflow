@@ -43,6 +43,7 @@ pub fn revision(red: bool) -> Arc<SharedNetworkRevision> {
             .unwrap();
         module
             .add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 vehicle_profile_key: profile,
                 participant_class: ParticipantClassReference::local(class),
                 iidm: IidmVehicleProfileInput {

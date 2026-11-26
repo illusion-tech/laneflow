@@ -6,9 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::Error;
 
 pub const CONFIG_VERSION: &str = "0.1";
-/// 车辆横向包络的工程假定（profile 无 width 字段）：槽位跨边重叠过滤与
-/// lane_width 下限共用这一个正本值。
-pub const VEHICLE_WIDTH_ENVELOPE_METERS: f64 = 2.0;
 const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -59,6 +56,16 @@ pub struct SignalConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileConfig {
+    pub configuration: u8,
+    pub wheelbase_m: Option<f64>,
+    pub track_width_m: Option<f64>,
+    pub reference_height_m: Option<f64>,
+    pub rear_overhang_m: Option<f64>,
+    pub width_m: Option<f64>,
+    pub bottom_height_m: Option<f64>,
+    pub top_height_m: Option<f64>,
+    pub max_steering_angle_rad: Option<f64>,
+    pub max_steering_rate_rad_s: Option<f64>,
     pub length_meters: f64,
     pub desired_speed_meters_per_second: f64,
     pub min_gap_meters: f64,
@@ -83,9 +90,9 @@ impl JunctionConfig {
         Ok(config)
     }
 
-    /// 车辆前保险杠到 edge 端点必须保留的净距。
-    pub fn endpoint_clearance_meters(&self) -> f64 {
-        self.profile.length_meters + self.profile.min_gap_meters
+    /// 按发布后的车长与最小间距计算前保险杠到边端点的净距。
+    pub fn endpoint_clearance_meters(&self) -> Result<f64, Error> {
+        Ok(self.profile.dimensions()?.endpoint_clearance_meters())
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -183,9 +190,11 @@ impl JunctionConfig {
         }
         // 主路同向两条车道中心线相距 lane_width；小于车辆宽度包络时两条独立
         // LaneEdge 上的车辆横向重叠而运行时无法检测。
-        if geometry.lane_width_meters < VEHICLE_WIDTH_ENVELOPE_METERS {
+        let dimensions = self.profile.dimensions()?;
+        let vehicle_width = dimensions.width_meters();
+        if geometry.lane_width_meters < vehicle_width {
             return Err(config_error(format!(
-                "lane_width_meters must be at least the {VEHICLE_WIDTH_ENVELOPE_METERS} m \
+                "lane_width_meters must be at least the {vehicle_width} m \
                  vehicle width envelope",
             )));
         }
@@ -216,7 +225,7 @@ impl JunctionConfig {
         }
         // 待转区必须至少容纳一辆配置车型；车长超限会让 route-w-left-waiting
         // 的每次 spawn 都以 VehicleTooLong 失败。
-        if self.profile.length_meters > geometry.pocket_length_meters {
+        if dimensions.length_meters() > geometry.pocket_length_meters {
             return Err(config_error(
                 "profile.length_meters must not exceed pocket_length_meters so the waiting \
                  route remains spawnable",
@@ -240,15 +249,15 @@ impl JunctionConfig {
             ));
         }
 
-        if geometry.spawn_slot_pitch_meters < self.endpoint_clearance_meters() {
+        let clearance = dimensions.endpoint_clearance_meters();
+        if geometry.spawn_slot_pitch_meters < clearance {
             return Err(config_error(format!(
-                "spawn_slot_pitch_meters must be at least {} m",
-                self.endpoint_clearance_meters()
+                "spawn_slot_pitch_meters must be at least {clearance} m"
             )));
         }
         // 同 portal 配对环路的槽位交错 pitch/2；交错量必须不小于车长，
         // 否则两条边重合段上的车辆物理重叠。pitch/2 ≥ length ⟺ pitch ≥ 2·length。
-        if geometry.spawn_slot_pitch_meters < self.profile.length_meters * 2.0 {
+        if geometry.spawn_slot_pitch_meters < dimensions.length_meters() * 2.0 {
             return Err(config_error(
                 "spawn_slot_pitch_meters must be at least twice profile.length_meters so the \
                  half-pitch stagger keeps paired loop slots one vehicle length apart",
@@ -333,4 +342,88 @@ fn is_single_file_name(value: &str) -> bool {
 
 fn config_error(message: impl Into<String>) -> Error {
     Error::Config(message.into())
+}
+
+pub(crate) fn positive_mm(meters: f64, field: &str) -> Result<u32, Error> {
+    laneflow_static_contract::millimetres_from_si(meters)
+        .filter(|&mm| mm > 0)
+        .ok_or_else(|| config_error(format!("{field} must fit positive integer millimetres")))
+}
+
+pub(crate) struct ProfileDimensions {
+    pub(crate) length_mm: u32,
+    width_mm: u32,
+    pub(crate) min_gap_mm: u32,
+}
+
+impl ProfileDimensions {
+    pub(crate) fn length_meters(&self) -> f64 {
+        f64::from(self.length_mm) / 1_000.0
+    }
+
+    pub(crate) fn width_meters(&self) -> f64 {
+        f64::from(self.width_mm) / 1_000.0
+    }
+
+    pub(crate) fn endpoint_clearance_meters(&self) -> f64 {
+        (f64::from(self.length_mm) + f64::from(self.min_gap_mm)) / 1_000.0
+    }
+}
+
+impl ProfileConfig {
+    pub(crate) fn geometry(&self) -> Result<laneflow_compiler::RoadVehicleGeometryInput, Error> {
+        use laneflow_compiler::{
+            RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryInput,
+        };
+        let key = laneflow_scenario::complex_junction::VEHICLE_PROFILE_KEY;
+        let configuration =
+            RoadVehicleConfiguration::from_code(self.configuration).ok_or_else(|| {
+                Error::Config(format!(
+                    "profile {key}: unknown configuration {}",
+                    self.configuration
+                ))
+            })?;
+        let required = |value: Option<f64>, field| {
+            value.ok_or_else(|| Error::Config(format!("profile {key}: missing {field}")))
+        };
+        Ok(match configuration {
+            RoadVehicleConfiguration::SemiTrailer => RoadVehicleGeometryInput::SemiTrailer,
+            RoadVehicleConfiguration::FullTrailer => RoadVehicleGeometryInput::FullTrailer,
+            RoadVehicleConfiguration::ArticulatedBus => RoadVehicleGeometryInput::ArticulatedBus,
+            RoadVehicleConfiguration::RigidTwoAxle => {
+                RoadVehicleGeometryInput::RigidTwoAxle(RigidTwoAxleGeometryInput {
+                    wheelbase_m: required(self.wheelbase_m, "wheelbase_m")?,
+                    track_width_m: required(self.track_width_m, "track_width_m")?,
+                    reference_height_m: required(self.reference_height_m, "reference_height_m")?,
+                    rear_overhang_m: required(self.rear_overhang_m, "rear_overhang_m")?,
+                    width_m: required(self.width_m, "width_m")?,
+                    bottom_height_m: required(self.bottom_height_m, "bottom_height_m")?,
+                    top_height_m: required(self.top_height_m, "top_height_m")?,
+                    max_steering_angle_rad: required(
+                        self.max_steering_angle_rad,
+                        "max_steering_angle_rad",
+                    )?,
+                    max_steering_rate_rad_s: required(
+                        self.max_steering_rate_rad_s,
+                        "max_steering_rate_rad_s",
+                    )?,
+                })
+            }
+        })
+    }
+
+    pub(crate) fn dimensions(&self) -> Result<ProfileDimensions, Error> {
+        let length_mm = positive_mm(self.length_meters, "profile.length_meters")?;
+        let geometry = self.geometry()?.canonical(length_mm).map_err(|error| {
+            config_error(format!(
+                "profile {}: {error}",
+                laneflow_scenario::complex_junction::VEHICLE_PROFILE_KEY
+            ))
+        })?;
+        Ok(ProfileDimensions {
+            length_mm,
+            width_mm: geometry.width_mm,
+            min_gap_mm: positive_mm(self.min_gap_meters, "profile.min_gap_meters")?,
+        })
+    }
 }

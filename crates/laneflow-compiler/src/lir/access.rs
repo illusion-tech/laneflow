@@ -24,6 +24,7 @@ pub(crate) struct LirParticipantClass {
 
 /// 车辆配置的 Canonical LIR 记录：冻结车辆运动与安全参数，并指向所属参与者类别。
 pub(crate) struct LirVehicleProfile {
+    pub(crate) geometry: laneflow_static_contract::RoadVehicleGeometry,
     pub(crate) ordinal: VehicleProfileOrdinal,
     pub(crate) stable_id: VehicleProfileId,
     pub(crate) identity_fields: TableRange<LirIdentityField>,
@@ -136,6 +137,7 @@ pub(super) fn freeze_classes(
             env.primary_span.clone(),
         )?;
         vehicle_profiles.push(LirVehicleProfile {
+            geometry: profile.geometry,
             ordinal: env.orders.vehicle_profiles.ordinal(mir_key),
             stable_id: profile.stable_id,
             identity_fields: identity_range,

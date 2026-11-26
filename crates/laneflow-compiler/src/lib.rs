@@ -75,6 +75,7 @@ pub use diagnostic::{
     SpatialGeometryViolation, WaitingZoneGateRole,
 };
 pub use geometry_profile::{GeometryAccuracyProfile, GeometryDirectionProfile};
+mod vehicle_geometry;
 pub use identity::{CanonicalIdentityViolation, derive_canonical_stable_id_v1};
 pub use laneflow_static_contract::{
     AccessEffect, GateInterpretation, GateProhibition, ManeuverDirection, SignalAspect,
@@ -123,4 +124,8 @@ pub use source_map::{
     SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView, SourceDocumentView,
     SourceLocationView, SourceModuleSourceView, SourceRelationRole, SpatialRelationSourceView,
     StopLineSourceView, ValidatedSourceMapInput, VehicleProfileSourceView, WaitingZoneSourceView,
+};
+pub use vehicle_geometry::{
+    RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryInput,
+    VehicleGeometryInputError,
 };

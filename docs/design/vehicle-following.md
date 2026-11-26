@@ -102,7 +102,7 @@ Snapshot 是语义约束，不要求复制完整 world。当前 state 可以保�
 
 ### 4.1 Profile 字段
 
-现行制品保存以下纵向字段。道路机动车型的完整几何要求见 §4.5。
+现行制品的纵向字段如下。道路机动车型的完整几何要求见 §4.5。
 
 ```text
 VehicleProfile
@@ -134,7 +134,7 @@ Validation：
 
 ### 4.2 持久化
 
-Vehicle Profile 现行持久化使用 [LFCA 6 的 `VehicleProfile` 表][artifact]（毫米 /
+Vehicle Profile 现行持久化使用 [LFCA 7 的 `VehicleProfile` 表][artifact]（毫米 /
 受检 `f32`）。
 
 - 每个 VehicleProfile 必须引用已声明 ParticipantClass；静态 AccessRule 在
@@ -153,12 +153,11 @@ register/remove/mutate API。tick 热路径只读取序号和紧凑 profile 数�
 构建共享静态路网。Runtime 不依赖 Serde、JSON 或文件系统。不公开 controller trait。
 
 <a id="road-vehicle-profile-geometry"></a>
-### 4.5 按构型编制的道路机动车型几何（目标合同）
+### 4.5 按构型编制的道路机动车型几何
 
 所有道路机动车型在编制时都须声明构型，并提供该构型完整的几何与转向参数，包括只参与普通跟驰的车型。首版支持单个刚性车身、双轴、前轮转向且前后轮距相同的构型。下表九项对该构型全部必填，车长沿用 §4.1。
 两种官方编制前端和受检制品读方均须校验这些参数。缺项、非有限值、量化后失效或
-尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。现行 LFCA 6 的车型行只含
-§4.1 的纵向字段，此要求随车型格式升版实施。[车型几何的目标格式][geometry-format]
+尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。LFCA 7 的车型几何与 §4.1 的纵向字段共用车型身份和修订。[车型几何的制品格式][geometry-format]
 
 | 参数 | 交通侧用途与校验 |
 | ---- | ---------------- |
@@ -764,7 +763,7 @@ Private：
 - 一万到十万不得呈现 `O(V^2)` 趋势。
 
 [lane-change-contract]: lane-change-minimal-contract.md
-[artifact]: portable-canonical-artifact.md#3-lfca-6
+[artifact]: portable-canonical-artifact.md#3-lfca-7
 [geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
 [handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [parking-system]: parking-system.md

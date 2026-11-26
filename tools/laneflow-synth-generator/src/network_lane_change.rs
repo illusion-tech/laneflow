@@ -47,6 +47,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
     // min_gap 2.5、d_stop(10 m/s)=15.61 m 前提）。
     builder
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("car"),
             iidm: IidmVehicleProfileInput {

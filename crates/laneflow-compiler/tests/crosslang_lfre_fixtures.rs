@@ -30,13 +30,43 @@ fn read_fixture(fixture_name: &str) -> Vec<u8> {
         .unwrap_or_else(|error| panic!("无法读取 fixture `{}`: {error}", path.display()))
 }
 
+fn assert_fixture_vehicle(root: wire::RoadEditingSource<'_>) {
+    assert_eq!(root.participant_classes().len(), 1);
+    assert_eq!(
+        root.participant_classes().get(0).participant_class_key(),
+        "motor"
+    );
+    assert_eq!(root.vehicle_profiles().len(), 1);
+    let profile = root.vehicle_profiles().get(0);
+    assert_eq!(profile.vehicle_profile_key(), "car");
+    assert_eq!(profile.participant_class(), "motor");
+    assert_eq!(profile.iidm().length_meters(), 4.15);
+    let g = profile.geometry().unwrap();
+    assert_eq!(g.configuration(), Some(1));
+    assert_eq!(
+        [
+            g.wheelbase_m(),
+            g.track_width_m(),
+            g.reference_height_m(),
+            g.rear_overhang_m(),
+            g.width_m(),
+            g.bottom_height_m(),
+            g.top_height_m(),
+            g.max_steering_angle_rad(),
+            g.max_steering_rate_rad_s(),
+        ],
+        [2.60, 1.501, 0., 0., 1.901, -0.2, 1.4, 0.6, 0.8].map(Some)
+    );
+}
+
 /// 把固定模块的文档化语义逐字段断言在解码后的 wire 视图上；任一 writer 内容漂移
 /// （限速、几何、键、向量基数）都会在此失败。
 fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     let root = wire::size_prefixed_root_as_road_editing_source(bytes)
         .unwrap_or_else(|_| panic!("{fixture_name}: size-prefixed root 解码失败"));
 
-    assert_eq!(root.format_version(), 7, "{fixture_name}: format_version");
+    assert_eq!(root.format_version(), 8, "{fixture_name}: format_version");
+    assert_fixture_vehicle(root);
     assert_eq!(
         root.geometry_accuracy_profile(),
         wire::GeometryAccuracyProfile::Fine2Cm,
@@ -204,7 +234,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
     );
 
     // 其余声明向量全部为空。
-    let empty_vectors: [(&str, usize); 17] = [
+    let empty_vectors: [(&str, usize); 15] = [
         ("junctions", root.junctions().len()),
         ("movements", root.movements().len()),
         ("maneuver_paths", root.maneuver_paths().len()),
@@ -218,9 +248,7 @@ fn assert_fixed_module_semantics(fixture_name: &str, bytes: &[u8]) {
         ("parking_spaces", root.parking_spaces().len()),
         ("lane_groups", root.lane_groups().len()),
         ("facility_bands", root.facility_bands().len()),
-        ("participant_classes", root.participant_classes().len()),
         ("access_rules", root.access_rules().len()),
-        ("vehicle_profiles", root.vehicle_profiles().len()),
         ("conflict_zones", root.conflict_zones().len()),
     ];
     for (name, len) in empty_vectors {
@@ -285,7 +313,7 @@ fn assert_source_edge_ordinals(output: &laneflow_compiler::CompilationOutput) {
     )
     .unwrap();
     let bytes = candidate.source_map().bytes();
-    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 7);
+    assert_eq!(u16::from_le_bytes(bytes[4..6].try_into().unwrap()), 8);
     let map = preflight_object_values(bytes, PortableObjectKind::SourceMap, FormatLimits::HARD)
         .unwrap()
         .registry_view();
@@ -350,6 +378,7 @@ fn cross_language_complete_bend_preserves_station_support_and_named_payloads() {
             .unwrap();
         assert_eq!(b.supports_wheel(), Some(false));
         let wire = wire::size_prefixed_root_as_road_editing_source(&bytes).unwrap();
+        assert_fixture_vehicle(wire);
         assert!(
             wire.authoring_lanes()
                 .get(1)
@@ -381,6 +410,34 @@ fn cross_language_complete_bend_preserves_station_support_and_named_payloads() {
                 ),
             )
             .unwrap();
+            let car = shared
+                .traffic()
+                .relations()
+                .vehicle_profile(
+                    laneflow_static_contract::VehicleProfileOrdinal::try_from_usize(0).unwrap(),
+                )
+                .unwrap();
+            let geometry = car.geometry();
+            assert_eq!(car.length_mm(), 4_150);
+            assert_eq!(
+                [
+                    geometry.wheelbase_mm,
+                    geometry.track_width_mm,
+                    geometry.rear_overhang_mm,
+                    geometry.width_mm
+                ],
+                [2_600, 1_501, 0, 1_901]
+            );
+            assert_eq!(
+                [
+                    geometry.reference_height_mm,
+                    geometry.bottom_height_mm,
+                    geometry.top_height_mm
+                ],
+                [0, -200, 1_400]
+            );
+            assert_eq!(geometry.max_steering_angle_rad.to_bits(), 0x3f19_9999);
+            assert_eq!(geometry.max_steering_rate_rad_s.to_bits(), 0x3f4c_cccc);
             let map = shared.station_mapping();
             let rail = map
                 .boundary_extents()
@@ -470,6 +527,91 @@ fn cross_language_complete_bend_preserves_station_support_and_named_payloads() {
         }
         expected = Some(result.network_revision());
     }
+}
+
+#[test]
+fn vehicle_geometry_errors_locate_the_vehicle_and_the_source_field() {
+    use laneflow_compiler::{
+        DiagnosticPayload, RoadEditingInputViolation as Reason, RoadEditingPropertyStep as Step,
+        RoadEditingSourceViolation, RoadEditingSubject, RoadEditingTableKind as Table,
+    };
+    let bytes = read_fixture("cpp_writer.lfre");
+    let root = wire::size_prefixed_root_as_road_editing_source(&bytes).unwrap();
+    let profile = root.vehicle_profiles().get(0);
+    let geometry = profile.geometry().unwrap();
+    let slot = |table: usize, field: u16| {
+        let displacement = i32::from_le_bytes(bytes[table..table + 4].try_into().unwrap());
+        let entry = usize::try_from(table as i64 - i64::from(displacement)).unwrap()
+            + 4
+            + 2 * usize::from(field);
+        let offset = u16::from_le_bytes(bytes[entry..entry + 2].try_into().unwrap());
+        assert_ne!(offset, 0);
+        (entry, table + usize::from(offset))
+    };
+    let mut unit =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+    let mut reject = |bytes: &[u8], field: Option<u16>, reason: Reason| {
+        let input =
+            RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, bytes, None).unwrap();
+        let Err(error) = unit.add_road_editing_module(input) else {
+            panic!("invalid geometry accepted")
+        };
+        let diagnostic = &error.diagnostics()[0];
+        assert!(
+            matches!(diagnostic.payload(), DiagnosticPayload::InvalidRoadEditingSource {
+            violation: RoadEditingSourceViolation::InvalidSemanticValue(actual), ..
+        } if *actual == reason)
+        );
+        let loc = diagnostic
+            .primary_location()
+            .unwrap()
+            .road_editing()
+            .unwrap();
+        let RoadEditingSubject::Declaration { address } = loc.subject() else {
+            panic!("wrong geometry owner")
+        };
+        assert_eq!(address.local_key(loc.context()), "car");
+        let mut path = vec![Step::TableField {
+            table: Table::VehicleProfile,
+            field_id: 4,
+        }];
+        if let Some(field_id) = field {
+            path.push(Step::TableField {
+                table: Table::RoadVehicleGeometry,
+                field_id,
+            })
+        }
+        assert_eq!(loc.property_path().unwrap().steps(), path);
+    };
+    let missing = Reason::MissingVehicleGeometryField;
+    let mut no_group = bytes.clone();
+    let entry = slot(profile._tab.loc(), 4).0;
+    no_group[entry..entry + 2].fill(0);
+    reject(&no_group, None, missing);
+    for field in 0..=9 {
+        let mut absent = bytes.clone();
+        let entry = slot(geometry._tab.loc(), field).0;
+        absent[entry..entry + 2].fill(0);
+        reject(&absent, Some(field), missing);
+    }
+    let mut only_model = bytes.clone();
+    for field in 0..9 {
+        let entry = slot(geometry._tab.loc(), field).0;
+        only_model[entry..entry + 2].fill(0);
+    }
+    let config = slot(geometry._tab.loc(), 9).1;
+    for model in [0, 2, 3, 4, 255] {
+        only_model[config] = model;
+        reject(
+            &only_model,
+            Some(9),
+            Reason::UnsupportedVehicleConfiguration { model },
+        );
+    }
+    unit.add_road_editing_module(
+        RoadEditingModuleInput::try_new(EXPECTED_SOURCE_DOCUMENT_KEY, &bytes, None).unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]

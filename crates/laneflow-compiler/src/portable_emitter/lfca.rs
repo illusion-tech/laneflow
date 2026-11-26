@@ -853,6 +853,7 @@ fn vehicle_profile_row(
     t: &TreeBuilder,
     record: &crate::lir::LirVehicleProfile,
 ) -> super::tree::RowRef {
+    let g = record.geometry;
     t.row([
         field(1, Value::U32(record.ordinal.raw())),
         field(2, Value::StableId128(stable_id_bytes(record.stable_id))),
@@ -872,6 +873,20 @@ fn vehicle_profile_row(
         field(
             10,
             Value::F32(record.emergency_deceleration_meters_per_second_squared),
+        ),
+        field(
+            11,
+            t.records([t.record([
+                field(1, Value::U32(g.wheelbase_mm)),
+                field(2, Value::U32(g.track_width_mm)),
+                field(3, Value::I32(g.reference_height_mm)),
+                field(4, Value::U32(g.rear_overhang_mm)),
+                field(5, Value::U32(g.width_mm)),
+                field(6, Value::I32(g.bottom_height_mm)),
+                field(7, Value::I32(g.top_height_mm)),
+                field(8, Value::F32(g.max_steering_angle_rad)),
+                field(9, Value::F32(g.max_steering_rate_rad_s)),
+            ])]),
         ),
     ])
 }

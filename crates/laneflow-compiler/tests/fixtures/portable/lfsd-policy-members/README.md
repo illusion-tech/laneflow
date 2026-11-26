@@ -1,11 +1,10 @@
-# LFSD 4 完整策略成员差异
+# LFSD 6 完整策略成员差异
 
 沿用 `lfca-policy-references` 的工程策略拓扑，target 分别修改 evidence locator、
 gap 数值、stream priority 和 gate prohibition；四个保留 K 各产生一次完整 Modify。
 `expected.lfsd` 冻结全部四种成员值、StableRefV1 和稳定引用集合。
 
-固定长度为 2,266 bytes，SHA-256 为
-`ff5534936250c4bd5dad8eb5e8b028a16ce61b4643dde2be201fa615e8c02937`。
+差异的规范长度和 SHA-256 对象键见同目录的 `bindings.txt`。
 base/target 是 writer 工程 fixture，未经过正式策略前端或共享静态路网规则覆盖验证，不代表
 法规语义，也未配套 LFSM，不能作为发布候选。
 

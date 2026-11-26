@@ -30,22 +30,23 @@ impl RoadWindowBaseline {
     }
 }
 
-// 固定窗口使用摘要版本 8（BLAKE3-256），绑定 LFCA 6 的路网修订。
+// 固定窗口使用摘要版本 8（BLAKE3-256），绑定 LFCA 7 的路网修订。
+// #1526 在 LFCA 6 与 7 上独立重放四个窗口，LFRS 全部差异均属于静态制品绑定字段。
 // Journal 开关共用同一状态摘要基线（#1557）。
 const ROAD_1K_256: RoadWindowBaseline = RoadWindowBaseline {
     count: 1_000,
     edges: 256,
-    expected_digest: "01571d70db0c99b69b4bbdc03ee892eb49dac367d70ab6c087198b9e5663b0ca",
+    expected_digest: "c11dedd27f71f1388cf18b1aeb140cf309095a3fbdc0f0cc97ae866a935e68e4",
 };
 const ROAD_10K_256: RoadWindowBaseline = RoadWindowBaseline {
     count: 10_000,
     edges: 256,
-    expected_digest: "cda9cef9dc2b12f540a8a965648949f3126b5d030a33ce4be20545d3c570b583",
+    expected_digest: "b53c5b0e60667460e432550f656e5e45b236ec4d70302016e57fff24c8527287",
 };
 const ROAD_10K_16: RoadWindowBaseline = RoadWindowBaseline {
     count: 10_000,
     edges: 16,
-    expected_digest: "25dae5a372d4bcb6582e844121137948c2dc5ba80b9c4b8693b98995ca6f1371",
+    expected_digest: "bcf7d3555de1bf2225a301b94ef3f03b3ce5b720bf1faabdd156f1505071ff1e",
 };
 
 #[test]
@@ -101,7 +102,7 @@ fn state_digest_matches_frozen_baseline() {
     // 将当前原像中的路网修订、LFCA 格式和派生版本还原为 LFCA 5 值，可复得历史摘要。
     assert_eq!(
         harness.digest(),
-        "56f0cae7172ca52b7d48697b525eb1d23568239bcfe0b2520b533ed7fadd1cfb"
+        "81ca802323d3be7fc38c3d1bcb7a019bb9d0c5010a2712b0862fefc6e217993a"
     );
 }
 

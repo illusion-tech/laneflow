@@ -375,6 +375,7 @@ fn build(topology: &Topology) -> Arc<SharedNetworkRevision> {
                 editing::ParticipantClassReference::local("car-class").unwrap(),
                 editing::IidmVehicleProfileInput::try_new(4.5, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0)
                     .unwrap(),
+                laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             )
             .unwrap(),
         ))

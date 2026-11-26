@@ -1383,8 +1383,9 @@ fn add_zones_and_streams(
     topology: &mut TopologyBuild,
     config: &JunctionConfig,
 ) -> Result<(), Error> {
-    let vehicle_length = config.profile.length_meters;
-    let half_width = crate::config::VEHICLE_WIDTH_ENVELOPE_METERS / 2.0;
+    let dimensions = config.profile.dimensions()?;
+    let vehicle_length = dimensions.length_meters();
+    let half_width = dimensions.width_meters() / 2.0;
     // 门按 transition 分段：transition 为 t 的门管辖内部边 [t, 下一门 t)。
     let mut path_gates: Vec<Vec<&GateBuild>> = vec![Vec::new(); topology.paths.len()];
     for gate in &topology.gates {
@@ -1882,5 +1883,33 @@ mod tests {
         );
         let error = add_zones_and_streams(&mut topology, &config).unwrap_err();
         assert!(error.to_string().contains("protected paths"));
+    }
+
+    #[test]
+    fn concurrent_protected_envelopes_use_published_length_and_width() {
+        let mut config = JunctionConfig::parse(include_str!(
+            "../../../examples/config/v0.1-complex-junction.toml"
+        ))
+        .unwrap();
+        config.profile.length_meters = 4.500_51;
+        config.profile.width_m = Some(2.000_51);
+        for (x, y) in [(1_004.500_75, 1_000.0), (1_000.0, 1_002.000_75)] {
+            let mut topology = build_topology(&config).unwrap();
+            let west = topology.waiting_zone_path;
+            let east = topology
+                .paths
+                .iter()
+                .position(|path| topology.movements[path.movement].key == "e-s")
+                .unwrap();
+            // 两条曲线分离；分别沿纵向或横向在毫米量化后产生 0.25 mm 包络重叠。
+            topology.paths[west].segment_samples[2] = vec![[999.0, 1_000.0], [1_000.0, 1_000.0]];
+            topology.paths[east].segment_samples[0] = vec![[x, y], [x + 1.0, y]];
+            let error = add_zones_and_streams(&mut topology, &config).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("protected paths of movements \"w-n\" and \"e-s\"")
+            );
+        }
     }
 }

@@ -25,7 +25,7 @@ fn entity_modify_tags(entity_kind: EntityKind) -> &'static [u16] {
         EntityKind::StopLine => &[3],
         EntityKind::ParkingSpace => &[5, 7, 8, 9, 10, 11],
         EntityKind::FacilityBand | EntityKind::ParticipantClass => &[4],
-        EntityKind::VehicleProfile => &[4, 5, 6, 7, 8, 9, 10],
+        EntityKind::VehicleProfile => &[4, 5, 6, 7, 8, 9, 10, 11],
         EntityKind::ParticipantStream => &[5],
         EntityKind::Movement => &[7],
     }
@@ -460,7 +460,7 @@ mod tests {
             (EntityKind::AccessRule, &[][..], &[5, 7, 8][..]),
             (
                 EntityKind::VehicleProfile,
-                &[4, 5, 6, 7, 8, 9, 10][..],
+                &[4, 5, 6, 7, 8, 9, 10, 11][..],
                 &[][..],
             ),
             (EntityKind::ConflictZone, &[][..], &[][..]),

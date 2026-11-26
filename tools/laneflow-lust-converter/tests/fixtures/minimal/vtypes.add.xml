@@ -2,12 +2,78 @@
 <!-- Synthetic vtypes fixture mirroring LuST passenger set (+ bus present but not selected). -->
 <routes>
     <vTypeDistribution id="private">
-        <vType vClass="passenger" id="passenger1" accel="2.6" decel="4.5" length="5.0" minGap="1.5" maxSpeed="70" probability=".40" speedDev="0.1"/>
-        <vType vClass="passenger" id="passenger2a" accel="3.0" decel="4.5" length="4.5" minGap="1.5" maxSpeed="50" probability=".20" speedDev="0.1"/>
-        <vType vClass="passenger" id="passenger2b" accel="2.8" decel="4.5" length="4.5" minGap="1.0" maxSpeed="50" probability=".20" speedDev="0.1"/>
-        <vType vClass="passenger" id="passenger3" accel="2.7" decel="4.5" length="6.0" minGap="1.5" maxSpeed="70" probability=".10" speedDev="0.1"/>
-        <vType vClass="passenger" id="passenger4" accel="2.4" decel="4.5" length="5.5" minGap="1.5" maxSpeed="30" probability=".05" speedDev="0.1"/>
-        <vType vClass="passenger" id="passenger5" accel="2.3" decel="4.5" length="7.0" minGap="2.5" maxSpeed="30" probability=".05" speedDev="0.1"/>
+        <vType vClass="passenger" id="passenger1" accel="2.6" decel="4.5" length="5.0" minGap="1.5" maxSpeed="70" probability=".40" speedDev="0.1">
+            <param key="laneflow.geometry.configuration" value="1"/>
+            <param key="laneflow.geometry.wheelbase_m" value="2.6"/>
+            <param key="laneflow.geometry.track_width_m" value="1.6"/>
+            <param key="laneflow.geometry.reference_height_m" value="0.35"/>
+            <param key="laneflow.geometry.rear_overhang_m" value="0.75"/>
+            <param key="laneflow.geometry.width_m" value="1.9"/>
+            <param key="laneflow.geometry.bottom_height_m" value="-0.15"/>
+            <param key="laneflow.geometry.top_height_m" value="1.15"/>
+            <param key="laneflow.geometry.max_steering_angle_rad" value="0.6"/>
+            <param key="laneflow.geometry.max_steering_rate_rad_s" value="0.7"/>
+        </vType>
+        <vType vClass="passenger" id="passenger2a" accel="3.0" decel="4.5" length="4.5" minGap="1.5" maxSpeed="50" probability=".20" speedDev="0.1">
+            <param key="laneflow.geometry.configuration" value="1"/>
+            <param key="laneflow.geometry.wheelbase_m" value="2.6"/>
+            <param key="laneflow.geometry.track_width_m" value="1.6"/>
+            <param key="laneflow.geometry.reference_height_m" value="0.35"/>
+            <param key="laneflow.geometry.rear_overhang_m" value="0.75"/>
+            <param key="laneflow.geometry.width_m" value="1.9"/>
+            <param key="laneflow.geometry.bottom_height_m" value="-0.15"/>
+            <param key="laneflow.geometry.top_height_m" value="1.15"/>
+            <param key="laneflow.geometry.max_steering_angle_rad" value="0.6"/>
+            <param key="laneflow.geometry.max_steering_rate_rad_s" value="0.7"/>
+        </vType>
+        <vType vClass="passenger" id="passenger2b" accel="2.8" decel="4.5" length="4.5" minGap="1.0" maxSpeed="50" probability=".20" speedDev="0.1">
+            <param key="laneflow.geometry.configuration" value="1"/>
+            <param key="laneflow.geometry.wheelbase_m" value="2.6"/>
+            <param key="laneflow.geometry.track_width_m" value="1.6"/>
+            <param key="laneflow.geometry.reference_height_m" value="0.35"/>
+            <param key="laneflow.geometry.rear_overhang_m" value="0.75"/>
+            <param key="laneflow.geometry.width_m" value="1.9"/>
+            <param key="laneflow.geometry.bottom_height_m" value="-0.15"/>
+            <param key="laneflow.geometry.top_height_m" value="1.15"/>
+            <param key="laneflow.geometry.max_steering_angle_rad" value="0.6"/>
+            <param key="laneflow.geometry.max_steering_rate_rad_s" value="0.7"/>
+        </vType>
+        <vType vClass="passenger" id="passenger3" accel="2.7" decel="4.5" length="6.0" minGap="1.5" maxSpeed="70" probability=".10" speedDev="0.1">
+            <param key="laneflow.geometry.configuration" value="1"/>
+            <param key="laneflow.geometry.wheelbase_m" value="2.6"/>
+            <param key="laneflow.geometry.track_width_m" value="1.6"/>
+            <param key="laneflow.geometry.reference_height_m" value="0.35"/>
+            <param key="laneflow.geometry.rear_overhang_m" value="0.75"/>
+            <param key="laneflow.geometry.width_m" value="1.9"/>
+            <param key="laneflow.geometry.bottom_height_m" value="-0.15"/>
+            <param key="laneflow.geometry.top_height_m" value="1.15"/>
+            <param key="laneflow.geometry.max_steering_angle_rad" value="0.6"/>
+            <param key="laneflow.geometry.max_steering_rate_rad_s" value="0.7"/>
+        </vType>
+        <vType vClass="passenger" id="passenger4" accel="2.4" decel="4.5" length="5.5" minGap="1.5" maxSpeed="30" probability=".05" speedDev="0.1">
+            <param key="laneflow.geometry.configuration" value="1"/>
+            <param key="laneflow.geometry.wheelbase_m" value="2.6"/>
+            <param key="laneflow.geometry.track_width_m" value="1.6"/>
+            <param key="laneflow.geometry.reference_height_m" value="0.35"/>
+            <param key="laneflow.geometry.rear_overhang_m" value="0.75"/>
+            <param key="laneflow.geometry.width_m" value="1.9"/>
+            <param key="laneflow.geometry.bottom_height_m" value="-0.15"/>
+            <param key="laneflow.geometry.top_height_m" value="1.15"/>
+            <param key="laneflow.geometry.max_steering_angle_rad" value="0.6"/>
+            <param key="laneflow.geometry.max_steering_rate_rad_s" value="0.7"/>
+        </vType>
+        <vType vClass="passenger" id="passenger5" accel="2.3" decel="4.5" length="7.0" minGap="2.5" maxSpeed="30" probability=".05" speedDev="0.1">
+            <param key="laneflow.geometry.configuration" value="1"/>
+            <param key="laneflow.geometry.wheelbase_m" value="2.6"/>
+            <param key="laneflow.geometry.track_width_m" value="1.6"/>
+            <param key="laneflow.geometry.reference_height_m" value="0.35"/>
+            <param key="laneflow.geometry.rear_overhang_m" value="0.75"/>
+            <param key="laneflow.geometry.width_m" value="1.9"/>
+            <param key="laneflow.geometry.bottom_height_m" value="-0.15"/>
+            <param key="laneflow.geometry.top_height_m" value="1.15"/>
+            <param key="laneflow.geometry.max_steering_angle_rad" value="0.6"/>
+            <param key="laneflow.geometry.max_steering_rate_rad_s" value="0.7"/>
+        </vType>
     </vTypeDistribution>
     <vType vClass="bus" id="bus" accel="2.6" decel="4.5" length="12.0" minGap="3" maxSpeed="30" speedDev="0.1"/>
 </routes>

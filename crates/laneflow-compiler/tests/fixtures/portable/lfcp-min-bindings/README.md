@@ -11,13 +11,7 @@ receipt，也不绑定 LFSD；它只绑定发布所需的 LFCA、LFSM 与显式�
 - controlled build provenance：`controlled-build`；
 - controlled timestamp：`2026-08-18T00:00:00Z`。
 
-固定结果：
-
-- exact length：`800` bytes；
-- SHA-256：`7e60d3d488ffb63d53f51ff1875bef84683b6d5fa1d05d26f75b3373ba0de5b3`；
-- object key：
-  `sha256/7e60d3d488ffb63d53f51ff1875bef84683b6d5fa1d05d26f75b3373ba0de5b3`；
-- 第一节 offset：`0x0068`。
+精确长度、SHA-256 对象键见同目录的 `bindings.txt`。第一节 offset 为`0x0068`。
 
 `expected.lfcp.hex` 是完整 LFCP exact bytes 的 lowercase hex 表示；换行只供人工复核，不属于
 对象 bytes。测试只解码并比较该固定内容，不会调用 production writer 重写 expected。

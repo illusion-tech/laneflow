@@ -29,6 +29,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
         .map_err(|e| compile_error("participant class", e))?;
     builder
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("car"),
             iidm: IidmVehicleProfileInput {

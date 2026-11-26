@@ -514,7 +514,17 @@ fn parse_row(
             expected_field,
             limits,
             budget,
-        )?;
+        )
+        .map_err(|error| {
+            vehicle_field_error(
+                error,
+                row_schema,
+                actual_tag,
+                bytes,
+                row_offset,
+                seen_fields,
+            )
+        })?;
         if let Some(schema) = row_schema
             && let Some((tag, _)) = schema.shape.discriminant()
             && actual_tag == tag
@@ -531,13 +541,57 @@ fn parse_row(
         });
     }
     if let Some(schema) = row_schema {
-        validate_row_shape(schema, seen_fields, discriminant)?;
+        validate_row_shape(schema, seen_fields, discriminant).map_err(|error| {
+            let missing = schema.fields.iter().find(|f| {
+                f.presence == PortableFieldPresence::Required
+                    && seen_fields & portable_field_mask(f.tag) == 0
+            });
+            missing.map_or(error, |field| {
+                vehicle_field_error(
+                    error,
+                    Some(schema),
+                    field.tag,
+                    bytes,
+                    row_offset,
+                    seen_fields,
+                )
+            })
+        })?;
         if schema.shape == PortableRowShape::PolicyLocalChange {
             crate::policy_value::preflight_change_values(
                 checked_slice(bytes, row_offset, row_byte_length, FormatStructure::Row)?,
                 limits,
                 budget,
             )?;
+        }
+        if schema.shape == PortableRowShape::EntityChange && discriminant == Some(2) {
+            let row = checked_slice(bytes, row_offset, row_byte_length, FormatStructure::Row)?;
+            let mut vehicle_profile = false;
+            let mut geometry = false;
+            crate::policy_value::visit_fields(row, |tag, value| {
+                match tag {
+                    2 => {
+                        vehicle_profile = value
+                            == laneflow_static_contract::EntityKind::VehicleProfile
+                                .code()
+                                .to_le_bytes()
+                    }
+                    6 => geometry = value == 11_u16.to_le_bytes(),
+                    9 | 10 if vehicle_profile && geometry => {
+                        preflight_vehicle_geometry_value(value, limits, budget)?;
+                    }
+                    _ => {}
+                }
+                Ok(())
+            })?;
+            if vehicle_profile && geometry {
+                let sides = portable_field_mask(9) | portable_field_mask(10);
+                if seen_fields & sides != sides {
+                    return Err(FormatError::BindingMismatch {
+                        structure: FormatStructure::RowFields,
+                    });
+                }
+            }
         }
     }
     Ok(row_end)
@@ -547,6 +601,88 @@ fn parse_row(
 struct ParsedField {
     end: u64,
     u8_value: Option<u8>,
+}
+
+// 只在失败路径补充字段位置。车型序号的标签、类型与长度已检查后才读取其值。
+fn vehicle_field_error(
+    error: FormatError,
+    schema: Option<&PortableRowSchema>,
+    tag: u16,
+    bytes: &[u8],
+    row_offset: u64,
+    seen_fields: u32,
+) -> FormatError {
+    use crate::FormatErrorClass::{
+        BindingMismatch, LengthMismatch, NonCanonicalValue, UnknownKind,
+    };
+    let Some(schema) = schema else { return error };
+    let class = error.class();
+    if !matches!(
+        class,
+        BindingMismatch | LengthMismatch | NonCanonicalValue | UnknownKind
+    ) {
+        return error;
+    }
+    let geometry = &laneflow_static_contract::ROAD_VEHICLE_GEOMETRY_ROW;
+    if schema == geometry {
+        return FormatError::VehicleGeometry {
+            profile: None,
+            field: Some(tag),
+            class,
+        };
+    }
+    if tag == 11
+        && schema
+            .fields
+            .last()
+            .is_some_and(|f| f.tag == tag && f.nested_row == Some(geometry))
+    {
+        let profile = if seen_fields & portable_field_mask(1) != 0 {
+            read_u32(
+                bytes,
+                row_offset + ROW_HEADER_BYTES + FIELD_HEADER_BYTES,
+                FormatStructure::FieldValue,
+            )
+            .ok()
+        } else {
+            None
+        };
+        let field = if let FormatError::VehicleGeometry { field, .. } = error {
+            field
+        } else {
+            None
+        };
+        return FormatError::VehicleGeometry {
+            profile,
+            field,
+            class,
+        };
+    }
+    error
+}
+
+/// LFSD 的车型几何前后值与 LFCA 的单行记录使用同一登记及向量预算。
+pub(crate) fn preflight_vehicle_geometry_value(
+    value: &[u8],
+    limits: FormatLimits,
+    budget: &mut PreflightBudget,
+) -> Result<(), FormatError> {
+    if read_u32(value, 0, FormatStructure::RecordVector)? != 1 {
+        return Err(FormatError::BindingMismatch {
+            structure: FormatStructure::RecordVector,
+        });
+    }
+    let len = value.len() as u64;
+    precheck_variable_limits(PortableFieldType::RecordVector, len, 0, limits, budget)?;
+    validate_record_vector(
+        value,
+        0,
+        len,
+        0,
+        Some(&laneflow_static_contract::ROAD_VEHICLE_GEOMETRY_ROW),
+        limits,
+        budget,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

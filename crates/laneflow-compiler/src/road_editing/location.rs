@@ -238,6 +238,31 @@ impl RoadEditingLocationFactory {
         }
     }
 
+    pub(super) fn invalid_vehicle_geometry(
+        namespace: &str,
+        document: &str,
+        key: &str,
+        field_id: Option<u16>,
+    ) -> SourceLocation {
+        let path = [
+            RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::VehicleProfile,
+                field_id: 4,
+            },
+            RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadVehicleGeometry,
+                field_id: field_id.unwrap_or(0),
+            },
+        ];
+        let steps = if field_id.is_some() {
+            &path[..]
+        } else {
+            &path[..1]
+        };
+        let factory = Self::for_invalid_field(namespace, document, &[key], steps);
+        factory.property(EntityKind::VehicleProfile, &[], key, steps, None)
+    }
+
     /// 形成首个无效链项或切点的来源位置。调用前已校验车道键与所属区段的键。
     pub(super) fn invalid_lane_field(
         namespace: &str,
@@ -665,7 +690,8 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::AccessRegulation, 2),
         (RoadEditingTableKind::AccessRule, 7),
         (RoadEditingTableKind::IidmVehicleProfile, 6),
-        (RoadEditingTableKind::VehicleProfile, 3),
+        (RoadEditingTableKind::VehicleProfile, 4),
+        (RoadEditingTableKind::RoadVehicleGeometry, 9),
         (RoadEditingTableKind::ConflictZoneRegion, 5),
         (RoadEditingTableKind::CanonicalFrame, 1),
         (RoadEditingTableKind::ConflictZone, 2),
@@ -849,6 +875,12 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
             2,
             RoadEditingTableKind::IidmVehicleProfile,
             6,
+        ),
+        (
+            RoadEditingTableKind::VehicleProfile,
+            4,
+            RoadEditingTableKind::RoadVehicleGeometry,
+            9,
         ),
         (
             RoadEditingTableKind::ParticipantStream,

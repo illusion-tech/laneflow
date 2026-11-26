@@ -30,6 +30,13 @@ UTF-8 ID 次键。转换报告为 `formatVersion=0.3`，明确携带 `population
 来源、制品与 provenance 仍以 SHA-256 校验。人口迁移与诊断证据见
 固定提交中的 [#1053 研究记录][lust-population-v2-readme]。
 
+编制可运行制品时，乘用车的 SUMO `vType` 须提供 `param` 子项，键使用
+`laneflow.geometry.` 前缀。`configuration=1` 表示刚性双轴前轮转向，七个距离字段
+`wheelbase_m`、`track_width_m`、`reference_height_m`、`rear_overhang_m`、`width_m`、
+`bottom_height_m`、`top_height_m` 以米计。两个转向上限 `max_steering_angle_rad` 与
+`max_steering_rate_rad_s` 分别以弧度和弧度每秒计。实际来源缺项时，编制错误指向具体车型。
+仓库最小样例中的尺寸仅描述该合成样例。固定 LuST 来源的道路诊断模式可以在缺少车型几何时生成道路调查报告。
+
 ## 用法
 
 ```text

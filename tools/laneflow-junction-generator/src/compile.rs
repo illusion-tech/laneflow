@@ -10,7 +10,7 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use sha2::{Digest, Sha256};
 
 use crate::Error;
-use crate::config::JunctionConfig;
+use crate::config::{JunctionConfig, positive_mm};
 use crate::topology::{
     COMPILER_BUILD_ID, Curve, DOCUMENT_KEY, GENERATOR_BUILD_ID, JUNCTION_KEY, MergeBuild,
     PARTICIPANT_CLASS_KEY, PROVENANCE, Segment, TopologyBuild,
@@ -76,6 +76,7 @@ pub(crate) fn compile_cells(
                     .profile
                     .emergency_deceleration_meters_per_second_squared,
             )?,
+            config.profile.geometry()?,
         )?,
     ))?;
     builder.add_declaration(re::RoadEditingDeclaration::CanonicalFrame(
@@ -407,20 +408,13 @@ fn add_junction(
 /// 本场景只有一种车型；名义容量按储车段长度推导，不把转入连接段计入。
 /// 与编译器使用相同的整数毫米量化；Runtime 仍独立检查实际物理占用。
 fn waiting_capacity(config: &JunctionConfig) -> Result<u32, Error> {
-    let mm = |meters| {
-        laneflow_static_contract::millimetres_from_si(meters)
-            .filter(|value| *value > 0)
-            .map(u64::from)
-            .ok_or_else(|| {
-                Error::Config(
-                    "waiting storage, vehicle length and gap must fit positive integer millimetres"
-                        .into(),
-                )
-            })
-    };
-    let storage = mm(config.geometry.pocket_length_meters)?;
-    let length = mm(config.profile.length_meters)?;
-    let gap = mm(config.profile.min_gap_meters)?;
+    let storage = u64::from(positive_mm(
+        config.geometry.pocket_length_meters,
+        "geometry.pocket_length_meters",
+    )?);
+    let dimensions = config.profile.dimensions()?;
+    let length = u64::from(dimensions.length_mm);
+    let gap = u64::from(dimensions.min_gap_mm);
     // n * length + (n - 1) * gap <= storage。u64 求和避免 u32 中间溢出。
     Ok(((storage + gap) / (length + gap)) as u32)
 }

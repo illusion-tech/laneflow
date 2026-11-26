@@ -1,11 +1,14 @@
 //! 已给定候选路线的一次横向交接试算。
 
-use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal, millimetres_from_si};
+use laneflow_static_contract::{
+    CanonicalFrameOrdinal, LaneEdgeOrdinal, NetworkRevisionId, RoadCorridorOrdinal,
+    VehicleProfileOrdinal,
+};
 use laneflow_static_network::{
     BoundaryOwner, StationQuery,
     vehicle::{
-        BodyEnvelope, GeometryWorkLimits, HandoffOutcome, HandoffQuery, HandoffReport,
-        HandoffWindow, SteeringLimits,
+        AxleDimensions, BodyEnvelope, GeometryWorkLimits, HandoffOutcome, HandoffQuery,
+        HandoffReport, HandoffWindow, SteeringLimits,
     },
 };
 use thiserror::Error;
@@ -14,10 +17,9 @@ use super::tables::{access_cell_denied, compile_route, route_access_denied};
 use crate::{RouteError, RouteRegisterInput, TrafficWorld};
 
 /// 在候选路线的一对相邻出现记录之间试算横移。其余转换沿用普通路线规则。
-/// 车型序号用于读取通行类别及车长。LFCA 6 未记录的轴距、包络和转向参数由调用方提供，
-/// 所得结果只描述这组输入的静态可行性。
+/// 车型的准入类别、总长、轴几何、整车包络与转向限值均取自当前修订的同一车型。
 pub struct RouteHandoffTrial<'a> {
-    /// 绑定到 `query.revision` 的完整边序列。
+    /// 绑定到所选修订的完整边序列。
     pub route: &'a RouteRegisterInput,
     /// 源出现下标，紧邻的下一项为目标出现。
     pub source_index: u32,
@@ -27,14 +29,20 @@ pub struct RouteHandoffTrial<'a> {
     pub left_index: u32,
     /// 允许前保险杠交接的闭区间，走廊局部纳米站位。
     pub stations_nm: [u64; 2],
-    /// 用于检查两段路线通行规则的车型。
+    /// 用于求证全部静态几何与通行规则的车型。
     pub profile: VehicleProfileOrdinal,
-    /// 候选的修订、路面、后轴起止站位与车型轴几何。
-    pub query: HandoffQuery,
-    /// 试算的转向限值和后轴速度。
-    pub steering: SteeringLimits,
-    /// 试算车身包络。总长按最近偶数毫米量化后须与绑定车型相符。
-    pub body: BodyEnvelope,
+    /// 路线边、车型及横断面所属修订。
+    pub revision: NetworkRevisionId,
+    /// 所属路层的走廊。
+    pub corridor: RoadCorridorOrdinal,
+    /// 该修订发布的坐标框架。
+    pub frame: CanonicalFrameOrdinal,
+    /// 允许求高与车身投影的走廊站位闭区间，单位纳米。
+    pub station_window_nm: [u64; 2],
+    /// 沿行驶方向排列的后轴起止站位，单位纳米。
+    pub rear_stations_nm: [u64; 2],
+    /// 此次候选的后轴三维车速，单位为米每秒。
+    pub speed_m_s: f64,
     /// 一次完整几何查询的工作上限。
     pub limits: GeometryWorkLimits,
 }
@@ -65,9 +73,6 @@ pub enum RouteHandoffTrialError {
     /// 车型序号未绑定到当前修订。
     #[error("交接试算的车辆配置不存在")]
     UnknownProfile,
-    /// 试算前后包络没有给出该车型的规范总车长。
-    #[error("交接试算的包络车长与车辆配置不符")]
-    LengthMismatch,
     /// 路线的普通边或完整机动拒绝该车型的通行类别。
     #[error("交接候选路线不允许该车型通行")]
     AccessDenied,
@@ -89,7 +94,7 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 路线编译或容量预检失败、修订不匹配、选定出现没有下一项、车型不存在、
-    /// 包络车长不匹配、路线准入被拒或两侧车道准入未证时返回相应错误。
+    /// 路线准入被拒或两侧车道准入未证时返回相应错误。
     /// 几何拒绝、越窗或未证由报告区分。
     ///
     /// # Panics
@@ -101,7 +106,7 @@ impl TrafficWorld {
     ) -> Result<RouteHandoffPreview<'_>, RouteHandoffTrialError> {
         self.execution.assert_usable();
         let revision = &self.state.binding.revision;
-        if trial.query.revision != revision.network_revision() {
+        if trial.revision != revision.network_revision() {
             return Err(RouteHandoffTrialError::RevisionMismatch);
         }
         let edges = trial.route.edges();
@@ -115,10 +120,6 @@ impl TrafficWorld {
             .relations()
             .vehicle_profile(trial.profile)
             .ok_or(RouteHandoffTrialError::UnknownProfile)?;
-        let length_m = trial.body.rear_overhang_m + trial.body.front_from_rear_m;
-        if millimetres_from_si(length_m) != Some(profile.length_mm()) {
-            return Err(RouteHandoffTrialError::LengthMismatch);
-        }
         let crossing = [edges[target - 1], edges[target]];
         if traffic
             .maneuvers()
@@ -161,13 +162,31 @@ impl TrafficWorld {
             left_index: trial.left_index,
             stations_nm: trial.stations_nm,
         };
-        let report = revision.vehicle_handoff(
-            &trial.query,
-            trial.steering,
-            trial.body,
-            trial.limits,
-            window,
-        );
+        let g = profile.geometry();
+        let query = HandoffQuery {
+            revision: trial.revision,
+            corridor: trial.corridor,
+            frame: trial.frame,
+            station_window_nm: trial.station_window_nm,
+            rear_stations_nm: trial.rear_stations_nm,
+            axles: AxleDimensions {
+                wheelbase_m: f64::from(g.wheelbase_mm) / 1_000.,
+                half_track_m: f64::from(g.track_width_mm) / 2_000.,
+                reference_height_m: f64::from(g.reference_height_mm) / 1_000.,
+            },
+        };
+        let body = BodyEnvelope {
+            rear_overhang_m: f64::from(g.rear_overhang_mm) / 1_000.,
+            front_from_rear_m: f64::from(profile.length_mm() - g.rear_overhang_mm) / 1_000.,
+            half_width_m: f64::from(g.width_mm) / 2_000.,
+            heights_m: [g.bottom_height_mm, g.top_height_mm].map(|mm| f64::from(mm) / 1_000.),
+        };
+        let steering = SteeringLimits {
+            max_angle_rad: f64::from(g.max_steering_angle_rad),
+            max_rate_rad_s: f64::from(g.max_steering_rate_rad_s),
+            speed_m_s: trial.speed_m_s,
+        };
+        let report = revision.vehicle_handoff(&query, steering, body, trial.limits, window);
         let mut side_access_work = 0;
         if let HandoffOutcome::Located { .. } = report.outcome {
             let sweep_used =
@@ -186,8 +205,8 @@ impl TrafficWorld {
                 // 扫过检查已将整车约束在此窗口内。它可包括未接触的边，窗口内的
                 // 禁止只说明无法证明该侧准入，不能据此断言车辆实际驶入了禁区。
                 let StationQuery::Complete(hits) = revision.station_mapping().in_station_range(
-                    trial.query.corridor,
-                    trial.query.station_window_nm,
+                    trial.corridor,
+                    trial.station_window_nm,
                     lane,
                 ) else {
                     return Err(unproven);

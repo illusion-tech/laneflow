@@ -7,7 +7,7 @@
 use core::fmt;
 
 /// 当前 LFCA 对象格式版本。读取器只承认该值。
-pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 6;
+pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 7;
 
 /// 当前约束契约版本。
 pub const CONSTRAINT_CONTRACT_VERSION: u16 = 3;
@@ -16,10 +16,10 @@ pub const CONSTRAINT_CONTRACT_VERSION: u16 = 3;
 pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 5;
 
 /// 当前 LFSM 对象格式版本。
-pub const SOURCE_MAP_FORMAT_VERSION: u16 = 7;
+pub const SOURCE_MAP_FORMAT_VERSION: u16 = 8;
 
 /// 当前 LFSD 对象格式版本。
-pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 5;
+pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 6;
 
 /// LFCP 的对象格式版本；生产代码只接受无 receipt 的 v2。
 pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 2;
@@ -363,13 +363,13 @@ mod tests {
 
     #[test]
     fn lfca_contract_versions_match_current() {
-        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 6);
+        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 7);
         assert_eq!(CONSTRAINT_CONTRACT_VERSION, 3);
         assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 5);
-        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 7);
-        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 5);
+        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 8);
+        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 6);
         assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 2);
-        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 6);
+        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 7);
     }
 
     #[test]
@@ -403,9 +403,9 @@ mod tests {
             assert_eq!(
                 kind.format_version(),
                 match kind {
-                    PortableObjectKind::CanonicalArtifact => 6,
-                    PortableObjectKind::SourceMap => 7,
-                    PortableObjectKind::SemanticDiff => 5,
+                    PortableObjectKind::CanonicalArtifact => 7,
+                    PortableObjectKind::SourceMap => 8,
+                    PortableObjectKind::SemanticDiff => 6,
                     PortableObjectKind::CanonicalPublicationDescriptor => 2,
                 }
             );

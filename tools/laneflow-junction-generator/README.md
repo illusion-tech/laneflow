@@ -69,10 +69,11 @@ cargo run --locked -p laneflow-junction-generator -- check --config examples/con
   信号相位与冲突关系保持原场景合同。
 - catalog 0.1 由 Portal 拥有 ordered PortalLane（每 portal 2 条回连边车道），
   PortalLane 拥有共享 entry SpawnSlot 与 weighted RouteChoice；spawn slot
-  只放在环路回连边上，端点净距 = 车长 + min_gap；同一 portal 内 lane 1 的候选
-  按半 pitch 相位起错，再按折线采样位置与切向对所有已放置槽位做跨边重叠
-  过滤（横向 < 2 m 且纵向 < 车长即跳过该候选），某条 lane 无存活槽位时
-  拒绝配置；槽位总量上限 4_096，超出在编译前拒绝。
+  只放在环路回连边上。端点净距为发布后的车长加最小间距，两者均取整数毫米。
+  同一 portal 内 lane 1 的候选按半 pitch 相位起错。生成器将候选站位取最近偶数毫米，
+  在同一站位按折线切向、发布后的车长与车宽放置矩形包络，跳过与已放置槽位的包络
+  相交或接触的候选。
+  某条 lane 无存活槽位或槽位总量超过 4_096 时拒绝配置。
 - 策略：单一 RightOfWayPolicySet，regulation `engineering` / `complex-junction-1`，
   依据 `repository:tools/laneflow-junction-generator`；示例声明是工程验证场景模板，
   不宣称覆盖现实法域法规全集。

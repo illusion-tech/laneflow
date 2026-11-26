@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-compiler-foundation"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-18"
+revised_date = "2026-11-26"
 summary = "定义编译器中间表示、前端接入与编译基础合同。"
 scope = "laneflow-static-contract、laneflow-compiler、有类型抽象语法树（Typed Abstract Syntax Tree， Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层 中间表示（Mid-level Intermediate Representation，MIR）→已验证规范低层中间表示 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断 （Diagnostic）与正本来源投影"
 applicability = "#applicability"
@@ -970,6 +970,11 @@ LFRE 5 的资格验证中，编译受控峰值最大为 **74604208 B**，内存�
 LFRE 7 在同样的十一组负载及身份不相交变体上重测，来源记录累计最大为 **8729266 B**。走廊和区段写入命名区间向量，单边车道省略切点向量。命名区间在全修订独立计数，常规档上限为 128,511 行，百万实体档为 16,000,000 行。编译峰值采用现有编译资源模型，发射采用资源账本受控
 请求字节，两种口径分别记录，不互相替代；这些数字不是墙钟或实际进程堆峰值。
 
+LFRE 8 与合成前端 6 的每组负载在首个合成模块中含一份车型。构型及九个规范几何值使该模块和
+编译单元的来源记录各增加 37 B。单模块最大值为 **6802754 B**，全组合身份不相交输入的总值为
+**8729303 B**。该输入的编译受控峰值为 **74896432 B**，内存及文件发射的账本峰值分别为
+**205585163 B** 和 **151219541 B**，均低于 256 MiB。
+
 内存发射直接在唯一持有的最终共享字节中编码，省去完整中间缓冲及其复制，账本授予仍
 覆盖最终存储和完整生命周期。以 `268c14f9` 为优化前对照，同一全组合身份不相交操作的
 受控峰值从 275981777 B（263.2 MiB）降至 205581467 B（196.1 MiB），减少约 25.5%，
@@ -991,8 +996,8 @@ LFSD 编码所省去的四份缓冲。两种实现返回候选持有的请求字
 | `ModuleCount`                  |      18 | 模块                                                     |
 | `SourceDocumentCount`          |      18 | 来源文档描述符                                           |
 | `ImportEdgeCount`              |      17 | 导入边                                                   |
-| `SourceBytesPerModule`         | 6802717 | 单模块来源记录字节                                       |
-| `SourceBytesTotal`             | 8729266 | 编译单元来源记录字节                                     |
+| `SourceBytesPerModule`         | 6802754 | 单模块来源记录字节                                       |
+| `SourceBytesTotal`             | 8729303 | 编译单元来源记录字节                                     |
 | `DeclarationCount`             |   10000 | 来源声明                                                 |
 | `TypedAstRecordCount`          |  381284 | 有类型抽象语法树逻辑记录                                 |
 | `HirRecordCount`               |  535412 | HIR 逻辑记录                                             |
@@ -1088,8 +1093,8 @@ HIR 冲突阶段的三张有类型查找表分别按 Junction、ManeuverPath 和
 | `max_module_count`                    |                                           18 |                                       65536 | 来源 | 来源模块                                                      |
 | `max_source_document_count`           |                                           18 |                                      196608 | 来源 | 来源文档描述符                                                |
 | `max_import_edge_count`               |                                           17 |                                      262144 | 来源 | 模块导入边                                                    |
-| `max_source_bytes_per_module`         |                                      6802717 |                                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                          |
-| `max_source_bytes_total`              |                                      8729266 |                                   536870912 | 来源 | 编译单元来源字节                                              |
+| `max_source_bytes_per_module`         |                                      6802754 |                                   536870912 | 来源 | 单个来源模块字节，独立执行入口前检查                          |
+| `max_source_bytes_total`              |                                      8729303 |                                   536870912 | 来源 | 编译单元来源字节                                              |
 | `max_declaration_count`               |                                        10000 |                                     1500000 | 来源 | 来源声明                                                      |
 | `max_stable_entity_count`             |                                        10000 |                                     1000000 | 规范 | 最终规范路网的 `CanonicalIdentity` 完整逻辑行                 |
 | `max_typed_ast_record_count`          |                                       381284 |                                     8000000 | 来源 | 有类型抽象语法树逻辑记录                                      |
@@ -1143,7 +1148,7 @@ framing/reference spelling。Identity v1 `Ascii` 字段及其来源侧 namespace
 components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
 `TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
 
-单模块来源上限与总来源上限独立登记，常规档分别为 6802717 B 与 8729266 B；
+单模块来源上限与总来源上限独立登记，常规档分别为 6802754 B 与 8729303 B；
 必须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
 绕过总存续字节上限。上述逐维最大值不是已经测过的“所有维度同时取最大”组合；任意
@@ -1217,7 +1222,8 @@ components；每个 component 分别消费 `StringItemCount`，实际 bytes 消�
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
 形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
-合成前端固定为 `frontendVersion = 6`：绑定 Identity revision 4 / LFCA 5 的路权策略登记；
+合成前端使用 `frontendVersion = 6`，绑定 Identity revision 4 与 LFCA 7。
+每个车型在纵向参数之后追加一字节构型、七个毫米量和两个规范 `f32` 转向上限，共 37 字节。
 准入后交通一维以整数毫米 / 受检 `f32` SI
 写入来源记录，不再写编制 `f64`。它使用 `ParkingFacility`，并把
 `virtualCapacity`、有序 virtual entry/exit、`ConflictZone`、`ParticipantStream`、
@@ -1629,7 +1635,7 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 [calibration-raw]: https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [portable-artifact]: portable-canonical-artifact.md
-[road-editing-schema]: ../../schemas/road-editing/v7/README.md
+[road-editing-schema]: ../../schemas/road-editing/v8/README.md
 [road-editing-entry]: road-editing-source-and-geometry-frontend.md#97-来源位置与公共入口
 [road-editing-memory]: road-editing-source-and-geometry-frontend.md#96-不可信输入与内存边界
 [adr-0035]: ../adr/0035-compile-limits-and-resource-ledger.md
