@@ -2,27 +2,10 @@
 
 use std::time::Instant;
 
+use super::baselines::{LANE_1K_256, LANE_10K_16, LANE_10K_256, LaneBaseline};
 use super::support::{Fixtures, Harness, Scene};
 
-// 冻结基线为 BLAKE3-256/version 8 摘要；迁移前 SHA-256/version 7 旧值经
-// frozen_digest_7_fingerprint 复算核验，差异仅来自算法与版本字段（#1301）。
-const ROAD_CASES: [(u32, u32, &str); 3] = [
-    (
-        1_000,
-        256,
-        "69c5867fbe65b4227b47aac5bdc02b57d83d028b6f1f2bb96604ba40b37274b3",
-    ),
-    (
-        10_000,
-        256,
-        "a5d521988dd4cbac391a37ba6b4e6efb0bab3e42b33af453ca363656730b72e3",
-    ),
-    (
-        10_000,
-        16,
-        "a62ce81d6ad6d13009b445c1e8549f10486637dd02c8060d6decc1027caee067",
-    ),
-];
+const ROAD_CASES: [LaneBaseline; 3] = [LANE_1K_256, LANE_10K_256, LANE_10K_16];
 
 // 只固定最外层研究窗口的栈锚点，不限制任何生产函数的优化或内联。
 // CPU 报告筛选这棵调用子树，排除建世界、暖机、快照和校验。
@@ -34,7 +17,11 @@ fn observed_cpu_window(harness: &mut Harness) {
 }
 
 fn run_windows(case_index: usize, rounds: usize) {
-    let (count, edges, expected_digest) = ROAD_CASES[case_index];
+    let LaneBaseline {
+        count,
+        edges,
+        digest: expected_digest,
+    } = ROAD_CASES[case_index];
     let scene = Scene::Lane {
         count,
         edges,
