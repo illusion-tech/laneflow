@@ -7,6 +7,7 @@ use crate::RangeU32;
 
 mod build;
 mod cross_section;
+pub mod vehicle;
 pub(crate) use build::build;
 pub use cross_section::{
     BoundaryExtent, BoundaryOwner, BoundaryPayload, LaneFootprint, RoadSurfaceSpan,

@@ -4,7 +4,7 @@ use laneflow_static_contract::{
 };
 
 /// 同一条有向结构接缝的所属范围。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BoundaryOwner {
     /// 走廊相邻元素之间的接缝。
     Corridor(RoadCorridorOrdinal),

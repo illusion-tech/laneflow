@@ -18,6 +18,7 @@ mod relations;
 mod relations_build;
 mod spatial;
 mod station;
+pub use station::vehicle;
 pub use station::{
     BoundaryExtent, BoundaryOwner, BoundaryPayload, FacilityBandBounds, LaneFootprint,
     RoadSurfaceSpan, SharedStationMapping, StationAddress, StationCandidates, StationDomain,
