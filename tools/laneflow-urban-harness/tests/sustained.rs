@@ -13,6 +13,35 @@ fn artifacts(temp: &tempfile::TempDir) -> Artifacts {
     Artifacts::load(&source).unwrap()
 }
 
+// PR #815 的编制配置中尚无车型构型及刚体几何，只去掉各车型表中的这十个字段。
+fn pr815_config(config: &str) -> String {
+    let mut in_profile = false;
+    config
+        .split_inclusive('\n')
+        .filter(|line| {
+            if line.starts_with('[') {
+                in_profile = line.trim_end() == "[[profiles]]";
+            }
+            !in_profile
+                || !line.split_once(" = ").is_some_and(|(key, _)| {
+                    matches!(
+                        key,
+                        "configuration"
+                            | "wheelbase_m"
+                            | "track_width_m"
+                            | "reference_height_m"
+                            | "rear_overhang_m"
+                            | "width_m"
+                            | "bottom_height_m"
+                            | "top_height_m"
+                            | "max_steering_angle_rad"
+                            | "max_steering_rate_rad_s"
+                    )
+                })
+        })
+        .collect()
+}
+
 #[test]
 fn formal_case_expansions_preserve_pr815_frozen_inputs() {
     let temp = tempfile::tempdir().unwrap();
@@ -20,6 +49,12 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
     // 路线目录只替换文件头的修订身份，随后逐字节核对 PR #815 的所有路线。
     use sha2::{Digest, Sha256};
     let routes = fs::read_to_string(temp.path().join("source/routes.toml")).unwrap();
+    let sha256 = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|x| format!("{x:02x}"))
+            .collect::<String>()
+    };
     let current = format!(
         "network_revision = \"{}\"",
         artifacts.catalog().network_revision
@@ -31,13 +66,12 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         1,
     );
     let historical_routes = "e9e6a6b260d633bcbb04923cb3922c673dfc214cd77bd6e32d4a1ec279ef70de";
-    assert_eq!(
-        Sha256::digest(historical.as_bytes())
-            .iter()
-            .map(|x| format!("{x:02x}"))
-            .collect::<String>(),
-        historical_routes
-    );
+    assert_eq!(sha256(historical.as_bytes()), historical_routes);
+    // 长度和 SHA-256 均来自 9adc198761 的 fixture/manifest.toml。
+    let config = pr815_config(&fs::read_to_string(temp.path().join("source/config.toml")).unwrap());
+    let historical_config = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d";
+    assert_eq!(config.len(), 1_300);
+    assert_eq!(sha256(config.as_bytes()), historical_config);
     let cycle = artifacts
         .catalog()
         .signals
@@ -90,12 +124,13 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         .unwrap();
         plan.validate(&artifacts).unwrap();
         // 生产路径已按当前制品校验。比较 PR #815 的角色、路线和请求时，在副本中恢复
-        // 当时的清单绑定及来源、制品、路线目录的历史文件摘要。除拓扑来源和 LFCA 长度外，
-        // 其他文件长度、路线目录、配置和计划内容仍逐字节比较；生成器测试另行核对当前制品的完整摘要。
+        // 当时的清单绑定及各文件的历史摘要和长度。上面已核对路线目录和配置的历史字节，
+        // 生成器测试核对当前制品的完整摘要。
         plan.manifest_digest =
             "4ec17200ec09c682124ec08d85e59e3fcaeccbd4611899998021fdbf0211b3ee".into();
         for (name, pr815_sha256) in [
             ("routes.toml", historical_routes),
+            ("config.toml", historical_config),
             (
                 "common.lfre",
                 "82b8167c2a8bfb3b06f940d8e73c975d0935fb0841b9373387e8f9a422456109",
@@ -111,6 +146,9 @@ fn formal_case_expansions_preserve_pr815_frozen_inputs() {
         ] {
             plan.files.get_mut(name).unwrap().sha256 = pr815_sha256.into();
         }
+        // LFRE 8 增加车型构型及几何。历史计划绑定的是原始配置与公共模块长度。
+        plan.files.get_mut("config.toml").unwrap().bytes = 1_300;
+        plan.files.get_mut("common.lfre").unwrap().bytes = 1_024;
         // LFRE 6 把每条编制车道的边引用写成向量；PR #815 的固定计划绑定了当时的来源长度。
         plan.files.get_mut("topology.lfre").unwrap().bytes = 1_669_184;
         // LFCA 6 增加第九节，历史输入对照使用旧版文件长度。
