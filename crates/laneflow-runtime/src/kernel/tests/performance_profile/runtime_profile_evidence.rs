@@ -11,9 +11,42 @@ mod cpu_sampling;
 mod journal_ab;
 
 use std::time::Instant;
-#[cfg(feature = "placement-fixtures")]
-use support::Scene;
-use support::{CASES, Fixtures};
+use support::{CASES, Fixtures, Scene};
+
+#[derive(Clone, Copy)]
+struct RoadWindowBaseline {
+    count: u32,
+    edges: u32,
+    expected_digest: &'static str,
+}
+
+impl RoadWindowBaseline {
+    fn scene(self, journal: bool) -> Scene {
+        Scene::Lane {
+            count: self.count,
+            edges: self.edges,
+            journal,
+        }
+    }
+}
+
+// 固定窗口使用摘要版本 8（BLAKE3-256），绑定 LFCA 6 的路网修订。
+// Journal 开关共用同一状态摘要基线（#1557）。
+const ROAD_1K_256: RoadWindowBaseline = RoadWindowBaseline {
+    count: 1_000,
+    edges: 256,
+    expected_digest: "01571d70db0c99b69b4bbdc03ee892eb49dac367d70ab6c087198b9e5663b0ca",
+};
+const ROAD_10K_256: RoadWindowBaseline = RoadWindowBaseline {
+    count: 10_000,
+    edges: 256,
+    expected_digest: "cda9cef9dc2b12f540a8a965648949f3126b5d030a33ce4be20545d3c570b583",
+};
+const ROAD_10K_16: RoadWindowBaseline = RoadWindowBaseline {
+    count: 10_000,
+    edges: 16,
+    expected_digest: "25dae5a372d4bcb6582e844121137948c2dc5ba80b9c4b8693b98995ca6f1371",
+};
 
 #[cfg(feature = "placement-fixtures")]
 #[test]

@@ -2,27 +2,8 @@
 
 use std::time::Instant;
 
-use super::support::{Fixtures, Harness, Scene};
-
-// 冻结基线为 BLAKE3-256/version 8 摘要；迁移前 SHA-256/version 7 旧值经
-// frozen_digest_7_fingerprint 复算核验，差异仅来自算法与版本字段（#1301）。
-const ROAD_CASES: [(u32, u32, &str); 3] = [
-    (
-        1_000,
-        256,
-        "69c5867fbe65b4227b47aac5bdc02b57d83d028b6f1f2bb96604ba40b37274b3",
-    ),
-    (
-        10_000,
-        256,
-        "a5d521988dd4cbac391a37ba6b4e6efb0bab3e42b33af453ca363656730b72e3",
-    ),
-    (
-        10_000,
-        16,
-        "a62ce81d6ad6d13009b445c1e8549f10486637dd02c8060d6decc1027caee067",
-    ),
-];
+use super::support::{Fixtures, Harness};
+use super::{ROAD_1K_256, ROAD_10K_16, ROAD_10K_256, RoadWindowBaseline};
 
 // 只固定最外层研究窗口的栈锚点，不限制任何生产函数的优化或内联。
 // CPU 报告筛选这棵调用子树，排除建世界、暖机、快照和校验。
@@ -33,13 +14,13 @@ fn observed_cpu_window(harness: &mut Harness) {
     }
 }
 
-fn run_windows(case_index: usize, rounds: usize) {
-    let (count, edges, expected_digest) = ROAD_CASES[case_index];
-    let scene = Scene::Lane {
+fn run_windows(baseline: RoadWindowBaseline, rounds: usize) {
+    let RoadWindowBaseline {
         count,
-        edges,
-        journal: false,
-    };
+        expected_digest,
+        ..
+    } = baseline;
+    let scene = baseline.scene(false);
     let fixtures = Fixtures::new();
     let mut elapsed_ns = 0_u128;
     let mut observed_steps = 0_usize;
@@ -62,25 +43,25 @@ fn run_windows(case_index: usize, rounds: usize) {
 #[test]
 #[ignore = "证据测量窗口，夜间 evidence.yml 运行（#748）"]
 fn cpu_sampling_windows_match_frozen_digests() {
-    for case_index in 0..ROAD_CASES.len() {
-        run_windows(case_index, 1);
+    for baseline in [ROAD_1K_256, ROAD_10K_256, ROAD_10K_16] {
+        run_windows(baseline, 1);
     }
 }
 
 #[test]
 #[ignore = "manual external CPU sampling; repeat the fixed 1k/256-edge window"]
 fn runtime_cpu_sampling_1k_256() {
-    run_windows(0, 1_024);
+    run_windows(ROAD_1K_256, 1_024);
 }
 
 #[test]
 #[ignore = "manual external CPU sampling; repeat the fixed 10k/256-edge window"]
 fn runtime_cpu_sampling_10k_256() {
-    run_windows(1, 128);
+    run_windows(ROAD_10K_256, 128);
 }
 
 #[test]
 #[ignore = "manual external CPU sampling; repeat the fixed 10k/16-edge window"]
 fn runtime_cpu_sampling_10k_16() {
-    run_windows(2, 128);
+    run_windows(ROAD_10K_16, 128);
 }
