@@ -48,6 +48,24 @@ const ROAD_10K_16: RoadWindowBaseline = RoadWindowBaseline {
     expected_digest: "25dae5a372d4bcb6582e844121137948c2dc5ba80b9c4b8693b98995ca6f1371",
 };
 
+#[test]
+fn road_1k_256_window_matches_frozen_digest() {
+    let scene = ROAD_1K_256.scene(false);
+    let fixtures = Fixtures::new();
+    let mut harness = fixtures.world(scene);
+    harness.validate();
+    for _ in 0..harness.steps {
+        harness.step();
+    }
+    harness.validate();
+    assert_eq!(
+        harness.digest(),
+        ROAD_1K_256.expected_digest,
+        "frozen state digest mismatch for {}",
+        scene.name(),
+    );
+}
+
 #[cfg(feature = "placement-fixtures")]
 #[test]
 fn profile_resource_windows_preserve_active_resource_states() {
