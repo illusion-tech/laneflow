@@ -48,8 +48,25 @@ struct Expected {
 
 const JOINT: WorkloadShape = WorkloadShape::for_stable_entities(10_000, 32, 65);
 
-const CASES: [Expected; 11] = [
-    Expected {
+macro_rules! workload_tests {
+    ($($case:ident => $expected:expr),+ $(,)?) => {
+        $(
+            mod $case {
+                use super::*;
+
+                pub(super) const EXPECTED: Expected = $expected;
+
+                #[test]
+                fn publishes_candidates() {
+                    check_workload(&EXPECTED);
+                }
+            }
+        )+
+    };
+}
+
+workload_tests! {
+    mixed => Expected {
         name: "mixed",
         shape: WorkloadShape::for_stable_entities(10_000, 2, 2),
         usage: CanonicalNetworkUsage::new(10_000, 822, 399, 14_169, 2_682),
@@ -59,7 +76,7 @@ const CASES: [Expected; 11] = [
         signal_states: 1_596,
         lane_geometries: 1_269,
     },
-    Expected {
+    signal_dense => Expected {
         name: "signal-dense",
         shape: WorkloadShape::for_stable_entities(10_000, 32, 2),
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 3_918),
@@ -69,7 +86,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    geometry_dense => Expected {
         name: "geometry-dense",
         shape: WorkloadShape::for_stable_entities(10_000, 2, 65),
         usage: CanonicalNetworkUsage::new(10_000, 822, 399, 14_169, 78_093),
@@ -79,7 +96,7 @@ const CASES: [Expected; 11] = [
         signal_states: 1_596,
         lane_geometries: 1_269,
     },
-    Expected {
+    joint => Expected {
         name: "joint",
         shape: JOINT,
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
@@ -89,7 +106,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    partitioned => Expected {
         name: "partitioned",
         shape: WorkloadShape {
             source_partitions: 16,
@@ -102,7 +119,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    long_documents => Expected {
         name: "long-documents",
         shape: WorkloadShape {
             long_documents: true,
@@ -115,7 +132,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    curved => Expected {
         name: "curved",
         shape: WorkloadShape {
             curved: true,
@@ -128,7 +145,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    combined => Expected {
         name: "combined",
         shape: WorkloadShape {
             source_partitions: 16,
@@ -143,7 +160,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    policy => Expected {
         name: "policy",
         shape: SHAPES[8].1,
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
@@ -153,7 +170,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    sources => Expected {
         name: "sources",
         shape: SHAPES[9].1,
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 118_263),
@@ -163,7 +180,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-    Expected {
+    all => Expected {
         name: "all",
         shape: SHAPES[10].1,
         usage: CanonicalNetworkUsage::new(10_000, 1_784, 55, 71_773, 128_511),
@@ -173,7 +190,7 @@ const CASES: [Expected; 11] = [
         signal_states: 56_320,
         lane_geometries: 1_887,
     },
-];
+}
 
 fn compile_case(expected: &Expected, shape: WorkloadShape) -> CompilationOutput {
     let unit = build_mixed_network(shape, false);
@@ -342,184 +359,183 @@ fn emit_and_check(
     candidate
 }
 
-#[test]
-fn regular_profile_candidates_cover_mixed_density_and_diff_operations() {
-    let staging_directory = StagingDirectory(
-        std::env::temp_dir().join(format!("laneflow-regular-profile-{}", std::process::id())),
-    );
+fn check_workload(expected: &Expected) {
+    let staging_directory = StagingDirectory(std::env::temp_dir().join(format!(
+        "laneflow-regular-profile-{}-{}",
+        std::process::id(),
+        expected.name
+    )));
     let directory = &staging_directory.0;
     fs::create_dir(directory).unwrap();
-    for expected in &CASES {
-        let shape = expected.shape;
-        let output = compile_case(expected, shape);
-        let base = emit_and_check(
+    let shape = expected.shape;
+    let output = compile_case(expected, shape);
+    let base = emit_and_check(
+        expected,
+        "genesis",
+        &output,
+        PortableDiffBase::Genesis,
+        None,
+    );
+    let file = emit_and_check(
+        expected,
+        "genesis",
+        &output,
+        PortableDiffBase::Genesis,
+        Some(directory),
+    );
+    assert_same_objects(&base, &file);
+    check_portable_candidate(file, FormatLimits::HARD).unwrap();
+    let base_view = artifact_view(&base);
+    let base_identities = identities(base_view);
+    assert_eq!(base_identities.len(), 10_000);
+    let memory = emit_and_check(
+        expected,
+        "self",
+        &output,
+        PortableDiffBase::Artifact(base_view),
+        None,
+    );
+    let file = emit_and_check(
+        expected,
+        "self",
+        &output,
+        PortableDiffBase::Artifact(base_view),
+        Some(directory),
+    );
+    assert_same_objects(&memory, &file);
+    for candidate in [memory, file] {
+        for section in 1..=6 {
+            assert_eq!(diff_rows(&candidate, section), 0, "self diff");
+        }
+        check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
+    }
+    if expected.name == "mixed" {
+        let permuted = Compiler::new()
+            .compile(build_mixed_network(shape, true))
+            .unwrap();
+        assert_eq!(permuted.lir().canonical_network_usage(), expected.usage);
+        assert_eq!(
+            permuted.metrics().semantic_fingerprint(),
+            output.metrics().semantic_fingerprint()
+        );
+        let candidate = emit_and_check(
             expected,
-            "genesis",
-            &output,
+            "source-permuted",
+            &permuted,
             PortableDiffBase::Genesis,
             None,
         );
-        let file = emit_and_check(
-            expected,
-            "genesis",
-            &output,
-            PortableDiffBase::Genesis,
-            Some(directory),
+        assert_eq!(base.network_revision(), candidate.network_revision());
+        assert_ne!(
+            base.source_collection_digest(),
+            candidate.source_collection_digest()
         );
-        assert_same_objects(&base, &file);
-        check_portable_candidate(file, FormatLimits::HARD).unwrap();
-        let base_view = artifact_view(&base);
-        let base_identities = identities(base_view);
-        assert_eq!(base_identities.len(), 10_000);
+        check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
+    }
+    drop(output);
+    for (operation, variant) in [
+        (
+            "changed",
+            WorkloadShape {
+                changed: true,
+                ..shape
+            },
+        ),
+        (
+            "reordered",
+            WorkloadShape {
+                reordered: true,
+                ..shape
+            },
+        ),
+        (
+            "disjoint",
+            WorkloadShape {
+                disjoint: true,
+                ..shape
+            },
+        ),
+    ] {
+        let output = compile_case(expected, variant);
         let memory = emit_and_check(
             expected,
-            "self",
+            operation,
             &output,
             PortableDiffBase::Artifact(base_view),
             None,
         );
         let file = emit_and_check(
             expected,
-            "self",
+            operation,
             &output,
             PortableDiffBase::Artifact(base_view),
             Some(directory),
         );
         assert_same_objects(&memory, &file);
         for candidate in [memory, file] {
-            for section in 1..=6 {
-                assert_eq!(diff_rows(&candidate, section), 0, "self diff");
-            }
-            check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
-        }
-        if expected.name == "mixed" {
-            let permuted = Compiler::new()
-                .compile(build_mixed_network(shape, true))
-                .unwrap();
-            assert_eq!(permuted.lir().canonical_network_usage(), expected.usage);
-            assert_eq!(
-                permuted.metrics().semantic_fingerprint(),
-                output.metrics().semantic_fingerprint()
-            );
-            let candidate = emit_and_check(
-                expected,
-                "source-permuted",
-                &permuted,
-                PortableDiffBase::Genesis,
-                None,
-            );
-            assert_eq!(base.network_revision(), candidate.network_revision());
-            assert_ne!(
-                base.source_collection_digest(),
-                candidate.source_collection_digest()
-            );
-            check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
-        }
-        drop(output);
-        for (operation, variant) in [
-            (
-                "changed",
-                WorkloadShape {
-                    changed: true,
-                    ..shape
-                },
-            ),
-            (
-                "reordered",
-                WorkloadShape {
-                    reordered: true,
-                    ..shape
-                },
-            ),
-            (
-                "disjoint",
-                WorkloadShape {
-                    disjoint: true,
-                    ..shape
-                },
-            ),
-        ] {
-            let output = compile_case(expected, variant);
-            let memory = emit_and_check(
-                expected,
-                operation,
-                &output,
-                PortableDiffBase::Artifact(base_view),
-                None,
-            );
-            let file = emit_and_check(
-                expected,
-                operation,
-                &output,
-                PortableDiffBase::Artifact(base_view),
-                Some(directory),
-            );
-            assert_same_objects(&memory, &file);
-            for candidate in [memory, file] {
-                let target_identities = identities(artifact_view(&candidate));
-                if variant.disjoint {
-                    assert!(base_identities.is_disjoint(&target_identities));
+            let target_identities = identities(artifact_view(&candidate));
+            if variant.disjoint {
+                assert!(base_identities.is_disjoint(&target_identities));
+                assert_eq!(
+                    diff_rows(&candidate, 1),
+                    20_000,
+                    "all entities removed and added"
+                );
+            } else {
+                assert_eq!(base_identities, target_identities);
+                assert_ne!(base.network_revision(), candidate.network_revision());
+                if variant.changed {
                     assert_eq!(
                         diff_rows(&candidate, 1),
-                        20_000,
-                        "all entities removed and added"
+                        shape.synthetic_tiles,
+                        "entry speed modifications"
                     );
-                } else {
-                    assert_eq!(base_identities, target_identities);
-                    assert_ne!(base.network_revision(), candidate.network_revision());
-                    if variant.changed {
-                        assert_eq!(
-                            diff_rows(&candidate, 1),
-                            shape.synthetic_tiles,
-                            "entry speed modifications"
+                    let changes = preflight_object_values(
+                        candidate.semantic_diff().bytes(),
+                        PortableObjectKind::SemanticDiff,
+                        FormatLimits::HARD,
+                    )
+                    .unwrap();
+                    for row in changes
+                        .registry_view()
+                        .section(1)
+                        .unwrap()
+                        .table(0)
+                        .unwrap()
+                        .rows()
+                    {
+                        assert!(
+                            matches!(
+                                row.field_by_tag(1).unwrap().value().unwrap(),
+                                RegistryCheckedFieldValue::U8(2)
+                            ),
+                            "only entity modifications"
                         );
-                        let changes = preflight_object_values(
-                            candidate.semantic_diff().bytes(),
-                            PortableObjectKind::SemanticDiff,
-                            FormatLimits::HARD,
-                        )
-                        .unwrap();
-                        for row in changes
-                            .registry_view()
-                            .section(1)
-                            .unwrap()
-                            .table(0)
-                            .unwrap()
-                            .rows()
-                        {
-                            assert!(
-                                matches!(
-                                    row.field_by_tag(1).unwrap().value().unwrap(),
-                                    RegistryCheckedFieldValue::U8(2)
-                                ),
-                                "only entity modifications"
-                            );
-                        }
-                        assert!(diff_rows(&candidate, 3) > 0, "geometry changes");
-                        assert!(diff_rows(&candidate, 4) > 0, "static rule changes");
-                    } else {
-                        assert_eq!(diff_rows(&candidate, 1), 0, "entity values preserved");
-                        assert!(diff_rows(&candidate, 2) > 0, "ordered relation changes");
-                        assert_eq!(diff_rows(&candidate, 3), 0, "geometry preserved");
                     }
+                    assert!(diff_rows(&candidate, 3) > 0, "geometry changes");
+                    assert!(diff_rows(&candidate, 4) > 0, "static rule changes");
+                } else {
+                    assert_eq!(diff_rows(&candidate, 1), 0, "entity values preserved");
+                    assert!(diff_rows(&candidate, 2) > 0, "ordered relation changes");
+                    assert_eq!(diff_rows(&candidate, 3), 0, "geometry preserved");
                 }
-                check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
             }
+            check_portable_candidate(candidate, FormatLimits::HARD).unwrap();
         }
-        check_portable_candidate(base, FormatLimits::HARD).unwrap();
-        assert_eq!(
-            fs::read_dir(directory).unwrap().count(),
-            0,
-            "staging released"
-        );
     }
+    check_portable_candidate(base, FormatLimits::HARD).unwrap();
+    assert_eq!(
+        fs::read_dir(directory).unwrap().count(),
+        0,
+        "staging released"
+    );
     fs::remove_dir(directory).unwrap();
 }
 
 #[test]
 fn regular_profile_source_metadata_preserves_canonical_usage_and_revision() {
-    let ordinary = &CASES[3];
-    let long_documents = &CASES[5];
+    let ordinary = &joint::EXPECTED;
+    let long_documents = &long_documents::EXPECTED;
     let output = compile_case(ordinary, ordinary.shape);
     let longer = compile_case(long_documents, long_documents.shape);
     assert_eq!(
@@ -551,7 +567,7 @@ fn regular_profile_source_metadata_preserves_canonical_usage_and_revision() {
         identities(artifact_view(&changed))
     );
 
-    let sources = &CASES[9];
+    let sources = &sources::EXPECTED;
     let contributions = compile_case(sources, sources.shape);
     assert_eq!(
         output.metrics().semantic_fingerprint(),

@@ -6,3 +6,20 @@
 [[profile.default.overrides]]
 filter = "test(conflict_dispatch_multi_thread_participation)"
 threads-required = 4
+priority = 100
+
+# 四槽探针先运行，避免它在队首等待长用例结束。长用例随后和短用例重叠。
+[[profile.default.overrides]]
+filter = '''
+(package(=laneflow-runtime) &
+  (test(=kernel::lf_synth_contract::w1_w2_population_and_parking_are_stable_for_full_window) |
+   test(=kernel::lf_synth_contract::w3_arrival_barrier_lifecycle_and_retry_match_fresh_replay) |
+   test(=kernel::lf_synth_contract::w4_causal_boundaries_and_retry_match_fresh_replay))) |
+(package(=laneflow-synth-harness) &
+  test(=burst::restore::tests::file_restore_preserves_all_case_suffixes_and_rejects_corruption))
+'''
+priority = 90
+
+[[profile.default.overrides]]
+filter = "package(=laneflow-compiler) & binary(=regular_profile_workloads) & test(publishes_candidates)"
+priority = 80
