@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+mod fuzz_comparison;
 mod specialists;
 mod workspace_tests;
 
@@ -46,6 +47,8 @@ struct RegistryFile {
     /// 无法自动对账，新增运行时读取仓库文件的测试时人工登记。
     #[serde(default)]
     input: Vec<EmbedEntry>,
+    #[serde(default)]
+    fuzz_comparison_test: Vec<fuzz_comparison::TestTarget>,
 }
 
 #[derive(Deserialize, Default)]
@@ -78,6 +81,7 @@ struct Registry {
     reviewed_unparsed: Vec<String>,
     /// 归类用合并输入图：嵌入边 ∪ 运行时读取声明边。
     inputs: EmbedMap,
+    fuzz_comparison_tests: Vec<fuzz_comparison::TestTarget>,
 }
 
 impl Registry {
@@ -134,6 +138,7 @@ impl Registry {
             embed,
             reviewed_unparsed,
             inputs,
+            fuzz_comparison_tests: file.fuzz_comparison_test,
         })
     }
 }
@@ -772,26 +777,44 @@ fn walk_sources(
 /// `assert_eq!(include_str!(…), …)`）与相邻字面量拼接。syn 的访问器只到达
 /// 宏调用本身，嵌套形态须在 token 层递归。
 fn collect_include_literals(file: &syn::File) -> Vec<String> {
+    collect_file_inputs(file, false)
+}
+
+fn collect_fuzz_includes(file: &syn::File) -> Vec<String> {
+    collect_file_inputs(file, true)
+}
+
+fn collect_file_inputs(file: &syn::File, include_source: bool) -> Vec<String> {
     struct Visitor {
         targets: Vec<String>,
+        include_source: bool,
     }
     impl syn::visit::Visit<'_> for Visitor {
         fn visit_meta_list(&mut self, meta: &syn::MetaList) {
             // cfg_attr 等属性列表保留为 token，syn 不会将其中的 doc 嵌入解析为表达式。
-            scan_nested_includes(&meta.tokens, &mut self.targets);
+            scan_nested_includes(&meta.tokens, &mut self.targets, self.include_source);
+        }
+
+        fn visit_meta_name_value(&mut self, meta: &syn::MetaNameValue) {
+            if self.include_source && meta.path.is_ident("path") {
+                self.targets.push(UNPARSED_INCLUDE.to_owned());
+            }
+            syn::visit::visit_meta_name_value(self, meta);
         }
 
         fn visit_macro(&mut self, mac: &syn::Macro) {
             let ident = mac.path.segments.last().map(|s| s.ident.to_string());
-            if ident.as_deref() == Some("include_str") || ident.as_deref() == Some("include_bytes")
-            {
+            if self.include_source && ident.as_deref() == Some("include") {
+                self.targets.push(UNPARSED_INCLUDE.to_owned());
+            } else if matches!(ident.as_deref(), Some("include_str" | "include_bytes")) {
                 self.targets.push(direct_include_argument(&mac.tokens));
             }
-            scan_nested_includes(&mac.tokens, &mut self.targets);
+            scan_nested_includes(&mac.tokens, &mut self.targets, self.include_source);
         }
     }
     let mut visitor = Visitor {
         targets: Vec::new(),
+        include_source,
     };
     syn::visit::visit_file(&mut visitor, file);
     visitor.targets
@@ -824,18 +847,31 @@ fn direct_include_argument(tokens: &proc_macro2::TokenStream) -> String {
 /// `direct_include_argument` 解析，处理完在外层紧随该组之后继续——不越过
 /// 自身实参边界吞掉外层的运算符、比较字面量或后续 include；并继续深入
 /// 其余组。
-fn scan_nested_includes(tokens: &proc_macro2::TokenStream, targets: &mut Vec<String>) {
+fn scan_nested_includes(
+    tokens: &proc_macro2::TokenStream,
+    targets: &mut Vec<String>,
+    include_source: bool,
+) {
     let tokens: Vec<proc_macro2::TokenTree> = tokens.clone().into_iter().collect();
     let mut index = 0;
     while index < tokens.len() {
         match &tokens[index] {
             proc_macro2::TokenTree::Group(group) => {
-                scan_nested_includes(&group.stream(), targets);
+                scan_nested_includes(&group.stream(), targets, include_source);
                 index += 1;
             }
             proc_macro2::TokenTree::Ident(ident) => {
                 let name = ident.to_string();
-                if name != "include_str" && name != "include_bytes" {
+                if include_source
+                    && name == "path"
+                    && matches!(tokens.get(index + 1), Some(proc_macro2::TokenTree::Punct(p)) if p.as_char() == '=')
+                {
+                    targets.push(UNPARSED_INCLUDE.to_owned());
+                }
+                if include_source && name == "include" {
+                    targets.push(UNPARSED_INCLUDE.to_owned());
+                }
+                if !matches!(name.as_str(), "include_str" | "include_bytes") {
                     index += 1;
                     continue;
                 }
@@ -908,6 +944,11 @@ fn resolve_embed_target(repo_root: &Path, source: &Path, literal: &str) -> Resul
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if matches!(args, [flag] if flag == "--pr-specialists") {
         return specialists::produce();
+    }
+    if let Some((flag, args)) = args.split_first()
+        && flag == "--compare-fuzz"
+    {
+        return fuzz_comparison::run(args);
     }
     let mut rev_range: Option<&str> = None;
     let mut files_path: Option<&str> = None;
@@ -1248,6 +1289,14 @@ fn append_step_outputs(outputs: &str) -> Result<(), String> {
 }
 
 fn event_plan(event_name: &str) -> Result<Plan, String> {
+    let files = event_changed_files(event_name)?;
+    let workspace = Workspace::parse(&cargo_metadata()?)?;
+    let registry = Registry::parse(REGISTRY_TOML)?;
+    let registry_check = check_registry(&workspace, &repo_root()?, &registry)?;
+    Ok(build_plan(&files, &workspace, &registry, registry_check))
+}
+
+fn event_changed_files(event_name: &str) -> Result<BTreeSet<String>, String> {
     let event_path =
         std::env::var("GITHUB_EVENT_PATH").map_err(|_| "GITHUB_EVENT_PATH 未设置".to_owned())?;
     let payload_text = std::fs::read_to_string(&event_path)
@@ -1266,11 +1315,7 @@ fn event_plan(event_name: &str) -> Result<Plan, String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    let files = changed_files(&format!("{base}..HEAD"))?;
-    let workspace = Workspace::parse(&cargo_metadata()?)?;
-    let registry = Registry::parse(REGISTRY_TOML)?;
-    let registry_check = check_registry(&workspace, &repo_root()?, &registry)?;
-    Ok(build_plan(&files, &workspace, &registry, registry_check))
+    changed_files(&format!("{base}..HEAD"))
 }
 
 /// 组装影子 summary 的 markdown（纯函数）。代码围栏必须独立成行：
