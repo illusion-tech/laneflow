@@ -68,7 +68,7 @@ pub struct StationAddress {
 pub enum StationQuery {
     /// 输入边或车道没有映射，或它们属于不同走廊。
     Unavailable,
-    /// 输入进度或站位越出所选边或走廊。
+    /// 输入进度或站位越出所选映射的覆盖域，或站位区间倒序。
     Outside,
     /// 还有站位未检查，无法确认全部候选。
     Unproven {
@@ -254,13 +254,27 @@ impl SharedStationMapping {
         station_nm: u64,
         target: AuthoringLaneOrdinal,
     ) -> StationQuery {
+        self.in_station_range(corridor, [station_nm; 2], target)
+    }
+
+    /// 把走廊局部站位闭区间投影到一条车道，按行驶顺序返回各边及其毫米进度范围。
+    /// 正反向车道均按站位从小到大传入两端。内切点归下游边，全链终点归末边。
+    /// 区间倒序或部分越界返回 `Outside`，缺少同走廊映射返回 `Unavailable`。
+    /// 超过 64 个分段或八条候选边时返回 `Unproven` 和未检查的站位区间。
+    #[must_use]
+    pub fn in_station_range(
+        &self,
+        corridor: RoadCorridorOrdinal,
+        stations_nm: [u64; 2],
+        target: AuthoringLaneOrdinal,
+    ) -> StationQuery {
         let Some(lane) = self.lanes.get(target.index()).copied().flatten() else {
             return StationQuery::Unavailable;
         };
         if lane.corridor != corridor {
             return StationQuery::Unavailable;
         }
-        self.project(lane, [station_nm; 2], 64)
+        self.project(lane, stations_nm, 64)
     }
 
     /// 从源边的普通整数毫米观测反查走廊站位，再投影到目标车道。
@@ -338,7 +352,7 @@ impl SharedStationMapping {
         let (entry, exit) = if lane.increasing { (lo, hi) } else { (hi, lo) };
         let lane_start = spans[0].map.stations_nm()[0];
         let lane_end = spans[last].map.stations_nm()[1];
-        if lo < lane_start.min(lane_end) || hi > lane_start.max(lane_end) {
+        if lo > hi || lo < lane_start.min(lane_end) || hi > lane_start.max(lane_end) {
             return StationQuery::Outside;
         }
         // 同一边相邻分段在共同节点可登记不同误差，因此普通节点需覆盖两侧。
@@ -475,7 +489,11 @@ mod tests {
             for (edges, each, complete) in [(8, 8, true), (1, 65, false), (9, 1, false)] {
                 let (map, lane) = mapping(edges, each, reverse);
                 let end = (edges * each) as u64 * 1_000_000;
-                let result = map.project(lane, [0, end], 64);
+                let result = map.in_station_range(
+                    lane.corridor,
+                    [0, end],
+                    AuthoringLaneOrdinal::from_raw(0),
+                );
                 match result {
                     StationQuery::Complete(c) if complete => {
                         assert_eq!(c.addresses().count(), edges)
@@ -486,6 +504,72 @@ mod tests {
                     other => panic!("unexpected {other:?}"),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn closed_station_range_observes_directed_edge_ownership_at_both_ends() {
+        let target = AuthoringLaneOrdinal::from_raw(0);
+        for reverse in [false, true] {
+            let (map, lane) = mapping(3, 3, reverse);
+            // 沿行驶方向的 2 至 6 毫米含两个切点，终点刚进入第三条边。
+            let stations = if reverse {
+                [3_000_000, 7_000_000]
+            } else {
+                [2_000_000, 6_000_000]
+            };
+            let StationQuery::Complete(candidates) =
+                map.in_station_range(lane.corridor, stations, target)
+            else {
+                panic!("expected complete coverage");
+            };
+            assert_eq!(candidates.stations_nm(), stations);
+            let addresses: Vec<_> = candidates
+                .addresses()
+                .map(|a| (a.edge.raw(), a.progress_mm))
+                .collect();
+            assert_eq!(addresses, [(0, [2, 3]), (1, [0, 3]), (2, [0, 0])]);
+
+            for (distance_mm, expected_edge, progress_mm) in [(0, 0, 0), (3, 1, 0), (9, 2, 3)] {
+                let station_nm = if reverse {
+                    9 - distance_mm
+                } else {
+                    distance_mm
+                } * 1_000_000;
+                let result = map.in_station_range(lane.corridor, [station_nm; 2], target);
+                assert_eq!(map.at_station(lane.corridor, station_nm, target), result);
+                let StationQuery::Complete(at) = result else {
+                    panic!("expected exact point");
+                };
+                assert_eq!(
+                    at.addresses().collect::<Vec<_>>(),
+                    [StationAddress {
+                        edge: LaneEdgeOrdinal::from_raw(expected_edge),
+                        progress_mm: [progress_mm; 2],
+                    }]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn station_range_rejects_reversed_or_outside_intervals_and_unmapped_targets() {
+        let target = AuthoringLaneOrdinal::from_raw(0);
+        let (map, lane) = mapping(2, 1, false);
+        for stations in [[1_000_000, 0], [0, 2_000_001], [u64::MAX; 2]] {
+            assert_eq!(
+                map.in_station_range(lane.corridor, stations, target),
+                StationQuery::Outside
+            );
+        }
+        for (corridor, target) in [
+            (lane.corridor, AuthoringLaneOrdinal::from_raw(1)),
+            (RoadCorridorOrdinal::from_raw(1), target),
+        ] {
+            assert_eq!(
+                map.in_station_range(corridor, [0, 1], target),
+                StationQuery::Unavailable
+            );
         }
     }
 

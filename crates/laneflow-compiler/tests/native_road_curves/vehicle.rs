@@ -42,7 +42,10 @@ fn road(program: Program, lanes: [([f64; 2], bool); 2]) -> PortablePublicationCa
         false,
         CrossSectionCoverage::Complete,
         0,
-        (lanes, Vec::new()),
+        SectionFixture {
+            lanes,
+            ..SectionFixture::default()
+        },
     );
     assert_eq!(read(&saved), program);
     publish(&compile_saved(&saved).unwrap(), "traffic-wheel-tracks")
@@ -453,7 +456,11 @@ fn with_boundaries(
         false,
         CrossSectionCoverage::Complete,
         0,
-        ([([width; 2], true), ([3.5; 2], true)], extents),
+        SectionFixture {
+            lanes: [([width; 2], true), ([3.5; 2], true)],
+            extents,
+            ..SectionFixture::default()
+        },
     );
     assert_eq!(read(&source), curve);
     publish(&compile_saved(&source).unwrap(), "vehicle-boundaries")
@@ -933,5 +940,158 @@ fn short_lane_change_uses_the_motion_of_the_parts_touching_the_one_way_marking()
             "{:?}",
             report.tracks
         );
+    }
+}
+
+// §4.1 平路解析对照。后轴到前保险杠的投影使用车体切向；行程前半段的横坐标严格递增。
+fn straight_front_handoff_nm(start_nm: u64) -> [u64; 2] {
+    assert_eq!(BODY.front_from_rear_m, 3.40);
+    let front = |x: f64| {
+        let u = x / 30.;
+        let y = 3.5 * u.powi(3) * (10. - 15. * u + 6. * u * u);
+        let dy_dx = 3.5 * u.powi(2) * (1. - u).powi(2);
+        let along = BODY.front_from_rear_m / dy_dx.hypot(1.);
+        (x + along, y + along * dy_dx)
+    };
+    let (mut lo, mut hi) = (0., 15.);
+    for _ in 0..36 {
+        let mid = 0.5 * (lo + hi);
+        if front(mid).1 < 1.75 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let (before, after) = (front(lo), front(hi));
+    assert!(before.1 < 1.75 && after.1 >= 1.75);
+    assert!((11.861_185..11.861_195).contains(&lo));
+    assert!((15.195_155..15.195_165).contains(&before.0));
+    // 两侧解均在止于 15 米的交接窗口外。此处仅校验参考截面及其静态地址。
+    assert!(before.0 > 15. && after.0 >= before.0);
+    [
+        start_nm + (before.0 * 1e9).floor() as u64,
+        start_nm + (after.0 * 1e9).ceil() as u64,
+    ]
+}
+
+#[test]
+fn lane_change_geometry_crosses_independent_edge_cuts() {
+    use laneflow_static_network::StationQuery;
+
+    // 横移前后各留 10 米路面，横移起点两侧均开新边，使局部进度可与 §4.1 直接对照。
+    let straight = Program::try_new(p(0., 0., -10.), vec![Segment::line(p(0., 0., 40.))]).unwrap();
+    let stations_nm = [10_000_000_000, 40_000_000_000];
+    let handoff_nm = straight_front_handoff_nm(stations_nm[0]);
+    let limits = SteeringLimits {
+        max_angle_rad: 0.75_f64.atan(),
+        max_rate_rad_s: 0.6,
+        speed_m_s: 1.,
+    };
+    for effect in [1, 2] {
+        let marking = extent(
+            "mark",
+            BoundaryStation::CorridorEndpoint,
+            BoundaryStation::CorridorEndpoint,
+            BoundaryPayloadInput::CrossingRule {
+                directions: 3,
+                effect,
+            },
+        );
+        let source = save_lane_declarations(
+            straight.clone(),
+            &[],
+            (
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+            ),
+            false,
+            CrossSectionCoverage::Complete,
+            0,
+            SectionFixture {
+                lane_cuts_m: [&[10., 22.], &[10., 28.]],
+                extents: vec![marking],
+                ..SectionFixture::default()
+            },
+        );
+        let artifact = publish(&compile_saved(&source).unwrap(), "independent-lane-change");
+        let networks = [
+            SpatialBuildOption::Omit,
+            SpatialBuildOption::RetainAvailable,
+        ]
+        .map(|spatial| load_network(&artifact, spatial));
+        let reports = networks.each_ref().map(|network| {
+            let mut q = corridor_query(network, stations_nm, 0.);
+            q.trace = RearAxleTrace::Corridor(CorridorTrace {
+                stations_nm,
+                from_m: [0.; 2],
+                to_m: [-3.5; 2],
+            });
+            // 将同一车头截面和切点附近的占用区间分别投影到源、目标两条独立边链。
+            for (&lane, (index, progress_mm)) in
+                q.traversable_lanes.iter().zip([(2, 3_195), (1, 15_195)])
+            {
+                let chain = network
+                    .traffic()
+                    .relations()
+                    .authoring_edge_chain(lane)
+                    .unwrap();
+                assert_eq!(chain.len(), 3);
+                let addresses = |range| {
+                    let at = network
+                        .station_mapping()
+                        .in_station_range(q.corridor, range, lane);
+                    let StationQuery::Complete(hits) = at else {
+                        panic!("{at:?}")
+                    };
+                    assert_eq!(hits.stations_nm(), range);
+                    hits.addresses().collect::<Vec<_>>()
+                };
+                let hit = addresses(handoff_nm);
+                assert_eq!(hit.len(), 1);
+                assert_eq!(hit[0].edge, chain[index]);
+                assert_eq!(hit[0].progress_mm, [progress_mm; 2]);
+                for (cut, expected) in [
+                    (
+                        22_000_000_000,
+                        if index == 2 {
+                            &chain[1..=2]
+                        } else {
+                            &chain[1..=1]
+                        },
+                    ),
+                    (
+                        28_000_000_000,
+                        if index == 2 {
+                            &chain[2..=2]
+                        } else {
+                            &chain[1..=2]
+                        },
+                    ),
+                ] {
+                    let hits = addresses([cut - 1_000_000, cut + 1_000_000]);
+                    assert!(
+                        hits.iter().map(|a| a.edge).eq(expected.iter().copied()),
+                        "{hits:?}"
+                    );
+                }
+            }
+            network.vehicle_geometry(&q, limits, BODY, BUDGET)
+        });
+        assert_eq!(reports[0], reports[1]);
+        let r = reports[0];
+        assert!(
+            matches!(r.tracks.outcome, TrackOutcome::Covered(_)),
+            "{r:?}"
+        );
+        assert_eq!(r.tracks.covered_prefix_nm, 30_000_000_000);
+        assert_eq!(r.feasible(), effect == 1, "{r:?}");
+        if effect == 1 {
+            assert_eq!(r.sweep.covered_prefix_nm, 30_000_000_000);
+        } else {
+            assert!(
+                matches!(r.sweep.outcome, SweepOutcome::Denied { boundary, .. } if boundary.key == Some("mark")),
+                "{r:?}"
+            );
+        }
     }
 }
