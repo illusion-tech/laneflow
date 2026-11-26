@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-vehicle-following"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-26"
 summary = "定义跟车、纵向控制、安全距离与投影。"
 scope = "Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1490"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/196", "https://github.com/illusion-tech/laneflow/issues/1272", "https://github.com/illusion-tech/laneflow/issues/1490", "https://github.com/illusion-tech/laneflow/issues/1526"]
 related = ["adr-0003", "adr-0005", "adr-0006", "adr-0008", "adr-0028", "architecture", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-route-system", "design-traffic-runtime-integer-geometry", "roadmap"]
 +++
 
@@ -102,7 +102,7 @@ Snapshot 是语义约束，不要求复制完整 world。当前 state 可以保�
 
 ### 4.1 Profile 字段
 
-Vehicle Profile 包含：
+现行制品保存以下纵向字段。道路机动车型的完整几何要求见 §4.5。
 
 ```text
 VehicleProfile
@@ -134,7 +134,7 @@ Validation：
 
 ### 4.2 持久化
 
-Vehicle Profile 现行持久化是 LFCA `formatVersion = 5` 的 `VehicleProfile` 表（毫米 /
+Vehicle Profile 现行持久化使用 [LFCA 6 的 `VehicleProfile` 表][artifact]（毫米 /
 受检 `f32`）。
 
 - 每个 VehicleProfile 必须引用已声明 ParticipantClass；静态 AccessRule 在
@@ -151,6 +151,27 @@ register/remove/mutate API。tick 热路径只读取序号和紧凑 profile 数�
 
 现行生产路径是编译器发射 LFCA，再由 `laneflow-format` / `laneflow-static-network`
 构建共享静态路网。Runtime 不依赖 Serde、JSON 或文件系统。不公开 controller trait。
+
+<a id="road-vehicle-profile-geometry"></a>
+### 4.5 所有道路机动车型的几何参数（目标合同）
+
+所有道路机动车型在编制时都须给出完整的几何与转向参数，包括只参与普通跟驰的车型。
+两种官方编制前端和受检制品读方均须校验这些参数。缺项、非有限值、量化后失效或
+尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。现行 LFCA 6 的车型行只含
+§4.1 的纵向字段，此要求随车型格式升版实施。[车型几何的格式提案][geometry-format]
+
+| 参数 | 交通侧用途与校验 |
+| ---- | ---------------- |
+| 车长、轴距、后悬 | 轴距为正，后悬非负，两者之和至多为车长。后轴到前保险杠的距离由车长减后悬得到，再减轴距即为前悬。跟车与整车扫过读取同一车长。 |
+| 轮距、有效车宽 | 两者均为正。参考姿态按半轮距定位左右轮，整车扫过按半车宽定位左右外缘。 |
+| 后轴参考点离路面的基准高度、车身底高与顶高 | 基准高度沿竖直方向量取。底高与顶高相对该参考点沿车体上向量取，底高须小于顶高。 |
+| 最大前轮绝对转角、最大绝对转向角速率 | 转角单位为弧度，范围为 `[0, π/2)`。角速率单位为弧度每秒，须非负。求证使用的后轴三维车速来自该次交通运动。 |
+
+这些值随车型进入修订的规范语义。只改一项有效几何参数也须派生相应的新修订，
+并能在车型差异中定位。无头求证与同修订恢复从车辆绑定的车型读取同一组值。宿主
+轮位、动画和悬架只消费交通输出。对一个车长 4.15 米、轴距 2.60 米、后悬 0.75 米的
+车型，前保险杠在后轴前方 3.40 米，前悬为 0.80 米。独立切边与交接的算例见
+[走廊横向交接合同][handoff]。
 
 ## 5. Vehicle runtime state
 
@@ -741,5 +762,8 @@ Private：
 - 一万到十万不得呈现 `O(V^2)` 趋势。
 
 [lane-change-contract]: lane-change-minimal-contract.md
+[artifact]: portable-canonical-artifact.md#3-lfca-6
+[geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
+[handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [parking-system]: parking-system.md
 [waiting-zone]: waiting-zone-conflict-right-of-way.md
