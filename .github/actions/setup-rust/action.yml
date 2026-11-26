@@ -1,0 +1,70 @@
+name: Set up Rust toolchain
+description: 安装 rust-toolchain.toml 钉住的工具链，并把 channel 导出给本 job 的后续步骤。
+
+inputs:
+  components:
+    description: 额外安装的 rustup 组件，以空格分隔（如 `rustfmt clippy`）。
+    required: false
+    default: ""
+
+outputs:
+  toolchain:
+    description: rust-toolchain.toml 的 toolchain.channel。
+    value: ${{ steps.pin.outputs.toolchain }}
+
+runs:
+  using: composite
+  steps:
+    # 版本号只存在于仓库根 rust-toolchain.toml，workflow 与本 action 都不写（#1564）。
+    # 解析限定在 [toolchain] 表内；零个或多个 channel 都失败，不取第一个。
+    - name: Read pinned toolchain
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        channel="$(
+          tr -d '\r' < rust-toolchain.toml \
+            | sed -n '/^\[toolchain\]/,/^\[/p' \
+            | sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*(#.*)?$/\1/p'
+        )"
+        if [[ -z "$channel" || "$channel" == *$'\n'* ]]; then
+          echo "::error::rust-toolchain.toml 的 [toolchain] 必须恰好声明一个 channel"
+          exit 1
+        fi
+        printf 'toolchain=%s\n' "$channel" >> "$GITHUB_OUTPUT"
+
+    - name: Install pinned toolchain
+      shell: bash
+      env:
+        CHANNEL: ${{ steps.pin.outputs.toolchain }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        set -euo pipefail
+
+        component_args=()
+        for component in $COMPONENTS; do
+          component_args+=(--component "$component")
+        done
+        rustup toolchain install "$CHANNEL" --profile minimal "${component_args[@]}"
+
+    # job 级 RUSTUP_TOOLCHAIN 让仓库外目录的 cargo 调用也落到钉住的工具链：Wire 审计
+    # 在仓库外引导构建 xtask，hermetic 子进程不在仓库目录内，二者都读不到
+    # rust-toolchain.toml。本步打印的 rustc / cargo 版本是 job 日志里唯一的一对版本行，
+    # `audit-workspace-test-reuse` 靠它们核对两次运行的配置，其他步骤不要重复打印。
+    - name: Pin toolchain for the job
+      shell: bash
+      env:
+        CHANNEL: ${{ steps.pin.outputs.toolchain }}
+      run: |
+        set -euo pipefail
+
+        printf 'RUSTUP_TOOLCHAIN=%s\n' "$CHANNEL" >> "$GITHUB_ENV"
+        expected="rustc ${CHANNEL} "
+        actual="$(RUSTUP_TOOLCHAIN="$CHANNEL" rustc --version)"
+        if [[ "$actual" != "$expected"* ]]; then
+          echo "::error::rustc 与 rust-toolchain.toml 不符：期望 ${expected% }，实际 ${actual}"
+          exit 1
+        fi
+        echo "$actual"
+        RUSTUP_TOOLCHAIN="$CHANNEL" cargo --version

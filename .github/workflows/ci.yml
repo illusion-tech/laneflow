@@ -36,34 +36,34 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --prune origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
 
-      - name: Install Rust MSRV toolchain for commit message checks
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Set up Rust toolchain for commit message checks
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies for commit message checks
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-commit-message
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-commit-message
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Check commit messages
         shell: bash
-        run: cargo +1.100.0 run --locked -p xtask -- check-commit-messages
+        run: cargo run --locked -p xtask -- check-commit-messages
 
       - name: Check documentation model and generated indexes
         shell: bash
-        run: cargo +1.100.0 run --locked -p xtask -- check-docs
+        run: cargo run --locked -p xtask -- check-docs
 
       - name: Test documentation checks
         shell: bash
-        run: cargo +1.100.0 test --locked -p xtask doc_checks
+        run: cargo test --locked -p xtask doc_checks
 
       # 注册表数据的模块级校验测试（与 doc 域同模式：命令检查与它的测试同 job）。
       # 测试二进制已由上一步编译，边际成本秒级；数据变更不再触发全量重活（#1459）。
       - name: Test commit harness and model registries
         shell: bash
-        run: cargo +1.100.0 test --locked -p xtask -- commit_harnesses commit_models
+        run: cargo test --locked -p xtask -- commit_harnesses commit_models
 
   markdown-tables:
     name: Markdown tables
@@ -72,14 +72,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain for markdown table checks
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Set up Rust toolchain for markdown table checks
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies for markdown table checks
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-markdown-tables
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-markdown-tables
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo +1.100.0 run --locked -p xtask -- format-md-tables --check \
+          cargo run --locked -p xtask -- format-md-tables --check \
             README.md AGENTS.md CONTRIBUTING.md crates docs schemas .github .agents .cursor
           status=$?
           set -e
@@ -188,21 +188,21 @@ jobs:
           fetch-depth: 1
 
       - &plan-toolchain
-        name: Install Rust MSRV toolchain
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+        name: Set up Rust toolchain
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
 
       - &plan-cache
         name: Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-commit-message
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-commit-message
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Plan PR specialist checks
         id: plan
-        run: cargo +1.100.0 run --quiet --locked -p xtask -- ci-plan --pr-specialists
+        run: cargo run --quiet --locked -p xtask -- ci-plan --pr-specialists
 
       - &fuzz-selection-comparison
         name: Compare Fuzz selection
@@ -228,7 +228,7 @@ jobs:
       - *plan-toolchain
       - *plan-cache
       - name: Run shadow plan
-        run: cargo +1.100.0 run --quiet --locked -p xtask -- ci-plan --shadow
+        run: cargo run --quiet --locked -p xtask -- ci-plan --shadow
 
       - *fuzz-selection-comparison
       - *fuzz-selection-comparison-unavailable
@@ -280,17 +280,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - &rust-toolchain
-        name: Install Rust MSRV toolchain
+        name: Set up Rust toolchain
+        id: setup-rust
         if: *rust-tools
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt clippy
 
       - &rust-cache
         name: Cache Rust dependencies
         if: *rust-tools
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-rust
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-rust
           # 两路检查共用读缓存，由默认检查发布同一个缓存键。
           save-if: ${{ github.ref == 'refs/heads/main' && github.job == 'rust-defaults' }}
           cache-targets: true
@@ -360,42 +362,33 @@ jobs:
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - &rust-toolchain-version
-        name: Check Rust toolchain
-        if: *rust-tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustc +1.100.0 --version
-          cargo +1.100.0 --version
-
       - name: Check formatting
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.100.0 fmt --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Check clippy lints
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.100.0 clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Run workspace tests
         id: workspace_tests
         if: env.WORKSPACE_PACKAGES != '' && env.WORKSPACE_PACKAGES != '[]'
         shell: bash
-        run: cargo +1.100.0 run --quiet --locked -p xtask -- run-workspace-tests "$WORKSPACE_PACKAGES"
+        run: cargo run --quiet --locked -p xtask -- run-workspace-tests "$WORKSPACE_PACKAGES"
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.100.0 test --workspace --doc --locked
+        run: cargo test --workspace --doc --locked
 
       - name: Compile Bevy native examples
         if: needs.changes.outputs.bevy == 'true'
         shell: bash
         run: >-
-          cargo +1.100.0 check --locked -p laneflow-bevy
+          cargo check --locked -p laneflow-bevy
           --example quickstart --example corridor_traffic --example junction_debug --example culling_extraction --example parking_lifecycle --example revision_cutover
           --features native-example
 
@@ -438,21 +431,20 @@ jobs:
       - *rust-sccache-archive
       - *rust-sccache-install
       - *rust-sccache-configure
-      - *rust-toolchain-version
 
       # 证据构建 feature 默认关闭；单独检查，防止 cfg 链在默认构建之外失修。
       - name: Check execution evidence lints
         id: evidence_clippy
         if: env.RUN_EVIDENCE_CLIPPY == 'true'
         shell: bash
-        run: cargo +1.100.0 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
+        run: cargo clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
 
       # #1500 只读运动诊断 feature 默认关闭；打点紧邻运动求值热路径，单独检查。
       - name: Check motion trace lints
         id: motion_trace_lints
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.100.0 clippy -p laneflow-runtime -p laneflow-scenario --all-targets --locked --features laneflow-runtime/motion-trace,laneflow-scenario/motion-trace -- -D warnings
+        run: cargo clippy -p laneflow-runtime -p laneflow-scenario --all-targets --locked --features laneflow-runtime/motion-trace,laneflow-scenario/motion-trace -- -D warnings
 
       # #1462：三项目标测试均为 lib 单元测试，--lib 把构建集合收窄到 lib，
       # 不再为 3 项测试构建全部 [[test]] 集成目标（917 skipped 的来源）；-E
@@ -461,7 +453,7 @@ jobs:
         id: evidence_tests
         if: env.RUN_EVIDENCE_TESTS == 'true'
         shell: bash
-        run: cargo +1.100.0 nextest run -p laneflow-runtime --lib --locked --features execution-evidence -E 'test(execution_evidence)'
+        run: cargo nextest run -p laneflow-runtime --lib --locked --features execution-evidence -E 'test(execution_evidence)'
 
       # #1500：Runtime 对照回归只构建 lib；走廊样本重放（含开关记录一致性与
       # 预览复用记录）只构建该集成目标。记录器线程局部，nextest 逐测试进程执行。
@@ -470,8 +462,8 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         shell: bash
         run: |
-          cargo +1.100.0 nextest run -p laneflow-runtime --lib --locked --features motion-trace -E 'test(yellow_boundary_ride_trace)'
-          cargo +1.100.0 nextest run -p laneflow-scenario --test signalized_corridor_yellow_trace --locked --features motion-trace
+          cargo nextest run -p laneflow-runtime --lib --locked --features motion-trace -E 'test(yellow_boundary_ride_trace)'
+          cargo nextest run -p laneflow-scenario --test signalized_corridor_yellow_trace --locked --features motion-trace
 
       - name: Verify motion trace steps
         env:
@@ -526,7 +518,7 @@ jobs:
       - name: Restore xtask dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-commit-message
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-commit-message
           save-if: false
           cache-targets: true
       - name: Audit workspace default test reuse
@@ -577,16 +569,16 @@ jobs:
         if: env.RUN_URBAN_EVIDENCE == 'true' || env.RUN_CORRIDOR_SMOKE == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
+      - name: Set up Rust toolchain
+        id: setup-rust
         if: env.RUN_URBAN_EVIDENCE == 'true' || env.RUN_CORRIDOR_SMOKE == 'true'
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies
         if: env.RUN_URBAN_EVIDENCE == 'true' || env.RUN_CORRIDOR_SMOKE == 'true'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-evidence-fixtures
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-evidence-fixtures
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -655,7 +647,7 @@ jobs:
         id: run_urban_evidence
         if: env.RUN_URBAN_EVIDENCE == 'true'
         shell: bash
-        run: cargo +1.100.0 nextest run --locked -p laneflow-urban-harness -p laneflow-urban-generator
+        run: cargo nextest run --locked -p laneflow-urban-harness -p laneflow-urban-generator
 
       # #1462：--test 直接选择构建目标（Cargo.toml [[test]]，路径在
       # examples/support/），不再先构建包内其他测试目标再按 binary 名过滤。
@@ -663,7 +655,7 @@ jobs:
         id: run_corridor_smoke
         if: env.RUN_CORRIDOR_SMOKE == 'true'
         shell: bash
-        run: cargo +1.100.0 nextest run --locked -p laneflow-bevy --test corridor_traffic_smoke
+        run: cargo nextest run --locked -p laneflow-bevy --test corridor_traffic_smoke
 
       - name: Show sccache statistics
         if: ${{ !cancelled() && (env.RUN_URBAN_EVIDENCE == 'true' || env.RUN_CORRIDOR_SMOKE == 'true') }}
@@ -706,25 +698,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
+      # hermetic 子进程经 rustup shim 解析 rustc。action 导出的 job 级
+      # RUSTUP_TOOLCHAIN 同时覆盖下面的仓库外引导构建；不设则落到 runner 默认工具链。
+      - name: Set up Rust toolchain
+        id: setup-rust
         if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies
         if: needs.changes.outputs.rust == 'true'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-wire-audit
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-wire-audit
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Check wire toolchain audit
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        env:
-          # hermetic 子进程经 rustup shim 解析 rustc；固定 MSRV，避免 runner 默认工具链漂移。
-          RUSTUP_TOOLCHAIN: 1.100.0
         run: |
           set -euo pipefail
           # 审计器自身引导必须免疫仓库 cargo 配置：`[target.*] runner` 可让
@@ -735,16 +726,14 @@ jobs:
           # 仓库根），直接执行二进制（不经 cargo run，runner 不适用）。
           # 仓库 config 的 [env]/runner/rustc* 键由审计自身在源头禁绝。
           bootstrap_dir="$(mktemp -d)"
-          (cd "$bootstrap_dir" && cargo +1.100.0 build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask)
+          (cd "$bootstrap_dir" && cargo build --locked --manifest-path "$GITHUB_WORKSPACE/Cargo.toml" -p xtask)
           "$GITHUB_WORKSPACE/target/debug/xtask" check-wire-audit
 
       - name: Check runtime architecture
         if: needs.changes.outputs.rust == 'true'
         shell: bash
-        env:
-          RUSTUP_TOOLCHAIN: 1.100.0
         run: |
-          cargo +1.100.0 fetch --locked
+          cargo fetch --locked
           "$GITHUB_WORKSPACE/target/debug/xtask" check-runtime-architecture
 
       - name: Skip wire toolchain audit for non-Rust paths
@@ -794,16 +783,18 @@ jobs:
         if: env.RUN_PLACEMENT == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
+      - name: Set up Rust toolchain
+        id: setup-rust
         if: env.RUN_PLACEMENT == 'true'
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal --component clippy
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy
 
       - name: Cache Rust dependencies
         if: env.RUN_PLACEMENT == 'true'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-placement-fixtures
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-placement-fixtures
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -871,18 +862,18 @@ jobs:
         if: env.RUN_PLACEMENT == 'true'
         shell: bash
         run: |
-          cargo +1.100.0 clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -- -D warnings
-          cargo +1.100.0 clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -- -D warnings
-          cargo +1.100.0 clippy -p laneflow-junction-generator --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo clippy -p laneflow-runtime --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo clippy -p laneflow-scenario --all-targets --locked --features placement-fixtures -- -D warnings
+          cargo clippy -p laneflow-junction-generator --all-targets --locked --features placement-fixtures -- -D warnings
 
       - name: Run placement fixture tests
         id: placement_tests
         if: env.RUN_PLACEMENT == 'true'
         shell: bash
         run: |
-          cargo +1.100.0 nextest run -p laneflow-runtime --locked --features placement-fixtures
-          cargo +1.100.0 nextest run -p laneflow-scenario --locked --features placement-fixtures
-          cargo +1.100.0 nextest run -p laneflow-junction-generator --locked --features placement-fixtures
+          cargo nextest run -p laneflow-runtime --locked --features placement-fixtures
+          cargo nextest run -p laneflow-scenario --locked --features placement-fixtures
+          cargo nextest run -p laneflow-junction-generator --locked --features placement-fixtures
 
       - name: Show sccache statistics
         if: ${{ !cancelled() && env.RUN_PLACEMENT == 'true' }}
@@ -941,16 +932,16 @@ jobs:
         if: env.RUN_URBAN_ADAPTER == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
+      - name: Set up Rust toolchain
+        id: setup-rust
         if: env.RUN_URBAN_ADAPTER == 'true'
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies
         if: env.RUN_URBAN_ADAPTER == 'true'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-rust-urban
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-rust-urban
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -1017,7 +1008,7 @@ jobs:
         id: run_urban_adapter
         if: env.RUN_URBAN_ADAPTER == 'true'
         shell: bash
-        run: cargo +1.100.0 nextest run --locked -p laneflow-urban-harness --features adapter
+        run: cargo nextest run --locked -p laneflow-urban-harness --features adapter
 
       - name: Show sccache statistics
         if: ${{ !cancelled() && env.RUN_URBAN_ADAPTER == 'true' }}
@@ -1045,12 +1036,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.100.0 --profile minimal
-          rustup default 1.100.0
+      - name: Set up Rust toolchain
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
 
       - name: Fetch cargo-deny 0.20.2
         id: cargo-deny-archive
