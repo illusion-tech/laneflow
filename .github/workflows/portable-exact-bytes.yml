@@ -8,6 +8,7 @@ on:
       - "crates/laneflow-static-contract/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".github/actions/**"
       - ".github/workflows/portable-exact-bytes.yml"
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - "crates/laneflow-static-contract/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".github/actions/**"
       - ".github/workflows/portable-exact-bytes.yml"
   workflow_dispatch:
 
@@ -46,20 +48,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
-        shell: pwsh
-        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Set up Rust toolchain
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-portable-exact-${{ matrix.label }}
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-portable-exact-${{ matrix.label }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Exercise portable format safety boundaries
         shell: pwsh
-        run: cargo +1.100.0 test -p laneflow-format --locked
+        run: cargo test -p laneflow-format --locked
 
       - name: Export two independent process runs
         shell: pwsh
@@ -76,7 +78,7 @@ jobs:
           foreach ($run in $runs) {
             $env:LANEFLOW_PORTABLE_EVIDENCE_DIR = Join-Path $evidenceRoot $run.Name
             $env:LANEFLOW_PORTABLE_ALLOCATION_PERTURBATION_BYTES = $run.Perturbation
-            cargo +1.100.0 test -p laneflow-compiler `
+            cargo test -p laneflow-compiler `
               compiler::portable_fixture_tests::ci_evidence::portable_exact_bytes_ci_evidence `
               --locked -- --ignored --exact --test-threads=1
           }

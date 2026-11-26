@@ -1,6 +1,8 @@
-# 仓库统一工具链：CI 以 RUSTUP_TOOLCHAIN=1.100.0 同值钉死（见
-# .github/workflows/ci.yml），本文件让 rustup 在任何 checkout 副本内
-# 默认选中同一 channel——converter 的 build provenance 内嵌本文件并
-# 记录该 channel，记录值即实际构建工具链。
+# 仓库统一工具链：下面的 channel 是工具链版本的唯一事实来源，根 Cargo.toml 的
+# workspace.package.rust-version 取同一版本，升级时两处一起改。CI 经
+# .github/actions/setup-rust 读取本文件安装并导出 RUSTUP_TOOLCHAIN；rustup 在
+# 任何 checkout 副本内按本文件自动选用同一 channel。本文件只保留 [toolchain] 的
+# channel 一项，CI 与测量工具按这个固定形态解析。converter 的 build provenance
+# 内嵌本文件并记录该 channel，记录值即实际构建工具链。
 [toolchain]
 channel = "1.100.0"

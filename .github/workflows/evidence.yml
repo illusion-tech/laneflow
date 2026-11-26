@@ -22,14 +22,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
-        shell: bash
-        run: rustup toolchain install 1.100.0 --profile minimal
+      - name: Set up Rust toolchain
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.100.0-evidence
+          shared-key: laneflow-msrv-${{ steps.setup-rust.outputs.toolchain }}-evidence
 
       - name: Install cargo-nextest 0.9.145
         shell: bash
@@ -53,7 +53,7 @@ jobs:
       - name: Run evidence tests
         shell: bash
         run: >-
-          cargo +1.100.0 nextest run --workspace --locked --run-ignored ignored-only
+          cargo nextest run --workspace --locked --run-ignored ignored-only
           --test-threads 1 --no-capture --no-fail-fast
           -E 'test(journal_ab_windows_match_frozen_digests) |
           test(cpu_sampling_windows_match_frozen_digests) |
