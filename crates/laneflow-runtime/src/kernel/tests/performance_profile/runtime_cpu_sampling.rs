@@ -46,6 +46,26 @@ fn run_windows(case_index: usize, rounds: usize) {
     );
 }
 
+/// 默认回归只校验小窗口的确定性，不采集时间或执行大型窗口。
+#[test]
+fn cpu_sampling_1k_256_matches_frozen_digest() {
+    let LaneBaseline {
+        count,
+        edges,
+        digest,
+    } = LANE_1K_256;
+    let fixtures = Fixtures::new();
+    let mut harness = fixtures.world(Scene::Lane {
+        count,
+        edges,
+        journal: false,
+    });
+    harness.validate();
+    observed_cpu_window(&mut harness);
+    harness.validate();
+    assert_eq!(harness.digest(), digest, "lane-1k-256 冻结摘要失配");
+}
+
 #[test]
 #[ignore = "证据测量窗口，夜间 evidence.yml 运行（#748）"]
 fn cpu_sampling_windows_match_frozen_digests() {
