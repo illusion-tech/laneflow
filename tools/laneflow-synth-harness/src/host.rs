@@ -20,8 +20,6 @@ use serde_json::{Value, json};
 
 use crate::Error;
 
-/// 环境记录采集的工具链选择，与正式构建使用的工具链一致。
-pub const TOOLCHAIN: &str = "1.100.0";
 /// 子进程采样间隔（host-observe.md §5.5）。
 pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 /// 测量前环境记录文件名。
@@ -62,14 +60,18 @@ fn collect(
     repository: &Path,
     manual: &ManualFields,
 ) -> Result<EnvironmentRecord, Error> {
+    fn invalid(error: laneflow_host_observe::environment::EnvironmentError) -> Error {
+        Error::Invalid(error.to_string())
+    }
     environment::collect(&CollectOptions {
         phase,
         repository: repository.to_path_buf(),
-        toolchain: Some(TOOLCHAIN.into()),
+        // 与正式构建同一工具链：rustup 在 checkout 内强制的钉版 channel。
+        toolchain: Some(environment::pinned_toolchain(repository).map_err(invalid)?),
         manual: manual.clone(),
         snapshot_interval: snapshot::DEFAULT_INTERVAL,
     })
-    .map_err(|error| Error::Invalid(error.to_string()))
+    .map_err(invalid)
 }
 
 fn write_record(output: &Path, name: &str, record: &EnvironmentRecord) -> Result<Value, Error> {
@@ -85,7 +87,7 @@ impl Session {
     /// # Errors
     ///
     /// 输入文件无效、构建声明为空、工作树不干净、提交与 `implementation` 不同、
-    /// 工具链不可用或 P100 指纹不符时返回错误。
+    /// 读不出仓库钉版的工具链 channel、工具链不可用或 P100 指纹不符时返回错误。
     pub fn begin(
         declaration: &Path,
         implementation: &str,

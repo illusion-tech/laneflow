@@ -196,6 +196,10 @@ path = "examples/data/v0.2-signalized-corridor.lfca"
 consumers = ["laneflow-bevy", "laneflow-runtime", "laneflow-scenario"]
 
 [[embed]]
+path = "rust-toolchain.toml"
+consumers = ["laneflow-urban-harness"]
+
+[[embed]]
 path = "tools/laneflow-os-probe/Cargo.toml"
 consumers = ["xtask"]
 

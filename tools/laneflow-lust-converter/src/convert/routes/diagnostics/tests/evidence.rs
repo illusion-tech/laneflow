@@ -903,7 +903,7 @@ fn export_command(output: &std::path::Path, baseline: &std::path::Path) -> Strin
     let target =
         std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "<worktree-target>".to_owned());
     format!(
-        "CARGO_TARGET_DIR='{target}' LANEFLOW_806_A0_BASELINE='{}' LANEFLOW_806_A1_RESULTS='{}' cargo +1.100.0 test --locked -p laneflow-lust-converter --lib convert::routes::diagnostics::tests::evidence::a1_route_evidence -- --exact --nocapture",
+        "CARGO_TARGET_DIR='{target}' LANEFLOW_806_A0_BASELINE='{}' LANEFLOW_806_A1_RESULTS='{}' cargo test --locked -p laneflow-lust-converter --lib convert::routes::diagnostics::tests::evidence::a1_route_evidence -- --exact --nocapture",
         baseline.display(),
         output.display()
     )

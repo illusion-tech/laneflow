@@ -32,6 +32,14 @@ fn fixture(declaration: serde_json::Value) -> Fixture {
     let repository = root.path().join("repository");
     fs::create_dir(&repository).unwrap();
     git(&repository, &["init", "-q"]);
+    // 环境记录按 checkout 钉版的 channel 选工具链：临时仓库带上本仓库的钉版文件，
+    // 并入首个提交保持工作树干净。
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rust-toolchain.toml"),
+        repository.join("rust-toolchain.toml"),
+    )
+    .unwrap();
+    git(&repository, &["add", "rust-toolchain.toml"]);
     git(
         &repository,
         &["commit", "-q", "--allow-empty", "-m", "fixture"],
