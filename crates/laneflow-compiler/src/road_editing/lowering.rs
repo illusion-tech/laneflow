@@ -2564,7 +2564,7 @@ mod tests {
                     "vehicle-car",
                     ParticipantClassReference::local("participant-car").unwrap(),
                     RoadEditingIidmInput::try_new(4.5, 15.0, 2.0, 1.5, 2.0, 3.0, 6.0).unwrap(),
-                    crate::regular_profile_tests::CAR_GEOMETRY,
+                    crate::test_support::CAR_GEOMETRY,
                 )
                 .unwrap(),
             ))

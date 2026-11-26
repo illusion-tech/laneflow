@@ -1,7 +1,9 @@
 //! 道路机动车型的来源构型、SI 参数与两个编制前端共用的量化。
 
 use crate::ScalarViolation;
-use laneflow_static_contract::{RoadVehicleGeometry, millimetres_from_si, millimetres_i32_from_si};
+use laneflow_static_contract::{
+    RoadVehicleGeometry, RoadVehicleGeometryField, millimetres_from_si, millimetres_i32_from_si,
+};
 
 /// 来源声明的车型构型。首版规范几何只接纳刚性双轴。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +44,106 @@ pub enum RoadVehicleGeometryInput {
     FullTrailer,
     /// 铰接公交车，首版报告构型未受支持。
     ArticulatedBus,
+}
+
+/// 编制配置中声明的构型和可选 SI 字段。构型决定哪些字段必填。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RoadVehicleGeometryConfig {
+    /// 来源构型编码。
+    pub configuration: u8,
+    /// 前后轴距，单位米。
+    pub wheelbase_m: Option<f64>,
+    /// 全轮距，单位米。
+    pub track_width_m: Option<f64>,
+    /// 后轴参考点高度，单位米。
+    pub reference_height_m: Option<f64>,
+    /// 后悬，单位米。
+    pub rear_overhang_m: Option<f64>,
+    /// 车身全宽，单位米。
+    pub width_m: Option<f64>,
+    /// 车身底面相对参考点的高度，单位米。
+    pub bottom_height_m: Option<f64>,
+    /// 车身顶面相对参考点的高度，单位米。
+    pub top_height_m: Option<f64>,
+    /// 最大前轮绝对转角，单位弧度。
+    pub max_steering_angle_rad: Option<f64>,
+    /// 最大绝对转向角速率，单位弧度每秒。
+    pub max_steering_rate_rad_s: Option<f64>,
+}
+
+/// 车型配置无法还原为带构型的来源输入。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VehicleGeometryConfigError {
+    /// 配置包含未登记的构型编码。
+    UnknownConfiguration(u8),
+    /// 缺少刚性双轴构型必需的字段。
+    MissingField(RoadVehicleGeometryField),
+}
+
+impl std::fmt::Display for VehicleGeometryConfigError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use RoadVehicleGeometryField as Field;
+        match self {
+            Self::UnknownConfiguration(code) => write!(formatter, "unknown configuration {code}"),
+            Self::MissingField(field) => {
+                let name = match field {
+                    Field::Wheelbase => "wheelbase_m",
+                    Field::TrackWidth => "track_width_m",
+                    Field::ReferenceHeight => "reference_height_m",
+                    Field::RearOverhang => "rear_overhang_m",
+                    Field::Width => "width_m",
+                    Field::BottomHeight => "bottom_height_m",
+                    Field::TopHeight => "top_height_m",
+                    Field::MaxSteeringAngle => "max_steering_angle_rad",
+                    Field::MaxSteeringRate => "max_steering_rate_rad_s",
+                };
+                write!(formatter, "missing {name}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for VehicleGeometryConfigError {}
+
+impl TryFrom<RoadVehicleGeometryConfig> for RoadVehicleGeometryInput {
+    type Error = VehicleGeometryConfigError;
+
+    fn try_from(config: RoadVehicleGeometryConfig) -> Result<Self, Self::Error> {
+        use RoadVehicleGeometryField as Field;
+        let model = RoadVehicleConfiguration::from_code(config.configuration).ok_or(
+            VehicleGeometryConfigError::UnknownConfiguration(config.configuration),
+        )?;
+        let required = |value: Option<f64>, field| {
+            value.ok_or(VehicleGeometryConfigError::MissingField(field))
+        };
+        Ok(match model {
+            RoadVehicleConfiguration::SemiTrailer => Self::SemiTrailer,
+            RoadVehicleConfiguration::FullTrailer => Self::FullTrailer,
+            RoadVehicleConfiguration::ArticulatedBus => Self::ArticulatedBus,
+            RoadVehicleConfiguration::RigidTwoAxle => {
+                Self::RigidTwoAxle(RigidTwoAxleGeometryInput {
+                    wheelbase_m: required(config.wheelbase_m, Field::Wheelbase)?,
+                    track_width_m: required(config.track_width_m, Field::TrackWidth)?,
+                    reference_height_m: required(
+                        config.reference_height_m,
+                        Field::ReferenceHeight,
+                    )?,
+                    rear_overhang_m: required(config.rear_overhang_m, Field::RearOverhang)?,
+                    width_m: required(config.width_m, Field::Width)?,
+                    bottom_height_m: required(config.bottom_height_m, Field::BottomHeight)?,
+                    top_height_m: required(config.top_height_m, Field::TopHeight)?,
+                    max_steering_angle_rad: required(
+                        config.max_steering_angle_rad,
+                        Field::MaxSteeringAngle,
+                    )?,
+                    max_steering_rate_rad_s: required(
+                        config.max_steering_rate_rad_s,
+                        Field::MaxSteeringRate,
+                    )?,
+                })
+            }
+        })
+    }
 }
 
 /// 刚性双轴车型显式编制参数。所有距离以米计，角度以弧度计。
@@ -259,4 +361,39 @@ pub(crate) fn canonical_words(geometry: RoadVehicleGeometry) -> [u8; 36] {
     let mut bytes = [0; 36];
     bytes.copy_from_slice(words.as_flattened());
     bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registered_articulated_configurations_preserve_their_tag_without_rigid_fields() {
+        for (configuration, expected) in [
+            (2, RoadVehicleGeometryInput::SemiTrailer),
+            (3, RoadVehicleGeometryInput::FullTrailer),
+            (4, RoadVehicleGeometryInput::ArticulatedBus),
+        ] {
+            let input = RoadVehicleGeometryInput::try_from(RoadVehicleGeometryConfig {
+                configuration,
+                wheelbase_m: None,
+                track_width_m: None,
+                reference_height_m: None,
+                rear_overhang_m: None,
+                width_m: None,
+                bottom_height_m: None,
+                top_height_m: None,
+                max_steering_angle_rad: None,
+                max_steering_rate_rad_s: None,
+            })
+            .unwrap();
+            assert_eq!(input, expected);
+            let error = input.canonical(4_500).unwrap_err();
+            assert_eq!(
+                error.violation,
+                ScalarViolation::UnsupportedVehicleConfiguration
+            );
+            assert_eq!(error.field(), "configuration");
+        }
+    }
 }
