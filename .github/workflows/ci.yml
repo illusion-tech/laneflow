@@ -206,9 +206,16 @@ jobs:
 
       - &fuzz-selection-comparison
         name: Compare Fuzz selection
+        id: compare_fuzz
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: cargo +1.99.1 run --quiet --locked -p xtask -- ci-plan --compare-fuzz
+        run: cargo run --quiet --locked -p xtask -- ci-plan --compare-fuzz
+
+      - &fuzz-selection-comparison-unavailable
+        name: Record unavailable Fuzz comparison
+        if: ${{ !cancelled() && steps.compare_fuzz.outcome == 'failure' }}
+        continue-on-error: true
+        run: printf '%s\n\n%s\n' '## Fuzz 选测对照' '候选回退到完整 Fuzz 矩阵。对照步骤未能完成，原因见该步骤日志。' >> "$GITHUB_STEP_SUMMARY"
 
   shadow-plan:
     name: Shadow plan
@@ -224,6 +231,7 @@ jobs:
         run: cargo +1.100.0 run --quiet --locked -p xtask -- ci-plan --shadow
 
       - *fuzz-selection-comparison
+      - *fuzz-selection-comparison-unavailable
 
   rust-defaults:
     name: Rust default checks
