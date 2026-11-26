@@ -2442,10 +2442,8 @@ mod tests {
                 bios_date: Field::Value("01/01/2025".into()),
             },
             toolchain: Field::Value(Toolchain {
-                selector: text("rustc")
-                    .strip_prefix("rustc ")
-                    .and_then(|rest| rest.split(' ').next())
-                    .map(str::to_owned),
+                // 现行采集不指定选择器：记录里是环境实际解析到的 rustc / cargo。
+                selector: None,
                 rustc_vv: text("rustc"),
                 cargo_version: text("cargo"),
                 host_target: text("target"),
@@ -2711,27 +2709,67 @@ mod tests {
         assert_eq!(before.differences(&kept), ["power.ac_online"]);
     }
 
-    /// #1392：证据入口与正式测量使用同一就绪核对；P100 角色缺少参考机声明或
-    /// 指纹不符时拒绝，非 P100 角色不读取参考机声明。记录的工具链选择还须等于
-    /// 仓库钉版（#1564）。
-    #[cfg(feature = "adapter")]
-    #[test]
-    fn evidence_summary_requires_p100_reference_fingerprint() {
-        use laneflow_host_observe::Field;
+    /// 带钉版文件的临时仓库，与一份按真实钉版 channel 构造的测量夹具。就绪核对
+    /// 拿「钉版-主机」去比二进制的构建工具链，主机因此取本机真实值，不用夹具
+    /// 默认的 Windows 三元组。
+    fn pinned_repository() -> (tempfile::TempDir, serde_json::Value) {
+        let build = crate::environment::BUILD_TOOLCHAIN.expect("测试二进制须经 rustup 构建");
+        let host = build
+            .strip_prefix(&format!("{}-", build_channel()))
+            .unwrap_or(build);
         let root = tempfile::tempdir().unwrap();
-        let mut measurement = measurement_fixture();
-        let uncertified = environment_fixture(&measurement, Phase::Before);
-        // 就绪核对读取仓库钉版：临时仓库带上与记录一致的钉版文件。
         fs::write(
             root.path().join("rust-toolchain.toml"),
             format!("[toolchain]\nchannel = \"{}\"\n", build_channel()),
         )
         .unwrap();
+        let mut measurement = measurement_fixture();
+        measurement["target"] = json!(host);
+        (root, measurement)
+    }
+
+    /// 测量就绪核对走生产路径：记录由夹具按真实钉版 channel 构造，临时仓库带同一
+    /// 钉版，本测试二进制的构建工具链也是它（`cargo test` 经 rustup 选用钉版）。
+    /// 测量环境的 rustc / cargo 与钉版不符的记录不能开始测量（#1564）。
+    #[test]
+    fn measurement_readiness_rejects_a_drifted_toolchain() {
+        use laneflow_host_observe::Field;
+        let (root, measurement) = pinned_repository();
+        let host = measurement["target"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let record = environment_fixture(&measurement, Phase::Before);
+        crate::environment::require_ready(&record, root.path()).unwrap();
+        for release in ["rustc 9.9.9 (other)", "rustc 1.0.0-nightly (other)"] {
+            let mut drifted = environment_fixture(&measurement, Phase::Before);
+            if let Field::Value(toolchain) = &mut drifted.toolchain {
+                toolchain.rustc_vv = format!("{release}\nhost: {host}");
+            }
+            let error = crate::environment::require_ready(&drifted, root.path())
+                .expect_err("drifted rustc must be rejected");
+            assert!(error.to_string().contains("仓库钉版"), "{release}: {error}");
+        }
+    }
+
+    /// #1392：证据入口与正式测量使用同一就绪核对；P100 角色缺少参考机声明或
+    /// 指纹不符时拒绝，非 P100 角色不读取参考机声明。记录里的工具链还须是仓库
+    /// 钉版（#1564）。
+    #[cfg(feature = "adapter")]
+    #[test]
+    fn evidence_summary_requires_p100_reference_fingerprint() {
+        use laneflow_host_observe::Field;
+        let (root, mut measurement) = pinned_repository();
+        let host = measurement["target"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let uncertified = environment_fixture(&measurement, Phase::Before);
         crate::environment::ready_summary(&uncertified, root.path()).unwrap();
-        // 工具链选择与钉版不同的记录不能开始测量。
+        // 测量环境的 rustc 不是钉版的记录不能开始测量。
         let mut other_toolchain = environment_fixture(&measurement, Phase::Before);
         if let Field::Value(toolchain) = &mut other_toolchain.toolchain {
-            toolchain.selector = Some("9.9.9".into());
+            toolchain.rustc_vv = format!("rustc 9.9.9 (other)\nhost: {host}");
         }
         assert!(crate::environment::ready_summary(&other_toolchain, root.path()).is_err());
         measurement["hardware_role"] = json!("P100");

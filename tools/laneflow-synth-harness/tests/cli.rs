@@ -237,6 +237,37 @@ fn worker_matrix_refuses_to_start_without_a_ready_environment() {
     }
 }
 
+/// 生产路径上的工具链偏离（#1564）：测量环境的 `RUSTUP_TOOLCHAIN` 指向别的工具链时，
+/// 环境记录如实记下工具链不可用，矩阵在启动任何子进程之前拒绝。用一个不存在的
+/// 工具链名，不依赖机器上装了哪些工具链。
+#[test]
+fn worker_matrix_refuses_to_start_under_a_polluted_toolchain_environment() {
+    let fixture = fixture(declaration(false));
+    let output = fixture.root.path().join("workers");
+    let result = Command::new(env!("CARGO_BIN_EXE_laneflow-synth-harness"))
+        .arg("worker-matrix")
+        .arg(fixture.root.path().join("missing-inputs"))
+        .arg(&fixture.commit)
+        .arg(&fixture.input)
+        .arg(&output)
+        .env("RUSTUP_TOOLCHAIN", "laneflow-nonexistent-toolchain")
+        .current_dir(&fixture.repository)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let summary = read(&output.join("summary.json"));
+    assert_eq!(summary["complete"], false);
+    assert!(
+        summary["execution_order"].as_array().unwrap().is_empty(),
+        "工具链不是钉版时不得启动子进程"
+    );
+    let error = summary["error"].as_str().unwrap();
+    assert!(error.contains("工具链不可用"), "{error}");
+    // 测量前记录照常写出，其中的工具链是不可用，而不是另查一次钉版得到的版本。
+    let before = read(&output.join("environment-before.json"));
+    assert!(before["toolchain"]["unavailable"].is_string(), "{before}");
+}
+
 #[test]
 fn matrix_collects_failed_children_without_publishing_success() {
     let root = tempfile::tempdir().unwrap();

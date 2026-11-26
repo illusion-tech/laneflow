@@ -66,14 +66,8 @@ pub(crate) fn source() -> Result<Value> {
     if !status.is_empty() || commit.len() != 40 {
         return Err(invalid("evidence requires a frozen clean source checkout"));
     }
-    // 与环境记录同一工具链：按仓库钉版显式选择，读不到钉版就不产出来源。
-    let repository =
-        laneflow_host_observe::environment::repository_root(&std::env::current_dir()?)?;
-    let selector = format!(
-        "+{}",
-        laneflow_host_observe::environment::pinned_toolchain(&repository)
-            .map_err(|error| invalid(error.to_string()))?
-    );
+    // rustc / cargo 按测量时的环境解析，不加选择器：与下方环境记录里的工具链是同一
+    // 事实，由环境摘要的就绪核对保证它和本二进制的构建工具链都是仓库钉版。
     Ok(json!({"commit":commit,"git_status":status,
         "build_profile":if cfg!(debug_assertions) {"debug;debug-assertions=on"} else {"release;debug-assertions=off"},
         "tree":read("git", &["rev-parse", "HEAD^{tree}"])?,
@@ -82,8 +76,8 @@ pub(crate) fn source() -> Result<Value> {
         "harness_manifest":digest_file(Path::new("tools/laneflow-urban-harness/Cargo.toml"))?,
         "adapter_manifest":digest_file(Path::new("crates/laneflow-bevy/Cargo.toml"))?,
         "spatial_manifest":digest_file(Path::new("crates/laneflow-spatial/Cargo.toml"))?,
-        "rustc":read("rustc", &[&selector,"-Vv"] )?,
-        "cargo":read("cargo", &[&selector,"-V"] )?,
+        "rustc":read("rustc", &["-Vv"] )?,
+        "cargo":read("cargo", &["-V"] )?,
         "binary":digest_file(&std::env::current_exe()?)?,
         "allocation":cfg!(feature = "allocation"),
         "pose_profiling":cfg!(feature = "pose-profiling"),

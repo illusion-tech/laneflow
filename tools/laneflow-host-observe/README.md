@@ -15,8 +15,8 @@
 - 自动字段：OS、CPU、物理内存、交流电与电池（经 os-probe）、Windows 电源计划
   （`powercfg /getactivescheme`）、Linux 调频策略与 `platform_profile`、BIOS（Windows
   读注册表 `HKLM\HARDWARE\DESCRIPTION\System\BIOS`，Linux 读 `/sys/class/dmi/id`）、
-  工具链（`rustc -Vv`、`cargo -V`，按 `rust-toolchain.toml` 钉住的 channel 选择）与
-  源码状态（git）。取不到的字段写成
+  工具链（`rustc -Vv`、`cargo -V`，在 checkout 根目录按当前环境解析）与源码状态
+  （git）。取不到的字段写成
   `{"unavailable": "<原因>"}`，不填空串、零或省略。
 - 执行者输入文件只含 `vendor_performance_mode` 与 `hardware_role`（`R0`、`P10`、`P100`、
   `O1`、`uncertified`），由 `ManualFields::from_json` 解析；空值、只含空白或占位值一律拒绝。
@@ -24,10 +24,11 @@
   Windows 采集。
 - 一份进程快照作为后台进程记录。
 
-工具链 channel 经 `environment::pinned_toolchain` 取自当前 checkout 的
-`rust-toolchain.toml`。`EnvironmentRecord::require_measurement_ready` 核对工具链
-（选择须等于该钉版）、源码干净且提交匹配、必填字段，以及 P100 角色的指纹；`EnvironmentRecord::differences` 给出测量前后须一致而
-不一致的字段组。
+工具链按测量时的环境解析，不加选择器。`EnvironmentRecord::require_measurement_ready`
+核对两项：记录里的 rustc / cargo 是 checkout 的 `rust-toolchain.toml` 钉的版本；测量
+程序自身由钉版工具链编译（调用方把构建时 rustup 导出的 `RUSTUP_TOOLCHAIN` 经编译期
+嵌入后传入）。另核对源码干净且提交匹配、必填字段，以及 P100 角色的指纹；
+`EnvironmentRecord::differences` 给出测量前后须一致而不一致的字段组。
 
 P100 参考机上的人工验证：
 

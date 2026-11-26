@@ -22,6 +22,10 @@ pub(crate) const INPUT_VARIABLE: &str = "LANEFLOW_ENVIRONMENT_INPUT";
 pub(crate) const BEFORE: &str = "environment-before.json";
 /// 测量后环境记录文件名。
 pub(crate) const AFTER: &str = "environment-after.json";
+/// 构建本二进制的工具链名：rustup 代理导出给 cargo 的 `RUSTUP_TOOLCHAIN`，编译期
+/// 嵌入。直接 `cargo build` 时环境变量与 rustup 目录覆盖都优先于
+/// `rust-toolchain.toml`，二进制未必由钉版工具链编译；测量入口据此拒绝。
+pub(crate) const BUILD_TOOLCHAIN: Option<&str> = option_env!("RUSTUP_TOOLCHAIN");
 
 /// 读取 [`INPUT_VARIABLE`] 指定的执行者输入文件。
 pub(crate) fn manual() -> Result<ManualFields> {
@@ -31,15 +35,13 @@ pub(crate) fn manual() -> Result<ManualFields> {
 }
 
 /// 在当前目录所在 checkout 内采集一份环境记录，并返回 checkout 顶层目录。
+/// 工具链按测量时的环境解析，不加选择器：环境变量或目录覆盖造成的偏离如实进入
+/// 记录，由 [`require_ready`] 拒绝。
 pub(crate) fn collect(phase: Phase, manual: &ManualFields) -> Result<(EnvironmentRecord, PathBuf)> {
     let repository = environment::repository_root(&std::env::current_dir()?)?;
-    // 与正式测量构建同一工具链：rustup 在 checkout 内强制的钉版 channel。
-    let toolchain =
-        environment::pinned_toolchain(&repository).map_err(|error| invalid(error.to_string()))?;
     let record = environment::collect(&CollectOptions {
         phase,
         repository: repository.clone(),
-        toolchain: Some(toolchain),
         manual: manual.clone(),
         snapshot_interval: snapshot::DEFAULT_INTERVAL,
     })
@@ -47,8 +49,8 @@ pub(crate) fn collect(phase: Phase, manual: &ManualFields) -> Result<(Environmen
     Ok((record, repository))
 }
 
-/// 核对记录可以开始测量：工具链可用且等于仓库钉版、工作树干净、必填字段合格，
-/// P100 角色的指纹与参考机声明一致。提交取记录自身的 HEAD。
+/// 核对记录可以开始测量：测量环境的工具链与本二进制的构建工具链都是仓库钉版、
+/// 工作树干净、必填字段合格，P100 角色的指纹与参考机声明一致。提交取记录自身的 HEAD。
 pub(crate) fn require_ready(
     record: &EnvironmentRecord,
     repository: &std::path::Path,
@@ -59,7 +61,7 @@ pub(crate) fn require_ready(
         .map(|source| source.commit.clone())
         .ok_or_else(|| invalid("environment record has no source state"))?;
     record
-        .require_measurement_ready(&commit, repository)
+        .require_measurement_ready(&commit, repository, BUILD_TOOLCHAIN)
         .map_err(|error| invalid(error.to_string()))
 }
 
@@ -125,9 +127,9 @@ fn stable_summary(record: &EnvironmentRecord) -> Value {
     })
 }
 
-/// 证据入口的环境摘要：先按正式测量的同一规则核对（工作树干净、工具链可用、
-/// 必填字段合格、P100 角色的指纹与参考机声明一致，host-observe.md §3.3），
-/// 再生成摘要。
+/// 证据入口的环境摘要：先按正式测量的同一规则核对（工作树干净、测量环境与本二进制
+/// 的工具链都是钉版、必填字段合格、P100 角色的指纹与参考机声明一致，host-observe.md
+/// §3.3），再生成摘要。
 #[cfg(feature = "adapter")]
 pub(crate) fn ready_summary(
     record: &EnvironmentRecord,

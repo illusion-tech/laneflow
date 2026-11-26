@@ -527,6 +527,10 @@ target/release/laneflow-urban-harness transitions <artifacts> <variant-directory
 target/release/laneflow-urban-harness transitions <artifacts> <variant-directory> GARAGE-EGRESS <new-output>
 ```
 
+测量入口要求本程序由仓库钉版的工具链编译。直接 `cargo build` 时
+`RUSTUP_TOOLCHAIN` 环境变量与 rustup 目录覆盖都优先于 `rust-toolchain.toml`；
+带着它们构建出的程序会在测量开始前被拒绝，不会产出标成钉版的来源记录。
+
 功能矩阵是 10k 的 Mixed、Egress、Ingress、Waiting、Permissive、Uncontrolled 六行以及
 100k Mixed 一行，消费已有完整 correctness 窗口。100k 是暖机 3712、观察 7424，共
 11136 ticks。每帧全量提取 Active 和显式 Parked，排除虚拟 Parked 和 Completed。

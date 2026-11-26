@@ -227,8 +227,8 @@ pub struct Firmware {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Toolchain {
-    /// 调用方指定的工具链 channel（执行时加 `+`）；测量入口传入仓库钉版值，见
-    /// [`pinned_toolchain`]。`None` 为默认工具链。
+    /// 调用方显式指定的工具链选择。现行采集不指定、按环境解析，恒为 `None`；
+    /// 早期记录可能带值。
     pub selector: Option<String>,
     /// `rustc -Vv` 全文。
     pub rustc_vv: String,
@@ -298,10 +298,8 @@ pub struct EnvironmentRecord {
 pub struct CollectOptions {
     /// 采集阶段。
     pub phase: Phase,
-    /// 源码 checkout 内的任一目录；git 命令锚定到其顶层目录执行。
+    /// 源码 checkout 内的任一目录；git 命令与工具链解析锚定到其顶层目录执行。
     pub repository: PathBuf,
-    /// 工具链 channel，测量入口经 [`pinned_toolchain`] 取自仓库钉版；`None` 为默认工具链。
-    pub toolchain: Option<String>,
     /// 执行者填写的必填字段。
     pub manual: ManualFields,
     /// 进程快照的读数间隔。
@@ -337,7 +335,7 @@ pub fn collect(options: &CollectOptions) -> Result<EnvironmentRecord, Environmen
         memory,
         power: power(),
         firmware: firmware(),
-        toolchain: Field::from_result(toolchain(options.toolchain.as_deref()), "工具链"),
+        toolchain: Field::from_result(toolchain(&options.repository), "工具链"),
         source: Field::from_result(source(&options.repository), "源码状态"),
         fingerprint: fingerprint(),
         manual: options.manual.clone(),
@@ -383,9 +381,11 @@ impl EnvironmentRecord {
         Ok(record)
     }
 
-    /// 核对记录可以开始测量：工具链可用，且其选择等于 `repository_root` 的钉版
-    /// channel；源码可用、干净且提交与 `implementation_commit` 相同；必填字段合格；
-    /// 硬件角色为 P100 时指纹与 `repository_root` 下的参考机声明一致。
+    /// 核对记录可以开始测量。工具链须同时满足两项：记录里的 rustc / cargo 就是
+    /// `repository_root` 的钉版；测量程序自身由钉版工具链编译（`build_toolchain` 是
+    /// 调用方编译期嵌入的构建工具链名）。另须源码可用、干净且提交与
+    /// `implementation_commit` 相同，必填字段合格，硬件角色为 P100 时指纹与
+    /// `repository_root` 下的参考机声明一致。
     ///
     /// # Errors
     ///
@@ -394,19 +394,22 @@ impl EnvironmentRecord {
         &self,
         implementation_commit: &str,
         repository_root: &Path,
+        build_toolchain: Option<&str>,
     ) -> Result<(), EnvironmentError> {
         self.manual.validate()?;
-        if let Some(toolchain) = self.toolchain.value() {
-            // 测量只认仓库钉版的工具链：选择来自其他来源的记录不得放行。
-            let pinned = pinned_toolchain(repository_root)?;
-            if toolchain.selector.as_deref() != Some(pinned.as_str()) {
-                return Err(EnvironmentError::new(
-                    "环境记录的工具链选择与仓库钉版不同，不能开始测量",
-                ));
+        let toolchain = match &self.toolchain {
+            Field::Value(toolchain) => toolchain,
+            Field::Unavailable(reason) => {
+                return Err(EnvironmentError::new(format!(
+                    "环境记录的工具链不可用，不能开始测量：{reason}"
+                )));
             }
-        } else {
-            return Err(EnvironmentError::new("环境记录缺少工具链"));
-        }
+        };
+        require_pinned_toolchain(
+            toolchain,
+            &pinned_toolchain(repository_root)?,
+            build_toolchain,
+        )?;
         let source = self
             .source
             .value()
@@ -861,26 +864,68 @@ pub fn parse_pinned_channel(text: &str) -> Option<&str> {
     channel
 }
 
-fn toolchain(selector: Option<&str>) -> io::Result<Toolchain> {
-    let plus = selector.map(|selector| format!("+{selector}"));
-    let args = |flag: &'static str| -> Vec<&str> {
-        plus.as_deref()
-            .into_iter()
-            .chain(std::iter::once(flag))
-            .collect()
-    };
-    let rustc_vv = command::output("rustc", &args("-Vv"), None)?;
+/// 测量环境中实际生效的工具链：不加 `+` 选择器，在 checkout 根目录按当前环境解析。
+/// 直接 `cargo build` 时 `RUSTUP_TOOLCHAIN` 环境变量与 rustup 目录覆盖都优先于
+/// `rust-toolchain.toml`；按环境解析，这种偏离才会如实进入记录，再由
+/// [`EnvironmentRecord::require_measurement_ready`] 拒绝。
+fn toolchain(repository: &Path) -> io::Result<Toolchain> {
+    let rustc_vv = command::output("rustc", &["-Vv"], Some(repository))?;
     let host_target = rustc_vv
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .map(str::to_owned)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "rustc -Vv 中没有 host 行"))?;
     Ok(Toolchain {
-        selector: selector.map(str::to_owned),
-        cargo_version: command::output("cargo", &args("-V"), None)?,
+        selector: None,
+        cargo_version: command::output("cargo", &["-V"], Some(repository))?,
         rustc_vv,
         host_target,
     })
+}
+
+/// 测量工具链的两项核对，是 [`EnvironmentRecord::require_measurement_ready`] 的判定层：
+///
+/// - 记录里的 rustc / cargo 就是钉版。记录按测量时的环境解析，这一项拒绝的是
+///   `RUSTUP_TOOLCHAIN` 环境变量或 rustup 目录覆盖造成的偏离。
+/// - 测量程序自身由钉版工具链编译。`build_toolchain` 是 rustup 导出给构建进程的
+///   `RUSTUP_TOOLCHAIN`，由调用方在编译期嵌入：直接 `cargo build` 可能用别的工具链
+///   编出程序，而按 `+<钉版>` 另查一次版本会把这一点盖住。
+///
+/// # Errors
+///
+/// 任一项不满足时返回错误。`build_toolchain` 为 `None`（构建进程没有导出工具链名，
+/// 无从判断）同样返回错误。
+pub fn require_pinned_toolchain(
+    toolchain: &Toolchain,
+    pinned: &str,
+    build_toolchain: Option<&str>,
+) -> Result<(), EnvironmentError> {
+    let release = toolchain.rustc_vv.lines().next().unwrap_or_default();
+    if reported_version(release, "rustc") != Some(pinned)
+        || reported_version(&toolchain.cargo_version, "cargo") != Some(pinned)
+    {
+        return Err(EnvironmentError::new(format!(
+            "测量环境的 rustc / cargo 与仓库钉版 {pinned} 不同（实际为 {release}），不能开始测量；请检查 RUSTUP_TOOLCHAIN 环境变量与 rustup 的目录覆盖（rustup override list）"
+        )));
+    }
+    match build_toolchain {
+        // rustup 代理导出的是带主机后缀的全名；不经代理时可能是 channel 本身。
+        Some(name) if name == pinned || name == format!("{pinned}-{}", toolchain.host_target) => {
+            Ok(())
+        }
+        Some(name) => Err(EnvironmentError::new(format!(
+            "测量程序由工具链 {name} 编译，与仓库钉版 {pinned} 不同，不能开始测量；请清除 RUSTUP_TOOLCHAIN 环境变量与 rustup 目录覆盖后重新构建"
+        ))),
+        None => Err(EnvironmentError::new(
+            "无法确定编译测量程序所用工具链（构建进程未导出 RUSTUP_TOOLCHAIN），不能开始测量；请经 rustup 重新构建",
+        )),
+    }
+}
+
+/// `rustc -vV` 或 `cargo -V` 首行自报的版本：`<程序名> <版本> [(…)]` 的第二个记号。
+fn reported_version<'a>(line: &'a str, program: &str) -> Option<&'a str> {
+    let mut tokens = line.split_whitespace();
+    (tokens.next()? == program).then(|| tokens.next()).flatten()
 }
 
 /// 判定 `git ls-files -v` 输出中是否有 skip-worktree（`S`）或 assume-unchanged
