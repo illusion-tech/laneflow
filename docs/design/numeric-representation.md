@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-numeric-representation"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-26"
 summary = "定义编制、交通与空间数值表示的分层。"
 scope = "数值分层、误差预算、compiler 前端几何正本，以及已提交整数毫米合同"
 applicability = "#applicability"
@@ -54,6 +54,7 @@ related = ["adr-0003", "adr-0004", "adr-0012", "adr-0015", "adr-0022", "adr-0028
 | Profile 时距与加减速度             | 受检 `f32` SI                          | 编译器 / 共享静态路网          | 范围见第 4 节                                          |
 | IIDM 中间量                        | 瞬时 SI                                | 派生值，不是正本               | 不得回写为已提交状态                                   |
 | 路线距离                           | 分段 `u32` mm + 后缀 `BoundedDistance` | Traffic Runtime 派生状态       | 溢出为 `BeyondFinite`，不是注册失败                    |
+| 刚性双轴车型的最大前轮转角与转向角速率（目标） | 编制 `f64` 向下量化为有限非负 `f32`，求证无损提升为 `f64` | 编译器 / 共享静态路网 | 发布上限不得超过来源值，转角小于 π/2。见[车型制品合同][profile-geometry-format] |
 | canonical 几何与位姿               | LaneFlow 自有的有界 `f32`              | Spatial                        | 每轴 `±16_384 m`                                       |
 | frame 到宿主位姿                   | 宿主选择的 f32/double placement        | 派生快照，不是正本             | Adapter 显式映射 frame，不反写 Traffic Runtime/Spatial |
 | 宿主向量/`Transform`               | 宿主专用                               | Adapter 表现                   | 只能出现在 Adapter 末端                                |
@@ -167,3 +168,4 @@ Traffic Runtime 标量、接受范围、舍入、诊断或线格式规范化的�
 [godot-vector3]: https://docs.godotengine.org/en/stable/classes/class_vector3.html
 [three-vector3]: https://threejs.org/docs/pages/Vector3.html
 [babylon-vector3]: https://doc.babylonjs.com/typedoc/classes/BABYLON.Vector3
+[profile-geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
