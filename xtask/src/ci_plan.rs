@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 mod specialists;
+pub(crate) mod workspace_test_reuse;
 mod workspace_tests;
 
 pub(crate) use workspace_tests::run as run_workspace_tests;

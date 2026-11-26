@@ -333,6 +333,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   `schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 变更拉起整仓
   Rust 测试。Bevy native example 在 Adapter/Runtime/Spatial/scenario、format、
   static-contract、static-network、compiler 或 `examples/data/` 变更时编译。
+- `Workspace default test reuse shadow` 仅在 main push 的默认检查结束后发布
+  复用影子报告，逐项核对合并组的提交、配置与实际通过的用例。报告独立于
+  `Rust checks`，默认测试按原路径门完整执行。证据规则见
+  `../design/ci-affected-verification-plan.md` 第 6 节。
 - `Wire toolchain audit`：`xtask check-wire-audit` 与
   `xtask check-runtime-architecture`，覆盖仓库 cargo config 卫生、依赖与生成物
   钉版、workspace unsafe 边界（含 `laneflow-os-probe` 受审计例外）的 hermetic
