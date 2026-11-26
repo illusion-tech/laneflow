@@ -146,6 +146,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 当前 CI 包含：
 
 - Commit message：Conventional Commits 标题（description 不含 `#<数字>` Issue 引用、无破折号分段、不超过 40 个字符）、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
+- 工具链钉版：`cargo run --locked -p xtask -- check-toolchain-pinning` 核对 `rust-toolchain.toml` 与根 `Cargo.toml` 的工具链版本一致，并扫描全仓的硬编码写法；随 `Commit message` job 执行，失败阻断合并。规则见 `docs/reference/validation-matrix.md` 第 10 节。
 - Markdown tables：表格格式检查只警告，不阻断合并。
 - 文档结构：`cargo run --locked -p xtask -- check-docs` 离线检查默认范围内的本地路径、标题锚点与关键索引入口。它目前不是合并门禁，也不判断文档语义。规则见 `docs/reference/documentation-checks.md`。
 - Rust checks：job 始终运行以保持 required check 稳定；检查内容由 `docs/governance/github-workflow.md` §8 规范定义（`fmt`、`clippy`、workspace 测试与 doctest）。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
@@ -159,7 +160,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应任务类别落地后继续加入专用检查。
 
-本地完整工作区检查：
+本地完整工作区检查（命令不写工具链版本，rustup 按仓库根 `rust-toolchain.toml` 自动选用）：
 
 ```powershell
 cargo fmt --all -- --check

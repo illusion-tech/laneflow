@@ -3,10 +3,10 @@ schema_version = 1
 id = "reference-validation-matrix"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-17"
+revised_date = "2026-11-26"
 summary = "规定各任务类别的最低验证要求。"
 scope = "LaneFlow 各任务类别在合并前的最小验证要求，以及 CI 失败后的偶发签名判读"
-related = ["adr-0026", "adr-0027", "governance-dependency-security", "governance-development-gates", "governance-github-workflow", "governance-security-scanning", "reference-commit-convention"]
+related = ["adr-0013", "adr-0026", "adr-0027", "governance-dependency-security", "governance-development-gates", "governance-github-workflow", "governance-security-scanning", "reference-commit-convention"]
 +++
 
 # 验证矩阵
@@ -233,5 +233,34 @@ cargo run --locked -p xtask -- check-docs [<path...>]
 - HTTP(S)、mailto、历史 commit / tree / blob URL 和 rustdoc 符号链接只计数、不访问。不能可靠判定的扩展语法记为可见的 skip，不算锚点已通过，也不报 missing-anchor。
 - 配置文件只登记关键入口，不是逐文件忽略表。存量路径或锚点错误应改正文档，或留给后续文档删并；不能靠新增忽略项变成通过。
 - 检查同时验证正式文档 TOML 模型、关系图与生成索引，随既有 `Commit message` required check 执行；批准事实、术语与技术语义仍由人工复核，不以结构通过代替跨文档审阅。
+
+## 10. 工具链钉版检查
+
+工具链版本只写在两处：仓库根 `rust-toolchain.toml` 的 `toolchain.channel`，以及根 `Cargo.toml` 的 `workspace.package.rust-version`（取同一版本的逐字对应值）。Rust 升级只改这两个文件，决策依据见 ADR 0013 第 8 节。本地命令：
+
+```powershell
+cargo run --locked -p xtask -- check-toolchain-pinning
+```
+
+成功退出 0，任一发现退出 1 并逐项列出；没有修复模式。该检查随 `Commit message` required check 常驻执行，不受路径门控制。它核对：
+
+1. `toolchain.channel` 是三段式版本号，且 `rust-toolchain.toml` 只有 `[toolchain]` 的 `channel` 一项。CI 的 `.github/actions/setup-rust` 与测量工具按这个固定形态解析；多出的 `components` / `targets` 还会让 rustup 在本地自动安装。
+2. 根 `Cargo.toml` 的 `workspace.package.rust-version` 与 channel 逐字相等。
+3. workspace 成员的 `package.rust-version` 一律为 `workspace = true`；不在 workspace 内的清单不得写字面量。
+4. 被跟踪的文本文件里没有以下写法：
+   - `cargo`、`rustc` 等 rustup 代理命令的 `+<版本>` 选择器；
+   - 带版本号的 `rustup toolchain install`、`rustup default`、`rustup override set`、`rustup run`、`rustup update`；
+   - `RUSTUP_TOOLCHAIN` 环境变量里的版本号；
+   - `msrv-<版本>` 形式的缓存键；
+   - 当前钉版的版本号本身，带主机后缀的写法（`<版本>-x86_64`）也算。
+5. 当前 rustc 与钉版一致。`xtask` 的每个命令启动前都做这一项核对：命令不再用 `+<版本>` 选工具链，rustup 按 `rust-toolchain.toml` 选用；`RUSTUP_TOOLCHAIN` 环境变量或 rustup 目录覆盖造成的偏离在这里被拦下。
+
+豁免清单在 `xtask/data/toolchain-pinning.toml`：每项写仓库相对路径与理由，列入的文件整体跳过第 4 项。只豁免带日期的历史测量记录、决策史和检查自身，条目指向的文件必须存在。新增条目须在 PR 里说明为什么该文件不能改为引用 `rust-toolchain.toml`。
+
+边界：
+
+- 只扫三段式的当前版本号与上述命令写法；正文里的两段式写法（如「Rust 1.100」）不在扫描内。
+- `Cargo.lock` 不参与，其中的版本号属于依赖。
+- 检查报告第 4 项命中时，把该处改为引用 `rust-toolchain.toml`，不要改豁免清单。
 
 [documentation-checks]: documentation-checks.md

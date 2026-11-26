@@ -55,6 +55,10 @@ jobs:
         shell: bash
         run: cargo run --locked -p xtask -- check-docs
 
+      - name: Check toolchain pinning
+        shell: bash
+        run: cargo run --locked -p xtask -- check-toolchain-pinning
+
       - name: Test documentation checks
         shell: bash
         run: cargo test --locked -p xtask doc_checks
@@ -63,7 +67,7 @@ jobs:
       # 测试二进制已由上一步编译，边际成本秒级；数据变更不再触发全量重活（#1459）。
       - name: Test commit harness and model registries
         shell: bash
-        run: cargo test --locked -p xtask -- commit_harnesses commit_models
+        run: cargo test --locked -p xtask -- commit_harnesses commit_models toolchain_pinning
 
   markdown-tables:
     name: Markdown tables
