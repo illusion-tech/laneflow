@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-ci-affected-verification-plan"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-25"
+revised_date = "2026-11-26"
 decision_date = "2026-11-19"
 summary = "定义按变更影响生成 CI 验证计划的合同：影响模型、变更三态归类、可靠性规则、全量时机与过渡策略。"
 scope = "CI 各项检查的执行范围选择机制；不改变检查自身的验证语义与 required check 接口。"
@@ -67,11 +67,13 @@ PR 全量跑了 2,712 项 workspace 测试与全部专项 job；一次合并至�
 
 PR 的三个专项 job 按上表执行。Evidence 的两行可独立选中。
 
-PR 上的 `Rust checks` 另按计划执行三步。runtime 或 urban-harness 受影响时，
-运行两包开启 `execution-evidence` 的完整 clippy 命令。runtime 受影响时，
-另运行该包的 `execution-evidence` 测试。workspace 默认测试取受影响闭包中
-由本步负责的包，用 nextest 按包名精确选测。两个 Urban 包和走廊 smoke
-目标由 Evidence 负责。
+`Rust default checks` 和 `Rust feature checks` 在前置检查完成后并行运行，
+由必查 `Rust checks` 汇总。PR 上的 workspace 默认测试取受影响闭包中由本步
+负责的包，用 nextest 按包名精确选测。两个 Urban 包和走廊 smoke 目标由
+Evidence 负责。runtime 或 urban-harness 受影响时，feature job 运行两包开启
+`execution-evidence` 的完整 clippy 命令。runtime 受影响时另运行该包的
+`execution-evidence` 测试。feature job 还执行原 Rust 路径门要求的
+`motion-trace` 检查，并核对其两个步骤的结果。
 
 部分执行时，Cargo 在同一快照上离线导出原工作区和候选命令的构建单元图。
 先尝试选包并保留各包的默认目标。若 feature 随选包减少，可以通过所选包
@@ -85,9 +87,9 @@ Actions summary 记录收窄结果或回退原因。
 
 计划明确给出空集时跳过默认测试。若选中了包，nextest 却报告零项可运行测试，
 则改跑完整默认套件。构建错误或测试失败会使 job 失败。四个 required job 都
-比较计划预期与步骤的实际结果，包括预期跳过的步骤。默认测试还核对成功覆盖的包。
-`motion-trace` 继续按既有配置执行。Wire 审计扫描仓库
-源码，影子计划在有 Rust 种子时选择完整审计。
+比较计划预期与步骤的实际结果，包括预期跳过的步骤。`Rust checks` 也核对
+默认与 feature job 的结果及默认测试成功覆盖的包。Wire 审计扫描仓库源码，
+影子计划在有 Rust 种子时选择完整审计。
 
 ## 3. 影响模型
 

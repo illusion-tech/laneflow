@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-github-workflow"
 kind = "governance"
 status = "active"
-revised_date = "2026-11-25"
+revised_date = "2026-11-26"
 summary = "规定 GitHub 议题、PR、项目与合并队列工作流。"
 scope = "LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理"
 +++
@@ -312,16 +312,18 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   （`commit_harnesses` / `commit_models` 模块测试），因此 `xtask/data/**` 变更
   不再触发重活（#1459）。
 - `Markdown tables`：表格格式，只警告。
-- `Rust checks`：`cargo fmt` 与
-  `cargo clippy --workspace --all-targets --locked -D warnings`；
-  workspace 默认测试保留原 Cargo 工作区、两个 Urban 排除包和默认 feature。
-  PR 上按计划用 nextest 精确选择受影响包，并排除 Evidence 负责的走廊 smoke。
-  只选中 Synth harness 时，Cargo 构建工作区的库测试及 Synth 具名的二进制和
-  集成测试目标。目标从当前 Cargo 元数据发现，无法确认默认目标时使用完整构建。
-  空计划跳过本步。选中包却没有可运行测试时，补跑完整默认套件。
+- `Rust checks` 核对前置检查和并行的 `Rust default checks`、
+  `Rust feature checks`。默认 job 执行 `cargo fmt`、
+  `cargo clippy --workspace --all-targets --locked -D warnings` 与默认测试。
+  PR 上按计划用 nextest 精确选择受影响包，保留原工作区的默认配置。
+  两个 Urban 包和走廊 smoke 由 Evidence 负责。空计划跳过默认测试。
+  选中包却没有可运行测试时，补跑完整默认套件。
+  nextest 优先调度占用四槽的冲突探针和已知长用例。编译器常规档的各组
+  负载在同一个测试二进制内分别调度。
+  feature job 执行 `execution-evidence` 与 `motion-trace` 检查。
   runtime 或 urban-harness 受影响时运行两包的 `execution-evidence` clippy，
   runtime 受影响时运行其 `execution-evidence` 测试。
-  只读运动诊断 feature `motion-trace`（#1500）默认关闭，同一 job 另跑
+  只读运动诊断 feature `motion-trace`（#1500）默认关闭。该 job 另跑
   `laneflow-runtime` 与 `laneflow-scenario` 开启该 feature 的 clippy，并运行
   Runtime lib 中的黄灯骑界对照回归与 `signalized_corridor_yellow_trace` 集成目标
   （含开关记录一致性与预览复用记录）。
@@ -341,7 +343,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 - `Evidence fixture tests` 与 `Rust checks` 的 workspace 步分别负责专项和其余测试
   （#1108）。在 PR 上，计划分别选择 urban-harness 与 urban-generator 两包的完整
   测试，以及 bevy 的 `corridor_traffic_smoke` 目标。`RUSTC_WRAPPER` 与 sccache
-  接线同 `Rust checks`。
+  接线同 `Rust default checks`。
 - `Placement fixture tests`：`placement-fixtures` 是空 feature，开启时全量重跑
   运行时、情景包与 junction-generator 以护栏 feature 副作用，用来编译并执行
   “已经在路上”的回归：
