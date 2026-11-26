@@ -217,19 +217,22 @@ jobs:
       - name: Run shadow plan
         run: cargo +1.99.1 run --quiet --locked -p xtask -- ci-plan --shadow
 
-  rust:
-    name: Rust checks
+  rust-defaults:
+    name: Rust default checks
     runs-on: ubuntu-latest
     needs: [changes, pr-plan]
-    # 路径检测失败时本 job 必须红而不是被跳过：被跳过的 required check 会停在
-    # Expected 卡住入队，静默当成功则是门禁假绿。取消（cancelled）仍随整个运行跳过。
-    if: ${{ !cancelled() }}
+    if: >-
+      ${{ !cancelled() && needs.changes.result == 'success' &&
+          (github.event_name != 'pull_request' || needs.pr-plan.result == 'success') }}
     permissions:
       contents: read
-    # #1074：sccache 内容寻址编译缓存（GHA 原生后端，#1071 评估记录）。仅此三个
-    # 有收益 job 挂包装器；wire-audit 不挂——hermetic 子编译经 env 剔除不触碰
+    outputs:
+      workspace_tests: ${{ steps.workspace_tests.outcome }}
+      covered_packages: ${{ steps.workspace_tests.outcome == 'skipped' && env.WORKSPACE_PACKAGES || steps.workspace_tests.outputs.covered_packages }}
+    # #1074：测试构建使用 sccache 内容寻址编译缓存（GHA 原生后端）。
+    # Wire 审计的 hermetic 子编译经 env 剔除不触碰
     # 包装器，审计器引导构建不经缓存。写只在 main push，PR 与 merge_group 只读。
-    env:
+    env: &rust-test-env
       WORKSPACE_PACKAGES: >-
         ${{ (github.event_name != 'pull_request' && (needs.changes.outputs.rust == 'true' && '*' || '[]')) ||
             needs.pr-plan.outputs.workspace_packages }}
@@ -252,35 +255,32 @@ jobs:
       # workspace tests 441s→296s）。RUSTFLAGS 参与指纹与 sccache 键，变更即换代。
       RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
-      - name: Check Rust verification prerequisites
-        if: needs.changes.result != 'success' || (github.event_name == 'pull_request' && needs.pr-plan.result != 'success')
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "::error::Rust checks prerequisites failed (changes=${{ needs.changes.result }}, pr-plan=${{ needs.pr-plan.result }})."
-          exit 1
-
-      - name: Checkout
+      - &rust-checkout
+        name: Checkout
         if: &rust-tools >-
           needs.changes.outputs.rust == 'true' || needs.changes.outputs.bevy == 'true' ||
           (env.WORKSPACE_PACKAGES != '' && env.WORKSPACE_PACKAGES != '[]') ||
           env.RUN_EVIDENCE_CLIPPY == 'true' || env.RUN_EVIDENCE_TESTS == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Rust MSRV toolchain
+      - &rust-toolchain
+        name: Install Rust MSRV toolchain
         if: *rust-tools
         shell: bash
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
 
-      - name: Cache Rust dependencies
+      - &rust-cache
+        name: Cache Rust dependencies
         if: *rust-tools
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: laneflow-msrv-1.99.1-rust
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # 两路检查共用读缓存，由默认检查发布同一个缓存键。
+          save-if: ${{ github.ref == 'refs/heads/main' && github.job == 'rust-defaults' }}
           cache-targets: true
 
-      - name: Fetch cargo-nextest 0.9.145
+      - &rust-nextest-archive
+        name: Fetch cargo-nextest 0.9.145
         id: cargo-nextest-archive
         if: *rust-tools
         uses: ./.github/actions/fetch-verified-archive
@@ -289,7 +289,8 @@ jobs:
           sha256: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
           filename: cargo-nextest.tar.gz
 
-      - name: Install cargo-nextest 0.9.145
+      - &rust-nextest-install
+        name: Install cargo-nextest 0.9.145
         if: *rust-tools
         shell: bash
         env:
@@ -303,7 +304,8 @@ jobs:
           install -m 0755 "$extract_dir/cargo-nextest" "$RUNNER_TEMP/cargo-nextest"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Fetch sccache 0.19.0
+      - &rust-sccache-archive
+        name: Fetch sccache 0.19.0
         id: sccache-archive
         if: *rust-tools
         uses: ./.github/actions/fetch-verified-archive
@@ -314,7 +316,8 @@ jobs:
           sha256: aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd
           filename: sccache.tar.gz
 
-      - name: Install sccache 0.19.0
+      - &rust-sccache-install
+        name: Install sccache 0.19.0
         if: *rust-tools
         shell: bash
         env:
@@ -331,7 +334,8 @@ jobs:
       # sccache 官方 docs/GHA.md 的凭据注入方式：runner 只把缓存 API 凭据注入
       # action 进程，run: 步骤不可见（R1 实测 unbound variable），经 github-script
       # 转出；内嵌 JS 仅两行 exportVariable，无逻辑分支（#1074 立项审查扩范围）。
-      - name: Configure sccache
+      - &rust-sccache-configure
+        name: Configure sccache
         id: configure_sccache
         if: *rust-tools
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -340,7 +344,8 @@ jobs:
             core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Check Rust toolchain
+      - &rust-toolchain-version
+        name: Check Rust toolchain
         if: *rust-tools
         shell: bash
         run: |
@@ -358,42 +363,11 @@ jobs:
         shell: bash
         run: cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
 
-      # 证据构建 feature 默认关闭；单独检查，防止 cfg 链在默认构建之外失修。
-      - name: Check execution evidence lints
-        id: evidence_clippy
-        if: env.RUN_EVIDENCE_CLIPPY == 'true'
-        shell: bash
-        run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
-
-      # #1500 只读运动诊断 feature 默认关闭；打点紧邻运动求值热路径，单独检查。
-      - name: Check motion trace lints
-        if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-scenario --all-targets --locked --features laneflow-runtime/motion-trace,laneflow-scenario/motion-trace -- -D warnings
-
       - name: Run workspace tests
         id: workspace_tests
         if: env.WORKSPACE_PACKAGES != '' && env.WORKSPACE_PACKAGES != '[]'
         shell: bash
         run: cargo +1.99.1 run --quiet --locked -p xtask -- run-workspace-tests "$WORKSPACE_PACKAGES"
-
-      # #1462：三项目标测试均为 lib 单元测试，--lib 把构建集合收窄到 lib，
-      # 不再为 3 项测试构建全部 [[test]] 集成目标（917 skipped 的来源）；-E
-      # 过滤保留显式意图。
-      - name: Run execution evidence tests
-        id: evidence_tests
-        if: env.RUN_EVIDENCE_TESTS == 'true'
-        shell: bash
-        run: cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features execution-evidence -E 'test(execution_evidence)'
-
-      # #1500：Runtime 对照回归只构建 lib；走廊样本重放（含开关记录一致性与
-      # 预览复用记录）只构建该集成目标。记录器线程局部，nextest 逐测试进程执行。
-      - name: Run motion trace tests
-        if: needs.changes.outputs.rust == 'true'
-        shell: bash
-        run: |
-          cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features motion-trace -E 'test(yellow_boundary_ride_trace)'
-          cargo +1.99.1 nextest run -p laneflow-scenario --test signalized_corridor_yellow_trace --locked --features motion-trace
 
       # cargo-nextest 不执行 doctest，doctest 仍由 libtest 覆盖。
       - name: Run workspace doctests
@@ -409,7 +383,8 @@ jobs:
           --example quickstart --example corridor_traffic --example junction_debug --example culling_extraction --example parking_lifecycle --example revision_cutover
           --features native-example
 
-      - name: Show sccache statistics
+      - &rust-sccache-stats
+        name: Show sccache statistics
         if: ${{ !cancelled() && steps.configure_sccache.outcome == 'success' }}
         shell: bash
         run: sccache --show-stats
@@ -422,11 +397,101 @@ jobs:
           echo "No Rust/Cargo/CI-workflow paths changed; skipping cargo fmt/test."
           echo "Commit-message and dependency-policy jobs still cover docs and deny.toml when applicable."
 
+  rust-features:
+    name: Rust feature checks
+    runs-on: ubuntu-latest
+    needs: [changes, pr-plan]
+    if: >-
+      ${{ !cancelled() && needs.changes.result == 'success' &&
+          (github.event_name != 'pull_request' || needs.pr-plan.result == 'success') &&
+          (needs.changes.outputs.rust == 'true' ||
+           needs.pr-plan.outputs.evidence_clippy == 'true' ||
+           needs.pr-plan.outputs.evidence_tests == 'true') }}
+    permissions:
+      contents: read
+    outputs:
+      evidence_clippy: ${{ steps.evidence_clippy.outcome }}
+      evidence_tests: ${{ steps.evidence_tests.outcome }}
+    env: *rust-test-env
+    steps:
+      - *rust-checkout
+      - *rust-toolchain
+      - *rust-cache
+      - *rust-nextest-archive
+      - *rust-nextest-install
+      - *rust-sccache-archive
+      - *rust-sccache-install
+      - *rust-sccache-configure
+      - *rust-toolchain-version
+
+      # 证据构建 feature 默认关闭；单独检查，防止 cfg 链在默认构建之外失修。
+      - name: Check execution evidence lints
+        id: evidence_clippy
+        if: env.RUN_EVIDENCE_CLIPPY == 'true'
+        shell: bash
+        run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-urban-harness --all-targets --locked --features laneflow-runtime/execution-evidence,laneflow-urban-harness/execution-evidence -- -D warnings
+
+      # #1500 只读运动诊断 feature 默认关闭；打点紧邻运动求值热路径，单独检查。
+      - name: Check motion trace lints
+        id: motion_trace_lints
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: cargo +1.99.1 clippy -p laneflow-runtime -p laneflow-scenario --all-targets --locked --features laneflow-runtime/motion-trace,laneflow-scenario/motion-trace -- -D warnings
+
+      # #1462：三项目标测试均为 lib 单元测试，--lib 把构建集合收窄到 lib，
+      # 不再为 3 项测试构建全部 [[test]] 集成目标（917 skipped 的来源）；-E
+      # 过滤保留显式意图。
+      - name: Run execution evidence tests
+        id: evidence_tests
+        if: env.RUN_EVIDENCE_TESTS == 'true'
+        shell: bash
+        run: cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features execution-evidence -E 'test(execution_evidence)'
+
+      # #1500：Runtime 对照回归只构建 lib；走廊样本重放（含开关记录一致性与
+      # 预览复用记录）只构建该集成目标。记录器线程局部，nextest 逐测试进程执行。
+      - name: Run motion trace tests
+        id: motion_trace_tests
+        if: needs.changes.outputs.rust == 'true'
+        shell: bash
+        run: |
+          cargo +1.99.1 nextest run -p laneflow-runtime --lib --locked --features motion-trace -E 'test(yellow_boundary_ride_trace)'
+          cargo +1.99.1 nextest run -p laneflow-scenario --test signalized_corridor_yellow_trace --locked --features motion-trace
+
+      - name: Verify motion trace steps
+        env:
+          EXPECTED: ${{ needs.changes.outputs.rust == 'true' && 'success/success' || 'skipped/skipped' }}
+          OBSERVED: ${{ steps.motion_trace_lints.outcome }}/${{ steps.motion_trace_tests.outcome }}
+        run: test "$EXPECTED" = "$OBSERVED"
+
+      - *rust-sccache-stats
+
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    needs: [changes, pr-plan, rust-defaults, rust-features]
+    # 工作 job 失败或意外跳过时由同名必查报告失败。已取消的运行一起停止。
+    if: ${{ !cancelled() }}
+    permissions: {}
+    steps:
+      - name: Verify required Rust jobs
+        env:
+          EXPECTED: >-
+            success/${{ github.event_name == 'pull_request' && 'success' || 'skipped' }}/success/${{
+              (needs.changes.outputs.rust == 'true' || needs.pr-plan.outputs.evidence_clippy == 'true' || needs.pr-plan.outputs.evidence_tests == 'true') && 'success' || 'skipped' }}
+          OBSERVED: ${{ needs.changes.result }}/${{ needs.pr-plan.result }}/${{ needs.rust-defaults.result }}/${{ needs.rust-features.result }}
+        run: test "$EXPECTED" = "$OBSERVED"
+
       - name: Verify planned Rust steps and default test packages
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
           EXPECTED: ${{ needs.pr-plan.outputs.rust_receipt }}
-          OBSERVED: ${{ needs.pr-plan.result }}/rust/${{ steps.evidence_clippy.outcome }}/${{ steps.workspace_tests.outcome }}/${{ steps.evidence_tests.outcome }}/${{ steps.workspace_tests.outcome == 'skipped' && env.WORKSPACE_PACKAGES || steps.workspace_tests.outputs.covered_packages }}
+          OBSERVED: >-
+            ${{ format('{0}/rust/{1}/{2}/{3}/{4}',
+                needs.pr-plan.result,
+                needs.rust-features.result == 'skipped' && 'skipped' || needs.rust-features.outputs.evidence_clippy,
+                needs.rust-defaults.outputs.workspace_tests,
+                needs.rust-features.result == 'skipped' && 'skipped' || needs.rust-features.outputs.evidence_tests,
+                needs.rust-defaults.outputs.covered_packages) }}
         run: test "$EXPECTED" = "$OBSERVED"
 
   # #1108 重测分层：证据仪器与夹具重测自 Rust checks 的 workspace 步拆出、
