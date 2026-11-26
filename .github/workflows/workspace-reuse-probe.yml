@@ -15,36 +15,38 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      RUSTUP_TOOLCHAIN: "1.100.0"
       GH_TOKEN: ${{ github.token }}
       GH_PROMPT_DISABLED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the CI Rust toolchain
-        run: rustup toolchain install 1.99.1 --profile minimal
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: Restore xtask dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.99.1-commit-message
+          shared-key: laneflow-msrv-1.100.0-commit-message
           save-if: false
           cache-targets: true
-      - name: Replay completed main and merge-group jobs for PR 1551
+      - name: Replay completed main and merge-group jobs for PR 1554
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.99.1 run --quiet --locked -p xtask -- audit-workspace-test-reuse 45736241510 1
+          rustc --version | grep -F 'rustc 1.100.0 '
+          cargo run --quiet --locked -p xtask -- audit-workspace-test-reuse 45752867207 1
           grep -F '可复用。提交、观测到的配置和完整默认测试结果一致。' "$GITHUB_STEP_SUMMARY"
-          grep -F '提交 ' "$GITHUB_STEP_SUMMARY"
+          grep -F '590f547f348e50e350e967dd26f3156f1cb79723' "$GITHUB_STEP_SUMMARY"
           grep -F '镜像及版本、Rust / Cargo、nextest 0.9.145' "$GITHUB_STEP_SUMMARY"
-          grep -F '通过的 2923 项用例逐项一致，两边均跳过 91 项' "$GITHUB_STEP_SUMMARY"
+          grep -F '通过的 2923 项用例逐项一致，两边均跳过 91 项。main 实际测试执行 331.246 秒。' "$GITHUB_STEP_SUMMARY"
       - name: Reject a pull request event
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.99.1 run --quiet --locked -p xtask -- audit-workspace-test-reuse 45737328962 1
+          cargo run --quiet --locked -p xtask -- audit-workspace-test-reuse 45737328962 1
           grep -F '回退。输入运行不是本仓库 CI 的 main push。' "$GITHUB_STEP_SUMMARY"
       - name: Fall back with missing evidence
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.99.1 run --quiet --locked -p xtask -- audit-workspace-test-reuse 45592563895 1
+          cargo run --quiet --locked -p xtask -- audit-workspace-test-reuse 45592563895 1
           grep -F '回退。main缺少独立的默认测试 job。' "$GITHUB_STEP_SUMMARY"
