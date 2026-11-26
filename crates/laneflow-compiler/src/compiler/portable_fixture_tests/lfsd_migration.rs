@@ -104,7 +104,7 @@ fn migration_module(target: bool) -> SyntheticModule {
     }
     builder
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
+            geometry: crate::test_support::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -204,7 +204,7 @@ fn oracle_module(target: bool) -> SyntheticModule {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
+            geometry: crate::test_support::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -261,7 +261,7 @@ fn profile_drift_module(target: bool) -> SyntheticModule {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
+            geometry: crate::test_support::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm,

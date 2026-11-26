@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-route-system"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-26"
+revised_date = "2026-11-27"
 summary = "定义每世界路线、注册与车辆跟随。"
 scope = "route definition、route validation、route lifecycle 和 simple route following 边界"
 related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-road-junction-model", "design-traffic-observation-and-routing-integration", "roadmap"]
@@ -159,10 +159,12 @@ route validation 不检查：
 试算从同一修订读取车型的通行类别、规范车长、车体几何和转向限值，校验两侧路线及其机动的静态准入。
 调用方提供候选轨迹的后轴三维车速。交接查询再从实际两条边对应的车道生成
 五次横移，求证前保险杠的唯一交接截面。只有完整截面包络在允许窗口内，并可在两条
-指定边上按本修订的规范切点唯一定位时，才能返回其站位与各自的局部进度。两侧可能占用的边也须能证明
-该车型可通行。[横断面与路线交接合同][lateral-handoff]
+指定边上按本修订的规范切点唯一定位时，才能返回其站位与各自的局部进度。两侧准入覆盖
+整个车身投影窗口（`station_window_nm`）。如果扩大窗口后纳入一条实际车身未触及的禁行边，
+试算会返回 `SideAccessUnproven`。调用方宜给出能覆盖整车的紧凑窗口。[横断面与路线交接合同][lateral-handoff]
 
-试算可临时编译两段路线，只读访问世界，成功和拒绝都保持命令游标与路线表原状。
+该入口供命令路径使用。试算对交接前后的两段路线分别做临时编译，扫描与临时存储的成本
+随路线长度增长，在 `GeometryWorkLimits` 的几何预算之外。试算只读访问世界，成功和拒绝都保持命令游标与路线表原状。
 所得截面只定位这次候选的横向交接。沿轨迹推进还需独立求三维行程以及各拍前杠和车尾
 的投影。固定步进须结合当拍前后车、信号与预约重新裁决。可执行路线的现行注册规则见 D5。
 

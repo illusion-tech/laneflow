@@ -1613,7 +1613,7 @@ pub(super) mod tests {
                     participant,
                     IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
                         .expect("iidm"),
-                    crate::regular_profile_tests::CAR_GEOMETRY,
+                    crate::test_support::CAR_GEOMETRY,
                 )
                 .expect("vehicle"),
             ),

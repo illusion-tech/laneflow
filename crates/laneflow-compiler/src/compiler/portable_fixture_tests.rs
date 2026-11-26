@@ -331,7 +331,7 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
+            geometry: crate::test_support::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),

@@ -3,6 +3,8 @@
 //! fixture 为同键同长、中心线整体平移的两条边——R1 位姿 y=0、R2 位姿 y=10，
 //! 几何真值按平移量精确判别，不依赖修订号 stamp。
 
+mod support;
+
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
@@ -63,19 +65,7 @@ fn compile(frame_offset_y: f32) -> laneflow_compiler::CompilationOutput {
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
-                laneflow_compiler::RigidTwoAxleGeometryInput {
-                    wheelbase_m: 2.6,
-                    track_width_m: 1.6,
-                    reference_height_m: 0.35,
-                    rear_overhang_m: 0.75,
-                    width_m: 1.9,
-                    bottom_height_m: -0.15,
-                    top_height_m: 1.15,
-                    max_steering_angle_rad: 0.6,
-                    max_steering_rate_rad_s: 0.7,
-                },
-            ),
+            geometry: support::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {

@@ -35,7 +35,7 @@ fn same_class_physical_profiles_share_policy_rows_and_unused_classes_need_no_rul
                                 4.5,
                             )
                             .unwrap(),
-                            crate::regular_profile_tests::CAR_GEOMETRY,
+                            crate::test_support::CAR_GEOMETRY,
                         )
                         .unwrap(),
                     ))
@@ -139,7 +139,7 @@ fn shared_owner_index_preserves_access_holes_classes_and_distinct_policies() {
                         re::ParticipantClassReference::local("other-class").unwrap(),
                         re::IidmVehicleProfileInput::try_new(5., 12., 2., 1.4, 1.8, 2., 4.5)
                             .unwrap(),
-                        crate::regular_profile_tests::CAR_GEOMETRY,
+                        crate::test_support::CAR_GEOMETRY,
                     )
                     .unwrap(),
                 ))

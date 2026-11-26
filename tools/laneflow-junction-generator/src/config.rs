@@ -372,43 +372,22 @@ impl ProfileDimensions {
 
 impl ProfileConfig {
     pub(crate) fn geometry(&self) -> Result<laneflow_compiler::RoadVehicleGeometryInput, Error> {
-        use laneflow_compiler::{
-            RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryInput,
-        };
-        let key = laneflow_scenario::complex_junction::VEHICLE_PROFILE_KEY;
-        let configuration =
-            RoadVehicleConfiguration::from_code(self.configuration).ok_or_else(|| {
-                Error::Config(format!(
-                    "profile {key}: unknown configuration {}",
-                    self.configuration
-                ))
-            })?;
-        let required = |value: Option<f64>, field| {
-            value.ok_or_else(|| Error::Config(format!("profile {key}: missing {field}")))
-        };
-        Ok(match configuration {
-            RoadVehicleConfiguration::SemiTrailer => RoadVehicleGeometryInput::SemiTrailer,
-            RoadVehicleConfiguration::FullTrailer => RoadVehicleGeometryInput::FullTrailer,
-            RoadVehicleConfiguration::ArticulatedBus => RoadVehicleGeometryInput::ArticulatedBus,
-            RoadVehicleConfiguration::RigidTwoAxle => {
-                RoadVehicleGeometryInput::RigidTwoAxle(RigidTwoAxleGeometryInput {
-                    wheelbase_m: required(self.wheelbase_m, "wheelbase_m")?,
-                    track_width_m: required(self.track_width_m, "track_width_m")?,
-                    reference_height_m: required(self.reference_height_m, "reference_height_m")?,
-                    rear_overhang_m: required(self.rear_overhang_m, "rear_overhang_m")?,
-                    width_m: required(self.width_m, "width_m")?,
-                    bottom_height_m: required(self.bottom_height_m, "bottom_height_m")?,
-                    top_height_m: required(self.top_height_m, "top_height_m")?,
-                    max_steering_angle_rad: required(
-                        self.max_steering_angle_rad,
-                        "max_steering_angle_rad",
-                    )?,
-                    max_steering_rate_rad_s: required(
-                        self.max_steering_rate_rad_s,
-                        "max_steering_rate_rad_s",
-                    )?,
-                })
-            }
+        laneflow_compiler::RoadVehicleGeometryConfig {
+            configuration: self.configuration,
+            wheelbase_m: self.wheelbase_m,
+            track_width_m: self.track_width_m,
+            reference_height_m: self.reference_height_m,
+            rear_overhang_m: self.rear_overhang_m,
+            width_m: self.width_m,
+            bottom_height_m: self.bottom_height_m,
+            top_height_m: self.top_height_m,
+            max_steering_angle_rad: self.max_steering_angle_rad,
+            max_steering_rate_rad_s: self.max_steering_rate_rad_s,
+        }
+        .try_into()
+        .map_err(|source| Error::ProfileGeometry {
+            profile: laneflow_scenario::complex_junction::VEHICLE_PROFILE_KEY.to_owned(),
+            source,
         })
     }
 

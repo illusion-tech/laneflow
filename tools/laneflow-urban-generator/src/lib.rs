@@ -37,6 +37,12 @@ pub fn compile_source(source: &GeneratedSource) -> Result<laneflow_compiler::Com
 pub enum Error {
     #[error("invalid configuration: {0}")]
     Config(String),
+    #[error("invalid configuration: profile {profile}: {source}")]
+    ProfileGeometry {
+        profile: String,
+        #[source]
+        source: laneflow_compiler::VehicleGeometryConfigError,
+    },
     #[error("source construction: {0}")]
     Source(String),
     #[error("compilation: {0}")]

@@ -34,6 +34,8 @@ mod spatial_freeze;
 
 #[cfg(test)]
 mod regular_profile_tests;
+#[cfg(test)]
+mod test_support;
 
 pub use compiler::{
     CanonicalAccessRegulationView, CanonicalAccessRuleView, CanonicalAccessTarget,
@@ -126,6 +128,6 @@ pub use source_map::{
     StopLineSourceView, ValidatedSourceMapInput, VehicleProfileSourceView, WaitingZoneSourceView,
 };
 pub use vehicle_geometry::{
-    RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryInput,
-    VehicleGeometryInputError,
+    RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryConfig,
+    RoadVehicleGeometryInput, VehicleGeometryConfigError, VehicleGeometryInputError,
 };

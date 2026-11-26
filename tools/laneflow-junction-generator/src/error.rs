@@ -19,6 +19,13 @@ pub enum Error {
     #[error("invalid junction configuration: {0}")]
     Config(String),
 
+    #[error("invalid junction configuration: profile {profile}: {source}")]
+    ProfileGeometry {
+        profile: String,
+        #[source]
+        source: laneflow_compiler::VehicleGeometryConfigError,
+    },
+
     #[error("{stage} validation failed: {message}")]
     Validation {
         stage: &'static str,

@@ -4,6 +4,8 @@
 //! 来源迭代器借用世界、两组候选缓冲与输出缓冲复用容量。fixture 与暖机在计数
 //! 区间外。
 
+mod support;
+
 use std::{num::NonZeroU32, sync::Arc};
 
 #[global_allocator]
@@ -53,19 +55,7 @@ fn compile_single_frame() -> laneflow_compiler::CompilationOutput {
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
-                laneflow_compiler::RigidTwoAxleGeometryInput {
-                    wheelbase_m: 2.6,
-                    track_width_m: 1.6,
-                    reference_height_m: 0.35,
-                    rear_overhang_m: 0.75,
-                    width_m: 1.9,
-                    bottom_height_m: -0.15,
-                    top_height_m: 1.15,
-                    max_steering_angle_rad: 0.6,
-                    max_steering_rate_rad_s: 0.7,
-                },
-            ),
+            geometry: support::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {

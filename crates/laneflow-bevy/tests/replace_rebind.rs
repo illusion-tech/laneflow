@@ -1,3 +1,5 @@
+mod support;
+
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
@@ -122,19 +124,7 @@ fn virtual_parking_revision() -> Arc<laneflow_static_network::SharedNetworkRevis
         })
         .expect("participant class")
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
-                laneflow_compiler::RigidTwoAxleGeometryInput {
-                    wheelbase_m: 2.6,
-                    track_width_m: 1.6,
-                    reference_height_m: 0.35,
-                    rear_overhang_m: 0.75,
-                    width_m: 1.9,
-                    bottom_height_m: -0.15,
-                    top_height_m: 1.15,
-                    max_steering_angle_rad: 0.6,
-                    max_steering_rate_rad_s: 0.7,
-                },
-            ),
+            geometry: support::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {
@@ -756,19 +746,7 @@ fn speed_drop_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> 
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
-            geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
-                laneflow_compiler::RigidTwoAxleGeometryInput {
-                    wheelbase_m: 2.6,
-                    track_width_m: 1.6,
-                    reference_height_m: 0.35,
-                    rear_overhang_m: 0.75,
-                    width_m: 1.9,
-                    bottom_height_m: -0.15,
-                    top_height_m: 1.15,
-                    max_steering_angle_rad: 0.6,
-                    max_steering_rate_rad_s: 0.7,
-                },
-            ),
+            geometry: support::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {

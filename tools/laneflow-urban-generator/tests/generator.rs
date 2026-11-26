@@ -3,6 +3,28 @@ use laneflow_urban_generator::{
 };
 
 #[test]
+fn profile_geometry_error_retains_the_urban_profile_key() {
+    use laneflow_compiler::VehicleGeometryConfigError;
+    use laneflow_static_contract::RoadVehicleGeometryField;
+    use laneflow_urban_generator::Error;
+
+    let input = include_str!("../../../examples/config/cn-urban.toml");
+    let incomplete = input.replace("wheelbase_m = 2.6", "");
+    let Error::ProfileGeometry { profile, source } = UrbanConfig::parse(&incomplete).unwrap_err()
+    else {
+        panic!("expected a structured geometry error");
+    };
+    assert_eq!(profile, "car");
+    assert_eq!(
+        source,
+        VehicleGeometryConfigError::MissingField(RoadVehicleGeometryField::Wheelbase)
+    );
+
+    let typo = input.replace("wheelbase_m = 2.6", "wheelbases_m = 2.6");
+    assert!(matches!(UrbanConfig::parse(&typo), Err(Error::Decode(_))));
+}
+
+#[test]
 fn connected_fixture_delivers_repeatable_installable_artifacts_and_caller_routes() {
     let config =
         UrbanConfig::parse(include_str!("../../../examples/config/cn-urban.toml")).unwrap();

@@ -207,6 +207,34 @@ fn config_rejects_unknown_fields() {
 }
 
 #[test]
+fn profile_geometry_reports_missing_fields_and_unknown_configuration_codes() {
+    use laneflow_compiler::VehicleGeometryConfigError;
+    use laneflow_junction_generator::Error;
+    use laneflow_static_contract::RoadVehicleGeometryField;
+
+    let incomplete = CONFIG.replace("max_steering_rate_rad_s = 0.7", "");
+    for (input, expected) in [
+        (
+            incomplete.clone(),
+            VehicleGeometryConfigError::MissingField(RoadVehicleGeometryField::MaxSteeringRate),
+        ),
+        (
+            incomplete.replace("configuration = 1", "configuration = 255"),
+            VehicleGeometryConfigError::UnknownConfiguration(255),
+        ),
+    ] {
+        let Error::ProfileGeometry { profile, source } = JunctionConfig::parse(&input).unwrap_err()
+        else {
+            panic!("expected a structured geometry error");
+        };
+        assert_eq!(profile, VEHICLE_PROFILE_KEY);
+        assert_eq!(source, expected);
+    }
+    let typo = CONFIG.replace("max_steering_rate_rad_s", "max_steering_rate");
+    assert!(matches!(JunctionConfig::parse(&typo), Err(Error::Toml(_))));
+}
+
+#[test]
 fn config_rejects_phase_durations_not_multiple_of_tick() {
     let bad = CONFIG.replace("yellow_ms = 3008", "yellow_ms = 3009");
     assert_ne!(bad, CONFIG, "config must contain the replaced field");
