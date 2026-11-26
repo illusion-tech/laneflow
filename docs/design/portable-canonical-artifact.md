@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-portable-canonical-artifact"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-25"
+revised_date = "2026-11-26"
 summary = "定义可移植规范制品、分块和容量合同。"
 scope = "LFCA、LFSM、LFSD、LFCP 的规范格式、规范排序、跨对象绑定、 失败关闭与格式安全天花板"
 applicability = "#applicability"
@@ -764,6 +764,42 @@ DFS 前序，`subtreeEnter/subtreeExit` 必须逐值等于重算结果。interva
 ManeuverPath plane，同组允许多条相同 effect。regulation 的 jurisdiction/version 与 optional
 source 各含 1..=128 个 Unicode scalar，全对象 regulation 的 `(jurisdiction, version)` 必须
 一致，但各行 source 可以不同。
+
+<a id="vehicle-profile-geometry-format"></a>
+#### 道路机动车型几何的格式提案
+
+[道路机动车型合同][vehicle-profile-geometry]要求所有车型具备完整几何。以下是下一次
+格式切换的提案；上表仍是 LFCA 6 的读写依据。
+
+在 `VehicleProfile` 增加必需的 tag 11，类型为 `RecordVector`，恰含一行。沿用表内
+已有的车长和车型身份。将九个新值放入一行内嵌记录后，外层共 11 个字段，满足
+§7 的单行 17 个字段及单层嵌套上限。内嵌字段均必需，按下表顺序编码。
+
+| tag | 规范值 | 类型与单位 |
+| --- | ------ | ---------- |
+| 1 | 轴距 | `u32` 毫米 |
+| 2 | 左右轮中心间的轮距 | `u32` 毫米 |
+| 3 | 后轴参考点离路面的基准高度 | `i32` 毫米 |
+| 4 | 后悬 | `u32` 毫米 |
+| 5 | 有效车宽 | `u32` 毫米 |
+| 6、7 | 相对后轴参考点的车身底高、顶高 | 各为 `i32` 毫米 |
+| 8、9 | 最大前轮绝对转角、最大绝对转向角速率 | 分别为 `f64` 弧度、`f64` 弧度每秒 |
+
+两个前端均须能区分缺项和显式零值。长度类输入按现行毫米规则取最近整数，中点取偶，
+先检查可表示范围，再按车型合同检查几何关系。轮距和车宽各以全宽编码，从已读回的
+毫米值计算半宽，保留奇数毫米对应的半毫米。转角与角速率沿用 §2.1 的浮点规范，
+独立读方复核量值及跨字段边界。实际后轴车速属于运行时输入。
+
+建议在同一次交付中切换 LFRE 与道路编辑前端至 8、合成前端至 6、LFCA 至 7、
+LFSM 至 8、LFSD 至 6。LFSM 须能定位车型及其几何属性。两份新制品中同一身份的车型
+只有几何值改变时，LFSD 应给出一条 tag 11 的 `Entity Modify`，其前后值分别为
+对应 LFCA 字段的完整 `RecordVector` 规范值。该行只含标量，没有需要转换的本地序号。
+LFCP 2 按现有描述符核对新版关联制品的版本、长度和摘要。世界快照依据绑定的路网修订
+和车型稳定身份重新取得几何；活动横移的候选与预约另由世界快照合同定义。
+
+读写对照须覆盖只参与跟驰的车型、明确提供合法零后悬、缺少单个字段、内嵌零行或
+多行、前悬推导为负，以及只改变一个有效参数时的身份、修订和差异。既有来源须补齐
+明确的车型参数后重新编译；外部场景转换缺少尺寸时须定位缺项。
 
 ### 3.5 停车设施闭合
 
@@ -2178,3 +2214,4 @@ ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择�
 [compiler-foundation-budget]: compiler-foundation.md#53-编译资源上限
 [adr-0035]: ../adr/0035-compile-limits-and-resource-ledger.md
 [shared-station]: cross-section-stationing-and-lateral-geometry.md
+[vehicle-profile-geometry]: vehicle-following.md#road-vehicle-profile-geometry
