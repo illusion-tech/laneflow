@@ -302,14 +302,20 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 ## 8. CI 规则
 
+各 job 的 Rust 工具链经本地 composite action `.github/actions/setup-rust` 取得：读取
+仓库根 `rust-toolchain.toml` 的 channel，安装后向 job 导出 `RUSTUP_TOOLCHAIN`，缓存键
+引用同一 channel。workflow 里不写工具链版本，升级只改 `rust-toolchain.toml` 与根
+`Cargo.toml`（#1564）；检查规则见 `../reference/validation-matrix.md` 第 10 节。
+
 当前检查：
 
 - `Commit message`：Conventional Commits 标题（description 不含 `#<数字>` Issue
   引用、无破折号分段、不超过 40 个字符）、`Refs` / `Closes`、必要时
   `BREAKING CHANGE:`，以及 AI 署名（禁止工具 `Co-authored-by`，`Harness:` /
   `Model:` 成对出现）。规则见 `../reference/commit-convention.md`。该 job 常驻执行不受路径门控制，同时承载
-  文档模型检查（`check-docs` 与 `doc_checks` 模块测试）与执行器/模型注册表校验
-  （`commit_harnesses` / `commit_models` 模块测试），因此 `xtask/data/**` 变更
+  文档模型检查（`check-docs` 与 `doc_checks` 模块测试）、执行器/模型注册表校验
+  （`commit_harnesses` / `commit_models` 模块测试）与工具链钉版检查
+  （`check-toolchain-pinning` 与 `toolchain_pinning` 模块测试），因此 `xtask/data/**` 变更
   不再触发重活（#1459）。
 - `Markdown tables`：表格格式，只警告。
 - `Rust checks` 核对前置检查和并行的 `Rust default checks`、

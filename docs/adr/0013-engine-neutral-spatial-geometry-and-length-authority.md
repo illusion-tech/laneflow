@@ -6,6 +6,7 @@ status = "accepted"
 summary = "定义空间几何、长度正本与引擎无关职责。"
 scope = "LaneFlow 空间层（Spatial）、交通数据、Core 长度与进度、适配器位姿提取，以及空间制品配对（#123）"
 date = "2026-07-18"
+revised_date = "2026-11-26"
 applicability = "#applicability"
 related = ["adr-0001", "adr-0005", "adr-0007", "adr-0008", "adr-0010", "adr-0012", "adr-0014", "adr-0015", "design-adapter-api", "design-spatial-geometry"]
 +++
@@ -112,15 +113,20 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 
 因此首版 Spatial 生产实现默认不增加第三方几何或数学依赖。`euclid` 与 `glam` 只保留在研究原型的开发依赖中，用于布局和结果对照。若后续变换、曲线或类型互操作需求证明自有实现成本更高，再由实施 Issue 按依赖政策重新审计内部依赖。第三方类型始终不得成为公共契约。
 
-### 8. 最低支持 Rust 版本（MSRV）为 1.100.0，开发与合并检查钉同一精确版本
+### 8. 最低支持 Rust 版本由 rust-toolchain.toml 声明，开发与合并检查钉同一精确版本
 
-工作区 `rust-version = "1.100.0"`。CI、`.githooks` 与文档命令示例一律精确钉
-`cargo +1.100.0`，不钉浮动 `stable`，避免 rustfmt / LLVM 随通道漂移。LaneFlow
-作为库的最终消费者都在内部可控范围，不必为外部 crate 用户保留更低下限。
+工具链版本的唯一事实来源是仓库根的 `rust-toolchain.toml`（`toolchain.channel`），
+根 `Cargo.toml` 的 `workspace.package.rust-version` 取同一版本的逐字对应值。CI 经
+`.github/actions/setup-rust` 读取 channel、安装并导出 `RUSTUP_TOOLCHAIN`；本地由
+rustup 在检出副本内自动选用同一 channel。命令、hook、workflow、工具源码与文档
+一律不写版本号，也不钉浮动 `stable`，避免 rustfmt / LLVM 随通道漂移。`xtask`
+每个命令启动前核对当前 rustc 与钉版一致；`xtask check-toolchain-pinning` 在合并
+检查中守住两个事实来源相等并扫描全仓的硬编码写法（#1564）。LaneFlow 作为库的
+最终消费者都在内部可控范围，不必为外部 crate 用户保留更低下限。
 
 MSRV 只能经独立治理判断显式提高（1.96 → 1.98 由 #495 落定，1.98.1 补丁基线由 #994 落定，
 1.99.1 基线由 #1003 落定，1.100.0 基线由 #1488 落定），不跟随开发机已安装的通道静默变化。历史证据 JSON 与基线文档中的 `rustc` 版本是当时
-测量事实，不随 MSRV 改写。
+测量事实，不随 MSRV 改写。此后的例行升级只改上述两个文件，不在本节追加记录。
 
 ## 后果
 
