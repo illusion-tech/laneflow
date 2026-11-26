@@ -7,4 +7,5 @@ if [ -z "$commit_msg_file" ]; then
   exit 1
 fi
 
-cargo +1.100.0 run --locked -p xtask -- check-commit-message-file "$commit_msg_file"
+# 工具链不写在这里：rustup 按 rust-toolchain.toml 选用，xtask 启动时核对实际 rustc。
+cargo run --locked -p xtask -- check-commit-message-file "$commit_msg_file"

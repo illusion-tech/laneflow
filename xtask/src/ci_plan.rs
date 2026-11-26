@@ -148,7 +148,7 @@ impl Registry {
 // 极简 glob：仅支持 `**`（跨目录段）、`*`（段内）与字面量
 // ---------------------------------------------------------------------------
 
-fn glob_match(pattern: &str, path: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, path: &str) -> bool {
     let pattern: Vec<&str> = pattern.split('/').collect();
     let path: Vec<&str> = path.split('/').collect();
     match_segments(&pattern, &path)

@@ -9,6 +9,7 @@ mod markdown_tables;
 mod measurement;
 mod runtime_architecture;
 mod schema_codegen;
+mod toolchain_pinning;
 mod wire_audit;
 
 use std::env;
@@ -25,18 +26,27 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Vec<String>) -> Result<(), String> {
-    match args.first().map(String::as_str) {
+    let command = args.first().map(String::as_str);
+    // 命令不再用 `+<版本>` 选工具链，改由 rustup 按 rust-toolchain.toml 选用；这里在
+    // 每个命令启动前核对实际 rustc。钉版检查命令自己报告环境偏离，不被抢先拦下。
+    if let Some(command) = command
+        && command != "check-toolchain-pinning"
+    {
+        toolchain_pinning::require_active_toolchain(&toolchain_pinning::workspace_root()?)?;
+    }
+    match command {
         Some("ci-plan") => ci_plan::run(&args[1..]),
         Some("run-workspace-tests") => ci_plan::run_workspace_tests(&args[1..]),
         Some("audit-workspace-test-reuse") => ci_plan::workspace_test_reuse::run(&args[1..]),
         Some("check-commit-messages") => commit_messages::check_commit_messages(args.get(1).map(String::as_str)),
         Some("check-commit-message-file") => {
             let path = args.get(1).ok_or(
-                "缺少 commit message 文件路径，例如: cargo +1.100.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG",
+                "缺少 commit message 文件路径，例如: cargo run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG",
             )?;
             commit_messages::check_commit_message_file(path)
         }
         Some("check-docs") => doc_checks::run(&args[1..]),
+        Some("check-toolchain-pinning") => toolchain_pinning::run(),
         Some("generate-doc-indexes") => doc_checks::catalog::generate(&args[1..]),
         Some("generate-glossary") => doc_checks::terminology::generate(&args[1..]),
         Some("export-docs") => doc_checks::catalog::export(&args[1..]),
@@ -52,7 +62,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("classify-digest-probe") => digest_probe::run(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: ci-plan, run-workspace-tests, audit-workspace-test-reuse, check-commit-messages, check-commit-message-file, check-docs, generate-doc-indexes, generate-glossary, export-docs, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
+            "缺少 xtask 命令。可用命令: ci-plan, run-workspace-tests, audit-workspace-test-reuse, check-commit-messages, check-commit-message-file, check-docs, check-toolchain-pinning, generate-doc-indexes, generate-glossary, export-docs, format-md-tables, check-road-editing-codegen, check-runtime-snapshot-codegen, check-wire-audit, check-runtime-architecture, build-measurement, check-binary-paths, classify-digest-probe"
                 .to_string(),
         ),
     }

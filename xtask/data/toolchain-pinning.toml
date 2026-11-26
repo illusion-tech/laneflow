@@ -1,0 +1,27 @@
+# 工具链钉版检查（`xtask check-toolchain-pinning`，#1564）的整体豁免清单。
+#
+# 每项写仓库相对路径与保留理由；列入的文件整体跳过硬编码扫描，包括各类命令写法
+# 与当前钉版版本号两项。只豁免确有理由保留版本号的文件：带日期的历史测量记录
+# （命令是当时实际执行的写法，不随升级改写）、决策史，以及检查自身（单元测试
+# 需要硬编码写法的样例）。
+#
+# 约束：
+# - `path` 须是被跟踪的文件，条目失效后删除；`reason` 不得为空。
+# - 两个事实来源（`rust-toolchain.toml`、根 `Cargo.toml`）与 `Cargo.lock` 由检查
+#   本身排除，不在此列。
+# - 新增条目须在 PR 里说明为什么该文件不能改为引用 `rust-toolchain.toml`。
+#
+# 本文件经 `include_str!` 嵌入 xtask：任何变更即重编 xtask，并由该命令与它的
+# 模块测试校验结构。
+
+[[exempt]]
+path = "xtask/src/toolchain_pinning.rs"
+reason = "检查自身：单元测试需要各类硬编码写法的样例"
+
+[[exempt]]
+path = "docs/adr/0013-engine-neutral-spatial-geometry-and-length-authority.md"
+reason = "MSRV 提升历史保留当时的版本号，作为决策史不随升级改写"
+
+[[exempt]]
+path = "tools/laneflow-urban-generator/fixtures/v1/README.md"
+reason = "2026-10-22 的夹具生成记录，命令是当时实际执行的写法"
