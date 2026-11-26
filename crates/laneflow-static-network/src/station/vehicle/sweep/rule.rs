@@ -1,4 +1,5 @@
 use super::*;
+use crate::station::vehicle::pose::PoseRate;
 use crate::station::vehicle::surface::{Projection, dot};
 
 fn anchors(e: &BoundaryExtent) -> [I; 2] {
@@ -85,25 +86,52 @@ fn permission<'a>(
     }
 }
 
-// 投影点的横坐标 d=(P-C)·L。在根处 P-C=dL，L·L'=0，因此 d'=P'·L。
-fn directions(
-    c: &Candidate<'_, '_>,
-    body: &Body<'_>,
-    s: Seam<'_>,
-    p: Projection,
-) -> Result<u8, Failure> {
-    let (h, dh) = body.motion.heading()?;
-    let rate = body.pose.rates(c.query.axles, body.motion.v, h, dh)?;
-    let [a, b, z] = body.shape.ranges();
-    let v = [0, 2].map(|i| rate.rear[i] + a * rate.forward[i] + b * rate.left[i] + z * rate.up[i]);
-    let signed = dot(p.normal, v) - s.slope(c) * dot(p.station_gradient, v);
-    Ok(if signed.hi < 0. {
+// 车身点到标线的有符号横向偏移 F(P) = d(P) - d缝(s(P)) 的世界水平梯度。
+fn gradient(p: Projection, slope: I) -> Horizontal {
+    std::array::from_fn(|i| p.normal[i] - slope * p.station_gradient[i])
+}
+
+// 从后轴到任一真实触点积分 ∇F。触点的三个车体坐标 x 满足
+// 0 ∈ F(后轴)+Σkᵢxᵢ，其中 kᵢ 包住整条积分线上的 ∇F·车体轴ᵢ。
+// 逐个解出可收紧的坐标，各做一次区间交；保留下来的范围包含全部可能触点。
+fn touch_coordinates(
+    offset: I,
+    coefficients: Vector,
+    mut coords: Vector,
+    work: &mut Work,
+) -> Result<Option<Vector>, Failure> {
+    let signed = (0..3).fold(offset, |sum, i| sum + coefficients[i] * coords[i]);
+    if signed.lo > 0. || signed.hi < 0. {
+        return Ok(None);
+    }
+    for (i, coefficient) in coefficients.into_iter().enumerate() {
+        if coefficient.lo <= 0. && coefficient.hi >= 0. {
+            continue;
+        }
+        work.charge()?;
+        let residual = (0..3)
+            .filter(|&j| j != i)
+            .fold(offset, |sum, j| sum + coefficients[j] * coords[j]);
+        let Some(bound) = coords[i].intersect(-residual / coefficient) else {
+            return Ok(None);
+        };
+        coords[i] = bound;
+    }
+    Ok(Some(coords))
+}
+
+fn directions(rate: &PoseRate, grad: Horizontal, coords: Vector) -> u8 {
+    let mut signed = dot(grad, horizontal(rate.rear));
+    for (coordinate, derivative) in coords.into_iter().zip([rate.forward, rate.left, rate.up]) {
+        signed = signed + coordinate * dot(grad, horizontal(derivative));
+    }
+    if signed.hi < 0. {
         1
     } else if signed.lo > 0. {
         2
     } else {
         3
-    })
+    }
 }
 
 fn allowed<'a>(
@@ -155,34 +183,44 @@ pub(super) fn check<'a>(
     // 把车体三个方向分别投到该梯度，再由后轴点积分到每个真实车身点。
     let rear = c.surface.project(horizontal(body.pose.rear), work)?;
     let slope = s.slope(c);
-    let grad = std::array::from_fn(|i| p.normal[i] - slope * p.station_gradient[i]);
-    let mut local = rear.lateral - s.lateral(c, rear.station);
-    for (extent, axis) in
-        body.shape
-            .ranges()
-            .into_iter()
-            .zip([body.pose.forward, body.pose.left, body.pose.up])
-    {
-        local = local + extent * dot(grad, horizontal(axis));
-    }
-    if local.lo > 0. || local.hi < 0. {
+    let grad = gradient(p, slope);
+    let coefficients =
+        [body.pose.forward, body.pose.left, body.pose.up].map(|axis| dot(grad, horizontal(axis)));
+    let ranges = body.shape.ranges();
+    let Some(touch) = touch_coordinates(
+        rear.lateral - s.lateral(c, rear.station),
+        coefficients,
+        ranges,
+        work,
+    )?
+    else {
+        return Ok(Verdict::Clear(None));
+    };
+    let [a, b, z] = touch;
+    // 用同一组可能触点同时求站位和运动方向，再查该站位的单向许可。
+    let region = if touch == ranges {
+        p
+    } else {
+        c.surface
+            .project(horizontal(body.pose.point(a, b, z)), work)?
+    };
+    let grad = gradient(region, slope);
+    let (h, dh) = body.motion.heading()?;
+    let rate = body.pose.rates(c.query.axles, body.motion.v, h, dh)?;
+    let mask = directions(&rate, grad, touch);
+    if matches!(allowed(s, region.station, mask, work)?, Permission::Allow) {
         return Ok(Verdict::Clear(None));
     }
-    let mask = directions(c, body, s, p)?;
-    if matches!(allowed(s, p.station, mask, work)?, Permission::Allow) {
-        return Ok(Verdict::Clear(None));
-    }
-    // 同一车身横线的两端确定分处边界两侧，其间至少有一个真实触点。
-    // 对整条横线投影，许可只使用包含该触点的站位范围。
+    // 命名禁止区间的中点若确定在车身内，可直接在该触点核对禁止方向。
     let [[rear, front], [right, left], [bottom, top]] = body.shape.extents();
     for e in s.extents {
         work.charge()?;
         if let Some(BoundaryPayload::Rule {
-            directions,
+            directions: forbidden,
             effect: 2,
         }) = e.payload
-            && directions & mask == mask
-            && overlaps(p.station, anchors(e))
+            && forbidden & mask != 0
+            && overlaps(region.station, anchors(e))
         {
             let nm = e.stations_nm[0] + (e.stations_nm[1] - e.stations_nm[0]) / 2;
             let station = I::meters(nm);
@@ -204,6 +242,10 @@ pub(super) fn check<'a>(
                 let a = det(delta, b) / body.pose.up[1];
                 let y = det(t, delta) / body.pose.up[1];
                 if a.lo >= rear && a.hi <= front && y.lo >= right && y.hi <= left {
+                    let local = mask & directions(&rate, grad, [a, y, I::point(z)]);
+                    if local == 0 || forbidden & local != local {
+                        continue;
+                    }
                     return Ok(Verdict::Denied {
                         boundary: BoundaryHit {
                             key: Some(e.local_key()),
@@ -216,6 +258,8 @@ pub(super) fn check<'a>(
             }
         }
     }
+    // 同一车身横线的两端分处标线两侧时，至少有一个真实触点。
+    // 用该横线仍可能触线的部分，核对站位与方向。
     for a in [front, rear, (front + rear) * 0.5] {
         for z in [bottom, top] {
             work.charge()?;
@@ -227,10 +271,15 @@ pub(super) fn check<'a>(
             let dl = pl.lateral - s.lateral(c, pl.station);
             let dr = pr.lateral - s.lateral(c, pr.station);
             if (dl.lo >= 0. && dr.hi <= 0.) || (dr.lo >= 0. && dl.hi <= 0.) {
-                let span = c
-                    .surface
-                    .project(std::array::from_fn(|i| l[i].hull(r[i])), work)?;
-                if let Permission::Deny(key) = allowed(s, span.station, mask, work)? {
+                let coords = [I::point(a), touch[1], I::point(z)];
+                let span = c.surface.project(
+                    horizontal(body.pose.point(coords[0], coords[1], coords[2])),
+                    work,
+                )?;
+                let local = mask & directions(&rate, gradient(span, slope), coords);
+                if local != 0
+                    && let Permission::Deny(key) = allowed(s, span.station, local, work)?
+                {
                     return Ok(Verdict::Denied {
                         boundary: BoundaryHit { key, ..s.id },
                         at_nm: range[0],

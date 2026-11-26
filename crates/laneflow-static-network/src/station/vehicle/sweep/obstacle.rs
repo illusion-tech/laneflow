@@ -4,6 +4,21 @@ use crate::station::vehicle::surface::{Patch, dot, shifted};
 fn microns(value: f64, error_nm: u32) -> I {
     (I::point(value) / I::point(1e6)).with_error(I::meters(u64::from(error_nm)).hi)
 }
+
+// 整车沿固定世界轴的投影。先投各车体轴，再乘车体坐标范围，保留斜向车身的形状。
+fn body_projection(body: &Body<'_>, origin: Horizontal, axis: Horizontal) -> I {
+    let rear = horizontal(body.pose.rear);
+    let mut span = dot(axis, std::array::from_fn(|i| rear[i] - origin[i]));
+    for (extent, direction) in
+        body.shape
+            .ranges()
+            .into_iter()
+            .zip([body.pose.forward, body.pose.left, body.pose.up])
+    {
+        span = span + extent * dot(axis, horizontal(direction));
+    }
+    span
+}
 struct Rail {
     origin: Horizontal,
     heading: Horizontal,
@@ -24,16 +39,7 @@ impl Rail {
         if norm.lo <= 0. || !norm.finite() {
             return f64::NEG_INFINITY;
         }
-        let d = std::array::from_fn(|i| horizontal(body.pose.rear)[i] - self.origin[i]);
-        let mut projected = dot(a, d);
-        for (extent, axis) in
-            body.shape
-                .ranges()
-                .into_iter()
-                .zip([body.pose.forward, body.pose.left, body.pose.up])
-        {
-            projected = projected + extent * dot(a, horizontal(axis));
-        }
+        let projected = body_projection(body, self.origin, a);
         let end = self.length * dot(a, self.heading);
         let gap = projected - end.hull(I::ZERO);
         (gap.abs() / norm - self.radius).lo
@@ -177,8 +183,7 @@ impl Curb {
     ) -> Result<Verdict<'a>, Failure> {
         let p = body.world();
         let world = c.surface.project(horizontal(p), work)?;
-        // 用投影的局部梯度给出世界米制距离下界需要覆盖两者间整条线段。
-        // 改用实体在世界坐标中的封闭外包作宽相分离；投影只用于证实车体内点。
+        // 车身和路缘都在世界坐标中求距离下界。路面投影用于后续接触见证。
         let [low, high] = self.station_bounds_nm;
         let first = partition(c.all_surface, |r| r.stations[1].0 < low, work)?;
         let mut lower = f64::INFINITY;
@@ -202,13 +207,35 @@ impl Curb {
                 return Err(Failure::Projection);
             }
             let d = s.lateral(c, station) + l.hull(rr);
+            let normal = [v[1] / speed, -v[0] / speed];
             let bounds = [
-                pos[0] + d * v[1] / speed,
+                pos[0] + d * normal[0],
                 pos[1] + bottom.hull(top),
-                pos[2] - d * v[0] / speed,
+                pos[2] + d * normal[1],
             ];
             let distance = std::array::from_fn::<_, 3, _>(|i| (bounds[i] - p[i]).square());
-            lower = lower.min((distance[0] + distance[1] + distance[2]).sqrt().lo);
+            let mut gap = (distance[0] + distance[1] + distance[2]).sqrt().lo;
+            if gap == 0. {
+                let middle = a + (b - a) / 2;
+                let center = horizontal(patch.derivative(patch.parameter(middle), 0));
+                let ds = (-I::meters(middle - a)).hull(I::meters(b - middle));
+                // 从中点积分参考线沿固定轴的导数，包住整个路缘区间。
+                // 对直路沿法向投影时，纵向长度不计入横向宽度。
+                for direction in [
+                    normal,
+                    horizontal(body.pose.left),
+                    horizontal(body.pose.forward),
+                ] {
+                    let axis = direction.map(|component| I::point(mid(component)));
+                    let norm = (axis[0].square() + axis[1].square()).sqrt();
+                    if norm.lo > 0. && norm.finite() {
+                        let curb = ds * dot(axis, v) + d * dot(axis, normal);
+                        let separation = body_projection(body, center, axis) - curb;
+                        gap = gap.max((separation.abs() / norm).lo);
+                    }
+                }
+            }
+            lower = lower.min(gap);
         }
         if lower > 0. && lower.is_finite() {
             return Ok(Verdict::Clear(Some(Clearance {

@@ -803,3 +803,135 @@ fn curb_contact_uses_the_published_height_and_stable_local_key() {
         }
     }
 }
+
+#[test]
+fn oblique_curb_clearance_is_proven_at_a_single_pose_and_in_motion() {
+    let end = CurbEndInput {
+        left_offset_meters: 0.10,
+        right_offset_meters: -0.15,
+        bottom_height_meters: 0.,
+        top_height_meters: 0.15,
+    };
+    let curb = extent(
+        "curb",
+        BoundaryStation::Fixed(25.),
+        BoundaryStation::Fixed(40.),
+        BoundaryPayloadInput::Curb {
+            low: end,
+            high: end,
+            parameter_error_meters: 1e-6,
+        },
+    );
+    for (dx, dz) in [(1_f64, 1_f64), (0., 1.), (-1., 1.)] {
+        let straight = Program::try_new(
+            p(0., 0., 0.),
+            vec![Segment::line(p(50. * dx, 0., 50. * dz))],
+        )
+        .unwrap();
+        let artifact = with_boundaries(straight, 3.5, vec![curb.clone()]);
+        let network = load_network(&artifact, SpatialBuildOption::Omit);
+        let norm = dx.hypot(dz);
+        let drive = |right_m: f64, length_nm| {
+            let mut input = query(
+                &network,
+                RearAxleLine {
+                    start_xz_m: [
+                        (30. * dx - right_m * dz) / norm,
+                        (30. * dz + right_m * dx) / norm,
+                    ],
+                    heading_xz: [dx, dz],
+                    length_nm,
+                },
+            );
+            input.axles.reference_height_m = 0.10;
+            network.vehicle_geometry(&input, LIMITS, BODY, BUDGET)
+        };
+        for length_nm in [0, 4_000_000_000] {
+            let report = drive(0., length_nm);
+            let SweepOutcome::Clear(Some(gap)) = report.sweep.outcome else {
+                panic!("heading {dx} {dz}, length {length_nm}: {:?}", report.sweep);
+            };
+            assert!(
+                report.feasible()
+                    && report.sweep.covered_prefix_nm == length_nm
+                    && gap.boundary.key == Some("curb")
+            );
+            // 净空解析值为 1.75 - 0.10 - 0.95 = 0.70 米。运动区间可返回较宽的下界。
+            assert!(gap.lower_m > 0. && gap.lower_m <= 0.70, "{gap:?}");
+            if length_nm == 0 {
+                assert!(gap.lower_m > 0.699, "{gap:?}");
+            }
+        }
+        // 向路缘移动 70 厘米时净空落入参数误差，再多移 6 厘米有确定接触。
+        let tangent = drive(0.70, 0).sweep;
+        let SweepOutcome::Unproven {
+            reason,
+            boundary: Some(hit),
+            ..
+        } = tangent.outcome
+        else {
+            panic!("{dx} {dz}: {tangent:?}");
+        };
+        assert_eq!(reason, Failure::Boundary);
+        assert_eq!(hit.key, Some("curb"));
+        let contact = drive(0.76, 0).sweep;
+        let SweepOutcome::Contact { boundary, .. } = contact.outcome else {
+            panic!("{dx} {dz}: {contact:?}");
+        };
+        assert_eq!(boundary.key, Some("curb"));
+    }
+}
+
+#[test]
+fn short_lane_change_uses_the_motion_of_the_parts_touching_the_one_way_marking() {
+    let straight = Program::try_new(p(0., 0., 0.), vec![Segment::line(p(0., 0., 50.))]).unwrap();
+    let rule = |key, directions, effect| {
+        extent(
+            key,
+            BoundaryStation::CorridorEndpoint,
+            BoundaryStation::CorridorEndpoint,
+            BoundaryPayloadInput::CrossingRule { directions, effect },
+        )
+    };
+    let artifact = with_boundaries(
+        straight,
+        3.5,
+        vec![rule("right", 1, 1), rule("no-left", 2, 2)],
+    );
+    let network = load_network(&artifact, SpatialBuildOption::Omit);
+    let limits = SteeringLimits {
+        max_angle_rad: 0.6,
+        max_rate_rad_s: 0.6,
+        speed_m_s: 1.,
+    };
+    let stations_nm = [12_000_000_000, 22_000_000_000];
+    // 最后一条只右移 1 米。行程 7.5 米时，车头回正，距车身中线右侧约 0.50 米的部位向左触线。
+    for (from, to, allowed) in [(0., -3.5, true), (-3.5, 0., false), (0., -1., false)] {
+        let mut input = corridor_query(&network, stations_nm, from);
+        input.trace = RearAxleTrace::Corridor(CorridorTrace {
+            stations_nm,
+            from_m: [from; 2],
+            to_m: [to; 2],
+        });
+        let report = network.vehicle_geometry(&input, limits, BODY, BUDGET);
+        if allowed {
+            // 6.95 米处前左角在标线右侧约 1.75 米，正在向左回正；车尾仍向右跨线。
+            assert!(
+                matches!(report.sweep.outcome, SweepOutcome::Clear(None)),
+                "{:?}",
+                report.sweep
+            );
+            assert_eq!(report.sweep.covered_prefix_nm, 10_000_000_000);
+        } else {
+            let SweepOutcome::Denied { boundary, .. } = report.sweep.outcome else {
+                panic!("{from} → {to}: {:?}", report.sweep);
+            };
+            assert_eq!(boundary.key, Some("no-left"));
+        }
+        assert!(
+            matches!(report.tracks.outcome, TrackOutcome::Covered(_)),
+            "{:?}",
+            report.tracks
+        );
+    }
+}
