@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-route-system"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-26"
 summary = "定义每世界路线、注册与车辆跟随。"
 scope = "route definition、route validation、route lifecycle 和 simple route following 边界"
 related = ["adr-0003", "adr-0005", "adr-0017", "adr-0028", "adr-0029", "design-core-id-handles", "design-lane-graph", "design-parking-system", "design-road-junction-model", "design-traffic-observation-and-routing-integration", "roadmap"]
@@ -149,6 +149,22 @@ route validation 不检查：
 - path optimality。
 - 几何曲率、turn radius 或碰撞。
 - 整条 route 累计距离必须 finite（#496：溢出为 `BeyondFinite`，不是注册失败）。
+
+#### 候选路线的一次横向交接试算
+
+`TrafficWorld::preview_route_handoff` 在两拍之间只读检查一条候选边序列。源出现下标
+`i` 指定本次允许横向交接的唯一一对记录 `i,i+1`。其余相邻记录仍按普通后继或完整
+机动检查。即使同一对边在路线中出现两次，也只有指定下标使用交接规则。
+
+试算从同一修订读取车型的通行类别与规范车长，校验两侧路线及其机动的静态准入。
+调用方提供本次试算的车体几何、转向与车速。交接查询再从实际两条边对应的车道生成
+五次横移，求证前保险杠的唯一交接截面。只有完整截面包络在允许窗口内，并可在两条
+指定边上按本修订的规范切点唯一定位时，才能返回其站位与各自的局部进度。两侧可能占用的边也须能证明
+该车型可通行。[横断面与路线交接合同][lateral-handoff]
+
+试算可临时编译两段路线，只读访问世界，成功和拒绝都保持命令游标与路线表原状。
+所得截面只定位这次候选的横向交接。沿轨迹推进还需独立求三维行程以及各拍前杠和车尾
+的投影。固定步进须结合当拍前后车、信号与预约重新裁决。可执行路线的现行注册规则见 D5。
 
 ### D5. route registry 支持动态注册和受控移除
 
@@ -329,6 +345,7 @@ definition 与 metadata。失败不得留下部分 occurrence 或可观察 alloc
 [`road-junction-model.md`][road-junction-model]。
 
 [vehicle-following]: vehicle-following.md
+[lateral-handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [parking-system]: parking-system.md
 [lane-change-contract]: lane-change-minimal-contract.md
 [road-junction-model]: road-junction-model.md

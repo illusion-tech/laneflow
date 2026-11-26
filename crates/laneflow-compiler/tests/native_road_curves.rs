@@ -51,7 +51,14 @@ fn save_lanes(
         program,
         cuts,
         profiles,
-        backward,
+        [
+            RoadEditingLaneDirection::Forward,
+            if backward {
+                RoadEditingLaneDirection::Backward
+            } else {
+                RoadEditingLaneDirection::Forward
+            },
+        ],
         coverage,
         reference,
         SectionFixture {
@@ -81,7 +88,7 @@ fn save_lane_declarations(
     program: Program,
     cuts: &[f64],
     (accuracy, direction): (GeometryAccuracyProfile, GeometryDirectionProfile),
-    backward: bool,
+    directions: [RoadEditingLaneDirection; 2],
     coverage: CrossSectionCoverage,
     reference: usize,
     fixture: SectionFixture<'_>,
@@ -119,6 +126,52 @@ fn save_lane_declarations(
         let lanes = ["inner", "outer"].map(|l| {
             AuthoringLaneReference::owner_scoped(vec![key.clone(), "section".into()], l).unwrap()
         });
+        let mut elements = vec![RoadEditingCorridorElement::RoadSection(section.clone())];
+        // 两条待测车道都反向时，另用一个正向区段提供走廊参考线。
+        let (reference_section, reference_lane) =
+            if directions == [RoadEditingLaneDirection::Backward; 2] {
+                let s = RoadSectionReference::owner_scoped(vec![key.clone()], "reference").unwrap();
+                let l = AuthoringLaneReference::owner_scoped(
+                    vec![key.clone(), "reference".into()],
+                    "forward",
+                )
+                .unwrap();
+                let edge = format!("reference-{i}");
+                module
+                    .add_declaration(RoadEditingDeclaration::RoadSection(
+                        RoadSectionInput::try_new(
+                            "reference",
+                            "motorLane",
+                            vec![l.clone()],
+                            corridor.clone(),
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                module
+                    .add_declaration(RoadEditingDeclaration::AuthoringLane(
+                        AuthoringLaneInput::try_new(
+                            "forward",
+                            LaneEdgeReference::local(&edge).unwrap(),
+                            RoadEditingLaneDirection::Forward,
+                            LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                            None,
+                            s.clone(),
+                        )
+                        .unwrap()
+                        .with_wheel_support(Some(true)),
+                    ))
+                    .unwrap();
+                module
+                    .add_declaration(RoadEditingDeclaration::LaneEdge(
+                        LaneEdgeInput::try_new(edge, 10., vec![], None).unwrap(),
+                    ))
+                    .unwrap();
+                elements.push(RoadEditingCorridorElement::RoadSection(s.clone()));
+                (s, l)
+            } else {
+                (section.clone(), lanes[reference].clone())
+            };
         let end = cuts.get(i).copied().map_or(
             RoadEditingStationEnd::AlignmentEnd,
             RoadEditingStationEnd::Finite,
@@ -130,9 +183,9 @@ fn save_lane_declarations(
                     RoadAlignmentReference::try_new("road").unwrap(),
                     start,
                     end,
-                    section.clone(),
-                    lanes[reference].clone(),
-                    vec![RoadEditingCorridorElement::RoadSection(section.clone())],
+                    reference_section,
+                    reference_lane,
+                    elements,
                 )
                 .unwrap()
                 .with_cross_section(coverage, vec![]),
@@ -163,17 +216,12 @@ fn save_lane_declarations(
                     ))
                     .unwrap();
             }
-            let direction = if backward && lane == "outer" {
-                RoadEditingLaneDirection::Backward
-            } else {
-                RoadEditingLaneDirection::Forward
-            };
             module
                 .add_declaration(RoadEditingDeclaration::AuthoringLane(
                     AuthoringLaneInput::try_new(
                         lane,
                         edges[0].clone(),
-                        direction,
+                        directions[n],
                         LinearWidthProfile::try_new(low, high).unwrap(),
                         None,
                         section.clone(),

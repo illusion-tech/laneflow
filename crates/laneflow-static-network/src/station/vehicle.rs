@@ -13,12 +13,14 @@ pub use steering::{SteeringConstraint, SteeringLimits};
 use surface::{Projection, Surface};
 
 mod footprint;
+mod handoff;
 mod interval;
 mod path;
 mod pose;
 mod steering;
 mod surface;
 mod sweep;
+pub use handoff::{HandoffOutcome, HandoffQuery, HandoffReport, HandoffWindow};
 pub use sweep::{
     BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SweepOutcome,
     SweepReport,

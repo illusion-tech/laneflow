@@ -1,6 +1,9 @@
 #[path = "support/policy.rs"]
 mod test_policy;
 
+#[path = "support/route_handoff.rs"]
+mod route_handoff;
+
 #[cfg(feature = "placement-fixtures")]
 #[path = "support/conflict_review.rs"]
 mod conflict_review;

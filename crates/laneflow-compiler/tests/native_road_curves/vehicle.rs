@@ -39,7 +39,7 @@ fn road(program: Program, lanes: [([f64; 2], bool); 2]) -> PortablePublicationCa
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
         ),
-        false,
+        [RoadEditingLaneDirection::Forward; 2],
         CrossSectionCoverage::Complete,
         0,
         SectionFixture {
@@ -453,7 +453,7 @@ fn with_boundaries(
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
         ),
-        false,
+        [RoadEditingLaneDirection::Forward; 2],
         CrossSectionCoverage::Complete,
         0,
         SectionFixture {
@@ -975,6 +975,114 @@ fn straight_front_handoff_nm(start_nm: u64) -> [u64; 2] {
 }
 
 #[test]
+fn handoff_checks_decreasing_station_and_lane_steering_at_both_endpoints() {
+    use laneflow_static_network::vehicle::{HandoffOutcome, HandoffQuery, HandoffWindow};
+    let straight = Program::try_new(p(0., 0., 0.), vec![Segment::line(p(0., 0., 50.))]).unwrap();
+    let turn = Program::try_new(
+        p(0., 0., 0.),
+        vec![
+            Segment::line(p(0., 0., 20.)),
+            Segment::circular_arc(50., 64., 0.).unwrap(),
+        ],
+    )
+    .unwrap();
+    for (program, direction, rear, expected_seam) in [
+        (
+            straight,
+            RoadEditingLaneDirection::Backward,
+            [40, 10],
+            false,
+        ),
+        (
+            turn.clone(),
+            RoadEditingLaneDirection::Forward,
+            [20, 50],
+            true,
+        ),
+        (turn, RoadEditingLaneDirection::Forward, [5, 20], true),
+    ] {
+        let mark = extent(
+            "mark",
+            BoundaryStation::CorridorEndpoint,
+            BoundaryStation::CorridorEndpoint,
+            BoundaryPayloadInput::CrossingRule {
+                directions: 3,
+                effect: 1,
+            },
+        );
+        let source = save_lane_declarations(
+            program,
+            &[],
+            (
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+            ),
+            [direction; 2],
+            CrossSectionCoverage::Complete,
+            0,
+            SectionFixture {
+                extents: vec![mark],
+                ..SectionFixture::default()
+            },
+        );
+        let artifact = publish(&compile_saved(&source).unwrap(), "handoff-steering");
+        let n = load_network(&artifact, SpatialBuildOption::Omit);
+        let rear = rear.map(|m| m * 1_000_000_000u64);
+        let q = corridor_query(&n, rear, 0.);
+        let r = n.traffic().relations();
+        let qh = HandoffQuery {
+            revision: q.revision,
+            corridor: q.corridor,
+            frame: q.frame,
+            axles: q.axles,
+            rear_stations_nm: rear,
+            station_window_nm: q.station_window_nm,
+        };
+        let laneflow_static_network::CorridorElement::RoadSection(section) =
+            r.corridor_elements(q.corridor).unwrap()[0]
+        else {
+            unreachable!()
+        };
+        let lanes = r.section_lanes(section).unwrap();
+        let window = HandoffWindow {
+            edges: [0, 1].map(|i| r.authoring_edge_chain(lanes[i]).unwrap()[0]),
+            stations_nm: q.station_window_nm,
+            left_index: 0,
+            owner: laneflow_static_network::BoundaryOwner::Section(section),
+        };
+        let handoff = n.vehicle_handoff(
+            &qh,
+            SteeringLimits {
+                max_angle_rad: 0.6,
+                max_rate_rad_s: 0.6,
+                speed_m_s: 1.,
+            },
+            BODY,
+            BUDGET,
+            window,
+        );
+        if expected_seam {
+            assert!(
+                matches!(
+                    handoff.outcome,
+                    HandoffOutcome::Unproven {
+                        reason: Failure::SteeringSeam,
+                        ..
+                    }
+                ),
+                "{handoff:?}"
+            );
+        } else {
+            let HandoffOutcome::Located { stations_nm, .. } = handoff.outcome else {
+                panic!("{handoff:?}");
+            };
+            let [a, b] = straight_front_handoff_nm(0);
+            assert!(stations_nm[0] <= rear[0] - b && stations_nm[1] >= rear[0] - a);
+        }
+    }
+}
+
+#[test]
 fn lane_change_geometry_crosses_independent_edge_cuts() {
     use laneflow_static_network::StationQuery;
 
@@ -1004,7 +1112,7 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                 GeometryAccuracyProfile::Fine2Cm,
                 GeometryDirectionProfile::Smooth1Deg,
             ),
-            false,
+            [RoadEditingLaneDirection::Forward; 2],
             CrossSectionCoverage::Complete,
             0,
             SectionFixture {
@@ -1075,10 +1183,118 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                     );
                 }
             }
-            network.vehicle_geometry(&q, limits, BODY, BUDGET)
+            use laneflow_static_network::vehicle::{HandoffOutcome, HandoffQuery, HandoffWindow};
+            let r = network.traffic().relations();
+            let handoff = HandoffQuery {
+                revision: q.revision,
+                corridor: q.corridor,
+                frame: q.frame,
+                station_window_nm: q.station_window_nm,
+                axles: q.axles,
+                rear_stations_nm: stations_nm,
+            };
+            let edges = [
+                r.authoring_edge_chain(q.traversable_lanes[0]).unwrap()[2],
+                r.authoring_edge_chain(q.traversable_lanes[1]).unwrap()[1],
+            ];
+            let window = HandoffWindow {
+                edges,
+                owner: laneflow_static_network::BoundaryOwner::Section(
+                    r.authoring_section(q.traversable_lanes[0]).unwrap(),
+                ),
+                left_index: 0,
+                stations_nm: [22_000_000_000, 26_000_000_000],
+            };
+            let wide = network.vehicle_handoff(&handoff, limits, BODY, BUDGET, window);
+            if effect == 1 {
+                let HandoffOutcome::Located {
+                    stations_nm: front_nm,
+                    trace_range_nm,
+                    addresses,
+                } = wide.outcome
+                else {
+                    panic!("{wide:?}");
+                };
+                assert!(
+                    front_nm[0] <= handoff_nm[0] && front_nm[1] >= handoff_nm[1],
+                    "{wide:?} {handoff_nm:?}"
+                );
+                assert!(trace_range_nm[0] < 11_861_195_000 && trace_range_nm[1] > 11_861_185_000);
+                assert_eq!(addresses.map(|a| a.edge), edges);
+                assert_eq!(addresses.map(|a| a.progress_mm), [[3_195; 2], [15_195; 2]]);
+                let reversed = HandoffWindow { edges: [edges[1], edges[0]], ..window };
+                assert!(matches!(
+                    network.vehicle_handoff(&handoff, limits, BODY, BUDGET, reversed).outcome,
+                    HandoffOutcome::Located { addresses: [a,b], .. } if [a.edge,b.edge] == reversed.edges
+                ));
+                let narrow = HandoffWindow {
+                    stations_nm: [window.stations_nm[0], 25_000_000_000],
+                    ..window
+                };
+                assert_eq!(
+                    network
+                        .vehicle_handoff(&handoff, limits, BODY, BUDGET, narrow)
+                        .outcome,
+                    HandoffOutcome::OutsideWindow {
+                        stations_nm: front_nm
+                    }
+                );
+                // 误差包络仅与窗口相交，或交接在该车道的另一次切边上，均不能定位到声明的出现对。
+                assert!(front_nm[1] > front_nm[0]);
+                let partial = HandoffWindow { stations_nm: [front_nm[1]; 2], ..window };
+                let wrong_edge = HandoffWindow {
+                    edges: [r.authoring_edge_chain(q.traversable_lanes[0]).unwrap()[1], edges[1]],
+                    ..window
+                };
+                for (input, reason) in [(partial, Failure::Boundary), (wrong_edge, Failure::Binding)] {
+                    assert_eq!(
+                        network.vehicle_handoff(&handoff, limits, BODY, BUDGET, input).outcome,
+                        HandoffOutcome::Unproven { range_nm: trace_range_nm, reason }
+                    );
+                }
+                let wrong_seam = HandoffWindow { left_index: 1, ..window };
+                let wrong = network.vehicle_handoff(&handoff, limits, BODY, BUDGET, wrong_seam);
+                assert!(wrong.geometry.is_none());
+                assert!(matches!(wrong.outcome, HandoffOutcome::Unproven {reason: Failure::Binding, ..}));
+                let narrow_body = BodyEnvelope { half_width_m: AXLES.half_track_m - 0.01, ..BODY };
+                let invalid = network.vehicle_handoff(&handoff, limits, narrow_body, BUDGET, window);
+                assert!(invalid.geometry.is_none());
+                assert!(matches!(invalid.outcome, HandoffOutcome::Unproven { reason: Failure::InvalidInput, .. }));
+                let used = wide.work + wide.geometry.unwrap().sweep.work;
+                for remaining in [used - 1, used] {
+                    let limited = network.vehicle_handoff(
+                        &handoff,
+                        limits,
+                        BODY,
+                        GeometryWorkLimits {
+                            sweep: remaining,
+                            ..BUDGET
+                        },
+                        window,
+                    );
+                    assert_eq!(
+                        limited.work + limited.geometry.unwrap().sweep.work,
+                        remaining
+                    );
+                    if remaining == used {
+                        assert_eq!(limited, wide);
+                    } else {
+                        assert!(matches!(
+                            limited.outcome,
+                            HandoffOutcome::Unproven {
+                                reason: Failure::WorkLimit,
+                                ..
+                            }
+                        ));
+                    }
+                }
+            } else {
+                assert_eq!(wide.outcome, HandoffOutcome::GeometryRejected);
+            }
+            wide
         });
         assert_eq!(reports[0], reports[1]);
-        let r = reports[0];
+        let r = reports[0].geometry.unwrap();
         assert!(
             matches!(r.tracks.outcome, TrackOutcome::Covered(_)),
             "{r:?}"

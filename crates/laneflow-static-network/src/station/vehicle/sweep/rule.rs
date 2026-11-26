@@ -1,6 +1,6 @@
 use super::*;
 use crate::station::vehicle::pose::PoseRate;
-use crate::station::vehicle::surface::{Projection, dot};
+use crate::station::vehicle::surface::dot;
 
 fn anchors(e: &BoundaryExtent) -> [I; 2] {
     std::array::from_fn(|i| {
@@ -84,11 +84,6 @@ fn permission<'a>(
             return Ok(Permission::Unknown);
         }
     }
-}
-
-// 车身点到标线的有符号横向偏移 F(P) = d(P) - d缝(s(P)) 的世界水平梯度。
-fn gradient(p: Projection, slope: I) -> Horizontal {
-    std::array::from_fn(|i| p.normal[i] - slope * p.station_gradient[i])
 }
 
 // 从后轴到任一真实触点积分 ∇F。触点的三个车体坐标 x 满足
@@ -175,20 +170,20 @@ pub(super) fn check<'a>(
     let p = c
         .surface
         .project(std::array::from_fn(|i| box_xz[i].hull(origin[i])), work)?;
-    let signed = p.lateral - s.lateral(c, p.station);
+    let signed = p.lateral - s.line.lateral(c, p.station);
     if signed.lo > 0. || signed.hi < 0. {
         return Ok(Verdict::Clear(None));
     }
     // 世界轴向包围盒的角可能根本不在车身内。在整盒上求横向坐标梯度，
     // 把车体三个方向分别投到该梯度，再由后轴点积分到每个真实车身点。
     let rear = c.surface.project(horizontal(body.pose.rear), work)?;
-    let slope = s.slope(c);
-    let grad = gradient(p, slope);
+    let slope = s.line.slope(c);
+    let grad = p.boundary_gradient(slope);
     let coefficients =
         [body.pose.forward, body.pose.left, body.pose.up].map(|axis| dot(grad, horizontal(axis)));
     let ranges = body.shape.ranges();
     let Some(touch) = touch_coordinates(
-        rear.lateral - s.lateral(c, rear.station),
+        rear.lateral - s.line.lateral(c, rear.station),
         coefficients,
         ranges,
         work,
@@ -204,7 +199,7 @@ pub(super) fn check<'a>(
         c.surface
             .project(horizontal(body.pose.point(a, b, z)), work)?
     };
-    let grad = gradient(region, slope);
+    let grad = region.boundary_gradient(slope);
     let (h, dh) = body.motion.heading()?;
     let rate = body.pose.rates(c.query.axles, body.motion.v, h, dh)?;
     let mask = directions(&rate, grad, touch);
@@ -231,7 +226,7 @@ pub(super) fn check<'a>(
             let point = crate::station::vehicle::surface::shifted(
                 horizontal(center),
                 [h[1], -h[0]],
-                s.lateral(c, station),
+                s.line.lateral(c, station),
             );
             let t = horizontal(body.pose.forward);
             let b = horizontal(body.pose.left);
@@ -268,15 +263,15 @@ pub(super) fn check<'a>(
             let r = endpoint(right);
             let pl = c.surface.project(l, work)?;
             let pr = c.surface.project(r, work)?;
-            let dl = pl.lateral - s.lateral(c, pl.station);
-            let dr = pr.lateral - s.lateral(c, pr.station);
+            let dl = pl.lateral - s.line.lateral(c, pl.station);
+            let dr = pr.lateral - s.line.lateral(c, pr.station);
             if (dl.lo >= 0. && dr.hi <= 0.) || (dr.lo >= 0. && dl.hi <= 0.) {
                 let coords = [I::point(a), touch[1], I::point(z)];
                 let span = c.surface.project(
                     horizontal(body.pose.point(coords[0], coords[1], coords[2])),
                     work,
                 )?;
-                let local = mask & directions(&rate, gradient(span, slope), coords);
+                let local = mask & directions(&rate, span.boundary_gradient(slope), coords);
                 if local != 0
                     && let Permission::Deny(key) = allowed(s, span.station, local, work)?
                 {

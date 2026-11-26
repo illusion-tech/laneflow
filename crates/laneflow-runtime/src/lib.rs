@@ -80,6 +80,7 @@ pub use kernel::execution_evidence::{
     TransitionCostEvidence,
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
+pub use kernel::handoff::{RouteHandoffPreview, RouteHandoffTrial, RouteHandoffTrialError};
 pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,
     VehicleSpawnInput,

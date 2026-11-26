@@ -23,6 +23,7 @@ pub(crate) mod error;
 pub(crate) mod execution;
 /// 代际感知的世界句柄（路线与车辆）。
 pub(crate) mod handle;
+pub(crate) mod handoff;
 /// 宿主输入命令的规范化记录（路线注册、车辆生成等）。
 pub(crate) mod input;
 /// 最小换道过渡执行判据（#1199 S4；合同 §5.2 具名四项冻结）。

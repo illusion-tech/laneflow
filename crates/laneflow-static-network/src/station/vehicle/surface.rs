@@ -171,6 +171,11 @@ pub(super) struct Projection {
     pub station_gradient: Horizontal,
 }
 impl Projection {
+    /// 点到结构接缝的有符号横向偏移 d(P)−d缝(s(P)) 的世界水平梯度。
+    pub fn boundary_gradient(self, slope: Interval) -> Horizontal {
+        std::array::from_fn(|i| self.normal[i] - slope * self.station_gradient[i])
+    }
+
     fn hull(self, other: Self) -> Self {
         Self {
             station: self.station.hull(other.station),
