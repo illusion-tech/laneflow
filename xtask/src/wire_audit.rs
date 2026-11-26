@@ -211,9 +211,9 @@ const RUNTIME_SNAPSHOT_WIRE_LIB_RS_PIN: &str =
 
 /// wire crate 生成 .rs 的 sha256 钉版：字节正确性在 required check（本审计）
 /// 内闭合；schema+flatc → bytes 的语义对应另由 clean-regeneration 证明。
-/// 合法再生成（schema 或 flatc 钉版升级）需在同一 PR 更新本常量，diff 随评审可见。
+/// 更新常量时取提交文件的 LF 字节；Windows flatc 临时输出的 CRLF 在 clean-regeneration 中归一化。
 const ROAD_EDITING_GENERATED_RS_SHA256: &str =
-    "d96eb96b20f80abd4b90243d1f9380d2a54ab38f6c82db9940e8877e376e04eb";
+    "1d29f18ab948cdd8e7392345c4a9383ca2affef0ea9832197a88781ff8a848d1";
 const RUNTIME_SNAPSHOT_GENERATED_RS_SHA256: &str =
     "9d990c9bfb67e47495647ebe72f79af74541fde0e85d30364a7f2a2ef2bd8428";
 
