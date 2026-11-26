@@ -22,8 +22,6 @@ pub(crate) const INPUT_VARIABLE: &str = "LANEFLOW_ENVIRONMENT_INPUT";
 pub(crate) const BEFORE: &str = "environment-before.json";
 /// 测量后环境记录文件名。
 pub(crate) const AFTER: &str = "environment-after.json";
-/// 环境记录采集的工具链选择，与正式测量构建一致。
-const TOOLCHAIN: &str = "1.100.0";
 
 /// 读取 [`INPUT_VARIABLE`] 指定的执行者输入文件。
 pub(crate) fn manual() -> Result<ManualFields> {
@@ -35,10 +33,13 @@ pub(crate) fn manual() -> Result<ManualFields> {
 /// 在当前目录所在 checkout 内采集一份环境记录，并返回 checkout 顶层目录。
 pub(crate) fn collect(phase: Phase, manual: &ManualFields) -> Result<(EnvironmentRecord, PathBuf)> {
     let repository = environment::repository_root(&std::env::current_dir()?)?;
+    // 与正式测量构建同一工具链：rustup 在 checkout 内强制的钉版 channel。
+    let toolchain =
+        environment::pinned_toolchain(&repository).map_err(|error| invalid(error.to_string()))?;
     let record = environment::collect(&CollectOptions {
         phase,
         repository: repository.clone(),
-        toolchain: Some(TOOLCHAIN.into()),
+        toolchain: Some(toolchain),
         manual: manual.clone(),
         snapshot_interval: snapshot::DEFAULT_INTERVAL,
     })
@@ -46,8 +47,8 @@ pub(crate) fn collect(phase: Phase, manual: &ManualFields) -> Result<(Environmen
     Ok((record, repository))
 }
 
-/// 核对记录可以开始测量：工具链可用、工作树干净、必填字段合格，P100 角色的
-/// 指纹与参考机声明一致。提交取记录自身的 HEAD。
+/// 核对记录可以开始测量：工具链可用且等于仓库钉版、工作树干净、必填字段合格，
+/// P100 角色的指纹与参考机声明一致。提交取记录自身的 HEAD。
 pub(crate) fn require_ready(
     record: &EnvironmentRecord,
     repository: &std::path::Path,

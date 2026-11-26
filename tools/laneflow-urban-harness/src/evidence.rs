@@ -66,6 +66,14 @@ pub(crate) fn source() -> Result<Value> {
     if !status.is_empty() || commit.len() != 40 {
         return Err(invalid("evidence requires a frozen clean source checkout"));
     }
+    // 与环境记录同一工具链：按仓库钉版显式选择，读不到钉版就不产出来源。
+    let repository =
+        laneflow_host_observe::environment::repository_root(&std::env::current_dir()?)?;
+    let selector = format!(
+        "+{}",
+        laneflow_host_observe::environment::pinned_toolchain(&repository)
+            .map_err(|error| invalid(error.to_string()))?
+    );
     Ok(json!({"commit":commit,"git_status":status,
         "build_profile":if cfg!(debug_assertions) {"debug;debug-assertions=on"} else {"release;debug-assertions=off"},
         "tree":read("git", &["rev-parse", "HEAD^{tree}"])?,
@@ -74,12 +82,12 @@ pub(crate) fn source() -> Result<Value> {
         "harness_manifest":digest_file(Path::new("tools/laneflow-urban-harness/Cargo.toml"))?,
         "adapter_manifest":digest_file(Path::new("crates/laneflow-bevy/Cargo.toml"))?,
         "spatial_manifest":digest_file(Path::new("crates/laneflow-spatial/Cargo.toml"))?,
-        "rustc":read("rustc", &["+1.100.0","-Vv"] )?,
-        "cargo":read("cargo", &["+1.100.0","-V"] )?,
+        "rustc":read("rustc", &[&selector,"-Vv"] )?,
+        "cargo":read("cargo", &[&selector,"-V"] )?,
         "binary":digest_file(&std::env::current_exe()?)?,
         "allocation":cfg!(feature = "allocation"),
         "pose_profiling":cfg!(feature = "pose-profiling"),
-        "build_parameters":if cfg!(feature = "allocation") {"cargo +1.100.0 build -p laneflow-urban-harness --features allocation --release --locked"} else if cfg!(feature = "pose-profiling") {"cargo +1.100.0 build -p laneflow-urban-harness --features pose-profiling --release --locked"} else {"cargo +1.100.0 build -p laneflow-urban-harness --features adapter --release --locked"},
+        "build_parameters":if cfg!(feature = "allocation") {"cargo build -p laneflow-urban-harness --features allocation --release --locked"} else if cfg!(feature = "pose-profiling") {"cargo build -p laneflow-urban-harness --features pose-profiling --release --locked"} else {"cargo build -p laneflow-urban-harness --features adapter --release --locked"},
         "environment":environment_summary()?,
         "os":std::env::consts::OS,"architecture":std::env::consts::ARCH,"workers":1}))
 }

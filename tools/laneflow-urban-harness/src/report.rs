@@ -30,7 +30,10 @@ mod timing;
 // 执行者输入文件提供，电源状态、指纹与 OS build 自动采集；两份环境记录列入
 // 文件摘要清单，读取时核对其与测量来源一致。
 const MEASUREMENTS_VERSION: &str = "urban-performance-measurements-v6";
-const BUILD_PARAMETERS: &str = "cargo +1.100.0 run --locked -p xtask -- build-measurement";
+const BUILD_PARAMETERS: &str = "cargo run --locked -p xtask -- build-measurement";
+// 构建期内嵌仓库根的钉版文件：来源校验对照的是构建本二进制的工具链，与运行时所在
+// 目录无关，封存二进制可以在源码树之外比较证据。文件形态由 xtask 钉版检查守住。
+const RUST_TOOLCHAIN_TOML: &str = include_str!("../../../rust-toolchain.toml");
 /// 正式运行逐次独立校验、不参与跨运行语义比较的记录文件。
 const PERFORMANCE_RECORD_FILES: [&str; 3] = [
     "measurements.toml",
@@ -55,6 +58,12 @@ const BUILD_PROFILE: &str = "dev;debug-assertions=on";
 const EXPECTED_BUILD_RUSTFLAGS: &str = "--remap-path-prefix=<worktree>=<worktree> --remap-path-prefix=<cargo-home>=<cargo-home> --remap-path-prefix=<rustup-toolchain>=<rustup-toolchain>";
 const EXPECTED_BUILD_PROFILE: &str = "release;debug-assertions=off";
 const TIMING_RANGE: &str = "observation-window-only; command=sum-of-public-lifecycle-calls; step=public-call-only; observation=pre-and-post-step-inspection; caller-preparation-bookkeeping-snapshots-excluded";
+
+/// 内嵌钉版文件的 `toolchain.channel`，即构建本二进制的工具链。
+fn build_channel() -> &'static str {
+    laneflow_host_observe::environment::parse_pinned_channel(RUST_TOOLCHAIN_TOML)
+        .expect("embedded rust-toolchain.toml declares one toolchain.channel")
+}
 
 /// 调用方显式选择详细日志；最小运行回执与错误不受此开关影响。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -317,7 +326,13 @@ impl MeasurementProvenance {
         })
     }
 
+    /// 来源须与固定协议一致，且出自构建本二进制的钉版工具链。
     fn validate(&self) -> Result<()> {
+        self.validate_against(build_channel())
+    }
+
+    fn validate_against(&self, channel: &str) -> Result<()> {
+        let (rustc, cargo) = (format!("rustc {channel} "), format!("cargo {channel} "));
         for value in [
             &self.git_commit,
             &self.rustc,
@@ -350,8 +365,8 @@ impl MeasurementProvenance {
         }
         if self.git_commit.len() != 40
             || !self.git_commit.bytes().all(|b| b.is_ascii_hexdigit())
-            || !self.rustc.starts_with("rustc 1.100.0 ")
-            || !self.cargo.starts_with("cargo 1.100.0 ")
+            || !self.rustc.starts_with(&rustc)
+            || !self.cargo.starts_with(&cargo)
             || self
                 .rustc
                 .lines()
@@ -1998,11 +2013,13 @@ mod tests {
     }
 
     pub(super) fn measurement_fixture() -> serde_json::Value {
+        // 工具链字段跟随内嵌的钉版：源码不写版本号，升级不触及本测试。
+        let channel = build_channel();
         json!({
             "version":MEASUREMENTS_VERSION, "execution_id":"fixture",
             "git_commit":"a".repeat(40),
-            "rustc":"rustc 1.100.0 (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 23.1.1",
-            "cargo":"cargo 1.100.0 (fixture)", "target":"x86_64-pc-windows-msvc",
+            "rustc":format!("rustc {channel} (fixture)\nhost: x86_64-pc-windows-msvc\nLLVM version: 23.1.1"),
+            "cargo":format!("cargo {channel} (fixture)"), "target":"x86_64-pc-windows-msvc",
             "build_parameters":BUILD_PARAMETERS, "os":"Windows 11 Pro", "os_build":"29704",
             "architecture":"x86_64",
             "build_rustflags":EXPECTED_BUILD_RUSTFLAGS, "build_profile":EXPECTED_BUILD_PROFILE,
@@ -2030,6 +2047,26 @@ mod tests {
             assert!(
                 retained.provenance.validate().is_err(),
                 "workers={illegal} must be rejected by validate"
+            );
+        }
+    }
+
+    /// rustc / cargo 的版本前缀对照的是内嵌钉版的 channel，不是写死的版本号；
+    /// 与钉版不同即拒绝。
+    #[test]
+    fn measurement_provenance_is_checked_against_the_pinned_channel() {
+        let retained: RetainedMeasurements = serde_json::from_value(measurement_fixture()).unwrap();
+        // 内嵌钉版须是三段式版本号，来源校验据此取前缀。
+        let parts: Vec<&str> = build_channel().split('.').collect();
+        assert_eq!(parts.len(), 3, "{}", build_channel());
+        retained
+            .provenance
+            .validate_against(build_channel())
+            .unwrap();
+        for other in ["", "9.9.9"] {
+            assert!(
+                retained.provenance.validate_against(other).is_err(),
+                "channel {other:?} must be rejected"
             );
         }
     }
@@ -2405,7 +2442,10 @@ mod tests {
                 bios_date: Field::Value("01/01/2025".into()),
             },
             toolchain: Field::Value(Toolchain {
-                selector: Some("1.100.0".into()),
+                selector: text("rustc")
+                    .strip_prefix("rustc ")
+                    .and_then(|rest| rest.split(' ').next())
+                    .map(str::to_owned),
                 rustc_vv: text("rustc"),
                 cargo_version: text("cargo"),
                 host_target: text("target"),
@@ -2672,14 +2712,28 @@ mod tests {
     }
 
     /// #1392：证据入口与正式测量使用同一就绪核对；P100 角色缺少参考机声明或
-    /// 指纹不符时拒绝，非 P100 角色不读取参考机声明。
+    /// 指纹不符时拒绝，非 P100 角色不读取参考机声明。记录的工具链选择还须等于
+    /// 仓库钉版（#1564）。
     #[cfg(feature = "adapter")]
     #[test]
     fn evidence_summary_requires_p100_reference_fingerprint() {
+        use laneflow_host_observe::Field;
         let root = tempfile::tempdir().unwrap();
         let mut measurement = measurement_fixture();
         let uncertified = environment_fixture(&measurement, Phase::Before);
+        // 就绪核对读取仓库钉版：临时仓库带上与记录一致的钉版文件。
+        fs::write(
+            root.path().join("rust-toolchain.toml"),
+            format!("[toolchain]\nchannel = \"{}\"\n", build_channel()),
+        )
+        .unwrap();
         crate::environment::ready_summary(&uncertified, root.path()).unwrap();
+        // 工具链选择与钉版不同的记录不能开始测量。
+        let mut other_toolchain = environment_fixture(&measurement, Phase::Before);
+        if let Field::Value(toolchain) = &mut other_toolchain.toolchain {
+            toolchain.selector = Some("9.9.9".into());
+        }
+        assert!(crate::environment::ready_summary(&other_toolchain, root.path()).is_err());
         measurement["hardware_role"] = json!("P100");
         let p100 = environment_fixture(&measurement, Phase::Before);
         assert!(crate::environment::ready_summary(&p100, root.path()).is_err());
@@ -2782,9 +2836,9 @@ mod tests {
             ("git_commit", json!("b".repeat(40))),
             (
                 "rustc",
-                json!("rustc 1.100.0 (different)\nhost: x86_64-pc-windows-msvc"),
+                json!("rustc 9.9.9 (different)\nhost: x86_64-pc-windows-msvc"),
             ),
-            ("cargo", json!("cargo 1.100.0 (different)")),
+            ("cargo", json!("cargo 9.9.9 (different)")),
             ("target", json!("aarch64-unknown-linux-gnu")),
             ("build_parameters", json!("debug build")),
             (

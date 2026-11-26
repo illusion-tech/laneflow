@@ -227,7 +227,8 @@ pub struct Firmware {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Toolchain {
-    /// 调用方指定的工具链选择（如 `1.100.0`，执行时加 `+`）；`None` 为默认工具链。
+    /// 调用方指定的工具链 channel（执行时加 `+`）；测量入口传入仓库钉版值，见
+    /// [`pinned_toolchain`]。`None` 为默认工具链。
     pub selector: Option<String>,
     /// `rustc -Vv` 全文。
     pub rustc_vv: String,
@@ -299,7 +300,7 @@ pub struct CollectOptions {
     pub phase: Phase,
     /// 源码 checkout 内的任一目录；git 命令锚定到其顶层目录执行。
     pub repository: PathBuf,
-    /// 工具链选择（如 `1.100.0`）；`None` 为默认工具链。
+    /// 工具链 channel，测量入口经 [`pinned_toolchain`] 取自仓库钉版；`None` 为默认工具链。
     pub toolchain: Option<String>,
     /// 执行者填写的必填字段。
     pub manual: ManualFields,
@@ -382,20 +383,28 @@ impl EnvironmentRecord {
         Ok(record)
     }
 
-    /// 核对记录可以开始测量：工具链可用；源码可用、干净且提交与
-    /// `implementation_commit` 相同；必填字段合格；硬件角色为 P100 时指纹与
-    /// `repository_root` 下的参考机声明一致。
+    /// 核对记录可以开始测量：工具链可用，且其选择等于 `repository_root` 的钉版
+    /// channel；源码可用、干净且提交与 `implementation_commit` 相同；必填字段合格；
+    /// 硬件角色为 P100 时指纹与 `repository_root` 下的参考机声明一致。
     ///
     /// # Errors
     ///
-    /// 任一条件不满足时返回错误。
+    /// 任一条件不满足时返回错误；读不出 `repository_root` 的钉版 channel 时同样返回错误。
     pub fn require_measurement_ready(
         &self,
         implementation_commit: &str,
         repository_root: &Path,
     ) -> Result<(), EnvironmentError> {
         self.manual.validate()?;
-        if self.toolchain.value().is_none() {
+        if let Some(toolchain) = self.toolchain.value() {
+            // 测量只认仓库钉版的工具链：选择来自其他来源的记录不得放行。
+            let pinned = pinned_toolchain(repository_root)?;
+            if toolchain.selector.as_deref() != Some(pinned.as_str()) {
+                return Err(EnvironmentError::new(
+                    "环境记录的工具链选择与仓库钉版不同，不能开始测量",
+                ));
+            }
+        } else {
             return Err(EnvironmentError::new("环境记录缺少工具链"));
         }
         let source = self
@@ -791,6 +800,65 @@ fn firmware() -> Firmware {
         bios_version: Field::unavailable("本平台未实现"),
         bios_date: Field::unavailable("本平台未实现"),
     }
+}
+
+/// 仓库根 `rust-toolchain.toml` 钉住的工具链 channel，供在 checkout 内运行的采集读取。
+/// 文件由仓库维护，只含 `[toolchain]` 的 `channel` 一项；声明缺失、不唯一或不是普通
+/// 字符串时返回错误，不退回默认工具链。
+///
+/// # Errors
+///
+/// 读不到 `repository/rust-toolchain.toml`，或其中没有唯一的 `toolchain.channel` 时返回错误。
+pub fn pinned_toolchain(repository: &Path) -> Result<String, EnvironmentError> {
+    let text = fs::read_to_string(repository.join("rust-toolchain.toml"))
+        .map_err(|error| EnvironmentError::new(format!("无法读取 rust-toolchain.toml：{error}")))?;
+    parse_pinned_channel(&text)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            EnvironmentError::new("rust-toolchain.toml 的 [toolchain] 须恰好声明一个 channel")
+        })
+}
+
+/// [`pinned_toolchain`] 的文本层：从一份 `rust-toolchain.toml` 的内容里取出
+/// `[toolchain]` 内唯一的普通字符串 `channel`，借用入参文本。构建期内嵌该文件的
+/// 调用方用它取钉版值。该键缺失、重复，或写法不是 `channel = "<无转义>"` 时返回
+/// `None`；表内其他键不参与。
+pub fn parse_pinned_channel(text: &str) -> Option<&str> {
+    let mut in_toolchain = false;
+    let mut channel = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_toolchain = line.split('#').next().unwrap_or("").trim() == "[toolchain]";
+            continue;
+        }
+        if !in_toolchain {
+            continue;
+        }
+        let (key, value) = line.split_once('=')?;
+        if key.trim() != "channel" {
+            continue;
+        }
+        if channel.is_some() {
+            return None;
+        }
+        let value = value.trim();
+        let rest = value.strip_prefix('"')?;
+        let end = rest.find('"')?;
+        let name = &rest[..end];
+        let trailing = rest[end + 1..].trim();
+        if name.is_empty()
+            || name.contains('\\')
+            || !(trailing.is_empty() || trailing.starts_with('#'))
+        {
+            return None;
+        }
+        channel = Some(name);
+    }
+    channel
 }
 
 fn toolchain(selector: Option<&str>) -> io::Result<Toolchain> {

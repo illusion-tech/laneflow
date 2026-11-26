@@ -2494,13 +2494,21 @@ mod tests {
     #[test]
     fn rust_toolchain_pin_is_embedded_and_parseable() {
         // provenance 的 rust_version 唯一来源是仓库根 rust-toolchain.toml 的
-        // pin channel（构建期内嵌，rustup 在 checkout 内强制）；pin 漂移时
-        // 本测试随之失败——不允许记录值与 pin 脱节。
-        assert!(RUST_TOOLCHAIN_TOML.contains("[toolchain]"));
-        assert_eq!(
-            pinned_rust_toolchain_channel().expect("channel"),
-            "1.100.0",
-            "记录值必须与仓库 pin 同步（升 MSRV 时同步本断言）"
+        // pin channel（构建期内嵌，rustup 在 checkout 内强制）。内嵌文本须与
+        // checkout 内的文件一致，channel 须是三段式版本号——记录值不与 pin 脱节。
+        let on_disk = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../rust-toolchain.toml"),
+        )
+        .expect("workspace rust-toolchain.toml");
+        assert_eq!(RUST_TOOLCHAIN_TOML, on_disk);
+        let channel = pinned_rust_toolchain_channel().expect("channel");
+        let parts: Vec<&str> = channel.split('.').collect();
+        assert_eq!(parts.len(), 3, "channel {channel} 须为三段式版本号");
+        assert!(
+            parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
+            "channel {channel} 须为三段式版本号"
         );
     }
 
