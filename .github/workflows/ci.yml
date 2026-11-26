@@ -510,14 +510,14 @@ jobs:
       - name: Restore xtask dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: laneflow-msrv-1.99.1-commit-message
+          shared-key: laneflow-msrv-1.100.0-commit-message
           save-if: false
           cache-targets: true
       - name: Audit workspace default test reuse
         env:
           GH_TOKEN: ${{ github.token }}
           GH_PROMPT_DISABLED: "1"
-        run: cargo +1.99.1 run --quiet --locked -p xtask -- audit-workspace-test-reuse "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+        run: cargo run --quiet --locked -p xtask -- audit-workspace-test-reuse "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
       - name: Record unavailable shadow report
         if: failure()
         run: printf '%s\n\n%s\n' '### workspace 默认测试复用影子判定' '回退。影子检查未能完成，原因见该 job 的失败步骤。' >> "$GITHUB_STEP_SUMMARY"
