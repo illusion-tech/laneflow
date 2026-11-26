@@ -41,7 +41,7 @@ use crate::{
     RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
-const ROAD_EDITING_FRONTEND_VERSION: u32 = 7;
+const ROAD_EDITING_FRONTEND_VERSION: u32 = 8;
 const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 4;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 const ARC_ALLOCATION_HEADER_BYTES: u64 = (core::mem::size_of::<usize>() as u64).saturating_mul(2);

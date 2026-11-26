@@ -142,6 +142,19 @@ fn add_participant_classes(builder: &mut SyntheticModuleBuilder) -> Result<(), E
 fn add_vehicle_profiles(builder: &mut SyntheticModuleBuilder) -> Result<(), Error> {
     builder
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                laneflow_compiler::RigidTwoAxleGeometryInput {
+                    wheelbase_m: 2.6,
+                    track_width_m: 1.6,
+                    reference_height_m: 0.35,
+                    rear_overhang_m: 0.75,
+                    width_m: 1.9,
+                    bottom_height_m: -0.15,
+                    top_height_m: 1.15,
+                    max_steering_angle_rad: 0.6,
+                    max_steering_rate_rad_s: 0.7,
+                },
+            ),
             vehicle_profile_key: PASSENGER_CAR_PROFILE_KEY,
             participant_class: ParticipantClassReference::local("car"),
             iidm: IidmVehicleProfileInput {
@@ -156,6 +169,19 @@ fn add_vehicle_profiles(builder: &mut SyntheticModuleBuilder) -> Result<(), Erro
         })
         .and_then(|builder| {
             builder.add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                    laneflow_compiler::RigidTwoAxleGeometryInput {
+                        wheelbase_m: 6.0,
+                        track_width_m: 2.0,
+                        reference_height_m: 0.5,
+                        rear_overhang_m: 2.5,
+                        width_m: 2.5,
+                        bottom_height_m: -0.25,
+                        top_height_m: 2.7,
+                        max_steering_angle_rad: 0.6,
+                        max_steering_rate_rad_s: 0.7,
+                    },
+                ),
                 vehicle_profile_key: SHUTTLE_BUS_PROFILE_KEY,
                 participant_class: ParticipantClassReference::local("bus"),
                 iidm: IidmVehicleProfileInput {

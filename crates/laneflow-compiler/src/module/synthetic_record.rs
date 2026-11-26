@@ -214,7 +214,7 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             declaration.regulation.as_ref(),
         )),
         TypedAstDeclaration::ConflictZone(_) | TypedAstDeclaration::ParticipantStream(_) => {
-            unreachable!("Synthetic frontend v5 does not construct conflict declarations")
+            unreachable!("Synthetic frontend does not construct conflict declarations")
         }
     }
 }
@@ -239,7 +239,7 @@ pub(super) fn vehicle_profile_declaration_len(
             &participant_class.module_namespace,
             participant_class.declaration_key(),
         ))
-        .saturating_add(7 * 4)
+        .saturating_add(7 * 4 + 1 + 9 * 4)
 }
 
 /// 按构建输入计算规范坐标框架声明的编码字节长度。
@@ -1013,6 +1013,10 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             ] {
                 output.extend_from_slice(&value.to_bits().to_le_bytes());
             }
+            output.push(crate::RoadVehicleConfiguration::RigidTwoAxle as u8);
+            output.extend_from_slice(&crate::vehicle_geometry::canonical_words(
+                declaration.geometry,
+            ));
         }
         TypedAstDeclaration::CanonicalFrame(declaration) => {
             put_declaration_header(output, &declaration.header);
@@ -1056,7 +1060,7 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             }
         }
         TypedAstDeclaration::ConflictZone(_) | TypedAstDeclaration::ParticipantStream(_) => {
-            unreachable!("Synthetic frontend v5 does not construct conflict declarations")
+            unreachable!("Synthetic frontend does not construct conflict declarations")
         }
     }
 }

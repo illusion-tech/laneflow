@@ -591,8 +591,11 @@ fn measure_row(
         )?;
     }
     validate_row_shape(schema, seen_fields, discriminant)?;
-    if schema.shape == PortableRowShape::PolicyLocalChange {
-        let embedded = policy_value_budget(row, limits)?;
+    if matches!(
+        schema.shape,
+        PortableRowShape::PolicyLocalChange | PortableRowShape::EntityChange
+    ) {
+        let embedded = change_value_budget(row, schema.shape, limits)?;
         budget.total_utf8_bytes = checked_add(
             budget.total_utf8_bytes,
             embedded.total_utf8_bytes,
@@ -612,10 +615,37 @@ fn measure_row(
     Ok(row_length)
 }
 
-fn policy_value_budget(
+fn change_value_budget(
     row: RowWriteInput<'_>,
+    shape: PortableRowShape,
     limits: FormatLimits,
 ) -> Result<crate::table::PreflightBudget, FormatError> {
+    let mut budget = crate::table::PreflightBudget::default();
+    if shape == PortableRowShape::EntityChange {
+        let mut vehicle_profile = false;
+        let mut geometry = false;
+        let mut sides = 0;
+        for field in row.fields {
+            match (field.tag, field.value) {
+                (2, FieldWriteValue::U16(kind)) => {
+                    vehicle_profile =
+                        kind == laneflow_static_contract::EntityKind::VehicleProfile.code()
+                }
+                (6, FieldWriteValue::U16(tag)) => geometry = tag == 11,
+                (9 | 10, FieldWriteValue::Bytes(bytes)) if vehicle_profile && geometry => {
+                    crate::table::preflight_vehicle_geometry_value(bytes, limits, &mut budget)?;
+                    sides += 1;
+                }
+                _ => {}
+            }
+        }
+        if vehicle_profile && geometry && sides != 2 {
+            return Err(FormatError::BindingMismatch {
+                structure: FormatStructure::RowFields,
+            });
+        }
+        return Ok(budget);
+    }
     let kind = row
         .fields
         .iter()
@@ -626,7 +656,6 @@ fn policy_value_budget(
         .ok_or(FormatError::BindingMismatch {
             structure: FormatStructure::RowFields,
         })?;
-    let mut budget = crate::table::PreflightBudget::default();
     for field in row.fields {
         if matches!(field.tag, 5 | 6)
             && let FieldWriteValue::Bytes(bytes) = field.value
@@ -929,9 +958,14 @@ fn next_chunk_end(
     let mut chunk = CanonicalChunkMetrics::empty(TABLE_HEADER_BYTES);
     while end < table.rows.len() {
         let (row_length, mut row_budget) = encoded_row_measure(table.rows[end]);
-        if object_kind == PortableObjectKind::SemanticDiff && section_kind == 7 {
-            let embedded = policy_value_budget(table.rows[end], FormatLimits::HARD)
-                .expect("prepared immutable policy value");
+        if object_kind == PortableObjectKind::SemanticDiff && matches!(section_kind, 2 | 7) {
+            let shape = if section_kind == 2 {
+                PortableRowShape::EntityChange
+            } else {
+                PortableRowShape::PolicyLocalChange
+            };
+            let embedded = change_value_budget(table.rows[end], shape, FormatLimits::HARD)
+                .expect("prepared immutable change value");
             row_budget.total_utf8_bytes += embedded.total_utf8_bytes;
             row_budget.total_vector_bytes += embedded.total_vector_bytes;
         }

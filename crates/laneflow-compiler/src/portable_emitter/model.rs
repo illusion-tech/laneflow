@@ -196,6 +196,7 @@ pub(super) fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16
         K::CrossingRule => 49,
         K::Guardrail => 50,
         K::Curb => 51,
+        K::RoadVehicleGeometry => 52,
     }
 }
 

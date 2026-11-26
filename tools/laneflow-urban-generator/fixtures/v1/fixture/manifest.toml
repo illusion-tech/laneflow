@@ -8,13 +8,13 @@ nominal_individuals = 2000
 fixed_step_ms = 16
 compile_limits = "LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES"
 format_limits = "FormatLimits::HARD"
-network_revision = "d3665ae93f644bad9df76981a2f8d1959185eae11664f6c4201ccc728cffc14a"
+network_revision = "2871ca7d75b2e8c283b4936f5bb9d2cb95dd9a7be671ba397be930000067538f"
 source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
 lir_logical_records = 82014
 compiler_output_logical_bytes = 2220654
-compiler_controlled_peak_bytes = 34057344
-shared_headless_retained_bytes = 671764
-shared_spatial_retained_bytes = 1881860
+compiler_controlled_peak_bytes = 34058360
+shared_headless_retained_bytes = 671888
+shared_spatial_retained_bytes = 1881984
 resolved_policy_gate_rows = 528
 resolved_policy_stream_rows = 516
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
@@ -40,32 +40,32 @@ max_retained_bytes = 2147483648
 max_scratch_bytes = 2147483648
 
 [files."common.lfre"]
-bytes = 1024
-sha256 = "70048cb7b30c597aee26de8dd6efbf50f2851049c6cb0e77de3fdc7dddad51bd"
+bytes = 1312
+sha256 = "0a7fd33a5c1259d99ab95c622c6ec8017b6b32ceb2a85481c67abfa7ce44d45b"
 
 [files."config.toml"]
-bytes = 1300
-sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
+bytes = 1970
+sha256 = "e1ac2e880fe6335e6322741ee4bbcf4e2cb52e0067e2fa0bd873de0a6e022566"
 
 [files."genesis.lfsd"]
-bytes = 9638890
-sha256 = "7f307432560949a95611b2665e3ed471ea6256ffdcbb1babd83ccbc5aca31164"
+bytes = 9639418
+sha256 = "7e545221ff57747e2289dc867d3dc71fc14b52eecc91a4b106aca82207c355c1"
 
 [files."network.lfca"]
-bytes = 8868339
-sha256 = "38f6cb7916af1b20a9275af43fb2bb6056587287d1aad10739c81e0967aa5c1a"
+bytes = 8868867
+sha256 = "01b92cf248295c9029406f9187fad421cea51b63bc4b8b0b6b4ffe19742e465e"
 
 [files."routes.toml"]
 bytes = 377136
-sha256 = "a2185b2c7523adae446e431b8cf549e5c0b15746ea835dfd57ea7df8ce68542c"
+sha256 = "b03a77d04cf82992a5a238a34674a3e9e01f5a0c0c8f5904ab0eec4892a125ee"
 
 [files."source-map.lfsm"]
 bytes = 12510079
-sha256 = "294ab38a527e7078ae6bf852e47135de49e33b99119c417e405d0ffea7b5c0b2"
+sha256 = "1f0dc945d8ca99cac6b77b771c8bb447587f8f145bfb840f3c5df6054ef4c4b2"
 
 [files."topology.lfre"]
 bytes = 1674664
-sha256 = "d2c6eacd2a632fdec275c9ad11fcb941225c7d117e9ce878f6047199f145d72a"
+sha256 = "6958d11f8c5f741424085aeb1262ad06543b94f4b1fc06cb3e52b957b5423fbd"
 
 [source_declarations]
 canonical-frame = 1
@@ -365,9 +365,10 @@ table = "VehicleProfile"
 rows = 3
 chunks = 1
 max_chunk_rows = 3
-max_chunk_bytes = 580
+max_chunk_bytes = 1108
 
 [lfca_tables.nested_rows]
+geometry = 3
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"

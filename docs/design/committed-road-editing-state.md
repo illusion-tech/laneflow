@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-committed-road-editing-state"
 kind = "design"
 status = "accepted"
-revised_date = "2026-10-28"
+revised_date = "2026-11-26"
 summary = "定义已提交道路编辑状态和来源绑定。"
 scope = "committed RoadEditingState 的形状与所属层级、CommittedNetworkSource 编辑 来源变体、EditableDiffBase 的持有与校验、重编译责任与信任边界、编辑来源在安装 / 恢复 / 切换 / 审计各入口的合同、快照中的编辑来源绑定"
 applicability = "#applicability"
@@ -73,7 +73,7 @@ ADR 0023 / 0025 已经确定：可编辑世界的已提交路网来源是 commit
 
 - **来源文档键**：与编译器 `LFRE` 模块准入时宿主声明的 expected source document key
   为同一值；
-- **来源字节**：该模块完整的 size-prefixed `LFRE` buffer（`LF-ROAD-EDITING-SOURCE-v7`）。
+- **来源字节**：该模块完整的 size-prefixed `LFRE` buffer（`LF-ROAD-EDITING-SOURCE-v8`）。
 
 不进入该对象的内容：显示用来源文本、编译限额、发射 provenance、LFCA / LFSM / LFSD、
 HIR / MIR / LIR、共享静态数组、运行时句柄以及任何 working / candidate 状态

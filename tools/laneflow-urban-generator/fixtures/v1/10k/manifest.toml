@@ -6,15 +6,15 @@ tiles = 10
 tile_columns = 5
 nominal_individuals = 10000
 fixed_step_ms = 16
-compile_limits = "LF-COMP-SINGLE-NETWORK-1M-v2"
+compile_limits = "LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES"
 format_limits = "FormatLimits::HARD"
-network_revision = "d5a65b252b83ae6966abbf1acbc24f6b6b2318f955bbf14775f8745a64112b64"
+network_revision = "2a87213ac8ca4b6cd09e1eb854de93a8bf35bc826abaa5e571f211814b3a9e2d"
 source_import_edges = ["workload/lf-cn-urban/v2 -> workload/lf-cn-urban/common/v2"]
 lir_logical_records = 410272
 compiler_output_logical_bytes = 11102374
-compiler_controlled_peak_bytes = 167811048
-shared_headless_retained_bytes = 3993748
-shared_spatial_retained_bytes = 10046516
+compiler_controlled_peak_bytes = 170123856
+shared_headless_retained_bytes = 3344032
+shared_spatial_retained_bytes = 9396800
 resolved_policy_gate_rows = 2640
 resolved_policy_stream_rows = 2580
 hir_mir_counts = "unmeasured: private IR; accepted under the unchanged compiler profile"
@@ -40,32 +40,32 @@ max_retained_bytes = 2147483648
 max_scratch_bytes = 2147483648
 
 [files."common.lfre"]
-bytes = 1024
-sha256 = "82b8167c2a8bfb3b06f940d8e73c975d0935fb0841b9373387e8f9a422456109"
+bytes = 1312
+sha256 = "0a7fd33a5c1259d99ab95c622c6ec8017b6b32ceb2a85481c67abfa7ce44d45b"
 
 [files."config.toml"]
-bytes = 1300
-sha256 = "b04b9153596cc9bf28b38e341fd96c6cdaab2596384f8fe3d49e4a5308aa037d"
+bytes = 1970
+sha256 = "e1ac2e880fe6335e6322741ee4bbcf4e2cb52e0067e2fa0bd873de0a6e022566"
 
 [files."genesis.lfsd"]
-bytes = 48208730
-sha256 = "355092e3fc159723a7d376a6890a0f34e92120b67636a6e83473b3c239396815"
+bytes = 48209298
+sha256 = "04c71e8b2167d7fd25300ab970fe37f8c888e923c66438f4cc50ad6009c4b730"
 
 [files."network.lfca"]
-bytes = 44328051
-sha256 = "0ea88b2cf81557b58b2b5f7d62381654188e7ad0e5a7914b9d84e6e2c84ecdb9"
+bytes = 44328619
+sha256 = "fce35d9ea55f20113206ccaaa3232b0dea5b294b5255bd47b03036d64a9e93a7"
 
 [files."routes.toml"]
 bytes = 1914691
-sha256 = "d32687897e000c05f1a20470c74449ca14343be3e9b26552c23cd391019a2a94"
+sha256 = "b04b48b98a12484c378a0fa5495811a9aeff9db5ac0629a8ddd03d9684fc29c2"
 
 [files."source-map.lfsm"]
-bytes = 62461713
-sha256 = "aa09ed51169bc1a1a024b34f4a88367ae961fd1cb7ce3a31fa2bdb65ef0cd4cd"
+bytes = 62566213
+sha256 = "4995de0f82081c849df6f5b3e138841e7f4e9f01245ace02855464fb9e27a70f"
 
 [files."topology.lfre"]
-bytes = 8344104
-sha256 = "0209257ab47765dc6f0f679f9782640f60c63303335e3be869029ee9e29222ba"
+bytes = 8371472
+sha256 = "d7c985e5aa7179e2ba7522a327e30dcded789a6f851fc3fdfa7b0869adc3f115"
 
 [source_declarations]
 canonical-frame = 1
@@ -365,9 +365,10 @@ table = "VehicleProfile"
 rows = 3
 chunks = 1
 max_chunk_rows = 3
-max_chunk_bytes = 580
+max_chunk_bytes = 1108
 
 [lfca_tables.nested_rows]
+geometry = 3
 
 [[lfca_tables]]
 section = "CanonicalEntityTables"
@@ -536,6 +537,116 @@ max_chunk_bytes = 76
 
 [lfca_tables.nested_rows]
 
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationCorridor"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationAnchor"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationLane"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationEdge"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationSpan"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "StationBand"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "BoundaryExtent"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "LaneRoadway"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "SurfaceSpan"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "BoundaryRule"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
+[[lfca_tables]]
+section = "CorridorStationMapping"
+table = "BoundaryObstacle"
+rows = 0
+chunks = 0
+max_chunk_rows = 0
+max_chunk_bytes = 0
+
+[lfca_tables.nested_rows]
+
 [[lfsm_tables]]
 section = "SourceMapBindings"
 table = "SourceMapBindings"
@@ -573,7 +684,7 @@ table = "SourceLocation"
 rows = 163144
 chunks = 3
 max_chunk_rows = 65536
-max_chunk_bytes = 16777169
+max_chunk_bytes = 16776959
 
 [lfsm_tables.nested_rows]
 propertySteps = 185706

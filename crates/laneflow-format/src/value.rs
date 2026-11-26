@@ -1044,7 +1044,7 @@ fn validate_path_anchor(
 }
 
 fn validate_vehicle_profile(row: RowRef<'_>) -> Result<(), FormatError> {
-    require_u32_inclusive(
+    let length_mm = require_u32_inclusive(
         row.required(4)?,
         MIN_VEHICLE_LENGTH_MM,
         MAX_VEHICLE_LENGTH_MM,
@@ -1070,6 +1070,44 @@ fn validate_vehicle_profile(row: RowRef<'_>) -> Result<(), FormatError> {
     if emergency < comfort {
         return Err(row_binding_mismatch());
     }
+    validate_vehicle_geometry(row.required(11)?, length_mm, Some(row.required(1)?.u32()?))?;
+    Ok(())
+}
+
+// 在 LFCA 核对同一行的车长。LFSD 缺少另一字段的值，仅可核对任一合法车长能满足的关系。
+fn validate_vehicle_geometry(
+    field: FieldRef<'_>,
+    length_mm: u32,
+    profile: Option<u32>,
+) -> Result<(), FormatError> {
+    if vector_count(field, FormatStructure::RecordVector)? != 1 {
+        return Err(FormatError::VehicleGeometry {
+            profile,
+            field: None,
+            class: crate::FormatErrorClass::NonCanonicalValue,
+        });
+    }
+    visit_record_rows(field, |r| {
+        let geometry = laneflow_static_contract::RoadVehicleGeometry {
+            wheelbase_mm: r.required(1)?.u32()?,
+            track_width_mm: r.required(2)?.u32()?,
+            reference_height_mm: r.required(3)?.i32()?,
+            rear_overhang_mm: r.required(4)?.u32()?,
+            width_mm: r.required(5)?.u32()?,
+            bottom_height_mm: r.required(6)?.i32()?,
+            top_height_mm: r.required(7)?.i32()?,
+            max_steering_angle_rad: r.required(8)?.f32()?,
+            max_steering_rate_rad_s: r.required(9)?.f32()?,
+        };
+        if let Err(key) = geometry.validate(length_mm) {
+            return Err(FormatError::VehicleGeometry {
+                profile,
+                field: Some(key as u16),
+                class: crate::FormatErrorClass::NonCanonicalValue,
+            });
+        }
+        Ok(())
+    })?;
     Ok(())
 }
 
@@ -1169,7 +1207,7 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            require_exact_u32(frontend, if language == 2 { 7 } else { 5 })?;
+            require_exact_u32(frontend, if language == 2 { 8 } else { 6 })?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
             })?;
@@ -1664,6 +1702,7 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
         (26, 4) => Some(25),
         (31, 5) => Some(30),
         (33, 2) => Some(32),
+        (33, 4) => Some(52),
         (39, 3) => Some(38),
         (38, 1 | 2) => Some(37),
         (0, 28) => Some(34),
@@ -1675,9 +1714,9 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
 }
 
 fn table_field_max(container: u16) -> Option<u16> {
-    const MAX: [u16; 52] = [
+    const MAX: [u16; 53] = [
         29, 3, 5, 0, 2, 4, 2, 3, 1, 10, 5, 8, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2, 4, 2,
-        2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3, 8, 1, 1, 6, 2,
+        2, 7, 6, 4, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3, 8, 1, 1, 6, 2, 9,
     ];
     MAX.get(usize::from(container)).copied()
 }
@@ -1921,6 +1960,11 @@ fn validate_change_row(
         if !diff_field_tag_allowed(section, entity, tag) {
             return Err(unknown(row.required(6)?, u64::from(tag)));
         }
+        if section == 2 && entity == EntityKind::VehicleProfile && tag == 11 {
+            for side in [9, 10] {
+                validate_vehicle_geometry(row.required(side)?, MAX_VEHICLE_LENGTH_MM, None)?;
+            }
+        }
     }
     match (section, change) {
         (2, 2) | (5, 0) => {
@@ -1961,7 +2005,7 @@ fn diff_field_tag_allowed(section: u16, entity: EntityKind, tag: u16) -> bool {
             EntityKind::ParticipantClass => tag == 4,
             EntityKind::ParticipantStream => tag == 5,
             EntityKind::Movement => tag == 7,
-            EntityKind::VehicleProfile => (4..=10).contains(&tag),
+            EntityKind::VehicleProfile => (4..=11).contains(&tag),
             _ => false,
         },
         5 => match entity {
@@ -2338,6 +2382,160 @@ mod tests {
             bytes.extend_from_slice(row);
         }
         bytes
+    }
+
+    fn rigid_geometry_fields() -> Vec<Vec<u8>> {
+        use PortableFieldType::{F32, I32, U32};
+        [
+            (U32, 2600),
+            (U32, 1601),
+            (I32, 550),
+            (U32, 0),
+            (U32, 1601),
+            (I32, (-390_i32) as u32),
+            (I32, 900),
+            (F32, 0x3fc9_0fda),
+            (F32, 0),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (ty, bits))| field_bytes((i + 1) as u16, ty, &bits.to_le_bytes()))
+        .collect()
+    }
+
+    #[test]
+    fn vehicle_profile_requires_exactly_one_complete_rigid_geometry() {
+        use PortableFieldType::{F32, RecordVector, StableId128, U32};
+        let check = |geometry: Option<Vec<u8>>| {
+            let mut fields = vec![
+                field_bytes(1, U32, &0_u32.to_le_bytes()),
+                field_bytes(2, StableId128, &[3; 16]),
+                field_bytes(3, U32, &0_u32.to_le_bytes()),
+                field_bytes(4, U32, &4150_u32.to_le_bytes()),
+                field_bytes(5, U32, &10000_u32.to_le_bytes()),
+                field_bytes(6, U32, &0_u32.to_le_bytes()),
+            ];
+            for tag in 7..=10 {
+                fields.push(field_bytes(tag, F32, &1_f32.to_le_bytes()));
+            }
+            if let Some(value) = geometry {
+                fields.push(field_bytes(11, RecordVector, &value));
+            }
+            let kind = PortableObjectKind::CanonicalArtifact;
+            let bytes =
+                encoded_value_object_with_rows(kind, Some((3, 20, vec![row_bytes(&fields)])));
+            preflight_object_values(&bytes, kind, FormatLimits::HARD).map(|_| ())
+        };
+        let fields = rigid_geometry_fields();
+        let row = row_bytes(&fields);
+        let value = record_value(std::slice::from_ref(&row));
+        assert_eq!(value.len(), 164);
+        check(Some(value)).unwrap();
+        assert!(matches!(
+            check(None),
+            Err(FormatError::VehicleGeometry {
+                profile: Some(0),
+                field: None,
+                ..
+            })
+        ));
+        assert!(check(Some(record_value(&[]))).is_err());
+        assert!(check(Some(record_value(&[row.clone(), row]))).is_err());
+        for i in 0..9 {
+            let mut missing = fields.clone();
+            missing.remove(i);
+            assert!(matches!(check(Some(record_value(&[row_bytes(&missing)]))),
+                Err(FormatError::VehicleGeometry {profile:Some(0), field:Some(tag),..}) if usize::from(tag)==i+1));
+        }
+        for (tag, bits) in [
+            (1, 0),
+            (2, 0),
+            (2, 1602),
+            (4, 1551),
+            (4, u32::MAX),
+            (5, 0),
+            (7, (-390_i32) as u32),
+            (8, 0x3fc9_0fdb),
+            (8, (-0_f32).to_bits()),
+            (8, f32::NAN.to_bits()),
+            (9, (-1_f32).to_bits()),
+            (9, f32::INFINITY.to_bits()),
+        ] {
+            let mut bad = fields.clone();
+            bad[tag - 1][12..].copy_from_slice(&bits.to_le_bytes());
+            assert!(
+                matches!(
+                    check(Some(record_value(&[row_bytes(&bad)]))),
+                    Err(FormatError::VehicleGeometry {
+                        profile: Some(0),
+                        field: Some(_),
+                        ..
+                    })
+                ),
+                "tag {tag}, bits {bits:x}"
+            );
+        }
+    }
+
+    #[test]
+    fn vehicle_profile_diff_checks_both_complete_record_vectors_and_charges_their_budget() {
+        use PortableFieldType::{Bytes, StableId128, U8, U16};
+        let kind = PortableObjectKind::SemanticDiff;
+        let change = |sides: &[Vec<u8>]| {
+            let mut fields = vec![
+                field_bytes(1, U8, &[2]),
+                field_bytes(2, U16, &20_u16.to_le_bytes()),
+                field_bytes(4, StableId128, &[2; 16]),
+                field_bytes(6, U16, &11_u16.to_le_bytes()),
+            ];
+            for (i, v) in sides.iter().enumerate() {
+                fields.push(field_bytes(9 + i as u16, Bytes, v));
+            }
+            row_bytes(&fields)
+        };
+        let raw = |fields: &[Vec<u8>]| record_value(&[row_bytes(fields)]);
+        let mut fields = rigid_geometry_fields();
+        let before = raw(&fields);
+        fields[4][12..].copy_from_slice(&1900_u32.to_le_bytes());
+        let after = raw(&fields);
+        let row = change(&[before.clone(), after]);
+        validate_change_row(2, parse_test_row(&row), SemanticDiffBaseKind::Artifact).unwrap();
+        let encode = |row| encoded_value_object_with_rows(kind, Some((2, 1, vec![row])));
+        let bytes = encode(row);
+        let mut limits = FormatLimitConfig::HARD;
+        limits.max_total_vector_bytes = 328;
+        assert!(
+            preflight_object_registry(&bytes, kind, FormatLimits::try_new(limits).unwrap()).is_ok()
+        );
+        limits.max_total_vector_bytes -= 1;
+        assert_eq!(
+            preflight_object_registry(&bytes, kind, FormatLimits::try_new(limits).unwrap())
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::LimitExceeded
+        );
+        let missing_after = change(std::slice::from_ref(&before));
+        assert!(
+            preflight_object_registry(&encode(missing_after), kind, FormatLimits::HARD).is_err()
+        );
+        fields[4][12..].copy_from_slice(&1_u32.to_le_bytes());
+        assert!(
+            validate_change_row(
+                2,
+                parse_test_row(&change(&[before.clone(), raw(&fields)])),
+                SemanticDiffBaseKind::Artifact
+            )
+            .is_err()
+        );
+        fields[0][2] = PortableFieldType::I32 as u8;
+        assert!(
+            preflight_object_registry(
+                &encode(change(&[before, raw(&fields)])),
+                kind,
+                FormatLimits::HARD
+            )
+            .is_err()
+        );
     }
 
     fn ordinal_value(items: &[u32]) -> Vec<u8> {
@@ -3687,9 +3885,9 @@ mod tests {
 
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
-        const TABLE_FIELD_MAX: [u16; 47] = [
+        const TABLE_FIELD_MAX: [u16; 53] = [
             29, 3, 5, 0, 2, 4, 2, 3, 1, 10, 5, 8, 4, 3, 5, 5, 6, 5, 2, 1, 4, 1, 4, 4, 1, 3, 5, 2,
-            4, 2, 2, 7, 6, 3, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3,
+            4, 2, 2, 7, 6, 4, 5, 1, 2, 4, 2, 4, 6, 2, 4, 6, 5, 2, 3, 8, 1, 1, 6, 2, 9,
         ];
         const STRUCT_MEMBER_MAX: [u16; 5] = [0, 0, 2, 1, 1];
         const STRUCT_EDGES: &[(u16, u16, u16)] = &[
@@ -3720,6 +3918,7 @@ mod tests {
             (26, 4, 25),
             (31, 5, 30),
             (33, 2, 32),
+            (33, 4, 52),
             (39, 3, 38),
             (38, 1, 37),
             (38, 2, 37),

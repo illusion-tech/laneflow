@@ -1,7 +1,7 @@
-// LaneFlow 道路编辑来源缓冲区 v7。
+// LaneFlow 道路编辑来源缓冲区 v8。
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
-// 唯一性、曲线误差与资源上限由 LaneFlow 语义验证器执行。`format_version = 7`：
+// 唯一性、曲线误差与资源上限由 LaneFlow 语义验证器执行。`format_version = 8`：
 // 根表 field id 连续；`canonical_frames`、`conflict_zones`、`participant_streams` 与
 // `conflict_zone_regions` 分别为 id 25、26、27、28。无 `static_routes` 字段。
 // file identifier 仍 `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
@@ -440,11 +440,27 @@ table IidmVehicleProfile {
   emergency_deceleration_meters_per_second_squared:double = 0.0 (id: 6);
 }
 
+// 先校验 configuration，再按模型检查叶字段，区分缺项与显式零。
+table RoadVehicleGeometry {
+  wheelbase_m:double = null (id: 0);
+  track_width_m:double = null (id: 1);
+  reference_height_m:double = null (id: 2);
+  rear_overhang_m:double = null (id: 3);
+  width_m:double = null (id: 4);
+  bottom_height_m:double = null (id: 5);
+  top_height_m:double = null (id: 6);
+  max_steering_angle_rad:double = null (id: 7);
+  max_steering_rate_rad_s:double = null (id: 8);
+  // 1 刚性双轴前轮转向，2 半挂，3 全挂，4 铰接公交。未知值保留给来源诊断。
+  configuration:ubyte = null (id: 9);
+}
+
 table VehicleProfile {
   vehicle_profile_key:string (required, id: 0);
   participant_class:string (required, id: 1);
   iidm:IidmVehicleProfile (required, id: 2);
   canvas_selection:string (id: 3);
+  geometry:RoadVehicleGeometry (id: 4);
 }
 
 table CanonicalFrame {

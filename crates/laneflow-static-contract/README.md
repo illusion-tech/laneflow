@@ -4,7 +4,7 @@
 
 ## 职责与边界
 
-本 crate 提供封闭的标识、序号、格式常量和已经接受的数值边界，例如 `StableId128`、有类型稳定标识、有类型序号、`NetworkRevisionId`、`Sha256Digest` 和 `ExactByteLength`。Identity v1 的种类与字段标签、LFCA 6 / LFSM 7 / LFSD 5 / LFCP 2 的 magic 和版本也在这里。规范路网容量的维度、规模与容量值类型，以及 `sourceRelationRole` 角色登记及其规范关系容量归属，也由本 crate 提供；编译端与消费端各自实现规模投影。
+本 crate 提供封闭的标识、序号、格式常量和已经接受的数值边界，例如 `StableId128`、有类型稳定标识、有类型序号、`NetworkRevisionId`、`Sha256Digest` 和 `ExactByteLength`。Identity v1 的种类与字段标签、LFCA 7 / LFSM 8 / LFSD 6 / LFCP 2 的 magic 和版本也在这里。`RoadVehicleGeometry` 保存道路机动车型的单刚体毫米尺寸与规范转向上限。规范路网容量的维度、规模与容量值类型，以及 `sourceRelationRole` 角色登记及其规范关系容量归属，也由本 crate 提供。编译端与消费端各自实现规模投影。
 
 它不构造规范字节、不派生 BLAKE3、不解析来源、不做完整语义校验，也不持有运行时状态。路权策略类型只登记形状，不执行通行裁决。
 

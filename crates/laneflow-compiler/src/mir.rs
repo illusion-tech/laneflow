@@ -429,6 +429,7 @@ pub(crate) struct MirParticipantClass {
 }
 
 pub(crate) struct MirVehicleProfile {
+    pub(crate) geometry: laneflow_static_contract::RoadVehicleGeometry,
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: VehicleProfileId,
@@ -1730,6 +1731,7 @@ pub(crate) fn lower_to_mir_in(
                 hir.vehicle_profiles
                     .iter()
                     .map(|profile| MirVehicleProfile {
+                        geometry: profile.geometry,
                         module: hir_module_to_mir[profile.module.index()],
                         stable_key: Arc::clone(&profile.stable_key),
                         stable_id: profile.stable_id,

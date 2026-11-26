@@ -57,8 +57,8 @@ use super::synthetic_record::{
 
 /// 当前合成领域专用语言 `LFSOURCE` 来源记录编码版本。
 ///
-/// `5`：绑定 Identity revision 4 与 LFCA 5 的路权策略登记及来源映射。
-pub const SYNTHETIC_FRONTEND_VERSION: u32 = 5;
+/// 版本 6 在每个车型的来源记录中绑定构型、规范几何与转向限值。
+pub const SYNTHETIC_FRONTEND_VERSION: u32 = 6;
 mod policy;
 
 /// 官方合成领域专用语言 `LFSOURCE` 的受检来源模块构建器。
@@ -1785,6 +1785,15 @@ impl SyntheticModuleBuilder {
         )?;
         self.validate_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
         let iidm = admit_vehicle_profile_scalars(input, &span)?;
+        let geometry = input.geometry.canonical(iidm.length_mm).map_err(|error| {
+            DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
+                input.vehicle_profile_key,
+                error.field(),
+                error.value,
+                error.violation,
+                span.clone(),
+            ))
+        })?;
 
         let participant_class =
             self.own_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
@@ -1833,6 +1842,7 @@ impl SyntheticModuleBuilder {
                 ),
                 participant_class,
                 iidm,
+                geometry,
             },
         ));
         self.commit_declaration_resources(state);

@@ -1479,6 +1479,7 @@ fn portable_emitter_closes_every_current_relation_family_and_spatial_projection(
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -3645,6 +3646,7 @@ fn compiler_freezes_vehicle_profile_values_identity_and_class_source() {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -4337,6 +4339,7 @@ fn vehicle_profile_frontend_rejects_invalid_scalars_and_deceleration_order() {
     let mut iidm = canonical_iidm_profile();
     iidm.min_gap_meters = -0.1;
     let diagnostics = match invalid_scalar.add_vehicle_profile(VehicleProfileInput {
+        geometry: crate::regular_profile_tests::CAR_GEOMETRY,
         vehicle_profile_key: "invalid-gap",
         participant_class: ParticipantClassReference::local("car"),
         iidm,
@@ -4359,6 +4362,7 @@ fn vehicle_profile_frontend_rejects_invalid_scalars_and_deceleration_order() {
     let mut iidm = canonical_iidm_profile();
     iidm.emergency_deceleration_meters_per_second_squared = 1.0;
     let diagnostics = match invalid_order.add_vehicle_profile(VehicleProfileInput {
+        geometry: crate::regular_profile_tests::CAR_GEOMETRY,
         vehicle_profile_key: "invalid-order",
         participant_class: ParticipantClassReference::local("car"),
         iidm,
@@ -4381,6 +4385,7 @@ fn vehicle_profile_frontend_rejects_invalid_scalars_and_deceleration_order() {
     let mut iidm = canonical_iidm_profile();
     iidm.max_acceleration_meters_per_second_squared = 0.499;
     let diagnostics = match invalid_accel.add_vehicle_profile(VehicleProfileInput {
+        geometry: crate::regular_profile_tests::CAR_GEOMETRY,
         vehicle_profile_key: "invalid-accel",
         participant_class: ParticipantClassReference::local("car"),
         iidm,
@@ -4399,6 +4404,7 @@ fn vehicle_profile_unknown_participant_class_fails_during_hir_resolution() {
     let mut builder = access_builder("vehicle-profile-unknown-class.document");
     builder
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("missing"),
             iidm: canonical_iidm_profile(),

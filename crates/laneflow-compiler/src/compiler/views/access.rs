@@ -109,6 +109,12 @@ impl CanonicalVehicleProfileView<'_> {
     pub const fn emergency_deceleration_meters_per_second_squared(&self) -> f32 {
         self.record.emergency_deceleration_meters_per_second_squared
     }
+
+    /// 返回在车型总长下受检的刚性双轴几何及转向限值。
+    #[must_use]
+    pub const fn geometry(&self) -> laneflow_static_contract::RoadVehicleGeometry {
+        self.record.geometry
+    }
 }
 
 /// Canonical LIR 中一条准入规则的有类型静态目标。

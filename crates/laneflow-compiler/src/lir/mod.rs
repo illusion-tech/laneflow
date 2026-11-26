@@ -1586,6 +1586,7 @@ fn semantic_digest(
         ] {
             hasher.update(&value.to_bits().to_le_bytes());
         }
+        hasher.update(&crate::vehicle_geometry::canonical_words(profile.geometry));
     }
     hash_u32(&mut hasher, EntityKind::CanonicalFrame.code().into());
     hash_u32(

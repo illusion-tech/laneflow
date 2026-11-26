@@ -9178,6 +9178,255 @@ impl ::core::fmt::Debug for IidmVehicleProfile<'_> {
       ds.finish()
   }
 }
+pub enum RoadVehicleGeometryOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct RoadVehicleGeometry<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for RoadVehicleGeometry<'a> {
+  type Inner = RoadVehicleGeometry<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> RoadVehicleGeometry<'a> {
+  pub const VT_WHEELBASE_M: ::flatbuffers::VOffsetT = 4;
+  pub const VT_TRACK_WIDTH_M: ::flatbuffers::VOffsetT = 6;
+  pub const VT_REFERENCE_HEIGHT_M: ::flatbuffers::VOffsetT = 8;
+  pub const VT_REAR_OVERHANG_M: ::flatbuffers::VOffsetT = 10;
+  pub const VT_WIDTH_M: ::flatbuffers::VOffsetT = 12;
+  pub const VT_BOTTOM_HEIGHT_M: ::flatbuffers::VOffsetT = 14;
+  pub const VT_TOP_HEIGHT_M: ::flatbuffers::VOffsetT = 16;
+  pub const VT_MAX_STEERING_ANGLE_RAD: ::flatbuffers::VOffsetT = 18;
+  pub const VT_MAX_STEERING_RATE_RAD_S: ::flatbuffers::VOffsetT = 20;
+  pub const VT_CONFIGURATION: ::flatbuffers::VOffsetT = 22;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    RoadVehicleGeometry { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args RoadVehicleGeometryArgs
+  ) -> ::flatbuffers::WIPOffset<RoadVehicleGeometry<'bldr>> {
+    let mut builder = RoadVehicleGeometryBuilder::new(_fbb);
+    if let Some(x) = args.max_steering_rate_rad_s { builder.add_max_steering_rate_rad_s(x); }
+    if let Some(x) = args.max_steering_angle_rad { builder.add_max_steering_angle_rad(x); }
+    if let Some(x) = args.top_height_m { builder.add_top_height_m(x); }
+    if let Some(x) = args.bottom_height_m { builder.add_bottom_height_m(x); }
+    if let Some(x) = args.width_m { builder.add_width_m(x); }
+    if let Some(x) = args.rear_overhang_m { builder.add_rear_overhang_m(x); }
+    if let Some(x) = args.reference_height_m { builder.add_reference_height_m(x); }
+    if let Some(x) = args.track_width_m { builder.add_track_width_m(x); }
+    if let Some(x) = args.wheelbase_m { builder.add_wheelbase_m(x); }
+    if let Some(x) = args.configuration { builder.add_configuration(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn wheelbase_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_WHEELBASE_M, None)}
+  }
+  #[inline]
+  pub fn track_width_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_TRACK_WIDTH_M, None)}
+  }
+  #[inline]
+  pub fn reference_height_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_REFERENCE_HEIGHT_M, None)}
+  }
+  #[inline]
+  pub fn rear_overhang_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_REAR_OVERHANG_M, None)}
+  }
+  #[inline]
+  pub fn width_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_WIDTH_M, None)}
+  }
+  #[inline]
+  pub fn bottom_height_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_BOTTOM_HEIGHT_M, None)}
+  }
+  #[inline]
+  pub fn top_height_m(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_TOP_HEIGHT_M, None)}
+  }
+  #[inline]
+  pub fn max_steering_angle_rad(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_MAX_STEERING_ANGLE_RAD, None)}
+  }
+  #[inline]
+  pub fn max_steering_rate_rad_s(&self) -> Option<f64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(RoadVehicleGeometry::VT_MAX_STEERING_RATE_RAD_S, None)}
+  }
+  #[inline]
+  pub fn configuration(&self) -> Option<u8> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u8>(RoadVehicleGeometry::VT_CONFIGURATION, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for RoadVehicleGeometry<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<f64>("wheelbase_m", Self::VT_WHEELBASE_M, false)?
+     .visit_field::<f64>("track_width_m", Self::VT_TRACK_WIDTH_M, false)?
+     .visit_field::<f64>("reference_height_m", Self::VT_REFERENCE_HEIGHT_M, false)?
+     .visit_field::<f64>("rear_overhang_m", Self::VT_REAR_OVERHANG_M, false)?
+     .visit_field::<f64>("width_m", Self::VT_WIDTH_M, false)?
+     .visit_field::<f64>("bottom_height_m", Self::VT_BOTTOM_HEIGHT_M, false)?
+     .visit_field::<f64>("top_height_m", Self::VT_TOP_HEIGHT_M, false)?
+     .visit_field::<f64>("max_steering_angle_rad", Self::VT_MAX_STEERING_ANGLE_RAD, false)?
+     .visit_field::<f64>("max_steering_rate_rad_s", Self::VT_MAX_STEERING_RATE_RAD_S, false)?
+     .visit_field::<u8>("configuration", Self::VT_CONFIGURATION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct RoadVehicleGeometryArgs {
+    pub wheelbase_m: Option<f64>,
+    pub track_width_m: Option<f64>,
+    pub reference_height_m: Option<f64>,
+    pub rear_overhang_m: Option<f64>,
+    pub width_m: Option<f64>,
+    pub bottom_height_m: Option<f64>,
+    pub top_height_m: Option<f64>,
+    pub max_steering_angle_rad: Option<f64>,
+    pub max_steering_rate_rad_s: Option<f64>,
+    pub configuration: Option<u8>,
+}
+impl<'a> Default for RoadVehicleGeometryArgs {
+  #[inline]
+  fn default() -> Self {
+    RoadVehicleGeometryArgs {
+      wheelbase_m: None,
+      track_width_m: None,
+      reference_height_m: None,
+      rear_overhang_m: None,
+      width_m: None,
+      bottom_height_m: None,
+      top_height_m: None,
+      max_steering_angle_rad: None,
+      max_steering_rate_rad_s: None,
+      configuration: None,
+    }
+  }
+}
+
+pub struct RoadVehicleGeometryBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadVehicleGeometryBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_wheelbase_m(&mut self, wheelbase_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_WHEELBASE_M, wheelbase_m);
+  }
+  #[inline]
+  pub fn add_track_width_m(&mut self, track_width_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_TRACK_WIDTH_M, track_width_m);
+  }
+  #[inline]
+  pub fn add_reference_height_m(&mut self, reference_height_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_REFERENCE_HEIGHT_M, reference_height_m);
+  }
+  #[inline]
+  pub fn add_rear_overhang_m(&mut self, rear_overhang_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_REAR_OVERHANG_M, rear_overhang_m);
+  }
+  #[inline]
+  pub fn add_width_m(&mut self, width_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_WIDTH_M, width_m);
+  }
+  #[inline]
+  pub fn add_bottom_height_m(&mut self, bottom_height_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_BOTTOM_HEIGHT_M, bottom_height_m);
+  }
+  #[inline]
+  pub fn add_top_height_m(&mut self, top_height_m: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_TOP_HEIGHT_M, top_height_m);
+  }
+  #[inline]
+  pub fn add_max_steering_angle_rad(&mut self, max_steering_angle_rad: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_MAX_STEERING_ANGLE_RAD, max_steering_angle_rad);
+  }
+  #[inline]
+  pub fn add_max_steering_rate_rad_s(&mut self, max_steering_rate_rad_s: f64) {
+    self.fbb_.push_slot_always::<f64>(RoadVehicleGeometry::VT_MAX_STEERING_RATE_RAD_S, max_steering_rate_rad_s);
+  }
+  #[inline]
+  pub fn add_configuration(&mut self, configuration: u8) {
+    self.fbb_.push_slot_always::<u8>(RoadVehicleGeometry::VT_CONFIGURATION, configuration);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RoadVehicleGeometryBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    RoadVehicleGeometryBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<RoadVehicleGeometry<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for RoadVehicleGeometry<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("RoadVehicleGeometry");
+      ds.field("wheelbase_m", &self.wheelbase_m());
+      ds.field("track_width_m", &self.track_width_m());
+      ds.field("reference_height_m", &self.reference_height_m());
+      ds.field("rear_overhang_m", &self.rear_overhang_m());
+      ds.field("width_m", &self.width_m());
+      ds.field("bottom_height_m", &self.bottom_height_m());
+      ds.field("top_height_m", &self.top_height_m());
+      ds.field("max_steering_angle_rad", &self.max_steering_angle_rad());
+      ds.field("max_steering_rate_rad_s", &self.max_steering_rate_rad_s());
+      ds.field("configuration", &self.configuration());
+      ds.finish()
+  }
+}
 pub enum VehicleProfileOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9198,6 +9447,7 @@ impl<'a> VehicleProfile<'a> {
   pub const VT_PARTICIPANT_CLASS: ::flatbuffers::VOffsetT = 6;
   pub const VT_IIDM: ::flatbuffers::VOffsetT = 8;
   pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 10;
+  pub const VT_GEOMETRY: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -9209,6 +9459,7 @@ impl<'a> VehicleProfile<'a> {
     args: &'args VehicleProfileArgs<'args>
   ) -> ::flatbuffers::WIPOffset<VehicleProfile<'bldr>> {
     let mut builder = VehicleProfileBuilder::new(_fbb);
+    if let Some(x) = args.geometry { builder.add_geometry(x); }
     if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
     if let Some(x) = args.iidm { builder.add_iidm(x); }
     if let Some(x) = args.participant_class { builder.add_participant_class(x); }
@@ -9245,6 +9496,13 @@ impl<'a> VehicleProfile<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(VehicleProfile::VT_CANVAS_SELECTION, None)}
   }
+  #[inline]
+  pub fn geometry(&self) -> Option<RoadVehicleGeometry<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<RoadVehicleGeometry>>(VehicleProfile::VT_GEOMETRY, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for VehicleProfile<'_> {
@@ -9257,6 +9515,7 @@ impl ::flatbuffers::Verifiable for VehicleProfile<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("participant_class", Self::VT_PARTICIPANT_CLASS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<IidmVehicleProfile>>("iidm", Self::VT_IIDM, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<RoadVehicleGeometry>>("geometry", Self::VT_GEOMETRY, false)?
      .finish();
     Ok(())
   }
@@ -9266,6 +9525,7 @@ pub struct VehicleProfileArgs<'a> {
     pub participant_class: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub iidm: Option<::flatbuffers::WIPOffset<IidmVehicleProfile<'a>>>,
     pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub geometry: Option<::flatbuffers::WIPOffset<RoadVehicleGeometry<'a>>>,
 }
 impl<'a> Default for VehicleProfileArgs<'a> {
   #[inline]
@@ -9275,6 +9535,7 @@ impl<'a> Default for VehicleProfileArgs<'a> {
       participant_class: None, // required field
       iidm: None, // required field
       canvas_selection: None,
+      geometry: None,
     }
   }
 }
@@ -9301,6 +9562,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> VehicleProfileBuilder<'a, 'b,
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(VehicleProfile::VT_CANVAS_SELECTION, canvas_selection);
   }
   #[inline]
+  pub fn add_geometry(&mut self, geometry: ::flatbuffers::WIPOffset<RoadVehicleGeometry<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<RoadVehicleGeometry>>(VehicleProfile::VT_GEOMETRY, geometry);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> VehicleProfileBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     VehicleProfileBuilder {
@@ -9325,6 +9590,7 @@ impl ::core::fmt::Debug for VehicleProfile<'_> {
       ds.field("participant_class", &self.participant_class());
       ds.field("iidm", &self.iidm());
       ds.field("canvas_selection", &self.canvas_selection());
+      ds.field("geometry", &self.geometry());
       ds.finish()
   }
 }

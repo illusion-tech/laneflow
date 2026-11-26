@@ -45,7 +45,7 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/2f3b7fd1e6566a0ba8d232862b0b3ad17b6788c76e74c1a2e3de593eec36bdc3"
+        "sha256/795d614f7ea7e1bde740b89b3b976ee98ed166c939a0b3ea5dc703ffb10a9641"
     );
     assert_eq!(
         candidate.network_revision(),
@@ -86,7 +86,7 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     for tag in [5, 9] {
         assert!(matches!(
             binding.field_by_tag(tag).unwrap().value().unwrap(),
-            laneflow_format::RegistryCheckedFieldValue::U64(30_440)
+            laneflow_format::RegistryCheckedFieldValue::U64(30_616)
         ));
     }
     for section_ordinal in 1..8 {

@@ -10,7 +10,7 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 7;
+const FORMAT_VERSION: u32 = 8;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -624,7 +624,9 @@ fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
     for value in root.access_rules() {
         count = count.saturating_add(1 + u64::from(value.regulation().is_some()));
     }
-    count = count.saturating_add(len_u64(root.vehicle_profiles()).saturating_mul(2));
+    for value in root.vehicle_profiles() {
+        count = count.saturating_add(2 + u64::from(value.geometry().is_some()));
+    }
     count = count.saturating_add(len_u64(root.canonical_frames()));
     count = count.saturating_add(len_u64(root.conflict_zones()));
     for value in root.participant_streams() {
@@ -1566,7 +1568,7 @@ mod tests {
         let limits = CompileProfile::single_network_10k_stable_entities();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
-        for old in [1, 4, 5, 6, 8] {
+        for old in [1, 4, 5, 6, 7, 9] {
             overwrite_format_version(&mut bytes, old);
             let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
@@ -1576,7 +1578,7 @@ mod tests {
                 first_diagnostic(&error).payload(),
                 DiagnosticPayload::InvalidRoadEditingSource {
                     violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                        expected: 7,
+                        expected: 8,
                         actual
                     },
                     ..

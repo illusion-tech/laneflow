@@ -472,6 +472,8 @@ pub struct VehicleProfileInput<'a> {
     pub participant_class: ParticipantClassReference<'a>,
     /// 当前道路机动车执行域采用的 IIDM 静态参数。
     pub iidm: IidmVehicleProfileInput,
+    /// 该车型必需的几何与前轮转向限值。
+    pub geometry: crate::RoadVehicleGeometryInput,
 }
 
 /// 已量化到规范 `f32` 空间的一点，单位为米。
@@ -779,6 +781,10 @@ pub enum ScalarViolation {
     },
     /// 有限输入无法量化到目标整数单位。
     QuantizeFailed,
+    /// 该来源构型不能由首版刚性双轴模型表示。
+    UnsupportedVehicleConfiguration,
+    /// 车型几何数值或量化后字段关系违反车型合同。
+    VehicleGeometryConstraint,
 }
 
 /// 所有受检 Typed AST 声明共享的身份与诊断上下文。
@@ -1280,6 +1286,7 @@ pub(crate) struct VehicleProfileDeclaration {
     pub(crate) header: DeclarationHeader,
     pub(crate) participant_class: OwnedEntityReference<ParticipantClassKind>,
     pub(crate) iidm: AdmittedIidmProfile,
+    pub(crate) geometry: laneflow_static_contract::RoadVehicleGeometry,
 }
 
 /// 已通过字段级检查、等待冻结稳定身份的规范坐标框架 Typed AST 记录。
@@ -1693,6 +1700,7 @@ impl TypedAstDeclaration {
                 header,
                 participant_class,
                 iidm: _,
+                geometry: _,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_reference(participant_class, &mut visit)?;

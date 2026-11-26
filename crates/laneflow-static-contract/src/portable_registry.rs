@@ -1,6 +1,6 @@
 //! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录当前 LFCA 6、LFSM 7、LFSD 5 与 LFCP 的线格式形状。它是可供 emitter 与
+//! 本模块逐项转录当前 LFCA 7、LFSM 8、LFSD 6 与 LFCP 的线格式形状。它是可供 emitter 与
 //! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
 
@@ -61,6 +61,8 @@ pub enum PortableRowShape {
     },
     /// LFSD 策略局部变更：tag 1 选择侧，tag 3 选择 Bytes 中完整 RowV1 的登记。
     PolicyLocalChange,
+    /// LFSD 实体变更。修改车型几何时，两侧值须包含完整的单刚体记录。
+    EntityChange,
 }
 
 impl PortableRowShape {
@@ -71,6 +73,7 @@ impl PortableRowShape {
             Self::Uniform => None,
             Self::DiscriminatedU8 { tag, variants } => Some((tag, variants)),
             Self::PolicyLocalChange => Some((1, POLICY_LOCAL_CHANGE_VARIANTS)),
+            Self::EntityChange => Some((1, ENTITY_CHANGE_VARIANTS)),
         }
     }
 }
@@ -558,6 +561,27 @@ const ACCESS_RULE_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
+/// 车型 tag 11 内单刚体几何的 RowV1。LFSD 的前后值使用同一登记。
+pub const ROAD_VEHICLE_GEOMETRY_ROW: PortableRowSchema = PortableRowSchema {
+    fields: &[
+        field(1, "wheelbaseMillimetres", PortableFieldType::U32, R),
+        field(2, "trackWidthMillimetres", PortableFieldType::U32, R),
+        field(3, "referenceHeightMillimetres", PortableFieldType::I32, R),
+        field(4, "rearOverhangMillimetres", PortableFieldType::U32, R),
+        field(5, "widthMillimetres", PortableFieldType::U32, R),
+        field(6, "bottomHeightMillimetres", PortableFieldType::I32, R),
+        field(7, "topHeightMillimetres", PortableFieldType::I32, R),
+        field(8, "maxSteeringAngleRadians", PortableFieldType::F32, R),
+        field(
+            9,
+            "maxSteeringRateRadiansPerSecond",
+            PortableFieldType::F32,
+            R,
+        ),
+    ],
+    shape: PortableRowShape::Uniform,
+};
+
 const VEHICLE_PROFILE_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
@@ -589,6 +613,7 @@ const VEHICLE_PROFILE_FIELDS: &[PortableFieldSchema] = &[
         PortableFieldType::F32,
         R,
     ),
+    record_field(11, "geometry", R, &ROAD_VEHICLE_GEOMETRY_ROW),
 ];
 const VEHICLE_PROFILE_ROW: PortableRowSchema = PortableRowSchema {
     fields: VEHICLE_PROFILE_FIELDS,
@@ -1296,10 +1321,7 @@ const ENTITY_CHANGE_VARIANTS: &[PortableRowVariant] = &[
 ];
 const ENTITY_CHANGE_ROW: PortableRowSchema = PortableRowSchema {
     fields: ENTITY_CHANGE_FIELDS,
-    shape: PortableRowShape::DiscriminatedU8 {
-        tag: 1,
-        variants: ENTITY_CHANGE_VARIANTS,
-    },
+    shape: PortableRowShape::EntityChange,
 };
 
 const RELATION_CHANGE_FIELDS: &[PortableFieldSchema] = &[
@@ -1805,7 +1827,8 @@ mod tests {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
         // LFCA 5 / LFSD 4 的新增行另按路权实施合同 §4.1/§4.3 逐 tag/type/presence 复核。
-        assert_eq!(appendix_registry_fingerprint(), 0xdc10_689a_09b7_dba7);
+        // LFCA 7 和 LFSD 6 逐项核对车型 tag 11 的九个字段和变更行的存在矩阵。
+        assert_eq!(appendix_registry_fingerprint(), 0x912c_3c44_06db_6e9a);
     }
 
     #[test]

@@ -152,7 +152,6 @@ fn compile_network_lfca_inner(
         &limits,
     )?;
 
-    add_profiles(&mut builder, traffic)?;
     builder.add_declaration(re::RoadEditingDeclaration::CanonicalFrame(
         re::CanonicalFrameInput::try_new(LUST_FRAME_ID)?,
     ))?;
@@ -189,6 +188,7 @@ fn compile_network_lfca_inner(
     // 诊断清单模式：compiler 阶段跳过（诊断用占位曲线不进入验收），交付
     // 确定性渲染的诊断清单。`diagnostics` 为本次转换局部收集器，此处随
     // 返回消费；错误路径由调用方整体丢弃，无残留。
+    add_profiles(&mut builder, traffic, report.is_some())?;
     if let Some((source, survey_base)) = report {
         let entries = diagnostic_entries
             .take()
@@ -332,6 +332,7 @@ fn direct_successors(
 fn add_profiles(
     builder: &mut re::RoadEditingSourceModuleBuilder<'_>,
     traffic: &TrafficPackage,
+    survey_only: bool,
 ) -> Result<()> {
     builder.add_declaration(re::RoadEditingDeclaration::ParticipantClass(
         re::ParticipantClassInput::try_new(PARTICIPANT_CLASS_PARENT_KEY)?,
@@ -342,19 +343,31 @@ fn add_profiles(
         ),
     ))?;
     for profile in &traffic.vehicle_profiles {
+        let iidm = re::IidmVehicleProfileInput::try_new(
+            profile.length,
+            profile.desired_speed,
+            profile.min_gap,
+            profile.time_headway,
+            profile.max_acceleration,
+            profile.comfortable_deceleration,
+            profile.emergency_deceleration,
+        )?;
+        let Some(geometry) = profile.geometry else {
+            // The geometry survey consumes roads only. It publishes no vehicle or LFCA.
+            if survey_only {
+                continue;
+            }
+            return Err(Error::SumoModel(format!(
+                "vType {}: missing laneflow.geometry.configuration and vehicle geometry",
+                profile.id
+            )));
+        };
         builder.add_declaration(re::RoadEditingDeclaration::VehicleProfile(
             re::VehicleProfileInput::try_new(
                 id_key(&profile.id),
                 re::ParticipantClassReference::local(PARTICIPANT_CLASS_KEY)?,
-                re::IidmVehicleProfileInput::try_new(
-                    profile.length,
-                    profile.desired_speed,
-                    profile.min_gap,
-                    profile.time_headway,
-                    profile.max_acceleration,
-                    profile.comfortable_deceleration,
-                    profile.emergency_deceleration,
-                )?,
+                iidm,
+                geometry,
             )?,
         ))?;
     }

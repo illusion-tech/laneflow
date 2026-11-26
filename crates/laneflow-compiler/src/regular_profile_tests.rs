@@ -17,7 +17,7 @@ const ADMISSION_BOUNDARIES: [(D, u32, usize); 16] = [
     (D::ModuleCount, 18, 4),
     (D::SourceDocumentCount, 18, 4),
     (D::ImportEdgeCount, 17, 4),
-    (D::SourceBytesTotal, 8_729_266, 10),
+    (D::SourceBytesTotal, 8_729_303, 10),
     (D::DeclarationCount, 10_000, 0),
     (D::TypedAstRecordCount, 381_284, 10),
     (D::ReferenceCount, 77_602, 10),
@@ -31,7 +31,7 @@ const ADMISSION_BOUNDARIES: [(D, u32, usize); 16] = [
     (D::WaitingZoneCount, 399, 0),
     (D::GeometryPointCount, 128_511, 6),
 ];
-const SOURCE_BYTES_PER_MODULE: u32 = 6_802_717;
+const SOURCE_BYTES_PER_MODULE: u32 = 6_802_754;
 const HIR_RECORDS: u32 = 535_412;
 const MIR_RECORDS: u32 = 395_015;
 const LIR_RECORDS: u32 = 396_669;
@@ -148,7 +148,7 @@ fn source_module_bytes_and_single_string_have_distinct_boundaries() {
         SOURCE_BYTES_PER_MODULE
     );
     let narrow =
-        candidate_limits().with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE - 1, 8_729_266);
+        candidate_limits().with_test_source_byte_limits(SOURCE_BYTES_PER_MODULE - 1, 8_729_303);
     let error = build_synthetic_module(&narrow, shape, 0, false)
         .err()
         .expect("source byte boundary");
@@ -452,3 +452,17 @@ fn combined_policy_diff_fits_256_mib_and_budget_failure_allows_reuse() {
     check_portable_candidate(retry, FormatLimits::HARD).unwrap();
     check_portable_candidate(base, FormatLimits::HARD).unwrap();
 }
+
+/// 编制器测试用刚性双轴乘用车。
+pub(crate) const CAR_GEOMETRY: crate::RoadVehicleGeometryInput =
+    crate::RoadVehicleGeometryInput::RigidTwoAxle(crate::RigidTwoAxleGeometryInput {
+        wheelbase_m: 2.6,
+        track_width_m: 1.6,
+        reference_height_m: 0.35,
+        rear_overhang_m: 0.75,
+        width_m: 1.9,
+        bottom_height_m: -0.15,
+        top_height_m: 1.15,
+        max_steering_angle_rad: 0.6,
+        max_steering_rate_rad_s: 0.7,
+    });

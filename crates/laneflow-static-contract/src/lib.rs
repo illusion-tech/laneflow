@@ -13,6 +13,7 @@ mod registry;
 mod station;
 mod typed;
 mod values;
+mod vehicle_geometry;
 
 pub use canonical_capacity::{
     CanonicalNetworkCapacity, CanonicalNetworkCapacityExceeded, CanonicalNetworkDimension,
@@ -36,7 +37,8 @@ pub use portable::{
 pub use portable_registry::{
     PortableFieldPresence, PortableFieldSchema, PortableObjectSchema, PortableRowCardinality,
     PortableRowSchema, PortableRowShape, PortableRowVariant, PortableSectionSchema,
-    PortableTableSchema, policy_local_value_schema, portable_field_mask, portable_object_schema,
+    PortableTableSchema, ROAD_VEHICLE_GEOMETRY_ROW, policy_local_value_schema, portable_field_mask,
+    portable_object_schema,
 };
 
 pub use policy::{
@@ -80,3 +82,4 @@ pub use values::{
     heading_f32_from_si, heading_f32_in_legal_closure, millimetres_from_si,
     millimetres_i32_from_si,
 };
+pub use vehicle_geometry::{RoadVehicleGeometry, RoadVehicleGeometryField};

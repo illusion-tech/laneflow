@@ -310,6 +310,7 @@ fn ring_candidate(
         })
         .expect("participant class")
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: IidmVehicleProfileInput {

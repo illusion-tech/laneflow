@@ -27,6 +27,16 @@ all_red_ms = 1008
 
 [profile]
 length_meters = 4.5
+configuration = 1
+wheelbase_m = 2.6
+track_width_m = 1.6
+reference_height_m = 0.35
+rear_overhang_m = 0.75
+width_m = 2.0
+bottom_height_m = -0.15
+top_height_m = 1.15
+max_steering_angle_rad = 0.6
+max_steering_rate_rad_s = 0.7
 desired_speed_meters_per_second = 16.0
 min_gap_meters = 2.0
 time_headway_seconds = 1.5

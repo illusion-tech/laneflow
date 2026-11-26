@@ -4,7 +4,7 @@ LaneFlow 可移植对象的线格式 crate。它检查并编码 `LFCA`、`LFSM`�
 
 ## 职责与边界
 
-当前只承认 LFCA / LFSM / LFSD 组合 `5/4/4`，以及 LFCP 2。`check_canonical_network_input` 对一份已经通过宿主准入的 LFCA 重算 digest、精确长度和 `NetworkRevisionId`，得到 `CheckedCanonicalNetworkInput`。这是 `laneflow-static-network` 的唯一构建输入。
+当前只承认 LFCA / LFSM / LFSD 组合 `7/8/6`，以及 LFCP 2。`check_canonical_network_input` 对一份已经通过宿主准入的 LFCA 重算 digest、精确长度和 `NetworkRevisionId`，得到 `CheckedCanonicalNetworkInput`。这是 `laneflow-static-network` 的唯一构建输入。
 
 检查分层是：对象框架、附录登记形状、不依赖外部对象的直接值域，然后才是上述受检路网输入。更早的视图不证明跨表引用、语义差异完备性或发布真实性。共享修订建成之后不再借用输入字节。
 

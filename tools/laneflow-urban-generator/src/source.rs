@@ -184,6 +184,7 @@ fn generate_source_inner(
                 &profile.key,
                 re::ParticipantClassReference::local("road-vehicle")?,
                 profile.iidm()?,
+                profile.geometry()?,
             )?,
         ))?;
     }

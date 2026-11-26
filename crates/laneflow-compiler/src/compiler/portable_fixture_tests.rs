@@ -331,6 +331,7 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: crate::regular_profile_tests::CAR_GEOMETRY,
             vehicle_profile_key: "standard-car",
             participant_class: ParticipantClassReference::local("passenger-car"),
             iidm: canonical_iidm_profile(),
@@ -763,8 +764,8 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0xfd, 0x76, 0x46, 0x9c, 0xbd, 0xfc, 0x03, 0x02, 0xbc, 0xcb, 0x6a, 0x58, 0xef, 0x11, 0xb8, 0x82,
-    0xd7, 0xec, 0x72, 0x05, 0x61, 0xc9, 0xef, 0x66, 0xdf, 0x14, 0x7e, 0x7d, 0xfb, 0xe6, 0x41, 0xe5,
+    0xa1, 0x2f, 0x29, 0x64, 0xc9, 0xeb, 0x44, 0xa7, 0x4e, 0x19, 0x00, 0x39, 0x06, 0x4e, 0x9a, 0x08,
+    0xab, 0xc3, 0x40, 0x77, 0xe4, 0x3a, 0xce, 0xc9, 0x7c, 0x12, 0x4b, 0x64, 0x88, 0xa6, 0x80, 0x1a,
 ];
 
 #[test]
@@ -814,15 +815,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/e480da06928340386ca989d952d13a09d990d33bb88d4dc55cc83911094f4378"
+        "sha256/2d6191c72c9491a1629c63d91a1e860c79e0c82bdc70ac2666e0cb8c3b28828d"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/c4149ed193afe2313a58f65f5c6d3d4dc74fb1d1466fc962ba43a95441a53fd7"
+        "sha256/de5c91327fa910d2f8b6ea20eceb0ced02adbe8d121d857facf3e1afa67f0b1e"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/8aa3abb38fe890536bb92373cb312934bbcc7de2a5153f466f0394d12ec8d330"
+        "sha256/d868ad06eddfb4d937145799f705f9bfed36648ce89069beb299ba5eb6636ce1"
     );
     assert_eq!(
         candidate.network_revision(),

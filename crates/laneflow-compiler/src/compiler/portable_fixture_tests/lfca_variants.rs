@@ -7,8 +7,8 @@ const MIN_HEADLESS_BUILD_ID: &str = "laneflow-fixture-298-min-headless-v1";
 const VARIANT_BUILD_ID: &str = "laneflow-fixture-298-variants-v1";
 const VARIANT_ALTERNATE_BUILD_ID: &str = "laneflow-fixture-298-variants-v2";
 const MIN_HEADLESS_REVISION: [u8; 32] = [
-    0xe9, 0x30, 0x24, 0x43, 0xae, 0x5d, 0x3a, 0x49, 0xd4, 0x68, 0x13, 0xb6, 0x62, 0x65, 0x95, 0x20,
-    0x34, 0x7b, 0xd9, 0xff, 0x67, 0x88, 0x2a, 0x1e, 0x8e, 0xe3, 0x12, 0x87, 0xe3, 0xfc, 0xf4, 0x6b,
+    0x55, 0x03, 0x1a, 0x5b, 0x2f, 0x49, 0xbd, 0x31, 0x27, 0x2e, 0x30, 0x1b, 0xca, 0x8e, 0x3e, 0x40,
+    0x2a, 0x99, 0x00, 0x79, 0x09, 0xeb, 0x9c, 0x9d, 0xde, 0x9c, 0x47, 0xae, 0x17, 0xdd, 0x1f, 0xf9,
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
@@ -28,25 +28,25 @@ const CLAIM_MISMATCH_EXPECTED: &[u8] =
 
 const MIN_HEADLESS_LENGTH: u64 = 1_271;
 const MIN_HEADLESS_KEY: &str =
-    "sha256/6399e93ee7afa73d1ed02bd8b07754b8bfb2a3e48bd989fd248495546ce6fe1c";
+    "sha256/404ef07a2359a42b6232f1ed559370cb58b27d9cd09d1745683dcf7237f0bfd0";
 const PROVENANCE_BASE_LENGTH: u64 = 1_267;
 const PROVENANCE_BASE_KEY: &str =
-    "sha256/8edc87119ef03c2e8491ce19e319d167200a17548564694eaec372f562693f73";
+    "sha256/fe0441b405347a6381f6200b9f9ca4ca756751a1b5d51b2fd61e9b3dd7f60199";
 const PROVENANCE_SOURCE_LENGTH: u64 = 1_267;
 const PROVENANCE_SOURCE_KEY: &str =
-    "sha256/1abe7ad69c57827a48e2a47a78a14f4b5a7b4b0cb646031a904a3e15fbd1d63b";
+    "sha256/95ad35c59d78c7b0ea173a7dcd1816285200c18111e112c2d057bbf33768625d";
 const PROVENANCE_BUILD_LENGTH: u64 = 1_267;
 const PROVENANCE_BUILD_KEY: &str =
-    "sha256/e3be997f5b71d7a141a2879f49715879034ab50c435c6db965f0c355c49a835d";
+    "sha256/fa01f7647c79ff2eed9e3c7d03591422b99adbefd25e6859a84c22dac50cb56d";
 const REORDER_EQUIVALENT_LENGTH: u64 = 3_329;
 const REORDER_EQUIVALENT_KEY: &str =
-    "sha256/4ea1be19b2784c208aa6da2164765417d9614571c2308b540e60e77e1e561eff";
+    "sha256/9394803fffc32bf87a3033535e764648c89a883879b26a75818431580ec503ea";
 const SIGNED_ZERO_LENGTH: u64 = 2_599;
 const SIGNED_ZERO_KEY: &str =
-    "sha256/dd186936104d88c3ae2e73cd1be28ab9b19f0adac77b7b4104b5f82f3252fb50";
+    "sha256/5eda4560fb7adfe631d06182e8ebd7e9e060bef7a960c191d29dd3157c615397";
 const CLAIM_MISMATCH_LENGTH: u64 = 1_271;
 const CLAIM_MISMATCH_KEY: &str =
-    "sha256/0777b43835874df26cae1ed2bd2da0a6d044883c0347f1b1b42b5fe8fd98d092";
+    "sha256/99d358f7c8db9ac8dc6257750b76ca855d16577b0cc138ce973115c368493e31";
 
 fn emit(output: &CompilationOutput, build_id: &str) -> crate::PortablePublicationCandidate {
     let provenance = crate::PortableEmissionProvenance::try_new(build_id).unwrap();
@@ -279,7 +279,7 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
     assert_eq!(first_section_offset, 0x00f8);
     let expected_lengths = [204, 16, 16, 16, 146, 148];
     let expected_digests = [
-        "392aa7812effff8457bb652d34acee9ebdefefcf949822d49d86c30cefae6a30",
+        "383a6c3bfbda60c174019466aa8479fea7af7f9c3d40e5c69d17a930e1521d33",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",
         "dfa9925a2db09a0a641cc3908a1b4c47b32dcf958247f428e5306b871a524276",

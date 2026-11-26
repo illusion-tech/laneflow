@@ -370,6 +370,42 @@ fn cmp_gap_profile(
     None
 }
 
+fn cmp_vehicle_geometry(
+    a: &laneflow_static_contract::RoadVehicleGeometry,
+    b: &laneflow_static_contract::RoadVehicleGeometry,
+) -> FieldDiff {
+    named("wheelbase_mm", &a.wheelbase_mm, &b.wheelbase_mm)
+        .or_else(|| named("track_width_mm", &a.track_width_mm, &b.track_width_mm))
+        .or_else(|| {
+            named(
+                "reference_height_mm",
+                &a.reference_height_mm,
+                &b.reference_height_mm,
+            )
+        })
+        .or_else(|| named("rear_overhang_mm", &a.rear_overhang_mm, &b.rear_overhang_mm))
+        .or_else(|| named("width_mm", &a.width_mm, &b.width_mm))
+        .or_else(|| named("bottom_height_mm", &a.bottom_height_mm, &b.bottom_height_mm))
+        .or_else(|| named("top_height_mm", &a.top_height_mm, &b.top_height_mm))
+        .or_else(|| {
+            [
+                (
+                    "max_steering_angle_rad",
+                    a.max_steering_angle_rad,
+                    b.max_steering_angle_rad,
+                ),
+                (
+                    "max_steering_rate_rad_s",
+                    a.max_steering_rate_rad_s,
+                    b.max_steering_rate_rad_s,
+                ),
+            ]
+            .into_iter()
+            .find(|(_, x, y)| x.to_bits() != y.to_bits())
+            .map(|(field, x, y)| (field, f32_text(x), f32_text(y)))
+        })
+}
+
 fn cmp_owner_index(
     component: RootComponent,
     table: &'static str,
@@ -1007,6 +1043,13 @@ fn compare_relations(
     cmp_column!(component, expected, actual, rule_classes, whole);
     cmp_column!(component, expected, actual, rule_priority, whole);
     cmp_column!(component, expected, actual, profile_class, whole);
+    cmp_column!(
+        component,
+        expected,
+        actual,
+        profile_geometry,
+        cmp_vehicle_geometry
+    );
     cmp_column!(component, expected, actual, profile_length, whole);
     cmp_column!(component, expected, actual, profile_desired_speed, whole);
     cmp_column!(component, expected, actual, profile_min_gap, whole);

@@ -321,7 +321,8 @@ fn exact_baseline_trace_and_retry_match() {
     // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
     // waiting、waiting-journal、conflict、conflict-journal 四行重生成一次，其余两行不变。
     // #1523：按 LFCA 5 的六节派生规则还原测试路网身份和两个版本字段后，
-    // 两组历史轨迹逐项相同。本向量使用 LFCA 6 的实际绑定。
+    // 两组历史轨迹逐项相同。#1526 在 LFCA 6 的旧引擎中只替换摘要原像的修订和
+    // 格式版本，复算出当前 LFCA 7 的全部六行。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-protocol-e011745e.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
@@ -467,6 +468,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // 砖墙安全速度），conflict-parallel 一行按维护者裁定重生成一次，其余三行不变。
     // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
     // waiting-parallel 与 conflict-parallel 两行重生成一次，其余两行不变。
+    // #1526 的四行由 LFCA 6 的旧引擎更换摘要原像中的修订与格式版本后复算。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-parallel-matrix-c009d2dc.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }

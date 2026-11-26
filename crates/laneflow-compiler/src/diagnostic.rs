@@ -427,6 +427,13 @@ pub enum RoadEditingInputViolation {
     },
     /// 多个字段的组合违反闭合 variant 规则。
     InvalidCombination,
+    /// 道路机动车型缺少指定构型必需的字段。
+    MissingVehicleGeometryField,
+    /// 提供的构型代码无法用于当前道路机动车几何求证。
+    UnsupportedVehicleConfiguration {
+        /// 来源中保留的原始构型代码。
+        model: u8,
+    },
 }
 
 /// 道路编辑 authoring 几何在确定性 numeric freeze 中失败的闭合原因。
@@ -1815,6 +1822,16 @@ impl Diagnostic {
             related_spans: Box::default(),
         }
     }
+    pub(crate) fn invalid_named_road_editing_input(
+        key: &str,
+        field: &str,
+        violation: RoadEditingInputViolation,
+    ) -> Self {
+        let mut diagnostic = Self::invalid_road_editing_input(field, violation);
+        diagnostic.stable_key = Some(key.into());
+        diagnostic
+    }
+
     /// 构造 size-prefixed 道路编辑来源的 framing、wire、版本或外部身份绑定非法的诊断，不带来源位置。
     #[allow(
         dead_code,
@@ -3696,6 +3713,9 @@ impl fmt::Display for Diagnostic {
                 "路权策略 {policy_key} 的成员 {member_key:?} 未通过校验：{violation:?}"
             ),
             DiagnosticPayload::InvalidRoadEditingInput { field, violation } => {
+                if let Some(key) = self.stable_key() {
+                    write!(formatter, "声明 {key} 的")?;
+                }
                 write!(formatter, "道路编辑编制字段 {field} 非法：{violation:?}")
             }
             DiagnosticPayload::InvalidRoadEditingSource {
@@ -4497,7 +4517,7 @@ impl fmt::Display for CanonicalIdentityViolationDisplay {
     }
 }
 
-struct ScalarViolationDisplay(ScalarViolation);
+pub(crate) struct ScalarViolationDisplay(pub(crate) ScalarViolation);
 
 impl fmt::Display for ScalarViolationDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -4539,6 +4559,12 @@ impl fmt::Display for ScalarViolationDisplay {
                 f32::from_bits(max_bits)
             ),
             ScalarViolation::QuantizeFailed => formatter.write_str("无法量化到毫米"),
+            ScalarViolation::UnsupportedVehicleConfiguration => {
+                formatter.write_str("该车型构型尚不支持刚性双轴求证")
+            }
+            ScalarViolation::VehicleGeometryConstraint => {
+                formatter.write_str("车型几何标量或量化后的尺寸关系不满足约束")
+            }
         }
     }
 }

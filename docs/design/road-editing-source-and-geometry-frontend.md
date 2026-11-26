@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-road-editing-source-and-geometry-frontend"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-25"
+revised_date = "2026-11-26"
 summary = "定义道路编辑来源与几何编制前端。"
 scope = "道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、 来源持久化编码与 topology/geometry MIR 降阶"
 related = ["adr-0020", "adr-0021", "adr-0023", "adr-0025", "design-compiler-foundation", "design-network-compiler", "design-shared-static-network"]
@@ -118,7 +118,7 @@ FlatBuffers writer 与编译器 reader 必须共享验证规则，不得形成�
 
 ## 6. 几何正本
 
-LFRE 5 保存直线、三次贝塞尔、圆弧与回旋线的作者参数。其他原语由导入方转换，
+LFRE 8 保存直线、三次贝塞尔、圆弧与回旋线的作者参数。其他原语由导入方转换，
 并按所选 B1 档记录转换误差。MIR 按 ADR 0022 执行站位计算、偏移和确定性细分。
 LIR 保存规范 `f32` 折线及派生静态语义。
 
@@ -129,7 +129,7 @@ LIR 保存规范 `f32` 折线及派生静态语义。
 <a id="native-plan-curves"></a>
 ### 6.1 原生圆弧与回旋线
 
-以下是 #1516 的设计增量，适用于 LFRE 5 的道路走向和路口内部边的显式几何。
+#1516 自 LFRE 5 起将原生段用于道路走向和路口内部边的显式几何。
 工程线形采用水平弧长和有符号曲率，
 其定义与 ASAM 对[圆弧][asam-arc]和[回旋线][asam-spiral]的定义一致。
 
@@ -184,7 +184,7 @@ LIR 保存规范 `f32` 折线及派生静态语义。
 10 米和 62 米。LFRE 5 中每个 `AuthoringLane` 引用一条边，同一走廊的车道共享起止
 站位。验收可用相同来源线形、纵坡与横断面分别编译两套走廊分段，从一份取内车道边链、
 另一份取外车道边链，在切点及其两侧核对同一截面。单修订内发布跨车道映射、轮迹路幅
-及通行裁决由 #273 定义。LFRE 6 的编制合同允许作者在同一文件中保存两条车道各自的边链与内部切点，
+及通行裁决由 #273 定义。自 LFRE 6 起，作者可以在同一文件中保存两条车道各自的边链与内部切点，
 见[道路编辑来源中的独立切边][editing-edge-chain]。C++、C# 样例均从同一份来源生成八条边。Rust 读回并移动外车道切点后按各边的规范累计表验证原截面的进度。开放映射的走廊还须通过制品发布证明。
 
 [editing-edge-chain]: cross-section-stationing-and-lateral-geometry.md#213-道路编辑来源中的独立切边
@@ -220,12 +220,12 @@ LIR 保存规范 `f32` 折线及派生静态语义。
 `add_road_editing_module_with_native_chords` 在编译候选中逐弦给出原段归属、目标、走行方向、
 实际端点、原线中点及连续界。消费方在模块准入成功后采用该批证据。
 
-### 6.2 LFRE 7 的横断面编制入口
+### 6.2 横断面编制入口
 <a id="cross-section-authoring"></a>
 
 #1524 在 LFRE 6 的走廊、区段和车道声明上补齐可编辑输入。写方选择走廊的开放范围，
-并在结构边界的所属对象上登记局部区间。下列字段号按 LFRE **7** 解读。当前生产
-组合见 §9.5，切换时一并采用 Road Editing 前端 7、几何语义 4 及 LFSM 7。
+并在结构边界的所属对象上登记局部区间。下列字段始于 LFRE 7，现行 LFRE 8 沿用相同编号。
+对应的道路编辑前端为 8、几何语义为 4、LFSM 为 8，完整版本组合见 §9.5。
 制品字段、误差和比较规则沿用[走廊共享里程与横断面几何 §3.2–3.3][lateral-geometry]。
 
 - `RoadCorridor.9 cross_section_coverage:CrossSectionCoverage = None` 取代 LFRE 6
@@ -376,7 +376,7 @@ table BoundaryExtent {
 ### 9.1 已选择的 production 编码：按模块保存的 FlatBuffers 来源缓冲区
 
 生产来源编码使用 LaneFlow 自有的**道路编辑来源缓冲区**
-（Road Editing Source Buffer）`LF-ROAD-EDITING-SOURCE-v7`：
+（Road Editing Source Buffer）`LF-ROAD-EDITING-SOURCE-v8`：
 
 - 一个逻辑来源模块恰好对应一个 size-prefixed FlatBuffer；
 - FlatBuffers 根表固定为 `RoadEditingSource`，文件标识符固定为 ASCII `LFRE`；
@@ -403,7 +403,7 @@ u32_le root_table_uoffset
 byte[...] size-prefixed FlatBuffer 的其余内容
 ```
 
-根表 `RoadEditingSource` 的 `format_version:uint` 必须精确为 `4`。其它值失败关闭。约束如下：
+根表 `RoadEditingSource` 的 `format_version:uint` 必须精确为 `8`。其它值失败关闭。约束如下：
 
 - 输入至少能覆盖 size prefix、root offset 和 file identifier；
 - `flatbuffer_byte_len + 4` 必须用 checked arithmetic 计算并精确等于输入长度，禁止截断
@@ -424,9 +424,9 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 #284 引入的路权策略来源字段及其 LFSM 属性路径登记于
 [`traffic-runtime-right-of-way-policy.md` §4.4][right-of-way-lfsm]，
 包含具名策略局部成员的 CanonicalSetOrdinal 规则。W2 将两个正式前端、共同
-AST/HIR/MIR/LIR 和来源投影接入该合同；当前 LFRE wire 为 5。
+AST/HIR/MIR/LIR 和来源投影接入该合同。
 
-schema 路径为 `schemas/road-editing/v7/road-editing.fbs`。
+schema 路径为 `schemas/road-editing/v8/road-editing.fbs`。
 字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
 wire shape 的机器事实来源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
 边界，不进入 LaneFlow 公共 API、HIR/MIR/LIR 或 Adapter API。编译器在 verifier 成功后
@@ -444,10 +444,9 @@ schema 遵守以下闭合规则：
   字段语义竞争的全局 `Units` table；不使用 reflection、
   FlexBuffers、nested FlatBuffer、动态 schema 或 RPC；
 - `RoadAlignment` 保存道路走向，具有模块内稳定编辑键但不属于 Identity v1、不分配
-  `StableId128`。LFRE wire 5 的 24 个稳定声明 vector 对应 Identity kind `1..=24`。
+  `StableId128`。LFRE 8 的 24 个稳定声明 vector 对应 Identity kind `1..=24`。
   `RoadCorridor` 以 alignment key 和 station 区间引用走向，避免在每个走廊复制完整曲线；
-- 不使用尚未在预期 C++、C#、Rust 组合中形成共同稳定基线的 vector-of-union；只有
-  每个 `CurveSegment` table 内的普通 `CurveSegmentGeometry` union；
+- 不使用尚未在预期 C++、C#、Rust 组合中形成共同稳定基线的 vector-of-union。曲线段和边界区间分别使用普通 union `CurveSegmentGeometry`、`BoundaryPayload`；
 - 当前 exact B1 schema 的每个 table 字段显式分配连续 `id`，enum 与 union discriminant
   显式固定数值；这些编号只绑定当前 exact `format_version`，不提前形成跨版本 no-reuse
   兼容承诺；
@@ -470,7 +469,7 @@ schema 遵守以下闭合规则：
   完整 owner-key tuple；不把 FlatBuffers
   table offset 当成领域身份或跨声明引用。
 
-当前 LFRE wire 5 用于实体声明的顶层有类型 vector 覆盖以下 24 类 Identity v1 实体：
+LFRE 8 用于实体声明的顶层有类型 vector 覆盖以下 24 类 Identity v1 实体：
 `RoadCorridor`、`RoadSection`、`AuthoringLane`、`LaneEdge`、`Junction`、`Movement`、
 `ManeuverPath`、`ManeuverGate`、`WaitingZone`、`StopLine`、`SignalGroup`、`SignalController`、
 `SignalPhase`、`ParkingFacility`、`ParkingSpace`、`LaneGroup`、`FacilityBand`、
@@ -483,9 +482,10 @@ schema 遵守以下闭合规则：
 和几何都不能替代稳定身份。
 
 根表使用 `LFRE` 与 size-prefixed `RoadEditingSource` envelope，绑定
-`format_version = 7`、Road Editing `frontendVersion = 7`、Identity registry revision 4、
-LFCA 6、LFSM 7 与 LFSD 5。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
-五张新增表的字段和来源路径见路权策略实施合同 §4.4。
+`format_version = 8`、Road Editing `frontendVersion = 8`、Identity registry revision 4、
+LFCA 7、LFSM 8 与 LFSD 6。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
+五张策略表的字段和来源路径见路权策略实施合同 §4.4。
+每种道路机动车型均须提供 `VehicleProfile.geometry`（字段 4）。几何预检先读取构型，刚性双轴车型须显式给出九个 SI 参数。对半挂、全挂和铰接公交，编译器在构型字段报告该构型尚未受支持。字段编号、单位与量化见[车型几何格式][vehicle-geometry-format]。
 field id `0..=17` 的含义及其余字段如下：
 
 | field id | required vector            | 目标语义                                                 |
@@ -498,7 +498,7 @@ field id `0..=17` 的含义及其余字段如下：
 |       28 | `conflict_zone_regions`    | owner-local 可选 2.5D region；空向量表示 headless        |
 |       29 | `right_of_way_policy_sets` | 具名策略、共同法规值及证据、间隙、流/门规则四类局部成员  |
 
-LFRE 5 中停车与冲突相关 table 的 field id 与类型语义固定为：
+LFRE 8 中停车与冲突相关 table 的 field id 与类型语义固定为：
 
 ```text
 ParkingFacility:
@@ -561,7 +561,7 @@ string 必须缺失、不适用 scalar 必须为规范零。`Vec2F64` 的 member
 [`portable-canonical-artifact.md` §4.1][portable-artifact-bindings]
 唯一登记，schema declaration order 或生成语言 enum 不得另行改号。
 
-因此当前 LFRE wire 5 根表包含 24 个可构造稳定声明向量；`conflict_zone_regions` 是
+LFRE 8 根表包含 24 个可构造稳定声明向量；`conflict_zone_regions` 是
 空间 owner-local 记录向量，不分配独立稳定身份。所有向量继续 required，语义上允许空。
 `ParkingSpace.parking_facility` 不进入泊位身份。每个 conflict passage 只保存 zone 与
 entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列派生，不进入
@@ -569,7 +569,7 @@ entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列�
 几何只能辅助验证与表现，不能生成或改写行为 passage。
 
 声明、owner-local 地址与 property path 必须逐项投影到
-[`portable-canonical-artifact.md`][portable-artifact] 的 LFSM 7 role
+[`portable-canonical-artifact.md`][portable-artifact] 的 LFSM 8 role
 13–16 / 30–32
 登记。生成的 Rust/C++/C# binding 与 known vectors 必须由同一 exact schema 和固定命令
 clean-regenerate。
@@ -718,12 +718,12 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 
 ### 9.5 版本、未知字段与摘要
 
-当前组合是 `format_version = 7`、Road Editing `frontendVersion = 7`、LFCA 6、LFSM 7 与
-LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。几何语义为 4，横断面能力与来源登记见 §6.2。
+当前组合是 `format_version = 8`、Road Editing `frontendVersion = 8`、LFCA 7、LFSM 8 与
+LFSD 6。来源前端版本和 LFRE wire 版本分别精确校验。几何语义为 4，横断面能力与来源登记见 §6.2。
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
-  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 7`；
-- `format_version = 7` 是本 exact schema 的精确版本，不是“最低兼容版本”。
+  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 8`；
+- `format_version = 8` 是本 exact schema 的精确版本，不是“最低兼容版本”。
   其它版本在语义读取前失败关闭，不提供迁移。
   该 exact schema 未作为稳定 public format 发布。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须
   再提升 `format_version` 及对应 frontend/geometry semantics code。internal family
@@ -735,7 +735,7 @@ LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。几何语义
   只要求 exact schema/codegen 再现、版本拒绝与同版本 known vectors；
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
   规模相关分配前拒绝；不能依靠未知字段忽略完成跨版本 round trip；
-- 攻击性输入或错误 writer 在 `format_version = 7` 下附带的未知 vtable slot 语义上无效
+- 攻击性输入或错误 writer 在 `format_version = 8` 下附带的未知 vtable slot 语义上无效
   并被忽略，但仍计入来源字节、verifier apparent size 与精确来源摘要。根表无
   `static_routes` 字段。其它未冻结空位不在本合同另设拒绝表；
 - FlatBuffers bytes 不是 LaneFlow 规范语义编码。`sourceDocumentDigest` 绑定收到的精确
@@ -754,7 +754,7 @@ LFSD 5。来源前端版本和 LFRE wire 版本分别精确校验。几何语义
 2. 从受 framing 约束的根表执行有界版本探针，版本与当前读取器要求不符即拒绝。
    命中后使用下述固定公式从当前 `CompileProfile` 与调用点剩余预算导出 `VerifierOptions`，再
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
-3. verifier 成功后检查唯一 exact version `7`；其它值在 LaneFlow 语义读取和规模相关
+3. verifier 成功后检查唯一 exact version `8`；其它值在 LaneFlow 语义读取和规模相关
    分配前拒绝；
 4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、24 类可构造声明与
    owner-local 集合基数、有限数值、引用键字节和 checked 总量；
@@ -792,12 +792,12 @@ ignore_missing_null_terminator = false
 深度 5 来自 `RoadEditingSource -> RoadAlignment -> CurveProgram -> CurveSegment ->
 geometry payload` 的 schema 最长路径。只有 root 与 `Provenance` 两张 wire table 不进入
 Typed AST record 计数；`ModuleHeader` 延续 compiler foundation 既有规则消费一条记录。
-LFRE 5 中每个显式 `Movement.turn_direction`（包括 Straight/0）还产生一个字段来源
+每个显式 `Movement.turn_direction`（包括 Straight/0）还产生一个字段来源
 记录，因此逻辑记录数为物理 table occurrence 数减二，再加方向字段出现数。该来源
 同时消费一条 `RelationOccurrenceCount`；builder、原始预检与累计模块准入使用同一
 口径，不能把 `max_tables` 的物理表检查当作全部逻辑记录预算。
 verifier 访问的其余每个 table occurrence（包括 curve/union payload、owner-local table、
-停车子表和 IIDM 子表）在第一遍预检中各消费一个
+停车子表、车型的 IIDM 与几何子表）在第一遍预检中各消费一个
 `TypedAstRecordCount` 候选，不增加公开 limit 维度。`max_tables` 命中使用现有
 `CompileLimitExceeded(TypedAstRecordCount)`；固定 schema depth 或 16 倍 apparent-size
 命中使用新 `InvalidRoadEditingSource` 的闭合
@@ -1163,9 +1163,9 @@ Rust runtime 固定为 crates.io `flatbuffers = 25.12.19`：Apache-2.0、MSRV 1.
 `flatc version 25.12.19`。仓库根目录的精确生成 argv 固定为：
 
 ```text
-flatc --rust -o crates/laneflow-road-editing-wire/src/generated schemas/road-editing/v7/road-editing.fbs
-flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v7/road-editing.fbs
-flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v7/road-editing.fbs
+flatc --rust -o crates/laneflow-road-editing-wire/src/generated schemas/road-editing/v8/road-editing.fbs
+flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v8/road-editing.fbs
+flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v8/road-editing.fbs
 ```
 
 只有 Rust 的 `road-editing_generated.rs` 提交仓库；C++/C# 输出只用于跨语言 fixture 与
@@ -1186,7 +1186,7 @@ production 依赖或实现。
 以下矩阵是已选择 size-prefixed FlatBuffers 编码的实现与验证要求：
 
 - size prefix、`LFRE`、版本、checked exact length、截断、trailing bytes、错位 offset、
-  非法 vtable/vector/string/union 的 known vectors；唯一接受 `format_version = 7`，
+  非法 vtable/vector/string/union 的 known vectors；唯一接受 `format_version = 8`，
   其余未知槽仍忽略；
 - verifier 的 `max_depth`、`max_tables`、`max_apparent_size` 以及 required presence、未知
   enum/union、非法数字、字符串/集合边界和 owner-local 关系的正负测试；
@@ -1217,14 +1217,14 @@ production 依赖或实现。
 
 道路编辑入口与其余官方前端共同受
 `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES` 的来源处理限额、规范路网容量与编译器控制存续内存约束；暂存与 file-backed
-制品字节由资源账本报告，不另设配置档上限。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v7` writer 生成输入，并报告
+制品字节由资源账本报告，不另设配置档上限。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v8` writer 生成输入，并报告
 实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
 的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实来源。
 
 [`road-editing-source-semantic-seed-v1.json`][semantic-seed-json]
 和 [`road-editing-source-reference-machine-v1.json`][reference-machine-json]
 只保留为历史研究证据，不进入现行 schema、fixture、配置档或生产读取路径。任何新的道路编辑
-专项 workload 必须基于 v7 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
+专项 workload 必须基于现行 LFRE 8 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
 
 ## 11. 兼容和清理边界
 
@@ -1251,6 +1251,7 @@ production 依赖或实现。
 [#374]: https://github.com/illusion-tech/laneflow/issues/374
 
 [committed-editing]: committed-road-editing-state.md
+[vehicle-geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
 [right-of-way-lfsm]: traffic-runtime-right-of-way-policy.md#44-lfsm-来源编码与闭合
 [portable-artifact-bindings]: portable-canonical-artifact.md#41-bindings-与来源池登记
 [portable-artifact]: portable-canonical-artifact.md

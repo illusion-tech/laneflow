@@ -622,13 +622,26 @@ fn full_spatial_entity_views_cover_required_columns() {
         let _ = view.exit();
         let _ = view.entry();
     }
+    assert_eq!(counts.count(EntityKind::VehicleProfile), 1);
     for raw in 0..counts.count(EntityKind::VehicleProfile) {
-        assert!(
-            relations
-                .vehicle_profile(laneflow_static_contract::VehicleProfileOrdinal::from_raw(
-                    raw
-                ))
-                .is_some()
+        let profile = relations
+            .vehicle_profile(laneflow_static_contract::VehicleProfileOrdinal::from_raw(
+                raw,
+            ))
+            .unwrap();
+        assert_eq!(
+            profile.geometry(),
+            laneflow_static_contract::RoadVehicleGeometry {
+                wheelbase_mm: 2_600,
+                track_width_mm: 1_600,
+                reference_height_mm: 350,
+                rear_overhang_mm: 750,
+                width_mm: 1_900,
+                bottom_height_mm: -150,
+                top_height_mm: 1_150,
+                max_steering_angle_rad: f32::from_bits(0x3f19_9999),
+                max_steering_rate_rad_s: f32::from_bits(0x3f33_3333),
+            }
         );
     }
     for raw in 0..counts.count(EntityKind::ParticipantClass) {

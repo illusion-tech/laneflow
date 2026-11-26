@@ -11,8 +11,8 @@ use laneflow_static_contract::{
     MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateOrdinal, ManeuverPathOrdinal,
     MovementOrdinal, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingFacilityOrdinal,
     ParkingSpaceOrdinal, ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal,
-    SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StableId128,
-    StopLineOrdinal, WaitingZoneOrdinal,
+    RoadVehicleGeometry, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
+    SignalPhaseOrdinal, StableId128, StopLineOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::builder::{
@@ -301,6 +301,7 @@ pub(crate) fn build_relations(
         rules.classes,
         rules.priority,
         profiles.class,
+        profiles.geometry,
         profiles.length,
         profiles.desired_speed,
         profiles.min_gap,
@@ -2847,6 +2848,7 @@ fn parse_access_target(
 
 struct Profiles {
     class: Box<[ParticipantClassOrdinal]>,
+    geometry: Box<[RoadVehicleGeometry]>,
     length: Box<[u32]>,
     desired_speed: Box<[u32]>,
     min_gap: Box<[u32]>,
@@ -2865,6 +2867,7 @@ fn build_profiles(
     let table = entity_table(view, EntityKind::VehicleProfile)?;
     let class_limit = entity_counts.count(EntityKind::ParticipantClass);
     let mut class = allocate_vec(count, STRUCTURE)?;
+    let mut geometry = allocate_vec(count, STRUCTURE)?;
     let mut length = allocate_vec(count, STRUCTURE)?;
     let mut desired = allocate_vec(count, STRUCTURE)?;
     let mut gap = allocate_vec(count, STRUCTURE)?;
@@ -2887,12 +2890,34 @@ fn build_profiles(
             });
         }
         class.push(ParticipantClassOrdinal::from_raw(class_ordinal));
-        length.push(u32_in_closed_range(
+        let length_mm = u32_in_closed_range(
             checked_u32(row, 4, STRUCTURE)?,
             MIN_VEHICLE_LENGTH_MM,
             MAX_VEHICLE_LENGTH_MM,
             STRUCTURE,
-        )?);
+        )?;
+        length.push(length_mm);
+        let records = checked_record_vector(row, 11, STRUCTURE)?;
+        let invalid = BuildError::InputInvariant {
+            structure: STRUCTURE,
+        };
+        let mut rows = records.rows();
+        let r = rows.next().ok_or(invalid)?;
+        let shape = RoadVehicleGeometry {
+            wheelbase_mm: checked_u32(r, 1, STRUCTURE)?,
+            track_width_mm: checked_u32(r, 2, STRUCTURE)?,
+            reference_height_mm: checked_i32(r, 3, STRUCTURE)?,
+            rear_overhang_mm: checked_u32(r, 4, STRUCTURE)?,
+            width_mm: checked_u32(r, 5, STRUCTURE)?,
+            bottom_height_mm: checked_i32(r, 6, STRUCTURE)?,
+            top_height_mm: checked_i32(r, 7, STRUCTURE)?,
+            max_steering_angle_rad: checked_f32(r, 8, STRUCTURE)?,
+            max_steering_rate_rad_s: checked_f32(r, 9, STRUCTURE)?,
+        };
+        if rows.next().is_some() || shape.validate(length_mm).is_err() {
+            return Err(invalid);
+        }
+        geometry.push(shape);
         desired.push(u32_in_closed_range(
             checked_u32(row, 5, STRUCTURE)?,
             MIN_SPEED_MM_S,
@@ -2931,6 +2956,7 @@ fn build_profiles(
     }
     Ok(Profiles {
         class: class.into_boxed_slice(),
+        geometry: geometry.into_boxed_slice(),
         length: length.into_boxed_slice(),
         desired_speed: desired.into_boxed_slice(),
         min_gap: gap.into_boxed_slice(),

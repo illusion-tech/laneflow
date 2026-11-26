@@ -2455,6 +2455,7 @@ pub(crate) mod compile_route_tests {
             })
             .unwrap();
             b.add_vehicle_profile(VehicleProfileInput {
+                geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                 vehicle_profile_key: "car",
                 participant_class: ParticipantClassReference::local("car"),
                 iidm: IidmVehicleProfileInput {
@@ -3590,6 +3591,7 @@ pub(crate) mod compile_route_tests {
                             4.5, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0,
                         )
                         .unwrap(),
+                        laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                     )
                     .unwrap(),
                 ))
@@ -3603,6 +3605,7 @@ pub(crate) mod compile_route_tests {
                             12.0, 15.0, 2.5, 1.5, 1.5, 4.5, 9.0,
                         )
                         .unwrap(),
+                        laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                     )
                     .unwrap(),
                 ))
@@ -5238,6 +5241,7 @@ pub(crate) mod compile_route_tests {
                                         f64::from(*emergency),
                                     )
                                     .unwrap(),
+                                    laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                                 )
                                 .unwrap(),
                             ))

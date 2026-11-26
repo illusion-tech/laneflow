@@ -3,17 +3,17 @@ use super::{
     road_editing_line,
 };
 use laneflow_compiler::road_editing::*;
-use laneflow_compiler::{CompileProfile, GeometryAccuracyProfile, GeometryDirectionProfile};
+use laneflow_compiler::{
+    CompileProfile, GeometryAccuracyProfile, GeometryDirectionProfile, RigidTwoAxleGeometryInput,
+    RoadVehicleGeometryInput,
+};
 use laneflow_runtime::{
     RouteError, RouteHandoffTrial, RouteHandoffTrialError, RouteRegisterInput, WorldConfig,
 };
 use laneflow_static_contract::{AccessEffect, CanonicalFrameOrdinal, RoadSectionOrdinal};
 use laneflow_static_network::{
     BoundaryOwner, SharedNetworkRevision,
-    vehicle::{
-        AxleDimensions, BodyEnvelope, GeometryWorkLimits, HandoffOutcome, HandoffQuery,
-        SteeringLimits,
-    },
+    vehicle::{GeometryWorkLimits, HandoffOutcome},
 };
 use std::sync::Arc;
 
@@ -41,6 +41,7 @@ fn revision() -> Arc<SharedNetworkRevision> {
     let class = ParticipantClassReference::local("car").unwrap();
     let denied = ParticipantClassReference::local("denied").unwrap();
     let swept = ParticipantClassReference::local("swept").unwrap();
+    let fixed = ParticipantClassReference::local("fixed").unwrap();
     builder
         .add_alignment(
             RoadAlignmentInput::try_new(
@@ -132,6 +133,7 @@ fn revision() -> Arc<SharedNetworkRevision> {
         ("car", class),
         ("denied", denied.clone()),
         ("swept", swept.clone()),
+        ("fixed", fixed),
     ] {
         add(D::ParticipantClass(
             ParticipantClassInput::try_new(key).unwrap(),
@@ -141,6 +143,17 @@ fn revision() -> Arc<SharedNetworkRevision> {
                 key,
                 reference,
                 IidmVehicleProfileInput::try_new(4.15, 13., 2., 1.2, 2., 3., 7.).unwrap(),
+                RoadVehicleGeometryInput::RigidTwoAxle(RigidTwoAxleGeometryInput {
+                    wheelbase_m: 2.60,
+                    track_width_m: 1.60,
+                    reference_height_m: 0.55,
+                    rear_overhang_m: 0.75,
+                    width_m: 1.90,
+                    bottom_height_m: 0.,
+                    top_height_m: 1.50,
+                    max_steering_angle_rad: if key == "fixed" { 0. } else { 0.6 },
+                    max_steering_rate_rad_s: 0.6,
+                }),
             )
             .unwrap(),
         ));
@@ -197,29 +210,12 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
         left_index: 0,
         stations_nm: [24_000_000_000, 26_000_000_000],
         profile: conflict_profile(&rev, "car"),
-        query: HandoffQuery {
-            revision: rev.network_revision(),
-            corridor,
-            frame: CanonicalFrameOrdinal::from_raw(0),
-            station_window_nm: [0, 50_000_000_000],
-            rear_stations_nm: [10_000_000_000, 40_000_000_000],
-            axles: AxleDimensions {
-                wheelbase_m: 2.60,
-                half_track_m: 0.80,
-                reference_height_m: 0.55,
-            },
-        },
-        steering: SteeringLimits {
-            max_angle_rad: 0.6,
-            max_rate_rad_s: 0.6,
-            speed_m_s: 1.,
-        },
-        body: BodyEnvelope {
-            rear_overhang_m: 0.75,
-            front_from_rear_m: 3.40,
-            half_width_m: 0.95,
-            heights_m: [0., 1.50],
-        },
+        revision: rev.network_revision(),
+        corridor,
+        frame: CanonicalFrameOrdinal::from_raw(0),
+        station_window_nm: [0, 50_000_000_000],
+        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     };
     let cursor = world.command_cursor();
@@ -274,12 +270,14 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     let revisited = world.preview_route_handoff(&trial).unwrap();
     assert_eq!(revisited.source_index, 5);
     assert_eq!(revisited.report, allowed.report);
-    trial.body.rear_overhang_m += 0.001;
-    assert_eq!(
-        world.preview_route_handoff(&trial).unwrap_err(),
-        RouteHandoffTrialError::LengthMismatch
-    );
-    trial.body.rear_overhang_m = 0.75;
+    trial.profile = conflict_profile(&rev, "fixed");
+    let rigid = world.preview_route_handoff(&trial).unwrap();
+    assert!(matches!(
+        rigid.report.outcome,
+        HandoffOutcome::GeometryRejected
+    ));
+    assert!(!rigid.report.geometry.unwrap().feasible());
+    trial.profile = conflict_profile(&rev, "car");
 
     let repeated = RouteRegisterInput::new(vec![s[2], t[1], t[2], turn, s[0], s[1], s[2], t[1]]);
     trial.route = &repeated;

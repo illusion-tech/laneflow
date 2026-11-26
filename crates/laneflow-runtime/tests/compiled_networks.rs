@@ -859,6 +859,7 @@ fn shared_downstream_road_editing_module_with_cross(
                 participant.clone(),
                 lfre::IidmVehicleProfileInput::try_new(4.5, 13.0, 2.0, 1.5, 1.5, 2.0, 4.0)
                     .expect("car profile"),
+                laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             )
             .expect("car profile"),
         ))
@@ -869,6 +870,19 @@ fn shared_downstream_road_editing_module_with_cross(
                 participant,
                 lfre::IidmVehicleProfileInput::try_new(0.1, 13.0, 0.2, 1.5, 1.5, 2.0, 4.0)
                     .expect("dot profile"),
+                laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                    laneflow_compiler::RigidTwoAxleGeometryInput {
+                        wheelbase_m: 0.06,
+                        track_width_m: 0.04,
+                        reference_height_m: 0.02,
+                        rear_overhang_m: 0.015,
+                        width_m: 0.05,
+                        bottom_height_m: -0.01,
+                        top_height_m: 0.027,
+                        max_steering_angle_rad: 0.6,
+                        max_steering_rate_rad_s: 0.7,
+                    },
+                ),
             )
             .expect("dot profile"),
         ))
@@ -1678,6 +1692,7 @@ fn conflict_road_editing_module_with_shape_and_speed(
                     4.0,
                 )
                 .expect("iidm profile"),
+                laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             )
             .expect("vehicle profile"),
         ))
@@ -1698,6 +1713,19 @@ fn conflict_road_editing_module_with_shape_and_speed(
                         4.0,
                     )
                     .expect("short vehicle iidm profile"),
+                    laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                        laneflow_compiler::RigidTwoAxleGeometryInput {
+                            wheelbase_m: 0.06,
+                            track_width_m: 0.04,
+                            reference_height_m: 0.02,
+                            rear_overhang_m: 0.015,
+                            width_m: 0.05,
+                            bottom_height_m: -0.01,
+                            top_height_m: 0.027,
+                            max_steering_angle_rad: 0.6,
+                            max_steering_rate_rad_s: 0.7,
+                        },
+                    ),
                 )
                 .expect("short vehicle profile"),
             ))
@@ -1719,6 +1747,19 @@ fn conflict_road_editing_module_with_shape_and_speed(
                         4.0,
                     )
                     .expect("long vehicle iidm profile"),
+                    laneflow_compiler::RoadVehicleGeometryInput::RigidTwoAxle(
+                        laneflow_compiler::RigidTwoAxleGeometryInput {
+                            wheelbase_m: 6.0,
+                            track_width_m: 2.0,
+                            reference_height_m: 0.5,
+                            rear_overhang_m: 2.5,
+                            width_m: 2.5,
+                            bottom_height_m: -0.25,
+                            top_height_m: 2.7,
+                            max_steering_angle_rad: 0.6,
+                            max_steering_rate_rad_s: 0.7,
+                        },
+                    ),
                 )
                 .expect("long vehicle profile"),
             ))
@@ -1916,6 +1957,7 @@ fn add_standard_profiles(module: &mut SyntheticModuleBuilder) {
         })
         .expect("class")
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: "car",
             participant_class: ParticipantClassReference::local("road-user"),
             iidm: iidm(),
@@ -9630,6 +9672,7 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
                 })
                 .expect("class")
                 .add_vehicle_profile(VehicleProfileInput {
+                    geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
                     vehicle_profile_key: "car",
                     participant_class: ParticipantClassReference::local("road-user"),
                     iidm: IidmVehicleProfileInput {

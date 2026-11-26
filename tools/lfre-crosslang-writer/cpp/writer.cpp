@@ -178,9 +178,13 @@ int main(int argc, char **argv) {
   const auto parking_space_rows = EmptyVectorOf<v1::ParkingSpace>(fbb);
   const auto lane_group_rows = EmptyVectorOf<v1::LaneGroup>(fbb);
   const auto facility_band_rows = EmptyVectorOf<v1::FacilityBand>(fbb);
-  const auto participant_class_rows = EmptyVectorOf<v1::ParticipantClass>(fbb);
+  const auto car_class = v1::CreateParticipantClassDirect(fbb, "motor");
+  const auto participant_class_rows = fbb.CreateVector(std::vector{car_class});
   const auto access_rule_rows = EmptyVectorOf<v1::AccessRule>(fbb);
-  const auto vehicle_profile_rows = EmptyVectorOf<v1::VehicleProfile>(fbb);
+  const auto iidm = v1::CreateIidmVehicleProfile(fbb, 4.15, 13., 2., 1.5, 2., 3., 6.);
+  const auto car_geometry = v1::CreateRoadVehicleGeometry(fbb, 2.60, 1.501, 0., 0., 1.901, -0.2, 1.4, 0.6, 0.8, 1);
+  const auto car = v1::CreateVehicleProfileDirect(fbb, "car", "motor", iidm, nullptr, car_geometry);
+  const auto vehicle_profile_rows = fbb.CreateVector(std::vector{car});
   const auto canonical_frame_rows = fbb.CreateVector(std::vector<::flatbuffers::Offset<v1::CanonicalFrame>>{frame});
   const auto conflict_zone_rows = EmptyVectorOf<v1::ConflictZone>(fbb);
   const auto participant_stream_rows = EmptyVectorOf<v1::ParticipantStream>(fbb);
@@ -188,7 +192,7 @@ int main(int argc, char **argv) {
   const auto right_of_way_policy_set_rows = EmptyVectorOf<v1::RightOfWayPolicySet>(fbb);
   const auto root = v1::CreateRoadEditingSource(
       fbb,
-      /*format_version=*/7,
+      /*format_version=*/8,
       header,
       v1::GeometryAccuracyProfile_Fine2Cm,
       v1::GeometryDirectionProfile_Smooth1Deg,

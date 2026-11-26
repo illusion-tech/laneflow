@@ -382,6 +382,8 @@ pub enum RoadEditingTableKind {
     Guardrail,
     /// 路缘端面和误差。
     Curb,
+    /// 道路机动车型的构型、尺寸与转向限值。
+    RoadVehicleGeometry,
 }
 
 /// 道路编辑 schema 中可出现在来源路径的 inline struct 种类。

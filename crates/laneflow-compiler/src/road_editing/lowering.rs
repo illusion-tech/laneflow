@@ -791,7 +791,9 @@ pub(super) fn lower_independent_declarations(
     });
     declarations.extend(vehicle_profiles.into_iter().map(|value| {
         let key = value.vehicle_profile_key();
-        let iidm = value.iidm();
+        let iidm = admit_iidm_profile(value.iidm());
+        let geometry = super::vehicle_geometry::admit(value.geometry(), iidm.length_mm)
+            .expect("semantic preflight validated vehicle geometry");
         TypedAstDeclaration::VehicleProfile(VehicleProfileDeclaration {
             header: module_scoped_header(
                 locations,
@@ -812,7 +814,8 @@ pub(super) fn lower_independent_declarations(
                     value.canvas_selection(),
                 ),
             ),
-            iidm: admit_iidm_profile(iidm),
+            iidm,
+            geometry,
         })
     }));
 
@@ -2561,6 +2564,7 @@ mod tests {
                     "vehicle-car",
                     ParticipantClassReference::local("participant-car").unwrap(),
                     RoadEditingIidmInput::try_new(4.5, 15.0, 2.0, 1.5, 2.0, 3.0, 6.0).unwrap(),
+                    crate::regular_profile_tests::CAR_GEOMETRY,
                 )
                 .unwrap(),
             ))

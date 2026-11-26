@@ -2,9 +2,9 @@ use laneflow_static_contract::{
     AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, EntityKind, FacilityBandOrdinal,
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
     MovementOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
-    RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal,
-    SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal,
-    WaitingZoneOrdinal,
+    RoadCorridorOrdinal, RoadSectionOrdinal, RoadVehicleGeometry, SignalAspect,
+    SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal,
+    VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::RangeU32;
@@ -511,6 +511,7 @@ impl<'a> AccessRuleView<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VehicleProfileView {
     class: ParticipantClassOrdinal,
+    geometry: RoadVehicleGeometry,
     length_mm: u32,
     desired_speed_mm_s: u32,
     min_gap_mm: u32,
@@ -521,6 +522,12 @@ pub struct VehicleProfileView {
 }
 
 impl VehicleProfileView {
+    /// 本修订内该车型的单刚体几何与前轮转向上限。
+    #[must_use]
+    pub const fn geometry(self) -> RoadVehicleGeometry {
+        self.geometry
+    }
+
     /// 该车辆配置归属的参与者类别。
     #[must_use]
     pub const fn class(self) -> ParticipantClassOrdinal {
@@ -695,6 +702,7 @@ pub struct SharedRelationClosure {
     pub(crate) rule_classes: Box<[ParticipantClassOrdinal]>,
     pub(crate) rule_priority: Box<[i32]>,
     pub(crate) profile_class: Box<[ParticipantClassOrdinal]>,
+    pub(crate) profile_geometry: Box<[RoadVehicleGeometry]>,
     pub(crate) profile_length: Box<[u32]>,
     pub(crate) profile_desired_speed: Box<[u32]>,
     pub(crate) profile_min_gap: Box<[u32]>,
@@ -1061,6 +1069,7 @@ impl SharedRelationClosure {
     pub fn vehicle_profile(&self, profile: VehicleProfileOrdinal) -> Option<VehicleProfileView> {
         Some(VehicleProfileView {
             class: *self.profile_class.get(profile.index())?,
+            geometry: *self.profile_geometry.get(profile.index())?,
             length_mm: *self.profile_length.get(profile.index())?,
             desired_speed_mm_s: *self.profile_desired_speed.get(profile.index())?,
             min_gap_mm: *self.profile_min_gap.get(profile.index())?,
@@ -1222,6 +1231,7 @@ impl SharedRelationClosure {
             + logical_bytes::<ParticipantClassOrdinal>(self.rule_classes.len())
             + logical_bytes::<i32>(self.rule_priority.len())
             + logical_bytes::<ParticipantClassOrdinal>(self.profile_class.len())
+            + logical_bytes::<RoadVehicleGeometry>(self.profile_geometry.len())
             + logical_bytes::<u32>(self.profile_length.len())
             + logical_bytes::<u32>(self.profile_desired_speed.len())
             + logical_bytes::<u32>(self.profile_min_gap.len())
@@ -1366,6 +1376,7 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<RangeU32>(total, rule)?;
     total = floor_add::<i32>(total, rule)?;
     total = floor_add::<ParticipantClassOrdinal>(total, profile)?;
+    total = floor_add::<RoadVehicleGeometry>(total, profile)?;
     total = floor_add::<u32>(total, profile)?;
     total = floor_add::<u32>(total, profile)?;
     total = floor_add::<u32>(total, profile)?;
@@ -1523,6 +1534,7 @@ mod builder_support {
         rule_classes: Box<[ParticipantClassOrdinal]>,
         rule_priority: Box<[i32]>,
         profile_class: Box<[ParticipantClassOrdinal]>,
+        profile_geometry: Box<[RoadVehicleGeometry]>,
         profile_length: Box<[u32]>,
         profile_desired_speed: Box<[u32]>,
         profile_min_gap: Box<[u32]>,
@@ -1614,6 +1626,7 @@ mod builder_support {
             rule_classes,
             rule_priority,
             profile_class,
+            profile_geometry,
             profile_length,
             profile_desired_speed,
             profile_min_gap,
@@ -1707,6 +1720,7 @@ mod builder_support {
             Box::new([]),
             empty_optional(0).expect("empty"),
             // participant classes / rules / profiles
+            Box::new([]),
             Box::new([]),
             Box::new([]),
             Box::new([]),

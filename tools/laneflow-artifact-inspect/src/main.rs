@@ -53,9 +53,6 @@ const USAGE: &str = "\
 退出码：0 完成/相同；1 不同；2 无法完成（参数、I/O、格式、版本、对象种类
 或资源限制错误）。报告正文在 stdout，执行错误在 stderr。诊断文本不是数据契约。";
 
-const VERSION_NOTE: &str =
-    "laneflow-artifact-inspect 0.0.0（对象格式：LFCA 5 / LFSM 6 / LFSD 4 / LFCP 2）";
-
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
@@ -136,7 +133,15 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         "--version" | "version" => {
-            println!("{VERSION_NOTE}");
+            use laneflow_static_contract::PortableObjectKind as Kind;
+            println!(
+                "laneflow-artifact-inspect {}（对象格式：LFCA {} / LFSM {} / LFSD {} / LFCP {}）",
+                env!("CARGO_PKG_VERSION"),
+                Kind::CanonicalArtifact.format_version(),
+                Kind::SourceMap.format_version(),
+                Kind::SemanticDiff.format_version(),
+                Kind::CanonicalPublicationDescriptor.format_version(),
+            );
             Ok(ExitCode::SUCCESS)
         }
         "inspect" => run_inspect(rest),

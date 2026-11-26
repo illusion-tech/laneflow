@@ -268,7 +268,7 @@ fn document_digest_and_length_are_bound_to_the_module() {
         module.descriptor().source_language(),
         SourceLanguage::SyntheticDsl
     );
-    assert_eq!(module.descriptor().frontend_version(), 5);
+    assert_eq!(module.descriptor().frontend_version(), 6);
     let document = module.source_documents().next().unwrap();
     assert_eq!(
         u64::from(document.source_record_byte_len()),
@@ -282,6 +282,64 @@ fn document_digest_and_length_are_bound_to_the_module() {
         module.descriptor().imports().collect::<Vec<_>>(),
         ["city/base"]
     );
+}
+
+#[test]
+fn synthetic_vehicle_geometry_suffix_matches_its_source_length_preflight() {
+    let mut builder = SyntheticModuleBuilder::new(
+        header("city/a", "source.test"),
+        &CompileProfile::single_network_10k_stable_entities(),
+    )
+    .unwrap();
+    builder
+        .add_vehicle_profile(VehicleProfileInput {
+            vehicle_profile_key: "sedan",
+            participant_class: ParticipantClassReference::local("car"),
+            iidm: IidmVehicleProfileInput {
+                length_meters: 4.15,
+                desired_speed_meters_per_second: 13.,
+                min_gap_meters: 2.,
+                time_headway_seconds: 1.2,
+                max_acceleration_meters_per_second_squared: 2.,
+                comfortable_deceleration_meters_per_second_squared: 3.,
+                emergency_deceleration_meters_per_second_squared: 7.,
+            },
+            geometry: RoadVehicleGeometryInput::RigidTwoAxle(RigidTwoAxleGeometryInput {
+                wheelbase_m: 2.60,
+                track_width_m: 1.601,
+                reference_height_m: 0.55,
+                rear_overhang_m: 0.,
+                width_m: 1.90,
+                bottom_height_m: -0.3,
+                top_height_m: 1.5,
+                max_steering_angle_rad: 0.6,
+                max_steering_rate_rad_s: 0.5,
+            }),
+        })
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let declaration = &module.admitted.declarations[0];
+    let mut bytes = Vec::new();
+    synthetic_record::put_declaration(&mut bytes, declaration);
+    assert_eq!(
+        synthetic_record::encoded_declaration_len(declaration),
+        Some(bytes.len() as u64)
+    );
+    let mut suffix = vec![1];
+    for word in [
+        2600_i32,
+        1601,
+        550,
+        0,
+        1900,
+        -300,
+        1500,
+        0x3f19_9999,
+        0x3f00_0000,
+    ] {
+        suffix.extend_from_slice(&word.to_le_bytes());
+    }
+    assert_eq!(bytes[bytes.len() - 37..], suffix);
 }
 
 #[test]
@@ -310,17 +368,17 @@ fn empty_module_source_record_has_a_position_independent_known_vector() {
     assert_eq!(
         *document.source_document_digest(),
         [
-            0xf6, 0xf4, 0x8f, 0x1b, 0xb1, 0x8c, 0xf6, 0xe4, 0xc7, 0x04, 0x60, 0x46, 0x90, 0x3e,
-            0x4c, 0xa2, 0x07, 0x6a, 0x2c, 0x43, 0xe0, 0x57, 0xc6, 0xb4, 0x9a, 0x0b, 0x16, 0x1f,
-            0xa6, 0xa1, 0xa6, 0x7c,
+            0xc5, 0x5d, 0x2c, 0x64, 0xe6, 0x42, 0x1b, 0x7f, 0xa8, 0xab, 0xb3, 0xfb, 0xf7, 0xef,
+            0xfe, 0xf0, 0x30, 0xaf, 0x3e, 0xb2, 0x6e, 0x96, 0x57, 0x5e, 0x92, 0x73, 0x5a, 0x2f,
+            0x24, 0x6c, 0xa7, 0x68,
         ]
     );
     assert_eq!(
         *module.descriptor().source_document_set_digest(),
         [
-            0x71, 0xba, 0xd4, 0xa5, 0xb1, 0x74, 0x74, 0xd2, 0xf2, 0x07, 0xe5, 0xe4, 0xe0, 0x9b,
-            0x33, 0x7e, 0x7d, 0xf2, 0x82, 0xae, 0x5c, 0x0b, 0xc5, 0xb3, 0xe1, 0x62, 0x64, 0x89,
-            0xd1, 0xa4, 0x0c, 0xff,
+            0x01, 0x72, 0x5e, 0xf8, 0xeb, 0x46, 0x6f, 0xf2, 0xc1, 0x28, 0xc3, 0xd2, 0xaa, 0xa4,
+            0x2a, 0x7c, 0xf4, 0x4d, 0x93, 0x68, 0x9c, 0x54, 0xbc, 0x20, 0x3d, 0xce, 0x7b, 0xf9,
+            0x89, 0xa7, 0x64, 0x50,
         ]
     );
 }
@@ -753,9 +811,9 @@ fn lane_edge_source_record_has_a_known_vector() {
     assert_eq!(
         *document.source_document_digest(),
         [
-            0x2f, 0xe7, 0xc3, 0xa2, 0x4f, 0xcc, 0x8b, 0x71, 0x88, 0x9d, 0x48, 0xd5, 0x42, 0x00,
-            0x2e, 0x3c, 0xdc, 0x7e, 0x35, 0x5d, 0x99, 0x1c, 0xbc, 0x5b, 0xc2, 0x1a, 0x42, 0x52,
-            0xfc, 0x19, 0xb6, 0x05,
+            0x39, 0xe3, 0x55, 0x1e, 0xd6, 0xf7, 0xc7, 0xa3, 0x21, 0x5d, 0xca, 0x71, 0xee, 0x81,
+            0xc4, 0x48, 0x9b, 0xe5, 0xd7, 0x75, 0x7f, 0x31, 0x4d, 0x1f, 0xb2, 0x46, 0x96, 0x6c,
+            0x5b, 0x75, 0x56, 0xd9,
         ]
     );
 }

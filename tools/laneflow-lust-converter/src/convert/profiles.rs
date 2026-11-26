@@ -59,6 +59,7 @@ pub(crate) fn convert_vehicle_profiles(vtypes: &[SumoVType]) -> Result<Vec<Vehic
                     id: format!("{SUMO_ID_PREFIX}{}", vtype.id),
                     length: vtype.length.to_f64()?,
                     model: "iidm",
+                    geometry: geometry(vtype)?,
                     desired_speed: vtype.max_speed.to_f64()?,
                     min_gap: vtype.min_gap.to_f64()?,
                     time_headway: TIME_HEADWAY,
@@ -97,6 +98,56 @@ pub(crate) fn convert_vehicle_profiles(vtypes: &[SumoVType]) -> Result<Vec<Vehic
         )));
     }
     Ok(profiles)
+}
+
+fn geometry(source: &SumoVType) -> Result<Option<laneflow_compiler::RoadVehicleGeometryInput>> {
+    use laneflow_compiler::{
+        RigidTwoAxleGeometryInput, RoadVehicleConfiguration, RoadVehicleGeometryInput,
+    };
+    let values = &source.geometry_parameters;
+    if values.is_empty() {
+        return Ok(None);
+    }
+    let field = |name: &str| {
+        values.get(name).ok_or_else(|| {
+            Error::SumoModel(format!(
+                "vType {}: missing geometry field {name}",
+                source.id
+            ))
+        })
+    };
+    let code = field("configuration")?;
+    let configuration = code
+        .parse()
+        .ok()
+        .and_then(RoadVehicleConfiguration::from_code);
+    if configuration != Some(RoadVehicleConfiguration::RigidTwoAxle) {
+        return Err(Error::SumoModel(format!(
+            "vType {}: unsupported geometry configuration {code}",
+            source.id
+        )));
+    }
+    let number = |name: &str| -> Result<f64> {
+        field(name)?.parse().map_err(|_| {
+            Error::SumoModel(format!(
+                "vType {}: invalid geometry field {name}",
+                source.id
+            ))
+        })
+    };
+    Ok(Some(RoadVehicleGeometryInput::RigidTwoAxle(
+        RigidTwoAxleGeometryInput {
+            wheelbase_m: number("wheelbase_m")?,
+            track_width_m: number("track_width_m")?,
+            reference_height_m: number("reference_height_m")?,
+            rear_overhang_m: number("rear_overhang_m")?,
+            width_m: number("width_m")?,
+            bottom_height_m: number("bottom_height_m")?,
+            top_height_m: number("top_height_m")?,
+            max_steering_angle_rad: number("max_steering_angle_rad")?,
+            max_steering_rate_rad_s: number("max_steering_rate_rad_s")?,
+        },
+    )))
 }
 
 #[cfg(test)]

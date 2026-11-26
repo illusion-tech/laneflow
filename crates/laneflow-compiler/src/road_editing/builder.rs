@@ -1082,9 +1082,10 @@ fn charge_declaration(
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::VehicleProfile(value) => {
-            usage.charge_table(4, 16);
+            usage.charge_table(5, 20);
             usage.charge_table(7, 56);
-            usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+            usage.charge_table(10, 80);
+            usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(2);
             usage.charge_reference(
                 value.participant_class(),
                 current_namespace,

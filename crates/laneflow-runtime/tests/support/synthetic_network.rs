@@ -730,6 +730,7 @@ pub(crate) fn build_mixed_network(shape: WorkloadShape, permuted: bool) -> Compi
         })
         .unwrap()
         .add_vehicle_profile(VehicleProfileInput {
+            geometry: laneflow_synth_generator::PASSENGER_CAR_GEOMETRY,
             vehicle_profile_key: shared_profile,
             participant_class: ParticipantClassReference::local(shared_class),
             iidm: IidmVehicleProfileInput {
