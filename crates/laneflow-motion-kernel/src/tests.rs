@@ -1,4 +1,3 @@
-// #1464 临时 CI 对照，使用已有测试核对 Rust 检查排程。
 use super::*;
 
 const N: usize = 129;

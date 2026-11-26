@@ -12,6 +12,8 @@ related = ["governance-documentation-policy", "reference-documentation-checks"]
 
 # 文档元数据与发布模型
 
+<!-- #1464 临时纯文档验证。 -->
+
 正式文档采用 TOML 页头与普通 Markdown 正文。元数据承载机器需要的身份、分类、
 状态及关系；正文解释设计、决策理由、取代范围和实现差异。接受设计不等于实现、
 验收或产品认证完成。本规范由 #1435 的维护者接受方案实施。
