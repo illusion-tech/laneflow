@@ -10,7 +10,7 @@ pub(super) const EXCLUDED_PACKAGES: &[&str] =
     &["laneflow-urban-harness", "laneflow-urban-generator"];
 pub(super) const ALL: &str = "*";
 pub(super) const EMPTY: &str = "[]";
-const DEFAULT_FILTER: &str = "not (binary(corridor_traffic_smoke))";
+pub(super) const DEFAULT_FILTER: &str = "not (binary(corridor_traffic_smoke))";
 // nextest 0.9.145 的 NO_TESTS_RUN，区别于测试、构建或过滤表达式失败。
 const NO_TESTS_RUN: i32 = 4;
 
@@ -47,7 +47,7 @@ fn filterset(scope: &str) -> Result<String, String> {
     Ok(format!("({}) & {DEFAULT_FILTER}", terms.join(" | ")))
 }
 
-fn workspace_args() -> Vec<String> {
+pub(super) fn workspace_args() -> Vec<String> {
     let mut args = vec!["--workspace".to_owned()];
     for name in EXCLUDED_PACKAGES {
         args.extend(["--exclude".to_owned(), (*name).to_owned()]);
