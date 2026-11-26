@@ -20,6 +20,8 @@ const HELPER: &str = "LANEFLOW_HOST_OBSERVE_HELPER";
 const SOURCE_DIRECTORY: &str = "LANEFLOW_HOST_OBSERVE_SOURCE_DIRECTORY";
 /// 样例记录与临时仓库钉版共用的工具链 channel。固定虚拟值：升级 Rust 不触及本测试。
 const FIXTURE_CHANNEL: &str = "1.0.0";
+/// 样例记录对应的构建工具链全名（rustup 代理导出给构建进程的形态）。
+const FIXTURE_BUILD: &str = "1.0.0-x86_64-pc-windows-msvc";
 
 /// 在临时仓库根写入钉版文件，内容为给定的 `rust-toolchain.toml` 文本。
 fn pin_toolchain(root: &Path, text: &str) {
@@ -74,7 +76,8 @@ fn sample_record() -> EnvironmentRecord {
             bios_date: Field::Value("01/01/2025".into()),
         },
         toolchain: Field::Value(Toolchain {
-            selector: Some(FIXTURE_CHANNEL.into()),
+            // 现行采集不指定选择器：记录里是环境实际解析到的 rustc / cargo。
+            selector: None,
             rustc_vv: format!("rustc {FIXTURE_CHANNEL}\nhost: x86_64-pc-windows-msvc"),
             cargo_version: format!("cargo {FIXTURE_CHANNEL}"),
             host_target: "x86_64-pc-windows-msvc".into(),
@@ -204,13 +207,18 @@ fn measurement_readiness_checks_commit_cleanliness_toolchain_and_p100() {
         root.path(),
         &format!("[toolchain]\nchannel = \"{FIXTURE_CHANNEL}\"\n"),
     );
+    let ready = |record: &EnvironmentRecord| {
+        record.require_measurement_ready(&"c".repeat(40), root.path(), Some(FIXTURE_BUILD))
+    };
     let record = sample_record();
+    // 构建工具链接受 rustup 代理导出的全名，也接受不带主机后缀的 channel。
+    ready(&record).unwrap();
     record
-        .require_measurement_ready(&"c".repeat(40), root.path())
+        .require_measurement_ready(&"c".repeat(40), root.path(), Some(FIXTURE_CHANNEL))
         .unwrap();
     assert!(
         record
-            .require_measurement_ready(&"a".repeat(40), root.path())
+            .require_measurement_ready(&"a".repeat(40), root.path(), Some(FIXTURE_BUILD))
             .is_err()
     );
     let mut dirty = sample_record();
@@ -219,53 +227,20 @@ fn measurement_readiness_checks_commit_cleanliness_toolchain_and_p100() {
         tree: "d".repeat(40),
         clean: false,
     });
-    assert!(
-        dirty
-            .require_measurement_ready(&"c".repeat(40), root.path())
-            .is_err()
-    );
+    assert!(ready(&dirty).is_err());
     let mut no_toolchain = sample_record();
     no_toolchain.toolchain = Field::Unavailable("x".into());
-    assert!(
-        no_toolchain
-            .require_measurement_ready(&"c".repeat(40), root.path())
-            .is_err()
-    );
-    // 记录的工具链选择须等于仓库钉版：换一个 channel、留空、或钉版文件读不出都拒绝。
-    let mut other_toolchain = sample_record();
-    if let Field::Value(toolchain) = &mut other_toolchain.toolchain {
-        toolchain.selector = Some("9.9.9".into());
-    }
-    assert!(
-        other_toolchain
-            .require_measurement_ready(&"c".repeat(40), root.path())
-            .is_err()
-    );
-    let mut default_toolchain = sample_record();
-    if let Field::Value(toolchain) = &mut default_toolchain.toolchain {
-        toolchain.selector = None;
-    }
-    assert!(
-        default_toolchain
-            .require_measurement_ready(&"c".repeat(40), root.path())
-            .is_err()
-    );
+    let error = ready(&no_toolchain).unwrap_err();
+    assert!(error.to_string().contains("工具链不可用"), "{error}");
     pin_toolchain(root.path(), "[toolchain]\n");
-    assert!(
-        record
-            .require_measurement_ready(&"c".repeat(40), root.path())
-            .is_err()
-    );
+    assert!(ready(&record).is_err());
     pin_toolchain(
         root.path(),
         &format!("[toolchain]\nchannel = \"{FIXTURE_CHANNEL}\"\n"),
     );
     let mut p100 = sample_record();
     p100.manual.hardware_role = HardwareRole::P100;
-    assert!(
-        p100.require_measurement_ready(&"c".repeat(40), root.path())
-            .is_err()
-    );
+    assert!(ready(&p100).is_err());
     let declaration = root.path().join(environment::REFERENCE_MACHINE_PATH);
     std::fs::create_dir_all(declaration.parent().unwrap()).unwrap();
     std::fs::write(
@@ -277,7 +252,84 @@ fn measurement_readiness_checks_commit_cleanliness_toolchain_and_p100() {
         .to_string(),
     )
     .unwrap();
-    p100.require_measurement_ready(&"c".repeat(40), root.path())
+    ready(&p100).unwrap();
+}
+
+/// 工具链两项核对的判定层：测量环境的 rustc / cargo 须是钉版，测量程序自身也须由
+/// 钉版工具链编译。记录由采集器按环境解析，不再有「选择等于钉版」这种同义反复。
+#[test]
+fn measurement_rejects_other_toolchains() {
+    let pinned = "1.0.0";
+    let sample = sample_record();
+    let Field::Value(toolchain) = &sample.toolchain else {
+        unreachable!("样例记录带工具链");
+    };
+    assert_eq!(toolchain.selector, None);
+    let check = |toolchain: &Toolchain, built: Option<&str>| {
+        environment::require_pinned_toolchain(toolchain, pinned, built)
+    };
+    check(toolchain, Some(FIXTURE_BUILD)).unwrap();
+    check(toolchain, Some(pinned)).unwrap();
+    // 测量程序由别的工具链、别的补丁号、别的主机或自定义链接编译：记录本身合格也拒绝。
+    for built in [
+        "nightly-x86_64-pc-windows-msvc",
+        "1.0.1-x86_64-pc-windows-msvc",
+        "1.0.0-x86_64-unknown-linux-gnu",
+        "1.0.0-custom",
+        "",
+    ] {
+        let error = check(toolchain, Some(built)).unwrap_err();
+        assert!(error.to_string().contains(built), "{built}: {error}");
+    }
+    // 构建进程没有导出工具链名：无从判断，拒绝。
+    assert!(check(toolchain, None).is_err());
+    // 测量环境的 rustc / cargo 不是钉版（环境变量或目录覆盖造成的偏离）：拒绝。
+    // 版本记号须整个相等：别的版本、带预发布后缀或再多一段都算不同。
+    for rustc_vv in [
+        "rustc 9.9.9 (other)\nhost: x86_64-pc-windows-msvc".to_owned(),
+        "rustc 1.0.1-nightly (other)\nhost: x86_64-pc-windows-msvc".to_owned(),
+        "rustc 1.0.0.1 (other)\nhost: x86_64-pc-windows-msvc".to_owned(),
+        String::new(),
+    ] {
+        let drifted = Toolchain {
+            rustc_vv,
+            ..toolchain.clone()
+        };
+        assert!(check(&drifted, Some(FIXTURE_BUILD)).is_err());
+    }
+    let drifted = Toolchain {
+        cargo_version: "cargo 9.9.9 (other)".to_owned(),
+        ..toolchain.clone()
+    };
+    assert!(check(&drifted, Some(FIXTURE_BUILD)).is_err());
+    // 旧记录的 selector 写着钉版、版本却是别的：选择不构成依据，照样拒绝。
+    let stale = Toolchain {
+        selector: Some(pinned.into()),
+        rustc_vv: "rustc 9.9.9 (other)\nhost: x86_64-pc-windows-msvc".to_owned(),
+        ..toolchain.clone()
+    };
+    assert!(check(&stale, Some(FIXTURE_BUILD)).is_err());
+}
+
+/// 生产路径：真实采集器在本 checkout 按环境解析出的工具链，与仓库钉版、本测试二进制
+/// 编译期的构建工具链三者一致。`cargo test` 经 rustup 选用钉版工具链，三者必然相等；
+/// 在被环境变量或目录覆盖带偏的工具链下构建或运行时，本测试失败。
+#[test]
+fn live_collected_toolchain_is_the_pinned_build_toolchain() {
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let record = environment::collect(&CollectOptions {
+        phase: Phase::Before,
+        repository: repository.clone(),
+        manual: manual(),
+        snapshot_interval: Duration::from_millis(20),
+    })
+    .unwrap();
+    let Field::Value(toolchain) = &record.toolchain else {
+        unreachable!("{:?}", record.toolchain);
+    };
+    assert_eq!(toolchain.selector, None);
+    let pinned = environment::pinned_toolchain(&repository).unwrap();
+    environment::require_pinned_toolchain(toolchain, &pinned, option_env!("RUSTUP_TOOLCHAIN"))
         .unwrap();
 }
 
@@ -497,7 +549,6 @@ fn live_record_reports_platform_fields_and_keeps_smbios_values_out() {
     let record = environment::collect(&CollectOptions {
         phase: Phase::Before,
         repository: Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf(),
-        toolchain: None,
         manual: manual(),
         snapshot_interval: Duration::from_millis(20),
     })
@@ -542,7 +593,6 @@ fn reference_machine_fingerprint_matches_published_declaration() {
     let record = environment::collect(&CollectOptions {
         phase: Phase::Before,
         repository: Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf(),
-        toolchain: None,
         manual: ManualFields {
             vendor_performance_mode: "未记录".into(),
             hardware_role: HardwareRole::P100,

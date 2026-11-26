@@ -10,6 +10,10 @@
 cargo build --release --locked -p laneflow-synth-harness
 ```
 
+测量入口要求本程序由仓库钉版的工具链编译。直接 `cargo build` 时
+`RUSTUP_TOOLCHAIN` 环境变量与 rustup 目录覆盖都优先于 `rust-toolchain.toml`；
+带着它们构建出的程序会在测量开始前被拒绝。
+
 单个输入的完整窗口：
 
 ```text
@@ -375,9 +379,9 @@ step。W3 运行到前两条观察拍，W4 完成 B1；完整 W3 窗口由正常
   `hardware_role` 取 `R0`、`P10`、`P100`、`O1` 或 `uncertified`；`vendor_performance_mode`
   不得为空或占位值，没有厂商性能模式时写明“无厂商性能模式”。
 - 启动任何子进程前，工具在当前 git 检出内生成 `environment-before.json`
-  （`laneflow-environment-record` 第 1 版，工具链为仓库钉版的 channel），核对工作树
-  干净、HEAD 与实现提交参数相同、工具链可用且等于仓库钉版，`P100` 角色另须匹配
-  参考机指纹；任一不满足即
+  （`laneflow-environment-record` 第 1 版，工具链按测量时的环境解析），核对工作树
+  干净、HEAD 与实现提交参数相同、测量环境的 rustc / cargo 与本程序的构建工具链
+  都是仓库钉版，`P100` 角色另须匹配参考机指纹；任一不满足即
   停止，不启动子进程。全部运行完成后生成 `environment-after.json` 并比较，前后不一致
   时矩阵不标记完整。两份记录的文件名、SHA-256 与字节数写入 `summary.json` 的
   `environment`。

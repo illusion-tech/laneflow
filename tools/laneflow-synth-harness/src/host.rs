@@ -26,6 +26,10 @@ pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 pub const BEFORE: &str = "environment-before.json";
 /// 测量后环境记录文件名。
 pub const AFTER: &str = "environment-after.json";
+/// 构建本二进制的工具链名：rustup 代理导出给 cargo 的 `RUSTUP_TOOLCHAIN`，编译期
+/// 嵌入。直接 `cargo build` 时环境变量与 rustup 目录覆盖都优先于
+/// `rust-toolchain.toml`，二进制未必由钉版工具链编译；测量入口据此拒绝。
+const BUILD_TOOLCHAIN: Option<&str> = option_env!("RUSTUP_TOOLCHAIN");
 
 /// 执行者输入文件：环境记录的必填字段与构建声明。不得含自动采集字段。
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,8 +70,6 @@ fn collect(
     environment::collect(&CollectOptions {
         phase,
         repository: repository.to_path_buf(),
-        // 与正式构建同一工具链：rustup 在 checkout 内强制的钉版 channel。
-        toolchain: Some(environment::pinned_toolchain(repository).map_err(invalid)?),
         manual: manual.clone(),
         snapshot_interval: snapshot::DEFAULT_INTERVAL,
     })
@@ -87,7 +89,8 @@ impl Session {
     /// # Errors
     ///
     /// 输入文件无效、构建声明为空、工作树不干净、提交与 `implementation` 不同、
-    /// 读不出仓库钉版的工具链 channel、工具链不可用或 P100 指纹不符时返回错误。
+    /// 读不出仓库钉版的工具链 channel、测量环境的工具链或本二进制的构建工具链
+    /// 不是钉版，或 P100 指纹不符时返回错误。
     pub fn begin(
         declaration: &Path,
         implementation: &str,
@@ -110,7 +113,7 @@ impl Session {
         let before = collect(Phase::Before, &repository, &declaration.environment)?;
         let written = write_record(output, BEFORE, &before)?;
         before
-            .require_measurement_ready(implementation, &repository)
+            .require_measurement_ready(implementation, &repository, BUILD_TOOLCHAIN)
             .map_err(|error| Error::Invalid(error.to_string()))?;
         let summary = json!({"declaration":declaration,"before":written});
         Ok((
@@ -163,7 +166,7 @@ pub fn verify_record(path: &Path, implementation: &str) -> Result<String, Error>
         EnvironmentRecord::from_json(&bytes).map_err(|error| Error::Invalid(error.to_string()))?;
     let repository = environment::repository_root(&std::env::current_dir()?)?;
     record
-        .require_measurement_ready(implementation, &repository)
+        .require_measurement_ready(implementation, &repository, BUILD_TOOLCHAIN)
         .map_err(|error| Error::Invalid(error.to_string()))?;
     Ok(digest(&bytes))
 }
