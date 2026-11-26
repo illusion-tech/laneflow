@@ -144,17 +144,21 @@ impl GeometryWorkLimits {
 #[derive(Clone, Copy)]
 struct Seam<'a> {
     id: BoundaryHit<'a>,
-    offsets_um: [i32; 2],
-    error_nm: u32,
+    line: BoundaryLine,
     extents: &'a [BoundaryExtent],
 }
-impl Seam<'_> {
-    fn lateral(&self, c: &Candidate<'_, '_>, s: I) -> I {
+#[derive(Clone, Copy)]
+pub(super) struct BoundaryLine {
+    pub offsets_um: [i32; 2],
+    pub error_nm: u32,
+}
+impl BoundaryLine {
+    pub(super) fn lateral(&self, c: &Candidate<'_, '_>, s: I) -> I {
         let [a, b] = self.offsets_um.map(f64::from);
         ((I::point(a) + I::point(b - a) * (s - c.origin) / c.length) / I::point(1e6))
             .with_error(I::meters(u64::from(self.error_nm)).hi)
     }
-    fn slope(&self, c: &Candidate<'_, '_>) -> I {
+    pub(super) fn slope(&self, c: &Candidate<'_, '_>) -> I {
         let [a, b] = self.offsets_um.map(f64::from);
         let err = I::point(2.) * I::meters(u64::from(self.error_nm));
         ((I::point(b - a) / I::point(1e6)).with_error(err.hi)) / c.length
@@ -180,8 +184,10 @@ fn boundaries<'a>(
                     left_index,
                     key: None,
                 },
-                offsets_um,
-                error_nm,
+                line: BoundaryLine {
+                    offsets_um,
+                    error_nm,
+                },
                 extents: &m.extents[lo..lo + count],
             },
             work,

@@ -240,11 +240,7 @@ impl Path {
             // 相同的水平一、二阶端导数给出共同的后轴位置、朝向和曲率。
             // 恒定偏移的曲率只依赖原线曲率和偏移（在 1-dκ>0 时）。
             // 横移中若偏移不为零且仍在改变，横移曲率还依赖法向的二阶导数。
-            let equal = [3, 5, 6, 8]
-                .into_iter()
-                .all(|k| row.jets[1][k] == next.jets[0][k]);
-            let straight = constant_normal(row) && constant_normal(next);
-            let smooth = equal && (offset_constant || straight) || straight && offset_constant;
+            let smooth = smooth_join(row, next, offset_constant);
             return Ok(Piece::Join {
                 at: start.abs_diff(seam),
                 smooth,
@@ -253,6 +249,17 @@ impl Path {
         }
         Ok(Piece::Motion(motion(row, [low, high], *t)?))
     }
+}
+pub(super) fn smooth_join(
+    row: &RoadSurfaceSpan,
+    next: &RoadSurfaceSpan,
+    offset_constant: bool,
+) -> bool {
+    let equal = [3, 5, 6, 8]
+        .into_iter()
+        .all(|k| row.jets[1][k] == next.jets[0][k]);
+    let straight = constant_normal(row) && constant_normal(next);
+    equal && (offset_constant || straight) || straight && offset_constant
 }
 pub(super) enum Piece {
     Motion(Motion),

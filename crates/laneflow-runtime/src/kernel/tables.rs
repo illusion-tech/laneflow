@@ -1492,7 +1492,7 @@ fn hop_gate_at(
         .maneuver_gate()
 }
 
-fn access_cell_denied(cell: Option<AccessCell>) -> bool {
+pub(super) fn access_cell_denied(cell: Option<AccessCell>) -> bool {
     match cell {
         Some(AccessCell::Unconstrained) => false,
         Some(AccessCell::Decided {

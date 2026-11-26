@@ -206,7 +206,7 @@ impl Curb {
             if speed.lo <= 0. {
                 return Err(Failure::Projection);
             }
-            let d = s.lateral(c, station) + l.hull(rr);
+            let d = s.line.lateral(c, station) + l.hull(rr);
             let normal = [v[1] / speed, -v[0] / speed];
             let bounds = [
                 pos[0] + d * normal[0],
@@ -256,7 +256,7 @@ impl Curb {
                     && hit.station.hi <= self.anchors[1].lo
                     && let Some([l, r, bottom, top]) = self.profile(hit.station)
                 {
-                    let d = hit.lateral - s.lateral(c, hit.station);
+                    let d = hit.lateral - s.line.lateral(c, hit.station);
                     let h = p[1] - hit.height;
                     if d.lo >= r.hi && d.hi <= l.lo && h.lo >= bottom.hi && h.hi <= top.lo {
                         return Ok(Some(Verdict::Contact {
@@ -275,7 +275,7 @@ impl Curb {
                 let point = shifted(
                     horizontal(center),
                     [h[1], -h[0]],
-                    s.lateral(c, st) + (l + r) * I::point(0.5),
+                    s.line.lateral(c, st) + (l + r) * I::point(0.5),
                 );
                 let q = body.nearest_local([
                     mid(point[0]),
@@ -332,7 +332,7 @@ pub(super) fn check<'a>(
         } => {
             let side = usize::from(anchor_role == 2);
             let (center, h) = frame(c, e.stations_nm[side], u64::from(e.errors_nm[side]), work)?;
-            let d = s.lateral(c, anchors[side]) + microns(f64::from(lateral_um), error_nm);
+            let d = s.line.lateral(c, anchors[side]) + microns(f64::from(lateral_um), error_nm);
             let rail = Rail {
                 origin: shifted(horizontal(center), [h[1], -h[0]], d),
                 heading: if side == 1 { h.map(|v| -v) } else { h },
