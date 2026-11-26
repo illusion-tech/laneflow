@@ -464,7 +464,7 @@ Version: 20261116.88.1
 0ebc8a2f1cf5d31120038cc9963df4ae3b866b20
 rustc 1.99.1 (58cf8f9c3 2026-10-13)
 cargo 1.99.1 (5f94df478 2026-08-27)
-##[group]Run cargo +1.99.1 run --quiet --locked -p xtask -- run-workspace-tests \"$WORKSPACE_PACKAGES\"
+##[group]Run cargo run --quiet --locked -p xtask -- run-workspace-tests \"$WORKSPACE_PACKAGES\"
 env:
   WORKSPACE_PACKAGES: *
   RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -476,7 +476,7 @@ workspace 默认测试的 nextest 过滤条件：not (binary(corridor_traffic_sm
      PASS [   1.000s] (   1/2) laneflow-example test::first
      PASS [   2.000s] (   2/2) laneflow-example test::second
   Summary [   3.000s] 2 tests run: 2 passed (1 slow), 91 skipped
-##[group]Run cargo +1.99.1 test --workspace --doc --locked
+##[group]Run cargo test --workspace --doc --locked
   Summary [   2.000s] 1 test run: 1 passed";
 
     #[test]

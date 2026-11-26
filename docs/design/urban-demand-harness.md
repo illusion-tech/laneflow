@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-urban-demand-harness"
 kind = "design"
 status = "accepted"
-revised_date = "2026-10-25"
+revised_date = "2026-11-26"
 summary = "定义城市需求计划、无界面执行与结果核验。"
 scope = "LF-CN-URBAN-v1 的调用方需求、无界面运行程序、有限行为校验和结果包"
 issues = ["https://github.com/illusion-tech/laneflow/issues/544", "https://github.com/illusion-tech/laneflow/issues/608"]
@@ -425,13 +425,15 @@ CLI 输出错误并非零退出；本段接受部分准备文件，不提供结�
 
 性能使用 CI 固定 Rust 版本的正常 release binary；正确性摘要、完整快照捕获和诊断
 断言耗时不混入正常 tick latency。正式测量二进制由
-`cargo +1.100.0 run --locked -p xtask -- build-measurement` 构建（#876）：该 xtask
-命令执行冻结的 `cargo +1.100.0 build -p laneflow-urban-harness --release --locked`
+`cargo run --locked -p xtask -- build-measurement` 构建（#876）：该 xtask
+命令执行冻结的 `cargo build -p laneflow-urban-harness --release --locked`
+（工具链取 `rust-toolchain.toml` 的 channel，经 `RUSTUP_TOOLCHAIN` 钉给嵌套构建）
 并附加 `--remap-path-prefix`（工作树→`<worktree>`、Cargo 主目录→`<cargo-home>`、
 rustup 工具链→`<rustup-toolchain>`，固定顺序）、钉住 release profile 各键与工具链内
 rustc、显式 `CARGO_INCREMENTAL=0`，并要求依赖源码全部落在工作树或 Cargo 主目录内，
 使封存二进制不含采集机本机路径、可原样作为公开证据制品发布。Cargo `trim-paths`
-在固定工具链（1.100.0）尚未稳定，不作为映射入口。同一张映射表同时写出归一化记录
+在钉版工具链上尚未稳定（2026-11 核对，升级工具链时重新核对），不作为映射入口。
+同一张映射表同时写出归一化记录
 `LANEFLOW_MEASUREMENT_RUSTFLAGS`（来源端为占位符），由 harness 经编译期
 `option_env!` 嵌入二进制——wire 审计禁止 harness 携带 build.rs，不能以构建脚本
 生成代码；profile 记录由 `cfg!(debug_assertions)` 派生（`release;debug-assertions=off`），

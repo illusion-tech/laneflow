@@ -73,8 +73,7 @@ fn parse_args(args: &[String]) -> Result<(bool, Vec<PathBuf>), String> {
 
     if targets.is_empty() {
         return Err(
-            "用法：cargo +1.100.0 run --locked -p xtask -- format-md-tables [--check] <path...>"
-                .to_string(),
+            "用法：cargo run --locked -p xtask -- format-md-tables [--check] <path...>".to_string(),
         );
     }
 

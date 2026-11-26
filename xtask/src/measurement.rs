@@ -7,6 +7,9 @@
 //! `LANEFLOW_MEASUREMENT_RUSTFLAGS`（来源端为占位符），由 harness 编译期
 //! `option_env!` 嵌入二进制；wire 审计禁止 harness 携带 build.rs。
 //!
+//! 嵌套工具链取仓库根 `rust-toolchain.toml` 的 channel，经 `RUSTUP_TOOLCHAIN`
+//! 钉给每个子进程：白名单环境里没有调用方的工具链选择，目录覆盖也不参与。
+//!
 //! `check-binary-paths` 是本机路径扫描的独立入口，供构建后检查与发布前复扫
 //! 共用。两个入口的输出与回执只含占位符、字节数与 SHA-256，不出现采集机实际
 //! 路径，可随证据公开。
@@ -21,10 +24,9 @@ use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-const TOOLCHAIN_ARG: &str = "+1.100.0";
 /// 冻结的 cargo 构建命令（测量 provenance 的 build_parameters 记录本 xtask 入口，
-/// 本常量记录脚本内部实际执行的命令）。
-const CARGO_COMMAND: &str = "cargo +1.100.0 build -p laneflow-urban-harness --release --locked";
+/// 本常量记录脚本内部实际执行的命令）。工具链不写在命令里，由 `RUSTUP_TOOLCHAIN` 钉住。
+const CARGO_COMMAND: &str = "cargo build -p laneflow-urban-harness --release --locked";
 /// 固定 profile 钉值：覆盖采集机可能配置的环境或 config 覆盖。
 const PROFILE_PINS: [(&str, &str); 10] = [
     ("CARGO_PROFILE_RELEASE_OPT_LEVEL", "3"),
@@ -183,11 +185,12 @@ fn finish_output(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-/// 嵌套工具链环境：白名单 + 锚定后的 CARGO_HOME/RUSTUP_HOME。
+/// 嵌套工具链环境：白名单 + 锚定后的 CARGO_HOME/RUSTUP_HOME + 钉住的 channel。
 /// 探测与正式构建共用同一环境，审计/映射/扫描看到的目录与嵌套进程一致。
 struct ToolEnv {
     cargo_home: PathBuf,
     rustup_home: PathBuf,
+    toolchain: String,
 }
 
 impl ToolEnv {
@@ -195,10 +198,14 @@ impl ToolEnv {
         Ok(Self {
             cargo_home: cargo_home(repo)?,
             rustup_home: rustup_home(repo)?,
+            toolchain: crate::toolchain_pinning::pinned_channel(repo)?,
         })
     }
 
     /// 白名单环境：只放回父环境存在的变量；未列出的采集机变量一律不存在。
+    /// `RUSTUP_TOOLCHAIN` 不在白名单内而由这里显式钉住：嵌套的 rustup 代理因此
+    /// 既不继承调用方的工具链选择，也不读目录覆盖；channel 未安装时直接失败，
+    /// 不会触发 rustup 的自动安装。
     fn command(&self, program: &str, cwd: &Path) -> Command {
         let mut command = Command::new(program);
         command.current_dir(cwd);
@@ -210,6 +217,7 @@ impl ToolEnv {
         }
         command.env("CARGO_HOME", &self.cargo_home);
         command.env("RUSTUP_HOME", &self.rustup_home);
+        command.env("RUSTUP_TOOLCHAIN", &self.toolchain);
         sanitize_git_env(&mut command);
         command
     }
@@ -236,7 +244,7 @@ impl ToolEnv {
 }
 
 fn toolchain_sysroot(tool_env: &ToolEnv, repo: &Path) -> Result<PathBuf, String> {
-    let sysroot = tool_env.output("rustc", &[TOOLCHAIN_ARG, "--print", "sysroot"], repo)?;
+    let sysroot = tool_env.output("rustc", &["--print", "sysroot"], repo)?;
     let path = PathBuf::from(&sysroot);
     if !path.is_dir() {
         return Err("rustup 工具链 sysroot 不可解析（<rustup-toolchain> 非目录）".into());
@@ -433,13 +441,7 @@ fn check_dependency_roots(
 ) -> Result<(), String> {
     let stdout = tool_env.output(
         "cargo",
-        &[
-            TOOLCHAIN_ARG,
-            "metadata",
-            "--locked",
-            "--format-version",
-            "1",
-        ],
+        &["metadata", "--locked", "--format-version", "1"],
         repo,
     )?;
     let metadata: serde_json::Value =
@@ -922,7 +924,7 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
     }
     // 钉住目标三元组：采集机的 build.target 配置 / CARGO_BUILD_TARGET 不得改变
     // 产物位置或目标平台。
-    let verbose = tool_env.output("rustc", &[TOOLCHAIN_ARG, "-Vv"], &repo)?;
+    let verbose = tool_env.output("rustc", &["-Vv"], &repo)?;
     let host = verbose
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
@@ -930,7 +932,6 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
         .ok_or("rustc -Vv 缺少 host 行")?;
     let mut command = tool_env.command("cargo", &repo);
     command.args([
-        TOOLCHAIN_ARG,
         "build",
         "-p",
         "laneflow-urban-harness",
@@ -1038,8 +1039,9 @@ pub(crate) fn build_measurement(args: &[String]) -> Result<(), String> {
 
     let receipt = json!({
         "version": "urban-measurement-build-v1",
-        "build_parameters": "cargo +1.100.0 run --locked -p xtask -- build-measurement",
+        "build_parameters": "cargo run --locked -p xtask -- build-measurement",
         "cargo_command": format!("{CARGO_COMMAND} --target {host}"),
+        "toolchain": tool_env.toolchain,
         "source_commit": source_commit,
         "source_tree": source_tree,
         "rustflags_normalized": normalized,
@@ -1265,11 +1267,11 @@ mod tests {
                 placeholder: "<rustup-home>",
             },
             RemapRoot {
-                from: PathBuf::from("E:/rustup/toolchains/1.100.0-x86_64"),
+                from: PathBuf::from("E:/rustup/toolchains/1.0.0-x86_64"),
                 placeholder: "<rustup-toolchain>",
             },
         ];
-        let log = "error: E:\\rustup\\toolchains\\1.100.0-x86_64\\lib missing; E:/rustup/x";
+        let log = "error: E:\\rustup\\toolchains\\1.0.0-x86_64\\lib missing; E:/rustup/x";
         assert_eq!(
             redact_roots(log, &roots),
             "error: <rustup-toolchain>\\lib missing; <rustup-home>/x"
