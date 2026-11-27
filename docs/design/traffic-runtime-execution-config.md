@@ -57,6 +57,7 @@ tile、亲和性、调度后端、热改线程数或共享执行器注入接口�
 宿主可在取得共享修订前完成交通配置的构造。
 
 ```rust
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorldConfigInput {
     pub vehicle_capacity: u32,
     pub route_capacity: u32,
@@ -67,6 +68,13 @@ pub struct WorldConfigInput {
 
 impl WorldConfig {
     pub const fn try_new(input: WorldConfigInput) -> Result<Self, WorldConfigError>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum WorldConfigError {
+    #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
+    DeltaOutOfRange { actual: u64, min: u64, max: u64 },
 }
 
 pub struct WorldInstallInput {
@@ -106,24 +114,38 @@ let world = TrafficWorld::install(WorldInstallInput {
 })?;
 ```
 
-五项配置和六项安装输入均必填。结构体字面量允许任意字段顺序，漏写、重复或拼错字段
-均由 Rust 编译器报告。同类型变量仍可能赋给错误的字段，实施验收须逐项读取实际安装值。
+五项配置和六项安装输入均必填。两个 `*Input` 结构体均不加 `#[non_exhaustive]`，
+使外部 crate 能按任意字段顺序写结构体字面量。漏写、重复或拼错字段均由编译器报告。
+今后若新增必填项，宿主在编译时补上该项并显式决定其值。同类型变量仍可能赋给错误的
+字段，实施验收须逐项读取实际安装值。
+
+`WorldInstallInput` 手写 `core::fmt::Debug`。调试输出用 `revision.network_revision()`
+标识修订，用 `Published` 或 `Editable` 标识来源，并列出世界身份、交通配置、执行配置
+与策略选择。这样检查一次安装输入只需读取这些字段，无需展开整张共享路网或编辑数据。
+
 Builder 也能为每个值命名。若以可选值暂存，漏项到 `build()` 才能报告。若以类型状态
 记录已填字段，两组 Builder 分别需要五个和六个 setter，且只有字段齐全时才提供
 `build` 或 `install`。此处所有字段都必填，具名对象用一次构造就能提供相同的字段
 完整性检查。实施时直接迁移旧入口。
 
 `WorldConfig` 继续私有持有数值并提供五个 getter。`try_new` 仅检查固定步长的闭区间
-`4..=1000` 毫秒，越界返回 `WorldConfigError::DeltaOutOfRange { actual, min, max }`
-（均为 `u64`，错误实现 `std::error::Error`）。四项容量可分别取零，也可同时取零。
-容量表达宿主允许的上限，预留是否成功取决于实际需求和平台。`with_added_route_capacity`
-沿用现有饱和相加语义，仅改变路线及两项 occurrence 容量，保留已经检查的步长。
+`4..=1000` 毫秒，越界返回 `WorldConfigError::DeltaOutOfRange { actual, min, max }`。
+该错误实现 `std::error::Error` 和 `Display`。外部宿主可匹配已知变体并读取三个整数，
+用通配分支处理后续新增的配置错误。四项容量可分别取零，也可同时取零。容量表达宿主
+允许的上限，预留是否成功取决于实际需求和平台。
+
+`with_added_route_capacity(extra_routes, extra_edge_occurrences, extra_conflict_occurrences)`
+沿用现行位置参数，仅用于自含测量世界在目录路线之外预留注册余量。三项增量分别饱和
+相加，保留已经检查的步长。若常规宿主也需要增量配置，再评估具名化。
 
 ### 2.2 世界身份
 
 `WorldId` 由 Runtime 定义，私有持有 `u64`，提供 `pub const fn new(raw: u64) -> Self`
-与 `pub const fn get(self) -> u64`，可复制、按数值排序、比较与哈希。调试输出可用，
-错误消息沿用原数字展示。全部位模式有效，包括 0 和 `u64::MAX`。宿主分配身份，
+与 `pub const fn get(self) -> u64`。派生 `Clone, Copy, Debug, Eq, PartialEq, Ord,
+PartialOrd, Hash`，排序按内部整数值。实现 `core::fmt::Display` 并委托给内部 `u64`
+的 `Display`，使 `CutoverError::TransactionWorldMismatch` 的 `{expected_world}` 原样显示
+十进制数字。从整数构造统一显式调用 `WorldId::new`，不提供 `From<u64>`。
+全部位模式有效，包括 0 和 `u64::MAX`。宿主分配身份，
 同一宿主进程内，一个身份只属于一个逻辑世界。`WorldGeneration` 由 Runtime 维护，
 普通安装和 fresh restore 从初代 0 开始。活动世界成功切换或原位恢复沿用身份并推进世代。
 fresh restore 延续快照所指的逻辑世界，宿主须先使该身份的旧实例及其消费会话失效。
@@ -135,6 +157,10 @@ Bevy 的消费与路口观测上下文传递为 `WorldId`。`CutoverError::Trans
 参数类型，命令及事件游标仍各按现行合同处理。仅在字节或外部整数边界显式取出或构造
 标量。LFRS 的 `world_id:ulong` 和逻辑摘要中的小端八字节表示同一个宿主值。
 切换描述符按身份值比对。观测与 Routing 摘要沿用世界身份的小端编码和原有排序规则。
+
+Bevy 两个上下文的 `world_id()` 与现有的 `world_generation()` 一样直接返回 Runtime
+类型。宿主需要构造世界身份或在签名中写出类型时，直接依赖 `laneflow-runtime` 并导入
+`laneflow_runtime::WorldId`。`laneflow_bevy` 根不另行重导出。
 
 ### 2.3 执行配置与恢复入口
 
@@ -153,6 +179,9 @@ pub fn restore_lfrs(
     limits: SnapshotRestoreLimits,
 ) -> Result<RestoredSnapshot, SnapshotRestoreError>;
 ```
+
+本次仅将新世界的安装参数收拢为 `WorldInstallInput`。`restore_lfrs` 保留上述六个类型
+各异的位置参数，宿主传入受检的目标配置，恢复过程从快照读出世界身份和策略（§4.2）。
 
 0 在宿主构造 `NonZeroU32` 时被拒绝，串行可用 `NonZeroU32::MIN`。当前后端支持
 worker 1–16，请求更大 worker 数须返回执行能力错误；类型可表达不代表任意数量
@@ -364,8 +393,10 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
 
 具名安装接口的实施按下列用例验收，G1 调用原型与既有主干回归作为对照基线。
 
-1. 无窗口宿主使用 §2.1 的五个不同数值完成安装，逐字段读取配置并推进一个固定步。
-   缺少必填字段、直接传入整数或用 `WorldGeneration` 代替 `WorldId` 均编译失败。
+1. 在独立宿主 crate 用两个公开字面量安装世界，使用 §2.1 的五个不同数值，逐字段
+   读取并推进一个固定步。验证配置输入的复制与相等、安装输入的调试摘要、配置错误的
+   通配匹配及切换错误中世界身份的十进制显示。漏写字段、裸整数、从整数调用 `.into()`、
+   将 `WorldGeneration` 用作 `WorldId` 或穷举当前配置错误而省略通配分支均编译失败。
 2. 在构造入口断言 3、1001 ms 的错误内容及 4、1000 ms 的成功值。分别验证合法零容量，
    包括四项全零的空世界。用有路线和车辆的既有场景验证各容量的准入语义。
 3. 安装时组合错误来源、不兼容信号相位和超限 worker，分别固定来源错误、相位错误与
@@ -376,7 +407,9 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
    被拒绝、fresh restore 和同／跨修订切换保有原身份及约定的世代。只改 worker 数时
    交通身份、快照字节及逻辑摘要相同。
 5. 同次迁移 Runtime 的公开签名、正常安装与恢复调用点、无窗口示例、Bevy 会话、工具、
-   测试及宿主接入指南。保留受检配置的调用方可直接复用它进行恢复。
+   测试及宿主接入指南。宿主从 `laneflow_runtime` 导入 `WorldId`，用同一类型接收
+   `LaneFlowConsumptionContext::world_id()` 和 `LaneFlowJunctionObservationContext::world_id()`
+   的返回值。恢复用例直接复用受检配置。
 
 执行配置和资源生命周期的既有验收如下。
 
