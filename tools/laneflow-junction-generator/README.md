@@ -20,6 +20,12 @@ cargo run --locked -p laneflow-junction-generator -- check --config examples/con
 
 `check` 不写文件。两个命令比较 catalog 与 LFCA 字节，并做 catalog cross-reference 校验。
 
+示例中的 `frame_id = "complex-junction-local"` 是道路编辑模块
+`laneflow/complex-junction` 的框架局部键。它接受 1–53 个 ASCII 字节，区分大小写。
+首字节为字母或数字，后续还允许 `._:/-`，其中 `::` 为保留分隔符。
+道路参考线和冲突区在该模块内引用这个框架，非法键在配置入口报告 `frame_id` 及原因。
+见[框架身份与配置规则][frame-identity]。
+
 ## 场景合同
 
 - 单四岔信号路口：主路东西向 2+2 车道，次路南北向 1+1 车道；路口中心至道路外端距离、路口半径、车道
@@ -105,3 +111,5 @@ cargo run --locked -p laneflow-junction-generator -- check --config examples/con
 - `policy_selection` 是 catalog 顶层必填的闭合选择；本场景带 Gate/ConflictZone/
   ParticipantStream，`not_required` 会被绑定阶段拒绝。调用方把 bind 结果的
   `policy_selection` 传入唯一世界安装入口。
+
+[frame-identity]: ../../docs/design/spatial-geometry.md#canonical-frame-identity

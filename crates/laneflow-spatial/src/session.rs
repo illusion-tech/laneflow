@@ -314,7 +314,10 @@ impl CanonicalPoseBatch {
         self.network_revision
     }
 
-    /// 采样批次的规范坐标框架；尚未填充，或成功提取的批次为空时，为 `None`。
+    /// 返回批次来源修订内的框架序号。尚未填充或成功提取空批次时返回 `None`。
+    ///
+    /// 核对 [`Self::network_revision`] 后，可通过该修订的身份索引取得
+    /// [`laneflow_static_contract::CanonicalFrameId`]。
     #[must_use]
     pub const fn canonical_frame(&self) -> Option<CanonicalFrameOrdinal> {
         self.canonical_frame

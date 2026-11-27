@@ -36,4 +36,5 @@ mod writer;
 pub use builder::{RoadEditingSourceModule, RoadEditingSourceModuleBuilder};
 pub use input::{InvalidRoadEditingModuleInput, RoadEditingModuleInput};
 pub use model::*;
+pub use rules::validate_canonical_frame_local_key;
 pub use writer::{OwnedRoadEditingSourceBuffer, RoadEditingSourceWriter};

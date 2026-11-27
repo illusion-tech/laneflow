@@ -3274,7 +3274,8 @@ pub struct CanonicalFrameInput {
 }
 
 impl CanonicalFrameInput {
-    /// 构造规范坐标框架声明并校验框架键。
+    /// 构造规范坐标框架声明并校验局部键的词法。生成器配置入口使用
+    /// [`validate_canonical_frame_local_key`](super::validate_canonical_frame_local_key) 同时校验字节上限。
     ///
     /// # Errors
     ///
@@ -3288,7 +3289,7 @@ impl CanonicalFrameInput {
         })
     }
 
-    /// 返回规范坐标框架稳定键。
+    /// 返回在声明所在编制命名空间内解析的框架局部键。
     #[must_use]
     pub fn canonical_frame_key(&self) -> &str {
         &self.canonical_frame_key

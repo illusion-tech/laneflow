@@ -118,7 +118,13 @@ fn s01_nonempty_batch_matches_shared_static_network_baseline() {
         .expect("extract");
 
     assert_eq!(output.network_revision(), Some(session.network_revision()));
-    assert_eq!(output.canonical_frame(), Some(frame_of(&revision, EDGE_A0)));
+    let frame = output.canonical_frame().expect("nonempty batch frame");
+    assert_eq!(frame, frame_of(&revision, EDGE_A0));
+    let frame_id = revision
+        .identity()
+        .stable_id(frame)
+        .expect("frame identity");
+    assert_eq!(revision.identity().ordinal(frame_id), Some(frame));
     assert_eq!(output.placement_token(), FramePlacementToken::new(41));
     assert_eq!(
         output
