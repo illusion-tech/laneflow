@@ -2267,6 +2267,83 @@ fn junction_live_budget_is_exact_at_the_limit_boundary() {
 }
 
 #[test]
+fn access_member_budget_rejection_leaves_the_same_ledger_ready_for_retry() {
+    use crate::ledger::Ledger;
+
+    let limits = CompileProfile::single_network_10k_stable_entities();
+    let mut builder = SyntheticModuleBuilder::new(header("city/access-budget"), &limits).unwrap();
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "edge",
+            length_meters: 12.5,
+            speed_limit_meters_per_second: 13.75,
+            successors: &[],
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "car",
+            extends: None,
+        })
+        .unwrap()
+        .add_access_rule(AccessRuleInput {
+            access_rule_key: "deny-car",
+            target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge")),
+            effect: AccessEffect::Deny,
+            participant_classes: &[ParticipantClassReference::local("car"); 3],
+            regulation: None,
+            priority: 0,
+        })
+        .unwrap();
+    let input = unit([builder.finish().unwrap()]);
+
+    // 读本输入一次成功准入的实际承诺峰值，不复制 HIR 工作集计划。
+    let baseline = Ledger::with_budget(u64::MAX);
+    let source = baseline.adopt(input.controlled_live_bytes);
+    let reference = build_hir_in(&input, &baseline).unwrap();
+    assert_eq!(reference.access_rule_participant_classes.len(), 1);
+    drop(reference);
+    drop(source);
+    let exact = baseline.close().unwrap().peak_committed;
+
+    let ledger = Ledger::with_budget(exact - 1);
+    let source = ledger.adopt(input.controlled_live_bytes);
+    let rejection = build_hir_in(&input, &ledger).unwrap_err();
+    let [diagnostic] = rejection.diagnostics() else {
+        panic!("expected one HIR admission diagnostic, got {rejection:?}");
+    };
+    assert!(matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+            limit,
+            observed,
+        } if *limit == exact - 1 && *observed == exact
+    ));
+    assert_eq!(
+        (ledger.live(), ledger.reserved()),
+        (input.controlled_live_bytes, 0)
+    );
+
+    ledger.set_test_budget(exact);
+    let hir = build_hir_in(&input, &ledger).unwrap();
+    let members = &hir.access_rule_participant_classes;
+    assert_eq!(members.len(), 1);
+    assert_eq!(
+        members.granted_bytes(),
+        std::mem::size_of_val(&members[..]) as u64
+    );
+    assert_eq!(
+        ledger.live(),
+        input.controlled_live_bytes + hir.granted_bytes()
+    );
+    assert_eq!(ledger.reserved(), 0);
+    drop(hir);
+    assert_eq!(ledger.live(), input.controlled_live_bytes);
+    drop(source);
+    assert_eq!(ledger.close().unwrap().peak_committed, exact);
+}
+
+#[test]
 fn hir_checks_record_and_live_byte_limits_before_stage_allocation() {
     let mut unit = unit([module("city/a", &[], &[("edge-a", &[])])]);
     unit.limits = CompileProfile::single_network_10k_stable_entities().with_test_pipeline_limits(

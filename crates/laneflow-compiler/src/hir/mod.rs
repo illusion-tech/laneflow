@@ -78,7 +78,7 @@ pub(crate) use spatial::{
     HirFacilityBandGeometry, HirGeometrySourceRange, HirLaneEdgeGeometry, HirSpatialSegment,
 };
 
-use access::{AccessCandidate, AccessHir, build_access_hir};
+use access::{AccessHir, build_access_hir};
 use conflict::{ConflictHir, build_conflict_hir};
 use control::{ControlHir, build_control_hir};
 use cross_section::{CanonicalAuthoringLaneSource, CrossSectionHir, build_cross_section_hir};
