@@ -7,7 +7,7 @@ use laneflow_static_network::{
 };
 
 use super::{BoundRouteHandoff, RouteHandoffOccurrence, RouteHandoffTrialError};
-use crate::kernel::tables::{ManeuverOccurrence, compile_route, try_route_vec};
+use crate::kernel::tables::{ManeuverOccurrence, RouteLegEnd, compile_route_leg, try_route_vec};
 use crate::{RouteError, RouteRegisterInput, TrafficWorld};
 
 impl TrafficWorld {
@@ -189,9 +189,15 @@ fn compile_ordinary_legs(
     let mut maneuvers = Vec::new();
     let mut start = 0;
     for end in ends {
-        let leg = compile_route(
+        let leg_end = if end == edges.len() {
+            RouteLegEnd::Destination
+        } else {
+            RouteLegEnd::BoundHandoffSource
+        };
+        let leg = compile_route_leg(
             revision,
             &edges[start..end],
+            leg_end,
             live_conflicts,
             conflict_capacity,
         )?;
@@ -214,7 +220,33 @@ fn compile_ordinary_legs(
 mod tests {
     use super::*;
     use crate::admin::cutover_migration::tests::conflict_scale_revision;
-    use laneflow_static_contract::ParticipantStreamOrdinal;
+    use laneflow_static_contract::{ManeuverPathOrdinal, ParticipantStreamOrdinal};
+
+    #[test]
+    fn only_a_leg_ending_at_a_handoff_accepts_a_stop_line() {
+        let revision = conflict_scale_revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .unwrap();
+        let &[entry, internal, exit] = path.edges() else {
+            panic!("fixture must have a single junction-owned internal edge");
+        };
+        assert!(traffic.relations().stop_line_for_edge(entry).is_some());
+        let compile = |edges: &[LaneEdgeOrdinal], ends: &[usize]| {
+            compile_ordinary_legs(&revision, edges, ends.iter().copied(), 0, 0)
+        };
+        assert_eq!(compile(&[entry, exit], &[1, 2]), Ok(Vec::new()));
+        assert_eq!(
+            compile(&[exit, entry], &[1, 2]),
+            Err(RouteError::ManeuverMismatch)
+        );
+        assert_eq!(
+            compile(&[entry, internal, exit], &[2, 3]),
+            Err(RouteError::ManeuverMismatch)
+        );
+    }
 
     #[test]
     fn ordinary_legs_preserve_maneuver_coordinates_and_share_the_conflict_budget() {

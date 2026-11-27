@@ -28,6 +28,10 @@ mod multi_handoff;
 mod rebind;
 #[path = "route_handoff/sample.rs"]
 mod sample;
+#[path = "route_handoff/stop_line.rs"]
+mod stop_line;
+#[path = "route_handoff/stop_line_limits.rs"]
+mod stop_line_limits;
 #[path = "route_handoff/traffic.rs"]
 mod traffic;
 
@@ -42,6 +46,15 @@ fn module_with_boundary(
     shift_x: f64,
     additional: Option<BoundaryExtentInput>,
     direction: RoadEditingLaneDirection,
+) -> RoadEditingSourceModule {
+    road_module(shift_x, additional, direction, None)
+}
+
+fn road_module(
+    shift_x: f64,
+    additional: Option<BoundaryExtentInput>,
+    direction: RoadEditingLaneDirection,
+    source_stop: Option<stop_line::SourceStop>,
 ) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -159,8 +172,20 @@ fn module_with_boundary(
         .unwrap()
         .with_boundary_extents(extents),
     ));
+    let (source_keys, source_cuts) = match source_stop {
+        None | Some(stop_line::SourceStop::Upstream) => {
+            (&["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.])
+        }
+        Some(stop_line::SourceStop::OnOccurrence) => {
+            (&["s0", "s1", "s2", "s3"][..], vec![10., 14., 35.])
+        }
+        Some(stop_line::SourceStop::OnContinuation) => (
+            &["s0", "s1", "s2", "s3", "s4"][..],
+            vec![10., 14., 32., 35.],
+        ),
+    };
     for (lane, keys, mut cuts) in [
-        ("source", &["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.]),
+        ("source", source_keys, source_cuts),
         ("target", &["t0", "t1", "t2"][..], vec![10., 28.]),
     ] {
         if direction == RoadEditingLaneDirection::Backward {
@@ -245,6 +270,9 @@ fn module_with_boundary(
             )
             .unwrap(),
         ));
+    }
+    if let Some(stop) = source_stop {
+        stop.add_to(&mut builder);
     }
     if direction == RoadEditingLaneDirection::Backward {
         return builder.finish().unwrap();

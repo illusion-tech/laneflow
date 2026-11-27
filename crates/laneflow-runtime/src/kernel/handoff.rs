@@ -3,10 +3,13 @@
 mod approaches;
 mod binding;
 mod entrants;
+mod stop_line;
 
 use std::sync::Arc;
 
-use laneflow_static_contract::{LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileId};
+use laneflow_static_contract::{
+    LaneEdgeOrdinal, ManeuverGateOrdinal, NetworkRevisionId, VehicleProfileId,
+};
 use laneflow_static_network::{
     BoundaryOwner, SharedNetworkRevision, StationQuery,
     vehicle::{
@@ -40,7 +43,7 @@ pub use clearance_plan::{
     ClearanceSpeedWindow, HandoffDrivingConfig, RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError,
 };
 
-use super::tables::{ManeuverOccurrence, access_cell_denied, route_access_denied};
+use super::tables::{ManeuverOccurrence, access_cell_denied, hop_gate_at, route_access_denied};
 use crate::{RouteError, TrafficWorld};
 
 /// 候选路线中某一次横向交接的来源声明。边由下标从完整路线读取。
@@ -94,6 +97,26 @@ impl BoundRouteHandoff {
             .ok()
     }
 
+    fn selected_gate(
+        &self,
+        source: CursorRun<'_>,
+        edge: LaneEdgeOrdinal,
+        next: LaneEdgeOrdinal,
+    ) -> Option<ManeuverGateOrdinal> {
+        // 恰从切点开始的窗口只列下游边。用它定位上游机动出现，再核对两端。
+        let hop = source.resolve(next).ok()?.checked_sub(1)? as usize;
+        if self.edges[hop] != edge {
+            return None;
+        }
+        hop_gate_at(
+            self.revision.traffic().maneuvers(),
+            &self.maneuvers,
+            hop,
+            edge,
+            next,
+        )
+    }
+
     fn occurrence_legs(
         &self,
         source_index: u32,
@@ -134,6 +157,8 @@ pub struct RouteHandoffPreview<'a> {
     pub report: HandoffReport<'a>,
     /// 两侧准入检查的站位映射调用次数，消耗同一候选剩余的扫过预算。
     pub side_access_work: u32,
+    /// 整条横移与源侧未选机动停止线的分离求证工作，使用原准入剩余的扫过预算。
+    pub stop_line_work: u32,
     trajectory: Option<LocatedTrajectory<'a>>,
 }
 
@@ -152,6 +177,7 @@ impl std::fmt::Debug for RouteHandoffPreview<'_> {
             .field("source_index", &self.source_index)
             .field("report", &self.report)
             .field("side_access_work", &self.side_access_work)
+            .field("stop_line_work", &self.stop_line_work)
             .finish_non_exhaustive()
     }
 }
@@ -232,6 +258,16 @@ pub enum RouteHandoffTrialError {
         /// 对应侧在交接出现对中的路线边。
         route_edge: LaneEdgeOrdinal,
     },
+    /// 整段源侧车身与未选机动的停止线未证分离，或未证在源侧续行停止线前清空。
+    #[error("源侧无法证明避开 {edge:?} 的停止线（停止线求证工作 {work}）")]
+    StopLineUnproven {
+        /// 停止线所在的物理源侧边，可以是路线没有选择的源侧续行边。
+        edge: LaneEdgeOrdinal,
+        /// 连续扫过未证时保留其原因。扫过外包可能触线时为 None。
+        reason: Option<Failure>,
+        /// 此次停止线求证消耗的扫过工作。
+        work: u32,
+    },
 }
 
 impl TrafficWorld {
@@ -262,6 +298,8 @@ impl TrafficWorld {
     /// 对已定位的交接，还须证明两侧车道在整车投影窗口内覆盖的每条边均允许该车型。
     /// 若投影窗口包含该车型禁行的边，即使车身实际未触及该边，也会返回
     /// `SideAccessUnproven`。调用方宜给出能覆盖整车的紧凑窗口。
+    /// 自源出现起，整段运动在源侧扫过的车身须严格留在首条未选机动停止线的上游。
+    /// 更早的未选停止线须与源侧扫过严格分离，前置普通机动已选定的门交由当拍裁决。
     /// 此入口供命令路径使用。按车型检查整条路线的成本在几何预算之外。
     /// 动态跟车、信号与同拍占用仍须在步进中裁决。调用不登记路线或改变世界状态。
     ///
@@ -335,6 +373,7 @@ impl TrafficWorld {
         };
         let report = revision.vehicle_handoff(&query, steering, body, trial.limits, window);
         let mut side_access_work = 0;
+        let mut stop_line_work = 0;
         let trajectory = if let HandoffOutcome::Located { .. } = report.outcome {
             let (source, target) = binding
                 .occurrence_legs(source_index)
@@ -349,7 +388,7 @@ impl TrafficWorld {
                     .relations()
                     .lane_edge_authoring_lane(edge)
                     .ok_or(unproven)?;
-                if sweep_used + side_access_work >= sweep_limit {
+                if sweep_used + side_access_work + stop_line_work >= sweep_limit {
                     return Err(unproven);
                 }
                 side_access_work += 1;
@@ -377,6 +416,17 @@ impl TrafficWorld {
                     CursorRun::target(target, source_index, &hits)
                 }
                 .ok_or(unproven)?;
+                if side == 0 {
+                    stop_line_work = stop_line::prove_source_clearance(
+                        revision,
+                        &query,
+                        window,
+                        body,
+                        &hits,
+                        sweep_limit - sweep_used - side_access_work,
+                        |edge, next| binding.selected_gate(cursor_runs[0], edge, next).is_some(),
+                    )?;
+                }
             }
             Some(LocatedTrajectory {
                 revision,
@@ -394,6 +444,7 @@ impl TrafficWorld {
             trajectory,
             report,
             side_access_work,
+            stop_line_work,
         })
     }
 }
