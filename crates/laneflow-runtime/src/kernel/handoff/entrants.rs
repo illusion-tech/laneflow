@@ -193,6 +193,10 @@ impl Approach<'_> {
             }
         };
         let distance_um = um(mm).checked_sub(carry).ok_or_else(|| work.invariant())?;
+        // 前杠在前驱边末端时，同一接缝也属于后一边从零开始的闭区间。
+        if distance_um == 0 {
+            return Ok(occupied());
+        }
         if self.required_um.is_some_and(|stop| distance_um >= stop) {
             return Ok(None);
         }
@@ -289,13 +293,12 @@ pub(super) fn check_entrants(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::VehicleSpawnInput;
     use crate::kernel::placement_admission_tests::{install_dt, register_named, revision};
+    use crate::{RouteHandle, TrafficWorld, VehicleSpawnInput};
     use laneflow_compiler::{LaneEdgeInput, LaneEdgeReference};
     use laneflow_static_contract::VehicleProfileOrdinal;
 
-    #[test]
-    fn a_cleared_tail_still_checks_the_next_occurrence_one_micrometre_inside_the_stop_distance() {
+    fn cyclic_route() -> (TrafficWorld, RouteHandle) {
         let ns = "runtime/handoff-entrants";
         let revision = revision(ns, |module| {
             for (key, next) in [("a", "b"), ("b", "c"), ("c", "a")] {
@@ -311,6 +314,69 @@ mod tests {
         });
         let mut world = install_dt(revision, 100);
         let route = register_named(&mut world, ns, &["a", "b", "c", "a"]);
+        (world, route)
+    }
+
+    #[test]
+    fn a_front_on_the_predecessor_touches_the_successor_even_with_no_stopping_gap() {
+        let (mut world, route) = cyclic_route();
+        let v = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                10_000,
+                0,
+            ))
+            .unwrap();
+        let route = world.state.compiled_route(route).unwrap();
+        let vehicle = world.state.vehicle_state(v).unwrap();
+        assert_eq!(
+            (
+                vehicle.route_edge_index,
+                vehicle.progress_mm,
+                vehicle.carry_um
+            ),
+            (0, 10_000, 0)
+        );
+        let mut approach = Approach {
+            route,
+            vehicle,
+            required_um: service_stop_distance_um(0, 100, 2.0, 0),
+            reach: MotionReach::from_tick(0, 1.5, 0.1),
+        };
+        assert_eq!(approach.required_um, Some(0));
+        let mut work = Work { used: 0, limit: 3 };
+        let address = StationAddress {
+            edge: route.edges[1],
+            progress_mm: [0, 100],
+        };
+        assert_eq!(
+            approach.at(address, &mut work).unwrap(),
+            Some(RouteHandoffEntrant {
+                vehicle: v,
+                distance_um: 0,
+                reason: RouteHandoffEntrantReason::Occupied,
+            })
+        );
+        approach.vehicle.progress_mm -= 1;
+        approach.vehicle.carry_um = 999;
+        assert_eq!(approach.at(address, &mut work).unwrap(), None);
+        approach.required_um = Some(2_000_000);
+        let blocker = approach.at(address, &mut work).unwrap().unwrap();
+        assert_eq!(blocker.distance_um, 1);
+        assert_eq!(
+            blocker.reason,
+            RouteHandoffEntrantReason::CannotStop {
+                required_um: Some(2_000_000),
+                may_reach_this_tick: true,
+            }
+        );
+    }
+
+    #[test]
+    fn a_cleared_tail_still_checks_the_next_occurrence_one_micrometre_inside_the_stop_distance() {
+        let (mut world, route) = cyclic_route();
         let v = world
             .spawn_vehicle(
                 VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 6_000, 0)
