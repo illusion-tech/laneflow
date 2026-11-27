@@ -119,7 +119,7 @@ fixture 和本节一起替换单车道模板，不保留旧模板开关。
 偏移、相位顺序及灯态，需求计划无需从名称猜测时序。OD、出发时刻、case seed、
 车辆初态及运行命令由调用方计划拥有，不写入 LFCA。
 
-生成链路使用 `LF-COMP-SINGLE-NETWORK-1M`、`FormatLimits::HARD`，文件支持的
+生成链路使用 `LF-COMP-SINGLE-NETWORK-1M-STABLE-ENTITIES`、`FormatLimits::HARD`，文件支持的
 发射暂存，以及共享静态路网各 2 GiB 的 retained / scratch 预算，路权解析限制沿用默认值。
 分别构建 headless / Spatial 共享静态路网并安装空世界；Spatial 路径注册全部目录路线。
 显式泊位通过 `SpatialSession` 提取实际位姿，与车道折线、冲突区域一起核验规范
