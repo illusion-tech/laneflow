@@ -18,6 +18,32 @@ symbols = [{ value = "CanonicalFrame", kind = "type" }]
 references = [{ document = "design-spatial-geometry" }]
 
 [[terms]]
+id = "canonical-frame-local-key"
+name = "框架局部键"
+english_aliases = ["canonical frame local key"]
+domains = ["spatial"]
+definition = "编制模块内声明及引用规范坐标框架所用的文本。走廊与路口生成器用配置字段 `frame_id` 传入该键，在声明所在的编制命名空间解析。"
+references = [{ document = "design-spatial-geometry", anchor = "canonical-frame-identity" }]
+
+[[terms]]
+id = "canonical-frame-stable-id"
+name = "框架稳定身份"
+english_aliases = ["canonical frame stable ID"]
+domains = ["spatial"]
+definition = "Identity v1 按规范坐标框架的实体种类、编制命名空间与框架局部键派生的有类型 128 位身份，用于在不同修订中查找同一框架。"
+symbols = [{ value = "CanonicalFrameId", kind = "type" }]
+references = [{ document = "design-spatial-geometry", anchor = "canonical-frame-identity" }]
+
+[[terms]]
+id = "canonical-frame-ordinal"
+name = "修订内框架序号"
+english_aliases = ["canonical frame ordinal"]
+domains = ["spatial"]
+definition = "共享路网修订内定位规范坐标框架的有类型序号。宿主用位姿批头所绑定修订的身份索引将该序号解析为框架稳定身份。"
+symbols = [{ value = "CanonicalFrameOrdinal", kind = "type" }]
+references = [{ document = "design-spatial-geometry", anchor = "canonical-frame-identity" }]
+
+[[terms]]
 id = "center-to-outer-end-distance"
 name = "路口中心至道路外端距离"
 english_aliases = ["center-to-outer-end distance"]

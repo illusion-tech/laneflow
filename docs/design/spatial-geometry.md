@@ -3,12 +3,12 @@ schema_version = 1
 id = "design-spatial-geometry"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-12"
+revised_date = "2026-11-27"
 summary = "定义有界空间几何、长度绑定与位姿采样。"
-scope = "v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）"
+scope = "引擎无关的规范坐标框架、框架编制与修订绑定、折线中心线、长度绑定、采样、局部位姿与制品配对"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/300", "https://github.com/illusion-tech/laneflow/issues/301"]
-related = ["adr-0012", "adr-0013", "adr-0014", "adr-0015", "adr-0020", "adr-0022", "adr-0025", "design-adapter-api", "design-numeric-representation", "design-parking-system", "design-signalized-corridor-protected-turning", "reference-glossary"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/300", "https://github.com/illusion-tech/laneflow/issues/301", "https://github.com/illusion-tech/laneflow/issues/1569"]
+related = ["adr-0012", "adr-0013", "adr-0014", "adr-0015", "adr-0020", "adr-0022", "adr-0025", "design-adapter-api", "design-numeric-representation", "design-parking-system", "design-road-editing-source-and-geometry-frontend", "design-signalized-corridor-protected-turning", "design-traffic-runtime-shared-consumption", "reference-glossary"]
 +++
 
 # 空间几何设计
@@ -79,20 +79,20 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
 
 ### 2.1 标准坐标契约
 
-| 属性         | v0.6 契约                                         |
-| ------------ | ------------------------------------------------- |
-| 标量类型     | LaneFlow 自有 `f32`                               |
-| 点范围       | 每轴闭区间 `[-16_384 m, 16_384 m]`                |
-| 线性单位     | 米                                                |
-| 角度单位     | 弧度                                              |
-| 坐标系手性   | 右手                                              |
-| 上方向轴     | `+Y`                                              |
-| 水平面       | `X/Z`                                             |
-| 全局前方向   | 无；边的前方向由有向中心线切向量定义              |
-| 坐标框架标识 | 必填且稳定的 `frameId`                            |
-| 地理配准/CRS | 首版不表达；frame 放置由 Adapter/场景边界单独管理 |
+| 属性         | v0.6 契约                                           |
+| ------------ | --------------------------------------------------- |
+| 标量类型     | LaneFlow 自有 `f32`                                 |
+| 点范围       | 每轴闭区间 `[-16_384 m, 16_384 m]`                  |
+| 线性单位     | 米                                                  |
+| 角度单位     | 弧度                                                |
+| 坐标系手性   | 右手                                                |
+| 上方向轴     | `+Y`                                                |
+| 水平面       | `X/Z`                                               |
+| 全局前方向   | 无；边的前方向由有向中心线切向量定义                |
+| 坐标框架身份 | 编译产生的 `CanonicalFrameId`；修订内按框架序号访问 |
+| 地理配准/CRS | 首版不表达；frame 放置由 Adapter/场景边界单独管理   |
 
-`frameId` 只表示坐标空间身份，不表示 EPSG、经纬度、地图服务或宿主场景名。首版禁止把未定义语义塞入不透明扩展字段，否则不同工具会在没有校验的情况下形成隐式格式。
+规范坐标框架表示有界局部空间。宿主负责将其放置到场景中。
 
 ### 2.2 Frame 与宿主放置
 
@@ -108,6 +108,64 @@ Traffic Runtime 的有效进度
 
 frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态，也不改变 Spatial canonical 几何。#136 使用 batch-level `FramePlacementToken` 标记某个 frame 的宿主放置版本；token 只由 Adapter 颁发和复核，不包含世界坐标或 origin value。同一 frame 的放置发生变化时必须换 token，旧批次不得提交。
 
+<a id="canonical-frame-identity"></a>
+### 2.3 框架的编制键、稳定身份与修订内序号
+
+| 使用位置                                | 表示                                         | 解释范围                                                                                                                                                                 |
+| --------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 走廊与路口生成器的 TOML 输入 `frame_id` | 框架局部键，区分大小写的文本                 | 在声明所在的编制模块中解析。同一命名空间内框架键唯一，两个不同命名空间可以使用同一个键。                                                                                 |
+| 编译器与共享身份索引                    | `laneflow_static_contract::CanonicalFrameId` | Identity v1 以 `EntityKind::CanonicalFrame` 和依次编码的 `AuthoringNamespaceId`、`CanonicalFrameKey` 派生有类型的 128 位稳定身份。命名空间和键都相同的框架可跨修订对应。 |
+| Spatial 位姿批次                        | `Option<CanonicalFrameOrdinal>`              | 在批头的 `NetworkRevisionId` 所标识的绑定修订中解释。非空成功批次为 `Some(ordinal)`，空成功批次为 `None`，两者均回显修订身份与放置令牌。                                 |
+
+宿主收到非空批次，先核对批头修订与持有的共享修订，再用
+`revision.identity().stable_id(ordinal)` 取得框架稳定身份。重绑后如需寻找同一框架，
+用新修订的 `identity().ordinal(id)` 查找并处理缺项。新旧序号即使数值相同也要分别解析。
+同一批次遇到第二种框架时整批拒绝，保留原输出的记录、修订、框架和放置令牌。
+
+### 2.4 生成器的框架局部键
+
+两个生成器沿用 TOML 字段名 `frame_id` 及原始字节。配置接受 **1–53 个 ASCII 字节**，
+首字节为字母或数字，后续仅允许字母、数字及 `._:/-`，相邻双冒号 `::` 为保留分隔符。
+例如 `Frame-1.z:/X`、`a:` 和 `7` 均合法。LFRE 在导入引用中用
+`namespace::key` 指明目标模块；这两个输入字段只接受声明本身的局部键。
+53 字节取自 Identity v1 的 ASCII 字段硬上限，也是 LFRE 单个引用组件的上限。
+语法依据见[道路编辑来源设计][road-editing-source]。
+
+- **走廊**在 `laneflow/signalized-corridor` 的合成模块中声明框架，将车道边引用和对应折线直接挂在声明下。配置摘要包含 `frame_id` 原始字节。
+- **路口**在 `laneflow/complex-junction` 声明一次框架，道路参考线、普通冲突区与汇入冲突区以同一局部键引用它。生成网格时这些声明和引用仍在同一个模块中。配置序列化参与来源摘要。
+
+#1569 的实施复用编译器已有的公开编制入口
+`laneflow_compiler::road_editing::CanonicalFrameInput::try_new`。该构造器对框架声明键
+按上述字节上限调用已有 token 校验，并返回现有的编制诊断。两个配置的
+`validate` 都用这个构造器检查 `frame_id`，把错误定位到该字段，保留失败原因、
+适用的字节下标或实际长度与上限。这样 TOML 解析和直接调用 `generate(&config)`
+都在构建几何或写文件前得到同样的诊断。普通合成模块的通用键规则、
+LFRE 的限定引用语法及 Identity v1 编码继续由各自的正本定义。
+
+Spatial 的公共输入是已绑定修订中的采样地址。实施时移除其字符串包装
+`laneflow_spatial::CanonicalFrameId`、`CANONICAL_FRAME_ID_PATTERN` 与专用的
+`SpatialError::InvalidFrameId`，并清理两个生成器仅用于此校验的 Spatial 直接依赖。
+宿主在需要稳定身份时使用静态契约的同名类型。此次迁移不设字符串别名。
+城市生成器输出目录中的 `frame_id` 已表示稳定身份的十六进制文本，沿用该输出语义。
+
+### 2.5 实施验收
+
+1. 对两个生成器分别经 TOML `parse` 和直接构造配置后 `generate` 验证同一组键。
+   仓内样例、混合大小写、尾单冒号以及 53 字节键应生成成功。空串、非法首字节、
+   非 ASCII、非法后续字节、54/128/129 字节和 `a::b` 应在配置层报 `frame_id`；
+   直接调用公开的 `road_editing::CanonicalFrameInput::try_new` 也应接受 53 字节，
+   对 54 字节返回 `TooLong { limit: 53, observed: 54 }`，对 `a::b` 返回
+   `ReservedDelimiter { byte_index: 1 }`（首个冒号的下标，从 0 起）。两配置入口须保留这些原因。
+   迁移前 54 与 128 字节通过配置、稍后生成失败；`a::b` 在走廊确能出产制品，
+   在路口则于框架声明失败。统一局部键规则有意收紧了这一走廊输入。
+2. 用仓内走廊和路口各自的原版 TOML，在迁移前后分别生成。
+   通过实际修订的身份索引读取框架稳定身份，比较 `NetworkRevisionId`，
+   并逐字节比较两次生成的 LFCA 和场景目录文件（`.catalog.toml`）。另在两个不同编制命名空间声明
+   同一键，验证各自的局部引用解析到自己的框架，且稳定身份不同。
+3. 通过 Spatial 公开入口检查非空批次的序号与稳定身份往返、成功空批的批头，
+   以及混框架失败后原批头和记录完整保留。同步修订两个生成器的配置示例说明、
+   编译器框架声明的字段说明和 Spatial 的 API 文档。Rust 接口与制品对照在实施阶段验收。
+
 ## 3. 制品模型
 
 几何在可选的 `SharedSpatialNetwork` 上。生产入口是
@@ -120,10 +178,10 @@ frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态�
 生产 crate 为 `crates/laneflow-spatial`（package `laneflow-spatial`、lib
 `laneflow_spatial`），生产依赖为
 `laneflow-spatial -> laneflow-static-network + laneflow-static-contract + laneflow-format`。
-中立的 `laneflow-static-contract` 只提供 Spatial、编译器和 Runtime 共同解释的数值
-边界；Spatial 与 Runtime 互不依赖（`xtask` 运行时架构检查）。
+中立的 `laneflow-static-contract` 提供 Spatial、编译器和 Runtime 共同解释的数值
+边界、稳定身份与有类型的序号。Spatial 与 Runtime 互不依赖（`xtask` 运行时架构检查）。
 
-现行公共几何类型包括 `CanonicalFrameId`、`CanonicalPoint3F32`、
+公共几何类型包括 `CanonicalPoint3F32`、
 `CanonicalVector3F32`、`CanonicalUnitVector3F32`、`CanonicalPoseF32`、
 `FramePlacementToken`、`PoseSource`、`PoseInput`、`SpatialError` 与 `SpatialAxis`。
 位姿输入与批次形状见 [Adapter API §4][adapter-api-pose]。
@@ -131,7 +189,7 @@ frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态�
 其中：
 
 - 点与向量是不同类型，不能用一个裸三元组同时表达二者。
-- `CanonicalFrameId` 拥有 1–128 字节稳定 ASCII token，模式为 `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`。点/向量不逐项复制 frame 身份；一批只使用一个 canonical frame，混用整批失败，见 [Adapter API §4][adapter-api-pose]。
+- 点与向量共享批头的框架。宿主通过绑定修订解释框架序号，见[框架身份][frame-identity]与 [Adapter API §4][adapter-api-pose]。
 - 点、向量和单位方向的字段私有，只能通过受检构造器和返回 `Result` 的命名运算进入有效状态；公共表面不实现可绕过有限性/范围不变量的裸 `Add`、`Sub`、`Mul` 或 `Div`。
 - 公共字段不暴露 `euclid`、`glam`、`nalgebra`、Bevy 或其他第三方类型。
 - 所有构造器在进入正本状态前拒绝非有限值，并把带符号零规范化为正零；点每轴还必须位于 `±16_384 m`，返回点的运算重新校验范围。
@@ -361,4 +419,6 @@ SpatialPackage 0.1。
 [waiting-zone]: waiting-zone-conflict-right-of-way.md
 [adapter-api-pose]: adapter-api.md#4-位姿输入与输出
 [adapter-api-batch]: adapter-api.md#6-批量处理与错误语义
+[road-editing-source]: road-editing-source-and-geometry-frontend.md
+[frame-identity]: #canonical-frame-identity
 [performance-baseline]: core-runtime-performance-baseline.md

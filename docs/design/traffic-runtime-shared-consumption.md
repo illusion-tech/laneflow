@@ -124,9 +124,9 @@ pose 记录身份（不承诺最终 Rust 拼写）：
 - virtual Parked 不生成 `PoseSource`；这不是 despawn，Adapter 必须结合
   Runtime committed status/binding 处理隐藏与重现。显式泊位仍使用 `PoseSource::Parking`。
 - 一批必须同一 canonical frame；混 frame 整批失败。
-- 批次头保存：`bind` 所用 `Arc` 的 `NetworkRevisionId`、该批 `CanonicalFrameId`
-  （或共享静态路网 `CanonicalFrameOrdinal`）与调用方 `FramePlacementToken`。Spatial
-  原样回显 token；Adapter 提交宿主变换前复核。不把 frame 身份逐条写入 record。
+- 成功批次的批头保存绑定修订的 `NetworkRevisionId`、`Option<CanonicalFrameOrdinal>`
+  与调用方的 `FramePlacementToken`。空批的框架为 `None`。宿主通过该修订的身份索引
+  将非空批次的序号解析为稳定身份，并在提交变换前复核放置令牌。见[框架身份][frame-identity]。
 
 Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止 Spatial 依赖
 `VehicleHandle`，禁止为此再抽第三 crate。
@@ -456,3 +456,4 @@ Runtime 原生测试必须覆盖下列合同。不用第二套运行时轨迹作
 [columnar-kernel]: traffic-runtime-columnar-execution.md#3-内核和-isa
 [architecture-crates]: ../architecture.md#3-crate-依赖与所有权
 [named-world-install]: traffic-runtime-execution-config.md#named-world-install
+[frame-identity]: spatial-geometry.md#canonical-frame-identity

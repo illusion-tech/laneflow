@@ -6,6 +6,7 @@ status = "accepted"
 summary = "规定有界 f32 空间框架与运行时表示误差。"
 scope = "LaneFlow Spatial 的 canonical primitive、坐标范围、几何输入、位姿输出、运行时性能边界，以及 Adapter 的 frame 映射（#133-#138）"
 date = "2026-07-19"
+revised_date = "2026-11-27"
 applicability = "#applicability"
 
 related = ["adr-0013", "adr-0014", "design-adapter-api", "design-spatial-geometry"]
@@ -29,6 +30,9 @@ explanation = "#supersedes-adr-0014"
 几何重建登记表的条款；Accepted ADR 0025 / #300 G1 已进一步改由共享路网修订的可选
 `SharedSpatialNetwork` component 承载目标静态空间数据。有界规范
 `f32` 坐标框架、误差、内存和批量性能边界继续有效。本文 current 契约已随 #301 退出生产路径（ADR 0020 §10 把生产切换从 #294 G4 改为 #301），只保留历史语义；上文列为继续有效的条款仍适用。
+
+§2.1 的 `SpatialRegistry` 与文本框架标识属于该历史入口。现行共享修订中的稳定身份、
+批头的框架序号及生成器配置使用的局部键见[空间几何设计 §2.3][frame-identity]。
 
 后继分层： ADR 0022（#296 FlatBuffers G1 已接受）为上游解析曲线→规范折线提出独立
 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭几何精度配置档，并另设
@@ -181,3 +185,4 @@ CanonicalUnitVector3F32
 
 [replacement-adr-0013]: 0013-engine-neutral-spatial-geometry-and-length-authority.md
 [replacement-adr-0014]: 0014-residual-aware-f32-core-authority-and-migration-gates.md
+[frame-identity]: ../design/spatial-geometry.md#canonical-frame-identity
