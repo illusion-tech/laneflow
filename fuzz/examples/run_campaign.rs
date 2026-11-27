@@ -3,7 +3,7 @@ use std::{
     error::Error,
     fs::{self, File},
     io::{self, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, ExitCode, Stdio},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -19,6 +19,8 @@ const TARGETS: &[&str] = &[
     "lfrs_restore",
     "cutover_inputs",
 ];
+const PREPARED_DIR: &str = "fuzz/target/prepared-campaigns";
+const SANITIZER: &str = "address";
 
 fn capture(program: &str, args: &[&str]) -> Result<String, Box<dyn Error>> {
     let output = Command::new(program).args(args).output()?;
@@ -71,9 +73,104 @@ fn save(path: &Path, receipt: &Value) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
-    let target = std::env::args().nth(1).ok_or("缺少 fuzz target")?;
-    if !TARGETS.contains(&target.as_str()) {
+fn checkout_identity() -> Result<Value, Box<dyn Error>> {
+    Ok(json!({
+        "source_commit": capture("git", &["rev-parse", "HEAD"])?,
+        "tracked_diff": capture("git", &["diff", "--stat", "HEAD"])?,
+        "root_lock_sha256": hash_file(Path::new("Cargo.lock"))?,
+        "fuzz_lock_sha256": hash_file(Path::new("fuzz/Cargo.lock"))?,
+    }))
+}
+
+fn toolchain_identity() -> Result<Value, Box<dyn Error>> {
+    let rustc = capture("rustc", &["+nightly", "--version", "--verbose"])?;
+    let host = rustc
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .ok_or("rustc 缺少 host triple")?;
+    Ok(json!({
+        "rustc": rustc,
+        "host": host,
+        "cargo": capture("cargo", &["+nightly", "--version"])?,
+        "cargo_fuzz": capture("cargo", &["+nightly", "fuzz", "--version"])?,
+        "sanitizer": SANITIZER,
+    }))
+}
+
+fn target_binary(host: &str, filename: &str) -> PathBuf {
+    Path::new("fuzz/target")
+        .join(host)
+        .join("release")
+        .join(filename)
+}
+
+fn prepare() -> Result<(), Box<dyn Error>> {
+    let checkout = checkout_identity()?;
+    if checkout["tracked_diff"] != "" {
+        return Err("共用构建要求受检文件保持不变".into());
+    }
+    let toolchain = toolchain_identity()?;
+    let host = toolchain["host"].as_str().ok_or("缺少构建主机")?;
+    let output = Path::new(PREPARED_DIR);
+    fs::create_dir(output)?;
+    let launcher = output.join(format!("run_campaign{}", std::env::consts::EXE_SUFFIX));
+    fs::copy(std::env::current_exe()?, &launcher)?;
+
+    let mut targets = serde_json::Map::new();
+    for &target in TARGETS {
+        let filename = format!("{target}{}", std::env::consts::EXE_SUFFIX);
+        let binary = output.join(&filename);
+        fs::copy(target_binary(host, &filename), &binary)?;
+        let initial_corpus = inventory(&Path::new("fuzz/corpus").join(target))?;
+        if initial_corpus.is_empty() {
+            return Err(format!("缺少 {target} 的准备语料").into());
+        }
+        targets.insert(
+            target.to_owned(),
+            json!({"binary_sha256": hash_file(&binary)?, "initial_corpus": initial_corpus}),
+        );
+    }
+
+    save(
+        &output.join("build.json"),
+        &json!({
+            "checkout": checkout,
+            "toolchain": toolchain,
+            "run_id": std::env::var("GITHUB_RUN_ID").ok(),
+            "run_attempt": std::env::var("GITHUB_RUN_ATTEMPT").ok(),
+            "image_version": std::env::var("ImageVersion").ok(),
+            "launcher_sha256": hash_file(&launcher)?,
+            "targets": targets,
+        }),
+    )
+}
+
+fn read_prepared(
+    checkout: &Value,
+    target: &str,
+    binary: &Path,
+    initial_corpus: &[Value],
+) -> Result<Value, Box<dyn Error>> {
+    let build: Value =
+        serde_json::from_reader(File::open(Path::new(PREPARED_DIR).join("build.json"))?)?;
+    if build["run_id"] != json!(std::env::var("GITHUB_RUN_ID").ok())
+        || &build["checkout"] != checkout
+        || checkout["tracked_diff"] != ""
+        || build["toolchain"]["sanitizer"] != SANITIZER
+    {
+        return Err("共用构建与本次运行的源码、锁文件或 sanitizer 不一致".into());
+    }
+    let expected = &build["targets"][target];
+    if expected["binary_sha256"] != hash_file(binary)?
+        || expected["initial_corpus"].as_array().map(Vec::as_slice) != Some(initial_corpus)
+    {
+        return Err(format!("{target} 的二进制或初始语料与共用构建不一致").into());
+    }
+    Ok(build)
+}
+
+fn run(target: &str, use_prepared: bool) -> Result<(), Box<dyn Error>> {
+    if !TARGETS.contains(&target) {
         return Err("未登记的 fuzz target".into());
     }
     let duration: u64 = std::env::var("FUZZ_MAX_TOTAL_TIME")
@@ -82,28 +179,53 @@ fn run() -> Result<(), Box<dyn Error>> {
     if ![300, 1_800].contains(&duration) {
         return Err("只接受已冻结的 smoke/正式窗口".into());
     }
-    let output = Path::new("fuzz/receipts").join(&target);
-    fs::create_dir_all(output.parent().unwrap())?;
+    let receipts = Path::new("fuzz/receipts");
+    fs::create_dir_all(receipts)?;
+    let output = receipts.join(target);
     fs::create_dir(&output)?;
     let receipt_path = output.join("receipt.json");
-    let corpus = Path::new("fuzz/corpus").join(&target);
-    let artifacts = Path::new("fuzz/artifacts").join(&target);
-    let rustc = capture("rustc", &["+nightly", "--version", "--verbose"])?;
-    let host = rustc
-        .lines()
-        .find_map(|line| line.strip_prefix("host: "))
-        .ok_or("rustc 缺少 host triple")?;
+    let corpus = Path::new("fuzz/corpus").join(target);
+    let artifacts = Path::new("fuzz/artifacts").join(target);
+    let initial_corpus = inventory(&corpus)?;
+    let checkout = checkout_identity()?;
+    let filename = format!("{target}{}", std::env::consts::EXE_SUFFIX);
+    let prepared_binary = Path::new(PREPARED_DIR).join(&filename);
+    let prepared = if use_prepared {
+        Some(read_prepared(
+            &checkout,
+            target,
+            &prepared_binary,
+            &initial_corpus,
+        )?)
+    } else {
+        None
+    };
+    let toolchain = match &prepared {
+        Some(build) => build["toolchain"].clone(),
+        None => toolchain_identity()?,
+    };
+    let host = toolchain["host"].as_str().ok_or("缺少构建主机")?;
+    let binary = if use_prepared {
+        prepared_binary
+    } else {
+        target_binary(host, &filename)
+    };
     let mut receipt = json!({"format":"laneflow-security-fuzz-1","complete":false,
-        "target":target,"source_commit":capture("git", &["rev-parse", "HEAD"])?,
-        "tracked_diff":capture("git", &["diff", "--stat", "HEAD"])?,
-        "rustc":rustc,"cargo":capture("cargo", &["+nightly", "--version"])?,
-        "cargo_fuzz":capture("cargo", &["+nightly", "fuzz", "--version"])?,
+        "target":target,"source_commit":checkout["source_commit"],"tracked_diff":checkout["tracked_diff"],
+        "rustc":toolchain["rustc"],"cargo":toolchain["cargo"],"cargo_fuzz":toolchain["cargo_fuzz"],
         "host":host,"started_unix_seconds":SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
         "duration_limit_seconds":duration,"input_timeout_seconds":25,"rss_limit_mib":2_048,
-        "max_input_bytes":262_144,"seed":53_601,"sanitizer":"address",
-        "initial_corpus":inventory(&corpus)?,"root_lock_sha256":hash_file(Path::new("Cargo.lock"))?,
-        "fuzz_lock_sha256":hash_file(Path::new("fuzz/Cargo.lock"))?,
+        "max_input_bytes":262_144,"seed":53_601,"sanitizer":SANITIZER,
+        "initial_corpus":initial_corpus,"root_lock_sha256":checkout["root_lock_sha256"],
+        "fuzz_lock_sha256":checkout["fuzz_lock_sha256"],
         "limitations":"bounded exploration; RSS/timeout stops are failures; no exhaustive security proof"});
+    if let Some(build) = &prepared {
+        receipt["prepared_build"] = json!({
+            "run_id": build["run_id"],
+            "run_attempt": build["run_attempt"],
+            "image_version": build["image_version"],
+        });
+    }
     for key in [
         "GITHUB_SHA",
         "GITHUB_REF",
@@ -118,21 +240,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         receipt["environment"][key] = std::env::var(key).map(Value::String).unwrap_or(Value::Null);
     }
     save(&receipt_path, &receipt)?;
-    let arguments = vec![
-        "+nightly".to_owned(),
-        "fuzz".into(),
-        "run".into(),
-        target.clone(),
-        "--target".into(),
-        host.to_owned(),
-        "--target-dir".into(),
-        std::env::current_dir()?
-            .join("fuzz/target")
-            .to_string_lossy()
-            .into_owned(),
-        "--sanitizer".into(),
-        "address".into(),
-        "--".into(),
+    let engine_arguments = vec![
         format!("-max_total_time={duration}"),
         "-timeout=25".into(),
         "-rss_limit_mb=2048".into(),
@@ -140,12 +248,53 @@ fn run() -> Result<(), Box<dyn Error>> {
         "-seed=53601".into(),
         "-print_final_stats=1".into(),
     ];
-    receipt["command"] = json!({"program":"cargo","arguments":arguments});
+    let root = std::env::current_dir()?;
+    let (program, arguments) = if use_prepared {
+        fs::create_dir_all(&artifacts)?;
+        let mut arguments = vec![format!(
+            "-artifact_prefix={}{}",
+            root.join(&artifacts).display(),
+            std::path::MAIN_SEPARATOR,
+        )];
+        arguments.extend(engine_arguments.iter().cloned());
+        arguments.push(root.join(&corpus).to_string_lossy().into_owned());
+        (binary.to_string_lossy().into_owned(), arguments)
+    } else {
+        let mut arguments = vec![
+            "+nightly".to_owned(),
+            "fuzz".into(),
+            "run".into(),
+            target.to_owned(),
+            "--target".into(),
+            host.to_owned(),
+            "--target-dir".into(),
+            root.join("fuzz/target").to_string_lossy().into_owned(),
+            "--sanitizer".into(),
+            SANITIZER.into(),
+            "--".into(),
+        ];
+        arguments.extend(engine_arguments.iter().cloned());
+        ("cargo".to_owned(), arguments)
+    };
+
+    // 与 cargo-fuzz 0.13.2 的 AddressSanitizer 运行环境保持一致。
+    let mut asan_options = std::env::var("ASAN_OPTIONS").unwrap_or_default();
+    if !asan_options.is_empty() {
+        asan_options.push(':');
+    }
+    asan_options.push_str("detect_odr_violation=0");
+    receipt["libfuzzer_arguments"] = json!(engine_arguments);
+    receipt["asan_options"] = json!(asan_options);
+    receipt["command"] = json!({"program":program,"arguments":arguments});
     save(&receipt_path, &receipt)?;
     let log_path = output.join("run.log");
     let log = File::create(&log_path)?;
     let started = Instant::now();
-    let status = Command::new("cargo")
+    let mut command = Command::new(program);
+    if use_prepared {
+        command.env("ASAN_OPTIONS", asan_options);
+    }
+    let status = command
         .args(&arguments)
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log))
@@ -162,10 +311,6 @@ fn run() -> Result<(), Box<dyn Error>> {
             || line.contains(" DONE ")
             || line.starts_with("Done "))
         .collect::<Vec<_>>());
-    let binary = Path::new("fuzz/target")
-        .join(host)
-        .join("release")
-        .join(format!("{target}{}", std::env::consts::EXE_SUFFIX));
     if binary.is_file() {
         receipt["binary_sha256"] = json!(hash_file(&binary)?);
     }
@@ -188,8 +333,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn run_command() -> Result<(), Box<dyn Error>> {
+    let mut args = std::env::args().skip(1);
+    let first = args.next().ok_or("缺少 fuzz target 或 --prepare")?;
+    match (first.as_str(), args.next().as_deref(), args.next()) {
+        ("--prepare", None, None) => prepare(),
+        (target, mode @ (None | Some("--prepared")), None) => run(target, mode.is_some()),
+        _ => Err("预期 --prepare 或 <target> [--prepared]".into()),
+    }
+}
+
 fn main() -> ExitCode {
-    match run() {
+    match run_command() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");

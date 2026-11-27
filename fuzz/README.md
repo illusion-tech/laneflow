@@ -30,6 +30,10 @@ PR/队列 smoke 每目标 300 秒；手工 `duration_seconds=1800` 是 #536 的�
 `run_campaign` 固定单输入 25 秒、RSS 2048 MiB、输入 262144 bytes、seed 53601，
 使用 cargo-fuzz 默认 AddressSanitizer。nightly 的完整 rustc/cargo 身份进入各回执。
 
+GitHub Actions 在共用准备任务中生成语料并一次编译六个 AddressSanitizer 目标。
+各目标任务核对同一运行的源码、锁文件、二进制摘要和初始语料，直接执行已编译的
+目标。回执记录构建工具链与准备任务的运行身份。
+
 在仓库根目录运行（正式窗口通过 `FUZZ_MAX_TOTAL_TIME=1800` 选择）：
 
 ```text
@@ -41,7 +45,8 @@ cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example run_campai
 
 `fuzz/receipts/<target>/receipt.json` 记录精确源码 SHA、工具链、命令、实际进程时间、
 输入初末库存、日志与二进制摘要、锁文件是否变化，以及 libFuzzer 的执行量/coverage
-原文。`process_elapsed_seconds` 包含 cargo 构建时间；fuzz 实际时长以日志
+原文。本地经 cargo 启动时，`process_elapsed_seconds` 包含构建时间。CI 中该值
+记录下载的进程实际执行时间。fuzz 实际时长以日志
 `Done ... runs in ... second(s)` 为准。`complete=true` 需要子进程成功、终态统计
 存在且锁文件未漂移。crash/timeout/OOM/断言失败不改记为成功，目录保留首次失败。
 同目录重跑被拒绝；新的运行应使用干净 checkout 或另行归档旧目录。
