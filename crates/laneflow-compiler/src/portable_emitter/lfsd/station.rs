@@ -206,8 +206,12 @@ fn project(
         let (c, a, b) = match owner {
             RoadCorridor => {
                 let elements = checked_record_vector_with(r, 4, INVALID)?;
-                let element = |i| -> Result<[u8; 18]> {
-                    let e = elements.row(i).ok_or(INVALID)?;
+                let mut rows = elements.rows();
+                let left_row = rows
+                    .nth(usize::try_from(left).map_err(|_| INVALID)?)
+                    .ok_or(INVALID)?;
+                let right_row = rows.next().ok_or(INVALID)?;
+                let element = |e| -> Result<[u8; 18]> {
                     let kind = match checked_u8_with(e, 1, INVALID)? {
                         0 => RoadSection,
                         1 => FacilityBand,
@@ -215,7 +219,7 @@ fn project(
                     };
                     reference(index, kind, num(e, 2)?)
                 };
-                (ordinal, element(left)?, element(right)?)
+                (ordinal, element(left_row)?, element(right_row)?)
             }
             RoadSection => {
                 let lanes = checked_ordinal_vector_with(r, 5, INVALID)?;

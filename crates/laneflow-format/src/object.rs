@@ -174,8 +174,8 @@ impl<'a> RegistryCheckedSectionView<'a> {
 
     /// 按附录 A 顺序取得一张已完成 registry 预检的 table。
     ///
-    /// 本随机访问兼容 API 从 section 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
-    /// [`Self::tables`]。
+    /// 非分块 section 为 O(1)，分块 section 扫描块目录为 O(`chunk_count`)；顺序消费
+    /// 整节全部 table 应使用 [`Self::tables`]。
     #[must_use]
     pub fn table(self, ordinal: u32) -> Option<RegistryCheckedTableView<'a>> {
         let ordinal = usize::try_from(ordinal).ok()?;
@@ -381,7 +381,7 @@ impl<'a> RegistryCheckedTableView<'a> {
 
     /// 按线顺序取得一行。越过已受检的 row count 时返回 `None`。
     ///
-    /// 本随机访问兼容 API 从 table 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
+    /// 按块目录定位目标 chunk 后从该 chunk 起点线性扫描至目标行；顺序消费整表应使用
     /// [`Self::rows`]。
     #[must_use]
     pub fn row(self, ordinal: u32) -> Option<RegistryCheckedRowView<'a>> {
@@ -511,44 +511,6 @@ impl<'a> RegistryCheckedRowView<'a> {
             cursor: ROW_HEADER_BYTES,
             remaining: self.field_count(),
         }
-    }
-
-    /// 按线顺序取得一个已登记字段。
-    ///
-    /// 本随机访问兼容 API 从 row 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
-    /// [`Self::fields`]。
-    #[must_use]
-    pub fn field(self, ordinal: u32) -> Option<RegistryCheckedFieldView<'a>> {
-        if ordinal >= self.field_count() {
-            return None;
-        }
-        let mut cursor = ROW_HEADER_BYTES;
-        for current in 0..=ordinal {
-            let tag = read_u16(self.bytes, cursor, FormatStructure::Field).ok()?;
-            let schema = self.schema.fields.iter().find(|field| field.tag == tag)?;
-            let value_byte_length =
-                read_u64(self.bytes, cursor + 4, FormatStructure::Field).ok()?;
-            let field_byte_length = FIELD_HEADER_BYTES.checked_add(value_byte_length)?;
-            if current == ordinal {
-                let bytes = checked_slice(
-                    self.bytes,
-                    cursor,
-                    field_byte_length,
-                    FormatStructure::Field,
-                )
-                .ok()?;
-                let value = checked_slice(
-                    bytes,
-                    FIELD_HEADER_BYTES,
-                    value_byte_length,
-                    FormatStructure::FieldValue,
-                )
-                .ok()?;
-                return Some(RegistryCheckedFieldView { value, schema });
-            }
-            cursor = cursor.checked_add(field_byte_length)?;
-        }
-        None
     }
 
     /// 按稳定 field tag 查找字段；缺失 optional 字段时返回 `None`。
@@ -752,34 +714,6 @@ impl<'a> RegistryCheckedRecordVectorView<'a> {
             chunk_ordinal: 0,
             chunk_remaining: self.len(),
         }
-    }
-
-    /// 按序号取得一行。
-    ///
-    /// 本随机访问兼容 API 从 vector 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
-    /// [`Self::rows`]。
-    #[must_use]
-    pub fn row(self, ordinal: u32) -> Option<RegistryCheckedRowView<'a>> {
-        if ordinal >= self.len() {
-            return None;
-        }
-        let mut cursor = 4;
-        for current in 0..=ordinal {
-            let row_byte_length = read_u64(self.bytes, cursor, FormatStructure::Row).ok()?;
-            if current == ordinal {
-                let bytes =
-                    checked_slice(self.bytes, cursor, row_byte_length, FormatStructure::Row)
-                        .ok()?;
-                let field_count = read_u32(bytes, 8, FormatStructure::Row).ok()?;
-                return Some(RegistryCheckedRowView {
-                    bytes,
-                    schema: self.row_schema,
-                    field_count,
-                });
-            }
-            cursor = cursor.checked_add(row_byte_length)?;
-        }
-        None
     }
 }
 

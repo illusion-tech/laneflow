@@ -139,8 +139,8 @@ fn candidate() -> (
 }
 
 fn row_tags(row: laneflow_format::RegistryCheckedRowView<'_>) -> Vec<u16> {
-    (0..row.field_count())
-        .map(|ordinal| row.field(ordinal).unwrap().tag())
+    row.fields()
+        .map(laneflow_format::RegistryCheckedFieldView::tag)
         .collect()
 }
 
