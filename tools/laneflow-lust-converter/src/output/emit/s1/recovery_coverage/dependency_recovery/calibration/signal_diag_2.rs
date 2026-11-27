@@ -456,7 +456,7 @@ fn signal_diag_2_frozen_sample_and_problem_table_stay_consistent() {
         EXPANDED_TIER_EDGES,
         "expanded tier equals the 1103-expanded history edges"
     );
-    let legacy: Value = serde_json::from_str(include_str!(
+    let budget_history: Value = serde_json::from_str(include_str!(
         "../../../../../../../tests/fixtures/issue-1103-s1-recovery-budget-results.json"
     ))
     .unwrap();
@@ -464,6 +464,12 @@ fn signal_diag_2_frozen_sample_and_problem_table_stay_consistent() {
         "../../../../../../../tests/fixtures/issue-1107-old-searches.json"
     ))
     .unwrap();
+    let old_search_ids: BTreeSet<&str> = old_rows["edge_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect();
     let grid_history: Value = serde_json::from_str(include_str!(
         "../../../../../../../tests/fixtures/issue-1107-grid-searches.json"
     ))
@@ -476,9 +482,13 @@ fn signal_diag_2_frozen_sample_and_problem_table_stay_consistent() {
         if history.is_empty() {
             first_run += 1;
             assert!(
-                legacy["tiers"]["32768"]["searches"].get(id).is_none()
-                    && legacy["tiers"]["262144"]["searches"].get(id).is_none()
-                    && old_rows.get(id).is_none()
+                budget_history["tiers"]["32768"]["searches"]
+                    .get(id)
+                    .is_none()
+                    && budget_history["tiers"]["262144"]["searches"]
+                        .get(id)
+                        .is_none()
+                    && !old_search_ids.contains(id)
                     && grid_history.get(id).is_none(),
                 "{id} has no recorded history search"
             );
@@ -487,18 +497,17 @@ fn signal_diag_2_frozen_sample_and_problem_table_stay_consistent() {
         }
         for entry in history {
             let (record, pointer_tier) = match entry["experiment"].as_str().unwrap() {
-                "1103-base" => (&legacy["tiers"]["32768"]["searches"][id], "32768"),
-                "1103-expanded" => (&legacy["tiers"]["262144"]["searches"][id], "262144"),
+                "1103-base" => (&budget_history["tiers"]["32768"]["searches"][id], "32768"),
+                "1103-expanded" => (&budget_history["tiers"]["262144"]["searches"][id], "262144"),
                 other => panic!("unknown history experiment {other}"),
             };
             assert!(!record.is_null(), "history record present for {id}");
             assert_eq!(
-                record["search"]["stop_reason"], entry["stop_reason"],
+                record["stop_reason"], entry["stop_reason"],
                 "history stop reason for {id}"
             );
             assert_eq!(
-                json!(record["candidates"].as_array().unwrap().len()),
-                entry["candidate_count"],
+                record["candidate_count"], entry["candidate_count"],
                 "history candidate count for {id}"
             );
             assert_eq!(
