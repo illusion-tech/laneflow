@@ -52,7 +52,7 @@ impl fmt::Debug for WorldInstallInput {
             .field("network_revision", &self.revision.network_revision())
             .field("config", &self.config)
             .field("execution", &self.execution)
-            .field("source", &source)
+            .field("source", &format_args!("{source}"))
             .field("world_id", &self.world_id)
             .field("policy_selection", &self.policy_selection)
             .finish()
