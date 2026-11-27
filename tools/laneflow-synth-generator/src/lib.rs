@@ -2,18 +2,18 @@
 
 mod bundle;
 mod encoding;
+pub mod handoff;
 mod network;
 mod network_lane_change;
 mod plan;
+#[cfg(any(feature = "runtime", test))]
+pub mod runtime;
 mod state;
 
 use serde::{Deserialize, Serialize};
 
 pub use bundle::{Bundle, FileRecord, Manifest, Provenance, generate, verify_directory};
 pub use state::{HandoffDrivingInput, HandoffInput, InitialState, RouteRecord, VehicleRecord};
-
-#[cfg(test)]
-extern crate self as laneflow_synth_generator;
 
 /// LF-SYNTH 场景中刚性双轴乘用车的显式作者参数。
 pub const PASSENGER_CAR_GEOMETRY: laneflow_compiler::RoadVehicleGeometryInput =

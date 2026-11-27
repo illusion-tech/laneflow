@@ -496,6 +496,7 @@ impl Sample {
             &self.world,
             &self.state,
             &self.handles,
+            &self.routes,
             &mut self.lane_change_last_kind,
             &mut self.lane_change_journal,
         )

@@ -26,7 +26,7 @@ laneflow-runtime = { version = "0.0.0", path = "../../crates/laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial" }
 laneflow-static-contract = { version = "0.0.0", path = "../../crates/laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../../crates/laneflow-static-network" }
-laneflow-synth-generator = { version = "0.0.0", path = "../laneflow-synth-generator" }
+laneflow-synth-generator = { version = "0.0.0", path = "../laneflow-synth-generator", features = ["runtime"] }
 laneflow-traffic-verification = { version = "0.0.0", path = "../laneflow-traffic-verification" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }

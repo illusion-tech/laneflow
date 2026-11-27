@@ -7,6 +7,9 @@
 
 编译：`cargo build --release --locked -p laneflow-synth-generator`。
 
+默认构建只生成和核验离线输入。运行程序启用 `runtime` 特性后，可将同一输入中的净空限速曲线、
+路线窗口和换道申请接入交通世界。L1 的申请顺序和阶段观测共用同一组按拍规则。
+
 命令行的位置参数为：
 
 ```text

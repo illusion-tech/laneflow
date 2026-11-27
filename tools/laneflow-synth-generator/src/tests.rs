@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use crate::bundle::generate_inputs;
 use crate::encoding::{canonical_json, config_bytes, digest, hex};
+use crate::runtime as handoff;
 use crate::*;
 
 fn provenance() -> Provenance {
@@ -23,9 +24,6 @@ fn provenance() -> Provenance {
         generator_commit: "b".repeat(40),
     }
 }
-
-#[path = "../../laneflow-synth-harness/src/handoff.rs"]
-mod handoff;
 
 fn lane_change_case() -> Case {
     Case::LaneChange(LaneChangeParams {
@@ -504,6 +502,71 @@ fn verifier_rejects_rehashed_state_order_and_preserves_existing_output() {
 }
 
 #[test]
+fn invalid_handoff_observation_preserves_the_previous_tick() {
+    use crate::handoff::{Reservation, VehicleObservation, observe, requests};
+
+    let identity = probe(1, lane_change_case(), 16);
+    let bundle = generate_inputs(identity.clone(), provenance()).unwrap();
+    let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+    let leader = identity.scale as usize;
+    let leader_route = state.vehicles[leader].route_rank;
+    let previous = vec![(1, 0, 10, leader_route)];
+    let mut phases = [10, 0];
+    let mut journal = previous.clone();
+    let read = |rank: usize, follower_held: bool| VehicleObservation {
+        cursor: u32::from(rank == leader),
+        front_mm: state.vehicles[rank].progress_mm,
+        handoff: (rank == leader || follower_held).then_some(Reservation {
+            source_index: 0,
+            acquired_tick: if rank == leader { 1 } else { 2 },
+            front_handed_off: rank == leader,
+        }),
+    };
+    let error = observe(
+        &state,
+        2,
+        state.vehicles.len(),
+        |rank, _| Ok(read(rank, true)),
+        &mut phases,
+        &mut journal,
+    )
+    .unwrap_err();
+    assert!(error.contains("两车同时持有"));
+    assert_eq!(phases, [10, 0]);
+    assert_eq!(journal, previous);
+    observe(
+        &state,
+        2,
+        state.vehicles.len(),
+        |rank, _| Ok(read(rank, false)),
+        &mut phases,
+        &mut journal,
+    )
+    .unwrap();
+    assert_eq!(phases, [11, 0]);
+    assert_eq!(
+        journal,
+        [(1, 0, 10, leader_route), (2, 0, 11, leader_route)]
+    );
+
+    let error = requests(
+        &state,
+        0,
+        state.vehicles.len(),
+        |rank, _| {
+            Ok(VehicleObservation {
+                cursor: 0,
+                front_mm: state.vehicles[rank].progress_mm - 1,
+                handoff: None,
+            })
+        },
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert!(error.contains("换道前杠退至出生位之前"));
+}
+
+#[test]
 fn lane_change_lifecycle_probe_freezes_window_pinning() {
     for dt in [16_u32, 33] {
         let identity = probe(2, lane_change_case(), dt);
@@ -637,7 +700,7 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
                 assert!(world.vehicle_route_handoffs(changers[1]).next().is_none());
                 assert!(world.vehicle_route_handoffs(changers[0]).next().is_some());
             }
-            handoff::observe(&world, &state, &handles, &mut phases, &mut journal).unwrap();
+            handoff::observe(&world, &state, &handles, &routes, &mut phases, &mut journal).unwrap();
             assert!(
                 changers
                     .iter()

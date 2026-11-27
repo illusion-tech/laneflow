@@ -2,7 +2,6 @@
 
 mod burst;
 mod decel;
-mod handoff;
 pub mod host;
 mod install;
 pub mod measurement;
@@ -17,6 +16,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use laneflow_runtime::{ExecutionConfig, TickInput, deterministic_state_digest};
+use laneflow_synth_generator::runtime as handoff;
 use laneflow_synth_generator::{Bundle, Case, Identity, verify_directory};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -527,7 +527,6 @@ pub(crate) fn write_json(path: &Path, value: &Value) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-#[path = "handoff/presentation_tests.rs"]
 mod handoff_presentation_tests;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,6 @@
 //! L1 同拍横移申请的故障注入。逐拍对照独立世界，保存进入拍及末态的规范快照。
-#[path = "../../../../../../tools/laneflow-synth-harness/src/handoff.rs"]
-mod handoff;
+#[path = "lane_change_retry/driver.rs"]
+mod driver;
 
 use std::collections::HashMap;
 use std::fs;
@@ -62,7 +62,7 @@ impl LaneChange {
         .unwrap();
         let mut world = TrafficWorld::install(crate::WorldInstallInput {
             revision: revision.clone(),
-            config: handoff::configure_world(
+            config: driver::configure_world(
                 &state,
                 WorldConfig::try_new(crate::WorldConfigInput {
                     vehicle_capacity: state.vehicles.len() as u32,
@@ -89,7 +89,7 @@ impl LaneChange {
         let routes: Vec<_> = state
             .routes
             .iter()
-            .map(|route| handoff::register_route(&mut world, route).unwrap())
+            .map(|route| driver::register_route(&mut world, route))
             .collect();
         let spaces: Vec<Option<ParkingSpaceOrdinal>> = state
             .vehicles
@@ -143,7 +143,7 @@ impl LaneChange {
     }
 
     fn requests(&self) -> Vec<RouteHandoffRequest> {
-        handoff::requests(&self.world, &self.state, &self.handles, &self.routes).unwrap()
+        driver::requests(&self.world, &self.state, &self.handles, &self.routes).unwrap()
     }
 
     fn step(&mut self, dt: u32) -> StepOutcome {
@@ -152,10 +152,11 @@ impl LaneChange {
             .world
             .step_with_route_handoffs(TickInput::new(u64::from(dt)), &requests)
             .unwrap();
-        handoff::observe(
-            &self.world,
+        laneflow_synth_generator::handoff::observe(
             &self.state,
-            &self.handles,
+            self.world.tick_index(),
+            self.handles.len(),
+            driver::vehicle_reader(&self.world, &self.handles, &self.routes),
             &mut self.phases,
             &mut self.journal,
         )

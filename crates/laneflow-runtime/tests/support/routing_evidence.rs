@@ -3,8 +3,6 @@
 //! `policy.rs` 的定向 allow 同理）。
 #![allow(dead_code)]
 
-#[path = "../../../../tools/laneflow-synth-harness/src/handoff.rs"]
-mod synth_handoff;
 #[path = "policy.rs"]
 mod test_policy;
 
@@ -33,7 +31,7 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
-use laneflow_synth_generator::{InitialState, RouteRecord};
+use laneflow_synth_generator::{InitialState, RouteRecord, runtime as synth_handoff};
 use sha2::{Digest, Sha256};
 
 pub const WORKLOAD_ID: &str = "LF-ROUTING-G2-LINEAR-v1";
