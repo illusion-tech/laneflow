@@ -4776,19 +4776,22 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 点击中文规范名查看完整定义；跨领域概念指向同一词条。
 
-| 中文规范名                                                  | 英文辅助名                   | 精确标识符             |
-| ----------------------------------------------------------- | ---------------------------- | ---------------------- |
-| [规范坐标框架][term-canonical-frame]                        | canonical frame              | ` CanonicalFrame `     |
-| [路口中心至道路外端距离][term-center-to-outer-end-distance] | center-to-outer-end distance | —                      |
-| [冲突区空间区域][term-conflict-zone-region]                 | conflict zone region         | ` ConflictZoneRegion ` |
-| [路口外部道路][term-external-road-segment]                  | external road segment        | —                      |
-| [几何][term-geometry]                                       | geometry                     | —                      |
-| [相位状态位置][term-phase-state-position]                   | phase state position         | —                      |
-| [放置令牌][term-placement-token]                            | placement token              | —                      |
-| [位姿批次][term-pose-batch]                                 | pose batch                   | —                      |
-| [空间层][term-spatial-layer]                                | Spatial layer                | ` laneflow-spatial `   |
-| [空间会话][term-spatial-session]                            | spatial session              | ` SpatialSession `     |
-| [车体参考姿态][term-vehicle-reference-pose]                 | vehicle reference pose       | —                      |
+| 中文规范名                                                  | 英文辅助名                   | 精确标识符                |
+| ----------------------------------------------------------- | ---------------------------- | ------------------------- |
+| [规范坐标框架][term-canonical-frame]                        | canonical frame              | ` CanonicalFrame `        |
+| [框架局部键][term-canonical-frame-local-key]                | canonical frame local key    | —                         |
+| [修订内框架序号][term-canonical-frame-ordinal]              | canonical frame ordinal      | ` CanonicalFrameOrdinal ` |
+| [框架稳定身份][term-canonical-frame-stable-id]              | canonical frame stable ID    | ` CanonicalFrameId `      |
+| [路口中心至道路外端距离][term-center-to-outer-end-distance] | center-to-outer-end distance | —                         |
+| [冲突区空间区域][term-conflict-zone-region]                 | conflict zone region         | ` ConflictZoneRegion `    |
+| [路口外部道路][term-external-road-segment]                  | external road segment        | —                         |
+| [几何][term-geometry]                                       | geometry                     | —                         |
+| [相位状态位置][term-phase-state-position]                   | phase state position         | —                         |
+| [放置令牌][term-placement-token]                            | placement token              | —                         |
+| [位姿批次][term-pose-batch]                                 | pose batch                   | —                         |
+| [空间层][term-spatial-layer]                                | Spatial layer                | ` laneflow-spatial `      |
+| [空间会话][term-spatial-session]                            | spatial session              | ` SpatialSession `        |
+| [车体参考姿态][term-vehicle-reference-pose]                 | vehicle reference pose       | —                         |
 
 <a id="term-canonical-frame"></a>
 ### 规范坐标框架
@@ -4799,7 +4802,38 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` CanonicalFrame `（类型）。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
+
+<a id="term-canonical-frame-local-key"></a>
+### 框架局部键
+
+英文辅助名：canonical frame local key。
+
+编制模块内声明及引用规范坐标框架所用的文本。走廊与路口生成器用配置字段 `frame_id` 传入该键，在声明所在的编制命名空间解析。
+
+依据：[空间几何设计][source-design-spatial-geometry-495]。
+
+<a id="term-canonical-frame-ordinal"></a>
+### 修订内框架序号
+
+英文辅助名：canonical frame ordinal。
+
+共享路网修订内定位规范坐标框架的有类型序号。宿主用位姿批头所绑定修订的身份索引将该序号解析为框架稳定身份。
+
+精确标识符：` CanonicalFrameOrdinal `（类型）。
+
+依据：[空间几何设计][source-design-spatial-geometry-495]。
+
+<a id="term-canonical-frame-stable-id"></a>
+### 框架稳定身份
+
+英文辅助名：canonical frame stable ID。
+
+Identity v1 按规范坐标框架的实体种类、编制命名空间与框架局部键派生的有类型 128 位身份，用于在不同修订中查找同一框架。
+
+精确标识符：` CanonicalFrameId `（类型）。
+
+依据：[空间几何设计][source-design-spatial-geometry-495]。
 
 <a id="term-center-to-outer-end-distance"></a>
 ### 路口中心至道路外端距离
@@ -4808,7 +4842,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 路口生成器的 `arm_length_meters` 参数；其值从路口中心计量，不能当作扣除路口半径后的外部道路长度。代码与配置键保持原文。
 
-依据：[示例场景设计][source-design-example-scenarios-492]。
+依据：[示例场景设计][source-design-example-scenarios-496]。
 
 <a id="term-conflict-zone-region"></a>
 ### 冲突区空间区域
@@ -4819,7 +4853,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` ConflictZoneRegion `（类型）。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
 
 <a id="term-external-road-segment"></a>
 ### 路口外部道路
@@ -4830,7 +4864,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 允许简称“外部道路”：生成场景道路几何语境已明确。
 
-依据：[示例场景设计][source-design-example-scenarios-492]。
+依据：[示例场景设计][source-design-example-scenarios-496]。
 
 <a id="term-geometry"></a>
 ### 几何
@@ -4839,7 +4873,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 坐标框架、曲线、折线、弧长和采样数据。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
 
 <a id="term-phase-state-position"></a>
 ### 相位状态位置
@@ -4848,7 +4882,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 信号相位状态向量中按 `linkIndex` 关联受控连接的位置；“未认领位置”不是一条道路或一条进口道。转换器是否接受及如何报告，以现有信号源健康检查合同为准。
 
-依据：[示例场景设计][source-design-example-scenarios-492]。
+依据：[示例场景设计][source-design-example-scenarios-496]。
 
 <a id="term-placement-token"></a>
 ### 放置令牌
@@ -4857,7 +4891,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 绑定规范坐标框架与宿主放置状态、防止过期位姿写入的令牌。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
 
 <a id="term-pose-batch"></a>
 ### 位姿批次
@@ -4866,7 +4900,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 空间层按稳定顺序批量产生的位置和朝向结果。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
 
 <a id="term-spatial-layer"></a>
 ### 空间层
@@ -4877,7 +4911,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` laneflow-spatial `（包）。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
 
 <a id="term-spatial-session"></a>
 ### 空间会话
@@ -4888,7 +4922,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` SpatialSession `（类型）。
 
-依据：[空间几何设计][source-design-spatial-geometry-491]。
+依据：[空间几何设计][source-design-spatial-geometry-494]。
 
 <a id="term-vehicle-reference-pose"></a>
 ### 车体参考姿态
@@ -4897,7 +4931,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 由同一修订的道路几何、候选轨迹及车型确定的车体参考点和三轴，供交通查询计算轮迹与整车扫过范围，并供宿主派生车辆表现。
 
-依据：[走廊共享里程与横断面几何][source-design-cross-section-stationing-and-lateral-geometry-493]。
+依据：[走廊共享里程与横断面几何][source-design-cross-section-stationing-and-lateral-geometry-497]。
 
 <a id="domain-adapter"></a>
 ## 引擎适配
@@ -4917,7 +4951,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 把运行时快照和空间位姿映射到宿主引擎生命周期与表现对象的组件。
 
-依据：[适配器应用程序接口（API）][source-design-adapter-api-497]。
+依据：[适配器应用程序接口（API）][source-design-adapter-api-501]。
 
 <a id="term-host-transform"></a>
 ### 宿主变换
@@ -4928,7 +4962,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` Transform `（类型）。
 
-依据：[适配器应用程序接口（API）][source-design-adapter-api-497]。
+依据：[适配器应用程序接口（API）][source-design-adapter-api-501]。
 
 <a id="term-level-of-detail"></a>
 ### 细节层次
@@ -4939,7 +4973,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 精确标识符：` LOD `（缩写）。
 
-依据：[适配器应用程序接口（API）][source-design-adapter-api-497]。
+依据：[适配器应用程序接口（API）][source-design-adapter-api-501]。
 
 <a id="domain-measurement"></a>
 ## 测量与记录
@@ -4993,7 +5027,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-aggregate-equivalent-participant-count"></a>
 ### 聚合等价参与单元数
@@ -5006,7 +5040,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-aggregate-traffic-population"></a>
 ### 聚合交通量
@@ -5019,7 +5053,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-aggregate-traffic-record-count"></a>
 ### 聚合交通记录数
@@ -5032,7 +5066,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-chinese-style-city-workload"></a>
 ### 中国特色城市工作负载
@@ -5050,7 +5084,7 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、计时等运行信息；其文件摘要独立核对，和测量记录的交叉检查按现有合同执行。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-532]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-536]。
 
 <a id="term-environment-record"></a>
 ### 环境记录
@@ -5059,7 +5093,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 测量前后采集的本机环境、工具链、源码状态、执行者信息、机器指纹与进程快照；不替代测量记录的构建协议字段。
 
-依据：[测量环境与进程观测][source-design-host-observe-533]。
+依据：[测量环境与进程观测][source-design-host-observe-537]。
 
 <a id="term-execution-path"></a>
 ### 执行路径
@@ -5082,7 +5116,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 `result.files` 中文件名到摘要的映射，用于核对同一次运行的文件完整性；摘要和文件在同一可写目录，不提供执行或来源真实性证明。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-532]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-536]。
 
 <a id="term-individual-run"></a>
 ### 单次运行
@@ -5106,7 +5140,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-individual-vehicle-count"></a>
 ### 个体车辆数
@@ -5119,7 +5153,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-intent-update-participant-count"></a>
 ### 意图更新参与单元数
@@ -5132,7 +5166,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-intent-update-vehicle-count"></a>
 ### 意图更新车辆数
@@ -5145,7 +5179,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-measurement-record"></a>
 ### 测量记录
@@ -5154,7 +5188,7 @@ harness 的 `diagnostics.json` 所保存的诊断选择、实际 worker 数、�
 
 harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、来源、运行配置与样本；不因记录存在就证明达到产品预算。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-532]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-536]。
 
 <a id="term-multi-world-ensemble"></a>
 ### 多世界集合
@@ -5194,7 +5228,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 某操作期间同时存在的最大动态分配量。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-per-tick-timing-log"></a>
 ### 逐拍计时日志
@@ -5203,7 +5237,7 @@ harness 的 `measurements.toml` 所保存的测量载荷，包括协议版本、
 
 harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在性、摘要和计时一致性仍须校验，非确定性耗时不参与跨运行语义相等比较。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-532]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-536]。
 
 <a id="term-presented-traffic-participant-count"></a>
 ### 表现交通参与单元数
@@ -5216,7 +5250,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于长期按执行域分解的规模报告；不替代当前车辆基准或历史证据，也不表示非机动车、行人或轨道执行域已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-presented-vehicle-count"></a>
 ### 表现车辆数
@@ -5229,7 +5263,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-quiet-measurement-window"></a>
 ### 安静测量窗口
@@ -5238,7 +5272,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 维护者批准的一段独占机器的时间，用于运行结果随同机负载变化的正式测量；共享 CI runner 不构成此窗口。
 
-依据：[开发阶段评审][source-governance-development-gates-534]。
+依据：[开发阶段评审][source-governance-development-gates-538]。
 
 <a id="term-reference-machine-asset-identifier"></a>
 ### 参考机资产标识
@@ -5249,7 +5283,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 精确标识符：` referenceMachineId `（字段）。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-reference-machine-hardware-identity-fingerprint"></a>
 ### 参考机硬件身份指纹
@@ -5260,7 +5294,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 精确标识符：` hardwareIdentitySha256 `（字段）。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-retained-memory"></a>
 ### 保留内存
@@ -5269,7 +5303,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 初始化完成后仍由组件持有的内存。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-road-traffic-active-vehicle-count"></a>
 ### 道路交通活动车辆数
@@ -5282,7 +5316,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于道路机动车特化报告；登记计数名称不证明对应能力或容量已经实现。
 
-依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[ADR 0021：交通基础设施定位与宿主边界][source-adr-0021-421]、[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-run-configuration"></a>
 ### 运行配置
@@ -5300,7 +5334,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 单次运行产生的回执、测量记录、诊断记录、日志等信息的统称；具体校验和比较须说明文件及字段，不默认所有记录均参与语义相等比较。
 
-依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-532]。
+依据：[LF-SYNTH-v2 表现与测量接线][source-design-lf-synth-measurement-536]。
 
 <a id="term-target-product-recommended-reference-machine"></a>
 ### 目标产品推荐参考机型
@@ -5311,7 +5345,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 精确标识符：` P100 `（记号）。
 
-依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-531]。
+依据：[Traffic Runtime 产品性能基线][source-design-core-runtime-performance-baseline-535]。
 
 <a id="term-test-case-group"></a>
 ### 测试分组
@@ -5386,7 +5420,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；不表示共享验证实现已交付。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-561]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-565]。
 
 <a id="term-compile-fail-test"></a>
 ### 编译失败测试
@@ -5425,7 +5459,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 在受检点强制返回受控失败以验证失败原子性等硬不变量的测试机制；注入检查点不得进入默认发布构建。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-final-sort-key"></a>
 ### 最终排序键
@@ -5455,7 +5489,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 生产路径持有空操作默认探针、研究态注入测量实现的显式接缝；默认发布构建必须与无仪器构建等价。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-known-vector"></a>
 ### 已知向量
@@ -5478,7 +5512,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 在生产步进路径的具名阶段边界采集、只用于机制归因的耗时测量；不构成产品延迟取证。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-placeholder-output"></a>
 ### 占位输出
@@ -5501,7 +5535,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 为研究取证或测试检查目的嵌入或接入运行时执行路径的测量、观察与注入机制的总称；不是生产语义的一部分。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-retained-memory-ledger"></a>
 ### 保留内存账本
@@ -5510,7 +5544,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 按所有权穷尽枚举组件的保留内存核算结构；新增字段必须触发编译失败以强制分类。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-semantic-research-prototype"></a>
 ### 语义研究原型
@@ -5519,7 +5553,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 以单线程生产执行为精确预言机、验证候选架构精确等价或在显式保真度预算内有界等价的非生产研究执行器；结论可登记为研究证据，不自动成为生产架构。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-semantic-validation"></a>
 ### 语义验证
@@ -5542,7 +5576,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。
 
-依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-562]。
+依据：[Traffic Runtime 仿真与管理模块边界][source-design-traffic-runtime-module-boundary-566]。
 
 <a id="term-verification-facts"></a>
 ### 验证事实
@@ -5553,7 +5587,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；事实不包含作为自身合法性依据的生产许可结论。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-563]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-567]。
 
 <a id="term-verification-session"></a>
 ### 验证会话
@@ -5564,7 +5598,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；不拥有交通世界或宿主命令调度。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-564]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-568]。
 
 <a id="term-verification-specification"></a>
 ### 验证规约
@@ -5575,7 +5609,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 用于交通验证组合设计；正式配置档是具名规约组合，诊断性组合不自动具有相同证明范围。
 
-依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-561]。
+依据：[交通验证的显式组合与共享判据][source-design-traffic-verification-565]。
 
 <a id="retired-concepts"></a>
 ## 停止采用的概念
@@ -5591,7 +5625,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-565]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-569]。
 
 <a id="term-core-world"></a>
 ### 核心世界
@@ -5639,7 +5673,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-565]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-569]。
 
 <a id="term-full-audit"></a>
 ### 完整审计
@@ -5650,7 +5684,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-565]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-569]。
 
 <a id="term-geometry-document-frontend"></a>
 ### 几何文档前端
@@ -5689,7 +5723,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-565]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-569]。
 
 <a id="term-laneflow-core"></a>
 ### LaneFlow 核心
@@ -5715,7 +5749,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-565]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-569]。
 
 <a id="term-p100-compile-limits-profile"></a>
 ### P100 编译资源配置档
@@ -5758,7 +5792,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 - [路线][term-route]：现行职责对应；不表示 API 或字节兼容。
 
-依据：[0029 退役预编译静态路线，路线入口只留 register\_route][source-adr-0029-566]。
+依据：[0029 退役预编译静态路线，路线入口只留 register\_route][source-adr-0029-570]。
 
 <a id="term-structurally-verified-image"></a>
 ### 已结构验证镜像
@@ -5784,7 +5818,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：独立静态镜像及其描述符、分块验证和发布审计方案已取消；本条不表示现行可移植制品或共享静态路网提供同名能力。
 
-依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-565]。
+依据：[ADR 0025：受检规范路网与共享静态路网][source-adr-0025-569]。
 
 <a id="term-unverified-image-bytes"></a>
 ### 未验证镜像字节
@@ -5825,7 +5859,7 @@ harness 的 `timings.jsonl` 按完成拍号记录的计时数据；文件存在�
 
 停止采用：后发射检查与最小发布合同已取消独立验证收据，不保留同义现行制品。
 
-依据：[ADR 0024：编译器后发射检查与最小发布闭合][source-adr-0024-567]。
+依据：[ADR 0024：编译器后发射检查与最小发布闭合][source-adr-0024-571]。
 
 <a id="former-names"></a>
 ## 旧称查询
@@ -6092,25 +6126,25 @@ provenance 关系语境。
 [issue-985]: https://github.com/illusion-tech/laneflow/issues/985
 [retired-concepts]: #retired-concepts
 [source-adr-0021-421]: ../adr/0021-traffic-infrastructure-and-host-boundary.md
-[source-adr-0024-567]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
+[source-adr-0024-571]: ../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md
 [source-adr-0025-284]: ../adr/0025-checked-canonical-network-and-shared-static-network.md
-[source-adr-0025-565]: ../adr/0025-checked-canonical-network-and-shared-static-network.md#1-不交付独立静态镜像制品或-abi
-[source-adr-0029-566]: ../adr/0029-retire-precompiled-static-route.md
+[source-adr-0025-569]: ../adr/0025-checked-canonical-network-and-shared-static-network.md#1-不交付独立静态镜像制品或-abi
+[source-adr-0029-570]: ../adr/0029-retire-precompiled-static-route.md
 [source-adr-0033-192]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [source-adr-0035-151]: ../adr/0035-compile-limits-and-resource-ledger.md
-[source-design-adapter-api-497]: ../design/adapter-api.md
+[source-design-adapter-api-501]: ../design/adapter-api.md
 [source-design-committed-road-editing-state-479]: ../design/committed-road-editing-state.md
 [source-design-compiler-foundation-152]: ../design/compiler-foundation.md
 [source-design-compiler-post-emission-check-and-minimal-publication-closure-285]: ../design/compiler-post-emission-check-and-minimal-publication-closure.md
 [source-design-compiler-resource-ledger-153]: ../design/compiler-resource-ledger.md
-[source-design-core-runtime-performance-baseline-531]: ../design/core-runtime-performance-baseline.md
+[source-design-core-runtime-performance-baseline-535]: ../design/core-runtime-performance-baseline.md
 [source-design-cross-section-access-234]: ../design/cross-section-access.md
-[source-design-cross-section-stationing-and-lateral-geometry-493]: ../design/cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
-[source-design-example-scenarios-492]: ../design/example-scenarios.md
-[source-design-host-observe-533]: ../design/host-observe.md
+[source-design-cross-section-stationing-and-lateral-geometry-497]: ../design/cross-section-stationing-and-lateral-geometry.md#traffic-reference-pose
+[source-design-example-scenarios-496]: ../design/example-scenarios.md
+[source-design-host-observe-537]: ../design/host-observe.md
 [source-design-junction-observation-and-validation-424]: ../design/junction-observation-and-validation.md
 [source-design-lane-change-minimal-contract-426]: ../design/lane-change-minimal-contract.md
-[source-design-lf-synth-measurement-532]: ../design/lf-synth-measurement.md
+[source-design-lf-synth-measurement-536]: ../design/lf-synth-measurement.md
 [source-design-network-compiler-37]: ../design/network-compiler.md
 [source-design-parking-system-238]: ../design/parking-system.md
 [source-design-portable-canonical-artifact-156]: ../design/portable-canonical-artifact.md
@@ -6120,12 +6154,13 @@ provenance 关系语境。
 [source-design-route-system-427]: ../design/route-system.md
 [source-design-shared-static-network-191]: ../design/shared-static-network.md
 [source-design-signal-system-239]: ../design/signal-system.md
-[source-design-spatial-geometry-491]: ../design/spatial-geometry.md
+[source-design-spatial-geometry-494]: ../design/spatial-geometry.md
+[source-design-spatial-geometry-495]: ../design/spatial-geometry.md#canonical-frame-identity
 [source-design-traffic-observation-and-routing-integration-477]: ../design/traffic-observation-and-routing-integration.md
 [source-design-traffic-runtime-columnar-execution-416]: ../design/traffic-runtime-columnar-execution.md
 [source-design-traffic-runtime-execution-config-422]: ../design/traffic-runtime-execution-config.md
 [source-design-traffic-runtime-integer-geometry-419]: ../design/traffic-runtime-integer-geometry.md
-[source-design-traffic-runtime-module-boundary-562]: ../design/traffic-runtime-module-boundary.md
+[source-design-traffic-runtime-module-boundary-566]: ../design/traffic-runtime-module-boundary.md
 [source-design-traffic-runtime-parallel-execution-415]: ../design/traffic-runtime-parallel-execution.md
 [source-design-traffic-runtime-phase-protocol-417]: ../design/traffic-runtime-phase-protocol.md
 [source-design-traffic-runtime-revision-cutover-478]: ../design/traffic-runtime-revision-cutover.md
@@ -6134,13 +6169,13 @@ provenance 关系语境。
 [source-design-traffic-runtime-snapshot-428]: ../design/traffic-runtime-snapshot.md
 [source-design-traffic-runtime-state-integrity-418]: ../design/traffic-runtime-state-integrity.md
 [source-design-traffic-runtime-vehicle-placement-423]: ../design/traffic-runtime-vehicle-placement.md
-[source-design-traffic-verification-561]: ../design/traffic-verification.md#composition
-[source-design-traffic-verification-563]: ../design/traffic-verification.md#facts
-[source-design-traffic-verification-564]: ../design/traffic-verification.md#lifecycle
+[source-design-traffic-verification-565]: ../design/traffic-verification.md#composition
+[source-design-traffic-verification-567]: ../design/traffic-verification.md#facts
+[source-design-traffic-verification-568]: ../design/traffic-verification.md#lifecycle
 [source-design-vehicle-following-240]: ../design/vehicle-following.md
 [source-design-waiting-zone-conflict-right-of-way-236]: ../design/waiting-zone-conflict-right-of-way.md
 [source-governance-code-language-policy-38]: ../governance/code-language-policy.md
-[source-governance-development-gates-534]: ../governance/development-gates.md#51-负载敏感计量
+[source-governance-development-gates-538]: ../governance/development-gates.md#51-负载敏感计量
 [source-governance-github-workflow-36]: ../governance/github-workflow.md
 [source-reference-commit-convention-39]: ../reference/commit-convention.md#62-执行框架目录与入口登记
 [term-access-rule]: glossary.md#term-access-rule
@@ -6191,6 +6226,9 @@ provenance 关系语境。
 [term-candidate-route]: glossary.md#term-candidate-route
 [term-canonical-consumer-policy]: glossary.md#term-canonical-consumer-policy
 [term-canonical-frame]: glossary.md#term-canonical-frame
+[term-canonical-frame-local-key]: glossary.md#term-canonical-frame-local-key
+[term-canonical-frame-ordinal]: glossary.md#term-canonical-frame-ordinal
+[term-canonical-frame-stable-id]: glossary.md#term-canonical-frame-stable-id
 [term-canonical-identity-table]: glossary.md#term-canonical-identity-table
 [term-canonical-identity-tuple]: glossary.md#term-canonical-identity-tuple
 [term-canonical-logical-position]: glossary.md#term-canonical-logical-position
