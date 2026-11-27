@@ -3852,7 +3852,7 @@ pub(crate) mod compile_route_tests {
                     10_000,
                     &[(8_000, 13_900)],
                     100,
-                    4_500,
+                    4.5,
                     2_500,
                 ),
                 crate::kernel::lane_change::TransitionEntryVerdict::NoGrantUnyieldable
@@ -5909,6 +5909,63 @@ pub(crate) mod compile_route_tests {
                 }
             }
 
+            #[test]
+            fn p4_crossing_fails_one_micrometre_below_entrant_stop_distance() {
+                let fixture = EntrantFixture::build(30.0, &[CAR_PROFILE]);
+                let car = fixture.car_profile(4_500);
+                let start = || {
+                    let mut world = fixture.install();
+                    let (_, changer) = spawn_changer(&mut world, &fixture, car, 25_000, 5_000);
+                    (world, changer)
+                };
+                let (mut baseline, changer) = start();
+                let crossing_tick = (1..=40)
+                    .find(|_| {
+                        baseline.step(crate::TickInput::new(100)).unwrap();
+                        baseline
+                            .state
+                            .committed
+                            .vehicles
+                            .state(changer)
+                            .unwrap()
+                            .route_edge_index
+                            == 1
+                    })
+                    .expect("unopposed crossing");
+                for (carry, crosses) in [(888, true), (889, false)] {
+                    let (mut world, changer) = start();
+                    for _ in 1..crossing_tick {
+                        world.step(crate::TickInput::new(100)).unwrap();
+                    }
+                    // 无门直行边余 15,612 mm。10 m/s 的进入者需 15,611,112 µm。
+                    let (_, enterer) = spawn_enterer(
+                        &mut world,
+                        &fixture,
+                        car,
+                        fixture.l300,
+                        None,
+                        284_388,
+                        10_000,
+                    );
+                    {
+                        let mut slot = world
+                            .state
+                            .committed
+                            .vehicles
+                            .slot_mut(enterer.index() as usize);
+                        slot.state.as_mut().unwrap().carry_um = carry;
+                    }
+                    world.state.rebuild_occupancy_index().unwrap();
+                    world.step(crate::TickInput::new(100)).unwrap();
+                    let after = world.state.committed.vehicles.state(changer).unwrap();
+                    assert_eq!(
+                        after.route_edge_index == 1,
+                        crosses,
+                        "carry={carry}, {after:?}"
+                    );
+                }
+            }
+
             /// E 异 profile 反例（#1216 范围导出 + 逐进入者参数）：弱制动车
             /// 驶入其自身 d_stop 窗（≈198.5m，覆盖 100m 点位——远超标准
             /// 26.75m）按自身参数拦；强制动车在 40m（超其自身 ≈7.7m）按自身
@@ -5920,23 +5977,24 @@ pub(crate) mod compile_route_tests {
                 let reach = fixture.reach_mm();
                 let weak = fixture.car_profile(4_600);
                 let strong = fixture.car_profile(4_700);
-                let weak_service = 500_u64;
-                let strong_service = 40_000_u64;
                 // §5.2 具名判据逐进入者参数：弱车 100m 不可证、强车 25m 可证。
-                assert!(!crate::kernel::lane_change::yieldable_by_stopping(
-                    100_000,
-                    13_900,
-                    100,
-                    weak_service,
-                    2_500
-                ));
-                assert!(crate::kernel::lane_change::yieldable_by_stopping(
-                    25_000,
-                    13_900,
-                    100,
-                    strong_service,
-                    2_500
-                ));
+                let stop_um = |profile| {
+                    let profile = fixture
+                        .revision
+                        .traffic()
+                        .relations()
+                        .vehicle_profile(profile)
+                        .unwrap();
+                    crate::kernel::lane_change::service_stop_distance_um(
+                        13_900,
+                        100,
+                        profile.comfort_decel(),
+                        profile.min_gap_mm(),
+                    )
+                    .unwrap()
+                };
+                assert!(stop_um(weak) > 100_000_000);
+                assert!(stop_um(strong) <= 25_000_000);
                 // 弱车 100m 在导出 reach 内（弱 profile 拉高 reach）。
                 assert!(reach > 100_000, "weak profile extends derived reach");
                 // 安全：弱车按自身参数拦（含 100m 点位，远超标准 d_stop）。

@@ -99,7 +99,7 @@ fn horizontal(p: Vector) -> [I; 2] {
 }
 
 // 站位梯度沿后轴到实体点的整条线段求界，使车体长度与宽度在旋转后仍各沿自身的轴。
-fn station_enclosure(
+pub(super) fn station_enclosure(
     c: &Candidate<'_, '_>,
     pose: &Pose,
     coords: Vector,
@@ -124,6 +124,81 @@ fn station_enclosure(
     s.with_error(region.station_error_m)
         .intersect(region.station)
         .ok_or(Failure::Projection)
+}
+
+pub(super) fn within_outer(
+    c: &Candidate<'_, '_>,
+    bound: &Bound,
+    pose: &Pose,
+    coords: Vector,
+    front: Option<Projection>,
+    work: &mut Work,
+) -> Result<(), Failure> {
+    for (outer, sign) in bound.outer.into_iter().zip([-1., 1.]) {
+        let sign = I::point(sign);
+        let sweep::BodyBoundary::Separated(d) = outer.enclose_body(c, pose, coords, work)? else {
+            return Err(Failure::Boundary);
+        };
+        // 车型的实体车底可能高于前杠参考点，查询前杠时另核其外缘。
+        if (sign * d).lo <= 0.
+            || front.is_some_and(|p| (sign * (p.lateral - outer.lateral(c, p.station))).lo <= 0.)
+        {
+            return Err(Failure::Boundary);
+        }
+    }
+    Ok(())
+}
+
+// 两侧均使用含等号的必要条件，相切可进入扫过外包。此处不判定实际占用。
+pub(super) fn body_regions(
+    c: &Candidate<'_, '_>,
+    bound: &Bound,
+    pose: &Pose,
+    coords: Vector,
+    work: &mut Work,
+) -> Result<[Option<Vector>; 2], Failure> {
+    let seam = &bound.crossing;
+    let mut regions = [None; 2];
+    match seam.line.enclose_body(c, pose, coords, work)? {
+        sweep::BodyBoundary::Separated(offset) => {
+            let side = HandoffLaneSide::of(seam.sign * offset).ok_or(Failure::Boundary)?;
+            regions[side as usize] = Some(coords);
+        }
+        sweep::BodyBoundary::MayTouch {
+            rear_offset,
+            coefficients,
+            ..
+        } => {
+            for (region, sign) in regions.iter_mut().zip([-seam.sign, seam.sign]) {
+                *region = side_coordinates(
+                    sign * rear_offset,
+                    coefficients.map(|k| sign * k),
+                    coords,
+                    work,
+                )?;
+            }
+        }
+    }
+    Ok(regions)
+}
+
+pub(super) fn map_side(
+    revision: &SharedNetworkRevision,
+    q: &HandoffQuery,
+    bound: &Bound,
+    i: usize,
+    s: I,
+    work: &mut Work,
+) -> Result<StationCandidates, Failure> {
+    work.charge()?;
+    match revision.station_mapping().in_station_range(
+        q.corridor,
+        nanometres(s)?,
+        bound.source_target[i],
+    ) {
+        StationQuery::Complete(hits) => Ok(hits),
+        _ => Err(Failure::Projection),
+    }
 }
 
 fn stations(
@@ -164,42 +239,11 @@ fn stations(
     let front = c
         .surface
         .project(pose.wheel(shape.front_from_rear_m, 0.), work)?;
-    // 只在整车与前杠参考点均留在这对车道内时返回映射。
-    for (outer, sign) in bound.outer.into_iter().zip([-1., 1.]) {
-        let sign = I::point(sign);
-        let sweep::BodyBoundary::Separated(d) = outer.enclose_body(c, &pose, coords, work)? else {
-            return Err(Failure::Boundary);
-        };
-        if (sign * d).lo <= 0.
-            || (sign * (front.lateral - outer.lateral(c, front.station))).lo <= 0.
-        {
-            return Err(Failure::Boundary);
-        }
-    }
+    within_outer(c, bound, &pose, coords, Some(front), work)?;
     let seam = &bound.crossing;
     let signed = |p: Projection| seam.sign * (p.lateral - seam.line.lateral(c, p.station));
     let front_side = HandoffLaneSide::of(signed(front)).ok_or(Failure::Boundary)?;
-    let mut regions = [None; 2];
-    match seam.line.enclose_body(c, &pose, coords, work)? {
-        sweep::BodyBoundary::Separated(offset) => {
-            let side = HandoffLaneSide::of(seam.sign * offset).ok_or(Failure::Boundary)?;
-            regions[side as usize] = Some(coords);
-        }
-        sweep::BodyBoundary::MayTouch {
-            rear_offset,
-            coefficients,
-            ..
-        } => {
-            for (region, sign) in regions.iter_mut().zip([-seam.sign, seam.sign]) {
-                *region = side_coordinates(
-                    sign * rear_offset,
-                    coefficients.map(|k| sign * k),
-                    coords,
-                    work,
-                )?;
-            }
-        }
-    }
+    let regions = body_regions(c, bound, &pose, coords, work)?;
     let mut witnesses = [None; 2];
     let [long, lat, height] = coords;
     for a in [long.lo, long.hi, long.lo.midpoint(long.hi)] {
@@ -254,17 +298,7 @@ impl SharedNetworkRevision {
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;
             let positions = stations(&c, &bound, body, offsets, &mut work)?;
-            let mut address = |i: usize, s: I| {
-                work.charge()?;
-                match self.station_mapping().in_station_range(
-                    q.corridor,
-                    nanometres(s)?,
-                    bound.source_target[i],
-                ) {
-                    StationQuery::Complete(hits) => Ok(hits),
-                    _ => Err(Failure::Projection),
-                }
-            };
+            let mut address = |i, s| map_side(self, q, &bound, i, s, &mut work);
             let front = address(positions.front_side as usize, positions.front)?;
             let mut sides = [None, None];
             for (i, side) in positions.sides.into_iter().enumerate() {

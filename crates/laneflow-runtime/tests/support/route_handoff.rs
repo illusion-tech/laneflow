@@ -20,6 +20,8 @@ use laneflow_static_network::{
 };
 use std::sync::Arc;
 
+#[path = "route_handoff/approaches.rs"]
+mod approaches;
 #[path = "route_handoff/multi_handoff.rs"]
 mod multi_handoff;
 #[path = "route_handoff/rebind.rs"]

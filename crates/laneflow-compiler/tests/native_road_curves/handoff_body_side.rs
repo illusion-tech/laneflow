@@ -304,6 +304,14 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                             .footprint,
                         Err(Failure::Boundary)
                     );
+                    let swept = n.handoff_swept_occupancy(
+                        &q,
+                        window,
+                        touching,
+                        positions,
+                        SWEEP_WORK_LIMIT,
+                    );
+                    assert!(swept.sides.unwrap().iter().all(Option::is_some));
                 }
                 let a = at(11);
                 let b = at(12);
@@ -335,9 +343,129 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                         .footprint,
                     Err(Failure::Boundary)
                 );
+                assert_eq!(
+                    n.handoff_swept_occupancy(&q, window, outside, [rear[0]; 2], SWEEP_WORK_LIMIT)
+                        .sides,
+                    Err(Failure::Boundary)
+                );
             }
         }
     }
+}
+
+#[test]
+fn continuous_handoff_sweep_covers_intermediate_motion_across_independent_cuts() {
+    for heading in [[0., 1.], [std::f64::consts::FRAC_1_SQRT_2; 2]] {
+        for (direction, rear, sign) in [
+            (RoadEditingLaneDirection::Forward, [10 * M, 40 * M], 1.),
+            (RoadEditingLaneDirection::Backward, [40 * M, 10 * M], -1.),
+        ] {
+            let mut cuts = [[15., 23., 26., 35.], [14., 22., 28., 36.]];
+            if sign < 0. {
+                cuts.iter_mut().for_each(|c| c.reverse());
+            }
+            let artifact = straight_road(
+                heading,
+                direction,
+                SectionFixture {
+                    lane_cuts_m: [&cuts[0], &cuts[1]],
+                    ..SectionFixture::default()
+                },
+            );
+            let n = load_network(&artifact, SpatialBuildOption::Omit);
+            let (q, w) = inputs(&n, rear);
+            let BoundaryOwner::Section(section) = w.owner else {
+                unreachable!()
+            };
+            let lanes = n.traffic().relations().section_lanes(section).unwrap();
+            let start = rear[0] as f64 / M as f64;
+            let at = |advance: f64| ((start + sign * advance) * M as f64).round() as u64;
+            let mapping = n.station_mapping();
+            for pair in [[lanes[0], lanes[1]], [lanes[1], lanes[0]]] {
+                let edges = pair.map(|lane| {
+                    let laneflow_static_network::StationQuery::Complete(hits) =
+                        mapping.at_station(q.corridor, at(15.19516), lane)
+                    else {
+                        panic!("crossing")
+                    };
+                    hits.addresses().next().unwrap().edge
+                });
+                let w = HandoffWindow { edges, ..w };
+                let sweep = |a: f64, b: f64, budget| {
+                    let lo = at(a).min(at(b));
+                    let hi = at(a).max(at(b));
+                    n.handoff_swept_occupancy(&q, w, BODY, [lo, hi], budget)
+                };
+                for (a, b, present) in [(0., 1., [true, false]), (25., 26., [false, true])] {
+                    let sides = sweep(a, b, SWEEP_WORK_LIMIT).sides.unwrap();
+                    assert_eq!(sides.each_ref().map(Option::is_some), present);
+                    let [lo, hi] = sides.iter().flatten().next().unwrap().stations_nm();
+                    // 后轴走 1 m，4.15 m 车体在同一侧，外包局限在邻近 7 m 以内。
+                    assert!(hi - lo < 7 * M, "{lo}..{hi}");
+                }
+                // 拍初仅在源侧，拍末已清空源侧。以独立的平面矩形解析投影检查两侧
+                // 的中间切边与边内毫米；起终两个姿态的占用都没有覆盖这些范围。
+                let full = sweep(0., 23., SWEEP_WORK_LIMIT);
+                let sides = full
+                    .sides
+                    .as_ref()
+                    .unwrap_or_else(|e| panic!("{heading:?} {direction:?} {e:?} {}", full.work));
+                for (i, side) in sides.iter().enumerate() {
+                    let span = side.as_ref().unwrap();
+                    let bounds = span.stations_nm().map(|s| s as f64 / M as f64);
+                    assert!(bounds[0] > 4. && bounds[1] < 46., "{bounds:?}");
+                    assert!(span.addresses().count() >= 2);
+                    for step in 0..=92 {
+                        let (_, spans) = flat_footprint(start, sign, f64::from(step) / 4.);
+                        if let Some(actual) = spans[i] {
+                            for s in actual {
+                                enclosed(bounds, s);
+                                let laneflow_static_network::StationQuery::Complete(hits) = mapping
+                                    .at_station(q.corridor, (s * M as f64).round() as u64, pair[i])
+                                else {
+                                    panic!("oracle mapping")
+                                };
+                                assert!(hits.addresses().all(|p| {
+                                    span.addresses().any(|a| {
+                                        a.edge == p.edge
+                                            && a.progress_mm[0] <= p.progress_mm[0]
+                                            && a.progress_mm[1] >= p.progress_mm[1]
+                                    })
+                                }));
+                            }
+                        }
+                    }
+                }
+                assert_eq!(sweep(0., 23., full.work), full);
+                let short = sweep(0., 23., full.work - 1);
+                assert_eq!(
+                    (short.sides, short.work),
+                    (Err(Failure::WorkLimit), full.work - 1)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn swept_ranges_require_complete_edge_mapping_on_both_sides() {
+    let dense: Vec<f64> = (19..=34).map(f64::from).collect();
+    let artifact = straight_road(
+        [0., 1.],
+        RoadEditingLaneDirection::Forward,
+        SectionFixture {
+            lane_cuts_m: [&[], &dense],
+            ..SectionFixture::default()
+        },
+    );
+    let n = load_network(&artifact, SpatialBuildOption::Omit);
+    let (q, w) = inputs(&n, [10 * M, 40 * M]);
+    let sweep = |range| n.handoff_swept_occupancy(&q, w, BODY, range, SWEEP_WORK_LIMIT);
+    // 源侧能单独映射，短段目标侧也能映射；合并目标侧整段将越过八条边。
+    assert!(sweep([10 * M, 11 * M]).sides.unwrap()[0].is_some());
+    assert!(sweep([32 * M, 33 * M]).sides.unwrap()[1].is_some());
+    assert_eq!(sweep([10 * M, 33 * M]).sides, Err(Failure::Projection));
+    assert_eq!(sweep([33 * M, 10 * M]).sides, Err(Failure::InvalidInput));
 }
 
 #[test]
