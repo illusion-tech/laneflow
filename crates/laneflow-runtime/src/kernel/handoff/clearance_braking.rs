@@ -1,4 +1,5 @@
 //! 沿候选真实后轴行程，对当前与前方的侧向净空限速做一拍服务制动前视。
+use laneflow_motion_kernel::{braking_distance_to_speed_um, stop_distance_um};
 use laneflow_static_contract::{
     MAX_ACCEL_METERS_PER_SECOND_SQUARED, MAX_SPEED_MM_S, MIN_ACCEL_METERS_PER_SECOND_SQUARED,
 };
@@ -6,9 +7,20 @@ use thiserror::Error;
 
 use super::clearance_plan::{ClearanceSpeedWindow, RouteHandoffSpeedPlan};
 
+/// 本次求界采用的纵向运动，提交时须遵守对应的速度与行程关系。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteHandoffBrakingMotion {
+    /// 按整数首尾车速在整拍匀变速。
+    Trapezoid,
+    /// 从拍初起按车型的服务减速度减至零，拍内剩余时间静止。拍初已静止时行程为零。
+    InTickStop,
+}
+
 /// 一种满足所查净空与服务制动约束的单拍运动。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RouteHandoffBrakingStep {
+    /// 用于计算速度与行程上界的运动方式。
+    pub motion: RouteHandoffBrakingMotion,
     /// 在输入提案以内通过前视的最大整数终速，单位毫米每秒。
     pub next_speed_mm_s: u32,
     /// 本次试算的后轴行程向上取整到微米，仅供核对本拍实际运动。
@@ -33,18 +45,21 @@ pub enum RouteHandoffBrakingError {
     /// 原提案或前方某个限速要求的减速超过车型的服务制动能力。
     #[error("当前拍没有满足提案与前方限速的服务制动运动")]
     InsufficientBraking,
-    /// 运动可能越过候选终点；连续后继与本拍剩余行程须另行裁决。
+    /// 运动可能越过候选终点。须在后继上验证剩余运动后才能提交整拍。
     #[error("本拍运动超出候选已证行程，须核对终点续行")]
-    NeedsContinuation,
+    NeedsContinuation {
+        /// 已满足当前候选内各项限速的提案，行程上界覆盖整拍。后继限制可能要求进一步收紧。
+        candidate_step: RouteHandoffBrakingStep,
+        /// 从最靠前的后轴位置到候选已证终点的最小剩余行程（微米）。
+        remaining_um: u64,
+    },
 }
-
-// 合法 binary32 档位在 [0.5,50]，均为 2^-24 的整数倍，提升与缩放精确。
-const SCALE: u64 = 1 << 24;
 
 struct StepKinematics {
     current: u32,
     delta_ms: u32,
-    decel_scaled: u64,
+    decel: f32,
+    max_drop: u32,
 }
 
 impl StepKinematics {
@@ -56,21 +71,23 @@ impl StepKinematics {
         {
             return Err(RouteHandoffBrakingError::InvalidInput);
         }
+        // binary32 有效数最多 24 位，整数毫秒至多 10 位，乘积在 binary64 中精确。
+        let max_drop = (f64::from(decel) * f64::from(delta_ms)) as u32;
+        if max_drop == 0 {
+            return Err(RouteHandoffBrakingError::InvalidInput);
+        }
         Ok(Self {
             current,
             delta_ms,
-            decel_scaled: (f64::from(decel) * SCALE as f64) as u64,
+            decel,
+            max_drop,
         })
-    }
-
-    fn max_drop(&self) -> u32 {
-        (self.decel_scaled * u64::from(self.delta_ms) / SCALE) as u32
     }
 
     // 拍内停稳按服务减速度产生实际位移；其余情况沿整数速度梯形积分。
     fn travel_upper_um(&self, next: u32) -> u64 {
         if next == 0 {
-            (u64::from(self.current).pow(2) * SCALE).div_ceil(2 * self.decel_scaled)
+            stop_distance_um(self.current, self.decel)
         } else {
             (u64::from(self.current + next) * u64::from(self.delta_ms)).div_ceil(2)
         }
@@ -83,16 +100,16 @@ impl StepKinematics {
         if from <= limit {
             return 0;
         }
-        let k = self.max_drop();
+        let k = self.max_drop;
         let full_ticks = (from - limit - 1) / k;
         let last = from - full_ticks * k;
         let twice_mean =
             u64::from(from + last) * u64::from(self.delta_ms) + u64::from((k * self.delta_ms) % 2);
         let full_um = u64::from(full_ticks) * twice_mean / 2;
-        let squared_drop = u64::from(last).pow(2) - u64::from(limit).pow(2);
         let terminal_um = if last <= k {
-            (squared_drop * SCALE).div_ceil(2 * self.decel_scaled)
+            braking_distance_to_speed_um(last, limit, self.decel)
         } else {
+            let squared_drop = u64::from(last).pow(2) - u64::from(limit).pow(2);
             (squared_drop * u64::from(self.delta_ms)).div_ceil(2 * u64::from(k))
         };
         full_um + terminal_um
@@ -110,10 +127,10 @@ impl StepKinematics {
             return self.room_um(next, limit) <= ahead_um;
         }
         // 已知 v > l ≥ u。允许在本拍进入限速段，但到达入口时必须已降到 l。
-        let speed_squared_drop = u64::from(self.current).pow(2) - u64::from(limit).pow(2);
         let needed = if next == 0 {
-            (speed_squared_drop * SCALE).div_ceil(2 * self.decel_scaled)
+            braking_distance_to_speed_um(self.current, limit, self.decel)
         } else {
+            let speed_squared_drop = u64::from(self.current).pow(2) - u64::from(limit).pow(2);
             (speed_squared_drop * u64::from(self.delta_ms))
                 .div_ceil(2 * u64::from(self.current - next))
         };
@@ -148,7 +165,7 @@ impl StepKinematics {
             return Err(RouteHandoffBrakingError::AlreadyOverLimit { limit_mm_s: limit });
         }
         let mut upper = proposed.min(limit);
-        let floor = self.current.saturating_sub(self.max_drop());
+        let floor = self.current.saturating_sub(self.max_drop);
         if upper < floor {
             return Err(RouteHandoffBrakingError::InsufficientBraking);
         }
@@ -181,20 +198,30 @@ impl StepKinematics {
             }
             horizon = self.room_um(upper, 0);
         }
-        let travel_upper_um = self.travel_upper_um(upper);
-        if travel_upper_um > remaining {
-            return Err(RouteHandoffBrakingError::NeedsContinuation);
-        }
-        Ok(RouteHandoffBrakingStep {
+        let step = RouteHandoffBrakingStep {
+            motion: if upper == 0 {
+                RouteHandoffBrakingMotion::InTickStop
+            } else {
+                RouteHandoffBrakingMotion::Trapezoid
+            },
             next_speed_mm_s: upper,
-            travel_upper_um,
-        })
+            travel_upper_um: self.travel_upper_um(upper),
+        };
+        if step.travel_upper_um > remaining {
+            return Err(RouteHandoffBrakingError::NeedsContinuation {
+                candidate_step: step,
+                remaining_um: remaining,
+            });
+        }
+        Ok(step)
     }
 }
 
 impl RouteHandoffSpeedPlan {
     /// 后轴累计行程已精确落在整数微米时，求一拍服务制动运动。终速提案的驱动
-    /// 加速度须已经纵向控制核对。带定位或量化误差的查询使用 [`Self::preview_braking_step_in`]。
+    /// 加速度须已经纵向控制核对，提案降幅超出服务制动域时返回
+    /// [`RouteHandoffBrakingError::InsufficientBraking`]。带定位或量化误差的查询使用
+    /// [`Self::preview_braking_step_in`]。
     ///
     /// # Errors
     ///
@@ -210,7 +237,7 @@ impl RouteHandoffSpeedPlan {
 
     /// 按包含真实后轴累计行程的闭区间（微米）求一拍服务制动运动。行程下界越过
     /// 限制末端才解除限速，上界决定到前方限速或终点的最小剩余距离。终速提案
-    /// （毫米/秒）的驱动加速度须已核对，来车、信号等其余约束应另行裁决。
+    /// （毫米/秒）的驱动加速度须已核对，减速提案须在服务制动域内。来车、信号等其余约束应另行裁决。
     /// 非零终速按整数首尾车速匀变速，零终速按服务减速度在拍内停稳。再次查询应
     /// 使用实际累计行程或包住它的上下界，不能将各拍位移上界累加作为精确位置。
     ///
@@ -263,6 +290,7 @@ mod tests {
         assert_eq!(
             preview(15_750_000),
             Ok(RouteHandoffBrakingStep {
+                motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 7_800,
                 travel_upper_um: 790_000,
             })
@@ -323,12 +351,34 @@ mod tests {
         assert_eq!(
             preview(55_000),
             Ok(RouteHandoffBrakingStep {
+                motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 800,
                 travel_upper_um: 100_000,
             })
         );
         assert_eq!(
             preview(54_999),
+            Err(RouteHandoffBrakingError::InsufficientBraking)
+        );
+    }
+
+    #[test]
+    fn future_stop_crosses_a_positive_limit_at_the_squared_speed_difference() {
+        let motion = StepKinematics::new(8, 4, 1.0).unwrap();
+        let preview =
+            |start| motion.preview(&[window(start, 100, 3)], 200, MAX_SPEED_MM_S, [0; 2], 8);
+        // 首拍由 8 降至 4 mm/s，行程 24 µm。下一拍能以服务制动停稳，
+        // 在该拍 3.5 µm 处已经降至 3 mm/s，距两拍起点共需向上取整到 28 µm。
+        assert_eq!(
+            preview(28),
+            Ok(RouteHandoffBrakingStep {
+                motion: RouteHandoffBrakingMotion::Trapezoid,
+                next_speed_mm_s: 4,
+                travel_upper_um: 24,
+            })
+        );
+        assert_eq!(
+            preview(27),
             Err(RouteHandoffBrakingError::InsufficientBraking)
         );
     }
@@ -346,6 +396,7 @@ mod tests {
             assert_eq!(
                 result,
                 RouteHandoffBrakingStep {
+                    motion: RouteHandoffBrakingMotion::Trapezoid,
                     next_speed_mm_s: next,
                     travel_upper_um: travel,
                 }
@@ -395,8 +446,15 @@ mod tests {
             Err(RouteHandoffBrakingError::OutsidePlan)
         );
         assert_eq!(
-            preview([31, 999_999], 200),
-            Err(RouteHandoffBrakingError::NeedsContinuation)
+            preview([19, 999_999], 200),
+            Err(RouteHandoffBrakingError::NeedsContinuation {
+                candidate_step: RouteHandoffBrakingStep {
+                    motion: RouteHandoffBrakingMotion::Trapezoid,
+                    next_speed_mm_s: 200,
+                    travel_upper_um: 20_000,
+                },
+                remaining_um: 1,
+            })
         );
     }
 
@@ -405,16 +463,18 @@ mod tests {
         let motion = StepKinematics::new(100, 100, 2.0).unwrap();
         let preview = |rear, length| motion.preview(&[], length, MAX_SPEED_MM_S, [rear; 2], 0);
         // 50 ms 停稳。服务制动行程 2.5 mm，不能从量化终速零恢复成整拍梯形 5 mm。
-        assert_eq!(
-            preview(0, 2_500),
-            Ok(RouteHandoffBrakingStep {
-                next_speed_mm_s: 0,
-                travel_upper_um: 2_500,
-            })
-        );
+        let stop = RouteHandoffBrakingStep {
+            motion: RouteHandoffBrakingMotion::InTickStop,
+            next_speed_mm_s: 0,
+            travel_upper_um: 2_500,
+        };
+        assert_eq!(preview(0, 2_500), Ok(stop));
         assert_eq!(
             preview(0, 2_499),
-            Err(RouteHandoffBrakingError::NeedsContinuation)
+            Err(RouteHandoffBrakingError::NeedsContinuation {
+                candidate_step: stop,
+                remaining_um: 2_499,
+            })
         );
         assert_eq!(preview(2, 1), Err(RouteHandoffBrakingError::OutsidePlan));
         let upper = StepKinematics::new(MAX_SPEED_MM_S, 1_000, 0.5).unwrap();

@@ -85,26 +85,43 @@ fn saturate(value: u128) -> u64 {
 /// `Φ_b(V) = ⌈V² / (2b)⌉`（µm）：`(mm/s)² ÷ (m/s²) = µm`。非法减速度饱和为 `u64::MAX`。
 #[must_use]
 pub fn stop_distance_um(speed_mm_s: u32, decel: f32) -> u64 {
-    if speed_mm_s == 0 {
+    braking_distance_to_speed_um(speed_mm_s, 0, decel)
+}
+
+/// 按 `decel` 的精确二进制值匀减速，从 `from_mm_s` 降到 `limit_mm_s` 所需的行程，
+/// 向上取整到微米。速度已达标时返回零，须减速但减速度无效或距离超界时返回 `u64::MAX`。
+#[must_use]
+pub fn braking_distance_to_speed_um(from_mm_s: u32, limit_mm_s: u32, decel: f32) -> u64 {
+    if from_mm_s <= limit_mm_s {
         return 0;
     }
     let Some((mantissa, exponent)) = decompose(decel) else {
         return u64::MAX;
     };
-    let squared = u128::from(speed_mm_s) * u128::from(speed_mm_s);
-    // 2b = mantissa · 2^(exponent + 1)
+    let squared_drop = u64::from(from_mm_s).pow(2) - u64::from(limit_mm_s).pow(2);
+    // ⌈(v² − l²)/(2b)⌉，将精确的 2b = mantissa · 2^(exponent + 1) 分配到分子或分母。
     let shift = exponent + 1;
     if shift >= 0 {
-        if shift > 90 {
+        if shift >= 64 {
+            // 平方差小于 2^64，任一正比值在此处向上取整都是 1。
             return 1;
         }
-        saturate(ceil_div(squared, u128::from(mantissa) << shift))
+        saturate(ceil_div(
+            u128::from(squared_drop),
+            u128::from(mantissa) << shift,
+        ))
     } else {
         let left = -shift;
-        if left > 60 {
+        // 运行时受检的速度与减速度都落在此分支，前视二分只需原生整数除法。
+        if left < 64 && squared_drop <= (u64::MAX >> left) {
+            return (squared_drop << left).div_ceil(mantissa);
+        }
+        let squared_drop = u128::from(squared_drop);
+        if left >= 128 || squared_drop > (u128::MAX >> left) {
+            // 分子超出 u128；除以最多 24 位的有效数仍大于 u64::MAX。
             return u64::MAX;
         }
-        saturate(ceil_div(squared << left, u128::from(mantissa)))
+        saturate(ceil_div(squared_drop << left, u128::from(mantissa)))
     }
 }
 
@@ -358,6 +375,28 @@ mod tests {
         // 0.1 不是二进制有限小数：按精确 f32 值向上取整。
         let exact = 1_000_000.0_f64 / (2.0 * f64::from(0.1_f32));
         assert_eq!(stop_distance_um(1_000, 0.1), exact.ceil() as u64);
+    }
+
+    #[test]
+    fn brake_to_speed_rounds_the_difference_once_and_preserves_binary32_precision() {
+        // 两次停车距离各自进位会错误得到 3 µm。平方差 7 除以 2 应进位到 4。
+        assert_eq!(braking_distance_to_speed_um(4, 3, 1.0), 4);
+        assert_eq!(braking_distance_to_speed_um(2, 3, 1.0), 0);
+        assert_eq!(braking_distance_to_speed_um(3, 2, f32::NAN), u64::MAX);
+        assert_eq!(braking_distance_to_speed_um(3, 2, f32::MAX), 1);
+        // b=2^-42 的精确结果仍可表示，b=2^-149 则饱和。
+        assert_eq!(
+            braking_distance_to_speed_um(3, 2, 2.0_f32.powi(-42)),
+            5_u64 << 41
+        );
+        assert_eq!(
+            braking_distance_to_speed_um(3, 2, f32::from_bits(1)),
+            u64::MAX
+        );
+        assert_eq!(
+            braking_distance_to_speed_um(u32::MAX, 0, 0.5),
+            u64::from(u32::MAX).pow(2)
+        );
     }
 
     #[test]

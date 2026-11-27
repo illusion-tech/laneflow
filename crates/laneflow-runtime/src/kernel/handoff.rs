@@ -24,7 +24,9 @@ pub use traffic::{RouteHandoffTraffic, RouteHandoffTrafficError};
 mod clearance_braking;
 mod clearance_curve;
 mod clearance_plan;
-pub use clearance_braking::{RouteHandoffBrakingError, RouteHandoffBrakingStep};
+pub use clearance_braking::{
+    RouteHandoffBrakingError, RouteHandoffBrakingMotion, RouteHandoffBrakingStep,
+};
 pub use clearance_curve::{
     ClearanceSpeedCurve, ClearanceSpeedCurveError, ClearanceSpeedPoint, MAX_CLEARANCE_SPEED_POINTS,
 };
@@ -135,6 +137,7 @@ struct LocatedTrajectory<'a> {
     query: HandoffQuery,
     window: HandoffWindow,
     body: BodyEnvelope,
+    comfort_decel: f32,
 }
 
 impl std::fmt::Debug for RouteHandoffPreview<'_> {
@@ -375,6 +378,7 @@ impl TrafficWorld {
                 query,
                 window,
                 body,
+                comfort_decel: profile.comfort_decel(),
             })
         } else {
             None

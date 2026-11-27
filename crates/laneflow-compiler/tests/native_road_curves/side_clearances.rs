@@ -86,6 +86,47 @@ fn two_openings_have_local_bounds_only_while_the_body_is_alongside() {
 }
 
 #[test]
+fn oblique_curb_keeps_the_normal_clearance_when_the_world_boxes_are_disjoint() {
+    let road = Program::try_new(p(0., 0., 0.), vec![Segment::line(p(6.8, 0., 40.))]).unwrap();
+    let end = CurbEndInput {
+        left_offset_meters: -0.2,
+        right_offset_meters: -0.3,
+        bottom_height_meters: 0.,
+        top_height_meters: 1.,
+    };
+    let curb = extent(
+        "diagonal-curb",
+        BoundaryStation::Fixed(20.),
+        BoundaryStation::Fixed(21.),
+        BoundaryPayloadInput::Curb {
+            low: end,
+            high: end,
+            parameter_error_meters: 0.,
+        },
+    );
+    let n = load_network(
+        &with_boundaries(road, 2.1, vec![curb]),
+        SpatialBuildOption::Omit,
+    );
+    let q = corridor_query(&n, [20_000_000_000, 20_010_000_000], 0.);
+    assert!(n.vehicle_geometry(&q, LIMITS, BODY, BUDGET).feasible());
+    let report = n.vehicle_side_clearances(&q, BODY, 10_000_000, BUDGET.sweep);
+    let spans = report.segments.unwrap();
+    let clearance = spans[0].clearance.unwrap();
+    assert_eq!(clearance.boundary.key, Some("diagonal-curb"));
+    // 路缘与车身侧面平行且纵向相交。真实水平间距为 2.1/2 + 0.2 − 0.95 = 0.30 米。
+    assert!(
+        (0.295..=0.300_001).contains(&clearance.lower_m),
+        "{clearance:?}"
+    );
+
+    // 后轴已越过端点至少 1 米，车尾最初即离开端点 0.25 米。
+    let beyond = corridor_query(&n, [22_000_000_000, 22_400_000_000], 0.);
+    let after = n.vehicle_side_clearances(&beyond, BODY, 400_000_000, BUDGET.sweep);
+    assert!(after.segments.unwrap()[0].clearance.is_none());
+}
+
+#[test]
 fn a_bend_retains_a_side_rail_until_the_rear_overhang_moves_beyond_its_cap() {
     let curve = Program::try_new_with_tangent(
         p(0., 0., 0.),

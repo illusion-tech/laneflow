@@ -33,12 +33,13 @@ mod traffic;
 mod clearance_speed;
 
 fn module(shift_x: f64) -> RoadEditingSourceModule {
-    module_with_boundary(shift_x, None)
+    module_with_boundary(shift_x, None, RoadEditingLaneDirection::Forward)
 }
 
 fn module_with_boundary(
     shift_x: f64,
     additional: Option<BoundaryExtentInput>,
+    direction: RoadEditingLaneDirection,
 ) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -81,15 +82,53 @@ fn module_with_boundary(
     add(D::CanonicalFrame(
         CanonicalFrameInput::try_new("frame-main").unwrap(),
     ));
+    let mut elements = vec![RoadEditingCorridorElement::RoadSection(section.clone())];
+    let (reference_section, reference) = if direction == RoadEditingLaneDirection::Backward {
+        // 另一个正向区段为反向双车道提供走廊参考线。
+        let owner = RoadSectionReference::owner_scoped(vec!["road".into()], "reference").unwrap();
+        let lane = AuthoringLaneReference::owner_scoped(
+            vec!["road".into(), "reference".into()],
+            "forward",
+        )
+        .unwrap();
+        add(D::RoadSection(
+            RoadSectionInput::try_new(
+                "reference",
+                "motorLane",
+                vec![lane.clone()],
+                RoadCorridorReference::local("road").unwrap(),
+            )
+            .unwrap(),
+        ));
+        add(D::LaneEdge(
+            LaneEdgeInput::try_new("ref", 10., vec![], None).unwrap(),
+        ));
+        add(D::AuthoringLane(
+            AuthoringLaneInput::try_new(
+                "forward",
+                edge("ref"),
+                RoadEditingLaneDirection::Forward,
+                LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                None,
+                owner.clone(),
+            )
+            .unwrap()
+            .with_wheel_support(Some(true)),
+        ));
+        elements.push(RoadEditingCorridorElement::RoadSection(owner.clone()));
+        (owner, lane)
+    } else {
+        (section.clone(), lanes[0].clone())
+    };
     add(D::RoadCorridor(
         RoadCorridorInput::try_new(
             "road",
             RoadAlignmentReference::try_new("road").unwrap(),
             0.,
             RoadEditingStationEnd::AlignmentEnd,
-            section.clone(),
-            lanes[0].clone(),
-            vec![RoadEditingCorridorElement::RoadSection(section.clone())],
+            reference_section,
+            reference,
+            elements,
         )
         .unwrap()
         .with_cross_section(CrossSectionCoverage::Complete, vec![]),
@@ -118,10 +157,15 @@ fn module_with_boundary(
         .unwrap()
         .with_boundary_extents(extents),
     ));
-    for (lane, keys, cuts) in [
+    for (lane, keys, mut cuts) in [
         ("source", &["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.]),
         ("target", &["t0", "t1", "t2"][..], vec![10., 28.]),
     ] {
+        if direction == RoadEditingLaneDirection::Backward {
+            for station in &mut cuts {
+                *station = 50. - *station;
+            }
+        }
         for (i, k) in keys.iter().enumerate() {
             add(D::LaneEdge(
                 LaneEdgeInput::try_new(
@@ -129,7 +173,10 @@ fn module_with_boundary(
                     10.,
                     keys.get(i + 1)
                         .copied()
-                        .or_else(|| (*k == "t2").then_some("return"))
+                        .or_else(|| {
+                            (*k == "t2" && direction == RoadEditingLaneDirection::Forward)
+                                .then_some("return")
+                        })
                         .map(edge)
                         .into_iter()
                         .collect(),
@@ -142,7 +189,7 @@ fn module_with_boundary(
             AuthoringLaneInput::try_new(
                 lane,
                 edge(keys[0]),
-                RoadEditingLaneDirection::Forward,
+                direction,
                 LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
                 None,
                 section.clone(),
@@ -196,6 +243,9 @@ fn module_with_boundary(
             )
             .unwrap(),
         ));
+    }
+    if direction == RoadEditingLaneDirection::Backward {
+        return builder.finish().unwrap();
     }
     // 目标链末端经普通返程回到源链首端，使 A→B 的两次出现之间全为合法后继。
     let p = |x, z| RoadEditingPoint3::try_new(x + shift_x, 0., z).unwrap();

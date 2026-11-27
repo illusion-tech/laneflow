@@ -249,18 +249,12 @@ impl TrafficWorld {
             }
             start_nm = end_nm[0];
         }
-        let profile = path
-            .revision
-            .identity()
-            .ordinal(trial.profile)
-            .and_then(|p| self.traffic().relations().vehicle_profile(p))
-            .ok_or(RouteHandoffTrialError::UnknownProfile)?;
         Ok(RouteHandoffSpeedPlan {
             windows: minimum_envelope(spans)?,
             length_lower_um: start_nm / 1_000,
             admitted_speed_mm_s: admitted_speed_mm_s(trial.speed_m_s),
             fixed_delta_ms: self.config().fixed_delta_time_ms() as u32,
-            comfort_decel: profile.comfort_decel(),
+            comfort_decel: path.comfort_decel,
             admission_work: preview.report.work
                 + preview.side_access_work
                 + preview
@@ -276,6 +270,63 @@ impl TrafficWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_changes_in_quantized_speed_and_the_endpoint_require_travel_marks() {
+        use crate::ClearanceSpeedPoint;
+        use laneflow_static_contract::RoadSectionOrdinal;
+        use laneflow_static_network::{
+            BoundaryOwner,
+            vehicle::{BoundaryHit, Clearance},
+        };
+
+        let curve = ClearanceSpeedCurve::try_new(vec![
+            ClearanceSpeedPoint {
+                clearance_um: 0,
+                speed_mm_s: 1_000,
+            },
+            ClearanceSpeedPoint {
+                clearance_um: 1_000,
+                speed_mm_s: MAX_SPEED_MM_S,
+            },
+        ])
+        .unwrap();
+        let boundary = BoundaryHit {
+            owner: BoundaryOwner::Section(RoadSectionOrdinal::from_raw(0)),
+            left_index: 0,
+            key: Some("curb"),
+        };
+        let gaps_m = [
+            None,
+            Some(0.5e-6),
+            Some(0.75e-6),
+            None,
+            Some(1.),
+            Some(0.25e-6),
+            None,
+        ];
+        let segments: Vec<_> = gaps_m
+            .into_iter()
+            .enumerate()
+            .map(|(i, gap)| {
+                let range_nm = [i as u64, i as u64 + 1];
+                SideClearanceSegment {
+                    range_nm,
+                    clearance: gap.map(|lower_m| Clearance {
+                        lower_m,
+                        boundary,
+                        range_nm,
+                    }),
+                }
+            })
+            .collect();
+        let (marks, speeds) = speed_runs(&segments, &curve).unwrap();
+        assert_eq!(marks, [1, 3, 5, 6, 7]);
+        assert_eq!(
+            speeds,
+            [MAX_SPEED_MM_S, 1_000, MAX_SPEED_MM_S, 1_000, MAX_SPEED_MM_S]
+        );
+    }
 
     #[test]
     fn admitted_speed_never_rounds_up_across_an_integer_boundary() {

@@ -6,8 +6,8 @@ mod projection;
 #[cfg(target_arch = "x86_64")]
 mod x86;
 pub use hold::{
-    HOLD_TARGETS, HoldCommit, HoldKind, HoldState, NO_HOLD_TARGET, delta_ms, hold_stop_feasibility,
-    stop_distance_um,
+    HOLD_TARGETS, HoldCommit, HoldKind, HoldState, NO_HOLD_TARGET, braking_distance_to_speed_um,
+    delta_ms, hold_stop_feasibility, stop_distance_um,
 };
 pub use projection::{
     BoundaryInput, BoundaryOutput, LimitInput, LimitOutput, max_next_speed_for_decel,
