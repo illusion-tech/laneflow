@@ -54,8 +54,18 @@ fn world_with_post(
         canvas_selection: None,
     };
     let revision = compile_road_editing_revision(module_with_boundary(0., Some(post), direction));
-    let world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 32, 100)).unwrap();
+    let world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 32,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let relations = revision.traffic().relations();
     let section = [0, 1]
         .into_iter()
