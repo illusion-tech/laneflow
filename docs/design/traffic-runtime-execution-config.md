@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-execution-config"
 kind = "design"
 status = "accepted"
-revised_date = "2026-10-11"
-summary = "定义世界执行配置、资源和快照边界。"
+revised_date = "2026-11-27"
+summary = "定义交通世界的具名安装输入、执行资源与快照边界。"
 scope = "世界安装、fresh restore、同/跨修订切换、执行资源与 LFRS 版本轴"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/220"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/220", "https://github.com/illusion-tech/laneflow/issues/1568"]
 related = ["adr-0030", "design-traffic-runtime-parallel-execution", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-snapshot"]
 +++
 
@@ -16,7 +16,7 @@ related = ["adr-0030", "design-traffic-runtime-parallel-execution", "design-traf
 <a id="applicability"></a>
 ## 适用边界与依据
 
-设计入口： [#220][issue-220]
+设计入口： [#220][issue-220]、[#1568][issue-1568]
 关联决策： [ADR 0030（Accepted）][adr-0030]
 配套合同： [并行执行][parallel-execution]、
 [快照][runtime-snapshot]、[修订切换][revision-cutover]
@@ -49,42 +49,99 @@ tile、亲和性、调度后端、热改线程数或共享执行器注入接口�
 
 ## 2. 公开 API
 
-下列代码只列公开签名。配置与初始化错误从 `laneflow-runtime` 根导出。
+<a id="named-world-install"></a>
+### 2.1 交通配置与安装输入
+
+[#1568][issue-1568] 选用两个具名参数对象。当前主干使用五个整数构造交通配置，
+再以六个参数安装世界。以下是待实施的 Rust 接口，类型从 `laneflow_runtime` 根导出。
+宿主可在取得共享修订前完成交通配置的构造。
 
 ```rust
+pub struct WorldConfigInput {
+    pub vehicle_capacity: u32,
+    pub route_capacity: u32,
+    pub route_edge_occurrence_capacity: u64,
+    pub route_conflict_occurrence_capacity: u64,
+    pub fixed_delta_time_ms: u64,
+}
+
 impl WorldConfig {
-    pub const fn new(
-        vehicle_capacity: u32,
-        route_capacity: u32,
-        route_edge_occurrence_capacity: u64,
-        route_conflict_occurrence_capacity: u64,
-        fixed_delta_time_ms: u64,
-    ) -> Self;
-    // 上述五项 getter 属于交通配置。
+    pub const fn try_new(input: WorldConfigInput) -> Result<Self, WorldConfigError>;
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExecutionConfig {
-    worker_count: std::num::NonZeroU32,
-}
-
-impl ExecutionConfig {
-    pub const fn new(worker_count: std::num::NonZeroU32) -> Self;
-    pub const fn worker_count(self) -> std::num::NonZeroU32;
+pub struct WorldInstallInput {
+    pub revision: Arc<SharedNetworkRevision>,
+    pub config: WorldConfig,
+    pub execution: ExecutionConfig,
+    pub source: CommittedNetworkSource,
+    pub world_id: WorldId,
+    pub policy_selection: WorldPolicySelection,
 }
 
 impl TrafficWorld {
-    pub fn install(
-        revision: Arc<SharedNetworkRevision>,
-        config: WorldConfig,
-        execution: ExecutionConfig,
-        source: CommittedNetworkSource,
-        world_id: u64,
-        policy_selection: WorldPolicySelection,
-    ) -> Result<Self, InstallError>;
-
+    pub fn install(input: WorldInstallInput) -> Result<Self, InstallError>;
     pub const fn config(&self) -> WorldConfig;
     pub const fn execution_config(&self) -> ExecutionConfig;
+}
+```
+
+无窗口宿主已取得修订、来源、世界身份和策略时，安装一个单线程世界的调用如下。
+例中四项容量各不相同，便于核对宿主将每项预算交给了哪个字段。
+
+```rust
+let config = WorldConfig::try_new(WorldConfigInput {
+    vehicle_capacity: 2,
+    route_capacity: 3,
+    route_edge_occurrence_capacity: 5,
+    route_conflict_occurrence_capacity: 7,
+    fixed_delta_time_ms: 100,
+})?;
+let world = TrafficWorld::install(WorldInstallInput {
+    revision,
+    config,
+    execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    source,
+    world_id,
+    policy_selection,
+})?;
+```
+
+五项配置和六项安装输入均必填。结构体字面量允许任意字段顺序，漏写、重复或拼错字段
+均由 Rust 编译器报告。同类型变量仍可能赋给错误的字段，实施验收须逐项读取实际安装值。
+Builder 也能为每个值命名。若以可选值暂存，漏项到 `build()` 才能报告。若以类型状态
+记录已填字段，两组 Builder 分别需要五个和六个 setter，且只有字段齐全时才提供
+`build` 或 `install`。此处所有字段都必填，具名对象用一次构造就能提供相同的字段
+完整性检查。实施时直接迁移旧入口。
+
+`WorldConfig` 继续私有持有数值并提供五个 getter。`try_new` 仅检查固定步长的闭区间
+`4..=1000` 毫秒，越界返回 `WorldConfigError::DeltaOutOfRange { actual, min, max }`
+（均为 `u64`，错误实现 `std::error::Error`）。四项容量可分别取零，也可同时取零。
+容量表达宿主允许的上限，预留是否成功取决于实际需求和平台。`with_added_route_capacity`
+沿用现有饱和相加语义，仅改变路线及两项 occurrence 容量，保留已经检查的步长。
+
+### 2.2 世界身份
+
+`WorldId` 由 Runtime 定义，私有持有 `u64`，提供 `pub const fn new(raw: u64) -> Self`
+与 `pub const fn get(self) -> u64`，可复制、按数值排序、比较与哈希。调试输出可用，
+错误消息沿用原数字展示。全部位模式有效，包括 0 和 `u64::MAX`。宿主分配身份，
+同一宿主进程内，一个身份只属于一个逻辑世界。`WorldGeneration` 由 Runtime 维护，
+普通安装和 fresh restore 从初代 0 开始。活动世界成功切换或原位恢复沿用身份并推进世代。
+fresh restore 延续快照所指的逻辑世界，宿主须先使该身份的旧实例及其消费会话失效。
+
+同一值通过 `TrafficWorld::world_id`、`WorldBinding`（含切换描述符）、
+`ObservationStreamBinding`、`RoutingAdmissionSession`、`CapturedSnapshot` 以及
+Bevy 的消费与路口观测上下文传递为 `WorldId`。`CutoverError::TransactionWorldMismatch`
+的 `expected_world` 同样使用该类型。构造绑定时世界身份与世代有各自的
+参数类型，命令及事件游标仍各按现行合同处理。仅在字节或外部整数边界显式取出或构造
+标量。LFRS 的 `world_id:ulong` 和逻辑摘要中的小端八字节表示同一个宿主值。
+切换描述符按身份值比对。观测与 Routing 摘要沿用世界身份的小端编码和原有排序规则。
+
+### 2.3 执行配置与恢复入口
+
+```rust
+impl ExecutionConfig {
+    pub const fn new(worker_count: std::num::NonZeroU32) -> Self;
+    pub const fn worker_count(self) -> std::num::NonZeroU32;
 }
 
 pub fn restore_lfrs(
@@ -181,9 +238,14 @@ LaneFlow 持有的必需计划、任务范围、输出缓冲和线程登记表�
 
 ### 4.1 安装
 
-顺序为：原有交通校验和私有状态准备 → 执行能力校验 → 计划/缓冲 checked reserve
-→ 执行资源初始化 → 组装并返回活动世界。source、dt、signal、policy、Conflict
-准入等原有交通检查的相对顺序保持。
+宿主先构造有效的 `WorldConfig`。步长越界且来源错误时，调用方在取得配置前即收到
+`WorldConfigError`。旧签名在安装时先检查来源，再报告 `InstallError::DeltaOutOfRange`。
+迁移后删除这一安装错误，安装和恢复共同使用受检配置。
+
+安装依次检查来源修订、编辑来源的差异基线、信号相位与步长的整除和下限约束、
+路权策略及 Conflict 仲裁状态，然后验证执行能力，预留计划和缓冲，初始化执行资源，
+最后返回活动世界。例如，错误来源先于信号错误，`PhaseNotMultipleOfTick` 先于
+超出后端能力的 worker 数。这些依赖修订或后端的检查各自在原阶段报告。
 
 能力不支持时不创建线程；部分线程启动失败时，先取消并 join 已启动线程，再释放
 私有状态并返回错误。资源初始化成功不授权发布尚未完成交通准入的对象。
@@ -196,15 +258,21 @@ LaneFlow 持有的必需计划、任务范围、输出缓冲和线程登记表�
 恢复顺序为：
 
 1. 调用方 wire 上限、framing、identifier、有界 FlatBuffers verifier。
-2. format/runtime 版本、封闭字段/枚举、静态绑定、来源、dt 与保存/目标容量。
-3. 共同交通安装原语建立私有状态，恢复路线/车辆/资源/时钟/游标并完整验证派生状态。
+2. 检查 format/runtime 版本、封闭表字段、静态及来源绑定、dt、容量、时钟与记录数。
+3. 解码快照策略，复用共同交通安装原语建立私有状态。按现行顺序恢复路线、车辆和资源，
+   在消费各记录时检查其封闭枚举，完成已提交状态与派生索引校验。
 4. 验证执行能力，为最终恢复状态准备计划和缓冲，然后初始化执行资源。
 5. 一次性返回完整 `RestoredSnapshot`；任一错误不返回半个世界。
 
-不能只给当前较早调用的 `TrafficWorld::install` 补一个 execution 参数：这样可能在
-快照后半段被拒绝前就启动资源，或按空世界建立错误计划。必须复用共同交通准备原语，
-保留唯一准入实现。恢复路线时临时放开 Conflict occurrence 容量、重编译后同时核对
-保存/目标真实总量的规则保持。
+调用方只为目标交通配置运行 `try_new`。快照保存的步长和容量仍是外部输入，由恢复
+路径按上述顺序验证。合法目标步长为 4 ms 而快照保存 3 ms 时，来源绑定通过后应得到
+`SnapshotRestoreError::FixedDeltaTimeMismatch`。损坏的车辆或路线记录与不支持的
+worker 数并存时，先返回交通恢复错误。世界身份和路权策略由快照读入，宿主显式提供
+目标修订、来源、交通配置、执行配置和恢复限额。
+
+恢复直接调用共同交通准备原语。若先走公开安装入口，会在快照后半段仍可能失败时启动
+资源，并按空世界建立计划。恢复路线时临时放开 Conflict occurrence 容量，重编译后再按
+真实总量同时核对保存容量和目标容量。
 
 `fixed_delta_time_ms` 必须精确匹配，四项目标语义容量都不能小于保存容量，即使实际
 live state 放得下也拒绝缩容。放大容量可恢复，但会改变未来生命周期命令的成功条件，
@@ -268,20 +336,20 @@ epoch、WorldGeneration 各自承担其原有寿命，不相互冒充。
 
 ## 6. 格式与版本轴
 
-| 轴                                   | 当前合同                                  | 原因                                                                                                                                          |
-| ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust API                             | 交通与执行配置分离，显式安装/恢复参数     | 1.0 前破坏性清扫，无兼容别名                                                                                                                  |
+| 轴                                   | 当前合同                                  | 原因                                                                                                                            |
+| ------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Rust API                             | 交通与执行配置分离，显式安装/恢复参数     | 1.0 前破坏性清扫，无兼容别名                                                                                                    |
 | LFRS `format_version`                | 7                                         | 删除 worker，`fixed_delta_time_ms` 的 vtable 槽位移动；编辑来源绑定见 [`committed-road-editing-state.md`][committed-editing] §6 |
-| schema / namespace                   | `runtime-snapshot/v7` / V7                | 只保留唯一当前 wire binding                                                                                                                   |
-| `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                                                                                                                    |
-| `RUNTIME_STATE_DIGEST_VERSION`       | 8                                         | 规范原像已经排除 worker；算法为 BLAKE3-256（#1035），状态版本头及其余编码不变                                                                 |
-| 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 摘要算法和规范化规则不变                                                                                                                      |
-| LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值，不因执行配置升级              | 静态事实不增加执行分配                                                                                                                        |
-| cutover descriptor format            | 2                                         | 不修改持久化迁移描述符                                                                                                                        |
-| Observation / Routing 绑定           | 各自现行值，不因执行配置升级              | 不改变交通身份、游标或失效语义                                                                                                                |
+| schema / namespace                   | `runtime-snapshot/v7` / V7                | 只保留唯一当前 wire binding                                                                                                     |
+| `RUNTIME_STATE_VERSION`              | 5                                         | 交通逻辑状态字段和含义不变                                                                                                      |
+| `RUNTIME_STATE_DIGEST_VERSION`       | 8                                         | 规范原像已经排除 worker；算法为 BLAKE3-256（#1035），状态版本头及其余编码不变                                                   |
+| 摘要 domain                          | `laneflow:runtime-state-digest:v1` 加 NUL | 摘要算法和规范化规则不变                                                                                                        |
+| LFCA 六轴 / NetworkRevision 派生版本 | 各自现行值，不因执行配置升级              | 静态事实不增加执行分配                                                                                                          |
+| cutover descriptor format            | 2                                         | 不修改持久化迁移描述符                                                                                                          |
+| Observation / Routing 绑定           | 各自现行值，不因执行配置升级              | 不改变交通身份、游标或失效语义                                                                                                  |
 
-格式 6、状态 5、摘要 7 刻意分离版本轴。若修改交通状态或摘要原像，必须重做版本判断；
-不能借配置拆分免除升级。各唯一事实来源同步更新，不让两个“当前格式”并存。
+#1568 迁移 Rust 调用与错误类型。四项容量、步长、宿主世界身份和策略保有既有值和编码，
+因此沿用表中各格式及摘要版本。若后续修改交通状态或摘要原像，须重新判断相应版本。
 
 `WorldConfigBinding` 不含 worker。绑定由钉版 flatc 生成，writer/reader、封闭字段数、
 wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生成 getter/slot，
@@ -293,6 +361,24 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
 新配置；缺省字段、槽位错置和未知 vtable 字段都需实际字节测试。
 
 ## 7. 实施验收与评审边界
+
+具名安装接口的实施按下列用例验收，G1 调用原型与既有主干回归作为对照基线。
+
+1. 无窗口宿主使用 §2.1 的五个不同数值完成安装，逐字段读取配置并推进一个固定步。
+   缺少必填字段、直接传入整数或用 `WorldGeneration` 代替 `WorldId` 均编译失败。
+2. 在构造入口断言 3、1001 ms 的错误内容及 4、1000 ms 的成功值。分别验证合法零容量，
+   包括四项全零的空世界。用有路线和车辆的既有场景验证各容量的准入语义。
+3. 安装时组合错误来源、不兼容信号相位和超限 worker，分别固定来源错误、相位错误与
+   合法交通下的执行错误，验证失败时没有活动世界或遗留线程。恢复时覆盖保存步长损坏、
+   目标缩容、目标扩容、交通记录损坏并请求超限 worker，按 §4.2 检查首错与原子性。
+4. 在同一主干基线及迁移后的实现分别执行相同的安装、命令与步进序列，比对提交结果、
+   LFRS 字节及逻辑摘要。验证身份 0 与 `u64::MAX` 可往返、错误世界或世代的绑定
+   被拒绝、fresh restore 和同／跨修订切换保有原身份及约定的世代。只改 worker 数时
+   交通身份、快照字节及逻辑摘要相同。
+5. 同次迁移 Runtime 的公开签名、正常安装与恢复调用点、无窗口示例、Bevy 会话、工具、
+   测试及宿主接入指南。保留受检配置的调用方可直接复用它进行恢复。
+
+执行配置和资源生命周期的既有验收如下。
 
 | 领域       | 必须验证                                                                                                                                                                                                         |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -310,6 +396,7 @@ wire pin、xtask schema 路径与 Rust/C++/C# 检查保持一致。不手改生�
 各自实现和验证完成。P4 组件计划及临时序号绑定不属于首版验收。
 
 [issue-220]: https://github.com/illusion-tech/laneflow/issues/220
+[issue-1568]: https://github.com/illusion-tech/laneflow/issues/1568
 [adr-0030]: ../adr/0030-single-world-parallel-execution.md
 [parallel-execution]: traffic-runtime-parallel-execution.md
 [runtime-snapshot]: traffic-runtime-snapshot.md
