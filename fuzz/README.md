@@ -30,9 +30,10 @@ PR/队列 smoke 每目标 300 秒；手工 `duration_seconds=1800` 是 #536 的�
 `run_campaign` 固定单输入 25 秒、RSS 2048 MiB、输入 262144 bytes、seed 53601，
 使用 cargo-fuzz 默认 AddressSanitizer。nightly 的完整 rustc/cargo 身份进入各回执。
 
-GitHub Actions 在共用准备任务中生成语料并一次编译六个 AddressSanitizer 目标。
-各目标任务核对同一运行的源码、锁文件、二进制摘要和初始语料，直接执行已编译的
-目标。回执记录构建工具链与准备任务的运行身份。
+GitHub Actions 并行运行两项共用准备。一个任务一次编译六个 AddressSanitizer
+目标，另一个验证 harness 并准备语料和启动器。两者均成功后，各目标任务核对
+同一运行的源码、锁文件、工具链、二进制摘要和初始语料，直接执行已编译的目标。
+回执记录构建工具链和两项准备任务的运行身份。
 
 在仓库根目录运行（正式窗口通过 `FUZZ_MAX_TOTAL_TIME=1800` 选择）：
 

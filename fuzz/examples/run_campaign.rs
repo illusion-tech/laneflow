@@ -20,6 +20,7 @@ const TARGETS: &[&str] = &[
     "cutover_inputs",
 ];
 const PREPARED_DIR: &str = "fuzz/target/prepared-campaigns";
+const PREPARED_ASAN_DIR: &str = "fuzz/target/prepared-asan";
 const SANITIZER: &str = "address";
 
 fn capture(program: &str, args: &[&str]) -> Result<String, Box<dyn Error>> {
@@ -92,8 +93,6 @@ fn toolchain_identity() -> Result<Value, Box<dyn Error>> {
         "rustc": rustc,
         "host": host,
         "cargo": capture("cargo", &["+nightly", "--version"])?,
-        "cargo_fuzz": capture("cargo", &["+nightly", "fuzz", "--version"])?,
-        "sanitizer": SANITIZER,
     }))
 }
 
@@ -107,42 +106,50 @@ fn target_binary(host: &str, filename: &str) -> PathBuf {
 fn prepare() -> Result<(), Box<dyn Error>> {
     let checkout = checkout_identity()?;
     if checkout["tracked_diff"] != "" {
-        return Err("共用构建要求受检文件保持不变".into());
+        return Err("输入准备要求受检文件保持不变".into());
     }
     let toolchain = toolchain_identity()?;
-    let host = toolchain["host"].as_str().ok_or("缺少构建主机")?;
     let output = Path::new(PREPARED_DIR);
     fs::create_dir(output)?;
     let launcher = output.join(format!("run_campaign{}", std::env::consts::EXE_SUFFIX));
     fs::copy(std::env::current_exe()?, &launcher)?;
 
-    let mut targets = serde_json::Map::new();
+    let mut seeds = serde_json::Map::new();
     for &target in TARGETS {
-        let filename = format!("{target}{}", std::env::consts::EXE_SUFFIX);
-        let binary = output.join(&filename);
-        fs::copy(target_binary(host, &filename), &binary)?;
         let initial_corpus = inventory(&Path::new("fuzz/corpus").join(target))?;
         if initial_corpus.is_empty() {
             return Err(format!("缺少 {target} 的准备语料").into());
         }
-        targets.insert(
-            target.to_owned(),
-            json!({"binary_sha256": hash_file(&binary)?, "initial_corpus": initial_corpus}),
-        );
+        seeds.insert(target.to_owned(), json!(initial_corpus));
     }
 
     save(
-        &output.join("build.json"),
+        &output.join("inputs.json"),
         &json!({
             "checkout": checkout,
             "toolchain": toolchain,
-            "run_id": std::env::var("GITHUB_RUN_ID").ok(),
-            "run_attempt": std::env::var("GITHUB_RUN_ATTEMPT").ok(),
-            "image_version": std::env::var("ImageVersion").ok(),
+            "run": {
+                "run_id": std::env::var("GITHUB_RUN_ID").ok(),
+                "run_attempt": std::env::var("GITHUB_RUN_ATTEMPT").ok(),
+                "image_version": std::env::var("ImageVersion").ok(),
+            },
             "launcher_sha256": hash_file(&launcher)?,
-            "targets": targets,
+            "seeds": seeds,
         }),
     )
+}
+
+fn recorded_sha256<'a>(report: &'a str, filename: &str) -> Option<&'a str> {
+    report
+        .lines()
+        .filter_map(|line| line.split_once("  "))
+        .find_map(|(digest, name)| (name == filename).then_some(digest))
+}
+
+struct PreparedCampaign {
+    toolchain: Value,
+    build_run: Value,
+    inputs_run: Value,
 }
 
 fn read_prepared(
@@ -150,23 +157,53 @@ fn read_prepared(
     target: &str,
     binary: &Path,
     initial_corpus: &[Value],
-) -> Result<Value, Box<dyn Error>> {
-    let build: Value =
-        serde_json::from_reader(File::open(Path::new(PREPARED_DIR).join("build.json"))?)?;
-    if build["run_id"] != json!(std::env::var("GITHUB_RUN_ID").ok())
-        || &build["checkout"] != checkout
+) -> Result<PreparedCampaign, Box<dyn Error>> {
+    let inputs: Value =
+        serde_json::from_reader(File::open(Path::new(PREPARED_DIR).join("inputs.json"))?)?;
+    let metadata = Path::new(PREPARED_ASAN_DIR).join("metadata");
+    let read = |name: &str| fs::read_to_string(metadata.join(name));
+    let context = read("context")?;
+    let context: Vec<_> = context.lines().collect();
+    let [build_source, build_run_id, build_attempt, build_image] = context.as_slice() else {
+        return Err("缺少 ASan 构建身份".into());
+    };
+    let run_id = std::env::var("GITHUB_RUN_ID")?;
+    if *build_run_id != run_id
+        || inputs["run"]["run_id"] != run_id
+        || checkout["source_commit"].as_str() != Some(*build_source)
+        || &inputs["checkout"] != checkout
         || checkout["tracked_diff"] != ""
-        || build["toolchain"]["sanitizer"] != SANITIZER
     {
-        return Err("共用构建与本次运行的源码、锁文件或 sanitizer 不一致".into());
+        return Err("ASan 构建、输入准备和本次执行的运行或源码身份不一致".into());
     }
-    let expected = &build["targets"][target];
-    if expected["binary_sha256"] != hash_file(binary)?
-        || expected["initial_corpus"].as_array().map(Vec::as_slice) != Some(initial_corpus)
+    let lockfiles = read("locks.sha256")?;
+    if recorded_sha256(&lockfiles, "Cargo.lock") != checkout["root_lock_sha256"].as_str()
+        || recorded_sha256(&lockfiles, "fuzz/Cargo.lock") != checkout["fuzz_lock_sha256"].as_str()
     {
-        return Err(format!("{target} 的二进制或初始语料与共用构建不一致").into());
+        return Err("ASan 构建与本次执行的锁文件摘要不一致".into());
     }
-    Ok(build)
+    let mut toolchain = inputs["toolchain"].clone();
+    if toolchain["rustc"] != read("rustc")?.trim() || toolchain["cargo"] != read("cargo")?.trim() {
+        return Err("ASan 构建与输入准备的 Rust 工具链不一致".into());
+    }
+    toolchain["cargo_fuzz"] = json!(read("cargo-fuzz")?.trim());
+
+    let binaries = read("binaries.sha256")?;
+    let binary_sha256 = hash_file(binary)?;
+    if recorded_sha256(&binaries, target) != Some(binary_sha256.as_str())
+        || inputs["seeds"][target].as_array().map(Vec::as_slice) != Some(initial_corpus)
+    {
+        return Err(format!("{target} 的二进制或初始语料与准备制品不一致").into());
+    }
+    Ok(PreparedCampaign {
+        toolchain,
+        build_run: json!({
+            "run_id": build_run_id,
+            "run_attempt": build_attempt,
+            "image_version": build_image,
+        }),
+        inputs_run: inputs["run"].clone(),
+    })
 }
 
 fn run(target: &str, use_prepared: bool) -> Result<(), Box<dyn Error>> {
@@ -189,7 +226,7 @@ fn run(target: &str, use_prepared: bool) -> Result<(), Box<dyn Error>> {
     let initial_corpus = inventory(&corpus)?;
     let checkout = checkout_identity()?;
     let filename = format!("{target}{}", std::env::consts::EXE_SUFFIX);
-    let prepared_binary = Path::new(PREPARED_DIR).join(&filename);
+    let prepared_binary = Path::new(PREPARED_ASAN_DIR).join(&filename);
     let prepared = if use_prepared {
         Some(read_prepared(
             &checkout,
@@ -201,8 +238,12 @@ fn run(target: &str, use_prepared: bool) -> Result<(), Box<dyn Error>> {
         None
     };
     let toolchain = match &prepared {
-        Some(build) => build["toolchain"].clone(),
-        None => toolchain_identity()?,
+        Some(prepared) => prepared.toolchain.clone(),
+        None => {
+            let mut toolchain = toolchain_identity()?;
+            toolchain["cargo_fuzz"] = json!(capture("cargo", &["+nightly", "fuzz", "--version"])?);
+            toolchain
+        }
     };
     let host = toolchain["host"].as_str().ok_or("缺少构建主机")?;
     let binary = if use_prepared {
@@ -219,12 +260,9 @@ fn run(target: &str, use_prepared: bool) -> Result<(), Box<dyn Error>> {
         "initial_corpus":initial_corpus,"root_lock_sha256":checkout["root_lock_sha256"],
         "fuzz_lock_sha256":checkout["fuzz_lock_sha256"],
         "limitations":"bounded exploration; RSS/timeout stops are failures; no exhaustive security proof"});
-    if let Some(build) = &prepared {
-        receipt["prepared_build"] = json!({
-            "run_id": build["run_id"],
-            "run_attempt": build["run_attempt"],
-            "image_version": build["image_version"],
-        });
+    if let Some(prepared) = &prepared {
+        receipt["prepared_build"] = prepared.build_run.clone();
+        receipt["prepared_inputs"] = prepared.inputs_run.clone();
     }
     for key in [
         "GITHUB_SHA",
