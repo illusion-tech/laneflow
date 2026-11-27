@@ -1098,7 +1098,12 @@ fn loop_route_future_transition_does_not_hide_nearer_downstream_boundary() {
             for tick in 0..100 {
                 let before = {
                     let state = world.state.committed.vehicles.state(straight).unwrap();
-                    (state.route_edge_index, state.progress_mm, state.speed_mm_s)
+                    (
+                        state.route_edge_index,
+                        state.progress_mm,
+                        state.speed_mm_s,
+                        state.carry_um,
+                    )
                 };
                 world.state.prepare_waiting_step(0.1).unwrap();
                 world.step(crate::TickInput::new(100)).unwrap();
@@ -1123,14 +1128,13 @@ fn loop_route_future_transition_does_not_hide_nearer_downstream_boundary() {
                     };
                     // 具名参数取进入者档案（profile 0：服务减速度 4500 mm/s²、
                     // 最小间距 2500 mm），与 P4 逐进入者证明同一口径。
-                    let stop_mm = crate::kernel::lane_change::stop_distance_millimetres(
-                        u64::from(before.2),
-                        100,
-                        4_500,
-                        2_500,
-                    );
-                    let safe = before.0 >= 3 || near_boundary_mm >= stop_mm;
-                    outcomes.push((workers, looping, tick, before.0, near_boundary_mm, stop_mm));
+                    let stop_um = crate::kernel::lane_change::service_stop_distance_um(
+                        before.2, 100, 4.5, 2_500,
+                    )
+                    .unwrap();
+                    let safe =
+                        before.0 >= 3 || near_boundary_mm * 1_000 >= stop_um + u64::from(before.3);
+                    outcomes.push((workers, looping, tick, before.0, near_boundary_mm, stop_um));
                     assert!(
                         safe,
                         "P4 不得在近端下游边界不可安全让行时授予换道: {outcomes:?}"

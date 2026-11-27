@@ -12,6 +12,7 @@ use crate::kernel::conflict::{
     ConflictAcquireError, ConflictCandidateOrderKey, ConflictGrant, GrantResourceBundle,
     WaitingAdmissionEntitlement,
 };
+use crate::kernel::lane_change::service_stop_distance_um;
 use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
     ApproachEstimate, ConflictEligibilityState, ConflictPassageAddress,
@@ -7174,13 +7175,13 @@ pub(crate) fn entrant_stop_reach_mm(
             transition_cost.profile(profile_steps);
             return u64::MAX;
         };
-        let service = (profile.comfort_decel().max(0.0) * 1_000.0) as u64;
-        let stop = crate::kernel::lane_change::stop_distance_millimetres(
-            u64::from(laneflow_static_contract::MAX_SPEED_MM_S),
+        let stop = service_stop_distance_um(
+            laneflow_static_contract::MAX_SPEED_MM_S,
             delta_ms,
-            service,
-            u64::from(profile.min_gap_mm()),
-        );
+            profile.comfort_decel(),
+            profile.min_gap_mm(),
+        )
+        .map_or(u64::MAX, |stop_um| stop_um.div_ceil(1_000));
         reach = Some(reach.map_or(stop, |current: u64| current.max(stop)));
     }
     transition_cost.profile(profile_steps);
@@ -7405,7 +7406,7 @@ impl ConflictTaskView<'_> {
 
     /// P4 潜在进入者证明（#1199 合同 §5.2）：潜在进入者=过渡区（T 边）及
     /// 其上/下游邻域车辆（实际车体记录，2-hop 邻域=A2 投影邻域）；逐个以
-    /// 具名四项停止距离判据评估让行可证性（`yieldable_by_stopping`，A4
+    /// 具名四项停止距离判据评估让行可证性（`service_stop_distance_um`，A4
     /// 命名参数：profile 制动/间隙 + config 步长），任一不可证 → no-grant
     /// （`ApproachUnprovable`）。进入者到区间距离=其路线到 T 边界的最短
     /// 路线空间距离（T 在其路线则到 T 入口；否则经 T 的前/后继边界边）。
@@ -7418,12 +7419,17 @@ impl ConflictTaskView<'_> {
     ) -> Option<crate::ConflictNoGrantReason> {
         // fail-closed（#1199）：任何证明前提不可得即 no-grant，不静默放行。
         let unprovable = crate::ConflictNoGrantReason::ApproachUnprovable;
-        let compiled = self.read.compiled_route(state.route)?;
+        let Some(compiled) = self.read.compiled_route(state.route) else {
+            return Some(unprovable);
+        };
         let relations = self.read.binding.revision.traffic().relations();
         let delta_ms = self.read.binding.config.fixed_delta_time_ms();
-        let interval_edge = *compiled
+        let Some(&interval_edge) = compiled
             .edges
-            .get(occurrence.entry.route_edge_index as usize)?;
+            .get(occurrence.entry.route_edge_index as usize)
+        else {
+            return Some(unprovable);
+        };
         let traffic = self.read.binding.revision.traffic();
         // 域 B（#1199 总设计三段式）②停止距离可达域枚举（#1216 修）：逐
         // 条目近端距游走（`entrant_neighborhood`）——I-B1 枚举域 ⊇ d_stop
@@ -7542,9 +7548,6 @@ impl ConflictTaskView<'_> {
                         .relations()
                         .vehicle_profile(other.profile);
                     let chain_proof = other_profile.and_then(|other_profile| {
-                        let other_service =
-                            (other_profile.comfort_decel().max(0.0) * 1_000.0) as u64;
-                        let other_min_gap = u64::from(other_profile.min_gap_mm());
                         let leader_state = self.read.committed.vehicles.state(contact.vehicle)?;
                         let leader_profile = self
                             .read
@@ -7553,26 +7556,29 @@ impl ConflictTaskView<'_> {
                             .traffic()
                             .relations()
                             .vehicle_profile(leader_state.profile)?;
-                        let leader_service =
-                            (leader_profile.comfort_decel().max(0.0) * 1_000.0) as u64;
-                        let leader_min_gap = u64::from(leader_profile.min_gap_mm());
-                        let leader_d_stop = crate::kernel::lane_change::stop_distance_millimetres(
-                            u64::from(leader_state.speed_mm_s),
+                        let leader_d_stop = service_stop_distance_um(
+                            leader_state.speed_mm_s,
                             delta_ms,
-                            leader_service,
-                            leader_min_gap,
-                        );
-                        let leader_stop_point = u64::try_from(contact.gap_mm.max(0))
+                            leader_profile.comfort_decel(),
+                            leader_profile.min_gap_mm(),
+                        )?;
+                        // 两个停点都相对后车拍初的整数毫米位置，分别带入各车余量。
+                        let leader_stop_point = u64::try_from(contact.gap_mm)
                             .ok()?
-                            .saturating_add(leader_d_stop);
-                        let can_stop_behind = crate::kernel::lane_change::yieldable_by_stopping(
-                            leader_stop_point,
-                            u64::from(other.speed_mm_s),
+                            .checked_mul(1_000)?
+                            .checked_add(u64::from(leader_state.carry_um))?
+                            .checked_add(leader_d_stop)?;
+                        let follower_stop_point = service_stop_distance_um(
+                            other.speed_mm_s,
                             delta_ms,
-                            other_service,
-                            other_min_gap,
-                        );
-                        Some(can_stop_behind && leader_stop_point <= u64::from(interval_distance))
+                            other_profile.comfort_decel(),
+                            other_profile.min_gap_mm(),
+                        )?
+                        .checked_add(u64::from(other.carry_um))?;
+                        Some(
+                            follower_stop_point <= leader_stop_point
+                                && leader_stop_point <= u64::from(interval_distance) * 1_000,
+                        )
                     });
                     if chain_proof == Some(true) {
                         continue;
@@ -7632,15 +7638,18 @@ impl ConflictTaskView<'_> {
                 };
                 // 域 B③（#1199 ⑩档位归属）：逐进入者自身 profile 具名参数
                 // 做停车证明（comfort_decel/min_gap 取进入者档案、非申请者）。
-                let other_service = (other_profile.comfort_decel().max(0.0) * 1_000.0) as u64;
-                let other_min_gap = u64::from(other_profile.min_gap_mm());
-                if !crate::kernel::lane_change::yieldable_by_stopping(
-                    u64::from(distance_mm),
-                    u64::from(other.speed_mm_s),
+                let room_um =
+                    (u64::from(distance_mm) * 1_000).checked_sub(u64::from(other.carry_um));
+                let required_um = service_stop_distance_um(
+                    other.speed_mm_s,
                     delta_ms,
-                    other_service,
-                    other_min_gap,
-                ) {
+                    other_profile.comfort_decel(),
+                    other_profile.min_gap_mm(),
+                );
+                if !room_um
+                    .zip(required_um)
+                    .is_some_and(|(room, stop)| room >= stop)
+                {
                     return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
                 }
             }

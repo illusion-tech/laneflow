@@ -14,6 +14,8 @@ mod footprint;
 pub use footprint::{
     HandoffFootprint, HandoffFootprintReport, HandoffLaneSide, HandoffSideFootprint,
 };
+mod occupied_sweep;
+pub use occupied_sweep::HandoffSweepReport;
 mod rebind;
 mod source;
 pub use source::{HandoffSourceEvidence, HandoffSourceModule};

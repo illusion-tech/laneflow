@@ -81,9 +81,11 @@ pub use kernel::execution_evidence::{
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::handoff::{
-    BoundRouteHandoff, RouteHandoffOccurrence, RouteHandoffPreview, RouteHandoffSample,
-    RouteHandoffSampleError, RouteHandoffSampleReport, RouteHandoffTraffic,
-    RouteHandoffTrafficError, RouteHandoffTrial, RouteHandoffTrialError,
+    BoundRouteHandoff, RouteHandoffApproachError, RouteHandoffApproaches, RouteHandoffEntrant,
+    RouteHandoffEntrantError, RouteHandoffEntrantReason, RouteHandoffEntrants,
+    RouteHandoffOccurrence, RouteHandoffPreview, RouteHandoffSample, RouteHandoffSampleError,
+    RouteHandoffSampleReport, RouteHandoffTraffic, RouteHandoffTrafficError, RouteHandoffTrial,
+    RouteHandoffTrialError,
 };
 pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,

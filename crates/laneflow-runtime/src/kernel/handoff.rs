@@ -1,6 +1,8 @@
 //! 候选路线的横向交接窗口与逐出现试算。
 
+mod approaches;
 mod binding;
+mod entrants;
 
 use std::sync::Arc;
 
@@ -17,6 +19,10 @@ use thiserror::Error;
 
 mod sample;
 mod traffic;
+pub use approaches::{RouteHandoffApproachError, RouteHandoffApproaches};
+pub use entrants::{
+    RouteHandoffEntrant, RouteHandoffEntrantError, RouteHandoffEntrantReason, RouteHandoffEntrants,
+};
 use sample::CursorRun;
 pub use sample::{RouteHandoffSample, RouteHandoffSampleError, RouteHandoffSampleReport};
 pub use traffic::{RouteHandoffTraffic, RouteHandoffTrafficError};

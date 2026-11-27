@@ -23,8 +23,8 @@ mod sweep;
 pub use handoff::{
     HandoffBinding, HandoffBodyReport, HandoffBodySide, HandoffFootprint, HandoffFootprintReport,
     HandoffLaneSide, HandoffOutcome, HandoffQuery, HandoffReport, HandoffSideFootprint,
-    HandoffSourceEvidence, HandoffSourceModule, HandoffTravelBounds, HandoffTravelReport,
-    HandoffTravelTarget, HandoffWindow,
+    HandoffSourceEvidence, HandoffSourceModule, HandoffSweepReport, HandoffTravelBounds,
+    HandoffTravelReport, HandoffTravelTarget, HandoffWindow,
 };
 pub use sweep::{
     BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SweepOutcome,

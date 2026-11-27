@@ -28,7 +28,7 @@ cargo run --locked -p laneflow-runtime --example headless
 - 四个容量是车辆、路线、路线边出现记录和路线冲突出现记录。它们进入快照和逻辑摘要。worker 数另由 `ExecutionConfig` 指定，不进入快照。
 - 新观测 session 的第一次导出必须是 Full。观测从当前已提交状态计算；失败不推进 session。
 - 生命周期命令只在两次 `step` 之间调用。命令失败不留下半条路线或半辆车。
-- `TrafficWorld::bind_route_handoffs` 为同一候选路线绑定一个或多个窗口。`preview_route_handoff_at` 按源出现下标和车型试算。`sample_after_travel` 按本拍的后轴行程求前杠所在路线出现和两侧车体的边内范围。`preview_route_handoff_traffic` 还可用当前世界的已提交占用，查出各侧一个可能重叠的车辆。[路线试算合同][route-handoff]
+- `TrafficWorld::bind_route_handoffs` 为同一候选路线绑定一个或多个窗口。`preview_route_handoff_at` 按出现下标和车型试算。`sample_after_travel` 定位拍末的前杠和两侧车体；`preview_route_handoff_traffic` 可查询此时两侧的当前占用。`preview_route_handoff_approaches` 按整段后轴行程检查连续扫过范围，以及接近两侧的普通车辆能否安全停车。[路线试算合同][route-handoff]
 - 执行 panic 不是可恢复的 `StepError`。世界因此失效后，只能销毁并重建，不能继续查询或发命令。
 - dev-dependencies 已经启用 `laneflow-static-network` 的 `attestation-fixtures`，供其他测试使用。无窗口示例不调用这些测试入口。
 
