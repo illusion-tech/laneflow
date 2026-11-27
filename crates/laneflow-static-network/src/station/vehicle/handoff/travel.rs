@@ -193,7 +193,8 @@ impl Travel {
 impl SharedNetworkRevision {
     /// 在同一条五次横移上按行驶方向一次积分，取得一组原参数端点的累计三维行程。
     /// `offsets_nm` 为相对起点的后轴站位差，严格递增，末项须为候选参数总长，
-    /// 可含起点零。反向行驶同样使用递增站位差。所有端点共用一次工作预算，
+    /// 可含起点零。反向行驶同样使用递增站位差。先按每个标记一项核验输入，
+    /// 再绑定候选并积分；所有端点共用一次工作预算，
     /// 每个累计结果的宽度均不超过正的 `tolerance_nm`。几何准入由 `vehicle_handoff` 求证。
     #[must_use]
     pub fn handoff_travel_marks(
@@ -210,6 +211,12 @@ impl SharedNetworkRevision {
             if length == 0 || offsets_nm.last() != Some(&length) || tolerance_nm == 0 {
                 return Err(Failure::InvalidInput);
             }
+            for (i, &end) in offsets_nm.iter().enumerate() {
+                work.charge()?;
+                if end > length || (i > 0 && end <= offsets_nm[i - 1]) {
+                    return Err(Failure::InvalidInput);
+                }
+            }
             let bound = bind(self, q, window, &mut work)?;
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;
@@ -218,10 +225,6 @@ impl SharedNetworkRevision {
             let mut walk = Travel::new(length, tolerance_nm, None);
             let mut marks = Vec::new();
             for &end in offsets_nm {
-                work.charge()?;
-                if end > length || (!marks.is_empty() && end <= previous) {
-                    return Err(Failure::InvalidInput);
-                }
                 let distance = if end == 0 {
                     [0; 2]
                 } else {

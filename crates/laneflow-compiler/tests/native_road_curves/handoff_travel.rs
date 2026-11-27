@@ -170,6 +170,14 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
                     Err(Failure::InvalidInput)
                 );
             }
+            // 标记核验和几何积分共享预算；在预算足够读到错误标记时就报告输入错误。
+            let reversed = [2 * NM, NM, 30 * NM];
+            let invalid = marks(&reversed, 2);
+            assert_eq!(invalid.distances_nm, Err(Failure::InvalidInput));
+            assert_eq!(invalid.work, 2);
+            let short = marks(&reversed, 1);
+            assert_eq!(short.distances_nm, Err(Failure::WorkLimit));
+            assert_eq!(short.work, 1);
             for d in [10 * NM, 15_144_572_165] {
                 let target = HandoffTravelTarget::DistanceNm(d);
                 let inverse = query(target, TRACK_WORK_LIMIT);

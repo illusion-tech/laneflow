@@ -91,7 +91,8 @@ pub use kernel::handoff::{
 pub use kernel::handoff::{
     ClearanceSpeedCurve, ClearanceSpeedCurveError, ClearanceSpeedPoint, ClearanceSpeedWindow,
     HandoffDrivingConfig, MAX_CLEARANCE_SPEED_POINTS, RouteHandoffBrakingError,
-    RouteHandoffBrakingStep, RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError,
+    RouteHandoffBrakingMotion, RouteHandoffBrakingStep, RouteHandoffSpeedPlan,
+    RouteHandoffSpeedPlanError,
 };
 pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,

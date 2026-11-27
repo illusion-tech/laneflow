@@ -5,10 +5,9 @@ fn microns(value: f64, error_nm: u32) -> I {
     (I::point(value) / I::point(1e6)).with_error(I::meters(u64::from(error_nm)).hi)
 }
 
-// 整车沿固定世界轴的投影。先投各车体轴，再乘车体坐标范围，保留斜向车身的形状。
-fn body_projection(body: &Body<'_>, origin: Horizontal, axis: Horizontal) -> I {
-    let rear = horizontal(body.pose.rear);
-    let mut span = dot(axis, std::array::from_fn(|i| rear[i] - origin[i]));
+// 从后轴投影起算，分别加入三个车体轴在待测水平轴上的投影。
+fn body_span(body: &Body<'_>, axis: Horizontal, rear: I) -> I {
+    let mut span = rear;
     for (extent, direction) in
         body.shape
             .ranges()
@@ -18,6 +17,14 @@ fn body_projection(body: &Body<'_>, origin: Horizontal, axis: Horizontal) -> I {
         span = span + extent * dot(axis, horizontal(direction));
     }
     span
+}
+fn body_projection(body: &Body<'_>, origin: Horizontal, axis: Horizontal) -> I {
+    let rear = horizontal(body.pose.rear);
+    body_span(
+        body,
+        axis,
+        dot(axis, std::array::from_fn(|i| rear[i] - origin[i])),
+    )
 }
 struct Rail {
     origin: Horizontal,
@@ -242,7 +249,7 @@ impl Curb {
                     let origin = horizontal(body.pose.rear);
                     let curb = dot(f, [bounds[0] - origin[0], bounds[2] - origin[1]]);
                     if (bounds[1] - p[1]).abs().lo > 0.
-                        || (body_projection(body, origin, f) - curb).abs().lo > 0.
+                        || (body_span(body, f, I::ZERO) - curb).abs().lo > 0.
                     {
                         continue;
                     }
@@ -250,7 +257,8 @@ impl Curb {
                 }
             };
             relevant = true;
-            if gap == 0. {
+            // 轴对齐包围盒只要分离即可证明不接触。按净空选速还需比较斜向分离轴。
+            if gap == 0. || metric == ClearanceMetric::Side {
                 let middle = a + (b - a) / 2;
                 let center = horizontal(patch.derivative(patch.parameter(middle), 0));
                 let ds = (-I::meters(middle - a)).hull(I::meters(b - middle));
