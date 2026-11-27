@@ -32,6 +32,8 @@ mod sample;
 mod stop_line;
 #[path = "route_handoff/stop_line_limits.rs"]
 mod stop_line_limits;
+#[path = "route_handoff/target_stop_line.rs"]
+mod target_stop_line;
 #[path = "route_handoff/traffic.rs"]
 mod traffic;
 
@@ -173,10 +175,10 @@ fn road_module(
         .with_boundary_extents(extents),
     ));
     let (source_keys, source_cuts) = match source_stop {
-        None | Some(stop_line::SourceStop::Upstream) => {
+        None | Some(stop_line::SourceStop::Upstream | stop_line::SourceStop::WithTurn) => {
             (&["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.])
         }
-        Some(stop_line::SourceStop::OnOccurrence) => {
+        Some(stop_line::SourceStop::OnOccurrence | stop_line::SourceStop::Both) => {
             (&["s0", "s1", "s2", "s3"][..], vec![10., 14., 35.])
         }
         Some(stop_line::SourceStop::OnContinuation) => (
@@ -206,6 +208,11 @@ fn road_module(
                         })
                         .map(edge)
                         .into_iter()
+                        .chain(
+                            (*k == "s1"
+                                && matches!(source_stop, Some(stop_line::SourceStop::WithTurn)))
+                            .then(|| edge("turn-exit")),
+                        )
                         .collect(),
                     None,
                 )

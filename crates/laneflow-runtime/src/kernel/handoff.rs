@@ -99,12 +99,12 @@ impl BoundRouteHandoff {
 
     fn selected_gate(
         &self,
-        source: CursorRun<'_>,
+        run: CursorRun<'_>,
         edge: LaneEdgeOrdinal,
         next: LaneEdgeOrdinal,
     ) -> Option<ManeuverGateOrdinal> {
         // 恰从切点开始的窗口只列下游边。用它定位上游机动出现，再核对两端。
-        let hop = source.resolve(next).ok()?.checked_sub(1)? as usize;
+        let hop = run.resolve(next).ok()?.checked_sub(1)? as usize;
         if self.edges[hop] != edge {
             return None;
         }
@@ -157,7 +157,7 @@ pub struct RouteHandoffPreview<'a> {
     pub report: HandoffReport<'a>,
     /// 两侧准入检查的站位映射调用次数，消耗同一候选剩余的扫过预算。
     pub side_access_work: u32,
-    /// 整条横移与源侧未选机动停止线的分离求证工作，使用原准入剩余的扫过预算。
+    /// 两侧停止线共用的连续扫过工作，使用原准入剩余的扫过预算。
     pub stop_line_work: u32,
     trajectory: Option<LocatedTrajectory<'a>>,
 }
@@ -258,10 +258,10 @@ pub enum RouteHandoffTrialError {
         /// 对应侧在交接出现对中的路线边。
         route_edge: LaneEdgeOrdinal,
     },
-    /// 整段源侧车身与未选机动的停止线未证分离，或未证在源侧续行停止线前清空。
-    #[error("源侧无法证明避开 {edge:?} 的停止线（停止线求证工作 {work}）")]
+    /// 对应侧车身与未选机动的停止线未证分离，或未证在源侧续行停止线前清空。
+    #[error("无法证明避开 {edge:?} 的停止线（停止线求证工作 {work}）")]
     StopLineUnproven {
-        /// 停止线所在的物理源侧边，可以是路线没有选择的源侧续行边。
+        /// 停止线所在的物理边，包括路线未选的边。
         edge: LaneEdgeOrdinal,
         /// 连续扫过未证时保留其原因。扫过外包可能触线时为 None。
         reason: Option<Failure>,
@@ -299,14 +299,15 @@ impl TrafficWorld {
     /// 若投影窗口包含该车型禁行的边，即使车身实际未触及该边，也会返回
     /// `SideAccessUnproven`。调用方宜给出能覆盖整车的紧凑窗口。
     /// 自源出现起，整段运动在源侧扫过的车身须严格留在首条未选机动停止线的上游。
-    /// 更早的未选停止线须与源侧扫过严格分离，前置普通机动已选定的门交由当拍裁决。
+    /// 更早的源侧未选停止线、目标侧未选停止线均须与各自车身扫过严格分离。
+    /// 两侧在本次出现选定的普通机动门交由当拍裁决。
     /// 此入口供命令路径使用。按车型检查整条路线的成本在几何预算之外。
     /// 动态跟车、信号与同拍占用仍须在步进中裁决。调用不登记路线或改变世界状态。
     ///
     /// # Errors
     ///
     /// 修订不匹配、出现下标未绑定、车型不存在、路线准入被拒或两侧车道准入未证时返回相应错误。
-    /// 双侧准入通过后，源侧未选机动的停止线可能被触及，或剩余额度不足以证明分离时，
+    /// 双侧准入通过后，任一侧未选机动的停止线可能被触及，或剩余额度不足以证明分离时，
     /// 返回 [`RouteHandoffTrialError::StopLineUnproven`]。
     /// 几何拒绝、越窗或未证由报告区分。
     ///
@@ -420,14 +421,14 @@ impl TrafficWorld {
             let target_hits = check_side_access(target_edge)?;
             let target_run = CursorRun::target(target, source_index, &target_hits)
                 .ok_or(unproven(target_edge))?;
-            stop_line_work = stop_line::prove_source_clearance(
+            stop_line_work = stop_line::prove_clearance(
                 revision,
                 &query,
                 boundary,
                 body,
-                &source_hits,
+                [(&source_hits, source_run), (&target_hits, target_run)],
                 sweep_limit - sweep_used - side_access_work,
-                |edge, next| binding.selected_gate(source_run, edge, next).is_some(),
+                |run, edge, next| binding.selected_gate(run, edge, next).is_some(),
             )?;
             Some(LocatedTrajectory {
                 revision,

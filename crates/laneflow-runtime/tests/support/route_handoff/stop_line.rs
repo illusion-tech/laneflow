@@ -1,7 +1,7 @@
 use super::*;
 use laneflow_compiler::{GateInterpretation, GateProhibition, RegulationIdentity};
 use laneflow_runtime::{TrafficWorld, deterministic_state_digest};
-use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
 use laneflow_static_network::{SharedNetworkRevision, vehicle::HandoffLaneSide};
 
 #[derive(Clone, Copy)]
@@ -9,58 +9,40 @@ pub(super) enum SourceStop {
     OnOccurrence,
     OnContinuation,
     Upstream,
+    Both,
+    WithTurn,
 }
 
 impl SourceStop {
     pub(super) fn add_to(self, builder: &mut RoadEditingSourceModuleBuilder) {
         use RoadEditingDeclaration as D;
         let (entry, exit) = match self {
-            Self::OnOccurrence => ("s2", "s3"),
+            Self::OnOccurrence | Self::Both => ("s2", "s3"),
             Self::OnContinuation => ("s3", "s4"),
-            Self::Upstream => ("s1", "s2"),
+            Self::Upstream | Self::WithTurn => ("s1", "s2"),
         };
-        let edge = |key| LaneEdgeReference::local(key).unwrap();
-        let junction = JunctionReference::local("junction").unwrap();
-        let movement =
-            MovementReference::owner_scoped(vec!["junction".into()], "straight").unwrap();
-        let path =
-            ManeuverPathReference::owner_scoped(vec!["junction".into(), "straight".into()], "path")
-                .unwrap();
-        let gate = ManeuverGateReference::owner_scoped(
-            vec!["junction".into(), "straight".into(), "path".into()],
-            "entry",
-        )
-        .unwrap();
-        let rule = PolicyGateRuleInput::try_new(
-            "entry",
-            gate,
-            None,
-            GateInterpretation::Uncontrolled,
-            GateProhibition::None,
-            vec![],
-        )
-        .unwrap();
-        for declaration in [
-            D::Junction(
-                JunctionInput::try_new("junction", vec![edge(entry), edge(exit)], vec![]).unwrap(),
-            ),
-            D::Movement(MovementInput::try_new("straight", junction, entry, exit).unwrap()),
-            D::ManeuverPath(
-                ManeuverPathInput::try_new("path", movement, edge(entry), vec![], edge(exit))
-                    .unwrap(),
-            ),
-            D::StopLine(StopLineInput::try_new("stop", edge(entry)).unwrap()),
-            D::ManeuverGate(
-                ManeuverGateInput::try_new(
-                    "entry",
-                    path,
-                    0,
-                    StopLineReference::local("stop").unwrap(),
-                    RoadEditingSignalControl::None,
-                )
-                .unwrap(),
-            ),
-            D::RightOfWayPolicySet(
+        let mut rules = Vec::new();
+        if let Self::WithTurn = self {
+            let p = |x, z| RoadEditingPoint3::try_new(x, 0., z).unwrap();
+            let turn = RoadEditingCurveProgram::try_new(
+                p(0., 12.),
+                vec![RoadEditingCurveSegment::cubic_bezier(
+                    p(0., 42.),
+                    p(30., 72.),
+                    p(70., 72.),
+                )],
+            )
+            .unwrap();
+            add_road_editing_approach(builder, "turn-exit", turn, vec![]);
+            add_stop(builder, entry, &[exit, "turn-exit"], &mut rules);
+        } else {
+            add_stop(builder, entry, &[exit], &mut rules);
+        }
+        if let Self::Both = self {
+            add_stop(builder, "t0", &["t1"], &mut rules);
+        }
+        builder
+            .add_declaration(D::RightOfWayPolicySet(
                 RightOfWayPolicySetInput::try_new(
                     "conflict-policy",
                     RegulationIdentity::try_new("engineering", "fixture-1")
@@ -70,7 +52,70 @@ impl SourceStop {
                     vec![],
                     vec![],
                     vec![],
-                    vec![rule],
+                    rules,
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+}
+
+fn add_stop(
+    builder: &mut RoadEditingSourceModuleBuilder,
+    entry: &str,
+    exits: &[&str],
+    rules: &mut Vec<PolicyGateRuleInput>,
+) {
+    use RoadEditingDeclaration as D;
+    let edge = |key: &str| LaneEdgeReference::local(key).unwrap();
+    let approaches = std::iter::once(entry)
+        .chain(exits.iter().copied())
+        .map(edge)
+        .collect();
+    builder
+        .add_declaration(D::Junction(
+            JunctionInput::try_new(entry, approaches, vec![]).unwrap(),
+        ))
+        .unwrap();
+    builder
+        .add_declaration(D::StopLine(
+            StopLineInput::try_new(entry, edge(entry)).unwrap(),
+        ))
+        .unwrap();
+    for &exit in exits {
+        let junction = JunctionReference::local(entry).unwrap();
+        let movement = MovementReference::owner_scoped(vec![entry.into()], exit).unwrap();
+        let path =
+            ManeuverPathReference::owner_scoped(vec![entry.into(), exit.into()], "path").unwrap();
+        let gate = ManeuverGateReference::owner_scoped(
+            vec![entry.into(), exit.into(), "path".into()],
+            "entry",
+        )
+        .unwrap();
+        rules.push(
+            PolicyGateRuleInput::try_new(
+                exit,
+                gate,
+                None,
+                GateInterpretation::Uncontrolled,
+                GateProhibition::None,
+                vec![],
+            )
+            .unwrap(),
+        );
+        for declaration in [
+            D::Movement(MovementInput::try_new(exit, junction, entry, exit).unwrap()),
+            D::ManeuverPath(
+                ManeuverPathInput::try_new("path", movement, edge(entry), vec![], edge(exit))
+                    .unwrap(),
+            ),
+            D::ManeuverGate(
+                ManeuverGateInput::try_new(
+                    "entry",
+                    path,
+                    0,
+                    StopLineReference::local(entry).unwrap(),
+                    RoadEditingSignalControl::None,
                 )
                 .unwrap(),
             ),
@@ -97,8 +142,10 @@ pub(super) fn road_lanes(
     revision: &SharedNetworkRevision,
 ) -> (RoadSectionOrdinal, &[LaneEdgeOrdinal], &[LaneEdgeOrdinal]) {
     let rel = revision.traffic().relations();
-    let section = [0, 1]
-        .into_iter()
+    let section = (0..revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::RoadSection))
         .map(RoadSectionOrdinal::from_raw)
         .find(|&section| rel.section_lanes(section).unwrap().len() == 2)
         .unwrap();
