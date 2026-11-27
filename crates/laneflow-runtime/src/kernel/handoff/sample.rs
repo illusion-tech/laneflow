@@ -64,11 +64,6 @@ pub(super) struct CursorRun<'a> {
 }
 
 impl<'a> CursorRun<'a> {
-    pub(super) const EMPTY: Self = Self {
-        first: 0,
-        edges: &[],
-    };
-
     pub(super) fn source(
         leg: &'a [LaneEdgeOrdinal],
         source_index: u32,

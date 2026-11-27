@@ -500,6 +500,63 @@ mod tests {
     }
 
     #[test]
+    fn edge_end_station_and_predecessor_follow_travel_order() {
+        let edge = LaneEdgeOrdinal::from_raw;
+        for (reverse, ends) in [(false, [3, 6, 9]), (true, [6, 3, 0])] {
+            let (mut map, _) = mapping(3, 3, reverse);
+            for (i, end_mm) in ends.into_iter().enumerate() {
+                let id = edge(i as u32);
+                assert_eq!(map.edge_end_station_nm(id), Some(end_mm * 1_000_000));
+                assert_eq!(
+                    map.preceding_lane_edge(id),
+                    i.checked_sub(1).map(|p| edge(p as u32))
+                );
+            }
+
+            // 序号 3 是路网存在但未开放站位的边，序号 4 越界。
+            let mut edges = map.edges.into_vec();
+            edges.push(None);
+            map.edges = edges.into();
+            for missing in [edge(3), edge(4)] {
+                assert_eq!(map.edge_end_station_nm(missing), None);
+                assert_eq!(map.preceding_lane_edge(missing), None);
+            }
+        }
+    }
+
+    #[test]
+    fn edge_predecessor_stops_at_the_start_of_each_lane() {
+        let (mut map, first_lane) = mapping(2, 2, false);
+        let (reverse, second_lane) = mapping(1, 4, true);
+        let first_on_second_lane = LaneEdgeOrdinal::from_raw(2);
+        let mut segments = map.segments.into_vec();
+        let spans = RangeU32::new(segments.len() as u32, second_lane.spans.len());
+        segments.extend(reverse.segments.iter().map(|s| Segment {
+            edge: first_on_second_lane,
+            map: s.map,
+        }));
+        map.segments = segments.into();
+        map.lanes = vec![
+            Some(first_lane),
+            Some(Lane {
+                spans,
+                ..second_lane
+            }),
+        ]
+        .into();
+        let mut edges = map.edges.into_vec();
+        edges.push(Some(Edge {
+            lane: AuthoringLaneOrdinal::from_raw(1),
+            length_mm: 4,
+            spans,
+        }));
+        map.edges = edges.into();
+
+        assert_eq!(map.edge_end_station_nm(first_on_second_lane), Some(0));
+        assert_eq!(map.preceding_lane_edge(first_on_second_lane), None);
+    }
+
+    #[test]
     fn exact_query_limits_include_last_allowed_span_and_candidate() {
         for reverse in [false, true] {
             for (edges, each, complete) in [(8, 8, true), (1, 65, false), (9, 1, false)] {

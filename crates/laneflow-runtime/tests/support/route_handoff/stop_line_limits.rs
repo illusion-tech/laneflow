@@ -69,18 +69,74 @@ fn reverse_handoff_uses_the_original_sweep_budget_to_clear_the_source_stop_line(
     assert_eq!(exact.report.outcome, full.report.outcome);
     assert_eq!(exact.stop_line_work, full.stop_line_work);
     clear.limits.sweep -= 1;
-    assert!(world.preview_route_handoff(&binding, &clear).is_err());
-    // 仅给完原准入与一轮边链检查时，整车扫过返回明确的额度错误，不能复用先前的成功。
-    clear.limits.sweep = budget - full.stop_line_work;
-    assert!(matches!(
+    assert_eq!(
         world.preview_route_handoff(&binding, &clear).unwrap_err(),
-        RouteHandoffTrialError::StopLineUnproven { edge, reason: Some(Failure::WorkLimit), .. }
-            if edge == src[2]
-    ));
+        RouteHandoffTrialError::StopLineUnproven {
+            edge: src[2],
+            reason: Some(Failure::WorkLimit),
+            work: full.stop_line_work - 1,
+        }
+    );
+    // 原准入与两侧边链恰好用完预算，停止线求证无法执行第一项工作。
+    clear.limits.sweep = budget - full.stop_line_work;
+    assert_eq!(
+        world.preview_route_handoff(&binding, &clear).unwrap_err(),
+        RouteHandoffTrialError::StopLineUnproven {
+            edge: src[2],
+            reason: Some(Failure::WorkLimit),
+            work: 0,
+        }
+    );
     let crossing = bind(34, 2);
     assert!(matches!(
         world.preview_route_handoff(&crossing, &trial(34)).unwrap_err(),
         RouteHandoffTrialError::StopLineUnproven { edge, reason: None, .. } if edge == src[2]
     ));
     assert_eq!(digest(), before);
+}
+
+#[test]
+fn target_access_denial_precedes_source_stop_line_sweep() {
+    let world = stop_world(SourceStop::OnOccurrence, RoadEditingLaneDirection::Forward);
+    let revision = world.revision();
+    let (section, src, dst) = road_lanes(&revision);
+    // 普通目标段仅有 t1。整车投影窗口还包含 t2，而该边对 denied 车型禁行。
+    let binding = world
+        .bind_route_handoff(
+            &RouteRegisterInput::new(vec![src[0], src[1], src[2], dst[1]]),
+            RouteHandoffOccurrence {
+                revision: revision.network_revision(),
+                source_index: 2,
+                owner: BoundaryOwner::Section(section),
+                left_index: 0,
+                stations_nm: [18_000_000_000, 20_000_000_000],
+            },
+        )
+        .unwrap();
+    let mut trial = car_trial(&revision, [4_000_000_000, 34_000_000_000]);
+    let full = world.preview_route_handoff(&binding, &trial).unwrap();
+    assert!(matches!(
+        full.report.outcome,
+        HandoffOutcome::Located { .. }
+    ));
+    assert!(full.stop_line_work > 1);
+    let before_stop =
+        full.report.work + full.report.geometry.unwrap().sweep.work + full.side_access_work;
+    trial.limits.sweep = before_stop;
+    assert!(matches!(
+        world.preview_route_handoff(&binding, &trial).unwrap_err(),
+        RouteHandoffTrialError::StopLineUnproven { edge, reason: Some(Failure::WorkLimit), .. }
+            if edge == src[2]
+    ));
+    trial.profile = revision
+        .identity()
+        .stable_id(conflict_profile(&revision, "denied"))
+        .unwrap();
+    for sweep in [GeometryWorkLimits::STANDARD.sweep, before_stop] {
+        trial.limits.sweep = sweep;
+        assert_eq!(
+            world.preview_route_handoff(&binding, &trial).unwrap_err(),
+            RouteHandoffTrialError::SideAccessUnproven { route_edge: dst[1] }
+        );
+    }
 }
