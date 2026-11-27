@@ -121,7 +121,7 @@ Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `
 Adapter 从 `TrafficWorld::committed_pose_sources()` 读取稳定顺序的
 `(VehicleHandle, PoseSource)`，选取路径则按输入句柄查询。两条路径都为实际进入
 本批的车辆分配连续、不透明的 `PoseRecordId`（`u32`），并保留对应的句柄序列。
-Spatial 只接收批内身份与采样来源。#1570 统一类型后，Adapter 直接将后者传给
+Adapter 将批内身份和 Runtime 返回的来源直接传给 Spatial 的
 `PoseInput::from_source`。Bevy 宿主通过选择句柄指定车辆，来源由 Session 从当前
 世界读取，宿主自建的 `PoseInput` 不能代替该读取。根配对与整批提交均在 Session 内完成（§9）。
 跨包类型及其与横移同拍观测的边界见[位姿来源的归属][pose-source]。

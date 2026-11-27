@@ -74,7 +74,7 @@ pub use relations::{
 };
 pub use spatial::{
     CanonicalPoint, CanonicalPointXZ, ConflictZoneRegionView, FacilityGeometryView,
-    LaneGeometryView, LanePoseNetwork, SegmentGeometry, SharedSpatialNetwork,
+    LaneGeometryView, LanePoseNetwork, PoseSource, SegmentGeometry, SharedSpatialNetwork,
 };
 pub use traffic::{
     EntityCounts, ManeuverPathView, ManeuverTransitionCandidate, PartitionPlanningHints, RangeU32,

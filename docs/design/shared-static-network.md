@@ -48,9 +48,9 @@ Adapter ────────────────────────
 
 不得让 `laneflow-static-network` 依赖 `laneflow-compiler`、Adapter 或文件系统。
 
-该包也拥有面向修订的进程内查询值。#1570 将车道与显式泊位的位姿来源
-`PoseSource` 定义在这一层，供 Runtime 返回、Spatial 接收。每辆车的来源由
-Runtime 按已提交状态产生。类型归属与待实施的接口见[位姿来源的归属][pose-source]。
+该包定义修订内的位姿采样地址 `PoseSource`，其变体分别定位车道和显式泊位。
+Runtime 按车辆的已提交状态产生来源，Spatial 在绑定的修订上采样。两个包均从各自的
+公开入口重导出此类型。[位姿来源的归属][pose-source]
 
 ## 3. 构建输入与 admission
 
