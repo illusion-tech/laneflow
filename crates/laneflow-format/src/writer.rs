@@ -1767,15 +1767,12 @@ mod tests {
         )
         .unwrap();
         let mut found_nested_row = false;
-        for section_ordinal in 0..view.section_count() {
-            let section = view.section(section_ordinal).unwrap();
-            for table_ordinal in 0..section.table_count() {
-                let table = section.table(table_ordinal).unwrap();
-                for row_ordinal in 0..table.row_count() {
-                    let row = table.row(row_ordinal).unwrap();
-                    for field_ordinal in 0..row.field_count() {
+        for section in view.sections() {
+            for table in section.tables() {
+                for row in table.rows() {
+                    for field in row.fields() {
                         if let RegistryCheckedFieldValue::RecordVector(records) =
-                            row.field(field_ordinal).unwrap().value().unwrap()
+                            field.value().unwrap()
                         {
                             found_nested_row |= records.len() == 1;
                         }

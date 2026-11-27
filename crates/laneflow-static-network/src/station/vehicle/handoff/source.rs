@@ -242,7 +242,7 @@ impl<'a> HandoffSourceEvidence<'a> {
         {
             return Err(Failure::Binding);
         }
-        let first = fields.row(0).ok_or(Failure::Unavailable)?;
+        let first = fields.rows().next().ok_or(Failure::Unavailable)?;
         let (Value::U16(tag), Value::Bytes(namespace)) = (field(first, 1)?, field(first, 2)?)
         else {
             return Err(Failure::Unavailable);

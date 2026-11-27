@@ -220,7 +220,8 @@ fn first_lane_edge_point_x(bytes: &[u8]) -> &[u8] {
         _ => panic!("lane-edge geometry points use RecordVector"),
     };
     points
-        .row(0)
+        .rows()
+        .next()
         .unwrap()
         .field_by_tag(1)
         .unwrap()

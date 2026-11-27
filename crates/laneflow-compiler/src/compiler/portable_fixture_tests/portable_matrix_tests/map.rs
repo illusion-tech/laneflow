@@ -77,8 +77,9 @@ fn map_candidate_closes_modules_documents_locations_and_source_bijections() {
         );
         assert_eq!(field_utf8(row, 11), descriptor.provenance());
         let imports = match row.field_by_tag(12).unwrap().value().unwrap() {
-            RegistryCheckedFieldValue::RecordVector(imports) => (0..imports.len())
-                .map(|index| field_utf8(imports.row(index).unwrap(), 1).to_owned())
+            RegistryCheckedFieldValue::RecordVector(imports) => imports
+                .rows()
+                .map(|import| field_utf8(import, 1).to_owned())
                 .collect::<Vec<_>>(),
             value => panic!("expected imports, got {value:?}"),
         };
