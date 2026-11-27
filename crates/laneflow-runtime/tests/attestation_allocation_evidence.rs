@@ -200,13 +200,14 @@ fn direct_digest_scratch_and_allocation_evidence() {
         assert_eq!(direct_alloc, repeat_region.change().bytes_allocated);
         let region = Region::new(GLOBAL);
         let captured = world.capture_snapshot().expect("capture");
-        let legacy = laneflow_runtime::deterministic_state_digest(&captured).expect("legacy");
-        let legacy_alloc = region.change().bytes_allocated;
-        assert_eq!(digest, legacy, "直算与捕获路径逐字节一致");
+        let captured_digest =
+            laneflow_runtime::deterministic_state_digest(&captured).expect("captured digest");
+        let captured_alloc = region.change().bytes_allocated;
+        assert_eq!(digest, captured_digest, "直算与捕获路径逐字节一致");
         println!(
             "#987-evidence direct-scratch smoke={} tier={tier} vehicles={vehicles} routes={routes} \
              scratch_bound_bytes={scratch_bound_bytes} direct_alloc_bytes={direct_alloc} \
-             legacy_alloc_bytes={legacy_alloc} lfca_bytes={}",
+             captured_alloc_bytes={captured_alloc} lfca_bytes={}",
             synthetic_network::smoke_mode(),
             lfca.len(),
         );

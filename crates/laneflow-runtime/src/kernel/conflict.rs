@@ -347,8 +347,7 @@ impl ConflictPassageAddress {
         }
     }
 
-    /// 由横向过渡段（分类表派生）构造规范地址（#1199 S4；增量2 P3-P7 接线）。
-    #[allow(dead_code)]
+    /// 由横向过渡段（分类表派生）构造规范地址（#1199 S4）。
     pub(crate) const fn new_transition(
         edge: LaneEdgeOrdinal,
         stream: ParticipantStreamOrdinal,
@@ -3722,20 +3721,6 @@ impl<'world> ConflictWrite<'world> {
 
     fn zone_owned_by_other(&self, resource: ConflictResource, owner: VehicleHandle) -> bool {
         self.read().zone_owned_by_other(resource, owner)
-    }
-
-    /// 冲突资源密排槽位（placement 派生面）。
-    /// 冲突资源密排槽位（微1；增量2 placement 派生面接线）。
-    #[allow(dead_code)]
-    pub(crate) fn resource_slot_index(&self, resource: ConflictResource) -> usize {
-        self.read().resource_slot_index(resource)
-    }
-
-    /// 资源首 cell（测试与派生面）。
-    /// 资源首 cell（增量2 测试与派生面接线）。
-    #[allow(dead_code)]
-    pub(crate) fn resource_index(&self, resource: ConflictResource) -> usize {
-        self.read().resource_index(resource)
     }
 
     /// 在未发布候选世界中安装一个已验证 reservation。全部预留与

@@ -15,11 +15,11 @@ use crate::kernel::conflict::{
 use crate::kernel::lane_change::service_stop_distance_um;
 use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
-    ApproachEstimate, ConflictEligibilityState, ConflictPassageAddress,
-    ConflictPassageOccurrenceLocator, ConflictPassageRange, ConflictResourceNoGrant,
-    ConflictYieldOutcome, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
-    ManeuverTraversalPhase, ManeuverTraversalState, ParkingBinding, RouteHandle, StepError,
-    TrafficWorld, VehicleHandle, VehicleState, VehicleStatus,
+    ConflictEligibilityState, ConflictPassageAddress, ConflictPassageOccurrenceLocator,
+    ConflictPassageRange, ConflictResourceNoGrant, ConflictYieldOutcome, DownstreamRoutePoint,
+    GateCandidateKind, GatePolicyDecision, ManeuverTraversalPhase, ManeuverTraversalState,
+    ParkingBinding, RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState,
+    VehicleStatus,
 };
 #[cfg(test)]
 use crate::{WorldId, WorldInstallInput};
@@ -4432,9 +4432,6 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
 fn route_front_at_or_beyond(state: VehicleState, edge: u32, progress_mm: u32) -> bool {
     (state.route_edge_index, state.progress_mm, state.carry_um) >= (edge, progress_mm, 0)
 }
-
-#[allow(dead_code)]
-fn _profile_type_check(_: VehicleProfileOrdinal, _: ApproachEstimate) {}
 
 #[cfg(test)]
 mod tests {

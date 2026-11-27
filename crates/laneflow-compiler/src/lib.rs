@@ -4,7 +4,6 @@
 // arena/HIR/MIR/LIR 是生产 Compiler 闭环的私有实现层。保持这些模块私有，可防止临时
 // 键、阶段表和未验证中间态被调用方误当作稳定输出；只有 compiler 模块能把完整成功
 // 管线封装为对外的 ValidatedCanonicalLir 与配对来源伴随数据。
-#[allow(dead_code)]
 mod arena;
 mod canonical_usage;
 mod compiler;

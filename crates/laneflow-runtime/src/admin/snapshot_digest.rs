@@ -256,11 +256,11 @@ fn canonical_state_preimage(snapshot: &CapturedSnapshot) -> Result<Vec<u8>, Snap
             .expect("captured vehicle route closes over captured routes")
     };
 
-    let mut legacy_budget = NormalizationBudget {
+    let mut unbounded_budget = NormalizationBudget {
         remaining: u64::MAX,
     };
     let route_groups =
-        canonical_route_groups(&vehicle_records, &route_records, &mut legacy_budget)?;
+        canonical_route_groups(&vehicle_records, &route_records, &mut unbounded_budget)?;
 
     let mut canonical = Vec::new();
     push_canonical_header(
@@ -1371,7 +1371,7 @@ mod tests {
             let captured = world.capture_snapshot().expect("capture");
             assert_eq!(
                 world.direct_state_digest(digest_limits).expect("direct"),
-                deterministic_state_digest(&captured).expect("legacy"),
+                deterministic_state_digest(&captured).expect("captured digest"),
                 "fresh world: 直算与捕获路径逐字节一致"
             );
         }
@@ -1382,7 +1382,7 @@ mod tests {
             let captured = world.capture_snapshot().expect("capture");
             assert_eq!(
                 world.direct_state_digest(digest_limits).expect("direct"),
-                deterministic_state_digest(&captured).expect("legacy"),
+                deterministic_state_digest(&captured).expect("captured digest"),
                 "stepped world: 直算与捕获路径逐字节一致"
             );
         }
@@ -1405,7 +1405,7 @@ mod tests {
             let captured = world.capture_snapshot().expect("capture");
             assert_eq!(
                 world.direct_state_digest(digest_limits).expect("direct"),
-                deterministic_state_digest(&captured).expect("legacy"),
+                deterministic_state_digest(&captured).expect("captured digest"),
                 "parked world: 直算与捕获路径逐字节一致"
             );
         }
@@ -1427,7 +1427,7 @@ mod tests {
             world
                 .direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
                 .expect("retry with sufficient limits"),
-            deterministic_state_digest(&captured).expect("legacy"),
+            deterministic_state_digest(&captured).expect("captured digest"),
             "限额失败无副作用，重试结果仍逐字节一致"
         );
     }
@@ -1551,7 +1551,7 @@ mod tests {
             world
                 .direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
                 .expect("retry after clearing injection"),
-            deterministic_state_digest(&captured).expect("legacy"),
+            deterministic_state_digest(&captured).expect("captured digest"),
         );
     }
 

@@ -154,7 +154,6 @@ impl<'a> SharedNetworkBuildOptions<'a> {
 struct BuildCounts {
     contracts: StaticContractVersions,
     entity_counts: EntityCounts,
-    #[allow(dead_code)]
     entity_count_total: u32,
     identity_count: u32,
     topology_pair_capacity: u32,
@@ -3761,7 +3760,6 @@ pub(crate) fn checked_add_count(
         .ok_or(BuildError::ArithmeticOverflow { structure })
 }
 
-#[allow(dead_code)]
 fn retained_bytes<T>(count: u32) -> Result<u64, BuildError> {
     structure_bytes::<T>(count, BuildStructure::RetainedOutput)
 }

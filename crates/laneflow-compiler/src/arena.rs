@@ -235,6 +235,7 @@ impl<T> TableRange<T> {
     }
 
     /// 判断区间是否不包含任何元素。
+    #[cfg(test)]
     pub(crate) const fn is_empty(self) -> bool {
         self.len == 0
     }

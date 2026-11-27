@@ -183,7 +183,6 @@ pub(crate) enum Approach {
 }
 
 impl Approach {
-    #[allow(dead_code)]
     const ALL: [Self; 4] = [Self::West, Self::East, Self::North, Self::South];
 
     pub(crate) const fn as_str(self) -> &'static str {
@@ -225,9 +224,6 @@ pub(crate) enum Turn {
 }
 
 impl Turn {
-    #[allow(dead_code)]
-    const ALL: [Self; 3] = [Self::Left, Self::Straight, Self::Right];
-
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Left => "left",
