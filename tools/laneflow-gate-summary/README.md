@@ -1,10 +1,8 @@
 # 统一五轴汇总 Gate 执行器
 
-交付 [#1268][issue-1268]：以 `LF-SYNTH-v2`
-与中国特色城市负载各轴（behavior / determinism / performance / snapshot / routing）
-既有正式记录为**声明式输入**，产出统一汇总回执——逐格携带来源提交、被测二进制、
-输入身份、覆盖边界与例外状态，供 [#305][issue-305]
-最终验收消费。
+汇总器读取 `LF-SYNTH-v2` 与中国特色城市负载的五轴记录（behavior / determinism /
+performance / snapshot / routing）。回执逐格携带来源提交、被测二进制、输入身份、
+覆盖边界与例外状态。当前清单用动态换道步进记录核对 L1 的实际执行。
 
 边界：不运行正式汇总、不替代各轴分立 harness、不重跑正式测量、不批准例外；
 全部来源身份从既有记录**原样携带**，本工具不重算摘要（ADR 0033 §3）、不联网
@@ -22,10 +20,6 @@ target/release/laneflow-gate-summary summarize `
   --evidence-root tools/laneflow-gate-summary/tests/fixtures/evidence-root `
   --output <尚不存在的输出目录>
 
-# L1 输入 #1271 拓扑核查（对一份 LF-SYNTH 输入包目录）
-target/release/laneflow-gate-summary check-transitions `
-  --bundle <LF-SYNTH 输入包目录> `
-  --output <尚不存在的 json 记录文件>
 ```
 
 - `--repo-root`：manifest 内仓库相对路径的根（默认当前目录）。
@@ -35,11 +29,11 @@ target/release/laneflow-gate-summary check-transitions `
   任何带未完成项的格。#305 正式汇总两者都开。
 - 输出目录/文件必须不存在（沿 harness 家族「不覆盖旧交付」惯例）。
 
-产物：`receipt.md`（人读）+ `receipt.json`（机器可读，`lf-unified-gate-receipt-1`）。
+产物：`receipt.md`（人读）+ `receipt.json`（机器可读，`lf-unified-gate-receipt-2`）。
 回执是确定性的——同一 manifest 与同一批记录产生逐字节相同的回执，便于试跑与
 正式汇总对拍。
 
-## 声明式输入（`lf-unified-gate-manifest-1`）
+## 声明式输入（`lf-unified-gate-manifest-2`）
 
 自包含示例在 `fixtures/example/unified-gate.toml`，证据取自本 crate 的
 `tests/fixtures/`，数值与提交号均为测试用值；`tests/summary.rs` 以它为基础
@@ -56,13 +50,11 @@ manifest，所以默认命令随测试持续可执行。v0.10 两负载的历史
 - `[global.performance]`：性能口径（#1266 回执）。判定词被机械校验：`verdict`
   必须精确为「未认证」、`product_status` 必须为 `Product TBD / Uncertified`；
   performance 轴的格状态必须为 `uncertified-performance`——写成通过即失败。
-- `[[scope_adjudication]]`：#1268 正文九项裁定表的声明式副本（豁免须带授权）。
-- `[[capability_limits]]`：能力限制登记（#1217 结构化拒绝、#1220 保守拒绝、
-  #1271 平行边盲区、#1272 硬停限制）。
-- `required_l1_identities` + `[[l1_checks]]`：L1 输入 #1271 拓扑核查——顶层声明
-  本轮要求完成核查的全部输入身份，挂接记录必须**恰好覆盖**该集合（缺失、
-  重复或多挂都失败），防止漏检身份带着「已核查」外观进入结论；每条记录的
-  `verdict` 无条件要求 `clean`，且 `bundle.identity` 须与声明逐字符串相等。
+- `[[scope_adjudication]]`：本轮范围裁定与未覆盖项，豁免须带授权。
+- `[[capability_limits]]`：登记本轮适用的能力限制和证据来源。
+- `required_l1_identities` 与 `[[l1_checks]]`：每份声明的动态换道输入须挂接一份完成的
+  `lf-synth-semantic-run-1` 回执。身份写作 `<scale>-L1-<dt>-clusters-<簇数>`，
+  缺失、重复或额外身份均拒绝。
 
 证据锚点种类：`repo-doc`（存在 + 锚点子串）、`github`（URL 形态）、
 `synth-summary-json`（F 矩阵 `summary.json` 身份对账；二进制摘要同时消费语义
@@ -72,35 +64,24 @@ manifest，所以默认命令随测试持续可执行。v0.10 两负载的历史
 标记前后落在词边界即可定位，容忍 `--nocapture` 捕获的 libtest 前缀，带
 `operation=` 的统计行不算头行；同一文件不得混用两种标记，多轮拼接时每个头行
 都须命中；`expect` 须含 `workload_id`，LF-SYNTH 记录还须含 `identity`；期望键
-缺失不容忍、未知键前向容忍）、`l1-record`（本工具 `check-transitions` 记录）。
+缺失不容忍、未知键前向容忍）。动态换道证据使用 `handoff-run`，详见下文。
 
 ## #305 正式汇总执行记录（已完成）
 
-v0.10 统一验收线已收尾：#1282 冻结验收提交，#1279 完成冻结后计时并形成记录，
-两份正式 L1 输入包（`10000-L1-16`、`100000-L1-33`）完成拓扑核查，#305 于
-2026-11-09 完成（completed）关闭。正式 manifest 逐格更新、L1 核查与正式汇总的
-一次性操作明细见基线提交 3f80b65f 的本文副本；通用命令、manifest 结构、身份
-校验与 fail-closed 语义以上文各节为准，未来新验收轮按同语义新建 manifest，
-不复用历史试跑清单。
+v0.10 五轴正式汇总绑定验收提交 `c0045f8f`（#1282），#1279 计时也只适用于其被测实现及输入。
+两份旧 L1 输入包完成当时的拓扑核查，#305 于 2026-11-09 关闭。
+原始的正式结论、产品性能“未认证”及 LuST 范围以[验收记录][v0-10-record]为准。
+历史试跑另见[当时的清单][v0-10-trial]。
+本节记载的历史证据只适用于当时生成的输入。
 
-## L1 拓扑核查的判定（#1271）
+## 动态换道运行回执
 
-对每条横向过渡段 `T`（与运行时同判据：不属于任何编制车道、不属任何路口）：
-
-1. 可见邻域 `N(T) = {T} ∪ 前驱 ∪ 后继`（运行时 P4 的可见口径）；
-2. 汇入窗口锚定在后渡编制车道自身的链坐标上——各车道链可有独立的物理起点，跨链比较必须以邻域边为锚：
-   `[锚边链起点 − len(T), 锚边链起点)`；无锚车道的边不参与判定；
-3. 锚车道内纵向跨度与窗口相交、且不在邻域内的编制车道边为平行边候选
-   （候选携带锚边与窗口，便于独立复核对齐关系）；
-4. 存在**不经过邻域任何边、却经过平行边候选**的已注册路线 → 违规
-   （P4 看不见的直行车实际在跑）；
-5. 后继编制车道链上、汇入边之前出现分岔（多后继或后继跨多条编制车道）→
-   使能结构，一并计入 `violations-found`。
-
-汇总侧同时强制：`[[l1_checks]]` 声明的身份必须与记录自身携带的
-`bundle.identity`（`<scale>-<label>-<delta>`，`RouteHandoff` 归一为 `L1`）逐字符串
-相等，挂错记录即失败。结论 `clean` 表示该输入包不含 #1271 形制的拓扑；含违规
-拓扑的路网不得用于安全验收（#1271 处置）。此核查只扫描 LFCA 中的固定过渡拓扑。动态 L1 的几何准入、竞争和车尾清空由 LF-SYNTH 执行器逐拍验证。
+每个 `handoff-run` 声明运行回执 `path`、被测输入包的 `input_manifest` 路径和
+`implementation_commit`。汇总器先逐字段核对内嵌与外部输入清单，包括规模、步长、
+簇及车辆数、种子、来源与生成器提交、配置摘要、计数和各文件记录。随后核实执行提交、
+语义合同、完整运行窗口，以及 0、预热末拍、两倍预热拍和窗口末拍的历史前缀。
+每簇两辆车须依次进入、交接前杠并清空车尾。逐簇核对槽位与路线身份，
+不同簇可以在同一拍推进。所验回执只覆盖该输入的动态换道竞争。
 
 ## 测试
 
@@ -110,8 +91,7 @@ cargo clippy --locked -p laneflow-gate-summary --all-targets -- -D warnings
 ```
 
 `tests/summary.rs` 以示例 manifest 覆盖汇总与全部失败关闭路径（性能判定词、锚点未命中、
-身份不符、未完成项拒绝、占位路径缺根、输出目录已存在）；`tests/l1_generated.rs`
-为忽略级进程内全链（编译 LFCA 属重负载，按窗口手动运行）。
+身份不符、未完成项拒绝、占位路径缺根、动态交接历史不完整与输出目录已存在）。
 
 ## 关联
 
@@ -131,3 +111,5 @@ ADR 0033（摘要角色；本工具不新增摘要）、
 [issue-1271]: https://github.com/illusion-tech/laneflow/issues/1271
 [issue-1266-receipt]: https://github.com/illusion-tech/laneflow/issues/1266#issuecomment-6651487168
 [v0-10-trial]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/tools/laneflow-gate-summary/fixtures/v0.10-trial/unified-gate.toml
+
+[v0-10-record]: https://github.com/illusion-tech/laneflow/blob/3f80b65f3fee19cd6085fc0d8be8f58b7a14d551/docs/roadmap.md

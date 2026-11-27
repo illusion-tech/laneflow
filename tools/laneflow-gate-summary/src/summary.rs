@@ -132,17 +132,13 @@ fn validate(manifest: &Manifest, mode: Mode, require_complete: bool) -> Result<(
         )));
     }
     if manifest.scope_adjudication.is_empty() {
-        return Err(invalid(
-            "范围裁定清单为空：#1268 交付包含九项裁定表的声明式副本",
-        ));
+        return Err(invalid("范围裁定清单为空"));
     }
     if manifest.capability_limits.is_empty() {
         return Err(invalid("能力限制登记为空"));
     }
     if manifest.l1_checks.is_empty() || manifest.required_l1_identities.is_empty() {
-        return Err(invalid(
-            "L1 拓扑核查挂接为空：#1268 须核查 L1 不含 #1271 拓扑",
-        ));
+        return Err(invalid("L1 动态换道记录或必需输入身份为空"));
     }
     // 恰好覆盖：声明身份集与挂接记录一一对应——缺失、重复或多挂都失败。
     let mut declared: Vec<&str> = Vec::new();
@@ -185,6 +181,9 @@ fn validate(manifest: &Manifest, mode: Mode, require_complete: bool) -> Result<(
             "L1 核查挂接含未声明身份：{}（required_l1_identities 之外的记录不得挂接）",
             extra.join("、")
         )));
+    }
+    if declared.len() != manifest.required_l1_identities.len() {
+        return Err(invalid("必需 L1 输入身份重复"));
     }
 
     let mut pending: Vec<String> = Vec::new();

@@ -53,23 +53,23 @@ fn trial_run_produces_receipt_with_all_sections() {
     assert_eq!(receipt.pending_items[0].axis, "routing");
 
     let markdown = std::fs::read_to_string(output.join("receipt.md")).expect("receipt.md");
-    assert!(markdown.contains("lf-unified-gate-receipt-1"));
-    assert!(markdown.contains("试跑结果不作为 v0.10 结论"));
+    assert!(markdown.contains("lf-unified-gate-receipt-2"));
+    assert!(markdown.contains("试跑仅核对声明和证据"));
     assert!(markdown.contains("范围裁定清单"));
     assert!(markdown.contains("worker 两两组合"));
     assert!(markdown.contains("能力限制登记"));
-    assert!(markdown.contains("L1 输入 #1271 拓扑核查"));
-    assert!(markdown.contains("verdict=clean"));
+    assert!(markdown.contains("L1 动态换道步进记录"));
+    assert!(markdown.contains("已核对 2 辆车的进入、前杠交接和车尾清空"));
     assert!(markdown.contains("未认证"));
     assert!(markdown.contains("implementation_commit=8b05abce"));
     assert!(markdown.contains("status=gate-witness-pass"));
     assert!(markdown.contains("workload_id=LF-ROUTING-G2-LINEAR-v1"));
-    assert!(markdown.contains("已延后 v0.11"));
+    assert!(markdown.contains("已延后"));
 
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(output.join("receipt.json")).expect("json"))
             .expect("receipt.json 解析");
-    assert_eq!(json["format"], "lf-unified-gate-receipt-1");
+    assert_eq!(json["format"], "lf-unified-gate-receipt-2");
     assert_eq!(json["mode"], "trial");
     assert_eq!(json["receipt"]["pending_items"][0]["axis"], "routing");
     std::fs::remove_dir_all(&output).ok();
@@ -187,16 +187,16 @@ fn existing_output_directory_is_rejected() {
 
 #[test]
 fn l1_record_identity_mismatch_is_rejected() {
-    // 声明 100000-L1-33 却挂 10000-L1-16 的记录：必须拒绝（#1285 评审 P1）。
+    // 声明 100000-L1-33-clusters-1 却挂 10000-L1-16-clusters-1 的记录：必须拒绝（#1285 评审 P1）。
     // 同步改声明集，让失败落在记录身份比对而非恰好覆盖校验上。
     let body = base_manifest()
         .replace(
-            r#"required_l1_identities = ["10000-L1-16"]"#,
-            r#"required_l1_identities = ["100000-L1-33"]"#,
+            r#"required_l1_identities = ["10000-L1-16-clusters-1"]"#,
+            r#"required_l1_identities = ["100000-L1-33-clusters-1"]"#,
         )
         .replace(
-            r#"identity = "10000-L1-16""#,
-            r#"identity = "100000-L1-33""#,
+            r#"identity = "10000-L1-16-clusters-1""#,
+            r#"identity = "100000-L1-33-clusters-1""#,
         );
     let manifest = write_manifest(&body);
     let error = summary::run(
@@ -258,28 +258,81 @@ pending = []"#,
 }
 
 #[test]
-fn violations_found_l1_record_is_rejected_even_without_expect() {
-    // 不带 expect.verdict 的 violations-found 记录：必须无条件拒绝
-    // （#1285 第二轮评审 P2——含 #1271 拓扑的输入不得用于安全验收）。
-    let body = base_manifest().replace(
-        r#"record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }"#,
-        r#"record = { kind = "l1-record", path = "<evidence-root>/l1-violations.json" }"#,
-    );
-    let manifest = write_manifest(&body);
-    // trial + 不设 require-complete：绕开 pending 格的前置拒绝，直达证据解析，
-    // 证明 clean 是无条件要求（formal 模式包含 trial 的全部检查）。
-    let error = summary::run(&manifest, &ctx(), &output_dir("l1viol"), Mode::Trial, false)
-        .expect_err("violations-found 记录必须被拒绝");
-    assert!(error.to_string().contains("必须为 clean"));
+fn invalid_handoff_evidence_is_rejected() {
+    use laneflow_gate_summary::evidence;
+    use laneflow_gate_summary::manifest::Evidence;
+    use serde_json::{Value, json};
+    let stale_format =
+        base_manifest().replace("lf-unified-gate-manifest-2", "lf-unified-gate-manifest-1");
+    let error = summary::run(
+        &write_manifest(&stale_format),
+        &ctx(),
+        &output_dir("archive-format"),
+        Mode::Trial,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("manifest 格式不符"));
+    let sources = fixtures().join("evidence-root");
+    let read = |name: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(sources.join(name)).unwrap()).unwrap()
+    };
+    let root = tempfile::tempdir().unwrap();
+    std::fs::copy(
+        sources.join("input-manifest.json"),
+        root.path().join("input.json"),
+    )
+    .unwrap();
+    let context = PathContext {
+        repo_root: root.path().to_owned(),
+        evidence_root: None,
+    };
+    let anchor = Evidence::HandoffRun {
+        path: "run.json".into(),
+        input_manifest: "input.json".into(),
+        implementation_commit: "c".repeat(40),
+    };
+    let original = read("l1.json");
+    let resolve = |report: &Value| {
+        std::fs::write(
+            root.path().join("run.json"),
+            serde_json::to_vec(report).unwrap(),
+        )
+        .unwrap();
+        evidence::resolve(&anchor, &context)
+    };
+    assert!(resolve(&original).is_ok());
+    for (pointer, replacement) in [
+        ("/complete", json!(false)),
+        (
+            "/scope",
+            json!("W1_W2_semantics_only_not_performance_or_product_certification"),
+        ),
+        ("/implementation_commit", json!("d".repeat(40))),
+        ("/input_manifest/files/0/digest", json!("d".repeat(64))),
+        (
+            "/input_manifest/identity/case/RouteHandoff/clusters",
+            json!(2),
+        ),
+        ("/validated_boundaries", json!(1)),
+        ("/checkpoints/3/handoff_journal/5/2", json!(11)),
+        ("/checkpoints/3/handoff_journal/3/3", json!(400)),
+        ("/checkpoints/1/handoff_journal", json!([])),
+    ] {
+        let mut report = original.clone();
+        *report.pointer_mut(pointer).unwrap() = replacement;
+        assert!(resolve(&report).is_err(), "{pointer}");
+    }
+    assert!(resolve(&json!({"format":"lf-l1-topology-check-1","verdict":"clean"})).is_err());
 }
 
 #[test]
 fn missing_required_l1_identity_is_rejected() {
-    // 声明集含 100000-L1-33 但挂接缺失：必须拒绝（#1285 第三轮评审——
+    // 声明集含 100000-L1-33-clusters-1 但挂接缺失：必须拒绝（#1285 第三轮评审——
     // 漏检身份不得带着「已核查」外观进入结论）。
     let body = base_manifest().replace(
-        r#"required_l1_identities = ["10000-L1-16"]"#,
-        r#"required_l1_identities = ["10000-L1-16", "100000-L1-33"]"#,
+        r#"required_l1_identities = ["10000-L1-16-clusters-1"]"#,
+        r#"required_l1_identities = ["10000-L1-16-clusters-1", "100000-L1-33-clusters-1"]"#,
     );
     let manifest = write_manifest(&body);
     let error = summary::run(
@@ -291,19 +344,32 @@ fn missing_required_l1_identity_is_rejected() {
     )
     .expect_err("缺失必需 L1 身份必须被拒绝");
     assert!(error.to_string().contains("缺少必需身份"));
-    assert!(error.to_string().contains("100000-L1-33"));
+    assert!(error.to_string().contains("100000-L1-33-clusters-1"));
 }
 
 #[test]
 fn duplicate_l1_identity_is_rejected() {
+    let repeated = base_manifest().replace(
+        r#"required_l1_identities = ["10000-L1-16-clusters-1"]"#,
+        r#"required_l1_identities = ["10000-L1-16-clusters-1","10000-L1-16-clusters-1"]"#,
+    );
+    let error = summary::run(
+        &write_manifest(&repeated),
+        &ctx(),
+        &output_dir("l1repeated"),
+        Mode::Trial,
+        false,
+    )
+    .expect_err("必需输入身份重复");
+    assert!(error.to_string().contains("身份重复"));
     // 同一身份挂两条记录：必须拒绝（每份输入身份恰一条）。
     let body = base_manifest().replace(
-        r#"record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }"#,
-        r#"record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }
+        r#"record = { kind = "handoff-run", path = "<evidence-root>/l1.json", input_manifest = "<evidence-root>/input-manifest.json", implementation_commit = "cccccccccccccccccccccccccccccccccccccccc" }"#,
+        r#"record = { kind = "handoff-run", path = "<evidence-root>/l1.json", input_manifest = "<evidence-root>/input-manifest.json", implementation_commit = "cccccccccccccccccccccccccccccccccccccccc" }
 
 [[l1_checks]]
-identity = "10000-L1-16"
-record = { kind = "l1-record", path = "<evidence-root>/l1.json" }"#,
+identity = "10000-L1-16-clusters-1"
+record = { kind = "handoff-run", path = "<evidence-root>/l1.json", input_manifest = "<evidence-root>/input-manifest.json", implementation_commit = "cccccccccccccccccccccccccccccccccccccccc" }"#,
     );
     let manifest = write_manifest(&body);
     let error = summary::run(&manifest, &ctx(), &output_dir("l1dup"), Mode::Trial, false)

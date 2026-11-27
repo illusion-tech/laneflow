@@ -11,6 +11,7 @@ pub(super) enum SourceStop {
     Upstream,
     Both,
     WithTurn,
+    ParallelFork,
     TargetSignal,
 }
 
@@ -20,11 +21,11 @@ impl SourceStop {
         let (entry, exit) = match self {
             Self::OnOccurrence | Self::Both => ("s2", "s3"),
             Self::OnContinuation => ("s3", "s4"),
-            Self::Upstream | Self::WithTurn => ("s1", "s2"),
+            Self::Upstream | Self::WithTurn | Self::ParallelFork => ("s1", "s2"),
             Self::TargetSignal => ("t1", "t2"),
         };
         let mut rules = Vec::new();
-        if let Self::WithTurn = self {
+        if matches!(self, Self::WithTurn | Self::ParallelFork) {
             let p = |x, z| RoadEditingPoint3::try_new(x, 0., z).unwrap();
             let turn = RoadEditingCurveProgram::try_new(
                 p(0., 12.),
@@ -36,6 +37,9 @@ impl SourceStop {
             )
             .unwrap();
             add_road_editing_approach(builder, "turn-exit", turn, vec![]);
+            if matches!(self, Self::ParallelFork) {
+                return;
+            }
             add_stop(builder, entry, &[exit, "turn-exit"], &mut rules, false);
         } else {
             add_stop(

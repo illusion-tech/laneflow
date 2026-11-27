@@ -304,8 +304,7 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 ## 当前限制
 
 - 交通运行时不生成出行需求，也不替宿主选择路线。本示例只注册 catalog 里已经写明的一条边序列。
-- 固定预构造换道只执行已经编制好的过渡。它不是任意位置变道。见
-  [能力页 · 固定预构造换道][capabilities-lane-change]。
+- 要执行道路换道，路线须登记同向相邻车道上的交接窗口。见[能力页 · 登记窗口内的任意位置换道][capabilities-lane-change]。
 - 上面的 64 步只确认时间和位移。它不是性能认证，也不能外推到其他路网或车辆数。
 
 ## 延伸阅读
@@ -331,7 +330,7 @@ Pinned，会直接返回错误，而不是装一个不需要策略的世界。
 [capabilities-parallel]: ../reference/capabilities.md#单世界并行
 [execution-config]: ../design/traffic-runtime-execution-config.md
 [parallel-execution-join]: ../design/traffic-runtime-parallel-execution.md#43-join取消与失败清理
-[capabilities-lane-change]: ../reference/capabilities.md#固定预构造换道
+[capabilities-lane-change]: ../reference/capabilities.md#登记窗口内的任意位置换道
 [runtime-snapshot]: ../design/traffic-runtime-snapshot.md
 [revision-cutover]: ../design/traffic-runtime-revision-cutover.md
 [spatial-geometry]: ../design/spatial-geometry.md

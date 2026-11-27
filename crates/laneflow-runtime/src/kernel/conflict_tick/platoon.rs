@@ -85,8 +85,8 @@ impl StepWorkspace<'_> {
                 .get(index as usize)
                 .ok_or(StepError::ConflictInvariantViolation)?;
             for target in targets {
-                let address = ConflictPassageAddress::from_resource(
-                    cell.resource(),
+                let address = ConflictPassageAddress::new(
+                    cell.zone(),
                     target.stream(),
                     target.passage_local_index(),
                 );
@@ -301,10 +301,7 @@ impl StepReadView<'_> {
             .compiled_route(state.route)
             .ok_or(StepError::ConflictInvariantViolation)?;
         let occurrences = covered(route, hop).ok_or(StepError::ConflictInvariantViolation)?;
-        if occurrences
-            .first()
-            .is_none_or(|entry| entry.static_zone().is_none())
-        {
+        if occurrences.is_empty() {
             return Ok(None);
         }
         let Some(leader) = direct_leader(self, state) else {
@@ -370,7 +367,7 @@ impl StepReadView<'_> {
         let topology = self.binding.revision.conflict();
         let relations = self.binding.revision.traffic().relations();
         for occurrence in occurrences {
-            let zone = occurrence.static_zone().ok_or(invariant)?;
+            let zone = occurrence.zone;
             for &stream in topology
                 .conflict_zone(zone)
                 .ok_or(invariant)?

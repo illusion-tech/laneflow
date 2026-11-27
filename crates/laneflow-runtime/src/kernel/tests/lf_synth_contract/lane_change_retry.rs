@@ -166,10 +166,7 @@ impl LaneChange {
 }
 
 fn address_identity(address: &ConflictPassageAddress) -> u32 {
-    address
-        .static_zone()
-        .expect("L1 路口事件引用实际冲突区")
-        .raw()
+    address.zone().raw()
 }
 
 fn passage_identity(world: &TrafficWorld, range: ConflictPassageRange) -> u32 {

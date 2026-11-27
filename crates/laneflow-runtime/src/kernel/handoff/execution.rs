@@ -1197,17 +1197,15 @@ impl crate::kernel::state::WorldState {
     }
 }
 
-pub(crate) fn reservation_stop(
-    reservations: &[ActiveRouteHandoff],
+pub(crate) fn reservation_distance<'a>(
+    reservations: impl Iterator<Item = &'a ActiveRouteHandoff>,
     route: &CompiledRoute,
     owner: Option<VehicleHandle>,
     index: usize,
     front: u32,
-    gap: u32,
-) -> Option<laneflow_static_network::BoundedDistance> {
+) -> Option<u32> {
     let mut nearest = None;
     for protected in reservations
-        .iter()
         .filter(|h| Some(h.vehicle) != owner)
         .flat_map(|h| &h.protections)
     {
@@ -1238,11 +1236,10 @@ pub(crate) fn reservation_stop(
                     target,
                 )
             {
-                let room = mm.saturating_sub(gap);
-                nearest = Some(nearest.map_or(room, |previous: u32| previous.min(room)));
+                nearest = Some(nearest.map_or(mm, |previous: u32| previous.min(mm)));
             }
             break;
         }
     }
-    nearest.map(laneflow_static_network::BoundedDistance::Finite)
+    nearest
 }

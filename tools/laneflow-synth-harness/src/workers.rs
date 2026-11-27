@@ -136,24 +136,21 @@ pub(super) fn check_report(
             warm + observation,
         ]
     };
-    let final_history = if job.case == "L1" {
-        if checkpoints.len() != ticks.len()
-            || checkpoints
-                .iter()
-                .zip(&ticks)
-                .any(|(point, &expected)| point["tick"] != expected)
-        {
-            return Err(invalid("L1 检查点数量或顺序不符"));
+    if job.case == "L1" {
+        use laneflow_synth_generator::{Case, Identity, LaneChangeParams, handoff};
+        let expected = Identity::new(
+            job.scale,
+            Case::LaneChange(LaneChangeParams {
+                clusters: 1,
+                changers_per_cluster: 2,
+            }),
+            job.dt,
+        )?;
+        if identity["case"] != serde_json::to_value(&expected.case)? {
+            return Err(invalid("换道簇身份与矩阵输入不符"));
         }
-        Some(
-            checkpoints
-                .last()
-                .and_then(|p| p["handoff_journal"].as_array())
-                .ok_or_else(|| invalid("最终检查点缺少横移历史"))?,
-        )
-    } else {
-        None
-    };
+        handoff::check_history(checkpoints, &expected).map_err(invalid)?;
+    }
     for tick in ticks {
         let point = checkpoints
             .iter()
@@ -171,47 +168,8 @@ pub(super) fn check_report(
                 job.key()
             )));
         }
-        if let Some(history) = final_history {
-            let journal = point["handoff_journal"]
-                .as_array()
-                .ok_or_else(|| invalid("L1 检查点缺少横移历史"))?;
-            let complete = tick == warm + observation;
-            let prefix =
-                history.partition_point(|row| row[0].as_u64().is_some_and(|at| at <= tick));
-            if *journal != history[..prefix]
-                || !valid_handoff_journal(journal, tick, job.scale / 100 * 4, complete)
-            {
-                return Err(invalid(format!(
-                    "换道竞争历史与检查点不符：{} tick={tick}",
-                    job.key()
-                )));
-            }
-        }
     }
     Ok(())
-}
-
-// 正式矩阵每个世界恰有一个簇、两名竞争者。核对发证、交接与车尾清空的跨车顺序。
-fn valid_handoff_journal(rows: &[Value], tick: u64, first_route: u32, complete: bool) -> bool {
-    let mut previous_tick = 0;
-    if rows.len() > 6 || (complete && rows.len() != 6) || (tick > 0 && rows.is_empty()) {
-        return false;
-    }
-    rows.iter().enumerate().all(|(index, row)| {
-        let Some(at) = row[0].as_u64() else {
-            return false;
-        };
-        let slot = index as u32 / 3;
-        let valid = row.as_array().is_some_and(|cells| cells.len() == 4)
-            && (index > 0 || at == 1)
-            && at > previous_tick
-            && at <= tick
-            && row[1] == slot
-            && row[2] == 10 + index as u32 % 3
-            && row[3] == first_route + slot;
-        previous_tick = at;
-        valid
-    })
 }
 
 fn compare(output: &Path, job: Job, baseline: &Value, candidate: &Value) -> Result<Value, Error> {

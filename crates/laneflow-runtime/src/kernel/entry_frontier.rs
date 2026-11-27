@@ -1292,12 +1292,12 @@ fn gate_distance_mm(compiled: &super::tables::CompiledRoute, state: &VehicleStat
     } else {
         state.route_edge_index
     };
-    let first = compiled.conflict_dispatch_hops.partition_point({
+    let first = compiled.gate_hops.partition_point({
         #[cfg(test)]
         super::route_query_research::note_search("entry_frontier:916");
         |hop| *hop < cursor
     });
-    let Some(gate_hop) = compiled.conflict_dispatch_hops.get(first).copied() else {
+    let Some(gate_hop) = compiled.gate_hops.get(first).copied() else {
         return NO_DISTANCE_MM;
     };
     if gate_hop < state.route_edge_index {
@@ -1855,18 +1855,14 @@ fn collect_vehicle_targets(
                 state.route_edge_index
             };
             let first = compiled
-                .conflict_dispatch_hops
+                .gate_hops
                 .partition_point({
                     #[cfg(test)]
                     super::route_query_research::note_search("entry_frontier:1242");
                     |hop| *hop < cursor
                 })
                 .max(gate_list_index);
-            for (offset, gate_hop) in compiled.conflict_dispatch_hops[first..]
-                .iter()
-                .copied()
-                .enumerate()
-            {
+            for (offset, gate_hop) in compiled.gate_hops[first..].iter().copied().enumerate() {
                 let in_reach = if !reach.is_finite() || gate_hop < state.route_edge_index {
                     true
                 } else {
@@ -1989,16 +1985,6 @@ fn append_gate_targets(
             break;
         }
         for occurrence in occurrences[..batch].iter().copied() {
-            // T 出现记录（#1199）：无 zone/无流级 yield targets——其近门目标
-            // =自身资源格地址（P4 具名判据在候选面把关，前沿仅登记接近），
-            // 不走 zone yield-targets 发射。
-            if matches!(
-                occurrence.resource(),
-                crate::kernel::conflict::ConflictResource::Transition(_)
-            ) {
-                emit(occurrence)?;
-                continue;
-            }
             let target_len = {
                 let Some(policy) = read.policy() else {
                     return Err(StepError::ConflictInvariantViolation);
@@ -2010,10 +1996,7 @@ fn append_gate_targets(
                 ) else {
                     return Err(StepError::ConflictInvariantViolation);
                 };
-                let Some(occurrence_zone) = occurrence.static_zone() else {
-                    return Err(StepError::ConflictInvariantViolation);
-                };
-                if zone != occurrence_zone {
+                if zone != occurrence.zone() {
                     return Err(StepError::ConflictInvariantViolation);
                 }
                 targets.len()
@@ -2033,11 +2016,8 @@ fn append_gate_targets(
                     let Some(target) = targets.get(target_index) else {
                         return Err(StepError::ConflictInvariantViolation);
                     };
-                    let Some(occurrence_zone) = occurrence.static_zone() else {
-                        return Err(StepError::ConflictInvariantViolation);
-                    };
                     ConflictPassageAddress::new(
-                        occurrence_zone,
+                        occurrence.zone(),
                         target.stream(),
                         target.passage_local_index(),
                     )
@@ -3530,8 +3510,7 @@ mod tests {
             .conflicts
             .first()
             .expect("the stem crosses the junction")
-            .static_zone()
-            .expect("junction occurrence zone")
+            .zone
             .index();
         let listed = |world: &crate::kernel::state::WorldState| {
             world
@@ -3598,8 +3577,7 @@ mod tests {
             .conflicts
             .first()
             .expect("the stem crosses the junction")
-            .static_zone()
-            .expect("junction occurrence zone")
+            .zone
             .index();
         crate::reset_deferred_counts();
         world

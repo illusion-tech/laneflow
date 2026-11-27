@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::Path};
 
 use laneflow_runtime::{
-    ConflictPassageAddress, ConflictPassageRange, ParkingTarget, RouteHandle, StepOutcome,
-    TrafficTransitionKind, TrafficWorld, VehicleHandle,
+    ConflictPassageRange, ParkingTarget, RouteHandle, StepOutcome, TrafficTransitionKind,
+    TrafficWorld, VehicleHandle,
 };
 
 use crate::{Error, failure, require};
@@ -93,10 +93,10 @@ impl Recorder {
                     (4, passage_identity(world, passage_range)?)
                 }
                 TrafficTransitionKind::ConflictEntered { passage } if self.lane_change => {
-                    (5, address_identity(&passage.address())?)
+                    (5, passage.address().zone().raw())
                 }
                 TrafficTransitionKind::ConflictCleared { passage } if self.lane_change => {
-                    (6, address_identity(&passage.address())?)
+                    (6, passage.address().zone().raw())
                 }
                 TrafficTransitionKind::ReservationReleased { passage_range }
                     if self.lane_change =>
@@ -152,14 +152,6 @@ impl Recorder {
     }
 }
 
-/// 下游路口事件须解析到正式发布的冲突区。
-pub(crate) fn address_identity(address: &ConflictPassageAddress) -> Result<u32, Error> {
-    address
-        .static_zone()
-        .map(|zone| zone.raw())
-        .ok_or_else(|| failure("冲突区身份", "无静态冲突区"))
-}
-
 /// 预约区间事件的身份 payload：以区间首出现记录解析 passage 地址（真实资源身份）。
 pub(crate) fn passage_identity(
     world: &TrafficWorld,
@@ -168,5 +160,5 @@ pub(crate) fn passage_identity(
     let locator = world
         .conflict_passage_occurrence_locator(range.route(), range.first_conflict_occurrence_index())
         .ok_or_else(|| failure("passage identity", "missing"))?;
-    address_identity(&locator.address())
+    Ok(locator.address().zone().raw())
 }

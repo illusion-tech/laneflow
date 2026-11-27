@@ -644,7 +644,7 @@ fn passage_fields(
         p.maneuver_occurrence_index(),
         p.admission_gate_hop(),
         p.conflict_occurrence_index(),
-        p.address().static_zone().map_or(u32::MAX, |z| z.raw()),
+        p.address().zone().raw(),
         p.address().stream().raw(),
         p.address().passage_local_index(),
     )
@@ -702,7 +702,7 @@ fn occupied_yield_pulse(
         let address = passage.address();
         let (zone, targets) =
             policy.yield_targets(address.stream(), class, address.passage_local_index())?;
-        if Some(zone) != address.static_zone() {
+        if zone != address.zone() {
             return None;
         }
         let pulse = h
@@ -1014,7 +1014,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                     if h.claims
                         .insert(
                             (id, h.route_table.index(r.route()), index),
-                            p.address().static_zone().map_or(u32::MAX, |z| z.raw()),
+                            p.address().zone().raw(),
                         )
                         .is_some()
                     {
@@ -1026,7 +1026,7 @@ pub(crate) fn events(h: &mut Harness<'_>) -> Result<()> {
                 if h.in_step_observation(e.tick())
                     && let Some(witness) = &mut h.evidence[id.tile as usize].right_of_way
                     && witness.pulse == id
-                    && witness.zone == p.address().static_zone().map_or(u32::MAX, |z| z.raw())
+                    && witness.zone == p.address().zone().raw()
                 {
                     witness
                         .pulse_cleared
@@ -1452,7 +1452,7 @@ impl ObservedClaim {
             return None;
         }
         let passage = world.conflict_passage_occurrence_locator(range.route(), self.occurrence)?;
-        (passage.address().static_zone()?.raw() == self.zone).then_some(range)
+        (passage.address().zone().raw() == self.zone).then_some(range)
     }
 }
 
@@ -1479,11 +1479,8 @@ fn same_ordinary_coverage(
         return false;
     };
     (0..a.passage_count()).all(|offset| {
-        address(a, offset).is_some_and(|cell| {
-            cell.static_zone().is_some()
-                && cell.stream() == first.stream()
-                && Some(cell) == address(b, offset)
-        })
+        address(a, offset)
+            .is_some_and(|cell| cell.stream() == first.stream() && Some(cell) == address(b, offset))
     })
 }
 
@@ -2500,7 +2497,7 @@ mod tests {
                         )
                         .unwrap()
                         .address();
-                    let zone = cell.static_zone().unwrap().raw();
+                    let zone = cell.zone().raw();
                     let (first_cell, first_range) = *first.entry(zone).or_insert((cell, range));
                     if cell.stream() != first_cell.stream() {
                         assert!(same_ordinary_coverage(&h.world, range, range));

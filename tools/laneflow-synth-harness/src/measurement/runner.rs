@@ -29,27 +29,6 @@ use super::{
     resources::{self, Allocation, AllocationStart},
 };
 
-#[cfg(feature = "allocation")]
-fn accumulate_transition_cost(
-    target: &mut laneflow_runtime::TransitionCostEvidence,
-    add: laneflow_runtime::TransitionCostEvidence,
-) {
-    target.neighborhood_calls = target
-        .neighborhood_calls
-        .saturating_add(add.neighborhood_calls);
-    target.labels_scan_steps = target
-        .labels_scan_steps
-        .saturating_add(add.labels_scan_steps);
-    target.first_ring_scan_steps = target
-        .first_ring_scan_steps
-        .saturating_add(add.first_ring_scan_steps);
-    target.neighborhood_entries = target
-        .neighborhood_entries
-        .saturating_add(add.neighborhood_entries);
-    target.profile_calls = target.profile_calls.saturating_add(add.profile_calls);
-    target.profile_steps = target.profile_steps.saturating_add(add.profile_steps);
-}
-
 #[derive(Serialize)]
 struct TickSample {
     frame: u64,
@@ -399,8 +378,6 @@ fn run_inner(
         json!({"phase":"installed","process":resources::process()?,"runtime":resources::runtime(&sample.world)}),
     ];
     let total = plan.warm_up_ticks + plan.observation_ticks;
-    #[cfg(feature = "allocation")]
-    let mut transition_cost = laneflow_runtime::TransitionCostEvidence::default();
     // §7.3：W1–W3 在预热与观测分界处强制分段，W4 不强制；W2 以拍为位置。
     let mut load = load::Sampler::new(
         load_sampling,
@@ -421,11 +398,6 @@ fn run_inner(
             let elapsed = nanos(started);
             let allocation = resources::finish(allocation);
             let faults_after = load.page_faults();
-            #[cfg(feature = "allocation")]
-            accumulate_transition_cost(
-                &mut transition_cost,
-                world.take_execution_evidence().transition_cost,
-            );
             driver.observe(&world, Some(&result))?;
             ticks.push(TickSample {
                 frame: tick - 1,
@@ -466,14 +438,6 @@ fn run_inner(
             let faults_before = load.page_faults();
             let started = Instant::now();
             app.update();
-            #[cfg(feature = "allocation")]
-            accumulate_transition_cost(
-                &mut transition_cost,
-                app.world_mut()
-                    .resource_mut::<LaneFlowSession>()
-                    .take_execution_evidence()
-                    .transition_cost,
-            );
             let presentation_started = Instant::now();
             let applied = app.world_mut().resource_scope(
                 |ecs, mut presentation: bevy_ecs::world::Mut<Presentation>| {
@@ -594,17 +558,6 @@ fn run_inner(
     let files=["ticks.json","frames.json","events.bin","checkpoints.json","resources.json","batches.json","load.json"]
         .into_iter().map(|name| Ok((name.to_owned(),json!({"sha256":hash(&fs::read(output.join(name))?),"bytes":fs::metadata(output.join(name))?.len()}))))
         .collect::<Result<serde_json::Map<_,_>,Error>>()?;
-    #[cfg(feature = "allocation")]
-    let transition_cost_json = json!({
-        "neighborhood_calls":transition_cost.neighborhood_calls,
-        "labels_scan_steps":transition_cost.labels_scan_steps,
-        "first_ring_scan_steps":transition_cost.first_ring_scan_steps,
-        "neighborhood_entries":transition_cost.neighborhood_entries,
-        "profile_calls":transition_cost.profile_calls,
-        "profile_steps":transition_cost.profile_steps,
-    });
-    #[cfg(not(feature = "allocation"))]
-    let transition_cost_json = json!(null);
     // lifecycle 区间分段汇总（#1233 对象 a/F3）：runtime 命令 API +
     // harness 命令记账 + harness 其他 + residual 与 lifecycle_ns 守恒；
     // validation 为 checkpoint 校验独立计时（不属于 lifecycle 区间）。
@@ -654,7 +607,7 @@ fn run_inner(
         "caller_commands":driver.command_count,"blocked_commands":driver.blocked_count,"checkpoints":checkpoints,
         "lifecycle_validation_ns":lifecycle_validation_ns,
         "lifecycle_segments":lifecycle_segments,
-        "transition_cost":transition_cost_json,"load":load_summary,
+        "load":load_summary,
         "completion_records":driver.completion_records,"arrival_records":driver.arrival_records,"files":files}),
     )
 }

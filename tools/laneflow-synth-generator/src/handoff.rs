@@ -1,6 +1,9 @@
 //! L1 同拍竞争的申请与阶段记录。只读取逻辑槽位及已提交事实。
 use crate::{InitialState, VehicleRecord};
 
+mod history;
+pub use history::check_history;
+
 /// 车辆已经持有的横移预约。
 #[derive(Clone, Copy, Debug)]
 pub struct Reservation {

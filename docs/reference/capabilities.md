@@ -80,54 +80,31 @@ applicability = "#applicability"
   [§8][parking-system-spatial]。拒绝种类见
   [`ParkingError`][error-rs]。
 
-### 固定预构造换道
-
-**已实现**：路线可以经过已经编制好的固定预制过渡。
-
-- **条件与边界**：路线编译会拒绝一部分互不可见的共横向过渡段；同向相邻、纵向分开、
-  共享可选前驱或后继的汇合与分岔、可绕过公共边的接力、多成员分量配对等组合也可能被
-  保守拒绝（#1321 收紧：图上邻接交集不能证明允许路线分支互相覆盖）。已登记且尚无
-  关闭修复证明的缺口：平行边直行车对过渡仍可能不可见（[#1271][issue-1271]，回归
-  `straight_vehicle_on_parallel_edge_is_a_registered_gap` 记录该缺口）。循环路线把
-  近端制动边界选错已修复并转为常规回归（[#1322][issue-1322]，PR #1412）。这些拒绝
-  没有构成完整安全保证，任意位置变道也不是这项能力。
-- **依据**：[最小换道合同 §3][lane-change-contract-a1]、
-  [§5][lane-change-contract-a3]、
-  [§6][lane-change-contract-a6]、
-  [§9][lane-change-contract-a5]、
-  [§10][lane-change-contract-limits]。缺口回归见
-  [`transition_visibility.rs`][transition-visibility-rs]。
-
 ### 登记窗口内的任意位置换道
 
-调用方在路线相邻的两次有向边出现间登记走廊站位窗口，按车辆向 `step_with_route_handoffs` 提交换道申请。世界按车型、可用路幅、净空限速、两侧占用与进入者制动条件裁决，保留已提交的保护直到车尾清空。活动横移可从同一修订的快照恢复。见[路线系统][route-system]。
+调用方在路线相邻的两次有向边出现间登记走廊站位窗口，按车辆向 `step_with_route_handoffs` 提交换道申请。世界按车型、可用路幅、净空限速、两侧占用与进入者制动条件裁决，保留已提交的保护直到车尾清空。活动横移可从同一修订的快照恢复。见[路线系统][route-system]和[换道行为验收][lane-change-related]。
 
 ### 快照与恢复
 
 **已实现**：可以按固定步长、修订和来源绑定保存并恢复世界。执行配置由宿主另外提供。
 
-- **条件与边界**：恢复核对语义容量和完整性，容量不能缩小。遇到活动的固定预制过渡，或其无法保存的预约及资源历史时，保存返回
-  `UnsupportedTransitionState`，世界可以继续运行。任意位置换道的登记窗口、已提交横移及组合预约随普通路口的逐车预约终点一起按快照 §2.1 保存与恢复。生产版本以
+- **条件与边界**：恢复核对语义容量和完整性，容量不能缩小。登记窗口、已提交横移及组合预约随普通路口的逐车预约终点按快照 §2.1 保存与恢复。生产版本以
   `SNAPSHOT_FORMAT_VERSION`、`RUNTIME_STATE_VERSION` 和 `RUNTIME_STATE_DIGEST_VERSION` 为准，本页不另立版本表。
 - **依据**：[快照 §2][runtime-snapshot-versions]、
   [§5][runtime-snapshot-restore]、[§6][runtime-snapshot-replay]、
-  [§9][runtime-snapshot-g2]。常量与过渡准入门见
+  [§9][runtime-snapshot-g2]。常量见
   [`snapshot.rs`][snapshot-rs]；摘要版本常量在 `snapshot_digest.rs`。
 
 ### 修订切换
 
 **已实现**：候选在事务里追赶。只有成功提交才发布目标修订和切换事件。
 
-- **条件与边界**：映射、预算或等价证明失败时，旧世界继续，没有部分发布。过渡相关迁移的拒绝比「当前有车正在换道」更宽，
-  受结构化拒绝限制，详见合同与 [#1217][issue-1217]。
-  含过渡资源的各切换模式没有在这里逐项归纳，触发范围以合同和该 Issue 为准。
+- **条件与边界**：空闲的路线窗口须在目标修订重新证明。有车辆正在横移或仍持有横移预约时拒绝跨修订接管，旧世界继续。
 - **依据**：[切换 §3][revision-cutover-strategy]、
   [§4][revision-cutover-state-machine]、
   [§7][revision-cutover-promotion]、
   [§8][revision-cutover-faults]；
-  [快照 §7][runtime-snapshot-migration]。迁移拒绝见
-  [`cutover_migration.rs`][cutover-migration-rs] 的
-  `CutoverError::UnsupportedTransitionState`。
+  [快照 §7][runtime-snapshot-migration]。
 
 ### 观测
 
@@ -208,8 +185,7 @@ applicability = "#applicability"
   [横断面与准入 §6.2][cross-section-access-target]、
   [§6.5][cross-section-access-runtime] 和
   [`hir/access.rs`][access-rs]。
-- 任意位置变道是后续能力目标。固定预制过渡不是该目标的等价实现。提前制动
-  （[#1272][issue-1272]）仍待设计与实施；立项本身不是已接受的设计，也不是已经完成的行为。
+- 提前制动（[#1272][issue-1272]）的验收范围见对应 Issue。
 - 非机动车、行人、轨道执行域，感应或自适应信号，以及其他引擎的正式适配，都不是现行能力。`ParticipantClass` 只是准入分类，
   不表示这些执行域已经实现。
 - Routing 算法、出行需求、出发计划和最终表现由宿主拥有。LaneFlow 不提供专业交通工程分析。这是职责边界。
@@ -261,30 +237,20 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [parking-system-commands]: ../design/parking-system.md#5-生命周期命令
 [parking-system-errors]: ../design/parking-system.md#57-幂等和错误分类
 [parking-system-spatial]: ../design/parking-system.md#8-spatial-与-adapter
-[issue-1271]: https://github.com/illusion-tech/laneflow/issues/1271
 [issue-1321]: https://github.com/illusion-tech/laneflow/issues/1321
-[issue-1322]: https://github.com/illusion-tech/laneflow/issues/1322
-[lane-change-contract-a1]: ../design/lane-change-minimal-contract.md#3-承载形式裁定-a1-回写
-[lane-change-contract-a3]: ../design/lane-change-minimal-contract.md#5-同拍联合求解与预约约束裁定-a3a4-回写核心
-[lane-change-contract-a6]: ../design/lane-change-minimal-contract.md#6-能力检查裁定-a6--选项-3-回写
 [source-integration-attestation]: ../guides/source-integration.md#安装前修订认证
 [state-integrity-attestation]: ../design/traffic-runtime-state-integrity.md#42-共享路网修订认证
-[lane-change-contract-a5]: ../design/lane-change-minimal-contract.md#9-退役前的持久化边界
-[lane-change-contract-limits]: ../design/lane-change-minimal-contract.md#10-排除能力限制与缺口
-[transition-visibility-rs]: ../../crates/laneflow-runtime/src/kernel/tests/transition_visibility.rs
 [runtime-snapshot-versions]: ../design/traffic-runtime-snapshot.md#2-版本轴与绑定集
 [runtime-snapshot-restore]: ../design/traffic-runtime-snapshot.md#5-保存与恢复
 [runtime-snapshot-replay]: ../design/traffic-runtime-snapshot.md#6-回放与确定性状态摘要
 [route-system]: ../design/route-system.md
 [runtime-snapshot-g2]: ../design/traffic-runtime-snapshot.md#9-runtime-snapshot-v8-的-g2-边界与必测义务
 [snapshot-rs]: ../../crates/laneflow-runtime/src/admin/snapshot.rs
-[issue-1217]: https://github.com/illusion-tech/laneflow/issues/1217
 [revision-cutover-strategy]: ../design/traffic-runtime-revision-cutover.md#3-迁移策略封闭种类选择器
 [revision-cutover-state-machine]: ../design/traffic-runtime-revision-cutover.md#4-状态机
 [revision-cutover-promotion]: ../design/traffic-runtime-revision-cutover.md#7-原子晋升与共存
 [revision-cutover-faults]: ../design/traffic-runtime-revision-cutover.md#8-失败关闭故障映射
 [runtime-snapshot-migration]: ../design/traffic-runtime-snapshot.md#7-跨修订迁移入口
-[cutover-migration-rs]: ../../crates/laneflow-runtime/src/admin/cutover_migration.rs
 [routing-integration-observation]: ../design/traffic-observation-and-routing-integration.md#2-已提交交通观测
 [routing-integration-cost]: ../design/traffic-observation-and-routing-integration.md#3-动态成本快照
 [routing-integration-cutover]: ../design/traffic-observation-and-routing-integration.md#5-与-302-切换快照和回放的接缝
@@ -329,3 +295,4 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [issue-306-review]: https://github.com/illusion-tech/laneflow/issues/306#issuecomment-6729858464
 [issue-1318]: https://github.com/illusion-tech/laneflow/issues/1318
 [issue-1323]: https://github.com/illusion-tech/laneflow/issues/1323
+[lane-change-related]: ../design/lane-change-minimal-contract.md

@@ -390,7 +390,6 @@ impl crate::kernel::state::WorldState {
                 world_generation,
                 config,
                 policy_binding,
-                transition_cost: crate::kernel::transition_cost::Recorder::new(),
             },
             committed: crate::kernel::state::CommittedWorldState {
                 handoffs: Vec::new(),
@@ -517,8 +516,6 @@ impl crate::kernel::state::WorldState {
     }
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
-    ///
-    /// 过渡资源格（`Transition`）返回 `None`（#1217 归属≠身份切断）。
     #[must_use]
     pub fn conflict_passage_locator(
         &self,
@@ -1323,19 +1320,14 @@ impl crate::kernel::state::WorldState {
         );
         self.apply_spawn_occupancy(handle, previous_sequence, occupancy_patch);
         self.note_inserted_vehicle(handle, previous_sequence, update_sequence);
-        // 迁移日志入口级拒绝（#1217 D4）：增量只在日志武装时物化；无法忠实
-        // 编码的过渡态粘性终止日志，不得让 `from_state` 触发 panic。
         if self.admin.migration_journal.is_some() {
             let compiled = self.compiled_route(state.route);
-            if VehicleDelta::journalable(&state, compiled) {
-                let delta = VehicleDelta::from_state(&state, compiled);
+            if let Some(delta) = VehicleDelta::from_state(&state, compiled) {
                 if let Some(journal) = self.admin.migration_journal.as_mut() {
                     journal.record_vehicle_spawned(next_command_cursor, delta);
                 }
             } else if let Some(journal) = self.admin.migration_journal.as_mut() {
-                journal.refuse_unsupported_transition_state(
-                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-                );
+                journal.refuse_invalid_vehicle(state.handle().index());
             }
         }
         self.workspace
@@ -1829,12 +1821,9 @@ impl crate::kernel::state::WorldState {
         let new_state = self
             .vehicle_state(new)
             .expect("freshly committed replacement vehicle");
-        // 迁移日志入口级拒绝（#1217 D4）：替换可携带 T-`Clearing` 遍历，
-        // 增量只在日志武装时物化；无法忠实编码时粘性终止日志。
         if self.admin.migration_journal.is_some() {
             let compiled = self.compiled_route(new_state.route);
-            if VehicleDelta::journalable(&new_state, compiled) {
-                let new_delta = VehicleDelta::from_state(&new_state, compiled);
+            if let Some(new_delta) = VehicleDelta::from_state(&new_state, compiled) {
                 if let Some(journal) = self.admin.migration_journal.as_mut() {
                     journal.record_vehicle_replaced(
                         next_command_cursor,
@@ -1844,9 +1833,7 @@ impl crate::kernel::state::WorldState {
                     );
                 }
             } else if let Some(journal) = self.admin.migration_journal.as_mut() {
-                journal.refuse_unsupported_transition_state(
-                    crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-                );
+                journal.refuse_invalid_vehicle(new_state.handle().index());
             }
         }
         self.workspace.frontier_maintenance.note_active_source(new);
@@ -2410,9 +2397,6 @@ impl TrafficWorld {
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     ///
-    /// 过渡资源格（`Transition`）返回 `None`（#1217 归属≠身份切断：其归属派生
-    /// 对不是身份本体，v7 也表达不了资源种类与 T 稳定边身份）。
-    ///
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
@@ -2837,8 +2821,7 @@ impl TrafficWorld {
     #[cfg(feature = "execution-evidence")]
     pub fn take_execution_evidence(&mut self) -> crate::ExecutionEvidence {
         self.execution.assert_usable();
-        self.execution
-            .take_evidence(&self.state.binding.transition_cost)
+        self.execution.take_evidence()
     }
 
     /// 当前资源账快照；遍历全部自有存储，开销与世界规模成正比。
@@ -3095,10 +3078,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
 
     /// 把当前修订内的 passage 地址派生为可持久化的稳定 locator。
     ///
-    /// 归属≠身份（#1217 P1-4 切断）：过渡资源格（`Transition`）没有忠实的
-    /// 持久 locator——v7 的 `(stream, zone)` 对表达不了资源种类与 T 稳定边
-    /// 身份，且其 stream passage 派生对只是**归属**、不是身份本体，串成静态
-    /// passage 身份即错绑。因此固定过渡资源格一律返回 `None`，由调用方按持久化边界拒绝。
+    /// 地址需属于当前世界的已安装路口仲裁器。
     #[must_use]
     pub(crate) fn conflict_passage_locator(
         self,
@@ -3107,7 +3087,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         if !self.conflict_read().contains_address(address) {
             return None;
         }
-        let zone = address.static_zone()?;
+        let zone = address.zone();
         Some(crate::ConflictPassageLocator::new(
             self.binding
                 .revision
@@ -3131,25 +3111,15 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         let occurrence = *compiled
             .conflicts
             .get(usize::try_from(conflict_occurrence_index).ok()?)?;
-        // T 出现记录 locator（#1199）：locator 语义=passage 身份 (stream, zone)
-        // （conflict.rs 文档义，与资源种类无关）——Transition 资源格无
-        // static_zone，经其 stream passage 取 (stream, zone) 稳定对（零格式
-        // 变化：locator 类型与持久形制不动）。
-        let zone = occurrence.static_zone().or_else(|| {
-            self.binding
-                .revision
-                .conflict()
-                .participant_stream(occurrence.stream)?
-                .passages()
-                .get(usize::try_from(occurrence.passage_local_index).ok()?)
-                .map(|passage| passage.conflict_zone())
-        })?;
         let stable_locator = crate::ConflictPassageLocator::new(
             self.binding
                 .revision
                 .identity()
                 .stable_id(occurrence.stream)?,
-            self.binding.revision.identity().stable_id(zone)?,
+            self.binding
+                .revision
+                .identity()
+                .stable_id(occurrence.zone)?,
         );
         compiled.conflict_occurrence_locator(route, conflict_occurrence_index, stable_locator)
     }

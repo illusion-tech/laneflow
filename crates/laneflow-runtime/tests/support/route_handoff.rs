@@ -24,6 +24,8 @@ mod approaches;
 mod execution;
 #[path = "route_handoff/multi_handoff.rs"]
 mod multi_handoff;
+#[path = "route_handoff/parallel_entrant.rs"]
+mod parallel_entrant;
 #[path = "route_handoff/persistence.rs"]
 mod persistence;
 #[path = "route_handoff/rebind.rs"]
@@ -45,6 +47,8 @@ mod traffic;
 
 #[path = "route_handoff/clearance_speed.rs"]
 mod clearance_speed;
+#[path = "route_handoff/road_safety.rs"]
+mod road_safety;
 
 const TRAVEL_TOLERANCE_MM: std::num::NonZeroU32 = std::num::NonZeroU32::new(5).unwrap();
 
@@ -197,6 +201,7 @@ fn road_module_with_width(
         | Some(
             stop_line::SourceStop::Upstream
             | stop_line::SourceStop::WithTurn
+            | stop_line::SourceStop::ParallelFork
             | stop_line::SourceStop::TargetSignal,
         ) => (&["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.]),
         Some(stop_line::SourceStop::OnOccurrence | stop_line::SourceStop::Both) => {
@@ -231,7 +236,13 @@ fn road_module_with_width(
                         .into_iter()
                         .chain(
                             (*k == "s1"
-                                && matches!(source_stop, Some(stop_line::SourceStop::WithTurn)))
+                                && matches!(
+                                    source_stop,
+                                    Some(
+                                        stop_line::SourceStop::WithTurn
+                                            | stop_line::SourceStop::ParallelFork
+                                    )
+                                ))
                             .then(|| edge("turn-exit")),
                         )
                         .collect(),

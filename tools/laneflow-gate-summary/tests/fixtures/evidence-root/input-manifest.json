@@ -1,0 +1,53 @@
+{
+  "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "counts": {
+    "active": 7502,
+    "cells": 100,
+    "controllers": 0,
+    "edges": 808,
+    "facilities": 100,
+    "gates": 2,
+    "geometry_points": 41620,
+    "groups": 0,
+    "individuals": 10002,
+    "junctions": 1,
+    "maneuver_paths": 2,
+    "movements": 2,
+    "parked": 2500,
+    "routes": 402,
+    "spaces": 10000,
+    "stop_lines": 2
+  },
+  "files": [
+    {
+      "byte_length": 2170,
+      "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "input-plan.json"
+    },
+    {
+      "byte_length": 12988185,
+      "digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "name": "network.lfca"
+    },
+    {
+      "byte_length": 2081242,
+      "digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "name": "state.json"
+    }
+  ],
+  "format": "lf-synth-manifest-1",
+  "generator_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "identity": {
+    "case": {
+      "RouteHandoff": {
+        "changers_per_cluster": 2,
+        "clusters": 1
+      }
+    },
+    "fixed_delta_ms": 16,
+    "scale": 10000,
+    "seed": 0,
+    "workload_id": "LF-SYNTH-v2"
+  },
+  "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

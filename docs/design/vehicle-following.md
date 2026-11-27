@@ -240,9 +240,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Traffic Runtime 没有足够世界几何判断分支间碰撞。
 - 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
-**过渡投影衔接注记（#237，规范定义见 [`lane-change-minimal-contract.md`][lane-change-contract] §4）**：
-换道期间不生成投影占用记录，占用记录只表示实际车体，重叠分类沿用本节分档；过渡段
-资源格作为投影障碍，由换道合同 §5 的预约约束承担（#1220）。
+已进入横移的车身按实际触及的两侧区间参与跟车。保守扫过区间约束潜在进入者，实体重叠依据实际车身见证。保护维持到车尾清空。[最小换道合同][lane-change-contract]
 
 ### 6.5 状态参与
 
@@ -361,7 +359,7 @@ Physical constraints 不可绕过；regulatory constraints 由后续 policy subs
 
 #1272 把停止类 spatial target 冻结为**速度上界**归约（落地规则见
 `traffic-runtime-integer-geometry.md` §5）：denied 信号/策略门、已判定的
-Waiting/Conflict 停止、已知持续阻塞、过渡预约、停车入口与有限路终，在制动
+Waiting/Conflict 停止、已知持续阻塞、横移保护、停车入口与有限路终，在制动
 前视窗（§10.3）内以目标速度 `0` 参与「舒适可行域 → 紧急可行域 → 具名投影」
 级联；紧急减速下界在共同候选形成时施加。「尚未申请」的资源本身不构成停止
 目标；提前发现阻塞不等于提前申请或持有资源。求解器可行域（含本拍减速上界

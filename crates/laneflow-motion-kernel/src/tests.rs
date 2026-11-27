@@ -10,7 +10,6 @@ struct Fixture {
     carry: [u16; N],
     room: [u32; N],
     stop_cap: [u32; N],
-    cap_dominates: [bool; N],
     limit: [u32; N],
     leader: [f32; N],
     has_leader: [bool; N],
@@ -42,7 +41,6 @@ impl Fixture {
             carry: [0; N],
             room: [u32::MAX; N],
             stop_cap: [0; N],
-            cap_dominates: [false; N],
             limit: [u32::MAX; N],
             leader: [f32::INFINITY; N],
             has_leader: [false; N],
@@ -116,9 +114,6 @@ impl Fixture {
             if row % 2 == 0 {
                 f.stop_cap[row] = 9_550;
             }
-            // F3'：耗尽上界主导通道（过渡舒适衰减）随机穿插，验证三后端
-            // 与标量在同一主导语义下逐位一致。
-            f.cap_dominates[row] = row % 6 == 0;
             f.end_mm[row] = match row % 13 {
                 0 => 1_000,
                 _ => NO_HOLD_TARGET,
@@ -145,7 +140,6 @@ impl Fixture {
             carry_um: &self.carry[..n],
             hard_room_mm: &self.room[..n],
             exhausted_speed_cap_mm_s: &self.stop_cap[..n],
-            exhausted_cap_dominates: &self.cap_dominates[..n],
             committed_limit_mm_s: &self.limit[..n],
             leader_m: &self.leader[..n],
             has_leader: &self.has_leader[..n],
@@ -255,7 +249,6 @@ fn zero_safe_speed_stop_branch_stays_inside_the_follower_room() {
         f.carry[row] = 156;
         f.room[row] = u32::MAX;
         f.stop_cap[row] = 0;
-        f.cap_dominates[row] = false;
         f.limit[row] = u32::MAX;
         f.has_leader[row] = true;
         f.leader[row] = 2.002;
@@ -344,63 +337,6 @@ fn quantized_follower_at_emergency_floor_keeps_next_tick_feasible() {
             }
         }
     }
-}
-
-#[test]
-fn transition_exhaustion_preserves_the_following_bound_after_integer_travel() {
-    let mut f = Fixture::new(1);
-    let cases = [
-        // 从 1 m/s 降速，拍初紧急停车需 125 mm，实际走完 80 mm 后只够 600 mm/s。
-        (125_000, 80, 600, true),
-        (200_000, 80, 800, true),
-        (NO_FOLLOWER_ROOM, 80, 800, true),
-        // 未走完过渡距离时仍提交普通候选。
-        (125_000, 81, 600, false),
-        // 调用方传入了拍初不可行的有限界，不能凭它建立跟车保持义务。
-        (1, 80, 800, true),
-    ];
-    for row in 0..17 {
-        let (follower_room, hard_room, _, _) = cases[row % cases.len()];
-        f.enabled[row] = true;
-        f.has_proposal[row] = true;
-        f.proposal_speed[row] = 0.0;
-        f.speed[row] = 1_000;
-        f.carry[row] = 0;
-        f.has_leader[row] = follower_room != NO_FOLLOWER_ROOM;
-        f.leader[row] = 10.0;
-        f.safe_room[row] = follower_room as f32 / 1_000_000.0;
-        f.feasible_follower_room_um[row] = follower_room;
-        f.stop[row] = f32::INFINITY;
-        f.end[row] = f32::INFINITY;
-        f.stop_mm[row] = NO_HOLD_TARGET;
-        f.end_mm[row] = NO_HOLD_TARGET;
-        f.envelope[row] = f32::INFINITY;
-        f.emergency[row] = 4.0;
-        f.comfort[row] = 2.0;
-        f.room[row] = hard_room;
-        f.cap_dominates[row] = true;
-        f.stop_cap[row] = 800;
-        f.limit[row] = u32::MAX;
-    }
-    for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
-        let Some(kernel) = Kernel::for_backend(backend) else {
-            continue;
-        };
-        let mut result = Results::new();
-        kernel
-            .run_direct(&f.input(17), &mut result.direct_output(17), 0.1)
-            .unwrap();
-        for row in 0..17 {
-            let (_, _, speed, exhausted) = cases[row % cases.len()];
-            assert!(result.valid[row]);
-            assert_eq!(
-                (result.speed[row], result.exhausted[row]),
-                (speed, exhausted),
-                "{backend:?} row {row}"
-            );
-        }
-    }
-    assert_eq!(follower_exhausted_speed(50, 0, 4.0, 0, 999, 0), 0);
 }
 
 #[derive(Debug, PartialEq)]
@@ -535,23 +471,17 @@ fn assert_proposal_counts(stats: Stats, computed: usize, reused: usize) {
 fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary() {
     // 同一批含 floor 抬升、上界更紧、停稳分支、较低限速及未耗尽行；17 行覆盖向量尾。
     // #1272：候选形成把低于紧急下界 F 的提案抬到 F；耗尽拍 committed = min(归约速度, 上界)。
-    // F3' 复审修：dominant 通道（过渡舒适衰减）耗尽拍 = min(cap, limit)——
-    // cap 取代投影与紧急下界（r_p5 钉版 1000 → 550），且只在耗尽拍生效。
-    // (speed_mm_s, proposal_m_s, cap, limit, room, dominant, expected)
     let cases = [
-        (10_000, 10.0, u32::MAX, u32::MAX, 0, false, 10_000),
-        (10_000, 9.0, u32::MAX, u32::MAX, 0, false, 9_600),
-        (10_000, 10.0, 9_550, u32::MAX, 0, false, 9_550),
-        (400, 0.0, u32::MAX, u32::MAX, 100, false, 0),
-        (10_000, 10.0, 9_550, 6_000, 0, false, 6_000),
-        (10_000, 10.0, u32::MAX, u32::MAX, u32::MAX, false, 10_000),
-        (1_000, 1.0, 550, u32::MAX, 0, true, 550),
-        (1_000, 1.0, 550, 400, 0, true, 400),
-        (1_000, 10.0, 550, u32::MAX, u32::MAX, true, 10_000),
+        (10_000, 10.0, u32::MAX, u32::MAX, 0, 10_000),
+        (10_000, 9.0, u32::MAX, u32::MAX, 0, 9_600),
+        (10_000, 10.0, 9_550, u32::MAX, 0, 9_550),
+        (400, 0.0, u32::MAX, u32::MAX, 100, 0),
+        (10_000, 10.0, 9_550, 6_000, 0, 6_000),
+        (10_000, 10.0, u32::MAX, u32::MAX, u32::MAX, 10_000),
     ];
     let mut f = Fixture::new(1_199);
     for row in 0..17 {
-        let (speed, proposal, cap, limit, room, dominant, _) = cases[row % cases.len()];
+        let (speed, proposal, cap, limit, room, _) = cases[row % cases.len()];
         f.enabled[row] = true;
         f.has_proposal[row] = true;
         f.has_leader[row] = false;
@@ -565,7 +495,6 @@ fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary(
         f.proposal_speed[row] = proposal;
         f.room[row] = room;
         f.stop_cap[row] = cap;
-        f.cap_dominates[row] = dominant;
         f.limit[row] = limit;
     }
     for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
@@ -580,7 +509,7 @@ fn exhausted_cap_composes_with_candidate_floor_and_only_applies_at_the_boundary(
             assert!(result.valid[row]);
             assert_eq!(
                 result.speed[row],
-                cases[row % cases.len()].6,
+                cases[row % cases.len()].5,
                 "{backend:?}, row {row}"
             );
         }
@@ -609,7 +538,6 @@ fn out_of_window_stop_targets_behave_as_no_target_in_every_backend() {
             fixture.room[row] = u32::MAX;
             fixture.limit[row] = u32::MAX;
             fixture.stop_cap[row] = 0;
-            fixture.cap_dominates[row] = false;
         }
         far.end[row] = 10_000.0; // 远处有限路终：窗口 ≈ 54 m，严格窗外。
         near.stop[row] = 12.0; // 窗内停止目标：求解根式须收紧速度。
@@ -1191,7 +1119,6 @@ fn approach(backend: Backend, case: &Approach) -> (u32, u32) {
             f.carry[row] = carry;
             f.room[row] = distance;
             f.stop_cap[row] = 0;
-            f.cap_dominates[row] = false;
             f.limit[row] = u32::MAX;
             f.leader[row] = f32::INFINITY;
             f.has_leader[row] = false;
@@ -1322,58 +1249,6 @@ fn hold_reaches_persistent_targets_from_normal_states() {
         for backend in [Backend::Avx2, Backend::Avx512] {
             if Kernel::for_backend(backend).is_some() {
                 assert_eq!(approach(backend, case), reference, "{backend:?}");
-            }
-        }
-    }
-}
-
-#[test]
-fn hold_arrival_overrides_dominant_transition_cap() {
-    // #1506 评审：常规候选 (0, 125000) 已恰好到达过渡停止目标，耗尽上界由
-    // 舒适衰减主导（V − b_c·Δt = 500）。到位零速必须优先，余数不变与被清除两种情况。
-    const ROWS: usize = 16;
-    for carry in [0_u16, 400] {
-        for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
-            let Some(kernel) = Kernel::for_backend(backend) else {
-                continue;
-            };
-            let mut f = Fixture::new(0);
-            for row in 0..ROWS {
-                f.enabled[row] = true;
-                f.speed[row] = 1_000;
-                f.desired[row] = 1_000;
-                f.progress[row] = 0;
-                f.carry[row] = carry;
-                f.room[row] = 125;
-                f.stop_cap[row] = 500;
-                f.cap_dominates[row] = true;
-                f.limit[row] = u32::MAX;
-                f.leader[row] = f32::INFINITY;
-                f.has_leader[row] = false;
-                f.safe_room[row] = f32::INFINITY;
-                f.feasible_follower_room_um[row] = NO_FOLLOWER_ROOM;
-                f.accel[row] = 2.0;
-                f.comfort[row] = 2.0;
-                f.emergency[row] = 4.0;
-                f.stop_mm[row] = 125;
-                f.end_mm[row] = NO_HOLD_TARGET;
-                f.stop[row] = 0.125;
-                f.end[row] = f32::INFINITY;
-                f.envelope[row] = f32::INFINITY;
-                f.has_proposal[row] = false;
-            }
-            let input = f.input(ROWS);
-            let mut out = Results::new();
-            kernel
-                .run_direct(&input, &mut out.direct_output(ROWS), 0.25)
-                .expect("lengths");
-            for row in 0..ROWS {
-                assert!(out.valid[row], "{backend:?} C {carry} 行 {row} 有效");
-                assert_eq!(
-                    (out.travel[row], out.speed[row], out.carry[row]),
-                    (125, 0, 0),
-                    "{backend:?} C {carry} 行 {row}：到位零速"
-                );
             }
         }
     }

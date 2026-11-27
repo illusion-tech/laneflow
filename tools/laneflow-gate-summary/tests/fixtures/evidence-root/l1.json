@@ -1,1 +1,132 @@
-{"format":"lf-l1-topology-check-1","bundle":{"identity":"10000-L1-16","source_commit":null,"generator_commit":null,"config_digest":null},"verdict":"clean","lane_edge_count":10,"route_count":4,"transitions":[]}
+{
+  "format": "lf-synth-semantic-run-1",
+  "complete": true,
+  "scope": "L1_lane_change_competition_success_path_not_performance_or_product_certification",
+  "semantic_contract": "lf-synth-execution-2",
+  "implementation_commit": "cccccccccccccccccccccccccccccccccccccccc",
+  "input_manifest": {
+    "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "counts": {
+      "active": 7502,
+      "cells": 100,
+      "controllers": 0,
+      "edges": 808,
+      "facilities": 100,
+      "gates": 2,
+      "geometry_points": 41620,
+      "groups": 0,
+      "individuals": 10002,
+      "junctions": 1,
+      "maneuver_paths": 2,
+      "movements": 2,
+      "parked": 2500,
+      "routes": 402,
+      "spaces": 10000,
+      "stop_lines": 2
+    },
+    "files": [
+      {
+        "byte_length": 2170,
+        "digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "name": "input-plan.json"
+      },
+      {
+        "byte_length": 12988185,
+        "digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "name": "network.lfca"
+      },
+      {
+        "byte_length": 2081242,
+        "digest": "3333333333333333333333333333333333333333333333333333333333333333",
+        "name": "state.json"
+      }
+    ],
+    "format": "lf-synth-manifest-1",
+    "generator_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "identity": {
+      "case": {
+        "RouteHandoff": {
+          "changers_per_cluster": 2,
+          "clusters": 1
+        }
+      },
+      "fixed_delta_ms": 16,
+      "scale": 10000,
+      "seed": 0,
+      "workload_id": "LF-SYNTH-v2"
+    },
+    "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "warm_up_ticks": 16,
+  "observation_ticks": 2064,
+  "validated_boundaries": 2081,
+  "checkpoints": [
+    {
+      "handoff_journal": [],
+      "tick": 0
+    },
+    {
+      "handoff_journal": [
+        [
+          1,
+          0,
+          10,
+          400
+        ]
+      ],
+      "tick": 16
+    },
+    {
+      "handoff_journal": [
+        [
+          1,
+          0,
+          10,
+          400
+        ]
+      ],
+      "tick": 32
+    },
+    {
+      "handoff_journal": [
+        [
+          1,
+          0,
+          10,
+          400
+        ],
+        [
+          243,
+          0,
+          11,
+          400
+        ],
+        [
+          632,
+          0,
+          12,
+          400
+        ],
+        [
+          995,
+          1,
+          10,
+          401
+        ],
+        [
+          1480,
+          1,
+          11,
+          401
+        ],
+        [
+          2071,
+          1,
+          12,
+          401
+        ]
+      ],
+      "tick": 2080
+    }
+  ]
+}

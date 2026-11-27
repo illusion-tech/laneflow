@@ -1052,9 +1052,6 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
             world_id,
             world_generation,
             config,
-            // 切换候选绑定是全新世界账；过渡成本计数随新绑定从零开始
-            // （#1243 T2：逐世界归因，不继承切换前计数）。
-            transition_cost: crate::kernel::transition_cost::Recorder::new(),
         },
         committed: crate::kernel::state::CommittedWorldState {
             handoffs: Vec::new(),
@@ -1172,15 +1169,10 @@ pub(crate) fn migrate_structural_clone_with_conflict_plan(
         let base_state = world
             .vehicle_state(handle)
             .ok_or(CutoverError::WaitingRevalidationFailed)?;
-        // 迁移域入口级拒绝（#1217 D3/D4）：过渡态车辆增量在迁移日志/
-        // 增量形制中无忠实编码（phase Gate 槽表达不了资源种类与 T 稳定
-        // 边身份），结构化拒绝、零部分提交；不得让 `from_state` 触发 panic。
-        if !VehicleDelta::journalable(&base_state, world.compiled_route(base_state.route)) {
-            return Err(CutoverError::UnsupportedTransitionState(
-                crate::UnsupportedTransitionState::AdmissionHopWithoutGate,
-            ));
-        }
-        let delta = VehicleDelta::from_state(&base_state, world.compiled_route(base_state.route));
+        let delta = VehicleDelta::from_state(&base_state, world.compiled_route(base_state.route))
+            .ok_or(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        })?;
         let migrated =
             vehicle_state_from_delta(&world.binding.revision, &candidate, rebinding, &delta)?;
         candidate
@@ -1205,7 +1197,7 @@ fn mapped_conflict_address(
     source_address: crate::ConflictPassageAddress,
 ) -> Option<crate::ConflictPassageAddress> {
     let stream = rebinding.participant_stream(source_address.stream())?;
-    let zone = rebinding.conflict_zone(source_address.static_zone()?)?;
+    let zone = rebinding.conflict_zone(source_address.zone())?;
     target.conflict_read().unique_address(zone, stream)
 }
 
@@ -1887,17 +1879,6 @@ pub(crate) fn migrate_conflict_state(
     target_addresses.extend(arbiter.read().addresses());
     target_addresses.retain(|address| inherited_addresses.binary_search(address).is_err());
     for address in target_addresses.iter().copied() {
-        // 归属≠身份（#1217 D3）：过渡资源格的 lag 参照（含新格 CutoverFloor）
-        // 在持久形制中表达不了资源种类与 T 稳定边身份，迁移域 fail closed——
-        // 含固定过渡资源格的网络在跨修订切换时整体拒绝。
-        if matches!(
-            address.resource(),
-            crate::kernel::conflict::ConflictResource::Transition(_)
-        ) {
-            return Err(CutoverError::UnsupportedTransitionState(
-                crate::UnsupportedTransitionState::TransitionLagHistory,
-            ));
-        }
         arbiter
             .write()
             .restore_lag_reference(
@@ -2229,17 +2210,6 @@ pub(crate) fn project_expected_conflict(
             .unwrap_or(crate::ConflictLagReference::CutoverFloor(commit_time_ms));
         if reference == crate::ConflictLagReference::NoHistory {
             continue;
-        }
-        // 归属≠身份（#1217 D3 防御）：过渡资源格的 lag 行在持久形制中表达
-        // 不了资源种类与 T 稳定边身份；迁移入口（`migrate_conflict_state`）
-        // 已拒绝含 T 目标格，此处兜底同口径，不得以归属对顶替。
-        if matches!(
-            target_address.resource(),
-            crate::kernel::conflict::ConflictResource::Transition(_)
-        ) {
-            return Err(CutoverError::UnsupportedTransitionState(
-                crate::UnsupportedTransitionState::TransitionLagHistory,
-            ));
         }
         let locator = target
             .conflict_passage_locator(target_address)
@@ -3959,11 +3929,7 @@ pub(crate) mod tests {
                 .stable_id(source_address.stream())
                 .expect("source stream identity"),
             base.identity()
-                .stable_id(
-                    source_address
-                        .static_zone()
-                        .expect("static zone (S4: transition 不入迁移域)"),
-                )
+                .stable_id(source_address.zone())
                 .expect("source zone identity"),
         );
         let descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -4009,11 +3975,7 @@ pub(crate) mod tests {
                     .expect("target stream identity"),
                 target
                     .identity()
-                    .stable_id(
-                        target_address
-                            .static_zone()
-                            .expect("static zone (S4: transition 不入迁移域)"),
-                    )
+                    .stable_id(target_address.zone(),)
                     .expect("target zone identity"),
             ),
             source_locator,

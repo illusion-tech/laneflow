@@ -101,7 +101,6 @@ pub(crate) fn input_plan(identity: &Identity) -> Value {
         }
         Case::LaneChange(params) => {
             let slots = params.changers_per_cluster;
-            // 与 state.rs 共用单一事实源（#1233 对象 b/F1）。
             let changers: Vec<serde_json::Value> = (0..params.clusters)
                 .flat_map(|cluster| {
                     (0..slots).map(move |slot| {

@@ -51,7 +51,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [示例场景设计][doc-design-example-scenarios] — 已接受；无生效取代。定义参考场景的几何、路线与验证用途。
 - [测量环境与进程观测][doc-design-host-observe] — 已接受；无生效取代。定义测量环境记录、进程快照与子进程观测。
 - [复杂路口只读观测与跨层验证][doc-design-junction-observation-and-validation] — 已接受；无生效取代。定义复杂路口只读观测、参考场景与有限验证。
-- [最小换道合同（Lane Change Minimal Contract）][doc-design-lane-change-minimal-contract] — 已接受；无生效取代。规定固定预制换道退役前的运行边界，以及任意位置换道承接的安全验收。
+- [最小换道合同（Lane Change Minimal Contract）][doc-design-lane-change-minimal-contract] — 已接受；无生效取代。规定同向相邻车道动态交接的让行、竞争、制动和清尾行为验收。
 - [Lane Graph 设计][doc-design-lane-graph] — 已接受；无生效取代。定义车道图、连接和交通拓扑。
 - [LF-SYNTH 执行核验][doc-design-lf-synth-execution] — 持续维护；无生效取代。定义合成工作负载执行窗口与逐拍语义核验。
 - [LF-SYNTH 规范输入交付][doc-design-lf-synth-input-bundle] — 持续维护；无生效取代。定义正式合成规模、规范输入和受检交付。

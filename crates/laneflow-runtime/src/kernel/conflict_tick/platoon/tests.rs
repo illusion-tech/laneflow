@@ -215,7 +215,7 @@ fn eligible_competing_stream_truncates_only_a_follower_that_can_still_stop() {
     let revision = world.revision();
     let topology = revision.conflict();
     let other_stream = *topology
-        .conflict_zone(current.static_zone().unwrap())
+        .conflict_zone(current.zone)
         .unwrap()
         .participant_streams()
         .iter()

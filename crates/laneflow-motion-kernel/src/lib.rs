@@ -7,8 +7,7 @@ mod projection;
 mod x86;
 pub use hold::{
     HOLD_TARGETS, HoldCommit, HoldKind, HoldState, NO_FOLLOWER_ROOM, NO_HOLD_TARGET,
-    braking_distance_to_speed_um, delta_ms, follower_exhausted_speed, hold_stop_feasibility,
-    stop_distance_um,
+    braking_distance_to_speed_um, delta_ms, hold_stop_feasibility, stop_distance_um,
 };
 pub use projection::{
     BoundaryInput, BoundaryOutput, LimitInput, LimitOutput, max_next_speed_for_decel,
@@ -157,9 +156,6 @@ pub struct Input<'a> {
     pub hard_room_mm: &'a [u32],
     /// 仅在硬空间耗尽时叠加到投影速度的上限；零表示停稳。
     pub exhausted_speed_cap_mm_s: &'a [u32],
-    /// 耗尽拍速度由耗尽上界直接主导（过渡预约的舒适衰减），不与候选投影
-    /// 取 min。跟车可行时仍须停得进拍末跟车停车界。只在完成阶段消费。
-    pub exhausted_cap_dominates: &'a [bool],
     pub committed_limit_mm_s: &'a [u32],
     pub leader_m: &'a [f32],
     pub has_leader: &'a [bool],
@@ -527,7 +523,6 @@ impl Kernel {
             input.carry_um.len(),
             input.hard_room_mm.len(),
             input.exhausted_speed_cap_mm_s.len(),
-            input.exhausted_cap_dominates.len(),
             input.committed_limit_mm_s.len(),
             input.leader_m.len(),
             input.has_leader.len(),
@@ -788,8 +783,7 @@ fn stop_solve_participates(
 
 /// L=0 目标的「舒适 → 紧急 → 具名投影」级联。求解器可行域自带本拍减速上界
 /// 与拍内停稳实际减速度定义域；两域皆空（本拍必越过目标）时保持紧急下界
-/// 推进，位移由硬空间收到目标，线上速度交给耗尽层按主导源分档（过渡的
-/// 舒适衰减仅在实际过渡耗尽时生效——F3 复审修 3）。
+/// 推进，位移由硬空间收到目标，线上速度由耗尽层收紧。
 fn cap_next_speed_for_stop_target(
     speed: f32,
     next: f32,
@@ -898,8 +892,7 @@ fn scalar_row<const TRACK: bool>(
         .unwrap_or((f32::NAN, f32::NAN))
     };
     // #1272 候选形成（仅提案诞生处：Full/Direct/Proposal）：减速下界先于空间
-    // 目标施加（raw 低于下界且安全域非空时属正常结果，不进投影分支；过渡预约
-    // 用服务/舒适档下界）。目标距离 0 归耗尽语义，不在此归零。Project 读到的
+    // 目标施加。目标距离 0 归耗尽语义，不在此归零。Project 读到的
     // 提案已经过归约，重放地板会把已收紧的速度抬回。
     let mut raw_speed = raw_speed;
     let stop_target = stop_target_distance(input, row);
@@ -1152,29 +1145,14 @@ fn finish_held(
         column[row] = hold;
     }
     let projected_speed = (rounded_speed as u32).min(input.committed_limit_mm_s[row]);
-    // F3' 复审修：过渡耗尽的「耗尽上界主导」（合同：耗尽拍由该上界主导，
-    // 不与候选紧急投影取 min——r_p5 钉版 550 而非 100）；其余停止源维持
-    // min(投影, 耗尽上界)。本列只在完成阶段消费，不影响候选形成。
-    // 保持义务下的到线优先于其余正常行：零速（整数几何 §5.1）。
-    let exhausted_speed = || {
-        if hold.is_some_and(|commit| commit.arrives) {
-            0
-        } else if input.exhausted_cap_dominates[row] {
-            follower_exhausted_speed(
-                input.exhausted_speed_cap_mm_s[row].min(input.committed_limit_mm_s[row]),
-                input.speed_mm_s[row],
-                input.emergency_decel[row],
-                input.feasible_follower_room_um[row],
-                input.carry_um[row],
-                room,
-            )
-        } else {
-            projected_speed.min(input.exhausted_speed_cap_mm_s[row])
-        }
+    let exhausted_speed = if hold.is_some_and(|commit| commit.arrives) {
+        0
+    } else {
+        projected_speed.min(input.exhausted_speed_cap_mm_s[row])
     };
     if room == 0 {
         output.travel_mm[row] = 0;
-        output.speed_mm_s[row] = exhausted_speed();
+        output.speed_mm_s[row] = exhausted_speed;
         output.carry_um[row] = 0;
         output.progress_mm[row] = input.progress_mm[row];
         output.exhausted[row] = true;
@@ -1193,7 +1171,7 @@ fn finish_held(
     output.travel_mm[row] = travel_mm;
     output.progress_mm[row] = input.progress_mm[row].saturating_add(travel_mm);
     output.speed_mm_s[row] = if exhausted {
-        exhausted_speed()
+        exhausted_speed
     } else {
         projected_speed
     };

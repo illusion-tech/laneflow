@@ -3,7 +3,7 @@ use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::{BoundedDistance, StationAddress, StationCandidates};
 use thiserror::Error;
 
-use crate::kernel::lane_change::{service_stop_distance_um, stop_from_cursor_mm};
+use super::braking::{service_stop_distance_um, stop_from_cursor_mm};
 use crate::kernel::state::WorldState;
 use crate::kernel::tables::{CompiledRoute, distance_to_occurrence_progress};
 use crate::kernel::tick::MotionReach;

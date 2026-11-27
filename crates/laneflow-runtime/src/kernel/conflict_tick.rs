@@ -14,7 +14,6 @@ use crate::kernel::conflict::{
     ConflictAcquireError, ConflictCandidateOrderKey, ConflictGrant, GrantResourceBundle,
     RelativeDownstreamEnd, WaitingAdmissionEntitlement,
 };
-use crate::kernel::lane_change::{service_stop_distance_um, stop_from_cursor_mm};
 use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
     ConflictEligibilityState, ConflictPassageAddress, ConflictPassageOccurrenceLocator,
@@ -104,8 +103,8 @@ pub(super) fn gate_may_be_reached_on_route(
         state.route_edge_index
     };
     let Some(hop) = route
-        .conflict_dispatch_hops
-        .get(route.conflict_dispatch_hops.partition_point({
+        .gate_hops
+        .get(route.gate_hops.partition_point({
             #[cfg(test)]
             super::route_query_research::note_search("conflict_tick:45");
             |hop| *hop < cursor
@@ -368,7 +367,7 @@ fn sort_staged_decisions(decisions: &mut [ConflictDecision], order: &mut Vec<Can
         let (present, zone, stream, local) = address.map_or((0, 0, 0, 0), |address| {
             (
                 1_u128,
-                crate::kernel::conflict::resource_order_raw(address.resource()),
+                address.zone().raw(),
                 address.stream().raw(),
                 address.passage_local_index(),
             )
@@ -464,29 +463,11 @@ fn evaluate_gate_hop(
         |entry| entry.exit_route_edge_index <= gate_hop
     });
     let range = compiled.conflict_gate_ranges[gate_hop as usize];
-    // P1-3（#1199）：尾过渡锚统一沿 bind 回退语义——Transition 出现记录的
-    // 锚=发射侧 bind 的 maneuver_index（后继优先/前驱回退/平局取首），
-    // 不用分区点重导（末 maneuver 后的过渡分区点错位）。
-    let maneuver_index = compiled
-        .conflicts
-        .get(range.start as usize)
-        .filter(|occurrence| {
-            matches!(
-                occurrence.resource,
-                crate::kernel::conflict::ConflictResource::Transition(_)
-            )
-        })
-        .map(|occurrence| occurrence.maneuver_index as usize)
-        .unwrap_or(maneuver_index);
-    // 门 hop 须落在某 maneuver occurrence 内；无 gate 的冲突 hop（过渡
-    // 资源 hop，#1199 修形①②）位于其穿越 maneuver 起点之前——锚定首个
-    // 后续 maneuver（partition_point 的首个 exit > hop 者），不作容含检查。
-    if compiled.hop_gate[gate_hop as usize].is_some()
-        && compiled
-            .maneuvers
-            .get(maneuver_index)
-            .filter(|entry| entry.entry_route_edge_index <= gate_hop)
-            .is_none()
+    if compiled
+        .maneuvers
+        .get(maneuver_index)
+        .filter(|entry| entry.entry_route_edge_index <= gate_hop)
+        .is_none()
     {
         return Err(StepError::ConflictInvariantViolation);
     }
@@ -504,36 +485,25 @@ fn evaluate_gate_hop(
     } else {
         None
     };
-    let gate = compiled.hop_gate[gate_hop as usize];
-    let decision = match gate {
-        Some(gate) => {
-            let decision = read.gate_policy_decision(gate, state.profile);
-            // #1272 黄灯困境区逐拍许可：拍初按紧急减速度停不住的黄灯门当拍
-            // 放行为候选，候选保护等级保留该解释的原判级（绿列），让行义务
-            // 与资源仲裁继续独立生效。
-            if decision == GatePolicyDecision::DenyAndStop {
-                let position = crate::kernel::vehicle_store::MotionPosition::from(&state);
-                let distance_to_line = gate_hop_line_distance(compiled, &position, gate_hop);
-                if distance_to_line.is_some_and(|mm| {
-                    read.gate_yellow_dilemma_exempt(gate, state.profile, state.speed_mm_s, mm)
-                }) {
-                    gate_green_column_decision(read, gate, state.profile)
-                        .unwrap_or(GatePolicyDecision::Candidate(GateCandidateKind::Permissive))
-                } else {
-                    decision
-                }
+    let gate = compiled.hop_gate[gate_hop as usize].ok_or(StepError::ConflictInvariantViolation)?;
+    let decision = {
+        let decision = read.gate_policy_decision(gate, state.profile);
+        // #1272 黄灯困境区逐拍许可：拍初按紧急减速度停不住的黄灯门当拍
+        // 放行为候选，候选保护等级保留该解释的原判级（绿列），让行义务
+        // 与资源仲裁继续独立生效。
+        if decision == GatePolicyDecision::DenyAndStop {
+            let position = crate::kernel::vehicle_store::MotionPosition::from(&state);
+            let distance_to_line = gate_hop_line_distance(compiled, &position, gate_hop);
+            if distance_to_line.is_some_and(|mm| {
+                read.gate_yellow_dilemma_exempt(gate, state.profile, state.speed_mm_s, mm)
+            }) {
+                gate_green_column_decision(read, gate, state.profile)
+                    .unwrap_or(GatePolicyDecision::Candidate(GateCandidateKind::Permissive))
             } else {
                 decision
             }
-        }
-        None => {
-            // 修形①②（#1199）：无 gate 的冲突 hop（如过渡边 T 的资源格
-            // 准入）——资源候选形态、Uncontrolled 法规；准入判据=P4 具名
-            // 证明（collect_occurrence_fields 的 Transition 分支）。
-            if range.len == 0 {
-                return Err(StepError::ConflictInvariantViolation);
-            }
-            GatePolicyDecision::Candidate(GateCandidateKind::Uncontrolled)
+        } else {
+            decision
         }
     };
     let outcome = match decision {
@@ -1416,7 +1386,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         Ok(ConflictOccurrenceJournalLocator {
             route,
             stream: occurrence.stream.raw(),
-            zone: crate::kernel::conflict::resource_order_raw(occurrence.resource),
+            zone: occurrence.zone.raw(),
             passage_local_index: occurrence.passage_local_index,
             entry_route_edge_index: occurrence.entry.route_edge_index,
             entry_progress_mm: occurrence.entry.progress_mm,
@@ -2998,12 +2968,12 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         } else {
             state.route_edge_index
         };
-        let first_gate = compiled.conflict_dispatch_hops.partition_point({
+        let first_gate = compiled.gate_hops.partition_point({
             #[cfg(test)]
             super::route_query_research::note_search("conflict_tick:1482");
             |hop| *hop < first_possible_hop
         });
-        let Some(first_hop) = compiled.conflict_dispatch_hops.get(first_gate).copied() else {
+        let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
             return Ok(());
         };
         let profile = self
@@ -3109,40 +3079,16 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 );
             }
         }
-        // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
-        // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
-        // 生命周期守卫读面（#1199）：已持冲突裁决权（B 裁定一 owner 一裁决权）
-        // =穿越进行中——不再发起新候选（跨界后边界规范化使上一 hop 仍在
-        // 可行集，防再申请炸束）。
-        let lifecycle_read = crate::kernel::phase::StepReadView {
-            handoff_grants: &[],
-            binding: self.binding,
-            committed: &self.committed,
-            derived: &self.derived,
-            contender_frontier: None,
-        };
-        // P2-2（#1199）：派发迭代从计算分区点起（恢复 first_gate 直起语义
-        // ——skip_while 每次全扫已过 hop；分区点一次计算、迭代 O(剩余)）。
         let dispatch_start = compiled
-            .conflict_dispatch_hops
+            .gate_hops
             .partition_point(|hop| *hop < first_possible_hop);
-        for &gate_hop in &compiled.conflict_dispatch_hops[dispatch_start..] {
-            // 生命周期守卫（#1199 P1-5）：持裁决权=穿越进行中——仅跳过**同
-            // 资源**再申请（防重复获取）；相邻过渡链（T0a→T0b）异资源请求
-            // 放行（进链前获取相邻过渡资源——链式预取语义）。
-            if let Some(reservation) = lifecycle_read.conflict_reservation(state.handle) {
-                let range = reservation.passage_range();
-                let held_resource = compiled
-                    .conflicts
-                    .get(range.first_conflict_occurrence_index() as usize)
-                    .map(|occurrence| occurrence.resource);
-                let hop_resource = compiled
-                    .conflicts
-                    .get(compiled.conflict_gate_ranges[gate_hop as usize].start as usize)
-                    .map(|occurrence| occurrence.resource);
-                if held_resource.is_some() && held_resource == hop_resource {
-                    continue;
-                }
+        for &gate_hop in &compiled.gate_hops[dispatch_start..] {
+            if self
+                .read_view()
+                .conflict_reservation(state.handle)
+                .is_some()
+            {
+                break;
             }
             let gate_edge = compiled.edges[gate_hop as usize];
             let gate_progress =
@@ -4506,7 +4452,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                 let locator = ConflictOccurrenceJournalLocator {
                     route: range.route(),
                     stream: occurrence.stream.raw(),
-                    zone: crate::kernel::conflict::resource_order_raw(occurrence.resource),
+                    zone: occurrence.zone.raw(),
                     passage_local_index: occurrence.passage_local_index,
                     entry_route_edge_index: occurrence.entry.route_edge_index,
                     entry_progress_mm: occurrence.entry.progress_mm,
@@ -4558,12 +4504,6 @@ fn route_front_at_or_beyond(state: VehicleState, edge: u32, progress_mm: u32) ->
     (state.route_edge_index, state.progress_mm) >= (edge, progress_mm)
 }
 
-/// 两车停点的有向整毫米界。不能证明先后时，由候选的直接区间停车证明接续。
-fn stopped_chain_before_interval(follower_um: u64, leader_um: u64, interval_mm: u32) -> bool {
-    follower_um.div_ceil(1_000) <= leader_um / 1_000
-        && leader_um.div_ceil(1_000) <= u64::from(interval_mm)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -4587,15 +4527,6 @@ mod tests {
     use crate::kernel::conflict::{
         ApproachFrontierCell, conflict_work_counts, reset_conflict_work_counts,
     };
-
-    #[test]
-    fn chain_stop_proof_rounds_against_excluding_an_entrant() {
-        assert!(stopped_chain_before_interval(9_001, 10_000, 10));
-        assert!(stopped_chain_before_interval(10_000, 10_000, 10));
-        assert!(!stopped_chain_before_interval(10_001, 10_000, 11));
-        assert!(!stopped_chain_before_interval(10_001, 10_999, 11));
-        assert!(!stopped_chain_before_interval(9_000, 10_001, 10));
-    }
 
     #[test]
     fn gate_cache_requires_full_identity_position_and_present_result() {
@@ -7288,173 +7219,6 @@ fn resource_shape(
     }
 }
 
-/// P4 潜在进入者枚举结果（#1216 域 B②）：区间邻域逐条目近端距。
-pub(crate) struct EntrantNeighborhood {
-    /// 区间 T 边自身 + 直接邻居（区间边界目标候选集）。
-    pub(crate) first_ring: Vec<laneflow_static_contract::LaneEdgeOrdinal>,
-    /// 枚举条目 `(边, 近端距毫米)`，发现序（确定性）。
-    pub(crate) entries: Vec<(laneflow_static_contract::LaneEdgeOrdinal, u64)>,
-}
-
-/// P4 搜索范围导出（#1216）：`reach = max_{profile ∈ 修订} d_stop(
-/// MAX_SPEED_MM_S, 固定步长, comfort_decel, min_gap)`——受检 profile 与步长
-/// 的最坏具名四项停止距离（250m 固定常量删除：受检 profile/步长组合的
-/// 制动距离可达 10km 量级，任何固定半径都无输入上界支撑）。reach 之外的
-/// 车 `d_stop ≤ reach < 实际距` 恒可让行，剪枝不漏（I-B1 方向保持）。
-///
-/// `comfort_decel == 0` 的 profile 令 `d_stop = u64::MAX`（不可证 → 整可达
-/// 分支枚举，有限图 visited 集终止）；无 profile 或 profile 数据缺失同样取
-/// `u64::MAX` fail-closed（#1199：证明前提不可得即 no-grant，不静默放行）。
-pub(crate) fn entrant_stop_reach_mm(
-    traffic: &laneflow_static_network::SharedTrafficNetwork,
-    delta_ms: u64,
-    transition_cost: &crate::kernel::transition_cost::Recorder,
-) -> u64 {
-    let relations = traffic.relations();
-    let profiles = traffic
-        .entity_counts()
-        .count(laneflow_static_contract::EntityKind::VehicleProfile);
-    let mut reach: Option<u64> = None;
-    let mut profile_steps = 0_u64;
-    for raw in 0..profiles {
-        profile_steps += 1;
-        let Some(profile) = relations.vehicle_profile(
-            laneflow_static_contract::VehicleProfileOrdinal::from_raw(raw),
-        ) else {
-            transition_cost.profile(profile_steps);
-            return u64::MAX;
-        };
-        let stop = service_stop_distance_um(
-            laneflow_static_contract::MAX_SPEED_MM_S,
-            delta_ms,
-            profile.comfort_decel(),
-            profile.min_gap_mm(),
-        )
-        .map_or(u64::MAX, |stop_um| stop_um.div_ceil(1_000));
-        reach = Some(reach.map_or(stop, |current: u64| current.max(stop)));
-    }
-    transition_cost.profile(profile_steps);
-    reach.unwrap_or(u64::MAX)
-}
-
-/// P4 潜在进入者枚举（#1216 域 B②）：区间 T 边可达分支的逐条目近端距
-/// 游走。`depth` = 条目边近端（较近端点）到区间两端点的最短分支路线距离，
-/// 条目互不共享、min 松弛在有限图上收敛（visited 标签表终止）。剪枝只用
-/// 近端距（`depth ≤ reach_mm` 才入列——边上存在可达点），逐进入者证明仍用
-/// 既有实际距（不松）。前驱邻居连接在当前边近端一侧，深度按连接点实算
-/// ——逐字 `depth(c) + len(c)` 会在长共享边后多计整条共享边、误剪实际距
-/// 小于 `d_stop` 的车（I-B1 不漏反例见测试
-/// `a2_long_shared_edge_prune_keeps_predecessor_near_end`）。
-pub(crate) fn entrant_neighborhood(
-    traffic: &laneflow_static_network::SharedTrafficNetwork,
-    interval_edge: laneflow_static_contract::LaneEdgeOrdinal,
-    reach_mm: u64,
-    transition_cost: &crate::kernel::transition_cost::Recorder,
-) -> EntrantNeighborhood {
-    use laneflow_static_contract::LaneEdgeOrdinal;
-    let length_of = |edge: LaneEdgeOrdinal| -> u64 {
-        u64::from(
-            *traffic
-                .lane_lengths_millimetres()
-                .get(edge.index())
-                .unwrap_or(&0),
-        )
-    };
-    let mut first_ring: Vec<LaneEdgeOrdinal> = vec![interval_edge];
-    let mut first_ring_scan_steps = 0_u64;
-    for neighbor in traffic
-        .successors(interval_edge)
-        .unwrap_or_default()
-        .iter()
-        .chain(traffic.predecessors(interval_edge).unwrap_or_default())
-    {
-        if *neighbor == interval_edge {
-            continue;
-        }
-        let mut found = false;
-        for existing in first_ring.iter() {
-            first_ring_scan_steps += 1;
-            if existing == neighbor {
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            first_ring.push(*neighbor);
-        }
-    }
-    // 标签表 `(边, 起点端深, 终点端深)`：共享端点双向 min 松弛（非负权
-    // 有限图收敛到精确最短路）；`u64::MAX` = 未达。
-    let mut labels: Vec<(LaneEdgeOrdinal, u64, u64)> = Vec::new();
-    let mut worklist: Vec<usize> = Vec::new();
-    let mut labels_scan_steps = 0_u64;
-    let mut slot_of = |labels: &mut Vec<(LaneEdgeOrdinal, u64, u64)>,
-                       worklist: &mut Vec<usize>,
-                       edge: LaneEdgeOrdinal|
-     -> usize {
-        let mut steps = 0_u64;
-        let found = labels.iter().position(|(candidate, _, _)| {
-            steps += 1;
-            *candidate == edge
-        });
-        labels_scan_steps += steps;
-        if let Some(position) = found {
-            position
-        } else {
-            labels.push((edge, u64::MAX, u64::MAX));
-            worklist.push(labels.len() - 1);
-            labels.len() - 1
-        }
-    };
-    let seeded = slot_of(&mut labels, &mut worklist, interval_edge);
-    labels[seeded] = (interval_edge, 0, 0);
-    while let Some(current) = worklist.pop() {
-        let (edge, start, end) = labels[current];
-        // 近端距已超界的条目不再扩张：其可达近端必经更远端点，靠内侧的
-        // 邻居仍由近端一侧入列（剪枝不漏）。
-        if start.min(end) > reach_mm {
-            continue;
-        }
-        let length = length_of(edge);
-        let mut next_start = start.min(end.saturating_add(length));
-        let mut next_end = end.min(start.saturating_add(length));
-        for neighbor in traffic.successors(edge).unwrap_or_default() {
-            let slot = slot_of(&mut labels, &mut worklist, *neighbor);
-            let shared = next_end.min(labels[slot].1);
-            if shared < labels[slot].1 {
-                labels[slot].1 = shared;
-                worklist.push(slot);
-            }
-            next_end = next_end.min(shared);
-        }
-        for neighbor in traffic.predecessors(edge).unwrap_or_default() {
-            let slot = slot_of(&mut labels, &mut worklist, *neighbor);
-            let shared = next_start.min(labels[slot].2);
-            if shared < labels[slot].2 {
-                labels[slot].2 = shared;
-                worklist.push(slot);
-            }
-            next_start = next_start.min(shared);
-        }
-        if (next_start, next_end) != (labels[current].1, labels[current].2) {
-            labels[current].1 = next_start;
-            labels[current].2 = next_end;
-            worklist.push(current);
-        }
-    }
-    let entries: Vec<(LaneEdgeOrdinal, u64)> = labels
-        .into_iter()
-        .filter(|(_, start, end)| (*start).min(*end) <= reach_mm)
-        .map(|(edge, start, end)| (edge, start.min(end)))
-        .collect();
-    let entry_count = entries.len() as u64;
-    transition_cost.neighborhood(labels_scan_steps, first_ring_scan_steps, entry_count);
-    EntrantNeighborhood {
-        first_ring,
-        entries,
-    }
-}
-
 impl ConflictTaskView<'_> {
     /// 共用领域段（#706 R3-3a）：单个冲突出现记录的 cell 字段求值——地址
     /// 收集、规则流解析与 priority 最小值归约、Protected 跳过让行间隙、
@@ -7480,26 +7244,6 @@ impl ConflictTaskView<'_> {
         *priority = Some(priority.map_or(stream.priority(), |current: i32| {
             current.min(stream.priority())
         }));
-        // P4 具名判据（#1199 合同 §5.2）：过渡资源的让行证明=换道方对
-        // 邻域潜在进入者的逐个可让行证明，按换道请求求值（与 policy 流级
-        // 目标及 gate 保护位无关——§5.2 换道方义务），先于 Protected 早
-        // 返回执行。
-        if matches!(
-            occurrence.resource,
-            crate::kernel::conflict::ConflictResource::Transition(_)
-        ) {
-            let p4 = self.evaluate_transition_p4(&state, &occurrence);
-            if let Some(reason) = p4 {
-                *preflight_no_grant = Some(preflight_no_grant.map_or(reason, |current| {
-                    if no_grant_rank(reason) < no_grant_rank(current) {
-                        reason
-                    } else {
-                        current
-                    }
-                }));
-            }
-            return Ok(());
-        }
         // Protected 候选仍解析规则并收集全部冲突资源，只跳过让行间隙求值。
         // 占用、预留、下游净空和运动安全继续走共同的仲裁路径。
         if kind == GateCandidateKind::Protected {
@@ -7508,7 +7252,7 @@ impl ConflictTaskView<'_> {
         let (zone, targets) = policy
             .yield_targets(occurrence.stream, class, occurrence.passage_local_index)
             .ok_or(StepError::ConflictInvariantViolation)?;
-        if Some(zone) != occurrence.static_zone() {
+        if zone != occurrence.zone {
             return Err(StepError::ConflictInvariantViolation);
         }
         let Some(gap_index) = stream.gap_profile_index() else {
@@ -7525,8 +7269,8 @@ impl ConflictTaskView<'_> {
             .get(gap_index as usize)
             .ok_or(StepError::ConflictInvariantViolation)?;
         for target in targets {
-            let address = crate::ConflictPassageAddress::from_resource(
-                occurrence.resource,
+            let address = crate::ConflictPassageAddress::new(
+                occurrence.zone,
                 target.stream(),
                 target.passage_local_index(),
             );
@@ -7551,257 +7295,6 @@ impl ConflictTaskView<'_> {
             }
         }
         Ok(())
-    }
-
-    /// P4 潜在进入者证明（#1199 合同 §5.2）：潜在进入者=过渡区（T 边）及
-    /// 其上/下游邻域车辆（实际车体记录，2-hop 邻域=A2 投影邻域）；逐个以
-    /// 具名四项停止距离判据评估让行可证性（`service_stop_distance_um`，A4
-    /// 命名参数：profile 制动/间隙 + config 步长），任一不可证 → no-grant
-    /// （`ApproachUnprovable`）。进入者到区间距离=其路线到 T 边界的最短
-    /// 路线空间距离（T 在其路线则到 T 入口；否则经 T 的前/后继边界边）。
-    /// MotionReach 本拍不可达的跳拍重证由上层候选推进语义承担（§5.2 不
-    /// 卸除存续期义务）。
-    fn evaluate_transition_p4(
-        &self,
-        state: &VehicleState,
-        occurrence: &crate::kernel::tables::ConflictPassageOccurrence,
-    ) -> Option<crate::ConflictNoGrantReason> {
-        // fail-closed（#1199）：任何证明前提不可得即 no-grant，不静默放行。
-        let unprovable = crate::ConflictNoGrantReason::ApproachUnprovable;
-        let Some(compiled) = self.read.compiled_route(state.route) else {
-            return Some(unprovable);
-        };
-        let relations = self.read.binding.revision.traffic().relations();
-        let delta_ms = self.read.binding.config.fixed_delta_time_ms();
-        let Some(&interval_edge) = compiled
-            .edges
-            .get(occurrence.entry.route_edge_index as usize)
-        else {
-            return Some(unprovable);
-        };
-        let traffic = self.read.binding.revision.traffic();
-        // 域 B（#1199 总设计三段式）②停止距离可达域枚举（#1216 修）：逐
-        // 条目近端距游走（`entrant_neighborhood`）——I-B1 枚举域 ⊇ d_stop
-        // 可达域：剪枝按近端距（不漏），证明按逐进入者实际距（不松）；
-        // 半径 `reach` 由修订内 profile/步长最坏 d_stop 导出（250m 固定常
-        // 量删除——受检组合制动距离可达 10km 量级，固定半径无输入上界支
-        // 撑）。边集含环游标重复段——共享边天然覆盖 I-B3。
-        let transition_cost = &self.read.binding.transition_cost;
-        let reach_mm = entrant_stop_reach_mm(traffic, delta_ms, transition_cost);
-        let neighborhood = entrant_neighborhood(traffic, interval_edge, reach_mm, transition_cost);
-        let first_ring = &neighborhood.first_ring;
-        // 区间边界目标（进入者路线到 T 的最短路线空间距离）：目标出现记录
-        // 从进入者游标定位「首次不早于游标」（#1216）——循环路线重复边
-        // 不得回选身后出现记录（身后目标返 `None` 是正确语义，误选会把真实
-        // 前方进入者误判「已过区间」跳过证明）。T 入口与全部邻接边界取并集、
-        // 由调用方按最近距离聚合（#1322）：循环路线先经过 T 的直接后继时，
-        // 远处的未来 T 出现记录不得遮蔽更近的邻接边界——证明边界须与 P5
-        // `transition_reservation_stop` 的预约停车边界一致（合同 §5.3）。
-        let boundary_targets = |route: &crate::kernel::tables::CompiledRoute, cursor: u32| {
-            let mut targets = Vec::new();
-            if let Some(index) = route.first_edge_occurrence_at_or_after(interval_edge, cursor) {
-                targets.push((index as usize, occurrence.entry.progress_mm));
-            }
-            for edge in first_ring {
-                if *edge == interval_edge {
-                    continue;
-                }
-                let Some(index) = route.first_edge_occurrence_at_or_after(*edge, cursor) else {
-                    continue;
-                };
-                let progress = if traffic
-                    .successors(interval_edge)
-                    .is_some_and(|list| list.contains(edge))
-                {
-                    0
-                } else {
-                    traffic
-                        .lane_lengths_millimetres()
-                        .get(edge.index())
-                        .copied()
-                        .unwrap_or(u32::MAX)
-                };
-                targets.push((index as usize, progress));
-            }
-            targets
-        };
-        for &(edge, _) in &neighborhood.entries {
-            for handle in self.read.derived.occupancy.edge_vehicles(edge.index()) {
-                if handle == state.handle {
-                    continue;
-                }
-                let Some(other) = self.read.committed.vehicles.state(handle) else {
-                    return Some(unprovable);
-                };
-                let Some(other_compiled) = self.read.compiled_route(other.route) else {
-                    return Some(unprovable);
-                };
-                // §5.2 枚举含可达性：路径被前车遮挡的上游车辆非潜在进入者
-                // （占用遮挡跳过，防互锁）——但**区间内者不豁免**（遮挡者
-                // 本身在 T/投影上时必拦）。
-                let other_edge_index = other.route_edge_index as usize;
-                let other_edge_now = other_compiled.edges.get(other_edge_index).copied();
-                let in_interval = other_edge_now == Some(interval_edge)
-                    || other_edge_now.is_some_and(|edge| {
-                        traffic
-                            .successors(interval_edge)
-                            .is_some_and(|list| list.contains(&edge))
-                    });
-                let interval_distance = boundary_targets(other_compiled, other.route_edge_index)
-                    .into_iter()
-                    .filter_map(|(target_index, target_progress)| {
-                        match crate::kernel::tables::distance_to_occurrence_progress(
-                            &other_compiled.occurrence_segments,
-                            &other_compiled.occurrence_offsets,
-                            &other_compiled.segment_totals,
-                            other_edge_index,
-                            other.progress_mm,
-                            target_index,
-                            target_progress,
-                        ) {
-                            Some(BoundedDistance::Finite(mm)) => Some(mm),
-                            _ => None,
-                        }
-                    })
-                    .min();
-                // P1（#1199 4438941172）：遮挡跳过→链式让行证明——有前车的
-                // 跟随者其潜在进入者资格=证明「能在前车投影停点之后停住」
-                // （各车自身 profile、与 P2-10 档位一致）；证不了→potential
-                // enterer（保守、**不无证排除**——移动前车瞬态与授予后前车
-                // 停→跟随车停不住的动态反转覆盖：证明假定前车停在其投影
-                // 停点=最坏情形；前车离场仅增余量）。链式证明成立排除（前车
-                // 投影停点在区间前且本车可停其后）；s12 互锁由链式证明自然
-                // 消解（双方可停→仲裁推进；任一不可→换道等待）。
-                if let (Some(interval_distance), Some(contact)) = (
-                    interval_distance,
-                    self.read.derived.occupancy.nearest_leader(
-                        handle,
-                        &other_compiled.edges,
-                        other_edge_index,
-                        other.progress_mm,
-                        self.read
-                            .binding
-                            .revision
-                            .traffic()
-                            .lane_lengths_millimetres(),
-                        crate::kernel::occupancy::LeaderQueryHorizon::new(u32::MAX, u32::MAX),
-                        false,
-                    ),
-                ) && !in_interval
-                {
-                    let other_profile = self
-                        .read
-                        .binding
-                        .revision
-                        .traffic()
-                        .relations()
-                        .vehicle_profile(other.profile);
-                    let chain_proof = other_profile.and_then(|other_profile| {
-                        let leader_state = self.read.committed.vehicles.state(contact.vehicle)?;
-                        let leader_profile = self
-                            .read
-                            .binding
-                            .revision
-                            .traffic()
-                            .relations()
-                            .vehicle_profile(leader_state.profile)?;
-                        let leader_d_stop = service_stop_distance_um(
-                            leader_state.speed_mm_s,
-                            delta_ms,
-                            leader_profile.comfort_decel(),
-                            leader_profile.min_gap_mm(),
-                        )?;
-                        // 两个停点都相对后车拍初的整数毫米位置，分别带入各车余量。
-                        let leader_stop_point = u64::try_from(contact.gap_mm)
-                            .ok()?
-                            .checked_mul(1_000)?
-                            .checked_add(u64::from(leader_state.carry_um))?
-                            .checked_add(leader_d_stop)?;
-                        let follower_stop_point = service_stop_distance_um(
-                            other.speed_mm_s,
-                            delta_ms,
-                            other_profile.comfort_decel(),
-                            other_profile.min_gap_mm(),
-                        )?
-                        .checked_add(u64::from(other.carry_um))?;
-                        Some(stopped_chain_before_interval(
-                            follower_stop_point,
-                            leader_stop_point,
-                            interval_distance,
-                        ))
-                    });
-                    if chain_proof == Some(true) {
-                        continue;
-                    }
-                    // 证不了→potential enterer（保守——落后续停止距离证明）。
-                }
-                let other_edge = other_compiled
-                    .edges
-                    .get(other.route_edge_index as usize)
-                    .copied();
-                // §5.2 进入者枚举含"过渡区内"：处于 T 自身边或下游投影边
-                // （E2 侧）的进入者=区间内（距 0 不可让）——必拦；上游接近者
-                // 走停止距离证明；已过区间者（投影下游之外）跳过。
-                if other_edge == Some(interval_edge) {
-                    return Some(unprovable);
-                }
-                if other_edge.is_some_and(|edge| {
-                    traffic
-                        .successors(interval_edge)
-                        .is_some_and(|list| list.contains(&edge))
-                }) {
-                    return Some(unprovable);
-                }
-                let mut best: Option<u32> = None;
-                for (target_index, target_progress) in
-                    boundary_targets(other_compiled, other.route_edge_index)
-                {
-                    match crate::kernel::tables::distance_to_occurrence_progress(
-                        &other_compiled.occurrence_segments,
-                        &other_compiled.occurrence_offsets,
-                        &other_compiled.segment_totals,
-                        other.route_edge_index as usize,
-                        other.progress_mm,
-                        target_index,
-                        target_progress,
-                    ) {
-                        Some(BoundedDistance::Finite(distance_mm)) => {
-                            best = Some(
-                                best.map_or(distance_mm, |current: u32| current.min(distance_mm)),
-                            );
-                        }
-                        Some(BoundedDistance::BeyondFinite) => {
-                            best = Some(best.unwrap_or(u32::MAX));
-                        }
-                        // 身后目标（已越过该边界）不构成到达。
-                        None => {}
-                    }
-                }
-                let Some(distance_mm) = best else {
-                    // 全部区间边界目标均在该进入者身后（或其路线不达区间）：
-                    // 已过区间/不可达——非 §5.2 潜在进入者，跳过（数据前提
-                    // 缺失的 fail-closed 由上方 state/compiled 分支承担）。
-                    continue;
-                };
-                let Some(other_profile) = relations.vehicle_profile(other.profile) else {
-                    return Some(unprovable);
-                };
-                // 域 B③（#1199 ⑩档位归属）：逐进入者自身 profile 具名参数
-                // 做停车证明（comfort_decel/min_gap 取进入者档案、非申请者）。
-                let travel_um = service_stop_distance_um(
-                    other.speed_mm_s,
-                    delta_ms,
-                    other_profile.comfort_decel(),
-                    other_profile.min_gap_mm(),
-                );
-                if stop_from_cursor_mm(travel_um, other.carry_um)
-                    .is_none_or(|stop| stop > u64::from(distance_mm))
-                {
-                    return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
-                }
-            }
-        }
-        None
     }
 
     /// 共用领域段（#706 R3-3a）：downstream 前置计划检查（F4 之前）——
@@ -7996,9 +7489,9 @@ impl ConflictTaskView<'_> {
             state.route_edge_index
         };
         let first_gate = compiled
-            .conflict_dispatch_hops
+            .gate_hops
             .partition_point(|hop| *hop < first_possible_hop);
-        let Some(first_hop) = compiled.conflict_dispatch_hops.get(first_gate).copied() else {
+        let Some(first_hop) = compiled.gate_hops.get(first_gate).copied() else {
             return CandidateReport::None {
                 cache,
                 scratch: core::mem::take(scratch),
@@ -8097,15 +7590,10 @@ impl ConflictTaskView<'_> {
         cache.preview = Some(motion);
         let preview = motion.next;
         let mut gate_motion: Option<crate::kernel::tick::MotionPreview> = None;
-        // 修形①（#1199）：候选派发覆盖注册期预计算的 hop 并集（含无 gate
-        // 的过渡资源 hop——T-cell 获取面，B 裁定机制的生产接线）。
-        // P2-2（#1199）：派发迭代从计算分区点起（恢复 first_gate 直起语义
-        // ——skip_while 每次全扫已过 hop；分区点一次计算、迭代 O(剩余)）。
         let dispatch_start = compiled
-            .conflict_dispatch_hops
+            .gate_hops
             .partition_point(|hop| *hop < first_possible_hop);
-        for &gate_hop in &compiled.conflict_dispatch_hops[dispatch_start..] {
-            // 生命周期守卫（#1199）：已持裁决权=穿越进行中，不再发起新候选。
+        for &gate_hop in &compiled.gate_hops[dispatch_start..] {
             if self.read.conflict_reservation(state.handle).is_some() {
                 break;
             }

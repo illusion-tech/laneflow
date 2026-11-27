@@ -397,11 +397,9 @@ impl CutoverTransaction<'_> {
             self.settle_failure(world);
             return Err(CutoverError::JournalOverflow);
         }
-        // 过渡态粘性拒绝（#1217 D4）：日志域无法忠实编码的增量已终止日志；
-        // 事务整体放弃、旧世界照常可运行，不得按溢出或不变量破坏处置。
-        if let Some(kind) = journal.unsupported_transition_state() {
+        if let Some(vehicle) = journal.invalid_vehicle() {
             self.settle_failure(world);
-            return Err(CutoverError::UnsupportedTransitionState(kind));
+            return Err(CutoverError::VehicleRevalidationFailed { vehicle });
         }
         let lag = world.tick_index().saturating_sub(
             self.candidate
@@ -1404,10 +1402,7 @@ fn apply_conflict_tick_deltas(
         let target_stream = rebinding
             .participant_stream(delta.address.stream())
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
-        let source_zone = delta
-            .address
-            .static_zone()
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        let source_zone = delta.address.zone();
         let target_zone = rebinding
             .conflict_zone(source_zone)
             .ok_or(CutoverError::ConflictRevalidationFailed)?;
@@ -2691,7 +2686,8 @@ mod tests {
             vehicle: VehicleDelta::from_state(
                 &source_state,
                 source.state.compiled_route(source_state.route),
-            ),
+            )
+            .unwrap(),
             parking: ParkingBindingDelta::new(None, None),
         };
         apply_record(
@@ -2917,6 +2913,36 @@ mod tests {
     }
 
     #[test]
+    fn migration_rejects_a_maneuver_traversal_with_a_missing_gate() {
+        let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
+        let (mut world, vehicle) = first_waiting_world(base, 1, 1_000);
+        let before = world.state.vehicle_state(vehicle).unwrap();
+        let invalid = crate::ManeuverTraversalState {
+            route: before.route,
+            maneuver_occurrence_index: 0,
+            phase: crate::ManeuverTraversalPhase::PreGate {
+                next_gate_hop: u32::MAX,
+            },
+        };
+        let mut state = before;
+        state.maneuver_traversal = Some(invalid);
+        world
+            .state
+            .committed
+            .vehicles
+            .slot_mut(vehicle.index() as usize)
+            .state = Some(state);
+        assert_eq!(
+            prepare_first_waiting(&mut world, target, &lfsd).err(),
+            Some(CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }),
+        );
+        assert!(world.state.migration_journal().is_none());
+        assert_eq!(world.state.vehicle_state(vehicle), Some(state));
+    }
+
+    #[test]
     fn first_waiting_coverage_initializes_pre_gate_through_prepare_pump_commit() {
         let (base, target, lfsd) = crate::kernel::waiting::tests::first_waiting_cutover_pair();
         // 上游移动和恰好未 crossing 的 Gate boundary 都允许建立零历史 PreGate。
@@ -3049,7 +3075,7 @@ mod tests {
             .expect("covering maneuver");
         let gate_hop = maneuver.entry_route_edge_index;
         let gate = compiled.hop_gate[gate_hop as usize].expect("admission Gate");
-        let mut delta = VehicleDelta::from_state(&state, Some(compiled));
+        let mut delta = VehicleDelta::from_state(&state, Some(compiled)).unwrap();
         delta.traversal_present = true;
         delta.maneuver_entry_route_edge_index = maneuver.entry_route_edge_index;
         delta.maneuver_path = maneuver.path.raw();

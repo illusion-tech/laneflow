@@ -114,7 +114,7 @@ LFRS 8、runtime state 6、deterministic digest 9 是同一次交付的唯一组
 路线登记的横向交接窗口、车辆已提交的任意位置换道及其组合预约，以及普通路口每份
 冲突预约的下游授权终点 `E_f`（联合设计 §6.11）。状态 6 和摘要 9 覆盖同一组事实。
 发布时写入、读回、直接与捕获摘要、恢复、迁移日志和回放一起切换。联合读方拒绝旧组合
-及混用版本，包括空路线、无车或没有预约的世界。固定预制过渡的保存限制见 §3。
+及混用版本，包括空路线、无车或没有预约的世界。
 
 **登记窗口。** 摘要 9 在 §6 每条路线记录的有序边向量后追加 `u64` 窗口数，普通路线写零。
 各窗口按源出现下标严格递增，每项依次写以下字段。整数用小端，各稳定引用沿用 §6 的
@@ -251,12 +251,6 @@ capture 自 Gate 正向重建至终点的规范并集，与该车在当前冲突
 停车、live 序引用；静态实体（边、profile、class、停车位和停车设施）用 `StableId128`。
 快照局部标识只在单个快照内稳定，恢复经 `SharedIdentityIndex` 与局部标识表
 重建。边上纵向进度、跨拍积分余量、车速分别为整数毫米、微米与 `u32` 毫米每秒。窗口的走廊站位、候选后轴的走廊站位、准入速度与沿轨迹行程分别按 §2.1 解释。
-
-**固定预制过渡退役期间。** 在固定过渡边的运行时入口和存量用途迁移完成前，生产
-保存与直接摘要沿用 #1217 的 `UnsupportedTransitionState`。活动过渡、预约及当前
-格式不能忠实表达的过渡清空历史均按既有边界返回，失败后旧世界可继续运行。
-联合版只为 §2.1 的路线交接和预约登记新记录。固定过渡资源的身份及历史不可改写为
-普通冲突区、普通路口 `E_f` 或任意位置换道状态。[固定预制过渡合同][lane-change-contract]
 
 arrival 不保存独立布尔值。恢复后只从同一 Reserved binding 与已保存车辆状态派生：
 route handle 必须是该 binding 所属 route，`route_edge_index` 必须等于 exact entry
@@ -637,7 +631,6 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 [integer-geometry]: traffic-runtime-integer-geometry.md
 [execution-config]: traffic-runtime-execution-config.md
 [committed-editing]: committed-road-editing-state.md
-[lane-change-contract]: lane-change-minimal-contract.md
 [state-integrity]: traffic-runtime-state-integrity.md
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [target-path-baseline]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-537-target-path-baseline/README.md

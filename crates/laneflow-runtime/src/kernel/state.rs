@@ -206,9 +206,6 @@ pub(crate) struct WorldBindingState {
     pub(crate) world_generation: WorldGeneration,
     pub(crate) config: WorldConfig,
     pub(crate) policy_binding: crate::kernel::policy::WorldPolicyBinding,
-    /// 逐世界过渡成本记录器（#1233 对象 b/F4；#1243 T1/T2）：融合与分发
-    /// 路径共用，计数只落本世界；常规构建为 ZST。
-    pub(crate) transition_cost: crate::kernel::transition_cost::Recorder,
 }
 
 /// 登记、资源裁决权、时钟游标及上次成功发布的批次。
@@ -907,7 +904,6 @@ impl WorldBindingState {
             world_generation: _,
             config: _,
             policy_binding,
-            transition_cost: _,
         } = self;
         source.retained_logical_bytes() + policy_binding.retained_logical_bytes()
     }

@@ -66,7 +66,6 @@ pub use kernel::conflict::{
     ConflictPassageAddress, ConflictPassageLocator, ConflictPassageOccurrenceLocator,
     ConflictPassageRange, ConflictReservation, ConflictResourceNoGrant, ConflictYieldOutcome,
     DownstreamInterval, DownstreamRoutePoint, GateCandidateKind, GatePolicyDecision,
-    UnsupportedTransitionState,
 };
 pub use kernel::conflict_tick::{
     ConflictDecision, ConflictDecisionOutcome, ConflictNoGrantReason, ConflictRouteAnchor,
@@ -79,7 +78,6 @@ pub use kernel::error::{
 #[cfg(feature = "execution-evidence")]
 pub use kernel::execution_evidence::{
     DispatchEvidence, ExecutionEvidence, ResourceEvidence, RouteEvidence, StageEvidence,
-    TransitionCostEvidence,
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::handoff::{

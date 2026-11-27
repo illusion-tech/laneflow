@@ -540,9 +540,9 @@ pub enum CutoverError {
         /// base 侧参与者类别序数原始值。
         base_class: u32,
     },
-    /// 重绑后非法：车辆原样重绑违反 target 修订不变量（进度越界、超速、
-    /// 后缀访问被拒或与其它迁移车辆重叠）。
-    #[error("车辆原样重绑违反 target 不变量（车辆序数 {vehicle}）")]
+    /// 车辆的遍历或等待状态无法解析到已登记的路线与门控，或重绑后违反
+    /// target 修订的不变量（进度越界、超速、后缀访问被拒或车辆重叠）。
+    #[error("车辆迁移状态验证失败（车辆序数 {vehicle}）")]
     VehicleRevalidationFailed {
         /// 违反不变量的车辆槽位序数。
         vehicle: u32,
@@ -582,12 +582,6 @@ pub enum CutoverError {
     /// 迁移增量日志溢出（粘性失败；事务放弃，旧世界不受影响）。
     #[error("迁移增量日志溢出")]
     JournalOverflow,
-    /// 迁移/日志域无法忠实表达的过渡状态（#1217 D3/D4：静态面遇
-    /// `Transition` 失败关闭）。与 `JournalOverflow`、
-    /// `ConflictRevalidationFailed` 严格区分——健康世界的正常运行态，
-    /// 不是容量或证明失败；事务整体放弃，旧世界照常可运行。
-    #[error(transparent)]
-    UnsupportedTransitionState(crate::UnsupportedTransitionState),
     /// 追赶滞后（tick 距离）超过上限。
     #[error("追赶滞后 {lag} tick 超过上限 {limit}")]
     CatchUpLagExceeded {

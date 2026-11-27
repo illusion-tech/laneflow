@@ -606,7 +606,7 @@ impl Sample {
                         .ok_or_else(|| Error::Invalid(format!("预约身份缺失 rank={rank}")))?;
                     (
                         1_u32,
-                        crate::measurement::events::address_identity(&locator.address())?,
+                        locator.address().zone().raw(),
                         reservation.acquired_tick(),
                     )
                 }

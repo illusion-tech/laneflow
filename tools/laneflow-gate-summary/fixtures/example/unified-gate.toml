@@ -1,15 +1,15 @@
-# 统一五轴汇总的自包含示例输入（lf-unified-gate-manifest-1）。
+# 统一五轴汇总的自包含示例输入（lf-unified-gate-manifest-2）。
 #
 # 证据全部取自本 crate 的 tests/fixtures：--repo-root 指向 tests/fixtures/repo，
 # --evidence-root 指向 tests/fixtures/evidence-root。README 默认命令与
 # tests/summary.rs 都消费本文件，失败关闭路径的测试在其基础上逐项改写。
 # 数值与提交号均为测试用值，不是任何负载的真实结论。
 
-format = "lf-unified-gate-manifest-1"
+format = "lf-unified-gate-manifest-2"
 title = "统一汇总示例"
 mode_note = "自包含示例（fixtures/example/unified-gate.toml）：记录取自 tests/fixtures，不是真实验收结论"
 required_loads = ["LF-SYNTH-v2", "LuST"]
-required_l1_identities = ["10000-L1-16"]
+required_l1_identities = ["10000-L1-16-clusters-1"]
 
 [global]
 single_world_statement = "不以多世界吞吐替代单世界扩展语义。"
@@ -40,11 +40,11 @@ authorization = "测试授权"
 [[capability_limits]]
 statement = "测试能力限制"
 boundary = "测试边界"
-evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1271" } ]
+evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1526" } ]
 
 [[l1_checks]]
-identity = "10000-L1-16"
-record = { kind = "l1-record", path = "<evidence-root>/l1.json", expect = { verdict = "clean" } }
+identity = "10000-L1-16-clusters-1"
+record = { kind = "handoff-run", path = "<evidence-root>/l1.json", input_manifest = "<evidence-root>/input-manifest.json", implementation_commit = "cccccccccccccccccccccccccccccccccccccccc" }
 
 [[loads]]
 id = "LF-SYNTH-v2"
@@ -101,9 +101,9 @@ pending = []
 [[loads.cells]]
 axis = "routing"
 status = "pending"
-conclusion = "测试 routing 待 #1279"
+conclusion = "测试 Routing 待补执行记录"
 evidence = [ { kind = "github", url = "https://github.com/illusion-tech/laneflow/issues/1279" } ]
-pending = ["#1279 计时记录（冻结后运行）"]
+pending = ["测试 Routing 计时记录"]
 
 [[loads]]
 id = "LuST"

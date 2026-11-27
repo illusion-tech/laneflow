@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-real-road-workloads"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-28"
 summary = "定义 LuST 真实路网工作负载与验收范围。"
 scope = "LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万 真实路网性能补充 workload 与需求代表性 observation"
 applicability = "#applicability"
@@ -229,12 +229,6 @@ fail closed 回到 #224 G1。
   registration-time compiler 必须在每个 junction occurrence 唯一匹配同一
   ManeuverPath。无完整路径、零/多 path 匹配、incomplete/overlap、未知 edge 或
   ambiguous normalization 都是 fatal error；不能跳过已选 record。
-- **边内换道语义修订（#237 G1，2026-10-31 冻结）**：车道级展开**仅在声明过渡
-  材料处允许来源 lane 转移**——转移只消费声明的最终边链，不产生横向转移；
-  声明转移为**次选**，仅在严格语义（`from_lane == 到达 lane`）失败时启用，
-  不改变既有成功选择与上条 lexicographic 顺序；无声明处语义与旧合同逐字一致
-  （旧输入零新拒绝）。过渡材料的承载形式、占用投影与能力检查见
-  [`lane-change-minimal-contract.md`][lane-change-contract]。
 - 相同 lane occurrence sequence 可归一化为同一个 route catalog entry，但 source
   record 仍保存自己的 stable `population_rank`、profile 和 route reference。
 
@@ -839,7 +833,6 @@ frame contract，必须停止对应任务类别并完成独立 G1；满足 ADR �
 [issue-224-g1]: https://github.com/illusion-tech/laneflow/issues/224#issuecomment-5078718717
 [example-scenarios]: example-scenarios.md
 [corridor-population]: signalized-corridor-population.md
-[lane-change-contract]: lane-change-minimal-contract.md
 [lust-population-v2-readme]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1053-lust-population-v2/README.md
 [adr-0033]: ../adr/0033-digest-role-and-algorithm-selection-authority.md
 [xxhash]: https://github.com/Cyan4973/xxHash/blob/e626a72bc2321cd320e953a0ccf1584cad60f363/xxhash.h

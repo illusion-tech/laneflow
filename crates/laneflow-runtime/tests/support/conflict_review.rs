@@ -559,7 +559,7 @@ fn world_with_crossing_far_gate_owner(
         .conflict_passage_occurrence_locator(route, 1)
         .unwrap()
         .address();
-    assert_eq!(occupied.static_zone().unwrap(), far.static_zone().unwrap());
+    assert_eq!(occupied.zone(), far.zone());
     assert_ne!(occupied.stream(), far.stream());
     (world, route, owner)
 }

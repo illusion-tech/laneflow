@@ -143,8 +143,7 @@ impl WorldState {
                 .conflicts
                 .get((bounds.start + offset) as usize)
                 .ok_or(INVALID)?;
-            if old.static_zone().is_none()
-                || old.address() != new.address()
+            if old.address() != new.address()
                 || new.maneuver_index != target_range.maneuver_occurrence_index()
                 || new.admission_hop != gate
                 || shift(old.entry.route_edge_index)? != new.entry.route_edge_index

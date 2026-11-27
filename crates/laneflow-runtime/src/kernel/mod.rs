@@ -26,8 +26,6 @@ pub(crate) mod handle;
 pub(crate) mod handoff;
 /// 宿主输入命令的规范化记录（路线注册、车辆生成等）。
 pub(crate) mod input;
-/// 最小换道过渡执行判据（#1199 S4；合同 §5.2 具名四项冻结）。
-pub(crate) mod lane_change;
 pub(crate) mod motion_updates;
 /// 固定步进跟车求解使用的车道边占用索引。
 pub(crate) mod occupancy;
@@ -51,7 +49,6 @@ pub(crate) mod tables;
 /// 固定步进主循环：预检、占用重建、准备与提交。
 pub(crate) mod tick;
 /// 已验证的 Waiting/Conflict 转移到唯一公开事件批次的投影。
-pub(crate) mod transition_visibility;
 pub(crate) mod transitions;
 /// 已提交毫米与 IIDM 瞬时 SI 之间的换算。
 pub(crate) mod units;
@@ -88,9 +85,6 @@ mod lf_synth_contract;
 #[cfg(test)]
 #[path = "tests/motion_backend_equivalence.rs"]
 mod motion_backend_equivalence;
-
-/// S4 过渡执行成本计数转发（#1233）：未激活时为空实现。
-pub(crate) mod transition_cost;
 
 /// #972 证据构建的调度统计与资源账；普通构建不编译。
 #[cfg(feature = "execution-evidence")]
@@ -143,8 +137,3 @@ pub(crate) mod route_query_research;
 #[cfg(test)]
 #[path = "tests/motion_participation.rs"]
 pub(crate) mod motion_participation;
-
-/// #1220 不同过渡段共享横向区域时的路线注册与准入回归；只进入测试构建。
-#[cfg(test)]
-#[path = "tests/transition_visibility.rs"]
-mod transition_visibility_tests;

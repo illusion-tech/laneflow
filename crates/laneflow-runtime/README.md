@@ -34,7 +34,7 @@ cargo run --locked -p laneflow-runtime --example headless
 - 执行 panic 不是可恢复的 `StepError`。世界因此失效后，只能销毁并重建，不能继续查询或发命令。
 - dev-dependencies 已经启用 `laneflow-static-network` 的 `attestation-fixtures`，供其他测试使用。无窗口示例不调用这些测试入口。
 
-固定预构造换道、停车、快照和修订切换的拒绝条件见能力页与对应合同，不在这里列账。
+登记窗口内的动态换道、停车、快照和修订切换的拒绝条件见能力页与对应合同，不在这里列账。
 
 要预检一次动态横移能以多快的速度通过路侧实体，可在两拍之间调用
 `TrafficWorld::preview_route_handoff_speed_plan`。调用方用 `HandoffDrivingConfig`

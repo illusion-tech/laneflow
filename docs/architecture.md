@@ -173,7 +173,7 @@ crate。见
 
 ### 快照与恢复
 
-LFRS `formatVersion = 8` 绑定 `runtime_state_version = 6` 和确定性状态摘要版本 `9`（BLAKE3-256）。路线登记窗口、已提交横移和逐车冲突预约终点可保存恢复。worker 数由宿主另行传入。活动固定预制过渡在保存时返回 `SnapshotCaptureError::UnsupportedTransitionState`。见
+LFRS `formatVersion = 8` 绑定 `runtime_state_version = 6` 和确定性状态摘要版本 `9`（BLAKE3-256）。路线登记窗口、已提交横移和逐车冲突预约终点可保存恢复。worker 数由宿主另行传入。见
 [快照 §2][runtime-snapshot-versions]、
 [快照 §5][runtime-snapshot-restore] 与
 [ADR 0033][adr-0033]。
@@ -250,7 +250,7 @@ Waiting 资格、Conflict 出现记录、显式路权策略和预约由 `Traffic
   失败关闭的修订切换，以及投入使用前的修订认证。
 - 路口静态身份、横断面静态模型、静态准入、Waiting / Conflict、显式与虚拟停车、
   固定时制信号。
-- 登记窗口内的任意位置换道，已提交横移及其预约可恢复。旧固定预制过渡活动期间拒绝保存。
+- 登记窗口内的任意位置换道，已提交横移及其预约可恢复。
 - worker 1–16 的执行配置。
 
 ### 已接受但未实现
@@ -267,8 +267,7 @@ resource 为未认证，城市 Routing 为授权豁免，LuST 不在该基线内
 ### 长期方向
 
 - 非机动车、行人和轨道执行域。`ParticipantClass` 只是准入分类。
-- 任意位置变道，以及 LuST 真实路网五轴验收。二者是已裁定的 v0.11 能力目标，
-  还没有作为现行行为实现，也没有认证。固定预制过渡不代表任意位置模型。
+- LuST 真实路网五轴验收是 v0.11 的独立目标。
 - 道路编辑的直接调整与影响预览。当前生产是确认建造后的整修订替换。见
   [ADR 0023][adr-0023]。
 - `JunctionGroup`、感应式或自适应信号、运行中完整性轮转校验，以及用多频率或
