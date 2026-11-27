@@ -1,7 +1,7 @@
 use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::{
     SharedNetworkRevision, StationCandidates,
-    vehicle::{BodyEnvelope, Failure, HandoffQuery, HandoffWindow},
+    vehicle::{BodyEnvelope, Failure, HandoffBinding, HandoffQuery, HandoffSweepReport},
 };
 
 use super::RouteHandoffTrialError;
@@ -11,13 +11,14 @@ use super::RouteHandoffTrialError;
 pub(super) fn prove_source_clearance(
     revision: &SharedNetworkRevision,
     query: &HandoffQuery,
-    window: HandoffWindow,
+    boundary: &HandoffBinding,
     body: BodyEnvelope,
     hits: &StationCandidates,
     work_limit: u32,
     selected_gate: impl Fn(LaneEdgeOrdinal, LaneEdgeOrdinal) -> bool,
 ) -> Result<u32, RouteHandoffTrialError> {
     let mapping = revision.station_mapping();
+    let window = boundary.window();
     // 首截面恰在内切点时只列下游边零点。其紧邻的前一边仍可能持有该停止线。
     let previous = hits
         .addresses()
@@ -27,9 +28,8 @@ pub(super) fn prove_source_clearance(
         .into_iter()
         .chain(hits.addresses().map(|a| a.edge))
         .peekable();
-    let increasing = query.rear_stations_nm[0] < query.rear_stations_nm[1];
     let mut upstream = true;
-    let mut sweep = None;
+    let mut sweep: Option<HandoffSweepReport> = None;
     while let Some(edge) = edges.next() {
         if edge == window.edges[0] {
             upstream = false;
@@ -44,13 +44,16 @@ pub(super) fn prove_source_clearance(
         }
         let unproven =
             |reason, work| RouteHandoffTrialError::StopLineUnproven { edge, reason, work };
-        let station = mapping
-            .edge_end_station_nm(edge)
-            .ok_or_else(|| unproven(Some(Failure::Unavailable), 0))?;
+        let station = mapping.edge_end_station_nm(edge).ok_or_else(|| {
+            unproven(
+                Some(Failure::Unavailable),
+                sweep.as_ref().map_or(0, |s| s.work),
+            )
+        })?;
         let separated = |[lo, hi]: [u64; 2]| {
             if upstream {
                 station < lo || hi < station
-            } else if increasing {
+            } else if boundary.increasing() {
                 hi < station
             } else {
                 station < lo

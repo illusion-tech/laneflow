@@ -306,6 +306,8 @@ impl TrafficWorld {
     /// # Errors
     ///
     /// 修订不匹配、出现下标未绑定、车型不存在、路线准入被拒或两侧车道准入未证时返回相应错误。
+    /// 双侧准入通过后，源侧未选机动的停止线可能被触及，或剩余额度不足以证明分离时，
+    /// 返回 [`RouteHandoffTrialError::StopLineUnproven`]。
     /// 几何拒绝、越窗或未证由报告区分。
     ///
     /// # Panics
@@ -378,18 +380,17 @@ impl TrafficWorld {
             let (source, target) = binding
                 .occurrence_legs(source_index)
                 .ok_or(RouteHandoffTrialError::UnboundOccurrence)?;
-            let mut cursor_runs = [CursorRun::EMPTY; 2];
             let sweep_used =
                 report.work + report.geometry.map_or(0, |geometry| geometry.sweep.work);
             let sweep_limit = trial.limits.sweep.min(GeometryWorkLimits::STANDARD.sweep);
-            for (side, edge) in window.edges.into_iter().enumerate() {
-                let unproven = RouteHandoffTrialError::SideAccessUnproven { route_edge: edge };
+            let unproven = |route_edge| RouteHandoffTrialError::SideAccessUnproven { route_edge };
+            let mut check_side_access = |edge| {
                 let lane = traffic
                     .relations()
                     .lane_edge_authoring_lane(edge)
-                    .ok_or(unproven)?;
-                if sweep_used + side_access_work + stop_line_work >= sweep_limit {
-                    return Err(unproven);
+                    .ok_or(unproven(edge))?;
+                if sweep_used + side_access_work >= sweep_limit {
+                    return Err(unproven(edge));
                 }
                 side_access_work += 1;
                 // 扫过检查已将整车约束在此窗口内。它可包括未接触的边，窗口内的
@@ -399,7 +400,7 @@ impl TrafficWorld {
                     trial.station_window_nm,
                     lane,
                 ) else {
-                    return Err(unproven);
+                    return Err(unproven(edge));
                 };
                 if hits.addresses().any(|address| {
                     access_cell_denied(
@@ -408,29 +409,29 @@ impl TrafficWorld {
                             .edge_access(address.edge, profile.class()),
                     )
                 }) {
-                    return Err(unproven);
+                    return Err(unproven(edge));
                 }
-                cursor_runs[side] = if side == 0 {
-                    CursorRun::source(source, source_index, &hits)
-                } else {
-                    CursorRun::target(target, source_index, &hits)
-                }
-                .ok_or(unproven)?;
-                if side == 0 {
-                    stop_line_work = stop_line::prove_source_clearance(
-                        revision,
-                        &query,
-                        window,
-                        body,
-                        &hits,
-                        sweep_limit - sweep_used - side_access_work,
-                        |edge, next| binding.selected_gate(cursor_runs[0], edge, next).is_some(),
-                    )?;
-                }
-            }
+                Ok(hits)
+            };
+            let [source_edge, target_edge] = window.edges;
+            let source_hits = check_side_access(source_edge)?;
+            let source_run = CursorRun::source(source, source_index, &source_hits)
+                .ok_or(unproven(source_edge))?;
+            let target_hits = check_side_access(target_edge)?;
+            let target_run = CursorRun::target(target, source_index, &target_hits)
+                .ok_or(unproven(target_edge))?;
+            stop_line_work = stop_line::prove_source_clearance(
+                revision,
+                &query,
+                boundary,
+                body,
+                &source_hits,
+                sweep_limit - sweep_used - side_access_work,
+                |edge, next| binding.selected_gate(source_run, edge, next).is_some(),
+            )?;
             Some(LocatedTrajectory {
                 revision,
-                cursor_runs,
+                cursor_runs: [source_run, target_run],
                 query,
                 window,
                 body,
