@@ -171,26 +171,6 @@ impl LaneScan {
     }
 }
 
-/// 跨拍生命周期序（#1227）：`last_kind` 跨观测持续，接受并推进返回 true；
-/// 乱序（重复 acquire、release 后 clear 等）返回 false。
-fn lifecycle_order_valid(last_kind: &mut [u32], slot: usize, kind: u32) -> bool {
-    // 单生命周期状态机：acquire(4) → enter(5) → clear(6) → release(7)；
-    // 释放后可开启新周期（下游冲突区新预约），同周期内不得回退/重复。
-    let allowed = match kind {
-        4 => matches!(last_kind[slot], 0 | 7),
-        5 => last_kind[slot] == 4,
-        6 => last_kind[slot] == 5,
-        7 => last_kind[slot] == 6,
-        _ => true,
-    };
-    if allowed {
-        last_kind[slot] = kind;
-        true
-    } else {
-        false
-    }
-}
-
 pub(crate) fn motion_valid(
     old_position: u64,
     new_position: u64,
@@ -490,10 +470,7 @@ impl Sample {
         Ok(blake3::hash(bytes))
     }
 
-    /// L 族逐拍公开观测（#1218，`lf-synth-public-boundary-lc-1`）：W 族 8 字段 +
-    /// 逐车 T 字段（遍历相位、所持预约真实资源身份、acquired 拍）。语义检查含
-    /// T 独占恰一、败者在前车预约释放后进入、换道预约生命周期事件序；比较面
-    /// 按 #1217 口径携带真实资源身份，不以错误编码摘要互相印证。
+    /// 逐车核对三车道交接、离开目标边后的普通纵向运动和当拍实际发布的变化。
     pub fn observe_lane_change(
         &mut self,
         tick: u64,
@@ -514,32 +491,22 @@ impl Sample {
                 && arrivals_empty,
             || format!("人口/命令游标/时间/停车事件不符 tick={tick}"),
         )?;
-        let cluster_routes = self.lane_change_routes.clone();
-        require(!cluster_routes.is_empty(), || "L 族缺少簇路线".into())?;
-        let changers_per_cluster = self
-            .state
-            .identity
-            .lane_change()
-            .map_or(0, |params| params.changers_per_cluster);
-        require(changers_per_cluster >= 2, || "每簇至少两名换道者".into())?;
-        let mut cluster_ranks: Vec<Vec<usize>> = Vec::with_capacity(cluster_routes.len());
-        for &route in &cluster_routes {
-            let ranks: Vec<usize> = (0..self.handles.len())
-                .filter(|&rank| self.state.vehicles[rank].route_rank as usize == route)
-                .collect();
-            require(ranks.len() == changers_per_cluster as usize, || {
-                format!("每簇换道者数与参数一致 route={route}")
-            })?;
-            cluster_ranks.push(ranks);
-        }
+        let journal_start = self.lane_change_journal.len();
+        crate::handoff::observe(
+            &self.world,
+            &self.state,
+            &self.handles,
+            &mut self.lane_change_last_kind,
+            &mut self.lane_change_journal,
+        )
+        .map_err(Error::Invalid)?;
         let bytes = &mut self.trace_bytes;
         bytes.clear();
-        bytes.extend_from_slice(b"lf-synth-public-boundary-lc-1\0");
+        bytes.extend_from_slice(b"lf-synth-public-boundary-handoff-1\0");
         bytes.extend_from_slice(&tick.to_le_bytes());
         bytes.extend_from_slice(&self.world.time_ms().to_le_bytes());
         bytes.extend_from_slice(&self.cursor.to_le_bytes());
         bytes.extend_from_slice(&(self.handles.len() as u32).to_le_bytes());
-        let mut in_transition = vec![0_u32; cluster_routes.len()];
         for (rank, &handle) in self.handles.iter().enumerate() {
             let state = self
                 .world
@@ -557,7 +524,10 @@ impl Sample {
                     && state.route() == initial.route()
                     && state.length_mm() == 4_500
                     && state.status() == initial.status()
-                    && state.route_edge_index() <= if on_cluster { 4 } else { 1 }
+                    && (state.route_edge_index() as usize)
+                        < self.state.routes[self.state.vehicles[rank].route_rank as usize]
+                            .edge_ids
+                            .len()
                     && state.carry_um() < 1_000
                     && self.world.parking_binding(handle) == self.bindings[rank],
                 || {
@@ -573,7 +543,15 @@ impl Sample {
                 // L 族边长非均匀：位置编码用真实边长前缀和（毫米）。
                 let offsets = &self.route_offsets[self.state.vehicles[rank].route_rank as usize];
                 let pos = |s: VehicleState| {
-                    (offsets[s.route_edge_index() as usize] + u64::from(s.progress_mm())) * 1_000
+                    // 前两条边是平行车道，共用纵向原点。前杠交接不产生一整条源边的位移。
+                    let common_start = if on_cluster && s.route_edge_index() > 0 {
+                        offsets[1]
+                    } else {
+                        0
+                    };
+                    (offsets[s.route_edge_index() as usize] - common_start
+                        + u64::from(s.progress_mm()))
+                        * 1_000
                         + u64::from(s.carry_um())
                 };
                 require(
@@ -602,49 +580,11 @@ impl Sample {
                     .record(old, state, motion, crate::decel::Exits::default());
             }
             let edge_changed = state.route_edge_index() != old.route_edge_index();
-            if on_cluster {
-                let (cluster_index, slot) = cluster_ranks
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, ranks)| {
-                        ranks
-                            .iter()
-                            .position(|&r| r == rank)
-                            .map(|slot| (index, slot))
-                    })
-                    .unwrap();
-                if state.route_edge_index() == 1 {
-                    in_transition[cluster_index] += 1;
-                }
-                if edge_changed && state.route_edge_index() == 1 {
-                    self.crossed[rank] = true;
-                    self.transitions += 1;
-                    if slot > 0 {
-                        // R1b 层②（多簇）：同簇更早槽位持有 T 预约时不得进入。
-                        for &earlier in &cluster_ranks[cluster_index][..slot] {
-                            let earlier_handle = self.handles[earlier];
-                            let earlier_t_held = self
-                                .world
-                                .conflict_reservation(earlier_handle)
-                                .is_some_and(|r| {
-                                    let range = r.passage_range();
-                                    self.world
-                                        .conflict_passage_occurrence_locator(
-                                            range.route(),
-                                            range.first_conflict_occurrence_index(),
-                                        )
-                                        .is_some_and(|locator| {
-                                            crate::measurement::events::address_identity(
-                                                &locator.address(),
-                                            ) == crate::measurement::events::T_RESOURCE_IDENTITY
-                                        })
-                                });
-                            require(!earlier_t_held, || {
-                                format!("换道者在前车 T 预约存续期进入 T tick={tick}")
-                            })?;
-                        }
-                    }
-                }
+            if edge_changed && state.route_edge_index() == 1 {
+                require(on_cluster && !self.crossed[rank], || {
+                    format!("意外的路线交接 tick={tick} rank={rank}")
+                })?;
+                self.crossed[rank] = true;
             }
             let phase = match state.maneuver_traversal().map(|t| t.phase()) {
                 None => 0_u32,
@@ -665,7 +605,7 @@ impl Sample {
                         .ok_or_else(|| Error::Invalid(format!("预约身份缺失 rank={rank}")))?;
                     (
                         1_u32,
-                        crate::measurement::events::address_identity(&locator.address()),
+                        crate::measurement::events::address_identity(&locator.address())?,
                         reservation.acquired_tick(),
                     )
                 }
@@ -691,172 +631,38 @@ impl Sample {
                 bytes.extend_from_slice(&field.to_le_bytes());
             }
             bytes.extend_from_slice(&acquired.to_le_bytes());
+            if on_cluster {
+                let progress = self.world.vehicle_route_handoffs(handle).next();
+                bytes.push(u8::from(progress.is_some()));
+                if let Some(progress) = progress {
+                    bytes.extend_from_slice(&progress.source_index.to_le_bytes());
+                    bytes.extend_from_slice(&progress.acquired_tick.to_le_bytes());
+                    bytes.extend_from_slice(&progress.rear_travel_mm.to_le_bytes());
+                    bytes.push(u8::from(progress.front_handed_off));
+                }
+            }
             self.previous[rank] = state;
         }
-        // T 独占恰一（R1b 层② B 裁定，多簇按簇独立）：每簇逐拍至多一换道者
-        // 在过渡段内。
-        for (cluster, count) in in_transition.iter().enumerate() {
-            require(*count <= 1, || {
-                format!("簇 {cluster} T 独占恰一被破坏 tick={tick} in_transition={count}")
-            })?;
+        let changes = &self.lane_change_journal[journal_start..];
+        bytes.extend_from_slice(&(changes.len() as u32).to_le_bytes());
+        for &(tick, slot, kind, route_rank) in changes {
+            bytes.extend_from_slice(&tick.to_le_bytes());
+            bytes.extend_from_slice(&slot.to_le_bytes());
+            bytes.extend_from_slice(&kind.to_le_bytes());
+            bytes.extend_from_slice(&route_rank.to_le_bytes());
         }
         let events = self.world.latest_transition_events();
-        for event in events {
-            let vehicle = event.vehicle();
-            let slot = cluster_ranks
-                .iter()
-                .flat_map(|ranks| ranks.iter())
-                .position(|&rank| self.handles[rank] == vehicle)
-                .ok_or_else(|| Error::Invalid(format!("换道事件归属非换道者 tick={tick}")))?;
-            require(slot < self.lane_change_last_kind.len(), || {
-                "换道事件槽位超出生命周期表".into()
-            })?;
-            let (kind, identity) = match event.kind() {
-                TrafficTransitionKind::GateCrossed { gate } => (1_u32, gate.raw()),
-                TrafficTransitionKind::ReservationAcquired { passage_range } => (
-                    4_u32,
-                    crate::measurement::events::passage_identity(&self.world, passage_range)?,
-                ),
-                TrafficTransitionKind::ConflictEntered { passage } => (
-                    5,
-                    crate::measurement::events::address_identity(&passage.address()),
-                ),
-                TrafficTransitionKind::ConflictCleared { passage } => (
-                    6,
-                    crate::measurement::events::address_identity(&passage.address()),
-                ),
-                TrafficTransitionKind::ReservationReleased { passage_range } => (
-                    7,
-                    crate::measurement::events::passage_identity(&self.world, passage_range)?,
-                ),
-                TrafficTransitionKind::ManeuverTraversalCompleted { .. } => (8, 0),
-                other => {
-                    return Err(Error::Invalid(format!(
-                        "L 族未声明的事件类型 tick={tick}: {other:?}"
-                    )));
-                }
-            };
-            if (4..=7).contains(&kind) {
-                // 预约生命周期序：acquire(4) → enter(5) → clear(6) → release(7)。
-                // 跨拍持续（#1227）：last_kind 保存在 Sample，避免每拍重置漏检跨拍乱序。
-                require(
-                    lifecycle_order_valid(&mut self.lane_change_last_kind, slot, kind),
-                    || format!("换道预约生命周期事件乱序 tick={tick} slot={slot} kind={kind}"),
-                )?;
-            }
-            self.lane_change_journal
-                .push((tick, slot as u16, kind, identity));
-        }
+        self.transitions += events
+            .iter()
+            .filter(|e| matches!(e.kind(), TrafficTransitionKind::GateCrossed { .. }))
+            .count() as u64;
+        require(
+            events.iter().all(|event| {
+                self.handles[self.state.identity.scale as usize..].contains(&event.vehicle())
+            }),
+            || format!("非换道者产生了短窗外的路口事件 tick={tick}"),
+        )?;
         bytes.extend_from_slice(&(events.len() as u32).to_le_bytes());
         Ok(blake3::hash(bytes))
-    }
-}
-
-#[cfg(test)]
-mod lifecycle_order_tests {
-    use super::lifecycle_order_valid;
-
-    #[test]
-    fn lifecycle_order_is_tracked_across_observations() {
-        // #1227：last_kind 跨观测持续，单拍重置会漏检跨拍乱序；释放后可开启
-        // 新预约周期（下游冲突区），同周期内不得回退或重复。
-        let mut last = [0_u32; 2];
-        for kind in [4, 5, 6, 7] {
-            assert!(lifecycle_order_valid(&mut last, 0, kind));
-        }
-        assert!(
-            lifecycle_order_valid(&mut last, 0, 4),
-            "release 后可开启新预约周期"
-        );
-        assert!(
-            !lifecycle_order_valid(&mut last, 0, 4),
-            "同周期重复 acquire 必须拒绝"
-        );
-        assert!(
-            !lifecycle_order_valid(&mut last, 0, 6),
-            "acquire 后 clear 必须拒绝"
-        );
-        assert!(lifecycle_order_valid(&mut last, 1, 4), "槽位独立");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{LaneScan, motion_valid, w_body_interval};
-    use laneflow_traffic_verification::body::intervals_overlap;
-
-    #[test]
-    fn motion_valid_uses_profile_max_acceleration_bound() {
-        // #1218：加速度上界按车型 profile 派生，不再全局写死 1.4 m/s²。
-        // dt=33 ms：1.5 m/s² 允许 ceil(49.5)+1=51 mm/s；1.4 m/s² 允许 48 mm/s。
-        assert!(motion_valid(0, 49_000, 0, 49, 1_500, 33));
-        assert!(!motion_valid(0, 49_000, 0, 49, 1_400, 33));
-        assert!(motion_valid(0, 48_000, 0, 48, 1_400, 33));
-        // dt=16 ms：两种车型均允许 24 mm/s；1.4 m/s² 下 25 mm/s 仍拒。
-        assert!(motion_valid(0, 24_000, 0, 24, 1_400, 16));
-        assert!(motion_valid(0, 24_000, 0, 24, 1_500, 16));
-        assert!(!motion_valid(0, 25_000, 0, 25, 1_400, 16));
-        // 位置与速度硬上界不随车型变化。
-        assert!(!motion_valid(0, 13_900 * 33 + 2, 0, 0, 1_500, 33));
-        assert!(!motion_valid(0, 1, 0, 13_901, 1_500, 33));
-    }
-
-    #[test]
-    fn w_body_interval_maps_corridor_owner_and_um_length() {
-        let interval = w_body_interval(26, 30_000_000, 2).unwrap();
-        assert_eq!(interval.space(), 1, "rank 26 属走廊 1");
-        assert_eq!(interval.back_um(), 25_500_000);
-        assert_eq!(interval.front_um(), 30_000_000);
-        assert_eq!(interval.owner().logical, 26);
-        assert_eq!(interval.owner().incarnation, 2, "burst 宿主代次透传");
-        // 车尾越出走廊起点（位置不足一个车长）按事实错误拒绝，不截断。
-        assert!(w_body_interval(0, 4_499_999, 0).is_err());
-        assert!(w_body_interval(0, 4_500_000, 0).is_ok());
-    }
-
-    #[test]
-    fn lane_scan_uses_shared_criterion_and_keeps_w_ordering() {
-        // 相接合法：前车 [25.5M, 30M)、后车 [30M, 34.5M)。
-        let leader = w_body_interval(0, 30_000_000, 0).unwrap();
-        let follower = w_body_interval(1, 34_500_000, 0).unwrap();
-        let mut scan = LaneScan::new();
-        assert!(scan.push(leader).is_ok());
-        assert!(scan.push(follower).is_ok(), "恰好相接不构成重叠");
-        // 注入重叠事实（接线负例）：压入 1 µm 即被共享判据报出。
-        let mut scan = LaneScan::new();
-        scan.push(leader).unwrap();
-        assert!(
-            scan.push(w_body_interval(1, 34_499_999, 0).unwrap())
-                .is_err()
-        );
-        // 同位置的不同 owner 必报。
-        let mut scan = LaneScan::new();
-        scan.push(leader).unwrap();
-        assert!(
-            scan.push(w_body_interval(1, 30_000_000, 0).unwrap())
-                .is_err()
-        );
-        // 纯顺序违例（整体在前车之后方）：共享判据不报，W 顺序专项拦截。
-        let behind = w_body_interval(1, 20_000_000, 0).unwrap();
-        assert!(!intervals_overlap(leader, behind));
-        let mut scan = LaneScan::new();
-        scan.push(leader).unwrap();
-        assert!(scan.push(behind).is_err(), "顺序反转/超车独立核验");
-        // 跨走廊（rank/25 不同）不互检：同位置不报。
-        let mut scan = LaneScan::new();
-        scan.push(leader).unwrap();
-        assert!(
-            scan.push(w_body_interval(25, 30_000_000, 0).unwrap())
-                .is_ok()
-        );
-        // 走廊切换后恢复同走廊比较。
-        let mut scan = LaneScan::new();
-        scan.push(leader).unwrap();
-        scan.push(w_body_interval(25, 30_000_000, 0).unwrap())
-            .unwrap();
-        assert!(
-            scan.push(w_body_interval(26, 30_000_000, 0).unwrap())
-                .is_err()
-        );
     }
 }

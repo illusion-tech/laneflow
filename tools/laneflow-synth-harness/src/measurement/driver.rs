@@ -32,6 +32,7 @@ pub(super) struct Driver {
     arrival_count: usize,
     parked_at: Option<u64>,
     case: Case,
+    pub(super) handoff_state: Option<laneflow_synth_generator::InitialState>,
     pub events: Recorder,
     pub receipts: Vec<u8>,
     pub command_count: u64,
@@ -110,6 +111,7 @@ impl Driver {
             arrival_count: 0,
             parked_at: None,
             case: plan.identity.case.clone(),
+            handoff_state: None,
             events: if plan.identity.lane_change().is_some() {
                 Recorder::new_lane_change(
                     plan.warm_up_ticks + plan.observation_ticks + 1,
@@ -135,6 +137,13 @@ impl Driver {
     }
 
     pub fn lifecycle(&mut self, ecs: &mut World) -> Result<(), Error> {
+        if let Some(state) = &self.handoff_state {
+            let mut session = ecs.resource_mut::<LaneFlowSession>();
+            let requests =
+                crate::handoff::requests(session.world(), state, &self.handles, &self.routes)
+                    .map_err(Error::Invalid)?;
+            session.set_next_route_handoffs(requests);
+        }
         let boundary = ecs.resource::<LaneFlowSession>().world().tick_index();
         let mut commands = Vec::new();
         if self.case == Case::W3 {

@@ -1,10 +1,6 @@
-//! #1218 L 族失败重试（换道预约断点）：仅编译进 Runtime 单元测试，不开放生产 failpoint。
-//!
-//! 失败边界 = 前车（live-order 优先者）预约建立拍；注入断点覆盖换道预约相关断点
-//! `AfterGrants`（staged 授予后、提交前——失败丢弃 staged 不建预约）与
-//! `AfterTransitions`（crossing 转移产生后——失败零发布）。失败零发布、只重试原
-//! step；retry/fresh 对照。T 触时刻的规范快照按 #1217/#1218 面 B 记录
-//! （结构化拒绝变体 + 真实资源身份/历史投影），T-free 边界快照逐字节比较。
+//! L1 同拍横移申请的故障注入。逐拍对照独立世界，保存进入拍及末态的规范快照。
+#[path = "../../../../../../tools/laneflow-synth-harness/src/handoff.rs"]
+mod handoff;
 
 use std::collections::HashMap;
 use std::fs;
@@ -12,7 +8,9 @@ use std::num::NonZeroU32;
 use std::path::Path;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_static_contract::{LaneEdgeId, ParkingSpaceId, ParkingSpaceOrdinal, VehicleProfileId};
+use laneflow_static_contract::{
+    ParkingSpaceId, ParkingSpaceOrdinal, SignalAspect, VehicleProfileId,
+};
 use laneflow_static_network::*;
 use laneflow_synth_generator::{Bundle, InitialState, verify_directory};
 use serde_json::{Value, json};
@@ -20,13 +18,12 @@ use serde_json::{Value, json};
 use crate::kernel::tick::{STEP_FAILPOINT, StepFailpoint};
 use crate::*;
 
-const T_RESOURCE_IDENTITY: u32 = 0x8000_0000;
-
 struct LaneChange {
     world: TrafficWorld,
     handles: Vec<VehicleHandle>,
-    cluster: [VehicleHandle; 2],
-    journal: Vec<(u64, u8, u32, u32)>,
+    routes: Vec<RouteHandle>,
+    phases: Vec<u32>,
+    journal: Vec<(u64, u16, u32, u32)>,
     state: InitialState,
 }
 
@@ -63,25 +60,24 @@ impl LaneChange {
             origin.network_revision(),
         )
         .unwrap();
-        let lane_change_route = state
-            .routes
-            .iter()
-            .position(|route| route.edge_ids.len() > 2)
-            .unwrap();
         let mut world = TrafficWorld::install(crate::WorldInstallInput {
             revision: revision.clone(),
-            config: WorldConfig::try_new(crate::WorldConfigInput {
-                vehicle_capacity: state.vehicles.len() as u32,
-                route_capacity: state.routes.len() as u32,
-                route_edge_occurrence_capacity: state
-                    .routes
-                    .iter()
-                    .map(|r| r.edge_ids.len() as u64)
-                    .sum(),
-                route_conflict_occurrence_capacity: 16,
-                fixed_delta_time_ms: u64::from(state.identity.fixed_delta_ms),
-            })
-            .expect("有效的交通配置"),
+            config: handoff::configure_world(
+                &state,
+                WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: state.vehicles.len() as u32,
+                    route_capacity: state.routes.len() as u32,
+                    route_edge_occurrence_capacity: state
+                        .routes
+                        .iter()
+                        .map(|r| r.edge_ids.len() as u64)
+                        .sum(),
+                    route_conflict_occurrence_capacity: 16,
+                    fixed_delta_time_ms: u64::from(state.identity.fixed_delta_ms),
+                })
+                .expect("有效的交通配置"),
+            )
+            .unwrap(),
             execution,
             source: CommittedNetworkSource::Published { reference: source },
             world_id: crate::WorldId::new(0),
@@ -93,16 +89,7 @@ impl LaneChange {
         let routes: Vec<_> = state
             .routes
             .iter()
-            .map(|route| {
-                let edges: Vec<_> = route
-                    .edge_ids
-                    .iter()
-                    .map(|id| identity.ordinal(id.parse::<LaneEdgeId>().unwrap()).unwrap())
-                    .collect();
-                world
-                    .register_route(RouteRegisterInput::new(edges))
-                    .unwrap()
-            })
+            .map(|route| handoff::register_route(&mut world, route).unwrap())
             .collect();
         let spaces: Vec<Option<ParkingSpaceOrdinal>> = state
             .vehicles
@@ -116,10 +103,9 @@ impl LaneChange {
             })
             .collect();
         let mut handles = Vec::new();
-        let mut cluster_slots: [Option<VehicleHandle>; 2] = [None, None];
+
         for (rank, vehicle) in state.vehicles.iter().enumerate() {
             let route = routes[vehicle.route_rank as usize];
-            let on_cluster = vehicle.route_rank as usize == lane_change_route;
             let handle = if vehicle.status == "active" {
                 let spawn = VehicleSpawnInput::new(
                     profile,
@@ -128,13 +114,7 @@ impl LaneChange {
                     vehicle.progress_mm,
                     vehicle.speed_mm_per_s,
                 );
-                world
-                    .spawn_vehicle(if on_cluster {
-                        spawn.with_open_entrance()
-                    } else {
-                        spawn
-                    })
-                    .unwrap()
+                world.spawn_vehicle(spawn).unwrap()
             } else {
                 world
                     .spawn_parked_vehicle(
@@ -149,136 +129,46 @@ impl LaneChange {
                     .unwrap()
                     .vehicle
             };
-            if on_cluster {
-                cluster_slots[if vehicle.slot == 0 { 0 } else { 1 }] = Some(handle);
-            }
             handles.push(handle);
         }
-        let cluster = [cluster_slots[0].unwrap(), cluster_slots[1].unwrap()];
+        let slots = state.vehicles.len() - state.identity.scale as usize;
         Self {
             world,
             handles,
-            cluster,
+            routes,
+            phases: vec![0; slots],
             journal: Vec::new(),
             state,
         }
     }
 
-    fn leader(&self) -> VehicleHandle {
-        self.cluster[0]
+    fn requests(&self) -> Vec<RouteHandoffRequest> {
+        handoff::requests(&self.world, &self.state, &self.handles, &self.routes).unwrap()
     }
 
     fn step(&mut self, dt: u32) -> StepOutcome {
-        let outcome = self.world.step(TickInput::new(u64::from(dt))).unwrap();
-        self.record_events();
+        let requests = self.requests();
+        let outcome = self
+            .world
+            .step_with_route_handoffs(TickInput::new(u64::from(dt)), &requests)
+            .unwrap();
+        handoff::observe(
+            &self.world,
+            &self.state,
+            &self.handles,
+            &mut self.phases,
+            &mut self.journal,
+        )
+        .unwrap();
         outcome
-    }
-
-    /// 记录换道预约生命周期事件（真实资源身份：Zone ordinal / T 标记）。
-    fn record_events(&mut self) {
-        for event in self.world.latest_transition_events() {
-            let vehicle = event.vehicle();
-            let slot = if vehicle == self.cluster[0] {
-                0_u8
-            } else if vehicle == self.cluster[1] {
-                1
-            } else {
-                continue;
-            };
-            let (kind, identity) = match event.kind() {
-                TrafficTransitionKind::GateCrossed { gate } => (1_u32, gate.raw()),
-                TrafficTransitionKind::ReservationAcquired { passage_range } => {
-                    (4, passage_identity(&self.world, passage_range))
-                }
-                TrafficTransitionKind::ConflictEntered { passage } => {
-                    (5, address_identity(&passage.address()))
-                }
-                TrafficTransitionKind::ConflictCleared { passage } => {
-                    (6, address_identity(&passage.address()))
-                }
-                TrafficTransitionKind::ReservationReleased { passage_range } => {
-                    (7, passage_identity(&self.world, passage_range))
-                }
-                TrafficTransitionKind::ManeuverTraversalCompleted { .. } => (8, 0),
-                other => panic!("unexpected lane-change transition {other:?}"),
-            };
-            self.journal.push((event.tick(), slot, kind, identity));
-        }
-    }
-
-    /// 面 B 投影（#1218）：结构化拒绝变体 + 真实资源身份/历史 + 逐车相位与预约终态。
-    fn face_b(&self) -> Value {
-        let refused = match self.world.capture_snapshot() {
-            Err(SnapshotCaptureError::UnsupportedTransitionState(inner)) => match inner {
-                UnsupportedTransitionState::AdmissionHopWithoutGate => "AdmissionHopWithoutGate",
-                UnsupportedTransitionState::TransitionPassageRow => "TransitionPassageRow",
-                UnsupportedTransitionState::TransitionLagHistory => "TransitionLagHistory",
-            },
-            Err(other) => panic!("面 B 必须是过渡结构化拒绝：{other:?}"),
-            Ok(_) => panic!("T 触时刻保存必须被结构化拒绝（#1217/#1218 面 B）"),
-        };
-        let vehicles: Vec<Value> = self
-            .cluster
-            .iter()
-            .enumerate()
-            .map(|(slot, &handle)| {
-                let state = self.world.vehicle(handle).unwrap();
-                let phase = match state.maneuver_traversal().map(|t| t.phase()) {
-                    None => 0_u32,
-                    Some(ManeuverTraversalPhase::PreGate { .. }) => 1,
-                    Some(ManeuverTraversalPhase::Committed { .. }) => 2,
-                    Some(ManeuverTraversalPhase::Waiting { .. }) => 3,
-                    Some(ManeuverTraversalPhase::Clearing { .. }) => 4,
-                };
-                let held = self.world.conflict_reservation(handle).map(|r| {
-                    json!([
-                        r.owner() == handle,
-                        r.acquired_tick(),
-                        r.passage_range().passage_count()
-                    ])
-                });
-                json!({"slot":slot, "phase":phase, "held":held})
-            })
-            .collect();
-        // 全体 handle 的公开车辆运动状态投影（#1226）：与 harness
-        // `lane_change_t_state` 同布局，供 retry/fresh/final 逐字节比较。
-        let states: Vec<Value> = self
-            .handles
-            .iter()
-            .enumerate()
-            .map(|(rank, &handle)| {
-                let state = self.world.vehicle(handle);
-                let status = match state.map(|s| s.status()) {
-                    Some(VehicleStatus::Active) => 0_u32,
-                    Some(VehicleStatus::Parked) => 1,
-                    Some(VehicleStatus::Completed) => 2,
-                    None => 3,
-                };
-                json!([
-                    rank,
-                    self.state.vehicles[rank].route_rank,
-                    state.map(|s| s.route_edge_index()).unwrap_or(0),
-                    state.map(|s| s.progress_mm()).unwrap_or(0),
-                    state.map(|s| u32::from(s.carry_um())).unwrap_or(0),
-                    state.map(|s| s.speed_mm_s()).unwrap_or(0),
-                    status,
-                ])
-            })
-            .collect();
-        json!({"persistence_refused":refused,
-            "vehicles":vehicles,
-            "states":states,
-            "journal":self.journal.iter().map(|(t, s, k, i)| json!([t, s, k, i])).collect::<Vec<_>>(),
-            "tick":self.world.tick_index(),"time_ms":self.world.time_ms(),
-            "command_cursor":self.world.command_cursor()})
     }
 }
 
 fn address_identity(address: &ConflictPassageAddress) -> u32 {
-    match address.static_zone() {
-        Some(zone) => zone.raw(),
-        None => T_RESOURCE_IDENTITY,
-    }
+    address
+        .static_zone()
+        .expect("L1 路口事件引用实际冲突区")
+        .raw()
 }
 
 fn passage_identity(world: &TrafficWorld, range: ConflictPassageRange) -> u32 {
@@ -303,7 +193,7 @@ fn save(path: &Path, value: &Value) {
     fs::write(path, bytes).unwrap();
 }
 
-/// 边界公开观测（事件行携带真实资源身份 payload；信号行为空）。
+/// 采集边界的公开观测，事件行携带路口资源身份。
 fn observation(sample: &LaneChange, outcome: Option<&StepOutcome>) -> Value {
     let ranks: HashMap<_, _> = sample
         .handles
@@ -340,7 +230,7 @@ fn observation(sample: &LaneChange, outcome: Option<&StepOutcome>) -> Value {
                 event.tick(),
                 ranks[&event.vehicle()],
                 event.vehicle_update_sequence(),
-                0,
+                sample.state.vehicles[ranks[&event.vehicle()]].route_rank,
                 anchor.maneuver_occurrence_index(),
                 anchor.hop(),
                 anchor.position().route_edge_index(),
@@ -351,11 +241,36 @@ fn observation(sample: &LaneChange, outcome: Option<&StepOutcome>) -> Value {
             ])
         })
         .collect();
+    let signals: Vec<_> = sample
+        .world
+        .committed_signal_groups()
+        .as_slice()
+        .iter()
+        .map(|(group, aspect)| {
+            let aspect = match aspect {
+                SignalAspect::Red => 0,
+                SignalAspect::Yellow => 1,
+                SignalAspect::Green => 2,
+                _ => panic!("unexpected LF-SYNTH signal aspect"),
+            };
+            json!([group.raw(), aspect])
+        })
+        .collect();
     let outcome = outcome.map(|outcome| {
-        json!({"tick":outcome.tick_index(),"time_ms":outcome.time_ms(),"parking_arrivals":[]})
+        let arrivals: Vec<_> = outcome
+            .parking_arrivals()
+            .iter()
+            .map(|arrival| {
+                let ParkingTarget::ExplicitSpace(space) = arrival.target else {
+                    panic!("unexpected LF-SYNTH parking target")
+                };
+                json!([ranks[&arrival.vehicle], space.raw()])
+            })
+            .collect();
+        json!({"tick":outcome.tick_index(),"time_ms":outcome.time_ms(),"parking_arrivals":arrivals})
     });
     json!({"tick":sample.world.tick_index(),"time_ms":sample.world.time_ms(),
-        "command_cursor":sample.world.command_cursor(),"events":events,"signals":[],
+        "command_cursor":sample.world.command_cursor(),"events":events,"signals":signals,
         "outcome":outcome})
 }
 
@@ -384,24 +299,15 @@ fn lane_change_failed_step_retry() {
     fs::create_dir_all(output).unwrap();
     let execution = execution_config(&workers);
 
-    // 探针世界定失败边界 = 前车首次入 T 拍（确定性；与正式输入逐字绑定）。
+    // 以首车实际进入拍定位故障边界，两份原始世界独立重建同批申请。
     let boundary = {
         let mut probe = LaneChange::new(&bundle, execution);
-        let mut boundary = None;
-        for tick in 1..=end {
-            probe.step(dt as u32);
-            if probe
-                .world
-                .vehicle(probe.leader())
-                .unwrap()
-                .route_edge_index()
-                >= 1
-            {
-                boundary = Some(tick);
-                break;
-            }
-        }
-        boundary.expect("前车 crossing 拍")
+        (1..=end)
+            .find(|_| {
+                probe.step(dt as u32);
+                probe.phases.first() == Some(&10)
+            })
+            .expect("首车获准进入横移")
     };
 
     let mut failure = LaneChange::new(&bundle, execution);
@@ -417,34 +323,35 @@ fn lane_change_failed_step_retry() {
     fs::write(output.join("pre-command.lfrs"), &pre_bytes).unwrap();
     fs::write(output.join("post-command.lfrs"), &pre_bytes).unwrap();
     fs::write(output.join("fresh-post-command.lfrs"), &fresh_pre_bytes).unwrap();
-    save(
-        &output.join("observations.json"),
-        &json!({"format":"lf-synth-retry-observations-lc-1",
-            "pre_command":observation(&failure, None),
-            "post_command":observation(&failure, None),
-            "fresh_post_command":observation(&fresh, None),
-            "failed":observation(&failure, None),
-            "retry":Value::Null,"fresh":Value::Null,"final":Value::Null}),
-    );
+    let mut observations = json!({"format":"lf-synth-retry-observations-handoff-1",
+        "pre_command":observation(&failure, None),"post_command":observation(&failure, None),
+        "fresh_post_command":observation(&fresh, None),"failed":Value::Null,
+        "retry":Value::Null,"fresh":Value::Null,"final":Value::Null});
+    save(&output.join("observations.json"), &observations);
 
-    let cursor_before_commands = failure.world.command_cursor();
+    // L1 申请随 step 提交，此处没有独立的主机命令。
+    let command_cursor = failure.world.command_cursor();
     // 注入失败：零发布（状态/事件/游标不变），failpoint 消耗。
     STEP_FAILPOINT.with(|slot| slot.set(Some(point)));
+    let requests = failure.requests();
+    assert_eq!(requests.len(), failure.phases.len(), "全部换道者同拍竞争");
     let error = failure
         .world
-        .step(TickInput::new(dt))
+        .step_with_route_handoffs(TickInput::new(dt), &requests)
         .expect_err("注入失败拍必须失败");
+    observations["failed"] = observation(&failure, None);
+    save(&output.join("observations.json"), &observations);
+    let failed_snapshot = failure.world.capture_snapshot().unwrap();
+    let failed_digest = digest(&failed_snapshot);
+    let failed_bytes = encode_lfrs(&failed_snapshot);
+    fs::write(output.join("failed.lfrs"), &failed_bytes).unwrap();
     assert_eq!(error, StepError::ParkingObservationAllocFailed);
     assert!(
         STEP_FAILPOINT.with(|slot| slot.get().is_none()),
         "failpoint must be consumed"
     );
-    let cursor_after_commands = failure.world.command_cursor();
     assert_eq!(failure.world.tick_index(), boundary - 1);
-    assert!(failure.world.latest_transition_events().is_empty());
-    let failed_snapshot = failure.world.capture_snapshot().unwrap();
-    let failed_digest = digest(&failed_snapshot);
-    let failed_bytes = encode_lfrs(&failed_snapshot);
+    assert_eq!(observations["post_command"], observations["failed"]);
     assert_eq!(failed_bytes, pre_bytes, "失败零发布");
 
     // 只重试原 step；fresh 世界同步推进。
@@ -456,16 +363,16 @@ fn lane_change_failed_step_retry() {
         failure.world.latest_transition_events(),
         fresh.world.latest_transition_events()
     );
-    let retry_face_b = failure.face_b();
-    let fresh_face_b = fresh.face_b();
-    assert_eq!(retry_face_b, fresh_face_b, "retry/fresh 面 B 记录相等");
-    fs::write(output.join("failed.lfrs"), &failed_bytes).unwrap();
-    save(&output.join("retry.json"), &retry_face_b);
-    save(&output.join("fresh.json"), &fresh_face_b);
+    assert_eq!(failure.phases[0], 10, "首车的重试确实建立横移预约");
+    assert_eq!(failure.phases[1], 0, "竞争者没有同拍获得预约");
+    let retry_snapshot = failure.world.capture_snapshot().unwrap();
+    let retry_bytes = encode_lfrs(&retry_snapshot);
+    let fresh_bytes = encode_lfrs(&fresh.world.capture_snapshot().unwrap());
+    assert_eq!(retry_bytes, fresh_bytes, "重试拍活动横移快照");
+    assert_eq!(failure.journal, fresh.journal);
+    fs::write(output.join("retry.lfrs"), &retry_bytes).unwrap();
+    fs::write(output.join("fresh.lfrs"), &fresh_bytes).unwrap();
 
-    let mut observations =
-        serde_json::from_slice::<Value>(&fs::read(output.join("observations.json")).unwrap())
-            .unwrap();
     observations["retry"] = observation(&failure, Some(&retry_outcome));
     observations["fresh"] = observation(&fresh, Some(&fresh_outcome));
     save(&output.join("observations.json"), &observations);
@@ -483,15 +390,21 @@ fn lane_change_failed_step_retry() {
         final_outcome = Some(a);
     }
     let final_cursor = failure.world.command_cursor();
-    let final_face_b = failure.face_b();
-    assert_eq!(final_face_b, fresh.face_b(), "末态面 B 记录相等");
-    save(&output.join("final.json"), &final_face_b);
+    let final_snapshot = failure.world.capture_snapshot().unwrap();
+    let final_bytes = encode_lfrs(&final_snapshot);
+    assert_eq!(
+        final_bytes,
+        encode_lfrs(&fresh.world.capture_snapshot().unwrap())
+    );
+    assert_eq!(failure.journal, fresh.journal);
+    assert!(failure.phases.iter().all(|&kind| kind == 12));
+    fs::write(output.join("final.lfrs"), final_bytes).unwrap();
     observations["final"] = observation(&failure, final_outcome.as_ref());
     save(&output.join("observations.json"), &observations);
 
     save(
         &output.join("report.json"),
-        &json!({"format":"lf-synth-lane-change-retry-1","complete":true,
+        &json!({"format":"lf-synth-route-handoff-retry-1","complete":true,
             "implementation_commit":implementation,"workers":workers.parse::<u32>().unwrap(),
             "input_manifest":serde_json::to_value(bundle.manifest()).unwrap(),
             "failure_boundary":boundary - 1,"failed_step_tick":boundary,
@@ -502,7 +415,8 @@ fn lane_change_failed_step_retry() {
             "failed_state_digest":failed_digest,
             "warm_up_ticks":plan["warm_up_ticks"],"observation_ticks":plan["observation_ticks"],
             "final_tick":end,
-            "cursor_before_commands":cursor_before_commands,"cursor_after_commands":cursor_after_commands,"cursor_after_retry":cursor_after_retry,"final_cursor":final_cursor,
-            "retry_face_b":retry_face_b,"final_face_b":final_face_b}),
+            "cursor_before_commands":command_cursor,"cursor_after_commands":command_cursor,"cursor_after_retry":cursor_after_retry,"final_cursor":final_cursor,
+            "retry_state_digest":digest(&retry_snapshot),"final_state_digest":digest(&final_snapshot),
+            "handoff_journal":failure.journal}),
     );
 }

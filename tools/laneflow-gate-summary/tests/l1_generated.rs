@@ -3,10 +3,9 @@
 //! 经 `cargo test -p laneflow-gate-summary --test l1_generated -- --ignored`
 //! 手动运行；正式 L1 输入包（含仓库外缓存）的核查走 CLI `check-transitions`。
 //!
-//! 覆盖两条：诚实包必须 clean；向 state 注入一条「只走过渡段目标车道链前段、
-//! 避开可见邻域」的路线后必须翻成 violations-found（#1285 评审 P1 回归——
-//! 车道链原点不共享时，锚定窗口须在候选车道自身坐标系内对齐）。
+//! 动态 L1 不能包含固定过渡。另用最小四边路网保留固定过渡存续期间的 #1271 盲路线反例。
 
+use laneflow_compiler::*;
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_gate_summary::l1check::{self, BundleInput};
 use laneflow_static_contract::LaneEdgeOrdinal;
@@ -53,24 +52,99 @@ fn generated_l1_bundle_has_no_1271_topology() {
     let input = l1_bundle_input("10000-L1-16");
     let report = l1check::check(&input).expect("check");
     assert_eq!(report.bundle.identity, "10000-L1-16");
-    assert!(
-        report
-            .transitions
-            .iter()
-            .all(|transition| transition.blind_routes.is_empty()),
-        "盲路线应为空：{:?}",
-        report.transitions
-    );
+    assert!(report.transitions.is_empty(), "动态换道簇生成了固定过渡");
     assert_eq!(report.verdict, "clean");
 }
 
-#[test]
-#[ignore = "进程内编译 LFCA 属重负载，按窗口手动运行"]
-fn injected_parallel_edge_route_is_flagged_as_blind() {
-    let mut input = l1_bundle_input("10000-L1-16");
+/// 两条编制车道的起点独立，目标车道在汇入切点之前已有平行边。
+fn parallel_edge_fixture() -> BundleInput {
+    let limits = CompileProfile::single_network_10k_stable_entities();
+    let header = SourceModuleHeader::new(
+        SourceModuleHeaderInput {
+            authoring_namespace_id: "gate/parallel",
+            source_document_key: "parallel.document",
+            generator_build_id: "parallel-test",
+            parameters_and_inputs_digest: [1; 32],
+            frontend_options_digest: [2; 32],
+            random_seed: None,
+            provenance: "test",
+        },
+        &limits,
+    )
+    .unwrap();
+    let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+    for (name, length, next) in [
+        ("source", 30., Some("transition")),
+        ("transition", 5., Some("target")),
+        ("parallel", 30., Some("target")),
+        ("target", 30., None),
+    ] {
+        let successors: Vec<_> = next.into_iter().map(LaneEdgeReference::local).collect();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: name,
+                length_meters: length,
+                speed_limit_meters_per_second: 8.,
+                successors: &successors,
+            })
+            .unwrap();
+    }
+    builder
+        .add_road_section(RoadSectionInput {
+            road_section_key: "section",
+            kind_id: "motorLane",
+            lanes: &[
+                AuthoringLaneInput {
+                    authoring_lane_key: "left",
+                    edge_chain: &[LaneEdgeReference::local("source")],
+                    lane_group: None,
+                },
+                AuthoringLaneInput {
+                    authoring_lane_key: "right",
+                    edge_chain: &[
+                        LaneEdgeReference::local("parallel"),
+                        LaneEdgeReference::local("target"),
+                    ],
+                    lane_group: None,
+                },
+            ],
+        })
+        .unwrap();
+    builder
+        .add_road_corridor(RoadCorridorInput {
+            road_corridor_key: "corridor",
+            reference_section: RoadSectionReference::local("section"),
+            elements: &[CorridorElementReference::road_section(
+                RoadSectionReference::local("section"),
+            )],
+        })
+        .unwrap();
+    let mut unit = CompilationUnitBuilder::new(limits.clone());
+    unit.add_synthetic_module(builder.finish().unwrap())
+        .unwrap();
+    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+    let candidate = emit_portable_candidate(
+        &output,
+        &PortableEmissionProvenance::try_new("parallel-test").unwrap(),
+        FormatLimits::HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let state = serde_json::json!({"format":"lf-synth-initial-state-1",
+        "identity": Identity::new(10_000, Case::W1, 16).unwrap(),
+        "policy_id":"","vehicle_profile_id":"","routes":[],"vehicles":[]});
+    BundleInput {
+        identity: "parallel-edge-fixture".into(),
+        manifest: serde_json::json!({}),
+        network_lfca: candidate.canonical_artifact().bytes().to_vec(),
+        state_json: serde_json::to_vec(&state).unwrap(),
+    }
+}
 
-    // 找过渡段 t、其后渡边 e2 与目标车道链上 e2 的车道前驱 e4
-    //（e4 物理上与 t 平行：链偏移 [0,30000) 物理跨度 5–35 m）。
+#[test]
+fn injected_parallel_edge_route_is_flagged_as_blind() {
+    let mut input = parallel_edge_fixture();
+    assert_eq!(l1check::check(&input).unwrap().verdict, "clean");
     let checked = check_canonical_network_input(input.network_lfca.as_slice(), FormatLimits::HARD)
         .expect("lfca");
     let revision = build_shared_network_revision(
@@ -112,6 +186,7 @@ fn injected_parallel_edge_route_is_flagged_as_blind() {
         route: 0,
         edge_ids: vec![parallel_lfid.clone()],
         signal_group_id: None,
+        handoff: None,
     });
     input.state_json = serde_json::to_vec(&state).expect("state re-encode");
 

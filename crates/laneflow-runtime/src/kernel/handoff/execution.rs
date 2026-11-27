@@ -451,10 +451,7 @@ fn matches_entry(vehicle: VehicleState, sample: &LocatedSample) -> bool {
     let Some(front) = sample.footprint.front.addresses().next() else {
         return false;
     };
-    // 用普通运动余量换算前杠的整毫米观测，半毫米取偶。余数不参与反求几何。
-    let observed = vehicle.progress_mm.saturating_add(u32::from(
-        vehicle.carry_um > 500 || vehicle.carry_um == 500 && vehicle.progress_mm % 2 == 1,
-    ));
+    let observed = vehicle.rounded_front_progress_mm();
     sample.front_occurrence == vehicle.route_edge_index
         && sample.footprint.front_side == HandoffLaneSide::Source
         && (front.progress_mm[0]..=front.progress_mm[1]).contains(&observed)
@@ -745,7 +742,13 @@ impl StepWorkspace<'_> {
                     .ok_or(StepError::HandoffUnproven)?;
                 match self.advance_handoff(vehicle, ordinary, candidate, existing, &grants.plans)? {
                     Some(movement) => {
-                        updates.set(index, movement.vehicle, &self.committed.vehicles)?;
+                        updates.set_handoff_motion(
+                            index,
+                            movement.vehicle,
+                            &self.committed.vehicles,
+                            world.compiled_route(vehicle.route),
+                            world.binding.revision.traffic().lane_lengths_millimetres(),
+                        )?;
                         if movement.cleared {
                             finished = true;
                         } else {

@@ -728,12 +728,7 @@ fn lower_verified_source(
         .max(controlled_live_bytes)
         .max(counts.preflight_peak_scratch_bytes());
     debug_assert!(
-        controlled_live_bytes
-            <= preallocation_live_bytes
-                .saturating_add(size_bytes::<CanonicalPoint3F32Input>(geometry_point_count))
-                .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
-                    geometry_source_range_count,
-                )),
+        controlled_live_bytes <= preallocation_live_bytes.saturating_add(geometry_output_bytes),
         "retained RoadEditingSource payload exceeded its preallocation upper bound"
     );
     let typed_ast = TypedAstModule {

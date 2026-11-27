@@ -282,6 +282,88 @@ fn extract_once(session: &mut LaneFlowSession) -> LaneFlowCommittedPoseBatch {
 }
 
 #[test]
+fn pending_handoff_batch_belongs_to_its_session_generation() {
+    enum Switch {
+        Rejected,
+        Cutover,
+        Restore,
+    }
+    let fixture = fixture();
+    for switch in [Switch::Rejected, Switch::Cutover, Switch::Restore] {
+        let Seeded {
+            mut session,
+            vehicle,
+            ..
+        } = seeded(&fixture.r1, "fixture://handoff-session/r1");
+        let request = laneflow_runtime::RouteHandoffRequest {
+            vehicle,
+            route: session.world().vehicle(vehicle).unwrap().route(),
+            revision: fixture.r1.root.network_revision(),
+            source_index: 0,
+            station_window_mm: [0, 1000],
+            rear_stations_mm: [100, 500],
+            speed_m_s: 1.,
+            limits: laneflow_static_network::vehicle::GeometryWorkLimits::STANDARD,
+        };
+        // 此普通路线没有已登记的换道窗口。若输入仍在，实际 Step 必须拒绝。
+        session.set_next_route_handoffs(vec![request]);
+        let expected_rejection = matches!(switch, Switch::Rejected);
+        match switch {
+            Switch::Restore => {
+                let _record = session
+                    .same_revision_restore(
+                        Arc::clone(&fixture.r1.root),
+                        source(&fixture.r1.root, "fixture://handoff-session/restored"),
+                        LaneFlowTargetSpatial::Headless,
+                        &PREFLIGHT,
+                    )
+                    .unwrap();
+            }
+            Switch::Cutover | Switch::Rejected => {
+                let spatial = if expected_rejection {
+                    LaneFlowTargetSpatial::Rebind(
+                        laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r1.root))
+                            .unwrap()
+                            .unwrap(),
+                    )
+                } else {
+                    LaneFlowTargetSpatial::Headless
+                };
+                let result = session.cross_revision_cutover(
+                    Arc::clone(&fixture.r2.root),
+                    source(&fixture.r2.root, "fixture://handoff-session/r2"),
+                    &fixture.r2.diff,
+                    fixture.r2.binding,
+                    spatial,
+                    &PREFLIGHT,
+                    &CutoverTransactionLimits::default(),
+                );
+                assert_eq!(result.is_err(), expected_rejection);
+            }
+        }
+        let mut time = bevy_time::Time::<()>::default();
+        time.advance_by(Duration::from_millis(100));
+        let mut app = App::new();
+        app.add_plugins(LaneFlowPlugin)
+            .insert_resource(time)
+            .insert_resource(session);
+        app.update();
+        let session = app.world().resource::<LaneFlowSession>();
+        if expected_rejection {
+            assert!(matches!(
+                session.last_error(),
+                Some(LaneFlowAdapterError::StepFailed(
+                    laneflow_runtime::StepError::InvalidHandoffRequest
+                ))
+            ));
+        } else {
+            assert!(session.last_error().is_none());
+            assert_eq!(session.frame_report().steps_run(), 1);
+        }
+    }
+}
+
+#[test]
 fn selected_context_survives_failed_cutover_but_not_successful_cutover_or_restore() {
     let fixture = fixture();
     let Seeded {

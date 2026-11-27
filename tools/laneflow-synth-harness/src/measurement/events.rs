@@ -9,9 +9,7 @@ use crate::{Error, failure, require};
 
 /// #1166：精确有序事件的内部证据，句柄转成逻辑 rank；不扫描全部车辆状态。
 ///
-/// L 族（#1218）放行换道预约生命周期事件（种类 4/5/6/7），payload 携带**真实
-/// 资源身份**（资源种类高位标记 + 资源 raw，同 `ConflictPassageAddress` 布局
-/// 保持编码）——比较面不得只比错误编码摘要（#1217 口径）。
+/// L1 同时校验驶到下游路口时正常发布的冲突区事件，保留实际资源身份。
 pub(crate) struct Recorder {
     bytes: Vec<u8>,
     next_tick: u64,
@@ -25,7 +23,7 @@ impl Recorder {
         Self::from_tick(ticks, scale, 0, false)
     }
 
-    /// L 族观察（#1218）：放行换道预约生命周期事件并携带资源身份。
+    /// L1 允许下游路口的冲突区事件。换道阶段由提交观测单独验证。
     pub(crate) fn new_lane_change(ticks: u64, scale: u32) -> Self {
         Self::from_tick(ticks, scale, 0, true)
     }
@@ -95,10 +93,10 @@ impl Recorder {
                     (4, passage_identity(world, passage_range)?)
                 }
                 TrafficTransitionKind::ConflictEntered { passage } if self.lane_change => {
-                    (5, address_identity(&passage.address()))
+                    (5, address_identity(&passage.address())?)
                 }
                 TrafficTransitionKind::ConflictCleared { passage } if self.lane_change => {
-                    (6, address_identity(&passage.address()))
+                    (6, address_identity(&passage.address())?)
                 }
                 TrafficTransitionKind::ReservationReleased { passage_range }
                     if self.lane_change =>
@@ -154,18 +152,12 @@ impl Recorder {
     }
 }
 
-/// T 资源身份标记（单过渡段钉版）：`static_zone()` 为 `None` 的 passage 地址。
-pub(crate) const T_RESOURCE_IDENTITY: u32 = 0x8000_0000;
-
-/// 资源身份打包（#1218/#1217）：Zone = zone ordinal；Transition = 高位标记 +
-/// T 标记。资源种类由公开 `ConflictPassageAddress::static_zone` 判别（T 格返回
-/// `None`）；过渡段稳定边身份绑定正式输入 manifest 的簇路线 T 边（单过渡段
-/// 钉版，`t_state` 投影携带其稳定标识），不以归属 `(stream, zone)` 冒充身份。
-pub(crate) fn address_identity(address: &ConflictPassageAddress) -> u32 {
-    match address.static_zone() {
-        Some(zone) => zone.raw(),
-        None => T_RESOURCE_IDENTITY,
-    }
+/// 下游路口事件须解析到正式发布的冲突区。
+pub(crate) fn address_identity(address: &ConflictPassageAddress) -> Result<u32, Error> {
+    address
+        .static_zone()
+        .map(|zone| zone.raw())
+        .ok_or_else(|| failure("冲突区身份", "无静态冲突区"))
 }
 
 /// 预约区间事件的身份 payload：以区间首出现记录解析 passage 地址（真实资源身份）。
@@ -176,5 +168,5 @@ pub(crate) fn passage_identity(
     let locator = world
         .conflict_passage_occurrence_locator(range.route(), range.first_conflict_occurrence_index())
         .ok_or_else(|| failure("passage identity", "missing"))?;
-    Ok(address_identity(&locator.address()))
+    address_identity(&locator.address())
 }

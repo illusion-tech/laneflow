@@ -19,6 +19,11 @@ impl FinalizeHints {
         self.0 != 0
     }
 
+    /// 横移改写普通运动时，只有 P5 拍初冻结的控制和预约义务继续适用。
+    pub(crate) fn frozen_obligations(self) -> Self {
+        Self(self.0 & 1)
+    }
+
     pub(crate) fn with_motion(
         mut self,
         compiled: Option<&CompiledRoute>,
@@ -316,6 +321,40 @@ mod tests {
                 )
                 .retain()
         );
+    }
+
+    #[test]
+    fn handoff_motion_reselects_the_resource_row_and_preserves_frozen_obligations() {
+        let mut world = multi_gate_world(1);
+        let handle = world.live_vehicles()[0];
+        let mut ordinary = world.vehicle(handle).unwrap();
+        let route = world.state.compiled_route(ordinary.route).unwrap().clone();
+        let lengths = world.traffic().lane_lengths_millimetres().to_vec();
+        ordinary.route_edge_index = route.edges.len() as u32 - 1;
+        ordinary.progress_mm = 1;
+        ordinary.carry_um = 0;
+        ordinary.maneuver_traversal = None;
+        ordinary.waiting_membership = None;
+        let vehicles = &mut world.state.committed.vehicles;
+        let slot = handle.index() as usize;
+        vehicles.slot_mut(slot).state = Some(ordinary);
+        let mut updates = MotionUpdates::from_states(&[(slot, ordinary)], vehicles);
+        updates.select_resource_rows(vehicles, |_| false);
+        let mut at_end = ordinary;
+        at_end.progress_mm = lengths[route.edges[ordinary.route_edge_index as usize].index()];
+        for (state, retained) in [(at_end, true), (ordinary, false)] {
+            updates
+                .set_handoff_motion(0, state, vehicles, Some(&route), &lengths)
+                .unwrap();
+            assert_eq!(updates.resource_rows().contains(&0), retained);
+        }
+        let physical = vehicles.active_row(handle).unwrap();
+        updates.reports[physical].finalize_hints = FinalizeHints::frozen(true);
+        updates.select_resource_rows(vehicles, |_| true);
+        updates
+            .set_handoff_motion(0, ordinary, vehicles, Some(&route), &lengths)
+            .unwrap();
+        assert_eq!(updates.resource_rows(), [0]);
     }
 
     #[test]

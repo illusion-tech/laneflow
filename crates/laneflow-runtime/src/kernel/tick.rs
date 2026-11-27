@@ -5773,9 +5773,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         drop(conflict_timer);
         #[cfg(feature = "execution-evidence")]
         drop(conflict_evidence);
+        let grants = self.grant_handoffs(requests, tick_index)?;
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterGrants)?;
-        let grants = self.grant_handoffs(requests, tick_index)?;
         if !grants.records.is_empty() {
             // P2 预览没有本拍新增的保护，不能把旧速度或旧运动提案用于 P5。
             self.workspace.clear_motion_cache();

@@ -136,6 +136,24 @@ pub(super) fn check_report(
             warm + observation,
         ]
     };
+    let final_history = if job.case == "L1" {
+        if checkpoints.len() != ticks.len()
+            || checkpoints
+                .iter()
+                .zip(&ticks)
+                .any(|(point, &expected)| point["tick"] != expected)
+        {
+            return Err(invalid("L1 检查点数量或顺序不符"));
+        }
+        Some(
+            checkpoints
+                .last()
+                .and_then(|p| p["handoff_journal"].as_array())
+                .ok_or_else(|| invalid("最终检查点缺少横移历史"))?,
+        )
+    } else {
+        None
+    };
     for tick in ticks {
         let point = checkpoints
             .iter()
@@ -147,30 +165,53 @@ pub(super) fn check_report(
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         });
-        let refusal = point["persistence_refused"].as_str();
-        if job.case == "L1" {
-            // 双向钉边（#1218 面 A/面 B）：T-free 检查点必须成功捕获并携带
-            // 64-hex 摘要；终态拍（T 历史）必须结构化拒绝并携带真实身份投影。
-            let face_b = tick == warm + observation;
-            let valid = if face_b {
-                refusal.is_some() && point["t_state"].is_object() && point["state_digest"].is_null()
-            } else {
-                refusal.is_none() && point["t_state"].is_null() && has_digest
-            };
-            if !valid {
-                return Err(invalid(format!(
-                    "换道族检查点面不符（双向钉边）：{} tick={tick}",
-                    job.key()
-                )));
-            }
-        } else if refusal.is_some() || !has_digest {
+        if !has_digest {
             return Err(invalid(format!(
-                "状态检查点缺失或非法：{} tick={tick}",
+                "状态检查点缺少规范摘要：{} tick={tick}",
                 job.key()
             )));
         }
+        if let Some(history) = final_history {
+            let journal = point["handoff_journal"]
+                .as_array()
+                .ok_or_else(|| invalid("L1 检查点缺少横移历史"))?;
+            let complete = tick == warm + observation;
+            let prefix =
+                history.partition_point(|row| row[0].as_u64().is_some_and(|at| at <= tick));
+            if *journal != history[..prefix]
+                || !valid_handoff_journal(journal, tick, job.scale / 100 * 4, complete)
+            {
+                return Err(invalid(format!(
+                    "换道竞争历史与检查点不符：{} tick={tick}",
+                    job.key()
+                )));
+            }
+        }
     }
     Ok(())
+}
+
+// 正式矩阵每个世界恰有一个簇、两名竞争者。核对发证、交接与车尾清空的跨车顺序。
+fn valid_handoff_journal(rows: &[Value], tick: u64, first_route: u32, complete: bool) -> bool {
+    let mut previous_tick = 0;
+    if rows.len() > 6 || (complete && rows.len() != 6) || (tick > 0 && rows.is_empty()) {
+        return false;
+    }
+    rows.iter().enumerate().all(|(index, row)| {
+        let Some(at) = row[0].as_u64() else {
+            return false;
+        };
+        let slot = index as u32 / 3;
+        let valid = row.as_array().is_some_and(|cells| cells.len() == 4)
+            && (index > 0 || at == 1)
+            && at > previous_tick
+            && at <= tick
+            && row[1] == slot
+            && row[2] == 10 + index as u32 % 3
+            && row[3] == first_route + slot;
+        previous_tick = at;
+        valid
+    })
 }
 
 fn compare(output: &Path, job: Job, baseline: &Value, candidate: &Value) -> Result<Value, Error> {

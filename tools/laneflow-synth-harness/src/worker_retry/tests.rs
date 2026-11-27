@@ -203,47 +203,75 @@ fn local_retry_validation_rejects_snapshot_and_observation_tampering() {
 }
 
 #[test]
-fn lane_change_final_state_projection_is_compared_against_normal_reference() {
-    // #1226：末态比较必须覆盖全体 handle 的公开车辆状态投影，缺失或差异均拒绝。
-    let identity = "10000-L1-16";
+fn lane_change_retry_is_bound_to_its_failpoint_and_normal_reference() {
+    let task = Task {
+        job: Job {
+            scale: 10_000,
+            case: "L1",
+            dt: 16,
+            workers: 1,
+            round: 1,
+        },
+        normal: false,
+        inject: "AfterGrants",
+    };
+    let journal = json!([
+        [1, 0, 10, 400],
+        [243, 0, 11, 400],
+        [632, 0, 12, 400],
+        [995, 1, 10, 401],
+        [1480, 1, 11, 401],
+        [2071, 1, 12, 401]
+    ]);
     let normal = json!({
         "implementation_commit": "a".repeat(40),
-        "input_manifest": {"identity": {"case": {"LaneChange": {"clusters": 1, "changers_per_cluster": 2}}}},
-        "warm_up_ticks": 16,
-        "observation_ticks": 304,
-        "checkpoints": [
-            {"tick": 0, "state_digest": "d", "t_state": null, "persistence_refused": null},
-            {"tick": 320, "persistence_refused": "AdmissionHopWithoutGate",
-             "t_state": {"journal": [[1, 0, 4, 0]], "states": [[0, 0, 0], [1, 0, 0, 0]]}}
-        ]
+        "input_manifest":{"identity":{"case":{"RouteHandoff":{"clusters":1,"changers_per_cluster":2}}}},
+        "warm_up_ticks":16,"observation_ticks":2064,
+        "checkpoints":[{"tick":2080,"state_digest":"d".repeat(64),"handoff_journal":journal}]
     });
-    let report = json!({
-        "format": L_FORMAT,
-        "complete": true,
-        "implementation_commit": "a".repeat(40),
-        "input_manifest": {"identity": {"case": {"LaneChange": {"clusters": 1, "changers_per_cluster": 2}}}},
-        "warm_up_ticks": 16,
-        "observation_ticks": 304,
-        "workers": 1,
-        "zero_publication": true,
-        "retry_equals_fresh": true,
-        "failpoint_consumed": true,
-        "final_face_b": {
-            "journal": [[1, 0, 4, 0]],
-            "states": [[0, 0, 0], [1, 0, 0, 0]],
-        }
-    });
-    verify_lane_change_reports(&report, &normal, identity, 1).unwrap();
-    let mut changed_states = report.clone();
-    changed_states["final_face_b"]["states"] = json!([[0, 0, 0], [1, 0, 0, 9]]);
-    assert!(
-        verify_lane_change_reports(&changed_states, &normal, identity, 1).is_err(),
-        "全体车辆状态投影差异必须拒绝"
-    );
-    let mut changed_journal = report.clone();
-    changed_journal["final_face_b"]["journal"] = json!([[1, 0, 5, 0]]);
-    assert!(
-        verify_lane_change_reports(&changed_journal, &normal, identity, 1).is_err(),
-        "末态历史差异必须拒绝"
-    );
+    let report = json!({"format":L_FORMAT, "complete":true,
+        "implementation_commit":normal["implementation_commit"],"input_manifest":normal["input_manifest"],
+        "warm_up_ticks":16,"observation_ticks":2064,"workers":1,"zero_publication":true,
+        "retry_equals_fresh":true,"failpoint_consumed":true,"final_state_digest":"d".repeat(64),
+        "failpoint":"AfterGrants","error":"ParkingObservationAllocFailed","failed_calls":1,
+        "failure_boundary":0,"failed_step_tick":1,"final_tick":2080,"handoff_journal":journal});
+    verify_lane_change_reports(&report, &normal, task).unwrap();
+    for (field, changed) in [
+        ("final_state_digest", json!("e".repeat(64))),
+        ("handoff_journal", json!([])),
+        ("failpoint", json!("AfterTransitions")),
+        ("failed_calls", json!(2)),
+        ("error", json!("Other")),
+        ("failure_boundary", json!(1)),
+        ("failed_step_tick", json!(2)),
+        ("final_tick", json!(2079)),
+    ] {
+        let mut altered = report.clone();
+        altered[field] = changed;
+        assert!(
+            verify_lane_change_reports(&altered, &normal, task).is_err(),
+            "{field}"
+        );
+    }
+    let mut shifted = report;
+    shifted["failure_boundary"] = json!(1);
+    shifted["failed_step_tick"] = json!(2);
+    assert!(verify_lane_change_reports(&shifted, &normal, task).is_err());
+}
+
+#[test]
+fn lane_change_failure_observation_rejects_changed_events_or_a_published_tick() {
+    let (mut observations, mut report) = observations_fixture();
+    report["format"] = json!(L_FORMAT);
+    observations["format"] = json!("lf-synth-retry-observations-handoff-1");
+    check_observations(&observations, &report).unwrap();
+    for (field, changed) in [
+        ("events", json!([])),
+        ("events", observations["retry"]["events"].clone()),
+        ("tick", observations["retry"]["tick"].clone()),
+    ] {
+        let mut altered = observations.clone();
+        altered["failed"][field] = changed;
+        assert!(check_observations(&altered, &report).is_err(), "{field}");
+    }
 }

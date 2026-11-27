@@ -1,9 +1,5 @@
-//! L1 换道网络发射（#1218）：cell 背景（车道边 + 停车位）+ 恰一横向过渡段的
-//! 换道簇（R1b s12 钉版载体形制）+ 编辑侧唯一策略集。
-//!
-//! 独立于 `network.rs` 的原因（冻结面）：LFCA 规范制品嵌入发射调用点行号，
-//! `fixtures/probe-vectors.json` 冻结的 W 族 network.lfca 字节要求
-//! `network.rs` 逐字保持；本文件的行号只影响 L1 制品自身。
+//! L1 在完整横断面的两条外侧车道上发起交接，共用中道和下游平面交叉路口。
+//! 背景车道与停车位独立编制，W 族继续使用自己的发射器。
 
 use laneflow_compiler::*;
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
@@ -11,16 +7,16 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use crate::encoding::{config_bytes, digest};
 use crate::{BUILD_ID, Error, Identity, NAMESPACE, compile_error, key};
 
-/// L1 换道簇的边键；恰一横向过渡段 `lc-t`（R1b s12 钉版载体形制）。
-pub(crate) const LC_EDGES: [&str; 8] = [
-    "lc-e0", "lc-t", "lc-e2", "lc-int", "lc-exit", "lc-e3", "lc-e4", "lc-e5",
+/// 两个换道者从不同源边进入同一目标，随后各按普通机动通过路口。
+pub(crate) const LC_ROUTES: [[&str; 4]; 2] = [
+    ["lc-left", "lc-center", "lc-int", "lc-exit"],
+    ["lc-right", "lc-center", "lc-int", "lc-exit"],
 ];
-/// 换道者路线边链（e0→t→e2→int→exit），与 R1b 钉版同形。
-pub(crate) const LC_ROUTE: [&str; 5] = ["lc-e0", "lc-t", "lc-e2", "lc-int", "lc-exit"];
-/// 编辑侧模块命名空间（junction/zone/stream/policy 的稳定标识来源）。
 pub(crate) const LC_EDIT_NAMESPACE: &str = "lf-synth-road";
+const LC_FRAME: &str = "lc-frame";
+const CLUSTER_SPACING_M: f64 = 200.;
 
-pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
+pub(crate) fn compile(identity: &Identity) -> Result<(Vec<u8>, Vec<String>, u32), Error> {
     let limits = CompileProfile::single_network_1m_stable_entities();
     let header = SourceModuleHeader::new(
         SourceModuleHeaderInput {
@@ -43,8 +39,6 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             extends: None,
         })
         .map_err(|e| compile_error("participant class", e))?;
-    // 换道者与背景共用车型；钉版参数承接 R1b s12 规范口径（a_service 4.5、
-    // min_gap 2.5、d_stop(10 m/s)=15.61 m 前提）。
     builder
         .add_vehicle_profile(VehicleProfileInput {
             geometry: crate::PASSENGER_CAR_GEOMETRY,
@@ -72,9 +66,7 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
                 virtual_exits: &[],
             })
             .map_err(|e| compile_error("parking facility", e))?;
-        // L1 背景只保留车道边 + 停车位（D1：L 族自有背景语义）：cell 门/信号
-        // 不入网，换道簇的门/流由编辑侧唯一策略集全覆盖（策略校验要求每个
-        // 策略覆盖全网门与流，而合成侧门无法被编辑侧规则引用）。
+        // 背景使用普通车道和停车位，下游路口的门和流统一由编辑侧策略覆盖。
         add_background_route(&mut builder, cell, &facility)?;
         for route in 0..4 {
             let [entry, exit] = crate::network::centerlines(cell, route);
@@ -82,12 +74,10 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
             geometry.push((key(cell, route, "exit"), exit));
         }
     }
-    let lane_change_params = identity.lane_change();
-    let clusters = lane_change_params.map_or(0, |params| params.clusters);
-    let entry_mm = lane_change_params.map_or(30_000, |params| {
-        crate::lane_change_entry_length_mm(params.changers_per_cluster)
-    });
-    add_lane_change_clusters(&mut builder, clusters, entry_mm)?;
+    let clusters = identity
+        .lane_change()
+        .ok_or_else(|| Error::Invalid("L1 缺少换道簇".into()))?
+        .clusters;
     let geometry_refs: Vec<_> = geometry
         .iter()
         .map(|(name, points)| LaneEdgeGeometryInput {
@@ -137,7 +127,32 @@ pub(crate) fn compile(identity: &Identity) -> Result<Vec<u8>, Error> {
         FormatLimits::HARD,
     )
     .map_err(|e| compile_error("post-emission", e))?;
-    Ok(candidate.canonical_artifact().bytes().to_vec())
+    let sections = (0..clusters)
+        .map(|cluster| {
+            let key = cluster_key("lc-road-section", cluster);
+            output
+                .lir()
+                .road_sections()
+                .find(|s| {
+                    s.identity_fields().any(|f| {
+                        f.tag() == laneflow_static_contract::FieldTag::SectionKey
+                            && f.value_bytes() == key.as_bytes()
+                    })
+                })
+                .map(|s| s.stable_id().to_string())
+                .ok_or_else(|| Error::Invalid(format!("缺少换道区段 {key}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let points = output
+        .lir()
+        .canonical_network_usage()
+        .get(laneflow_static_contract::CanonicalNetworkDimension::GeometryPointCount);
+    let points = u32::try_from(points).map_err(|e| compile_error("geometry point count", e))?;
+    Ok((
+        candidate.canonical_artifact().bytes().to_vec(),
+        sections,
+        points,
+    ))
 }
 
 /// L1 背景路线（#1218 D1）：每 cell 四条路线，仅车道边 + 25 停车位，无机动/门/信号。
@@ -191,181 +206,160 @@ pub(crate) fn cluster_key(base: &str, cluster: u32) -> String {
     format!("{base}-{cluster}")
 }
 
-/// 全部换道簇（参数化，#1233）：`clusters` 个簇各一组唯一键与独立 x 偏移。
-fn add_lane_change_clusters(
-    b: &mut SyntheticModuleBuilder,
-    clusters: u32,
-    entry_mm: u64,
-) -> Result<(), Error> {
-    for cluster in 0..clusters {
-        add_lane_change_cluster(b, cluster, entry_mm)?;
-    }
-    Ok(())
-}
-
-/// 单个换道簇的合成侧实体（#1218/#1233）：横向过渡段 + 多车道 section/走廊
-///（分类判据来源）。R1b s12 钉版载体形制逐项保持（边长/接缝/几何跨度）。
-fn add_lane_change_cluster(
-    b: &mut SyntheticModuleBuilder,
+/// 各走廊沿参考车道中心线编制。相邻的两个车道成员以各自的共同边界授予跨越许可。
+fn add_road(
+    builder: &mut road_editing::RoadEditingSourceModuleBuilder<'_>,
     cluster: u32,
-    entry_mm: u64,
-) -> Result<(), Error> {
-    // 先构建本簇全部键，保证引用生命周期覆盖后续 builder 调用。
-    let edge_keys: Vec<String> = LC_EDGES
+    name: &str,
+    geometry: road_editing::RoadEditingCurveProgram,
+    lanes: &[(&str, f64, Option<&str>)],
+) -> Result<(), DiagnosticBundle> {
+    use e::RoadEditingDeclaration as D;
+    use road_editing as e;
+    let key = cluster_key(name, cluster);
+    let section_key = cluster_key(&format!("{name}-section"), cluster);
+    let section = e::RoadSectionReference::owner_scoped(vec![key.clone()], &section_key)?;
+    let corridor = e::RoadCorridorReference::local(&key)?;
+    let references: Vec<_> = lanes
         .iter()
-        .map(|base| cluster_key(base, cluster))
+        .map(|(base, _, _)| {
+            e::AuthoringLaneReference::owner_scoped(vec![key.clone(), section_key.clone()], *base)
+        })
+        .collect::<Result<_, _>>()?;
+    builder.add_alignment(e::RoadAlignmentInput::try_new(
+        &key,
+        e::CanonicalFrameReference::local(LC_FRAME)?,
+        geometry,
+    )?)?;
+    builder.add_declaration(D::RoadCorridor(
+        e::RoadCorridorInput::try_new(
+            &key,
+            e::RoadAlignmentReference::try_new(&key)?,
+            0.,
+            e::RoadEditingStationEnd::AlignmentEnd,
+            section.clone(),
+            references[lanes.len() / 2].clone(),
+            vec![e::RoadEditingCorridorElement::RoadSection(section.clone())],
+        )?
+        .with_cross_section(e::CrossSectionCoverage::Complete, vec![]),
+    ))?;
+    let boundaries = references
+        .windows(2)
+        .map(|pair| e::BoundaryExtentInput {
+            left: e::BoundaryMemberInput::AuthoringLane(pair[0].clone()),
+            right: e::BoundaryMemberInput::AuthoringLane(pair[1].clone()),
+            kind: e::BoundaryExtentKind::Rule,
+            local_key: "mark".into(),
+            low: e::BoundaryStation::CorridorEndpoint,
+            high: e::BoundaryStation::CorridorEndpoint,
+            payload: Some(e::BoundaryPayloadInput::CrossingRule {
+                directions: 3,
+                effect: 1,
+            }),
+            canvas_selection: None,
+        })
         .collect();
-    let index = |base: &str| -> usize {
-        LC_EDGES
-            .iter()
-            .position(|candidate| *candidate == base)
-            .expect("lc edge base")
-    };
-    for (base, length, successors) in [
-        ("lc-e0", entry_mm as f64 / 1_000.0, vec!["lc-t"]),
-        ("lc-t", 5.0, vec!["lc-e2"]),
-        ("lc-e2", 30.0, vec![]),
-        ("lc-int", 8.0, vec![]),
-        ("lc-exit", 10.0, vec!["lc-e5"]),
-        ("lc-e3", 30.0, vec![]),
-        ("lc-e4", 30.0, vec!["lc-e2"]),
-        ("lc-e5", 30.0, vec![]),
-    ] {
-        let refs: Vec<LaneEdgeReference<'_>> = successors
-            .iter()
-            .map(|target| LaneEdgeReference::local(&edge_keys[index(target)]))
+    builder.add_declaration(D::RoadSection(
+        e::RoadSectionInput::try_new(section_key, "motorLane", references, corridor)?
+            .with_boundary_extents(boundaries),
+    ))?;
+    for &(base, speed, successor) in lanes {
+        let edge_key = cluster_key(base, cluster);
+        let successors = successor
+            .map(|s| e::LaneEdgeReference::local(cluster_key(s, cluster)))
+            .transpose()?
+            .into_iter()
             .collect();
-        b.add_lane_edge(LaneEdgeInput {
-            lane_edge_key: &edge_keys[index(base)],
-            length_meters: length,
-            speed_limit_meters_per_second: 13.9,
-            successors: &refs,
-        })
-        .map_err(|e| compile_error("lane change edge", e))?;
+        builder.add_declaration(D::LaneEdge(e::LaneEdgeInput::try_new(
+            &edge_key, speed, successors, None,
+        )?))?;
+        builder.add_declaration(D::AuthoringLane(
+            e::AuthoringLaneInput::try_new(
+                base,
+                e::LaneEdgeReference::local(edge_key)?,
+                e::RoadEditingLaneDirection::Forward,
+                e::LinearWidthProfile::try_new(3.5, 3.5)?,
+                None,
+                section.clone(),
+            )?
+            .with_wheel_support(Some(true)),
+        ))?;
     }
-    let lane0 = vec![LaneEdgeReference::local(&edge_keys[index("lc-e0")])];
-    let lane1 = vec![
-        LaneEdgeReference::local(&edge_keys[index("lc-e4")]),
-        LaneEdgeReference::local(&edge_keys[index("lc-e2")]),
-    ];
-    let lane2 = vec![LaneEdgeReference::local(&edge_keys[index("lc-e3")])];
-    let exit_lane = vec![
-        LaneEdgeReference::local(&edge_keys[index("lc-exit")]),
-        LaneEdgeReference::local(&edge_keys[index("lc-e5")]),
-    ];
-    let section_key = cluster_key("lc-section", cluster);
-    let lane_keys: Vec<String> = (0..3)
-        .map(|i| cluster_key(&format!("lc-lane-{i}"), cluster))
-        .collect();
-    b.add_road_section(RoadSectionInput {
-        road_section_key: &section_key,
-        kind_id: "motorLane",
-        lanes: &[
-            AuthoringLaneInput {
-                authoring_lane_key: &lane_keys[0],
-                edge_chain: &lane0,
-                lane_group: None,
-            },
-            AuthoringLaneInput {
-                authoring_lane_key: &lane_keys[1],
-                edge_chain: &lane1,
-                lane_group: None,
-            },
-            AuthoringLaneInput {
-                authoring_lane_key: &lane_keys[2],
-                edge_chain: &lane2,
-                lane_group: None,
-            },
-        ],
-    })
-    .map_err(|e| compile_error("lane change section", e))?;
-    let exit_section_key = cluster_key("lc-exit-section", cluster);
-    let exit_lane_key = cluster_key("lc-exit-lane", cluster);
-    b.add_road_section(RoadSectionInput {
-        road_section_key: &exit_section_key,
-        kind_id: "motorLane",
-        lanes: &[AuthoringLaneInput {
-            authoring_lane_key: &exit_lane_key,
-            edge_chain: &exit_lane,
-            lane_group: None,
-        }],
-    })
-    .map_err(|e| compile_error("lane change exit section", e))?;
-    let corridor_key = cluster_key("lc-corridor", cluster);
-    b.add_road_corridor(RoadCorridorInput {
-        road_corridor_key: &corridor_key,
-        reference_section: RoadSectionReference::local(&section_key),
-        elements: &[CorridorElementReference::road_section(
-            RoadSectionReference::local(&section_key),
-        )],
-    })
-    .map_err(|e| compile_error("lane change corridor", e))?;
-    let exit_corridor_key = cluster_key("lc-exit-corridor", cluster);
-    b.add_road_corridor(RoadCorridorInput {
-        road_corridor_key: &exit_corridor_key,
-        reference_section: RoadSectionReference::local(&exit_section_key),
-        elements: &[CorridorElementReference::road_section(
-            RoadSectionReference::local(&exit_section_key),
-        )],
-    })
-    .map_err(|e| compile_error("lane change exit corridor", e))?;
-    // 钉版几何（K=2 唯一认证配置）：入口 30 m，T 段与下游不动。
-    let _ = entry_mm;
-    let cluster_offset = 200.0_f64 * f64::from(cluster);
-    let frame_spans = [
-        (cluster_offset, cluster_offset + 30.0),
-        (cluster_offset + 30.0, cluster_offset + 35.0),
-        (cluster_offset + 35.0, cluster_offset + 65.0),
-        (cluster_offset + 65.0, cluster_offset + 73.0),
-        (cluster_offset + 73.0, cluster_offset + 83.0),
-        (cluster_offset + 35.0, cluster_offset + 65.0),
-        (cluster_offset + 5.0, cluster_offset + 35.0),
-        (cluster_offset + 83.0, cluster_offset + 113.0),
-    ];
-    let point_pairs: Vec<[CanonicalPoint3F32Input; 2]> = frame_spans
-        .iter()
-        .map(|(x0, x1)| {
-            [
-                CanonicalPoint3F32Input {
-                    x: *x0 as f32,
-                    y: 0.0,
-                    z: 0.0,
-                },
-                CanonicalPoint3F32Input {
-                    x: *x1 as f32,
-                    y: 0.0,
-                    z: 0.0,
-                },
-            ]
-        })
-        .collect();
-    let geometries: Vec<_> = edge_keys
-        .iter()
-        .zip(point_pairs.iter())
-        .map(|(edge_name, centerline_points)| LaneEdgeGeometryInput {
-            lane_edge: LaneEdgeReference::local(edge_name),
-            centerline_points,
-        })
-        .collect();
-    let frame_key = cluster_key("lc-t-frame", cluster);
-    b.add_canonical_frame(CanonicalFrameInput {
-        canonical_frame_key: &frame_key,
-        lane_edge_geometries: &geometries,
-    })
-    .map_err(|e| compile_error("lane change frame", e))?;
     Ok(())
 }
 
-/// 换道簇编辑侧声明（#1218/#1233）：每簇一组 junction/冲突区/两条流/无信号准入门，
-/// 统一策略集覆盖全部门（编译期 MissingRule 校验）；键按簇确定性派生。
+/// 三条主道同时在共同截面开始。普通后继只用于两股直行交通通过下游路口。
+fn add_cluster_roads(
+    b: &mut road_editing::RoadEditingSourceModuleBuilder<'_>,
+    cluster: u32,
+) -> Result<(), DiagnosticBundle> {
+    use road_editing::{
+        RoadEditingCurveProgram as Curve, RoadEditingCurveSegment as Segment, RoadEditingPoint3,
+    };
+    let x = CLUSTER_SPACING_M * f64::from(cluster);
+    let [left_speed, right_speed] = crate::HANDOFF_SPEED_MM_S.map(|mm_s| f64::from(mm_s) / 1000.);
+    let point = |lateral, z| RoadEditingPoint3::try_new(x + lateral, 0., z);
+    let straight = |[x0, z0]: [f64; 2], [x1, z1]: [f64; 2]| {
+        Curve::try_new(point(x0, z0)?, vec![Segment::line(point(x1, z1)?)])
+    };
+    add_road(
+        b,
+        cluster,
+        "lc-road",
+        straight([0., 0.], [0., 120.])?,
+        &[
+            ("lc-left", left_speed, None),
+            ("lc-center", 8., Some("lc-int")),
+            ("lc-right", right_speed, None),
+        ],
+    )?;
+    add_road(
+        b,
+        cluster,
+        "lc-aux-road",
+        straight([-30., 126.], [-4., 126.])?,
+        &[("lc-aux", 8., Some("lc-aux-int"))],
+    )?;
+    for (edge, start, end, exit) in [
+        ("lc-int", [0., 120.], [0., 132.], "lc-exit"),
+        ("lc-aux-int", [-4., 126.], [4., 126.], "lc-aux-exit"),
+    ] {
+        b.add_declaration(road_editing::RoadEditingDeclaration::LaneEdge(
+            road_editing::LaneEdgeInput::try_new(
+                cluster_key(edge, cluster),
+                8.,
+                vec![road_editing::LaneEdgeReference::local(cluster_key(
+                    exit, cluster,
+                ))?],
+                Some(straight(start, end)?),
+            )?,
+        ))?;
+    }
+    add_road(
+        b,
+        cluster,
+        "lc-aux-exit-road",
+        straight([4., 126.], [30., 126.])?,
+        &[("lc-aux-exit", 8., None)],
+    )?;
+    add_road(
+        b,
+        cluster,
+        "lc-exit-road",
+        straight([0., 132.], [0., 632.])?,
+        &[("lc-exit", 8., None)],
+    )?;
+    Ok(())
+}
+
 fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>, Error> {
     use laneflow_compiler::road_editing as editing;
 
     let header = editing::RoadEditingModuleHeader::try_new(
         LC_EDIT_NAMESPACE,
         "lf-synth-road.document",
-        vec![NAMESPACE.to_owned()],
-        editing::RoadEditingProvenance::direct("lf-synth lane-change v1")
+        vec![],
+        editing::RoadEditingProvenance::direct("lf-synth dynamic handoff")
             .map_err(|e| compile_error("editing provenance", e))?,
     )
     .map_err(|e| compile_error("editing header", e))?;
@@ -376,13 +370,20 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
         limits,
     )
     .map_err(|e| compile_error("editing module", e))?;
-    let imported = |key_name: &str| {
-        editing::LaneEdgeReference::imported(NAMESPACE, Vec::new(), key_name)
-            .map_err(|e| compile_error("imported edge", e))
+    builder
+        .add_declaration(editing::RoadEditingDeclaration::CanonicalFrame(
+            editing::CanonicalFrameInput::try_new(LC_FRAME)
+                .map_err(|e| compile_error("cluster frame", e))?,
+        ))
+        .map_err(|e| compile_error("frame declaration", e))?;
+    let edge = |k: &str| {
+        editing::LaneEdgeReference::local(k).map_err(|e| compile_error("cluster edge", e))
     };
     let mut gate_rules = Vec::new();
     let mut stream_rules = Vec::new();
     for cluster in 0..clusters {
+        add_cluster_roads(&mut builder, cluster)
+            .map_err(|e| compile_error("lane change roads", e))?;
         let junction_key = cluster_key("lc-junction", cluster);
         let zone_key = cluster_key("lc-zone", cluster);
         let junction = editing::JunctionReference::local(junction_key.clone())
@@ -397,12 +398,15 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
                 editing::JunctionInput::try_new(
                     junction_key.clone(),
                     vec![
-                        imported(cluster_key("lc-e0", cluster).as_str())?,
-                        imported(cluster_key("lc-e2", cluster).as_str())?,
-                        imported(cluster_key("lc-e3", cluster).as_str())?,
-                        imported(cluster_key("lc-exit", cluster).as_str())?,
+                        edge(cluster_key("lc-center", cluster).as_str())?,
+                        edge(cluster_key("lc-aux", cluster).as_str())?,
+                        edge(cluster_key("lc-exit", cluster).as_str())?,
+                        edge(cluster_key("lc-aux-exit", cluster).as_str())?,
                     ],
-                    vec![imported(cluster_key("lc-int", cluster).as_str())?],
+                    vec![
+                        edge(cluster_key("lc-int", cluster).as_str())?,
+                        edge(cluster_key("lc-aux-int", cluster).as_str())?,
+                    ],
                 )
                 .map_err(|e| compile_error("junction", e))?,
             ))
@@ -413,9 +417,20 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
                     .map_err(|e| compile_error("zone", e))?,
             ))
             .map_err(|e| compile_error("zone declaration", e))?;
-        for (entry_base, movement_key, path_key, stop_key, gate_key, stream_key) in [
+        for (
+            entry_base,
+            int_base,
+            exit_base,
+            movement_key,
+            path_key,
+            stop_key,
+            gate_key,
+            stream_key,
+        ) in [
             (
-                "lc-e2",
+                "lc-center",
+                "lc-int",
+                "lc-exit",
                 "lc-movement",
                 "lc-path",
                 "lc-stop",
@@ -423,7 +438,9 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
                 "lc-stream",
             ),
             (
-                "lc-e3",
+                "lc-aux",
+                "lc-aux-int",
+                "lc-aux-exit",
                 "lc-movement-2",
                 "lc-path-2",
                 "lc-stop-2",
@@ -432,8 +449,8 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
             ),
         ] {
             let entry_edge = cluster_key(entry_base, cluster);
-            let exit_edge = cluster_key("lc-exit", cluster);
-            let int_edge = cluster_key("lc-int", cluster);
+            let exit_edge = cluster_key(exit_base, cluster);
+            let int_edge = cluster_key(int_base, cluster);
             let movement_key = cluster_key(movement_key, cluster);
             let path_key = cluster_key(path_key, cluster);
             let stop_key = cluster_key(stop_key, cluster);
@@ -470,20 +487,17 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
                     editing::ManeuverPathInput::try_new(
                         path_key.clone(),
                         movement.clone(),
-                        imported(entry_edge.as_str())?,
-                        vec![imported(int_edge.as_str())?],
-                        imported(exit_edge.as_str())?,
+                        edge(entry_edge.as_str())?,
+                        vec![edge(int_edge.as_str())?],
+                        edge(exit_edge.as_str())?,
                     )
                     .map_err(|e| compile_error("path", e))?,
                 ))
                 .map_err(|e| compile_error("path declaration", e))?;
             builder
                 .add_declaration(editing::RoadEditingDeclaration::StopLine(
-                    editing::StopLineInput::try_new(
-                        stop_key.clone(),
-                        imported(entry_edge.as_str())?,
-                    )
-                    .map_err(|e| compile_error("stop line", e))?,
+                    editing::StopLineInput::try_new(stop_key.clone(), edge(entry_edge.as_str())?)
+                        .map_err(|e| compile_error("stop line", e))?,
                 ))
                 .map_err(|e| compile_error("stop line declaration", e))?;
             builder
@@ -542,28 +556,24 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
                 .map_err(|e| compile_error("stream rule", e))?,
             );
         }
-        // 冲突区覆盖 T 前 30 m 入口段（入口后移时几何关系不变）。
-        let offset = 200.0 * f64::from(cluster);
+        // 冲突区覆盖横纵两条路口内部边的实际交叉位置。
+        let offset = CLUSTER_SPACING_M * f64::from(cluster);
         let region_points = vec![
-            editing::RoadEditingPoint2::try_new(offset + 0.0, -2.0)
+            editing::RoadEditingPoint2::try_new(offset - 2.0, 124.0)
                 .map_err(|e| compile_error("region point", e))?,
-            editing::RoadEditingPoint2::try_new(offset + 30.0, -2.0)
+            editing::RoadEditingPoint2::try_new(offset + 2.0, 124.0)
                 .map_err(|e| compile_error("region point", e))?,
-            editing::RoadEditingPoint2::try_new(offset + 30.0, 2.0)
+            editing::RoadEditingPoint2::try_new(offset + 2.0, 128.0)
                 .map_err(|e| compile_error("region point", e))?,
-            editing::RoadEditingPoint2::try_new(offset + 0.0, 2.0)
+            editing::RoadEditingPoint2::try_new(offset - 2.0, 128.0)
                 .map_err(|e| compile_error("region point", e))?,
         ];
         builder
             .add_conflict_zone_region(
                 editing::ConflictZoneRegionInput::try_new(
                     zone.clone(),
-                    editing::CanonicalFrameReference::imported(
-                        NAMESPACE,
-                        Vec::new(),
-                        cluster_key("lc-t-frame", cluster).as_str(),
-                    )
-                    .map_err(|e| compile_error("frame ref", e))?,
+                    editing::CanonicalFrameReference::local(LC_FRAME)
+                        .map_err(|e| compile_error("frame ref", e))?,
                     -1.0,
                     1.0,
                     region_points,
@@ -605,4 +615,108 @@ fn lane_change_editing(limits: &CompileProfile, clusters: u32) -> Result<Vec<u8>
         )
         .map_err(|e| compile_error("editing write", e))?;
     Ok(written.as_bytes().to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Case, LaneChangeParams};
+    use laneflow_format::check_canonical_network_input;
+    use laneflow_static_contract::{EntityKind, LaneEdgeId, RoadSectionId};
+    use laneflow_static_network::{
+        BoundaryOwner, SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision, vehicle::HandoffWindow,
+    };
+
+    #[test]
+    fn emitted_clusters_bind_both_outer_lanes_to_the_same_target_without_an_ordinary_hop() {
+        let clusters = 64;
+        let mut identity = Identity::new(
+            10_000,
+            Case::LaneChange(LaneChangeParams {
+                clusters,
+                changers_per_cluster: 2,
+            }),
+            16,
+        )
+        .unwrap();
+        identity.scale = 100;
+        let (lfca, sections, _) = compile(&identity).unwrap();
+        let network = build_shared_network_revision(
+            check_canonical_network_input(lfca.as_slice(), FormatLimits::HARD).unwrap(),
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1024 * 1024, 64 * 1024 * 1024),
+            ),
+        )
+        .unwrap();
+        let traffic = network.traffic();
+        assert_eq!(sections.len(), clusters as usize);
+        assert_eq!(
+            sections
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            sections.len()
+        );
+        for (cluster, section) in sections.iter().enumerate() {
+            let owner = network
+                .identity()
+                .ordinal(section.parse::<RoadSectionId>().unwrap())
+                .unwrap();
+            let edge = |base: &str| {
+                let id = derive_canonical_stable_id_v1(
+                    EntityKind::LaneEdge,
+                    LC_EDIT_NAMESPACE,
+                    &cluster_key(base, cluster as u32),
+                )
+                .unwrap();
+                network
+                    .identity()
+                    .ordinal(LaneEdgeId::from_untyped(id))
+                    .unwrap()
+            };
+            let center = edge("lc-center");
+            for (left, (base, speed)) in [("lc-left", 3000), ("lc-right", 1500)]
+                .into_iter()
+                .enumerate()
+            {
+                let source = edge(base);
+                assert!(traffic.successors(source).unwrap().is_empty());
+                assert_eq!(
+                    traffic.lane_speed_limits_millimetres_per_second()[source.index()],
+                    speed
+                );
+                let window = HandoffWindow {
+                    edges: [source, center],
+                    owner: BoundaryOwner::Section(owner),
+                    left_index: left as u32,
+                    stations_mm: [20_000, 110_000],
+                };
+                let binding = network
+                    .bind_handoff_window(network.network_revision(), window)
+                    .unwrap();
+                assert_eq!(
+                    network
+                        .station_mapping()
+                        .corridor_domain(binding.corridor())
+                        .unwrap()
+                        .length_mm(),
+                    120_000
+                );
+            }
+            assert_eq!(
+                traffic.successors(center),
+                Some([edge("lc-int")].as_slice())
+            );
+            assert_eq!(
+                traffic.successors(edge("lc-aux")),
+                Some([edge("lc-aux-int")].as_slice())
+            );
+            assert_eq!(
+                traffic.successors(edge("lc-int")),
+                Some([edge("lc-exit")].as_slice())
+            );
+        }
+    }
 }

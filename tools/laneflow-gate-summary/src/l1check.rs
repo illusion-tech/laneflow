@@ -16,8 +16,7 @@
 //!    违规（P4 看不见的直行车实际在跑）；汇入点上游出现分岔（后继跨多条
 //!    编制车道或多后继）记录为使能结构。
 //!
-//! 本核查只读静态包，不构造世界、不推进 tick；不含横向几何判定（运行时同样
-//! 没有），纵向窗口按编制车道边链累计毫米长度计算。含违规拓扑的路网不得
+//! 本核查只读静态包，不构造世界、不推进 tick；固定过渡的纵向窗口按编制车道边链累计毫米长度计算。含违规拓扑的路网不得
 //! 用于安全验收（#1271 处置）；本核查的结论记录供 `manifest` 的 L1 挂接消费。
 
 use std::collections::BTreeMap;
@@ -59,7 +58,7 @@ pub struct BundleInput {
 /// 使记录身份与汇总 manifest 的 `<scale>-<label>-<delta>` 声明可直接判等。
 fn case_label(case_key: &str) -> &str {
     match case_key {
-        "LaneChange" => "L1",
+        "RouteHandoff" => "L1",
         other => other,
     }
 }
@@ -298,7 +297,7 @@ pub fn check(input: &BundleInput) -> Result<L1Report, Error> {
         neighborhood.extend(succs.iter().map(|e| e.index()));
         let in_neighborhood = |edge: &LaneEdgeOrdinal| neighborhood.contains(&edge.index());
 
-        // 汇入窗口：以后渡编制车道为锚。车道链原点不共享——L1 的目标车道
+        // 汇入窗口：以后渡编制车道为锚。车道链原点不共享——旧固定过渡算例的目标车道
         // （`lc-e4`/`lc-e2`）物理上从 5 m 起，但其链偏移从 0 起，跨链直接比较
         // 会错位（#1285 评审 P1）。锚边 = 后渡编制车道边 E；窗口 = 该车道
         // 坐标内 [E 链起点 − len(T), E 链起点)。没有锚车道的边与汇入点无

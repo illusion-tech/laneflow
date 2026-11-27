@@ -2,6 +2,7 @@
 
 mod burst;
 mod decel;
+mod handoff;
 pub mod host;
 mod install;
 pub mod measurement;
@@ -88,6 +89,15 @@ struct Plan {
 }
 
 impl Plan {
+    fn handoff_checkpoints(&self) -> [u64; 4] {
+        [
+            0,
+            self.warm_up_ticks,
+            2 * self.warm_up_ticks,
+            self.warm_up_ticks + self.observation_ticks,
+        ]
+    }
+
     fn read(bundle: &Bundle) -> Result<Self, Error> {
         let plan: Self = serde_json::from_slice(&bundle.files()["input-plan.json"])?;
         let identity = &bundle.manifest().identity;
@@ -134,17 +144,12 @@ fn cycle_ms(dt: u32) -> u64 {
 struct Checkpoint {
     tick: u64,
     time_ms: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    state_digest: Option<String>,
+    state_digest: String,
     public_trace_digest: String,
     transitions: u64,
-    /// 面 B（#1218/#1217）：T 裁决/历史时刻保存的结构化拒绝变体（期望行为）。
+    /// L1 在此检查点之前观察到的实际横移阶段。
     #[serde(skip_serializing_if = "Option::is_none")]
-    persistence_refused: Option<&'static str>,
-    /// 面 B 真实资源身份与历史投影（换道预约生命周期 + 逐车相位 + 预约终态）。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    t_state: Option<Value>,
-    /// 公开观测面状态摘要（#1233 F2）：快照拒绝时仍可比对。
+    handoff_journal: Option<Vec<(u64, u16, u32, u32)>>,
     public_state_digest: String,
     /// 共享验证会话的检查点材料（W1/W2 接线路径；L 族为 `None`）。只随
     /// 边界证据写入报告，恢复消费由 burst 侧接入后启用（设计 §7）。
@@ -153,66 +158,28 @@ struct Checkpoint {
 }
 
 fn checkpoint(sample: &install::Sample, digest: &blake3::Hasher) -> Result<Checkpoint, Error> {
-    // 会话检查点只在已确立边界创建（运行循环此刻处于边界，不等待步进结果）；
-    // 两个互斥分支各取一次所有权，不做深拷贝。
-    let verification = verification_material(sample)?;
-    let tick = sample.world.tick_index();
-    let time_ms = sample.world.time_ms();
-    let public_trace_digest = digest.clone().finalize().to_hex().to_string();
-    let transitions = sample.transitions;
-    match sample.world.capture_snapshot() {
-        Ok(snapshot) => {
-            let state_digest =
-                deterministic_state_digest(&snapshot).map_err(|e| failure("state digest", e))?;
-            Ok(Checkpoint {
-                tick,
-                time_ms,
-                state_digest: Some(
-                    state_digest
-                        .as_bytes()
-                        .iter()
-                        .map(|b| format!("{b:02x}"))
-                        .collect(),
-                ),
-                public_trace_digest,
-                transitions,
-                persistence_refused: None,
-                t_state: None,
-                public_state_digest: public_state_digest(&sample.world)?,
-                verification,
-            })
-        }
-        Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
-            // 面 B（#1218 按 #1217 口径）：T 裁决/历史时刻保存必须结构化拒绝，
-            // 记录拒绝变体 + 真实资源身份/历史投影；比较不得只比错误编码摘要。
-            require(sample.lane_change_route.is_some(), || {
-                "仅换道族允许保存拒绝面".into()
-            })?;
-            let variant = match inner {
-                laneflow_runtime::UnsupportedTransitionState::AdmissionHopWithoutGate => {
-                    "AdmissionHopWithoutGate"
-                }
-                laneflow_runtime::UnsupportedTransitionState::TransitionPassageRow => {
-                    "TransitionPassageRow"
-                }
-                laneflow_runtime::UnsupportedTransitionState::TransitionLagHistory => {
-                    "TransitionLagHistory"
-                }
-            };
-            Ok(Checkpoint {
-                tick,
-                time_ms,
-                state_digest: None,
-                public_trace_digest,
-                transitions,
-                persistence_refused: Some(variant),
-                t_state: Some(lane_change_t_state(sample)),
-                public_state_digest: public_state_digest(&sample.world)?,
-                verification,
-            })
-        }
-        Err(other) => Err(failure("snapshot", other)),
-    }
+    let snapshot = sample
+        .world
+        .capture_snapshot()
+        .map_err(|e| failure("snapshot", e))?;
+    let state_digest =
+        deterministic_state_digest(&snapshot).map_err(|e| failure("state digest", e))?;
+    Ok(Checkpoint {
+        tick: sample.world.tick_index(),
+        time_ms: sample.world.time_ms(),
+        state_digest: state_digest
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+        public_trace_digest: digest.clone().finalize().to_hex().to_string(),
+        transitions: sample.transitions,
+        handoff_journal: sample
+            .lane_change_route
+            .map(|_| sample.lane_change_journal.clone()),
+        public_state_digest: public_state_digest(&sample.world)?,
+        verification: verification_material(sample)?,
+    })
 }
 
 /// 会话检查点材料（W1/W2 与 burst 两条接线路径共用）：有会话时取当前
@@ -283,94 +250,6 @@ pub fn scenario_label(identity: &serde_json::Value) -> &'static str {
     serde_json::from_value::<laneflow_synth_generator::Case>(identity["case"].clone())
         .map(|case| case.label())
         .unwrap_or("")
-}
-
-/// 面 B 身份/历史投影（#1218）：换道预约生命周期史（真实资源身份）+ 逐车相位
-/// 与预约终态。全部来自公开观测面（事件/`conflict_reservation`/遍历相位）。
-pub(crate) fn lane_change_t_state(sample: &install::Sample) -> Value {
-    let vehicles: Vec<Value> = sample
-        .handles
-        .iter()
-        .enumerate()
-        .filter(|(rank, _)| {
-            sample
-                .lane_change_routes
-                .contains(&(sample.state.vehicles[*rank].route_rank as usize))
-        })
-        .map(|(rank, &handle)| {
-            let state = sample.world.vehicle(handle);
-            let phase = state.map(|s| match s.maneuver_traversal().map(|t| t.phase()) {
-                None => 0_u32,
-                Some(laneflow_runtime::ManeuverTraversalPhase::PreGate { .. }) => 1,
-                Some(laneflow_runtime::ManeuverTraversalPhase::Committed { .. }) => 2,
-                Some(laneflow_runtime::ManeuverTraversalPhase::Waiting { .. }) => 3,
-                Some(laneflow_runtime::ManeuverTraversalPhase::Clearing { .. }) => 4,
-            });
-            let held = sample.world.conflict_reservation(handle).map(|r| {
-                json!([
-                    r.owner() == handle,
-                    r.acquired_tick(),
-                    r.passage_range().passage_count()
-                ])
-            });
-            json!({"rank":rank, "phase":phase, "held":held})
-        })
-        .collect();
-    // 全体 handle 的公开车辆运动状态投影（#1226）：与 lane_change_retry.rs
-    // 的 face_b() 同布局，供 retry/fresh/final 逐字节比较与正常参考核对。
-    let states: Vec<Value> = sample
-        .handles
-        .iter()
-        .enumerate()
-        .map(|(rank, &handle)| {
-            let state = sample.world.vehicle(handle);
-            let status = match state.map(|s| s.status()) {
-                Some(laneflow_runtime::VehicleStatus::Active) => 0_u32,
-                Some(laneflow_runtime::VehicleStatus::Parked) => 1,
-                Some(laneflow_runtime::VehicleStatus::Completed) => 2,
-                None => 3,
-            };
-            json!([
-                rank,
-                sample.state.vehicles[rank].route_rank,
-                state.map(|s| s.route_edge_index()).unwrap_or(0),
-                state.map(|s| s.progress_mm()).unwrap_or(0),
-                state.map(|s| u32::from(s.carry_um())).unwrap_or(0),
-                state.map(|s| s.speed_mm_s()).unwrap_or(0),
-                status,
-            ])
-        })
-        .collect();
-    let journal: Vec<Value> = sample
-        .lane_change_journal
-        .iter()
-        .map(|(tick, slot, kind, identity)| json!([tick, slot, kind, identity]))
-        .collect();
-    json!({"vehicles":vehicles, "states":states, "journal":journal})
-}
-
-/// 面 B 拒绝变体（#1218/#1217）：T 裁决/历史时刻保存必须结构化拒绝且零部分产物；
-/// 成功捕获或其他错误均失败（双向钉边）。
-pub(crate) fn lane_change_refusal_variant(sample: &install::Sample) -> Result<&'static str, Error> {
-    match sample.world.capture_snapshot() {
-        Err(laneflow_runtime::SnapshotCaptureError::UnsupportedTransitionState(inner)) => {
-            Ok(match inner {
-                laneflow_runtime::UnsupportedTransitionState::AdmissionHopWithoutGate => {
-                    "AdmissionHopWithoutGate"
-                }
-                laneflow_runtime::UnsupportedTransitionState::TransitionPassageRow => {
-                    "TransitionPassageRow"
-                }
-                laneflow_runtime::UnsupportedTransitionState::TransitionLagHistory => {
-                    "TransitionLagHistory"
-                }
-            })
-        }
-        Err(other) => Err(failure("face B capture", other)),
-        Ok(_) => Err(Error::Invalid(
-            "T 触时刻保存必须被结构化拒绝（#1218 面 B）".into(),
-        )),
-    }
 }
 
 /// 消费一个正式输入目录，在全新目录保存逐拍轨迹与完整回执。
@@ -482,7 +361,7 @@ fn run_plan<P: Probe>(
     let mut stream = blake3::Hasher::new();
     stream.update(b"lf-synth-public-stream-1\0");
     let boundaries: Vec<u64> = if plan.identity.lane_change().is_some() {
-        vec![0, plan.warm_up_ticks, 2 * plan.warm_up_ticks, total]
+        plan.handoff_checkpoints().to_vec()
     } else {
         vec![
             0,
@@ -524,10 +403,7 @@ fn run_plan<P: Probe>(
             })?;
             probe.runtime_step_tick(tick);
             let result = measured(probe, Phase::RuntimeStep, |_| {
-                sample
-                    .world
-                    .step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
-                    .map_err(|e| failure(&format!("step {tick}"), e))
+                sample.step(TickInput::new(u64::from(plan.identity.fixed_delta_ms)))
             })?;
             require(
                 result.tick_index() == tick
@@ -581,7 +457,13 @@ fn run_plan<P: Probe>(
     events.write(&output.join("events.bin"))?;
     let finish = probe.start();
     if plan.identity.lane_change().is_some() {
-        // L 族：全体换道者完成 T crossing（0→1），背景短窗内不发生 0→1。
+        require(
+            sample
+                .lane_change_last_kind
+                .iter()
+                .all(|&phase| phase == 12),
+            || "窗口内两车必须完成横移且车尾清空".into(),
+        )?;
         require(
             sample.crossed.iter().enumerate().all(|(rank, &crossed)| {
                 crossed
@@ -589,7 +471,7 @@ fn run_plan<P: Probe>(
                         .lane_change_routes
                         .contains(&(sample.state.vehicles[rank].route_rank as usize))
             }),
-            || "窗口内全体换道者完成 T crossing；背景不发生 0→1".into(),
+            || "窗口内全体换道者前杠交接且背景不发生 0→1".into(),
         )?;
     } else {
         require(

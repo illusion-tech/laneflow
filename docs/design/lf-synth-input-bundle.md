@@ -140,42 +140,14 @@ Runtime 性能结果。
 
 ## 7. 换道竞争探针 L1
 
-L1 是双车换道竞争的功能探针，来源于 #1218（R1b s12 钉版场景）。它不属于
-[性能基线 §4][performance-baseline-workload] 的四类 canonical workload：换道部分
-不随规模增长，规模只由背景人口提供，不得用于性能、吞吐或换道负载结论。
+L1 在真实交通世界中验证双车同拍竞争、前杠交接和车尾清空。正式身份取一万或十万背景车辆加一个换道簇。规模由背景人口提供，性能基线另见[四类规范负载][performance-baseline-workload]。
 
-`case` 序列化为 `{"LaneChange":{"clusters":c,"changers_per_cluster":k}}`。生成器
-接受 `1 ≤ c ≤ 64`、`k = 2`；其他 `k` 拒绝，因为当前下游几何与加速曲线下不存在
-同时满足“首车完成路线前末车完成 crossing”的观察窗口。正式身份取 `c = 1`，即
-`10000` 或 `100000` 背景加恰一个换道簇、两名换道者；多簇只供生成器测试。
-
-- **车辆参数**：全网共用一个 `car` 参数，车长 4.5 m、期望速度 15 m/s、
-  最小间隙 2.5 m、时距 1.5 s、最大加速度 1.5 m/s²、舒适减速度 4.5 m/s²、
-  紧急减速度 9 m/s²（W 族为 6 m/s²）。参数承接 R1b s12 前提：10 m/s 时两名换道者
-  都能在 15.61 m 内停下让行。
-- **背景**：每 cell 四条路线，各为 5130 m 入口边与 5130 m 出口边、25 个停车位，
-  不含信号、Gate 与 junction。初始人口与 W1 相同（75 Active / 25 Parked，同一
-  slot、间距与速度），信号组为 `null`。
-- **换道簇**：边链为 30 m 入口边、5 m 横向过渡段 T、30 m 目标车道边、8 m junction
-  内部边、10 m 出口边，并有一条汇入同一冲突区的竞争流。两条流各有无信号准入 Gate，
-  由编辑侧唯一政策集覆盖；编辑命名空间为 `lf-synth-road`。
-- **换道者**：logical rank 为 `scale + cluster·k + slot`，位于入口边，slot 0（首车）
-  进度 11 m、slot 1（跟随者）进度 3 m，速度均为 10 m/s，不绑定停车位。跟随者有
-  1.5 m 车尾位于路线起点之外，因此每簇入口边 `lc-e0` 的路线起点出现记录（occurrence
-  0）是沿车道进入（`AlongLane`）的开放入口，换道者的初始装载须绑定该入口，不能由
-  “路线首边”或“没有前驱”推断（[车辆摆放 §6][vehicle-placement-entrance]）；
-  未绑定时跟随者装载以 `EntranceBody::Unbound` 拒绝。背景车辆车身都在路线内，
-  不绑定入口。
-- **窗口**：预热 16 拍；观察 16 ms 为 384 拍、33 ms 为 184 拍。终点晚于跟随者在
-  首车清空 T 后进入，早于任一换道者完成路线。窗口由生成器单一函数给出，harness
-  从同一函数派生期望值。
-- **计划**：`scheduled` 为空。`rules` 声明 `lane_change_competition`（tick 0 稳定
-  live 顺序优先、首车恰好 crossing 一次、跟随者在首车车尾清空 T 后进入、每拍 T
-  内至多一车、落选者在 T 入口前无授权等待、预约生命周期按 requested → staged →
-  committed → released、首个 T 裁决后保存按 #1217 结构化拒绝），以及失败重试规则
-  （触发点 `leader_reservation_establishing_step`，执行侧取首车首次进入 T 的那一拍，
-  见执行 §8；失败点 `AfterGrants` 与 `AfterTransitions`，失败丢弃未提交授权）。
+- 输入的场景标签为 L1，序列化为 `{"RouteHandoff":{"clusters":c,"changers_per_cluster":2}}`。生成器接受 1 至 64 簇，多簇用于检验身份与隔离。此标签参与配置摘要。
+- 背景每个单元有四条路线，每条由两条 5130 米车道边和 25 个停车位组成。初始布置与 W1 相同，每单元有 75 辆活动车与 25 辆停放车。全网共用长 4.5 米的双轴车型，期望速度 15 米/秒，最小车距 2.5 米，舒适和紧急减速度分别为 4.5 和 9 米/秒²。
+- 每簇在 `lf-synth-road` 编辑命名空间编制一段 120 米的三车道路段。左、右两辆车分别从外侧车道驶向同一中道。中道下游连接真实的无信号路口和出口。状态文件在两条路线的源出现 0 登记各自的共边、编制区段稳定身份和 20 至 110 米的允许窗口。
+- 每簇两个逻辑序号为 `scale + 2 × cluster + slot`。两车的前杠起点均为 13,750 毫米，后轴起点均为 10,000 毫米。左车初速 3 米/秒，右车 1.5 米/秒。初始候选的后轴终点为 40,000 毫米，随后申请使用车辆拍初的真实前杠重新定位这段 30 米轨迹。
+- 场景输入给出净空曲线、3,000 毫米的分段上限与 5 毫米的行程容差。两车首拍共同申请，以稳定车辆顺序确定先后。窗口应覆盖两次完整的进入、前杠交接与车尾清空，并至少留下一个可从已清空状态继续的完整步进。两档均预热 16 拍。16 毫秒步长的观察窗口为 2,064 拍，33 毫秒步长为 992 拍。执行器从生成器取得这些窗口。
+- `scheduled` 为空。横移申请随固定步进输入提交。失败重试在首次实际进入横移的一拍分别注入 `AfterGrants` 与 `AfterTransitions`，按同一批申请重试并与独立世界比较。
 
 [performance-baseline-workload]: core-runtime-performance-baseline.md#4-canonical-workload
-[vehicle-placement-entrance]: traffic-runtime-vehicle-placement.md#6-真实入口与范围内车身
 [probe-vectors-json]: ../../tools/laneflow-synth-generator/fixtures/probe-vectors.json

@@ -10,8 +10,8 @@ use laneflow_runtime::{
     ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingCancelRecord, ParkingCommandOutcome,
     ParkingError, ParkingLeaveRecord, ParkingParkRecord, ParkingRebindRecord, ParkingReserveRecord,
     ParkingTarget, RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle,
-    RouteRegisterInput, SemanticDiffOriginBinding, SpawnError, StepOutcome, TickInput,
-    TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration, WorldId,
+    RouteHandoffRequest, RouteRegisterInput, SemanticDiffOriginBinding, SpawnError, StepOutcome,
+    TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration, WorldId,
 };
 use laneflow_spatial::{CanonicalPoseBatch, PoseInput, PoseRecordId, SpatialSession};
 use laneflow_static_network::SharedNetworkRevision;
@@ -77,6 +77,7 @@ pub struct LaneFlowSession {
     accumulator: Duration,
     frame_report: LaneFlowFrameReport,
     frame_step_results: Vec<StepOutcome>,
+    next_route_handoffs: Vec<RouteHandoffRequest>,
     pub(crate) last_error: Option<LaneFlowAdapterError>,
     vehicle_entities: VehicleEntityMap,
     pose_scratch: Vec<PoseInput>,
@@ -111,12 +112,20 @@ impl LaneFlowSession {
             accumulator: Duration::ZERO,
             frame_report: LaneFlowFrameReport::default(),
             frame_step_results: Vec::new(),
+            next_route_handoffs: Vec::new(),
             last_error: None,
             vehicle_entities,
             pose_scratch: Vec::new(),
             pose_vehicle_scratch: Vec::new(),
             pose_selection_seen: HashMap::new(),
         })
+    }
+
+    /// 替换本 Session 下一次固定步进尝试的路线交接申请。宿主通常在
+    /// `LaneFlowFixedSet::Lifecycle` 按拍初已提交状态调用。零步进帧保留申请，
+    /// 成功或失败的步进尝试都会消费它。同修订恢复和跨修订切换成功时清空。
+    pub fn set_next_route_handoffs(&mut self, requests: Vec<RouteHandoffRequest>) {
+        self.next_route_handoffs = requests;
     }
 
     /// 已提交交通世界。
@@ -470,6 +479,7 @@ impl LaneFlowSession {
         target: Option<SpatialSession>,
         events: CutoverEventBatch,
     ) -> LaneFlowCutoverRecord {
+        self.next_route_handoffs.clear();
         LaneFlowCutoverRecord {
             retired_spatial: mem::replace(&mut self.spatial, target),
             world_binding: self.world.world_binding(),
@@ -611,7 +621,17 @@ impl LaneFlowSession {
             return;
         }
         let delta = self.world.config().fixed_delta_time_ms();
-        match self.world.step(TickInput::new(delta)) {
+        let input = TickInput::new(delta);
+        let result = if self.next_route_handoffs.is_empty() {
+            self.world.step(input)
+        } else {
+            let result = self
+                .world
+                .step_with_route_handoffs(input, &self.next_route_handoffs);
+            self.next_route_handoffs.clear();
+            result
+        };
+        match result {
             Ok(result) => {
                 self.accumulator = self
                     .accumulator

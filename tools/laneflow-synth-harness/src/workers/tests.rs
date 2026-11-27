@@ -9,7 +9,7 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
         round: 1,
     };
     let case_json = if case == "L1" {
-        json!({"LaneChange":{"clusters":1,"changers_per_cluster":2}})
+        json!({"RouteHandoff":{"clusters":1,"changers_per_cluster":2}})
     } else {
         json!(case)
     };
@@ -32,13 +32,24 @@ fn fixture(case: &'static str) -> (Job, Value, Value) {
     let points: Vec<_> = ticks
         .into_iter()
         .map(|tick| {
-            if case == "L1" && tick == warm + observation {
-                // 面 B：终态拍（T 历史）结构化拒绝 + 真实身份投影（双向钉边）。
-                json!({"tick":tick,"state_digest":null,"persistence_refused":"AdmissionHopWithoutGate",
-                    "t_state":{"vehicles":[],"journal":[]}})
-            } else {
-                json!({"tick":tick,"state_digest":"a".repeat(64)})
+            let mut point = json!({"tick":tick,"state_digest":"a".repeat(64)});
+            if case == "L1" {
+                let journal = [
+                    [1, 0, 10, 400],
+                    [warm + 1, 0, 11, 400],
+                    [2 * warm + 1, 0, 12, 400],
+                    [2 * warm + 2, 1, 10, 401],
+                    [2 * warm + 3, 1, 11, 401],
+                    [2 * warm + 4, 1, 12, 401],
+                ];
+                point["handoff_journal"] = json!(
+                    journal
+                        .into_iter()
+                        .filter(|row| row[0] <= tick)
+                        .collect::<Vec<_>>()
+                );
             }
+            point
         })
         .collect();
     let format = if matches!(case, "W3" | "W4") {
@@ -137,11 +148,17 @@ fn receipts_reject_wrong_source_identity_workers_and_incomplete_windows() {
 }
 
 #[test]
+fn handoff_checkpoints_share_the_same_tick_one_grant_and_history() {
+    let (job, input, mut report) = fixture("L1");
+    let commit = report["implementation_commit"].as_str().unwrap().to_owned();
+    check_report(job, &report, &input, &commit).unwrap();
+    report["checkpoints"][2]["handoff_journal"][1][0] = json!(job.windows().0 + 2);
+    assert!(check_report(job, &report, &input, &commit).is_err());
+}
+
+#[test]
 fn lane_change_window_expectation_derives_from_generator_canonical_pinning() {
-    // #1455 工具入口修正：期望窗口从生成器钉版正本派生（16 ms 档 384、
-    // 33 ms 档 184——#1272 收束边界放宽后的规范值）；生成器不再同步时会在此
-    // 失败而不是静默拒绝规范报告。
-    for (dt, expected) in [(16, (16_u64, 384_u64)), (33, (16, 184))] {
+    for dt in [16, 33] {
         let job = Job {
             scale: 10_000,
             case: "L1",
@@ -149,7 +166,6 @@ fn lane_change_window_expectation_derives_from_generator_canonical_pinning() {
             workers: 1,
             round: 1,
         };
-        assert_eq!(job.windows(), expected);
         assert_eq!(
             job.windows(),
             laneflow_synth_generator::lane_change_pinned_window(dt)

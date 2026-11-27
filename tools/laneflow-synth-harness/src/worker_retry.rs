@@ -21,20 +21,8 @@ const FILES: [&str; 8] = [
     "final.lfrs",
     "observations.json",
 ];
-/// L 族（#1218）：T 触时刻（retry/fresh/final）按面 B 记录（结构化拒绝变体 +
-/// 真实资源身份/历史投影）代替规范快照；T-free 边界四份 `.lfrs` 逐字节不变。
-const L_FILES: [&str; 8] = [
-    "pre-command.lfrs",
-    "post-command.lfrs",
-    "fresh-post-command.lfrs",
-    "failed.lfrs",
-    "retry.json",
-    "fresh.json",
-    "final.json",
-    "observations.json",
-];
 const L_TEST: &str = "kernel::lf_synth_contract::lane_change_retry::lane_change_failed_step_retry";
-const L_FORMAT: &str = "lf-synth-lane-change-retry-1";
+const L_FORMAT: &str = "lf-synth-route-handoff-retry-1";
 const WORKERS: [u32; 5] = [1, 2, 4, 8, 16];
 const MAX_PROCESSES: usize = 4;
 const MAX_CONFIGURED_WORKERS: u32 = 32;
@@ -138,7 +126,7 @@ fn check_observations(observations: &Value, report: &Value) -> Result<(), Error>
     ensure(
         observations["format"]
             == if lane_change {
-                "lf-synth-retry-observations-lc-1"
+                "lf-synth-retry-observations-handoff-1"
             } else {
                 "lf-synth-retry-observations-1"
             },
@@ -226,37 +214,16 @@ fn check_observations(observations: &Value, report: &Value) -> Result<(), Error>
 }
 
 fn check_local_files(target: &Path, report: &Value) -> Result<(), Error> {
-    let lane_change = report["format"] == L_FORMAT;
-    let equal_pairs: &[(&str, &str)] = if lane_change {
-        &[
-            ("post-command.lfrs", "failed.lfrs"),
-            ("post-command.lfrs", "fresh-post-command.lfrs"),
-            ("retry.json", "fresh.json"),
-        ]
-    } else {
-        &[
-            ("post-command.lfrs", "failed.lfrs"),
-            ("post-command.lfrs", "fresh-post-command.lfrs"),
-            ("retry.lfrs", "fresh.lfrs"),
-        ]
-    };
+    let equal_pairs = [
+        ("post-command.lfrs", "failed.lfrs"),
+        ("post-command.lfrs", "fresh-post-command.lfrs"),
+        ("retry.lfrs", "fresh.lfrs"),
+    ];
     for (a, b) in equal_pairs {
         ensure(
             fs::read(target.join(a))? == fs::read(target.join(b))?,
             &format!("同次失败/重试记录不等：{a}/{b}"),
         )?;
-    }
-    if lane_change {
-        // 面 B（#1218/#1217）：T 触时刻记录必须是结构化拒绝 + 真实身份/历史投影。
-        for name in ["retry.json", "fresh.json", "final.json"] {
-            let value: Value = serde_json::from_slice(&fs::read(target.join(name))?)?;
-            ensure(
-                value["persistence_refused"].is_string()
-                    && value["journal"].is_array()
-                    && value["vehicles"].is_array(),
-                "面 B 记录缺拒绝变体或真实身份投影",
-            )?;
-        }
     }
     let observations: Value = serde_json::from_slice(&fs::read(target.join("observations.json"))?)?;
     check_observations(&observations, report)
@@ -273,11 +240,7 @@ fn compare(output: &Path, task: Task, baseline: &Value, report: &Value) -> Resul
         .ok_or_else(|| Error::Invalid("候选回执不是对象".into()))?
         .remove("workers");
     ensure(a == b, "跨 worker 失败/重试语义回执不同")?;
-    let files: &[&str] = if task.job.case == "L1" {
-        &L_FILES
-    } else {
-        &FILES
-    };
+    let files = &FILES;
     for file in files {
         ensure(
             fs::read(output.join(task.baseline_key()).join(file))?
@@ -377,14 +340,9 @@ fn launch(
     Ok(Running { task, child })
 }
 
-/// L 族同源正常参考核对（#1218）：末态面 B 历史（真实资源身份）与正常参考终检查点
-/// 的 `t_state.journal` 及全体 handle 车辆状态投影（#1226）相等；失败边界/窗口/来源一致。
-fn verify_lane_change_reports(
-    report: &Value,
-    normal: &Value,
-    identity: &str,
-    workers: u32,
-) -> Result<(), Error> {
+/// 两个独立世界与正常运行在窗口终点拥有相同的规范状态和横移历史。
+fn verify_lane_change_reports(report: &Value, normal: &Value, task: Task) -> Result<(), Error> {
+    let identity = task.job.identity();
     ensure(
         report["format"] == L_FORMAT
             && report["complete"] == true
@@ -392,7 +350,10 @@ fn verify_lane_change_reports(
             && report["input_manifest"] == normal["input_manifest"]
             && report["warm_up_ticks"] == normal["warm_up_ticks"]
             && report["observation_ticks"] == normal["observation_ticks"]
-            && report["workers"] == workers
+            && report["workers"] == task.job.workers
+            && report["failpoint"] == task.inject
+            && report["failed_calls"] == 1
+            && report["error"] == "ParkingObservationAllocFailed"
             && report["zero_publication"] == true
             && report["retry_equals_fresh"] == true
             && report["failpoint_consumed"] == true,
@@ -404,11 +365,25 @@ fn verify_lane_change_reports(
     let final_point = points
         .last()
         .ok_or_else(|| Error::Invalid("正常参考缺终检查点".into()))?;
+    let first_grant = final_point["handoff_journal"][0][0]
+        .as_u64()
+        .filter(|&tick| tick > 0)
+        .ok_or_else(|| Error::Invalid("正常参考缺首次获准拍".into()))?;
     ensure(
-        final_point["persistence_refused"].is_string()
-            && final_point["t_state"]["journal"] == report["final_face_b"]["journal"]
-            && final_point["t_state"]["states"] == report["final_face_b"]["states"],
-        &format!("换道族末态面 B 历史与同源正常参考不符：{identity}"),
+        report["failure_boundary"] == first_grant - 1
+            && report["failed_step_tick"] == first_grant
+            && final_point["tick"].is_u64()
+            && report["final_tick"] == final_point["tick"],
+        &format!("横移故障边界或末拍与正常运行不符：{identity}"),
+    )?;
+    ensure(
+        final_point["state_digest"]
+            .as_str()
+            .is_some_and(|s| s.len() == 64)
+            && final_point["state_digest"] == report["final_state_digest"]
+            && final_point["handoff_journal"].is_array()
+            && final_point["handoff_journal"] == report["handoff_journal"],
+        &format!("横移末态摘要或阶段历史与正常运行不符：{identity}"),
     )
 }
 
@@ -436,9 +411,9 @@ fn collect(
         let normal = normals
             .get(&task.job.identity())
             .ok_or_else(|| Error::Invalid("缺少同源完整正常参考".into()))?;
-        verify_lane_change_reports(&report, normal, &task.job.identity(), task.job.workers)?;
+        verify_lane_change_reports(&report, normal, task)?;
         check_local_files(&target, &report)?;
-        &L_FILES
+        &FILES
     } else {
         let normal = normals
             .get(&task.job.identity())

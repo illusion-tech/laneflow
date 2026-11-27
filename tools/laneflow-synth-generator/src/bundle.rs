@@ -115,21 +115,21 @@ pub fn generate(identity: Identity, provenance: Provenance) -> Result<Bundle, Er
 pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Result<Bundle, Error> {
     let mut files = BTreeMap::new();
     // L1 走独立发射面（LFCA 嵌入发射调用点行号，`network.rs` 必须逐字保持）。
-    let network_bytes = if identity.lane_change().is_some() {
+    let cells = identity.cells();
+    let (network_bytes, sections, geometry_points) = if identity.lane_change().is_some() {
         network_lane_change::compile(&identity)?
     } else {
-        network::compile(&identity)?
+        (network::compile(&identity)?, Vec::new(), cells * 416)
     };
     files.insert("network.lfca".into(), network_bytes);
     files.insert(
         "state.json".into(),
-        canonical_json(&initial_state(&identity)?)?,
+        canonical_json(&initial_state(&identity, &sections)?)?,
     );
     files.insert(
         "input-plan.json".into(),
         canonical_json(&plan::input_plan(&identity))?,
     );
-    let cells = identity.cells();
     let lane_change = identity.lane_change();
     let clusters = lane_change.map_or(0, |params| params.clusters);
     let changers = lane_change.map_or(0, |params| {
@@ -145,7 +145,7 @@ pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Res
     let counts = [
         ("cells", cells),
         ("individuals", identity.scale + changers),
-        ("routes", cells * 4 + clusters),
+        ("routes", cells * 4 + changers),
         ("edges", cells * 8 + 8 * clusters),
         ("controllers", cell_maneuver),
         ("groups", cell_maneuver * 4),
@@ -156,7 +156,7 @@ pub(crate) fn generate_inputs(identity: Identity, provenance: Provenance) -> Res
         ("maneuver_paths", cell_maneuver * 4 + 2 * clusters),
         ("facilities", cells),
         ("spaces", identity.scale),
-        ("geometry_points", cells * 416 + 16 * clusters),
+        ("geometry_points", geometry_points),
         ("active", active),
         ("parked", identity.scale - active + changers),
     ]

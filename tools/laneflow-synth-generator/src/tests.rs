@@ -24,6 +24,9 @@ fn provenance() -> Provenance {
     }
 }
 
+#[path = "../../laneflow-synth-harness/src/handoff.rs"]
+mod handoff;
+
 fn lane_change_case() -> Case {
     Case::LaneChange(LaneChangeParams {
         clusters: 1,
@@ -73,13 +76,18 @@ fn formal_identity_is_closed() {
         .is_err()
     );
     // #1243 T3：反序列化或改写 `case` 字段的身份与构造器同一可行域——
-    // K=3 无可行观察窗口，`generate` 经 `Identity::validate` 同样拒绝。
+    // 每簇只接受两条外侧源路线，`generate` 经 `Identity::validate` 同样拒绝。
     let out_of_domain = Case::LaneChange(LaneChangeParams {
         clusters: 1,
         changers_per_cluster: 3,
     });
     let mut value =
         serde_json::to_value(Identity::new(10_000, lane_change_case(), 16).unwrap()).unwrap();
+    let params = value["case"]["RouteHandoff"].clone();
+    assert_eq!(params, json!({"clusters": 1, "changers_per_cluster": 2}));
+    let mut old = value.clone();
+    old["case"] = json!({"LaneChange": params});
+    assert!(serde_json::from_value::<Identity>(old).is_err());
     value["case"] = serde_json::to_value(&out_of_domain).unwrap();
     let bypassed: Identity = serde_json::from_value(value).unwrap();
     assert!(generate(bypassed, provenance()).is_err());
@@ -130,7 +138,7 @@ fn state_and_plans_freeze_population_windows_and_command_order() {
     for dt in [16, 33] {
         for case in [Case::W1, Case::W2, Case::W3, Case::W4] {
             let identity = probe(2, case.clone(), dt);
-            let state = state::initial_state(&identity).unwrap();
+            let state = state::initial_state(&identity, &[]).unwrap();
             assert_eq!(state.routes.len(), 8);
             assert_eq!(state.vehicles.len(), 200);
             let expected = match &case {
@@ -497,9 +505,6 @@ fn verifier_rejects_rehashed_state_order_and_preserves_existing_output() {
 
 #[test]
 fn lane_change_lifecycle_probe_freezes_window_pinning() {
-    // L1 探针（#1218 D3）：钉版换道生命周期拍号并冻结窗口不变量——
-    // 检查点（16/32 拍）必须早于首 crossing；生命周期收束必须早于窗口终点；
-    // 两换道者路线完成必须晚于窗口终点（观察窗内无 Completed）。
     for dt in [16_u32, 33] {
         let identity = probe(2, lane_change_case(), dt);
         let bundle = generate_inputs(identity.clone(), provenance()).unwrap();
@@ -534,14 +539,18 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
             .unwrap();
         let mut world = TrafficWorld::install(laneflow_runtime::WorldInstallInput {
             revision: revision.clone(),
-            config: WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
-                vehicle_capacity: state.vehicles.len() as u32,
-                route_capacity: state.routes.len() as u32,
-                route_edge_occurrence_capacity: edge_occurrences,
-                route_conflict_occurrence_capacity: 16,
-                fixed_delta_time_ms: u64::from(identity.fixed_delta_ms),
-            })
-            .expect("有效的交通配置"),
+            config: handoff::configure_world(
+                &state,
+                WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                    vehicle_capacity: state.vehicles.len() as u32,
+                    route_capacity: state.routes.len() as u32,
+                    route_edge_occurrence_capacity: edge_occurrences,
+                    route_conflict_occurrence_capacity: 16,
+                    fixed_delta_time_ms: u64::from(identity.fixed_delta_ms),
+                })
+                .unwrap(),
+            )
+            .unwrap(),
             execution: ExecutionConfig::new(NonZeroU32::MIN),
             source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
@@ -561,27 +570,13 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
         let routes: Vec<_> = state
             .routes
             .iter()
-            .map(|route| {
-                let edges: Vec<_> = route
-                    .edge_ids
-                    .iter()
-                    .map(|id| {
-                        revision
-                            .identity()
-                            .ordinal(id.parse::<LaneEdgeId>().unwrap())
-                            .unwrap()
-                    })
-                    .collect();
-                world
-                    .register_route(RouteRegisterInput::new(edges))
-                    .unwrap()
-            })
+            .map(|route| handoff::register_route(&mut world, route).unwrap())
             .collect();
         let mut changers = Vec::new();
+        let mut handles = Vec::new();
         for vehicle in &state.vehicles {
             let route = routes[vehicle.route_rank as usize];
-            let lane_change_route = vehicle.route_rank == state.routes.len() as u32 - 1
-                && identity.lane_change().is_some();
+            let lane_change_route = state.routes[vehicle.route_rank as usize].handoff.is_some();
             let handle = if vehicle.status == "active" {
                 let spawn = VehicleSpawnInput::new(
                     profile,
@@ -590,13 +585,7 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
                     vehicle.progress_mm,
                     vehicle.speed_mm_per_s,
                 );
-                world
-                    .spawn_vehicle(if lane_change_route {
-                        spawn.with_open_entrance()
-                    } else {
-                        spawn
-                    })
-                    .unwrap()
+                world.spawn_vehicle(spawn).unwrap()
             } else {
                 let space = revision
                     .identity()
@@ -622,126 +611,77 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
                     .unwrap()
                     .vehicle
             };
+            handles.push(handle);
             if lane_change_route {
                 changers.push(handle);
             }
         }
         assert_eq!(changers.len(), 2);
-        let mut leader_enter = None;
-        let mut follower_enter = None;
-        let mut follower_release = None;
-        let mut refusal_onset = None;
-        let mut completed = None;
-        let mut checkpoints_capturable = Vec::new();
-        let mut leader_release = None;
-        let mut leader_exit_t = None;
-        let mut follower_exit_t = None;
-        let mut leader_completed = None;
-        let mut follower_completed = None;
-        for tick in 1..=1_200 {
+        let mut phases = [0; 2];
+        let mut journal = Vec::new();
+        for tick in 1..=end {
+            let requests = handoff::requests(&world, &state, &handles, &routes).unwrap();
+            match tick {
+                1 => assert_eq!(requests.len(), 2, "同拍在两个源车道上争用中间车道"),
+                2 => {
+                    assert_eq!(requests.len(), 1);
+                    assert_eq!(requests[0].vehicle, changers[1]);
+                }
+                3 => assert!(requests.is_empty()),
+                _ => {}
+            }
             world
-                .step(TickInput::new(u64::from(identity.fixed_delta_ms)))
-                .unwrap();
-            let leader = world.vehicle(changers[0]).unwrap();
-            let follower = world.vehicle(changers[1]).unwrap();
-            if leader.route_edge_index() >= 1 && leader_enter.is_none() {
-                leader_enter = Some(tick);
+                .step_with_route_handoffs(TickInput::new(u64::from(dt)), &requests)
+                .unwrap_or_else(|error| panic!("dt={dt}, tick={tick}: {error:?}"));
+            if tick == 2 {
+                assert!(world.vehicle_route_handoffs(changers[1]).next().is_none());
+                assert!(world.vehicle_route_handoffs(changers[0]).next().is_some());
             }
-            if follower.route_edge_index() >= 1 && follower_enter.is_none() {
-                follower_enter = Some(tick);
-            }
-            if leader.route_edge_index() >= 2 && leader_exit_t.is_none() {
-                leader_exit_t = Some(tick);
-            }
-            if follower.route_edge_index() >= 2 {
-                follower_exit_t.get_or_insert(tick);
-            }
-            if leader.status() == VehicleStatus::Completed {
-                leader_completed.get_or_insert(tick);
-            }
-            if follower.status() == VehicleStatus::Completed {
-                follower_completed.get_or_insert(tick);
-            }
-            if tick <= end
-                && (leader.status() == VehicleStatus::Completed
-                    || follower.status() == VehicleStatus::Completed)
-                && completed.is_none()
-            {
-                completed = Some(tick);
-            }
-            match world.capture_snapshot() {
-                Ok(_) => {
-                    if tick == warm || tick == 2 * warm {
-                        checkpoints_capturable.push(tick);
-                    }
-                }
-                Err(_) => {
-                    refusal_onset.get_or_insert(tick);
-                }
-            };
-            for event in world.latest_transition_events() {
-                let released = matches!(
-                    event.kind(),
-                    TrafficTransitionKind::ReservationReleased { .. }
+            handoff::observe(&world, &state, &handles, &mut phases, &mut journal).unwrap();
+            assert!(
+                changers
+                    .iter()
+                    .all(|&handle| world.vehicle(handle).unwrap().status()
+                        != VehicleStatus::Completed),
+                "dt={dt}, tick={tick}"
+            );
+            if tick == warm || tick == end - 1 {
+                let active = changers
+                    .iter()
+                    .filter(|&&handle| world.vehicle_route_handoffs(handle).next().is_some())
+                    .count();
+                assert_eq!(
+                    active,
+                    usize::from(tick == warm),
+                    "dt={dt}, tick={tick}, journal={journal:?}"
                 );
-                if released && event.vehicle() == changers[0] {
-                    leader_release.get_or_insert(tick);
-                }
-                if released && event.vehicle() == changers[1] {
-                    follower_release.get_or_insert(tick);
-                }
+                world
+                    .capture_snapshot()
+                    .expect("活动期间及清空后均可捕获快照");
             }
         }
-        eprintln!(
-            "L1 probe dt={dt}: warm={warm} planned_end={end}\n  leader: enter={leader_enter:?} \
-             exit_t={leader_exit_t:?} release={leader_release:?} completed={leader_completed:?}\n  \
-             follower: enter={follower_enter:?} exit_t={follower_exit_t:?} \
-             release={follower_release:?} completed={follower_completed:?}\n  \
-             refusal_onset={refusal_onset:?} checkpoints={checkpoints_capturable:?} \
-             first_completion={completed:?}"
-        );
-        let leader_enter = leader_enter.expect("leader enters T");
-        let follower_enter = follower_enter.expect("follower enters T");
-        assert!(
-            leader_enter < follower_enter,
-            "live-order: leader first ({leader_enter}) then follower ({follower_enter})"
-        );
-        assert!(
-            follower_enter > 2 * warm,
-            "checkpoints 16/32 must precede any crossing: follower {follower_enter}"
-        );
-        assert_eq!(
-            checkpoints_capturable,
-            vec![warm, 2 * warm],
-            "面 A：T-free 检查点可捕获"
-        );
-        assert_eq!(
-            refusal_onset,
-            Some(leader_enter),
-            "面 B：拒绝面恰在首个 T 裁决拍开始"
-        );
-        let leader_release = leader_release.expect("leader releases T");
-        let follower_release = follower_release.expect("follower releases T");
-        assert!(
-            follower_enter > leader_release,
-            "败者在前车预约释放后进入（R1b 层②）：{follower_enter} > {leader_release}"
-        );
-        assert!(
-            follower_release > follower_enter,
-            "败者进入后须自行释放预约"
-        );
-        assert!(
-            leader_release < end,
-            "前车完整生命周期须收束在窗口内：{leader_release} < {end}"
-        );
-        assert!(
-            follower_enter < end,
-            "败者清空后进入拍须落在窗口内：{follower_enter} < {end}"
-        );
-        assert!(
-            completed.is_none(),
-            "窗口内不得出现换道者路线完成（完成拍 {completed:?} 须晚于终点 {end}）"
-        );
+        // 逐拍比较同一输入的实际进入、前杠交接和整车清空。阻塞的第二车在源道上重试。
+        let ticks = if dt == 16 {
+            [1, 243, 632, 995, 1_480, 2_071]
+        } else {
+            [1, 118, 306, 483, 718, 1_005]
+        };
+        let routes = &state.vehicles[identity.scale as usize..];
+        let expected: Vec<_> = ticks
+            .into_iter()
+            .enumerate()
+            .map(|(i, tick)| {
+                let slot = i / 3;
+                (
+                    tick,
+                    slot as u16,
+                    10 + (i % 3) as u32,
+                    routes[slot].route_rank,
+                )
+            })
+            .collect();
+        assert_eq!(journal, expected, "dt={dt}");
+        assert!(ticks[5] < end - 1);
     }
 }
 
@@ -764,8 +704,11 @@ fn lane_change_multi_cluster_is_deterministic_and_counted() {
             again.files(),
             "簇数 {clusters} 规范重建逐字节确定"
         );
-        let state = state::initial_state(&identity).unwrap();
-        assert_eq!(state.routes.len() as u32, identity.cells() * 4 + clusters);
+        let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+        assert_eq!(
+            state.routes.len() as u32,
+            identity.cells() * 4 + clusters * 2
+        );
         assert_eq!(state.vehicles.len() as u32, identity.scale + clusters * 2);
         let plan: Value = serde_json::from_slice(&bundle.files()["input-plan.json"]).unwrap();
         let competition = plan["rules"]
@@ -774,7 +717,12 @@ fn lane_change_multi_cluster_is_deterministic_and_counted() {
             .iter()
             .find(|rule| rule["kind"] == "lane_change_competition")
             .unwrap();
-        assert_eq!(competition["transition_segments"], clusters);
+        assert_eq!(competition["clusters"], clusters);
+        assert_eq!(competition["registered_handoffs"], 2 * clusters);
+        assert_eq!(
+            bundle.manifest().counts["routes"],
+            state.routes.len() as u32
+        );
         assert_eq!(
             competition["changers"].as_array().unwrap().len() as u32,
             clusters * 2
@@ -783,49 +731,58 @@ fn lane_change_multi_cluster_is_deterministic_and_counted() {
 }
 
 #[test]
-fn lane_change_entry_geometry_is_certified_for_two_changers() {
-    use crate::{lane_change_entry_length_mm, lane_change_slot_progress_mm};
-    // 钉版几何与布局（K=2 唯一认证配置）。
-    assert_eq!(lane_change_entry_length_mm(2), 30_000);
-    assert_eq!(lane_change_slot_progress_mm(2, 0), 11_000);
-    assert_eq!(lane_change_slot_progress_mm(2, 1), 3_000);
-    // K≠2 无可行的观察窗口（末车 crossing 仅比 leader 完成晚数拍），拒绝。
-    for k in [1_u32, 3, 4, 8, 64] {
+fn each_handoff_cluster_has_two_outer_lane_routes() {
+    for slots in [1, 3, 4, 8, 64] {
         assert!(
             Identity::new(
                 10_000,
                 Case::LaneChange(LaneChangeParams {
                     clusters: 1,
-                    changers_per_cluster: k,
+                    changers_per_cluster: slots,
                 }),
-                16,
+                16
             )
-            .is_err(),
-            "K={k} 应因调度不可行被拒绝"
+            .is_err()
         );
     }
-    // K=2：生成状态无重叠且网络可编译。
-    let identity = Identity::new(
-        10_000,
-        Case::LaneChange(LaneChangeParams {
-            clusters: 1,
-            changers_per_cluster: 2,
-        }),
-        16,
+    let identity = probe(1, lane_change_case(), 16);
+    let bundle = generate_inputs(identity.clone(), provenance()).unwrap();
+    let state: InitialState = serde_json::from_slice(&bundle.files()["state.json"]).unwrap();
+    let cluster: Vec<_> = state
+        .routes
+        .iter()
+        .filter(|r| r.handoff.is_some())
+        .collect();
+    assert_eq!(cluster.len(), 2);
+    let windows = [cluster[0], cluster[1]].map(|r| r.handoff.as_ref().unwrap());
+    assert_eq!(windows[0].section_id, windows[1].section_id);
+    assert_eq!(windows.map(|w| w.left_index), [0, 1]);
+    assert_ne!(cluster[0].edge_ids[0], cluster[1].edge_ids[0]);
+    assert_eq!(cluster[0].edge_ids[1..], cluster[1].edge_ids[1..]);
+    let checked = check_canonical_network_input(
+        bundle.files()["network.lfca"].as_slice(),
+        FormatLimits::HARD,
     )
     .unwrap();
-    let state = state::initial_state(&identity).unwrap();
-    let mut progresses: Vec<u32> = state
-        .vehicles
-        .iter()
-        .filter(|v| v.parking_space_id.is_none())
-        .map(|v| v.progress_mm)
-        .collect();
-    progresses.sort_unstable();
-    for pair in progresses.windows(2) {
-        assert!(pair[1] - pair[0] >= 8_000, "K=2 初始车体重叠");
+    let revision = build_shared_network_revision(
+        checked,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(2 << 30, 2 << 30),
+        ),
+    )
+    .unwrap();
+    let counts = revision.traffic().entity_counts();
+    for (name, kind) in [
+        ("edges", EntityKind::LaneEdge),
+        ("gates", EntityKind::ManeuverGate),
+        ("stop_lines", EntityKind::StopLine),
+        ("junctions", EntityKind::Junction),
+        ("movements", EntityKind::Movement),
+        ("maneuver_paths", EntityKind::ManeuverPath),
+    ] {
+        assert_eq!(counts.count(kind), bundle.manifest().counts[name], "{name}");
     }
-    let _ = generate_inputs(identity, provenance()).unwrap();
 }
 
 mod full_scale;

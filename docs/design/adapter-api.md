@@ -106,6 +106,11 @@ current 路径：
 
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
 `LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
+宿主可在每个固定拍的生命周期阶段调用 `LaneFlowSession::set_next_route_handoffs`，
+用按拍初状态生成的一批横移申请替换本 Session 待用的输入。下一次实际步进尝试消费整批，
+包括失败的尝试。零步进帧保留输入；同帧追赶的后续固定拍各自重新供给。
+同修订恢复或跨修订接管成功即丢弃旧世界尚待使用的输入。交通运行时裁决申请并提交运动。
+
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route`，并通过 Session typed wrapper 调用
 `reserve_parking` / `cancel_parking` / `park_vehicle` / `leave_parking` /

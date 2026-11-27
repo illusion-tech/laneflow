@@ -4,7 +4,7 @@ use laneflow_synth_generator::{
     Bundle, Case, Error, Identity, LaneChangeParams, Provenance, generate, verify_directory,
 };
 
-const USAGE: &str = "用法：\n  laneflow-synth-generator generate <10000|100000> <W1|W2|W3|W4|LC> <16|33> <source-commit> <generator-commit> <new-directory> [clusters changers_per_cluster]\n  laneflow-synth-generator verify <directory>";
+const USAGE: &str = "用法：\n  laneflow-synth-generator generate <10000|100000> <W1|W2|W3|W4> <16|33> <source-commit> <generator-commit> <new-directory>\n  laneflow-synth-generator generate <10000|100000> LC <16|33> <source-commit> <generator-commit> <new-directory> <clusters> <changers_per_cluster>\n  laneflow-synth-generator verify <directory>";
 
 fn parse_scenario(
     arg: &str,

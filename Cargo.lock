@@ -3178,6 +3178,7 @@ dependencies = [
 name = "laneflow-gate-summary"
 version = "0.0.0"
 dependencies = [
+ "laneflow-compiler",
  "laneflow-format",
  "laneflow-static-contract",
  "laneflow-static-network",

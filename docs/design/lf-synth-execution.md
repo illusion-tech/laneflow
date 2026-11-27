@@ -297,48 +297,31 @@ W3/W4 四个身份与 L1 两个身份分别生成一个完整单 worker 正常�
 按规模、场景、worker 排序，再左移 `7 * (round - 1)` 项；已启动运行可跨轮交叠。
 每个进程独立安装失败/fresh 两世界。W3/W4 推进完整预热和第 5 节的前两拍
 guardrail；W3 的完整观察窗口由正常参考证明，不把失败 guardrail 写成完整 W3 窗口
-重试。L1 先以探针世界确定首车首次进入 T 的那一拍，在该拍注入失败；重试成功后
-两世界逐拍同步续跑到完整窗口终点（16 ms 为 tick 400，33 ms 为 tick 200），逐拍
+重试。L1 先以探针世界确定首车首次实际进入横移 的那一拍，在该拍注入失败；重试成功后
+两世界逐拍同步续跑到生成器定义的完整窗口终点，逐拍
 步进结果与转换事件须相等。
 
 最多四个子进程并发，所有已启动世界（含 fresh 世界）的配置 worker 总和不超过
 32。两世界交替同步步进；上述限制不是 OS 总线程、CPU 使用率或多世界吞吐预算。
 W3/W4 的失败点限定在 `AfterTransitions`；L1 在上述一拍分别注入 `AfterGrants`
 与 `AfterTransitions`，失败须丢弃未提交授权。预期错误均为
-`ParkingObservationAllocFailed`。失败后不重放生命周期命令，只重试原 `TickInput`；
-W4 成功后才进入 B1。L1 回执域为 `lf-synth-lane-change-retry-1`。
+`ParkingObservationAllocFailed`。失败后不重放生命周期命令，重试原步进输入，L1 同时重提原横移申请；
+W4 成功后才进入 B1。L1 回执域为 `lf-synth-route-handoff-retry-1`。
 
 每次回执先与同源正常参考核对，两族范围不同：
 
 - **W3/W4**：核对命令批次、step 输入、失败边界、游标、重试检查点和最终检查点，
   并核验实际 worker、失败零发布、信号保持、注入点消耗及 retry/fresh 等价标记。
 - **L1**：核对实现提交、完整输入 manifest、预热与观察窗口、实际 worker，以及
-  失败零发布、retry/fresh 等价与注入点消耗标记；再要求正常参考的最终检查点为
-  结构化保存拒绝，其 `t_state` 中的 `journal` 与 `states` 分别等于本次重试运行
-  末态记录的对应字段。L1 正常参考只在 0、16、32 拍与窗口终点保存检查点，没有
-  首车进入 T 那一拍的检查点，因此不与正常参考比较重试时刻状态；重试时刻的正确性
-  只由本次运行内 retry 与 fresh 两世界相等及后续逐拍同步续跑证明。
+  失败零发布、两次独立执行等价及注入点消耗标记。正常参考的最终规范摘要与两车横移阶段日志均须与重试运行相等。活动横移可直接捕获并恢复。
 
-随后核对本次运行内的同次记录与实际边界观测。
-
-每次运行写出八个文件，按族不同：
-
-| | W3/W4 | L1 |
-| --- | --- | --- |
-| T 无关边界 | `pre-command`、`post-command`、`fresh-post-command`、`failed` 四份 LFRS | 同左 |
-| 重试、fresh 与末态 | `retry`、`fresh`、`final` 三份 LFRS | `retry.json`、`fresh.json`、`final.json` |
-| 边界观测 | `observations.json` | 同左 |
-| 本次运行内须相等 | `post-command`=`failed`、`post-command`=`fresh-post-command`、`retry`=`fresh` 三对 LFRS | 前两对 LFRS 加 `retry.json`=`fresh.json` |
-
-L1 的重试、fresh 与末态发生在首个 T 裁决之后，快照捕获按 #1217 结构化拒绝；
-三份 JSON 记录拒绝变体、预约事件日志与车辆投影（真实资源身份与历史），缺任一项
-即拒绝，不以规范快照或错误编码摘要代替。
+每次运行保存七份规范 LFRS 和一份边界观测文件。四份拍前文件为 `pre-command`、`post-command`、`fresh-post-command` 和 `failed`，后三份字节须相同。拍后的 `retry` 与 `fresh` 也须逐字节相同。`final` 保存窗口末态。`observations.json` 保留相应边界的公开观测。
 
 每个身份（L1 按身份与失败点）以第一轮单 worker 为参考，其余十四次只排除回执
-`workers` 字段后精确比较所有其他字段，再逐字节比较上表八个文件；共 8 组 112 对。
+`workers` 字段后精确比较所有其他字段，再逐字节比较上述八个文件；共 8 组 112 对。
 
 边界观测域 W3/W4 为 `lf-synth-retry-observations-1`，L1 为
-`lf-synth-retry-observations-lc-1`。事件数组按原顺序保存十一项：tick、
+`lf-synth-retry-observations-handoff-1`。事件数组按原顺序保存十一项：tick、
 车辆逻辑 rank、更新序号、路线逻辑 rank、maneuver occurrence、hop、edge occurrence、
 进度毫米、carry 微米、事件种类、payload。种类 1 是 GateCrossed（payload 为 gate
 ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence）；L1
@@ -373,7 +356,7 @@ ordinal），8 是 ManeuverTraversalCompleted（payload 为 maneuver occurrence�
 已观察后保存，终点 `3W`。W3 在 `W+1` 第一批 atomic replacement 命令前后、
 下一次 step 前保存；两个检查点 tick 相同，宿主阶段与命令游标不同。W4 在 `W`
 B0 命令前及 `W+1` B0 成功并消费观测后保存，终点仍为 B1 后的 `W+2`。L1 的 `W`
-为 16 拍，在 `W` 与 `2W` 保存（均早于首个 T 裁决），终点为预热加观察窗口。
+为 16 拍。第一次在预热末拍保存正在横移的车辆，第二次在窗口倒数第二拍保存已清空的车辆；两次均从下一拍继续。
 
 检查点包含实际 LFRS 文件和单独的宿主记录。宿主保存逻辑序号到快照局部 ID 的
 完整映射、路线身份、live 顺序、逻辑代次、累计观测、pending 原命令、停车屏障与
@@ -392,10 +375,7 @@ F3 还在宿主资产准入中要求 exact LFCA 与原输入一致；这不改�
 属于快照，不能再次消费。从下一成功拍起核对公开轨迹、有序事件及 parking arrivals；
 完整 `StepOutcome` 的 tick/time 也逐拍检查。命令前检查点重放该批次，命令后检查点
 跳过该批次；比较所有剩余命令收据和批次，不能重复或遗漏。W1–W4 的最终规范状态
-及宿主累计观测全部相等，每 1024 拍与最终边界的完整状态摘要也比较。L1 的检查点
-都早于首个 T 裁决，恢复本身照常比较规范状态；终点在 T 裁决之后，末态比较结构化
-保存拒绝变体与 `t_state`（真实资源身份与历史投影）及宿主累计观测，不包含完整快照
-的状态摘要。恢复重分配局部 ID，所以不要求重新编码的 LFRS 字节等于旧文件。
+及宿主累计观测全部相等，每 1024 拍与最终边界的完整状态摘要也比较。L1 同样比较规范状态、累计横移阶段历史以及随后的全部公开观测。恢复重分配局部 ID，所以不要求重新编码的 LFRS 字节等于旧文件。
 
 轨迹头为 ASCII `lf-synth-restore-ticks-1` 加 NUL，随后为连续 `u64` 小端 tick 和
 现有公开边界 BLAKE3 摘要；原有 W1/W2 与 W3/W4 边界原像不变。有序事件文件沿用
@@ -436,22 +416,11 @@ L1，因此 L1 回执的 `verification_receipt` 为空。
 - 每车 handle、profile、class、route、车长 4.5 m、status 与初始一致；route
   occurrence 不超出所在路线；carry 小于 1000 µm；停车绑定不变；Parked 车辆整个
   状态不变。
-- Active 车辆按真实边长前缀和计算绝对位置，进度、速度与正加速度满足第 1 节同一
-  运动约束。减速度按第 1 节“超界归因”计数，判超阈值取 L1 profile 的 9 m/s²；
-  L1 不构造任何具名例外，超界即未归因，运行失败。
-- 每簇每拍至多一名换道者位于 T；跟随者进入 T 时，同簇更早槽位不得持有 T 预约。
-- 本拍转换事件只能属于换道者，种类限于 GateCrossed、ReservationAcquired、
-  ConflictEntered、ConflictCleared、ReservationReleased 与
-  ManeuverTraversalCompleted；预约事件跨拍保持 acquire → enter → clear → release
-  顺序，其他种类拒绝。
+- 核验每拍的速度变化。两条外侧车道与中道共享纵向站位轴，前杠在横移中进入中道时按其真实站位记录。换道车辆从活动记录读取累计后轴行程和前杠侧别。
+- 每簇同时至多一辆车持有横移预约。各车依次留下实际进入（10）、前杠交接（11）、车尾清空（12）的证据。日志每行依次记录拍号、槽号、阶段和路线序号。两车都完成清空且首车先于第二车获得预约，完整窗口才能通过。
+- 下游真实路口的 Gate、冲突区预约和穿越事件由有序事件流单独记录。窗口结束时背景车辆保持在原路线出现。
 
-窗口结束时，全体换道者都完成入口边到 T 的 crossing，背景车辆不发生入口边到出口边
-的转换。每拍公开边界摘要是 BLAKE3，原像域为 ASCII `lf-synth-public-boundary-lc-1`
-加 NUL，逐车编码位置、速度、状态、traversal 阶段与 T 预约身份；原像只在内存中
-构造，不落盘。`ticks.bin` 沿用第 2 节的文件头 `lf-synth-public-ticks-1` 加 NUL
-和“`u64` 小端 tick + 32 字节边界摘要”记录布局，不保存逐拍逐车原始观测。首个 T
-裁决之后的检查点按 #1217 记录结构化保存拒绝变体及真实资源身份与历史投影，不只
-比较错误编码摘要。
+每拍公开边界摘要采用 BLAKE3，原像域为 ASCII `lf-synth-public-boundary-handoff-1` 加 NUL。`ticks.bin` 沿用 `lf-synth-public-ticks-1` 文件头和小端 tick 加 32 字节摘要的记录布局。各检查点均保存规范状态摘要，L1 还附当时已观察到的横移阶段历史。重新生成的输入身份以及冷恢复后缀分别与当前执行合同核对。
 
 L1 进入第 7 节 `worker-matrix`、第 8 节 `worker-retry-matrix` 与第 9 节
 `restore-matrix`；不进入第 6 节普通矩阵与 `restore-probe`。
