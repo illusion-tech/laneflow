@@ -2137,7 +2137,7 @@ impl ConflictWorkspace {
     }
 }
 
-#[cfg(any(test, feature = "execution-evidence"))]
+#[cfg(test)]
 impl ConflictWorkspace {
     pub(crate) fn set_serial_for_test(&mut self, serial: u64) {
         self.next_serial = serial;
@@ -2146,8 +2146,11 @@ impl ConflictWorkspace {
     pub(crate) fn serial_for_test(&self) -> u64 {
         self.next_serial
     }
+}
 
-    /// 测试专用：统计暂存工作区保留的逻辑字节数。
+#[cfg(any(test, feature = "execution-evidence"))]
+impl ConflictWorkspace {
+    /// 测试与执行证据专用：统计暂存工作区保留的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             cell_workspace,
@@ -2504,7 +2507,7 @@ impl ConflictArbiter {
     }
 
     /// 测试专用：统计仲裁器三个分区保留的逻辑字节总数。
-    #[cfg(any(test, feature = "execution-evidence"))]
+    #[cfg(test)]
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         self.read().retained_logical_bytes()
     }
@@ -3605,7 +3608,7 @@ impl<'a> ConflictRead<'a> {
     }
 
     /// 测试专用：统计三个分区保留的逻辑字节总数。
-    #[cfg(any(test, feature = "execution-evidence"))]
+    #[cfg(test)]
     pub(crate) fn retained_logical_bytes(self) -> u64 {
         self.committed.retained_logical_bytes()
             + self.derived.retained_logical_bytes()
