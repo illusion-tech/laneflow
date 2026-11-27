@@ -134,18 +134,28 @@ frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态�
 - **走廊**在 `laneflow/signalized-corridor` 的合成模块中声明框架，将车道边引用和对应折线直接挂在声明下。配置摘要包含 `frame_id` 原始字节。
 - **路口**在 `laneflow/complex-junction` 声明一次框架，道路参考线、普通冲突区与汇入冲突区以同一局部键引用它。生成网格时这些声明和引用仍在同一个模块中。配置序列化参与来源摘要。
 
-#1569 的实施复用编译器已有的公开编制入口
-`laneflow_compiler::road_editing::CanonicalFrameInput::try_new`。该构造器对框架声明键
-按上述字节上限调用已有 token 校验，并返回现有的编制诊断。两个配置的
-`validate` 都用这个构造器检查 `frame_id`，把错误定位到该字段，保留失败原因、
-适用的字节下标或实际长度与上限。这样 TOML 解析和直接调用 `generate(&config)`
-都在构建几何或写文件前得到同样的诊断。普通合成模块的通用键规则、
-LFRE 的限定引用语法及 Identity v1 编码继续由各自的正本定义。
+#1569 在 `laneflow_compiler::road_editing` 增加专用公开函数
+`validate_canonical_frame_local_key(key: &str) -> Result<(), DiagnosticBundle>`。
+函数借用原始文本，复用 LFRE 现有的 token 校验、单组件上限和保留分隔符检查。
+走廊与路口的配置 `validate` 都调用它，因此 TOML 解析和直接调用
+`generate(&config)` 都在构建几何或写文件前发现错误。
+
+53 字节的提前检查仅用于上述专用入口。`CanonicalFrameInput::try_new` 与
+其余 23 类声明构造器、`CanonicalFrameReference::local` 均沿用各自的现行校验时机。
+例如 54 个 ASCII 字母可以构造框架声明和局部引用；构造成功只表示通过该层校验。
+builder 仍按编译配置检查资源限制，LFRE 预检仍独立检查外部字节。这样可以直接验证
+builder 拒绝超限声明后仍可复用。普通合成模块的通用键规则及 Identity v1 编码沿用现行契约。
+
+两个生成器将专用函数的错误映射为各自的 `Error::Config(String)`，消息标明 TOML
+字段 `frame_id`，并附上 `DiagnosticBundle` 的显示文本。允许直接显示内部路径
+`canonicalFrame.canonicalFrameKey`。调用方可据配置字段、违规原因以及适用的字节下标
+或长度与上限定位问题；前缀、标点和内部路径的显示拼写均不作为配置 API 验收条件。
 
 Spatial 的公共输入是已绑定修订中的采样地址。实施时移除其字符串包装
 `laneflow_spatial::CanonicalFrameId`、`CANONICAL_FRAME_ID_PATTERN` 与专用的
 `SpatialError::InvalidFrameId`，并清理两个生成器仅用于此校验的 Spatial 直接依赖。
-宿主在需要稳定身份时使用静态契约的同名类型。此次迁移不设字符串别名。
+宿主从 `laneflow_static_contract::CanonicalFrameId` 引入稳定身份。
+`laneflow_spatial` 根不重导出该类型，也不保留旧字符串类型的别名。
 城市生成器输出目录中的 `frame_id` 已表示稳定身份的十六进制文本，沿用该输出语义。
 
 ### 2.5 实施验收
@@ -153,9 +163,12 @@ Spatial 的公共输入是已绑定修订中的采样地址。实施时移除其
 1. 对两个生成器分别经 TOML `parse` 和直接构造配置后 `generate` 验证同一组键。
    仓内样例、混合大小写、尾单冒号以及 53 字节键应生成成功。空串、非法首字节、
    非 ASCII、非法后续字节、54/128/129 字节和 `a::b` 应在配置层报 `frame_id`；
-   直接调用公开的 `road_editing::CanonicalFrameInput::try_new` 也应接受 53 字节，
-   对 54 字节返回 `TooLong { limit: 53, observed: 54 }`，对 `a::b` 返回
-   `ReservedDelimiter { byte_index: 1 }`（首个冒号的下标，从 0 起）。两配置入口须保留这些原因。
+   直接调用 `validate_canonical_frame_local_key` 应接受 53 字节，对 54 字节和 `a::b`
+   分别从诊断载荷中取得 `TooLong { limit: 53, observed: 54 }` 和
+   `ReservedDelimiter { byte_index: 1 }`（首个冒号，从 0 起）。两个生成器均断言
+   `Error::Config`、字段 `frame_id`、对应原因和参数。另验 54 个 ASCII 字母仍能构造
+   LFRE 框架声明及局部引用，并保留 `add_checks_string_limits_before_mutation`
+   对 builder 拒绝后可复用的覆盖。
    迁移前 54 与 128 字节通过配置、稍后生成失败；`a::b` 在走廊确能出产制品，
    在路口则于框架声明失败。统一局部键规则有意收紧了这一走廊输入。
 2. 用仓内走廊和路口各自的原版 TOML，在迁移前后分别生成。
@@ -163,7 +176,8 @@ Spatial 的公共输入是已绑定修订中的采样地址。实施时移除其
    并逐字节比较两次生成的 LFCA 和场景目录文件（`.catalog.toml`）。另在两个不同编制命名空间声明
    同一键，验证各自的局部引用解析到自己的框架，且稳定身份不同。
 3. 通过 Spatial 公开入口检查非空批次的序号与稳定身份往返、成功空批的批头，
-   以及混框架失败后原批头和记录完整保留。同步修订两个生成器的配置示例说明、
+   以及混框架失败后原批头和记录完整保留。以外部调用方验证从静态契约根导入
+   `CanonicalFrameId` 成功，从 Spatial 根导入同名类型报未解析导入。同步修订两个生成器的配置示例说明、
    编译器框架声明的字段说明和 Spatial 的 API 文档。Rust 接口与制品对照在实施阶段验收。
 
 ## 3. 制品模型
