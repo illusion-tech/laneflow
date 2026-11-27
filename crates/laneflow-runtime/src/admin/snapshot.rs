@@ -163,7 +163,7 @@ fn persisted_admission_gate(
 /// 快照点已捕获的逻辑状态：编码无关的绑定集 + 全部每世界可变状态。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapturedSnapshot {
-    /// 世界身份（快照局部）。
+    /// 宿主指定的世界身份，从快照恢复时沿用。
     pub(crate) world_id: crate::WorldId,
     /// tick 游标。
     pub(crate) tick: u64,
