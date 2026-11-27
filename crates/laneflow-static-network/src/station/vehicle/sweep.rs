@@ -11,7 +11,10 @@ use crate::{
 
 mod obstacle;
 mod rule;
+mod side_clearance;
 pub(super) use rule::{BodyBoundary, window_permission};
+pub(super) use side_clearance::side_clearance_segments;
+pub use side_clearance::{SideClearanceReport, SideClearanceSegment};
 
 /// 后轴坐标系中沿前、左、上三个方向的实体包络，单位米。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,14 +58,14 @@ pub struct BoundaryHit<'a> {
     /// 已发布的局部名。使用边界默认禁止时为空。
     pub key: Option<&'a str>,
 }
-/// 全段可用于选速的保守净空，附产生最小下界的候选区间。
+/// 实体分离的保守净空，附产生最小下界的候选参数区间。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Clearance<'a> {
-    /// 三维实体距离的正下界（米）。
+    /// 实体距离的正下界（米）。整车准入查询使用三维距离，侧向查询使用水平距离。
     pub lower_m: f64,
     /// 对应实体的发布身份。
     pub boundary: BoundaryHit<'a>,
-    /// 在此候选行程区间上得到该下界，单位纳米。
+    /// 在此候选参数区间上得到该下界，单位纳米。
     pub range_nm: [u64; 2],
 }
 /// 实体范围闭合，跨越许可沿走廊站位半开。
@@ -301,6 +304,12 @@ fn nearer<'a>(a: Option<Clearance<'a>>, b: Option<Clearance<'a>>) -> Option<Clea
     }
 }
 type Verdict<'a> = SweepOutcome<'a>;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClearanceMetric {
+    Spatial,
+    Side,
+}
 fn witness_key(v: Verdict<'_>) -> Option<(u64, BoundaryHit<'_>)> {
     let (at, b) = match v {
         Verdict::Contact {
@@ -334,51 +343,69 @@ struct Sweep<'a, 'q> {
     unchecked: Option<[u64; 2]>,
     witness: Option<(u64, Verdict<'a>)>,
 }
+fn check_motion<'a>(
+    c: &Candidate<'a, '_>,
+    shape: BodyEnvelope,
+    m: &Motion,
+    range: [u64; 2],
+    metric: ClearanceMetric,
+    work: &mut Work,
+) -> Result<Verdict<'a>, Failure> {
+    let pose = c.pose(m, work)?;
+    let body = Body {
+        pose: &pose,
+        motion: m,
+        shape,
+    };
+    let mut result = Verdict::Clear(None);
+    let complete = boundaries(c, work, |s, work| {
+        let mut observe = |v: Result<Verdict<'a>, Failure>, boundary| -> Result<(), Failure> {
+            let v = match v {
+                Err(Failure::WorkLimit) => return Err(Failure::WorkLimit),
+                Err(reason) => Verdict::Unproven {
+                    range_nm: range,
+                    boundary: Some(boundary),
+                    reason,
+                },
+                Ok(v) => v,
+            };
+            result = combine(result, v);
+            Ok(())
+        };
+        if metric == ClearanceMetric::Spatial {
+            observe(rule::check(c, &body, s, range, work), s.id)?;
+        }
+        for e in s.extents {
+            work.charge()?;
+            if let Some(payload) = e.payload
+                && !matches!(payload, BoundaryPayload::Rule { .. })
+            {
+                observe(
+                    obstacle::check(c, &body, s, e, range, metric, work),
+                    BoundaryHit {
+                        key: Some(e.local_key()),
+                        ..s.id
+                    },
+                )?;
+            }
+        }
+        Ok(())
+    });
+    if witness_key(result).is_none() {
+        complete?;
+    }
+    Ok(result)
+}
 impl<'a> Sweep<'a, '_> {
     fn check(&self, m: &Motion, range: [u64; 2], work: &mut Work) -> Result<Verdict<'a>, Failure> {
-        let c = &self.candidate;
-        let pose = c.pose(m, work)?;
-        let body = Body {
-            pose: &pose,
-            motion: m,
-            shape: self.shape,
-        };
-        let mut result = Verdict::Clear(None);
-        let complete = boundaries(c, work, |s, work| {
-            let mut observe = |v: Result<Verdict<'a>, Failure>, boundary| -> Result<(), Failure> {
-                let v = match v {
-                    Err(Failure::WorkLimit) => return Err(Failure::WorkLimit),
-                    Err(reason) => Verdict::Unproven {
-                        range_nm: range,
-                        boundary: Some(boundary),
-                        reason,
-                    },
-                    Ok(v) => v,
-                };
-                result = combine(result, v);
-                Ok(())
-            };
-            observe(rule::check(c, &body, s, range, work), s.id)?;
-            for e in s.extents {
-                work.charge()?;
-                if let Some(payload) = e.payload
-                    && !matches!(payload, BoundaryPayload::Rule { .. })
-                {
-                    observe(
-                        obstacle::check(c, &body, s, e, range, work),
-                        BoundaryHit {
-                            key: Some(e.local_key()),
-                            ..s.id
-                        },
-                    )?;
-                }
-            }
-            Ok(())
-        });
-        if witness_key(result).is_none() {
-            complete?;
-        }
-        Ok(result)
+        check_motion(
+            &self.candidate,
+            self.shape,
+            m,
+            range,
+            ClearanceMetric::Spatial,
+            work,
+        )
     }
     fn visit(&mut self, range: [u64; 2], depth: u8, work: &mut Work) {
         if self.witness.is_some_and(|(at, _)| range[0] >= at) {

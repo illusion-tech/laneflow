@@ -27,9 +27,11 @@ pub use handoff::{
     HandoffTravelTarget, HandoffWindow,
 };
 pub use sweep::{
-    BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SweepOutcome,
-    SweepReport,
+    BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SideClearanceReport,
+    SideClearanceSegment, SweepOutcome, SweepReport,
 };
+
+pub use handoff::HandoffTravelMarksReport;
 
 /// 一条候选的姿态、轮迹与转向共享的逻辑工作上限。
 pub const TRACK_WORK_LIMIT: u32 = 4_096;
@@ -129,7 +131,7 @@ pub enum Failure {
     InvalidInput,
     /// 修订、走廊、坐标框架或车道序列错配。
     Binding,
-    /// 走廊没有发布查询所需的完整路面或路幅。
+    /// 走廊缺少查询所需的完整路面或路幅，或无可用空间存放完整查询结果。
     Unavailable,
     /// 给定窗口不足以证明同层截面的投影唯一且位于域内。
     Projection,

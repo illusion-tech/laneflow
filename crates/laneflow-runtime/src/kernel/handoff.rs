@@ -21,6 +21,17 @@ use sample::CursorRun;
 pub use sample::{RouteHandoffSample, RouteHandoffSampleError, RouteHandoffSampleReport};
 pub use traffic::{RouteHandoffTraffic, RouteHandoffTrafficError};
 
+mod clearance_braking;
+mod clearance_curve;
+mod clearance_plan;
+pub use clearance_braking::{RouteHandoffBrakingError, RouteHandoffBrakingStep};
+pub use clearance_curve::{
+    ClearanceSpeedCurve, ClearanceSpeedCurveError, ClearanceSpeedPoint, MAX_CLEARANCE_SPEED_POINTS,
+};
+pub use clearance_plan::{
+    ClearanceSpeedWindow, HandoffDrivingConfig, RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError,
+};
+
 use super::tables::{ManeuverOccurrence, access_cell_denied, route_access_denied};
 use crate::{RouteError, TrafficWorld};
 

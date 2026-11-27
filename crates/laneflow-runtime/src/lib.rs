@@ -85,6 +85,12 @@ pub use kernel::handoff::{
     RouteHandoffSampleError, RouteHandoffSampleReport, RouteHandoffTraffic,
     RouteHandoffTrafficError, RouteHandoffTrial, RouteHandoffTrialError,
 };
+
+pub use kernel::handoff::{
+    ClearanceSpeedCurve, ClearanceSpeedCurveError, ClearanceSpeedPoint, ClearanceSpeedWindow,
+    HandoffDrivingConfig, MAX_CLEARANCE_SPEED_POINTS, RouteHandoffBrakingError,
+    RouteHandoffBrakingStep, RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError,
+};
 pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,
     VehicleSpawnInput,

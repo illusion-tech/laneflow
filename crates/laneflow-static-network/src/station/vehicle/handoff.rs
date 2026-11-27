@@ -18,7 +18,9 @@ mod rebind;
 mod source;
 pub use source::{HandoffSourceEvidence, HandoffSourceModule};
 mod travel;
-pub use travel::{HandoffTravelBounds, HandoffTravelReport, HandoffTravelTarget};
+pub use travel::{
+    HandoffTravelBounds, HandoffTravelMarksReport, HandoffTravelReport, HandoffTravelTarget,
+};
 
 /// 两个相邻路线出现所声明的交接边界和闭窗口。边的顺序为源、目标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +146,29 @@ struct Bound {
     crossing: Crossing,
     outer: [sweep::BoundaryLine; 2],
     trace: CorridorTrace,
+}
+
+impl SharedNetworkRevision {
+    /// 按同一对有向出现和原五次横移求各段侧向净空。闭区间沿后轴行驶方向从零
+    /// 递增，`max_span_nm` 是单段最大站位差。完整交接准入仍须由 `vehicle_handoff` 求证。
+    #[must_use]
+    pub fn handoff_side_clearances(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        max_span_nm: u64,
+        work_limit: u32,
+    ) -> SideClearanceReport<'_> {
+        let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
+        let full = [0, q.rear_stations_nm[0].abs_diff(q.rear_stations_nm[1])];
+        let result = bind(self, q, window, &mut work)
+            .map_err(|reason| (full, reason))
+            .and_then(|bound| {
+                sweep::side_clearance_segments(self, &bound.query(q), body, max_span_nm, &mut work)
+            });
+        SideClearanceReport::finish(result, work)
+    }
 }
 
 impl Bound {
