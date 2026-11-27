@@ -823,7 +823,6 @@ impl MotionUpdates {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn set(
         &mut self,
         index: usize,

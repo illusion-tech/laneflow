@@ -425,13 +425,11 @@ fn load_network(
 
 #[test]
 fn neighboring_footprints_share_the_same_quantized_interface() {
-    for (reference, widths, expected_um) in [
-        (0, [[3.000_003; 2], [3.0; 2]], [-1_500_001; 2]),
-        (
-            1,
-            [[3.0; 2], [3.000_003, 3.000_005]],
-            [1_500_001, 1_500_002],
-        ),
+    for (reference, widths, expected_mm) in [
+        (0, [[3.5; 2]; 2], [-1_750; 2]),
+        (0, [[3.5004; 2], [3.5; 2]], [-1_750; 2]),
+        (0, [[3.003; 2], [3.0; 2]], [-1_502; 2]),
+        (1, [[3.0; 2], [3.003, 3.005]], [1_502, 1_502]),
     ] {
         let curve =
             Program::try_new(p(0.0, 0.0, 0.0), vec![Segment::line(p(0.0, 0.0, 50.0))]).unwrap();
@@ -463,15 +461,20 @@ fn neighboring_footprints_share_the_same_quantized_interface() {
             let mapping = network.station_mapping();
             let left = mapping.lane_footprint(lanes[0]).unwrap();
             let right = mapping.lane_footprint(lanes[1]).unwrap();
-            for (i, expected) in expected_um.into_iter().enumerate() {
-                let shared = left.ends_um[i][1];
+            for (i, expected) in expected_mm.into_iter().enumerate() {
+                let shared = left.ends_mm[i][1];
                 assert_eq!(shared, expected);
-                assert_eq!(shared, right.ends_um[i][0]);
+                assert_eq!(shared, right.ends_mm[i][0]);
                 let exact = widths[reference][i] * if reference == 0 { -0.5 } else { 0.5 };
-                let error_nm = exact.mul_add(1_000_000.0, -f64::from(shared)).abs() * 1000.0;
+                let error_mm = exact.mul_add(1_000.0, -f64::from(shared)).abs();
                 for footprint in [left, right] {
-                    assert!(error_nm <= f64::from(footprint.error_nm));
-                    assert!(footprint.error_nm <= 1000);
+                    assert!(error_mm <= f64::from(footprint.error_mm));
+                    assert!(footprint.error_mm <= 1);
+                    if widths == [[3.5; 2]; 2] {
+                        assert_eq!(footprint.error_mm, 0);
+                    } else {
+                        assert!(footprint.error_mm > 0);
+                    }
                 }
             }
         }
@@ -512,7 +515,7 @@ fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
             .relations()
             .lane_edge_authoring_lane(reference.ordinal())
             .unwrap();
-        let end = mapping.corridor_domain(corridor).unwrap().length_nm;
+        let end = mapping.corridor_domain(corridor).unwrap().length_nm();
         let laneflow_static_network::StationQuery::Complete(found) =
             mapping.at_station(corridor, end, lane)
         else {
@@ -526,20 +529,20 @@ fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
         let spans = mapping.surface_spans(corridor);
         let seam = spans
             .windows(2)
-            .find(|pair| pair[0].stations[1].0 == 50_000_000_000)
+            .find(|pair| pair[0].stations_mm[1].0 == 50_000)
             .unwrap();
         let left = seam[0].jets[1];
         let right = seam[1].jets[0];
-        assert_eq!(seam[0].stations[1], seam[1].stations[0]);
+        assert_eq!(seam[0].stations_mm[1], seam[1].stations_mm[0]);
         assert_eq!(left[..3], [30.0, 0.0, 40.0]);
         assert_eq!(left[..3], right[..3]);
         let [x, z, u, v] = [left[3], left[5], right[3], right[5]].map(f64::from);
         assert_eq!(x * v, z * u);
         assert!(x * u + z * v > 0.0);
         assert_eq!(left[4], 0.0);
-        assert_eq!(right[4], (0.5 / 50.0_f64.hypot(0.5)) as f32);
+        assert_eq!(right[4], (0.5 / 50.002) as f32);
         for ((row, jet), rise) in seam.iter().zip([left, right]).zip([0.0, 0.5]) {
-            let length = 50.0_f64.hypot(rise);
+            let length = (row.stations_mm[1].0 - row.stations_mm[0].0) as f64 / 1_000.;
             let expected = [30.0, rise, 40.0].map(|v| v / length);
             let error = expected
                 .into_iter()
@@ -549,6 +552,39 @@ fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
                 .sqrt();
             assert!(error <= f64::from(row.derivative_errors[1]));
         }
+    }
+}
+
+#[test]
+fn rounded_grade_seam_preserves_the_true_source_endpoint_and_one_sided_derivatives() {
+    let seam_z = 49.9996;
+    let curve = Program::try_new(
+        p(0.0, 0.0, 0.0),
+        vec![
+            Segment::line(p(0.0, 0.0, seam_z)),
+            Segment::line(p(0.0, 1.0, seam_z + 50.0)),
+        ],
+    )
+    .unwrap();
+    let output = compile_complete(curve).unwrap();
+    let corridor = output.lir().road_corridors().next().unwrap().ordinal();
+    let candidate = publish(&output, "rounded-grade-seam");
+    let network = load_network(&candidate, SpatialBuildOption::Omit);
+    let spans = network.station_mapping().surface_spans(corridor);
+    let seam = spans
+        .windows(2)
+        .find(|pair| pair[0].stations_mm[1].0 == 50_000)
+        .unwrap();
+    assert_eq!(seam[0].stations_mm[1], seam[1].stations_mm[0]);
+    assert_eq!(seam[0].jets[1][..3], seam[1].jets[0][..3]);
+    for (row, end, rise, run) in [(&seam[0], 1, 0.0, seam_z), (&seam[1], 0, 1.0, 50.0)] {
+        let jet = row.jets[end];
+        assert!((f64::from(jet[2]) - seam_z).abs() <= f64::from(row.derivative_errors[0]));
+        let h = (row.stations_mm[1].0 - row.stations_mm[0].0) as f64 / 1_000.;
+        assert!(
+            (f64::from(jet[4]) - rise / h).hypot(f64::from(jet[5]) - run / h)
+                <= f64::from(row.derivative_errors[1])
+        );
     }
 }
 
@@ -666,11 +702,11 @@ fn publish_bezier(
         let terminal = spans
             .row(u32_field(owner, 3) + u32_field(owner, 4) - 1)
             .unwrap();
-        let source_error_nm = u32_field(terminal, 4);
-        assert!(source_error_nm <= 1_000_000);
+        let source_error_mm = u32_field(terminal, 4);
+        assert!(source_error_mm <= 1);
         assert!(
-            (length - f64::from(canonical_length)).abs() * 1e9 <= f64::from(source_error_nm),
-            "{name}: {length} m, {canonical_length} m, {source_error_nm} nm"
+            (length - f64::from(canonical_length)).abs() * 1000.0 <= f64::from(source_error_mm),
+            "{name}: {length} m, {canonical_length} m, {source_error_mm} mm"
         );
         edge.ordinal()
     });
@@ -700,7 +736,7 @@ fn nonuniform_straight_bezier_publishes_station_mapping() {
         .unwrap();
     let map = root.station_mapping();
     assert_eq!(
-        map.corridor_domain(corridor).unwrap().length_nm,
+        map.corridor_domain(corridor).unwrap().length_nm(),
         60_000_000_000
     );
     for (station_nm, expected_mm) in [(0, 0), (60_000_000_000, 60_000)] {
@@ -724,6 +760,7 @@ fn nonuniform_straight_bezier_publishes_station_mapping() {
     assert_eq!(addresses[0].edge, target);
     let [lo, hi] = addresses[0].progress_mm;
     assert!((lo..=hi).contains(&22_500));
+    assert!(hi - lo <= 6);
 }
 
 #[test]
@@ -746,7 +783,7 @@ fn curved_bezier_offset_travel_matches_analytic_length() {
         .relations()
         .lane_edge_authoring_lane(outer)
         .unwrap();
-    let end = map.corridor_domain(corridor).unwrap().length_nm;
+    let end = map.corridor_domain(corridor).unwrap().length_nm();
     let StationQuery::Complete(found) = map.at_station(corridor, end, target) else {
         panic!("offset endpoint unresolved");
     };

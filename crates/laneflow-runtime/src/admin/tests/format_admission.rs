@@ -184,24 +184,26 @@ fn world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
     let (table, mut fields) = {
         let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
         assert_eq!(root.format_version(), SNAPSHOT_FORMAT_VERSION);
-        assert_eq!(root.runtime_state_version(), 5);
+        assert_eq!(root.runtime_state_version(), RUNTIME_STATE_VERSION);
         let config = root.world_config();
         assert_eq!(
             config.fixed_delta_time_ms(),
             world.config().fixed_delta_time_ms()
         );
-        assert_eq!(WORLD_CONFIG_FIELDS, 5);
+        assert_eq!(WORLD_CONFIG_FIELDS, 7);
         let table = config._tab.loc();
         let backwards = i32::from_le_bytes(bytes[table..table + 4].try_into().unwrap());
         let vtable = table.checked_sub_signed(backwards as isize).unwrap();
         let length = usize::from(u16::from_le_bytes(
             bytes[vtable..vtable + 2].try_into().unwrap(),
         ));
-        assert_eq!(length, 4 + 5 * 2);
+        assert_eq!(config.handoff_mode(), wire::HandoffMode::Disabled);
+        assert!(config.handoff_policy().is_none());
+        assert_eq!(length, 4 + 6 * 2);
         (table, bytes[vtable..vtable + length].to_vec())
     };
     // vtable 可由有符号偏移指向表后方；追加零槽仍属于未知字段，不能被忽略。
-    fields.extend_from_slice(&0_u16.to_le_bytes());
+    fields.resize(4 + (WORLD_CONFIG_FIELDS + 1) * 2, 0);
     let length = u16::try_from(fields.len()).unwrap();
     fields[..2].copy_from_slice(&length.to_le_bytes());
     let vtable = bytes.len();
@@ -223,9 +225,90 @@ fn world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
         .unwrap_err(),
         SnapshotRestoreError::UnknownTableFields {
             table: "WorldConfigBinding",
-            supported: 5,
-            actual: 6,
+            supported: WORLD_CONFIG_FIELDS,
+            actual: WORLD_CONFIG_FIELDS + 1,
         },
+    );
+}
+
+#[test]
+fn handoff_policy_requires_exact_mode_version_and_ordered_points() {
+    use crate::{ClearanceSpeedCurve, ClearanceSpeedPoint, HandoffDrivingConfig};
+    use std::num::NonZeroU32;
+    let (world, _, _) = world_with_vehicle(true);
+    let mut snapshot = world.capture_snapshot().unwrap();
+    let policy = HandoffDrivingConfig {
+        curve: ClearanceSpeedCurve::try_new(vec![
+            ClearanceSpeedPoint {
+                clearance_mm: 0,
+                speed_mm_s: 1000,
+            },
+            ClearanceSpeedPoint {
+                clearance_mm: 50,
+                speed_mm_s: laneflow_static_contract::MAX_SPEED_MM_S,
+            },
+        ])
+        .unwrap(),
+        max_span_mm: NonZeroU32::new(1).unwrap(),
+        travel_tolerance_mm: NonZeroU32::new(1).unwrap(),
+    };
+    let enabled = world.config().with_handoff_driving(policy);
+    let disabled_bytes = encode_lfrs(&snapshot);
+    snapshot.config = enabled;
+    let bytes = encode_lfrs(&snapshot);
+    let read = |bytes: &[u8], config| {
+        restore_lfrs(
+            bytes,
+            world.revision(),
+            world.committed_source().clone(),
+            config,
+            world.execution_config(),
+            generous_limits(),
+        )
+    };
+    assert!(read(&bytes, enabled).is_ok());
+    let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+    let config = root.world_config();
+    let mode = table_field_offset(config._tab, wire::WorldConfigBinding::VT_HANDOFF_MODE);
+    let payload = config.handoff_policy().unwrap();
+    let version = table_field_offset(payload._tab, wire::HandoffDrivingPolicy::VT_POLICY_VERSION);
+    let span = table_field_offset(payload._tab, wire::HandoffDrivingPolicy::VT_MAX_SPAN_MM);
+    let tolerance = table_field_offset(
+        payload._tab,
+        wire::HandoffDrivingPolicy::VT_TRAVEL_TOLERANCE_MM,
+    );
+    let points = table_field_offset(payload._tab, wire::HandoffDrivingPolicy::VT_POINTS);
+    let points =
+        points + u32::from_le_bytes(bytes[points..points + 4].try_into().unwrap()) as usize;
+    for (offset, change) in [
+        (mode, vec![0]),
+        (mode, vec![3]),
+        (mode, vec![wire::HandoffMode::Disabled.0]),
+        (version, 1_u16.to_le_bytes().to_vec()),
+        (version, 3_u16.to_le_bytes().to_vec()),
+        (span, 0_u32.to_le_bytes().to_vec()),
+        (tolerance, 2_u32.to_le_bytes().to_vec()),
+        (points, 1_u32.to_le_bytes().to_vec()),
+        (points + 4, 1_u32.to_le_bytes().to_vec()),
+        (points + 4 + 8, 0_u32.to_le_bytes().to_vec()),
+    ] {
+        let mut damaged = bytes.clone();
+        damaged[offset..offset + change.len()].copy_from_slice(&change);
+        assert_eq!(
+            read(&damaged, enabled).unwrap_err(),
+            SnapshotRestoreError::InvalidHandoffPolicy
+        );
+    }
+    let root = wire::size_prefixed_root_as_runtime_snapshot(&disabled_bytes).unwrap();
+    let mode = table_field_offset(
+        root.world_config()._tab,
+        wire::WorldConfigBinding::VT_HANDOFF_MODE,
+    );
+    let mut missing = disabled_bytes;
+    missing[mode] = wire::HandoffMode::Enabled.0;
+    assert_eq!(
+        read(&missing, enabled).unwrap_err(),
+        SnapshotRestoreError::InvalidHandoffPolicy
     );
 }
 
@@ -262,8 +345,8 @@ fn truncated_vtable_is_rejected_before_field_counting() {
         .unwrap();
     let declared = u16::from_le_bytes(bytes[config_vtable..config_vtable + 2].try_into().unwrap());
     assert_eq!(
-        declared, 14,
-        "world config vtable covers its five registered fields"
+        declared, 16,
+        "disabled world config has six materialized fields"
     );
     for short in [0_u16, 2] {
         let mut mutated = bytes.clone();
@@ -743,54 +826,56 @@ fn conflict_downstream_union_is_rederived_from_reservation_proof() {
         .find(|vehicle| vehicle.conflict_reservation.is_some())
         .expect("reservation owner");
     let snapshot_vehicle_id = owner.snapshot_vehicle_id;
-    let mut changed = captured.clone();
-    let interval = changed
-        .vehicles
-        .iter_mut()
-        .find(|vehicle| vehicle.snapshot_vehicle_id == snapshot_vehicle_id)
-        .and_then(|vehicle| vehicle.conflict_reservation.as_mut())
-        .and_then(|reservation| reservation.downstream_intervals.first_mut())
-        .expect("downstream interval");
-    assert!(interval.end_mm - interval.start_mm > 1);
-    interval.start_mm += 1;
+    let row = owner.conflict_reservation.as_ref().unwrap();
+    let original = row.downstream_end;
+    let bytes = encode_lfrs(&captured);
+    let wire_reservation = wire::size_prefixed_root_as_runtime_snapshot(&bytes)
+        .unwrap()
+        .vehicles()
+        .iter()
+        .find_map(|v| v.conflict_reservation())
+        .unwrap();
     assert_eq!(
-        restore_lfrs(
-            &encode_lfrs(&changed),
-            world.revision(),
-            world.committed_source().clone(),
-            world.config(),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            generous_limits(),
-        )
-        .unwrap_err(),
-        SnapshotRestoreError::InvalidConflictAuthority {
-            snapshot_vehicle_id,
-        }
+        wire_reservation.downstream_end().0.as_slice(),
+        [
+            original.relative_hop_offset.to_le_bytes(),
+            original.progress_mm.to_le_bytes()
+        ]
+        .concat()
     );
-
-    let mut missing = captured;
-    missing
-        .vehicles
-        .iter_mut()
-        .find(|vehicle| vehicle.snapshot_vehicle_id == snapshot_vehicle_id)
-        .and_then(|vehicle| vehicle.conflict_reservation.as_mut())
-        .expect("reservation")
-        .downstream_intervals
-        .pop();
-    assert_eq!(
-        restore_lfrs(
-            &encode_lfrs(&missing),
-            world.revision(),
-            world.committed_source().clone(),
-            world.config(),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            generous_limits(),
-        )
-        .unwrap_err(),
-        SnapshotRestoreError::InvalidConflictAuthority {
-            snapshot_vehicle_id,
-        }
-    );
+    for altered in [
+        super::super::snapshot::handoff::CapturedDownstreamEnd {
+            relative_hop_offset: u32::MAX,
+            ..original
+        },
+        super::super::snapshot::handoff::CapturedDownstreamEnd {
+            progress_mm: u32::MAX,
+            ..original
+        },
+    ] {
+        let mut changed = captured.clone();
+        let reservation = changed
+            .vehicles
+            .iter_mut()
+            .find(|v| v.snapshot_vehicle_id == snapshot_vehicle_id)
+            .and_then(|v| v.conflict_reservation.as_mut())
+            .unwrap();
+        reservation.downstream_end = altered;
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&changed),
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                generous_limits()
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidConflictAuthority {
+                snapshot_vehicle_id
+            }
+        );
+    }
 }
 
 #[test]
@@ -2214,7 +2299,8 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
     );
 
     let mut unknown_runtime = valid.clone();
-    unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&6_u16.to_le_bytes());
+    unknown_runtime[runtime_offset..runtime_offset + 2]
+        .copy_from_slice(&(RUNTIME_STATE_VERSION + 1).to_le_bytes());
     assert_eq!(
         restore_lfrs(
             &unknown_runtime,
@@ -2225,7 +2311,9 @@ fn closed_versions_bindings_and_enums_reject_unknown_values() {
             generous_limits(),
         )
         .unwrap_err(),
-        SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 6 }
+        SnapshotRestoreError::UnsupportedRuntimeStateVersion {
+            actual: RUNTIME_STATE_VERSION + 1
+        }
     );
 
     let mut unknown_fields = valid.clone();

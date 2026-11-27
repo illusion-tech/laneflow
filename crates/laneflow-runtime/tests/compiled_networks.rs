@@ -66,7 +66,7 @@ use laneflow_static_network::{
     SpatialBuildOption, build_shared_network_revision,
 };
 
-use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as snapshot_wire;
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v8 as snapshot_wire;
 
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -9537,7 +9537,7 @@ fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempote
 }
 
 #[test]
-fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
+fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v8() {
     let revision = compile_virtual_parking_revision(2);
     let mut world = install_fixture(
         Arc::clone(&revision),
@@ -9575,9 +9575,9 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
         .expect("spawn occupied virtual")
         .vehicle;
 
-    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 7);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 5);
-    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 8);
+    assert_eq!(laneflow_runtime::SNAPSHOT_FORMAT_VERSION, 8);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_VERSION, 6);
+    assert_eq!(laneflow_runtime::RUNTIME_STATE_DIGEST_VERSION, 9);
     let snapshot = world.capture_snapshot().expect("capture");
     let digest = deterministic_state_digest(&snapshot).expect("snapshot digest");
     let reserved_id = snapshot

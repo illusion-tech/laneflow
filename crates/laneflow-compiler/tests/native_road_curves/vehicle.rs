@@ -72,7 +72,7 @@ fn query(network: &SharedNetworkRevision, trace: RearAxleLine) -> TrackQuery<'_>
         revision: network.network_revision(),
         corridor,
         frame: mapping.surface_spans(corridor)[0].frame,
-        station_window_nm: [0, mapping.corridor_domain(corridor).unwrap().length_nm],
+        station_window_nm: [0, mapping.corridor_domain(corridor).unwrap().length_nm()],
         traversable_lanes: lanes,
         axles: AXLES,
         trace: RearAxleTrace::Line(trace),
@@ -227,7 +227,7 @@ fn tracks_cross_a_shared_lane_edge_and_report_a_fifty_millimetre_overrun() {
             TRACK_WORK_LIMIT,
         );
         assert!(
-            matches!(outer.outcome, TrackOutcome::Outside {wheel:Wheel::FrontLeft,at_nm:0,overrun_lower_m:Some(d)} if (0.049..=0.050).contains(&d)),
+            matches!(outer.outcome, TrackOutcome::Outside {wheel:Wheel::FrontLeft,at_nm:0,overrun_lower_m:Some(d)} if (0.048..=0.050).contains(&d)),
             "{:?}",
             outer.outcome
         );
@@ -591,6 +591,14 @@ fn graded_guardrail_caps_and_vertical_clearance_share_one_pose() {
                         )
                 );
             }
+            SweepOutcome::Unproven {
+                reason: Failure::WorkLimit,
+                ..
+            } if expected == 0 && bias == 0.326 => {
+                // 名义间隔约 −0.132 毫米，参数误差覆盖零。已花完的区间不能放行。
+                assert_eq!(result.sweep.work, BUDGET.sweep);
+                assert!(result.sweep.unchecked_nm.is_some());
+            }
             _ => panic!("bias {bias}, height {height}, {:?}", result.sweep),
         }
     }
@@ -870,7 +878,7 @@ fn oblique_curb_clearance_is_proven_at_a_single_pose_and_in_motion() {
             // 净空解析值为 1.75 - 0.10 - 0.95 = 0.70 米。运动区间可返回较宽的下界。
             assert!(gap.lower_m > 0. && gap.lower_m <= 0.70, "{gap:?}");
             if length_nm == 0 {
-                assert!(gap.lower_m > 0.699, "{gap:?}");
+                assert!(gap.lower_m > 0.697, "{gap:?}");
             }
         }
         // 向路缘移动 70 厘米时净空落入参数误差，再多移 6 厘米有确定接触。
@@ -1050,7 +1058,7 @@ fn handoff_checks_decreasing_station_and_lane_steering_at_both_endpoints() {
         let lanes = r.section_lanes(section).unwrap();
         let window = HandoffWindow {
             edges: [0, 1].map(|i| r.authoring_edge_chain(lanes[i]).unwrap()[0]),
-            stations_nm: q.station_window_nm,
+            stations_mm: q.station_window_nm.map(|s| s / 1_000_000),
             left_index: 0,
             owner: laneflow_static_network::BoundaryOwner::Section(section),
         };
@@ -1161,7 +1169,7 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                 let hit = addresses(handoff_nm);
                 assert_eq!(hit.len(), 1);
                 assert_eq!(hit[0].edge, chain[index]);
-                assert_eq!(hit[0].progress_mm, [progress_mm; 2]);
+                assert_eq!(hit[0].progress_mm, [progress_mm - 1, progress_mm + 1]);
                 for (cut, expected) in [
                     (
                         22_000_000_000,
@@ -1207,7 +1215,7 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                     r.authoring_section(q.traversable_lanes[0]).unwrap(),
                 ),
                 left_index: 0,
-                stations_nm: [22_000_000_000, 26_000_000_000],
+                stations_mm: [22_000, 26_000],
             };
             let wide = network.vehicle_handoff(&handoff, limits, BODY, BUDGET, window);
             if effect == 1 {
@@ -1225,14 +1233,17 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                 );
                 assert!(trace_range_nm[0] < 11_861_195_000 && trace_range_nm[1] > 11_861_185_000);
                 assert_eq!(addresses.map(|a| a.edge), edges);
-                assert_eq!(addresses.map(|a| a.progress_mm), [[3_195; 2], [15_195; 2]]);
+                for (address, expected) in addresses.iter().zip([3_195,15_195]) {
+                    let [lo, hi] = address.progress_mm;
+                    assert!((lo..=hi).contains(&expected) && hi - lo <= 12);
+                }
                 let reversed = HandoffWindow { edges: [edges[1], edges[0]], ..window };
                 assert!(matches!(
                     network.vehicle_handoff(&handoff, limits, BODY, BUDGET, reversed).outcome,
                     HandoffOutcome::Located { addresses: [a,b], .. } if [a.edge,b.edge] == reversed.edges
                 ));
                 let narrow = HandoffWindow {
-                    stations_nm: [window.stations_nm[0], 25_000_000_000],
+                    stations_mm: [window.stations_mm[0], 25_000],
                     ..window
                 };
                 assert_eq!(
@@ -1245,7 +1256,9 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                 );
                 // 误差包络仅与窗口相交，或交接在该车道的另一次切边上，均不能定位到声明的出现对。
                 assert!(front_nm[1] > front_nm[0]);
-                let partial = HandoffWindow { stations_nm: [front_nm[1]; 2], ..window };
+                let partial_mm = front_nm[0].div_ceil(1_000_000);
+                assert!(partial_mm * 1_000_000 <= front_nm[1], "{front_nm:?}");
+                let partial = HandoffWindow { stations_mm: [partial_mm; 2], ..window };
                 let wrong_edge = HandoffWindow {
                     edges: [r.authoring_edge_chain(q.traversable_lanes[0]).unwrap()[1], edges[1]],
                     ..window

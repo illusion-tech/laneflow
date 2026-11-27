@@ -93,6 +93,18 @@ pub enum SnapshotRestoreError {
     /// 选择 tag 与 StableId 的闭合形状不合法。
     #[error("LFRS 世界策略绑定无效")]
     InvalidPolicyBinding,
+    /// 世界换道驾驶配置无效或与目标世界的配置不同。
+    #[error("快照的换道驾驶配置与目标配置不匹配")]
+    InvalidHandoffPolicy,
+    /// 已登记的窗口、已提交横移或其保护无法在暂存世界重建。
+    #[error("快照中的换道窗口或车辆保护无效")]
+    InvalidHandoffState,
+    /// 横移或其保护列表的暂存空间不足。
+    #[error("快照换道恢复暂存空间不足")]
+    HandoffAllocationFailed,
+    /// 完整恢复的路口预约不能满足同链共享、链外互斥或下游腾让义务。
+    #[error("快照中的路口预约共享或下游义务无效")]
+    InvalidConflictPlatoon,
     /// 容器格式版本未知。
     #[error("LFRS format version 不支持: {actual}")]
     UnsupportedFormatVersion {

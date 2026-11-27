@@ -8,24 +8,30 @@ use laneflow_compiler::{
     RoadVehicleGeometryInput,
 };
 use laneflow_runtime::{
-    RouteError, RouteHandoffOccurrence, RouteHandoffTrial, RouteHandoffTrialError,
-    RouteRegisterInput, WorldConfig, WorldConfigInput,
+    RouteError, RouteHandoffOccurrence, RouteHandoffTravelTarget, RouteHandoffTrial,
+    RouteHandoffTrialError, RouteRegisterInput, WorldConfig, WorldConfigInput,
 };
 use laneflow_static_contract::{AccessEffect, NetworkRevisionId, RoadSectionOrdinal, Sha256Digest};
 use laneflow_static_network::{
     BoundaryOwner,
-    vehicle::{
-        GeometryWorkLimits, HandoffBodySide, HandoffOutcome, HandoffTravelTarget, SWEEP_WORK_LIMIT,
-    },
+    vehicle::{GeometryWorkLimits, HandoffBodySide, HandoffOutcome, SWEEP_WORK_LIMIT},
 };
 use std::sync::Arc;
 
 #[path = "route_handoff/approaches.rs"]
 mod approaches;
+#[path = "route_handoff/execution.rs"]
+mod execution;
 #[path = "route_handoff/multi_handoff.rs"]
 mod multi_handoff;
+#[path = "route_handoff/persistence.rs"]
+mod persistence;
 #[path = "route_handoff/rebind.rs"]
 mod rebind;
+#[path = "route_handoff/registration.rs"]
+mod registration;
+#[path = "route_handoff/reservation_admission.rs"]
+mod reservation_admission;
 #[path = "route_handoff/sample.rs"]
 mod sample;
 #[path = "route_handoff/stop_line.rs"]
@@ -39,6 +45,8 @@ mod traffic;
 
 #[path = "route_handoff/clearance_speed.rs"]
 mod clearance_speed;
+
+const TRAVEL_TOLERANCE_MM: std::num::NonZeroU32 = std::num::NonZeroU32::new(5).unwrap();
 
 fn module(shift_x: f64) -> RoadEditingSourceModule {
     module_with_boundary(shift_x, None, RoadEditingLaneDirection::Forward)
@@ -57,6 +65,16 @@ fn road_module(
     additional: Option<BoundaryExtentInput>,
     direction: RoadEditingLaneDirection,
     source_stop: Option<stop_line::SourceStop>,
+) -> RoadEditingSourceModule {
+    road_module_with_width(shift_x, additional, direction, source_stop, 3.5)
+}
+
+fn road_module_with_width(
+    shift_x: f64,
+    additional: Option<BoundaryExtentInput>,
+    direction: RoadEditingLaneDirection,
+    source_stop: Option<stop_line::SourceStop>,
+    lane_width_m: f64,
 ) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
@@ -175,9 +193,12 @@ fn road_module(
         .with_boundary_extents(extents),
     ));
     let (source_keys, source_cuts) = match source_stop {
-        None | Some(stop_line::SourceStop::Upstream | stop_line::SourceStop::WithTurn) => {
-            (&["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.])
-        }
+        None
+        | Some(
+            stop_line::SourceStop::Upstream
+            | stop_line::SourceStop::WithTurn
+            | stop_line::SourceStop::TargetSignal,
+        ) => (&["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.]),
         Some(stop_line::SourceStop::OnOccurrence | stop_line::SourceStop::Both) => {
             (&["s0", "s1", "s2", "s3"][..], vec![10., 14., 35.])
         }
@@ -224,7 +245,7 @@ fn road_module(
                 lane,
                 edge(keys[0]),
                 direction,
-                LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                LinearWidthProfile::try_new(lane_width_m, lane_width_m).unwrap(),
                 None,
                 section.clone(),
             )
@@ -329,7 +350,7 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
         source_index: 2,
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_nm: [24_000_000_000, 26_000_000_000],
+        stations_mm: [24_000, 26_000],
     };
     let binding = world.bind_route_handoff(&route, occurrence).unwrap();
     let profile = |key| {
@@ -339,12 +360,22 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     };
     let mut trial = RouteHandoffTrial {
         profile: profile("car"),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [10_000, 40_000],
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     };
     let cursor = world.command_cursor();
+    let overflow = RouteHandoffTrial {
+        rear_stations_mm: [10_000, u64::MAX / 1_000_000 + 1],
+        ..trial
+    };
+    assert_eq!(
+        world
+            .preview_route_handoff(&binding, &overflow)
+            .unwrap_err(),
+        RouteHandoffTrialError::Boundary(laneflow_static_network::vehicle::Failure::InvalidInput)
+    );
     let allowed = world.preview_route_handoff(&binding, &trial).unwrap();
     assert_eq!(allowed.source_index, 2);
     assert_eq!(allowed.side_access_work, 2);
@@ -358,21 +389,49 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     // 同一条 30 m 五次横移的独立弧长积分。车头交接时，车身仍跨两侧。
     let travel = allowed
         .travel(
-            HandoffTravelTarget::RearStationNm(40_000_000_000),
-            5_000_000,
+            RouteHandoffTravelTarget::RearStationMm(40_000),
+            TRAVEL_TOLERANCE_MM,
             SWEEP_WORK_LIMIT,
         )
         .unwrap();
     let [low, high] = travel.bounds.unwrap().distance_nm;
     assert!((low..=high).contains(&30_289_144_330));
+    let largest_tolerance = std::num::NonZeroU32::MAX;
+    let start = allowed
+        .travel(
+            RouteHandoffTravelTarget::DistanceUm(0),
+            largest_tolerance,
+            SWEEP_WORK_LIMIT,
+        )
+        .unwrap();
+    assert_eq!(start.bounds.unwrap().distance_nm, [0, 0]);
+    for out_of_range in [
+        RouteHandoffTravelTarget::DistanceUm(u64::MAX / 1_000 + 1),
+        RouteHandoffTravelTarget::RearStationMm(u64::MAX / 1_000_000 + 1),
+    ] {
+        let report = allowed
+            .travel(out_of_range, largest_tolerance, SWEEP_WORK_LIMIT)
+            .unwrap();
+        assert_eq!(report.work, 0);
+        assert_eq!(
+            report.bounds,
+            Err(laneflow_static_network::vehicle::Failure::InvalidInput)
+        );
+    }
+    let invalid_stations = allowed.body_side([0, u64::MAX], SWEEP_WORK_LIMIT).unwrap();
+    assert_eq!(invalid_stations.work, 0);
+    assert_eq!(
+        invalid_stations.side,
+        Err(laneflow_static_network::vehicle::Failure::InvalidInput)
+    );
     for (rear, side) in [
-        (10_000_000_000, HandoffBodySide::SourceOnly),
-        (21_861_190_000, HandoffBodySide::Straddling),
-        (30_000_000_000, HandoffBodySide::Straddling),
-        (30_500_000_000, HandoffBodySide::TargetOnly),
+        ([10_000; 2], HandoffBodySide::SourceOnly),
+        ([21_861, 21_862], HandoffBodySide::Straddling),
+        ([30_000; 2], HandoffBodySide::Straddling),
+        ([30_500; 2], HandoffBodySide::TargetOnly),
     ] {
         assert_eq!(
-            allowed.body_side([rear; 2], SWEEP_WORK_LIMIT).unwrap().side,
+            allowed.body_side(rear, SWEEP_WORK_LIMIT).unwrap().side,
             Ok(side)
         );
     }
@@ -396,7 +455,7 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
         .bind_route_handoff(
             &route,
             RouteHandoffOccurrence {
-                stations_nm: [24_000_000_000, 25_000_000_000],
+                stations_mm: [24_000, 25_000],
                 ..occurrence
             },
         )
@@ -410,17 +469,13 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     assert!(
         outside
             .travel(
-                HandoffTravelTarget::DistanceNm(0),
-                5_000_000,
+                RouteHandoffTravelTarget::DistanceUm(0),
+                TRAVEL_TOLERANCE_MM,
                 SWEEP_WORK_LIMIT
             )
             .is_none()
     );
-    assert!(
-        outside
-            .body_side([10_000_000_000; 2], SWEEP_WORK_LIMIT)
-            .is_none()
-    );
+    assert!(outside.body_side([10_000; 2], SWEEP_WORK_LIMIT).is_none());
     trial.profile = profile("denied");
     assert_eq!(
         world.preview_route_handoff(&narrow, &trial).unwrap_err(),

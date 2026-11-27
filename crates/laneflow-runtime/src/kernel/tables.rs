@@ -4,7 +4,7 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::{
     AccessCell, BoundedDistance, ConflictPathAnchor, SharedManeuverNetwork, SharedNetworkRevision,
-    SharedTrafficNetwork,
+    SharedTrafficNetwork, vehicle::HandoffBinding,
 };
 
 #[cfg(test)]
@@ -136,6 +136,7 @@ pub(crate) struct RouteHop {
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CompiledRoute {
+    pub(super) handoff_windows: Box<[(u32, HandoffBinding)]>,
     pub edges: Vec<LaneEdgeOrdinal>,
     pub maneuvers: Vec<ManeuverOccurrence>,
     pub hop_gate: Vec<Option<ManeuverGateOrdinal>>,
@@ -145,9 +146,9 @@ pub(crate) struct CompiledRoute {
     /// 无 gate 的过渡资源 hop），升序去重——注册期预计算，tick 零分配。
     pub conflict_dispatch_hops: Vec<u32>,
     pub remaining_to_end: Vec<BoundedDistance>,
-    pub occurrence_segments: Vec<u32>,
-    pub occurrence_offsets: Vec<u32>,
-    pub segment_totals: Vec<u32>,
+    pub occurrence_segments: Box<[u32]>,
+    pub occurrence_offsets: Box<[u32]>,
+    pub segment_totals: Box<[u32]>,
     /// 路线出现记录排序索引（#1216）：`(边序数, 路线下标)` 按 (边, 下标) 升序，
     /// 每条边的出现记录成连续段。游标查询取**首次不早于游标**的出现记录——
     /// 循环路线重复边不得回选身后出现记录（身后目标对 `None` 距离是正确语义，
@@ -176,6 +177,7 @@ impl CompiledRoute {
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
             edges,
+            handoff_windows,
             maneuvers,
             hop_gate,
             gate_hops,
@@ -197,14 +199,15 @@ impl CompiledRoute {
             hops,
         } = self;
         crate::kernel::state::vec_bytes(edges)
+            + crate::kernel::state::slice_bytes(handoff_windows)
             + crate::kernel::state::vec_bytes(maneuvers)
             + crate::kernel::state::vec_bytes(hop_gate)
             + crate::kernel::state::vec_bytes(gate_hops)
             + crate::kernel::state::vec_bytes(conflict_dispatch_hops)
             + crate::kernel::state::vec_bytes(remaining_to_end)
-            + crate::kernel::state::vec_bytes(occurrence_segments)
-            + crate::kernel::state::vec_bytes(occurrence_offsets)
-            + crate::kernel::state::vec_bytes(segment_totals)
+            + crate::kernel::state::slice_bytes(occurrence_segments)
+            + crate::kernel::state::slice_bytes(occurrence_offsets)
+            + crate::kernel::state::slice_bytes(segment_totals)
             + crate::kernel::state::slice_bytes(edge_occurrence_index)
             + crate::kernel::state::vec_bytes(next_controlled)
             + crate::kernel::state::vec_bytes(speed_limit_drop)
@@ -264,6 +267,20 @@ fn derive_route_hop(
 }
 
 impl CompiledRoute {
+    pub(crate) fn handoff_windows(&self) -> &[(u32, HandoffBinding)] {
+        &self.handoff_windows
+    }
+
+    /// 当前普通路段的首个出现。未执行横移时不能沿源边末端向后补出目标边上的车尾。
+    pub(crate) fn ordinary_leg_start(&self, cursor: usize) -> usize {
+        let count = self
+            .handoff_windows
+            .partition_point(|&(i, _)| (i as usize) < cursor);
+        count
+            .checked_sub(1)
+            .map_or(0, |index| self.handoff_windows[index].0 as usize + 1)
+    }
+
     /// 按当前源数组重建逐游标运动输入行。编译时调用；测试改写源数组后也要调用。
     pub(crate) fn refresh_hops(
         &mut self,
@@ -457,7 +474,7 @@ fn try_reserve_route_exact<T>(values: &mut Vec<T>, capacity: usize) -> Result<()
         .map_err(|_| RouteError::AllocationFailed)
 }
 
-pub(super) fn try_route_vec<T>(capacity: usize) -> Result<Vec<T>, RouteError> {
+pub(crate) fn try_route_vec<T>(capacity: usize) -> Result<Vec<T>, RouteError> {
     let mut values = Vec::new();
     try_reserve_route_exact(&mut values, capacity)?;
     Ok(values)
@@ -645,6 +662,25 @@ pub(super) fn compile_route_leg(
         }
     }
 
+    compile_route_tables(
+        revision,
+        edges,
+        maneuvers,
+        Vec::new(),
+        live_conflict_occurrence_count,
+        route_conflict_occurrence_capacity,
+    )
+}
+
+pub(super) fn compile_route_tables(
+    revision: &SharedNetworkRevision,
+    edges: &[LaneEdgeOrdinal],
+    maneuvers: Vec<ManeuverOccurrence>,
+    windows: Vec<(u32, HandoffBinding)>,
+    live_conflict_occurrence_count: u64,
+    route_conflict_occurrence_capacity: u64,
+) -> Result<CompiledRoute, RouteError> {
+    let traffic = revision.traffic();
     let lengths = traffic.lane_lengths_millimetres();
     let speeds = traffic.lane_speed_limits_millimetres_per_second();
     let mut remaining_to_end = try_route_vec_filled(edges.len(), BoundedDistance::Finite(0))?;
@@ -678,7 +714,13 @@ pub(super) fn compile_route_leg(
     let hop_count = edges.len().saturating_sub(1);
     let mut hop_gate = try_route_vec_filled(hop_count, None)?;
     for hop in 0..hop_count {
-        hop_gate[hop] = hop_gate_at(network, &maneuvers, hop, edges[hop], edges[hop + 1]);
+        hop_gate[hop] = hop_gate_at(
+            traffic.maneuvers(),
+            &maneuvers,
+            hop,
+            edges[hop],
+            edges[hop + 1],
+        );
     }
     let mut gate_hops = try_route_vec(hop_gate.iter().filter(|gate| gate.is_some()).count())?;
     for (hop, gate) in hop_gate.iter().enumerate() {
@@ -807,14 +849,15 @@ pub(super) fn compile_route_leg(
 
     let mut compiled = CompiledRoute {
         edges: compiled_edges,
+        handoff_windows: windows.into_boxed_slice(),
         maneuvers,
         hop_gate,
         gate_hops,
         conflict_dispatch_hops,
         remaining_to_end,
-        occurrence_segments,
-        occurrence_offsets,
-        segment_totals,
+        occurrence_segments: occurrence_segments.into_boxed_slice(),
+        occurrence_offsets: occurrence_offsets.into_boxed_slice(),
+        segment_totals: segment_totals.into_boxed_slice(),
         edge_occurrence_index: edge_occurrence_index.into_boxed_slice(),
         next_controlled,
         speed_limit_drop,
@@ -1556,16 +1599,9 @@ pub(crate) fn route_access_denied(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct RouteCursorPosition {
-    route_edge_index: u32,
-    progress_mm: u32,
-    carry_um: u16,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RouteRearPosition {
     BeforeRouteStart,
-    Position(RouteCursorPosition),
+    Position(RoutePosition),
 }
 
 /// 车尾路线坐标是否到达或超过 `target`；无法定位时返回 `None`。
@@ -1588,10 +1624,7 @@ pub(crate) fn vehicle_rear_at_or_beyond(
             vehicle_length_mm,
         )? {
             RouteRearPosition::BeforeRouteStart => false,
-            RouteRearPosition::Position(rear) => {
-                (rear.route_edge_index, rear.progress_mm, rear.carry_um)
-                    >= (target.route_edge_index, target.progress_mm, 0)
-            }
+            RouteRearPosition::Position(rear) => rear >= target,
         },
     )
 }
@@ -1625,22 +1658,21 @@ fn route_rear_position(
         progress_mm = 0;
     }
 
-    let mut remaining_um = u64::from(length_mm) * 1_000;
-    let mut offset_um = u64::from(progress_mm) * 1_000 + u64::from(carry_um);
-    while remaining_um > offset_um {
-        remaining_um -= offset_um;
+    // 边长、车长和放行线都是整数毫米。先取整车头再减车长恰好得到
+    // 向下取整的车尾，沿相邻 occurrence 回退也保持这一性质。
+    let mut remaining_mm = length_mm;
+    while remaining_mm > progress_mm {
+        remaining_mm -= progress_mm;
         if route_edge_index == 0 {
             return Some(RouteRearPosition::BeforeRouteStart);
         }
         route_edge_index -= 1;
         let previous = *edges.get(route_edge_index)?;
-        offset_um = u64::from(*lengths.get(previous.index())?) * 1_000;
+        progress_mm = *lengths.get(previous.index())?;
     }
-    let rear_um = offset_um - remaining_um;
-    let rear = RouteCursorPosition {
+    let rear = RoutePosition {
         route_edge_index: u32::try_from(route_edge_index).ok()?,
-        progress_mm: u32::try_from(rear_um / 1_000).ok()?,
-        carry_um: u16::try_from(rear_um % 1_000).ok()?,
+        progress_mm: progress_mm - remaining_mm,
     };
     Some(RouteRearPosition::Position(rear))
 }
@@ -1657,6 +1689,27 @@ pub(crate) fn check_conflict_capability(
     progress_mm: u32,
     carry_um: u16,
     vehicle_length_mm: u32,
+) -> Result<(), ConflictCapabilityError> {
+    check_conflict_capability_with_gate(
+        compiled,
+        lengths,
+        route_edge_index,
+        progress_mm,
+        carry_um,
+        vehicle_length_mm,
+        None,
+    )
+}
+
+/// 仅豁免已经重证的同一次普通准入，其他跨过但未清空的入口仍须拒绝。
+pub(crate) fn check_conflict_capability_with_gate(
+    compiled: &CompiledRoute,
+    lengths: &[u32],
+    route_edge_index: usize,
+    progress_mm: u32,
+    carry_um: u16,
+    vehicle_length_mm: u32,
+    authorized_hop: Option<u32>,
 ) -> Result<(), ConflictCapabilityError> {
     if compiled.final_conflict_clearance.is_none() {
         return Ok(());
@@ -1694,7 +1747,7 @@ pub(crate) fn check_conflict_capability(
     )
     .ok_or(ConflictCapabilityError::InvalidCursor)?;
     for (gate_hop, range) in compiled.conflict_gate_ranges.iter().copied().enumerate() {
-        if range.len == 0 {
+        if range.len == 0 || authorized_hop.is_some_and(|hop| hop as usize == gate_hop) {
             continue;
         }
         let end = range
@@ -1711,17 +1764,7 @@ pub(crate) fn check_conflict_capability(
             .ok_or(ConflictCapabilityError::InvalidCursor)?;
         let cleared = match rear {
             RouteRearPosition::BeforeRouteStart => false,
-            RouteRearPosition::Position(position) => {
-                (
-                    position.route_edge_index,
-                    position.progress_mm,
-                    position.carry_um,
-                ) >= (
-                    farthest.clearance.route_edge_index,
-                    farthest.clearance.progress_mm,
-                    0,
-                )
-            }
+            RouteRearPosition::Position(position) => position >= farthest.clearance,
         };
         if cleared {
             continue;
@@ -6434,7 +6477,51 @@ pub(crate) mod compile_route_tests {
     }
 
     #[test]
-    fn three_a_rear_boundary_is_exact_to_one_micrometre() {
+    fn millimetre_rear_clearance_matches_unrounded_positions_across_repeated_edges() {
+        let a = LaneEdgeOrdinal::from_raw(0);
+        let b = LaneEdgeOrdinal::from_raw(1);
+        let edges = [a, b, a];
+        let lengths = [5, 3];
+        // (出现下标，边内毫米，沿整条路线的毫米)；接缝为下游出现位置零点。
+        let points = [
+            (0, 0, 0),
+            (0, 2, 2),
+            (1, 0, 5),
+            (1, 2, 7),
+            (2, 0, 8),
+            (2, 2, 10),
+        ];
+        for (front_index, front_mm, front_absolute_mm) in points {
+            for carry_um in [0, 1, 999] {
+                for length_mm in [0, 1, 3, 5, 8, 14] {
+                    let rear_um = (i64::from(front_absolute_mm) - i64::from(length_mm)) * 1_000
+                        + i64::from(carry_um);
+                    for (index, progress_mm, target_absolute_mm) in points {
+                        let target = RoutePosition {
+                            route_edge_index: index,
+                            progress_mm,
+                        };
+                        assert_eq!(
+                            super::vehicle_rear_at_or_beyond(
+                                &lengths,
+                                &edges,
+                                front_index as usize,
+                                front_mm,
+                                carry_um,
+                                length_mm,
+                                target
+                            ),
+                            Some(rear_um >= i64::from(target_absolute_mm) * 1_000),
+                            "front {front_index}/{front_mm}/{carry_um}, length {length_mm}, target {target:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn three_a_rear_clears_on_the_integer_millimetre_at_the_next_occurrence() {
         let revision = revision();
         let path = revision
             .traffic()
@@ -6447,14 +6534,15 @@ pub(crate) mod compile_route_tests {
         };
         let compiled = CompiledRoute {
             edges: path.edges().to_vec(),
+            handoff_windows: Box::default(),
             maneuvers: Vec::new(),
             hop_gate: Vec::new(),
             gate_hops: Vec::new(),
             conflict_dispatch_hops: Vec::new(),
             remaining_to_end: Vec::new(),
-            occurrence_segments: Vec::new(),
-            occurrence_offsets: Vec::new(),
-            segment_totals: Vec::new(),
+            occurrence_segments: Box::default(),
+            occurrence_offsets: Box::default(),
+            segment_totals: Box::default(),
             edge_occurrence_index: Box::default(),
             next_controlled: Vec::new(),
             speed_limit_drop: Vec::new(),

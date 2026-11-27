@@ -24,6 +24,13 @@ pub(crate) fn service_stop_distance_um(
         .checked_add(u64::from(min_gap_mm) * 1_000)
 }
 
+/// 从拍初整数毫米车头到预计停点的距离上界，已经计入本车跨拍行程余数。
+pub(crate) fn stop_from_cursor_mm(stop_um: Option<u64>, carry_um: u16) -> Option<u64> {
+    let travel = stop_um?;
+    let fraction = travel % 1_000 + u64::from(carry_um);
+    Some(travel / 1_000 + fraction.div_ceil(1_000))
+}
+
 /// P4 进入裁决（#1199 P4 接线；合同 §5.2）。`MotionReach` 仅为本拍位移
 /// 上界——当拍判定不可达只可跳过当拍、存续期逐拍重证（`ReachabilityDeferred`
 /// 不得卸除存续期义务）；任一潜在进入者不可安全让行 → 申请 no-grant。
@@ -71,8 +78,21 @@ pub(crate) fn evaluate_transition_entry(
 mod tests {
     use super::{
         TRANSITION_REACTION_TICKS, TransitionEntryVerdict, evaluate_transition_entry,
-        service_stop_distance_um,
+        service_stop_distance_um, stop_from_cursor_mm,
     };
+
+    #[test]
+    fn stop_from_cursor_rounds_after_adding_the_motion_remainder() {
+        assert_eq!(stop_from_cursor_mm(Some(15_611_112), 888), Some(15_612));
+        assert_eq!(stop_from_cursor_mm(Some(15_611_112), 889), Some(15_613));
+        assert_eq!(stop_from_cursor_mm(Some(0), 0), Some(0));
+        assert_eq!(stop_from_cursor_mm(None, 999), None);
+        let max = (u128::from(u64::MAX) + 999).div_ceil(1_000);
+        assert_eq!(
+            stop_from_cursor_mm(Some(u64::MAX), 999).map(u128::from),
+            Some(max)
+        );
+    }
 
     /// 钉版参数（sample v7 `safety_proof`/`profiles`，参数自 v3 起未变）：固定步长 100 ms、
     /// 服务减速度 4500 mm/s²、最小间隙 2500 mm、r = 2 拍。

@@ -311,11 +311,29 @@ fn compile(bytes: &[u8]) -> Result<CompilationOutput, DiagnosticBundle> {
 
 // 从两端公开的值与导数重建 Hermite 多项式，对照解析带坡圆弧及其各阶导数。
 fn check_graded_arc_surface(row: &laneflow_static_network::RoadSurfaceSpan, origin: f64) {
-    let [lo, hi] = row.stations.map(|s| s.0 as f64 * 1e-9);
+    let [lo, hi] = row.stations_mm.map(|s| s.0 as f64 / 1_000.);
     let h = hi - lo;
+    // 来源圆弧仅在二分参数或命名护栏的 1/3 弧长处切段；这组候选间隔
+    // 大于量化误差，可从毫米端点唯一识别真实原段，独立核算链式导数。
+    let source_node = |grid: f64| {
+        let original = origin + grid;
+        let total = 2.0 * LEG;
+        let dyadic = (original * 1024.0 / total).round() * total / 1024.0;
+        let rail = 7.0 * 401.0 / 399.0;
+        let candidates = [dyadic, rail];
+        let mut exact = candidates
+            .into_iter()
+            .filter(|s| (original - s).abs() < 0.000501);
+        let value = exact.next().expect("known source node");
+        assert!(exact.next().is_none());
+        value
+    };
+    let a = source_node(lo);
+    let b = source_node(hi);
+    let station_scale = (b - a) / h;
     let rate = 399.0 / (401.0 * 35.0);
     for t in [0.0_f64, 0.25, 0.5, 0.75, 1.0] {
-        let s = origin + lo + h * t;
+        let s = a + (b - a) * t;
         for order in 0..=4 {
             let angle = s * rate + order as f64 * std::f64::consts::FRAC_PI_2;
             let scale = 35.0 * rate.powi(order as i32);
@@ -352,7 +370,9 @@ fn check_graded_arc_surface(row: &laneflow_static_network::RoadSurfaceSpan, orig
                         coeff[i] * factor as f64 * t.powi((i - order) as i32)
                     })
                     .sum();
-                squared += (actual - derived / h.powi(order as i32)).powi(2);
+                squared += (actual * station_scale.powi(order as i32)
+                    - derived / h.powi(order as i32))
+                .powi(2);
             }
             let oracle_roundoff = 5e-12 * (1.0 + h.powi(-(order as i32)));
             assert!(
@@ -399,7 +419,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
         let map = shared.station_mapping();
         for corridor in output.lir().road_corridors() {
             let c = corridor.ordinal();
-            let origin = if map.corridor_domain(c).unwrap().origin_nm == 0 {
+            let origin = if map.corridor_domain(c).unwrap().origin_mm() == 0 {
                 0.0
             } else {
                 LEG
@@ -420,7 +440,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
                     revision: shared.network_revision(),
                     corridor: c,
                     frame: rows[0].frame,
-                    station_window_nm: [0, map.corridor_domain(c).unwrap().length_nm],
+                    station_window_nm: [0, map.corridor_domain(c).unwrap().length_nm()],
                     traversable_lanes: relations.section_lanes(section).unwrap(),
                     axles: AxleDimensions {
                         wheelbase_m: 2.60,
@@ -450,7 +470,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
                 );
                 assert!(
                     matches!(report.tracks.outcome, TrackOutcome::Covered(_))
-                        && matches!(report.sweep.outcome,SweepOutcome::Clear(Some(clear)) if clear.lower_m>0.),
+                        && matches!(report.sweep.outcome,SweepOutcome::Clear(Some(clear)) if clear.lower_m>0.140),
                     "{report:?}"
                 );
             }
@@ -609,13 +629,14 @@ fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_nm: i64) {
                 .rows()
                 .find(|row| number(*row, 1) as usize == band.ordinal().index())
                 .unwrap();
-            let error = i64::from(number(row, 8));
-            assert!(error <= 1000);
+            let error_mm = i64::from(number(row, 8));
+            assert!(error_mm <= 1);
+            let error = error_mm * 1_000_000;
             let corridor = band.road_corridor();
             let domain = map.corridor_domain(corridor).unwrap();
-            let length = domain.length_nm;
-            let rising = domain.origin_nm == 0;
-            assert_eq!(length, (LEG * 1e9).round() as u64);
+            let length = domain.length_nm();
+            let rising = domain.origin_mm() == 0;
+            assert_eq!(length, (LEG * 1000.).round_ties_even() as u64 * 1_000_000);
             let widths = |station_nm: u64| {
                 let from_tip = if rising {
                     station_nm
@@ -739,11 +760,11 @@ fn median_width_changes_revision_and_two_band_rows_with_identical_centerlines() 
         let mut changed = Vec::new();
         for i in [0, 2] {
             if old[i] == new[i] {
-                assert_eq!(old[i..i + 2], [-1_750_000; 2]);
-                assert_eq!(new[i..i + 2], [-1_750_000; 2]);
+                assert_eq!(old[i..i + 2], [-1750; 2]);
+                assert_eq!(new[i..i + 2], [-1750; 2]);
             } else {
-                assert_eq!(old[i..i + 2], [-1_500_000, -2_000_000]);
-                assert_eq!(new[i..i + 2], [-1_625_000, -1_875_000]);
+                assert_eq!(old[i..i + 2], [-1500, -2000]);
+                assert_eq!(new[i..i + 2], [-1625, -1875]);
                 changed.push(i);
             }
         }
@@ -794,23 +815,23 @@ fn tapered_median_reuses_both_lane_interfaces_including_its_zero_width_tips() {
                 .unwrap()
         };
         let domain = map.corridor_domain(corridor).unwrap();
-        for (i, station) in [0, domain.length_nm].into_iter().enumerate() {
+        for (i, station) in [0, domain.length_nm()].into_iter().enumerate() {
             let bounds = map
                 .facility_band_bounds(corridor, *band, [station; 2])
                 .unwrap();
-            let mid_um = |[lo, hi]: [i64; 2]| lo.midpoint(hi) / 1000;
+            let mid_mm = |[lo, hi]: [i64; 2]| lo.midpoint(hi) / 1_000_000;
             assert_eq!(
-                mid_um(bounds.left_nm),
-                i64::from(footprint(*a).ends_um[i][1])
+                mid_mm(bounds.left_nm),
+                i64::from(footprint(*a).ends_mm[i][1])
             );
             assert_eq!(
-                mid_um(bounds.right_nm),
-                i64::from(footprint(*b).ends_um[i][0])
+                mid_mm(bounds.right_nm),
+                i64::from(footprint(*b).ends_mm[i][0])
             );
-            assert_eq!(mid_um(bounds.left_nm), -1_500_001);
+            assert_eq!(mid_mm(bounds.left_nm), -1_500);
             assert_eq!(
                 bounds.left_nm == bounds.right_nm,
-                (domain.origin_nm == 0) == (i == 0)
+                (domain.origin_mm() == 0) == (i == 0)
             );
         }
     }

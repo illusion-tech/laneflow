@@ -153,19 +153,19 @@ struct Seam<'a> {
 }
 #[derive(Clone, Copy)]
 pub(super) struct BoundaryLine {
-    pub offsets_um: [i32; 2],
-    pub error_nm: u32,
+    pub offsets_mm: [i32; 2],
+    pub error_mm: u32,
 }
 impl BoundaryLine {
     pub(super) fn lateral(&self, c: &Candidate<'_, '_>, s: I) -> I {
-        let [a, b] = self.offsets_um.map(f64::from);
-        ((I::point(a) + I::point(b - a) * (s - c.origin) / c.length) / I::point(1e6))
-            .with_error(I::meters(u64::from(self.error_nm)).hi)
+        let [a, b] = self.offsets_mm.map(f64::from);
+        ((I::point(a) + I::point(b - a) * (s - c.origin) / c.length) / I::point(1_000.))
+            .with_error(I::from_millimetres(self.error_mm).hi)
     }
     pub(super) fn slope(&self, c: &Candidate<'_, '_>) -> I {
-        let [a, b] = self.offsets_um.map(f64::from);
-        let err = I::point(2.) * I::meters(u64::from(self.error_nm));
-        ((I::point(b - a) / I::point(1e6)).with_error(err.hi)) / c.length
+        let [a, b] = self.offsets_mm.map(f64::from);
+        let err = I::point(2.) * I::from_millimetres(self.error_mm);
+        ((I::point(b - a) / I::point(1_000.)).with_error(err.hi)) / c.length
     }
 }
 
@@ -176,7 +176,7 @@ fn boundaries<'a>(
 ) -> Result<(), Failure> {
     let r = c.network.traffic().relations();
     let m = c.network.station_mapping();
-    let mut seam = |owner, left_index, offsets_um, error_nm, work: &mut Work| {
+    let mut seam = |owner, left_index, offsets_mm, error_mm, work: &mut Work| {
         let key = (owner, left_index);
         let k = |r: &BoundaryExtent| (r.owner, r.left_index);
         let lo = partition(&m.extents, |r| k(r) < key, work)?;
@@ -189,8 +189,8 @@ fn boundaries<'a>(
                     key: None,
                 },
                 line: BoundaryLine {
-                    offsets_um,
-                    error_nm,
+                    offsets_mm,
+                    error_mm,
                 },
                 extents: &m.extents[lo..lo + count],
             },
@@ -205,7 +205,7 @@ fn boundaries<'a>(
             .get(i)
             .filter(|r| r.lane == lane)
             .ok_or(Failure::Unavailable)?;
-        Ok((f.ends_um.map(|e| e[1]), f.error_nm))
+        Ok((f.ends_mm.map(|e| e[1]), f.error_mm))
     };
     let corridor = c.query.corridor;
     work.charge()?;
@@ -233,7 +233,7 @@ fn boundaries<'a>(
                     .get(i)
                     .filter(|r| r.ordinal == b)
                     .ok_or(Failure::Unavailable)?;
-                (band.right_um, band.error_nm)
+                (band.right_mm, band.error_mm)
             }
         };
         seam(

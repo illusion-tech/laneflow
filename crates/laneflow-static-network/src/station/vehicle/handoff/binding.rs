@@ -48,6 +48,7 @@ impl HandoffBinding {
     }
 
     /// 两边实际拥有且在声明窗口内的可表示纳米站位闭区间，从小到大。
+    /// 源于边切点的半开拓扑归属。排除的高端用切点前一纳米表示，排除的低端用切点后一纳米表示。
     #[must_use]
     pub const fn common_stations_nm(&self) -> [u64; 2] {
         self.common_stations_nm
@@ -74,8 +75,8 @@ fn owned_stations(
         .ok_or(Failure::Unavailable)?;
     let lane = mapping.lanes[edge.lane.index()].ok_or(Failure::Unavailable)?;
     let spans = edge.spans.slice(&mapping.segments);
-    let start = spans.first().ok_or(Failure::Unavailable)?.map.stations_nm()[0];
-    let end = spans.last().ok_or(Failure::Unavailable)?.map.stations_nm()[1];
+    let start = spans.first().ok_or(Failure::Unavailable)?.stations_nm()[0];
+    let end = spans.last().ok_or(Failure::Unavailable)?.stations_nm()[1];
     let chain = lane.spans.slice(&mapping.segments);
     let last = chain.last().ok_or(Failure::Unavailable)?.edge == ordinal;
     let stations = if lane.increasing {
@@ -118,11 +119,11 @@ impl SharedNetworkRevision {
         {
             return Err(Failure::Binding);
         }
-        let [low, high] = window.stations_nm;
+        let [low, high] = window.stations_nm()?;
         let domain = mapping
             .corridor_domain(corridor)
             .ok_or(Failure::Unavailable)?;
-        if low > high || high > domain.length_nm {
+        if low > high || high > domain.length_nm() {
             return Err(Failure::InvalidInput);
         }
         let members = lane_pair(self, corridor, window, || Ok(()))?;

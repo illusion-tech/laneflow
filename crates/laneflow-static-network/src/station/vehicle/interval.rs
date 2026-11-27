@@ -31,6 +31,10 @@ impl Interval {
         }
     }
 
+    pub fn from_millimetres(mm: u32) -> Self {
+        Self::point(f64::from(mm)) / Self::point(1_000.)
+    }
+
     pub fn meters(nm: u64) -> Self {
         let v = nm as f64;
         let n = if nm <= 1 << 53 {

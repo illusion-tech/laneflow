@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-network-compiler"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-26"
+revised_date = "2026-11-27"
 summary = "定义静态路网编译架构、实体身份和规范化。"
 scope = "正本来源模块图（Authoritative Source Module Graph）、编译器中间表示 （Compiler IR）、静态路网编译裁决方、标识派生、可移植规范制品（Portable Canonical Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异 （Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、 静态执行约束（Static Execution Constraints）、不可变路网修订 （Immutable Network Revision）"
 applicability = "#applicability"
@@ -815,13 +815,13 @@ backing；runtime-only 调用方可释放 LFCA，可编辑 session 所需 exact 
 
 ### 8.4 源映射与诊断（Source Map and Diagnostics）
 
-源映射线格式是 [LFSM 8][portable-lfsm]。发布 binding 的检查行为见 [后发射检查 §8][post-emission-lfcp]。
+源映射线格式是 [LFSM 9][portable-lfsm]。发布 binding 的检查行为见 [后发射检查 §8][post-emission-lfcp]。
 
 源映射不是一组可以脱离编译批次复用的裸记录。即使实体 `StableId128` 与 typed ordinal 都未变化，来源位置、来源模块或编译输入变化也必须生成新的 LFSM exact bytes。诊断使用稳定 code、severity、primary/secondary source location、原因和可执行建议；文本来源可把 location 渲染为 span。authoring error 指向 source 或画布；artifact corruption 或 version mismatch 面向运维，不返回 generated JSON 行号。
 
 ### 8.5 语义差异（Semantic Diff）
 
-语义差异线格式是 [LFSD 6][portable-lfsd]。
+语义差异线格式是 [LFSD 7][portable-lfsd]。
 
 语义差异不能脱离旧/新规范制品解释。Stable entity 按 `StableId128` 报告；owner-local derived record 在 owning `StableId128` 与 typed role 内按 canonical relation value 做确定性 sequence diff，报告 before/after `localIndex`，但不把位置当成跨编译标识：
 
@@ -1241,8 +1241,8 @@ compiler/format 反向依赖动态运行时。
 [post-emission]: compiler-post-emission-check-and-minimal-publication-closure.md
 
 [portable-lfcp]: portable-canonical-artifact.md#6-lfcp-2-与发布闭合
-[portable-lfsm]: portable-canonical-artifact.md#4-lfsm-8
-[portable-lfsd]: portable-canonical-artifact.md#5-lfsd-6
+[portable-lfsm]: portable-canonical-artifact.md#4-lfsm-9
+[portable-lfsd]: portable-canonical-artifact.md#5-lfsd-7
 [post-emission-lfcp]: compiler-post-emission-check-and-minimal-publication-closure.md#8-lfcp-v2
 [post-emission-matrix]: compiler-post-emission-check-and-minimal-publication-closure.md#11-验证矩阵
 [revision-cutover]: traffic-runtime-revision-cutover.md

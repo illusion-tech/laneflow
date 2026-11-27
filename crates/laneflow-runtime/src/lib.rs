@@ -83,18 +83,19 @@ pub use kernel::execution_evidence::{
 };
 pub use kernel::handle::{RouteHandle, VehicleHandle};
 pub use kernel::handoff::{
-    BoundRouteHandoff, RouteHandoffApproachError, RouteHandoffApproaches, RouteHandoffEntrant,
+    BoundRouteHandoff, CommittedHandoffGeometry, HandoffGeometryReadError,
+    RouteHandoffApproachError, RouteHandoffApproaches, RouteHandoffEntrant,
     RouteHandoffEntrantError, RouteHandoffEntrantReason, RouteHandoffEntrants,
     RouteHandoffOccurrence, RouteHandoffPreview, RouteHandoffSample, RouteHandoffSampleError,
-    RouteHandoffSampleReport, RouteHandoffTraffic, RouteHandoffTrafficError, RouteHandoffTrial,
-    RouteHandoffTrialError,
+    RouteHandoffSampleReport, RouteHandoffTraffic, RouteHandoffTrafficError,
+    RouteHandoffTravelTarget, RouteHandoffTrial, RouteHandoffTrialError,
 };
 
 pub use kernel::handoff::{
     ClearanceSpeedCurve, ClearanceSpeedCurveError, ClearanceSpeedPoint, ClearanceSpeedWindow,
     HandoffDrivingConfig, MAX_CLEARANCE_SPEED_POINTS, RouteHandoffBrakingError,
-    RouteHandoffBrakingMotion, RouteHandoffBrakingStep, RouteHandoffSpeedPlan,
-    RouteHandoffSpeedPlanError,
+    RouteHandoffBrakingMotion, RouteHandoffBrakingStep, RouteHandoffProgress, RouteHandoffRequest,
+    RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError, StableRouteHandoffWindow,
 };
 pub use kernel::input::{
     EntranceDirection, RouteRegisterInput, VehicleDepartureState, VehicleEntrance,

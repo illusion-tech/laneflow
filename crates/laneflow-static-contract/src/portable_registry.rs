@@ -1,6 +1,6 @@
 //! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录当前 LFCA 7、LFSM 8、LFSD 6 与 LFCP 的线格式形状。它是可供 emitter 与
+//! 本模块逐项转录当前 LFCA 8、LFSM 9、LFSD 7 与 LFCP 的线格式形状。它是可供 emitter 与
 //! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
 
@@ -1828,7 +1828,8 @@ mod tests {
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
         // LFCA 5 / LFSD 4 的新增行另按路权实施合同 §4.1/§4.3 逐 tag/type/presence 复核。
         // LFCA 7 和 LFSD 6 逐项核对车型 tag 11 的九个字段和变更行的存在矩阵。
-        assert_eq!(appendix_registry_fingerprint(), 0x912c_3c44_06db_6e9a);
+        // LFCA 8 逐字段核对表 1、2、5、6、8 的 13 个单位名称，标签、宽度和存在性不变。
+        assert_eq!(appendix_registry_fingerprint(), 0x32c4_f3b5_f6ba_520e);
     }
 
     #[test]

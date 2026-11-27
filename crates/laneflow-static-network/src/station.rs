@@ -5,6 +5,8 @@ use laneflow_static_contract::{
 
 use crate::RangeU32;
 
+const NM_PER_MM: u64 = 1_000_000;
+
 mod build;
 mod cross_section;
 pub mod vehicle;
@@ -16,12 +18,35 @@ pub use cross_section::{
 /// 走廊相对于道路参考线的起点和可查询长度。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StationDomain {
-    /// 在道路参考线上的起点，单位纳米。
-    pub origin_nm: u64,
-    /// 走廊局部域为零至该长度的闭区间。
-    pub length_nm: u64,
-    /// 来源起点相对于规范起点的误差上界。
-    pub origin_error_nm: u32,
+    origin_mm: u64,
+    length_mm: u64,
+    origin_error_mm: u32,
+}
+
+impl StationDomain {
+    /// 道路参考线上的起点，单位毫米。
+    #[must_use]
+    pub const fn origin_mm(self) -> u64 {
+        self.origin_mm
+    }
+
+    /// 走廊局部域从零至此长度，单位毫米。
+    #[must_use]
+    pub const fn length_mm(self) -> u64 {
+        self.length_mm
+    }
+
+    /// 来源起点相对于规范起点的误差上界，单位毫米。
+    #[must_use]
+    pub const fn origin_error_mm(self) -> u32 {
+        self.origin_error_mm
+    }
+
+    /// 供连续查询使用的局部域上界。构建时已检查整数换算。
+    #[must_use]
+    pub const fn length_nm(self) -> u64 {
+        self.length_mm * NM_PER_MM
+    }
 }
 
 /// 所查站位范围内，设施带两条边界各自的横向偏移闭区间，沿参考方向左正。
@@ -120,12 +145,18 @@ struct Segment {
     map: StationSpan,
 }
 
+impl Segment {
+    fn stations_nm(&self) -> [u64; 2] {
+        self.map.stations_mm().map(|mm| mm * NM_PER_MM)
+    }
+}
+
 struct Band {
     ordinal: FacilityBandOrdinal,
     corridor: RoadCorridorOrdinal,
-    left_um: [i32; 2],
-    right_um: [i32; 2],
-    error_nm: u32,
+    left_mm: [i32; 2],
+    right_mm: [i32; 2],
+    error_mm: u32,
 }
 
 /// 从受检 LFCA 构建，只保存交通裁决所需的站位列。
@@ -187,7 +218,7 @@ impl SharedStationMapping {
     #[must_use]
     pub fn edge_end_station_nm(&self, edge: LaneEdgeOrdinal) -> Option<u64> {
         let edge = self.edges.get(edge.index()).copied().flatten()?;
-        Some(edge.spans.slice(&self.segments).last()?.map.stations_nm()[1])
+        Some(edge.spans.slice(&self.segments).last()?.stations_nm()[1])
     }
 
     /// 由站位分段索引读取同一编制车道的物理前一边。车道起点没有前一边。
@@ -220,7 +251,7 @@ impl SharedStationMapping {
         band: FacilityBandOrdinal,
         stations_nm: [u64; 2],
     ) -> Option<FacilityBandBounds> {
-        let length = self.corridor_domain(corridor)?.length_nm;
+        let length = self.corridor_domain(corridor)?.length_nm();
         if stations_nm[0] > stations_nm[1] || stations_nm[1] > length {
             return None;
         }
@@ -230,22 +261,22 @@ impl SharedStationMapping {
             return None;
         }
         let bounds = |[start, end]: [i32; 2]| {
-            // 长度为 u64、横向端点为 i32 微米，分子的带符号纳米积可由 i128 完整容纳。
+            // 长度为 u64、横向端点为 i32 毫米，分子的带符号纳米积可由 i128 完整容纳。
             let values = stations_nm.map(|s| {
                 (i128::from(start) * i128::from(length - s) + i128::from(end) * i128::from(s))
-                    * 1_000
+                    * i128::from(NM_PER_MM)
             });
             let denominator = i128::from(length);
             let low = values[0].min(values[1]).div_euclid(denominator);
             let upper = values[0].max(values[1]);
             let high =
                 upper.div_euclid(denominator) + i128::from(upper.rem_euclid(denominator) != 0);
-            let error = i64::from(band.error_nm);
+            let error = i64::from(band.error_mm) * NM_PER_MM as i64;
             [low as i64 - error, high as i64 + error]
         };
         Some(FacilityBandBounds {
-            left_nm: bounds(band.left_um),
-            right_nm: bounds(band.right_um),
+            left_nm: bounds(band.left_mm),
+            right_nm: bounds(band.right_mm),
         })
     }
 
@@ -327,20 +358,20 @@ impl SharedStationMapping {
         if progress_mm > source.length_mm {
             return StationObservation::Outside;
         }
-        let center = u64::from(progress_mm) * 1_000_000;
-        let radius = 500_000 + u64::from(StationSpan::MAX_CANONICAL_ERROR_NM);
+        let center = u64::from(progress_mm) * 2;
+        let radius = 1 + u64::from(StationSpan::MAX_CANONICAL_ERROR_MM) * 2;
         let spans = source.spans.slice(&self.segments);
         let start = first_matching_span(spans, |s| {
-            s.map.progress_nm()[1] < center.saturating_sub(radius)
+            s.map.progress_mm()[1] * 2 < center.saturating_sub(radius)
         });
         let mut range = [u64::MAX, 0];
         for segment in &spans[start..] {
-            if segment.map.progress_nm()[0] > center + radius {
+            if segment.map.progress_mm()[0] * 2 > center + radius {
                 break;
             }
             if *budget == 0 {
-                let a = segment.map.stations_nm()[0];
-                let b = spans[spans.len() - 1].map.stations_nm()[1];
+                let a = segment.stations_nm()[0];
+                let b = spans[spans.len() - 1].stations_nm()[1];
                 return StationObservation::Unproven {
                     unchecked_nm: [a.min(b), a.max(b)],
                 };
@@ -366,14 +397,14 @@ impl SharedStationMapping {
         let last = spans.len() - 1;
         let [lo, hi] = stations;
         let (entry, exit) = if lane.increasing { (lo, hi) } else { (hi, lo) };
-        let lane_start = spans[0].map.stations_nm()[0];
-        let lane_end = spans[last].map.stations_nm()[1];
+        let lane_start = spans[0].stations_nm()[0];
+        let lane_end = spans[last].stations_nm()[1];
         if lo > hi || lo < lane_start.min(lane_end) || hi > lane_start.max(lane_end) {
             return StationQuery::Outside;
         }
         // 同一边相邻分段在共同节点可登记不同误差，因此普通节点需覆盖两侧。
         let first = first_matching_span(spans, |s| {
-            let end = s.map.stations_nm()[1];
+            let end = s.stations_nm()[1];
             if lane.increasing {
                 end < entry
             } else {
@@ -386,7 +417,7 @@ impl SharedStationMapping {
             len: 0,
         };
         for (i, s) in spans.iter().enumerate().skip(first) {
-            let [a, b] = s.map.stations_nm();
+            let [a, b] = s.stations_nm();
             if (lane.increasing && a > exit) || (!lane.increasing && a < exit) {
                 break;
             }
@@ -405,7 +436,7 @@ impl SharedStationMapping {
             let edge = self.edges[s.edge.index()].expect("validated mapping owner");
             let length = u64::from(edge.length_mm);
             let bounds = |v| {
-                if v == a && s.map.progress_nm()[0] == 0 {
+                if v == a && s.map.progress_mm()[0] == 0 {
                     return [0, 0];
                 }
                 if v == b && end_edge && i == last {
@@ -455,20 +486,19 @@ mod tests {
     fn mapping(edges: usize, each: usize, reverse: bool) -> (SharedStationMapping, Lane) {
         let corridor = RoadCorridorOrdinal::try_from_usize(0).unwrap();
         let lane = AuthoringLaneOrdinal::try_from_usize(0).unwrap();
-        let length = (edges * each) as u64 * 1_000_000;
+        let length = (edges * each) as u64;
         let mut segments = Vec::new();
         let mut owners = Vec::new();
         for edge in 0..edges {
             let id = LaneEdgeOrdinal::try_from_usize(edge).unwrap();
             let first = segments.len();
             for k in 0..each {
-                let station = (edge * each + k) as u64 * 1_000_000;
-                let s =
-                    [station, station + 1_000_000].map(|v| if reverse { length - v } else { v });
-                let p = k as u64 * 1_000_000;
+                let station = (edge * each + k) as u64;
+                let s = [station, station + 1].map(|v| if reverse { length - v } else { v });
+                let p = k as u64;
                 segments.push(Segment {
                     edge: id,
-                    map: StationSpan::try_new(s, [p, p + 1_000_000], 0, 0, 1_000_000).unwrap(),
+                    map: StationSpan::try_from_millimetres(s, [p, p + 1], 0, 0, 1_000_000).unwrap(),
                 });
             }
             owners.push(Some(Edge {
@@ -485,9 +515,9 @@ mod tests {
         (
             SharedStationMapping {
                 domains: vec![Some(StationDomain {
-                    origin_nm: 0,
-                    length_nm: length,
-                    origin_error_nm: 0,
+                    origin_mm: 0,
+                    length_mm: length,
+                    origin_error_mm: 0,
                 })]
                 .into(),
                 lanes: vec![Some(row)].into(),
@@ -655,9 +685,9 @@ mod tests {
         let retained = map.retained_logical_bytes();
         map.domains = vec![
             Some(StationDomain {
-                origin_nm: 50,
-                length_nm: 3,
-                origin_error_nm: 1,
+                origin_mm: 50,
+                length_mm: 3,
+                origin_error_mm: 1,
             });
             2
         ]
@@ -665,9 +695,9 @@ mod tests {
         map.bands = vec![Band {
             ordinal: band,
             corridor,
-            left_um: [2, 0],
-            right_um: [-2, 0],
-            error_nm: 7,
+            left_mm: [2, 0],
+            right_mm: [-2, 0],
+            error_mm: 1,
         }]
         .into();
         assert_eq!(
@@ -675,31 +705,31 @@ mod tests {
             (size_of::<Option<StationDomain>>() + size_of::<Band>()) as u64
         );
         assert_eq!(
-            map.facility_band_bounds(corridor, band, [1, 1]),
+            map.facility_band_bounds(corridor, band, [1_000_000, 1_000_000]),
             Some(FacilityBandBounds {
-                left_nm: [1_326, 1_341],
-                right_nm: [-1_341, -1_326],
+                left_nm: [333_333, 2_333_334],
+                right_nm: [-2_333_334, -333_333],
             })
         );
         assert_eq!(
-            map.facility_band_bounds(corridor, band, [1, 2]),
+            map.facility_band_bounds(corridor, band, [1_000_000, 2_000_000]),
             Some(FacilityBandBounds {
-                left_nm: [659, 1_341],
-                right_nm: [-1_341, -659],
+                left_nm: [-333_334, 2_333_334],
+                right_nm: [-2_333_334, 333_334],
             })
         );
         assert_eq!(
-            map.facility_band_bounds(corridor, band, [3, 3]),
+            map.facility_band_bounds(corridor, band, [3_000_000, 3_000_000]),
             Some(FacilityBandBounds {
-                left_nm: [-7, 7],
-                right_nm: [-7, 7],
+                left_nm: [-1_000_000, 1_000_000],
+                right_nm: [-1_000_000, 1_000_000],
             })
         );
         for (owner, id, stations) in [
             (other, band, [0, 0]),
             (corridor, FacilityBandOrdinal::from_raw(9), [0, 0]),
             (corridor, band, [2, 1]),
-            (corridor, band, [3, 4]),
+            (corridor, band, [3_000_000, 3_000_001]),
         ] {
             assert_eq!(map.facility_band_bounds(owner, id, stations), None);
         }
@@ -710,62 +740,69 @@ mod tests {
         let (mut map, lane) = mapping(1, 1, false);
         let corridor = lane.corridor;
         let band = FacilityBandOrdinal::from_raw(0);
-        map.domains[0].as_mut().unwrap().length_nm = u64::MAX;
+        let max_mm = u64::MAX / NM_PER_MM;
+        map.domains[0].as_mut().unwrap().length_mm = max_mm;
         map.bands = vec![Band {
             ordinal: band,
             corridor,
-            left_um: [i32::MAX, i32::MIN],
-            right_um: [i32::MIN; 2],
-            error_nm: 0,
+            left_mm: [i32::MAX, i32::MIN],
+            right_mm: [i32::MIN; 2],
+            error_mm: 0,
         }]
         .into();
-        let mid = u64::MAX / 2;
-        for (s, expected) in [(mid, [-500, -499]), (mid + 1, [-501, -500])] {
+        let mid = max_mm * NM_PER_MM / 2;
+        for (s, expected) in [(mid, [-500_000, -500_000]), (mid + 1, [-500_001, -500_000])] {
             let bounds = map.facility_band_bounds(corridor, band, [s, s]).unwrap();
             assert_eq!(bounds.left_nm, expected);
-            assert_eq!(bounds.right_nm, [i64::from(i32::MIN) * 1_000; 2]);
+            assert_eq!(bounds.right_nm, [i64::from(i32::MIN) * 1_000_000; 2]);
         }
     }
 
     #[test]
     fn inverse_and_projection_spend_one_shared_budget() {
-        let target = AuthoringLaneOrdinal::try_from_usize(0).unwrap();
-        let source = LaneEdgeOrdinal::try_from_usize(0).unwrap();
+        // 源边一段，目标车道每毫米一段。源观测的误差覆盖全域，反查先用一项。
         for reverse in [false, true] {
-            for count in [32, 33, 64, 65] {
-                let (mut map, _) = mapping(1, count, reverse);
-                let end = count as u64 * 100_000;
-                for (i, seg) in map.segments.iter_mut().enumerate() {
-                    let p = [i as u64 * 100_000, (i as u64 + 1) * 100_000];
-                    let s = p.map(|v| if reverse { end - v } else { v });
-                    seg.map = StationSpan::try_new(
-                        s,
-                        p,
-                        StationSpan::MAX_CANONICAL_ERROR_NM,
-                        0,
-                        1_000_000,
-                    )
-                    .unwrap();
-                }
-                map.edges[0].as_mut().unwrap().length_mm =
-                    (end as f64 / 1e6).round_ties_even() as u32;
-                let observed = map.stations_for_progress(source, 0);
-                match observed {
-                    StationObservation::Complete { stations_nm, .. } if count <= 64 => {
-                        assert_eq!(stations_nm, [0, end])
+            for count in [63_usize, 64] {
+                let (mut map, lane) = mapping(1, count, reverse);
+                let source = LaneEdgeOrdinal::from_raw(1);
+                let source_lane = AuthoringLaneOrdinal::from_raw(1);
+                let source_range = RangeU32::new(count as u32, 1);
+                let endpoints = if reverse {
+                    [count as u64, 0]
+                } else {
+                    [0, count as u64]
+                };
+                let mut segments = map.segments.into_vec();
+                segments.push(Segment {
+                    edge: source,
+                    map: StationSpan::try_from_millimetres(endpoints, [0, 1], 1, 0, 10_000)
+                        .unwrap(),
+                });
+                map.segments = segments.into();
+                map.lanes = vec![
+                    Some(lane),
+                    Some(Lane {
+                        spans: source_range,
+                        ..lane
+                    }),
+                ]
+                .into();
+                let mut edges = map.edges.into_vec();
+                edges.push(Some(Edge {
+                    lane: source_lane,
+                    length_mm: 1,
+                    spans: source_range,
+                }));
+                map.edges = edges.into();
+                assert_eq!(
+                    map.stations_for_progress(source, 0),
+                    StationObservation::Complete {
+                        corridor: lane.corridor,
+                        stations_nm: [0, count as u64 * NM_PER_MM],
                     }
-                    StationObservation::Unproven { unchecked_nm } if count == 65 => assert_eq!(
-                        unchecked_nm,
-                        if reverse {
-                            [0, 100_000]
-                        } else {
-                            [end - 100_000, end]
-                        }
-                    ),
-                    other => panic!("unexpected source result {other:?}"),
-                }
-                let result = map.from_progress(source, 0, target);
-                if count == 32 {
+                );
+                let result = map.from_progress(source, 0, AuthoringLaneOrdinal::from_raw(0));
+                if count == 63 {
                     assert!(matches!(result, StationQuery::Complete(_)));
                 } else {
                     assert!(matches!(result, StationQuery::Unproven { .. }));

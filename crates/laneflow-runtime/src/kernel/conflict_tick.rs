@@ -4,6 +4,8 @@
 //! passage cell 不复制到动态路线，候选先完整求值，再由单写者 arbiter 按稳定键取得
 //! 组合资源。tick-local grant 不进入公开状态，也不跨 tick 保留。
 
+mod platoon;
+
 use laneflow_static_contract::{VehicleProfileOrdinal, WaitingZoneOrdinal};
 use laneflow_static_network::BoundedDistance;
 
@@ -12,7 +14,7 @@ use crate::kernel::conflict::{
     ConflictAcquireError, ConflictCandidateOrderKey, ConflictGrant, GrantResourceBundle,
     WaitingAdmissionEntitlement,
 };
-use crate::kernel::lane_change::service_stop_distance_um;
+use crate::kernel::lane_change::{service_stop_distance_um, stop_from_cursor_mm};
 use crate::kernel::tables::distance_to_occurrence_progress;
 use crate::{
     ConflictEligibilityState, ConflictPassageAddress, ConflictPassageOccurrenceLocator,
@@ -210,6 +212,8 @@ pub enum ConflictNoGrantReason {
     WaitingCycle,
     /// 冲突 zone/cell 已被其它 owner 占用或提交。
     ConflictOccupied,
+    /// 另一来向已有更优先的有效资格，且本车在该 Gate 前仍可紧急停车。
+    PlatoonTruncated,
     /// 后随间隙不足：滞后基准（实际清空或切换保守起点 `CutoverFloor`）起算
     /// 的已逝时间小于 required lag。
     LagGap,
@@ -639,6 +643,7 @@ struct ReadyCandidate {
 /// 按下标顺序流出，与堆顶（各 Waiting 区队首）逐个比较；否则全部进堆。
 #[derive(Default)]
 pub(crate) struct ConflictSchedule {
+    platoon: platoon::PlatoonScratch,
     ready: std::collections::BinaryHeap<std::cmp::Reverse<ReadyCandidate>>,
     successors: Vec<Option<usize>>,
     local: Vec<(WaitingZoneOrdinal, u32, usize)>,
@@ -746,8 +751,10 @@ impl ConflictSchedule {
             successors,
             local,
             stream: _,
+            platoon,
         } = self;
-        ready.capacity() * std::mem::size_of::<std::cmp::Reverse<ReadyCandidate>>()
+        platoon.retained_logical_bytes()
+            + ready.capacity() * std::mem::size_of::<std::cmp::Reverse<ReadyCandidate>>()
             + successors.capacity() * std::mem::size_of::<Option<usize>>()
             + local.capacity() * std::mem::size_of::<(WaitingZoneOrdinal, u32, usize)>()
     }
@@ -1292,7 +1299,7 @@ const fn no_grant_rank(reason: ConflictNoGrantReason) -> u8 {
     match reason {
         ConflictNoGrantReason::WaitingCapacity | ConflictNoGrantReason::WaitingPhysicalStorage => 0,
         ConflictNoGrantReason::WaitingCycle => 0,
-        ConflictNoGrantReason::ConflictOccupied => 1,
+        ConflictNoGrantReason::ConflictOccupied | ConflictNoGrantReason::PlatoonTruncated => 1,
         ConflictNoGrantReason::LagGap => 2,
         ConflictNoGrantReason::ApproachUnprovable => 3,
         ConflictNoGrantReason::LeadGap => 4,
@@ -1720,6 +1727,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
     ) -> Result<bool, StepError> {
         let view = ConflictTaskView {
             read: crate::kernel::phase::StepReadView {
+                handoff_grants: &[],
                 binding: self.binding,
                 committed: &self.committed,
                 derived: &self.derived,
@@ -3107,6 +3115,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // =穿越进行中——不再发起新候选（跨界后边界规范化使上一 hop 仍在
         // 可行集，防再申请炸束）。
         let lifecycle_read = crate::kernel::phase::StepReadView {
+            handoff_grants: &[],
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
@@ -3378,6 +3387,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             .ok_or(StepError::ConflictInvariantViolation)?;
         let view = ConflictTaskView {
             read: crate::kernel::phase::StepReadView {
+                handoff_grants: &[],
                 binding: self.binding,
                 committed: &self.committed,
                 derived: &self.derived,
@@ -3518,6 +3528,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 共用领域段：F4 之前的前置计划检查与分发任务同一实现。
         let view = ConflictTaskView {
             read: crate::kernel::phase::StepReadView {
+                handoff_grants: &[],
                 binding: self.binding,
                 committed: &self.committed,
                 derived: &self.derived,
@@ -3578,6 +3589,18 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         tick: u64,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<(), StepError> {
+        let mut scratch = core::mem::take(&mut self.workspace.conflict_schedule.platoon);
+        let result = self.acquire_conflict_candidates_inner(tick, execution, &mut scratch);
+        self.workspace.conflict_schedule.platoon = scratch;
+        result
+    }
+
+    fn acquire_conflict_candidates_inner(
+        &mut self,
+        tick: u64,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+        scratch: &mut platoon::PlatoonScratch,
+    ) -> Result<(), StepError> {
         self.workspace.conflict_schedule.prepare(
             &self.workspace.conflict_candidates,
             &self.workspace.waiting_plan_by_vehicle,
@@ -3629,18 +3652,62 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                         .cells_unavailable(candidate.vehicle, cells),
                 }
             };
+            let cells = &self.workspace.conflict_candidate_cells
+                [candidate.cells_start..candidate.cells_end];
+            let truncation = if occupied {
+                let state = self
+                    .vehicle_state(candidate.vehicle)
+                    .ok_or(StepError::ConflictInvariantViolation)?;
+                self.read_view().ordinary_platoon_truncation(
+                    state,
+                    candidate.anchor.hop,
+                    self.conflict_read(),
+                )?
+            } else {
+                None
+            };
+            let shared_target = if truncation == Some(false) {
+                self.platoon_storage(candidate, cells, scratch)?
+            } else {
+                None
+            };
+            let claims = if shared_target.is_some() {
+                scratch.claims.as_slice()
+            } else {
+                &self.workspace.conflict_candidate_downstream
+                    [candidate.downstream_start..candidate.downstream_end]
+            };
             let reason = if !cycle_clear {
                 Some(ConflictNoGrantReason::WaitingCycle)
+            } else if truncation == Some(true) {
+                Some(ConflictNoGrantReason::PlatoonTruncated)
+            } else if shared_target.is_some() {
+                self.platoon_admission_reason(candidate, cells)?
+            } else if truncation == Some(false) {
+                Some(ConflictNoGrantReason::DownstreamStorageBoundary)
             } else if occupied {
                 Some(ConflictNoGrantReason::ConflictOccupied)
             } else {
                 candidate.preflight_no_grant
             };
+            let reason = if reason.is_none()
+                && self.downstream_hits_active_handoff(
+                    candidate.vehicle,
+                    candidate.follower_min_gap_mm,
+                    claims,
+                )? {
+                Some(ConflictNoGrantReason::DownstreamClaimConflict)
+            } else {
+                reason
+            };
             let outcome = if let Some(reason) = reason {
                 self.workspace.waiting_dependencies.rollback();
                 ConflictDecisionOutcome::NoGrant(reason)
             } else {
-                let reservation = match (candidate.passage_range, candidate.downstream_target) {
+                let reservation = match (
+                    candidate.passage_range,
+                    shared_target.or(candidate.downstream_target),
+                ) {
                     (Some(range), Some(target)) => Some((range, target)),
                     (None, None) => None,
                     _ => return Err(StepError::ConflictInvariantViolation),
@@ -3648,16 +3715,20 @@ impl crate::kernel::phase::StepWorkspace<'_> {
                 let result = self
                     .committed
                     .prepare_conflict(&mut self.derived, &mut self.workspace.conflict)
-                    .try_acquire(
+                    .try_acquire_with_platoon(
                         tick,
                         GrantResourceBundle {
                             owner: candidate.vehicle,
                             follower_min_gap_mm: candidate.follower_min_gap_mm,
                             cells: &self.workspace.conflict_candidate_cells
                                 [candidate.cells_start..candidate.cells_end],
-                            downstream: &self.workspace.conflict_candidate_downstream
-                                [candidate.downstream_start..candidate.downstream_end],
+                            downstream: claims,
                             waiting_entitlement: entitlement,
+                        },
+                        if shared_target.is_some() {
+                            &scratch.owners
+                        } else {
+                            &[]
                         },
                     );
                 match result {
@@ -3711,6 +3782,51 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         Ok(())
     }
 
+    fn downstream_hits_active_handoff(
+        &self,
+        owner: VehicleHandle,
+        gap: u32,
+        claims: &[crate::DownstreamInterval],
+    ) -> Result<bool, StepError> {
+        if claims.is_empty() {
+            return Ok(false);
+        }
+        for active in &self.committed.handoffs {
+            if active.vehicle == owner {
+                continue;
+            }
+            let state = self
+                .vehicle_state(active.vehicle)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            let profile = self
+                .binding
+                .revision
+                .traffic()
+                .relations()
+                .vehicle_profile(state.profile)
+                .ok_or(StepError::ConflictInvariantViolation)?;
+            for protection in &active.protections {
+                let interval = crate::DownstreamInterval::new(
+                    protection.edge,
+                    protection.start_mm,
+                    protection.end_mm,
+                )
+                .ok_or(StepError::ConflictInvariantViolation)?;
+                if claims.iter().any(|claim| {
+                    crate::kernel::conflict::intervals_conflict(
+                        *claim,
+                        gap,
+                        interval,
+                        profile.min_gap_mm(),
+                    )
+                }) {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// 资源仲裁完成后，以最终可达范围输出无资源 Gate 决定；同样覆盖本拍已有 reservation 的车辆。
     #[cfg(test)]
     pub(crate) fn stage_resource_free_gate_decisions(
@@ -3739,6 +3855,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         update_sequence: u32,
     ) -> Result<(), StepError> {
         let read = crate::kernel::phase::StepReadView {
+            handoff_grants: &[],
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
@@ -4013,6 +4130,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         {
             let view = FinalizeView {
                 read: crate::kernel::phase::StepReadView {
+                    handoff_grants: &[],
                     binding: self.binding,
                     committed: &self.committed,
                     derived: &self.derived,
@@ -4141,6 +4259,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         range: ConflictPassageRange,
     ) -> Result<bool, StepError> {
         let read = crate::kernel::phase::StepReadView {
+            handoff_grants: &[],
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
@@ -4401,7 +4520,13 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                     .journal_tag();
                 (locator, stage)
             });
-            journal.tick_conflict_authority(owner, reservation.acquired_tick(), cells);
+            let end = crate::admin::snapshot::handoff::CapturedDownstreamEnd::from_range(
+                compiled,
+                range,
+                reservation.downstream_target(),
+            )
+            .expect("committed downstream end follows its maneuver entry at integer millimetres");
+            journal.tick_conflict_authority(owner, reservation.acquired_tick(), end, cells);
         }
 
         for transition in self
@@ -4430,7 +4555,13 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
 }
 
 fn route_front_at_or_beyond(state: VehicleState, edge: u32, progress_mm: u32) -> bool {
-    (state.route_edge_index, state.progress_mm, state.carry_um) >= (edge, progress_mm, 0)
+    (state.route_edge_index, state.progress_mm) >= (edge, progress_mm)
+}
+
+/// 两车停点的有向整毫米界。不能证明先后时，由候选的直接区间停车证明接续。
+fn stopped_chain_before_interval(follower_um: u64, leader_um: u64, interval_mm: u32) -> bool {
+    follower_um.div_ceil(1_000) <= leader_um / 1_000
+        && leader_um.div_ceil(1_000) <= u64::from(interval_mm)
 }
 
 #[cfg(test)]
@@ -4448,6 +4579,7 @@ mod tests {
     }
 
     use super::*;
+
     use crate::TickInput;
     use crate::admin::cutover_migration::tests::{
         conflict_scale_revision, conflict_scale_world, conflict_scale_world_with_identity,
@@ -4455,6 +4587,15 @@ mod tests {
     use crate::kernel::conflict::{
         ApproachFrontierCell, conflict_work_counts, reset_conflict_work_counts,
     };
+
+    #[test]
+    fn chain_stop_proof_rounds_against_excluding_an_entrant() {
+        assert!(stopped_chain_before_interval(9_001, 10_000, 10));
+        assert!(stopped_chain_before_interval(10_000, 10_000, 10));
+        assert!(!stopped_chain_before_interval(10_001, 10_000, 11));
+        assert!(!stopped_chain_before_interval(10_001, 10_999, 11));
+        assert!(!stopped_chain_before_interval(9_000, 10_001, 10));
+    }
 
     #[test]
     fn gate_cache_requires_full_identity_position_and_present_result() {
@@ -5530,6 +5671,7 @@ mod tests {
                 let step = world.state.step_workspace();
                 let view = ConflictTaskView {
                     read: crate::kernel::phase::StepReadView {
+                        handoff_grants: &[],
                         binding: step.binding,
                         committed: &step.committed,
                         derived: &step.derived,
@@ -7582,10 +7724,11 @@ impl ConflictTaskView<'_> {
                             other_profile.min_gap_mm(),
                         )?
                         .checked_add(u64::from(other.carry_um))?;
-                        Some(
-                            follower_stop_point <= leader_stop_point
-                                && leader_stop_point <= u64::from(interval_distance) * 1_000,
-                        )
+                        Some(stopped_chain_before_interval(
+                            follower_stop_point,
+                            leader_stop_point,
+                            interval_distance,
+                        ))
                     });
                     if chain_proof == Some(true) {
                         continue;
@@ -7645,17 +7788,14 @@ impl ConflictTaskView<'_> {
                 };
                 // 域 B③（#1199 ⑩档位归属）：逐进入者自身 profile 具名参数
                 // 做停车证明（comfort_decel/min_gap 取进入者档案、非申请者）。
-                let room_um =
-                    (u64::from(distance_mm) * 1_000).checked_sub(u64::from(other.carry_um));
-                let required_um = service_stop_distance_um(
+                let travel_um = service_stop_distance_um(
                     other.speed_mm_s,
                     delta_ms,
                     other_profile.comfort_decel(),
                     other_profile.min_gap_mm(),
                 );
-                if !room_um
-                    .zip(required_um)
-                    .is_some_and(|(room, stop)| room >= stop)
+                if stop_from_cursor_mm(travel_um, other.carry_um)
+                    .is_none_or(|stop| stop > u64::from(distance_mm))
                 {
                     return Some(crate::ConflictNoGrantReason::ApproachUnprovable);
                 }
@@ -7726,12 +7866,22 @@ impl ConflictTaskView<'_> {
         }) {
             return Err(DownstreamEvalError::NoGrant);
         }
-        if let Some(next_gate) = compiled
-            .gate_hops
-            .iter()
-            .copied()
-            .find(|hop| *hop > gate_hop)
-        {
+        self.downstream_hard_bounds_allow(state, gate_hop, target)?;
+        Ok(plan)
+    }
+
+    fn downstream_hard_bounds_allow(
+        self,
+        state: VehicleState,
+        gate_hop: u32,
+        target: DownstreamRoutePoint,
+    ) -> Result<(), DownstreamEvalError> {
+        let compiled = self
+            .read
+            .compiled_route(state.route)
+            .ok_or(DownstreamEvalError::Invariant)?;
+        let next = compiled.gate_hops.partition_point(|hop| *hop <= gate_hop);
+        if let Some(&next_gate) = compiled.gate_hops.get(next) {
             let boundary = gate_boundary(next_gate).map_err(|_| DownstreamEvalError::Invariant)?;
             if target > boundary {
                 return Err(DownstreamEvalError::NoGrant);
@@ -7768,7 +7918,7 @@ impl ConflictTaskView<'_> {
                 return Err(DownstreamEvalError::NoGrant);
             }
         }
-        Ok(plan)
+        Ok(())
     }
 
     /// 共用领域段（#706 R3-3a）：downstream 区间填充（F4 之后）——路线

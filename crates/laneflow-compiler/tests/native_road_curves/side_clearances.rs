@@ -65,16 +65,13 @@ fn two_openings_have_local_bounds_only_while_the_body_is_alongside() {
         Some("post-left" | "post-right")
     ));
     assert!(
-        (49_990..=50_000).contains(&narrow.lower_micrometres()),
+        (46..=50).contains(&narrow.lower_millimetres()),
         "{narrow:?}"
     );
     assert!(spans[14..16].iter().all(|s| s.clearance.is_none()));
     let curb = spans[20].clearance.unwrap();
     assert_eq!(curb.boundary.key, Some("curb"));
-    assert!(
-        (299_990..=300_000).contains(&curb.lower_micrometres()),
-        "{curb:?}"
-    );
+    assert!((295..=300).contains(&curb.lower_millimetres()), "{curb:?}");
     assert!(spans[25..].iter().all(|s| s.clearance.is_none()));
     assert_eq!(probe(full.work), full);
     let short = probe(full.work - 1);

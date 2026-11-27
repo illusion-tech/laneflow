@@ -275,7 +275,7 @@ impl<'a, 'q> Candidate<'a, 'q> {
         let domain = mapping
             .corridor_domain(query.corridor)
             .ok_or(Failure::Unavailable)?;
-        if window[1] > domain.length_nm {
+        if window[1] > domain.length_nm() {
             return Err(Failure::InvalidInput);
         }
         let first = partition(&mapping.surface, |r| r.corridor < query.corridor, work)?;
@@ -292,15 +292,15 @@ impl<'a, 'q> Candidate<'a, 'q> {
         }
         work.charge()?;
         let high = rows.last().ok_or(Failure::Unavailable)?;
-        let origin = Interval::ZERO.with_error(Interval::meters(u64::from(low.stations[0].1)).hi);
-        let end = Interval::meters(domain.length_nm)
-            .with_error(Interval::meters(u64::from(high.stations[1].1)).hi);
+        let origin = Interval::ZERO.with_error(Interval::meters(low.stations_nm()[0].1).hi);
+        let end = Interval::meters(domain.length_nm())
+            .with_error(Interval::meters(high.stations_nm()[1].1).hi);
         let length = end - origin;
         if length.lo <= 0. {
             return Err(Failure::Projection);
         }
-        let first = partition(rows, |r| r.stations[1].0 <= window[0], work)?;
-        let end = partition(rows, |r| r.stations[0].0 < window[1], work)?;
+        let first = partition(rows, |r| r.stations_nm()[1].0 <= window[0], work)?;
+        let end = partition(rows, |r| r.stations_nm()[0].0 < window[1], work)?;
         Ok(Self {
             network,
             query,
@@ -408,7 +408,7 @@ impl<'a, 'q> Candidate<'a, 'q> {
         };
         let a = &self.surface.rows[index];
         let b = &self.surface.rows[index + 1];
-        let at = a.stations[1].0;
+        let at = a.stations_nm()[1].0;
         let mut k = |row| {
             work.charge()?;
             let m = path::sided(row, at, t)?;

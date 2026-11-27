@@ -11,6 +11,7 @@ pub(super) enum SourceStop {
     Upstream,
     Both,
     WithTurn,
+    TargetSignal,
 }
 
 impl SourceStop {
@@ -20,6 +21,7 @@ impl SourceStop {
             Self::OnOccurrence | Self::Both => ("s2", "s3"),
             Self::OnContinuation => ("s3", "s4"),
             Self::Upstream | Self::WithTurn => ("s1", "s2"),
+            Self::TargetSignal => ("t1", "t2"),
         };
         let mut rules = Vec::new();
         if let Self::WithTurn = self {
@@ -34,12 +36,18 @@ impl SourceStop {
             )
             .unwrap();
             add_road_editing_approach(builder, "turn-exit", turn, vec![]);
-            add_stop(builder, entry, &[exit, "turn-exit"], &mut rules);
+            add_stop(builder, entry, &[exit, "turn-exit"], &mut rules, false);
         } else {
-            add_stop(builder, entry, &[exit], &mut rules);
+            add_stop(
+                builder,
+                entry,
+                &[exit],
+                &mut rules,
+                matches!(self, Self::TargetSignal),
+            );
         }
         if let Self::Both = self {
-            add_stop(builder, "t0", &["t1"], &mut rules);
+            add_stop(builder, "t0", &["t1"], &mut rules, false);
         }
         builder
             .add_declaration(D::RightOfWayPolicySet(
@@ -65,9 +73,51 @@ fn add_stop(
     entry: &str,
     exits: &[&str],
     rules: &mut Vec<PolicyGateRuleInput>,
+    signal: bool,
 ) {
     use RoadEditingDeclaration as D;
     let edge = |key: &str| LaneEdgeReference::local(key).unwrap();
+    let group = SignalGroupReference::local("through").unwrap();
+    if signal {
+        builder
+            .add_declaration(D::SignalGroup(
+                SignalGroupInput::try_new("through").unwrap(),
+            ))
+            .unwrap();
+        let names = ["red", "green"];
+        builder
+            .add_declaration(D::SignalController(
+                SignalControllerInput::try_new(
+                    "control",
+                    0,
+                    vec![group.clone()],
+                    names
+                        .map(|name| {
+                            SignalPhaseReference::owner_scoped(vec!["control".into()], name)
+                                .unwrap()
+                        })
+                        .into(),
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        for (name, aspect) in names.into_iter().zip([
+            laneflow_static_contract::SignalAspect::Red,
+            laneflow_static_contract::SignalAspect::Green,
+        ]) {
+            builder
+                .add_declaration(D::SignalPhase(
+                    SignalPhaseInput::try_new(
+                        name,
+                        10_000,
+                        vec![RoadEditingSignalPhaseState::try_new(group.clone(), aspect).unwrap()],
+                        SignalControllerReference::local("control").unwrap(),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+    }
     let approaches = std::iter::once(entry)
         .chain(exits.iter().copied())
         .map(edge)
@@ -97,7 +147,11 @@ fn add_stop(
                 exit,
                 gate,
                 None,
-                GateInterpretation::Uncontrolled,
+                if signal {
+                    GateInterpretation::ProtectedGroup
+                } else {
+                    GateInterpretation::Uncontrolled
+                },
                 GateProhibition::None,
                 vec![],
             )
@@ -115,7 +169,11 @@ fn add_stop(
                     path,
                     0,
                     StopLineReference::local(entry).unwrap(),
-                    RoadEditingSignalControl::None,
+                    if signal {
+                        RoadEditingSignalControl::SignalGroup(group.clone())
+                    } else {
+                        RoadEditingSignalControl::None
+                    },
                 )
                 .unwrap(),
             ),
@@ -159,15 +217,15 @@ pub(super) fn road_lanes(
 
 pub(super) fn car_trial(
     revision: &SharedNetworkRevision,
-    rear_stations_nm: [u64; 2],
+    rear_stations_mm: [u64; 2],
 ) -> RouteHandoffTrial {
     RouteHandoffTrial {
         profile: revision
             .identity()
             .stable_id(conflict_profile(revision, "car"))
             .unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm,
+        station_window_mm: [0, 50_000],
+        rear_stations_mm,
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     }
@@ -212,11 +270,11 @@ fn source_stop_line_allows_a_cleared_handoff_and_rejects_an_overlapping_sweep() 
                         source_index: 2,
                         owner: BoundaryOwner::Section(section),
                         left_index: 0,
-                        stations_nm: [start + 14, start + 16].map(|m| m * 1_000_000_000),
+                        stations_mm: [start + 14, start + 16].map(|m| m * 1_000),
                     },
                 )
                 .unwrap();
-            let trial = car_trial(&revision, [start, start + 30].map(|m| m * 1_000_000_000));
+            let trial = car_trial(&revision, [start, start + 30].map(|m| m * 1_000));
             let result = world.preview_route_handoff(&binding, &trial);
             if start == 4 {
                 let preview = result.unwrap();
@@ -225,7 +283,7 @@ fn source_stop_line_allows_a_cleared_handoff_and_rejects_an_overlapping_sweep() 
                     HandoffOutcome::Located { .. }
                 ));
                 let end = preview
-                    .sample_after_travel(0, 30_000_000, 5_000_000, trial.limits)
+                    .sample_after_travel(0, 30_000_000, TRAVEL_TOLERANCE_MM, trial.limits)
                     .unwrap()
                     .sample
                     .unwrap()
@@ -251,7 +309,7 @@ fn upstream_stop_line_uses_only_the_maneuver_present_at_this_occurrence() {
     let world = stop_world(SourceStop::Upstream, RoadEditingLaneDirection::Forward);
     let revision = world.revision();
     let (section, src, dst) = road_lanes(&revision);
-    let trial = car_trial(&revision, [10_000_000_000, 40_000_000_000]);
+    let trial = car_trial(&revision, [10_000, 40_000]);
     for (start_index, revisit) in [(0, false), (2, false), (2, true)] {
         let mut edges = src[start_index..=2].to_vec();
         edges.extend_from_slice(&dst[1..]);
@@ -268,7 +326,7 @@ fn upstream_stop_line_uses_only_the_maneuver_present_at_this_occurrence() {
                     source_index: u32::try_from(2 - start_index).unwrap(),
                     owner: BoundaryOwner::Section(section),
                     left_index: 0,
-                    stations_nm: [24_000_000_000, 26_000_000_000],
+                    stations_mm: [24_000, 26_000],
                 },
             )
             .unwrap();
@@ -296,11 +354,11 @@ fn upstream_stop_line_uses_only_the_maneuver_present_at_this_occurrence() {
                 source_index: 0,
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [34_000_000_000, 38_000_000_000],
+                stations_mm: [34_000, 38_000],
             },
         )
         .unwrap();
-    let trial = car_trial(&revision, [25_000_000_000, 45_000_000_000]);
+    let trial = car_trial(&revision, [25_000, 45_000]);
     assert!(matches!(
         world
             .preview_route_handoff(&binding, &trial)

@@ -1864,6 +1864,15 @@ impl crate::kernel::state::WorldState {
         input: TickInput,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<StepOutcome, StepError> {
+        self.step_vehicles_with_handoffs(input, &[], execution)
+    }
+
+    pub(crate) fn step_vehicles_with_handoffs(
+        &mut self,
+        input: TickInput,
+        requests: &[crate::RouteHandoffRequest],
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<StepOutcome, StepError> {
         self.workspace.clear_motion_cache();
         #[cfg(test)]
         let preflight_timer =
@@ -1929,6 +1938,7 @@ impl crate::kernel::state::WorldState {
             tick_index,
             time_ms,
             observation_state_sequence,
+            requests,
             execution,
         );
         // prepare 的任一首错（包括 Waiting 预选失败）都丢弃本拍输入与证明。
@@ -2014,6 +2024,9 @@ impl crate::kernel::state::WorldState {
 /// 完整性证明仅在本模块创建；借用尚未释放便消费，不能跨 step 保存或重用。
 /// 其余已校验的转移、批次和信号留在同一世界的 Workspace，避免复制工作集。
 struct CommitPlan {
+    handoffs: Vec<super::handoff::execution::ActiveRouteHandoff>,
+    handoff_plans: Vec<std::sync::Arc<super::handoff::execution::PreparedRouteHandoff>>,
+    changed_handoffs: bool,
     updates: super::motion_updates::MotionUpdates,
     parking_arrivals: Vec<ParkingArrivalObservation>,
     tick_index: u64,
@@ -2028,6 +2041,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         tick_index: u64,
         time_ms: u64,
         observation_state_sequence: crate::ObservationStateSequence,
+        requests: &[crate::RouteHandoffRequest],
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<CommitPlan, StepError> {
         #[cfg(test)]
@@ -2044,11 +2058,18 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         let serial_checkpoint = self.workspace.conflict.serial_checkpoint();
         let mut updates = std::mem::take(&mut self.workspace.motion_next);
         updates.clear();
-        let parking_arrivals = match self.stage_vehicle_transitions(
+        let mut handoffs = Vec::new();
+        let mut handoff_plans = Vec::new();
+        let mut changed_handoffs = false;
+        let parking_arrivals = match self.stage_vehicle_transitions_with_handoffs(
             delta_s,
             tick_index,
             time_ms,
             &mut updates,
+            requests,
+            &mut handoffs,
+            &mut handoff_plans,
+            &mut changed_handoffs,
             execution,
         ) {
             Ok(arrivals) => arrivals,
@@ -2069,6 +2090,9 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             }
         };
         Ok(CommitPlan {
+            handoffs,
+            handoff_plans,
+            changed_handoffs,
             updates,
             parking_arrivals,
             tick_index,
@@ -2091,6 +2115,9 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         #[cfg(test)]
         let _p7_alloc_window = begin_commit_alloc_window();
         let CommitPlan {
+            handoffs,
+            handoff_plans,
+            changed_handoffs,
             mut updates,
             parking_arrivals,
             tick_index,
@@ -2104,6 +2131,9 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
         // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
         let mut migration_journal = self.journal.take();
         if let Some(journal) = migration_journal.as_mut() {
+            if changed_handoffs {
+                journal.mark_active_handoff();
+            }
             journal.begin_tick(tick_index, time_ms);
             for (slot, next) in updates.iter(&self.committed.vehicles) {
                 let previous = self.committed.vehicles.slot(slot).state;
@@ -2139,6 +2169,8 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
             journal.finish_tick();
         }
         *self.journal = migration_journal;
+        self.committed.handoffs = handoffs;
+        self.derived.handoff_plans = handoff_plans;
         updates.publish(&mut self.committed.vehicles);
         self.commit_waiting_additions(&updates);
         self.commit_conflict_step();
@@ -2368,13 +2400,20 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                     if !within_window(distance) {
                         break;
                     }
-                    let blocked = compiled.conflicts[index..]
+                    let occupied = compiled.conflicts[index..]
                         .iter()
                         .take_while(|entry| entry.admission_hop == hop)
                         .any(|entry| {
                             conflict_read.cells_unavailable(state.handle(), &[entry.address()])
-                        })
-                        || overlay.conflict_denied_hop == Some(hop);
+                        });
+                    let blocked = overlay.conflict_denied_hop == Some(hop)
+                        || (occupied
+                            && match self.vehicle_state(state.handle()) {
+                                Some(vehicle) => self
+                                    .ordinary_platoon_truncation(vehicle, hop, conflict_read)?
+                                    .unwrap_or(true),
+                                None => true,
+                            });
                     if blocked {
                         conflict_stop = Some((hop, distance));
                     }
@@ -4557,7 +4596,44 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
                 )
             })
             .flatten();
-        if let Some(gate_stop) = gate_stop {
+        // 普通纵向运动到横移源边末端必须停车。跨过该出现的唯一途径是获准的横移。
+        let handoff_stop = compiled
+            .handoff_windows()
+            .get(
+                compiled
+                    .handoff_windows()
+                    .partition_point(|(i, _)| (*i as usize) < cursor),
+            )
+            .and_then(|(i, _)| {
+                crate::kernel::tables::distance_to_occurrence_start(
+                    &compiled.occurrence_segments,
+                    &compiled.occurrence_offsets,
+                    &compiled.segment_totals,
+                    cursor,
+                    position.progress_mm,
+                    *i as usize + 1,
+                )
+            });
+        let reserved = super::handoff::execution::reservation_stop(
+            &self.committed.handoffs,
+            compiled,
+            Some(state.handle()),
+            cursor,
+            position.progress_mm,
+            profile.min_gap_mm(),
+        );
+        let granted = super::handoff::execution::reservation_stop(
+            self.handoff_grants,
+            compiled,
+            Some(state.handle()),
+            cursor,
+            position.progress_mm,
+            profile.min_gap_mm(),
+        );
+        for gate_stop in [gate_stop, handoff_stop, reserved, granted]
+            .into_iter()
+            .flatten()
+        {
             movement_stop = match movement_stop {
                 Some(current) if !stop_is_nearer_or_equal(gate_stop, current) => Some(current),
                 Some(_) | None => Some(gate_stop),
@@ -5353,6 +5429,13 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
         speed_mm_s: u32,
         distance_mm: Option<u32>,
     ) -> bool {
+        if compiled
+            .handoff_windows()
+            .binary_search_by_key(&hop_index, |(i, _)| *i as usize)
+            .is_ok()
+        {
+            return false;
+        }
         match compiled.hop_gate.get(hop_index).copied().flatten() {
             Some(gate) => {
                 !self.gate_is_restrictive(gate, profile)
@@ -5644,12 +5727,39 @@ impl crate::kernel::phase::StepWorkspace<'_> {
 }
 
 impl crate::kernel::phase::StepWorkspace<'_> {
+    #[cfg(test)]
     pub(crate) fn stage_vehicle_transitions(
         &mut self,
         delta_s: f32,
         tick_index: u64,
         time_ms: u64,
         updates: &mut super::motion_updates::MotionUpdates,
+        execution: Option<&crate::kernel::execution::ExecutionResources>,
+    ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
+        self.stage_vehicle_transitions_with_handoffs(
+            delta_s,
+            tick_index,
+            time_ms,
+            updates,
+            &[],
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut false,
+            execution,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stage_vehicle_transitions_with_handoffs(
+        &mut self,
+        delta_s: f32,
+        tick_index: u64,
+        time_ms: u64,
+        updates: &mut super::motion_updates::MotionUpdates,
+        requests: &[crate::RouteHandoffRequest],
+        handoffs: &mut Vec<super::handoff::execution::ActiveRouteHandoff>,
+        plans: &mut Vec<std::sync::Arc<super::handoff::execution::PreparedRouteHandoff>>,
+        changed_handoffs: &mut bool,
         execution: Option<&crate::kernel::execution::ExecutionResources>,
     ) -> Result<Vec<ParkingArrivalObservation>, StepError> {
         #[cfg(test)]
@@ -5665,6 +5775,11 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         drop(conflict_evidence);
         #[cfg(test)]
         injected_step_failure(StepFailpoint::AfterGrants)?;
+        let grants = self.grant_handoffs(requests, tick_index)?;
+        if !grants.records.is_empty() {
+            // P2 预览没有本拍新增的保护，不能把旧速度或旧运动提案用于 P5。
+            self.workspace.clear_motion_cache();
+        }
         let mut parking_arrivals = Vec::new();
         #[cfg(test)]
         let motion_timer =
@@ -5675,6 +5790,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
         // 与 read_view 相同的字段级只读投影：持有 committed/derived 借用期间
         // 仍可独占 workspace 字段完成发现、槽位写入与规范消费。
         let read = crate::kernel::phase::StepReadView {
+            handoff_grants: &grants.records,
             binding: self.binding,
             committed: &self.committed,
             derived: &self.derived,
@@ -5688,6 +5804,7 @@ impl crate::kernel::phase::StepWorkspace<'_> {
             &mut parking_arrivals,
             updates,
         )?;
+        *changed_handoffs = self.stage_handoffs(&grants, updates, handoffs, plans)?;
         #[cfg(test)]
         drop(motion_timer);
         #[cfg(feature = "execution-evidence")]
@@ -7269,6 +7386,7 @@ mod preview {
     fn distant_speed_drop_preserves_candidate_but_near_drop_keeps_solver_rounding() {
         let mut route = CompiledRoute {
             edges: vec![LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)],
+            handoff_windows: Box::default(),
             maneuvers: Vec::new(),
             hop_gate: vec![None, None],
             gate_hops: Vec::new(),
@@ -7277,9 +7395,9 @@ mod preview {
                 BoundedDistance::Finite(75_266),
                 BoundedDistance::Finite(1_000),
             ],
-            occurrence_segments: vec![0, 0],
-            occurrence_offsets: vec![0, 74_266],
-            segment_totals: vec![75_266],
+            occurrence_segments: Box::new([0, 0]),
+            occurrence_offsets: Box::new([0, 74_266]),
+            segment_totals: Box::new([75_266]),
             edge_occurrence_index: Box::default(),
             next_controlled: vec![None, None],
             speed_limit_drop: vec![crate::kernel::tables::SpeedLimitDrop {
@@ -7349,7 +7467,7 @@ mod preview {
         )
         .unwrap();
         assert_eq!(far.to_bits(), candidate.to_bits());
-        route.occurrence_offsets.clear();
+        route.occurrence_offsets = Box::default();
         assert!(
             columnar_motion::speed_drop_may_constrain(&route, &inputs, 0, 0, 0.033),
             "missing distance keeps full path"

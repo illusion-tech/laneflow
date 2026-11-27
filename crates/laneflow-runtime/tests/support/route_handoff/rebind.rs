@@ -58,6 +58,7 @@ fn other_module(extra_road: bool) -> RoadEditingSourceModule {
 
 fn compile(
     sources: &[HandoffSourceModule<'_>],
+    diff_base: PortableDiffBase<'_>,
 ) -> (
     TrafficWorld,
     PostEmissionCheckedBundle<ImmutableObjectSource, ImmutableObjectSource, ImmutableObjectSource>,
@@ -75,7 +76,7 @@ fn compile(
         &output,
         &PortableEmissionProvenance::try_new("rebind-route").unwrap(),
         FormatLimits::HARD,
-        PortableDiffBase::Genesis,
+        diff_base,
     )
     .unwrap();
     let owned = |bytes: &[u8]| ImmutableObjectSource::from_boxed_bytes(bytes.into());
@@ -105,7 +106,8 @@ fn compile(
                 route_conflict_occurrence_capacity: 32,
                 fixed_delta_time_ms: 100,
             })
-            .expect("有效的交通配置"),
+            .expect("有效的交通配置")
+            .with_handoff_driving(super::registration::driving()),
         )
         .unwrap(),
         checked,
@@ -156,9 +158,15 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
             ..new_modules[1]
         },
     ];
-    let (mut base, base_artifact) = compile(&base_modules);
-    let (mut target, target_artifact) = compile(&new_modules);
-    let (mut shifted, shifted_artifact) = compile(&shifted_modules);
+    let (mut base, base_artifact) = compile(&base_modules, PortableDiffBase::Genesis);
+    let (mut target, target_artifact) = compile(
+        &new_modules,
+        PortableDiffBase::Artifact(base_artifact.canonical_artifact_view()),
+    );
+    let (mut shifted, shifted_artifact) = compile(
+        &shifted_modules,
+        PortableDiffBase::Artifact(base_artifact.canonical_artifact_view()),
+    );
     assert_ne!(
         base.revision().network_revision(),
         target.revision().network_revision()
@@ -202,7 +210,7 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
         source_index: 5,
         owner: BoundaryOwner::Section(r.authoring_section(source_lane).unwrap()),
         left_index: 0,
-        stations_nm: [24_000_000_000, 26_000_000_000],
+        stations_mm: [24_000, 26_000],
     };
     let binding = base.bind_route_handoff(&route, occurrence).unwrap();
     let rebound = target.rebind_route_handoff(&binding, &old, &new).unwrap();
@@ -211,8 +219,8 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
         target.revision().network_revision()
     );
     assert_eq!(
-        rebound.boundary_at(5).unwrap().window().stations_nm,
-        occurrence.stations_nm
+        rebound.boundary_at(5).unwrap().window().stations_mm,
+        occurrence.stations_mm
     );
     let expected_edges = ["s2", "t1"].map(|k| edge(&target, k));
     assert_ne!(
@@ -229,8 +237,8 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
             .identity()
             .stable_id(conflict_profile(&base.revision(), "car"))
             .unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [10_000, 40_000],
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     };
@@ -251,7 +259,7 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
             &[
                 RouteHandoffOccurrence {
                     source_index: 0,
-                    stations_nm: [24_000_000_000, 25_000_000_000],
+                    stations_mm: [24_000, 25_000],
                     ..occurrence
                 },
                 RouteHandoffOccurrence {
@@ -265,7 +273,7 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
     for &(index, boundary) in both.windows() {
         let restored = rebound_both.boundary_at(index).unwrap();
         assert_eq!(restored.window().edges, expected_edges);
-        assert_eq!(restored.window().stations_nm, boundary.window().stations_nm);
+        assert_eq!(restored.window().stations_mm, boundary.window().stations_mm);
     }
     let first = target
         .preview_route_handoff_at(&rebound_both, 0, &trial)
@@ -308,4 +316,166 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
         Err(Failure::Binding)
     ));
     assert_eq!(before, [&base, &target, &shifted].map(state));
+
+    let registered = base
+        .register_route(route.clone().with_handoffs(vec![occurrence]))
+        .unwrap();
+    let descriptor = |world: &TrafficWorld, other: &TrafficWorld, hash, length| {
+        use laneflow_runtime::{
+            LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
+            SemanticDiffOriginBinding,
+        };
+        NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(*world.revision().canonical_origin()),
+            LfcaOriginBinding::from_canonical_origin(*other.revision().canonical_origin()),
+            Some(SemanticDiffOriginBinding::new(
+                laneflow_static_contract::SEMANTIC_DIFF_FORMAT_VERSION,
+                hash,
+                length,
+            )),
+            MigrationPolicyKind::CrossRevisionDirect,
+            world.world_binding(),
+        )
+    };
+    let bounds = laneflow_runtime::CutoverPreflightLimits::new(64 << 20);
+    let tx_limits = laneflow_runtime::CutoverTransactionLimits::default();
+    for start_before_prepare in [true, false] {
+        use laneflow_runtime::{CutoverError, RouteHandoffRequest, TickInput, VehicleSpawnInput};
+        let mut driving = install_fixture(base.revision(), base.config()).unwrap();
+        let edges = ["s0", "s1", "s2", "t1", "t2"].map(|id| edge(&driving, id));
+        let route = driving
+            .register_route(RouteRegisterInput::new(edges.to_vec()).with_handoffs(vec![
+                RouteHandoffOccurrence {
+                    source_index: 2,
+                    ..occurrence
+                },
+            ]))
+            .unwrap();
+        let vehicle = driving
+            .spawn_vehicle(VehicleSpawnInput::new(
+                conflict_profile(&driving.revision(), "car"),
+                route,
+                1,
+                3400,
+                2000,
+            ))
+            .unwrap();
+        let request = RouteHandoffRequest {
+            vehicle,
+            route,
+            source_index: 2,
+            revision: driving.revision().network_revision(),
+            station_window_mm: [0, 50_000],
+            rear_stations_mm: [10_000, 40_000],
+            speed_m_s: 3.,
+            limits: GeometryWorkLimits::STANDARD,
+        };
+        let advance = |w: &mut TrafficWorld| {
+            w.step_with_route_handoffs(TickInput::new(100), &[request])
+                .unwrap();
+            assert!(w.vehicle_route_handoffs(vehicle).next().is_some());
+        };
+        if start_before_prepare {
+            advance(&mut driving);
+        }
+        let descriptor = descriptor(
+            &driving,
+            &target,
+            target_artifact.semantic_diff_digest(),
+            target_artifact.semantic_diff_byte_length(),
+        );
+        let before = state(&driving);
+        let preparation = driving.prepare_cross_revision_cutover_with_sources(
+            target.revision(),
+            target.committed_source().clone(),
+            &descriptor,
+            target_artifact.semantic_diff_view().bytes(),
+            &bounds,
+            &tx_limits,
+            Some((&old, &new)),
+        );
+        if start_before_prepare {
+            assert!(matches!(preparation, Err(CutoverError::ActiveHandoff)));
+            assert_eq!(state(&driving), before);
+        } else {
+            let mut transaction = preparation.unwrap();
+            advance(&mut driving);
+            driving.despawn_vehicle(vehicle).unwrap();
+            let after_release = state(&driving);
+            assert!(driving.vehicle_route_handoffs(vehicle).next().is_none());
+            assert_eq!(
+                transaction.pump(&mut driving),
+                Err(CutoverError::ActiveHandoff)
+            );
+            assert_eq!(state(&driving), after_release);
+        }
+    }
+    let target_descriptor = descriptor(
+        &base,
+        &target,
+        target_artifact.semantic_diff_digest(),
+        target_artifact.semantic_diff_byte_length(),
+    );
+    let shifted_descriptor = descriptor(
+        &base,
+        &shifted,
+        shifted_artifact.semantic_diff_digest(),
+        shifted_artifact.semantic_diff_byte_length(),
+    );
+    let before = state(&base);
+    assert!(matches!(
+        base.prepare_cross_revision_cutover(
+            target.revision(),
+            target.committed_source().clone(),
+            &target_descriptor,
+            target_artifact.semantic_diff_view().bytes(),
+            &bounds,
+            &tx_limits
+        ),
+        Err(laneflow_runtime::CutoverError::RouteRevalidationFailed)
+    ));
+    assert!(matches!(
+        base.prepare_cross_revision_cutover_with_sources(
+            shifted.revision(),
+            shifted.committed_source().clone(),
+            &shifted_descriptor,
+            shifted_artifact.semantic_diff_view().bytes(),
+            &bounds,
+            &tx_limits,
+            Some((&old, &changed))
+        ),
+        Err(laneflow_runtime::CutoverError::RouteRevalidationFailed)
+    ));
+    assert_eq!(state(&base), before);
+    let mut transaction = base
+        .prepare_cross_revision_cutover_with_sources(
+            target.revision(),
+            target.committed_source().clone(),
+            &target_descriptor,
+            target_artifact.semantic_diff_view().bytes(),
+            &bounds,
+            &tx_limits,
+            Some((&old, &new)),
+        )
+        .unwrap();
+    let second = base
+        .register_route(route.with_handoffs(vec![RouteHandoffOccurrence {
+            stations_mm: [24_000, 25_000],
+            ..occurrence
+        }]))
+        .unwrap();
+    assert!(transaction.pump(&mut base).unwrap().caught_up);
+    let _commit = transaction.commit(&mut base).unwrap();
+    assert_eq!(
+        base.revision().network_revision(),
+        target.revision().network_revision()
+    );
+    for (handle, high) in [(registered, 26_000), (second, 25_000)] {
+        let windows = base.route_handoff_windows(handle).unwrap();
+        assert_eq!(windows.len(), 1);
+        let (index, b) = windows[0];
+        assert_eq!(index, 5);
+        assert_eq!(b.window().edges, expected_edges);
+        assert_eq!(b.window().stations_mm, [24_000, high]);
+    }
 }

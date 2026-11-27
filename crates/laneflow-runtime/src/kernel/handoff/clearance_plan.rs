@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::num::NonZeroU64;
+use std::num::NonZeroU32;
 
 use laneflow_static_contract::MAX_SPEED_MM_S;
 use laneflow_static_network::vehicle::{Failure, HandoffOutcome, SideClearanceSegment};
@@ -10,21 +10,27 @@ use super::{BoundRouteHandoff, ClearanceSpeedCurve, RouteHandoffTrial, RouteHand
 use crate::TrafficWorld;
 
 /// 动态换道的显式驾驶配置。拍间试算从调用方读取；两个尺度都参与行为重建。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HandoffDrivingConfig {
     /// 从已证绝对侧向余量换算速度上限。
     pub curve: ClearanceSpeedCurve,
-    /// 每个侧向几何段的最大后轴参数跨度（纳米）。
-    pub max_span_nm: NonZeroU64,
-    /// 同一候选累计三维行程求界的最大宽度（纳米）。
-    pub travel_tolerance_nm: NonZeroU64,
+    /// 每个侧向几何段的最大后轴参数跨度（毫米）。
+    pub max_span_mm: NonZeroU32,
+    /// 同一候选累计三维行程求界的最大宽度（毫米）。
+    pub travel_tolerance_mm: NonZeroU32,
+}
+
+impl HandoffDrivingConfig {
+    pub(crate) fn travel_tolerance_nm(&self) -> u64 {
+        super::tolerance_nanometres(self.travel_tolerance_mm)
+    }
 }
 
 /// 后轴实际累计行程中须遵守同一侧向限速的闭区间。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClearanceSpeedWindow {
-    /// 进入向下、离开向上取整到微米；两端都受此上限约束。
-    pub travel_um: [u64; 2],
+    /// 受限的整数毫米格，含首末两格；格 m 覆盖 [m, m+1) 毫米。
+    pub travel_mm: [u64; 2],
     /// 此范围的最大通过速度（毫米/秒）。
     pub speed_mm_s: u32,
 }
@@ -101,7 +107,7 @@ fn speed_runs(
     let mut speeds = Vec::new();
     for segment in segments {
         let speed = segment.clearance.map_or(MAX_SPEED_MM_S, |c| {
-            curve.speed_cap_mm_s(c.lower_micrometres())
+            curve.speed_cap_mm_s(c.lower_millimetres())
         });
         if speeds.last() == Some(&speed)
             && let Some(last) = ends.last_mut()
@@ -120,15 +126,15 @@ fn speed_runs(
     Ok((ends, speeds))
 }
 
-// 边界求界可互相重叠。按闭区间取全部有效上限的最小值，解除时刻是末端后一微米。
+// 边界求界可互相重叠。按闭区间取全部有效上限的最小值，解除时刻是末端格的下一毫米。
 fn minimum_envelope(
     mut spans: Vec<ClearanceSpeedWindow>,
 ) -> Result<Vec<ClearanceSpeedWindow>, RouteHandoffSpeedPlanError> {
-    spans.sort_unstable_by_key(|w| w.travel_um[0]);
+    spans.sort_unstable_by_key(|w| w.travel_mm[0]);
     let Some(first) = spans.first() else {
         return Ok(spans);
     };
-    let mut at = first.travel_um[0];
+    let mut at = first.travel_mm[0];
     let mut starts = spans.iter().peekable();
     let mut active = BinaryHeap::new();
     active
@@ -136,30 +142,30 @@ fn minimum_envelope(
         .map_err(|_| RouteHandoffSpeedPlanError::Allocation)?;
     let mut out: Vec<ClearanceSpeedWindow> = Vec::new();
     loop {
-        while let Some(w) = starts.next_if(|w| w.travel_um[0] <= at) {
-            active.push(Reverse((w.speed_mm_s, w.travel_um[1])));
+        while let Some(w) = starts.next_if(|w| w.travel_mm[0] <= at) {
+            active.push(Reverse((w.speed_mm_s, w.travel_mm[1])));
         }
         while active.peek().is_some_and(|&Reverse((_, end))| end < at) {
             active.pop();
         }
-        let next_start = starts.peek().map(|w| w.travel_um[0]);
+        let next_start = starts.peek().map(|w| w.travel_mm[0]);
         let Some(&Reverse((speed, end))) = active.peek() else {
             let Some(next) = next_start else { break };
             at = next;
             continue;
         };
-        // 来自 u64 纳米上界，向上量化到微米后至少保留三个十进制数量级的余量。
+        // 来自 u64 纳米上界，换算成整数毫米格后可安全加一。
         let next = next_start.map_or(end + 1, |s| s.min(end + 1));
         if let Some(last) = out.last_mut()
             && last.speed_mm_s == speed
-            && last.travel_um[1] + 1 == at
+            && last.travel_mm[1] + 1 == at
         {
-            last.travel_um[1] = next - 1;
+            last.travel_mm[1] = next - 1;
         } else {
             out.try_reserve(1)
                 .map_err(|_| RouteHandoffSpeedPlanError::Allocation)?;
             out.push(ClearanceSpeedWindow {
-                travel_um: [at, next - 1],
+                travel_mm: [at, next - 1],
                 speed_mm_s: speed,
             });
         }
@@ -199,17 +205,26 @@ impl TrafficWorld {
         config: &HandoffDrivingConfig,
     ) -> Result<RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError> {
         let preview = self.preview_route_handoff_at(binding, source_index, trial)?;
-        let path = preview
+        preview.speed_plan(trial, config, self.config().fixed_delta_time_ms() as u32)
+    }
+}
+
+impl super::RouteHandoffPreview<'_> {
+    pub(crate) fn speed_plan(
+        &self,
+        trial: &RouteHandoffTrial,
+        config: &HandoffDrivingConfig,
+        fixed_delta_ms: u32,
+    ) -> Result<RouteHandoffSpeedPlan, RouteHandoffSpeedPlanError> {
+        let path = self
             .trajectory
             .as_ref()
-            .ok_or(RouteHandoffSpeedPlanError::Unlocated(
-                preview.report.outcome,
-            ))?;
+            .ok_or(RouteHandoffSpeedPlanError::Unlocated(self.report.outcome))?;
         let evidence = path.revision.handoff_side_clearances(
             &path.query,
             path.window,
             path.body,
-            config.max_span_nm.get(),
+            u64::from(config.max_span_mm.get()) * 1_000_000,
             trial.limits.sweep,
         );
         let segments =
@@ -225,7 +240,7 @@ impl TrafficWorld {
             &path.query,
             path.window,
             &ends,
-            config.travel_tolerance_nm.get(),
+            config.travel_tolerance_nm(),
             trial.limits.tracks,
         );
         let distances =
@@ -243,7 +258,7 @@ impl TrafficWorld {
                     .try_reserve(1)
                     .map_err(|_| RouteHandoffSpeedPlanError::Allocation)?;
                 spans.push(ClearanceSpeedWindow {
-                    travel_um: [start_nm / 1_000, end_nm[1].div_ceil(1_000)],
+                    travel_mm: [start_nm / 1_000_000, end_nm[1] / 1_000_000],
                     speed_mm_s: speed,
                 });
             }
@@ -251,14 +266,14 @@ impl TrafficWorld {
         }
         Ok(RouteHandoffSpeedPlan {
             windows: minimum_envelope(spans)?,
-            length_lower_um: start_nm / 1_000,
+            length_lower_um: start_nm / 1_000_000 * 1_000,
             admitted_speed_mm_s: admitted_speed_mm_s(trial.speed_m_s),
-            fixed_delta_ms: self.config().fixed_delta_time_ms() as u32,
+            fixed_delta_ms,
             comfort_decel: path.comfort_decel,
-            admission_work: preview.report.work
-                + preview.side_access_work
-                + preview.stop_line_work
-                + preview
+            admission_work: self.report.work
+                + self.side_access_work
+                + self.stop_line_work
+                + self
                     .report
                     .geometry
                     .map_or(0, |g| g.tracks.work + g.sweep.work),
@@ -283,11 +298,11 @@ mod tests {
 
         let curve = ClearanceSpeedCurve::try_new(vec![
             ClearanceSpeedPoint {
-                clearance_um: 0,
+                clearance_mm: 0,
                 speed_mm_s: 1_000,
             },
             ClearanceSpeedPoint {
-                clearance_um: 1_000,
+                clearance_mm: 1,
                 speed_mm_s: MAX_SPEED_MM_S,
             },
         ])
@@ -299,11 +314,11 @@ mod tests {
         };
         let gaps_m = [
             None,
-            Some(0.5e-6),
-            Some(0.75e-6),
+            Some(0.0005),
+            Some(0.00075),
             None,
             Some(1.),
-            Some(0.25e-6),
+            Some(0.00025),
             None,
         ];
         let segments: Vec<_> = gaps_m
@@ -339,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_closed_windows_keep_the_lowest_limit_at_each_micrometre() {
+    fn overlapping_closed_windows_keep_the_lowest_limit_at_each_millimetre() {
         let spans = [
             (10, 15, 120),
             (0, 10, 400),
@@ -348,7 +363,7 @@ mod tests {
             (20, 25, 100),
         ]
         .map(|(start, end, speed)| ClearanceSpeedWindow {
-            travel_um: [start, end],
+            travel_mm: [start, end],
             speed_mm_s: speed,
         });
         let actual = minimum_envelope(spans.to_vec()).unwrap();
@@ -356,14 +371,14 @@ mod tests {
             let limits_at = |windows: &[ClearanceSpeedWindow]| {
                 windows
                     .iter()
-                    .filter(|w| (w.travel_um[0]..=w.travel_um[1]).contains(&at))
+                    .filter(|w| (w.travel_mm[0]..=w.travel_mm[1]).contains(&at))
                     .map(|w| w.speed_mm_s)
                     .min()
             };
-            assert_eq!(limits_at(&actual), limits_at(&spans), "行程 {at} 微米");
+            assert_eq!(limits_at(&actual), limits_at(&spans), "行程 {at} 毫米");
         }
         assert_eq!(
-            actual.iter().map(|w| w.travel_um).collect::<Vec<_>>(),
+            actual.iter().map(|w| w.travel_mm).collect::<Vec<_>>(),
             [[0, 9], [10, 18], [20, 25]]
         );
     }

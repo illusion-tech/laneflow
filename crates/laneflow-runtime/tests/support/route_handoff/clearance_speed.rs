@@ -6,7 +6,7 @@ use laneflow_runtime::{
 };
 use laneflow_static_contract::MAX_SPEED_MM_S;
 use laneflow_static_network::vehicle::{Failure, SweepOutcome};
-use std::num::NonZeroU64;
+use std::num::NonZeroU32;
 
 fn world_with_post(
     base_m: f64,
@@ -83,7 +83,7 @@ fn world_with_post(
                 source_index: 2,
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [24_000_000_000, 26_000_000_000],
+                stations_mm: [24_000, 26_000],
             },
         )
         .unwrap();
@@ -92,8 +92,8 @@ fn world_with_post(
             .identity()
             .stable_id(conflict_profile(&revision, "car"))
             .unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [start, end].map(|s| s * 1_000_000_000),
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [start, end].map(|s| s * 1_000),
         speed_m_s: 8.,
         limits: GeometryWorkLimits::STANDARD,
     };
@@ -104,17 +104,17 @@ fn driving_config() -> HandoffDrivingConfig {
     HandoffDrivingConfig {
         curve: ClearanceSpeedCurve::try_new(vec![
             ClearanceSpeedPoint {
-                clearance_um: 50_000,
+                clearance_mm: 50,
                 speed_mm_s: 1_000,
             },
             ClearanceSpeedPoint {
-                clearance_um: 150_000,
+                clearance_mm: 150,
                 speed_mm_s: MAX_SPEED_MM_S,
             },
         ])
         .unwrap(),
-        max_span_nm: NonZeroU64::new(3_000_000_000).unwrap(),
-        travel_tolerance_nm: NonZeroU64::new(5_000_000).unwrap(),
+        max_span_mm: NonZeroU32::new(3_000).unwrap(),
+        travel_tolerance_mm: NonZeroU32::new(5).unwrap(),
     }
 }
 
@@ -142,9 +142,9 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
     };
     assert_eq!(slow.speed_mm_s, 1_000);
     // 先于路墩的候选头部、车尾越过路墩的候选末部都允许较高车速。
-    assert!(slow.travel_um[0] > 2_000_000, "{plan:?}");
+    assert!(slow.travel_mm[0] > 2_000, "{plan:?}");
     assert!(
-        slow.travel_um[1] + 2_000_000 < plan.length_lower_um(),
+        slow.travel_mm[1] * 1_000 + 2_000_000 < plan.length_lower_um(),
         "{plan:?}"
     );
     assert_eq!(
@@ -154,28 +154,28 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
         2_000
     );
     assert_eq!(
-        plan.preview_braking_step(slow.travel_um[1], 1_000, 1_200)
+        plan.preview_braking_step(slow.travel_mm[1] * 1_000, 1_000, 1_200)
             .unwrap()
             .next_speed_mm_s,
         1_000
     );
     assert_eq!(
-        plan.preview_braking_step(slow.travel_um[1] + 1, 1_000, 1_200)
+        plan.preview_braking_step((slow.travel_mm[1] + 1) * 1_000, 1_000, 1_200)
             .unwrap()
             .next_speed_mm_s,
         1_200
     );
     // 2 m/s 降至 1 m/s，服务减速度 3 m/s² 时需要整 0.5 m。100 ms 拍末为 1.7 m/s。
     let braking = plan
-        .preview_braking_step(slow.travel_um[0] - 500_000, 2_000, 2_000)
+        .preview_braking_step((slow.travel_mm[0] * 1_000) - 500_000, 2_000, 2_000)
         .unwrap();
     assert_eq!(
         (braking.next_speed_mm_s, braking.travel_upper_um),
         (1_700, 185_000)
     );
 
-    let mut tiny_segments = config.clone();
-    tiny_segments.max_span_nm = NonZeroU64::MIN;
+    let mut tiny_segments = config;
+    tiny_segments.max_span_mm = NonZeroU32::MIN;
     assert!(matches!(
         compute(&tiny_segments),
         Err(RouteHandoffSpeedPlanError::Clearance {
@@ -185,18 +185,24 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
     ));
     assert_eq!(snapshot(), before);
 
-    // 路墩向外平移 1 mm，使已证余量从约 49.28 mm 增至 50.26 mm，进入插值段。
-    let (wider, binding, trial) = world_with_post(0., PASSING_OFFSET_M - 0.001, Forward);
-    let wider_plan = wider
-        .preview_route_handoff_speed_plan(&binding, 2, &trial, &config)
-        .unwrap();
-    let [wider_window] = wider_plan.windows() else {
-        panic!("{wider_plan:?}")
-    };
-    assert!(
-        (1_001..2_000).contains(&wider_window.speed_mm_s),
-        "{wider_window:?}"
-    );
+    // 逐次把立柱外移一毫米。整毫米下界从 50 变为 51 时，
+    // 曲线由首点的 1,000 毫米/秒进入首个插值档 1,990 毫米/秒。
+    let mut previous = slow.speed_mm_s;
+    let mut crossed = false;
+    for offset_mm in 1..=8 {
+        let offset_m = PASSING_OFFSET_M - f64::from(offset_mm) / 1_000.;
+        let (wider, binding, trial) = world_with_post(0., offset_m, Forward);
+        let plan = wider
+            .preview_route_handoff_speed_plan(&binding, 2, &trial, &config)
+            .unwrap();
+        let [window] = plan.windows() else {
+            panic!("{plan:?}")
+        };
+        assert!(window.speed_mm_s >= previous);
+        crossed |= (previous, window.speed_mm_s) == (1_000, 1_990);
+        previous = window.speed_mm_s;
+    }
+    assert!(crossed);
 
     let (other, binding, trial) = world_with_post(4., PASSING_OFFSET_M, Forward);
     let raised = other
@@ -205,7 +211,7 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
     assert!(raised.windows().is_empty(), "{raised:?}");
     assert_eq!(
         raised
-            .preview_braking_step(slow.travel_um[0], 2_000, 2_000)
+            .preview_braking_step(slow.travel_mm[0] * 1_000, 2_000, 2_000)
             .unwrap()
             .next_speed_mm_s,
         2_000
@@ -241,15 +247,15 @@ fn decreasing_station_brakes_before_the_post_and_releases_after_rear_clearance()
         panic!("{plan:?}")
     };
     assert_eq!(slow.speed_mm_s, 1_000);
-    let [entry, exit] = slow.travel_um;
+    let [entry, exit] = slow.travel_mm.map(|mm| mm * 1_000);
     // 车从 40 米站位驶向 10 米；22 米端帽之前、整车仍与它并行和车尾清空时，
     // 三个后轴站位分别落在限速窗口之前、之中和之后。
     let preview = world.preview_route_handoff(&binding, &trial).unwrap();
     let at_station = |metres: u64| {
         preview
             .travel(
-                HandoffTravelTarget::RearStationNm(metres * 1_000_000_000),
-                config.travel_tolerance_nm.get(),
+                RouteHandoffTravelTarget::RearStationMm(metres * 1_000),
+                config.travel_tolerance_mm,
                 trial.limits.tracks,
             )
             .unwrap()
@@ -274,7 +280,7 @@ fn decreasing_station_brakes_before_the_post_and_releases_after_rear_clearance()
         1_000
     );
     assert_eq!(
-        plan.preview_braking_step(exit + 1, 1_000, 1_200)
+        plan.preview_braking_step(exit + 1_000, 1_000, 1_200)
             .unwrap()
             .next_speed_mm_s,
         1_200

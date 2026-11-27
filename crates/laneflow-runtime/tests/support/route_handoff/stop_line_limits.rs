@@ -40,11 +40,11 @@ fn both_stop_lines_share_one_sweep_and_report_its_work_on_target_failure() {
                     source_index: 2,
                     owner: BoundaryOwner::Section(section),
                     left_index: 0,
-                    stations_nm: [14_000_000_000, 25_000_000_000],
+                    stations_mm: [14_000, 25_000],
                 },
             )
             .unwrap();
-        let mut trial = car_trial(&revision, rear_m.map(|m| m * 1_000_000_000));
+        let mut trial = car_trial(&revision, rear_m.map(|m| m * 1_000));
         trial.limits.sweep = budget;
         let check = world.preview_route_handoff(&binding, &trial)?;
         assert!(
@@ -109,12 +109,12 @@ fn reverse_handoff_uses_the_original_sweep_budget_to_clear_the_source_stop_line(
                     source_index: 2,
                     owner: BoundaryOwner::Section(section),
                     left_index: 0,
-                    stations_nm: [start - 16, start - 14].map(|s| s * 1_000_000_000),
+                    stations_mm: [start - 16, start - 14].map(|s| s * 1_000),
                 },
             )
             .unwrap()
     };
-    let trial = |start: u64| car_trial(&revision, [start, start - 30].map(|s| s * 1_000_000_000));
+    let trial = |start: u64| car_trial(&revision, [start, start - 30].map(|s| s * 1_000));
     let binding = bind(46, 1);
     let relations = revision.traffic().relations();
     let source_lane = relations.lane_edge_authoring_lane(src[2]).unwrap();
@@ -188,11 +188,11 @@ fn target_access_denial_precedes_source_stop_line_sweep() {
                 source_index: 2,
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [18_000_000_000, 20_000_000_000],
+                stations_mm: [18_000, 20_000],
             },
         )
         .unwrap();
-    let mut trial = car_trial(&revision, [4_000_000_000, 34_000_000_000]);
+    let mut trial = car_trial(&revision, [4_000, 34_000]);
     let full = world.preview_route_handoff(&binding, &trial).unwrap();
     assert!(matches!(
         full.report.outcome,

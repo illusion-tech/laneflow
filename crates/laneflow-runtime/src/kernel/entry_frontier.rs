@@ -1584,6 +1584,7 @@ fn collect_targets(
         return Ok(());
     }
     let read = crate::kernel::phase::StepReadView {
+        handoff_grants: &[],
         binding: step.binding,
         committed: &step.committed,
         derived: &step.derived,

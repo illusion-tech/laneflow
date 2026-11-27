@@ -50,21 +50,28 @@ impl crate::kernel::state::WorldState {
                 EntranceBodyError::InvalidBinding,
             ));
         }
-        let edges = self
-            .route_edges(input.route())
+        let route = self
+            .compiled_route(input.route())
             .ok_or(crate::SpawnError::UnknownRoute)?;
         let cursor = usize::try_from(input.route_edge_index())
             .map_err(|_| crate::SpawnError::InvalidProgress)?;
+        let start = route.ordinary_leg_start(cursor);
+        let edges = &route.edges[start..];
         let uncovered = uncovered_tail_mm(
             self.binding.revision.traffic().lane_lengths_millimetres(),
             edges,
-            cursor,
+            cursor - start,
             input.progress_mm(),
             vehicle_length_mm,
         )
         .ok_or(crate::SpawnError::InvalidProgress)?;
         if uncovered == 0 {
             return Ok(());
+        }
+        if start != 0 {
+            return Err(crate::SpawnError::EntranceBody(
+                EntranceBodyError::HandoffStraddled,
+            ));
         }
         let first = *edges.first().ok_or(crate::SpawnError::UnknownRoute)?;
         if self.route_start_has_upstream(first)? {

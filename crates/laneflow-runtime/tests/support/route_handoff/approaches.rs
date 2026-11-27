@@ -37,14 +37,14 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
                 source_index: 2,
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [24_000_000_000, 26_000_000_000],
+                stations_mm: [24_000, 26_000],
             },
         )
         .unwrap();
     let trial = RouteHandoffTrial {
         profile: revision.identity().stable_id(profile).unwrap(),
-        station_window_nm: [0, 50_000_000_000],
-        rear_stations_nm: [10_000_000_000, 40_000_000_000],
+        station_window_mm: [0, 50_000],
+        rear_stations_mm: [10_000, 40_000],
         speed_m_s: 10.,
         limits: GeometryWorkLimits::STANDARD,
     };
@@ -54,7 +54,7 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
             2,
             &trial,
             12_500_000..=13_500_000,
-            5_000_000,
+            TRAVEL_TOLERANCE_MM,
             work,
         )
     };
@@ -65,8 +65,8 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
     let travel_work = |distance_um| {
         preview
             .travel(
-                HandoffTravelTarget::DistanceNm(distance_um * 1_000),
-                5_000_000,
+                RouteHandoffTravelTarget::DistanceUm(distance_um),
+                TRAVEL_TOLERANCE_MM,
                 trial.limits.tracks,
             )
             .unwrap()
@@ -82,7 +82,7 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
             2,
             &trial,
             12_500_000..=12_500_000,
-            5_000_000,
+            TRAVEL_TOLERANCE_MM,
             0,
         )
         .unwrap();
@@ -119,11 +119,11 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
     let check = probe(&world, u32::MAX).unwrap();
     let blocked = check.entrants.side_blockers[1].as_ref().unwrap();
     assert_eq!(blocked.vehicle, target);
-    assert_eq!(blocked.distance_um, 8_000_000);
+    assert_eq!(blocked.distance_mm, 8_000);
     assert_eq!(
         blocked.reason,
         RouteHandoffEntrantReason::CannotStop {
-            required_um: Some(20_666_667),
+            required_mm: Some(20_667),
             may_reach_this_tick: false,
         }
     );
@@ -144,8 +144,8 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
         after.entrants.side_blockers[1]
             .as_ref()
             .unwrap()
-            .distance_um
-            < blocked.distance_um
+            .distance_mm
+            < blocked.distance_mm
     );
     world.despawn_vehicle(target).unwrap();
     let slow = world
@@ -174,7 +174,7 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
                 2,
                 &trial,
                 invalid,
-                5_000_000,
+                TRAVEL_TOLERANCE_MM,
                 u32::MAX
             ),
             Err(RouteHandoffApproachError::InvalidTravelRange),

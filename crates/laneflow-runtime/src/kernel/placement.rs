@@ -518,6 +518,37 @@ impl crate::kernel::state::WorldState {
             .expect("未停车校验已经解析过车辆 profile");
         let emergency = profile.emergency_decel();
         let cursor = usize::try_from(input.route_edge_index()).expect("route index fits usize");
+        if !self.committed.handoffs.is_empty() {
+            let route = self.compiled_route(input.route()).expect("validated route");
+            if self.placement_overlaps_handoff(
+                route,
+                cursor,
+                input.progress_mm(),
+                vehicle_length_mm,
+            ) {
+                return Err(FreshAdmissionFailure::StopConstraint);
+            }
+            if let Some(BoundedDistance::Finite(room_mm)) =
+                super::handoff::execution::reservation_stop(
+                    &self.committed.handoffs,
+                    route,
+                    None,
+                    cursor,
+                    input.progress_mm(),
+                    0,
+                )
+            {
+                let required = super::lane_change::service_stop_distance_um(
+                    input.initial_speed_mm_s(),
+                    self.binding.config.fixed_delta_time_ms(),
+                    profile.comfort_decel(),
+                    profile.min_gap_mm(),
+                );
+                if required.is_none_or(|um| um > u64::from(room_mm) * 1_000) {
+                    return Err(FreshAdmissionFailure::StopConstraint);
+                }
+            }
+        }
         if let Some(distance_mm) = self.restrictive_stop_mm(
             input.route(),
             input.route_edge_index(),
@@ -554,6 +585,37 @@ impl crate::kernel::state::WorldState {
         self.admit_own_motion(input, profile, vehicle_length_mm, delta_s, update_sequence)?;
         self.admit_nearest_leader(input, profile, vehicle_length_mm, delta_s, update_sequence)?;
         self.admit_direct_followers(input, vehicle_length_mm, delta_s)
+    }
+
+    /// 生成、替换与出库均不得向其他车辆仍持有的保护区间内插入车身。
+    pub(super) fn placement_overlaps_handoff(
+        &self,
+        route: &super::tables::CompiledRoute,
+        cursor: usize,
+        front: u32,
+        length: u32,
+    ) -> bool {
+        if self.committed.handoffs.is_empty() {
+            return false;
+        }
+        let mut overlaps = false;
+        let walked = for_each_admission_interval(
+            self.binding.revision.traffic().lane_lengths_millimetres(),
+            &route.edges,
+            cursor,
+            front,
+            length,
+            |edge, lo, hi| {
+                overlaps |= self.committed.handoffs.iter().any(|h| {
+                    h.protections.iter().any(|p| {
+                        p.edge == edge
+                            && lo < p.end_mm
+                            && (hi > p.start_mm || (lo == hi && hi == p.start_mm))
+                    })
+                });
+            },
+        );
+        walked.is_none() || overlaps
     }
 
     /// E域②（#1199 P2-7）：spawn 位周邻 transition 边的 committed T-cell

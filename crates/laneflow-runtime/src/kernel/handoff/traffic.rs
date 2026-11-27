@@ -47,7 +47,7 @@ pub enum RouteHandoffTrafficError {
 }
 
 impl TrafficWorld {
-    /// 从指定窗口、车型和拟议的微米行程重新求拍末车体，在两侧各找一个可能阻挡。
+    /// 从指定窗口、车型和拟议的微米行程重新求拍末车体，在两侧各找一个可能阻挡。行程求界容差取正整数毫米。
     /// 完整轨迹校验与随后取样各使用 `trial.limits`。每侧按车道行驶方向访问至多
     /// 八条物理边。在首条与车体外包相交的边上，取占用起点最小的车辆，再按终点、
     /// 已提交更新序破平。调用包含所有已提交活动车辆，适用于尚未进入世界的候选。
@@ -69,11 +69,11 @@ impl TrafficWorld {
         trial: &RouteHandoffTrial,
         rear_travel_um: u64,
         step_travel_um: u64,
-        tolerance_nm: u64,
+        tolerance_mm: std::num::NonZeroU32,
     ) -> Result<RouteHandoffTraffic, RouteHandoffTrafficError> {
         let preview = self.preview_route_handoff_at(binding, source_index, trial)?;
         let sample = preview
-            .sample_after_travel(rear_travel_um, step_travel_um, tolerance_nm, trial.limits)
+            .sample_after_travel(rear_travel_um, step_travel_um, tolerance_mm, trial.limits)
             .ok_or(RouteHandoffTrafficError::Unlocated(preview.report.outcome))?
             .sample?;
 

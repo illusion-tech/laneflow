@@ -129,12 +129,14 @@ Validation：
 - `maxAcceleration` / `comfortableDeceleration` / `emergencyDeceleration` 量化到 `f32`
   后落在 `0.5..=50` m/s²，且 emergency ≥ comfort。
 - spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
+- 行程在跨拍相加后再提交整毫米，余数留给下一拍。例如速度保持 0.1 m/s、每拍
+  4 ms 时，每拍行程为 0.4 mm，五拍累计前进 2 mm。车道占用和停车入口仍读整数毫米。
 - `BeyondFinite` 降速目标本拍不参与包络。
 - 来源中的 profile 标识遵循编译器的 ASCII token 规则，并在 profile domain 内唯一。
 
 ### 4.2 持久化
 
-Vehicle Profile 现行持久化使用 [LFCA 7 的 `VehicleProfile` 表][artifact]（毫米 /
+Vehicle Profile 现行持久化使用 [LFCA 8 的 `VehicleProfile` 表][artifact]（毫米 /
 受检 `f32`）。
 
 - 每个 VehicleProfile 必须引用已声明 ParticipantClass；静态 AccessRule 在
@@ -157,7 +159,7 @@ register/remove/mutate API。tick 热路径只读取序号和紧凑 profile 数�
 
 所有道路机动车型在编制时都须声明构型，并提供该构型完整的几何与转向参数，包括只参与普通跟驰的车型。首版支持单个刚性车身、双轴、前轮转向且前后轮距相同的构型。下表九项对该构型全部必填，车长沿用 §4.1。
 两种官方编制前端和受检制品读方均须校验这些参数。缺项、非有限值、量化后失效或
-尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。LFCA 7 的车型几何与 §4.1 的纵向字段共用车型身份和修订。[车型几何的制品格式][geometry-format]
+尺寸互相矛盾时，报告对应的车型和字段，拒绝发布或加载。LFCA 8 的车型几何与 §4.1 的纵向字段共用车型身份和修订。[车型几何的制品格式][geometry-format]
 
 | 参数 | 交通侧用途与校验 |
 | ---- | ---------------- |
@@ -767,7 +769,7 @@ Private：
 - 一万到十万不得呈现 `O(V^2)` 趋势。
 
 [lane-change-contract]: lane-change-minimal-contract.md
-[artifact]: portable-canonical-artifact.md#3-lfca-7
+[artifact]: portable-canonical-artifact.md#3-lfca-8
 [geometry-format]: portable-canonical-artifact.md#vehicle-profile-geometry-format
 [handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [parking-system]: parking-system.md

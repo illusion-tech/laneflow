@@ -5,8 +5,7 @@ kind = "reference"
 status = "active"
 summary = "提供当前实现能力、条件与限制的阅读入口。"
 scope = "道路机动车特化的 TrafficWorld，以及按源码集成的宿主"
-verified_date = "2026-11-11"
-verified_revision = "2d0c07070fbe6543f8597b0093322ab301881d5b"
+revised_date = "2026-11-27"
 applicability = "#applicability"
 +++
 
@@ -83,7 +82,7 @@ applicability = "#applicability"
 
 ### 固定预构造换道
 
-**已实现**：只执行已经编制好的固定过渡材料。合同中的名称是「固定预制过渡」。
+**已实现**：路线可以经过已经编制好的固定预制过渡。
 
 - **条件与边界**：路线编译会拒绝一部分互不可见的共横向过渡段；同向相邻、纵向分开、
   共享可选前驱或后继的汇合与分岔、可绕过公共边的接力、多成员分量配对等组合也可能被
@@ -99,12 +98,16 @@ applicability = "#applicability"
   [§10][lane-change-contract-limits]。缺口回归见
   [`transition_visibility.rs`][transition-visibility-rs]。
 
+### 登记窗口内的任意位置换道
+
+调用方在路线相邻的两次有向边出现间登记走廊站位窗口，按车辆向 `step_with_route_handoffs` 提交换道申请。世界按车型、可用路幅、净空限速、两侧占用与进入者制动条件裁决，保留已提交的保护直到车尾清空。活动横移可从同一修订的快照恢复。见[路线系统][route-system]。
+
 ### 快照与恢复
 
 **已实现**：可以按固定步长、修订和来源绑定保存并恢复世界。执行配置由宿主另外提供。
 
 - **条件与边界**：恢复核对语义容量和完整性，容量不能缩小。遇到活动的固定预制过渡，或其无法保存的预约及资源历史时，保存返回
-  `UnsupportedTransitionState`，世界可以继续运行。任意位置换道的登记窗口、已提交横移及组合预约属于快照 §2.1 的目标格式。生产版本以
+  `UnsupportedTransitionState`，世界可以继续运行。任意位置换道的登记窗口、已提交横移及组合预约随普通路口的逐车预约终点一起按快照 §2.1 保存与恢复。生产版本以
   `SNAPSHOT_FORMAT_VERSION`、`RUNTIME_STATE_VERSION` 和 `RUNTIME_STATE_DIGEST_VERSION` 为准，本页不另立版本表。
 - **依据**：[快照 §2][runtime-snapshot-versions]、
   [§5][runtime-snapshot-restore]、[§6][runtime-snapshot-replay]、
@@ -272,7 +275,8 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [runtime-snapshot-versions]: ../design/traffic-runtime-snapshot.md#2-版本轴与绑定集
 [runtime-snapshot-restore]: ../design/traffic-runtime-snapshot.md#5-保存与恢复
 [runtime-snapshot-replay]: ../design/traffic-runtime-snapshot.md#6-回放与确定性状态摘要
-[runtime-snapshot-g2]: ../design/traffic-runtime-snapshot.md#9-runtime-snapshot-v7-的-g2-边界与必测义务
+[route-system]: ../design/route-system.md
+[runtime-snapshot-g2]: ../design/traffic-runtime-snapshot.md#9-runtime-snapshot-v8-的-g2-边界与必测义务
 [snapshot-rs]: ../../crates/laneflow-runtime/src/admin/snapshot.rs
 [issue-1217]: https://github.com/illusion-tech/laneflow/issues/1217
 [revision-cutover-strategy]: ../design/traffic-runtime-revision-cutover.md#3-迁移策略封闭种类选择器

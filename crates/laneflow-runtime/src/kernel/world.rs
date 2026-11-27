@@ -393,6 +393,7 @@ impl crate::kernel::state::WorldState {
                 transition_cost: crate::kernel::transition_cost::Recorder::new(),
             },
             committed: crate::kernel::state::CommittedWorldState {
+                handoffs: Vec::new(),
                 conflict,
                 conflict_eligibility: conflict_eligibility.into(),
                 latest_conflict_decisions,
@@ -416,6 +417,7 @@ impl crate::kernel::state::WorldState {
                 latest_transition_events,
             },
             derived: crate::kernel::state::DerivedIndexes {
+                handoff_plans: Vec::new(),
                 conflict: conflict_indexes,
                 active_order,
                 live_order_index: Default::default(),
@@ -898,6 +900,31 @@ impl crate::kernel::state::WorldState {
             .reservation_downstream_claim_plan(range, vehicle_length_mm)
     }
 
+    /// 从车辆保留的授权终点重建计划，并验证单车下界和下一未授权 Gate 上界。
+    pub(crate) fn reservation_downstream_claim_plan_to(
+        &self,
+        range: crate::ConflictPassageRange,
+        vehicle_length_mm: u32,
+        target: crate::DownstreamRoutePoint,
+    ) -> Result<ReservationDownstreamClaimPlan, ConflictAcquireError> {
+        let single = self.reservation_downstream_claim_plan(range, vehicle_length_mm)?;
+        let compiled = self
+            .compiled_route(range.route())
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        let next = compiled
+            .gate_hops
+            .partition_point(|&hop| hop <= range.admission_gate_hop());
+        Ok(ReservationDownstreamClaimPlan {
+            route: range.route(),
+            plan: single.plan.with_authorized_target(
+                &compiled.edges,
+                self.binding.revision.traffic().lane_lengths_millimetres(),
+                compiled.gate_hops.get(next).copied(),
+                target,
+            )?,
+        })
+    }
+
     /// 使用调用方已经按资源轴预留的 scratch 填充 downstream 物理资源并集。
     pub(crate) fn derive_reservation_downstream_claims_from_plan(
         &self,
@@ -1014,7 +1041,7 @@ impl crate::kernel::state::WorldState {
     /// `RouteError::CommandCursorExhausted`）、路线/边出现记录/冲突出现记录容量不足
     /// 或编译缓冲预留失败时返回相应 [`RouteError`]；失败不留下半条路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
-        self.register_route_edges(input.edges())
+        self.register_route_occurrences(input.edges(), input.handoffs())
     }
 
     /// 所有路线入口共用的规范注册路径。容量预检发生在 compiled O(n) 分配前。
@@ -1022,18 +1049,31 @@ impl crate::kernel::state::WorldState {
         &mut self,
         edges: &[laneflow_static_contract::LaneEdgeOrdinal],
     ) -> Result<RouteHandle, RouteError> {
+        self.register_route_occurrences(edges, &[])
+    }
+
+    pub(crate) fn register_route_occurrences(
+        &mut self,
+        edges: &[LaneEdgeOrdinal],
+        handoffs: &[crate::RouteHandoffOccurrence],
+    ) -> Result<RouteHandle, RouteError> {
         let next_occurrence_count = self.preflight_route_registration(edges.len())?;
         let next_command_cursor = self
             .committed
             .command_cursor
             .checked_add(1)
             .expect("route preflight guarantees command cursor room");
-        let compiled = compile_route(
-            self.binding.revision.as_ref(),
-            edges,
-            self.committed.live_route_conflict_occurrence_count,
-            self.binding.config.route_conflict_occurrence_capacity(),
-        )?;
+        let revision = self.binding.revision.as_ref();
+        let current = self.committed.live_route_conflict_occurrence_count;
+        let capacity = self.binding.config.route_conflict_occurrence_capacity();
+        let compiled = if handoffs.is_empty() {
+            compile_route(revision, edges, current, capacity)?
+        } else {
+            if self.binding.config.handoff_driving().is_none() {
+                return Err(RouteError::HandoffDisabled);
+            }
+            CompiledRoute::compile_handoffs(revision, edges, handoffs, current, capacity)?
+        };
         let added_conflict_occurrences =
             u64::try_from(compiled.conflicts.len()).expect("conflict occurrence count fits u64");
         let next_conflict_occurrence_count = self
@@ -1075,7 +1115,7 @@ impl crate::kernel::state::WorldState {
         self.committed.live_route_conflict_occurrence_count = next_conflict_occurrence_count;
         self.committed.command_cursor = next_command_cursor;
         if let Some(journal) = self.admin.migration_journal.as_mut() {
-            journal.record_route_registered(next_command_cursor, handle, edges);
+            journal.record_route_registered(next_command_cursor, handle, edges, handoffs);
         }
         Ok(handle)
     }
@@ -3002,6 +3042,20 @@ impl TrafficWorld {
     ) -> Option<&[laneflow_static_contract::LaneEdgeOrdinal]> {
         self.execution.assert_usable();
         self.state.route_edges(route)
+    }
+
+    /// 已登记路线的窗口，按源出现下标严格升序。有效普通路线返回空切片。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    #[must_use]
+    pub fn route_handoff_windows(
+        &self,
+        route: RouteHandle,
+    ) -> Option<&[(u32, laneflow_static_network::vehicle::HandoffBinding)]> {
+        self.execution.assert_usable();
+        Some(self.state.compiled_route(route)?.handoff_windows())
     }
 
     /// 本世界当前有效路线句柄，按槽位下标。

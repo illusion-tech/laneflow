@@ -213,6 +213,8 @@ pub(crate) struct WorldBindingState {
 
 /// 登记、资源裁决权、时钟游标及上次成功发布的批次。
 pub(crate) struct CommittedWorldState {
+    /// 实际获准并已开始运动的横移及仍持有的组合预约。
+    pub(crate) handoffs: Vec<crate::kernel::handoff::execution::ActiveRouteHandoff>,
     /// 已提交的冲突/下游资源裁决权。
     pub(crate) conflict: crate::kernel::conflict::ConflictCommittedState,
     /// 车辆槽位对应的 exact Gate occurrence 首次资格时钟。
@@ -248,6 +250,8 @@ pub(crate) struct CommittedWorldState {
 
 /// 从已提交基线构建的查询索引；不拥有新的交通正本。
 pub(crate) struct DerivedIndexes {
+    pub(crate) handoff_plans:
+        Vec<std::sync::Arc<crate::kernel::handoff::execution::PreparedRouteHandoff>>,
     pub(crate) conflict: crate::kernel::conflict::ConflictDerivedIndexes,
     /// 仅含 `Active` 的固定步进执行顺序；按 `live_order` 投影维护，Parked / Completed
     /// 不进入 tick 或 lane occupancy 重建扫描。
@@ -914,6 +918,7 @@ impl CommittedWorldState {
     /// 测试用：已提交状态持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
+            handoffs,
             conflict,
             conflict_eligibility,
             latest_conflict_decisions,
@@ -936,7 +941,12 @@ impl CommittedWorldState {
             latest_waiting_decisions,
             latest_transition_events,
         } = self;
-        crate::kernel::state::vec_bytes(conflict_eligibility)
+        crate::kernel::state::vec_bytes(handoffs)
+            + handoffs
+                .iter()
+                .map(|h| crate::kernel::state::vec_bytes(&h.protections))
+                .sum::<u64>()
+            + crate::kernel::state::vec_bytes(conflict_eligibility)
             + crate::kernel::state::vec_bytes(latest_conflict_decisions)
             + crate::kernel::state::vec_bytes(free_routes)
             + vehicles.retained_logical_bytes()
@@ -961,6 +971,7 @@ impl DerivedIndexes {
     /// 测试用：派生索引持有的逻辑字节数。
     pub(crate) fn retained_logical_bytes(&self) -> u64 {
         let Self {
+            handoff_plans,
             conflict,
             active_order,
             live_order_index,
@@ -973,6 +984,11 @@ impl DerivedIndexes {
             spawn_contenders,
         } = self;
         crate::kernel::state::vec_bytes(active_order)
+            + crate::kernel::state::vec_bytes(handoff_plans)
+            + handoff_plans
+                .iter()
+                .map(|p| p.retained_logical_bytes())
+                .sum::<u64>()
             + live_order_index.retained_logical_bytes()
             + crate::kernel::state::vec_bytes(waiting_member_rows)
             + crate::kernel::state::slice_bytes(waiting_queue_ends)

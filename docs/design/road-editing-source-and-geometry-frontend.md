@@ -225,7 +225,7 @@ LIR 保存规范 `f32` 折线及派生静态语义。
 
 #1524 在 LFRE 6 的走廊、区段和车道声明上补齐可编辑输入。写方选择走廊的开放范围，
 并在结构边界的所属对象上登记局部区间。下列字段始于 LFRE 7，现行 LFRE 8 沿用相同编号。
-对应的道路编辑前端为 8、几何语义为 4、LFSM 为 8，完整版本组合见 §9.5。
+对应的道路编辑前端为 8、几何语义为 5、LFSM 为 9，完整版本组合见 §9.5。
 制品字段、误差和比较规则沿用[走廊共享里程与横断面几何 §3.2–3.3][lateral-geometry]。
 
 - `RoadCorridor.9 cross_section_coverage:CrossSectionCoverage = None` 取代 LFRE 6
@@ -324,8 +324,8 @@ table BoundaryExtent {
 载荷存在时均须显式给出，包括零偏移、零编制误差。护栏锚定角色 1 为低端、2 为高端，
 水平轴线朝区间内侧，长和半径为正。路缘低、高端各自要求左偏 ≥ 右偏。两种实体均要求
 顶高 > 底高，位置沿水平左法向取正，高度相对相应路面。各数值必须有限。
-编制误差为覆盖各长度参数的统一非负米数。对每一参数取最近微米、恰中取偶，
-把其实际量化误差的向外上界与编制误差相加，对各参数取最大值、向上取整到纳米。
+编制误差为覆盖各长度参数的统一非负米数。对每一参数取最近毫米、恰中取偶，
+把其实际量化误差的向外上界与编制误差相加，对各参数取最大值、向上取整为毫米。
 二进制输入被精确视为其 binary64 值。超出表 11 的整数字段、正长折叠或量化后违反
 形状约束时定位原字段并拒绝。站位、路面及横向边界的不确定度随后按各自来源传播。
 
@@ -483,7 +483,7 @@ LFRE 8 用于实体声明的顶层有类型 vector 覆盖以下 24 类 Identity 
 
 根表使用 `LFRE` 与 size-prefixed `RoadEditingSource` envelope，绑定
 `format_version = 8`、Road Editing `frontendVersion = 8`、Identity registry revision 4、
-LFCA 7、LFSM 8 与 LFSD 6。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
+LFCA 8、LFSM 9 与 LFSD 7。`RightOfWayPolicySet`（kind 24）由根表 field 29 承载；
 五张策略表的字段和来源路径见路权策略实施合同 §4.4。
 每种道路机动车型均须提供 `VehicleProfile.geometry`（字段 4）。几何预检先读取构型，刚性双轴车型须显式给出九个 SI 参数。对半挂、全挂和铰接公交，编译器在构型字段报告该构型尚未受支持。字段编号、单位与量化见[车型几何格式][vehicle-geometry-format]。
 field id `0..=17` 的含义及其余字段如下：
@@ -569,7 +569,7 @@ entry/exit `PathAnchor`；admission Gate 从同一 ManeuverPath 的 Gate 序列�
 几何只能辅助验证与表现，不能生成或改写行为 passage。
 
 声明、owner-local 地址与 property path 必须逐项投影到
-[`portable-canonical-artifact.md`][portable-artifact] 的 LFSM 8 role
+[`portable-canonical-artifact.md`][portable-artifact] 的 LFSM 9 role
 13–16 / 30–32
 登记。生成的 Rust/C++/C# binding 与 known vectors 必须由同一 exact schema 和固定命令
 clean-regenerate。
@@ -718,8 +718,8 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 
 ### 9.5 版本、未知字段与摘要
 
-当前组合是 `format_version = 8`、Road Editing `frontendVersion = 8`、LFCA 7、LFSM 8 与
-LFSD 6。来源前端版本和 LFRE wire 版本分别精确校验。几何语义为 4，横断面能力与来源登记见 §6.2。
+当前组合是 `format_version = 8`、Road Editing `frontendVersion = 8`、LFCA 8、LFSM 9 与
+LFSD 7。来源前端版本和 LFRE wire 版本分别精确校验。几何语义为 5，横断面能力与来源登记见 §6.2。
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 2`、
   `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 8`；

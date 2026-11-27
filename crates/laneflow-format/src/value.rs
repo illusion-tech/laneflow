@@ -16,7 +16,7 @@ use laneflow_static_contract::{
     MIN_LANE_EDGE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
     MIN_VEHICLE_LENGTH_MM, NETWORK_REVISION_DERIVATION_VERSION,
     PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind, PortableTableSchema,
-    SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION,
+    SOURCE_MAP_FORMAT_VERSION, STATIC_EXECUTION_CONTRACT_VERSION, StationSpan,
 };
 
 use crate::{
@@ -643,14 +643,14 @@ fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), Forma
         1 => {
             let length = row.required(3)?;
             require_u64_greater(length, 0)?;
-            if row.required(2)?.u64()?.checked_add(length.u64()?).is_none() {
+            if !station_domain_fits(row.required(2)?.u64()?, length.u64()?) {
                 return Err(noncanonical(length));
             }
-            require_u32_inclusive(row.required(4)?, 0, 1_000)?;
+            require_u32_inclusive(row.required(4)?, 0, StationSpan::MAX_SOURCE_ERROR_MM)?;
             require_u32_inclusive(row.required(6)?, 2, u32::MAX)?;
         }
         2 => {
-            require_u32_inclusive(row.required(2)?, 0, 1_000)?;
+            require_u32_inclusive(row.required(2)?, 0, StationSpan::MAX_SOURCE_ERROR_MM)?;
         }
         3 => {
             require_u8_range(row.required(2)?, 1, 2)?;
@@ -661,12 +661,8 @@ fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), Forma
         }
         5 => {
             require_u64_greater(row.required(2)?, 0)?;
-            require_u32_inclusive(
-                row.required(3)?,
-                0,
-                laneflow_static_contract::StationSpan::MAX_CANONICAL_ERROR_NM,
-            )?;
-            require_u32_inclusive(row.required(4)?, 0, 1_000_000)?;
+            require_u32_inclusive(row.required(3)?, 0, StationSpan::MAX_CANONICAL_ERROR_MM)?;
+            require_u32_inclusive(row.required(4)?, 0, StationSpan::MAX_SOURCE_ERROR_MM)?;
             require_u32_inclusive(row.required(5)?, 1, u32::MAX)?;
         }
         6 => {
@@ -674,13 +670,10 @@ fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), Forma
             let right_start = row.required(5)?.i32()?;
             let left_end = row.required(6)?.i32()?;
             let right_end = row.required(7)?.i32()?;
-            if left_start < right_start
-                || left_end < right_end
-                || (left_start == right_start && left_end == right_end)
-            {
+            if !valid_width([left_start, right_start, left_end, right_end]) {
                 return Err(row_binding_mismatch());
             }
-            require_u32_inclusive(row.required(8)?, 0, 1_000)?;
+            require_u32_inclusive(row.required(8)?, 0, StationSpan::MAX_SOURCE_ERROR_MM)?;
         }
         7 => {
             let owner = row.required(1)?;
@@ -703,7 +696,7 @@ fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), Forma
             if !valid_width(d) {
                 return Err(row_binding_mismatch());
             }
-            require_u32_inclusive(row.required(6)?, 0, 1000)?;
+            require_u32_inclusive(row.required(6)?, 0, StationSpan::MAX_SOURCE_ERROR_MM)?;
             require_u8_range(row.required(7)?, 0, 1)?;
         }
         9 => {
@@ -735,6 +728,11 @@ fn validate_station_mapping_row(table: u16, row: RowRef<'_>) -> Result<(), Forma
 
 fn valid_width([ls, rs, le, re]: [i32; 4]) -> bool {
     ls >= rs && le >= re && (ls > rs || le > re)
+}
+fn station_domain_fits(origin_mm: u64, length_mm: u64) -> bool {
+    origin_mm
+        .checked_add(length_mm)
+        .is_some_and(|end| end <= StationSpan::MAX_DISTANCE_MM)
 }
 fn surface_values(bytes: &[u8], count: usize) -> bool {
     bytes.len() == count * 4
@@ -1858,27 +1856,29 @@ fn validate_station_change(row: RowRef<'_>, base: SemanticDiffBaseKind) -> Resul
         let i32_at =
             |i: usize| i32::from_le_bytes(v[i..i + 4].try_into().expect("checked packed shape"));
         let ok = match kind {
-            1 => u64_at(8) > 0 && u64_at(0).checked_add(u64_at(8)).is_some() && u32_at(16) <= 1000,
-            2 => u32_at(0) <= 1000,
+            1 => {
+                u64_at(8) > 0
+                    && station_domain_fits(u64_at(0), u64_at(8))
+                    && u32_at(16) <= StationSpan::MAX_SOURCE_ERROR_MM
+            }
+            2 => u32_at(0) <= StationSpan::MAX_SOURCE_ERROR_MM,
             3 => stable(v, 0) == Some(RoadCorridor) && matches!(v[18], 1 | 2),
             4 => stable(v, 0) == Some(AuthoringLane),
             5 => {
                 u64_at(0) > 0
-                    && u32_at(8) <= laneflow_static_contract::StationSpan::MAX_CANONICAL_ERROR_NM
-                    && u32_at(12) <= 1_000_000
+                    && u32_at(8) <= StationSpan::MAX_CANONICAL_ERROR_MM
+                    && u32_at(12) <= StationSpan::MAX_SOURCE_ERROR_MM
                     && u32_at(16) > 0
             }
             6 => {
                 u64_at(0) < u64_at(8)
-                    && i32_at(16) >= i32_at(20)
-                    && i32_at(24) >= i32_at(28)
-                    && (i32_at(16) > i32_at(20) || i32_at(24) > i32_at(28))
-                    && u32_at(32) <= 1000
+                    && valid_width([i32_at(16), i32_at(20), i32_at(24), i32_at(28)])
+                    && u32_at(32) <= StationSpan::MAX_SOURCE_ERROR_MM
             }
             7 => u64_at(0) < u64_at(8),
             8 => {
                 valid_width([i32_at(0), i32_at(4), i32_at(8), i32_at(12)])
-                    && u32_at(16) <= 1000
+                    && u32_at(16) <= StationSpan::MAX_SOURCE_ERROR_MM
                     && v[20] <= 1
             }
             9 => {

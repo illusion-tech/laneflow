@@ -3,9 +3,14 @@
 mod approaches;
 mod binding;
 mod entrants;
+pub(crate) mod execution;
+mod observation;
+pub use observation::{CommittedHandoffGeometry, HandoffGeometryReadError};
+mod stable;
 mod stop_line;
+pub use stable::StableRouteHandoffWindow;
 
-use std::sync::Arc;
+use std::{num::NonZeroU32, sync::Arc};
 
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ManeuverGateOrdinal, NetworkRevisionId, VehicleProfileId,
@@ -26,6 +31,7 @@ pub use approaches::{RouteHandoffApproachError, RouteHandoffApproaches};
 pub use entrants::{
     RouteHandoffEntrant, RouteHandoffEntrantError, RouteHandoffEntrantReason, RouteHandoffEntrants,
 };
+pub use execution::{RouteHandoffProgress, RouteHandoffRequest};
 use sample::CursorRun;
 pub use sample::{RouteHandoffSample, RouteHandoffSampleError, RouteHandoffSampleReport};
 pub use traffic::{RouteHandoffTraffic, RouteHandoffTrafficError};
@@ -47,7 +53,7 @@ use super::tables::{ManeuverOccurrence, access_cell_denied, hop_gate_at, route_a
 use crate::{RouteError, TrafficWorld};
 
 /// 候选路线中某一次横向交接的来源声明。边由下标从完整路线读取。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RouteHandoffOccurrence {
     /// 完整路线和结构边界所属的修订。
     pub revision: NetworkRevisionId,
@@ -57,8 +63,22 @@ pub struct RouteHandoffOccurrence {
     pub owner: BoundaryOwner,
     /// 该边界的左成员序号。
     pub left_index: u32,
-    /// 允许前保险杠交接的闭区间，走廊局部纳米站位。
-    pub stations_nm: [u64; 2],
+    /// 允许前保险杠交接的闭区间，走廊局部毫米站位。
+    pub stations_mm: [u64; 2],
+}
+
+fn tolerance_nanometres(mm: NonZeroU32) -> u64 {
+    u64::from(mm.get()) * 1_000_000
+}
+
+pub(crate) fn stations_to_nanometres(
+    stations_mm: [u64; 2],
+) -> Result<[u64; 2], RouteHandoffTrialError> {
+    let convert = |mm: u64| {
+        mm.checked_mul(1_000_000)
+            .ok_or(RouteHandoffTrialError::Boundary(Failure::InvalidInput))
+    };
+    Ok([convert(stations_mm[0])?, convert(stations_mm[1])?])
 }
 
 /// 已绑定一处或多处交接窗口的候选路线。边与普通机动均使用完整路线的出现下标。
@@ -87,11 +107,47 @@ impl BoundRouteHandoff {
     /// 取得指定出现对的有向边界、走廊、框架和共同站位范围。
     #[must_use]
     pub fn boundary_at(&self, source_index: u32) -> Option<&HandoffBinding> {
+        self.as_route(&self.revision).boundary_at(source_index)
+    }
+
+    fn as_route<'a>(&'a self, revision: &'a SharedNetworkRevision) -> HandoffRouteRef<'a> {
+        HandoffRouteRef {
+            revision,
+            edges: &self.edges,
+            maneuvers: &self.maneuvers,
+            windows: &self.windows,
+        }
+    }
+}
+
+/// 共用拍间候选或已登记路线的出现表。借用绑定只覆盖这次试算。
+#[derive(Clone, Copy)]
+pub(crate) struct HandoffRouteRef<'a> {
+    revision: &'a SharedNetworkRevision,
+    edges: &'a [LaneEdgeOrdinal],
+    maneuvers: &'a [ManeuverOccurrence],
+    windows: &'a [(u32, HandoffBinding)],
+}
+
+impl<'a> HandoffRouteRef<'a> {
+    fn from_compiled(
+        revision: &'a SharedNetworkRevision,
+        route: &'a super::tables::CompiledRoute,
+    ) -> Self {
+        Self {
+            revision,
+            edges: &route.edges,
+            maneuvers: &route.maneuvers,
+            windows: route.handoff_windows(),
+        }
+    }
+
+    fn boundary_at(self, source_index: u32) -> Option<&'a HandoffBinding> {
         let index = self.window_index(source_index)?;
         Some(&self.windows[index].1)
     }
 
-    fn window_index(&self, source_index: u32) -> Option<usize> {
+    fn window_index(self, source_index: u32) -> Option<usize> {
         self.windows
             .binary_search_by_key(&source_index, |w| w.0)
             .ok()
@@ -110,7 +166,7 @@ impl BoundRouteHandoff {
         }
         hop_gate_at(
             self.revision.traffic().maneuvers(),
-            &self.maneuvers,
+            self.maneuvers,
             hop,
             edge,
             next,
@@ -118,9 +174,9 @@ impl BoundRouteHandoff {
     }
 
     fn occurrence_legs(
-        &self,
+        self,
         source_index: u32,
-    ) -> Option<(&[LaneEdgeOrdinal], &[LaneEdgeOrdinal])> {
+    ) -> Option<(&'a [LaneEdgeOrdinal], &'a [LaneEdgeOrdinal])> {
         let index = self.window_index(source_index)?;
         let start = index
             .checked_sub(1)
@@ -134,15 +190,63 @@ impl BoundRouteHandoff {
     }
 }
 
+impl super::tables::CompiledRoute {
+    pub(crate) fn compile_handoffs(
+        revision: &SharedNetworkRevision,
+        edges: &[LaneEdgeOrdinal],
+        occurrences: &[RouteHandoffOccurrence],
+        live_conflicts: u64,
+        capacity: u64,
+    ) -> Result<Self, RouteError> {
+        let map = |error: RouteHandoffTrialError| match error {
+            RouteHandoffTrialError::Route(reason) => reason,
+            _ => RouteError::InvalidHandoffWindow,
+        };
+        let windows = binding::bind_windows(revision, edges, occurrences).map_err(map)?;
+        let maneuvers = binding::ordinary_handoff_maneuvers(
+            revision,
+            edges,
+            &windows,
+            live_conflicts,
+            capacity,
+        )
+        .map_err(map)?;
+        super::tables::compile_route_tables(
+            revision,
+            edges,
+            maneuvers,
+            windows,
+            live_conflicts,
+            capacity,
+        )
+    }
+
+    pub(crate) fn handoff_binding<'a>(
+        &'a self,
+        revision: &'a SharedNetworkRevision,
+    ) -> Option<HandoffRouteRef<'a>> {
+        (!self.handoff_windows().is_empty()).then(|| HandoffRouteRef::from_compiled(revision, self))
+    }
+}
+
+/// 在候选上查询行程所用的固定点输入。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteHandoffTravelTarget {
+    /// 沿走廊局部参考线量取的后轴站位，单位毫米。
+    RearStationMm(u64),
+    /// 从候选起点沿后轴运动轨迹累计的行程，单位微米，与固定步进积分余数一致。
+    DistanceUm(u64),
+}
+
 /// 在已绑定出现对上尝试的一条轨迹，按稳定身份从绑定所属修订读取车型。
 #[derive(Clone, Copy, Debug)]
 pub struct RouteHandoffTrial {
     /// 用于求证全部静态几何与通行规则的车型。
     pub profile: VehicleProfileId,
-    /// 允许求高与车身投影的走廊站位闭区间，单位纳米。两侧通行准入覆盖整个区间。
-    pub station_window_nm: [u64; 2],
-    /// 沿行驶方向排列的后轴起止站位，单位纳米。
-    pub rear_stations_nm: [u64; 2],
+    /// 允许求高与车身投影的走廊站位闭区间，单位毫米。两侧通行准入覆盖整个区间。
+    pub station_window_mm: [u64; 2],
+    /// 沿行驶方向排列的后轴起止站位，单位毫米。
+    pub rear_stations_mm: [u64; 2],
     /// 此次候选的后轴三维车速，单位为米每秒。
     pub speed_m_s: f64,
     /// 一次完整几何查询的工作上限。
@@ -184,34 +288,54 @@ impl std::fmt::Debug for RouteHandoffPreview<'_> {
 
 impl RouteHandoffPreview<'_> {
     /// 对已定位且两侧准入通过的同一条候选，查询后轴三维行程或从行程反算站位。
-    /// 未定位的候选返回 `None`。容差以纳米计，此次求界独立计量工作。
+    /// 未定位的候选返回 `None`。容差取正整数毫米，此次求界独立计量工作。
     #[must_use]
     pub fn travel(
         &self,
-        target: HandoffTravelTarget,
-        tolerance_nm: u64,
+        target: RouteHandoffTravelTarget,
+        tolerance_mm: NonZeroU32,
         work_limit: u32,
     ) -> Option<HandoffTravelReport> {
         let path = self.trajectory.as_ref()?;
+        let target = match target {
+            RouteHandoffTravelTarget::RearStationMm(mm) => mm
+                .checked_mul(1_000_000)
+                .map(HandoffTravelTarget::RearStationNm),
+            RouteHandoffTravelTarget::DistanceUm(um) => {
+                um.checked_mul(1_000).map(HandoffTravelTarget::DistanceNm)
+            }
+        };
+        let Some(target) = target else {
+            return Some(HandoffTravelReport {
+                bounds: Err(Failure::InvalidInput),
+                work: 0,
+            });
+        };
         Some(path.revision.handoff_travel(
             &path.query,
             path.window,
             target,
-            tolerance_nm,
+            tolerance_nanometres(tolerance_mm),
             work_limit,
         ))
     }
 
     /// 在同一候选的后轴站位闭区间内，证明整车相对结构边界处于哪一侧。
-    /// 区间按站位递增给出。跨侧状态改变或预算耗尽时保留未证结果。
+    /// 区间按走廊局部毫米站位递增给出。跨侧状态改变或预算耗尽时保留未证结果。
     /// 此查询只判断车体；下游空间与预约的释放另由当拍交通裁决。
     #[must_use]
     pub fn body_side(
         &self,
-        rear_stations_nm: [u64; 2],
+        rear_stations_mm: [u64; 2],
         work_limit: u32,
     ) -> Option<HandoffBodyReport> {
         let path = self.trajectory.as_ref()?;
+        let Ok(rear_stations_nm) = stations_to_nanometres(rear_stations_mm) else {
+            return Some(HandoffBodyReport {
+                side: Err(Failure::InvalidInput),
+                work: 0,
+            });
+        };
         Some(path.revision.handoff_body_side(
             &path.query,
             path.window,
@@ -325,7 +449,18 @@ impl TrafficWorld {
         if binding.revision.network_revision() != revision.network_revision() {
             return Err(RouteHandoffTrialError::RevisionMismatch);
         }
-        let boundary = binding
+        binding.as_route(revision).preview(source_index, trial)
+    }
+}
+
+impl<'a> HandoffRouteRef<'a> {
+    pub(crate) fn preview(
+        self,
+        source_index: u32,
+        trial: &RouteHandoffTrial,
+    ) -> Result<RouteHandoffPreview<'a>, RouteHandoffTrialError> {
+        let revision = self.revision;
+        let boundary = self
             .boundary_at(source_index)
             .ok_or(RouteHandoffTrialError::UnboundOccurrence)?;
         let traffic = revision.traffic();
@@ -340,10 +475,9 @@ impl TrafficWorld {
         if route_access_denied(
             traffic,
             profile.class(),
-            &binding.edges,
+            self.edges,
             0,
-            binding
-                .maneuvers
+            self.maneuvers
                 .iter()
                 .map(|m| (m.path, m.exit_route_edge_index)),
         ) {
@@ -355,8 +489,8 @@ impl TrafficWorld {
             revision: boundary.revision(),
             corridor: boundary.corridor(),
             frame: boundary.frame(),
-            station_window_nm: trial.station_window_nm,
-            rear_stations_nm: trial.rear_stations_nm,
+            station_window_nm: stations_to_nanometres(trial.station_window_mm)?,
+            rear_stations_nm: stations_to_nanometres(trial.rear_stations_mm)?,
             axles: AxleDimensions {
                 wheelbase_m: f64::from(g.wheelbase_mm) / 1_000.,
                 half_track_m: f64::from(g.track_width_mm) / 2_000.,
@@ -378,7 +512,7 @@ impl TrafficWorld {
         let mut side_access_work = 0;
         let mut stop_line_work = 0;
         let trajectory = if let HandoffOutcome::Located { .. } = report.outcome {
-            let (source, target) = binding
+            let (source, target) = self
                 .occurrence_legs(source_index)
                 .ok_or(RouteHandoffTrialError::UnboundOccurrence)?;
             let sweep_used =
@@ -398,7 +532,7 @@ impl TrafficWorld {
                 // 禁止只说明无法证明该侧准入，不能据此断言车辆实际驶入了禁区。
                 let StationQuery::Complete(hits) = revision.station_mapping().in_station_range(
                     query.corridor,
-                    trial.station_window_nm,
+                    query.station_window_nm,
                     lane,
                 ) else {
                     return Err(unproven(edge));
@@ -428,7 +562,7 @@ impl TrafficWorld {
                 body,
                 [(&source_hits, source_run), (&target_hits, target_run)],
                 sweep_limit - sweep_used - side_access_work,
-                |run, edge, next| binding.selected_gate(run, edge, next).is_some(),
+                |run, edge, next| self.selected_gate(run, edge, next).is_some(),
             )?;
             Some(LocatedTrajectory {
                 revision,

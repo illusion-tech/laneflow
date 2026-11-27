@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-waiting-zone"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义等待区准入、存储、队列与持久化。"
 scope = "laneflow-runtime / TrafficWorld 的 WaitingZone 准入、物理存储、 成员关系、队列、固定步进、只读观察、快照与路网修订切换"
 applicability = "#applicability"
@@ -53,7 +53,7 @@ WaitingZone 是 Gate 有界资源、行为 authority 属于交通运行时、Ada
 - `ParkingBinding`、停驻/离场生命周期已经生产化；Waiting membership 必须与它正交；
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict Gate
   ranges 与正式 Conflict 组合 authority 已经生产化；
-- LFRS 7、runtime state 5、deterministic digest 8、同修订/跨修订切换和在线迁移日志
+- LFRS 8、runtime state 6、deterministic digest 9、同修订/跨修订切换和在线迁移日志
   共同保存 Waiting 逻辑状态；
 - fixed step、车辆状态与生命周期共同消费 Waiting、Conflict 与 downstream 组合资源。
 

@@ -45,7 +45,7 @@ cargo run --locked -p laneflow-runtime --example headless
 来得及制动，以靠后的位置确认车尾已经离开。预检结果的 `motion` 区分整拍梯形运动与
 按车型服务减速度拍内停稳。可能越过候选终点时，`NeedsContinuation` 携带受当前候选
 限制的整拍提案和最小剩余行程，调用方仍须验证后继上的速度与位移才能提交。
-准备计划的几何工作只需执行一次，计划本身可多次查询。正式步进仍使用现行世界配置。
+准备计划的几何工作只需执行一次，计划本身可多次查询。正式步进通过 `RouteRegisterInput::with_handoffs` 登记窗口。`WorldConfig::with_handoff_driving` 为世界指定净空驾驶配置，`step_with_route_handoffs` 接收当拍申请；后续普通 `step` 继续执行已提交横移。
 
 ## 示例与验证
 

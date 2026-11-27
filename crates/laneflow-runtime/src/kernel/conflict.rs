@@ -2,6 +2,8 @@
 //!
 //! W7 已把仲裁、crossing、tail-clear、快照与在线切换接入生产固定步进。
 
+mod storage;
+
 use core::cmp::Ordering;
 
 use laneflow_static_contract::{
@@ -586,6 +588,10 @@ pub(crate) struct ConflictCandidateOrderKey {
 }
 
 impl ConflictCandidateOrderKey {
+    pub(crate) fn is_protected(self) -> bool {
+        self.kind == GateCandidateKind::Protected
+    }
+
     /// 构造 §6.3 稳定候选键；各 presence 由 `Option` 单独编码。
     pub(crate) const fn new(
         kind: GateCandidateKind,
@@ -1109,6 +1115,36 @@ pub(crate) struct DownstreamClaimPlan {
 }
 
 impl DownstreamClaimPlan {
+    /// 在已证明的单车下界上恢复历史授权终点；非末边的边尾须写作下边零点。
+    pub(crate) fn with_authorized_target(
+        self,
+        route_edges: &[LaneEdgeOrdinal],
+        edge_lengths_mm: &[u32],
+        next_gate_hop: Option<u32>,
+        target: DownstreamRoutePoint,
+    ) -> Result<Self, ConflictAcquireError> {
+        let index = target.route_edge_index as usize;
+        let length = route_edges
+            .get(index)
+            .and_then(|edge| edge_lengths_mm.get(edge.index()))
+            .ok_or(ConflictAcquireError::InvalidBundle)?;
+        if target < self.target
+            || target.progress_mm > *length
+            || (target.progress_mm == *length && index + 1 < route_edges.len())
+        {
+            return Err(ConflictAcquireError::InvalidBundle);
+        }
+        if let Some(hop) = next_gate_hop {
+            let crossed = hop
+                .checked_add(1)
+                .ok_or(ConflictAcquireError::InvalidBundle)?;
+            if (target.route_edge_index, target.progress_mm) > (crossed, 0) {
+                return Err(ConflictAcquireError::InvalidBundle);
+            }
+        }
+        downstream_claim_plan(self.gate_crossed_side, target)
+    }
+
     /// 返回合并重复物理边之前的 route occurrence 数，供调用方预留容量。
     #[must_use]
     pub(crate) const fn raw_interval_capacity(self) -> usize {
@@ -1122,6 +1158,16 @@ impl DownstreamClaimPlan {
 }
 
 impl DownstreamRoutePoint {
+    /// 同一对应 Gate 下的相对出现坐标；调用方另行证明所经物理边逐项相同。
+    pub(crate) fn rebase(self, source_hop: u32, target_hop: u32) -> Option<Self> {
+        let offset = self.route_edge_index.checked_sub(source_hop)?;
+        Self::new(
+            target_hop.checked_add(offset)?,
+            self.progress_mm,
+            self.carry_um,
+        )
+    }
+
     /// 构造带微米余数的路线点；`carry_um` 达到 1000 时返回 `None`（须先归一进位）。
     pub(crate) const fn new(
         route_edge_index: u32,
@@ -1158,7 +1204,7 @@ impl DownstreamRoutePoint {
 /// 从 Gate crossed side 到“最远 passage clearance + 实际车长”的物理 claim。
 ///
 /// `storage_upper_bound` 已由 leader、next Gate、RouteEnd、ParkingStop 与 Waiting hard
-/// boundary 取最小值；相等通过，提前一微米失败。
+/// boundary 取最小值。目标位于整数毫米上，存储上界向下取整即可精确判断是否达到。
 #[cfg(test)]
 pub(crate) fn prove_downstream_clearance(
     route_edges: &[LaneEdgeOrdinal],
@@ -1175,7 +1221,11 @@ pub(crate) fn prove_downstream_clearance(
         farthest_clearance,
         vehicle_length_mm,
     )?;
-    if storage_upper_bound < target {
+    if (
+        storage_upper_bound.route_edge_index,
+        storage_upper_bound.progress_mm,
+    ) < (target.route_edge_index, target.progress_mm)
+    {
         return Err(ConflictAcquireError::NoGrant(
             ConflictResourceNoGrant::DownstreamStorageBoundary,
         ));
@@ -1497,18 +1547,50 @@ pub(crate) enum ConflictInstallError {
     AllocationFailed,
 }
 
+/// 单元的成员行保存在每车预约中。计数及句柄异或量允许多车独立释放，
+/// 最后只剩一辆时可直接恢复其完整代际句柄，不扫描其他预约。
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ConflictHolders {
+    count: u32,
+    slot_xor: u32,
+    generation_xor: u32,
+}
+
+impl ConflictHolders {
+    fn single(self) -> Option<VehicleHandle> {
+        (self.count == 1).then(|| VehicleHandle::new(self.slot_xor, self.generation_xor))
+    }
+
+    fn held_by_other(self, owner: VehicleHandle) -> bool {
+        self.count > 0 && self.single() != Some(owner)
+    }
+
+    fn insert(&mut self, owner: VehicleHandle) {
+        self.count += 1;
+        self.slot_xor ^= owner.index();
+        self.generation_xor ^= owner.generation();
+    }
+
+    fn remove(&mut self, owner: VehicleHandle) {
+        debug_assert!(self.count > 1 || self.single() == Some(owner));
+        self.count -= 1;
+        self.slot_xor ^= owner.index();
+        self.generation_xor ^= owner.generation();
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ConflictCellAuthority {
-    zone_committed_owner: Option<VehicleHandle>,
-    reservation: Option<VehicleHandle>,
+    zone_committed_owners: ConflictHolders,
+    reservations: ConflictHolders,
     lag: ConflictLagReference,
 }
 
 impl Default for ConflictCellAuthority {
     fn default() -> Self {
         Self {
-            zone_committed_owner: None,
-            reservation: None,
+            zone_committed_owners: ConflictHolders::default(),
+            reservations: ConflictHolders::default(),
             lag: ConflictLagReference::NoHistory,
         }
     }
@@ -1517,7 +1599,7 @@ impl Default for ConflictCellAuthority {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct ConflictCellWorkspace {
     frontier: ApproachFrontierCell,
-    zone_staged_owner: Option<VehicleHandle>,
+    zone_staged_owners: ConflictHolders,
 }
 
 /// 已提交 owner 的可重建定位；与 reservation 稀疏行一起移动。
@@ -1705,6 +1787,7 @@ struct StagedGrant {
     owner: VehicleHandle,
     serial: u64,
     consumed: bool,
+    shares_coverage: bool,
 }
 
 /// 从分离的已提交行、定位索引与暂存行借读出的栈上值。
@@ -2705,6 +2788,21 @@ impl<'a> ConflictRead<'a> {
         })
     }
 
+    /// 横移申请与同拍已授予的普通路口下游声明共用物理边与方向性间距。
+    pub(crate) fn handoff_downstream_conflicts(
+        self,
+        interval: DownstreamInterval,
+        owner: VehicleHandle,
+        gap_mm: u32,
+    ) -> bool {
+        self.committed_downstream_conflicts(interval, owner, gap_mm)
+            || self.workspace.is_some_and(|workspace| {
+                workspace
+                    .staged_downstream_index
+                    .conflicts(interval, owner, gap_mm)
+            })
+    }
+
     pub(crate) fn cell_len(self) -> usize {
         self.derived.addresses.len()
     }
@@ -2777,7 +2875,7 @@ impl<'a> ConflictRead<'a> {
             .enumerate()
             .map(move |(index, address)| {
                 let cell = self.committed.cells.get(index).copied().unwrap_or_default();
-                (address, cell.lag, cell.reservation.is_some())
+                (address, cell.lag, cell.reservations.count != 0)
             })
     }
 
@@ -2883,7 +2981,7 @@ impl<'a> ConflictRead<'a> {
     pub(crate) fn is_empty(self) -> bool {
         self.cell_workspace()
             .iter()
-            .all(|cell| cell.zone_staged_owner.is_none())
+            .all(|cell| cell.zone_staged_owners.count == 0)
             && self.staged_cells().is_empty()
             && self.committed.committed_cells.is_empty()
             && self.staged_downstream().is_empty()
@@ -2891,8 +2989,8 @@ impl<'a> ConflictRead<'a> {
             && self.staged_grants().is_empty()
             && self.owner_count() == 0
             && self.committed.cells.iter().all(|cell| {
-                cell.reservation.is_none()
-                    && cell.zone_committed_owner.is_none()
+                cell.reservations.count == 0
+                    && cell.zone_committed_owners.count == 0
                     && cell.lag == ConflictLagReference::NoHistory
             })
     }
@@ -2909,10 +3007,13 @@ impl<'a> ConflictRead<'a> {
         owner: VehicleHandle,
         address: ConflictPassageAddress,
     ) -> bool {
-        self.cell_index(address)
-            .ok()
-            .and_then(|index| self.committed.cells.get(index))
-            .is_some_and(|cell| cell.reservation == Some(owner))
+        self.cell_index(address).ok().is_some_and(|index| {
+            self.committed.cells.get(index).is_some_and(|cell| {
+                cell.reservations.single() == Some(owner)
+                    || (cell.reservations.count > 1
+                        && self.passage_row_index(owner, index).is_some())
+            })
+        })
     }
 
     /// E域②（#1199 P2-7）：指定 cell 是否存在任何 committed 预约/占用
@@ -2921,7 +3022,7 @@ impl<'a> ConflictRead<'a> {
         self.cell_index(address)
             .ok()
             .and_then(|index| self.committed.cells.get(index))
-            .is_some_and(|cell| cell.reservation.is_some())
+            .is_some_and(|cell| cell.reservations.count != 0)
     }
 
     /// 查询 owner 在指定 cell 上的阶段；无 reservation 时返回 `None`。
@@ -2952,6 +3053,20 @@ impl<'a> ConflictRead<'a> {
     /// 返回 owner 的已提交 reservation。
     pub(crate) fn reservation(self, owner: VehicleHandle) -> Option<ConflictReservation> {
         self.owner_authority(owner)?.reservation
+    }
+
+    pub(crate) fn committed_reservations(self) -> &'a [ConflictReservation] {
+        &self.committed.committed_owners
+    }
+
+    pub(crate) fn reservation_shares_cell(self, owner: VehicleHandle) -> bool {
+        self.owner_authority(owner).is_some_and(|authority| {
+            self.committed
+                .committed_cells
+                .get(authority.committed_cell_start)
+                .and_then(|row| self.committed.cells.get(row.cell_index))
+                .is_some_and(|cell| cell.reservations.count > 1)
+        })
     }
 
     /// 校验处于 Clearing 相位的车辆状态与 reservation 正本逐项一致。
@@ -3115,7 +3230,7 @@ impl<'a> ConflictRead<'a> {
                 return false;
             };
             reservation.claim_serial == row.serial
-                && cell.reservation == Some(row.owner)
+                && (cell.reservations.single() == Some(row.owner) || cell.reservations.count > 1)
                 && (row.stage != ConflictPassageStage::Cleared
                     || matches!(cell.lag, ConflictLagReference::ActualClear(time) if time >= acquired_ms))
         })
@@ -3167,10 +3282,10 @@ impl<'a> ConflictRead<'a> {
     ) -> Option<usize> {
         let mut reserved = 0_usize;
         for cell in self.committed.cells.get(range)? {
-            if !cell.reservation.is_none_or(&mut owner_valid) {
+            if !cell.reservations.single().is_none_or(&mut owner_valid) {
                 return None;
             }
-            reserved += usize::from(cell.reservation.is_some());
+            reserved = reserved.checked_add(cell.reservations.count as usize)?;
         }
         Some(reserved)
     }
@@ -3206,8 +3321,10 @@ impl<'a> ConflictRead<'a> {
                 return false;
             }
             if cells.iter().any(|row| {
-                self.committed.cells[self.zone_head(row.cell_index)].zone_committed_owner
-                    != Some(authority.owner)
+                let holders =
+                    self.committed.cells[self.zone_head(row.cell_index)].zone_committed_owners;
+                holders.count == 0
+                    || (holders.count == 1 && holders.single() != Some(authority.owner))
             }) {
                 return false;
             }
@@ -3250,10 +3367,47 @@ impl<'a> ConflictRead<'a> {
         if self.zone_owned_by_other(target.resource(), subject) {
             return Some(ConflictYieldOutcome::Occupied);
         }
+        self.yield_gaps(
+            index,
+            subject,
+            now_ms,
+            cell.lag,
+            required_lag_ms,
+            required_lead_ms,
+        )
+    }
+
+    /// 已证明覆盖资源仅由同一跟入链持有；只免除滞后间隙，领先间隙保持原判据。
+    pub(crate) fn platoon_yield_target(
+        self,
+        subject: VehicleHandle,
+        target: ConflictPassageAddress,
+        now_ms: u64,
+        required_lead_ms: u64,
+    ) -> Option<ConflictYieldOutcome> {
+        self.yield_gaps(
+            self.cell_index(target).ok()?,
+            subject,
+            now_ms,
+            ConflictLagReference::NoHistory,
+            0,
+            required_lead_ms,
+        )
+    }
+
+    fn yield_gaps(
+        self,
+        index: usize,
+        subject: VehicleHandle,
+        now_ms: u64,
+        lag: ConflictLagReference,
+        required_lag_ms: u64,
+        required_lead_ms: u64,
+    ) -> Option<ConflictYieldOutcome> {
         Some(
             match check_gap(
                 now_ms,
-                cell.lag,
+                lag,
                 required_lag_ms,
                 self.cell_workspace()
                     .get(index)
@@ -3329,7 +3483,8 @@ impl<'a> ConflictRead<'a> {
             || cell_rows.iter().any(|(index, owner, serial)| {
                 *owner != grant.owner
                     || *serial != grant.serial
-                    || self.committed.cells[*index].reservation.is_some()
+                    || (!staged.shares_coverage
+                        && self.committed.cells[*index].reservations.count != 0)
             })
             || claim_rows
                 .iter()
@@ -3405,17 +3560,21 @@ impl<'a> ConflictRead<'a> {
             return stage != ConflictPassageStage::Cleared
                 && (!clear || enter || stage == ConflictPassageStage::Occupied);
         }
-        let staged = cell.reservation.is_none()
-            && self.owner_authority(owner).is_some_and(|authority| {
-                authority.staged_serial.is_some()
-                    && self
-                        .staged_cells()
-                        .get(
-                            authority.staged_cell_start
-                                ..authority.staged_cell_start + authority.staged_cell_count,
-                        )
-                        .is_some_and(|rows| rows.binary_search_by_key(&index, |row| row.0).is_ok())
-            });
+        let staged = self.owner_authority(owner).is_some_and(|authority| {
+            authority.staged_serial.is_some()
+                && (cell.reservations.count == 0
+                    || self
+                        .staged_grants()
+                        .get(authority.staged_grant_index)
+                        .is_some_and(|grant| grant.shares_coverage))
+                && self
+                    .staged_cells()
+                    .get(
+                        authority.staged_cell_start
+                            ..authority.staged_cell_start + authority.staged_cell_count,
+                    )
+                    .is_some_and(|rows| rows.binary_search_by_key(&index, |row| row.0).is_ok())
+        });
         staged && (!clear || enter)
     }
 
@@ -3561,17 +3720,17 @@ impl<'a> ConflictRead<'a> {
 
     fn zone_committed_by_other(self, resource: ConflictResource, owner: VehicleHandle) -> bool {
         let index = self.resource_index(resource);
-        self.committed.cells.get(index).is_some_and(|cell| {
-            cell.zone_committed_owner
-                .is_some_and(|other| other != owner)
-        })
+        self.committed
+            .cells
+            .get(index)
+            .is_some_and(|cell| cell.zone_committed_owners.held_by_other(owner))
     }
 
     fn zone_staged_by_other(self, resource: ConflictResource, owner: VehicleHandle) -> bool {
         let index = self.resource_index(resource);
         self.cell_workspace()
             .get(index)
-            .is_some_and(|cell| cell.zone_staged_owner.is_some_and(|other| other != owner))
+            .is_some_and(|cell| cell.zone_staged_owners.held_by_other(owner))
     }
 
     /// 只查已提交 owner：资源获取期间已提交表不变，可在获取循环前并行判定。
@@ -3605,6 +3764,113 @@ impl<'a> ConflictRead<'a> {
         cells
             .iter()
             .any(|cell| self.zone_owned_by_other(cell.resource(), owner))
+    }
+
+    /// 只有持有全部且恰好这些普通 passage 的车辆才能作为跟入成员。
+    pub(crate) fn holds_ordinary_coverage(
+        self,
+        owner: VehicleHandle,
+        cells: &[ConflictPassageAddress],
+    ) -> bool {
+        if cells.is_empty()
+            || cells.iter().any(|cell| {
+                !matches!(cell.resource(), ConflictResource::Zone(_))
+                    || cell.stream != cells[0].stream
+            })
+        {
+            return false;
+        }
+        let Some(authority) = self.owner_authority(owner) else {
+            return false;
+        };
+        if authority.reservation.is_some() {
+            let start = authority.committed_cell_start;
+            authority.committed_cell_count == cells.len()
+                && self
+                    .committed
+                    .committed_cells
+                    .get(start..start + cells.len())
+                    .is_some_and(|rows| {
+                        rows.iter()
+                            .map(|row| self.derived.addresses[row.cell_index])
+                            .eq(cells.iter().copied())
+                    })
+        } else {
+            let start = authority.staged_cell_start;
+            authority.staged_serial.is_some()
+                && authority.staged_cell_count == cells.len()
+                && self
+                    .staged_cells()
+                    .get(start..start + cells.len())
+                    .is_some_and(|rows| {
+                        rows.iter()
+                            .map(|row| self.derived.addresses[row.0])
+                            .eq(cells.iter().copied())
+                    })
+        }
+    }
+
+    pub(crate) fn holds_ordinary_occurrences(
+        self,
+        owner: VehicleHandle,
+        occurrences: &[crate::kernel::tables::ConflictPassageOccurrence],
+    ) -> bool {
+        let Some(first) = occurrences.first() else {
+            return false;
+        };
+        let Some(authority) = self.owner_authority(owner) else {
+            return false;
+        };
+        let count = if authority.reservation.is_some() {
+            authority.committed_cell_count
+        } else {
+            authority.staged_cell_count
+        };
+        if count != occurrences.len() {
+            return false;
+        }
+        occurrences.iter().all(|entry| {
+            if entry.stream != first.stream || entry.static_zone().is_none() {
+                return false;
+            }
+            let Ok(index) = self.cell_index(entry.address()) else {
+                return false;
+            };
+            if authority.reservation.is_some() {
+                self.passage_row_index(owner, index).is_some()
+            } else {
+                self.staged_cells()
+                    .get(authority.staged_cell_start..authority.staged_cell_start + count)
+                    .is_some_and(|rows| rows.binary_search_by_key(&index, |row| row.0).is_ok())
+            }
+        })
+    }
+
+    /// 每个资源只统计一次当前链成员的持有。跨 stream 或不同 coverage 不能共享。
+    pub(crate) fn matches_platoon(
+        self,
+        members: &[VehicleHandle],
+        cells: &[ConflictPassageAddress],
+    ) -> bool {
+        members
+            .windows(2)
+            .all(|pair| pair[0].index() < pair[1].index())
+            && members
+                .iter()
+                .all(|owner| self.holds_ordinary_coverage(*owner, cells))
+            && cells.iter().all(|cell| {
+                let zone = self.resource_index(cell.resource());
+                let committed = self
+                    .committed
+                    .cells
+                    .get(zone)
+                    .map_or(0, |cell| cell.zone_committed_owners.count);
+                let staged = self
+                    .cell_workspace()
+                    .get(zone)
+                    .map_or(0, |cell| cell.zone_staged_owners.count);
+                u64::from(committed) + u64::from(staged) == members.len() as u64
+            })
     }
 
     /// 测试专用：统计三个分区保留的逻辑字节总数。
@@ -3762,7 +4028,26 @@ impl<'world> ConflictWrite<'world> {
         let mut addresses = Vec::new();
         reserve_for_len(&mut addresses, cells.len())?;
         addresses.extend(cells.iter().map(|cell| cell.address));
-        let grant = self.try_acquire(
+        // 车辆行可以用任意顺序回放。冷装时只允许与已装的相同普通 coverage
+        // 合并，整组车辆的物理顺序、终点与硬边界在发布前统一重证。
+        let mut members = Vec::new();
+        if self.read().cells_committed_unavailable(owner, &addresses) {
+            for reservation in &self.committed.committed_owners {
+                if self
+                    .read()
+                    .holds_ordinary_coverage(reservation.owner, &addresses)
+                {
+                    let required = members
+                        .len()
+                        .checked_add(1)
+                        .ok_or(ConflictAcquireError::Capacity)?;
+                    reserve_for_len(&mut members, required)?;
+                    members.push(reservation.owner);
+                }
+            }
+            members.sort_unstable_by_key(|member| member.index());
+        }
+        let grant = self.try_acquire_with_platoon(
             acquired_tick,
             GrantResourceBundle {
                 owner,
@@ -3771,6 +4056,7 @@ impl<'world> ConflictWrite<'world> {
                 downstream,
                 waiting_entitlement: None,
             },
+            &members,
         )?;
         let reservation = self
             .commit_gate_crossing_deferred(grant, passage_range, downstream_target)?
@@ -3873,6 +4159,16 @@ impl<'world> ConflictWrite<'world> {
         tick: u64,
         bundle: GrantResourceBundle<'_>,
     ) -> Result<ConflictGrant, ConflictAcquireError> {
+        self.try_acquire_with_platoon(tick, bundle, &[])
+    }
+
+    /// `members` 由调用方用物理顺序、共同路线和下游叠放证明派生，按槽位排序。
+    fn try_acquire_with_platoon(
+        &mut self,
+        tick: u64,
+        bundle: GrantResourceBundle<'_>,
+        members: &[VehicleHandle],
+    ) -> Result<ConflictGrant, ConflictAcquireError> {
         if (bundle.cells.is_empty()
             && (bundle.waiting_entitlement.is_none() || !bundle.downstream.is_empty()))
             || (!bundle.cells.is_empty() && bundle.downstream.is_empty())
@@ -3888,6 +4184,11 @@ impl<'world> ConflictWrite<'world> {
         if !bundle.cells.is_empty() {
             self.ensure_cells()?;
         }
+        if !members.is_empty() && !self.read().matches_platoon(members, bundle.cells) {
+            return Err(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::ConflictOccupied,
+            ));
+        }
         reserve_for_len(&mut self.workspace.scratch_cell_indices, bundle.cells.len())?;
         self.workspace.scratch_cell_indices.clear();
         for address in bundle.cells {
@@ -3902,7 +4203,7 @@ impl<'world> ConflictWrite<'world> {
             {
                 return Err(ConflictAcquireError::InvalidBundle);
             }
-            if self.zone_owned_by_other(address.resource(), bundle.owner) {
+            if members.is_empty() && self.zone_owned_by_other(address.resource(), bundle.owner) {
                 #[cfg(test)]
                 count_conflict_work(|counts| counts.collision_rejections += 1);
                 return Err(ConflictAcquireError::NoGrant(
@@ -3918,15 +4219,21 @@ impl<'world> ConflictWrite<'world> {
         for interval in bundle.downstream {
             #[cfg(test)]
             count_conflict_work(|counts| counts.downstream_claim_queries += 1);
-            if self.derived.downstream_index.conflicts(
-                *interval,
-                bundle.owner,
-                bundle.follower_min_gap_mm,
-            ) || self.workspace.staged_downstream_index.conflicts(
-                *interval,
-                bundle.owner,
-                bundle.follower_min_gap_mm,
-            ) {
+            let conflicts = |index: &crate::kernel::downstream_index::DownstreamIndex| {
+                if members.is_empty() {
+                    index.conflicts(*interval, bundle.owner, bundle.follower_min_gap_mm)
+                } else {
+                    index.conflicts_except(*interval, bundle.follower_min_gap_mm, |owner| {
+                        owner == bundle.owner
+                            || members
+                                .binary_search_by_key(&owner.index(), |member| member.index())
+                                .is_ok_and(|i| members[i] == owner)
+                    })
+                }
+            };
+            if conflicts(&self.derived.downstream_index)
+                || conflicts(&self.workspace.staged_downstream_index)
+            {
                 #[cfg(test)]
                 count_conflict_work(|counts| counts.collision_rejections += 1);
                 return Err(ConflictAcquireError::NoGrant(
@@ -3934,14 +4241,7 @@ impl<'world> ConflictWrite<'world> {
                 ));
             }
         }
-        if self
-            .workspace
-            .staged_cells
-            .len()
-            .saturating_add(self.workspace.scratch_cell_indices.len())
-            > self.derived.conflict_capacity
-            || self.owner_count() >= self.derived.vehicle_capacity
-        {
+        if self.owner_count() >= self.derived.vehicle_capacity {
             return Err(ConflictAcquireError::Capacity);
         }
         let staged_required = self
@@ -4025,9 +4325,15 @@ impl<'world> ConflictWrite<'world> {
             .next_serial
             .checked_add(1)
             .ok_or(ConflictAcquireError::Capacity)?;
+        let mut previous_zone = None;
         for index in self.workspace.scratch_cell_indices.iter().copied() {
             let zone = self.zone_head(index);
-            self.workspace.cell_workspace[zone].zone_staged_owner = Some(bundle.owner);
+            if previous_zone != Some(zone) {
+                self.workspace.cell_workspace[zone]
+                    .zone_staged_owners
+                    .insert(bundle.owner);
+                previous_zone = Some(zone);
+            }
             self.workspace
                 .staged_cells
                 .push((index, bundle.owner, serial));
@@ -4049,7 +4355,14 @@ impl<'world> ConflictWrite<'world> {
             owner: bundle.owner,
             serial,
             consumed: false,
+            shares_coverage: !members.is_empty(),
         });
+        for member in members {
+            if let Some(index) = self.staged_owner_index(member.index() as usize) {
+                let grant = self.workspace.staged_owners[index].staged_grant_index;
+                self.workspace.staged_grants[grant].shares_coverage = true;
+            }
+        }
         let mut authority = ConflictOwnerAuthority::staged(
             bundle.owner,
             serial,
@@ -4128,11 +4441,17 @@ impl<'world> ConflictWrite<'world> {
         let previous = self
             .owner_at(preflight.authority_index)
             .expect("owner authority");
+        let mut previous_zone = None;
         for offset in 0..previous.staged_cell_count {
             let (index, _, _) = self.workspace.staged_cells[previous.staged_cell_start + offset];
-            self.committed.cells[index].reservation = Some(grant.owner);
+            self.committed.cells[index].reservations.insert(grant.owner);
             let zone = self.zone_head(index);
-            self.committed.cells[zone].zone_committed_owner = Some(grant.owner);
+            if previous_zone != Some(zone) {
+                self.committed.cells[zone]
+                    .zone_committed_owners
+                    .insert(grant.owner);
+                previous_zone = Some(zone);
+            }
         }
         let reservation = ConflictReservation {
             owner: grant.owner,
@@ -4177,6 +4496,7 @@ impl<'world> ConflictWrite<'world> {
     /// 把 pending commit 的 staged cells 与 downstream claims 移入已提交行，并重排保留者的范围起点。
     pub(crate) fn flush_crossings(&mut self) {
         let mut write = 0;
+        let mut previous_resource_owner = None;
         for read in 0..self.workspace.staged_cells.len() {
             let row = self.workspace.staged_cells[read];
             let owner = self.owner_authority_index(row.1).expect("staged owner");
@@ -4205,7 +4525,12 @@ impl<'world> ConflictWrite<'world> {
                     stage: ConflictPassageStage::Reserved,
                 });
                 let zone = self.zone_head(row.0);
-                self.workspace.cell_workspace[zone].zone_staged_owner = None;
+                if previous_resource_owner != Some((zone, row.1)) {
+                    self.workspace.cell_workspace[zone]
+                        .zone_staged_owners
+                        .remove(row.1);
+                    previous_resource_owner = Some((zone, row.1));
+                }
             } else {
                 if write == 0 || self.workspace.staged_cells[write - 1].1 != row.1 {
                     self.update_owner(owner, |authority| authority.staged_cell_start = write);
@@ -4263,9 +4588,15 @@ impl<'world> ConflictWrite<'world> {
     }
 
     fn discard_staged(&mut self) {
-        for (index, _, _) in &self.workspace.staged_cells {
+        let mut previous_resource_owner = None;
+        for (index, owner, _) in &self.workspace.staged_cells {
             let zone = self.zone_head(*index);
-            self.workspace.cell_workspace[zone].zone_staged_owner = None;
+            if previous_resource_owner != Some((zone, *owner)) {
+                self.workspace.cell_workspace[zone]
+                    .zone_staged_owners
+                    .remove(*owner);
+                previous_resource_owner = Some((zone, *owner));
+            }
         }
         self.workspace.staged_cells.clear();
         self.workspace.staged_downstream.clear();
@@ -4349,24 +4680,35 @@ impl<'world> ConflictWrite<'world> {
     /// 只遍历该 owner 的连续 cell 段；lag 仅在显式 despawn 时补记。
     fn clear_owner_cells(&mut self, authority: usize, release_time: Option<u64>) {
         let authority = self.owner_at(authority).expect("owner authority");
+        let mut previous_zone = None;
         for offset in 0..authority.committed_cell_count {
             let row = self.committed.committed_cells[authority.committed_cell_start + offset];
             let cell = &mut self.committed.cells[row.cell_index];
-            debug_assert_eq!(cell.reservation, Some(authority.owner));
             if let Some(time) = release_time.filter(|_| row.stage != ConflictPassageStage::Cleared)
             {
                 cell.lag = ConflictLagReference::ActualClear(time);
             }
-            cell.reservation = None;
+            cell.reservations.remove(authority.owner);
             let zone = self.zone_head(row.cell_index);
-            self.committed.cells[zone].zone_committed_owner = None;
+            if previous_zone != Some(zone) {
+                self.committed.cells[zone]
+                    .zone_committed_owners
+                    .remove(authority.owner);
+                previous_zone = Some(zone);
+            }
             #[cfg(test)]
             count_conflict_work(|work| work.commit_resource_visits += 1);
         }
+        let mut previous_zone = None;
         for offset in 0..authority.staged_cell_count {
             let index = self.workspace.staged_cells[authority.staged_cell_start + offset].0;
             let zone = self.zone_head(index);
-            self.workspace.cell_workspace[zone].zone_staged_owner = None;
+            if previous_zone != Some(zone) {
+                self.workspace.cell_workspace[zone]
+                    .zone_staged_owners
+                    .remove(authority.owner);
+                previous_zone = Some(zone);
+            }
         }
     }
 
@@ -4668,13 +5010,14 @@ impl<'a> ConflictResolution<'a> {
         Ok(())
     }
 
-    /// 校验并暂存候选组合资源，成功时签发本拍 grant。
-    pub(crate) fn try_acquire(
+    /// 同链候选必须另外证明共同路线、叠放空间和全部逐车硬边界。
+    pub(crate) fn try_acquire_with_platoon(
         &mut self,
         tick: u64,
         bundle: GrantResourceBundle<'_>,
+        members: &[VehicleHandle],
     ) -> Result<ConflictGrant, ConflictAcquireError> {
-        self.0.try_acquire(tick, bundle)
+        self.0.try_acquire_with_platoon(tick, bundle, members)
     }
 
     /// 丢弃全部 staged 资源、grant 与 owner 暂存记录。
@@ -5978,7 +6321,7 @@ mod tests {
     }
 
     #[test]
-    fn downstream_clearance_uses_actual_length_and_exact_micrometre_boundary() {
+    fn downstream_clearance_uses_actual_length_and_integer_millimetre_target() {
         let edges = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
         let lengths = [100, 100];
         let gate = DownstreamRoutePoint::new(0, 50, 0).unwrap();
@@ -6048,6 +6391,131 @@ mod tests {
         assert!(intervals_conflict(follower, 6, leader, 0));
         assert!(!intervals_conflict(leader, 99, follower, 5));
         assert!(intervals_conflict(leader, 0, follower, 6));
+    }
+
+    #[test]
+    fn historical_target_respects_single_floor_canonical_progress_and_next_gate() {
+        let edges = [0, 1, 0, 2].map(LaneEdgeOrdinal::from_raw);
+        let lengths = [100, 50, 70];
+        let point = |hop, mm, carry| DownstreamRoutePoint::new(hop, mm, carry).unwrap();
+        let single = downstream_claim_plan(point(0, 100, 0), point(1, 20, 0)).unwrap();
+        let plan_to = |target, next| single.with_authorized_target(&edges, &lengths, next, target);
+        for target in [point(1, 20, 0), point(1, 49, 0), point(2, 0, 0)] {
+            assert_eq!(plan_to(target, Some(1)).unwrap().target(), target);
+        }
+        for target in [
+            point(1, 19, 0),
+            point(1, 20, 1),
+            point(1, 50, 0),
+            point(1, 51, 0),
+            point(2, 1, 0),
+            point(3, 0, 0),
+            point(4, 0, 0),
+        ] {
+            assert_eq!(
+                plan_to(target, Some(1)),
+                Err(ConflictAcquireError::InvalidBundle)
+            );
+        }
+        assert!(plan_to(point(3, 70, 0), None).is_ok());
+        assert!(plan_to(point(3, 71, 0), None).is_err());
+        assert!(plan_to(point(4, 0, 0), None).is_err());
+    }
+
+    #[test]
+    fn shared_ordinary_cells_keep_per_vehicle_claims_and_reject_an_outside_owner() {
+        let cells = [address(0, 0, 0), address(0, 0, 1)];
+        let other = address(0, 1, 0);
+        let mut arbiter = ConflictArbiter::new(vec![cells[0], cells[1], other], 5).unwrap();
+        let claims = [DownstreamInterval::new(LaneEdgeOrdinal::from_raw(0), 0, 10).unwrap()];
+        let resource = |owner| GrantResourceBundle {
+            owner,
+            follower_min_gap_mm: 2,
+            cells: &cells,
+            downstream: &claims,
+            waiting_entitlement: None,
+        };
+        let owners = [vehicle(0), vehicle(1), vehicle(2)];
+        let a = arbiter.try_acquire(1, resource(owners[0])).unwrap();
+        let b = arbiter
+            .write()
+            .try_acquire_with_platoon(1, resource(owners[1]), &owners[..1])
+            .unwrap();
+        let range = passage_range(0, 0, 0, 0, 2);
+        let target = |n| DownstreamRoutePoint::new(1, n, 0).unwrap();
+        // crossing 的提交顺序可与签发顺序相反。
+        arbiter
+            .commit_gate_crossing_deferred(b, range, target(15))
+            .unwrap();
+        arbiter
+            .commit_gate_crossing_deferred(a, range, target(10))
+            .unwrap();
+        arbiter.expire_unconsumed_grants();
+        assert_eq!(
+            arbiter
+                .write()
+                .try_acquire_with_platoon(2, resource(owners[2]), &owners[..1])
+                .err(),
+            Some(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::ConflictOccupied
+            ))
+        );
+        let wrong = GrantResourceBundle {
+            cells: &[other],
+            ..resource(owners[2])
+        };
+        assert_eq!(
+            arbiter
+                .write()
+                .try_acquire_with_platoon(2, wrong, &owners[..2])
+                .err(),
+            Some(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::ConflictOccupied
+            ))
+        );
+        let c = arbiter
+            .write()
+            .try_acquire_with_platoon(2, resource(owners[2]), &owners[..2])
+            .unwrap();
+        arbiter
+            .commit_gate_crossing_deferred(c, range, target(20))
+            .unwrap();
+        arbiter.expire_unconsumed_grants();
+        for owner in owners {
+            for cell in cells {
+                assert!(arbiter.read().reservation_has_cell(owner, cell));
+                assert!(arbiter.enter_passage(owner, cell));
+            }
+        }
+        assert!(arbiter.authority_owners_valid(|_| true, 1));
+        arbiter.release_vehicle(owners[1], 10);
+        assert!(!arbiter.read().reservation_has_cell(owners[1], cells[0]));
+        assert_eq!(
+            arbiter
+                .read()
+                .reservation(owners[2])
+                .unwrap()
+                .downstream_target(),
+            target(20)
+        );
+        assert_eq!(
+            arbiter.try_acquire(11, resource(vehicle(3))).err(),
+            Some(ConflictAcquireError::NoGrant(
+                ConflictResourceNoGrant::ConflictOccupied
+            ))
+        );
+        for (owner, time) in [(owners[0], 12), (owners[2], 14)] {
+            for cell in cells {
+                assert!(arbiter.clear_passage_deferred(owner, cell, time).is_some());
+            }
+            arbiter.finish_releases();
+            assert!(arbiter.authority_owners_valid(|_| true, 1));
+        }
+        assert_eq!(
+            arbiter.read().lag_reference(cells[0]),
+            Some(ConflictLagReference::ActualClear(14))
+        );
+        assert!(arbiter.try_acquire(15, resource(vehicle(3))).is_ok());
     }
 
     #[test]
@@ -6132,7 +6600,7 @@ mod tests {
     }
 
     #[test]
-    fn capture_and_direct_digest_reject_an_endpoint_that_v7_cannot_represent() {
+    fn capture_and_direct_digest_reject_authorized_endpoint_outside_its_recorded_claims() {
         let (mut world, owner) =
             crate::admin::format_admission::tests::world_with_conflict_reservation();
         let captured = world.capture_snapshot().unwrap();
@@ -6552,12 +7020,12 @@ mod tests {
             .cells
             .iter()
             .enumerate()
-            .filter(|(_, cell)| cell.reservation.is_some())
+            .filter(|(_, cell)| cell.reservations.count != 0)
             .nth(300)
             .map(|(index, _)| index)
             .unwrap();
         let saved = arbiter.committed.cells[reserved];
-        arbiter.committed.cells[reserved].reservation = None;
+        arbiter.committed.cells[reserved].reservations = ConflictHolders::default();
         assert_authority(&arbiter, |owner| owner.index() < COUNT, false);
         arbiter.committed.cells[reserved] = saved;
         assert_authority(&arbiter, |owner| owner.index() < COUNT, true);

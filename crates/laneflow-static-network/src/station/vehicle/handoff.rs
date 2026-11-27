@@ -33,8 +33,18 @@ pub struct HandoffWindow {
     pub owner: BoundaryOwner,
     /// 在所有者的有序成员表中位于边界左侧的成员下标。
     pub left_index: u32,
-    /// 允许前保险杠交接的走廊站位闭区间，单位纳米。
-    pub stations_nm: [u64; 2],
+    /// 允许前保险杠交接的走廊局部站位闭区间，单位毫米。
+    pub stations_mm: [u64; 2],
+}
+
+impl HandoffWindow {
+    fn stations_nm(self) -> Result<[u64; 2], Failure> {
+        let [lo, hi] = self.stations_mm;
+        Ok([
+            lo.checked_mul(1_000_000).ok_or(Failure::InvalidInput)?,
+            hi.checked_mul(1_000_000).ok_or(Failure::InvalidInput)?,
+        ])
+    }
 }
 
 /// 在两条已发布车道的中心之间生成五次横移。运行时负责车型与交通通行权的绑定。
@@ -198,13 +208,12 @@ fn bind(
     }
     let m = network.station_mapping();
     work.charge()?;
-    let length = m
-        .corridor_domain(q.corridor)
-        .ok_or(Failure::Unavailable)?
-        .length_nm;
-    if length == 0
-        || w.stations_nm[0] > w.stations_nm[1]
-        || w.stations_nm[1] > length
+    let domain = m.corridor_domain(q.corridor).ok_or(Failure::Unavailable)?;
+    let length = domain.length_nm();
+    let [lo, hi] = w.stations_mm;
+    if domain.length_mm() == 0
+        || lo > hi
+        || hi > domain.length_mm()
         || q.rear_stations_nm.iter().any(|s| *s > length)
         || q.rear_stations_nm[0] == q.rear_stations_nm[1]
     {
@@ -243,9 +252,9 @@ fn bind(
     let left = lookup(lanes[0], work)?;
     let right = lookup(lanes[1], work)?;
     let centers = |f: &LaneFootprint| {
-        let [low, high] = f.ends_um.map(|[l, r]| 0.5 * (f64::from(l) + f64::from(r)));
+        let [low, high] = f.ends_mm.map(|[l, r]| 0.5 * (f64::from(l) + f64::from(r)));
         q.rear_stations_nm
-            .map(|s| (low + (high - low) * (s as f64 / length as f64)) / 1e6)
+            .map(|s| (low + (high - low) * (s as f64 / length as f64)) / 1_000.)
     };
     let ordered = if to_right {
         [left, right]
@@ -262,13 +271,13 @@ fn bind(
         if station == 0 || station == length {
             return Err(Failure::Unavailable);
         }
-        let index = partition(rows, |r| r.stations[1].0 < station, work)?;
+        let index = partition(rows, |r| r.stations_nm()[1].0 < station, work)?;
         work.charge()?;
         let row = rows.get(index).ok_or(Failure::Unavailable)?;
-        if row.stations[1].0 == station {
+        if row.stations_nm()[1].0 == station {
             work.charge()?;
             let next = rows.get(index + 1).ok_or(Failure::Unavailable)?;
-            let [a, b] = lane.ends_um.map(|[l, r]| i64::from(l) + i64::from(r));
+            let [a, b] = lane.ends_mm.map(|[l, r]| i64::from(l) + i64::from(r));
             if !path::smooth_join(row, next, a == b) {
                 return Err(Failure::SteeringSeam);
             }
@@ -278,13 +287,13 @@ fn bind(
         lanes,
         source_target,
         outer: [(left, 0), (right, 1)].map(|(lane, i)| sweep::BoundaryLine {
-            offsets_um: lane.ends_um.map(|ends| ends[i]),
-            error_nm: lane.error_nm,
+            offsets_mm: lane.ends_mm.map(|ends| ends[i]),
+            error_mm: lane.error_mm,
         }),
         crossing: Crossing {
             line: sweep::BoundaryLine {
-                offsets_um: left.ends_um.map(|ends| ends[1]),
-                error_nm: left.error_nm,
+                offsets_mm: left.ends_mm.map(|ends| ends[1]),
+                error_mm: left.error_mm,
             },
             sign: I::point(if to_right { -1. } else { 1. }),
         },
@@ -480,7 +489,7 @@ impl SharedNetworkRevision {
                 roots: None,
             };
             let (trace_range_nm, stations_nm) = search.locate(full[1], &mut work)?;
-            let [lo, hi] = window.stations_nm;
+            let [lo, hi] = window.stations_nm().map_err(|e| (full, e))?;
             if stations_nm[0] > hi || stations_nm[1] < lo {
                 return Ok(HandoffOutcome::OutsideWindow { stations_nm });
             }

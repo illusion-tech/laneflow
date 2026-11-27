@@ -11,6 +11,8 @@ use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
 use thiserror::Error;
 
+pub(crate) mod handoff;
+
 use crate::kernel::conflict::UnsupportedTransitionState;
 use crate::{
     CommittedNetworkSource, ParkingBinding, ParkingTarget, TrafficWorld, VehicleStatus, WorldConfig,
@@ -19,9 +21,9 @@ use crate::{
 use crate::{WorldConfigInput, WorldId, WorldInstallInput};
 
 /// LFRS 容器格式版本（快照合同 §4）。
-pub const SNAPSHOT_FORMAT_VERSION: u32 = 7;
+pub const SNAPSHOT_FORMAT_VERSION: u32 = 8;
 /// Runtime 逻辑状态形状轴（快照合同 §2 版本轴分离）。
-pub const RUNTIME_STATE_VERSION: u16 = 5;
+pub const RUNTIME_STATE_VERSION: u16 = 6;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 pub(crate) const FIRST_SNAPSHOT_ID: u64 = 1;
@@ -37,11 +39,14 @@ pub enum SnapshotCaptureError {
     /// 已提交 Conflict authority 不能由 reservation 级证明精确重建。
     #[error("已提交 Conflict authority 与路线证明不一致")]
     ConflictInvariantViolation,
+    /// 已提交的换道状态、游标或保护与登记窗口不一致。
+    #[error("已提交换道与路线或保护不一致")]
+    HandoffInvariantViolation,
     /// 直算摘要经 capture 助手的归一化 scratch 超出限额（仅直算路径透传；
     /// capture 路径预算无限，不会产生本变体）。
     #[error("直算摘要归一化 scratch 超出限额")]
     LimitExceeded,
-    /// 当前持久形制（LFRS 7 / runtime state 5）无法忠实表达的固定预制过渡状态（#1217）。
+    /// 当前持久形制无法忠实表达的固定预制过渡状态（#1217）。
     ///
     /// 与 [`Self::ConflictInvariantViolation`] 严格区分：过渡状态是健康世界的
     /// 正常运行态，不是 C(T) 失真；宿主不得按不变量破坏的停用/隔离处置处理，
@@ -201,6 +206,7 @@ pub struct CapturedRoute {
     pub(crate) snapshot_route_id: u64,
     /// 有序边稳定标识（替代 `LaneEdgeOrdinal`）。
     pub(crate) edges: Vec<ContractStableId128>,
+    pub(crate) windows: Vec<handoff::CapturedHandoffWindow>,
 }
 
 /// 快照车辆：局部 ID + 局部路线引用 + 路线序列下标与一维运动状态。
@@ -234,6 +240,7 @@ pub struct CapturedVehicle {
     pub(crate) conflict_eligibility: Option<CapturedConflictEligibility>,
     /// Crossing 后仍在 Clearing 的组合资源。
     pub(crate) conflict_reservation: Option<CapturedConflictReservation>,
+    pub(crate) handoffs: Vec<handoff::CapturedHandoff>,
 }
 
 /// 快照中的机动遍历阶段。
@@ -306,14 +313,6 @@ pub struct CapturedConflictPassage {
     pub(crate) clearance_progress_mm: u32,
 }
 
-/// 快照中的冲突下游区间：车道边上的毫米区间。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CapturedConflictDownstreamInterval {
-    pub(crate) lane_edge: ContractStableId128,
-    pub(crate) start_mm: u32,
-    pub(crate) end_mm: u32,
-}
-
 /// 快照中的冲突预约：获得刻度、机动锚点、通行段与下游区间集合。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapturedConflictReservation {
@@ -322,7 +321,7 @@ pub struct CapturedConflictReservation {
     pub(crate) maneuver_entry_route_edge_index: u32,
     pub(crate) admission_gate: ContractStableId128,
     pub(crate) passages: Vec<CapturedConflictPassage>,
-    pub(crate) downstream_intervals: Vec<CapturedConflictDownstreamInterval>,
+    pub(crate) downstream_end: handoff::CapturedDownstreamEnd,
 }
 
 /// 快照中的冲突滞后状态：通行段定位值与滞后基准。
@@ -625,6 +624,28 @@ impl CapturedSnapshot {
 }
 
 impl crate::kernel::state::WorldState {
+    pub(super) fn validate_snapshot_authority(&self) -> Result<(), SnapshotCaptureError> {
+        let key = |h: &crate::kernel::handoff::execution::ActiveRouteHandoff| {
+            (h.vehicle.index(), h.source_index)
+        };
+        if self
+            .committed
+            .handoffs
+            .windows(2)
+            .any(|pair| key(&pair[0]) >= key(&pair[1]))
+            || !self.validate_restored_handoffs()
+        {
+            return Err(SnapshotCaptureError::HandoffInvariantViolation);
+        }
+        match self.conflict_platoons_valid() {
+            Ok(true) => Ok(()),
+            Err(crate::kernel::conflict::ConflictAcquireError::ScratchAllocFailed) => {
+                Err(SnapshotCaptureError::ReservationFailed)
+            }
+            _ => Err(SnapshotCaptureError::ConflictInvariantViolation),
+        }
+    }
+
     /// 在固定步进安全边界捕获快照点（快照合同 §5 单一时点）。
     ///
     /// 只读已提交状态，不改变世界、不推进游标；全部容量按计数可失败预留，
@@ -642,6 +663,7 @@ impl crate::kernel::state::WorldState {
     /// 返回 [`SnapshotCaptureError::UnsupportedTransitionState`]——整入口拒绝、
     /// 零部分产物，世界照常可运行、可重试，且**不得**按不变量破坏处置。
     pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
+        self.validate_snapshot_authority()?;
         let identity = self.binding.revision.identity();
         let mut capture_budget = crate::admin::snapshot_digest::NormalizationBudget::unlimited();
         let conflict_index_len = self.binding.config.vehicle_capacity() as usize;
@@ -827,9 +849,9 @@ impl crate::kernel::state::WorldState {
         let Some(slot) = self.committed.routes.get(slot_index) else {
             return Ok(None);
         };
-        if slot.compiled.is_none() {
+        let Some(compiled) = &slot.compiled else {
             return Ok(None);
-        }
+        };
         let handle = crate::RouteHandle::new(
             u32::try_from(slot_index).expect("route index fits u32"),
             slot.generation,
@@ -853,9 +875,21 @@ impl crate::kernel::state::WorldState {
                     .expect("live edge ordinal resolves to stable id"),
             );
         }
+        let mut windows = handoff::capture_rows(compiled.handoff_windows().len(), budget)?;
+        for &(index, binding) in compiled.handoff_windows() {
+            windows.push(
+                handoff::CapturedHandoffWindow::from_binding(
+                    &self.binding.revision,
+                    index,
+                    binding,
+                )
+                .ok_or(SnapshotCaptureError::HandoffInvariantViolation)?,
+            );
+        }
         Ok(Some(CapturedRoute {
             snapshot_route_id,
             edges,
+            windows,
         }))
     }
 
@@ -1136,19 +1170,6 @@ impl crate::kernel::state::WorldState {
                         clearance_progress_mm: occurrence.clearance.progress_mm,
                     });
                 }
-                let mut downstream_intervals = Vec::new();
-                budget
-                    .charge_bytes_for_reserve(
-                        core::mem::size_of::<CapturedConflictDownstreamInterval>(),
-                        usize::try_from(reservation.downstream_claim_count())
-                            .expect("downstream count fits usize"),
-                    )
-                    .map_err(|_| SnapshotCaptureError::LimitExceeded)?;
-                capture_try_reserve_exact(
-                    &mut downstream_intervals,
-                    usize::try_from(reservation.downstream_claim_count())
-                        .expect("downstream count fits usize"),
-                )?;
                 let mut committed_downstream = Vec::new();
                 budget
                     .charge_bytes_for_reserve(
@@ -1176,11 +1197,12 @@ impl crate::kernel::state::WorldState {
                 }
                 let mut derived_downstream = Vec::new();
                 let downstream_plan = self
-                    .reservation_downstream_claim_plan(range, state.length_mm)
+                    .reservation_downstream_claim_plan_to(
+                        range,
+                        state.length_mm,
+                        reservation.downstream_target(),
+                    )
                     .map_err(|_| SnapshotCaptureError::ConflictInvariantViolation)?;
-                if downstream_plan.target() != reservation.downstream_target() {
-                    return Err(SnapshotCaptureError::ConflictInvariantViolation);
-                }
                 budget
                     .charge_bytes_for_reserve(
                         core::mem::size_of::<crate::DownstreamInterval>(),
@@ -1199,18 +1221,6 @@ impl crate::kernel::state::WorldState {
                 if committed_downstream != derived_downstream {
                     return Err(SnapshotCaptureError::ConflictInvariantViolation);
                 }
-                for interval in committed_downstream {
-                    downstream_intervals.push(CapturedConflictDownstreamInterval {
-                        lane_edge: *identity
-                            .stable_id(interval.edge())
-                            .expect("downstream edge resolves stable id")
-                            .as_untyped(),
-                        start_mm: interval.start_mm(),
-                        end_mm: interval.end_mm(),
-                    });
-                }
-                downstream_intervals
-                    .sort_unstable_by_key(|row| (row.lane_edge, row.start_mm, row.end_mm));
                 Some(CapturedConflictReservation {
                     acquired_tick: reservation.acquired_tick(),
                     maneuver_occurrence_index: range.maneuver_occurrence_index(),
@@ -1220,7 +1230,12 @@ impl crate::kernel::state::WorldState {
                         .expect("reservation Gate resolves stable id")
                         .as_untyped(),
                     passages,
-                    downstream_intervals,
+                    downstream_end: handoff::CapturedDownstreamEnd::from_range(
+                        compiled,
+                        range,
+                        reservation.downstream_target(),
+                    )
+                    .ok_or(SnapshotCaptureError::ConflictInvariantViolation)?,
                 })
             }
         };
@@ -1245,6 +1260,7 @@ impl crate::kernel::state::WorldState {
             waiting_membership,
             conflict_eligibility,
             conflict_reservation,
+            handoffs: self.capture_handoffs_for(state.handle, budget)?,
         }))
     }
 }
@@ -1280,7 +1296,7 @@ mod tests {
     use super::*;
     use crate::admin::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{ParkedVehicleSpawnInput, ParkingTarget, RouteRegisterInput, TickInput};
-    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v7 as wire;
+    use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v8 as wire;
 
     #[test]
     fn capture_binds_cursors_config_and_origin() {

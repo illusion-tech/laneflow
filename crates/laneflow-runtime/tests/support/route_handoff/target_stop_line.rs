@@ -5,8 +5,8 @@ use laneflow_static_network::vehicle::HandoffLaneSide;
 
 fn stations(direction: RoadEditingLaneDirection, distances_m: [u64; 2]) -> [u64; 2] {
     distances_m.map(|m| match direction {
-        RoadEditingLaneDirection::Forward => m * 1_000_000_000,
-        RoadEditingLaneDirection::Backward => (50 - m) * 1_000_000_000,
+        RoadEditingLaneDirection::Forward => m * 1_000,
+        RoadEditingLaneDirection::Backward => (50 - m) * 1_000,
     })
 }
 
@@ -26,11 +26,11 @@ fn a_body_point_reaches_the_target_stop_before_the_front_bumper_handoff() {
                     source_index: 1,
                     owner: BoundaryOwner::Section(section),
                     left_index: 0,
-                    stations_nm: [24_000_000_000, 26_000_000_000],
+                    stations_mm: [24_000, 26_000],
                 },
             )
             .unwrap();
-        let trial = car_trial(&revision, [10_000_000_000, 40_000_000_000]);
+        let trial = car_trial(&revision, [10_000, 40_000]);
         let result = world.preview_route_handoff(&binding, &trial);
         if has_stop {
             assert!(matches!(result.unwrap_err(),
@@ -40,7 +40,7 @@ fn a_body_point_reaches_the_target_stop_before_the_front_bumper_handoff() {
             // 直接取相同路面和车型的实体点见证。两个姿态的前保险杠中点都在源侧。
             let witness = |travel| {
                 let footprint = preview
-                    .sample_after_travel(0, travel, 5_000_000, trial.limits)
+                    .sample_after_travel(0, travel, TRAVEL_TOLERANCE_MM, trial.limits)
                     .unwrap()
                     .sample
                     .unwrap()
@@ -79,10 +79,10 @@ fn the_target_stop_requires_the_physical_successor_at_this_occurrence() {
         source_index: 1,
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_nm: [18_000_000_000, 20_000_000_000],
+        stations_mm: [18_000, 20_000],
     };
     // 相同出现和停止截面。选定转向门不能放行扫入直行续边的车身。
-    let trial = car_trial(&revision, [4_000_000_000, 34_000_000_000]);
+    let trial = car_trial(&revision, [4_000, 34_000]);
     for (successor, allowed) in [(target[2], true), (turn, false)] {
         let route = RouteRegisterInput::new(vec![source[0], source[1], target[1], successor]);
         let bound = world.bind_route_handoff(&route, occurrence).unwrap();
@@ -114,16 +114,16 @@ fn the_target_stop_requires_the_physical_successor_at_this_occurrence() {
         target[3],
     ]);
     let first = RouteHandoffOccurrence {
-        stations_nm: [24_000_000_000, 26_000_000_000],
+        stations_mm: [24_000, 26_000],
         ..occurrence
     };
     let second = RouteHandoffOccurrence {
         source_index: 3,
-        stations_nm: [34_000_000_000, 36_000_000_000],
+        stations_mm: [34_000, 36_000],
         ..occurrence
     };
     let bound = world.bind_route_handoffs(&route, &[first, second]).unwrap();
-    let first_trial = car_trial(&revision, [10_000_000_000, 40_000_000_000]);
+    let first_trial = car_trial(&revision, [10_000, 40_000]);
     assert!(
         matches!(world.preview_route_handoff_at(&bound, 1, &first_trial).unwrap_err(),
         RouteHandoffTrialError::StopLineUnproven { edge, reason: None, .. } if edge == target[1])
@@ -178,7 +178,7 @@ fn target_stop_requires_a_selected_maneuver_or_whole_body_separation_in_both_dir
                 source_index: u32::try_from(source_index).unwrap(),
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: window,
+                stations_mm: window,
             };
             let binding = world
                 .bind_route_handoff(&RouteRegisterInput::new(edges), occurrence)

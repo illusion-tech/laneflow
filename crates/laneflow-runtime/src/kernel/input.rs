@@ -6,6 +6,7 @@ use crate::RouteHandle;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RouteRegisterInput {
     edges: Box<[LaneEdgeOrdinal]>,
+    handoffs: Box<[crate::RouteHandoffOccurrence]>,
 }
 
 impl RouteRegisterInput {
@@ -14,7 +15,21 @@ impl RouteRegisterInput {
     pub fn new(edges: impl Into<Vec<LaneEdgeOrdinal>>) -> Self {
         Self {
             edges: edges.into().into_boxed_slice(),
+            handoffs: Box::default(),
         }
+    }
+
+    /// 指定本路线的横向交接。注册时按源出现下标、修订及有向物理边界验证。
+    #[must_use]
+    pub fn with_handoffs(mut self, occurrences: Vec<crate::RouteHandoffOccurrence>) -> Self {
+        self.handoffs = occurrences.into_boxed_slice();
+        self
+    }
+
+    /// 按调用方声明的顺序读取交接窗口。
+    #[must_use]
+    pub fn handoffs(&self) -> &[crate::RouteHandoffOccurrence] {
+        &self.handoffs
     }
 
     /// 路线的共享静态路网边序号序列。

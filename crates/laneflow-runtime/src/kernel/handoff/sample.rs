@@ -4,6 +4,7 @@ use laneflow_static_network::{
     StationCandidates,
     vehicle::{
         Failure, GeometryWorkLimits, HandoffFootprint, HandoffLaneSide, HandoffTravelTarget,
+        PoseBounds,
     },
 };
 use thiserror::Error;
@@ -64,6 +65,19 @@ pub(super) struct CursorRun<'a> {
 }
 
 impl<'a> CursorRun<'a> {
+    pub(super) fn indices(self) -> std::ops::Range<usize> {
+        self.first as usize..self.first as usize + self.edges.len()
+    }
+
+    pub(super) fn in_route(
+        edges: &'a [LaneEdgeOrdinal],
+        indices: std::ops::Range<usize>,
+    ) -> Option<Self> {
+        Some(Self {
+            first: u32::try_from(indices.start).ok()?,
+            edges: edges.get(indices)?,
+        })
+    }
     pub(super) fn source(
         leg: &'a [LaneEdgeOrdinal],
         source_index: u32,
@@ -122,7 +136,7 @@ impl<'a> CursorRun<'a> {
 
 impl RouteHandoffPreview<'_> {
     /// 以已裁决的本拍位移（微米）推进一次只读取样。零位移可复核同一姿态。
-    /// 两项行程相加后仅作一次纳米逆查，并在整个结果闭区间核验前杠和车身。
+    /// 两项行程相加后按给定的正整数毫米容差反查，并在整个结果闭区间核验前杠和车身。
     /// `limits.tracks` 限定行程反查，`limits.sweep` 限定位置求证。
     /// 超出候选终点时保留错误，调用方须单独裁决候选外的剩余行程。
     /// 未获原路线几何准入时返回 `None`。本方法不提交运动或处理预约。
@@ -131,10 +145,36 @@ impl RouteHandoffPreview<'_> {
         &self,
         rear_travel_um: u64,
         step_travel_um: u64,
-        tolerance_nm: u64,
+        tolerance_mm: std::num::NonZeroU32,
         limits: GeometryWorkLimits,
     ) -> Option<RouteHandoffSampleReport> {
-        let path = self.trajectory.as_ref()?;
+        let (result, travel_work, footprint_work) = self.trajectory.as_ref()?.sample_geometry(
+            rear_travel_um,
+            step_travel_um,
+            super::tolerance_nanometres(tolerance_mm),
+            limits,
+            false,
+        );
+        Some(RouteHandoffSampleReport {
+            sample: result.map(|(sample, _)| sample),
+            travel_work,
+            footprint_work,
+        })
+    }
+}
+
+type GeometrySample = Result<(RouteHandoffSample, PoseBounds), RouteHandoffSampleError>;
+
+impl super::LocatedTrajectory<'_> {
+    pub(super) fn sample_geometry(
+        &self,
+        rear_travel_um: u64,
+        step_travel_um: u64,
+        tolerance_nm: u64,
+        limits: GeometryWorkLimits,
+        reserved: bool,
+    ) -> (GeometrySample, u32, u32) {
+        let path = self;
         let mut travel_work = 0;
         let mut footprint_work = 0;
         let mut run = || {
@@ -156,17 +196,21 @@ impl RouteHandoffPreview<'_> {
                 .bounds
                 .map_err(RouteHandoffSampleError::Travel)?
                 .rear_stations_nm;
-            let report = path.revision.handoff_footprint(
+            let evaluate = if reserved {
+                laneflow_static_network::SharedNetworkRevision::reserved_handoff_footprint_and_pose
+            } else {
+                laneflow_static_network::SharedNetworkRevision::handoff_footprint_and_pose
+            };
+            let (geometry, used) = evaluate(
+                path.revision,
                 &path.query,
                 path.window,
                 path.body,
                 rear_stations_nm,
                 limits.sweep,
             );
-            footprint_work = report.work;
-            let footprint = report
-                .footprint
-                .map_err(RouteHandoffSampleError::Footprint)?;
+            footprint_work = used;
+            let (footprint, pose) = geometry.map_err(RouteHandoffSampleError::Footprint)?;
             let edge = {
                 let mut front = footprint.front.addresses();
                 match (front.next(), front.next()) {
@@ -179,17 +223,16 @@ impl RouteHandoffPreview<'_> {
                 HandoffLaneSide::Target => path.cursor_runs[1],
             };
             let front_occurrence = leg.resolve(edge)?;
-            Ok(RouteHandoffSample {
-                rear_travel_um: distance,
-                rear_stations_nm,
-                front_occurrence,
-                footprint,
-            })
+            Ok((
+                RouteHandoffSample {
+                    rear_travel_um: distance,
+                    rear_stations_nm,
+                    front_occurrence,
+                    footprint,
+                },
+                pose,
+            ))
         };
-        Some(RouteHandoffSampleReport {
-            sample: run(),
-            travel_work,
-            footprint_work,
-        })
+        (run(), travel_work, footprint_work)
     }
 }

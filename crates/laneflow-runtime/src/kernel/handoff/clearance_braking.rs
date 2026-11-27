@@ -152,11 +152,11 @@ impl StepKinematics {
         let remaining = length_lower_um
             .checked_sub(rear_hi)
             .ok_or(RouteHandoffBrakingError::OutsidePlan)?;
-        let first = windows.partition_point(|w| w.travel_um[1] < rear_lo);
+        let first = windows.partition_point(|w| w.travel_mm[1] < rear_lo / 1_000);
         let mut upcoming = &windows[first..];
         let mut limit = admitted;
         while let Some((active, tail)) = upcoming.split_first()
-            && active.travel_um[0] <= rear_hi
+            && active.travel_mm[0] <= rear_hi / 1_000
         {
             limit = limit.min(active.speed_mm_s);
             upcoming = tail;
@@ -176,7 +176,7 @@ impl StepKinematics {
             self.room_um(upper, 0)
         };
         for window in upcoming {
-            let distance = window.travel_um[0] - rear_hi;
+            let distance = window.travel_mm[0] * 1_000 - rear_hi;
             if distance > horizon {
                 break;
             }
@@ -218,6 +218,27 @@ impl StepKinematics {
 }
 
 impl RouteHandoffSpeedPlan {
+    /// 本拍按提案行驶，再逐拍采用车型可提交的最大服务减幅，最后一拍内停稳。
+    pub(super) fn stop_horizon_um(&self, current: u32, proposed: u32) -> Option<u64> {
+        let motion = StepKinematics::new(current, self.fixed_delta_ms, self.comfort_decel).ok()?;
+        Some(motion.room_um(proposed.min(self.admitted_speed_mm_s), 0))
+    }
+    /// 已在同一轨迹上定位到此行程时，可收紧整毫米总长下界。跨越终点仍需另证。
+    pub(super) fn preview_from_proven_position(
+        &self,
+        rear_um: u64,
+        current_mm_s: u32,
+        proposed_mm_s: u32,
+    ) -> Result<RouteHandoffBrakingStep, RouteHandoffBrakingError> {
+        StepKinematics::new(current_mm_s, self.fixed_delta_ms, self.comfort_decel)?.preview(
+            &self.windows,
+            self.length_lower_um.max(rear_um),
+            self.admitted_speed_mm_s,
+            [rear_um; 2],
+            proposed_mm_s,
+        )
+    }
+
     /// 后轴累计行程已精确落在整数微米时，求一拍服务制动运动。终速提案的驱动
     /// 加速度须已经纵向控制核对，提案降幅超出服务制动域时返回
     /// [`RouteHandoffBrakingError::InsufficientBraking`]。带定位或量化误差的查询使用
@@ -266,7 +287,7 @@ mod tests {
 
     fn window(start: u64, end: u64, speed_mm_s: u32) -> ClearanceSpeedWindow {
         ClearanceSpeedWindow {
-            travel_um: [start, end],
+            travel_mm: [start, end],
             speed_mm_s,
         }
     }
@@ -276,10 +297,7 @@ mod tests {
         let motion = StepKinematics::new(8_000, 100, 2.0).unwrap();
         let preview = |start| {
             motion.preview(
-                &[
-                    window(10_000_000, 12_000_000, 7_900),
-                    window(start, 19_000_000, 1_000),
-                ],
+                &[window(10_000, 12_000, 7_900), window(start, 19_000, 1_000)],
                 30_000_000,
                 MAX_SPEED_MM_S,
                 [0; 2],
@@ -288,7 +306,7 @@ mod tests {
         };
         // (8² − 1²)/(2·2) = 15.75 m。以 2 m/s² 制动一拍，终速为 7.8 m/s。
         assert_eq!(
-            preview(15_750_000),
+            preview(15_750),
             Ok(RouteHandoffBrakingStep {
                 motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 7_800,
@@ -296,10 +314,10 @@ mod tests {
             })
         );
         assert_eq!(
-            preview(15_749_999),
+            preview(15_749),
             Err(RouteHandoffBrakingError::InsufficientBraking)
         );
-        let farther = preview(16_000_000).unwrap();
+        let farther = preview(16_000).unwrap();
         assert!(farther.next_speed_mm_s > 7_800 && farther.next_speed_mm_s < 8_000);
         assert!(motion.can_obey(farther.next_speed_mm_s, 16_000_000, 1_000));
         assert!(!motion.can_obey(farther.next_speed_mm_s + 1, 16_000_000, 1_000));
@@ -307,7 +325,7 @@ mod tests {
 
     #[test]
     fn clearance_limit_is_held_until_the_rear_leaves_the_closed_window() {
-        let windows = [window(1_000_000, 2_000_000, 1_000)];
+        let windows = [window(1_000, 2_000, 1_000)];
         let preview = |rear, speed, proposal| {
             StepKinematics::new(speed, 100, 2.0)
                 .unwrap()
@@ -318,7 +336,11 @@ mod tests {
             1_000
         );
         assert_eq!(
-            preview(2_000_001, 1_000, 1_501).unwrap().next_speed_mm_s,
+            preview(2_000_999, 1_000, 1_501).unwrap().next_speed_mm_s,
+            1_000
+        );
+        assert_eq!(
+            preview(2_001_000, 1_000, 1_501).unwrap().next_speed_mm_s,
             1_500
         );
         assert_eq!(
@@ -340,7 +362,7 @@ mod tests {
         let motion = StepKinematics::new(1_200, 100, 4.0).unwrap();
         let preview = |start| {
             motion.preview(
-                &[window(start, 200_000, 1_000)],
+                &[window(start, 200, 1_000)],
                 1_000_000,
                 MAX_SPEED_MM_S,
                 [0; 2],
@@ -349,7 +371,7 @@ mod tests {
         };
         // 拍中 50 ms 达到 1 m/s，此时累计 55 mm；拍末驶过 100 mm。
         assert_eq!(
-            preview(55_000),
+            preview(55),
             Ok(RouteHandoffBrakingStep {
                 motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 800,
@@ -357,7 +379,7 @@ mod tests {
             })
         );
         assert_eq!(
-            preview(54_999),
+            preview(54),
             Err(RouteHandoffBrakingError::InsufficientBraking)
         );
     }
@@ -365,8 +387,15 @@ mod tests {
     #[test]
     fn future_stop_crosses_a_positive_limit_at_the_squared_speed_difference() {
         let motion = StepKinematics::new(8, 4, 1.0).unwrap();
-        let preview =
-            |start| motion.preview(&[window(start, 100, 3)], 200, MAX_SPEED_MM_S, [0; 2], 8);
+        let preview = |room: u64| {
+            motion.preview(
+                &[window(1, 2, 3)],
+                3_000,
+                MAX_SPEED_MM_S,
+                [1_000 - room; 2],
+                8,
+            )
+        };
         // 首拍由 8 降至 4 mm/s，行程 24 µm。下一拍能以服务制动停稳，
         // 在该拍 3.5 µm 处已经降至 3 mm/s，距两拍起点共需向上取整到 28 µm。
         assert_eq!(
@@ -387,8 +416,8 @@ mod tests {
     fn integer_speed_drops_stay_feasible_when_rechecked_from_every_committed_tick() {
         // 0.7 m/s²、5 ms 的理想减幅约 3.5 mm/s；实际整数速度最多下降 3 mm/s。
         // 四拍梯形行程均落在半微米，逐拍向外量化的位置区间必须仍可复核。
-        let windows = [window(282, 1_000, 8)];
-        let mut rear = [0; 2];
+        let windows = [window(1, 2, 8)];
+        let mut rear = [718; 2];
         let mut speed = 20;
         for (next, travel) in [(17, 93), (14, 78), (11, 63), (8, 48)] {
             let motion = StepKinematics::new(speed, 5, 0.7).unwrap();
@@ -405,10 +434,10 @@ mod tests {
             rear[1] += travel;
             speed = next;
         }
-        assert_eq!(rear, [278, windows[0].travel_um[0]]);
-        // 真实行程 280 µm。累计上界 282 已过该出口，而车尾仍在限速内。
+        assert_eq!(rear, [996, windows[0].travel_mm[0] * 1_000]);
+        // 上界进入下一毫米格时，下界仍在末端格，继续限速。
         let last = StepKinematics::new(speed, 5, 0.7).unwrap();
-        let exit = [window(0, 281, 8)];
+        let exit = [window(0, 0, 8)];
         assert_eq!(
             last.preview(&exit, 5_000, 100, rear, 10)
                 .unwrap()
@@ -417,7 +446,7 @@ mod tests {
         );
         let initial = StepKinematics::new(20, 5, 0.7).unwrap();
         assert_eq!(
-            initial.preview(&windows, 5_000, 100, [0, 1], 20),
+            initial.preview(&windows, 5_000, 100, [718, 719], 20),
             Err(RouteHandoffBrakingError::InsufficientBraking)
         );
     }
@@ -432,11 +461,11 @@ mod tests {
         };
         // 两端均处在窗口外，与中间窗口相交仍须取三个上限中的最小值。
         assert_eq!(
-            preview([1, 31], 201),
+            preview([1_000, 31_000], 201),
             Err(RouteHandoffBrakingError::AlreadyOverLimit { limit_mm_s: 200 })
         );
-        assert_eq!(preview([19, 31], 200).unwrap().next_speed_mm_s, 200);
-        assert_eq!(preview([20, 31], 200).unwrap().next_speed_mm_s, 300);
+        assert_eq!(preview([19_000, 31_000], 200).unwrap().next_speed_mm_s, 200);
+        assert_eq!(preview([20_000, 31_000], 200).unwrap().next_speed_mm_s, 300);
         assert_eq!(
             preview([31, 30], 200),
             Err(RouteHandoffBrakingError::InvalidInput)
@@ -446,7 +475,7 @@ mod tests {
             Err(RouteHandoffBrakingError::OutsidePlan)
         );
         assert_eq!(
-            preview([19, 999_999], 200),
+            preview([19_000, 999_999], 200),
             Err(RouteHandoffBrakingError::NeedsContinuation {
                 candidate_step: RouteHandoffBrakingStep {
                     motion: RouteHandoffBrakingMotion::Trapezoid,

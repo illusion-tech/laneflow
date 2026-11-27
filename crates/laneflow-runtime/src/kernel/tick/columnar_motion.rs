@@ -1632,6 +1632,7 @@ mod tests {
                         .map(|handle| world.vehicle(*handle))
                         .collect();
                     let read = crate::kernel::phase::StepReadView {
+                        handoff_grants: &[],
                         binding: &world.state.binding,
                         committed: &world.state.committed,
                         derived: &world.state.derived,

@@ -5,11 +5,11 @@ use thiserror::Error;
 /// 每个世界的曲线最多保留八个节点，每个节点含两个 `u32`。
 pub const MAX_CLEARANCE_SPEED_POINTS: usize = 8;
 
-/// 一项显式驾驶配置。净空和速度分别使用微米、毫米每秒。
+/// 一项显式驾驶配置。净空和速度分别使用毫米、毫米每秒。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClearanceSpeedPoint {
-    /// 整车与相关侧方实体的已证距离下界，单位微米。
-    pub clearance_um: u32,
+    /// 整车与相关侧方实体的已证距离下界，单位毫米。
+    pub clearance_mm: u32,
     /// 此余量允许的纵向通过速度上限，单位毫米每秒。
     pub speed_mm_s: u32,
 }
@@ -47,9 +47,10 @@ pub enum ClearanceSpeedCurveError {
 }
 
 /// 世界显式选择的单调分段线性曲线。控制点在构造时验证，查询无需分配。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClearanceSpeedCurve {
-    points: Box<[ClearanceSpeedPoint]>,
+    points: [ClearanceSpeedPoint; MAX_CLEARANCE_SPEED_POINTS],
+    count: u8,
 }
 
 impl ClearanceSpeedCurve {
@@ -70,7 +71,7 @@ impl ClearanceSpeedCurve {
             }
             if index > 0 {
                 let previous = &points[index - 1];
-                if point.clearance_um <= previous.clearance_um {
+                if point.clearance_mm <= previous.clearance_mm {
                     return Err(ClearanceSpeedCurveError::ClearanceOrder { index });
                 }
                 if point.speed_mm_s < previous.speed_mm_s {
@@ -81,34 +82,37 @@ impl ClearanceSpeedCurve {
         if points[count - 1].speed_mm_s != MAX_SPEED_MM_S {
             return Err(ClearanceSpeedCurveError::RestrictedFinalPoint);
         }
+        // 尾部重复末点，保证相同有效曲线始终拥有相同的表示。
+        let mut stored = [points[count - 1]; MAX_CLEARANCE_SPEED_POINTS];
+        stored[..count].copy_from_slice(&points);
         Ok(Self {
-            points: points.into_boxed_slice(),
+            points: stored,
+            count: count as u8,
         })
     }
 
     /// 按净空严格递增排列的已验证节点。
     #[must_use]
     pub fn points(&self) -> &[ClearanceSpeedPoint] {
-        &self.points
+        &self.points[..usize::from(self.count)]
     }
 
-    /// 将已证的正侧向净空按微米向下量化后查询。严格正但不足一微米可传零。
+    /// 将已证的正侧向净空按毫米向下量化后查询。严格正但不足一毫米可传零。
     /// 调用前须已证明轨迹可通，接触和几何未证应由几何准入处理。
     /// 首点以下取首点速度，末点及以上返回规范最大速度。节点间向下取整到毫米每秒。
     #[must_use]
-    pub fn speed_cap_mm_s(&self, proven_lower_um: u64) -> u32 {
-        let upper = self
-            .points
-            .partition_point(|point| u64::from(point.clearance_um) <= proven_lower_um);
-        let Some(right) = self.points.get(upper) else {
+    pub fn speed_cap_mm_s(&self, proven_lower_mm: u32) -> u32 {
+        let points = self.points();
+        let upper = points.partition_point(|point| point.clearance_mm <= proven_lower_mm);
+        let Some(right) = points.get(upper) else {
             return MAX_SPEED_MM_S;
         };
         if upper == 0 {
             return right.speed_mm_s;
         }
-        let left = self.points[upper - 1];
-        let offset = proven_lower_um - u64::from(left.clearance_um);
-        let width = u64::from(right.clearance_um - left.clearance_um);
+        let left = points[upper - 1];
+        let offset = u64::from(proven_lower_mm - left.clearance_mm);
+        let width = u64::from(right.clearance_mm - left.clearance_mm);
         let rise = u64::from(right.speed_mm_s - left.speed_mm_s);
         // offset < width ≤ u32::MAX，乘积可由 u64 精确表示，商不超过 rise。
         left.speed_mm_s + (offset * rise / width) as u32
@@ -119,9 +123,9 @@ impl ClearanceSpeedCurve {
 mod tests {
     use super::*;
 
-    fn point(clearance_um: u32, speed_mm_s: u32) -> ClearanceSpeedPoint {
+    fn point(clearance_mm: u32, speed_mm_s: u32) -> ClearanceSpeedPoint {
         ClearanceSpeedPoint {
-            clearance_um,
+            clearance_mm,
             speed_mm_s,
         }
     }
@@ -129,24 +133,24 @@ mod tests {
     #[test]
     fn explicit_curve_preserves_plateaus_and_rounds_each_segment_down() {
         let points = vec![
-            point(50_000, 1_000),
-            point(60_000, 1_000),
-            point(60_003, 1_008),
-            point(550_000, MAX_SPEED_MM_S),
+            point(50, 1_000),
+            point(60, 1_000),
+            point(63, 1_008),
+            point(550, MAX_SPEED_MM_S),
         ];
         let curve = ClearanceSpeedCurve::try_new(points.clone()).unwrap();
         assert_eq!(curve.points(), points);
         for (clearance, speed) in [
             (0, 1_000),
-            (50_000, 1_000),
-            (55_000, 1_000),
-            (60_000, 1_000),
-            (60_001, 1_002),
-            (60_002, 1_005),
-            (60_003, 1_008),
-            (549_999, MAX_SPEED_MM_S - 1),
-            (550_000, MAX_SPEED_MM_S),
-            (u64::MAX, MAX_SPEED_MM_S),
+            (50, 1_000),
+            (55, 1_000),
+            (60, 1_000),
+            (61, 1_002),
+            (62, 1_005),
+            (63, 1_008),
+            (549, 99_796),
+            (550, MAX_SPEED_MM_S),
+            (u32::MAX, MAX_SPEED_MM_S),
         ] {
             assert_eq!(curve.speed_cap_mm_s(clearance), speed);
         }
@@ -155,10 +159,7 @@ mod tests {
             point(u32::MAX, MAX_SPEED_MM_S),
         ])
         .unwrap();
-        assert_eq!(
-            widest.speed_cap_mm_s(u64::from(u32::MAX) - 1),
-            MAX_SPEED_MM_S - 1
-        );
+        assert_eq!(widest.speed_cap_mm_s(u32::MAX - 1), MAX_SPEED_MM_S - 1);
     }
 
     #[test]

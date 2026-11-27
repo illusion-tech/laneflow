@@ -52,7 +52,7 @@ fn inputs(n: &SharedNetworkRevision, rear: [u64; 2]) -> (HandoffQuery, HandoffWi
         edges: [0, 1].map(|i| r.authoring_edge_chain(lanes[i]).unwrap()[0]),
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_nm: q.station_window_nm,
+        stations_mm: q.station_window_nm.map(|s| s / 1_000_000),
     };
     (
         HandoffQuery {
@@ -209,7 +209,10 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                 });
                 let window = HandoffWindow {
                     edges,
-                    stations_nm: [crossing_nm - M / 10, crossing_nm + M / 10],
+                    stations_mm: [
+                        (crossing_nm - M / 10).div_ceil(1_000_000),
+                        (crossing_nm + M / 10) / 1_000_000,
+                    ],
                     ..w
                 };
                 for (advance, expected) in [

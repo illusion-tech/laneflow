@@ -30,23 +30,23 @@ impl RoadWindowBaseline {
     }
 }
 
-// 固定窗口使用摘要版本 8（BLAKE3-256），绑定 LFCA 7 的路网修订。
-// #1526 在 LFCA 6 与 7 上独立重放四个窗口，LFRS 全部差异均属于静态制品绑定字段。
+// 摘要 9 绑定 LFCA 8。四个普通窗口用 a94acf02 的运动内核独立推进，
+// 按 8/6/9 编入空路线窗口、车辆横移记录和空驾驶配置后核对。
 // Journal 开关共用同一状态摘要基线（#1557）。
 const ROAD_1K_256: RoadWindowBaseline = RoadWindowBaseline {
     count: 1_000,
     edges: 256,
-    expected_digest: "c11dedd27f71f1388cf18b1aeb140cf309095a3fbdc0f0cc97ae866a935e68e4",
+    expected_digest: "c2a464eb3a2d6524f25c2471c7af40a92ea61257dfda7fae6061d9a0bb39c39d",
 };
 const ROAD_10K_256: RoadWindowBaseline = RoadWindowBaseline {
     count: 10_000,
     edges: 256,
-    expected_digest: "b53c5b0e60667460e432550f656e5e45b236ec4d70302016e57fff24c8527287",
+    expected_digest: "e6f2e62bf17520d5f4d14286ffe4248c126d30f1e0d9b9c35a820d5af9d25d57",
 };
 const ROAD_10K_16: RoadWindowBaseline = RoadWindowBaseline {
     count: 10_000,
     edges: 16,
-    expected_digest: "bcf7d3555de1bf2225a301b94ef3f03b3ce5b720bf1faabdd156f1505071ff1e",
+    expected_digest: "ed2b6bad629c949363eefd954950306a84e7dbbf7fc405e3f6d201e740b43730",
 };
 
 #[test]
@@ -99,10 +99,9 @@ fn state_digest_matches_frozen_baseline() {
         harness.step();
     }
     harness.validate();
-    // 将当前原像中的路网修订、LFCA 格式和派生版本还原为 LFCA 5 值，可复得历史摘要。
     assert_eq!(
         harness.digest(),
-        "81ca802323d3be7fc38c3d1bcb7a019bb9d0c5010a2712b0862fefc6e217993a"
+        "d705252b005aba2101b037151e282fad5b2234c8fec968c42beea8304dd75ed0"
     );
 }
 

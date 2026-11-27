@@ -4,9 +4,9 @@ use super::{Failure, TrackQuery, Work, partition};
 use crate::{CorridorElement, LaneFootprint, SharedNetworkRevision};
 
 fn edge(row: &LaneFootprint, side: usize, fraction: Interval) -> Interval {
-    let [a, b] = row.ends_um.map(|ends| f64::from(ends[side]));
-    let micrometers = Interval::point(a) + Interval::point(b - a) * fraction;
-    (micrometers / Interval::point(1e6)).with_error(Interval::meters(u64::from(row.error_nm)).hi)
+    let [a, b] = row.ends_mm.map(|ends| f64::from(ends[side]));
+    let millimetres = Interval::point(a) + Interval::point(b - a) * fraction;
+    (millimetres / Interval::point(1_000.)).with_error(Interval::from_millimetres(row.error_mm).hi)
 }
 
 pub(super) enum Coverage {

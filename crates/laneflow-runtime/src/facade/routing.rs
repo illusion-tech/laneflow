@@ -391,6 +391,7 @@ impl RoutingAdmissionSession {
 pub struct CandidateRouteInput {
     cost_snapshot: DynamicCostSnapshotBinding,
     lane_edges: Box<[StableId128]>,
+    handoffs: Box<[crate::StableRouteHandoffWindow]>,
 }
 
 impl CandidateRouteInput {
@@ -403,7 +404,21 @@ impl CandidateRouteInput {
         Self {
             cost_snapshot,
             lane_edges: lane_edges.into().into_boxed_slice(),
+            handoffs: Box::default(),
         }
+    }
+
+    /// 随稳定边序列传递按源出现下标标识的交接窗口。
+    #[must_use]
+    pub fn with_handoffs(mut self, windows: Vec<crate::StableRouteHandoffWindow>) -> Self {
+        self.handoffs = windows.into_boxed_slice();
+        self
+    }
+
+    /// 按路线出现顺序读取所声明的物理窗口。
+    #[must_use]
+    pub fn handoffs(&self) -> &[crate::StableRouteHandoffWindow] {
+        &self.handoffs
     }
 
     /// 候选复制的动态成本快照来源绑定。
@@ -483,6 +498,7 @@ pub struct AdmittedRouteRegisterInput {
     network_revision: NetworkRevisionId,
     network_revision_derivation_version: u16,
     lane_edges: Box<[StableId128]>,
+    handoffs: Box<[crate::StableRouteHandoffWindow]>,
 }
 
 impl AdmittedRouteRegisterInput {
@@ -497,7 +513,21 @@ impl AdmittedRouteRegisterInput {
             network_revision,
             network_revision_derivation_version,
             lane_edges: lane_edges.into().into_boxed_slice(),
+            handoffs: Box::default(),
         }
+    }
+
+    /// 随稳定边序列传递有向交接窗口。绑定到同一修订后的出现下标。
+    #[must_use]
+    pub fn with_handoffs(mut self, windows: Vec<crate::StableRouteHandoffWindow>) -> Self {
+        self.handoffs = windows.into_boxed_slice();
+        self
+    }
+
+    /// 按路线出现顺序读取所声明的物理窗口。
+    #[must_use]
+    pub fn handoffs(&self) -> &[crate::StableRouteHandoffWindow] {
+        &self.handoffs
     }
 
     /// 准入时验证过的路网修订标识。
@@ -636,7 +666,8 @@ impl crate::kernel::state::WorldState {
                     CandidateRouteError::UnknownLaneEdge { stable_id }
                 }
             })?;
-        self.register_route_edges(&resolved).map_err(Into::into)
+        self.register_with_stable_windows(&resolved, &input.handoffs)
+            .map_err(Into::into)
     }
 
     /// 重放/恢复规范化的已准入路线命令；不调用 Routing、不接收旧成本绑定。
@@ -674,7 +705,30 @@ impl crate::kernel::state::WorldState {
                     AdmittedRouteRegisterError::UnknownLaneEdge { stable_id }
                 }
             })?;
-        self.register_route_edges(&resolved).map_err(Into::into)
+        self.register_with_stable_windows(&resolved, &input.handoffs)
+            .map_err(Into::into)
+    }
+
+    fn register_with_stable_windows(
+        &mut self,
+        edges: &[LaneEdgeOrdinal],
+        windows: &[crate::StableRouteHandoffWindow],
+    ) -> Result<RouteHandle, RouteError> {
+        if windows.is_empty() {
+            return self.register_route_edges(edges);
+        }
+        if windows.len() >= edges.len() {
+            return Err(RouteError::InvalidHandoffWindow);
+        }
+        let mut occurrences = crate::kernel::tables::try_route_vec(windows.len())?;
+        for window in windows {
+            occurrences.push(
+                window
+                    .occurrence(&self.binding.revision)
+                    .ok_or(RouteError::InvalidHandoffWindow)?,
+            );
+        }
+        self.register_route_occurrences(edges, &occurrences)
     }
 
     fn resolve_stable_lane_edges(

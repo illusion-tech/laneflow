@@ -95,7 +95,7 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
                 edges: [0, 1].map(|i| r.authoring_edge_chain(lanes[i]).unwrap()[0]),
                 owner: BoundaryOwner::Section(section),
                 left_index: 0,
-                stations_nm: [20 * NM, 50 * NM],
+                stations_mm: [20_000, 50_000],
             };
             let tolerance = 1_000_000;
             let query = |target, limit| n.handoff_travel(&q, window, target, tolerance, limit);

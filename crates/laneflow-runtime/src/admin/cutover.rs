@@ -497,6 +497,9 @@ pub enum CutoverError {
     /// 属防御深度，语义上不可达）。
     #[error("路线对 target 修订重编译失败")]
     RouteRevalidationFailed,
+    /// 已提交的横移或其物理保护仍在生效，跨修订无法直移。
+    #[error("车辆仍有活动横移或换道预约")]
+    ActiveHandoff,
     /// 晋升后占用索引重建失败（同修订不变量下语义上不可达）。
     #[error("占用索引重建失败")]
     OccupancyRebuild(#[from] StepError),
@@ -831,15 +834,44 @@ impl TrafficWorld {
         let mut staged_conflict_occurrence_count = 0_u64;
         for (index, slot) in self.state.committed.routes.iter().enumerate() {
             if let Some(compiled) = slot.compiled.as_ref() {
-                let staged_route = compile_route(
-                    target_revision.as_ref(),
-                    compiled.edges.as_slice(),
-                    staged_conflict_occurrence_count,
-                    self.state
-                        .binding
-                        .config
-                        .route_conflict_occurrence_capacity(),
-                )
+                let capacity = self
+                    .state
+                    .binding
+                    .config
+                    .route_conflict_occurrence_capacity();
+                let staged_route = if compiled.handoff_windows().is_empty() {
+                    compile_route(
+                        &target_revision,
+                        &compiled.edges,
+                        staged_conflict_occurrence_count,
+                        capacity,
+                    )
+                } else {
+                    let mut windows = Vec::new();
+                    windows
+                        .try_reserve_exact(compiled.handoff_windows().len())
+                        .map_err(|_| CutoverError::StagingAllocFailed)?;
+                    for &(index, old) in compiled.handoff_windows() {
+                        let stable = crate::StableRouteHandoffWindow::from_binding(
+                            &self.state.binding.revision,
+                            index,
+                            old,
+                        )
+                        .ok_or(CutoverError::RouteRevalidationFailed)?;
+                        windows.push(
+                            stable
+                                .occurrence(&target_revision)
+                                .ok_or(CutoverError::RouteRevalidationFailed)?,
+                        );
+                    }
+                    CompiledRoute::compile_handoffs(
+                        &target_revision,
+                        &compiled.edges,
+                        &windows,
+                        staged_conflict_occurrence_count,
+                        capacity,
+                    )
+                }
                 .map_err(|error| match error {
                     RouteError::AllocationFailed => CutoverError::StagingAllocFailed,
                     RouteError::ConflictOccurrenceCapacityExceeded {
@@ -937,7 +969,10 @@ impl TrafficWorld {
         if !self.state.waiting_state_valid() || !self.state.waiting_snapshot_storage_valid() {
             return Err(CutoverError::WaitingRevalidationFailed);
         }
-        if !self.state.conflict_state_valid() {
+        if !self.state.validate_restored_handoffs() {
+            return Err(CutoverError::RouteRevalidationFailed);
+        }
+        if !self.state.conflict_state_valid() || self.state.conflict_platoons_valid() != Ok(true) {
             return Err(CutoverError::ConflictRevalidationFailed);
         }
         for handle in self.state.committed.live_order.iter().copied() {

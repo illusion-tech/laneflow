@@ -79,8 +79,8 @@ flowchart TD
 
 后发射检查失败时不返回 `PostEmissionCheckedBundle`，也不构建共享修订。发布加载
 先核对 LFCP v2 绑定，再消费受检 LFCA；本地确认建造直接消费该 bundle。两条路
-建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 7、LFSM 8、
-LFSD 6、LFCP 2。道路编辑来源 `format_version = 8` 是另一条版本轴。见
+建成的都是同一类 `SharedNetworkRevision`。可移植对象现行版本是 LFCA 8、LFSM 9、
+LFSD 7、LFCP 2。道路编辑来源 `format_version = 8` 是另一条版本轴。见
 [可移植规范制品][portable-artifact]、
 [后发射检查][post-emission]
 与 [ADR 0023][adr-0023]。
@@ -173,11 +173,7 @@ crate。见
 
 ### 快照与恢复
 
-已实现的生产快照是 Runtime Snapshot v7：LFRS `formatVersion = 7`、
-`runtime_state_version = 5`、确定性状态摘要版本 `8`（BLAKE3-256）。worker 数与
-`ExecutionConfig` 不进入快照。含活动过渡的世界在保存时返回
-`SnapshotCaptureError::UnsupportedTransitionState`。这是已实现的版本合同，不是
-性能或资源认证。见
+LFRS `formatVersion = 8` 绑定 `runtime_state_version = 6` 和确定性状态摘要版本 `9`（BLAKE3-256）。路线登记窗口、已提交横移和逐车冲突预约终点可保存恢复。worker 数由宿主另行传入。活动固定预制过渡在保存时返回 `SnapshotCaptureError::UnsupportedTransitionState`。见
 [快照 §2][runtime-snapshot-versions]、
 [快照 §5][runtime-snapshot-restore] 与
 [ADR 0033][adr-0033]。
@@ -250,11 +246,11 @@ Waiting 资格、Conflict 出现记录、显式路权策略和预约由 `Traffic
 
 - 道路机动车 `TrafficWorld`，以及编译器、受检 LFCA、`SharedNetworkRevision`、
   可选 `SpatialSession` 和 Bevy 参考适配器这条生产路径。
-- 安装、固定步进、每世界路线注册、观测导出、快照 v7 / state 5 / digest 8、
+- 安装、固定步进、每世界路线注册、观测导出、快照 v8 / state 6 / digest 9、
   失败关闭的修订切换，以及投入使用前的修订认证。
 - 路口静态身份、横断面静态模型、静态准入、Waiting / Conflict、显式与虚拟停车、
   固定时制信号。
-- 固定预制过渡换道。活动过渡拒绝保存。
+- 登记窗口内的任意位置换道，已提交横移及其预约可恢复。旧固定预制过渡活动期间拒绝保存。
 - worker 1–16 的执行配置。
 
 ### 已接受但未实现

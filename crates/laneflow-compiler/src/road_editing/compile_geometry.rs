@@ -1316,7 +1316,7 @@ fn validate_cut_stations(
     )?;
     let mut witnesses = Vec::with_capacity(capacity);
     let encode = |station, source: &SourceLocation| {
-        super::cut_stations::local_nanometres(domain[0], station).ok_or_else(|| {
+        super::cut_stations::local_millimetres(domain[0], station).ok_or_else(|| {
             GeometryCompilationError::from(NumericFreezeError::from(
                 NumericFreezeKind::StationOutOfRange,
             ))

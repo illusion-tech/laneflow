@@ -226,20 +226,23 @@ impl Path {
         let stations = range.map(|s| if increasing { start + s } else { start - s });
         let low = stations[0].min(stations[1]);
         let high = stations[0].max(stations[1]);
-        let index = partition(surface.rows, |r| r.stations[1].0 <= low, work)?
+        let index = partition(surface.rows, |r| r.stations_nm()[1].0 <= low, work)?
             .min(surface.rows.len().saturating_sub(1));
         work.charge()?;
         let row = surface.rows.get(index).ok_or(Failure::Unavailable)?;
-        if high > row.stations[1].0 {
-            let last = partition(&surface.rows[index + 1..], |r| r.stations[1].0 < high, work)?
-                + index
+        if high > row.stations_nm()[1].0 {
+            let last = partition(
+                &surface.rows[index + 1..],
+                |r| r.stations_nm()[1].0 < high,
+                work,
+            )? + index
                 + 1;
             let index = index + (last - index - 1) / 2;
             work.charge()?;
             let row = &surface.rows[index];
             let next = &surface.rows[index + 1];
             work.charge()?;
-            let seam = row.stations[1].0;
+            let seam = row.stations_nm()[1].0;
             let offset_constant = t.from_m == t.to_m && t.from_m[0] == t.from_m[1];
             // 相同的水平一、二阶端导数给出共同的后轴位置、朝向和曲率。
             // 恒定偏移的曲率只依赖原线曲率和偏移（在 1-dκ>0 时）。

@@ -5,3 +5,4 @@
 # Keep the checked-in flatc source canonical across platforms while preserving the
 # generator's own trailing spaces and final blank line for clean regeneration.
 crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+crates/laneflow-runtime-snapshot-wire/src/generated/runtime-snapshot_generated.rs text eol=lf whitespace=-blank-at-eol,-blank-at-eof

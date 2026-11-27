@@ -97,7 +97,7 @@ impl LocatedTrajectory<'_> {
 
 impl TrafficWorld {
     /// 核对外部候选在一段后轴累计行程中连续扫过的两侧及当前普通车辆能否让行。
-    /// `travel_um` 是从同一候选起点算起的有序闭区间，单位微米，反向行驶同样递增。
+    /// `travel_um` 是从同一候选起点算起的有序闭区间，单位微米，反向行驶同样递增。行程求界容差取正整数毫米。
     /// 路线与整条候选的准入复用逐出现试算。随后两端逆查共用一次轨迹预算，连续扫过
     /// 单独使用一次扫过预算。进入者查询受 `entrant_work_limit` 约束，包含所有已提交
     /// 活动车辆，适用于尚未进入世界的候选。结果不含信号、下游清空或同拍其他预约的裁决。
@@ -115,7 +115,7 @@ impl TrafficWorld {
         source_index: u32,
         trial: &RouteHandoffTrial,
         travel_um: RangeInclusive<u64>,
-        tolerance_nm: u64,
+        tolerance_mm: std::num::NonZeroU32,
         entrant_work_limit: u32,
     ) -> Result<RouteHandoffApproaches, RouteHandoffApproachError> {
         let preview = self.preview_route_handoff_at(binding, source_index, trial)?;
@@ -124,8 +124,11 @@ impl TrafficWorld {
             .as_ref()
             .ok_or(RouteHandoffApproachError::Unlocated(preview.report.outcome))?;
         let GeometryWorkLimits { tracks, sweep } = trial.limits;
-        let (stations, travel_work) =
-            path.rear_stations_over_travel(travel_um, tolerance_nm, tracks)?;
+        let (stations, travel_work) = path.rear_stations_over_travel(
+            travel_um,
+            super::tolerance_nanometres(tolerance_mm),
+            tracks,
+        )?;
         let report = path.revision.handoff_swept_occupancy(
             &path.query,
             path.window,

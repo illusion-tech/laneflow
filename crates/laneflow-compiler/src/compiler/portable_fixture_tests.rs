@@ -764,8 +764,8 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0xa1, 0x2f, 0x29, 0x64, 0xc9, 0xeb, 0x44, 0xa7, 0x4e, 0x19, 0x00, 0x39, 0x06, 0x4e, 0x9a, 0x08,
-    0xab, 0xc3, 0x40, 0x77, 0xe4, 0x3a, 0xce, 0xc9, 0x7c, 0x12, 0x4b, 0x64, 0x88, 0xa6, 0x80, 0x1a,
+    0x56, 0xbb, 0x12, 0xeb, 0xc9, 0x3f, 0x1f, 0xa7, 0x02, 0x12, 0x15, 0xb8, 0x9d, 0xaf, 0x6c, 0xf1,
+    0x41, 0x6e, 0x9b, 0x2d, 0xa5, 0x26, 0xa4, 0x82, 0xc9, 0x1f, 0x28, 0xa4, 0xe5, 0xfe, 0x8d, 0xaa,
 ];
 
 #[test]
@@ -815,15 +815,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/2d6191c72c9491a1629c63d91a1e860c79e0c82bdc70ac2666e0cb8c3b28828d"
+        "sha256/ef202f7d73c04bea5ed84e26147966120be01d9024cf861252b91075610fb7e0"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/de5c91327fa910d2f8b6ea20eceb0ced02adbe8d121d857facf3e1afa67f0b1e"
+        "sha256/999c9efe2ce351ab03e40f3c66272fa86ce5e4e1ef52a079d373206df67799a8"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/d868ad06eddfb4d937145799f705f9bfed36648ce89069beb299ba5eb6636ce1"
+        "sha256/9037a4fb40e199547b4931899357add1810d7d346fc67cb2cc3a8770e5998afd"
     );
     assert_eq!(
         candidate.network_revision(),

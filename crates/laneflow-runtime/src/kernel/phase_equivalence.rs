@@ -26,7 +26,7 @@ pub(super) fn checkpoint(world: &TrafficWorld) -> String {
         .collect();
     format!(
         "{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-        crate::admin::snapshot_digest::frozen_digest_7_fingerprint(&snapshot),
+        crate::admin::snapshot_digest::frozen_digest_7_fingerprint(world, &snapshot),
         world.live_vehicles(),
         vehicles,
         world.latest_waiting_decisions(),
@@ -130,7 +130,7 @@ fn restore_and_continue(world: &mut TrafficWorld, workers: NonZeroU32, input: Ti
         crate::deterministic_state_digest(&restored.capture_snapshot().unwrap()).unwrap(),
         continued
     );
-    crate::admin::snapshot_digest::frozen_digest_7_fingerprint(&continued_snapshot)
+    crate::admin::snapshot_digest::frozen_digest_7_fingerprint(world, &continued_snapshot)
 }
 
 fn trace_with_workers(
@@ -327,9 +327,9 @@ fn exact_baseline_trace_and_retry_match() {
     // Filled from the fixed pre-refactor commit, never regenerated from the implementation under test.
     // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
     // waiting、waiting-journal、conflict、conflict-journal 四行重生成一次，其余两行不变。
-    // #1523：按 LFCA 5 的六节派生规则还原测试路网身份和两个版本字段后，
-    // 两组历史轨迹逐项相同。#1526 在 LFCA 6 的旧引擎中只替换摘要原像的修订和
-    // 格式版本，复算出当前 LFCA 7 的全部六行。
+    // 用 a94acf02 上的运行时与当前 LFCA 8 制品独立回放六组普通交通轨迹。
+    // conflict-journal 的参考运行从旧账本逐车取下游终点，用两个小端 u32
+    // 追加到预约日志头。逐拍决策和运动仍使用该提交的实现。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-protocol-e011745e.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }
@@ -475,7 +475,7 @@ fn parallel_worker_matrix_trace_matches_fixed_fixture() {
     // 砖墙安全速度），conflict-parallel 一行按维护者裁定重生成一次，其余三行不变。
     // #1505 停车可行性保持（整数几何 §5.1，G1 #1504）改变接近停止目标的轨迹：
     // waiting-parallel 与 conflict-parallel 两行重生成一次，其余两行不变。
-    // #1526 的四行由 LFCA 6 的旧引擎更换摘要原像中的修订与格式版本后复算。
+    // 四组并行轨迹同样来自 a94acf02 上的运行时与当前 LFCA 8 制品。
     const EXPECTED: &str = include_str!("../../tests/fixtures/phase-parallel-matrix-c009d2dc.txt");
     assert_eq!(actual, EXPECTED.trim_end());
 }

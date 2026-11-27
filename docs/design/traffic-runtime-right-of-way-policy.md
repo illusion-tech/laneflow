@@ -636,12 +636,9 @@ migration 与独立 expected projection 复用同一完整谓词。
 live reservation 还保存 `snapshot_vehicle_id`、`snapshot_route_id`、本次 maneuver
 的 entry route edge index 和 Gate StableId，再携带所持有 passages 的 locator；
 结合重编译路线核验该次 occurrence、entry/clearance 和车辆位置。只按 stream/zone
-不能区分循环路线中的重复出现。当前单车实现把仲裁求出的路线终点随过门提交到本车
+不能区分循环路线中的重复出现。运行时把仲裁求出的逐车路线终点随过门提交到本车
 reservation，并在各 passage 持有行记录占用阶段。下游账本仍按物理边合并重叠区间。
-LFRS 7 写入 `(LaneEdge StableId, startMm, endMm)` 并集；恢复与迁移日志重放根据
-预约的路线、Gate、passages、车长和边长重新推导单车终点。捕获和直算摘要同时核对
-热状态终点和物理并集，跨修订直移还核对稳定边映射后的路线出现与物理区间。
-跟入合同要求每车预约记录授权终点，目标格式以快照合同 §2.1 为准。物理并集服务于
+LFRS 8 写入相对本次机动入口的出现偏移及边内进度，两项均为 `u32`。恢复与迁移日志从同一入口还原每辆车的授权终点。捕获与直接摘要核对热账本的物理并集，跨修订直移还核对稳定边映射后的路线出现与物理区间。字段见快照合同 §2.1。物理并集服务于
 空间互斥；单车、两车和更多车辆可能得到同一并集。仲裁提交、生命周期和恢复均从
 预约读取路线终点，按联合设计 §6.11 与单车终点比较，再验证逐车义务。
 wire owner 由所属车辆记录给出；恢复后 reservation 只由 `ConflictArbiter` 持有，车辆
@@ -651,11 +648,11 @@ grant 未发生 crossing 时不提交任何成员或 reservation；whole-vehicle
 
 ### 6.1 快照分类
 
-| 类别     | LFRS 7 / runtime state 5 合同                                                                                               |
+| 类别     | LFRS 8 / runtime state 6 合同                                                                                               |
 | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | 策略绑定 | selection tag；Pinned 保存 policy StableId；exact 内容仍由快照的 LFCA origin 绑定                                           |
 | 排序历史 | 每车当前 Gate occurrence 的 firstEligibleTick；None 与 tick 0 明确区分                                                      |
-| 通行状态 | Clearing、reservation owner、acquired tick、Gate/passages 的稳定 occurrence 证明、committed downstream 物理区间并集         |
+| 通行状态 | Clearing、reservation owner、acquired tick、Gate/passages 的稳定 occurrence 证明、逐车授权终点 `E_f`         |
 | 冲突历史 | 以 ConflictPassageLocator 键控的 ConflictLagReference；包含历史类别及时间，无历史与时间 0 区分                              |
 | Waiting  | 继续保存既有 membership、occupancy、counter 与 traversal；queue link 由历史重建                                             |
 | 派生状态 | 不保存 tick-local grant、entitlement、top-two frontier、dense handles、target ranges、graph、scratch 或 latest output batch |
@@ -672,16 +669,14 @@ restore 拒绝 future timestamp，并保留 CutoverFloor，不能把它降级为
 快照只写非 NoHistory 行，按 locator 的 stream StableId、zone StableId 字节序严格
 排序并拒绝重复；单根热表仍按静态 cell 保存一个基准，不另存稳定标识副本或历史轨迹。
 
-冲突 occupancy 从 reservation、车辆位置和 passages 重建。上表所述 v7 把重建的
-下游并集与入档区间逐项比对；wire 按 edge StableId/start/end 排序，lowering 后按
-当前修订 ordinal 规范化。联合升版后，持久字段改为精确路线终点。capture 核验当前
+冲突 occupancy 从 reservation、车辆位置和 passages 重建。持久字段记录精确路线终点。capture 核验当前
 热账本，restore 自终点前向生成物理区间；同一 cell 的多个持有者须属于同一跟入键。
 成员陆续清空或移除后，每个存活预约仍保有各自的授权终点。逐车可达性、同链重叠
 和未兑现腾让义务的校验均采用联合设计 §6.11。
 reservation passages 必须精确覆盖重编译所得 Gate range，vehicle front 必须已在 Gate
 crossed side。已清 cell 必须同时有 `ActualClear` 且时间不早于
 `acquiredTick × fixedDeltaTimeMs`；缺行、过早时间或 `CutoverFloor` 都不能证明真实 tail-clear。
-保存后捕获结构的语义字段全部参与 deterministic digest 8，派生内容不参与。
+保存后捕获结构的语义字段全部参与 deterministic digest 9，派生内容不参与。
 普通 restore 重建规则/route/ledger，核对每个 owner、时间、full-body footprint 和 wait-for
 graph；存在两 owner 以上的 committed cycle、悬空 owner 或不合法历史即整体失败。
 
@@ -877,10 +872,10 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒绝面以
 [`traffic-runtime-snapshot.md`][runtime-snapshot] 为准。
 
-跟入预约与任意位置换道共用目标组合 8/6/9（LFRS / runtime state / deterministic digest）。
+跟入预约与任意位置换道共用生产组合 8/6/9（LFRS / runtime state / deterministic digest）。
 §6 的冲突预约终点、路线登记的横向交接窗口、已提交横移及其组合预约须能一起写入、
 读回和同修订回放。两项分别验收，联合用例核对联用状态、旧版本拒绝及失败零发布。
-现行组合为 7/5/8。目标字段、摘要原像与跨修订边界见[快照合同 §2.1][runtime-snapshot]。
+字段、摘要原像与跨修订边界见[快照合同 §2.1][runtime-snapshot]。
 
 #284 沿用了当时的几何语义。#1516 的原生曲线求值使用几何语义版本 2。
 

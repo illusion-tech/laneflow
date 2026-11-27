@@ -76,6 +76,8 @@ const TAG_VEHICLE_REPLACED: u8 = 5;
 const TAG_VEHICLE_PARKING_UPDATED: u8 = 6;
 const TAG_VEHICLE_PARKING_SPAWNED: u8 = 7;
 const TAG_VEHICLE_DESPAWNED: u8 = 8;
+const TAG_ROUTE_REGISTERED_WITH_HANDOFFS: u8 = 9;
+const HANDOFF_WINDOW_BYTES: usize = 4 + 1 + 4 + 4 + 8 + 8;
 
 // 状态封闭 u8 编码（与快照摘要 §6 的车辆记录一致）。
 const STATUS_ACTIVE: u8 = 1;
@@ -91,7 +93,7 @@ pub(crate) const CONFLICT_OCCURRENCE_JOURNAL_BYTES: usize = 9 * 4;
 pub(crate) const CONFLICT_ELIGIBILITY_DELTA_BYTES: usize =
     4 + 4 + 1 + CONFLICT_OCCURRENCE_JOURNAL_BYTES + 8;
 /// 单条 Conflict authority 增量记录头的固定字节宽度。
-pub(crate) const CONFLICT_AUTHORITY_HEADER_BYTES: usize = 4 + 4 + 1 + 8 + 4;
+pub(crate) const CONFLICT_AUTHORITY_HEADER_BYTES: usize = 4 + 4 + 1 + 8 + 4 + 4 + 4;
 /// 单个 Conflict authority 单元增量的固定字节宽度。
 pub(crate) const CONFLICT_AUTHORITY_CELL_BYTES: usize = CONFLICT_OCCURRENCE_JOURNAL_BYTES + 1;
 /// 单条 Conflict lag 增量的固定字节宽度。
@@ -124,6 +126,7 @@ pub(crate) struct ConflictEligibilityJournalDelta {
 pub(crate) struct ConflictAuthorityJournalDelta<'a> {
     pub(crate) owner: VehicleHandle,
     pub(crate) acquired_tick: Option<u64>,
+    pub(crate) downstream_end: Option<super::snapshot::handoff::CapturedDownstreamEnd>,
     pub(crate) cells: &'a [u8],
 }
 
@@ -652,6 +655,8 @@ pub(crate) enum JournalRecord<'a> {
         generation: u32,
         /// 4 字节步长的边序数原始值流。
         edges: &'a [u8],
+        /// 源修订的有序窗口流，由 `handoff_window_stream` 读回。
+        windows: &'a [u8],
     },
     /// 路线移除（仅无引用路线可成功）。
     RouteRemoved {
@@ -716,6 +721,7 @@ pub(crate) struct MigrationDeltaJournal {
     /// 粘性拒绝（#1217 D4）：增量含无法忠实编码的过渡状态（迁移日志的
     /// `phase_gate` 槽表达不了资源种类与 T 稳定边身份），日志自此不可解码。
     unsupported_transition_state: Option<crate::UnsupportedTransitionState>,
+    active_handoff: bool,
     record_count: u64,
     first_tick: Option<u64>,
     last_tick: Option<u64>,
@@ -743,6 +749,7 @@ impl MigrationDeltaJournal {
             byte_bound: _,
             overflowed: _,
             unsupported_transition_state: _,
+            active_handoff: _,
             record_count: _,
             first_tick: _,
             last_tick: _,
@@ -784,6 +791,7 @@ impl MigrationDeltaJournal {
             byte_bound,
             overflowed: false,
             unsupported_transition_state: None,
+            active_handoff: false,
             record_count: 0,
             first_tick: None,
             last_tick: None,
@@ -823,6 +831,15 @@ impl MigrationDeltaJournal {
         if self.unsupported_transition_state.is_none() {
             self.unsupported_transition_state = Some(kind);
         }
+    }
+
+    /// 追赶期间一旦出现已提交的横移，整次接管失效，包括同拍已经清空的情形。
+    pub(crate) fn mark_active_handoff(&mut self) {
+        self.active_handoff = true;
+    }
+
+    pub(crate) const fn active_handoff(&self) -> bool {
+        self.active_handoff
     }
 
     /// 已写入字节数。
@@ -1016,6 +1033,8 @@ impl MigrationDeltaJournal {
         put_u8(&mut self.bytes, 0);
         put_u64(&mut self.bytes, 0);
         put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
+        put_u32(&mut self.bytes, 0);
         self.open_tick_conflict_authorities = self.open_tick_conflict_authorities.saturating_add(1);
     }
 
@@ -1024,6 +1043,7 @@ impl MigrationDeltaJournal {
         &mut self,
         owner: VehicleHandle,
         acquired_tick: u64,
+        downstream_end: super::snapshot::handoff::CapturedDownstreamEnd,
         cells: I,
     ) where
         I: ExactSizeIterator<Item = (ConflictOccurrenceJournalLocator, u8)>,
@@ -1047,6 +1067,8 @@ impl MigrationDeltaJournal {
             &mut self.bytes,
             u32::try_from(cell_count).unwrap_or(u32::MAX),
         );
+        put_u32(&mut self.bytes, downstream_end.relative_hop_offset);
+        put_u32(&mut self.bytes, downstream_end.progress_mm);
         for (locator, stage) in cells {
             locator.encode(&mut self.bytes);
             put_u8(&mut self.bytes, stage);
@@ -1133,20 +1155,53 @@ impl MigrationDeltaJournal {
         command_cursor: u64,
         route: RouteHandle,
         edges: &[LaneEdgeOrdinal],
+        windows: &[crate::RouteHandoffOccurrence],
     ) {
         let edge_count =
             u32::try_from(edges.len()).expect("route edge count fits journal u32 count");
-        let needed = 1 + 8 + 4 + 4 + 4 + 4 * edges.len();
+        let window_bytes = if windows.is_empty() {
+            0
+        } else {
+            4usize.saturating_add(HANDOFF_WINDOW_BYTES.saturating_mul(windows.len()))
+        };
+        let needed = 21usize
+            .saturating_add(4usize.saturating_mul(edges.len()))
+            .saturating_add(window_bytes);
         if !self.ensure(needed) {
             return;
         }
-        put_u8(&mut self.bytes, TAG_ROUTE_REGISTERED);
+        put_u8(
+            &mut self.bytes,
+            if windows.is_empty() {
+                TAG_ROUTE_REGISTERED
+            } else {
+                TAG_ROUTE_REGISTERED_WITH_HANDOFFS
+            },
+        );
         put_u64(&mut self.bytes, command_cursor);
         put_u32(&mut self.bytes, route.index());
         put_u32(&mut self.bytes, route.generation());
         put_u32(&mut self.bytes, edge_count);
         for edge in edges {
             put_u32(&mut self.bytes, edge.raw());
+        }
+        if !windows.is_empty() {
+            put_u32(
+                &mut self.bytes,
+                u32::try_from(windows.len()).expect("window count is bounded by route occurrences"),
+            );
+            for window in windows {
+                let (kind, owner) = match window.owner {
+                    laneflow_static_network::BoundaryOwner::Corridor(owner) => (1, owner.raw()),
+                    laneflow_static_network::BoundaryOwner::Section(owner) => (2, owner.raw()),
+                };
+                put_u32(&mut self.bytes, window.source_index);
+                put_u8(&mut self.bytes, kind);
+                put_u32(&mut self.bytes, owner);
+                put_u32(&mut self.bytes, window.left_index);
+                put_u64(&mut self.bytes, window.stations_mm[0]);
+                put_u64(&mut self.bytes, window.stations_mm[1]);
+            }
         }
         self.record_count += 1;
     }
@@ -1342,6 +1397,10 @@ impl<'a> Iterator for ConflictAuthorityJournalIter<'a> {
         Some(ConflictAuthorityJournalDelta {
             owner,
             acquired_tick: present.then_some(acquired_tick),
+            downstream_end: present.then(|| super::snapshot::handoff::CapturedDownstreamEnd {
+                relative_hop_offset: read_u32(header, 21),
+                progress_mm: read_u32(header, 25),
+            }),
             cells,
         })
     }
@@ -1380,6 +1439,31 @@ pub(crate) fn conflict_lag_delta_stream(
             tag => panic!("unknown Conflict lag journal tag {tag}"),
         };
         ConflictLagJournalDelta { address, reference }
+    })
+}
+
+pub(crate) fn handoff_window_stream(
+    bytes: &[u8],
+    revision: laneflow_static_contract::NetworkRevisionId,
+) -> impl ExactSizeIterator<Item = crate::RouteHandoffOccurrence> + '_ {
+    let (rows, remainder) = bytes.as_chunks::<HANDOFF_WINDOW_BYTES>();
+    debug_assert!(remainder.is_empty());
+    rows.iter().map(move |row| {
+        use laneflow_static_contract::{RoadCorridorOrdinal, RoadSectionOrdinal};
+        use laneflow_static_network::BoundaryOwner;
+        let raw = read_u32(row, 5);
+        let owner = match row[4] {
+            1 => BoundaryOwner::Corridor(RoadCorridorOrdinal::from_raw(raw)),
+            2 => BoundaryOwner::Section(RoadSectionOrdinal::from_raw(raw)),
+            _ => unreachable!("unknown journal window owner"),
+        };
+        crate::RouteHandoffOccurrence {
+            revision,
+            source_index: read_u32(row, 0),
+            owner,
+            left_index: read_u32(row, 9),
+            stations_mm: [read_u64(row, 13), read_u64(row, 21)],
+        }
     })
 }
 
@@ -1469,7 +1553,7 @@ impl<'a> Iterator for RecordIter<'a> {
                     conflict_lags,
                 }
             }
-            TAG_ROUTE_REGISTERED => {
+            TAG_ROUTE_REGISTERED | TAG_ROUTE_REGISTERED_WITH_HANDOFFS => {
                 let command_cursor = read_u64(rest, at);
                 at += 8;
                 let slot = read_u32(rest, at);
@@ -1481,11 +1565,22 @@ impl<'a> Iterator for RecordIter<'a> {
                 let edges_len = count * 4;
                 let edges = rest.get(at..at + edges_len).expect("edges within journal");
                 at += edges_len;
+                let windows = if tag == TAG_ROUTE_REGISTERED_WITH_HANDOFFS {
+                    let count = read_u32(rest, at) as usize;
+                    at += 4;
+                    let len = count * HANDOFF_WINDOW_BYTES;
+                    let rows = &rest[at..at + len];
+                    at += len;
+                    rows
+                } else {
+                    &rest[at..at]
+                };
                 JournalRecord::RouteRegistered {
                     command_cursor,
                     slot,
                     generation,
                     edges,
+                    windows,
                 }
             }
             TAG_ROUTE_REMOVED => {
@@ -1880,6 +1975,58 @@ mod tests {
     }
 
     #[test]
+    fn registered_windows_round_trip_in_order_and_fit_the_byte_budget_atomically() {
+        use laneflow_static_contract::{
+            NetworkRevisionId, RoadCorridorOrdinal, RoadSectionOrdinal, Sha256Digest,
+        };
+        use laneflow_static_network::BoundaryOwner;
+        let revision = NetworkRevisionId::from_digest(Sha256Digest::ZERO);
+        let first = crate::RouteHandoffOccurrence {
+            revision,
+            source_index: 0,
+            owner: BoundaryOwner::Corridor(RoadCorridorOrdinal::from_raw(19)),
+            left_index: 2,
+            stations_mm: [4_000, 6_000],
+        };
+        let second = crate::RouteHandoffOccurrence {
+            source_index: 2,
+            owner: BoundaryOwner::Section(RoadSectionOrdinal::from_raw(77)),
+            ..first
+        };
+        let edges = [11, 12, 11, 12].map(LaneEdgeOrdinal::from_raw);
+        let record_bytes = 21 + edges.len() * 4 + 4 + 2 * HANDOFF_WINDOW_BYTES;
+        for budget in [record_bytes, record_bytes - 1] {
+            let mut journal = MigrationDeltaJournal::arm(budget as u64, 0).unwrap();
+            journal.record_route_registered(1, RouteHandle::new(0, 0), &edges, &[first, second]);
+            if budget < record_bytes {
+                assert!(journal.overflowed());
+                assert_eq!(journal.written_bytes(), 0);
+                assert_eq!(journal.record_count, 0);
+                continue;
+            }
+            assert_eq!(journal.written_bytes(), record_bytes as u64);
+            let mut records = journal.records_from(0);
+            let Some(JournalRecord::RouteRegistered {
+                windows,
+                edges: encoded_edges,
+                ..
+            }) = records.next()
+            else {
+                panic!("expected registered route")
+            };
+            assert_eq!(
+                raw_u32_stream(encoded_edges).collect::<Vec<_>>(),
+                [11, 12, 11, 12]
+            );
+            assert_eq!(
+                handoff_window_stream(windows, revision).collect::<Vec<_>>(),
+                [first, second]
+            );
+            assert!(records.next().is_none());
+        }
+    }
+
+    #[test]
     fn journal_record_roundtrip_all_kinds() {
         let mut journal = MigrationDeltaJournal::arm(4_096, 5).expect("arm");
         let delta = sample_delta(3, 1);
@@ -1892,6 +2039,7 @@ mod tests {
             6,
             RouteHandle::new(2, 4),
             &[LaneEdgeOrdinal::from_raw(11), LaneEdgeOrdinal::from_raw(12)],
+            &[],
         );
         journal.record_route_removed(7, 2, true, 5);
         journal.record_vehicle_spawned(8, sample_delta(6, 0));
@@ -1946,11 +2094,13 @@ mod tests {
             slot,
             generation,
             edges,
+            windows,
         } = records[2]
         else {
             panic!("expected route record");
         };
         assert_eq!((command_cursor, slot, generation), (6, 2, 4));
+        assert!(windows.is_empty());
         assert_eq!(raw_u32_stream(edges).collect::<Vec<_>>(), vec![11, 12]);
         assert_eq!(
             records[3],

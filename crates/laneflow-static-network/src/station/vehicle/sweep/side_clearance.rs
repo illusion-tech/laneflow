@@ -21,23 +21,19 @@ pub struct SideClearanceReport<'a> {
 }
 
 impl Clearance<'_> {
-    /// 将有限正下界从米向下取整到微米，超出整数上界时饱和。
-    /// 正的亚微米余量量化为零，实体接触由扫过结果单独表示。
+    /// 已证净空的整数毫米下界。小于一毫米的正间隔取零，超过最大控制点的距离饱和。
     #[must_use]
-    pub fn lower_micrometres(&self) -> u64 {
+    pub fn lower_millimetres(&self) -> u32 {
         if !(self.lower_m.is_finite() && self.lower_m > 0.) {
             return 0;
         }
-        // 将 binary64 有效数乘整数百万，避免先舍入浮点乘积而高估边界。
-        let bits = self.lower_m.to_bits();
-        let exponent = (bits >> 52) as u32;
-        if exponent >= 1023 + 52 {
-            return u64::MAX;
+        let mm = (self.lower_m * 1_000.) as u32;
+        // 融合乘加只舍入一次，可识别浮点乘积向上舍入到下一整毫米的情况。
+        if self.lower_m.mul_add(1_000., -f64::from(mm)) < 0. {
+            mm - 1
+        } else {
+            mm
         }
-        let significand = (1_u64 << 52) | (bits & ((1_u64 << 52) - 1));
-        let product = u128::from(significand) * 1_000_000;
-        let whole = product.checked_shr(1023 + 52 - exponent).unwrap_or(0);
-        u64::try_from(whole).unwrap_or(u64::MAX)
     }
 }
 
@@ -154,15 +150,18 @@ mod tests {
     use laneflow_static_contract::RoadCorridorOrdinal;
 
     #[test]
-    fn micrometres_round_the_binary_bound_down_before_saturation() {
+    fn millimetres_round_the_binary_bound_down_before_saturation() {
         for (lower_m, expected) in [
             (f64::from_bits(1), 0),
-            // 1e-6 的 binary64 值略小于一微米，普通浮点乘法却就近舍入为 1。
-            (1e-6, 0),
-            (1e-6_f64.next_up(), 1),
-            (1_f64.next_down(), 999_999),
-            (1., 1_000_000),
-            (f64::MAX, u64::MAX),
+            (0.001_f64.next_down(), 0),
+            (0.001, 1),
+            // 0.009 米的 binary64 值小于 9 毫米，乘 1000 后浮点数会舍入到 9。
+            (0.009, 8),
+            (0.009_f64.next_up(), 9),
+            (1_f64.next_down(), 999),
+            (1., 1_000),
+            (2_f64.powi(52), u32::MAX),
+            (f64::MAX, u32::MAX),
         ] {
             let evidence = Clearance {
                 lower_m,
@@ -173,7 +172,7 @@ mod tests {
                     key: Some("post"),
                 },
             };
-            assert_eq!(evidence.lower_micrometres(), expected);
+            assert_eq!(evidence.lower_millimetres(), expected);
         }
     }
 }

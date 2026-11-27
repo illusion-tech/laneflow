@@ -1,7 +1,7 @@
 //! 从同一车体姿态定位前杠和车身在两侧物理边上的范围。
 use super::*;
-use crate::StationCandidates;
 use crate::station::vehicle::pose::Vector;
+use crate::{StationAddress, StationCandidates};
 
 /// 相对于有向交接的车道。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,10 +36,12 @@ pub struct HandoffSideFootprint {
 /// 给定后轴位置域内的前杠中点与两侧车身。此结果不发放或释放交通预约。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HandoffFootprint {
-    /// 在整个查询域内前保险杠中点所在的一侧。
+    /// 前杠的已证侧别。已预约查询若保留源侧游标，同时返回目标侧可能位置。
     pub front_side: HandoffLaneSide,
     /// 前保险杠中点在该侧独立边链上的可能位置。
     pub front: StationCandidates,
+    /// 已预约且尚未证实前杠离开源侧时，目标侧同一前杠的可能位置。
+    pub possible_target_front: Option<StationAddress>,
     /// 顺序为源、目标。`None` 表示已证明该侧没有车身。
     pub sides: [Option<HandoffSideFootprint>; 2],
 }
@@ -61,7 +63,7 @@ struct Side {
 
 struct Stations {
     pose: PoseBounds,
-    front_side: HandoffLaneSide,
+    front_side: Option<HandoffLaneSide>,
     front: I,
     sides: [Option<Side>; 2],
 }
@@ -207,6 +209,7 @@ fn stations(
     bound: &Bound,
     shape: BodyEnvelope,
     range: [u64; 2],
+    reserved: bool,
     work: &mut Work,
 ) -> Result<Stations, Failure> {
     work.charge()?;
@@ -214,10 +217,13 @@ fn stations(
         Piece::Join {
             at, smooth: true, ..
         } => {
-            let mut a = stations(c, bound, shape, [range[0], at], work)?;
-            let b = stations(c, bound, shape, [at, range[1]], work)?;
+            let mut a = stations(c, bound, shape, [range[0], at], reserved, work)?;
+            let b = stations(c, bound, shape, [at, range[1]], reserved, work)?;
             if a.front_side != b.front_side {
-                return Err(Failure::Boundary);
+                if !reserved {
+                    return Err(Failure::Boundary);
+                }
+                a.front_side = None;
             }
             a.front = a.front.hull(b.front);
             a.pose = a.pose.hull(b.pose);
@@ -244,7 +250,10 @@ fn stations(
     within_outer(c, bound, &pose, coords, Some(front), work)?;
     let seam = &bound.crossing;
     let signed = |p: Projection| seam.sign * (p.lateral - seam.line.lateral(c, p.station));
-    let front_side = HandoffLaneSide::of(signed(front)).ok_or(Failure::Boundary)?;
+    let front_side = HandoffLaneSide::of(signed(front));
+    if front_side.is_none() && !reserved {
+        return Err(Failure::Boundary);
+    }
     let regions = body_regions(c, bound, &pose, coords, work)?;
     let mut witnesses = [None; 2];
     let [long, lat, height] = coords;
@@ -304,7 +313,6 @@ impl SharedNetworkRevision {
 
     /// 从同一次车体求值读回前杠、两侧占用和后轴参考点及三轴的分量界。
     /// 返回值的第二项是实际工作数；跨平滑接缝时姿态界同时覆盖两侧。
-    #[must_use]
     pub fn handoff_footprint_and_pose(
         &self,
         q: &HandoffQuery,
@@ -313,15 +321,62 @@ impl SharedNetworkRevision {
         rear_stations_nm: [u64; 2],
         work_limit: u32,
     ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
+        self.footprint_and_pose(q, window, body, rear_stations_nm, work_limit, false)
+    }
+
+    /// 已持有组合预约的轨迹可在前杠侧别未定时保留源游标。两侧均须有实体见证，
+    /// 前杠在各侧须唯一对应已登记边且整个站位外包在允许窗口内；此结果不能授予预约。
+    pub fn reserved_handoff_footprint_and_pose(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        rear_stations_nm: [u64; 2],
+        work_limit: u32,
+    ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
+        self.footprint_and_pose(q, window, body, rear_stations_nm, work_limit, true)
+    }
+
+    fn footprint_and_pose(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        rear_stations_nm: [u64; 2],
+        work_limit: u32,
+        reserved: bool,
+    ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
         let mut run = || {
             let offsets = body_side::body_offsets(q, body, rear_stations_nm)?;
             let bound = bind(self, q, window, &mut work)?;
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;
-            let positions = stations(&c, &bound, body, offsets, &mut work)?;
+            let positions = stations(&c, &bound, body, offsets, reserved, &mut work)?;
             let mut address = |i, s| map_side(self, q, &bound, i, s, &mut work);
-            let front = address(positions.front_side as usize, positions.front)?;
+            let front_side = positions.front_side.unwrap_or(HandoffLaneSide::Source);
+            let front = address(front_side as usize, positions.front)?;
+            let possible_target_front = if positions.front_side.is_none() {
+                let range = front.stations_nm();
+                let [low, high] = window.stations_nm()?;
+                let target = address(HandoffLaneSide::Target as usize, positions.front)?;
+                let mut target_addresses = target.addresses();
+                let (Some(target), None) = (target_addresses.next(), target_addresses.next())
+                else {
+                    return Err(Failure::Boundary);
+                };
+                if positions.sides.iter().any(Option::is_none)
+                    || range[0] < low
+                    || range[1] > high
+                    || !front.addresses().map(|a| a.edge).eq([window.edges[0]])
+                    || target.edge != window.edges[1]
+                {
+                    return Err(Failure::Boundary);
+                }
+                Some(target)
+            } else {
+                None
+            };
             let mut sides = [None, None];
             for (i, side) in positions.sides.into_iter().enumerate() {
                 if let Some(side) = side {
@@ -333,8 +388,9 @@ impl SharedNetworkRevision {
             }
             Ok((
                 HandoffFootprint {
-                    front_side: positions.front_side,
+                    front_side,
                     front,
+                    possible_target_front,
                     sides,
                 },
                 positions.pose,

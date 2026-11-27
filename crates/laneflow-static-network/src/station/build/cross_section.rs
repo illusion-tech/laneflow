@@ -21,15 +21,15 @@ fn obstacle(shape: u8, b: &[u8]) -> Result<BoundaryPayload> {
     match (shape, b.len()) {
         (1, 25) => Ok(BoundaryPayload::Guardrail {
             anchor_role: b[0],
-            lateral_um: i(1),
-            length_um: u(5),
-            radius_um: u(9),
-            heights_um: [i(13), i(17)],
-            error_nm: u(21),
+            lateral_mm: i(1),
+            length_mm: u(5),
+            radius_mm: u(9),
+            heights_mm: [i(13), i(17)],
+            error_mm: u(21),
         }),
         (2, 36) => Ok(BoundaryPayload::Curb {
-            ends_um: std::array::from_fn(|end| std::array::from_fn(|j| i(16 * end + 4 * j))),
-            error_nm: u(32),
+            ends_mm: [[i(0), i(4), i(8), i(12)], [i(16), i(20), i(24), i(28)]],
+            error_mm: u(32),
         }),
         _ => Err(INVALID),
     }
@@ -66,11 +66,11 @@ pub(super) fn build(
                     .last()
                     .is_none_or(|f: &LaneFootprint| f.lane < lane),
         )?;
-        let d = |tag| checked_i32(r, tag, STRUCTURE);
+        let d = |tag| offset_mm(r, tag);
         footprints.push(LaneFootprint {
             lane,
-            ends_um: [[d(2)?, d(3)?], [d(4)?, d(5)?]],
-            error_nm: index(r, 6)?,
+            ends_mm: [[d(2)?, d(3)?], [d(4)?, d(5)?]],
+            error_mm: index(r, 6)?,
             supports_wheel: checked_u8(r, 7, STRUCTURE)? == 1,
         });
     }
@@ -104,7 +104,7 @@ pub(super) fn build(
                 validate(
                     at,
                     prev.frame == frame
-                        && prev.stations[1] == nodes[0]
+                        && prev.stations_mm[1] == nodes[0]
                         && prev.jets[1][..3] == jets[0][..3],
                 )?;
                 // 水平法向共用；真实纵坡缝可以有不同的单侧纵向导数。
@@ -120,7 +120,7 @@ pub(super) fn build(
         rows.push(RoadSurfaceSpan {
             corridor,
             frame,
-            stations: nodes,
+            stations_mm: nodes,
             jets,
             derivative_errors: floats(r, 7)?,
         });
@@ -140,7 +140,8 @@ pub(super) fn build(
         let r = ranges[c.index()].ok_or(at)?;
         validate(
             at,
-            group.last().ok_or(at)?.stations[1].0 == stations[(r.start() + r.len() - 1) as usize],
+            group.last().ok_or(at)?.stations_mm[1].0
+                == stations[(r.start() + r.len() - 1) as usize],
         )?;
         let mut seam = None;
         let mut next = |ends: [[i32; 2]; 2]| -> Result<()> {
@@ -157,7 +158,7 @@ pub(super) fn build(
                         let i = footprints
                             .binary_search_by_key(&l, |r| r.lane)
                             .map_err(|_| at)?;
-                        next(footprints[i].ends_um)?;
+                        next(footprints[i].ends_mm)?;
                         checked_lanes += 1;
                     }
                 }
@@ -166,7 +167,7 @@ pub(super) fn build(
                         .binary_search_by_key(&b, |r| r.ordinal)
                         .map_err(|_| at)?;
                     next(std::array::from_fn(|j| {
-                        [bands[i].left_um[j], bands[i].right_um[j]]
+                        [bands[i].left_mm[j], bands[i].right_mm[j]]
                     }))?;
                 }
             }

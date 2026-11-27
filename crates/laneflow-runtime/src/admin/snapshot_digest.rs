@@ -8,10 +8,12 @@ use crate::{
     CapturedSnapshot, CapturedVehicle, VehicleStatus,
 };
 
-/// 确定性状态摘要规范化版本（8：算法由 SHA-256 更换为 BLAKE3-256，原像布局不变）。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 8;
+/// 确定性状态摘要规范化版本（9：加入路线窗口、横移预约与逐车下游终点）。
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 9;
 /// 域分隔前缀；尾随 NUL 属于前缀字节。算法更换由原像内的摘要版本区分，前缀保持 v1。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
+
+const DOWNSTREAM_END_PREIMAGE_BYTES: usize = 2 * size_of::<u32>();
 
 bytes32_type! {
     /// 32-byte 确定性状态摘要（BLAKE3-256）。
@@ -63,6 +65,9 @@ pub enum StateInvariantViolation {
     /// 已提交 Conflict authority 与 reservation 级证明不一致。
     #[error("已提交 Conflict authority 与证明不一致")]
     ConflictAuthorityMismatch,
+    /// 已提交横移状态与候选、游标或保护不一致。
+    #[error("已提交换道状态与证明不一致")]
+    HandoffAuthorityMismatch,
     /// 直算过程 unwind，按不变量破坏上报（不套用修订认证停用政策）。
     #[error("直算摘要过程 panic: {0}")]
     Panicked(&'static str),
@@ -140,7 +145,7 @@ impl NormalizationBudget {
 
 /// 固定前缀的最大字节数（一次预留）。后续计数字段与记录各自走
 /// 可失败的摊销增长，不依赖可选前缀留下的剩余容量。
-const fn canonical_prefix_len() -> usize {
+fn canonical_prefix_len(config: &crate::WorldConfig) -> usize {
     RUNTIME_STATE_DIGEST_DOMAIN.len()
         + 2
         + 2 // 摘要版本 / Runtime 状态版本
@@ -152,6 +157,7 @@ const fn canonical_prefix_len() -> usize {
         + 8
         + 8 // 四个容量字段
         + 8 // fixed dt
+        + 1 + config.handoff_driving().map_or(0, |c| 2 + 4 + 4 + 8 + c.curve.points().len() * 8)
         + 8 * 4 // tick / 时间 / 双游标
         + 1 + 16 // selection tag + 可选策略 StableId 的最大长度
 }
@@ -207,25 +213,115 @@ pub fn deterministic_state_digest(
     canonical_state_preimage(snapshot).map(|canonical| StateDigest::of_preimage(&canonical))
 }
 
-/// 测试专用：e011745e / c009d2dc 锚定的阶段协议 fixture 以 digest 7（SHA-256）记录状态。
-/// 以相同原像把版本字段改回 7 并按 SHA-256 重算，输出原 `Sha256Digest(..)` 调试形式，
-/// 使 fixture 继续锚定重构前行为、不随 #1035 算法更换从被测实现重生成；生产路径不使用。
+/// 旧阶段协议的冻结对照。由当前世界的账本恢复旧区间记录，保持历史 fixture 的原始 SHA-256。
 #[cfg(test)]
-pub(crate) fn frozen_digest_7_fingerprint(snapshot: &CapturedSnapshot) -> String {
+pub(crate) fn frozen_digest_7_fingerprint(
+    world: &crate::TrafficWorld,
+    snapshot: &CapturedSnapshot,
+) -> String {
     use sha2::{Digest, Sha256};
-
-    let mut preimage = canonical_state_preimage(snapshot).expect("preimage");
-    let version_at = RUNTIME_STATE_DIGEST_DOMAIN.len();
-    preimage[version_at..version_at + 2].copy_from_slice(&7_u16.to_le_bytes());
-    let hex: String = Sha256::digest(&preimage)
+    let bytes = frozen_phase_preimage(world, snapshot, 7);
+    let hex: String = Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
     format!("Sha256Digest({hex})")
 }
 
+fn write_downstream_end(
+    bytes: &mut Vec<u8>,
+    end: crate::admin::snapshot::handoff::CapturedDownstreamEnd,
+) {
+    push_u32(bytes, end.relative_hop_offset);
+    push_u32(bytes, end.progress_mm);
+}
+
+#[cfg(test)]
+fn frozen_phase_preimage(
+    world: &crate::TrafficWorld,
+    snapshot: &CapturedSnapshot,
+    digest_version: u16,
+) -> Vec<u8> {
+    assert!(snapshot.config.handoff_driving().is_none());
+    let active_rows = (&world.state.committed.vehicles)
+        .into_iter()
+        .filter_map(|s| s.state.map(|v| v.handle))
+        .collect::<Vec<_>>();
+    let mut index = vec![None; world.config().vehicle_capacity() as usize];
+    let ledger = world
+        .state
+        .conflict_read()
+        .persistence_view(&mut index)
+        .unwrap();
+    let vehicle = |v: &CapturedVehicle| {
+        assert!(v.handoffs.is_empty());
+        let mut bytes = canonical_vehicle_record(v)?;
+        bytes.truncate(bytes.len() - 8);
+        if let Some(reservation) = &v.conflict_reservation {
+            let mut end = Vec::new();
+            write_downstream_end(&mut end, reservation.downstream_end);
+            let preceding_len = bytes
+                .strip_suffix(end.as_slice())
+                .expect("canonical reservation ends with its downstream endpoint")
+                .len();
+            bytes.truncate(preceding_len);
+            let owner = active_rows[v.snapshot_vehicle_id as usize - 1];
+            let authority = ledger.authority(owner).unwrap();
+            let mut rows: Vec<_> = authority
+                .downstream_claims()
+                .map(|c| {
+                    let i = c.interval;
+                    (
+                        *world
+                            .state
+                            .binding
+                            .revision
+                            .identity()
+                            .stable_id(i.edge())
+                            .unwrap()
+                            .as_untyped(),
+                        i.start_mm(),
+                        i.end_mm(),
+                    )
+                })
+                .collect();
+            rows.sort_unstable();
+            push_u64(&mut bytes, rows.len() as u64);
+            for (edge, start, end) in rows {
+                bytes.extend_from_slice(edge.as_bytes());
+                push_u32(&mut bytes, start);
+                push_u32(&mut bytes, end);
+            }
+        }
+        Ok(bytes)
+    };
+    let route = |r: &CapturedRoute| {
+        assert!(r.windows.is_empty());
+        let mut bytes = canonical_route_record(r)?;
+        bytes.truncate(bytes.len() - 8);
+        Ok(bytes)
+    };
+    let mut bytes = assemble_captured_preimage(snapshot, vehicle, route).unwrap();
+    let version = RUNTIME_STATE_DIGEST_DOMAIN.len();
+    bytes[version..version + 2].copy_from_slice(&digest_version.to_le_bytes());
+    bytes[version + 2..version + 4].copy_from_slice(&5u16.to_le_bytes());
+    assert_eq!(
+        bytes.remove(version + 4 + 8 + 32 + 6 * 2 + 4 * 2 + 8 * 3),
+        0
+    );
+    bytes
+}
+
 /// 捕获路径的规范原像字节；摘要 = BLAKE3-256(原像)。
 fn canonical_state_preimage(snapshot: &CapturedSnapshot) -> Result<Vec<u8>, SnapshotDigestError> {
+    assemble_captured_preimage(snapshot, canonical_vehicle_record, canonical_route_record)
+}
+
+fn assemble_captured_preimage(
+    snapshot: &CapturedSnapshot,
+    encode_vehicle: impl Fn(&CapturedVehicle) -> Result<Vec<u8>, SnapshotDigestError>,
+    encode_route: impl Fn(&CapturedRoute) -> Result<Vec<u8>, SnapshotDigestError>,
+) -> Result<Vec<u8>, SnapshotDigestError> {
     // 车辆记录表：`BTreeMap` 无可失败预留 API，等价换「按局部 ID 排序的
     // 扁平表 + 二分查找」（查找语义与输出字节不变）。
     let mut vehicle_records: Vec<(u64, Vec<u8>, u64)> = Vec::new();
@@ -233,7 +329,7 @@ fn canonical_state_preimage(snapshot: &CapturedSnapshot) -> Result<Vec<u8>, Snap
     for vehicle in &snapshot.vehicles {
         vehicle_records.push((
             vehicle.snapshot_vehicle_id,
-            canonical_vehicle_record(vehicle)?,
+            encode_vehicle(vehicle)?,
             vehicle.snapshot_route_id,
         ));
     }
@@ -247,7 +343,7 @@ fn canonical_state_preimage(snapshot: &CapturedSnapshot) -> Result<Vec<u8>, Snap
     let mut route_records: Vec<(u64, Vec<u8>)> = Vec::new();
     digest_try_reserve_exact(&mut route_records, snapshot.routes.len())?;
     for route in &snapshot.routes {
-        route_records.push((route.snapshot_route_id, canonical_route_record(route)?));
+        route_records.push((route.snapshot_route_id, encode_route(route)?));
     }
     route_records.sort_unstable_by_key(|entry| entry.0);
     let route_index = |snapshot_route_id: u64| -> usize {
@@ -400,13 +496,26 @@ fn canonical_route_groups<V: AsRef<[u8]>>(
 
 fn canonical_route_record(route: &CapturedRoute) -> Result<Vec<u8>, SnapshotDigestError> {
     let mut record = Vec::new();
-    digest_try_reserve_exact(&mut record, 8 + route.edges.len() * 16)?;
+    digest_try_reserve_exact(
+        &mut record,
+        16 + route.edges.len() * 16 + route.windows.len() * (4 + 2 + 16 * 3 + 8 * 2),
+    )?;
     push_u64(
         &mut record,
         u64::try_from(route.edges.len()).expect("route edge count fits u64"),
     );
     for edge in &route.edges {
         record.extend_from_slice(edge.as_bytes());
+    }
+    push_u64(&mut record, route.windows.len() as u64);
+    for w in &route.windows {
+        push_u32(&mut record, w.source_index);
+        push_u16(&mut record, w.owner_kind);
+        record.extend_from_slice(w.owner.as_bytes());
+        record.extend_from_slice(w.left_member.as_bytes());
+        record.extend_from_slice(w.right_member.as_bytes());
+        push_u64(&mut record, w.stations_mm[0]);
+        push_u64(&mut record, w.stations_mm[1]);
     }
     Ok(record)
 }
@@ -454,8 +563,7 @@ fn append_canonical_vehicle_record(
                 + 16
                 + 8
                 + reservation.passages.len() * (4 + 32 + 4 + 4 + 4 + 4)
-                + 8
-                + reservation.downstream_intervals.len() * (16 + 4 + 4)
+                + DOWNSTREAM_END_PREIMAGE_BYTES
         });
     let record_len = 4
         + 4
@@ -468,7 +576,15 @@ fn append_canonical_vehicle_record(
         + traversal_len
         + waiting_len
         + eligibility_len
-        + reservation_len;
+        + reservation_len
+        + 8
+        + vehicle
+            .handoffs
+            .iter()
+            .map(|h| {
+                4 + 2 + 4 * 8 + 8 + 2 * 4 + 8 + 1 + 8 + 8 + h.protections.len() * (1 + 16 + 4 + 4)
+            })
+            .sum::<usize>();
 
     digest_try_reserve(record, record_len)?;
     push_u32(record, vehicle.route_edge_index);
@@ -576,16 +692,28 @@ fn append_canonical_vehicle_record(
                 push_u32(record, passage.clearance_route_edge_index);
                 push_u32(record, passage.clearance_progress_mm);
             }
-            push_u64(
-                record,
-                u64::try_from(reservation.downstream_intervals.len())
-                    .expect("downstream count fits u64"),
-            );
-            for interval in &reservation.downstream_intervals {
-                record.extend_from_slice(interval.lane_edge.as_bytes());
-                push_u32(record, interval.start_mm);
-                push_u32(record, interval.end_mm);
-            }
+            write_downstream_end(record, reservation.downstream_end);
+        }
+    }
+    push_u64(record, vehicle.handoffs.len() as u64);
+    for h in &vehicle.handoffs {
+        push_u32(record, h.source_index);
+        push_u16(record, h.trajectory_version);
+        for station in h.station_window_mm.into_iter().chain(h.rear_stations_mm) {
+            push_u64(record, station);
+        }
+        push_u64(record, h.admitted_speed_bits);
+        push_u32(record, h.tracks);
+        push_u32(record, h.sweep);
+        push_u64(record, h.rear_travel_um);
+        record.push(u8::from(h.front_handed_off));
+        push_u64(record, h.acquired_tick);
+        push_u64(record, h.protections.len() as u64);
+        for p in &h.protections {
+            record.push(p.role);
+            record.extend_from_slice(p.edge.as_bytes());
+            push_u32(record, p.start_mm);
+            push_u32(record, p.end_mm);
         }
     }
     Ok(())
@@ -675,8 +803,7 @@ fn push_canonical_header(
     event_cursor: u64,
     policy_selection: &crate::WorldPolicySelection,
 ) -> Result<(), SnapshotDigestError> {
-    digest_try_reserve_exact(canonical, canonical_prefix_len())?;
-    digest_try_reserve_exact(canonical, canonical_prefix_len())?;
+    digest_try_reserve_exact(canonical, canonical_prefix_len(config))?;
     canonical.extend_from_slice(RUNTIME_STATE_DIGEST_DOMAIN);
     push_u16(canonical, RUNTIME_STATE_DIGEST_VERSION);
     push_u16(canonical, crate::RUNTIME_STATE_VERSION);
@@ -694,6 +821,19 @@ fn push_canonical_header(
     push_u64(canonical, config.route_edge_occurrence_capacity());
     push_u64(canonical, config.route_conflict_occurrence_capacity());
     push_u64(canonical, config.fixed_delta_time_ms());
+    if let Some(c) = config.handoff_driving() {
+        canonical.push(1);
+        push_u16(canonical, 2);
+        push_u32(canonical, c.max_span_mm.get());
+        push_u32(canonical, c.travel_tolerance_mm.get());
+        push_u64(canonical, c.curve.points().len() as u64);
+        for point in c.curve.points() {
+            push_u32(canonical, point.clearance_mm);
+            push_u32(canonical, point.speed_mm_s);
+        }
+    } else {
+        canonical.push(0);
+    }
     push_u64(canonical, tick);
     push_u64(canonical, time_ms);
     push_u64(canonical, command_cursor);
@@ -713,7 +853,7 @@ impl crate::kernel::state::WorldState {
     /// 状态逐记录抽取并立即归一化（完整性设计 §4.3；#960）。
     ///
     /// 字节与现行 `deterministic_state_digest(&CapturedSnapshot)` 逐字节一致
-    ///（digest 8 / runtime state 5）；局部 ID 按 capture 语义由 live 槽位序
+    ///（digest 9 / runtime state 6）；局部 ID 按 capture 语义由 live 槽位序
     /// 分配。归一化 scratch 由 `limits` 约束；预留 / 限额失败无副作用可重试。
     /// 读取真实触达已提交字节，不给结论保留缓存。
     ///
@@ -752,6 +892,8 @@ impl crate::kernel::state::WorldState {
         limits: SnapshotDigestLimits,
     ) -> Result<Vec<u8>, SnapshotDigestError> {
         use crate::admin::snapshot::FIRST_SNAPSHOT_ID;
+        self.validate_snapshot_authority()
+            .map_err(direct_capture_error)?;
         let mut budget = NormalizationBudget {
             remaining: limits.max_normalization_bytes,
         };
@@ -890,7 +1032,9 @@ impl crate::kernel::state::WorldState {
         let route_groups = canonical_route_groups(&vehicle_records, &route_records, &mut budget)?;
 
         // canonical 组装：前缀 + 等待区 + 冲突滞后 + 路线分组 + live 序。
-        budget.charge(u64::try_from(canonical_prefix_len()).unwrap_or(u64::MAX))?;
+        budget.charge(
+            u64::try_from(canonical_prefix_len(&self.binding.config)).unwrap_or(u64::MAX),
+        )?;
         let mut canonical = Vec::new();
         push_canonical_header(
             &mut canonical,
@@ -1082,6 +1226,11 @@ fn direct_capture_error(
         crate::admin::snapshot::SnapshotCaptureError::UnsupportedTransitionState(state) => {
             SnapshotDigestError::UnsupportedTransitionState(state)
         }
+        crate::admin::snapshot::SnapshotCaptureError::HandoffInvariantViolation => {
+            SnapshotDigestError::InvariantViolation(
+                StateInvariantViolation::HandoffAuthorityMismatch,
+            )
+        }
     }
 }
 
@@ -1253,6 +1402,80 @@ mod tests {
     }
 
     #[test]
+    fn joint_digest_encodes_trajectory_and_role_stable_intervals_in_contract_order() {
+        use crate::admin::snapshot::handoff::{CapturedHandoff, CapturedHandoffProtection};
+        let (world, _, _) = world_with_vehicle(true);
+        let mut vehicle = world.capture_snapshot().unwrap().vehicles.remove(0);
+        let baseline = canonical_vehicle_record(&vehicle).unwrap();
+        assert_eq!(&baseline[baseline.len() - 8..], &[0; 8]);
+        vehicle.handoffs.push(CapturedHandoff {
+            source_index: 0x01020304,
+            trajectory_version: 1,
+            station_window_mm: [100, 400],
+            rear_stations_mm: [300, 200],
+            admitted_speed_bits: 1.5_f64.to_bits(),
+            tracks: 0x11223344,
+            sweep: 0x55667788,
+            rear_travel_um: 150_001,
+            front_handed_off: true,
+            acquired_tick: 123,
+            protections: vec![CapturedHandoffProtection {
+                role: 2,
+                edge: laneflow_static_contract::StableId128::from_bytes([0xa5; 16]),
+                start_mm: 513,
+                end_mm: 1027,
+            }],
+        });
+        // 不使用生产编码器构造后缀。反向后轴站位、非整毫米行程和 f64 的位型均进入原像。
+        let suffix: &[u8] = &[
+            1, 0, 0, 0, 0, 0, 0, 0, 4, 3, 2, 1, 1, 0, 100, 0, 0, 0, 0, 0, 0, 0, 144, 1, 0, 0, 0, 0,
+            0, 0, 44, 1, 0, 0, 0, 0, 0, 0, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 248, 63,
+            0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0xf1, 0x49, 2, 0, 0, 0, 0, 0, 1, 123,
+            0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5,
+            0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 1, 2, 0, 0, 3, 4, 0, 0,
+        ];
+        let encoded = canonical_vehicle_record(&vehicle).unwrap();
+        assert_eq!(
+            &encoded[..baseline.len() - 8],
+            &baseline[..baseline.len() - 8]
+        );
+        assert_eq!(&encoded[baseline.len() - 8..], suffix);
+    }
+
+    #[test]
+    fn conflict_digest_distinguishes_downstream_occurrences_even_for_the_same_physical_union() {
+        use crate::admin::snapshot::handoff::CapturedDownstreamEnd;
+        use laneflow_static_contract::LaneEdgeOrdinal;
+        let (world, _) = crate::admin::format_admission::tests::world_with_conflict_reservation();
+        let mut snapshot = world.capture_snapshot().unwrap();
+        let a = LaneEdgeOrdinal::from_raw(0);
+        let b = LaneEdgeOrdinal::from_raw(1);
+        let mut variants = Vec::new();
+        for end_mm in [2000, 3000] {
+            let mut intervals = Vec::new();
+            let start = crate::DownstreamRoutePoint::new(0, 0, 0).unwrap();
+            let end = crate::DownstreamRoutePoint::new(2, end_mm, 0).unwrap();
+            crate::kernel::conflict::derive_downstream_claims(
+                &[a, b, a],
+                &[10000, 10000],
+                start,
+                end,
+                &mut intervals,
+            )
+            .unwrap();
+            let row = snapshot
+                .vehicles
+                .iter_mut()
+                .find_map(|v| v.conflict_reservation.as_mut())
+                .unwrap();
+            row.downstream_end = CapturedDownstreamEnd::from_point(0, end).unwrap();
+            variants.push((intervals, canonical_state_preimage(&snapshot).unwrap()));
+        }
+        assert_eq!(variants[0].0, variants[1].0);
+        assert_ne!(variants[0].1, variants[1].1);
+    }
+
+    #[test]
     fn digest_is_stable_across_restore_handle_and_local_id_reassignment() {
         let (mut world, route, _) = world_with_vehicle(true);
         world.step(TickInput::new(100)).expect("step");
@@ -1318,11 +1541,9 @@ mod tests {
         );
     }
 
-    /// #1035：摘要 = BLAKE3-256(规范原像)，原像以域分隔前缀与摘要版本 8 开头，两条路径
-    /// 的原像逐字节一致；把版本字段改回 7 并以 SHA-256 计算，复现 digest 7 的已知向量，
-    /// 证明算法更换未改变原像布局。LFCA 7 向量用 LFCA 6 的旧实现只替换修订和格式版本后复算。
+    /// 直接与捕获共享完整摘要 9 原像，老阶段协议仍用独立冻结向量核验。
     #[test]
-    fn digest_is_blake3_of_unchanged_preimage() {
+    fn current_and_historical_digests_use_their_registered_preimages() {
         use sha2::{Digest, Sha256};
 
         let (world, _, _) = world_with_vehicle(true);
@@ -1348,15 +1569,14 @@ mod tests {
             &preimage[version_at..version_at + 2],
             &RUNTIME_STATE_DIGEST_VERSION.to_le_bytes()
         );
-        let mut digest_7_preimage = preimage.clone();
-        digest_7_preimage[version_at..version_at + 2].copy_from_slice(&7_u16.to_le_bytes());
+        let digest_7_preimage = frozen_phase_preimage(&world, &captured, 7);
         let digest_7: [u8; 32] = Sha256::digest(&digest_7_preimage).into();
         assert_eq!(
             digest_7,
             [
-                0xb7, 0x8d, 0xa2, 0xd0, 0xe7, 0xe3, 0x26, 0x2a, 0xa5, 0x09, 0xb8, 0x89, 0x5a, 0xba,
-                0x2e, 0xab, 0xb3, 0x50, 0x7c, 0xb9, 0xa3, 0x1b, 0x48, 0x95, 0xca, 0x4e, 0x93, 0x23,
-                0x9b, 0x79, 0x09, 0xa0,
+                0xf3, 0xfe, 0x8b, 0xf2, 0xd9, 0x8b, 0xfc, 0x5f, 0xb6, 0xd7, 0xc1, 0xd8, 0x53, 0xbc,
+                0xc2, 0xd4, 0xba, 0x16, 0xd3, 0xc9, 0x6f, 0x96, 0x53, 0x11, 0x69, 0xc7, 0xd5, 0x6c,
+                0x95, 0x1f, 0x67, 0xc2,
             ]
         );
     }
@@ -1602,9 +1822,7 @@ mod tests {
 
     #[test]
     fn captured_downstream_budget_matches_allocated_types_at_boundary() {
-        use crate::admin::snapshot::{
-            CapturedConflictDownstreamInterval, CapturedConflictPassage, SnapshotCaptureError,
-        };
+        use crate::admin::snapshot::{CapturedConflictPassage, SnapshotCaptureError};
         let (world, vehicle) =
             crate::admin::format_admission::tests::world_with_conflict_reservation();
         let state = &world.state;
@@ -1617,10 +1835,9 @@ mod tests {
             .unwrap();
         let claims = reservation.downstream_claim_count() as usize;
         assert!(claims > 0, "fixture must contain downstream claims");
-        // 按实际四个 Vec 的元素类型独立计算，不从被测预算器反推阈值。
+        // 按实际三个 Vec 的元素类型独立计算，不从被测预算器反推阈值。
         let expected_bytes = (core::mem::size_of::<CapturedConflictPassage>()
             * reservation.passage_range().passage_count() as usize
-            + core::mem::size_of::<CapturedConflictDownstreamInterval>() * claims
             + core::mem::size_of::<crate::DownstreamInterval>() * claims
             + core::mem::size_of::<crate::DownstreamInterval>() * plan.raw_interval_capacity())
             as u64;
@@ -1638,13 +1855,11 @@ mod tests {
             remaining: expected_bytes,
         };
         let captured = capture(&mut exact).unwrap().unwrap();
+        let row = captured.conflict_reservation.unwrap();
         assert_eq!(
-            captured
-                .conflict_reservation
-                .unwrap()
-                .downstream_intervals
-                .len(),
-            claims
+            row.downstream_end
+                .point(row.maneuver_entry_route_edge_index),
+            Some(reservation.downstream_target())
         );
         assert_eq!(
             exact.remaining, 0,
@@ -1795,6 +2010,7 @@ mod tests {
         split.routes.push(CapturedRoute {
             snapshot_route_id: base.routes[0].snapshot_route_id + 1,
             edges: base.routes[0].edges.clone(),
+            windows: Vec::new(),
         });
         split.vehicles.push(second_vehicle.clone());
         split.vehicles[1].snapshot_route_id = split.routes[1].snapshot_route_id;
@@ -1834,6 +2050,7 @@ mod tests {
         forward.routes.push(CapturedRoute {
             snapshot_route_id: second_route_id,
             edges: different_edges,
+            windows: Vec::new(),
         });
         let mut second = base.vehicles[0].clone();
         second.snapshot_vehicle_id = second_vehicle_id;
@@ -1864,17 +2081,14 @@ mod tests {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&original).expect("digest");
-        // digest 8：原像与 digest 7 相同（独立保留已审核的车辆/路线记录后缀，替换版本与
-        // LFCA 第 1～6、9 节摘要，追加 tag + 从身份表读取的 policy StableId，以及空 Conflict
-        // lag 分类的显式计数），只把摘要版本改为 8、算法改为 BLAKE3-256；本向量锁定
-        // 完整 digest 8 原像。LFCA 7 向量由旧引擎只更换修订和格式版本复算。
+        // 本向量由 a94acf02 上的摘要 8 与当前 LFCA 8 制品独立生成。
         // 下方等价类同时约束来源审计与局部 ID 不进入摘要。
         assert_eq!(
-            expected,
+            StateDigest::of_preimage(&frozen_phase_preimage(&world, &original, 8)),
             StateDigest::from_bytes([
-                0x68, 0x2f, 0x93, 0xcc, 0x07, 0x81, 0x34, 0xba, 0x40, 0x10, 0xd3, 0xdc, 0xe6, 0xb2,
-                0x0b, 0x51, 0xa5, 0x02, 0x11, 0xb6, 0xa5, 0x10, 0x9e, 0xa7, 0x28, 0xd3, 0x18, 0x51,
-                0x64, 0xee, 0x2d, 0xee,
+                0x0c, 0x55, 0x35, 0x03, 0x23, 0xc6, 0xde, 0x7f, 0x14, 0x71, 0xa6, 0x6a, 0x82, 0x65,
+                0x14, 0x4a, 0x77, 0x38, 0x23, 0x5f, 0x92, 0xe1, 0xc2, 0x0f, 0x41, 0x22, 0x00, 0x28,
+                0x6c, 0x80, 0x19, 0xf3,
             ])
         );
         let mut equivalent = original.clone();

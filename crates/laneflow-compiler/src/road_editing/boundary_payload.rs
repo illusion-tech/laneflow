@@ -1,4 +1,4 @@
-//! 编制端与来源读方共用的实体参数量化。浮点乘积落在半微米时再核对精确残差。
+//! 编制端与来源读方共用的实体参数量化。浮点乘积落在半毫米时再核对精确残差。
 use super::model::{BoundaryPayloadInput, CurbEndInput};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -14,16 +14,16 @@ pub(crate) enum QuantizedBoundaryPayload {
         radius: u32,
         bottom: i32,
         top: i32,
-        error_nm: u32,
+        error_mm: u32,
     },
     Curb {
         ends: [[i32; 4]; 2],
-        error_nm: u32,
+        error_mm: u32,
     },
 }
 
 struct Quantizer {
-    max_error_um: f64,
+    max_error_mm: f64,
 }
 
 impl QuantizedBoundaryPayload {
@@ -37,7 +37,7 @@ impl QuantizedBoundaryPayload {
                 radius,
                 bottom,
                 top,
-                error_nm,
+                error_mm,
             } => {
                 out[0] = role;
                 out[1..25].copy_from_slice(
@@ -47,13 +47,13 @@ impl QuantizedBoundaryPayload {
                         radius.to_le_bytes(),
                         bottom.to_le_bytes(),
                         top.to_le_bytes(),
-                        error_nm.to_le_bytes(),
+                        error_mm.to_le_bytes(),
                     ]
                     .as_flattened(),
                 );
                 Some((1, 25))
             }
-            Self::Curb { ends, error_nm } => {
+            Self::Curb { ends, error_mm } => {
                 for (chunk, v) in out[..32]
                     .as_chunks_mut::<4>()
                     .0
@@ -62,60 +62,42 @@ impl QuantizedBoundaryPayload {
                 {
                     chunk.copy_from_slice(&v.to_le_bytes());
                 }
-                out[32..].copy_from_slice(&error_nm.to_le_bytes());
+                out[32..].copy_from_slice(&error_mm.to_le_bytes());
                 Some((2, 36))
             }
         }
     }
 }
 
-pub(super) fn rounded_micrometers(meters: f64) -> Option<i64> {
-    let scaled = meters * 1_000_000.0;
-    if !scaled.is_finite() || scaled.abs() > f64::from(u32::MAX) + 1.0 {
-        return None;
-    }
-    let residual = meters.mul_add(1_000_000.0, -scaled);
-    let rounded = if scaled.fract().abs() == 0.5 && residual != 0.0 {
-        if residual < 0.0 {
-            scaled.floor()
-        } else {
-            scaled.ceil()
-        }
-    } else {
-        scaled.round_ties_even()
-    };
-    Some(rounded as i64)
-}
-
 impl Quantizer {
-    fn micrometers(&mut self, meters: f64, field: &'static str) -> Result<i64, &'static str> {
-        let rounded = rounded_micrometers(meters).ok_or(field)?;
-        let error = meters.mul_add(1_000_000.0, -(rounded as f64)).abs();
-        self.max_error_um = self.max_error_um.max(error);
+    fn millimeters(&mut self, meters: f64, field: &'static str) -> Result<i64, &'static str> {
+        let rounded = super::cut_stations::rounded_difference_mm(meters, 0.0).ok_or(field)?;
+        let error = meters.mul_add(1000.0, -(rounded as f64)).abs();
+        self.max_error_mm = self.max_error_mm.max(error);
         Ok(rounded)
     }
 
     fn signed(&mut self, v: f64, field: &'static str) -> Result<i32, &'static str> {
-        self.micrometers(v, field)?.try_into().map_err(|_| field)
+        i32::try_from(self.millimeters(v, field)?).map_err(|_| field)
     }
 
     fn positive(&mut self, v: f64, field: &'static str) -> Result<u32, &'static str> {
-        let n: u32 = self.micrometers(v, field)?.try_into().map_err(|_| field)?;
+        let n: u32 = self.millimeters(v, field)?.try_into().map_err(|_| field)?;
         if n == 0 { Err(field) } else { Ok(n) }
     }
 
-    fn error_nm(&self, authored: f64, field: &'static str) -> Result<u32, &'static str> {
+    fn error_mm(&self, authored: f64, field: &'static str) -> Result<u32, &'static str> {
         if !authored.is_finite() || authored < 0.0 {
             return Err(field);
         }
-        let rounded = if self.max_error_um == 0.0 {
+        let rounded = if self.max_error_mm == 0.0 {
             0.0
         } else {
-            (self.max_error_um.next_up() * 1000.0).next_up()
+            self.max_error_mm.next_up()
         };
-        let sum = authored.mul_add(1e9, rounded);
+        let sum = authored.mul_add(1000.0, rounded);
         let upper = if rounded == 0.0 {
-            if authored.mul_add(1e9, -sum) > 0.0 {
+            if authored.mul_add(1000.0, -sum) > 0.0 {
                 sum.next_up()
             } else {
                 sum
@@ -132,7 +114,7 @@ impl Quantizer {
 
 impl BoundaryPayloadInput {
     pub(crate) fn quantize(self) -> Result<QuantizedBoundaryPayload, &'static str> {
-        let mut q = Quantizer { max_error_um: 0.0 };
+        let mut q = Quantizer { max_error_mm: 0.0 };
         Ok(match self {
             Self::CrossingRule { directions, effect } => {
                 if !(1..=3).contains(&directions) {
@@ -171,8 +153,8 @@ impl BoundaryPayloadInput {
                     radius,
                     bottom,
                     top,
-                    error_nm: q
-                        .error_nm(parameter_error_meters, "guardrail.parameterErrorMeters")?,
+                    error_mm: q
+                        .error_mm(parameter_error_meters, "guardrail.parameterErrorMeters")?,
                 }
             }
             Self::Curb {
@@ -185,7 +167,10 @@ impl BoundaryPayloadInput {
                     let right = q.signed(e.right_offset_meters, fields[1])?;
                     let bottom = q.signed(e.bottom_height_meters, fields[2])?;
                     let top = q.signed(e.top_height_meters, fields[3])?;
-                    if left < right || e.left_offset_meters < e.right_offset_meters {
+                    if left < right
+                        || e.left_offset_meters < e.right_offset_meters
+                        || (left == right) != (e.left_offset_meters == e.right_offset_meters)
+                    {
                         return Err(fields[1]);
                     }
                     if top <= bottom {
@@ -215,7 +200,7 @@ impl BoundaryPayloadInput {
                 ];
                 QuantizedBoundaryPayload::Curb {
                     ends,
-                    error_nm: q.error_nm(parameter_error_meters, "curb.parameterErrorMeters")?,
+                    error_mm: q.error_mm(parameter_error_meters, "curb.parameterErrorMeters")?,
                 }
             }
         })
