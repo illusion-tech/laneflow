@@ -80,7 +80,7 @@ revision）不混用单一数字；未知版本值失败关闭。
 `RoadEditingState` 的道路编辑状态摘要、精确总长度与模块数，不内嵌 `LFRE` 字节；
 runtime-only 世界 = `PublishedLfcaReference`；编辑来源绑定形状见
 [`committed-road-editing-state.md`][committed-editing] §6）；上列版本；
-世界身份（快照局部）；`tick` / `time_ms` / 输入命令与已提交事件双游标（切换
+宿主安装时指定的世界身份 `world_id`；`tick` / `time_ms` / 输入命令与已提交事件双游标（切换
 事务的 `worldBinding` 需要双游标基线）；全部每世界可变状态（§3）；
 `WorldConfig` 与 `WorldPolicySelection`。必填 `world_policy` 使用封闭 tag：
 `NotRequired = 1` 且无 policy，或 `Pinned = 2` 且带 policy StableId；0、未知 tag、
@@ -101,10 +101,9 @@ worker 1–16，超出后端能力的请求在完整交通恢复后返回执行�
 `ConflictPassageOccurrence`；两者都保留重复出现。恢复配置必须分别容纳快照路线表
 重建出的 exact 总数，检查点后精确回放还要求与原配置一致。
 
-世界世代是活动进程内失效状态，不是被恢复的逻辑内容：`WorldGeneration` 不进入
-快照；同进程原位恢复必须从活动 world checked 取得下一世代，重新安装的世界从
-初值建立且不得与仍存活的旧 `world_id`/会话并存。恢复实现不得从快照复制旧世代，
-也不得用初值回绕伪装一次原位恢复。
+世界世代用于使活动进程内的会话失效，`WorldGeneration` 不进入快照。原位恢复时，运行时对活动
+世界的当前世代执行受检递增。从快照新建世界时，运行时沿用快照中的 `world_id`，世代从零开始。
+同一宿主进程须先结束该身份的旧世界和旧会话。
 
 禁绑（出现即拒绝）：runtime handle / slot / entity generation、`WorldGeneration`、
 密集序号、共享静态数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /

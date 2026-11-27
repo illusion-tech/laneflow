@@ -78,7 +78,7 @@ summary = "提供运行时、数据、场景与引擎适配的设计索引。"
 - [交通运行时列式批量执行][doc-design-traffic-runtime-columnar-execution] — 已接受；无生效取代。定义列式批量执行、共享输入和稀疏资源控制。
 - [路线冲突出现记录与正式仲裁能力边界][doc-design-traffic-runtime-conflict-occurrence] — 已接受；无生效取代。定义路线冲突出现记录与正式仲裁能力边界。
 - [准入候选名单复用入口 frontier][doc-design-traffic-runtime-contender-frontier] — 已接受；无生效取代。定义准入候选名单复用与失效重建。
-- [TrafficWorld 执行配置、资源与快照边界][doc-design-traffic-runtime-execution-config] — 已接受；无生效取代。定义世界执行配置、资源和快照边界。
+- [TrafficWorld 执行配置、资源与快照边界][doc-design-traffic-runtime-execution-config] — 已接受；无生效取代。定义交通世界的具名安装输入、执行资源与快照边界。
 - [交通运行时整数毫米几何][doc-design-traffic-runtime-integer-geometry] — 已接受；无生效取代。定义整数毫米运动、速度与停止约束。
 - [Traffic Runtime 仿真与管理模块边界][doc-design-traffic-runtime-module-boundary] — 持续维护；无生效取代。定义仿真内核与管理模块的私有依赖边界。
 - [近门车辆的入口 frontier][doc-design-traffic-runtime-near-gate-frontier] — 已接受；无生效取代。定义近门车辆集合、入口更新与休眠。

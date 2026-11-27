@@ -4295,7 +4295,7 @@ LFSD 4 按策略稳定标识、成员种类和原始 key 定位的完整增删�
 | [出行编排层][term-trip-orchestration-layer]                       | trip orchestration layer                 | —                                    |
 | [世界][term-world]                                                | world                                    | —                                    |
 | [世界世代][term-world-generation]                                 | world generation                         | ` WorldGeneration `                  |
-| [世界身份][term-world-identity]                                   | world identity                           | ` world_id `                         |
+| [世界身份][term-world-identity]                                   | world identity                           | ` WorldId `、` world_id `            |
 
 <a id="term-admitted-route-registration-command"></a>
 ### 已准入路线注册命令
@@ -4765,11 +4765,11 @@ Runtime 拥有的活动聚合失效轴；新安装世界从 `0` 开始，每次�
 
 英文辅助名：world identity。
 
-宿主指定的每世界唯一身份，安装时作为 `install` 必填参数进入运行时；切换描述符 `worldBinding` 以它做错误世界守卫。同一宿主进程内不得对多个世界复用；编码与生命周期由宿主拥有，运行时不解释。
+宿主为每个世界指定的唯一 `u64` 值，安装时必填，取值与生命周期由宿主管理。同一宿主进程内不得对不同世界复用。切换描述符用它核对所属世界，从快照新建世界时沿用已保存的值。安装接口的目标 Rust 类型为 `WorldId`（待实施）。
 
-精确标识符：` world_id `（字段）。
+精确标识符：` WorldId `（类型）、` world_id `（字段）。
 
-依据：[修订切换事务][source-design-traffic-runtime-revision-cutover-478]。
+依据：[TrafficWorld 执行配置、资源与快照边界][source-design-traffic-runtime-execution-config-422]、[修订切换事务][source-design-traffic-runtime-revision-cutover-478]、[运行时快照][source-design-traffic-runtime-snapshot-428]。
 
 <a id="domain-spatial"></a>
 ## 空间与几何

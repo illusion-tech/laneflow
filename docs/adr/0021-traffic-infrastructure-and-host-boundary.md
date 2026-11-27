@@ -3,7 +3,7 @@ schema_version = 1
 id = "adr-0021"
 kind = "adr"
 status = "accepted"
-revised_date = "2026-11-25"
+revised_date = "2026-11-27"
 summary = "规定公开组件定位、宿主边界与规模演进原则。"
 scope = "LaneFlow 公开组件定位、宿主应用边界、交通编排、路径规划、 路网修订、存档/回放、过载优雅降级（Graceful Overload Degradation）与中国特色 城市工作负载（Chinese-style City Workload）"
 date = "2026-07-29"
@@ -265,7 +265,7 @@ digest，也不证明发布真实性或迁移权限。Runtime 当前修订来自
 - 工作线程/分区分配（Worker/Partition Assignment）与动态负载状态。
 
 运行时快照（Runtime Snapshot）是独立版本化制品。LFCA origin、已提交来源、
-Runtime / 静态契约版本、世界配置和策略选择、快照局部世界身份、tick/time、
+Runtime / 静态契约版本、世界配置和策略选择、宿主指定的世界身份、tick/time、
 命令/事件游标及每世界可变状态的绑定集，以
 [`traffic-runtime-snapshot.md`][runtime-snapshot] 为准。
 快照不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定。

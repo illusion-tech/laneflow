@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-shared-consumption"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-12"
+revised_date = "2026-11-27"
 summary = "定义运行时对共享静态路网的消费合同。"
 scope = "laneflow-runtime / TrafficWorld 对共享路网修订的消费，以及 SpatialSession 绑定"
 applicability = "#applicability"
@@ -146,7 +146,8 @@ parking lifecycle / `despawn_vehicle`）只在 `step` 之间调用；单条失�
 命令中释放 binding/count/route reference。Adapter 对已绑定车辆必须走 typed
 despawn-and-unbind，不得经 raw `world_mut()` 留下 stale 映射。
 
-语义形状（不承诺最终 Rust 字段名）：
+以下列出当前实现的入口。安装入口的具名参数、受检配置与世界身份类型见
+[具名安装设计][named-world-install]，迁移时以该设计为准。
 
 ```rust
 TrafficWorld::install(
@@ -233,9 +234,10 @@ TrafficWorld::world_binding() -> WorldBinding;
 
 - `WorldConfig` 含每世界容量（包括 #303 的必填 `u64
   route_edge_occurrence_capacity`），以及 `fixed_delta_time_ms`（同一
-  world 运行中不得改变）。步长 `∈ [4, 1000]`，每个 phase
-  `durationMs % dt == 0 && durationMs >= dt`，否则 `install` 失败关闭、不留下
-  world。短相位不得靠 tick 跳过。不接受 LFCA 字节、调用方自报 digest /
+  world 运行中不得改变）。步长范围是 `[4, 1000]` 毫秒，目前由安装校验，
+  具名安装设计将此项前移到配置构造。安装仍须在取得修订后逐相位检查
+  `durationMs % dt == 0 && durationMs >= dt`，失败时不返回世界。
+  短相位不得靠 tick 跳过。不接受 LFCA 字节、调用方自报 digest /
   `NetworkRevisionId`、或裸 component。
 - `ExecutionConfig` 由宿主显式提供，不进入交通配置、快照或摘要；支持 worker 1–16（#705），
   不支持的值在完整交通准备后返回 `ExecutionInit`，不静默降级。恢复的执行错误位于
@@ -461,3 +463,4 @@ Runtime 原生测试必须覆盖下列合同。不用第二套运行时轨迹作
 [parallel-execution]: traffic-runtime-parallel-execution.md
 [columnar-kernel]: traffic-runtime-columnar-execution.md#3-内核和-isa
 [architecture-crates]: ../architecture.md#3-crate-依赖与所有权
+[named-world-install]: traffic-runtime-execution-config.md#named-world-install
