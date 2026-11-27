@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-observation-and-routing-integration"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义交通观测、动态成本与宿主候选路线接入。"
 scope = "宿主按车型静态选路、已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
 applicability = "#applicability"
@@ -194,9 +194,11 @@ session 是调用方持有、Runtime 签发且字段私有、无公共构造器�
 stream 身份、上一成功 delivery sequence / `tick` / `observationStateSequence` 与
 上一行值。它不进入世界确定性状态。
 
-G2 不另设会与共同世代漂移的 stream 计数器：每个活动世界世代只有一个观测 stream，
-字段私有的 `ObservationStreamBinding { world_id: u64, world_generation:
-WorldGeneration }` 就是唯一 stream 身份。`ObservationExportMode::{Full, Delta}` 进入同一
+每个活动世界世代只有一个观测 stream。字段私有的 `ObservationStreamBinding` 以世界
+身份和 `WorldGeneration` 共同标识该 stream。当前 `world_id()` 返回 `u64`，
+按[具名安装设计][named-world-install]迁移后返回 `laneflow_runtime::WorldId`。
+下文摘要原像中的 `worldId:u64-le` 始终编码该身份的小端八字节。
+`ObservationExportMode::{Full, Delta}` 进入同一
 `export_observation` 入口；新 session 首次 delta、旧世代/revision session、delivery
 sequence 耗尽、聚合/资源算术溢出和分配失败全部失败关闭且不推进 session。
 
@@ -779,3 +781,4 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [issue-1532]: https://github.com/illusion-tech/laneflow/issues/1532
 [issue-1540]: https://github.com/illusion-tech/laneflow/issues/1540
 [static-route-steps]: shared-static-network.md#static-route-steps
+[named-world-install]: traffic-runtime-execution-config.md#named-world-install
