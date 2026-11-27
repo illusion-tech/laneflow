@@ -22,17 +22,17 @@ use crate::ledger::{
 };
 use crate::{CompilationUnit, Diagnostic, DiagnosticBundle, SourceLocation};
 
+use super::access::members::RuleClassMemberPlan;
 use super::{
-    AccessCandidate, CanonicalAuthoringLaneSource, CanonicalDeclarationSource,
-    CanonicalLaneEdgeSource, HirAccessRule, HirAccessRuleKey, HirAccessRuleParticipantClass,
-    HirAuthoringLane, HirAuthoringLaneEdge, HirAuthoringLaneKey, HirCanonicalFrame,
-    HirCanonicalFrameKey, HirCanonicalPoint2F32, HirCanonicalPoint3F32, HirConflictPassage,
-    HirConflictZone, HirConflictZoneKey, HirConflictZoneRegion, HirConflictZoneStream,
-    HirCorridorElement, HirDeclaredJunctionEdge, HirFacilityBand, HirFacilityBandGeometry,
-    HirFacilityBandKey, HirGeometrySourceRange, HirImport, HirJunction, HirJunctionInternalEdge,
-    HirJunctionKey, HirJunctionMovement, HirLaneEdge, HirLaneEdgeGeometry, HirLaneEdgeKey,
-    HirLaneEdgeReference, HirLaneGroup, HirLaneGroupKey, HirLaneGroupMember, HirManeuverGate,
-    HirManeuverGateKey, HirManeuverPath, HirManeuverPathEdge, HirManeuverPathGate,
+    CanonicalAuthoringLaneSource, CanonicalDeclarationSource, CanonicalLaneEdgeSource,
+    HirAccessRule, HirAccessRuleKey, HirAuthoringLane, HirAuthoringLaneEdge, HirAuthoringLaneKey,
+    HirCanonicalFrame, HirCanonicalFrameKey, HirCanonicalPoint2F32, HirCanonicalPoint3F32,
+    HirConflictPassage, HirConflictZone, HirConflictZoneKey, HirConflictZoneRegion,
+    HirConflictZoneStream, HirCorridorElement, HirDeclaredJunctionEdge, HirFacilityBand,
+    HirFacilityBandGeometry, HirFacilityBandKey, HirGeometrySourceRange, HirImport, HirJunction,
+    HirJunctionInternalEdge, HirJunctionKey, HirJunctionMovement, HirLaneEdge, HirLaneEdgeGeometry,
+    HirLaneEdgeKey, HirLaneEdgeReference, HirLaneGroup, HirLaneGroupKey, HirLaneGroupMember,
+    HirManeuverGate, HirManeuverGateKey, HirManeuverPath, HirManeuverPathEdge, HirManeuverPathGate,
     HirManeuverPathKey, HirManeuverPathWaitingZone, HirModule, HirModuleKey, HirMovement,
     HirMovementKey, HirMovementManeuverPath, HirParkingFacility, HirParkingFacilityKey,
     HirParkingFacilitySpace, HirParkingLaneAnchor, HirParkingSpace, HirParkingSpaceKey,
@@ -747,10 +747,7 @@ fn access_budget(
             .array::<(HirParticipantClassKey, bool)>(cap(counts
                 .participant_classes
                 .saturating_mul(2)))
-            .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references))
-            // 去重前按原始引用数写入的成员暂存；复制为输出表后释放。
-            .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references))
-            .array::<AccessCandidate>(cap(counts.rule_class_references))
+            .plus(counts.rule_members.scratch())
             .array::<usize>(cap(unit.declaration_count))
             // 准入目标解析的五类目标符号表只在本领域存续。
             .plus(symbol_table_heads::<HirLaneEdgeKey>(module_count))
@@ -773,7 +770,7 @@ fn access_budget(
             .array::<HirParticipantClass>(cap(counts.participant_classes))
             .array::<HirVehicleProfile>(cap(counts.vehicle_profiles))
             .array::<HirAccessRule>(cap(counts.access_rules))
-            .array::<HirAccessRuleParticipantClass>(cap(counts.rule_class_references)),
+            .plus(counts.rule_members.output()),
         lookup_bytes: Plan::ZERO
             .plus(symbol_table_heads::<HirParticipantClassKey>(
                 lookup_module_count,
@@ -917,7 +914,7 @@ pub(super) struct AccessCounts {
     pub(super) participant_classes: u64,
     pub(super) vehicle_profiles: u64,
     pub(super) access_rules: u64,
-    pub(super) rule_class_references: u64,
+    pub(super) rule_members: RuleClassMemberPlan,
 }
 
 impl AccessCounts {
@@ -1176,9 +1173,9 @@ pub(super) fn access_counts(unit: &CompilationUnit) -> AccessCounts {
             }
             TypedAstDeclaration::AccessRule(rule) => {
                 counts.access_rules = counts.access_rules.saturating_add(1);
-                counts.rule_class_references = counts.rule_class_references.saturating_add(
-                    u64::try_from(rule.participant_classes.len()).unwrap_or(u64::MAX),
-                );
+                counts
+                    .rule_members
+                    .record_rule(rule.participant_classes.len());
             }
             _ => {}
         }

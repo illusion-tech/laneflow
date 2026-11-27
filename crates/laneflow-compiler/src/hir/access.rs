@@ -1,5 +1,7 @@
 //! 准入领域 HIR：参与者类别、车辆配置与准入规则的记录、构建与验证。
 
+pub(super) mod members;
+
 use crate::ledger::{BoundedHashMap, BoundedVec, PassBudget};
 use std::sync::Arc;
 
@@ -106,7 +108,7 @@ pub(crate) struct AccessHir {
 
 /// 准入组合歧义验证用的单条（目标，参与者类别）候选记录。
 #[derive(Clone, Copy)]
-pub(crate) struct AccessCandidate {
+struct AccessCandidate {
     plane: AccessPlane,
     target_kind: EntityKind,
     target_index: u32,
@@ -645,10 +647,7 @@ pub(crate) fn build_access_hir(
         }
     }
 
-    // 类别引用允许重复，按集合语义去重后才知道规范成员数；先写入按原始引用数授予的
-    // 暂存，结束后按实际成员数复制为输出表，暂存随即释放。
-    let mut resolved_rule_classes =
-        pass.vec(count_to_usize(counts.rule_class_references, &unit.limits)?)?;
+    let mut rule_members = counts.rule_members.stage(pass)?;
     let mut first_regulation: Option<FirstAccessRegulation> = None;
     for location in &rule_sources {
         let module_index = usize::try_from(location.source_module_index)
@@ -684,8 +683,8 @@ pub(crate) fn build_access_hir(
             diagnostic.set_canonical_module_order(location.source_module_index);
             diagnostics.push(diagnostic);
         }
-        let start = resolved_rule_classes.len();
-        let mut resolved_classes = pass.vec(source.participant_classes.len())?;
+        let mut resolved_classes =
+            pass.vec::<members::ResolvedRuleClass>(source.participant_classes.len())?;
         for reference in &source.participant_classes {
             if let Some(participant_class) = resolve_reference(
                 module_lookup,
@@ -699,19 +698,11 @@ pub(crate) fn build_access_hir(
                 resolved_classes.push((participant_class, reference.span.clone()))?;
             }
         }
-        resolved_classes.sort_unstable_by_key(|(participant_class, _)| *participant_class);
-        resolved_classes.dedup_by_key(|(participant_class, _)| *participant_class);
-        resolved_rule_classes.try_extend(resolved_classes.iter().map(
-            |(participant_class, source_span)| HirAccessRuleParticipantClass {
-                participant_class: *participant_class,
-                source_span: source_span.clone(),
-            },
-        ))?;
-        rules.get_mut(location.hir_key).participant_classes =
-            TableRange::try_from_usize(start, resolved_rule_classes.len().saturating_sub(start))
-                .map_err(|overflow| {
-                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
-                })?;
+        rules.get_mut(location.hir_key).participant_classes = rule_members
+            .append_rule(resolved_classes)
+            .map_err(|error| {
+                arena_overflow(error, &unit.limits, Some(source.header.span.clone()))
+            })?;
 
         if let Some(regulation) = &source.regulation {
             let valid = validate_access_regulation(
@@ -754,15 +745,12 @@ pub(crate) fn build_access_hir(
             }
         }
     }
-    let rule_classes = pass.collect(resolved_rule_classes.drain())?;
-    drop(resolved_rule_classes);
+    let rule_classes = rule_members.freeze(pass)?;
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
 
     validate_access_ambiguity(
-        unit,
-        counts,
         lane_edges,
         cross_section,
         maneuver_paths,
@@ -780,7 +768,7 @@ pub(crate) fn build_access_hir(
         participant_classes: classes.freeze()?,
         vehicle_profiles: profiles.freeze()?,
         access_rules: rules.freeze()?,
-        access_rule_participant_classes: rule_classes.freeze()?,
+        access_rule_participant_classes: rule_classes,
     })
 }
 
@@ -918,8 +906,6 @@ fn validate_access_regulation(
 
 #[allow(clippy::too_many_arguments)]
 fn validate_access_ambiguity(
-    unit: &CompilationUnit,
-    counts: &AccessCounts,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     cross_section: &CrossSectionHir,
     maneuver_paths: &[HirManeuverPath],
@@ -929,7 +915,7 @@ fn validate_access_ambiguity(
     diagnostics: &mut DiagnosticCollector,
     pass: &PassBudget<'_>,
 ) -> Result<(), DiagnosticBundle> {
-    let mut candidates = pass.vec(count_to_usize(counts.rule_class_references, &unit.limits)?)?;
+    let mut candidates = pass.vec(rule_classes.len())?;
     for (rule_key, rule) in rules.iter() {
         let (plane, target_kind, target_index) = match rule.target {
             HirAccessTarget::LaneEdge(target) => {
