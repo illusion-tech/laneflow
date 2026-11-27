@@ -490,7 +490,7 @@ fn reject_trial(
                 &variant.root,
                 variant.binding,
                 Some(WorldBinding::new(
-                    binding.world_id() + 1,
+                    laneflow_runtime::WorldId::new(binding.world_id().get().wrapping_add(1)),
                     binding.world_generation(),
                     binding.baseline_command_cursor(),
                     binding.baseline_event_cursor(),

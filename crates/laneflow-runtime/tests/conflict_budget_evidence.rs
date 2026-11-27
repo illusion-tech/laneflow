@@ -17,7 +17,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 #[cfg(feature = "placement-fixtures")]
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 #[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::{ParticipantStreamOrdinal, VehicleProfileOrdinal};
@@ -56,11 +56,18 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
     )
     .expect("revision");
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(4, 4, 64, 2, DELTA_MS),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://conflict-budget",
                 origin.canonical_artifact_digest(),
@@ -69,9 +76,9 @@ fn conflict_steady_tick_has_zero_heap_allocation_after_warmup() {
             )
             .expect("source"),
         },
-        569,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(569),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("world");
 
     let routes = [0_u32, 1].map(|raw| {
@@ -206,11 +213,18 @@ fn resource_free_gate_allocation_evidence() {
     )
     .unwrap();
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(2, 2, 64, 2, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://gate-evaluation-budget",
                 origin.canonical_artifact_digest(),
@@ -219,9 +233,9 @@ fn resource_free_gate_allocation_evidence() {
             )
             .unwrap(),
         },
-        570,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(570),
+        policy_selection: test_policy::selection(&revision),
+    })
     .unwrap();
     let edges = revision
         .traffic()

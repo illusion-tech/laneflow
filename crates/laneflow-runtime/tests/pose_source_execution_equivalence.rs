@@ -15,7 +15,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PoseSource, PublishedLfcaReference, ReserveParkingTarget,
     RouteRegisterInput, StepError, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
-    deterministic_state_digest,
+    WorldConfigInput, WorldId, WorldInstallInput, deterministic_state_digest,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -46,13 +46,20 @@ fn revision(bytes: &[u8]) -> Arc<SharedNetworkRevision> {
 
 fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u64) -> TrafficWorld {
     let origin = revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(revision),
-        WorldConfig::new(32, 8, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 32,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(
             NonZeroU32::new(workers).expect("nonzero worker count"),
         ),
-        CommittedNetworkSource::Published {
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://pose-source-execution-equivalence",
                 origin.canonical_artifact_digest(),
@@ -61,9 +68,9 @@ fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u64) -
             )
             .expect("fixture key"),
         },
-        world_id,
-        test_policy::selection(revision),
-    )
+        world_id: WorldId::new(world_id),
+        policy_selection: test_policy::selection(revision),
+    })
     .expect("install")
 }
 

@@ -10,7 +10,8 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingTarget,
     PublishedLfcaReference, RouteHandle, RouteRegisterInput, TrafficWorld, VehicleHandle,
-    VehicleSpawnInput, VirtualExitAnchorSelector, WorldConfig, WorldPolicySelection,
+    VehicleSpawnInput, VirtualExitAnchorSelector, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, ParkingFacilityOrdinal, VehicleProfileOrdinal,
@@ -141,14 +142,14 @@ fn install_fixture(
         .all(|kind| revision.traffic().entity_counts().count(*kind) == 0),
         "parking command fixture must remain policy-free"
     );
-    laneflow_runtime::TrafficWorld::install(
-        Arc::clone(&revision),
+    laneflow_runtime::TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        published_source(&revision, "fixture://in-process"),
-        0,
-        WorldPolicySelection::NotRequired,
-    )
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: published_source(&revision, "fixture://in-process"),
+        world_id: WorldId::new(0),
+        policy_selection: WorldPolicySelection::NotRequired,
+    })
 }
 
 fn published_source(revision: &SharedNetworkRevision, key: &str) -> CommittedNetworkSource {
@@ -287,7 +288,14 @@ pub fn fixture_with_capacity(
     assert!(case.active >= EXITS && case.parked >= EXITS && case.commands <= EXITS);
     let mut world = install_fixture(
         Arc::clone(revision),
-        WorldConfig::new(vehicle_capacity, 65, 65, 1, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity,
+            route_capacity: 65,
+            route_edge_occurrence_capacity: 65,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .unwrap();
     let facility = ParkingFacilityOrdinal::from_raw(0);

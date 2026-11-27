@@ -2408,11 +2408,11 @@ pub(crate) mod tests {
         config: crate::WorldConfig,
     ) -> Result<crate::TrafficWorld, crate::InstallError> {
         let origin = *revision.canonical_origin();
-        crate::TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
+        crate::TrafficWorld::install(crate::WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
             config,
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::CommittedNetworkSource::Published {
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://in-process",
                     origin.canonical_artifact_digest(),
@@ -2421,9 +2421,9 @@ pub(crate) mod tests {
                 )
                 .expect("non-empty fixture key"),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
     }
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
@@ -2661,8 +2661,18 @@ pub(crate) mod tests {
                 })
                 .unwrap();
         });
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 16)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 16,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let left = edge_for_length(&world, 10_000);
         let right = edge_for_length(&world, 11_000);
         let shared = edge_for_length(&world, 12_000);
@@ -3290,8 +3300,18 @@ pub(crate) mod tests {
             ),
         )
         .unwrap();
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let route = register_full_spatial_route(&mut world);
         let profile = world
             .state
@@ -3336,8 +3356,18 @@ pub(crate) mod tests {
     fn empty_and_solo_vehicle_have_no_leader() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         world
             .state
             .rebuild_occupancy_index()
@@ -3365,8 +3395,18 @@ pub(crate) mod tests {
     fn vehicle_behind_on_current_edge_is_not_leader() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
@@ -3410,8 +3450,18 @@ pub(crate) mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let tail = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
@@ -3468,8 +3518,18 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("route");
@@ -3524,8 +3584,18 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 3, 3, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 3,
+                route_conflict_occurrence_capacity: 3,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
 
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
@@ -3577,8 +3647,18 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 3, 3, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 3,
+                route_conflict_occurrence_capacity: 3,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
 
         for successful_reservations in [0, 5] {
             let result = with_route_allocation_failure_after(successful_reservations, || {
@@ -3603,9 +3683,18 @@ pub(crate) mod tests {
     fn route_registration_preflight_has_stable_error_priority() {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
-        let mut no_route_slots =
-            install_fixture(Arc::clone(&revision), WorldConfig::new(8, 0, 0, 0, 100))
-                .expect("install");
+        let mut no_route_slots = install_fixture(
+            Arc::clone(&revision),
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 0,
+                route_edge_occurrence_capacity: 0,
+                route_conflict_occurrence_capacity: 0,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
 
         assert_eq!(
             no_route_slots
@@ -3620,8 +3709,18 @@ pub(crate) mod tests {
             RouteError::CapacityExceeded
         );
 
-        let mut no_occurrences =
-            install_fixture(revision, WorldConfig::new(8, 1, 0, 0, 100)).expect("install");
+        let mut no_occurrences = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 1,
+                route_edge_occurrence_capacity: 0,
+                route_conflict_occurrence_capacity: 0,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         assert_eq!(
             no_occurrences
                 .register_route(RouteRegisterInput::new(vec![a]))
@@ -3640,7 +3739,14 @@ pub(crate) mod tests {
 
         let mut overflow = install_fixture(
             loop_revision(),
-            WorldConfig::new(8, 1, u64::MAX, u64::MAX, 100),
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 1,
+                route_edge_occurrence_capacity: u64::MAX,
+                route_conflict_occurrence_capacity: u64::MAX,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
         )
         .expect("install");
         overflow.state.committed.live_route_edge_occurrence_count = u64::MAX;
@@ -3669,8 +3775,18 @@ pub(crate) mod tests {
             ),
         )
         .unwrap();
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let route = register_full_spatial_route(&mut world);
         world.state.committed.routes[route.index() as usize]
             .compiled
@@ -3715,8 +3831,18 @@ pub(crate) mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let tail = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
@@ -3795,8 +3921,18 @@ pub(crate) mod tests {
         let branches = traffic.successors(stem).expect("branches");
         let left = branches[0];
         let right = branches[1];
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let leader_route = world
             .register_route(RouteRegisterInput::new(vec![stem, left]))
             .expect("left route");
@@ -3901,8 +4037,18 @@ pub(crate) mod tests {
         });
         let edge = LaneEdgeOrdinal::from_raw(0);
         let n = 32_u32;
-        let mut world =
-            install_fixture(revision, WorldConfig::new(n, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: n,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
@@ -3959,8 +4105,18 @@ pub(crate) mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let lengths = world.traffic().lane_lengths_millimetres();
         let pred = world
             .traffic()
@@ -4049,8 +4205,18 @@ pub(crate) mod tests {
             };
             current = next;
         }
-        let mut world = install_fixture(revision, WorldConfig::new(1, 4, 1_024, 1_024, 1_000))
-            .expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 1,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 1_000,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(edges))
             .expect("route");
@@ -4104,8 +4270,18 @@ pub(crate) mod tests {
     fn large_vehicle_capacity_does_not_reserve_envelope() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world = install_fixture(revision, WorldConfig::new(10_000, 4, 1_024, 1_024, 100))
-            .expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 10_000,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
@@ -4559,8 +4735,18 @@ pub(crate) mod tests {
     #[test]
     fn formula_horizon_hides_leader_beyond_and_matches_filtered_scan() {
         let revision = long_corridor_revision(400.0);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let edge = LaneEdgeOrdinal::from_raw(0);
         let route = world
             .register_route(RouteRegisterInput::new(vec![edge]))
@@ -4617,7 +4803,14 @@ pub(crate) mod tests {
             .saturating_add(1);
         let mut phantom_world = install_fixture(
             long_corridor_revision(400.0),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
         )
         .expect("install");
         let phantom_route = phantom_world
@@ -4660,7 +4853,14 @@ pub(crate) mod tests {
             .saturating_add(profile.length_mm());
         let mut near_world = install_fixture(
             long_corridor_revision(400.0),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
         )
         .expect("install");
         let near_route = near_world
@@ -4800,8 +5000,18 @@ pub(crate) mod tests {
     fn corrupt_route_index_fails_closed_occupancy_rebuild() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");

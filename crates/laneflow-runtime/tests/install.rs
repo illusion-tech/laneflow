@@ -6,44 +6,51 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
-    ExecutionConfig, ExecutionInitError, InstallError, RouteError, RouteRegisterInput, StepError,
-    TickInput, TrafficWorld, WorldConfig,
+    CommittedNetworkSource, CutoverError, ExecutionConfig, ExecutionInitError, InstallError,
+    PublishedLfcaReference, RouteError, RouteRegisterInput, SnapshotRestoreLimits, StepError,
+    TickInput, TrafficWorld, WorldConfig, WorldConfigError, WorldConfigInput, WorldGeneration,
+    WorldId, WorldInstallInput, encode_lfrs, restore_lfrs,
 };
-use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
+use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal, NetworkRevisionId, Sha256Digest};
 use laneflow_static_network::{
-    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
 
 fn install_fixture(
-    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
-    config: laneflow_runtime::WorldConfig,
-) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
-    install_fixture_with_execution(revision, config, ExecutionConfig::new(NonZeroU32::MIN))
+    revision: Arc<SharedNetworkRevision>,
+    config: WorldConfig,
+) -> Result<TrafficWorld, InstallError> {
+    TrafficWorld::install(install_input(
+        revision,
+        config,
+        ExecutionConfig::new(NonZeroU32::MIN),
+    ))
 }
 
-fn install_fixture_with_execution(
-    revision: Arc<laneflow_static_network::SharedNetworkRevision>,
+fn install_input(
+    revision: Arc<SharedNetworkRevision>,
     config: WorldConfig,
     execution: ExecutionConfig,
-) -> Result<TrafficWorld, InstallError> {
+) -> WorldInstallInput {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
+    let policy_selection = test_policy::selection(&revision);
+    WorldInstallInput {
+        revision,
         config,
         execution,
-        laneflow_runtime::CommittedNetworkSource::Published {
-            reference: laneflow_runtime::PublishedLfcaReference::new(
+        source: CommittedNetworkSource::Published {
+            reference: PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
                 origin.canonical_artifact_byte_length(),
                 origin.network_revision(),
             )
-            .expect("non-empty fixture key"),
+            .unwrap(),
         },
-        0,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(0),
+        policy_selection,
+    }
 }
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
@@ -63,18 +70,47 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     .expect("shared network revision")
 }
 
+const fn config_input(fixed_delta_time_ms: u64) -> WorldConfigInput {
+    WorldConfigInput {
+        vehicle_capacity: 8,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 512,
+        route_conflict_occurrence_capacity: 1_024,
+        fixed_delta_time_ms,
+    }
+}
+
 fn config(delta_ms: u64) -> WorldConfig {
-    WorldConfig::new(8, 4, 1_024, 1_024, delta_ms)
+    WorldConfig::try_new(config_input(delta_ms)).expect("valid traffic configuration")
 }
 
 #[test]
-fn install_full_spatial_retains_single_arc() {
+fn named_install_preserves_distinct_fields_and_revision() {
+    const CHECKED: Result<WorldConfig, WorldConfigError> = WorldConfig::try_new(config_input(100));
     let revision = revision();
-    let world = install_fixture(Arc::clone(&revision), config(100)).expect("install");
+    let input = install_input(
+        Arc::clone(&revision),
+        CHECKED.unwrap(),
+        ExecutionConfig::new(NonZeroU32::MIN),
+    );
+    let summary = format!("{input:?}");
+    assert!(summary.contains(&format!("{:?}", revision.network_revision())));
+    assert!(summary.contains("Published"));
+    assert!(!summary.contains("fixture://in-process"));
+    let world = TrafficWorld::install(input).expect("install");
+    let result = world.config();
+    let actual = WorldConfigInput {
+        vehicle_capacity: result.vehicle_capacity(),
+        route_capacity: result.route_capacity(),
+        route_edge_occurrence_capacity: result.route_edge_occurrence_capacity(),
+        route_conflict_occurrence_capacity: result.route_conflict_occurrence_capacity(),
+        fixed_delta_time_ms: result.fixed_delta_time_ms(),
+    };
+    assert_eq!(WorldConfig::try_new(actual), Ok(result));
+    assert_eq!(actual, config_input(100));
     assert!(Arc::ptr_eq(&world.revision(), &revision));
     assert_eq!(world.tick_index(), 0);
     assert_eq!(world.time_ms(), 0);
-    assert_eq!(world.config().route_edge_occurrence_capacity(), 1_024);
     assert!(
         !world.committed_signal_groups().as_slice().is_empty()
             || revision
@@ -87,44 +123,71 @@ fn install_full_spatial_retains_single_arc() {
         world
             .committed_pose_sources()
             .collect::<Vec<_>>()
-            .as_slice()
             .is_empty()
     );
 }
 
 #[test]
-fn install_rejects_delta_out_of_range() {
+fn config_rejects_invalid_step_before_install() {
+    for dt in [0, 3, 1_001] {
+        match WorldConfig::try_new(config_input(dt)).expect_err("invalid step") {
+            WorldConfigError::DeltaOutOfRange { actual, min, max } => {
+                assert_eq!((actual, min, max), (dt, 4, 1_000))
+            }
+            other => panic!("unexpected configuration error {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn zero_capacity_world_preserves_full_width_identity_on_restore() {
     let revision = revision();
-    assert_eq!(
-        install_fixture(Arc::clone(&revision), config(0))
-            .map(|_| ())
-            .unwrap_err(),
-        InstallError::DeltaOutOfRange {
-            actual: 0,
-            min: 4,
-            max: 1_000,
-        }
-    );
-    assert_eq!(
-        install_fixture(Arc::clone(&revision), config(3))
-            .map(|_| ())
-            .unwrap_err(),
-        InstallError::DeltaOutOfRange {
-            actual: 3,
-            min: 4,
-            max: 1_000,
-        }
-    );
-    assert_eq!(
-        install_fixture(Arc::clone(&revision), config(1_001))
-            .map(|_| ())
-            .unwrap_err(),
-        InstallError::DeltaOutOfRange {
-            actual: 1_001,
-            min: 4,
-            max: 1_000,
-        }
-    );
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 0,
+        route_capacity: 0,
+        route_edge_occurrence_capacity: 0,
+        route_conflict_occurrence_capacity: 0,
+        fixed_delta_time_ms: 100,
+    })
+    .unwrap();
+    let execution = ExecutionConfig::new(NonZeroU32::MIN);
+    for raw in [0, u64::MAX] {
+        let id = WorldId::new(raw);
+        let world = TrafficWorld::install(WorldInstallInput {
+            world_id: id,
+            ..install_input(Arc::clone(&revision), config, execution)
+        })
+        .unwrap();
+        let source = world.committed_source().clone();
+        let snapshot = world.capture_snapshot().unwrap();
+        assert_eq!(world.world_binding().world_id(), id);
+        assert_eq!(snapshot.world_id(), id);
+        let bytes = encode_lfrs(&snapshot);
+        drop(world);
+        let restored = restore_lfrs(
+            &bytes,
+            Arc::clone(&revision),
+            source,
+            config,
+            execution,
+            SnapshotRestoreLimits::new(16 * 1024 * 1024, 4096),
+        )
+        .unwrap();
+        assert_eq!(restored.world().world_id().get(), raw);
+        assert_eq!(
+            restored.world().world_generation(),
+            WorldGeneration::INITIAL
+        );
+        assert_eq!(
+            encode_lfrs(&restored.world().capture_snapshot().unwrap()),
+            bytes
+        );
+        let error = CutoverError::TransactionWorldMismatch { expected_world: id };
+        assert_eq!(
+            error.to_string(),
+            format!("切换事务与传入世界不匹配（事务属世界 {raw}）")
+        );
+    }
 }
 
 #[test]
@@ -133,8 +196,9 @@ fn execution_config_accepts_workers_one_through_sixteen_and_rejects_higher() {
     let revision = revision();
     for workers in [1, 2, 16] {
         let execution = ExecutionConfig::new(NonZeroU32::new(workers).unwrap());
-        let world = install_fixture_with_execution(Arc::clone(&revision), config(100), execution)
-            .expect("supported worker count installs");
+        let world =
+            TrafficWorld::install(install_input(Arc::clone(&revision), config(100), execution))
+                .expect("supported worker count installs");
         assert_eq!(world.execution_config(), execution);
         assert_eq!(
             world.execution_config().worker_count(),
@@ -144,7 +208,7 @@ fn execution_config_accepts_workers_one_through_sixteen_and_rejects_higher() {
     for requested in [17, u32::MAX] {
         let execution = ExecutionConfig::new(NonZeroU32::new(requested).unwrap());
         assert_eq!(
-            install_fixture_with_execution(Arc::clone(&revision), config(100), execution)
+            TrafficWorld::install(install_input(Arc::clone(&revision), config(100), execution))
                 .map(|_| ())
                 .unwrap_err(),
             InstallError::ExecutionInit(ExecutionInitError::UnsupportedWorkerCount {
@@ -156,27 +220,40 @@ fn execution_config_accepts_workers_one_through_sixteen_and_rejects_higher() {
 }
 
 #[test]
-fn traffic_install_errors_precede_unsupported_execution() {
+fn source_mismatch_precedes_signal_error_and_unsupported_execution() {
     let revision = revision();
+    let installed_revision = revision.network_revision();
+    let source_revision = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([1; 32]));
+    assert_ne!(source_revision, installed_revision);
     let execution = ExecutionConfig::new(NonZeroU32::new(17).unwrap());
-    for (dt, expected) in [
-        (
-            0,
-            InstallError::DeltaOutOfRange {
-                actual: 0,
-                min: 4,
-                max: 1_000,
-            },
-        ),
-        (16, InstallError::PhaseNotMultipleOfTick),
-    ] {
-        assert_eq!(
-            install_fixture_with_execution(Arc::clone(&revision), config(dt), execution)
-                .map(|_| ())
-                .unwrap_err(),
-            expected
-        );
-    }
+    let input = install_input(Arc::clone(&revision), config(16), execution);
+    let origin = revision.canonical_origin();
+    let mismatched = CommittedNetworkSource::Published {
+        reference: PublishedLfcaReference::new(
+            "fixture://wrong-revision",
+            origin.canonical_artifact_digest(),
+            origin.canonical_artifact_byte_length(),
+            source_revision,
+        )
+        .unwrap(),
+    };
+    assert_eq!(
+        TrafficWorld::install(WorldInstallInput {
+            source: mismatched,
+            ..input
+        })
+        .err(),
+        Some(InstallError::SourceRevisionMismatch {
+            source_revision,
+            installed_revision
+        })
+    );
+    assert_eq!(
+        TrafficWorld::install(install_input(Arc::clone(&revision), config(16), execution)).err(),
+        Some(InstallError::PhaseNotMultipleOfTick)
+    );
+    assert_eq!(Arc::strong_count(&revision), 1);
+    install_fixture(revision, config(100)).expect("retry with valid inputs");
 }
 
 #[test]

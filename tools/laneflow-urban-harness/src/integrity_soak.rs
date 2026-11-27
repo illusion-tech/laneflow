@@ -236,7 +236,7 @@ fn sample(harness: &Harness<'_>, ordinal: u32) -> Result<Sample> {
         ordinal,
         command_cursor: harness.world().command_cursor(),
         tick: harness.world().tick_index(),
-        world_id: harness.world().world_id(),
+        world_id: harness.world().world_id().get(),
         digest: *digest.as_bytes(),
         caller_digest: harness.caller_digest()?,
     })
@@ -626,7 +626,7 @@ fn run_in_created_directory(
         "wall_seconds": clock.wall().as_secs_f64(), "complete_match_batches": batches,
         "covered_ticks": covered_ticks, "final_tick": harness.world().tick_index(),
         "initial_tick": initial_tick,
-        "world_id": harness.world().world_id(), "resident_pid": std::process::id(),
+        "world_id": harness.world().world_id().get(), "resident_pid": std::process::id(),
         "initial_attestation": initial_attestation, "runtime_workers": 1,
         // `paced` 记录真实节拍是否执行；虚拟时钟下不睡眠（#1108），由 `clock` 区分。
         "paced": config.paced && !config.virtual_clock,

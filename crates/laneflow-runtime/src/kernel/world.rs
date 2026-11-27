@@ -80,6 +80,49 @@ pub(crate) fn take_command_occupancy_yields() -> u64 {
     COMMAND_OCCUPANCY_YIELDS.replace(0)
 }
 
+/// 宿主指定的世界身份。同一宿主进程内一个身份只属于一个逻辑世界，快照恢复沿用该值。
+///
+/// 安装输入要求显式的身份，整数通过 [`Self::new`] 构造。
+///
+/// ```compile_fail,E0308
+/// use laneflow_runtime::WorldInstallInput;
+/// fn retag(mut input: WorldInstallInput) { input.world_id = 42_u64; }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use laneflow_runtime::WorldId;
+/// let id: WorldId = 42_u64.into();
+/// ```
+///
+/// 世界世代由 Runtime 签发，不能用作宿主世界身份。
+///
+/// ```compile_fail,E0308
+/// use laneflow_runtime::{WorldGeneration, WorldInstallInput};
+/// fn retag(mut input: WorldInstallInput) { input.world_id = WorldGeneration::INITIAL; }
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct WorldId(u64);
+
+impl WorldId {
+    /// 从宿主分配的值构造身份，接受完整的 `u64` 值域。
+    #[must_use]
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// 取得宿主值，供存储、编码或外部接口使用。
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for WorldId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 /// 活动世界世代。安装时从 [`Self::INITIAL`] 开始，每次成功换绑活动聚合时递增。
 ///
 /// 字段保持私有：调用方应从 [`TrafficWorld::world_generation`] 取得当前值，
@@ -229,7 +272,7 @@ impl crate::kernel::state::WorldState {
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
         source: CommittedNetworkSource,
-        world_id: u64,
+        world_id: WorldId,
         policy_selection: crate::WorldPolicySelection,
     ) -> Result<Self, InstallError> {
         let installed = revision.canonical_origin().network_revision();
@@ -243,14 +286,7 @@ impl crate::kernel::state::WorldState {
             return Err(InstallError::EditableDiffBaseMismatch);
         }
         let dt = config.fixed_delta_time_ms();
-        if !(4..=1_000).contains(&dt) {
-            return Err(InstallError::DeltaOutOfRange {
-                actual: dt,
-                min: 4,
-                max: 1_000,
-            });
-        }
-        validate_signal_programs(revision.as_ref(), config.fixed_delta_time_ms())?;
+        validate_signal_programs(revision.as_ref(), dt)?;
         let policy_binding =
             crate::kernel::policy::WorldPolicyBinding::install(&revision, policy_selection, dt)?;
         let group_count = usize::try_from(
@@ -456,7 +492,7 @@ impl crate::kernel::state::WorldState {
 
     /// 宿主指定的世界身份（切换描述符 `worldBinding` 的比对对象）。
     #[must_use]
-    pub const fn world_id(&self) -> u64 {
+    pub const fn world_id(&self) -> WorldId {
         self.binding.world_id
     }
 
@@ -2249,7 +2285,7 @@ impl TrafficWorld {
     ///
     /// 来源修订号与共享路网修订 origin 不一致、编辑来源差异基线不对应
     /// （[`InstallError::EditableDiffBaseMismatch`]）、
-    /// `fixed_delta_time_ms` 落在 `4..=1_000` 之外或信号程序与步长不兼容、共享静态路网
+    /// 信号程序与受检步长不兼容、共享静态路网
     /// 需要显式路权策略而未固定/策略未知/策略派生溢出或分配失败（
     /// `PolicyRequired` / `UnknownPolicy` / `PolicyGapOverflow` /
     /// `PolicyCapacityOverflow` / `PolicyAllocationFailed`），或冲突仲裁器容量、
@@ -2257,22 +2293,15 @@ impl TrafficWorld {
     /// 半个 world。交通准备完成后，执行配置超出当前后端能力返回
     /// [`InstallError::ExecutionInit`]，不静默降级；必需计划准备失败返回
     /// [`InstallError::ExecutionPlan`]。执行资源只在计划完成后创建。
-    pub fn install(
-        revision: Arc<SharedNetworkRevision>,
-        config: WorldConfig,
-        execution: crate::ExecutionConfig,
-        source: CommittedNetworkSource,
-        world_id: u64,
-        policy_selection: crate::WorldPolicySelection,
-    ) -> Result<Self, InstallError> {
+    pub fn install(input: crate::WorldInstallInput) -> Result<Self, InstallError> {
         let state = crate::kernel::state::WorldState::prepare_traffic_state(
-            revision,
-            config,
-            source,
-            world_id,
-            policy_selection,
+            input.revision,
+            input.config,
+            input.source,
+            input.world_id,
+            input.policy_selection,
         )?;
-        let execution = crate::kernel::execution::WorldExecution::prepare(execution, &state)
+        let execution = crate::kernel::execution::WorldExecution::prepare(input.execution, &state)
             .map_err(|error| match error {
                 crate::kernel::execution::ExecutionPreparationError::Init(error) => {
                     InstallError::ExecutionInit(error)
@@ -2301,7 +2330,7 @@ impl TrafficWorld {
     ///
     /// 世界因执行 panic 失效后调用会 panic；宿主必须销毁并重新构建世界。
     #[must_use]
-    pub const fn world_id(&self) -> u64 {
+    pub const fn world_id(&self) -> WorldId {
         self.execution.assert_usable();
         self.state.world_id()
     }
@@ -3524,11 +3553,18 @@ mod overflow_tests {
         )
         .expect("shared network revision");
         let origin = *revision.canonical_origin();
-        TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        TrafficWorld::install(crate::WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://overflow-tests",
                     origin.canonical_artifact_digest(),
@@ -3537,9 +3573,9 @@ mod overflow_tests {
                 )
                 .expect("non-empty fixture key"),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install")
     }
 
@@ -3664,11 +3700,18 @@ mod route_gate_tests {
         )
         .expect("shared network revision");
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://route-gate-tests",
                     origin.canonical_artifact_digest(),
@@ -3677,9 +3720,9 @@ mod route_gate_tests {
                 )
                 .expect("non-empty fixture key"),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install");
         let edges = world
             .traffic()
@@ -3850,14 +3893,21 @@ mod source_tests {
         let origin = *revision.canonical_origin();
         // digest / length 与修订 origin 不同（重发布语义），同修订判据只比对修订标识。
         let reference = reference_for(origin.network_revision());
-        let world = TrafficWorld::install(
-            revision.clone(),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published { reference },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+        let world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: revision.clone(),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published { reference },
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("source matches installed revision");
         assert_eq!(world.world_generation(), WorldGeneration::INITIAL);
         assert_eq!(
@@ -3876,16 +3926,23 @@ mod source_tests {
     fn install_rejects_revision_mismatch() {
         let revision = revision();
         let mismatched = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([1; 32]));
-        let error = match TrafficWorld::install(
-            revision.clone(),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let error = match TrafficWorld::install(crate::WorldInstallInput {
+            revision: revision.clone(),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: reference_for(mismatched),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        ) {
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        }) {
             Err(error) => error,
             Ok(_) => panic!("mismatched revision must fail closed"),
         };

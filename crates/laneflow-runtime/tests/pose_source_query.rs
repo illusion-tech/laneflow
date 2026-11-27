@@ -19,7 +19,8 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, CommittedPoseSourceError, ParkedVehicleSpawnInput, ParkingTarget,
     PoseSource, PublishedLfcaReference, ReserveParkingTarget, RouteRegisterInput, TickInput,
-    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, deterministic_state_digest,
+    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput, deterministic_state_digest,
 };
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingFacilityOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal,
@@ -152,11 +153,18 @@ fn parking_revision() -> Arc<SharedNetworkRevision> {
 fn world() -> TrafficWorld {
     let revision = parking_revision();
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://pose-source-query",
                 origin.canonical_artifact_digest(),
@@ -165,9 +173,9 @@ fn world() -> TrafficWorld {
             )
             .expect("fixture key"),
         },
-        0,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(0),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("install")
 }
 

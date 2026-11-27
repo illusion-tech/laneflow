@@ -242,7 +242,7 @@ impl Drop for PreviewInjectionGuard {
 /// 位置强制 `NonFiniteMotion`/`WaitingInvariantViolation`。
 #[cfg(test)]
 pub(crate) fn inject_preview_errors(
-    world_id: u64,
+    world_id: crate::WorldId,
     nonfinite: &[usize],
     invariant: &[usize],
 ) -> PreviewInjectionGuard {
@@ -250,12 +250,12 @@ pub(crate) fn inject_preview_errors(
     let guard = PreviewInjectionGuard {
         state: preview_injection::snapshot(),
     };
-    preview_injection::NONFINITE_WORLD.store(world_id, Ordering::SeqCst);
+    preview_injection::NONFINITE_WORLD.store(world_id.get(), Ordering::SeqCst);
     preview_injection::NONFINITE_POSITIONS.store(
         preview_injection::position_mask(nonfinite),
         Ordering::SeqCst,
     );
-    preview_injection::INVARIANT_WORLD.store(world_id, Ordering::SeqCst);
+    preview_injection::INVARIANT_WORLD.store(world_id.get(), Ordering::SeqCst);
     preview_injection::INVARIANT_POSITIONS.store(
         preview_injection::position_mask(invariant),
         Ordering::SeqCst,
@@ -265,12 +265,12 @@ pub(crate) fn inject_preview_errors(
 
 /// 在指定逻辑位置（live 序）武装 P2 计算 panic 注入。
 #[cfg(test)]
-fn inject_preview_panic(world_id: u64, position: usize) -> PreviewInjectionGuard {
+fn inject_preview_panic(world_id: crate::WorldId, position: usize) -> PreviewInjectionGuard {
     use std::sync::atomic::Ordering;
     let guard = PreviewInjectionGuard {
         state: preview_injection::snapshot(),
     };
-    preview_injection::PANIC_WORLD.store(world_id, Ordering::SeqCst);
+    preview_injection::PANIC_WORLD.store(world_id.get(), Ordering::SeqCst);
     preview_injection::PANIC_POSITION.store(position, Ordering::SeqCst);
     guard
 }
@@ -278,7 +278,7 @@ fn inject_preview_panic(world_id: u64, position: usize) -> PreviewInjectionGuard
 /// P2 逐车原语内的错误注入检查：命中返回须在原逻辑位置公开的完整领域错误。
 #[cfg(test)]
 pub(crate) fn injected_preview_error(
-    world_id: u64,
+    world_id: crate::WorldId,
     update_sequence: usize,
 ) -> Option<crate::StepError> {
     use std::sync::atomic::Ordering;
@@ -287,12 +287,12 @@ pub(crate) fn injected_preview_error(
         return None;
     }
     let bit = 1_u64 << position;
-    if preview_injection::NONFINITE_WORLD.load(Ordering::SeqCst) == world_id
+    if preview_injection::NONFINITE_WORLD.load(Ordering::SeqCst) == world_id.get()
         && preview_injection::NONFINITE_POSITIONS.load(Ordering::SeqCst) & bit != 0
     {
         return Some(crate::StepError::NonFiniteMotion);
     }
-    if preview_injection::INVARIANT_WORLD.load(Ordering::SeqCst) == world_id
+    if preview_injection::INVARIANT_WORLD.load(Ordering::SeqCst) == world_id.get()
         && preview_injection::INVARIANT_POSITIONS.load(Ordering::SeqCst) & bit != 0
     {
         return Some(crate::StepError::WaitingInvariantViolation);
@@ -303,9 +303,9 @@ pub(crate) fn injected_preview_error(
 /// P2 逐车原语内的 panic 注入检查；panic 不按 `StepError` 映射，由执行器
 /// 完整 join 后向世界宿主传播。
 #[cfg(test)]
-pub(crate) fn injected_preview_panics(world_id: u64, update_sequence: usize) -> bool {
+pub(crate) fn injected_preview_panics(world_id: crate::WorldId, update_sequence: usize) -> bool {
     use std::sync::atomic::Ordering;
-    preview_injection::PANIC_WORLD.load(Ordering::SeqCst) == world_id
+    preview_injection::PANIC_WORLD.load(Ordering::SeqCst) == world_id.get()
         && preview_injection::PANIC_POSITION.load(Ordering::SeqCst) == update_sequence
 }
 
@@ -4416,11 +4416,18 @@ pub(crate) mod tests {
     fn combined_scheduler_preserves_same_zone_physical_order() {
         let revision = waiting_scale_revision_with_layout(8.0, 1, ScaleLayout::MergingApproaches);
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(2, 2, 64, 64, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 2,
+                route_capacity: 2,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 64,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://round2-order",
                     origin.canonical_artifact_digest(),
@@ -4429,9 +4436,9 @@ pub(crate) mod tests {
                 )
                 .unwrap(),
             },
-            82,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(82),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .unwrap();
         let mut vehicles = Vec::new();
         for (prefix, progress) in [("idle-0-right", 19_300), ("idle-0-left", 19_500)] {
@@ -4575,11 +4582,18 @@ pub(crate) mod tests {
         )
         .expect("revision");
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(16, 8, 1_024, 1_024, delta_time_ms),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 16,
+                route_capacity: 8,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: delta_time_ms,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://waiting-runtime",
                     origin.canonical_artifact_digest(),
@@ -4588,9 +4602,9 @@ pub(crate) mod tests {
                 )
                 .expect("source"),
             },
-            82,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(82),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install");
         let edges = world
             .traffic()
@@ -4703,11 +4717,18 @@ pub(crate) mod tests {
         assert!(spawned <= count, "spawned vehicles fit path count");
         let origin = *revision.canonical_origin();
         let count_u32 = u32::try_from(count).unwrap();
-        let mut world = TrafficWorld::install(
-            Arc::clone(revision),
-            WorldConfig::new(count_u32, count_u32, u64::from(count_u32) * 3, 1, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: count_u32,
+                route_capacity: count_u32,
+                route_edge_occurrence_capacity: u64::from(count_u32) * 3,
+                route_conflict_occurrence_capacity: 1,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://multi-gate",
                     origin.canonical_artifact_digest(),
@@ -4716,9 +4737,9 @@ pub(crate) mod tests {
                 )
                 .unwrap(),
             },
-            world_id,
-            crate::test_policy::selection(revision),
-        )
+            world_id: crate::WorldId::new(world_id),
+            policy_selection: crate::test_policy::selection(revision),
+        })
         .unwrap();
         let mut routes = Vec::new();
         for raw in 0..revision.traffic().maneuvers().maneuver_path_count() {
@@ -5298,11 +5319,18 @@ pub(crate) mod tests {
         const EDGE_LENGTH_MM: u64 = 10_000_000;
         const SPACING_MM: u64 = 6_500;
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(vehicle_count, 2, route_edge_capacity, 1_024, delta_time_ms),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: vehicle_count,
+                route_capacity: 2,
+                route_edge_occurrence_capacity: route_edge_capacity,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: delta_time_ms,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://waiting-scale",
                     origin.canonical_artifact_digest(),
@@ -5311,9 +5339,9 @@ pub(crate) mod tests {
                 )
                 .expect("source"),
             },
-            u64::from(vehicle_count),
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(u64::from(vehicle_count)),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install");
         let mut keys = (0..STEM_COUNT)
             .map(|index| format!("stem-{index:02}"))
@@ -7560,7 +7588,7 @@ pub(crate) mod tests {
                 install_execution(&mut world, workers);
                 let counts_before = preview_path_counts();
                 let before = world.capture_snapshot().unwrap();
-                let guard = inject_preview_errors(WORLD_ID, &[position], &[]);
+                let guard = inject_preview_errors(crate::WorldId::new(WORLD_ID), &[position], &[]);
                 let result = world.step(TickInput::new(100));
                 drop(guard);
                 assert_eq!(
@@ -7645,7 +7673,8 @@ pub(crate) mod tests {
                 let mut world = multi_gate_world_with_id(16, WORLD_ID);
                 install_execution(&mut world, workers);
                 let before = world.capture_snapshot().unwrap();
-                let guard = inject_preview_errors(WORLD_ID, nonfinite, invariant);
+                let guard =
+                    inject_preview_errors(crate::WorldId::new(WORLD_ID), nonfinite, invariant);
                 let result = world.step(TickInput::new(100));
                 drop(guard);
                 assert_eq!(
@@ -7824,7 +7853,8 @@ pub(crate) mod tests {
             install_execution(&mut world, workers);
             let before = world.capture_snapshot().unwrap();
             let gap_guard = drop_preview_slot_at(gap);
-            let injection_guard = inject_preview_errors(WORLD_ID, nonfinite, &[]);
+            let injection_guard =
+                inject_preview_errors(crate::WorldId::new(WORLD_ID), nonfinite, &[]);
             let result = world.step(TickInput::new(100));
             drop(gap_guard);
             drop(injection_guard);
@@ -7882,7 +7912,7 @@ pub(crate) mod tests {
             let mut reference = multi_gate_world_with_id(16, WORLD_ID);
             let before = reference.capture_snapshot().unwrap();
             let evicted = corrupt_live_identity(&mut reference);
-            let injection = inject_preview_errors(WORLD_ID, injected, &[]);
+            let injection = inject_preview_errors(crate::WorldId::new(WORLD_ID), injected, &[]);
             let reference_result = reference
                 .state
                 .step_workspace()
@@ -7897,7 +7927,7 @@ pub(crate) mod tests {
                 install_execution(&mut world, workers);
                 let before = world.capture_snapshot().unwrap();
                 let evicted = corrupt_live_identity(&mut world);
-                let injection = inject_preview_errors(WORLD_ID, injected, &[]);
+                let injection = inject_preview_errors(crate::WorldId::new(WORLD_ID), injected, &[]);
                 let result = world
                     .state
                     .step_workspace()
@@ -8232,8 +8262,8 @@ pub(crate) mod tests {
 
         let mut world = parking_arrival_world(4, WORLD_ID);
         let before = world.capture_snapshot().unwrap();
-        let reserve_guard = fail_motion_arrival_reserve(WORLD_ID);
-        let nonfinite_guard = inject_motion_nonfinite(WORLD_ID, &[1]);
+        let reserve_guard = fail_motion_arrival_reserve(crate::WorldId::new(WORLD_ID));
+        let nonfinite_guard = inject_motion_nonfinite(crate::WorldId::new(WORLD_ID), &[1]);
         let result = world.step(TickInput::new(100));
         drop(reserve_guard);
         drop(nonfinite_guard);
@@ -8271,7 +8301,7 @@ pub(crate) mod tests {
                 let mut world = multi_gate_world_with_id(16, WORLD_ID);
                 install_execution(&mut world, workers);
                 let before = world.capture_snapshot().unwrap();
-                let guard = inject_motion_nonfinite(WORLD_ID, &[position]);
+                let guard = inject_motion_nonfinite(crate::WorldId::new(WORLD_ID), &[position]);
                 let result = world.step(TickInput::new(100));
                 drop(guard);
                 assert_eq!(
@@ -8326,7 +8356,7 @@ pub(crate) mod tests {
             let mut world = multi_gate_world_with_id(16, WORLD_ID);
             install_execution(&mut world, 4);
             let before = world.capture_snapshot().unwrap();
-            let guard = inject_motion_nonfinite(WORLD_ID, positions);
+            let guard = inject_motion_nonfinite(crate::WorldId::new(WORLD_ID), positions);
             let result = world.step(TickInput::new(100));
             drop(guard);
             assert_eq!(result, Err(crate::StepError::NonFiniteMotion));
@@ -8412,7 +8442,7 @@ pub(crate) mod tests {
             install_execution(&mut world, 4);
             let before = world.capture_snapshot().unwrap();
             let gap_guard = drop_motion_slot_at(gap);
-            let error_guard = inject_motion_nonfinite(WORLD_ID, &[12]);
+            let error_guard = inject_motion_nonfinite(crate::WorldId::new(WORLD_ID), &[12]);
             let result = world.step(TickInput::new(100));
             drop(gap_guard);
             drop(error_guard);
@@ -8716,7 +8746,7 @@ pub(crate) mod tests {
                 let mut world = multi_gate_world_with_id(16, WORLD_ID);
                 install_execution(&mut world, workers);
                 let before = world.capture_snapshot().unwrap();
-                let guard = inject_conflict_nonfinite(WORLD_ID, &[position]);
+                let guard = inject_conflict_nonfinite(crate::WorldId::new(WORLD_ID), &[position]);
                 let result = world.step(TickInput::new(100));
                 drop(guard);
                 assert_eq!(
@@ -8775,8 +8805,10 @@ pub(crate) mod tests {
         for input_failure in [true, false] {
             let mut world = multi_gate_world_with_id(16, WORLD_ID);
             install_execution(&mut world, 4);
-            let _input = input_failure.then(|| fail_conflict_input_reserve(WORLD_ID));
-            let _slot = (!input_failure).then(|| fail_conflict_slot_reserve(WORLD_ID));
+            let _input =
+                input_failure.then(|| fail_conflict_input_reserve(crate::WorldId::new(WORLD_ID)));
+            let _slot =
+                (!input_failure).then(|| fail_conflict_slot_reserve(crate::WorldId::new(WORLD_ID)));
             let outcome = world.step(TickInput::new(100)).unwrap();
             assert_eq!(
                 (
@@ -8814,7 +8846,7 @@ pub(crate) mod tests {
             install_execution(&mut world, 4);
             let before = world.capture_snapshot().unwrap();
             let gap_guard = drop_conflict_slot_at(gap);
-            let error_guard = inject_conflict_nonfinite(WORLD_ID, &[12]);
+            let error_guard = inject_conflict_nonfinite(crate::WorldId::new(WORLD_ID), &[12]);
             let result = world.step(TickInput::new(100));
             drop(gap_guard);
             drop(error_guard);
@@ -9533,7 +9565,7 @@ pub(crate) mod tests {
         install_execution(&mut world, 4);
         // 位置 15 位于调用线程首块之外的末尾块：panic 发生在池线程上，
         // 执行器须先完整 join 再向世界宿主传播。
-        let guard = inject_preview_panic(WORLD_ID, 15);
+        let guard = inject_preview_panic(crate::WorldId::new(WORLD_ID), 15);
         let result = catch_unwind(AssertUnwindSafe(|| world.step(TickInput::new(100))));
         drop(guard);
         assert!(result.is_err());
@@ -9570,11 +9602,18 @@ pub(crate) mod tests {
         )
         .expect("revision");
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(12, 4, 1_024, 1_024, 100),
-            exec_config(workers),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 12,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: exec_config(workers),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://dispatch-confirm-parking",
                     origin.canonical_artifact_digest(),
@@ -9583,9 +9622,9 @@ pub(crate) mod tests {
                 )
                 .unwrap(),
             },
-            world_id,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(world_id),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .unwrap();
         let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
         let (entry_edge, entry_progress) = world

@@ -14,8 +14,8 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, ObservationError, ObservationExportMode,
     ObservationSelection, PublishedLfcaReference, RouteError, RouteRegisterInput, StepError,
-    TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldPolicySelection,
-    attest_published_shared_network_revision,
+    TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldConfigInput,
+    WorldId, WorldInstallInput, WorldPolicySelection, attest_published_shared_network_revision,
 };
 use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, PASSENGER_CAR_PROFILE_KEY, PORTAL_IDS, bind,
@@ -38,7 +38,7 @@ const TICK_MS: u64 = 16;
 /// 与 [`TICK_MS`] 故意不一致，用来观察拒绝不提交。
 const REJECTED_DELTA_MS: u64 = 15;
 const DRIVE_STEPS: u64 = 64;
-const WORLD_ID: u64 = 1;
+const WORLD_ID: WorldId = WorldId::new(1);
 /// 本示例只注册一条路线。边出现记录容量等于该路线的边数。
 /// 这条左转路线在注册时的冲突出现记录数是 0，因此容量也是 0。
 /// 0 只描述这一条路线，不表示整网没有 Gate、冲突区或参与者流。
@@ -451,20 +451,21 @@ fn attest_and_install(
             return Err(format!("修订认证操作失败，停止安装：{failure:?}").into());
         }
     };
-    let world = TrafficWorld::install(
-        Arc::clone(revision),
-        WorldConfig::new(
-            1,
-            1,
-            edge_occurrences,
-            CONFLICT_OCCURRENCE_CAPACITY,
-            TICK_MS,
-        ),
-        ExecutionConfig::new(NonZeroU32::MIN),
-        CommittedNetworkSource::Published { reference },
-        WORLD_ID,
-        policy,
-    )?;
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 1,
+        route_capacity: 1,
+        route_edge_occurrence_capacity: edge_occurrences,
+        route_conflict_occurrence_capacity: CONFLICT_OCCURRENCE_CAPACITY,
+        fixed_delta_time_ms: TICK_MS,
+    })?;
+    let world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
+        config,
+        execution: ExecutionConfig::new(NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published { reference },
+        world_id: WORLD_ID,
+        policy_selection: policy,
+    })?;
     Ok((verdict, world))
 }
 

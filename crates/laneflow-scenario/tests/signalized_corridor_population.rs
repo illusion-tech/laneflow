@@ -6,7 +6,7 @@ use std::sync::Arc;
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleSpawnInput, VehicleState,
-    VehicleStatus, WorldConfig,
+    VehicleStatus, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_scenario::signalized_corridor::{
     CorridorCatalog, CorridorPopulationCapacities, CorridorPopulationConfig,
@@ -21,6 +21,17 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
+
+fn corridor_world_config(vehicle_capacity: u32) -> WorldConfig {
+    WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity,
+        route_capacity: 28,
+        route_edge_occurrence_capacity: 1_024,
+        route_conflict_occurrence_capacity: 1_024,
+        fixed_delta_time_ms: TICK_MS,
+    })
+    .expect("corridor fixture config")
+}
 
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
@@ -49,11 +60,11 @@ fn install_with_policy(
     selection: laneflow_runtime::WorldPolicySelection,
 ) -> Result<TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        Arc::clone(&revision),
+    laneflow_runtime::TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -62,9 +73,9 @@ fn install_with_policy(
             )
             .expect("non-empty fixture key"),
         },
-        0,
-        selection,
-    )
+        world_id: WorldId::new(0),
+        policy_selection: selection,
+    })
 }
 
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
@@ -147,8 +158,18 @@ fn config_freezes_defaults_and_closed_target_range() {
 #[test]
 fn install_routes_rejects_exhausted_cursor_without_leaving_routes() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 64, 1_024, 1_024, TICK_MS)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 64,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: TICK_MS,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let before = world.live_routes().count();
     let cursor = u64::MAX - 1;
     world.set_command_cursor_for_test(cursor);
@@ -169,8 +190,18 @@ fn install_routes_rejects_exhausted_cursor_without_leaving_routes() {
 #[test]
 fn install_routes_rejects_short_capacity_without_leaving_routes() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 1, 1_024, 1_024, TICK_MS)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: TICK_MS,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     assert!(prepared.install_routes(&mut world).is_err());
     assert_eq!(world.live_routes().count(), 0);
 }
@@ -201,13 +232,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -269,13 +294,7 @@ fn blocked_retry_replays_the_same_plan() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -334,13 +353,7 @@ fn apply_pending_host_error_restores_fifo_front() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -381,13 +394,7 @@ fn take_initial_vehicles_then_bind_reaches_running() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let mut plans = prepared.take_initial_vehicles();
@@ -405,13 +412,7 @@ fn admit_initial_plans_rejects_a_mismatched_slice_before_spawn() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let mut plans = prepared.take_initial_vehicles();
@@ -448,13 +449,7 @@ fn admit_initial_plans_rejects_foreign_routes_before_spawn() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let mut plans = prepared.take_initial_vehicles();
@@ -476,11 +471,8 @@ fn admit_initial_plans_rejects_foreign_routes_before_spawn() {
 #[test]
 fn admit_initial_plans_rolls_back_a_partial_batch() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
-    )
-    .expect("install");
+    let mut world =
+        install_fixture(Arc::clone(&revision), corridor_world_config(1)).expect("install");
     let mut plans = prepared.take_initial_vehicles();
     let saved = plans
         .iter()
@@ -512,11 +504,8 @@ fn admit_initial_plans_rolls_back_a_partial_batch() {
 #[test]
 fn allocation_failure_does_not_lower_corridor_initial_speed() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(64, 28, 1_024, 1_024, TICK_MS),
-    )
-    .expect("install");
+    let mut world =
+        install_fixture(Arc::clone(&revision), corridor_world_config(64)).expect("install");
     let mut plans = prepared.take_initial_vehicles();
     let saved = plans
         .iter()
@@ -549,11 +538,8 @@ fn allocation_failure_does_not_lower_corridor_initial_speed() {
 #[test]
 fn admit_initial_plans_restores_a_dropped_speed_when_a_later_vehicle_cannot_enter() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
-    )
-    .expect("install");
+    let mut world =
+        install_fixture(Arc::clone(&revision), corridor_world_config(1)).expect("install");
     let mut plans = prepared.initial_vehicles().to_vec();
     let routes = prepared.install_routes(&mut world).expect("routes");
     let edge = world
@@ -611,11 +597,8 @@ fn admit_initial_plans_restores_a_dropped_speed_when_a_later_vehicle_cannot_ente
 #[test]
 fn spawn_initial_vehicles_removes_routes_it_registered() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
-    )
-    .expect("install");
+    let mut world =
+        install_fixture(Arc::clone(&revision), corridor_world_config(1)).expect("install");
     let error = prepared
         .spawn_initial_vehicles(&mut world)
         .expect_err("capacity rejects the batch");
@@ -633,13 +616,7 @@ fn consume_world_rejects_skipped_ticks() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -664,13 +641,7 @@ fn consume_world_rejects_untracked_completed_vehicle() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT + 1).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT + 1).expect("fits")),
     )
     .expect("install");
     let extra_route_index = prepared.initial_vehicles()[0].route_index;
@@ -704,7 +675,14 @@ fn foreign_world() -> TrafficWorld {
     .expect("foreign revision");
     install_with_policy(
         foreign,
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
         fixture_policy("runtime-fixture-policy", "fixture-policy"),
     )
     .expect("install")
@@ -751,13 +729,7 @@ fn consume_world_rejects_foreign_revision() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -776,13 +748,7 @@ fn pending_spawn_input_rejects_foreign_revision() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -815,13 +781,7 @@ fn apply_pending_rejects_foreign_revision() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -873,13 +833,7 @@ fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationControlle
     let (mut prepared, revision) = prepare(target, DEFAULT_SEED);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(target).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+        corridor_world_config(u32::try_from(target).expect("fits")),
     )
     .expect("install");
     let (vehicles, routes) = spawn_population(&mut world, &mut prepared);
@@ -1122,7 +1076,7 @@ fn population_rejects_other_policy_on_same_root_without_mutating_lifecycle() {
             )
             .unwrap()
         };
-        let config = WorldConfig::new(50, 28, 1_024, 1_024, TICK_MS);
+        let config = corridor_world_config(50);
         let mut world = install_with_policy(Arc::clone(&revision), config, selected).unwrap();
         let mut foreign = install_with_policy(Arc::clone(&revision), config, other).unwrap();
         assert!(Arc::ptr_eq(&world.revision(), &foreign.revision()));

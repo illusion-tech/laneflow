@@ -101,7 +101,7 @@ impl JunctionConfig {
                 "junction_config_version must be {CONFIG_VERSION:?}"
             )));
         }
-        // 与 TrafficWorld::install 的 DeltaOutOfRange 对齐，生成前拒绝不可安装的 tick。
+        // 与 WorldConfig::try_new 的固定步长区间对齐，生成前报告配置错误。
         if !(4..=1_000).contains(&self.fixed_delta_ms) {
             return Err(config_error(
                 "fixed_delta_ms must be within the runtime-supported 4..=1000 range",

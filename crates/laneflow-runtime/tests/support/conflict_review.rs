@@ -47,8 +47,18 @@ fn fresh_spawn_rejects_the_one_millimetre_red_approach() {
         deny: true,
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     assert_eq!(
@@ -75,8 +85,18 @@ fn regulatory_denial_keeps_resource_evaluation_absent_and_gate_closed() {
         deny: true,
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     world.step(TickInput::new(100)).unwrap();
@@ -127,8 +147,18 @@ fn tail_clearance_and_route_completion_commit_in_the_same_tick() {
         clearance: Some((2, 8.5)),
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     world.step(TickInput::new(100)).unwrap();
@@ -155,7 +185,14 @@ fn tail_clearance_and_route_completion_commit_in_the_same_tick() {
         &encode_lfrs(&world.capture_snapshot().unwrap()),
         revision,
         world.committed_source().clone(),
-        WorldConfig::new(4, 4, 64, 8, 100),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
@@ -188,8 +225,18 @@ fn clearance_target_equal_to_next_gate_is_admitted() {
         clearance: Some((1, 8.5)),
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     world.step(TickInput::new(100)).unwrap();
@@ -206,8 +253,18 @@ fn reserved_vehicle_cannot_cross_later_conflict_gate_without_authority() {
         clearance: Some((1, 8.5)),
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     let mut old_released_at_boundary = false;
@@ -242,8 +299,18 @@ fn maneuver_completion_waits_for_tail_clearance() {
         clearance: Some((2, 8.5)),
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let vehicle = spawn(&mut world, route);
     let mut completions = 0;
@@ -300,8 +367,18 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
         clearance: Some((1, 8.5)),
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     // #1272：首拍预览按停止目标级联减速（紧急域内），13 m/s 到下一门约
@@ -352,8 +429,18 @@ fn fresh_grant_still_stops_at_the_following_gate_in_the_same_tick() {
 fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() {
     use laneflow_runtime::TrafficTransitionKind as Kind;
     let revision = revision(ConflictPolicyFixture::default());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     let vehicle = world
@@ -427,8 +514,18 @@ fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
         clearance: Some((1, 8.5)),
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     // owner 先过门 0 并取得门 1 的预约。
@@ -524,8 +621,18 @@ fn application_preview_respects_other_resources_stop_targets() {
         close_internal_m: 24.0,
         ..Default::default()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, _] = routes(&mut world, &revision);
     let boundary = calibration_gate(&world, route);
     let internal_len =
@@ -613,8 +720,18 @@ fn admissible_empty_waiting_zone_does_not_brake() {
             late_waiting,
             ..Default::default()
         });
-        let mut world =
-            install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).unwrap();
+        let mut world = install_fixture(
+            Arc::clone(&revision),
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 8,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let [route, _] = routes(&mut world, &revision);
         let boundary = calibration_gate(&world, route);
         let subject = world

@@ -146,18 +146,10 @@ parking lifecycle / `despawn_vehicle`）只在 `step` 之间调用；单条失�
 命令中释放 binding/count/route reference。Adapter 对已绑定车辆必须走 typed
 despawn-and-unbind，不得经 raw `world_mut()` 留下 stale 映射。
 
-以下列出当前实现的入口。安装入口的具名参数、受检配置与世界身份类型见
-[具名安装设计][named-world-install]，迁移时以该设计为准。
+以下列出公开入口。安装参数、受检配置与世界身份类型见[具名安装设计][named-world-install]。
 
 ```rust
-TrafficWorld::install(
-    revision: Arc<SharedNetworkRevision>,
-    config: WorldConfig,
-    execution: ExecutionConfig,
-    source: CommittedNetworkSource,
-    world_id: u64,
-    policy_selection: WorldPolicySelection,
-) -> Result<TrafficWorld, InstallError>;
+TrafficWorld::install(input: WorldInstallInput) -> Result<TrafficWorld, InstallError>;
 
 TrafficWorld::register_route(input: RouteRegisterInput) -> Result<RouteHandle, RouteError>;
 TrafficWorld::remove_route(route: RouteHandle) -> Result<(), RouteError>;
@@ -234,8 +226,8 @@ TrafficWorld::world_binding() -> WorldBinding;
 
 - `WorldConfig` 含每世界容量（包括 #303 的必填 `u64
   route_edge_occurrence_capacity`），以及 `fixed_delta_time_ms`（同一
-  world 运行中不得改变）。步长范围是 `[4, 1000]` 毫秒，目前由安装校验，
-  具名安装设计将此项前移到配置构造。安装仍须在取得修订后逐相位检查
+  world 运行中不得改变）。`WorldConfig::try_new` 校验步长范围 `[4, 1000]` 毫秒。
+  安装在取得修订后逐相位检查
   `durationMs % dt == 0 && durationMs >= dt`，失败时不返回世界。
   短相位不得靠 tick 跳过。不接受 LFCA 字节、调用方自报 digest /
   `NetworkRevisionId`、或裸 component。

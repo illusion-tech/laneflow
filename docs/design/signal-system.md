@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-signal-system"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-27"
 summary = "定义固定时制信号、门控与车辆合规。"
 scope = "Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载。"
 applicability = "#applicability"
@@ -175,8 +175,8 @@ StopLine、Gate、Group、Controller、Phase definition 和 program 在共享路
 - duration、cycle sum、offset 满足 safe-integer 与 canonical range；
 - route 不得终止在声明 StopLine 的 edge 上，由 `register_route` 校验。
 
-`TrafficWorld::install` 按以下顺序关闭：步长必须落在 `4..=1000` ms；按
-Controller/Phase 顺序检查 `durationMs >= dt` 且 `durationMs % dt == 0`；再构造
+`WorldConfig::try_new` 要求步长落在 `4..=1000` ms。`TrafficWorld::install` 按
+Controller/Phase 顺序检查 `durationMs >= dt` 且 `durationMs % dt == 0`，通过后构造
 time-0 signal snapshot。短相位不得靠 tick 跳过。
 
 ## 5. Fixed-tick phase timing

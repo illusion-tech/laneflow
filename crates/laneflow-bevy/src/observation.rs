@@ -6,6 +6,7 @@ use laneflow_runtime::{
     ConflictDecision, ConflictReservation, EntityKind, NetworkRevisionId, RouteGateObservation,
     RouteHandle, TrafficTransitionEvent, TrafficWorld, VehicleHandle, VehicleState,
     WaitingDecision, WaitingZoneMember, WaitingZoneOrdinal, WaitingZoneSnapshot, WorldGeneration,
+    WorldId,
 };
 use laneflow_static_network::{SharedNetworkRevision, SharedTrafficNetwork};
 
@@ -19,7 +20,7 @@ use laneflow_static_network::{SharedNetworkRevision, SharedTrafficNetwork};
 /// 目标句柄；历史副本不授予更新 Transform 或反向提交命令的能力。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LaneFlowJunctionObservationContext {
-    world_id: u64,
+    world_id: WorldId,
     world_generation: WorldGeneration,
     network_revision: NetworkRevisionId,
     tick_index: u64,
@@ -30,7 +31,7 @@ pub struct LaneFlowJunctionObservationContext {
 impl LaneFlowJunctionObservationContext {
     /// 宿主指定的世界身份。
     #[must_use]
-    pub const fn world_id(self) -> u64 {
+    pub const fn world_id(self) -> WorldId {
         self.world_id
     }
 

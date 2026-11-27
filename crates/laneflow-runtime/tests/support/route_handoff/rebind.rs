@@ -96,7 +96,18 @@ fn compile(
     )
     .unwrap();
     (
-        install_fixture(network, WorldConfig::new(2, 4, 64, 32, 100)).unwrap(),
+        install_fixture(
+            network,
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 2,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 32,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap(),
         checked,
     )
 }

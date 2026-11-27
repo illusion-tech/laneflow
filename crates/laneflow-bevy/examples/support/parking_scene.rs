@@ -16,7 +16,7 @@ use laneflow_compiler::{
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     RouteHandle, RouteRegisterInput, VehicleHandle, VehicleSpawnInput, WorldConfig,
-    WorldPolicySelection,
+    WorldConfigInput, WorldPolicySelection,
 };
 use laneflow_spatial::{
     CanonicalPoseBatch, CanonicalPoseF32, FramePlacementToken, PoseInput, PoseRecordId,
@@ -306,7 +306,13 @@ pub(super) fn build(config: SceneConfig) -> Result<Scene, Box<dyn Error>> {
     let mut world = scene_loader::install_world(
         &revision,
         "scenario://parking-lifecycle",
-        WorldConfig::new(8, 1, 4_096, 4_096, TICK_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 4_096,
+            route_conflict_occurrence_capacity: 4_096,
+            fixed_delta_time_ms: TICK_MS,
+        })?,
         WorldPolicySelection::NotRequired,
     )?;
     let route_occurrences = config.laps * OCCURRENCES_PER_LAP;

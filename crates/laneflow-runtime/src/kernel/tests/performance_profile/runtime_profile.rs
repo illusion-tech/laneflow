@@ -18,8 +18,8 @@ use laneflow_static_network::{
 use runtime_types::{
     CutoverPreflightLimits, CutoverTransaction, CutoverTransactionLimits, LfcaOriginBinding,
     MigrationPolicyKind, NetworkRevisionCutoverDescriptor, PolicyPin, RouteRegisterInput,
-    TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldPolicySelection,
-    deterministic_state_digest,
+    TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldConfigInput,
+    WorldId, WorldInstallInput, WorldPolicySelection, deterministic_state_digest,
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
@@ -163,14 +163,21 @@ impl Fixtures {
                     )
                     .unwrap(),
                 );
-                let mut world = TrafficWorld::install(
-                    Arc::clone(&self.resources),
-                    WorldConfig::new(8, 4, 1_024, 1_024, 4),
-                    laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                    cutover::source(&self.resources),
-                    583,
-                    WorldPolicySelection::Pinned(PolicyPin { policy }),
-                )
+                let mut world = TrafficWorld::install(WorldInstallInput {
+                    revision: Arc::clone(&self.resources),
+                    config: WorldConfig::try_new(WorldConfigInput {
+                        vehicle_capacity: 8,
+                        route_capacity: 4,
+                        route_edge_occurrence_capacity: 1_024,
+                        route_conflict_occurrence_capacity: 1_024,
+                        fixed_delta_time_ms: 4,
+                    })
+                    .expect("有效的交通配置"),
+                    execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                    source: cutover::source(&self.resources),
+                    world_id: WorldId::new(583),
+                    policy_selection: WorldPolicySelection::Pinned(PolicyPin { policy }),
+                })
                 .unwrap();
                 let paths: Vec<_> = match scene {
                     Scene::Waiting => vec![ManeuverPathOrdinal::from_raw(0)],

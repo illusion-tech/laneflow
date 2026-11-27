@@ -269,7 +269,7 @@ impl Controller {
                 state: state.into(),
                 last_control: self.seen,
                 resident_pid: std::process::id(),
-                world_id: harness.world().world_id(),
+                world_id: harness.world().world_id().get(),
                 tick: harness.world().tick_index(),
                 command_cursor: harness.world().command_cursor(),
                 active_seconds: clock.active().as_secs_f64(),

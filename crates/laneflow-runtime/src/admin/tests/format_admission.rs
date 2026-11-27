@@ -142,6 +142,42 @@ fn execution_validation_follows_complete_traffic_restore() {
 }
 
 #[test]
+fn malformed_saved_step_precedes_capacity_and_execution_errors() {
+    let (world, _, _) = world_with_vehicle(true);
+    let mut bytes = encode_lfrs(&world.capture_snapshot().unwrap());
+    let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).unwrap();
+    let dt = table_field_offset(
+        root.world_config()._tab,
+        wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS,
+    );
+    bytes[dt..dt + 8].copy_from_slice(&3_u64.to_le_bytes());
+    let target = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: 0,
+        route_capacity: 0,
+        route_edge_occurrence_capacity: 0,
+        route_conflict_occurrence_capacity: 0,
+        fixed_delta_time_ms: 4,
+    })
+    .unwrap();
+    let execution = crate::ExecutionConfig::new(std::num::NonZeroU32::new(17).unwrap());
+    assert_eq!(
+        restore_lfrs(
+            &bytes,
+            world.revision(),
+            world.committed_source().clone(),
+            target,
+            execution,
+            generous_limits()
+        )
+        .unwrap_err(),
+        SnapshotRestoreError::FixedDeltaTimeMismatch {
+            snapshot: 3,
+            target: 4
+        },
+    );
+}
+
+#[test]
 fn world_config_has_only_traffic_fields_and_rejects_an_extra_slot() {
     let (world, _, _) = world_with_vehicle(true);
     let mut bytes = encode_lfrs(&world.capture_snapshot().unwrap());
@@ -251,20 +287,29 @@ fn truncated_vtable_is_rejected_before_field_counting() {
 }
 
 fn conflict_world_with_route() -> (TrafficWorld, RouteHandle) {
-    conflict_world_with_route_config(WorldConfig::new(8, 4, 1_024, 1_024, 100))
+    conflict_world_with_route_config(
+        WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
 }
 
 fn conflict_world_with_route_config(config: WorldConfig) -> (TrafficWorld, RouteHandle) {
     let revision = revision(true);
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
+    let mut world = TrafficWorld::install(crate::WorldInstallInput {
+        revision: Arc::clone(&revision),
         config,
-        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source_for(origin, "fixture://conflict-snapshot"),
-        77,
-        crate::test_policy::selection(&revision),
-    )
+        execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source_for(origin, "fixture://conflict-snapshot"),
+        world_id: crate::WorldId::new(77),
+        policy_selection: crate::test_policy::selection(&revision),
+    })
     .expect("install conflict world");
     let stream = laneflow_static_contract::ParticipantStreamOrdinal::from_raw(0);
     let path = revision
@@ -287,7 +332,16 @@ fn conflict_world_with_route_config(config: WorldConfig) -> (TrafficWorld, Route
 
 /// 构造持有一条冲突预约的车辆测试世界。
 pub(crate) fn world_with_conflict_reservation() -> (TrafficWorld, VehicleHandle) {
-    world_with_conflict_reservation_config(WorldConfig::new(8, 4, 1_024, 1_024, 100))
+    world_with_conflict_reservation_config(
+        WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
 }
 
 fn world_with_conflict_reservation_config(config: WorldConfig) -> (TrafficWorld, VehicleHandle) {
@@ -774,7 +828,14 @@ fn pending_conflict_authority_does_not_hide_an_invalid_endpoint_cursor() {
 
 #[test]
 fn conflict_nested_tables_fit_exact_small_world_verifier_budget() {
-    let config = WorldConfig::new(1, 1, 64, 64, 100);
+    let config = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: 1,
+        route_capacity: 1,
+        route_edge_occurrence_capacity: 64,
+        route_conflict_occurrence_capacity: 64,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("有效的交通配置");
     let (world, _) = world_with_conflict_reservation_config(config);
     let captured = world.capture_snapshot().expect("capture Conflict state");
     let restored = restore_lfrs(
@@ -876,14 +937,21 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
         let mut candidate = None;
         let mut deny = None;
         for policy_raw in 0..policy_count {
-            let world = TrafficWorld::install(
-                Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                source_for(origin, "fixture://eligibility-policy-selection"),
-                77,
-                pin(policy_raw),
-            )
+            let world = TrafficWorld::install(crate::WorldInstallInput {
+                revision: Arc::clone(&revision),
+                config: WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 1_024,
+                    route_conflict_occurrence_capacity: 1_024,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: source_for(origin, "fixture://eligibility-policy-selection"),
+                world_id: crate::WorldId::new(77),
+                policy_selection: pin(policy_raw),
+            })
             .expect("install selected policy");
             match world.state.gate_policy_decision(gate, profile) {
                 crate::GatePolicyDecision::Candidate(_) => candidate = Some(policy_raw),
@@ -897,14 +965,21 @@ fn conflict_eligibility_rejects_gate_policy_deny_at_restored_time() {
     }
     let (stream, candidate_policy, deny_policy) =
         selection.expect("fixture has Candidate/Deny policy pair for one stream");
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source_for(origin, "fixture://eligibility-policy-selection"),
-        77,
-        pin(candidate_policy),
-    )
+    let mut world = TrafficWorld::install(crate::WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source_for(origin, "fixture://eligibility-policy-selection"),
+        world_id: crate::WorldId::new(77),
+        policy_selection: pin(candidate_policy),
+    })
     .expect("install Candidate policy");
     let path = revision
         .conflict()
@@ -1422,13 +1497,14 @@ fn clock_capacity_and_duplicate_ids_fail_closed() {
         SnapshotRestoreError::InvalidClock
     );
 
-    let smaller = WorldConfig::new(
-        config.vehicle_capacity() - 1,
-        config.route_capacity(),
-        config.route_edge_occurrence_capacity(),
-        config.route_conflict_occurrence_capacity(),
-        config.fixed_delta_time_ms(),
-    );
+    let smaller = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: config.vehicle_capacity() - 1,
+        route_capacity: config.route_capacity(),
+        route_edge_occurrence_capacity: config.route_edge_occurrence_capacity(),
+        route_conflict_occurrence_capacity: config.route_conflict_occurrence_capacity(),
+        fixed_delta_time_ms: config.fixed_delta_time_ms(),
+    })
+    .expect("有效的交通配置");
     assert!(matches!(
         restore_lfrs(
             &encode_lfrs(&world.capture_snapshot().expect("capture")),
@@ -1488,13 +1564,14 @@ fn config_axes_and_republished_source_follow_restore_contract() {
     let config = world.config();
     let bytes = encode_lfrs(&world.capture_snapshot().expect("capture"));
 
-    let different_dt = WorldConfig::new(
-        config.vehicle_capacity(),
-        config.route_capacity(),
-        config.route_edge_occurrence_capacity(),
-        config.route_conflict_occurrence_capacity(),
-        config.fixed_delta_time_ms() + 1,
-    );
+    let different_dt = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: config.vehicle_capacity(),
+        route_capacity: config.route_capacity(),
+        route_edge_occurrence_capacity: config.route_edge_occurrence_capacity(),
+        route_conflict_occurrence_capacity: config.route_conflict_occurrence_capacity(),
+        fixed_delta_time_ms: config.fixed_delta_time_ms() + 1,
+    })
+    .expect("有效的交通配置");
     assert_eq!(
         restore_lfrs(
             &bytes,
@@ -1511,13 +1588,14 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         }
     );
 
-    let smaller_routes = WorldConfig::new(
-        config.vehicle_capacity(),
-        config.route_capacity() - 1,
-        config.route_edge_occurrence_capacity(),
-        config.route_conflict_occurrence_capacity(),
-        config.fixed_delta_time_ms(),
-    );
+    let smaller_routes = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: config.vehicle_capacity(),
+        route_capacity: config.route_capacity() - 1,
+        route_edge_occurrence_capacity: config.route_edge_occurrence_capacity(),
+        route_conflict_occurrence_capacity: config.route_conflict_occurrence_capacity(),
+        fixed_delta_time_ms: config.fixed_delta_time_ms(),
+    })
+    .expect("有效的交通配置");
     assert_eq!(
         restore_lfrs(
             &bytes,
@@ -1535,13 +1613,14 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         }
     );
 
-    let smaller_occurrences = WorldConfig::new(
-        config.vehicle_capacity(),
-        config.route_capacity(),
-        config.route_edge_occurrence_capacity() - 1,
-        config.route_conflict_occurrence_capacity(),
-        config.fixed_delta_time_ms(),
-    );
+    let smaller_occurrences = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: config.vehicle_capacity(),
+        route_capacity: config.route_capacity(),
+        route_edge_occurrence_capacity: config.route_edge_occurrence_capacity() - 1,
+        route_conflict_occurrence_capacity: config.route_conflict_occurrence_capacity(),
+        fixed_delta_time_ms: config.fixed_delta_time_ms(),
+    })
+    .expect("有效的交通配置");
     assert_eq!(
         restore_lfrs(
             &bytes,
@@ -1559,13 +1638,14 @@ fn config_axes_and_republished_source_follow_restore_contract() {
         }
     );
 
-    let larger = WorldConfig::new(
-        config.vehicle_capacity() + 1,
-        config.route_capacity() + 1,
-        config.route_edge_occurrence_capacity() + 1,
-        config.route_conflict_occurrence_capacity() + 1,
-        config.fixed_delta_time_ms(),
-    );
+    let larger = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: config.vehicle_capacity() + 1,
+        route_capacity: config.route_capacity() + 1,
+        route_edge_occurrence_capacity: config.route_edge_occurrence_capacity() + 1,
+        route_conflict_occurrence_capacity: config.route_conflict_occurrence_capacity() + 1,
+        fixed_delta_time_ms: config.fixed_delta_time_ms(),
+    })
+    .expect("有效的交通配置");
     let restored = restore_lfrs(
         &bytes,
         Arc::clone(&revision),
@@ -1611,13 +1691,14 @@ fn occurrence_capacity_max_and_max_plus_one_fail_atomically() {
         .iter()
         .map(|route| u64::try_from(route.edges.len()).expect("edge count"))
         .sum::<u64>();
-    at_max.config = WorldConfig::new(
-        at_max.config.vehicle_capacity(),
-        at_max.config.route_capacity(),
-        occurrence_count,
-        at_max.config.route_conflict_occurrence_capacity(),
-        at_max.config.fixed_delta_time_ms(),
-    );
+    at_max.config = WorldConfig::try_new(crate::WorldConfigInput {
+        vehicle_capacity: at_max.config.vehicle_capacity(),
+        route_capacity: at_max.config.route_capacity(),
+        route_edge_occurrence_capacity: occurrence_count,
+        route_conflict_occurrence_capacity: at_max.config.route_conflict_occurrence_capacity(),
+        fixed_delta_time_ms: at_max.config.fixed_delta_time_ms(),
+    })
+    .expect("有效的交通配置");
     let exact_config = at_max.config;
     let restored = restore_lfrs(
         &encode_lfrs(&at_max),

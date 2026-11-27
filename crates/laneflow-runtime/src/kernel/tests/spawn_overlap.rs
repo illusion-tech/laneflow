@@ -18,7 +18,8 @@ use crate::kernel::world::{overlap_blocker_inspections, reset_overlap_blocker_in
 use crate::{
     CommittedNetworkSource, PublishedLfcaReference, RouteHandle, RouteRegisterInput,
     SnapshotRestoreLimits, SpawnError, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput,
-    VehicleStatus, WorldConfig, encode_lfrs, restore_lfrs,
+    VehicleStatus, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput, encode_lfrs,
+    restore_lfrs,
 };
 
 fn lane_revision(edge_count: u32) -> Arc<SharedNetworkRevision> {
@@ -118,14 +119,21 @@ fn empty_world(revision: Arc<SharedNetworkRevision>, capacity: u32) -> TrafficWo
         )
         .expect("source"),
     };
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(capacity, 512, 2_048, 1_024, 100),
-        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: capacity,
+            route_capacity: 512,
+            route_edge_occurrence_capacity: 2_048,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
-        528,
-        crate::test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(528),
+        policy_selection: crate::test_policy::selection(&revision),
+    })
     .expect("install")
 }
 
@@ -178,7 +186,14 @@ fn admission_scale_evidence() {
                     &bytes,
                     Arc::clone(&revision),
                     world.committed_source().clone(),
-                    WorldConfig::new(count + 1, 512, 2_048, 1_024, 100),
+                    WorldConfig::try_new(WorldConfigInput {
+                        vehicle_capacity: count + 1,
+                        route_capacity: 512,
+                        route_edge_occurrence_capacity: 2_048,
+                        route_conflict_occurrence_capacity: 1_024,
+                        fixed_delta_time_ms: 100,
+                    })
+                    .expect("有效的交通配置"),
                     crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
                     SnapshotRestoreLimits::new(64 * 1_024 * 1_024, 1_024),
                 )

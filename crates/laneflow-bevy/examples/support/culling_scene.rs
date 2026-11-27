@@ -5,7 +5,9 @@ use std::{error::Error, num::NonZeroU32};
 use bevy_math::Vec3;
 use laneflow_bevy::LaneFlowSession;
 use laneflow_junction_generator::{JunctionConfig, generate_grid};
-use laneflow_runtime::{RouteRegisterInput, VehicleHandle, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{
+    RouteRegisterInput, VehicleHandle, VehicleSpawnInput, WorldConfig, WorldConfigInput,
+};
 use laneflow_scenario::complex_junction::{VEHICLE_PROFILE_KEY, bind};
 use laneflow_static_contract::LaneEdgeOrdinal;
 use laneflow_static_network::SharedNetworkRevision;
@@ -71,13 +73,13 @@ pub(super) fn build(config: SceneConfig) -> Result<Scene, Box<dyn Error>> {
     let mut world = scene_loader::install_world(
         &revision,
         "scenario://culling-extraction",
-        WorldConfig::new(
-            u32::try_from(config.cells * config.vehicles_per_cell)?,
-            u32::try_from(config.cells * ROUTES_PER_CELL)?,
-            cells * ROUTE_EDGES_PER_CELL,
-            cells * ROUTE_OCCURRENCES_PER_CELL,
-            TICK_MS,
-        ),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: u32::try_from(config.cells * config.vehicles_per_cell)?,
+            route_capacity: u32::try_from(config.cells * ROUTES_PER_CELL)?,
+            route_edge_occurrence_capacity: cells * ROUTE_EDGES_PER_CELL,
+            route_conflict_occurrence_capacity: cells * ROUTE_OCCURRENCES_PER_CELL,
+            fixed_delta_time_ms: TICK_MS,
+        })?,
         first.policy_selection,
     )?;
     let mut vehicles = Vec::with_capacity(config.cells * config.vehicles_per_cell);

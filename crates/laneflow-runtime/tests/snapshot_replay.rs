@@ -14,7 +14,8 @@ use laneflow_runtime::{
     AdmittedRouteRegisterInput, CommittedNetworkSource, ParkingTarget, PublishedLfcaReference,
     ReserveParkingTarget, RestoredSnapshot, RouteError, RouteHandle, RouteRegisterInput,
     SnapshotRestoreLimits, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldConfig,
-    deterministic_state_digest, encode_lfrs, restore_lfrs,
+    WorldConfigInput, WorldId, WorldInstallInput, deterministic_state_digest, encode_lfrs,
+    restore_lfrs,
 };
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, VehicleProfileId, VehicleProfileOrdinal,
@@ -82,11 +83,18 @@ fn parking_replay_world() -> TrafficWorld {
 
 fn install_world(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://snapshot-replay",
                 origin.canonical_artifact_digest(),
@@ -95,9 +103,9 @@ fn install_world(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
             )
             .expect("published fixture reference"),
         },
-        77,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(77),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("install")
 }
 
@@ -310,7 +318,14 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
         &bytes,
         original.revision(),
         original.committed_source().clone(),
-        WorldConfig::new(8, 8, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
     )

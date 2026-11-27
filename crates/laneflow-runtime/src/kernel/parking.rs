@@ -10,6 +10,8 @@ use crate::kernel::tables::{
     ConflictCapabilityError, VehicleSlot, occupancy_footprints_equal, occupancy_front_gap,
 };
 use crate::{ParkingError, RouteHandle, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
+#[cfg(test)]
+use crate::{WorldId, WorldInstallInput};
 
 /// 停车资源的精确目标。显式泊位与设施虚拟池是两个互不借用容量的 pool。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -2445,11 +2447,18 @@ mod tests {
         };
         let revision = compiled_parking_revision(shape);
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            crate::WorldConfig::new(4, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: crate::WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://parking-binding-reuse",
                     origin.canonical_artifact_digest(),
@@ -2458,9 +2467,9 @@ mod tests {
                 )
                 .unwrap(),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .unwrap();
         let route = world
             .register_route(crate::RouteRegisterInput::new(vec![
@@ -2839,11 +2848,18 @@ mod tests {
         };
         let revision = compiled_parking_revision(ParkingRevisionShape::WrongKind);
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            crate::WorldConfig::new(vehicle_capacity, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: crate::WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://parking-binding-slots",
                     origin.canonical_artifact_digest(),
@@ -2852,9 +2868,9 @@ mod tests {
                 )
                 .unwrap(),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .unwrap();
         let route = world
             .register_route(crate::RouteRegisterInput::new(vec![

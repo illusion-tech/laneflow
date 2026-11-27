@@ -8,10 +8,12 @@ use laneflow_static_contract::{
 };
 use thiserror::Error;
 
+#[cfg(test)]
+use crate::WorldInstallInput;
 use crate::kernel::bytes32::bytes32_type;
 use crate::{
     CommittedTrafficObservationBatch, ObservationSelectionDigest, ObservationStateSequence,
-    ObservationStreamBinding, RouteError, RouteHandle, TrafficWorld, WorldGeneration,
+    ObservationStreamBinding, RouteError, RouteHandle, TrafficWorld, WorldGeneration, WorldId,
 };
 
 /// 动态成本快照绑定的封闭版本。
@@ -132,7 +134,7 @@ struct ObservationSetRecord {
 }
 
 impl ObservationSetRecord {
-    fn canonical_key(self) -> (u64, u64, u64, ObservationSelectionDigest) {
+    fn canonical_key(self) -> (WorldId, u64, u64, ObservationSelectionDigest) {
         (
             self.stream.world_id(),
             self.stream.world_generation().get(),
@@ -232,7 +234,7 @@ pub fn bind_observation_set(
     hasher.update(OBSERVATION_SET_DIGEST_DOMAIN);
     hasher.update(&input_count.to_le_bytes());
     for record in records {
-        hasher.update(&record.stream.world_id().to_le_bytes());
+        hasher.update(&record.stream.world_id().get().to_le_bytes());
         hasher.update(&record.stream.world_generation().get().to_le_bytes());
         hasher.update(&record.delivery_sequence.to_le_bytes());
         hasher.update(record.selection_digest.as_bytes());
@@ -345,7 +347,7 @@ pub enum DynamicCostBindingError {
 /// Runtime 签发、调用方持有的候选路线准入能力。
 #[derive(Debug)]
 pub struct RoutingAdmissionSession {
-    world_id: u64,
+    world_id: WorldId,
     world_generation: WorldGeneration,
     network_revision: NetworkRevisionId,
     network_revision_derivation_version: u16,
@@ -355,7 +357,7 @@ pub struct RoutingAdmissionSession {
 impl RoutingAdmissionSession {
     /// 宿主指定的世界身份。
     #[must_use]
-    pub const fn world_id(&self) -> u64 {
+    pub const fn world_id(&self) -> WorldId {
         self.world_id
     }
 
@@ -842,7 +844,7 @@ mod tests {
         let mut hasher = Sha256::new();
         hasher.update(DYNAMIC_COST_SNAPSHOT_DIGEST_DOMAIN);
         hasher.update(binding.binding_version.to_le_bytes());
-        hasher.update(stream.world_id().to_le_bytes());
+        hasher.update(stream.world_id().get().to_le_bytes());
         hasher.update(stream.world_generation().get().to_le_bytes());
         hasher.update(observations.network_revision.as_digest().as_bytes());
         hasher.update(
@@ -899,20 +901,21 @@ mod tests {
     ) -> TrafficWorld {
         let revision = revision();
         let origin = *revision.canonical_origin();
-        TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(
-                16,
+        TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 16,
                 route_capacity,
-                occurrence_capacity,
-                occurrence_capacity,
-                100,
-            ),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, "fixture://routing"),
-            world_id,
-            crate::test_policy::selection(&revision),
-        )
+                route_edge_occurrence_capacity: occurrence_capacity,
+                route_conflict_occurrence_capacity: occurrence_capacity,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, "fixture://routing"),
+            world_id: WorldId::new(world_id),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install")
     }
 
@@ -999,7 +1002,7 @@ mod tests {
         let stream = batch.stream_binding();
         let mut preimage = b"laneflow:runtime-observation-set:v2\0".to_vec();
         preimage.extend_from_slice(&1_u64.to_le_bytes());
-        preimage.extend_from_slice(&stream.world_id().to_le_bytes());
+        preimage.extend_from_slice(&stream.world_id().get().to_le_bytes());
         preimage.extend_from_slice(&stream.world_generation().get().to_le_bytes());
         preimage.extend_from_slice(&batch.sequence().to_le_bytes());
         preimage.extend_from_slice(batch.selection_digest().as_bytes());

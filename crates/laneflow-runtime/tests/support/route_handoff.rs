@@ -9,7 +9,7 @@ use laneflow_compiler::{
 };
 use laneflow_runtime::{
     RouteError, RouteHandoffOccurrence, RouteHandoffTrial, RouteHandoffTrialError,
-    RouteRegisterInput, WorldConfig,
+    RouteRegisterInput, WorldConfig, WorldConfigInput,
 };
 use laneflow_static_contract::{AccessEffect, NetworkRevisionId, RoadSectionOrdinal, Sha256Digest};
 use laneflow_static_network::{
@@ -267,7 +267,18 @@ fn module_with_boundary(
 #[test]
 fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     let rev = compile_road_editing_revision(module(0.));
-    let mut world = install_fixture(Arc::clone(&rev), WorldConfig::new(2, 4, 64, 32, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&rev),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 32,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let relations = world.traffic().relations();
     let section = [0, 1]
         .into_iter()

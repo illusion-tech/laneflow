@@ -4,7 +4,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_junction_generator::{JunctionConfig, generate_grid};
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, TickInput, TrafficWorld, VehicleSpawnInput,
-    WorldConfig,
+    WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_scenario::complex_junction::{VEHICLE_PROFILE_KEY, bind};
 use laneflow_static_network::{
@@ -42,11 +42,18 @@ fn multiple_cells_share_one_policy_and_keep_distinct_formal_resource_owners() {
     assert_eq!(bound[0].policy_selection, bound[1].policy_selection);
     assert_ne!(bound[0].route_exits[0].edges, bound[1].route_exits[0].edges);
     let origin = revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 22, 4096, 4096, 16),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 22,
+            route_edge_occurrence_capacity: 4096,
+            route_conflict_occurrence_capacity: 4096,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://junction-grid",
                 origin.canonical_artifact_digest(),
@@ -55,9 +62,9 @@ fn multiple_cells_share_one_policy_and_keep_distinct_formal_resource_owners() {
             )
             .unwrap(),
         },
-        0,
-        bound[0].policy_selection,
-    )
+        world_id: WorldId::new(0),
+        policy_selection: bound[0].policy_selection,
+    })
     .unwrap();
     let mut vehicles = Vec::new();
     for cell in &bound {

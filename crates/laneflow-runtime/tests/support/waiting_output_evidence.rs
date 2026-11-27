@@ -94,13 +94,14 @@ fn run(
 ) {
     let mut world = install_fixture(
         Arc::clone(revision),
-        WorldConfig::new(
-            (active + completed) as u32,
-            (active + 1) as u32,
-            (active * 3 + 1) as u64,
-            1,
-            100,
-        ),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: (active + completed) as u32,
+            route_capacity: (active + 1) as u32,
+            route_edge_occurrence_capacity: (active * 3 + 1) as u64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .unwrap();
     let completed_route = register_named(&mut world, &["completed"]);

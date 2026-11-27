@@ -50,7 +50,8 @@ use laneflow_runtime::{
     RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, SnapshotLimitDimension,
     SnapshotRestoreError, SnapshotRestoreLimits, SpawnError, TickInput, TrafficWorld,
     VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
-    WorldConfig, bind_observation_set, deterministic_state_digest, encode_lfrs, restore_lfrs,
+    WorldConfig, WorldConfigInput, WorldId, WorldInstallInput, bind_observation_set,
+    deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
 #[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::RightOfWayPolicySetOrdinal;
@@ -71,14 +72,14 @@ fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
-    laneflow_runtime::TrafficWorld::install(
-        Arc::clone(&revision),
+    laneflow_runtime::TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        published_source(&revision, "fixture://in-process"),
-        0,
-        test_policy::selection(&revision),
-    )
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: published_source(&revision, "fixture://in-process"),
+        world_id: WorldId::new(0),
+        policy_selection: test_policy::selection(&revision),
+    })
 }
 
 fn published_source(revision: &SharedNetworkRevision, key: &str) -> CommittedNetworkSource {
@@ -2032,8 +2033,18 @@ fn parked_virtual_world() -> (
     laneflow_runtime::VehicleHandle,
 ) {
     let revision = compile_virtual_parking_revision(1);
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["edge"]);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let parked = world
@@ -2257,9 +2268,18 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
         .edges()
         .to_vec();
 
-    let mut zero_capacity =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 0, 100))
-            .expect("install zero-conflict-capacity world");
+    let mut zero_capacity = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 0,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install zero-conflict-capacity world");
     let cursor_before = zero_capacity.command_cursor();
     assert_eq!(
         zero_capacity
@@ -2274,8 +2294,18 @@ fn conflict_routes_charge_independent_capacity_and_use_the_production_gate_path(
     assert_eq!(zero_capacity.command_cursor(), cursor_before);
     assert_eq!(zero_capacity.live_routes().count(), 0);
 
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 100))
-        .expect("install exact-conflict-capacity world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install exact-conflict-capacity world");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
         .expect("one conflict occurrence fits exactly");
@@ -2355,8 +2385,18 @@ fn conflict_tick_arbitrates_the_canonical_post_gate_zero_position() {
             .edges()
             .to_vec()
     });
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
-        .expect("install conflict world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install conflict world");
     let routes = route_edges.map(|edges| {
         world
             .register_route(RouteRegisterInput::new(edges))
@@ -2425,8 +2465,18 @@ fn conflict_tick_uses_stable_single_writer_winner_and_retries_the_loser() {
             .edges()
             .to_vec()
     });
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
-        .expect("install conflict world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install conflict world");
     let routes = routes.map(|edges| {
         world
             .register_route(RouteRegisterInput::new(edges))
@@ -2510,8 +2560,18 @@ fn fresh_spawn_before_blocked_downstream_storage_must_stop() {
         .expect("path")
         .edges()
         .to_vec();
-    let mut open =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 1, 100)).expect("open");
+    let mut open = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("open");
     let open_route = open
         .register_route(RouteRegisterInput::new(edges.clone()))
         .expect("route");
@@ -2530,8 +2590,18 @@ fn fresh_spawn_before_blocked_downstream_storage_must_stop() {
     )
     .expect("clear downstream is not a mandatory stop");
 
-    let mut blocked =
-        install_fixture(revision, WorldConfig::new(4, 2, 64, 1, 100)).expect("blocked");
+    let mut blocked = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("blocked");
     let route = blocked
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
@@ -2573,8 +2643,18 @@ fn conflict_tick_rejects_when_committed_downstream_storage_is_blocked() {
         .expect("path")
         .edges()
         .to_vec();
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 1, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let route = world
         .register_route(RouteRegisterInput::new(edges))
         .expect("route");
@@ -2635,8 +2715,18 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
         (0, ConflictNoGrantReason::ConflictOccupied),
         (2_000, ConflictNoGrantReason::LeadGap),
     ] {
-        let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
-            .expect("world");
+        let mut world = install_fixture(
+            Arc::clone(&revision),
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 2,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("world");
         assert_eq!(world.policy_gap_profiles()[0].required_lead_ms(), 600);
         assert_eq!(world.policy_gap_profiles()[0].required_lag_ms(), 500);
         let routes = route_edges.clone().map(|edges| {
@@ -2693,8 +2783,18 @@ fn permissive_conflict_uses_the_compiled_gap_profile_and_approach_frontier() {
 #[test]
 fn fresh_spawn_before_a_free_conflict_is_not_a_mandatory_stop() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let stream = revision
         .conflict()
         .participant_stream(ParticipantStreamOrdinal::from_raw(0))
@@ -2742,8 +2842,18 @@ fn fresh_spawn_before_a_same_tick_contended_conflict_must_stop() {
             .edges()
             .to_vec()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = route_edges.map(|edges| {
         world
             .register_route(RouteRegisterInput::new(edges))
@@ -2801,8 +2911,18 @@ fn fresh_spawn_ignores_a_conflict_contender_beyond_this_tick() {
             .edges()
             .to_vec()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = route_edges.map(|edges| {
         world
             .register_route(RouteRegisterInput::new(edges))
@@ -2873,8 +2993,18 @@ fn yield_routes(
 #[test]
 fn fresh_spawn_stops_for_a_yield_gap_beyond_this_tick() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
@@ -2910,8 +3040,18 @@ fn fresh_spawn_stops_for_a_yield_gap_beyond_this_tick() {
 #[test]
 fn fresh_spawn_rejects_a_later_foe_that_would_hard_stop_the_yield_vehicle() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let subject_edge = world.route_edges(routes[0]).expect("subject route")[0];
     let subject_length = world.traffic().lane_lengths_millimetres()[subject_edge.index()];
@@ -2952,8 +3092,18 @@ fn fresh_spawn_rejects_a_later_foe_that_would_hard_stop_the_yield_vehicle() {
 #[test]
 fn contender_reserve_failure_is_not_a_stop_constraint() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     laneflow_runtime::set_contender_reserve_failure(true);
     let cursor = world.command_cursor();
@@ -2971,8 +3121,18 @@ fn contender_reserve_failure_is_not_a_stop_constraint() {
 #[test]
 fn contender_note_reserve_failure_is_not_a_stop_constraint() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     laneflow_runtime::set_contender_note_reserve_failure(true);
     let cursor = world.command_cursor();
@@ -2989,8 +3149,18 @@ fn contender_note_reserve_failure_is_not_a_stop_constraint() {
 #[test]
 fn fresh_spawn_allows_a_foe_that_reaches_the_stop_line_but_not_the_entrance() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
@@ -3026,8 +3196,18 @@ fn fresh_spawn_allows_a_foe_that_reaches_the_stop_line_but_not_the_entrance() {
 #[test]
 fn fresh_spawn_ignores_a_downstream_claim_on_another_route() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
@@ -3061,8 +3241,18 @@ fn fresh_spawn_ignores_a_downstream_claim_on_another_route() {
 #[test]
 fn fresh_spawn_after_a_step_still_allows_a_free_conflict() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     world.step(TickInput::new(100)).expect("empty step");
     let stream = revision
         .conflict()
@@ -3112,8 +3302,18 @@ fn fresh_spawn_is_not_denied_by_a_foe_who_can_stop_for_red() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     world
         .step(TickInput::new(100))
         .expect("enter the red phase");
@@ -3152,8 +3352,18 @@ fn fresh_spawn_is_not_denied_by_a_foe_who_can_stop_for_red() {
 #[test]
 fn fresh_spawn_stops_while_the_yield_lag_has_not_elapsed() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
@@ -3215,8 +3425,18 @@ fn fresh_spawn_waiting_fullness_follows_this_tick_reach() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let route = routes[1];
     let edge = world.route_edges(route).expect("route")[0];
@@ -3288,8 +3508,18 @@ fn fresh_spawn_waiting_slot_loss_without_a_conflict_at_the_entrance() {
             },
         ));
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let route = routes[1];
     let edge = world.route_edges(route).expect("route")[0];
@@ -3333,8 +3563,18 @@ fn replace_keeps_the_completed_vehicle_rank() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut later =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("later");
+    let mut later = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("later");
     let later_routes = yield_routes(&mut later, revision.as_ref());
     let foe_edge = later.route_edges(later_routes[1]).expect("foe route")[0];
     let foe_length = later.traffic().lane_lengths_millimetres()[foe_edge.index()];
@@ -3367,7 +3607,18 @@ fn replace_keeps_the_completed_vehicle_rank() {
         "a later rank loses to the stopped contender"
     );
 
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("replace");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("replace");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let edges = world.route_edges(routes[0]).expect("edges").to_vec();
@@ -3440,8 +3691,18 @@ fn assert_step_stays_in_emergency_envelope(before_speed: u32, after_speed: u32, 
 #[test]
 fn accepted_spawn_step_stays_inside_the_emergency_envelope() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let handle = world
         .spawn_vehicle(
@@ -3470,8 +3731,18 @@ fn leader_preview_includes_the_candidate_approach() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let yield_edge = world.route_edges(routes[0]).expect("yield route")[0];
     let yield_length = world.traffic().lane_lengths_millimetres()[yield_edge.index()];
@@ -3520,8 +3791,18 @@ fn leader_preview_includes_the_candidate_approach() {
 #[test]
 fn priority_then_yield_does_not_newly_stop_the_first_vehicle_past_the_envelope() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let priority_edge = world.route_edges(routes[1]).expect("priority")[0];
     let priority_length = world.traffic().lane_lengths_millimetres()[priority_edge.index()];
@@ -3566,8 +3847,18 @@ fn priority_then_yield_does_not_newly_stop_the_first_vehicle_past_the_envelope()
 #[test]
 fn a_far_spawn_is_not_rejected_for_someone_else_at_another_gate() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let gate_edge = world.route_edges(routes[1]).expect("gate route")[0];
     let gate_length = world.traffic().lane_lengths_millimetres()[gate_edge.index()];
@@ -3606,8 +3897,18 @@ fn later_live_rank_loses_and_an_earlier_rank_keeps_the_gate() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(6, 6, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 6,
+            route_capacity: 6,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let foe_edge = world.route_edges(routes[1]).expect("foe")[0];
@@ -3682,8 +3983,18 @@ fn incremental_contender_update_matches_a_forced_rebuild_without_scanning_everyo
             },
         ));
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     for progress in [0_u32, 2_000, 4_000] {
         world
@@ -3734,8 +4045,18 @@ fn each_admission_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
         laneflow_runtime::AdmissionReserve::Downstream,
         laneflow_runtime::AdmissionReserve::Order,
     ] {
-        let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100))
-            .expect("world");
+        let mut world = install_fixture(
+            Arc::clone(&revision),
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 2,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("world");
         let routes = yield_routes(&mut world, revision.as_ref());
         let edge = world.route_edges(routes[0]).expect("route")[0];
         let length = world.traffic().lane_lengths_millimetres()[edge.index()];
@@ -3799,8 +4120,18 @@ fn cutover_does_not_reuse_the_previous_generation_contender_cache() {
         conflict_road_editing_module(),
         conflict_road_editing_module_with_vehicle_speed(12.5),
     );
-    let mut world =
-        install_fixture(Arc::clone(&base), WorldConfig::new(4, 4, 64, 4, 100)).expect("base");
+    let mut world = install_fixture(
+        Arc::clone(&base),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("base");
     let routes = yield_routes(&mut world, base.as_ref());
     let edge = world.route_edges(routes[0]).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
@@ -3844,7 +4175,18 @@ fn cutover_does_not_reuse_the_previous_generation_contender_cache() {
         steps += 1;
     }
     assert_eq!(world.observation_state_sequence(), remembered);
-    let mut fresh = install_fixture(target, WorldConfig::new(4, 4, 64, 4, 100)).expect("fresh");
+    let mut fresh = install_fixture(
+        target,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("fresh");
     let fresh_held = fresh.revision();
     let fresh_routes = yield_routes(&mut fresh, fresh_held.as_ref());
     let carried_held = world.revision();
@@ -3891,8 +4233,18 @@ fn assert_not_past_second_gate(edge: u32, progress: u32) {
 fn second_resource_gate_within_reach_matches_the_following_step() {
     let revision = close_resource_gates();
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000))
-        .expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let edge = world.route_edges(routes[0]).expect("route")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
@@ -3930,8 +4282,18 @@ fn second_resource_gate_within_reach_matches_the_following_step() {
     assert_not_past_second_gate(after.route_edge_index(), after.progress_mm());
     #[cfg(feature = "placement-fixtures")]
     {
-        let mut oracle =
-            install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 1_000)).expect("oracle");
+        let mut oracle = install_fixture(
+            revision,
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 8,
+                fixed_delta_time_ms: 1_000,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("oracle");
         let oracle_held = oracle.revision();
         let oracle_routes = yield_routes(&mut oracle, oracle_held.as_ref());
         let placed = oracle
@@ -3952,7 +4314,18 @@ fn second_resource_gate_within_reach_matches_the_following_step() {
 fn second_resource_gate_beyond_this_tick_still_allows_the_spawn() {
     let revision = close_resource_gates();
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let edge = world.route_edges(routes[0]).expect("route")[0];
@@ -3979,7 +4352,18 @@ fn second_resource_gate_beyond_this_tick_still_allows_the_spawn() {
 fn fast_vehicle_reaching_the_second_gate_is_not_cleared_past_the_envelope() {
     let revision = close_resource_gates();
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let edge = world.route_edges(routes[0]).expect("route")[0];
@@ -4023,8 +4407,18 @@ fn unacquired_downstream_claim_does_not_block_the_other_exit() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut open =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("open");
+    let mut open = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("open");
     let open_routes = yield_routes(&mut open, revision.as_ref());
     let open_east = open.route_edges(open_routes[0]).expect("east")[0];
     let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
@@ -4056,8 +4450,18 @@ fn unacquired_downstream_claim_does_not_block_the_other_exit() {
         "an earlier vehicle who can acquire still blocks the other exit"
     );
 
-    let mut blocked =
-        install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("blocked");
+    let mut blocked = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("blocked");
     let blocked_held = blocked.revision();
     let routes = yield_routes(&mut blocked, blocked_held.as_ref());
     let east_edges = blocked.route_edges(routes[0]).expect("east").to_vec();
@@ -4111,7 +4515,18 @@ fn already_unstoppable_vehicle_is_not_charged_to_the_next_insert() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let edges = world.route_edges(routes[1]).expect("edges").to_vec();
@@ -4167,7 +4582,18 @@ fn already_unstoppable_vehicle_is_not_charged_to_the_next_insert() {
 #[test]
 fn replace_into_the_priority_pose_uses_the_same_yield_rule() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let edges = world.route_edges(routes[0]).expect("edges").to_vec();
@@ -4240,8 +4666,18 @@ fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
             },
         ));
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut open =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 1_000)).expect("open");
+    let mut open = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("open");
     let open_held = open.revision();
     let open_routes = yield_routes(&mut open, open_held.as_ref());
     let open_east = open.route_edges(open_routes[0]).expect("east")[0];
@@ -4265,8 +4701,18 @@ fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
         "the earlier vehicle keeps the shared zone"
     );
 
-    let mut blocked =
-        install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 1_000)).expect("blocked");
+    let mut blocked = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("blocked");
     let held = blocked.revision();
     let routes = yield_routes(&mut blocked, held.as_ref());
     let east_edges = blocked.route_edges(routes[0]).expect("east").to_vec();
@@ -4311,8 +4757,18 @@ fn failed_same_zone_contender_does_not_block_the_waiting_conflict_gate() {
 #[test]
 fn a_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
     let revision = late_waiting_revision(false);
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let north_length = approach_length(&world, routes[1]);
@@ -4344,7 +4800,18 @@ fn a_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
         "the first vehicle still acquired the zone"
     );
 
-    let mut stepped = install_fixture(revision, WorldConfig::new(4, 4, 64, 8, 100)).expect("step");
+    let mut stepped = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("step");
     let stepped_revision = stepped.revision();
     let stepped_routes = yield_routes(&mut stepped, stepped_revision.as_ref());
     let placed = stepped
@@ -4380,8 +4847,18 @@ fn a_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
 #[test]
 fn a_full_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
     let revision = late_waiting_revision(false);
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let north_length = approach_length(&world, routes[1]);
@@ -4447,8 +4924,18 @@ fn a_full_waiting_zone_beyond_this_tick_still_lets_the_conflict_acquire() {
 #[test]
 fn a_claim_past_the_waiting_entrance_does_not_keep_the_zone() {
     let revision = late_waiting_revision(true);
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 8, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let north_length = approach_length(&world, routes[1]);
@@ -4525,10 +5012,30 @@ fn a_claim_past_the_waiting_entrance_does_not_keep_the_zone() {
 #[test]
 fn refresh_allocation_failure_keeps_the_committed_vehicle() {
     let revision = compile_road_editing_revision(conflict_road_editing_module());
-    let mut clean =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 2, 64, 2, 100)).expect("clean");
-    let mut faulted =
-        install_fixture(revision, WorldConfig::new(4, 2, 64, 2, 100)).expect("faulted");
+    let mut clean = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("clean");
+    let mut faulted = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("faulted");
     let clean_route = register_first_stream(&mut clean);
     let faulted_route = register_first_stream(&mut faulted);
     clean
@@ -4587,8 +5094,18 @@ fn candidate_admission_does_not_grow_with_existing_vehicles() {
 
 #[cfg(feature = "placement-fixtures")]
 fn candidate_admission_calls_for(revision: &Arc<SharedNetworkRevision>, existing: usize) -> u64 {
-    let mut world =
-        install_fixture(Arc::clone(revision), WorldConfig::new(8, 2, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let route = register_first_stream(&mut world);
     for index in 0..existing {
         world
@@ -4654,8 +5171,18 @@ fn an_exit_only_route_still_blocks_downstream_storage() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 8, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let full_edges = world.route_edges(routes[0]).expect("full route").to_vec();
     let exit_edge = *full_edges.last().expect("exit edge");
@@ -4731,7 +5258,18 @@ fn an_exit_body_blocks_downstream_when_the_follower_cannot_stop() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(4, 2, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     world.step(TickInput::new(100)).expect("red");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
@@ -4779,7 +5317,18 @@ fn long_red_routes() -> (
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     (world, routes)
@@ -4903,8 +5452,18 @@ fn leader_room_tighter_than_red_rejects_and_a_looser_room_does_not() {
 fn exclusion_work_stays_flat_when_less_urgent_owners_are_added() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
     let measure = |extra: usize| {
-        let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(16, 4, 64, 4, 100))
-            .expect("world");
+        let mut world = install_fixture(
+            Arc::clone(&revision),
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 16,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("world");
         let routes = yield_routes(&mut world, revision.as_ref());
         let foe_length = entry_length_mm(&world, routes[1]);
         world
@@ -4993,7 +5552,18 @@ fn committed_parking_commands_drop_the_contender_snapshot() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let east_length = entry_length_mm(&world, routes[0]);
@@ -5090,8 +5660,18 @@ fn committed_parking_commands_drop_the_contender_snapshot() {
 #[test]
 fn committed_rebind_drops_the_contender_snapshot() {
     let revision = compile_rebind_revision();
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 8, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let old_route = register_named(&mut world, &["left", "current", "tail"]);
     let new_route = register_named(&mut world, &["right", "current", "tail"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
@@ -5138,8 +5718,18 @@ fn committed_rebind_drops_the_contender_snapshot() {
 #[cfg(feature = "placement-fixtures")]
 fn admission_work_after_far_vehicles(existing: usize) -> (u64, u64, u64, u64) {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(revision.clone(), WorldConfig::new(32, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision.clone(),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 32,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let mut placed = 0usize;
     for edge in [2_u32, 0] {
@@ -5193,7 +5783,18 @@ fn straight_road_work(existing: usize) -> (u64, u64, u64, u64) {
             })
             .expect("road");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(40, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 40,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let route = register_named(&mut world, &["road"]);
     for index in 0..existing {
         world
@@ -5247,8 +5848,18 @@ fn unrelated_far_vehicles_do_not_grow_recheck_work() {
 #[cfg(feature = "placement-fixtures")]
 fn yield_stop_result(full: bool) -> Result<laneflow_runtime::VehicleHandle, SpawnError> {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(revision.clone(), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision.clone(),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let subject_length = entry_length_mm(&world, routes[0]);
     world
@@ -5298,8 +5909,18 @@ fn closure_recheck_matches_the_full_scan_oracle() {
 
     let harmless = |full: bool| {
         let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-        let mut world =
-            install_fixture(revision.clone(), WorldConfig::new(8, 4, 64, 4, 100)).expect("world");
+        let mut world = install_fixture(
+            revision.clone(),
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .expect("world");
         let routes = yield_routes(&mut world, revision.as_ref());
         world
             .spawn_vehicle(
@@ -5357,8 +5978,18 @@ fn duplicated_contender_recheck(
         .expect("shared maneuver path")
         .edges()
         .to_vec();
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges))
         .expect("route");
@@ -5436,7 +6067,14 @@ fn incremental_route_registration_amortizes_the_edge_route_rebuild() {
         .to_vec();
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, REGISTRATIONS + 1, 4_096, 4_096, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: REGISTRATIONS + 1,
+            route_edge_occurrence_capacity: 4_096,
+            route_conflict_occurrence_capacity: 4_096,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("world");
     let route = world
@@ -5529,8 +6167,18 @@ fn reserved_parking_keeps_an_unacquired_zone_from_blocking_the_next_vehicle() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut open =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("open");
+    let mut open = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("open");
     let open_routes = yield_routes(&mut open, revision.as_ref());
     let open_east = open.route_edges(open_routes[0]).expect("east")[0];
     let open_east_length = open.traffic().lane_lengths_millimetres()[open_east.index()];
@@ -5562,8 +6210,18 @@ fn reserved_parking_keeps_an_unacquired_zone_from_blocking_the_next_vehicle() {
         "an earlier vehicle who can acquire still blocks the other approach"
     );
 
-    let mut blocked =
-        install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("blocked");
+    let mut blocked = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("blocked");
     let held = blocked.revision();
     let routes = yield_routes(&mut blocked, held.as_ref());
     let east_edge = blocked.route_edges(routes[0]).expect("east")[0];
@@ -5655,7 +6313,18 @@ fn middle_live_rank_keeps_the_gate_against_a_later_contender() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(6, 6, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 6,
+            route_capacity: 6,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     world
@@ -5711,8 +6380,18 @@ fn completed_hole_keeps_its_rank_and_a_new_spawn_does_not_reuse_it() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(6, 6, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 6,
+            route_capacity: 6,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let hole = spawn_completed_at_end(&mut world, routes[0]);
@@ -5778,7 +6457,18 @@ fn replacement_does_not_outrank_a_contender_eligible_this_tick() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(8, 8, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let edges = world.route_edges(routes[0]).expect("edges").to_vec();
@@ -5873,7 +6563,18 @@ fn equal_distance_earlier_rank_keeps_the_gate() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let completed = spawn_completed_at_end(&mut world, routes[0]);
@@ -5939,7 +6640,18 @@ fn reused_slot_generation_keeps_the_old_live_rank() {
                 ..ConflictPolicyFixture::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let mut current = spawn_completed_at_end(&mut world, routes[0]);
@@ -6043,8 +6755,18 @@ fn near_gate_rebuild_matches_full_rebuild_across_steps_and_spawns() {
             },
         ));
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let lengths: Vec<u32> = routes
         .iter()
@@ -6162,8 +6884,18 @@ fn waiting_entrants_keep_approach_order_across_spawn_order() {
             },
         ));
     let dot = conflict_profile(revision.as_ref(), "dot");
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 4, 1_000))
-        .expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let edge = world.route_edges(routes[1]).expect("north")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
@@ -6212,7 +6944,18 @@ fn waiting_entrants_keep_approach_order_across_spawn_order() {
 #[test]
 fn replace_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let held = world.revision();
     let routes = yield_routes(&mut world, held.as_ref());
     let completed = spawn_completed_at_end(&mut world, routes[0]);
@@ -6241,8 +6984,18 @@ fn replace_reserve_failure_is_occupancy_alloc_and_commits_nothing() {
 #[test]
 fn fresh_spawn_rebuilds_contenders_when_the_world_generation_changes() {
     let revision = compile_road_editing_revision(conflict_yield_road_editing_module());
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = yield_routes(&mut world, revision.as_ref());
     let foe_edge = world.route_edges(routes[1]).expect("foe route")[0];
     let foe_length = world.traffic().lane_lengths_millimetres()[foe_edge.index()];
@@ -6314,8 +7067,18 @@ fn fresh_spawn_stops_for_an_earlier_vehicles_staged_downstream_claim() {
     let car = conflict_profile(revision.as_ref(), "car");
     let dot = conflict_profile(revision.as_ref(), "dot");
     let (long_edges, short_edges) = shared_downstream_paths(revision.as_ref());
-    let mut open =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 16, 100)).expect("open");
+    let mut open = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 16,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("open");
     let open_long = open
         .register_route(RouteRegisterInput::new(long_edges.clone()))
         .expect("long route");
@@ -6330,8 +7093,18 @@ fn fresh_spawn_stops_for_an_earlier_vehicles_staged_downstream_claim() {
     )
     .expect("a vehicle that will not enter this tick does not stage a claim");
 
-    let mut world =
-        install_fixture(revision.clone(), WorldConfig::new(4, 4, 64, 16, 100)).expect("blocked");
+    let mut world = install_fixture(
+        revision.clone(),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 16,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("blocked");
     let long = world
         .register_route(RouteRegisterInput::new(long_edges.clone()))
         .expect("long route");
@@ -6360,7 +7133,18 @@ fn earlier_rank_on_another_zone_does_not_hard_stop_the_shared_exit() {
     let revision = compile_road_editing_revision(shared_downstream_road_editing_module());
     let car = conflict_profile(revision.as_ref(), "car");
     let (long_edges, short_edges) = shared_downstream_paths(revision.as_ref());
-    let mut world = install_fixture(revision, WorldConfig::new(6, 6, 64, 16, 100)).expect("world");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 6,
+            route_capacity: 6,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 16,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let long = world
         .register_route(RouteRegisterInput::new(long_edges.clone()))
         .expect("long route");
@@ -6472,8 +7256,18 @@ fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
     let east_edges = paths[east_index].clone();
     let north_edges = paths[north_index].clone();
 
-    let mut blocked = install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 16, 100))
-        .expect("blocked");
+    let mut blocked = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 16,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("blocked");
     let blocked_short = blocked
         .register_route(RouteRegisterInput::new(short_edges.clone()))
         .expect("short route");
@@ -6497,7 +7291,18 @@ fn fresh_spawn_ignores_a_same_zone_contender_blocked_by_an_earlier_claim() {
         "a same-zone contender who can still acquire blocks the later spawn"
     );
 
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 16, 100)).expect("open");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 16,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("open");
     let east = world
         .register_route(RouteRegisterInput::new(east_edges.clone()))
         .expect("east route");
@@ -6546,8 +7351,18 @@ fn fresh_spawn_before_an_owned_conflict_cannot_stop() {
             .edges()
             .to_vec()
     });
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 2, 100)).expect("world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("world");
     let routes = route_edges.map(|edges| {
         world
             .register_route(RouteRegisterInput::new(edges))
@@ -6628,8 +7443,18 @@ fn calibration_profile(revision: &SharedNetworkRevision, key: &str) -> VehiclePr
 
 #[cfg(feature = "placement-fixtures")]
 fn calibration_world(revision: Arc<SharedNetworkRevision>) -> (TrafficWorld, [RouteHandle; 2]) {
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 64, 2, 100))
-        .expect("calibration world");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("calibration world");
     let routes = [0_u32, 1].map(|raw| {
         let stream = revision
             .conflict()
@@ -6958,8 +7783,18 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
         .edges()
         .to_vec();
 
-    let mut too_small = install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 3, 100))
-        .expect("install multiplicity capacity fixture");
+    let mut too_small = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 12,
+            route_conflict_occurrence_capacity: 3,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install multiplicity capacity fixture");
     assert_eq!(
         too_small
             .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -6971,8 +7806,18 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
         },
     );
 
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(2, 2, 12, 4, 100))
-        .expect("install exact multiplicity fixture");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 12,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install exact multiplicity fixture");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
         .expect("four distinct passage occurrences");
@@ -6996,9 +7841,18 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
 
     let mut repeated_edges = route_edges.clone();
     repeated_edges.extend_from_slice(&route_edges);
-    let mut repeated_too_small =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(0, 1, 6, 7, 100))
-            .expect("install repeated capacity fixture");
+    let mut repeated_too_small = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 0,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 6,
+            route_conflict_occurrence_capacity: 7,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install repeated capacity fixture");
     assert_eq!(
         repeated_too_small
             .register_route(RouteRegisterInput::new(repeated_edges.clone()))
@@ -7009,8 +7863,18 @@ fn conflict_multiplicity_preserves_owner_local_and_repeated_occurrences() {
             capacity: 7,
         },
     );
-    let mut repeated = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 100))
-        .expect("install exact repeated fixture");
+    let mut repeated = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 0,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 6,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install exact repeated fixture");
     let static_cell_count = repeated.conflict_passage_cell_count();
     let repeated_route = repeated
         .register_route(RouteRegisterInput::new(repeated_edges))
@@ -7057,8 +7921,18 @@ fn route_gate_preserves_repeated_gate_occurrences() {
         .to_vec();
     let mut repeated_edges = route_edges.clone();
     repeated_edges.extend_from_slice(&route_edges);
-    let mut world = install_fixture(revision, WorldConfig::new(0, 1, 6, 8, 100))
-        .expect("install repeated fixture");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 0,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 6,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install repeated fixture");
     let route = world
         .register_route(RouteRegisterInput::new(repeated_edges))
         .expect("doubled route registers two maneuver occurrences");
@@ -7118,8 +7992,18 @@ fn direct_candidate_and_admitted_routes_share_conflict_capacity() {
         })
         .collect::<Vec<_>>();
     let origin = *revision.canonical_origin();
-    let mut world = install_fixture(revision, WorldConfig::new(0, 2, 6, 1, 100))
-        .expect("install three-entry fixture");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 0,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 6,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install three-entry fixture");
 
     let direct = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -7196,13 +8080,14 @@ fn sample_conflict_route_registration(
         .expect("scale fixture edge count");
     let mut world = install_fixture(
         revision,
-        WorldConfig::new(
-            1,
-            route_count,
-            edge_occurrences,
-            u64::from(route_count),
-            100,
-        ),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 1,
+            route_capacity: route_count,
+            route_edge_occurrence_capacity: edge_occurrences,
+            route_conflict_occurrence_capacity: u64::from(route_count),
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install scale world");
     let started = Instant::now();
@@ -7273,7 +8158,14 @@ fn conflict_cutover_recompiles_same_and_rejects_target_extension_atomically() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let config = WorldConfig::new(4, 4, 64, 1, 100);
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 4,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 64,
+        route_conflict_occurrence_capacity: 1,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("有效的交通配置");
     let mut world = install_fixture(Arc::clone(&base_revision), config).expect("install base");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -7391,7 +8283,14 @@ fn cutover_rebuilds_exact_conflict_count_for_decrease_and_increase() {
         .to_vec();
     let mut world = install_fixture(
         Arc::clone(&conflict_revision),
-        WorldConfig::new(4, 4, 64, 1, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install conflict base");
     let route = world
@@ -7503,7 +8402,14 @@ fn cutover_conflict_floor_uses_final_commit_time_and_survives_continuous_recutov
     );
     let mut world = install_fixture(
         Arc::clone(&plain_revision),
-        WorldConfig::new(4, 4, 64, 4, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install plain base");
     let descriptor = NetworkRevisionCutoverDescriptor::new(
@@ -7620,7 +8526,14 @@ fn cutover_journal_replays_exact_conflict_count_through_slot_reuse() {
         .to_vec();
     let mut world = install_fixture(
         Arc::clone(&base_revision),
-        WorldConfig::new(4, 4, 64, 2, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 2,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install base");
     let initial = world
@@ -7699,7 +8612,14 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let config = WorldConfig::new(4, 4, 64, 1, 100);
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 4,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 64,
+        route_conflict_occurrence_capacity: 1,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("有效的交通配置");
     let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges))
@@ -7763,7 +8683,14 @@ fn conflict_snapshot_restore_uses_saved_carry_and_exact_rebuilt_count() {
     )
     .expect("rear exactly at clearance restores");
 
-    let smaller_target = WorldConfig::new(4, 4, 64, 0, 100);
+    let smaller_target = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 4,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 64,
+        route_conflict_occurrence_capacity: 0,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("有效的交通配置");
     assert_eq!(
         restore_lfrs(
             &bytes,
@@ -7817,7 +8744,14 @@ fn completed_restore_never_passes_through_transient_active_three_a() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let config = WorldConfig::new(4, 4, 64, 1, 100);
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 4,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 64,
+        route_conflict_occurrence_capacity: 1,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("有效的交通配置");
     let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
     let route = world
         .register_route(RouteRegisterInput::new(route_edges.clone()))
@@ -7887,9 +8821,18 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
         .expect("east-west path")
         .edges()
         .to_vec();
-    let mut leave_world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 1, 100))
-            .expect("install leave world");
+    let mut leave_world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install leave world");
     let leave_route = leave_world
         .register_route(RouteRegisterInput::new(route_edges))
         .expect("register leave route");
@@ -7932,8 +8875,18 @@ fn conflict_three_a_covers_replace_leave_and_rebind_atomically() {
         .to_vec();
     let exit_edge = *terminal_route_edges.last().expect("exit edge");
     let exit_length = terminal_revision.traffic().lane_lengths_millimetres()[exit_edge.index()];
-    let mut world = install_fixture(terminal_revision, WorldConfig::new(4, 4, 64, 1, 100))
-        .expect("install terminal world");
+    let mut world = install_fixture(
+        terminal_revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install terminal world");
     let old_route = world
         .register_route(RouteRegisterInput::new(vec![exit_edge]))
         .expect("register non-conflict suffix");
@@ -8071,8 +9024,18 @@ fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
             })
             .expect("deny rule");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["stem", "tail"]);
     assert_eq!(
         world
@@ -8143,8 +9106,18 @@ fn park_other_target_fails_when_already_parked() {
             })
             .expect("space-b");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["edge"]);
     let vehicle = world
         .spawn_vehicle(
@@ -8179,8 +9152,18 @@ fn park_other_target_fails_when_already_parked() {
 #[test]
 fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
     let revision = compile_virtual_parking_revision(2);
-    let mut world =
-        install_fixture(revision, WorldConfig::new(16, 8, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 16,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["edge"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let facility = ParkingFacilityOrdinal::from_raw(0);
@@ -8411,7 +9394,14 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
 
     let mut completed_world = install_fixture(
         compile_virtual_parking_revision(1),
-        WorldConfig::new(4, 4, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install completed fixture");
     let completed_route = register_named(&mut completed_world, &["edge"]);
@@ -8442,8 +9432,18 @@ fn virtual_parking_capacity_mixed_pools_leave_and_despawn_are_exact() {
 #[test]
 fn virtual_arrival_is_observed_once_then_park_is_pose_less_and_narrowly_idempotent() {
     let revision = compile_virtual_parking_revision(1);
-    let mut world =
-        install_fixture(revision, WorldConfig::new(4, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["edge"]);
     let facility = ParkingFacilityOrdinal::from_raw(0);
     let target = ParkingTarget::VirtualPool(facility);
@@ -8541,7 +9541,14 @@ fn virtual_reserved_and_occupied_bindings_round_trip_in_snapshot_v6() {
     let revision = compile_virtual_parking_revision(2);
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install");
     let route = register_named(&mut world, &["edge"]);
@@ -8886,7 +9893,14 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
 
     let mut cross_world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install cross-edge world");
     let cross_route = register_named(&mut cross_world, &["loop", "middle", "loop"]);
@@ -8919,8 +9933,18 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
         }
     );
 
-    let mut repeated_world = install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100))
-        .expect("install repeated-edge world");
+    let mut repeated_world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install repeated-edge world");
     let repeated_route = register_named(&mut repeated_world, &["loop", "middle", "loop"]);
     let repeated_parked = repeated_world
         .spawn_parked_vehicle(
@@ -8955,8 +9979,18 @@ fn leave_overlap_detects_cross_predecessor_and_repeated_occurrence_geometry() {
 #[test]
 fn rebind_compares_the_complete_cross_edge_body_footprint() {
     let revision = compile_rebind_revision();
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 8, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let old_route = register_named(&mut world, &["left", "current", "tail"]);
     let new_route = register_named(&mut world, &["right", "current", "tail"]);
     let profile = VehicleProfileOrdinal::from_raw(0);
@@ -9110,7 +10144,18 @@ fn leave_research_includes_both_upstream_merge_routes_and_committed_prefix() {
             })
             .unwrap();
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 32, 1, 100)).unwrap();
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 32,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let route = register_named(&mut world, &["shared"]);
     let left = register_named(&mut world, &["left", "shared"]);
     let right = register_named(&mut world, &["right", "shared"]);
@@ -9218,8 +10263,18 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     let branches = traffic.successors(stem).expect("branches");
     let left = branches[0];
     let right = branches[1];
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let leader_route = world
         .register_route(RouteRegisterInput::new(vec![stem, left]))
         .expect("left route");
@@ -9275,8 +10330,18 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
             })
             .expect("edge");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["edge"]);
     world
         .spawn_vehicle(
@@ -9322,8 +10387,18 @@ fn speed_down_transition_caps_next_tick_travel() {
             })
             .expect("slow");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
         .place_existing_active_vehicle(
@@ -9392,8 +10467,18 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
             })
             .expect("b");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["a", "b"]);
     let vehicle = world
         .spawn_vehicle(
@@ -9440,8 +10525,18 @@ fn infeasible_stop_before_lower_limit_still_enters() {
             })
             .expect("slower");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
         .place_existing_active_vehicle(
@@ -9488,8 +10583,18 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
             })
             .expect("mid");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 1_000)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["posted-fast", "mid"]);
     let vehicle = world
         .spawn_vehicle(
@@ -9613,9 +10718,19 @@ fn install_rejects_phase_shorter_than_tick() {
         add_signalized_corridor(module, 8, SignalAspect::Green);
     });
     assert_eq!(
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 16))
-            .map(|_| ())
-            .unwrap_err(),
+        install_fixture(
+            revision,
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 16
+            })
+            .expect("有效的交通配置")
+        )
+        .map(|_| ())
+        .unwrap_err(),
         InstallError::PhaseShorterThanTick
     );
 }
@@ -9640,8 +10755,18 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
             })
             .expect("second");
     });
-    let mut world =
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 4)).expect("install");
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 4,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = register_named(&mut world, &["first", "second"]);
     let vehicle = world
         .spawn_vehicle(
@@ -9683,7 +10808,14 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
                 .expect("profile");
             add_signalized_corridor(module, 1_024, aspect);
         });
-        let config = WorldConfig::new(1, 1, 3, 0, 16);
+        let config = WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 1,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 3,
+            route_conflict_occurrence_capacity: 0,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置");
         let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
         let route = register_named(&mut world, &["entry", "middle", "exit"]);
         let vehicle = world
@@ -9761,7 +10893,14 @@ fn sub_millimetre_boundary_restart_respects_signal_and_restores() {
 #[test]
 fn sub_millimetre_boundary_restart_commits_only_the_conflict_winner() {
     let revision = compile_road_editing_revision(conflict_road_editing_module_with_stream_count(2));
-    let config = WorldConfig::new(2, 2, 64, 2, 16);
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 2,
+        route_capacity: 2,
+        route_edge_occurrence_capacity: 64,
+        route_conflict_occurrence_capacity: 2,
+        fixed_delta_time_ms: 16,
+    })
+    .expect("有效的交通配置");
     let mut world = install_fixture(Arc::clone(&revision), config).expect("install");
     let vehicles = [0_u32, 1].map(|raw| {
         let stream = revision

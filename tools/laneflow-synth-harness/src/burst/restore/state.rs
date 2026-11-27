@@ -313,7 +313,7 @@ pub(super) fn restore(
         bytes,
         Arc::clone(&revision),
         CommittedNetworkSource::Published { reference },
-        crate::install::world_config(&state),
+        crate::install::world_config(&state)?,
         execution,
         SnapshotRestoreLimits::new(512 * 1_024 * 1_024, 4 * 1_024),
     )

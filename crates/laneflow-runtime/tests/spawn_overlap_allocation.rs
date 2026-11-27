@@ -8,7 +8,7 @@ use std::{alloc::System, sync::Arc};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, SpawnError, TickInput,
-    TrafficWorld, VehicleSpawnInput, WorldConfig,
+    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -68,14 +68,21 @@ fn warm_overlap_queries_do_not_allocate_routes_or_intervals() {
         )
         .unwrap(),
     };
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
-        528,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(528),
+        policy_selection: test_policy::selection(&revision),
+    })
     .unwrap();
     let first = LaneEdgeOrdinal::from_raw(0);
     let mut edges = vec![first];

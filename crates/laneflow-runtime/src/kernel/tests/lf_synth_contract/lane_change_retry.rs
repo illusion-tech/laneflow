@@ -68,22 +68,27 @@ impl LaneChange {
             .iter()
             .position(|route| route.edge_ids.len() > 2)
             .unwrap();
-        let mut world = TrafficWorld::install(
-            revision.clone(),
-            WorldConfig::new(
-                state.vehicles.len() as u32,
-                state.routes.len() as u32,
-                state.routes.iter().map(|r| r.edge_ids.len() as u64).sum(),
-                16,
-                u64::from(state.identity.fixed_delta_ms),
-            ),
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: revision.clone(),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: state.vehicles.len() as u32,
+                route_capacity: state.routes.len() as u32,
+                route_edge_occurrence_capacity: state
+                    .routes
+                    .iter()
+                    .map(|r| r.edge_ids.len() as u64)
+                    .sum(),
+                route_conflict_occurrence_capacity: 16,
+                fixed_delta_time_ms: u64::from(state.identity.fixed_delta_ms),
+            })
+            .expect("有效的交通配置"),
             execution,
-            CommittedNetworkSource::Published { reference: source },
-            0,
-            WorldPolicySelection::Pinned(PolicyPin {
+            source: CommittedNetworkSource::Published { reference: source },
+            world_id: crate::WorldId::new(0),
+            policy_selection: WorldPolicySelection::Pinned(PolicyPin {
                 policy: state.policy_id.parse().unwrap(),
             }),
-        )
+        })
         .unwrap();
         let routes: Vec<_> = state
             .routes

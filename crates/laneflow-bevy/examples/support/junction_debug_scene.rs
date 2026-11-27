@@ -6,7 +6,9 @@
 use std::{error::Error, num::NonZeroU32};
 
 use laneflow_bevy::LaneFlowSession;
-use laneflow_runtime::{RouteHandle, VehicleHandle, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{
+    RouteHandle, VehicleHandle, VehicleSpawnInput, WorldConfig, WorldConfigInput,
+};
 use laneflow_scenario::complex_junction::{JunctionCatalog, VEHICLE_PROFILE_KEY, bind};
 
 #[path = "scene_loader.rs"]
@@ -105,7 +107,13 @@ pub fn build() -> Result<JunctionDebugScene, Box<dyn Error>> {
     let mut world = scene_loader::install_world(
         &revision,
         "scenario://complex-junction",
-        WorldConfig::new(16, 16, 1_024, 1_024, FIXED_DELTA_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 16,
+            route_capacity: 16,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: FIXED_DELTA_MS,
+        })?,
         bound.policy_selection,
     )?;
     let profile = *bound

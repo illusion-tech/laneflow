@@ -16,7 +16,8 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 #[cfg(feature = "placement-fixtures")]
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, RouteRegisterInput, TickInput,
-    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput,
 };
 #[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::{ParticipantStreamOrdinal, VehicleProfileOrdinal};
@@ -49,11 +50,18 @@ fn placement_bounded_account() {
     )
     .expect("revision");
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(32, 8, 256, 64, 100),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 32,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 256,
+            route_conflict_occurrence_capacity: 64,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://placement-account",
                 origin.canonical_artifact_digest(),
@@ -62,9 +70,9 @@ fn placement_bounded_account() {
             )
             .expect("source"),
         },
-        742,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(742),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("world");
     let stream = revision
         .conflict()

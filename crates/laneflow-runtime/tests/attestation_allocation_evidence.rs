@@ -17,7 +17,8 @@ use std::hint::black_box;
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
-    TrafficWorld, WorldConfig, attest_published_shared_network_revision,
+    TrafficWorld, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    attest_published_shared_network_revision,
 };
 use laneflow_static_network::{
     AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -140,16 +141,23 @@ fn direct_digest_scratch_and_allocation_evidence() {
         let vehicles = tier / 10;
         let routes = vehicles
             .min(synthetic_network::WorkloadShape::for_stable_entities(tier).synthetic_tiles);
-        let mut world = TrafficWorld::install(
-            std::sync::Arc::clone(&root),
-            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 100),
-            ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&root),
+            config: WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: vehicles,
+                route_capacity: routes,
+                route_edge_occurrence_capacity: u64::from(routes) * 3 + 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: reference.clone(),
             },
-            987_500 + u64::from(tier % 1_000),
-            test_policy::selection(&root),
-        )
+            world_id: WorldId::new(987_500 + u64::from(tier % 1_000)),
+            policy_selection: test_policy::selection(&root),
+        })
         .expect("install");
         // 与墙钟测试同口径的动态记录世界（档位 1/10 车辆），使 scratch 上界
         // 与分配对照覆盖记录表规模，而不是空世界常量。

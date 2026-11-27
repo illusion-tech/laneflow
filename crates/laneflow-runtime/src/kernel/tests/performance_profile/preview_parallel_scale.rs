@@ -255,7 +255,7 @@ fn run_error_arm() {
     }
     let position = ERROR_VEHICLES / 2;
     let before = world.capture_snapshot().unwrap();
-    let guard = waiting::inject_preview_errors(world_id, &[position], &[]);
+    let guard = waiting::inject_preview_errors(crate::WorldId::new(world_id), &[position], &[]);
     replenish(&mut world, &routes, &boundaries);
     let result = world.step(TickInput::new(DELTA_MS));
     drop(guard);

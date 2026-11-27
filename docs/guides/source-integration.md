@@ -3,7 +3,7 @@ schema_version = 1
 id = "guides-source-integration"
 kind = "guide"
 status = "active"
-revised_date = "2026-11-26"
+revised_date = "2026-11-27"
 summary = "指导从源码接入无窗口交通运行时。"
 scope = "指导从源码接入无窗口交通运行时。"
 applicability = "#applicability"
@@ -180,7 +180,7 @@ digest / length 对应。本示例走的是发布来源。
 
 ### 四容量与固定步长
 
-`WorldConfig` 的四个容量和固定步长在安装时写死：
+先用 `WorldConfigInput` 按字段填写四项容量和固定步长。本示例的配置如下。
 
 | 字段                                 | 本示例的值 | 含义                               |
 | ------------------------------------ | ---------- | ---------------------------------- |
@@ -193,8 +193,31 @@ digest / length 对应。本示例走的是发布来源。
 这组数字只够这一条路线和这一辆车。冲突容量为 0 只说明 `route-main-west-near-left`
 这次注册没有冲突出现记录，不说明整网没有门、冲突区或参与者流。策略仍然必须 Pinned。
 
-`fixed_delta_time_ms` 的合法范围是 `4..=1000`。不要把走廊的 16 毫秒改成 100 毫秒再指望
-信号相位仍然对齐：相位时长短于步长，或不是步长的正整数倍，安装会拒绝。
+宿主将预算和安装来源交给 Runtime 的调用如下。这里的 `reference` 已通过上一步修订认证，
+`policy` 来自走廊 catalog。
+
+```rust
+let config = WorldConfig::try_new(WorldConfigInput {
+    vehicle_capacity: 1,
+    route_capacity: 1,
+    route_edge_occurrence_capacity: 3,
+    route_conflict_occurrence_capacity: 0,
+    fixed_delta_time_ms: 16,
+})?;
+let world = TrafficWorld::install(WorldInstallInput {
+    revision: Arc::clone(&revision),
+    config,
+    execution: ExecutionConfig::new(NonZeroU32::MIN),
+    source: CommittedNetworkSource::Published { reference },
+    world_id: WorldId::new(1),
+    policy_selection: policy,
+})?;
+```
+
+`try_new` 在步长超出 `4..=1000` 毫秒时返回 `WorldConfigError`。在有效范围内，
+仍要由安装入口核对修订中的相位时长。例如本走廊改用 100 毫秒后，相位与步长无法对齐，
+会收到 `InstallError`。普通安装由宿主分配世界身份，每个逻辑世界使用自己的值。
+从快照新建世界时，`restore_lfrs` 接收同样受检的目标配置，沿用快照里的世界身份与策略。
 
 ### worker
 

@@ -3,7 +3,7 @@ schema_version = 1
 id = "architecture"
 kind = "reference"
 status = "active"
-revised_date = "2026-11-26"
+revised_date = "2026-11-27"
 summary = "说明现行组件分层、数据流与宿主集成边界。"
 scope = "当前宿主分层、生产数据流、crate 依赖与所有权、交通世界生命周期、领域权威归属，以及已实现、已接受但未实现和长期方向的边界"
 applicability = "#applicability"
@@ -122,18 +122,9 @@ Spatial 但没有 lane-pose 时绑定失败。同时持有世界和会话的 Ada
 [空间几何][spatial-geometry] 与
 [Adapter API][adapter-api]。
 
-正常生产入口是：
-
-```text
-TrafficWorld::install(
-    Arc<SharedNetworkRevision>,
-    WorldConfig,
-    ExecutionConfig,
-    CommittedNetworkSource,
-    world_id,
-    WorldPolicySelection,
-)
-```
+宿主以 `WorldConfig::try_new` 构造交通配置，然后调用 `TrafficWorld::install`。
+其 `WorldInstallInput` 按名称指定共享修订、受检配置、执行配置、已提交来源、
+`WorldId` 和路权策略。
 
 `PostEmissionCheckedBundle` 按值持有 LFCA、LFSM、LFSD 三个来源句柄。它是进程内
 能力，不表示已发布或可信。`canonical_network_input(self)` 消费 bundle，只留下

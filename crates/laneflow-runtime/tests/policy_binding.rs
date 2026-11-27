@@ -1,8 +1,8 @@
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, InstallError, PolicyPin, PublishedLfcaReference, SnapshotRestoreLimits,
-    TrafficWorld, WorldConfig, WorldPolicySelection, deterministic_state_digest, encode_lfrs,
-    restore_lfrs,
+    TrafficWorld, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput, WorldPolicySelection,
+    deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{
     EntityKind, ManeuverGateOrdinal, ParticipantStreamOrdinal, RightOfWayPolicySetId,
@@ -37,11 +37,18 @@ fn install(
     dt: u64,
 ) -> Result<TrafficWorld, InstallError> {
     let origin = root.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(root),
-        WorldConfig::new(4, 4, 1_024, 1_024, dt),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(root),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: dt,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://w3",
                 origin.canonical_artifact_digest(),
@@ -50,9 +57,9 @@ fn install(
             )
             .unwrap(),
         },
-        1,
-        selection,
-    )
+        world_id: WorldId::new(1),
+        policy_selection: selection,
+    })
 }
 fn pin(root: &SharedNetworkRevision, ordinal: u32) -> WorldPolicySelection {
     WorldPolicySelection::Pinned(PolicyPin {

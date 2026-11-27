@@ -11,7 +11,7 @@ use laneflow_runtime::{
     ParkingError, ParkingLeaveRecord, ParkingParkRecord, ParkingRebindRecord, ParkingReserveRecord,
     ParkingTarget, RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle,
     RouteRegisterInput, SemanticDiffOriginBinding, SpawnError, StepOutcome, TickInput,
-    TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration,
+    TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration, WorldId,
 };
 use laneflow_spatial::{CanonicalPoseBatch, PoseInput, PoseRecordId, SpatialSession};
 use laneflow_static_network::SharedNetworkRevision;
@@ -820,14 +820,14 @@ impl LaneFlowCutoverRecord {
 /// Runtime 签发的规范轴，Adapter 只消费不重建。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct LaneFlowConsumptionContext {
-    world_id: u64,
+    world_id: WorldId,
     world_generation: WorldGeneration,
 }
 
 impl LaneFlowConsumptionContext {
     /// 世界身份（宿主指定的 `world_id`）。
     #[must_use]
-    pub const fn world_id(&self) -> u64 {
+    pub const fn world_id(&self) -> WorldId {
         self.world_id
     }
 
@@ -854,7 +854,7 @@ impl Default for LaneFlowCommittedPoseBatch {
         Self {
             batch: CanonicalPoseBatch::new(),
             context: LaneFlowConsumptionContext {
-                world_id: 0,
+                world_id: WorldId::new(0),
                 world_generation: WorldGeneration::INITIAL,
             },
             vehicles: Vec::new(),
@@ -1199,11 +1199,18 @@ mod capacity_tests {
     fn rig() -> Rig {
         let root = revision();
         let origin = root.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&root),
-            WorldConfig::new(512, 16, 1_024, 1_024, 100),
-            laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+            revision: Arc::clone(&root),
+            config: WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 512,
+                route_capacity: 16,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://session-capacity",
                     origin.canonical_artifact_digest(),
@@ -1212,9 +1219,9 @@ mod capacity_tests {
                 )
                 .expect("source"),
             },
-            725,
-            WorldPolicySelection::NotRequired,
-        )
+            world_id: laneflow_runtime::WorldId::new(725),
+            policy_selection: WorldPolicySelection::NotRequired,
+        })
         .expect("install");
         let main_routes: Vec<_> = (0..MAIN_LANES)
             .map(|lane| {
@@ -1333,7 +1340,7 @@ mod capacity_tests {
         let batch = output.batch().clone();
         let context = output.context();
         let foreign = super::LaneFlowConsumptionContext {
-            world_id: context.world_id.wrapping_add(1),
+            world_id: laneflow_runtime::WorldId::new(context.world_id.get().wrapping_add(1)),
             world_generation: context.world_generation,
         };
         let token = laneflow_spatial::FramePlacementToken::new(2);

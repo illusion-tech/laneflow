@@ -3,8 +3,18 @@ use super::*;
 #[test]
 fn repeated_edge_pairs_require_distinct_ordered_occurrences_and_share_route_capacity() {
     let revision = compile_road_editing_revision(module(0.));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(2, 4, 8, 8, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 8,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let rel = revision.traffic().relations();
     let section = [0, 1]
         .into_iter()

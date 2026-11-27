@@ -25,7 +25,7 @@ use laneflow_runtime::{
     CommittedNetworkSource, LeaveParkingTarget, ParkingTarget, PublishedLfcaReference,
     ReserveParkingTarget, RouteHandle, RouteRegisterInput, TrafficWorld, VehicleHandle,
     VehicleSpawnInput, VirtualEntryAnchorSelector, VirtualExitAnchorSelector, WorldConfig,
-    WorldPolicySelection,
+    WorldConfigInput, WorldId, WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_spatial::{FramePlacementToken, SpatialError, SpatialSession};
 use laneflow_static_contract::{
@@ -181,18 +181,28 @@ fn root() -> Arc<SharedNetworkRevision> {
 }
 
 fn install_session(root: &Arc<SharedNetworkRevision>) -> LaneFlowSession {
-    install_session_with_id(root, 721)
+    install_session_with_id(root, WorldId::new(721))
 }
 
-fn install_session_with_id(root: &Arc<SharedNetworkRevision>, world_id: u64) -> LaneFlowSession {
+fn install_session_with_id(
+    root: &Arc<SharedNetworkRevision>,
+    world_id: WorldId,
+) -> LaneFlowSession {
     let edge_main = edge_ordinal(root, "edge-main");
     let edge_alt = edge_ordinal(root, "edge-alt");
     let origin = root.canonical_origin();
-    let world = TrafficWorld::install(
-        Arc::clone(root),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(root),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://pose-extraction-commit",
                 origin.canonical_artifact_digest(),
@@ -202,8 +212,8 @@ fn install_session_with_id(root: &Arc<SharedNetworkRevision>, world_id: u64) -> 
             .expect("source"),
         },
         world_id,
-        WorldPolicySelection::NotRequired,
-    )
+        policy_selection: WorldPolicySelection::NotRequired,
+    })
     .expect("install");
     let _ = (edge_main, edge_alt);
     let spatial = SpatialSession::bind(Arc::clone(root))
@@ -553,7 +563,7 @@ fn selected_errors_preserve_old_output_and_duplicates_precede_unknown() {
     // 容量已满且仅移除一辆，成功新建必定复用唯一释放的槽位。
     assert_ne!(replacement, removed);
     let context = session.consumption_context();
-    let foreign = install_session_with_id(&revision, 713).consumption_context();
+    let foreign = install_session_with_id(&revision, WorldId::new(713)).consumption_context();
     let mut output = LaneFlowCommittedPoseBatch::new();
     session
         .extract_committed_pose_batch(FramePlacementToken::new(11), &mut output)

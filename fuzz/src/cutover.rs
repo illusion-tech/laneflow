@@ -146,7 +146,7 @@ fn check_same_revision(data: &[u8]) {
         baseline
     } else {
         WorldBinding::new(
-            537,
+            laneflow_runtime::WorldId::new(537),
             baseline.world_generation(),
             baseline.baseline_command_cursor(),
             baseline.baseline_event_cursor(),
@@ -227,7 +227,7 @@ pub fn check_cutover(data: &[u8]) {
             Some(diff_binding),
             MigrationPolicyKind::CrossRevisionDirect,
             WorldBinding::new(
-                537,
+                laneflow_runtime::WorldId::new(537),
                 baseline.world_generation(),
                 baseline.baseline_command_cursor(),
                 baseline.baseline_event_cursor(),

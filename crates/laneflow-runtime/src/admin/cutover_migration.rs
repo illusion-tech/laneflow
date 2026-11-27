@@ -3139,17 +3139,19 @@ pub(crate) mod tests {
         assert!(entry_end_mm > span_mm);
 
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(
-                vehicle_count,
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: vehicle_count,
                 route_capacity,
-                route_edges.len() as u64 * u64::from(route_capacity),
-                u64::from(route_capacity),
-                4,
-            ),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+                route_edge_occurrence_capacity: route_edges.len() as u64
+                    * u64::from(route_capacity),
+                route_conflict_occurrence_capacity: u64::from(route_capacity),
+                fixed_delta_time_ms: 4,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://conflict-scale",
                     origin.canonical_artifact_digest(),
@@ -3158,8 +3160,8 @@ pub(crate) mod tests {
                 )
                 .expect("Conflict scale source"),
             },
-            world_id,
-            WorldPolicySelection::Pinned(PolicyPin {
+            world_id: crate::WorldId::new(world_id),
+            policy_selection: WorldPolicySelection::Pinned(PolicyPin {
                 policy: RightOfWayPolicySetId::from_untyped(
                     laneflow_compiler::derive_canonical_stable_id_v1(
                         EntityKind::RightOfWayPolicySet,
@@ -3169,7 +3171,7 @@ pub(crate) mod tests {
                     .expect("Conflict scale policy identity"),
                 ),
             }),
-        )
+        })
         .expect("Conflict scale world install");
         let route = world
             .register_route(RouteRegisterInput::new(route_edges))
@@ -3610,11 +3612,18 @@ pub(crate) mod tests {
         )
         .expect("signal frontier revision");
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(4, 4, 64, 16, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 16,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://signal-frontier",
                     origin.canonical_artifact_digest(),
@@ -3623,11 +3632,11 @@ pub(crate) mod tests {
                 )
                 .expect("signal frontier source"),
             },
-            740,
-            WorldPolicySelection::Pinned(crate::PolicyPin {
+            world_id: crate::WorldId::new(740),
+            policy_selection: WorldPolicySelection::Pinned(crate::PolicyPin {
                 policy: RightOfWayPolicySetId::from_untyped(policy_id),
             }),
-        )
+        })
         .expect("signal frontier world");
         let edges = edge_ids
             .into_iter()
@@ -3749,22 +3758,29 @@ pub(crate) mod tests {
         revision: Arc<SharedNetworkRevision>,
     ) -> (TrafficWorld, VehicleHandle) {
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(4, 4, 64, 8, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::admin::cutover::tests::transaction_tests::source_for(
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 8,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::admin::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://live-conflict-cutover-base",
             ),
-            284,
-            crate::WorldPolicySelection::Pinned(crate::PolicyPin {
+            world_id: crate::WorldId::new(284),
+            policy_selection: crate::WorldPolicySelection::Pinned(crate::PolicyPin {
                 policy: revision
                     .identity()
                     .stable_id(laneflow_static_contract::RightOfWayPolicySetOrdinal::from_raw(0))
                     .expect("fixture policy"),
             }),
-        )
+        })
         .expect("install live Conflict world");
         let stream = revision
             .conflict()
@@ -4356,7 +4372,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(target_origin),
             Some(binding),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(0, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(crate::WorldId::new(0), WorldGeneration::INITIAL, 0, 0),
         )
     }
 
@@ -4446,14 +4462,21 @@ pub(crate) mod tests {
     fn installed_world(bytes: &[u8], key: &str) -> TrafficWorld {
         let revision = revision(bytes);
         let origin = *revision.canonical_origin();
-        TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, key),
-            0,
-            crate::test_policy::selection(&revision),
-        )
+        TrafficWorld::install(crate::WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, key),
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install")
     }
 
@@ -4604,14 +4627,21 @@ pub(crate) mod tests {
             entry_progress_m: 20.0,
         });
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, "fixture://parking-cutover-base"),
-            0,
-            crate::test_policy::selection(&revision),
-        )
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, "fixture://parking-cutover-base"),
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("parking cutover install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![LaneEdgeOrdinal::from_raw(0)]))

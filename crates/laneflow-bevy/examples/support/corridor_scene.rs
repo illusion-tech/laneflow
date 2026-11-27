@@ -71,13 +71,13 @@ pub(super) fn build_catalog(
         revision,
         bound,
         profile,
-        WorldConfig::new(
-            u32::try_from(config.target_vehicle_count())?,
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: u32::try_from(config.target_vehicle_count())?,
             route_capacity,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: TICK_MS,
+        })?,
     )
 }
 
@@ -217,7 +217,14 @@ mod tests {
             Arc::clone(&revision),
             bound.clone(),
             VehicleProfileOrdinal::from_raw(u32::MAX),
-            WorldConfig::new(100, 28, 1_024, 1_024, TICK_MS),
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 100,
+                route_capacity: 28,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: TICK_MS,
+            })
+            .expect("有效的交通配置"),
         )
         .err()
         .unwrap();
@@ -227,7 +234,14 @@ mod tests {
             revision,
             bound,
             profile,
-            WorldConfig::new(1, 28, 1_024, 1_024, TICK_MS),
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 1,
+                route_capacity: 28,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: TICK_MS,
+            })
+            .expect("有效的交通配置"),
         )
         .err()
         .unwrap();

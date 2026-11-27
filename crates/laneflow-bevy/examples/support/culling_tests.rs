@@ -9,7 +9,7 @@ use laneflow_bevy::{
 };
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, TrafficWorld, VehicleHandle,
-    VehicleState, VehicleStatus, WorldConfig,
+    VehicleState, VehicleStatus, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_spatial::{CanonicalPoseF32, FramePlacementToken};
 use laneflow_static_contract::LaneEdgeOrdinal;
@@ -427,11 +427,18 @@ fn foreign_context(app: &App) -> LaneFlowConsumptionContext {
     let session = app.world().resource::<LaneFlowSession>();
     let revision = session.world().revision();
     let origin = revision.canonical_origin();
-    let world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(1, 1, 1_024, 1_024, 16),
-        ExecutionConfig::new(NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 1,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "scenario://culling-foreign",
                 origin.canonical_artifact_digest(),
@@ -440,9 +447,9 @@ fn foreign_context(app: &App) -> LaneFlowConsumptionContext {
             )
             .unwrap(),
         },
-        930,
-        session.world().policy_selection(),
-    )
+        world_id: WorldId::new(930),
+        policy_selection: session.world().policy_selection(),
+    })
     .unwrap();
     LaneFlowSession::new(world, None, LaneFlowSessionConfig::new(NonZeroU32::MIN))
         .unwrap()

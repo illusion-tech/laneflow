@@ -10,7 +10,8 @@ mod test_policy;
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
-    TrafficWorld, WorldConfig, attest_published_shared_network_revision,
+    TrafficWorld, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    attest_published_shared_network_revision,
 };
 use laneflow_static_network::{
     AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -89,14 +90,21 @@ fn attestation_and_digest_heap_peak_evidence() {
         );
         let increment = lfca.len() + attestation.max_bytes;
         let coexist = increment + root_stats.curr_bytes;
-        let mut world = TrafficWorld::install(
-            root.clone(),
-            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 100),
-            ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published { reference },
-            987_500,
-            test_policy::selection(&root),
-        )
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: root.clone(),
+            config: WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: vehicles,
+                route_capacity: routes,
+                route_edge_occurrence_capacity: u64::from(routes) * 3 + 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published { reference },
+            world_id: WorldId::new(987_500),
+            policy_selection: test_policy::selection(&root),
+        })
         .unwrap();
         synthetic_network::populate(&mut world, vehicles, routes);
         let (direct, direct_stats) = measure_heap(|| {

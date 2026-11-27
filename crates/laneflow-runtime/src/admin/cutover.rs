@@ -11,11 +11,15 @@ use std::sync::Arc;
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 use thiserror::Error;
 
+#[cfg(test)]
+use crate::WorldInstallInput;
 use crate::facade::source::CommittedNetworkSource;
 use crate::kernel::tables::{
     CompiledRoute, ConflictCapabilityError, check_conflict_capability, compile_route,
 };
-use crate::{ObservationStateSequence, RouteError, StepError, TrafficWorld, WorldGeneration};
+use crate::{
+    ObservationStateSequence, RouteError, StepError, TrafficWorld, WorldGeneration, WorldId,
+};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 2;
@@ -135,7 +139,7 @@ impl SemanticDiffOriginBinding {
 /// 启动时逐项比对。精确值域为宿主 `u64` 身份加 Runtime 签发的 `u64` 世代。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorldBinding {
-    world_id: u64,
+    world_id: WorldId,
     world_generation: WorldGeneration,
     baseline_command_cursor: u64,
     baseline_event_cursor: u64,
@@ -145,7 +149,7 @@ impl WorldBinding {
     /// 构造世界绑定。
     #[must_use]
     pub const fn new(
-        world_id: u64,
+        world_id: WorldId,
         world_generation: WorldGeneration,
         baseline_command_cursor: u64,
         baseline_event_cursor: u64,
@@ -160,7 +164,7 @@ impl WorldBinding {
 
     /// 目标世界身份（宿主任意定义；编码 G2 留白）。
     #[must_use]
-    pub const fn world_id(&self) -> u64 {
+    pub const fn world_id(&self) -> WorldId {
         self.world_id
     }
 
@@ -630,7 +634,7 @@ pub enum CutoverError {
     #[error("切换事务与传入世界不匹配（事务属世界 {expected_world}）")]
     TransactionWorldMismatch {
         /// 事务所属的世界身份。
-        expected_world: u64,
+        expected_world: WorldId,
     },
 }
 
@@ -1081,7 +1085,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(origin),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(7, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(7), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(origin, origin, &limits()), Ok(()));
         assert_eq!(
@@ -1106,7 +1110,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 4_096)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(7, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(7), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
     }
@@ -1133,7 +1137,7 @@ pub(crate) mod tests {
                 LfcaOriginBinding::from_canonical_origin(origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+                WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
             );
             assert_eq!(
                 base.validate(origin, origin, &limits()),
@@ -1144,7 +1148,7 @@ pub(crate) mod tests {
                 mutated,
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+                WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
             );
             assert_eq!(
                 target.validate(origin, origin, &limits()),
@@ -1162,7 +1166,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 1)),
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             with_lfsd.validate(base, base, &limits()),
@@ -1173,7 +1177,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(other),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             unequal.validate(base, other, &limits()),
@@ -1184,7 +1188,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(other),
             None,
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             without_lfsd.validate(base, other, &limits()),
@@ -1201,7 +1205,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 2_048)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         let tight = CutoverPreflightLimits::new(1_024);
         assert_eq!(
@@ -1216,7 +1220,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             Some(lfsd(99, 1)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             wrong_format.validate(base, target, &limits()),
@@ -1243,7 +1247,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(origin_value),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             descriptor.validate(origin_value, origin_value, &limits()),
@@ -1264,7 +1268,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 1)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             equal.validate(base, base, &limits()),
@@ -1288,7 +1292,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(3, WorldGeneration::INITIAL, 0, 0),
+            WorldBinding::new(WorldId::new(3), WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
     }
@@ -1303,7 +1307,7 @@ pub(crate) mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 5, 0),
+            WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 5, 0),
         );
         assert_eq!(nonzero.validate(base, base, &limits()), Ok(()));
         assert_eq!(nonzero.world_binding().baseline_command_cursor(), 5);
@@ -1374,14 +1378,21 @@ pub(crate) mod tests {
         ) -> (TrafficWorld, crate::RouteHandle, crate::VehicleHandle) {
             let revision = revision(retain);
             let origin = *revision.canonical_origin();
-            let mut world = TrafficWorld::install(
-                Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                source_for(origin, "fixture://base"),
-                1,
-                crate::test_policy::selection(&revision),
-            )
+            let mut world = TrafficWorld::install(WorldInstallInput {
+                revision: Arc::clone(&revision),
+                config: WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 1_024,
+                    route_conflict_occurrence_capacity: 1_024,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: source_for(origin, "fixture://base"),
+                world_id: WorldId::new(1),
+                policy_selection: crate::test_policy::selection(&revision),
+            })
             .expect("install");
             let first = laneflow_static_contract::LaneEdgeOrdinal::from_raw(0);
             let successors: &[laneflow_static_contract::LaneEdgeOrdinal] =
@@ -1462,6 +1473,7 @@ pub(crate) mod tests {
             assert_eq!(before.status, after.status);
             let edges_after: Vec<_> = world.route_edges(route).expect("route").to_vec();
             assert_eq!(edges_before, edges_after);
+            assert_eq!(world.world_id(), descriptor.world_binding().world_id());
             assert_eq!(world.world_generation().get(), before_generation.get() + 1);
             // 换绑后世界继续确定性步进。
             world.step(TickInput::new(100)).expect("step after");
@@ -1714,7 +1726,7 @@ pub(crate) mod tests {
         fn world_binding_mismatch_rejects() {
             let (mut world, _, _) = world_with_vehicle(true);
             let before_origin = *world.revision().canonical_origin();
-            assert_eq!(world.world_id(), 1);
+            assert_eq!(world.world_id(), crate::WorldId::new(1));
             let target = revision(false);
             let target_origin = *target.canonical_origin();
             // 描述符签发给其它世界（world_id=9）。
@@ -1723,7 +1735,7 @@ pub(crate) mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(9, WorldGeneration::INITIAL, 0, 0),
+                WorldBinding::new(WorldId::new(9), WorldGeneration::INITIAL, 0, 0),
             );
             assert_eq!(
                 world
@@ -1944,7 +1956,12 @@ pub(crate) mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, world.world_generation(), world.command_cursor() + 1, 0),
+                WorldBinding::new(
+                    WorldId::new(1),
+                    world.world_generation(),
+                    world.command_cursor() + 1,
+                    0,
+                ),
             );
             assert_eq!(
                 world
@@ -1973,7 +1990,7 @@ pub(crate) mod tests {
                 LfcaOriginBinding::from_canonical_origin(base),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, WorldGeneration::INITIAL, 2, 7),
+                WorldBinding::new(WorldId::new(1), WorldGeneration::INITIAL, 2, 7),
             );
             assert_eq!(descriptor.validate(base, base, &limits()), Ok(()));
             assert_eq!(world.event_cursor(), 0);

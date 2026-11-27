@@ -15,7 +15,7 @@ use laneflow_compiler::{
 use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object_values};
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, SemanticDiffOriginBinding,
-    VehicleHandle, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    VehicleHandle, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldPolicySelection,
 };
 use laneflow_static_contract::{
     EntityKind, ExactByteLength, LaneEdgeId, LaneEdgeOrdinal, PortableObjectKind,
@@ -346,7 +346,13 @@ pub(super) fn build() -> Result<Scene, Box<dyn Error>> {
     let mut world = scene_loader::install_world(
         &r1.root,
         scenario_key(RevisionName::R1),
-        WorldConfig::new(8, 2, 4_096, 4_096, TICK_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 4_096,
+            route_conflict_occurrence_capacity: 4_096,
+            fixed_delta_time_ms: TICK_MS,
+        })?,
         WorldPolicySelection::NotRequired,
     )?;
     let ring = RING

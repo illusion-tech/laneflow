@@ -21,6 +21,8 @@ use crate::{
     ManeuverTraversalPhase, ManeuverTraversalState, ParkingBinding, RouteHandle, StepError,
     TrafficWorld, VehicleHandle, VehicleState, VehicleStatus,
 };
+#[cfg(test)]
+use crate::{WorldId, WorldInstallInput};
 
 struct GateMotion {
     handle: VehicleHandle,
@@ -5077,11 +5079,18 @@ mod tests {
                 )
                 .unwrap(),
             );
-            let mut world = TrafficWorld::install(
+            let mut world = TrafficWorld::install(WorldInstallInput {
                 revision,
-                crate::WorldConfig::new(1, 1, 3, 3, 4),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                crate::CommittedNetworkSource::Published {
+                config: crate::WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 1,
+                    route_capacity: 1,
+                    route_edge_occurrence_capacity: 3,
+                    route_conflict_occurrence_capacity: 3,
+                    fixed_delta_time_ms: 4,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: crate::CommittedNetworkSource::Published {
                     reference: crate::PublishedLfcaReference::new(
                         "fixture://eta-count",
                         origin.canonical_artifact_digest(),
@@ -5090,9 +5099,9 @@ mod tests {
                     )
                     .unwrap(),
                 },
-                676,
-                crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
-            )
+                world_id: WorldId::new(676),
+                policy_selection: crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
+            })
             .unwrap();
             let route = world
                 .register_route(crate::RouteRegisterInput::new(edges))
@@ -6477,6 +6486,7 @@ pub(crate) fn reset_conflict_reserve_probe_log() {
 /// 注入面相互独立）。
 #[cfg(test)]
 mod conflict_injection {
+    use crate::WorldId;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     pub(super) const DISABLED_WORLD: u64 = u64::MAX;
@@ -6504,51 +6514,51 @@ mod conflict_injection {
         })
     }
 
-    pub(super) fn nonfinite_injected(world_id: u64, position: usize) -> bool {
-        NONFINITE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn nonfinite_injected(world_id: WorldId, position: usize) -> bool {
+        NONFINITE_WORLD.load(Ordering::SeqCst) == world_id.get()
             && position < u64::BITS as usize
             && NONFINITE_POSITIONS.load(Ordering::SeqCst) & (1_u64 << position) != 0
     }
 
-    pub(super) fn invariant_downstream_injected(world_id: u64, position: usize) -> bool {
-        INVARIANT_DOWNSTREAM_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn invariant_downstream_injected(world_id: WorldId, position: usize) -> bool {
+        INVARIANT_DOWNSTREAM_WORLD.load(Ordering::SeqCst) == world_id.get()
             && position < u64::BITS as usize
             && INVARIANT_DOWNSTREAM_POSITIONS.load(Ordering::SeqCst) & (1_u64 << position) != 0
     }
 
-    pub(super) fn input_reserve_injected(world_id: u64) -> bool {
-        INPUT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn input_reserve_injected(world_id: WorldId) -> bool {
+        INPUT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 
-    pub(super) fn slot_reserve_injected(world_id: u64) -> bool {
-        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn slot_reserve_injected(world_id: WorldId) -> bool {
+        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 
-    pub(super) fn cell_work_reserve_injected(world_id: u64) -> bool {
-        CELL_WORK_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn cell_work_reserve_injected(world_id: WorldId) -> bool {
+        CELL_WORK_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 
-    pub(super) fn cells_reserve_injected(world_id: u64) -> bool {
-        CELLS_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn cells_reserve_injected(world_id: WorldId) -> bool {
+        CELLS_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 
-    pub(super) fn downstream_work_reserve_injected(world_id: u64) -> bool {
-        DOWNSTREAM_WORK_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn downstream_work_reserve_injected(world_id: WorldId) -> bool {
+        DOWNSTREAM_WORK_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 
-    pub(super) fn downstream_pool_reserve_injected(world_id: u64) -> bool {
-        DOWNSTREAM_POOL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn downstream_pool_reserve_injected(world_id: WorldId) -> bool {
+        DOWNSTREAM_POOL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 }
 
 #[cfg(test)]
 fn swap_conflict_world(
     flag: &'static std::sync::atomic::AtomicU64,
-    world_id: u64,
+    world_id: WorldId,
 ) -> ConflictBoolGuard {
     ConflictBoolGuard(
         flag,
-        flag.swap(world_id, std::sync::atomic::Ordering::SeqCst),
+        flag.swap(world_id.get(), std::sync::atomic::Ordering::SeqCst),
     )
 }
 
@@ -6578,12 +6588,12 @@ impl Drop for ConflictNonfiniteGuard {
 /// 重算同原语位）。
 #[cfg(test)]
 pub(crate) fn inject_conflict_nonfinite(
-    world_id: u64,
+    world_id: WorldId,
     positions: &[usize],
 ) -> ConflictNonfiniteGuard {
     use std::sync::atomic::Ordering;
     ConflictNonfiniteGuard(
-        conflict_injection::NONFINITE_WORLD.swap(world_id, Ordering::SeqCst),
+        conflict_injection::NONFINITE_WORLD.swap(world_id.get(), Ordering::SeqCst),
         conflict_injection::NONFINITE_POSITIONS.swap(
             conflict_injection::position_mask(positions),
             Ordering::SeqCst,
@@ -6607,12 +6617,12 @@ impl Drop for ConflictInvariantGuard {
 /// 注入（D4 核心反例的下游侧）。
 #[cfg(test)]
 pub(crate) fn inject_conflict_invariant_downstream(
-    world_id: u64,
+    world_id: WorldId,
     positions: &[usize],
 ) -> ConflictInvariantGuard {
     use std::sync::atomic::Ordering;
     ConflictInvariantGuard(
-        conflict_injection::INVARIANT_DOWNSTREAM_WORLD.swap(world_id, Ordering::SeqCst),
+        conflict_injection::INVARIANT_DOWNSTREAM_WORLD.swap(world_id.get(), Ordering::SeqCst),
         conflict_injection::INVARIANT_DOWNSTREAM_POSITIONS.swap(
             conflict_injection::position_mask(positions),
             Ordering::SeqCst,
@@ -6622,7 +6632,7 @@ pub(crate) fn inject_conflict_invariant_downstream(
 
 /// 测试专用：武装世界下一次 cell 工作区真实预留（F1 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_cell_work_reserve(world_id: u64) -> ConflictBoolGuard {
+pub(crate) fn fail_conflict_cell_work_reserve(world_id: WorldId) -> ConflictBoolGuard {
     swap_conflict_world(
         &conflict_injection::CELL_WORK_RESERVE_FAILURE_WORLD,
         world_id,
@@ -6631,13 +6641,13 @@ pub(crate) fn fail_conflict_cell_work_reserve(world_id: u64) -> ConflictBoolGuar
 
 /// 测试专用：武装世界下一次 candidate_cells 真实预留（F2 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_cells_reserve(world_id: u64) -> ConflictBoolGuard {
+pub(crate) fn fail_conflict_cells_reserve(world_id: WorldId) -> ConflictBoolGuard {
     swap_conflict_world(&conflict_injection::CELLS_RESERVE_FAILURE_WORLD, world_id)
 }
 
 /// 测试专用：武装世界下一次 downstream 工作区真实预留（F4 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_downstream_work_reserve(world_id: u64) -> ConflictBoolGuard {
+pub(crate) fn fail_conflict_downstream_work_reserve(world_id: WorldId) -> ConflictBoolGuard {
     swap_conflict_world(
         &conflict_injection::DOWNSTREAM_WORK_RESERVE_FAILURE_WORLD,
         world_id,
@@ -6646,7 +6656,7 @@ pub(crate) fn fail_conflict_downstream_work_reserve(world_id: u64) -> ConflictBo
 
 /// 测试专用：武装世界下一次 candidate_downstream 真实预留（F3b 位）强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_downstream_pool_reserve(world_id: u64) -> ConflictBoolGuard {
+pub(crate) fn fail_conflict_downstream_pool_reserve(world_id: WorldId) -> ConflictBoolGuard {
     swap_conflict_world(
         &conflict_injection::DOWNSTREAM_POOL_RESERVE_FAILURE_WORLD,
         world_id,
@@ -6655,13 +6665,13 @@ pub(crate) fn fail_conflict_downstream_pool_reserve(world_id: u64) -> ConflictBo
 
 /// 测试专用：武装世界下一次 P3 输入表预留强制失败（冷态回退，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_input_reserve(world_id: u64) -> ConflictBoolGuard {
+pub(crate) fn fail_conflict_input_reserve(world_id: WorldId) -> ConflictBoolGuard {
     swap_conflict_world(&conflict_injection::INPUT_RESERVE_FAILURE_WORLD, world_id)
 }
 
 /// 测试专用：武装世界下一次 P3 槽位预留强制失败（热态回退，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_conflict_slot_reserve(world_id: u64) -> ConflictBoolGuard {
+pub(crate) fn fail_conflict_slot_reserve(world_id: WorldId) -> ConflictBoolGuard {
     swap_conflict_world(&conflict_injection::SLOT_RESERVE_FAILURE_WORLD, world_id)
 }
 

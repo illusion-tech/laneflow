@@ -17,7 +17,7 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PolicyPin, PublishedLfcaReference, RouteHandle,
     RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
-    WorldPolicySelection,
+    WorldConfigInput, WorldId, WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_static_contract::{
     EntityKind, ManeuverPathOrdinal, RightOfWayPolicySetId, VehicleProfileOrdinal,
@@ -303,11 +303,20 @@ pub fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u6
         )
         .expect("policy id"),
     );
-    let mut world = TrafficWorld::install(
-        Arc::clone(revision),
-        WorldConfig::new(count, count, u64::from(count) * 3, 1, DELTA_MS),
-        ExecutionConfig::new(std::num::NonZeroU32::new(workers).expect("nonzero workers")),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: count,
+            route_capacity: count,
+            route_edge_occurrence_capacity: u64::from(count) * 3,
+            route_conflict_occurrence_capacity: 1,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(
+            std::num::NonZeroU32::new(workers).expect("nonzero workers"),
+        ),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://multi-gate",
                 origin.canonical_artifact_digest(),
@@ -316,9 +325,9 @@ pub fn install(revision: &Arc<SharedNetworkRevision>, workers: u32, world_id: u6
             )
             .expect("published reference"),
         },
-        world_id,
-        WorldPolicySelection::Pinned(PolicyPin { policy }),
-    )
+        world_id: WorldId::new(world_id),
+        policy_selection: WorldPolicySelection::Pinned(PolicyPin { policy }),
+    })
     .expect("installed world");
     for raw in 0..revision.traffic().maneuvers().maneuver_path_count() {
         let edges = revision

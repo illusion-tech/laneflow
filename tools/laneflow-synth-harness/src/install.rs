@@ -222,20 +222,20 @@ impl Sample {
             .map(|(index, _)| index)
             .collect();
         let lane_change_route = lane_change_routes.first().copied();
-        let config = world_config(&state);
-        let mut world = TrafficWorld::install(
-            revision.clone(),
+        let config = world_config(&state)?;
+        let mut world = TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+            revision: revision.clone(),
             config,
             execution,
-            CommittedNetworkSource::Published { reference: source },
-            0,
-            WorldPolicySelection::Pinned(PolicyPin {
+            source: CommittedNetworkSource::Published { reference: source },
+            world_id: laneflow_runtime::WorldId::new(0),
+            policy_selection: WorldPolicySelection::Pinned(PolicyPin {
                 policy: state
                     .policy_id
                     .parse()
                     .map_err(|e| failure("policy id", e))?,
             }),
-        )
+        })
         .map_err(|e| failure("install", e))?;
         let mut routes = Vec::new();
         let mut groups = Vec::new();
@@ -394,32 +394,31 @@ impl Sample {
 /// 世界容量（#1218 L 族适配）：L 族车辆容量含两换道者、边出现记录按路线实长累计、
 /// 冲突出现记录预算 16（换道簇 T 出现记录）；W 族恒为（规模、路线数×2、0），逐字保持。
 /// 恢复重建必须与安装同式（否则 `restore_lfrs` 容量校验拒绝）。
-pub(crate) fn world_config(state: &InitialState) -> WorldConfig {
-    if state.routes.iter().any(|route| route.edge_ids.len() > 2) {
-        let cluster_routes = state
+pub(crate) fn world_config(state: &InitialState) -> Result<WorldConfig, Error> {
+    let mut input = WorldConfigInput {
+        vehicle_capacity: state.identity.scale,
+        route_capacity: state.routes.len() as u32,
+        route_edge_occurrence_capacity: state.routes.len() as u64 * 2,
+        route_conflict_occurrence_capacity: 0,
+        fixed_delta_time_ms: u64::from(state.identity.fixed_delta_ms),
+    };
+    let cluster_routes = state
+        .routes
+        .iter()
+        .filter(|route| route.edge_ids.len() > 2)
+        .count() as u64;
+    if cluster_routes > 0 {
+        input.vehicle_capacity = state.vehicles.len() as u32;
+        input.route_edge_occurrence_capacity = state
             .routes
             .iter()
-            .filter(|route| route.edge_ids.len() > 2)
-            .count() as u64;
+            .map(|route| route.edge_ids.len() as u64)
+            .sum();
         // 每簇路线注册 2 个冲突出现记录；容量进入快照摘要，保留历史下界
         // 16（#1233：c1/c4 既有证据不变，16 簇起按需扩展）。
-        let conflict_capacity = cluster_routes.saturating_mul(2).max(16);
-        WorldConfig::new(
-            state.vehicles.len() as u32,
-            state.routes.len() as u32,
-            state.routes.iter().map(|r| r.edge_ids.len() as u64).sum(),
-            conflict_capacity,
-            u64::from(state.identity.fixed_delta_ms),
-        )
-    } else {
-        WorldConfig::new(
-            state.identity.scale,
-            state.routes.len() as u32,
-            state.routes.len() as u64 * 2,
-            0,
-            u64::from(state.identity.fixed_delta_ms),
-        )
+        input.route_conflict_occurrence_capacity = cluster_routes.saturating_mul(2).max(16);
     }
+    WorldConfig::try_new(input).map_err(|error| failure("world config", error))
 }
 
 /// 逐路线真实边长前缀和（毫米）：位置编码不假设边长均匀（#1218 L 族）。

@@ -37,8 +37,8 @@ use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_em
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, ParkingTarget, PolicyPin, PublishedLfcaReference,
     ReserveParkingTarget, RouteHandle, RouteRegisterInput, StepOutcome, TickInput, TrafficWorld,
-    VehicleSpawnInput, VehicleStatus, WorldConfig, WorldPolicySelection,
-    deterministic_state_digest,
+    VehicleSpawnInput, VehicleStatus, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    WorldPolicySelection, deterministic_state_digest,
 };
 #[cfg(feature = "placement-fixtures")]
 use laneflow_runtime::{ParkedVehicleSpawnInput, VehicleHandle};
@@ -81,11 +81,11 @@ fn install_published(
     selection: WorldPolicySelection,
 ) -> TrafficWorld {
     let origin = revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(revision),
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
         config,
-        execution(workers),
-        CommittedNetworkSource::Published {
+        execution: execution(workers),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 key,
                 origin.canonical_artifact_digest(),
@@ -94,9 +94,9 @@ fn install_published(
             )
             .expect("non-empty fixture key"),
         },
-        world_id,
-        selection,
-    )
+        world_id: WorldId::new(world_id),
+        policy_selection: selection,
+    })
     .expect("install")
 }
 
@@ -547,7 +547,14 @@ fn ring_world(
 ) -> (TrafficWorld, Vec<VehicleSpawnInput>) {
     let mut world = install_published(
         revision,
-        WorldConfig::new(16, 1, 64, 1_024, DELTA_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 16,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
         workers,
         705,
         "fixture://parallel-preview-ring",
@@ -670,7 +677,14 @@ fn run_corridor_chain(workers: u32) -> Vec<String> {
     let bound = bind(&catalog, &revision).expect("bind catalog");
     let mut world = install_published(
         &revision,
-        WorldConfig::new(24, 32, 1_024, 1_024, 16),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 24,
+            route_capacity: 32,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
         workers,
         705,
         "fixture://parallel-preview-corridor",
@@ -751,7 +765,14 @@ fn run_full_spatial_lifecycle_fused(workers: u32) -> Vec<String> {
     let revision = full_spatial_revision();
     let mut world = install_published(
         &revision,
-        WorldConfig::new(8, 4, 1_024, 1_024, DELTA_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
         workers,
         705,
         "fixture://parallel-preview-full-spatial",
@@ -893,7 +914,14 @@ fn run_parking_transition_fused(workers: u32) -> Vec<String> {
     let revision = parking_revision();
     let mut world = install_published(
         &revision,
-        WorldConfig::new(10, 4, 1_024, 1_024, DELTA_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 10,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
         workers,
         705,
         "fixture://parallel-preview-parking",
@@ -1002,7 +1030,14 @@ fn run_ring_hybrid_lifecycle(workers: u32) -> Vec<String> {
     ));
     let mut world = install_published(
         &revision,
-        WorldConfig::new(20, 1, 64, 1_024, DELTA_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 20,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
         workers,
         705,
         "fixture://parallel-preview-ring-hybrid",
@@ -1185,7 +1220,14 @@ fn run_parking_hybrid_transition(workers: u32) -> Vec<String> {
     let revision = parking_revision();
     let mut world = install_published(
         &revision,
-        WorldConfig::new(20, 4, 1_024, 1_024, DELTA_MS),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 20,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
         workers,
         705,
         "fixture://parallel-preview-parking-hybrid",

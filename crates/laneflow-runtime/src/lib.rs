@@ -37,7 +37,6 @@ pub use admin::snapshot_restore::{
     RestoredSnapshot, SnapshotLimitDimension, SnapshotRestoreError, SnapshotRestoreLimits,
     restore_lfrs,
 };
-pub use facade::TrafficWorld;
 pub use facade::editable_source::{
     EditableDiffBase, EditableDiffBaseMismatch, InvalidRoadEditingState,
     ROAD_EDITING_STATE_DIGEST_DOMAIN, ROAD_EDITING_STATE_DIGEST_VERSION, RoadEditingState,
@@ -58,7 +57,10 @@ pub use facade::routing::{
 pub use facade::source::{
     CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference,
 };
-pub use kernel::config::{ExecutionConfig, StepOutcome, TickInput, WorldConfig};
+pub use facade::{TrafficWorld, WorldInstallInput};
+pub use kernel::config::{
+    ExecutionConfig, StepOutcome, TickInput, WorldConfig, WorldConfigError, WorldConfigInput,
+};
 pub use kernel::conflict::{
     ApproachEstimate, ConflictEligibilityState, ConflictGapOutcome, ConflictLagReference,
     ConflictPassageAddress, ConflictPassageLocator, ConflictPassageOccurrenceLocator,
@@ -137,7 +139,7 @@ pub use kernel::waiting::{
     WaitingMembership, WaitingMembershipReleaseRecord, WaitingNoGrantReason,
     WaitingProjectionReason, WaitingRouteAnchor, WaitingZoneMember, WaitingZoneSnapshot,
 };
-pub use kernel::world::{RouteGateObservation, WorldGeneration};
+pub use kernel::world::{RouteGateObservation, WorldGeneration, WorldId};
 pub use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, ManeuverGateOrdinal, NetworkRevisionId, ParkingFacilityOrdinal,
     ParkingSpaceOrdinal, WaitingZoneOrdinal,

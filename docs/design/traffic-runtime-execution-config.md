@@ -52,8 +52,7 @@ tile、亲和性、调度后端、热改线程数或共享执行器注入接口�
 <a id="named-world-install"></a>
 ### 2.1 交通配置与安装输入
 
-[#1568][issue-1568] 选用两个具名参数对象。当前主干使用五个整数构造交通配置，
-再以六个参数安装世界。以下是待实施的 Rust 接口，类型从 `laneflow_runtime` 根导出。
+交通配置与世界安装各有一个具名参数对象，类型从 `laneflow_runtime` 根导出。
 宿主可在取得共享修订前完成交通配置的构造。
 
 ```rust
@@ -126,7 +125,7 @@ let world = TrafficWorld::install(WorldInstallInput {
 Builder 也能为每个值命名。若以可选值暂存，漏项到 `build()` 才能报告。若以类型状态
 记录已填字段，两组 Builder 分别需要五个和六个 setter，且只有字段齐全时才提供
 `build` 或 `install`。此处所有字段都必填，具名对象用一次构造就能提供相同的字段
-完整性检查。实施时直接迁移旧入口。
+完整性检查。
 
 `WorldConfig` 继续私有持有数值并提供五个 getter。`try_new` 仅检查固定步长的闭区间
 `4..=1000` 毫秒，越界返回 `WorldConfigError::DeltaOutOfRange { actual, min, max }`。
@@ -268,8 +267,7 @@ LaneFlow 持有的必需计划、任务范围、输出缓冲和线程登记表�
 ### 4.1 安装
 
 宿主先构造有效的 `WorldConfig`。步长越界且来源错误时，调用方在取得配置前即收到
-`WorldConfigError`。旧签名在安装时先检查来源，再报告 `InstallError::DeltaOutOfRange`。
-迁移后删除这一安装错误，安装和恢复共同使用受检配置。
+`WorldConfigError`。安装和恢复都以受检配置为输入。
 
 安装依次检查来源修订、编辑来源的差异基线、信号相位与步长的整除和下限约束、
 路权策略及 Conflict 仲裁状态，然后验证执行能力，预留计划和缓冲，初始化执行资源，

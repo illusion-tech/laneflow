@@ -343,17 +343,18 @@ pub(crate) fn assert_runtime_consumption(bundle: &Bundle) {
                 .unwrap(),
         )
         .unwrap();
-    let mut world = TrafficWorld::install(
-        revision.clone(),
-        WorldConfig::new(
-            manifest.identity.scale,
-            state.routes.len() as u32,
-            state.routes.len() as u64 * 2,
-            0,
-            u64::from(manifest.identity.fixed_delta_ms),
-        ),
-        ExecutionConfig::new(NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+        revision: revision.clone(),
+        config: WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: manifest.identity.scale,
+            route_capacity: state.routes.len() as u32,
+            route_edge_occurrence_capacity: state.routes.len() as u64 * 2,
+            route_conflict_occurrence_capacity: 0,
+            fixed_delta_time_ms: u64::from(manifest.identity.fixed_delta_ms),
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://lf-synth-generator",
                 origin.canonical_artifact_digest(),
@@ -362,11 +363,11 @@ pub(crate) fn assert_runtime_consumption(bundle: &Bundle) {
             )
             .unwrap(),
         },
-        0,
-        WorldPolicySelection::Pinned(PolicyPin {
+        world_id: laneflow_runtime::WorldId::new(0),
+        policy_selection: WorldPolicySelection::Pinned(PolicyPin {
             policy: state.policy_id.parse::<RightOfWayPolicySetId>().unwrap(),
         }),
-    )
+    })
     .unwrap();
     let routes: Vec<_> = state
         .routes
@@ -531,17 +532,18 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
                     .unwrap(),
             )
             .unwrap();
-        let mut world = TrafficWorld::install(
-            revision.clone(),
-            WorldConfig::new(
-                state.vehicles.len() as u32,
-                state.routes.len() as u32,
-                edge_occurrences,
-                16,
-                u64::from(identity.fixed_delta_ms),
-            ),
-            ExecutionConfig::new(NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+            revision: revision.clone(),
+            config: WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: state.vehicles.len() as u32,
+                route_capacity: state.routes.len() as u32,
+                route_edge_occurrence_capacity: edge_occurrences,
+                route_conflict_occurrence_capacity: 16,
+                fixed_delta_time_ms: u64::from(identity.fixed_delta_ms),
+            })
+            .expect("有效的交通配置"),
+            execution: ExecutionConfig::new(NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     "fixture://lf-synth-generator",
                     origin.canonical_artifact_digest(),
@@ -550,11 +552,11 @@ fn lane_change_lifecycle_probe_freezes_window_pinning() {
                 )
                 .unwrap(),
             },
-            0,
-            WorldPolicySelection::Pinned(PolicyPin {
+            world_id: laneflow_runtime::WorldId::new(0),
+            policy_selection: WorldPolicySelection::Pinned(PolicyPin {
                 policy: state.policy_id.parse::<RightOfWayPolicySetId>().unwrap(),
             }),
-        )
+        })
         .unwrap();
         let routes: Vec<_> = state
             .routes
