@@ -181,7 +181,15 @@ LFRS 的集合仍用 FlatBuffers 向量及其自身的长度，`u64` 集合计�
 
 **联合版的恢复首拍。** 命令侧可显式传入本拍行程、反查容差和工作上限验证一次预检。接入运行世界时，
 须把影响选速、反查容差和后续裁决的有效参数、单位、顺序、字宽及版本纳入 §6 世界行为配置，
-由版本唯一指认的固定常数可从该版本重建。世界级侧向净空限速曲线及其产品默认值仍待执行 G1 裁定。
+由版本唯一指认的固定常数可从该版本重建。启用动态换道的世界显式提供[横断面设计 §5][clearance-speed]所规定的净空限速曲线。
+联合版的世界行为配置在固定步长之后、刻度之前写入以下摘要原像（整数小端）。`mode:u8` 为 0 表示关闭动态换道，无后续字段；
+为 1 表示显式启用，依次写 `policy_version:u16=1`、`max_span_nm:u64`、`travel_tolerance_nm:u64`、
+`point_count:u64`，再按原序逐项写 `clearance_um:u32, speed_mm_s:u32`。LFRS 8 按同样的标签、标量宽度及节点内容保存，
+节点数由 FlatBuffers 向量给出。先验证模式、版本、正的跨度和容差、2 至 8 个节点及字节可用性，再验证净空和速度的顺序与端值。
+关闭模式不得携带策略载荷或已登记交接窗口；启用模式即使世界为空，也必须完整保存实际配置。
+出现缺项、未知模式或版本、非规范节点或目标世界行为不匹配时，恢复整体拒绝。
+直接摘要与捕获摘要均写入上述值。不同配置在空世界也有不同的原像。跨修订接管继承配置，重新取得目标修订的几何证据。
+限速计划属于派生值，在相同修订按保存的配置及候选预算重建；不写缓存、指针或宿主预设名。
 联合版须覆盖实际支持的最长候选，并在非零余量、反向行驶、前保险杠恰好过缝、车尾恰好清空和工作预算触限时
 对拍恢复首拍。完成这些合同及联版验收前，8/6/9 不能写入或作为已交付版本公布。
 
@@ -632,6 +640,7 @@ Waiting traversal/membership/counter、Conflict eligibility/reservation/lag、di
 [parking-system]: parking-system.md
 [right-of-way]: traffic-runtime-right-of-way-policy.md
 [lateral-handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
+[clearance-speed]: cross-section-stationing-and-lateral-geometry.md#5-分段余量与速度
 [integer-geometry]: traffic-runtime-integer-geometry.md
 [execution-config]: traffic-runtime-execution-config.md
 [committed-editing]: committed-road-editing-state.md
