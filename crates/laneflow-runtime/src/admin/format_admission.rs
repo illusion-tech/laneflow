@@ -727,10 +727,8 @@ pub(super) fn restore_lfrs(
 
 /// 把 wire 的 `(stream, zone)` 定位对解析为当前修订内的静态 passage 地址。
 ///
-/// 归属≠身份（#1217 P1-4 残余边界）：v7 行内没有资源种类字段，旧构建/外来
-/// 制品中的过渡资源行与真实静态格行不可区分——本版本 writer 由保存侧结构化
-/// 拒绝保证不再产出此类行；此类历史行的身份问题归 S5 #1200 完整格式与迁移
-/// 处置，此处不做猜测式拒绝（不得误伤真实静态格历史）。
+/// v7 行内只有静态定位对。旧构建或外来制品若以归属定位对编码固定过渡资源，
+/// 读方无法区分它与真实静态格历史。当前写方在保存时拒绝此类状态（#1217）。
 fn decode_conflict_locator(
     world: &WorldState,
     binding: wire::ConflictPassageLocatorBinding<'_>,

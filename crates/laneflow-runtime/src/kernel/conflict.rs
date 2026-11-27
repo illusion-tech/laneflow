@@ -227,9 +227,8 @@ pub(crate) fn set_conflict_work_counts(value: ConflictWorkCounts) {
 /// - [`Self::Transition`]：横向过渡段，身份为分类表派生的
 ///   [`LaneEdgeOrdinal`]（来源保真、不新增静态实体）。
 ///
-/// 过渡资源仅运行态（staged→committed→clear 生命周期共享）；静态面
-/// （安装/迁移/重绑定/恢复）遇 `Transition` 一律失败关闭（与 G2③ 持久
-/// 边界拒绝同向；S5 持久化交叉再放开）。
+/// 仲裁器安装固定过渡资源，并在步进中暂存、提交和清空预约。保存、摘要或跨修订迁移
+/// 遇到无法表达的过渡状态时，按 [`UnsupportedTransitionState`] 的种类拒绝。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ConflictResource {
     /// 静态冲突区（junction 所有）。
@@ -238,18 +237,15 @@ pub enum ConflictResource {
     Transition(LaneEdgeOrdinal),
 }
 
-/// 持久/迁移形制无法忠实表达的过渡状态种类（#1217；按检查位点语义归口，
-/// 与 S5 #1200 翻转点一一对应）。
+/// 保存或迁移时无法表达的固定预制过渡状态，按检测位置分类（#1217）。
 ///
 /// 层级归属：本类型是 **kernel 域概念**——描述 [`ConflictResource::Transition`]
 /// 资源在当前持久/迁移形制下的可表达性，与过渡资源同域；由 admin 持久化边界
 /// （保存/摘要/恢复/迁移）反向消费（kernel 不依赖 admin）。
 ///
 /// v7 持久形制的冲突身份槽只有 `(participant_stream, conflict_zone)` 定位对与
-/// Gate 稳定身份，表达不了「资源种类 + 横向过渡段稳定边身份」；在 S5 按合同 §9
-/// 版本轴交付完整格式之前，保存/摘要/迁移入口对这些状态整入口结构化拒绝——
-/// 不替换身份（不得以归属 `(stream, zone)` 冒充静态 passage 身份）、不静默
-/// 丢弃历史（G2③ 持久边界拒绝同向）。
+/// Gate 稳定身份。固定过渡的资源身份还需要过渡段的稳定边标识。保存、摘要与迁移遇到
+/// 这些状态时整体拒绝，保留真实资源的归属与历史。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum UnsupportedTransitionState {
     /// 准入 hop 解析位点（traversal / reservation / eligibility 的准入身份槽）
@@ -303,8 +299,7 @@ pub struct ConflictPassageAddress {
 impl core::fmt::Debug for ConflictPassageAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         /// 历史 Debug 形状逐字保持（`zone` 字段名与 Ordinal Debug 值）：phase
-        /// 等值轨迹摘要以 `{:?}` 为预映像（#1199 发现记录——Debug 形状即摘要
-        /// 面，S5 版本轴审计项）。
+        /// 等值轨迹摘要以 `{:?}` 为预映像（#1199），变更该输出会改变摘要。
         struct ZoneDebug(Option<ConflictZoneOrdinal>);
         impl core::fmt::Debug for ZoneDebug {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

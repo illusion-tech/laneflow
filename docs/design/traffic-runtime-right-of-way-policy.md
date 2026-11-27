@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-right-of-way-policy"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义路权策略编译与正式冲突仲裁合同。"
 scope = "官方编制来源、LFCA、共享静态路网、策略绑定、信号解释、冲突资源、 运行时快照与修订切换"
 applicability = "#applicability"
@@ -877,11 +877,10 @@ Waiting 独立 100k 组件账本仍为 19,200,060 B。
 runtime state 5、digest 7 和上表其余轴保持；现行快照字段与拒绝面以
 [`traffic-runtime-snapshot.md`][runtime-snapshot] 为准。
 
-跟入预约与换道 S5 共享一次新的动态状态切换，版本从 7/5/8 共同推进到 8/6/9
-（LFRS / runtime state / deterministic digest）。§6 的冲突预约终点和换道过渡状态、
-过渡预约必须在同一组合内可写、可读、可做同修订回放。格式、原像和两类跨修订
-边界见快照合同 §2.1 与换道合同 §9。两项分别验收，并在同一实现交付中核对
-联用状态、旧版本拒绝及失败零发布。
+跟入预约与任意位置换道共用目标组合 8/6/9（LFRS / runtime state / deterministic digest）。
+§6 的冲突预约终点、路线登记的横向交接窗口、已提交横移及其组合预约须能一起写入、
+读回和同修订回放。两项分别验收，联合用例核对联用状态、旧版本拒绝及失败零发布。
+现行组合为 7/5/8。目标字段、摘要原像与跨修订边界见[快照合同 §2.1][runtime-snapshot]。
 
 #284 沿用了当时的几何语义。#1516 的原生曲线求值使用几何语义版本 2。
 

@@ -3,13 +3,13 @@ schema_version = 1
 id = "design-lane-change-minimal-contract"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 decision_date = "2026-10-31"
-summary = "定义固定预制过渡的最小换道合同与验收边界。"
-scope = "固定预制过渡（Fixed Pre-made Transition）首版的承载形式、占用 分类与投影、同拍联合求解、预约约束与能力检查；必验反例 R1–R3 的可执行验收形态"
+summary = "规定固定预制换道退役前的运行边界，以及任意位置换道承接的安全验收。"
+scope = "v0.10 固定预制过渡的承载、预约和拒绝条件，任意位置换道承接的 R1–R3 与平行直行车反例，以及旧执行路径的退役条件"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/237", "https://github.com/illusion-tech/laneflow/issues/1512"]
-related = ["design-cross-section-access", "design-road-junction-model", "design-route-system", "design-traffic-runtime-phase-protocol", "design-traffic-runtime-snapshot", "design-vehicle-following"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/237", "https://github.com/illusion-tech/laneflow/issues/1200", "https://github.com/illusion-tech/laneflow/issues/1271", "https://github.com/illusion-tech/laneflow/issues/1512", "https://github.com/illusion-tech/laneflow/issues/1526"]
+related = ["design-cross-section-access", "design-cross-section-stationing-and-lateral-geometry", "design-road-junction-model", "design-route-system", "design-traffic-runtime-phase-protocol", "design-traffic-runtime-snapshot", "design-vehicle-following"]
 +++
 
 # 最小换道合同（Lane Change Minimal Contract）
@@ -17,7 +17,7 @@ related = ["design-cross-section-access", "design-road-junction-model", "design-
 <a id="applicability"></a>
 ## 适用边界与依据
 
-本文为固定预制过渡的已接受设计；裁定来源见 #237。设计接受不表示首版换道实现和验收完成。
+道路换道统一采用[同向相邻车道间的动态交接][dynamic-handoff]。取消以固定过渡边 `T` 代替横移的后续实现计划，包括每条 `T` 的专用预约及其持久化。§3–§6 规定已有 v0.10 执行路径在退役前的通行与拒绝条件，§7 和 §11 规定替代验收。真实连接道、匝道和路口机动继续按其道路身份、普通后继或机动门运行。
 
 关联文档：
 
@@ -31,9 +31,7 @@ related = ["design-cross-section-access", "design-road-junction-model", "design-
   [边界设计][route-design-1142]为历史设计材料，固定提交可查
 - 裁定记录双源：#237 冻结提案（issuecomment-6529967139，立时可解析）与 [G1 决策包][g1-decision-package] §七（维护者 2026-10-31 裁定；PR #1183 精确提交 `451cdaa104a3d2304480f848a67bb86743cd3350`，合入后补 merge SHA）——两者同载 A1–A6 裁定原文
 
-本文是 #237 首版 G1 冻结对象，将维护者 A1–A3/A4/A6 裁定（2026-10-31，G1
-裁定记录双源）落为正式合同文本；A5（持久化与版本轴）的规范定义在
-`traffic-runtime-snapshot.md` 衔接注记，本文 §9 只列要点与指向。
+§3–§7 承接 #237 的 A1–A4、A6 裁定。现行持久化边界见 §9 及[快照合同][snapshot]。
 
 ## 1. 目标与边界
 
@@ -44,9 +42,6 @@ related = ["design-cross-section-access", "design-road-junction-model", "design-
 改 Route、任意位置横向转移、全量 `ResolvedLanePlan`、部分区间投影与共享
 stationing（依赖 #273）。备选固定受控连接区不属本合同（独立 G1，见
 `road-junction-model.md` §15.4）。
-
-执行序（维护者裁定）：**本合同（含 §5 A4）完成并冻结 #237 后，方可 S1/S3
-实现立项**。本合同不改生产代码；`tick.rs` 引用只定义设计义务，不作缺陷认定。
 
 ## 2. 术语
 
@@ -238,12 +233,12 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 | 输入     | sample `s8`：12 m 车 `B0_up@6000`（车尾落 `I1`，route 前缀覆盖）+ 源后车 `A0@18000`，同速 8 m/s                                         |
 | 接受断言 | 预约保持到**真实车尾清空**（`rear >= clearance`）；清空前跟随车不得进入被预约区间（P5 遵守 + P4 制动证明）；清空后释放、无残留占用/预约 |
 | 失败面   | 车头离开即释放；只检查过渡区边不检查源/目标区间；长车跨边占用被漏算                                                                     |
-| 任务归属 | S4 运行时验收 × 持久化交叉（清空期快照恢复见 S5）                                                                                       |
+| 任务归属 | 固定过渡 S4 运行时验收。动态换道另验车头已交接而车尾仍占源道时的同修订保存、恢复与后续释放。                                            |
 
 输入直接复用 `docs/design/fixtures/lane-change/minimal-closed-loop.json`
 （v7）钉版场景（s4/s6/s12）；样本调整一律走 `meta.version` 递增流程，不得
 就地改值。该样本是冻结的设计与验收场景定义：现行 Runtime 测试由 Rust builder
-按其 v7 拓扑构造派生网络，并不读取此 JSON，路径本身不表示测试已执行该样本。
+按其 v7 拓扑构造派生网络。样本图例记载 v7 冻结时的计划，固定过渡退役前的保存边界以 §9 为准。
 
 ## 8. 与既有合同的衔接
 
@@ -255,45 +250,35 @@ P4 证明（§5.2），以及 P5 对当拍已取得预约的遵守义务（§5.3
 - `cross-section-access.md` §12：相邻事实来源与整边界锚点（禁止段级锚定）。
 - `traffic-runtime-snapshot.md`：持久化与版本轴（§9 指向）。
 
-## 9. 持久化与版本轴（裁定 A5，规范定义见 snapshot 衔接注记）
+## 9. 退役前的持久化边界
 
-- 车辆记录 tagged 过渡状态（`PreEntry | InTransition | Clearing`）+ 预约
-  wire 行（acquired tick、源/目标/过渡区边 `StableId128` + 整数毫米区间并集、
-  route occurrence 证明）；完整预约只装运行时正本，出现记录不入档（恢复重编译）。
-- **三轴版本分别升级并核对编号**：LFRS **7→8**（容器：过渡状态/预约行槽位）、
-  runtime state **5→6**（状态形状扩展）、digest **8→9**（规范原像扩展过渡
-  记录段）。这次升版与冲突预约路线终点共同交付，完整组合以快照合同 §2.1 为准。
-  换道过渡预约仍保留本节规定的物理区间，冲突预约从自身终点派生下游区间。
-- **首版限制**：存在活动换道过渡或换道过渡预约的世界**拒绝跨修订切换**（保留旧世界、零部分
-  提交）；迁移为后续设计并登记能力限制（G-E 更新）。
+现行生产组合为 LFRS 7、运行时状态 5、确定性摘要 8。遇到格式无法表达的固定过渡准入、预约或历史，捕获与摘要继续返回 `UnsupportedTransitionState`，依赖捕获的切换整体拒绝并保留旧世界。固定过渡 S5 的专用状态与预约记录取消。联合升版改为持久化任意位置换道的已登记窗口、已提交执行状态和预约，以及 #1511 普通冲突预约的下游终点，两类记录的合同见[快照设计 §2.1][snapshot]。
 
 ## 10. 排除、能力限制与缺口
 
-- **换道目标**：包含在交通规则允许的任意位置变道（维护者 2026-11-05 确认）。固定
-  预制过渡是首版实现，不是最终模型；任意位置变道另行设计，依赖 #273。
 - 首版排除清单见 §1；能力限制见 §9（跨修订迁移）与 §6（选项 2 扩义
   `ExecutionConfig` 永久排除，除非 #302/#303 边界另行修订）。
 - **共横向过渡段（#1220，#1321 收紧）**：
   - §6 第 6 项拒绝互不可见的共横向过渡段，其中物理上不冲突或未证明覆盖的情况
     （同向相邻、纵向相隔多条边、共享可选前驱或后继的汇合与分岔、可绕过公共边的
-    接力、多成员分量配对）属于有意的保守拒绝；任意位置变道的设计落地或维护者另行
-    裁定共横向互斥方案后退役。
+    接力、多成员分量配对）属于有意的保守拒绝，随 §11 的旧执行路径一起退役。
   - **已知缺口**：直行车走与过渡段平行的边、路线不含过渡段的前驱和后继时（例如
     目标车道在汇入点之前分岔），P4 不覆盖该车，两车可能同时汇向同一位置而都不减速。
     注册拒绝覆盖不到这种情况，含此类拓扑的路网不应用于安全验收。
 - 缺口登记沿 G-A…G-F（[G1 决策包][g1-decision-package] §四）：G-A 逐修订身份（§3.3 落地）；G-B
   整边投影规避（§4）；G-C merge/diverge profile 缺（备选启用前必须补齐）；
-  G-D 不适用（A6 裁定选项 3，无 WorldConfig 扩项）；G-E **更新**：活动过渡/
-  持预约世界跨修订迁移或拒绝，首版取拒绝，迁移后续设计；G-F 诊断升格另评。
+  G-D 不适用（A6 裁定选项 3，无 WorldConfig 扩项）；G-E 的现行拒绝条件见 §9；G-F 诊断升格另评。
 
-## 11. 实现边界
+## 11. 旧执行路径的退役条件
 
-- 本合同完成并冻结 #237 后，S1（展开器过渡感知）/S3（过渡材料化与静态发射）
-  方可立项（[S1/S3 实现计划][slice-s1-s3]）；S4 承接运行时执行与 R1–R3 验收；
-  S5 承接持久化。
-- 生产行为变更（hop 许可增加预约判据、预约仲裁、能力拒绝入口）按本合同
-  G1 记录后实现；实现前不放宽生产路线行为。
+以下条件均满足后，移除为换道构造的 `T` 边、过渡段识别、按段预约的资源格、相邻边停车约束及其专用拒绝分支。
+
+- 动态交接已接入固定步进，按整车扫过范围仲裁，并按两侧实际占用和车尾清空条件约束运动与释放。用动态路线重跑 §7 的换道车向直行车让行（R1a）、两车稳定序竞争（R1b）、快速后车（R2）和长车尾清空（R3）。另以 [#1271][parallel-entrant] 验证直行车即使走不含原过渡前驱、后继的平行路线，仍作为潜在进入者参加安全证明，双方不会同时占用冲突空间。
+- LF-SYNTH 的 L1 生成器和执行器改用共边、出现对和窗口，验证实际进入、清空、同修订恢复与回放。固定 `T` 运行所得的测量只用于其原工作负载。
+- Routing 候选注册、已准入路线重放均保留出现对和窗口。宿主按同一提交拍的车体姿态连续呈现横移，验收前杠交接及车尾清空前后的表现。
 
 [route-design-1142]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1142-route-design/design.md
 [g1-decision-package]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/production-g1-decision-package/g1-decision-package.md
-[slice-s1-s3]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-1177-route-g1-freeze/slice-s1-s3.md
+[dynamic-handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
+[snapshot]: traffic-runtime-snapshot.md
+[parallel-entrant]: https://github.com/illusion-tech/laneflow/issues/1271

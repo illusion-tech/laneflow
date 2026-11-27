@@ -1,13 +1,10 @@
 //! #1217 持久化边界封闭场景集（审计 P1-3/P1-4）。
 //!
-//! 合同锚点：换道合同 §9（A5，S5 #1200 交付完整格式前的版本轴）与冲突资源
-//! 文档「静态面（安装/迁移/重绑定/恢复）遇 `Transition` 一律失败关闭」
-//! （G2③ 持久边界拒绝）。场景集以**真实资源身份与历史**为断言面（逐格
-//! `lag_reference` 比对 + 通道切断断言），不以同一套错误编码的摘要互相印证。
+//! 换道合同 §9 与冲突资源合同规定固定过渡状态的持久化拒绝。场景逐格核对真实
+//! 资源身份、`lag_reference` 历史与保存、摘要和迁移入口的拒绝结果。
 //!
-//! 恢复面的过渡行资源种类检查（`format_admission`）为防御面：本版本 writer
-//! 由保存侧结构化拒绝保证不再产出过渡行，v7 wire 也没有资源种类字段可检；
-//! 手工构造混合 hop fixture 的触发测试留待 S5 #1200（findings.md 登记论证）。
+//! 恢复入口由 `format_admission` 核对定位对。v7 缺少资源种类字段，写方在保存时
+//! 拒绝带过渡资源的状态。此套件未覆盖手工构造的混合 hop 输入。
 
 use laneflow_static_contract::LaneEdgeOrdinal;
 
@@ -356,7 +353,7 @@ fn s4_mixed_t_and_static_history_rejects_whole_entry_with_distinct_identity() {
     world.step(TickInput::new(100)).expect("step continues");
 }
 
-/// S5：多 T 历史——每个过渡资源格的身份与历史分别保真。旧通道把全部 T 格
+/// 场景 S5 核对多个固定过渡资源格各自的身份与历史。旧通道把全部 T 格
 /// 坍缩成同一 `(stream 0, 归属 zone)` 键（多 T 历史在恢复端必成重复 locator
 /// 或错绑），本面以真身份逐格断言。世界级多 T 场景载体缺口（样本网络无策略
 /// 声明、不可安装世界）登记 findings.md；世界级拒绝口径与 S4 同一代码路径

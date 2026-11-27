@@ -103,9 +103,8 @@ applicability = "#applicability"
 
 **已实现**：可以按固定步长、修订和来源绑定保存并恢复世界。执行配置由宿主另外提供。
 
-- **条件与边界**：恢复核对语义容量和完整性，容量不能缩小。活动过渡，以及当前格式不能忠实表达的过渡预约或历史，以
-  `UnsupportedTransitionState` 结构化拒绝，世界可以继续运行。同修订的完整过渡持久化尚未交付
-  （[#1200][issue-1200]）。最小换道合同 §9 中的版本升级是后续格式设计。生产版本以
+- **条件与边界**：恢复核对语义容量和完整性，容量不能缩小。遇到活动的固定预制过渡，或其无法保存的预约及资源历史时，保存返回
+  `UnsupportedTransitionState`，世界可以继续运行。任意位置换道的登记窗口、已提交横移及组合预约属于快照 §2.1 的目标格式。生产版本以
   `SNAPSHOT_FORMAT_VERSION`、`RUNTIME_STATE_VERSION` 和 `RUNTIME_STATE_DIGEST_VERSION` 为准，本页不另立版本表。
 - **依据**：[快照 §2][runtime-snapshot-versions]、
   [§5][runtime-snapshot-restore]、[§6][runtime-snapshot-replay]、
@@ -267,10 +266,9 @@ resource 均为未认证，城市 Routing 获授权豁免，LuST 五轴未验证
 [lane-change-contract-a6]: ../design/lane-change-minimal-contract.md#6-能力检查裁定-a6--选项-3-回写
 [source-integration-attestation]: ../guides/source-integration.md#安装前修订认证
 [state-integrity-attestation]: ../design/traffic-runtime-state-integrity.md#42-共享路网修订认证
-[lane-change-contract-a5]: ../design/lane-change-minimal-contract.md#9-持久化与版本轴裁定-a5规范定义见-snapshot-衔接注记
+[lane-change-contract-a5]: ../design/lane-change-minimal-contract.md#9-退役前的持久化边界
 [lane-change-contract-limits]: ../design/lane-change-minimal-contract.md#10-排除能力限制与缺口
 [transition-visibility-rs]: ../../crates/laneflow-runtime/src/kernel/tests/transition_visibility.rs
-[issue-1200]: https://github.com/illusion-tech/laneflow/issues/1200
 [runtime-snapshot-versions]: ../design/traffic-runtime-snapshot.md#2-版本轴与绑定集
 [runtime-snapshot-restore]: ../design/traffic-runtime-snapshot.md#5-保存与恢复
 [runtime-snapshot-replay]: ../design/traffic-runtime-snapshot.md#6-回放与确定性状态摘要

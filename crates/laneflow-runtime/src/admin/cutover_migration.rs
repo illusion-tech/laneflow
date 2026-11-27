@@ -1785,8 +1785,7 @@ pub(crate) fn migrate_conflict_state(
     for address in target_addresses.iter().copied() {
         // 归属≠身份（#1217 D3）：过渡资源格的 lag 参照（含新格 CutoverFloor）
         // 在持久形制中表达不了资源种类与 T 稳定边身份，迁移域 fail closed——
-        // 含 T 格网络跨修订切换结构化拒绝、零部分提交（S5 #1200 交付完整
-        // 格式后在此按资源种类 tagged 身份重绑放开）。
+        // 含固定过渡资源格的网络在跨修订切换时整体拒绝。
         if matches!(
             address.resource(),
             crate::kernel::conflict::ConflictResource::Transition(_)

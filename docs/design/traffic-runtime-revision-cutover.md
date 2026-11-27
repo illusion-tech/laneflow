@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-traffic-runtime-revision-cutover"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义在线路网修订切换事务与失败原子性。"
 scope = "在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/1512"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/302", "https://github.com/illusion-tech/laneflow/issues/1512", "https://github.com/illusion-tech/laneflow/issues/1526"]
 related = ["adr-0020", "adr-0021", "adr-0025", "adr-0029", "design-parking-system", "design-retire-precompiled-static-route", "design-shared-static-network", "design-traffic-observation-and-routing-integration", "design-traffic-runtime-snapshot"]
 +++
 
@@ -109,6 +109,17 @@ revision 不构成迁移权限；#299 历史验证收据与镜像外描述符不
    游戏体验由宿主在发起前用 LFSD 预检与生命周期命令编排；声明式逐类丢弃或
    自动改道是未来独立 G1 的设计空间，不在本契约。
 
+**联合版的横向交接。** 对已登记窗口，Prepare 从源路线的出现下标识别源边与紧邻的目标边，
+包括尚无车辆使用的路线。跨修订须由来源证据或已验证的站位对应关系证明原有效窗口
+指向同一组物理截面，再按目标修订核对有向结构边界、左右成员、两边的切点归属及跨越许可。
+以远处路口变更作成功对照。重切后仍能唯一绑定同一交接机会且覆盖原范围时可直移；
+范围缩短、添设护栏导致原窗口不可跨越、两次经过同一对边无法区分时，整次拒绝。
+
+同修订换根按快照 §2.1 复核原候选行程、游标、两侧占用和已获预约。跨修订时，只要有
+车辆正在横移，或仍持有该次横移的任何预约，就拒绝整次接管。前保险杠已交接
+而车尾仍在源侧时也须拒绝。Prepare、增量追赶与静默提交均执行此条件。旧固定过渡用途
+迁移完成前，其资源或历史仍按 #1217 的现行切换边界处理。[路线交接合同 §4.1][lateral-handoff]
+
 ### 3.1 停车 target 的重绑合同
 
 - 显式 binding 按 `ParkingSpace StableId128`，虚拟 binding 按
@@ -185,7 +196,7 @@ despawn 记录在候选同步释放 authority、清 eligibility，并以候选�
 禁止再次调用全量 Conflict 迁移。grant/tail-clear/eligibility 的 tick 变化已纳入同一
 migration journal，不能退回静默点全量重算。
 
-跟入预约与换道 S5 联合升版后，冲突预约的新增或替换增量随同一完整帧携带授权
+任意位置换道与路口跟入预约联合升至 8/6/9 后，冲突预约的新增或替换增量随同一完整帧携带授权
 终点，移除增量只指定已释放的预约。日志编码、长度预留、重放、候选和独立期望
 投影在同次切换中更新。同修订重放按日志顺序在预约当时绑定的路线与锚点上重建区间。
 跨修订时先验证源
@@ -194,8 +205,15 @@ StableId 序列、边长和终点坐标。随后依次验证目标单车净空�
 两侧派生物理并集、各车尚未兑现的腾让义务。仅凭相同物理并集不能替代精确出现
 的映射。路线重绑增量按路权实施合同 §6.2 在候选中原子迁移原预约，使用与源命令
 相同的逐车义务与锚点校验。
-任一步失败保留旧世界、游标与已发布事件。普通冲突预约按此证明直移；
-存在 S5 活动换道过渡或其预约时，适用换道首版的跨修订拒绝规则。
+普通路口冲突预约通过上述证明后可直移。任一步失败，旧世界、命令与事件游标原样保留，
+切换事件为零。
+
+路线登记增量携带有序边与每个交接窗口，移除增量按路线身份撤销相应窗口。重放使用同一
+注册与重绑检查。步进日志以同一完整帧记录活动候选的推进、前保险杠交接和预约取得或释放。
+同修订重放从该候选重建两侧实际占用，核对已提交的路线游标和所持资源。跨修订追赶若遇到活动横移或其
+未释放预约就放弃候选。静默点从源世界独立推导目标状态及摘要，再与候选对拍。
+验收包含 Prepare 后新登记的无人路线、窗口移除及车辆开始横移，也覆盖不同车辆各持
+路口冲突预约和换道预约时整次拒绝，源端两类预约均保持原有归属。[快照 §2.1][runtime-snapshot]
 
 ## 4. 状态机
 
@@ -591,5 +609,6 @@ spawn/despawn 的增量追赶；任一失败保全旧 world/snapshot 且零发�
 [retire-precompiled-static-route]: retire-precompiled-static-route.md
 [parking-system]: parking-system.md
 [right-of-way]: traffic-runtime-right-of-way-policy.md
+[lateral-handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [execution-config]: traffic-runtime-execution-config.md
 [target-path-baseline]: https://github.com/illusion-tech/laneflow/blob/e267d4c9eead22d14f7111555a70c70637cd9f04/research/issue-537-target-path-baseline/README.md
