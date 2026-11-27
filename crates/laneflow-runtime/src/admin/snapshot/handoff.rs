@@ -1,44 +1,5 @@
-use crate::DownstreamRoutePoint;
 pub(crate) use crate::StableRouteHandoffWindow as CapturedHandoffWindow;
 use laneflow_static_contract::StableId128;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct CapturedDownstreamEnd {
-    pub(crate) relative_hop_offset: u32,
-    pub(crate) progress_mm: u32,
-}
-
-impl CapturedDownstreamEnd {
-    /// 本次机动内的后续门也以机动入口为相对原点，快照与迁移日志共用此转换。
-    pub(crate) fn from_range(
-        compiled: &crate::kernel::tables::CompiledRoute,
-        range: crate::ConflictPassageRange,
-        point: DownstreamRoutePoint,
-    ) -> Option<Self> {
-        let maneuver = compiled
-            .maneuvers
-            .get(range.maneuver_occurrence_index() as usize)?;
-        Self::from_point(maneuver.entry_route_edge_index, point)
-    }
-
-    pub(crate) fn from_point(entry: u32, point: DownstreamRoutePoint) -> Option<Self> {
-        if point.carry_um() != 0 {
-            return None;
-        }
-        Some(Self {
-            relative_hop_offset: point.route_edge_index().checked_sub(entry)?,
-            progress_mm: point.progress_mm(),
-        })
-    }
-
-    pub(crate) fn point(self, entry: u32) -> Option<DownstreamRoutePoint> {
-        DownstreamRoutePoint::new(
-            entry.checked_add(self.relative_hop_offset)?,
-            self.progress_mm,
-            0,
-        )
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CapturedHandoffProtection {
@@ -120,45 +81,4 @@ pub(super) fn capture_rows<T>(
     let mut rows = Vec::new();
     super::capture_try_reserve_exact(&mut rows, count)?;
     Ok(rows)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn later_admission_gate_uses_maneuver_entry_as_persisted_origin() {
-        let (world, owner) =
-            crate::admin::format_admission::tests::world_with_conflict_reservation();
-        let reservation = world.conflict_reservation(owner).unwrap();
-        let held = reservation.passage_range();
-        let route = world.state.compiled_route(held.route()).unwrap();
-        let entry =
-            route.maneuvers[held.maneuver_occurrence_index() as usize].entry_route_edge_index;
-        let later_gate = entry + 1;
-        let range = crate::ConflictPassageRange::new(
-            held.route(),
-            held.maneuver_occurrence_index(),
-            later_gate,
-            held.first_conflict_occurrence_index(),
-            held.passage_count(),
-        )
-        .unwrap();
-        let point = DownstreamRoutePoint::new(later_gate + 1, 17, 0).unwrap();
-        let encoded = CapturedDownstreamEnd::from_range(route, range, point).unwrap();
-        assert_eq!(encoded.relative_hop_offset, 2);
-        assert_eq!(encoded.point(entry), Some(point));
-    }
-
-    #[test]
-    fn downstream_end_requires_forward_occurrence_and_zero_carry() {
-        let point = |index, mm, carry| DownstreamRoutePoint::new(index, mm, carry).unwrap();
-        let end = CapturedDownstreamEnd::from_point(7, point(10, 25, 0)).unwrap();
-        assert_eq!(end.relative_hop_offset, 3);
-        assert_eq!(end.point(7), Some(point(10, 25, 0)));
-        assert_eq!(end.point(u32::MAX - 3), Some(point(u32::MAX, 25, 0)));
-        assert_eq!(end.point(u32::MAX - 2), None);
-        assert_eq!(CapturedDownstreamEnd::from_point(7, point(6, 25, 0)), None);
-        assert_eq!(CapturedDownstreamEnd::from_point(7, point(7, 25, 1)), None);
-    }
 }

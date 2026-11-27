@@ -12,7 +12,7 @@ use laneflow_static_network::BoundedDistance;
 use crate::admin::migration_journal::{ConflictOccurrenceJournalLocator, MigrationDeltaJournal};
 use crate::kernel::conflict::{
     ConflictAcquireError, ConflictCandidateOrderKey, ConflictGrant, GrantResourceBundle,
-    WaitingAdmissionEntitlement,
+    RelativeDownstreamEnd, WaitingAdmissionEntitlement,
 };
 use crate::kernel::lane_change::{service_stop_distance_um, stop_from_cursor_mm};
 use crate::kernel::tables::distance_to_occurrence_progress;
@@ -4520,7 +4520,7 @@ impl crate::kernel::phase::CommittedStateMut<'_> {
                     .journal_tag();
                 (locator, stage)
             });
-            let end = crate::admin::snapshot::handoff::CapturedDownstreamEnd::from_range(
+            let end = RelativeDownstreamEnd::from_range(
                 compiled,
                 range,
                 reservation.downstream_target(),

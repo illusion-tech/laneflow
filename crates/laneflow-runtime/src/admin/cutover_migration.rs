@@ -6,6 +6,7 @@
 //! （候选与旧世界槽位布局一致——当期句柄恒等保持；逐实体重绑即重验证，
 //! 任一实体引用不存在或原样重绑违反 target 不变量都整体失败关闭）。
 
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::kernel::state::WorldState;
 
 use std::sync::Arc;
@@ -2184,12 +2185,11 @@ pub(crate) fn project_expected_conflict(
         existing.maneuver_entry_route_edge_index = maneuver.entry_route_edge_index;
         existing.admission_gate = gate_stable;
         existing.passages = passages;
-        existing.downstream_end =
-            crate::admin::snapshot::handoff::CapturedDownstreamEnd::from_point(
-                maneuver.entry_route_edge_index,
-                downstream_plan.target(),
-            )
-            .ok_or(CutoverError::ConflictRevalidationFailed)?;
+        existing.downstream_end = RelativeDownstreamEnd::from_point(
+            maneuver.entry_route_edge_index,
+            downstream_plan.target(),
+        )
+        .ok_or(CutoverError::ConflictRevalidationFailed)?;
         let traversal = vehicle
             .maneuver_traversal
             .as_mut()

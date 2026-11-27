@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 use crate::kernel::bytes32::bytes32_type;
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::{
     CapturedManeuverTraversalPhase, CapturedParkingBinding, CapturedParkingTarget, CapturedRoute,
     CapturedSnapshot, CapturedVehicle, VehicleStatus,
@@ -228,10 +229,7 @@ pub(crate) fn frozen_digest_7_fingerprint(
     format!("Sha256Digest({hex})")
 }
 
-fn write_downstream_end(
-    bytes: &mut Vec<u8>,
-    end: crate::admin::snapshot::handoff::CapturedDownstreamEnd,
-) {
+fn write_downstream_end(bytes: &mut Vec<u8>, end: RelativeDownstreamEnd) {
     push_u32(bytes, end.relative_hop_offset);
     push_u32(bytes, end.progress_mm);
 }
@@ -1444,7 +1442,6 @@ mod tests {
 
     #[test]
     fn conflict_digest_distinguishes_downstream_occurrences_even_for_the_same_physical_union() {
-        use crate::admin::snapshot::handoff::CapturedDownstreamEnd;
         use laneflow_static_contract::LaneEdgeOrdinal;
         let (world, _) = crate::admin::format_admission::tests::world_with_conflict_reservation();
         let mut snapshot = world.capture_snapshot().unwrap();
@@ -1468,7 +1465,7 @@ mod tests {
                 .iter_mut()
                 .find_map(|v| v.conflict_reservation.as_mut())
                 .unwrap();
-            row.downstream_end = CapturedDownstreamEnd::from_point(0, end).unwrap();
+            row.downstream_end = RelativeDownstreamEnd::from_point(0, end).unwrap();
             variants.push((intervals, canonical_state_preimage(&snapshot).unwrap()));
         }
         assert_eq!(variants[0].0, variants[1].0);

@@ -3,6 +3,7 @@
 //! W7 已把仲裁、crossing、tail-clear、快照与在线切换接入生产固定步进。
 
 mod storage;
+pub(crate) use storage::RelativeDownstreamEnd;
 
 use core::cmp::Ordering;
 

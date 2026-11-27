@@ -18,6 +18,7 @@ use laneflow_static_contract::{
 };
 use thiserror::Error;
 
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::kernel::tables::CompiledRoute;
 use crate::{
     ManeuverTraversalPhase, ParkingBinding, ParkingTarget, RouteHandle, VehicleHandle,
@@ -126,7 +127,7 @@ pub(crate) struct ConflictEligibilityJournalDelta {
 pub(crate) struct ConflictAuthorityJournalDelta<'a> {
     pub(crate) owner: VehicleHandle,
     pub(crate) acquired_tick: Option<u64>,
-    pub(crate) downstream_end: Option<super::snapshot::handoff::CapturedDownstreamEnd>,
+    pub(crate) downstream_end: Option<RelativeDownstreamEnd>,
     pub(crate) cells: &'a [u8],
 }
 
@@ -1043,7 +1044,7 @@ impl MigrationDeltaJournal {
         &mut self,
         owner: VehicleHandle,
         acquired_tick: u64,
-        downstream_end: super::snapshot::handoff::CapturedDownstreamEnd,
+        downstream_end: RelativeDownstreamEnd,
         cells: I,
     ) where
         I: ExactSizeIterator<Item = (ConflictOccurrenceJournalLocator, u8)>,
@@ -1397,7 +1398,7 @@ impl<'a> Iterator for ConflictAuthorityJournalIter<'a> {
         Some(ConflictAuthorityJournalDelta {
             owner,
             acquired_tick: present.then_some(acquired_tick),
-            downstream_end: present.then(|| super::snapshot::handoff::CapturedDownstreamEnd {
+            downstream_end: present.then(|| RelativeDownstreamEnd {
                 relative_hop_offset: read_u32(header, 21),
                 progress_mm: read_u32(header, 25),
             }),

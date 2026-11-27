@@ -844,11 +844,11 @@ fn conflict_downstream_union_is_rederived_from_reservation_proof() {
         .concat()
     );
     for altered in [
-        super::super::snapshot::handoff::CapturedDownstreamEnd {
+        RelativeDownstreamEnd {
             relative_hop_offset: u32::MAX,
             ..original
         },
-        super::super::snapshot::handoff::CapturedDownstreamEnd {
+        RelativeDownstreamEnd {
             progress_mm: u32::MAX,
             ..original
         },

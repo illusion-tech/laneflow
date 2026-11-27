@@ -1,6 +1,17 @@
-use super::*;
+use laneflow_static_network::BoundedDistance;
+
+use super::{
+    ConflictCandidate, ConflictNoGrantReason, ConflictTaskView, DownstreamEvalError, map_yield,
+    no_grant_rank, reserve,
+};
+use crate::kernel::conflict::ConflictAcquireError;
 use crate::kernel::occupancy::{LeaderContact, LeaderQueryHorizon};
 use crate::kernel::phase::{StepReadView, StepWorkspace};
+use crate::kernel::tables::distance_to_occurrence_progress;
+use crate::{
+    ConflictPassageAddress, ConflictPassageRange, DownstreamRoutePoint, GateCandidateKind,
+    GatePolicyDecision, StepError, VehicleHandle, VehicleState,
+};
 
 #[cfg(test)]
 mod tests;

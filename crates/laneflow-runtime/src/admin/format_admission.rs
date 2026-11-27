@@ -4,6 +4,7 @@
 //! 保持原有校验先后、共同运行时不变量和分配行为；不建立额外的全量解码副本。
 //! 只有所有检查成功才返回完整恢复结果，kernel 不接收 wire view。
 
+use crate::kernel::conflict::RelativeDownstreamEnd;
 use crate::kernel::state::WorldState;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1370,7 +1371,7 @@ fn restore_conflict_aggregate(
         }
 
         let end = binding.downstream_end();
-        let point = super::snapshot::handoff::CapturedDownstreamEnd {
+        let point = RelativeDownstreamEnd {
             relative_hop_offset: end.relative_hop_offset(),
             progress_mm: end.progress_mm(),
         }

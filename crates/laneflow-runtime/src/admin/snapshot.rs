@@ -13,7 +13,7 @@ use thiserror::Error;
 
 pub(crate) mod handoff;
 
-use crate::kernel::conflict::UnsupportedTransitionState;
+use crate::kernel::conflict::{RelativeDownstreamEnd, UnsupportedTransitionState};
 use crate::{
     CommittedNetworkSource, ParkingBinding, ParkingTarget, TrafficWorld, VehicleStatus, WorldConfig,
 };
@@ -321,7 +321,7 @@ pub struct CapturedConflictReservation {
     pub(crate) maneuver_entry_route_edge_index: u32,
     pub(crate) admission_gate: ContractStableId128,
     pub(crate) passages: Vec<CapturedConflictPassage>,
-    pub(crate) downstream_end: handoff::CapturedDownstreamEnd,
+    pub(crate) downstream_end: RelativeDownstreamEnd,
 }
 
 /// 快照中的冲突滞后状态：通行段定位值与滞后基准。
@@ -1230,7 +1230,7 @@ impl crate::kernel::state::WorldState {
                         .expect("reservation Gate resolves stable id")
                         .as_untyped(),
                     passages,
-                    downstream_end: handoff::CapturedDownstreamEnd::from_range(
+                    downstream_end: RelativeDownstreamEnd::from_range(
                         compiled,
                         range,
                         reservation.downstream_target(),
