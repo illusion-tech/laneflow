@@ -76,13 +76,64 @@ jobs:
               - 'fuzz/**'
               - '.github/workflows/fuzz.yml'
 
-  input-fuzz:
-    name: Input fuzz (${{ matrix.target }})
+  prepare:
+    name: Prepare Input fuzz
     needs: changes
     # #1363：纯文档合并组不拉起六路 campaign。只有检测 job 明确判 false 才跳过
     # （job 级跳过、不分配 runner）；检测失败或输出缺失时失败关闭——照常全跑，
     # 不静默跳过。PR 路径命中即触发、workflow_dispatch 恒全量，均不受此门影响。
     if: ${{ !cancelled() && needs.changes.outputs.fuzz != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      corpus_artifact_id: ${{ steps.corpus.outputs.artifact-id }}
+    steps:
+      - &fuzz-checkout
+        name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - &fuzz-toolchain
+        name: Install Rust nightly toolchain for libFuzzer
+        shell: bash
+        run: rustup toolchain install nightly --profile minimal --component clippy
+
+      - &fuzz-cache
+        name: Cache Rust dependencies for fuzz
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: laneflow-nightly-fuzz
+          save-if: ${{ github.ref == 'refs/heads/main' && github.job == 'input-fuzz' }}
+          cache-targets: true
+
+      - name: Record preparation toolchain identity
+        run: rustc +nightly --version --verbose
+
+      - name: Validate harness oracles
+        run: cargo +nightly test --manifest-path fuzz/Cargo.toml --locked --lib
+
+      - name: Check fuzz harness lints
+        run: cargo +nightly clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Prepare seed corpus and byte inventory
+        run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed_corpus -- fuzz/corpus
+
+      - &fuzz-lockfiles
+        name: Verify dependency lockfiles stayed unchanged
+        run: git diff --exit-code -- Cargo.lock fuzz/Cargo.lock
+
+      - name: Publish prepared seed corpus
+        id: corpus
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: input-fuzz-seeds-${{ github.run_id }}-${{ github.run_attempt }}
+          path: fuzz/corpus/
+          if-no-files-found: error
+          retention-days: 90
+
+  input-fuzz:
+    name: Input fuzz (${{ matrix.target }})
+    needs: prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -100,19 +151,9 @@ jobs:
       # 每个 target 的有界运行秒数，保持 PR 反馈在分钟级。
       FUZZ_MAX_TOTAL_TIME: ${{ inputs.duration_seconds || '300' }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Rust nightly toolchain for libFuzzer
-        shell: bash
-        run: rustup toolchain install nightly --profile minimal --component clippy
-
-      - name: Cache Rust dependencies for fuzz
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: laneflow-nightly-fuzz
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-targets: true
+      - *fuzz-checkout
+      - *fuzz-toolchain
+      - *fuzz-cache
 
       # 与 cargo-deny 相同的供应链纪律：固定工具版本与依赖解析（--locked），
       # 避免上游 cargo-fuzz 新版本改变 libFuzzer 默认参数或 sanitizer 行为，
@@ -127,14 +168,17 @@ jobs:
           cargo +nightly --version
           cargo +nightly fuzz --version
 
-      - name: Validate harness oracles
-        run: cargo +nightly test --manifest-path fuzz/Cargo.toml --locked --lib
+      - name: Check prepared seed corpus artifact
+        env:
+          CORPUS_ARTIFACT_ID: ${{ needs.prepare.outputs.corpus_artifact_id }}
+        run: test -n "$CORPUS_ARTIFACT_ID"
 
-      - name: Check fuzz harness lints
-        run: cargo +nightly clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
-
-      - name: Prepare seed corpus and byte inventory
-        run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed_corpus -- fuzz/corpus
+      - name: Download prepared seed corpus
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.corpus_artifact_id }}
+          path: fuzz/corpus/
+          merge-multiple: true
 
       - name: Fuzz ${{ matrix.target }}
         shell: bash
@@ -145,8 +189,7 @@ jobs:
           --example run_campaign -- ${FUZZ_TARGET}
 
       # cargo-fuzz 0.13.2 不提供 --locked；前置 Cargo 命令使用锁文件，执行后再核对未漂移。
-      - name: Verify dependency lockfiles stayed unchanged
-        run: git diff --exit-code -- Cargo.lock fuzz/Cargo.lock
+      - *fuzz-lockfiles
 
       - name: Preserve corpus and crash artifacts
         if: always()

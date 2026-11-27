@@ -3,7 +3,7 @@ schema_version = 1
 id = "governance-github-workflow"
 kind = "governance"
 status = "active"
-revised_date = "2026-11-26"
+revised_date = "2026-11-27"
 summary = "规定 GitHub 议题、PR、项目与合并队列工作流。"
 scope = "LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理"
 +++
@@ -378,6 +378,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   base 的累计 diff 判定同口径路径，纯文档合并组 job 级跳过、不分配 runner；
   检测失败或输出缺失时失败关闭——照常全跑，不静默跳过；`workflow_dispatch`
   恒全量（#1363）。非必查。
+  共用准备 job 执行一次 harness 自测、全目标 Clippy 和种子生成。六路任务分别
+  下载该 job 发布的同一份种子制品，再按各自目标执行并发布各自的语料与回执。
   PR 与合并组的 CI 计划 job 同时发布 Fuzz 选测对照。首批核对注册表中登记的
   Cargo 测试目标和私有模块，Fuzz 的字面量嵌入及已登记的跨包输入优先计入范围。
   报告逐文件记录候选范围和原因，读取失败或缺少输入依据时记录全量回退。
