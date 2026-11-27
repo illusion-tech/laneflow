@@ -123,16 +123,23 @@ fn source(root: &SharedNetworkRevision) -> CommittedNetworkSource {
     }
 }
 fn world(root: Arc<SharedNetworkRevision>) -> TrafficWorld {
-    TrafficWorld::install(
-        Arc::clone(&root),
-        WorldConfig::new(4, 4, 64, 64, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source(&root),
-        17,
-        WorldPolicySelection::Pinned(PolicyPin {
+    TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+        revision: Arc::clone(&root),
+        config: WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 64,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source(&root),
+        world_id: laneflow_runtime::WorldId::new(17),
+        policy_selection: WorldPolicySelection::Pinned(PolicyPin {
             policy: id("selected"),
         }),
-    )
+    })
     .unwrap()
 }
 fn descriptor(
@@ -184,6 +191,7 @@ fn cross_revision_preserves_pin_rebinds_ordinal_and_atomically_rebuilds_gap() {
         target_root.identity().ordinal(id("selected"))
     );
     let mut world = world(base_root);
+    let installed = world.world_binding();
     let old_gap = world.policy_gap_profiles()[0];
     let diff = target.semantic_diff().bytes();
     let descriptor = descriptor(&world, &target_root, diff);
@@ -200,6 +208,11 @@ fn cross_revision_preserves_pin_rebinds_ordinal_and_atomically_rebuilds_gap() {
     assert_eq!(world.policy_gap_profiles()[0], old_gap);
     world.step(TickInput::new(100)).unwrap(); // 在途 tick 追赶也保持所选身份。
     let _commit = transaction.commit(&mut world).unwrap();
+    assert_eq!(world.world_id(), installed.world_id());
+    assert_eq!(
+        world.world_generation().get(),
+        installed.world_generation().get() + 1
+    );
     assert_eq!(
         world.policy_selection(),
         WorldPolicySelection::Pinned(PolicyPin {
@@ -211,15 +224,23 @@ fn cross_revision_preserves_pin_rebinds_ordinal_and_atomically_rebuilds_gap() {
     assert_eq!(world.frontier_proof_horizon_ms(), Some(133));
     assert_eq!(world.tick_index(), 1);
     let saved = world.capture_snapshot().unwrap();
+    let source = world.committed_source().clone();
+    let config = world.config();
+    drop(world);
     let restored = restore_lfrs(
         &encode_lfrs(&saved),
         target_root,
-        world.committed_source().clone(),
-        world.config(),
+        source,
+        config,
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(1_048_576, 1_024),
     )
     .unwrap();
+    assert_eq!(restored.world().world_id(), installed.world_id());
+    assert_eq!(
+        restored.world().world_generation(),
+        laneflow_runtime::WorldGeneration::INITIAL
+    );
     assert_eq!(
         deterministic_state_digest(&saved).unwrap(),
         deterministic_state_digest(&restored.world().capture_snapshot().unwrap()).unwrap()

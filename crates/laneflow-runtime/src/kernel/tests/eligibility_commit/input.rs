@@ -65,11 +65,18 @@ pub fn create(case: &str) -> (rt::TrafficWorld, String) {
         .unwrap(),
     );
     let capacity = if case == "conflict-small" { 8 } else { 100_000 };
-    let mut world = rt::TrafficWorld::install(
-        Arc::clone(&root),
-        rt::WorldConfig::new(capacity, 4, 1_024, 1_024, 4),
-        rt::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        rt::CommittedNetworkSource::Published {
+    let mut world = rt::TrafficWorld::install(rt::WorldInstallInput {
+        revision: Arc::clone(&root),
+        config: rt::WorldConfig::try_new(rt::WorldConfigInput {
+            vehicle_capacity: capacity,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 4,
+        })
+        .expect("有效的交通配置"),
+        execution: rt::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: rt::CommittedNetworkSource::Published {
             reference: rt::PublishedLfcaReference::new(
                 "fixture://eligibility-commit",
                 origin.canonical_artifact_digest(),
@@ -78,9 +85,9 @@ pub fn create(case: &str) -> (rt::TrafficWorld, String) {
             )
             .unwrap(),
         },
-        777,
-        rt::WorldPolicySelection::Pinned(rt::PolicyPin { policy }),
-    )
+        world_id: rt::WorldId::new(777),
+        policy_selection: rt::WorldPolicySelection::Pinned(rt::PolicyPin { policy }),
+    })
     .unwrap();
     for raw in [0, 1] {
         let path = root

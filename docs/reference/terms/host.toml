@@ -401,6 +401,6 @@ id = "world-identity"
 name = "世界身份"
 english_aliases = ["world identity"]
 domains = ["host"]
-definition = "宿主为每个世界指定的唯一 `u64` 值，安装时必填，取值与生命周期由宿主管理。同一宿主进程内不得对不同世界复用。切换描述符用它核对所属世界，从快照新建世界时沿用已保存的值。安装接口的目标 Rust 类型为 `WorldId`（待实施）。"
+definition = "宿主为每个世界指定的唯一身份，以 `WorldId` 包装宿主分配的 `u64` 值，安装时必填，生命周期由宿主管理。同一宿主进程内不得对不同世界复用。切换描述符用它核对所属世界，从快照新建世界时沿用已保存的值。"
 symbols = [{ value = "WorldId", kind = "type" }, { value = "world_id", kind = "field" }]
 references = [{ document = "design-traffic-runtime-execution-config" }, { document = "design-traffic-runtime-revision-cutover" }, { document = "design-traffic-runtime-snapshot" }]

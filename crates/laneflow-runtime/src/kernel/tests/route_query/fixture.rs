@@ -248,11 +248,18 @@ pub fn world_with_policy(
         derive_canonical_stable_id_v1(EntityKind::RightOfWayPolicySet, NAMESPACE, policy_key)
             .unwrap(),
     );
-    let mut world = rt::TrafficWorld::install(
-        Arc::clone(root),
-        rt::WorldConfig::new(VEHICLES, 4, 32_768, 32_768, 100),
-        rt::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        rt::CommittedNetworkSource::Published {
+    let mut world = rt::TrafficWorld::install(rt::WorldInstallInput {
+        revision: Arc::clone(root),
+        config: rt::WorldConfig::try_new(rt::WorldConfigInput {
+            vehicle_capacity: VEHICLES,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 32_768,
+            route_conflict_occurrence_capacity: 32_768,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: rt::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: rt::CommittedNetworkSource::Published {
             reference: rt::PublishedLfcaReference::new(
                 "fixture://route-query",
                 origin.canonical_artifact_digest(),
@@ -261,9 +268,9 @@ pub fn world_with_policy(
             )
             .unwrap(),
         },
-        679,
-        rt::WorldPolicySelection::Pinned(rt::PolicyPin { policy }),
-    )
+        world_id: rt::WorldId::new(679),
+        policy_selection: rt::WorldPolicySelection::Pinned(rt::PolicyPin { policy }),
+    })
     .unwrap();
     let edges = root
         .traffic()

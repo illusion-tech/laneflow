@@ -31,7 +31,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 #[cfg(feature = "placement-fixtures")]
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 #[cfg(feature = "placement-fixtures")]
 use laneflow_static_contract::{ManeuverPathOrdinal, VehicleProfileOrdinal};
@@ -101,11 +101,18 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
     )
     .expect("revision");
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, DELTA_MS),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://waiting-budget",
                 origin.canonical_artifact_digest(),
@@ -114,9 +121,9 @@ fn waiting_steady_tick_has_zero_heap_allocation_after_warmup() {
             )
             .expect("source"),
         },
-        282,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(282),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("world");
     let edges = world
         .traffic()

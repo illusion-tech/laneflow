@@ -4,7 +4,7 @@ use laneflow_compiler::derive_canonical_stable_id_v1;
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, TrafficWorld, WorldConfig,
-    WorldPolicySelection,
+    WorldConfigInput, WorldId, WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, LaneEdgeOrdinal, ParticipantStreamOrdinal, RightOfWayPolicySetId,
@@ -158,7 +158,7 @@ impl Artifacts {
     /// #538 起装机统一走 `install_with_route_slack`（标准路径传 0）；路线槽、
     /// 边占用与冲突占用三项容量在目录基础上按 `extra_routes` 条最坏路线同步加
     /// 余量，供 candidate / admitted 注册采样；vehicle_capacity 与固定步长不变。
-    /// 容量进入快照与逻辑摘要：余量装机与标准装机不同身份，仅自含测量世界使用。
+    /// 容量进入快照与逻辑摘要，额外余量只用于自含测量世界。
     pub(crate) fn install_with_route_slack(
         &self,
         execution: laneflow_runtime::ExecutionConfig,
@@ -190,14 +190,14 @@ impl Artifacts {
         );
         let world = checked(
             "world install",
-            TrafficWorld::install(
-                self.revision.clone(),
+            TrafficWorld::install(WorldInstallInput {
+                revision: self.revision.clone(),
                 config,
                 execution,
-                self.committed_source()?,
-                544,
-                WorldPolicySelection::Pinned(PolicyPin { policy: pin }),
-            ),
+                source: self.committed_source()?,
+                world_id: WorldId::new(544),
+                policy_selection: WorldPolicySelection::Pinned(PolicyPin { policy: pin }),
+            }),
         )?;
         self.check_policy(&world)?;
         Ok(world)
@@ -246,13 +246,16 @@ impl Artifacts {
                 conflict_capacity += passages.get(edge).copied().unwrap_or(0);
             }
         }
-        Ok(WorldConfig::new(
-            self.individuals,
-            self.catalog.routes.len() as u32,
-            edge_capacity,
-            conflict_capacity,
-            self.dt,
-        ))
+        checked(
+            "world config",
+            WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: self.individuals,
+                route_capacity: self.catalog.routes.len() as u32,
+                route_edge_occurrence_capacity: edge_capacity,
+                route_conflict_occurrence_capacity: conflict_capacity,
+                fixed_delta_time_ms: self.dt,
+            }),
+        )
     }
 
     /// 安装与续跑恢复共用的已提交来源。

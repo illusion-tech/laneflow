@@ -28,7 +28,8 @@ use laneflow_static_network::{
 use crate::{
     CommittedNetworkSource, ExecutionConfig, ObservationExportMode, ObservationSelection,
     PublishedLfcaReference, RouteRegisterInput, StepOutcome, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig, attest_published_shared_network_revision,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    attest_published_shared_network_revision,
 };
 
 const LFCA: &[u8] = include_bytes!(
@@ -59,16 +60,23 @@ fn reference(bytes: &[u8]) -> PublishedLfcaReference {
 
 fn world(root: &Arc<SharedNetworkRevision>, workers: u32) -> TrafficWorld {
     static NEXT_WORLD_ID: AtomicU64 = AtomicU64::new(96_300_000);
-    let mut world = TrafficWorld::install(
-        root.clone(),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: root.clone(),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(NonZeroU32::new(workers).unwrap()),
+        source: CommittedNetworkSource::Published {
             reference: reference(LFCA),
         },
-        NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed),
-        crate::test_policy::selection(root),
-    )
+        world_id: WorldId::new(NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed)),
+        policy_selection: crate::test_policy::selection(root),
+    })
     .unwrap();
     let edges = [10_000, 8_000, 12_000].map(|length| {
         LaneEdgeOrdinal::try_from_usize(

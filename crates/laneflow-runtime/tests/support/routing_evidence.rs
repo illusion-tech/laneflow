@@ -19,7 +19,8 @@ use laneflow_runtime::{
     CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostSnapshotBinding, ObservationExportMode,
     ObservationExportSession, ObservationSelection, ParkedVehicleSpawnInput, ParkingTarget,
     PublishedLfcaReference, RouteRegisterInput, RoutingAdmissionSession, SnapshotRestoreLimits,
-    TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig, bind_observation_set,
+    TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput, bind_observation_set,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeId, NetworkRevisionId, ParkingSpaceId, RightOfWayPolicySetId, Sha256Digest,
@@ -124,14 +125,21 @@ pub fn build_fixture() -> RoutingEvidenceFixture {
         )
         .expect("non-empty source key"),
     };
-    let mut world = TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        WorldConfig::new(0, 1, EDGE_COUNT as u64, EDGE_COUNT as u64, DELTA_MS),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 0,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: EDGE_COUNT as u64,
+            route_conflict_occurrence_capacity: EDGE_COUNT as u64,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
-        WORLD_ID,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(WORLD_ID),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("install routing evidence world");
     for _ in 0..WARMUP_TICKS {
         world.step(TickInput::new(DELTA_MS)).expect("warmup tick");
@@ -245,7 +253,7 @@ pub fn dynamic_cost_snapshot_digest(
     let mut hasher = Sha256::new();
     hasher.update(DYNAMIC_COST_SNAPSHOT_DIGEST_DOMAIN);
     hasher.update(binding.binding_version().to_le_bytes());
-    hasher.update(stream.world_id().to_le_bytes());
+    hasher.update(stream.world_id().get().to_le_bytes());
     hasher.update(stream.world_generation().get().to_le_bytes());
     hasher.update(observations.network_revision().as_digest().as_bytes());
     hasher.update(
@@ -382,7 +390,7 @@ fn cost_payload(batch: &CommittedTrafficObservationBatch) -> Vec<u8> {
 fn committed_state_digest(world: &TrafficWorld) -> Sha256Digest {
     let mut hasher = Sha256::new();
     hasher.update(b"laneflow:routing-g2-evidence-state:v1\0");
-    hasher.update(world.world_id().to_le_bytes());
+    hasher.update(world.world_id().get().to_le_bytes());
     hasher.update(world.world_generation().get().to_le_bytes());
     hasher.update(world.tick_index().to_le_bytes());
     hasher.update(world.observation_state_sequence().get().to_le_bytes());
@@ -640,13 +648,14 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
         .max()
         .expect("state 路线非空");
     let occurrence_headroom = (2 * long_len + 7).max(LFSYNTH_ROUTE_CAPACITY_HEADROOM as u64);
-    let config = WorldConfig::new(
-        state.vehicles.len() as u32 + LFSYNTH_VEHICLE_CAPACITY_HEADROOM,
-        state_route_count as u32 + LFSYNTH_ROUTE_CAPACITY_HEADROOM,
-        state_route_edge_total + occurrence_headroom,
-        conflict_capacity,
-        fixed_delta_ms,
-    );
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: state.vehicles.len() as u32 + LFSYNTH_VEHICLE_CAPACITY_HEADROOM,
+        route_capacity: state_route_count as u32 + LFSYNTH_ROUTE_CAPACITY_HEADROOM,
+        route_edge_occurrence_capacity: state_route_edge_total + occurrence_headroom,
+        route_conflict_occurrence_capacity: conflict_capacity,
+        fixed_delta_time_ms: fixed_delta_ms,
+    })
+    .expect("有效的交通配置");
 
     let source = CommittedNetworkSource::Published {
         reference: PublishedLfcaReference::new(
@@ -657,14 +666,14 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
         )
         .expect("non-empty source key"),
     };
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
-        1_267,
-        laneflow_runtime::WorldPolicySelection::Pinned(policy),
-    )
+        world_id: WorldId::new(1_267),
+        policy_selection: laneflow_runtime::WorldPolicySelection::Pinned(policy),
+    })
     .expect("安装正式身份世界");
 
     let mut state_routes = Vec::with_capacity(state_route_count);

@@ -18,7 +18,9 @@ cargo run --locked -p laneflow-runtime --example headless
 
 该程序检查检入走廊 LFCA、省略 Spatial 保留数据、在安装前认证共享修订（只有 `Pass` 才安装）、按 catalog 的 portal 入口注册一条路线并生成一辆车，再以 16 毫秒固定步进，最后导出 Full 观测。它不启动持续人口控制器。步骤、实跑输出和失败分类见[从源码接入无窗口交通运行时][source-integration]。
 
-安装入口是 `TrafficWorld::install`。调用方同时给出 `WorldConfig`、`ExecutionConfig`、已提交来源、世界身份和 `WorldPolicySelection`。
+宿主用 `WorldConfig::try_new(WorldConfigInput { … })` 构造交通配置，再用
+`TrafficWorld::install(WorldInstallInput { … })` 按字段指定修订、交通配置、执行配置、
+已提交来源、`WorldId` 和路权策略。
 
 ## 主要约束与限制
 

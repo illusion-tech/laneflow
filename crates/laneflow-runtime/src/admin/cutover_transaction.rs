@@ -15,6 +15,8 @@ use std::sync::Arc;
 use laneflow_static_contract::{ConflictZoneOrdinal, LaneEdgeOrdinal, ParticipantStreamOrdinal};
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 
+#[cfg(test)]
+use crate::WorldInstallInput;
 use crate::admin::cutover::{
     CutoverError, CutoverEventBatch, CutoverPreflightLimits, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor,
@@ -35,7 +37,7 @@ use crate::admin::snapshot_digest::deterministic_state_digest;
 use crate::{
     CommittedNetworkSource, ObservationStateSequence, ParkingBinding, ParkingReservation,
     ParkingSpaceState, ParkingTarget, RouteHandle, TrafficWorld, VehicleHandle,
-    VirtualEntryAnchorSelector, WorldGeneration,
+    VirtualEntryAnchorSelector, WorldGeneration, WorldId,
 };
 
 #[cfg(test)]
@@ -125,7 +127,7 @@ pub struct CutoverTransaction {
     target_origin: CanonicalNetworkOrigin,
     limits: CutoverTransactionLimits,
     next_world_generation: WorldGeneration,
-    world_id: u64,
+    world_id: WorldId,
     prepare_world_generation: WorldGeneration,
     /// prepare 时的日志武装轮次：世界级恢复后重新武装的新日志按配对
     /// 失配失败关闭，旧事务不得认领后继日志。
@@ -2286,14 +2288,21 @@ mod tests {
     fn installed_world(bytes: &[u8], key: &str) -> TrafficWorld {
         let revision = revision(bytes);
         let origin = *revision.canonical_origin();
-        TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, key),
-            0,
-            crate::test_policy::selection(&revision),
-        )
+        TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, key),
+            world_id: WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install")
     }
 
@@ -2732,14 +2741,21 @@ mod tests {
         speed_mm_s: u32,
     ) -> (TrafficWorld, VehicleHandle) {
         let origin = *base.canonical_origin();
-        let mut world = TrafficWorld::install(
-            std::sync::Arc::clone(&base),
-            WorldConfig::new(4, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, "fixture://first-waiting"),
-            282,
-            crate::test_policy::selection(&base),
-        )
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&base),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, "fixture://first-waiting"),
+            world_id: WorldId::new(282),
+            policy_selection: crate::test_policy::selection(&base),
+        })
         .expect("world");
         let edges = world
             .traffic()
@@ -3811,14 +3827,21 @@ mod tests {
     fn high_slot_parked_spawn_survives_cutover() {
         let network = revision(ORACLE_BASE);
         let origin = *network.canonical_origin();
-        let mut cut = TrafficWorld::install(
-            std::sync::Arc::clone(&network),
-            WorldConfig::new(1, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, "fixture://high-slot-parking"),
-            0,
-            crate::test_policy::selection(&network),
-        )
+        let mut cut = TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&network),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 1,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, "fixture://high-slot-parking"),
+            world_id: WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&network),
+        })
         .expect("install");
         let (entry, _exit) = entry_exit(&cut);
         let route = cut
@@ -4174,19 +4197,28 @@ mod tests {
         let mut other = {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
-            TrafficWorld::install(
-                std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                source_for(origin, "fixture://other-world"),
-                9,
-                crate::test_policy::selection(&revision),
-            )
+            TrafficWorld::install(WorldInstallInput {
+                revision: std::sync::Arc::clone(&revision),
+                config: WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 1_024,
+                    route_conflict_occurrence_capacity: 1_024,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: source_for(origin, "fixture://other-world"),
+                world_id: WorldId::new(9),
+                policy_selection: crate::test_policy::selection(&revision),
+            })
             .expect("install other world")
         };
         assert_eq!(
             tx.pump(&mut other).unwrap_err(),
-            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+            CutoverError::TransactionWorldMismatch {
+                expected_world: WorldId::new(0)
+            }
         );
         assert!(other.migration_journal_stats().is_none());
         assert!(cut.migration_journal_stats().is_some());
@@ -4328,14 +4360,21 @@ mod tests {
         let mut other = {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
-            TrafficWorld::install(
-                std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1_024, 1_024, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                source_for(origin, "fixture://other-world"),
-                9,
-                crate::test_policy::selection(&revision),
-            )
+            TrafficWorld::install(WorldInstallInput {
+                revision: std::sync::Arc::clone(&revision),
+                config: WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 1_024,
+                    route_conflict_occurrence_capacity: 1_024,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: source_for(origin, "fixture://other-world"),
+                world_id: WorldId::new(9),
+                policy_selection: crate::test_policy::selection(&revision),
+            })
             .expect("install other world")
         };
         let tx = prepare(
@@ -4347,7 +4386,9 @@ mod tests {
         // 错世界结算：消耗形 API 丢弃事务对象，来源世界保持在途锁定。
         assert_eq!(
             tx.commit(&mut other).unwrap_err(),
-            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+            CutoverError::TransactionWorldMismatch {
+                expected_world: WorldId::new(0)
+            }
         );
         drop(other);
         assert!(cut.migration_journal_stats().is_some(), "来源世界仍武装");
@@ -4396,7 +4437,9 @@ mod tests {
         let mut stale = stale;
         assert_eq!(
             stale.pump(&mut cut).unwrap_err(),
-            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+            CutoverError::TransactionWorldMismatch {
+                expected_world: WorldId::new(0)
+            }
         );
         assert!(
             cut.migration_journal_stats().is_some(),
@@ -4404,7 +4447,9 @@ mod tests {
         );
         assert_eq!(
             stale.abandon(&mut cut).unwrap_err(),
-            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+            CutoverError::TransactionWorldMismatch {
+                expected_world: WorldId::new(0)
+            }
         );
         assert!(cut.migration_journal_stats().is_some());
         // 新事务不受影响，正常结算。
@@ -4491,14 +4536,21 @@ mod tests {
         let mut cut = {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
-            TrafficWorld::install(
-                std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 2, 2, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                source_for(origin, "fixture://capacity-cut"),
-                0,
-                crate::test_policy::selection(&revision),
-            )
+            TrafficWorld::install(WorldInstallInput {
+                revision: std::sync::Arc::clone(&revision),
+                config: WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 2,
+                    route_conflict_occurrence_capacity: 2,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: source_for(origin, "fixture://capacity-cut"),
+                world_id: WorldId::new(0),
+                policy_selection: crate::test_policy::selection(&revision),
+            })
             .expect("install")
         };
         let (entry, exit) = entry_exit(&cut);
@@ -4527,14 +4579,21 @@ mod tests {
         let mut tight = {
             let revision = revision(ORACLE_BASE);
             let origin = *revision.canonical_origin();
-            TrafficWorld::install(
-                std::sync::Arc::clone(&revision),
-                WorldConfig::new(8, 4, 3, 3, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                source_for(origin, "fixture://capacity-tight"),
-                0,
-                crate::test_policy::selection(&revision),
-            )
+            TrafficWorld::install(WorldInstallInput {
+                revision: std::sync::Arc::clone(&revision),
+                config: WorldConfig::try_new(crate::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 3,
+                    route_conflict_occurrence_capacity: 3,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+                execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                source: source_for(origin, "fixture://capacity-tight"),
+                world_id: WorldId::new(0),
+                policy_selection: crate::test_policy::selection(&revision),
+            })
             .expect("install")
         };
         let (entry, exit) = entry_exit(&tight);
@@ -4854,14 +4913,21 @@ mod tests {
     fn installed_world_with_dt(bytes: &[u8], key: &str, dt: u64) -> TrafficWorld {
         let revision = revision(bytes);
         let origin = *revision.canonical_origin();
-        TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, dt),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, key),
-            0,
-            crate::test_policy::selection(&revision),
-        )
+        TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: dt,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, key),
+            world_id: WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install")
     }
 

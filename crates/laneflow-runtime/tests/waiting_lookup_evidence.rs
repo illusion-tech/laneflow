@@ -14,7 +14,8 @@ use laneflow_compiler::{
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TickInput, TrafficWorld,
-    VehicleSpawnInput, WaitingDecisionOutcome, WorldConfig, deterministic_state_digest,
+    VehicleSpawnInput, WaitingDecisionOutcome, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput, deterministic_state_digest,
 };
 use laneflow_static_contract::{ManeuverPathOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -170,11 +171,18 @@ fn revision() -> Arc<SharedNetworkRevision> {
 fn run(count: usize, samples: usize, warmup: usize) {
     let revision = revision();
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(1, 1, 8_192, 1_024, 4),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 1,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 8_192,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 4,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://waiting-lookup-675",
                 origin.canonical_artifact_digest(),
@@ -183,9 +191,9 @@ fn run(count: usize, samples: usize, warmup: usize) {
             )
             .unwrap(),
         },
-        675,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(675),
+        policy_selection: test_policy::selection(&revision),
+    })
     .unwrap();
     let path = revision
         .traffic()

@@ -8,8 +8,18 @@ use laneflow_static_network::vehicle::HandoffLaneSide;
 #[test]
 fn external_trial_checks_current_bodies_on_both_physical_lanes_until_the_tail_clears() {
     let revision = compile_road_editing_revision(module(0.));
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(4, 4, 64, 32, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 32,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let rel = revision.traffic().relations();
     let section = [0, 1]
         .into_iter()

@@ -18,6 +18,7 @@ use laneflow_corridor_generator::{CorridorConfig, generate};
 use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
 use laneflow_runtime::{
     PoseSource, RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
@@ -41,11 +42,11 @@ fn install_fixture(
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
+    laneflow_runtime::TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -54,9 +55,9 @@ fn install_fixture(
             )
             .expect("non-empty fixture key"),
         },
-        0,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(0),
+        policy_selection: test_policy::selection(&revision),
+    })
 }
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
@@ -457,7 +458,14 @@ fn install_kernel_world(
 ) -> TrafficWorld {
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, delta_ms),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 32,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: delta_ms,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install");
     if corridor {
@@ -797,7 +805,14 @@ fn worlds_2_8_32_share_one_static_root() {
             .map(|_| {
                 install_fixture(
                     Arc::clone(&revision),
-                    WorldConfig::new(8, 8, 1_024, 1_024, CORRIDOR_DELTA_MS),
+                    WorldConfig::try_new(WorldConfigInput {
+                        vehicle_capacity: 8,
+                        route_capacity: 8,
+                        route_edge_occurrence_capacity: 1_024,
+                        route_conflict_occurrence_capacity: 1_024,
+                        fixed_delta_time_ms: CORRIDOR_DELTA_MS,
+                    })
+                    .expect("有效的交通配置"),
                 )
                 .expect("install")
             })

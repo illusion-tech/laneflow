@@ -3,7 +3,7 @@ schema_version = 1
 id = "adr-0028"
 kind = "adr"
 status = "accepted"
-revised_date = "2026-11-23"
+revised_date = "2026-11-27"
 summary = "规定交通一维几何整数毫米与固定步进合同。"
 scope = "交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维 存储、跟车占用/投影离散判定；以及 #302 快照字段的数值输入"
 date = "2026-08-24"
@@ -254,8 +254,8 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 - 交通运行时 **不**提供慢放：不缩小 Δt、不接受可变 Δt。墙钟变慢只允许 Adapter
   少调用 `step`。
 - 每个信号相位时长必须是该世界步长的 **正整数倍**（因此也 `>=` 一步）。
-  短相位、不能整除、或步长越出 `4..=1000`，都使 `install` 失败，且这三类原因必须
-  可区分（`DeltaOutOfRange` / `PhaseShorterThanTick` / `PhaseNotMultipleOfTick`）。
+  构造配置时以 `WorldConfigError::DeltaOutOfRange` 拒绝越出 `4..=1000` 的步长。
+  安装时以 `PhaseShorterThanTick` 和 `PhaseNotMultipleOfTick` 区分短相位与整除失败。
   检入走廊黄灯 3008 ms、全红 1008 ms，相对 16 ms 整除。
 
 时间正本仍是 checked `u64` 的 `tick_index` / `time_ms`。

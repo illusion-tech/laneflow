@@ -87,16 +87,6 @@ pub enum InstallError {
     /// 共享路网的冲突通行关系不满足仲裁器安装不变量（`install`）。
     #[error("共享路网中的冲突通行关系不满足仲裁器安装不变量")]
     ConflictArbiterInvalidNetwork,
-    /// `fixed_delta_time_ms` 必须落在 `4..=1000`。
-    #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
-    DeltaOutOfRange {
-        /// 调用方提供的步长。
-        actual: u64,
-        /// 合法下限（含）。
-        min: u64,
-        /// 合法上限（含）。
-        max: u64,
-    },
     /// 交通安装完成后，执行配置不受当前后端支持。
     #[error("执行初始化失败: {0}")]
     ExecutionInit(ExecutionInitError),

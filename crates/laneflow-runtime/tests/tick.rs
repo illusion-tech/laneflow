@@ -7,6 +7,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     ParkedVehicleSpawnInput, ParkingTarget, PoseSource, RouteHandle, RouteRegisterInput,
     SpawnError, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, SignalAspect, SignalControllerOrdinal,
@@ -22,11 +23,11 @@ fn install_fixture(
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
+    laneflow_runtime::TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -35,9 +36,9 @@ fn install_fixture(
             )
             .expect("non-empty fixture key"),
         },
-        0,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(0),
+        policy_selection: test_policy::selection(&revision),
+    })
 }
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
@@ -65,7 +66,18 @@ fn world() -> TrafficWorld {
 }
 
 fn world_with_delta(delta_ms: u64) -> TrafficWorld {
-    install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, delta_ms)).expect("install")
+    install_fixture(
+        revision(),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: delta_ms,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install")
 }
 
 fn parking_world() -> TrafficWorld {
@@ -79,8 +91,18 @@ fn parking_world() -> TrafficWorld {
         ),
     )
     .expect("parking revision");
-    install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100))
-        .expect("install parking world")
+    install_fixture(
+        revision,
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install parking world")
 }
 
 fn parking_fixture_edges(world: &TrafficWorld) -> Vec<LaneEdgeOrdinal> {
@@ -957,8 +979,18 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
 
 #[test]
 fn completed_vehicle_keeps_capacity_until_replace() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(
+        revision(),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 1,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .expect("install");
     let route = fixture_route(&mut world);
     let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");

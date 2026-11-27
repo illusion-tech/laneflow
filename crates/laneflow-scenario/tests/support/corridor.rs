@@ -33,17 +33,18 @@ fn install(revision: Arc<SharedNetworkRevision>, target: usize) -> TrafficWorld 
         ),
     });
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(
-            u32::try_from(target).expect("fits"),
-            28,
-            1_024,
-            1_024,
-            TICK_MS,
-        ),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+    TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: u32::try_from(target).expect("fits"),
+            route_capacity: 28,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: TICK_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -52,9 +53,9 @@ fn install(revision: Arc<SharedNetworkRevision>, target: usize) -> TrafficWorld 
             )
             .expect("reference"),
         },
-        0,
-        selection,
-    )
+        world_id: laneflow_runtime::WorldId::new(0),
+        policy_selection: selection,
+    })
     .expect("install")
 }
 

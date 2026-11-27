@@ -21,7 +21,7 @@ use laneflow_runtime::{
     LeaveParkingTarget, ParkedVehicleSpawnInput, ParkingError, ParkingTarget, ReplaceError,
     ReserveParkingTarget, RouteHandle, RouteRegisterInput, TickInput, TrafficWorld,
     VehicleSpawnInput, VehicleStatus, VirtualEntryAnchorSelector, VirtualExitAnchorSelector,
-    WorldConfig,
+    WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_spatial::SpatialSession;
 use laneflow_static_contract::{
@@ -34,11 +34,9 @@ use laneflow_static_network::{
 
 fn install_fixture(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
-    config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     install_with_policy(
         revision,
-        config,
         laneflow_runtime::WorldPolicySelection::Pinned(laneflow_runtime::PolicyPin {
             policy: laneflow_static_contract::RightOfWayPolicySetId::from_untyped(
                 laneflow_compiler::derive_canonical_stable_id_v1(
@@ -54,15 +52,21 @@ fn install_fixture(
 
 fn install_with_policy(
     revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
-    config: laneflow_runtime::WorldConfig,
     policy_selection: laneflow_runtime::WorldPolicySelection,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+    laneflow_runtime::TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("fixture config"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -71,9 +75,9 @@ fn install_with_policy(
             )
             .expect("non-empty fixture key"),
         },
-        0,
+        world_id: WorldId::new(0),
         policy_selection,
-    )
+    })
 }
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
@@ -245,8 +249,7 @@ fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHan
 
 #[test]
 fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(revision()).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let spatial = SpatialSession::bind(world.revision())
         .expect("bind")
@@ -334,8 +337,7 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
 
 #[test]
 fn unbound_replace_stays_unbound() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(revision()).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -369,7 +371,6 @@ fn unbound_replace_stays_unbound() {
 fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
     let mut world = install_with_policy(
         virtual_parking_revision(),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
         laneflow_runtime::WorldPolicySelection::NotRequired,
     )
     .expect("install virtual parking fixture");
@@ -488,8 +489,7 @@ fn virtual_parking_echoes_typed_selectors_and_keeps_mapping_without_pose() {
 
 #[test]
 fn typed_completed_despawn_removes_mapping_but_leaves_host_entity_to_caller() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(revision()).expect("install");
     let (completed, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -519,8 +519,7 @@ fn typed_completed_despawn_removes_mapping_but_leaves_host_entity_to_caller() {
 
 #[test]
 fn identical_bind_is_duplicate_error() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(revision()).expect("install");
     let (vehicle, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -549,8 +548,7 @@ fn identical_bind_is_duplicate_error() {
 
 #[test]
 fn typed_despawn_rejects_stale_entity_without_runtime_or_mapping_changes() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(revision()).expect("install");
     let route = register_preview_route(&mut world);
     let vehicle = world
         .spawn_vehicle(
@@ -607,8 +605,7 @@ fn typed_despawn_rejects_stale_entity_without_runtime_or_mapping_changes() {
 
 #[test]
 fn parking_failures_keep_entity_mapping_and_only_typed_despawn_removes_it() {
-    let mut world =
-        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1_024, 100)).expect("install");
+    let mut world = install_fixture(revision()).expect("install");
     let route = register_preview_route(&mut world);
     let profile = VehicleProfileOrdinal::from_raw(0);
     let active = world
@@ -810,7 +807,6 @@ fn speed_drop_revision() -> Arc<laneflow_static_network::SharedNetworkRevision> 
 fn completed_on_slow_edge() -> (App, laneflow_runtime::VehicleHandle, RouteHandle, Entity) {
     let mut world = install_with_policy(
         speed_drop_revision(),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
         laneflow_runtime::WorldPolicySelection::NotRequired,
     )
     .expect("install");

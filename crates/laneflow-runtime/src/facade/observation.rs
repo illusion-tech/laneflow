@@ -73,12 +73,12 @@ impl ObservationStateSequence {
 /// 第三计数器；`(world_id, world_generation)` 就是 stream 的唯一身份。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ObservationStreamBinding {
-    world_id: u64,
+    world_id: crate::WorldId,
     world_generation: WorldGeneration,
 }
 
 impl ObservationStreamBinding {
-    const fn new(world_id: u64, world_generation: WorldGeneration) -> Self {
+    const fn new(world_id: crate::WorldId, world_generation: WorldGeneration) -> Self {
         Self {
             world_id,
             world_generation,
@@ -87,7 +87,7 @@ impl ObservationStreamBinding {
 
     /// 宿主指定的世界身份。
     #[must_use]
-    pub const fn world_id(self) -> u64 {
+    pub const fn world_id(self) -> crate::WorldId {
         self.world_id
     }
 
@@ -959,14 +959,21 @@ mod tests {
     fn world_and_route() -> (TrafficWorld, crate::RouteHandle) {
         let revision = revision(true);
         let origin = *revision.canonical_origin();
-        let mut world = TrafficWorld::install(
-            Arc::clone(&revision),
-            WorldConfig::new(16, 8, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            source_for(origin, "fixture://observation"),
-            41,
-            crate::test_policy::selection(&revision),
-        )
+        let mut world = TrafficWorld::install(crate::WorldInstallInput {
+            revision: Arc::clone(&revision),
+            config: WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 16,
+                route_capacity: 8,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: source_for(origin, "fixture://observation"),
+            world_id: crate::WorldId::new(41),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
         .expect("install");
         let edge_for_length = |length: u32| {
             let index = world
@@ -1055,7 +1062,7 @@ mod tests {
             .expect("full");
 
         assert_eq!(batch.binding_version(), OBSERVATION_BINDING_VERSION);
-        assert_eq!(batch.stream_binding().world_id(), 41);
+        assert_eq!(batch.stream_binding().world_id(), crate::WorldId::new(41));
         assert_eq!(
             batch.stream_binding().world_generation(),
             WorldGeneration::INITIAL

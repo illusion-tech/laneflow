@@ -8,7 +8,8 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_junction_generator::{JunctionCatalog, JunctionConfig, generate};
 use laneflow_runtime::{
     CommittedNetworkSource, ConflictDecisionOutcome, PublishedLfcaReference, RouteHandle,
-    TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput,
 };
 use laneflow_scenario::complex_junction::{VEHICLE_PROFILE_KEY, bind};
 use laneflow_static_contract::VehicleProfileOrdinal;
@@ -37,11 +38,18 @@ fn fixture(corner: &str) -> (TrafficWorld, VehicleProfileOrdinal, [(RouteHandle,
     .unwrap();
     let bound = bind(&catalog, &revision).unwrap();
     let origin = *revision.canonical_origin();
-    let mut world = TrafficWorld::install(
+    let mut world = TrafficWorld::install(WorldInstallInput {
         revision,
-        WorldConfig::new(8, 32, 1_024, 1_024, 16),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 32,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://merge-admission",
                 origin.canonical_artifact_digest(),
@@ -50,9 +58,9 @@ fn fixture(corner: &str) -> (TrafficWorld, VehicleProfileOrdinal, [(RouteHandle,
             )
             .unwrap(),
         },
-        0,
-        bound.policy_selection,
-    )
+        world_id: WorldId::new(0),
+        policy_selection: bound.policy_selection,
+    })
     .unwrap();
     let routes = bound.install_routes(&mut world).unwrap();
     let selected = std::array::from_fn(|lane| {

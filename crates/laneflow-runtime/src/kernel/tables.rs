@@ -3758,13 +3758,9 @@ pub(crate) mod compile_route_tests {
                 )
                 .unwrap(),
             );
-            crate::TrafficWorld::install(
-                revision,
-                // fixture 容量（#1199 P2-6 后计数含过渡出现记录——旧 8 为欠计基
+            crate::TrafficWorld::install(crate::WorldInstallInput { revision, config: // fixture 容量（#1199 P2-6 后计数含过渡出现记录——旧 8 为欠计基
                 // 线钉小；测试 fixture 参数、非生产 digest 形制）。
-                crate::WorldConfig::new(2, 2, 16, 16, 100),
-                crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                crate::CommittedNetworkSource::Published {
+                crate::WorldConfig::try_new(crate::WorldConfigInput { vehicle_capacity: 2, route_capacity: 2, route_edge_occurrence_capacity: 16, route_conflict_occurrence_capacity: 16, fixed_delta_time_ms: 100 }).expect("有效的交通配置"), execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN), source: crate::CommittedNetworkSource::Published {
                     reference: crate::PublishedLfcaReference::new(
                         "fixture://s4-r2",
                         origin.canonical_artifact_digest(),
@@ -3772,10 +3768,7 @@ pub(crate) mod compile_route_tests {
                         origin.network_revision(),
                     )
                     .unwrap(),
-                },
-                676,
-                crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
-            )
+                }, world_id: crate::WorldId::new(676), policy_selection: crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }) })
             .unwrap()
         }
 
@@ -5530,11 +5523,18 @@ pub(crate) mod compile_route_tests {
                         )
                         .unwrap(),
                     );
-                    crate::TrafficWorld::install(
-                        self.revision.clone(),
-                        crate::WorldConfig::new(4, 4, 96, 64, 100),
-                        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-                        crate::CommittedNetworkSource::Published {
+                    crate::TrafficWorld::install(crate::WorldInstallInput {
+                        revision: self.revision.clone(),
+                        config: crate::WorldConfig::try_new(crate::WorldConfigInput {
+                            vehicle_capacity: 4,
+                            route_capacity: 4,
+                            route_edge_occurrence_capacity: 96,
+                            route_conflict_occurrence_capacity: 64,
+                            fixed_delta_time_ms: 100,
+                        })
+                        .expect("有效的交通配置"),
+                        execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+                        source: crate::CommittedNetworkSource::Published {
                             reference: crate::PublishedLfcaReference::new(
                                 "fixture://s4-es",
                                 origin.canonical_artifact_digest(),
@@ -5543,9 +5543,11 @@ pub(crate) mod compile_route_tests {
                             )
                             .unwrap(),
                         },
-                        1_216,
-                        crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
-                    )
+                        world_id: crate::WorldId::new(1_216),
+                        policy_selection: crate::WorldPolicySelection::Pinned(crate::PolicyPin {
+                            policy,
+                        }),
+                    })
                     .unwrap()
                 }
             }

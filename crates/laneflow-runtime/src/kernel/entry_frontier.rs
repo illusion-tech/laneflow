@@ -112,7 +112,7 @@ fn detach_vehicle(list: &mut Vec<u32>, index: u32) {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct FrontierIdentity {
-    world_id: u64,
+    world_id: crate::WorldId,
     generation: WorldGeneration,
 }
 
@@ -311,7 +311,7 @@ impl FrontierMaintenance {
     /// 过期，调用方自己核对。只读，不改变下一次 `step` 看到的维护数据。
     pub(crate) fn for_each_published_source(
         &self,
-        world_id: u64,
+        world_id: crate::WorldId,
         generation: WorldGeneration,
         mut visit: impl FnMut(VehicleHandle, bool),
     ) -> bool {
@@ -401,7 +401,7 @@ impl FrontierMaintenance {
         }
     }
 
-    fn ensure_identity(&mut self, world_id: u64, generation: WorldGeneration) -> bool {
+    fn ensure_identity(&mut self, world_id: crate::WorldId, generation: WorldGeneration) -> bool {
         let same = self.identity
             == Some(FrontierIdentity {
                 world_id,

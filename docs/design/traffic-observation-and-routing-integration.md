@@ -195,8 +195,8 @@ stream 身份、上一成功 delivery sequence / `tick` / `observationStateSeque
 上一行值。它不进入世界确定性状态。
 
 每个活动世界世代只有一个观测 stream。字段私有的 `ObservationStreamBinding` 以世界
-身份和 `WorldGeneration` 共同标识该 stream。当前 `world_id()` 返回 `u64`，
-按[具名安装设计][named-world-install]迁移后返回 `laneflow_runtime::WorldId`。
+身份和 `WorldGeneration` 共同标识该 stream。`world_id()` 返回
+`laneflow_runtime::WorldId`，见[具名安装设计][named-world-install]。
 下文摘要原像中的 `worldId:u64-le` 始终编码该身份的小端八字节。
 `ObservationExportMode::{Full, Delta}` 进入同一
 `export_observation` 入口；新 session 首次 delta、旧世代/revision session、delivery
@@ -382,8 +382,8 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 [`traffic-runtime-conflict-occurrence.md`][conflict-occurrence] 另设
 `route_conflict_occurrence_capacity`；两个计数由同一注册提交点原子维护。
 
-**G2 首批实现决定**：`WorldConfig::new` 在 `route_capacity` 之后要求调用方显式提供
-`u64 route_edge_occurrence_capacity`，不设产品默认值；活动总量计数器同为 `u64`。
+`WorldConfigInput` 要求调用方显式填写 `route_edge_occurrence_capacity: u64`。
+活动总量计数器同为 `u64`。
 空序列、路线槽容量、边 occurrence 容量依次预检；后两者分别返回
 `RouteError::CapacityExceeded` 与 `RouteError::EdgeOccurrenceCapacityExceeded`，checked
 加法不可表示与 max+1 共享后一个错误。仓库既有测试/证据 fixture 迁移时显式使用 `1_024`

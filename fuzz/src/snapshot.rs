@@ -19,7 +19,8 @@ use laneflow_runtime::{
     deterministic_state_digest, encode_lfrs, restore_lfrs, CommittedNetworkSource,
     EditableDiffBase, ExecutionConfig, PolicyPin, PublishedLfcaReference, RoadEditingState,
     RoadEditingStateModule, RouteRegisterInput, SnapshotRestoreLimits, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    WorldPolicySelection,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, RightOfWayPolicySetId, VehicleProfileOrdinal,
@@ -40,7 +41,14 @@ struct Fixture {
 }
 
 pub(crate) fn config() -> WorldConfig {
-    WorldConfig::new(8, 4, 1_024, 1_024, 100)
+    WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 8,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 1_024,
+        route_conflict_occurrence_capacity: 1_024,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("fixture config")
 }
 
 pub(crate) fn execution() -> ExecutionConfig {
@@ -98,14 +106,14 @@ pub(crate) fn world(
     revision: &Arc<SharedNetworkRevision>,
     source: CommittedNetworkSource,
 ) -> TrafficWorld {
-    TrafficWorld::install(
-        Arc::clone(revision),
-        config(),
-        execution(),
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
+        config: config(),
+        execution: execution(),
         source,
-        536,
-        policy(revision),
-    )
+        world_id: WorldId::new(536),
+        policy_selection: policy(revision),
+    })
     .expect("install fixture")
 }
 

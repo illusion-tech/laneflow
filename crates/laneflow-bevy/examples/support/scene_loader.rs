@@ -9,7 +9,7 @@ use laneflow_bevy::{LaneFlowSession, LaneFlowSessionConfig};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, TrafficWorld, WorldConfig,
-    WorldPolicySelection,
+    WorldId, WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_spatial::SpatialSession;
 use laneflow_static_network::{
@@ -47,14 +47,14 @@ pub fn install_world(
         origin.network_revision(),
     )
     .map_err(|error| format!("{error:?}"))?;
-    Ok(TrafficWorld::install(
-        Arc::clone(revision),
+    Ok(TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
         config,
-        ExecutionConfig::new(NonZeroU32::MIN),
-        CommittedNetworkSource::Published { reference },
-        0,
+        execution: ExecutionConfig::new(NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published { reference },
+        world_id: WorldId::new(0),
         policy_selection,
-    )?)
+    })?)
 }
 
 /// 用世界自身的共享路网修订绑定 Spatial，组成配对 Session。

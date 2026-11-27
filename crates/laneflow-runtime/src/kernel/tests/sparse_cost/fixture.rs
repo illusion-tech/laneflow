@@ -216,11 +216,18 @@ pub fn world(root: &Arc<SharedNetworkRevision>, case: Case) -> rt::TrafficWorld 
             && case.high_water <= case.capacity
     );
     let origin = root.canonical_origin();
-    let mut world = rt::TrafficWorld::install(
-        Arc::clone(root),
-        rt::WorldConfig::new(case.capacity, 64, 16_384, 1_024, 100),
-        rt::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        rt::CommittedNetworkSource::Published {
+    let mut world = rt::TrafficWorld::install(rt::WorldInstallInput {
+        revision: Arc::clone(root),
+        config: rt::WorldConfig::try_new(rt::WorldConfigInput {
+            vehicle_capacity: case.capacity,
+            route_capacity: 64,
+            route_edge_occurrence_capacity: 16_384,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: rt::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: rt::CommittedNetworkSource::Published {
             reference: rt::PublishedLfcaReference::new(
                 "fixture://sparse-cost",
                 origin.canonical_artifact_digest(),
@@ -229,9 +236,9 @@ pub fn world(root: &Arc<SharedNetworkRevision>, case: Case) -> rt::TrafficWorld 
             )
             .unwrap(),
         },
-        682,
-        rt::WorldPolicySelection::NotRequired,
-    )
+        world_id: rt::WorldId::new(682),
+        policy_selection: rt::WorldPolicySelection::NotRequired,
+    })
     .unwrap();
     let mut routes = Vec::new();
     if case.ring_mm == 0 {

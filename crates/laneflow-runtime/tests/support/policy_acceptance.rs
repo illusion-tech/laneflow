@@ -82,7 +82,18 @@ fn signal_boundary_publishes_valid_eligibility_and_preserves_continuous_waiting(
                 stop_aspect,
                 13.0,
             ));
-            let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+            let mut world = install_fixture(
+                revision,
+                WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                    vehicle_capacity: 4,
+                    route_capacity: 4,
+                    route_edge_occurrence_capacity: 64,
+                    route_conflict_occurrence_capacity: 4,
+                    fixed_delta_time_ms: 100,
+                })
+                .expect("有效的交通配置"),
+            )
+            .unwrap();
             let subject = blocked_at_green(&mut world);
             // #1272：下游阻塞车的清空时点后移，资格钟与决定拍随新轨迹
             // 重排（原 500 ms 清空 → 600 ms）。按性质核验，不钉具体拍号：
@@ -178,7 +189,18 @@ fn signal_boundary_journal_replays_normalized_eligibility_during_cutover() {
         boundary_signal_module(GateInterpretation::ProtectedGroup, SignalAspect::Red, speed)
     };
     let (base, target, diff, binding) = compile_conflict_cutover_pair(module(13.0), module(13.1));
-    let mut world = install_fixture(Arc::clone(&base), WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&base),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     blocked_at_green(&mut world);
     world.step(TickInput::new(100)).unwrap();
     assert_eq!(eligibility_clocks(&world), vec![2]);
@@ -227,7 +249,18 @@ fn resource_free_gate_emits_decision_for_red_and_green() {
                     ..Default::default()
                 },
             ));
-        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         if green {
             world.step(TickInput::new(100)).unwrap();
         }
@@ -265,7 +298,18 @@ fn resource_free_gate_keeps_following_resource_gate_in_the_same_tick() {
                     ..Default::default()
                 },
             ));
-        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1_000)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 1_000,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let [route, conflicting_route] = right_turn_routes(&mut world);
         if blocked {
             world
@@ -370,7 +414,18 @@ fn idle_conflict_entry_is_a_position_barrier_not_a_stop_target() {
                 13.0,
                 ConflictPolicyFixture::default(),
             ));
-        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let [route, _] = right_turn_routes(&mut world);
         let subject = world
             .place_existing_active_vehicle(
@@ -414,7 +469,18 @@ fn held_conflict_brakes_in_advance_and_never_becomes_unstoppable() {
             13.0,
             ConflictPolicyFixture::default(),
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, conflicting] = right_turn_routes(&mut world);
     // owner：沿主路线公开 spawn + step，直至持有共同 Conflict 的预约。
     let owner = world
@@ -512,7 +578,18 @@ fn resource_free_decisions_follow_final_motion_after_new_or_held_reservation() {
                     ..Default::default()
                 },
             ));
-        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1_000)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 1_000,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let [route, _] = right_turn_routes(&mut world);
         let subject = world
             .spawn_vehicle(
@@ -571,7 +648,18 @@ fn rejected_resource_gate_does_not_report_unreached_resource_free_gate() {
                 ..Default::default()
             },
         ));
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 1_000)).unwrap();
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 1_000,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [route, conflicting_route] = right_turn_routes(&mut world);
     at_gate(&mut world, conflicting_route);
     let subject = world
@@ -621,7 +709,18 @@ fn waiting_capacity_denial_is_observable_without_claiming_following_conflict() {
         ));
     let long = calibration_profile(&revision, "long-vehicle");
     let short = calibration_profile(&revision, "car");
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [east, north] = right_turn_routes(&mut world);
     let leader = world
         .spawn_vehicle(
@@ -760,7 +859,18 @@ fn formal_right_turn_red_uses_compiled_policy_and_still_yields() {
         ),
     ] {
         let revision = right_turn_revision(interpretation, deny);
-        let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                vehicle_capacity: 4,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 64,
+                route_conflict_occurrence_capacity: 4,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let [right_turn, priority_route] = right_turn_routes(&mut world);
         let subject = at_gate(&mut world, right_turn);
         if priority_approach {
@@ -815,7 +925,18 @@ fn alternating_signal_world(interpretation: GateInterpretation) -> TrafficWorld 
                 ..Default::default()
             },
         ));
-    install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap()
+    install_fixture(
+        revision,
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -987,7 +1108,18 @@ fn added_conflict_floor_world(old_vehicle: bool) -> TrafficWorld {
         )
     };
     let (base, target, diff, binding) = compile_conflict_cutover_pair(module(false), module(true));
-    let mut world = install_fixture(Arc::clone(&base), WorldConfig::new(4, 4, 64, 4, 4)).unwrap();
+    let mut world = install_fixture(
+        Arc::clone(&base),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 4,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     if old_vehicle {
         let route =
             register_conflict_route(&mut world, &["north-entry", "north-internal", "south-exit"]);
@@ -1112,7 +1244,18 @@ fn new_conflict_floor_survives_restore_and_enforces_496_500_ms_from_commit() {
 #[test]
 fn explicit_leadgap_denial_brakes_to_a_stop_target_before_the_line() {
     let revision = right_turn_revision(GateInterpretation::CnCircularRightTurn, false);
-    let mut world = install_fixture(revision, WorldConfig::new(4, 4, 64, 4, 100)).unwrap();
+    let mut world = install_fixture(
+        revision,
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let [right_turn, priority_route] = right_turn_routes(&mut world);
     let gate = calibration_gate(&world, right_turn);
     let subject = world

@@ -3,7 +3,8 @@ use std::path::Path;
 
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, RouteRegisterInput, TickInput,
-    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    WorldPolicySelection,
 };
 use laneflow_static_contract::{EntityKind, LaneEdgeId, RightOfWayPolicySetId, VehicleProfileId};
 use laneflow_urban_harness::Artifacts;
@@ -35,14 +36,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         origin.canonical_artifact_byte_length(),
         origin.network_revision(),
     )?;
-    let mut world = TrafficWorld::install(
-        revision.clone(),
-        WorldConfig::new(1, 1, spec.edge_keys.len() as u64, 1_000, 16),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published { reference: source },
-        544,
-        WorldPolicySelection::Pinned(PolicyPin { policy }),
-    )?;
+    let config = WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 1,
+        route_capacity: 1,
+        route_edge_occurrence_capacity: spec.edge_keys.len() as u64,
+        route_conflict_occurrence_capacity: 1_000,
+        fixed_delta_time_ms: 16,
+    })?;
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: revision.clone(),
+        config,
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published { reference: source },
+        world_id: WorldId::new(544),
+        policy_selection: WorldPolicySelection::Pinned(PolicyPin { policy }),
+    })?;
     let edges: Vec<_> = spec
         .edge_keys
         .iter()
@@ -92,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &bytes,
         revision.clone(),
         restore_source,
-        WorldConfig::new(1, 1, spec.edge_keys.len() as u64, 1_000, 16),
+        config,
         laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         laneflow_runtime::SnapshotRestoreLimits::new(16_777_216, 1_024),
     )?;

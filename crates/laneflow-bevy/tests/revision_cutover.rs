@@ -25,7 +25,8 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object
 use laneflow_runtime::{
     CommittedNetworkSource, CutoverPreflightLimits, CutoverTransactionLimits,
     PublishedLfcaReference, RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding,
-    TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId,
+    WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseInput, PoseRecordId};
 use laneflow_static_contract::{
@@ -221,14 +222,21 @@ struct Seeded {
 
 /// 单车世界：路线跨 edge-0 → edge-1，车辆静止在 edge-0 progress 1_000 mm。
 fn seeded(artifact: &Artifact, key: &str) -> Seeded {
-    let mut world = TrafficWorld::install(
-        Arc::clone(&artifact.root),
-        WorldConfig::new(4, 2, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source(&artifact.root, key),
-        534,
-        WorldPolicySelection::NotRequired,
-    )
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&artifact.root),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source(&artifact.root, key),
+        world_id: WorldId::new(534),
+        policy_selection: WorldPolicySelection::NotRequired,
+    })
     .expect("install");
     let route = world
         .register_route(RouteRegisterInput::new(vec![
@@ -411,9 +419,12 @@ fn live_session_cross_revision_cutover_preserves_identity_and_mappings() {
     let entity = scratch.spawn(()).id();
     drop(scratch);
     session.bind_vehicle_entity(vehicle, entity).expect("bind");
-    let world_id = session.world().world_id();
+    let world_id: WorldId = session.consumption_context().world_id();
     let generation = session.world().world_generation();
     let old_observation_context = session.junction_observation().context();
+    let observed_id: WorldId = old_observation_context.world_id();
+    assert_eq!(world_id, session.world().world_id());
+    assert_eq!(observed_id, world_id);
 
     let target_spatial = laneflow_spatial::SpatialSession::bind(Arc::clone(&fixture.r2.root))
         .expect("bind")

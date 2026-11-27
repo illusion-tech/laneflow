@@ -664,7 +664,7 @@ pub(crate) fn run_with_options_and_cost(
         scale: plan.scale.clone(),
         network_revision: artifacts.catalog.network_revision.clone(),
         policy_id: artifacts.catalog.policy_id.clone(),
-        world_id: harness.world.world_id(),
+        world_id: harness.world.world_id().get(),
         fixed_step_ms: plan.dt,
         window: plan.window.clone(),
         required_per_tile: plan.required_per_tile.clone(),

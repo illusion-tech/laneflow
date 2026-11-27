@@ -20,7 +20,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, ParkingTarget, PublishedLfcaReference,
     ReserveParkingTarget, RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput,
-    WorldConfig, WorldPolicySelection,
+    WorldConfig, WorldConfigInput, WorldId, WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_scenario::signalized_corridor::{CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind};
 use laneflow_static_contract::{ParkingSpaceOrdinal, VehicleProfileOrdinal};
@@ -58,11 +58,11 @@ fn install_published(
     selection: WorldPolicySelection,
 ) -> TrafficWorld {
     let origin = revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(revision),
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
         config,
-        execution(1),
-        CommittedNetworkSource::Published {
+        execution: execution(1),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 key,
                 origin.canonical_artifact_digest(),
@@ -71,9 +71,9 @@ fn install_published(
             )
             .expect("non-empty fixture key"),
         },
-        world_id,
-        selection,
-    )
+        world_id: WorldId::new(world_id),
+        policy_selection: selection,
+    })
     .expect("install")
 }
 
@@ -103,7 +103,14 @@ fn corridor_world() -> TrafficWorld {
     let bound = bind(&catalog, &revision).expect("bind catalog");
     let mut world = install_published(
         &revision,
-        WorldConfig::new(24, 32, 1_024, 1_024, 16),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 24,
+            route_capacity: 32,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
         706_500,
         "fixture://p7-corridor",
         test_policy::selection(&revision),
@@ -144,7 +151,14 @@ fn parking_world() -> TrafficWorld {
     let revision = parking_revision();
     let mut world = install_published(
         &revision,
-        WorldConfig::new(10, 4, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 10,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
         706_501,
         "fixture://p7-parking",
         test_policy::selection(&revision),

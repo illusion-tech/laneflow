@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-traffic-runtime-conflict-occurrence"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义路线冲突出现记录与正式仲裁能力边界。"
 scope = "TrafficWorld 路线冲突出现记录、路线坐标规范化、资源容量，以及 正式 Conflict authority 的活动车辆边界"
 applicability = "#applicability"
@@ -184,8 +184,8 @@ direct、candidate、admitted/replay、snapshot restore 与 cutover target 都�
 route_conflict_occurrence_capacity: u64
 ```
 
-`WorldConfig::new` 在 `route_edge_occurrence_capacity` 之后增加该必填参数，不提供会随
-机器内存变化的默认值；`0` 合法，表示该 world 只能注册不含冲突出现记录的路线。
+`WorldConfigInput` 要求宿主显式填写该字段。`0` 合法，表示该 world 只能注册
+不含冲突出现记录的路线。
 
 独立计数解决的是实际 retained memory：一条较短的机动路线可以穿过多个冲突区，
 `conflicts.len()` 并不等于 `edges.len()`。它不是针对恶意制品的任意 byte quota，也不
@@ -231,9 +231,8 @@ route-edge-occurrences 一样分别报告 snapshot 配置、target 配置与实�
 `WorldConfig::with_added_route_capacity(extra_routes, extra_edge_occurrences,
 extra_conflict_occurrences)` 对三项路线容量族一次性加余量（饱和算术），供验证与
 测量入口在目录路线之外预留注册余量。三项捆绑是刻意的：拆开会允许"加槽不加边/
-冲突占用"的半预算配置。余量装机与标准装机**不同身份**（容量进入快照与确定性
-摘要，见上节），因此该助手只在自含测量世界使用，不进入生产装载路径；生产
-`WorldConfig` 继续由工件目录派生。
+冲突占用"的半预算配置。容量进入快照与逻辑摘要，改变余量会改变摘要。
+该助手仅用于自含测量世界，生产装载的 `WorldConfig` 由工件目录派生。
 
 ## 6. 正式 Conflict interior authority 边界
 

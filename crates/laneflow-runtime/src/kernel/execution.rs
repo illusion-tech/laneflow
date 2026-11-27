@@ -2512,14 +2512,14 @@ mod tests {
         let (world, _, _) = world_with_vehicle(true);
         let started = worker_starts();
         let install = |execution| {
-            TrafficWorld::install(
-                world.revision(),
-                world.config(),
+            TrafficWorld::install(crate::WorldInstallInput {
+                revision: world.revision(),
+                config: world.config(),
                 execution,
-                world.committed_source().clone(),
-                world.world_id(),
-                world.policy_selection(),
-            )
+                source: world.committed_source().clone(),
+                world_id: world.world_id(),
+                policy_selection: world.policy_selection(),
+            })
         };
         assert!(matches!(
             with_plan_failure(|| install(config(1))),

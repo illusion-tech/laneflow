@@ -565,11 +565,11 @@ Movement 的新方向属性存在时，RoadEditing 的贡献来源增加同一 D
 
 ## 5. 世界和场景绑定
 
-`TrafficWorld::install` 的单一入口在现行参数后增加 `WorldPolicySelection`，不提供
-安装后 setter。保留 `CommittedNetworkSource` 与共享路网修订的修订一致性检查：
+`WorldInstallInput` 将 `policy_selection` 列为安装时必填的字段。
+`TrafficWorld::install` 核对 `CommittedNetworkSource` 与共享路网修订的一致性。
 
 ```text
-install(revision, config, source, world_id, policy_selection)
+install(WorldInstallInput { revision, config, execution, source, world_id, policy_selection })
 WorldPolicySelection = NotRequired | Pinned(PolicyPin)
 PolicyPin { policy: RightOfWayPolicySetId }
 ```

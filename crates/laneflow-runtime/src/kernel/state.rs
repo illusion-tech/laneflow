@@ -201,7 +201,7 @@ pub(crate) struct WorldBindingState {
     pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) source: CommittedNetworkSource,
     /// 宿主指定的世界身份；切换描述符 `worldBinding` 在事务启动时比对。
-    pub(crate) world_id: u64,
+    pub(crate) world_id: crate::WorldId,
     /// 活动聚合世代；成功切换/恢复的唯一失效轴。
     pub(crate) world_generation: WorldGeneration,
     pub(crate) config: WorldConfig,
@@ -845,7 +845,7 @@ pub(crate) struct TickWorkspace {
     /// P2 按物理行保存的（路线, 游标）派生量，跨拍保留；`None` 行为空。
     pub(crate) motion_cursor_rows: Vec<Option<crate::kernel::tick::MotionCursorRow>>,
     /// `motion_cursor_rows` 所属的（世界, 世界世代）；不同时整表作废。
-    pub(crate) motion_cursor_identity: Option<(u64, crate::WorldGeneration)>,
+    pub(crate) motion_cursor_identity: Option<(crate::WorldId, crate::WorldGeneration)>,
     /// `motion_cache` 行引用的完整预览（稀疏，只有近门车辆）。
     pub(crate) motion_previews: Vec<crate::kernel::tick::MotionPreview>,
     pub(crate) waiting_preview_bases: Vec<Vec<crate::kernel::tick::MotionBasis>>,

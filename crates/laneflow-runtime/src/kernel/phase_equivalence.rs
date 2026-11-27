@@ -12,7 +12,7 @@
 //! （续跑 digest 跨抽样配置对照）。
 
 use super::{STEP_FAILPOINT, StepFailpoint};
-use crate::{StepError, TickInput, TrafficWorld};
+use crate::{StepError, TickInput, TrafficWorld, WorldId, WorldInstallInput};
 use sha2::{Digest, Sha256};
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -230,11 +230,18 @@ fn signals_world(workers: NonZeroU32) -> TrafficWorld {
     )
     .unwrap();
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        crate::WorldConfig::new(4, 4, 1_024, 1_024, 100),
-        crate::ExecutionConfig::new(workers),
-        crate::CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: crate::WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: crate::ExecutionConfig::new(workers),
+        source: crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
                 "fixture://phase-signals",
                 origin.canonical_artifact_digest(),
@@ -243,9 +250,9 @@ fn signals_world(workers: NonZeroU32) -> TrafficWorld {
             )
             .unwrap(),
         },
-        581,
-        crate::test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(581),
+        policy_selection: crate::test_policy::selection(&revision),
+    })
     .unwrap()
 }
 

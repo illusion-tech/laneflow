@@ -20,7 +20,8 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, RouteRegisterInput,
     SnapshotDigestLimits, SnapshotRestoreLimits, TickInput, TrafficWorld, VehicleSpawnInput,
-    WorldConfig, attest_published_shared_network_revision, encode_lfrs, restore_lfrs,
+    WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    attest_published_shared_network_revision, encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -62,7 +63,14 @@ fn reference(revision: &SharedNetworkRevision) -> PublishedLfcaReference {
 }
 
 fn config() -> WorldConfig {
-    WorldConfig::new(8, 4, 1_024, 1_024, 100)
+    WorldConfig::try_new(WorldConfigInput {
+        vehicle_capacity: 8,
+        route_capacity: 4,
+        route_edge_occurrence_capacity: 1_024,
+        route_conflict_occurrence_capacity: 1_024,
+        fixed_delta_time_ms: 100,
+    })
+    .expect("有效的交通配置")
 }
 
 fn execution() -> ExecutionConfig {
@@ -83,9 +91,15 @@ fn world_with_id(world_id: u64) -> TrafficWorld {
         reference: reference(&revision),
     };
     let selection = test_policy::selection(&revision);
-    let mut world =
-        TrafficWorld::install(revision, config(), execution(), source, world_id, selection)
-            .expect("install");
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision,
+        config: config(),
+        execution: execution(),
+        source,
+        world_id: WorldId::new(world_id),
+        policy_selection: selection,
+    })
+    .expect("install");
     let edges = [10_000, 8_000, 12_000]
         .map(|length| {
             LaneEdgeOrdinal::try_from_usize(
@@ -121,9 +135,15 @@ fn swap_world(world_id: u64, swapped: bool) -> TrafficWorld {
         reference: reference(&revision),
     };
     let selection = test_policy::selection(&revision);
-    let mut world =
-        TrafficWorld::install(revision, config(), execution(), source, world_id, selection)
-            .expect("install");
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision,
+        config: config(),
+        execution: execution(),
+        source,
+        world_id: WorldId::new(world_id),
+        policy_selection: selection,
+    })
+    .expect("install");
     let edges = [10_000, 8_000, 12_000]
         .map(|length| {
             LaneEdgeOrdinal::try_from_usize(
@@ -658,14 +678,14 @@ fn distortion_is_detected_independent_of_command_cursor() {
             reference: reference(&revision),
         };
         let selection = test_policy::selection(&revision);
-        TrafficWorld::install(
+        TrafficWorld::install(WorldInstallInput {
             revision,
-            config(),
-            execution(),
+            config: config(),
+            execution: execution(),
             source,
-            CURSOR_WORLD_ID,
-            selection,
-        )
+            world_id: WorldId::new(CURSOR_WORLD_ID),
+            policy_selection: selection,
+        })
         .expect("install")
     };
     let edges_for = |world: &TrafficWorld, lengths: &[u64]| {

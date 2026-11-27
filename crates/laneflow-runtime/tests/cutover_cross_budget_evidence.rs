@@ -32,6 +32,7 @@ use laneflow_runtime::{
     DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, PublishedLfcaReference, RouteRegisterInput,
     SemanticDiffOriginBinding, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_static_contract::{
     ExactByteLength, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, VehicleProfileOrdinal,
@@ -155,14 +156,21 @@ fn ledger_step(
 
 fn world_with_fleet(ledger: &mut tick_ledger::TickLedger) -> TrafficWorld {
     let revision = build(ORACLE_BASE);
-    let mut world = TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        WorldConfig::new(VEHICLES, 4, 1_024, 1_024, DELTA_MS),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source_for("fixture://cross-base", ORACLE_BASE),
-        1,
-        test_policy::selection(&revision),
-    )
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: VEHICLES,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source_for("fixture://cross-base", ORACLE_BASE),
+        world_id: WorldId::new(1),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("install");
     let (entry, exit) = entry_exit(&world);
     let route = world

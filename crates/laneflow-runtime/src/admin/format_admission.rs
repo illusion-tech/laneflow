@@ -542,7 +542,7 @@ pub(super) fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
         &wire::RuntimeSnapshotArgs {
             format_version: SNAPSHOT_FORMAT_VERSION,
             runtime_state_version: RUNTIME_STATE_VERSION,
-            world_id: snapshot.world_id,
+            world_id: snapshot.world_id.get(),
             tick: snapshot.tick,
             time_ms: snapshot.time_ms,
             command_cursor: snapshot.command_cursor,
@@ -593,18 +593,12 @@ pub(super) fn restore_lfrs(
 
     // 路线重编译必须得到完整实际冲突出现记录总数，才能同时校验
     // 快照与目标容量。这个 staging world 不对外发布，也不按该上限预分配内存。
-    let staging_config = WorldConfig::new(
-        target_config.vehicle_capacity(),
-        target_config.route_capacity(),
-        target_config.route_edge_occurrence_capacity(),
-        u64::MAX,
-        target_config.fixed_delta_time_ms(),
-    );
+    let staging_config = target_config.for_route_restore();
     let mut world = WorldState::prepare_traffic_state(
         revision,
         staging_config,
         source,
-        root.world_id(),
+        crate::WorldId::new(root.world_id()),
         decode_world_policy(root.world_policy())?,
     )
     .map_err(SnapshotRestoreError::Install)?;

@@ -14,7 +14,8 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, EntranceBodyError, EntranceDirection, ExecutionConfig,
     PublishedLfcaReference, ReplaceError, RouteHandle, RouteRegisterInput, SpawnError, TickInput,
-    TrafficWorld, VehicleEntrance, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    TrafficWorld, VehicleEntrance, VehicleSpawnInput, VehicleStatus, WorldConfig, WorldConfigInput,
+    WorldId, WorldInstallInput,
 };
 use laneflow_static_contract::{EntityKind, LaneEdgeId, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -24,14 +25,21 @@ use laneflow_static_network::{
 
 fn install() -> TrafficWorld {
     let revision = compile_network();
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 8, 64, 8, 100),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        published(&revision),
-        0,
-        test_policy::selection(&revision),
-    )
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 8,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: published(&revision),
+        world_id: WorldId::new(0),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("install")
 }
 

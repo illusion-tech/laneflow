@@ -12,7 +12,7 @@ use crate::kernel::conflict::{
 };
 use crate::{
     CommittedNetworkSource, PublishedLfcaReference, SnapshotRestoreLimits, TickInput, WorldConfig,
-    deterministic_state_digest, restore_lfrs,
+    WorldConfigInput, deterministic_state_digest, restore_lfrs,
 };
 
 #[test]
@@ -47,13 +47,14 @@ fn junction_reference_ledger() {
         &snapshot,
         root,
         source,
-        WorldConfig::new(
-            vehicles,
-            cells * 11,
-            u64::from(cells) * 16_384,
-            u64::from(cells) * 65_536,
-            16,
-        ),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: vehicles,
+            route_capacity: cells * 11,
+            route_edge_occurrence_capacity: u64::from(cells) * 16_384,
+            route_conflict_occurrence_capacity: u64::from(cells) * 65_536,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
         crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         SnapshotRestoreLimits::new(256 * 1024 * 1024, 4096),
     )

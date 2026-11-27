@@ -29,7 +29,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, PoseSource, PublishedLfcaReference, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
@@ -115,14 +115,21 @@ fn limits() -> CutoverPreflightLimits {
 }
 
 fn install_corridor_world(revision: &Arc<SharedNetworkRevision>) -> TrafficWorld {
-    let mut world = TrafficWorld::install(
-        Arc::clone(revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, DELTA_MS),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source_for("fixture://corridor-base"),
-        1,
-        test_policy::selection(revision),
-    )
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 32,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: DELTA_MS,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source_for("fixture://corridor-base"),
+        world_id: WorldId::new(1),
+        policy_selection: test_policy::selection(revision),
+    })
     .expect("install");
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");
     let bound = bind(&catalog, revision).expect("prepare bind");

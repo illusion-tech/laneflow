@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use super::runtime_types::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, SemanticDiffOriginBinding,
-    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    WorldPolicySelection,
 };
 use laneflow_compiler::{
     CompilationUnitBuilder, CompileProfile, Compiler, IidmVehicleProfileInput, LaneEdgeInput,
@@ -158,14 +159,21 @@ pub fn source(root: &SharedNetworkRevision) -> CommittedNetworkSource {
 }
 
 pub fn world(roots: &Revisions, count: u32, edges: u32, routes: u32) -> TrafficWorld {
-    let mut world = TrafficWorld::install(
-        Arc::clone(&roots.base),
-        WorldConfig::new(count, routes, routes as u64, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        source(&roots.base),
-        531,
-        WorldPolicySelection::NotRequired,
-    )
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&roots.base),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: count,
+            route_capacity: routes,
+            route_edge_occurrence_capacity: routes as u64,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: source(&roots.base),
+        world_id: WorldId::new(531),
+        policy_selection: WorldPolicySelection::NotRequired,
+    })
     .expect("install");
     let handles: Vec<_> = (0..routes)
         .map(|route| {

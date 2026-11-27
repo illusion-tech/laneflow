@@ -3,7 +3,7 @@ use std::{error::Error, num::NonZeroU32};
 
 use laneflow_bevy::LaneFlowSession;
 use laneflow_runtime::{
-    PolicyPin, RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    PolicyPin, RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput,
     WorldPolicySelection,
 };
 use laneflow_static_contract::{
@@ -34,7 +34,13 @@ pub fn world() -> Result<TrafficWorld, Box<dyn Error>> {
     let mut world = scene_loader::install_world(
         &revision,
         "scenario://quickstart",
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })?,
         WorldPolicySelection::Pinned(PolicyPin { policy }),
     )?;
     let edge_for_length = |world: &TrafficWorld, length: u32| {

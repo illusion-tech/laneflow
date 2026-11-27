@@ -666,7 +666,7 @@ fn canonical_conflict_lag_record(
 #[allow(clippy::too_many_arguments)]
 fn push_canonical_header(
     canonical: &mut Vec<u8>,
-    world_id: u64,
+    world_id: crate::WorldId,
     origin: &laneflow_static_network::CanonicalNetworkOrigin,
     config: &crate::WorldConfig,
     tick: u64,
@@ -680,7 +680,7 @@ fn push_canonical_header(
     canonical.extend_from_slice(RUNTIME_STATE_DIGEST_DOMAIN);
     push_u16(canonical, RUNTIME_STATE_DIGEST_VERSION);
     push_u16(canonical, crate::RUNTIME_STATE_VERSION);
-    push_u64(canonical, world_id);
+    push_u64(canonical, world_id.get());
     canonical.extend_from_slice(origin.network_revision().as_digest().as_bytes());
     let contracts = origin.static_contract_versions();
     push_u16(canonical, contracts.canonical_format_version());
@@ -1920,13 +1920,16 @@ mod tests {
         let expected = deterministic_state_digest(&original).expect("digest");
 
         let mut larger_capacity = original.clone();
-        larger_capacity.config = WorldConfig::new(
-            larger_capacity.config.vehicle_capacity() + 1,
-            larger_capacity.config.route_capacity(),
-            larger_capacity.config.route_edge_occurrence_capacity(),
-            larger_capacity.config.route_conflict_occurrence_capacity(),
-            larger_capacity.config.fixed_delta_time_ms(),
-        );
+        larger_capacity.config = WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: larger_capacity.config.vehicle_capacity() + 1,
+            route_capacity: larger_capacity.config.route_capacity(),
+            route_edge_occurrence_capacity: larger_capacity.config.route_edge_occurrence_capacity(),
+            route_conflict_occurrence_capacity: larger_capacity
+                .config
+                .route_conflict_occurrence_capacity(),
+            fixed_delta_time_ms: larger_capacity.config.fixed_delta_time_ms(),
+        })
+        .expect("有效的交通配置");
         assert_ne!(
             expected,
             deterministic_state_digest(&larger_capacity).expect("digest")

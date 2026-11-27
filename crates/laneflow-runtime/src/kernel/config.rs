@@ -1,5 +1,59 @@
 use std::num::NonZeroU32;
 
+/// 宿主的交通容量上限与固定步长。四项容量均可取零，构造受检配置时校验步长。
+///
+/// 每一项均须在调用处显式给出。
+///
+/// ```compile_fail,E0063
+/// use laneflow_runtime::WorldConfigInput;
+/// let _ = WorldConfigInput {
+///     vehicle_capacity: 2,
+///     route_capacity: 3,
+///     route_edge_occurrence_capacity: 5,
+///     fixed_delta_time_ms: 100,
+/// };
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorldConfigInput {
+    /// 车辆槽位上限。
+    pub vehicle_capacity: u32,
+    /// 路线槽位上限。
+    pub route_capacity: u32,
+    /// 全部存活路线的边出现总数上限。
+    pub route_edge_occurrence_capacity: u64,
+    /// 全部存活路线的冲突通行出现总数上限。
+    pub route_conflict_occurrence_capacity: u64,
+    /// 世界运行期间的固定步长，单位为毫秒。
+    pub fixed_delta_time_ms: u64,
+}
+
+/// 宿主独立于路网修订即可诊断的配置错误。
+///
+/// 外部宿主匹配错误时须为后续变体保留通配分支。
+///
+/// ```compile_fail,E0004
+/// use laneflow_runtime::WorldConfigError;
+/// fn actual(error: WorldConfigError) -> u64 {
+///     match error {
+///         WorldConfigError::DeltaOutOfRange { actual, .. } => actual,
+///     }
+/// }
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum WorldConfigError {
+    /// 固定步长超出可用的毫秒范围。
+    #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
+    DeltaOutOfRange {
+        /// 调用方提供的步长。
+        actual: u64,
+        /// 合法下限（含）。
+        min: u64,
+        /// 合法上限（含）。
+        max: u64,
+    },
+}
+
 /// 每世界交通配置；容量和固定步长进入快照与逻辑摘要，执行并行度另行指定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorldConfig {
@@ -11,21 +65,35 @@ pub struct WorldConfig {
 }
 
 impl WorldConfig {
-    /// 创建配置。合法性在 `install` 检查，构造器本身不失败。
-    #[must_use]
-    pub const fn new(
-        vehicle_capacity: u32,
-        route_capacity: u32,
-        route_edge_occurrence_capacity: u64,
-        route_conflict_occurrence_capacity: u64,
-        fixed_delta_time_ms: u64,
-    ) -> Self {
+    /// 根据宿主指定的容量与步长构造世界配置。
+    ///
+    /// # Errors
+    ///
+    /// 固定步长超出 `4..=1000` 毫秒时返回 [`WorldConfigError::DeltaOutOfRange`]。
+    pub const fn try_new(input: WorldConfigInput) -> Result<Self, WorldConfigError> {
+        const MIN: u64 = 4;
+        const MAX: u64 = 1_000;
+        if input.fixed_delta_time_ms < MIN || input.fixed_delta_time_ms > MAX {
+            return Err(WorldConfigError::DeltaOutOfRange {
+                actual: input.fixed_delta_time_ms,
+                min: MIN,
+                max: MAX,
+            });
+        }
+        Ok(Self {
+            vehicle_capacity: input.vehicle_capacity,
+            route_capacity: input.route_capacity,
+            route_edge_occurrence_capacity: input.route_edge_occurrence_capacity,
+            route_conflict_occurrence_capacity: input.route_conflict_occurrence_capacity,
+            fixed_delta_time_ms: input.fixed_delta_time_ms,
+        })
+    }
+
+    /// 恢复路线时临时容纳全部冲突通行出现，重编译后按保存与目标容量核对实际总数。
+    pub(crate) const fn for_route_restore(self) -> Self {
         Self {
-            vehicle_capacity,
-            route_capacity,
-            route_edge_occurrence_capacity,
-            route_conflict_occurrence_capacity,
-            fixed_delta_time_ms,
+            route_conflict_occurrence_capacity: u64::MAX,
+            ..self
         }
     }
 
@@ -43,7 +111,7 @@ impl WorldConfig {
 
     /// 返回路线槽、边占用与冲突占用容量各加余量的配置副本；供验证/测量入口
     /// 在目录路线之外预留注册余量。容量进入快照与逻辑摘要：余量装机与标准
-    /// 装机不同身份，仅在自含测量世界使用。
+    /// 装机的逻辑摘要不同，仅在自含测量世界使用。
     #[must_use]
     pub const fn with_added_route_capacity(
         self,
@@ -182,16 +250,36 @@ mod tests {
 
     #[test]
     fn with_added_route_capacity_saturates_and_identity() {
-        let base = WorldConfig::new(1, 2, 3, 4, 5);
+        let input = WorldConfigInput {
+            vehicle_capacity: 1,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: 3,
+            route_conflict_occurrence_capacity: 4,
+            fixed_delta_time_ms: 5,
+        };
+        let base = WorldConfig::try_new(input).unwrap();
         assert_eq!(base.with_added_route_capacity(0, 0, 0), base);
         assert_eq!(
             base.with_added_route_capacity(1, 1, 1),
-            WorldConfig::new(1, 3, 4, 5, 5)
+            WorldConfig::try_new(WorldConfigInput {
+                route_capacity: 3,
+                route_edge_occurrence_capacity: 4,
+                route_conflict_occurrence_capacity: 5,
+                ..input
+            })
+            .unwrap()
         );
-        let full = WorldConfig::new(u32::MAX, u32::MAX, u64::MAX, u64::MAX, 5);
+        let full = WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: u32::MAX,
+            route_capacity: u32::MAX,
+            route_edge_occurrence_capacity: u64::MAX,
+            route_conflict_occurrence_capacity: u64::MAX,
+            ..input
+        })
+        .unwrap();
         assert_eq!(
             full.with_added_route_capacity(1, 1, 1),
-            WorldConfig::new(u32::MAX, u32::MAX, u64::MAX, u64::MAX, 5),
+            full,
             "capacity additions saturate instead of overflowing"
         );
     }

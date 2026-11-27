@@ -9,11 +9,11 @@ fn install_fixture(
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
+    laneflow_runtime::TrafficWorld::install(laneflow_runtime::WorldInstallInput {
         revision,
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -22,15 +22,16 @@ fn install_fixture(
             )
             .expect("non-empty fixture key"),
         },
-        0,
-        toml::from_str::<laneflow_scenario::signalized_corridor::CorridorCatalog>(include_str!(
-            "../../../examples/data/v0.2-signalized-corridor.catalog.toml"
-        ))
-        .unwrap()
-        .policy_selection
-        .resolve()
-        .unwrap(),
-    )
+        world_id: laneflow_runtime::WorldId::new(0),
+        policy_selection:
+            toml::from_str::<laneflow_scenario::signalized_corridor::CorridorCatalog>(include_str!(
+                "../../../examples/data/v0.2-signalized-corridor.catalog.toml"
+            ))
+            .unwrap()
+            .policy_selection
+            .resolve()
+            .unwrap(),
+    })
 }
 
 const CONFIG: &str = include_str!("../../../examples/config/v0.10-signalized-corridor.toml");
@@ -480,7 +481,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     use std::sync::Arc;
 
     use laneflow_format::{FormatLimits, check_canonical_network_input};
-    use laneflow_runtime::{TickInput, VehicleSpawnInput, WorldConfig};
+    use laneflow_runtime::{TickInput, VehicleSpawnInput, WorldConfig, WorldConfigInput};
     use laneflow_scenario::signalized_corridor::{PASSENGER_CAR_PROFILE_KEY, bind};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -512,7 +513,14 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
 
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(8, 32, 1_024, 1_024, 16),
+        WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 32,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 16,
+        })
+        .expect("有效的交通配置"),
     )
     .expect("install");
     assert_eq!(world.revision().network_revision(), bound.network_revision);

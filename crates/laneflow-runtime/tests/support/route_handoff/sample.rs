@@ -127,7 +127,18 @@ fn check_query_limits(preview: &RouteHandoffPreview<'_>) {
 #[test]
 fn sampled_travel_keeps_body_evidence_and_counts_only_the_selected_route_visit() {
     let rev = compile_road_editing_revision(module(0.));
-    let world = install_fixture(Arc::clone(&rev), WorldConfig::new(2, 4, 64, 32, 100)).unwrap();
+    let world = install_fixture(
+        Arc::clone(&rev),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 32,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+    )
+    .unwrap();
     let rel = rev.traffic().relations();
     let section = [0, 1]
         .into_iter()

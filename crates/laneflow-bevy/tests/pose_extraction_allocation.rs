@@ -22,7 +22,8 @@ use laneflow_compiler::{
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig, WorldPolicySelection,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    WorldPolicySelection,
 };
 use laneflow_spatial::{FramePlacementToken, SpatialSession};
 use laneflow_static_contract::VehicleProfileOrdinal;
@@ -125,11 +126,18 @@ fn root() -> Arc<SharedNetworkRevision> {
 fn warm_extraction_path_has_no_new_allocations() {
     let root = root();
     let origin = root.canonical_origin();
-    let mut world = TrafficWorld::install(
-        Arc::clone(&root),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    let mut world = TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&root),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://pose-extraction-allocation",
                 origin.canonical_artifact_digest(),
@@ -138,9 +146,9 @@ fn warm_extraction_path_has_no_new_allocations() {
             )
             .expect("source"),
         },
-        722,
-        WorldPolicySelection::NotRequired,
-    )
+        world_id: WorldId::new(722),
+        policy_selection: WorldPolicySelection::NotRequired,
+    })
     .expect("install");
     let edge = world
         .traffic()

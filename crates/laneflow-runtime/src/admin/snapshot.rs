@@ -15,6 +15,8 @@ use crate::kernel::conflict::UnsupportedTransitionState;
 use crate::{
     CommittedNetworkSource, ParkingBinding, ParkingTarget, TrafficWorld, VehicleStatus, WorldConfig,
 };
+#[cfg(test)]
+use crate::{WorldConfigInput, WorldId, WorldInstallInput};
 
 /// LFRS 容器格式版本（快照合同 §4）。
 pub const SNAPSHOT_FORMAT_VERSION: u32 = 7;
@@ -162,7 +164,7 @@ fn persisted_admission_gate(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapturedSnapshot {
     /// 世界身份（快照局部）。
-    pub(crate) world_id: u64,
+    pub(crate) world_id: crate::WorldId,
     /// tick 游标。
     pub(crate) tick: u64,
     /// 时钟（`tick × fixed_delta_time_ms`，恢复侧核对）。
@@ -551,7 +553,7 @@ impl CapturedSnapshot {
 
     /// 世界身份。
     #[must_use]
-    pub const fn world_id(&self) -> u64 {
+    pub const fn world_id(&self) -> crate::WorldId {
         self.world_id
     }
 
@@ -1284,7 +1286,7 @@ mod tests {
     fn capture_binds_cursors_config_and_origin() {
         let (world, _, _) = world_with_vehicle(true);
         let snapshot = world.capture_snapshot().expect("capture");
-        assert_eq!(snapshot.world_id(), 1);
+        assert_eq!(snapshot.world_id(), crate::WorldId::new(1));
         assert_eq!(snapshot.tick(), 0);
         assert_eq!(snapshot.time_ms(), 0);
         assert_eq!(snapshot.command_cursor(), 2);
@@ -1455,7 +1457,7 @@ mod tests {
 
         assert_eq!(root.format_version(), SNAPSHOT_FORMAT_VERSION);
         assert_eq!(root.runtime_state_version(), RUNTIME_STATE_VERSION);
-        assert_eq!(root.world_id(), snapshot.world_id());
+        assert_eq!(root.world_id(), snapshot.world_id().get());
         assert_eq!(root.tick(), snapshot.tick());
         assert_eq!(root.time_ms(), snapshot.time_ms());
         assert_eq!(root.command_cursor(), snapshot.command_cursor());
@@ -1615,17 +1617,24 @@ mod tests {
     fn encode_lfrs_keeps_required_empty_state_vectors() {
         let root_revision = crate::admin::cutover::tests::transaction_tests::revision(true);
         let origin = *root_revision.canonical_origin();
-        let world = TrafficWorld::install(
-            std::sync::Arc::clone(&root_revision),
-            WorldConfig::new(8, 4, 1_024, 1_024, 100),
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::admin::cutover::tests::transaction_tests::source_for(
+        let world = TrafficWorld::install(WorldInstallInput {
+            revision: std::sync::Arc::clone(&root_revision),
+            config: WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::admin::cutover::tests::transaction_tests::source_for(
                 origin,
                 "fixture://empty-snapshot",
             ),
-            9,
-            crate::test_policy::selection(&root_revision),
-        )
+            world_id: WorldId::new(9),
+            policy_selection: crate::test_policy::selection(&root_revision),
+        })
         .expect("install");
         let bytes = encode_lfrs(&world.capture_snapshot().expect("capture"));
         let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).expect("verified LFRS");

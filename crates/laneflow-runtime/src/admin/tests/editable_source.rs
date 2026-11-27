@@ -8,7 +8,8 @@ use crate::{
     CutoverError, CutoverPreflightLimits, CutoverTransactionLimits, EditableDiffBase,
     EditableDiffBaseMismatch, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, PolicyPin, RoadEditingState, RoadEditingStateModule,
-    SemanticDiffOriginBinding, TrafficWorld, WorldPolicySelection, encode_lfrs,
+    SemanticDiffOriginBinding, TrafficWorld, WorldId, WorldInstallInput, WorldPolicySelection,
+    encode_lfrs,
 };
 use laneflow_compiler::{
     CompilationUnitBuilder, CompileProfile, Compiler, PortableDiffBase, PortableEmissionProvenance,
@@ -123,19 +124,26 @@ fn install(
     revision: &Arc<SharedNetworkRevision>,
     source: CommittedNetworkSource,
 ) -> Result<TrafficWorld, InstallError> {
-    TrafficWorld::install(
-        Arc::clone(revision),
-        WorldConfig::new(4, 4, 64, 8, 100),
-        crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(revision),
+        config: WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
-        284,
-        WorldPolicySelection::Pinned(PolicyPin {
+        world_id: WorldId::new(284),
+        policy_selection: WorldPolicySelection::Pinned(PolicyPin {
             policy: revision
                 .identity()
                 .stable_id(laneflow_static_contract::RightOfWayPolicySetOrdinal::from_raw(0))
                 .expect("fixture policy"),
         }),
-    )
+    })
 }
 
 fn restore(
@@ -147,7 +155,14 @@ fn restore(
         bytes,
         Arc::clone(revision),
         source,
-        WorldConfig::new(4, 4, 64, 8, 100),
+        WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 8,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
         crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         generous_limits(),
     )

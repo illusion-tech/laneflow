@@ -21,8 +21,8 @@ use laneflow_runtime::{
     CommittedTrafficObservationBatch, CostModelKey, DynamicCostSnapshotBinding,
     ObservationExportMode, ObservationSelection, ObservationSetBinding, RestoredSnapshot,
     RouteError, RouteHandle, RoutingAdmissionSession, StateDigest, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig, bind_observation_set, deterministic_state_digest, encode_lfrs,
-    restore_lfrs,
+    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    bind_observation_set, deterministic_state_digest, encode_lfrs, restore_lfrs,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, Sha256Digest, StableId128};
 use support::routing_evidence::{
@@ -616,14 +616,21 @@ fn expect_receiver_error(
 /// 同一修订上的最小孪生世界：跨世界绑定失配探针（真实多世界宿主可
 /// 触达）。路线槽与出现记录只留探针所需。
 fn twin_world_with_admission(fixture: &LfSynthFixture) -> (TrafficWorld, RoutingAdmissionSession) {
-    let world = TrafficWorld::install(
-        std::sync::Arc::clone(&fixture.world.revision()),
-        WorldConfig::new(0, 1, 4_096, 0, fixture.fixed_delta_ms),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        fixture.world.committed_source().clone(),
-        1_268,
-        laneflow_runtime::WorldPolicySelection::Pinned(fixture.policy),
-    )
+    let world = TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&fixture.world.revision()),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 0,
+            route_capacity: 1,
+            route_edge_occurrence_capacity: 4_096,
+            route_conflict_occurrence_capacity: 0,
+            fixed_delta_time_ms: fixture.fixed_delta_ms,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: fixture.world.committed_source().clone(),
+        world_id: WorldId::new(1_268),
+        policy_selection: laneflow_runtime::WorldPolicySelection::Pinned(fixture.policy),
+    })
     .expect("安装孪生世界");
     let admission = world.open_routing_admission(lf_synth_cost_model());
     (world, admission)

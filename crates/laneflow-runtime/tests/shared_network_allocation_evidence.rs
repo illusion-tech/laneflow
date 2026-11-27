@@ -29,11 +29,11 @@ fn install_fixture(
     config: laneflow_runtime::WorldConfig,
 ) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
     let origin = *revision.canonical_origin();
-    laneflow_runtime::TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
+    laneflow_runtime::TrafficWorld::install(laneflow_runtime::WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
         config,
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        laneflow_runtime::CommittedNetworkSource::Published {
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: laneflow_runtime::CommittedNetworkSource::Published {
             reference: laneflow_runtime::PublishedLfcaReference::new(
                 "fixture://in-process",
                 origin.canonical_artifact_digest(),
@@ -42,9 +42,9 @@ fn install_fixture(
             )
             .expect("non-empty fixture key"),
         },
-        0,
-        test_policy::selection(&revision),
-    )
+        world_id: laneflow_runtime::WorldId::new(0),
+        policy_selection: test_policy::selection(&revision),
+    })
 }
 
 #[global_allocator]
@@ -144,7 +144,14 @@ fn sample_worlds(revision: &Arc<SharedNetworkRevision>, count: usize) -> AllocSa
         worlds.push(
             install_fixture(
                 Arc::clone(revision),
-                WorldConfig::new(8, 8, 1_024, 1_024, 16),
+                WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+                    vehicle_capacity: 8,
+                    route_capacity: 8,
+                    route_edge_occurrence_capacity: 1_024,
+                    route_conflict_occurrence_capacity: 1_024,
+                    fixed_delta_time_ms: 16,
+                })
+                .expect("有效的交通配置"),
             )
             .expect("install"),
         );

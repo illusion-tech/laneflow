@@ -1131,18 +1131,18 @@ mod motion_injection {
         })
     }
 
-    pub(super) fn nonfinite_injected(world_id: u64, active_position: usize) -> bool {
-        NONFINITE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn nonfinite_injected(world_id: crate::WorldId, active_position: usize) -> bool {
+        NONFINITE_WORLD.load(Ordering::SeqCst) == world_id.get()
             && active_position < u64::BITS as usize
             && NONFINITE_POSITIONS.load(Ordering::SeqCst) & (1_u64 << active_position) != 0
     }
 
-    pub(super) fn arrival_reserve_injected(world_id: u64) -> bool {
-        ARRIVAL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn arrival_reserve_injected(world_id: crate::WorldId) -> bool {
+        ARRIVAL_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 
-    pub(super) fn slot_reserve_injected(world_id: u64) -> bool {
-        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id
+    pub(super) fn slot_reserve_injected(world_id: crate::WorldId) -> bool {
+        SLOT_RESERVE_FAILURE_WORLD.load(Ordering::SeqCst) == world_id.get()
     }
 }
 
@@ -1162,10 +1162,13 @@ impl Drop for MotionNonfiniteGuard {
 
 /// 测试专用：按 Active 紧凑位置武装 P5 逐车 NonFiniteMotion 注入。
 #[cfg(test)]
-pub(crate) fn inject_motion_nonfinite(world_id: u64, positions: &[usize]) -> MotionNonfiniteGuard {
+pub(crate) fn inject_motion_nonfinite(
+    world_id: crate::WorldId,
+    positions: &[usize],
+) -> MotionNonfiniteGuard {
     use std::sync::atomic::Ordering;
     MotionNonfiniteGuard(
-        motion_injection::NONFINITE_WORLD.swap(world_id, Ordering::SeqCst),
+        motion_injection::NONFINITE_WORLD.swap(world_id.get(), Ordering::SeqCst),
         motion_injection::NONFINITE_POSITIONS
             .swap(motion_injection::position_mask(positions), Ordering::SeqCst),
     )
@@ -1185,23 +1188,23 @@ impl Drop for MotionBoolGuard {
 #[cfg(test)]
 fn swap_motion_world(
     flag: &'static std::sync::atomic::AtomicU64,
-    world_id: u64,
+    world_id: crate::WorldId,
 ) -> MotionBoolGuard {
     MotionBoolGuard(
         flag,
-        flag.swap(world_id, std::sync::atomic::Ordering::SeqCst),
+        flag.swap(world_id.get(), std::sync::atomic::Ordering::SeqCst),
     )
 }
 
 /// 测试专用：武装世界下一次到达观察真实预留强制失败（#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_motion_arrival_reserve(world_id: u64) -> MotionBoolGuard {
+pub(crate) fn fail_motion_arrival_reserve(world_id: crate::WorldId) -> MotionBoolGuard {
     swap_motion_world(&motion_injection::ARRIVAL_RESERVE_FAILURE_WORLD, world_id)
 }
 
 /// 测试专用：武装世界下一次结果槽位预留强制失败（冷态/增长回退测试，#792 按武装世界隔离）。
 #[cfg(test)]
-pub(crate) fn fail_motion_slot_reserve(world_id: u64) -> MotionBoolGuard {
+pub(crate) fn fail_motion_slot_reserve(world_id: crate::WorldId) -> MotionBoolGuard {
     swap_motion_world(&motion_injection::SLOT_RESERVE_FAILURE_WORLD, world_id)
 }
 
@@ -1226,7 +1229,7 @@ pub(crate) fn drop_motion_slot_at(position: usize) -> MotionSlotGapGuard {
 fn push_parking_arrival(
     parking_arrivals: &mut Vec<ParkingArrivalObservation>,
     arrival: ParkingArrivalObservation,
-    _world_id: u64,
+    _world_id: crate::WorldId,
 ) -> Result<(), StepError> {
     #[cfg(test)]
     if motion_injection::arrival_reserve_injected(_world_id)
@@ -7147,11 +7150,11 @@ mod preview {
         config: crate::WorldConfig,
     ) -> Result<crate::TrafficWorld, crate::InstallError> {
         let origin = *revision.canonical_origin();
-        crate::TrafficWorld::install(
-            std::sync::Arc::clone(&revision),
+        crate::TrafficWorld::install(crate::WorldInstallInput {
+            revision: std::sync::Arc::clone(&revision),
             config,
-            crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            crate::CommittedNetworkSource::Published {
+            execution: crate::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: crate::CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://in-process",
                     origin.canonical_artifact_digest(),
@@ -7160,9 +7163,9 @@ mod preview {
                 )
                 .expect("non-empty fixture key"),
             },
-            0,
-            crate::test_policy::selection(&revision),
-        )
+            world_id: crate::WorldId::new(0),
+            policy_selection: crate::test_policy::selection(&revision),
+        })
     }
 
     fn preview_route(world: &mut TrafficWorld) -> RouteHandle {
@@ -7345,8 +7348,18 @@ mod preview {
             ),
         )
         .unwrap();
-        let mut world =
-            install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap();
+        let mut world = install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap();
         let route = preview_route(&mut world);
         let profile = world
             .traffic()
@@ -7404,7 +7417,18 @@ mod preview {
             ),
         )
         .unwrap();
-        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1_024, 100)).unwrap()
+        install_fixture(
+            revision,
+            WorldConfig::try_new(crate::WorldConfigInput {
+                vehicle_capacity: 8,
+                route_capacity: 4,
+                route_edge_occurrence_capacity: 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+        )
+        .unwrap()
     }
 
     #[test]

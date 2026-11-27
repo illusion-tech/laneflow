@@ -498,7 +498,7 @@ A/B 归因。以上仍是同机描述性口径；3 样本中位不构成正式�
 G2 回写（A 部分 落定，#511）：
 
 - `WorldBinding` 的世界身份由宿主指定，同一宿主进程内一个身份只属于一个逻辑世界。
-  当前实现的 `world_id` 类型为 `u64`，迁移后的 Rust 构造参数与访问器均使用
+  Rust 构造参数与 `world_id()` 访问器均使用
   `laneflow_runtime::WorldId`，见[具名安装设计][named-world-install]。活动世代为字段私有的
   `WorldGeneration(u64)`，`install` 从 `0` 开始，成功切换 checked `+1`，耗尽在
   暂存前以 `WorldGenerationExhausted` 失败关闭。Runtime 通过

@@ -453,11 +453,20 @@ fn install(revision: Arc<SharedNetworkRevision>, workers: u32) -> crate::Traffic
         )
         .unwrap(),
     );
-    crate::TrafficWorld::install(
+    crate::TrafficWorld::install(crate::WorldInstallInput {
         revision,
-        crate::WorldConfig::new(4, 4, 64, 32, 100),
-        crate::ExecutionConfig::new(std::num::NonZeroU32::new(workers).expect("workers")),
-        crate::CommittedNetworkSource::Published {
+        config: crate::WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 4,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 64,
+            route_conflict_occurrence_capacity: 32,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: crate::ExecutionConfig::new(
+            std::num::NonZeroU32::new(workers).expect("workers"),
+        ),
+        source: crate::CommittedNetworkSource::Published {
             reference: crate::PublishedLfcaReference::new(
                 "fixture://ltv",
                 origin.canonical_artifact_digest(),
@@ -466,9 +475,9 @@ fn install(revision: Arc<SharedNetworkRevision>, workers: u32) -> crate::Traffic
             )
             .unwrap(),
         },
-        1_220,
-        crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
-    )
+        world_id: crate::WorldId::new(1_220),
+        policy_selection: crate::WorldPolicySelection::Pinned(crate::PolicyPin { policy }),
+    })
     .unwrap()
 }
 

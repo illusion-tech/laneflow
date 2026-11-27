@@ -246,11 +246,18 @@ pub(super) fn install(
 ) -> Result<TrafficWorld, InstallError> {
     let o = *rev.canonical_origin();
     let selection = crate::test_policy::selection(&rev);
-    TrafficWorld::install(
-        rev,
-        WorldConfig::new(256, 16, 4_096, 4_096, u64::from(dt)),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(crate::WorldInstallInput {
+        revision: rev,
+        config: WorldConfig::try_new(crate::WorldConfigInput {
+            vehicle_capacity: 256,
+            route_capacity: 16,
+            route_edge_occurrence_capacity: 4_096,
+            route_conflict_occurrence_capacity: 4_096,
+            fixed_delta_time_ms: u64::from(dt),
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://lf-synth-contract",
                 o.canonical_artifact_digest(),
@@ -259,9 +266,9 @@ pub(super) fn install(
             )
             .unwrap(),
         },
-        0,
-        selection,
-    )
+        world_id: crate::WorldId::new(0),
+        policy_selection: selection,
+    })
 }
 
 pub(super) struct Sample {

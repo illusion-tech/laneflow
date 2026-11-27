@@ -20,7 +20,14 @@ fn run(repetitions: usize, lead_ms: u64, samples: usize, warmup: usize) {
         ));
     let mut world = install_fixture(
         Arc::clone(&revision),
-        WorldConfig::new(2, 2, (repetitions * 6) as u64, (repetitions * 2) as u64, 4),
+        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
+            vehicle_capacity: 2,
+            route_capacity: 2,
+            route_edge_occurrence_capacity: (repetitions * 6) as u64,
+            route_conflict_occurrence_capacity: (repetitions * 2) as u64,
+            fixed_delta_time_ms: 4,
+        })
+        .expect("有效的交通配置"),
     )
     .unwrap();
     let routes = [0_u32, 1].map(|raw| {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use laneflow_compiler::derive_canonical_stable_id_v1;
 use laneflow_runtime::{
     CommittedNetworkSource, PolicyPin, PublishedLfcaReference, RouteRegisterInput, TrafficWorld,
-    WorldConfig, WorldPolicySelection,
+    WorldConfig, WorldConfigInput, WorldId, WorldInstallInput, WorldPolicySelection,
 };
 use laneflow_static_contract::{
     AccessEffect, EntityKind, LaneEdgeId, LaneEdgeOrdinal, ParticipantClassOrdinal,
@@ -394,17 +394,18 @@ pub(crate) fn install(
                 .unwrap_or(0)
         })
         .sum();
-    TrafficWorld::install(
+    TrafficWorld::install(WorldInstallInput {
         revision,
-        WorldConfig::new(
-            scale.nominal_individual_count(),
-            catalog.routes.len() as u32,
-            edge_occurrences,
-            conflict_occurrences,
-            scale.fixed_step_ms(),
-        ),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: scale.nominal_individual_count(),
+            route_capacity: catalog.routes.len() as u32,
+            route_edge_occurrence_capacity: edge_occurrences,
+            route_conflict_occurrence_capacity: conflict_occurrences,
+            fixed_delta_time_ms: scale.fixed_step_ms(),
+        })
+        .map_err(|error| validation("world config", error))?,
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://lf-cn-urban-v2",
                 origin.canonical_artifact_digest(),
@@ -413,15 +414,15 @@ pub(crate) fn install(
             )
             .map_err(|e| validation("source reference", e))?,
         },
-        542,
-        WorldPolicySelection::Pinned(PolicyPin {
+        world_id: WorldId::new(542),
+        policy_selection: WorldPolicySelection::Pinned(PolicyPin {
             policy: RightOfWayPolicySetId::from_untyped(local_id(
                 EntityKind::RightOfWayPolicySet,
                 source::NAMESPACE,
                 source::POLICY_KEY,
             )?),
         }),
-    )
+    })
     .map_err(|e| validation("empty world install", e))
 }
 

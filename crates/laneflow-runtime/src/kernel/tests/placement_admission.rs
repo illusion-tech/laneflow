@@ -24,6 +24,7 @@ use super::placement::{can_slow_to_before, can_stop_before};
 use crate::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, ReplaceError, RouteHandle,
     RouteRegisterInput, SpawnError, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    WorldConfigInput, WorldId, WorldInstallInput,
 };
 
 fn profile() -> IidmVehicleProfileInput {
@@ -110,11 +111,18 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
 
 pub(crate) fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) -> TrafficWorld {
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, delta_ms),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: delta_ms,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://placement-admission",
                 origin.canonical_artifact_digest(),
@@ -123,9 +131,9 @@ pub(crate) fn install_dt(revision: Arc<SharedNetworkRevision>, delta_ms: u64) ->
             )
             .expect("source"),
         },
-        742,
-        crate::test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(742),
+        policy_selection: crate::test_policy::selection(&revision),
+    })
     .expect("install")
 }
 
@@ -745,11 +753,18 @@ fn replace_uses_the_same_follower_admission() {
 
 fn install_sized(revision: Arc<SharedNetworkRevision>, vehicles: u32, routes: u32) -> TrafficWorld {
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        Arc::clone(&revision),
-        WorldConfig::new(vehicles, routes, 4_096, 256, 100),
-        ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: vehicles,
+            route_capacity: routes,
+            route_edge_occurrence_capacity: 4_096,
+            route_conflict_occurrence_capacity: 256,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://placement-admission",
                 origin.canonical_artifact_digest(),
@@ -758,9 +773,9 @@ fn install_sized(revision: Arc<SharedNetworkRevision>, vehicles: u32, routes: u3
             )
             .expect("source"),
         },
-        742,
-        crate::test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(742),
+        policy_selection: crate::test_policy::selection(&revision),
+    })
     .expect("install")
 }
 

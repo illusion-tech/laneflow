@@ -17,7 +17,8 @@ use std::time::Instant;
 use laneflow_format::FormatLimits;
 use laneflow_runtime::{
     CommittedNetworkSource, ExecutionConfig, PublishedLfcaReference, SnapshotDigestLimits,
-    TickInput, TrafficWorld, WorldConfig, attest_published_shared_network_revision,
+    TickInput, TrafficWorld, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    attest_published_shared_network_revision,
 };
 use laneflow_static_network::{
     AttestationOutcome, AttestationVerdict, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -125,16 +126,23 @@ fn direct_digest_wall_clock_evidence() {
         let routes = vehicles
             .min(synthetic_network::WorkloadShape::for_stable_entities(tier).synthetic_tiles);
         let fixture = build_tier(tier);
-        let mut world = TrafficWorld::install(
-            Arc::clone(&fixture.root),
-            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 100),
-            ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: Arc::clone(&fixture.root),
+            config: WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: vehicles,
+                route_capacity: routes,
+                route_edge_occurrence_capacity: u64::from(routes) * 3 + 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 100,
+            })
+            .expect("有效的交通配置"),
+            execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: fixture.reference.clone(),
             },
-            987_000 + u64::from(tier % 1_000),
-            test_policy::selection(&fixture.root),
-        )
+            world_id: WorldId::new(987_000 + u64::from(tier % 1_000)),
+            policy_selection: test_policy::selection(&fixture.root),
+        })
         .expect("install");
         synthetic_network::populate(&mut world, vehicles, routes);
         let limits = SnapshotDigestLimits::new(DIGEST_LIMIT_BYTES);
@@ -197,16 +205,23 @@ fn concurrent_attest_tick_interference_evidence() {
         vehicles.min(synthetic_network::WorkloadShape::for_stable_entities(tier).synthetic_tiles);
     let fixture = build_tier(tier);
     let make_world = || {
-        let mut world = TrafficWorld::install(
-            Arc::clone(&fixture.root),
-            WorldConfig::new(vehicles, routes, u64::from(routes) * 3 + 1_024, 1_024, 4),
-            ExecutionConfig::new(std::num::NonZeroU32::MIN),
-            CommittedNetworkSource::Published {
+        let mut world = TrafficWorld::install(WorldInstallInput {
+            revision: Arc::clone(&fixture.root),
+            config: WorldConfig::try_new(WorldConfigInput {
+                vehicle_capacity: vehicles,
+                route_capacity: routes,
+                route_edge_occurrence_capacity: u64::from(routes) * 3 + 1_024,
+                route_conflict_occurrence_capacity: 1_024,
+                fixed_delta_time_ms: 4,
+            })
+            .expect("有效的交通配置"),
+            execution: ExecutionConfig::new(std::num::NonZeroU32::MIN),
+            source: CommittedNetworkSource::Published {
                 reference: fixture.reference.clone(),
             },
-            987_100,
-            test_policy::selection(&fixture.root),
-        )
+            world_id: WorldId::new(987_100),
+            policy_selection: test_policy::selection(&fixture.root),
+        })
         .expect("install");
         synthetic_network::populate(&mut world, vehicles, routes);
         world

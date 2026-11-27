@@ -22,7 +22,7 @@ use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     CommittedNetworkSource, ParkingFacilityOrdinal, ParkingTarget, PublishedLfcaReference,
     ReserveParkingTarget, RouteRegisterInput, TrafficWorld, VehicleSpawnInput,
-    VirtualEntryAnchorSelector, WorldConfig,
+    VirtualEntryAnchorSelector, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
 };
 use laneflow_static_contract::{EntityKind, LaneEdgeId, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -129,11 +129,18 @@ fn compile_capacity(capacity: u32) -> Arc<SharedNetworkRevision> {
 
 fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
     let origin = *revision.canonical_origin();
-    TrafficWorld::install(
-        std::sync::Arc::clone(&revision),
-        WorldConfig::new(8, 4, 1_024, 1_024, 100),
-        laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
-        CommittedNetworkSource::Published {
+    TrafficWorld::install(WorldInstallInput {
+        revision: std::sync::Arc::clone(&revision),
+        config: WorldConfig::try_new(WorldConfigInput {
+            vehicle_capacity: 8,
+            route_capacity: 4,
+            route_edge_occurrence_capacity: 1_024,
+            route_conflict_occurrence_capacity: 1_024,
+            fixed_delta_time_ms: 100,
+        })
+        .expect("有效的交通配置"),
+        execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
+        source: CommittedNetworkSource::Published {
             reference: PublishedLfcaReference::new(
                 "fixture://parking-scale",
                 origin.canonical_artifact_digest(),
@@ -142,9 +149,9 @@ fn install(revision: Arc<SharedNetworkRevision>) -> TrafficWorld {
             )
             .expect("source"),
         },
-        541,
-        test_policy::selection(&revision),
-    )
+        world_id: WorldId::new(541),
+        policy_selection: test_policy::selection(&revision),
+    })
     .expect("install")
 }
 
