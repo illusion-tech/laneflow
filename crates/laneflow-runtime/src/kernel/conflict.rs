@@ -1,7 +1,6 @@
 //! 冲突候选、间隙证明与组合资源的单写者核心。
 //!
 //! W7 已把仲裁、crossing、tail-clear、快照与在线切换接入生产固定步进。
-#![cfg_attr(not(test), allow(dead_code))]
 
 use core::cmp::Ordering;
 
@@ -647,6 +646,7 @@ impl PartialOrd for ConflictCandidateOrderKey {
 }
 
 /// 同一 Gate coverage 的实际规则优先级；声明/流遍历顺序不影响最小值。
+#[cfg(test)]
 pub(crate) fn coverage_min_priority(priorities: impl IntoIterator<Item = i32>) -> Option<i32> {
     priorities.into_iter().min()
 }
@@ -1159,6 +1159,7 @@ impl DownstreamRoutePoint {
 ///
 /// `storage_upper_bound` 已由 leader、next Gate、RouteEnd、ParkingStop 与 Waiting hard
 /// boundary 取最小值；相等通过，提前一微米失败。
+#[cfg(test)]
 pub(crate) fn prove_downstream_clearance(
     route_edges: &[LaneEdgeOrdinal],
     edge_lengths_mm: &[u32],
@@ -1193,6 +1194,7 @@ pub(crate) fn prove_downstream_clearance(
 /// 输出只包含 `(physical edge, start, end)`；循环路线中同一物理边的重叠
 /// occurrence 会合并。持久化与切换必须重新调用本函数并精确比较结果，不能
 /// 为合并后的物理区间虚构单一来源 occurrence。
+#[cfg(test)]
 pub(crate) fn derive_downstream_claims(
     route_edges: &[LaneEdgeOrdinal],
     edge_lengths_mm: &[u32],
@@ -1800,6 +1802,8 @@ impl ConflictOwnerAuthority {
 /// crossing 提交结果：新建的 reservation 与可选的等待区准入去向。
 pub(crate) struct ConflictCrossingCommit {
     pub(crate) reservation: ConflictReservation,
+    /// 供测试断言核对 crossing 同步携带的等待区准入去向。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) waiting_admission: Option<WaitingZoneOrdinal>,
 }
 
@@ -2871,7 +2875,8 @@ impl<'a> ConflictRead<'a> {
         Some(address)
     }
 
-    /// 仲裁器是否完全无任何资源裁决权、暂存与历史。
+    /// 测试专用：仲裁器是否完全无任何资源裁决权、暂存与历史。
+    #[cfg(test)]
     pub(crate) fn is_empty(self) -> bool {
         self.cell_workspace()
             .iter()

@@ -8,8 +8,7 @@ pub(super) enum OwnedValue {
     U32(u32),
     U64(u64),
     F32(f32),
-    /// 与线格式 `PortableFieldType::F64` 对齐；当前由单元测试覆盖构造。
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// 供测试侧通用字段复制与线格式枚举映射使用。
     F64(f64),
     StableId128([u8; 16]),
     Sha256([u8; 32]),
