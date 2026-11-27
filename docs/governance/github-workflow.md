@@ -378,9 +378,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   base 的累计 diff 判定同口径路径，纯文档合并组 job 级跳过、不分配 runner；
   检测失败或输出缺失时失败关闭——照常全跑，不静默跳过；`workflow_dispatch`
   恒全量（#1363）。非必查。
-  共用准备 job 执行 harness 自测、全目标 Clippy、种子生成和一次全目标
-  AddressSanitizer 构建。六路任务按制品 ID 下载该次运行的构建与种子，核对源码、
-  锁文件、二进制摘要和初始语料，再独立执行各自的目标并发布语料、日志与回执。
+  两个共用 job 并行准备。一个执行一次全目标 AddressSanitizer 构建，另一个执行
+  harness 自测、全目标 Clippy、种子生成及启动器构建。两者均成功后，六路任务
+  按制品 ID 下载该次运行的构建和输入，核对源码、锁文件、工具链、二进制摘要
+  和初始语料，再独立执行各自的目标并发布语料、日志与回执。
   PR 与合并组的 CI 计划 job 同时发布 Fuzz 选测对照。首批核对注册表中登记的
   Cargo 测试目标和私有模块，Fuzz 的字面量嵌入及已登记的跨包输入优先计入范围。
   报告逐文件记录候选范围和原因，读取失败或缺少输入依据时记录全量回退。
