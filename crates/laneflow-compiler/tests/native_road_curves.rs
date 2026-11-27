@@ -10,6 +10,10 @@ use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
+#[path = "native_road_curves/handoff_binding.rs"]
+mod handoff_binding;
+#[path = "native_road_curves/handoff_travel.rs"]
+mod handoff_travel;
 #[path = "native_road_curves/vehicle.rs"]
 mod vehicle;
 

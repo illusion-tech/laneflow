@@ -20,7 +20,11 @@ mod pose;
 mod steering;
 mod surface;
 mod sweep;
-pub use handoff::{HandoffOutcome, HandoffQuery, HandoffReport, HandoffWindow};
+pub use handoff::{
+    HandoffBinding, HandoffBodyReport, HandoffBodySide, HandoffOutcome, HandoffQuery,
+    HandoffReport, HandoffSourceEvidence, HandoffSourceModule, HandoffTravelBounds,
+    HandoffTravelReport, HandoffTravelTarget, HandoffWindow,
+};
 pub use sweep::{
     BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SweepOutcome,
     SweepReport,
@@ -140,6 +144,8 @@ pub enum Failure {
     Boundary,
     /// 完成下一项检查会超过整条候选的逻辑预算。
     WorkLimit,
+    /// 发布的误差或细分分辨率不足以在请求精度内确定行程或站位。
+    TravelResolution,
 }
 
 /// 路幅检查结果。禁跨规则和实体净空另行裁决。

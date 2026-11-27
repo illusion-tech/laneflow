@@ -6,6 +6,16 @@ use super::*;
 use crate::{BoundaryOwner, CorridorElement, LaneFootprint, StationAddress, StationQuery};
 use laneflow_static_contract::LaneEdgeOrdinal;
 
+mod binding;
+pub use binding::HandoffBinding;
+mod body_side;
+pub use body_side::{HandoffBodyReport, HandoffBodySide};
+mod rebind;
+mod source;
+pub use source::{HandoffSourceEvidence, HandoffSourceModule};
+mod travel;
+pub use travel::{HandoffTravelBounds, HandoffTravelReport, HandoffTravelTarget};
+
 /// 两个相邻路线出现所声明的交接边界和闭窗口。边的顺序为源、目标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HandoffWindow {
@@ -76,6 +86,7 @@ pub struct HandoffReport<'a> {
     pub work: u32,
 }
 
+#[derive(Clone, Copy)]
 struct Crossing {
     line: sweep::BoundaryLine,
     // 使源侧残差为负，目标侧为正。
@@ -86,18 +97,18 @@ fn lane_pair(
     network: &SharedNetworkRevision,
     corridor: RoadCorridorOrdinal,
     window: HandoffWindow,
-    work: &mut Work,
+    mut charge: impl FnMut() -> Result<(), Failure>,
 ) -> Result<[AuthoringLaneOrdinal; 2], Failure> {
     let r = network.traffic().relations();
     let i = window.left_index as usize;
     let j = i.checked_add(1).ok_or(Failure::Binding)?;
-    work.charge()?;
+    charge()?;
     match window.owner {
         BoundaryOwner::Section(s) => {
             if r.section_corridor(s) != Some(corridor) {
                 return Err(Failure::Binding);
             }
-            work.charge()?;
+            charge()?;
             let lanes = r.section_lanes(s).ok_or(Failure::Binding)?;
             Ok([
                 *lanes.get(i).ok_or(Failure::Binding)?,
@@ -113,9 +124,9 @@ fn lane_pair(
             else {
                 return Err(Failure::Binding);
             };
-            work.charge()?;
+            charge()?;
             let a = r.section_lanes(*left).and_then(|v| v.last());
-            work.charge()?;
+            charge()?;
             let b = r.section_lanes(*right).and_then(|v| v.first());
             Ok([*a.ok_or(Failure::Binding)?, *b.ok_or(Failure::Binding)?])
         }
@@ -128,6 +139,20 @@ struct Bound {
     source_target: [AuthoringLaneOrdinal; 2],
     crossing: Crossing,
     trace: CorridorTrace,
+}
+
+impl Bound {
+    fn query(&self, q: &HandoffQuery) -> TrackQuery<'_> {
+        TrackQuery {
+            revision: q.revision,
+            corridor: q.corridor,
+            frame: q.frame,
+            station_window_nm: q.station_window_nm,
+            axles: q.axles,
+            traversable_lanes: &self.lanes,
+            trace: RearAxleTrace::Corridor(self.trace),
+        }
+    }
 }
 
 fn bind(
@@ -153,7 +178,7 @@ fn bind(
     {
         return Err(Failure::InvalidInput);
     }
-    let lanes = lane_pair(network, q.corridor, w, work)?;
+    let lanes = lane_pair(network, q.corridor, w, || work.charge())?;
     let mut source_target = lanes;
     let increasing = q.rear_stations_nm[0] < q.rear_stations_nm[1];
     for (lane, edge) in source_target.iter_mut().zip(w.edges) {
@@ -397,15 +422,7 @@ impl SharedNetworkRevision {
                 return Err((full, Failure::InvalidInput));
             }
             let bound = bind(self, q, window, &mut work).map_err(|e| (full, e))?;
-            let query = TrackQuery {
-                revision: q.revision,
-                corridor: q.corridor,
-                frame: q.frame,
-                station_window_nm: q.station_window_nm,
-                axles: q.axles,
-                traversable_lanes: &bound.lanes,
-                trace: RearAxleTrace::Corridor(bound.trace),
-            };
+            let query = bound.query(q);
             let report = self.vehicle_geometry(
                 &query,
                 steering,

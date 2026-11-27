@@ -58,7 +58,6 @@ use budget::Accounting;
 
 const SOURCE_COLLECTION_DIGEST_VERSION_V1: u16 = 1;
 const CHUNKED_EMITTER_VERSION: u16 = 2;
-const SOURCE_COLLECTION_DOMAIN_V1: &[u8] = b"laneflow.source-collection.v1\0";
 const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
     0x32, 0x26, 0x82, 0xf4, 0x55, 0xd0, 0x6b, 0x36, 0xe9, 0xe3, 0x71, 0x9f, 0x34, 0x1d, 0xb3, 0x8f,
     0x3e, 0xcd, 0xa6, 0x1d, 0x52, 0xc5, 0x3d, 0x9d, 0x6f, 0xe3, 0xdc, 0xa5, 0x40, 0xee, 0xf4, 0x45,
@@ -373,22 +372,14 @@ fn source_collection_digest(output: &CompilationOutput) -> Result<[u8; 32], Port
 fn source_collection_digest_from_map(
     source: &crate::ValidatedSourceMapInput,
 ) -> Result<[u8; 32], PortableEmissionError> {
-    let modules = source.source_modules();
-    let module_count =
-        u32::try_from(modules.len()).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
-    let mut hasher = Sha256::new();
-    hasher.update(SOURCE_COLLECTION_DOMAIN_V1);
-    hasher.update(module_count.to_le_bytes());
-    for module in modules {
-        let namespace = module.authoring_namespace_id().as_bytes();
-        let namespace_length = u32::try_from(namespace.len())
-            .map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
-        hasher.update(namespace_length.to_le_bytes());
-        hasher.update(namespace);
-        hasher.update(module.source_document_set_digest_version().to_le_bytes());
-        hasher.update(module.source_document_set_digest());
-    }
-    Ok(hasher.finalize().into())
+    laneflow_format::source_collection_digest_v1(source.source_modules().map(|m| {
+        Some((
+            m.authoring_namespace_id(),
+            m.source_document_set_digest_version(),
+            *m.source_document_set_digest(),
+        ))
+    }))
+    .ok_or(PortableEmissionError::ArithmeticOverflow)
 }
 
 fn network_revision(

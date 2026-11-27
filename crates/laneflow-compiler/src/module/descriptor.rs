@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
-const SOURCE_DOCUMENT_SET_MAGIC: &[u8] = b"LFSOURCE-DOCUMENT-SET";
-
 /// 首版来源文档集摘要原像版本。
 pub const SOURCE_DOCUMENT_SET_DIGEST_VERSION: u32 = 1;
 
@@ -273,26 +271,14 @@ pub(super) fn source_document_set_digest_v1(documents: &[SourceDocumentDescripto
         "source documents must be sorted before deriving the set digest"
     );
 
-    let mut hasher = Sha256::new();
-    hasher.update(SOURCE_DOCUMENT_SET_MAGIC);
-    hasher.update(SOURCE_DOCUMENT_SET_DIGEST_VERSION.to_le_bytes());
-    hasher.update(
-        u32::try_from(documents.len())
-            .expect("official frontend precheck bounds source document count")
-            .to_le_bytes(),
-    );
-    for document in documents {
-        let key = document.source_document_key.as_bytes();
-        hasher.update(
-            u32::try_from(key.len())
-                .expect("official frontend precheck bounds source document key bytes")
-                .to_le_bytes(),
-        );
-        hasher.update(key);
-        hasher.update(document.source_record_byte_len.to_le_bytes());
-        hasher.update(document.source_document_digest);
-    }
-    hasher.finalize().into()
+    laneflow_format::source_document_set_digest_v1(documents.iter().map(|d| {
+        Some((
+            d.source_document_key.as_ref(),
+            d.source_record_byte_len,
+            d.source_document_digest,
+        ))
+    }))
+    .expect("official frontend precheck bounds source documents")
 }
 
 /// 计算单份规范来源记录的 SHA-256 文档摘要。

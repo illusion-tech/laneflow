@@ -8,16 +8,22 @@ use laneflow_compiler::{
     RoadVehicleGeometryInput,
 };
 use laneflow_runtime::{
-    RouteError, RouteHandoffTrial, RouteHandoffTrialError, RouteRegisterInput, WorldConfig,
+    RouteError, RouteHandoffOccurrence, RouteHandoffTrial, RouteHandoffTrialError,
+    RouteRegisterInput, WorldConfig,
 };
-use laneflow_static_contract::{AccessEffect, CanonicalFrameOrdinal, RoadSectionOrdinal};
+use laneflow_static_contract::{AccessEffect, NetworkRevisionId, RoadSectionOrdinal, Sha256Digest};
 use laneflow_static_network::{
-    BoundaryOwner, SharedNetworkRevision,
-    vehicle::{GeometryWorkLimits, HandoffOutcome},
+    BoundaryOwner,
+    vehicle::{
+        GeometryWorkLimits, HandoffBodySide, HandoffOutcome, HandoffTravelTarget, SWEEP_WORK_LIMIT,
+    },
 };
 use std::sync::Arc;
 
-fn revision() -> Arc<SharedNetworkRevision> {
+#[path = "route_handoff/rebind.rs"]
+mod rebind;
+
+fn module(shift_x: f64) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
@@ -47,7 +53,7 @@ fn revision() -> Arc<SharedNetworkRevision> {
             RoadAlignmentInput::try_new(
                 "road",
                 CanonicalFrameReference::local("frame-main").unwrap(),
-                road_editing_line((0., -10.), (0., 40.)),
+                road_editing_line((shift_x, -10.), (shift_x, 40.)),
             )
             .unwrap(),
         )
@@ -174,7 +180,7 @@ fn revision() -> Arc<SharedNetworkRevision> {
         ));
     }
     // 目标链末端经普通返程回到源链首端，使 A→B 的两次出现之间全为合法后继。
-    let p = |x, z| RoadEditingPoint3::try_new(x, 0., z).unwrap();
+    let p = |x, z| RoadEditingPoint3::try_new(x + shift_x, 0., z).unwrap();
     let loop_back = RoadEditingCurveProgram::try_new(
         p(-3.5, 40.),
         vec![
@@ -185,12 +191,12 @@ fn revision() -> Arc<SharedNetworkRevision> {
     )
     .unwrap();
     add_road_editing_approach(&mut builder, "return", loop_back, vec![edge("s0")]);
-    compile_road_editing_revision(builder.finish().unwrap())
+    builder.finish().unwrap()
 }
 
 #[test]
 fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
-    let rev = revision();
+    let rev = compile_road_editing_revision(module(0.));
     let mut world = install_fixture(Arc::clone(&rev), WorldConfig::new(2, 4, 64, 32, 100)).unwrap();
     let relations = world.traffic().relations();
     let section = [0, 1]
@@ -198,28 +204,32 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
         .map(RoadSectionOrdinal::from_raw)
         .find(|&s| relations.section_lanes(s).unwrap().len() == 2)
         .unwrap();
-    let corridor = relations.section_corridor(section).unwrap();
     let lanes = relations.section_lanes(section).unwrap();
     let s = relations.authoring_edge_chain(lanes[0]).unwrap();
     let t = relations.authoring_edge_chain(lanes[1]).unwrap();
     let route = RouteRegisterInput::new(vec![s[0], s[1], s[2], t[1], t[2]]);
-    let mut trial = RouteHandoffTrial {
-        route: &route,
+    let occurrence = RouteHandoffOccurrence {
+        revision: rev.network_revision(),
         source_index: 2,
         owner: BoundaryOwner::Section(section),
         left_index: 0,
         stations_nm: [24_000_000_000, 26_000_000_000],
-        profile: conflict_profile(&rev, "car"),
-        revision: rev.network_revision(),
-        corridor,
-        frame: CanonicalFrameOrdinal::from_raw(0),
+    };
+    let binding = world.bind_route_handoff(&route, occurrence).unwrap();
+    let profile = |key| {
+        rev.identity()
+            .stable_id(conflict_profile(&rev, key))
+            .unwrap()
+    };
+    let mut trial = RouteHandoffTrial {
+        profile: profile("car"),
         station_window_nm: [0, 50_000_000_000],
         rear_stations_nm: [10_000_000_000, 40_000_000_000],
         speed_m_s: 1.,
         limits: GeometryWorkLimits::STANDARD,
     };
     let cursor = world.command_cursor();
-    let allowed = world.preview_route_handoff(&trial).unwrap();
+    let allowed = world.preview_route_handoff(&binding, &trial).unwrap();
     assert_eq!(allowed.source_index, 2);
     assert_eq!(allowed.side_access_work, 2);
     let HandoffOutcome::Located { addresses, .. } = allowed.report.outcome else {
@@ -229,69 +239,151 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     assert!(addresses[0].progress_mm[0] <= 3_195 && addresses[0].progress_mm[1] >= 3_195);
     assert!(addresses[1].progress_mm[0] <= 15_195 && addresses[1].progress_mm[1] >= 15_195);
 
+    // 同一条 30 m 五次横移的独立弧长积分。车头交接时，车身仍跨两侧。
+    let travel = allowed
+        .travel(
+            HandoffTravelTarget::RearStationNm(40_000_000_000),
+            5_000_000,
+            SWEEP_WORK_LIMIT,
+        )
+        .unwrap();
+    let [low, high] = travel.bounds.unwrap().distance_nm;
+    assert!((low..=high).contains(&30_289_144_330));
+    for (rear, side) in [
+        (10_000_000_000, HandoffBodySide::SourceOnly),
+        (21_861_190_000, HandoffBodySide::Straddling),
+        (30_000_000_000, HandoffBodySide::Straddling),
+        (30_500_000_000, HandoffBodySide::TargetOnly),
+    ] {
+        assert_eq!(
+            allowed.body_side([rear; 2], SWEEP_WORK_LIMIT).unwrap().side,
+            Ok(side)
+        );
+    }
+
     let sweep_used = allowed.report.work + allowed.report.geometry.unwrap().sweep.work;
     trial.limits.sweep = sweep_used + 1;
     assert_eq!(
-        world.preview_route_handoff(&trial).unwrap_err(),
+        world.preview_route_handoff(&binding, &trial).unwrap_err(),
         RouteHandoffTrialError::SideAccessUnproven { route_edge: t[1] }
     );
     trial.limits.sweep += 1;
     assert_eq!(
-        world.preview_route_handoff(&trial).unwrap().report,
+        world
+            .preview_route_handoff(&binding, &trial)
+            .unwrap()
+            .report,
         allowed.report
     );
     trial.limits = GeometryWorkLimits::STANDARD;
-    trial.stations_nm[1] = 25_000_000_000;
-    let outside = world.preview_route_handoff(&trial).unwrap();
+    let narrow = world
+        .bind_route_handoff(
+            &route,
+            RouteHandoffOccurrence {
+                stations_nm: [24_000_000_000, 25_000_000_000],
+                ..occurrence
+            },
+        )
+        .unwrap();
+    let outside = world.preview_route_handoff(&narrow, &trial).unwrap();
     assert!(matches!(
         outside.report.outcome,
         HandoffOutcome::OutsideWindow { .. }
     ));
     assert_eq!(outside.side_access_work, 0);
-    trial.profile = conflict_profile(&rev, "denied");
+    assert!(
+        outside
+            .travel(
+                HandoffTravelTarget::DistanceNm(0),
+                5_000_000,
+                SWEEP_WORK_LIMIT
+            )
+            .is_none()
+    );
+    assert!(
+        outside
+            .body_side([10_000_000_000; 2], SWEEP_WORK_LIMIT)
+            .is_none()
+    );
+    trial.profile = profile("denied");
     assert_eq!(
-        world.preview_route_handoff(&trial).unwrap_err(),
+        world.preview_route_handoff(&narrow, &trial).unwrap_err(),
         RouteHandoffTrialError::AccessDenied
     );
     // 车头已交给 t1，源车道在 26 m 又切到 s3。这条源侧边不在路线出现序列中。
-    trial.stations_nm[1] = 26_000_000_000;
-    trial.profile = conflict_profile(&rev, "swept");
+    trial.profile = profile("swept");
     assert!(!route.edges().contains(&s[3]));
     assert_eq!(
-        world.preview_route_handoff(&trial).unwrap_err(),
+        world.preview_route_handoff(&binding, &trial).unwrap_err(),
         RouteHandoffTrialError::SideAccessUnproven { route_edge: s[2] }
     );
-    trial.profile = conflict_profile(&rev, "car");
+    trial.profile = profile("car");
     let turn = world.traffic().successors(t[2]).unwrap()[0];
     let second_visit =
         RouteRegisterInput::new(vec![t[1], t[2], turn, s[0], s[1], s[2], t[1], t[2]]);
-    trial.route = &second_visit;
-    trial.source_index = 5;
-    let revisited = world.preview_route_handoff(&trial).unwrap();
+    let second_binding = world
+        .bind_route_handoff(
+            &second_visit,
+            RouteHandoffOccurrence {
+                source_index: 5,
+                ..occurrence
+            },
+        )
+        .unwrap();
+    let revisited = world
+        .preview_route_handoff(&second_binding, &trial)
+        .unwrap();
     assert_eq!(revisited.source_index, 5);
     assert_eq!(revisited.report, allowed.report);
-    trial.profile = conflict_profile(&rev, "fixed");
-    let rigid = world.preview_route_handoff(&trial).unwrap();
+    trial.profile = profile("fixed");
+    let rigid = world
+        .preview_route_handoff(&second_binding, &trial)
+        .unwrap();
     assert!(matches!(
         rigid.report.outcome,
         HandoffOutcome::GeometryRejected
     ));
     assert!(!rigid.report.geometry.unwrap().feasible());
-    trial.profile = conflict_profile(&rev, "car");
 
     let repeated = RouteRegisterInput::new(vec![s[2], t[1], t[2], turn, s[0], s[1], s[2], t[1]]);
-    trial.route = &repeated;
     for i in [0, 6] {
-        trial.source_index = i;
         assert_eq!(
-            world.preview_route_handoff(&trial).unwrap_err(),
+            world
+                .bind_route_handoff(
+                    &repeated,
+                    RouteHandoffOccurrence {
+                        source_index: i,
+                        ..occurrence
+                    }
+                )
+                .unwrap_err(),
             RouteHandoffTrialError::Route(RouteError::Disconnected)
         );
     }
-    trial.source_index = u32::MAX;
     assert_eq!(
-        world.preview_route_handoff(&trial).unwrap_err(),
+        world
+            .bind_route_handoff(
+                &repeated,
+                RouteHandoffOccurrence {
+                    source_index: u32::MAX,
+                    ..occurrence
+                }
+            )
+            .unwrap_err(),
         RouteHandoffTrialError::OccurrenceOutOfRange
+    );
+    let revision = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([0; 32]));
+    assert_eq!(
+        world
+            .bind_route_handoff(
+                &route,
+                RouteHandoffOccurrence {
+                    revision,
+                    ..occurrence
+                }
+            )
+            .unwrap_err(),
+        RouteHandoffTrialError::RevisionMismatch
     );
     assert_eq!(world.register_route(route), Err(RouteError::Disconnected));
     assert_eq!(world.command_cursor(), cursor);

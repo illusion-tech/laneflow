@@ -83,6 +83,10 @@ fn motion(
         / duration;
     let u = u.intersect(I::UNIT).ok_or(Failure::Binding)?;
     let v = I::ONE - u;
+    // u(1-u) 在半程达到 1/4，两个等价形式相交可保留这一极值。
+    let uv = (u * v)
+        .intersect(n(0.25) - (u - n(0.5)).square())
+        .ok_or(Failure::Pose)?;
     let rate = signed / duration;
     let mix = |u: I| u * u * u * (n(10.) + u * (n(-15.) + n(6.) * u));
     // 横移权重单调，端值直接给出零阶的紧界。导数用因式分解抑制端点相消。
@@ -91,9 +95,9 @@ fn motion(
             .hull(mix(n(u.hi)))
             .intersect(I::UNIT)
             .ok_or(Failure::Pose)?,
-        n(30.) * u.square() * v.square() * rate,
-        n(60.) * u * v * (I::ONE - n(2.) * u) * rate.square(),
-        n(60.) * (I::ONE - n(6.) * u * v) * rate.square() * rate,
+        n(30.) * uv.square() * rate,
+        n(60.) * uv * (I::ONE - n(2.) * u) * rate.square(),
+        n(60.) * (I::ONE - n(6.) * uv) * rate.square() * rate,
     ];
     let linear = |[a, b]: [f64; 2]| {
         let delta = n(b) - n(a);
