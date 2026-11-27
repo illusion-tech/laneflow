@@ -60,6 +60,7 @@ struct Side {
 }
 
 struct Stations {
+    pose: PoseBounds,
     front_side: HandoffLaneSide,
     front: I,
     sides: [Option<Side>; 2],
@@ -219,6 +220,7 @@ fn stations(
                 return Err(Failure::Boundary);
             }
             a.front = a.front.hull(b.front);
+            a.pose = a.pose.hull(b.pose);
             for (first, second) in a.sides.iter_mut().zip(b.sides) {
                 match (first, second) {
                     (Some(x), Some(y)) => {
@@ -273,6 +275,7 @@ fn stations(
         }
     }
     Ok(Stations {
+        pose: pose.bounds(),
         front_side,
         front: front.station,
         sides,
@@ -291,6 +294,25 @@ impl SharedNetworkRevision {
         rear_stations_nm: [u64; 2],
         work_limit: u32,
     ) -> HandoffFootprintReport {
+        let (result, work) =
+            self.handoff_footprint_and_pose(q, window, body, rear_stations_nm, work_limit);
+        HandoffFootprintReport {
+            footprint: result.map(|(footprint, _)| footprint),
+            work,
+        }
+    }
+
+    /// 从同一次车体求值读回前杠、两侧占用和后轴参考点及三轴的分量界。
+    /// 返回值的第二项是实际工作数；跨平滑接缝时姿态界同时覆盖两侧。
+    #[must_use]
+    pub fn handoff_footprint_and_pose(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        body: BodyEnvelope,
+        rear_stations_nm: [u64; 2],
+        work_limit: u32,
+    ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
         let mut run = || {
             let offsets = body_side::body_offsets(q, body, rear_stations_nm)?;
@@ -309,16 +331,16 @@ impl SharedNetworkRevision {
                     });
                 }
             }
-            Ok(HandoffFootprint {
-                front_side: positions.front_side,
-                front,
-                sides,
-            })
+            Ok((
+                HandoffFootprint {
+                    front_side: positions.front_side,
+                    front,
+                    sides,
+                },
+                positions.pose,
+            ))
         };
         let footprint = run();
-        HandoffFootprintReport {
-            footprint,
-            work: work.used,
-        }
+        (footprint, work.used)
     }
 }

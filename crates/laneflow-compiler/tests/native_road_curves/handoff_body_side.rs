@@ -228,6 +228,22 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                     let footprint = report.footprint.as_ref().unwrap_or_else(|e| {
                         panic!("{heading:?}, {direction:?}, {edges:?}, {advance}, {e:?}")
                     });
+                    let (paired, work) =
+                        n.handoff_footprint_and_pose(&q, window, BODY, [rear_nm; 2], report.work);
+                    let (same_footprint, pose) = paired.unwrap();
+                    assert_eq!(&same_footprint, footprint);
+                    assert_eq!(work, report.work);
+                    enclosed(pose.rear_m[1], q.axles.reference_height_m);
+                    for (bounds, up) in pose.up.into_iter().zip([0., 1., 0.]) {
+                        enclosed(bounds, up);
+                    }
+                    if matches!(advance, 0 | 30) {
+                        for (bound, component) in
+                            pose.forward.into_iter().zip([heading[0], 0., heading[1]])
+                        {
+                            enclosed(bound, sign * component);
+                        }
+                    }
                     assert_eq!(footprint.front_side, expected);
                     let (front, actual) = flat_footprint(start, sign, advance as f64);
                     let in_m = |s: [u64; 2]| s.map(|n| n as f64 / M as f64);
