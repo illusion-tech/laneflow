@@ -34,6 +34,15 @@ cargo run --locked -p laneflow-runtime --example headless
 
 固定预构造换道、停车、快照和修订切换的拒绝条件见能力页与对应合同，不在这里列账。
 
+要预检一次动态横移能以多快的速度通过路侧实体，可在两拍之间调用
+`TrafficWorld::preview_route_handoff_speed_plan`。调用方用 `HandoffDrivingConfig`
+指定净空与速度控制点、几何分段跨度和行程精度。成功的计划按后轴实际三维行程
+列出局部限速。在后续试算中，`preview_braking_step` 读取确切的后轴累计行程、
+当前车速和纵向控制提出的拍末车速，给出符合车型服务制动能力的拍末车速与本拍
+行程上界。后轴位置只有上下界时用 `preview_braking_step_in`，以靠前的位置检查
+来得及制动，以靠后的位置确认车尾已经离开。
+准备计划的几何工作只需执行一次，计划本身可多次查询。正式步进仍使用现行世界配置。
+
 ## 示例与验证
 
 ```powershell

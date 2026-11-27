@@ -30,6 +30,15 @@ pub struct HandoffTravelReport {
     pub work: u32,
 }
 
+/// 原候选多个有向参数端点的累计后轴三维行程。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HandoffTravelMarksReport {
+    /// 与请求端点同序的累计行程闭区间（纳米）。只有全段达到精度时才返回。
+    pub distances_nm: Result<Vec<[u64; 2]>, Failure>,
+    /// 全部标记共用的绑定、积分及精度检查工作数。
+    pub work: u32,
+}
+
 fn nm(value: I) -> Result<[u64; 2], Failure> {
     let scaled = value * I::point(1e9);
     if !scaled.finite() || scaled.hi >= u64::MAX as f64 || scaled.hi < 0. {
@@ -61,6 +70,25 @@ enum Segment {
 }
 
 impl Travel {
+    fn new(length: u64, tolerance_nm: u64, target: Option<I>) -> Self {
+        Self {
+            distance: I::ZERO,
+            offsets: None,
+            target,
+            tolerance_nm,
+            // 按参数宽度分摊整条查询的误差，给加和、向外取整和逆查留出余量。
+            allowed_spread: I::meters(tolerance_nm) / I::meters(length) * I::point(0.75),
+        }
+    }
+
+    fn distance_nm(&self) -> Result<[u64; 2], Failure> {
+        let distance = nm(self.distance)?;
+        if distance[1] - distance[0] > self.tolerance_nm {
+            return Err(Failure::TravelResolution);
+        }
+        Ok(distance)
+    }
+
     /// 设参数跨度为 h、后轴端点差为 d。Cauchy–Schwarz 给出
     /// L² ≤ |d|² + h² Σ Var(vᵢ)，每个导数分量的方差至多为其值域宽度平方的 1/4。
     /// 与弦长下界及直接速度积分相交，避免把弦长当成弧长。
@@ -163,6 +191,58 @@ impl Travel {
 }
 
 impl SharedNetworkRevision {
+    /// 在同一条五次横移上按行驶方向一次积分，取得一组原参数端点的累计三维行程。
+    /// `offsets_nm` 为相对起点的后轴站位差，严格递增，末项须为候选参数总长，
+    /// 可含起点零。反向行驶同样使用递增站位差。所有端点共用一次工作预算，
+    /// 每个累计结果的宽度均不超过正的 `tolerance_nm`。几何准入由 `vehicle_handoff` 求证。
+    #[must_use]
+    pub fn handoff_travel_marks(
+        &self,
+        q: &HandoffQuery,
+        window: HandoffWindow,
+        offsets_nm: &[u64],
+        tolerance_nm: u64,
+        work_limit: u32,
+    ) -> HandoffTravelMarksReport {
+        let mut work = Work::new(work_limit.min(TRACK_WORK_LIMIT));
+        let mut run = || {
+            let length = q.rear_stations_nm[0].abs_diff(q.rear_stations_nm[1]);
+            if length == 0 || offsets_nm.last() != Some(&length) || tolerance_nm == 0 {
+                return Err(Failure::InvalidInput);
+            }
+            let bound = bind(self, q, window, &mut work)?;
+            let query = bound.query(q);
+            let c = Candidate::bind(self, &query, &mut work)?;
+            let mut previous = 0;
+            let mut from = rear(&c, 0, &mut work)?;
+            let mut walk = Travel::new(length, tolerance_nm, None);
+            let mut marks = Vec::new();
+            for &end in offsets_nm {
+                work.charge()?;
+                if end > length || (!marks.is_empty() && end <= previous) {
+                    return Err(Failure::InvalidInput);
+                }
+                let distance = if end == 0 {
+                    [0; 2]
+                } else {
+                    let to = rear(&c, end, &mut work)?;
+                    walk.visit(&c, [previous, end], [from, to], 0, &mut work)?;
+                    from = to;
+                    walk.distance_nm()?
+                };
+                marks.try_reserve(1).map_err(|_| Failure::Unavailable)?;
+                marks.push(distance);
+                previous = end;
+            }
+            Ok(marks)
+        };
+        let distances_nm = run();
+        HandoffTravelMarksReport {
+            distances_nm,
+            work: work.used,
+        }
+    }
+
     /// 在给定的车型、路层及五次横移上求后轴累计三维行程，或由行程反求站位。
     /// `tolerance_nm` 是输出闭区间的最大宽度，须大于零。输入超出候选或无法
     /// 证明指定精度时返回错误。工作预算钳制到 `TRACK_WORK_LIMIT`，耗尽后不发布近似值。
@@ -202,21 +282,11 @@ impl SharedNetworkRevision {
                 });
             }
             let last = rear(&c, length, &mut work)?;
-            let mut walk = Travel {
-                distance: I::ZERO,
-                offsets: None,
-                target: sought,
-                tolerance_nm,
-                // 按参数宽度分摊区间误差，给加和、向外取整和逆查留出余量。
-                allowed_spread: I::meters(tolerance_nm) / I::meters(length) * I::point(0.75),
-            };
+            let mut walk = Travel::new(length, tolerance_nm, sought);
             let reached = walk.visit(&c, [0, length], [first, last], 0, &mut work)?;
             match target {
                 HandoffTravelTarget::RearStationNm(s) => {
-                    let distance_nm = nm(walk.distance)?;
-                    if distance_nm[1] - distance_nm[0] > tolerance_nm {
-                        return Err(Failure::TravelResolution);
-                    }
+                    let distance_nm = walk.distance_nm()?;
                     Ok(HandoffTravelBounds {
                         rear_stations_nm: [s; 2],
                         distance_nm,

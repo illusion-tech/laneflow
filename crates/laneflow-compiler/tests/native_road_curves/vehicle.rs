@@ -1,6 +1,8 @@
 use super::*;
 #[path = "handoff_body_side.rs"]
 mod handoff_body_side;
+#[path = "side_clearances.rs"]
+mod side_clearances;
 use laneflow_static_contract::{AuthoringLaneOrdinal, CanonicalFrameOrdinal, RoadCorridorOrdinal};
 use laneflow_static_network::vehicle::{
     AxleDimensions, BodyEnvelope, CorridorTrace, Failure, GeometryWorkLimits, PoseBounds,

@@ -44,9 +44,26 @@ impl Rail {
         let gap = projected - end.hull(I::ZERO);
         (gap.abs() / norm - self.radius).lo
     }
-    fn clearance(&self, body: &Body<'_>) -> f64 {
+    fn clearance(&self, body: &Body<'_>, metric: ClearanceMetric) -> Option<f64> {
         let y = body.world()[1];
-        let mut best = (self.heights[0] - y).lo.max((y - self.heights[1]).lo);
+        let vertical = (self.heights[0] - y).lo.max((y - self.heights[1]).lo);
+        let mut best = match metric {
+            ClearanceMetric::Spatial => vertical,
+            ClearanceMetric::Side => {
+                if vertical > 0. {
+                    return None;
+                }
+                let f = horizontal(body.pose.forward);
+                let ends = I::ZERO.hull(self.length * dot(f, self.heading));
+                // 前向轴随整段姿态变化。端帽在该未归一化水平轴上的半径为 r·|f|。
+                let norm = (f[0].square() + f[1].square()).sqrt();
+                let separation = (body_projection(body, self.origin, f) - ends).abs();
+                if (separation - self.radius * norm).lo > 0. {
+                    return None;
+                }
+                0.
+            }
+        };
         let h = self.heading.map(mid);
         for a in [
             [1., 0.],
@@ -71,7 +88,7 @@ impl Rail {
                 }
             }
         }
-        best
+        Some(best)
     }
     fn contains(&self, p: Vector) -> bool {
         if p[1].lo < self.heights[0].hi || p[1].hi > self.heights[1].lo || self.radius.lo < 0. {
@@ -177,16 +194,19 @@ impl Curb {
         c: &Candidate<'a, '_>,
         body: &Body<'_>,
         s: Seam<'a>,
-        id: BoundaryHit<'a>,
         range: [u64; 2],
+        metric: ClearanceMetric,
         work: &mut Work,
     ) -> Result<Verdict<'a>, Failure> {
+        let id = s.id;
         let p = body.world();
         let world = c.surface.project(horizontal(p), work)?;
         // 车身和路缘都在世界坐标中求距离下界。路面投影用于后续接触见证。
         let [low, high] = self.station_bounds_nm;
         let first = partition(c.all_surface, |r| r.stations[1].0 < low, work)?;
         let mut lower = f64::INFINITY;
+        let mut inspected = false;
+        let mut relevant = false;
         for r in &c.all_surface[first..] {
             work.charge()?;
             if r.stations[0].0 > high {
@@ -213,8 +233,23 @@ impl Curb {
                 pos[1] + bottom.hull(top),
                 pos[2] + d * normal[1],
             ];
+            inspected = true;
             let distance = std::array::from_fn::<_, 3, _>(|i| (bounds[i] - p[i]).square());
-            let mut gap = (distance[0] + distance[1] + distance[2]).sqrt().lo;
+            let mut gap = match metric {
+                ClearanceMetric::Spatial => (distance[0] + distance[1] + distance[2]).sqrt().lo,
+                ClearanceMetric::Side => {
+                    let f = horizontal(body.pose.forward);
+                    let origin = horizontal(body.pose.rear);
+                    let curb = dot(f, [bounds[0] - origin[0], bounds[2] - origin[1]]);
+                    if (bounds[1] - p[1]).abs().lo > 0.
+                        || (body_projection(body, origin, f) - curb).abs().lo > 0.
+                    {
+                        continue;
+                    }
+                    (distance[0] + distance[2]).sqrt().lo
+                }
+            };
+            relevant = true;
             if gap == 0. {
                 let middle = a + (b - a) / 2;
                 let center = horizontal(patch.derivative(patch.parameter(middle), 0));
@@ -236,6 +271,9 @@ impl Curb {
                 }
             }
             lower = lower.min(gap);
+        }
+        if inspected && !relevant {
+            return Ok(Verdict::Clear(None));
         }
         if lower > 0. && lower.is_finite() {
             return Ok(Verdict::Clear(Some(Clearance {
@@ -311,6 +349,7 @@ pub(super) fn check<'a>(
     s: Seam<'a>,
     e: &'a BoundaryExtent,
     range: [u64; 2],
+    metric: ClearanceMetric,
     work: &mut Work,
 ) -> Result<Verdict<'a>, Failure> {
     work.charge()?;
@@ -340,8 +379,10 @@ pub(super) fn check<'a>(
                 radius: microns(f64::from(radius_um), error_nm),
                 heights: heights_um.map(|v| center[1] + microns(f64::from(v), error_nm)),
             };
-            let lower = rail.clearance(body);
-            if lower > 0. {
+            let Some(lower) = rail.clearance(body, metric) else {
+                return Ok(Verdict::Clear(None));
+            };
+            if lower > 0. && lower.is_finite() {
                 Ok(Verdict::Clear(Some(Clearance {
                     lower_m: lower,
                     boundary: id,
@@ -370,7 +411,7 @@ pub(super) fn check<'a>(
                 e.stations_nm[1].saturating_add(u64::from(e.errors_nm[1])),
             ],
         }
-        .check(c, body, s, id, range, work),
+        .check(c, body, Seam { id, ..s }, range, metric, work),
         BoundaryPayload::Rule { .. } => Err(Failure::Binding),
     }
 }

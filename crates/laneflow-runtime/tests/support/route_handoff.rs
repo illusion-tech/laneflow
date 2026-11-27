@@ -31,7 +31,17 @@ mod sample;
 #[path = "route_handoff/traffic.rs"]
 mod traffic;
 
+#[path = "route_handoff/clearance_speed.rs"]
+mod clearance_speed;
+
 fn module(shift_x: f64) -> RoadEditingSourceModule {
+    module_with_boundary(shift_x, None)
+}
+
+fn module_with_boundary(
+    shift_x: f64,
+    additional: Option<BoundaryExtentInput>,
+) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
         "city/runtime-conflict",
@@ -86,6 +96,20 @@ fn module(shift_x: f64) -> RoadEditingSourceModule {
         .unwrap()
         .with_cross_section(CrossSectionCoverage::Complete, vec![]),
     ));
+    let mut extents = vec![BoundaryExtentInput {
+        left: BoundaryMemberInput::AuthoringLane(lanes[0].clone()),
+        right: BoundaryMemberInput::AuthoringLane(lanes[1].clone()),
+        kind: BoundaryExtentKind::Rule,
+        local_key: "mark".into(),
+        low: BoundaryStation::CorridorEndpoint,
+        high: BoundaryStation::CorridorEndpoint,
+        payload: Some(BoundaryPayloadInput::CrossingRule {
+            directions: 3,
+            effect: 1,
+        }),
+        canvas_selection: None,
+    }];
+    extents.extend(additional);
     add(D::RoadSection(
         RoadSectionInput::try_new(
             "section",
@@ -94,19 +118,7 @@ fn module(shift_x: f64) -> RoadEditingSourceModule {
             RoadCorridorReference::local("road").unwrap(),
         )
         .unwrap()
-        .with_boundary_extents(vec![BoundaryExtentInput {
-            left: BoundaryMemberInput::AuthoringLane(lanes[0].clone()),
-            right: BoundaryMemberInput::AuthoringLane(lanes[1].clone()),
-            kind: BoundaryExtentKind::Rule,
-            local_key: "mark".into(),
-            low: BoundaryStation::CorridorEndpoint,
-            high: BoundaryStation::CorridorEndpoint,
-            payload: Some(BoundaryPayloadInput::CrossingRule {
-                directions: 3,
-                effect: 1,
-            }),
-            canvas_selection: None,
-        }]),
+        .with_boundary_extents(extents),
     ));
     for (lane, keys, cuts) in [
         ("source", &["s0", "s1", "s2", "s3"][..], vec![10., 22., 26.]),

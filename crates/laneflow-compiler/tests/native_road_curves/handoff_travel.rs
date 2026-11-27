@@ -139,6 +139,37 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
             }
             let zero = query(HandoffTravelTarget::DistanceNm(0), TRACK_WORK_LIMIT);
             assert_eq!(zero, all[0]);
+            let ordered = [0, 15 * NM, 30 * NM];
+            let marks = |offsets: &[u64], work| {
+                n.handoff_travel_marks(&q, window, offsets, tolerance, work)
+            };
+            let batch = marks(&ordered, TRACK_WORK_LIMIT);
+            let distances = batch
+                .distances_nm
+                .as_ref()
+                .unwrap_or_else(|_| panic!("{batch:?}"));
+            assert_eq!(distances[0], [0; 2]);
+            for (i, &[lo, hi]) in distances.iter().enumerate().skip(1) {
+                let analytic = oracle(ordered[i] as f64 / NM as f64);
+                assert!(
+                    (lo as f64) <= analytic[0] * NM as f64
+                        && (hi as f64) >= analytic[1] * NM as f64
+                );
+                let single = all[i].bounds.unwrap().distance_nm;
+                assert!(lo <= single[1] && hi >= single[0] && hi - lo <= tolerance);
+            }
+            assert!(batch.work < all.iter().map(|r| r.work).sum::<u32>());
+            assert_eq!(marks(&ordered, batch.work), batch);
+            assert_eq!(
+                marks(&ordered, batch.work - 1).distances_nm,
+                Err(Failure::WorkLimit)
+            );
+            for bad in [&[][..], &[0, NM], &[30 * NM, 30 * NM], &[31 * NM, 30 * NM]] {
+                assert_eq!(
+                    marks(bad, TRACK_WORK_LIMIT).distances_nm,
+                    Err(Failure::InvalidInput)
+                );
+            }
             for d in [10 * NM, 15_144_572_165] {
                 let target = HandoffTravelTarget::DistanceNm(d);
                 let inverse = query(target, TRACK_WORK_LIMIT);
