@@ -39,9 +39,9 @@ pub(crate) mod phase;
 pub(crate) mod placement;
 /// 显式世界策略绑定与步长派生表。
 pub(crate) mod policy;
-/// 已提交 pose 与信号批次的正本来源。
-pub(crate) mod pose;
 mod resource_rows;
+/// 按组序号返回的已提交信号指示。
+pub(crate) mod signal;
 /// 道路准入（生成）的物理边重叠候选索引。
 pub(crate) mod spawn_overlap;
 /// 固定步进与管理操作共享的五类私有状态所有者。

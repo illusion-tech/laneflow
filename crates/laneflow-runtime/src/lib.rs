@@ -106,7 +106,7 @@ pub use kernel::placement::{
     set_contender_reserve_failure, set_full_contender_rebuild, touched_clears, zone_route_rebuilds,
 };
 pub use kernel::policy::{DerivedPolicyGap, PolicyPin, WorldPolicySelection};
-pub use kernel::pose::{CommittedSignalGroupBatch, PoseSource};
+pub use kernel::signal::CommittedSignalGroupBatch;
 #[cfg(any(test, feature = "placement-fixtures"))]
 #[doc(hidden)]
 pub use kernel::tick::{
@@ -129,6 +129,7 @@ pub use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, ManeuverGateOrdinal, NetworkRevisionId, ParkingFacilityOrdinal,
     ParkingSpaceOrdinal, WaitingZoneOrdinal,
 };
+pub use laneflow_static_network::PoseSource;
 
 #[cfg(test)]
 mod tests {

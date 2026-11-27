@@ -12,14 +12,14 @@ pub use geometry::{
     SPATIAL_LENGTH_REL_TOLERANCE, SPATIAL_MIN_PROJECTED_UP_LENGTH,
     SPATIAL_MIN_SEGMENT_LENGTH_METERS,
 };
+pub use laneflow_static_network::PoseSource;
 pub use primitives::{
     CANONICAL_FRAME_ID_PATTERN, CANONICAL_POINT_COMPONENT_MAX_METERS,
     CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId, CanonicalPoint3F32,
     CanonicalUnitVector3F32, CanonicalVector3F32, FramePlacementToken, PoseRecordId,
 };
 pub use session::{
-    CanonicalPoseBatch, CanonicalPoseRecord, PoseInput, PoseSource, SpatialBindError,
-    SpatialSession,
+    CanonicalPoseBatch, CanonicalPoseRecord, PoseInput, SpatialBindError, SpatialSession,
 };
 
 #[cfg(test)]

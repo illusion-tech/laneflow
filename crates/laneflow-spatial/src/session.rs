@@ -3,29 +3,12 @@ use std::sync::Arc;
 use laneflow_static_contract::{
     CanonicalFrameOrdinal, LaneEdgeOrdinal, NetworkRevisionId, ParkingSpaceOrdinal,
 };
-use laneflow_static_network::{LaneGeometryView, SharedNetworkRevision};
+use laneflow_static_network::{LaneGeometryView, PoseSource, SharedNetworkRevision};
 
 use crate::{
     CanonicalPoint3F32, CanonicalPoseF32, CanonicalUnitVector3F32, CanonicalVector3F32,
     FramePlacementToken, PoseRecordId, SpatialError,
 };
-
-/// 共享静态路网上的位姿来源。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PoseSource {
-    /// 车道进度。
-    Lane {
-        /// 共享静态路网边序号。
-        edge: LaneEdgeOrdinal,
-        /// 当前边上的毫米进度。
-        progress_mm: u32,
-    },
-    /// 停车位。
-    Parking {
-        /// 共享静态路网停车位序号。
-        space: ParkingSpaceOrdinal,
-    },
-}
 
 /// 一条 pose 批次输入。
 #[derive(Clone, Copy, Debug, PartialEq)]

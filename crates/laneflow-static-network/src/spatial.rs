@@ -2,9 +2,27 @@ use core::mem::size_of;
 
 use laneflow_static_contract::{
     CanonicalFrameOrdinal, ConflictZoneOrdinal, FacilityBandOrdinal, LaneEdgeOrdinal,
+    ParkingSpaceOrdinal,
 };
 
 use crate::RangeU32;
+
+/// 一份共享路网修订中的位姿采样位置。调用方须在产生这些序号的同一修订上采样。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PoseSource {
+    /// 沿车道边采样。
+    Lane {
+        /// 修订内的车道边序号。
+        edge: LaneEdgeOrdinal,
+        /// 从该边起点沿行驶方向量取的毫米进度。
+        progress_mm: u32,
+    },
+    /// 按显式泊位的入口锚点与几何采样。
+    Parking {
+        /// 修订内的泊位序号。
+        space: ParkingSpaceOrdinal,
+    },
+}
 
 /// 规范 `f32` 空间点。
 #[derive(Clone, Copy, Debug, PartialEq)]

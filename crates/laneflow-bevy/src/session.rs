@@ -9,23 +9,15 @@ use laneflow_runtime::{
     LeaveParkingTarget, LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
     ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingCancelRecord, ParkingCommandOutcome,
     ParkingError, ParkingLeaveRecord, ParkingParkRecord, ParkingRebindRecord, ParkingReserveRecord,
-    ParkingTarget, PoseSource as RuntimePoseSource, RebindParkingTarget, ReserveParkingTarget,
-    RouteError, RouteHandle, RouteRegisterInput, SemanticDiffOriginBinding, SpawnError,
-    StepOutcome, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration,
+    ParkingTarget, RebindParkingTarget, ReserveParkingTarget, RouteError, RouteHandle,
+    RouteRegisterInput, SemanticDiffOriginBinding, SpawnError, StepOutcome, TickInput,
+    TrafficWorld, VehicleHandle, VehicleSpawnInput, WorldGeneration,
 };
 use laneflow_spatial::{CanonicalPoseBatch, PoseInput, PoseRecordId, SpatialSession};
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::LaneFlowAdapterError;
 use crate::observation::LaneFlowJunctionObservation;
-
-/// 把 Runtime 已提交 pose 源映射为 Spatial 批次输入。
-fn pose_input(record: PoseRecordId, source: RuntimePoseSource) -> PoseInput {
-    match source {
-        RuntimePoseSource::Lane { edge, progress_mm } => PoseInput::lane(record, edge, progress_mm),
-        RuntimePoseSource::Parking { space } => PoseInput::parking(record, space),
-    }
-}
 
 /// 单活动 Session 的 fixed-schedule 配置。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,7 +228,7 @@ impl LaneFlowSession {
             let record = u32::try_from(self.pose_vehicle_scratch.len())
                 .expect("pose record index fits vehicle capacity");
             self.pose_scratch
-                .push(pose_input(PoseRecordId::new(record), source));
+                .push(PoseInput::from_source(PoseRecordId::new(record), source));
             self.pose_vehicle_scratch.push(vehicle);
         }
         #[cfg(feature = "pose-profiling")]
@@ -309,7 +301,7 @@ impl LaneFlowSession {
                 let record = u32::try_from(self.pose_vehicle_scratch.len())
                     .expect("pose record index fits vehicle capacity");
                 self.pose_scratch
-                    .push(pose_input(PoseRecordId::new(record), source));
+                    .push(PoseInput::from_source(PoseRecordId::new(record), source));
                 self.pose_vehicle_scratch.push(vehicle);
             }
         }
