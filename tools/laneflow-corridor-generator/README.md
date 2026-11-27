@@ -21,6 +21,12 @@ cargo run --locked -p laneflow-corridor-generator -- check --config examples/con
 
 `check` 不写文件。两个命令比较 catalog 与 LFCA 字节，并做 catalog cross-reference 校验。
 
+示例中的 `frame_id = "signalized-corridor-local"` 是合成编制模块
+`laneflow/signalized-corridor` 的框架局部键。它接受 1–53 个 ASCII 字节，区分大小写。
+首字节为字母或数字，后续还允许 `._:/-`，其中 `::` 为保留分隔符。
+车道边几何在该框架声明下编制，非法键在配置入口报告 `frame_id` 及原因。
+见[框架身份与配置规则][frame-identity]。
+
 ## 依赖与分发
 
 - `toml 1.1.4+spec-1.1.0` 只解析/序列化仓库内部配置与 catalog，许可证为 MIT OR Apache-2.0，MSRV 低于 workspace MSRV。
@@ -45,3 +51,4 @@ cargo run --locked -p laneflow-corridor-generator -- check --config examples/con
 调用方把 bind 结果的 `policy_selection` 传入唯一世界安装入口。
 
 [issue-475]: https://github.com/illusion-tech/laneflow/issues/475
+[frame-identity]: ../../docs/design/spatial-geometry.md#canonical-frame-identity

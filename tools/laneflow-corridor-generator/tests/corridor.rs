@@ -131,6 +131,45 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
 }
 
 #[test]
+fn frame_key_is_checked_at_both_config_entry_points() {
+    let cases: &[(&str, &[&str])] = &[
+        ("Frame-1.z:/X", &[]),
+        ("a:", &[]),
+        ("7", &[]),
+        (&"x".repeat(53), &[]),
+        ("", &["Empty"]),
+        ("-bad", &["InvalidFirstByte", "byte: 45"]),
+        ("aé", &["NonAscii", "byte_index: 1"]),
+        ("a?", &["InvalidTokenByte", "byte_index: 1", "byte: 63"]),
+        ("a::b", &["ReservedDelimiter", "byte_index: 1"]),
+        (&"x".repeat(54), &["TooLong", "limit: 53", "observed: 54"]),
+        (&"x".repeat(128), &["TooLong", "limit: 53", "observed: 128"]),
+        (&"x".repeat(129), &["TooLong", "limit: 53", "observed: 129"]),
+    ];
+    for &(key, details) in cases {
+        let text = CONFIG.replace("signalized-corridor-local", key);
+        let config: CorridorConfig = toml::from_str(&text).expect("valid TOML");
+        for result in [
+            CorridorConfig::parse(&text).map(|_| ()),
+            generate(&config).map(|_| ()),
+        ] {
+            if details.is_empty() {
+                result.expect("valid frame key");
+                continue;
+            }
+            let error = result.expect_err("invalid frame key");
+            let laneflow_corridor_generator::Error::Config(message) = error else {
+                panic!("expected configuration error for {key:?}, got {error}");
+            };
+            assert!(message.contains("frame_id"), "{message}");
+            for detail in details {
+                assert!(message.contains(detail), "{key:?}: {message}");
+            }
+        }
+    }
+}
+
+#[test]
 fn checked_in_artifacts_are_exact_generator_outputs() {
     let generated = default_generated();
     for (relative, bytes) in [

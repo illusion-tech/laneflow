@@ -85,7 +85,7 @@ impl CorridorConfig {
         if self.fixed_delta_ms == 0 {
             return Err(config_error("fixed_delta_ms must be greater than zero"));
         }
-        laneflow_spatial::CanonicalFrameId::try_new(self.frame_id.clone())
+        laneflow_compiler::road_editing::validate_canonical_frame_local_key(&self.frame_id)
             .map_err(|error| config_error(format!("frame_id is invalid: {error}")))?;
 
         for (name, value) in [

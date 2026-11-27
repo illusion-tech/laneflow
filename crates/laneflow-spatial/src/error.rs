@@ -31,13 +31,6 @@ impl fmt::Display for SpatialAxis {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum SpatialError {
-    /// 标准坐标框架 ID 不满足稳定 token 语法。
-    InvalidFrameId {
-        /// 被拒绝的输入。
-        value: String,
-        /// 期望的稳定 token 模式。
-        pattern: &'static str,
-    },
     /// 标准空间值的某个分量不是有限数。
     NonFiniteComponent {
         /// 发生错误的 LaneFlow-owned 值类型。
@@ -109,9 +102,6 @@ pub enum SpatialError {
 impl fmt::Display for SpatialError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidFrameId { value, pattern } => {
-                write!(formatter, "标准坐标框架 ID {value:?} 不满足模式 {pattern}")
-            }
             Self::NonFiniteComponent {
                 value_kind,
                 axis,

@@ -73,6 +73,8 @@ fn save_lanes(
 }
 
 struct SectionFixture<'a> {
+    namespace: &'a str,
+    document: &'a str,
     lanes: [([f64; 2], bool); 2],
     lane_cuts_m: [&'a [f64]; 2],
     extents: Vec<BoundaryExtentInput>,
@@ -81,6 +83,8 @@ struct SectionFixture<'a> {
 impl Default for SectionFixture<'_> {
     fn default() -> Self {
         Self {
+            namespace: "city",
+            document: "native",
             lanes: [([3.5; 2], true); 2],
             lane_cuts_m: [&[]; 2],
             extents: Vec::new(),
@@ -99,8 +103,8 @@ fn save_lane_declarations(
 ) -> OwnedRoadEditingSourceBuffer {
     let limits = CompileProfile::single_network_10k_stable_entities();
     let header = RoadEditingModuleHeader::try_new(
-        "city",
-        "native",
+        fixture.namespace,
+        fixture.document,
         vec![],
         RoadEditingProvenance::direct("curve edit").unwrap(),
     )
@@ -335,6 +339,64 @@ fn compile_saved(
         RoadEditingModuleInput::try_new("native", source.as_bytes(), None).unwrap(),
     )?;
     Compiler::new().compile(unit.build()?)
+}
+
+#[test]
+fn local_frame_references_resolve_in_each_road_editing_module() {
+    use laneflow_compiler::derive_canonical_stable_id_v1;
+    use laneflow_static_contract::EntityKind;
+
+    let namespaces = ["city/east", "city/west"];
+    let mut unit =
+        CompilationUnitBuilder::new(CompileProfile::single_network_10k_stable_entities());
+    for namespace in namespaces {
+        let line = Program::try_new(
+            p(0., 0., 0.),
+            vec![RoadEditingCurveSegment::line(p(50., 0., 0.))],
+        )
+        .unwrap();
+        let source = save_lane_declarations(
+            line,
+            &[],
+            (
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+            ),
+            [RoadEditingLaneDirection::Forward; 2],
+            CrossSectionCoverage::None,
+            0,
+            SectionFixture {
+                namespace,
+                document: namespace,
+                ..SectionFixture::default()
+            },
+        );
+        unit.add_road_editing_module(
+            RoadEditingModuleInput::try_new(namespace, source.as_bytes(), None).unwrap(),
+        )
+        .unwrap();
+    }
+    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+    let lir = output.lir();
+    let mut frames = lir.canonical_frames();
+    assert_eq!(frames.len(), 2);
+    assert_ne!(
+        frames.next().unwrap().stable_id(),
+        frames.next().unwrap().stable_id()
+    );
+    for namespace in namespaces {
+        let edge_id =
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, namespace, "inner-0").unwrap();
+        let edge = lir
+            .lane_edges()
+            .find(|edge| edge.stable_id().into_untyped() == edge_id)
+            .unwrap();
+        let ordinal = edge.spatial_geometry().unwrap().canonical_frame();
+        let frame = lir.canonical_frame(ordinal).unwrap();
+        let expected =
+            derive_canonical_stable_id_v1(EntityKind::CanonicalFrame, namespace, "frame").unwrap();
+        assert_eq!(frame.stable_id().into_untyped(), expected);
+    }
 }
 
 fn publish(output: &CompilationOutput, name: &str) -> PortablePublicationCandidate {

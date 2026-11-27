@@ -501,11 +501,11 @@ pub struct LaneEdgeGeometryInput<'a> {
 
 /// 合成领域专用语言的规范坐标框架声明输入。
 ///
-/// `canonical_frame_key` 对应 SpatialPackage v0.1 的 `frameId`。坐标单位、手性、
-/// 上方向和有界范围由全局 canonical frame 契约固定，不是每条声明可变的属性。
+/// 编译器依据框架的实体种类、编制命名空间和局部键派生其稳定身份。
+/// 坐标单位、手性、上方向和有界范围由规范坐标框架契约统一规定。
 #[derive(Clone, Copy, Debug)]
 pub struct CanonicalFrameInput<'a> {
-    /// 来源模块内显式持久化且唯一的规范坐标框架稳定键。
+    /// 在声明所在的编制命名空间内唯一的框架局部键。
     pub canonical_frame_key: &'a str,
     /// 由该 frame 拥有的车道图边中心线集合；集合顺序不参与语义。
     pub lane_edge_geometries: &'a [LaneEdgeGeometryInput<'a>],

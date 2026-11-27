@@ -134,7 +134,7 @@ frame 放置、tile 或相机相对原点不写入 Traffic Runtime 车辆状态�
 - **走廊**在 `laneflow/signalized-corridor` 的合成模块中声明框架，将车道边引用和对应折线直接挂在声明下。配置摘要包含 `frame_id` 原始字节。
 - **路口**在 `laneflow/complex-junction` 声明一次框架，道路参考线、普通冲突区与汇入冲突区以同一局部键引用它。生成网格时这些声明和引用仍在同一个模块中。配置序列化参与来源摘要。
 
-#1569 在 `laneflow_compiler::road_editing` 增加专用公开函数
+`laneflow_compiler::road_editing` 提供专用公开函数
 `validate_canonical_frame_local_key(key: &str) -> Result<(), DiagnosticBundle>`。
 函数借用原始文本，复用 LFRE 现有的 token 校验、单组件上限和保留分隔符检查。
 走廊与路口的配置 `validate` 都调用它，因此 TOML 解析和直接调用
@@ -151,11 +151,8 @@ builder 拒绝超限声明后仍可复用。普通合成模块的通用键规则
 `canonicalFrame.canonicalFrameKey`。调用方可据配置字段、违规原因以及适用的字节下标
 或长度与上限定位问题；前缀、标点和内部路径的显示拼写均不作为配置 API 验收条件。
 
-Spatial 的公共输入是已绑定修订中的采样地址。实施时移除其字符串包装
-`laneflow_spatial::CanonicalFrameId`、`CANONICAL_FRAME_ID_PATTERN` 与专用的
-`SpatialError::InvalidFrameId`，并清理两个生成器仅用于此校验的 Spatial 直接依赖。
-宿主从 `laneflow_static_contract::CanonicalFrameId` 引入稳定身份。
-`laneflow_spatial` 根不重导出该类型，也不保留旧字符串类型的别名。
+Spatial 接收已绑定修订中的采样地址，两个生成器直接依赖编译器完成配置校验。
+宿主从 `laneflow_static_contract::CanonicalFrameId` 引入稳定身份。Spatial 根不重导出该类型。
 城市生成器输出目录中的 `frame_id` 已表示稳定身份的十六进制文本，沿用该输出语义。
 
 ### 2.5 实施验收
@@ -177,8 +174,7 @@ Spatial 的公共输入是已绑定修订中的采样地址。实施时移除其
    同一键，验证各自的局部引用解析到自己的框架，且稳定身份不同。
 3. 通过 Spatial 公开入口检查非空批次的序号与稳定身份往返、成功空批的批头，
    以及混框架失败后原批头和记录完整保留。以外部调用方验证从静态契约根导入
-   `CanonicalFrameId` 成功，从 Spatial 根导入同名类型报未解析导入。同步修订两个生成器的配置示例说明、
-   编译器框架声明的字段说明和 Spatial 的 API 文档。Rust 接口与制品对照在实施阶段验收。
+   `CanonicalFrameId` 成功，从 Spatial 根导入同名类型报未解析导入。
 
 ## 3. 制品模型
 

@@ -1,7 +1,5 @@
 //! LaneFlow-owned 标准空间原语。
 
-use std::fmt;
-
 pub use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
 };
@@ -44,47 +42,8 @@ impl PoseRecordId {
     }
 }
 
-/// 标准坐标框架 ID 使用的稳定 ASCII token 模式。
-pub const CANONICAL_FRAME_ID_PATTERN: &str = "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$";
-
-const CANONICAL_FRAME_ID_MAX_LEN: usize = 128;
 const POINT_VALUE_KIND: &str = "CanonicalPoint3F32";
 const VECTOR_VALUE_KIND: &str = "CanonicalVector3F32";
-
-/// LaneFlow 标准坐标框架的稳定身份。
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CanonicalFrameId(String);
-
-impl CanonicalFrameId {
-    /// 创建经过稳定 ASCII token 语法校验的 frame ID。
-    ///
-    /// # Errors
-    ///
-    /// 输入为空、超过 128 字节、首字节不是 ASCII 字母或数字，或后续字节不在
-    /// `[A-Za-z0-9._:/-]` 中时返回 `SpatialError::InvalidFrameId`。
-    pub fn try_new(value: impl Into<String>) -> Result<Self, SpatialError> {
-        let value = value.into();
-        if !is_valid_frame_id(&value) {
-            return Err(SpatialError::InvalidFrameId {
-                value,
-                pattern: CANONICAL_FRAME_ID_PATTERN,
-            });
-        }
-
-        Ok(Self(value))
-    }
-
-    /// 返回稳定 frame ID token。
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for CanonicalFrameId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
 
 /// LaneFlow 有界 canonical frame 中的三维 `f32` 点，单位为米。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -273,24 +232,6 @@ impl CanonicalUnitVector3F32 {
     pub const fn as_vector(self) -> CanonicalVector3F32 {
         self.0
     }
-}
-
-fn is_valid_frame_id(value: &str) -> bool {
-    if value.is_empty() || value.len() > CANONICAL_FRAME_ID_MAX_LEN {
-        return false;
-    }
-
-    let mut bytes = value.bytes();
-    let Some(first) = bytes.next() else {
-        return false;
-    };
-    if !first.is_ascii_alphanumeric() {
-        return false;
-    }
-
-    bytes.all(|byte| {
-        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'/' | b'-')
-    })
 }
 
 fn checked_components(

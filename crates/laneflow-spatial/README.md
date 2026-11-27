@@ -26,6 +26,31 @@ laneflow-spatial -X-> laneflow-runtime
 2. 从 `TrafficWorld` 读取已提交位姿来源。
 3. `extract_pose_batch` 写入调用方自己的输出缓冲。全部记录成功才替换输出，失败保持旧批次。
 
+### 解释批次的框架序号
+
+非空批次通过 `canonical_frame()` 返回修订内框架序号，成功的空批次返回 `None`。
+宿主从静态契约引入框架稳定身份，通过批头绑定的共享修订查询。切换修订后，
+用新修订的 `identity().ordinal(frame_id)` 查找该框架，缺项表示新修订没有收录它。
+
+```rust
+use laneflow_spatial::CanonicalPoseBatch;
+use laneflow_static_contract::CanonicalFrameId;
+use laneflow_static_network::SharedNetworkRevision;
+
+fn frame_id(batch: &CanonicalPoseBatch, revision: &SharedNetworkRevision) -> Option<CanonicalFrameId> {
+    if batch.network_revision() != Some(revision.network_revision()) {
+        return None;
+    }
+    revision.identity().stable_id(batch.canonical_frame()?)
+}
+```
+
+`CanonicalFrameId` 由 `laneflow_static_contract` 导出。通过 Spatial 根导入会触发编译错误。
+
+```compile_fail,E0432
+use laneflow_spatial::CanonicalFrameId;
+```
+
 ## 主要约束与限制
 
 - 修订没有 Spatial component 时，`bind` 返回 `Ok(None)`。有 Spatial 但缺少 lane pose 时，返回 `MissingLanePose`。

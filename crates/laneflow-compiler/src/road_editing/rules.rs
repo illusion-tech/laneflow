@@ -39,6 +39,19 @@ pub(super) fn input_error(field: &str, violation: RoadEditingInputViolation) -> 
     DiagnosticBundle::single(Diagnostic::invalid_road_editing_input(field, violation))
 }
 
+/// 校验生成器配置中的框架局部键。键按原始字节在声明所在的编制命名空间解析。
+///
+/// # Errors
+///
+/// 键须为 1–53 字节，首字节为 ASCII 字母或数字，后续允许 ASCII 字母、数字和
+/// `._:/-`，且不得包含保留分隔符 `::`。违规时返回框架声明键的字段级诊断。
+pub fn validate_canonical_frame_local_key(key: &str) -> Result<(), DiagnosticBundle> {
+    if let Some(violation) = token_violation(key, MAX_COMPONENT_BYTES, true) {
+        return Err(input_error("canonicalFrame.canonicalFrameKey", violation));
+    }
+    Ok(())
+}
+
 /// 校验标识 token 文本（含保留分隔符禁令）；违规时返回输入诊断。
 pub(super) fn validate_token(value: &str, field: &str) -> Result<(), DiagnosticBundle> {
     if let Some(violation) = token_violation(value, u64::MAX, true) {
@@ -396,6 +409,37 @@ pub(super) fn require_unique<T: Ord>(values: &[T], field: &str) -> Result<(), Di
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DiagnosticPayload;
+    use crate::road_editing::{CanonicalFrameInput, CanonicalFrameReference};
+
+    #[test]
+    fn canonical_frame_config_keys_report_the_length_and_delimiter_at_the_boundary() {
+        let oversized = "x".repeat(54);
+        assert!(validate_canonical_frame_local_key(&"x".repeat(53)).is_ok());
+        for (key, expected) in [
+            (
+                oversized.as_str(),
+                SourceTextViolation::TooLong {
+                    limit: 53,
+                    observed: 54,
+                },
+            ),
+            (
+                "a::b",
+                SourceTextViolation::ReservedDelimiter { byte_index: 1 },
+            ),
+        ] {
+            let failure = validate_canonical_frame_local_key(key).unwrap_err();
+            assert!(matches!(
+                failure.diagnostics()[0].payload(),
+                DiagnosticPayload::InvalidRoadEditingInput { field, violation }
+                    if field.as_ref() == "canonicalFrame.canonicalFrameKey"
+                        && violation == &RoadEditingInputViolation::InvalidText(expected)
+            ));
+        }
+        assert!(CanonicalFrameInput::try_new(&oversized).is_ok());
+        assert!(CanonicalFrameReference::local(&oversized).is_ok());
+    }
 
     #[test]
     fn wire_reference_preserves_borrowed_components_and_excludes_delimiters_from_bytes() {
