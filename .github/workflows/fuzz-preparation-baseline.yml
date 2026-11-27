@@ -31,7 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 9fae151f1ed9bfa7a9de0a203c47ee1519fc72d1
+          ref: 98f85bb9c0b47f83007b40b9cfbdc7c76628e16c
 
       - name: Install Rust nightly toolchain for libFuzzer
         shell: bash
