@@ -121,6 +121,16 @@
       ]
     },
     {
+      "id": "google/antigravity/desktop",
+      "display_name": "Antigravity Desktop",
+      "sources": [
+        {
+          "url": "https://antigravity.google/docs/getting-started",
+          "checked_at": "2026-11-27"
+        }
+      ]
+    },
+    {
       "id": "moonshotai/kimi-code/cli",
       "display_name": "Kimi Code CLI",
       "sources": [
@@ -242,6 +252,18 @@
     }
   ],
   "hints": [
+    {
+      "input": "Antigravity",
+      "candidates": [
+        "google/antigravity/desktop"
+      ]
+    },
+    {
+      "input": "Antigravity Desktop",
+      "candidates": [
+        "google/antigravity/desktop"
+      ]
+    },
     {
       "input": "ChatGPT Web",
       "candidates": [

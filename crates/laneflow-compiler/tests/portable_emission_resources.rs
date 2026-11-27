@@ -803,8 +803,9 @@ fn print_measurement(
     retained_logical_bytes: u64,
     required_scratch_bytes: u64,
 ) {
+    let profile_id = CompileProfile::single_network_1m_stable_entities().profile_id();
     println!(
-        "portable-resource stage={stage} profile=LF-COMP-SINGLE-NETWORK-1M stable_entities={} synthetic_tiles={} conflict_tiles={} filler_entities={} elapsed_ns={} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} reallocated_delta_bytes={} live_delta_bytes={} sampled_heap_peak_delta_bytes={} sampled_transient_heap_peak_bytes={} portable_bundle_exact_bytes={portable_bundle_exact_bytes} retained_logical_bytes={retained_logical_bytes} required_scratch_bytes={required_scratch_bytes}",
+        "portable-resource stage={stage} profile={profile_id} stable_entities={} synthetic_tiles={} conflict_tiles={} filler_entities={} elapsed_ns={} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} reallocated_delta_bytes={} live_delta_bytes={} sampled_heap_peak_delta_bytes={} sampled_transient_heap_peak_bytes={} portable_bundle_exact_bytes={portable_bundle_exact_bytes} retained_logical_bytes={retained_logical_bytes} required_scratch_bytes={required_scratch_bytes}",
         shape.stable_entities,
         shape.synthetic_tiles,
         shape.conflict_tiles,
