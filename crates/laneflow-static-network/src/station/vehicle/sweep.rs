@@ -11,6 +11,7 @@ use crate::{
 
 mod obstacle;
 mod rule;
+pub(super) use rule::window_permission;
 
 /// 后轴坐标系中沿前、左、上三个方向的实体包络，单位米。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,10 +33,10 @@ impl BodyEnvelope {
             self.heights_m,
         ]
     }
-    fn ranges(self) -> Vector {
+    pub(super) fn ranges(self) -> Vector {
         self.extents().map(|[lo, hi]| I { lo, hi })
     }
-    fn valid(self, axle: f64) -> bool {
+    pub(super) fn valid(self, axle: f64) -> bool {
         self.extents().into_iter().flatten().all(f64::is_finite)
             && self.rear_overhang_m >= 0.
             && self.front_from_rear_m >= axle

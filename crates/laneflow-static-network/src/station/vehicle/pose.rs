@@ -37,6 +37,70 @@ struct AxleHeights {
     samples: [Projection; 2],
 }
 
+fn wheel_samples(
+    surface: &Surface<'_>,
+    center: Horizontal,
+    left: Horizontal,
+    half_track: Interval,
+    work: &mut Work,
+) -> Result<[Projection; 2], Failure> {
+    Ok([
+        surface.project(shifted(center, left, half_track), work)?,
+        surface.project(shifted(center, left, -half_track), work)?,
+    ])
+}
+
+fn mean([a, b]: [Interval; 2]) -> Interval {
+    (a + b) * Interval::point(0.5)
+}
+
+fn rear_position(q: Horizontal, height: Interval, axle: AxleDimensions) -> Vector {
+    [
+        q[0],
+        height + Interval::point(axle.reference_height_m),
+        q[1],
+    ]
+}
+
+fn wheel_velocities(velocity: Horizontal, dl: Horizontal, half: Interval) -> [Horizontal; 2] {
+    [half, -half].map(|b| shifted(velocity, dl, b))
+}
+
+fn height_rates(samples: [Projection; 2], v: [Horizontal; 2]) -> [Interval; 2] {
+    std::array::from_fn(|i| dot(samples[i].gradient, v[i]))
+}
+
+fn rear_velocity(horizontal: Horizontal, vertical: Interval) -> (Vector, Interval) {
+    let v = [horizontal[0], vertical, horizontal[1]];
+    (v, (v[0].square() + v[2].square() + v[1].square()).sqrt())
+}
+
+/// 行程只依赖后轴的两轮取样，共用完整姿态的后轴高度和导数构造。
+pub(super) struct RearAxle {
+    pub position: Vector,
+    samples: [Projection; 2],
+}
+
+impl RearAxle {
+    pub fn enclose(
+        surface: &Surface<'_>,
+        q: Horizontal,
+        heading: Horizontal,
+        axle: AxleDimensions,
+        work: &mut Work,
+    ) -> Result<Self, Failure> {
+        let left = [heading[1], -heading[0]];
+        let samples = wheel_samples(surface, q, left, Interval::point(axle.half_track_m), work)?;
+        let position = rear_position(q, mean(samples.map(|s| s.height)), axle);
+        Ok(Self { position, samples })
+    }
+
+    pub fn rate(&self, axle: AxleDimensions, v: Horizontal, dh: Horizontal) -> (Vector, Interval) {
+        let vr = wheel_velocities(v, [dh[1], -dh[0]], Interval::point(axle.half_track_m));
+        rear_velocity(v, mean(height_rates(self.samples, vr)))
+    }
+}
+
 fn heights(
     surface: &Surface<'_>,
     center: Horizontal,
@@ -45,10 +109,9 @@ fn heights(
     lateral_rise: Interval,
     work: &mut Work,
 ) -> Result<AxleHeights, Failure> {
-    let a = surface.project(shifted(center, left, half_track), work)?;
-    let b = surface.project(shifted(center, left, -half_track), work)?;
+    let [a, b] = wheel_samples(surface, center, left, half_track, work)?;
     Ok(AxleHeights {
-        mean: (a.height + b.height) * Interval::point(0.5),
+        mean: mean([a.height, b.height]),
         difference: (a.height - b.height)
             .intersect(lateral_rise)
             .ok_or(Failure::Pose)?,
@@ -127,11 +190,7 @@ impl Pose {
                 .ok_or(Failure::Pose)?;
         }
         let samples = [rear.samples, front.samples];
-        let rear = [
-            q[0],
-            rear.mean + Interval::point(axle.reference_height_m),
-            q[1],
-        ];
+        let rear = rear_position(q, rear.mean, axle);
         if up[1].lo <= 0.
             || ![rear, forward, left, up]
                 .into_iter()
@@ -166,11 +225,10 @@ impl Pose {
         let half = n(axle.half_track_m);
         let dl = [dh[1], -dh[0]];
         let [rear, front] = self.samples;
-        let vr = [half, -half].map(|b| shifted(velocity, dl, b));
+        let vr = wheel_velocities(velocity, dl, half);
         let vf = vr.map(|v| shifted(v, dh, self.horizontal));
-        let rear_rate = std::array::from_fn::<_, 2, _>(|i| dot(rear[i].gradient, vr[i]));
-        let front_rate = std::array::from_fn::<_, 2, _>(|i| dot(front[i].gradient, vf[i]));
-        let mean = |v: [Interval; 2]| (v[0] + v[1]) * n(0.5);
+        let rear_rate = height_rates(rear, vr);
+        let front_rate = height_rates(front, vf);
         let grade = front.map(|s| dot(s.gradient, h));
         let dy = mean(front_rate) - mean(rear_rate);
         let denom = self.horizontal + self.rise * mean(grade);
@@ -195,13 +253,13 @@ impl Pose {
         let db = std::array::from_fn(|i| (raw[i] - self.left[i] * along) / self.raw_length);
         let a = cross(dt, self.left);
         let b = cross(self.forward, db);
-        let speed = (velocity[0].square() + velocity[1].square() + mean(rear_rate).square()).sqrt();
+        let (rear, speed) = rear_velocity(velocity, mean(rear_rate));
         let mut dn = std::array::from_fn(|i| a[i] + b[i]);
         dn[1] = dn[1]
             .intersect(-(self.up[0] * dn[0] + self.up[2] * dn[2]) / self.up[1])
             .ok_or(Failure::Pose)?;
         Ok(PoseRate {
-            rear: [velocity[0], mean(rear_rate), velocity[1]],
+            rear,
             forward: dt,
             left: db,
             up: dn,

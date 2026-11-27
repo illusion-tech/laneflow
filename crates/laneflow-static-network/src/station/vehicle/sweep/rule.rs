@@ -20,7 +20,7 @@ enum Permission<'a> {
     Unknown,
 }
 fn permission<'a>(
-    s: Seam<'a>,
+    extents: &'a [BoundaryExtent],
     station: I,
     direction: u8,
     work: &mut Work,
@@ -28,7 +28,7 @@ fn permission<'a>(
     let mut possible_allow = false;
     let mut possible_deny = false;
     let mut allow = false;
-    for e in s.extents {
+    for e in extents {
         work.charge()?;
         if let Some(BoundaryPayload::Rule { directions, effect }) = e.payload
             && directions & direction != 0
@@ -62,7 +62,7 @@ fn permission<'a>(
     let mut end_anchor = None;
     loop {
         let previous = end_anchor;
-        for e in s.extents {
+        for e in extents {
             work.charge()?;
             if let Some(BoundaryPayload::Rule {
                 directions,
@@ -140,7 +140,7 @@ fn allowed<'a>(
     let mut key = None;
     for bit in [1, 2] {
         if mask & bit != 0 {
-            match permission(s, station, bit, work)? {
+            match permission(s.extents, station, bit, work)? {
                 Permission::Unknown => return Ok(Permission::Unknown),
                 Permission::Allow => any_allow = true,
                 Permission::Deny(k) => {
@@ -155,6 +155,24 @@ fn allowed<'a>(
         (false, true) => Permission::Deny(key),
         _ => Permission::Unknown,
     })
+}
+
+/// 最新修订中，已注册站位闭区间内每一点都须确实获准沿所选方向跨越。
+pub(in crate::station::vehicle) fn window_permission(
+    extents: &[BoundaryExtent],
+    stations: [u64; 2],
+    direction: u8,
+) -> Result<(), Failure> {
+    let interval = I::meters(stations[0]).hull(I::meters(stations[1]));
+    match permission(
+        extents,
+        interval,
+        direction,
+        &mut Work::new(SWEEP_WORK_LIMIT),
+    )? {
+        Permission::Allow => Ok(()),
+        Permission::Deny(_) | Permission::Unknown => Err(Failure::Binding),
+    }
 }
 
 pub(super) fn check<'a>(

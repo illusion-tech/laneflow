@@ -15,6 +15,7 @@ mod policy_value;
 mod post_emission;
 #[cfg(test)]
 mod security_tests;
+mod source_digest;
 #[cfg(feature = "std")]
 mod staged_object;
 mod table;
@@ -43,6 +44,7 @@ pub use post_emission::{
     ExpectedSemanticDiffBase, PostEmissionCheckError, PostEmissionCheckedBundle,
     check_post_emission_bundle,
 };
+pub use source_digest::{source_collection_digest_v1, source_document_set_digest_v1};
 #[cfg(feature = "std")]
 pub use staged_object::{
     ClosedStagedObjectSource, ImmutableObjectSource, StagedObjectError, StagedObjectWriter,

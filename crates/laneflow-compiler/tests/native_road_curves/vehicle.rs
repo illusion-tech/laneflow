@@ -1,4 +1,6 @@
 use super::*;
+#[path = "handoff_body_side.rs"]
+mod handoff_body_side;
 use laneflow_static_contract::{AuthoringLaneOrdinal, CanonicalFrameOrdinal, RoadCorridorOrdinal};
 use laneflow_static_network::vehicle::{
     AxleDimensions, BodyEnvelope, CorridorTrace, Failure, GeometryWorkLimits, PoseBounds,
@@ -414,7 +416,7 @@ const BODY: BodyEnvelope = BodyEnvelope {
     heights_m: [0., 1.50],
 };
 const BUDGET: GeometryWorkLimits = GeometryWorkLimits::STANDARD;
-fn extent(
+pub(super) fn extent(
     key: &str,
     low: BoundaryStation,
     high: BoundaryStation,
