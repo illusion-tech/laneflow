@@ -39,8 +39,7 @@ pub enum SnapshotCaptureError {
     /// capture 路径预算无限，不会产生本变体）。
     #[error("直算摘要归一化 scratch 超出限额")]
     LimitExceeded,
-    /// 当前持久形制（LFRS 7 / runtime state 5）无法忠实表达的过渡状态
-    /// （#1217 持久化边界封闭；完整格式归 S5 #1200）。
+    /// 当前持久形制（LFRS 7 / runtime state 5）无法忠实表达的固定预制过渡状态（#1217）。
     ///
     /// 与 [`Self::ConflictInvariantViolation`] 严格区分：过渡状态是健康世界的
     /// 正常运行态，不是 C(T) 失真；宿主不得按不变量破坏的停用/隔离处置处理，

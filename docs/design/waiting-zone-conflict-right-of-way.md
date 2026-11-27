@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-waiting-zone-conflict-right-of-way"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-24"
+revised_date = "2026-11-27"
 summary = "定义等待区、冲突区与通行权联合分层。"
 scope = "WaitingZone 本地准入、Conflict 路线出现记录、车辆级通行权、下游净空、 Parking 生命周期、持久化与 Runtime/Spatial/Adapter 边界"
 applicability = "#applicability"
@@ -53,7 +53,7 @@ related = ["adr-0019", "design-parking-system", "design-signal-system", "design-
 - `ConflictPassageOccurrence`、`route_conflict_occurrence_capacity`、路线 conflict
   Gate ranges、正式组合仲裁及 lifecycle/restore/cutover authority 检查已存在；
 - 当前实现使用 LFRS 7、runtime state 5、deterministic digest 8。§6.11 的预约终点
-  与换道 S5 共用下一次格式切换，目标版本与字段见 `traffic-runtime-snapshot.md` §2.1。
+  与任意位置换道的登记窗口、已提交横移及组合预约一同进入目标格式，字段见 `traffic-runtime-snapshot.md` §2.1。
 
 #282 只新增 WaitingZone 本地动态能力。#284 已将 Conflict/right-of-way 组合资源、
 持久状态和生产固定步进接入同一 `TrafficWorld`。

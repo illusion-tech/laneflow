@@ -3015,8 +3015,7 @@ impl<'a> crate::kernel::phase::StepReadView<'a> {
     /// 归属≠身份（#1217 P1-4 切断）：过渡资源格（`Transition`）没有忠实的
     /// 持久 locator——v7 的 `(stream, zone)` 对表达不了资源种类与 T 稳定边
     /// 身份，且其 stream passage 派生对只是**归属**、不是身份本体，串成静态
-    /// passage 身份即错绑。因此过渡资源格一律返回 `None`，由调用方按持久化
-    /// 边界拒绝（S5 #1200 交付完整格式后在此按资源种类 tagged 身份重绑定）。
+    /// passage 身份即错绑。因此固定过渡资源格一律返回 `None`，由调用方按持久化边界拒绝。
     #[must_use]
     pub(crate) fn conflict_passage_locator(
         self,
