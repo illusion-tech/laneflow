@@ -28,7 +28,7 @@ cargo run --locked -p laneflow-runtime --example headless
 - 四个容量是车辆、路线、路线边出现记录和路线冲突出现记录。它们进入快照和逻辑摘要。worker 数另由 `ExecutionConfig` 指定，不进入快照。
 - 新观测 session 的第一次导出必须是 Full。观测从当前已提交状态计算；失败不推进 session。
 - 生命周期命令只在两次 `step` 之间调用。命令失败不留下半条路线或半辆车。
-- `TrafficWorld::bind_route_handoff` 将候选路线的一对相邻出现绑定到真实边界和允许窗口。`preview_route_handoff` 可按车型反复试算，返回前保险杠交接截面、两条边的进度，以及同一轨迹的后轴三维行程和整车跨边查询。两者均供拍间只读使用。[路线试算合同][route-handoff]
+- `TrafficWorld::bind_route_handoffs` 为同一候选路线绑定一个或多个窗口。`preview_route_handoff_at` 按源出现下标和车型试算。`sample_after_travel` 按本拍的后轴行程求前杠所在路线出现和两侧车体的边内范围。`preview_route_handoff_traffic` 还可用当前世界的已提交占用，查出各侧一个可能重叠的车辆。[路线试算合同][route-handoff]
 - 执行 panic 不是可恢复的 `StepError`。世界因此失效后，只能销毁并重建，不能继续查询或发命令。
 - dev-dependencies 已经启用 `laneflow-static-network` 的 `attestation-fixtures`，供其他测试使用。无窗口示例不调用这些测试入口。
 
@@ -60,6 +60,6 @@ cargo test --locked -p laneflow-runtime --test headless_smoke
 [execution-config]: ../../docs/design/traffic-runtime-execution-config.md
 [parallel-execution]: ../../docs/design/traffic-runtime-parallel-execution.md
 [routing-integration]: ../../docs/design/traffic-observation-and-routing-integration.md
-[route-handoff]: ../../docs/design/route-system.md#候选路线的一次横向交接试算
+[route-handoff]: ../../docs/design/route-system.md#候选路线的横向交接试算
 [runtime-snapshot]: ../../docs/design/traffic-runtime-snapshot.md
 [revision-cutover]: ../../docs/design/traffic-runtime-revision-cutover.md

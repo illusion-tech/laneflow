@@ -196,16 +196,22 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
     let binding = base.bind_route_handoff(&route, occurrence).unwrap();
     let rebound = target.rebind_route_handoff(&binding, &old, &new).unwrap();
     assert_eq!(
-        rebound.boundary().revision(),
+        rebound.boundary_at(5).unwrap().revision(),
         target.revision().network_revision()
     );
     assert_eq!(
-        rebound.boundary().window().stations_nm,
+        rebound.boundary_at(5).unwrap().window().stations_nm,
         occurrence.stations_nm
     );
     let expected_edges = ["s2", "t1"].map(|k| edge(&target, k));
-    assert_ne!(binding.boundary().window().edges, expected_edges);
-    assert_eq!(rebound.boundary().window().edges, expected_edges);
+    assert_ne!(
+        binding.boundary_at(5).unwrap().window().edges,
+        expected_edges
+    );
+    assert_eq!(
+        rebound.boundary_at(5).unwrap().window().edges,
+        expected_edges
+    );
     let trial = RouteHandoffTrial {
         profile: base
             .revision()
@@ -223,6 +229,47 @@ fn rebinds_the_exact_repeated_occurrence_across_an_unrelated_road_edit() {
         panic!("{preview:?}")
     };
     assert_eq!(addresses.map(|a| a.edge), expected_edges);
+    let repeated = RouteRegisterInput::new(
+        ["s2", "t1", "t2", "return", "s0", "s1", "s2", "t1"]
+            .map(|k| edge(&base, k))
+            .to_vec(),
+    );
+    let both = base
+        .bind_route_handoffs(
+            &repeated,
+            &[
+                RouteHandoffOccurrence {
+                    source_index: 0,
+                    stations_nm: [24_000_000_000, 25_000_000_000],
+                    ..occurrence
+                },
+                RouteHandoffOccurrence {
+                    source_index: 6,
+                    ..occurrence
+                },
+            ],
+        )
+        .unwrap();
+    let rebound_both = target.rebind_route_handoff(&both, &old, &new).unwrap();
+    for &(index, boundary) in both.windows() {
+        let restored = rebound_both.boundary_at(index).unwrap();
+        assert_eq!(restored.window().edges, expected_edges);
+        assert_eq!(restored.window().stations_nm, boundary.window().stations_nm);
+    }
+    let first = target
+        .preview_route_handoff_at(&rebound_both, 0, &trial)
+        .unwrap();
+    assert!(matches!(
+        first.report.outcome,
+        HandoffOutcome::OutsideWindow { .. }
+    ));
+    let second = target
+        .preview_route_handoff_at(&rebound_both, 6, &trial)
+        .unwrap();
+    assert!(matches!(
+        second.report.outcome,
+        HandoffOutcome::Located { .. }
+    ));
     assert_eq!(
         target.preview_route_handoff(&binding, &trial).unwrap_err(),
         RouteHandoffTrialError::RevisionMismatch

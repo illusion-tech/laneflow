@@ -86,6 +86,28 @@ fn classify(
     Err(Failure::Boundary)
 }
 
+pub(super) fn body_offsets(
+    q: &HandoffQuery,
+    body: BodyEnvelope,
+    stations: [u64; 2],
+) -> Result<[u64; 2], Failure> {
+    let [start, end] = q.rear_stations_nm;
+    let [low, high] = stations;
+    if low > high
+        || low < start.min(end)
+        || high > start.max(end)
+        || !body.valid(q.axles.wheelbase_m)
+        || body.half_width_m < q.axles.half_track_m
+    {
+        return Err(Failure::InvalidInput);
+    }
+    Ok(if start < end {
+        [low - start, high - start]
+    } else {
+        [start - high, start - low]
+    })
+}
+
 impl SharedNetworkRevision {
     /// 在原横移候选上检验实体车身相对绑定共边的横向位置。后轴绝对站位闭区间须
     /// 按数值递增；行驶方向来自候选起止站位。工作上限为 [`SWEEP_WORK_LIMIT`]。
@@ -101,24 +123,10 @@ impl SharedNetworkRevision {
     ) -> HandoffBodyReport {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
         let mut run = || {
-            let [start, end] = q.rear_stations_nm;
-            let [low, high] = rear_stations_nm;
-            if low > high
-                || low < start.min(end)
-                || high > start.max(end)
-                || !body.valid(q.axles.wheelbase_m)
-                || body.half_width_m < q.axles.half_track_m
-            {
-                return Err(Failure::InvalidInput);
-            }
+            let offsets = body_offsets(q, body, rear_stations_nm)?;
             let bound = bind(self, q, window, &mut work)?;
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;
-            let offsets = if start < end {
-                [low - start, high - start]
-            } else {
-                [start - high, start - low]
-            };
             classify(&c, &bound.crossing, body, offsets, &mut work)
         };
         let side = run();

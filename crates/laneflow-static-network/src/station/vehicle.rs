@@ -21,9 +21,10 @@ mod steering;
 mod surface;
 mod sweep;
 pub use handoff::{
-    HandoffBinding, HandoffBodyReport, HandoffBodySide, HandoffOutcome, HandoffQuery,
-    HandoffReport, HandoffSourceEvidence, HandoffSourceModule, HandoffTravelBounds,
-    HandoffTravelReport, HandoffTravelTarget, HandoffWindow,
+    HandoffBinding, HandoffBodyReport, HandoffBodySide, HandoffFootprint, HandoffFootprintReport,
+    HandoffLaneSide, HandoffOutcome, HandoffQuery, HandoffReport, HandoffSideFootprint,
+    HandoffSourceEvidence, HandoffSourceModule, HandoffTravelBounds, HandoffTravelReport,
+    HandoffTravelTarget, HandoffWindow,
 };
 pub use sweep::{
     BodyEnvelope, BoundaryHit, Clearance, GeometryReport, GeometryWorkLimits, SweepOutcome,

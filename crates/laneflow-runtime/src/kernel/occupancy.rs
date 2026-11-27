@@ -1028,6 +1028,20 @@ impl OccupancyIndex {
         self.buckets.get(edge.index())
     }
 
+    /// 与毫米闭区间相交的一个已提交车体片段，包含零进度入口。以片段起点、
+    /// 终点、更新序依次破平。前杠低于查询下界的记录在有序桶前缀中一次跳过。
+    pub(super) fn touching_vehicle(
+        &self,
+        edge: LaneEdgeOrdinal,
+        [low, high]: [u32; 2],
+    ) -> Option<VehicleHandle> {
+        let bucket = self.bucket(edge)?;
+        let start = bucket.records.partition_point(|record| record.hi_mm < low);
+        let index = bucket.suffix.get(start)?.min_lo as usize;
+        let nearest = &bucket.records[index];
+        (nearest.lo_mm <= high).then_some(nearest.vehicle)
+    }
+
     fn min_lo_from(
         &self,
         bucket: &OccupancyBucket,
@@ -2788,6 +2802,37 @@ pub(crate) mod tests {
             values.capacity()
         );
         assert_eq!(values.len(), 1);
+    }
+
+    #[test]
+    fn touching_vehicle_uses_closed_endpoints_and_stable_update_order() {
+        let edge = LaneEdgeOrdinal::from_raw(0);
+        let record = |slot, update_sequence, lo_mm, hi_mm| OccupancyRecord {
+            vehicle: VehicleHandle::new(slot, 0),
+            bucket: OccupancyBucketOrdinal::from_edge(edge),
+            update_sequence,
+            lo_mm,
+            hi_mm,
+            speed_mm_s: 0,
+        };
+        let records = [
+            record(3, 0, 5, 15),
+            record(1, 1, 5, 15),
+            record(2, 2, 10, 13),
+            record(5, 3, 20, 20),
+        ];
+        let (mut index, mut scratch) = OccupancyIndex::with_capacity(1, 0);
+        index.rebuild_from_pending(&mut scratch, &records, 1);
+        for (range, expected) in [
+            ([0, 4], None),
+            ([0, 5], Some(records[0].vehicle)),
+            ([11, 12], Some(records[0].vehicle)),
+            ([15, 15], Some(records[0].vehicle)),
+            ([16, 19], None),
+            ([20, 20], Some(records[3].vehicle)),
+        ] {
+            assert_eq!(index.touching_vehicle(edge, range), expected);
+        }
     }
 
     #[test]

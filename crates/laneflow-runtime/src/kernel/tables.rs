@@ -457,7 +457,7 @@ fn try_reserve_route_exact<T>(values: &mut Vec<T>, capacity: usize) -> Result<()
         .map_err(|_| RouteError::AllocationFailed)
 }
 
-fn try_route_vec<T>(capacity: usize) -> Result<Vec<T>, RouteError> {
+pub(super) fn try_route_vec<T>(capacity: usize) -> Result<Vec<T>, RouteError> {
     let mut values = Vec::new();
     try_reserve_route_exact(&mut values, capacity)?;
     Ok(values)

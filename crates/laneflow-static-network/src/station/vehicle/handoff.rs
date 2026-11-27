@@ -10,6 +10,10 @@ mod binding;
 pub use binding::HandoffBinding;
 mod body_side;
 pub use body_side::{HandoffBodyReport, HandoffBodySide};
+mod footprint;
+pub use footprint::{
+    HandoffFootprint, HandoffFootprintReport, HandoffLaneSide, HandoffSideFootprint,
+};
 mod rebind;
 mod source;
 pub use source::{HandoffSourceEvidence, HandoffSourceModule};
@@ -138,6 +142,7 @@ struct Bound {
     lanes: [AuthoringLaneOrdinal; 2],
     source_target: [AuthoringLaneOrdinal; 2],
     crossing: Crossing,
+    outer: [sweep::BoundaryLine; 2],
     trace: CorridorTrace,
 }
 
@@ -245,6 +250,10 @@ fn bind(
     Ok(Bound {
         lanes,
         source_target,
+        outer: [(left, 0), (right, 1)].map(|(lane, i)| sweep::BoundaryLine {
+            offsets_um: lane.ends_um.map(|ends| ends[i]),
+            error_nm: lane.error_nm,
+        }),
         crossing: Crossing {
             line: sweep::BoundaryLine {
                 offsets_um: left.ends_um.map(|ends| ends[1]),
