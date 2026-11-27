@@ -32,8 +32,8 @@ AI Agent 开工前应读取：
 如果相关 design 或 ADR 不存在，但任务涉及 Traffic Runtime API、数据格式或 Adapter 协议，应先
 补设计或提出 G1 阻断。
 
-`.cursor/skills/` 只作为 Cursor 自动发现入口。跨 Agent 的执行规范应维护在
-`.agents/skills/`。
+`.agents/skills/` 是 Agent Skill 的唯一正本，Cursor、Codex 等工具直接从此目录自动发现，
+不维护工具专用副本。跨 Agent 的执行规范应维护在该目录。
 
 ## 3. 默认工作方式
 

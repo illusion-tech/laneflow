@@ -258,7 +258,6 @@ AI Agent 开工前应优先读取仓库文档，而不是只依赖 Issue 描述�
 - 仓库根目录的 `README.md`、`CONTRIBUTING.md`、`AGENTS.md`
 - `docs/**/*.md`
 - `.agents/**/*.md`
-- `.cursor/skills/**/SKILL.md`
 - `crates/*/README.md`
 - `tools/*/README.md`
 - `schemas/**/*.md`

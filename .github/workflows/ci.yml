@@ -92,7 +92,7 @@ jobs:
         run: |
           set +e
           cargo run --locked -p xtask -- format-md-tables --check \
-            README.md AGENTS.md CONTRIBUTING.md crates docs schemas .github .agents .cursor
+            README.md AGENTS.md CONTRIBUTING.md crates docs schemas .github .agents
           status=$?
           set -e
           if [[ "$status" -ne 0 ]]; then

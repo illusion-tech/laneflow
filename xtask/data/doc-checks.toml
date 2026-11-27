@@ -152,36 +152,6 @@ accept_code_span = true
 reason = "Agent 工作流首页以行内代码列出 pre-1-0 skill"
 
 [[required]]
-source = ".cursor/skills/laneflow-governance/SKILL.md"
-target = ".agents/skills/laneflow-governance/SKILL.md"
-accept_code_span = true
-reason = "Cursor governance 薄包装必须指向对应的 Agent skill"
-
-[[required]]
-source = ".cursor/skills/laneflow-development/SKILL.md"
-target = ".agents/skills/laneflow-development/SKILL.md"
-accept_code_span = true
-reason = "Cursor development 薄包装必须指向对应的 Agent skill"
-
-[[required]]
-source = ".cursor/skills/laneflow-core-design/SKILL.md"
-target = ".agents/skills/laneflow-core-design/SKILL.md"
-accept_code_span = true
-reason = "Cursor core-design 薄包装必须指向对应的 Agent skill"
-
-[[required]]
-source = ".cursor/skills/laneflow-adapter/SKILL.md"
-target = ".agents/skills/laneflow-adapter/SKILL.md"
-accept_code_span = true
-reason = "Cursor adapter 薄包装必须指向对应的 Agent skill"
-
-[[required]]
-source = ".cursor/skills/laneflow-pre-1-0/SKILL.md"
-target = ".agents/skills/laneflow-pre-1-0/SKILL.md"
-accept_code_span = true
-reason = "Cursor pre-1-0 薄包装必须指向对应的 Agent skill"
-
-[[required]]
 source = "crates/laneflow-runtime/README.md"
 target = "docs/guides/source-integration.md"
 reason = "Runtime README 必须能到达无窗口源码接入指南"

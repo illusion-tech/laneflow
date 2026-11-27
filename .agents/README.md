@@ -7,8 +7,8 @@
 采用唯一事实来源：
 
 - `docs/`：长期项目事实、治理、架构、设计与决策。
-- `.agents/skills/`：可复用的 Agent 执行工作流。
-- `.cursor/skills/` 等工具专用入口：保持薄包装，并转读本目录。
+- `.agents/skills/`：可复用的 Agent 执行工作流。这是 Agent Skill 的唯一正本，
+  Cursor、Codex 等工具直接从此目录自动发现，不再维护工具专用副本。
 
 ## 可用 Skill
 

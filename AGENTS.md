@@ -19,7 +19,8 @@ LaneFlow 采用唯一事实来源管理 Agent 工作流。
 - `.agents/skills/laneflow-adapter/SKILL.md`
 - `.agents/skills/laneflow-pre-1-0/SKILL.md`（1.0 前：一套正本，不为弯路堆兼容）
 
-不要在工具专用说明文件中重复长期项目规则。`.cursor/skills/` 等工具入口应保持薄包装，并转读 `.agents/` 与 `docs/`。
+不要在工具专用说明文件中重复长期项目规则。仓库不再维护工具专用 Skill 副本：
+`.agents/skills/` 是唯一正本，Cursor、Codex 等工具直接从此目录自动发现。
 
 仓库不设研究资料专用目录。研究类任务的现行结论原位回写所属 `docs/design/`、ADR
 或现行 reference，任务过程由 Issue / PR 承载，活测试数据放所属 crate 的
