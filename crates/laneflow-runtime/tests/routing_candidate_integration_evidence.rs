@@ -17,14 +17,16 @@ mod support {
 }
 
 use laneflow_runtime::{
-    AdmittedRouteRegisterInput, CandidateRouteError, CandidateRouteInput,
-    CommittedTrafficObservationBatch, CostModelKey, DynamicCostSnapshotBinding,
-    ObservationExportMode, ObservationSelection, ObservationSetBinding, RestoredSnapshot,
-    RouteError, RouteHandle, RoutingAdmissionSession, StateDigest, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
-    bind_observation_set, deterministic_state_digest, encode_lfrs, restore_lfrs,
+    AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,
+    CandidateRouteInput, CommittedTrafficObservationBatch, CostModelKey,
+    DynamicCostSnapshotBinding, ObservationExportMode, ObservationSelection, ObservationSetBinding,
+    RestoredSnapshot, RouteError, RouteHandle, RoutingAdmissionSession, StableRouteHandoffWindow,
+    StateDigest, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput,
+    WorldId, WorldInstallInput, bind_observation_set, deterministic_state_digest, encode_lfrs,
+    restore_lfrs,
 };
 use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal, Sha256Digest, StableId128};
+use laneflow_static_network::CanonicalNetworkOrigin;
 use support::routing_evidence::{
     LFSYNTH_ROUTE_CAPACITY_HEADROOM, LfSynthFixture, ReceiverError, ReceiverLimits,
     build_lf_synth_fixture, dynamic_cost_snapshot_digest, lf_synth_cost_model,
@@ -139,11 +141,23 @@ fn routing_candidate_lf_synth_integration_evidence() {
         typical_edges,
         "candidate_typical",
     );
+    assert_registered_route(
+        &fixture.world,
+        typical,
+        &fixture.typical_route,
+        &fixture.typical_handoffs,
+    );
     success_probes += 1;
     fixture.world.remove_route(typical).expect("移除典型候选");
 
     let long_input = fixture.candidate_long_input();
     let long = register_input(&mut fixture, long_input, long_edges, "candidate_long");
+    assert_registered_route(
+        &fixture.world,
+        long,
+        &fixture.long_route,
+        &fixture.long_handoffs,
+    );
     success_probes += 1;
     fixture.world.remove_route(long).expect("移除长候选");
     let after = counters(&fixture.world);
@@ -223,6 +237,49 @@ fn routing_candidate_lf_synth_integration_evidence() {
         "disconnected",
         &mut failure_probes,
     );
+
+    if !fixture.long_handoffs.is_empty() {
+        // 整串边仍在原修订内。去掉交接标记变成不连通的普通跳；把真窗口移到
+        // 后一对出现则物理边界与边对不符。两条入口都要在提交之前拒绝。
+        let mut shifted = fixture.long_handoffs.clone();
+        shifted[0].source_index += 1;
+        for (windows, error, label) in [
+            (Vec::new(), RouteError::Disconnected, "missing_handoff"),
+            (
+                shifted,
+                RouteError::InvalidHandoffWindow,
+                "wrong_handoff_occurrence",
+            ),
+        ] {
+            let input = fixture
+                .candidate_long_input()
+                .with_handoffs(windows.clone());
+            expect_rejection(
+                &mut fixture,
+                input,
+                CandidateRouteError::Route(error),
+                label,
+                &mut failure_probes,
+            );
+            let before = counters(&fixture.world);
+            let command = admitted_input(
+                *fixture.world.revision().canonical_origin(),
+                &fixture.long_route,
+                &windows,
+            );
+            assert_eq!(
+                fixture.world.register_admitted_route(command),
+                Err(AdmittedRouteRegisterError::Route(error)),
+                "{label}: 重放命令必须精确拒绝"
+            );
+            assert_eq!(
+                counters(&fixture.world),
+                before,
+                "{label}: 重放拒绝必须零副作用"
+            );
+            failure_probes += 1;
+        }
+    }
 
     assert_eq!(
         world_digest(&fixture.world),
@@ -409,7 +466,8 @@ fn routing_candidate_lf_synth_integration_evidence() {
         )
         .expect("时效探针前的全量观测");
     let expiring = expiring_cost_binding_for(&fresh_full);
-    let expiring_input = CandidateRouteInput::new(expiring, fixture.typical_route.clone());
+    let expiring_input = CandidateRouteInput::new(expiring, fixture.typical_route.clone())
+        .with_handoffs(fixture.typical_handoffs.clone());
     let survivor = register_input(
         &mut fixture,
         expiring_input,
@@ -418,10 +476,7 @@ fn routing_candidate_lf_synth_integration_evidence() {
     );
     success_probes += 1;
     for _ in 0..2 {
-        fixture
-            .world
-            .step(TickInput::new(fixture.fixed_delta_ms))
-            .expect("推进越过有效期");
+        fixture.step();
     }
     assert_eq!(
         fixture.world.route_edges(survivor).map(<[_]>::len),
@@ -443,10 +498,7 @@ fn routing_candidate_lf_synth_integration_evidence() {
     fixture.world.remove_route(survivor).expect("清场存活候选");
 
     // ---- full/delta 精确账目 ----
-    fixture
-        .world
-        .step(TickInput::new(fixture.fixed_delta_ms))
-        .expect("推进一拍制造变化");
+    fixture.step();
     let delta = fixture
         .world
         .export_observation(
@@ -486,7 +538,7 @@ fn routing_candidate_lf_synth_integration_evidence() {
 
     // ---- 汇总 ----
     println!(
-        "routing-candidate-lfsynth-integration identity={} workload_id={} manifest_digest={:x} network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} observation_set_digest={:x} cost_snapshot_digest={:x} edges={} state_routes={} state_route_edges={} vehicles={} active={} parked={} typical_edges={} long_edges={} success_probes={} failure_probes={} replay_points={} replay_divergence=none complete=true",
+        "routing-candidate-lfsynth-integration identity={} workload_id={} manifest_digest={:x} network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} observation_set_digest={:x} cost_snapshot_digest={:x} edges={} state_routes={} state_route_edges={} vehicles={} active={} parked={} typical_edges={} long_edges={} long_handoffs={} success_probes={} failure_probes={} replay_points={} replay_divergence=none complete=true",
         fixture.identity_name,
         fixture.workload_id,
         fixture.manifest_digest,
@@ -504,6 +556,7 @@ fn routing_candidate_lf_synth_integration_evidence() {
         fixture.parked_count,
         typical_edges,
         long_edges,
+        fixture.long_handoffs.len(),
         success_probes,
         failure_probes,
         replay.points,
@@ -526,6 +579,52 @@ fn register_input(
         "{label}: 注册后的边数必须精确"
     );
     handle
+}
+
+fn assert_registered_route(
+    world: &TrafficWorld,
+    handle: RouteHandle,
+    expected_edges: &[StableId128],
+    expected_windows: &[StableRouteHandoffWindow],
+) {
+    let revision = world.revision();
+    let edges = world.route_edges(handle).expect("路线句柄有效");
+    let ids = revision.identity();
+    assert!(
+        edges
+            .iter()
+            .map(|&edge| ids.stable_id(edge).unwrap().into_untyped())
+            .eq(expected_edges.iter().copied()),
+        "每个路线出现的稳定边身份与顺序必须一致"
+    );
+    let windows = world
+        .route_handoff_windows(handle)
+        .expect("已登记路线的交接窗");
+    assert_eq!(windows.len(), expected_windows.len());
+    for (&(source, binding), expected) in windows.iter().zip(expected_windows) {
+        assert_eq!(
+            StableRouteHandoffWindow::from_binding(&revision, source, binding).as_ref(),
+            Some(expected),
+            "物理边界、左右成员、源出现和毫米站位必须一致"
+        );
+        let index = source as usize;
+        assert_eq!(binding.window().edges, [edges[index], edges[index + 1]]);
+    }
+}
+
+fn admitted_input(
+    origin: CanonicalNetworkOrigin,
+    edges: &[StableId128],
+    windows: &[StableRouteHandoffWindow],
+) -> AdmittedRouteRegisterInput {
+    AdmittedRouteRegisterInput::new(
+        origin.network_revision(),
+        origin
+            .static_contract_versions()
+            .network_revision_derivation_version(),
+        edges.to_vec(),
+    )
+    .with_handoffs(windows.to_vec())
 }
 
 fn expect_rejection(
@@ -655,80 +754,32 @@ struct ReplayOutcome {
     host_side_replays: usize,
 }
 
-/// 检查点（含一条已注册环候选）→ encode → restore → 两侧运行同一宿主
-/// 命令后缀：规范化已准入路线注册、spawn、推进三拍、重开观测与准入并
-/// 注册候选——逐点 (command_cursor, tick, state digest) 对拍。
+/// 把已登记长候选的稳定内容录成宿主命令。恢复检查点后，两侧依次
+/// 注册已准入路线、spawn、推进三拍，再用各自的新成本绑定注册候选。
 fn checkpoint_replay(fixture: &mut LfSynthFixture) -> ReplayOutcome {
     let checkpoint_input = fixture.candidate_long_input();
     let checkpoint_route = fixture
         .world
         .register_candidate_route(&fixture.admission, checkpoint_input)
         .expect("检查点前注册候选");
-    assert_eq!(
-        fixture.world.route_edges(checkpoint_route).map(<[_]>::len),
-        Some(fixture.long_route.len())
+    assert_registered_route(
+        &fixture.world,
+        checkpoint_route,
+        &fixture.long_route,
+        &fixture.long_handoffs,
     );
     let snapshot = fixture.world.capture_snapshot().expect("检查点快照");
-    let bytes = encode_lfrs(&snapshot);
-    let expected_routes = fixture.state_route_count + 1;
-    let expected_vehicles = fixture.vehicle_count;
-
-    let long_route = fixture.long_route.clone();
-    let first_edge = fixture.one_route[0];
-    let profile = fixture.profile_ordinal;
-    let delta_ms = fixture.fixed_delta_ms;
-
-    let run_suffix = |world: &mut TrafficWorld| -> Vec<(u64, u64, StateDigest)> {
-        let mut points = Vec::new();
-        let origin = *world.revision().canonical_origin();
-        let admitted = world
-            .register_admitted_route(AdmittedRouteRegisterInput::new(
-                origin.network_revision(),
-                origin
-                    .static_contract_versions()
-                    .network_revision_derivation_version(),
-                long_route.clone(),
-            ))
-            .expect("规范化已准入路线注册命令");
-        points.push(capture_point(world));
-
-        let spawn = VehicleSpawnInput::new(profile, admitted, 0, 1_000, 0).with_open_entrance();
-        world.spawn_vehicle(spawn).expect("后缀 spawn");
-        points.push(capture_point(world));
-
-        for _ in 0..3 {
-            world.step(TickInput::new(delta_ms)).expect("后缀推进");
-            points.push(capture_point(world));
-        }
-
-        // 恢复侧宿主流程：重开观测、重绑成本、重开准入、注册候选。
-        let mut session = world
-            .open_observation_export(ObservationSelection::AllLaneEdges)
-            .expect("后缀观测会话");
-        let full = world
-            .export_observation(&mut session, ObservationExportMode::Full)
-            .expect("后缀全量观测");
-        let binding = cost_binding_for(&full);
-        let admission = world.open_routing_admission(lf_synth_cost_model());
-        let candidate = world
-            .register_candidate_route(
-                &admission,
-                CandidateRouteInput::new(binding, vec![first_edge]),
-            )
-            .expect("后缀候选注册");
-        assert_eq!(
-            world.route_edges(candidate).map(<[_]>::len),
-            Some(1),
-            "后缀候选边数必须精确"
-        );
-        points.push(capture_point(world));
-        points
-    };
-
-    let expected = run_suffix(&mut fixture.world);
+    let captured = fixture
+        .world
+        .live_routes()
+        .zip(snapshot.routes())
+        .find_map(|(route, captured)| (route == checkpoint_route).then_some(captured))
+        .expect("检查点内的长候选");
+    assert_eq!(captured.edges(), fixture.long_route);
+    assert_eq!(captured.handoff_windows(), fixture.long_handoffs);
 
     let restored: RestoredSnapshot = restore_lfrs(
-        &bytes,
+        &encode_lfrs(&snapshot),
         fixture.world.revision(),
         fixture.world.committed_source().clone(),
         fixture.world.config(),
@@ -736,14 +787,96 @@ fn checkpoint_replay(fixture: &mut LfSynthFixture) -> ReplayOutcome {
         lf_synth_restore_limits(),
     )
     .expect("恢复检查点");
-    assert_eq!(restored.route_mappings().len(), expected_routes);
-    assert_eq!(restored.vehicle_mappings().len(), expected_vehicles);
+    assert_eq!(
+        restored.route_mappings().len(),
+        fixture.state_route_count + 1
+    );
+    assert_eq!(restored.vehicle_mappings().len(), fixture.vehicle_count);
+    let restored_route = restored
+        .route_handle(captured.snapshot_route_id())
+        .expect("快照局部 ID 的新句柄");
     let mut replayed = restored.into_world();
-    let actual = run_suffix(&mut replayed);
+    assert_registered_route(
+        &replayed,
+        restored_route,
+        &fixture.long_route,
+        &fixture.long_handoffs,
+    );
+    assert_eq!(
+        world_digest(&replayed),
+        deterministic_state_digest(&snapshot).unwrap()
+    );
 
-    assert_eq!(actual, expected, "重放必须逐点相等（含摘要）");
+    // 记录已准入的路线及修订，无须保留成本来源。每次执行返回各自的新句柄。
+    let replay_command = |world: &mut TrafficWorld| {
+        let command = admitted_input(
+            snapshot.origin(),
+            captured.edges(),
+            captured.handoff_windows(),
+        );
+        let route = world
+            .register_admitted_route(command)
+            .expect("重放规范化已准入命令");
+        assert_registered_route(world, route, captured.edges(), captured.handoff_windows());
+        route
+    };
+    let original_handle = replay_command(&mut fixture.world);
+    let replayed_handle = replay_command(&mut replayed);
+    let mut points = 0;
+    let mut compare = |expected: &TrafficWorld, actual: &TrafficWorld| {
+        points += 1;
+        assert_eq!(
+            capture_point(actual),
+            capture_point(expected),
+            "重放后缀第 {points} 个核对点"
+        );
+    };
+    compare(&fixture.world, &replayed);
+
+    for (world, route) in [
+        (&mut fixture.world, original_handle),
+        (&mut replayed, replayed_handle),
+    ] {
+        let spawn = VehicleSpawnInput::new(fixture.profile_ordinal, route, 0, 1_000, 0)
+            .with_open_entrance();
+        world.spawn_vehicle(spawn).expect("后缀 spawn");
+    }
+    compare(&fixture.world, &replayed);
+    for _ in 0..3 {
+        assert!(
+            fixture.step_requests().is_empty(),
+            "后缀三拍内，正式宿主输入仅推进活动横移"
+        );
+        fixture.step();
+        replayed
+            .step(TickInput::new(fixture.fixed_delta_ms))
+            .expect("重放同一固定步进");
+        compare(&fixture.world, &replayed);
+    }
+
+    let (edges, windows) = if fixture.long_handoffs.is_empty() {
+        (&fixture.one_route, &[][..])
+    } else {
+        (&fixture.long_route, fixture.long_handoffs.as_slice())
+    };
+    for world in [&mut fixture.world, &mut replayed] {
+        let mut session = world
+            .open_observation_export(ObservationSelection::AllLaneEdges)
+            .expect("后缀观测会话");
+        let full = world
+            .export_observation(&mut session, ObservationExportMode::Full)
+            .expect("后缀全量观测");
+        let admission = world.open_routing_admission(lf_synth_cost_model());
+        let input = CandidateRouteInput::new(cost_binding_for(&full), edges.clone())
+            .with_handoffs(windows.to_vec());
+        let route = world
+            .register_candidate_route(&admission, input)
+            .expect("后缀候选注册");
+        assert_registered_route(world, route, edges, windows);
+    }
+    compare(&fixture.world, &replayed);
     ReplayOutcome {
-        points: expected.len(),
+        points,
         host_side_replays: 2,
     }
 }

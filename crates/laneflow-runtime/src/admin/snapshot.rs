@@ -379,6 +379,12 @@ impl CapturedRoute {
     pub fn edges(&self) -> &[ContractStableId128] {
         &self.edges
     }
+
+    /// 已登记的横向交接窗口，按源边在本路线中的出现下标排列。
+    #[must_use]
+    pub fn handoff_windows(&self) -> &[crate::StableRouteHandoffWindow] {
+        &self.windows
+    }
 }
 
 impl CapturedVehicle {

@@ -3,10 +3,12 @@
 //! `policy.rs` 的定向 allow 同理）。
 #![allow(dead_code)]
 
+#[path = "../../../../tools/laneflow-synth-harness/src/handoff.rs"]
+mod synth_handoff;
 #[path = "policy.rs"]
 mod test_policy;
 
-use std::sync::Arc;
+use std::{fmt::Write, sync::Arc};
 
 use laneflow_compiler::{
     CompilationUnitBuilder, CompileProfile, Compiler, LaneEdgeInput, LaneEdgeReference,
@@ -18,18 +20,20 @@ use laneflow_runtime::{
     CandidateRouteInput, CommittedNetworkSource, CommittedTrafficObservationBatch, CostModelId,
     CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostSnapshotBinding, ObservationExportMode,
     ObservationExportSession, ObservationSelection, ParkedVehicleSpawnInput, ParkingTarget,
-    PublishedLfcaReference, RouteRegisterInput, RoutingAdmissionSession, SnapshotRestoreLimits,
-    TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId,
-    WorldInstallInput, bind_observation_set,
+    PublishedLfcaReference, RouteHandle, RouteHandoffRequest, RoutingAdmissionSession,
+    SnapshotRestoreLimits, StableRouteHandoffWindow, StepOutcome, TickInput, TrafficWorld,
+    VehicleHandle, VehicleSpawnInput, WorldConfig, WorldConfigInput, WorldId, WorldInstallInput,
+    bind_observation_set,
 };
 use laneflow_static_contract::{
-    EntityKind, LaneEdgeId, NetworkRevisionId, ParkingSpaceId, RightOfWayPolicySetId, Sha256Digest,
-    StableId128, VehicleProfileId,
+    EntityKind, LaneEdgeId, NetworkRevisionId, ParkingSpaceId, RightOfWayPolicySetId,
+    RoadSectionId, Sha256Digest, StableId128, VehicleProfileId,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
 };
+use laneflow_synth_generator::{InitialState, RouteRecord};
 use sha2::{Digest, Sha256};
 
 pub const WORKLOAD_ID: &str = "LF-ROUTING-G2-LINEAR-v1";
@@ -525,16 +529,18 @@ pub struct LfSynthFixture {
     pub cost_payload: Vec<u8>,
     pub cost_binding: DynamicCostSnapshotBinding,
     pub admission: RoutingAdmissionSession,
-    /// 1 边候选样本（最长 state 路线的首边）。
+    /// 1 边候选样本（最长 state 路线的末端边）。
     pub one_route: Vec<StableId128>,
     /// 典型候选样本：中位边数的 state 路线（构造即合法）。
     pub typical_route: Vec<StableId128>,
+    pub typical_handoffs: Vec<StableRouteHandoffWindow>,
     /// 长候选样本：最长 state 路线。输入族拓扑是无环短链（W=2 边、
-    /// L1 簇路线 5 边），重复边与更长序列在合法路线中不可构造——长轴
+    /// L1 簇路线 4 边），重复边与更长序列在合法路线中不可构造——长轴
     /// 扩展性证据由 §7.1 的 4096 边 G2-LINEAR case 承担，本边界如实
     /// 写入冻结表与结论。
     pub long_route: Vec<StableId128>,
-    /// 不连通样本：两条不相邻的 state 路线首边。
+    pub long_handoffs: Vec<StableRouteHandoffWindow>,
+    /// 不连通样本：两条不同的终端边。
     pub disconnected_route: Vec<StableId128>,
     /// 安装用的车型 ordinal（重放侧 spawn 复用）。
     pub profile_ordinal: laneflow_static_contract::VehicleProfileOrdinal,
@@ -558,19 +564,53 @@ pub struct LfSynthFixture {
     pub lfca_exact_bytes: u64,
     pub workload_manifest_digest: Sha256Digest,
     pub state_digest: Sha256Digest,
+    handoff_driver: Option<LfSynthHandoffDriver>,
+}
+
+struct LfSynthHandoffDriver {
+    state: InitialState,
+    handles: Vec<VehicleHandle>,
+    routes: Vec<RouteHandle>,
 }
 
 impl LfSynthFixture {
+    pub fn step_requests(&self) -> Vec<RouteHandoffRequest> {
+        self.handoff_driver
+            .as_ref()
+            .map_or_else(Vec::new, |driver| {
+                synth_handoff::requests(&self.world, &driver.state, &driver.handles, &driver.routes)
+                    .expect("按正式输入与拍初提交态生成横移申请")
+            })
+    }
+
+    pub fn step(&mut self) -> StepOutcome {
+        let requests = self.step_requests();
+        self.world
+            .step_with_route_handoffs(TickInput::new(self.fixed_delta_ms), &requests)
+            .expect("推进正式输入")
+    }
+
+    pub fn fixed_input_sequence_digest(&self, sequence: &str) -> Sha256Digest {
+        if self.handoff_driver.is_some() {
+            return fixed_input_sequence_digest(&format!(
+                "{sequence}each-step=route-handoffs-from-committed-state;candidate=stable-handoff-windows;"
+            ));
+        }
+        fixed_input_sequence_digest(sequence)
+    }
+
     pub fn candidate_one_input(&self) -> CandidateRouteInput {
         CandidateRouteInput::new(self.cost_binding, self.one_route.clone())
     }
 
     pub fn candidate_typical_input(&self) -> CandidateRouteInput {
         CandidateRouteInput::new(self.cost_binding, self.typical_route.clone())
+            .with_handoffs(self.typical_handoffs.clone())
     }
 
     pub fn candidate_long_input(&self) -> CandidateRouteInput {
         CandidateRouteInput::new(self.cost_binding, self.long_route.clone())
+            .with_handoffs(self.long_handoffs.clone())
     }
 
     pub fn disconnected_candidate_input(&self) -> CandidateRouteInput {
@@ -595,8 +635,23 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
     let bundle = laneflow_synth_generator::verify_directory(&directory)
         .expect("正式身份目录经 verify_directory 重编译比对");
     let manifest_bytes = bundle.files()["manifest.json"].clone();
-    let state: laneflow_synth_generator::InitialState =
+    let state: InitialState =
         serde_json::from_slice(&bundle.files()["state.json"]).expect("state.json 反序列化");
+    // 三个维度来自经重编译校验的输入；目录可另有副本后缀（例如 -a）。
+    let semantic_name = format!(
+        "{}-{}-{}",
+        state.identity.scale,
+        state.identity.scenario_label(),
+        state.identity.fixed_delta_ms,
+    );
+    assert!(
+        identity_name == semantic_name
+            || identity_name
+                .strip_prefix(&semantic_name)
+                .and_then(|suffix| suffix.strip_prefix('-'))
+                .is_some_and(|copy| !copy.is_empty()),
+        "身份目录 {identity_name} 与正式输入的规模、场景、步长 {semantic_name} 不符"
+    );
 
     let input = check_canonical_network_input(
         bundle.files()["network.lfca"].as_slice(),
@@ -628,17 +683,16 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
 
     let state_route_count = state.routes.len();
     let state_route_edge_total: u64 = state.routes.iter().map(|r| r.edge_ids.len() as u64).sum();
-    let lane_change_routes: Vec<usize> = state
-        .routes
-        .iter()
-        .enumerate()
-        .filter(|(_, route)| route.edge_ids.len() > 2)
-        .map(|(index, _)| index)
-        .collect();
-    let conflict_capacity = if lane_change_routes.is_empty() {
+    let handoff_routes = state.routes.iter().filter(|r| r.handoff.is_some()).count();
+    let clusters = state
+        .identity
+        .lane_change()
+        .map_or(0, |p| p.clusters as usize);
+    assert_eq!(handoff_routes, clusters * 2, "每簇两条外侧来源路线");
+    let conflict_capacity = if handoff_routes == 0 {
         0
     } else {
-        (lane_change_routes.len() as u64 * 2).max(16)
+        (handoff_routes as u64 * 2).max(16)
     };
     let fixed_delta_ms = u64::from(state.identity.fixed_delta_ms);
     let long_len = state
@@ -668,7 +722,7 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
     };
     let mut world = TrafficWorld::install(WorldInstallInput {
         revision: Arc::clone(&revision),
-        config,
+        config: synth_handoff::configure_world(&state, config).expect("正式横移驾驶配置"),
         execution: laneflow_runtime::ExecutionConfig::new(std::num::NonZeroU32::MIN),
         source,
         world_id: WorldId::new(1_267),
@@ -678,28 +732,16 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
 
     let mut state_routes = Vec::with_capacity(state_route_count);
     for route in &state.routes {
-        let edges = route
-            .edge_ids
-            .iter()
-            .map(|id| {
-                let id = id
-                    .parse::<LaneEdgeId>()
-                    .expect("state 路线边稳定标识可解析");
-                identity.ordinal(id).expect("state 路线边在修订内")
-            })
-            .collect::<Vec<_>>();
-        state_routes.push(
-            world
-                .register_route(RouteRegisterInput::new(edges))
-                .expect("注册 state 路线"),
-        );
+        state_routes
+            .push(synth_handoff::register_route(&mut world, route).expect("注册 state 路线"));
     }
 
     let mut active_count = 0_usize;
     let mut parked_count = 0_usize;
+    let mut handles = Vec::with_capacity(state.vehicles.len());
     for vehicle in &state.vehicles {
         let route = state_routes[vehicle.route_rank as usize];
-        if vehicle.status == "active" {
+        let handle = if vehicle.status == "active" {
             let spawn = VehicleSpawnInput::new(
                 profile,
                 route,
@@ -707,16 +749,8 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
                 vehicle.progress_mm,
                 vehicle.speed_mm_per_s,
             );
-            world
-                .spawn_vehicle(
-                    if lane_change_routes.contains(&(vehicle.route_rank as usize)) {
-                        spawn.with_open_entrance()
-                    } else {
-                        spawn
-                    },
-                )
-                .expect("spawn active 车辆");
             active_count += 1;
+            world.spawn_vehicle(spawn).expect("spawn active 车辆")
         } else {
             let space_id = vehicle
                 .parking_space_id
@@ -725,6 +759,7 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
                 .parse::<ParkingSpaceId>()
                 .expect("车位稳定标识可解析");
             let space = identity.ordinal(space_id).expect("车位在修订内");
+            parked_count += 1;
             world
                 .spawn_parked_vehicle(
                     ParkedVehicleSpawnInput::new(
@@ -735,15 +770,41 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
                     ),
                     ParkingTarget::ExplicitSpace(space),
                 )
-                .expect("spawn parked 车辆");
-            parked_count += 1;
-        }
+                .expect("spawn parked 车辆")
+                .vehicle
+        };
+        handles.push(handle);
     }
     assert_eq!(active_count + parked_count, state.vehicles.len());
     assert_eq!(world.live_routes().count(), state_route_count);
 
-    for _ in 0..LFSYNTH_WARMUP_TICKS {
-        world.step(TickInput::new(fixed_delta_ms)).expect("热身拍");
+    for tick in 1..=LFSYNTH_WARMUP_TICKS {
+        let requests = synth_handoff::requests(&world, &state, &handles, &state_routes)
+            .expect("按正式输入与拍初提交态生成热身申请");
+        if clusters > 0 && tick <= 2 {
+            assert_eq!(
+                requests.len(),
+                if tick == 1 { 2 * clusters } else { clusters }
+            );
+        }
+        world
+            .step_with_route_handoffs(TickInput::new(fixed_delta_ms), &requests)
+            .expect("热身拍");
+    }
+    if clusters > 0 {
+        let (pairs, rest) = handles[state.identity.scale as usize..].as_chunks::<2>();
+        assert_eq!(pairs.len(), clusters);
+        assert!(rest.is_empty());
+        for &[first, second] in pairs {
+            let mut active = world.vehicle_route_handoffs(first);
+            assert_eq!(
+                active.next().map(|p| p.acquired_tick),
+                Some(1),
+                "第一辆车仍持有同拍竞争取得的预约"
+            );
+            assert!(active.next().is_none());
+            assert!(world.vehicle_route_handoffs(second).next().is_none());
+        }
     }
 
     let mut observation_session = world
@@ -788,22 +849,22 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
     let admission = world.open_routing_admission(cost_model);
 
     // 候选样本取自 state 路线本身（构造即合法）：典型 = 中位边数路线、
-    // 长 = 最长路线；1 边 = 长路线首边；不连通 = 两条不相邻路线首边。
+    // 长 = 最长路线；1 边 = 长路线末端；不连通 = 两条不同的终端边。
     let typical_len = {
         let mut lengths: Vec<usize> = state.routes.iter().map(|r| r.edge_ids.len()).collect();
         lengths.sort_unstable();
         lengths[lengths.len() / 2]
     };
-    let typical_route = state_route_stable_ids(
-        &state,
-        identity,
-        state
-            .routes
-            .iter()
-            .enumerate()
-            .find(|(_, route)| route.edge_ids.len() == typical_len)
-            .expect("中位边数路线存在")
-            .0,
+    let typical_index = state
+        .routes
+        .iter()
+        .position(|route| route.edge_ids.len() == typical_len)
+        .expect("中位边数路线存在");
+    let typical_route = state_route_stable_ids(&state.routes[typical_index]);
+    let typical_handoffs = stable_windows(
+        &world,
+        &state.routes[typical_index],
+        state_routes[typical_index],
     );
     let (long_index, long_len) = state
         .routes
@@ -812,26 +873,28 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
         .map(|(index, route)| (index, route.edge_ids.len()))
         .max_by_key(|&(_, len)| len)
         .expect("state 路线非空");
-    let long_route = state_route_stable_ids(&state, identity, long_index);
+    let long_route = state_route_stable_ids(&state.routes[long_index]);
+    let long_handoffs = stable_windows(&world, &state.routes[long_index], state_routes[long_index]);
+    assert_eq!(long_handoffs.len(), usize::from(clusters > 0));
     let one_route = vec![*long_route.last().expect("长路线非空")];
     let disconnected_route = {
+        let first = *long_route.last().expect("长路线非空");
         let other = state
             .routes
             .iter()
-            .position(|route| route.edge_ids != state.routes[long_index].edge_ids)
-            .expect("存在边序列不同的路线");
+            .find(|route| route.edge_ids.last() != state.routes[long_index].edge_ids.last())
+            .expect("存在末端边不同的路线");
         // 两条机动已完成的末端边：机动检查放行，连通性检查必然拒绝。
-        let first = *state_route_stable_ids(&state, identity, long_index)
-            .last()
-            .expect("长路线非空");
-        let second = *state_route_stable_ids(&state, identity, other)
-            .last()
-            .expect("对照路线非空");
-        assert_ne!(first, second);
+        let second = *state_route_stable_ids(other).last().expect("对照路线非空");
         vec![first, second]
     };
-    let workload_id = format!("{LFSYNTH_WORKLOAD_FAMILY}-{identity_name}");
-    let workload_manifest = format!(
+    // 墙钟验收从回执头绑定工作负载 ID。动态窗口与固定过渡的旧结果有各自的身份。
+    let workload_id = if clusters > 0 {
+        format!("{LFSYNTH_WORKLOAD_FAMILY}-{identity_name}-route-handoff")
+    } else {
+        format!("{LFSYNTH_WORKLOAD_FAMILY}-{identity_name}")
+    };
+    let mut workload_manifest = format!(
         "{}\n",
         [
             format!("workloadId={workload_id}"),
@@ -858,9 +921,21 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
         ]
         .join("\n")
     );
+    let state_digest = if clusters > 0 {
+        let state_input_digest = domain_digest(&bundle.files()["state.json"]);
+        writeln!(
+            workload_manifest,
+            "handoffWarmup=committed-state-requests;handoffRoutes={handoff_routes};stateSha256={state_input_digest:x};warmStateDigest=sha256-lfrs"
+        )
+        .expect("写入正式窗口及驾驶参数的输入指纹");
+        let snapshot = world.capture_snapshot().expect("L1 热身后的完整状态");
+        domain_digest(&laneflow_runtime::encode_lfrs(&snapshot))
+    } else {
+        committed_state_digest(&world)
+    };
 
     LfSynthFixture {
-        state_digest: committed_state_digest(&world),
+        state_digest,
         workload_manifest_digest: domain_digest(workload_manifest.as_bytes()),
         manifest_digest: domain_digest(&manifest_bytes),
         network_revision: origin.network_revision(),
@@ -873,7 +948,9 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
         admission,
         one_route,
         typical_route,
+        typical_handoffs,
         long_route,
+        long_handoffs,
         disconnected_route,
         profile_ordinal: profile,
         policy,
@@ -887,17 +964,16 @@ pub fn build_lf_synth_fixture() -> LfSynthFixture {
         active_count,
         parked_count,
         fixed_delta_ms,
+        handoff_driver: (clusters > 0).then_some(LfSynthHandoffDriver {
+            state,
+            handles,
+            routes: state_routes,
+        }),
     }
 }
 
-/// 第 `index` 条 state 路线的稳定标识序列（候选样本按原样注册）。
-fn state_route_stable_ids(
-    state: &laneflow_synth_generator::InitialState,
-    identity: &laneflow_static_network::SharedIdentityIndex,
-    index: usize,
-) -> Vec<StableId128> {
-    let _ = identity;
-    state.routes[index]
+fn state_route_stable_ids(route: &RouteRecord) -> Vec<StableId128> {
+    route
         .edge_ids
         .iter()
         .map(|id| {
@@ -906,6 +982,54 @@ fn state_route_stable_ids(
                 .into_untyped()
         })
         .collect()
+}
+
+/// 从已登记的物理绑定取稳定窗口，再以输入区段及其左右成员独立核对。
+fn stable_windows(
+    world: &TrafficWorld,
+    route: &RouteRecord,
+    handle: RouteHandle,
+) -> Vec<StableRouteHandoffWindow> {
+    let revision = world.revision();
+    let bound = world.route_handoff_windows(handle).expect("路线句柄有效");
+    let Some(input) = &route.handoff else {
+        assert!(bound.is_empty(), "普通路线不得有横移窗口");
+        return Vec::new();
+    };
+    let &[(source_index, binding)] = bound else {
+        panic!("正式 L1 路线须保留输入的一条窗口");
+    };
+    let stable = StableRouteHandoffWindow::from_binding(&revision, source_index, binding)
+        .expect("已绑定窗口有稳定身份");
+    let section = input
+        .section_id
+        .parse::<RoadSectionId>()
+        .expect("输入区段稳定身份");
+    let ids = revision.identity();
+    let lanes = revision
+        .traffic()
+        .relations()
+        .section_lanes(ids.ordinal(section).expect("输入区段存在"))
+        .expect("输入区段有车道");
+    let left = input.left_index as usize;
+    assert_eq!(
+        stable,
+        StableRouteHandoffWindow {
+            source_index: input.source_index,
+            owner_kind: 2,
+            owner: section.into_untyped(),
+            left_member: ids
+                .stable_id(lanes[left])
+                .expect("左侧车道身份")
+                .into_untyped(),
+            right_member: ids
+                .stable_id(lanes[left + 1])
+                .expect("右侧车道身份")
+                .into_untyped(),
+            stations_mm: input.stations_mm,
+        }
+    );
+    vec![stable]
 }
 
 /// 正式负载的成本模型标识（域摘要派生，与 G2 case 同法不同域）。

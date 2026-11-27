@@ -3,12 +3,12 @@ schema_version = 1
 id = "design-traffic-observation-and-routing-integration"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-27"
+revised_date = "2026-11-28"
 summary = "定义交通观测、动态成本与宿主候选路线接入。"
 scope = "宿主按车型静态选路、已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能验收"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/303", "https://github.com/illusion-tech/laneflow/issues/1532", "https://github.com/illusion-tech/laneflow/issues/1539", "https://github.com/illusion-tech/laneflow/issues/1540"]
-related = ["adr-0020", "adr-0021", "adr-0029", "adr-0033", "design-shared-static-network", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/303", "https://github.com/illusion-tech/laneflow/issues/1526", "https://github.com/illusion-tech/laneflow/issues/1532", "https://github.com/illusion-tech/laneflow/issues/1539", "https://github.com/illusion-tech/laneflow/issues/1540"]
+related = ["adr-0020", "adr-0021", "adr-0029", "adr-0033", "design-cross-section-stationing-and-lateral-geometry", "design-shared-static-network", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-traffic-runtime-snapshot"]
 +++
 
 # 交通观测与 Routing 接入
@@ -46,7 +46,7 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
   把 Routing 放到进程外，自行拥有传输格式、认证、重试和兼容，不能把宿主 wire
   宣称为 LaneFlow 制品。LFCA/LFSM/LFSD/LFCP 与 Runtime Snapshot 的格式集合不变。
 - `laneflow-runtime` 新增两类边界：从当前已提交状态按请求导出观测；把带完整来源
-  绑定的候选边稳定标识序列降低到现有唯一 `register_route` 编译器。
+  绑定的候选边序列和横向交接窗口交给现有唯一路线编译器。
 - 动态成本快照及其成本条目载荷由 Routing/出行编排拥有。Runtime 不接收、不保存、
   不解释成本条目；只接收由候选复制的成本快照绑定，以执行修订/时点/过期核对。
 - Spatial、Engine Adapter 与 scenario catalog 不拥有观测聚合、成本模型或路线选择。
@@ -58,7 +58,7 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 | --------------------------- | -------------------------------------------------- | ----------------------------------- |
 | 宿主应用层                  | 应用业务，例如经济、建筑、人口、收费与游戏规则     | Traffic tick、候选路线内容验证      |
 | 出行与交通编排层            | 出行需求、出发时刻、目的地、路线选择、调用方随机流 | 静态路网或车辆推进正本              |
-| Routing service（宿主实现） | 观测消费、成本模型、动态成本快照、候选边序列       | 参与单元 fixed tick、Runtime 路线表 |
+| Routing service（宿主实现） | 观测消费、成本模型、动态成本快照、候选边序列与交接窗口       | 参与单元 fixed tick、Runtime 路线表 |
 | Traffic Runtime             | 已提交观测事实、候选内容验证/注册、路线与车辆执行  | 全图寻路、成本政策、需求与选择策略  |
 
 `register_route` 仍是唯一出现记录编译器：场景 catalog 可继续把同修订共享静态路网边序号
@@ -89,7 +89,7 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
    和完整机动规则做一次忽略车型的搜索。此时找到路才说明车型禁行，穷尽可达范围仍无路才说明拓扑不连通。
    单个起边的空迭代器只说明该处没有合法下一步。
 4. **注册和绑定。** 同一修订内的静态边序列交给 `register_route`。使用已提交观测或动态
-   成本快照的候选走 §4 的 `register_candidate_route`。Runtime 在注册时校验完整机动及其
+   成本快照的候选走 §4 的 `register_candidate_route`。宿主选定横向交接时，在边序列中相邻放入源、目标出现，附上所选物理窗口。Runtime 在注册时校验窗口、完整机动及其
    出现记录，绑定时检查实际车型、可达后缀、车身摆放及等待区存储跨度。宿主保留命令的具体错误。
    例如，已注册路线在生成时可能因车尾落在路线未包含的上游边而返回 `EntranceBody(InDomainTail)`。
    车辆长于等待区可用跨度时，绑定还可能返回 `WaitingVehicleTooLong`。
@@ -311,6 +311,7 @@ Routing 候选入口的语义输入为：
 struct CandidateRouteInput {
     cost_snapshot: DynamicCostSnapshotBinding,
     lane_edges: Box<[StableId128]>,
+    handoffs: Box<[StableRouteHandoffWindow]>,
 }
 
 TrafficWorld::open_routing_admission(
@@ -322,6 +323,12 @@ TrafficWorld::register_candidate_route(
     input: CandidateRouteInput,
 ) -> Result<RouteHandle, CandidateRouteError>;
 ```
+
+普通路线的 `handoffs` 为空。宿主展开一次横向交接时保留源边和目标边各自的出现，
+用 `source_index` 定位相邻的一对（第 `i` 和 `i + 1` 项）。窗口随附边界所有者种类与稳定标识、
+按走廊参考方向排列的左右成员稳定标识，以及整数毫米站位闭区间。重复经过相同的两条边时，
+每次交接各用自己的下标，窗口按下标严格递增。普通后继和路口机动仍按原拓扑展开。
+登记窗口后，车辆在执行拍另行申请横移，按当拍车型、几何与交通条件裁决。窗口定位规则见[横断面设计 §4.1][route-handoff]。
 
 G2 将 `open_routing_admission` 落为不可失败：它只复制当前世界/世代/修订与定长模型键，
 不分配、不解析，也不在 Runtime 留隐式 session 状态；为不存在的失败原因保留 `Result`
@@ -345,8 +352,9 @@ Runtime 按下列顺序失败关闭，任一失败不占路线槽、不留下 co
    `observationStateSequence`。
 4. 用当前修订 `SharedIdentityIndex` 把每个 `LaneEdge StableId128` 解析成当前 dense ordinal；
    未知标识或错误 kind 拒绝。修订相等不能跳过这一步。
-5. 把解析后的有序序列交给现有唯一 `compile_route` / `register_route` 路径，重做连通、
-   机动 occurrence、门/等待区、端点与溢出不变量。
+5. 在当前修订解析窗口的所有者和左右成员，按出现下标绑定到源边和目标边，
+   重验两侧映射与物理区间。普通段共用现有路线编译器，检查连通、机动、门与等待区、
+   端点及溢出。遗漏非连通横移的窗口、成员错配或下标无效均拒绝整条路线。
 
 重复边允许，语义与 ADR 0029 的 `register_route` / snapshot 路线序列一致。候选成本
 payload 不进路线表。注册成功后，候选成为普通每世界 `Route`：成本过期不会让已注册
@@ -407,8 +415,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 - **切换放弃**：旧 session 与旧修订候选继续按原 tick 窗口工作；不得仅因出现过候选
   根而换 stream 身份。
 - **保存/恢复**：观测/admission session/基线、动态成本快照、未注册候选和成本 provenance 都是
-  调用方/派生交付状态，不进 Runtime Snapshot。已注册路线只按 #302/ADR 0029 的
-  快照局部 ID + 边稳定标识保存。任何恢复（含同修订）建立新世界世代/观测 stream
+  调用方/派生交付状态，不进 Runtime Snapshot。已注册路线保存快照局部 ID、按行进顺序排列的边稳定标识和有序交接窗口。任何恢复（含同修订）建立新世界世代/观测 stream
   并从新 stream 的初始 `observationStateSequence` 开始；恢复前的 session 与候选不得
   复活。成功切换递增世界世代，放弃不递增。
 - **回放**：观测导出不是输入命令，不改变确定性状态摘要；
@@ -416,7 +423,7 @@ occurrence 超过恢复配置则整次恢复失败关闭。
   **不是**耐久回放命令。候选成功注册后，宿主命令序列只记录规范化的已准入路线
   注册命令：宿主自有耐久路线 ID、当时的
   `networkRevisionId/networkRevisionDerivationVersion` 与有序 LaneEdge `StableId128`
-  序列。它不记录世界世代、观测 stream/tick/state sequence、admission session、成本
+  序列，以及 §4 的全部交接窗口。它不记录世界世代、观测 stream/tick/state sequence、admission session、成本
   模型或成本摘要。检查点后重放时，宿主先核对当前修订绑定，Runtime 再以
   `SharedIdentityIndex` 解析稳定标识、消费 §4.1 同一容量并进入唯一
   `compile_route`/`register_route` 路径，把新 `RouteHandle` 回映到耐久调用方 ID；
@@ -424,10 +431,10 @@ occurrence 超过恢复配置则整次恢复失败关闭。
   绑定与当前修订不同，只能经 #302 受信任迁移策略显式迁移稳定引用，否则失败关闭。
 
   G2 的 Runtime 实现接缝是
-  `register_admitted_route(AdmittedRouteRegisterInput) -> Result<RouteHandle, ...>`：输入只含
-  `networkRevisionId/networkRevisionDerivationVersion` 和有序 LaneEdge `StableId128`；宿主
+  `register_admitted_route(AdmittedRouteRegisterInput) -> Result<RouteHandle, ...>`：输入携带
+  `networkRevisionId/networkRevisionDerivationVersion`、有序 LaneEdge `StableId128` 和稳定窗口。宿主
   耐久路线 ID 留在宿主命令序列，并用返回的新句柄回映。该同进程 Rust 输入没有独立
-  wire/version 轴；若宿主持久化命令，由宿主拥有其容器版本。
+  wire/version 轴；若宿主持久化命令，由宿主拥有其容器版本。快照中的已准入路线可通过 `CapturedRoute::edges()` 和 `handoff_windows()` 读回这两组有序数据。
 
 ## 6. Adapter、Spatial 与 scenario 影响
 
@@ -553,6 +560,8 @@ restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代�
 
 ### 7.2 `LF-ROUTING-CANDIDATE-LFSYNTH-v1` 首轮确定性证据（#1267）
 
+本节历史表格中的 L1 使用固定过渡边。动态交接 L1 的候选携带物理窗口，工作负载与本节及 §7.3 的历次 L1 数字分别核验。
+
 2026-11-05，#1267 在 §7.1 登记的同一 P100 参考物理机（硬件未变更，
 未重新执行硬件身份规范复核）上，以 LF-SYNTH-v2 正式输入交付候选准入
 三路径集成证据与确定性计量（实现提交为 main 上的 `e5bb741f`。取证运行的是 PR 分支提交 `bbc2665f`，合并队列 rebase 后得到 `e5bb741f`；两者的 `crates/laneflow-runtime/tests` 逐字一致，其余差异只有 #1278 在 `cfg(test)` 下的改动，不进入集成测试二进制）。
@@ -633,6 +642,19 @@ logical 恒为 192 B 且 net 0；成本 payload 为 24 × 边数（19200/192000/
 规模无关（1 边 108 B、2 边 276–284 B 三身份一致），随边数扩展
 （5 边 884 B）；receiver 在 exact count/bytes 预检后零分配。墙钟与
 tick 间隔干扰见 §7.3。
+
+#### 动态横移 L1 的候选与恢复验证
+
+L1 的正式输入用两条外侧源路线共享中道。每条长候选含四条边和一个毫米交接窗口。
+宿主按拍初状态生成申请，热身 64 拍后取全量观测与成本绑定，此时首车仍持有预约。
+集成验证检查长候选的边与稳定窗口，保存已准入命令，从冷恢复后的新句柄读回同一出现对，
+并核对重新登记候选、执行已准入命令及固定步进后的状态摘要。删除窗口或把窗口移至错误出现时，
+候选和重放入口均应拒绝，命令游标、路线容量和已提交状态维持原值。
+
+动态 L1 的 Routing 工作负载 ID 在身份目录名后附 `-route-handoff`。工作负载摘要绑定
+正式输入中的窗口与驾驶参数。回执的 `state_digest` 记录热身后完整 LFRS 字节的 SHA-256，
+连续与恢复两侧的状态等价使用运行时的 BLAKE3 规范摘要。统计分配和采样耗时时，
+宿主准备本拍申请的成本在步进测量区间之外。旧 L1 的固定过渡计量见本节历史表格。
 
 ### 7.3 `LF-ROUTING-CANDIDATE-LFSYNTH-v1` 墙钟与 tick 间隔干扰（#1279）
 
@@ -729,7 +751,7 @@ G2 也已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计
 G2 已进一步落定 `ObservationSetBinding`、`DynamicCostSnapshotBinding`、字段私有的
 `RoutingAdmissionSession`、`CandidateRouteInput` 与规范化
 `AdmittedRouteRegisterInput`；candidate/replay 都先把稳定标识解析为当前修订 ordinal，
-最终仍调用唯一 `register_route_edges`，不复制路线编译器。`open_routing_admission`
+有窗口时按原出现对重绑边界，普通段复用同一编译器。`open_routing_admission`
 因无失败原因按事实落为无分配、不可失败入口；candidate/admitted Rust 输入也不新增
 无事实依据的独立版本轴。
 
@@ -769,6 +791,7 @@ cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义�
 [shared-consumption]: traffic-runtime-shared-consumption.md
 [revision-cutover]: traffic-runtime-revision-cutover.md
 [runtime-snapshot]: traffic-runtime-snapshot.md
+[route-handoff]: cross-section-stationing-and-lateral-geometry.md#41-从换道意图到一次路线交接
 [conflict-occurrence]: traffic-runtime-conflict-occurrence.md
 [performance-baseline]: core-runtime-performance-baseline.md
 [pull-521-comment]: https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930

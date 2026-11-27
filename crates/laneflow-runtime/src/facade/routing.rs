@@ -1,7 +1,7 @@
 //! 宿主 Routing 与 Traffic Runtime 的纯契约边界（#303 G2）。
 //!
 //! Runtime 不接收、保存或解释动态成本 payload。它只验证候选复制的绑定，
-//! 将 LaneEdge 稳定标识解析为当前修订 ordinal，并进入唯一的路线注册/编译路径。
+//! 解析当前修订的 LaneEdge 稳定标识和出现对的物理窗口，再交给同一条路线注册路径。
 
 use laneflow_static_contract::{
     LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, Sha256Digest, StableId128,
@@ -491,7 +491,7 @@ pub enum CandidateRouteError {
 
 /// 回放/恢复使用的规范化已准入路线注册输入。
 ///
-/// 宿主耐久路线 ID 由宿主命令序列拥有；Runtime 只消费修订绑定与稳定边序列，
+/// 宿主命令序列拥有耐久路线 ID。Runtime 消费修订绑定、有序稳定边和横向交接窗口，
 /// 并返回本次世界中的新 [`RouteHandle`] 供宿主回映。
 #[derive(Debug, Eq, PartialEq)]
 pub struct AdmittedRouteRegisterInput {

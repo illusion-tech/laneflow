@@ -14,7 +14,7 @@ pub(super) fn drive_fixture(
     drive_at_interval(initial_speed, 100)
 }
 
-fn drive_at_interval(
+pub(super) fn drive_at_interval(
     initial_speed: u32,
     dt: u64,
 ) -> (TrafficWorld, RouteHandoffRequest, WorldConfig) {

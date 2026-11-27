@@ -15,7 +15,9 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use laneflow_runtime::{CandidateRouteInput, ObservationExportMode, TickInput};
+use laneflow_runtime::{
+    CandidateRouteInput, ObservationExportMode, RouteHandoffRequest, TickInput,
+};
 
 mod support {
     /// 共享的 Routing G2 证据 fixture 与具名工作负载常量。
@@ -23,8 +25,8 @@ mod support {
 }
 
 use support::routing_evidence::{
-    CandidateAdmissionFixture, DELTA_MS, EDGE_COUNT, LONG_ROUTE_EDGE_COUNT, ReceiverLimits,
-    TYPICAL_ROUTE_EDGE_COUNT, WORKLOAD_ID, build_fixture, build_lf_synth_fixture,
+    CandidateAdmissionFixture, DELTA_MS, EDGE_COUNT, LONG_ROUTE_EDGE_COUNT, LfSynthFixture,
+    ReceiverLimits, TYPICAL_ROUTE_EDGE_COUNT, WORKLOAD_ID, build_fixture, build_lf_synth_fixture,
     fixed_input_sequence_digest, receive_cost_snapshot,
 };
 
@@ -278,6 +280,7 @@ fn measure_candidate(
     assert_eq!(inputs.len(), SAMPLE_WARMUP + SAMPLE_COUNT);
     let mut raw_ns = Vec::with_capacity(SAMPLE_COUNT);
     for (index, input) in inputs.into_iter().enumerate() {
+        let handoffs = input.handoffs().len();
         let started = Instant::now();
         let route = fixture
             .register_candidate(input)
@@ -287,6 +290,13 @@ fn measure_candidate(
         assert_eq!(
             fixture.world_mut().route_edges(route).map(<[_]>::len),
             Some(edge_count)
+        );
+        assert_eq!(
+            fixture
+                .world_mut()
+                .route_handoff_windows(route)
+                .map(<[_]>::len),
+            Some(handoffs)
         );
         fixture
             .world_mut()
@@ -306,7 +316,7 @@ fn measure_candidate(
 // 轮一个进程）。本入口单进程单身份（环境变量选择）。除 §7.1 同款操作
 // 外，为「墙钟与 tick 间隔干扰同时报告」新增干扰配对：每个显式调用后
 // 紧跟一次计时 tick（candidate 配对保持路线存活至该 tick 之后）。
-// 候选边数轴受输入族拓扑约束（无环短链，典型 2 边、最长 5 边），长轴
+// 候选边数轴受输入族拓扑约束（典型 2 边；动态 L1 长候选为 4 边带窗），长轴
 // 扩展性由 §7.1 的 4096 边 G2-LINEAR case 承担。
 
 const LF_SYNTH_FIXED_INPUT_SEQUENCE: &str = concat!(
@@ -321,26 +331,22 @@ const LF_SYNTH_FIXED_INPUT_SEQUENCE: &str = concat!(
 );
 
 fn measure_interference_pair<T>(
-    fixture: &mut support::routing_evidence::LfSynthFixture,
-    operation: impl Fn(&mut support::routing_evidence::LfSynthFixture) -> T,
+    fixture: &mut LfSynthFixture,
+    operation: impl Fn(&mut LfSynthFixture) -> T,
     validate: impl Fn(&T),
 ) -> (ClockStats, ClockStats) {
-    let delta_ms = fixture.fixed_delta_ms;
     let mut op_ns = Vec::with_capacity(SAMPLE_COUNT);
     let mut step_ns = Vec::with_capacity(SAMPLE_COUNT);
     for index in 0..(SAMPLE_WARMUP + SAMPLE_COUNT) {
+        // 导出、接收或注册都不推动车辆，先准备本拍申请，保证显式调用紧邻计时步进。
+        let requests = fixture.step_requests();
         let started = Instant::now();
         let output = operation(fixture);
         let op_elapsed = started.elapsed().as_nanos();
         validate(&output);
         black_box(&output);
         drop(output);
-        let stepped = Instant::now();
-        fixture
-            .world_mut()
-            .step(TickInput::new(delta_ms))
-            .expect("timed step after explicit call");
-        let step_elapsed = stepped.elapsed().as_nanos();
+        let step_elapsed = timed_lf_synth_step(fixture, &requests);
         if index >= SAMPLE_WARMUP {
             op_ns.push(op_elapsed);
             step_ns.push(step_elapsed);
@@ -351,29 +357,32 @@ fn measure_interference_pair<T>(
 
 fn measure_candidate_interference_pair(
     inputs: Vec<CandidateRouteInput>,
-    fixture: &mut support::routing_evidence::LfSynthFixture,
+    fixture: &mut LfSynthFixture,
     edge_count: usize,
 ) -> (ClockStats, ClockStats) {
     assert_eq!(inputs.len(), SAMPLE_WARMUP + SAMPLE_COUNT);
-    let delta_ms = fixture.fixed_delta_ms;
     let mut op_ns = Vec::with_capacity(SAMPLE_COUNT);
     let mut step_ns = Vec::with_capacity(SAMPLE_COUNT);
     for (index, input) in inputs.into_iter().enumerate() {
+        let requests = fixture.step_requests();
+        let handoffs = input.handoffs().len();
         let started = Instant::now();
         let route = fixture
             .register_candidate(input)
             .expect("register candidate route");
         let op_elapsed = started.elapsed().as_nanos();
         // 路线保持存活越过被计时的下一拍，显式调用的跨拍干扰才可测。
-        let stepped = Instant::now();
-        fixture
-            .world_mut()
-            .step(TickInput::new(delta_ms))
-            .expect("timed step after candidate register");
-        let step_elapsed = stepped.elapsed().as_nanos();
+        let step_elapsed = timed_lf_synth_step(fixture, &requests);
         assert_eq!(
             fixture.world_mut().route_edges(route).map(<[_]>::len),
             Some(edge_count)
+        );
+        assert_eq!(
+            fixture
+                .world_mut()
+                .route_handoff_windows(route)
+                .map(<[_]>::len),
+            Some(handoffs)
         );
         black_box(route);
         fixture
@@ -388,22 +397,40 @@ fn measure_candidate_interference_pair(
     (ClockStats::from_raw(op_ns), ClockStats::from_raw(step_ns))
 }
 
+fn timed_lf_synth_step(fixture: &mut LfSynthFixture, requests: &[RouteHandoffRequest]) -> u128 {
+    let input = TickInput::new(fixture.fixed_delta_ms);
+    let start = Instant::now();
+    let outcome = fixture
+        .world
+        .step_with_route_handoffs(input, requests)
+        .expect("LF-SYNTH step");
+    let elapsed = start.elapsed().as_nanos();
+    black_box(&outcome);
+    elapsed
+}
+
+fn measure_lf_synth_steps(fixture: &mut LfSynthFixture) -> ClockStats {
+    let mut raw = Vec::with_capacity(SAMPLE_COUNT);
+    for index in 0..(SAMPLE_WARMUP + SAMPLE_COUNT) {
+        let requests = fixture.step_requests();
+        let elapsed = timed_lf_synth_step(fixture, &requests);
+        if index >= SAMPLE_WARMUP {
+            raw.push(elapsed);
+        }
+    }
+    ClockStats::from_raw(raw)
+}
+
 #[test]
 #[ignore = "manual release wall-clock evidence for LF-SYNTH candidate admission; 正式数字由 #1279 在安静窗口采信"]
 fn routing_candidate_lf_synth_wall_clock_evidence() {
     let mut fixture = build_lf_synth_fixture();
-    let delta_ms = fixture.fixed_delta_ms;
     let edge_count = fixture.edge_count as u64;
     let typical_edges = fixture.typical_route.len();
     let long_edges = fixture.long_route.len();
     assert_eq!(fixture.initial_full.entry_count(), edge_count);
 
-    let steady_before = measure(|| {
-        fixture
-            .world_mut()
-            .step(TickInput::new(delta_ms))
-            .expect("steady tick before")
-    });
+    let steady_before = measure_lf_synth_steps(&mut fixture);
 
     let observation_full = measure_validated(
         || {
@@ -491,19 +518,14 @@ fn routing_candidate_lf_synth_wall_clock_evidence() {
         long_edges,
     );
 
-    let steady_after = measure(|| {
-        fixture
-            .world_mut()
-            .step(TickInput::new(delta_ms))
-            .expect("steady tick after")
-    });
+    let steady_after = measure_lf_synth_steps(&mut fixture);
 
     let config = fixture.world.config();
     let observation_set = fixture.cost_binding().observation_set();
     let cost_model = fixture.cost_binding().cost_model();
     let limits = fixture.receiver_limits();
     println!(
-        "routing-lfsynth-wall-clock workload_id={} identity={} manifest_digest={:x} network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} state_routes={} state_route_edges={} vehicles={} active={} parked={} typical_edges={} long_edges={} world_config_vehicle_capacity={} world_config_route_capacity={} world_config_route_edge_occurrence_capacity={} execution_worker_count={} world_config_fixed_delta_ms={} binding_version={} observation_tick={} observation_state_sequence={} observation_set_digest={:x} cost_model_id={:x} cost_model_version={} valid_through_tick={} snapshot_sha256={:x} cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} sample_warmup={} samples={} classification=descriptive-initial-not-product-pass",
+        "routing-lfsynth-wall-clock workload_id={} identity={} manifest_digest={:x} network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} state_routes={} state_route_edges={} vehicles={} active={} parked={} typical_edges={} long_edges={} typical_handoffs={} long_handoffs={} world_config_vehicle_capacity={} world_config_route_capacity={} world_config_route_edge_occurrence_capacity={} execution_worker_count={} world_config_fixed_delta_ms={} binding_version={} observation_tick={} observation_state_sequence={} observation_set_digest={:x} cost_model_id={:x} cost_model_version={} valid_through_tick={} snapshot_sha256={:x} cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} sample_warmup={} samples={} classification=descriptive-initial-not-product-pass",
         fixture.workload_id,
         fixture.identity_name,
         fixture.manifest_digest,
@@ -511,7 +533,7 @@ fn routing_candidate_lf_synth_wall_clock_evidence() {
         fixture.workload_manifest_digest,
         fixture.state_digest,
         fixture.initial_full.selection_digest(),
-        fixed_input_sequence_digest(LF_SYNTH_FIXED_INPUT_SEQUENCE),
+        fixture.fixed_input_sequence_digest(LF_SYNTH_FIXED_INPUT_SEQUENCE),
         fixture.edge_count,
         fixture.state_route_count,
         fixture.state_route_edge_total,
@@ -520,6 +542,8 @@ fn routing_candidate_lf_synth_wall_clock_evidence() {
         fixture.parked_count,
         typical_edges,
         long_edges,
+        fixture.typical_handoffs.len(),
+        fixture.long_handoffs.len(),
         config.vehicle_capacity(),
         config.route_capacity(),
         config.route_edge_occurrence_capacity(),

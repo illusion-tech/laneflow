@@ -1,12 +1,52 @@
 use super::*;
 use laneflow_runtime::{
-    AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteInput,
-    ClearanceSpeedCurve, ClearanceSpeedPoint, CostModelId, CostModelKey,
-    DynamicCostSnapshotBinding, HandoffDrivingConfig, ObservationExportMode, ObservationSelection,
-    StableRouteHandoffWindow, bind_observation_set,
+    AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,
+    CandidateRouteInput, CapturedRoute, CapturedSnapshot, ClearanceSpeedCurve, ClearanceSpeedPoint,
+    CostModelId, CostModelKey, DynamicCostSnapshotBinding, HandoffDrivingConfig,
+    ObservationExportMode, ObservationSelection, RouteHandle, RouteHandoffRequest,
+    RoutingAdmissionSession, SnapshotRestoreLimits, StableRouteHandoffWindow, TickInput,
+    TrafficWorld, VehicleSpawnInput, bind_observation_set, deterministic_state_digest, encode_lfrs,
+    restore_lfrs,
 };
 use laneflow_static_contract::MAX_SPEED_MM_S;
 use std::num::NonZeroU32;
+
+fn candidate_binding(
+    world: &TrafficWorld,
+) -> (RoutingAdmissionSession, DynamicCostSnapshotBinding) {
+    let mut session = world
+        .open_observation_export(ObservationSelection::AllLaneEdges)
+        .unwrap();
+    let batch = world
+        .export_observation(&mut session, ObservationExportMode::Full)
+        .unwrap();
+    let model = CostModelKey::new(CostModelId::from_bytes([1; 32]), 1);
+    let cost = DynamicCostSnapshotBinding::new(
+        bind_observation_set(&[&batch]).unwrap(),
+        model,
+        0,
+        0,
+        0,
+        Sha256Digest::ZERO,
+    )
+    .unwrap();
+    (world.open_routing_admission(model), cost)
+}
+
+fn admitted_command(
+    snapshot: &CapturedSnapshot,
+    captured: &CapturedRoute,
+) -> AdmittedRouteRegisterInput {
+    let origin = snapshot.origin();
+    AdmittedRouteRegisterInput::new(
+        origin.network_revision(),
+        origin
+            .static_contract_versions()
+            .network_revision_derivation_version(),
+        captured.edges().to_vec(),
+    )
+    .with_handoffs(captured.handoff_windows().to_vec())
+}
 
 pub(super) fn driving() -> HandoffDrivingConfig {
     HandoffDrivingConfig {
@@ -123,33 +163,65 @@ fn all_registration_paths_preserve_repeated_windows_and_reject_invalid_inputs_at
     );
     assert_eq!(world.live_routes().count(), 1);
     assert_eq!(world.command_cursor(), 1);
-    let mut session = world
-        .open_observation_export(ObservationSelection::AllLaneEdges)
-        .unwrap();
-    let batch = world
-        .export_observation(&mut session, ObservationExportMode::Full)
-        .unwrap();
-    let model = CostModelKey::new(CostModelId::from_bytes([1; 32]), 1);
-    let cost = DynamicCostSnapshotBinding::new(
-        bind_observation_set(&[&batch]).unwrap(),
-        model,
-        0,
-        0,
-        0,
-        Sha256Digest::ZERO,
-    )
-    .unwrap();
-    let admission = world.open_routing_admission(model);
+    let (admission, cost) = candidate_binding(&world);
+    let mut wrong_occurrence = stable.clone();
+    wrong_occurrence[0].source_index = 1;
+    let before = deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap();
+    for (windows, error) in [
+        (Vec::new(), RouteError::Disconnected),
+        (wrong_occurrence, RouteError::InvalidHandoffWindow),
+    ] {
+        assert_eq!(
+            world.register_candidate_route(
+                &admission,
+                CandidateRouteInput::new(cost, ids.clone()).with_handoffs(windows.clone()),
+            ),
+            Err(CandidateRouteError::Route(error))
+        );
+        assert_eq!(
+            world.register_admitted_route(replay(windows)),
+            Err(AdmittedRouteRegisterError::Route(error))
+        );
+    }
+    assert_eq!(world.command_cursor(), 1);
+    assert_eq!(
+        deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+        before
+    );
     let candidate = world
         .register_candidate_route(
             &admission,
             CandidateRouteInput::new(cost, ids.clone()).with_handoffs(stable.clone()),
         )
         .unwrap();
-    let replayed = world
-        .register_admitted_route(replay(stable.clone()))
+    // 快照局部 ID 回映到恢复世界，已准入命令直接取自登记成功的候选。
+    let snapshot = world.capture_snapshot().unwrap();
+    let captured = world
+        .live_routes()
+        .zip(snapshot.routes())
+        .find_map(|(handle, row)| (handle == candidate).then_some(row))
         .unwrap();
-    for handle in [direct, candidate, replayed] {
+    assert_eq!(captured.edges(), ids);
+    assert_eq!(captured.handoff_windows(), stable);
+    let restored = restore_lfrs(
+        &encode_lfrs(&snapshot),
+        Arc::clone(&revision),
+        world.committed_source().clone(),
+        world.config(),
+        laneflow_runtime::ExecutionConfig::new(NonZeroU32::MIN),
+        SnapshotRestoreLimits::new(4 << 20, 4096),
+    )
+    .unwrap();
+    let restored_candidate = restored.route_handle(captured.snapshot_route_id()).unwrap();
+    let mut restored_world = restored.into_world();
+    let command = admitted_command(&snapshot, captured);
+    let replayed = restored_world.register_admitted_route(command).unwrap();
+    for (world, handle) in [
+        (&world, direct),
+        (&world, candidate),
+        (&restored_world, restored_candidate),
+        (&restored_world, replayed),
+    ] {
         let windows = world.route_handoff_windows(handle).unwrap();
         assert_eq!(
             windows
@@ -162,4 +234,84 @@ fn all_registration_paths_preserve_repeated_windows_and_reject_invalid_inputs_at
     }
     world.remove_route(direct).unwrap();
     assert!(world.route_handoff_windows(direct).is_none());
+}
+
+#[test]
+fn candidate_and_replayed_routes_drive_the_same_vehicle_through_tail_clearance() {
+    let (direct, request, config) = execution::drive_at_interval(3_000, 1_000);
+    let start = direct.vehicle(request.vehicle).unwrap();
+    let direct_snapshot = direct.capture_snapshot().unwrap();
+    let [declared] = direct_snapshot.routes() else {
+        panic!("夹具只含一条路线")
+    };
+    let mut candidate_world = install_fixture(direct.revision(), config).unwrap();
+    let (admission, cost) = candidate_binding(&candidate_world);
+    let candidate = candidate_world
+        .register_candidate_route(
+            &admission,
+            CandidateRouteInput::new(cost, declared.edges().to_vec())
+                .with_handoffs(declared.handoff_windows().to_vec()),
+        )
+        .unwrap();
+
+    let captured = candidate_world.capture_snapshot().unwrap();
+    let [registered] = captured.routes() else {
+        panic!("应已登记一条候选")
+    };
+    let mut replay_world = install_fixture(direct.revision(), config).unwrap();
+    let replayed = replay_world
+        .register_admitted_route(admitted_command(&captured, registered))
+        .unwrap();
+
+    let spawn = |world: &mut TrafficWorld, route: RouteHandle| {
+        let vehicle = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                start.profile(),
+                route,
+                start.route_edge_index(),
+                start.progress_mm(),
+                start.speed_mm_s(),
+            ))
+            .unwrap();
+        RouteHandoffRequest {
+            vehicle,
+            route,
+            ..request
+        }
+    };
+    let candidate_request = spawn(&mut candidate_world, candidate);
+    let replay_request = spawn(&mut replay_world, replayed);
+    let drive = |mut world: TrafficWorld, request: RouteHandoffRequest| {
+        let step = TickInput::new(config.fixed_delta_time_ms());
+        let mut digests = Vec::new();
+        let mut front_on_target = false;
+        for tick in 1..=160 {
+            if tick == 1 {
+                world.step_with_route_handoffs(step, &[request]).unwrap();
+            } else {
+                world.step(step).unwrap();
+            }
+            digests.push(deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap());
+            match world.vehicle_route_handoffs(request.vehicle).next() {
+                Some(active) => {
+                    assert_eq!(active.acquired_tick, 1);
+                    if active.front_handed_off {
+                        assert!(
+                            world.vehicle(request.vehicle).unwrap().route_edge_index()
+                                > request.source_index
+                        );
+                        front_on_target = true;
+                    }
+                }
+                None => {
+                    assert!(front_on_target, "车尾释放应晚于前杠交接");
+                    return digests;
+                }
+            }
+        }
+        panic!("30 米换道未清空");
+    };
+    let expected = drive(direct, request);
+    assert_eq!(drive(candidate_world, candidate_request), expected);
+    assert_eq!(drive(replay_world, replay_request), expected);
 }
