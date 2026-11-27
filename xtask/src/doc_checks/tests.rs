@@ -438,12 +438,6 @@ fn code_span_resolution_is_exact() {
         ".agents/skills/demo/SKILL.md",
         None
     ));
-    assert!(code_span_matches(
-        ".cursor/skills/demo/SKILL.md",
-        ".agents/skills/demo/SKILL.md",
-        ".agents/skills/demo/SKILL.md",
-        None
-    ));
     assert!(!code_span_matches(
         "AGENTS.md",
         "请阅读 .agents/README.md 再继续",
@@ -541,8 +535,6 @@ fn default_source_set_skips_out_of_scope_paths_and_explicit_paths_can_enter() {
         "schemas/nested/a.md",
         ".github/PULL_REQUEST_TEMPLATE.md",
         ".github/fixtures/nope.md",
-        ".cursor/skills/demo/SKILL.md",
-        ".cursor/skills/demo/extra.md",
         ".agents/skills/demo/SKILL.md",
         "vendor/x.md",
         "target/x.md",
@@ -563,7 +555,6 @@ fn default_source_set_skips_out_of_scope_paths_and_explicit_paths_can_enter() {
             "tools/demo/README.md".to_string(),
             "schemas/nested/a.md".to_string(),
             ".github/PULL_REQUEST_TEMPLATE.md".to_string(),
-            ".cursor/skills/demo/SKILL.md".to_string(),
             ".agents/skills/demo/SKILL.md".to_string(),
         ])
     );
@@ -1269,31 +1260,6 @@ const AGREED_EDGES: &[(&str, &str, bool)] = &[
     ),
     (
         ".agents/README.md",
-        ".agents/skills/laneflow-pre-1-0/SKILL.md",
-        true,
-    ),
-    (
-        ".cursor/skills/laneflow-governance/SKILL.md",
-        ".agents/skills/laneflow-governance/SKILL.md",
-        true,
-    ),
-    (
-        ".cursor/skills/laneflow-development/SKILL.md",
-        ".agents/skills/laneflow-development/SKILL.md",
-        true,
-    ),
-    (
-        ".cursor/skills/laneflow-core-design/SKILL.md",
-        ".agents/skills/laneflow-core-design/SKILL.md",
-        true,
-    ),
-    (
-        ".cursor/skills/laneflow-adapter/SKILL.md",
-        ".agents/skills/laneflow-adapter/SKILL.md",
-        true,
-    ),
-    (
-        ".cursor/skills/laneflow-pre-1-0/SKILL.md",
         ".agents/skills/laneflow-pre-1-0/SKILL.md",
         true,
     ),

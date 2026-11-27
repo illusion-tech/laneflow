@@ -55,13 +55,6 @@ fn collect_default(root: &Path) -> Result<BTreeSet<String>, String> {
     }
     walk_optional(root, &root.join("docs"), true, None, &mut files)?;
     walk_optional(root, &root.join(".agents"), true, None, &mut files)?;
-    walk_optional(
-        root,
-        &root.join(".cursor/skills"),
-        true,
-        Some("SKILL.md"),
-        &mut files,
-    )?;
     add_child_readmes(root, &root.join("crates"), &mut files)?;
     add_child_readmes(root, &root.join("tools"), &mut files)?;
     walk_optional(root, &root.join("schemas"), true, None, &mut files)?;

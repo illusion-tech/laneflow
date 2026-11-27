@@ -200,7 +200,7 @@ AI Agent 可以参与设计、实现、测试和文档维护，但应遵守 `doc
 
 Agent 不应在未读取相关设计文档的情况下修改 Traffic Runtime API、数据格式或 Adapter 协议。
 
-通用 Agent 工作流位于 `.agents/skills/`。Cursor 的 `.cursor/skills/` 只作为薄包装入口，规范本体仍以 `.agents/` 和 `docs/` 为准。
+通用 Agent 工作流位于 `.agents/skills/`，它是唯一正本；Cursor、Codex 等工具直接从该目录自动发现 Skill，仓库不再维护工具专用副本，规范本体以 `.agents/` 和 `docs/` 为准。
 
 ## 10. 许可证与贡献
 
