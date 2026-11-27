@@ -1,6 +1,6 @@
 use super::*;
 use crate::station::vehicle::pose::PoseRate;
-use crate::station::vehicle::surface::dot;
+use crate::station::vehicle::surface::{Projection, dot};
 
 fn anchors(e: &BoundaryExtent) -> [I; 2] {
     std::array::from_fn(|i| {
@@ -95,10 +95,6 @@ fn touch_coordinates(
     mut coords: Vector,
     work: &mut Work,
 ) -> Result<Option<Vector>, Failure> {
-    let signed = (0..3).fold(offset, |sum, i| sum + coefficients[i] * coords[i]);
-    if signed.lo > 0. || signed.hi < 0. {
-        return Ok(None);
-    }
     for (i, coefficient) in coefficients.into_iter().enumerate() {
         if coefficient.lo <= 0. && coefficient.hi >= 0. {
             continue;
@@ -175,6 +171,57 @@ pub(in crate::station::vehicle) fn window_permission(
     }
 }
 
+pub(in crate::station::vehicle) enum BodyBoundary {
+    /// 整车到结构边界的有符号横向偏移严格同号。
+    Separated(I),
+    MayTouch {
+        region: Projection,
+        rear_offset: I,
+        coefficients: Vector,
+    },
+}
+
+impl BoundaryLine {
+    pub(in crate::station::vehicle) fn enclose_body(
+        self,
+        c: &Candidate<'_, '_>,
+        pose: &Pose,
+        coords: Vector,
+        work: &mut Work,
+    ) -> Result<BodyBoundary, Failure> {
+        let [a, b, z] = coords;
+        let box_xz = horizontal(pose.point(a, b, z));
+        let origin = horizontal(pose.rear);
+        let region = c.surface.project(box_xz, work)?;
+        let signed = region.lateral - self.lateral(c, region.station);
+        if signed.lo > 0. || signed.hi < 0. {
+            return Ok(BodyBoundary::Separated(signed));
+        }
+        // 车底可能高于后轴。求梯度的区域须覆盖后轴到每个车身点的整条线段。
+        let from_rear = std::array::from_fn(|i| box_xz[i].hull(origin[i]));
+        let gradient_region = if from_rear == box_xz {
+            region
+        } else {
+            c.surface.project(from_rear, work)?
+        };
+        let rear = c.surface.project(origin, work)?;
+        let rear_offset = rear.lateral - self.lateral(c, rear.station);
+        // 按车体前、左、上三个轴积分，保留每个方向与其局部坐标的对应关系。
+        let grad = gradient_region.boundary_gradient(self.slope(c));
+        let coefficients =
+            [pose.forward, pose.left, pose.up].map(|axis| dot(grad, horizontal(axis)));
+        let signed = (0..3).fold(rear_offset, |sum, i| sum + coefficients[i] * coords[i]);
+        if signed.lo > 0. || signed.hi < 0. {
+            return Ok(BodyBoundary::Separated(signed));
+        }
+        Ok(BodyBoundary::MayTouch {
+            region,
+            rear_offset,
+            coefficients,
+        })
+    }
+}
+
 pub(super) fn check<'a>(
     c: &Candidate<'a, '_>,
     body: &Body<'_>,
@@ -183,30 +230,16 @@ pub(super) fn check<'a>(
     work: &mut Work,
 ) -> Result<Verdict<'a>, Failure> {
     work.charge()?;
-    let box_xz = horizontal(body.world());
-    let origin = horizontal(body.pose.rear);
-    let p = c
-        .surface
-        .project(std::array::from_fn(|i| box_xz[i].hull(origin[i])), work)?;
-    let signed = p.lateral - s.line.lateral(c, p.station);
-    if signed.lo > 0. || signed.hi < 0. {
-        return Ok(Verdict::Clear(None));
-    }
-    // 世界轴向包围盒的角可能根本不在车身内。在整盒上求横向坐标梯度，
-    // 把车体三个方向分别投到该梯度，再由后轴点积分到每个真实车身点。
-    let rear = c.surface.project(horizontal(body.pose.rear), work)?;
-    let slope = s.line.slope(c);
-    let grad = p.boundary_gradient(slope);
-    let coefficients =
-        [body.pose.forward, body.pose.left, body.pose.up].map(|axis| dot(grad, horizontal(axis)));
     let ranges = body.shape.ranges();
-    let Some(touch) = touch_coordinates(
-        rear.lateral - s.line.lateral(c, rear.station),
+    let BodyBoundary::MayTouch {
+        region: p,
+        rear_offset,
         coefficients,
-        ranges,
-        work,
-    )?
+    } = s.line.enclose_body(c, body.pose, ranges, work)?
     else {
+        return Ok(Verdict::Clear(None));
+    };
+    let Some(touch) = touch_coordinates(rear_offset, coefficients, ranges, work)? else {
         return Ok(Verdict::Clear(None));
     };
     let [a, b, z] = touch;
@@ -217,6 +250,7 @@ pub(super) fn check<'a>(
         c.surface
             .project(horizontal(body.pose.point(a, b, z)), work)?
     };
+    let slope = s.line.slope(c);
     let grad = region.boundary_gradient(slope);
     let (h, dh) = body.motion.heading()?;
     let rate = body.pose.rates(c.query.axles, body.motion.v, h, dh)?;

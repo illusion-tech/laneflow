@@ -59,14 +59,14 @@ fn classify(
     let signed = |p: Projection| seam.sign * (p.lateral - seam.line.lateral(c, p.station));
     let project =
         |point: pose::Vector, work: &mut Work| c.surface.project([point[0], point[2]], work);
-    // 所有车角、棱、面及内部点的水平投影都在这个包围盒里。弯曲共边可能穿过
-    // 两角间的车身，即使各车角均在同一侧也不能据此给出整车清空。
-    let world = pose.point(long, lat, height);
-    let region = project(world, work)?;
-    if let Some(side) = strict_side(signed(region)) {
+    if let sweep::BodyBoundary::Separated(offset) =
+        seam.line
+            .enclose_body(c, &pose, [long, lat, height], work)?
+        && let Some(side) = strict_side(seam.sign * offset)
+    {
         return Ok(side);
     }
-    // 包围盒跨边只表示可能相交。两个严格异号的实体点，分别在每个可能的
+    // 整车界含零只表示可能相交。两个严格异号的实体点，分别在每个可能的
     // 同时刻姿态中都落在相应一侧，才能证明整个站位区间均有双侧占用。
     let mut on_source = false;
     let mut on_target = false;
