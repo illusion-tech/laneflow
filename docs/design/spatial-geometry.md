@@ -3,7 +3,7 @@ schema_version = 1
 id = "design-spatial-geometry"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-27"
+revised_date = "2026-11-28"
 summary = "定义有界空间几何、长度绑定与位姿采样。"
 scope = "引擎无关的规范坐标框架、框架编制与修订绑定、折线中心线、长度绑定、采样、局部位姿与制品配对"
 applicability = "#applicability"
@@ -300,6 +300,13 @@ geometry_s = ratio * geometry_arc_length
 - 首版不输出四元数或矩阵，不表达道路倾斜；适配器使用切向量和上方向向量构造宿主朝向。
 
 相连交通边 `A -> B` 的 `A.end` 与 `B.start` 必须在连接容差内。位置连续是阻断性不变量；切向量可以因路口或折点而不连续。
+
+车辆执行横移时，其当前车道地址仍用于核对前保险杠的交通进度。表现位置取本次车体求值
+得到的前杠地面投影，规范朝向取同一次求值的车体前向、左向和上向。这样斜行通过纵坡
+时能保留侧倾，前杠换边一拍也能维持车体的实际横向位置。宿主取得后轴、车型和交接阶段
+的入口见[已提交位姿提取][handoff-pose-extraction]。
+
+[handoff-pose-extraction]: committed-pose-extraction.md#pose-source-ownership
 
 ## 8. 错误模型
 

@@ -279,6 +279,71 @@ fn execution_config(value: &str) -> ExecutionConfig {
 }
 
 #[test]
+fn handoff_pose_lookup_orders_new_and_existing_plans_and_checks_generation() {
+    use crate::kernel::handoff::execution::PreparedRouteHandoff;
+    use laneflow_synth_generator::{Case, Identity, LaneChangeParams, Provenance, generate};
+    let case = Case::LaneChange(LaneChangeParams {
+        clusters: 2,
+        changers_per_cluster: 2,
+    });
+    let bundle = generate(
+        Identity::new(10_000, case, 16).unwrap(),
+        Provenance {
+            source_commit: "1".repeat(40),
+            generator_commit: "2".repeat(40),
+        },
+    )
+    .unwrap();
+    let mut sample = LaneChange::new(&bundle, execution_config("1"));
+    let changers = &sample.handles[sample.state.identity.scale as usize..];
+    let (low, high) = (changers[0], changers[2]);
+    let start = sample
+        .requests()
+        .into_iter()
+        .find(|r| r.vehicle == high)
+        .unwrap();
+    let tick = TickInput::new(16);
+    sample
+        .world
+        .step_with_route_handoffs(tick, &[start])
+        .unwrap();
+    let requests = sample.requests();
+    sample
+        .world
+        .step_with_route_handoffs(tick, &requests)
+        .unwrap();
+    // 既有预约先步进，故产生计划的次序是 high 再 low。
+    assert!(sample.world.committed_handoff_vehicles().eq([low, high]));
+    let plans = &sample.world.state.derived.handoff_plans;
+    for record in &sample.world.state.committed.handoffs {
+        let vehicle = sample.world.vehicle(record.vehicle).unwrap();
+        let route = vehicle.route();
+        assert!(PreparedRouteHandoff::cached(plans, record, route).is_some());
+        let mut stale = record.clone();
+        stale.vehicle = VehicleHandle::new(record.vehicle.index(), record.vehicle.generation() + 1);
+        assert!(PreparedRouteHandoff::cached(plans, &stale, route).is_none());
+        assert!(
+            PreparedRouteHandoff::cached(
+                plans,
+                record,
+                RouteHandle::new(route.index(), route.generation() + 1)
+            )
+            .is_none()
+        );
+        stale = record.clone();
+        stale.acquired_tick += 1;
+        assert!(PreparedRouteHandoff::cached(plans, &stale, route).is_none());
+        let geometry = sample
+            .world
+            .committed_handoff_geometry(record.vehicle)
+            .unwrap()
+            .unwrap();
+        assert_eq!(geometry.profile, vehicle.profile());
+        assert!(!geometry.front_handed_off);
+    }
+}
+
+#[test]
 #[ignore = "L 族换道失败重试；显式提供 LF_SYNTH_INPUT、LF_SYNTH_OUTPUT、LF_SYNTH_IMPLEMENTATION、LF_SYNTH_WORKERS、LF_SYNTH_FAILPOINT"]
 fn lane_change_failed_step_retry() {
     let input = std::env::var_os("LF_SYNTH_INPUT").expect("LF_SYNTH_INPUT");

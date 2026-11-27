@@ -138,10 +138,20 @@ impl PreparedRouteHandoff {
             ],
         })
     }
-    fn matches(&self, record: &ActiveRouteHandoff, route: RouteHandle) -> bool {
-        self.vehicle == record.vehicle
-            && self.route == route
-            && self.acquired_tick == record.acquired_tick
+    /// 同拍授权和提交后的稀疏计划均按槽位升序。恢复后的空缓存按原轨迹重建。
+    pub(in crate::kernel) fn cached<'a>(
+        plans: &'a [Arc<Self>],
+        record: &ActiveRouteHandoff,
+        route: RouteHandle,
+    ) -> Option<&'a Arc<Self>> {
+        let index = plans
+            .binary_search_by_key(&record.vehicle.index(), |plan| plan.vehicle.index())
+            .ok()?;
+        let plan = &plans[index];
+        (plan.vehicle == record.vehicle
+            && plan.route == route
+            && plan.acquired_tick == record.acquired_tick)
+            .then_some(plan)
     }
 }
 
@@ -227,7 +237,7 @@ impl ActiveRouteHandoff {
         binding.config.handoff_driving()?;
         let trial = self.trial(&binding.revision, vehicle)?;
         let binding = route.handoff_binding(&binding.revision)?;
-        let path = match plans.iter().find(|p| p.matches(self, vehicle.route)) {
+        let path = match PreparedRouteHandoff::cached(plans, self, vehicle.route) {
             Some(plan) => plan.located(binding)?,
             None => {
                 binding
@@ -689,6 +699,7 @@ impl StepWorkspace<'_> {
             grants.records.push(record);
             grants.plans.push(Arc::new(prepared));
         }
+        grants.plans.sort_unstable_by_key(|p| p.vehicle.index());
         Ok(grants)
     }
 
@@ -762,6 +773,7 @@ impl StepWorkspace<'_> {
             }
         }
         result.sort_unstable_by_key(|h| (h.vehicle.index(), h.source_index));
+        plans.sort_unstable_by_key(|p| p.vehicle.index());
         Ok(!result.is_empty() || finished)
     }
 
@@ -790,13 +802,12 @@ impl StepWorkspace<'_> {
         let Some(trial) = candidate.trial(revision, vehicle) else {
             return Ok(None);
         };
-        let prepared = match self
-            .derived
-            .handoff_plans
-            .iter()
-            .chain(new_plans)
-            .find(|p| p.matches(&candidate, vehicle.route))
-        {
+        let plans = if existing {
+            &self.derived.handoff_plans[..]
+        } else {
+            new_plans
+        };
+        let prepared = match PreparedRouteHandoff::cached(plans, &candidate, vehicle.route) {
             Some(cached) => Arc::clone(cached),
             None => {
                 let Some(p) =

@@ -527,4 +527,7 @@ pub(crate) fn write_json(path: &Path, value: &Value) -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[path = "handoff/presentation_tests.rs"]
+mod handoff_presentation_tests;
+#[cfg(test)]
 mod tests;

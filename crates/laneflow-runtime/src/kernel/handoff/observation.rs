@@ -1,4 +1,4 @@
-use laneflow_static_contract::{CanonicalFrameOrdinal, NetworkRevisionId};
+use laneflow_static_contract::{CanonicalFrameOrdinal, NetworkRevisionId, VehicleProfileOrdinal};
 use laneflow_static_network::vehicle::{HandoffFootprint, PoseBounds};
 use thiserror::Error;
 
@@ -17,10 +17,14 @@ pub struct CommittedHandoffGeometry {
     pub tick: u64,
     /// 该车此刻的正式路线。
     pub route: RouteHandle,
+    /// 本车在同一修订上的车型，供宿主读取车身尺寸和轴距。
+    pub profile: VehicleProfileOrdinal,
     /// 已登记交接的源出现下标。
     pub source_index: u32,
     /// 前保险杠此刻绑定的路线出现。
     pub front_occurrence: u32,
+    /// 前保险杠已交接至目标出现，车尾仍处于已提交横移的保护中。
+    pub front_handed_off: bool,
     /// 沿横移轨迹累计走完的整数毫米，拍间积分保留余数。
     pub rear_travel_mm: u64,
     /// 在上述规范框架中，以后轴为参考点的交通姿态界。
@@ -41,6 +45,16 @@ pub enum HandoffGeometryReadError {
 }
 
 impl TrafficWorld {
+    /// 当前持有横移的车辆，按车辆槽位升序。取得数量无需扫描车辆或重算几何。
+    ///
+    /// # Panics
+    ///
+    /// 世界因执行 panic 失效后调用会 panic。
+    pub fn committed_handoff_vehicles(&self) -> impl ExactSizeIterator<Item = VehicleHandle> + '_ {
+        self.execution.assert_usable();
+        self.state.committed.handoffs.iter().map(|h| h.vehicle)
+    }
+
     /// 按有效车辆句柄读取本提交拍的横移姿态及占用。未持有横移的车辆返回空。
     ///
     /// # Errors
@@ -59,17 +73,16 @@ impl TrafficWorld {
             .state
             .vehicle_state(handle)
             .ok_or(HandoffGeometryReadError::UnknownVehicle)?;
-        let Some(record) = self
-            .state
-            .committed
-            .handoffs
-            .iter()
-            .find(|record| record.vehicle == handle)
-        else {
+        let records = &self.state.committed.handoffs;
+        let Ok(index) = records.binary_search_by_key(&handle.index(), |h| h.vehicle.index()) else {
             return Ok(None);
         };
+        let record = &records[index];
         let revision = &self.state.binding.revision;
         let unproven = HandoffGeometryReadError::Unproven;
+        if record.vehicle != handle {
+            return Err(unproven);
+        }
         let route = self.state.compiled_route(vehicle.route).ok_or(unproven)?;
         let (sample, pose, frame) = record
             .geometry(
@@ -85,8 +98,10 @@ impl TrafficWorld {
             frame,
             tick: self.tick_index(),
             route: vehicle.route,
+            profile: vehicle.profile,
             source_index: record.source_index,
             front_occurrence: sample.front_occurrence,
+            front_handed_off: record.front_handed_off,
             rear_travel_mm: record.rear_travel_um / 1000,
             pose,
             footprint: sample.footprint,

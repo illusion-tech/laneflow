@@ -3,11 +3,11 @@ schema_version = 1
 id = "design-committed-pose-extraction"
 kind = "design"
 status = "accepted"
-revised_date = "2026-11-27"
+revised_date = "2026-11-28"
 summary = "定义已提交位姿来源借用、缓冲交换与按需提取。"
 scope = "Traffic Runtime 只读来源、Spatial 批量输出、Adapter 封闭提取与调用方表现选择"
 applicability = "#applicability"
-issues = ["https://github.com/illusion-tech/laneflow/issues/681", "https://github.com/illusion-tech/laneflow/issues/711", "https://github.com/illusion-tech/laneflow/issues/712", "https://github.com/illusion-tech/laneflow/issues/1570"]
+issues = ["https://github.com/illusion-tech/laneflow/issues/681", "https://github.com/illusion-tech/laneflow/issues/711", "https://github.com/illusion-tech/laneflow/issues/712", "https://github.com/illusion-tech/laneflow/issues/1526", "https://github.com/illusion-tech/laneflow/issues/1570"]
 related = ["adr-0021", "design-adapter-api", "design-spatial-geometry", "design-traffic-runtime-revision-cutover", "design-traffic-runtime-shared-consumption", "design-urban-demand-harness"]
 +++
 
@@ -32,7 +32,8 @@ Runtime 保持全部车辆的交通精度、固定步进、路权、状态与事
 本设计区分三件事：复用来源存储、取消成功批次的再次复制、按显式选择减少采样。
 三者可分别取证，不把其中一项的收益当作完整链路收益。停车位缓存不是首批交付要求。
 `committed_pose_sources()` 已由 #712 迁移为借用世界的惰性迭代器。Adapter 的全量
-与按选择提取两个入口均将 Runtime 返回的位姿来源原样传入 Spatial，在整批采样成功后提交。
+与按选择提取两个入口均把 Runtime 返回的位姿来源传入 Spatial，并为本批正在横移的
+车辆附带同拍车体观测，整批采样成功后提交。
 
 ## 2. Runtime 只读来源
 
@@ -90,11 +91,17 @@ fn input(record: PoseRecordId, source: PoseSource) -> PoseInput {
 根对象并从活动世界读取，独立调用 Spatial 时由调用方保证序号属于其绑定根。旧批次的
 世代、修订和放置校验仍在原消费边界完成。
 
-**与车体参考姿态的衔接。** 处于不同横移阶段的车辆，即使当前边和进度相同，
-后轴参考点和车体三轴也可能不同。#1527 须从同一已提交状态取得车体参考姿态、
-路线出现和横移阶段，并绑定修订与规范坐标框架。单靠车道或泊位地址无法重建
-这份观测。观测入口及如何组合采样结果由 #1527 定义。世界世代和放置标记可以跨
-多个提交拍保持相同，不能单凭二者核实同拍。[车体参考姿态][traffic-reference-pose]
+**活动横移的车体参考姿态。** 前杠跨过分界线会改变路线游标，此时后轴和车尾可能仍在源侧。
+全量与按需提取均从同一已提交世界读取活动车辆的横移几何，以该拍前杠中点沿竖直方向
+投到所属路面的点作为表现锚点，以车体前向与上向确定朝向。前杠投影保留逐轴向外取整
+的毫米界，在 Spatial 转成有界的规范坐标。宿主可用同拍的后轴参考点、车体三轴和车型
+构造四个名义轮位。[车体参考姿态][traffic-reference-pose]
+
+前杠交接只更新批内的路线出现和阶段。车尾离开源侧以后，只要横移仍在执行，就继续使用
+上述车体姿态。到达候选终点并提交释放的当拍，车辆按目标边的已提交进度采样，保留该拍
+越过终点的前进量。`LaneFlowCommittedPoseBatch::tick()` 返回提交拍，
+`handoffs()` 按批内顺序返回记录序号和 `CommittedHandoffGeometry`，只含本批实际提取的横移车辆。
+跨拍使用轮位、事件或其他交通观测时，宿主须同时核对世界身份与世代、修订和提交拍。
 
 **实现验收。** 用正常公共入口把实际车道和显式泊位来源原样传入 Spatial，对照
 期望的记录身份与规范位姿。按 §2、§4 及 §6 的矩阵核对 Runtime 全量与单句柄
@@ -116,6 +123,11 @@ Spatial 在自有 scratch 中完成逐项采样和首错检查；全部成功后
 
 Adapter 只在 Spatial 成功后提交对应车辆序列和消费上下文；这些最终提交操作必须
 不可失败。禁止先更新句柄序列或上下文，再等待可失败的 Spatial 操作。
+
+活动横移记录和已准备的轨迹计划按车辆槽位查找，命中后核对句柄代际。全量提取先读取
+活动句柄，再按本批原有顺序求取这些车辆的车体几何。按需提取只查选中车辆，空选择和
+没有活动横移的世界可以直接采样普通来源。横移记录占用的缓冲容量取决于实际提取过的
+横移车辆数，已提交输出和下次候选各持一份。位姿来源查询的计时包含车体几何读取。
 
 稳定容量指同一 Session 与 output 反复配对、两侧缓冲均达到所需容量后的零新增
 分配。首次调用、首次交换后的另一侧扩容、规模增长、改用新的 output、交替使用多个
@@ -143,7 +155,7 @@ LaneFlowSession::extract_selected_committed_pose_batch(
 ```
 
 完整错误优先级固定为：消费上下文、Spatial 存在、根配对、完整列表查重、
-逐句柄来源查询、Spatial 采样。查重独立于来源查询：`[stale, A, A]` 返回重复，
+逐句柄来源查询、活动横移几何读取、Spatial 采样。查重独立于来源查询：`[stale, A, A]` 返回重复，
 `[Completed, Completed]` 也返回重复；无重复时才按输入顺序报告第一个来源错误。
 重复错误携带完整句柄、首次与重复位置；来源错误携带输入位置、句柄和 Runtime
 原始错误。位置均从零开始。有效但无来源项不占用输出记录序号。

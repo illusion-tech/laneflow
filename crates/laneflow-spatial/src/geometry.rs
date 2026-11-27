@@ -34,12 +34,12 @@ impl CanonicalPoseF32 {
         self.position
     }
 
-    /// 返回沿中心线行驶方向的单位切向量。
+    /// 返回行驶方向的单位向量。横移采用车体纵轴。
     pub const fn tangent(self) -> CanonicalUnitVector3F32 {
         self.tangent
     }
 
-    /// 返回 canonical `+Y` 在切向量正交平面上的单位投影。
+    /// 返回单位上向。横移采用有滚转的车体上向，普通车道采用规范上向的正交投影。
     pub const fn up(self) -> CanonicalUnitVector3F32 {
         self.up
     }

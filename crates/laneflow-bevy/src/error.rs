@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use bevy_ecs::entity::Entity;
 use laneflow_runtime::{
-    CommittedPoseSourceError, CutoverError, ParkingError, ReplaceError, StepError, VehicleHandle,
+    CommittedPoseSourceError, CutoverError, HandoffGeometryReadError, ParkingError, ReplaceError,
+    StepError, VehicleHandle,
 };
 use laneflow_spatial::SpatialError;
 
@@ -101,6 +102,13 @@ pub enum LaneFlowAdapterError {
         /// Runtime 来源查询错误。
         source: CommittedPoseSourceError,
     },
+    /// 该车的已提交横移参考姿态无法重建。
+    HandoffPose {
+        /// 被采样的车辆句柄。
+        vehicle: VehicleHandle,
+        /// Runtime 读取横移几何的原始错误。
+        source: HandoffGeometryReadError,
+    },
     /// Spatial 批次提取失败。
     SpatialPoseExtraction {
         /// Spatial 错误。
@@ -188,6 +196,9 @@ impl fmt::Display for LaneFlowAdapterError {
                 formatter,
                 "位姿选择位置 {index} 的句柄 {vehicle:?} 查询失败：{source}"
             ),
+            Self::HandoffPose { vehicle, source } => {
+                write!(formatter, "车辆 {vehicle:?} 的横移位姿读取失败：{source}")
+            }
         }
     }
 }
@@ -209,6 +220,7 @@ impl std::error::Error for LaneFlowAdapterError {
             | Self::DuplicatePoseSelection { .. }
             | Self::PoseExtractionWithoutSpatial => None,
             Self::SelectedPoseSource { source, .. } => Some(source),
+            Self::HandoffPose { source, .. } => Some(source),
             Self::VehicleReplace { source, .. } => Some(source),
             Self::VehicleDespawn { source, .. } => Some(source),
             Self::Cutover { source } => Some(source),

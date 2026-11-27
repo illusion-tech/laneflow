@@ -53,6 +53,13 @@ pub enum SpatialError {
     },
     /// 零向量不能成为单位方向。
     ZeroLengthDirection,
+    /// 横移观测的修订、前杠边或车体方向与当前批次不匹配。
+    InvalidHandoffPose,
+    /// 稀疏横移输入的下标重复、倒序或越过输入列表。
+    InvalidHandoffIndex {
+        /// 首个未匹配的输入下标。
+        index: usize,
+    },
     /// 同一批 `PoseInput` 混用多个 canonical frame；失败不改 `output`。
     BatchFrameMismatch {
         /// 批次已锁定的 frame。
@@ -120,6 +127,10 @@ impl fmt::Display for SpatialError {
                 "标准点的 {axis} 分量 {value:?} m 超出闭区间 [{min:?}, {max:?}] m"
             ),
             Self::ZeroLengthDirection => formatter.write_str("零向量不能归一化为单位方向"),
+            Self::InvalidHandoffPose => formatter.write_str("横移姿态与修订、车道或车体方向不符"),
+            Self::InvalidHandoffIndex { index } => {
+                write!(formatter, "横移输入下标 {index} 无法匹配普通批次")
+            }
             Self::BatchFrameMismatch {
                 expected_frame,
                 actual_frame,

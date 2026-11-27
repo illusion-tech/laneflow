@@ -40,6 +40,9 @@ pub struct HandoffFootprint {
     pub front_side: HandoffLaneSide,
     /// 前保险杠中点在该侧独立边链上的可能位置。
     pub front: StationCandidates,
+    /// 同一前杠中点垂直投影到候选所在路面的规范框架 X、Y、Z 坐标，单位毫米，逐分量向外取整。
+    /// 世界坐标超出有符号毫米的表达范围时为空，车道侧别及交通占用仍有效。
+    pub front_ground_mm: Option<[[i64; 2]; 3]>,
     /// 已预约且尚未证实前杠离开源侧时，目标侧同一前杠的可能位置。
     pub possible_target_front: Option<StationAddress>,
     /// 顺序为源、目标。`None` 表示已证明该侧没有车身。
@@ -65,6 +68,7 @@ struct Stations {
     pose: PoseBounds,
     front_side: Option<HandoffLaneSide>,
     front: I,
+    front_ground: Vector,
     sides: [Option<Side>; 2],
 }
 
@@ -99,6 +103,24 @@ fn side_coordinates(
 
 fn horizontal(p: Vector) -> [I; 2] {
     [p[0], p[2]]
+}
+
+fn ground_millimetres(ground: Vector) -> Option<[[i64; 2]; 3]> {
+    let mut result = [[0; 2]; 3];
+    for (coordinate, metres) in result.iter_mut().zip(ground) {
+        if !metres.finite() {
+            return None;
+        }
+        let mm = metres * I::point(1_000.);
+        let lo = mm.lo.floor();
+        let hi = mm.hi.ceil();
+        // i64::MAX 转成 f64 会向上舍入到 2^63；这个上界必须排除。
+        if !mm.finite() || lo < i64::MIN as f64 || hi >= -(i64::MIN as f64) {
+            return None;
+        }
+        *coordinate = [lo as i64, hi as i64];
+    }
+    Some(result)
 }
 
 // 站位梯度沿后轴到实体点的整条线段求界，使车体长度与宽度在旋转后仍各沿自身的轴。
@@ -226,6 +248,7 @@ fn stations(
                 a.front_side = None;
             }
             a.front = a.front.hull(b.front);
+            a.front_ground = std::array::from_fn(|i| a.front_ground[i].hull(b.front_ground[i]));
             a.pose = a.pose.hull(b.pose);
             for (first, second) in a.sides.iter_mut().zip(b.sides) {
                 match (first, second) {
@@ -244,9 +267,8 @@ fn stations(
     };
     let pose = c.pose(&motion, work)?;
     let coords = shape.ranges();
-    let front = c
-        .surface
-        .project(pose.wheel(shape.front_from_rear_m, 0.), work)?;
+    let [x, z] = pose.wheel(shape.front_from_rear_m, 0.);
+    let front = c.surface.project([x, z], work)?;
     within_outer(c, bound, &pose, coords, Some(front), work)?;
     let seam = &bound.crossing;
     let signed = |p: Projection| seam.sign * (p.lateral - seam.line.lateral(c, p.station));
@@ -287,6 +309,7 @@ fn stations(
         pose: pose.bounds(),
         front_side,
         front: front.station,
+        front_ground: [x, front.height, z],
         sides,
     })
 }
@@ -389,6 +412,7 @@ impl SharedNetworkRevision {
                 HandoffFootprint {
                     front_side,
                     front,
+                    front_ground_mm: ground_millimetres(positions.front_ground),
                     possible_target_front,
                     sides,
                 },
@@ -397,5 +421,21 @@ impl SharedNetworkRevision {
         };
         let footprint = run();
         (footprint, work.used)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn front_ground_rounds_signed_coordinates_outward_and_rejects_overflow() {
+        assert_eq!(
+            ground_millimetres([I::point(-0.0015), I::ZERO, I::point(0.0025)]),
+            Some([[-2, -1], [0, 0], [2, 3]])
+        );
+        for value in [f64::NAN, f64::INFINITY, -1e16, 1e16] {
+            assert!(ground_millimetres([I::point(value); 3]).is_none());
+        }
     }
 }

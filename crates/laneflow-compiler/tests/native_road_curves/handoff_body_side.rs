@@ -75,6 +75,47 @@ fn inputs(n: &SharedNetworkRevision, rear: [u64; 2]) -> (HandoffQuery, HandoffWi
 }
 
 #[test]
+fn handoff_front_ground_uses_the_surface_beyond_the_front_axle_on_a_crest() {
+    let artifact = road(crest(), [([3.5; 2], true); 2]);
+    let network = load_network(&artifact, SpatialBuildOption::Omit);
+    let length = network
+        .station_mapping()
+        .corridor_domain(RoadCorridorOrdinal::from_raw(0))
+        .unwrap()
+        .length_mm();
+    // 对称抛物线 y=-z²/2000 的里程中点是坡顶。起始横向导数为零，
+    // 20 m 前伸处的路面约 -200 mm；两轴连线的延长线只下降约 26 mm。
+    let apex = length / 2;
+    let (q, window) = inputs(&network, [apex, apex + 5 * M]);
+    let body = BodyEnvelope {
+        front_from_rear_m: 20.,
+        ..BODY
+    };
+    let (geometry, _) = network.handoff_footprint_and_pose(
+        &q,
+        window,
+        body,
+        rear_range([apex; 2]),
+        SWEEP_WORK_LIMIT,
+    );
+    let (footprint, pose) = geometry.unwrap();
+    let [_, [low_y, high_y], [low_z, high_z]] = footprint.front_ground_mm.unwrap();
+    assert!(
+        (low_z..=high_z).contains(&20_000),
+        "{:?}",
+        footprint.front_ground_mm
+    );
+    assert!(
+        (low_y..=high_y).contains(&-200),
+        "{:?}",
+        footprint.front_ground_mm
+    );
+    let extension_y = pose.rear_m[1][0].midpoint(pose.rear_m[1][1]) - q.axles.reference_height_m
+        + body.front_from_rear_m * pose.forward[1][0].midpoint(pose.forward[1][1]);
+    assert!(high_y < (extension_y * 1_000.) as i64 - 80);
+}
+
+#[test]
 fn body_side_at_handoff_endpoints_is_invariant_under_horizontal_rotation() {
     let diagonal = std::f64::consts::FRAC_1_SQRT_2;
     for heading in [[0., 1.], [diagonal, diagonal]] {
