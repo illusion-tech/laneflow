@@ -20,8 +20,14 @@ use laneflow_static_network::{
 };
 use std::sync::Arc;
 
+#[path = "route_handoff/multi_handoff.rs"]
+mod multi_handoff;
 #[path = "route_handoff/rebind.rs"]
 mod rebind;
+#[path = "route_handoff/sample.rs"]
+mod sample;
+#[path = "route_handoff/traffic.rs"]
+mod traffic;
 
 fn module(shift_x: f64) -> RoadEditingSourceModule {
     let limits = CompileProfile::single_network_10k_stable_entities();

@@ -143,6 +143,7 @@ impl<'a> Patch<'a> {
         let result = Projection {
             station: (Interval::meters(stations[0].0) + self.length * t)
                 .with_error(station_error.hi),
+            station_error_m: station_error.hi,
             lateral: dot(delta, [v[2], -v[0]]) / speed,
             height: center[1],
             // 隐函数 F(s,P)=0 给出 ds/dP=C'_xz/(-F_s)。辅助点可在路幅以外。
@@ -164,6 +165,7 @@ impl<'a> Patch<'a> {
 #[derive(Clone, Copy)]
 pub(super) struct Projection {
     pub station: Interval,
+    pub station_error_m: f64,
     pub lateral: Interval,
     pub height: Interval,
     pub gradient: Horizontal,
@@ -179,6 +181,7 @@ impl Projection {
     fn hull(self, other: Self) -> Self {
         Self {
             station: self.station.hull(other.station),
+            station_error_m: self.station_error_m.max(other.station_error_m),
             lateral: self.lateral.hull(other.lateral),
             height: self.height.hull(other.height),
             gradient: std::array::from_fn(|i| self.gradient[i].hull(other.gradient[i])),

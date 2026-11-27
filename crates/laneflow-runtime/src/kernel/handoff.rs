@@ -1,4 +1,6 @@
-//! 已给定候选路线的一次横向交接试算。
+//! 候选路线的横向交接窗口与逐出现试算。
+
+mod binding;
 
 use std::sync::Arc;
 
@@ -7,14 +9,20 @@ use laneflow_static_network::{
     BoundaryOwner, SharedNetworkRevision, StationQuery,
     vehicle::{
         AxleDimensions, BodyEnvelope, Failure, GeometryWorkLimits, HandoffBinding,
-        HandoffBodyReport, HandoffOutcome, HandoffQuery, HandoffReport, HandoffSourceEvidence,
-        HandoffTravelReport, HandoffTravelTarget, HandoffWindow, SteeringLimits,
+        HandoffBodyReport, HandoffOutcome, HandoffQuery, HandoffReport, HandoffTravelReport,
+        HandoffTravelTarget, HandoffWindow, SteeringLimits,
     },
 };
 use thiserror::Error;
 
-use super::tables::{ManeuverOccurrence, access_cell_denied, compile_route, route_access_denied};
-use crate::{RouteError, RouteRegisterInput, TrafficWorld};
+mod sample;
+mod traffic;
+use sample::CursorRun;
+pub use sample::{RouteHandoffSample, RouteHandoffSampleError, RouteHandoffSampleReport};
+pub use traffic::{RouteHandoffTraffic, RouteHandoffTrafficError};
+
+use super::tables::{ManeuverOccurrence, access_cell_denied, route_access_denied};
+use crate::{RouteError, TrafficWorld};
 
 /// 候选路线中某一次横向交接的来源声明。边由下标从完整路线读取。
 #[derive(Clone, Copy, Debug)]
@@ -31,34 +39,56 @@ pub struct RouteHandoffOccurrence {
     pub stations_nm: [u64; 2],
 }
 
-/// 可在同一修订上多次试算的出现对，持有源修订并保留路线的原有出现顺序。
+/// 已绑定一处或多处交接窗口的候选路线。边与普通机动均使用完整路线的出现下标。
 pub struct BoundRouteHandoff {
     revision: Arc<SharedNetworkRevision>,
-    source_index: u32,
-    boundary: HandoffBinding,
-    legs: [RouteLeg; 2],
-}
-
-#[derive(Debug)]
-struct RouteLeg {
     edges: Vec<LaneEdgeOrdinal>,
     maneuvers: Vec<ManeuverOccurrence>,
+    windows: Vec<(u32, HandoffBinding)>,
 }
 
 impl std::fmt::Debug for BoundRouteHandoff {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BoundRouteHandoff")
-            .field("source_index", &self.source_index)
-            .field("boundary", &self.boundary)
+            .field("windows", &self.windows)
             .finish_non_exhaustive()
     }
 }
 
 impl BoundRouteHandoff {
-    /// 该出现对的有向边界、所属走廊、框架和共同站位范围。
+    /// 按源出现下标严格递增的有向边界及交接窗口。
     #[must_use]
-    pub fn boundary(&self) -> &HandoffBinding {
-        &self.boundary
+    pub fn windows(&self) -> &[(u32, HandoffBinding)] {
+        &self.windows
+    }
+
+    /// 取得指定出现对的有向边界、走廊、框架和共同站位范围。
+    #[must_use]
+    pub fn boundary_at(&self, source_index: u32) -> Option<&HandoffBinding> {
+        let index = self.window_index(source_index)?;
+        Some(&self.windows[index].1)
+    }
+
+    fn window_index(&self, source_index: u32) -> Option<usize> {
+        self.windows
+            .binary_search_by_key(&source_index, |w| w.0)
+            .ok()
+    }
+
+    fn occurrence_legs(
+        &self,
+        source_index: u32,
+    ) -> Option<(&[LaneEdgeOrdinal], &[LaneEdgeOrdinal])> {
+        let index = self.window_index(source_index)?;
+        let start = index
+            .checked_sub(1)
+            .map_or(0, |i| self.windows[i].0 as usize + 1);
+        let split = source_index as usize + 1;
+        let end = self
+            .windows
+            .get(index + 1)
+            .map_or(self.edges.len(), |w| w.0 as usize + 1);
+        Some((&self.edges[start..split], &self.edges[split..end]))
     }
 }
 
@@ -90,6 +120,7 @@ pub struct RouteHandoffPreview<'a> {
 
 struct LocatedTrajectory<'a> {
     revision: &'a SharedNetworkRevision,
+    cursor_runs: [CursorRun<'a>; 2],
     query: HandoffQuery,
     window: HandoffWindow,
     body: BodyEnvelope,
@@ -160,6 +191,15 @@ pub enum RouteHandoffTrialError {
     /// 源出现缺少紧邻的下一条目标出现。
     #[error("交接出现对超出路线范围")]
     OccurrenceOutOfRange,
+    /// 窗口清单为空或源出现下标未严格递增。
+    #[error("交接窗口清单须非空且源出现下标严格递增")]
+    InvalidWindowOrder,
+    /// 多窗口路线的试算须明确指定交接下标。
+    #[error("试算多窗口路线须指定源出现下标")]
+    OccurrenceRequired,
+    /// 指定下标处没有绑定交接窗口。
+    #[error("指定的源出现下标处没有交接窗口")]
+    UnboundOccurrence,
     /// 当前修订没有这项车型身份。
     #[error("交接试算的车辆配置不存在")]
     UnknownProfile,
@@ -175,164 +215,58 @@ pub enum RouteHandoffTrialError {
 }
 
 impl TrafficWorld {
-    /// 在命令路径预检路线容量与两段普通机动，将指定的相邻出现绑定到实际路层和允许窗口。
-    /// 绑定保留两段路线的边和机动，可在同一修订反复试算。世界路线槽仍可用。
+    /// 试算只有一处交接的候选路线。多窗口路线应调用 [`Self::preview_route_handoff_at`]。
     ///
     /// # Errors
     ///
-    /// 修订、出现下标、边界窗口、普通路线连通性或容量不满足时返回错误。
+    /// 多个窗口返回 [`RouteHandoffTrialError::OccurrenceRequired`]。
+    /// 其余错误同 [`Self::preview_route_handoff_at`]。
     ///
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic。
-    pub fn bind_route_handoff(
-        &self,
-        route: &RouteRegisterInput,
-        occurrence: RouteHandoffOccurrence,
-    ) -> Result<BoundRouteHandoff, RouteHandoffTrialError> {
+    pub fn preview_route_handoff<'a>(
+        &'a self,
+        binding: &'a BoundRouteHandoff,
+        trial: &RouteHandoffTrial,
+    ) -> Result<RouteHandoffPreview<'a>, RouteHandoffTrialError> {
         self.execution.assert_usable();
-        let revision = &self.state.binding.revision;
-        if occurrence.revision != revision.network_revision() {
-            return Err(RouteHandoffTrialError::RevisionMismatch);
-        }
-        let edges = route.edges();
-        self.state.preflight_route_registration(edges.len())?;
-        let target = (occurrence.source_index as usize)
-            .checked_add(1)
-            .filter(|&i| i < edges.len())
-            .ok_or(RouteHandoffTrialError::OccurrenceOutOfRange)?;
-        let crossing = [edges[target - 1], edges[target]];
-        let boundary = revision
-            .bind_handoff_window(
-                occurrence.revision,
-                HandoffWindow {
-                    edges: crossing,
-                    owner: occurrence.owner,
-                    left_index: occurrence.left_index,
-                    stations_nm: occurrence.stations_nm,
-                },
-            )
-            .map_err(RouteHandoffTrialError::Boundary)?;
-        self.compile_handoff(edges, occurrence.source_index, boundary)
-    }
-
-    /// 在目标世界重绑另一修订的候选路线。保持完整出现顺序并重新编译普通机动。
-    /// 两端证据须能证明原有效窗口的物理对应关系。成功和失败均不修改两个世界。
-    ///
-    /// # Errors
-    ///
-    /// 来源、窗口、路线边或普通机动无法重绑，或目标容量不足时返回错误。
-    ///
-    /// # Panics
-    ///
-    /// 世界因执行 panic 失效后调用会 panic。
-    pub fn rebind_route_handoff(
-        &self,
-        old: &BoundRouteHandoff,
-        old_sources: &HandoffSourceEvidence<'_>,
-        new_sources: &HandoffSourceEvidence<'_>,
-    ) -> Result<BoundRouteHandoff, RouteHandoffTrialError> {
-        self.execution.assert_usable();
-        let target_revision = &self.state.binding.revision;
-        let [source, target] = &old.legs;
-        let count = source.edges.len() + target.edges.len();
-        self.state.preflight_route_registration(count)?;
-        let boundary = target_revision
-            .rebind_handoff_window(&old.revision, old.boundary, old_sources, new_sources)
-            .map_err(RouteHandoffTrialError::Boundary)?;
-        let mut edges = Vec::new();
-        edges
-            .try_reserve_exact(count)
-            .map_err(|_| RouteError::AllocationFailed)?;
-        for edge in source.edges.iter().chain(&target.edges) {
-            let stable = old
-                .revision
-                .identity()
-                .stable_id(*edge)
-                .ok_or(RouteError::UnknownEdge)?;
-            edges.push(
-                target_revision
-                    .identity()
-                    .ordinal(stable)
-                    .ok_or(RouteError::UnknownEdge)?,
-            );
-        }
-        self.compile_handoff(&edges, old.source_index, boundary)
-    }
-
-    fn compile_handoff(
-        &self,
-        edges: &[LaneEdgeOrdinal],
-        source_index: u32,
-        boundary: HandoffBinding,
-    ) -> Result<BoundRouteHandoff, RouteHandoffTrialError> {
-        let revision = &self.state.binding.revision;
-        // 初次绑定已核对该下标有后继；重绑保留每个出现的位置。
-        let target = source_index as usize + 1;
-        let [source_edge, target_edge] = boundary.window().edges;
-        if [edges[target - 1], edges[target]] != [source_edge, target_edge] {
-            return Err(RouteHandoffTrialError::Boundary(Failure::Binding));
-        }
-        if revision
-            .traffic()
-            .maneuvers()
-            .transition_candidates(source_edge)
-            .is_some_and(|candidates| candidates.iter().any(|hop| hop.successor() == target_edge))
-        {
-            return Err(RouteError::ManeuverMismatch.into());
-        }
-        let mut live_conflicts = self.state.committed.live_route_conflict_occurrence_count;
-        let mut compile_leg = |edges: &[LaneEdgeOrdinal]| -> Result<RouteLeg, RouteError> {
-            let compiled = compile_route(
-                revision,
-                edges,
-                live_conflicts,
-                self.state
-                    .binding
-                    .config
-                    .route_conflict_occurrence_capacity(),
-            )?;
-            live_conflicts += compiled.conflicts.len() as u64;
-            Ok(RouteLeg {
-                edges: compiled.edges,
-                maneuvers: compiled.maneuvers,
-            })
+        let [(source_index, _)] = binding.windows.as_slice() else {
+            return Err(RouteHandoffTrialError::OccurrenceRequired);
         };
-        let (source, target) = edges.split_at(target);
-        Ok(BoundRouteHandoff {
-            revision: Arc::clone(revision),
-            source_index,
-            boundary,
-            legs: [compile_leg(source)?, compile_leg(target)?],
-        })
+        self.preview_route_handoff_at(binding, *source_index, trial)
     }
 
-    /// 在当前修订只读试算已绑定的路线出现对。复用绑定时编译的普通机动，
+    /// 在当前修订只读试算指定的路线出现对。复用绑定时编译的普通机动，
     /// 核对全部路线边与机动的静态通行规则，再按实际边和窗口求车体几何。
     /// 对已定位的交接，还须证明两侧车道在整车投影窗口内覆盖的每条边均允许该车型。
     /// 若投影窗口包含该车型禁行的边，即使车身实际未触及该边，也会返回
     /// `SideAccessUnproven`。调用方宜给出能覆盖整车的紧凑窗口。
-    /// 此入口供命令路径使用。按车型检查两段路线的成本在几何预算之外。
+    /// 此入口供命令路径使用。按车型检查整条路线的成本在几何预算之外。
     /// 动态跟车、信号与同拍占用仍须在步进中裁决。调用不登记路线或改变世界状态。
     ///
     /// # Errors
     ///
-    /// 修订不匹配、车型不存在、路线准入被拒或两侧车道准入未证时返回相应错误。
+    /// 修订不匹配、出现下标未绑定、车型不存在、路线准入被拒或两侧车道准入未证时返回相应错误。
     /// 几何拒绝、越窗或未证由报告区分。
     ///
     /// # Panics
     ///
     /// 世界因执行 panic 失效后调用会 panic。
-    pub fn preview_route_handoff(
-        &self,
-        binding: &BoundRouteHandoff,
+    pub fn preview_route_handoff_at<'a>(
+        &'a self,
+        binding: &'a BoundRouteHandoff,
+        source_index: u32,
         trial: &RouteHandoffTrial,
-    ) -> Result<RouteHandoffPreview<'_>, RouteHandoffTrialError> {
+    ) -> Result<RouteHandoffPreview<'a>, RouteHandoffTrialError> {
         self.execution.assert_usable();
         let revision = &self.state.binding.revision;
-        if binding.boundary.revision() != revision.network_revision() {
+        if binding.revision.network_revision() != revision.network_revision() {
             return Err(RouteHandoffTrialError::RevisionMismatch);
         }
+        let boundary = binding
+            .boundary_at(source_index)
+            .ok_or(RouteHandoffTrialError::UnboundOccurrence)?;
         let traffic = revision.traffic();
         let profile_ordinal = revision
             .identity()
@@ -342,25 +276,24 @@ impl TrafficWorld {
             .relations()
             .vehicle_profile(profile_ordinal)
             .ok_or(RouteHandoffTrialError::UnknownProfile)?;
-        for leg in &binding.legs {
-            if route_access_denied(
-                traffic,
-                profile.class(),
-                &leg.edges,
-                0,
-                leg.maneuvers
-                    .iter()
-                    .map(|m| (m.path, m.exit_route_edge_index)),
-            ) {
-                return Err(RouteHandoffTrialError::AccessDenied);
-            }
+        if route_access_denied(
+            traffic,
+            profile.class(),
+            &binding.edges,
+            0,
+            binding
+                .maneuvers
+                .iter()
+                .map(|m| (m.path, m.exit_route_edge_index)),
+        ) {
+            return Err(RouteHandoffTrialError::AccessDenied);
         }
-        let window = binding.boundary.window();
+        let window = boundary.window();
         let g = profile.geometry();
         let query = HandoffQuery {
-            revision: binding.boundary.revision(),
-            corridor: binding.boundary.corridor(),
-            frame: binding.boundary.frame(),
+            revision: boundary.revision(),
+            corridor: boundary.corridor(),
+            frame: boundary.frame(),
             station_window_nm: trial.station_window_nm,
             rear_stations_nm: trial.rear_stations_nm,
             axles: AxleDimensions {
@@ -382,11 +315,15 @@ impl TrafficWorld {
         };
         let report = revision.vehicle_handoff(&query, steering, body, trial.limits, window);
         let mut side_access_work = 0;
-        if let HandoffOutcome::Located { .. } = report.outcome {
+        let trajectory = if let HandoffOutcome::Located { .. } = report.outcome {
+            let (source, target) = binding
+                .occurrence_legs(source_index)
+                .ok_or(RouteHandoffTrialError::UnboundOccurrence)?;
+            let mut cursor_runs = [CursorRun::EMPTY; 2];
             let sweep_used =
                 report.work + report.geometry.map_or(0, |geometry| geometry.sweep.work);
             let sweep_limit = trial.limits.sweep.min(GeometryWorkLimits::STANDARD.sweep);
-            for edge in window.edges {
+            for (side, edge) in window.edges.into_iter().enumerate() {
                 let unproven = RouteHandoffTrialError::SideAccessUnproven { route_edge: edge };
                 let lane = traffic
                     .relations()
@@ -414,18 +351,26 @@ impl TrafficWorld {
                 }) {
                     return Err(unproven);
                 }
+                cursor_runs[side] = if side == 0 {
+                    CursorRun::source(source, source_index, &hits)
+                } else {
+                    CursorRun::target(target, source_index, &hits)
+                }
+                .ok_or(unproven)?;
             }
-        }
+            Some(LocatedTrajectory {
+                revision,
+                cursor_runs,
+                query,
+                window,
+                body,
+            })
+        } else {
+            None
+        };
         Ok(RouteHandoffPreview {
-            source_index: binding.source_index,
-            trajectory: matches!(report.outcome, HandoffOutcome::Located { .. }).then_some(
-                LocatedTrajectory {
-                    revision,
-                    query,
-                    window,
-                    body,
-                },
-            ),
+            source_index,
+            trajectory,
             report,
             side_access_work,
         })
