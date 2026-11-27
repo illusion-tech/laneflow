@@ -545,11 +545,33 @@ fn transition_execution_supported() -> bool {
     true
 }
 
-/// 注册期唯一出现记录编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
-/// 不上 `u64`，不冻当前红灯。
+/// 按完整路线的终点规则编译注册输入。
 pub(crate) fn compile_route(
     revision: &SharedNetworkRevision,
     edges: &[LaneEdgeOrdinal],
+    live_conflict_occurrence_count: u64,
+    route_conflict_occurrence_capacity: u64,
+) -> Result<CompiledRoute, RouteError> {
+    compile_route_leg(
+        revision,
+        edges,
+        RouteLegEnd::Destination,
+        live_conflict_occurrence_count,
+        route_conflict_occurrence_capacity,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum RouteLegEnd {
+    Destination,
+    BoundHandoffSource,
+}
+
+/// 注册期唯一出现记录编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换。
+pub(super) fn compile_route_leg(
+    revision: &SharedNetworkRevision,
+    edges: &[LaneEdgeOrdinal],
+    end: RouteLegEnd,
     live_conflict_occurrence_count: u64,
     route_conflict_occurrence_capacity: u64,
 ) -> Result<CompiledRoute, RouteError> {
@@ -565,7 +587,8 @@ pub(crate) fn compile_route(
     }
     let first = edges[0];
     let last = *edges.last().expect("non-empty route");
-    if traffic.relations().stop_line_for_edge(last).is_some() {
+    // 横移的普通段在已绑定的源边结束，该边的停止线由交接预检判定。
+    if end == RouteLegEnd::Destination && traffic.relations().stop_line_for_edge(last).is_some() {
         return Err(RouteError::ManeuverMismatch);
     }
     if traffic.relations().lane_edge_junction(first).is_some()
@@ -1469,7 +1492,7 @@ fn unique_entry_path_match_filtered<'a>(
 }
 
 /// 注册时按 hop 下标物化闸。tick 读 `hop_gate` 列，不得再线性扫机动出现记录。
-fn hop_gate_at(
+pub(super) fn hop_gate_at(
     network: &SharedManeuverNetwork,
     maneuvers: &[ManeuverOccurrence],
     hop_index: usize,
@@ -1477,9 +1500,9 @@ fn hop_gate_at(
     to: LaneEdgeOrdinal,
 ) -> Option<ManeuverGateOrdinal> {
     let hop = u32::try_from(hop_index).ok()?;
-    let occurrence = maneuvers.iter().find(|occurrence| {
-        hop >= occurrence.entry_route_edge_index && hop < occurrence.exit_route_edge_index
-    })?;
+    // 完整普通机动按路线出现顺序互不重叠，出口可与下一入口共边。
+    let i = maneuvers.partition_point(|m| m.exit_route_edge_index <= hop);
+    let occurrence = maneuvers.get(i)?;
     let transition_index = hop.checked_sub(occurrence.entry_route_edge_index)?;
     network
         .transition_candidates(from)?

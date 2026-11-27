@@ -257,6 +257,7 @@ impl TrafficWorld {
             comfort_decel: path.comfort_decel,
             admission_work: preview.report.work
                 + preview.side_access_work
+                + preview.stop_line_work
                 + preview
                     .report
                     .geometry

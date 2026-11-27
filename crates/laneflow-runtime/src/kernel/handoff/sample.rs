@@ -116,7 +116,7 @@ impl<'a> CursorRun<'a> {
         })
     }
 
-    fn resolve(self, edge: LaneEdgeOrdinal) -> Result<u32, RouteHandoffSampleError> {
+    pub(super) fn resolve(self, edge: LaneEdgeOrdinal) -> Result<u32, RouteHandoffSampleError> {
         self.edges
             .iter()
             .position(|&candidate| candidate == edge)

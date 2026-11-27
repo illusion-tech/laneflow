@@ -182,6 +182,22 @@ impl SharedStationMapping {
             .ok()
             .map(|i| &self.footprints[i])
     }
+
+    /// 读取边在行驶方向末端的规范切点站位，单位纳米。
+    #[must_use]
+    pub fn edge_end_station_nm(&self, edge: LaneEdgeOrdinal) -> Option<u64> {
+        let edge = self.edges.get(edge.index()).copied().flatten()?;
+        Some(edge.spans.slice(&self.segments).last()?.map.stations_nm()[1])
+    }
+
+    /// 由站位分段索引读取同一编制车道的物理前一边。车道起点没有前一边。
+    #[must_use]
+    pub fn preceding_lane_edge(&self, edge: LaneEdgeOrdinal) -> Option<LaneEdgeOrdinal> {
+        let edge = self.edges.get(edge.index()).copied().flatten()?;
+        let lane = self.lanes[edge.lane.index()]?;
+        let first = edge.spans.start();
+        (first > lane.spans.start()).then(|| self.segments[first as usize - 1].edge)
+    }
     /// 在本修订内按所有者、左成员、种类及局部名排列的命名区间。
     #[must_use]
     pub fn boundary_extents(&self) -> &[BoundaryExtent] {
