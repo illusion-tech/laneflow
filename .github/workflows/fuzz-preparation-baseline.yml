@@ -1,0 +1,92 @@
+name: Fuzz preparation baseline comparison
+
+on:
+  push:
+    branches:
+      - codex/1464-fuzz-preparation-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  input-fuzz:
+    name: Input fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      # 一个 target 出 crash 时另一个仍要跑完并各自上传 artifact。
+      fail-fast: false
+      matrix:
+        target:
+          - lfre_arbitrary_bytes
+          - lfre_writer_differential
+          - portable_arbitrary_bytes
+          - portable_bundle_mutation
+          - lfrs_restore
+          - cutover_inputs
+    env:
+      # 每个 target 的有界运行秒数，保持 PR 反馈在分钟级。
+      FUZZ_MAX_TOTAL_TIME: "300"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 9fae151f1ed9bfa7a9de0a203c47ee1519fc72d1
+
+      - name: Install Rust nightly toolchain for libFuzzer
+        shell: bash
+        run: rustup toolchain install nightly --profile minimal --component clippy
+
+      - name: Cache Rust dependencies for fuzz
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: laneflow-nightly-fuzz
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
+      # 与 cargo-deny 相同的供应链纪律：固定工具版本与依赖解析（--locked），
+      # 避免上游 cargo-fuzz 新版本改变 libFuzzer 默认参数或 sanitizer 行为，
+      # 导致 fuzz 结果不可复现。
+      - name: Install cargo-fuzz 0.13.2
+        shell: bash
+        run: cargo +nightly install cargo-fuzz --locked --version 0.13.2
+
+      - name: Record toolchain identity
+        run: |
+          rustc +nightly --version --verbose
+          cargo +nightly --version
+          cargo +nightly fuzz --version
+
+      - name: Validate harness oracles
+        run: cargo +nightly test --manifest-path fuzz/Cargo.toml --locked --lib
+
+      - name: Check fuzz harness lints
+        run: cargo +nightly clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Prepare seed corpus and byte inventory
+        run: cargo +nightly run --manifest-path fuzz/Cargo.toml --locked --example seed_corpus -- fuzz/corpus
+
+      - name: Fuzz ${{ matrix.target }}
+        shell: bash
+        env:
+          FUZZ_TARGET: ${{ matrix.target }}
+        run: >-
+          cargo +nightly run --manifest-path fuzz/Cargo.toml --locked
+          --example run_campaign -- ${FUZZ_TARGET}
+
+      # cargo-fuzz 0.13.2 不提供 --locked；前置 Cargo 命令使用锁文件，执行后再核对未漂移。
+      - name: Verify dependency lockfiles stayed unchanged
+        run: git diff --exit-code -- Cargo.lock fuzz/Cargo.lock
+
+      - name: Preserve corpus and crash artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: input-fuzz-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            fuzz/corpus/${{ matrix.target }}/
+            fuzz/corpus/seed-inventory.tsv
+            fuzz/artifacts/${{ matrix.target }}/
+            fuzz/receipts/${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 90
