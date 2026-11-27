@@ -11,7 +11,7 @@ use crate::{
 
 mod obstacle;
 mod rule;
-pub(super) use rule::window_permission;
+pub(super) use rule::{BodyBoundary, window_permission};
 
 /// 后轴坐标系中沿前、左、上三个方向的实体包络，单位米。
 #[derive(Clone, Copy, Debug, PartialEq)]

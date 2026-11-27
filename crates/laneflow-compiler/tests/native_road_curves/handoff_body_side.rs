@@ -68,29 +68,68 @@ fn inputs(n: &SharedNetworkRevision, rear: [u64; 2]) -> (HandoffQuery, HandoffWi
 }
 
 #[test]
+fn body_side_at_handoff_endpoints_is_invariant_under_horizontal_rotation() {
+    let diagonal = std::f64::consts::FRAC_1_SQRT_2;
+    for heading in [[0., 1.], [diagonal, diagonal]] {
+        for (direction, rear) in [
+            (RoadEditingLaneDirection::Forward, [10 * M, 40 * M]),
+            (RoadEditingLaneDirection::Backward, [40 * M, 10 * M]),
+        ] {
+            let artifact = straight_road(heading, direction);
+            let network = load_network(&artifact, SpatialBuildOption::Omit);
+            let (q, window) = inputs(&network, rear);
+            for edges in [window.edges, [window.edges[1], window.edges[0]]] {
+                let w = HandoffWindow { edges, ..window };
+                // 两端五次横移的切向都沿道路。两车道各宽 3.5 m，
+                // 半车宽 0.95 m，起止姿态的完整车身距共边均有 0.80 m。
+                for (station, expected) in rear
+                    .into_iter()
+                    .zip([HandoffBodySide::SourceOnly, HandoffBodySide::TargetOnly])
+                {
+                    let query = |limit| network.handoff_body_side(&q, w, BODY, [station; 2], limit);
+                    let full = query(SWEEP_WORK_LIMIT);
+                    assert_eq!(
+                        full.side,
+                        Ok(expected),
+                        "{heading:?}, {direction:?}, {edges:?}"
+                    );
+                    assert_eq!(query(full.work), full);
+                    assert_eq!(query(full.work - 1).side, Err(Failure::WorkLimit));
+                }
+            }
+        }
+    }
+}
+
+fn straight_road(
+    [x, z]: [f64; 2],
+    direction: RoadEditingLaneDirection,
+) -> PortablePublicationCandidate {
+    let at = |s| p(x * s, 0., z * s);
+    let program =
+        Program::try_new(at(0.), vec![Segment::line(at(25.)), Segment::line(at(50.))]).unwrap();
+    let source = save_lane_declarations(
+        program,
+        &[],
+        (
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+        ),
+        [direction; 2],
+        CrossSectionCoverage::Complete,
+        0,
+        SectionFixture::default(),
+    );
+    publish(&compile_saved(&source).unwrap(), "handoff-body-side")
+}
+
+#[test]
 fn full_body_straddles_after_front_handoff_and_then_clears_in_both_directions() {
     for (direction, rear) in [
         (RoadEditingLaneDirection::Forward, [10 * M, 40 * M]),
         (RoadEditingLaneDirection::Backward, [40 * M, 10 * M]),
     ] {
-        let program = Program::try_new(
-            p(0., 0., 0.),
-            vec![Segment::line(p(0., 0., 25.)), Segment::line(p(0., 0., 50.))],
-        )
-        .unwrap();
-        let source = save_lane_declarations(
-            program,
-            &[],
-            (
-                GeometryAccuracyProfile::Fine2Cm,
-                GeometryDirectionProfile::Smooth1Deg,
-            ),
-            [direction; 2],
-            CrossSectionCoverage::Complete,
-            0,
-            SectionFixture::default(),
-        );
-        let artifact = publish(&compile_saved(&source).unwrap(), "handoff-body-side");
+        let artifact = straight_road([0., 1.], direction);
         let reports = [
             SpatialBuildOption::Omit,
             SpatialBuildOption::RetainAvailable,
