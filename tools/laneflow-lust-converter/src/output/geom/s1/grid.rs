@@ -378,7 +378,6 @@ impl Drop for GridReset {
 /// // budget.grid_work_consumed = 两次实耗之和；32M 不按见证续杯。
 /// ```
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // 划分/来源拟合分量随 reshape 侧接线（task-11 B 驱动）启用；句柄形状先行冻结。
 pub(crate) struct WorkBudget {
     pub(crate) partitions_remaining: u64,
     pub(crate) grid_work_remaining: u64,

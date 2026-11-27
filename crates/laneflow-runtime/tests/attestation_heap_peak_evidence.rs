@@ -112,25 +112,25 @@ fn attestation_and_digest_heap_peak_evidence() {
                 .direct_state_digest(SnapshotDigestLimits::new(64 * 1024 * 1024))
                 .unwrap()
         });
-        let (legacy, legacy_stats) = measure_heap(|| {
+        let (captured_digest, captured_stats) = measure_heap(|| {
             let snapshot = world.capture_snapshot().unwrap();
             laneflow_runtime::deterministic_state_digest(&snapshot).unwrap()
         });
-        assert_eq!(direct, legacy);
+        assert_eq!(direct, captured_digest);
         assert_eq!(direct_stats.curr_bytes, 0);
-        assert_eq!(legacy_stats.curr_bytes, 0);
+        assert_eq!(captured_stats.curr_bytes, 0);
         println!(
             "#987-evidence heap-peak smoke={} tier={tier} vehicles={vehicles} routes={routes} \
             source_bytes={} root_heap_bytes={} additional_peak_bytes={} \
             contract_increment_peak_bytes={increment} contract_coexist_peak_bytes={coexist} \
-            steady_retained_bytes={} direct_heap_peak_bytes={} legacy_heap_peak_bytes={}",
+            steady_retained_bytes={} direct_heap_peak_bytes={} captured_heap_peak_bytes={}",
             synthetic_network::smoke_mode(),
             lfca.len(),
             root_stats.curr_bytes,
             attestation.max_bytes,
             attestation.curr_bytes,
             direct_stats.max_bytes,
-            legacy_stats.max_bytes
+            captured_stats.max_bytes
         );
     }
 }

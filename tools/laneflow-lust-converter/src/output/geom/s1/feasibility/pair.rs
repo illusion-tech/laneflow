@@ -186,7 +186,6 @@ fn single_chord_verdict(c: [Vec3; 4]) -> Value {
 }
 
 /// 零维单弦分支 `[0,1]`（P1-S/P2-S 共享、只执行一次；v3.1 执行条款 1 三分写）。
-#[allow(dead_code)]
 pub(crate) fn diagnose_single_chord(control: [Vec3; 6]) -> Value {
     let c = [control[0], control[1], control[2], control[3]];
     let mut result = single_chord_verdict(c);
@@ -196,14 +195,12 @@ pub(crate) fn diagnose_single_chord(control: [Vec3; 6]) -> Value {
 }
 
 /// P1-T 首两弦 `[0,u],[u,v]`（域 `0<u<v≤1`）。
-#[allow(dead_code)]
 pub(crate) fn diagnose_first_two_chords(control: [Vec3; 6]) -> Value {
     diagnose_pair(PairKind::FirstTwo, control)
 }
 
 /// P2-T 真实末两弦 `[u,v],[v,1]`（域 `0≤u<v<1`；`v=1` 零长不作两弦见证，
 /// 去重 `[u,1]` 只记独立末弦诊断）。
-#[allow(dead_code)]
 pub(crate) fn diagnose_last_two_chords(control: [Vec3; 6]) -> Value {
     diagnose_pair(PairKind::LastTwo, control)
 }
@@ -211,7 +208,6 @@ pub(crate) fn diagnose_last_two_chords(control: [Vec3; 6]) -> Value {
 /// 已知参数重放（v3.1 §4 A′「参数重放」类）：给定 (u,v) 直接按真实接受口径验两弦
 /// 见证（`witness` 内建 0.01 筛选 + sink 真实检查 + 相邻转角），不经搜索；
 /// 出域退化（P1-T `u=0` / P2-T `v=1`）返回 `None`。
-#[allow(dead_code)]
 pub(crate) fn replay_pair_witness(
     kind: PairKind,
     control: [Vec3; 6],
@@ -227,7 +223,6 @@ pub(crate) fn replay_pair_witness(
 
 /// 问题汇总规则（v3.1 执行条款 3）：单弦分支 + 对应两弦分支均排除才记
 /// 「该固定 cubic 的完整发射被该必要条件否定」；任一必要分支未决即禁标全参数域排除。
-#[allow(dead_code)]
 pub(crate) fn branch_verdict(single: &Value, pair: &Value) -> &'static str {
     let excluded = |v: &Value| v["status"] == "necessary_condition_excluded";
     let unresolved = |v: &Value| v["status"] == "unresolved";
@@ -245,7 +240,6 @@ pub(crate) fn branch_verdict(single: &Value, pair: &Value) -> &'static str {
 /// `assert_eq!(left[3], right[0])` + `quantize_vec3(joint)` 承担，不用区间包含
 /// 判定）；边界分支**单列记录**（s=0 左侧整 cubic 单弦 / t=1 右侧整 cubic 单弦，
 /// 零维语义按执行条款 1 三分写）；汇总按执行条款 3。
-#[allow(dead_code)]
 pub(crate) fn diagnose_seam_pair(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
     let pair = super::seam::diagnose(left, right);
     let boundaries = json!({
@@ -276,7 +270,6 @@ pub(crate) fn diagnose_seam_pair(left: [Vec3; 4], right: [Vec3; 4]) -> Value {
 /// （dir 不参与），重建仅需 `control_f64_bits`。零转角（直线）无切向表 ⇒ `None`
 /// （对应 `angle_partition_unavailable`）。重建后须与候选程序生成规范点**逐位核对**
 /// （调用方断言）。
-#[allow(dead_code)]
 pub(crate) fn recovered_split_params(
     control: [Vec3; 6],
     partition: &str,
@@ -302,36 +295,6 @@ pub(crate) fn recovered_split_params(
         ),
         other => panic!("unknown frozen partition {other}"),
     }
-}
-
-/// 给定切分参数求规范量化 f32 位点（逐位核对统一入口；三路径参数皆经此求点）。
-#[allow(dead_code)]
-pub(crate) fn quantized_points_at(control: [[f64; 3]; 6], params: &[f64]) -> Vec<[u32; 3]> {
-    let c = [control[0], control[1], control[2], control[3]];
-    params
-        .iter()
-        .map(|t| {
-            let p = if *t == 0.0 {
-                c[0]
-            } else if *t == 1.0 {
-                c[3]
-            } else {
-                cubic_at(c[0], c[1], c[2], c[3], *t)
-            };
-            quantize_vec3(p).map(f32::to_bits)
-        })
-        .collect()
-}
-
-/// 重建切分点的规范量化 f32 位（路径③重建参数 → 求点）。
-#[allow(dead_code)]
-pub(crate) fn rebuilt_quantized_points(
-    control: [Vec3; 6],
-    partition: &str,
-    pieces: u32,
-) -> Option<Vec<[u32; 3]>> {
-    let params = recovered_split_params(control, partition, pieces)?;
-    Some(quantized_points_at(control, &params))
 }
 
 #[cfg(test)]

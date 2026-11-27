@@ -233,7 +233,6 @@ pub(crate) enum EndChord {
 /// `direction` 为发射管线实际施加的端弦方向条件（边界钳制目标）；规定倒圆切向属于曲线
 /// 构造，不作为离散弦必须满足的方向条件，此时传 `None` 只用量化弦长判据（冻结计划 §3.1）。
 /// 单个问题全参数域排除即可否定该固定 cubic 的完整发射；见证只证明该局部问题存在解。
-#[allow(dead_code)]
 pub(crate) fn diagnose_end_chord(
     control: [Vec3; 6],
     end: EndChord,

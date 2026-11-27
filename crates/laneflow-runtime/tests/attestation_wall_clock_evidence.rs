@@ -153,8 +153,8 @@ fn direct_digest_wall_clock_evidence() {
         }
         let mut direct: Vec<u128> = Vec::with_capacity(SAMPLES);
         let mut capture: Vec<u128> = Vec::with_capacity(SAMPLES);
-        let mut legacy_digest: Vec<u128> = Vec::with_capacity(SAMPLES);
-        let mut legacy_total: Vec<u128> = Vec::with_capacity(SAMPLES);
+        let mut captured_digest_ns: Vec<u128> = Vec::with_capacity(SAMPLES);
+        let mut captured_total_ns: Vec<u128> = Vec::with_capacity(SAMPLES);
         for _ in 0..SAMPLES {
             let started = Instant::now();
             let digest = world.direct_state_digest(limits).expect("direct digest");
@@ -164,25 +164,26 @@ fn direct_digest_wall_clock_evidence() {
             let captured = world.capture_snapshot().expect("capture");
             let capture_ns = total_started.elapsed().as_nanos();
             let digest_started = Instant::now();
-            let legacy = laneflow_runtime::deterministic_state_digest(&captured).expect("legacy");
+            let captured_digest =
+                laneflow_runtime::deterministic_state_digest(&captured).expect("captured digest");
             let digest_ns = digest_started.elapsed().as_nanos();
             let total_ns = total_started.elapsed().as_nanos();
             assert!(total_ns >= capture_ns + digest_ns);
             capture.push(capture_ns);
-            legacy_digest.push(digest_ns);
-            legacy_total.push(total_ns);
-            assert_eq!(digest, legacy);
+            captured_digest_ns.push(digest_ns);
+            captured_total_ns.push(total_ns);
+            assert_eq!(digest, captured_digest);
         }
         let direct_median = median(&direct);
         let capture_median = median(&capture);
-        let legacy_digest_median = median(&legacy_digest);
-        let legacy_total_median = median(&legacy_total);
+        let captured_digest_median = median(&captured_digest_ns);
+        let captured_total_median = median(&captured_total_ns);
         println!(
             "#987-evidence direct-digest smoke={} tier={tier} entities={tier} vehicles={vehicles} \
              routes={routes} direct_median_ns={direct_median} capture_median_ns={capture_median} \
-             legacy_digest_median_ns={legacy_digest_median} direct_samples={direct:?} \
-             capture_samples={capture:?} legacy_digest_samples={legacy_digest:?} \
-             legacy_total_median_ns={legacy_total_median} legacy_total_samples={legacy_total:?}",
+             captured_digest_median_ns={captured_digest_median} direct_samples={direct:?} \
+             capture_samples={capture:?} captured_digest_samples={captured_digest_ns:?} \
+             captured_total_median_ns={captured_total_median} captured_total_samples={captured_total_ns:?}",
             synthetic_network::smoke_mode(),
         );
     }

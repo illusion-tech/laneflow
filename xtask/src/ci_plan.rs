@@ -195,7 +195,6 @@ fn chars_match(pattern: &[char], text: &[char]) -> bool {
 #[derive(Deserialize)]
 struct MetadataDoc<P = PackageDoc> {
     packages: Vec<P>,
-    #[allow(dead_code)]
     workspace_root: PathBuf,
 }
 

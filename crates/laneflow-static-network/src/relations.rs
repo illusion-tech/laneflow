@@ -623,7 +623,6 @@ impl<T: Copy> OptionalColumn<T> {
 }
 
 /// #440 闭合的剩余 Traffic 静态关系。
-#[allow(dead_code)]
 pub struct SharedRelationClosure {
     pub(crate) intern: Box<[Box<str>]>,
     pub(crate) corridor_reference_section: Box<[RoadSectionOrdinal]>,
