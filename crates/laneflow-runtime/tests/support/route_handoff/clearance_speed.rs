@@ -144,7 +144,7 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
     // 先于路墩的候选头部、车尾越过路墩的候选末部都允许较高车速。
     assert!(slow.travel_mm[0] > 2_000, "{plan:?}");
     assert!(
-        slow.travel_mm[1] * 1_000 + 2_000_000 < plan.length_lower_um(),
+        slow.travel_mm[1] + 2_000 < plan.length_lower_mm(),
         "{plan:?}"
     );
     assert_eq!(
@@ -154,24 +154,24 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
         2_000
     );
     assert_eq!(
-        plan.preview_braking_step(slow.travel_mm[1] * 1_000, 1_000, 1_200)
+        plan.preview_braking_step(slow.travel_mm[1], 1_000, 1_200)
             .unwrap()
             .next_speed_mm_s,
         1_000
     );
     assert_eq!(
-        plan.preview_braking_step((slow.travel_mm[1] + 1) * 1_000, 1_000, 1_200)
+        plan.preview_braking_step(slow.travel_mm[1] + 1, 1_000, 1_200)
             .unwrap()
             .next_speed_mm_s,
         1_200
     );
     // 2 m/s 降至 1 m/s，服务减速度 3 m/s² 时需要整 0.5 m。100 ms 拍末为 1.7 m/s。
     let braking = plan
-        .preview_braking_step((slow.travel_mm[0] * 1_000) - 500_000, 2_000, 2_000)
+        .preview_braking_step(slow.travel_mm[0] - 500, 2_000, 2_000)
         .unwrap();
     assert_eq!(
-        (braking.next_speed_mm_s, braking.travel_upper_um),
-        (1_700, 185_000)
+        (braking.next_speed_mm_s, braking.travel_upper_mm),
+        (1_700, 185)
     );
 
     let mut tiny_segments = config;
@@ -211,7 +211,7 @@ fn the_ground_post_limits_its_passage_and_the_raised_copy_leaves_it_unrestricted
     assert!(raised.windows().is_empty(), "{raised:?}");
     assert_eq!(
         raised
-            .preview_braking_step(slow.travel_mm[0] * 1_000, 2_000, 2_000)
+            .preview_braking_step(slow.travel_mm[0], 2_000, 2_000)
             .unwrap()
             .next_speed_mm_s,
         2_000
@@ -247,7 +247,7 @@ fn decreasing_station_brakes_before_the_post_and_releases_after_rear_clearance()
         panic!("{plan:?}")
     };
     assert_eq!(slow.speed_mm_s, 1_000);
-    let [entry, exit] = slow.travel_mm.map(|mm| mm * 1_000);
+    let [entry, exit] = slow.travel_mm;
     // 车从 40 米站位驶向 10 米；22 米端帽之前、整车仍与它并行和车尾清空时，
     // 三个后轴站位分别落在限速窗口之前、之中和之后。
     let preview = world.preview_route_handoff(&binding, &trial).unwrap();
@@ -261,14 +261,15 @@ fn decreasing_station_brakes_before_the_post_and_releases_after_rear_clearance()
             .unwrap()
             .bounds
             .unwrap()
-            .distance_nm
+            .distance
+            .millimetres()
     };
-    assert!(at_station(23)[1] < entry * 1_000);
+    assert!(at_station(23)[1] < entry);
     let alongside = at_station(21);
-    assert!(entry * 1_000 <= alongside[0] && alongside[1] <= exit * 1_000);
-    assert!(exit * 1_000 < at_station(18)[0]);
+    assert!(entry <= alongside[0] && alongside[1] <= exit);
+    assert!(exit < at_station(18)[0]);
     assert_eq!(
-        plan.preview_braking_step(entry - 500_000, 2_000, 2_000)
+        plan.preview_braking_step(entry - 500, 2_000, 2_000)
             .unwrap()
             .next_speed_mm_s,
         1_700
@@ -280,7 +281,7 @@ fn decreasing_station_brakes_before_the_post_and_releases_after_rear_clearance()
         1_000
     );
     assert_eq!(
-        plan.preview_braking_step(exit + 1_000, 1_000, 1_200)
+        plan.preview_braking_step(exit + 1, 1_000, 1_200)
             .unwrap()
             .next_speed_mm_s,
         1_200

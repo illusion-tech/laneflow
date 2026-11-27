@@ -7,7 +7,7 @@ use laneflow_static_network::vehicle::{
 };
 use laneflow_static_network::{BoundaryOwner, CorridorElement, StationQuery};
 
-const NM_PER_M: u64 = 1_000_000_000;
+use std::ops::Bound::{Excluded, Included};
 
 fn network(
     direction: RoadEditingLaneDirection,
@@ -43,14 +43,14 @@ fn handoff_window_binds_the_two_occurrence_edges_at_independent_directional_cuts
         (
             RoadEditingLaneDirection::Forward,
             [1, 0],
-            [22 * NM_PER_M, 28 * NM_PER_M - 1],
-            28 * NM_PER_M,
+            [Included(22_000), Excluded(28_000)],
+            28_000,
         ),
         (
             RoadEditingLaneDirection::Backward,
             [0, 1],
-            [22 * NM_PER_M + 1, 28 * NM_PER_M],
-            22 * NM_PER_M,
+            [Excluded(22_000), Included(28_000)],
+            22_000,
         ),
     ] {
         let n = network(
@@ -92,10 +92,14 @@ fn handoff_window_binds_the_two_occurrence_edges_at_independent_directional_cuts
                 binding.increasing(),
                 direction == RoadEditingLaneDirection::Forward
             );
-            assert_eq!(binding.common_stations_nm(), common);
+            assert_eq!(binding.common_stations_mm(), common);
         }
-        for station_mm in [common[0].div_ceil(1_000_000), common[1] / 1_000_000] {
-            let station = station_mm * 1_000_000;
+        let owned_mm = if direction == RoadEditingLaneDirection::Forward {
+            [22_000, 27_999]
+        } else {
+            [22_001, 28_000]
+        };
+        for station_mm in owned_mm {
             let cut = HandoffWindow {
                 stations_mm: [station_mm; 2],
                 ..window
@@ -103,12 +107,12 @@ fn handoff_window_binds_the_two_occurrence_edges_at_independent_directional_cuts
             assert_eq!(
                 n.bind_handoff_window(revision, cut)
                     .unwrap()
-                    .common_stations_nm(),
-                [station; 2]
+                    .common_stations_mm(),
+                [Included(station_mm); 2]
             );
         }
         // 连续求证仍覆盖物理边拥有的最后一段：上游紧邻内切点，切点本身属于下游。
-        for station in common {
+        for station in owned_mm {
             for (&lane, edge) in lanes.iter().zip(edges) {
                 let StationQuery::Complete(found) =
                     n.station_mapping().at_station(corridor, station, lane)
@@ -121,7 +125,7 @@ fn handoff_window_binds_the_two_occurrence_edges_at_independent_directional_cuts
         let invalid = |window| n.bind_handoff_window(revision, window).unwrap_err();
         assert_eq!(
             invalid(HandoffWindow {
-                stations_mm: [excluded / 1_000_000; 2],
+                stations_mm: [excluded; 2],
                 ..window
             }),
             Failure::Binding
@@ -132,21 +136,21 @@ fn handoff_window_binds_the_two_occurrence_edges_at_independent_directional_cuts
                 usize::from(direction == RoadEditingLaneDirection::Backward),
             ),
             (
-                50 * NM_PER_M,
+                50_000,
                 usize::from(direction == RoadEditingLaneDirection::Forward),
             ),
         ] {
             let edges = [0, 1].map(|i| relations.authoring_edge_chain(lanes[i]).unwrap()[index]);
             let terminal = HandoffWindow {
                 edges,
-                stations_mm: [station / 1_000_000; 2],
+                stations_mm: [station; 2],
                 ..window
             };
             assert_eq!(
                 n.bind_handoff_window(revision, terminal)
                     .unwrap()
-                    .common_stations_nm(),
-                [station; 2]
+                    .common_stations_mm(),
+                [Included(station); 2]
             );
         }
         if direction == RoadEditingLaneDirection::Backward {
@@ -498,7 +502,7 @@ fn handoff_window_rebind_checks_exact_sources_members_and_station_reference() {
         } else {
             let new = result.unwrap();
             assert_eq!(new.revision(), target.network_revision());
-            assert_eq!(new.common_stations_nm(), old.common_stations_nm());
+            assert_eq!(new.common_stations_mm(), old.common_stations_mm());
             assert!(matches!(
                 target.rebind_handoff_window(&base, old, &target_evidence, &evidence),
                 Err(Failure::Binding)

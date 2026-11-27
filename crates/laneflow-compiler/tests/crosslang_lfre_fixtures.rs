@@ -1093,8 +1093,7 @@ fn published_mapping_projects_the_graded_bend_from_lfca_alone() {
                     .section_corridor(relations.authoring_section(target).unwrap())
                     .unwrap();
                 let StationQuery::Complete(exact) =
-                    root.station_mapping()
-                        .at_station(corridor, 60_301_000_000, target)
+                    root.station_mapping().at_station(corridor, 60_301, target)
                 else {
                     panic!("exact station unresolved")
                 };
@@ -1387,13 +1386,13 @@ fn partial_coextension_uses_each_corridors_local_domain() {
         ] {
             let StationObservation::Complete {
                 corridor,
-                stations_nm,
+                stations_mm,
             } = mapped.stations_for_progress(edge(key), 0)
             else {
                 panic!("missing source domain")
             };
             let domain = mapped.corridor_domain(corridor).unwrap();
-            assert_eq!(stations_nm[0], 0);
+            assert_eq!(stations_mm[0], 0);
             assert_eq!(
                 domain.origin_mm(),
                 (station(origin) * 1000.).round_ties_even() as u64
@@ -1414,7 +1413,7 @@ fn partial_coextension_uses_each_corridors_local_domain() {
             for (s, id, mm) in [
                 (0, edge(key), 0),
                 (
-                    domain.length_nm(),
+                    domain.length_mm(),
                     last,
                     root.traffic().lane_lengths_millimetres()[last.index()],
                 ),
@@ -1427,7 +1426,7 @@ fn partial_coextension_uses_each_corridors_local_domain() {
                 assert_eq!((out[0].edge, out[0].progress_mm), (id, [mm, mm]));
             }
             assert_eq!(
-                mapped.at_station(corridor, domain.length_nm() + 1, b),
+                mapped.at_station(corridor, domain.length_mm() + 1, b),
                 StationQuery::Outside
             );
         }

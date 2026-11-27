@@ -91,7 +91,7 @@ pub(super) fn body_offsets(
     body: BodyEnvelope,
     stations: [u64; 2],
 ) -> Result<[u64; 2], Failure> {
-    let [start, end] = q.rear_stations_nm;
+    let [start, end] = q.stations_nm()?;
     let [low, high] = stations;
     if low > high
         || low < start.min(end)
@@ -118,12 +118,12 @@ impl SharedNetworkRevision {
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        rear_stations_nm: [u64; 2],
+        rear: HandoffStationRange,
         work_limit: u32,
     ) -> HandoffBodyReport {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
         let mut run = || {
-            let offsets = body_offsets(q, body, rear_stations_nm)?;
+            let offsets = body_offsets(q, body, rear.0)?;
             let bound = bind(self, q, window, &mut work)?;
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;

@@ -39,12 +39,12 @@ cargo run --locked -p laneflow-runtime --example headless
 要预检一次动态横移能以多快的速度通过路侧实体，可在两拍之间调用
 `TrafficWorld::preview_route_handoff_speed_plan`。调用方用 `HandoffDrivingConfig`
 指定净空与速度控制点、几何分段跨度和行程精度。成功的计划按后轴实际三维行程
-列出局部限速。在后续试算中，`preview_braking_step` 读取确切的后轴累计行程、
+列出局部限速。在后续试算中，`preview_braking_step` 读取整数毫米的后轴累计行程、
 当前车速和纵向控制提出的拍末车速，给出符合车型服务制动能力的拍末车速与本拍
-行程上界。后轴位置只有上下界时用 `preview_braking_step_in`，以靠前的位置检查
+行程的整数毫米上界。后轴位置只有上下界时用 `preview_braking_step_in`，以靠前的位置检查
 来得及制动，以靠后的位置确认车尾已经离开。预检结果的 `motion` 区分整拍梯形运动与
 按车型服务减速度拍内停稳。可能越过候选终点时，`NeedsContinuation` 携带受当前候选
-限制的整拍提案和最小剩余行程，调用方仍须验证后继上的速度与位移才能提交。
+限制的整拍提案和向下取整到毫米的最小剩余行程，调用方仍须验证后继上的速度与位移才能提交。
 准备计划的几何工作只需执行一次，计划本身可多次查询。正式步进通过 `RouteRegisterInput::with_handoffs` 登记窗口。`WorldConfig::with_handoff_driving` 为世界指定净空驾驶配置，`step_with_route_handoffs` 接收当拍申请；后续普通 `step` 继续执行已提交横移。
 
 ## 示例与验证

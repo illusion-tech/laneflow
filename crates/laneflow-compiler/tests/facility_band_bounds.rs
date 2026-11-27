@@ -440,7 +440,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
                     revision: shared.network_revision(),
                     corridor: c,
                     frame: rows[0].frame,
-                    station_window_nm: [0, map.corridor_domain(c).unwrap().length_nm()],
+                    station_window_mm: [0, map.corridor_domain(c).unwrap().length_mm()],
                     traversable_lanes: relations.section_lanes(section).unwrap(),
                     axles: AxleDimensions {
                         wheelbase_m: 2.60,
@@ -448,7 +448,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
                         reference_height_m: 0.55,
                     },
                     trace: RearAxleTrace::Corridor(CorridorTrace {
-                        stations_nm: [2_000_000_000, 4_000_000_000],
+                        stations_mm: [2_000, 4_000],
                         from_m: [0.3; 2],
                         to_m: [0.3; 2],
                     }),
@@ -470,7 +470,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
                 );
                 assert!(
                     matches!(report.tracks.outcome, TrackOutcome::Covered(_))
-                        && matches!(report.sweep.outcome,SweepOutcome::Clear(Some(clear)) if clear.lower_m>0.140),
+                        && matches!(report.sweep.outcome,SweepOutcome::Clear(Some(clear)) if clear.lower_millimetres() >= 140),
                     "{report:?}"
                 );
             }
@@ -579,7 +579,7 @@ fn named_guardrail_edits_keep_their_owner_and_have_a_stable_diff() {
     }
 }
 
-fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_nm: i64) {
+fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_mm: i64) {
     let mut previous = None;
     for spatial in [
         SpatialBuildOption::Omit,
@@ -631,20 +631,19 @@ fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_nm: i64) {
                 .unwrap();
             let error_mm = i64::from(number(row, 8));
             assert!(error_mm <= 1);
-            let error = error_mm * 1_000_000;
             let corridor = band.road_corridor();
             let domain = map.corridor_domain(corridor).unwrap();
-            let length = domain.length_nm();
+            let length = domain.length_mm();
             let rising = domain.origin_mm() == 0;
-            assert_eq!(length, (LEG * 1000.).round_ties_even() as u64 * 1_000_000);
-            let widths = |station_nm: u64| {
+            assert_eq!(length, (LEG * 1000.).round_ties_even() as u64);
+            let widths = |station_mm: u64| {
                 let from_tip = if rising {
-                    station_nm
+                    station_mm
                 } else {
-                    length - station_nm
+                    length - station_mm
                 };
-                let half_width = peak_nm as f64 * (from_tip as f64 / length as f64) * 0.5;
-                [-1_750_000_000.0 + half_width, -1_750_000_000.0 - half_width]
+                let half_width = peak_mm as f64 * (from_tip as f64 / length as f64) * 0.5;
+                [-1_750.0 + half_width, -1_750.0 - half_width]
             };
             for stations in [[0, 0], [length / 2; 2], [length; 2], [length / 2, length]] {
                 let bounds = map
@@ -652,13 +651,13 @@ fn check_bounds(bytes: &[u8], output: &CompilationOutput, peak_nm: i64) {
                     .unwrap();
                 let [a, b] = stations.map(widths);
                 for (observed, x, y) in
-                    [(bounds.left_nm, a[0], b[0]), (bounds.right_nm, a[1], b[1])]
+                    [(bounds.left_mm, a[0], b[0]), (bounds.right_mm, a[1], b[1])]
                 {
                     let min = x.min(y);
                     let max = x.max(y);
                     assert_eq!(
                         observed,
-                        [min.floor() as i64 - error, max.ceil() as i64 + error]
+                        [min.floor() as i64 - error_mm, max.ceil() as i64 + error_mm]
                     );
                 }
                 actual.push(bounds);
@@ -735,8 +734,8 @@ fn median_width_changes_revision_and_two_band_rows_with_identical_centerlines() 
             .unwrap()
             .network_revision()
     );
-    check_bounds(wide_bytes, &wide_output, 500_000_000);
-    check_bounds(narrow_bytes, &narrow_output, 250_000_000);
+    check_bounds(wide_bytes, &wide_output, 500);
+    check_bounds(narrow_bytes, &narrow_output, 250);
     let diff = preflight_object_values(
         narrow.semantic_diff().bytes(),
         PortableObjectKind::SemanticDiff,
@@ -815,22 +814,22 @@ fn tapered_median_reuses_both_lane_interfaces_including_its_zero_width_tips() {
                 .unwrap()
         };
         let domain = map.corridor_domain(corridor).unwrap();
-        for (i, station) in [0, domain.length_nm()].into_iter().enumerate() {
+        for (i, station) in [0, domain.length_mm()].into_iter().enumerate() {
             let bounds = map
                 .facility_band_bounds(corridor, *band, [station; 2])
                 .unwrap();
-            let mid_mm = |[lo, hi]: [i64; 2]| lo.midpoint(hi) / 1_000_000;
+            let mid_mm = |[lo, hi]: [i64; 2]| lo.midpoint(hi);
             assert_eq!(
-                mid_mm(bounds.left_nm),
+                mid_mm(bounds.left_mm),
                 i64::from(footprint(*a).ends_mm[i][1])
             );
             assert_eq!(
-                mid_mm(bounds.right_nm),
+                mid_mm(bounds.right_mm),
                 i64::from(footprint(*b).ends_mm[i][0])
             );
-            assert_eq!(mid_mm(bounds.left_nm), -1_500);
+            assert_eq!(mid_mm(bounds.left_mm), -1_500);
             assert_eq!(
-                bounds.left_nm == bounds.right_nm,
+                bounds.left_mm == bounds.right_mm,
                 (domain.origin_mm() == 0) == (i == 0)
             );
         }

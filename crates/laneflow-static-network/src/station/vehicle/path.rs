@@ -6,8 +6,8 @@ use crate::RoadSurfaceSpan;
 /// 给定两条随站位线性变化的左偏移，在两者间作五次横移。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CorridorTrace {
-    /// 后轴起止站位，单位纳米。递减表示反向行驶。
-    pub stations_nm: [u64; 2],
+    /// 后轴起止站位，单位毫米。递减表示反向行驶。
+    pub stations_mm: [u64; 2],
     /// 始端车道中心在候选起、止截面的左偏移（米）。
     pub from_m: [f64; 2],
     /// 目标车道中心在同一对截面的左偏移（米）。两组相同时沿该偏移行驶。
@@ -23,10 +23,10 @@ pub enum RearAxleTrace {
     Corridor(CorridorTrace),
 }
 impl RearAxleTrace {
-    pub(super) fn length(self) -> u64 {
+    pub(super) fn length_mm(self) -> u64 {
         match self {
-            Self::Line(t) => t.length_nm,
-            Self::Corridor(t) => t.stations_nm[0].abs_diff(t.stations_nm[1]),
+            Self::Line(t) => t.length_mm,
+            Self::Corridor(t) => t.stations_mm[0].abs_diff(t.stations_mm[1]),
         }
     }
 }
@@ -63,7 +63,7 @@ fn product(a: [I; 4], b: [I; 4]) -> [I; 4] {
 fn motion(
     row: &RoadSurfaceSpan,
     bounds: [u64; 2],
-    trace: CorridorTrace,
+    trace: BoundCorridorTrace,
 ) -> Result<Motion, Failure> {
     let patch = Patch::new(row);
     let t = patch.parameter(bounds[0]).hull(patch.parameter(bounds[1]));
@@ -140,12 +140,19 @@ fn motion(
     })
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct BoundCorridorTrace {
+    stations_nm: [u64; 2],
+    from_m: [f64; 2],
+    to_m: [f64; 2],
+}
+
 pub(super) enum Path {
     Line {
         origin: Horizontal,
         heading: Horizontal,
     },
-    Corridor(CorridorTrace),
+    Corridor(BoundCorridorTrace),
 }
 fn constant_normal(row: &RoadSurfaceSpan) -> bool {
     let [start, end] = row.jets.map(|j| j.map(f64::from));
@@ -187,6 +194,14 @@ impl Path {
                 })
             }
             RearAxleTrace::Corridor(t) => {
+                let t = BoundCorridorTrace {
+                    stations_nm: [
+                        super::mm_to_nm(t.stations_mm[0])?,
+                        super::mm_to_nm(t.stations_mm[1])?,
+                    ],
+                    from_m: t.from_m,
+                    to_m: t.to_m,
+                };
                 if t.stations_nm[0] == t.stations_nm[1]
                     || t.stations_nm
                         .iter()
@@ -273,6 +288,10 @@ pub(super) enum Piece {
     Join { at: u64, smooth: bool, rows: usize },
 }
 
-pub(super) fn sided(row: &RoadSurfaceSpan, at: u64, t: CorridorTrace) -> Result<Motion, Failure> {
+pub(super) fn sided(
+    row: &RoadSurfaceSpan,
+    at: u64,
+    t: BoundCorridorTrace,
+) -> Result<Motion, Failure> {
     motion(row, [at, at], t)
 }

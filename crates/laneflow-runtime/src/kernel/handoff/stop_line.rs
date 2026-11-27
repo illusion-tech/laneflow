@@ -45,22 +45,23 @@ pub(super) fn prove_clearance(
             }
             let unproven =
                 |reason, work| RouteHandoffTrialError::StopLineUnproven { edge, reason, work };
-            let station = mapping.edge_end_station_nm(edge).ok_or_else(|| {
+            let station = mapping.edge_end_station_mm(edge).ok_or_else(|| {
                 unproven(
                     Some(Failure::Unavailable),
                     sweep.as_ref().map_or(0, |s| s.work),
                 )
             })?;
-            let separated = |[lo, hi]: [u64; 2]| {
+            let separated = |hits: &StationCandidates| {
+                let relation = hits.station_relation(station);
                 if !must_clear_upstream {
-                    station < lo || hi < station
+                    !relation.is_eq()
                 } else if boundary.increasing() {
-                    hi < station
+                    relation.is_lt()
                 } else {
-                    station < lo
+                    relation.is_gt()
                 }
             };
-            if separated(hits.stations_nm())
+            if separated(hits)
                 || (!must_clear_upstream
                     && edges
                         .peek()
@@ -68,19 +69,17 @@ pub(super) fn prove_clearance(
             {
                 continue;
             }
+            let rear = query
+                .rear_range()
+                .ok_or_else(|| unproven(Some(Failure::InvalidInput), 0))?;
             let sweep = sweep.get_or_insert_with(|| {
-                let mut rear = query.rear_stations_nm;
-                rear.sort_unstable();
                 revision.handoff_swept_occupancy(query, window, body, rear, work_limit)
             });
             let occupied = sweep
                 .sides
                 .as_ref()
                 .map_err(|&reason| unproven(Some(reason), sweep.work))?;
-            if occupied[side]
-                .as_ref()
-                .is_some_and(|s| !separated(s.stations_nm()))
-            {
+            if occupied[side].as_ref().is_some_and(|s| !separated(s)) {
                 return Err(unproven(None, sweep.work));
             }
         }

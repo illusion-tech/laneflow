@@ -41,7 +41,7 @@ fn project_window(
         .relations()
         .lane_edge_authoring_lane(edge)
         .ok_or(Failure::Binding)?;
-    match network.station_mapping().in_station_range(
+    match network.station_mapping().in_station_range_nm(
         binding.corridor(),
         binding.common_stations_nm(),
         lane,
@@ -144,7 +144,7 @@ impl SharedNetworkRevision {
     ///
     /// # Errors
     ///
-    /// 任一侧缺少精确来源、相关文档变更、成员或两边实际拥有的站位闭区间改变时拒绝。
+    /// 任一侧缺少精确来源、相关文档变更、成员或两边实际拥有的站位域（含端点归属）改变时拒绝。
     pub fn rebind_handoff_window(
         &self,
         base: &SharedNetworkRevision,
@@ -159,7 +159,7 @@ impl SharedNetworkRevision {
             self.bind_handoff_window(self.network_revision(), target_window(base, self, old)?)?;
         if old.window().stations_mm != new.window().stations_mm
             || old.increasing() != new.increasing()
-            || old.common_stations_nm() != new.common_stations_nm()
+            || old.common_stations_mm() != new.common_stations_mm()
             || base.station_mapping().corridor_domain(old.corridor())
                 != self.station_mapping().corridor_domain(new.corridor())
         {

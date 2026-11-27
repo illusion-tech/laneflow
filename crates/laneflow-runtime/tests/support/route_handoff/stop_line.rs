@@ -283,14 +283,14 @@ fn source_stop_line_allows_a_cleared_handoff_and_rejects_an_overlapping_sweep() 
                     HandoffOutcome::Located { .. }
                 ));
                 let end = preview
-                    .sample_after_travel(0, 30_000_000, TRAVEL_TOLERANCE_MM, trial.limits)
+                    .sample_after_travel(0, 30_000, TRAVEL_TOLERANCE_MM, trial.limits)
                     .unwrap()
                     .sample
                     .unwrap()
                     .footprint;
                 assert!(end.sides[0].is_none());
                 assert_eq!(end.front_side, HandoffLaneSide::Target);
-                assert!(end.front.stations_nm()[0] > 35_000_000_000);
+                assert!(end.front.stations_mm()[0] > 35_000);
             } else {
                 assert!(matches!(
                     result.unwrap_err(),

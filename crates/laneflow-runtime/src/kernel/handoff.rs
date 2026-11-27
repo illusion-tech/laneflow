@@ -19,8 +19,8 @@ use laneflow_static_network::{
     BoundaryOwner, SharedNetworkRevision, StationQuery,
     vehicle::{
         AxleDimensions, BodyEnvelope, Failure, GeometryWorkLimits, HandoffBinding,
-        HandoffBodyReport, HandoffOutcome, HandoffQuery, HandoffReport, HandoffTravelReport,
-        HandoffTravelTarget, HandoffWindow, SteeringLimits,
+        HandoffBodyReport, HandoffOutcome, HandoffQuery, HandoffReport, HandoffStationRange,
+        HandoffTravelReport, HandoffWindow, SteeringLimits,
     },
 };
 use thiserror::Error;
@@ -65,20 +65,6 @@ pub struct RouteHandoffOccurrence {
     pub left_index: u32,
     /// 允许前保险杠交接的闭区间，走廊局部毫米站位。
     pub stations_mm: [u64; 2],
-}
-
-fn tolerance_nanometres(mm: NonZeroU32) -> u64 {
-    u64::from(mm.get()) * 1_000_000
-}
-
-pub(crate) fn stations_to_nanometres(
-    stations_mm: [u64; 2],
-) -> Result<[u64; 2], RouteHandoffTrialError> {
-    let convert = |mm: u64| {
-        mm.checked_mul(1_000_000)
-            .ok_or(RouteHandoffTrialError::Boundary(Failure::InvalidInput))
-    };
-    Ok([convert(stations_mm[0])?, convert(stations_mm[1])?])
 }
 
 /// 已绑定一处或多处交接窗口的候选路线。边与普通机动均使用完整路线的出现下标。
@@ -229,14 +215,8 @@ impl super::tables::CompiledRoute {
     }
 }
 
-/// 在候选上查询行程所用的固定点输入。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RouteHandoffTravelTarget {
-    /// 沿走廊局部参考线量取的后轴站位，单位毫米。
-    RearStationMm(u64),
-    /// 从候选起点沿后轴运动轨迹累计的行程，单位微米，与固定步进积分余数一致。
-    DistanceUm(u64),
-}
+/// 按整毫米的后轴站位或累计三维行程查询交接候选。
+pub use laneflow_static_network::vehicle::HandoffTravelTarget as RouteHandoffTravelTarget;
 
 /// 在已绑定出现对上尝试的一条轨迹，按稳定身份从绑定所属修订读取车型。
 #[derive(Clone, Copy, Debug)]
@@ -297,25 +277,11 @@ impl RouteHandoffPreview<'_> {
         work_limit: u32,
     ) -> Option<HandoffTravelReport> {
         let path = self.trajectory.as_ref()?;
-        let target = match target {
-            RouteHandoffTravelTarget::RearStationMm(mm) => mm
-                .checked_mul(1_000_000)
-                .map(HandoffTravelTarget::RearStationNm),
-            RouteHandoffTravelTarget::DistanceUm(um) => {
-                um.checked_mul(1_000).map(HandoffTravelTarget::DistanceNm)
-            }
-        };
-        let Some(target) = target else {
-            return Some(HandoffTravelReport {
-                bounds: Err(Failure::InvalidInput),
-                work: 0,
-            });
-        };
         Some(path.revision.handoff_travel(
             &path.query,
             path.window,
             target,
-            tolerance_nanometres(tolerance_mm),
+            u64::from(tolerance_mm.get()),
             work_limit,
         ))
     }
@@ -330,19 +296,16 @@ impl RouteHandoffPreview<'_> {
         work_limit: u32,
     ) -> Option<HandoffBodyReport> {
         let path = self.trajectory.as_ref()?;
-        let Ok(rear_stations_nm) = stations_to_nanometres(rear_stations_mm) else {
+        let Some(rear) = HandoffStationRange::from_millimetres(rear_stations_mm) else {
             return Some(HandoffBodyReport {
                 side: Err(Failure::InvalidInput),
                 work: 0,
             });
         };
-        Some(path.revision.handoff_body_side(
-            &path.query,
-            path.window,
-            path.body,
-            rear_stations_nm,
-            work_limit,
-        ))
+        Some(
+            path.revision
+                .handoff_body_side(&path.query, path.window, path.body, rear, work_limit),
+        )
     }
 }
 
@@ -489,14 +452,22 @@ impl<'a> HandoffRouteRef<'a> {
             revision: boundary.revision(),
             corridor: boundary.corridor(),
             frame: boundary.frame(),
-            station_window_nm: stations_to_nanometres(trial.station_window_mm)?,
-            rear_stations_nm: stations_to_nanometres(trial.rear_stations_mm)?,
+            station_window_mm: trial.station_window_mm,
+            rear_stations_mm: trial.rear_stations_mm,
             axles: AxleDimensions {
                 wheelbase_m: f64::from(g.wheelbase_mm) / 1_000.,
                 half_track_m: f64::from(g.track_width_mm) / 2_000.,
                 reference_height_m: f64::from(g.reference_height_mm) / 1_000.,
             },
         };
+        if trial
+            .station_window_mm
+            .into_iter()
+            .chain(trial.rear_stations_mm)
+            .any(|mm| !RouteHandoffTravelTarget::RearStationMm(mm).is_representable())
+        {
+            return Err(RouteHandoffTrialError::Boundary(Failure::InvalidInput));
+        }
         let body = BodyEnvelope {
             rear_overhang_m: f64::from(g.rear_overhang_mm) / 1_000.,
             front_from_rear_m: f64::from(profile.length_mm() - g.rear_overhang_mm) / 1_000.,
@@ -532,7 +503,7 @@ impl<'a> HandoffRouteRef<'a> {
                 // 禁止只说明无法证明该侧准入，不能据此断言车辆实际驶入了禁区。
                 let StationQuery::Complete(hits) = revision.station_mapping().in_station_range(
                     query.corridor,
-                    query.station_window_nm,
+                    query.station_window_mm,
                     lane,
                 ) else {
                     return Err(unproven(edge));

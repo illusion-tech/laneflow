@@ -23,8 +23,8 @@ pub struct RouteHandoffBrakingStep {
     pub motion: RouteHandoffBrakingMotion,
     /// 在输入提案以内通过前视的最大整数终速，单位毫米每秒。
     pub next_speed_mm_s: u32,
-    /// 本次试算的后轴行程向上取整到微米，仅供核对本拍实际运动。
-    pub travel_upper_um: u64,
+    /// 本次试算的后轴行程向上取整到毫米，仅供核对本拍实际运动。
+    pub travel_upper_mm: u64,
 }
 
 /// 净空限速没有给出覆盖完整一拍的服务制动运动。
@@ -50,8 +50,8 @@ pub enum RouteHandoffBrakingError {
     NeedsContinuation {
         /// 已满足当前候选内各项限速的提案，行程上界覆盖整拍。后继限制可能要求进一步收紧。
         candidate_step: RouteHandoffBrakingStep,
-        /// 从最靠前的后轴位置到候选已证终点的最小剩余行程（微米）。
-        remaining_um: u64,
+        /// 从最靠前的后轴位置到候选已证终点的最小剩余行程，向下取整到毫米。
+        remaining_mm: u64,
     },
 }
 
@@ -198,6 +198,7 @@ impl StepKinematics {
             }
             horizon = self.room_um(upper, 0);
         }
+        let travel_upper_um = self.travel_upper_um(upper);
         let step = RouteHandoffBrakingStep {
             motion: if upper == 0 {
                 RouteHandoffBrakingMotion::InTickStop
@@ -205,12 +206,12 @@ impl StepKinematics {
                 RouteHandoffBrakingMotion::Trapezoid
             },
             next_speed_mm_s: upper,
-            travel_upper_um: self.travel_upper_um(upper),
+            travel_upper_mm: travel_upper_um.div_ceil(1_000),
         };
-        if step.travel_upper_um > remaining {
+        if travel_upper_um > remaining {
             return Err(RouteHandoffBrakingError::NeedsContinuation {
                 candidate_step: step,
-                remaining_um: remaining,
+                remaining_mm: remaining / 1_000,
             });
         }
         Ok(step)
@@ -239,7 +240,7 @@ impl RouteHandoffSpeedPlan {
         )
     }
 
-    /// 后轴累计行程已精确落在整数微米时，求一拍服务制动运动。终速提案的驱动
+    /// 后轴累计行程已精确落在整数毫米时，求一拍服务制动运动。终速提案的驱动
     /// 加速度须已经纵向控制核对，提案降幅超出服务制动域时返回
     /// [`RouteHandoffBrakingError::InsufficientBraking`]。带定位或量化误差的查询使用
     /// [`Self::preview_braking_step_in`]。
@@ -249,14 +250,14 @@ impl RouteHandoffSpeedPlan {
     /// 拍初已超速、提案或前方降幅无法以服务制动达成、数值无效、已证行程不足时返回原因。
     pub fn preview_braking_step(
         &self,
-        rear_travel_um: u64,
+        rear_travel_mm: u64,
         current_mm_s: u32,
         proposed_mm_s: u32,
     ) -> Result<RouteHandoffBrakingStep, RouteHandoffBrakingError> {
-        self.preview_braking_step_in([rear_travel_um; 2], current_mm_s, proposed_mm_s)
+        self.preview_braking_step_in([rear_travel_mm; 2], current_mm_s, proposed_mm_s)
     }
 
-    /// 按包含真实后轴累计行程的闭区间（微米）求一拍服务制动运动。行程下界越过
+    /// 按包含真实后轴累计行程的闭区间（毫米）求一拍服务制动运动。行程下界越过
     /// 限制末端才解除限速，上界决定到前方限速或终点的最小剩余距离。终速提案
     /// （毫米/秒）的驱动加速度须已核对，减速提案须在服务制动域内。来车、信号等其余约束应另行裁决。
     /// 非零终速按整数首尾车速匀变速，零终速按服务减速度在拍内停稳。再次查询应
@@ -267,15 +268,22 @@ impl RouteHandoffSpeedPlan {
     /// 区间倒序、速度无效、已证行程不足、拍初可能超速或无法执行服务制动时返回原因。
     pub fn preview_braking_step_in(
         &self,
-        rear_travel_um: [u64; 2],
+        rear_travel_mm: [u64; 2],
         current_mm_s: u32,
         proposed_mm_s: u32,
     ) -> Result<RouteHandoffBrakingStep, RouteHandoffBrakingError> {
+        let [lo, hi] = rear_travel_mm;
+        if lo > hi {
+            return Err(RouteHandoffBrakingError::InvalidInput);
+        }
+        if hi > self.length_lower_um / 1_000 {
+            return Err(RouteHandoffBrakingError::OutsidePlan);
+        }
         StepKinematics::new(current_mm_s, self.fixed_delta_ms, self.comfort_decel)?.preview(
             &self.windows,
             self.length_lower_um,
             self.admitted_speed_mm_s,
-            rear_travel_um,
+            [lo * 1_000, hi * 1_000],
             proposed_mm_s,
         )
     }
@@ -310,7 +318,7 @@ mod tests {
             Ok(RouteHandoffBrakingStep {
                 motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 7_800,
-                travel_upper_um: 790_000,
+                travel_upper_mm: 790,
             })
         );
         assert_eq!(
@@ -375,7 +383,7 @@ mod tests {
             Ok(RouteHandoffBrakingStep {
                 motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 800,
-                travel_upper_um: 100_000,
+                travel_upper_mm: 100,
             })
         );
         assert_eq!(
@@ -403,7 +411,7 @@ mod tests {
             Ok(RouteHandoffBrakingStep {
                 motion: RouteHandoffBrakingMotion::Trapezoid,
                 next_speed_mm_s: 4,
-                travel_upper_um: 24,
+                travel_upper_mm: 1,
             })
         );
         assert_eq!(
@@ -419,7 +427,7 @@ mod tests {
         let windows = [window(1, 2, 8)];
         let mut rear = [718; 2];
         let mut speed = 20;
-        for (next, travel) in [(17, 93), (14, 78), (11, 63), (8, 48)] {
+        for (next, travel) in [(17, 93_u64), (14, 78), (11, 63), (8, 48)] {
             let motion = StepKinematics::new(speed, 5, 0.7).unwrap();
             let result = motion.preview(&windows, 5_000, 100, rear, speed).unwrap();
             assert_eq!(
@@ -427,7 +435,7 @@ mod tests {
                 RouteHandoffBrakingStep {
                     motion: RouteHandoffBrakingMotion::Trapezoid,
                     next_speed_mm_s: next,
-                    travel_upper_um: travel,
+                    travel_upper_mm: travel.div_ceil(1_000),
                 }
             );
             rear[0] += u64::from(speed + next) * 5 / 2;
@@ -480,9 +488,9 @@ mod tests {
                 candidate_step: RouteHandoffBrakingStep {
                     motion: RouteHandoffBrakingMotion::Trapezoid,
                     next_speed_mm_s: 200,
-                    travel_upper_um: 20_000,
+                    travel_upper_mm: 20,
                 },
-                remaining_um: 1,
+                remaining_mm: 0,
             })
         );
     }
@@ -495,14 +503,14 @@ mod tests {
         let stop = RouteHandoffBrakingStep {
             motion: RouteHandoffBrakingMotion::InTickStop,
             next_speed_mm_s: 0,
-            travel_upper_um: 2_500,
+            travel_upper_mm: 3,
         };
         assert_eq!(preview(0, 2_500), Ok(stop));
         assert_eq!(
             preview(0, 2_499),
             Err(RouteHandoffBrakingError::NeedsContinuation {
                 candidate_step: stop,
-                remaining_um: 2_499,
+                remaining_mm: 2,
             })
         );
         assert_eq!(preview(2, 1), Err(RouteHandoffBrakingError::OutsidePlan));
@@ -511,8 +519,8 @@ mod tests {
             upper
                 .preview(&[], u64::MAX, MAX_SPEED_MM_S, [0; 2], MAX_SPEED_MM_S)
                 .unwrap()
-                .travel_upper_um,
-            100_000_000
+                .travel_upper_mm,
+            100_000
         );
     }
 }

@@ -3,12 +3,11 @@ use laneflow_static_contract::{CanonicalFrameOrdinal, RoadCorridorOrdinal};
 use laneflow_static_network::{
     BoundaryOwner, CorridorElement,
     vehicle::{
-        AxleDimensions, Failure, HandoffQuery, HandoffTravelBounds, HandoffTravelTarget,
-        HandoffWindow, TRACK_WORK_LIMIT,
+        AxleDimensions, Failure, HandoffQuery, HandoffTravelTarget, HandoffWindow, TRACK_WORK_LIMIT,
     },
 };
 
-const NM: u64 = 1_000_000_000;
+const MM: u64 = 1_000;
 
 // 坡面的 3D 纵向弧长为 s，横向五次位移为 3.5 f(s/30)。
 // 两方向正交，三维速率为 sqrt(1 + (3.5 f'/30)^2)。独立地在速率单调的
@@ -42,8 +41,8 @@ fn oracle(distance_along_corridor: f64) -> [f64; 2] {
 #[test]
 fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
     for (direction, start, end) in [
-        (RoadEditingLaneDirection::Forward, 20 * NM, 50 * NM),
-        (RoadEditingLaneDirection::Backward, 50 * NM, 20 * NM),
+        (RoadEditingLaneDirection::Forward, 20 * MM, 50 * MM),
+        (RoadEditingLaneDirection::Backward, 50 * MM, 20 * MM),
     ] {
         let slope = Program::try_new(
             p(0., 0., 0.),
@@ -83,8 +82,8 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
                 revision: n.network_revision(),
                 corridor,
                 frame: CanonicalFrameOrdinal::from_raw(0),
-                station_window_nm: [0, 70 * NM],
-                rear_stations_nm: [start, end],
+                station_window_mm: [0, 70 * MM],
+                rear_stations_mm: [start, end],
                 axles: AxleDimensions {
                     wheelbase_m: 2.6,
                     half_track_m: 0.8,
@@ -97,39 +96,34 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
                 left_index: 0,
                 stations_mm: [20_000, 50_000],
             };
-            let tolerance = 1_000_000;
+            let tolerance = 1;
             let query = |target, limit| n.handoff_travel(&q, window, target, tolerance, limit);
             let mut all = Vec::new();
-            for advance in [0, 15 * NM, 30 * NM] {
+            for advance in [0, 15 * MM, 30 * MM] {
                 let s = if start < end {
                     start + advance
                 } else {
                     start - advance
                 };
-                let target = HandoffTravelTarget::RearStationNm(s);
+                let target = HandoffTravelTarget::RearStationMm(s);
                 let report = query(target, TRACK_WORK_LIMIT);
                 let result = report
                     .bounds
                     .unwrap_or_else(|_| panic!("{report:?}, s={s}"));
+                let [distance_lo, distance_hi] = result.distance.millimetres();
                 if advance == 0 {
-                    assert_eq!(
-                        result,
-                        HandoffTravelBounds {
-                            distance_nm: [0; 2],
-                            rear_stations_nm: [start; 2]
-                        }
-                    );
+                    assert_eq!([distance_lo, distance_hi], [0; 2]);
                 } else {
-                    let [lo, hi] = oracle(advance as f64 / NM as f64);
+                    let [lo, hi] = oracle(advance as f64 / MM as f64);
                     assert!(
-                        result.distance_nm[0] as f64 <= lo * NM as f64
-                            && result.distance_nm[1] as f64 >= hi * NM as f64,
+                        distance_lo as f64 <= lo * MM as f64
+                            && distance_hi as f64 >= hi * MM as f64,
                         "{result:?}, {lo}..{hi}"
                     );
-                    assert!(result.distance_nm[0] > advance);
+                    assert!(distance_lo > advance);
                 }
-                assert_eq!(result.rear_stations_nm, [s; 2]);
-                assert!(result.distance_nm[1] - result.distance_nm[0] <= tolerance);
+                assert_eq!(result.rear.millimetres(), [s; 2]);
+                assert!(distance_hi - distance_lo <= tolerance + 1);
                 assert_eq!(query(target, report.work), report);
                 assert_eq!(
                     query(target, report.work - 1).bounds,
@@ -137,61 +131,81 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
                 );
                 all.push(report);
             }
-            let zero = query(HandoffTravelTarget::DistanceNm(0), TRACK_WORK_LIMIT);
+            let zero = query(HandoffTravelTarget::DistanceMm(0), TRACK_WORK_LIMIT);
             assert_eq!(zero, all[0]);
-            let ordered = [0, 15 * NM, 30 * NM];
+            // 15 m 后轴站位前进处的积分行程约 15_144.572 mm，位于反查细分点附近。
+            let after_motion = |whole, carry| {
+                n.handoff_travel_after_motion(&q, window, whole, carry, tolerance, TRACK_WORK_LIMIT)
+            };
+            let near_join = after_motion(15_144, 572).bounds.unwrap();
+            let near_station = if start < end {
+                start + 15 * MM
+            } else {
+                start - 15 * MM
+            };
+            let [lo, hi] = near_join.rear.millimetres();
+            assert!((lo..=hi).contains(&near_station));
+            assert_eq!(near_join.distance.millimetres(), [15_144, 15_145]);
+            assert_eq!(near_join.distance.millimetre_cells(), [15_144; 2]);
+            for invalid in [after_motion(0, 1_000), after_motion(u64::MAX, 0)] {
+                assert_eq!(
+                    (invalid.bounds, invalid.work),
+                    (Err(Failure::InvalidInput), 0)
+                );
+            }
+            let ordered = [0, 15 * MM, 30 * MM];
             let marks = |offsets: &[u64], work| {
                 n.handoff_travel_marks(&q, window, offsets, tolerance, work)
             };
             let batch = marks(&ordered, TRACK_WORK_LIMIT);
             let distances = batch
-                .distances_nm
+                .distances
                 .as_ref()
                 .unwrap_or_else(|_| panic!("{batch:?}"));
-            assert_eq!(distances[0], [0; 2]);
-            for (i, &[lo, hi]) in distances.iter().enumerate().skip(1) {
-                let analytic = oracle(ordered[i] as f64 / NM as f64);
+            assert_eq!(distances[0].millimetres(), [0; 2]);
+            for (i, distance) in distances.iter().enumerate().skip(1) {
+                let [lo, hi] = distance.millimetres();
+                let analytic = oracle(ordered[i] as f64 / MM as f64);
                 assert!(
-                    (lo as f64) <= analytic[0] * NM as f64
-                        && (hi as f64) >= analytic[1] * NM as f64
+                    (lo as f64) <= analytic[0] * MM as f64
+                        && (hi as f64) >= analytic[1] * MM as f64
                 );
-                let single = all[i].bounds.unwrap().distance_nm;
-                assert!(lo <= single[1] && hi >= single[0] && hi - lo <= tolerance);
+                let single = all[i].bounds.unwrap().distance.millimetres();
+                assert!(lo <= single[1] && hi >= single[0] && hi - lo <= tolerance + 1);
             }
             assert!(batch.work < all.iter().map(|r| r.work).sum::<u32>());
             assert_eq!(marks(&ordered, batch.work), batch);
             assert_eq!(
-                marks(&ordered, batch.work - 1).distances_nm,
+                marks(&ordered, batch.work - 1).distances,
                 Err(Failure::WorkLimit)
             );
-            for bad in [&[][..], &[0, NM], &[30 * NM, 30 * NM], &[31 * NM, 30 * NM]] {
+            for bad in [&[][..], &[0, MM], &[30 * MM, 30 * MM], &[31 * MM, 30 * MM]] {
                 assert_eq!(
-                    marks(bad, TRACK_WORK_LIMIT).distances_nm,
+                    marks(bad, TRACK_WORK_LIMIT).distances,
                     Err(Failure::InvalidInput)
                 );
             }
             // 标记核验和几何积分共享预算；在预算足够读到错误标记时就报告输入错误。
-            let reversed = [2 * NM, NM, 30 * NM];
+            let reversed = [2 * MM, MM, 30 * MM];
             let invalid = marks(&reversed, 2);
-            assert_eq!(invalid.distances_nm, Err(Failure::InvalidInput));
+            assert_eq!(invalid.distances, Err(Failure::InvalidInput));
             assert_eq!(invalid.work, 2);
             let short = marks(&reversed, 1);
-            assert_eq!(short.distances_nm, Err(Failure::WorkLimit));
+            assert_eq!(short.distances, Err(Failure::WorkLimit));
             assert_eq!(short.work, 1);
-            for d in [10 * NM, 15_144_572_165] {
-                let target = HandoffTravelTarget::DistanceNm(d);
+            for d in [10 * MM, 15_145] {
+                let target = HandoffTravelTarget::DistanceMm(d);
                 let inverse = query(target, TRACK_WORK_LIMIT);
                 let result = inverse.bounds.unwrap_or_else(|_| panic!("{inverse:?}"));
-                assert_eq!(result.distance_nm, [d; 2]);
-                let [a, b] = result
-                    .rear_stations_nm
-                    .map(|s| start.abs_diff(s) as f64 / NM as f64);
+                assert_eq!(result.distance.millimetres(), [d; 2]);
+                let [rear_lo, rear_hi] = result.rear.millimetres();
+                let [a, b] = [rear_lo, rear_hi].map(|s| start.abs_diff(s) as f64 / MM as f64);
                 assert!(
-                    oracle(a.min(b))[1] * NM as f64 <= d as f64
-                        && oracle(a.max(b))[0] * NM as f64 >= d as f64,
+                    oracle(a.min(b))[1] * MM as f64 <= d as f64
+                        && oracle(a.max(b))[0] * MM as f64 >= d as f64,
                     "{result:?}"
                 );
-                assert!(result.rear_stations_nm[1] - result.rear_stations_nm[0] <= tolerance);
+                assert!(rear_hi - rear_lo <= tolerance + 1);
                 all.push(inverse);
                 assert_eq!(query(target, inverse.work), inverse);
                 assert_eq!(
@@ -200,22 +214,17 @@ fn graded_quintic_uses_rear_axle_arc_length_in_both_directions() {
                 );
             }
             assert_eq!(
-                query(HandoffTravelTarget::RearStationNm(9 * NM), TRACK_WORK_LIMIT).bounds,
+                query(HandoffTravelTarget::RearStationMm(9 * MM), TRACK_WORK_LIMIT).bounds,
                 Err(Failure::InvalidInput)
             );
             assert_eq!(
-                query(HandoffTravelTarget::DistanceNm(40 * NM), TRACK_WORK_LIMIT).bounds,
+                query(HandoffTravelTarget::DistanceMm(40 * MM), TRACK_WORK_LIMIT).bounds,
                 Err(Failure::InvalidInput)
             );
-            let end_station = HandoffTravelTarget::RearStationNm(end);
-            let unresolved = n.handoff_travel(&q, window, end_station, 1, u32::MAX);
-            assert!(matches!(
-                unresolved.bounds,
-                Err(Failure::TravelResolution | Failure::WorkLimit)
-            ));
+            let end_station = HandoffTravelTarget::RearStationMm(end);
             assert_eq!(
-                n.handoff_travel(&q, window, end_station, 1, TRACK_WORK_LIMIT),
-                unresolved
+                n.handoff_travel(&q, window, end_station, tolerance, u32::MAX),
+                all[2]
             );
             assert_eq!(
                 n.handoff_travel(&q, window, end_station, 0, TRACK_WORK_LIMIT)

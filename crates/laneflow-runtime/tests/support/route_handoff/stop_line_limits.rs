@@ -13,7 +13,7 @@ fn both_stop_lines_share_one_sweep_and_report_its_work_on_target_failure() {
     let (_, source, target) = road_lanes(&revision);
     let source_line = source[2];
     let target_line = target[0];
-    for (edge, station) in [(source_line, 35_000_000_000), (target_line, 10_000_000_000)] {
+    for (edge, station) in [(source_line, 35_000), (target_line, 10_000)] {
         assert!(
             revision
                 .traffic()
@@ -22,7 +22,7 @@ fn both_stop_lines_share_one_sweep_and_report_its_work_on_target_failure() {
                 .is_some()
         );
         assert_eq!(
-            revision.station_mapping().edge_end_station_nm(edge),
+            revision.station_mapping().edge_end_station_mm(edge),
             Some(station)
         );
     }
@@ -124,7 +124,7 @@ fn reverse_handoff_uses_the_original_sweep_budget_to_clear_the_source_stop_line(
     let StationQuery::Complete(seam) =
         revision
             .station_mapping()
-            .at_station(area.corridor(), 15_000_000_000, source_lane)
+            .at_station(area.corridor(), 15_000, source_lane)
     else {
         panic!("未定位反向停止线")
     };

@@ -21,8 +21,11 @@ mod source;
 pub use source::{HandoffSourceEvidence, HandoffSourceModule};
 mod travel;
 pub use travel::{
-    HandoffTravelBounds, HandoffTravelMarksReport, HandoffTravelReport, HandoffTravelTarget,
+    HandoffDistanceBounds, HandoffStationRange, HandoffTravelBounds, HandoffTravelMarksReport,
+    HandoffTravelReport, HandoffTravelTarget,
 };
+
+use crate::station::NM_PER_MM;
 
 /// 两个相邻路线出现所声明的交接边界和闭窗口。边的顺序为源、目标。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,10 +43,7 @@ pub struct HandoffWindow {
 impl HandoffWindow {
     fn stations_nm(self) -> Result<[u64; 2], Failure> {
         let [lo, hi] = self.stations_mm;
-        Ok([
-            lo.checked_mul(1_000_000).ok_or(Failure::InvalidInput)?,
-            hi.checked_mul(1_000_000).ok_or(Failure::InvalidInput)?,
-        ])
+        Ok([mm_to_nm(lo)?, mm_to_nm(hi)?])
     }
 }
 
@@ -56,12 +56,28 @@ pub struct HandoffQuery {
     pub corridor: RoadCorridorOrdinal,
     /// 该修订发布的坐标框架。
     pub frame: CanonicalFrameOrdinal,
-    /// 允许求高与车身投影的走廊站位闭区间，单位纳米。
-    pub station_window_nm: [u64; 2],
+    /// 允许求高与车身投影的走廊站位闭区间，单位毫米。
+    pub station_window_mm: [u64; 2],
     /// 两轴车型。
     pub axles: AxleDimensions,
-    /// 后轴起、止站位，单位纳米，顺序为行驶方向。
-    pub rear_stations_nm: [u64; 2],
+    /// 后轴起、止站位，单位毫米，顺序为行驶方向。
+    pub rear_stations_mm: [u64; 2],
+}
+
+impl HandoffQuery {
+    /// 整个横移后轴覆盖的走廊站位闭区间，兼容正向和反向行驶。
+    #[must_use]
+    pub fn rear_range(&self) -> Option<HandoffStationRange> {
+        let [a, b] = self.rear_stations_mm;
+        HandoffStationRange::from_millimetres([a.min(b), a.max(b)])
+    }
+
+    fn stations_nm(&self) -> Result<[u64; 2], Failure> {
+        Ok([
+            mm_to_nm(self.rear_stations_mm[0])?,
+            mm_to_nm(self.rear_stations_mm[1])?,
+        ])
+    }
 }
 
 /// 一次候选的静态几何交接证据。两侧交通预约由运行时另行裁决。
@@ -70,24 +86,24 @@ pub enum HandoffOutcome {
     /// 全段几何可行，唯一过缝截面完整落入允许窗口及指定的两条边。
     /// 此证据只定位一次横向穿越；沿轨迹的三维行程、前杠纵向推进与各拍预约须分别求解。
     Located {
-        /// 前保险杠中点过缝时的走廊站位闭区间，单位纳米。
-        stations_nm: [u64; 2],
-        /// 从起点沿行驶方向量取的后轴站位差闭区间，单位纳米。
-        trace_range_nm: [u64; 2],
+        /// 前保险杠中点过缝时的走廊站位闭区间，单位毫米。
+        stations_mm: [u64; 2],
+        /// 从起点沿行驶方向量取的后轴站位差闭区间，单位毫米。
+        trace_range_mm: [u64; 2],
         /// 源、目标边上对应的保守局部进度范围。
         addresses: [StationAddress; 2],
     },
     /// 已证明唯一交接截面与允许窗口分离。
     OutsideWindow {
-        /// 前保险杠过缝的走廊站位闭区间，单位纳米。
-        stations_nm: [u64; 2],
+        /// 前保险杠过缝的走廊站位闭区间，单位毫米。
+        stations_mm: [u64; 2],
     },
     /// 完整轮迹、转向、静态跨越规则或净空未能全部通过。具体结果见几何报告。
     GeometryRejected,
     /// 绑定、唯一过缝、窗口包含或两条边的唯一归属未能证明。
     Unproven {
-        /// 受影响的候选参数区间，单位纳米。
-        range_nm: [u64; 2],
+        /// 受影响的候选参数区间，单位毫米。
+        range_mm: [u64; 2],
         /// 无法完成查询的原因。
         reason: Failure,
     },
@@ -162,22 +178,30 @@ struct Bound {
 
 impl SharedNetworkRevision {
     /// 按同一对有向出现和原五次横移求各段侧向净空。闭区间沿后轴行驶方向从零
-    /// 递增，`max_span_nm` 是单段最大站位差。完整交接准入仍须由 `vehicle_handoff` 求证。
+    /// 递增，`max_span_mm` 是单段最大站位差。完整交接准入仍须由 `vehicle_handoff` 求证。
     #[must_use]
     pub fn handoff_side_clearances(
         &self,
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        max_span_nm: u64,
+        max_span_mm: u64,
         work_limit: u32,
     ) -> SideClearanceReport<'_> {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
-        let full = [0, q.rear_stations_nm[0].abs_diff(q.rear_stations_nm[1])];
+        let span_mm = q.rear_stations_mm[0].abs_diff(q.rear_stations_mm[1]);
+        let Ok(span) = mm_to_nm(span_mm) else {
+            return SideClearanceReport {
+                segments: Err(Failure::InvalidInput),
+                unproven_range_mm: Some([0, span_mm]),
+                work: 0,
+            };
+        };
+        let full = [0, span];
         let result = bind(self, q, window, &mut work)
             .map_err(|reason| (full, reason))
             .and_then(|bound| {
-                sweep::side_clearance_segments(self, &bound.query(q), body, max_span_nm, &mut work)
+                sweep::side_clearance_segments(self, &bound.query(q), body, max_span_mm, &mut work)
             });
         SideClearanceReport::finish(result, work)
     }
@@ -189,7 +213,7 @@ impl Bound {
             revision: q.revision,
             corridor: q.corridor,
             frame: q.frame,
-            station_window_nm: q.station_window_nm,
+            station_window_mm: q.station_window_mm,
             axles: q.axles,
             traversable_lanes: &self.lanes,
             trace: RearAxleTrace::Corridor(self.trace),
@@ -209,19 +233,19 @@ fn bind(
     let m = network.station_mapping();
     work.charge()?;
     let domain = m.corridor_domain(q.corridor).ok_or(Failure::Unavailable)?;
-    let length = domain.length_nm();
+    let length = domain.length_mm();
     let [lo, hi] = w.stations_mm;
-    if domain.length_mm() == 0
+    if length == 0
         || lo > hi
-        || hi > domain.length_mm()
-        || q.rear_stations_nm.iter().any(|s| *s > length)
-        || q.rear_stations_nm[0] == q.rear_stations_nm[1]
+        || hi > length
+        || q.rear_stations_mm.iter().any(|s| *s > length)
+        || q.rear_stations_mm[0] == q.rear_stations_mm[1]
     {
         return Err(Failure::InvalidInput);
     }
     let lanes = lane_pair(network, q.corridor, w, || work.charge())?;
     let mut source_target = lanes;
-    let increasing = q.rear_stations_nm[0] < q.rear_stations_nm[1];
+    let increasing = q.rear_stations_mm[0] < q.rear_stations_mm[1];
     for (lane, edge) in source_target.iter_mut().zip(w.edges) {
         work.charge()?;
         *lane = m
@@ -253,7 +277,7 @@ fn bind(
     let right = lookup(lanes[1], work)?;
     let centers = |f: &LaneFootprint| {
         let [low, high] = f.ends_mm.map(|[l, r]| 0.5 * (f64::from(l) + f64::from(r)));
-        q.rear_stations_nm
+        q.rear_stations_mm
             .map(|s| (low + (high - low) * (s as f64 / length as f64)) / 1_000.)
     };
     let ordered = if to_right {
@@ -267,10 +291,11 @@ fn bind(
     let begin = partition(&m.surface, |r| r.corridor < q.corridor, work)?;
     let count = partition(&m.surface[begin..], |r| r.corridor == q.corridor, work)?;
     let rows = &m.surface[begin..begin + count];
-    for (station, lane) in q.rear_stations_nm.into_iter().zip(ordered) {
-        if station == 0 || station == length {
+    for (station_mm, lane) in q.rear_stations_mm.into_iter().zip(ordered) {
+        if station_mm == 0 || station_mm == length {
             return Err(Failure::Unavailable);
         }
+        let station = mm_to_nm(station_mm)?;
         let index = partition(rows, |r| r.stations_nm()[1].0 < station, work)?;
         work.charge()?;
         let row = rows.get(index).ok_or(Failure::Unavailable)?;
@@ -298,7 +323,7 @@ fn bind(
             sign: I::point(if to_right { -1. } else { 1. }),
         },
         trace: CorridorTrace {
-            stations_nm: q.rear_stations_nm,
+            stations_mm: q.rear_stations_mm,
             from_m,
             to_m,
         },
@@ -461,7 +486,18 @@ impl SharedNetworkRevision {
     ) -> HandoffReport<'_> {
         let mut work = Work::new(limits.sweep.min(SWEEP_WORK_LIMIT));
         let mut geometry = None;
-        let full = [0, q.rear_stations_nm[0].abs_diff(q.rear_stations_nm[1])];
+        let span_mm = q.rear_stations_mm[0].abs_diff(q.rear_stations_mm[1]);
+        let Ok(span) = mm_to_nm(span_mm) else {
+            return HandoffReport {
+                geometry: None,
+                outcome: HandoffOutcome::Unproven {
+                    range_mm: [0, span_mm],
+                    reason: Failure::InvalidInput,
+                },
+                work: 0,
+            };
+        };
+        let full = [0, span];
         let mut run = || -> Result<HandoffOutcome, Gap> {
             if body.half_width_m < q.axles.half_track_m {
                 return Err((full, Failure::InvalidInput));
@@ -491,7 +527,9 @@ impl SharedNetworkRevision {
             let (trace_range_nm, stations_nm) = search.locate(full[1], &mut work)?;
             let [lo, hi] = window.stations_nm().map_err(|e| (full, e))?;
             if stations_nm[0] > hi || stations_nm[1] < lo {
-                return Ok(HandoffOutcome::OutsideWindow { stations_nm });
+                return Ok(HandoffOutcome::OutsideWindow {
+                    stations_mm: enclosing_mm(stations_nm),
+                });
             }
             if stations_nm[0] < lo || stations_nm[1] > hi {
                 return Err((trace_range_nm, Failure::Boundary));
@@ -500,7 +538,7 @@ impl SharedNetworkRevision {
                 work.charge().map_err(|e| (trace_range_nm, e))?;
                 let StationQuery::Complete(hits) =
                     self.station_mapping()
-                        .in_station_range(q.corridor, stations_nm, lane)
+                        .in_station_range_nm(q.corridor, stations_nm, lane)
                 else {
                     return Err((trace_range_nm, Failure::Projection));
                 };
@@ -516,13 +554,15 @@ impl SharedNetworkRevision {
                 address(target, window.edges[1])?,
             ];
             Ok(HandoffOutcome::Located {
-                stations_nm,
-                trace_range_nm,
+                stations_mm: enclosing_mm(stations_nm),
+                trace_range_mm: enclosing_mm(trace_range_nm),
                 addresses,
             })
         };
-        let outcome = run()
-            .unwrap_or_else(|(range_nm, reason)| HandoffOutcome::Unproven { range_nm, reason });
+        let outcome = run().unwrap_or_else(|(range_nm, reason)| HandoffOutcome::Unproven {
+            range_mm: enclosing_mm(range_nm),
+            reason,
+        });
         HandoffReport {
             geometry,
             outcome,

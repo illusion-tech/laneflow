@@ -53,7 +53,7 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
             &binding,
             2,
             &trial,
-            12_500_000..=13_500_000,
+            12_500..=13_500,
             TRAVEL_TOLERANCE_MM,
             work,
         )
@@ -62,10 +62,10 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
     assert_eq!(initial.entrants.side_blockers, [None; 2]);
     assert!(initial.swept_sides.iter().all(Option::is_some));
     let preview = world.preview_route_handoff_at(&binding, 2, &trial).unwrap();
-    let travel_work = |distance_um| {
+    let travel_work = |distance_mm| {
         preview
             .travel(
-                RouteHandoffTravelTarget::DistanceUm(distance_um),
+                RouteHandoffTravelTarget::DistanceMm(distance_mm),
                 TRAVEL_TOLERANCE_MM,
                 trial.limits.tracks,
             )
@@ -74,19 +74,19 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
     };
     assert_eq!(
         initial.travel_work,
-        travel_work(12_500_000_u64) + travel_work(13_500_000)
+        travel_work(12_500_u64) + travel_work(13_500)
     );
     let stopped = world
         .preview_route_handoff_approaches(
             &binding,
             2,
             &trial,
-            12_500_000..=12_500_000,
+            12_500..=12_500,
             TRAVEL_TOLERANCE_MM,
             0,
         )
         .unwrap();
-    assert_eq!(stopped.travel_work, travel_work(12_500_000));
+    assert_eq!(stopped.travel_work, travel_work(12_500));
     let first = initial.swept_sides[1]
         .as_ref()
         .unwrap()

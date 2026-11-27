@@ -3,7 +3,8 @@ use super::path::{Motion, Piece};
 use super::pose::{Pose, Vector};
 use super::surface::Horizontal;
 use super::{
-    Candidate, Failure, SWEEP_WORK_LIMIT, SteeringLimits, TrackQuery, TrackReport, Work, partition,
+    Candidate, Failure, SWEEP_WORK_LIMIT, SteeringLimits, TrackQuery, TrackReport, Work,
+    enclosing_mm, partition,
 };
 use crate::{
     BoundaryExtent, BoundaryOwner, BoundaryPayload, CorridorElement, SharedNetworkRevision,
@@ -59,26 +60,36 @@ pub struct BoundaryHit<'a> {
     pub key: Option<&'a str>,
 }
 /// 实体分离的保守净空，附产生最小下界的候选参数区间。
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Clearance<'a> {
     /// 实体距离的正下界（米）。整车准入查询使用三维距离，侧向查询使用水平距离。
-    pub lower_m: f64,
+    lower_m: f64,
     /// 对应实体的发布身份。
     pub boundary: BoundaryHit<'a>,
     /// 在此候选参数区间上得到该下界，单位纳米。
-    pub range_nm: [u64; 2],
+    range_nm: [u64; 2],
 }
+impl std::fmt::Debug for Clearance<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Clearance")
+            .field("lower_mm", &self.lower_millimetres())
+            .field("boundary", &self.boundary)
+            .field("range_mm", &self.range_mm())
+            .finish()
+    }
+}
+
 /// 实体范围闭合，跨越许可沿走廊站位半开。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SweepOutcome<'a> {
-    /// 整条候选有跨越许可，实体净空为正。有实体时给出保守下界（米）和限制它的实体。
+    /// 整条候选有跨越许可，实体净空为正。有实体时给出保守毫米下界和限制它的实体。
     Clear(Option<Clearance<'a>>),
     /// 同一候选位置上的车身点落入实体的水平及竖直内界。
     Contact {
         /// 发生接触的实体。
         boundary: BoundaryHit<'a>,
-        /// 候选自起点量起的位置。
-        at_nm: u64,
+        /// 包含见证位置的闭区间，从候选起点量起，单位毫米。
+        at_mm: [u64; 2],
         /// 该点在车体前、左、上轴上的坐标，单位米。
         body_point_m: [f64; 3],
     },
@@ -86,15 +97,15 @@ pub enum SweepOutcome<'a> {
     Denied {
         /// 生效的规则或默认禁止的边界。
         boundary: BoundaryHit<'a>,
-        /// 候选自起点量起的位置。
-        at_nm: u64,
-        /// 车身实际触线的走廊站位包络，单位米。
-        touch_station_m: [f64; 2],
+        /// 包含见证位置的闭区间，从候选起点量起，单位毫米。
+        at_mm: [u64; 2],
+        /// 车身实际触线的走廊站位包络，单位毫米。
+        touch_station_mm: [i64; 2],
     },
     /// 仍可能影响判定的第一个区间。
     Unproven {
-        /// 候选参数，单位纳米。
-        range_nm: [u64; 2],
+        /// 候选参数，单位毫米。
+        range_mm: [u64; 2],
         /// 已定位的边界。
         boundary: Option<BoundaryHit<'a>>,
         /// 未证原因。
@@ -107,11 +118,11 @@ pub struct SweepReport<'a> {
     /// 有序扫过结果。
     pub outcome: SweepOutcome<'a>,
     /// 连续完成的安全前缀。
-    pub covered_prefix_nm: u64,
+    pub covered_prefix_mm: u64,
     /// 已扣的工作项。
     pub work: u32,
     /// 预算耗尽时仍待检查的后缀。
-    pub unchecked_nm: Option<[u64; 2]>,
+    pub unchecked_mm: Option<[u64; 2]>,
 }
 /// 两项均通过时该车型的候选才满足静态几何准入。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -303,7 +314,63 @@ fn nearer<'a>(a: Option<Clearance<'a>>, b: Option<Clearance<'a>>) -> Option<Clea
         _ => a.or(b),
     }
 }
-type Verdict<'a> = SweepOutcome<'a>;
+#[derive(Clone, Copy)]
+enum Verdict<'a> {
+    Clear(Option<Clearance<'a>>),
+    Contact {
+        boundary: BoundaryHit<'a>,
+        at_nm: u64,
+        body_point_m: [f64; 3],
+    },
+    Denied {
+        boundary: BoundaryHit<'a>,
+        at_nm: u64,
+        touch_station_m: [f64; 2],
+    },
+    Unproven {
+        range_nm: [u64; 2],
+        boundary: Option<BoundaryHit<'a>>,
+        reason: Failure,
+    },
+}
+
+impl<'a> Verdict<'a> {
+    fn report(self) -> SweepOutcome<'a> {
+        match self {
+            Self::Clear(clearance) => SweepOutcome::Clear(clearance),
+            Self::Contact {
+                boundary,
+                at_nm,
+                body_point_m,
+            } => SweepOutcome::Contact {
+                boundary,
+                at_mm: enclosing_mm([at_nm; 2]),
+                body_point_m,
+            },
+            Self::Denied {
+                boundary,
+                at_nm,
+                touch_station_m: [lo, hi],
+            } => {
+                let mm = I { lo, hi } * I::point(1_000.);
+                SweepOutcome::Denied {
+                    boundary,
+                    at_mm: enclosing_mm([at_nm; 2]),
+                    touch_station_mm: [mm.lo.floor() as i64, mm.hi.ceil() as i64],
+                }
+            }
+            Self::Unproven {
+                range_nm,
+                boundary,
+                reason,
+            } => SweepOutcome::Unproven {
+                range_mm: enclosing_mm(range_nm),
+                boundary,
+                reason,
+            },
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ClearanceMetric {
@@ -323,7 +390,7 @@ fn witness_key(v: Verdict<'_>) -> Option<(u64, BoundaryHit<'_>)> {
     Some((at, b))
 }
 fn combine<'a>(a: Verdict<'a>, b: Verdict<'a>) -> Verdict<'a> {
-    use SweepOutcome::*;
+    use Verdict::*;
     if let (Some(x), Some(y)) = (witness_key(a), witness_key(b)) {
         return if x <= y { a } else { b };
     }
@@ -431,11 +498,11 @@ impl<'a> Sweep<'a, '_> {
             reason,
         });
         if work.exhausted {
-            self.unchecked = Some([range[0], self.candidate.query.trace.length()]);
+            self.unchecked = Some([range[0], self.candidate.trace_length_nm]);
         }
         if let Verdict::Unproven { reason, .. } = result {
             if reason == Failure::WorkLimit {
-                self.unchecked = Some([range[0], self.candidate.query.trace.length()]);
+                self.unchecked = Some([range[0], self.candidate.trace_length_nm]);
             }
             if matches!(
                 reason,
@@ -480,8 +547,7 @@ impl<'a> Sweep<'a, '_> {
                                 split = None;
                             }
                             Err(Failure::WorkLimit) => {
-                                self.unchecked =
-                                    Some([range[0], self.candidate.query.trace.length()]);
+                                self.unchecked = Some([range[0], self.candidate.trace_length_nm]);
                                 split = None;
                                 break;
                             }
@@ -521,7 +587,7 @@ impl SharedNetworkRevision {
         budgets: GeometryWorkLimits,
     ) -> GeometryReport<'_> {
         let tracks = self.wheel_tracks(query, steering, budgets.tracks);
-        let range = [0, query.trace.length()];
+        let range_mm = [0, query.trace.length_mm()];
         let mut work = Work::new(budgets.sweep.min(SWEEP_WORK_LIMIT));
         let bound = if body.valid(query.axles.wheelbase_m) {
             Candidate::bind(self, query, &mut work)
@@ -530,6 +596,7 @@ impl SharedNetworkRevision {
         };
         let (outcome, prefix, unchecked) = match bound {
             Ok(candidate) => {
+                let range = [0, candidate.trace_length_nm];
                 let mut sweep = Sweep {
                     candidate,
                     shape: body,
@@ -542,28 +609,29 @@ impl SharedNetworkRevision {
                 (
                     sweep
                         .witness
-                        .map_or(sweep.result, |(_, w)| combine(sweep.result, w)),
-                    sweep.prefix,
-                    sweep.unchecked,
+                        .map_or(sweep.result, |(_, w)| combine(sweep.result, w))
+                        .report(),
+                    sweep.prefix / 1_000_000,
+                    sweep.unchecked.map(enclosing_mm),
                 )
             }
             Err(reason) => (
-                Verdict::Unproven {
-                    range_nm: range,
+                SweepOutcome::Unproven {
+                    range_mm,
                     boundary: None,
                     reason,
                 },
                 0,
-                work.exhausted.then_some(range),
+                work.exhausted.then_some(range_mm),
             ),
         };
         GeometryReport {
             tracks,
             sweep: SweepReport {
                 outcome,
-                covered_prefix_nm: prefix,
+                covered_prefix_mm: prefix,
                 work: work.used,
-                unchecked_nm: unchecked,
+                unchecked_mm: unchecked,
             },
         }
     }

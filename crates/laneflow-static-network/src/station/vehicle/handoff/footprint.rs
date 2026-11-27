@@ -194,7 +194,7 @@ pub(super) fn map_side(
     work: &mut Work,
 ) -> Result<StationCandidates, Failure> {
     work.charge()?;
-    match revision.station_mapping().in_station_range(
+    match revision.station_mapping().in_station_range_nm(
         q.corridor,
         nanometres(s)?,
         bound.source_target[i],
@@ -300,11 +300,10 @@ impl SharedNetworkRevision {
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        rear_stations_nm: [u64; 2],
+        rear: HandoffStationRange,
         work_limit: u32,
     ) -> HandoffFootprintReport {
-        let (result, work) =
-            self.handoff_footprint_and_pose(q, window, body, rear_stations_nm, work_limit);
+        let (result, work) = self.handoff_footprint_and_pose(q, window, body, rear, work_limit);
         HandoffFootprintReport {
             footprint: result.map(|(footprint, _)| footprint),
             work,
@@ -318,10 +317,10 @@ impl SharedNetworkRevision {
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        rear_stations_nm: [u64; 2],
+        rear: HandoffStationRange,
         work_limit: u32,
     ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
-        self.footprint_and_pose(q, window, body, rear_stations_nm, work_limit, false)
+        self.footprint_and_pose(q, window, body, rear, work_limit, false)
     }
 
     /// 已持有组合预约的轨迹可在前杠侧别未定时保留源游标。两侧均须有实体见证，
@@ -331,10 +330,10 @@ impl SharedNetworkRevision {
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        rear_stations_nm: [u64; 2],
+        rear: HandoffStationRange,
         work_limit: u32,
     ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
-        self.footprint_and_pose(q, window, body, rear_stations_nm, work_limit, true)
+        self.footprint_and_pose(q, window, body, rear, work_limit, true)
     }
 
     fn footprint_and_pose(
@@ -342,13 +341,13 @@ impl SharedNetworkRevision {
         q: &HandoffQuery,
         window: HandoffWindow,
         body: BodyEnvelope,
-        rear_stations_nm: [u64; 2],
+        rear: HandoffStationRange,
         work_limit: u32,
         reserved: bool,
     ) -> (Result<(HandoffFootprint, PoseBounds), Failure>, u32) {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
         let mut run = || {
-            let offsets = body_side::body_offsets(q, body, rear_stations_nm)?;
+            let offsets = body_side::body_offsets(q, body, rear.0)?;
             let bound = bind(self, q, window, &mut work)?;
             let query = bound.query(q);
             let c = Candidate::bind(self, &query, &mut work)?;
@@ -357,7 +356,7 @@ impl SharedNetworkRevision {
             let front_side = positions.front_side.unwrap_or(HandoffLaneSide::Source);
             let front = address(front_side as usize, positions.front)?;
             let possible_target_front = if positions.front_side.is_none() {
-                let range = front.stations_nm();
+                let range = front.stations;
                 let [low, high] = window.stations_nm()?;
                 let target = address(HandoffLaneSide::Target as usize, positions.front)?;
                 let mut target_addresses = target.addresses();

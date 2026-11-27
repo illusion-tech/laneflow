@@ -3,8 +3,8 @@ use super::*;
 /// 一个原候选参数区间内，车体对可能在侧方的边界实体的连续水平分离证据。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SideClearanceSegment<'a> {
-    /// 自候选起点量取的参数闭区间，单位纳米。走廊候选按后轴站位差递增。
-    pub range_nm: [u64; 2],
+    /// 自候选起点量取的参数闭区间，单位毫米。走廊候选按后轴站位差递增。
+    pub range_mm: [u64; 2],
     /// 有关实体的水平间隔正下界和限制它的子区间。无有关实体时为 `None`。
     pub clearance: Option<Clearance<'a>>,
 }
@@ -16,24 +16,21 @@ pub struct SideClearanceReport<'a> {
     pub segments: Result<Vec<SideClearanceSegment<'a>>, Failure>,
     /// 绑定、分段、姿态、边界与实体查询的实际工作量。
     pub work: u32,
-    /// 失败所在的候选参数闭区间，单位纳米。
-    pub unproven_range_nm: Option<[u64; 2]>,
+    /// 失败所在的候选参数闭区间，单位毫米。
+    pub unproven_range_mm: Option<[u64; 2]>,
 }
 
 impl Clearance<'_> {
+    /// 产生此下界的候选行程闭区间，向外取整到毫米。
+    #[must_use]
+    pub fn range_mm(&self) -> [u64; 2] {
+        enclosing_mm(self.range_nm)
+    }
+
     /// 已证净空的整数毫米下界。小于一毫米的正间隔取零，超过最大控制点的距离饱和。
     #[must_use]
     pub fn lower_millimetres(&self) -> u32 {
-        if !(self.lower_m.is_finite() && self.lower_m > 0.) {
-            return 0;
-        }
-        let mm = (self.lower_m * 1_000.) as u32;
-        // 融合乘加只舍入一次，可识别浮点乘积向上舍入到下一整毫米的情况。
-        if self.lower_m.mul_add(1_000., -f64::from(mm)) < 0. {
-            mm - 1
-        } else {
-            mm
-        }
+        super::super::lower_mm(self.lower_m)
     }
 }
 
@@ -82,12 +79,14 @@ pub(in crate::station::vehicle) fn side_clearance_segments<'a>(
     network: &'a SharedNetworkRevision,
     query: &TrackQuery<'_>,
     body: BodyEnvelope,
-    max_span_nm: u64,
+    max_span_mm: u64,
     work: &mut Work,
 ) -> Result<Vec<SideClearanceSegment<'a>>, Gap> {
-    let length = query.trace.length();
+    let length =
+        super::super::mm_to_nm(query.trace.length_mm()).map_err(|reason| ([0, 0], reason))?;
+    let max_span_nm = max_span_mm.saturating_mul(1_000_000);
     let full = [0, length];
-    if max_span_nm == 0 || !body.valid(query.axles.wheelbase_m) {
+    if max_span_mm == 0 || !body.valid(query.axles.wheelbase_m) {
         return Err((full, Failure::InvalidInput));
     }
     let c = Candidate::bind(network, query, work).map_err(|e| (full, e))?;
@@ -101,7 +100,7 @@ pub(in crate::station::vehicle) fn side_clearance_segments<'a>(
             .try_reserve(1)
             .map_err(|_| (range, Failure::Unavailable))?;
         segments.push(SideClearanceSegment {
-            range_nm: range,
+            range_mm: enclosing_mm(range),
             clearance,
         });
         if end == length {
@@ -116,17 +115,17 @@ impl<'a> SideClearanceReport<'a> {
         result: Result<Vec<SideClearanceSegment<'a>>, Gap>,
         work: Work,
     ) -> Self {
-        let unproven_range_nm = result.as_ref().err().map(|(range, _)| *range);
+        let unproven_range_mm = result.as_ref().err().map(|(range, _)| enclosing_mm(*range));
         Self {
             segments: result.map_err(|(_, e)| e),
             work: work.used,
-            unproven_range_nm,
+            unproven_range_mm,
         }
     }
 }
 
 impl SharedNetworkRevision {
-    /// 从轨迹起点按 `max_span_nm` 等长分段，末段可较短；每段覆盖完整车身。
+    /// 从轨迹起点按 `max_span_mm` 等长分段，末段可较短；每段覆盖完整车身。
     /// 实体在竖直方向或车身水平前向轴上已证全段分离时，免去它的侧向限制。
     /// 其余实体须有正的水平分离下界。曲线接缝和局部未证区间在共用预算内细分。
     /// 使用结果前须另经同一候选、姿态和车型的 `vehicle_geometry` 完整准入。
@@ -135,11 +134,18 @@ impl SharedNetworkRevision {
         &self,
         query: &TrackQuery<'_>,
         body: BodyEnvelope,
-        max_span_nm: u64,
+        max_span_mm: u64,
         work_limit: u32,
     ) -> SideClearanceReport<'_> {
         let mut work = Work::new(work_limit.min(SWEEP_WORK_LIMIT));
-        let result = side_clearance_segments(self, query, body, max_span_nm, &mut work);
+        if super::super::mm_to_nm(query.trace.length_mm()).is_err() {
+            return SideClearanceReport {
+                segments: Err(Failure::InvalidInput),
+                work: 0,
+                unproven_range_mm: Some([0, query.trace.length_mm()]),
+            };
+        }
+        let result = side_clearance_segments(self, query, body, max_span_mm, &mut work);
         SideClearanceReport::finish(result, work)
     }
 }

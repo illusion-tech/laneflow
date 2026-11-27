@@ -1,10 +1,17 @@
 use super::*;
 use laneflow_static_network::{
     BoundaryOwner,
-    vehicle::{HandoffBodySide, HandoffLaneSide, HandoffQuery, HandoffWindow, SWEEP_WORK_LIMIT},
+    vehicle::{
+        HandoffBodySide, HandoffLaneSide, HandoffQuery, HandoffStationRange, HandoffWindow,
+        SWEEP_WORK_LIMIT,
+    },
 };
 
-const M: u64 = 1_000_000_000;
+const M: u64 = 1_000;
+
+fn rear_range(bounds: [u64; 2]) -> HandoffStationRange {
+    HandoffStationRange::from_millimetres(bounds).unwrap()
+}
 
 #[test]
 fn curved_seam_can_cut_the_body_even_with_every_corner_on_the_target_side() {
@@ -14,7 +21,7 @@ fn curved_seam_can_cut_the_body_even_with_every_corner_on_the_target_side() {
     let circle = Program::try_new(p(0., 0., 0.), segments).unwrap();
     let artifact = road(circle, [([3.5; 2], true); 2]);
     let n = load_network(&artifact, SpatialBuildOption::Omit);
-    let start = 45 * M + 123_000_000;
+    let start = 45 * M + 123;
     let (q, w) = inputs(&n, [start, start + 18 * M]);
     let wide = BodyEnvelope {
         front_from_rear_m: 20.,
@@ -26,14 +33,14 @@ fn curved_seam_can_cut_the_body_even_with_every_corner_on_the_target_side() {
     let seam_radius = radius + 1.75;
     assert!((radius - wide.half_width_m).hypot(wide.front_from_rear_m) > seam_radius);
     assert!(radius + wide.half_width_m < seam_radius);
-    let r = n.handoff_body_side(&q, w, wide, [start; 2], SWEEP_WORK_LIMIT);
+    let r = n.handoff_body_side(&q, w, wide, rear_range([start; 2]), SWEEP_WORK_LIMIT);
     assert_eq!(r.side, Ok(HandoffBodySide::Straddling), "{r:?}");
     let clipped = HandoffQuery {
-        station_window_nm: [40 * M, 65 * M],
+        station_window_mm: [40 * M, 65 * M],
         ..q
     };
     assert_eq!(
-        n.handoff_body_side(&clipped, w, wide, [start; 2], SWEEP_WORK_LIMIT)
+        n.handoff_body_side(&clipped, w, wide, rear_range([start; 2]), SWEEP_WORK_LIMIT)
             .side,
         Err(Failure::Projection)
     );
@@ -52,16 +59,16 @@ fn inputs(n: &SharedNetworkRevision, rear: [u64; 2]) -> (HandoffQuery, HandoffWi
         edges: [0, 1].map(|i| r.authoring_edge_chain(lanes[i]).unwrap()[0]),
         owner: BoundaryOwner::Section(section),
         left_index: 0,
-        stations_mm: q.station_window_nm.map(|s| s / 1_000_000),
+        stations_mm: q.station_window_mm,
     };
     (
         HandoffQuery {
             revision: q.revision,
             corridor: q.corridor,
             frame: q.frame,
-            station_window_nm: q.station_window_nm,
+            station_window_mm: q.station_window_mm,
             axles: AXLES,
-            rear_stations_nm: rear,
+            rear_stations_mm: rear,
         },
         window,
     )
@@ -86,7 +93,9 @@ fn body_side_at_handoff_endpoints_is_invariant_under_horizontal_rotation() {
                     .into_iter()
                     .zip([HandoffBodySide::SourceOnly, HandoffBodySide::TargetOnly])
                 {
-                    let query = |limit| network.handoff_body_side(&q, w, BODY, [station; 2], limit);
+                    let query = |limit| {
+                        network.handoff_body_side(&q, w, BODY, rear_range([station; 2]), limit)
+                    };
                     let full = query(SWEEP_WORK_LIMIT);
                     assert_eq!(
                         full.side,
@@ -197,11 +206,11 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
             let lanes = n.traffic().relations().section_lanes(section).unwrap();
             let mapping = n.station_mapping();
             let start = rear[0] as f64 / M as f64;
-            let crossing_nm = ((start + sign * 15.19516) * M as f64) as u64;
+            let crossing_mm = ((start + sign * 15.19516) * M as f64) as u64;
             for pair in [[lanes[0], lanes[1]], [lanes[1], lanes[0]]] {
                 let edges = pair.map(|lane| {
                     let laneflow_static_network::StationQuery::Complete(hits) =
-                        mapping.at_station(q.corridor, crossing_nm, lane)
+                        mapping.at_station(q.corridor, crossing_mm, lane)
                     else {
                         panic!("cut fixture")
                     };
@@ -209,10 +218,7 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                 });
                 let window = HandoffWindow {
                     edges,
-                    stations_mm: [
-                        (crossing_nm - M / 10).div_ceil(1_000_000),
-                        (crossing_nm + M / 10) / 1_000_000,
-                    ],
+                    stations_mm: [crossing_mm - M / 10, crossing_mm + M / 10],
                     ..w
                 };
                 for (advance, expected) in [
@@ -221,18 +227,25 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                     (20, HandoffLaneSide::Target),
                     (30, HandoffLaneSide::Target),
                 ] {
-                    let rear_nm = if sign > 0. {
+                    let rear_mm = if sign > 0. {
                         rear[0] + advance * M
                     } else {
                         rear[0] - advance * M
                     };
-                    let query = |limit| n.handoff_footprint(&q, window, BODY, [rear_nm; 2], limit);
+                    let query = |limit| {
+                        n.handoff_footprint(&q, window, BODY, rear_range([rear_mm; 2]), limit)
+                    };
                     let report = query(SWEEP_WORK_LIMIT);
                     let footprint = report.footprint.as_ref().unwrap_or_else(|e| {
                         panic!("{heading:?}, {direction:?}, {edges:?}, {advance}, {e:?}")
                     });
-                    let (paired, work) =
-                        n.handoff_footprint_and_pose(&q, window, BODY, [rear_nm; 2], report.work);
+                    let (paired, work) = n.handoff_footprint_and_pose(
+                        &q,
+                        window,
+                        BODY,
+                        rear_range([rear_mm; 2]),
+                        report.work,
+                    );
                     let (same_footprint, pose) = paired.unwrap();
                     assert_eq!(&same_footprint, footprint);
                     assert_eq!(work, report.work);
@@ -250,7 +263,7 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                     assert_eq!(footprint.front_side, expected);
                     let (front, actual) = flat_footprint(start, sign, advance as f64);
                     let in_m = |s: [u64; 2]| s.map(|n| n as f64 / M as f64);
-                    enclosed(in_m(footprint.front.stations_nm()), front);
+                    enclosed(in_m(footprint.front.stations_mm()), front);
                     if advance == 0 {
                         // 前杠位于独立边链的切点，几何误差横跨切点，不可选定唯一边。
                         assert_eq!(footprint.front.addresses().count(), 2);
@@ -277,10 +290,10 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                     for (i, (side, span)) in footprint.sides.iter().zip(actual).enumerate() {
                         assert_eq!(side.is_some(), span.is_some());
                         if let (Some(side), Some([lo, hi])) = (side, span) {
-                            let enclosure = in_m(side.enclosure.stations_nm());
+                            let enclosure = in_m(side.enclosure.stations_mm());
                             enclosed(enclosure, lo);
                             enclosed(enclosure, hi);
-                            let [a, b] = in_m(side.witness.stations_nm());
+                            let [a, b] = in_m(side.witness.stations_mm());
                             assert!(a <= hi && lo <= b, "witness {a}..{b} outside {lo}..{hi}");
                             let chain = n
                                 .traffic()
@@ -317,17 +330,23 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                     ..BODY
                 };
                 let s = at(5);
-                for positions in [[s; 2], [s - 1_000_000, s + 1_000_000]] {
+                for positions in [[s; 2], [s - 1, s + 1]] {
                     assert_eq!(
-                        n.handoff_footprint(&q, window, touching, positions, SWEEP_WORK_LIMIT)
-                            .footprint,
+                        n.handoff_footprint(
+                            &q,
+                            window,
+                            touching,
+                            rear_range(positions),
+                            SWEEP_WORK_LIMIT
+                        )
+                        .footprint,
                         Err(Failure::Boundary)
                     );
                     let swept = n.handoff_swept_occupancy(
                         &q,
                         window,
                         touching,
-                        positions,
+                        rear_range(positions),
                         SWEEP_WORK_LIMIT,
                     );
                     assert!(swept.sides.unwrap().iter().all(Option::is_some));
@@ -340,7 +359,7 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                         &q,
                         window,
                         BODY,
-                        [middle - 1_000_000, middle + 1_000_000],
+                        rear_range([middle - 1, middle + 1]),
                         SWEEP_WORK_LIMIT,
                     )
                     .footprint
@@ -349,22 +368,40 @@ fn handoff_footprint_projects_the_front_and_witnessed_body_to_independently_cut_
                 assert!(both.sides.iter().all(Option::is_some));
                 // 前杠穿越共边的区间，不能用一个已提交路线游标代表。
                 assert!(
-                    n.handoff_footprint(&q, window, BODY, [a.min(b), a.max(b)], SWEEP_WORK_LIMIT)
-                        .footprint
-                        .is_err()
+                    n.handoff_footprint(
+                        &q,
+                        window,
+                        BODY,
+                        rear_range([a.min(b), a.max(b)]),
+                        SWEEP_WORK_LIMIT
+                    )
+                    .footprint
+                    .is_err()
                 );
                 let outside = BodyEnvelope {
                     half_width_m: 2.,
                     ..BODY
                 };
                 assert_eq!(
-                    n.handoff_footprint(&q, window, outside, [rear[0]; 2], SWEEP_WORK_LIMIT)
-                        .footprint,
+                    n.handoff_footprint(
+                        &q,
+                        window,
+                        outside,
+                        rear_range([rear[0]; 2]),
+                        SWEEP_WORK_LIMIT
+                    )
+                    .footprint,
                     Err(Failure::Boundary)
                 );
                 assert_eq!(
-                    n.handoff_swept_occupancy(&q, window, outside, [rear[0]; 2], SWEEP_WORK_LIMIT)
-                        .sides,
+                    n.handoff_swept_occupancy(
+                        &q,
+                        window,
+                        outside,
+                        rear_range([rear[0]; 2]),
+                        SWEEP_WORK_LIMIT
+                    )
+                    .sides,
                     Err(Failure::Boundary)
                 );
             }
@@ -413,12 +450,12 @@ fn continuous_handoff_sweep_covers_intermediate_motion_across_independent_cuts()
                 let sweep = |a: f64, b: f64, budget| {
                     let lo = at(a).min(at(b));
                     let hi = at(a).max(at(b));
-                    n.handoff_swept_occupancy(&q, w, BODY, [lo, hi], budget)
+                    n.handoff_swept_occupancy(&q, w, BODY, rear_range([lo, hi]), budget)
                 };
                 for (a, b, present) in [(0., 1., [true, false]), (25., 26., [false, true])] {
                     let sides = sweep(a, b, SWEEP_WORK_LIMIT).sides.unwrap();
                     assert_eq!(sides.each_ref().map(Option::is_some), present);
-                    let [lo, hi] = sides.iter().flatten().next().unwrap().stations_nm();
+                    let [lo, hi] = sides.iter().flatten().next().unwrap().stations_mm();
                     // 后轴走 1 m，4.15 m 车体在同一侧，外包局限在邻近 7 m 以内。
                     assert!(hi - lo < 7 * M, "{lo}..{hi}");
                 }
@@ -431,7 +468,7 @@ fn continuous_handoff_sweep_covers_intermediate_motion_across_independent_cuts()
                     .unwrap_or_else(|e| panic!("{heading:?} {direction:?} {e:?} {}", full.work));
                 for (i, side) in sides.iter().enumerate() {
                     let span = side.as_ref().unwrap();
-                    let bounds = span.stations_nm().map(|s| s as f64 / M as f64);
+                    let bounds = span.stations_mm().map(|s| s as f64 / M as f64);
                     assert!(bounds[0] > 4. && bounds[1] < 46., "{bounds:?}");
                     assert!(span.addresses().count() >= 2);
                     for step in 0..=92 {
@@ -479,12 +516,12 @@ fn swept_ranges_require_complete_edge_mapping_on_both_sides() {
     );
     let n = load_network(&artifact, SpatialBuildOption::Omit);
     let (q, w) = inputs(&n, [10 * M, 40 * M]);
-    let sweep = |range| n.handoff_swept_occupancy(&q, w, BODY, range, SWEEP_WORK_LIMIT);
+    let sweep = |range| n.handoff_swept_occupancy(&q, w, BODY, rear_range(range), SWEEP_WORK_LIMIT);
     // 源侧能单独映射，短段目标侧也能映射；合并目标侧整段将越过八条边。
     assert!(sweep([10 * M, 11 * M]).sides.unwrap()[0].is_some());
     assert!(sweep([32 * M, 33 * M]).sides.unwrap()[1].is_some());
     assert_eq!(sweep([10 * M, 33 * M]).sides, Err(Failure::Projection));
-    assert_eq!(sweep([33 * M, 10 * M]).sides, Err(Failure::InvalidInput));
+    assert!(HandoffStationRange::from_millimetres([33 * M, 10 * M]).is_none());
 }
 
 #[test]
@@ -520,12 +557,17 @@ fn full_body_straddles_after_front_handoff_and_then_clears_in_both_directions() 
                     (25 * M, HandoffBodySide::TargetOnly),
                 ] {
                     let s = station(offset);
-                    let range = [s - 1_000_000, s + 1_000_000];
-                    let full = n.handoff_body_side(&q, w, BODY, range, SWEEP_WORK_LIMIT);
+                    let range = [s - 1, s + 1];
+                    let full =
+                        n.handoff_body_side(&q, w, BODY, rear_range(range), SWEEP_WORK_LIMIT);
                     assert_eq!(full.side, Ok(side), "{offset} {full:?}");
-                    assert_eq!(n.handoff_body_side(&q, w, BODY, range, full.work), full);
                     assert_eq!(
-                        n.handoff_body_side(&q, w, BODY, range, full.work - 1).side,
+                        n.handoff_body_side(&q, w, BODY, rear_range(range), full.work),
+                        full
+                    );
+                    assert_eq!(
+                        n.handoff_body_side(&q, w, BODY, rear_range(range), full.work - 1)
+                            .side,
                         Err(Failure::WorkLimit)
                     );
                     reports.push(full);
@@ -535,22 +577,27 @@ fn full_body_straddles_after_front_handoff_and_then_clears_in_both_directions() 
                     ..BODY
                 };
                 assert_eq!(
-                    n.handoff_body_side(&q, w, tangent, [rear[0]; 2], SWEEP_WORK_LIMIT)
+                    n.handoff_body_side(&q, w, tangent, rear_range([rear[0]; 2]), SWEEP_WORK_LIMIT)
                         .side,
                     Err(Failure::Boundary)
                 );
                 assert!(
-                    n.handoff_body_side(&q, w, BODY, [12 * M, 38 * M], SWEEP_WORK_LIMIT)
-                        .side
-                        .is_err()
+                    n.handoff_body_side(
+                        &q,
+                        w,
+                        BODY,
+                        rear_range([12 * M, 38 * M]),
+                        SWEEP_WORK_LIMIT
+                    )
+                    .side
+                    .is_err()
                 );
-                for range in [[20 * M, 19 * M], [0; 2]] {
-                    assert_eq!(
-                        n.handoff_body_side(&q, w, BODY, range, SWEEP_WORK_LIMIT)
-                            .side,
-                        Err(Failure::InvalidInput)
-                    );
-                }
+                assert!(HandoffStationRange::from_millimetres([20 * M, 19 * M]).is_none());
+                assert_eq!(
+                    n.handoff_body_side(&q, w, BODY, rear_range([0; 2]), SWEEP_WORK_LIMIT)
+                        .side,
+                    Err(Failure::InvalidInput)
+                );
             }
             reports
         });

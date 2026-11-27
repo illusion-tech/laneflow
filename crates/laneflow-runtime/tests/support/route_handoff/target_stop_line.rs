@@ -46,10 +46,10 @@ fn a_body_point_reaches_the_target_stop_before_the_front_bumper_handoff() {
                     .unwrap()
                     .footprint;
                 assert_eq!(footprint.front_side, HandoffLaneSide::Source);
-                footprint.sides[1].as_ref().unwrap().witness.stations_nm()
+                footprint.sides[1].as_ref().unwrap().witness.stations_mm()
             };
-            assert!(witness(8_500_000)[1] < 22_000_000_000);
-            assert!(witness(10_000_000)[0] > 22_000_000_000);
+            assert!(witness(8_500)[1] < 22_000);
+            assert!(witness(10_000)[0] > 22_000);
         }
     }
 }

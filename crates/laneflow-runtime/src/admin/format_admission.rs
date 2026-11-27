@@ -913,12 +913,11 @@ fn restore_handoffs(
                 || motion.trajectory_version() != 1
                 || !speed.is_finite()
                 || speed.is_sign_negative()
-                || motion.station_low_mm() > motion.station_high_mm()
-                || crate::kernel::handoff::stations_to_nanometres([
+                || laneflow_static_network::vehicle::HandoffStationRange::from_millimetres([
                     motion.station_low_mm(),
                     motion.station_high_mm(),
                 ])
-                .is_err()
+                .is_none()
                 || motion.rear_start_mm() == motion.rear_end_mm()
                 || [motion.rear_start_mm(), motion.rear_end_mm()]
                     .iter()

@@ -45,9 +45,9 @@ fn two_openings_have_local_bounds_only_while_the_body_is_alongside() {
         &with_boundaries(road, 2.1, boundaries),
         SpatialBuildOption::Omit,
     );
-    let q = corridor_query(&n, [10_000_000_000, 38_000_000_000], 0.);
+    let q = corridor_query(&n, [10_000, 38_000], 0.);
     assert!(n.vehicle_geometry(&q, LIMITS, BODY, BUDGET).feasible());
-    let probe = |limit| n.vehicle_side_clearances(&q, BODY, 1_000_000_000, limit);
+    let probe = |limit| n.vehicle_side_clearances(&q, BODY, 1_000, limit);
     let full = probe(BUDGET.sweep);
     let spans = full
         .segments
@@ -55,8 +55,8 @@ fn two_openings_have_local_bounds_only_while_the_body_is_alongside() {
         .unwrap_or_else(|_| panic!("{full:?}"));
     assert_eq!(spans.len(), 28);
     for (i, row) in spans.iter().enumerate() {
-        let at = i as u64 * 1_000_000_000;
-        assert_eq!(row.range_nm, [at, at + 1_000_000_000]);
+        let at = i as u64 * 1_000;
+        assert_eq!(row.range_mm, [at, at + 1_000]);
     }
     assert!(spans[..7].iter().all(|s| s.clearance.is_none()));
     let narrow = spans[11].clearance.unwrap();
@@ -77,9 +77,30 @@ fn two_openings_have_local_bounds_only_while_the_body_is_alongside() {
     let short = probe(full.work - 1);
     assert_eq!(short.segments, Err(Failure::WorkLimit));
     assert_eq!(short.work, full.work - 1);
-    assert!(short.unproven_range_nm.is_some());
+    assert!(short.unproven_range_mm.is_some());
     let invalid = n.vehicle_side_clearances(&q, BODY, 0, BUDGET.sweep);
     assert_eq!(invalid.segments, Err(Failure::InvalidInput));
+
+    let outside = corridor_query(&n, [0, u64::MAX], 0.);
+    let geometry = n.vehicle_geometry(&outside, LIMITS, BODY, BUDGET);
+    assert!(matches!(
+        geometry.tracks.outcome,
+        TrackOutcome::Unproven {
+            reason: Failure::InvalidInput,
+            range_mm: [0, u64::MAX]
+        }
+    ));
+    assert!(matches!(
+        geometry.sweep.outcome,
+        SweepOutcome::Unproven {
+            reason: Failure::InvalidInput,
+            range_mm: [0, u64::MAX],
+            ..
+        }
+    ));
+    let clearance = n.vehicle_side_clearances(&outside, BODY, 1_000, BUDGET.sweep);
+    assert_eq!(clearance.segments, Err(Failure::InvalidInput));
+    assert_eq!(clearance.unproven_range_mm, Some([0, u64::MAX]));
 }
 
 #[test]
@@ -105,21 +126,21 @@ fn oblique_curb_keeps_the_normal_clearance_when_the_world_boxes_are_disjoint() {
         &with_boundaries(road, 2.1, vec![curb]),
         SpatialBuildOption::Omit,
     );
-    let q = corridor_query(&n, [20_000_000_000, 20_010_000_000], 0.);
+    let q = corridor_query(&n, [20_000, 20_010], 0.);
     assert!(n.vehicle_geometry(&q, LIMITS, BODY, BUDGET).feasible());
-    let report = n.vehicle_side_clearances(&q, BODY, 10_000_000, BUDGET.sweep);
+    let report = n.vehicle_side_clearances(&q, BODY, 10, BUDGET.sweep);
     let spans = report.segments.unwrap();
     let clearance = spans[0].clearance.unwrap();
     assert_eq!(clearance.boundary.key, Some("diagonal-curb"));
     // 路缘与车身侧面平行且纵向相交。真实水平间距为 2.1/2 + 0.2 − 0.95 = 0.30 米。
     assert!(
-        (0.295..=0.300_001).contains(&clearance.lower_m),
+        (295..=300).contains(&clearance.lower_millimetres()),
         "{clearance:?}"
     );
 
     // 后轴已越过端点至少 1 米，车尾最初即离开端点 0.25 米。
-    let beyond = corridor_query(&n, [22_000_000_000, 22_400_000_000], 0.);
-    let after = n.vehicle_side_clearances(&beyond, BODY, 400_000_000, BUDGET.sweep);
+    let beyond = corridor_query(&n, [22_000, 22_400], 0.);
+    let after = n.vehicle_side_clearances(&beyond, BODY, 400, BUDGET.sweep);
     assert!(after.segments.unwrap()[0].clearance.is_none());
 }
 
@@ -144,13 +165,13 @@ fn a_bend_retains_a_side_rail_until_the_rear_overhang_moves_beyond_its_cap() {
         &with_boundaries(curve, 4., vec![rail("bend", 12., 1., 0., 0.), marking]),
         SpatialBuildOption::Omit,
     );
-    let q = corridor_query(&n, [14_000_000_000, 17_500_000_000], 0.);
+    let q = corridor_query(&n, [14_000, 17_500], 0.);
     let extended = BodyEnvelope {
         rear_overhang_m: 3.,
         ..BODY
     };
     let check = |b| {
-        n.vehicle_side_clearances(&q, b, 500_000_000, BUDGET.sweep)
+        n.vehicle_side_clearances(&q, b, 500, BUDGET.sweep)
             .segments
             .unwrap()
     };
@@ -169,6 +190,9 @@ fn a_bend_retains_a_side_rail_until_the_rear_overhang_moves_beyond_its_cap() {
     let cap_left = 35. - 37. * cos + sin;
     assert!(cap_forward < -BODY.rear_overhang_m && cap_forward > -extended.rear_overhang_m);
     let point_gap = -cap_left - extended.half_width_m - 0.05;
-    assert!(still_alongside.lower_m > 0. && still_alongside.lower_m <= point_gap + 0.001);
+    assert!(
+        still_alongside.lower_millimetres() > 0
+            && f64::from(still_alongside.lower_millimetres()) <= point_gap * 1000. + 1.
+    );
     assert!(long.last().unwrap().clearance.is_none());
 }

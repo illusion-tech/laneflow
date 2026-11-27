@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use std::num::NonZeroU32;
 
 use laneflow_static_contract::MAX_SPEED_MM_S;
-use laneflow_static_network::vehicle::{Failure, HandoffOutcome, SideClearanceSegment};
+use laneflow_static_network::vehicle::{Failure, HandoffOutcome};
 use thiserror::Error;
 
 use super::{BoundRouteHandoff, ClearanceSpeedCurve, RouteHandoffTrial, RouteHandoffTrialError};
@@ -18,12 +18,6 @@ pub struct HandoffDrivingConfig {
     pub max_span_mm: NonZeroU32,
     /// 同一候选累计三维行程求界的最大宽度（毫米）。
     pub travel_tolerance_mm: NonZeroU32,
-}
-
-impl HandoffDrivingConfig {
-    pub(crate) fn travel_tolerance_nm(&self) -> u64 {
-        super::tolerance_nanometres(self.travel_tolerance_mm)
-    }
 }
 
 /// 后轴实际累计行程中须遵守同一侧向限速的闭区间。
@@ -59,10 +53,10 @@ impl RouteHandoffSpeedPlan {
         &self.windows
     }
 
-    /// 可确认尚在候选上的最大后轴累计行程，单位微米。
+    /// 可确认尚在候选上的最大后轴累计行程，单位毫米。
     #[must_use]
-    pub fn length_lower_um(&self) -> u64 {
-        self.length_lower_um
+    pub fn length_lower_mm(&self) -> u64 {
+        self.length_lower_um / 1000
     }
 }
 
@@ -76,12 +70,12 @@ pub enum RouteHandoffSpeedPlanError {
     #[error("候选没有可用的交接轨迹：{0:?}")]
     Unlocated(HandoffOutcome),
     /// 无法取得完整、有序的侧向净空覆盖。
-    #[error("侧向净空未证：{reason:?}，候选区间 {range_nm:?}，工作 {work}")]
+    #[error("侧向净空未证：{reason:?}，候选区间 {range_mm:?}，工作 {work}")]
     Clearance {
         /// 几何失败原因。
         reason: Failure,
-        /// 首个未证的有向候选参数区间（纳米）。
-        range_nm: Option<[u64; 2]>,
+        /// 首个未证的有向候选参数区间（毫米）。
+        range_mm: Option<[u64; 2]>,
         /// 已消耗的侧向求证工作。
         work: u32,
     },
@@ -100,26 +94,24 @@ pub enum RouteHandoffSpeedPlanError {
 
 // 相同上限的连续段共享一次弧长边界。返回 (结束参数) 和对应区间的上限。
 fn speed_runs(
-    segments: &[SideClearanceSegment<'_>],
+    segments: impl IntoIterator<Item = (u64, Option<u32>)>,
     curve: &ClearanceSpeedCurve,
 ) -> Result<(Vec<u64>, Vec<u32>), RouteHandoffSpeedPlanError> {
     let mut ends = Vec::new();
     let mut speeds = Vec::new();
-    for segment in segments {
-        let speed = segment.clearance.map_or(MAX_SPEED_MM_S, |c| {
-            curve.speed_cap_mm_s(c.lower_millimetres())
-        });
+    for (end_mm, clearance_mm) in segments {
+        let speed = clearance_mm.map_or(MAX_SPEED_MM_S, |mm| curve.speed_cap_mm_s(mm));
         if speeds.last() == Some(&speed)
             && let Some(last) = ends.last_mut()
         {
-            *last = segment.range_nm[1];
+            *last = end_mm;
         } else {
             ends.try_reserve(1)
                 .map_err(|_| RouteHandoffSpeedPlanError::Allocation)?;
             speeds
                 .try_reserve(1)
                 .map_err(|_| RouteHandoffSpeedPlanError::Allocation)?;
-            ends.push(segment.range_nm[1]);
+            ends.push(end_mm);
             speeds.push(speed);
         }
     }
@@ -154,7 +146,7 @@ fn minimum_envelope(
             at = next;
             continue;
         };
-        // 来自 u64 纳米上界，换算成整数毫米格后可安全加一。
+        // 已由几何行程的可表示范围约束，末格的后一毫米可表示。
         let next = next_start.map_or(end + 1, |s| s.min(end + 1));
         if let Some(last) = out.last_mut()
             && last.speed_mm_s == speed
@@ -224,7 +216,7 @@ impl super::RouteHandoffPreview<'_> {
             &path.query,
             path.window,
             path.body,
-            u64::from(config.max_span_mm.get()) * 1_000_000,
+            u64::from(config.max_span_mm.get()),
             trial.limits.sweep,
         );
         let segments =
@@ -232,41 +224,46 @@ impl super::RouteHandoffPreview<'_> {
                 .segments
                 .map_err(|reason| RouteHandoffSpeedPlanError::Clearance {
                     reason,
-                    range_nm: evidence.unproven_range_nm,
+                    range_mm: evidence.unproven_range_mm,
                     work: evidence.work,
                 })?;
-        let (ends, speeds) = speed_runs(&segments, &config.curve)?;
+        let (ends, speeds) = speed_runs(
+            segments
+                .iter()
+                .map(|s| (s.range_mm[1], s.clearance.map(|c| c.lower_millimetres()))),
+            &config.curve,
+        )?;
         let marks = path.revision.handoff_travel_marks(
             &path.query,
             path.window,
             &ends,
-            config.travel_tolerance_nm(),
+            u64::from(config.travel_tolerance_mm.get()),
             trial.limits.tracks,
         );
-        let distances =
-            marks
-                .distances_nm
-                .map_err(|reason| RouteHandoffSpeedPlanError::Travel {
-                    reason,
-                    work: marks.work,
-                })?;
-        let mut start_nm = 0;
+        let distances = marks
+            .distances
+            .map_err(|reason| RouteHandoffSpeedPlanError::Travel {
+                reason,
+                work: marks.work,
+            })?;
+        let mut start_mm = 0;
         let mut spans = Vec::new();
-        for (end_nm, speed) in distances.into_iter().zip(speeds) {
+        for (end, speed) in distances.into_iter().zip(speeds) {
+            let [low_mm, high_mm] = end.millimetre_cells();
             if speed < MAX_SPEED_MM_S {
                 spans
                     .try_reserve(1)
                     .map_err(|_| RouteHandoffSpeedPlanError::Allocation)?;
                 spans.push(ClearanceSpeedWindow {
-                    travel_mm: [start_nm / 1_000_000, end_nm[1] / 1_000_000],
+                    travel_mm: [start_mm, high_mm],
                     speed_mm_s: speed,
                 });
             }
-            start_nm = end_nm[0];
+            start_mm = low_mm;
         }
         Ok(RouteHandoffSpeedPlan {
             windows: minimum_envelope(spans)?,
-            length_lower_um: start_nm / 1_000_000 * 1_000,
+            length_lower_um: start_mm * 1_000,
             admitted_speed_mm_s: admitted_speed_mm_s(trial.speed_m_s),
             fixed_delta_ms,
             comfort_decel: path.comfort_decel,
@@ -290,11 +287,6 @@ mod tests {
     #[test]
     fn only_changes_in_quantized_speed_and_the_endpoint_require_travel_marks() {
         use crate::ClearanceSpeedPoint;
-        use laneflow_static_contract::RoadSectionOrdinal;
-        use laneflow_static_network::{
-            BoundaryOwner,
-            vehicle::{BoundaryHit, Clearance},
-        };
 
         let curve = ClearanceSpeedCurve::try_new(vec![
             ClearanceSpeedPoint {
@@ -307,36 +299,12 @@ mod tests {
             },
         ])
         .unwrap();
-        let boundary = BoundaryHit {
-            owner: BoundaryOwner::Section(RoadSectionOrdinal::from_raw(0)),
-            left_index: 0,
-            key: Some("curb"),
-        };
-        let gaps_m = [
-            None,
-            Some(0.0005),
-            Some(0.00075),
-            None,
-            Some(1.),
-            Some(0.00025),
-            None,
-        ];
-        let segments: Vec<_> = gaps_m
+        let gaps_mm = [None, Some(0), Some(0), None, Some(1000), Some(0), None];
+        let segments = gaps_mm
             .into_iter()
             .enumerate()
-            .map(|(i, gap)| {
-                let range_nm = [i as u64, i as u64 + 1];
-                SideClearanceSegment {
-                    range_nm,
-                    clearance: gap.map(|lower_m| Clearance {
-                        lower_m,
-                        boundary,
-                        range_nm,
-                    }),
-                }
-            })
-            .collect();
-        let (marks, speeds) = speed_runs(&segments, &curve).unwrap();
+            .map(|(i, gap)| (i as u64 + 1, gap));
+        let (marks, speeds) = speed_runs(segments, &curve).unwrap();
         assert_eq!(marks, [1, 3, 5, 6, 7]);
         assert_eq!(
             speeds,

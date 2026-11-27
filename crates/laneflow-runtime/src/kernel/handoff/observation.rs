@@ -21,8 +21,8 @@ pub struct CommittedHandoffGeometry {
     pub source_index: u32,
     /// 前保险杠此刻绑定的路线出现。
     pub front_occurrence: u32,
-    /// 沿横移轨迹累计的真实后轴行程，单位微米。
-    pub rear_travel_um: u64,
+    /// 沿横移轨迹累计走完的整数毫米，拍间积分保留余数。
+    pub rear_travel_mm: u64,
     /// 在上述规范框架中，以后轴为参考点的交通姿态界。
     pub pose: PoseBounds,
     /// 前保险杠侧别、所在边和两侧车体投影。
@@ -87,7 +87,7 @@ impl TrafficWorld {
             route: vehicle.route,
             source_index: record.source_index,
             front_occurrence: sample.front_occurrence,
-            rear_travel_um: record.rear_travel_um,
+            rear_travel_mm: record.rear_travel_um / 1000,
             pose,
             footprint: sample.footprint,
         }))

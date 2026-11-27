@@ -16,7 +16,7 @@ fn committed_handoff_keeps_each_interval_and_continues_from_saved_travel() {
         .vehicle_route_handoffs(request.vehicle)
         .next()
         .unwrap();
-    assert!(running.rear_travel_um > 0);
+    assert!(running.rear_travel_mm > 0);
     let bytes = encode_lfrs(&world.capture_snapshot().unwrap());
     let restore = |bytes: &[u8]| {
         restore_lfrs(

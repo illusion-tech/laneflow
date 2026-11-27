@@ -132,7 +132,7 @@ fn registered_vehicle_executes_its_handoff_and_releases_only_after_the_tail_clea
         .vehicle_route_handoffs(vehicle)
         .next()
         .expect("first tick must enter");
-    assert!(initial.rear_travel_um > 0 && !initial.front_handed_off);
+    assert!(initial.rear_travel_mm > 0 && !initial.front_handed_off);
     let mut saw_target_while_held = false;
     let mut restored = None;
     for tick in 2..=160 {
@@ -216,7 +216,7 @@ fn a_front_within_one_millimetre_keeps_moving_across_tick_79_and_restores_identi
             deterministic_state_digest(&other.capture_snapshot().unwrap()).unwrap()
         );
         if tick == 79 {
-            assert!(stage.unwrap().rear_travel_um > progress.rear_travel_um);
+            assert!(stage.unwrap().rear_travel_mm > progress.rear_travel_mm);
             let view = world
                 .committed_handoff_geometry(request.vehicle)
                 .unwrap()
@@ -285,7 +285,7 @@ fn reserved_dual_side_front_keeps_its_source_cursor_until_the_target_is_proven()
         .preview_route_handoff(&candidate, &trial)
         .unwrap()
         .sample_after_travel(
-            view.rear_travel_um,
+            view.rear_travel_mm,
             0,
             std::num::NonZeroU32::MIN,
             request.limits,
@@ -346,7 +346,7 @@ fn reserved_dual_side_front_keeps_its_source_cursor_until_the_target_is_proven()
 
 #[test]
 fn four_millisecond_ticks_accumulate_low_speed_travel_across_a_millimetre() {
-    let (mut world, mut request, _) = drive_at_interval(100, 4);
+    let (mut world, mut request, config) = drive_at_interval(100, 4);
     request.speed_m_s = 0.1;
     world
         .step_with_route_handoffs(TickInput::new(4), &[request])
@@ -356,15 +356,44 @@ fn four_millisecond_ticks_accumulate_low_speed_travel_across_a_millimetre() {
         .next()
         .unwrap();
     let start = world.vehicle(request.vehicle).unwrap().progress_mm();
-    assert!(first.rear_travel_um < 1000);
-    for _ in 1..250 {
+    assert_eq!(first.rear_travel_mm, 0);
+    // 第一拍仅走 0.4 毫米。冷恢复后第三拍也应进入第一个完整毫米。
+    let restored = restore_lfrs(
+        &encode_lfrs(&world.capture_snapshot().unwrap()),
+        world.revision(),
+        world.committed_source().clone(),
+        config,
+        world.execution_config(),
+        SnapshotRestoreLimits::new(4 << 20, 4096),
+    )
+    .unwrap();
+    let restored_owner = restored.vehicle_handle(1).unwrap();
+    let mut resumed = restored.into_world();
+    for expected_mm in [0, 1] {
+        world.step(TickInput::new(4)).unwrap();
+        resumed.step(TickInput::new(4)).unwrap();
+        let progress = world
+            .vehicle_route_handoffs(request.vehicle)
+            .next()
+            .unwrap();
+        assert_eq!(progress.rear_travel_mm, expected_mm);
+        assert_eq!(
+            resumed.vehicle_route_handoffs(restored_owner).next(),
+            Some(progress)
+        );
+    }
+    assert_eq!(
+        deterministic_state_digest(&world.capture_snapshot().unwrap()).unwrap(),
+        deterministic_state_digest(&resumed.capture_snapshot().unwrap()).unwrap()
+    );
+    for _ in 3..250 {
         world.step(TickInput::new(4)).unwrap();
     }
     let end = world
         .vehicle_route_handoffs(request.vehicle)
         .next()
         .unwrap();
-    assert_eq!(end.rear_travel_um, 100_000);
+    assert_eq!(end.rear_travel_mm, 100);
     let front = world.vehicle(request.vehicle).unwrap();
     assert!((99..=101).contains(&(front.progress_mm() - start)));
     assert_eq!(front.carry_um(), 0);
@@ -390,7 +419,7 @@ fn a_proven_last_millimetre_preserves_the_following_ticks_target_travel() {
         .next()
         .unwrap();
     assert!(last.front_handed_off);
-    assert_eq!(last.rear_travel_um, 30_000_000);
+    assert_eq!(last.rear_travel_mm, 30_000);
     let before = world.vehicle(request.vehicle).unwrap();
     world.step(TickInput::new(1000)).unwrap();
     assert!(

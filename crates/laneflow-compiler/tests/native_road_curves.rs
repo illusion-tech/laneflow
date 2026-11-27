@@ -515,7 +515,7 @@ fn oblique_grade_seam_publishes_both_one_sided_surface_derivatives() {
             .relations()
             .lane_edge_authoring_lane(reference.ordinal())
             .unwrap();
-        let end = mapping.corridor_domain(corridor).unwrap().length_nm();
+        let end = mapping.corridor_domain(corridor).unwrap().length_mm();
         let laneflow_static_network::StationQuery::Complete(found) =
             mapping.at_station(corridor, end, lane)
         else {
@@ -735,12 +735,9 @@ fn nonuniform_straight_bezier_publishes_station_mapping() {
         .section_corridor(relations.authoring_section(target_lane).unwrap())
         .unwrap();
     let map = root.station_mapping();
-    assert_eq!(
-        map.corridor_domain(corridor).unwrap().length_nm(),
-        60_000_000_000
-    );
-    for (station_nm, expected_mm) in [(0, 0), (60_000_000_000, 60_000)] {
-        let StationQuery::Complete(found) = map.at_station(corridor, station_nm, target_lane)
+    assert_eq!(map.corridor_domain(corridor).unwrap().length_mm(), 60_000);
+    for (station_mm, expected_mm) in [(0, 0), (60_000, 60_000)] {
+        let StationQuery::Complete(found) = map.at_station(corridor, station_mm, target_lane)
         else {
             panic!("endpoint unresolved")
         };
@@ -783,7 +780,7 @@ fn curved_bezier_offset_travel_matches_analytic_length() {
         .relations()
         .lane_edge_authoring_lane(outer)
         .unwrap();
-    let end = map.corridor_domain(corridor).unwrap().length_nm();
+    let end = map.corridor_domain(corridor).unwrap().length_mm();
     let StationQuery::Complete(found) = map.at_station(corridor, end, target) else {
         panic!("offset endpoint unresolved");
     };

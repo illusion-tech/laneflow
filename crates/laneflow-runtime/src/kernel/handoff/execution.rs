@@ -5,15 +5,14 @@ use laneflow_static_network::{
     SharedNetworkRevision, StationAddress, StationCandidates,
     vehicle::{
         BodyEnvelope, GeometryWorkLimits, HandoffFootprint, HandoffLaneSide, HandoffQuery,
-        HandoffTravelTarget, HandoffWindow, PoseBounds,
+        HandoffStationRange, HandoffTravelTarget, HandoffWindow, PoseBounds,
     },
 };
 use std::sync::Arc;
 
 use super::{
     CursorRun, HandoffRouteRef, LocatedTrajectory, RouteHandoffBrakingError,
-    RouteHandoffBrakingMotion, RouteHandoffPreview, RouteHandoffSample, RouteHandoffSpeedPlan,
-    RouteHandoffTrial,
+    RouteHandoffBrakingMotion, RouteHandoffSpeedPlan, RouteHandoffTrial, sample::LocatedSample,
 };
 use crate::{
     DownstreamInterval, RouteHandle, StepError, StepOutcome, TickInput, TrafficWorld,
@@ -51,8 +50,8 @@ pub struct RouteHandoffRequest {
 pub struct RouteHandoffProgress {
     /// 此车路线中的源出现。
     pub source_index: u32,
-    /// 从候选起点累计的真实后轴行程。
-    pub rear_travel_um: u64,
+    /// 从候选起点累计走完的整数毫米，拍间积分保留余数。
+    pub rear_travel_mm: u64,
     /// 前杠中点是否已跨入目标路线。
     pub front_handed_off: bool,
     /// 组合预约首次实际进入的刻度。
@@ -146,6 +145,9 @@ impl PreparedRouteHandoff {
     }
 }
 
+/// 提交态的前杠定位和退出候选时的余程按一毫米求界。
+const COMMITTED_TRAVEL_TOLERANCE_MM: u64 = 1;
+
 struct HandoffMovement {
     vehicle: VehicleState,
     record: ActiveRouteHandoff,
@@ -174,7 +176,7 @@ impl TrafficWorld {
             .filter(move |h| h.vehicle == handle)
             .map(|h| RouteHandoffProgress {
                 source_index: h.source_index,
-                rear_travel_um: h.rear_travel_um,
+                rear_travel_mm: h.rear_travel_um / 1000,
                 front_handed_off: h.front_handed_off,
                 acquired_tick: h.acquired_tick,
             })
@@ -210,7 +212,7 @@ impl ActiveRouteHandoff {
         route: &CompiledRoute,
         vehicle: VehicleState,
         plans: &[Arc<PreparedRouteHandoff>],
-    ) -> Option<RouteHandoffSample> {
+    ) -> Option<LocatedSample> {
         self.geometry(binding, route, vehicle, plans)
             .map(|(sample, _, _)| sample)
     }
@@ -221,8 +223,8 @@ impl ActiveRouteHandoff {
         route: &CompiledRoute,
         vehicle: VehicleState,
         plans: &[Arc<PreparedRouteHandoff>],
-    ) -> Option<(RouteHandoffSample, PoseBounds, CanonicalFrameOrdinal)> {
-        let config = binding.config.handoff_driving()?;
+    ) -> Option<(LocatedSample, PoseBounds, CanonicalFrameOrdinal)> {
+        binding.config.handoff_driving()?;
         let trial = self.trial(&binding.revision, vehicle)?;
         let binding = route.handoff_binding(&binding.revision)?;
         let path = match plans.iter().find(|p| p.matches(self, vehicle.route)) {
@@ -234,13 +236,7 @@ impl ActiveRouteHandoff {
                     .trajectory?
             }
         };
-        let (sample, pose, progress) = position_on(
-            &path,
-            self.rear_travel_um,
-            config.travel_tolerance_nm(),
-            trial.limits,
-            true,
-        )?;
+        let (sample, pose, progress) = position_on(&path, self.rear_travel_um, trial.limits, true)?;
         committed_position(vehicle, &sample, progress).then_some((sample, pose, path.query.frame))
     }
 
@@ -297,24 +293,20 @@ impl ActiveRouteHandoff {
 
 /// 前杠列按已提交侧别取有向毫米下界。前杠可能横跨共边时保留源游标。
 /// 所有占用、停车和释放判断继续读取取样中的完整几何区间。
-pub(super) fn position_at(
-    preview: &RouteHandoffPreview<'_>,
-    travel_um: u64,
-    tolerance: u64,
-    limits: GeometryWorkLimits,
-) -> Option<(RouteHandoffSample, u32)> {
-    let path = preview.trajectory.as_ref()?;
-    position_on(path, travel_um, tolerance, limits, true).map(|(sample, _, mm)| (sample, mm))
-}
 fn position_on(
     path: &LocatedTrajectory<'_>,
     travel_um: u64,
-    tolerance: u64,
     limits: GeometryWorkLimits,
     reserved: bool,
-) -> Option<(RouteHandoffSample, PoseBounds, u32)> {
+) -> Option<(LocatedSample, PoseBounds, u32)> {
     let (sample, pose) = path
-        .sample_geometry(travel_um, 0, tolerance.min(1_000_000), limits, reserved)
+        .sample_geometry(
+            travel_um / 1000,
+            (travel_um % 1000) as u16,
+            COMMITTED_TRAVEL_TOLERANCE_MM,
+            limits,
+            reserved,
+        )
         .0
         .ok()?;
     let progress_mm = sample.footprint.front.addresses().next()?.progress_mm[0];
@@ -449,17 +441,13 @@ fn deferred_front_is_reserved(
         })
 }
 
-fn committed_position(
-    vehicle: VehicleState,
-    sample: &RouteHandoffSample,
-    progress_mm: u32,
-) -> bool {
+fn committed_position(vehicle: VehicleState, sample: &LocatedSample, progress_mm: u32) -> bool {
     sample.front_occurrence == vehicle.route_edge_index
         && vehicle.progress_mm == progress_mm
         && vehicle.carry_um == 0
 }
 
-fn matches_entry(vehicle: VehicleState, sample: &RouteHandoffSample) -> bool {
+fn matches_entry(vehicle: VehicleState, sample: &LocatedSample) -> bool {
     let Some(front) = sample.footprint.front.addresses().next() else {
         return false;
     };
@@ -474,11 +462,9 @@ fn matches_entry(vehicle: VehicleState, sample: &RouteHandoffSample) -> bool {
 
 fn swept(
     path: &LocatedTrajectory<'_>,
-    rear: [u64; 2],
+    rear: HandoffStationRange,
     limit: u32,
 ) -> Option<[Option<StationCandidates>; 2]> {
-    let mut rear = rear;
-    rear.sort_unstable();
     path.revision
         .handoff_swept_occupancy(&path.query, path.window, path.body, rear, limit)
         .sides
@@ -488,11 +474,10 @@ fn swept(
 fn remaining_sweep(
     path: &LocatedTrajectory<'_>,
     trial: &RouteHandoffTrial,
-    rear: [u64; 2],
+    rear: HandoffStationRange,
 ) -> Option<[Option<StationCandidates>; 2]> {
-    let [start, end] = path.query.rear_stations_nm;
-    let from = if start < end { rear[0] } else { rear[1] };
-    swept(path, [from, end], trial.limits.sweep)
+    let end = HandoffStationRange::from_millimetres([path.query.rear_stations_mm[1]; 2])?;
+    swept(path, rear.hull(end), trial.limits.sweep)
 }
 
 fn stop_lines_allow(
@@ -510,7 +495,6 @@ fn stop_lines_allow(
         let Some(side) = side else {
             continue;
         };
-        let range = side.stations_nm();
         let prior = side
             .addresses()
             .next()
@@ -523,10 +507,10 @@ fn stop_lines_allow(
             if relations.stop_line_for_edge(edge).is_none() {
                 continue;
             }
-            let Some(station) = mapping.edge_end_station_nm(edge) else {
+            let Some(station) = mapping.edge_end_station_mm(edge) else {
                 return false;
             };
-            if station < range[0] || station > range[1] {
+            if !side.station_relation(station).is_eq() {
                 continue;
             }
             let Some(gate) = edges
@@ -540,11 +524,11 @@ fn stop_lines_allow(
             {
                 let already_entered = |foot: &HandoffFootprint| {
                     foot.sides[index].as_ref().is_some_and(|side| {
-                        let [lo, hi] = side.witness.stations_nm();
-                        if path.query.rear_stations_nm[0] < path.query.rear_stations_nm[1] {
-                            lo > station
+                        let relation = side.witness.station_relation(station);
+                        if path.query.rear_stations_mm[0] < path.query.rear_stations_mm[1] {
+                            relation.is_gt()
                         } else {
-                            hi < station
+                            relation.is_lt()
                         }
                     })
                 };
@@ -642,15 +626,17 @@ impl StepWorkspace<'_> {
             let path = prepared
                 .located(binding)
                 .ok_or(StepError::HandoffUnproven)?;
-            let Some((sample, _, _)) =
-                position_on(&path, 0, config.travel_tolerance_nm(), trial.limits, false)
-            else {
+            let Some((sample, _, _)) = position_on(&path, 0, trial.limits, false) else {
                 continue;
             };
             if !matches_entry(vehicle, &sample) {
                 continue;
             }
-            let Some(sides) = swept(&path, path.query.rear_stations_nm, trial.limits.sweep) else {
+            let Some(sides) = path
+                .query
+                .rear_range()
+                .and_then(|rear| swept(&path, rear, trial.limits.sweep))
+            else {
                 continue;
             };
             let Some(physical) = protections(route, &path, &sides, vehicle) else {
@@ -821,14 +807,10 @@ impl StepWorkspace<'_> {
         let path = prepared
             .located(binding)
             .ok_or(StepError::HandoffUnproven)?;
-        let tolerance = config.travel_tolerance_nm();
-        let Some((current, _, progress_mm)) = position_on(
-            &path,
-            candidate.rear_travel_um,
-            tolerance,
-            trial.limits,
-            existing,
-        ) else {
+        let tolerance = u64::from(config.travel_tolerance_mm.get());
+        let Some((current, _, progress_mm)) =
+            position_on(&path, candidate.rear_travel_um, trial.limits, existing)
+        else {
             return Ok(None);
         };
         if (existing && !committed_position(vehicle, &current, progress_mm))
@@ -838,7 +820,7 @@ impl StepWorkspace<'_> {
         {
             return Ok(None);
         }
-        let Some(full) = remaining_sweep(&path, &trial, current.rear_stations_nm) else {
+        let Some(full) = remaining_sweep(&path, &trial, current.rear) else {
             return Ok(None);
         };
         let Some(physical) = protections(route, &path, &full, vehicle) else {
@@ -892,15 +874,13 @@ impl StepWorkspace<'_> {
                 .rear_travel_um
                 .checked_add(horizon)
                 .ok_or(StepError::HandoffUnproven)?;
-            let range = if ahead <= plan.length_lower_um() {
-                let Some(nm) = ahead.checked_mul(1000) else {
-                    return Ok(None);
-                };
+            let range = if ahead <= plan.length_lower_um {
                 let Ok(bounds) = revision
-                    .handoff_travel(
+                    .handoff_travel_after_motion(
                         &path.query,
                         path.window,
-                        HandoffTravelTarget::DistanceNm(nm),
+                        ahead / 1000,
+                        (ahead % 1000) as u16,
                         tolerance,
                         trial.limits.tracks,
                     )
@@ -908,14 +888,12 @@ impl StepWorkspace<'_> {
                 else {
                     return Ok(None);
                 };
-                bounds.rear_stations_nm
+                bounds.rear
             } else {
-                [path.query.rear_stations_nm[1]; 2]
+                HandoffStationRange::from_millimetres([path.query.rear_stations_mm[1]; 2])
+                    .ok_or(StepError::HandoffUnproven)?
             };
-            let span = [
-                current.rear_stations_nm[0].min(range[0]),
-                current.rear_stations_nm[1].max(range[1]),
-            ];
+            let span = current.rear.hull(range);
             let Some(lookahead) = swept(&path, span, trial.limits.sweep) else {
                 return Ok(None);
             };
@@ -989,19 +967,21 @@ impl StepWorkspace<'_> {
             .ok_or(StepError::HandoffUnproven)?;
         let mut moved = vehicle;
         let terminal = if may_finish {
-            terminal_remainder(&path, total, tolerance, trial.limits.tracks)
+            terminal_remainder(&path, total, trial.limits.tracks)
         } else {
             None
         };
         let (front_index, front_mm, carry_um, next_foot, next_rear) =
             if let Some([min_remainder, max_remainder]) = terminal {
-                let rear = path.query.rear_stations_nm[1];
+                let rear =
+                    HandoffStationRange::from_millimetres([path.query.rear_stations_mm[1]; 2])
+                        .ok_or(StepError::HandoffUnproven)?;
                 let Ok(foot) = revision
                     .handoff_footprint(
                         &path.query,
                         path.window,
                         path.body,
-                        [rear; 2],
+                        rear,
                         trial.limits.sweep,
                     )
                     .footprint
@@ -1031,10 +1011,9 @@ impl StepWorkspace<'_> {
                 }
                 let front = u32::try_from(u64::from(start_mm) + min_remainder / 1000)
                     .map_err(|_| StepError::HandoffUnproven)?;
-                (index, front, (min_remainder % 1000) as u16, foot, [rear; 2])
+                (index, front, (min_remainder % 1000) as u16, foot, rear)
             } else {
-                let Some((sample, _, mm)) =
-                    position_on(&path, total, tolerance, trial.limits, existing)
+                let Some((sample, _, mm)) = position_on(&path, total, trial.limits, existing)
                 else {
                     return Ok(None);
                 };
@@ -1043,13 +1022,10 @@ impl StepWorkspace<'_> {
                     mm,
                     0,
                     sample.footprint,
-                    sample.rear_stations_nm,
+                    sample.rear,
                 )
             };
-        let rear = [
-            current.rear_stations_nm[0].min(next_rear[0]),
-            current.rear_stations_nm[1].max(next_rear[1]),
-        ];
+        let rear = current.rear.hull(next_rear);
         let Some(this_tick) = swept(&path, rear, trial.limits.sweep) else {
             return Ok(None);
         };
@@ -1108,31 +1084,23 @@ impl StepWorkspace<'_> {
     }
 }
 
-fn terminal_remainder(
-    path: &LocatedTrajectory<'_>,
-    total_um: u64,
-    tolerance: u64,
-    work: u32,
-) -> Option<[u64; 2]> {
-    let end = HandoffTravelTarget::RearStationNm(path.query.rear_stations_nm[1]);
-    let [lo, hi] = path
+fn terminal_remainder(path: &LocatedTrajectory<'_>, total_um: u64, work: u32) -> Option<[u64; 2]> {
+    let end = HandoffTravelTarget::RearStationMm(path.query.rear_stations_mm[1]);
+    let distance = path
         .revision
         .handoff_travel(
             &path.query,
             path.window,
             end,
-            tolerance.min(1_000_000),
+            COMMITTED_TRAVEL_TOLERANCE_MM,
             work,
         )
         .bounds
         .ok()?
-        .distance_nm;
-    let total_nm = total_um.checked_mul(1000)?;
-    // 整段确已跨完才分配续行。所有可能余程参与安全核验，确定走出的部分进入普通积分器。
-    Some([
-        total_nm.checked_sub(hi)? / 1000,
-        total_nm.checked_sub(lo)?.div_ceil(1000),
-    ])
+        .distance;
+    // 先证明已跨完整段，再保守分配续行；整毫米及积分余数一起进入下一拍。
+    let parts = distance.remaining_after_motion(total_um / 1000, (total_um % 1000) as u16)?;
+    Some(parts.map(|(mm, carry)| mm * 1000 + u64::from(carry)))
 }
 
 impl crate::kernel::state::WorldState {
@@ -1147,19 +1115,15 @@ impl crate::kernel::state::WorldState {
                 let verify = || {
                     let vehicle = read.vehicle_state(record.vehicle)?;
                     let revision = &self.binding.revision;
-                    let config = self.binding.config.handoff_driving()?;
+                    self.binding.config.handoff_driving()?;
                     let route = read.compiled_route(vehicle.route)?;
                     let binding = route.handoff_binding(revision)?;
                     let trial = record.trial(revision, vehicle)?;
                     let preview = binding.preview(record.source_index, &trial).ok()?;
-                    let (sample, position) = position_at(
-                        &preview,
-                        record.rear_travel_um,
-                        config.travel_tolerance_nm(),
-                        trial.limits,
-                    )?;
                     let path = preview.trajectory.as_ref()?;
-                    let sides = remaining_sweep(path, &trial, sample.rear_stations_nm)?;
+                    let (sample, _, position) =
+                        position_on(path, record.rear_travel_um, trial.limits, true)?;
+                    let sides = remaining_sweep(path, &trial, sample.rear)?;
                     let required = protections(route, path, &sides, vehicle)?;
                     let profile = revision
                         .traffic()

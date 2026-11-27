@@ -72,7 +72,7 @@ fn query(network: &SharedNetworkRevision, trace: RearAxleLine) -> TrackQuery<'_>
         revision: network.network_revision(),
         corridor,
         frame: mapping.surface_spans(corridor)[0].frame,
-        station_window_nm: [0, mapping.corridor_domain(corridor).unwrap().length_nm()],
+        station_window_mm: [0, mapping.corridor_domain(corridor).unwrap().length_mm()],
         traversable_lanes: lanes,
         axles: AXLES,
         trace: RearAxleTrace::Line(trace),
@@ -152,14 +152,14 @@ fn smooth_crest_covers_the_continuous_sweep_in_both_directions() {
                 let line = RearAxleLine {
                     start_xz_m: [z * sin / cos, z],
                     heading_xz: [sin, cos],
-                    length_nm: (8e9 / cos.abs()).ceil() as u64,
+                    length_mm: (8_000. / cos.abs()).ceil() as u64,
                 };
                 let input = query(&network, line);
                 let full = network.wheel_tracks(&input, LIMITS, TRACK_WORK_LIMIT);
                 let TrackOutcome::Covered(sweep) = full.outcome else {
                     panic!("{full:?}")
                 };
-                assert_eq!(full.covered_prefix_nm, line.length_nm);
+                assert_eq!(full.covered_prefix_mm, line.length_mm);
                 assert!(full.work > 0 && full.work < TRACK_WORK_LIMIT);
                 reports.push(full);
                 for z in [-3.5, 0., 3.5] {
@@ -175,7 +175,7 @@ fn smooth_crest_covers_the_continuous_sweep_in_both_directions() {
                         &TrackQuery {
                             trace: RearAxleTrace::Line(RearAxleLine {
                                 start_xz_m: [x, z],
-                                length_nm: 0,
+                                length_mm: 0,
                                 ..line
                             }),
                             ..input
@@ -203,7 +203,7 @@ fn tracks_cross_a_shared_lane_edge_and_report_a_fifty_millimetre_overrun() {
     let trace = RearAxleLine {
         start_xz_m: [-4., -2.],
         heading_xz: [0., 1.],
-        length_nm: 4_000_000_000,
+        length_mm: 4_000,
     };
     for (support, expected) in [(true, None), (false, Some(Wheel::FrontRight))] {
         let artifact = road(crest(), [([8.; 2], true), ([3.5; 2], support)]);
@@ -211,7 +211,9 @@ fn tracks_cross_a_shared_lane_edge_and_report_a_fifty_millimetre_overrun() {
         let input = query(&n, trace);
         let report = n.wheel_tracks(&input, LIMITS, TRACK_WORK_LIMIT);
         if let Some(wheel) = expected {
-            assert!(matches!(report.outcome,TrackOutcome::Outside{wheel:w,at_nm:0,..} if w==wheel));
+            assert!(
+                matches!(report.outcome,TrackOutcome::Outside{wheel:w,at_mm:[0,0],..} if w==wheel)
+            );
         } else {
             assert!(matches!(report.outcome, TrackOutcome::Covered(_)));
         }
@@ -227,7 +229,7 @@ fn tracks_cross_a_shared_lane_edge_and_report_a_fifty_millimetre_overrun() {
             TRACK_WORK_LIMIT,
         );
         assert!(
-            matches!(outer.outcome, TrackOutcome::Outside {wheel:Wheel::FrontLeft,at_nm:0,overrun_lower_m:Some(d)} if (0.048..=0.050).contains(&d)),
+            matches!(outer.outcome, TrackOutcome::Outside {wheel:Wheel::FrontLeft,at_mm:[0,0],overrun_lower_mm:Some(d)} if (48..=50).contains(&d)),
             "{:?}",
             outer.outcome
         );
@@ -270,17 +272,17 @@ fn spiral(radius: f64, spiral: bool) -> Program {
     Program::try_new(p(0., 0., -16.), segments).unwrap()
 }
 
-fn corridor_query(n: &SharedNetworkRevision, stations_nm: [u64; 2], offset: f64) -> TrackQuery<'_> {
+fn corridor_query(n: &SharedNetworkRevision, stations_mm: [u64; 2], offset: f64) -> TrackQuery<'_> {
     let mut input = query(
         n,
         RearAxleLine {
             start_xz_m: [0.; 2],
             heading_xz: [0., 1.],
-            length_nm: 0,
+            length_mm: 0,
         },
     );
     input.trace = RearAxleTrace::Corridor(CorridorTrace {
-        stations_nm,
+        stations_mm,
         from_m: [offset; 2],
         to_m: [offset; 2],
     });
@@ -296,7 +298,7 @@ fn spiral_checks_both_steering_rates_and_the_committed_join() {
         let n = load_network(&artifact, SpatialBuildOption::Omit);
         let mut reports = Vec::new();
         for stations in [[14, 50], [50, 14]] {
-            let q = corridor_query(&n, stations.map(|v| v * 1_000_000_000), 0.);
+            let q = corridor_query(&n, stations.map(|v| v * 1_000), 0.);
             let slow = n.wheel_tracks(&q, LIMITS, TRACK_WORK_LIMIT);
             assert!(
                 matches!(slow.outcome, TrackOutcome::Covered(_)),
@@ -321,29 +323,31 @@ fn spiral_checks_both_steering_rates_and_the_committed_join() {
                 "{fast:?}"
             );
             reports.push((slow, fast));
-            let TrackOutcome::Infeasible { at_nm, wheel, .. } = fast.outcome else {
+            let TrackOutcome::Infeasible { at_mm, wheel, .. } = fast.outcome else {
                 unreachable!()
             };
             let direction = if stations[1] > stations[0] { 1. } else { -1. };
-            let at = stations[0] as f64 + direction * (at_nm as f64 / 1e9);
-            assert!((16.0..=48.0).contains(&at));
-            let k = direction * (at - 16.) / 2560.;
-            let b = if wheel == Wheel::FrontLeft { 0.8 } else { -0.8 };
-            assert!(20. * 2.6 / 2560. / ((1. - b * k).powi(2) + (2.6 * k).powi(2)) > 0.020);
+            for distance_mm in at_mm {
+                let at = stations[0] as f64 + direction * (distance_mm as f64 / 1000.);
+                assert!((16.0..=48.0).contains(&at));
+                let k = direction * (at - 16.) / 2560.;
+                let b = if wheel == Wheel::FrontLeft { 0.8 } else { -0.8 };
+                assert!(20. * 2.6 / 2560. / ((1. - b * k).powi(2) + (2.6 * k).powi(2)) > 0.020);
+            }
         }
         results.push((n.network_revision(), reports));
     }
     assert_eq!(results[0], results[1]);
     let artifact = road(spiral(80., false), lanes);
     let n = load_network(&artifact, SpatialBuildOption::Omit);
-    let q = corridor_query(&n, [14_000_000_000, 18_000_000_000], 0.);
+    let q = corridor_query(&n, [14_000, 18_000], 0.);
     let report = n.wheel_tracks(&q, LIMITS, TRACK_WORK_LIMIT);
     assert!(
         matches!(
             report.outcome,
             TrackOutcome::Infeasible {
                 constraint: SteeringConstraint::Jump,
-                at_nm: 2_000_000_000,
+                at_mm: [2_000, 2_000],
                 ..
             }
         ),
@@ -391,11 +395,7 @@ fn equal_published_revisions_produce_equal_poses_and_steering() {
             networks[1].network_revision()
         );
         let reports = networks.each_ref().map(|n| {
-            let q = corridor_query(
-                n,
-                [(station - 2) * 1_000_000_000, (station + 2) * 1_000_000_000],
-                0.,
-            );
+            let q = corridor_query(n, [(station - 2) * 1_000, (station + 2) * 1_000], 0.);
             n.vehicle_geometry(
                 &q,
                 SteeringLimits {
@@ -546,7 +546,8 @@ fn graded_guardrail_caps_and_vertical_clearance_share_one_pose() {
         );
         let artifact = with_boundaries(curve.clone(), 19. / 6., vec![rail, permission]);
         let n = load_network(&artifact, SpatialBuildOption::Omit);
-        let q = corridor_query(&n, [6., 14.].map(|x| (x * h * 1e9).round() as u64), -bias);
+        let stations_mm = [6., 14.].map(|x| (x * h * 1000.).round_ties_even() as u64);
+        let q = corridor_query(&n, stations_mm, -bias);
         let result = n.vehicle_geometry(&q, LIMITS, BODY, BUDGET);
         assert!(
             matches!(result.tracks.outcome, TrackOutcome::Covered(_)),
@@ -555,25 +556,27 @@ fn graded_guardrail_caps_and_vertical_clearance_share_one_pose() {
         );
         match result.sweep.outcome {
             SweepOutcome::Clear(Some(clearance)) => {
-                let (m, id) = (clearance.lower_m, clearance.boundary);
-                assert_eq!(expected, 1, "{bias} {m}");
-                assert!(m > 0.);
+                let (mm, id) = (clearance.lower_millimetres(), clearance.boundary);
+                assert_eq!(expected, 1, "{bias} {mm}");
+                assert!(mm > 0);
                 assert_eq!(id.key, Some("rail"));
             }
             SweepOutcome::Contact {
                 boundary,
                 body_point_m,
-                at_nm,
+                at_mm,
             } => {
                 assert_eq!(expected, -1, "{bias} {body_point_m:?}");
                 assert_eq!(boundary.key, Some("rail"));
-                let u = 6. + at_nm as f64 / (h * 1e9);
-                let [x, y, z] = arc_body(bias, u, body_point_m);
-                assert!(
-                    x.hypot(z - z.clamp(-2., 0.)) <= 0.15 && (0.30..=0.85).contains(&y),
-                    "{u} {:?}",
-                    [x, y, z]
-                );
+                for distance_mm in at_mm {
+                    let u = (stations_mm[0] + distance_mm) as f64 / (h * 1000.);
+                    let [x, y, z] = arc_body(bias, u, body_point_m);
+                    assert!(
+                        x.hypot(z - z.clamp(-2., 0.)) <= 0.15 && (0.30..=0.85).contains(&y),
+                        "{u} {:?}",
+                        [x, y, z]
+                    );
+                }
             }
             SweepOutcome::Unproven {
                 boundary: Some(id),
@@ -597,7 +600,7 @@ fn graded_guardrail_caps_and_vertical_clearance_share_one_pose() {
             } if expected == 0 && bias == 0.326 => {
                 // 名义间隔约 −0.132 毫米，参数误差覆盖零。已花完的区间不能放行。
                 assert_eq!(result.sweep.work, BUDGET.sweep);
-                assert!(result.sweep.unchecked_nm.is_some());
+                assert!(result.sweep.unchecked_mm.is_some());
             }
             _ => panic!("bias {bias}, height {height}, {:?}", result.sweep),
         }
@@ -640,9 +643,9 @@ fn whole_body_checks_the_half_open_rule_in_the_actual_crossing_direction() {
             vec![ban, allow.clone(), downstream.clone()],
         );
         let n = load_network(&artifact, SpatialBuildOption::Omit);
-        let mut q = corridor_query(&n, [12_000_000_000, 42_000_000_000], 0.);
+        let mut q = corridor_query(&n, [12_000, 42_000], 0.);
         q.trace = RearAxleTrace::Corridor(CorridorTrace {
-            stations_nm: [12_000_000_000, 42_000_000_000],
+            stations_mm: [12_000, 42_000],
             from_m: [0.; 2],
             to_m: [-3.5; 2],
         });
@@ -664,20 +667,21 @@ fn whole_body_checks_the_half_open_rule_in_the_actual_crossing_direction() {
         if denied {
             let SweepOutcome::Denied {
                 boundary,
-                at_nm,
-                touch_station_m,
+                at_mm,
+                touch_station_mm,
             } = report.sweep.outcome
             else {
                 panic!("{:?}", report.sweep);
             };
             assert_eq!(boundary.key, Some("stripe"));
             assert!(
-                touch_station_m[0] >= start && touch_station_m[1] < end,
-                "{touch_station_m:?}"
+                touch_station_mm[0] >= (start * 1000.).round_ties_even() as i64
+                    && touch_station_mm[1] < (end * 1000.).round_ties_even() as i64,
+                "{touch_station_mm:?}"
             );
             assert!(
-                12. + (at_nm as f64) * 1e-9 < start,
-                "front touches before rear: {at_nm}"
+                12_000 + at_mm[1] < (start * 1000.).round_ties_even() as u64,
+                "front touches before rear: {at_mm:?}"
             );
         } else {
             assert!(
@@ -704,7 +708,7 @@ fn independent_limits_preserve_answers_across_workers_and_spatial_builds() {
             RearAxleLine {
                 start_xz_m: [0., -3.],
                 heading_xz: [0., 1.],
-                length_nm: 6_000_000_000,
+                length_mm: 6_000,
             },
         );
         let full = n.vehicle_geometry(&q, LIMITS, BODY, BUDGET);
@@ -746,10 +750,10 @@ fn independent_limits_preserve_answers_across_workers_and_spatial_builds() {
             assert_eq!(usage[axis], exact[axis] - 1);
             assert_eq!(usage[other], exact[other]);
             if axis == 0 {
-                assert!(report.tracks.unchecked_nm.is_some());
+                assert!(report.tracks.unchecked_mm.is_some());
                 assert_eq!(report.sweep, full.sweep);
             } else {
-                assert!(report.sweep.unchecked_nm.is_some());
+                assert!(report.sweep.unchecked_mm.is_some());
                 assert_eq!(report.tracks, full.tracks);
             }
         }
@@ -804,7 +808,7 @@ fn curb_contact_uses_the_published_height_and_stable_local_key() {
             vec![curb("second"), mark.clone(), curb("first")],
         );
         let network = load_network(&artifact, SpatialBuildOption::Omit);
-        let q = corridor_query(&network, [20_000_000_000, 35_000_000_000], -0.85);
+        let q = corridor_query(&network, [20_000, 35_000], -0.85);
         let r = network.vehicle_geometry(&q, LIMITS, BODY, BUDGET);
         assert!(matches!(r.tracks.outcome, TrackOutcome::Covered(_)));
         if contact {
@@ -815,7 +819,7 @@ fn curb_contact_uses_the_published_height_and_stable_local_key() {
             );
         } else {
             assert!(
-                matches!(r.sweep.outcome,SweepOutcome::Clear(Some(gap)) if gap.lower_m>0.39),
+                matches!(r.sweep.outcome,SweepOutcome::Clear(Some(gap)) if gap.lower_millimetres() >= 390),
                 "{:?}",
                 r.sweep
             );
@@ -850,7 +854,7 @@ fn oblique_curb_clearance_is_proven_at_a_single_pose_and_in_motion() {
         let artifact = with_boundaries(straight, 3.5, vec![curb.clone()]);
         let network = load_network(&artifact, SpatialBuildOption::Omit);
         let norm = dx.hypot(dz);
-        let drive = |right_m: f64, length_nm| {
+        let drive = |right_m: f64, length_mm| {
             let mut input = query(
                 &network,
                 RearAxleLine {
@@ -859,26 +863,26 @@ fn oblique_curb_clearance_is_proven_at_a_single_pose_and_in_motion() {
                         (30. * dz + right_m * dx) / norm,
                     ],
                     heading_xz: [dx, dz],
-                    length_nm,
+                    length_mm,
                 },
             );
             input.axles.reference_height_m = 0.10;
             network.vehicle_geometry(&input, LIMITS, BODY, BUDGET)
         };
-        for length_nm in [0, 4_000_000_000] {
-            let report = drive(0., length_nm);
+        for length_mm in [0, 4_000] {
+            let report = drive(0., length_mm);
             let SweepOutcome::Clear(Some(gap)) = report.sweep.outcome else {
-                panic!("heading {dx} {dz}, length {length_nm}: {:?}", report.sweep);
+                panic!("heading {dx} {dz}, length {length_mm}: {:?}", report.sweep);
             };
             assert!(
                 report.feasible()
-                    && report.sweep.covered_prefix_nm == length_nm
+                    && report.sweep.covered_prefix_mm == length_mm
                     && gap.boundary.key == Some("curb")
             );
             // 净空解析值为 1.75 - 0.10 - 0.95 = 0.70 米。运动区间可返回较宽的下界。
-            assert!(gap.lower_m > 0. && gap.lower_m <= 0.70, "{gap:?}");
-            if length_nm == 0 {
-                assert!(gap.lower_m > 0.697, "{gap:?}");
+            assert!((1..=700).contains(&gap.lower_millimetres()), "{gap:?}");
+            if length_mm == 0 {
+                assert!(gap.lower_millimetres() >= 697, "{gap:?}");
             }
         }
         // 向路缘移动 70 厘米时净空落入参数误差，再多移 6 厘米有确定接触。
@@ -923,12 +927,12 @@ fn short_lane_change_uses_the_motion_of_the_parts_touching_the_one_way_marking()
         max_rate_rad_s: 0.6,
         speed_m_s: 1.,
     };
-    let stations_nm = [12_000_000_000, 22_000_000_000];
+    let stations_mm = [12_000, 22_000];
     // 最后一条只右移 1 米。行程 7.5 米时，车头回正，距车身中线右侧约 0.50 米的部位向左触线。
     for (from, to, allowed) in [(0., -3.5, true), (-3.5, 0., false), (0., -1., false)] {
-        let mut input = corridor_query(&network, stations_nm, from);
+        let mut input = corridor_query(&network, stations_mm, from);
         input.trace = RearAxleTrace::Corridor(CorridorTrace {
-            stations_nm,
+            stations_mm,
             from_m: [from; 2],
             to_m: [to; 2],
         });
@@ -940,7 +944,7 @@ fn short_lane_change_uses_the_motion_of_the_parts_touching_the_one_way_marking()
                 "{:?}",
                 report.sweep
             );
-            assert_eq!(report.sweep.covered_prefix_nm, 10_000_000_000);
+            assert_eq!(report.sweep.covered_prefix_mm, 10_000);
         } else {
             let SweepOutcome::Denied { boundary, .. } = report.sweep.outcome else {
                 panic!("{from} → {to}: {:?}", report.sweep);
@@ -956,7 +960,7 @@ fn short_lane_change_uses_the_motion_of_the_parts_touching_the_one_way_marking()
 }
 
 // §4.1 平路解析对照。后轴到前保险杠的投影使用车体切向；行程前半段的横坐标严格递增。
-fn straight_front_handoff_nm(start_nm: u64) -> [u64; 2] {
+fn straight_front_handoff_mm(start_mm: u64) -> [u64; 2] {
     assert_eq!(BODY.front_from_rear_m, 3.40);
     let front = |x: f64| {
         let u = x / 30.;
@@ -981,8 +985,8 @@ fn straight_front_handoff_nm(start_nm: u64) -> [u64; 2] {
     // 两侧解均在止于 15 米的交接窗口外。此处仅校验参考截面及其静态地址。
     assert!(before.0 > 15. && after.0 >= before.0);
     [
-        start_nm + (before.0 * 1e9).floor() as u64,
-        start_nm + (after.0 * 1e9).ceil() as u64,
+        start_mm + (before.0 * 1e3).floor() as u64,
+        start_mm + (after.0 * 1e3).ceil() as u64,
     ]
 }
 
@@ -1039,7 +1043,7 @@ fn handoff_checks_decreasing_station_and_lane_steering_at_both_endpoints() {
         );
         let artifact = publish(&compile_saved(&source).unwrap(), "handoff-steering");
         let n = load_network(&artifact, SpatialBuildOption::Omit);
-        let rear = rear.map(|m| m * 1_000_000_000u64);
+        let rear = rear.map(|m| m * 1_000u64);
         let q = corridor_query(&n, rear, 0.);
         let r = n.traffic().relations();
         let qh = HandoffQuery {
@@ -1047,8 +1051,8 @@ fn handoff_checks_decreasing_station_and_lane_steering_at_both_endpoints() {
             corridor: q.corridor,
             frame: q.frame,
             axles: q.axles,
-            rear_stations_nm: rear,
-            station_window_nm: q.station_window_nm,
+            rear_stations_mm: rear,
+            station_window_mm: q.station_window_mm,
         };
         let laneflow_static_network::CorridorElement::RoadSection(section) =
             r.corridor_elements(q.corridor).unwrap()[0]
@@ -1058,7 +1062,7 @@ fn handoff_checks_decreasing_station_and_lane_steering_at_both_endpoints() {
         let lanes = r.section_lanes(section).unwrap();
         let window = HandoffWindow {
             edges: [0, 1].map(|i| r.authoring_edge_chain(lanes[i]).unwrap()[0]),
-            stations_mm: q.station_window_nm.map(|s| s / 1_000_000),
+            stations_mm: q.station_window_mm,
             left_index: 0,
             owner: laneflow_static_network::BoundaryOwner::Section(section),
         };
@@ -1085,11 +1089,11 @@ fn handoff_checks_decreasing_station_and_lane_steering_at_both_endpoints() {
                 "{handoff:?}"
             );
         } else {
-            let HandoffOutcome::Located { stations_nm, .. } = handoff.outcome else {
+            let HandoffOutcome::Located { stations_mm, .. } = handoff.outcome else {
                 panic!("{handoff:?}");
             };
-            let [a, b] = straight_front_handoff_nm(0);
-            assert!(stations_nm[0] <= rear[0] - b && stations_nm[1] >= rear[0] - a);
+            let [a, b] = straight_front_handoff_mm(0);
+            assert!(stations_mm[0] <= rear[0] - b && stations_mm[1] >= rear[0] - a);
         }
     }
 }
@@ -1100,8 +1104,8 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
 
     // 横移前后各留 10 米路面，横移起点两侧均开新边，使局部进度可与 §4.1 直接对照。
     let straight = Program::try_new(p(0., 0., -10.), vec![Segment::line(p(0., 0., 40.))]).unwrap();
-    let stations_nm = [10_000_000_000, 40_000_000_000];
-    let handoff_nm = straight_front_handoff_nm(stations_nm[0]);
+    let stations_mm = [10_000, 40_000];
+    let handoff_mm = straight_front_handoff_mm(stations_mm[0]);
     let limits = SteeringLimits {
         max_angle_rad: 0.75_f64.atan(),
         max_rate_rad_s: 0.6,
@@ -1140,9 +1144,9 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
         ]
         .map(|spatial| load_network(&artifact, spatial));
         let reports = networks.each_ref().map(|network| {
-            let mut q = corridor_query(network, stations_nm, 0.);
+            let mut q = corridor_query(network, stations_mm, 0.);
             q.trace = RearAxleTrace::Corridor(CorridorTrace {
-                stations_nm,
+                stations_mm,
                 from_m: [0.; 2],
                 to_m: [-3.5; 2],
             });
@@ -1163,16 +1167,17 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                     let StationQuery::Complete(hits) = at else {
                         panic!("{at:?}")
                     };
-                    assert_eq!(hits.stations_nm(), range);
+                    assert_eq!(hits.stations_mm(), range);
                     hits.addresses().collect::<Vec<_>>()
                 };
-                let hit = addresses(handoff_nm);
+                let hit = addresses(handoff_mm);
                 assert_eq!(hit.len(), 1);
                 assert_eq!(hit[0].edge, chain[index]);
-                assert_eq!(hit[0].progress_mm, [progress_mm - 1, progress_mm + 1]);
+                // 参考截面先外包在相邻两个整毫米，再叠加边进度映射的量化误差。
+                assert_eq!(hit[0].progress_mm, [progress_mm - 1, progress_mm + 2]);
                 for (cut, expected) in [
                     (
-                        22_000_000_000,
+                        22_000,
                         if index == 2 {
                             &chain[1..=2]
                         } else {
@@ -1180,7 +1185,7 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                         },
                     ),
                     (
-                        28_000_000_000,
+                        28_000,
                         if index == 2 {
                             &chain[2..=2]
                         } else {
@@ -1188,7 +1193,7 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                         },
                     ),
                 ] {
-                    let hits = addresses([cut - 1_000_000, cut + 1_000_000]);
+                    let hits = addresses([cut - 1, cut + 1]);
                     assert!(
                         hits.iter().map(|a| a.edge).eq(expected.iter().copied()),
                         "{hits:?}"
@@ -1201,9 +1206,9 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                 revision: q.revision,
                 corridor: q.corridor,
                 frame: q.frame,
-                station_window_nm: q.station_window_nm,
+                station_window_mm: q.station_window_mm,
                 axles: q.axles,
-                rear_stations_nm: stations_nm,
+                rear_stations_mm: stations_mm,
             };
             let edges = [
                 r.authoring_edge_chain(q.traversable_lanes[0]).unwrap()[2],
@@ -1220,18 +1225,18 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
             let wide = network.vehicle_handoff(&handoff, limits, BODY, BUDGET, window);
             if effect == 1 {
                 let HandoffOutcome::Located {
-                    stations_nm: front_nm,
-                    trace_range_nm,
+                    stations_mm: front_mm,
+                    trace_range_mm,
                     addresses,
                 } = wide.outcome
                 else {
                     panic!("{wide:?}");
                 };
                 assert!(
-                    front_nm[0] <= handoff_nm[0] && front_nm[1] >= handoff_nm[1],
-                    "{wide:?} {handoff_nm:?}"
+                    front_mm[0] <= handoff_mm[0] && front_mm[1] >= handoff_mm[1],
+                    "{wide:?} {handoff_mm:?}"
                 );
-                assert!(trace_range_nm[0] < 11_861_195_000 && trace_range_nm[1] > 11_861_185_000);
+                assert!(trace_range_mm[0] <= 11_861 && trace_range_mm[1] >= 11_862);
                 assert_eq!(addresses.map(|a| a.edge), edges);
                 for (address, expected) in addresses.iter().zip([3_195,15_195]) {
                     let [lo, hi] = address.progress_mm;
@@ -1251,13 +1256,13 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                         .vehicle_handoff(&handoff, limits, BODY, BUDGET, narrow)
                         .outcome,
                     HandoffOutcome::OutsideWindow {
-                        stations_nm: front_nm
+                        stations_mm: front_mm
                     }
                 );
                 // 误差包络仅与窗口相交，或交接在该车道的另一次切边上，均不能定位到声明的出现对。
-                assert!(front_nm[1] > front_nm[0]);
-                let partial_mm = front_nm[0].div_ceil(1_000_000);
-                assert!(partial_mm * 1_000_000 <= front_nm[1], "{front_nm:?}");
+                assert!(front_mm[1] > front_mm[0]);
+                let partial_mm = front_mm[0] + 1;
+                assert!(partial_mm < front_mm[1], "{front_mm:?}");
                 let partial = HandoffWindow { stations_mm: [partial_mm; 2], ..window };
                 let wrong_edge = HandoffWindow {
                     edges: [r.authoring_edge_chain(q.traversable_lanes[0]).unwrap()[1], edges[1]],
@@ -1266,7 +1271,7 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
                 for (input, reason) in [(partial, Failure::Boundary), (wrong_edge, Failure::Binding)] {
                     assert_eq!(
                         network.vehicle_handoff(&handoff, limits, BODY, BUDGET, input).outcome,
-                        HandoffOutcome::Unproven { range_nm: trace_range_nm, reason }
+                        HandoffOutcome::Unproven { range_mm: trace_range_mm, reason }
                     );
                 }
                 let wrong_seam = HandoffWindow { left_index: 1, ..window };
@@ -1316,10 +1321,10 @@ fn lane_change_geometry_crosses_independent_edge_cuts() {
             matches!(r.tracks.outcome, TrackOutcome::Covered(_)),
             "{r:?}"
         );
-        assert_eq!(r.tracks.covered_prefix_nm, 30_000_000_000);
+        assert_eq!(r.tracks.covered_prefix_mm, 30_000);
         assert_eq!(r.feasible(), effect == 1, "{r:?}");
         if effect == 1 {
-            assert_eq!(r.sweep.covered_prefix_nm, 30_000_000_000);
+            assert_eq!(r.sweep.covered_prefix_mm, 30_000);
         } else {
             assert!(
                 matches!(r.sweep.outcome, SweepOutcome::Denied { boundary, .. } if boundary.key == Some("mark")),

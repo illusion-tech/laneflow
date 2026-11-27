@@ -394,19 +394,19 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
             SWEEP_WORK_LIMIT,
         )
         .unwrap();
-    let [low, high] = travel.bounds.unwrap().distance_nm;
-    assert!((low..=high).contains(&30_289_144_330));
+    let [low, high] = travel.bounds.unwrap().distance.millimetres();
+    assert!(low <= 30_289 && 30_290 <= high);
     let largest_tolerance = std::num::NonZeroU32::MAX;
     let start = allowed
         .travel(
-            RouteHandoffTravelTarget::DistanceUm(0),
+            RouteHandoffTravelTarget::DistanceMm(0),
             largest_tolerance,
             SWEEP_WORK_LIMIT,
         )
         .unwrap();
-    assert_eq!(start.bounds.unwrap().distance_nm, [0, 0]);
+    assert_eq!(start.bounds.unwrap().distance.millimetres(), [0, 0]);
     for out_of_range in [
-        RouteHandoffTravelTarget::DistanceUm(u64::MAX / 1_000 + 1),
+        RouteHandoffTravelTarget::DistanceMm(u64::MAX / 1_000_000 + 1),
         RouteHandoffTravelTarget::RearStationMm(u64::MAX / 1_000_000 + 1),
     ] {
         let report = allowed
@@ -469,7 +469,7 @@ fn trial_locates_only_the_named_occurrence_without_committing_a_route() {
     assert!(
         outside
             .travel(
-                RouteHandoffTravelTarget::DistanceUm(0),
+                RouteHandoffTravelTarget::DistanceMm(0),
                 TRAVEL_TOLERANCE_MM,
                 SWEEP_WORK_LIMIT
             )
