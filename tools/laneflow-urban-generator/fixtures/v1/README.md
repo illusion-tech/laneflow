@@ -5,9 +5,9 @@
 生成规则和七个载荷的摘要表达；集成测试重建实际 LFRE / LFCA / LFSM / LFSD /
 路线文件，逐个核对摘要、长度，再执行第二次重建的逐字节比较。这里不检入生成的大型载荷。
 
-2026-11-26 用 `laneflow-urban-generator-v2` / `cn-urban-template-v2` 重建了
+2026-11-27 用 `laneflow-urban-generator-v2` / `cn-urban-template-v2` 重建了
 [fixture](fixture/manifest.toml)、[10k](10k/manifest.toml) 和 [100k](100k/manifest.toml)。
-三个规模都从 LFRE 8 编制，LFCA 7 的三个车型各自带有刚性双轴几何。各规模的当前修订、
+三个规模都从 LFRE 8 编制，输出 LFCA 8、LFSM 9 和 LFSD 7。来源、路线拓扑和三个车型的刚性双轴几何保持一致，路线目录采用新制品修订。各规模的当前修订、
 载荷大小及摘要见对应清单。生成器使用固定模板，三个规模共享同一份车型来源。
 
 以下实测记录对应 2026-10-22 在 #819 资源预算校准后的重建。相对 2026-10-04

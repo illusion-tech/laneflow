@@ -2647,7 +2647,7 @@ impl ConflictArbiter {
         tick: u64,
         bundle: GrantResourceBundle<'_>,
     ) -> Result<ConflictGrant, ConflictAcquireError> {
-        self.write().try_acquire(tick, bundle)
+        self.write().try_acquire_with_platoon(tick, bundle, &[])
     }
 
     /// 测试专用：消费 grant 建立 reservation，并记录首个已进入 passage 的占用。
@@ -4151,15 +4151,6 @@ impl<'world> ConflictWrite<'world> {
             .insert_owner_reduced(vehicle, vehicle_update_sequence, estimate);
         self.note_frontier_dirty(core::iter::once(index));
         Ok(())
-    }
-
-    /// 校验并暂存候选所需的全部组合资源，成功时签发本拍 grant。
-    pub(crate) fn try_acquire(
-        &mut self,
-        tick: u64,
-        bundle: GrantResourceBundle<'_>,
-    ) -> Result<ConflictGrant, ConflictAcquireError> {
-        self.try_acquire_with_platoon(tick, bundle, &[])
     }
 
     /// `members` 由调用方用物理顺序、共同路线和下游叠放证明派生，按槽位排序。
