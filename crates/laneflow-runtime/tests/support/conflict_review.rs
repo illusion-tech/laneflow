@@ -503,15 +503,13 @@ fn same_tick_acquire_enter_clear_release_and_complete_survive_empty_endpoints() 
     );
 }
 
-/// R4-2 复审修锚：近处空闲入口只是位置屏障，不遮挡制动窗内更远的已知
-/// 阻塞——owner 持有后门（门 1）预约时，subject 在前门（门 0，空闲未
-/// 授权）之外即开始减速；阻塞期间保持紧急可停（评审反例：旧实现的单一
-/// 最近入口附带布尔，远门持有被近门空闲遮挡，一拍内从可停变不可停）。
-#[test]
-fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
+fn world_with_crossing_far_gate_owner(
+    internal_m: f64,
+) -> (TrafficWorld, RouteHandle, VehicleHandle) {
     let revision = revision(ConflictPolicyFixture {
         next_gate: true,
         clearance: Some((1, 8.5)),
+        close_internal_m: internal_m,
         ..Default::default()
     });
     let mut world = install_fixture(
@@ -526,32 +524,54 @@ fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
         .expect("有效的交通配置"),
     )
     .unwrap();
-    let [route, _] = routes(&mut world, &revision);
-    let boundary = calibration_gate(&world, route);
-    // owner 先过门 0 并取得门 1 的预约。
+    let [route, crossing] = routes(&mut world, &revision);
+    let crossing_boundary = calibration_gate(&world, crossing);
     let owner = world
         .spawn_vehicle(
             VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
-                route,
+                crossing,
                 0,
-                boundary,
+                crossing_boundary,
                 13_000,
             )
             .with_open_entrance(),
         )
         .unwrap();
-    let mut owner_holds_far = false;
-    for _ in 0..80 {
+    for _ in 0..160 {
         world.step(TickInput::new(100)).unwrap();
         if let Some(reservation) = world.conflict_reservation(owner)
             && reservation.passage_range().admission_gate_hop() == 1
         {
-            owner_holds_far = true;
             break;
         }
     }
-    assert!(owner_holds_far, "owner 必须持有门 1 的预约");
+    let held = world
+        .conflict_reservation(owner)
+        .expect("交叉流必须持有 B")
+        .passage_range();
+    assert_eq!(held.admission_gate_hop(), 1);
+    let occupied = world
+        .conflict_passage_occurrence_locator(crossing, held.first_conflict_occurrence_index())
+        .unwrap()
+        .address();
+    let far = world
+        .conflict_passage_occurrence_locator(route, 1)
+        .unwrap()
+        .address();
+    assert_eq!(occupied.static_zone().unwrap(), far.static_zone().unwrap());
+    assert_ne!(occupied.stream(), far.stream());
+    (world, route, owner)
+}
+
+/// R4-2 复审修锚：近处空闲入口只是位置屏障，不遮挡制动窗内更远的已知
+/// 阻塞——owner 持有后门（门 1）预约时，subject 在前门（门 0，空闲未
+/// 授权）之外即开始减速；阻塞期间保持紧急可停（评审反例：旧实现的单一
+/// 最近入口附带布尔，远门持有被近门空闲遮挡，一拍内从可停变不可停）。
+#[test]
+fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
+    let (mut world, route, owner) = world_with_crossing_far_gate_owner(13.0);
+    let boundary = calibration_gate(&world, route);
     let far_line = boundary
         + world.traffic().lane_lengths_millimetres()[world.route_edges(route).unwrap()[1].index()];
     // subject 距门 0 约 12.3 m、10 m/s（门 1 在更远处被持有）。
@@ -610,66 +630,10 @@ fn idle_near_gate_does_not_shadow_a_held_far_gate_stop_target() {
 /// 预览同口径制动，本拍不申请 A，competitor 照常 Granted。
 #[test]
 fn application_preview_respects_other_resources_stop_targets() {
-    // 内部边加长到 24 m：B（门 1）在 subject 前方 25 m——处于 10 m/s 的
-    // 舒适制动约束内（提前 ~20 mm 制动，本拍 ~980 mm < 1 m），同时
-    // owner（含 4.5 m 车长）在 subject 前车查询界（min_gap + v·headway
-    // ≈ 17 m）之外——持有 B 时构成停止目标而不构成 subject 的 IIDM
-    // 前车（评审反例的隔离条件）。
-    let revision = revision(ConflictPolicyFixture {
-        next_gate: true,
-        clearance: Some((1, 8.5)),
-        close_internal_m: 24.0,
-        ..Default::default()
-    });
-    let mut world = install_fixture(
-        Arc::clone(&revision),
-        WorldConfig::try_new(laneflow_runtime::WorldConfigInput {
-            vehicle_capacity: 4,
-            route_capacity: 4,
-            route_edge_occurrence_capacity: 64,
-            route_conflict_occurrence_capacity: 8,
-            fixed_delta_time_ms: 100,
-        })
-        .expect("有效的交通配置"),
-    )
-    .unwrap();
-    let [route, _] = routes(&mut world, &revision);
+    // 内部边长 24 m，B 在 subject 前方 25 m 的制动窗内。交叉流占住 B，
+    // 使它成为持续的停止目标，同时把同流跟入与 IIDM 前车制动排除在本算例外。
+    let (mut world, route, _) = world_with_crossing_far_gate_owner(24.0);
     let boundary = calibration_gate(&world, route);
-    let internal_len =
-        world.traffic().lane_lengths_millimetres()[world.route_edges(route).unwrap()[1].index()];
-    let far_line = boundary + internal_len;
-    // owner 先过门 0，取得门 1（B）的预约并驶入 B 的 passage 深处
-    // （车尾距 subject ≥ 19.5 m > 17 m 前车界）。
-    let owner = world
-        .spawn_vehicle(
-            VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                route,
-                0,
-                boundary,
-                13_000,
-            )
-            .with_open_entrance(),
-        )
-        .unwrap();
-    let mut owner_holds_deep = false;
-    for _ in 0..160 {
-        world.step(TickInput::new(100)).unwrap();
-        let owner_state = world.vehicle(owner).unwrap();
-        if let Some(reservation) = world.conflict_reservation(owner)
-            && reservation.passage_range().admission_gate_hop() == 1
-            && owner_state.route_edge_index() >= 2
-            && u64::from(owner_state.progress_mm()) + u64::from(far_line)
-                >= u64::from(boundary - 1_000) + 22_000
-        {
-            owner_holds_deep = true;
-            break;
-        }
-    }
-    assert!(
-        owner_holds_deep,
-        "owner 必须深入门 1（B）的 passage 并持有预约"
-    );
     // subject 距 A 1 m、距 B 25 m、10 m/s（评审反例参数同构）。
     let subject = world
         .place_existing_active_vehicle(
@@ -688,7 +652,7 @@ fn application_preview_respects_other_resources_stop_targets() {
     // B 的停止目标在制动窗内：正式运动本拍到不了 A。
     assert!(
         after.route_edge_index() == 0 && after.progress_mm() < boundary,
-        "subject 本拍实际到不了 A（B 的停止目标参与制动）"
+        "subject 本拍实际到不了 A（B 的停止目标参与制动）: boundary={boundary}, after={after:?}"
     );
     // 申请预览同口径制动（合同 §3.1.1）：本拍到不了 A 就不得申请——
     // 申请+授权而未消费正是评审反例中挤占本可通行车辆的 staged claim。
