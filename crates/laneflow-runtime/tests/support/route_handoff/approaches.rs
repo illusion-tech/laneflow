@@ -157,13 +157,17 @@ fn a_target_follower_can_require_a_stop_proof_before_it_can_reach_the_sweep_this
         (occupant.vehicle, occupant.reason),
         (overlapping, RouteHandoffEntrantReason::Occupied)
     );
-    let invalid = world.preview_route_handoff_approaches(
-        &binding,
-        2,
-        &trial,
-        0..=u64::MAX,
-        5_000_000,
-        u32::MAX,
-    );
-    assert_eq!(invalid, Err(RouteHandoffApproachError::InvalidTravelRange));
+    for invalid in [0..=u64::MAX, std::ops::RangeInclusive::new(1, 0)] {
+        assert_eq!(
+            world.preview_route_handoff_approaches(
+                &binding,
+                2,
+                &trial,
+                invalid,
+                5_000_000,
+                u32::MAX
+            ),
+            Err(RouteHandoffApproachError::InvalidTravelRange),
+        );
+    }
 }
